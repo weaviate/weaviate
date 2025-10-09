@@ -29,6 +29,13 @@ import (
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
+const (
+	// MaxValidID is the maximum valid ID threshold to detect erroneous IDs
+	// that might be caused by mixing little and big endian formats.
+	// IDs larger than this value (100 trillion) are considered errors and skipped.
+	MaxValidID = 1e14
+)
+
 type CompressorDistancer interface {
 	DistanceToNode(id uint64) (float32, error)
 	DistanceToFloat(vec []float32) (float32, error)
@@ -298,7 +305,7 @@ func (compressor *quantizedVectorsCompressor[T]) PrefillCache() {
 			// maxID which would cause us to allocate a huge cache.
 			// In that case, we consider that anything larger than one hundred trillion is an error
 			// and should be skipped.
-			if v.Id > 1e14 {
+			if v.Id > MaxValidID {
 				continue
 			}
 
@@ -349,7 +356,7 @@ func (compressor *quantizedVectorsCompressor[T]) PrefillMultiCache(docIDVectors 
 			// maxID which would cause us to allocate a huge cache.
 			// In that case, we consider that anything larger than one hundred trillion is an error
 			// and should be skipped.
-			if v.Id > 1e14 {
+			if v.Id > MaxValidID {
 				continue
 			}
 
