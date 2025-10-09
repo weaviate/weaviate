@@ -26,6 +26,7 @@ func (s *Shard) DebugGetDocIdLockStatus() (bool, error) {
 			l.Unlock()
 		} else {
 			output = true
+			break
 		}
 	}
 	return output, nil
