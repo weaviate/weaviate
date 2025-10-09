@@ -9,6 +9,9 @@
 //  CONTACT: hello@weaviate.io
 //
 
+//go:build linux
+// +build linux
+
 package rest
 
 import (
@@ -23,7 +26,6 @@ import (
 )
 
 func TestGetCores(t *testing.T) {
-	t.SkipNow()
 	tests := []struct {
 		name     string
 		cpuset   string
@@ -54,6 +56,7 @@ func TestGetCores(t *testing.T) {
 		})
 	}
 }
+
 func TestInitRuntimeOverrides(t *testing.T) {
 	log, _ := test.NewNullLogger()
 
