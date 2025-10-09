@@ -401,3 +401,56 @@ func Test_BaseClassSettings_Validate(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateDimensions(t *testing.T) {
+	const testModel = "model-v3"
+	availableDims := []int64{256, 512, 1024, 2048}
+	supportedModels := []string{testModel, "model-v3-large"}
+
+	tests := []struct {
+		name       string
+		dimensions *int64
+		model      string
+		wantErr    bool
+	}{
+		{
+			name:       "nil dimensions should pass",
+			dimensions: nil,
+			model:      testModel,
+			wantErr:    false,
+		},
+		{
+			name:       "valid dimension should pass",
+			dimensions: ptr(int64(512)),
+			model:      testModel,
+			wantErr:    false,
+		},
+		{
+			name:       "invalid dimension should fail",
+			dimensions: ptr(int64(123)),
+			model:      testModel,
+			wantErr:    true,
+		},
+		{
+			name:       "unsupported model should fail",
+			dimensions: ptr(int64(512)),
+			model:      "old-model",
+			wantErr:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateDimensions(tt.dimensions, tt.model, availableDims, supportedModels)
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func ptr(v int64) *int64 {
+	return &v
+}

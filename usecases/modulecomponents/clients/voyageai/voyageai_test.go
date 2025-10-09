@@ -32,7 +32,7 @@ import (
 
 func TestClient(t *testing.T) {
 	t.Run("when all is fine", func(t *testing.T) {
-		server := httptest.NewServer(&fakeHandler{t: t})
+		server := httptest.NewServer(&fakeHandler{t: t, expectDimension: true, expectedOutputDimension: nil})
 		defer server.Close()
 		c := &Client{
 			apiKey:     "apiKey",
@@ -51,6 +51,30 @@ func TestClient(t *testing.T) {
 		res, _, _, err := c.Vectorize(context.Background(), []string{"This is my text"}, Settings{Model: "voyage-2", BaseURL: server.URL})
 
 		assert.Nil(t, err)
+		assert.Equal(t, expected, res)
+	})
+
+	t.Run("when output dimension is provided", func(t *testing.T) {
+		dim := int64(512)
+		server := httptest.NewServer(&fakeHandler{t: t, expectDimension: true, expectedOutputDimension: &dim})
+		defer server.Close()
+		c := &Client{
+			apiKey:     "apiKey",
+			httpClient: &http.Client{},
+			urlBuilder: &fakeVoyageaiUrlBuilder{
+				origin:   server.URL,
+				pathMask: "/embeddings",
+			},
+			logger: nullLogger(),
+		}
+		expected := &modulecomponents.VectorizationResult[[]float32]{
+			Text:       []string{"This is my text"},
+			Vector:     [][]float32{{0.1, 0.2, 0.3}},
+			Dimensions: 3,
+		}
+		res, _, _, err := c.Vectorize(context.Background(), []string{"This is my text"}, Settings{Model: "voyage-2", BaseURL: server.URL, OutputDimension: &dim})
+
+		require.NoError(t, err)
 		assert.Equal(t, expected, res)
 	})
 
@@ -77,8 +101,10 @@ func TestClient(t *testing.T) {
 
 	t.Run("when the server returns an error", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{
-			t:           t,
-			serverError: errors.Errorf("nope, not gonna happen"),
+			t:                       t,
+			serverError:             errors.Errorf("nope, not gonna happen"),
+			expectDimension:         true,
+			expectedOutputDimension: nil,
 		})
 		defer server.Close()
 		c := &Client{
@@ -97,7 +123,7 @@ func TestClient(t *testing.T) {
 	})
 
 	t.Run("when VoyageAI key is passed using VoyageAIre-Api-Key header", func(t *testing.T) {
-		server := httptest.NewServer(&fakeHandler{t: t})
+		server := httptest.NewServer(&fakeHandler{t: t, expectDimension: true, expectedOutputDimension: nil})
 		defer server.Close()
 		c := &Client{
 			apiKey:     "",
@@ -123,7 +149,7 @@ func TestClient(t *testing.T) {
 	})
 
 	t.Run("when VoyageAI key is empty", func(t *testing.T) {
-		server := httptest.NewServer(&fakeHandler{t: t})
+		server := httptest.NewServer(&fakeHandler{t: t, expectDimension: true, expectedOutputDimension: nil})
 		defer server.Close()
 		c := &Client{
 			apiKey:     "",
@@ -194,8 +220,10 @@ func TestClient(t *testing.T) {
 }
 
 type fakeHandler struct {
-	t           *testing.T
-	serverError error
+	t                       *testing.T
+	serverError             error
+	expectDimension         bool
+	expectedOutputDimension *int64
 }
 
 func (f *fakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -222,6 +250,15 @@ func (f *fakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	assert.NotNil(f.t, req)
 	assert.NotEmpty(f.t, req.Input)
+
+	if f.expectDimension {
+		if f.expectedOutputDimension == nil {
+			assert.Nil(f.t, req.OutputDimension)
+		} else {
+			require.NotNil(f.t, req.OutputDimension)
+			assert.Equal(f.t, *f.expectedOutputDimension, *req.OutputDimension)
+		}
+	}
 
 	resp := embeddingsResponse{
 		Data: []embeddingsDataResponse{{Embedding: []float32{0.1, 0.2, 0.3}}},

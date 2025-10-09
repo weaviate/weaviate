@@ -73,9 +73,10 @@ func (v *vectorizer) Vectorize(ctx context.Context, input []string, cfg moduleto
 ) (*modulecomponents.VectorizationResult[[]float32], *modulecomponents.RateLimits, int, error) {
 	settings := ent.NewClassSettings(cfg)
 	return v.client.Vectorize(ctx, input, voyageai.Settings{
-		BaseURL:  settings.BaseURL(),
-		Model:    settings.Model(),
-		Truncate: settings.Truncate(),
+		BaseURL:         settings.BaseURL(),
+		Model:           settings.Model(),
+		Truncate:        settings.Truncate(),
+		OutputDimension: settings.Dimensions(),
 	})
 }
 
@@ -84,9 +85,10 @@ func (v *vectorizer) VectorizeQuery(ctx context.Context, input []string,
 ) (*modulecomponents.VectorizationResult[[]float32], error) {
 	settings := ent.NewClassSettings(cfg)
 	return v.client.VectorizeQuery(ctx, input, voyageai.Settings{
-		BaseURL:  settings.BaseURL(),
-		Model:    settings.Model(),
-		Truncate: settings.Truncate(),
+		BaseURL:         settings.BaseURL(),
+		Model:           settings.Model(),
+		Truncate:        settings.Truncate(),
+		OutputDimension: settings.Dimensions(),
 	})
 }
 

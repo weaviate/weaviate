@@ -57,10 +57,11 @@ func (v *vectorizer) Vectorize(ctx context.Context,
 ) (*modulecomponents.VectorizationCLIPResult[[]float32], error) {
 	settings := ent.NewClassSettings(cfg)
 	return v.client.VectorizeMultiModal(ctx, texts, images, voyageai.Settings{
-		BaseURL:   settings.BaseURL(),
-		Model:     settings.Model(),
-		Truncate:  settings.Truncate(),
-		InputType: voyageai.Document,
+		BaseURL:         settings.BaseURL(),
+		Model:           settings.Model(),
+		Truncate:        settings.Truncate(),
+		InputType:       voyageai.Document,
+		OutputDimension: settings.Dimensions(),
 	})
 }
 
@@ -69,10 +70,11 @@ func (v *vectorizer) VectorizeQuery(ctx context.Context,
 ) (*modulecomponents.VectorizationCLIPResult[[]float32], error) {
 	settings := ent.NewClassSettings(cfg)
 	return v.client.VectorizeMultiModal(ctx, input, nil, voyageai.Settings{
-		BaseURL:   settings.BaseURL(),
-		Model:     settings.Model(),
-		Truncate:  settings.Truncate(),
-		InputType: voyageai.Query,
+		BaseURL:         settings.BaseURL(),
+		Model:           settings.Model(),
+		Truncate:        settings.Truncate(),
+		InputType:       voyageai.Query,
+		OutputDimension: settings.Dimensions(),
 	})
 }
 
@@ -81,9 +83,10 @@ func (v *vectorizer) VectorizeImageQuery(ctx context.Context,
 ) (*modulecomponents.VectorizationCLIPResult[[]float32], error) {
 	settings := ent.NewClassSettings(cfg)
 	return v.client.VectorizeMultiModal(ctx, nil, images, voyageai.Settings{
-		BaseURL:   settings.BaseURL(),
-		Model:     settings.Model(),
-		Truncate:  settings.Truncate(),
-		InputType: voyageai.Query,
+		BaseURL:         settings.BaseURL(),
+		Model:           settings.Model(),
+		Truncate:        settings.Truncate(),
+		InputType:       voyageai.Query,
+		OutputDimension: settings.Dimensions(),
 	})
 }

@@ -48,11 +48,12 @@ type multimodalContent struct {
 }
 
 type embeddingsRequest struct {
-	Input      []string          `json:"input,omitempty"`
-	Inputs     []multimodalInput `json:"inputs,omitempty"`
-	Model      string            `json:"model"`
-	Truncation bool              `json:"truncation,omitempty"`
-	InputType  InputType         `json:"input_type,omitempty"`
+	Input           []string          `json:"input,omitempty"`
+	Inputs          []multimodalInput `json:"inputs,omitempty"`
+	Model           string            `json:"model"`
+	Truncation      bool              `json:"truncation,omitempty"`
+	InputType       InputType         `json:"input_type,omitempty"`
+	OutputDimension *int64            `json:"output_dimension,omitempty"`
 }
 
 type embeddingsDataResponse struct {
@@ -85,10 +86,11 @@ const (
 )
 
 type Settings struct {
-	BaseURL   string
-	Model     string
-	Truncate  bool
-	InputType InputType
+	BaseURL         string
+	Model           string
+	Truncate        bool
+	InputType       InputType
+	OutputDimension *int64
 }
 
 type VoyageRLModel struct {
@@ -110,10 +112,11 @@ func New(apiKey string, timeout time.Duration, urlBuilder UrlBuilder, logger log
 func (c *Client) Vectorize(ctx context.Context, input []string, settings Settings,
 ) (*modulecomponents.VectorizationResult[[]float32], *modulecomponents.RateLimits, int, error) {
 	resBody, err := c.vectorize(ctx, settings.BaseURL, embeddingsRequest{
-		Input:      input,
-		Model:      settings.Model,
-		Truncation: settings.Truncate,
-		InputType:  Document,
+		Input:           input,
+		Model:           settings.Model,
+		Truncation:      settings.Truncate,
+		InputType:       Document,
+		OutputDimension: settings.OutputDimension,
 	})
 	if err != nil {
 		return nil, nil, 0, err
@@ -125,10 +128,11 @@ func (c *Client) Vectorize(ctx context.Context, input []string, settings Setting
 func (c *Client) VectorizeQuery(ctx context.Context, input []string, settings Settings,
 ) (*modulecomponents.VectorizationResult[[]float32], error) {
 	resBody, err := c.vectorize(ctx, settings.BaseURL, embeddingsRequest{
-		Input:      input,
-		Model:      settings.Model,
-		Truncation: settings.Truncate,
-		InputType:  Query,
+		Input:           input,
+		Model:           settings.Model,
+		Truncation:      settings.Truncate,
+		InputType:       Query,
+		OutputDimension: settings.OutputDimension,
 	})
 	if err != nil {
 		return nil, err
@@ -177,10 +181,11 @@ func (c *Client) getMultiModalEmbeddingsRequest(texts, images []string, settings
 		}
 	}
 	return embeddingsRequest{
-		Inputs:     inputs,
-		Model:      settings.Model,
-		Truncation: settings.Truncate,
-		InputType:  settings.InputType,
+		Inputs:          inputs,
+		Model:           settings.Model,
+		Truncation:      settings.Truncate,
+		InputType:       settings.InputType,
+		OutputDimension: settings.OutputDimension,
 	}
 }
 
