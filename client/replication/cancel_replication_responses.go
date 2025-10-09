@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -58,8 +58,26 @@ func (o *CancelReplicationReader) ReadResponse(response runtime.ClientResponse, 
 			return nil, err
 		}
 		return nil, result
+	case 409:
+		result := NewCancelReplicationConflict()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
+	case 422:
+		result := NewCancelReplicationUnprocessableEntity()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	case 500:
 		result := NewCancelReplicationInternalServerError()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
+	case 501:
+		result := NewCancelReplicationNotImplemented()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
@@ -305,6 +323,142 @@ func (o *CancelReplicationNotFound) readResponse(response runtime.ClientResponse
 	return nil
 }
 
+// NewCancelReplicationConflict creates a CancelReplicationConflict with default headers values
+func NewCancelReplicationConflict() *CancelReplicationConflict {
+	return &CancelReplicationConflict{}
+}
+
+/*
+CancelReplicationConflict describes a response with status code 409, with default header values.
+
+The operation is not in a cancellable state, e.g. it is READY or is a MOVE op in the DEHYDRATING state.
+*/
+type CancelReplicationConflict struct {
+	Payload *models.ErrorResponse
+}
+
+// IsSuccess returns true when this cancel replication conflict response has a 2xx status code
+func (o *CancelReplicationConflict) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this cancel replication conflict response has a 3xx status code
+func (o *CancelReplicationConflict) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this cancel replication conflict response has a 4xx status code
+func (o *CancelReplicationConflict) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this cancel replication conflict response has a 5xx status code
+func (o *CancelReplicationConflict) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this cancel replication conflict response a status code equal to that given
+func (o *CancelReplicationConflict) IsCode(code int) bool {
+	return code == 409
+}
+
+// Code gets the status code for the cancel replication conflict response
+func (o *CancelReplicationConflict) Code() int {
+	return 409
+}
+
+func (o *CancelReplicationConflict) Error() string {
+	return fmt.Sprintf("[POST /replication/replicate/{id}/cancel][%d] cancelReplicationConflict  %+v", 409, o.Payload)
+}
+
+func (o *CancelReplicationConflict) String() string {
+	return fmt.Sprintf("[POST /replication/replicate/{id}/cancel][%d] cancelReplicationConflict  %+v", 409, o.Payload)
+}
+
+func (o *CancelReplicationConflict) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *CancelReplicationConflict) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
+// NewCancelReplicationUnprocessableEntity creates a CancelReplicationUnprocessableEntity with default headers values
+func NewCancelReplicationUnprocessableEntity() *CancelReplicationUnprocessableEntity {
+	return &CancelReplicationUnprocessableEntity{}
+}
+
+/*
+CancelReplicationUnprocessableEntity describes a response with status code 422, with default header values.
+
+Request body is well-formed (i.e., syntactically correct), but semantically erroneous.
+*/
+type CancelReplicationUnprocessableEntity struct {
+	Payload *models.ErrorResponse
+}
+
+// IsSuccess returns true when this cancel replication unprocessable entity response has a 2xx status code
+func (o *CancelReplicationUnprocessableEntity) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this cancel replication unprocessable entity response has a 3xx status code
+func (o *CancelReplicationUnprocessableEntity) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this cancel replication unprocessable entity response has a 4xx status code
+func (o *CancelReplicationUnprocessableEntity) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this cancel replication unprocessable entity response has a 5xx status code
+func (o *CancelReplicationUnprocessableEntity) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this cancel replication unprocessable entity response a status code equal to that given
+func (o *CancelReplicationUnprocessableEntity) IsCode(code int) bool {
+	return code == 422
+}
+
+// Code gets the status code for the cancel replication unprocessable entity response
+func (o *CancelReplicationUnprocessableEntity) Code() int {
+	return 422
+}
+
+func (o *CancelReplicationUnprocessableEntity) Error() string {
+	return fmt.Sprintf("[POST /replication/replicate/{id}/cancel][%d] cancelReplicationUnprocessableEntity  %+v", 422, o.Payload)
+}
+
+func (o *CancelReplicationUnprocessableEntity) String() string {
+	return fmt.Sprintf("[POST /replication/replicate/{id}/cancel][%d] cancelReplicationUnprocessableEntity  %+v", 422, o.Payload)
+}
+
+func (o *CancelReplicationUnprocessableEntity) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *CancelReplicationUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
 // NewCancelReplicationInternalServerError creates a CancelReplicationInternalServerError with default headers values
 func NewCancelReplicationInternalServerError() *CancelReplicationInternalServerError {
 	return &CancelReplicationInternalServerError{}
@@ -362,6 +516,74 @@ func (o *CancelReplicationInternalServerError) GetPayload() *models.ErrorRespons
 }
 
 func (o *CancelReplicationInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
+// NewCancelReplicationNotImplemented creates a CancelReplicationNotImplemented with default headers values
+func NewCancelReplicationNotImplemented() *CancelReplicationNotImplemented {
+	return &CancelReplicationNotImplemented{}
+}
+
+/*
+CancelReplicationNotImplemented describes a response with status code 501, with default header values.
+
+Replica movement operations are disabled.
+*/
+type CancelReplicationNotImplemented struct {
+	Payload *models.ErrorResponse
+}
+
+// IsSuccess returns true when this cancel replication not implemented response has a 2xx status code
+func (o *CancelReplicationNotImplemented) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this cancel replication not implemented response has a 3xx status code
+func (o *CancelReplicationNotImplemented) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this cancel replication not implemented response has a 4xx status code
+func (o *CancelReplicationNotImplemented) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this cancel replication not implemented response has a 5xx status code
+func (o *CancelReplicationNotImplemented) IsServerError() bool {
+	return true
+}
+
+// IsCode returns true when this cancel replication not implemented response a status code equal to that given
+func (o *CancelReplicationNotImplemented) IsCode(code int) bool {
+	return code == 501
+}
+
+// Code gets the status code for the cancel replication not implemented response
+func (o *CancelReplicationNotImplemented) Code() int {
+	return 501
+}
+
+func (o *CancelReplicationNotImplemented) Error() string {
+	return fmt.Sprintf("[POST /replication/replicate/{id}/cancel][%d] cancelReplicationNotImplemented  %+v", 501, o.Payload)
+}
+
+func (o *CancelReplicationNotImplemented) String() string {
+	return fmt.Sprintf("[POST /replication/replicate/{id}/cancel][%d] cancelReplicationNotImplemented  %+v", 501, o.Payload)
+}
+
+func (o *CancelReplicationNotImplemented) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *CancelReplicationNotImplemented) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
 

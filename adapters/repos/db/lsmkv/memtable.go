@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -18,6 +18,8 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/weaviate/weaviate/usecases/memwatch"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -37,45 +39,49 @@ type Memtable struct {
 	roaringSet         *roaringset.BinarySearchTree
 	roaringSetRange    *roaringsetrange.Memtable
 	commitlog          memtableCommitLogger
+	allocChecker       memwatch.AllocChecker
 	size               uint64
 	path               string
 	strategy           string
 	secondaryIndices   uint16
 	secondaryToPrimary []map[string][]byte
 	// stores time memtable got dirty to determine when flush is needed
-	dirtyAt   time.Time
-	createdAt time.Time
-	metrics   *memtableMetrics
+	dirtyAt             time.Time
+	createdAt           time.Time
+	metrics             *memtableMetrics
+	writesSinceLastSync bool
 
 	tombstones *sroar.Bitmap
 
 	enableChecksumValidation bool
 
-	bm25config        *models.BM25Config
-	averagePropLength float64
-	propLengthCount   uint64
+	bm25config                   *models.BM25Config
+	averagePropLength            float64
+	propLengthCount              uint64
+	writeSegmentInfoIntoFileName bool
 }
 
 func newMemtable(path string, strategy string, secondaryIndices uint16,
 	cl memtableCommitLogger, metrics *Metrics, logger logrus.FieldLogger,
-	enableChecksumValidation bool, bm25config *models.BM25Config,
+	enableChecksumValidation bool, bm25config *models.BM25Config, writeSegmentInfoIntoFileName bool, allocChecker memwatch.AllocChecker,
 ) (*Memtable, error) {
 	m := &Memtable{
-		key:                      &binarySearchTree{},
-		keyMulti:                 &binarySearchTreeMulti{},
-		keyMap:                   &binarySearchTreeMap{},
-		primaryIndex:             &binarySearchTree{}, // todo, sort upfront
-		roaringSet:               &roaringset.BinarySearchTree{},
-		roaringSetRange:          roaringsetrange.NewMemtable(logger),
-		commitlog:                cl,
-		path:                     path,
-		strategy:                 strategy,
-		secondaryIndices:         secondaryIndices,
-		dirtyAt:                  time.Time{},
-		createdAt:                time.Now(),
-		metrics:                  newMemtableMetrics(metrics, filepath.Dir(path), strategy),
-		enableChecksumValidation: enableChecksumValidation,
-		bm25config:               bm25config,
+		key:                          &binarySearchTree{},
+		keyMulti:                     &binarySearchTreeMulti{},
+		keyMap:                       &binarySearchTreeMap{},
+		primaryIndex:                 &binarySearchTree{}, // todo, sort upfront
+		roaringSet:                   &roaringset.BinarySearchTree{},
+		roaringSetRange:              roaringsetrange.NewMemtable(logger),
+		commitlog:                    cl,
+		path:                         path,
+		strategy:                     strategy,
+		secondaryIndices:             secondaryIndices,
+		dirtyAt:                      time.Time{},
+		createdAt:                    time.Now(),
+		metrics:                      newMemtableMetrics(metrics, filepath.Dir(path), strategy),
+		enableChecksumValidation:     enableChecksumValidation,
+		bm25config:                   bm25config,
+		writeSegmentInfoIntoFileName: writeSegmentInfoIntoFileName,
 	}
 
 	if m.secondaryIndices > 0 {
@@ -137,6 +143,7 @@ func (m *Memtable) put(key, value []byte, opts ...SecondaryKeyOption) error {
 
 	m.Lock()
 	defer m.Unlock()
+	m.writesSinceLastSync = true
 
 	var secondaryKeys [][]byte
 	if m.secondaryIndices > 0 {
@@ -185,6 +192,7 @@ func (m *Memtable) setTombstone(key []byte, opts ...SecondaryKeyOption) error {
 
 	m.Lock()
 	defer m.Unlock()
+	m.writesSinceLastSync = true
 
 	var secondaryKeys [][]byte
 	if m.secondaryIndices > 0 {
@@ -224,6 +232,7 @@ func (m *Memtable) setTombstoneWith(key []byte, deletionTime time.Time, opts ...
 
 	m.Lock()
 	defer m.Unlock()
+	m.writesSinceLastSync = true
 
 	var secondaryKeys [][]byte
 	if m.secondaryIndices > 0 {
@@ -332,6 +341,8 @@ func (m *Memtable) append(key []byte, values []value) error {
 
 	m.Lock()
 	defer m.Unlock()
+	m.writesSinceLastSync = true
+
 	if err := m.commitlog.append(segmentCollectionNode{
 		primaryKey: key,
 		values:     values,
@@ -376,6 +387,7 @@ func (m *Memtable) appendMapSorted(key []byte, pair MapPair) error {
 
 	m.Lock()
 	defer m.Unlock()
+	m.writesSinceLastSync = true
 
 	if err := m.commitlog.append(newNode); err != nil {
 		return errors.Wrap(err, "write into commit log")

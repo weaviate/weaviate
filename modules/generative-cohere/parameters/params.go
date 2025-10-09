@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -26,6 +26,8 @@ type Params struct {
 	StopSequences    []string
 	FrequencyPenalty *float64
 	PresencePenalty  *float64
+	Images           []*string
+	ImageProperties  []string
 }
 
 func extract(field *ast.ObjectField) interface{} {
@@ -52,6 +54,10 @@ func extract(field *ast.ObjectField) interface{} {
 				out.FrequencyPenalty = gqlparser.GetValueAsFloat64(f)
 			case "presencePenalty":
 				out.PresencePenalty = gqlparser.GetValueAsFloat64(f)
+			case "images":
+				out.Images = gqlparser.GetValueAsStringPtrArray(f)
+			case "imageProperties":
+				out.ImageProperties = gqlparser.GetValueAsStringArray(f)
 			default:
 				// do nothing
 			}

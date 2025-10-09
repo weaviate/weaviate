@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -18,12 +18,11 @@ import (
 	"io"
 	"time"
 
-	"github.com/weaviate/weaviate/cluster/router/types"
-	"github.com/weaviate/weaviate/entities/dto"
-
 	"github.com/go-openapi/strfmt"
+	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -50,6 +49,14 @@ func (f *fakeSchemaGetter) GetSchemaSkipAuth() schema.Schema {
 
 func (f *fakeSchemaGetter) ReadOnlyClass(class string) *models.Class {
 	return f.schema.GetClass(class)
+}
+
+func (f *fakeSchemaGetter) ResolveAlias(string) string {
+	return ""
+}
+
+func (f *fakeSchemaGetter) GetAliasesForClass(string) []*models.Alias {
+	return nil
 }
 
 func (f *fakeSchemaGetter) CopyShardingState(class string) *sharding.State {
@@ -146,6 +153,139 @@ func multiShardState() *sharding.State {
 	}
 
 	return s
+}
+
+// MultiTenantShardingStateBuilder provides a fluent interface for creating multi-tenant sharding states
+// with partition-based sharding and a configurable set of tenants, each with its own name and status.
+type MultiTenantShardingStateBuilder struct {
+	tenants           []tenantConfig
+	replicationFactor int64
+	nodePrefix        string
+	indexName         string
+}
+
+type tenantConfig struct {
+	name   string
+	status string
+}
+
+// NewMultiTenantStateBuilder creates a new builder with default values.
+// Default configuration:
+//   - replicationFactor: 1
+//   - nodePrefix: "node"
+//   - indexName: "multi-tenant-test-index"
+func NewMultiTenantShardingStateBuilder() *MultiTenantShardingStateBuilder {
+	return &MultiTenantShardingStateBuilder{
+		tenants:           make([]tenantConfig, 0),
+		replicationFactor: 1,
+		nodePrefix:        "node",
+		indexName:         "multi-tenant-test-index",
+	}
+}
+
+// AddTenant adds a tenant with the specified status to the builder.
+func (b *MultiTenantShardingStateBuilder) AddTenant(name, status string) *MultiTenantShardingStateBuilder {
+	b.tenants = append(b.tenants, tenantConfig{name: name, status: status})
+	return b
+}
+
+// WithReplicationFactor sets the number of replicas per tenant shard.
+func (b *MultiTenantShardingStateBuilder) WithReplicationFactor(factor int64) *MultiTenantShardingStateBuilder {
+	b.replicationFactor = factor
+	return b
+}
+
+// WithNodePrefix sets the prefix for generated node names (default: "node").
+// Nodes will be named as "{prefix}1", "{prefix}2", etc.
+func (b *MultiTenantShardingStateBuilder) WithNodePrefix(prefix string) *MultiTenantShardingStateBuilder {
+	b.nodePrefix = prefix
+	return b
+}
+
+// WithIndexName sets the index name for the sharding state (default: "multi-tenant-test-index").
+func (b *MultiTenantShardingStateBuilder) WithIndexName(name string) *MultiTenantShardingStateBuilder {
+	b.indexName = name
+	return b
+}
+
+func (b *MultiTenantShardingStateBuilder) WithTenant(name, status string) *MultiTenantShardingStateBuilder {
+	if b.tenants == nil {
+		b.tenants = make([]tenantConfig, 0)
+	}
+	b.tenants = append(b.tenants, tenantConfig{name: name, status: status})
+	return b
+}
+
+// Build creates and returns the configured sharding state.
+// Panics if no tenants have been added or if configuration is invalid.
+func (b *MultiTenantShardingStateBuilder) Build() *sharding.State {
+	if len(b.tenants) <= 0 {
+		panic(fmt.Sprintf("invalid number of tenants: %d", len(b.tenants)))
+	}
+
+	nodeCount := max(int(b.replicationFactor), len(b.tenants))
+	nodeNames := b.generateNodeNames(nodeCount)
+	config := b.createConfig()
+	selector := mocks.NewMockNodeSelector(nodeNames...)
+
+	s, err := sharding.InitState(
+		b.indexName,
+		config,
+		selector.LocalName(),
+		nodeNames,
+		b.replicationFactor,
+		true,
+	)
+	if err != nil {
+		panic(fmt.Sprintf("failed to initialize sharding state: %v", err))
+	}
+
+	for i, tenant := range b.tenants {
+		replicaNodes := selectNodesForTenant(nodeNames, i, int(b.replicationFactor))
+		_, err = s.AddPartition(tenant.name, replicaNodes, tenant.status)
+		if err != nil {
+			panic(fmt.Sprintf("failed to add partition for tenant %s: %v", tenant.name, err))
+		}
+	}
+
+	return s
+}
+
+func (b *MultiTenantShardingStateBuilder) generateNodeNames(count int) []string {
+	names := make([]string, count)
+	for i := 0; i < count; i++ {
+		names[i] = fmt.Sprintf("%s%d", b.nodePrefix, i+1)
+	}
+	return names
+}
+
+func (b *MultiTenantShardingStateBuilder) createConfig() shardingConfig.Config {
+	// Virtual shard configuration values are unused in partition-based sharding.
+	// Key, Strategy, and Function are the only required properties.
+	return shardingConfig.Config{
+		Key:      "_id",
+		Strategy: "hash",
+		Function: "murmur3",
+	}
+}
+
+// selectNodesForTenant selects replica nodes for a tenant using round-robin distribution.
+// Starting from position tenantIndex in the node list, it selects replicationFactor consecutive
+// nodes with wraparound. This ensures even distribution of tenant replicas across the cluster.
+func selectNodesForTenant(allNodes []string, tenantIndex int, replicationFactor int) []string {
+	if replicationFactor > len(allNodes) {
+		panic(fmt.Sprintf("replication factor %d exceeds available nodes %d", replicationFactor, len(allNodes)))
+	}
+
+	selectedNodes := make([]string, replicationFactor)
+	startIndex := tenantIndex % len(allNodes)
+
+	for i := 0; i < replicationFactor; i++ {
+		nodeIndex := (startIndex + i) % len(allNodes)
+		selectedNodes[i] = allNodes[nodeIndex]
+	}
+
+	return selectedNodes
 }
 
 func fixedMultiShardState() *sharding.State {
@@ -264,7 +404,7 @@ func (f *fakeRemoteClient) PutFile(ctx context.Context, hostName, indexName, sha
 	return nil
 }
 
-func (f *fakeRemoteClient) PauseFileActivity(ctx context.Context, hostName, indexName, shardName string) error {
+func (f *fakeRemoteClient) PauseFileActivity(ctx context.Context, hostName, indexName, shardName string, schemaVersion uint64) error {
 	return nil
 }
 
@@ -288,7 +428,11 @@ func (f *fakeRemoteClient) GetFile(ctx context.Context, hostName, indexName, sha
 	return nil, nil
 }
 
-func (f *fakeRemoteClient) SetAsyncReplicationTargetNode(ctx context.Context, hostName, indexName, shardName string, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error {
+func (f *fakeRemoteClient) AddAsyncReplicationTargetNode(ctx context.Context, hostName, indexName, shardName string, targetNodeOverride additional.AsyncReplicationTargetNodeOverride, schemaVersion uint64) error {
+	return nil
+}
+
+func (f *fakeRemoteClient) RemoveAsyncReplicationTargetNode(ctx context.Context, hostName, indexName, shardName string, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error {
 	return nil
 }
 
@@ -304,7 +448,7 @@ func (f *fakeNodeResolver) NodeHostname(string) (string, bool) {
 
 type fakeRemoteNodeClient struct{}
 
-func (f *fakeRemoteNodeClient) GetNodeStatus(ctx context.Context, hostName, className, output string) (*models.NodeStatus, error) {
+func (f *fakeRemoteNodeClient) GetNodeStatus(ctx context.Context, hostName, className, shardName, output string) (*models.NodeStatus, error) {
 	return &models.NodeStatus{}, nil
 }
 
@@ -369,8 +513,8 @@ func (fakeReplicationClient) Exists(ctx context.Context, hostName, indexName,
 func (*fakeReplicationClient) FetchObject(ctx context.Context, hostName, indexName,
 	shardName string, id strfmt.UUID, props search.SelectProperties,
 	additional additional.Properties, numRetries int,
-) (objects.Replica, error) {
-	return objects.Replica{}, nil
+) (replica.Replica, error) {
+	return replica.Replica{}, nil
 }
 
 func (*fakeReplicationClient) DigestObjects(ctx context.Context,
@@ -381,7 +525,7 @@ func (*fakeReplicationClient) DigestObjects(ctx context.Context,
 
 func (*fakeReplicationClient) FetchObjects(ctx context.Context, host,
 	index, shard string, ids []strfmt.UUID,
-) ([]objects.Replica, error) {
+) ([]replica.Replica, error) {
 	return nil, nil
 }
 

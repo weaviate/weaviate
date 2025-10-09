@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -19,6 +19,7 @@ import (
 
 	raftImpl "github.com/hashicorp/raft"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/cluster/log"
 )
 
@@ -42,8 +43,7 @@ type raft struct {
 	// keep in memory which node uses which port.
 	NodeNameToPortMap map[string]int
 
-	nodesLock        sync.Mutex
-	notResolvedNodes map[raftImpl.ServerID]struct{}
+	notResolvedNodes sync.Map
 }
 
 func NewRaft(cfg RaftConfig) *raft {
@@ -52,23 +52,22 @@ func NewRaft(cfg RaftConfig) *raft {
 		RaftPort:           cfg.RaftPort,
 		IsLocalCluster:     cfg.IsLocalHost,
 		NodeNameToPortMap:  cfg.NodeNameToPortMap,
-		notResolvedNodes:   make(map[raftImpl.ServerID]struct{}),
+		notResolvedNodes:   sync.Map{},
 	}
 }
 
 // ServerAddr resolves server ID to a RAFT address
+// it's thread safe see https://github.com/hashicorp/raft/blob/main/net_transport.go#L389-L391
 func (a *raft) ServerAddr(id raftImpl.ServerID) (raftImpl.ServerAddress, error) {
 	// Get the address from the node id
 	addr := a.ClusterStateReader.NodeAddress(string(id))
 
 	// Update the internal notResolvedNodes if the addr if empty, otherwise delete it from the map
-	a.nodesLock.Lock()
-	defer a.nodesLock.Unlock()
 	if addr == "" {
-		a.notResolvedNodes[id] = struct{}{}
+		a.notResolvedNodes.Store(id, struct{}{})
 		return raftImpl.ServerAddress(invalidAddr), nil
 	}
-	delete(a.notResolvedNodes, id)
+	a.notResolvedNodes.Delete(id)
 
 	// If we are not running a local cluster we can immediately return, otherwise we need to lookup the port of the node
 	// as we can't use the default raft port locally.
@@ -98,12 +97,10 @@ func (a *raft) NewTCPTransport(
 }
 
 func (a *raft) NotResolvedNodes() map[raftImpl.ServerID]struct{} {
-	a.nodesLock.Lock()
-	defer a.nodesLock.Unlock()
-
-	newMap := make(map[raftImpl.ServerID]struct{})
-	for k, v := range a.notResolvedNodes {
-		newMap[k] = v
-	}
-	return newMap
+	notResolvedNodes := make(map[raftImpl.ServerID]struct{})
+	a.notResolvedNodes.Range(func(key, value any) bool {
+		notResolvedNodes[key.(raftImpl.ServerID)] = struct{}{}
+		return true
+	})
+	return notResolvedNodes
 }

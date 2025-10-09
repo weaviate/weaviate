@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -16,6 +16,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+
+	"github.com/weaviate/weaviate/usecases/memwatch"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/compactor"
 
@@ -45,13 +47,16 @@ type compactorReplace struct {
 	mw               *compactor.MemoryWriter
 	scratchSpacePath string
 
+	allocChecker   memwatch.AllocChecker
+	maxNewFileSize int64
+
 	enableChecksumValidation bool
 }
 
 func newCompactorReplace(w io.WriteSeeker,
 	c1, c2 *segmentCursorReplace, level, secondaryIndexCount uint16,
 	scratchSpacePath string, cleanupTombstones bool,
-	enableChecksumValidation bool, maxNewFileSize int64,
+	enableChecksumValidation bool, maxNewFileSize int64, allocChecker memwatch.AllocChecker,
 ) *compactorReplace {
 	observeWrite := monitoring.GetMetrics().FileIOWrites.With(prometheus.Labels{
 		"operation": "compaction",
@@ -74,6 +79,8 @@ func newCompactorReplace(w io.WriteSeeker,
 		secondaryIndexCount:      secondaryIndexCount,
 		scratchSpacePath:         scratchSpacePath,
 		enableChecksumValidation: enableChecksumValidation,
+		allocChecker:             allocChecker,
+		maxNewFileSize:           maxNewFileSize,
 	}
 }
 
@@ -220,7 +227,8 @@ func (c *compactorReplace) writeIndexes(f *segmentindex.SegmentFile,
 			"strategy":  StrategyReplace,
 			"operation": "writeIndices",
 		}),
+		AllocChecker: c.allocChecker,
 	}
-	_, err := f.WriteIndexes(indexes)
+	_, err := f.WriteIndexes(indexes, c.maxNewFileSize)
 	return err
 }

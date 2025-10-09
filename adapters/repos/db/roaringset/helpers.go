@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -53,22 +53,21 @@ type MaxIdGetterFunc func() uint64
 // BitmapFactory exists to provide prefilled bitmaps using pool (reducing allocation of memory)
 // and favor cloning (faster) over prefilling bitmap from scratch each time bitmap is requested
 type BitmapFactory struct {
-	lock           *sync.RWMutex
-	prefilled      *sroar.Bitmap
 	bufPool        BitmapBufPool
 	maxIdGetter    MaxIdGetterFunc
+	lock           *sync.RWMutex
+	prefilled      *sroar.Bitmap
 	prefilledMaxId uint64
 }
 
 func NewBitmapFactory(bufPool BitmapBufPool, maxIdGetter MaxIdGetterFunc) *BitmapFactory {
 	prefilledMaxId := maxIdGetter() + defaultIdIncrement
-	prefilled := sroar.Prefill(prefilledMaxId)
 
 	return &BitmapFactory{
-		lock:           new(sync.RWMutex),
-		prefilled:      prefilled,
 		bufPool:        bufPool,
 		maxIdGetter:    maxIdGetter,
+		lock:           new(sync.RWMutex),
+		prefilled:      sroar.Prefill(prefilledMaxId),
 		prefilledMaxId: prefilledMaxId,
 	}
 }
@@ -89,7 +88,7 @@ func (bmf *BitmapFactory) GetBitmap() (cloned *sroar.Bitmap, release func()) {
 
 		// No need to expand, maxId is included
 		if maxId <= prefilledMaxId {
-			return bmf.clone()
+			return bmf.bufPool.CloneToBuf(bmf.prefilled)
 		}
 		return nil, nil
 	}()
@@ -105,102 +104,23 @@ func (bmf *BitmapFactory) GetBitmap() (cloned *sroar.Bitmap, release func()) {
 			// 2nd check to ensure bitmap wasn't expanded by
 			// concurrent request white waiting for write lock
 			if maxId <= prefilledMaxId {
-				return bmf.clone()
+				return bmf.bufPool.CloneToBuf(bmf.prefilled)
 			}
 
 			// expand bitmap with additional ids
 			prefilledMaxId = maxId + defaultIdIncrement
 			bmf.prefilled.FillUp(prefilledMaxId)
 			bmf.prefilledMaxId = prefilledMaxId
-			return bmf.clone()
+			return bmf.bufPool.CloneToBuf(bmf.prefilled)
 		}()
 	}
 	cloned.RemoveRange(maxId+1, prefilledMaxId+1)
-	return
+	return cloned, release
 }
 
-func (bmf *BitmapFactory) clone() (cloned *sroar.Bitmap, release func()) {
-	buf, release := bmf.bufPool.Get(bmf.prefilled.LenInBytes())
-	cloned = bmf.prefilled.CloneToBuf(buf)
-	return
-}
+func (bmf *BitmapFactory) Remove(ids *sroar.Bitmap) {
+	bmf.lock.Lock()
+	defer bmf.lock.Unlock()
 
-// -----------------------------------------------------------------------------
-
-type BitmapBufPool interface {
-	Get(minCap int) (buf []byte, put func())
-	CloneToBuf(bm *sroar.Bitmap) (cloned *sroar.Bitmap, put func())
-}
-
-type bitmapBufPool struct {
-	pool          *sync.Pool
-	lock          *sync.Mutex
-	capFactor     float32
-	initialMinCap int
-}
-
-func NewBitmapBufPool(initialMinCap int, capFactor float32) *bitmapBufPool {
-	p := &bitmapBufPool{
-		capFactor:     capFactor,
-		initialMinCap: initialMinCap,
-		lock:          new(sync.Mutex),
-	}
-
-	p.pool = &sync.Pool{
-		New: p.createBuf,
-	}
-	return p
-}
-
-func (p *bitmapBufPool) Get(minCap int) (buf []byte, put func()) {
-	ptr := p.pool.Get().(*[]byte)
-	buf = *ptr
-	if cap(buf) < minCap {
-		p.updateInitialMinCap(minCap)
-		*ptr = *p.createBuf().(*[]byte)
-		buf = *ptr
-	} else if len(buf) > 0 {
-		buf = buf[:0]
-		*ptr = buf
-	}
-	return buf, func() { p.pool.Put(ptr) }
-}
-
-func (p *bitmapBufPool) CloneToBuf(bm *sroar.Bitmap) (cloned *sroar.Bitmap, put func()) {
-	buf, put := p.Get(bm.LenInBytes())
-	cloned = bm.CloneToBuf(buf)
-	return
-}
-
-func (p *bitmapBufPool) createBuf() any {
-	p.lock.Lock()
-	minCap := p.initialMinCap
-	p.lock.Unlock()
-
-	buf := make([]byte, 0, int(float32(minCap)*p.capFactor))
-	return &buf
-}
-
-func (p *bitmapBufPool) updateInitialMinCap(minCap int) {
-	p.lock.Lock()
-	if minCap > p.initialMinCap {
-		p.initialMinCap = minCap
-	}
-	p.lock.Unlock()
-}
-
-type bitmapBufPoolNoop struct{}
-
-func NewBitmapBufPoolNoop() *bitmapBufPoolNoop {
-	return &bitmapBufPoolNoop{}
-}
-
-func (p *bitmapBufPoolNoop) Get(minCap int) (buf []byte, put func()) {
-	return make([]byte, 0, minCap), func() {}
-}
-
-func (p *bitmapBufPoolNoop) CloneToBuf(bm *sroar.Bitmap) (cloned *sroar.Bitmap, put func()) {
-	buf, put := p.Get(bm.LenInBytes())
-	cloned = bm.CloneToBuf(buf)
-	return
+	bmf.prefilled.AndNot(ids)
 }

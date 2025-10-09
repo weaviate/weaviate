@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -33,6 +33,7 @@ func validatePermissions(allowEmpty bool, permissions ...*models.Permission) err
 			dataInput        = perm.Data
 			backupsInput     = perm.Backups
 			nodesInput       = perm.Nodes
+			replicateInput   = perm.Replicate
 		)
 		if collectionsInput != nil {
 			if collectionsInput.Collection != nil {
@@ -69,6 +70,11 @@ func validatePermissions(allowEmpty bool, permissions ...*models.Permission) err
 
 		if nodesInput != nil && nodesInput.Collection != nil {
 			_, err := schema.ValidateClassNameIncludesRegex(*nodesInput.Collection)
+			multiErr = errors.Join(err)
+		}
+
+		if replicateInput != nil && replicateInput.Collection != nil {
+			_, err := schema.ValidateClassNameIncludesRegex(*replicateInput.Collection)
 			multiErr = errors.Join(err)
 		}
 

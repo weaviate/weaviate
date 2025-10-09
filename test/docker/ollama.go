@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -38,7 +38,7 @@ func startOllama(ctx context.Context, networkName, hostname, model string) (*Doc
 	port := nat.Port("11434/tcp")
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: testcontainers.ContainerRequest{
-			Image:    "ollama/ollama:0.5.7",
+			Image:    "ollama/ollama:0.11.4",
 			Hostname: hostname,
 			Networks: []string{networkName},
 			NetworkAliases: map[string][]string{
@@ -60,10 +60,6 @@ func startOllama(ctx context.Context, networkName, hostname, model string) (*Doc
 		_, _, err = container.Exec(ctx, []string{"ollama", "pull", model})
 		if err != nil {
 			return nil, fmt.Errorf("failed to pull model %s: %w", model, err)
-		}
-		_, _, err = container.Exec(ctx, []string{"ollama", "run", model})
-		if err != nil {
-			return nil, fmt.Errorf("failed to run model %s: %w", model, err)
 		}
 	}
 	uri, err := container.PortEndpoint(ctx, port, "")

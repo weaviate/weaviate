@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -23,6 +23,7 @@ import (
 
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/objects"
 )
 
@@ -41,8 +42,9 @@ const (
 
 type (
 	router interface {
-		BuildReadRoutingPlan(params types.RoutingPlanBuildOptions) (types.RoutingPlan, error)
-		BuildWriteRoutingPlan(params types.RoutingPlanBuildOptions) (types.RoutingPlan, error)
+		BuildRoutingPlanOptions(tenant, shard string, cl types.ConsistencyLevel, directCandidate string) types.RoutingPlanBuildOptions
+		BuildReadRoutingPlan(params types.RoutingPlanBuildOptions) (types.ReadRoutingPlan, error)
+		BuildWriteRoutingPlan(params types.RoutingPlanBuildOptions) (types.WriteRoutingPlan, error)
 		NodeHostname(nodeName string) (string, bool)
 		AllHostnames() []string
 	}
@@ -70,8 +72,14 @@ func NewReplicator(className string,
 	nodeName string,
 	getDeletionStrategy func() string,
 	client Client,
+	promMetrics *monitoring.PrometheusMetrics,
 	l logrus.FieldLogger,
-) *Replicator {
+) (*Replicator, error) {
+	metrics, err := NewMetrics(promMetrics)
+	if err != nil {
+		return nil, fmt.Errorf("create metrics: %w", err)
+	}
+
 	return &Replicator{
 		class:    className,
 		nodeName: nodeName,
@@ -83,12 +91,13 @@ func NewReplicator(className string,
 			router,
 			nodeName,
 			client,
+			metrics,
 			l,
 			defaultPullBackOffInitialInterval,
 			defaultPullBackOffMaxElapsedTime,
 			getDeletionStrategy,
 		),
-	}
+	}, nil
 }
 
 func (r *Replicator) AllHostnames() []string {
@@ -116,7 +125,7 @@ func (r *Replicator) PutObject(ctx context.Context,
 	if err != nil {
 		r.log.WithField("op", "push.one").WithField("class", r.class).
 			WithField("shard", shard).Error(err)
-		return fmt.Errorf("%s %q: %w", msgCLevel, l, errReplicas)
+		return fmt.Errorf("%s %q: %w", MsgCLevel, l, ErrReplicas)
 
 	}
 	err = r.stream.readErrors(1, level, replyCh)[0]
@@ -148,7 +157,7 @@ func (r *Replicator) MergeObject(ctx context.Context,
 	if err != nil {
 		r.log.WithField("op", "push.merge").WithField("class", r.class).
 			WithField("shard", shard).Error(err)
-		return fmt.Errorf("%s %q: %w", msgCLevel, l, errReplicas)
+		return fmt.Errorf("%s %q: %w", MsgCLevel, l, ErrReplicas)
 	}
 	err = r.stream.readErrors(1, level, replyCh)[0]
 	if err != nil {
@@ -184,7 +193,7 @@ func (r *Replicator) DeleteObject(ctx context.Context,
 	if err != nil {
 		r.log.WithField("op", "push.delete").WithField("class", r.class).
 			WithField("shard", shard).Error(err)
-		return fmt.Errorf("%s %q: %w", msgCLevel, l, errReplicas)
+		return fmt.Errorf("%s %q: %w", MsgCLevel, l, ErrReplicas)
 	}
 	err = r.stream.readErrors(1, level, replyCh)[0]
 	if err != nil {
@@ -216,7 +225,7 @@ func (r *Replicator) PutObjects(ctx context.Context,
 	if err != nil {
 		r.log.WithField("op", "push.many").WithField("class", r.class).
 			WithField("shard", shard).Error(err)
-		err = fmt.Errorf("%s %q: %w", msgCLevel, l, errReplicas)
+		err = fmt.Errorf("%s %q: %w", MsgCLevel, l, ErrReplicas)
 		errs := make([]error, len(objs))
 		for i := 0; i < len(objs); i++ {
 			errs[i] = err
@@ -266,7 +275,7 @@ func (r *Replicator) DeleteObjects(ctx context.Context,
 	if err != nil {
 		r.log.WithField("op", "push.deletes").WithField("class", r.class).
 			WithField("shard", shard).Error(err)
-		err = fmt.Errorf("%s %q: %w", msgCLevel, l, errReplicas)
+		err = fmt.Errorf("%s %q: %w", MsgCLevel, l, ErrReplicas)
 		errs := make([]objects.BatchSimpleObject, len(uuids))
 		for i := 0; i < len(uuids); i++ {
 			errs[i].Err = err
@@ -302,7 +311,7 @@ func (r *Replicator) AddReferences(ctx context.Context,
 	if err != nil {
 		r.log.WithField("op", "push.refs").WithField("class", r.class).
 			WithField("shard", shard).Error(err)
-		err = fmt.Errorf("%s %q: %w", msgCLevel, l, errReplicas)
+		err = fmt.Errorf("%s %q: %w", MsgCLevel, l, ErrReplicas)
 		errs := make([]error, len(refs))
 		for i := 0; i < len(refs); i++ {
 			errs[i] = err

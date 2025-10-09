@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -119,7 +119,7 @@ func (m *AutoSchemaManager) autoSchema(ctx context.Context, principal *models.Pr
 		}
 
 		if schemaClass == nil {
-			err := m.authorizer.Authorize(principal, authorization.CREATE, authorization.CollectionsMetadata(object.Class)...)
+			err := m.authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.CollectionsMetadata(object.Class)...)
 			if err != nil {
 				return 0, fmt.Errorf("auto schema can't create objects because can't create collection: %w", err)
 			}
@@ -134,7 +134,7 @@ func (m *AutoSchemaManager) autoSchema(ctx context.Context, principal *models.Pr
 			classcache.RemoveClassFromContext(ctx, object.Class)
 		} else {
 			if newProperties := schema.DedupProperties(schemaClass.Properties, properties); len(newProperties) > 0 {
-				err := m.authorizer.Authorize(principal, authorization.UPDATE, authorization.CollectionsMetadata(schemaClass.Class)...)
+				err := m.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.CollectionsMetadata(schemaClass.Class)...)
 				if err != nil {
 					return 0, fmt.Errorf("auto schema can't create objects because can't update collection: %w", err)
 				}
@@ -559,7 +559,7 @@ func (m *AutoSchemaManager) autoTenants(ctx context.Context,
 			tenants[i] = &models.Tenant{Name: name}
 			i++
 		}
-		err := m.authorizer.Authorize(principal, authorization.CREATE, authorization.ShardsMetadata(className, names...)...)
+		err := m.authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.ShardsMetadata(className, names...)...)
 		if err != nil {
 			return 0, totalTenants, fmt.Errorf("add tenants because can't create collection: %w", err)
 		}
@@ -593,8 +593,15 @@ func (m *AutoSchemaManager) addTenants(ctx context.Context, principal *models.Pr
 		return fmt.Errorf(
 			"tenants must be included for multitenant-enabled class %q", class)
 	}
-	if _, err := m.schemaManager.AddTenants(ctx, principal, class, tenants); err != nil {
+	version, err := m.schemaManager.AddTenants(ctx, principal, class, tenants)
+	if err != nil {
 		return err
 	}
+
+	err = m.schemaManager.WaitForUpdate(ctx, version)
+	if err != nil {
+		return fmt.Errorf("could not wait for update: %w", err)
+	}
+
 	return nil
 }

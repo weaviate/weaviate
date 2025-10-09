@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -16,16 +16,19 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"io"
 	"math"
 	"os"
 	"path/filepath"
 	"runtime/debug"
+	"slices"
 	"sort"
 	"sync"
 	"time"
 
 	entcfg "github.com/weaviate/weaviate/entities/config"
-	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/diskio"
+	"github.com/weaviate/weaviate/entities/errorcompounder"
 
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
@@ -39,13 +42,18 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/interval"
 	"github.com/weaviate/weaviate/entities/lsmkv"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
-const FlushAfterDirtyDefault = 60 * time.Second
+const (
+	FlushAfterDirtyDefault = 60 * time.Second
+	unsetStrategy          = "UNSET"
+	contextCheckInterval   = 50 // check context every 50 iterations, every iteration adds too much overhead
+)
 
 type BucketCreator interface {
 	NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogger,
@@ -67,6 +75,7 @@ type Bucket struct {
 	flushLock        sync.RWMutex
 	haltedFlushTimer *interval.BackoffTimer
 
+	minWalThreshold   uint64
 	walThreshold      uint64
 	flushDirtyAfter   time.Duration
 	memtableThreshold uint64
@@ -83,7 +92,8 @@ type Bucket struct {
 	secondaryIndices uint16
 
 	// Optional to avoid syscalls
-	mmapContents bool
+	mmapContents  bool
+	writeMetadata bool
 
 	// for backward compatibility
 	legacyMapSortingBeforeCompaction bool
@@ -126,8 +136,14 @@ type Bucket struct {
 	// ON by default
 	calcCountNetAdditions bool
 
-	forceCompaction   bool
-	disableCompaction bool
+	forceCompaction    bool
+	disableCompaction  bool
+	lazySegmentLoading bool
+
+	// if true, don't increase the segment level during compaction.
+	// useful for migrations, as it allows to merge reindex and ingest buckets
+	// without discontinuities in segment levels.
+	keepLevelCompaction bool
 
 	// optionally supplied to prevent starting memory-intensive
 	// processes when memory pressure is high
@@ -155,6 +171,10 @@ type Bucket struct {
 	// (currently used by roaringsetrange inverted indexes)
 	bitmapBufPool roaringset.BitmapBufPool
 
+	// add information like the level and the strategy into the filename so these things can be checked without loading
+	// the segment
+	writeSegmentInfoIntoFileName bool
+
 	bm25Config *models.BM25Config
 }
 
@@ -174,31 +194,43 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 	defaultMemTableThreshold := uint64(10 * 1024 * 1024)
 	defaultWalThreshold := uint64(1024 * 1024 * 1024)
 	defaultFlushAfterDirty := FlushAfterDirtyDefault
-	defaultStrategy := StrategyReplace
+	// this is not the nicest way of doing this check, but we will make strategy a required parameter in the future on
+	// main
+	defaultStrategy := unsetStrategy
 
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
 	}
 
+	files, err := diskio.GetFileWithSizes(dir)
+	if err != nil {
+		return nil, err
+	}
+
 	b := &Bucket{
-		dir:                   dir,
-		rootDir:               rootDir,
-		memtableThreshold:     defaultMemTableThreshold,
-		walThreshold:          defaultWalThreshold,
-		flushDirtyAfter:       defaultFlushAfterDirty,
-		strategy:              defaultStrategy,
-		mmapContents:          true,
-		logger:                logger,
-		metrics:               metrics,
-		useBloomFilter:        true,
-		calcCountNetAdditions: true,
-		haltedFlushTimer:      interval.NewBackoffTimer(),
+		dir:                          dir,
+		rootDir:                      rootDir,
+		memtableThreshold:            defaultMemTableThreshold,
+		walThreshold:                 defaultWalThreshold,
+		flushDirtyAfter:              defaultFlushAfterDirty,
+		strategy:                     defaultStrategy,
+		mmapContents:                 true,
+		logger:                       logger,
+		metrics:                      metrics,
+		useBloomFilter:               true,
+		calcCountNetAdditions:        false,
+		haltedFlushTimer:             interval.NewBackoffTimer(),
+		writeSegmentInfoIntoFileName: false,
 	}
 
 	for _, opt := range opts {
 		if err := opt(b); err != nil {
 			return nil, err
 		}
+	}
+
+	if b.strategy == unsetStrategy {
+		return nil, errors.New("strategy needs to be explicitly set for all buckets")
 	}
 
 	if b.memtableResizer != nil {
@@ -209,98 +241,40 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 		compactionCallbacks = cyclemanager.NewCallbackGroupNoop()
 	}
 
-	sg, err := newSegmentGroup(logger, metrics, compactionCallbacks,
+	b.desiredStrategy = b.strategy
+
+	sg, err := newSegmentGroup(ctx, logger, metrics,
 		sgConfig{
-			dir:                      dir,
-			strategy:                 b.strategy,
-			mapRequiresSorting:       b.legacyMapSortingBeforeCompaction,
-			monitorCount:             b.monitorCount,
-			mmapContents:             b.mmapContents,
-			keepTombstones:           b.keepTombstones,
-			forceCompaction:          b.forceCompaction,
-			useBloomFilter:           b.useBloomFilter,
-			calcCountNetAdditions:    b.calcCountNetAdditions,
-			maxSegmentSize:           b.maxSegmentSize,
-			cleanupInterval:          b.segmentsCleanupInterval,
-			enableChecksumValidation: b.enableChecksumValidation,
-			keepSegmentsInMemory:     b.keepSegmentsInMemory,
-			MinMMapSize:              b.minMMapSize,
-			bm25config:               b.bm25Config,
-		}, b.allocChecker)
+			dir:                          dir,
+			strategy:                     b.strategy,
+			mapRequiresSorting:           b.legacyMapSortingBeforeCompaction,
+			monitorCount:                 b.monitorCount,
+			mmapContents:                 b.mmapContents,
+			keepTombstones:               b.keepTombstones,
+			forceCompaction:              b.forceCompaction,
+			useBloomFilter:               b.useBloomFilter,
+			calcCountNetAdditions:        b.calcCountNetAdditions,
+			maxSegmentSize:               b.maxSegmentSize,
+			cleanupInterval:              b.segmentsCleanupInterval,
+			enableChecksumValidation:     b.enableChecksumValidation,
+			keepSegmentsInMemory:         b.keepSegmentsInMemory,
+			MinMMapSize:                  b.minMMapSize,
+			bm25config:                   b.bm25Config,
+			keepLevelCompaction:          b.keepLevelCompaction,
+			writeSegmentInfoIntoFileName: b.writeSegmentInfoIntoFileName,
+			writeMetadata:                b.writeMetadata,
+		}, compactionCallbacks, b, files)
 	if err != nil {
 		return nil, fmt.Errorf("init disk segments: %w", err)
 	}
 
-	b.desiredStrategy = b.strategy
-	// Actual strategy is stored in segment files. In case it is SetCollection,
-	// while new implementation uses bitmaps and supposed to be RoaringSet,
-	// bucket and segmentgroup strategy is changed back to SetCollection
-	// (memtables will be created later on, with already modified strategy)
-	// TODO what if only WAL files exists, and there is no segment to get actual strategy?
-	if b.strategy == StrategyRoaringSet && len(sg.segments) > 0 &&
-		sg.segments[0].strategy == segmentindex.StrategySetCollection {
-		b.strategy = StrategySetCollection
-		b.desiredStrategy = StrategyRoaringSet
-		sg.strategy = StrategySetCollection
-	}
-	// As of v1.19 property's IndexInterval setting is replaced with
-	// IndexFilterable (roaring set) + IndexSearchable (map) and enabled by default.
-	// Buckets for text/text[] inverted indexes created before 1.19 have strategy
-	// map and name that since 1.19 is used by filterable indeverted index.
-	// Those buckets (roaring set by configuration, but in fact map) have to be
-	// renamed on startup by migrator. Here actual strategy is set based on
-	// data found in segment files
-	if b.strategy == StrategyRoaringSet && len(sg.segments) > 0 &&
-		sg.segments[0].strategy == segmentindex.StrategyMapCollection {
-		b.strategy = StrategyMapCollection
-		b.desiredStrategy = StrategyRoaringSet
-		sg.strategy = StrategyMapCollection
-	}
-
-	// Inverted segments share a lot of their logic as the MapCollection,
-	// and the main difference is in the way they store their data.
-	// Setting the desired strategy to Inverted will make sure that we can
-	// distinguish between the two strategies for search.
-	// The changes only apply when we have segments on disk,
-	// as the memtables will always be created with the MapCollection strategy.
-	if b.strategy == StrategyInverted && len(sg.segments) > 0 &&
-		sg.segments[0].strategy == segmentindex.StrategyMapCollection {
-		b.strategy = StrategyMapCollection
-		b.desiredStrategy = StrategyInverted
-		sg.strategy = StrategyMapCollection
-	} else if b.strategy == StrategyMapCollection && len(sg.segments) > 0 &&
-		sg.segments[0].strategy == segmentindex.StrategyInverted {
-		// TODO amourao: blockmax "else" to be removed before final release
-		// in case bucket was created as inverted and default strategy was reverted to map
-		// by unsetting corresponding env variable
-		b.strategy = StrategyInverted
-		b.desiredStrategy = StrategyMapCollection
-		sg.strategy = StrategyInverted
-	}
-
 	b.disk = sg
 
-	if err := b.mayRecoverFromCommitLogs(ctx); err != nil {
-		return nil, err
-	}
-
-	// segment load order is as follows:
-	// - find .tmp files and recover them first
-	// - find .db files and load them
-	//   - if there is a .wal file exists for a .db, remove the .db file
-	// - find .wal files and load them into a memtable
-	//   - flush the memtable to a segment file
-	// Thus, files may be loaded in a different order than they were created,
-	// and we need to re-sort them to ensure the order is correct, as compations
-	// and other operations are based on the creation order of the segments
-
-	sort.Slice(b.disk.segments, func(i, j int) bool {
-		return b.disk.segments[i].path < b.disk.segments[j].path
-	})
-
-	err = b.setNewActiveMemtable()
-	if err != nil {
-		return nil, err
+	if b.active == nil {
+		err = b.setNewActiveMemtable()
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	id := "bucket/flush/" + b.dir
@@ -378,13 +352,55 @@ func (b *Bucket) IterateObjects(ctx context.Context, f func(object *storobj.Obje
 	return nil
 }
 
-func (b *Bucket) ApplyToObjectDigests(ctx context.Context, f func(object *storobj.Object) error) error {
+func (b *Bucket) pauseCompaction(ctx context.Context) error {
+	return b.disk.pauseCompaction(ctx)
+}
+
+func (b *Bucket) resumeCompaction(ctx context.Context) error {
+	return b.disk.resumeCompaction(ctx)
+}
+
+// ApplyToObjectDigests iterates over all objects in the bucket, both in memtable
+// and on disk, and applies the given function to each object.
+// The afterInMemCallback is called after the in-memory memtable has been processed.
+// This allows the caller to perform actions that need to happen after the in-memory
+// objects have been processed.
+// The function f is called for each object, and if it returns an error, the
+// processing is stopped and the error is returned.
+// Note: this function pauses compaction while it is running, to ensure a consistent view of the data.
+func (b *Bucket) ApplyToObjectDigests(ctx context.Context,
+	afterInMemCallback func(), f func(object *storobj.Object) error,
+) error {
+	err := b.pauseCompaction(ctx)
+	if err != nil {
+		afterInMemCallback()
+		return fmt.Errorf("pausing compaction: %w", err)
+	}
+	defer func() {
+		ec := errorcompounder.New()
+
+		if err != nil {
+			ec.AddWrap(err, "during ApplyToObjectDigests")
+		}
+
+		err = b.resumeCompaction(ctx)
+		if err != nil {
+			ec.AddWrap(err, "resuming compaction after ApplyToObjectDigests")
+		}
+
+		err = ec.ToError()
+	}()
+
 	// note: it's important to first create the on disk cursor so to avoid potential double scanning over flushing memtable
 	onDiskCursor := b.CursorOnDisk()
 	defer onDiskCursor.Close()
 
+	inmemProcessedDocIDs := make(map[uint64]struct{})
+
 	// note: read-write access to active and flushing memtable will be blocked only during the scope of this inner function
-	err := func() error {
+	err = func() error {
+		defer afterInMemCallback()
+
 		inMemCursor := b.CursorInMem()
 		defer inMemCursor.Close()
 
@@ -400,6 +416,8 @@ func (b *Bucket) ApplyToObjectDigests(ctx context.Context, f func(object *storob
 				if err := f(obj); err != nil {
 					return fmt.Errorf("callback on object '%d' failed: %w", obj.DocID, err)
 				}
+
+				inmemProcessedDocIDs[obj.DocID] = struct{}{}
 			}
 		}
 
@@ -418,6 +436,11 @@ func (b *Bucket) ApplyToObjectDigests(ctx context.Context, f func(object *storob
 			if err != nil {
 				return fmt.Errorf("cannot unmarshal object: %w", err)
 			}
+
+			if _, ok := inmemProcessedDocIDs[obj.DocID]; ok {
+				continue
+			}
+
 			if err := f(obj); err != nil {
 				return fmt.Errorf("callback on object '%d' failed: %w", obj.DocID, err)
 			}
@@ -870,7 +893,7 @@ func (b *Bucket) MapList(ctx context.Context, key []byte, cfgs ...MapListOption)
 
 	segments := [][]MapPair{}
 	// before := time.Now()
-	disk, segmentsDisk, release, err := b.disk.getCollectionAndSegments(key)
+	disk, segmentsDisk, release, err := b.disk.getCollectionAndSegments(ctx, key)
 	if err != nil && !errors.Is(err, lsmkv.NotFound) {
 		return nil, err
 	}
@@ -888,8 +911,9 @@ func (b *Bucket) MapList(ctx context.Context, key []byte, cfgs ...MapListOption)
 		}
 
 		propLengths := make(map[uint64]uint32)
-		if segmentsDisk[i].strategy == segmentindex.StrategyInverted {
-			propLengths, err = segmentsDisk[i].GetPropertyLengths()
+		if segmentsDisk[i].getStrategy() == segmentindex.StrategyInverted {
+			sgm := segmentsDisk[i].getSegment()
+			propLengths, err = sgm.GetPropertyLengths()
 			if err != nil {
 				return nil, err
 			}
@@ -899,7 +923,7 @@ func (b *Bucket) MapList(ctx context.Context, key []byte, cfgs ...MapListOption)
 		for j, v := range disk[i] {
 			// Inverted segments have a slightly different internal format
 			// and separate property lengths that need to be read.
-			if segmentsDisk[i].strategy == segmentindex.StrategyInverted {
+			if segmentsDisk[i].getStrategy() == segmentindex.StrategyInverted {
 				if err := segmentDecoded[j].FromBytesInverted(v.value, false); err != nil {
 					return nil, err
 				}
@@ -971,11 +995,11 @@ func (b *Bucket) MapList(ctx context.Context, key []byte, cfgs ...MapListOption)
 	return newSortedMapMerger().do(ctx, segments)
 }
 
-func (b *Bucket) loadAllTombstones(segmentsDisk []*segment) ([]*sroar.Bitmap, error) {
+func (b *Bucket) loadAllTombstones(segmentsDisk []Segment) ([]*sroar.Bitmap, error) {
 	hasTombstones := false
 	allTombstones := make([]*sroar.Bitmap, len(segmentsDisk)+2)
 	for i, segment := range segmentsDisk {
-		if segment.strategy == segmentindex.StrategyInverted {
+		if segment.getStrategy() == segmentindex.StrategyInverted {
 			tombstones, err := segment.ReadOnlyTombstones()
 			if err != nil {
 				return nil, err
@@ -1109,7 +1133,7 @@ func (b *Bucket) setNewActiveMemtable() error {
 	}
 
 	mt, err := newMemtable(path, b.strategy, b.secondaryIndices, cl,
-		b.metrics, b.logger, b.enableChecksumValidation, b.bm25Config)
+		b.metrics, b.logger, b.enableChecksumValidation, b.bm25Config, b.writeSegmentInfoIntoFileName, b.allocChecker)
 	if err != nil {
 		return err
 	}
@@ -1118,7 +1142,7 @@ func (b *Bucket) setNewActiveMemtable() error {
 	return nil
 }
 
-func (b *Bucket) Count() int {
+func (b *Bucket) Count(ctx context.Context) (int, error) {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
@@ -1128,13 +1152,22 @@ func (b *Bucket) Count() int {
 
 	memtableCount := 0
 	if b.flushing == nil {
-		// only consider active
-		memtableCount += b.memtableNetCount(b.active.countStats(), nil)
+		count, err := b.memtableNetCount(ctx, b.active.countStats(), nil)
+		if err != nil {
+			return 0, err
+		}
+		memtableCount += count
 	} else {
 		flushingCountStats := b.flushing.countStats()
 		activeCountStats := b.active.countStats()
-		deltaActive := b.memtableNetCount(activeCountStats, flushingCountStats)
-		deltaFlushing := b.memtableNetCount(flushingCountStats, nil)
+		deltaActive, err := b.memtableNetCount(ctx, activeCountStats, flushingCountStats)
+		if err != nil {
+			return 0, err
+		}
+		deltaFlushing, err := b.memtableNetCount(ctx, flushingCountStats, nil)
+		if err != nil {
+			return 0, err
+		}
 
 		memtableCount = deltaActive + deltaFlushing
 	}
@@ -1144,7 +1177,7 @@ func (b *Bucket) Count() int {
 	if b.monitorCount {
 		b.metrics.ObjectCount(memtableCount + diskCount)
 	}
-	return memtableCount + diskCount
+	return memtableCount + diskCount, nil
 }
 
 // CountAsync ignores the current memtable, that makes it async because it only
@@ -1155,25 +1188,31 @@ func (b *Bucket) CountAsync() int {
 	return b.disk.count()
 }
 
-func (b *Bucket) memtableNetCount(stats *countStats, previousMemtable *countStats) int {
+func (b *Bucket) memtableNetCount(ctx context.Context, stats *countStats, previousMemtable *countStats) (int, error) {
 	netCount := 0
 
 	// TODO: this uses regular get, given that this may be called quite commonly,
 	// we might consider building a pure Exists(), which skips reading the value
 	// and only checks for tombstones, etc.
-	for _, key := range stats.upsertKeys {
+	for i, key := range stats.upsertKeys {
+		if i%contextCheckInterval == 0 && ctx.Err() != nil {
+			return 0, ctx.Err()
+		}
 		if !b.existsOnDiskAndPreviousMemtable(previousMemtable, key) {
 			netCount++
 		}
 	}
 
-	for _, key := range stats.tombstonedKeys {
+	for i, key := range stats.tombstonedKeys {
+		if i%contextCheckInterval == 0 && ctx.Err() != nil {
+			return 0, ctx.Err()
+		}
 		if b.existsOnDiskAndPreviousMemtable(previousMemtable, key) {
 			netCount--
 		}
 	}
 
-	return netCount
+	return netCount, nil
 }
 
 func (b *Bucket) existsOnDiskAndPreviousMemtable(previous *countStats, key []byte) bool {
@@ -1202,8 +1241,16 @@ func (b *Bucket) Shutdown(ctx context.Context) error {
 	if b.active.strategy == StrategyInverted {
 		b.active.averagePropLength, b.active.propLengthCount = b.disk.GetAveragePropertyLength()
 	}
-	if err := b.active.flush(); err != nil {
-		return err
+	if b.shouldReuseWAL() {
+		if err := b.active.flushWAL(); err != nil {
+			b.flushLock.Unlock()
+			return err
+		}
+	} else {
+		if _, err := b.active.flush(); err != nil {
+			b.flushLock.Unlock()
+			return err
+		}
 	}
 	b.flushLock.Unlock()
 
@@ -1226,6 +1273,10 @@ func (b *Bucket) Shutdown(ctx context.Context) error {
 			}
 		}
 	}
+}
+
+func (b *Bucket) shouldReuseWAL() bool {
+	return uint64(b.active.commitlog.size()) <= uint64(b.minWalThreshold)
 }
 
 // flushAndSwitchIfThresholdsMet is part of flush callbacks of the bucket.
@@ -1253,6 +1304,11 @@ func (b *Bucket) flushAndSwitchIfThresholdsMet(shouldAbort cyclemanager.ShouldAb
 		return false
 	}
 
+	if b.shouldReuseWAL() {
+		defer b.flushLock.RUnlock()
+		return b.getAndUpdateWritesSinceLastSync()
+	}
+
 	b.flushLock.RUnlock()
 	if shouldSwitch {
 		b.haltedFlushTimer.Reset()
@@ -1274,6 +1330,40 @@ func (b *Bucket) flushAndSwitchIfThresholdsMet(shouldAbort cyclemanager.ShouldAb
 		return true
 	}
 	return false
+}
+
+func (b *Bucket) getAndUpdateWritesSinceLastSync() bool {
+	b.active.Lock()
+	defer b.active.Unlock()
+
+	hasWrites := b.active.writesSinceLastSync
+	if !hasWrites {
+		// had no work this iteration, cycle manager can back off
+		return false
+	}
+
+	err := b.active.commitlog.flushBuffers()
+	if err != nil {
+		b.logger.WithField("action", "lsm_memtable_flush").
+			WithField("path", b.dir).
+			WithError(err).
+			Errorf("flush and switch failed")
+
+		return false
+	}
+
+	err = b.active.commitlog.sync()
+	if err != nil {
+		b.logger.WithField("action", "lsm_memtable_flush").
+			WithField("path", b.dir).
+			WithError(err).
+			Errorf("flush and switch failed")
+
+		return false
+	}
+	b.active.writesSinceLastSync = false
+	// there was work in this iteration, cycle manager should not back off and revisit soon
+	return true
 }
 
 // UpdateStatus is used by the parent shard to communicate to the bucket
@@ -1368,7 +1458,8 @@ func (b *Bucket) FlushAndSwitch() error {
 	if b.flushing.strategy == StrategyInverted {
 		b.flushing.averagePropLength, b.flushing.propLengthCount = b.disk.GetAveragePropertyLength()
 	}
-	if err := b.flushing.flush(); err != nil {
+	segmentPath, err := b.flushing.flush()
+	if err != nil {
 		return fmt.Errorf("flush: %w", err)
 	}
 
@@ -1379,7 +1470,7 @@ func (b *Bucket) FlushAndSwitch() error {
 		}
 	}
 
-	segment, err := b.initAndPrecomputeNewSegment()
+	segment, err := b.initAndPrecomputeNewSegment(segmentPath)
 	if err != nil {
 		return fmt.Errorf("precompute metadata: %w", err)
 	}
@@ -1447,12 +1538,11 @@ func (b *Bucket) atomicallySwitchMemtable() (bool, error) {
 	return true, nil
 }
 
-func (b *Bucket) initAndPrecomputeNewSegment() (*segment, error) {
+func (b *Bucket) initAndPrecomputeNewSegment(segmentPath string) (*segment, error) {
 	// Note that this operation does not require the flush lock, i.e. it can
 	// happen in the background and we can accept new writes will this
 	// pre-compute is happening.
-	path := b.flushing.path
-	segment, err := b.disk.initAndPrecomputeNewSegment(path + ".db")
+	segment, err := b.disk.initAndPrecomputeNewSegment(segmentPath)
 	if err != nil {
 		return nil, err
 	}
@@ -1514,7 +1604,7 @@ func (b *Bucket) DocPointerWithScoreList(ctx context.Context, key []byte, propBo
 	}
 
 	segments := [][]terms.DocPointerWithScore{}
-	disk, segmentsDisk, release, err := b.disk.getCollectionAndSegments(key)
+	disk, segmentsDisk, release, err := b.disk.getCollectionAndSegments(ctx, key)
 	if err != nil && !errors.Is(err, lsmkv.NotFound) {
 		return nil, err
 	}
@@ -1528,11 +1618,13 @@ func (b *Bucket) DocPointerWithScoreList(ctx context.Context, key []byte, propBo
 
 	for i := range disk {
 		if ctx.Err() != nil {
-			return nil, ctx.Err()
+			return nil, fmt.Errorf("docPointerWithScoreList: %w", ctx.Err())
 		}
 		propLengths := make(map[uint64]uint32)
-		if segmentsDisk[i].strategy == segmentindex.StrategyInverted {
-			propLengths, err = segmentsDisk[i].GetPropertyLengths()
+		if segmentsDisk[i].getStrategy() == segmentindex.StrategyInverted {
+			sgm := segmentsDisk[i].getSegment()
+
+			propLengths, err = sgm.GetPropertyLengths()
 			if err != nil {
 				return nil, err
 			}
@@ -1540,7 +1632,7 @@ func (b *Bucket) DocPointerWithScoreList(ctx context.Context, key []byte, propBo
 
 		segmentDecoded := make([]terms.DocPointerWithScore, len(disk[i]))
 		for j, v := range disk[i] {
-			if segmentsDisk[i].strategy == segmentindex.StrategyInverted {
+			if segmentsDisk[i].getStrategy() == segmentindex.StrategyInverted {
 				docId := binary.BigEndian.Uint64(v.value[:8])
 				propLen := propLengths[docId]
 				if err := segmentDecoded[j].FromBytesInverted(v.value, propBoost, float32(propLen)); err != nil {
@@ -1650,7 +1742,7 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 		if b.active != nil {
 			memtable := b.active
 			n2, _ := fillTerm(memtable, key, active, filterDocIds)
-			if n2 > 0 {
+			if active.Count() > 0 {
 				output[len(segmentsDisk)+1] = append(output[len(segmentsDisk)+1], active)
 			}
 			n += n2
@@ -1671,7 +1763,7 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 		if b.flushing != nil {
 			memtable := b.flushing
 			n2, _ := fillTerm(memtable, key, flushing, filterDocIds)
-			if n2 > 0 {
+			if flushing.Count() > 0 {
 				output[len(segmentsDisk)] = append(output[len(segmentsDisk)], flushing)
 			}
 			n += n2
@@ -1691,8 +1783,9 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 		}
 
 		for _, segment := range segmentsDisk {
-			if segment.strategy == segmentindex.StrategyInverted && segment.hasKey(key) {
-				n += segment.getDocCount(key)
+			sgm := segment.getSegment()
+			if segment.getStrategy() == segmentindex.StrategyInverted && sgm.hasKey(key) {
+				n += sgm.getDocCount(key)
 			}
 		}
 
@@ -1706,6 +1799,11 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 		flushing.currentBlockImpact = float32(idfs[i])
 
 		idfCounts[queryTerm] = n
+	}
+
+	if ctx.Err() != nil {
+		release()
+		return nil, nil, func() {}, fmt.Errorf("after memtable terms: %w", ctx.Err())
 	}
 
 	for j := len(segmentsDisk) - 1; j >= 0; j-- {
@@ -1723,7 +1821,7 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 		}
 
 		for i, key := range query {
-			term := NewSegmentBlockMax(segment, []byte(key), i, idfs[i], propertyBoost, allTombstones, filterDocIds, averagePropLength, config)
+			term := NewSegmentBlockMax(segment.getSegment(), []byte(key), i, idfs[i], propertyBoost, allTombstones, filterDocIds, averagePropLength, config)
 			if term != nil {
 				output[j] = append(output[j], term)
 			}
@@ -1830,4 +1928,132 @@ func (b *Bucket) GetAveragePropertyLength() (float64, error) {
 		return 0, nil
 	}
 	return float64(propLengthSum) / float64(propLengthCount), nil
+}
+
+// DiskSize returns the total size from the disk segment group (cold path)
+func (b *Bucket) DiskSize() int64 {
+	if b.disk != nil {
+		return b.disk.Size()
+	}
+	return 0
+}
+
+// MetadataSize returns the total size of metadata files (.bloom and .cna) from segments in memory
+func (b *Bucket) MetadataSize() int64 {
+	if b.disk == nil {
+		return 0
+	}
+	return b.disk.MetadataSize()
+}
+
+func DetermineUnloadedBucketStrategy(bucketPath string) (string, error) {
+	return DetermineUnloadedBucketStrategyAmong(bucketPath, prioritizedAllStrategies)
+}
+
+func DetermineUnloadedBucketStrategyAmong(bucketPath string, prioritizedStrategies []string) (string, error) {
+	if len(prioritizedStrategies) == 0 {
+		return "", fmt.Errorf("no prioritizedStrategies given")
+	}
+	defaultStrategy := prioritizedStrategies[0]
+
+	entries, err := os.ReadDir(bucketPath)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			return "", err
+		}
+		return defaultStrategy, nil
+	}
+	if len(entries) == 0 {
+		return defaultStrategy, nil
+	}
+
+	// check wals only after checking all segments
+	var walEntries []os.DirEntry
+	ec := errorcompounder.New()
+	ecMismatchStrategy := errorcompounder.New()
+	bufHeader := make([]byte, segmentindex.HeaderSize)
+
+	for _, entry := range entries {
+		switch filepath.Ext(entry.Name()) {
+		case ".db":
+			info, err := entry.Info()
+			if err != nil {
+				ec.Add(fmt.Errorf("%q:%w", entry.Name(), err))
+				continue
+			}
+			if info.Size() <= 0 {
+				continue
+			}
+
+			strategy, err := func() (string, error) {
+				file, err := os.Open(filepath.Join(bucketPath, entry.Name()))
+				if err != nil {
+					return "", err
+				}
+				defer file.Close()
+
+				_, err = io.ReadFull(file, bufHeader)
+				if err != nil {
+					return "", err
+				}
+
+				header, err := segmentindex.ParseHeader(bufHeader)
+				if err != nil {
+					return "", err
+				}
+
+				return header.Strategy.String(), nil
+			}()
+			if err != nil {
+				ec.Add(fmt.Errorf("%q:%w", entry.Name(), err))
+				continue
+			}
+			if !slices.Contains(prioritizedStrategies, strategy) {
+				ecMismatchStrategy.Add(fmt.Errorf("%q:strategy %q does not match %v", entry.Name(), strategy, prioritizedStrategies))
+				continue
+			}
+			return strategy, nil
+
+		case ".wal":
+			info, err := entry.Info()
+			if err != nil {
+				ec.Add(fmt.Errorf("%q:%w", entry.Name(), err))
+				continue
+			}
+			if info.Size() <= 0 {
+				continue
+			}
+			walEntries = append(walEntries, entry)
+
+		default:
+			continue
+		}
+	}
+
+	if err := ecMismatchStrategy.ToError(); err != nil {
+		return "", err
+	}
+
+	// strategy not yet determined. proceed with wal files
+	for _, entry := range walEntries {
+		strategy, err := func() (string, error) {
+			file, err := os.Open(filepath.Join(bucketPath, entry.Name()))
+			if err != nil {
+				return "", err
+			}
+			defer file.Close()
+
+			return guessCommitLogStrategyAmong(file, prioritizedStrategies)
+		}()
+		if err != nil {
+			ec.Add(fmt.Errorf("%q:strategy %q does not match %v", entry.Name(), strategy, prioritizedStrategies))
+			continue
+		}
+		return strategy, nil
+	}
+
+	if err := ec.ToError(); err != nil {
+		return "", err
+	}
+	return defaultStrategy, nil
 }

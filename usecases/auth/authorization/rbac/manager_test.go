@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -15,11 +15,12 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/weaviate/weaviate/usecases/auth/authentication"
+
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 )
@@ -27,30 +28,30 @@ import (
 func TestSnapshotAndRestore(t *testing.T) {
 	tests := []struct {
 		name          string
-		setupPolicies func(*manager) error
+		setupPolicies func(*Manager) error
 		wantErr       bool
 	}{
 		{
 			name: "empty policies",
-			setupPolicies: func(m *manager) error {
+			setupPolicies: func(m *Manager) error {
 				return nil
 			},
 		},
 		{
 			name: "with role and policy",
-			setupPolicies: func(m *manager) error {
+			setupPolicies: func(m *Manager) error {
 				// Add a role and policy
 				_, err := m.casbin.AddNamedPolicy("p", conv.PrefixRoleName("admin"), "*", authorization.READ, authorization.SchemaDomain)
 				if err != nil {
 					return err
 				}
-				_, err = m.casbin.AddRoleForUser(conv.UserNameWithTypeFromId("test-user", models.UserTypeInputDb), conv.PrefixRoleName("admin"))
+				_, err = m.casbin.AddRoleForUser(conv.UserNameWithTypeFromId("test-user", authentication.AuthTypeDb), conv.PrefixRoleName("admin"))
 				return err
 			},
 		},
 		{
 			name: "multiple roles and policies",
-			setupPolicies: func(m *manager) error {
+			setupPolicies: func(m *Manager) error {
 				// Add multiple roles and policies
 				_, err := m.casbin.AddNamedPolicy("p", conv.PrefixRoleName("admin"), "*", authorization.READ, authorization.SchemaDomain)
 				if err != nil {
@@ -60,11 +61,11 @@ func TestSnapshotAndRestore(t *testing.T) {
 				if err != nil {
 					return err
 				}
-				_, err = m.casbin.AddRoleForUser(conv.UserNameWithTypeFromId("test-user", models.UserTypeInputDb), conv.PrefixRoleName("admin"))
+				_, err = m.casbin.AddRoleForUser(conv.UserNameWithTypeFromId("test-user", authentication.AuthTypeDb), conv.PrefixRoleName("admin"))
 				if err != nil {
 					return err
 				}
-				_, err = m.casbin.AddRoleForUser(conv.UserNameWithTypeFromId("test-user", models.UserTypeInputDb), conv.PrefixRoleName("editor"))
+				_, err = m.casbin.AddRoleForUser(conv.UserNameWithTypeFromId("test-user", authentication.AuthTypeDb), conv.PrefixRoleName("editor"))
 				return err
 			},
 		},
@@ -164,7 +165,7 @@ func equalPolicies(a, b []string) bool {
 
 func TestSnapshotNilCasbin(t *testing.T) {
 	logger, _ := test.NewNullLogger()
-	m := &manager{
+	m := &Manager{
 		casbin: nil,
 		logger: logger,
 	}
@@ -176,7 +177,7 @@ func TestSnapshotNilCasbin(t *testing.T) {
 
 func TestRestoreNilCasbin(t *testing.T) {
 	logger, _ := test.NewNullLogger()
-	m := &manager{
+	m := &Manager{
 		casbin: nil,
 		logger: logger,
 	}
@@ -210,7 +211,7 @@ func TestRestoreEmptyData(t *testing.T) {
 
 	policies, err := m.casbin.GetPolicy()
 	require.NoError(t, err)
-	require.Len(t, policies, 4)
+	require.Len(t, policies, 5)
 
 	err = m.Restore([]byte{})
 	require.NoError(t, err)
@@ -218,7 +219,7 @@ func TestRestoreEmptyData(t *testing.T) {
 	// nothing overwritten
 	policies, err = m.casbin.GetPolicy()
 	require.NoError(t, err)
-	require.Len(t, policies, 4)
+	require.Len(t, policies, 5)
 }
 
 func TestSnapshotAndRestoreUpgrade(t *testing.T) {
@@ -236,6 +237,11 @@ func TestSnapshotAndRestoreUpgrade(t *testing.T) {
 			},
 			policiesExpected: [][]string{
 				{"role:some_role", "users/.*", "A", "users"},
+				// build-in roles are added after restore
+				{"role:viewer", "*", authorization.READ, "*"},
+				{"role:read-only", "*", authorization.READ, "*"},
+				{"role:admin", "*", conv.VALID_VERBS, "*"},
+				{"role:root", "*", conv.VALID_VERBS, "*"},
 			},
 		},
 		{
@@ -246,7 +252,10 @@ func TestSnapshotAndRestoreUpgrade(t *testing.T) {
 			},
 			policiesExpected: [][]string{
 				{"role:viewer", "*", "R", "*"},
+				{"role:read-only", "*", "R", "*"},
 				{"role:admin", "*", conv.VALID_VERBS, "*"},
+				// build-in roles are added after restore
+				{"role:root", "*", conv.VALID_VERBS, "*"},
 			},
 		},
 		{
@@ -256,6 +265,10 @@ func TestSnapshotAndRestoreUpgrade(t *testing.T) {
 			},
 			policiesExpected: [][]string{
 				{"role:admin", "*", "(C)|(R)|(U)|(D)|(A)", "*"},
+				// build-in roles are added after restore
+				{"role:viewer", "*", authorization.READ, "*"},
+				{"role:read-only", "*", authorization.READ, "*"},
+				{"role:root", "*", conv.VALID_VERBS, "*"},
 			},
 			groupingsInput: [][]string{
 				{"user:test-user", "role:admin"},
@@ -283,7 +296,7 @@ func TestSnapshotAndRestoreUpgrade(t *testing.T) {
 
 			finalPolicies, err := m.casbin.GetPolicy()
 			require.NoError(t, err)
-			assert.Equal(t, finalPolicies, tt.policiesExpected)
+			assert.ElementsMatch(t, finalPolicies, tt.policiesExpected)
 
 			finalGroupingPolicies, err := m.casbin.GetGroupingPolicy()
 			require.NoError(t, err)

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -37,28 +37,28 @@ func TestHnswIndex(t *testing.T) {
 
 	t.Run("searching within cluster 1", func(t *testing.T) {
 		position := 0
-		res, _, err := index.knnSearchByVector(ctx, testVectors[position], 3, 36, nil)
+		res, _, err := index.SearchByVector(ctx, testVectors[position], 3, nil)
 		require.Nil(t, err)
 		assert.ElementsMatch(t, []uint64{0, 1, 2}, res)
 	})
 
 	t.Run("searching within cluster 2", func(t *testing.T) {
 		position := 3
-		res, _, err := index.knnSearchByVector(ctx, testVectors[position], 3, 36, nil)
+		res, _, err := index.SearchByVector(ctx, testVectors[position], 3, nil)
 		require.Nil(t, err)
 		assert.ElementsMatch(t, []uint64{3, 4, 5}, res)
 	})
 
 	t.Run("searching within cluster 3", func(t *testing.T) {
 		position := 6
-		res, _, err := index.knnSearchByVector(ctx, testVectors[position], 3, 36, nil)
+		res, _, err := index.SearchByVector(ctx, testVectors[position], 3, nil)
 		require.Nil(t, err)
 		assert.ElementsMatch(t, []uint64{6, 7, 8}, res)
 	})
 
 	t.Run("searching within cluster 2 with a scope larger than the cluster", func(t *testing.T) {
 		position := 3
-		res, _, err := index.knnSearchByVector(ctx, testVectors[position], 50, 36, nil)
+		res, _, err := index.SearchByVector(ctx, testVectors[position], 50, nil)
 		require.Nil(t, err)
 		assert.Equal(t, []uint64{
 			3, 5, 4, // cluster 2
@@ -69,7 +69,7 @@ func TestHnswIndex(t *testing.T) {
 
 	t.Run("searching with negative value of k", func(t *testing.T) {
 		position := 0
-		_, _, err := index.knnSearchByVector(ctx, testVectors[position], -1, 36, nil)
+		_, _, err := index.SearchByVector(ctx, testVectors[position], -1, nil)
 		require.Error(t, err)
 	})
 }
@@ -177,6 +177,40 @@ func TestHnswIndexGrowSafely(t *testing.T) {
 	})
 }
 
+func TestHnswIndexValidatePQSegments(t *testing.T) {
+	cfg := createVectorHnswIndexTestConfig()
+	cfg.VectorForIDThunk = func(ctx context.Context, id uint64) ([]float32, error) {
+		return []float32{1, 2, 3, 4}, nil
+	}
+
+	uc := ent.UserConfig{
+		MaxConnections: 30,
+		EFConstruction: 60,
+		EF:             36,
+		PQ: ent.PQConfig{
+			Enabled:  true,
+			Segments: 3,
+		},
+	}
+
+	t.Run("segments are not a divisor of the vector dimensions", func(t *testing.T) {
+		index, err := New(cfg, uc, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
+		require.Nil(t, err)
+
+		err = index.ValidateBeforeInsert([]float32{1, 2, 3, 4})
+		require.ErrorContains(t, err, "pq segments must be a divisor of the vector dimensions")
+	})
+
+	t.Run("segments are not a divisor of the multivector dimensions", func(t *testing.T) {
+		uc.Multivector = ent.MultivectorConfig{Enabled: true}
+		index, err := New(cfg, uc, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
+		require.Nil(t, err)
+
+		err = index.ValidateMultiBeforeInsert([][]float32{{1, 2, 3, 4}})
+		require.ErrorContains(t, err, "pq segments must be a divisor of the vector dimensions")
+	})
+}
+
 func createEmptyHnswIndexForTests(t testing.TB, vecForIDFn common.VectorForID[float32]) *hnsw {
 	cfg := createVectorHnswIndexTestConfig()
 	cfg.VectorForIDThunk = vecForIDFn
@@ -184,6 +218,7 @@ func createEmptyHnswIndexForTests(t testing.TB, vecForIDFn common.VectorForID[fl
 	index, err := New(cfg, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 60,
+		EF:             36,
 	}, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
 	require.Nil(t, err)
 	return index

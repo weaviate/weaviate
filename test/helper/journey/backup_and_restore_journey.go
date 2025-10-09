@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -152,23 +152,46 @@ func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, backend string,
 			WithID(backupID).
 			WithBucket(&overrideName).
 			WithPath(&overridePath)
+
+		var startTime time.Time
+		var completedTime time.Time
+
 		for {
 			resp, err := helper.Client(t).Backups.BackupsCreateStatus(params, nil)
 			require.Nil(t, err)
 			require.NotNil(t, resp)
-			t.Logf("Backup create response: %+v\n", resp)
 
 			meta := resp.GetPayload()
 			require.NotNil(t, meta)
-			t.Logf("Backup create response meta: %+v\n", meta)
+			require.NotNil(t, meta.StartedAt)
+
+			// Capture start time on first iteration
+			if startTime.IsZero() {
+				startTime = time.Time(meta.StartedAt)
+				t.Logf("Backup started at: %v", startTime)
+			}
 
 			if err != nil {
 				t.Logf("failed to get backup status: %+v", err)
 			}
 
-			t.Logf("backup status: %+v\n", meta)
 			switch *meta.Status {
 			case models.BackupCreateStatusResponseStatusSUCCESS:
+				require.NotNil(t, meta.CompletedAt)
+				completedTime = time.Time(meta.CompletedAt)
+				t.Logf("Backup completed at: %v", completedTime)
+
+				// Verify timestamps are reasonable
+				require.True(t, !startTime.IsZero(), "Start time should not be zero")
+				require.True(t, !completedTime.IsZero(), "Completed time should not be zero")
+				require.True(t, completedTime.After(startTime), "Completed time should be after start time")
+
+				// Verify timestamps are recent (within last hour)
+				now := time.Now()
+				require.True(t, startTime.After(now.Add(-1*time.Hour)), "Start time should be within the last hour")
+				require.True(t, completedTime.After(now.Add(-1*time.Hour)), "Completed time should be within the last hour")
+
+				t.Logf("Backup duration: %v", completedTime.Sub(startTime))
 				return
 			case models.BackupCreateStatusResponseStatusFAILED:
 				t.Errorf("failed to create backup, got response: %+v", meta)
@@ -202,8 +225,7 @@ func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, backend string,
 			CPUPercentage: 180,
 			Bucket:        overrideName,
 			Path:          overridePath,
-		}, booksClass.Class, backend, backupID, map[string]string{})
-
+		}, booksClass.Class, backend, backupID, map[string]string{}, false)
 		helper.AssertRequestFail(t, resp, err, func() {
 			var customErr *backups.BackupsRestoreUnprocessableEntity
 			require.True(t, errors.As(err, &customErr), "not backups.BackupsRestoreUnprocessableEntity")

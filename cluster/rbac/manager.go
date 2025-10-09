@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -15,6 +15,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 
 	"github.com/sirupsen/logrus"
 
@@ -27,21 +29,21 @@ import (
 var ErrBadRequest = errors.New("bad request")
 
 type Manager struct {
-	authZ       authorization.Controller
+	authZ       *rbac.Manager
 	authNconfig config.Authentication
 	snapshotter fsm.Snapshotter
 	logger      logrus.FieldLogger
 }
 
-func NewManager(authZ authorization.Controller, authNconfig config.Authentication, snapshotter fsm.Snapshotter, logger logrus.FieldLogger) *Manager {
+func NewManager(authZ *rbac.Manager, authNconfig config.Authentication, snapshotter fsm.Snapshotter, logger logrus.FieldLogger) *Manager {
 	return &Manager{authZ: authZ, authNconfig: authNconfig, snapshotter: snapshotter, logger: logger}
 }
 
 func (m *Manager) GetRoles(req *cmd.QueryRequest) ([]byte, error) {
 	if m.authZ == nil {
-		payload, _ := json.Marshal(cmd.QueryGetRolesResponse{})
-		return payload, nil
+		return json.Marshal(cmd.QueryGetRolesResponse{})
 	}
+
 	subCommand := cmd.QueryGetRolesRequest{}
 	if err := json.Unmarshal(req.SubCommand, &subCommand); err != nil {
 		return []byte{}, fmt.Errorf("%w: %w", ErrBadRequest, err)
@@ -60,22 +62,45 @@ func (m *Manager) GetRoles(req *cmd.QueryRequest) ([]byte, error) {
 	return payload, nil
 }
 
-func (m *Manager) GetRolesForUser(req *cmd.QueryRequest) ([]byte, error) {
+func (m *Manager) GetUsersOrGroupsWithRoles(req *cmd.QueryRequest) ([]byte, error) {
 	if m.authZ == nil {
-		payload, _ := json.Marshal(cmd.QueryGetRolesForUserResponse{})
+		payload, _ := json.Marshal(cmd.QueryGetAllUsersOrGroupsWithRolesResponse{})
 		return payload, nil
 	}
-	subCommand := cmd.QueryGetRolesForUserRequest{}
+	subCommand := cmd.QueryGetAllUsersOrGroupsWithRolesRequest{}
 	if err := json.Unmarshal(req.SubCommand, &subCommand); err != nil {
 		return []byte{}, fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	roles, err := m.authZ.GetRolesForUser(subCommand.User, subCommand.UserType)
+	usersOrGroups, err := m.authZ.GetUsersOrGroupsWithRoles(subCommand.IsGroup, subCommand.AuthType)
 	if err != nil {
 		return []byte{}, fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	response := cmd.QueryGetRolesForUserResponse{Roles: roles}
+	response := cmd.QueryGetAllUsersOrGroupsWithRolesResponse{UsersOrGroups: usersOrGroups}
+	payload, err := json.Marshal(response)
+	if err != nil {
+		return []byte{}, fmt.Errorf("could not marshal query response: %w", err)
+	}
+	return payload, nil
+}
+
+func (m *Manager) GetRolesForUserOrGroup(req *cmd.QueryRequest) ([]byte, error) {
+	if m.authZ == nil {
+		payload, _ := json.Marshal(cmd.QueryGetRolesForUserOrGroupResponse{})
+		return payload, nil
+	}
+	subCommand := cmd.QueryGetRolesForUserOrGroupRequest{}
+	if err := json.Unmarshal(req.SubCommand, &subCommand); err != nil {
+		return []byte{}, fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+
+	roles, err := m.authZ.GetRolesForUserOrGroup(subCommand.User, subCommand.UserType, subCommand.IsGroup)
+	if err != nil {
+		return []byte{}, fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+
+	response := cmd.QueryGetRolesForUserOrGroupResponse{Roles: roles}
 	payload, err := json.Marshal(response)
 	if err != nil {
 		return []byte{}, fmt.Errorf("could not marshal query response: %w", err)
@@ -85,15 +110,15 @@ func (m *Manager) GetRolesForUser(req *cmd.QueryRequest) ([]byte, error) {
 
 func (m *Manager) GetUsersForRole(req *cmd.QueryRequest) ([]byte, error) {
 	if m.authZ == nil {
-		payload, _ := json.Marshal(cmd.QueryGetUsersForRoleResponse{})
-		return payload, nil
+		return json.Marshal(cmd.QueryGetUsersForRoleResponse{})
 	}
+
 	subCommand := cmd.QueryGetUsersForRoleRequest{}
 	if err := json.Unmarshal(req.SubCommand, &subCommand); err != nil {
 		return []byte{}, fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	users, err := m.authZ.GetUsersForRole(subCommand.Role, subCommand.UserType)
+	users, err := m.authZ.GetUsersOrGroupForRole(subCommand.Role, subCommand.UserType, subCommand.IsGroup)
 	if err != nil {
 		return []byte{}, fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
@@ -108,9 +133,9 @@ func (m *Manager) GetUsersForRole(req *cmd.QueryRequest) ([]byte, error) {
 
 func (m *Manager) HasPermission(req *cmd.QueryRequest) ([]byte, error) {
 	if m.authZ == nil {
-		payload, _ := json.Marshal(cmd.QueryHasPermissionResponse{})
-		return payload, nil
+		return json.Marshal(cmd.QueryHasPermissionResponse{})
 	}
+
 	subCommand := cmd.QueryHasPermissionRequest{}
 	if err := json.Unmarshal(req.SubCommand, &subCommand); err != nil {
 		return []byte{}, fmt.Errorf("%w: %w", ErrBadRequest, err)
@@ -133,6 +158,7 @@ func (m *Manager) UpsertRolesPermissions(c *cmd.ApplyRequest) error {
 	if m.authZ == nil {
 		return nil
 	}
+
 	req := &cmd.CreateRolesRequest{}
 	if err := json.Unmarshal(c.SubCommand, req); err != nil {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
@@ -190,12 +216,16 @@ func (m *Manager) AddRolesForUser(c *cmd.ApplyRequest) error {
 	if m.authZ == nil {
 		return nil
 	}
+
 	req := &cmd.AddRolesForUsersRequest{}
 	if err := json.Unmarshal(c.SubCommand, req); err != nil {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	reqs := migrateAssignRoles(req, m.authNconfig)
+	reqs, err := migrateAssignRoles(req, m.authNconfig)
+	if err != nil {
+		return fmt.Errorf("migrateAssign: %w", err)
+	}
 	for _, req := range reqs {
 		if err := m.authZ.AddRolesForUser(req.User, req.Roles); err != nil {
 			return err
@@ -208,6 +238,7 @@ func (m *Manager) RemovePermissions(c *cmd.ApplyRequest) error {
 	if m.authZ == nil {
 		return nil
 	}
+
 	req := &cmd.RemovePermissionsRequest{}
 	if err := json.Unmarshal(c.SubCommand, req); err != nil {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
@@ -231,12 +262,16 @@ func (m *Manager) RevokeRolesForUser(c *cmd.ApplyRequest) error {
 	if m.authZ == nil {
 		return nil
 	}
+
 	req := &cmd.RevokeRolesForUserRequest{}
 	if err := json.Unmarshal(c.SubCommand, req); err != nil {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	reqs := migrateRevokeRoles(req)
+	reqs, err := migrateRevokeRoles(req)
+	if err != nil {
+		return fmt.Errorf("migrateRevoke: %w", err)
+	}
 	for _, req := range reqs {
 		if err := m.authZ.RevokeRolesForUser(req.User, req.Roles...); err != nil {
 			return err

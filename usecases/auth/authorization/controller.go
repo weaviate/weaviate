@@ -4,14 +4,16 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
 
 package authorization
 
-import "github.com/weaviate/weaviate/entities/models"
+import (
+	"github.com/weaviate/weaviate/usecases/auth/authentication"
+)
 
 type Controller interface {
 	UpdateRolesPermissions(roles map[string][]Policy) error
@@ -19,9 +21,10 @@ type Controller interface {
 	GetRoles(names ...string) (map[string][]Policy, error)
 	DeleteRoles(roles ...string) error
 	AddRolesForUser(user string, roles []string) error
-	GetRolesForUser(user string, userType models.UserTypeInput) (map[string][]Policy, error)
-	GetUsersForRole(role string, userType models.UserTypeInput) ([]string, error)
+	GetRolesForUserOrGroup(user string, authMethod authentication.AuthType, isGroup bool) (map[string][]Policy, error)
+	GetUsersOrGroupForRole(role string, authMethod authentication.AuthType, IsGroup bool) ([]string, error)
 	RevokeRolesForUser(user string, roles ...string) error
 	RemovePermissions(role string, permissions []*Policy) error
 	HasPermission(role string, permission *Policy) (bool, error)
+	GetUsersOrGroupsWithRoles(isGroup bool, authMethod authentication.AuthType) ([]string, error)
 }

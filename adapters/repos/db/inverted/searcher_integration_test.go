@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -98,13 +98,13 @@ func TestObjects(t *testing.T) {
 		}
 	})
 
-	bitmapFactory := roaringset.NewBitmapFactory(roaringset.NewBitmapBufPoolNoop(), newFakeMaxIDGetter(docIDCounter))
-
-	searcher := NewSearcher(logger, store, createSchema().GetClass, nil, nil,
-		fakeStopwordDetector{}, 2, func() bool { return false }, "",
-		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory)
-
 	t.Run("run tests", func(t *testing.T) {
+		bitmapFactory := roaringset.NewBitmapFactory(roaringset.NewBitmapBufPoolNoop(), newFakeMaxIDGetter(docIDCounter))
+
+		searcher := NewSearcher(logger, store, createSchema().GetClass, nil, nil,
+			fakeStopwordDetector{}, 2, func() bool { return false }, "",
+			config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory)
+
 		t.Run("NotEqual", func(t *testing.T) {
 			t.Parallel()
 			for _, test := range tests {
@@ -120,7 +120,7 @@ func TestObjects(t *testing.T) {
 					},
 				}}
 				objs, err := searcher.Objects(context.Background(), numObjects,
-					filter, nil, additional.Properties{}, className, []string{propName})
+					filter, nil, additional.Properties{}, className, []string{propName}, nil)
 				assert.Nil(t, err)
 				assert.Len(t, objs, numObjects-multiplier)
 			}
@@ -140,10 +140,121 @@ func TestObjects(t *testing.T) {
 					},
 				}}
 				objs, err := searcher.Objects(context.Background(), numObjects,
-					filter, nil, additional.Properties{}, className, []string{propName})
+					filter, nil, additional.Properties{}, className, []string{propName}, nil)
 				assert.Nil(t, err)
 				assert.Len(t, objs, multiplier)
 			}
+		})
+	})
+
+	t.Run("ids of deleted documents are removed from bitmap factory", func(t *testing.T) {
+		maxDocID := docIDCounter - 1
+		maxDocIDWithNonExistentIds := maxDocID + 10
+
+		maxDocIdGetterWithNonExistentIds := newFakeMaxIDGetter(maxDocIDWithNonExistentIds)
+		bitmapFactory := roaringset.NewBitmapFactory(roaringset.NewBitmapBufPoolNoop(), maxDocIdGetterWithNonExistentIds)
+
+		docIDsToRemove := map[uint64]strfmt.UUID{}
+
+		searcher := NewSearcher(logger, store, createSchema().GetClass, nil, nil,
+			fakeStopwordDetector{}, 2, func() bool { return false }, "",
+			config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory)
+
+		t.Run("sanity check", func(t *testing.T) {
+			bm, release := bitmapFactory.GetBitmap()
+			defer release()
+
+			require.Equal(t, int(maxDocIDWithNonExistentIds)+1, bm.GetCardinality())
+			require.Equal(t, maxDocIDWithNonExistentIds, bm.Maximum())
+		})
+
+		t.Run("Equal", func(t *testing.T) {
+			filter := &filters.LocalFilter{Root: &filters.Clause{
+				Operator: filters.OperatorEqual,
+				On: &filters.Path{
+					Class:    className,
+					Property: schema.PropertyName(propName),
+				},
+				Value: &filters.Value{
+					Value: repeatString(string(tests[0].targetChar), charRepeat),
+					Type:  schema.DataTypeText,
+				},
+			}}
+			objects, err := searcher.Objects(context.Background(), numObjects,
+				filter, nil, additional.Properties{}, className, []string{propName}, nil)
+			assert.NoError(t, err)
+			assert.Len(t, objects, multiplier)
+
+			t.Run("all elements found, no changes in bitmap factory expected", func(t *testing.T) {
+				bm, release := bitmapFactory.GetBitmap()
+				defer release()
+
+				require.Equal(t, int(maxDocIDWithNonExistentIds+1), bm.GetCardinality())
+				require.Equal(t, maxDocIDWithNonExistentIds, bm.Maximum())
+			})
+
+			for i, n := 0, multiplier/2; i < n; i++ {
+				docIDsToRemove[objects[i].DocID] = objects[i].ID()
+			}
+		})
+
+		t.Run("NotEqual", func(t *testing.T) {
+			filter := &filters.LocalFilter{Root: &filters.Clause{
+				Operator: filters.OperatorNotEqual,
+				On: &filters.Path{
+					Class:    className,
+					Property: schema.PropertyName(propName),
+				},
+				Value: &filters.Value{
+					Value: repeatString(string(tests[0].targetChar), charRepeat),
+					Type:  schema.DataTypeText,
+				},
+			}}
+			_, err := searcher.Objects(context.Background(), numObjects,
+				filter, nil, additional.Properties{}, className, []string{propName}, nil)
+			assert.NoError(t, err)
+
+			t.Run("some elements not found, ids removed from bitmap factory", func(t *testing.T) {
+				bm, release := bitmapFactory.GetBitmap()
+				defer release()
+
+				require.Equal(t, int(maxDocID)+1, bm.GetCardinality())
+				require.Equal(t, maxDocID, bm.Maximum())
+			})
+		})
+
+		t.Run("Equal with removed docIDs", func(t *testing.T) {
+			bucket := store.Bucket(helpers.ObjectsBucketLSM)
+
+			docIDBytes := make([]byte, 8)
+			for docID, ID := range docIDsToRemove {
+				binary.LittleEndian.PutUint64(docIDBytes, docID)
+				err := bucket.Delete([]byte(ID), lsmkv.WithSecondaryKey(0, docIDBytes))
+				require.NoError(t, err)
+			}
+
+			filter := &filters.LocalFilter{Root: &filters.Clause{
+				Operator: filters.OperatorEqual,
+				On: &filters.Path{
+					Class:    className,
+					Property: schema.PropertyName(propName),
+				},
+				Value: &filters.Value{
+					Value: repeatString(string(tests[0].targetChar), charRepeat),
+					Type:  schema.DataTypeText,
+				},
+			}}
+			_, err := searcher.Objects(context.Background(), numObjects,
+				filter, nil, additional.Properties{}, className, []string{propName}, nil)
+			assert.NoError(t, err)
+
+			t.Run("some elements not found, ids removed from bitmap factory", func(t *testing.T) {
+				bm, release := bitmapFactory.GetBitmap()
+				defer release()
+
+				require.Equal(t, int(maxDocID)+1-len(docIDsToRemove), bm.GetCardinality())
+				require.Equal(t, maxDocID, bm.Maximum())
+			})
 		})
 	})
 }
@@ -288,4 +399,399 @@ func repeatString(s string, n int) string {
 		sb.WriteString(s)
 	}
 	return sb.String()
+}
+
+func TestSearcher_ResolveDocIds(t *testing.T) {
+	dirName := t.TempDir()
+	logger, _ := test.NewNullLogger()
+
+	docIdSet1 := []uint64{7, 8, 9, 10, 11}
+	docIdSet2 := []uint64{1, 3, 5, 7, 9, 11}
+	docIdSet3 := []uint64{1, 3, 5, 7, 9}
+
+	fakeInvertedIndex := []struct {
+		val string
+		ids []uint64
+	}{
+		{val: "set1_1", ids: docIdSet1},
+		{val: "set1_2", ids: docIdSet1},
+		{val: "set1_3", ids: docIdSet1},
+		{val: "set2", ids: docIdSet2},
+		{val: "set3", ids: docIdSet3},
+	}
+
+	var searcher *Searcher
+	propName := "inverted-text-roaringset"
+
+	t.Run("import data", func(tt *testing.T) {
+		store, err := lsmkv.New(dirName, dirName, logger, nil,
+			cyclemanager.NewCallbackGroupNoop(),
+			cyclemanager.NewCallbackGroupNoop(),
+			cyclemanager.NewCallbackGroupNoop())
+		require.NoError(t, err)
+		t.Cleanup(func() { store.Shutdown(context.Background()) }) // cleanup in outer test
+
+		maxDocID := uint64(12)
+		bitmapFactory := roaringset.NewBitmapFactory(roaringset.NewBitmapBufPoolNoop(), newFakeMaxIDGetter(maxDocID))
+		searcher = NewSearcher(logger, store, createSchema().GetClass, nil, nil,
+			fakeStopwordDetector{}, 2, func() bool { return false }, "",
+			config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory)
+
+		bucketName := helpers.BucketFromPropNameLSM(propName)
+		require.NoError(tt, store.CreateOrLoadBucket(context.Background(), bucketName,
+			lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
+			lsmkv.WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()),
+		))
+		bucket := store.Bucket(bucketName)
+
+		for _, entry := range fakeInvertedIndex {
+			require.NoError(tt, bucket.RoaringSetAddList([]byte(entry.val), entry.ids))
+		}
+		require.Nil(tt, bucket.FlushAndSwitch())
+	})
+
+	equalOperand := func(val string) filters.Clause {
+		return filters.Clause{
+			Operator: filters.OperatorEqual,
+			On:       &filters.Path{Class: className, Property: schema.PropertyName(propName)},
+			Value:    &filters.Value{Value: val, Type: schema.DataTypeText},
+		}
+	}
+	testCases := []struct {
+		name        string
+		filter      *filters.LocalFilter
+		expectedIds []uint64
+	}{
+		{
+			name: "AND, different sets",
+			filter: &filters.LocalFilter{
+				Root: &filters.Clause{
+					Operator: filters.OperatorAnd,
+					Operands: []filters.Clause{
+						equalOperand("set1_1"),
+						equalOperand("set2"),
+						equalOperand("set3"),
+					},
+				},
+			},
+			expectedIds: []uint64{7, 9},
+		},
+		{
+			name: "OR, different sets",
+			filter: &filters.LocalFilter{
+				Root: &filters.Clause{
+					Operator: filters.OperatorOr,
+					Operands: []filters.Clause{
+						equalOperand("set1_1"),
+						equalOperand("set2"),
+						equalOperand("set3"),
+					},
+				},
+			},
+			expectedIds: []uint64{1, 3, 5, 7, 8, 9, 10, 11},
+		},
+		{
+			name: "NOT, set1",
+			filter: &filters.LocalFilter{
+				Root: &filters.Clause{
+					Operator: filters.OperatorNot,
+					Operands: []filters.Clause{
+						equalOperand("set1_1"),
+					},
+				},
+			},
+			expectedIds: []uint64{0, 1, 2, 3, 4, 5, 6, 12},
+		},
+		{
+			name: "NOT, set2",
+			filter: &filters.LocalFilter{
+				Root: &filters.Clause{
+					Operator: filters.OperatorNot,
+					Operands: []filters.Clause{
+						equalOperand("set2"),
+					},
+				},
+			},
+			expectedIds: []uint64{0, 2, 4, 6, 8, 10, 12},
+		},
+		{
+			name: "NOT, set3",
+			filter: &filters.LocalFilter{
+				Root: &filters.Clause{
+					Operator: filters.OperatorNot,
+					Operands: []filters.Clause{
+						equalOperand("set3"),
+					},
+				},
+			},
+			expectedIds: []uint64{0, 2, 4, 6, 8, 10, 11, 12},
+		},
+		{
+			name: "NOT/AND, different sets",
+			filter: &filters.LocalFilter{
+				Root: &filters.Clause{
+					Operator: filters.OperatorNot,
+					Operands: []filters.Clause{
+						{
+							Operator: filters.OperatorAnd,
+							Operands: []filters.Clause{
+								equalOperand("set1_1"),
+								equalOperand("set2"),
+								equalOperand("set3"),
+							},
+						},
+					},
+				},
+			},
+			expectedIds: []uint64{0, 1, 2, 3, 4, 5, 6, 8, 10, 11, 12},
+		},
+		{
+			name: "AND/NOT, different sets",
+			filter: &filters.LocalFilter{
+				Root: &filters.Clause{
+					Operator: filters.OperatorAnd,
+					Operands: []filters.Clause{
+						{
+							Operator: filters.OperatorNot,
+							Operands: []filters.Clause{
+								equalOperand("set1_1"),
+							},
+						},
+						{
+							Operator: filters.OperatorNot,
+							Operands: []filters.Clause{
+								equalOperand("set2"),
+							},
+						},
+						{
+							Operator: filters.OperatorNot,
+							Operands: []filters.Clause{
+								equalOperand("set3"),
+							},
+						},
+					},
+				},
+			},
+			expectedIds: []uint64{0, 2, 4, 6, 12},
+		},
+		{
+			name: "NOT/OR, different sets",
+			filter: &filters.LocalFilter{
+				Root: &filters.Clause{
+					Operator: filters.OperatorNot,
+					Operands: []filters.Clause{
+						{
+							Operator: filters.OperatorOr,
+							Operands: []filters.Clause{
+								equalOperand("set1_1"),
+								equalOperand("set2"),
+								equalOperand("set3"),
+							},
+						},
+					},
+				},
+			},
+			expectedIds: []uint64{0, 2, 4, 6, 12},
+		},
+		{
+			name: "OR/NOT, different sets",
+			filter: &filters.LocalFilter{
+				Root: &filters.Clause{
+					Operator: filters.OperatorOr,
+					Operands: []filters.Clause{
+						{
+							Operator: filters.OperatorNot,
+							Operands: []filters.Clause{
+								equalOperand("set1_1"),
+							},
+						},
+						{
+							Operator: filters.OperatorNot,
+							Operands: []filters.Clause{
+								equalOperand("set2"),
+							},
+						},
+						{
+							Operator: filters.OperatorNot,
+							Operands: []filters.Clause{
+								equalOperand("set3"),
+							},
+						},
+					},
+				},
+			},
+			expectedIds: []uint64{0, 1, 2, 3, 4, 5, 6, 8, 10, 11, 12},
+		},
+		{
+			name: "AND, same sets",
+			filter: &filters.LocalFilter{
+				Root: &filters.Clause{
+					Operator: filters.OperatorAnd,
+					Operands: []filters.Clause{
+						equalOperand("set1_1"),
+						equalOperand("set1_2"),
+						equalOperand("set1_3"),
+					},
+				},
+			},
+			expectedIds: docIdSet1,
+		},
+		{
+			name: "OR, same sets",
+			filter: &filters.LocalFilter{
+				Root: &filters.Clause{
+					Operator: filters.OperatorAnd,
+					Operands: []filters.Clause{
+						equalOperand("set1_1"),
+						equalOperand("set1_2"),
+						equalOperand("set1_3"),
+					},
+				},
+			},
+			expectedIds: docIdSet1,
+		},
+		{
+			name: "AND, single child lvl 1",
+			filter: &filters.LocalFilter{
+				Root: &filters.Clause{
+					Operator: filters.OperatorAnd,
+					Operands: []filters.Clause{
+						equalOperand("set2"),
+					},
+				},
+			},
+			expectedIds: docIdSet2,
+		},
+		{
+			name: "OR, single child lvl 1",
+			filter: &filters.LocalFilter{
+				Root: &filters.Clause{
+					Operator: filters.OperatorOr,
+					Operands: []filters.Clause{
+						equalOperand("set2"),
+					},
+				},
+			},
+			expectedIds: docIdSet2,
+		},
+		{
+			name: "AND/OR, single child lvl 2",
+			filter: &filters.LocalFilter{
+				Root: &filters.Clause{
+					Operator: filters.OperatorAnd,
+					Operands: []filters.Clause{
+						{
+							Operator: filters.OperatorOr,
+							Operands: []filters.Clause{
+								equalOperand("set3"),
+							},
+						},
+					},
+				},
+			},
+			expectedIds: docIdSet3,
+		},
+		{
+			name: "OR/AND, single child lvl 2",
+			filter: &filters.LocalFilter{
+				Root: &filters.Clause{
+					Operator: filters.OperatorOr,
+					Operands: []filters.Clause{
+						{
+							Operator: filters.OperatorAnd,
+							Operands: []filters.Clause{
+								equalOperand("set3"),
+							},
+						},
+					},
+				},
+			},
+			expectedIds: docIdSet3,
+		},
+		{
+			name: "AND, single children, different sets",
+			filter: &filters.LocalFilter{
+				Root: &filters.Clause{
+					Operator: filters.OperatorAnd,
+					Operands: []filters.Clause{
+						{
+							Operator: filters.OperatorAnd,
+							Operands: []filters.Clause{
+								equalOperand("set1_1"),
+								equalOperand("set2"),
+								equalOperand("set3"),
+							},
+						},
+					},
+				},
+			},
+			expectedIds: []uint64{7, 9},
+		},
+		{
+			name: "OR, single children, different sets",
+			filter: &filters.LocalFilter{
+				Root: &filters.Clause{
+					Operator: filters.OperatorOr,
+					Operands: []filters.Clause{
+						{
+							Operator: filters.OperatorOr,
+							Operands: []filters.Clause{
+								equalOperand("set1_1"),
+								equalOperand("set2"),
+								equalOperand("set3"),
+							},
+						},
+					},
+				},
+			},
+			expectedIds: []uint64{1, 3, 5, 7, 8, 9, 10, 11},
+		},
+		{
+			name: "AND, single children, same sets",
+			filter: &filters.LocalFilter{
+				Root: &filters.Clause{
+					Operator: filters.OperatorAnd,
+					Operands: []filters.Clause{
+						{
+							Operator: filters.OperatorAnd,
+							Operands: []filters.Clause{
+								equalOperand("set1_1"),
+								equalOperand("set1_2"),
+								equalOperand("set1_3"),
+							},
+						},
+					},
+				},
+			},
+			expectedIds: docIdSet1,
+		},
+		{
+			name: "OR, single children, same sets",
+			filter: &filters.LocalFilter{
+				Root: &filters.Clause{
+					Operator: filters.OperatorOr,
+					Operands: []filters.Clause{
+						{
+							Operator: filters.OperatorOr,
+							Operands: []filters.Clause{
+								equalOperand("set1_1"),
+								equalOperand("set1_2"),
+								equalOperand("set1_3"),
+							},
+						},
+					},
+				},
+			},
+			expectedIds: docIdSet1,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			allowList, err := searcher.DocIDs(context.Background(), tc.filter, additional.Properties{}, className)
+			assert.NoError(t, err)
+			assert.ElementsMatch(t, tc.expectedIds, allowList.Slice())
+			allowList.Close()
+		})
+	}
 }

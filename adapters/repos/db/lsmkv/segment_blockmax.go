@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -28,15 +28,16 @@ var blockMaxBufferSize = 4096
 
 func (s *segment) loadBlockEntries(node segmentindex.Node) ([]*terms.BlockEntry, uint64, *terms.BlockDataDecoded, error) {
 	var buf []byte
-	if s.mmapContents {
+	if s.readFromMemory {
 		buf = s.contents[node.Start : node.Start+uint64(8+12*terms.ENCODE_AS_FULL_BYTES)]
 	} else {
 		// read first 8 bytes to get
 		buf = make([]byte, 8+12*terms.ENCODE_AS_FULL_BYTES)
-		r, err := s.newNodeReader(nodeOffset{node.Start, node.Start + uint64(8+12*terms.ENCODE_AS_FULL_BYTES)})
+		r, err := s.newNodeReader(nodeOffset{node.Start, node.Start + uint64(8+12*terms.ENCODE_AS_FULL_BYTES)}, "loadBMW")
 		if err != nil {
 			return nil, 0, nil, err
 		}
+		defer r.Release()
 
 		_, err = r.Read(buf)
 		if err != nil {
@@ -64,13 +65,14 @@ func (s *segment) loadBlockEntries(node segmentindex.Node) ([]*terms.BlockEntry,
 	blockCount := (docCount + uint64(terms.BLOCK_SIZE-1)) / uint64(terms.BLOCK_SIZE)
 
 	entries := make([]*terms.BlockEntry, blockCount)
-	if s.mmapContents {
+	if s.readFromMemory {
 		buf = s.contents[node.Start+16 : node.Start+16+uint64(blockCount*20)]
 	} else {
-		r, err := s.newNodeReader(nodeOffset{node.Start + 16, node.Start + 16 + uint64(blockCount*20)})
+		r, err := s.newNodeReader(nodeOffset{node.Start + 16, node.Start + 16 + uint64(blockCount*20)}, "loadBMW")
 		if err != nil {
 			return nil, 0, nil, err
 		}
+		defer r.Release()
 
 		buf = make([]byte, blockCount*20)
 		_, err = r.Read(buf)
@@ -88,7 +90,7 @@ func (s *segment) loadBlockEntries(node segmentindex.Node) ([]*terms.BlockEntry,
 
 // todo: check if there is a performance impact of starting to sectionReader at offset and not have to pass offset here
 func (s *segment) loadBlockDataReusable(sectionReader *io.SectionReader, blockDataBufferOffset, offset, offsetStart, offsetEnd uint64, buf []byte, encoded *terms.BlockData) (uint64, error) {
-	if s.mmapContents {
+	if s.readFromMemory {
 		terms.DecodeBlockDataReusable(s.contents[offsetStart:offsetEnd], encoded)
 		return offsetStart, nil
 	} else {
@@ -208,7 +210,7 @@ func NewSegmentBlockMax(s *segment, key []byte, queryTermIndex int, idf float64,
 
 	var sectionReader *io.SectionReader
 
-	if !s.mmapContents {
+	if !s.readFromMemory {
 		sectionReader = io.NewSectionReader(s.contentFile, int64(node.Start), int64(node.End))
 	}
 

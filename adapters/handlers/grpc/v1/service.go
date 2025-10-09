@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -14,15 +14,15 @@ package v1
 import (
 	"context"
 	"fmt"
+	"runtime"
 	"time"
 
-	"github.com/weaviate/weaviate/entities/classcache"
-	"github.com/weaviate/weaviate/entities/versioned"
-
+	"github.com/google/uuid"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/batch"
 	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
@@ -39,6 +39,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/traverser"
 )
 
+var _NUMCPU = runtime.GOMAXPROCS(0)
+
 type Service struct {
 	pb.UnimplementedWeaviateServer
 	traverser            *traverser.Traverser
@@ -49,13 +51,29 @@ type Service struct {
 	config               *config.Config
 	authorizer           authorization.Authorizer
 	logger               logrus.FieldLogger
+
+	authenticator      *authHandler
+	batchHandler       *batch.Handler
+	batchQueuesHandler *batch.QueuesHandler
 }
 
 func NewService(traverser *traverser.Traverser, authComposer composer.TokenFunc,
 	allowAnonymousAccess bool, schemaManager *schemaManager.Manager,
 	batchManager *objects.BatchManager, config *config.Config, authorization authorization.Authorizer,
-	logger logrus.FieldLogger,
+	logger logrus.FieldLogger, shutdown *batch.Shutdown,
 ) *Service {
+	authenticator := NewAuthHandler(allowAnonymousAccess, authComposer)
+	internalQueue := batch.NewBatchInternalQueue()
+	batchWriteQueues := batch.NewBatchWriteQueues()
+	batchReadQueues := batch.NewBatchReadQueues()
+
+	batchHandler := batch.NewHandler(authorization, batchManager, logger, authenticator, schemaManager)
+	batchQueuesHandler := batch.NewQueuesHandler(shutdown.HandlersCtx, shutdown.SendWg, shutdown.StreamWg, shutdown.ShutdownFinished, batchWriteQueues, batchReadQueues, logger)
+
+	numWorkers := _NUMCPU
+	batch.StartBatchWorkers(shutdown.WorkersCtx, shutdown.WorkersWg, numWorkers, internalQueue, batchReadQueues, batchHandler, logger)
+	batch.StartScheduler(shutdown.SchedulerCtx, shutdown.SchedulerWg, batchWriteQueues, internalQueue, logger)
+
 	return &Service{
 		traverser:            traverser,
 		authComposer:         authComposer,
@@ -65,12 +83,19 @@ func NewService(traverser *traverser.Traverser, authComposer composer.TokenFunc,
 		config:               config,
 		logger:               logger,
 		authorizer:           authorization,
+		authenticator:        authenticator,
+		batchHandler:         batchHandler,
+		batchQueuesHandler:   batchQueuesHandler,
 	}
 }
 
 func (s *Service) Aggregate(ctx context.Context, req *pb.AggregateRequest) (*pb.AggregateReply, error) {
 	var result *pb.AggregateReply
 	var errInner error
+
+	if class := s.schemaManager.ResolveAlias(req.Collection); class != "" {
+		req.Collection = class
+	}
 
 	if err := enterrors.GoWrapperWithBlock(func() {
 		result, errInner = s.aggregate(ctx, req)
@@ -84,14 +109,14 @@ func (s *Service) Aggregate(ctx context.Context, req *pb.AggregateRequest) (*pb.
 func (s *Service) aggregate(ctx context.Context, req *pb.AggregateRequest) (*pb.AggregateReply, error) {
 	before := time.Now()
 
-	principal, err := s.principalFromContext(ctx)
+	principal, err := s.authenticator.PrincipalFromContext(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("extract auth: %w", err)
 	}
 	ctx = restCtx.AddPrincipalToContext(ctx, principal)
 
 	parser := NewAggregateParser(
-		s.classGetterWithAuthzFunc(principal, req.Tenant),
+		s.classGetterWithAuthzFunc(ctx, principal, req.Tenant),
 	)
 
 	params, err := parser.Aggregate(req)
@@ -105,7 +130,7 @@ func (s *Service) aggregate(ctx context.Context, req *pb.AggregateRequest) (*pb.
 	}
 
 	replier := NewAggregateReplier(
-		s.classGetterWithAuthzFunc(principal, req.Tenant),
+		s.classGetterWithAuthzFunc(ctx, principal, req.Tenant),
 		params,
 	)
 	reply, err := replier.Aggregate(res, params.GroupBy != nil)
@@ -120,7 +145,11 @@ func (s *Service) aggregate(ctx context.Context, req *pb.AggregateRequest) (*pb.
 func (s *Service) TenantsGet(ctx context.Context, req *pb.TenantsGetRequest) (*pb.TenantsGetReply, error) {
 	before := time.Now()
 
-	principal, err := s.principalFromContext(ctx)
+	if class := s.schemaManager.ResolveAlias(req.Collection); class != "" {
+		req.Collection = class
+	}
+
+	principal, err := s.authenticator.PrincipalFromContext(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("extract auth: %w", err)
 	}
@@ -153,7 +182,7 @@ func (s *Service) BatchDelete(ctx context.Context, req *pb.BatchDeleteRequest) (
 
 func (s *Service) batchDelete(ctx context.Context, req *pb.BatchDeleteRequest) (*pb.BatchDeleteReply, error) {
 	before := time.Now()
-	principal, err := s.principalFromContext(ctx)
+	principal, err := s.authenticator.PrincipalFromContext(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("extract auth: %w", err)
 	}
@@ -166,11 +195,15 @@ func (s *Service) batchDelete(ctx context.Context, req *pb.BatchDeleteRequest) (
 		tenant = *req.Tenant
 	}
 
-	if err := s.authorizer.Authorize(principal, authorization.DELETE, authorization.ShardsData(req.Collection, tenant)...); err != nil {
+	if class := s.schemaManager.ResolveAlias(req.Collection); class != "" {
+		req.Collection = class
+	}
+
+	if err := s.authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.ShardsData(req.Collection, tenant)...); err != nil {
 		return nil, err
 	}
 
-	params, err := batchDeleteParamsFromProto(req, s.classGetterWithAuthzFunc(principal, tenant))
+	params, err := batchDeleteParamsFromProto(req, s.classGetterWithAuthzFunc(ctx, principal, tenant))
 	if err != nil {
 		return nil, fmt.Errorf("batch delete params: %w", err)
 	}
@@ -189,12 +222,16 @@ func (s *Service) batchDelete(ctx context.Context, req *pb.BatchDeleteRequest) (
 	return result, nil
 }
 
+// BatchObjects handles end-to-end batch object creation. It accepts N objects in the request and forwards them to the internal
+// batch objects logic. It blocks until a response is retrieved from the internal APIs whereupon it returns the response to the client.
+//
+// It is intended to be used in isolation and therefore is not dependent on BatchSend/BatchStream.
 func (s *Service) BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest) (*pb.BatchObjectsReply, error) {
 	var result *pb.BatchObjectsReply
 	var errInner error
 
 	if err := enterrors.GoWrapperWithBlock(func() {
-		result, errInner = s.batchObjects(ctx, req)
+		result, errInner = s.batchHandler.BatchObjects(ctx, req)
 	}, s.logger); err != nil {
 		return nil, err
 	}
@@ -202,87 +239,80 @@ func (s *Service) BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest)
 	return result, errInner
 }
 
-func (s *Service) batchObjects(ctx context.Context, req *pb.BatchObjectsRequest) (*pb.BatchObjectsReply, error) {
-	before := time.Now()
-	principal, err := s.principalFromContext(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("extract auth: %w", err)
-	}
-	ctx = restCtx.AddPrincipalToContext(ctx, principal)
+// BatchObjects handles end-to-end batch reference creation. It accepts N references in the request and forwards them to the internal
+// batch references logic. It blocks until a response is retrieved from the internal APIs whereupon it returns the response to the client.
+//
+// It is intended to be used in isolation and therefore is not dependent on BatchSend/BatchStream.
+func (s *Service) BatchReferences(ctx context.Context, req *pb.BatchReferencesRequest) (*pb.BatchReferencesReply, error) {
+	var result *pb.BatchReferencesReply
+	var errInner error
 
-	ctx = classcache.ContextWithClassCache(ctx)
-
-	// we need to save the class two times:
-	// - to check if we already authorized the class+shard combination and if yes skip the auth, this is indexed by
-	//   a combination of class+shard
-	// - to pass down the stack to reuse, index by classname so it can be found easily
-	knownClasses := map[string]versioned.Class{}
-	knownClassesAuthCheck := map[string]*models.Class{}
-	classGetter := func(classname, shard string) (*models.Class, error) {
-		// use a letter that cannot be in class/shard name to not allow different combinations leading to the same combined name
-		classTenantName := classname + "#" + shard
-		class, ok := knownClassesAuthCheck[classTenantName]
-		if ok {
-			return class, nil
-		}
-
-		// batch is upsert
-		if err := s.authorizer.Authorize(principal, authorization.UPDATE, authorization.ShardsData(classname, shard)...); err != nil {
-			return nil, err
-		}
-
-		if err := s.authorizer.Authorize(principal, authorization.CREATE, authorization.ShardsData(classname, shard)...); err != nil {
-			return nil, err
-		}
-
-		// we don't leak any info that someone who inserts data does not have anyway
-		vClass, err := s.schemaManager.GetCachedClassNoAuth(ctx, classname)
-		if err != nil {
-			return nil, err
-		}
-		knownClasses[classname] = vClass[classname]
-		knownClassesAuthCheck[classTenantName] = vClass[classname].Class
-		return vClass[classname].Class, nil
-	}
-	objs, objOriginalIndex, objectParsingErrors := BatchFromProto(req, classGetter)
-
-	var objErrors []*pb.BatchObjectsReply_BatchError
-	for i, err := range objectParsingErrors {
-		objErrors = append(objErrors, &pb.BatchObjectsReply_BatchError{Index: int32(i), Error: err.Error()})
-	}
-
-	// If every object failed to parse, return early with the errors
-	if len(objs) == 0 {
-		result := &pb.BatchObjectsReply{
-			Took:   float32(time.Since(before).Seconds()),
-			Errors: objErrors,
-		}
-		return result, nil
-	}
-
-	replicationProperties := extractReplicationProperties(req.ConsistencyLevel)
-
-	response, err := s.batchManager.AddObjectsGRPCAfterAuth(ctx, principal, objs, replicationProperties, knownClasses)
-	if err != nil {
+	if err := enterrors.GoWrapperWithBlock(func() {
+		result, errInner = s.batchHandler.BatchReferences(ctx, req)
+	}, s.logger); err != nil {
 		return nil, err
 	}
 
-	for i, obj := range response {
-		if obj.Err != nil {
-			objErrors = append(objErrors, &pb.BatchObjectsReply_BatchError{Index: int32(objOriginalIndex[i]), Error: obj.Err.Error()})
-		}
+	return result, errInner
+}
+
+// BatchSend is similar in concept to the BatchObjects and BatchReferences methods in that it accepts N objects or references
+// in a single gRPC invocation call. However, it differs in that it does not wait for the objects/references to be fully
+// inserted into the database before returning a response. Instead, it simply adds the objects/references to the internal
+// queueing system and then returns immediately.
+//
+// In addition, in order to assign the objects/references to the correct internal queue, it requires the stream ID to be
+// specified in the request. This stream ID is only available to clients once they have opened a stream using the BatchStream method.
+//
+// This method therefore does not work in isolation, it has to be used in conjunction with other methods.
+// It should be used as part of the automatic batching process provided in clients.
+func (s *Service) BatchSend(ctx context.Context, req *pb.BatchSendRequest) (*pb.BatchSendReply, error) {
+	var result *pb.BatchSendReply
+	var errInner error
+
+	if err := enterrors.GoWrapperWithBlock(func() {
+		result, errInner = s.batchQueuesHandler.Send(ctx, req)
+	}, s.logger); err != nil {
+		return nil, err
 	}
 
-	result := &pb.BatchObjectsReply{
-		Took:   float32(time.Since(before).Seconds()),
-		Errors: objErrors,
+	return result, errInner
+}
+
+// BatchStream defines a UnaryStream gRPC method whereby the server streams messages back to the client in order to
+// asynchronously report on any errors that have occurred during the automatic batching process.
+//
+// The initial request contains the consistency level that is desired when batch inserting in this processing context.
+//
+// The first message send to the client contains the stream ID for the overall stream. All subsequent messages, besides the final one,
+// correspond to errors emitted by the internal batching APIs, e.g. validation errors of the objects/references. The final
+// message sent to the client is a confirmation that the batch processing has completed successfully and that the client can hangup.
+//
+// In addition, there is also the shutdown logic that is sent via the stream from the server to the client. In the event that
+// the node handling the batch processing must be shutdown, e.g. there's a rolling restart occurring on the cluster, then the
+// stream will notify the client that it is shutting down allowing for all the internal queues to be drained and waited on. Once the final
+// shutdown message is sent and received by the client, the client can then safely hangup and reconnect to the cluster in an effort to
+// reconnect to a different available node. At that point, the batching process resumes on the other node as if nothing happened.
+//
+// It should be used as part of the automatic batching process provided in clients.
+func (s *Service) BatchStream(req *pb.BatchStreamRequest, stream pb.Weaviate_BatchStreamServer) error {
+	id, err := uuid.NewRandom()
+	if err != nil {
+		return fmt.Errorf("stream ID generation failed: %w", err)
 	}
-	return result, nil
+	streamId := id.String()
+	s.batchQueuesHandler.Setup(streamId, req)
+	defer s.batchQueuesHandler.Teardown(streamId)
+	return s.batchQueuesHandler.Stream(stream.Context(), streamId, stream)
 }
 
 func (s *Service) Search(ctx context.Context, req *pb.SearchRequest) (*pb.SearchReply, error) {
 	var result *pb.SearchReply
 	var errInner error
+
+	if class := s.schemaManager.ResolveAlias(req.Collection); class != "" {
+		req.Collection = class
+	}
 
 	if err := enterrors.GoWrapperWithBlock(func() {
 		result, errInner = s.search(ctx, req)
@@ -296,7 +326,7 @@ func (s *Service) Search(ctx context.Context, req *pb.SearchRequest) (*pb.Search
 func (s *Service) search(ctx context.Context, req *pb.SearchRequest) (*pb.SearchReply, error) {
 	before := time.Now()
 
-	principal, err := s.principalFromContext(ctx)
+	principal, err := s.authenticator.PrincipalFromContext(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("extract auth: %w", err)
 	}
@@ -304,10 +334,10 @@ func (s *Service) search(ctx context.Context, req *pb.SearchRequest) (*pb.Search
 
 	parser := NewParser(
 		req.Uses_127Api,
-		s.classGetterWithAuthzFunc(principal, req.Tenant),
+		s.classGetterWithAuthzFunc(ctx, principal, req.Tenant),
+		s.aliasGetter(),
 	)
 	replier := NewReplier(
-		req.Uses_125Api || req.Uses_127Api,
 		req.Uses_127Api,
 		parser.generative,
 		s.logger,
@@ -349,7 +379,7 @@ func (s *Service) validateClassAndProperty(searchParams dto.GetParams) error {
 
 type classGetterWithAuthzFunc func(string) (*models.Class, error)
 
-func (s *Service) classGetterWithAuthzFunc(principal *models.Principal, tenant string) classGetterWithAuthzFunc {
+func (s *Service) classGetterWithAuthzFunc(ctx context.Context, principal *models.Principal, tenant string) classGetterWithAuthzFunc {
 	authorizedCollections := map[string]*models.Class{}
 
 	return func(name string) (*models.Class, error) {
@@ -361,7 +391,7 @@ func (s *Service) classGetterWithAuthzFunc(principal *models.Principal, tenant s
 				resources = authorization.ShardsData(name, tenant)
 			}
 			// having data access is enough for querying as we dont leak any info from the collection config that you cannot get via data access anyways
-			if err := s.authorizer.Authorize(principal, authorization.READ, resources...); err != nil {
+			if err := s.authorizer.Authorize(ctx, principal, authorization.READ, resources...); err != nil {
 				return nil, err
 			}
 			class = s.schemaManager.ReadOnlyClass(name)
@@ -371,6 +401,17 @@ func (s *Service) classGetterWithAuthzFunc(principal *models.Principal, tenant s
 			return nil, fmt.Errorf("could not find class %s in schema", name)
 		}
 		return class, nil
+	}
+}
+
+type aliasGetter func(string) string
+
+func (s *Service) aliasGetter() aliasGetter {
+	return func(name string) string {
+		if cls := s.schemaManager.ResolveAlias(name); cls != "" {
+			return name // name is an alias
+		}
+		return ""
 	}
 }
 

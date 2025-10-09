@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -24,6 +24,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
@@ -35,7 +36,7 @@ func TestStartupWithCorruptCondenseFiles(t *testing.T) {
 	rootPath := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
-	original, err := NewCommitLogger(rootPath, "corrupt_test", logger,
+	_, err := NewCommitLogger(rootPath, "corrupt_test", logger,
 		cyclemanager.NewCallbackGroupNoop())
 	require.Nil(t, err)
 
@@ -55,7 +56,8 @@ func TestStartupWithCorruptCondenseFiles(t *testing.T) {
 	t.Run("set up an index with the specified commit logger", func(t *testing.T) {
 		idx, err := New(Config{
 			MakeCommitLoggerThunk: func() (CommitLogger, error) {
-				return original, nil
+				return NewCommitLogger(rootPath, "corrupt_test", logger,
+					cyclemanager.NewCallbackGroupNoop())
 			},
 			ID:               "corrupt_test",
 			RootPath:         rootPath,
@@ -85,7 +87,7 @@ func TestStartupWithCorruptCondenseFiles(t *testing.T) {
 	t.Run("create a corrupt commit log file without deleting the original",
 		func(t *testing.T) {
 			input, ok, err := getCurrentCommitLogFileName(commitLogDirectory(rootPath,
-				"corrupt_test"))
+				"corrupt_test"), common.NewOSFS())
 			require.Nil(t, err)
 			require.True(t, ok)
 
@@ -102,7 +104,6 @@ func TestStartupWithCorruptCondenseFiles(t *testing.T) {
 	t.Run("destroy the old index", func(t *testing.T) {
 		// kill the index
 		index = nil
-		original = nil
 	})
 
 	t.Run("create a new one from the disk files", func(t *testing.T) {

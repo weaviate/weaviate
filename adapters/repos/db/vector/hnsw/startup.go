@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -12,30 +12,21 @@
 package hnsw
 
 import (
-	"bufio"
 	"context"
 	"encoding/binary"
-	"fmt"
-	"io"
-	"os"
 	"time"
 
-	"github.com/sirupsen/logrus"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
-	"github.com/weaviate/weaviate/entities/diskio"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 func (h *hnsw) init(cfg Config) error {
 	h.pools = newPools(h.maximumConnectionsLayerZero, h.visitedListPoolMaxSize)
-
-	if err := h.restoreFromDisk(); err != nil {
-		return errors.Wrapf(err, "restore hnsw index %q", cfg.ID)
-	}
 
 	// init commit logger for future writes
 	cl, err := cfg.MakeCommitLoggerThunk()
@@ -43,6 +34,9 @@ func (h *hnsw) init(cfg Config) error {
 		return errors.Wrap(err, "create commit logger")
 	}
 
+	if err := h.restoreFromDisk(cl); err != nil {
+		return errors.Wrapf(err, "restore hnsw index %q", cfg.ID)
+	}
 	h.commitLog = cl
 
 	// report the vector_index_size at server startup.
@@ -56,67 +50,63 @@ func (h *hnsw) init(cfg Config) error {
 
 // if a commit log is already present it will be read into memory, if not we
 // start with an empty model
-func (h *hnsw) restoreFromDisk() error {
+func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 	beforeAll := time.Now()
 	defer h.metrics.TrackStartupTotal(beforeAll)
+	defer func() {
+		h.logger.WithField("action", "restore_from_disk").
+			WithField("duration", time.Since(beforeAll).String()).
+			Info("restored data from disk")
+	}()
 
-	fileNames, err := getCommitFileNames(h.rootPath, h.id)
+	var state *DeserializationResult
+	var stateTimestamp int64
+	var err error
+
+	if !h.disableSnapshots {
+		if h.snapshotOnStartup {
+			// This will opportunistically create a snapshot if it does not exist yet,
+			// as we are loading state from disk. Otherwise, it simply loads
+			// the last snapshot.
+			state, stateTimestamp, err = cl.CreateAndLoadSnapshot()
+		} else {
+			state, stateTimestamp, err = cl.LoadSnapshot()
+		}
+
+		if err != nil {
+			// errors reading snapshots are not fatal
+			// we can still read the commit log from the beginning
+			h.logger.
+				WithError(err).
+				WithField("action", "restore_from_disk").
+				Error("failed to read last snapshot, loading from commit log")
+
+			state = nil
+			stateTimestamp = 0
+		} else if state == nil {
+			h.logger.
+				WithField("action", "restore_from_disk").
+				Info("no snapshot found, loading from commit log")
+		}
+	} else {
+		h.logger.
+			WithField("action", "restore_from_disk").
+			Info("snapshots disabled, loading from commit log")
+	}
+
+	fileNames, err := getCommitFileNames(h.rootPath, h.id, stateTimestamp, h.fs)
 	if err != nil {
 		return err
 	}
 
-	if len(fileNames) == 0 {
+	state, err = loadCommitLoggerState(h.fs, h.logger, fileNames, state, h.metrics)
+	if err != nil {
+		return errors.Wrap(err, "load commit logger state")
+	}
+
+	if state == nil {
 		// nothing to do
 		return nil
-	}
-
-	fileNames, err = NewCorruptedCommitLogFixer(h.logger).Do(fileNames)
-	if err != nil {
-		return errors.Wrap(err, "corrupted commit log fixer")
-	}
-
-	var state *DeserializationResult
-	for i, fileName := range fileNames {
-		beforeIndividual := time.Now()
-
-		fd, err := os.Open(fileName)
-		if err != nil {
-			return errors.Wrapf(err, "open commit log %q for reading", fileName)
-		}
-
-		defer fd.Close()
-
-		metered := diskio.NewMeteredReader(fd,
-			h.metrics.TrackStartupReadCommitlogDiskIO)
-		fdBuf := bufio.NewReaderSize(metered, 256*1024)
-
-		var valid int
-		state, valid, err = NewDeserializer(h.logger).Do(fdBuf, state, false)
-		if err != nil {
-			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
-				// we need to check for both EOF or UnexpectedEOF, as we don't know where
-				// the commit log got corrupted, a field ending that weset a longer
-				// encoding for would return EOF, whereas a field read with binary.Read
-				// with a fixed size would return UnexpectedEOF. From our perspective both
-				// are unexpected.
-
-				h.logger.WithField("action", "hnsw_load_commit_log_corruption").
-					WithField("path", fileName).
-					Error("write-ahead-log ended abruptly, some elements may not have been recovered")
-
-				// we need to truncate the file to its valid length!
-				if err := os.Truncate(fileName, int64(valid)); err != nil {
-					return errors.Wrapf(err, "truncate corrupt commit log %q", fileName)
-				}
-			} else {
-				// only return an actual error on non-EOF errors, otherwise we'll end
-				// up in a startup crashloop
-				return errors.Wrapf(err, "deserialize commit log %q", fileName)
-			}
-		}
-
-		h.metrics.StartupProgress(float64(i+1) / float64(len(fileNames)))
-		h.metrics.TrackStartupIndividual(beforeIndividual)
 	}
 
 	h.Lock()
@@ -141,9 +131,9 @@ func (h *hnsw) restoreFromDisk() error {
 			h.trackMuveraOnce.Do(func() {
 				h.muveraEncoder.LoadMuveraConfig(*state.EncoderMuvera)
 			})
+			h.muvera.Store(true)
 		}
 	}
-
 	if state.Compressed {
 		h.compressed.Store(state.Compressed)
 		h.cache.Drop()
@@ -166,7 +156,10 @@ func (h *hnsw) restoreFromDisk() error {
 						h.logger,
 						data.Encoders,
 						h.store,
+						h.MinMMapSize,
+						h.MaxWalReuseSize,
 						h.allocChecker,
+						h.getTargetVector(),
 					)
 				} else {
 					h.compressor, err = compressionhelpers.RestoreHNSWPQMultiCompressor(
@@ -177,7 +170,10 @@ func (h *hnsw) restoreFromDisk() error {
 						h.logger,
 						data.Encoders,
 						h.store,
+						h.MinMMapSize,
+						h.MaxWalReuseSize,
 						h.allocChecker,
+						h.getTargetVector(),
 					)
 				}
 				if err != nil {
@@ -196,7 +192,10 @@ func (h *hnsw) restoreFromDisk() error {
 					data.B,
 					data.Dimensions,
 					h.store,
+					h.MinMMapSize,
+					h.MaxWalReuseSize,
 					h.allocChecker,
+					h.getTargetVector(),
 				)
 			} else {
 				h.compressor, err = compressionhelpers.RestoreHNSWSQMultiCompressor(
@@ -207,10 +206,21 @@ func (h *hnsw) restoreFromDisk() error {
 					data.B,
 					data.Dimensions,
 					h.store,
+					h.MinMMapSize,
+					h.MaxWalReuseSize,
 					h.allocChecker,
+					h.getTargetVector(),
 				)
 			}
 			if err != nil {
+				return errors.Wrap(err, "Restoring compressed data.")
+			}
+		} else if state.CompressionRQData != nil {
+			if err := h.restoreRotationalQuantization(state.CompressionRQData); err != nil {
+				return errors.Wrap(err, "Restoring compressed data.")
+			}
+		} else if state.CompressionBRQData != nil {
+			if err := h.restoreBinaryRotationalQuantization(state.CompressionBRQData); err != nil {
 				return errors.Wrap(err, "Restoring compressed data.")
 			}
 		} else {
@@ -230,6 +240,8 @@ func (h *hnsw) restoreFromDisk() error {
 				h.dims = int32(len(vec))
 			}
 		}
+	} else {
+		h.compressor.GrowCache(uint64(len(h.nodes)))
 	}
 
 	if h.compressed.Load() && h.multivector.Load() && !h.muvera.Load() {
@@ -247,21 +259,136 @@ func (h *hnsw) restoreFromDisk() error {
 	return nil
 }
 
+func (h *hnsw) restoreRotationalQuantization(data *compressionhelpers.RQData) error {
+	var err error
+	if !h.multivector.Load() || h.muvera.Load() {
+		h.trackRQOnce.Do(func() {
+			h.compressor, err = compressionhelpers.RestoreRQCompressor(
+				h.distancerProvider,
+				1e12,
+				h.logger,
+				int(data.InputDim),
+				int(data.Bits),
+				int(data.Rotation.OutputDim),
+				int(data.Rotation.Rounds),
+				data.Rotation.Swaps,
+				data.Rotation.Signs,
+				nil,
+				h.store,
+				h.allocChecker,
+				h.getTargetVector(),
+			)
+		})
+	} else {
+		h.trackRQOnce.Do(func() {
+			h.compressor, err = compressionhelpers.RestoreRQMultiCompressor(
+				h.distancerProvider,
+				1e12,
+				h.logger,
+				int(data.InputDim),
+				int(data.Bits),
+				int(data.Rotation.OutputDim),
+				int(data.Rotation.Rounds),
+				data.Rotation.Swaps,
+				data.Rotation.Signs,
+				nil,
+				h.store,
+				h.allocChecker,
+				h.getTargetVector(),
+			)
+		})
+	}
+
+	return err
+}
+
+func (h *hnsw) restoreBinaryRotationalQuantization(data *compressionhelpers.BRQData) error {
+	var err error
+	if !h.multivector.Load() || h.muvera.Load() {
+		h.trackRQOnce.Do(func() {
+			h.compressor, err = compressionhelpers.RestoreRQCompressor(
+				h.distancerProvider,
+				1e12,
+				h.logger,
+				int(data.InputDim),
+				1,
+				int(data.Rotation.OutputDim),
+				int(data.Rotation.Rounds),
+				data.Rotation.Swaps,
+				data.Rotation.Signs,
+				data.Rounding,
+				h.store,
+				h.allocChecker,
+				h.getTargetVector(),
+			)
+		})
+	} else {
+		h.trackRQOnce.Do(func() {
+			h.compressor, err = compressionhelpers.RestoreRQMultiCompressor(
+				h.distancerProvider,
+				1e12,
+				h.logger,
+				int(data.InputDim),
+				1,
+				int(data.Rotation.OutputDim),
+				int(data.Rotation.Rounds),
+				data.Rotation.Swaps,
+				data.Rotation.Signs,
+				data.Rounding,
+				h.store,
+				h.allocChecker,
+				h.getTargetVector(),
+			)
+		})
+	}
+	return err
+}
+
 func (h *hnsw) restoreDocMappings() error {
 	prevDocID := uint64(0)
 	relativeID := uint64(0)
 	maxNodeID := uint64(0)
 	maxDocID := uint64(0)
 	buf := make([]byte, 8)
+
+	// Get the mappings bucket - handle case where it might be nil
+	bucket := h.store.Bucket(h.id + "_mv_mappings")
+	if bucket == nil {
+		err := errors.New("multivector mappings bucket not found")
+		h.logger.WithField("action", "restore_doc_mappings").
+			WithError(err)
+		return err
+	}
+
 	for _, node := range h.nodes {
 		if node == nil {
 			continue
 		}
 		binary.BigEndian.PutUint64(buf, node.id)
-		docIDBytes, err := h.store.Bucket(h.id + "_mv_mappings").Get(buf)
+		docIDBytes, err := bucket.Get(buf)
 		if err != nil {
-			return errors.Wrap(err, fmt.Sprintf("failed to get %s_mv_mappings from the bucket", h.id))
+			// If the mapping is not found (e.g., due to corrupted state after ungraceful shutdown),
+			// log a warning and skip this node instead of failing completely
+			h.logger.WithFields(map[string]interface{}{
+				"action":  "restore_doc_mappings",
+				"node_id": node.id,
+				"error":   err.Error(),
+			}).Error("skipping node with missing doc mapping")
+			h.nodes[node.id] = nil
+			continue
 		}
+
+		// Validate that we have enough bytes for a uint64 (8 bytes)
+		if len(docIDBytes) < 8 {
+			h.logger.WithFields(map[string]interface{}{
+				"action":       "restore_doc_mappings",
+				"node_id":      node.id,
+				"bytes_length": len(docIDBytes),
+			}).Error("skipping node with invalid doc mapping data")
+			h.nodes[node.id] = nil
+			continue
+		}
+
 		docID := binary.BigEndian.Uint64(docIDBytes)
 		if docID != prevDocID {
 			relativeID = 0
@@ -346,6 +473,7 @@ func (h *hnsw) resetTombstoneMetric() {
 // vector cache, however, depend on the shard being ready as they will call
 // getVectorForID.
 func (h *hnsw) PostStartup() {
+	h.commitLog.InitMaintenance()
 	h.prefillCache()
 }
 
@@ -357,7 +485,7 @@ func (h *hnsw) prefillCache() {
 		limit = int(h.cache.CopyMaxSize())
 	}
 
-	f := func() {
+	prefillCacheFunc := func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Minute)
 		defer cancel()
 
@@ -387,12 +515,12 @@ func (h *hnsw) prefillCache() {
 			"action":                 "hnsw_prefill_cache_sync",
 			"wait_for_cache_prefill": true,
 		}).Info("waiting for vector cache prefill to complete")
-		f()
+		prefillCacheFunc()
 	} else {
 		h.logger.WithFields(logrus.Fields{
 			"action":                 "hnsw_prefill_cache_async",
 			"wait_for_cache_prefill": false,
 		}).Info("not waiting for vector cache prefill, running in background")
-		enterrors.GoWrapper(f, h.logger)
+		enterrors.GoWrapper(prefillCacheFunc, h.logger)
 	}
 }

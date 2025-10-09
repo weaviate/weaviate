@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -14,6 +14,10 @@ package db_users
 import (
 	"errors"
 	"testing"
+
+	"github.com/weaviate/weaviate/usecases/auth/authentication"
+
+	"github.com/stretchr/testify/mock"
 
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 
@@ -29,11 +33,11 @@ import (
 func TestDeleteSuccess(t *testing.T) {
 	principal := &models.Principal{}
 	authorizer := authorization.NewMockAuthorizer(t)
-	authorizer.On("Authorize", principal, authorization.DELETE, authorization.Users("user")[0]).Return(nil)
+	authorizer.On("Authorize", mock.Anything, principal, authorization.DELETE, authorization.Users("user")[0]).Return(nil)
 
 	dynUser := NewMockDbUserAndRolesGetter(t)
-	dynUser.On("GetRolesForUser", "user", models.UserTypeInputDb).Return(map[string][]authorization.Policy{"role": {}}, nil)
-	dynUser.On("RevokeRolesForUser", conv.UserNameWithTypeFromId("user", models.UserTypeInputDb), "role").Return(nil)
+	dynUser.On("GetRolesForUserOrGroup", "user", authentication.AuthTypeDb, false).Return(map[string][]authorization.Policy{"role": {}}, nil)
+	dynUser.On("RevokeRolesForUser", conv.UserNameWithTypeFromId("user", authentication.AuthType(models.UserTypeInputDb)), "role").Return(nil)
 	dynUser.On("DeleteUser", "user").Return(nil)
 	dynUser.On("GetUsers", "user").Return(map[string]*apikey.User{"user": {}}, nil)
 
@@ -42,7 +46,7 @@ func TestDeleteSuccess(t *testing.T) {
 		authorizer: authorizer, dbUserEnabled: true,
 	}
 
-	res := h.deleteUser(users.DeleteUserParams{UserID: "user"}, principal)
+	res := h.deleteUser(users.DeleteUserParams{UserID: "user", HTTPRequest: req}, principal)
 	parsed, ok := res.(*users.DeleteUserNoContent)
 	assert.True(t, ok)
 	assert.NotNil(t, parsed)
@@ -51,7 +55,7 @@ func TestDeleteSuccess(t *testing.T) {
 func TestDeleteForbidden(t *testing.T) {
 	principal := &models.Principal{}
 	authorizer := authorization.NewMockAuthorizer(t)
-	authorizer.On("Authorize", principal, authorization.DELETE, authorization.Users("user")[0]).Return(errors.New("some error"))
+	authorizer.On("Authorize", mock.Anything, principal, authorization.DELETE, authorization.Users("user")[0]).Return(errors.New("some error"))
 
 	dynUser := NewMockDbUserAndRolesGetter(t)
 
@@ -60,7 +64,7 @@ func TestDeleteForbidden(t *testing.T) {
 		authorizer: authorizer, dbUserEnabled: true,
 	}
 
-	res := h.deleteUser(users.DeleteUserParams{UserID: "user"}, principal)
+	res := h.deleteUser(users.DeleteUserParams{UserID: "user", HTTPRequest: req}, principal)
 	_, ok := res.(*users.DeleteUserForbidden)
 	assert.True(t, ok)
 }
@@ -68,9 +72,10 @@ func TestDeleteForbidden(t *testing.T) {
 func TestDeleteUnprocessableEntityStaticUser(t *testing.T) {
 	principal := &models.Principal{}
 	authorizer := authorization.NewMockAuthorizer(t)
-	authorizer.On("Authorize", principal, authorization.DELETE, authorization.Users("user")[0]).Return(nil)
+	authorizer.On("Authorize", mock.Anything, principal, authorization.DELETE, authorization.Users("user")[0]).Return(nil)
 
 	dynUser := NewMockDbUserAndRolesGetter(t)
+	dynUser.On("GetUsers", "user").Return(map[string]*apikey.User{}, nil)
 
 	h := dynUserHandler{
 		dbUsers:    dynUser,
@@ -79,7 +84,7 @@ func TestDeleteUnprocessableEntityStaticUser(t *testing.T) {
 		staticApiKeysConfigs: config.StaticAPIKey{Enabled: true, Users: []string{"user"}, AllowedKeys: []string{"key"}},
 	}
 
-	res := h.deleteUser(users.DeleteUserParams{UserID: "user"}, principal)
+	res := h.deleteUser(users.DeleteUserParams{UserID: "user", HTTPRequest: req}, principal)
 	_, ok := res.(*users.DeleteUserUnprocessableEntity)
 	assert.True(t, ok)
 }
@@ -87,7 +92,7 @@ func TestDeleteUnprocessableEntityStaticUser(t *testing.T) {
 func TestDeleteUnprocessableEntityDeletingRootUser(t *testing.T) {
 	principal := &models.Principal{}
 	authorizer := authorization.NewMockAuthorizer(t)
-	authorizer.On("Authorize", principal, authorization.DELETE, authorization.Users("user-root")[0]).Return(nil)
+	authorizer.On("Authorize", mock.Anything, principal, authorization.DELETE, authorization.Users("user-root")[0]).Return(nil)
 
 	dynUser := NewMockDbUserAndRolesGetter(t)
 
@@ -97,7 +102,7 @@ func TestDeleteUnprocessableEntityDeletingRootUser(t *testing.T) {
 		rbacConfig: rbacconf.Config{RootUsers: []string{"user-root"}}, dbUserEnabled: true,
 	}
 
-	res := h.deleteUser(users.DeleteUserParams{UserID: "user-root"}, principal)
+	res := h.deleteUser(users.DeleteUserParams{UserID: "user-root", HTTPRequest: req}, principal)
 	_, ok := res.(*users.DeleteUserUnprocessableEntity)
 	assert.True(t, ok)
 }
@@ -105,7 +110,7 @@ func TestDeleteUnprocessableEntityDeletingRootUser(t *testing.T) {
 func TestDeleteNoDynamic(t *testing.T) {
 	principal := &models.Principal{}
 	authorizer := authorization.NewMockAuthorizer(t)
-	authorizer.On("Authorize", principal, authorization.DELETE, authorization.Users("user")[0]).Return(nil)
+	authorizer.On("Authorize", mock.Anything, principal, authorization.DELETE, authorization.Users("user")[0]).Return(nil)
 
 	h := dynUserHandler{
 		dbUsers:       NewMockDbUserAndRolesGetter(t),
@@ -113,7 +118,7 @@ func TestDeleteNoDynamic(t *testing.T) {
 		dbUserEnabled: false,
 	}
 
-	res := h.deleteUser(users.DeleteUserParams{UserID: "user"}, principal)
+	res := h.deleteUser(users.DeleteUserParams{UserID: "user", HTTPRequest: req}, principal)
 	_, ok := res.(*users.DeleteUserUnprocessableEntity)
 	assert.True(t, ok)
 }

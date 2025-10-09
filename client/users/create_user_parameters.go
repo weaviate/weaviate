@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -72,6 +72,9 @@ CreateUserParams contains all the parameters to send to the API endpoint
 */
 type CreateUserParams struct {
 
+	// Body.
+	Body CreateUserBody
+
 	/* UserID.
 
 	   user id
@@ -131,6 +134,17 @@ func (o *CreateUserParams) SetHTTPClient(client *http.Client) {
 	o.HTTPClient = client
 }
 
+// WithBody adds the body to the create user params
+func (o *CreateUserParams) WithBody(body CreateUserBody) *CreateUserParams {
+	o.SetBody(body)
+	return o
+}
+
+// SetBody adds the body to the create user params
+func (o *CreateUserParams) SetBody(body CreateUserBody) {
+	o.Body = body
+}
+
 // WithUserID adds the userID to the create user params
 func (o *CreateUserParams) WithUserID(userID string) *CreateUserParams {
 	o.SetUserID(userID)
@@ -149,6 +163,9 @@ func (o *CreateUserParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Re
 		return err
 	}
 	var res []error
+	if err := r.SetBodyParam(o.Body); err != nil {
+		return err
+	}
 
 	// path param user_id
 	if err := r.SetPathParam("user_id", o.UserID); err != nil {

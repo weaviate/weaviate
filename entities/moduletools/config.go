@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,6 +13,7 @@ package moduletools
 
 import (
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 // ClassConfig is a helper type which is passed to the module to read it's
@@ -25,4 +26,5 @@ type ClassConfig interface {
 	ClassByModuleName(moduleName string) map[string]interface{}
 	Property(propName string) map[string]interface{}
 	PropertiesDataTypes() map[string]schema.DataType
+	Config() *config.Config
 }

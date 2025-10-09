@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -32,7 +32,8 @@ type ShardReplicationOp struct {
 	SourceShard shardFQDN
 	TargetShard shardFQDN
 
-	TransferType api.ShardReplicationTransferType
+	TransferType    api.ShardReplicationTransferType
+	StartTimeUnixMs int64 // Unix timestamp when the operation started
 }
 
 func (s ShardReplicationOp) MarshalText() (text []byte, err error) {
@@ -82,7 +83,7 @@ type ShardReplicationFSM struct {
 	opsByStateGauge *prometheus.GaugeVec
 }
 
-func newShardReplicationFSM(reg prometheus.Registerer) *ShardReplicationFSM {
+func NewShardReplicationFSM(reg prometheus.Registerer) *ShardReplicationFSM {
 	fsm := &ShardReplicationFSM{
 		idsByUuid:               make(map[strfmt.UUID]uint64),
 		opsByTarget:             make(map[string][]ShardReplicationOp),
@@ -162,38 +163,85 @@ func (s *ShardReplicationFSM) resetState() {
 	s.opsByStateGauge.Reset()
 }
 
+func (s *ShardReplicationFSM) GetOpByUuid(uuid strfmt.UUID) (ShardReplicationOpAndStatus, bool) {
+	s.opsLock.RLock()
+	defer s.opsLock.RUnlock()
+	id, ok := s.idsByUuid[uuid]
+	if !ok {
+		return ShardReplicationOpAndStatus{}, false
+	}
+	op, ok := s.opsById[id]
+	if !ok {
+		return ShardReplicationOpAndStatus{}, false
+	}
+	status, ok := s.statusById[id]
+	if !ok {
+		return ShardReplicationOpAndStatus{}, false
+	}
+	return NewShardReplicationOpAndStatus(op, status), true
+}
+
+func (s *ShardReplicationFSM) GetOpById(id uint64) (ShardReplicationOpAndStatus, bool) {
+	s.opsLock.RLock()
+	defer s.opsLock.RUnlock()
+	op, ok := s.opsById[id]
+	if !ok {
+		return ShardReplicationOpAndStatus{}, false
+	}
+	status, ok := s.statusById[id]
+	if !ok {
+		return ShardReplicationOpAndStatus{}, false
+	}
+	return NewShardReplicationOpAndStatus(op, status), true
+}
+
 func (s *ShardReplicationFSM) GetOpsForTarget(node string) []ShardReplicationOp {
 	s.opsLock.RLock()
 	defer s.opsLock.RUnlock()
 	return s.opsByTarget[node]
 }
 
-func (s *ShardReplicationFSM) GetOpsForCollection(collection string) ([]ShardReplicationOp, bool) {
+func (s *ShardReplicationFSM) GetOpsForCollection(collection string) ([]ShardReplicationOpAndStatus, bool) {
 	s.opsLock.RLock()
 	defer s.opsLock.RUnlock()
-	val, ok := s.opsByCollection[collection]
-	return val, ok
+	ops, ok := s.opsByCollection[collection]
+	if !ok {
+		return nil, false
+	}
+	return s.getOpsWithStatus(ops), true
 }
 
-func (s *ShardReplicationFSM) GetOpsForCollectionAndShard(collection string, shard string) ([]ShardReplicationOp, bool) {
+func (s *ShardReplicationFSM) GetOpsForCollectionAndShard(collection string, shard string) ([]ShardReplicationOpAndStatus, bool) {
 	s.opsLock.RLock()
 	defer s.opsLock.RUnlock()
 	shardOps, ok := s.opsByCollectionAndShard[collection]
 	if !ok {
 		return nil, false
 	}
-	val, ok := shardOps[shard]
+	ops, ok := shardOps[shard]
 	if !ok {
 		return nil, false
 	}
-	return val, true
+	return s.getOpsWithStatus(ops), true
 }
 
-func (s *ShardReplicationFSM) GetOpsForTargetNode(node string) ([]ShardReplicationOp, bool) {
+func (s *ShardReplicationFSM) getOpsWithStatus(ops []ShardReplicationOp) []ShardReplicationOpAndStatus {
+	opsWithStatus := make([]ShardReplicationOpAndStatus, 0, len(ops))
+	for _, op := range ops {
+		status, ok := s.statusById[op.ID]
+		if !ok {
+			continue
+		}
+		opsWithStatus = append(opsWithStatus, NewShardReplicationOpAndStatus(op, status))
+	}
+	return opsWithStatus
+}
+
+func (s *ShardReplicationFSM) GetOpsForTargetNode(node string) ([]ShardReplicationOpAndStatus, bool) {
 	s.opsLock.RLock()
 	defer s.opsLock.RUnlock()
-	val, ok := s.opsByTarget[node]
-	return val, ok
+	ops, ok := s.opsByTarget[node]
+	return s.getOpsWithStatus(ops), ok
 }
 
 func (s *ShardReplicationFSM) GetStatusByOps() map[ShardReplicationOp]ShardReplicationOpStatus {
@@ -233,17 +281,55 @@ func (s *ShardReplicationFSM) GetOpState(op ShardReplicationOp) (ShardReplicatio
 	return v, ok
 }
 
-func (s *ShardReplicationFSM) FilterOneShardReplicasReadWrite(collection string, shard string, shardReplicasLocation []string) ([]string, []string) {
+func (s *ShardReplicationFSM) FilterOneShardReplicasRead(collection string, shard string, shardReplicasLocation []string) []string {
 	s.opsLock.RLock()
 	defer s.opsLock.RUnlock()
 
-	_, ok := s.opsByCollectionAndShard[collection][shard]
 	// Check if the specified shard is current undergoing replication at all.
-	// If not we can return early as all replicas can be used for read/writes
+	// If not we can return early as all replicas can be used for reads
+	byCollection, ok := s.opsByCollectionAndShard[collection]
 	if !ok {
-		return shardReplicasLocation, shardReplicasLocation
+		return shardReplicasLocation
+	}
+	_, ok = byCollection[shard]
+	if !ok {
+		return shardReplicasLocation
+	}
+	readReplicas, _ := s.readWriteReplicas(collection, shard, shardReplicasLocation)
+	return readReplicas
+}
+
+func (s *ShardReplicationFSM) FilterOneShardReplicasWrite(collection string, shard string, shardReplicasLocation []string) ([]string, []string) {
+	s.opsLock.RLock()
+	defer s.opsLock.RUnlock()
+
+	// Check if the specified shard is current undergoing replication at all.
+	// If not we can return early as all replicas can be used for writes
+	byCollection, ok := s.opsByCollectionAndShard[collection]
+	if !ok {
+		return shardReplicasLocation, []string{}
+	}
+	ops, ok := byCollection[shard]
+	if !ok {
+		return shardReplicasLocation, []string{}
 	}
 
+	_, writeReplicas := s.readWriteReplicas(collection, shard, shardReplicasLocation)
+
+	additionalWriteReplicas := []string{}
+	for _, op := range ops {
+		opState, ok := s.statusById[op.ID]
+		if !ok {
+			continue
+		}
+		if opState.GetCurrentState() == api.FINALIZING {
+			additionalWriteReplicas = append(additionalWriteReplicas, op.TargetShard.NodeId)
+		}
+	}
+	return writeReplicas, additionalWriteReplicas
+}
+
+func (s *ShardReplicationFSM) readWriteReplicas(collection, shard string, shardReplicasLocation []string) ([]string, []string) {
 	readReplicas := make([]string, 0, len(shardReplicasLocation))
 	writeReplicas := make([]string, 0, len(shardReplicasLocation))
 	for _, shardReplicaLocation := range shardReplicasLocation {
@@ -255,7 +341,6 @@ func (s *ShardReplicationFSM) FilterOneShardReplicasReadWrite(collection string,
 			writeReplicas = append(writeReplicas, shardReplicaLocation)
 		}
 	}
-
 	return readReplicas, writeReplicas
 }
 
@@ -279,9 +364,10 @@ func (s *ShardReplicationFSM) filterOneReplicaReadWrite(node string, collection 
 	readOk := false
 	writeOk := false
 	switch opState.GetCurrentState() {
-	case api.FINALIZING:
-		writeOk = true
 	case api.READY:
+		readOk = true
+		writeOk = true
+	case api.DEHYDRATING:
 		readOk = true
 		writeOk = true
 	default:

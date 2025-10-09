@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -28,7 +28,7 @@ import (
 
 // return value map[int]error gives the error for the index as it received it
 func (s *Shard) AddReferencesBatch(ctx context.Context, refs objects.BatchReferences) []error {
-	s.activityTracker.Add(1)
+	s.activityTrackerWrite.Add(1)
 	if err := s.isReadOnly(); err != nil {
 		return []error{err}
 	}
@@ -130,13 +130,6 @@ func (b *referencesBatcher) storeSingleBatchInLSM(ctx context.Context, batch obj
 		if err != nil {
 			errLock.Lock()
 			errs[i] = err
-			errLock.Unlock()
-			continue
-		}
-
-		if err := b.shard.mayUpsertObjectHashTree(res.next, idBytes, res.status); err != nil {
-			errLock.Lock()
-			errs[i] = fmt.Errorf("object merge in hashtree: %w", err)
 			errLock.Unlock()
 			continue
 		}

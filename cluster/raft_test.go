@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -18,6 +18,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 
 	"github.com/hashicorp/raft"
 	"github.com/prometheus/client_golang/prometheus"
@@ -49,6 +51,8 @@ func TestRaftEndpoints(t *testing.T) {
 	m.indexer.On("UpdateTenants", Anything, Anything).Return(nil)
 	m.indexer.On("DeleteTenants", Anything, Anything).Return(nil)
 	m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+	m.indexer.On("AddReplicaToShard", Anything, Anything, Anything).Return(nil)
+	m.indexer.On("DeleteReplicaFromShard", Anything, Anything, Anything).Return(nil)
 
 	m.parser.On("ParseClass", mock.Anything).Return(nil)
 	m.parser.On("ParseClassUpdate", mock.Anything, mock.Anything).Return(mock.Anything, nil)
@@ -167,9 +171,14 @@ func TestRaftEndpoints(t *testing.T) {
 	getShardOwner, _, err := srv.QueryShardOwner(cls.Class, "T0")
 	assert.Nil(t, err)
 	assert.Equal(t, "N0", getShardOwner)
+	// Verify that updating with nil sharding state does not change the sharding state
+	srv.UpdateClass(ctx, cls, nil)
+	getShardOwner, _, err = srv.QueryShardOwner(cls.Class, "T0")
+	assert.Nil(t, err)
+	assert.Equal(t, "N0", getShardOwner)
 
 	// QueryShardingState
-	shardingState := &sharding.State{Physical: map[string]sharding.Physical{"T0": {BelongsToNodes: []string{"N0"}}}}
+	shardingState := &sharding.State{Physical: map[string]sharding.Physical{"T0": {BelongsToNodes: []string{"N0"}}}, ReplicationFactor: 2}
 	srv.UpdateClass(ctx, cls, shardingState)
 	getShardingState, _, err := srv.QueryShardingState(cls.Class)
 	assert.Nil(t, err)
@@ -196,6 +205,7 @@ func TestRaftEndpoints(t *testing.T) {
 	assert.ErrorIs(t, srv.store.WaitForAppliedIndex(ctx, time.Millisecond*10, srv.store.lastAppliedIndex.Load()+1), types.ErrDeadlineExceeded)
 
 	// DeleteClass
+	m.replicationFSM.EXPECT().DeleteReplicationsByCollection(Anything).Return(nil).Times(2)
 	_, err = srv.DeleteClass(ctx, "X")
 	assert.Nil(t, err)
 	_, err = srv.DeleteClass(ctx, "C")
@@ -242,6 +252,79 @@ func TestRaftEndpoints(t *testing.T) {
 	info.Tenants += 1
 	assert.Equal(t, info, schemaReader.ClassInfo("C"))
 
+	// AddReplicaToShard
+	_, err = srv.AddReplicaToShard(ctx, "", "", "")
+	assert.ErrorIs(t, err, schema.ErrBadRequest)
+	version, err = srv.AddReplicaToShard(ctx, "C", "T2", "Node-2")
+	assert.Nil(t, err)
+	info.ClassVersion = version
+	assert.Equal(t, info, schemaReader.ClassInfo("C"))
+	ss, err = readShardingState(schemaReader, "C")
+	require.Nil(t, err)
+	assert.Equal(t, []string{"Node-1", "Node-2"}, ss.Physical["T2"].BelongsToNodes)
+
+	// DeleteReplicaFromShard
+	_, err = srv.DeleteReplicaFromShard(ctx, "", "", "")
+	assert.ErrorIs(t, err, schema.ErrBadRequest)
+	version, err = srv.DeleteReplicaFromShard(ctx, "C", "T2", "Node-2")
+	assert.Nil(t, err)
+	info.ClassVersion = version
+	assert.Equal(t, info, schemaReader.ClassInfo("C"))
+	ss, err = readShardingState(schemaReader, "C")
+	require.Nil(t, err)
+	assert.Equal(t, []string{"Node-1"}, ss.Physical["T2"].BelongsToNodes)
+
+	// SyncShard with active tenant
+	_, err = srv.SyncShard(ctx, "", "", "")
+	assert.ErrorIs(t, err, schema.ErrBadRequest)
+	m.indexer.On("ShutdownShard", mock.Anything, mock.Anything).Return(nil).Times(0)
+	m.indexer.On("LoadShard", "C", "A").Return(nil).Times(1)
+	_, err = srv.SyncShard(ctx, "C", "A", "Node-1")
+	assert.Nil(t, err)
+
+	// SyncShard with inactive tenant
+	_, err = srv.UpdateShardStatus(ctx, "C", "A", "INACTIVE")
+	assert.Nil(t, err)
+
+	_, err = srv.SyncShard(ctx, "", "", "")
+	assert.ErrorIs(t, err, schema.ErrBadRequest)
+	m.indexer.On("ShutdownShard", "C", "A").Return(nil).Times(1)
+	m.indexer.On("LoadShard", mock.Anything, mock.Anything).Return(nil).Times(0)
+	_, err = srv.SyncShard(ctx, "C", "A", "Node-1")
+	assert.Nil(t, err)
+
+	_, err = srv.UpdateShardStatus(ctx, "C", "A", "ACTIVE")
+	assert.Nil(t, err)
+
+	// SyncShard with absent tenant
+	_, err = srv.SyncShard(ctx, "", "", "")
+	assert.ErrorIs(t, err, schema.ErrBadRequest)
+	m.indexer.On("ShutdownShard", "C", "T0").Return(nil).Times(1)
+	m.indexer.On("LoadShard", mock.Anything, mock.Anything).Return(nil).Times(0)
+	_, err = srv.SyncShard(ctx, "C", "T0", "Node-1")
+	assert.Nil(t, err)
+
+	// Add single-tenant collection
+	cls = &models.Class{
+		Class: "D",
+	}
+	ss = &sharding.State{PartitioningEnabled: false, Physical: map[string]sharding.Physical{"S0": {Name: "S0"}}}
+	_, err = srv.AddClass(ctx, cls, ss)
+	assert.Nil(t, err)
+	assert.Equal(t, schemaReader.ClassEqual("D"), "D")
+
+	// SyncShard with ST collection and present shard
+	m.indexer.On("ShutdownShard", mock.Anything, mock.Anything).Return(nil).Times(0)
+	m.indexer.On("LoadShard", "D", "S0").Return(nil).Times(1)
+	_, err = srv.SyncShard(ctx, "D", "S0", "Node-1")
+	assert.Nil(t, err)
+
+	// SyncShard with ST collection and absent shard
+	m.indexer.On("ShutdownShard", "D", "S0").Return(nil).Times(1)
+	m.indexer.On("LoadShard", mock.Anything, mock.Anything).Return(nil).Times(0)
+	_, err = srv.SyncShard(ctx, "D", "S0", "Node-1")
+	assert.Nil(t, err)
+
 	// UpdateTenants
 	_, err = srv.UpdateTenants(ctx, "", &command.UpdateTenantsRequest{})
 	assert.ErrorIs(t, err, schema.ErrBadRequest)
@@ -249,6 +332,7 @@ func TestRaftEndpoints(t *testing.T) {
 	assert.Nil(t, err)
 
 	// DeleteTenants
+	m.replicationFSM.EXPECT().DeleteReplicationsByTenants(Anything, Anything).Return(nil)
 	_, err = srv.DeleteTenants(ctx, "", &command.DeleteTenantsRequest{})
 	assert.ErrorIs(t, err, schema.ErrBadRequest)
 	version, err = srv.DeleteTenants(ctx, "C", &command.DeleteTenantsRequest{Tenants: []string{"T0", "Tn"}})
@@ -256,7 +340,9 @@ func TestRaftEndpoints(t *testing.T) {
 	info.Tenants -= 1
 	info.ShardVersion = version
 	assert.Equal(t, info, schemaReader.ClassInfo("C"))
-	assert.Equal(t, "S2", schemaReader.CopyShardingState("C").Physical["T2"].Status)
+	ss, err = readShardingState(schemaReader, "C")
+	require.Nil(t, err)
+	assert.Equal(t, "S2", ss.Physical["T2"].Status)
 
 	// Self Join
 	assert.Nil(t, srv.Join(ctx, m.store.cfg.NodeID, addr, true))
@@ -366,4 +452,14 @@ func TestRaftPanics(t *testing.T) {
 	// Cannot Open File Store
 	m.indexer.On("Open", mock.Anything).Return(errAny)
 	assert.Panics(t, func() { m.store.openDatabase(context.TODO()) })
+}
+
+func readShardingState(schemaReader schema.SchemaReader, className string) (*sharding.State, error) {
+	var result *sharding.State
+	err := schemaReader.Read(className, func(_ *models.Class, state *sharding.State) error {
+		stateCopy := state.DeepCopy()
+		result = &stateCopy
+		return nil
+	})
+	return result, err
 }

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -389,7 +389,10 @@ func cleanupReplaceStrategy(ctx context.Context, t *testing.T, opts []BucketOpti
 		})
 
 		t.Run("net count", func(t *testing.T) {
-			assert.Equal(t, len(expectedExising), bucket.Count())
+			count, err := bucket.Count(context.Background())
+			require.NoError(t, err)
+
+			assert.Equal(t, len(expectedExising), count)
 		})
 	})
 }
@@ -807,7 +810,10 @@ func cleanupReplaceStrategy_WithSecondaryKeys(ctx context.Context, t *testing.T,
 		})
 
 		t.Run("net count", func(t *testing.T) {
-			assert.Equal(t, len(expectedExising), bucket.Count())
+			count, err := bucket.Count(context.Background())
+			require.NoError(t, err)
+
+			assert.Equal(t, len(expectedExising), count)
 		})
 	})
 }

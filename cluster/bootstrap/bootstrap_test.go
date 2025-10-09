@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -19,11 +19,11 @@ import (
 
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/mock"
-	"github.com/weaviate/weaviate/usecases/cluster/mocks"
-	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/cluster/rpc"
+	"github.com/weaviate/weaviate/usecases/cluster/mocks"
 )
 
 var errAny = errors.New("any error")
@@ -82,7 +82,7 @@ func TestBootstrapper(t *testing.T) {
 				// This test performs a join request to the leader, but the leader is not
 				// available. The bootstrapper should retry the join request until it is
 				// successful.
-				errLeaderElected := status.Error(codes.NotFound, "follow the leader")
+				errLeaderElected := status.Error(rpc.NotLeaderRPCCode, "follow the leader")
 				count := 0
 				m.On("Join", anything, anything, anything).
 					Run(func(args mock.Arguments) {

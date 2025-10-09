@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -16,7 +16,6 @@ import (
 	"crypto/subtle"
 	"fmt"
 
-	errors "github.com/go-openapi/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/config"
 )
@@ -81,13 +80,9 @@ func (c *StaticApiKey) validateConfig() error {
 }
 
 func (c *StaticApiKey) ValidateAndExtract(token string, scopes []string) (*models.Principal, error) {
-	if !c.config.Enabled {
-		return nil, errors.New(401, "apikey auth is not configured, please try another auth scheme or set up weaviate with apikey configured")
-	}
-
 	tokenPos, ok := c.isTokenAllowed(token)
 	if !ok {
-		return nil, errors.New(401, "invalid api key, please provide a valid api key")
+		return nil, fmt.Errorf("invalid api key")
 	}
 
 	return &models.Principal{

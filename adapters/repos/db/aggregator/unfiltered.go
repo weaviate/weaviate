@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -68,7 +68,11 @@ func (ua *unfilteredAggregator) addMetaCount(ctx context.Context,
 		return errors.Errorf("objects bucket is nil")
 	}
 
-	out.Groups[0].Count = b.Count()
+	count, err := b.Count(ctx)
+	if err != nil {
+		return fmt.Errorf("count objects: %w", err)
+	}
+	out.Groups[0].Count = count
 
 	return nil
 }

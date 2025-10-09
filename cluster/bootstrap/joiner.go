@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -17,10 +17,11 @@ import (
 
 	"github.com/getsentry/sentry-go"
 	"github.com/sirupsen/logrus"
-	cmd "github.com/weaviate/weaviate/cluster/proto/api"
-	entSentry "github.com/weaviate/weaviate/entities/sentry"
-	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+
+	cmd "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/cluster/rpc"
+	entSentry "github.com/weaviate/weaviate/entities/sentry"
 )
 
 type Joiner struct {
@@ -72,7 +73,7 @@ func (j *Joiner) Do(ctx context.Context, lg *logrus.Logger, remoteNodes map[stri
 		st := status.Convert(err)
 		lg.WithField("remoteNode", addr).WithField("status", st.Code()).Info("attempted to join and failed")
 		// Get the leader from response and if not empty try to join it
-		if leader := resp.GetLeader(); st.Code() == codes.NotFound && leader != "" {
+		if leader := resp.GetLeader(); st.Code() == rpc.NotLeaderRPCCode && leader != "" {
 			_, err = j.peerJoiner.Join(ctx, leader, req)
 			if err == nil {
 				return leader, nil

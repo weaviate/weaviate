@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,6 +13,7 @@ package aggregator
 
 import (
 	"errors"
+	"sync"
 
 	"github.com/weaviate/weaviate/entities/aggregation"
 )
@@ -38,11 +39,14 @@ func newRefAggregator() *refAggregator {
 }
 
 type refAggregator struct {
+	sync.Mutex
 	count        uint64
 	valueCounter map[string]uint64
 }
 
 func (a *refAggregator) AddReference(ref map[string]interface{}) error {
+	a.Lock()
+	defer a.Unlock()
 	a.count++
 
 	beacon, ok := ref["beacon"].(string)

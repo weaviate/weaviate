@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -46,6 +46,16 @@ func TestGRPC(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, check)
 		assert.Equal(t, grpc_health_v1.HealthCheckResponse_SERVING.Enum().Number(), check.Status.Number())
+	})
+
+	t.Run("Health List", func(t *testing.T) {
+		client := grpc_health_v1.NewHealthClient(conn)
+		list, err := client.List(context.TODO(), &grpc_health_v1.HealthListRequest{})
+		require.NoError(t, err)
+		require.NotNil(t, list)
+		require.NotEmpty(t, list.Statuses)
+		require.NotEmpty(t, list.Statuses["weaviate"])
+		assert.Equal(t, grpc_health_v1.HealthCheckResponse_SERVING.Enum().Number(), list.Statuses["weaviate"].Status.Number())
 	})
 
 	t.Run("Batch import", func(t *testing.T) {

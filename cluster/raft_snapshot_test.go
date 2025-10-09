@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -52,6 +52,7 @@ func TestSnapshotRestoreSchemaOnly(t *testing.T) {
 	// DeleteClass
 	m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
 	m.indexer.On("DeleteClass", Anything).Return(nil)
+	m.replicationFSM.On("DeleteReplicationsByCollection", Anything).Return(nil)
 	_, err := srv.DeleteClass(ctx, "C")
 	assert.Nil(t, err)
 
@@ -68,13 +69,14 @@ func TestSnapshotRestoreSchemaOnly(t *testing.T) {
 	_, err = srv.AddClass(ctx, cls, ss)
 	assert.Nil(t, err)
 	assert.Equal(t, schemaReader.ClassEqual(cls.Class), cls.Class)
-	assert.Equal(t, "S0", schemaReader.CopyShardingState(cls.Class).Physical["T0"].Status)
+	assert.Equal(t, "S0", getTenantStatus(t, schemaReader, cls.Class, "T0"))
 
 	// Create a snapshot here with the class and the tenant existing
 	assert.Nil(t, srv.store.raft.Barrier(2*time.Second).Error())
 	assert.Nil(t, srv.store.raft.Snapshot().Error())
 
 	m.indexer.On("DeleteTenants", Anything, Anything).Return(nil)
+	m.replicationFSM.On("DeleteReplicationsByTenants", Anything, Anything).Return(nil)
 	// Now let's drop the tenant T0 (this will be a log entry and not included in the snapshot)
 	_, err = srv.DeleteTenants(ctx, cls.Class, &api.DeleteTenantsRequest{Tenants: []string{"T0"}})
 	require.NoError(t, err)
@@ -86,7 +88,7 @@ func TestSnapshotRestoreSchemaOnly(t *testing.T) {
 		Tenants:      []*api.Tenant{{Name: "T0", Status: "S1"}},
 	})
 	require.NoError(t, err)
-	assert.Equal(t, "S1", schemaReader.CopyShardingState(cls.Class).Physical["T0"].Status)
+	assert.Equal(t, "S1", getTenantStatus(t, schemaReader, cls.Class, "T0"))
 
 	// close service
 	m.indexer.On("Close", Anything).Return(nil)
@@ -113,8 +115,34 @@ func TestSnapshotRestoreSchemaOnly(t *testing.T) {
 	// Ensure that the class has been restored and that the tenant is present with the right state
 	schemaReader = srv.SchemaReader()
 	assert.Equal(t, cls.Class, schemaReader.ClassEqual(cls.Class))
-	assert.Equal(t, "S1", schemaReader.CopyShardingState(cls.Class).Physical["T0"].Status)
+	assert.Equal(t, "S1", getTenantStatus(t, schemaReader, cls.Class, "T0"))
 
 	// Ensure there was no supplementary call to the underlying DB as we were just recovering the schema
 	m.indexer.AssertExpectations(t)
+}
+
+func getTenantStatus(t *testing.T, schemaReader interface{}, className, tenantName string) string {
+	type schemaReaderWithRead interface {
+		Read(className string, readerFunc func(*models.Class, *sharding.State) error) error
+	}
+
+	reader, ok := schemaReader.(schemaReaderWithRead)
+	if !ok {
+		t.Fatalf("schemaReader does not have Read method")
+	}
+
+	var tenantStatus string
+
+	err := reader.Read(className, func(_ *models.Class, state *sharding.State) error {
+		physical, exists := state.Physical[tenantName]
+		if !exists {
+			return fmt.Errorf("tenant %s	 not found in class %s", tenantName, className)
+		}
+
+		tenantStatus = physical.Status
+		return nil
+	})
+
+	require.NoError(t, err)
+	return tenantStatus
 }

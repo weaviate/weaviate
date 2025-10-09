@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -29,6 +29,14 @@ const (
 	// Set these defaults if the user leaves them blank
 	DefaultVectorCacheMaxObjects = 1e12
 	DefaultDistanceMetric        = DistanceCosine
+)
+
+const (
+	CompressionBQ = "bq"
+	CompressionPQ = "pq"
+	CompressionSQ = "sq"
+	CompressionRQ = "rq"
+	NoCompression = "none"
 )
 
 // Tries to parse the int value from the map, if it overflows math.MaxInt64, it

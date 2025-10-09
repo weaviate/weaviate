@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -16,17 +16,20 @@ import (
 	"bytes"
 	"encoding/binary"
 	"encoding/gob"
-	"io"
+	"fmt"
 	"math"
-	"os"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/weaviate/sroar"
+	"github.com/weaviate/weaviate/adapters/repos/db/compactor"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/varenc"
+	"github.com/weaviate/weaviate/entities/diskio"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
-func (m *Memtable) flushDataInverted(f *bufio.Writer, ff *os.File) ([]segmentindex.Key, *sroar.Bitmap, error) {
+func (m *Memtable) flushDataInverted(f *segmentindex.SegmentFile, ogF *diskio.MeteredWriter, bufw *bufio.Writer) ([]segmentindex.Key, *sroar.Bitmap, error) {
 	m.RLock()
 	flatA := m.keyMap.flattenInOrder()
 	m.RUnlock()
@@ -84,10 +87,7 @@ func (m *Memtable) flushDataInverted(f *bufio.Writer, ff *os.File) ([]segmentind
 	}
 
 	header := segmentindex.Header{
-		// TODO: checksums currently not supported for StrategyInverted,
-		//       which was introduced with segmentindex.SegmentV1. When
-		//       support is added, we can bump this header version to 1.
-		Version:          0,
+		Version:          segmentindex.ChooseHeaderVersion(m.enableChecksumValidation),
 		IndexStart:       0, // will be updated later
 		Level:            0, // always level zero on a new one
 		SecondaryIndices: m.secondaryIndices,
@@ -109,23 +109,23 @@ func (m *Memtable) flushDataInverted(f *bufio.Writer, ff *os.File) ([]segmentind
 	docIdEncoder.Init(segmentindex.SegmentInvertedDefaultBlockSize)
 	tfEncoder.Init(segmentindex.SegmentInvertedDefaultBlockSize)
 
-	n, err := header.WriteTo(f)
-	if err != nil {
+	headerEmpty := make([]byte, headerInverted.KeysOffset)
+	if _, err := bufw.Write(headerEmpty); err != nil {
 		return nil, nil, err
 	}
-	totalWritten := int(n)
 
-	n, err = headerInverted.WriteTo(f)
-	if err != nil {
-		return nil, nil, err
-	}
-	totalWritten += int(n)
+	totalWritten := len(headerEmpty)
 	keysStartOffset := totalWritten
 
 	buf := make([]byte, 8)
 
 	keys := make([]segmentindex.Key, len(flat))
 	actuallyWritten = 0
+
+	bw := f.BodyWriter()
+	if bw == nil {
+		return nil, nil, fmt.Errorf("segment file body writer is nil, cannot write inverted index")
+	}
 
 	for _, mapNode := range flat {
 		if len(mapNode.values) > 0 {
@@ -144,21 +144,21 @@ func (m *Memtable) flushDataInverted(f *bufio.Writer, ff *os.File) ([]segmentind
 
 			blocksEncoded, _ := createAndEncodeBlocksWithLengths(mapNode.values, docIdEncoder, tfEncoder, float64(b), float64(k1), m.averagePropLength)
 
-			if _, err := f.Write(blocksEncoded); err != nil {
+			if _, err := bw.Write(blocksEncoded); err != nil {
 				return nil, nil, err
 			}
 			totalWritten += len(blocksEncoded)
 
 			// write key length
 			binary.LittleEndian.PutUint32(buf, uint32(len(mapNode.key)))
-			if _, err := f.Write(buf[:4]); err != nil {
+			if _, err := bw.Write(buf[:4]); err != nil {
 				return nil, nil, err
 			}
 
 			totalWritten += 4
 
 			// write key
-			if _, err := f.Write(mapNode.key); err != nil {
+			if _, err := bw.Write(mapNode.key); err != nil {
 				return nil, nil, err
 			}
 			totalWritten += len(mapNode.key)
@@ -173,12 +173,12 @@ func (m *Memtable) flushDataInverted(f *bufio.Writer, ff *os.File) ([]segmentind
 	tombstoneOffset := totalWritten
 
 	binary.LittleEndian.PutUint64(buf, uint64(len(tombstoneBuffer)))
-	if _, err := f.Write(buf); err != nil {
+	if _, err := bw.Write(buf); err != nil {
 		return nil, nil, err
 	}
 	totalWritten += 8
 
-	if _, err := f.Write(tombstoneBuffer); err != nil {
+	if _, err := bw.Write(tombstoneBuffer); err != nil {
 		return nil, nil, err
 	}
 	totalWritten += len(tombstoneBuffer)
@@ -189,13 +189,13 @@ func (m *Memtable) flushDataInverted(f *bufio.Writer, ff *os.File) ([]segmentind
 	propLengthAvg := float64(propLengthSum) / float64(propLengthCount)
 
 	binary.LittleEndian.PutUint64(buf, math.Float64bits(propLengthAvg))
-	if _, err := f.Write(buf); err != nil {
+	if _, err := bw.Write(buf); err != nil {
 		return nil, nil, err
 	}
 	totalWritten += 8
 
 	binary.LittleEndian.PutUint64(buf, propLengthCount)
-	if _, err := f.Write(buf); err != nil {
+	if _, err := bw.Write(buf); err != nil {
 		return nil, nil, err
 	}
 	totalWritten += 8
@@ -203,18 +203,18 @@ func (m *Memtable) flushDataInverted(f *bufio.Writer, ff *os.File) ([]segmentind
 	e := gob.NewEncoder(b)
 
 	// Encoding the map
-	err = e.Encode(docIdsLengths)
+	err := e.Encode(docIdsLengths)
 	if err != nil {
 		return nil, nil, err
 	}
 
 	binary.LittleEndian.PutUint64(buf, uint64(b.Len()))
-	if _, err := f.Write(buf); err != nil {
+	if _, err := bw.Write(buf); err != nil {
 		return nil, nil, err
 	}
 	totalWritten += 8
 
-	if _, err := f.Write(b.Bytes()); err != nil {
+	if _, err := bw.Write(b.Bytes()); err != nil {
 		return nil, nil, err
 	}
 
@@ -222,41 +222,40 @@ func (m *Memtable) flushDataInverted(f *bufio.Writer, ff *os.File) ([]segmentind
 
 	treeOffset := totalWritten
 
-	if err := f.Flush(); err != nil {
+	header.IndexStart = uint64(treeOffset)
+
+	headerInverted.KeysOffset = uint64(keysStartOffset)
+	headerInverted.TombstoneOffset = uint64(tombstoneOffset)
+	headerInverted.PropertyLengthsOffset = uint64(propLengthsOffset)
+
+	f.SetHeader(&header)
+	f.SetHeaderInverted(&headerInverted)
+
+	indexes := &segmentindex.Indexes{
+		Keys:                keys,
+		SecondaryIndexCount: m.secondaryIndices,
+		ScratchSpacePath:    m.path + ".scratch.d",
+		ObserveWrite: monitoring.GetMetrics().FileIOWrites.With(prometheus.Labels{
+			"strategy":  m.strategy,
+			"operation": "writeIndices",
+		}),
+	}
+
+	if _, err := f.WriteIndexes(indexes, int64(m.size)); err != nil {
 		return nil, nil, err
 	}
 
-	ff.Sync()
+	// flush buffered, so we can safely seek on underlying writer
 
-	// fix offset for Inverted strategy
-	ff.Seek(8, io.SeekStart)
-	buf = make([]byte, 8)
-	binary.LittleEndian.PutUint64(buf, uint64(treeOffset))
-	if _, err := ff.Write(buf); err != nil {
-		return nil, nil, err
+	if err := bufw.Flush(); err != nil {
+		return nil, nil, fmt.Errorf("flush buffered: %w", err)
 	}
 
-	ff.Seek(16, io.SeekStart)
-	binary.LittleEndian.PutUint64(buf, uint64(keysStartOffset))
-	if _, err := ff.Write(buf); err != nil {
-		return nil, nil, err
+	version := segmentindex.ChooseHeaderVersion(m.enableChecksumValidation)
+	if err := compactor.WriteHeaders(nil, ogF, bufw, f, 0, version,
+		header.SecondaryIndices, header.IndexStart, segmentindex.StrategyInverted, &headerInverted); err != nil {
+		return nil, nil, fmt.Errorf("write headers: %w", err)
 	}
-
-	ff.Seek(16+8, io.SeekStart)
-	binary.LittleEndian.PutUint64(buf, uint64(tombstoneOffset))
-	if _, err := ff.Write(buf); err != nil {
-		return nil, nil, err
-	}
-
-	ff.Seek(16+8+8, io.SeekStart)
-	binary.LittleEndian.PutUint64(buf, uint64(propLengthsOffset))
-	if _, err := ff.Write(buf); err != nil {
-		return nil, nil, err
-	}
-
-	ff.Sync()
-
-	ff.Seek(int64(totalWritten), io.SeekStart)
 
 	return keys[:actuallyWritten], tombstones, nil
 }

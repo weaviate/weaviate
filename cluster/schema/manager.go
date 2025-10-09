@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -17,13 +17,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
-	gproto "google.golang.org/protobuf/proto"
-
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/sharding"
+	gproto "google.golang.org/protobuf/proto"
 )
 
 var (
@@ -32,17 +33,19 @@ var (
 	ErrSchema     = errors.New("updating schema")
 )
 
-type replicationsDeleter interface {
+type replicationFSM interface {
+	HasOngoingReplication(collection string, shard string, replica string) bool
 	DeleteReplicationsByCollection(collection string) error
 	DeleteReplicationsByTenants(collection string, tenants []string) error
+	SetUnCancellable(id uint64) error
 }
 
 type SchemaManager struct {
-	schema              *schema
-	db                  Indexer
-	parser              Parser
-	log                 *logrus.Logger
-	replicationsDeleter replicationsDeleter
+	schema         *schema
+	db             Indexer
+	parser         Parser
+	log            *logrus.Logger
+	replicationFSM replicationFSM
 }
 
 func NewSchemaManager(nodeId string, db Indexer, parser Parser, reg prometheus.Registerer, log *logrus.Logger) *SchemaManager {
@@ -81,19 +84,30 @@ func (s *SchemaManager) SetIndexer(idx Indexer) {
 	s.schema.shardReader = idx
 }
 
-func (s *SchemaManager) SetReplicationsDeleter(deleter replicationsDeleter) {
-	s.replicationsDeleter = deleter
+func (s *SchemaManager) SetReplicationFSM(fsm replicationFSM) {
+	s.replicationFSM = fsm
 }
 
-func (s *SchemaManager) Snapshot() ([]byte, error) {
+func (s *SchemaManager) SchemaSnapshot() ([]byte, error) {
 	var buf bytes.Buffer
 
 	err := json.NewEncoder(&buf).Encode(s.schema.MetaClasses())
 	return buf.Bytes(), err
 }
 
+func (s *SchemaManager) AliasSnapshot() ([]byte, error) {
+	var buf bytes.Buffer
+
+	err := json.NewEncoder(&buf).Encode(s.schema.aliases)
+	return buf.Bytes(), err
+}
+
 func (s *SchemaManager) Restore(data []byte, parser Parser) error {
 	return s.schema.Restore(data, parser)
+}
+
+func (s *SchemaManager) RestoreAliases(data []byte) error {
+	return s.schema.RestoreAlias(data)
 }
 
 func (s *SchemaManager) RestoreLegacy(data []byte, parser Parser) error {
@@ -111,10 +125,16 @@ func (s *SchemaManager) PreApplyFilter(req *command.ApplyRequest) error {
 
 	// Discard adding class if the name already exists or a similar one exists
 	if req.Type == command.ApplyRequest_TYPE_ADD_CLASS {
-		if other := s.schema.ClassEqual(req.Class); other == req.Class {
-			return fmt.Errorf("class name %s already exists", req.Class)
+		other, isAlias := s.schema.ClassEqual(req.Class)
+		item := "class"
+		if isAlias {
+			item = "alias"
+		}
+
+		if other == req.Class {
+			return fmt.Errorf("%s name %s already exists", item, req.Class)
 		} else if other != "" {
-			return fmt.Errorf("%w: found similar class %q", ErrClassExists, other)
+			return fmt.Errorf("%w: found similar %s %q", ErrClassExists, item, other)
 		}
 	}
 
@@ -149,6 +169,7 @@ func (s *SchemaManager) Close(ctx context.Context) (err error) {
 
 func (s *SchemaManager) AddClass(cmd *command.ApplyRequest, nodeID string, schemaOnly bool, enableSchemaCallback bool) error {
 	req := command.AddClassRequest{}
+	// dupa
 	if err := json.Unmarshal(cmd.SubCommand, &req); err != nil {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
@@ -276,9 +297,9 @@ func (s *SchemaManager) DeleteClass(cmd *command.ApplyRequest, schemaOnly bool, 
 			op:           cmd.GetType().String(),
 			updateSchema: func() error { s.schema.deleteClass(cmd.Class); return nil },
 			updateStore: func() error {
-				if s.replicationsDeleter == nil {
+				if s.replicationFSM == nil {
 					return fmt.Errorf("replication deleter is not set, this should never happen")
-				} else if err := s.replicationsDeleter.DeleteReplicationsByCollection(cmd.Class); err != nil {
+				} else if err := s.replicationFSM.DeleteReplicationsByCollection(cmd.Class); err != nil {
 					// If there is an error deleting the replications then we log it but make sure not to block the deletion of the class from a UX PoV
 					s.log.WithField("error", err).WithField("class", cmd.Class).Error("could not delete replication operations for deleted class")
 				}
@@ -398,7 +419,7 @@ func (s *SchemaManager) UpdateTenants(cmd *command.ApplyRequest, schemaOnly bool
 			// updateSchema func will update the request's tenants and therefore we use it as a filter that is then sent
 			// to the updateStore function. This allows us to effectively use the schema update to narrow down work for
 			// the DB update.
-			updateSchema: func() error { return s.schema.updateTenants(cmd.Class, cmd.Version, req) },
+			updateSchema: func() error { return s.schema.updateTenants(cmd.Class, cmd.Version, req, s.replicationFSM) },
 			updateStore:  func() error { return s.db.UpdateTenants(cmd.Class, req) },
 			schemaOnly:   schemaOnly,
 		},
@@ -429,9 +450,9 @@ func (s *SchemaManager) DeleteTenants(cmd *command.ApplyRequest, schemaOnly bool
 			op:           cmd.GetType().String(),
 			updateSchema: func() error { return s.schema.deleteTenants(cmd.Class, cmd.Version, req) },
 			updateStore: func() error {
-				if s.replicationsDeleter == nil {
+				if s.replicationFSM == nil {
 					return fmt.Errorf("replication deleter is not set, this should never happen")
-				} else if err := s.replicationsDeleter.DeleteReplicationsByTenants(cmd.Class, req.Tenants); err != nil {
+				} else if err := s.replicationFSM.DeleteReplicationsByTenants(cmd.Class, req.Tenants); err != nil {
 					// If there is an error deleting the replications then we log it but make sure not to block the deletion of the class from a UX PoV
 					s.log.WithField("error", err).WithField("class", cmd.Class).WithField("tenants", tenants).Error("could not delete replication operations for deleted tenants")
 				}
@@ -454,6 +475,96 @@ func (s *SchemaManager) UpdateTenantsProcess(cmd *command.ApplyRequest, schemaOn
 			updateSchema: func() error { return s.schema.updateTenantsProcess(cmd.Class, cmd.Version, req) },
 			updateStore:  func() error { return s.db.UpdateTenantsProcess(cmd.Class, req) },
 			schemaOnly:   schemaOnly,
+		},
+	)
+}
+
+func (s *SchemaManager) SyncShard(cmd *command.ApplyRequest, schemaOnly bool) error {
+	req := command.SyncShardRequest{}
+	if err := json.Unmarshal(cmd.SubCommand, &req); err != nil {
+		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+
+	if req.NodeId != s.schema.nodeID {
+		return nil
+	}
+
+	return s.apply(
+		applyOp{
+			op:           cmd.GetType().String(),
+			updateSchema: func() error { return nil },
+			updateStore: func() error {
+				return s.schema.Read(req.Collection, func(class *models.Class, state *sharding.State) error {
+					physical, ok := state.Physical[req.Shard]
+					// shard does not exist in the sharding state
+					if !ok {
+						// TODO: can we guarantee that the shard is not in use?
+						// If so we should call s.db.DropShard(cmd.Class, req.Shard) here instead
+						// For now, to be safe and avoid data loss, we just shut it down
+						s.db.ShutdownShard(cmd.Class, req.Shard)
+						// return early
+						return nil
+					}
+					// if shard doesn't belong to this node
+					if !slices.Contains(physical.BelongsToNodes, req.NodeId) {
+						// shut it down
+						s.db.ShutdownShard(cmd.Class, req.Shard)
+						// return early
+						return nil
+					}
+					// collection is single-tenant, shard is present, replica belongs to node
+					if !state.PartitioningEnabled {
+						// load it
+						s.db.LoadShard(cmd.Class, req.Shard)
+						// return early
+						return nil
+					}
+					// collection is multi-tenant, shard is present, replica belongs to node
+					switch physical.ActivityStatus() {
+					// tenant is active
+					case models.TenantActivityStatusACTIVE:
+						// load it
+						s.db.LoadShard(cmd.Class, req.Shard)
+					// tenant is inactive
+					case models.TenantActivityStatusINACTIVE:
+						// shut it down
+						s.db.ShutdownShard(cmd.Class, req.Shard)
+					// tenant is in some other state
+					default:
+						// do nothing
+
+					}
+					return nil
+				})
+			},
+			schemaOnly: schemaOnly,
+		},
+	)
+}
+
+func (s *SchemaManager) ReplicationAddReplicaToShard(cmd *command.ApplyRequest, schemaOnly bool) error {
+	req := command.ReplicationAddReplicaToShard{}
+	if err := json.Unmarshal(cmd.SubCommand, &req); err != nil {
+		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+
+	return s.apply(
+		applyOp{
+			op: cmd.GetType().String(),
+			updateSchema: func() error {
+				err := s.replicationFSM.SetUnCancellable(req.OpId)
+				if err != nil {
+					return fmt.Errorf("set un-cancellable: %w", err)
+				}
+				return s.schema.addReplicaToShard(cmd.Class, cmd.Version, req.Shard, req.TargetNode)
+			},
+			updateStore: func() error {
+				if req.TargetNode == s.schema.nodeID {
+					return s.db.AddReplicaToShard(req.Class, req.Shard, req.TargetNode)
+				}
+				return nil
+			},
+			schemaOnly: schemaOnly,
 		},
 	)
 }

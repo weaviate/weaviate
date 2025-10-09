@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -144,6 +144,96 @@ func (o *CancelReplicationNotFound) WriteResponse(rw http.ResponseWriter, produc
 	rw.WriteHeader(404)
 }
 
+// CancelReplicationConflictCode is the HTTP code returned for type CancelReplicationConflict
+const CancelReplicationConflictCode int = 409
+
+/*
+CancelReplicationConflict The operation is not in a cancellable state, e.g. it is READY or is a MOVE op in the DEHYDRATING state.
+
+swagger:response cancelReplicationConflict
+*/
+type CancelReplicationConflict struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewCancelReplicationConflict creates CancelReplicationConflict with default headers values
+func NewCancelReplicationConflict() *CancelReplicationConflict {
+
+	return &CancelReplicationConflict{}
+}
+
+// WithPayload adds the payload to the cancel replication conflict response
+func (o *CancelReplicationConflict) WithPayload(payload *models.ErrorResponse) *CancelReplicationConflict {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the cancel replication conflict response
+func (o *CancelReplicationConflict) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *CancelReplicationConflict) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(409)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
+// CancelReplicationUnprocessableEntityCode is the HTTP code returned for type CancelReplicationUnprocessableEntity
+const CancelReplicationUnprocessableEntityCode int = 422
+
+/*
+CancelReplicationUnprocessableEntity Request body is well-formed (i.e., syntactically correct), but semantically erroneous.
+
+swagger:response cancelReplicationUnprocessableEntity
+*/
+type CancelReplicationUnprocessableEntity struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewCancelReplicationUnprocessableEntity creates CancelReplicationUnprocessableEntity with default headers values
+func NewCancelReplicationUnprocessableEntity() *CancelReplicationUnprocessableEntity {
+
+	return &CancelReplicationUnprocessableEntity{}
+}
+
+// WithPayload adds the payload to the cancel replication unprocessable entity response
+func (o *CancelReplicationUnprocessableEntity) WithPayload(payload *models.ErrorResponse) *CancelReplicationUnprocessableEntity {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the cancel replication unprocessable entity response
+func (o *CancelReplicationUnprocessableEntity) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *CancelReplicationUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(422)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
 // CancelReplicationInternalServerErrorCode is the HTTP code returned for type CancelReplicationInternalServerError
 const CancelReplicationInternalServerErrorCode int = 500
 
@@ -181,6 +271,51 @@ func (o *CancelReplicationInternalServerError) SetPayload(payload *models.ErrorR
 func (o *CancelReplicationInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
 	rw.WriteHeader(500)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
+// CancelReplicationNotImplementedCode is the HTTP code returned for type CancelReplicationNotImplemented
+const CancelReplicationNotImplementedCode int = 501
+
+/*
+CancelReplicationNotImplemented Replica movement operations are disabled.
+
+swagger:response cancelReplicationNotImplemented
+*/
+type CancelReplicationNotImplemented struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewCancelReplicationNotImplemented creates CancelReplicationNotImplemented with default headers values
+func NewCancelReplicationNotImplemented() *CancelReplicationNotImplemented {
+
+	return &CancelReplicationNotImplemented{}
+}
+
+// WithPayload adds the payload to the cancel replication not implemented response
+func (o *CancelReplicationNotImplemented) WithPayload(payload *models.ErrorResponse) *CancelReplicationNotImplemented {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the cancel replication not implemented response
+func (o *CancelReplicationNotImplemented) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *CancelReplicationNotImplemented) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(501)
 	if o.Payload != nil {
 		payload := o.Payload
 		if err := producer.Produce(rw, payload); err != nil {

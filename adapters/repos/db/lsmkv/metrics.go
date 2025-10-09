@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -12,6 +12,7 @@
 package lsmkv
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -19,25 +20,31 @@ import (
 )
 
 type (
-	NsObserver    func(ns int64)
-	BytesObserver func(bytes int64)
-	Setter        func(val uint64)
-	TimeObserver  func(start time.Time)
+	NsObserver         func(ns int64)
+	BytesWriteObserver func(bytes int64)
+	BytesReadObserver  func(bytes int64, nanoseconds int64)
+	Setter             func(val uint64)
+	TimeObserver       func(start time.Time)
 )
 
+var compactionDurationBuckets = prometheus.ExponentialBuckets(0.01, 2, 18) // 0.01s → 0.02s → ... → ~163.84s
+
 type Metrics struct {
-	CompactionReplace            *prometheus.GaugeVec
-	CompactionSet                *prometheus.GaugeVec
-	CompactionMap                *prometheus.GaugeVec
-	CompactionRoaringSet         *prometheus.GaugeVec
-	CompactionRoaringSetRange    *prometheus.GaugeVec
+	// compaction-related metrics
+	compactionCount        *prometheus.CounterVec
+	compactionInProgress   *prometheus.GaugeVec
+	compactionFailureCount *prometheus.CounterVec
+	compactionNoOpCount    *prometheus.CounterVec
+	compactionDuration     *prometheus.HistogramVec
+
+	// old-style metrics, to be migrated
 	ActiveSegments               *prometheus.GaugeVec
 	ObjectsBucketSegments        *prometheus.GaugeVec
 	CompressedVecsBucketSegments *prometheus.GaugeVec
-	bloomFilters                 prometheus.ObserverVec
 	SegmentObjects               *prometheus.GaugeVec
 	SegmentSize                  *prometheus.GaugeVec
 	SegmentCount                 *prometheus.GaugeVec
+	SegmentUnloaded              *prometheus.GaugeVec
 	startupDurations             prometheus.ObserverVec
 	startupDiskIO                prometheus.ObserverVec
 	objectCount                  prometheus.Gauge
@@ -45,6 +52,11 @@ type Metrics struct {
 	memtableSize                 *prometheus.GaugeVec
 	DimensionSum                 *prometheus.GaugeVec
 	IOWrite                      *prometheus.SummaryVec
+	IORead                       *prometheus.SummaryVec
+	LazySegmentUnLoad            prometheus.Gauge
+	LazySegmentLoad              prometheus.Gauge
+	LazySegmentClose             prometheus.Gauge
+	LazySegmentInit              prometheus.Gauge
 
 	groupClasses        bool
 	criticalBucketsOnly bool
@@ -52,50 +64,118 @@ type Metrics struct {
 
 func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 	shardName string,
-) *Metrics {
+) (*Metrics, error) {
 	if promMetrics.Group {
 		className = "n/a"
 		shardName = "n/a"
 	}
 
-	replace := promMetrics.AsyncOperations.MustCurryWith(prometheus.Labels{
-		"operation":  "compact_lsm_segments_stratreplace",
+	// compaction-related metrics
+	compactionCount, err := monitoring.EnsureRegisteredMetric(promMetrics.Registerer,
+		prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Namespace: "weaviate",
+				Name:      "lsm_bucket_compaction_count",
+				Help:      "Total number of LSM bucket compactions requested, labeled by segment strategy",
+			},
+			[]string{"strategy"},
+		))
+	if err != nil {
+		return nil, fmt.Errorf("register lsm_bucket_compaction_count: %w", err)
+	}
+
+	compactionInProgress, err := monitoring.EnsureRegisteredMetric(promMetrics.Registerer, prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: "weaviate",
+			Name:      "lsm_bucket_compaction_in_progress",
+			Help:      "Number of LSM bucket compactions currently in progress, labeled by segment strategy",
+		},
+		[]string{"strategy"},
+	))
+	if err != nil {
+		return nil, fmt.Errorf("register lsm_bucket_compaction_in_progress: %w", err)
+	}
+
+	compactionFailureCount, err := monitoring.EnsureRegisteredMetric(promMetrics.Registerer,
+		prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Namespace: "weaviate",
+				Name:      "lsm_bucket_compaction_failure_count",
+				Help:      "Number of failed LSM bucket compactions, labeled by segment strategy",
+			},
+			[]string{"strategy"},
+		))
+	if err != nil {
+		return nil, fmt.Errorf("register lsm_bucket_compaction_failure_count: %w", err)
+	}
+
+	compactionNoOpCount, err := monitoring.EnsureRegisteredMetric(promMetrics.Registerer,
+		prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Namespace: "weaviate",
+				Name:      "lsm_bucket_compaction_noop_count",
+				Help:      "Number of times the periodic LSM bucket compaction task ran but found nothing to compact, labeled by segment strategy",
+			},
+			[]string{"strategy"},
+		))
+	if err != nil {
+		return nil, fmt.Errorf("register lsm_bucket_compaction_noop_count: %w", err)
+	}
+
+	compactionDuration, err := monitoring.EnsureRegisteredMetric(promMetrics.Registerer,
+		prometheus.NewHistogramVec(
+			prometheus.HistogramOpts{
+				Namespace: "weaviate",
+				Name:      "lsm_bucket_compaction_duration_seconds",
+				Help:      "Duration of LSM bucket compaction in seconds, labeled by segment strategy",
+				Buckets:   compactionDurationBuckets,
+			},
+			[]string{"strategy"},
+		))
+	if err != nil {
+		return nil, fmt.Errorf("register lsm_bucket_compaction_duration_seconds: %w", err)
+	}
+
+	// old-style metrics, to be migrated
+
+	lazySegmentInit := monitoring.GetMetrics().AsyncOperations.With(prometheus.Labels{
+		"operation":  "lazySegmentInit",
 		"class_name": className,
 		"shard_name": shardName,
+		"path":       "n/a",
 	})
 
-	set := promMetrics.AsyncOperations.MustCurryWith(prometheus.Labels{
-		"operation":  "compact_lsm_segments_stratset",
+	lazySegmentLoad := monitoring.GetMetrics().AsyncOperations.With(prometheus.Labels{
+		"operation":  "lazySegmentLoad",
 		"class_name": className,
 		"shard_name": shardName,
+		"path":       "n/a",
 	})
 
-	roaringSet := promMetrics.AsyncOperations.MustCurryWith(prometheus.Labels{
-		"operation":  "compact_lsm_segments_stratroaringset",
+	lazySegmentClose := monitoring.GetMetrics().AsyncOperations.With(prometheus.Labels{
+		"operation":  "lazySegmentClose",
 		"class_name": className,
 		"shard_name": shardName,
+		"path":       "n/a",
 	})
-
-	roaringSetRange := promMetrics.AsyncOperations.MustCurryWith(prometheus.Labels{
-		"operation":  "compact_lsm_segments_stratroaringsetrange",
+	lazySegmentUnload := monitoring.GetMetrics().AsyncOperations.With(prometheus.Labels{
+		"operation":  "lazySegmentUnLoad",
 		"class_name": className,
 		"shard_name": shardName,
-	})
-
-	stratMap := promMetrics.AsyncOperations.MustCurryWith(prometheus.Labels{
-		"operation":  "compact_lsm_segments_stratmap",
-		"class_name": className,
-		"shard_name": shardName,
+		"path":       "n/a",
 	})
 
 	return &Metrics{
-		groupClasses:              promMetrics.Group,
-		criticalBucketsOnly:       promMetrics.LSMCriticalBucketsOnly,
-		CompactionReplace:         replace,
-		CompactionSet:             set,
-		CompactionMap:             stratMap,
-		CompactionRoaringSet:      roaringSet,
-		CompactionRoaringSetRange: roaringSetRange,
+		groupClasses:        promMetrics.Group,
+		criticalBucketsOnly: promMetrics.LSMCriticalBucketsOnly,
+
+		compactionNoOpCount:    compactionNoOpCount,
+		compactionCount:        compactionCount,
+		compactionInProgress:   compactionInProgress,
+		compactionFailureCount: compactionFailureCount,
+		compactionDuration:     compactionDuration,
+
+		// old-style metrics, to be migrated
 		ActiveSegments: promMetrics.LSMSegmentCount.MustCurryWith(prometheus.Labels{
 			"class_name": className,
 			"shard_name": shardName,
@@ -108,10 +188,6 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 			"class_name": className,
 			"shard_name": shardName,
 		}),
-		bloomFilters: promMetrics.LSMBloomFilters.MustCurryWith(prometheus.Labels{
-			"class_name": className,
-			"shard_name": shardName,
-		}),
 		SegmentObjects: promMetrics.LSMSegmentObjects.MustCurryWith(prometheus.Labels{
 			"class_name": className,
 			"shard_name": shardName,
@@ -121,6 +197,10 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 			"shard_name": shardName,
 		}),
 		SegmentCount: promMetrics.LSMSegmentCountByLevel.MustCurryWith(prometheus.Labels{
+			"class_name": className,
+			"shard_name": shardName,
+		}),
+		SegmentUnloaded: promMetrics.LSMSegmentUnloaded.MustCurryWith(prometheus.Labels{
 			"class_name": className,
 			"shard_name": shardName,
 		}),
@@ -148,15 +228,64 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 			"class_name": className,
 			"shard_name": shardName,
 		}),
-		IOWrite: promMetrics.FileIOWrites,
-	}
+		IOWrite:           promMetrics.FileIOWrites,
+		IORead:            promMetrics.FileIOReads,
+		LazySegmentLoad:   lazySegmentLoad,
+		LazySegmentClose:  lazySegmentClose,
+		LazySegmentInit:   lazySegmentInit,
+		LazySegmentUnLoad: lazySegmentUnload,
+	}, nil
 }
 
-func noOpTimeObserver(start time.Time) {
-	// do nothing
+// compaction metrics
+
+func (m *Metrics) IncCompactionCount(strategy string) {
+	if m == nil {
+		return
+	}
+	m.compactionCount.WithLabelValues(strategy).Inc()
+}
+
+func (m *Metrics) IncCompactionInProgress(strategy string) {
+	if m == nil {
+		return
+	}
+	m.compactionInProgress.WithLabelValues(strategy).Inc()
+}
+
+func (m *Metrics) DecCompactionInProgress(strategy string) {
+	if m == nil {
+		return
+	}
+	m.compactionInProgress.WithLabelValues(strategy).Dec()
+}
+
+func (m *Metrics) IncCompactionNoOp(strategy string) {
+	if m == nil {
+		return
+	}
+	m.compactionNoOpCount.WithLabelValues(strategy).Inc()
+}
+
+func (m *Metrics) IncCompactionFailureCount(strategy string) {
+	if m == nil {
+		return
+	}
+	m.compactionFailureCount.WithLabelValues(strategy).Inc()
+}
+
+func (m *Metrics) ObserveCompactionDuration(strategy string, duration time.Duration) {
+	if m == nil {
+		return
+	}
+	m.compactionDuration.WithLabelValues(strategy).Observe(duration.Seconds())
 }
 
 func noOpNsObserver(startNs int64) {
+	// do nothing
+}
+
+func noOpNsReadObserver(startNs int64, time int64) {
 	// do nothing
 }
 
@@ -185,7 +314,7 @@ func (m *Metrics) MemtableOpObserver(path, strategy, op string) NsObserver {
 	}
 }
 
-func (m *Metrics) MemtableWriteObserver(strategy, op string) BytesObserver {
+func (m *Metrics) MemtableWriteObserver(strategy, op string) BytesWriteObserver {
 	if m == nil {
 		return noOpNsObserver
 	}
@@ -198,6 +327,18 @@ func (m *Metrics) MemtableWriteObserver(strategy, op string) BytesObserver {
 	return func(bytes int64) {
 		curried.Observe(float64(bytes))
 	}
+}
+
+func (m *Metrics) ReadObserver(op string) BytesReadObserver {
+	if m == nil {
+		return noOpNsReadObserver
+	}
+
+	curried := m.IORead.With(prometheus.Labels{
+		"operation": op,
+	})
+
+	return func(n int64, nanoseconds int64) { curried.Observe(float64(n)) }
 }
 
 func (m *Metrics) MemtableSizeSetter(path, strategy string) Setter {
@@ -214,21 +355,6 @@ func (m *Metrics) MemtableSizeSetter(path, strategy string) Setter {
 
 	return func(size uint64) {
 		curried.Set(float64(size))
-	}
-}
-
-func (m *Metrics) BloomFilterObserver(strategy, operation string) TimeObserver {
-	if m == nil {
-		return noOpTimeObserver
-	}
-
-	curried := m.bloomFilters.With(prometheus.Labels{
-		"strategy":  strategy,
-		"operation": operation,
-	})
-
-	return func(before time.Time) {
-		curried.Observe(float64(time.Since(before)) / float64(time.Millisecond))
 	}
 }
 

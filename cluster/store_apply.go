@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -67,7 +67,7 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 // We implemented this to keep `lastAppliedIndex` metric to correct value
 // to also handle `LogConfiguration` type of Raft command.
 func (st *Store) StoreConfiguration(index uint64, _ raft.Configuration) {
-	st.metrics.lastAppliedIndex.Set(float64(index))
+	st.metrics.raftLastAppliedIndex.Set(float64(index))
 }
 
 // Apply is called once a log entry is committed by a majority of the cluster.
@@ -102,8 +102,31 @@ func (st *Store) Apply(l *raft.Log) any {
 	// If we don't have any last applied index on start, schema only is always false.
 	// we check for index !=0 to force apply of the 1st index in both db and schema
 	catchingUp := l.Index != 0 && l.Index <= st.lastAppliedIndexToDB.Load()
+	// TODO: get rid off schema only as it causes more trouble than it's worth
+	// T-Nr: DB-306
 	schemaOnly := catchingUp || st.cfg.MetadataOnlyVoters
 	defer func() {
+		// If we have an applied index from the previous store (i.e from disk). Then reload the DB once we catch up as
+		// that means we're done doing schema only.
+		// we do this at the beginning to handle situation were schema was catching up
+		// and to make sure no matter is the error status we are going to open the db on startup
+		// we reload the db only if we have a previous state and the db is not loaded
+		dbReloadRequired := st.lastAppliedIndexToDB.Load() != 0 && !st.dbLoaded.Load()
+		if dbReloadRequired && l.Index != 0 && l.Index >= st.lastAppliedIndexToDB.Load() {
+			st.log.WithFields(logrus.Fields{
+				"log_type":                     l.Type,
+				"log_name":                     l.Type.String(),
+				"log_index":                    l.Index,
+				"last_store_log_applied_index": st.lastAppliedIndexToDB.Load(),
+			}).Info("reloading local DB as RAFT and local DB are now caught up")
+			st.reloadDBFromSchema()
+		}
+
+		// we update no mater the error status to avoid any edge cases in the DB layer for already released versions,
+		// however we do not update the metrics so the metric will be the source of truth
+		// about AppliedIndex
+		st.lastAppliedIndex.Store(l.Index)
+
 		if ret.Error != nil {
 			st.metrics.applyFailures.Inc()
 			st.log.WithFields(logrus.Fields{
@@ -117,20 +140,8 @@ func (st *Store) Apply(l *raft.Log) any {
 			return
 		}
 
-		// If we have an applied index from the previous store (i.e from disk). Then reload the DB once we catch up as
-		// that means we're done doing schema only.
-		if l.Index != 0 && l.Index == st.lastAppliedIndexToDB.Load() {
-			st.log.WithFields(logrus.Fields{
-				"log_type":                     l.Type,
-				"log_name":                     l.Type.String(),
-				"log_index":                    l.Index,
-				"last_store_log_applied_index": st.lastAppliedIndexToDB.Load(),
-			}).Info("reloading local DB as RAFT and local DB are now caught up")
-			st.reloadDBFromSchema()
-		}
-
-		st.lastAppliedIndex.Store(l.Index)
-		st.metrics.lastAppliedIndex.Set(float64(l.Index))
+		st.metrics.fsmLastAppliedIndex.Set(float64(l.Index))
+		st.metrics.raftLastAppliedIndex.Set(float64(l.Index))
 	}()
 
 	cmd.Version = l.Index
@@ -141,7 +152,7 @@ func (st *Store) Apply(l *raft.Log) any {
 	// This can happen for example if quorum is lost briefly.
 	// By checking lastAppliedIndexToDB we ensure that we never print past that index
 	if !st.Ready() && l.Index <= st.lastAppliedIndexToDB.Load() {
-		st.log.Infof("Schema catching up: applying log entry: [%d/%d]", l.Index, st.lastAppliedIndexToDB.Load())
+		st.log.Debugf("Schema catching up: applying log entry: [%d/%d]", l.Index, st.lastAppliedIndexToDB.Load())
 	}
 	st.log.WithFields(logrus.Fields{
 		"log_type":        l.Type,
@@ -174,6 +185,24 @@ func (st *Store) Apply(l *raft.Log) any {
 
 	case api.ApplyRequest_TYPE_DELETE_CLASS:
 		f = func() {
+			// During RAFT log replay (schemaOnly=true), apply case-insensitive handling
+			// to prevent silent failures due to case mismatches in log entries.
+			// This ensures we capture the correct class name as stored in memory,
+			// regardless of what the user used in the original request.
+			//
+			// Example scenario:
+			// - Old RAFT entry: add Class "FooBar"
+			// - New RAFT entry: delete Class "foobar"
+			//
+			// Without case-insensitive handling, we would never delete "FooBar"
+			// because the new log entry contains "foobar", leading to class
+			// reappearance during rollout.
+			if schemaOnly {
+				existingClass := st.SchemaReader().ClassEqual(cmd.Class)
+				if existingClass != "" {
+					cmd.Class = existingClass
+				}
+			}
 			ret.Error = st.schemaManager.DeleteClass(&cmd, schemaOnly, !catchingUp)
 		}
 
@@ -181,7 +210,18 @@ func (st *Store) Apply(l *raft.Log) any {
 		f = func() {
 			ret.Error = st.schemaManager.AddProperty(&cmd, schemaOnly, !catchingUp)
 		}
-
+	case api.ApplyRequest_TYPE_CREATE_ALIAS:
+		f = func() {
+			ret.Error = st.schemaManager.CreateAlias(&cmd)
+		}
+	case api.ApplyRequest_TYPE_REPLACE_ALIAS:
+		f = func() {
+			ret.Error = st.schemaManager.ReplaceAlias(&cmd)
+		}
+	case api.ApplyRequest_TYPE_DELETE_ALIAS:
+		f = func() {
+			ret.Error = st.schemaManager.DeleteAlias(&cmd)
+		}
 	case api.ApplyRequest_TYPE_UPDATE_SHARD_STATUS:
 		f = func() {
 			ret.Error = st.schemaManager.UpdateShardStatus(&cmd, schemaOnly)
@@ -213,6 +253,11 @@ func (st *Store) Apply(l *raft.Log) any {
 	case api.ApplyRequest_TYPE_TENANT_PROCESS:
 		f = func() {
 			ret.Error = st.schemaManager.UpdateTenantsProcess(&cmd, schemaOnly)
+		}
+
+	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_SYNC_SHARD:
+		f = func() {
+			ret.Error = st.schemaManager.SyncShard(&cmd, schemaOnly)
 		}
 
 	case api.ApplyRequest_TYPE_STORE_SCHEMA_V1:
@@ -260,7 +305,10 @@ func (st *Store) Apply(l *raft.Log) any {
 		f = func() {
 			ret.Error = st.dynUserManager.ActivateUser(&cmd)
 		}
-
+	case api.ApplyRequest_TYPE_CREATE_USER_WITH_KEY:
+		f = func() {
+			ret.Error = st.dynUserManager.CreateUserWithKeyRequest(&cmd)
+		}
 	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE:
 		f = func() {
 			ret.Error = st.replicationManager.Replicate(l.Index, &cmd)
@@ -301,6 +349,34 @@ func (st *Store) Apply(l *raft.Log) any {
 		f = func() {
 			ret.Error = st.replicationManager.DeleteReplicationsByTenants(&cmd)
 		}
+	case api.ApplyRequest_TYPE_REPLICATION_REGISTER_SCHEMA_VERSION:
+		f = func() {
+			ret.Error = st.replicationManager.StoreSchemaVersion(&cmd)
+		}
+	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_ADD_REPLICA_TO_SHARD:
+		f = func() {
+			ret.Error = st.schemaManager.ReplicationAddReplicaToShard(&cmd, schemaOnly)
+		}
+	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_FORCE_DELETE_ALL:
+		f = func() {
+			ret.Error = st.replicationManager.ForceDeleteAll(&cmd)
+		}
+	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_COLLECTION:
+		f = func() {
+			ret.Error = st.replicationManager.ForceDeleteByCollection(&cmd)
+		}
+	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_COLLECTION_AND_SHARD:
+		f = func() {
+			ret.Error = st.replicationManager.ForceDeleteByCollectionAndShard(&cmd)
+		}
+	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_TARGET_NODE:
+		f = func() {
+			ret.Error = st.replicationManager.ForceDeleteByTargetNode(&cmd)
+		}
+	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_UUID:
+		f = func() {
+			ret.Error = st.replicationManager.ForceDeleteByUuid(&cmd)
+		}
 
 	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD:
 		f = func() {
@@ -318,6 +394,7 @@ func (st *Store) Apply(l *raft.Log) any {
 		f = func() {
 			ret.Error = st.distributedTasksManager.CleanUpTask(&cmd)
 		}
+
 	default:
 		// This could occur when a new command has been introduced in a later app version
 		// At this point, we need to panic so that the app undergo an upgrade during restart

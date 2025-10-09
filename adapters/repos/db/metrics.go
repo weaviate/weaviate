@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,6 +13,7 @@ package db
 
 import (
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -20,6 +21,8 @@ import (
 
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
+
+var defaultDurationBuckets = prometheus.ExponentialBuckets(0.01, 2, 16) // 10ms to ~5min
 
 type Metrics struct {
 	logger                logrus.FieldLogger
@@ -39,18 +42,34 @@ type Metrics struct {
 
 	shardsCount                       *prometheus.GaugeVec
 	shardStatusUpdateDurationsSeconds *prometheus.HistogramVec
+
+	// async replication metrics
+	asyncReplicationGoroutinesRunning prometheus.Gauge
+
+	asyncReplicationHashTreeInitRunning      prometheus.Gauge
+	asyncReplicationHashTreeInitFailureCount prometheus.Counter
+	asyncReplicationHashTreeInitDuration     prometheus.Histogram
+
+	asyncReplicationIterationCount        prometheus.Counter
+	asyncReplicationIterationFailureCount prometheus.Counter
+	asyncReplicationIterationDuration     prometheus.Histogram
+
+	asyncReplicationPropagationCount        prometheus.Counter
+	asyncReplicationPropagationFailureCount prometheus.Counter
+	asyncReplicationPropagationObjectCount  prometheus.Counter
+	asyncReplicationPropagationDuration     prometheus.Histogram
 }
 
 func NewMetrics(
 	logger logrus.FieldLogger, prom *monitoring.PrometheusMetrics,
 	className, shardName string,
-) *Metrics {
+) (*Metrics, error) {
 	m := &Metrics{
 		logger: logger,
 	}
 
 	if prom == nil {
-		return m
+		return m, nil
 	}
 
 	m.baseMetrics = prom
@@ -146,7 +165,149 @@ func NewMetrics(
 	m.shardsCount = shardsCount
 	m.shardStatusUpdateDurationsSeconds = shardStatusUpdateDurationsSeconds
 
-	return m
+	// Async Replication Metrics
+
+	var err error
+
+	m.asyncReplicationGoroutinesRunning, err = newGauge(prom.Registerer,
+		"async_replication_goroutines_running",
+		"Number of currently running async replication goroutines")
+	if err != nil {
+		return nil, err
+	}
+
+	m.asyncReplicationHashTreeInitRunning, err = newGauge(prom.Registerer,
+		"async_replication_hashtree_init_running",
+		"Number of currently running hashtree initializations")
+	if err != nil {
+		return nil, err
+	}
+
+	m.asyncReplicationHashTreeInitFailureCount, err = newCounter(prom.Registerer,
+		"async_replication_hashtree_init_failure_count",
+		"Count of async replication hashtree initialization failures")
+	if err != nil {
+		return nil, err
+	}
+
+	m.asyncReplicationHashTreeInitDuration, err = newHistogram(prom.Registerer,
+		"async_replication_hashtree_init_duration_seconds",
+		"Duration of hashtree initialization in seconds",
+		defaultDurationBuckets)
+	if err != nil {
+		return nil, err
+	}
+
+	m.asyncReplicationIterationCount, err = newCounter(prom.Registerer,
+		"async_replication_iteration_count",
+		"Count of async replication comparison iterations")
+	if err != nil {
+		return nil, err
+	}
+
+	m.asyncReplicationIterationFailureCount, err = newCounter(prom.Registerer,
+		"async_replication_iteration_failure_count",
+		"Count of async replication iteration failures")
+	if err != nil {
+		return nil, err
+	}
+
+	m.asyncReplicationIterationDuration, err = newHistogram(prom.Registerer,
+		"async_replication_iteration_duration_seconds",
+		"Duration of async replication comparison iterations in seconds",
+		defaultDurationBuckets)
+	if err != nil {
+		return nil, err
+	}
+
+	m.asyncReplicationPropagationCount, err = newCounter(prom.Registerer,
+		"async_replication_propagation_count",
+		"Count of async replication propagation executions")
+	if err != nil {
+		return nil, err
+	}
+
+	m.asyncReplicationPropagationFailureCount, err = newCounter(prom.Registerer,
+		"async_replication_propagation_failure_count",
+		"Count of async replication propagation failures")
+	if err != nil {
+		return nil, err
+	}
+
+	m.asyncReplicationPropagationObjectCount, err = newCounter(prom.Registerer,
+		"async_replication_propagation_object_count",
+		"Count of objects propagated by async replication")
+	if err != nil {
+		return nil, err
+	}
+
+	m.asyncReplicationPropagationDuration, err = newHistogram(prom.Registerer,
+		"async_replication_propagation_duration_seconds",
+		"Duration of async replication propagation in seconds",
+		defaultDurationBuckets)
+	if err != nil {
+		return nil, err
+	}
+
+	return m, nil
+}
+
+func newCounter(reg prometheus.Registerer, name, help string) (prometheus.Counter, error) {
+	c := prometheus.NewCounter(prometheus.CounterOpts{
+		Namespace: "weaviate",
+		Name:      name,
+		Help:      help,
+	})
+	if err := reg.Register(c); err != nil {
+		var e prometheus.AlreadyRegisteredError
+		if errors.As(err, &e) {
+			if counter, ok := e.ExistingCollector.(prometheus.Counter); ok {
+				return counter, nil
+			}
+			return nil, fmt.Errorf("metric %s already registered but not as a Counter", name)
+		}
+		return nil, err
+	}
+	return c, nil
+}
+
+func newGauge(reg prometheus.Registerer, name, help string) (prometheus.Gauge, error) {
+	g := prometheus.NewGauge(prometheus.GaugeOpts{
+		Namespace: "weaviate",
+		Name:      name,
+		Help:      help,
+	})
+	if err := reg.Register(g); err != nil {
+		var e prometheus.AlreadyRegisteredError
+		if errors.As(err, &e) {
+			if gauge, ok := e.ExistingCollector.(prometheus.Gauge); ok {
+				return gauge, nil
+			}
+			return nil, fmt.Errorf("metric %s already registered but not as a Gauge", name)
+		}
+		return nil, err
+	}
+	return g, nil
+}
+
+func newHistogram(reg prometheus.Registerer, name, help string, buckets []float64) (prometheus.Histogram, error) {
+	h := prometheus.NewHistogram(prometheus.HistogramOpts{
+		Namespace: "weaviate",
+		Name:      name,
+		Help:      help,
+		Buckets:   buckets,
+	})
+	if err := reg.Register(h); err != nil {
+		var e prometheus.AlreadyRegisteredError
+		if errors.As(err, &e) {
+			if histogram, ok := e.ExistingCollector.(prometheus.Histogram); ok {
+				return histogram, nil
+			}
+			return nil, fmt.Errorf("metric %s already registered but not as a Histogram", name)
+		}
+		return nil, err
+	}
+	return h, nil
 }
 
 func (m *Metrics) UpdateShardStatus(old, new string) {
@@ -385,4 +546,90 @@ func (m *Metrics) FilteredVectorSort(dur time.Duration) {
 	}
 
 	m.filteredVectorSort.Observe(float64(dur) / float64(time.Millisecond))
+}
+
+// --- Async Replication Lifecycle ---
+
+func (m *Metrics) IncAsyncReplicationGoroutinesRunning() {
+	if m.monitoring {
+		m.asyncReplicationGoroutinesRunning.Inc()
+	}
+}
+
+func (m *Metrics) DecAsyncReplicationGoroutinesRunning() {
+	if m.monitoring {
+		m.asyncReplicationGoroutinesRunning.Dec()
+	}
+}
+
+// --- Hash Tree Init ---
+
+func (m *Metrics) IncAsyncReplicationHashTreeInitRunning() {
+	if m.monitoring {
+		m.asyncReplicationHashTreeInitRunning.Inc()
+	}
+}
+
+func (m *Metrics) DecAsyncReplicationHashTreeInitRunning() {
+	if m.monitoring {
+		m.asyncReplicationHashTreeInitRunning.Dec()
+	}
+}
+
+func (m *Metrics) IncAsyncReplicationHashTreeInitFailure() {
+	if m.monitoring {
+		m.asyncReplicationHashTreeInitFailureCount.Inc()
+	}
+}
+
+func (m *Metrics) ObserveAsyncReplicationHashTreeInitDuration(d time.Duration) {
+	if m.monitoring {
+		m.asyncReplicationHashTreeInitDuration.Observe(d.Seconds())
+	}
+}
+
+// --- Iteration Metrics ---
+
+func (m *Metrics) IncAsyncReplicationIterationCount() {
+	if m.monitoring {
+		m.asyncReplicationIterationCount.Inc()
+	}
+}
+
+func (m *Metrics) IncAsyncReplicationIterationFailureCount() {
+	if m.monitoring {
+		m.asyncReplicationIterationFailureCount.Inc()
+	}
+}
+
+func (m *Metrics) ObserveAsyncReplicationIterationDuration(d time.Duration) {
+	if m.monitoring {
+		m.asyncReplicationIterationDuration.Observe(d.Seconds())
+	}
+}
+
+// --- Propagation Metrics ---
+
+func (m *Metrics) IncAsyncReplicationPropagationCount() {
+	if m.monitoring {
+		m.asyncReplicationPropagationCount.Inc()
+	}
+}
+
+func (m *Metrics) IncAsyncReplicationPropagationFailureCount() {
+	if m.monitoring {
+		m.asyncReplicationPropagationFailureCount.Inc()
+	}
+}
+
+func (m *Metrics) AddAsyncReplicationPropagationObjectCount(n int) {
+	if m.monitoring {
+		m.asyncReplicationPropagationObjectCount.Add(float64(n))
+	}
+}
+
+func (m *Metrics) ObserveAsyncReplicationPropagationDuration(d time.Duration) {
+	if m.monitoring {
+		m.asyncReplicationPropagationDuration.Observe(d.Seconds())
+	}
 }

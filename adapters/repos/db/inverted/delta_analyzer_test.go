@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	ent "github.com/weaviate/weaviate/entities/inverted"
 )
 
 func TestDeltaAnalyzer(t *testing.T) {
@@ -2356,7 +2357,7 @@ func TestDeltaAnalyzer_SkipSearchable(t *testing.T) {
 
 func TestDeltaAnalyzer_Arrays(t *testing.T) {
 	lexInt64 := func(val int64) []byte {
-		bytes, _ := LexicographicallySortableInt64(val)
+		bytes, _ := ent.LexicographicallySortableInt64(val)
 		return bytes
 	}
 	lexBool := func(val bool) []byte {

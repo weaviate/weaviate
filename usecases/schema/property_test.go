@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -20,9 +20,9 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/tokenizer"
 )
 
 func TestHandler_AddProperty(t *testing.T) {
@@ -32,8 +32,9 @@ func TestHandler_AddProperty(t *testing.T) {
 		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
 
 		class := models.Class{
-			Class:      "NewClass",
-			Vectorizer: "none",
+			Class:             "NewClass",
+			Vectorizer:        "none",
+			ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 		}
 		fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
 		fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
@@ -90,7 +91,8 @@ func TestHandler_AddProperty(t *testing.T) {
 					DataType: schema.DataTypeText.PropString(),
 				},
 			},
-			Vectorizer: "none",
+			Vectorizer:        "none",
+			ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 		}
 		fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
 		fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
@@ -131,8 +133,9 @@ func TestHandler_AddProperty_Object(t *testing.T) {
 		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
 
 		class := models.Class{
-			Class:      "NewClass",
-			Vectorizer: "none",
+			Class:             "NewClass",
+			Vectorizer:        "none",
+			ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 		}
 		fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
 		fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
@@ -165,8 +168,9 @@ func TestHandler_AddProperty_Tokenization(t *testing.T) {
 	ctx := context.Background()
 
 	class := models.Class{
-		Class:      "NewClass",
-		Vectorizer: "none",
+		Class:             "NewClass",
+		Vectorizer:        "none",
+		ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 	}
 
 	type testCase struct {
@@ -227,7 +231,7 @@ func TestHandler_AddProperty_Tokenization(t *testing.T) {
 		testCases := []testCase{}
 		for _, dataType := range dataTypes {
 			// all tokenizations
-			for _, tokenization := range helpers.Tokenizations {
+			for _, tokenization := range tokenizer.Tokenizations {
 				testCases = append(testCases, testCase{
 					dataType:             dataType,
 					tokenization:         tokenization,
@@ -262,7 +266,7 @@ func TestHandler_AddProperty_Tokenization(t *testing.T) {
 		testCases := []testCase{}
 		for _, dataType := range dataTypes {
 			// all tokenizations
-			for _, tokenization := range helpers.Tokenizations {
+			for _, tokenization := range tokenizer.Tokenizations {
 				switch tokenization {
 				case models.PropertyTokenizationWord:
 					testCases = append(testCases, testCase{
@@ -324,7 +328,7 @@ func TestHandler_AddProperty_Tokenization(t *testing.T) {
 		testCases := []testCase{}
 		for _, dataType := range dataTypes {
 			// all tokenizations
-			for _, tokenization := range helpers.Tokenizations {
+			for _, tokenization := range tokenizer.Tokenizations {
 				testCases = append(testCases, testCase{
 					dataType:     dataType,
 					tokenization: tokenization,
@@ -362,7 +366,7 @@ func TestHandler_AddProperty_Tokenization(t *testing.T) {
 		testCases := []testCase{}
 		for _, dataType := range dataTypes {
 			// all tokenizations
-			for _, tokenization := range helpers.Tokenizations {
+			for _, tokenization := range tokenizer.Tokenizations {
 				testCases = append(testCases, testCase{
 					dataType:     dataType,
 					tokenization: tokenization,
@@ -399,12 +403,14 @@ func TestHandler_AddProperty_Reference_Tokenization(t *testing.T) {
 	handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
 
 	class := models.Class{
-		Class:      "NewClass",
-		Vectorizer: "none",
+		Class:             "NewClass",
+		Vectorizer:        "none",
+		ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 	}
 	refClass := models.Class{
-		Class:      "RefClass",
-		Vectorizer: "none",
+		Class:             "RefClass",
+		Vectorizer:        "none",
+		ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 	}
 	fakeSchemaManager.On("ReadOnlyClass", mock.Anything, mock.Anything).Return(&refClass)
 	fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil).Twice()
@@ -418,7 +424,7 @@ func TestHandler_AddProperty_Reference_Tokenization(t *testing.T) {
 	dataType := []string{refClass.Class}
 
 	// all tokenizations
-	for _, tokenization := range helpers.Tokenizations {
+	for _, tokenization := range tokenizer.Tokenizations {
 		propName := fmt.Sprintf("ref_%s", tokenization)
 		t.Run(propName, func(t *testing.T) {
 			_, _, err := handler.AddClassProperty(ctx, nil, &class, class.Class, false,
@@ -493,7 +499,7 @@ func Test_Validation_PropertyTokenization(t *testing.T) {
 		for _, dataType := range []schema.DataType{
 			schema.DataTypeText, schema.DataTypeTextArray,
 		} {
-			for _, tokenization := range helpers.Tokenizations {
+			for _, tokenization := range tokenizer.Tokenizations {
 				testCases = append(testCases, testCase{
 					name:             fmt.Sprintf("%s + '%s'", dataType, tokenization),
 					propertyDataType: newFakePrimitivePDT(dataType),
@@ -529,7 +535,7 @@ func Test_Validation_PropertyTokenization(t *testing.T) {
 					expectedErrMsg:   "",
 				})
 
-				for _, tokenization := range append(helpers.Tokenizations, "non_existing") {
+				for _, tokenization := range append(tokenizer.Tokenizations, "non_existing") {
 					testCases = append(testCases, testCase{
 						name:             fmt.Sprintf("%s + '%s'", dataType, tokenization),
 						propertyDataType: newFakePrimitivePDT(dataType),
@@ -553,7 +559,7 @@ func Test_Validation_PropertyTokenization(t *testing.T) {
 				expectedErrMsg:   "",
 			})
 
-			for _, tokenization := range append(helpers.Tokenizations, "non_existent") {
+			for _, tokenization := range append(tokenizer.Tokenizations, "non_existent") {
 				testCases = append(testCases, testCase{
 					name:             fmt.Sprintf("%s + '%s'", dataType, tokenization),
 					propertyDataType: newFakeNestedPDT(dataType),
@@ -576,7 +582,7 @@ func Test_Validation_PropertyTokenization(t *testing.T) {
 			expectedErrMsg:   "",
 		})
 
-		for _, tokenization := range append(helpers.Tokenizations, "non_existing") {
+		for _, tokenization := range append(tokenizer.Tokenizations, "non_existing") {
 			testCases = append(testCases, testCase{
 				name:             fmt.Sprintf("ref + '%s'", tokenization),
 				propertyDataType: newFakePrimitivePDT(""),
@@ -593,7 +599,7 @@ func Test_Validation_PropertyTokenization(t *testing.T) {
 		for _, dataType := range []schema.DataType{
 			schema.DataTypeString, schema.DataTypeStringArray,
 		} {
-			for _, tokenization := range append(helpers.Tokenizations, "non_existing") {
+			for _, tokenization := range append(tokenizer.Tokenizations, "non_existing") {
 				switch tokenization {
 				case models.PropertyTokenizationWord, models.PropertyTokenizationField:
 					testCases = append(testCases, testCase{

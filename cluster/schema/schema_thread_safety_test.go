@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -20,6 +20,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	command "github.com/weaviate/weaviate/cluster/proto/api"
@@ -280,7 +281,7 @@ func testConcurrentSchemaOperations(t *testing.T, s *schema) {
 			defer wg.Done()
 			for j := 0; j < iterations; j++ {
 				className := fmt.Sprintf("Class%d_%d", id, j)
-				_ = s.ClassEqual(className)
+				_, _ = s.ClassEqual(className)
 				time.Sleep(time.Microsecond)
 			}
 		}(i)
@@ -552,7 +553,7 @@ func testConcurrentClassInfoOperations(t *testing.T, s *schema) {
 		go func() {
 			defer wg.Done()
 			for j := 0; j < iterations; j++ {
-				name := s.ClassEqual("testclass") // Testing case-insensitive match
+				name, _ := s.ClassEqual("testclass") // Testing case-insensitive match
 				if name != "" {
 					assert.Equal(t, "TestClass", name)
 				}
@@ -682,7 +683,9 @@ func testConcurrentTenantManagementOperations(t *testing.T, s *schema) {
 						{Name: "tenant1"},
 					},
 				}
-				_ = s.updateTenants("TestClass", uint64(j), req)
+				fsm := NewMockreplicationFSM(t)
+				fsm.On("HasOngoingReplication", mock.Anything, mock.Anything, mock.Anything).Return(false).Maybe()
+				_ = s.updateTenants("TestClass", uint64(j), req, fsm)
 				time.Sleep(time.Microsecond)
 			}
 		}(i)
@@ -727,22 +730,7 @@ func testConcurrentShardingStateOperations(t *testing.T, s *schema) {
 	const iterations = 100
 
 	var wg sync.WaitGroup
-	wg.Add(numGoroutines * 2) // For CopyShardingState and GetShardsStatus operations
-
-	// Test concurrent CopyShardingState operations
-	for i := 0; i < numGoroutines; i++ {
-		go func() {
-			defer wg.Done()
-			for j := 0; j < iterations; j++ {
-				state, version := s.CopyShardingState("TestClass")
-				if state != nil {
-					assert.NotNil(t, state.Physical["shard1"])
-					assert.Greater(t, version, uint64(0))
-				}
-				time.Sleep(time.Microsecond)
-			}
-		}()
-	}
+	wg.Add(numGoroutines) // For GetShardsStatus operations
 
 	// Test concurrent GetShardsStatus operations
 	for i := 0; i < numGoroutines; i++ {

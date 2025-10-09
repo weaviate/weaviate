@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,19 +13,19 @@ package cluster
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
-
-	"github.com/weaviate/weaviate/cluster/replication/metrics"
 
 	"github.com/cenkalti/backoff/v4"
 	"github.com/hashicorp/raft"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/cluster/fsm"
 
 	"github.com/weaviate/weaviate/cluster/bootstrap"
+	"github.com/weaviate/weaviate/cluster/fsm"
 	"github.com/weaviate/weaviate/cluster/replication"
+	"github.com/weaviate/weaviate/cluster/replication/metrics"
 	"github.com/weaviate/weaviate/cluster/resolver"
 	"github.com/weaviate/weaviate/cluster/rpc"
 	"github.com/weaviate/weaviate/cluster/schema"
@@ -38,7 +38,7 @@ const (
 	// TODO: consider exposing these as settings
 	shardReplicationEngineBufferSize = 16
 	fsmOpProducerPollingInterval     = 5 * time.Second
-	replicationEngineShutdownTimeout = 10 * time.Minute
+	replicationEngineShutdownTimeout = 20 * time.Second
 	replicationOperationTimeout      = 24 * time.Hour
 	catchUpInterval                  = 5 * time.Second
 )
@@ -57,10 +57,10 @@ type Service struct {
 	logger    *logrus.Logger
 
 	// closing channels
+	cancelReplicationEngine context.CancelFunc
 	closeBootstrapper       chan struct{}
 	closeOnFSMCaughtUp      chan struct{}
 	closeWaitForDB          chan struct{}
-	replicationEngineCancel context.CancelFunc
 }
 
 // New returns a Service configured with cfg. The service will initialize internals gRPC api & clients to other cluster
@@ -88,8 +88,9 @@ func New(cfg Config, authZController authorization.Controller, snapshotter fsm.S
 		replication.NewOpsCache(),
 		replicationOperationTimeout,
 		cfg.ReplicationEngineMaxWorkers,
-		cfg.ReplicaMovementMinimumFinalizingWait,
+		cfg.ReplicaMovementMinimumAsyncWait,
 		metrics.NewReplicationEngineOpsCallbacks(prometheus.DefaultRegisterer),
+		raft.SchemaReader(),
 	)
 	replicationEngine := replication.NewShardReplicationEngine(
 		cfg.Logger,
@@ -118,6 +119,10 @@ func New(cfg Config, authZController authorization.Controller, snapshotter fsm.S
 }
 
 func (c *Service) onFSMCaughtUp(ctx context.Context) {
+	if c.config.ReplicaMovementDisabled {
+		return
+	}
+
 	ticker := time.NewTicker(catchUpInterval)
 	defer ticker.Stop()
 	for {
@@ -127,11 +132,14 @@ func (c *Service) onFSMCaughtUp(ctx context.Context) {
 		case <-ticker.C:
 			if c.Raft.store.FSMHasCaughtUp() {
 				c.logger.Infof("Metadata FSM reported caught up, starting replication engine")
-				replicationEngineCtx, replicationEngineCancel := context.WithCancel(ctx)
-				c.replicationEngineCancel = replicationEngineCancel
+				engineCtx, engineCancel := context.WithCancel(ctx)
+				c.cancelReplicationEngine = engineCancel
 				enterrors.GoWrapper(func() {
-					if err := c.replicationEngine.Start(replicationEngineCtx); err != nil {
-						c.logger.WithError(err).Error("replication engine failed to start after FSM caught up")
+					// The context is cancelled by the engine itself when it is stopped
+					if err := c.replicationEngine.Start(engineCtx); err != nil {
+						if !errors.Is(err, context.Canceled) {
+							c.logger.WithError(err).Error("replication engine failed to start after FSM caught up")
+						}
 					}
 				}, c.logger)
 				return
@@ -211,9 +219,12 @@ func (c *Service) Close(ctx context.Context) error {
 		c.closeOnFSMCaughtUp <- struct{}{}
 	}, c.logger)
 
-	if c.replicationEngineCancel != nil {
-		c.logger.Infof("Closing replication engine %v", c)
-		c.replicationEngineCancel()
+	if !c.config.ReplicaMovementDisabled {
+		c.logger.Info("closing replication engine ...")
+		if c.cancelReplicationEngine != nil {
+			c.cancelReplicationEngine()
+		}
+		c.replicationEngine.Stop()
 	}
 
 	c.logger.Info("closing raft FSM store ...")

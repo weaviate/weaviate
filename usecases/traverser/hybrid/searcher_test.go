@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -20,6 +20,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
@@ -385,4 +386,11 @@ func (f *fakeModuleProvider) MultiVectorFromInput(ctx context.Context, className
 
 func (f *fakeModuleProvider) IsTargetVectorMultiVector(className, targetVector string) (bool, error) {
 	return false, nil
+}
+
+func (f *fakeModuleProvider) GetExploreAdditionalExtend(ctx context.Context, in []search.Result,
+	moduleParams map[string]interface{}, searchVector models.Vector,
+	argumentModuleParams map[string]interface{}) ([]search.Result, error,
+) {
+	return in, nil
 }

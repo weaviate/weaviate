@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,7 +13,11 @@ package lsmkv
 
 import (
 	"context"
+	"fmt"
 	"os"
+	"path/filepath"
+	"regexp"
+	"slices"
 	"testing"
 	"time"
 
@@ -256,11 +260,14 @@ func TestBucket_MemtableCountWithFlushing(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			actualActive := b.memtableNetCount(tt.current, tt.previous)
+			actualActive, err := b.memtableNetCount(context.Background(), tt.current, tt.previous)
+			require.NoError(t, err)
 			assert.Equal(t, tt.expectedNetActive, actualActive)
 
 			if tt.previous != nil {
-				actualPrevious := b.memtableNetCount(tt.previous, nil)
+				actualPrevious, err := b.memtableNetCount(context.Background(), tt.previous, nil)
+				require.NoError(t, err)
+
 				assert.Equal(t, tt.expectedNetPrevious, actualPrevious)
 
 				assert.Equal(t, tt.expectedNetTotal, actualPrevious+actualActive)
@@ -306,4 +313,181 @@ func TestBucketGetBySecondary(t *testing.T) {
 
 	_, err = b.GetBySecondary(1, []byte("bonjour"))
 	require.Error(t, err)
+}
+
+func TestBucketInfoInFileName(t *testing.T) {
+	ctx := context.Background()
+
+	logger, _ := test.NewNullLogger()
+
+	for _, segmentInfo := range []bool{true, false} {
+		t.Run(fmt.Sprintf("%t", segmentInfo), func(t *testing.T) {
+			dirName := t.TempDir()
+			b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithWriteSegmentInfoIntoFileName(segmentInfo), WithStrategy(StrategyReplace),
+			)
+			require.NoError(t, err)
+			require.NoError(t, b.Put([]byte("hello1"), []byte("world1"), WithSecondaryKey(0, []byte("bonjour1"))))
+			require.NoError(t, b.FlushMemtable())
+			dbFiles, _ := countDbAndWalFiles(t, dirName)
+			require.Equal(t, dbFiles, 1)
+		})
+	}
+}
+
+func TestBucketCompactionFileName(t *testing.T) {
+	ctx := context.Background()
+	logger, _ := test.NewNullLogger()
+
+	tests := []struct {
+		firstSegment  bool
+		secondSegment bool
+		compaction    bool
+	}{
+		{firstSegment: false, secondSegment: false, compaction: true},
+		{firstSegment: false, secondSegment: true, compaction: true},
+		{firstSegment: true, secondSegment: false, compaction: true},
+		{firstSegment: true, secondSegment: true, compaction: true},
+		{firstSegment: true, secondSegment: true, compaction: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("firstSegment: %t", tt.firstSegment), func(t *testing.T) {
+			dirName := t.TempDir()
+			b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithWriteSegmentInfoIntoFileName(tt.firstSegment), WithStrategy(StrategyReplace),
+			)
+			require.NoError(t, err)
+			require.NoError(t, b.Put([]byte("hello1"), []byte("world1"), WithSecondaryKey(0, []byte("bonjour1"))))
+			require.NoError(t, b.FlushMemtable())
+			require.NoError(t, b.Shutdown(ctx))
+			dbFiles, _ := countDbAndWalFiles(t, dirName)
+			require.Equal(t, dbFiles, 1)
+			oldNames := verifyFileInfo(t, dirName, nil, tt.firstSegment, 0)
+
+			b, err = NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithWriteSegmentInfoIntoFileName(tt.secondSegment), WithStrategy(StrategyReplace),
+			)
+			require.NoError(t, err)
+			require.NoError(t, b.Put([]byte("hello2"), []byte("world2"), WithSecondaryKey(0, []byte("bonjour2"))))
+			require.NoError(t, b.FlushMemtable())
+			require.NoError(t, b.Shutdown(ctx))
+
+			dbFiles, _ = countDbAndWalFiles(t, dirName)
+			require.Equal(t, dbFiles, 2)
+			oldNames = verifyFileInfo(t, dirName, oldNames, tt.secondSegment, 0)
+
+			b, err = NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithWriteSegmentInfoIntoFileName(tt.compaction), WithStrategy(StrategyReplace),
+			)
+			require.NoError(t, err)
+			compact, err := b.disk.compactOnce()
+			require.NoError(t, err)
+			require.True(t, compact)
+			dbFiles, _ = countDbAndWalFiles(t, dirName)
+			require.Equal(t, dbFiles, 1)
+			verifyFileInfo(t, dirName, oldNames, tt.compaction, 1)
+		})
+	}
+}
+
+func countDbAndWalFiles(t *testing.T, path string) (int, int) {
+	t.Helper()
+	fileTypes := map[string]int{}
+	entries, err := os.ReadDir(path)
+	require.NoError(t, err)
+	for _, entry := range entries {
+		fileTypes[filepath.Ext(entry.Name())] += 1
+	}
+	return fileTypes[".db"], fileTypes[".wal"]
+}
+
+func verifyFileInfo(t *testing.T, path string, oldEntries []string, segmentInfo bool, level int) []string {
+	t.Helper()
+	entries, err := os.ReadDir(path)
+	require.NoError(t, err)
+	fileNames := []string{}
+	for _, entry := range entries {
+		fileNames = append(fileNames, entry.Name())
+		if oldEntries != nil && slices.Contains(oldEntries, entry.Name()) {
+			continue
+		}
+		if filepath.Ext(entry.Name()) == ".db" {
+			if segmentInfo {
+				require.Contains(t, entry.Name(), fmt.Sprintf(".l%d.", level))
+				require.Contains(t, entry.Name(), ".s0.")
+			} else {
+				require.NotRegexp(t, regexp.MustCompile(`\.l\d+\.`), entry.Name())
+				require.NotContains(t, entry.Name(), ".s0.")
+			}
+		}
+	}
+	return fileNames
+}
+
+func TestNetCountComputationAtInit(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+
+	ctx := context.Background()
+	dirName := t.TempDir()
+	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithCalcCountNetAdditions(true), WithStrategy(StrategyReplace),
+	)
+	require.NoError(t, err)
+
+	// create separate segments for each entry
+	require.NoError(t, b.Put([]byte("hello1"), []byte("world1")))
+	require.NoError(t, b.FlushMemtable())
+	require.NoError(t, b.Put([]byte("hello2"), []byte("world2")))
+	require.NoError(t, b.FlushMemtable())
+	require.NoError(t, b.Put([]byte("hello3"), []byte("world3")))
+	require.NoError(t, b.FlushMemtable())
+	require.NoError(t, b.Put([]byte("hello4"), []byte("world4")))
+	require.NoError(t, b.FlushMemtable())
+
+	count, err := b.Count(ctx)
+	require.NoError(t, err)
+	require.Equal(t, 4, count)
+
+	fileTypes := getFileTypeCount(t, dirName)
+	require.Equal(t, 4, fileTypes[".db"])
+	require.Equal(t, 0, fileTypes[".wal"])
+	require.Equal(t, 4, fileTypes[".cna"])
+
+	// Create a single segment with all deletions - shutdown so the cna files are not written right away, but at startup
+	require.NoError(t, b.Delete([]byte("hello1")))
+	require.NoError(t, b.Delete([]byte("hello2")))
+	require.NoError(t, b.Delete([]byte("hello3")))
+	require.NoError(t, b.Delete([]byte("hello4")))
+	require.NoError(t, b.Shutdown(ctx))
+
+	fileTypes = getFileTypeCount(t, dirName)
+	require.Equal(t, 5, fileTypes[".db"])
+	require.Equal(t, 0, fileTypes[".wal"])
+	require.Equal(t, 4, fileTypes[".cna"]) // cna file for new segment not yet computed
+
+	b, err = NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithCalcCountNetAdditions(true), WithStrategy(StrategyReplace),
+	)
+	require.NoError(t, err)
+
+	fileTypes = getFileTypeCount(t, dirName)
+	require.Equal(t, 5, fileTypes[".db"])
+	require.Equal(t, 0, fileTypes[".wal"])
+	require.Equal(t, 5, fileTypes[".cna"]) // now computed after startup
+
+	count, err = b.Count(ctx)
+	require.NoError(t, err)
+	require.Equal(t, 0, count)
+}
+
+func getFileTypeCount(t *testing.T, path string) map[string]int {
+	t.Helper()
+	fileTypes := map[string]int{}
+	entries, err := os.ReadDir(path)
+	require.NoError(t, err)
+	for _, entry := range entries {
+		fileTypes[filepath.Ext(entry.Name())] += 1
+	}
+	return fileTypes
 }

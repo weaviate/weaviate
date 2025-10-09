@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -23,6 +23,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/mock"
+	"github.com/weaviate/weaviate/usecases/cluster"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
@@ -30,6 +33,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -42,17 +46,18 @@ import (
 	"github.com/weaviate/weaviate/entities/verbosity"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/objects"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 func Test_MultiShardJourneys_IndividualImports(t *testing.T) {
 	r := getRandomSeed()
-	repo, logger := setupMultiShardTest(t)
+	repo, logger, mockSchemaReader := setupMultiShardTest(t)
 	defer func() {
 		repo.Shutdown(context.Background())
 	}()
 
-	t.Run("prepare", makeTestMultiShardSchema(repo, logger, false, testClassesForImporting()...))
+	t.Run("prepare", makeTestMultiShardSchema(repo, logger, mockSchemaReader, false, testClassesForImporting()...))
 
 	data := multiShardTestData(r)
 	queryVec := exampleQueryVec(r)
@@ -85,12 +90,12 @@ func Test_MultiShardJourneys_IndividualImports(t *testing.T) {
 
 func Test_MultiShardJourneys_BatchedImports(t *testing.T) {
 	r := getRandomSeed()
-	repo, logger := setupMultiShardTest(t)
+	repo, logger, mockSchemaReader := setupMultiShardTest(t)
 	defer func() {
 		repo.Shutdown(context.Background())
 	}()
 
-	t.Run("prepare", makeTestMultiShardSchema(repo, logger, false, testClassesForImporting()...))
+	t.Run("prepare", makeTestMultiShardSchema(repo, logger, mockSchemaReader, false, testClassesForImporting()...))
 
 	data := multiShardTestData(r)
 	queryVec := exampleQueryVec(r)
@@ -155,7 +160,7 @@ func Test_MultiShardJourneys_BatchedImports(t *testing.T) {
 }
 
 func Test_MultiShardJourneys_BM25_Search(t *testing.T) {
-	repo, logger := setupMultiShardTest(t)
+	repo, logger, mockSchemaReader := setupMultiShardTest(t)
 	defer func() {
 		repo.Shutdown(context.Background())
 	}()
@@ -188,7 +193,7 @@ func Test_MultiShardJourneys_BM25_Search(t *testing.T) {
 			},
 		}
 
-		t.Run("prepare", makeTestMultiShardSchema(repo, logger, true, class))
+		t.Run("prepare", makeTestMultiShardSchema(repo, logger, mockSchemaReader, true, class))
 	})
 
 	t.Run("insert search data", func(t *testing.T) {
@@ -275,23 +280,32 @@ func Test_MultiShardJourneys_BM25_Search(t *testing.T) {
 	})
 }
 
-func setupMultiShardTest(t *testing.T) (*DB, *logrus.Logger) {
+func setupMultiShardTest(t *testing.T) (*DB, *logrus.Logger, *schemaUC.MockSchemaReader) {
 	dirName := t.TempDir()
-
 	logger, _ := test.NewNullLogger()
-	repo, err := New(logger, Config{
+	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil)
+	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
+	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
+	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
+	repo, err := New(logger, "node1", Config{
 		ServerVersion:             "server-version",
 		GitHash:                   "git-hash",
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, nil,
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
-	return repo, logger
+	return repo, logger, mockSchemaReader
 }
 
-func makeTestMultiShardSchema(repo *DB, logger logrus.FieldLogger, fixedShardState bool, classes ...*models.Class) func(t *testing.T) {
+func makeTestMultiShardSchema(repo *DB, logger logrus.FieldLogger, mockSchemaReader *schemaUC.MockSchemaReader, fixedShardState bool, classes ...*models.Class) func(t *testing.T) {
 	return func(t *testing.T) {
 		var shardState *sharding.State
 		if fixedShardState {
@@ -303,14 +317,19 @@ func makeTestMultiShardSchema(repo *DB, logger logrus.FieldLogger, fixedShardSta
 			schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 			shardState: shardState,
 		}
+		mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
+		mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+			class := &models.Class{Class: className}
+			return readFunc(class, shardState)
+		}).Maybe()
 		repo.SetSchemaGetter(schemaGetter)
 		err := repo.WaitForStartup(testCtx())
 		require.Nil(t, err)
-		migrator := NewMigrator(repo, logger)
+		migrator := NewMigrator(repo, logger, "node1")
 
 		t.Run("creating the class", func(t *testing.T) {
 			for _, class := range classes {
-				require.Nil(t, migrator.AddClass(context.Background(), class, schemaGetter.shardState))
+				require.Nil(t, migrator.AddClass(context.Background(), class))
 			}
 		})
 
@@ -647,7 +666,7 @@ func makeTestSortingClass(repo *DB) func(t *testing.T) {
 
 func testNodesAPI(repo *DB) func(t *testing.T) {
 	return func(t *testing.T) {
-		nodeStatues, err := repo.GetNodeStatus(context.Background(), "", verbosity.OutputVerbose)
+		nodeStatues, err := repo.GetNodeStatus(context.Background(), "", "", verbosity.OutputVerbose)
 		require.Nil(t, err)
 		require.NotNil(t, nodeStatues)
 

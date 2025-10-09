@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,6 +13,7 @@ package helpers
 
 import (
 	"context"
+	"fmt"
 	"maps"
 	"sync"
 	"time"
@@ -81,6 +82,17 @@ func AnnotateSlowQueryLogAppend(ctx context.Context, key string, value any) {
 
 	asList = append(asList, value)
 	details.values[key] = asList
+}
+
+func SprintfWithNesting(nesting int, format string, args ...any) string {
+	nestingPrefix := "  "
+	listItem := " - "
+	prefix := ""
+	for i := 0; i < nesting; i++ {
+		prefix += nestingPrefix
+	}
+	prefix += listItem
+	return fmt.Sprintf("%s%s", prefix, fmt.Sprintf(format, args...))
 }
 
 func ExtractSlowQueryDetails(ctx context.Context) map[string]any {

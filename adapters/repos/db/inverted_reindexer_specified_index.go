@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -42,11 +43,13 @@ func (t *ShardInvertedReindexTask_SpecifiedIndex) GetPropertiesToReindex(ctx con
 	}
 
 	for name := range shard.Store().GetBucketsByName() {
+		if strings.HasPrefix(name, helpers.VectorsCompressedBucketLSM) {
+			continue
+		}
 		// skip non prop buckets
 		switch name {
 		case helpers.ObjectsBucketLSM:
 		case helpers.VectorsBucketLSM:
-		case helpers.VectorsCompressedBucketLSM:
 		case helpers.DimensionsBucketLSM:
 			continue
 		}

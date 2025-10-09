@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -101,7 +101,7 @@ func (z *zip) WriteShard(ctx context.Context, sd *backup.ShardDescriptor) (writt
 	n, err = z.WriteRegulars(ctx, sd.Files)
 	written += n
 
-	return
+	return written, err
 }
 
 func (z *zip) WriteRegulars(ctx context.Context, relPaths []string) (written int64, err error) {
@@ -155,18 +155,22 @@ func (z *zip) writeOne(ctx context.Context, info fs.FileInfo, relPath string, r 
 	header.Name = relPath
 	header.ChangeTime = info.ModTime()
 	if err := z.w.WriteHeader(header); err != nil {
+		if errors.Is(ctx.Err(), context.Canceled) {
+			// we ignore in case the ctx was cancelled
+			return written, nil
+		}
 		return written, fmt.Errorf("write backup header in file %s: %s: %w", z.sourcePath, relPath, err)
 	}
 	// write bytes
 	written, err = io.Copy(z.w, r)
 	if err != nil {
-		if errors.Is(err, io.ErrClosedPipe) && ctx.Err() != nil {
-			// we ignore ErrClosedPipe in case the ctx was cancelled
+		if errors.Is(ctx.Err(), context.Canceled) {
+			// we ignore in case the ctx was cancelled
 			return written, nil
 		}
 		return written, fmt.Errorf("copy: %s %w", relPath, err)
 	}
-	return
+	return written, err
 }
 
 // lastWritten number of bytes
@@ -291,7 +295,7 @@ type readCloser struct {
 func (r *readCloser) Read(p []byte) (n int, err error) {
 	n, err = r.src.Read(p)
 	atomic.AddInt64(&r.n, int64(n))
-	return
+	return n, err
 }
 
 func (r *readCloser) Close() error { return r.src.Close() }

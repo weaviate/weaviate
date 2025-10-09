@@ -98,20 +98,21 @@ services:
     ports:
       - "8011:8080"
   text2vec-model2vec:
-    image: semitechnologies/model2vec-inference:minishlab-potion-base-32M
+    image: semitechnologies/model2vec-inference:minishlab-potion-retrieval-32M
     ports:
       - "8012:8080"
   backup-s3:
     image: minio/minio
     ports:
       - "9000:9000"
+      - "9001:9001"
     volumes:
       - ./backups-s3:/data
     environment:
       MINIO_ROOT_USER: aws_access_key
       MINIO_ROOT_PASSWORD: aws_secret_key
     entrypoint: sh
-    command: -c 'mkdir -p /data/weaviate-backups && minio server /data'
+    command: -c 'mkdir -p /data/weaviate-backups && minio server /data --console-address ":9001"'
   backup-gcs:
     image: oittaa/gcp-storage-emulator
     ports:

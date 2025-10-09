@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -45,8 +45,14 @@ type NodeShardStatus struct {
 	// The name of the shard.
 	Name string `json:"name"`
 
+	// Number of replicas for the shard.
+	NumberOfReplicas int64 `json:"numberOfReplicas,omitempty"`
+
 	// The number of objects in shard.
 	ObjectCount int64 `json:"objectCount"`
+
+	// Minimum number of replicas for the shard.
+	ReplicationFactor int64 `json:"replicationFactor,omitempty"`
 
 	// The status of the vector indexing process.
 	VectorIndexingStatus string `json:"vectorIndexingStatus"`

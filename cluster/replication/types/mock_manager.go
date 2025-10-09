@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -14,8 +14,11 @@
 package types
 
 import (
-	mock "github.com/stretchr/testify/mock"
+	context "context"
+
 	api "github.com/weaviate/weaviate/cluster/proto/api"
+
+	mock "github.com/stretchr/testify/mock"
 
 	strfmt "github.com/go-openapi/strfmt"
 )
@@ -33,17 +36,17 @@ func (_m *MockManager) EXPECT() *MockManager_Expecter {
 	return &MockManager_Expecter{mock: &_m.Mock}
 }
 
-// CancelReplication provides a mock function with given fields: uuid
-func (_m *MockManager) CancelReplication(uuid strfmt.UUID) error {
-	ret := _m.Called(uuid)
+// CancelReplication provides a mock function with given fields: ctx, uuid
+func (_m *MockManager) CancelReplication(ctx context.Context, uuid strfmt.UUID) error {
+	ret := _m.Called(ctx, uuid)
 
 	if len(ret) == 0 {
 		panic("no return value specified for CancelReplication")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(strfmt.UUID) error); ok {
-		r0 = rf(uuid)
+	if rf, ok := ret.Get(0).(func(context.Context, strfmt.UUID) error); ok {
+		r0 = rf(ctx, uuid)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -57,14 +60,15 @@ type MockManager_CancelReplication_Call struct {
 }
 
 // CancelReplication is a helper method to define mock.On call
+//   - ctx context.Context
 //   - uuid strfmt.UUID
-func (_e *MockManager_Expecter) CancelReplication(uuid interface{}) *MockManager_CancelReplication_Call {
-	return &MockManager_CancelReplication_Call{Call: _e.mock.On("CancelReplication", uuid)}
+func (_e *MockManager_Expecter) CancelReplication(ctx interface{}, uuid interface{}) *MockManager_CancelReplication_Call {
+	return &MockManager_CancelReplication_Call{Call: _e.mock.On("CancelReplication", ctx, uuid)}
 }
 
-func (_c *MockManager_CancelReplication_Call) Run(run func(uuid strfmt.UUID)) *MockManager_CancelReplication_Call {
+func (_c *MockManager_CancelReplication_Call) Run(run func(ctx context.Context, uuid strfmt.UUID)) *MockManager_CancelReplication_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(strfmt.UUID))
+		run(args[0].(context.Context), args[1].(strfmt.UUID))
 	})
 	return _c
 }
@@ -74,22 +78,22 @@ func (_c *MockManager_CancelReplication_Call) Return(_a0 error) *MockManager_Can
 	return _c
 }
 
-func (_c *MockManager_CancelReplication_Call) RunAndReturn(run func(strfmt.UUID) error) *MockManager_CancelReplication_Call {
+func (_c *MockManager_CancelReplication_Call) RunAndReturn(run func(context.Context, strfmt.UUID) error) *MockManager_CancelReplication_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// DeleteAllReplications provides a mock function with no fields
-func (_m *MockManager) DeleteAllReplications() error {
-	ret := _m.Called()
+// DeleteAllReplications provides a mock function with given fields: ctx
+func (_m *MockManager) DeleteAllReplications(ctx context.Context) error {
+	ret := _m.Called(ctx)
 
 	if len(ret) == 0 {
 		panic("no return value specified for DeleteAllReplications")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func() error); ok {
-		r0 = rf()
+	if rf, ok := ret.Get(0).(func(context.Context) error); ok {
+		r0 = rf(ctx)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -103,13 +107,14 @@ type MockManager_DeleteAllReplications_Call struct {
 }
 
 // DeleteAllReplications is a helper method to define mock.On call
-func (_e *MockManager_Expecter) DeleteAllReplications() *MockManager_DeleteAllReplications_Call {
-	return &MockManager_DeleteAllReplications_Call{Call: _e.mock.On("DeleteAllReplications")}
+//   - ctx context.Context
+func (_e *MockManager_Expecter) DeleteAllReplications(ctx interface{}) *MockManager_DeleteAllReplications_Call {
+	return &MockManager_DeleteAllReplications_Call{Call: _e.mock.On("DeleteAllReplications", ctx)}
 }
 
-func (_c *MockManager_DeleteAllReplications_Call) Run(run func()) *MockManager_DeleteAllReplications_Call {
+func (_c *MockManager_DeleteAllReplications_Call) Run(run func(ctx context.Context)) *MockManager_DeleteAllReplications_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run()
+		run(args[0].(context.Context))
 	})
 	return _c
 }
@@ -119,22 +124,22 @@ func (_c *MockManager_DeleteAllReplications_Call) Return(_a0 error) *MockManager
 	return _c
 }
 
-func (_c *MockManager_DeleteAllReplications_Call) RunAndReturn(run func() error) *MockManager_DeleteAllReplications_Call {
+func (_c *MockManager_DeleteAllReplications_Call) RunAndReturn(run func(context.Context) error) *MockManager_DeleteAllReplications_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// DeleteReplication provides a mock function with given fields: uuid
-func (_m *MockManager) DeleteReplication(uuid strfmt.UUID) error {
-	ret := _m.Called(uuid)
+// DeleteReplication provides a mock function with given fields: ctx, uuid
+func (_m *MockManager) DeleteReplication(ctx context.Context, uuid strfmt.UUID) error {
+	ret := _m.Called(ctx, uuid)
 
 	if len(ret) == 0 {
 		panic("no return value specified for DeleteReplication")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(strfmt.UUID) error); ok {
-		r0 = rf(uuid)
+	if rf, ok := ret.Get(0).(func(context.Context, strfmt.UUID) error); ok {
+		r0 = rf(ctx, uuid)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -148,14 +153,15 @@ type MockManager_DeleteReplication_Call struct {
 }
 
 // DeleteReplication is a helper method to define mock.On call
+//   - ctx context.Context
 //   - uuid strfmt.UUID
-func (_e *MockManager_Expecter) DeleteReplication(uuid interface{}) *MockManager_DeleteReplication_Call {
-	return &MockManager_DeleteReplication_Call{Call: _e.mock.On("DeleteReplication", uuid)}
+func (_e *MockManager_Expecter) DeleteReplication(ctx interface{}, uuid interface{}) *MockManager_DeleteReplication_Call {
+	return &MockManager_DeleteReplication_Call{Call: _e.mock.On("DeleteReplication", ctx, uuid)}
 }
 
-func (_c *MockManager_DeleteReplication_Call) Run(run func(uuid strfmt.UUID)) *MockManager_DeleteReplication_Call {
+func (_c *MockManager_DeleteReplication_Call) Run(run func(ctx context.Context, uuid strfmt.UUID)) *MockManager_DeleteReplication_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(strfmt.UUID))
+		run(args[0].(context.Context), args[1].(strfmt.UUID))
 	})
 	return _c
 }
@@ -165,22 +171,22 @@ func (_c *MockManager_DeleteReplication_Call) Return(_a0 error) *MockManager_Del
 	return _c
 }
 
-func (_c *MockManager_DeleteReplication_Call) RunAndReturn(run func(strfmt.UUID) error) *MockManager_DeleteReplication_Call {
+func (_c *MockManager_DeleteReplication_Call) RunAndReturn(run func(context.Context, strfmt.UUID) error) *MockManager_DeleteReplication_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// DeleteReplicationsByCollection provides a mock function with given fields: collection
-func (_m *MockManager) DeleteReplicationsByCollection(collection string) error {
-	ret := _m.Called(collection)
+// DeleteReplicationsByCollection provides a mock function with given fields: ctx, collection
+func (_m *MockManager) DeleteReplicationsByCollection(ctx context.Context, collection string) error {
+	ret := _m.Called(ctx, collection)
 
 	if len(ret) == 0 {
 		panic("no return value specified for DeleteReplicationsByCollection")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(string) error); ok {
-		r0 = rf(collection)
+	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
+		r0 = rf(ctx, collection)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -194,14 +200,15 @@ type MockManager_DeleteReplicationsByCollection_Call struct {
 }
 
 // DeleteReplicationsByCollection is a helper method to define mock.On call
+//   - ctx context.Context
 //   - collection string
-func (_e *MockManager_Expecter) DeleteReplicationsByCollection(collection interface{}) *MockManager_DeleteReplicationsByCollection_Call {
-	return &MockManager_DeleteReplicationsByCollection_Call{Call: _e.mock.On("DeleteReplicationsByCollection", collection)}
+func (_e *MockManager_Expecter) DeleteReplicationsByCollection(ctx interface{}, collection interface{}) *MockManager_DeleteReplicationsByCollection_Call {
+	return &MockManager_DeleteReplicationsByCollection_Call{Call: _e.mock.On("DeleteReplicationsByCollection", ctx, collection)}
 }
 
-func (_c *MockManager_DeleteReplicationsByCollection_Call) Run(run func(collection string)) *MockManager_DeleteReplicationsByCollection_Call {
+func (_c *MockManager_DeleteReplicationsByCollection_Call) Run(run func(ctx context.Context, collection string)) *MockManager_DeleteReplicationsByCollection_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(string))
+		run(args[0].(context.Context), args[1].(string))
 	})
 	return _c
 }
@@ -211,22 +218,22 @@ func (_c *MockManager_DeleteReplicationsByCollection_Call) Return(_a0 error) *Mo
 	return _c
 }
 
-func (_c *MockManager_DeleteReplicationsByCollection_Call) RunAndReturn(run func(string) error) *MockManager_DeleteReplicationsByCollection_Call {
+func (_c *MockManager_DeleteReplicationsByCollection_Call) RunAndReturn(run func(context.Context, string) error) *MockManager_DeleteReplicationsByCollection_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// DeleteReplicationsByTenants provides a mock function with given fields: collection, tenants
-func (_m *MockManager) DeleteReplicationsByTenants(collection string, tenants []string) error {
-	ret := _m.Called(collection, tenants)
+// DeleteReplicationsByTenants provides a mock function with given fields: ctx, collection, tenants
+func (_m *MockManager) DeleteReplicationsByTenants(ctx context.Context, collection string, tenants []string) error {
+	ret := _m.Called(ctx, collection, tenants)
 
 	if len(ret) == 0 {
 		panic("no return value specified for DeleteReplicationsByTenants")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(string, []string) error); ok {
-		r0 = rf(collection, tenants)
+	if rf, ok := ret.Get(0).(func(context.Context, string, []string) error); ok {
+		r0 = rf(ctx, collection, tenants)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -240,15 +247,16 @@ type MockManager_DeleteReplicationsByTenants_Call struct {
 }
 
 // DeleteReplicationsByTenants is a helper method to define mock.On call
+//   - ctx context.Context
 //   - collection string
 //   - tenants []string
-func (_e *MockManager_Expecter) DeleteReplicationsByTenants(collection interface{}, tenants interface{}) *MockManager_DeleteReplicationsByTenants_Call {
-	return &MockManager_DeleteReplicationsByTenants_Call{Call: _e.mock.On("DeleteReplicationsByTenants", collection, tenants)}
+func (_e *MockManager_Expecter) DeleteReplicationsByTenants(ctx interface{}, collection interface{}, tenants interface{}) *MockManager_DeleteReplicationsByTenants_Call {
+	return &MockManager_DeleteReplicationsByTenants_Call{Call: _e.mock.On("DeleteReplicationsByTenants", ctx, collection, tenants)}
 }
 
-func (_c *MockManager_DeleteReplicationsByTenants_Call) Run(run func(collection string, tenants []string)) *MockManager_DeleteReplicationsByTenants_Call {
+func (_c *MockManager_DeleteReplicationsByTenants_Call) Run(run func(ctx context.Context, collection string, tenants []string)) *MockManager_DeleteReplicationsByTenants_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(string), args[1].([]string))
+		run(args[0].(context.Context), args[1].(string), args[2].([]string))
 	})
 	return _c
 }
@@ -258,14 +266,249 @@ func (_c *MockManager_DeleteReplicationsByTenants_Call) Return(_a0 error) *MockM
 	return _c
 }
 
-func (_c *MockManager_DeleteReplicationsByTenants_Call) RunAndReturn(run func(string, []string) error) *MockManager_DeleteReplicationsByTenants_Call {
+func (_c *MockManager_DeleteReplicationsByTenants_Call) RunAndReturn(run func(context.Context, string, []string) error) *MockManager_DeleteReplicationsByTenants_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// GetAllReplicationDetails provides a mock function with no fields
-func (_m *MockManager) GetAllReplicationDetails() ([]api.ReplicationDetailsResponse, error) {
-	ret := _m.Called()
+// ForceDeleteAllReplications provides a mock function with given fields: ctx
+func (_m *MockManager) ForceDeleteAllReplications(ctx context.Context) error {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ForceDeleteAllReplications")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context) error); ok {
+		r0 = rf(ctx)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockManager_ForceDeleteAllReplications_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ForceDeleteAllReplications'
+type MockManager_ForceDeleteAllReplications_Call struct {
+	*mock.Call
+}
+
+// ForceDeleteAllReplications is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *MockManager_Expecter) ForceDeleteAllReplications(ctx interface{}) *MockManager_ForceDeleteAllReplications_Call {
+	return &MockManager_ForceDeleteAllReplications_Call{Call: _e.mock.On("ForceDeleteAllReplications", ctx)}
+}
+
+func (_c *MockManager_ForceDeleteAllReplications_Call) Run(run func(ctx context.Context)) *MockManager_ForceDeleteAllReplications_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context))
+	})
+	return _c
+}
+
+func (_c *MockManager_ForceDeleteAllReplications_Call) Return(_a0 error) *MockManager_ForceDeleteAllReplications_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockManager_ForceDeleteAllReplications_Call) RunAndReturn(run func(context.Context) error) *MockManager_ForceDeleteAllReplications_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// ForceDeleteReplicationByUuid provides a mock function with given fields: ctx, uuid
+func (_m *MockManager) ForceDeleteReplicationByUuid(ctx context.Context, uuid strfmt.UUID) error {
+	ret := _m.Called(ctx, uuid)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ForceDeleteReplicationByUuid")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, strfmt.UUID) error); ok {
+		r0 = rf(ctx, uuid)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockManager_ForceDeleteReplicationByUuid_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ForceDeleteReplicationByUuid'
+type MockManager_ForceDeleteReplicationByUuid_Call struct {
+	*mock.Call
+}
+
+// ForceDeleteReplicationByUuid is a helper method to define mock.On call
+//   - ctx context.Context
+//   - uuid strfmt.UUID
+func (_e *MockManager_Expecter) ForceDeleteReplicationByUuid(ctx interface{}, uuid interface{}) *MockManager_ForceDeleteReplicationByUuid_Call {
+	return &MockManager_ForceDeleteReplicationByUuid_Call{Call: _e.mock.On("ForceDeleteReplicationByUuid", ctx, uuid)}
+}
+
+func (_c *MockManager_ForceDeleteReplicationByUuid_Call) Run(run func(ctx context.Context, uuid strfmt.UUID)) *MockManager_ForceDeleteReplicationByUuid_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(strfmt.UUID))
+	})
+	return _c
+}
+
+func (_c *MockManager_ForceDeleteReplicationByUuid_Call) Return(_a0 error) *MockManager_ForceDeleteReplicationByUuid_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockManager_ForceDeleteReplicationByUuid_Call) RunAndReturn(run func(context.Context, strfmt.UUID) error) *MockManager_ForceDeleteReplicationByUuid_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// ForceDeleteReplicationsByCollection provides a mock function with given fields: ctx, collection
+func (_m *MockManager) ForceDeleteReplicationsByCollection(ctx context.Context, collection string) error {
+	ret := _m.Called(ctx, collection)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ForceDeleteReplicationsByCollection")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
+		r0 = rf(ctx, collection)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockManager_ForceDeleteReplicationsByCollection_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ForceDeleteReplicationsByCollection'
+type MockManager_ForceDeleteReplicationsByCollection_Call struct {
+	*mock.Call
+}
+
+// ForceDeleteReplicationsByCollection is a helper method to define mock.On call
+//   - ctx context.Context
+//   - collection string
+func (_e *MockManager_Expecter) ForceDeleteReplicationsByCollection(ctx interface{}, collection interface{}) *MockManager_ForceDeleteReplicationsByCollection_Call {
+	return &MockManager_ForceDeleteReplicationsByCollection_Call{Call: _e.mock.On("ForceDeleteReplicationsByCollection", ctx, collection)}
+}
+
+func (_c *MockManager_ForceDeleteReplicationsByCollection_Call) Run(run func(ctx context.Context, collection string)) *MockManager_ForceDeleteReplicationsByCollection_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *MockManager_ForceDeleteReplicationsByCollection_Call) Return(_a0 error) *MockManager_ForceDeleteReplicationsByCollection_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockManager_ForceDeleteReplicationsByCollection_Call) RunAndReturn(run func(context.Context, string) error) *MockManager_ForceDeleteReplicationsByCollection_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// ForceDeleteReplicationsByCollectionAndShard provides a mock function with given fields: ctx, collection, shard
+func (_m *MockManager) ForceDeleteReplicationsByCollectionAndShard(ctx context.Context, collection string, shard string) error {
+	ret := _m.Called(ctx, collection, shard)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ForceDeleteReplicationsByCollectionAndShard")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) error); ok {
+		r0 = rf(ctx, collection, shard)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockManager_ForceDeleteReplicationsByCollectionAndShard_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ForceDeleteReplicationsByCollectionAndShard'
+type MockManager_ForceDeleteReplicationsByCollectionAndShard_Call struct {
+	*mock.Call
+}
+
+// ForceDeleteReplicationsByCollectionAndShard is a helper method to define mock.On call
+//   - ctx context.Context
+//   - collection string
+//   - shard string
+func (_e *MockManager_Expecter) ForceDeleteReplicationsByCollectionAndShard(ctx interface{}, collection interface{}, shard interface{}) *MockManager_ForceDeleteReplicationsByCollectionAndShard_Call {
+	return &MockManager_ForceDeleteReplicationsByCollectionAndShard_Call{Call: _e.mock.On("ForceDeleteReplicationsByCollectionAndShard", ctx, collection, shard)}
+}
+
+func (_c *MockManager_ForceDeleteReplicationsByCollectionAndShard_Call) Run(run func(ctx context.Context, collection string, shard string)) *MockManager_ForceDeleteReplicationsByCollectionAndShard_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string))
+	})
+	return _c
+}
+
+func (_c *MockManager_ForceDeleteReplicationsByCollectionAndShard_Call) Return(_a0 error) *MockManager_ForceDeleteReplicationsByCollectionAndShard_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockManager_ForceDeleteReplicationsByCollectionAndShard_Call) RunAndReturn(run func(context.Context, string, string) error) *MockManager_ForceDeleteReplicationsByCollectionAndShard_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// ForceDeleteReplicationsByTargetNode provides a mock function with given fields: ctx, node
+func (_m *MockManager) ForceDeleteReplicationsByTargetNode(ctx context.Context, node string) error {
+	ret := _m.Called(ctx, node)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ForceDeleteReplicationsByTargetNode")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
+		r0 = rf(ctx, node)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockManager_ForceDeleteReplicationsByTargetNode_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ForceDeleteReplicationsByTargetNode'
+type MockManager_ForceDeleteReplicationsByTargetNode_Call struct {
+	*mock.Call
+}
+
+// ForceDeleteReplicationsByTargetNode is a helper method to define mock.On call
+//   - ctx context.Context
+//   - node string
+func (_e *MockManager_Expecter) ForceDeleteReplicationsByTargetNode(ctx interface{}, node interface{}) *MockManager_ForceDeleteReplicationsByTargetNode_Call {
+	return &MockManager_ForceDeleteReplicationsByTargetNode_Call{Call: _e.mock.On("ForceDeleteReplicationsByTargetNode", ctx, node)}
+}
+
+func (_c *MockManager_ForceDeleteReplicationsByTargetNode_Call) Run(run func(ctx context.Context, node string)) *MockManager_ForceDeleteReplicationsByTargetNode_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *MockManager_ForceDeleteReplicationsByTargetNode_Call) Return(_a0 error) *MockManager_ForceDeleteReplicationsByTargetNode_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockManager_ForceDeleteReplicationsByTargetNode_Call) RunAndReturn(run func(context.Context, string) error) *MockManager_ForceDeleteReplicationsByTargetNode_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetAllReplicationDetails provides a mock function with given fields: ctx
+func (_m *MockManager) GetAllReplicationDetails(ctx context.Context) ([]api.ReplicationDetailsResponse, error) {
+	ret := _m.Called(ctx)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetAllReplicationDetails")
@@ -273,19 +516,19 @@ func (_m *MockManager) GetAllReplicationDetails() ([]api.ReplicationDetailsRespo
 
 	var r0 []api.ReplicationDetailsResponse
 	var r1 error
-	if rf, ok := ret.Get(0).(func() ([]api.ReplicationDetailsResponse, error)); ok {
-		return rf()
+	if rf, ok := ret.Get(0).(func(context.Context) ([]api.ReplicationDetailsResponse, error)); ok {
+		return rf(ctx)
 	}
-	if rf, ok := ret.Get(0).(func() []api.ReplicationDetailsResponse); ok {
-		r0 = rf()
+	if rf, ok := ret.Get(0).(func(context.Context) []api.ReplicationDetailsResponse); ok {
+		r0 = rf(ctx)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).([]api.ReplicationDetailsResponse)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func() error); ok {
-		r1 = rf()
+	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
+		r1 = rf(ctx)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -299,13 +542,14 @@ type MockManager_GetAllReplicationDetails_Call struct {
 }
 
 // GetAllReplicationDetails is a helper method to define mock.On call
-func (_e *MockManager_Expecter) GetAllReplicationDetails() *MockManager_GetAllReplicationDetails_Call {
-	return &MockManager_GetAllReplicationDetails_Call{Call: _e.mock.On("GetAllReplicationDetails")}
+//   - ctx context.Context
+func (_e *MockManager_Expecter) GetAllReplicationDetails(ctx interface{}) *MockManager_GetAllReplicationDetails_Call {
+	return &MockManager_GetAllReplicationDetails_Call{Call: _e.mock.On("GetAllReplicationDetails", ctx)}
 }
 
-func (_c *MockManager_GetAllReplicationDetails_Call) Run(run func()) *MockManager_GetAllReplicationDetails_Call {
+func (_c *MockManager_GetAllReplicationDetails_Call) Run(run func(ctx context.Context)) *MockManager_GetAllReplicationDetails_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run()
+		run(args[0].(context.Context))
 	})
 	return _c
 }
@@ -315,14 +559,14 @@ func (_c *MockManager_GetAllReplicationDetails_Call) Return(_a0 []api.Replicatio
 	return _c
 }
 
-func (_c *MockManager_GetAllReplicationDetails_Call) RunAndReturn(run func() ([]api.ReplicationDetailsResponse, error)) *MockManager_GetAllReplicationDetails_Call {
+func (_c *MockManager_GetAllReplicationDetails_Call) RunAndReturn(run func(context.Context) ([]api.ReplicationDetailsResponse, error)) *MockManager_GetAllReplicationDetails_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// GetReplicationDetailsByCollection provides a mock function with given fields: collection
-func (_m *MockManager) GetReplicationDetailsByCollection(collection string) ([]api.ReplicationDetailsResponse, error) {
-	ret := _m.Called(collection)
+// GetReplicationDetailsByCollection provides a mock function with given fields: ctx, collection
+func (_m *MockManager) GetReplicationDetailsByCollection(ctx context.Context, collection string) ([]api.ReplicationDetailsResponse, error) {
+	ret := _m.Called(ctx, collection)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetReplicationDetailsByCollection")
@@ -330,19 +574,19 @@ func (_m *MockManager) GetReplicationDetailsByCollection(collection string) ([]a
 
 	var r0 []api.ReplicationDetailsResponse
 	var r1 error
-	if rf, ok := ret.Get(0).(func(string) ([]api.ReplicationDetailsResponse, error)); ok {
-		return rf(collection)
+	if rf, ok := ret.Get(0).(func(context.Context, string) ([]api.ReplicationDetailsResponse, error)); ok {
+		return rf(ctx, collection)
 	}
-	if rf, ok := ret.Get(0).(func(string) []api.ReplicationDetailsResponse); ok {
-		r0 = rf(collection)
+	if rf, ok := ret.Get(0).(func(context.Context, string) []api.ReplicationDetailsResponse); ok {
+		r0 = rf(ctx, collection)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).([]api.ReplicationDetailsResponse)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(string) error); ok {
-		r1 = rf(collection)
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, collection)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -356,14 +600,15 @@ type MockManager_GetReplicationDetailsByCollection_Call struct {
 }
 
 // GetReplicationDetailsByCollection is a helper method to define mock.On call
+//   - ctx context.Context
 //   - collection string
-func (_e *MockManager_Expecter) GetReplicationDetailsByCollection(collection interface{}) *MockManager_GetReplicationDetailsByCollection_Call {
-	return &MockManager_GetReplicationDetailsByCollection_Call{Call: _e.mock.On("GetReplicationDetailsByCollection", collection)}
+func (_e *MockManager_Expecter) GetReplicationDetailsByCollection(ctx interface{}, collection interface{}) *MockManager_GetReplicationDetailsByCollection_Call {
+	return &MockManager_GetReplicationDetailsByCollection_Call{Call: _e.mock.On("GetReplicationDetailsByCollection", ctx, collection)}
 }
 
-func (_c *MockManager_GetReplicationDetailsByCollection_Call) Run(run func(collection string)) *MockManager_GetReplicationDetailsByCollection_Call {
+func (_c *MockManager_GetReplicationDetailsByCollection_Call) Run(run func(ctx context.Context, collection string)) *MockManager_GetReplicationDetailsByCollection_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(string))
+		run(args[0].(context.Context), args[1].(string))
 	})
 	return _c
 }
@@ -373,14 +618,14 @@ func (_c *MockManager_GetReplicationDetailsByCollection_Call) Return(_a0 []api.R
 	return _c
 }
 
-func (_c *MockManager_GetReplicationDetailsByCollection_Call) RunAndReturn(run func(string) ([]api.ReplicationDetailsResponse, error)) *MockManager_GetReplicationDetailsByCollection_Call {
+func (_c *MockManager_GetReplicationDetailsByCollection_Call) RunAndReturn(run func(context.Context, string) ([]api.ReplicationDetailsResponse, error)) *MockManager_GetReplicationDetailsByCollection_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// GetReplicationDetailsByCollectionAndShard provides a mock function with given fields: collection, shard
-func (_m *MockManager) GetReplicationDetailsByCollectionAndShard(collection string, shard string) ([]api.ReplicationDetailsResponse, error) {
-	ret := _m.Called(collection, shard)
+// GetReplicationDetailsByCollectionAndShard provides a mock function with given fields: ctx, collection, shard
+func (_m *MockManager) GetReplicationDetailsByCollectionAndShard(ctx context.Context, collection string, shard string) ([]api.ReplicationDetailsResponse, error) {
+	ret := _m.Called(ctx, collection, shard)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetReplicationDetailsByCollectionAndShard")
@@ -388,19 +633,19 @@ func (_m *MockManager) GetReplicationDetailsByCollectionAndShard(collection stri
 
 	var r0 []api.ReplicationDetailsResponse
 	var r1 error
-	if rf, ok := ret.Get(0).(func(string, string) ([]api.ReplicationDetailsResponse, error)); ok {
-		return rf(collection, shard)
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) ([]api.ReplicationDetailsResponse, error)); ok {
+		return rf(ctx, collection, shard)
 	}
-	if rf, ok := ret.Get(0).(func(string, string) []api.ReplicationDetailsResponse); ok {
-		r0 = rf(collection, shard)
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) []api.ReplicationDetailsResponse); ok {
+		r0 = rf(ctx, collection, shard)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).([]api.ReplicationDetailsResponse)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(string, string) error); ok {
-		r1 = rf(collection, shard)
+	if rf, ok := ret.Get(1).(func(context.Context, string, string) error); ok {
+		r1 = rf(ctx, collection, shard)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -414,15 +659,16 @@ type MockManager_GetReplicationDetailsByCollectionAndShard_Call struct {
 }
 
 // GetReplicationDetailsByCollectionAndShard is a helper method to define mock.On call
+//   - ctx context.Context
 //   - collection string
 //   - shard string
-func (_e *MockManager_Expecter) GetReplicationDetailsByCollectionAndShard(collection interface{}, shard interface{}) *MockManager_GetReplicationDetailsByCollectionAndShard_Call {
-	return &MockManager_GetReplicationDetailsByCollectionAndShard_Call{Call: _e.mock.On("GetReplicationDetailsByCollectionAndShard", collection, shard)}
+func (_e *MockManager_Expecter) GetReplicationDetailsByCollectionAndShard(ctx interface{}, collection interface{}, shard interface{}) *MockManager_GetReplicationDetailsByCollectionAndShard_Call {
+	return &MockManager_GetReplicationDetailsByCollectionAndShard_Call{Call: _e.mock.On("GetReplicationDetailsByCollectionAndShard", ctx, collection, shard)}
 }
 
-func (_c *MockManager_GetReplicationDetailsByCollectionAndShard_Call) Run(run func(collection string, shard string)) *MockManager_GetReplicationDetailsByCollectionAndShard_Call {
+func (_c *MockManager_GetReplicationDetailsByCollectionAndShard_Call) Run(run func(ctx context.Context, collection string, shard string)) *MockManager_GetReplicationDetailsByCollectionAndShard_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(string), args[1].(string))
+		run(args[0].(context.Context), args[1].(string), args[2].(string))
 	})
 	return _c
 }
@@ -432,14 +678,14 @@ func (_c *MockManager_GetReplicationDetailsByCollectionAndShard_Call) Return(_a0
 	return _c
 }
 
-func (_c *MockManager_GetReplicationDetailsByCollectionAndShard_Call) RunAndReturn(run func(string, string) ([]api.ReplicationDetailsResponse, error)) *MockManager_GetReplicationDetailsByCollectionAndShard_Call {
+func (_c *MockManager_GetReplicationDetailsByCollectionAndShard_Call) RunAndReturn(run func(context.Context, string, string) ([]api.ReplicationDetailsResponse, error)) *MockManager_GetReplicationDetailsByCollectionAndShard_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// GetReplicationDetailsByReplicationId provides a mock function with given fields: uuid
-func (_m *MockManager) GetReplicationDetailsByReplicationId(uuid strfmt.UUID) (api.ReplicationDetailsResponse, error) {
-	ret := _m.Called(uuid)
+// GetReplicationDetailsByReplicationId provides a mock function with given fields: ctx, uuid
+func (_m *MockManager) GetReplicationDetailsByReplicationId(ctx context.Context, uuid strfmt.UUID) (api.ReplicationDetailsResponse, error) {
+	ret := _m.Called(ctx, uuid)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetReplicationDetailsByReplicationId")
@@ -447,17 +693,17 @@ func (_m *MockManager) GetReplicationDetailsByReplicationId(uuid strfmt.UUID) (a
 
 	var r0 api.ReplicationDetailsResponse
 	var r1 error
-	if rf, ok := ret.Get(0).(func(strfmt.UUID) (api.ReplicationDetailsResponse, error)); ok {
-		return rf(uuid)
+	if rf, ok := ret.Get(0).(func(context.Context, strfmt.UUID) (api.ReplicationDetailsResponse, error)); ok {
+		return rf(ctx, uuid)
 	}
-	if rf, ok := ret.Get(0).(func(strfmt.UUID) api.ReplicationDetailsResponse); ok {
-		r0 = rf(uuid)
+	if rf, ok := ret.Get(0).(func(context.Context, strfmt.UUID) api.ReplicationDetailsResponse); ok {
+		r0 = rf(ctx, uuid)
 	} else {
 		r0 = ret.Get(0).(api.ReplicationDetailsResponse)
 	}
 
-	if rf, ok := ret.Get(1).(func(strfmt.UUID) error); ok {
-		r1 = rf(uuid)
+	if rf, ok := ret.Get(1).(func(context.Context, strfmt.UUID) error); ok {
+		r1 = rf(ctx, uuid)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -471,14 +717,15 @@ type MockManager_GetReplicationDetailsByReplicationId_Call struct {
 }
 
 // GetReplicationDetailsByReplicationId is a helper method to define mock.On call
+//   - ctx context.Context
 //   - uuid strfmt.UUID
-func (_e *MockManager_Expecter) GetReplicationDetailsByReplicationId(uuid interface{}) *MockManager_GetReplicationDetailsByReplicationId_Call {
-	return &MockManager_GetReplicationDetailsByReplicationId_Call{Call: _e.mock.On("GetReplicationDetailsByReplicationId", uuid)}
+func (_e *MockManager_Expecter) GetReplicationDetailsByReplicationId(ctx interface{}, uuid interface{}) *MockManager_GetReplicationDetailsByReplicationId_Call {
+	return &MockManager_GetReplicationDetailsByReplicationId_Call{Call: _e.mock.On("GetReplicationDetailsByReplicationId", ctx, uuid)}
 }
 
-func (_c *MockManager_GetReplicationDetailsByReplicationId_Call) Run(run func(uuid strfmt.UUID)) *MockManager_GetReplicationDetailsByReplicationId_Call {
+func (_c *MockManager_GetReplicationDetailsByReplicationId_Call) Run(run func(ctx context.Context, uuid strfmt.UUID)) *MockManager_GetReplicationDetailsByReplicationId_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(strfmt.UUID))
+		run(args[0].(context.Context), args[1].(strfmt.UUID))
 	})
 	return _c
 }
@@ -488,14 +735,14 @@ func (_c *MockManager_GetReplicationDetailsByReplicationId_Call) Return(_a0 api.
 	return _c
 }
 
-func (_c *MockManager_GetReplicationDetailsByReplicationId_Call) RunAndReturn(run func(strfmt.UUID) (api.ReplicationDetailsResponse, error)) *MockManager_GetReplicationDetailsByReplicationId_Call {
+func (_c *MockManager_GetReplicationDetailsByReplicationId_Call) RunAndReturn(run func(context.Context, strfmt.UUID) (api.ReplicationDetailsResponse, error)) *MockManager_GetReplicationDetailsByReplicationId_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// GetReplicationDetailsByTargetNode provides a mock function with given fields: node
-func (_m *MockManager) GetReplicationDetailsByTargetNode(node string) ([]api.ReplicationDetailsResponse, error) {
-	ret := _m.Called(node)
+// GetReplicationDetailsByTargetNode provides a mock function with given fields: ctx, node
+func (_m *MockManager) GetReplicationDetailsByTargetNode(ctx context.Context, node string) ([]api.ReplicationDetailsResponse, error) {
+	ret := _m.Called(ctx, node)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetReplicationDetailsByTargetNode")
@@ -503,19 +750,19 @@ func (_m *MockManager) GetReplicationDetailsByTargetNode(node string) ([]api.Rep
 
 	var r0 []api.ReplicationDetailsResponse
 	var r1 error
-	if rf, ok := ret.Get(0).(func(string) ([]api.ReplicationDetailsResponse, error)); ok {
-		return rf(node)
+	if rf, ok := ret.Get(0).(func(context.Context, string) ([]api.ReplicationDetailsResponse, error)); ok {
+		return rf(ctx, node)
 	}
-	if rf, ok := ret.Get(0).(func(string) []api.ReplicationDetailsResponse); ok {
-		r0 = rf(node)
+	if rf, ok := ret.Get(0).(func(context.Context, string) []api.ReplicationDetailsResponse); ok {
+		r0 = rf(ctx, node)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).([]api.ReplicationDetailsResponse)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(string) error); ok {
-		r1 = rf(node)
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, node)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -529,14 +776,15 @@ type MockManager_GetReplicationDetailsByTargetNode_Call struct {
 }
 
 // GetReplicationDetailsByTargetNode is a helper method to define mock.On call
+//   - ctx context.Context
 //   - node string
-func (_e *MockManager_Expecter) GetReplicationDetailsByTargetNode(node interface{}) *MockManager_GetReplicationDetailsByTargetNode_Call {
-	return &MockManager_GetReplicationDetailsByTargetNode_Call{Call: _e.mock.On("GetReplicationDetailsByTargetNode", node)}
+func (_e *MockManager_Expecter) GetReplicationDetailsByTargetNode(ctx interface{}, node interface{}) *MockManager_GetReplicationDetailsByTargetNode_Call {
+	return &MockManager_GetReplicationDetailsByTargetNode_Call{Call: _e.mock.On("GetReplicationDetailsByTargetNode", ctx, node)}
 }
 
-func (_c *MockManager_GetReplicationDetailsByTargetNode_Call) Run(run func(node string)) *MockManager_GetReplicationDetailsByTargetNode_Call {
+func (_c *MockManager_GetReplicationDetailsByTargetNode_Call) Run(run func(ctx context.Context, node string)) *MockManager_GetReplicationDetailsByTargetNode_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(string))
+		run(args[0].(context.Context), args[1].(string))
 	})
 	return _c
 }
@@ -546,14 +794,14 @@ func (_c *MockManager_GetReplicationDetailsByTargetNode_Call) Return(_a0 []api.R
 	return _c
 }
 
-func (_c *MockManager_GetReplicationDetailsByTargetNode_Call) RunAndReturn(run func(string) ([]api.ReplicationDetailsResponse, error)) *MockManager_GetReplicationDetailsByTargetNode_Call {
+func (_c *MockManager_GetReplicationDetailsByTargetNode_Call) RunAndReturn(run func(context.Context, string) ([]api.ReplicationDetailsResponse, error)) *MockManager_GetReplicationDetailsByTargetNode_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// QueryShardingStateByCollection provides a mock function with given fields: collection
-func (_m *MockManager) QueryShardingStateByCollection(collection string) (api.ShardingState, error) {
-	ret := _m.Called(collection)
+// QueryShardingStateByCollection provides a mock function with given fields: ctx, collection
+func (_m *MockManager) QueryShardingStateByCollection(ctx context.Context, collection string) (api.ShardingState, error) {
+	ret := _m.Called(ctx, collection)
 
 	if len(ret) == 0 {
 		panic("no return value specified for QueryShardingStateByCollection")
@@ -561,17 +809,17 @@ func (_m *MockManager) QueryShardingStateByCollection(collection string) (api.Sh
 
 	var r0 api.ShardingState
 	var r1 error
-	if rf, ok := ret.Get(0).(func(string) (api.ShardingState, error)); ok {
-		return rf(collection)
+	if rf, ok := ret.Get(0).(func(context.Context, string) (api.ShardingState, error)); ok {
+		return rf(ctx, collection)
 	}
-	if rf, ok := ret.Get(0).(func(string) api.ShardingState); ok {
-		r0 = rf(collection)
+	if rf, ok := ret.Get(0).(func(context.Context, string) api.ShardingState); ok {
+		r0 = rf(ctx, collection)
 	} else {
 		r0 = ret.Get(0).(api.ShardingState)
 	}
 
-	if rf, ok := ret.Get(1).(func(string) error); ok {
-		r1 = rf(collection)
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, collection)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -585,14 +833,15 @@ type MockManager_QueryShardingStateByCollection_Call struct {
 }
 
 // QueryShardingStateByCollection is a helper method to define mock.On call
+//   - ctx context.Context
 //   - collection string
-func (_e *MockManager_Expecter) QueryShardingStateByCollection(collection interface{}) *MockManager_QueryShardingStateByCollection_Call {
-	return &MockManager_QueryShardingStateByCollection_Call{Call: _e.mock.On("QueryShardingStateByCollection", collection)}
+func (_e *MockManager_Expecter) QueryShardingStateByCollection(ctx interface{}, collection interface{}) *MockManager_QueryShardingStateByCollection_Call {
+	return &MockManager_QueryShardingStateByCollection_Call{Call: _e.mock.On("QueryShardingStateByCollection", ctx, collection)}
 }
 
-func (_c *MockManager_QueryShardingStateByCollection_Call) Run(run func(collection string)) *MockManager_QueryShardingStateByCollection_Call {
+func (_c *MockManager_QueryShardingStateByCollection_Call) Run(run func(ctx context.Context, collection string)) *MockManager_QueryShardingStateByCollection_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(string))
+		run(args[0].(context.Context), args[1].(string))
 	})
 	return _c
 }
@@ -602,14 +851,14 @@ func (_c *MockManager_QueryShardingStateByCollection_Call) Return(_a0 api.Shardi
 	return _c
 }
 
-func (_c *MockManager_QueryShardingStateByCollection_Call) RunAndReturn(run func(string) (api.ShardingState, error)) *MockManager_QueryShardingStateByCollection_Call {
+func (_c *MockManager_QueryShardingStateByCollection_Call) RunAndReturn(run func(context.Context, string) (api.ShardingState, error)) *MockManager_QueryShardingStateByCollection_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// QueryShardingStateByCollectionAndShard provides a mock function with given fields: collection, shard
-func (_m *MockManager) QueryShardingStateByCollectionAndShard(collection string, shard string) (api.ShardingState, error) {
-	ret := _m.Called(collection, shard)
+// QueryShardingStateByCollectionAndShard provides a mock function with given fields: ctx, collection, shard
+func (_m *MockManager) QueryShardingStateByCollectionAndShard(ctx context.Context, collection string, shard string) (api.ShardingState, error) {
+	ret := _m.Called(ctx, collection, shard)
 
 	if len(ret) == 0 {
 		panic("no return value specified for QueryShardingStateByCollectionAndShard")
@@ -617,17 +866,17 @@ func (_m *MockManager) QueryShardingStateByCollectionAndShard(collection string,
 
 	var r0 api.ShardingState
 	var r1 error
-	if rf, ok := ret.Get(0).(func(string, string) (api.ShardingState, error)); ok {
-		return rf(collection, shard)
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) (api.ShardingState, error)); ok {
+		return rf(ctx, collection, shard)
 	}
-	if rf, ok := ret.Get(0).(func(string, string) api.ShardingState); ok {
-		r0 = rf(collection, shard)
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) api.ShardingState); ok {
+		r0 = rf(ctx, collection, shard)
 	} else {
 		r0 = ret.Get(0).(api.ShardingState)
 	}
 
-	if rf, ok := ret.Get(1).(func(string, string) error); ok {
-		r1 = rf(collection, shard)
+	if rf, ok := ret.Get(1).(func(context.Context, string, string) error); ok {
+		r1 = rf(ctx, collection, shard)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -641,15 +890,16 @@ type MockManager_QueryShardingStateByCollectionAndShard_Call struct {
 }
 
 // QueryShardingStateByCollectionAndShard is a helper method to define mock.On call
+//   - ctx context.Context
 //   - collection string
 //   - shard string
-func (_e *MockManager_Expecter) QueryShardingStateByCollectionAndShard(collection interface{}, shard interface{}) *MockManager_QueryShardingStateByCollectionAndShard_Call {
-	return &MockManager_QueryShardingStateByCollectionAndShard_Call{Call: _e.mock.On("QueryShardingStateByCollectionAndShard", collection, shard)}
+func (_e *MockManager_Expecter) QueryShardingStateByCollectionAndShard(ctx interface{}, collection interface{}, shard interface{}) *MockManager_QueryShardingStateByCollectionAndShard_Call {
+	return &MockManager_QueryShardingStateByCollectionAndShard_Call{Call: _e.mock.On("QueryShardingStateByCollectionAndShard", ctx, collection, shard)}
 }
 
-func (_c *MockManager_QueryShardingStateByCollectionAndShard_Call) Run(run func(collection string, shard string)) *MockManager_QueryShardingStateByCollectionAndShard_Call {
+func (_c *MockManager_QueryShardingStateByCollectionAndShard_Call) Run(run func(ctx context.Context, collection string, shard string)) *MockManager_QueryShardingStateByCollectionAndShard_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(string), args[1].(string))
+		run(args[0].(context.Context), args[1].(string), args[2].(string))
 	})
 	return _c
 }
@@ -659,118 +909,22 @@ func (_c *MockManager_QueryShardingStateByCollectionAndShard_Call) Return(_a0 ap
 	return _c
 }
 
-func (_c *MockManager_QueryShardingStateByCollectionAndShard_Call) RunAndReturn(run func(string, string) (api.ShardingState, error)) *MockManager_QueryShardingStateByCollectionAndShard_Call {
+func (_c *MockManager_QueryShardingStateByCollectionAndShard_Call) RunAndReturn(run func(context.Context, string, string) (api.ShardingState, error)) *MockManager_QueryShardingStateByCollectionAndShard_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// ReplicationDeleteReplica provides a mock function with given fields: node, collection, shard
-func (_m *MockManager) ReplicationDeleteReplica(node string, collection string, shard string) error {
-	ret := _m.Called(node, collection, shard)
-
-	if len(ret) == 0 {
-		panic("no return value specified for ReplicationDeleteReplica")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(string, string, string) error); ok {
-		r0 = rf(node, collection, shard)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
-// MockManager_ReplicationDeleteReplica_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ReplicationDeleteReplica'
-type MockManager_ReplicationDeleteReplica_Call struct {
-	*mock.Call
-}
-
-// ReplicationDeleteReplica is a helper method to define mock.On call
-//   - node string
-//   - collection string
-//   - shard string
-func (_e *MockManager_Expecter) ReplicationDeleteReplica(node interface{}, collection interface{}, shard interface{}) *MockManager_ReplicationDeleteReplica_Call {
-	return &MockManager_ReplicationDeleteReplica_Call{Call: _e.mock.On("ReplicationDeleteReplica", node, collection, shard)}
-}
-
-func (_c *MockManager_ReplicationDeleteReplica_Call) Run(run func(node string, collection string, shard string)) *MockManager_ReplicationDeleteReplica_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(string), args[1].(string), args[2].(string))
-	})
-	return _c
-}
-
-func (_c *MockManager_ReplicationDeleteReplica_Call) Return(_a0 error) *MockManager_ReplicationDeleteReplica_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockManager_ReplicationDeleteReplica_Call) RunAndReturn(run func(string, string, string) error) *MockManager_ReplicationDeleteReplica_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// ReplicationDisableReplica provides a mock function with given fields: node, collection, shard
-func (_m *MockManager) ReplicationDisableReplica(node string, collection string, shard string) error {
-	ret := _m.Called(node, collection, shard)
-
-	if len(ret) == 0 {
-		panic("no return value specified for ReplicationDisableReplica")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(string, string, string) error); ok {
-		r0 = rf(node, collection, shard)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
-// MockManager_ReplicationDisableReplica_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ReplicationDisableReplica'
-type MockManager_ReplicationDisableReplica_Call struct {
-	*mock.Call
-}
-
-// ReplicationDisableReplica is a helper method to define mock.On call
-//   - node string
-//   - collection string
-//   - shard string
-func (_e *MockManager_Expecter) ReplicationDisableReplica(node interface{}, collection interface{}, shard interface{}) *MockManager_ReplicationDisableReplica_Call {
-	return &MockManager_ReplicationDisableReplica_Call{Call: _e.mock.On("ReplicationDisableReplica", node, collection, shard)}
-}
-
-func (_c *MockManager_ReplicationDisableReplica_Call) Run(run func(node string, collection string, shard string)) *MockManager_ReplicationDisableReplica_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(string), args[1].(string), args[2].(string))
-	})
-	return _c
-}
-
-func (_c *MockManager_ReplicationDisableReplica_Call) Return(_a0 error) *MockManager_ReplicationDisableReplica_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockManager_ReplicationDisableReplica_Call) RunAndReturn(run func(string, string, string) error) *MockManager_ReplicationDisableReplica_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// ReplicationReplicateReplica provides a mock function with given fields: opId, sourceNode, sourceCollection, sourceShard, targetNode, transferType
-func (_m *MockManager) ReplicationReplicateReplica(opId strfmt.UUID, sourceNode string, sourceCollection string, sourceShard string, targetNode string, transferType string) error {
-	ret := _m.Called(opId, sourceNode, sourceCollection, sourceShard, targetNode, transferType)
+// ReplicationReplicateReplica provides a mock function with given fields: ctx, opId, sourceNode, sourceCollection, sourceShard, targetNode, transferType
+func (_m *MockManager) ReplicationReplicateReplica(ctx context.Context, opId strfmt.UUID, sourceNode string, sourceCollection string, sourceShard string, targetNode string, transferType string) error {
+	ret := _m.Called(ctx, opId, sourceNode, sourceCollection, sourceShard, targetNode, transferType)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ReplicationReplicateReplica")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(strfmt.UUID, string, string, string, string, string) error); ok {
-		r0 = rf(opId, sourceNode, sourceCollection, sourceShard, targetNode, transferType)
+	if rf, ok := ret.Get(0).(func(context.Context, strfmt.UUID, string, string, string, string, string) error); ok {
+		r0 = rf(ctx, opId, sourceNode, sourceCollection, sourceShard, targetNode, transferType)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -784,19 +938,20 @@ type MockManager_ReplicationReplicateReplica_Call struct {
 }
 
 // ReplicationReplicateReplica is a helper method to define mock.On call
+//   - ctx context.Context
 //   - opId strfmt.UUID
 //   - sourceNode string
 //   - sourceCollection string
 //   - sourceShard string
 //   - targetNode string
 //   - transferType string
-func (_e *MockManager_Expecter) ReplicationReplicateReplica(opId interface{}, sourceNode interface{}, sourceCollection interface{}, sourceShard interface{}, targetNode interface{}, transferType interface{}) *MockManager_ReplicationReplicateReplica_Call {
-	return &MockManager_ReplicationReplicateReplica_Call{Call: _e.mock.On("ReplicationReplicateReplica", opId, sourceNode, sourceCollection, sourceShard, targetNode, transferType)}
+func (_e *MockManager_Expecter) ReplicationReplicateReplica(ctx interface{}, opId interface{}, sourceNode interface{}, sourceCollection interface{}, sourceShard interface{}, targetNode interface{}, transferType interface{}) *MockManager_ReplicationReplicateReplica_Call {
+	return &MockManager_ReplicationReplicateReplica_Call{Call: _e.mock.On("ReplicationReplicateReplica", ctx, opId, sourceNode, sourceCollection, sourceShard, targetNode, transferType)}
 }
 
-func (_c *MockManager_ReplicationReplicateReplica_Call) Run(run func(opId strfmt.UUID, sourceNode string, sourceCollection string, sourceShard string, targetNode string, transferType string)) *MockManager_ReplicationReplicateReplica_Call {
+func (_c *MockManager_ReplicationReplicateReplica_Call) Run(run func(ctx context.Context, opId strfmt.UUID, sourceNode string, sourceCollection string, sourceShard string, targetNode string, transferType string)) *MockManager_ReplicationReplicateReplica_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(strfmt.UUID), args[1].(string), args[2].(string), args[3].(string), args[4].(string), args[5].(string))
+		run(args[0].(context.Context), args[1].(strfmt.UUID), args[2].(string), args[3].(string), args[4].(string), args[5].(string), args[6].(string))
 	})
 	return _c
 }
@@ -806,7 +961,7 @@ func (_c *MockManager_ReplicationReplicateReplica_Call) Return(_a0 error) *MockM
 	return _c
 }
 
-func (_c *MockManager_ReplicationReplicateReplica_Call) RunAndReturn(run func(strfmt.UUID, string, string, string, string, string) error) *MockManager_ReplicationReplicateReplica_Call {
+func (_c *MockManager_ReplicationReplicateReplica_Call) RunAndReturn(run func(context.Context, strfmt.UUID, string, string, string, string, string) error) *MockManager_ReplicationReplicateReplica_Call {
 	_c.Call.Return(run)
 	return _c
 }

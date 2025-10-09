@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -166,6 +166,54 @@ func TestTimesFloatNumcpu(t *testing.T) {
 		t.Run(fmt.Sprintf("times numcpu %d factor %f", tc.numcpu, tc.factor), func(t *testing.T) {
 			n := timesFloatNUMCPU(tc.factor, tc.numcpu)
 			assert.Equal(t, tc.expectedN, n)
+		})
+	}
+}
+
+func TestFractionOf(t *testing.T) {
+	type testCase struct {
+		original int
+		factor   int
+		expected int
+	}
+
+	testCases := []testCase{
+		{
+			original: 10,
+			factor:   -1,
+			expected: 10,
+		},
+		{
+			original: 10,
+			factor:   0,
+			expected: 10,
+		},
+		{
+			original: 10,
+			factor:   1,
+			expected: 10,
+		},
+		{
+			original: 10,
+			factor:   2,
+			expected: 5,
+		},
+		{
+			original: 10,
+			factor:   3,
+			expected: 3,
+		},
+		{
+			original: 10,
+			factor:   24,
+			expected: 1,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(fmt.Sprintf("fraction of %d factor %d", tc.original, tc.factor), func(t *testing.T) {
+			n := FractionOf(tc.original, tc.factor)
+			assert.Equal(t, tc.expected, n)
 		})
 	}
 }

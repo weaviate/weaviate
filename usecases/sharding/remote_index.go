@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -106,7 +106,7 @@ type RemoteIndexClient interface {
 
 	// PauseFileActivity pauses the shard replica background processes on the specified node.
 	// You should explicitly resume the background processes once you're done.
-	PauseFileActivity(ctx context.Context, hostName, indexName, shardName string) error
+	PauseFileActivity(ctx context.Context, hostName, indexName, shardName string, schemaVersion uint64) error
 	// ResumeFileActivity resumes the shard replica background processes on the specified node.
 	ResumeFileActivity(ctx context.Context, hostName, indexName, shardName string) error
 	// ListFiles returns a list of files that can be used to get the shard data at the time the pause was
@@ -117,8 +117,10 @@ type RemoteIndexClient interface {
 	// GetFile returns a reader for the file at the given path in the shard's root directory.
 	// The caller must close the returned io.ReadCloser if no error is returned.
 	GetFile(ctx context.Context, hostName, indexName, shardName, fileName string) (io.ReadCloser, error)
-	// SetAsyncReplicationTargetNode sets the async replication target node for a shard.
-	SetAsyncReplicationTargetNode(ctx context.Context, hostName, indexName, shardName string, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error
+	// AddAsyncReplicationTargetNode adds the async replication target node for a shard.
+	AddAsyncReplicationTargetNode(ctx context.Context, hostName, indexName, shardName string, targetNodeOverride additional.AsyncReplicationTargetNodeOverride, schemaVersion uint64) error
+	// RemoveAsyncReplicationTargetNode removes the async replication target node for a shard.
+	RemoveAsyncReplicationTargetNode(ctx context.Context, hostName, indexName, shardName string, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error
 }
 
 func (ri *RemoteIndex) PutObject(ctx context.Context, shardName string,
@@ -283,7 +285,6 @@ func (ri *RemoteIndex) SearchAllReplicas(ctx context.Context,
 	cursor *filters.Cursor,
 	groupBy *searchparams.GroupBy,
 	adds additional.Properties,
-	replEnabled bool,
 	localNode string,
 	targetCombination *dto.TargetCombination,
 	properties []string,
@@ -310,7 +311,6 @@ func (ri *RemoteIndex) SearchShard(ctx context.Context, shard string,
 	cursor *filters.Cursor,
 	groupBy *searchparams.GroupBy,
 	adds additional.Properties,
-	replEnabled bool,
 	targetCombination *dto.TargetCombination,
 	properties []string,
 ) ([]*storobj.Object, []float32, string, error) {
@@ -535,11 +535,11 @@ func (ri *RemoteIndex) queryReplicas(
 				return resp, node, nil
 			}
 		}
-		return
+		return resp, node, err
 	}
 	first := rand.Intn(len(replicas))
 	if resp, node, err = queryUntil(replicas[first:]); err != nil && first != 0 {
 		return queryUntil(replicas[:first])
 	}
-	return
+	return resp, node, err
 }

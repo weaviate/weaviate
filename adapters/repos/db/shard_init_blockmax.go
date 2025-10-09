@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -35,7 +35,7 @@ func (s *Shard) areAllSearchableBucketsBlockMax() bool {
 func structToMap(obj interface{}) (newMap map[string]interface{}) {
 	data, _ := json.Marshal(obj)  // Convert to a json string
 	json.Unmarshal(data, &newMap) // Convert to a map
-	return
+	return newMap
 }
 
 func updateToBlockMaxInvertedIndexConfig(ctx context.Context, sc *schema.Manager, className string) error {

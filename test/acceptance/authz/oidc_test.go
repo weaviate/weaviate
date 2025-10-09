@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -22,7 +22,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/oauth2-proxy/mockoidc"
+	"github.com/weaviate/mockoidc"
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/client/authz"
@@ -45,14 +45,14 @@ func TestRbacWithOIDC(t *testing.T) {
 		{
 			name: "RBAC with OIDC",
 			image: docker.New().
-				WithWeaviate().WithMockOIDC().WithRBAC().WithRbacAdmins("admin-user"),
+				WithWeaviate().WithMockOIDC().WithRBAC().WithRbacRoots("admin-user"),
 			nameCollision: false,
 			onlyOIDC:      true,
 		},
 		{
 			name: "RBAC with OIDC and API key",
 			image: docker.New().
-				WithWeaviate().WithMockOIDC().WithRBAC().WithRbacAdmins("admin-user").
+				WithWeaviate().WithMockOIDC().WithRBAC().WithRbacRoots("admin-user").
 				WithApiKey().WithUserApiKey("other", "random-key"),
 			nameCollision: false,
 		},
@@ -60,7 +60,30 @@ func TestRbacWithOIDC(t *testing.T) {
 			name: "RBAC with OIDC and API key overlapping user names",
 			image: docker.New().
 				WithWeaviate().WithMockOIDC().
-				WithRBAC().WithRbacAdmins("admin-user").
+				WithRBAC().WithRbacRoots("admin-user").
+				WithApiKey().WithUserApiKey("other", "random-key").
+				WithApiKey().WithUserApiKey("custom-user", customKey),
+			nameCollision: true,
+		},
+		{
+			name: "RBAC with OIDC with certificate",
+			image: docker.New().
+				WithWeaviate().WithMockOIDCWithCertificate().WithRBAC().WithRbacRoots("admin-user"),
+			nameCollision: false,
+			onlyOIDC:      true,
+		},
+		{
+			name: "RBAC with OIDC with certificate and API key",
+			image: docker.New().
+				WithWeaviate().WithMockOIDCWithCertificate().WithRBAC().WithRbacRoots("admin-user").
+				WithApiKey().WithUserApiKey("other", "random-key"),
+			nameCollision: false,
+		},
+		{
+			name: "RBAC with OIDC with certificate and API key overlapping user names",
+			image: docker.New().
+				WithWeaviate().WithMockOIDCWithCertificate().
+				WithRBAC().WithRbacRoots("admin-user").
 				WithApiKey().WithUserApiKey("other", "random-key").
 				WithApiKey().WithUserApiKey("custom-user", customKey),
 			nameCollision: true,
@@ -79,12 +102,10 @@ func TestRbacWithOIDC(t *testing.T) {
 			helper.SetupClient(compose.GetWeaviate().URI())
 			defer helper.ResetClient()
 
-			authEndpoint, tokenEndpoint := docker.GetEndpointsFromMockOIDC(compose.GetMockOIDC().URI())
-
 			// the oidc mock server returns first the token for the admin user and then for the custom-user. See its
 			// description for details
-			tokenAdmin, _ := docker.GetTokensFromMockOIDC(t, authEndpoint, tokenEndpoint)
-			tokenCustom, _ := docker.GetTokensFromMockOIDC(t, authEndpoint, tokenEndpoint)
+			tokenAdmin, _ := docker.GetTokensFromMockOIDCWithHelper(t, compose.GetMockOIDCHelper().URI())
+			tokenCustom, _ := docker.GetTokensFromMockOIDCWithHelper(t, compose.GetMockOIDCHelper().URI())
 
 			// prepare roles to assign later
 			all := "*"
@@ -195,10 +216,134 @@ func TestRbacWithOIDC(t *testing.T) {
 }
 
 func TestRbacWithOIDCGroups(t *testing.T) {
-	var err error
 	ctx := context.Background()
+	tests := []struct {
+		name  string
+		image *docker.Compose
+	}{
+		{
+			name:  "without certificate",
+			image: docker.New().WithWeaviate().WithMockOIDC().WithRBAC().WithRbacRoots("admin-user"),
+		},
+		{
+			name:  "with certificate",
+			image: docker.New().WithWeaviate().WithMockOIDCWithCertificate().WithRBAC().WithRbacRoots("admin-user"),
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			compose, err := test.image.Start(ctx)
+			require.NoError(t, err)
+			defer func() {
+				require.NoError(t, compose.Terminate(ctx))
+			}()
+			helper.SetupClient(compose.GetWeaviate().URI())
+			defer helper.ResetClient()
 
-	compose, err := docker.New().WithWeaviate().WithMockOIDC().WithRBAC().WithRbacAdmins("admin-user").Start(ctx)
+			// the oidc mock server returns first the token for the admin user and then for the custom-user. See its
+			// description for details
+			tokenAdmin, _ := docker.GetTokensFromMockOIDCWithHelper(t, compose.GetMockOIDCHelper().URI())
+			tokenCustom, _ := docker.GetTokensFromMockOIDCWithHelper(t, compose.GetMockOIDCHelper().URI())
+
+			// prepare roles to assign later
+			className := strings.Replace(t.Name(), "/", "", 1) + "Class"
+			readSchemaAction := authorization.ReadCollections
+			createSchemaAction := authorization.CreateCollections
+			createSchemaRoleName := "createSchema"
+			createSchemaRole := &models.Role{
+				Name: &createSchemaRoleName,
+				Permissions: []*models.Permission{
+					{Action: &readSchemaAction, Collections: &models.PermissionCollections{Collection: &className}},
+					{Action: &createSchemaAction, Collections: &models.PermissionCollections{Collection: &className}},
+				},
+			}
+			helper.DeleteRole(t, tokenAdmin, createSchemaRoleName)
+			helper.CreateRole(t, tokenAdmin, createSchemaRole)
+			defer helper.DeleteRole(t, tokenAdmin, createSchemaRoleName)
+			helper.DeleteClassWithAuthz(t, className, helper.CreateAuth(tokenAdmin))
+
+			roles := helper.GetRolesForGroup(t, tokenAdmin, "custom-group", false)
+			require.Len(t, roles, 0)
+
+			// custom-user does not have any roles/permissions
+			err = createClass(t, &models.Class{Class: className}, helper.CreateAuth(tokenCustom))
+			require.Error(t, err)
+			var forbidden *clschema.SchemaObjectsCreateForbidden
+			require.True(t, errors.As(err, &forbidden))
+
+			ownInfo := helper.GetInfoForOwnUser(t, tokenCustom)
+			require.Contains(t, ownInfo.Groups, "custom-group")
+			require.Len(t, ownInfo.Roles, 0)
+
+			// assigning role to group and now user has permission
+			helper.AssignRoleToGroup(t, tokenAdmin, createSchemaRoleName, "custom-group")
+			err = createClass(t, &models.Class{Class: className}, helper.CreateAuth(tokenCustom))
+			require.NoError(t, err)
+
+			ownInfo = helper.GetInfoForOwnUser(t, tokenCustom)
+			require.Contains(t, ownInfo.Groups, "custom-group")
+			require.Len(t, ownInfo.Roles, 1)
+			require.Equal(t, *ownInfo.Roles[0].Name, createSchemaRoleName)
+
+			rolesWithRoles := helper.GetRolesForGroup(t, tokenAdmin, "custom-group", true)
+			require.Len(t, rolesWithRoles, 1)
+			require.Equal(t, *rolesWithRoles[0].Name, createSchemaRoleName)
+			require.Len(t, rolesWithRoles[0].Permissions, 2)
+
+			// delete class to test again after revocation
+			helper.DeleteClassWithAuthz(t, className, helper.CreateAuth(tokenAdmin))
+			helper.RevokeRoleFromGroup(t, tokenAdmin, createSchemaRoleName, "custom-group")
+			err = createClass(t, &models.Class{Class: className}, helper.CreateAuth(tokenCustom))
+			require.Error(t, err)
+		})
+	}
+}
+
+func TestRbacWithOIDCRootGroups(t *testing.T) {
+	ctx := context.Background()
+	tests := []struct {
+		name  string
+		image *docker.Compose
+	}{
+		{
+			name:  "without certificate",
+			image: docker.New().WithWeaviate().WithMockOIDC().WithRBAC().WithRbacRoots("admin-user"),
+		},
+		{
+			name:  "with certificate",
+			image: docker.New().WithWeaviate().WithMockOIDCWithCertificate().WithRBAC().WithRbacRoots("admin-user"),
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			compose, err := test.image.WithRbacRootGroups("custom-group").Start(ctx)
+			require.NoError(t, err)
+			defer func() {
+				require.NoError(t, compose.Terminate(ctx))
+			}()
+			helper.SetupClient(compose.GetWeaviate().URI())
+			defer helper.ResetClient()
+
+			// the oidc mock server returns first the token for the admin user and then for the custom-user. See its
+			// description for details
+			tokenAdmin, _ := docker.GetTokensFromMockOIDCWithHelper(t, compose.GetMockOIDCHelper().URI())
+			tokenCustom, _ := docker.GetTokensFromMockOIDCWithHelper(t, compose.GetMockOIDCHelper().URI())
+
+			className := strings.Replace(t.Name(), "/", "", 1) + "Class"
+			helper.DeleteClassWithAuthz(t, className, helper.CreateAuth(tokenAdmin))
+
+			// custom user can create collection without any extra roles, because of membership in root group
+			err = createClass(t, &models.Class{Class: className}, helper.CreateAuth(tokenCustom))
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestRbacWithOIDCViewerGroups(t *testing.T) {
+	ctx := context.Background()
+	image := docker.New().WithWeaviate().WithMockOIDC().WithRBAC().WithRbacRoots("admin-user")
+
+	compose, err := image.WithRbacViewerGroups("custom-group").Start(ctx)
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, compose.Terminate(ctx))
@@ -206,79 +351,39 @@ func TestRbacWithOIDCGroups(t *testing.T) {
 	helper.SetupClient(compose.GetWeaviate().URI())
 	defer helper.ResetClient()
 
-	authEndpoint, tokenEndpoint := docker.GetEndpointsFromMockOIDC(compose.GetMockOIDC().URI())
-
 	// the oidc mock server returns first the token for the admin user and then for the custom-user. See its
 	// description for details
-	tokenAdmin, _ := docker.GetTokensFromMockOIDC(t, authEndpoint, tokenEndpoint)
-	tokenCustom, _ := docker.GetTokensFromMockOIDC(t, authEndpoint, tokenEndpoint)
+	tokenAdmin, _ := docker.GetTokensFromMockOIDCWithHelper(t, compose.GetMockOIDCHelper().URI())
+	tokenCustom, _ := docker.GetTokensFromMockOIDCWithHelper(t, compose.GetMockOIDCHelper().URI())
 
-	// prepare roles to assign later
 	className := strings.Replace(t.Name(), "/", "", 1) + "Class"
-	readSchemaAction := authorization.ReadCollections
-	createSchemaAction := authorization.CreateCollections
-	createSchemaRoleName := "createSchema"
-	createSchemaRole := &models.Role{
-		Name: &createSchemaRoleName,
-		Permissions: []*models.Permission{
-			{Action: &readSchemaAction, Collections: &models.PermissionCollections{Collection: &className}},
-			{Action: &createSchemaAction, Collections: &models.PermissionCollections{Collection: &className}},
-		},
-	}
-	helper.DeleteRole(t, tokenAdmin, createSchemaRoleName)
-	helper.CreateRole(t, tokenAdmin, createSchemaRole)
-	defer helper.DeleteRole(t, tokenAdmin, createSchemaRoleName)
 	helper.DeleteClassWithAuthz(t, className, helper.CreateAuth(tokenAdmin))
 
-	// custom-user does not have any roles/permissions
+	// only viewer rights => custom user can NOT create collection
 	err = createClass(t, &models.Class{Class: className}, helper.CreateAuth(tokenCustom))
 	require.Error(t, err)
 	var forbidden *clschema.SchemaObjectsCreateForbidden
 	require.True(t, errors.As(err, &forbidden))
 
-	// assigning role to group and now user has permission
-	helper.AssignRoleToGroup(t, tokenAdmin, createSchemaRoleName, "custom-group")
-	err = createClass(t, &models.Class{Class: className}, helper.CreateAuth(tokenCustom))
-	require.NoError(t, err)
+	require.NoError(t, createClass(t, &models.Class{Class: className}, helper.CreateAuth(tokenAdmin)))
 
-	// delete class to test again after revocation
-	helper.DeleteClassWithAuthz(t, className, helper.CreateAuth(tokenAdmin))
-	helper.RevokeRoleFromGroup(t, tokenAdmin, createSchemaRoleName, "custom-group")
-	err = createClass(t, &models.Class{Class: className}, helper.CreateAuth(tokenCustom))
+	// can list collection
+	classes := helper.GetClassAuth(t, className, tokenCustom)
+	require.Equal(t, classes.Class, className)
+
+	// cannot modify assignment
+	_, err = helper.Client(t).Authz.RevokeRoleFromGroup(
+		authz.NewRevokeRoleFromGroupParams().WithID("custom-group").WithBody(authz.RevokeRoleFromGroupBody{Roles: []string{"read-only"}}),
+		helper.CreateAuth(tokenAdmin),
+	)
 	require.Error(t, err)
-}
-
-func TestRbacWithOIDCRootGroups(t *testing.T) {
-	var err error
-	ctx := context.Background()
-
-	compose, err := docker.New().WithWeaviate().WithMockOIDC().WithRBAC().WithRbacAdmins("admin-user").WithRbacRootGroups("custom-group").Start(ctx)
-	require.NoError(t, err)
-	defer func() {
-		require.NoError(t, compose.Terminate(ctx))
-	}()
-	helper.SetupClient(compose.GetWeaviate().URI())
-	defer helper.ResetClient()
-
-	authEndpoint, tokenEndpoint := docker.GetEndpointsFromMockOIDC(compose.GetMockOIDC().URI())
-
-	// the oidc mock server returns first the token for the admin user and then for the custom-user. See its
-	// description for details
-	tokenAdmin, _ := docker.GetTokensFromMockOIDC(t, authEndpoint, tokenEndpoint)
-	tokenCustom, _ := docker.GetTokensFromMockOIDC(t, authEndpoint, tokenEndpoint)
-
-	className := strings.Replace(t.Name(), "/", "", 1) + "Class"
-	helper.DeleteClassWithAuthz(t, className, helper.CreateAuth(tokenAdmin))
-
-	// custom user can create collection without any extra roles, because of membership in root group
-	err = createClass(t, &models.Class{Class: className}, helper.CreateAuth(tokenCustom))
-	require.NoError(t, err)
 }
 
 const AuthCode = "auth"
 
 // This test starts an oidc mock server with the same settings as the containerized one. Helpful if you want to know
 // why a OIDC request fails
+// use docker.GetTokensFromMockOIDCWithHelperManualTest(t, "127.0.0.1:48001") to get the tokens
 func TestRbacWithOIDCManual(t *testing.T) {
 	t.Skip("This is for testing/debugging only")
 	rsaKey, _ := rsa.GenerateKey(rand.Reader, 2048)
@@ -289,13 +394,16 @@ func TestRbacWithOIDCManual(t *testing.T) {
 	m.ClientSecret = "Secret"
 	m.ClientID = "mock-oidc-test"
 
-	admin := &mockoidc.MockUser{Subject: "admin-user"}
-	m.QueueUser(admin)
-	m.QueueCode(AuthCode)
+	// allow many runs without restart
+	for i := 0; i < 1000; i++ {
+		admin := &mockoidc.MockUser{Subject: "admin-user"}
+		m.QueueUser(admin)
+		m.QueueCode(AuthCode)
 
-	custom := &mockoidc.MockUser{Subject: "custom-user", Groups: []string{"custom-group"}}
-	m.QueueUser(custom)
-	m.QueueCode(AuthCode)
+		custom := &mockoidc.MockUser{Subject: "custom-user", Groups: []string{"custom-group"}}
+		m.QueueUser(custom)
+		m.QueueCode(AuthCode)
+	}
 
 	// this should just run until we are done with testing
 	for {
@@ -305,86 +413,68 @@ func TestRbacWithOIDCManual(t *testing.T) {
 	}
 }
 
-func TestRbacWithOIDCAssignRevokeGroups(t *testing.T) {
-	var err error
-	ctx := context.Background()
-
-	compose, err := docker.New().WithWeaviate().WithMockOIDC().WithRBAC().WithRbacAdmins("admin-user").Start(ctx)
-	require.NoError(t, err)
-	defer func() {
-		require.NoError(t, compose.Terminate(ctx))
-	}()
-	helper.SetupClient(compose.GetWeaviate().URI())
-	defer helper.ResetClient()
-
-	authEndpoint, tokenEndpoint := docker.GetEndpointsFromMockOIDC(compose.GetMockOIDC().URI())
-
-	// the oidc mock server returns first the token for the admin user and then for the custom-user. See its
-	// description for details
-	tokenAdmin, _ := docker.GetTokensFromMockOIDC(t, authEndpoint, tokenEndpoint)
-	tokenCustom, _ := docker.GetTokensFromMockOIDC(t, authEndpoint, tokenEndpoint)
-
-	role := models.Role{Name: String("test-role"), Permissions: []*models.Permission{helper.NewCollectionsPermission().WithAction(authorization.ReadCollections).Permission()}}
-	helper.CreateRole(t, tokenAdmin, &role)
-
-	assign := func(key string) error {
-		_, err = helper.Client(t).Authz.AssignRoleToGroup(authz.NewAssignRoleToGroupParams().WithBody(authz.AssignRoleToGroupBody{Roles: []string{*role.Name}}).WithID("custom-group"), helper.CreateAuth(key))
-		return err
-	}
-	revoke := func(key string) error {
-		_, err = helper.Client(t).Authz.RevokeRoleFromGroup(authz.NewRevokeRoleFromGroupParams().WithBody(authz.RevokeRoleFromGroupBody{Roles: []string{*role.Name}}).WithID("custom-group"), helper.CreateAuth(key))
-		return err
-	}
-
-	// non-root users cannot assign roles to groups
-	err = assign(tokenCustom)
-	require.Error(t, err)
-	var forbiddenAssign *authz.AssignRoleToGroupForbidden
-	require.True(t, errors.As(err, &forbiddenAssign))
-
-	// root users can assign roles to groups
-	err = assign(tokenAdmin)
-	if errors.As(err, &forbiddenAssign) {
-		t.Log(forbiddenAssign.Payload.Error[0].Message)
-	}
-	require.NoError(t, err)
-
-	// non-root users cannot revoke roles from groups
-	err = revoke(tokenCustom)
-	require.Error(t, err)
-	var forbiddenRevoke *authz.RevokeRoleFromGroupForbidden
-	require.True(t, errors.As(err, &forbiddenRevoke))
-
-	// root users can revoke roles from groups
-	err = revoke(tokenAdmin)
-	require.NoError(t, err)
-
-	// check that revoking the final group is a no-op
-	err = revoke(tokenAdmin)
-	require.NoError(t, err)
-}
-
 func TestOidcRootAndDynamicUsers(t *testing.T) {
 	ctx := context.Background()
+	tests := []struct {
+		name  string
+		image *docker.Compose
+	}{
+		{
+			name:  "without certificate",
+			image: docker.New().WithWeaviate().WithMockOIDC().WithDbUsers(),
+		},
+		{
+			name:  "with certificate",
+			image: docker.New().WithWeaviate().WithMockOIDCWithCertificate().WithDbUsers(),
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			compose, err := test.image.Start(ctx)
+			require.NoError(t, err)
+			defer func() {
+				require.NoError(t, compose.Terminate(ctx))
+			}()
 
-	compose, err := docker.New().WithWeaviate().WithMockOIDC().WithDbUsers().Start(ctx)
-	require.NoError(t, err)
-	defer func() {
+			helper.SetupClient(compose.GetWeaviate().URI())
+			defer helper.ResetClient()
+
+			// the oidc mock server returns first the token for the admin user and then for the custom-user. See its
+			// description for details
+			tokenAdmin, _ := docker.GetTokensFromMockOIDCWithHelper(t, compose.GetMockOIDCHelper().URI())
+
+			helper.DeleteUser(t, "dynamic1", tokenAdmin)
+			apiKey := helper.CreateUser(t, "dynamic1", tokenAdmin)
+
+			info := helper.GetInfoForOwnUser(t, apiKey)
+			require.Equal(t, *info.Username, "dynamic1")
+		})
+	}
+}
+
+func TestOidcWrongCertificate(t *testing.T) {
+	ctx := context.Background()
+	t.Run("wrong certificates", func(t *testing.T) {
+		// MockOIDC server has been created with it's own certifcates but we pass here some other certifcate, this situation should
+		// lead to Weaviate not being able to connect OIDC server thus not being able to start
+		wrongCertificate, _, err := docker.GenerateCertificateAndKey(docker.MockOIDC)
+		require.NoError(t, err)
+		compose, err := docker.New().
+			WithWeaviate().WithDbUsers().
+			WithMockOIDCWithCertificate().
+			// pass some other certificate which is not used by MockOIDC
+			WithWeaviateEnv("AUTHENTICATION_OIDC_CERTIFICATE", wrongCertificate).
+			Start(ctx)
+		// Weaviate should not start in this configuration
+		require.Error(t, err)
 		require.NoError(t, compose.Terminate(ctx))
-	}()
-
-	helper.SetupClient(compose.GetWeaviate().URI())
-	defer helper.ResetClient()
-
-	authEndpoint, tokenEndpoint := docker.GetEndpointsFromMockOIDC(compose.GetMockOIDC().URI())
-
-	// the oidc mock server returns first the token for the admin user and then for the custom-user. See its
-	// description for details
-	tokenAdmin, _ := docker.GetTokensFromMockOIDC(t, authEndpoint, tokenEndpoint)
-
-	helper.DeleteUser(t, "dynamic1", tokenAdmin)
-	apiKey := helper.CreateUser(t, "dynamic1", tokenAdmin)
-
-	info := helper.GetInfoForOwnUser(t, apiKey)
-	require.Equal(t, *info.Username, "dynamic1")
+	})
+	t.Run("proper certificates", func(t *testing.T) {
+		compose, err := docker.New().
+			WithWeaviate().WithDbUsers().
+			WithMockOIDCWithCertificate().
+			Start(ctx)
+		require.NoError(t, err)
+		require.NoError(t, compose.Terminate(ctx))
+	})
 }

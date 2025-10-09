@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -32,7 +32,36 @@ func nullLogger() logrus.FieldLogger {
 	return l
 }
 
-func TestGetAnswer(t *testing.T) {
+func TestAWS_ModelChecks(t *testing.T) {
+	c := &awsClient{}
+	// Amazon
+	assert.True(t, c.isAmazonNovaModel("amazon.nova-micro-v1:0"))
+	assert.True(t, c.isAmazonNovaModel("us.amazon.nova-micro-v1:0"))
+	assert.False(t, c.isAmazonTitanModel("us.amazon.nova-micro-v1:0"))
+	assert.False(t, c.isAmazonTitanModel("amazon.nova-micro-v1:0"))
+	assert.True(t, c.isAmazonTitanModel("us.amazon.titan-text-lite-v1"))
+	assert.True(t, c.isAmazonTitanModel("amazon.titan-text-lite-v1"))
+	// Anthropic
+	assert.True(t, c.isAnthropicModel("anthropic.claude-3-7-sonnet-20250219-v1:0"))
+	assert.True(t, c.isAnthropicModel("us.anthropic.claude-3-7-sonnet-20250219-v1:0"))
+	assert.True(t, c.isAnthropicClaude3Model("anthropic.claude-3-7-sonnet-20250219-v1:0"))
+	assert.True(t, c.isAnthropicClaude3Model("us.anthropic.claude-3-7-sonnet-20250219-v1:0"))
+	assert.False(t, c.isAmazonTitanModel("anthropic.claude-3-7-sonnet-20250219-v1:0"))
+	assert.False(t, c.isAmazonTitanModel("anthropic.claude-3-7-sonnet-20250219-v1:0"))
+	// Cohere
+	assert.True(t, c.isCohereCommandRModel("cohere.command-r-v1:0"))
+	assert.True(t, c.isCohereCommandRModel("us.cohere.command-r-v1:0"))
+	assert.True(t, c.isCohereModel("cohere.command-r-v1:0"))
+	assert.True(t, c.isCohereModel("us.cohere.command-r-v1:0"))
+	// Meta
+	assert.True(t, c.isMetaModel("meta.llama3-70b-instruct-v1:0"))
+	assert.True(t, c.isMetaModel("us.meta.llama3-70b-instruct-v1:0"))
+	// Mistral
+	assert.True(t, c.isMistralAIModel("mistral.mistral-large-2402-v1:0"))
+	assert.True(t, c.isMistralAIModel("us.mistral.mistral-large-2402-v1:0"))
+}
+
+func TestAWS_GetAnswer(t *testing.T) {
 	t.Run("when the server has a successful answer ", func(t *testing.T) {
 		t.Skip("Skipping this test for now")
 		handler := &testAnswerHandler{

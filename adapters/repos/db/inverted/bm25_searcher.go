@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -19,6 +19,7 @@ import (
 	"runtime/debug"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/concurrency"
@@ -27,6 +28,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/sroar"
+	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
@@ -38,6 +40,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/entities/tokenizer"
 )
 
 type BM25Searcher struct {
@@ -100,13 +103,27 @@ func (b *BM25Searcher) BM25F(ctx context.Context, filterDocIds helpers.AllowList
 	var err error
 
 	// TODO: amourao - move this to the global config
-	if os.Getenv("USE_BLOCKMAX_WAND") == "false" {
+	useWand := os.Getenv("USE_BLOCKMAX_WAND") == "false"
+	method := "blockmaxwand"
+	start := time.Now()
+	if useWand {
 		objs, scores, err = b.wand(ctx, filterDocIds, class, keywordRanking, limit, additional)
 	} else {
-		objs, scores, err = b.wandBlock(ctx, filterDocIds, class, keywordRanking, limit, additional)
+		objs, scores, useWand, err = b.wandBlock(ctx, filterDocIds, class, keywordRanking, limit, additional)
 	}
+
+	if useWand {
+		method = "wand"
+	}
+	end := time.Since(start)
+	if filterDocIds != nil {
+		helpers.AnnotateSlowQueryLog(ctx, "kwd_filter_size", filterDocIds.Len())
+	}
+	helpers.AnnotateSlowQueryLog(ctx, "kwd_method", method)
+	helpers.AnnotateSlowQueryLog(ctx, "kwd_time", end)
+
 	if err != nil {
-		return nil, nil, errors.Wrap(err, "wand")
+		return nil, nil, errors.Wrap(err, method)
 	}
 
 	return objs, scores, nil
@@ -116,8 +133,12 @@ func (b *BM25Searcher) GetPropertyLengthTracker() *JsonShardMetaData {
 	return b.propLenTracker.(*JsonShardMetaData)
 }
 
-func (b *BM25Searcher) generateQueryTermsAndStats(class *models.Class, params searchparams.KeywordRanking) (bool, float64, map[string][]string, map[string][]string, map[string][]int, map[string]float32, float64, error) {
-	N := float64(b.store.Bucket(helpers.ObjectsBucketLSM).Count())
+func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *models.Class, params searchparams.KeywordRanking) (bool, float64, map[string][]string, map[string][]string, map[string][]int, map[string]float32, float64, error) {
+	count, err := b.store.Bucket(helpers.ObjectsBucketLSM).Count(ctx)
+	if err != nil {
+		return false, 0, nil, nil, nil, nil, 0, fmt.Errorf("count objects: %w", err)
+	}
+	N := float64(count)
 
 	// This flag checks whether all buckets are of the inverted strategy,
 	// and thus, compatible with BlockMaxWAND, or if there are other strategies present,
@@ -142,8 +163,8 @@ func (b *BM25Searcher) generateQueryTermsAndStats(class *models.Class, params se
 	propNamesByTokenization := map[string][]string{}
 	propertyBoosts := make(map[string]float32, len(params.Properties))
 
-	for _, tokenization := range helpers.Tokenizations {
-		queryTerms, dupBoosts := helpers.TokenizeAndCountDuplicates(tokenization, params.Query)
+	for _, tokenization := range tokenizer.Tokenizations {
+		queryTerms, dupBoosts := tokenizer.TokenizeAndCountDuplicates(tokenization, params.Query)
 		queryTermsByTokenization[tokenization] = queryTerms
 		duplicateBoostsByTokenization[tokenization] = dupBoosts
 
@@ -225,15 +246,18 @@ func (b *BM25Searcher) generateQueryTermsAndStats(class *models.Class, params se
 func (b *BM25Searcher) wand(
 	ctx context.Context, filterDocIds helpers.AllowList, class *models.Class, params searchparams.KeywordRanking, limit int, additional additional.Properties,
 ) ([]*storobj.Object, []float32, error) {
-	_, N, propNamesByTokenization, queryTermsByTokenization, duplicateBoostsByTokenization, propertyBoosts, averagePropLength, err := b.generateQueryTermsAndStats(class, params)
+	start := time.Now()
+
+	_, N, propNamesByTokenization, queryTermsByTokenization, duplicateBoostsByTokenization, propertyBoosts, averagePropLength, err := b.generateQueryTermsAndStats(ctx, class, params)
 	if err != nil {
 		return nil, nil, err
 	}
 
 	allRequests := make([]termListRequest, 0, 1000)
 	allQueryTerms := make([]string, 0, 1000)
+	minimumOrTokensMatch := math.MaxInt64
 
-	for _, tokenization := range helpers.Tokenizations {
+	for _, tokenization := range tokenizer.Tokenizations {
 		propNames := propNamesByTokenization[tokenization]
 		if len(propNames) > 0 {
 			queryTerms, duplicateBoosts := queryTermsByTokenization[tokenization], duplicateBoostsByTokenization[tokenization]
@@ -247,9 +271,20 @@ func (b *BM25Searcher) wand(
 				})
 				allQueryTerms = append(allQueryTerms, queryTerm)
 			}
+			minimumOrTokensMatchByTokenization := params.MinimumOrTokensMatch
+			if params.SearchOperator == common_filters.SearchOperatorAnd {
+				minimumOrTokensMatchByTokenization = len(queryTerms)
+			}
+			if minimumOrTokensMatchByTokenization < minimumOrTokensMatch {
+				minimumOrTokensMatch = minimumOrTokensMatchByTokenization
+			}
+			helpers.AnnotateSlowQueryLog(ctx, "kwd_2_terms_"+tokenization, len(queryTerms))
 		}
 	}
 
+	tokenizationTime := time.Since(start)
+	helpers.AnnotateSlowQueryLog(ctx, "kwd_1_tok_time", tokenizationTime)
+	start = time.Now()
 	results := make([]*terms.Term, len(allRequests))
 
 	eg := enterrors.NewErrorGroupWrapper(b.logger)
@@ -278,16 +313,21 @@ func (b *BM25Searcher) wand(
 			termResult, termErr := b.createTerm(N, filterDocIds, term, termId, propNames, propertyBoosts, duplicateBoost, ctx)
 			if termErr != nil {
 				err = termErr
-				return
+				return err
 			}
 			results[termId] = termResult
-			return
+			return err
 		})
 	}
 
 	if err := eg.Wait(); err != nil {
 		return nil, nil, err
 	}
+
+	if ctx.Err() != nil {
+		return nil, nil, fmt.Errorf("after createTerm: %w", ctx.Err())
+	}
+
 	// all results. Sum up the length of the results from all terms to get an upper bound of how many results there are
 	if limit == 0 {
 		for _, res := range results {
@@ -309,9 +349,25 @@ func (b *BM25Searcher) wand(
 		Count: len(allRequests),
 	}
 
-	topKHeap := lsmkv.DoWand(limit, combinedTerms, averagePropLength, params.AdditionalExplanations)
+	termSearchTime := time.Since(start)
+	helpers.AnnotateSlowQueryLog(ctx, "kwd_3_term_time", termSearchTime)
+	start = time.Now()
+	topKHeap := lsmkv.DoWand(ctx, limit, combinedTerms, averagePropLength, params.AdditionalExplanations, minimumOrTokensMatch)
 
-	return b.getTopKObjects(topKHeap, params.AdditionalExplanations, allQueryTerms, additional)
+	wandTime := time.Since(start)
+	helpers.AnnotateSlowQueryLog(ctx, "kwd_4_wand_time", wandTime)
+
+	if ctx.Err() != nil {
+		return nil, nil, fmt.Errorf("after DoWand: %w", ctx.Err())
+	}
+
+	start = time.Now()
+	objects, scores, err := b.getTopKObjects(topKHeap, params.AdditionalExplanations, allQueryTerms, additional)
+
+	fetchTime := time.Since(start)
+	helpers.AnnotateSlowQueryLog(ctx, "kwd_5_objects_time", fetchTime)
+	helpers.AnnotateSlowQueryLog(ctx, "kwd_6_res_count", len(objects))
+	return objects, scores, err
 }
 
 func (b *BM25Searcher) removeStopwordsFromQueryTerms(queryTerms []string,
@@ -467,6 +523,10 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 	}
 	if err := eg.Wait(); err != nil {
 		return termResult, err
+	}
+
+	if ctx.Err() != nil {
+		return termResult, fmt.Errorf("after DocPointerWithScoreList: %w", ctx.Err())
 	}
 
 	if filterDocIds != nil {

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -20,23 +20,25 @@ import (
 	"sync"
 	"time"
 
+	"github.com/weaviate/weaviate/cluster/fsm"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	migratefs "github.com/weaviate/weaviate/usecases/schema/migrate/fs"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 type restorer struct {
-	node     string // node name
-	logger   logrus.FieldLogger
-	sourcer  Sourcer
-	backends BackupBackendProvider
+	node           string // node name
+	logger         logrus.FieldLogger
+	sourcer        Sourcer
+	rbacSourcer    fsm.Snapshotter
+	dynUserSourcer fsm.Snapshotter
+	backends       BackupBackendProvider
 	shardSyncChan
 
 	// TODO: keeping status in memory after restore has been done
@@ -47,15 +49,17 @@ type restorer struct {
 }
 
 func newRestorer(node string, logger logrus.FieldLogger,
-	sourcer Sourcer,
+	sourcer Sourcer, rbacSourcer fsm.Snapshotter, dynUserSourcer fsm.Snapshotter,
 	backends BackupBackendProvider,
 ) *restorer {
 	return &restorer{
-		node:          node,
-		logger:        logger,
-		sourcer:       sourcer,
-		backends:      backends,
-		shardSyncChan: shardSyncChan{coordChan: make(chan interface{}, 5)},
+		node:           node,
+		logger:         logger,
+		sourcer:        sourcer,
+		rbacSourcer:    rbacSourcer,
+		dynUserSourcer: dynUserSourcer,
+		backends:       backends,
+		shardSyncChan:  shardSyncChan{coordChan: make(chan interface{}, 5)},
 	}
 }
 
@@ -112,7 +116,7 @@ func (r *restorer) restore(
 		overrideBucket := req.Bucket
 		overridePath := req.Path
 
-		err = r.restoreAll(context.Background(), desc, req.CPUPercentage, store, overrideBucket, overridePath)
+		err = r.restoreAll(context.Background(), desc, req.CPUPercentage, store, overrideBucket, overridePath, req.RbacRestoreOption, req.UserRestoreOption)
 		logFields := logrus.Fields{"action": "restore", "backup_id": req.ID}
 		if err != nil {
 			r.logger.WithFields(logFields).Error(err)
@@ -129,10 +133,23 @@ func (r *restorer) restore(
 // The final backup restoration is orchestrated by the raft store.
 func (r *restorer) restoreAll(ctx context.Context,
 	desc *backup.BackupDescriptor, cpuPercentage int,
-	store nodeStore, overrideBucket, overridePath string,
-) (err error) {
+	store nodeStore, overrideBucket, overridePath, rbacRestoreOption, usersRestoreOption string,
+) error {
 	compressed := desc.Version > version1
 	r.lastOp.set(backup.Transferring)
+
+	if r.dynUserSourcer != nil && len(desc.UserBackups) > 0 && usersRestoreOption != models.RestoreConfigUsersOptionsNoRestore {
+		if err := r.dynUserSourcer.Restore(desc.UserBackups); err != nil {
+			return fmt.Errorf("restore rbac: %w", err)
+		}
+	}
+
+	if r.rbacSourcer != nil && len(desc.RbacBackups) > 0 && rbacRestoreOption != models.RestoreConfigRolesOptionsNoRestore {
+		if err := r.rbacSourcer.Restore(desc.RbacBackups); err != nil {
+			return fmt.Errorf("restore rbac: %w", err)
+		}
+	}
+
 	for _, cdesc := range desc.Classes {
 		if err := r.restoreOne(ctx, &cdesc, desc.ServerVersion, compressed, cpuPercentage, store, overrideBucket, overridePath); err != nil {
 			return fmt.Errorf("restore class %s: %w", cdesc.Name, err)
@@ -244,15 +261,21 @@ type oneClassSchema struct {
 	ss  *sharding.State
 }
 
-func (s oneClassSchema) CopyShardingState(class string) *sharding.State {
-	return s.ss
+func (s oneClassSchema) Read(_ string, reader func(*models.Class, *sharding.State) error) error {
+	return reader(s.cls, s.ss)
 }
 
-func (s oneClassSchema) GetSchemaSkipAuth() schema.Schema {
-	return schema.Schema{
-		Objects: &models.Schema{
-			Classes: []*models.Class{s.cls},
-		},
+func (s oneClassSchema) Shards(_ string) ([]string, error) {
+	return s.ss.AllPhysicalShards(), nil
+}
+
+func (s oneClassSchema) LocalShards() ([]string, error) {
+	return s.ss.AllLocalPhysicalShards(), nil
+}
+
+func (s oneClassSchema) ReadOnlySchema() models.Schema {
+	return models.Schema{
+		Classes: []*models.Class{s.cls},
 	}
 }
 

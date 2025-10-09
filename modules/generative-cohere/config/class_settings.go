@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -27,16 +27,10 @@ const (
 	stopSequencesProperty = "stopSequences"
 )
 
-var availableCohereModels = []string{
-	"command-r-plus", "command-r", "command-xlarge-beta",
-	"command-xlarge", "command-medium", "command-xlarge-nightly", "command-medium-nightly", "xlarge", "medium",
-	"command", "command-light", "command-nightly", "command-light-nightly", "base", "base-light",
-}
-
 // note it might not like this -- might want int values for e.g. MaxTokens
 var (
 	DefaultBaseURL                     = "https://api.cohere.ai"
-	DefaultCohereModel                 = "command-r"
+	DefaultCohereModel                 = "command-a-03-2025"
 	DefaultCohereTemperature   float64 = 0
 	DefaultCohereMaxTokens             = 2048
 	DefaultCohereK                     = 0
@@ -57,11 +51,6 @@ func (ic *classSettings) Validate(class *models.Class) error {
 		// we would receive a nil-config on cross-class requests, such as Explore{}
 		return errors.New("empty config")
 	}
-	model := ic.getStringProperty(modelProperty, DefaultCohereModel)
-	if model == nil || !ic.validateModel(*model) {
-		return errors.Errorf("wrong Cohere model name, available model names are: %v", availableCohereModels)
-	}
-
 	return nil
 }
 
@@ -100,10 +89,6 @@ func (ic *classSettings) getListOfStringsProperty(name string, defaultValue []st
 
 func (ic *classSettings) GetMaxTokensForModel(model string) int {
 	return DefaultCohereMaxTokens
-}
-
-func (ic *classSettings) validateModel(model string) bool {
-	return basesettings.ValidateSetting(model, availableCohereModels)
 }
 
 func (ic *classSettings) BaseURL() string {

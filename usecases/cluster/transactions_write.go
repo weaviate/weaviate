@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -154,7 +154,7 @@ func (c *TxManager) HaveDanglingTxs(ctx context.Context,
 		found = true
 	})
 
-	return
+	return found
 }
 
 // TryResumeDanglingTxs loops over the existing transactions and applies them.
@@ -204,7 +204,7 @@ func (c *TxManager) TryResumeDanglingTxs(ctx context.Context,
 		}).Infof("successfully resumed dangling transaction %q of type %q", tx.ID, tx.Type)
 	})
 
-	return
+	return applied, err
 }
 
 func (c *TxManager) resetTxExpiry(ttl time.Duration, id string) {

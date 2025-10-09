@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -19,13 +19,17 @@ import (
 )
 
 type Config struct {
-	ID               string
-	RootPath         string
-	TargetVector     string
-	MinMMapSize      int64
-	Logger           logrus.FieldLogger
-	DistanceProvider distancer.Provider
-	AllocChecker     memwatch.AllocChecker
+	ID                           string
+	RootPath                     string
+	TargetVector                 string
+	MinMMapSize                  int64
+	MaxWalReuseSize              int64
+	Logger                       logrus.FieldLogger
+	DistanceProvider             distancer.Provider
+	AllocChecker                 memwatch.AllocChecker
+	LazyLoadSegments             bool
+	WriteSegmentInfoIntoFileName bool
+	WriteMetadataFilesEnabled    bool
 }
 
 func (c Config) Validate() error {

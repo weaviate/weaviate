@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -66,6 +66,12 @@ func (o *DeleteAllReplicationsReader) ReadResponse(response runtime.ClientRespon
 		return nil, result
 	case 500:
 		result := NewDeleteAllReplicationsInternalServerError()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
+	case 501:
+		result := NewDeleteAllReplicationsNotImplemented()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
@@ -448,6 +454,74 @@ func (o *DeleteAllReplicationsInternalServerError) GetPayload() *models.ErrorRes
 }
 
 func (o *DeleteAllReplicationsInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
+// NewDeleteAllReplicationsNotImplemented creates a DeleteAllReplicationsNotImplemented with default headers values
+func NewDeleteAllReplicationsNotImplemented() *DeleteAllReplicationsNotImplemented {
+	return &DeleteAllReplicationsNotImplemented{}
+}
+
+/*
+DeleteAllReplicationsNotImplemented describes a response with status code 501, with default header values.
+
+Replica movement operations are disabled.
+*/
+type DeleteAllReplicationsNotImplemented struct {
+	Payload *models.ErrorResponse
+}
+
+// IsSuccess returns true when this delete all replications not implemented response has a 2xx status code
+func (o *DeleteAllReplicationsNotImplemented) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this delete all replications not implemented response has a 3xx status code
+func (o *DeleteAllReplicationsNotImplemented) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this delete all replications not implemented response has a 4xx status code
+func (o *DeleteAllReplicationsNotImplemented) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this delete all replications not implemented response has a 5xx status code
+func (o *DeleteAllReplicationsNotImplemented) IsServerError() bool {
+	return true
+}
+
+// IsCode returns true when this delete all replications not implemented response a status code equal to that given
+func (o *DeleteAllReplicationsNotImplemented) IsCode(code int) bool {
+	return code == 501
+}
+
+// Code gets the status code for the delete all replications not implemented response
+func (o *DeleteAllReplicationsNotImplemented) Code() int {
+	return 501
+}
+
+func (o *DeleteAllReplicationsNotImplemented) Error() string {
+	return fmt.Sprintf("[DELETE /replication/replicate][%d] deleteAllReplicationsNotImplemented  %+v", 501, o.Payload)
+}
+
+func (o *DeleteAllReplicationsNotImplemented) String() string {
+	return fmt.Sprintf("[DELETE /replication/replicate][%d] deleteAllReplicationsNotImplemented  %+v", 501, o.Payload)
+}
+
+func (o *DeleteAllReplicationsNotImplemented) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *DeleteAllReplicationsNotImplemented) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
 

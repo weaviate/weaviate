@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -34,6 +34,8 @@ const (
 	OperatorIsNull
 	ContainsAny
 	ContainsAll
+	ContainsNone
+	OperatorNot
 )
 
 func (o Operator) OnValue() bool {
@@ -48,8 +50,13 @@ func (o Operator) OnValue() bool {
 		OperatorLike,
 		OperatorIsNull,
 		ContainsAny,
-		ContainsAll:
+		ContainsAll,
+		ContainsNone:
 		return true
+
+	case OperatorOr, OperatorAnd, OperatorNot:
+		return false
+
 	default:
 		return false
 	}
@@ -83,8 +90,21 @@ func (o Operator) Name() string {
 		return "ContainsAny"
 	case ContainsAll:
 		return "ContainsAll"
+	case ContainsNone:
+		return "ContainsNone"
+	case OperatorNot:
+		return "Not"
 	default:
 		panic("Unknown operator")
+	}
+}
+
+func (o Operator) IsContains() bool {
+	switch o {
+	case ContainsAny, ContainsAll, ContainsNone:
+		return true
+	default:
+		return false
 	}
 }
 

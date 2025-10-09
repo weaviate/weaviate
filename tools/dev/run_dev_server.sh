@@ -20,7 +20,9 @@ export TRACK_VECTOR_DIMENSIONS=true
 export CLUSTER_HOSTNAME=${CLUSTER_HOSTNAME:-"weaviate-0"}
 export GPT4ALL_INFERENCE_API="http://localhost:8010"
 export DISABLE_TELEMETRY=true # disable telemetry for local development
-
+export PERSISTENCE_HNSW_DISABLE_SNAPSHOTS=${PERSISTENCE_HNSW_DISABLE_SNAPSHOTS:-"false"}
+export PERSISTENCE_HNSW_SNAPSHOT_INTERVAL_SECONDS=${PERSISTENCE_HNSW_SNAPSHOT_INTERVAL_SECONDS:-"300"}
+export EXPERIMENTAL_SPFRESH_ENABLED=true
 # inject build info into binaries.
 GIT_REVISION=$(git rev-parse --short HEAD)
 GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
@@ -444,6 +446,9 @@ case $CONFIG in
       AUTHORIZATION_ADMINLIST_USERS=etienne@semi.technology \
       AUTHORIZATION_ADMINLIST_READONLY_USERS=etienne+read-only@semi.technology \
       DEFAULT_VECTORIZER_MODULE=none \
+      RUNTIME_OVERRIDES_ENABLED=true \
+      RUNTIME_OVERRIDES_PATH="${PWD}/tools/dev/config.runtime-overrides.yaml" \
+      RUNTIME_OVERRIDES_LOAD_INTERVAL=30s \
       go_run ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \
@@ -601,6 +606,9 @@ case $CONFIG in
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
       CLUSTER_IN_LOCALHOST=true \
       DEFAULT_VECTORIZER_MODULE=none \
+      RUNTIME_OVERRIDES_ENABLED=true \
+      RUNTIME_OVERRIDES_PATH="${PWD}/tools/dev/config.runtime-overrides.yaml" \
+      RUNTIME_OVERRIDES_LOAD_INTERVAL=5s \
       go_run ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \
@@ -710,11 +718,10 @@ case $CONFIG in
         --write-timeout=600s
     ;;
 
-  local-offload-s3)
+  first-s3)
       CONTEXTIONARY_URL=localhost:9999 \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
       PERSISTENCE_DATA_PATH="./${PERSISTENCE_DATA_PATH}-weaviate-0" \
-      BACKUP_FILESYSTEM_PATH="${PWD}/backups-weaviate-0" \
       DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
       ENABLE_MODULES="text2vec-contextionary,backup-s3,offload-s3" \
       BACKUP_S3_BUCKET="weaviate-backups" \
@@ -737,12 +744,11 @@ case $CONFIG in
         --write-timeout=600s
     ;;
 
-  second-offload-s3)
+  second-s3)
       GRPC_PORT=50052 \
       CONTEXTIONARY_URL=localhost:9999 \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
       PERSISTENCE_DATA_PATH="./${PERSISTENCE_DATA_PATH}-weaviate-1" \
-      BACKUP_FILESYSTEM_PATH="${PWD}/backups-weaviate-1" \
       BACKUP_S3_BUCKET="weaviate-backups" \
       BACKUP_S3_USE_SSL="false" \
       BACKUP_S3_ENDPOINT="localhost:9000" \
@@ -771,12 +777,11 @@ case $CONFIG in
         --write-timeout=600s
     ;;
 
-  third-offload-s3)
+  third-s3)
         GRPC_PORT=50053 \
         CONTEXTIONARY_URL=localhost:9999 \
         AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
         PERSISTENCE_DATA_PATH="./${PERSISTENCE_DATA_PATH}-weaviate-2" \
-        BACKUP_FILESYSTEM_PATH="${PWD}/backups-weaviate-2" \
         BACKUP_S3_BUCKET="weaviate-backups" \
         BACKUP_S3_USE_SSL="false" \
         BACKUP_S3_ENDPOINT="localhost:9000" \
@@ -889,6 +894,87 @@ case $CONFIG in
         --read-timeout=600s \
         --write-timeout=600s
       ;;
+create-gcs-bucket)
+      echo "make sure that you ran docker-compose up backup-gcs"
+      curl -X POST "http://localhost:9090/storage/v1/b" \
+      -H "Content-Type: application/json" \
+      -d '{"name": "weaviate-usage"}'      
+      curl -X POST "http://localhost:9090/storage/v1/b" \
+      -H "Content-Type: application/json" \
+      -d '{"name": "weaviate-backups"}'
+      ;;
+
+local-usage-gcs)
+      CONTEXTIONARY_URL=localhost:9999 \
+      LOG_LEVEL=debug \
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
+      DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
+      STORAGE_EMULATOR_HOST=localhost:9090 \
+      BACKUP_GCS_ENDPOINT=localhost:9090 \
+      BACKUP_GCS_BUCKET=weaviate-backups \
+      USAGE_GCS_BUCKET=weaviate-usage \
+      USAGE_GCS_PREFIX=billing-usage \
+      TRACK_VECTOR_DIMENSIONS=false \
+      USAGE_SCRAPE_INTERVAL=1s \
+      USAGE_POLICY_VERSION=2025-06-01 \
+      RUNTIME_OVERRIDES_LOAD_INTERVAL=3s \
+      ENABLE_MODULES="text2vec-contextionary,backup-gcs,usage-gcs" \
+      CLUSTER_IN_LOCALHOST=true \
+      CLUSTER_GOSSIP_BIND_PORT="7100" \
+      CLUSTER_DATA_BIND_PORT="7101" \
+      RUNTIME_OVERRIDES_ENABLED=true \
+      RUNTIME_OVERRIDES_PATH="${PWD}/tools/dev/config.runtime-overrides.yaml" \
+      RUNTIME_OVERRIDES_LOAD_INTERVAL=30s \
+      go_run ./cmd/weaviate-server \
+        --scheme http \
+        --host "127.0.0.1" \
+        --port 8080 \
+        --read-timeout=600s \
+        --write-timeout=600s
+      ;;
+
+create-s3-bucket)
+      echo "make sure that you ran docker-compose up backup-s3 or have MinIO running on port 9000"
+      AWS_ACCESS_KEY_ID=aws_access_key \
+      AWS_SECRET_ACCESS_KEY=aws_secret_key \
+      aws --endpoint-url=http://localhost:9000 s3 mb s3://weaviate-usage
+      AWS_ACCESS_KEY_ID=aws_access_key \
+      AWS_SECRET_ACCESS_KEY=aws_secret_key \
+      aws --endpoint-url=http://localhost:9000 s3 mb s3://weaviate-backups
+      ;;
+
+local-usage-s3)
+      CONTEXTIONARY_URL=localhost:9999 \
+      LOG_LEVEL=debug \
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
+      DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
+      AWS_ACCESS_KEY_ID=aws_access_key \
+      AWS_SECRET_ACCESS_KEY=aws_secret_key \
+      AWS_REGION=us-east-1 \
+      AWS_ENDPOINT=http://localhost:9000 \
+      BACKUP_S3_ENDPOINT=localhost:9000 \
+      BACKUP_S3_BUCKET=weaviate-backups \
+      BACKUP_S3_USE_SSL=false \
+      TRACK_VECTOR_DIMENSIONS=false \
+      USAGE_S3_BUCKET=weaviate-usage \
+      USAGE_S3_PREFIX=billing-usage \
+      USAGE_SCRAPE_INTERVAL=1s \
+      USAGE_POLICY_VERSION=2025-06-01 \
+      RUNTIME_OVERRIDES_LOAD_INTERVAL=3s \
+      ENABLE_MODULES="text2vec-contextionary,backup-s3,usage-s3" \
+      CLUSTER_IN_LOCALHOST=true \
+      CLUSTER_GOSSIP_BIND_PORT="7100" \
+      CLUSTER_DATA_BIND_PORT="7101" \
+      RUNTIME_OVERRIDES_ENABLED=true \
+      RUNTIME_OVERRIDES_PATH="${PWD}/tools/dev/config.runtime-overrides.yaml" \
+      RUNTIME_OVERRIDES_LOAD_INTERVAL=30s \
+      go_run ./cmd/weaviate-server \
+        --scheme http \
+        --host "127.0.0.1" \
+        --port 8080 \
+        --read-timeout=600s \
+        --write-timeout=600s
+      ;;
 
   local-cohere)
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
@@ -920,6 +1006,17 @@ case $CONFIG in
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
       DEFAULT_VECTORIZER_MODULE=text2vec-voyageai \
       ENABLE_MODULES="text2vec-voyageai" \
+      go_run ./cmd/weaviate-server \
+        --scheme http \
+        --host "127.0.0.1" \
+        --port 8080 \
+        --read-timeout=600s \
+        --write-timeout=600s
+    ;;
+  local-morph)
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
+      DEFAULT_VECTORIZER_MODULE=text2vec-morph \
+      ENABLE_MODULES="text2vec-morph" \
       go_run ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \

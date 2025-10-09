@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,7 +13,6 @@ package modnvidia
 
 import (
 	"context"
-	"net/http"
 	"os"
 	"time"
 
@@ -62,7 +61,7 @@ func (m *NvidiaModule) Name() string {
 }
 
 func (m *NvidiaModule) Type() modulecapabilities.ModuleType {
-	return modulecapabilities.Text2MultiVec
+	return modulecapabilities.Text2ManyVec
 }
 
 func (m *NvidiaModule) Init(ctx context.Context,
@@ -116,11 +115,6 @@ func (m *NvidiaModule) initVectorizer(ctx context.Context, timeout time.Duration
 
 func (m *NvidiaModule) initAdditionalPropertiesProvider() error {
 	m.additionalPropertiesProvider = additional.NewText2VecProvider()
-	return nil
-}
-
-func (m *NvidiaModule) RootHandler() http.Handler {
-	// TODO: remove once this is a capability interface
 	return nil
 }
 

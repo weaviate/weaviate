@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -34,6 +34,6 @@ func (s *Shard) Aggregate(ctx context.Context, params aggregation.Params, module
 
 	return aggregator.New(s.store, params, s.index.getSchema, s.index.classSearcher,
 		s.index.stopwords, s.versioner.Version(), vectorIndex, s.index.logger, s.GetPropertyLengthTracker(),
-		s.isFallbackToSearchable, s.tenant(), s.index.Config.QueryNestedRefLimit, s.bitmapFactory, modules).
+		s.isFallbackToSearchable, s.tenant(), s.index.Config.QueryNestedRefLimit, s.bitmapFactory, modules, s.index.Config.QueryHybridMaximumResults).
 		Do(ctx)
 }

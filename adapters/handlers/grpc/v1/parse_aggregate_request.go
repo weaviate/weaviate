@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -287,6 +287,13 @@ func (p *AggregateParser) Aggregate(req *pb.AggregateRequest) (*aggregation.Para
 				TargetVectors:   targetVectors,
 				Distance:        distance,
 				WithDistance:    withDistance,
+			}
+
+			if hs.Bm25SearchOperator != nil {
+				if hs.Bm25SearchOperator.MinimumOrTokensMatch != nil {
+					params.Hybrid.MinimumOrTokensMatch = int(*hs.Bm25SearchOperator.MinimumOrTokensMatch)
+				}
+				params.Hybrid.SearchOperator = hs.Bm25SearchOperator.Operator.String()
 			}
 
 			if nearVec != nil {

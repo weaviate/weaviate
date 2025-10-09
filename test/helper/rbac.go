@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -14,6 +14,9 @@ package helper
 import (
 	"errors"
 	"testing"
+	"time"
+
+	"github.com/go-openapi/strfmt"
 
 	"github.com/stretchr/testify/require"
 
@@ -80,6 +83,7 @@ func GetUserForRolesBoth(t *testing.T, roleName, key string) []*authz.GetUsersFo
 }
 
 func GetInfoForOwnUser(t *testing.T, key string) *models.UserOwnInfo {
+	t.Helper()
 	resp, err := Client(t).Users.GetOwnInfo(users.NewGetOwnInfoParams(), CreateAuth(key))
 	AssertRequestOk(t, resp, err, nil)
 	require.Nil(t, err)
@@ -119,6 +123,22 @@ func GetUserWithLastUsedTime(t *testing.T, userId, key string, lastUsedTime bool
 func CreateUser(t *testing.T, userId, key string) string {
 	t.Helper()
 	resp, err := Client(t).Users.CreateUser(users.NewCreateUserParams().WithUserID(userId), CreateAuth(key))
+	AssertRequestOk(t, resp, err, nil)
+	require.Nil(t, err)
+	require.NotNil(t, resp)
+	require.NotNil(t, resp.Payload)
+	require.NotNil(t, resp.Payload.Apikey)
+	return *resp.Payload.Apikey
+}
+
+func CreateUserWithApiKey(t *testing.T, userId, key string, createdAt *time.Time) string {
+	t.Helper()
+	tp := true
+	if createdAt == nil {
+		createdAt = &time.Time{}
+	}
+
+	resp, err := Client(t).Users.CreateUser(users.NewCreateUserParams().WithUserID(userId).WithBody(users.CreateUserBody{Import: &tp, CreateTime: strfmt.DateTime(*createdAt)}), CreateAuth(key))
 	AssertRequestOk(t, resp, err, nil)
 	require.Nil(t, err)
 	require.NotNil(t, resp)
@@ -218,8 +238,9 @@ func RevokeRoleFromUser(t *testing.T, key, role, user string) {
 }
 
 func AssignRoleToGroup(t *testing.T, key, role, group string) {
+	t.Helper()
 	resp, err := Client(t).Authz.AssignRoleToGroup(
-		authz.NewAssignRoleToGroupParams().WithID(group).WithBody(authz.AssignRoleToGroupBody{Roles: []string{role}}),
+		authz.NewAssignRoleToGroupParams().WithID(group).WithBody(authz.AssignRoleToGroupBody{Roles: []string{role}, GroupType: models.GroupTypeOidc}),
 		CreateAuth(key),
 	)
 	AssertRequestOk(t, resp, err, nil)
@@ -227,12 +248,49 @@ func AssignRoleToGroup(t *testing.T, key, role, group string) {
 }
 
 func RevokeRoleFromGroup(t *testing.T, key, role, group string) {
+	t.Helper()
 	resp, err := Client(t).Authz.RevokeRoleFromGroup(
-		authz.NewRevokeRoleFromGroupParams().WithID(group).WithBody(authz.RevokeRoleFromGroupBody{Roles: []string{role}}),
+		authz.NewRevokeRoleFromGroupParams().WithID(group).WithBody(authz.RevokeRoleFromGroupBody{Roles: []string{role}, GroupType: models.GroupTypeOidc}),
 		CreateAuth(key),
 	)
 	AssertRequestOk(t, resp, err, nil)
 	require.Nil(t, err)
+}
+
+func GetRolesForGroup(t *testing.T, key, group string, includeRoles bool) []*models.Role {
+	includeRolesP := &includeRoles
+	resp, err := Client(t).Authz.GetRolesForGroup(
+		authz.NewGetRolesForGroupParams().WithID(group).WithGroupType(string(models.GroupTypeOidc)).WithIncludeFullRoles(includeRolesP),
+		CreateAuth(key),
+	)
+	AssertRequestOk(t, resp, err, nil)
+	require.Nil(t, err)
+	return resp.Payload
+}
+
+func GetKnownGroups(t *testing.T, key string) []string {
+	resp, err := Client(t).Authz.GetGroups(
+		authz.NewGetGroupsParams().WithGroupType(string(models.GroupTypeOidc)), CreateAuth(key),
+	)
+	AssertRequestOk(t, resp, err, nil)
+	require.Nil(t, err)
+	return resp.Payload
+}
+
+func GetGroupsForRole(t *testing.T, key, roleName string) []string {
+	resp, err := Client(t).Authz.GetGroupsForRole(
+		authz.NewGetGroupsForRoleParams().WithID(roleName),
+		CreateAuth(key),
+	)
+	AssertRequestOk(t, resp, err, nil)
+	require.Nil(t, err)
+
+	// there are only OIDC groups right now
+	groupNames := make([]string, 0)
+	for _, group := range resp.Payload {
+		groupNames = append(groupNames, group.GroupID)
+	}
+	return groupNames
 }
 
 func AddPermissions(t *testing.T, key, role string, permissions ...*models.Permission) {
@@ -405,6 +463,38 @@ func (p *NodesPermission) WithCollection(collection string) *NodesPermission {
 }
 
 func (p *NodesPermission) Permission() *models.Permission {
+	perm := models.Permission(*p)
+	return &perm
+}
+
+type AliasesPermission models.Permission
+
+func NewAliasesPermission() *AliasesPermission {
+	return &AliasesPermission{}
+}
+
+func (p *AliasesPermission) WithAction(action string) *AliasesPermission {
+	p.Action = authorization.String(action)
+	return p
+}
+
+func (p *AliasesPermission) WithCollection(collection string) *AliasesPermission {
+	if p.Aliases == nil {
+		p.Aliases = &models.PermissionAliases{}
+	}
+	p.Aliases.Collection = authorization.String(collection)
+	return p
+}
+
+func (p *AliasesPermission) WithAlias(alias string) *AliasesPermission {
+	if p.Aliases == nil {
+		p.Aliases = &models.PermissionAliases{}
+	}
+	p.Aliases.Alias = authorization.String(alias)
+	return p
+}
+
+func (p *AliasesPermission) Permission() *models.Permission {
 	perm := models.Permission(*p)
 	return &perm
 }

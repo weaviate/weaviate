@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -267,12 +267,6 @@ func (s *Shard) subtractPropLengths(props []inverted.Property) error {
 	return nil
 }
 
-func (s *Shard) extendDimensionTrackerLSM(
-	dimLength int, docID uint64, targetVector string,
-) error {
-	return s.addToDimensionBucket(dimLength, docID, targetVector, false)
-}
-
 var uniqueCounter atomic.Uint64
 
 // GenerateUniqueString generates a random string of the specified length
@@ -282,9 +276,9 @@ func GenerateUniqueString(length int) (string, error) {
 }
 
 // Empty the dimensions bucket, quickly and efficiently
-func (s *Shard) resetDimensionsLSM() error {
+func (s *Shard) resetDimensionsLSM(ctx context.Context) error {
 	// Load the current one, or an empty one if it doesn't exist
-	err := s.store.CreateOrLoadBucket(context.Background(),
+	err := s.store.CreateOrLoadBucket(ctx,
 		helpers.DimensionsBucketLSM,
 		s.memtableDirtyConfig(),
 		lsmkv.WithStrategy(lsmkv.StrategyMapCollection),
@@ -292,6 +286,9 @@ func (s *Shard) resetDimensionsLSM() error {
 		lsmkv.WithAllocChecker(s.index.allocChecker),
 		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
 		lsmkv.WithMinMMapSize(s.index.Config.MinMMapSize),
+		lsmkv.WithMinWalThreshold(s.index.Config.MaxReuseWalSize),
+		lsmkv.WithWriteSegmentInfoIntoFileName(s.index.Config.SegmentInfoIntoFileNameEnabled),
+		lsmkv.WithWriteMetadata(s.index.Config.WriteMetadataFilesEnabled),
 		s.segmentCleanupConfig(),
 	)
 	if err != nil {
@@ -323,43 +320,6 @@ func (s *Shard) resetDimensionsLSM() error {
 	}
 
 	return nil
-}
-
-// Key (target vector name and dimensionality) | Value Doc IDs
-// targetVector,128 | 1,2,4,5,17
-// targetVector,128 | 1,2,4,5,17, Tombstone 4,
-func (s *Shard) removeDimensionsLSM(
-	dimLength int, docID uint64, targetVector string,
-) error {
-	return s.addToDimensionBucket(dimLength, docID, targetVector, true)
-}
-
-func (s *Shard) addToDimensionBucket(
-	dimLength int, docID uint64, vecName string, tombstone bool,
-) error {
-	err := s.addDimensionsProperty(context.Background())
-	if err != nil {
-		return errors.Wrap(err, "add dimensions property")
-	}
-	b := s.store.Bucket(helpers.DimensionsBucketLSM)
-	if b == nil {
-		return errors.Errorf("add dimension bucket: no bucket dimensions")
-	}
-
-	tv := []byte(vecName)
-	// 8 bytes for doc id (map key)
-	// 4 bytes for dim count (row key)
-	// len(vecName) bytes for vector name (prefix of row key)
-	buf := make([]byte, 12+len(tv))
-	binary.LittleEndian.PutUint64(buf[:8], docID)
-	binary.LittleEndian.PutUint32(buf[8+len(tv):], uint32(dimLength))
-	copy(buf[8:], tv)
-
-	return b.MapSet(buf[8:], lsmkv.MapPair{
-		Key:       buf[:8],
-		Value:     []byte{},
-		Tombstone: tombstone,
-	})
 }
 
 func (s *Shard) onAddToPropertyValueIndex(docID uint64, property *inverted.Property) error {

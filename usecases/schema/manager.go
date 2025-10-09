@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -28,9 +28,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
-	"github.com/weaviate/weaviate/usecases/scaler"
 	"github.com/weaviate/weaviate/usecases/sharding"
-	shardingConfig "github.com/weaviate/weaviate/usecases/sharding/config"
 )
 
 // Manager Manages schema changes at a use-case level, i.e. agnostic of
@@ -58,13 +56,14 @@ type InvertedConfigValidator func(in *models.InvertedIndexConfig) error
 type SchemaGetter interface {
 	GetSchemaSkipAuth() schema.Schema
 	ReadOnlyClass(string) *models.Class
+	ResolveAlias(string) string
+	GetAliasesForClass(class string) []*models.Alias
 	Nodes() []string
 	NodeName() string
 	ClusterHealthScore() int
 	ResolveParentNodes(string, string) (map[string]string, error)
 	Statistics() map[string]any
 
-	CopyShardingState(class string) *sharding.State
 	ShardOwner(class, shard string) (string, error)
 	TenantsShards(ctx context.Context, class string, tenants ...string) (map[string]string, error)
 	OptimisticTenantStatus(ctx context.Context, class string, tenants string) (map[string]string, error)
@@ -190,12 +189,6 @@ type clusterState interface {
 	SkipSchemaRepair() bool
 }
 
-type scaleOut interface {
-	SetSchemaReader(sr scaler.SchemaReader)
-	Scale(ctx context.Context, className string,
-		updated shardingConfig.Config, prevReplFactor, newReplFactor int64) (*sharding.State, error)
-}
-
 // NewManager creates a new manager
 func NewManager(validator validator,
 	schemaManager SchemaManager,
@@ -207,7 +200,6 @@ func NewManager(validator validator,
 	configParser VectorConfigParser, vectorizerValidator VectorizerValidator,
 	invertedConfigValidator InvertedConfigValidator,
 	moduleConfig ModuleConfig, clusterState clusterState,
-	scaleoutManager scaleOut,
 	cloud modulecapabilities.OffloadCloud,
 	parser Parser,
 	collectionRetrievalStrategyFF *configRuntime.FeatureFlag[string],
@@ -219,7 +211,7 @@ func NewManager(validator validator,
 		logger, authorizer,
 		schemaConfig,
 		config, configParser, vectorizerValidator, invertedConfigValidator,
-		moduleConfig, clusterState, scaleoutManager, cloud, parser, NewClassGetter(&parser, schemaManager, schemaReader, collectionRetrievalStrategyFF, logger),
+		moduleConfig, clusterState, cloud, parser, NewClassGetter(&parser, schemaManager, schemaReader, collectionRetrievalStrategyFF, logger),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("cannot init handler: %w", err)
@@ -405,8 +397,9 @@ func (m *Manager) activateTenantIfInactive(ctx context.Context, class string,
 	status map[string]string,
 ) (map[string]string, error) {
 	req := &api.UpdateTenantsRequest{
-		Tenants:      make([]*api.Tenant, 0, len(status)),
-		ClusterNodes: m.schemaManager.StorageCandidates(),
+		Tenants:               make([]*api.Tenant, 0, len(status)),
+		ClusterNodes:          m.schemaManager.StorageCandidates(),
+		ImplicitUpdateRequest: true,
 	}
 	for tenant, s := range status {
 		if s != models.TenantActivityStatusHOT {

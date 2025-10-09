@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -15,6 +15,8 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+
+	"github.com/weaviate/weaviate/usecases/memwatch"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/compactor"
 
@@ -79,6 +81,9 @@ type Compactor struct {
 	scratchSpacePath string
 
 	enableChecksumValidation bool
+
+	maxNewFileSize int64
+	allocChecker   memwatch.AllocChecker
 }
 
 // NewCompactor from left (older) and right (newer) segment. See [Compactor]
@@ -117,7 +122,7 @@ type Compactor struct {
 func NewCompactor(w io.WriteSeeker,
 	left, right *SegmentCursor, level uint16,
 	scratchSpacePath string, cleanupDeletions bool,
-	enableChecksumValidation bool, maxNewFileSize int64,
+	enableChecksumValidation bool, maxNewFileSize int64, allocChecker memwatch.AllocChecker,
 ) *Compactor {
 	observeWrite := monitoring.GetMetrics().FileIOWrites.With(prometheus.Labels{
 		"operation": "compaction",
@@ -139,6 +144,8 @@ func NewCompactor(w io.WriteSeeker,
 		cleanupDeletions:         cleanupDeletions,
 		scratchSpacePath:         scratchSpacePath,
 		enableChecksumValidation: enableChecksumValidation,
+		maxNewFileSize:           maxNewFileSize,
+		allocChecker:             allocChecker,
 	}
 }
 
@@ -362,7 +369,8 @@ func (c *Compactor) writeIndexes(f *segmentindex.SegmentFile,
 			"strategy":  "roaringset",
 			"operation": "writeIndices",
 		}),
+		AllocChecker: c.allocChecker,
 	}
-	_, err := f.WriteIndexes(indexes)
+	_, err := f.WriteIndexes(indexes, c.maxNewFileSize)
 	return err
 }

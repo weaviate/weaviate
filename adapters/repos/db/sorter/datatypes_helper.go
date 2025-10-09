@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -56,4 +56,14 @@ func (h *dataTypesHelper) getType(propName string) schema.DataType {
 		return schema.DataType(strings[0])
 	}
 	return ""
+}
+
+func (h *dataTypesHelper) hasFilterableIndex(propName string) bool {
+	for _, property := range h.class.Properties {
+		if property.Name == propName {
+			return property.IndexFilterable != nil && *property.IndexFilterable
+		}
+	}
+
+	return false
 }
