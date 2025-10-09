@@ -109,7 +109,7 @@ func (cpi *parallelIterator[T]) IterateAll() chan []VecAndID[T] {
 					"action": "hnsw_compressed_vector_cache_prefill",
 					"len":    len(v),
 					"lenk":   len(k),
-				}).Warn("skipping compressed vector with unexpected length")
+				}).Debug("skipping compressed vector with unexpected length")
 				continue
 			}
 			if cpi.loadId(k) > (1e15) {
@@ -117,7 +117,7 @@ func (cpi *parallelIterator[T]) IterateAll() chan []VecAndID[T] {
 					"action": "hnsw_compressed_vector_cache_prefill",
 					"len":    len(v),
 					"lenk":   len(k),
-				}).Warn("skipping compressed vector with unexpected key endianness")
+				}).Debug("skipping compressed vector with unexpected key endianness")
 				continue
 			}
 
@@ -151,7 +151,7 @@ func (cpi *parallelIterator[T]) IterateAll() chan []VecAndID[T] {
 						"action": "hnsw_compressed_vector_cache_prefill",
 						"len":    len(v),
 						"lenk":   len(k),
-					}).Warn("skipping compressed vector with unexpected length")
+					}).Debug("skipping compressed vector with unexpected length")
 					continue
 				}
 				if cpi.loadId(k) > (1e15) {
@@ -159,7 +159,7 @@ func (cpi *parallelIterator[T]) IterateAll() chan []VecAndID[T] {
 						"action": "hnsw_compressed_vector_cache_prefill",
 						"len":    len(v),
 						"lenk":   len(k),
-					}).Warn("skipping compressed vector with unexpected key endianness")
+					}).Debug("skipping compressed vector with unexpected key endianness")
 					continue
 				}
 
@@ -190,7 +190,7 @@ func (cpi *parallelIterator[T]) IterateAll() chan []VecAndID[T] {
 					"action": "hnsw_compressed_vector_cache_prefill",
 					"len":    len(v),
 					"lenk":   len(k),
-				}).Warn("skipping compressed vector with unexpected length")
+				}).Debug("skipping compressed vector with unexpected length")
 				continue
 			}
 			if cpi.loadId(k) > (1e15) {
@@ -198,7 +198,7 @@ func (cpi *parallelIterator[T]) IterateAll() chan []VecAndID[T] {
 					"action": "hnsw_compressed_vector_cache_prefill",
 					"len":    len(v),
 					"lenk":   len(k),
-				}).Warn("skipping compressed vector with unexpected key endianness")
+				}).Debug("skipping compressed vector with unexpected key endianness")
 				continue
 			}
 
@@ -239,7 +239,7 @@ func (cpi *parallelIterator[T]) iterateAllNoConcurrency() chan []VecAndID[T] {
 					"action": "hnsw_compressed_vector_cache_prefill",
 					"len":    len(v),
 					"lenk":   len(k),
-				}).Warn("skipping compressed vector with unexpected length")
+				}).Debug("skipping compressed vector with unexpected length")
 				continue
 			}
 			id := cpi.loadId(k)
