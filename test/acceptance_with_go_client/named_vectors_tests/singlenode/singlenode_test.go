@@ -32,6 +32,7 @@ func TestNamedVectors_SingleNode(t *testing.T) {
 	t.Run("tests", test_suits.AllTests(endpoint, false))
 	t.Run("legacy tests", test_suits.AllLegacyTests(endpoint))
 	t.Run("mixed vector tests", test_suits.AllMixedVectorsTests(endpoint))
+	t.Run("restart", test_suits.AllWithRestart(compose))
 }
 
 func TestNamedVectors_SingleNode_AsyncIndexing(t *testing.T) {
@@ -45,23 +46,15 @@ func TestNamedVectors_SingleNode_AsyncIndexing(t *testing.T) {
 	t.Run("tests", test_suits.AllTests(endpoint, true))
 	t.Run("legacy tests", test_suits.AllLegacyTests(endpoint))
 	t.Run("mixed vector tests", test_suits.AllMixedVectorsTests(endpoint))
-}
-
-func TestNamedVectors_SingleNode_Restart(t *testing.T) {
-	ctx := context.Background()
-	compose, err := createSingleNodeEnvironment(ctx)
-	require.NoError(t, err)
-	defer func() {
-		require.NoError(t, compose.Terminate(ctx))
-	}()
-	t.Run("restart", test_suits.TestRestart(compose))
+	t.Run("async indexing tests", test_suits.AsyncIndexigTests(endpoint))
+	t.Run("restart", test_suits.AllWithRestart(compose))
 }
 
 func createSingleNodeEnvironment(ctx context.Context) (compose *docker.DockerCompose, err error) {
 	compose, err = test_suits.ComposeModules().
 		WithWeaviate().
 		Start(ctx)
-	return
+	return compose, err
 }
 
 func createSingleNodeEnvironmentAsyncIndexing(ctx context.Context) (compose *docker.DockerCompose, err error) {
@@ -70,5 +63,5 @@ func createSingleNodeEnvironmentAsyncIndexing(ctx context.Context) (compose *doc
 		WithWeaviateEnv("ASYNC_INDEXING_STALE_TIMEOUT", "1s").
 		WithWeaviate().
 		Start(ctx)
-	return
+	return compose, err
 }

@@ -28,7 +28,7 @@ import (
 const GetGroupsForRoleOKCode int = 200
 
 /*
-GetGroupsForRoleOK Groups assigned to this role
+GetGroupsForRoleOK Successfully retrieved the list of groups that have the role assigned.
 
 swagger:response getGroupsForRoleOK
 */
@@ -191,7 +191,7 @@ func (o *GetGroupsForRoleForbidden) WriteResponse(rw http.ResponseWriter, produc
 const GetGroupsForRoleNotFoundCode int = 404
 
 /*
-GetGroupsForRoleNotFound no role found
+GetGroupsForRoleNotFound The specified role was not found.
 
 swagger:response getGroupsForRoleNotFound
 */

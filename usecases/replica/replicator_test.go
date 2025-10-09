@@ -20,6 +20,7 @@ import (
 
 	"github.com/weaviate/weaviate/usecases/schema"
 
+	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"github.com/weaviate/weaviate/usecases/sharding/config"
@@ -838,27 +839,22 @@ func (f *fakeFactory) newRouter(thisNode string) types.Router {
 				tenant: models.TenantActivityStatusHOT,
 			}, nil
 		}).Maybe()
+
 	schemaReaderMock := schema.NewMockSchemaReader(f.t)
-	schemaReaderMock.EXPECT().CopyShardingState(mock.Anything).RunAndReturn(func(class string) *sharding.State {
-		state := &sharding.State{
-			IndexID:             "idx-123",
-			Config:              config.Config{},
-			Physical:            map[string]sharding.Physical{},
-			Virtual:             nil,
-			PartitioningEnabled: f.isMultiTenant,
+	schemaReaderMock.EXPECT().Shards(mock.Anything).RunAndReturn(func(className string) ([]string, error) {
+		shards := make([]string, 0, len(f.Shard2replicas))
+		for shard := range f.Shard2replicas {
+			shards = append(shards, shard)
 		}
-
-		for shard, replicaNodes := range f.Shard2replicas {
-			physical := sharding.Physical{
-				Name:           shard,
-				BelongsToNodes: replicaNodes,
-				Status:         models.TenantActivityStatusHOT,
-			}
-			state.Physical[shard] = physical
-		}
-
-		return state
+		return shards, nil
 	}).Maybe()
+
+	schemaReaderMock.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		class := &models.Class{Class: className}
+		shardingState := f.createDynamicShardingState()
+		return readFunc(class, shardingState)
+	}).Maybe()
+
 	schemaReaderMock.EXPECT().ShardReplicas(mock.Anything, mock.Anything).RunAndReturn(func(class string, shard string) ([]string, error) {
 		v, ok := f.Shard2replicas[shard]
 		if !ok {
@@ -866,6 +862,7 @@ func (f *fakeFactory) newRouter(thisNode string) types.Router {
 		}
 		return v, nil
 	}).Maybe()
+
 	replicationFsmMock := replicationTypes.NewMockReplicationFSMReader(f.t)
 	replicationFsmMock.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(
 		func(collection string, shard string, shardReplicasLocation []string) []string {
@@ -882,7 +879,28 @@ func (f *fakeFactory) newRouter(thisNode string) types.Router {
 			}
 			return shardReplicasLocation, []string{}
 		}).Maybe()
+
 	return clusterRouter.NewBuilder(f.CLS, f.isMultiTenant, clusterState, schemaGetterMock, schemaReaderMock, replicationFsmMock).Build()
+}
+
+func (f *fakeFactory) createDynamicShardingState() *sharding.State {
+	shardingState := &sharding.State{
+		IndexID:             "idx-123",
+		Config:              config.Config{},
+		Physical:            map[string]sharding.Physical{},
+		Virtual:             nil,
+		PartitioningEnabled: f.isMultiTenant,
+	}
+
+	for shard, replicaNodes := range f.Shard2replicas {
+		physical := sharding.Physical{
+			Name:           shard,
+			BelongsToNodes: replicaNodes,
+			Status:         models.TenantActivityStatusHOT,
+		}
+		shardingState.Physical[shard] = physical
+	}
+	return shardingState
 }
 
 func (f *fakeFactory) newReplicatorWithSourceNode(thisNode string) *replica.Replicator {
@@ -890,7 +908,10 @@ func (f *fakeFactory) newReplicatorWithSourceNode(thisNode string) *replica.Repl
 	getDeletionStrategy := func() string {
 		return models.ReplicationConfigDeletionStrategyNoAutomatedResolution
 	}
-	return replica.NewReplicator(
+
+	metrics := monitoring.GetMetrics()
+
+	rep, err := replica.NewReplicator(
 		f.CLS,
 		router,
 		"A",
@@ -899,8 +920,14 @@ func (f *fakeFactory) newReplicatorWithSourceNode(thisNode string) *replica.Repl
 			replica.RClient
 			replica.WClient
 		}{f.RClient, f.WClient},
+		metrics,
 		f.log,
 	)
+	if err != nil {
+		f.t.Fatalf("could not create replicator: %v", err)
+	}
+
+	return rep
 }
 
 func (f *fakeFactory) newReplicator() *replica.Replicator {
@@ -908,7 +935,10 @@ func (f *fakeFactory) newReplicator() *replica.Replicator {
 	getDeletionStrategy := func() string {
 		return models.ReplicationConfigDeletionStrategyNoAutomatedResolution
 	}
-	return replica.NewReplicator(
+
+	metrics := monitoring.GetMetrics()
+
+	rep, err := replica.NewReplicator(
 		f.CLS,
 		router,
 		"A",
@@ -917,8 +947,14 @@ func (f *fakeFactory) newReplicator() *replica.Replicator {
 			replica.RClient
 			replica.WClient
 		}{f.RClient, f.WClient},
+		metrics,
 		f.log,
 	)
+	if err != nil {
+		f.t.Fatalf("could not create replicator: %v", err)
+	}
+
+	return rep
 }
 
 func (f *fakeFactory) newFinderWithTimings(thisNode string, tInitial time.Duration, tMax time.Duration) *replica.Finder {
@@ -926,7 +962,13 @@ func (f *fakeFactory) newFinderWithTimings(thisNode string, tInitial time.Durati
 	getDeletionStrategy := func() string {
 		return models.ReplicationConfigDeletionStrategyNoAutomatedResolution
 	}
-	return replica.NewFinder(f.CLS, router, thisNode, f.RClient, f.log, tInitial, tMax, getDeletionStrategy)
+
+	metrics, err := replica.NewMetrics(monitoring.GetMetrics())
+	if err != nil {
+		f.t.Fatalf("could not create metrics: %v", err)
+	}
+
+	return replica.NewFinder(f.CLS, router, thisNode, f.RClient, metrics, f.log, tInitial, tMax, getDeletionStrategy)
 }
 
 func (f *fakeFactory) newFinder(thisNode string) *replica.Finder {

@@ -28,6 +28,10 @@ func (h *Handler) GetAliases(ctx context.Context, principal *models.Principal, a
 	if className != "" {
 		name := schema.UppercaseClassName(className)
 		class = h.schemaReader.ReadOnlyClass(name)
+		if class == nil {
+			// Optional class Filter not found. So return empty aliases list
+			return []*models.Alias{}, nil
+		}
 	}
 	aliases, err := h.schemaManager.GetAliases(ctx, alias, class)
 	if err != nil {
@@ -41,7 +45,11 @@ func (h *Handler) GetAliases(ctx context.Context, principal *models.Principal, a
 		aliases,
 		authorization.READ,
 		func(alias *models.Alias) string {
-			return authorization.Aliases(className, alias.Alias)[0]
+			class := className
+			if class == "" {
+				class = alias.Class
+			}
+			return authorization.Aliases(class, alias.Alias)[0]
 		},
 	)
 
@@ -57,9 +65,11 @@ func (h *Handler) GetAlias(ctx context.Context, principal *models.Principal, ali
 		}
 		return nil, err
 	}
-	if err := h.Authorizer.Authorize(ctx, principal, authorization.READ, authorization.Aliases(a.Class, alias)...); err != nil {
+
+	if err := h.Authorizer.Authorize(ctx, principal, authorization.READ, authorization.Aliases(a.Class, a.Alias)...); err != nil {
 		return nil, err
 	}
+
 	return a, nil
 }
 
@@ -120,17 +130,18 @@ func (h *Handler) UpdateAlias(ctx context.Context, principal *models.Principal,
 
 func (h *Handler) DeleteAlias(ctx context.Context, principal *models.Principal, aliasName string) error {
 	aliasName = schema.UppercaseClassName(aliasName)
-	err := h.Authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.Aliases("", aliasName)...)
+
+	a, err := h.schemaManager.GetAlias(ctx, aliasName)
 	if err != nil {
+		if errors.Is(err, cschema.ErrAliasNotFound) {
+			return fmt.Errorf("alias %s not found: %w", aliasName, ErrNotFound)
+		}
 		return err
 	}
 
-	aliases, err := h.schemaManager.GetAliases(ctx, aliasName, nil)
+	err = h.Authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.Aliases(a.Class, a.Alias)...)
 	if err != nil {
 		return err
-	}
-	if len(aliases) == 0 {
-		return fmt.Errorf("alias not found: %w", ErrNotFound)
 	}
 
 	if _, err = h.schemaManager.DeleteAlias(ctx, aliasName); err != nil {

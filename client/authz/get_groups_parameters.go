@@ -74,7 +74,7 @@ type GetGroupsParams struct {
 
 	/* GroupType.
 
-	   The type of group
+	   The type of group to retrieve.
 	*/
 	GroupType string
 

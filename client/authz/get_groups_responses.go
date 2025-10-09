@@ -83,7 +83,7 @@ func NewGetGroupsOK() *GetGroupsOK {
 /*
 GetGroupsOK describes a response with status code 200, with default header values.
 
-Rolenames assigned to group
+A list of group names for the specified type.
 */
 type GetGroupsOK struct {
 	Payload []string
@@ -341,7 +341,7 @@ func NewGetGroupsUnprocessableEntity() *GetGroupsUnprocessableEntity {
 /*
 GetGroupsUnprocessableEntity describes a response with status code 422, with default header values.
 
-Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
+The request syntax is correct, but the server couldn't process it due to semantic issues.
 */
 type GetGroupsUnprocessableEntity struct {
 	Payload *models.ErrorResponse

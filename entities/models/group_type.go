@@ -25,7 +25,7 @@ import (
 	"github.com/go-openapi/validate"
 )
 
-// GroupType the type group
+// GroupType If the group contains OIDC or database users.
 //
 // swagger:model GroupType
 type GroupType string
@@ -41,9 +41,6 @@ func (m GroupType) Pointer() *GroupType {
 
 const (
 
-	// GroupTypeDb captures enum value "db"
-	GroupTypeDb GroupType = "db"
-
 	// GroupTypeOidc captures enum value "oidc"
 	GroupTypeOidc GroupType = "oidc"
 )
@@ -53,7 +50,7 @@ var groupTypeEnum []interface{}
 
 func init() {
 	var res []GroupType
-	if err := json.Unmarshal([]byte(`["db","oidc"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["oidc"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {

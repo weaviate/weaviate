@@ -13,10 +13,9 @@
     "GroupType": {
       "type": "string",
       "enum": [
-        "db",
         "oidc"
       ],
-      "description": "the type group"
+      "description": "If the group contains OIDC or database users."
     },
     "UserTypeOutput": {
       "type": "string",
@@ -210,12 +209,12 @@
         },
         "groups": {
           "type": "object",
-          "description": "resources applicable for group actions",
+          "description": "Resources applicable for group actions.",
           "properties": {
             "group": {
               "type": "string",
               "default": "*",
-              "description": "string or regex. if a specific name, if left empty it will be ALL or *"
+              "description": "A string that specifies which groups this permission applies to. Can be an exact group name or a regex pattern. The default value `*` applies the permission to all groups."
             },
             "groupType": {
               "$ref": "#/definitions/GroupType"
@@ -1558,6 +1557,16 @@
             "FAILED",
             "CANCELED"
           ]
+        },
+        "startedAt": {
+          "description": "Timestamp when the backup process started",
+          "type": "string",
+          "format": "date-time"
+        },
+        "completedAt": {
+          "description": "Timestamp when the backup process completed (successfully or with failure)",
+          "type": "string",
+          "format": "date-time"
         }
       }
     },
@@ -1785,6 +1794,16 @@
               "FAILED",
               "CANCELED"
             ]
+          },
+          "startedAt": {
+            "description": "Timestamp when the backup process started",
+            "type": "string",
+            "format": "date-time"
+          },
+          "completedAt": {
+            "description": "Timestamp when the backup process completed (successfully or with failure)",
+            "type": "string",
+            "format": "date-time"
           }
         }
       }
@@ -3019,7 +3038,7 @@
     },
     "description": "# Introduction\n Weaviate is an open source, AI-native vector database that helps developers create intuitive and reliable AI-powered applications. \n ### Base Path \nThe base path for the Weaviate server is structured as `[YOUR-WEAVIATE-HOST]:[PORT]/v1`. As an example, if you wish to access the `schema` endpoint on a local instance, you would navigate to `http://localhost:8080/v1/schema`. Ensure you replace `[YOUR-WEAVIATE-HOST]` and `[PORT]` with your actual server host and port number respectively. \n ### Questions? \nIf you have any comments or questions, please feel free to reach out to us at the community forum [https://forum.weaviate.io/](https://forum.weaviate.io/). \n### Issues? \nIf you find a bug or want to file a feature request, please open an issue on our GitHub repository for [Weaviate](https://github.com/weaviate/weaviate). \n### Want more documentation? \nFor a quickstart, code examples, concepts and more, please visit our [documentation page](https://weaviate.io/developers/weaviate).",
     "title": "Weaviate",
-    "version": "1.33.0-dev"
+    "version": "1.34.0-dev"
   },
   "parameters": {
     "CommonAfterParameterQuery": {
@@ -4748,7 +4767,8 @@
     },
     "/authz/roles/{id}/group-assignments": {
       "get": {
-        "summary": "get groups assigned to role",
+        "summary": "Get groups that have a specific role assigned",
+        "description": "Retrieves a list of all groups that have been assigned a specific role, identified by its name.",
         "operationId": "getGroupsForRole",
         "x-serviceIds": [
           "weaviate.authz.get.roles.groups"
@@ -4758,7 +4778,7 @@
         ],
         "parameters": [
           {
-            "description": "role name",
+            "description": "The unique name of the role.",
             "in": "path",
             "name": "id",
             "required": true,
@@ -4767,7 +4787,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Groups assigned to this role",
+            "description": "Successfully retrieved the list of groups that have the role assigned.",
             "schema": {
               "type": "array",
               "items": {
@@ -4803,7 +4823,7 @@
             }
           },
           "404": {
-            "description": "no role found"
+            "description": "The specified role was not found."
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
@@ -5243,7 +5263,8 @@
     },
     "/authz/groups/{id}/roles/{groupType}": {
       "get": {
-        "summary": "get roles assigned to the group of a given type",
+        "summary": "Get roles assigned to a specific group",
+        "description": "Retrieves a list of all roles assigned to a specific group. The group must be identified by both its name (`id`) and its type (`db` or `oidc`).",
         "operationId": "getRolesForGroup",
         "x-serviceIds": [
           "weaviate.authz.get.groups.roles"
@@ -5253,7 +5274,7 @@
         ],
         "parameters": [
           {
-            "description": "group name",
+            "description": "The unique name of the group.",
             "in": "path",
             "name": "id",
             "required": true,
@@ -5267,7 +5288,7 @@
             "enum": [
               "oidc"
             ],
-            "description": "The type of group"
+            "description": "The type of the group."
           },
           {
             "in": "query",
@@ -5275,12 +5296,12 @@
             "required": false,
             "type": "boolean",
             "default": false,
-            "description": "Whether to include detailed role information needed the roles permission"
+            "description": "If true, the response will include the full role definitions with all associated permissions. If false, only role names are returned."
           }
         ],
         "responses": {
           "200": {
-            "description": "Role assigned to group",
+            "description": "A list of roles assigned to the specified group.",
             "schema": {
               "$ref": "#/definitions/RolesListResponse"
             }
@@ -5301,10 +5322,10 @@
             }
           },
           "404": {
-            "description": "group not found"
+            "description": "The specified group was not found."
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -5320,7 +5341,8 @@
     },
     "/authz/groups/{groupType}": {
       "get": {
-        "summary": "get all groups for the given type",
+        "summary": "List all groups of a specific type",
+        "description": "Retrieves a list of all available group names for a specified group type (`oidc` or `db`).",
         "operationId": "getGroups",
         "x-serviceIds": [
           "weaviate.authz.get.groups"
@@ -5337,12 +5359,12 @@
             "enum": [
               "oidc"
             ],
-            "description": "The type of group"
+            "description": "The type of group to retrieve."
           }
         ],
         "responses": {
           "200": {
-            "description": "Rolenames assigned to group",
+            "description": "A list of group names for the specified type.",
             "schema": {
               "type": "array",
               "items": {
@@ -5366,7 +5388,7 @@
             }
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -8191,8 +8213,8 @@
         }
       },
       "get": {
-        "summary": "List backups in progress",
-        "description": "[Coming soon] List all backups in progress not implemented yet.",
+        "summary": "List all created backups",
+        "description": "List all created backups IDs, Status",
         "operationId": "backups.list",
         "x-serviceIds": [
           "weaviate.local.backup"

@@ -24,6 +24,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/commitlog"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
@@ -53,6 +54,7 @@ type hnswCommitLogger struct {
 
 	allocChecker memwatch.AllocChecker
 
+	snapshotLock   sync.Mutex
 	snapshotLogger logrus.FieldLogger
 	// whether snapshots are disabled
 	snapshotDisabled bool
@@ -77,6 +79,7 @@ type hnswCommitLogger struct {
 	// (so 0001+0002 or 0003+0004, NOT 0002+0003)
 	// partitions are commitlog filenames (no path, no extension)
 	snapshotPartitions []string
+	fs                 common.FS
 }
 
 func NewCommitLogger(rootPath, name string, logger logrus.FieldLogger,
@@ -95,6 +98,7 @@ func NewCommitLogger(rootPath, name string, logger logrus.FieldLogger,
 
 		snapshotMinDeltaCommitlogsNumber:         1,
 		snapshotMinDeltaCommitlogsSizePercentage: 0,
+		fs:                                       common.NewOSFS(),
 	}
 
 	for _, o := range opts {
@@ -103,7 +107,7 @@ func NewCommitLogger(rootPath, name string, logger logrus.FieldLogger,
 		}
 	}
 
-	fd, err := getLatestCommitFileOrCreate(rootPath, name)
+	fd, err := getLatestCommitFileOrCreate(rootPath, name, l.fs)
 	if err != nil {
 		return nil, err
 	}
@@ -135,14 +139,14 @@ func commitLogDirectory(rootPath, name string) string {
 	return fmt.Sprintf("%s/%s.hnsw.commitlog.d", rootPath, name)
 }
 
-func getLatestCommitFileOrCreate(rootPath, name string) (*os.File, error) {
+func getLatestCommitFileOrCreate(rootPath, name string, fs common.FS) (common.File, error) {
 	dir := commitLogDirectory(rootPath, name)
-	err := os.MkdirAll(dir, os.ModePerm)
+	err := fs.MkdirAll(dir, os.ModePerm)
 	if err != nil {
 		return nil, errors.Wrap(err, "create commit logger directory")
 	}
 
-	fileName, ok, err := getCurrentCommitLogFileName(dir)
+	fileName, ok, err := getCurrentCommitLogFileName(dir, fs)
 	if err != nil {
 		return nil, errors.Wrap(err, "find commit logger file in directory")
 	}
@@ -152,7 +156,7 @@ func getLatestCommitFileOrCreate(rootPath, name string) (*os.File, error) {
 		fileName = fmt.Sprintf("%d", time.Now().Unix())
 	}
 
-	fd, err := os.OpenFile(commitLogFileName(rootPath, name, fileName),
+	fd, err := fs.OpenFile(commitLogFileName(rootPath, name, fileName),
 		os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o666)
 	if err != nil {
 		return nil, errors.Wrap(err, "create commit log file")
@@ -162,28 +166,28 @@ func getLatestCommitFileOrCreate(rootPath, name string) (*os.File, error) {
 }
 
 // getCommitFileNames in order, from old to new
-func getCommitFileNames(rootPath, id string, createdAfter int64) ([]string, error) {
-	files, err := getCommitFiles(rootPath, id, createdAfter)
+func getCommitFileNames(rootPath, id string, createdAfter int64, fs common.FS) ([]string, error) {
+	files, err := getCommitFiles(rootPath, id, createdAfter, fs)
 	if err != nil {
 		return nil, err
 	}
 	return commitLogFileNames(rootPath, id, files), nil
 }
 
-func getCommitFiles(rootPath, id string, createdAfter int64) ([]os.DirEntry, error) {
+func getCommitFiles(rootPath, id string, createdAfter int64, fs common.FS) ([]os.DirEntry, error) {
 	dir := commitLogDirectory(rootPath, id)
-	err := os.MkdirAll(dir, os.ModePerm)
+	err := fs.MkdirAll(dir, os.ModePerm)
 	if err != nil {
 		return nil, errors.Wrap(err, "create commit logger directory")
 	}
 
-	files, err := os.ReadDir(dir)
+	files, err := fs.ReadDir(dir)
 	if err != nil {
 		return nil, errors.Wrap(err, "browse commit logger directory")
 	}
 
 	files = skipTmpScratchOrHiddenFiles(files)
-	files, err = removeTmpCombiningFiles(dir, files)
+	files, err = removeTmpCombiningFiles(dir, files, fs)
 	if err != nil {
 		return nil, errors.Wrap(err, "clean up tmp combining files")
 	}
@@ -229,15 +233,15 @@ func commitLogFileNames(rootPath, id string, files []os.DirEntry) []string {
 
 // getCurrentCommitLogFileName returns the fileName and true if a file was
 // present. If no file was present, the second arg is false.
-func getCurrentCommitLogFileName(dirPath string) (string, bool, error) {
-	files, err := os.ReadDir(dirPath)
+func getCurrentCommitLogFileName(dirPath string, fs common.FS) (string, bool, error) {
+	files, err := fs.ReadDir(dirPath)
 	if err != nil {
 		return "", false, errors.Wrap(err, "browse commit logger directory")
 	}
 
 	if len(files) > 0 {
 		files = skipTmpScratchOrHiddenFiles(files)
-		files, err = removeTmpCombiningFiles(dirPath, files)
+		files, err = removeTmpCombiningFiles(dirPath, files, fs)
 		if err != nil {
 			return "", false, errors.Wrap(err, "clean up tmp combining files")
 		}
@@ -302,7 +306,7 @@ func skipEmptyFiles(in []os.DirEntry) ([]os.DirEntry, error) {
 	return out[:i], nil
 }
 
-func removeTmpCombiningFiles(dirPath string, in []os.DirEntry) ([]os.DirEntry, error) {
+func removeTmpCombiningFiles(dirPath string, in []os.DirEntry, fs common.FS) ([]os.DirEntry, error) {
 	out := make([]os.DirEntry, len(in))
 	i := 0
 
@@ -314,7 +318,7 @@ func removeTmpCombiningFiles(dirPath string, in []os.DirEntry) ([]os.DirEntry, e
 			// the only get deleted after the .tmp file is removed), so it's safe to
 			// delete this without data loss.
 
-			if err := os.Remove(filepath.Join(dirPath, info.Name())); err != nil {
+			if err := fs.Remove(filepath.Join(dirPath, info.Name())); err != nil {
 				return out, errors.Wrap(err, "remove tmp combining file")
 			}
 			continue
@@ -558,6 +562,13 @@ func (l *hnswCommitLogger) startSwitchLogs(shouldAbort cyclemanager.ShouldAbortC
 }
 
 func (l *hnswCommitLogger) startCommitLogsMaintenance(shouldAbort cyclemanager.ShouldAbortCallback) bool {
+	err := l.fixCorruptedCommitLogs()
+	if err != nil {
+		l.logger.WithError(err).
+			WithField("action", "hnsw_commit_log_fixing").
+			Error("hnsw commit log maintenance (fixing) failed")
+	}
+
 	executedCombine, err := l.combineLogs()
 	if err != nil {
 		l.logger.WithError(err).
@@ -628,7 +639,7 @@ func (l *hnswCommitLogger) switchCommitLogs(force bool) (bool, error) {
 			Info("commit log size crossed threshold, switching to new file")
 	}
 
-	fd, err := os.OpenFile(commitLogFileName(l.rootPath, l.id, fileName),
+	fd, err := l.fs.OpenFile(commitLogFileName(l.rootPath, l.id, fileName),
 		os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o666)
 	if err != nil {
 		return true, errors.Wrap(err, "create commit log file")
@@ -640,7 +651,7 @@ func (l *hnswCommitLogger) switchCommitLogs(force bool) (bool, error) {
 }
 
 func (l *hnswCommitLogger) condenseLogs() (bool, error) {
-	files, err := getCommitFileNames(l.rootPath, l.id, 0)
+	files, err := getCommitFileNames(l.rootPath, l.id, 0, l.fs)
 	if err != nil {
 		return false, err
 	}
@@ -663,7 +674,7 @@ func (l *hnswCommitLogger) condenseLogs() (bool, error) {
 
 		if l.allocChecker != nil {
 			// allocChecker is optional, so we can only check this if it's actually set
-			s, err := os.Stat(candidate)
+			s, err := l.fs.Stat(candidate)
 			if err != nil {
 				return false, fmt.Errorf("stat candidate file %q: %w", candidate, err)
 			}
@@ -696,7 +707,7 @@ func (l *hnswCommitLogger) combineLogs() (bool, error) {
 	// assumption that the combined file will be considerably smaller than the
 	// sum of both input files
 	threshold := l.logCombiningThreshold()
-	return NewCommitLogCombiner(l.rootPath, l.id, threshold, l.logger).Do(l.snapshotPartitions...)
+	return NewCommitLogCombiner(l.rootPath, l.id, threshold, l.logger, l.fs).Do(l.snapshotPartitions...)
 }
 
 // TODO al:snapshot handle should abort
@@ -734,8 +745,8 @@ func (l *hnswCommitLogger) Drop(ctx context.Context) error {
 
 	// remove commit log directory if exists
 	dir := commitLogDirectory(l.rootPath, l.id)
-	if _, err := os.Stat(dir); err == nil {
-		err := os.RemoveAll(dir)
+	if _, err := l.fs.Stat(dir); err == nil {
+		err := l.fs.RemoveAll(dir)
 		if err != nil {
 			return errors.Wrap(err, "delete commit files directory")
 		}
@@ -748,4 +759,13 @@ func (l *hnswCommitLogger) Flush() error {
 	defer l.Unlock()
 
 	return l.commitLogger.Flush()
+}
+
+func (l *hnswCommitLogger) fixCorruptedCommitLogs() error {
+	fileNames, err := getCommitFileNames(l.rootPath, l.id, 0, l.fs)
+	if err != nil {
+		return err
+	}
+	_, err = NewCorruptedCommitLogFixer().Do(fileNames)
+	return err
 }

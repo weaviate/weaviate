@@ -216,6 +216,46 @@ func sqVectorIndexConfig() map[string]interface{} {
 	}
 }
 
+func pq(trainingLimit int) map[string]interface{} {
+	return map[string]interface{}{
+		"pq": map[string]interface{}{
+			"enabled":       true,
+			"trainingLimit": trainingLimit,
+		},
+	}
+}
+
+func sq(trainingLimit int) map[string]interface{} {
+	return map[string]interface{}{
+		"pq": map[string]interface{}{
+			"enabled":       true,
+			"trainingLimit": trainingLimit,
+			"cache":         true,
+		},
+	}
+}
+
+func rq(bits int) map[string]interface{} {
+	return map[string]interface{}{
+		"rq": map[string]interface{}{
+			"enabled": true,
+			"bits":    bits,
+		},
+	}
+}
+
+func bq(multiVector bool) map[string]interface{} {
+	bq := map[string]interface{}{
+		"bq": map[string]interface{}{
+			"enabled": true,
+		},
+	}
+	if multiVector {
+		bq["multivector"] = map[string]interface{}{"enabled": true}
+	}
+	return bq
+}
+
 func getVectorsWithNearText(t *testing.T, client *wvt.Client,
 	className, id string, nearText *graphql.NearTextArgumentBuilder, targetVectors ...string,
 ) map[string]models.Vector {

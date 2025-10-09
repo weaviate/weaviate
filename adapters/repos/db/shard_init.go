@@ -46,13 +46,17 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		"index":  index.ID(),
 	}).Debugf("initializing shard %q", shardName)
 
+	metrics, err := NewMetrics(index.logger, promMetrics, string(index.Config.ClassName), shardName)
+	if err != nil {
+		return nil, fmt.Errorf("init shard %q metrics: %w", shardName, err)
+	}
+
 	s := &Shard{
 		index:       index,
 		class:       class,
 		name:        shardName,
 		promMetrics: promMetrics,
-		metrics: NewMetrics(index.logger, promMetrics,
-			string(index.Config.ClassName), shardName),
+		metrics:     metrics,
 		slowQueryReporter: helpers.NewSlowQueryReporter(index.Config.QuerySlowLogEnabled,
 			index.Config.QuerySlowLogThreshold, index.logger),
 		replicationMap:   pendingReplicaTasks{Tasks: make(map[string]replicaTask, 32)},
@@ -67,6 +71,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		reindexer:                       reindexer,
 		usingBlockMaxWAND:               index.invertedIndexConfig.UsingBlockMaxWAND,
 		bitmapBufPool:                   bitmapBufPool,
+		SPFreshEnabled:                  index.SPFreshEnabled,
 	}
 
 	index.metrics.UpdateShardStatus("", storagestate.StatusLoading.String())
@@ -174,7 +179,7 @@ func (s *Shard) cleanupPartialInit(ctx context.Context) {
 }
 
 func (s *Shard) NotifyReady() {
-	s.UpdateStatus(storagestate.StatusReady.String())
+	s.UpdateStatus(storagestate.StatusReady.String(), "notify ready")
 	s.index.logger.
 		WithField("action", "startup").
 		Debugf("shard=%s is ready", s.name)

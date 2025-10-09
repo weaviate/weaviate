@@ -64,7 +64,6 @@ type SchemaGetter interface {
 	ResolveParentNodes(string, string) (map[string]string, error)
 	Statistics() map[string]any
 
-	CopyShardingState(class string) *sharding.State
 	ShardOwner(class, shard string) (string, error)
 	TenantsShards(ctx context.Context, class string, tenants ...string) (map[string]string, error)
 	OptimisticTenantStatus(ctx context.Context, class string, tenants string) (map[string]string, error)

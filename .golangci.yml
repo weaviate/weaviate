@@ -489,7 +489,7 @@ linters:
         text: ST1005 # error strings should not end with punctuation or newlines
       - linters:
           - staticcheck
-        path: modules/text2vec-aws/clients/aws.go
+        path: usecases/modulecomponents/clients/aws/aws.go
         text: ST1005 # error strings should not end with punctuation or newlines
     paths:
       - third_party$

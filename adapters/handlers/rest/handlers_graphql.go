@@ -408,17 +408,17 @@ func (e *graphqlRequestsTotal) getClassNameAndQueryType(data interface{}) (class
 			if queryType == "Explore" {
 				// Explore queries are cross class queries, we won't get a className in this case
 				// there's no sense in further value investigation
-				return
+				return className, queryType
 			}
 			if value != nil {
 				if valueMap, ok := value.(map[string]interface{}); ok {
 					for class := range valueMap {
 						className = class
-						return
+						return className, queryType
 					}
 				}
 			}
 		}
 	}
-	return
+	return className, queryType
 }

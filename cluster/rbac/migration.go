@@ -237,16 +237,18 @@ func migrateRemoveRolesPermissionsV3(permissions []*authorization.Policy) []*aut
 	return permissions
 }
 
-func migrateRevokeRoles(req *cmd.RevokeRolesForUserRequest) []*cmd.RevokeRolesForUserRequest {
+func migrateRevokeRoles(req *cmd.RevokeRolesForUserRequest) ([]*cmd.RevokeRolesForUserRequest, error) {
 	if req.Version == cmd.RBACAssignRevokeCommandPolicyVersionV0 {
 		return migrateRevokeRolesV0(req)
 	}
-	return []*cmd.RevokeRolesForUserRequest{req}
+	return []*cmd.RevokeRolesForUserRequest{req}, nil
 }
 
-func migrateRevokeRolesV0(req *cmd.RevokeRolesForUserRequest) []*cmd.RevokeRolesForUserRequest {
-	user, _ := conv.GetUserAndPrefix(req.User)
-
+func migrateRevokeRolesV0(req *cmd.RevokeRolesForUserRequest) ([]*cmd.RevokeRolesForUserRequest, error) {
+	user, _, err := conv.GetUserAndPrefix(req.User)
+	if err != nil {
+		return nil, err
+	}
 	req1 := &cmd.RevokeRolesForUserRequest{
 		Version: req.Version + 1,
 		Roles:   req.Roles,
@@ -258,19 +260,21 @@ func migrateRevokeRolesV0(req *cmd.RevokeRolesForUserRequest) []*cmd.RevokeRoles
 		User:    conv.UserNameWithTypeFromId(user, authentication.AuthTypeOIDC),
 	}
 
-	return []*cmd.RevokeRolesForUserRequest{req1, req2}
+	return []*cmd.RevokeRolesForUserRequest{req1, req2}, nil
 }
 
-func migrateAssignRoles(req *cmd.AddRolesForUsersRequest, authNconfig config.Authentication) []*cmd.AddRolesForUsersRequest {
+func migrateAssignRoles(req *cmd.AddRolesForUsersRequest, authNconfig config.Authentication) ([]*cmd.AddRolesForUsersRequest, error) {
 	if req.Version == cmd.RBACAssignRevokeCommandPolicyVersionV0 {
 		return migrateAssignRolesV0(req, authNconfig)
 	}
-	return []*cmd.AddRolesForUsersRequest{req}
+	return []*cmd.AddRolesForUsersRequest{req}, nil
 }
 
-func migrateAssignRolesV0(req *cmd.AddRolesForUsersRequest, authNconfig config.Authentication) []*cmd.AddRolesForUsersRequest {
-	user, _ := conv.GetUserAndPrefix(req.User)
-
+func migrateAssignRolesV0(req *cmd.AddRolesForUsersRequest, authNconfig config.Authentication) ([]*cmd.AddRolesForUsersRequest, error) {
+	user, _, err := conv.GetUserAndPrefix(req.User)
+	if err != nil {
+		return nil, err
+	}
 	var reqs []*cmd.AddRolesForUsersRequest
 	if authNconfig.APIKey.Enabled && slices.Contains(authNconfig.APIKey.Users, user) {
 		reqs = append(reqs, &cmd.AddRolesForUsersRequest{
@@ -288,5 +292,5 @@ func migrateAssignRolesV0(req *cmd.AddRolesForUsersRequest, authNconfig config.A
 		})
 	}
 
-	return reqs
+	return reqs, nil
 }

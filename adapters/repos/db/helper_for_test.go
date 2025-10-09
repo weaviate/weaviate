@@ -238,7 +238,16 @@ func createTestDatabaseWithClass(t *testing.T, metrics *monitoring.PrometheusMet
 
 	shardState := singleShardState()
 	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
-	mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState).Maybe()
+	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		for _, class := range classes {
+			if className == class.Class {
+				return readFunc(class, shardState)
+			}
+		}
+		return nil
+	}).Maybe()
+	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
@@ -257,7 +266,7 @@ func createTestDatabaseWithClass(t *testing.T, metrics *monitoring.PrometheusMet
 
 	db.SetSchemaGetter(&fakeSchemaGetter{
 		schema:     schema.Schema{Objects: &models.Schema{Classes: classes}},
-		shardState: singleShardState(),
+		shardState: shardState,
 	})
 
 	require.Nil(t, db.WaitForStartup(t.Context()))
@@ -312,7 +321,11 @@ func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models
 	}
 
 	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
-	mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState).Maybe()
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		class := &models.Class{Class: className}
+		return readFunc(class, shardState)
+	}).Maybe()
+	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
@@ -350,6 +363,9 @@ func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models
 		require.NoError(t, err)
 	}
 
+	metrics, err := NewMetrics(logger, nil, class.Class, "")
+	require.NoError(t, err)
+
 	idx := &Index{
 		Config: IndexConfig{
 			RootPath:            tmpDir,
@@ -357,7 +373,7 @@ func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models
 			QueryMaximumResults: maxResults,
 			ReplicationFactor:   1,
 		},
-		metrics:                NewMetrics(logger, nil, class.Class, ""),
+		metrics:                metrics,
 		partitioningEnabled:    shardState.PartitioningEnabled,
 		invertedIndexConfig:    iic,
 		vectorIndexUserConfig:  vic,
@@ -368,7 +384,7 @@ func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models
 		stopwords:              sd,
 		indexCheckpoints:       checkpts,
 		allocChecker:           memwatch.NewDummyMonitor(),
-		shardCreateLocks:       esync.NewKeyLocker(),
+		shardCreateLocks:       esync.NewKeyLockerContext(),
 		scheduler:              repo.scheduler,
 		shardLoadLimiter:       NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
 		shardReindexer:         NewShardReindexerV3Noop(),
@@ -427,6 +443,32 @@ func createRandomObjects(r *rand.Rand, className string, numObj int, vectorDim i
 
 		for d := 0; d < vectorDim; d++ {
 			obj[i].Vector[d] = r.Float32()
+		}
+	}
+	return obj
+}
+
+func createRandomMultiVectorObjects(r *rand.Rand, className string, numObj int, numTokens int, vectorDim int) []*storobj.Object {
+	obj := make([]*storobj.Object, numObj)
+
+	for i := 0; i < numObj; i++ {
+		obj[i] = &storobj.Object{
+			MarshallerVersion: 1,
+			Object: models.Object{
+				ID:    strfmt.UUID(uuid.NewString()),
+				Class: className,
+			},
+			MultiVectors: make(map[string][][]float32),
+		}
+
+		for t := 0; t < numTokens; t++ {
+			obj[i].MultiVectors["default"] = make([][]float32, vectorDim)
+			for d := 0; d < vectorDim; d++ {
+				obj[i].MultiVectors["default"][d] = make([]float32, vectorDim)
+				for d2 := 0; d2 < vectorDim; d2++ {
+					obj[i].MultiVectors["default"][d][d2] = r.Float32()
+				}
+			}
 		}
 	}
 	return obj

@@ -50,7 +50,9 @@ func NewGetGroupsForRole(ctx *middleware.Context, handler GetGroupsForRoleHandle
 /*
 	GetGroupsForRole swagger:route GET /authz/roles/{id}/group-assignments authz getGroupsForRole
 
-get groups assigned to role
+# Get groups that have a specific role assigned
+
+Retrieves a list of all groups that have been assigned a specific role, identified by its name.
 */
 type GetGroupsForRole struct {
 	Context *middleware.Context

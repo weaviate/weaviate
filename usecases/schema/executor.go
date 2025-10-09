@@ -98,7 +98,7 @@ func (e *executor) Close(ctx context.Context) error {
 
 func (e *executor) AddClass(pl api.AddClassRequest) error {
 	ctx := context.Background()
-	if err := e.migrator.AddClass(ctx, pl.Class, pl.State); err != nil {
+	if err := e.migrator.AddClass(ctx, pl.Class); err != nil {
 		return fmt.Errorf("apply add class: %w", err)
 	}
 	return nil

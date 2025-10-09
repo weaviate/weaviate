@@ -62,7 +62,11 @@ func (v *Vectorizer) object(ctx context.Context, object *models.Object, cfg modu
 ) ([]float32, error) {
 	icheck := NewClassSettings(cfg)
 
-	corpi, titlePropertyValue := v.objectVectorizer.TextsWithTitleProperty(ctx, object, icheck, icheck.TitleProperty())
+	corpi, titlePropertyValue, isEmpty := v.objectVectorizer.TextsWithTitleProperty(ctx, object, icheck, icheck.TitleProperty())
+	if isEmpty {
+		// nothing to vectorize
+		return nil, nil
+	}
 	// vectorize text
 	res, err := v.client.Vectorize(ctx, []string{corpi}, ent.VectorizationConfig{
 		ApiEndpoint: icheck.ApiEndpoint(),
