@@ -21,7 +21,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
-	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 type LSMStore struct {
@@ -32,22 +31,16 @@ type LSMStore struct {
 	metrics    *Metrics
 }
 
-func NewLSMStore(store *lsmkv.Store, metrics *Metrics, bucketName string, minMMapSize int64,
-	maxWalReuseSize int64,
-	allocChecker memwatch.AllocChecker,
-	lazyLoadSegments bool,
-	writeSegmentInfoIntoFileName bool,
-	writeMetadataFilesEnabled bool,
-) (*LSMStore, error) {
+func NewLSMStore(store *lsmkv.Store, metrics *Metrics, bucketName string, cfg StoreConfig) (*LSMStore, error) {
 	err := store.CreateOrLoadBucket(context.Background(),
 		bucketName,
 		lsmkv.WithStrategy(lsmkv.StrategySetCollection),
-		lsmkv.WithAllocChecker(allocChecker),
-		lsmkv.WithMinMMapSize(minMMapSize),
-		lsmkv.WithMinWalThreshold(maxWalReuseSize),
-		lsmkv.WithLazySegmentLoading(lazyLoadSegments),
-		lsmkv.WithWriteSegmentInfoIntoFileName(writeSegmentInfoIntoFileName),
-		lsmkv.WithWriteMetadata(writeMetadataFilesEnabled),
+		lsmkv.WithAllocChecker(cfg.AllocChecker),
+		lsmkv.WithMinMMapSize(cfg.MinMMapSize),
+		lsmkv.WithMinWalThreshold(cfg.MaxReuseWalSize),
+		lsmkv.WithLazySegmentLoading(cfg.LazyLoadSegments),
+		lsmkv.WithWriteSegmentInfoIntoFileName(cfg.WriteSegmentInfoIntoFileName),
+		lsmkv.WithWriteMetadata(cfg.WriteMetadataFilesEnabled),
 	)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to create or load bucket %s", bucketName)

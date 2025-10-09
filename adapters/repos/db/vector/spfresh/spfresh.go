@@ -97,7 +97,7 @@ func New(cfg *Config, store *lsmkv.Store) (*SPFresh, error) {
 		cfg.CentroidIndex = NewBruteForceSPTAG(metrics, 1024*1024, 1024)
 	}
 
-	postingStore, err := NewLSMStore(store, metrics, bucketName(cfg.ID), cfg.MinMMapSize, cfg.MaxReuseWalSize, cfg.AllocChecker, cfg.LazyLoadSegments, cfg.WriteSegmentInfoIntoFileName, cfg.WriteMetadataFilesEnabled)
+	postingStore, err := NewLSMStore(store, metrics, bucketName(cfg.ID), cfg.Store)
 	if err != nil {
 		return nil, err
 	}

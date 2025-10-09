@@ -230,15 +230,23 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 		if !s.index.SPFreshEnabled {
 			return nil, errors.New("spfresh index is available only in experimental mode")
 		}
-		configs := spfresh.DefaultConfig()
-		configs.ID = s.vectorIndexID(targetVector)
-		configs.MinMMapSize = s.index.Config.MinMMapSize
-		configs.MaxReuseWalSize = s.index.Config.MaxReuseWalSize
-		configs.AllocChecker = s.index.allocChecker
-		configs.LazyLoadSegments = lazyLoadSegments
-		configs.WriteSegmentInfoIntoFileName = s.index.Config.SegmentInfoIntoFileNameEnabled
-		configs.WriteMetadataFilesEnabled = s.index.Config.WriteMetadataFilesEnabled
-		vi, err := spfresh.New(configs, s.store)
+		cfg := spfresh.DefaultConfig()
+		cfg.Logger = s.index.logger
+		cfg.Distancer = distProv
+		cfg.RootPath = filepath.Join(s.path(), "spfresh")
+		cfg.ID = s.vectorIndexID(targetVector)
+		cfg.TargetVector = targetVector
+		cfg.ShardName = s.name
+		cfg.ClassName = s.index.Config.ClassName.String()
+		cfg.PrometheusMetrics = s.promMetrics
+		cfg.Store.MinMMapSize = s.index.Config.MinMMapSize
+		cfg.Store.MaxReuseWalSize = s.index.Config.MaxReuseWalSize
+		cfg.Store.AllocChecker = s.index.allocChecker
+		cfg.Store.LazyLoadSegments = lazyLoadSegments
+		cfg.Store.WriteSegmentInfoIntoFileName = s.index.Config.SegmentInfoIntoFileNameEnabled
+		cfg.Store.WriteMetadataFilesEnabled = s.index.Config.WriteMetadataFilesEnabled
+
+		vi, err := spfresh.New(cfg, s.store)
 		if err != nil {
 			return nil, errors.Wrapf(err, "init shard %q: spfresh index", s.ID())
 		}
