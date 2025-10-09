@@ -1840,8 +1840,8 @@ func initRuntimeOverrides(appState *state.State) {
 			hooks,
 			prometheus.DefaultRegisterer)
 		if err != nil {
-			appState.Logger.WithField("action", "startup").WithError(err).Fatal("could not create runtime config manager")
-			os.Exit(1)
+			appState.Logger.WithField("action", "startup").WithError(err).Error("could not create runtime config manager")
+			return
 		}
 
 		enterrors.GoWrapper(func() {
