@@ -407,6 +407,61 @@ func (_c *MockShardLike_Counter_Call) RunAndReturn(run func() *indexcounter.Coun
 	return _c
 }
 
+// DebugGetDocIdLockStatus provides a mock function with no fields
+func (_m *MockShardLike) DebugGetDocIdLockStatus() (bool, error) {
+	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for DebugGetDocIdLockStatus")
+	}
+
+	var r0 bool
+	var r1 error
+	if rf, ok := ret.Get(0).(func() (bool, error)); ok {
+		return rf()
+	}
+	if rf, ok := ret.Get(0).(func() bool); ok {
+		r0 = rf()
+	} else {
+		r0 = ret.Get(0).(bool)
+	}
+
+	if rf, ok := ret.Get(1).(func() error); ok {
+		r1 = rf()
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockShardLike_DebugGetDocIdLockStatus_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DebugGetDocIdLockStatus'
+type MockShardLike_DebugGetDocIdLockStatus_Call struct {
+	*mock.Call
+}
+
+// DebugGetDocIdLockStatus is a helper method to define mock.On call
+func (_e *MockShardLike_Expecter) DebugGetDocIdLockStatus() *MockShardLike_DebugGetDocIdLockStatus_Call {
+	return &MockShardLike_DebugGetDocIdLockStatus_Call{Call: _e.mock.On("DebugGetDocIdLockStatus")}
+}
+
+func (_c *MockShardLike_DebugGetDocIdLockStatus_Call) Run(run func()) *MockShardLike_DebugGetDocIdLockStatus_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run()
+	})
+	return _c
+}
+
+func (_c *MockShardLike_DebugGetDocIdLockStatus_Call) Return(_a0 bool, _a1 error) *MockShardLike_DebugGetDocIdLockStatus_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockShardLike_DebugGetDocIdLockStatus_Call) RunAndReturn(run func() (bool, error)) *MockShardLike_DebugGetDocIdLockStatus_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // DebugResetVectorIndex provides a mock function with given fields: ctx, targetVector
 func (_m *MockShardLike) DebugResetVectorIndex(ctx context.Context, targetVector string) error {
 	ret := _m.Called(ctx, targetVector)

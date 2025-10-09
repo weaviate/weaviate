@@ -32,7 +32,6 @@ services:
       DISABLE_TELEMETRY: "true"
       DISABLE_RECOVERY_ON_PANIC: "true"
       TRACK_VECTOR_DIMENSIONS: "true"
-      TRACK_VECTOR_DIMENSIONS_INTERVAL: "3m"
       QUERY_MAXIMUM_RESULTS: 10005
 
       # necessary for the metrics tests, some metrics only exist once segments
