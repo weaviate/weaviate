@@ -51,17 +51,17 @@ type GetRolesForUserParams struct {
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
-	/*user name
+	/*The name of the user.
 	  Required: true
 	  In: path
 	*/
 	ID string
-	/*Whether to include detailed role information needed the roles permission
+	/*Whether to include detailed role information like its assigned permissions.
 	  In: query
 	  Default: false
 	*/
 	IncludeFullRoles *bool
-	/*The type of user
+	/*The type of the user.
 	  Required: true
 	  In: path
 	*/

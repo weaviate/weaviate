@@ -75,19 +75,19 @@ type GetRolesForUserParams struct {
 
 	/* ID.
 
-	   user name
+	   The name of the user.
 	*/
 	ID string
 
 	/* IncludeFullRoles.
 
-	   Whether to include detailed role information needed the roles permission
+	   Whether to include detailed role information like its assigned permissions.
 	*/
 	IncludeFullRoles *bool
 
 	/* UserType.
 
-	   The type of user
+	   The type of the user.
 	*/
 	UserType string
 

@@ -71,7 +71,7 @@ func NewGetOwnInfoOK() *GetOwnInfoOK {
 /*
 GetOwnInfoOK describes a response with status code 200, with default header values.
 
-Info about the user
+Info about the user.
 */
 type GetOwnInfoOK struct {
 	Payload *models.UserOwnInfo

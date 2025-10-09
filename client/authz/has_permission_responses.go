@@ -83,7 +83,7 @@ func NewHasPermissionOK() *HasPermissionOK {
 /*
 HasPermissionOK describes a response with status code 200, with default header values.
 
-Permission check was successful
+Permission check was successful.
 */
 type HasPermissionOK struct {
 	Payload bool
@@ -341,7 +341,7 @@ func NewHasPermissionUnprocessableEntity() *HasPermissionUnprocessableEntity {
 /*
 HasPermissionUnprocessableEntity describes a response with status code 422, with default header values.
 
-Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
+The request syntax is correct, but the server couldn't process it due to semantic issues.
 */
 type HasPermissionUnprocessableEntity struct {
 	Payload *models.ErrorResponse
