@@ -200,7 +200,7 @@ func TestWalFilePresent(t *testing.T) {
 	ctx := context.Background()
 	dirName := t.TempDir()
 	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithUseBloomFilter(false), WithWriteSegmentInfoIntoFileName(true), WithMinWalThreshold(4096), WithStrategy(StrategyReplace),
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithUseBloomFilter(false), WithWriteSegmentInfoIntoFileName(true), WithStrategy(StrategyReplace),
 	)
 
 	// create "incomplete" segment
@@ -237,7 +237,7 @@ func TestWalFilePresent(t *testing.T) {
 
 	// incomplete segment will be deleted and memtable is reconstructed from .wal
 	b2, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithUseBloomFilter(false), WithWriteSegmentInfoIntoFileName(true), WithMinWalThreshold(4096), WithStrategy(StrategyReplace),
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithUseBloomFilter(false), WithWriteSegmentInfoIntoFileName(true), WithStrategy(StrategyReplace),
 	)
 	require.NoError(t, err)
 
@@ -312,7 +312,7 @@ func createSegmentFiles(t *testing.T, ctx context.Context, logger logrus.FieldLo
 	}
 
 	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithUseBloomFilter(false), WithWriteSegmentInfoIntoFileName(addFileInfo[0]), WithMinWalThreshold(4096), WithStrategy(StrategyReplace),
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithUseBloomFilter(false), WithWriteSegmentInfoIntoFileName(addFileInfo[0]), WithStrategy(StrategyReplace),
 	)
 	require.NoError(t, err)
 	for i := 0; i < 10; i++ {
@@ -325,7 +325,7 @@ func createSegmentFiles(t *testing.T, ctx context.Context, logger logrus.FieldLo
 	require.NoError(t, b.Shutdown(ctx))
 
 	b, err = NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithUseBloomFilter(false), WithWriteSegmentInfoIntoFileName(addFileInfo[1]), WithMinWalThreshold(4096), WithStrategy(StrategyReplace),
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithUseBloomFilter(false), WithWriteSegmentInfoIntoFileName(addFileInfo[1]), WithStrategy(StrategyReplace),
 	)
 	require.NoError(t, err)
 

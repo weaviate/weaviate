@@ -40,7 +40,7 @@ func TestBucketWalReload(t *testing.T) {
 			// initial bucket, always create segment, even if it is just a single entry
 			b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
 				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-				WithStrategy(strategy), WithSecondaryIndices(secondaryIndicesCount), WithMinWalThreshold(4096),
+				WithStrategy(strategy), WithSecondaryIndices(secondaryIndicesCount),
 				WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()))
 			require.NoError(t, err)
 
@@ -71,7 +71,7 @@ func TestBucketWalReload(t *testing.T) {
 			// start fresh with a new memtable, new entries will stay in wal until size is reached
 			b, err = NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
 				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-				WithStrategy(strategy), WithSecondaryIndices(secondaryIndicesCount), WithMinWalThreshold(4096),
+				WithStrategy(strategy), WithSecondaryIndices(secondaryIndicesCount),
 				WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()))
 			require.NoError(t, err)
 
@@ -101,7 +101,7 @@ func TestBucketWalReload(t *testing.T) {
 			// will load wal and reuse memtable
 			b, err = NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
 				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-				WithStrategy(strategy), WithSecondaryIndices(1), WithMinWalThreshold(4096),
+				WithStrategy(strategy), WithSecondaryIndices(1),
 				WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()))
 			require.NoError(t, err)
 
@@ -134,7 +134,7 @@ func TestBucketWalReload(t *testing.T) {
 			// now add a lot of entries to hit .wal file limit
 			b, err = NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
 				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-				WithStrategy(strategy), WithSecondaryIndices(secondaryIndicesCount), WithMinWalThreshold(4096),
+				WithStrategy(strategy), WithSecondaryIndices(secondaryIndicesCount),
 				WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()))
 			require.NoError(t, err)
 
@@ -169,7 +169,7 @@ func TestBucketWalReload(t *testing.T) {
 
 			b, err = NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
 				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-				WithStrategy(strategy), WithSecondaryIndices(secondaryIndicesCount), WithMinWalThreshold(4096),
+				WithStrategy(strategy), WithSecondaryIndices(secondaryIndicesCount),
 				WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()))
 			require.NoError(t, err)
 
@@ -185,7 +185,7 @@ func TestBucketRecovery(t *testing.T) {
 	dirName := t.TempDir()
 	tmpDir := t.TempDir()
 	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithWriteSegmentInfoIntoFileName(true), WithMinWalThreshold(4096), WithStrategy(StrategyReplace),
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithWriteSegmentInfoIntoFileName(true), WithStrategy(StrategyReplace),
 	)
 	require.NoError(t, err)
 	require.NoError(t, b.Put([]byte("hello1"), []byte("world1"), WithSecondaryKey(0, []byte("bonjour1"))))
@@ -209,7 +209,7 @@ func TestBucketRecovery(t *testing.T) {
 	require.Equal(t, walFiles, 0)
 
 	b, err = NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithWriteSegmentInfoIntoFileName(true), WithMinWalThreshold(4096), WithStrategy(StrategyReplace),
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithWriteSegmentInfoIntoFileName(true), WithStrategy(StrategyReplace),
 	)
 	require.NoError(t, err)
 	require.NoError(t, b.Put([]byte("hello2"), []byte("world2"), WithSecondaryKey(0, []byte("bonjour2"))))
@@ -222,7 +222,7 @@ func TestBucketRecovery(t *testing.T) {
 	require.NoError(t, os.Rename(tmpPath, oldPath))
 
 	b, err = NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithWriteSegmentInfoIntoFileName(true), WithMinWalThreshold(4096), WithStrategy(StrategyReplace),
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithWriteSegmentInfoIntoFileName(true), WithStrategy(StrategyReplace),
 	)
 	require.NoError(t, err)
 	get, err := b.Get([]byte("hello1"))
@@ -271,7 +271,7 @@ func TestBucketReloadAfterWalDamange(t *testing.T) {
 	ctx := context.Background()
 	dirName := t.TempDir()
 	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithCalcCountNetAdditions(true), WithMinWalThreshold(4096), WithSecondaryIndices(2), WithStrategy(StrategyReplace),
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithCalcCountNetAdditions(true), WithSecondaryIndices(2), WithStrategy(StrategyReplace),
 	)
 	require.NoError(t, err)
 
@@ -299,7 +299,7 @@ func TestBucketReloadAfterWalDamange(t *testing.T) {
 
 	// now reload bucket
 	b, err = NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithCalcCountNetAdditions(true), WithMinWalThreshold(4096), WithSecondaryIndices(2), WithStrategy(StrategyReplace),
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithCalcCountNetAdditions(true), WithSecondaryIndices(2), WithStrategy(StrategyReplace),
 	)
 	require.NoError(t, err)
 
@@ -322,7 +322,7 @@ func TestBucketReloadAfterWalDamange(t *testing.T) {
 	require.Equal(t, walFiles, 1)
 
 	b, err = NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithCalcCountNetAdditions(true), WithMinWalThreshold(4096), WithSecondaryIndices(2), WithStrategy(StrategyReplace),
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithCalcCountNetAdditions(true), WithSecondaryIndices(2), WithStrategy(StrategyReplace),
 	)
 	require.NoError(t, err)
 
@@ -335,7 +335,7 @@ func TestBucketReloadAfterWalDamange(t *testing.T) {
 	require.NoError(t, b.Shutdown(ctx))
 
 	b, err = NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithCalcCountNetAdditions(true), WithMinWalThreshold(4096), WithSecondaryIndices(2), WithStrategy(StrategyReplace),
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithCalcCountNetAdditions(true), WithSecondaryIndices(2), WithStrategy(StrategyReplace),
 	)
 	require.NoError(t, err)
 	count, err = b.Count(ctx)
