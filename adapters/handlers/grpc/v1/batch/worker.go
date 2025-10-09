@@ -66,7 +66,7 @@ func StartBatchWorkers(
 	logger logrus.FieldLogger,
 ) {
 	eg := enterrors.NewErrorGroupWrapper(logger)
-	logger.WithField("action", "batch_workers_start").WithField("concurrency", concurrency).Info("entering worker loop(s)")
+	logger.WithField("action", "batch_workers_start").WithField("concurrency", concurrency).Debug("entering worker loop(s)")
 	for range concurrency {
 		wg.Add(1)
 		eg.Go(func() error {
@@ -132,6 +132,7 @@ func (w *Worker) sendObjects(ctx context.Context, errCh errCh, streamId string, 
 
 func (w *Worker) sendReferences(ctx context.Context, errCh errCh, streamId string, refs []*pb.BatchReference, cl *pb.ConsistencyLevel, retries int) error {
 	if len(refs) == 0 {
+		w.logger.WithField("streamId", streamId).Error("received nil sendReferences request")
 		return fmt.Errorf("received nil sendReferences request")
 	}
 	reply, err := w.batcher.BatchReferences(ctx, &pb.BatchReferencesRequest{
@@ -181,11 +182,11 @@ func (w *Worker) Loop(ctx context.Context) error {
 			log := w.logger.WithField("streamId", req.StreamId)
 			log.Debug("received processing request")
 			if err := w.process(ctx, req); err != nil {
-				log.Error(fmt.Errorf("failed to process batch request: %w", err))
+				log.WithField("error", err).Error("failed to process batch request")
 			}
 		}
 	}
-	w.logger.Info("processing queue closed, shutting down worker")
+	w.logger.Debug("processing queue closed, shutting down worker")
 	return nil // channel closed, exit loop
 }
 

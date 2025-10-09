@@ -142,7 +142,7 @@ func (h *StreamHandler) send(ctx context.Context, streamId string, stream pb.Wea
 					}
 					if h.shuttingDown.Load() {
 						// the server must be shutting down on its own, so return an error saying so
-						h.logger.WithField("streamId", streamId).Infof("while server is shutting down, receiver errored: %v", recvErr)
+						h.logger.WithField("streamId", streamId).Errorf("while server is shutting down, receiver errored: %v", recvErr)
 						return ErrShutdown
 					}
 					// Receiver errored in some way, send error to client
@@ -266,7 +266,7 @@ func (h *StreamHandler) recv(ctx context.Context, streamId string, consistencyLe
 		}
 		if err != nil {
 			log.WithError(err).Error("failed to receive batch stream request")
-			// Tell the scheduler to stop processing this stream because of a client hangup error
+			// Tell the sender to stop processing this stream because of a client hangup error
 			return err
 		}
 		if request.GetData() != nil {
@@ -282,6 +282,7 @@ func (h *StreamHandler) recv(ctx context.Context, streamId string, consistencyLe
 				h.metrics.OnStreamRequest(float64(len(h.processingQueue)) / float64(cap(h.processingQueue)))
 			}
 		} else {
+			h.logger.WithField("streamId", streamId).WithField("request", request).Error("received invalid batch send request: data field is nil")
 			return fmt.Errorf("invalid batch send request: data field is nil")
 		}
 	}
