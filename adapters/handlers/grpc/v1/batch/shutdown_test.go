@@ -89,7 +89,7 @@ func TestShutdownHappyPath(t *testing.T) {
 
 	numWorkers := 1
 	shutdown := batch.NewShutdown(ctx, numWorkers)
-	handler := batch.Start(nil, nil, mockBatcher, nil, shutdown, numWorkers, shutdown.ProcessingQueue, logger)
+	handler := batch.Start(mockBatcher, nil, shutdown, numWorkers, shutdown.ProcessingQueue, logger)
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
@@ -163,7 +163,7 @@ func TestShutdownAfterBrokenStream(t *testing.T) {
 
 	numWorkers := 1
 	shutdown := batch.NewShutdown(ctx, numWorkers)
-	handler := batch.Start(nil, nil, mockBatcher, nil, shutdown, numWorkers, shutdown.ProcessingQueue, logger)
+	handler := batch.Start(mockBatcher, nil, shutdown, numWorkers, shutdown.ProcessingQueue, logger)
 	err := handler.Handle(stream)
 	require.NotNil(t, err, "handler should return an error")
 	require.ErrorAs(t, err, &networkErr, "handler should return network error")
@@ -232,7 +232,7 @@ func TestShutdownWithHangingClient(t *testing.T) {
 
 	numWorkers := 1
 	shutdown := batch.NewShutdown(ctx, numWorkers)
-	handler := batch.Start(nil, nil, mockBatcher, nil, shutdown, numWorkers, shutdown.ProcessingQueue, logger)
+	handler := batch.Start(mockBatcher, nil, shutdown, numWorkers, shutdown.ProcessingQueue, logger)
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {

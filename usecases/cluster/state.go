@@ -18,7 +18,6 @@ import (
 	"slices"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/hashicorp/memberlist"
 	"github.com/pkg/errors"
@@ -141,8 +140,6 @@ func Init(userConfig Config, grpcPort, raftBootstrapExpect int, dataPath string,
 		cfg.SuspicionMult = 1
 	}
 
-	cfg.DeadNodeReclaimTime = 5 * time.Second
-	cfg.SuspicionMult = 2 // half og
 	if state.list, err = memberlist.Create(cfg); err != nil {
 		logger.WithFields(logrus.Fields{
 			"action":    "memberlist_init",

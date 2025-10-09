@@ -65,7 +65,7 @@ func NewService(traverser *traverser.Traverser, authComposer composer.TokenFunc,
 ) *Service {
 	authenticator := auth.NewHandler(allowAnonymousAccess, authComposer)
 	batchHandler := batch.NewHandler(authorization, batchManager, logger, authenticator, schemaManager)
-	batchStreamHandler := batch.Start(authenticator, authorization, batchHandler, prometheus.DefaultRegisterer, shutdown, NUMCPU, shutdown.ProcessingQueue, logger)
+	batchStreamHandler := batch.Start(batchHandler, prometheus.DefaultRegisterer, shutdown, NUMCPU, shutdown.ProcessingQueue, logger)
 	return &Service{
 		traverser:            traverser,
 		authComposer:         authComposer,
@@ -247,29 +247,6 @@ func (s *Service) BatchReferences(ctx context.Context, req *pb.BatchReferencesRe
 
 	return result, errInner
 }
-
-// BatchSend is similar in concept to the BatchObjects and BatchReferences methods in that it accepts N objects or references
-// in a single gRPC invocation call. However, it differs in that it does not wait for the objects/references to be fully
-// inserted into the database before returning a response. Instead, it simply adds the objects/references to the internal
-// queueing system and then returns immediately.
-//
-// In addition, in order to assign the objects/references to the correct internal queue, it requires the stream ID to be
-// specified in the request. This stream ID is only available to clients once they have opened a stream using the BatchStream method.
-//
-// This method therefore does not work in isolation, it has to be used in conjunction with other methods.
-// It should be used as part of the automatic batching process provided in clients.
-// func (s *Service) BatchSend(ctx context.Context, req *pb.BatchSendRequest) (*pb.BatchSendReply, error) {
-// 	var result *pb.BatchSendReply
-// 	var errInner error
-
-// 	if err := enterrors.GoWrapperWithBlock(func() {
-// 		result, errInner = s.batchStreamHandler.Send(ctx, req)
-// 	}, s.logger); err != nil {
-// 		return nil, err
-// 	}
-
-// 	return result, errInner
-// }
 
 // BatchStream defines a StreamStream gRPC method whereby the server streams messages back to the client in order to
 // asynchronously report on any errors that have occurred during the automatic batching process.

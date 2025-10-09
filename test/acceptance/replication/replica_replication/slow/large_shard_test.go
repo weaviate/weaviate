@@ -59,16 +59,14 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateOfLargeShard() {
 	// Load data
 	t.Log("Loading data into tenant...")
 	tenantName := "tenant"
-	batch := make([]*models.Object, 0, 10000)
+	batch := make([]*models.Object, 0, 100000)
 	start := time.Now()
 	for j := 0; j < 1000000; j++ {
-		batch = append(batch, articles.
-			NewParagraph().
+		batch = append(batch, (*models.Object)(articles.NewParagraph().
 			WithContents(fmt.Sprintf("paragraph#%d", j)).
 			WithTenant(tenantName).
-			Object(),
-		)
-		if len(batch) == 10000 {
+			Object()))
+		if len(batch) == 50000 {
 			helper.CreateObjectsBatch(t, batch)
 			t.Logf("Loaded %d objects", len(batch))
 			batch = batch[:0]

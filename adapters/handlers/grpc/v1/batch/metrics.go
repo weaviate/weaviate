@@ -18,9 +18,9 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
-// ReplicationEngineOpsCallbacks contains a set of callback functions that are invoked
-// on different stages of a replication operation's lifecycle.
-type BatchStreamingCallbacks struct {
+// BatchStreamingCallbacks contains a set of callback functions that are invoked
+// on different stages of the batch streaming process.
+type BatchStreamingMetrics struct {
 	OnStreamStart   func()
 	OnStreamStop    func()
 	OnStreamRequest func(queueLen float64)
@@ -28,52 +28,7 @@ type BatchStreamingCallbacks struct {
 	OnWorkerReport  func(streamId string, throughputEma float64, processingTimeEma time.Duration)
 }
 
-type BatchStreamingCallbacksBuilder struct {
-	callbacks BatchStreamingCallbacks
-}
-
-func NewBatchStreamingCallbacksBuilder() *BatchStreamingCallbacksBuilder {
-	return &BatchStreamingCallbacksBuilder{
-		callbacks: BatchStreamingCallbacks{
-			OnStreamStart:   func() {},
-			OnStreamStop:    func() {},
-			OnStreamRequest: func(queueLen float64) {},
-			OnStreamError:   func(streamId string) {},
-			OnWorkerReport:  func(streamId string, throughputEma float64, processingTimeEma time.Duration) {},
-		},
-	}
-}
-
-func (b *BatchStreamingCallbacksBuilder) WithStreamStart(callback func()) *BatchStreamingCallbacksBuilder {
-	b.callbacks.OnStreamStart = callback
-	return b
-}
-
-func (b *BatchStreamingCallbacksBuilder) WithStreamStop(callback func()) *BatchStreamingCallbacksBuilder {
-	b.callbacks.OnStreamStop = callback
-	return b
-}
-
-func (b *BatchStreamingCallbacksBuilder) WithStreamRequest(callback func(ratio float64)) *BatchStreamingCallbacksBuilder {
-	b.callbacks.OnStreamRequest = callback
-	return b
-}
-
-func (b *BatchStreamingCallbacksBuilder) WithStreamError(callback func(streamId string)) *BatchStreamingCallbacksBuilder {
-	b.callbacks.OnStreamError = callback
-	return b
-}
-
-func (b *BatchStreamingCallbacksBuilder) WithWorkerReport(callback func(streamId string, throughputEma float64, processingTimeEma time.Duration)) *BatchStreamingCallbacksBuilder {
-	b.callbacks.OnWorkerReport = callback
-	return b
-}
-
-func (b *BatchStreamingCallbacksBuilder) Build() *BatchStreamingCallbacks {
-	return &b.callbacks
-}
-
-func NewBatchStreamingCallbacks(reg prometheus.Registerer) *BatchStreamingCallbacks {
+func NewBatchStreamingMetrics(reg prometheus.Registerer) *BatchStreamingMetrics {
 	if reg == nil {
 		return nil
 	}
@@ -110,22 +65,22 @@ func NewBatchStreamingCallbacks(reg prometheus.Registerer) *BatchStreamingCallba
 		Help:      "Exponential moving average of the throughput (objects / second) for the internal processing queue",
 	}, []string{"stream_id"})
 
-	return NewBatchStreamingCallbacksBuilder().
-		WithStreamStart(func() {
+	return &BatchStreamingMetrics{
+		OnStreamStart: func() {
 			openStreams.WithLabelValues().Inc()
-		}).
-		WithStreamStop(func() {
+		},
+		OnStreamStop: func() {
 			openStreams.WithLabelValues().Dec()
-		}).
-		WithStreamRequest(func(ratio float64) {
+		},
+		OnStreamRequest: func(ratio float64) {
 			processingQueueUtilization.WithLabelValues().Observe(ratio)
-		}).
-		WithStreamError(func(streamId string) {
+		},
+		OnStreamError: func(streamId string) {
 			streamTotalErrors.WithLabelValues(streamId).Inc()
-		}).
-		WithWorkerReport(func(streamId string, throughputEma float64, processingTimeEma time.Duration) {
+		},
+		OnWorkerReport: func(streamId string, throughputEma float64, processingTimeEma time.Duration) {
 			streamProcessingThroughputEma.WithLabelValues(streamId).Observe(throughputEma)
 			streamProcessingTimeEma.WithLabelValues(streamId).Observe(float64(processingTimeEma.Seconds()))
-		}).
-		Build()
+		},
+	}
 }

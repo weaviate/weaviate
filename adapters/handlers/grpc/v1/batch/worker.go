@@ -179,11 +179,11 @@ func (w *Worker) report(streamId string, errs []*pb.BatchStreamReply_Error, stat
 func (w *Worker) Loop(ctx context.Context) error {
 	for req := range w.processingQueue {
 		if req != nil {
-			log := w.logger.WithField("streamId", req.StreamId)
-			log.Debug("received processing request")
 			if err := w.process(ctx, req); err != nil {
-				log.WithField("error", err).Error("failed to process batch request")
+				w.logger.WithField("streamId", req.StreamId).WithField("error", err).Error("failed to process batch request")
 			}
+		} else {
+			w.logger.WithField("action", "batch_worker_loop").Error("received nil process request")
 		}
 	}
 	w.logger.Debug("processing queue closed, shutting down worker")

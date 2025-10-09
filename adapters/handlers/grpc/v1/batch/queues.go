@@ -45,7 +45,7 @@ type (
 	reportingQueue  chan *report
 )
 
-// NewBatchWriteQueue creates a buffered channel to store objects for batch writing.
+// NewProcessingQueue creates a buffered channel to store objects for batch writing.
 //
 // The buffer size can be adjusted based on expected load and performance requirements
 // to optimize throughput and resource usage. But is required so that there is a small buffer
@@ -54,20 +54,10 @@ func NewProcessingQueue(bufferSize int) processingQueue {
 	return make(processingQueue, bufferSize)
 }
 
-func NewReportingQueue(bufferSize int) reportingQueue {
-	return make(reportingQueue, bufferSize)
-}
-
 func NewReportingQueues() *reportingQueues {
 	return &reportingQueues{
 		queues: make(map[string]reportingQueue),
 		closed: make(map[string]struct{}),
-	}
-}
-
-func NewErrorsObject(errs []*pb.BatchStreamReply_Error) *report {
-	return &report{
-		Errors: errs,
 	}
 }
 

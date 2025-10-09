@@ -37,14 +37,12 @@ type StreamHandler struct {
 	processingQueue      processingQueue
 	recvWg               *sync.WaitGroup
 	sendWg               *sync.WaitGroup
-	metrics              *BatchStreamingCallbacks
+	metrics              *BatchStreamingMetrics
 	shuttingDown         atomic.Bool
 	workerStatsPerStream *sync.Map // map[string]*stats
 }
 
-const POLLING_INTERVAL = 100 * time.Millisecond
-
-func NewStreamHandler(shuttingDownCtx context.Context, recvWg, sendWg *sync.WaitGroup, reportingQueues *reportingQueues, processingQueue processingQueue, metrics *BatchStreamingCallbacks, logger logrus.FieldLogger) *StreamHandler {
+func NewStreamHandler(shuttingDownCtx context.Context, recvWg, sendWg *sync.WaitGroup, reportingQueues *reportingQueues, processingQueue processingQueue, metrics *BatchStreamingMetrics, logger logrus.FieldLogger) *StreamHandler {
 	h := &StreamHandler{
 		shuttingDownCtx:      shuttingDownCtx,
 		logger:               logger,

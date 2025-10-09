@@ -16,13 +16,9 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/auth"
-	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
 func Start(
-	authenticator *auth.Handler,
-	authorization authorization.Authorizer,
 	batchHandler Batcher,
 	reg prometheus.Registerer,
 	shutdown *Shutdown,
@@ -33,5 +29,5 @@ func Start(
 	reportingQueues := NewReportingQueues()
 	// batch workers set their own per-process timeout and should not be cancelled on shutdown but instead waited for to complete gracefully
 	StartBatchWorkers(context.Background(), shutdown.WorkersWg, numWorkers, processingQueue, reportingQueues, batchHandler, logger)
-	return NewStreamHandler(shutdown.HandlersCtx, shutdown.RecvWg, shutdown.SendWg, reportingQueues, processingQueue, NewBatchStreamingCallbacks(reg), logger)
+	return NewStreamHandler(shutdown.HandlersCtx, shutdown.RecvWg, shutdown.SendWg, reportingQueues, processingQueue, NewBatchStreamingMetrics(reg), logger)
 }
