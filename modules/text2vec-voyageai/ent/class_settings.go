@@ -29,6 +29,10 @@ const (
 	LowerCaseInput               = false
 )
 
+var availableVoyageModelsWithDimensions = []string{
+	"voyage-3", "voyage-3-large", "voyage-3.5", "voyage-3.5-lite", "voyage-code-3",
+}
+
 type classSettings struct {
 	basesettings.BaseClassSettings
 	cfg moduletools.ClassConfig
@@ -54,5 +58,11 @@ func (cs classSettings) Validate(class *models.Class) error {
 	if err := cs.BaseClassSettings.Validate(class); err != nil {
 		return err
 	}
+
+	// Validate dimensions if set
+	if err := basesettings.ValidateDimensions(cs.BaseClassSettings.Dimensions(), cs.Model(), basesettings.AvailableVoyageDimensions, availableVoyageModelsWithDimensions); err != nil {
+		return err
+	}
+
 	return nil
 }

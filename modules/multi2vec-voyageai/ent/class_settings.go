@@ -27,6 +27,10 @@ const (
 	truncateProperty = "truncate"
 )
 
+var availableVoyageModelsWithDimensions = []string{
+	"voyage-multimodal-3",
+}
+
 const (
 	DefaultBaseURL               = "https://api.voyageai.com/v1"
 	DefaultVoyageAIModel         = "voyage-multimodal-3"
@@ -173,6 +177,11 @@ func (ic *classSettings) Validate() error {
 		if err != nil {
 			errorMessages = append(errorMessages, err.Error())
 		}
+	}
+
+	// Validate dimensions if set
+	if err := basesettings.ValidateDimensions(ic.base.Dimensions(), ic.Model(), basesettings.AvailableVoyageDimensions, availableVoyageModelsWithDimensions); err != nil {
+		errorMessages = append(errorMessages, err.Error())
 	}
 
 	if len(errorMessages) > 0 {
