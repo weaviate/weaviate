@@ -65,6 +65,10 @@ func (cs *classSettings) BaseURL() string {
 	return cs.base.GetPropertyAsString(baseURLProperty, DefaultBaseURL)
 }
 
+func (cs *classSettings) Dimensions() *int64 {
+	return cs.base.Dimensions()
+}
+
 // CLIP module specific settings
 func (ic *classSettings) ImageField(property string) bool {
 	return ic.field("imageFields", property)
