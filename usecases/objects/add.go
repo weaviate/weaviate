@@ -71,16 +71,16 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 	}
 	object.ID = id
 
-	schemaVersion, err := m.autoSchemaManager.autoSchema(ctx, principal, true, fetchedClasses, object)
+	maxSchemaVersion, err := m.autoSchemaManager.autoSchema(ctx, principal, true, fetchedClasses, object)
 	if err != nil {
 		return nil, fmt.Errorf("invalid object: %w", err)
 	}
 
 	// Ensure tenants are created if auto-tenant is enabled and wait for the newer schema version
-	if tenantSchemaVersion, _, err := m.autoSchemaManager.autoTenants(ctx, principal, []*models.Object{object}, fetchedClasses); err != nil {
+	if autoTenantSchemaVersion, _, err := m.autoSchemaManager.autoTenants(ctx, principal, []*models.Object{object}, fetchedClasses); err != nil {
 		return nil, err
-	} else if tenantSchemaVersion > schemaVersion {
-		schemaVersion = tenantSchemaVersion
+	} else if autoTenantSchemaVersion > maxSchemaVersion {
+		maxSchemaVersion = autoTenantSchemaVersion
 	}
 
 	class := fetchedClasses[object.Class].Class
@@ -103,14 +103,14 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 	}
 
 	// Ensure that the local schema has caught up to the version we used to validate
-	if err := m.schemaManager.WaitForUpdate(ctx, schemaVersion); err != nil {
-		return nil, fmt.Errorf("error waiting for local schema to catch up to version %d: %w", schemaVersion, err)
+	if err := m.schemaManager.WaitForUpdate(ctx, maxSchemaVersion); err != nil {
+		return nil, fmt.Errorf("error waiting for local schema to catch up to version %d: %w", maxSchemaVersion, err)
 	}
 	vectors, multiVectors, err := dto.GetVectors(object.Vectors)
 	if err != nil {
 		return nil, fmt.Errorf("put object: cannot get vectors: %w", err)
 	}
-	err = m.vectorRepo.PutObject(ctx, object, object.Vector, vectors, multiVectors, repl, schemaVersion)
+	err = m.vectorRepo.PutObject(ctx, object, object.Vector, vectors, multiVectors, repl, maxSchemaVersion)
 	if err != nil {
 		return nil, fmt.Errorf("put object: %w", err)
 	}
