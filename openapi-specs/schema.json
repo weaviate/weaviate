@@ -7725,6 +7725,21 @@
             "default": true,
             "type": "boolean",
             "description": "If consistency is true, the request will be proxied to the leader to ensure strong schema consistency"
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "description": "Tenant name to start after (exclusive). Results are ordered alphabetically. Must be used with limit."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int64",
+            "description": "Maximum number of tenants to return. If not set, returns all tenants."
           }
         ],
         "responses": {
