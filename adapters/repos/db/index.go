@@ -92,7 +92,7 @@ var (
 	ErrShardNotFound = errors.New("shard not found")
 )
 
-// shardMap is a syn.Map which specialized in storing shards
+// shardMap is a sync.Map which specialized in storing shards
 type shardMap sync.Map
 
 // Range calls f sequentially for each key and value present in the map.
