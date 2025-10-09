@@ -13,7 +13,6 @@ package db
 
 import (
 	"context"
-	"maps"
 	"strings"
 	"sync"
 	"time"
@@ -99,10 +98,7 @@ func (o *nodeWideMetricsObserver) observeShards() {
 
 // Collect and publish aggregated object_count metric iff all indices report allShardsReady=true.
 func (o *nodeWideMetricsObserver) observeObjectCount() {
-	o.db.indexLock.RLock()
-	defer o.db.indexLock.RUnlock()
-
-	for _, index := range o.db.indices {
+	for _, index := range o.db.Indices() {
 		if !index.allShardsReady.Load() {
 			o.db.logger.WithFields(logrus.Fields{
 				"action": "skip_observe_node_wide_metrics",
@@ -114,7 +110,7 @@ func (o *nodeWideMetricsObserver) observeObjectCount() {
 	start := time.Now()
 
 	totalObjectCount := int64(0)
-	for _, index := range o.db.indices {
+	for _, index := range o.db.Indices() {
 		index.ForEachShard(func(name string, shard ShardLike) error {
 			objectCount, err := shard.ObjectCountAsync(context.Background())
 			if err != nil {
@@ -272,11 +268,8 @@ func (o *nodeWideMetricsObserver) analyzeActivityDelta(currentActivity activityB
 }
 
 func (o *nodeWideMetricsObserver) getCurrentActivity() activityByCollection {
-	o.db.indexLock.RLock()
-	defer o.db.indexLock.RUnlock()
-
 	current := make(activityByCollection)
-	for _, index := range o.db.indices {
+	for _, index := range o.db.Indices() {
 		if !index.partitioningEnabled {
 			continue
 		}
@@ -353,13 +346,6 @@ func (o *nodeWideMetricsObserver) observeDimensionMetrics() {
 }
 
 func (o *nodeWideMetricsObserver) publishVectorMetrics(ctx context.Context) {
-	// We're a low-priority process, copy the index map to avoid blocking others.
-	// No new indices can be added while we're holding the lock anyways.
-	o.db.indexLock.RLock()
-	indices := make(map[string]*Index, len(o.db.indices))
-	maps.Copy(indices, o.db.indices)
-	o.db.indexLock.RUnlock()
-
 	var total DimensionMetrics
 
 	start := time.Now()
@@ -374,7 +360,7 @@ func (o *nodeWideMetricsObserver) publishVectorMetrics(ctx context.Context) {
 		}).Debug("published vector metrics")
 	}()
 
-	for _, index := range indices {
+	for _, index := range o.db.Indices() {
 		index.closeLock.RLock()
 		closed := index.closed
 		index.closeLock.RUnlock()

@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"maps"
 	"math"
 	"runtime"
 	"sync"
@@ -142,6 +143,16 @@ func (db *DB) WaitForStartup(ctx context.Context) error {
 	db.scanResourceUsage()
 
 	return nil
+}
+
+func (db *DB) Indices() map[string]*Index {
+	db.indexLock.RLock()
+	defer db.indexLock.RUnlock()
+
+	indices := make(map[string]*Index, len(db.indices))
+	maps.Copy(indices, db.indices)
+
+	return indices
 }
 
 func (db *DB) StartupComplete() bool { return db.startupComplete.Load() }
@@ -303,10 +314,7 @@ func (db *DB) GetIndex(className schema.ClassName) *Index {
 	)
 	// TODO-RAFT remove backoff. Eventual consistency handled by versioning
 	backoff.Retry(func() error {
-		db.indexLock.RLock()
-		defer db.indexLock.RUnlock()
-
-		index, exists = db.indices[indexID(className)]
+		index, exists = db.Indices()[indexID(className)]
 		if !exists {
 			return fmt.Errorf("index for class %v not found locally", index)
 		}
@@ -399,9 +407,7 @@ func (db *DB) Shutdown(ctx context.Context) error {
 		db.metricsObserver.Shutdown()
 	}
 
-	db.indexLock.Lock()
-	defer db.indexLock.Unlock()
-	for id, index := range db.indices {
+	for id, index := range db.Indices() {
 		if err := index.Shutdown(ctx); err != nil {
 			return errors.Wrapf(err, "shutdown index %q", id)
 		}

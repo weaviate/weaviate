@@ -306,7 +306,7 @@ func TestMigrator_UpdateIndex(t *testing.T) {
 		}()
 
 		t.Run("before index update", func(t *testing.T) {
-			idx, ok := localMigrator.db.indices[strings.ToLower(class1Name)]
+			idx, ok := localMigrator.db.Indices()[strings.ToLower(class1Name)]
 			require.True(t, ok)
 			shardCount := 0
 			idx.ForEachShard(func(_ string, shard ShardLike) error {
@@ -334,8 +334,8 @@ func TestMigrator_UpdateIndex(t *testing.T) {
 		})
 
 		t.Run("after index update", func(t *testing.T) {
-			require.Len(t, localMigrator.db.indices, 1)
-			idx, ok := localMigrator.db.indices[strings.ToLower(class1Name)]
+			require.Len(t, localMigrator.db.Indices(), 1)
+			idx, ok := localMigrator.db.Indices()[strings.ToLower(class1Name)]
 			require.True(t, ok)
 
 			shardCount := 0
@@ -394,7 +394,7 @@ func TestMigrator_UpdateIndex(t *testing.T) {
 		})
 
 		t.Run("before index update", func(t *testing.T) {
-			idx, ok := localMigrator.db.indices[strings.ToLower(class1Name)]
+			idx, ok := localMigrator.db.Indices()[strings.ToLower(class1Name)]
 			require.True(t, ok)
 			shardCount := 0
 			idx.ForEachShard(func(_ string, shard ShardLike) error {
@@ -422,8 +422,8 @@ func TestMigrator_UpdateIndex(t *testing.T) {
 		})
 
 		t.Run("after index update", func(t *testing.T) {
-			require.Len(t, localMigrator.db.indices, 1)
-			idx, ok := localMigrator.db.indices[strings.ToLower(class1Name)]
+			require.Len(t, localMigrator.db.Indices(), 1)
+			idx, ok := localMigrator.db.Indices()[strings.ToLower(class1Name)]
 			require.True(t, ok)
 
 			shardCount := 0
@@ -473,7 +473,7 @@ func TestMigrator_UpdateIndex(t *testing.T) {
 		})
 
 		t.Run("before index update", func(t *testing.T) {
-			idx, ok := localMigrator.db.indices[strings.ToLower(class1Name)]
+			idx, ok := localMigrator.db.Indices()[strings.ToLower(class1Name)]
 			require.True(t, ok)
 			for _, tenant := range initialTenants {
 				require.NotNil(t, idx.shards.Load(tenant))
@@ -490,8 +490,8 @@ func TestMigrator_UpdateIndex(t *testing.T) {
 		})
 
 		t.Run("after index update", func(t *testing.T) {
-			require.Len(t, localMigrator.db.indices, 1)
-			idx, ok := localMigrator.db.indices[strings.ToLower(class1Name)]
+			require.Len(t, localMigrator.db.Indices(), 1)
+			idx, ok := localMigrator.db.Indices()[strings.ToLower(class1Name)]
 			require.True(t, ok)
 
 			shardCount := 0

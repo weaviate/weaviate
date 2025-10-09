@@ -811,11 +811,8 @@ func (m *Migrator) RecalculateVectorDimensions(ctx context.Context) error {
 		WithField("action", "reindex").
 		Info("Reindexing dimensions, this may take a while")
 
-	m.db.indexLock.Lock()
-	defer m.db.indexLock.Unlock()
-
 	// Iterate over all indexes
-	for _, index := range m.db.indices {
+	for _, index := range m.db.Indices() {
 		err := index.ForEachShard(func(name string, shard ShardLike) error {
 			return shard.resetDimensionsLSM(ctx)
 		})
@@ -858,10 +855,8 @@ func (m *Migrator) RecountProperties(ctx context.Context) error {
 		WithField("action", "recount").
 		Info("Recounting properties, this may take a while")
 
-	m.db.indexLock.Lock()
-	defer m.db.indexLock.Unlock()
 	// Iterate over all indexes
-	for _, index := range m.db.indices {
+	for _, index := range m.db.Indices() {
 
 		// Clear the shards before counting
 		err := index.IterateShards(ctx, func(index *Index, shard ShardLike) error {
@@ -956,7 +951,7 @@ func (m *Migrator) doInvertedReindex(ctx context.Context, taskNamesWithArgs map[
 
 	eg := enterrors.NewErrorGroupWrapper(m.logger)
 	eg.SetLimit(_NUMCPU)
-	for _, index := range m.db.indices {
+	for _, index := range m.db.Indices() {
 		index.ForEachShard(func(name string, shard ShardLike) error {
 			eg.Go(func() error {
 				reindexer := NewShardInvertedReindexer(shard, m.logger)
@@ -1002,7 +997,7 @@ func (m *Migrator) doInvertedIndexMissingTextFilterable(ctx context.Context, tas
 
 	eg := enterrors.NewErrorGroupWrapper(m.logger)
 	eg.SetLimit(_NUMCPU * 2)
-	for _, index := range m.db.indices {
+	for _, index := range m.db.Indices() {
 		index := index
 		className := index.Config.ClassName.String()
 
