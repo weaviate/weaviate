@@ -626,7 +626,7 @@ func TestBitmapBufPoolRanged(t *testing.T) {
 		defer stop()
 
 		// wait for cleanup
-		time.Sleep(5 * time.Millisecond)
+		time.Sleep(6 * time.Millisecond)
 
 		buf256_3, put := pool.Get(256)
 		val256_3 := binary.BigEndian.Uint16(buf256_3[:2])
