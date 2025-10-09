@@ -64,6 +64,14 @@ func ValidateUserConfigUpdate(initial, updated config.VectorIndexConfig) error {
 			name:     "muvera enabled",
 			accessor: func(c ent.UserConfig) interface{} { return c.Multivector.MuveraConfig.Enabled },
 		},
+		{
+			name:     "skipDefaultQuantization",
+			accessor: func(c ent.UserConfig) interface{} { return c.SkipDefaultQuantization },
+		},
+		{
+			name:     "trackDefaultQuantization",
+			accessor: func(c ent.UserConfig) interface{} { return c.TrackDefaultQuantization },
+		},
 	}
 
 	for _, u := range immutableFields {
@@ -115,10 +123,22 @@ func (h *hnsw) UpdateUserConfig(updated config.VectorIndexConfig, callback func(
 		return nil
 	}
 
+	// check if rq bits is immutable
+	if h.rqConfig.Enabled && parsed.RQ.Enabled {
+		if parsed.RQ.Bits != h.rqConfig.Bits {
+			callback()
+			return errors.Errorf("rq bits is immutable: attempted change from \"%v\" to \"%v\"",
+				h.rqConfig.Bits, parsed.RQ.Bits)
+		}
+	}
+
+	h.compressActionLock.Lock()
 	h.pqConfig = parsed.PQ
 	h.sqConfig = parsed.SQ
 	h.bqConfig = parsed.BQ
 	h.rqConfig = parsed.RQ
+	h.compressActionLock.Unlock()
+
 	if asyncEnabled() {
 		callback()
 		return nil
@@ -168,7 +188,7 @@ func (h *hnsw) compressThenCallback(callback func()) {
 		RQ: h.rqConfig,
 	}
 	if err := h.compress(uc); err != nil {
-		h.logger.Error(err)
+		h.logger.WithField("shard", h.shardName).WithField("targetVector", h.getTargetVector()).Error(err)
 		return
 	}
 	h.logger.WithField("action", "compress").Info("vector compression complete")

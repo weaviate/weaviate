@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.32.0"
+    "version": "1.34.0-dev"
   },
   "basePath": "/v1",
   "paths": {
@@ -410,6 +410,69 @@ func init() {
         }
       }
     },
+    "/authz/groups/{groupType}": {
+      "get": {
+        "description": "Retrieves a list of all available group names for a specified group type (` + "`" + `oidc` + "`" + ` or ` + "`" + `db` + "`" + `).",
+        "tags": [
+          "authz"
+        ],
+        "summary": "List all groups of a specific type",
+        "operationId": "getGroups",
+        "parameters": [
+          {
+            "enum": [
+              "oidc"
+            ],
+            "type": "string",
+            "description": "The type of group to retrieve.",
+            "name": "groupType",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A list of group names for the specified type.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.authz.get.groups"
+        ]
+      }
+    },
     "/authz/groups/{id}/assign": {
       "post": {
         "tags": [
@@ -432,6 +495,9 @@ func init() {
             "schema": {
               "type": "object",
               "properties": {
+                "groupType": {
+                  "$ref": "#/definitions/GroupType"
+                },
                 "roles": {
                   "description": "the roles that assigned to group",
                   "type": "array",
@@ -499,6 +565,9 @@ func init() {
             "schema": {
               "type": "object",
               "properties": {
+                "groupType": {
+                  "$ref": "#/definitions/GroupType"
+                },
                 "roles": {
                   "description": "the roles that revoked from group",
                   "type": "array",
@@ -541,6 +610,83 @@ func init() {
         },
         "x-serviceIds": [
           "weaviate.authz.revoke.role.group"
+        ]
+      }
+    },
+    "/authz/groups/{id}/roles/{groupType}": {
+      "get": {
+        "description": "Retrieves a list of all roles assigned to a specific group. The group must be identified by both its name (` + "`" + `id` + "`" + `) and its type (` + "`" + `db` + "`" + ` or ` + "`" + `oidc` + "`" + `).",
+        "tags": [
+          "authz"
+        ],
+        "summary": "Get roles assigned to a specific group",
+        "operationId": "getRolesForGroup",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The unique name of the group.",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "enum": [
+              "oidc"
+            ],
+            "type": "string",
+            "description": "The type of the group.",
+            "name": "groupType",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "boolean",
+            "default": false,
+            "description": "If true, the response will include the full role definitions with all associated permissions. If false, only role names are returned.",
+            "name": "includeFullRoles",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A list of roles assigned to the specified group.",
+            "schema": {
+              "$ref": "#/definitions/RolesListResponse"
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "The specified group was not found."
+          },
+          "422": {
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.authz.get.groups.roles"
         ]
       }
     },
@@ -815,6 +961,75 @@ func init() {
         },
         "x-serviceIds": [
           "weaviate.authz.add.role.permissions"
+        ]
+      }
+    },
+    "/authz/roles/{id}/group-assignments": {
+      "get": {
+        "description": "Retrieves a list of all groups that have been assigned a specific role, identified by its name.",
+        "tags": [
+          "authz"
+        ],
+        "summary": "Get groups that have a specific role assigned",
+        "operationId": "getGroupsForRole",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The unique name of the role.",
+            "name": "id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successfully retrieved the list of groups that have the role assigned.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "name",
+                  "groupType"
+                ],
+                "properties": {
+                  "groupId": {
+                    "type": "string"
+                  },
+                  "groupType": {
+                    "$ref": "#/definitions/GroupType"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "The specified role was not found."
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.authz.get.roles.groups"
         ]
       }
     },
@@ -1368,11 +1583,11 @@ func init() {
     },
     "/backups/{backend}": {
       "get": {
-        "description": "[Coming soon] List all backups in progress not implemented yet.",
+        "description": "List all created backups IDs, Status",
         "tags": [
           "backups"
         ],
-        "summary": "List backups in progress",
+        "summary": "List all created backups",
         "operationId": "backups.list",
         "parameters": [
           {
@@ -5707,6 +5922,11 @@ func init() {
           "description": "Backup backend name e.g. filesystem, gcs, s3.",
           "type": "string"
         },
+        "completedAt": {
+          "description": "Timestamp when the backup process completed (successfully or with failure)",
+          "type": "string",
+          "format": "date-time"
+        },
         "error": {
           "description": "error message if creation failed",
           "type": "string"
@@ -5718,6 +5938,11 @@ func init() {
         "path": {
           "description": "destination path of backup files proper to selected backend",
           "type": "string"
+        },
+        "startedAt": {
+          "description": "Timestamp when the backup process started",
+          "type": "string",
+          "format": "date-time"
         },
         "status": {
           "description": "phase of backup creation process",
@@ -5747,13 +5972,19 @@ func init() {
               "type": "string"
             }
           },
+          "completedAt": {
+            "description": "Timestamp when the backup process completed (successfully or with failure)",
+            "type": "string",
+            "format": "date-time"
+          },
           "id": {
             "description": "The ID of the backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
             "type": "string"
           },
-          "path": {
-            "description": "destination path of backup files proper to selected backend",
-            "type": "string"
+          "startedAt": {
+            "description": "Timestamp when the backup process started",
+            "type": "string",
+            "format": "date-time"
           },
           "status": {
             "description": "status of backup process",
@@ -5798,6 +6029,10 @@ func init() {
           "additionalProperties": {
             "type": "string"
           }
+        },
+        "overwriteAlias": {
+          "description": "Allows ovewriting the collection alias if there is a conflict",
+          "type": "boolean"
         }
       }
     },
@@ -6684,6 +6919,13 @@ func init() {
         "$ref": "#/definitions/GraphQLResponse"
       }
     },
+    "GroupType": {
+      "description": "If the group contains OIDC or database users.",
+      "type": "string",
+      "enum": [
+        "oidc"
+      ]
+    },
     "InvertedIndexConfig": {
       "description": "Configure the inverted index built into Weaviate (default: 60).",
       "type": "object",
@@ -7236,7 +7478,9 @@ func init() {
             "create_aliases",
             "read_aliases",
             "update_aliases",
-            "delete_aliases"
+            "delete_aliases",
+            "assign_and_revoke_groups",
+            "read_groups"
           ]
         },
         "aliases": {
@@ -7295,6 +7539,20 @@ func init() {
               "description": "string or regex. if a specific tenant name, if left empty it will be ALL or *",
               "type": "string",
               "default": "*"
+            }
+          }
+        },
+        "groups": {
+          "description": "Resources applicable for group actions.",
+          "type": "object",
+          "properties": {
+            "group": {
+              "description": "A string that specifies which groups this permission applies to. Can be an exact group name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all groups.",
+              "type": "string",
+              "default": "*"
+            },
+            "groupType": {
+              "$ref": "#/definitions/GroupType"
             }
           }
         },
@@ -8361,7 +8619,9 @@ func init() {
             "WithinGeoRange",
             "IsNull",
             "ContainsAny",
-            "ContainsAll"
+            "ContainsAll",
+            "ContainsNone",
+            "Not"
           ],
           "example": "GreaterThanEqual"
         },
@@ -8654,7 +8914,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.32.0"
+    "version": "1.34.0-dev"
   },
   "basePath": "/v1",
   "paths": {
@@ -9016,6 +9276,69 @@ func init() {
         }
       }
     },
+    "/authz/groups/{groupType}": {
+      "get": {
+        "description": "Retrieves a list of all available group names for a specified group type (` + "`" + `oidc` + "`" + ` or ` + "`" + `db` + "`" + `).",
+        "tags": [
+          "authz"
+        ],
+        "summary": "List all groups of a specific type",
+        "operationId": "getGroups",
+        "parameters": [
+          {
+            "enum": [
+              "oidc"
+            ],
+            "type": "string",
+            "description": "The type of group to retrieve.",
+            "name": "groupType",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A list of group names for the specified type.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.authz.get.groups"
+        ]
+      }
+    },
     "/authz/groups/{id}/assign": {
       "post": {
         "tags": [
@@ -9038,6 +9361,9 @@ func init() {
             "schema": {
               "type": "object",
               "properties": {
+                "groupType": {
+                  "$ref": "#/definitions/GroupType"
+                },
                 "roles": {
                   "description": "the roles that assigned to group",
                   "type": "array",
@@ -9105,6 +9431,9 @@ func init() {
             "schema": {
               "type": "object",
               "properties": {
+                "groupType": {
+                  "$ref": "#/definitions/GroupType"
+                },
                 "roles": {
                   "description": "the roles that revoked from group",
                   "type": "array",
@@ -9147,6 +9476,83 @@ func init() {
         },
         "x-serviceIds": [
           "weaviate.authz.revoke.role.group"
+        ]
+      }
+    },
+    "/authz/groups/{id}/roles/{groupType}": {
+      "get": {
+        "description": "Retrieves a list of all roles assigned to a specific group. The group must be identified by both its name (` + "`" + `id` + "`" + `) and its type (` + "`" + `db` + "`" + ` or ` + "`" + `oidc` + "`" + `).",
+        "tags": [
+          "authz"
+        ],
+        "summary": "Get roles assigned to a specific group",
+        "operationId": "getRolesForGroup",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The unique name of the group.",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "enum": [
+              "oidc"
+            ],
+            "type": "string",
+            "description": "The type of the group.",
+            "name": "groupType",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "boolean",
+            "default": false,
+            "description": "If true, the response will include the full role definitions with all associated permissions. If false, only role names are returned.",
+            "name": "includeFullRoles",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A list of roles assigned to the specified group.",
+            "schema": {
+              "$ref": "#/definitions/RolesListResponse"
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "The specified group was not found."
+          },
+          "422": {
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.authz.get.groups.roles"
         ]
       }
     },
@@ -9421,6 +9827,63 @@ func init() {
         },
         "x-serviceIds": [
           "weaviate.authz.add.role.permissions"
+        ]
+      }
+    },
+    "/authz/roles/{id}/group-assignments": {
+      "get": {
+        "description": "Retrieves a list of all groups that have been assigned a specific role, identified by its name.",
+        "tags": [
+          "authz"
+        ],
+        "summary": "Get groups that have a specific role assigned",
+        "operationId": "getGroupsForRole",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The unique name of the role.",
+            "name": "id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successfully retrieved the list of groups that have the role assigned.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/GetGroupsForRoleOKBodyItems0"
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "The specified role was not found."
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.authz.get.roles.groups"
         ]
       }
     },
@@ -9962,11 +10425,11 @@ func init() {
     },
     "/backups/{backend}": {
       "get": {
-        "description": "[Coming soon] List all backups in progress not implemented yet.",
+        "description": "List all created backups IDs, Status",
         "tags": [
           "backups"
         ],
-        "summary": "List backups in progress",
+        "summary": "List all created backups",
         "operationId": "backups.list",
         "parameters": [
           {
@@ -14423,6 +14886,11 @@ func init() {
           "description": "Backup backend name e.g. filesystem, gcs, s3.",
           "type": "string"
         },
+        "completedAt": {
+          "description": "Timestamp when the backup process completed (successfully or with failure)",
+          "type": "string",
+          "format": "date-time"
+        },
         "error": {
           "description": "error message if creation failed",
           "type": "string"
@@ -14434,6 +14902,11 @@ func init() {
         "path": {
           "description": "destination path of backup files proper to selected backend",
           "type": "string"
+        },
+        "startedAt": {
+          "description": "Timestamp when the backup process started",
+          "type": "string",
+          "format": "date-time"
         },
         "status": {
           "description": "phase of backup creation process",
@@ -14467,13 +14940,19 @@ func init() {
             "type": "string"
           }
         },
+        "completedAt": {
+          "description": "Timestamp when the backup process completed (successfully or with failure)",
+          "type": "string",
+          "format": "date-time"
+        },
         "id": {
           "description": "The ID of the backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
           "type": "string"
         },
-        "path": {
-          "description": "destination path of backup files proper to selected backend",
-          "type": "string"
+        "startedAt": {
+          "description": "Timestamp when the backup process started",
+          "type": "string",
+          "format": "date-time"
         },
         "status": {
           "description": "status of backup process",
@@ -14517,6 +14996,10 @@ func init() {
           "additionalProperties": {
             "type": "string"
           }
+        },
+        "overwriteAlias": {
+          "description": "Allows ovewriting the collection alias if there is a conflict",
+          "type": "boolean"
         }
       }
     },
@@ -15476,6 +15959,21 @@ func init() {
         }
       }
     },
+    "GetGroupsForRoleOKBodyItems0": {
+      "type": "object",
+      "required": [
+        "name",
+        "groupType"
+      ],
+      "properties": {
+        "groupId": {
+          "type": "string"
+        },
+        "groupType": {
+          "$ref": "#/definitions/GroupType"
+        }
+      }
+    },
     "GetUsersForRoleOKBodyItems0": {
       "type": "object",
       "required": [
@@ -15575,6 +16073,13 @@ func init() {
       "items": {
         "$ref": "#/definitions/GraphQLResponse"
       }
+    },
+    "GroupType": {
+      "description": "If the group contains OIDC or database users.",
+      "type": "string",
+      "enum": [
+        "oidc"
+      ]
     },
     "InvertedIndexConfig": {
       "description": "Configure the inverted index built into Weaviate (default: 60).",
@@ -16145,7 +16650,9 @@ func init() {
             "create_aliases",
             "read_aliases",
             "update_aliases",
-            "delete_aliases"
+            "delete_aliases",
+            "assign_and_revoke_groups",
+            "read_groups"
           ]
         },
         "aliases": {
@@ -16204,6 +16711,20 @@ func init() {
               "description": "string or regex. if a specific tenant name, if left empty it will be ALL or *",
               "type": "string",
               "default": "*"
+            }
+          }
+        },
+        "groups": {
+          "description": "Resources applicable for group actions.",
+          "type": "object",
+          "properties": {
+            "group": {
+              "description": "A string that specifies which groups this permission applies to. Can be an exact group name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all groups.",
+              "type": "string",
+              "default": "*"
+            },
+            "groupType": {
+              "$ref": "#/definitions/GroupType"
             }
           }
         },
@@ -16348,6 +16869,20 @@ func init() {
           "description": "string or regex. if a specific tenant name, if left empty it will be ALL or *",
           "type": "string",
           "default": "*"
+        }
+      }
+    },
+    "PermissionGroups": {
+      "description": "Resources applicable for group actions.",
+      "type": "object",
+      "properties": {
+        "group": {
+          "description": "A string that specifies which groups this permission applies to. Can be an exact group name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all groups.",
+          "type": "string",
+          "default": "*"
+        },
+        "groupType": {
+          "$ref": "#/definitions/GroupType"
         }
       }
     },
@@ -17412,7 +17947,9 @@ func init() {
             "WithinGeoRange",
             "IsNull",
             "ContainsAny",
-            "ContainsAll"
+            "ContainsAll",
+            "ContainsNone",
+            "Not"
           ],
           "example": "GreaterThanEqual"
         },

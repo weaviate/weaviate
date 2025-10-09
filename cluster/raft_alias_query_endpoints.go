@@ -23,6 +23,48 @@ import (
 	entSentry "github.com/weaviate/weaviate/entities/sentry"
 )
 
+func (s *Raft) GetAlias(ctx context.Context, aliasName string) (*models.Alias, error) {
+	if entSentry.Enabled() {
+		transaction := sentry.StartSpan(ctx, "grpc.client",
+			sentry.WithTransactionName("raft.query.alias"),
+			sentry.WithDescription("Query the alias"),
+		)
+		ctx = transaction.Context()
+		defer transaction.Finish()
+	}
+	req := cmd.QueryResolveAliasRequest{
+		Alias: aliasName,
+	}
+
+	subCommand, err := json.Marshal(&req)
+	if err != nil {
+		return nil, fmt.Errorf("marshal request: %w", err)
+	}
+
+	command := &cmd.QueryRequest{
+		Type:       cmd.QueryRequest_TYPE_RESOLVE_ALIAS,
+		SubCommand: subCommand,
+	}
+
+	queryResp, err := s.Query(ctx, command)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute query: %w", err)
+	}
+
+	// Unmarshal the response
+	resp := cmd.QueryResolveAliasResponse{}
+	err = json.Unmarshal(queryResp.Payload, &resp)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal query result: %w", err)
+	}
+	alias := &models.Alias{
+		Alias: aliasName,
+		Class: resp.Class,
+	}
+
+	return alias, nil
+}
+
 func (s *Raft) GetAliases(ctx context.Context, alias string, class *models.Class) ([]*models.Alias, error) {
 	if entSentry.Enabled() {
 		transaction := sentry.StartSpan(ctx, "grpc.client",

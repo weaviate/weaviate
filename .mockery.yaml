@@ -26,8 +26,6 @@ packages:
   github.com/weaviate/weaviate/usecases/schema:
     interfaces:
       SchemaGetter:
-  github.com/weaviate/weaviate/cluster/schema/types:
-    interfaces:
       SchemaReader:
   github.com/weaviate/weaviate/usecases/auth/authorization:
     interfaces:
@@ -62,6 +60,9 @@ packages:
   github.com/weaviate/weaviate/cluster/replication/copier/types:
     interfaces:
       RemoteIndex:
+  github.com/weaviate/weaviate/cluster/router/types:
+    interfaces:
+      Router:
   github.com/weaviate/weaviate/entities/moduletools:
     interfaces:
       ModuleInitParams:
@@ -84,4 +85,17 @@ packages:
   github.com/weaviate/weaviate/usecases/modulecomponents/usage:
     interfaces:
       StorageBackend:
-
+  github.com/weaviate/weaviate/adapters/handlers/grpc/v1/batch:
+    interfaces:
+      Batcher:
+        config:
+          dir: "adapters/handlers/grpc/v1/batch/mocks"
+          outpkg: "mocks"
+          inpackage: false
+  github.com/weaviate/weaviate/grpc/generated/protocol/v1:
+    interfaces:
+      Weaviate_BatchStreamServer:
+        config:
+          dir: "adapters/handlers/grpc/v1/batch/mocks"
+          outpkg: "mocks"
+          inpackage: false

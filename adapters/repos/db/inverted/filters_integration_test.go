@@ -16,11 +16,13 @@ package inverted
 import (
 	"context"
 	"encoding/binary"
+	"fmt"
 	"testing"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
@@ -85,7 +87,8 @@ func Test_Filters_String(t *testing.T) {
 		require.Nil(t, bWithFrequency.FlushAndSwitch())
 	})
 
-	bitmapFactory := roaringset.NewBitmapFactory(roaringset.NewBitmapBufPoolNoop(), newFakeMaxIDGetter(200))
+	maxDocID := uint64(25)
+	bitmapFactory := roaringset.NewBitmapFactory(roaringset.NewBitmapBufPoolNoop(), newFakeMaxIDGetter(maxDocID))
 
 	searcher := NewSearcher(logger, store, createSchema().GetClass, nil, nil,
 		fakeStopwordDetector{}, 2, func() bool { return false }, "",
@@ -94,8 +97,22 @@ func Test_Filters_String(t *testing.T) {
 	type test struct {
 		name                     string
 		filter                   *filters.LocalFilter
-		expectedListBeforeUpdate helpers.AllowList
-		expectedListAfterUpdate  helpers.AllowList
+		expectedListBeforeUpdate *sroar.Bitmap
+		expectedListAfterUpdate  *sroar.Bitmap
+	}
+
+	createNotTest := func(tt test) test {
+		return test{
+			name: fmt.Sprintf("NOT %s", tt.name),
+			filter: &filters.LocalFilter{
+				Root: &filters.Clause{
+					Operator: filters.OperatorNot,
+					Operands: []filters.Clause{*tt.filter.Root},
+				},
+			},
+			expectedListBeforeUpdate: sroar.Prefill(maxDocID).AndNot(tt.expectedListBeforeUpdate),
+			expectedListAfterUpdate:  sroar.Prefill(maxDocID).AndNot(tt.expectedListAfterUpdate),
+		}
 	}
 
 	tests := []test{
@@ -114,8 +131,8 @@ func Test_Filters_String(t *testing.T) {
 					},
 				},
 			},
-			expectedListBeforeUpdate: helpers.NewAllowList(7, 14),
-			expectedListAfterUpdate:  helpers.NewAllowList(7, 14, 21),
+			expectedListBeforeUpdate: roaringset.NewBitmap(7, 14),
+			expectedListAfterUpdate:  roaringset.NewBitmap(7, 14, 21),
 		},
 		{
 			name: "like operator",
@@ -132,8 +149,8 @@ func Test_Filters_String(t *testing.T) {
 					},
 				},
 			},
-			expectedListBeforeUpdate: helpers.NewAllowList(10, 11, 12, 13, 14, 15, 16),
-			expectedListAfterUpdate:  helpers.NewAllowList(10, 11, 12, 13, 14, 15, 16, 17),
+			expectedListBeforeUpdate: roaringset.NewBitmap(10, 11, 12, 13, 14, 15, 16),
+			expectedListAfterUpdate:  roaringset.NewBitmap(10, 11, 12, 13, 14, 15, 16, 17),
 		},
 		{
 			name: "exact match - or filter",
@@ -166,8 +183,8 @@ func Test_Filters_String(t *testing.T) {
 					},
 				},
 			},
-			expectedListBeforeUpdate: helpers.NewAllowList(7, 8, 14, 16),
-			expectedListAfterUpdate:  helpers.NewAllowList(7, 8, 14, 16, 21),
+			expectedListBeforeUpdate: roaringset.NewBitmap(7, 8, 14, 16),
+			expectedListAfterUpdate:  roaringset.NewBitmap(7, 8, 14, 16, 21),
 		},
 		{
 			name: "exact match - and filter",
@@ -200,8 +217,8 @@ func Test_Filters_String(t *testing.T) {
 					},
 				},
 			},
-			expectedListBeforeUpdate: helpers.NewAllowList(14),
-			expectedListAfterUpdate:  helpers.NewAllowList(14),
+			expectedListBeforeUpdate: roaringset.NewBitmap(14),
+			expectedListAfterUpdate:  roaringset.NewBitmap(14),
 		},
 		{
 			// This test prevents a regression on
@@ -258,18 +275,22 @@ func Test_Filters_String(t *testing.T) {
 			// prior to the fix of gh-1770 the second AND operand was ignored due to
 			// a  missing hash in the merge and we would get results here, when we
 			// shouldn't
-			expectedListBeforeUpdate: helpers.NewAllowList(),
-			expectedListAfterUpdate:  helpers.NewAllowList(),
+			expectedListBeforeUpdate: roaringset.NewBitmap(),
+			expectedListAfterUpdate:  roaringset.NewBitmap(),
 		},
 	}
+	notTests := make([]test, len(tests))
+	for i := range tests {
+		notTests[i] = createNotTest(tests[i])
+	}
 
-	for _, test := range tests {
+	for _, test := range append(tests, notTests...) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Run("before update", func(t *testing.T) {
 				res, err := searcher.DocIDs(context.Background(), test.filter,
 					additional.Properties{}, className)
 				assert.Nil(t, err)
-				assert.Equal(t, test.expectedListBeforeUpdate.Slice(), res.Slice())
+				assert.ElementsMatch(t, test.expectedListBeforeUpdate.ToArray(), res.Slice())
 				res.Close()
 			})
 
@@ -292,20 +313,19 @@ func Test_Filters_String(t *testing.T) {
 				res, err := searcher.DocIDs(context.Background(), test.filter,
 					additional.Properties{}, className)
 				assert.Nil(t, err)
-				assert.Equal(t, test.expectedListAfterUpdate.Slice(), res.Slice())
+				assert.ElementsMatch(t, test.expectedListAfterUpdate.ToArray(), res.Slice())
 				res.Close()
 			})
 
-			t.Run("restore inverted index, so test suite can be run again",
-				func(t *testing.T) {
-					idsMapValues := idsToBinaryMapValues([]uint64{21})
-					require.Nil(t, bWithFrequency.MapDeleteKey([]byte("modulo-7"),
-						idsMapValues[0].Key))
+			t.Run("restore inverted index, so test suite can be run again", func(t *testing.T) {
+				idsMapValues := idsToBinaryMapValues([]uint64{21})
+				require.Nil(t, bWithFrequency.MapDeleteKey([]byte("modulo-7"),
+					idsMapValues[0].Key))
 
-					idsMapValues = idsToBinaryMapValues([]uint64{17})
-					require.Nil(t, bWithFrequency.MapDeleteKey([]byte("modulo-17"),
-						idsMapValues[0].Key))
-				})
+				idsMapValues = idsToBinaryMapValues([]uint64{17})
+				require.Nil(t, bWithFrequency.MapDeleteKey([]byte("modulo-17"),
+					idsMapValues[0].Key))
+			})
 		})
 	}
 }
@@ -321,7 +341,7 @@ func Test_Filters_Int(t *testing.T) {
 	require.NoError(t, err)
 	defer store.Shutdown(context.Background())
 
-	maxDocID := uint64(21)
+	maxDocID := uint64(25)
 	fakeInvertedIndex := []struct {
 		val int64
 		ids []uint64
@@ -351,8 +371,21 @@ func Test_Filters_Int(t *testing.T) {
 	type test struct {
 		name                     string
 		filter                   *filters.LocalFilter
-		expectedListBeforeUpdate []uint64
-		expectedListAfterUpdate  []uint64
+		expectedListBeforeUpdate *sroar.Bitmap
+		expectedListAfterUpdate  *sroar.Bitmap
+	}
+	createNotTest := func(tt test) test {
+		return test{
+			name: fmt.Sprintf("NOT %s", tt.name),
+			filter: &filters.LocalFilter{
+				Root: &filters.Clause{
+					Operator: filters.OperatorNot,
+					Operands: []filters.Clause{*tt.filter.Root},
+				},
+			},
+			expectedListBeforeUpdate: sroar.Prefill(maxDocID).AndNot(tt.expectedListBeforeUpdate),
+			expectedListAfterUpdate:  sroar.Prefill(maxDocID).AndNot(tt.expectedListAfterUpdate),
+		}
 	}
 
 	t.Run("strategy set", func(t *testing.T) {
@@ -389,8 +422,8 @@ func Test_Filters_Int(t *testing.T) {
 						},
 					},
 				},
-				expectedListBeforeUpdate: []uint64{7, 14},
-				expectedListAfterUpdate:  []uint64{7, 14, 21},
+				expectedListBeforeUpdate: roaringset.NewBitmap(7, 14),
+				expectedListAfterUpdate:  roaringset.NewBitmap(7, 14, 21),
 			},
 			{
 				name: "not equal",
@@ -408,8 +441,8 @@ func Test_Filters_Int(t *testing.T) {
 					},
 				},
 				// For NotEqual, all doc ids not matching will be returned, up to `maxDocID`
-				expectedListBeforeUpdate: notEqualsExpectedResults(maxDocID, 13),
-				expectedListAfterUpdate:  notEqualsExpectedResults(maxDocID, 13),
+				expectedListBeforeUpdate: sroar.Prefill(maxDocID).AndNot(roaringset.NewBitmap(13)),
+				expectedListAfterUpdate:  sroar.Prefill(maxDocID).AndNot(roaringset.NewBitmap(13)),
 			},
 			{
 				name: "exact match - or filter",
@@ -442,8 +475,8 @@ func Test_Filters_Int(t *testing.T) {
 						},
 					},
 				},
-				expectedListBeforeUpdate: []uint64{7, 8, 14, 16},
-				expectedListAfterUpdate:  []uint64{7, 8, 14, 16, 21},
+				expectedListBeforeUpdate: roaringset.NewBitmap(7, 8, 14, 16),
+				expectedListAfterUpdate:  roaringset.NewBitmap(7, 8, 14, 16, 21),
 			},
 			{
 				name: "exact match - and filter",
@@ -476,8 +509,8 @@ func Test_Filters_Int(t *testing.T) {
 						},
 					},
 				},
-				expectedListBeforeUpdate: []uint64{14},
-				expectedListAfterUpdate:  []uint64{14},
+				expectedListBeforeUpdate: roaringset.NewBitmap(14),
+				expectedListAfterUpdate:  roaringset.NewBitmap(14),
 			},
 			{
 				name: "range match - or filter",
@@ -510,8 +543,8 @@ func Test_Filters_Int(t *testing.T) {
 						},
 					},
 				},
-				expectedListBeforeUpdate: []uint64{2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 14, 15, 16},
-				expectedListAfterUpdate:  []uint64{2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 14, 15, 16, 21},
+				expectedListBeforeUpdate: roaringset.NewBitmap(2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 14, 15, 16),
+				expectedListAfterUpdate:  roaringset.NewBitmap(2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 14, 15, 16, 21),
 			},
 			{
 				name: "range match - and filter",
@@ -544,18 +577,22 @@ func Test_Filters_Int(t *testing.T) {
 						},
 					},
 				},
-				expectedListBeforeUpdate: []uint64{7, 8, 9, 10, 11, 12, 13, 14, 15, 16},
-				expectedListAfterUpdate:  []uint64{7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 21},
+				expectedListBeforeUpdate: roaringset.NewBitmap(7, 8, 9, 10, 11, 12, 13, 14, 15, 16),
+				expectedListAfterUpdate:  roaringset.NewBitmap(7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 21),
 			},
 		}
+		notTests := make([]test, len(tests))
+		for i := range tests {
+			notTests[i] = createNotTest(tests[i])
+		}
 
-		for _, test := range tests {
+		for _, test := range append(tests, notTests...) {
 			t.Run(test.name, func(t *testing.T) {
 				t.Run("before update", func(t *testing.T) {
 					res, err := searcher.DocIDs(context.Background(), test.filter,
 						additional.Properties{}, className)
 					assert.NoError(t, err)
-					assert.Equal(t, test.expectedListBeforeUpdate, res.Slice())
+					assert.ElementsMatch(t, test.expectedListBeforeUpdate.ToArray(), res.Slice())
 					res.Close()
 				})
 
@@ -569,7 +606,7 @@ func Test_Filters_Int(t *testing.T) {
 					res, err := searcher.DocIDs(context.Background(), test.filter,
 						additional.Properties{}, className)
 					assert.NoError(t, err)
-					assert.Equal(t, test.expectedListAfterUpdate, res.Slice())
+					assert.ElementsMatch(t, test.expectedListAfterUpdate.ToArray(), res.Slice())
 					res.Close()
 				})
 
@@ -585,8 +622,10 @@ func Test_Filters_Int(t *testing.T) {
 	t.Run("strategy roaringset", func(t *testing.T) {
 		propName := "inverted-without-frequency-roaringset"
 		bucketName := helpers.BucketFromPropNameLSM(propName)
-		require.NoError(t, store.CreateOrLoadBucket(context.Background(),
-			bucketName, lsmkv.WithStrategy(lsmkv.StrategyRoaringSet)))
+		require.NoError(t, store.CreateOrLoadBucket(context.Background(), bucketName,
+			lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
+			lsmkv.WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()),
+		))
 		bucket := store.Bucket(bucketName)
 
 		t.Run("import data", func(t *testing.T) {
@@ -615,8 +654,8 @@ func Test_Filters_Int(t *testing.T) {
 						},
 					},
 				},
-				expectedListBeforeUpdate: []uint64{7, 14},
-				expectedListAfterUpdate:  []uint64{7, 14, 21},
+				expectedListBeforeUpdate: roaringset.NewBitmap(7, 14),
+				expectedListAfterUpdate:  roaringset.NewBitmap(7, 14, 21),
 			},
 			{
 				name: "not equal",
@@ -634,8 +673,8 @@ func Test_Filters_Int(t *testing.T) {
 					},
 				},
 				// For NotEqual, all doc ids not matching will be returned, up to `maxDocID`
-				expectedListBeforeUpdate: notEqualsExpectedResults(maxDocID, 13),
-				expectedListAfterUpdate:  notEqualsExpectedResults(maxDocID, 13),
+				expectedListBeforeUpdate: sroar.Prefill(maxDocID).AndNot(roaringset.NewBitmap(13)),
+				expectedListAfterUpdate:  sroar.Prefill(maxDocID).AndNot(roaringset.NewBitmap(13)),
 			},
 			{
 				name: "exact match - or filter",
@@ -668,8 +707,8 @@ func Test_Filters_Int(t *testing.T) {
 						},
 					},
 				},
-				expectedListBeforeUpdate: []uint64{7, 8, 14, 16},
-				expectedListAfterUpdate:  []uint64{7, 8, 14, 16, 21},
+				expectedListBeforeUpdate: roaringset.NewBitmap(7, 8, 14, 16),
+				expectedListAfterUpdate:  roaringset.NewBitmap(7, 8, 14, 16, 21),
 			},
 			{
 				name: "exact match - and filter",
@@ -702,8 +741,8 @@ func Test_Filters_Int(t *testing.T) {
 						},
 					},
 				},
-				expectedListBeforeUpdate: []uint64{14},
-				expectedListAfterUpdate:  []uint64{14},
+				expectedListBeforeUpdate: roaringset.NewBitmap(14),
+				expectedListAfterUpdate:  roaringset.NewBitmap(14),
 			},
 			{
 				name: "range match - or filter",
@@ -736,8 +775,8 @@ func Test_Filters_Int(t *testing.T) {
 						},
 					},
 				},
-				expectedListBeforeUpdate: []uint64{2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 14, 15, 16},
-				expectedListAfterUpdate:  []uint64{2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 14, 15, 16, 21},
+				expectedListBeforeUpdate: roaringset.NewBitmap(2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 14, 15, 16),
+				expectedListAfterUpdate:  roaringset.NewBitmap(2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 14, 15, 16, 21),
 			},
 			{
 				name: "range match - and filter",
@@ -770,18 +809,22 @@ func Test_Filters_Int(t *testing.T) {
 						},
 					},
 				},
-				expectedListBeforeUpdate: []uint64{7, 8, 9, 10, 11, 12, 13, 14, 15, 16},
-				expectedListAfterUpdate:  []uint64{7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 21},
+				expectedListBeforeUpdate: roaringset.NewBitmap(7, 8, 9, 10, 11, 12, 13, 14, 15, 16),
+				expectedListAfterUpdate:  roaringset.NewBitmap(7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 21),
 			},
 		}
+		notTests := make([]test, len(tests))
+		for i := range tests {
+			notTests[i] = createNotTest(tests[i])
+		}
 
-		for _, test := range tests {
+		for _, test := range append(tests, notTests...) {
 			t.Run(test.name, func(t *testing.T) {
 				t.Run("before update", func(t *testing.T) {
 					res, err := searcher.DocIDs(context.Background(), test.filter,
 						additional.Properties{}, className)
 					assert.NoError(t, err)
-					assert.Equal(t, test.expectedListBeforeUpdate, res.Slice())
+					assert.ElementsMatch(t, test.expectedListBeforeUpdate.ToArray(), res.Slice())
 					res.Close()
 				})
 
@@ -794,7 +837,7 @@ func Test_Filters_Int(t *testing.T) {
 					res, err := searcher.DocIDs(context.Background(), test.filter,
 						additional.Properties{}, className)
 					assert.NoError(t, err)
-					assert.Equal(t, test.expectedListAfterUpdate, res.Slice())
+					assert.ElementsMatch(t, test.expectedListAfterUpdate.ToArray(), res.Slice())
 					res.Close()
 				})
 
@@ -836,8 +879,8 @@ func Test_Filters_Int(t *testing.T) {
 							},
 						},
 					},
-					expectedListBeforeUpdate: []uint64{7},
-					expectedListAfterUpdate:  []uint64{7, 21},
+					expectedListBeforeUpdate: roaringset.NewBitmap(7),
+					expectedListAfterUpdate:  roaringset.NewBitmap(7, 21),
 				},
 				{
 					name: "not equal",
@@ -854,8 +897,8 @@ func Test_Filters_Int(t *testing.T) {
 							},
 						},
 					},
-					expectedListBeforeUpdate: []uint64{2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 15, 16},
-					expectedListAfterUpdate:  []uint64{2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 15, 16, 21},
+					expectedListBeforeUpdate: roaringset.NewBitmap(2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 15, 16),
+					expectedListAfterUpdate:  roaringset.NewBitmap(2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 15, 16, 21),
 				},
 				{
 					name: "exact match - or filter",
@@ -888,8 +931,8 @@ func Test_Filters_Int(t *testing.T) {
 							},
 						},
 					},
-					expectedListBeforeUpdate: []uint64{7, 8},
-					expectedListAfterUpdate:  []uint64{7, 8, 21},
+					expectedListBeforeUpdate: roaringset.NewBitmap(7, 8),
+					expectedListAfterUpdate:  roaringset.NewBitmap(7, 8, 21),
 				},
 				{
 					name: "exact match - and filter",
@@ -922,8 +965,8 @@ func Test_Filters_Int(t *testing.T) {
 							},
 						},
 					},
-					expectedListBeforeUpdate: []uint64{},
-					expectedListAfterUpdate:  []uint64{},
+					expectedListBeforeUpdate: roaringset.NewBitmap(),
+					expectedListAfterUpdate:  roaringset.NewBitmap(),
 				},
 				{
 					name: "range match - or filter",
@@ -956,8 +999,8 @@ func Test_Filters_Int(t *testing.T) {
 							},
 						},
 					},
-					expectedListBeforeUpdate: []uint64{2, 3, 4, 5, 6, 7, 15, 16},
-					expectedListAfterUpdate:  []uint64{2, 3, 4, 5, 6, 7, 15, 16, 21},
+					expectedListBeforeUpdate: roaringset.NewBitmap(2, 3, 4, 5, 6, 7, 15, 16),
+					expectedListAfterUpdate:  roaringset.NewBitmap(2, 3, 4, 5, 6, 7, 15, 16, 21),
 				},
 				{
 					name: "range match - and filter",
@@ -990,18 +1033,22 @@ func Test_Filters_Int(t *testing.T) {
 							},
 						},
 					},
-					expectedListBeforeUpdate: []uint64{7, 8, 9, 10, 11, 12, 13},
-					expectedListAfterUpdate:  []uint64{7, 8, 9, 10, 11, 12, 13, 21},
+					expectedListBeforeUpdate: roaringset.NewBitmap(7, 8, 9, 10, 11, 12, 13),
+					expectedListAfterUpdate:  roaringset.NewBitmap(7, 8, 9, 10, 11, 12, 13, 21),
 				},
 			}
+			notTests := make([]test, len(tests))
+			for i := range tests {
+				notTests[i] = createNotTest(tests[i])
+			}
 
-			for _, test := range tests {
+			for _, test := range append(tests, notTests...) {
 				t.Run(test.name, func(t *testing.T) {
 					t.Run("before update", func(t *testing.T) {
 						res, err := searcher.DocIDs(context.Background(), test.filter,
 							additional.Properties{}, className)
 						assert.NoError(t, err)
-						assert.Equal(t, test.expectedListBeforeUpdate, res.Slice())
+						assert.ElementsMatch(t, test.expectedListBeforeUpdate.ToArray(), res.Slice())
 						res.Close()
 					})
 
@@ -1014,7 +1061,7 @@ func Test_Filters_Int(t *testing.T) {
 						res, err := searcher.DocIDs(context.Background(), test.filter,
 							additional.Properties{}, className)
 						assert.NoError(t, err)
-						assert.Equal(t, test.expectedListAfterUpdate, res.Slice())
+						assert.ElementsMatch(t, test.expectedListAfterUpdate.ToArray(), res.Slice())
 						res.Close()
 					})
 
@@ -1237,6 +1284,14 @@ func createSchema() *schema.Schema {
 							IndexRangeFilters: &vFalse,
 						},
 						{
+							Name:              "inverted-text-roaringset",
+							DataType:          schema.DataTypeText.PropString(),
+							Tokenization:      models.PropertyTokenizationField,
+							IndexFilterable:   &vTrue,
+							IndexSearchable:   &vFalse,
+							IndexRangeFilters: &vFalse,
+						},
+						{
 							Name:              "inverted-roaringsetrange-on-disk",
 							DataType:          schema.DataTypeInt.PropString(),
 							IndexFilterable:   &vFalse,
@@ -1259,14 +1314,4 @@ func createSchema() *schema.Schema {
 
 func newFakeMaxIDGetter(maxID uint64) func() uint64 {
 	return func() uint64 { return maxID }
-}
-
-func notEqualsExpectedResults(maxID uint64, skip uint64) []uint64 {
-	allow := make([]uint64, 0, maxID+1)
-	for i := uint64(0); i <= maxID; i++ {
-		if i != skip {
-			allow = append(allow, i)
-		}
-	}
-	return allow
 }

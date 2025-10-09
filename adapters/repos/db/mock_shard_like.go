@@ -1132,51 +1132,6 @@ func (_c *MockShardLike_GetStatus_Call) RunAndReturn(run func() storagestate.Sta
 	return _c
 }
 
-// GetStatusNoLoad provides a mock function with no fields
-func (_m *MockShardLike) GetStatusNoLoad() storagestate.Status {
-	ret := _m.Called()
-
-	if len(ret) == 0 {
-		panic("no return value specified for GetStatusNoLoad")
-	}
-
-	var r0 storagestate.Status
-	if rf, ok := ret.Get(0).(func() storagestate.Status); ok {
-		r0 = rf()
-	} else {
-		r0 = ret.Get(0).(storagestate.Status)
-	}
-
-	return r0
-}
-
-// MockShardLike_GetStatusNoLoad_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetStatusNoLoad'
-type MockShardLike_GetStatusNoLoad_Call struct {
-	*mock.Call
-}
-
-// GetStatusNoLoad is a helper method to define mock.On call
-func (_e *MockShardLike_Expecter) GetStatusNoLoad() *MockShardLike_GetStatusNoLoad_Call {
-	return &MockShardLike_GetStatusNoLoad_Call{Call: _e.mock.On("GetStatusNoLoad")}
-}
-
-func (_c *MockShardLike_GetStatusNoLoad_Call) Run(run func()) *MockShardLike_GetStatusNoLoad_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run()
-	})
-	return _c
-}
-
-func (_c *MockShardLike_GetStatusNoLoad_Call) Return(_a0 storagestate.Status) *MockShardLike_GetStatusNoLoad_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockShardLike_GetStatusNoLoad_Call) RunAndReturn(run func() storagestate.Status) *MockShardLike_GetStatusNoLoad_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // GetVectorIndex provides a mock function with given fields: targetVector
 func (_m *MockShardLike) GetVectorIndex(targetVector string) (VectorIndex, bool) {
 	ret := _m.Called(targetVector)
@@ -1892,22 +1847,32 @@ func (_c *MockShardLike_ObjectByIDErrDeleted_Call) RunAndReturn(run func(context
 	return _c
 }
 
-// ObjectCount provides a mock function with no fields
-func (_m *MockShardLike) ObjectCount() int {
-	ret := _m.Called()
+// ObjectCount provides a mock function with given fields: ctx
+func (_m *MockShardLike) ObjectCount(ctx context.Context) (int, error) {
+	ret := _m.Called(ctx)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ObjectCount")
 	}
 
 	var r0 int
-	if rf, ok := ret.Get(0).(func() int); ok {
-		r0 = rf()
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context) (int, error)); ok {
+		return rf(ctx)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context) int); ok {
+		r0 = rf(ctx)
 	} else {
 		r0 = ret.Get(0).(int)
 	}
 
-	return r0
+	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
+		r1 = rf(ctx)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
 }
 
 // MockShardLike_ObjectCount_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ObjectCount'
@@ -1916,23 +1881,24 @@ type MockShardLike_ObjectCount_Call struct {
 }
 
 // ObjectCount is a helper method to define mock.On call
-func (_e *MockShardLike_Expecter) ObjectCount() *MockShardLike_ObjectCount_Call {
-	return &MockShardLike_ObjectCount_Call{Call: _e.mock.On("ObjectCount")}
+//   - ctx context.Context
+func (_e *MockShardLike_Expecter) ObjectCount(ctx interface{}) *MockShardLike_ObjectCount_Call {
+	return &MockShardLike_ObjectCount_Call{Call: _e.mock.On("ObjectCount", ctx)}
 }
 
-func (_c *MockShardLike_ObjectCount_Call) Run(run func()) *MockShardLike_ObjectCount_Call {
+func (_c *MockShardLike_ObjectCount_Call) Run(run func(ctx context.Context)) *MockShardLike_ObjectCount_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run()
+		run(args[0].(context.Context))
 	})
 	return _c
 }
 
-func (_c *MockShardLike_ObjectCount_Call) Return(_a0 int) *MockShardLike_ObjectCount_Call {
-	_c.Call.Return(_a0)
+func (_c *MockShardLike_ObjectCount_Call) Return(_a0 int, _a1 error) *MockShardLike_ObjectCount_Call {
+	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockShardLike_ObjectCount_Call) RunAndReturn(run func() int) *MockShardLike_ObjectCount_Call {
+func (_c *MockShardLike_ObjectCount_Call) RunAndReturn(run func(context.Context) (int, error)) *MockShardLike_ObjectCount_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -2421,7 +2387,7 @@ func (_c *MockShardLike_PutObjectBatch_Call) RunAndReturn(run func(context.Conte
 }
 
 // QuantizedDimensions provides a mock function with given fields: ctx, targetVector, segments
-func (_m *MockShardLike) QuantizedDimensions(ctx context.Context, targetVector string, segments int) int {
+func (_m *MockShardLike) QuantizedDimensions(ctx context.Context, targetVector string, segments int) (int, error) {
 	ret := _m.Called(ctx, targetVector, segments)
 
 	if len(ret) == 0 {
@@ -2429,13 +2395,23 @@ func (_m *MockShardLike) QuantizedDimensions(ctx context.Context, targetVector s
 	}
 
 	var r0 int
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, int) (int, error)); ok {
+		return rf(ctx, targetVector, segments)
+	}
 	if rf, ok := ret.Get(0).(func(context.Context, string, int) int); ok {
 		r0 = rf(ctx, targetVector, segments)
 	} else {
 		r0 = ret.Get(0).(int)
 	}
 
-	return r0
+	if rf, ok := ret.Get(1).(func(context.Context, string, int) error); ok {
+		r1 = rf(ctx, targetVector, segments)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
 }
 
 // MockShardLike_QuantizedDimensions_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'QuantizedDimensions'
@@ -2458,12 +2434,12 @@ func (_c *MockShardLike_QuantizedDimensions_Call) Run(run func(ctx context.Conte
 	return _c
 }
 
-func (_c *MockShardLike_QuantizedDimensions_Call) Return(_a0 int) *MockShardLike_QuantizedDimensions_Call {
-	_c.Call.Return(_a0)
+func (_c *MockShardLike_QuantizedDimensions_Call) Return(_a0 int, _a1 error) *MockShardLike_QuantizedDimensions_Call {
+	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockShardLike_QuantizedDimensions_Call) RunAndReturn(run func(context.Context, string, int) int) *MockShardLike_QuantizedDimensions_Call {
+func (_c *MockShardLike_QuantizedDimensions_Call) RunAndReturn(run func(context.Context, string, int) (int, error)) *MockShardLike_QuantizedDimensions_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -2511,6 +2487,53 @@ func (_c *MockShardLike_RepairIndex_Call) Return(_a0 error) *MockShardLike_Repai
 }
 
 func (_c *MockShardLike_RepairIndex_Call) RunAndReturn(run func(context.Context, string) error) *MockShardLike_RepairIndex_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// RequantizeIndex provides a mock function with given fields: ctx, targetVector
+func (_m *MockShardLike) RequantizeIndex(ctx context.Context, targetVector string) error {
+	ret := _m.Called(ctx, targetVector)
+
+	if len(ret) == 0 {
+		panic("no return value specified for RequantizeIndex")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
+		r0 = rf(ctx, targetVector)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockShardLike_RequantizeIndex_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RequantizeIndex'
+type MockShardLike_RequantizeIndex_Call struct {
+	*mock.Call
+}
+
+// RequantizeIndex is a helper method to define mock.On call
+//   - ctx context.Context
+//   - targetVector string
+func (_e *MockShardLike_Expecter) RequantizeIndex(ctx interface{}, targetVector interface{}) *MockShardLike_RequantizeIndex_Call {
+	return &MockShardLike_RequantizeIndex_Call{Call: _e.mock.On("RequantizeIndex", ctx, targetVector)}
+}
+
+func (_c *MockShardLike_RequantizeIndex_Call) Run(run func(ctx context.Context, targetVector string)) *MockShardLike_RequantizeIndex_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *MockShardLike_RequantizeIndex_Call) Return(_a0 error) *MockShardLike_RequantizeIndex_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockShardLike_RequantizeIndex_Call) RunAndReturn(run func(context.Context, string) error) *MockShardLike_RequantizeIndex_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -2747,17 +2770,17 @@ func (_c *MockShardLike_Store_Call) RunAndReturn(run func() *lsmkv.Store) *MockS
 	return _c
 }
 
-// UpdateStatus provides a mock function with given fields: status
-func (_m *MockShardLike) UpdateStatus(status string) error {
-	ret := _m.Called(status)
+// UpdateStatus provides a mock function with given fields: status, reason
+func (_m *MockShardLike) UpdateStatus(status string, reason string) error {
+	ret := _m.Called(status, reason)
 
 	if len(ret) == 0 {
 		panic("no return value specified for UpdateStatus")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(string) error); ok {
-		r0 = rf(status)
+	if rf, ok := ret.Get(0).(func(string, string) error); ok {
+		r0 = rf(status, reason)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -2772,13 +2795,14 @@ type MockShardLike_UpdateStatus_Call struct {
 
 // UpdateStatus is a helper method to define mock.On call
 //   - status string
-func (_e *MockShardLike_Expecter) UpdateStatus(status interface{}) *MockShardLike_UpdateStatus_Call {
-	return &MockShardLike_UpdateStatus_Call{Call: _e.mock.On("UpdateStatus", status)}
+//   - reason string
+func (_e *MockShardLike_Expecter) UpdateStatus(status interface{}, reason interface{}) *MockShardLike_UpdateStatus_Call {
+	return &MockShardLike_UpdateStatus_Call{Call: _e.mock.On("UpdateStatus", status, reason)}
 }
 
-func (_c *MockShardLike_UpdateStatus_Call) Run(run func(status string)) *MockShardLike_UpdateStatus_Call {
+func (_c *MockShardLike_UpdateStatus_Call) Run(run func(status string, reason string)) *MockShardLike_UpdateStatus_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(string))
+		run(args[0].(string), args[1].(string))
 	})
 	return _c
 }
@@ -2788,7 +2812,7 @@ func (_c *MockShardLike_UpdateStatus_Call) Return(_a0 error) *MockShardLike_Upda
 	return _c
 }
 
-func (_c *MockShardLike_UpdateStatus_Call) RunAndReturn(run func(string) error) *MockShardLike_UpdateStatus_Call {
+func (_c *MockShardLike_UpdateStatus_Call) RunAndReturn(run func(string, string) error) *MockShardLike_UpdateStatus_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -4513,39 +4537,6 @@ func (_c *MockShardLike_preventShutdown_Call) RunAndReturn(run func() (func(), e
 	return _c
 }
 
-// publishDimensionMetrics provides a mock function with given fields: ctx
-func (_m *MockShardLike) publishDimensionMetrics(ctx context.Context) {
-	_m.Called(ctx)
-}
-
-// MockShardLike_publishDimensionMetrics_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'publishDimensionMetrics'
-type MockShardLike_publishDimensionMetrics_Call struct {
-	*mock.Call
-}
-
-// publishDimensionMetrics is a helper method to define mock.On call
-//   - ctx context.Context
-func (_e *MockShardLike_Expecter) publishDimensionMetrics(ctx interface{}) *MockShardLike_publishDimensionMetrics_Call {
-	return &MockShardLike_publishDimensionMetrics_Call{Call: _e.mock.On("publishDimensionMetrics", ctx)}
-}
-
-func (_c *MockShardLike_publishDimensionMetrics_Call) Run(run func(ctx context.Context)) *MockShardLike_publishDimensionMetrics_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context))
-	})
-	return _c
-}
-
-func (_c *MockShardLike_publishDimensionMetrics_Call) Return() *MockShardLike_publishDimensionMetrics_Call {
-	_c.Call.Return()
-	return _c
-}
-
-func (_c *MockShardLike_publishDimensionMetrics_Call) RunAndReturn(run func(context.Context)) *MockShardLike_publishDimensionMetrics_Call {
-	_c.Run(run)
-	return _c
-}
-
 // putObjectLSM provides a mock function with given fields: object, idBytes
 func (_m *MockShardLike) putObjectLSM(object *storobj.Object, idBytes []byte) (objectInsertStatus, error) {
 	ret := _m.Called(object, idBytes)
@@ -4696,17 +4687,17 @@ func (_c *MockShardLike_removeTargetNodeOverride_Call) RunAndReturn(run func(con
 	return _c
 }
 
-// resetDimensionsLSM provides a mock function with no fields
-func (_m *MockShardLike) resetDimensionsLSM() error {
-	ret := _m.Called()
+// resetDimensionsLSM provides a mock function with given fields: ctx
+func (_m *MockShardLike) resetDimensionsLSM(ctx context.Context) error {
+	ret := _m.Called(ctx)
 
 	if len(ret) == 0 {
 		panic("no return value specified for resetDimensionsLSM")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func() error); ok {
-		r0 = rf()
+	if rf, ok := ret.Get(0).(func(context.Context) error); ok {
+		r0 = rf(ctx)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -4720,13 +4711,14 @@ type MockShardLike_resetDimensionsLSM_Call struct {
 }
 
 // resetDimensionsLSM is a helper method to define mock.On call
-func (_e *MockShardLike_Expecter) resetDimensionsLSM() *MockShardLike_resetDimensionsLSM_Call {
-	return &MockShardLike_resetDimensionsLSM_Call{Call: _e.mock.On("resetDimensionsLSM")}
+//   - ctx context.Context
+func (_e *MockShardLike_Expecter) resetDimensionsLSM(ctx interface{}) *MockShardLike_resetDimensionsLSM_Call {
+	return &MockShardLike_resetDimensionsLSM_Call{Call: _e.mock.On("resetDimensionsLSM", ctx)}
 }
 
-func (_c *MockShardLike_resetDimensionsLSM_Call) Run(run func()) *MockShardLike_resetDimensionsLSM_Call {
+func (_c *MockShardLike_resetDimensionsLSM_Call) Run(run func(ctx context.Context)) *MockShardLike_resetDimensionsLSM_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run()
+		run(args[0].(context.Context))
 	})
 	return _c
 }
@@ -4736,7 +4728,7 @@ func (_c *MockShardLike_resetDimensionsLSM_Call) Return(_a0 error) *MockShardLik
 	return _c
 }
 
-func (_c *MockShardLike_resetDimensionsLSM_Call) RunAndReturn(run func() error) *MockShardLike_resetDimensionsLSM_Call {
+func (_c *MockShardLike_resetDimensionsLSM_Call) RunAndReturn(run func(context.Context) error) *MockShardLike_resetDimensionsLSM_Call {
 	_c.Call.Return(run)
 	return _c
 }

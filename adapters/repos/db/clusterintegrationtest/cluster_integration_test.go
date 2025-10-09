@@ -16,7 +16,6 @@ package clusterintegrationtest
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"math/rand"
 	"os"
@@ -74,26 +73,24 @@ func testDistributed(t *testing.T, dirName string, rnd *rand.Rand, batch bool) {
 
 	t.Run("setup", func(t *testing.T) {
 		overallShardState := multiShardState(numberOfNodes)
-		shardStateSerialized, err := json.Marshal(overallShardState)
-		require.Nil(t, err)
-
 		for i := 0; i < numberOfNodes; i++ {
 			node := &node{
 				name: fmt.Sprintf("node-%d", i),
 			}
 
-			node.init(dirName, shardStateSerialized, &nodes)
 			nodes = append(nodes, node)
+		}
+
+		for _, node := range nodes {
+			node.init(t, dirName, &nodes, overallShardState)
 		}
 	})
 
 	t.Run("apply schema", func(t *testing.T) {
 		for i := range nodes {
-			err := nodes[i].migrator.AddClass(context.Background(), class(),
-				nodes[i].schemaManager.shardState)
+			err := nodes[i].migrator.AddClass(context.Background(), class())
 			require.Nil(t, err)
-			err = nodes[i].migrator.AddClass(context.Background(), secondClassWithRef(),
-				nodes[i].schemaManager.shardState)
+			err = nodes[i].migrator.AddClass(context.Background(), secondClassWithRef())
 			require.Nil(t, err)
 			nodes[i].schemaManager.schema.Objects.Classes = append(nodes[i].schemaManager.schema.Objects.Classes,
 				class(), secondClassWithRef())
@@ -702,24 +699,21 @@ func TestDistributedVectorDistance(t *testing.T) {
 			os.Setenv("ASYNC_INDEXING", strconv.FormatBool(tt.asyncIndexing))
 
 			collection := multiVectorClass(tt.asyncIndexing)
-
 			overallShardState := multiShardState(numberOfNodes)
-			shardStateSerialized, err := json.Marshal(overallShardState)
-			require.Nil(t, err)
-
 			var nodes []*node
 			for i := 0; i < numberOfNodes; i++ {
 				node := &node{
 					name: fmt.Sprintf("node-%d", i),
 				}
-
-				node.init(dirName, shardStateSerialized, &nodes)
 				nodes = append(nodes, node)
 			}
 
+			for _, node := range nodes {
+				node.init(t, dirName, &nodes, overallShardState)
+			}
+
 			for i := range nodes {
-				require.Nil(t, nodes[i].migrator.AddClass(context.Background(), collection,
-					nodes[i].schemaManager.shardState))
+				require.Nil(t, nodes[i].migrator.AddClass(context.Background(), collection))
 				nodes[i].schemaManager.schema.Objects.Classes = append(nodes[i].schemaManager.schema.Objects.Classes,
 					collection)
 			}

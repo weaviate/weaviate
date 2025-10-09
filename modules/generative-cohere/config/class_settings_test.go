@@ -14,10 +14,10 @@ package config
 import (
 	"testing"
 
-	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 func Test_classSettings_Validate(t *testing.T) {
@@ -37,7 +37,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{},
 			},
-			wantModel:         "command-r",
+			wantModel:         "command-a-03-2025",
 			wantMaxTokens:     2048,
 			wantTemperature:   0,
 			wantK:             0,
@@ -63,17 +63,6 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantStopSequences: []string{"stop1", "stop2"},
 			wantBaseURL:       "https://api.cohere.ai",
 			wantErr:           nil,
-		},
-		{
-			name: "wrong model configured",
-			cfg: fakeClassConfig{
-				classConfig: map[string]interface{}{
-					"model": "wrong-model",
-				},
-			},
-			wantErr: errors.Errorf("wrong Cohere model name, available model names are: " +
-				"[command-r-plus command-r command-xlarge-beta command-xlarge command-medium command-xlarge-nightly " +
-				"command-medium-nightly xlarge medium command command-light command-nightly command-light-nightly base base-light]"),
 		},
 		{
 			name: "default settings with command-light-nightly",
@@ -149,5 +138,9 @@ func (f fakeClassConfig) TargetVector() string {
 }
 
 func (f fakeClassConfig) PropertiesDataTypes() map[string]schema.DataType {
+	return nil
+}
+
+func (f fakeClassConfig) Config() *config.Config {
 	return nil
 }

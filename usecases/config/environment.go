@@ -91,6 +91,18 @@ func FromEnv(config *Config) error {
 		config.TrackVectorDimensions = true
 	}
 
+	timeout := 30 * time.Second
+	opt := os.Getenv("MINIMUM_INTERNAL_TIMEOUT")
+	if opt != "" {
+		if parsed, err := time.ParseDuration(opt); err == nil {
+			timeout = parsed
+		} else {
+			return fmt.Errorf("parse MINIMUM_INTERNAL_TIMEOUT as duration: %w", err)
+		}
+	}
+
+	config.MinimumInternalTimeout = timeout
+
 	if v := os.Getenv("TRACK_VECTOR_DIMENSIONS_INTERVAL"); v != "" {
 		interval, err := time.ParseDuration(v)
 		if err != nil {
@@ -369,12 +381,16 @@ func FromEnv(config *Config) error {
 		config.Persistence.LazySegmentsDisabled = true
 	}
 
-	if entcfg.Enabled(os.Getenv("PERSISTENCE_SEGMENT_INFO_FROM_FILE_ENABLED")) {
+	if entcfg.Enabled(os.Getenv("PERSISTENCE_SEGMENT_INFO_FROM_FILE_DISABLED")) {
+		config.Persistence.SegmentInfoIntoFileNameEnabled = false
+	} else {
 		config.Persistence.SegmentInfoIntoFileNameEnabled = true
 	}
 
 	if entcfg.Enabled(os.Getenv("PERSISTENCE_WRITE_METADATA_FILES_ENABLED")) {
 		config.Persistence.WriteMetadataFilesEnabled = true
+	} else {
+		config.Persistence.WriteMetadataFilesEnabled = false
 	}
 
 	if v := os.Getenv("PERSISTENCE_MAX_REUSE_WAL_SIZE"); v != "" {
@@ -442,6 +458,16 @@ func FromEnv(config *Config) error {
 		return err
 	}
 	// ---- HNSW snapshots ----
+
+	defaultQuantization := ""
+	if v := os.Getenv("DEFAULT_QUANTIZATION"); v != "" {
+		defaultQuantization = strings.ToLower(v)
+	}
+	config.DefaultQuantization = runtime.NewDynamicValue(defaultQuantization)
+
+	if entcfg.Enabled(os.Getenv("EXPERIMENTAL_SPFRESH_ENABLED")) {
+		config.SPFreshEnabled = true
+	}
 
 	if entcfg.Enabled(os.Getenv("INDEX_RANGEABLE_IN_MEMORY")) {
 		config.Persistence.IndexRangeableInMemory = true
@@ -650,7 +676,9 @@ func FromEnv(config *Config) error {
 		config.EnableModules = v
 	}
 
-	if entcfg.Enabled(os.Getenv("ENABLE_API_BASED_MODULES")) {
+	if entcfg.Enabled(os.Getenv("API_BASED_MODULES_DISABLED")) {
+		config.EnableApiBasedModules = false
+	} else {
 		config.EnableApiBasedModules = true
 	}
 
@@ -881,6 +909,26 @@ func FromEnv(config *Config) error {
 		querySlowLogThreshold = threshold
 	}
 	config.QuerySlowLogThreshold = runtime.NewDynamicValue(querySlowLogThreshold)
+
+	envName := "QUERY_BITMAP_BUFS_MAX_MEMORY"
+	config.QueryBitmapBufsMaxMemory = DefaultQueryBitmapBufsMaxMemory
+	if v := os.Getenv(envName); v != "" {
+		bytes, err := parseResourceString(v)
+		if err != nil {
+			return fmt.Errorf("%s: %w", envName, err)
+		}
+		config.QueryBitmapBufsMaxMemory = int(bytes)
+	}
+
+	envName = "QUERY_BITMAP_BUFS_MAX_BUF_SIZE"
+	config.QueryBitmapBufsMaxBufSize = DefaultQueryBitmapBufsMaxBufSize
+	if v := os.Getenv(envName); v != "" {
+		bytes, err := parseResourceString(v)
+		if err != nil {
+			return fmt.Errorf("%s: %w", envName, err)
+		}
+		config.QueryBitmapBufsMaxBufSize = int(bytes)
+	}
 
 	invertedSorterDisabled := false
 	if v := os.Getenv("INVERTED_SORTER_DISABLED"); v != "" {
@@ -1219,6 +1267,9 @@ const (
 	DefaultQueryNestedCrossReferenceLimit = int64(100000)
 	// DefaultQueryCrossReferenceDepthLimit describes the max depth of nested crossrefs in a query
 	DefaultQueryCrossReferenceDepthLimit = 5
+
+	DefaultQueryBitmapBufsMaxBufSize = 1 << 25 // 32MB
+	DefaultQueryBitmapBufsMaxMemory  = 1 << 27 // 128MB (2x 32MB, 2x 16MB, 2x 8MB, 2x 4MB, 4x 2MB)
 )
 
 const (

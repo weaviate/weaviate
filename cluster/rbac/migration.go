@@ -16,9 +16,9 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/auth/authentication"
 
-	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/config"
 
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -128,7 +128,7 @@ func migrateUpsertRolesPermissionsV3(roles map[string][]authorization.Policy) ma
 				continue
 			}
 
-			roles[roleName][idx].Verb = authorization.USER_ASSIGN_AND_REVOKE
+			roles[roleName][idx].Verb = authorization.USER_AND_GROUP_ASSIGN_AND_REVOKE
 
 		}
 	}
@@ -232,51 +232,55 @@ func migrateRemoveRolesPermissionsV3(permissions []*authorization.Policy) []*aut
 			continue
 		}
 
-		permissions[idx].Verb = authorization.USER_ASSIGN_AND_REVOKE
+		permissions[idx].Verb = authorization.USER_AND_GROUP_ASSIGN_AND_REVOKE
 	}
 	return permissions
 }
 
-func migrateRevokeRoles(req *cmd.RevokeRolesForUserRequest) []*cmd.RevokeRolesForUserRequest {
+func migrateRevokeRoles(req *cmd.RevokeRolesForUserRequest) ([]*cmd.RevokeRolesForUserRequest, error) {
 	if req.Version == cmd.RBACAssignRevokeCommandPolicyVersionV0 {
 		return migrateRevokeRolesV0(req)
 	}
-	return []*cmd.RevokeRolesForUserRequest{req}
+	return []*cmd.RevokeRolesForUserRequest{req}, nil
 }
 
-func migrateRevokeRolesV0(req *cmd.RevokeRolesForUserRequest) []*cmd.RevokeRolesForUserRequest {
-	user, _ := conv.GetUserAndPrefix(req.User)
-
+func migrateRevokeRolesV0(req *cmd.RevokeRolesForUserRequest) ([]*cmd.RevokeRolesForUserRequest, error) {
+	user, _, err := conv.GetUserAndPrefix(req.User)
+	if err != nil {
+		return nil, err
+	}
 	req1 := &cmd.RevokeRolesForUserRequest{
 		Version: req.Version + 1,
 		Roles:   req.Roles,
-		User:    conv.UserNameWithTypeFromId(user, models.UserTypeInputDb),
+		User:    conv.UserNameWithTypeFromId(user, authentication.AuthTypeDb),
 	}
 	req2 := &cmd.RevokeRolesForUserRequest{
 		Version: req.Version + 1,
 		Roles:   req.Roles,
-		User:    conv.UserNameWithTypeFromId(user, models.UserTypeInputOidc),
+		User:    conv.UserNameWithTypeFromId(user, authentication.AuthTypeOIDC),
 	}
 
-	return []*cmd.RevokeRolesForUserRequest{req1, req2}
+	return []*cmd.RevokeRolesForUserRequest{req1, req2}, nil
 }
 
-func migrateAssignRoles(req *cmd.AddRolesForUsersRequest, authNconfig config.Authentication) []*cmd.AddRolesForUsersRequest {
+func migrateAssignRoles(req *cmd.AddRolesForUsersRequest, authNconfig config.Authentication) ([]*cmd.AddRolesForUsersRequest, error) {
 	if req.Version == cmd.RBACAssignRevokeCommandPolicyVersionV0 {
 		return migrateAssignRolesV0(req, authNconfig)
 	}
-	return []*cmd.AddRolesForUsersRequest{req}
+	return []*cmd.AddRolesForUsersRequest{req}, nil
 }
 
-func migrateAssignRolesV0(req *cmd.AddRolesForUsersRequest, authNconfig config.Authentication) []*cmd.AddRolesForUsersRequest {
-	user, _ := conv.GetUserAndPrefix(req.User)
-
+func migrateAssignRolesV0(req *cmd.AddRolesForUsersRequest, authNconfig config.Authentication) ([]*cmd.AddRolesForUsersRequest, error) {
+	user, _, err := conv.GetUserAndPrefix(req.User)
+	if err != nil {
+		return nil, err
+	}
 	var reqs []*cmd.AddRolesForUsersRequest
 	if authNconfig.APIKey.Enabled && slices.Contains(authNconfig.APIKey.Users, user) {
 		reqs = append(reqs, &cmd.AddRolesForUsersRequest{
 			Version: req.Version + 1,
 			Roles:   req.Roles,
-			User:    conv.UserNameWithTypeFromId(user, models.UserTypeInputDb),
+			User:    conv.UserNameWithTypeFromId(user, authentication.AuthTypeDb),
 		})
 	}
 
@@ -284,9 +288,9 @@ func migrateAssignRolesV0(req *cmd.AddRolesForUsersRequest, authNconfig config.A
 		reqs = append(reqs, &cmd.AddRolesForUsersRequest{
 			Version: req.Version + 1,
 			Roles:   req.Roles,
-			User:    conv.UserNameWithTypeFromId(user, models.UserTypeInputOidc),
+			User:    conv.UserNameWithTypeFromId(user, authentication.AuthTypeOIDC),
 		})
 	}
 
-	return reqs
+	return reqs, nil
 }

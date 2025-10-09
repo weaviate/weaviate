@@ -68,7 +68,8 @@ type Segment interface {
 	quantileKeys(q int) [][]byte
 	ReadOnlyTombstones() (*sroar.Bitmap, error)
 	replaceStratParseData(in []byte) ([]byte, []byte, error)
-	roaringSetGet(key []byte) (roaringset.BitmapLayer, error)
+	roaringSetGet(key []byte, bitmapBufPool roaringset.BitmapBufPool) (roaringset.BitmapLayer, func(), error)
+	roaringSetMergeWith(key []byte, input roaringset.BitmapLayer, bitmapBufPool roaringset.BitmapBufPool) error
 }
 
 type segment struct {
@@ -95,7 +96,6 @@ type segment struct {
 	useBloomFilter        bool // see bucket for more datails
 	bloomFilter           *bloom.BloomFilter
 	secondaryBloomFilters []*bloom.BloomFilter
-	bloomFilterMetrics    *bloomFilterMetrics
 
 	// the net addition this segment adds with respect to all previous segments
 	calcCountNetAdditions bool // see bucket for more datails
@@ -240,8 +240,12 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 
 	if header.Version >= segmentindex.SegmentV1 && cfg.enableChecksumValidation {
 		file.Seek(0, io.SeekStart)
+		headerSize := int64(segmentindex.HeaderSize)
+		if header.Strategy == segmentindex.StrategyInverted {
+			headerSize += int64(segmentindex.HeaderInvertedSize)
+		}
 		segmentFile := segmentindex.NewSegmentFile(segmentindex.WithReader(file))
-		if err := segmentFile.ValidateChecksum(size); err != nil {
+		if err := segmentFile.ValidateChecksum(size, headerSize); err != nil {
 			return nil, fmt.Errorf("validate segment %q: %w", path, err)
 		}
 	}
@@ -249,6 +253,13 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 	primaryIndex, err := header.PrimaryIndex(contents)
 	if err != nil {
 		return nil, fmt.Errorf("extract primary index position: %w", err)
+	}
+
+	// if there are no secondary indices and checksum validation is enabled,
+	// we need to remove the checksum bytes from the primary index
+	// See below for the same logic if there are secondary indices
+	if header.Version >= segmentindex.SegmentV1 && cfg.enableChecksumValidation && header.SecondaryIndices == 0 {
+		primaryIndex = primaryIndex[:len(primaryIndex)-segmentindex.ChecksumSize]
 	}
 
 	primaryDiskIndex := segmentindex.NewDiskTree(primaryIndex)
@@ -319,6 +330,11 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 			secondary, err := header.SecondaryIndex(contents, uint16(i))
 			if err != nil {
 				return nil, fmt.Errorf("get position for secondary index at %d: %w", i, err)
+			}
+			// if we are on the last secondary index and checksum validation is enabled,
+			// we need to remove the checksum bytes from the secondary index
+			if header.Version >= segmentindex.SegmentV1 && cfg.enableChecksumValidation && i == int(seg.secondaryIndexCount-1) {
+				secondary = secondary[:len(secondary)-segmentindex.ChecksumSize]
 			}
 			seg.secondaryIndices[i] = segmentindex.NewDiskTree(secondary)
 		}

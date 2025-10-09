@@ -20,7 +20,9 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/packedconn"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
@@ -31,13 +33,20 @@ func (h *hnsw) ValidateBeforeInsert(vector []float32) error {
 
 	// no vectors exist
 	if dims == 0 {
+		if err := h.validatePQSegments(len(vector)); err != nil {
+			return err
+		}
 		return nil
 	}
 
 	// check if vector length is the same as existing nodes
 	if dims != len(vector) {
-		return fmt.Errorf("new node has a vector with length %v. "+
+		return errors.Wrapf(common.ErrWrongDimensions, "new node has a vector with length %v. "+
 			"Existing nodes have vectors with length %v", len(vector), dims)
+	}
+
+	if err := h.validatePQSegments(dims); err != nil {
+		return err
 	}
 
 	return nil
@@ -45,10 +54,6 @@ func (h *hnsw) ValidateBeforeInsert(vector []float32) error {
 
 func (h *hnsw) ValidateMultiBeforeInsert(vector [][]float32) error {
 	dims := int(atomic.LoadInt32(&h.dims))
-
-	if h.muvera.Load() {
-		return nil
-	}
 
 	// no vectors exist
 	if dims == 0 {
@@ -59,7 +64,14 @@ func (h *hnsw) ValidateMultiBeforeInsert(vector [][]float32) error {
 		if len(vecDimensions) > 1 {
 			return fmt.Errorf("multi vector array consists of vectors with varying dimensions")
 		}
+		if err := h.validatePQSegments(len(vector[0])); err != nil {
+			return err
+		}
 		return nil
+	}
+
+	if h.muvera.Load() {
+		dims = h.muveraEncoder.Dimensions()
 	}
 
 	// check if vector length is the same as existing nodes
@@ -70,6 +82,17 @@ func (h *hnsw) ValidateMultiBeforeInsert(vector [][]float32) error {
 		}
 	}
 
+	if err := h.validatePQSegments(dims); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (h *hnsw) validatePQSegments(dims int) error {
+	if h.pqConfig.Enabled && h.pqConfig.Segments != 0 && dims%h.pqConfig.Segments != 0 {
+		return fmt.Errorf("pq segments must be a divisor of the vector dimensions")
+	}
 	return nil
 }
 
@@ -109,11 +132,15 @@ func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) 
 		h.trackRQOnce.Do(func() {
 			h.compressor, err = compressionhelpers.NewRQCompressor(
 				h.distancerProvider, 1e12, h.logger, h.store,
-				h.allocChecker, int(h.rqConfig.Bits), int(h.dims))
+				h.allocChecker, int(h.rqConfig.Bits), int(h.dims), h.getTargetVector())
 
 			if err == nil {
+				h.Lock()
+				defer h.Unlock()
 				h.compressed.Store(true)
-				h.cache.Drop()
+				if h.cache != nil {
+					h.cache.Drop()
+				}
 				h.cache = nil
 				h.compressor.PersistCompression(h.commitLog)
 			}
@@ -238,7 +265,7 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 		h.trackRQOnce.Do(func() {
 			h.compressor, err = compressionhelpers.NewRQMultiCompressor(
 				h.distancerProvider, 1e12, h.logger, h.store,
-				h.allocChecker, int(h.rqConfig.Bits), int(h.dims))
+				h.allocChecker, int(h.rqConfig.Bits), int(h.dims), h.getTargetVector())
 
 			if err == nil {
 				h.Lock()
@@ -254,7 +281,6 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 					})
 				h.compressed.Store(true)
 				h.cache.Drop()
-				h.cache = nil
 				h.compressor.PersistCompression(h.commitLog)
 				h.Unlock()
 			}
@@ -411,14 +437,7 @@ func (h *hnsw) addOne(ctx context.Context, vector []float32, node *vertex) error
 	h.nodes[nodeId] = node
 	h.shardedNodeLocks.Unlock(nodeId)
 
-	singleVector := !h.multivector.Load() || h.muvera.Load()
-	if singleVector {
-		if h.compressed.Load() {
-			h.compressor.Preload(nodeId, vector)
-		} else {
-			h.cache.Preload(nodeId, vector)
-		}
-	}
+	h.Preload(node.id, vector)
 
 	h.insertMetrics.prepareAndInsertNode(before)
 	before = time.Now()
@@ -510,14 +529,7 @@ func (h *hnsw) insertInitialElement(node *vertex, nodeVec []float32) error {
 	h.nodes[node.id] = node
 	h.shardedNodeLocks.Unlock(node.id)
 
-	singleVector := !h.multivector.Load() || h.muvera.Load()
-	if singleVector {
-		if h.compressed.Load() {
-			h.compressor.Preload(node.id, nodeVec)
-		} else {
-			h.cache.Preload(node.id, nodeVec)
-		}
-	}
+	h.Preload(node.id, nodeVec)
 
 	// go h.insertHook(node.id, 0, node.connections)
 	return nil
@@ -525,4 +537,15 @@ func (h *hnsw) insertInitialElement(node *vertex, nodeVec []float32) error {
 
 func (h *hnsw) generateLevel() uint8 {
 	return uint8(math.Floor(-math.Log(max(h.randFunc(), 1e-19)) * h.levelNormalizer))
+}
+
+func (h *hnsw) Preload(id uint64, vector []float32) {
+	singleVector := !h.multivector.Load() || h.muvera.Load()
+	if singleVector {
+		if h.compressed.Load() {
+			h.compressor.Preload(id, vector)
+		} else {
+			h.cache.Preload(id, vector)
+		}
+	}
 }

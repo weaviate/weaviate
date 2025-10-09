@@ -20,11 +20,15 @@ import (
 	"path/filepath"
 
 	"github.com/bits-and-blooms/bloom/v3"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/usecases/byteops"
 )
 
-const MetadataVersion = 0
+const (
+	MetadataVersion    = 0
+	MetadataFileSuffix = ".metadata"
+)
 
 func (s *segment) metadataPath() string {
 	return s.buildPath("%s.metadata")
@@ -34,8 +38,6 @@ func (s *segment) initMetadata(metrics *Metrics, overwrite bool, exists existsOn
 	if !s.useBloomFilter && !s.calcCountNetAdditions {
 		return false, nil
 	}
-	s.bloomFilterMetrics = newBloomFilterMetrics(metrics)
-
 	path := s.metadataPath()
 
 	loadFromDisk, err := fileExistsInList(existingFilesList, filepath.Base(path))
@@ -238,9 +240,8 @@ func (s *segment) initBloomFiltersFromData(primary []byte, secondary [][]byte) e
 		s.secondaryBloomFilters[i] = new(bloom.BloomFilter)
 		_, err := s.secondaryBloomFilters[i].ReadFrom(bytes.NewReader(secondary[i]))
 		if err != nil {
-			return fmt.Errorf("read bloom filter: %w", err)
+			return fmt.Errorf("read secondary bloom filter %d with byte length %d: %w", i, len(secondary[i]), err)
 		}
-
 	}
 	return nil
 }
@@ -295,4 +296,43 @@ func (s *segment) recalcCountNetAdditions(exists existsOnLowerSegmentsFn, precom
 	data := make([]byte, 8)
 	binary.LittleEndian.PutUint64(data, uint64(s.countNetAdditions))
 	return data, nil
+}
+
+// ReadObjectCountFromMetadataFile reads a .metadata file and returns the count net additions value
+// Returns (count, nil) if successful, (0, error) if the file is invalid or corrupted
+func ReadObjectCountFromMetadataFile(path string) (int64, error) {
+	data, err := loadWithChecksum(path, -1, nil)
+	if err != nil {
+		return 0, fmt.Errorf("failed to read .metadata file: %w", err)
+	}
+
+	rw := byteops.NewReadWriter(data)
+
+	// Read version to detect file structure
+	version := rw.ReadUint8()
+
+	switch version {
+	case MetadataVersion:
+		// Version 0: checksum + version + primary bloom + cna + secondary blooms
+		// Read bloom filter length and skip
+		bloomLen := rw.ReadUint32()
+		rw.MoveBufferPositionForward(uint64(bloomLen))
+
+		// Read CNA length
+		cnaLen := rw.ReadUint32()
+
+		// Read CNA data
+		if cnaLen >= 8 {
+			cnaData := rw.ReadBytesFromBuffer(uint64(cnaLen))
+			if len(cnaData) >= 8 {
+				count := int64(binary.LittleEndian.Uint64(cnaData))
+				return count, nil
+			}
+		}
+
+	default:
+		return 0, fmt.Errorf("unsupported metadata version: %d", version)
+	}
+
+	return 0, fmt.Errorf("invalid net additions data in metadata file")
 }

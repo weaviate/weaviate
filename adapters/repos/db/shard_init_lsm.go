@@ -121,9 +121,15 @@ func (s *Shard) initLSMStore() error {
 		"index": s.index.ID(),
 		"class": s.index.Config.ClassName,
 	})
+
 	var metrics *lsmkv.Metrics
+	var err error
+
 	if s.promMetrics != nil {
-		metrics = lsmkv.NewMetrics(s.promMetrics, string(s.index.Config.ClassName), s.name)
+		metrics, err = lsmkv.NewMetrics(s.promMetrics, string(s.index.Config.ClassName), s.name)
+		if err != nil {
+			return fmt.Errorf("init lsmkv metrics: %w", err)
+		}
 	}
 
 	store, err := lsmkv.New(s.pathLSM(), s.path(), annotatedLogger, metrics,
@@ -192,7 +198,6 @@ func (s *Shard) initIndexCounterVersionerAndBitmapFactory() error {
 		return fmt.Errorf("init index counter: %w", err)
 	}
 	s.counter = counter
-	s.bitmapBufPool = roaringset.NewBitmapBufPool(1024, 1.1)
 	// counter is incremented whenever new docID is fetched, therefore last docID is lower by 1
 	s.bitmapFactory = roaringset.NewBitmapFactory(s.bitmapBufPool, func() uint64 { return s.counter.Get() - 1 })
 

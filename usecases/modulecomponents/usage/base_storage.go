@@ -21,6 +21,7 @@ import (
 
 	"github.com/weaviate/weaviate/cluster/usage/types"
 	entcfg "github.com/weaviate/weaviate/entities/config"
+	"github.com/weaviate/weaviate/usecases/build"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
 )
@@ -44,10 +45,8 @@ func NewBaseStorage(logger logrus.FieldLogger, metrics *Metrics) *BaseStorage {
 }
 
 // ConstructObjectKey creates the full object key path for storage
-func (b *BaseStorage) ConstructObjectKey() string {
-	now := time.Now().UTC()
-	timestamp := time.Date(now.Year(), now.Month(), now.Day(), now.Hour(), now.Minute(), 0, 0, time.UTC).Format("2006-01-02T15-04-05Z")
-	filename := fmt.Sprintf("%s.json", timestamp)
+func (b *BaseStorage) ConstructObjectKey(collectionTime string) string {
+	filename := fmt.Sprintf("%s.json", collectionTime)
 
 	objectKey := fmt.Sprintf("%s/%s", b.NodeID, filename)
 	if b.Prefix != "" {
@@ -58,7 +57,7 @@ func (b *BaseStorage) ConstructObjectKey() string {
 
 // MarshalUsageData converts usage data to JSON
 func (b *BaseStorage) MarshalUsageData(usage *types.Report) ([]byte, error) {
-	data, err := json.MarshalIndent(usage, "", "  ")
+	data, err := json.Marshal(usage)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal usage data: %w", err)
 	}
@@ -164,7 +163,7 @@ func ParseCommonUsageConfig(config *config.Config) error {
 	}
 	config.Usage.ScrapeInterval = runtime.NewDynamicValue(scrapeInterval)
 
-	policyVersion := DefaultPolicyVersion
+	policyVersion := build.Version
 	if v := os.Getenv("USAGE_POLICY_VERSION"); v != "" {
 		policyVersion = v
 	} else if config.Usage.PolicyVersion != nil {

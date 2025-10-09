@@ -13,11 +13,13 @@ package tests
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/test/docker"
+	"github.com/weaviate/weaviate/test/helper/sample-schema/companies"
 )
 
 func TestText2VecJinaAI(t *testing.T) {
@@ -42,12 +44,13 @@ func createSingleNodeEnvironment(ctx context.Context, jinaApiKey string,
 	compose, err = composeModules(jinaApiKey).
 		WithWeaviate().
 		WithWeaviateWithGRPC().
+		WithWeaviateEnv("MODULES_CLIENT_TIMEOUT", fmt.Sprintf("%.0fs", companies.DefaultTimeout.Seconds())).
 		Start(ctx)
-	return
+	return compose, err
 }
 
 func composeModules(jinaApiKey string) (composeModules *docker.Compose) {
 	composeModules = docker.New().
 		WithText2VecJinaAI(jinaApiKey)
-	return
+	return composeModules
 }

@@ -106,7 +106,7 @@ func (s *S3Storage) UploadUsageData(ctx context.Context, usage *types.Report) er
 
 	_, err = s.s3Client.PutObject(ctx, &s3.PutObjectInput{
 		Bucket:      aws.String(s.BucketName),
-		Key:         aws.String(s.ConstructObjectKey()),
+		Key:         aws.String(s.ConstructObjectKey(usage.CollectingTime)),
 		Body:        bytes.NewReader(data),
 		ContentType: aws.String("application/json"),
 		Metadata: map[string]string{

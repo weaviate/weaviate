@@ -59,26 +59,26 @@ func createSingleNodeEnvironment(ctx context.Context) (compose *docker.DockerCom
 	compose, err = composeModules().
 		WithWeaviate().
 		Start(ctx)
-	return
+	return compose, err
 }
 
 func createSingleNodeEnvironmentWithEnabledApiBasedModules(ctx context.Context) (compose *docker.DockerCompose, err error) {
 	compose, err = composeModules().
-		WithWeaviateEnv("ENABLE_API_BASED_MODULES", "true").
 		WithWeaviate().
 		Start(ctx)
-	return
+	return compose, err
 }
 
 func createClusterEnvironment(ctx context.Context) (compose *docker.DockerCompose, err error) {
 	compose, err = composeModules().
 		WithWeaviateCluster(3).
 		Start(ctx)
-	return
+	return compose, err
 }
 
 func composeModules() (composeModules *docker.Compose) {
 	composeModules = docker.New().
+		WithWeaviateEnv("API_BASED_MODULES_DISABLED", "true").
 		WithText2VecContextionary().
 		WithText2VecTransformers().
 		WithText2VecOpenAI(os.Getenv("OPENAI_APIKEY"), os.Getenv("OPENAI_ORGANIZATION"), os.Getenv("AZURE_APIKEY")).
@@ -97,5 +97,5 @@ func composeModules() (composeModules *docker.Compose) {
 		WithQnAOpenAI().
 		WithRerankerCohere().
 		WithRerankerVoyageAI()
-	return
+	return composeModules
 }

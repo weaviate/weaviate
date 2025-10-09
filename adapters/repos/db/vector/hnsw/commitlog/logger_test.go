@@ -14,14 +14,18 @@ package commitlog
 import (
 	"os"
 	"testing"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 )
+
+var fs = common.NewOSFS()
 
 func BenchmarkSetEntryPoint(b *testing.B) {
 	defer os.Remove("./testfile")
 	ids := make([]uint64, 100)
 	levels := make([]int, 100)
 
-	l := NewLogger("./testfile")
+	l := NewLogger("./testfile", fs)
 
 	b.ReportAllocs()
 
@@ -37,7 +41,7 @@ func BenchmarkAddNode(b *testing.B) {
 	ids := make([]uint64, 100)
 	levels := make([]int, 100)
 
-	l := NewLogger("./testfile")
+	l := NewLogger("./testfile", fs)
 
 	b.ReportAllocs()
 
@@ -54,7 +58,7 @@ func BenchmarkAddLinkAtLevel(b *testing.B) {
 	levels := make([]int, 100)
 	links := make([]uint64, 100)
 
-	l := NewLogger("./testfile")
+	l := NewLogger("./testfile", fs)
 
 	b.ReportAllocs()
 
@@ -74,7 +78,7 @@ func BenchmarkReplaceLinksAtLevel32(b *testing.B) {
 		links[i] = make([]uint64, 32)
 	}
 
-	l := NewLogger("./testfile")
+	l := NewLogger("./testfile", fs)
 
 	b.ReportAllocs()
 
@@ -94,7 +98,7 @@ func BenchmarkReplaceLinksAtLevel33(b *testing.B) {
 		links[i] = make([]uint64, 33)
 	}
 
-	l := NewLogger("./testfile")
+	l := NewLogger("./testfile", fs)
 
 	b.ReportAllocs()
 
@@ -109,7 +113,7 @@ func BenchmarkAddTombstone(b *testing.B) {
 	defer os.Remove("./testfile")
 	ids := make([]uint64, 100)
 
-	l := NewLogger("./testfile")
+	l := NewLogger("./testfile", fs)
 
 	b.ReportAllocs()
 
@@ -124,7 +128,7 @@ func BenchmarkRemoveTombstone(b *testing.B) {
 	defer os.Remove("./testfile")
 	ids := make([]uint64, 100)
 
-	l := NewLogger("./testfile")
+	l := NewLogger("./testfile", fs)
 
 	b.ReportAllocs()
 
@@ -139,7 +143,7 @@ func BenchmarkClearLinks(b *testing.B) {
 	defer os.Remove("./testfile")
 	ids := make([]uint64, 100)
 
-	l := NewLogger("./testfile")
+	l := NewLogger("./testfile", fs)
 
 	b.ReportAllocs()
 
@@ -153,7 +157,7 @@ func BenchmarkClearLinks(b *testing.B) {
 func BenchmarkDeleteNode(b *testing.B) {
 	ids := make([]uint64, 100)
 
-	l := NewLogger("./testfile")
+	l := NewLogger("./testfile", fs)
 
 	b.ReportAllocs()
 
@@ -166,7 +170,7 @@ func BenchmarkDeleteNode(b *testing.B) {
 
 func BenchmarkReset(b *testing.B) {
 	defer os.Remove("./testfile")
-	l := NewLogger("./testfile")
+	l := NewLogger("./testfile", fs)
 
 	b.ReportAllocs()
 

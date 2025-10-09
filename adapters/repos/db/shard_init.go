@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	entsentry "github.com/weaviate/weaviate/entities/sentry"
@@ -35,7 +36,7 @@ import (
 func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	shardName string, index *Index, class *models.Class, jobQueueCh chan job,
 	scheduler *queue.Scheduler, indexCheckpoints *indexcheckpoint.Checkpoints,
-	reindexer ShardReindexerV3, lazyLoadSegments bool,
+	reindexer ShardReindexerV3, lazyLoadSegments bool, bitmapBufPool roaringset.BitmapBufPool,
 ) (_ *Shard, err error) {
 	start := time.Now()
 
@@ -45,20 +46,23 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		"index":  index.ID(),
 	}).Debugf("initializing shard %q", shardName)
 
+	metrics, err := NewMetrics(index.logger, promMetrics, string(index.Config.ClassName), shardName)
+	if err != nil {
+		return nil, fmt.Errorf("init shard %q metrics: %w", shardName, err)
+	}
+
 	s := &Shard{
 		index:       index,
 		class:       class,
 		name:        shardName,
 		promMetrics: promMetrics,
-		metrics: NewMetrics(index.logger, promMetrics,
-			string(index.Config.ClassName), shardName),
+		metrics:     metrics,
 		slowQueryReporter: helpers.NewSlowQueryReporter(index.Config.QuerySlowLogEnabled,
 			index.Config.QuerySlowLogThreshold, index.logger),
-		stopDimensionTracking: make(chan struct{}),
-		replicationMap:        pendingReplicaTasks{Tasks: make(map[string]replicaTask, 32)},
-		centralJobQueue:       jobQueueCh,
-		scheduler:             scheduler,
-		indexCheckpoints:      indexCheckpoints,
+		replicationMap:   pendingReplicaTasks{Tasks: make(map[string]replicaTask, 32)},
+		centralJobQueue:  jobQueueCh,
+		scheduler:        scheduler,
+		indexCheckpoints: indexCheckpoints,
 
 		shutdownLock: new(sync.RWMutex),
 
@@ -66,6 +70,8 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		searchableBlockmaxPropNamesLock: new(sync.Mutex),
 		reindexer:                       reindexer,
 		usingBlockMaxWAND:               index.invertedIndexConfig.UsingBlockMaxWAND,
+		bitmapBufPool:                   bitmapBufPool,
+		SPFreshEnabled:                  index.SPFreshEnabled,
 	}
 
 	index.metrics.UpdateShardStatus("", storagestate.StatusLoading.String())
@@ -137,8 +143,6 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		return nil, fmt.Errorf("init shard vectors: %w", err)
 	}
 
-	s.initDimensionTracking()
-
 	if asyncEnabled() {
 		f := func() {
 			_ = s.ForEachVectorQueue(func(targetVector string, _ *VectorIndexQueue) error {
@@ -175,7 +179,7 @@ func (s *Shard) cleanupPartialInit(ctx context.Context) {
 }
 
 func (s *Shard) NotifyReady() {
-	s.UpdateStatus(storagestate.StatusReady.String())
+	s.UpdateStatus(storagestate.StatusReady.String(), "notify ready")
 	s.index.logger.
 		WithField("action", "startup").
 		Debugf("shard=%s is ready", s.name)

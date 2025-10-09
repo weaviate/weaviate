@@ -159,7 +159,7 @@ func (c *converter) parseString(in interface{}) (value *string, valueArray []str
 	default:
 		err = fmt.Errorf("unsupported type: '%T'", in)
 	}
-	return
+	return value, valueArray, err
 }
 
 type WhereFilter struct {

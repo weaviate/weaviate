@@ -19,6 +19,7 @@ import (
 	vIndex "github.com/weaviate/weaviate/entities/vectorindex"
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/entities/vectorindex/spfresh"
 	sharding "github.com/weaviate/weaviate/usecases/sharding/config"
 )
 
@@ -66,18 +67,21 @@ const (
 	VectorIndexTypeEmpty VectorIndexType = iota
 	VectorIndexTypeHNSW
 	VectorIndexTypeFlat
+	VectorIndexTypeSPFresh
 )
 
 var (
 	vectorIndexTypeToString = map[VectorIndexType]string{
-		VectorIndexTypeHNSW:  vIndex.VectorIndexTypeHNSW,
-		VectorIndexTypeFlat:  vIndex.VectorIndexTypeFLAT,
-		VectorIndexTypeEmpty: "",
+		VectorIndexTypeHNSW:    vIndex.VectorIndexTypeHNSW,
+		VectorIndexTypeFlat:    vIndex.VectorIndexTypeFLAT,
+		VectorIndexTypeSPFresh: vIndex.VectorIndexTypeSPFresh,
+		VectorIndexTypeEmpty:   "",
 	}
 	stringToVectorIndexType = map[string]VectorIndexType{
-		vIndex.VectorIndexTypeHNSW: VectorIndexTypeHNSW,
-		vIndex.VectorIndexTypeFLAT: VectorIndexTypeFlat,
-		"":                         VectorIndexTypeEmpty,
+		vIndex.VectorIndexTypeHNSW:    VectorIndexTypeHNSW,
+		vIndex.VectorIndexTypeFLAT:    VectorIndexTypeFlat,
+		vIndex.VectorIndexTypeSPFresh: VectorIndexTypeSPFresh,
+		"":                            VectorIndexTypeEmpty,
 	}
 )
 
@@ -372,6 +376,8 @@ func CollectionFromClass(m models.Class) (Collection, error) {
 		c.VectorIndexConfig = m.VectorIndexConfig.(hnsw.UserConfig)
 	case VectorIndexTypeFlat:
 		c.VectorIndexConfig = m.VectorIndexConfig.(flat.UserConfig)
+	case VectorIndexTypeSPFresh:
+		c.VectorIndexConfig = m.VectorIndexConfig.(spfresh.UserConfig)
 	default:
 	}
 
