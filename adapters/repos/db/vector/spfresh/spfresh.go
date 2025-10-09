@@ -62,8 +62,7 @@ type SPFresh struct {
 	distancer          *Distancer
 
 	// Internal components
-	// SPTAG        *BruteForceSPTAG        // Provides access to the SPTAG index for centroid operations.
-	SPTAG        *HnswIndex              // Provides access to the SPTAG index for centroid operations.
+	Centroids    CentroidIndex           // Provides access to the centroids.
 	Store        *LSMStore               // Used for managing persistence of postings.
 	IDs          common.MonotonicCounter // Shared monotonic counter for generating unique IDs for new postings.
 	VersionMap   *VersionMap             // Stores vector versions in-memory.
@@ -94,23 +93,22 @@ func New(cfg *Config, store *lsmkv.Store) (*SPFresh, error) {
 
 	metrics := NewMetrics(cfg.PrometheusMetrics, cfg.ClassName, cfg.ShardName)
 
+	if cfg.CentroidIndex == nil {
+		cfg.CentroidIndex = NewBruteForceSPTAG(metrics, 1024*1024, 1024)
+	}
+
 	postingStore, err := NewLSMStore(store, metrics, bucketName(cfg.ID), cfg.MinMMapSize, cfg.MaxReuseWalSize, cfg.AllocChecker, cfg.LazyLoadSegments, cfg.WriteSegmentInfoIntoFileName, cfg.WriteMetadataFilesEnabled)
 	if err != nil {
 		return nil, err
 	}
 
-	hnsw, err := NewHnswIndex(metrics, store, 1024*1024, 1024)
-	if err != nil {
-		return nil, err
-	}
-
 	s := SPFresh{
-		id:      cfg.ID,
-		logger:  cfg.Logger.WithField("component", "SPFresh"),
-		config:  cfg,
-		metrics: metrics,
-		Store:   postingStore,
-		SPTAG:   hnsw,
+		id:        cfg.ID,
+		logger:    cfg.Logger.WithField("component", "SPFresh"),
+		config:    cfg,
+		metrics:   metrics,
+		Store:     postingStore,
+		Centroids: cfg.CentroidIndex,
 		// Capacity of the version map: 8k pages, 1M vectors each -> 8B vectors
 		// - An empty version map consumes 240KB of memory
 		// - Each allocated page consumes 1MB of memory
@@ -175,8 +173,7 @@ func (s *SPFresh) Type() common.IndexType {
 }
 
 func (s *SPFresh) UpdateUserConfig(updated schemaConfig.VectorIndexConfig, callback func()) error {
-	// TODO: add update user config
-	// return errors.New("UpdateUserConfig is not supported for the spfresh index")
+	callback()
 	return nil
 }
 
@@ -277,7 +274,7 @@ func (s *SPFresh) QueryVectorDistancer(queryVector []float32) common.QueryVector
 }
 
 func (s *SPFresh) CompressionStats() compressionhelpers.CompressionStats {
-	return s.SPTAG.Quantizer().Stats()
+	return s.Centroids.Quantizer().Stats()
 }
 
 func (s *SPFresh) Preload(id uint64, vector []float32) {

@@ -15,7 +15,9 @@ import (
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-type HnswIndex struct {
+var _ CentroidIndex = (*HNSWIndex)(nil)
+
+type HNSWIndex struct {
 	quantizer *compressionhelpers.RotationalQuantizer
 	distancer *Distancer
 	metrics   *Metrics
@@ -24,29 +26,19 @@ type HnswIndex struct {
 	counter   atomic.Int32
 }
 
-func NewHnswIndex(metrics *Metrics, store *lsmkv.Store, pages, pageSize uint64) (*HnswIndex, error) {
-	index := HnswIndex{
+func NewHNSWIndex(metrics *Metrics, store *lsmkv.Store, cfg hnsw.Config, ecfg ent.UserConfig, pages, pageSize uint64) (*HNSWIndex, error) {
+	index := HNSWIndex{
 		metrics:   metrics,
 		centroids: common.NewPagedArray[atomic.Pointer[Centroid]](pages, pageSize),
 	}
 
-	cfg := hnsw.Config{
-		RootPath:              "nonexistent",
-		ID:                    "spfresh",
-		MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
-		DistanceProvider:      distancer.NewCosineDistanceProvider(),
-		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
-			centroid := index.Get(id)
-			if centroid == nil {
-				return nil, errors.New("not found")
-			}
-			return centroid.Uncompressed, nil
-		},
+	cfg.VectorForIDThunk = func(ctx context.Context, id uint64) ([]float32, error) {
+		centroid := index.Get(id)
+		if centroid == nil {
+			return nil, errors.New("not found")
+		}
+		return centroid.Uncompressed, nil
 	}
-
-	ecfg := ent.UserConfig{}
-
-	ecfg.SetDefaults()
 
 	h, err := hnsw.New(cfg, ecfg, cyclemanager.NewCallbackGroupNoop(), store)
 	if err != nil {
@@ -58,18 +50,18 @@ func NewHnswIndex(metrics *Metrics, store *lsmkv.Store, pages, pageSize uint64) 
 	return &index, nil
 }
 
-func (s *HnswIndex) Init(dims int32, distancer distancer.Provider) {
+func (i *HNSWIndex) Init(dims int32, distancer distancer.Provider) {
 	// TODO: seed
 	seed := uint64(42)
-	s.quantizer = compressionhelpers.NewRotationalQuantizer(int(dims), seed, 8, distancer)
-	s.distancer = &Distancer{
-		quantizer: s.quantizer,
+	i.quantizer = compressionhelpers.NewRotationalQuantizer(int(dims), seed, 8, distancer)
+	i.distancer = &Distancer{
+		quantizer: i.quantizer,
 		distancer: distancer,
 	}
 }
 
-func (s *HnswIndex) Get(id uint64) *Centroid {
-	page, slot := s.centroids.GetPageFor(id)
+func (i *HNSWIndex) Get(id uint64) *Centroid {
+	page, slot := i.centroids.GetPageFor(id)
 	if page == nil {
 		return nil
 	}
@@ -77,27 +69,27 @@ func (s *HnswIndex) Get(id uint64) *Centroid {
 	return page[slot].Load()
 }
 
-func (s *HnswIndex) Insert(id uint64, centroid *Centroid) error {
-	page, slot := s.centroids.EnsurePageFor(id)
+func (i *HNSWIndex) Insert(id uint64, centroid *Centroid) error {
+	page, slot := i.centroids.EnsurePageFor(id)
 	if page == nil {
 		return errors.New("failed to allocate page")
 	}
 
 	page[slot].Store(centroid)
 
-	err := s.hnsw.Add(context.Background(), id, centroid.Uncompressed)
+	err := i.hnsw.Add(context.Background(), id, centroid.Uncompressed)
 	if err != nil {
 		return errors.Wrap(err, "add to hnsw")
 	}
 
-	s.metrics.SetPostings(int(s.counter.Add(1)))
+	i.metrics.SetPostings(int(i.counter.Add(1)))
 
 	return nil
 }
 
-func (s *HnswIndex) MarkAsDeleted(id uint64) error {
+func (i *HNSWIndex) MarkAsDeleted(id uint64) error {
 	for {
-		page, slot := s.centroids.GetPageFor(id)
+		page, slot := i.centroids.GetPageFor(id)
 		if page == nil {
 			return nil
 		}
@@ -117,16 +109,16 @@ func (s *HnswIndex) MarkAsDeleted(id uint64) error {
 		}
 
 		if page[slot].CompareAndSwap(centroid, &newCentroid) {
-			s.metrics.SetPostings(int(s.counter.Add(-1)))
+			i.metrics.SetPostings(int(i.counter.Add(-1)))
 			break
 		}
 	}
 
-	return s.hnsw.Delete(id)
+	return i.hnsw.Delete(id)
 }
 
-func (s *HnswIndex) Exists(id uint64) bool {
-	centroid := s.Get(id)
+func (i *HNSWIndex) Exists(id uint64) bool {
+	centroid := i.Get(id)
 	if centroid == nil {
 		return false
 	}
@@ -134,15 +126,15 @@ func (s *HnswIndex) Exists(id uint64) bool {
 	return !centroid.Deleted
 }
 
-func (s *HnswIndex) Quantizer() *compressionhelpers.RotationalQuantizer {
-	return s.quantizer
+func (i *HNSWIndex) Quantizer() *compressionhelpers.RotationalQuantizer {
+	return i.quantizer
 }
 
-func (s *HnswIndex) Search(query []float32, k int) (*ResultSet, error) {
+func (i *HNSWIndex) Search(query []float32, k int) (*ResultSet, error) {
 	start := time.Now()
-	defer s.metrics.CentroidSearchDuration(start)
+	defer i.metrics.CentroidSearchDuration(start)
 
-	ids, distances, err := s.hnsw.SearchByVector(context.TODO(), query, k, nil)
+	ids, distances, err := i.hnsw.SearchByVector(context.TODO(), query, k, nil)
 	if err != nil {
 		return nil, err
 	}

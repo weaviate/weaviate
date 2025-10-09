@@ -32,6 +32,7 @@ type Config struct {
 	TargetVector                 string
 	ShardName                    string
 	ClassName                    string
+	CentroidIndex                CentroidIndex
 	PrometheusMetrics            *monitoring.PrometheusMetrics
 	MaxPostingSize               uint32                `json:"maxPostingSize,omitempty"`               // Maximum number of vectors in a posting
 	MinPostingSize               uint32                `json:"minPostingSize,omitempty"`               // Minimum number of vectors in a posting

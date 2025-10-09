@@ -58,10 +58,10 @@ func (s *SPFresh) Add(ctx context.Context, id uint64, vector []float32) (err err
 	s.initDimensionsOnce.Do(func() {
 		s.dims = int32(len(vector))
 		s.setMaxPostingSize()
-		s.SPTAG.Init(s.dims, s.config.Distancer)
-		compressed = s.SPTAG.Quantizer().Encode(vector)
+		s.Centroids.Init(s.dims, s.config.Distancer)
+		compressed = s.Centroids.Quantizer().Encode(vector)
 		s.distancer = &Distancer{
-			quantizer: s.SPTAG.Quantizer(),
+			quantizer: s.Centroids.Quantizer(),
 			distancer: s.config.Distancer,
 		}
 		s.vectorSize = int32(len(compressed))
@@ -69,7 +69,7 @@ func (s *SPFresh) Add(ctx context.Context, id uint64, vector []float32) (err err
 	})
 
 	if compressed == nil {
-		compressed = s.SPTAG.Quantizer().Encode(vector)
+		compressed = s.Centroids.Quantizer().Encode(vector)
 	}
 
 	// add the vector to the version map.
@@ -119,7 +119,7 @@ func (s *SPFresh) ensureInitialPosting(v []float32, compressed []byte) (*ResultS
 		postingID := s.IDs.Next()
 		s.PostingSizes.AllocPageFor(postingID)
 		// use the vector as the centroid and register it in the SPTAG
-		err = s.SPTAG.Insert(postingID, &Centroid{
+		err = s.Centroids.Insert(postingID, &Centroid{
 			Uncompressed: v,
 			Compressed:   compressed,
 			Deleted:      false,
@@ -142,7 +142,7 @@ func (s *SPFresh) append(ctx context.Context, vector Vector, centroidID uint64, 
 	s.postingLocks.Lock(centroidID)
 
 	// check if the posting still exists
-	if !s.SPTAG.Exists(centroidID) {
+	if !s.Centroids.Exists(centroidID) {
 		// the posting might have been deleted concurrently,
 		// might happen if we are reassigning
 		if s.VersionMap.Get(vector.ID()) == vector.Version() {

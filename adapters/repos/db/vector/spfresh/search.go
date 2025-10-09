@@ -13,6 +13,7 @@ package spfresh
 
 import (
 	"context"
+	"iter"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -26,7 +27,7 @@ const (
 )
 
 func (s *SPFresh) SearchByVector(ctx context.Context, vector []float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
-	queryVector := NewAnonymousCompressedVector(s.SPTAG.Quantizer().Encode(vector))
+	queryVector := NewAnonymousCompressedVector(s.Centroids.Quantizer().Encode(vector))
 
 	var selected []uint64
 	var postings []Posting
@@ -35,7 +36,7 @@ func (s *SPFresh) SearchByVector(ctx context.Context, vector []float32, k int, a
 	// to enlarge the search space.
 	candidateNum := max(k, s.config.SearchProbe)
 
-	centroids, err := s.SPTAG.Search(vector, candidateNum)
+	centroids, err := s.Centroids.Search(vector, candidateNum)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -185,4 +186,83 @@ func (s *SPFresh) SearchByVectorDistance(
 	}
 
 	return resultIDs, resultDist, nil
+}
+
+type Result struct {
+	ID       uint64
+	Distance float32
+}
+
+// ResultSet maintains the k smallest elements by distance in a sorted array.
+// It creates a fixed-size array of length k and inserts new elements in sorted order.
+// It performs about 3x faster than the priority queue approach, as it avoids
+// the overhead of heap operations and memory allocations.
+type ResultSet struct {
+	data []Result
+	k    int
+}
+
+func NewResultSet(k int) *ResultSet {
+	return &ResultSet{
+		data: make([]Result, 0, k),
+		k:    k,
+	}
+}
+
+// Insert adds a new element, maintaining only k smallest elements by distance
+func (ks *ResultSet) Insert(id uint64, dist float32) {
+	item := Result{ID: id, Distance: dist}
+
+	// If array isn't full yet, just insert in sorted position
+	if len(ks.data) < ks.k {
+		pos := ks.searchByDistance(dist)
+		ks.data = append(ks.data, Result{})
+		copy(ks.data[pos+1:], ks.data[pos:])
+		ks.data[pos] = item
+		return
+	}
+
+	// If array is full, only insert if distance is smaller than max (last element)
+	if dist < ks.data[ks.k-1].Distance {
+		pos := ks.searchByDistance(dist)
+		// Shift elements to the right and insert
+		copy(ks.data[pos+1:], ks.data[pos:ks.k-1])
+		ks.data[pos] = item
+	}
+}
+
+// searchByDistance finds the insertion position for a given distance
+func (ks *ResultSet) searchByDistance(dist float32) int {
+	left, right := 0, len(ks.data)
+	for left < right {
+		mid := (left + right) / 2
+		if ks.data[mid].Distance < dist {
+			left = mid + 1
+		} else {
+			right = mid
+		}
+	}
+	return left
+}
+
+func (ks *ResultSet) Len() int {
+	return len(ks.data)
+}
+
+func (ks *ResultSet) Iter() iter.Seq2[uint64, float32] {
+	return func(yield func(uint64, float32) bool) {
+		for _, item := range ks.data {
+			if !yield(item.ID, item.Distance) {
+				break
+			}
+		}
+	}
+}
+
+func (ks *ResultSet) Reset(k int) {
+	ks.data = ks.data[:0]
+	if cap(ks.data) < k {
+		ks.data = make([]Result, 0, k)
+	}
+	ks.k = k
 }

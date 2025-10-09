@@ -72,8 +72,6 @@ func (s *SPFresh) doReassign(op reassignOperation) error {
 	start := time.Now()
 	defer s.metrics.ReassignDuration(start)
 
-	s.logger.WithField("vectorID", op.Vector.ID()).Debug("Processing reassign operation")
-
 	// check if the vector is still valid
 	version := s.VersionMap.Get(op.Vector.ID())
 	if version.Deleted() || version.Version() > op.Vector.Version().Version() {
@@ -82,7 +80,7 @@ func (s *SPFresh) doReassign(op reassignOperation) error {
 
 	// perform a RNG selection to determine the postings where the vector should be
 	// reassigned to.
-	q := s.SPTAG.quantizer.Restore(op.Vector.(CompressedVector).Data())
+	q := s.Centroids.Quantizer().Restore(op.Vector.(CompressedVector).Data())
 	replicas, needsReassign, err := s.RNGSelect(q, op.PostingID)
 	if err != nil {
 		return errors.Wrap(err, "failed to select replicas")

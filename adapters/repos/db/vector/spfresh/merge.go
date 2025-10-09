@@ -90,7 +90,7 @@ func (s *SPFresh) doMerge(postingID uint64) error {
 	}()
 
 	// Ensure the posting exists in the index
-	if !s.SPTAG.Exists(postingID) {
+	if !s.Centroids.Exists(postingID) {
 		s.logger.WithField("postingID", postingID).
 			Debug("Posting not found, skipping merge operation")
 		return nil // Nothing to merge
@@ -143,13 +143,13 @@ func (s *SPFresh) doMerge(postingID uint64) error {
 	}
 
 	// get posting centroid
-	oldCentroid := s.SPTAG.Get(postingID)
+	oldCentroid := s.Centroids.Get(postingID)
 	if oldCentroid == nil {
 		return errors.Errorf("centroid not found for posting %d", postingID)
 	}
 
 	// search for the closest centroids
-	nearest, err := s.SPTAG.Search(oldCentroid.Uncompressed, s.config.InternalPostingCandidates)
+	nearest, err := s.Centroids.Search(oldCentroid.Uncompressed, s.config.InternalPostingCandidates)
 	if err != nil {
 		return errors.Wrapf(err, "failed to search for nearest centroid for posting %d", postingID)
 	}
@@ -218,7 +218,7 @@ func (s *SPFresh) doMerge(postingID uint64) error {
 		}
 
 		// mark the small posting as deleted in the SPTAG
-		err = s.SPTAG.MarkAsDeleted(smallID)
+		err = s.Centroids.MarkAsDeleted(smallID)
 		if err != nil {
 			return errors.Wrapf(err, "failed to delete centroid for posting %d", smallID)
 		}
@@ -243,8 +243,8 @@ func (s *SPFresh) doMerge(postingID uint64) error {
 		// if merged vectors are closer to their old centroid than the new one
 		// there may be better centroids for them out there.
 		// we need to reassign them in the background.
-		smallCentroid := s.SPTAG.Get(smallID)
-		largeCentroid := s.SPTAG.Get(largeID)
+		smallCentroid := s.Centroids.Get(smallID)
+		largeCentroid := s.Centroids.Get(largeID)
 		for _, v := range smallPosting.Iter() {
 			prevDist, err := v.DistanceWithRaw(s.distancer, smallCentroid.Compressed)
 			if err != nil {

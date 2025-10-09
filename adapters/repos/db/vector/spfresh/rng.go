@@ -23,17 +23,17 @@ import (
 // if one of the selected postings is equal to `reassignedFromID`.
 func (s *SPFresh) RNGSelect(query []float32, reassignedFromID uint64) (*ResultSet, bool, error) {
 	replicas := NewResultSet(s.config.Replicas)
-	candidates, err := s.SPTAG.Search(query, s.config.InternalPostingCandidates)
+	candidates, err := s.Centroids.Search(query, s.config.InternalPostingCandidates)
 	if err != nil {
 		return nil, false, errors.Wrap(err, "failed to search for nearest neighbors")
 	}
 
 	for cID, cDistance := range candidates.Iter() {
-		cCenter := s.SPTAG.Get(cID)
+		cCenter := s.Centroids.Get(cID)
 
 		tooClose := false
 		for _, r := range replicas.data {
-			rCenter := s.SPTAG.Get(r.ID)
+			rCenter := s.Centroids.Get(r.ID)
 			centerDist, err := s.distancer.DistanceBetweenVectors(cCenter.Uncompressed, rCenter.Uncompressed)
 			if err != nil {
 				return nil, false, errors.Wrapf(err, "failed to compute distance for edge %d -> %d", cID, r.ID)
