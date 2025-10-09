@@ -16,10 +16,7 @@ import (
 	"net/http"
 	"sync"
 
-	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
-
 	"github.com/sirupsen/logrus"
-
 	"github.com/weaviate/weaviate/adapters/handlers/graphql"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/tenantactivity"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/types"
@@ -32,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/oidc"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 	"github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -45,6 +43,10 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"github.com/weaviate/weaviate/usecases/traverser"
 )
+
+type shutdownTracker interface {
+	IsShuttingDown() bool
+}
 
 // State is the only source of application-wide state
 // NOTE: This is not true yet, see gh-723
@@ -90,6 +92,8 @@ type State struct {
 
 	DistributedTaskScheduler *distributedtask.Scheduler
 	Migrator                 *db.Migrator
+	restShutdownTracker      shutdownTracker
+	grpcShutdownTracker      shutdownTracker
 }
 
 // GetGraphQL is the safe way to retrieve GraphQL from the state as it can be
@@ -108,4 +112,27 @@ func (s *State) SetGraphQL(gql graphql.GraphQL) {
 	s.gqlMutex.Lock()
 	s.GraphQL = gql
 	s.gqlMutex.Unlock()
+}
+
+func (s *State) SetShutdownRestTracker(tracker shutdownTracker) {
+	s.restShutdownTracker = tracker
+	s.Logger.Debug("REST shutdownTracker set successfully")
+}
+
+func (s *State) SetShutdownGrpcTracker(tracker shutdownTracker) {
+	s.grpcShutdownTracker = tracker
+	s.Logger.Debug("GRPC shutdownTracker set successfully")
+}
+
+func (s *State) IsShuttingDown() bool {
+	isRestShutdown := s.restShutdownTracker != nil && s.restShutdownTracker.IsShuttingDown()
+	isGrpcShutdown := s.grpcShutdownTracker != nil && s.grpcShutdownTracker.IsShuttingDown()
+	isShuttingDown := isRestShutdown || isGrpcShutdown
+
+	s.Logger.WithField("is_shutting_down", isShuttingDown).
+		WithField("is_rest_shutdown", isRestShutdown).
+		WithField("is_grpc_shutdown", isGrpcShutdown).
+		Trace("checking rest and grpc shutdown state")
+
+	return isShuttingDown
 }
