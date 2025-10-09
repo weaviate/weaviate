@@ -30,7 +30,6 @@ import (
 //
 // swagger:model Classification
 type Classification struct {
-
 	// base the text-based classification on these fields (of type text)
 	// Example: ["description"]
 	BasedOnProperties []string `json:"basedOnProperties"`
@@ -63,7 +62,7 @@ type Classification struct {
 
 	// status of this classification
 	// Example: running
-	// Enum: [running completed failed]
+	// Enum: ["running","completed","failed"]
 	Status string `json:"status,omitempty"`
 
 	// which algorithm to use for classifications
@@ -210,8 +209,12 @@ func (m *Classification) ContextValidate(ctx context.Context, formats strfmt.Reg
 }
 
 func (m *Classification) contextValidateFilters(ctx context.Context, formats strfmt.Registry) error {
-
 	if m.Filters != nil {
+
+		if swag.IsZero(m.Filters) { // not required
+			return nil
+		}
+
 		if err := m.Filters.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
 				return ve.ValidateName("filters")
@@ -226,8 +229,12 @@ func (m *Classification) contextValidateFilters(ctx context.Context, formats str
 }
 
 func (m *Classification) contextValidateMeta(ctx context.Context, formats strfmt.Registry) error {
-
 	if m.Meta != nil {
+
+		if swag.IsZero(m.Meta) { // not required
+			return nil
+		}
+
 		if err := m.Meta.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
 				return ve.ValidateName("meta")
@@ -263,7 +270,6 @@ func (m *Classification) UnmarshalBinary(b []byte) error {
 //
 // swagger:model ClassificationFilters
 type ClassificationFilters struct {
-
 	// limit the objects to be classified
 	SourceWhere *WhereFilter `json:"sourceWhere,omitempty"`
 
@@ -376,8 +382,12 @@ func (m *ClassificationFilters) ContextValidate(ctx context.Context, formats str
 }
 
 func (m *ClassificationFilters) contextValidateSourceWhere(ctx context.Context, formats strfmt.Registry) error {
-
 	if m.SourceWhere != nil {
+
+		if swag.IsZero(m.SourceWhere) { // not required
+			return nil
+		}
+
 		if err := m.SourceWhere.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
 				return ve.ValidateName("filters" + "." + "sourceWhere")
@@ -392,8 +402,12 @@ func (m *ClassificationFilters) contextValidateSourceWhere(ctx context.Context, 
 }
 
 func (m *ClassificationFilters) contextValidateTargetWhere(ctx context.Context, formats strfmt.Registry) error {
-
 	if m.TargetWhere != nil {
+
+		if swag.IsZero(m.TargetWhere) { // not required
+			return nil
+		}
+
 		if err := m.TargetWhere.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
 				return ve.ValidateName("filters" + "." + "targetWhere")
@@ -408,8 +422,12 @@ func (m *ClassificationFilters) contextValidateTargetWhere(ctx context.Context, 
 }
 
 func (m *ClassificationFilters) contextValidateTrainingSetWhere(ctx context.Context, formats strfmt.Registry) error {
-
 	if m.TrainingSetWhere != nil {
+
+		if swag.IsZero(m.TrainingSetWhere) { // not required
+			return nil
+		}
+
 		if err := m.TrainingSetWhere.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
 				return ve.ValidateName("filters" + "." + "trainingSetWhere")

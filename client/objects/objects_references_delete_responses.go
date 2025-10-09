@@ -17,6 +17,7 @@ package objects
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -65,7 +66,7 @@ func (o *ObjectsReferencesDeleteReader) ReadResponse(response runtime.ClientResp
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[DELETE /objects/{id}/references/{propertyName}] objects.references.delete", response, response.Code())
 	}
 }
 
@@ -79,8 +80,7 @@ ObjectsReferencesDeleteNoContent describes a response with status code 204, with
 
 Successfully deleted.
 */
-type ObjectsReferencesDeleteNoContent struct {
-}
+type ObjectsReferencesDeleteNoContent struct{}
 
 // IsSuccess returns true when this objects references delete no content response has a 2xx status code
 func (o *ObjectsReferencesDeleteNoContent) IsSuccess() bool {
@@ -113,15 +113,14 @@ func (o *ObjectsReferencesDeleteNoContent) Code() int {
 }
 
 func (o *ObjectsReferencesDeleteNoContent) Error() string {
-	return fmt.Sprintf("[DELETE /objects/{id}/references/{propertyName}][%d] objectsReferencesDeleteNoContent ", 204)
+	return fmt.Sprintf("[DELETE /objects/{id}/references/{propertyName}][%d] objectsReferencesDeleteNoContent", 204)
 }
 
 func (o *ObjectsReferencesDeleteNoContent) String() string {
-	return fmt.Sprintf("[DELETE /objects/{id}/references/{propertyName}][%d] objectsReferencesDeleteNoContent ", 204)
+	return fmt.Sprintf("[DELETE /objects/{id}/references/{propertyName}][%d] objectsReferencesDeleteNoContent", 204)
 }
 
 func (o *ObjectsReferencesDeleteNoContent) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -135,8 +134,7 @@ ObjectsReferencesDeleteUnauthorized describes a response with status code 401, w
 
 Unauthorized or invalid credentials.
 */
-type ObjectsReferencesDeleteUnauthorized struct {
-}
+type ObjectsReferencesDeleteUnauthorized struct{}
 
 // IsSuccess returns true when this objects references delete unauthorized response has a 2xx status code
 func (o *ObjectsReferencesDeleteUnauthorized) IsSuccess() bool {
@@ -169,15 +167,14 @@ func (o *ObjectsReferencesDeleteUnauthorized) Code() int {
 }
 
 func (o *ObjectsReferencesDeleteUnauthorized) Error() string {
-	return fmt.Sprintf("[DELETE /objects/{id}/references/{propertyName}][%d] objectsReferencesDeleteUnauthorized ", 401)
+	return fmt.Sprintf("[DELETE /objects/{id}/references/{propertyName}][%d] objectsReferencesDeleteUnauthorized", 401)
 }
 
 func (o *ObjectsReferencesDeleteUnauthorized) String() string {
-	return fmt.Sprintf("[DELETE /objects/{id}/references/{propertyName}][%d] objectsReferencesDeleteUnauthorized ", 401)
+	return fmt.Sprintf("[DELETE /objects/{id}/references/{propertyName}][%d] objectsReferencesDeleteUnauthorized", 401)
 }
 
 func (o *ObjectsReferencesDeleteUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -226,11 +223,13 @@ func (o *ObjectsReferencesDeleteForbidden) Code() int {
 }
 
 func (o *ObjectsReferencesDeleteForbidden) Error() string {
-	return fmt.Sprintf("[DELETE /objects/{id}/references/{propertyName}][%d] objectsReferencesDeleteForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /objects/{id}/references/{propertyName}][%d] objectsReferencesDeleteForbidden %s", 403, payload)
 }
 
 func (o *ObjectsReferencesDeleteForbidden) String() string {
-	return fmt.Sprintf("[DELETE /objects/{id}/references/{propertyName}][%d] objectsReferencesDeleteForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /objects/{id}/references/{propertyName}][%d] objectsReferencesDeleteForbidden %s", 403, payload)
 }
 
 func (o *ObjectsReferencesDeleteForbidden) GetPayload() *models.ErrorResponse {
@@ -238,7 +237,6 @@ func (o *ObjectsReferencesDeleteForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ObjectsReferencesDeleteForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -294,11 +292,13 @@ func (o *ObjectsReferencesDeleteNotFound) Code() int {
 }
 
 func (o *ObjectsReferencesDeleteNotFound) Error() string {
-	return fmt.Sprintf("[DELETE /objects/{id}/references/{propertyName}][%d] objectsReferencesDeleteNotFound  %+v", 404, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /objects/{id}/references/{propertyName}][%d] objectsReferencesDeleteNotFound %s", 404, payload)
 }
 
 func (o *ObjectsReferencesDeleteNotFound) String() string {
-	return fmt.Sprintf("[DELETE /objects/{id}/references/{propertyName}][%d] objectsReferencesDeleteNotFound  %+v", 404, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /objects/{id}/references/{propertyName}][%d] objectsReferencesDeleteNotFound %s", 404, payload)
 }
 
 func (o *ObjectsReferencesDeleteNotFound) GetPayload() *models.ErrorResponse {
@@ -306,7 +306,6 @@ func (o *ObjectsReferencesDeleteNotFound) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ObjectsReferencesDeleteNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -362,11 +361,13 @@ func (o *ObjectsReferencesDeleteInternalServerError) Code() int {
 }
 
 func (o *ObjectsReferencesDeleteInternalServerError) Error() string {
-	return fmt.Sprintf("[DELETE /objects/{id}/references/{propertyName}][%d] objectsReferencesDeleteInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /objects/{id}/references/{propertyName}][%d] objectsReferencesDeleteInternalServerError %s", 500, payload)
 }
 
 func (o *ObjectsReferencesDeleteInternalServerError) String() string {
-	return fmt.Sprintf("[DELETE /objects/{id}/references/{propertyName}][%d] objectsReferencesDeleteInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /objects/{id}/references/{propertyName}][%d] objectsReferencesDeleteInternalServerError %s", 500, payload)
 }
 
 func (o *ObjectsReferencesDeleteInternalServerError) GetPayload() *models.ErrorResponse {
@@ -374,7 +375,6 @@ func (o *ObjectsReferencesDeleteInternalServerError) GetPayload() *models.ErrorR
 }
 
 func (o *ObjectsReferencesDeleteInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

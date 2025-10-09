@@ -17,6 +17,7 @@ package batch
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -71,7 +72,7 @@ func (o *BatchObjectsDeleteReader) ReadResponse(response runtime.ClientResponse,
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[DELETE /batch/objects] batch.objects.delete", response, response.Code())
 	}
 }
 
@@ -120,11 +121,13 @@ func (o *BatchObjectsDeleteOK) Code() int {
 }
 
 func (o *BatchObjectsDeleteOK) Error() string {
-	return fmt.Sprintf("[DELETE /batch/objects][%d] batchObjectsDeleteOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /batch/objects][%d] batchObjectsDeleteOK %s", 200, payload)
 }
 
 func (o *BatchObjectsDeleteOK) String() string {
-	return fmt.Sprintf("[DELETE /batch/objects][%d] batchObjectsDeleteOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /batch/objects][%d] batchObjectsDeleteOK %s", 200, payload)
 }
 
 func (o *BatchObjectsDeleteOK) GetPayload() *models.BatchDeleteResponse {
@@ -132,7 +135,6 @@ func (o *BatchObjectsDeleteOK) GetPayload() *models.BatchDeleteResponse {
 }
 
 func (o *BatchObjectsDeleteOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.BatchDeleteResponse)
 
 	// response payload
@@ -188,11 +190,13 @@ func (o *BatchObjectsDeleteBadRequest) Code() int {
 }
 
 func (o *BatchObjectsDeleteBadRequest) Error() string {
-	return fmt.Sprintf("[DELETE /batch/objects][%d] batchObjectsDeleteBadRequest  %+v", 400, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /batch/objects][%d] batchObjectsDeleteBadRequest %s", 400, payload)
 }
 
 func (o *BatchObjectsDeleteBadRequest) String() string {
-	return fmt.Sprintf("[DELETE /batch/objects][%d] batchObjectsDeleteBadRequest  %+v", 400, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /batch/objects][%d] batchObjectsDeleteBadRequest %s", 400, payload)
 }
 
 func (o *BatchObjectsDeleteBadRequest) GetPayload() *models.ErrorResponse {
@@ -200,7 +204,6 @@ func (o *BatchObjectsDeleteBadRequest) GetPayload() *models.ErrorResponse {
 }
 
 func (o *BatchObjectsDeleteBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -221,8 +224,7 @@ BatchObjectsDeleteUnauthorized describes a response with status code 401, with d
 
 Unauthorized or invalid credentials.
 */
-type BatchObjectsDeleteUnauthorized struct {
-}
+type BatchObjectsDeleteUnauthorized struct{}
 
 // IsSuccess returns true when this batch objects delete unauthorized response has a 2xx status code
 func (o *BatchObjectsDeleteUnauthorized) IsSuccess() bool {
@@ -255,15 +257,14 @@ func (o *BatchObjectsDeleteUnauthorized) Code() int {
 }
 
 func (o *BatchObjectsDeleteUnauthorized) Error() string {
-	return fmt.Sprintf("[DELETE /batch/objects][%d] batchObjectsDeleteUnauthorized ", 401)
+	return fmt.Sprintf("[DELETE /batch/objects][%d] batchObjectsDeleteUnauthorized", 401)
 }
 
 func (o *BatchObjectsDeleteUnauthorized) String() string {
-	return fmt.Sprintf("[DELETE /batch/objects][%d] batchObjectsDeleteUnauthorized ", 401)
+	return fmt.Sprintf("[DELETE /batch/objects][%d] batchObjectsDeleteUnauthorized", 401)
 }
 
 func (o *BatchObjectsDeleteUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -312,11 +313,13 @@ func (o *BatchObjectsDeleteForbidden) Code() int {
 }
 
 func (o *BatchObjectsDeleteForbidden) Error() string {
-	return fmt.Sprintf("[DELETE /batch/objects][%d] batchObjectsDeleteForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /batch/objects][%d] batchObjectsDeleteForbidden %s", 403, payload)
 }
 
 func (o *BatchObjectsDeleteForbidden) String() string {
-	return fmt.Sprintf("[DELETE /batch/objects][%d] batchObjectsDeleteForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /batch/objects][%d] batchObjectsDeleteForbidden %s", 403, payload)
 }
 
 func (o *BatchObjectsDeleteForbidden) GetPayload() *models.ErrorResponse {
@@ -324,7 +327,6 @@ func (o *BatchObjectsDeleteForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *BatchObjectsDeleteForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -380,11 +382,13 @@ func (o *BatchObjectsDeleteUnprocessableEntity) Code() int {
 }
 
 func (o *BatchObjectsDeleteUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[DELETE /batch/objects][%d] batchObjectsDeleteUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /batch/objects][%d] batchObjectsDeleteUnprocessableEntity %s", 422, payload)
 }
 
 func (o *BatchObjectsDeleteUnprocessableEntity) String() string {
-	return fmt.Sprintf("[DELETE /batch/objects][%d] batchObjectsDeleteUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /batch/objects][%d] batchObjectsDeleteUnprocessableEntity %s", 422, payload)
 }
 
 func (o *BatchObjectsDeleteUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -392,7 +396,6 @@ func (o *BatchObjectsDeleteUnprocessableEntity) GetPayload() *models.ErrorRespon
 }
 
 func (o *BatchObjectsDeleteUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -448,11 +451,13 @@ func (o *BatchObjectsDeleteInternalServerError) Code() int {
 }
 
 func (o *BatchObjectsDeleteInternalServerError) Error() string {
-	return fmt.Sprintf("[DELETE /batch/objects][%d] batchObjectsDeleteInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /batch/objects][%d] batchObjectsDeleteInternalServerError %s", 500, payload)
 }
 
 func (o *BatchObjectsDeleteInternalServerError) String() string {
-	return fmt.Sprintf("[DELETE /batch/objects][%d] batchObjectsDeleteInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /batch/objects][%d] batchObjectsDeleteInternalServerError %s", 500, payload)
 }
 
 func (o *BatchObjectsDeleteInternalServerError) GetPayload() *models.ErrorResponse {
@@ -460,7 +465,6 @@ func (o *BatchObjectsDeleteInternalServerError) GetPayload() *models.ErrorRespon
 }
 
 func (o *BatchObjectsDeleteInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

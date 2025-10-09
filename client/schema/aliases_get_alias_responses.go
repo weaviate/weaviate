@@ -17,6 +17,7 @@ package schema
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -71,7 +72,7 @@ func (o *AliasesGetAliasReader) ReadResponse(response runtime.ClientResponse, co
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[GET /aliases/{aliasName}] aliases.get.alias", response, response.Code())
 	}
 }
 
@@ -120,11 +121,13 @@ func (o *AliasesGetAliasOK) Code() int {
 }
 
 func (o *AliasesGetAliasOK) Error() string {
-	return fmt.Sprintf("[GET /aliases/{aliasName}][%d] aliasesGetAliasOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /aliases/{aliasName}][%d] aliasesGetAliasOK %s", 200, payload)
 }
 
 func (o *AliasesGetAliasOK) String() string {
-	return fmt.Sprintf("[GET /aliases/{aliasName}][%d] aliasesGetAliasOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /aliases/{aliasName}][%d] aliasesGetAliasOK %s", 200, payload)
 }
 
 func (o *AliasesGetAliasOK) GetPayload() *models.Alias {
@@ -132,7 +135,6 @@ func (o *AliasesGetAliasOK) GetPayload() *models.Alias {
 }
 
 func (o *AliasesGetAliasOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.Alias)
 
 	// response payload
@@ -153,8 +155,7 @@ AliasesGetAliasUnauthorized describes a response with status code 401, with defa
 
 Unauthorized or invalid credentials.
 */
-type AliasesGetAliasUnauthorized struct {
-}
+type AliasesGetAliasUnauthorized struct{}
 
 // IsSuccess returns true when this aliases get alias unauthorized response has a 2xx status code
 func (o *AliasesGetAliasUnauthorized) IsSuccess() bool {
@@ -187,15 +188,14 @@ func (o *AliasesGetAliasUnauthorized) Code() int {
 }
 
 func (o *AliasesGetAliasUnauthorized) Error() string {
-	return fmt.Sprintf("[GET /aliases/{aliasName}][%d] aliasesGetAliasUnauthorized ", 401)
+	return fmt.Sprintf("[GET /aliases/{aliasName}][%d] aliasesGetAliasUnauthorized", 401)
 }
 
 func (o *AliasesGetAliasUnauthorized) String() string {
-	return fmt.Sprintf("[GET /aliases/{aliasName}][%d] aliasesGetAliasUnauthorized ", 401)
+	return fmt.Sprintf("[GET /aliases/{aliasName}][%d] aliasesGetAliasUnauthorized", 401)
 }
 
 func (o *AliasesGetAliasUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -244,11 +244,13 @@ func (o *AliasesGetAliasForbidden) Code() int {
 }
 
 func (o *AliasesGetAliasForbidden) Error() string {
-	return fmt.Sprintf("[GET /aliases/{aliasName}][%d] aliasesGetAliasForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /aliases/{aliasName}][%d] aliasesGetAliasForbidden %s", 403, payload)
 }
 
 func (o *AliasesGetAliasForbidden) String() string {
-	return fmt.Sprintf("[GET /aliases/{aliasName}][%d] aliasesGetAliasForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /aliases/{aliasName}][%d] aliasesGetAliasForbidden %s", 403, payload)
 }
 
 func (o *AliasesGetAliasForbidden) GetPayload() *models.ErrorResponse {
@@ -256,7 +258,6 @@ func (o *AliasesGetAliasForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *AliasesGetAliasForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -312,11 +313,13 @@ func (o *AliasesGetAliasNotFound) Code() int {
 }
 
 func (o *AliasesGetAliasNotFound) Error() string {
-	return fmt.Sprintf("[GET /aliases/{aliasName}][%d] aliasesGetAliasNotFound  %+v", 404, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /aliases/{aliasName}][%d] aliasesGetAliasNotFound %s", 404, payload)
 }
 
 func (o *AliasesGetAliasNotFound) String() string {
-	return fmt.Sprintf("[GET /aliases/{aliasName}][%d] aliasesGetAliasNotFound  %+v", 404, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /aliases/{aliasName}][%d] aliasesGetAliasNotFound %s", 404, payload)
 }
 
 func (o *AliasesGetAliasNotFound) GetPayload() *models.ErrorResponse {
@@ -324,7 +327,6 @@ func (o *AliasesGetAliasNotFound) GetPayload() *models.ErrorResponse {
 }
 
 func (o *AliasesGetAliasNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -380,11 +382,13 @@ func (o *AliasesGetAliasUnprocessableEntity) Code() int {
 }
 
 func (o *AliasesGetAliasUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[GET /aliases/{aliasName}][%d] aliasesGetAliasUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /aliases/{aliasName}][%d] aliasesGetAliasUnprocessableEntity %s", 422, payload)
 }
 
 func (o *AliasesGetAliasUnprocessableEntity) String() string {
-	return fmt.Sprintf("[GET /aliases/{aliasName}][%d] aliasesGetAliasUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /aliases/{aliasName}][%d] aliasesGetAliasUnprocessableEntity %s", 422, payload)
 }
 
 func (o *AliasesGetAliasUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -392,7 +396,6 @@ func (o *AliasesGetAliasUnprocessableEntity) GetPayload() *models.ErrorResponse 
 }
 
 func (o *AliasesGetAliasUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -448,11 +451,13 @@ func (o *AliasesGetAliasInternalServerError) Code() int {
 }
 
 func (o *AliasesGetAliasInternalServerError) Error() string {
-	return fmt.Sprintf("[GET /aliases/{aliasName}][%d] aliasesGetAliasInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /aliases/{aliasName}][%d] aliasesGetAliasInternalServerError %s", 500, payload)
 }
 
 func (o *AliasesGetAliasInternalServerError) String() string {
-	return fmt.Sprintf("[GET /aliases/{aliasName}][%d] aliasesGetAliasInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /aliases/{aliasName}][%d] aliasesGetAliasInternalServerError %s", 500, payload)
 }
 
 func (o *AliasesGetAliasInternalServerError) GetPayload() *models.ErrorResponse {
@@ -460,7 +465,6 @@ func (o *AliasesGetAliasInternalServerError) GetPayload() *models.ErrorResponse 
 }
 
 func (o *AliasesGetAliasInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

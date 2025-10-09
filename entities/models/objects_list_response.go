@@ -29,7 +29,6 @@ import (
 //
 // swagger:model ObjectsListResponse
 type ObjectsListResponse struct {
-
 	// deprecations
 	Deprecations []*Deprecation `json:"deprecations"`
 
@@ -129,10 +128,13 @@ func (m *ObjectsListResponse) ContextValidate(ctx context.Context, formats strfm
 }
 
 func (m *ObjectsListResponse) contextValidateDeprecations(ctx context.Context, formats strfmt.Registry) error {
-
 	for i := 0; i < len(m.Deprecations); i++ {
-
 		if m.Deprecations[i] != nil {
+
+			if swag.IsZero(m.Deprecations[i]) { // not required
+				return nil
+			}
+
 			if err := m.Deprecations[i].ContextValidate(ctx, formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
 					return ve.ValidateName("deprecations" + "." + strconv.Itoa(i))
@@ -142,17 +144,19 @@ func (m *ObjectsListResponse) contextValidateDeprecations(ctx context.Context, f
 				return err
 			}
 		}
-
 	}
 
 	return nil
 }
 
 func (m *ObjectsListResponse) contextValidateObjects(ctx context.Context, formats strfmt.Registry) error {
-
 	for i := 0; i < len(m.Objects); i++ {
-
 		if m.Objects[i] != nil {
+
+			if swag.IsZero(m.Objects[i]) { // not required
+				return nil
+			}
+
 			if err := m.Objects[i].ContextValidate(ctx, formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
 					return ve.ValidateName("objects" + "." + strconv.Itoa(i))
@@ -162,7 +166,6 @@ func (m *ObjectsListResponse) contextValidateObjects(ctx context.Context, format
 				return err
 			}
 		}
-
 	}
 
 	return nil

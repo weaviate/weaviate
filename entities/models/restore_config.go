@@ -30,7 +30,6 @@ import (
 //
 // swagger:model RestoreConfig
 type RestoreConfig struct {
-
 	// Name of the bucket, container, volume, etc
 	Bucket string `json:"Bucket,omitempty"`
 
@@ -46,11 +45,11 @@ type RestoreConfig struct {
 	Path string `json:"Path,omitempty"`
 
 	// How roles should be restored
-	// Enum: [noRestore all]
+	// Enum: ["noRestore","all"]
 	RolesOptions *string `json:"rolesOptions,omitempty"`
 
 	// How users should be restored
-	// Enum: [noRestore all]
+	// Enum: ["noRestore","all"]
 	UsersOptions *string `json:"usersOptions,omitempty"`
 }
 

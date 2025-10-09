@@ -30,10 +30,9 @@ import (
 //
 // swagger:model Permission
 type Permission struct {
-
 	// allowed actions in weaviate.
 	// Required: true
-	// Enum: [manage_backups read_cluster create_data read_data update_data delete_data read_nodes create_roles read_roles update_roles delete_roles create_collections read_collections update_collections delete_collections assign_and_revoke_users create_users read_users update_users delete_users create_tenants read_tenants update_tenants delete_tenants create_replicate read_replicate update_replicate delete_replicate create_aliases read_aliases update_aliases delete_aliases assign_and_revoke_groups read_groups]
+	// Enum: ["manage_backups","read_cluster","create_data","read_data","update_data","delete_data","read_nodes","create_roles","read_roles","update_roles","delete_roles","create_collections","read_collections","update_collections","delete_collections","assign_and_revoke_users","create_users","read_users","update_users","delete_users","create_tenants","read_tenants","update_tenants","delete_tenants","create_replicate","read_replicate","update_replicate","delete_replicate","create_aliases","read_aliases","update_aliases","delete_aliases","assign_and_revoke_groups","read_groups"]
 	Action *string `json:"action"`
 
 	// aliases
@@ -247,7 +246,6 @@ func (m *Permission) validateActionEnum(path, location string, value string) err
 }
 
 func (m *Permission) validateAction(formats strfmt.Registry) error {
-
 	if err := validate.Required("action", "body", m.Action); err != nil {
 		return err
 	}
@@ -501,8 +499,12 @@ func (m *Permission) ContextValidate(ctx context.Context, formats strfmt.Registr
 }
 
 func (m *Permission) contextValidateAliases(ctx context.Context, formats strfmt.Registry) error {
-
 	if m.Aliases != nil {
+
+		if swag.IsZero(m.Aliases) { // not required
+			return nil
+		}
+
 		if err := m.Aliases.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
 				return ve.ValidateName("aliases")
@@ -517,8 +519,12 @@ func (m *Permission) contextValidateAliases(ctx context.Context, formats strfmt.
 }
 
 func (m *Permission) contextValidateBackups(ctx context.Context, formats strfmt.Registry) error {
-
 	if m.Backups != nil {
+
+		if swag.IsZero(m.Backups) { // not required
+			return nil
+		}
+
 		if err := m.Backups.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
 				return ve.ValidateName("backups")
@@ -533,8 +539,12 @@ func (m *Permission) contextValidateBackups(ctx context.Context, formats strfmt.
 }
 
 func (m *Permission) contextValidateCollections(ctx context.Context, formats strfmt.Registry) error {
-
 	if m.Collections != nil {
+
+		if swag.IsZero(m.Collections) { // not required
+			return nil
+		}
+
 		if err := m.Collections.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
 				return ve.ValidateName("collections")
@@ -549,8 +559,12 @@ func (m *Permission) contextValidateCollections(ctx context.Context, formats str
 }
 
 func (m *Permission) contextValidateData(ctx context.Context, formats strfmt.Registry) error {
-
 	if m.Data != nil {
+
+		if swag.IsZero(m.Data) { // not required
+			return nil
+		}
+
 		if err := m.Data.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
 				return ve.ValidateName("data")
@@ -565,8 +579,12 @@ func (m *Permission) contextValidateData(ctx context.Context, formats strfmt.Reg
 }
 
 func (m *Permission) contextValidateGroups(ctx context.Context, formats strfmt.Registry) error {
-
 	if m.Groups != nil {
+
+		if swag.IsZero(m.Groups) { // not required
+			return nil
+		}
+
 		if err := m.Groups.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
 				return ve.ValidateName("groups")
@@ -581,8 +599,12 @@ func (m *Permission) contextValidateGroups(ctx context.Context, formats strfmt.R
 }
 
 func (m *Permission) contextValidateNodes(ctx context.Context, formats strfmt.Registry) error {
-
 	if m.Nodes != nil {
+
+		if swag.IsZero(m.Nodes) { // not required
+			return nil
+		}
+
 		if err := m.Nodes.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
 				return ve.ValidateName("nodes")
@@ -597,8 +619,12 @@ func (m *Permission) contextValidateNodes(ctx context.Context, formats strfmt.Re
 }
 
 func (m *Permission) contextValidateReplicate(ctx context.Context, formats strfmt.Registry) error {
-
 	if m.Replicate != nil {
+
+		if swag.IsZero(m.Replicate) { // not required
+			return nil
+		}
+
 		if err := m.Replicate.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
 				return ve.ValidateName("replicate")
@@ -613,8 +639,12 @@ func (m *Permission) contextValidateReplicate(ctx context.Context, formats strfm
 }
 
 func (m *Permission) contextValidateRoles(ctx context.Context, formats strfmt.Registry) error {
-
 	if m.Roles != nil {
+
+		if swag.IsZero(m.Roles) { // not required
+			return nil
+		}
+
 		if err := m.Roles.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
 				return ve.ValidateName("roles")
@@ -629,8 +659,12 @@ func (m *Permission) contextValidateRoles(ctx context.Context, formats strfmt.Re
 }
 
 func (m *Permission) contextValidateTenants(ctx context.Context, formats strfmt.Registry) error {
-
 	if m.Tenants != nil {
+
+		if swag.IsZero(m.Tenants) { // not required
+			return nil
+		}
+
 		if err := m.Tenants.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
 				return ve.ValidateName("tenants")
@@ -645,8 +679,12 @@ func (m *Permission) contextValidateTenants(ctx context.Context, formats strfmt.
 }
 
 func (m *Permission) contextValidateUsers(ctx context.Context, formats strfmt.Registry) error {
-
 	if m.Users != nil {
+
+		if swag.IsZero(m.Users) { // not required
+			return nil
+		}
+
 		if err := m.Users.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
 				return ve.ValidateName("users")
@@ -682,7 +720,6 @@ func (m *Permission) UnmarshalBinary(b []byte) error {
 //
 // swagger:model PermissionAliases
 type PermissionAliases struct {
-
 	// A string that specifies which aliases this permission applies to. Can be an exact alias name or a regex pattern. The default value `*` applies the permission to all aliases.
 	Alias *string `json:"alias,omitempty"`
 
@@ -722,7 +759,6 @@ func (m *PermissionAliases) UnmarshalBinary(b []byte) error {
 //
 // swagger:model PermissionBackups
 type PermissionBackups struct {
-
 	// string or regex. if a specific collection name, if left empty it will be ALL or *
 	Collection *string `json:"collection,omitempty"`
 }
@@ -759,7 +795,6 @@ func (m *PermissionBackups) UnmarshalBinary(b []byte) error {
 //
 // swagger:model PermissionCollections
 type PermissionCollections struct {
-
 	// string or regex. if a specific collection name, if left empty it will be ALL or *
 	Collection *string `json:"collection,omitempty"`
 }
@@ -796,7 +831,6 @@ func (m *PermissionCollections) UnmarshalBinary(b []byte) error {
 //
 // swagger:model PermissionData
 type PermissionData struct {
-
 	// string or regex. if a specific collection name, if left empty it will be ALL or *
 	Collection *string `json:"collection,omitempty"`
 
@@ -839,7 +873,6 @@ func (m *PermissionData) UnmarshalBinary(b []byte) error {
 //
 // swagger:model PermissionGroups
 type PermissionGroups struct {
-
 	// A string that specifies which groups this permission applies to. Can be an exact group name or a regex pattern. The default value `*` applies the permission to all groups.
 	Group *string `json:"group,omitempty"`
 
@@ -893,6 +926,9 @@ func (m *PermissionGroups) ContextValidate(ctx context.Context, formats strfmt.R
 }
 
 func (m *PermissionGroups) contextValidateGroupType(ctx context.Context, formats strfmt.Registry) error {
+	if swag.IsZero(m.GroupType) { // not required
+		return nil
+	}
 
 	if err := m.GroupType.ContextValidate(ctx, formats); err != nil {
 		if ve, ok := err.(*errors.Validation); ok {
@@ -928,12 +964,11 @@ func (m *PermissionGroups) UnmarshalBinary(b []byte) error {
 //
 // swagger:model PermissionNodes
 type PermissionNodes struct {
-
 	// string or regex. if a specific collection name, if left empty it will be ALL or *
 	Collection *string `json:"collection,omitempty"`
 
 	// whether to allow (verbose) returning shards and stats data in the response
-	// Enum: [verbose minimal]
+	// Enum: ["verbose","minimal"]
 	Verbosity *string `json:"verbosity,omitempty"`
 }
 
@@ -1020,7 +1055,6 @@ func (m *PermissionNodes) UnmarshalBinary(b []byte) error {
 //
 // swagger:model PermissionReplicate
 type PermissionReplicate struct {
-
 	// string or regex. if a specific collection name, if left empty it will be ALL or *
 	Collection *string `json:"collection,omitempty"`
 
@@ -1060,12 +1094,11 @@ func (m *PermissionReplicate) UnmarshalBinary(b []byte) error {
 //
 // swagger:model PermissionRoles
 type PermissionRoles struct {
-
 	// string or regex. if a specific role name, if left empty it will be ALL or *
 	Role *string `json:"role,omitempty"`
 
 	// set the scope for the manage role permission
-	// Enum: [all match]
+	// Enum: ["all","match"]
 	Scope *string `json:"scope,omitempty"`
 }
 
@@ -1152,7 +1185,6 @@ func (m *PermissionRoles) UnmarshalBinary(b []byte) error {
 //
 // swagger:model PermissionTenants
 type PermissionTenants struct {
-
 	// string or regex. if a specific collection name, if left empty it will be ALL or *
 	Collection *string `json:"collection,omitempty"`
 
@@ -1192,7 +1224,6 @@ func (m *PermissionTenants) UnmarshalBinary(b []byte) error {
 //
 // swagger:model PermissionUsers
 type PermissionUsers struct {
-
 	// string or regex. if a specific name, if left empty it will be ALL or *
 	Users *string `json:"users,omitempty"`
 }

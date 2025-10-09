@@ -17,6 +17,7 @@ package replication
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -83,7 +84,7 @@ func (o *CancelReplicationReader) ReadResponse(response runtime.ClientResponse, 
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[POST /replication/replicate/{id}/cancel] cancelReplication", response, response.Code())
 	}
 }
 
@@ -97,8 +98,7 @@ CancelReplicationNoContent describes a response with status code 204, with defau
 
 Successfully cancelled.
 */
-type CancelReplicationNoContent struct {
-}
+type CancelReplicationNoContent struct{}
 
 // IsSuccess returns true when this cancel replication no content response has a 2xx status code
 func (o *CancelReplicationNoContent) IsSuccess() bool {
@@ -131,15 +131,14 @@ func (o *CancelReplicationNoContent) Code() int {
 }
 
 func (o *CancelReplicationNoContent) Error() string {
-	return fmt.Sprintf("[POST /replication/replicate/{id}/cancel][%d] cancelReplicationNoContent ", 204)
+	return fmt.Sprintf("[POST /replication/replicate/{id}/cancel][%d] cancelReplicationNoContent", 204)
 }
 
 func (o *CancelReplicationNoContent) String() string {
-	return fmt.Sprintf("[POST /replication/replicate/{id}/cancel][%d] cancelReplicationNoContent ", 204)
+	return fmt.Sprintf("[POST /replication/replicate/{id}/cancel][%d] cancelReplicationNoContent", 204)
 }
 
 func (o *CancelReplicationNoContent) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -153,8 +152,7 @@ CancelReplicationUnauthorized describes a response with status code 401, with de
 
 Unauthorized or invalid credentials.
 */
-type CancelReplicationUnauthorized struct {
-}
+type CancelReplicationUnauthorized struct{}
 
 // IsSuccess returns true when this cancel replication unauthorized response has a 2xx status code
 func (o *CancelReplicationUnauthorized) IsSuccess() bool {
@@ -187,15 +185,14 @@ func (o *CancelReplicationUnauthorized) Code() int {
 }
 
 func (o *CancelReplicationUnauthorized) Error() string {
-	return fmt.Sprintf("[POST /replication/replicate/{id}/cancel][%d] cancelReplicationUnauthorized ", 401)
+	return fmt.Sprintf("[POST /replication/replicate/{id}/cancel][%d] cancelReplicationUnauthorized", 401)
 }
 
 func (o *CancelReplicationUnauthorized) String() string {
-	return fmt.Sprintf("[POST /replication/replicate/{id}/cancel][%d] cancelReplicationUnauthorized ", 401)
+	return fmt.Sprintf("[POST /replication/replicate/{id}/cancel][%d] cancelReplicationUnauthorized", 401)
 }
 
 func (o *CancelReplicationUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -244,11 +241,13 @@ func (o *CancelReplicationForbidden) Code() int {
 }
 
 func (o *CancelReplicationForbidden) Error() string {
-	return fmt.Sprintf("[POST /replication/replicate/{id}/cancel][%d] cancelReplicationForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /replication/replicate/{id}/cancel][%d] cancelReplicationForbidden %s", 403, payload)
 }
 
 func (o *CancelReplicationForbidden) String() string {
-	return fmt.Sprintf("[POST /replication/replicate/{id}/cancel][%d] cancelReplicationForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /replication/replicate/{id}/cancel][%d] cancelReplicationForbidden %s", 403, payload)
 }
 
 func (o *CancelReplicationForbidden) GetPayload() *models.ErrorResponse {
@@ -256,7 +255,6 @@ func (o *CancelReplicationForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *CancelReplicationForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -277,8 +275,7 @@ CancelReplicationNotFound describes a response with status code 404, with defaul
 
 Shard replica operation not found.
 */
-type CancelReplicationNotFound struct {
-}
+type CancelReplicationNotFound struct{}
 
 // IsSuccess returns true when this cancel replication not found response has a 2xx status code
 func (o *CancelReplicationNotFound) IsSuccess() bool {
@@ -311,15 +308,14 @@ func (o *CancelReplicationNotFound) Code() int {
 }
 
 func (o *CancelReplicationNotFound) Error() string {
-	return fmt.Sprintf("[POST /replication/replicate/{id}/cancel][%d] cancelReplicationNotFound ", 404)
+	return fmt.Sprintf("[POST /replication/replicate/{id}/cancel][%d] cancelReplicationNotFound", 404)
 }
 
 func (o *CancelReplicationNotFound) String() string {
-	return fmt.Sprintf("[POST /replication/replicate/{id}/cancel][%d] cancelReplicationNotFound ", 404)
+	return fmt.Sprintf("[POST /replication/replicate/{id}/cancel][%d] cancelReplicationNotFound", 404)
 }
 
 func (o *CancelReplicationNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -368,11 +364,13 @@ func (o *CancelReplicationConflict) Code() int {
 }
 
 func (o *CancelReplicationConflict) Error() string {
-	return fmt.Sprintf("[POST /replication/replicate/{id}/cancel][%d] cancelReplicationConflict  %+v", 409, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /replication/replicate/{id}/cancel][%d] cancelReplicationConflict %s", 409, payload)
 }
 
 func (o *CancelReplicationConflict) String() string {
-	return fmt.Sprintf("[POST /replication/replicate/{id}/cancel][%d] cancelReplicationConflict  %+v", 409, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /replication/replicate/{id}/cancel][%d] cancelReplicationConflict %s", 409, payload)
 }
 
 func (o *CancelReplicationConflict) GetPayload() *models.ErrorResponse {
@@ -380,7 +378,6 @@ func (o *CancelReplicationConflict) GetPayload() *models.ErrorResponse {
 }
 
 func (o *CancelReplicationConflict) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -436,11 +433,13 @@ func (o *CancelReplicationUnprocessableEntity) Code() int {
 }
 
 func (o *CancelReplicationUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[POST /replication/replicate/{id}/cancel][%d] cancelReplicationUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /replication/replicate/{id}/cancel][%d] cancelReplicationUnprocessableEntity %s", 422, payload)
 }
 
 func (o *CancelReplicationUnprocessableEntity) String() string {
-	return fmt.Sprintf("[POST /replication/replicate/{id}/cancel][%d] cancelReplicationUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /replication/replicate/{id}/cancel][%d] cancelReplicationUnprocessableEntity %s", 422, payload)
 }
 
 func (o *CancelReplicationUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -448,7 +447,6 @@ func (o *CancelReplicationUnprocessableEntity) GetPayload() *models.ErrorRespons
 }
 
 func (o *CancelReplicationUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -504,11 +502,13 @@ func (o *CancelReplicationInternalServerError) Code() int {
 }
 
 func (o *CancelReplicationInternalServerError) Error() string {
-	return fmt.Sprintf("[POST /replication/replicate/{id}/cancel][%d] cancelReplicationInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /replication/replicate/{id}/cancel][%d] cancelReplicationInternalServerError %s", 500, payload)
 }
 
 func (o *CancelReplicationInternalServerError) String() string {
-	return fmt.Sprintf("[POST /replication/replicate/{id}/cancel][%d] cancelReplicationInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /replication/replicate/{id}/cancel][%d] cancelReplicationInternalServerError %s", 500, payload)
 }
 
 func (o *CancelReplicationInternalServerError) GetPayload() *models.ErrorResponse {
@@ -516,7 +516,6 @@ func (o *CancelReplicationInternalServerError) GetPayload() *models.ErrorRespons
 }
 
 func (o *CancelReplicationInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -572,11 +571,13 @@ func (o *CancelReplicationNotImplemented) Code() int {
 }
 
 func (o *CancelReplicationNotImplemented) Error() string {
-	return fmt.Sprintf("[POST /replication/replicate/{id}/cancel][%d] cancelReplicationNotImplemented  %+v", 501, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /replication/replicate/{id}/cancel][%d] cancelReplicationNotImplemented %s", 501, payload)
 }
 
 func (o *CancelReplicationNotImplemented) String() string {
-	return fmt.Sprintf("[POST /replication/replicate/{id}/cancel][%d] cancelReplicationNotImplemented  %+v", 501, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /replication/replicate/{id}/cancel][%d] cancelReplicationNotImplemented %s", 501, payload)
 }
 
 func (o *CancelReplicationNotImplemented) GetPayload() *models.ErrorResponse {
@@ -584,7 +585,6 @@ func (o *CancelReplicationNotImplemented) GetPayload() *models.ErrorResponse {
 }
 
 func (o *CancelReplicationNotImplemented) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

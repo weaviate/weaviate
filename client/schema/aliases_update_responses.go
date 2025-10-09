@@ -18,6 +18,7 @@ package schema
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -73,7 +74,7 @@ func (o *AliasesUpdateReader) ReadResponse(response runtime.ClientResponse, cons
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[PUT /aliases/{aliasName}] aliases.update", response, response.Code())
 	}
 }
 
@@ -122,11 +123,13 @@ func (o *AliasesUpdateOK) Code() int {
 }
 
 func (o *AliasesUpdateOK) Error() string {
-	return fmt.Sprintf("[PUT /aliases/{aliasName}][%d] aliasesUpdateOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[PUT /aliases/{aliasName}][%d] aliasesUpdateOK %s", 200, payload)
 }
 
 func (o *AliasesUpdateOK) String() string {
-	return fmt.Sprintf("[PUT /aliases/{aliasName}][%d] aliasesUpdateOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[PUT /aliases/{aliasName}][%d] aliasesUpdateOK %s", 200, payload)
 }
 
 func (o *AliasesUpdateOK) GetPayload() *models.Alias {
@@ -134,7 +137,6 @@ func (o *AliasesUpdateOK) GetPayload() *models.Alias {
 }
 
 func (o *AliasesUpdateOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.Alias)
 
 	// response payload
@@ -155,8 +157,7 @@ AliasesUpdateUnauthorized describes a response with status code 401, with defaul
 
 Unauthorized or invalid credentials.
 */
-type AliasesUpdateUnauthorized struct {
-}
+type AliasesUpdateUnauthorized struct{}
 
 // IsSuccess returns true when this aliases update unauthorized response has a 2xx status code
 func (o *AliasesUpdateUnauthorized) IsSuccess() bool {
@@ -189,15 +190,14 @@ func (o *AliasesUpdateUnauthorized) Code() int {
 }
 
 func (o *AliasesUpdateUnauthorized) Error() string {
-	return fmt.Sprintf("[PUT /aliases/{aliasName}][%d] aliasesUpdateUnauthorized ", 401)
+	return fmt.Sprintf("[PUT /aliases/{aliasName}][%d] aliasesUpdateUnauthorized", 401)
 }
 
 func (o *AliasesUpdateUnauthorized) String() string {
-	return fmt.Sprintf("[PUT /aliases/{aliasName}][%d] aliasesUpdateUnauthorized ", 401)
+	return fmt.Sprintf("[PUT /aliases/{aliasName}][%d] aliasesUpdateUnauthorized", 401)
 }
 
 func (o *AliasesUpdateUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -246,11 +246,13 @@ func (o *AliasesUpdateForbidden) Code() int {
 }
 
 func (o *AliasesUpdateForbidden) Error() string {
-	return fmt.Sprintf("[PUT /aliases/{aliasName}][%d] aliasesUpdateForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[PUT /aliases/{aliasName}][%d] aliasesUpdateForbidden %s", 403, payload)
 }
 
 func (o *AliasesUpdateForbidden) String() string {
-	return fmt.Sprintf("[PUT /aliases/{aliasName}][%d] aliasesUpdateForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[PUT /aliases/{aliasName}][%d] aliasesUpdateForbidden %s", 403, payload)
 }
 
 func (o *AliasesUpdateForbidden) GetPayload() *models.ErrorResponse {
@@ -258,7 +260,6 @@ func (o *AliasesUpdateForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *AliasesUpdateForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -314,11 +315,13 @@ func (o *AliasesUpdateNotFound) Code() int {
 }
 
 func (o *AliasesUpdateNotFound) Error() string {
-	return fmt.Sprintf("[PUT /aliases/{aliasName}][%d] aliasesUpdateNotFound  %+v", 404, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[PUT /aliases/{aliasName}][%d] aliasesUpdateNotFound %s", 404, payload)
 }
 
 func (o *AliasesUpdateNotFound) String() string {
-	return fmt.Sprintf("[PUT /aliases/{aliasName}][%d] aliasesUpdateNotFound  %+v", 404, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[PUT /aliases/{aliasName}][%d] aliasesUpdateNotFound %s", 404, payload)
 }
 
 func (o *AliasesUpdateNotFound) GetPayload() *models.ErrorResponse {
@@ -326,7 +329,6 @@ func (o *AliasesUpdateNotFound) GetPayload() *models.ErrorResponse {
 }
 
 func (o *AliasesUpdateNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -382,11 +384,13 @@ func (o *AliasesUpdateUnprocessableEntity) Code() int {
 }
 
 func (o *AliasesUpdateUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[PUT /aliases/{aliasName}][%d] aliasesUpdateUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[PUT /aliases/{aliasName}][%d] aliasesUpdateUnprocessableEntity %s", 422, payload)
 }
 
 func (o *AliasesUpdateUnprocessableEntity) String() string {
-	return fmt.Sprintf("[PUT /aliases/{aliasName}][%d] aliasesUpdateUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[PUT /aliases/{aliasName}][%d] aliasesUpdateUnprocessableEntity %s", 422, payload)
 }
 
 func (o *AliasesUpdateUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -394,7 +398,6 @@ func (o *AliasesUpdateUnprocessableEntity) GetPayload() *models.ErrorResponse {
 }
 
 func (o *AliasesUpdateUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -450,11 +453,13 @@ func (o *AliasesUpdateInternalServerError) Code() int {
 }
 
 func (o *AliasesUpdateInternalServerError) Error() string {
-	return fmt.Sprintf("[PUT /aliases/{aliasName}][%d] aliasesUpdateInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[PUT /aliases/{aliasName}][%d] aliasesUpdateInternalServerError %s", 500, payload)
 }
 
 func (o *AliasesUpdateInternalServerError) String() string {
-	return fmt.Sprintf("[PUT /aliases/{aliasName}][%d] aliasesUpdateInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[PUT /aliases/{aliasName}][%d] aliasesUpdateInternalServerError %s", 500, payload)
 }
 
 func (o *AliasesUpdateInternalServerError) GetPayload() *models.ErrorResponse {
@@ -462,7 +467,6 @@ func (o *AliasesUpdateInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *AliasesUpdateInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -478,7 +482,6 @@ AliasesUpdateBody aliases update body
 swagger:model AliasesUpdateBody
 */
 type AliasesUpdateBody struct {
-
 	// The new collection (class) that the alias should point to.
 	Class string `json:"class,omitempty"`
 }

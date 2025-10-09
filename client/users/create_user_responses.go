@@ -18,6 +18,7 @@ package users
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -87,7 +88,7 @@ func (o *CreateUserReader) ReadResponse(response runtime.ClientResponse, consume
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[POST /users/db/{user_id}] createUser", response, response.Code())
 	}
 }
 
@@ -136,11 +137,13 @@ func (o *CreateUserCreated) Code() int {
 }
 
 func (o *CreateUserCreated) Error() string {
-	return fmt.Sprintf("[POST /users/db/{user_id}][%d] createUserCreated  %+v", 201, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /users/db/{user_id}][%d] createUserCreated %s", 201, payload)
 }
 
 func (o *CreateUserCreated) String() string {
-	return fmt.Sprintf("[POST /users/db/{user_id}][%d] createUserCreated  %+v", 201, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /users/db/{user_id}][%d] createUserCreated %s", 201, payload)
 }
 
 func (o *CreateUserCreated) GetPayload() *models.UserAPIKey {
@@ -148,7 +151,6 @@ func (o *CreateUserCreated) GetPayload() *models.UserAPIKey {
 }
 
 func (o *CreateUserCreated) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.UserAPIKey)
 
 	// response payload
@@ -204,11 +206,13 @@ func (o *CreateUserBadRequest) Code() int {
 }
 
 func (o *CreateUserBadRequest) Error() string {
-	return fmt.Sprintf("[POST /users/db/{user_id}][%d] createUserBadRequest  %+v", 400, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /users/db/{user_id}][%d] createUserBadRequest %s", 400, payload)
 }
 
 func (o *CreateUserBadRequest) String() string {
-	return fmt.Sprintf("[POST /users/db/{user_id}][%d] createUserBadRequest  %+v", 400, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /users/db/{user_id}][%d] createUserBadRequest %s", 400, payload)
 }
 
 func (o *CreateUserBadRequest) GetPayload() *models.ErrorResponse {
@@ -216,7 +220,6 @@ func (o *CreateUserBadRequest) GetPayload() *models.ErrorResponse {
 }
 
 func (o *CreateUserBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -237,8 +240,7 @@ CreateUserUnauthorized describes a response with status code 401, with default h
 
 Unauthorized or invalid credentials.
 */
-type CreateUserUnauthorized struct {
-}
+type CreateUserUnauthorized struct{}
 
 // IsSuccess returns true when this create user unauthorized response has a 2xx status code
 func (o *CreateUserUnauthorized) IsSuccess() bool {
@@ -271,15 +273,14 @@ func (o *CreateUserUnauthorized) Code() int {
 }
 
 func (o *CreateUserUnauthorized) Error() string {
-	return fmt.Sprintf("[POST /users/db/{user_id}][%d] createUserUnauthorized ", 401)
+	return fmt.Sprintf("[POST /users/db/{user_id}][%d] createUserUnauthorized", 401)
 }
 
 func (o *CreateUserUnauthorized) String() string {
-	return fmt.Sprintf("[POST /users/db/{user_id}][%d] createUserUnauthorized ", 401)
+	return fmt.Sprintf("[POST /users/db/{user_id}][%d] createUserUnauthorized", 401)
 }
 
 func (o *CreateUserUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -328,11 +329,13 @@ func (o *CreateUserForbidden) Code() int {
 }
 
 func (o *CreateUserForbidden) Error() string {
-	return fmt.Sprintf("[POST /users/db/{user_id}][%d] createUserForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /users/db/{user_id}][%d] createUserForbidden %s", 403, payload)
 }
 
 func (o *CreateUserForbidden) String() string {
-	return fmt.Sprintf("[POST /users/db/{user_id}][%d] createUserForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /users/db/{user_id}][%d] createUserForbidden %s", 403, payload)
 }
 
 func (o *CreateUserForbidden) GetPayload() *models.ErrorResponse {
@@ -340,7 +343,6 @@ func (o *CreateUserForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *CreateUserForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -396,11 +398,13 @@ func (o *CreateUserNotFound) Code() int {
 }
 
 func (o *CreateUserNotFound) Error() string {
-	return fmt.Sprintf("[POST /users/db/{user_id}][%d] createUserNotFound  %+v", 404, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /users/db/{user_id}][%d] createUserNotFound %s", 404, payload)
 }
 
 func (o *CreateUserNotFound) String() string {
-	return fmt.Sprintf("[POST /users/db/{user_id}][%d] createUserNotFound  %+v", 404, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /users/db/{user_id}][%d] createUserNotFound %s", 404, payload)
 }
 
 func (o *CreateUserNotFound) GetPayload() *models.ErrorResponse {
@@ -408,7 +412,6 @@ func (o *CreateUserNotFound) GetPayload() *models.ErrorResponse {
 }
 
 func (o *CreateUserNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -464,11 +467,13 @@ func (o *CreateUserConflict) Code() int {
 }
 
 func (o *CreateUserConflict) Error() string {
-	return fmt.Sprintf("[POST /users/db/{user_id}][%d] createUserConflict  %+v", 409, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /users/db/{user_id}][%d] createUserConflict %s", 409, payload)
 }
 
 func (o *CreateUserConflict) String() string {
-	return fmt.Sprintf("[POST /users/db/{user_id}][%d] createUserConflict  %+v", 409, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /users/db/{user_id}][%d] createUserConflict %s", 409, payload)
 }
 
 func (o *CreateUserConflict) GetPayload() *models.ErrorResponse {
@@ -476,7 +481,6 @@ func (o *CreateUserConflict) GetPayload() *models.ErrorResponse {
 }
 
 func (o *CreateUserConflict) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -532,11 +536,13 @@ func (o *CreateUserUnprocessableEntity) Code() int {
 }
 
 func (o *CreateUserUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[POST /users/db/{user_id}][%d] createUserUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /users/db/{user_id}][%d] createUserUnprocessableEntity %s", 422, payload)
 }
 
 func (o *CreateUserUnprocessableEntity) String() string {
-	return fmt.Sprintf("[POST /users/db/{user_id}][%d] createUserUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /users/db/{user_id}][%d] createUserUnprocessableEntity %s", 422, payload)
 }
 
 func (o *CreateUserUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -544,7 +550,6 @@ func (o *CreateUserUnprocessableEntity) GetPayload() *models.ErrorResponse {
 }
 
 func (o *CreateUserUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -600,11 +605,13 @@ func (o *CreateUserInternalServerError) Code() int {
 }
 
 func (o *CreateUserInternalServerError) Error() string {
-	return fmt.Sprintf("[POST /users/db/{user_id}][%d] createUserInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /users/db/{user_id}][%d] createUserInternalServerError %s", 500, payload)
 }
 
 func (o *CreateUserInternalServerError) String() string {
-	return fmt.Sprintf("[POST /users/db/{user_id}][%d] createUserInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /users/db/{user_id}][%d] createUserInternalServerError %s", 500, payload)
 }
 
 func (o *CreateUserInternalServerError) GetPayload() *models.ErrorResponse {
@@ -612,7 +619,6 @@ func (o *CreateUserInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *CreateUserInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -628,7 +634,6 @@ CreateUserBody create user body
 swagger:model CreateUserBody
 */
 type CreateUserBody struct {
-
 	// EXPERIMENTAL, DONT USE. THIS WILL BE REMOVED AGAIN. - set the given time as creation time
 	// Format: date-time
 	CreateTime strfmt.DateTime `json:"createTime,omitempty"`

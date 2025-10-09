@@ -17,6 +17,7 @@ package backups
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -71,7 +72,7 @@ func (o *BackupsCreateStatusReader) ReadResponse(response runtime.ClientResponse
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[GET /backups/{backend}/{id}] backups.create.status", response, response.Code())
 	}
 }
 
@@ -120,11 +121,13 @@ func (o *BackupsCreateStatusOK) Code() int {
 }
 
 func (o *BackupsCreateStatusOK) Error() string {
-	return fmt.Sprintf("[GET /backups/{backend}/{id}][%d] backupsCreateStatusOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /backups/{backend}/{id}][%d] backupsCreateStatusOK %s", 200, payload)
 }
 
 func (o *BackupsCreateStatusOK) String() string {
-	return fmt.Sprintf("[GET /backups/{backend}/{id}][%d] backupsCreateStatusOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /backups/{backend}/{id}][%d] backupsCreateStatusOK %s", 200, payload)
 }
 
 func (o *BackupsCreateStatusOK) GetPayload() *models.BackupCreateStatusResponse {
@@ -132,7 +135,6 @@ func (o *BackupsCreateStatusOK) GetPayload() *models.BackupCreateStatusResponse 
 }
 
 func (o *BackupsCreateStatusOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.BackupCreateStatusResponse)
 
 	// response payload
@@ -153,8 +155,7 @@ BackupsCreateStatusUnauthorized describes a response with status code 401, with 
 
 Unauthorized or invalid credentials.
 */
-type BackupsCreateStatusUnauthorized struct {
-}
+type BackupsCreateStatusUnauthorized struct{}
 
 // IsSuccess returns true when this backups create status unauthorized response has a 2xx status code
 func (o *BackupsCreateStatusUnauthorized) IsSuccess() bool {
@@ -187,15 +188,14 @@ func (o *BackupsCreateStatusUnauthorized) Code() int {
 }
 
 func (o *BackupsCreateStatusUnauthorized) Error() string {
-	return fmt.Sprintf("[GET /backups/{backend}/{id}][%d] backupsCreateStatusUnauthorized ", 401)
+	return fmt.Sprintf("[GET /backups/{backend}/{id}][%d] backupsCreateStatusUnauthorized", 401)
 }
 
 func (o *BackupsCreateStatusUnauthorized) String() string {
-	return fmt.Sprintf("[GET /backups/{backend}/{id}][%d] backupsCreateStatusUnauthorized ", 401)
+	return fmt.Sprintf("[GET /backups/{backend}/{id}][%d] backupsCreateStatusUnauthorized", 401)
 }
 
 func (o *BackupsCreateStatusUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -244,11 +244,13 @@ func (o *BackupsCreateStatusForbidden) Code() int {
 }
 
 func (o *BackupsCreateStatusForbidden) Error() string {
-	return fmt.Sprintf("[GET /backups/{backend}/{id}][%d] backupsCreateStatusForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /backups/{backend}/{id}][%d] backupsCreateStatusForbidden %s", 403, payload)
 }
 
 func (o *BackupsCreateStatusForbidden) String() string {
-	return fmt.Sprintf("[GET /backups/{backend}/{id}][%d] backupsCreateStatusForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /backups/{backend}/{id}][%d] backupsCreateStatusForbidden %s", 403, payload)
 }
 
 func (o *BackupsCreateStatusForbidden) GetPayload() *models.ErrorResponse {
@@ -256,7 +258,6 @@ func (o *BackupsCreateStatusForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *BackupsCreateStatusForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -312,11 +313,13 @@ func (o *BackupsCreateStatusNotFound) Code() int {
 }
 
 func (o *BackupsCreateStatusNotFound) Error() string {
-	return fmt.Sprintf("[GET /backups/{backend}/{id}][%d] backupsCreateStatusNotFound  %+v", 404, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /backups/{backend}/{id}][%d] backupsCreateStatusNotFound %s", 404, payload)
 }
 
 func (o *BackupsCreateStatusNotFound) String() string {
-	return fmt.Sprintf("[GET /backups/{backend}/{id}][%d] backupsCreateStatusNotFound  %+v", 404, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /backups/{backend}/{id}][%d] backupsCreateStatusNotFound %s", 404, payload)
 }
 
 func (o *BackupsCreateStatusNotFound) GetPayload() *models.ErrorResponse {
@@ -324,7 +327,6 @@ func (o *BackupsCreateStatusNotFound) GetPayload() *models.ErrorResponse {
 }
 
 func (o *BackupsCreateStatusNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -380,11 +382,13 @@ func (o *BackupsCreateStatusUnprocessableEntity) Code() int {
 }
 
 func (o *BackupsCreateStatusUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[GET /backups/{backend}/{id}][%d] backupsCreateStatusUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /backups/{backend}/{id}][%d] backupsCreateStatusUnprocessableEntity %s", 422, payload)
 }
 
 func (o *BackupsCreateStatusUnprocessableEntity) String() string {
-	return fmt.Sprintf("[GET /backups/{backend}/{id}][%d] backupsCreateStatusUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /backups/{backend}/{id}][%d] backupsCreateStatusUnprocessableEntity %s", 422, payload)
 }
 
 func (o *BackupsCreateStatusUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -392,7 +396,6 @@ func (o *BackupsCreateStatusUnprocessableEntity) GetPayload() *models.ErrorRespo
 }
 
 func (o *BackupsCreateStatusUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -448,11 +451,13 @@ func (o *BackupsCreateStatusInternalServerError) Code() int {
 }
 
 func (o *BackupsCreateStatusInternalServerError) Error() string {
-	return fmt.Sprintf("[GET /backups/{backend}/{id}][%d] backupsCreateStatusInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /backups/{backend}/{id}][%d] backupsCreateStatusInternalServerError %s", 500, payload)
 }
 
 func (o *BackupsCreateStatusInternalServerError) String() string {
-	return fmt.Sprintf("[GET /backups/{backend}/{id}][%d] backupsCreateStatusInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /backups/{backend}/{id}][%d] backupsCreateStatusInternalServerError %s", 500, payload)
 }
 
 func (o *BackupsCreateStatusInternalServerError) GetPayload() *models.ErrorResponse {
@@ -460,7 +465,6 @@ func (o *BackupsCreateStatusInternalServerError) GetPayload() *models.ErrorRespo
 }
 
 func (o *BackupsCreateStatusInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

@@ -28,7 +28,6 @@ import (
 //
 // swagger:model ReplicationShardingStateResponse
 type ReplicationShardingStateResponse struct {
-
 	// sharding state
 	ShardingState *ReplicationShardingState `json:"shardingState,omitempty"`
 }
@@ -81,8 +80,12 @@ func (m *ReplicationShardingStateResponse) ContextValidate(ctx context.Context, 
 }
 
 func (m *ReplicationShardingStateResponse) contextValidateShardingState(ctx context.Context, formats strfmt.Registry) error {
-
 	if m.ShardingState != nil {
+
+		if swag.IsZero(m.ShardingState) { // not required
+			return nil
+		}
+
 		if err := m.ShardingState.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
 				return ve.ValidateName("shardingState")

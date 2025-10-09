@@ -30,7 +30,6 @@ import (
 //
 // swagger:model BackupConfig
 type BackupConfig struct {
-
 	// Name of the bucket, container, volume, etc
 	Bucket string `json:"Bucket,omitempty"`
 
@@ -45,7 +44,7 @@ type BackupConfig struct {
 	ChunkSize int64 `json:"ChunkSize,omitempty"`
 
 	// compression level used by compression algorithm
-	// Enum: [DefaultCompression BestSpeed BestCompression]
+	// Enum: ["DefaultCompression","BestSpeed","BestCompression"]
 	CompressionLevel string `json:"CompressionLevel,omitempty"`
 
 	// name of the endpoint, e.g. s3.amazonaws.com

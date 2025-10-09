@@ -17,6 +17,7 @@ package schema
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -65,7 +66,7 @@ func (o *TenantsUpdateReader) ReadResponse(response runtime.ClientResponse, cons
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[PUT /schema/{className}/tenants] tenants.update", response, response.Code())
 	}
 }
 
@@ -114,11 +115,13 @@ func (o *TenantsUpdateOK) Code() int {
 }
 
 func (o *TenantsUpdateOK) Error() string {
-	return fmt.Sprintf("[PUT /schema/{className}/tenants][%d] tenantsUpdateOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[PUT /schema/{className}/tenants][%d] tenantsUpdateOK %s", 200, payload)
 }
 
 func (o *TenantsUpdateOK) String() string {
-	return fmt.Sprintf("[PUT /schema/{className}/tenants][%d] tenantsUpdateOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[PUT /schema/{className}/tenants][%d] tenantsUpdateOK %s", 200, payload)
 }
 
 func (o *TenantsUpdateOK) GetPayload() []*models.Tenant {
@@ -126,7 +129,6 @@ func (o *TenantsUpdateOK) GetPayload() []*models.Tenant {
 }
 
 func (o *TenantsUpdateOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	// response payload
 	if err := consumer.Consume(response.Body(), &o.Payload); err != nil && err != io.EOF {
 		return err
@@ -145,8 +147,7 @@ TenantsUpdateUnauthorized describes a response with status code 401, with defaul
 
 Unauthorized or invalid credentials.
 */
-type TenantsUpdateUnauthorized struct {
-}
+type TenantsUpdateUnauthorized struct{}
 
 // IsSuccess returns true when this tenants update unauthorized response has a 2xx status code
 func (o *TenantsUpdateUnauthorized) IsSuccess() bool {
@@ -179,15 +180,14 @@ func (o *TenantsUpdateUnauthorized) Code() int {
 }
 
 func (o *TenantsUpdateUnauthorized) Error() string {
-	return fmt.Sprintf("[PUT /schema/{className}/tenants][%d] tenantsUpdateUnauthorized ", 401)
+	return fmt.Sprintf("[PUT /schema/{className}/tenants][%d] tenantsUpdateUnauthorized", 401)
 }
 
 func (o *TenantsUpdateUnauthorized) String() string {
-	return fmt.Sprintf("[PUT /schema/{className}/tenants][%d] tenantsUpdateUnauthorized ", 401)
+	return fmt.Sprintf("[PUT /schema/{className}/tenants][%d] tenantsUpdateUnauthorized", 401)
 }
 
 func (o *TenantsUpdateUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -236,11 +236,13 @@ func (o *TenantsUpdateForbidden) Code() int {
 }
 
 func (o *TenantsUpdateForbidden) Error() string {
-	return fmt.Sprintf("[PUT /schema/{className}/tenants][%d] tenantsUpdateForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[PUT /schema/{className}/tenants][%d] tenantsUpdateForbidden %s", 403, payload)
 }
 
 func (o *TenantsUpdateForbidden) String() string {
-	return fmt.Sprintf("[PUT /schema/{className}/tenants][%d] tenantsUpdateForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[PUT /schema/{className}/tenants][%d] tenantsUpdateForbidden %s", 403, payload)
 }
 
 func (o *TenantsUpdateForbidden) GetPayload() *models.ErrorResponse {
@@ -248,7 +250,6 @@ func (o *TenantsUpdateForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *TenantsUpdateForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -304,11 +305,13 @@ func (o *TenantsUpdateUnprocessableEntity) Code() int {
 }
 
 func (o *TenantsUpdateUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[PUT /schema/{className}/tenants][%d] tenantsUpdateUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[PUT /schema/{className}/tenants][%d] tenantsUpdateUnprocessableEntity %s", 422, payload)
 }
 
 func (o *TenantsUpdateUnprocessableEntity) String() string {
-	return fmt.Sprintf("[PUT /schema/{className}/tenants][%d] tenantsUpdateUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[PUT /schema/{className}/tenants][%d] tenantsUpdateUnprocessableEntity %s", 422, payload)
 }
 
 func (o *TenantsUpdateUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -316,7 +319,6 @@ func (o *TenantsUpdateUnprocessableEntity) GetPayload() *models.ErrorResponse {
 }
 
 func (o *TenantsUpdateUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -372,11 +374,13 @@ func (o *TenantsUpdateInternalServerError) Code() int {
 }
 
 func (o *TenantsUpdateInternalServerError) Error() string {
-	return fmt.Sprintf("[PUT /schema/{className}/tenants][%d] tenantsUpdateInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[PUT /schema/{className}/tenants][%d] tenantsUpdateInternalServerError %s", 500, payload)
 }
 
 func (o *TenantsUpdateInternalServerError) String() string {
-	return fmt.Sprintf("[PUT /schema/{className}/tenants][%d] tenantsUpdateInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[PUT /schema/{className}/tenants][%d] tenantsUpdateInternalServerError %s", 500, payload)
 }
 
 func (o *TenantsUpdateInternalServerError) GetPayload() *models.ErrorResponse {
@@ -384,7 +388,6 @@ func (o *TenantsUpdateInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *TenantsUpdateInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

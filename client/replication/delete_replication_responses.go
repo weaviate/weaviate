@@ -17,6 +17,7 @@ package replication
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -83,7 +84,7 @@ func (o *DeleteReplicationReader) ReadResponse(response runtime.ClientResponse, 
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[DELETE /replication/replicate/{id}] deleteReplication", response, response.Code())
 	}
 }
 
@@ -97,8 +98,7 @@ DeleteReplicationNoContent describes a response with status code 204, with defau
 
 Successfully deleted.
 */
-type DeleteReplicationNoContent struct {
-}
+type DeleteReplicationNoContent struct{}
 
 // IsSuccess returns true when this delete replication no content response has a 2xx status code
 func (o *DeleteReplicationNoContent) IsSuccess() bool {
@@ -131,15 +131,14 @@ func (o *DeleteReplicationNoContent) Code() int {
 }
 
 func (o *DeleteReplicationNoContent) Error() string {
-	return fmt.Sprintf("[DELETE /replication/replicate/{id}][%d] deleteReplicationNoContent ", 204)
+	return fmt.Sprintf("[DELETE /replication/replicate/{id}][%d] deleteReplicationNoContent", 204)
 }
 
 func (o *DeleteReplicationNoContent) String() string {
-	return fmt.Sprintf("[DELETE /replication/replicate/{id}][%d] deleteReplicationNoContent ", 204)
+	return fmt.Sprintf("[DELETE /replication/replicate/{id}][%d] deleteReplicationNoContent", 204)
 }
 
 func (o *DeleteReplicationNoContent) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -153,8 +152,7 @@ DeleteReplicationUnauthorized describes a response with status code 401, with de
 
 Unauthorized or invalid credentials.
 */
-type DeleteReplicationUnauthorized struct {
-}
+type DeleteReplicationUnauthorized struct{}
 
 // IsSuccess returns true when this delete replication unauthorized response has a 2xx status code
 func (o *DeleteReplicationUnauthorized) IsSuccess() bool {
@@ -187,15 +185,14 @@ func (o *DeleteReplicationUnauthorized) Code() int {
 }
 
 func (o *DeleteReplicationUnauthorized) Error() string {
-	return fmt.Sprintf("[DELETE /replication/replicate/{id}][%d] deleteReplicationUnauthorized ", 401)
+	return fmt.Sprintf("[DELETE /replication/replicate/{id}][%d] deleteReplicationUnauthorized", 401)
 }
 
 func (o *DeleteReplicationUnauthorized) String() string {
-	return fmt.Sprintf("[DELETE /replication/replicate/{id}][%d] deleteReplicationUnauthorized ", 401)
+	return fmt.Sprintf("[DELETE /replication/replicate/{id}][%d] deleteReplicationUnauthorized", 401)
 }
 
 func (o *DeleteReplicationUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -244,11 +241,13 @@ func (o *DeleteReplicationForbidden) Code() int {
 }
 
 func (o *DeleteReplicationForbidden) Error() string {
-	return fmt.Sprintf("[DELETE /replication/replicate/{id}][%d] deleteReplicationForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /replication/replicate/{id}][%d] deleteReplicationForbidden %s", 403, payload)
 }
 
 func (o *DeleteReplicationForbidden) String() string {
-	return fmt.Sprintf("[DELETE /replication/replicate/{id}][%d] deleteReplicationForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /replication/replicate/{id}][%d] deleteReplicationForbidden %s", 403, payload)
 }
 
 func (o *DeleteReplicationForbidden) GetPayload() *models.ErrorResponse {
@@ -256,7 +255,6 @@ func (o *DeleteReplicationForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *DeleteReplicationForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -277,8 +275,7 @@ DeleteReplicationNotFound describes a response with status code 404, with defaul
 
 Shard replica operation not found.
 */
-type DeleteReplicationNotFound struct {
-}
+type DeleteReplicationNotFound struct{}
 
 // IsSuccess returns true when this delete replication not found response has a 2xx status code
 func (o *DeleteReplicationNotFound) IsSuccess() bool {
@@ -311,15 +308,14 @@ func (o *DeleteReplicationNotFound) Code() int {
 }
 
 func (o *DeleteReplicationNotFound) Error() string {
-	return fmt.Sprintf("[DELETE /replication/replicate/{id}][%d] deleteReplicationNotFound ", 404)
+	return fmt.Sprintf("[DELETE /replication/replicate/{id}][%d] deleteReplicationNotFound", 404)
 }
 
 func (o *DeleteReplicationNotFound) String() string {
-	return fmt.Sprintf("[DELETE /replication/replicate/{id}][%d] deleteReplicationNotFound ", 404)
+	return fmt.Sprintf("[DELETE /replication/replicate/{id}][%d] deleteReplicationNotFound", 404)
 }
 
 func (o *DeleteReplicationNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -368,11 +364,13 @@ func (o *DeleteReplicationConflict) Code() int {
 }
 
 func (o *DeleteReplicationConflict) Error() string {
-	return fmt.Sprintf("[DELETE /replication/replicate/{id}][%d] deleteReplicationConflict  %+v", 409, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /replication/replicate/{id}][%d] deleteReplicationConflict %s", 409, payload)
 }
 
 func (o *DeleteReplicationConflict) String() string {
-	return fmt.Sprintf("[DELETE /replication/replicate/{id}][%d] deleteReplicationConflict  %+v", 409, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /replication/replicate/{id}][%d] deleteReplicationConflict %s", 409, payload)
 }
 
 func (o *DeleteReplicationConflict) GetPayload() *models.ErrorResponse {
@@ -380,7 +378,6 @@ func (o *DeleteReplicationConflict) GetPayload() *models.ErrorResponse {
 }
 
 func (o *DeleteReplicationConflict) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -436,11 +433,13 @@ func (o *DeleteReplicationUnprocessableEntity) Code() int {
 }
 
 func (o *DeleteReplicationUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[DELETE /replication/replicate/{id}][%d] deleteReplicationUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /replication/replicate/{id}][%d] deleteReplicationUnprocessableEntity %s", 422, payload)
 }
 
 func (o *DeleteReplicationUnprocessableEntity) String() string {
-	return fmt.Sprintf("[DELETE /replication/replicate/{id}][%d] deleteReplicationUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /replication/replicate/{id}][%d] deleteReplicationUnprocessableEntity %s", 422, payload)
 }
 
 func (o *DeleteReplicationUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -448,7 +447,6 @@ func (o *DeleteReplicationUnprocessableEntity) GetPayload() *models.ErrorRespons
 }
 
 func (o *DeleteReplicationUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -504,11 +502,13 @@ func (o *DeleteReplicationInternalServerError) Code() int {
 }
 
 func (o *DeleteReplicationInternalServerError) Error() string {
-	return fmt.Sprintf("[DELETE /replication/replicate/{id}][%d] deleteReplicationInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /replication/replicate/{id}][%d] deleteReplicationInternalServerError %s", 500, payload)
 }
 
 func (o *DeleteReplicationInternalServerError) String() string {
-	return fmt.Sprintf("[DELETE /replication/replicate/{id}][%d] deleteReplicationInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /replication/replicate/{id}][%d] deleteReplicationInternalServerError %s", 500, payload)
 }
 
 func (o *DeleteReplicationInternalServerError) GetPayload() *models.ErrorResponse {
@@ -516,7 +516,6 @@ func (o *DeleteReplicationInternalServerError) GetPayload() *models.ErrorRespons
 }
 
 func (o *DeleteReplicationInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -572,11 +571,13 @@ func (o *DeleteReplicationNotImplemented) Code() int {
 }
 
 func (o *DeleteReplicationNotImplemented) Error() string {
-	return fmt.Sprintf("[DELETE /replication/replicate/{id}][%d] deleteReplicationNotImplemented  %+v", 501, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /replication/replicate/{id}][%d] deleteReplicationNotImplemented %s", 501, payload)
 }
 
 func (o *DeleteReplicationNotImplemented) String() string {
-	return fmt.Sprintf("[DELETE /replication/replicate/{id}][%d] deleteReplicationNotImplemented  %+v", 501, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /replication/replicate/{id}][%d] deleteReplicationNotImplemented %s", 501, payload)
 }
 
 func (o *DeleteReplicationNotImplemented) GetPayload() *models.ErrorResponse {
@@ -584,7 +585,6 @@ func (o *DeleteReplicationNotImplemented) GetPayload() *models.ErrorResponse {
 }
 
 func (o *DeleteReplicationNotImplemented) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

@@ -30,7 +30,6 @@ import (
 //
 // swagger:model BackupRestoreStatusResponse
 type BackupRestoreStatusResponse struct {
-
 	// Backup backend name e.g. filesystem, gcs, s3.
 	Backend string `json:"backend,omitempty"`
 
@@ -44,7 +43,7 @@ type BackupRestoreStatusResponse struct {
 	Path string `json:"path,omitempty"`
 
 	// phase of backup restoration process
-	// Enum: [STARTED TRANSFERRING TRANSFERRED SUCCESS FAILED CANCELED]
+	// Enum: ["STARTED","TRANSFERRING","TRANSFERRED","SUCCESS","FAILED","CANCELED"]
 	Status *string `json:"status,omitempty"`
 }
 

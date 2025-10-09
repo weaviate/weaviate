@@ -17,6 +17,7 @@ package authz
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -65,7 +66,7 @@ func (o *DeleteRoleReader) ReadResponse(response runtime.ClientResponse, consume
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[DELETE /authz/roles/{id}] deleteRole", response, response.Code())
 	}
 }
 
@@ -79,8 +80,7 @@ DeleteRoleNoContent describes a response with status code 204, with default head
 
 Successfully deleted.
 */
-type DeleteRoleNoContent struct {
-}
+type DeleteRoleNoContent struct{}
 
 // IsSuccess returns true when this delete role no content response has a 2xx status code
 func (o *DeleteRoleNoContent) IsSuccess() bool {
@@ -113,15 +113,14 @@ func (o *DeleteRoleNoContent) Code() int {
 }
 
 func (o *DeleteRoleNoContent) Error() string {
-	return fmt.Sprintf("[DELETE /authz/roles/{id}][%d] deleteRoleNoContent ", 204)
+	return fmt.Sprintf("[DELETE /authz/roles/{id}][%d] deleteRoleNoContent", 204)
 }
 
 func (o *DeleteRoleNoContent) String() string {
-	return fmt.Sprintf("[DELETE /authz/roles/{id}][%d] deleteRoleNoContent ", 204)
+	return fmt.Sprintf("[DELETE /authz/roles/{id}][%d] deleteRoleNoContent", 204)
 }
 
 func (o *DeleteRoleNoContent) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -170,11 +169,13 @@ func (o *DeleteRoleBadRequest) Code() int {
 }
 
 func (o *DeleteRoleBadRequest) Error() string {
-	return fmt.Sprintf("[DELETE /authz/roles/{id}][%d] deleteRoleBadRequest  %+v", 400, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /authz/roles/{id}][%d] deleteRoleBadRequest %s", 400, payload)
 }
 
 func (o *DeleteRoleBadRequest) String() string {
-	return fmt.Sprintf("[DELETE /authz/roles/{id}][%d] deleteRoleBadRequest  %+v", 400, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /authz/roles/{id}][%d] deleteRoleBadRequest %s", 400, payload)
 }
 
 func (o *DeleteRoleBadRequest) GetPayload() *models.ErrorResponse {
@@ -182,7 +183,6 @@ func (o *DeleteRoleBadRequest) GetPayload() *models.ErrorResponse {
 }
 
 func (o *DeleteRoleBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -203,8 +203,7 @@ DeleteRoleUnauthorized describes a response with status code 401, with default h
 
 Unauthorized or invalid credentials.
 */
-type DeleteRoleUnauthorized struct {
-}
+type DeleteRoleUnauthorized struct{}
 
 // IsSuccess returns true when this delete role unauthorized response has a 2xx status code
 func (o *DeleteRoleUnauthorized) IsSuccess() bool {
@@ -237,15 +236,14 @@ func (o *DeleteRoleUnauthorized) Code() int {
 }
 
 func (o *DeleteRoleUnauthorized) Error() string {
-	return fmt.Sprintf("[DELETE /authz/roles/{id}][%d] deleteRoleUnauthorized ", 401)
+	return fmt.Sprintf("[DELETE /authz/roles/{id}][%d] deleteRoleUnauthorized", 401)
 }
 
 func (o *DeleteRoleUnauthorized) String() string {
-	return fmt.Sprintf("[DELETE /authz/roles/{id}][%d] deleteRoleUnauthorized ", 401)
+	return fmt.Sprintf("[DELETE /authz/roles/{id}][%d] deleteRoleUnauthorized", 401)
 }
 
 func (o *DeleteRoleUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -294,11 +292,13 @@ func (o *DeleteRoleForbidden) Code() int {
 }
 
 func (o *DeleteRoleForbidden) Error() string {
-	return fmt.Sprintf("[DELETE /authz/roles/{id}][%d] deleteRoleForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /authz/roles/{id}][%d] deleteRoleForbidden %s", 403, payload)
 }
 
 func (o *DeleteRoleForbidden) String() string {
-	return fmt.Sprintf("[DELETE /authz/roles/{id}][%d] deleteRoleForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /authz/roles/{id}][%d] deleteRoleForbidden %s", 403, payload)
 }
 
 func (o *DeleteRoleForbidden) GetPayload() *models.ErrorResponse {
@@ -306,7 +306,6 @@ func (o *DeleteRoleForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *DeleteRoleForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -362,11 +361,13 @@ func (o *DeleteRoleInternalServerError) Code() int {
 }
 
 func (o *DeleteRoleInternalServerError) Error() string {
-	return fmt.Sprintf("[DELETE /authz/roles/{id}][%d] deleteRoleInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /authz/roles/{id}][%d] deleteRoleInternalServerError %s", 500, payload)
 }
 
 func (o *DeleteRoleInternalServerError) String() string {
-	return fmt.Sprintf("[DELETE /authz/roles/{id}][%d] deleteRoleInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /authz/roles/{id}][%d] deleteRoleInternalServerError %s", 500, payload)
 }
 
 func (o *DeleteRoleInternalServerError) GetPayload() *models.ErrorResponse {
@@ -374,7 +375,6 @@ func (o *DeleteRoleInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *DeleteRoleInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

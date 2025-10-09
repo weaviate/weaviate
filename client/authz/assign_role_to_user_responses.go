@@ -18,6 +18,7 @@ package authz
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -74,7 +75,7 @@ func (o *AssignRoleToUserReader) ReadResponse(response runtime.ClientResponse, c
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[POST /authz/users/{id}/assign] assignRoleToUser", response, response.Code())
 	}
 }
 
@@ -88,8 +89,7 @@ AssignRoleToUserOK describes a response with status code 200, with default heade
 
 Role assigned successfully
 */
-type AssignRoleToUserOK struct {
-}
+type AssignRoleToUserOK struct{}
 
 // IsSuccess returns true when this assign role to user o k response has a 2xx status code
 func (o *AssignRoleToUserOK) IsSuccess() bool {
@@ -122,15 +122,14 @@ func (o *AssignRoleToUserOK) Code() int {
 }
 
 func (o *AssignRoleToUserOK) Error() string {
-	return fmt.Sprintf("[POST /authz/users/{id}/assign][%d] assignRoleToUserOK ", 200)
+	return fmt.Sprintf("[POST /authz/users/{id}/assign][%d] assignRoleToUserOK", 200)
 }
 
 func (o *AssignRoleToUserOK) String() string {
-	return fmt.Sprintf("[POST /authz/users/{id}/assign][%d] assignRoleToUserOK ", 200)
+	return fmt.Sprintf("[POST /authz/users/{id}/assign][%d] assignRoleToUserOK", 200)
 }
 
 func (o *AssignRoleToUserOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -179,11 +178,13 @@ func (o *AssignRoleToUserBadRequest) Code() int {
 }
 
 func (o *AssignRoleToUserBadRequest) Error() string {
-	return fmt.Sprintf("[POST /authz/users/{id}/assign][%d] assignRoleToUserBadRequest  %+v", 400, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /authz/users/{id}/assign][%d] assignRoleToUserBadRequest %s", 400, payload)
 }
 
 func (o *AssignRoleToUserBadRequest) String() string {
-	return fmt.Sprintf("[POST /authz/users/{id}/assign][%d] assignRoleToUserBadRequest  %+v", 400, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /authz/users/{id}/assign][%d] assignRoleToUserBadRequest %s", 400, payload)
 }
 
 func (o *AssignRoleToUserBadRequest) GetPayload() *models.ErrorResponse {
@@ -191,7 +192,6 @@ func (o *AssignRoleToUserBadRequest) GetPayload() *models.ErrorResponse {
 }
 
 func (o *AssignRoleToUserBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -212,8 +212,7 @@ AssignRoleToUserUnauthorized describes a response with status code 401, with def
 
 Unauthorized or invalid credentials.
 */
-type AssignRoleToUserUnauthorized struct {
-}
+type AssignRoleToUserUnauthorized struct{}
 
 // IsSuccess returns true when this assign role to user unauthorized response has a 2xx status code
 func (o *AssignRoleToUserUnauthorized) IsSuccess() bool {
@@ -246,15 +245,14 @@ func (o *AssignRoleToUserUnauthorized) Code() int {
 }
 
 func (o *AssignRoleToUserUnauthorized) Error() string {
-	return fmt.Sprintf("[POST /authz/users/{id}/assign][%d] assignRoleToUserUnauthorized ", 401)
+	return fmt.Sprintf("[POST /authz/users/{id}/assign][%d] assignRoleToUserUnauthorized", 401)
 }
 
 func (o *AssignRoleToUserUnauthorized) String() string {
-	return fmt.Sprintf("[POST /authz/users/{id}/assign][%d] assignRoleToUserUnauthorized ", 401)
+	return fmt.Sprintf("[POST /authz/users/{id}/assign][%d] assignRoleToUserUnauthorized", 401)
 }
 
 func (o *AssignRoleToUserUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -303,11 +301,13 @@ func (o *AssignRoleToUserForbidden) Code() int {
 }
 
 func (o *AssignRoleToUserForbidden) Error() string {
-	return fmt.Sprintf("[POST /authz/users/{id}/assign][%d] assignRoleToUserForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /authz/users/{id}/assign][%d] assignRoleToUserForbidden %s", 403, payload)
 }
 
 func (o *AssignRoleToUserForbidden) String() string {
-	return fmt.Sprintf("[POST /authz/users/{id}/assign][%d] assignRoleToUserForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /authz/users/{id}/assign][%d] assignRoleToUserForbidden %s", 403, payload)
 }
 
 func (o *AssignRoleToUserForbidden) GetPayload() *models.ErrorResponse {
@@ -315,7 +315,6 @@ func (o *AssignRoleToUserForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *AssignRoleToUserForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -371,11 +370,13 @@ func (o *AssignRoleToUserNotFound) Code() int {
 }
 
 func (o *AssignRoleToUserNotFound) Error() string {
-	return fmt.Sprintf("[POST /authz/users/{id}/assign][%d] assignRoleToUserNotFound  %+v", 404, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /authz/users/{id}/assign][%d] assignRoleToUserNotFound %s", 404, payload)
 }
 
 func (o *AssignRoleToUserNotFound) String() string {
-	return fmt.Sprintf("[POST /authz/users/{id}/assign][%d] assignRoleToUserNotFound  %+v", 404, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /authz/users/{id}/assign][%d] assignRoleToUserNotFound %s", 404, payload)
 }
 
 func (o *AssignRoleToUserNotFound) GetPayload() *models.ErrorResponse {
@@ -383,7 +384,6 @@ func (o *AssignRoleToUserNotFound) GetPayload() *models.ErrorResponse {
 }
 
 func (o *AssignRoleToUserNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -439,11 +439,13 @@ func (o *AssignRoleToUserInternalServerError) Code() int {
 }
 
 func (o *AssignRoleToUserInternalServerError) Error() string {
-	return fmt.Sprintf("[POST /authz/users/{id}/assign][%d] assignRoleToUserInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /authz/users/{id}/assign][%d] assignRoleToUserInternalServerError %s", 500, payload)
 }
 
 func (o *AssignRoleToUserInternalServerError) String() string {
-	return fmt.Sprintf("[POST /authz/users/{id}/assign][%d] assignRoleToUserInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /authz/users/{id}/assign][%d] assignRoleToUserInternalServerError %s", 500, payload)
 }
 
 func (o *AssignRoleToUserInternalServerError) GetPayload() *models.ErrorResponse {
@@ -451,7 +453,6 @@ func (o *AssignRoleToUserInternalServerError) GetPayload() *models.ErrorResponse
 }
 
 func (o *AssignRoleToUserInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -467,7 +468,6 @@ AssignRoleToUserBody assign role to user body
 swagger:model AssignRoleToUserBody
 */
 type AssignRoleToUserBody struct {
-
 	// the roles that assigned to user
 	Roles []string `json:"roles"`
 
@@ -521,6 +521,9 @@ func (o *AssignRoleToUserBody) ContextValidate(ctx context.Context, formats strf
 }
 
 func (o *AssignRoleToUserBody) contextValidateUserType(ctx context.Context, formats strfmt.Registry) error {
+	if swag.IsZero(o.UserType) { // not required
+		return nil
+	}
 
 	if err := o.UserType.ContextValidate(ctx, formats); err != nil {
 		if ve, ok := err.(*errors.Validation); ok {

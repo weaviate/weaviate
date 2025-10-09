@@ -29,7 +29,6 @@ import (
 //
 // swagger:model SingleRef
 type SingleRef struct {
-
 	// If using a direct reference, specify the URI to point to the cross-ref here. Should be in the form of weaviate://localhost/<uuid> for the example of a local cross-ref to an object
 	// Format: uri
 	Beacon strfmt.URI `json:"beacon,omitempty"`
@@ -145,8 +144,12 @@ func (m *SingleRef) ContextValidate(ctx context.Context, formats strfmt.Registry
 }
 
 func (m *SingleRef) contextValidateClassification(ctx context.Context, formats strfmt.Registry) error {
-
 	if m.Classification != nil {
+
+		if swag.IsZero(m.Classification) { // not required
+			return nil
+		}
+
 		if err := m.Classification.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
 				return ve.ValidateName("classification")

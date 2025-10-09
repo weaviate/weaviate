@@ -17,6 +17,7 @@ package objects
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -77,7 +78,7 @@ func (o *ObjectsClassGetReader) ReadResponse(response runtime.ClientResponse, co
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[GET /objects/{className}/{id}] objects.class.get", response, response.Code())
 	}
 }
 
@@ -126,11 +127,13 @@ func (o *ObjectsClassGetOK) Code() int {
 }
 
 func (o *ObjectsClassGetOK) Error() string {
-	return fmt.Sprintf("[GET /objects/{className}/{id}][%d] objectsClassGetOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /objects/{className}/{id}][%d] objectsClassGetOK %s", 200, payload)
 }
 
 func (o *ObjectsClassGetOK) String() string {
-	return fmt.Sprintf("[GET /objects/{className}/{id}][%d] objectsClassGetOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /objects/{className}/{id}][%d] objectsClassGetOK %s", 200, payload)
 }
 
 func (o *ObjectsClassGetOK) GetPayload() *models.Object {
@@ -138,7 +141,6 @@ func (o *ObjectsClassGetOK) GetPayload() *models.Object {
 }
 
 func (o *ObjectsClassGetOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.Object)
 
 	// response payload
@@ -194,11 +196,13 @@ func (o *ObjectsClassGetBadRequest) Code() int {
 }
 
 func (o *ObjectsClassGetBadRequest) Error() string {
-	return fmt.Sprintf("[GET /objects/{className}/{id}][%d] objectsClassGetBadRequest  %+v", 400, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /objects/{className}/{id}][%d] objectsClassGetBadRequest %s", 400, payload)
 }
 
 func (o *ObjectsClassGetBadRequest) String() string {
-	return fmt.Sprintf("[GET /objects/{className}/{id}][%d] objectsClassGetBadRequest  %+v", 400, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /objects/{className}/{id}][%d] objectsClassGetBadRequest %s", 400, payload)
 }
 
 func (o *ObjectsClassGetBadRequest) GetPayload() *models.ErrorResponse {
@@ -206,7 +210,6 @@ func (o *ObjectsClassGetBadRequest) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ObjectsClassGetBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -227,8 +230,7 @@ ObjectsClassGetUnauthorized describes a response with status code 401, with defa
 
 Unauthorized or invalid credentials.
 */
-type ObjectsClassGetUnauthorized struct {
-}
+type ObjectsClassGetUnauthorized struct{}
 
 // IsSuccess returns true when this objects class get unauthorized response has a 2xx status code
 func (o *ObjectsClassGetUnauthorized) IsSuccess() bool {
@@ -261,15 +263,14 @@ func (o *ObjectsClassGetUnauthorized) Code() int {
 }
 
 func (o *ObjectsClassGetUnauthorized) Error() string {
-	return fmt.Sprintf("[GET /objects/{className}/{id}][%d] objectsClassGetUnauthorized ", 401)
+	return fmt.Sprintf("[GET /objects/{className}/{id}][%d] objectsClassGetUnauthorized", 401)
 }
 
 func (o *ObjectsClassGetUnauthorized) String() string {
-	return fmt.Sprintf("[GET /objects/{className}/{id}][%d] objectsClassGetUnauthorized ", 401)
+	return fmt.Sprintf("[GET /objects/{className}/{id}][%d] objectsClassGetUnauthorized", 401)
 }
 
 func (o *ObjectsClassGetUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -318,11 +319,13 @@ func (o *ObjectsClassGetForbidden) Code() int {
 }
 
 func (o *ObjectsClassGetForbidden) Error() string {
-	return fmt.Sprintf("[GET /objects/{className}/{id}][%d] objectsClassGetForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /objects/{className}/{id}][%d] objectsClassGetForbidden %s", 403, payload)
 }
 
 func (o *ObjectsClassGetForbidden) String() string {
-	return fmt.Sprintf("[GET /objects/{className}/{id}][%d] objectsClassGetForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /objects/{className}/{id}][%d] objectsClassGetForbidden %s", 403, payload)
 }
 
 func (o *ObjectsClassGetForbidden) GetPayload() *models.ErrorResponse {
@@ -330,7 +333,6 @@ func (o *ObjectsClassGetForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ObjectsClassGetForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -351,8 +353,7 @@ ObjectsClassGetNotFound describes a response with status code 404, with default 
 
 Successful query result but no resource was found.
 */
-type ObjectsClassGetNotFound struct {
-}
+type ObjectsClassGetNotFound struct{}
 
 // IsSuccess returns true when this objects class get not found response has a 2xx status code
 func (o *ObjectsClassGetNotFound) IsSuccess() bool {
@@ -385,15 +386,14 @@ func (o *ObjectsClassGetNotFound) Code() int {
 }
 
 func (o *ObjectsClassGetNotFound) Error() string {
-	return fmt.Sprintf("[GET /objects/{className}/{id}][%d] objectsClassGetNotFound ", 404)
+	return fmt.Sprintf("[GET /objects/{className}/{id}][%d] objectsClassGetNotFound", 404)
 }
 
 func (o *ObjectsClassGetNotFound) String() string {
-	return fmt.Sprintf("[GET /objects/{className}/{id}][%d] objectsClassGetNotFound ", 404)
+	return fmt.Sprintf("[GET /objects/{className}/{id}][%d] objectsClassGetNotFound", 404)
 }
 
 func (o *ObjectsClassGetNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -442,11 +442,13 @@ func (o *ObjectsClassGetUnprocessableEntity) Code() int {
 }
 
 func (o *ObjectsClassGetUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[GET /objects/{className}/{id}][%d] objectsClassGetUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /objects/{className}/{id}][%d] objectsClassGetUnprocessableEntity %s", 422, payload)
 }
 
 func (o *ObjectsClassGetUnprocessableEntity) String() string {
-	return fmt.Sprintf("[GET /objects/{className}/{id}][%d] objectsClassGetUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /objects/{className}/{id}][%d] objectsClassGetUnprocessableEntity %s", 422, payload)
 }
 
 func (o *ObjectsClassGetUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -454,7 +456,6 @@ func (o *ObjectsClassGetUnprocessableEntity) GetPayload() *models.ErrorResponse 
 }
 
 func (o *ObjectsClassGetUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -510,11 +511,13 @@ func (o *ObjectsClassGetInternalServerError) Code() int {
 }
 
 func (o *ObjectsClassGetInternalServerError) Error() string {
-	return fmt.Sprintf("[GET /objects/{className}/{id}][%d] objectsClassGetInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /objects/{className}/{id}][%d] objectsClassGetInternalServerError %s", 500, payload)
 }
 
 func (o *ObjectsClassGetInternalServerError) String() string {
-	return fmt.Sprintf("[GET /objects/{className}/{id}][%d] objectsClassGetInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /objects/{className}/{id}][%d] objectsClassGetInternalServerError %s", 500, payload)
 }
 
 func (o *ObjectsClassGetInternalServerError) GetPayload() *models.ErrorResponse {
@@ -522,7 +525,6 @@ func (o *ObjectsClassGetInternalServerError) GetPayload() *models.ErrorResponse 
 }
 
 func (o *ObjectsClassGetInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

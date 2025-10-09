@@ -17,6 +17,7 @@ package replication
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -71,7 +72,7 @@ func (o *ListReplicationReader) ReadResponse(response runtime.ClientResponse, co
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[GET /replication/replicate/list] listReplication", response, response.Code())
 	}
 }
 
@@ -120,11 +121,13 @@ func (o *ListReplicationOK) Code() int {
 }
 
 func (o *ListReplicationOK) Error() string {
-	return fmt.Sprintf("[GET /replication/replicate/list][%d] listReplicationOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /replication/replicate/list][%d] listReplicationOK %s", 200, payload)
 }
 
 func (o *ListReplicationOK) String() string {
-	return fmt.Sprintf("[GET /replication/replicate/list][%d] listReplicationOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /replication/replicate/list][%d] listReplicationOK %s", 200, payload)
 }
 
 func (o *ListReplicationOK) GetPayload() []*models.ReplicationReplicateDetailsReplicaResponse {
@@ -132,7 +135,6 @@ func (o *ListReplicationOK) GetPayload() []*models.ReplicationReplicateDetailsRe
 }
 
 func (o *ListReplicationOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	// response payload
 	if err := consumer.Consume(response.Body(), &o.Payload); err != nil && err != io.EOF {
 		return err
@@ -186,11 +188,13 @@ func (o *ListReplicationBadRequest) Code() int {
 }
 
 func (o *ListReplicationBadRequest) Error() string {
-	return fmt.Sprintf("[GET /replication/replicate/list][%d] listReplicationBadRequest  %+v", 400, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /replication/replicate/list][%d] listReplicationBadRequest %s", 400, payload)
 }
 
 func (o *ListReplicationBadRequest) String() string {
-	return fmt.Sprintf("[GET /replication/replicate/list][%d] listReplicationBadRequest  %+v", 400, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /replication/replicate/list][%d] listReplicationBadRequest %s", 400, payload)
 }
 
 func (o *ListReplicationBadRequest) GetPayload() *models.ErrorResponse {
@@ -198,7 +202,6 @@ func (o *ListReplicationBadRequest) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ListReplicationBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -219,8 +222,7 @@ ListReplicationUnauthorized describes a response with status code 401, with defa
 
 Unauthorized or invalid credentials.
 */
-type ListReplicationUnauthorized struct {
-}
+type ListReplicationUnauthorized struct{}
 
 // IsSuccess returns true when this list replication unauthorized response has a 2xx status code
 func (o *ListReplicationUnauthorized) IsSuccess() bool {
@@ -253,15 +255,14 @@ func (o *ListReplicationUnauthorized) Code() int {
 }
 
 func (o *ListReplicationUnauthorized) Error() string {
-	return fmt.Sprintf("[GET /replication/replicate/list][%d] listReplicationUnauthorized ", 401)
+	return fmt.Sprintf("[GET /replication/replicate/list][%d] listReplicationUnauthorized", 401)
 }
 
 func (o *ListReplicationUnauthorized) String() string {
-	return fmt.Sprintf("[GET /replication/replicate/list][%d] listReplicationUnauthorized ", 401)
+	return fmt.Sprintf("[GET /replication/replicate/list][%d] listReplicationUnauthorized", 401)
 }
 
 func (o *ListReplicationUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -310,11 +311,13 @@ func (o *ListReplicationForbidden) Code() int {
 }
 
 func (o *ListReplicationForbidden) Error() string {
-	return fmt.Sprintf("[GET /replication/replicate/list][%d] listReplicationForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /replication/replicate/list][%d] listReplicationForbidden %s", 403, payload)
 }
 
 func (o *ListReplicationForbidden) String() string {
-	return fmt.Sprintf("[GET /replication/replicate/list][%d] listReplicationForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /replication/replicate/list][%d] listReplicationForbidden %s", 403, payload)
 }
 
 func (o *ListReplicationForbidden) GetPayload() *models.ErrorResponse {
@@ -322,7 +325,6 @@ func (o *ListReplicationForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ListReplicationForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -378,11 +380,13 @@ func (o *ListReplicationInternalServerError) Code() int {
 }
 
 func (o *ListReplicationInternalServerError) Error() string {
-	return fmt.Sprintf("[GET /replication/replicate/list][%d] listReplicationInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /replication/replicate/list][%d] listReplicationInternalServerError %s", 500, payload)
 }
 
 func (o *ListReplicationInternalServerError) String() string {
-	return fmt.Sprintf("[GET /replication/replicate/list][%d] listReplicationInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /replication/replicate/list][%d] listReplicationInternalServerError %s", 500, payload)
 }
 
 func (o *ListReplicationInternalServerError) GetPayload() *models.ErrorResponse {
@@ -390,7 +394,6 @@ func (o *ListReplicationInternalServerError) GetPayload() *models.ErrorResponse 
 }
 
 func (o *ListReplicationInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -446,11 +449,13 @@ func (o *ListReplicationNotImplemented) Code() int {
 }
 
 func (o *ListReplicationNotImplemented) Error() string {
-	return fmt.Sprintf("[GET /replication/replicate/list][%d] listReplicationNotImplemented  %+v", 501, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /replication/replicate/list][%d] listReplicationNotImplemented %s", 501, payload)
 }
 
 func (o *ListReplicationNotImplemented) String() string {
-	return fmt.Sprintf("[GET /replication/replicate/list][%d] listReplicationNotImplemented  %+v", 501, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /replication/replicate/list][%d] listReplicationNotImplemented %s", 501, payload)
 }
 
 func (o *ListReplicationNotImplemented) GetPayload() *models.ErrorResponse {
@@ -458,7 +463,6 @@ func (o *ListReplicationNotImplemented) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ListReplicationNotImplemented) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

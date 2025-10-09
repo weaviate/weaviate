@@ -18,6 +18,7 @@ package users
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -85,7 +86,7 @@ func (o *DeactivateUserReader) ReadResponse(response runtime.ClientResponse, con
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[POST /users/db/{user_id}/deactivate] deactivateUser", response, response.Code())
 	}
 }
 
@@ -99,8 +100,7 @@ DeactivateUserOK describes a response with status code 200, with default header 
 
 users successfully deactivated
 */
-type DeactivateUserOK struct {
-}
+type DeactivateUserOK struct{}
 
 // IsSuccess returns true when this deactivate user o k response has a 2xx status code
 func (o *DeactivateUserOK) IsSuccess() bool {
@@ -133,15 +133,14 @@ func (o *DeactivateUserOK) Code() int {
 }
 
 func (o *DeactivateUserOK) Error() string {
-	return fmt.Sprintf("[POST /users/db/{user_id}/deactivate][%d] deactivateUserOK ", 200)
+	return fmt.Sprintf("[POST /users/db/{user_id}/deactivate][%d] deactivateUserOK", 200)
 }
 
 func (o *DeactivateUserOK) String() string {
-	return fmt.Sprintf("[POST /users/db/{user_id}/deactivate][%d] deactivateUserOK ", 200)
+	return fmt.Sprintf("[POST /users/db/{user_id}/deactivate][%d] deactivateUserOK", 200)
 }
 
 func (o *DeactivateUserOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -190,11 +189,13 @@ func (o *DeactivateUserBadRequest) Code() int {
 }
 
 func (o *DeactivateUserBadRequest) Error() string {
-	return fmt.Sprintf("[POST /users/db/{user_id}/deactivate][%d] deactivateUserBadRequest  %+v", 400, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /users/db/{user_id}/deactivate][%d] deactivateUserBadRequest %s", 400, payload)
 }
 
 func (o *DeactivateUserBadRequest) String() string {
-	return fmt.Sprintf("[POST /users/db/{user_id}/deactivate][%d] deactivateUserBadRequest  %+v", 400, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /users/db/{user_id}/deactivate][%d] deactivateUserBadRequest %s", 400, payload)
 }
 
 func (o *DeactivateUserBadRequest) GetPayload() *models.ErrorResponse {
@@ -202,7 +203,6 @@ func (o *DeactivateUserBadRequest) GetPayload() *models.ErrorResponse {
 }
 
 func (o *DeactivateUserBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -223,8 +223,7 @@ DeactivateUserUnauthorized describes a response with status code 401, with defau
 
 Unauthorized or invalid credentials.
 */
-type DeactivateUserUnauthorized struct {
-}
+type DeactivateUserUnauthorized struct{}
 
 // IsSuccess returns true when this deactivate user unauthorized response has a 2xx status code
 func (o *DeactivateUserUnauthorized) IsSuccess() bool {
@@ -257,15 +256,14 @@ func (o *DeactivateUserUnauthorized) Code() int {
 }
 
 func (o *DeactivateUserUnauthorized) Error() string {
-	return fmt.Sprintf("[POST /users/db/{user_id}/deactivate][%d] deactivateUserUnauthorized ", 401)
+	return fmt.Sprintf("[POST /users/db/{user_id}/deactivate][%d] deactivateUserUnauthorized", 401)
 }
 
 func (o *DeactivateUserUnauthorized) String() string {
-	return fmt.Sprintf("[POST /users/db/{user_id}/deactivate][%d] deactivateUserUnauthorized ", 401)
+	return fmt.Sprintf("[POST /users/db/{user_id}/deactivate][%d] deactivateUserUnauthorized", 401)
 }
 
 func (o *DeactivateUserUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -314,11 +312,13 @@ func (o *DeactivateUserForbidden) Code() int {
 }
 
 func (o *DeactivateUserForbidden) Error() string {
-	return fmt.Sprintf("[POST /users/db/{user_id}/deactivate][%d] deactivateUserForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /users/db/{user_id}/deactivate][%d] deactivateUserForbidden %s", 403, payload)
 }
 
 func (o *DeactivateUserForbidden) String() string {
-	return fmt.Sprintf("[POST /users/db/{user_id}/deactivate][%d] deactivateUserForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /users/db/{user_id}/deactivate][%d] deactivateUserForbidden %s", 403, payload)
 }
 
 func (o *DeactivateUserForbidden) GetPayload() *models.ErrorResponse {
@@ -326,7 +326,6 @@ func (o *DeactivateUserForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *DeactivateUserForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -347,8 +346,7 @@ DeactivateUserNotFound describes a response with status code 404, with default h
 
 user not found
 */
-type DeactivateUserNotFound struct {
-}
+type DeactivateUserNotFound struct{}
 
 // IsSuccess returns true when this deactivate user not found response has a 2xx status code
 func (o *DeactivateUserNotFound) IsSuccess() bool {
@@ -381,15 +379,14 @@ func (o *DeactivateUserNotFound) Code() int {
 }
 
 func (o *DeactivateUserNotFound) Error() string {
-	return fmt.Sprintf("[POST /users/db/{user_id}/deactivate][%d] deactivateUserNotFound ", 404)
+	return fmt.Sprintf("[POST /users/db/{user_id}/deactivate][%d] deactivateUserNotFound", 404)
 }
 
 func (o *DeactivateUserNotFound) String() string {
-	return fmt.Sprintf("[POST /users/db/{user_id}/deactivate][%d] deactivateUserNotFound ", 404)
+	return fmt.Sprintf("[POST /users/db/{user_id}/deactivate][%d] deactivateUserNotFound", 404)
 }
 
 func (o *DeactivateUserNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -403,8 +400,7 @@ DeactivateUserConflict describes a response with status code 409, with default h
 
 user already deactivated
 */
-type DeactivateUserConflict struct {
-}
+type DeactivateUserConflict struct{}
 
 // IsSuccess returns true when this deactivate user conflict response has a 2xx status code
 func (o *DeactivateUserConflict) IsSuccess() bool {
@@ -437,15 +433,14 @@ func (o *DeactivateUserConflict) Code() int {
 }
 
 func (o *DeactivateUserConflict) Error() string {
-	return fmt.Sprintf("[POST /users/db/{user_id}/deactivate][%d] deactivateUserConflict ", 409)
+	return fmt.Sprintf("[POST /users/db/{user_id}/deactivate][%d] deactivateUserConflict", 409)
 }
 
 func (o *DeactivateUserConflict) String() string {
-	return fmt.Sprintf("[POST /users/db/{user_id}/deactivate][%d] deactivateUserConflict ", 409)
+	return fmt.Sprintf("[POST /users/db/{user_id}/deactivate][%d] deactivateUserConflict", 409)
 }
 
 func (o *DeactivateUserConflict) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -494,11 +489,13 @@ func (o *DeactivateUserUnprocessableEntity) Code() int {
 }
 
 func (o *DeactivateUserUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[POST /users/db/{user_id}/deactivate][%d] deactivateUserUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /users/db/{user_id}/deactivate][%d] deactivateUserUnprocessableEntity %s", 422, payload)
 }
 
 func (o *DeactivateUserUnprocessableEntity) String() string {
-	return fmt.Sprintf("[POST /users/db/{user_id}/deactivate][%d] deactivateUserUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /users/db/{user_id}/deactivate][%d] deactivateUserUnprocessableEntity %s", 422, payload)
 }
 
 func (o *DeactivateUserUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -506,7 +503,6 @@ func (o *DeactivateUserUnprocessableEntity) GetPayload() *models.ErrorResponse {
 }
 
 func (o *DeactivateUserUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -562,11 +558,13 @@ func (o *DeactivateUserInternalServerError) Code() int {
 }
 
 func (o *DeactivateUserInternalServerError) Error() string {
-	return fmt.Sprintf("[POST /users/db/{user_id}/deactivate][%d] deactivateUserInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /users/db/{user_id}/deactivate][%d] deactivateUserInternalServerError %s", 500, payload)
 }
 
 func (o *DeactivateUserInternalServerError) String() string {
-	return fmt.Sprintf("[POST /users/db/{user_id}/deactivate][%d] deactivateUserInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /users/db/{user_id}/deactivate][%d] deactivateUserInternalServerError %s", 500, payload)
 }
 
 func (o *DeactivateUserInternalServerError) GetPayload() *models.ErrorResponse {
@@ -574,7 +572,6 @@ func (o *DeactivateUserInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *DeactivateUserInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -590,7 +587,6 @@ DeactivateUserBody deactivate user body
 swagger:model DeactivateUserBody
 */
 type DeactivateUserBody struct {
-
 	// if the key should be revoked when deactivating the user
 	RevokeKey *bool `json:"revoke_key,omitempty"`
 }

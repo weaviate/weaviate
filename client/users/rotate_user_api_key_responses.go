@@ -17,6 +17,7 @@ package users
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -77,7 +78,7 @@ func (o *RotateUserAPIKeyReader) ReadResponse(response runtime.ClientResponse, c
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[POST /users/db/{user_id}/rotate-key] rotateUserApiKey", response, response.Code())
 	}
 }
 
@@ -126,11 +127,13 @@ func (o *RotateUserAPIKeyOK) Code() int {
 }
 
 func (o *RotateUserAPIKeyOK) Error() string {
-	return fmt.Sprintf("[POST /users/db/{user_id}/rotate-key][%d] rotateUserApiKeyOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /users/db/{user_id}/rotate-key][%d] rotateUserApiKeyOK %s", 200, payload)
 }
 
 func (o *RotateUserAPIKeyOK) String() string {
-	return fmt.Sprintf("[POST /users/db/{user_id}/rotate-key][%d] rotateUserApiKeyOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /users/db/{user_id}/rotate-key][%d] rotateUserApiKeyOK %s", 200, payload)
 }
 
 func (o *RotateUserAPIKeyOK) GetPayload() *models.UserAPIKey {
@@ -138,7 +141,6 @@ func (o *RotateUserAPIKeyOK) GetPayload() *models.UserAPIKey {
 }
 
 func (o *RotateUserAPIKeyOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.UserAPIKey)
 
 	// response payload
@@ -194,11 +196,13 @@ func (o *RotateUserAPIKeyBadRequest) Code() int {
 }
 
 func (o *RotateUserAPIKeyBadRequest) Error() string {
-	return fmt.Sprintf("[POST /users/db/{user_id}/rotate-key][%d] rotateUserApiKeyBadRequest  %+v", 400, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /users/db/{user_id}/rotate-key][%d] rotateUserApiKeyBadRequest %s", 400, payload)
 }
 
 func (o *RotateUserAPIKeyBadRequest) String() string {
-	return fmt.Sprintf("[POST /users/db/{user_id}/rotate-key][%d] rotateUserApiKeyBadRequest  %+v", 400, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /users/db/{user_id}/rotate-key][%d] rotateUserApiKeyBadRequest %s", 400, payload)
 }
 
 func (o *RotateUserAPIKeyBadRequest) GetPayload() *models.ErrorResponse {
@@ -206,7 +210,6 @@ func (o *RotateUserAPIKeyBadRequest) GetPayload() *models.ErrorResponse {
 }
 
 func (o *RotateUserAPIKeyBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -227,8 +230,7 @@ RotateUserAPIKeyUnauthorized describes a response with status code 401, with def
 
 Unauthorized or invalid credentials.
 */
-type RotateUserAPIKeyUnauthorized struct {
-}
+type RotateUserAPIKeyUnauthorized struct{}
 
 // IsSuccess returns true when this rotate user Api key unauthorized response has a 2xx status code
 func (o *RotateUserAPIKeyUnauthorized) IsSuccess() bool {
@@ -261,15 +263,14 @@ func (o *RotateUserAPIKeyUnauthorized) Code() int {
 }
 
 func (o *RotateUserAPIKeyUnauthorized) Error() string {
-	return fmt.Sprintf("[POST /users/db/{user_id}/rotate-key][%d] rotateUserApiKeyUnauthorized ", 401)
+	return fmt.Sprintf("[POST /users/db/{user_id}/rotate-key][%d] rotateUserApiKeyUnauthorized", 401)
 }
 
 func (o *RotateUserAPIKeyUnauthorized) String() string {
-	return fmt.Sprintf("[POST /users/db/{user_id}/rotate-key][%d] rotateUserApiKeyUnauthorized ", 401)
+	return fmt.Sprintf("[POST /users/db/{user_id}/rotate-key][%d] rotateUserApiKeyUnauthorized", 401)
 }
 
 func (o *RotateUserAPIKeyUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -318,11 +319,13 @@ func (o *RotateUserAPIKeyForbidden) Code() int {
 }
 
 func (o *RotateUserAPIKeyForbidden) Error() string {
-	return fmt.Sprintf("[POST /users/db/{user_id}/rotate-key][%d] rotateUserApiKeyForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /users/db/{user_id}/rotate-key][%d] rotateUserApiKeyForbidden %s", 403, payload)
 }
 
 func (o *RotateUserAPIKeyForbidden) String() string {
-	return fmt.Sprintf("[POST /users/db/{user_id}/rotate-key][%d] rotateUserApiKeyForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /users/db/{user_id}/rotate-key][%d] rotateUserApiKeyForbidden %s", 403, payload)
 }
 
 func (o *RotateUserAPIKeyForbidden) GetPayload() *models.ErrorResponse {
@@ -330,7 +333,6 @@ func (o *RotateUserAPIKeyForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *RotateUserAPIKeyForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -351,8 +353,7 @@ RotateUserAPIKeyNotFound describes a response with status code 404, with default
 
 user not found
 */
-type RotateUserAPIKeyNotFound struct {
-}
+type RotateUserAPIKeyNotFound struct{}
 
 // IsSuccess returns true when this rotate user Api key not found response has a 2xx status code
 func (o *RotateUserAPIKeyNotFound) IsSuccess() bool {
@@ -385,15 +386,14 @@ func (o *RotateUserAPIKeyNotFound) Code() int {
 }
 
 func (o *RotateUserAPIKeyNotFound) Error() string {
-	return fmt.Sprintf("[POST /users/db/{user_id}/rotate-key][%d] rotateUserApiKeyNotFound ", 404)
+	return fmt.Sprintf("[POST /users/db/{user_id}/rotate-key][%d] rotateUserApiKeyNotFound", 404)
 }
 
 func (o *RotateUserAPIKeyNotFound) String() string {
-	return fmt.Sprintf("[POST /users/db/{user_id}/rotate-key][%d] rotateUserApiKeyNotFound ", 404)
+	return fmt.Sprintf("[POST /users/db/{user_id}/rotate-key][%d] rotateUserApiKeyNotFound", 404)
 }
 
 func (o *RotateUserAPIKeyNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -442,11 +442,13 @@ func (o *RotateUserAPIKeyUnprocessableEntity) Code() int {
 }
 
 func (o *RotateUserAPIKeyUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[POST /users/db/{user_id}/rotate-key][%d] rotateUserApiKeyUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /users/db/{user_id}/rotate-key][%d] rotateUserApiKeyUnprocessableEntity %s", 422, payload)
 }
 
 func (o *RotateUserAPIKeyUnprocessableEntity) String() string {
-	return fmt.Sprintf("[POST /users/db/{user_id}/rotate-key][%d] rotateUserApiKeyUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /users/db/{user_id}/rotate-key][%d] rotateUserApiKeyUnprocessableEntity %s", 422, payload)
 }
 
 func (o *RotateUserAPIKeyUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -454,7 +456,6 @@ func (o *RotateUserAPIKeyUnprocessableEntity) GetPayload() *models.ErrorResponse
 }
 
 func (o *RotateUserAPIKeyUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -510,11 +511,13 @@ func (o *RotateUserAPIKeyInternalServerError) Code() int {
 }
 
 func (o *RotateUserAPIKeyInternalServerError) Error() string {
-	return fmt.Sprintf("[POST /users/db/{user_id}/rotate-key][%d] rotateUserApiKeyInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /users/db/{user_id}/rotate-key][%d] rotateUserApiKeyInternalServerError %s", 500, payload)
 }
 
 func (o *RotateUserAPIKeyInternalServerError) String() string {
-	return fmt.Sprintf("[POST /users/db/{user_id}/rotate-key][%d] rotateUserApiKeyInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /users/db/{user_id}/rotate-key][%d] rotateUserApiKeyInternalServerError %s", 500, payload)
 }
 
 func (o *RotateUserAPIKeyInternalServerError) GetPayload() *models.ErrorResponse {
@@ -522,7 +525,6 @@ func (o *RotateUserAPIKeyInternalServerError) GetPayload() *models.ErrorResponse
 }
 
 func (o *RotateUserAPIKeyInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

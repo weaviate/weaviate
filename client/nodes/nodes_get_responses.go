@@ -17,6 +17,7 @@ package nodes
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -71,7 +72,7 @@ func (o *NodesGetReader) ReadResponse(response runtime.ClientResponse, consumer 
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[GET /nodes] nodes.get", response, response.Code())
 	}
 }
 
@@ -120,11 +121,13 @@ func (o *NodesGetOK) Code() int {
 }
 
 func (o *NodesGetOK) Error() string {
-	return fmt.Sprintf("[GET /nodes][%d] nodesGetOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /nodes][%d] nodesGetOK %s", 200, payload)
 }
 
 func (o *NodesGetOK) String() string {
-	return fmt.Sprintf("[GET /nodes][%d] nodesGetOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /nodes][%d] nodesGetOK %s", 200, payload)
 }
 
 func (o *NodesGetOK) GetPayload() *models.NodesStatusResponse {
@@ -132,7 +135,6 @@ func (o *NodesGetOK) GetPayload() *models.NodesStatusResponse {
 }
 
 func (o *NodesGetOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.NodesStatusResponse)
 
 	// response payload
@@ -153,8 +155,7 @@ NodesGetUnauthorized describes a response with status code 401, with default hea
 
 Unauthorized or invalid credentials.
 */
-type NodesGetUnauthorized struct {
-}
+type NodesGetUnauthorized struct{}
 
 // IsSuccess returns true when this nodes get unauthorized response has a 2xx status code
 func (o *NodesGetUnauthorized) IsSuccess() bool {
@@ -187,15 +188,14 @@ func (o *NodesGetUnauthorized) Code() int {
 }
 
 func (o *NodesGetUnauthorized) Error() string {
-	return fmt.Sprintf("[GET /nodes][%d] nodesGetUnauthorized ", 401)
+	return fmt.Sprintf("[GET /nodes][%d] nodesGetUnauthorized", 401)
 }
 
 func (o *NodesGetUnauthorized) String() string {
-	return fmt.Sprintf("[GET /nodes][%d] nodesGetUnauthorized ", 401)
+	return fmt.Sprintf("[GET /nodes][%d] nodesGetUnauthorized", 401)
 }
 
 func (o *NodesGetUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -244,11 +244,13 @@ func (o *NodesGetForbidden) Code() int {
 }
 
 func (o *NodesGetForbidden) Error() string {
-	return fmt.Sprintf("[GET /nodes][%d] nodesGetForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /nodes][%d] nodesGetForbidden %s", 403, payload)
 }
 
 func (o *NodesGetForbidden) String() string {
-	return fmt.Sprintf("[GET /nodes][%d] nodesGetForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /nodes][%d] nodesGetForbidden %s", 403, payload)
 }
 
 func (o *NodesGetForbidden) GetPayload() *models.ErrorResponse {
@@ -256,7 +258,6 @@ func (o *NodesGetForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *NodesGetForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -312,11 +313,13 @@ func (o *NodesGetNotFound) Code() int {
 }
 
 func (o *NodesGetNotFound) Error() string {
-	return fmt.Sprintf("[GET /nodes][%d] nodesGetNotFound  %+v", 404, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /nodes][%d] nodesGetNotFound %s", 404, payload)
 }
 
 func (o *NodesGetNotFound) String() string {
-	return fmt.Sprintf("[GET /nodes][%d] nodesGetNotFound  %+v", 404, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /nodes][%d] nodesGetNotFound %s", 404, payload)
 }
 
 func (o *NodesGetNotFound) GetPayload() *models.ErrorResponse {
@@ -324,7 +327,6 @@ func (o *NodesGetNotFound) GetPayload() *models.ErrorResponse {
 }
 
 func (o *NodesGetNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -380,11 +382,13 @@ func (o *NodesGetUnprocessableEntity) Code() int {
 }
 
 func (o *NodesGetUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[GET /nodes][%d] nodesGetUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /nodes][%d] nodesGetUnprocessableEntity %s", 422, payload)
 }
 
 func (o *NodesGetUnprocessableEntity) String() string {
-	return fmt.Sprintf("[GET /nodes][%d] nodesGetUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /nodes][%d] nodesGetUnprocessableEntity %s", 422, payload)
 }
 
 func (o *NodesGetUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -392,7 +396,6 @@ func (o *NodesGetUnprocessableEntity) GetPayload() *models.ErrorResponse {
 }
 
 func (o *NodesGetUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -448,11 +451,13 @@ func (o *NodesGetInternalServerError) Code() int {
 }
 
 func (o *NodesGetInternalServerError) Error() string {
-	return fmt.Sprintf("[GET /nodes][%d] nodesGetInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /nodes][%d] nodesGetInternalServerError %s", 500, payload)
 }
 
 func (o *NodesGetInternalServerError) String() string {
-	return fmt.Sprintf("[GET /nodes][%d] nodesGetInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /nodes][%d] nodesGetInternalServerError %s", 500, payload)
 }
 
 func (o *NodesGetInternalServerError) GetPayload() *models.ErrorResponse {
@@ -460,7 +465,6 @@ func (o *NodesGetInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *NodesGetInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

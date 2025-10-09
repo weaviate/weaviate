@@ -18,6 +18,7 @@ package operations
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"strconv"
@@ -45,7 +46,7 @@ func (o *WeaviateRootReader) ReadResponse(response runtime.ClientResponse, consu
 		}
 		return result, nil
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[GET /] weaviate.root", response, response.Code())
 	}
 }
 
@@ -94,11 +95,13 @@ func (o *WeaviateRootOK) Code() int {
 }
 
 func (o *WeaviateRootOK) Error() string {
-	return fmt.Sprintf("[GET /][%d] weaviateRootOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /][%d] weaviateRootOK %s", 200, payload)
 }
 
 func (o *WeaviateRootOK) String() string {
-	return fmt.Sprintf("[GET /][%d] weaviateRootOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /][%d] weaviateRootOK %s", 200, payload)
 }
 
 func (o *WeaviateRootOK) GetPayload() *WeaviateRootOKBody {
@@ -106,7 +109,6 @@ func (o *WeaviateRootOK) GetPayload() *WeaviateRootOKBody {
 }
 
 func (o *WeaviateRootOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(WeaviateRootOKBody)
 
 	// response payload
@@ -122,7 +124,6 @@ WeaviateRootOKBody weaviate root o k body
 swagger:model WeaviateRootOKBody
 */
 type WeaviateRootOKBody struct {
-
 	// links
 	Links []*models.Link `json:"links"`
 }
@@ -182,10 +183,13 @@ func (o *WeaviateRootOKBody) ContextValidate(ctx context.Context, formats strfmt
 }
 
 func (o *WeaviateRootOKBody) contextValidateLinks(ctx context.Context, formats strfmt.Registry) error {
-
 	for i := 0; i < len(o.Links); i++ {
-
 		if o.Links[i] != nil {
+
+			if swag.IsZero(o.Links[i]) { // not required
+				return nil
+			}
+
 			if err := o.Links[i].ContextValidate(ctx, formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
 					return ve.ValidateName("weaviateRootOK" + "." + "links" + "." + strconv.Itoa(i))
@@ -195,7 +199,6 @@ func (o *WeaviateRootOKBody) contextValidateLinks(ctx context.Context, formats s
 				return err
 			}
 		}
-
 	}
 
 	return nil

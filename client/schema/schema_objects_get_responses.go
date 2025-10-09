@@ -17,6 +17,7 @@ package schema
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -65,7 +66,7 @@ func (o *SchemaObjectsGetReader) ReadResponse(response runtime.ClientResponse, c
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[GET /schema/{className}] schema.objects.get", response, response.Code())
 	}
 }
 
@@ -114,11 +115,13 @@ func (o *SchemaObjectsGetOK) Code() int {
 }
 
 func (o *SchemaObjectsGetOK) Error() string {
-	return fmt.Sprintf("[GET /schema/{className}][%d] schemaObjectsGetOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /schema/{className}][%d] schemaObjectsGetOK %s", 200, payload)
 }
 
 func (o *SchemaObjectsGetOK) String() string {
-	return fmt.Sprintf("[GET /schema/{className}][%d] schemaObjectsGetOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /schema/{className}][%d] schemaObjectsGetOK %s", 200, payload)
 }
 
 func (o *SchemaObjectsGetOK) GetPayload() *models.Class {
@@ -126,7 +129,6 @@ func (o *SchemaObjectsGetOK) GetPayload() *models.Class {
 }
 
 func (o *SchemaObjectsGetOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.Class)
 
 	// response payload
@@ -147,8 +149,7 @@ SchemaObjectsGetUnauthorized describes a response with status code 401, with def
 
 Unauthorized or invalid credentials.
 */
-type SchemaObjectsGetUnauthorized struct {
-}
+type SchemaObjectsGetUnauthorized struct{}
 
 // IsSuccess returns true when this schema objects get unauthorized response has a 2xx status code
 func (o *SchemaObjectsGetUnauthorized) IsSuccess() bool {
@@ -181,15 +182,14 @@ func (o *SchemaObjectsGetUnauthorized) Code() int {
 }
 
 func (o *SchemaObjectsGetUnauthorized) Error() string {
-	return fmt.Sprintf("[GET /schema/{className}][%d] schemaObjectsGetUnauthorized ", 401)
+	return fmt.Sprintf("[GET /schema/{className}][%d] schemaObjectsGetUnauthorized", 401)
 }
 
 func (o *SchemaObjectsGetUnauthorized) String() string {
-	return fmt.Sprintf("[GET /schema/{className}][%d] schemaObjectsGetUnauthorized ", 401)
+	return fmt.Sprintf("[GET /schema/{className}][%d] schemaObjectsGetUnauthorized", 401)
 }
 
 func (o *SchemaObjectsGetUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -238,11 +238,13 @@ func (o *SchemaObjectsGetForbidden) Code() int {
 }
 
 func (o *SchemaObjectsGetForbidden) Error() string {
-	return fmt.Sprintf("[GET /schema/{className}][%d] schemaObjectsGetForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /schema/{className}][%d] schemaObjectsGetForbidden %s", 403, payload)
 }
 
 func (o *SchemaObjectsGetForbidden) String() string {
-	return fmt.Sprintf("[GET /schema/{className}][%d] schemaObjectsGetForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /schema/{className}][%d] schemaObjectsGetForbidden %s", 403, payload)
 }
 
 func (o *SchemaObjectsGetForbidden) GetPayload() *models.ErrorResponse {
@@ -250,7 +252,6 @@ func (o *SchemaObjectsGetForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *SchemaObjectsGetForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -271,8 +272,7 @@ SchemaObjectsGetNotFound describes a response with status code 404, with default
 
 This class does not exist
 */
-type SchemaObjectsGetNotFound struct {
-}
+type SchemaObjectsGetNotFound struct{}
 
 // IsSuccess returns true when this schema objects get not found response has a 2xx status code
 func (o *SchemaObjectsGetNotFound) IsSuccess() bool {
@@ -305,15 +305,14 @@ func (o *SchemaObjectsGetNotFound) Code() int {
 }
 
 func (o *SchemaObjectsGetNotFound) Error() string {
-	return fmt.Sprintf("[GET /schema/{className}][%d] schemaObjectsGetNotFound ", 404)
+	return fmt.Sprintf("[GET /schema/{className}][%d] schemaObjectsGetNotFound", 404)
 }
 
 func (o *SchemaObjectsGetNotFound) String() string {
-	return fmt.Sprintf("[GET /schema/{className}][%d] schemaObjectsGetNotFound ", 404)
+	return fmt.Sprintf("[GET /schema/{className}][%d] schemaObjectsGetNotFound", 404)
 }
 
 func (o *SchemaObjectsGetNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -362,11 +361,13 @@ func (o *SchemaObjectsGetInternalServerError) Code() int {
 }
 
 func (o *SchemaObjectsGetInternalServerError) Error() string {
-	return fmt.Sprintf("[GET /schema/{className}][%d] schemaObjectsGetInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /schema/{className}][%d] schemaObjectsGetInternalServerError %s", 500, payload)
 }
 
 func (o *SchemaObjectsGetInternalServerError) String() string {
-	return fmt.Sprintf("[GET /schema/{className}][%d] schemaObjectsGetInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /schema/{className}][%d] schemaObjectsGetInternalServerError %s", 500, payload)
 }
 
 func (o *SchemaObjectsGetInternalServerError) GetPayload() *models.ErrorResponse {
@@ -374,7 +375,6 @@ func (o *SchemaObjectsGetInternalServerError) GetPayload() *models.ErrorResponse
 }
 
 func (o *SchemaObjectsGetInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

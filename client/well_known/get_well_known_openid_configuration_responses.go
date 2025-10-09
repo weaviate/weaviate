@@ -18,6 +18,7 @@ package well_known
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -55,7 +56,7 @@ func (o *GetWellKnownOpenidConfigurationReader) ReadResponse(response runtime.Cl
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[GET /.well-known/openid-configuration] GetWellKnownOpenidConfiguration", response, response.Code())
 	}
 }
 
@@ -104,11 +105,13 @@ func (o *GetWellKnownOpenidConfigurationOK) Code() int {
 }
 
 func (o *GetWellKnownOpenidConfigurationOK) Error() string {
-	return fmt.Sprintf("[GET /.well-known/openid-configuration][%d] getWellKnownOpenidConfigurationOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /.well-known/openid-configuration][%d] getWellKnownOpenidConfigurationOK %s", 200, payload)
 }
 
 func (o *GetWellKnownOpenidConfigurationOK) String() string {
-	return fmt.Sprintf("[GET /.well-known/openid-configuration][%d] getWellKnownOpenidConfigurationOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /.well-known/openid-configuration][%d] getWellKnownOpenidConfigurationOK %s", 200, payload)
 }
 
 func (o *GetWellKnownOpenidConfigurationOK) GetPayload() *GetWellKnownOpenidConfigurationOKBody {
@@ -116,7 +119,6 @@ func (o *GetWellKnownOpenidConfigurationOK) GetPayload() *GetWellKnownOpenidConf
 }
 
 func (o *GetWellKnownOpenidConfigurationOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(GetWellKnownOpenidConfigurationOKBody)
 
 	// response payload
@@ -137,8 +139,7 @@ GetWellKnownOpenidConfigurationNotFound describes a response with status code 40
 
 Not found, no oidc provider present
 */
-type GetWellKnownOpenidConfigurationNotFound struct {
-}
+type GetWellKnownOpenidConfigurationNotFound struct{}
 
 // IsSuccess returns true when this get well known openid configuration not found response has a 2xx status code
 func (o *GetWellKnownOpenidConfigurationNotFound) IsSuccess() bool {
@@ -171,15 +172,14 @@ func (o *GetWellKnownOpenidConfigurationNotFound) Code() int {
 }
 
 func (o *GetWellKnownOpenidConfigurationNotFound) Error() string {
-	return fmt.Sprintf("[GET /.well-known/openid-configuration][%d] getWellKnownOpenidConfigurationNotFound ", 404)
+	return fmt.Sprintf("[GET /.well-known/openid-configuration][%d] getWellKnownOpenidConfigurationNotFound", 404)
 }
 
 func (o *GetWellKnownOpenidConfigurationNotFound) String() string {
-	return fmt.Sprintf("[GET /.well-known/openid-configuration][%d] getWellKnownOpenidConfigurationNotFound ", 404)
+	return fmt.Sprintf("[GET /.well-known/openid-configuration][%d] getWellKnownOpenidConfigurationNotFound", 404)
 }
 
 func (o *GetWellKnownOpenidConfigurationNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -228,11 +228,13 @@ func (o *GetWellKnownOpenidConfigurationInternalServerError) Code() int {
 }
 
 func (o *GetWellKnownOpenidConfigurationInternalServerError) Error() string {
-	return fmt.Sprintf("[GET /.well-known/openid-configuration][%d] getWellKnownOpenidConfigurationInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /.well-known/openid-configuration][%d] getWellKnownOpenidConfigurationInternalServerError %s", 500, payload)
 }
 
 func (o *GetWellKnownOpenidConfigurationInternalServerError) String() string {
-	return fmt.Sprintf("[GET /.well-known/openid-configuration][%d] getWellKnownOpenidConfigurationInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /.well-known/openid-configuration][%d] getWellKnownOpenidConfigurationInternalServerError %s", 500, payload)
 }
 
 func (o *GetWellKnownOpenidConfigurationInternalServerError) GetPayload() *models.ErrorResponse {
@@ -240,7 +242,6 @@ func (o *GetWellKnownOpenidConfigurationInternalServerError) GetPayload() *model
 }
 
 func (o *GetWellKnownOpenidConfigurationInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -256,7 +257,6 @@ GetWellKnownOpenidConfigurationOKBody get well known openid configuration o k bo
 swagger:model GetWellKnownOpenidConfigurationOKBody
 */
 type GetWellKnownOpenidConfigurationOKBody struct {
-
 	// OAuth Client ID
 	ClientID string `json:"clientId,omitempty"`
 

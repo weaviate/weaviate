@@ -3,7 +3,7 @@
 set -eou pipefail
 
 # Version of go-swagger to use.
-version=v0.30.4
+version=v0.32.3
 
 # Always points to the directory of this script.
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"

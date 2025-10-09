@@ -17,6 +17,7 @@ package graphql
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -65,7 +66,7 @@ func (o *GraphqlPostReader) ReadResponse(response runtime.ClientResponse, consum
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[POST /graphql] graphql.post", response, response.Code())
 	}
 }
 
@@ -114,11 +115,13 @@ func (o *GraphqlPostOK) Code() int {
 }
 
 func (o *GraphqlPostOK) Error() string {
-	return fmt.Sprintf("[POST /graphql][%d] graphqlPostOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /graphql][%d] graphqlPostOK %s", 200, payload)
 }
 
 func (o *GraphqlPostOK) String() string {
-	return fmt.Sprintf("[POST /graphql][%d] graphqlPostOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /graphql][%d] graphqlPostOK %s", 200, payload)
 }
 
 func (o *GraphqlPostOK) GetPayload() *models.GraphQLResponse {
@@ -126,7 +129,6 @@ func (o *GraphqlPostOK) GetPayload() *models.GraphQLResponse {
 }
 
 func (o *GraphqlPostOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.GraphQLResponse)
 
 	// response payload
@@ -147,8 +149,7 @@ GraphqlPostUnauthorized describes a response with status code 401, with default 
 
 Unauthorized or invalid credentials.
 */
-type GraphqlPostUnauthorized struct {
-}
+type GraphqlPostUnauthorized struct{}
 
 // IsSuccess returns true when this graphql post unauthorized response has a 2xx status code
 func (o *GraphqlPostUnauthorized) IsSuccess() bool {
@@ -181,15 +182,14 @@ func (o *GraphqlPostUnauthorized) Code() int {
 }
 
 func (o *GraphqlPostUnauthorized) Error() string {
-	return fmt.Sprintf("[POST /graphql][%d] graphqlPostUnauthorized ", 401)
+	return fmt.Sprintf("[POST /graphql][%d] graphqlPostUnauthorized", 401)
 }
 
 func (o *GraphqlPostUnauthorized) String() string {
-	return fmt.Sprintf("[POST /graphql][%d] graphqlPostUnauthorized ", 401)
+	return fmt.Sprintf("[POST /graphql][%d] graphqlPostUnauthorized", 401)
 }
 
 func (o *GraphqlPostUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -238,11 +238,13 @@ func (o *GraphqlPostForbidden) Code() int {
 }
 
 func (o *GraphqlPostForbidden) Error() string {
-	return fmt.Sprintf("[POST /graphql][%d] graphqlPostForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /graphql][%d] graphqlPostForbidden %s", 403, payload)
 }
 
 func (o *GraphqlPostForbidden) String() string {
-	return fmt.Sprintf("[POST /graphql][%d] graphqlPostForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /graphql][%d] graphqlPostForbidden %s", 403, payload)
 }
 
 func (o *GraphqlPostForbidden) GetPayload() *models.ErrorResponse {
@@ -250,7 +252,6 @@ func (o *GraphqlPostForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *GraphqlPostForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -306,11 +307,13 @@ func (o *GraphqlPostUnprocessableEntity) Code() int {
 }
 
 func (o *GraphqlPostUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[POST /graphql][%d] graphqlPostUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /graphql][%d] graphqlPostUnprocessableEntity %s", 422, payload)
 }
 
 func (o *GraphqlPostUnprocessableEntity) String() string {
-	return fmt.Sprintf("[POST /graphql][%d] graphqlPostUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /graphql][%d] graphqlPostUnprocessableEntity %s", 422, payload)
 }
 
 func (o *GraphqlPostUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -318,7 +321,6 @@ func (o *GraphqlPostUnprocessableEntity) GetPayload() *models.ErrorResponse {
 }
 
 func (o *GraphqlPostUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -374,11 +376,13 @@ func (o *GraphqlPostInternalServerError) Code() int {
 }
 
 func (o *GraphqlPostInternalServerError) Error() string {
-	return fmt.Sprintf("[POST /graphql][%d] graphqlPostInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /graphql][%d] graphqlPostInternalServerError %s", 500, payload)
 }
 
 func (o *GraphqlPostInternalServerError) String() string {
-	return fmt.Sprintf("[POST /graphql][%d] graphqlPostInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /graphql][%d] graphqlPostInternalServerError %s", 500, payload)
 }
 
 func (o *GraphqlPostInternalServerError) GetPayload() *models.ErrorResponse {
@@ -386,7 +390,6 @@ func (o *GraphqlPostInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *GraphqlPostInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

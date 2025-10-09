@@ -31,7 +31,6 @@ import (
 //
 // swagger:model Property
 type Property struct {
-
 	// Data type of the property (required). If it starts with a capital (for example Person), may be a reference to another type.
 	DataType []string `json:"dataType"`
 
@@ -60,7 +59,7 @@ type Property struct {
 	NestedProperties []*NestedProperty `json:"nestedProperties,omitempty"`
 
 	// Determines tokenization of the property as separate words or whole field. Optional. Applies to text and text[] data types. Allowed values are `word` (default; splits on any non-alphanumerical, lowercases), `lowercase` (splits on white spaces, lowercases), `whitespace` (splits on white spaces), `field` (trims). Not supported for remaining data types
-	// Enum: [word lowercase whitespace field trigram gse kagome_kr kagome_ja gse_ch]
+	// Enum: ["word","lowercase","whitespace","field","trigram","gse","kagome_kr","kagome_ja","gse_ch"]
 	Tokenization string `json:"tokenization,omitempty"`
 }
 
@@ -186,10 +185,13 @@ func (m *Property) ContextValidate(ctx context.Context, formats strfmt.Registry)
 }
 
 func (m *Property) contextValidateNestedProperties(ctx context.Context, formats strfmt.Registry) error {
-
 	for i := 0; i < len(m.NestedProperties); i++ {
-
 		if m.NestedProperties[i] != nil {
+
+			if swag.IsZero(m.NestedProperties[i]) { // not required
+				return nil
+			}
+
 			if err := m.NestedProperties[i].ContextValidate(ctx, formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
 					return ve.ValidateName("nestedProperties" + "." + strconv.Itoa(i))
@@ -199,7 +201,6 @@ func (m *Property) contextValidateNestedProperties(ctx context.Context, formats 
 				return err
 			}
 		}
-
 	}
 
 	return nil

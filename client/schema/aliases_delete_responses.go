@@ -17,6 +17,7 @@ package schema
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -71,7 +72,7 @@ func (o *AliasesDeleteReader) ReadResponse(response runtime.ClientResponse, cons
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[DELETE /aliases/{aliasName}] aliases.delete", response, response.Code())
 	}
 }
 
@@ -85,8 +86,7 @@ AliasesDeleteNoContent describes a response with status code 204, with default h
 
 Successfully deleted the alias.
 */
-type AliasesDeleteNoContent struct {
-}
+type AliasesDeleteNoContent struct{}
 
 // IsSuccess returns true when this aliases delete no content response has a 2xx status code
 func (o *AliasesDeleteNoContent) IsSuccess() bool {
@@ -119,15 +119,14 @@ func (o *AliasesDeleteNoContent) Code() int {
 }
 
 func (o *AliasesDeleteNoContent) Error() string {
-	return fmt.Sprintf("[DELETE /aliases/{aliasName}][%d] aliasesDeleteNoContent ", 204)
+	return fmt.Sprintf("[DELETE /aliases/{aliasName}][%d] aliasesDeleteNoContent", 204)
 }
 
 func (o *AliasesDeleteNoContent) String() string {
-	return fmt.Sprintf("[DELETE /aliases/{aliasName}][%d] aliasesDeleteNoContent ", 204)
+	return fmt.Sprintf("[DELETE /aliases/{aliasName}][%d] aliasesDeleteNoContent", 204)
 }
 
 func (o *AliasesDeleteNoContent) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -141,8 +140,7 @@ AliasesDeleteUnauthorized describes a response with status code 401, with defaul
 
 Unauthorized or invalid credentials.
 */
-type AliasesDeleteUnauthorized struct {
-}
+type AliasesDeleteUnauthorized struct{}
 
 // IsSuccess returns true when this aliases delete unauthorized response has a 2xx status code
 func (o *AliasesDeleteUnauthorized) IsSuccess() bool {
@@ -175,15 +173,14 @@ func (o *AliasesDeleteUnauthorized) Code() int {
 }
 
 func (o *AliasesDeleteUnauthorized) Error() string {
-	return fmt.Sprintf("[DELETE /aliases/{aliasName}][%d] aliasesDeleteUnauthorized ", 401)
+	return fmt.Sprintf("[DELETE /aliases/{aliasName}][%d] aliasesDeleteUnauthorized", 401)
 }
 
 func (o *AliasesDeleteUnauthorized) String() string {
-	return fmt.Sprintf("[DELETE /aliases/{aliasName}][%d] aliasesDeleteUnauthorized ", 401)
+	return fmt.Sprintf("[DELETE /aliases/{aliasName}][%d] aliasesDeleteUnauthorized", 401)
 }
 
 func (o *AliasesDeleteUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -232,11 +229,13 @@ func (o *AliasesDeleteForbidden) Code() int {
 }
 
 func (o *AliasesDeleteForbidden) Error() string {
-	return fmt.Sprintf("[DELETE /aliases/{aliasName}][%d] aliasesDeleteForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /aliases/{aliasName}][%d] aliasesDeleteForbidden %s", 403, payload)
 }
 
 func (o *AliasesDeleteForbidden) String() string {
-	return fmt.Sprintf("[DELETE /aliases/{aliasName}][%d] aliasesDeleteForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /aliases/{aliasName}][%d] aliasesDeleteForbidden %s", 403, payload)
 }
 
 func (o *AliasesDeleteForbidden) GetPayload() *models.ErrorResponse {
@@ -244,7 +243,6 @@ func (o *AliasesDeleteForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *AliasesDeleteForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -300,11 +298,13 @@ func (o *AliasesDeleteNotFound) Code() int {
 }
 
 func (o *AliasesDeleteNotFound) Error() string {
-	return fmt.Sprintf("[DELETE /aliases/{aliasName}][%d] aliasesDeleteNotFound  %+v", 404, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /aliases/{aliasName}][%d] aliasesDeleteNotFound %s", 404, payload)
 }
 
 func (o *AliasesDeleteNotFound) String() string {
-	return fmt.Sprintf("[DELETE /aliases/{aliasName}][%d] aliasesDeleteNotFound  %+v", 404, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /aliases/{aliasName}][%d] aliasesDeleteNotFound %s", 404, payload)
 }
 
 func (o *AliasesDeleteNotFound) GetPayload() *models.ErrorResponse {
@@ -312,7 +312,6 @@ func (o *AliasesDeleteNotFound) GetPayload() *models.ErrorResponse {
 }
 
 func (o *AliasesDeleteNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -368,11 +367,13 @@ func (o *AliasesDeleteUnprocessableEntity) Code() int {
 }
 
 func (o *AliasesDeleteUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[DELETE /aliases/{aliasName}][%d] aliasesDeleteUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /aliases/{aliasName}][%d] aliasesDeleteUnprocessableEntity %s", 422, payload)
 }
 
 func (o *AliasesDeleteUnprocessableEntity) String() string {
-	return fmt.Sprintf("[DELETE /aliases/{aliasName}][%d] aliasesDeleteUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /aliases/{aliasName}][%d] aliasesDeleteUnprocessableEntity %s", 422, payload)
 }
 
 func (o *AliasesDeleteUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -380,7 +381,6 @@ func (o *AliasesDeleteUnprocessableEntity) GetPayload() *models.ErrorResponse {
 }
 
 func (o *AliasesDeleteUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -436,11 +436,13 @@ func (o *AliasesDeleteInternalServerError) Code() int {
 }
 
 func (o *AliasesDeleteInternalServerError) Error() string {
-	return fmt.Sprintf("[DELETE /aliases/{aliasName}][%d] aliasesDeleteInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /aliases/{aliasName}][%d] aliasesDeleteInternalServerError %s", 500, payload)
 }
 
 func (o *AliasesDeleteInternalServerError) String() string {
-	return fmt.Sprintf("[DELETE /aliases/{aliasName}][%d] aliasesDeleteInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /aliases/{aliasName}][%d] aliasesDeleteInternalServerError %s", 500, payload)
 }
 
 func (o *AliasesDeleteInternalServerError) GetPayload() *models.ErrorResponse {
@@ -448,7 +450,6 @@ func (o *AliasesDeleteInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *AliasesDeleteInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

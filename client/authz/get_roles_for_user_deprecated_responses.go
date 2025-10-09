@@ -17,6 +17,7 @@ package authz
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -77,7 +78,7 @@ func (o *GetRolesForUserDeprecatedReader) ReadResponse(response runtime.ClientRe
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[GET /authz/users/{id}/roles] getRolesForUserDeprecated", response, response.Code())
 	}
 }
 
@@ -126,11 +127,13 @@ func (o *GetRolesForUserDeprecatedOK) Code() int {
 }
 
 func (o *GetRolesForUserDeprecatedOK) Error() string {
-	return fmt.Sprintf("[GET /authz/users/{id}/roles][%d] getRolesForUserDeprecatedOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /authz/users/{id}/roles][%d] getRolesForUserDeprecatedOK %s", 200, payload)
 }
 
 func (o *GetRolesForUserDeprecatedOK) String() string {
-	return fmt.Sprintf("[GET /authz/users/{id}/roles][%d] getRolesForUserDeprecatedOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /authz/users/{id}/roles][%d] getRolesForUserDeprecatedOK %s", 200, payload)
 }
 
 func (o *GetRolesForUserDeprecatedOK) GetPayload() models.RolesListResponse {
@@ -138,7 +141,6 @@ func (o *GetRolesForUserDeprecatedOK) GetPayload() models.RolesListResponse {
 }
 
 func (o *GetRolesForUserDeprecatedOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	// response payload
 	if err := consumer.Consume(response.Body(), &o.Payload); err != nil && err != io.EOF {
 		return err
@@ -192,11 +194,13 @@ func (o *GetRolesForUserDeprecatedBadRequest) Code() int {
 }
 
 func (o *GetRolesForUserDeprecatedBadRequest) Error() string {
-	return fmt.Sprintf("[GET /authz/users/{id}/roles][%d] getRolesForUserDeprecatedBadRequest  %+v", 400, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /authz/users/{id}/roles][%d] getRolesForUserDeprecatedBadRequest %s", 400, payload)
 }
 
 func (o *GetRolesForUserDeprecatedBadRequest) String() string {
-	return fmt.Sprintf("[GET /authz/users/{id}/roles][%d] getRolesForUserDeprecatedBadRequest  %+v", 400, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /authz/users/{id}/roles][%d] getRolesForUserDeprecatedBadRequest %s", 400, payload)
 }
 
 func (o *GetRolesForUserDeprecatedBadRequest) GetPayload() *models.ErrorResponse {
@@ -204,7 +208,6 @@ func (o *GetRolesForUserDeprecatedBadRequest) GetPayload() *models.ErrorResponse
 }
 
 func (o *GetRolesForUserDeprecatedBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -225,8 +228,7 @@ GetRolesForUserDeprecatedUnauthorized describes a response with status code 401,
 
 Unauthorized or invalid credentials.
 */
-type GetRolesForUserDeprecatedUnauthorized struct {
-}
+type GetRolesForUserDeprecatedUnauthorized struct{}
 
 // IsSuccess returns true when this get roles for user deprecated unauthorized response has a 2xx status code
 func (o *GetRolesForUserDeprecatedUnauthorized) IsSuccess() bool {
@@ -259,15 +261,14 @@ func (o *GetRolesForUserDeprecatedUnauthorized) Code() int {
 }
 
 func (o *GetRolesForUserDeprecatedUnauthorized) Error() string {
-	return fmt.Sprintf("[GET /authz/users/{id}/roles][%d] getRolesForUserDeprecatedUnauthorized ", 401)
+	return fmt.Sprintf("[GET /authz/users/{id}/roles][%d] getRolesForUserDeprecatedUnauthorized", 401)
 }
 
 func (o *GetRolesForUserDeprecatedUnauthorized) String() string {
-	return fmt.Sprintf("[GET /authz/users/{id}/roles][%d] getRolesForUserDeprecatedUnauthorized ", 401)
+	return fmt.Sprintf("[GET /authz/users/{id}/roles][%d] getRolesForUserDeprecatedUnauthorized", 401)
 }
 
 func (o *GetRolesForUserDeprecatedUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -316,11 +317,13 @@ func (o *GetRolesForUserDeprecatedForbidden) Code() int {
 }
 
 func (o *GetRolesForUserDeprecatedForbidden) Error() string {
-	return fmt.Sprintf("[GET /authz/users/{id}/roles][%d] getRolesForUserDeprecatedForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /authz/users/{id}/roles][%d] getRolesForUserDeprecatedForbidden %s", 403, payload)
 }
 
 func (o *GetRolesForUserDeprecatedForbidden) String() string {
-	return fmt.Sprintf("[GET /authz/users/{id}/roles][%d] getRolesForUserDeprecatedForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /authz/users/{id}/roles][%d] getRolesForUserDeprecatedForbidden %s", 403, payload)
 }
 
 func (o *GetRolesForUserDeprecatedForbidden) GetPayload() *models.ErrorResponse {
@@ -328,7 +331,6 @@ func (o *GetRolesForUserDeprecatedForbidden) GetPayload() *models.ErrorResponse 
 }
 
 func (o *GetRolesForUserDeprecatedForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -349,8 +351,7 @@ GetRolesForUserDeprecatedNotFound describes a response with status code 404, wit
 
 no role found for user
 */
-type GetRolesForUserDeprecatedNotFound struct {
-}
+type GetRolesForUserDeprecatedNotFound struct{}
 
 // IsSuccess returns true when this get roles for user deprecated not found response has a 2xx status code
 func (o *GetRolesForUserDeprecatedNotFound) IsSuccess() bool {
@@ -383,15 +384,14 @@ func (o *GetRolesForUserDeprecatedNotFound) Code() int {
 }
 
 func (o *GetRolesForUserDeprecatedNotFound) Error() string {
-	return fmt.Sprintf("[GET /authz/users/{id}/roles][%d] getRolesForUserDeprecatedNotFound ", 404)
+	return fmt.Sprintf("[GET /authz/users/{id}/roles][%d] getRolesForUserDeprecatedNotFound", 404)
 }
 
 func (o *GetRolesForUserDeprecatedNotFound) String() string {
-	return fmt.Sprintf("[GET /authz/users/{id}/roles][%d] getRolesForUserDeprecatedNotFound ", 404)
+	return fmt.Sprintf("[GET /authz/users/{id}/roles][%d] getRolesForUserDeprecatedNotFound", 404)
 }
 
 func (o *GetRolesForUserDeprecatedNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -440,11 +440,13 @@ func (o *GetRolesForUserDeprecatedUnprocessableEntity) Code() int {
 }
 
 func (o *GetRolesForUserDeprecatedUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[GET /authz/users/{id}/roles][%d] getRolesForUserDeprecatedUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /authz/users/{id}/roles][%d] getRolesForUserDeprecatedUnprocessableEntity %s", 422, payload)
 }
 
 func (o *GetRolesForUserDeprecatedUnprocessableEntity) String() string {
-	return fmt.Sprintf("[GET /authz/users/{id}/roles][%d] getRolesForUserDeprecatedUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /authz/users/{id}/roles][%d] getRolesForUserDeprecatedUnprocessableEntity %s", 422, payload)
 }
 
 func (o *GetRolesForUserDeprecatedUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -452,7 +454,6 @@ func (o *GetRolesForUserDeprecatedUnprocessableEntity) GetPayload() *models.Erro
 }
 
 func (o *GetRolesForUserDeprecatedUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -508,11 +509,13 @@ func (o *GetRolesForUserDeprecatedInternalServerError) Code() int {
 }
 
 func (o *GetRolesForUserDeprecatedInternalServerError) Error() string {
-	return fmt.Sprintf("[GET /authz/users/{id}/roles][%d] getRolesForUserDeprecatedInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /authz/users/{id}/roles][%d] getRolesForUserDeprecatedInternalServerError %s", 500, payload)
 }
 
 func (o *GetRolesForUserDeprecatedInternalServerError) String() string {
-	return fmt.Sprintf("[GET /authz/users/{id}/roles][%d] getRolesForUserDeprecatedInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /authz/users/{id}/roles][%d] getRolesForUserDeprecatedInternalServerError %s", 500, payload)
 }
 
 func (o *GetRolesForUserDeprecatedInternalServerError) GetPayload() *models.ErrorResponse {
@@ -520,7 +523,6 @@ func (o *GetRolesForUserDeprecatedInternalServerError) GetPayload() *models.Erro
 }
 
 func (o *GetRolesForUserDeprecatedInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

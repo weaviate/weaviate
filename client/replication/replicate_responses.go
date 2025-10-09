@@ -17,6 +17,7 @@ package replication
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -77,7 +78,7 @@ func (o *ReplicateReader) ReadResponse(response runtime.ClientResponse, consumer
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[POST /replication/replicate] replicate", response, response.Code())
 	}
 }
 
@@ -126,11 +127,13 @@ func (o *ReplicateOK) Code() int {
 }
 
 func (o *ReplicateOK) Error() string {
-	return fmt.Sprintf("[POST /replication/replicate][%d] replicateOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /replication/replicate][%d] replicateOK %s", 200, payload)
 }
 
 func (o *ReplicateOK) String() string {
-	return fmt.Sprintf("[POST /replication/replicate][%d] replicateOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /replication/replicate][%d] replicateOK %s", 200, payload)
 }
 
 func (o *ReplicateOK) GetPayload() *models.ReplicationReplicateReplicaResponse {
@@ -138,7 +141,6 @@ func (o *ReplicateOK) GetPayload() *models.ReplicationReplicateReplicaResponse {
 }
 
 func (o *ReplicateOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ReplicationReplicateReplicaResponse)
 
 	// response payload
@@ -194,11 +196,13 @@ func (o *ReplicateBadRequest) Code() int {
 }
 
 func (o *ReplicateBadRequest) Error() string {
-	return fmt.Sprintf("[POST /replication/replicate][%d] replicateBadRequest  %+v", 400, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /replication/replicate][%d] replicateBadRequest %s", 400, payload)
 }
 
 func (o *ReplicateBadRequest) String() string {
-	return fmt.Sprintf("[POST /replication/replicate][%d] replicateBadRequest  %+v", 400, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /replication/replicate][%d] replicateBadRequest %s", 400, payload)
 }
 
 func (o *ReplicateBadRequest) GetPayload() *models.ErrorResponse {
@@ -206,7 +210,6 @@ func (o *ReplicateBadRequest) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ReplicateBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -227,8 +230,7 @@ ReplicateUnauthorized describes a response with status code 401, with default he
 
 Unauthorized or invalid credentials.
 */
-type ReplicateUnauthorized struct {
-}
+type ReplicateUnauthorized struct{}
 
 // IsSuccess returns true when this replicate unauthorized response has a 2xx status code
 func (o *ReplicateUnauthorized) IsSuccess() bool {
@@ -261,15 +263,14 @@ func (o *ReplicateUnauthorized) Code() int {
 }
 
 func (o *ReplicateUnauthorized) Error() string {
-	return fmt.Sprintf("[POST /replication/replicate][%d] replicateUnauthorized ", 401)
+	return fmt.Sprintf("[POST /replication/replicate][%d] replicateUnauthorized", 401)
 }
 
 func (o *ReplicateUnauthorized) String() string {
-	return fmt.Sprintf("[POST /replication/replicate][%d] replicateUnauthorized ", 401)
+	return fmt.Sprintf("[POST /replication/replicate][%d] replicateUnauthorized", 401)
 }
 
 func (o *ReplicateUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -318,11 +319,13 @@ func (o *ReplicateForbidden) Code() int {
 }
 
 func (o *ReplicateForbidden) Error() string {
-	return fmt.Sprintf("[POST /replication/replicate][%d] replicateForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /replication/replicate][%d] replicateForbidden %s", 403, payload)
 }
 
 func (o *ReplicateForbidden) String() string {
-	return fmt.Sprintf("[POST /replication/replicate][%d] replicateForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /replication/replicate][%d] replicateForbidden %s", 403, payload)
 }
 
 func (o *ReplicateForbidden) GetPayload() *models.ErrorResponse {
@@ -330,7 +333,6 @@ func (o *ReplicateForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ReplicateForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -386,11 +388,13 @@ func (o *ReplicateUnprocessableEntity) Code() int {
 }
 
 func (o *ReplicateUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[POST /replication/replicate][%d] replicateUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /replication/replicate][%d] replicateUnprocessableEntity %s", 422, payload)
 }
 
 func (o *ReplicateUnprocessableEntity) String() string {
-	return fmt.Sprintf("[POST /replication/replicate][%d] replicateUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /replication/replicate][%d] replicateUnprocessableEntity %s", 422, payload)
 }
 
 func (o *ReplicateUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -398,7 +402,6 @@ func (o *ReplicateUnprocessableEntity) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ReplicateUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -454,11 +457,13 @@ func (o *ReplicateInternalServerError) Code() int {
 }
 
 func (o *ReplicateInternalServerError) Error() string {
-	return fmt.Sprintf("[POST /replication/replicate][%d] replicateInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /replication/replicate][%d] replicateInternalServerError %s", 500, payload)
 }
 
 func (o *ReplicateInternalServerError) String() string {
-	return fmt.Sprintf("[POST /replication/replicate][%d] replicateInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /replication/replicate][%d] replicateInternalServerError %s", 500, payload)
 }
 
 func (o *ReplicateInternalServerError) GetPayload() *models.ErrorResponse {
@@ -466,7 +471,6 @@ func (o *ReplicateInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ReplicateInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -522,11 +526,13 @@ func (o *ReplicateNotImplemented) Code() int {
 }
 
 func (o *ReplicateNotImplemented) Error() string {
-	return fmt.Sprintf("[POST /replication/replicate][%d] replicateNotImplemented  %+v", 501, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /replication/replicate][%d] replicateNotImplemented %s", 501, payload)
 }
 
 func (o *ReplicateNotImplemented) String() string {
-	return fmt.Sprintf("[POST /replication/replicate][%d] replicateNotImplemented  %+v", 501, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /replication/replicate][%d] replicateNotImplemented %s", 501, payload)
 }
 
 func (o *ReplicateNotImplemented) GetPayload() *models.ErrorResponse {
@@ -534,7 +540,6 @@ func (o *ReplicateNotImplemented) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ReplicateNotImplemented) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

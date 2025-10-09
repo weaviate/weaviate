@@ -17,6 +17,7 @@ package schema
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -71,7 +72,7 @@ func (o *SchemaObjectsUpdateReader) ReadResponse(response runtime.ClientResponse
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[PUT /schema/{className}] schema.objects.update", response, response.Code())
 	}
 }
 
@@ -120,11 +121,13 @@ func (o *SchemaObjectsUpdateOK) Code() int {
 }
 
 func (o *SchemaObjectsUpdateOK) Error() string {
-	return fmt.Sprintf("[PUT /schema/{className}][%d] schemaObjectsUpdateOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[PUT /schema/{className}][%d] schemaObjectsUpdateOK %s", 200, payload)
 }
 
 func (o *SchemaObjectsUpdateOK) String() string {
-	return fmt.Sprintf("[PUT /schema/{className}][%d] schemaObjectsUpdateOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[PUT /schema/{className}][%d] schemaObjectsUpdateOK %s", 200, payload)
 }
 
 func (o *SchemaObjectsUpdateOK) GetPayload() *models.Class {
@@ -132,7 +135,6 @@ func (o *SchemaObjectsUpdateOK) GetPayload() *models.Class {
 }
 
 func (o *SchemaObjectsUpdateOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.Class)
 
 	// response payload
@@ -153,8 +155,7 @@ SchemaObjectsUpdateUnauthorized describes a response with status code 401, with 
 
 Unauthorized or invalid credentials.
 */
-type SchemaObjectsUpdateUnauthorized struct {
-}
+type SchemaObjectsUpdateUnauthorized struct{}
 
 // IsSuccess returns true when this schema objects update unauthorized response has a 2xx status code
 func (o *SchemaObjectsUpdateUnauthorized) IsSuccess() bool {
@@ -187,15 +188,14 @@ func (o *SchemaObjectsUpdateUnauthorized) Code() int {
 }
 
 func (o *SchemaObjectsUpdateUnauthorized) Error() string {
-	return fmt.Sprintf("[PUT /schema/{className}][%d] schemaObjectsUpdateUnauthorized ", 401)
+	return fmt.Sprintf("[PUT /schema/{className}][%d] schemaObjectsUpdateUnauthorized", 401)
 }
 
 func (o *SchemaObjectsUpdateUnauthorized) String() string {
-	return fmt.Sprintf("[PUT /schema/{className}][%d] schemaObjectsUpdateUnauthorized ", 401)
+	return fmt.Sprintf("[PUT /schema/{className}][%d] schemaObjectsUpdateUnauthorized", 401)
 }
 
 func (o *SchemaObjectsUpdateUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -244,11 +244,13 @@ func (o *SchemaObjectsUpdateForbidden) Code() int {
 }
 
 func (o *SchemaObjectsUpdateForbidden) Error() string {
-	return fmt.Sprintf("[PUT /schema/{className}][%d] schemaObjectsUpdateForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[PUT /schema/{className}][%d] schemaObjectsUpdateForbidden %s", 403, payload)
 }
 
 func (o *SchemaObjectsUpdateForbidden) String() string {
-	return fmt.Sprintf("[PUT /schema/{className}][%d] schemaObjectsUpdateForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[PUT /schema/{className}][%d] schemaObjectsUpdateForbidden %s", 403, payload)
 }
 
 func (o *SchemaObjectsUpdateForbidden) GetPayload() *models.ErrorResponse {
@@ -256,7 +258,6 @@ func (o *SchemaObjectsUpdateForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *SchemaObjectsUpdateForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -312,11 +313,13 @@ func (o *SchemaObjectsUpdateNotFound) Code() int {
 }
 
 func (o *SchemaObjectsUpdateNotFound) Error() string {
-	return fmt.Sprintf("[PUT /schema/{className}][%d] schemaObjectsUpdateNotFound  %+v", 404, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[PUT /schema/{className}][%d] schemaObjectsUpdateNotFound %s", 404, payload)
 }
 
 func (o *SchemaObjectsUpdateNotFound) String() string {
-	return fmt.Sprintf("[PUT /schema/{className}][%d] schemaObjectsUpdateNotFound  %+v", 404, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[PUT /schema/{className}][%d] schemaObjectsUpdateNotFound %s", 404, payload)
 }
 
 func (o *SchemaObjectsUpdateNotFound) GetPayload() *models.ErrorResponse {
@@ -324,7 +327,6 @@ func (o *SchemaObjectsUpdateNotFound) GetPayload() *models.ErrorResponse {
 }
 
 func (o *SchemaObjectsUpdateNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -380,11 +382,13 @@ func (o *SchemaObjectsUpdateUnprocessableEntity) Code() int {
 }
 
 func (o *SchemaObjectsUpdateUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[PUT /schema/{className}][%d] schemaObjectsUpdateUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[PUT /schema/{className}][%d] schemaObjectsUpdateUnprocessableEntity %s", 422, payload)
 }
 
 func (o *SchemaObjectsUpdateUnprocessableEntity) String() string {
-	return fmt.Sprintf("[PUT /schema/{className}][%d] schemaObjectsUpdateUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[PUT /schema/{className}][%d] schemaObjectsUpdateUnprocessableEntity %s", 422, payload)
 }
 
 func (o *SchemaObjectsUpdateUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -392,7 +396,6 @@ func (o *SchemaObjectsUpdateUnprocessableEntity) GetPayload() *models.ErrorRespo
 }
 
 func (o *SchemaObjectsUpdateUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -448,11 +451,13 @@ func (o *SchemaObjectsUpdateInternalServerError) Code() int {
 }
 
 func (o *SchemaObjectsUpdateInternalServerError) Error() string {
-	return fmt.Sprintf("[PUT /schema/{className}][%d] schemaObjectsUpdateInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[PUT /schema/{className}][%d] schemaObjectsUpdateInternalServerError %s", 500, payload)
 }
 
 func (o *SchemaObjectsUpdateInternalServerError) String() string {
-	return fmt.Sprintf("[PUT /schema/{className}][%d] schemaObjectsUpdateInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[PUT /schema/{className}][%d] schemaObjectsUpdateInternalServerError %s", 500, payload)
 }
 
 func (o *SchemaObjectsUpdateInternalServerError) GetPayload() *models.ErrorResponse {
@@ -460,7 +465,6 @@ func (o *SchemaObjectsUpdateInternalServerError) GetPayload() *models.ErrorRespo
 }
 
 func (o *SchemaObjectsUpdateInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

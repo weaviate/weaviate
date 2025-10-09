@@ -29,7 +29,6 @@ import (
 //
 // swagger:model C11yWordsResponse
 type C11yWordsResponse struct {
-
 	// concatenated word
 	ConcatenatedWord *C11yWordsResponseConcatenatedWord `json:"concatenatedWord,omitempty"`
 
@@ -119,8 +118,12 @@ func (m *C11yWordsResponse) ContextValidate(ctx context.Context, formats strfmt.
 }
 
 func (m *C11yWordsResponse) contextValidateConcatenatedWord(ctx context.Context, formats strfmt.Registry) error {
-
 	if m.ConcatenatedWord != nil {
+
+		if swag.IsZero(m.ConcatenatedWord) { // not required
+			return nil
+		}
+
 		if err := m.ConcatenatedWord.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
 				return ve.ValidateName("concatenatedWord")
@@ -135,10 +138,13 @@ func (m *C11yWordsResponse) contextValidateConcatenatedWord(ctx context.Context,
 }
 
 func (m *C11yWordsResponse) contextValidateIndividualWords(ctx context.Context, formats strfmt.Registry) error {
-
 	for i := 0; i < len(m.IndividualWords); i++ {
-
 		if m.IndividualWords[i] != nil {
+
+			if swag.IsZero(m.IndividualWords[i]) { // not required
+				return nil
+			}
+
 			if err := m.IndividualWords[i].ContextValidate(ctx, formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
 					return ve.ValidateName("individualWords" + "." + strconv.Itoa(i))
@@ -148,7 +154,6 @@ func (m *C11yWordsResponse) contextValidateIndividualWords(ctx context.Context, 
 				return err
 			}
 		}
-
 	}
 
 	return nil
@@ -176,7 +181,6 @@ func (m *C11yWordsResponse) UnmarshalBinary(b []byte) error {
 //
 // swagger:model C11yWordsResponseConcatenatedWord
 type C11yWordsResponseConcatenatedWord struct {
-
 	// concatenated nearest neighbors
 	ConcatenatedNearestNeighbors C11yNearestNeighbors `json:"concatenatedNearestNeighbors,omitempty"`
 
@@ -261,7 +265,6 @@ func (m *C11yWordsResponseConcatenatedWord) ContextValidate(ctx context.Context,
 }
 
 func (m *C11yWordsResponseConcatenatedWord) contextValidateConcatenatedNearestNeighbors(ctx context.Context, formats strfmt.Registry) error {
-
 	if err := m.ConcatenatedNearestNeighbors.ContextValidate(ctx, formats); err != nil {
 		if ve, ok := err.(*errors.Validation); ok {
 			return ve.ValidateName("concatenatedWord" + "." + "concatenatedNearestNeighbors")
@@ -275,7 +278,6 @@ func (m *C11yWordsResponseConcatenatedWord) contextValidateConcatenatedNearestNe
 }
 
 func (m *C11yWordsResponseConcatenatedWord) contextValidateConcatenatedVector(ctx context.Context, formats strfmt.Registry) error {
-
 	if err := m.ConcatenatedVector.ContextValidate(ctx, formats); err != nil {
 		if ve, ok := err.(*errors.Validation); ok {
 			return ve.ValidateName("concatenatedWord" + "." + "concatenatedVector")
@@ -310,7 +312,6 @@ func (m *C11yWordsResponseConcatenatedWord) UnmarshalBinary(b []byte) error {
 //
 // swagger:model C11yWordsResponseIndividualWordsItems0
 type C11yWordsResponseIndividualWordsItems0 struct {
-
 	// info
 	Info *C11yWordsResponseIndividualWordsItems0Info `json:"info,omitempty"`
 
@@ -369,8 +370,12 @@ func (m *C11yWordsResponseIndividualWordsItems0) ContextValidate(ctx context.Con
 }
 
 func (m *C11yWordsResponseIndividualWordsItems0) contextValidateInfo(ctx context.Context, formats strfmt.Registry) error {
-
 	if m.Info != nil {
+
+		if swag.IsZero(m.Info) { // not required
+			return nil
+		}
+
 		if err := m.Info.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
 				return ve.ValidateName("info")
@@ -406,7 +411,6 @@ func (m *C11yWordsResponseIndividualWordsItems0) UnmarshalBinary(b []byte) error
 //
 // swagger:model C11yWordsResponseIndividualWordsItems0Info
 type C11yWordsResponseIndividualWordsItems0Info struct {
-
 	// nearest neighbors
 	NearestNeighbors C11yNearestNeighbors `json:"nearestNeighbors,omitempty"`
 
@@ -485,7 +489,6 @@ func (m *C11yWordsResponseIndividualWordsItems0Info) ContextValidate(ctx context
 }
 
 func (m *C11yWordsResponseIndividualWordsItems0Info) contextValidateNearestNeighbors(ctx context.Context, formats strfmt.Registry) error {
-
 	if err := m.NearestNeighbors.ContextValidate(ctx, formats); err != nil {
 		if ve, ok := err.(*errors.Validation); ok {
 			return ve.ValidateName("info" + "." + "nearestNeighbors")
@@ -499,7 +502,6 @@ func (m *C11yWordsResponseIndividualWordsItems0Info) contextValidateNearestNeigh
 }
 
 func (m *C11yWordsResponseIndividualWordsItems0Info) contextValidateVector(ctx context.Context, formats strfmt.Registry) error {
-
 	if err := m.Vector.ContextValidate(ctx, formats); err != nil {
 		if ve, ok := err.(*errors.Validation); ok {
 			return ve.ValidateName("info" + "." + "vector")

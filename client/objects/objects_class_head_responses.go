@@ -17,6 +17,7 @@ package objects
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -71,7 +72,7 @@ func (o *ObjectsClassHeadReader) ReadResponse(response runtime.ClientResponse, c
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[HEAD /objects/{className}/{id}] objects.class.head", response, response.Code())
 	}
 }
 
@@ -85,8 +86,7 @@ ObjectsClassHeadNoContent describes a response with status code 204, with defaul
 
 Object exists.
 */
-type ObjectsClassHeadNoContent struct {
-}
+type ObjectsClassHeadNoContent struct{}
 
 // IsSuccess returns true when this objects class head no content response has a 2xx status code
 func (o *ObjectsClassHeadNoContent) IsSuccess() bool {
@@ -119,15 +119,14 @@ func (o *ObjectsClassHeadNoContent) Code() int {
 }
 
 func (o *ObjectsClassHeadNoContent) Error() string {
-	return fmt.Sprintf("[HEAD /objects/{className}/{id}][%d] objectsClassHeadNoContent ", 204)
+	return fmt.Sprintf("[HEAD /objects/{className}/{id}][%d] objectsClassHeadNoContent", 204)
 }
 
 func (o *ObjectsClassHeadNoContent) String() string {
-	return fmt.Sprintf("[HEAD /objects/{className}/{id}][%d] objectsClassHeadNoContent ", 204)
+	return fmt.Sprintf("[HEAD /objects/{className}/{id}][%d] objectsClassHeadNoContent", 204)
 }
 
 func (o *ObjectsClassHeadNoContent) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -141,8 +140,7 @@ ObjectsClassHeadUnauthorized describes a response with status code 401, with def
 
 Unauthorized or invalid credentials.
 */
-type ObjectsClassHeadUnauthorized struct {
-}
+type ObjectsClassHeadUnauthorized struct{}
 
 // IsSuccess returns true when this objects class head unauthorized response has a 2xx status code
 func (o *ObjectsClassHeadUnauthorized) IsSuccess() bool {
@@ -175,15 +173,14 @@ func (o *ObjectsClassHeadUnauthorized) Code() int {
 }
 
 func (o *ObjectsClassHeadUnauthorized) Error() string {
-	return fmt.Sprintf("[HEAD /objects/{className}/{id}][%d] objectsClassHeadUnauthorized ", 401)
+	return fmt.Sprintf("[HEAD /objects/{className}/{id}][%d] objectsClassHeadUnauthorized", 401)
 }
 
 func (o *ObjectsClassHeadUnauthorized) String() string {
-	return fmt.Sprintf("[HEAD /objects/{className}/{id}][%d] objectsClassHeadUnauthorized ", 401)
+	return fmt.Sprintf("[HEAD /objects/{className}/{id}][%d] objectsClassHeadUnauthorized", 401)
 }
 
 func (o *ObjectsClassHeadUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -232,11 +229,13 @@ func (o *ObjectsClassHeadForbidden) Code() int {
 }
 
 func (o *ObjectsClassHeadForbidden) Error() string {
-	return fmt.Sprintf("[HEAD /objects/{className}/{id}][%d] objectsClassHeadForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[HEAD /objects/{className}/{id}][%d] objectsClassHeadForbidden %s", 403, payload)
 }
 
 func (o *ObjectsClassHeadForbidden) String() string {
-	return fmt.Sprintf("[HEAD /objects/{className}/{id}][%d] objectsClassHeadForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[HEAD /objects/{className}/{id}][%d] objectsClassHeadForbidden %s", 403, payload)
 }
 
 func (o *ObjectsClassHeadForbidden) GetPayload() *models.ErrorResponse {
@@ -244,7 +243,6 @@ func (o *ObjectsClassHeadForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ObjectsClassHeadForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -265,8 +263,7 @@ ObjectsClassHeadNotFound describes a response with status code 404, with default
 
 Object doesn't exist.
 */
-type ObjectsClassHeadNotFound struct {
-}
+type ObjectsClassHeadNotFound struct{}
 
 // IsSuccess returns true when this objects class head not found response has a 2xx status code
 func (o *ObjectsClassHeadNotFound) IsSuccess() bool {
@@ -299,15 +296,14 @@ func (o *ObjectsClassHeadNotFound) Code() int {
 }
 
 func (o *ObjectsClassHeadNotFound) Error() string {
-	return fmt.Sprintf("[HEAD /objects/{className}/{id}][%d] objectsClassHeadNotFound ", 404)
+	return fmt.Sprintf("[HEAD /objects/{className}/{id}][%d] objectsClassHeadNotFound", 404)
 }
 
 func (o *ObjectsClassHeadNotFound) String() string {
-	return fmt.Sprintf("[HEAD /objects/{className}/{id}][%d] objectsClassHeadNotFound ", 404)
+	return fmt.Sprintf("[HEAD /objects/{className}/{id}][%d] objectsClassHeadNotFound", 404)
 }
 
 func (o *ObjectsClassHeadNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -356,11 +352,13 @@ func (o *ObjectsClassHeadUnprocessableEntity) Code() int {
 }
 
 func (o *ObjectsClassHeadUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[HEAD /objects/{className}/{id}][%d] objectsClassHeadUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[HEAD /objects/{className}/{id}][%d] objectsClassHeadUnprocessableEntity %s", 422, payload)
 }
 
 func (o *ObjectsClassHeadUnprocessableEntity) String() string {
-	return fmt.Sprintf("[HEAD /objects/{className}/{id}][%d] objectsClassHeadUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[HEAD /objects/{className}/{id}][%d] objectsClassHeadUnprocessableEntity %s", 422, payload)
 }
 
 func (o *ObjectsClassHeadUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -368,7 +366,6 @@ func (o *ObjectsClassHeadUnprocessableEntity) GetPayload() *models.ErrorResponse
 }
 
 func (o *ObjectsClassHeadUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -424,11 +421,13 @@ func (o *ObjectsClassHeadInternalServerError) Code() int {
 }
 
 func (o *ObjectsClassHeadInternalServerError) Error() string {
-	return fmt.Sprintf("[HEAD /objects/{className}/{id}][%d] objectsClassHeadInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[HEAD /objects/{className}/{id}][%d] objectsClassHeadInternalServerError %s", 500, payload)
 }
 
 func (o *ObjectsClassHeadInternalServerError) String() string {
-	return fmt.Sprintf("[HEAD /objects/{className}/{id}][%d] objectsClassHeadInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[HEAD /objects/{className}/{id}][%d] objectsClassHeadInternalServerError %s", 500, payload)
 }
 
 func (o *ObjectsClassHeadInternalServerError) GetPayload() *models.ErrorResponse {
@@ -436,7 +435,6 @@ func (o *ObjectsClassHeadInternalServerError) GetPayload() *models.ErrorResponse
 }
 
 func (o *ObjectsClassHeadInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

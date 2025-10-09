@@ -17,6 +17,7 @@ package authz
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -77,7 +78,7 @@ func (o *CreateRoleReader) ReadResponse(response runtime.ClientResponse, consume
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[POST /authz/roles] createRole", response, response.Code())
 	}
 }
 
@@ -91,8 +92,7 @@ CreateRoleCreated describes a response with status code 201, with default header
 
 Role created successfully
 */
-type CreateRoleCreated struct {
-}
+type CreateRoleCreated struct{}
 
 // IsSuccess returns true when this create role created response has a 2xx status code
 func (o *CreateRoleCreated) IsSuccess() bool {
@@ -125,15 +125,14 @@ func (o *CreateRoleCreated) Code() int {
 }
 
 func (o *CreateRoleCreated) Error() string {
-	return fmt.Sprintf("[POST /authz/roles][%d] createRoleCreated ", 201)
+	return fmt.Sprintf("[POST /authz/roles][%d] createRoleCreated", 201)
 }
 
 func (o *CreateRoleCreated) String() string {
-	return fmt.Sprintf("[POST /authz/roles][%d] createRoleCreated ", 201)
+	return fmt.Sprintf("[POST /authz/roles][%d] createRoleCreated", 201)
 }
 
 func (o *CreateRoleCreated) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -182,11 +181,13 @@ func (o *CreateRoleBadRequest) Code() int {
 }
 
 func (o *CreateRoleBadRequest) Error() string {
-	return fmt.Sprintf("[POST /authz/roles][%d] createRoleBadRequest  %+v", 400, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /authz/roles][%d] createRoleBadRequest %s", 400, payload)
 }
 
 func (o *CreateRoleBadRequest) String() string {
-	return fmt.Sprintf("[POST /authz/roles][%d] createRoleBadRequest  %+v", 400, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /authz/roles][%d] createRoleBadRequest %s", 400, payload)
 }
 
 func (o *CreateRoleBadRequest) GetPayload() *models.ErrorResponse {
@@ -194,7 +195,6 @@ func (o *CreateRoleBadRequest) GetPayload() *models.ErrorResponse {
 }
 
 func (o *CreateRoleBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -215,8 +215,7 @@ CreateRoleUnauthorized describes a response with status code 401, with default h
 
 Unauthorized or invalid credentials.
 */
-type CreateRoleUnauthorized struct {
-}
+type CreateRoleUnauthorized struct{}
 
 // IsSuccess returns true when this create role unauthorized response has a 2xx status code
 func (o *CreateRoleUnauthorized) IsSuccess() bool {
@@ -249,15 +248,14 @@ func (o *CreateRoleUnauthorized) Code() int {
 }
 
 func (o *CreateRoleUnauthorized) Error() string {
-	return fmt.Sprintf("[POST /authz/roles][%d] createRoleUnauthorized ", 401)
+	return fmt.Sprintf("[POST /authz/roles][%d] createRoleUnauthorized", 401)
 }
 
 func (o *CreateRoleUnauthorized) String() string {
-	return fmt.Sprintf("[POST /authz/roles][%d] createRoleUnauthorized ", 401)
+	return fmt.Sprintf("[POST /authz/roles][%d] createRoleUnauthorized", 401)
 }
 
 func (o *CreateRoleUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -306,11 +304,13 @@ func (o *CreateRoleForbidden) Code() int {
 }
 
 func (o *CreateRoleForbidden) Error() string {
-	return fmt.Sprintf("[POST /authz/roles][%d] createRoleForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /authz/roles][%d] createRoleForbidden %s", 403, payload)
 }
 
 func (o *CreateRoleForbidden) String() string {
-	return fmt.Sprintf("[POST /authz/roles][%d] createRoleForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /authz/roles][%d] createRoleForbidden %s", 403, payload)
 }
 
 func (o *CreateRoleForbidden) GetPayload() *models.ErrorResponse {
@@ -318,7 +318,6 @@ func (o *CreateRoleForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *CreateRoleForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -374,11 +373,13 @@ func (o *CreateRoleConflict) Code() int {
 }
 
 func (o *CreateRoleConflict) Error() string {
-	return fmt.Sprintf("[POST /authz/roles][%d] createRoleConflict  %+v", 409, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /authz/roles][%d] createRoleConflict %s", 409, payload)
 }
 
 func (o *CreateRoleConflict) String() string {
-	return fmt.Sprintf("[POST /authz/roles][%d] createRoleConflict  %+v", 409, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /authz/roles][%d] createRoleConflict %s", 409, payload)
 }
 
 func (o *CreateRoleConflict) GetPayload() *models.ErrorResponse {
@@ -386,7 +387,6 @@ func (o *CreateRoleConflict) GetPayload() *models.ErrorResponse {
 }
 
 func (o *CreateRoleConflict) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -442,11 +442,13 @@ func (o *CreateRoleUnprocessableEntity) Code() int {
 }
 
 func (o *CreateRoleUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[POST /authz/roles][%d] createRoleUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /authz/roles][%d] createRoleUnprocessableEntity %s", 422, payload)
 }
 
 func (o *CreateRoleUnprocessableEntity) String() string {
-	return fmt.Sprintf("[POST /authz/roles][%d] createRoleUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /authz/roles][%d] createRoleUnprocessableEntity %s", 422, payload)
 }
 
 func (o *CreateRoleUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -454,7 +456,6 @@ func (o *CreateRoleUnprocessableEntity) GetPayload() *models.ErrorResponse {
 }
 
 func (o *CreateRoleUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -510,11 +511,13 @@ func (o *CreateRoleInternalServerError) Code() int {
 }
 
 func (o *CreateRoleInternalServerError) Error() string {
-	return fmt.Sprintf("[POST /authz/roles][%d] createRoleInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /authz/roles][%d] createRoleInternalServerError %s", 500, payload)
 }
 
 func (o *CreateRoleInternalServerError) String() string {
-	return fmt.Sprintf("[POST /authz/roles][%d] createRoleInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /authz/roles][%d] createRoleInternalServerError %s", 500, payload)
 }
 
 func (o *CreateRoleInternalServerError) GetPayload() *models.ErrorResponse {
@@ -522,7 +525,6 @@ func (o *CreateRoleInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *CreateRoleInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

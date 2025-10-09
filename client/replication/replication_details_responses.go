@@ -17,6 +17,7 @@ package replication
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -77,7 +78,7 @@ func (o *ReplicationDetailsReader) ReadResponse(response runtime.ClientResponse,
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[GET /replication/replicate/{id}] replicationDetails", response, response.Code())
 	}
 }
 
@@ -126,11 +127,13 @@ func (o *ReplicationDetailsOK) Code() int {
 }
 
 func (o *ReplicationDetailsOK) Error() string {
-	return fmt.Sprintf("[GET /replication/replicate/{id}][%d] replicationDetailsOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /replication/replicate/{id}][%d] replicationDetailsOK %s", 200, payload)
 }
 
 func (o *ReplicationDetailsOK) String() string {
-	return fmt.Sprintf("[GET /replication/replicate/{id}][%d] replicationDetailsOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /replication/replicate/{id}][%d] replicationDetailsOK %s", 200, payload)
 }
 
 func (o *ReplicationDetailsOK) GetPayload() *models.ReplicationReplicateDetailsReplicaResponse {
@@ -138,7 +141,6 @@ func (o *ReplicationDetailsOK) GetPayload() *models.ReplicationReplicateDetailsR
 }
 
 func (o *ReplicationDetailsOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ReplicationReplicateDetailsReplicaResponse)
 
 	// response payload
@@ -159,8 +161,7 @@ ReplicationDetailsUnauthorized describes a response with status code 401, with d
 
 Unauthorized or invalid credentials.
 */
-type ReplicationDetailsUnauthorized struct {
-}
+type ReplicationDetailsUnauthorized struct{}
 
 // IsSuccess returns true when this replication details unauthorized response has a 2xx status code
 func (o *ReplicationDetailsUnauthorized) IsSuccess() bool {
@@ -193,15 +194,14 @@ func (o *ReplicationDetailsUnauthorized) Code() int {
 }
 
 func (o *ReplicationDetailsUnauthorized) Error() string {
-	return fmt.Sprintf("[GET /replication/replicate/{id}][%d] replicationDetailsUnauthorized ", 401)
+	return fmt.Sprintf("[GET /replication/replicate/{id}][%d] replicationDetailsUnauthorized", 401)
 }
 
 func (o *ReplicationDetailsUnauthorized) String() string {
-	return fmt.Sprintf("[GET /replication/replicate/{id}][%d] replicationDetailsUnauthorized ", 401)
+	return fmt.Sprintf("[GET /replication/replicate/{id}][%d] replicationDetailsUnauthorized", 401)
 }
 
 func (o *ReplicationDetailsUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -250,11 +250,13 @@ func (o *ReplicationDetailsForbidden) Code() int {
 }
 
 func (o *ReplicationDetailsForbidden) Error() string {
-	return fmt.Sprintf("[GET /replication/replicate/{id}][%d] replicationDetailsForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /replication/replicate/{id}][%d] replicationDetailsForbidden %s", 403, payload)
 }
 
 func (o *ReplicationDetailsForbidden) String() string {
-	return fmt.Sprintf("[GET /replication/replicate/{id}][%d] replicationDetailsForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /replication/replicate/{id}][%d] replicationDetailsForbidden %s", 403, payload)
 }
 
 func (o *ReplicationDetailsForbidden) GetPayload() *models.ErrorResponse {
@@ -262,7 +264,6 @@ func (o *ReplicationDetailsForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ReplicationDetailsForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -283,8 +284,7 @@ ReplicationDetailsNotFound describes a response with status code 404, with defau
 
 Shard replica operation not found.
 */
-type ReplicationDetailsNotFound struct {
-}
+type ReplicationDetailsNotFound struct{}
 
 // IsSuccess returns true when this replication details not found response has a 2xx status code
 func (o *ReplicationDetailsNotFound) IsSuccess() bool {
@@ -317,15 +317,14 @@ func (o *ReplicationDetailsNotFound) Code() int {
 }
 
 func (o *ReplicationDetailsNotFound) Error() string {
-	return fmt.Sprintf("[GET /replication/replicate/{id}][%d] replicationDetailsNotFound ", 404)
+	return fmt.Sprintf("[GET /replication/replicate/{id}][%d] replicationDetailsNotFound", 404)
 }
 
 func (o *ReplicationDetailsNotFound) String() string {
-	return fmt.Sprintf("[GET /replication/replicate/{id}][%d] replicationDetailsNotFound ", 404)
+	return fmt.Sprintf("[GET /replication/replicate/{id}][%d] replicationDetailsNotFound", 404)
 }
 
 func (o *ReplicationDetailsNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -374,11 +373,13 @@ func (o *ReplicationDetailsUnprocessableEntity) Code() int {
 }
 
 func (o *ReplicationDetailsUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[GET /replication/replicate/{id}][%d] replicationDetailsUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /replication/replicate/{id}][%d] replicationDetailsUnprocessableEntity %s", 422, payload)
 }
 
 func (o *ReplicationDetailsUnprocessableEntity) String() string {
-	return fmt.Sprintf("[GET /replication/replicate/{id}][%d] replicationDetailsUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /replication/replicate/{id}][%d] replicationDetailsUnprocessableEntity %s", 422, payload)
 }
 
 func (o *ReplicationDetailsUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -386,7 +387,6 @@ func (o *ReplicationDetailsUnprocessableEntity) GetPayload() *models.ErrorRespon
 }
 
 func (o *ReplicationDetailsUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -442,11 +442,13 @@ func (o *ReplicationDetailsInternalServerError) Code() int {
 }
 
 func (o *ReplicationDetailsInternalServerError) Error() string {
-	return fmt.Sprintf("[GET /replication/replicate/{id}][%d] replicationDetailsInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /replication/replicate/{id}][%d] replicationDetailsInternalServerError %s", 500, payload)
 }
 
 func (o *ReplicationDetailsInternalServerError) String() string {
-	return fmt.Sprintf("[GET /replication/replicate/{id}][%d] replicationDetailsInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /replication/replicate/{id}][%d] replicationDetailsInternalServerError %s", 500, payload)
 }
 
 func (o *ReplicationDetailsInternalServerError) GetPayload() *models.ErrorResponse {
@@ -454,7 +456,6 @@ func (o *ReplicationDetailsInternalServerError) GetPayload() *models.ErrorRespon
 }
 
 func (o *ReplicationDetailsInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -510,11 +511,13 @@ func (o *ReplicationDetailsNotImplemented) Code() int {
 }
 
 func (o *ReplicationDetailsNotImplemented) Error() string {
-	return fmt.Sprintf("[GET /replication/replicate/{id}][%d] replicationDetailsNotImplemented  %+v", 501, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /replication/replicate/{id}][%d] replicationDetailsNotImplemented %s", 501, payload)
 }
 
 func (o *ReplicationDetailsNotImplemented) String() string {
-	return fmt.Sprintf("[GET /replication/replicate/{id}][%d] replicationDetailsNotImplemented  %+v", 501, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /replication/replicate/{id}][%d] replicationDetailsNotImplemented %s", 501, payload)
 }
 
 func (o *ReplicationDetailsNotImplemented) GetPayload() *models.ErrorResponse {
@@ -522,7 +525,6 @@ func (o *ReplicationDetailsNotImplemented) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ReplicationDetailsNotImplemented) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
