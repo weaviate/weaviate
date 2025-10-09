@@ -99,7 +99,10 @@ func (rr *RowReaderFrequency) notEqual(ctx context.Context, readFn ReadFn) error
 func (rr *RowReaderFrequency) greaterThan(ctx context.Context, readFn ReadFn,
 	allowEqual bool,
 ) error {
-	c := rr.newCursor()
+	c, err := rr.newCursor()
+	if err != nil {
+		return err
+	}
 	defer c.Close()
 
 	for k, v := c.Seek(ctx, rr.value); k != nil; k, v = c.Next(ctx) {
@@ -130,7 +133,11 @@ func (rr *RowReaderFrequency) greaterThan(ctx context.Context, readFn ReadFn,
 func (rr *RowReaderFrequency) lessThan(ctx context.Context, readFn ReadFn,
 	allowEqual bool,
 ) error {
-	c := rr.newCursor()
+	c, err := rr.newCursor()
+	if err != nil {
+		return err
+	}
+
 	defer c.Close()
 
 	for k, v := c.First(ctx); k != nil && bytes.Compare(k, rr.value) != 1; k, v = c.Next(ctx) {
@@ -163,7 +170,10 @@ func (rr *RowReaderFrequency) like(ctx context.Context, readFn ReadFn) error {
 
 	// TODO: don't we need to check here if this is a doc id vs a object search?
 	// Or is this not a problem because the latter removes duplicates anyway?
-	c := rr.newCursor(lsmkv.MapListAcceptDuplicates())
+	c, err := rr.newCursor(lsmkv.MapListAcceptDuplicates())
+	if err != nil {
+		return err
+	}
 	defer c.Close()
 
 	var (
@@ -216,7 +226,7 @@ func (rr *RowReaderFrequency) like(ctx context.Context, readFn ReadFn) error {
 // keyOnly==true
 func (rr *RowReaderFrequency) newCursor(
 	opts ...lsmkv.MapListOption,
-) *lsmkv.CursorMap {
+) (*lsmkv.CursorMap, error) {
 	if rr.shardVersion < 2 {
 		opts = append(opts, lsmkv.MapListLegacySortingRequired())
 	}
