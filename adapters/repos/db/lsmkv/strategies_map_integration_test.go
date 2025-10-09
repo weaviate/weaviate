@@ -831,7 +831,8 @@ func mapCursors(ctx context.Context, t *testing.T, opts []BucketOption) {
 
 			var retrievedKeys [][]byte
 			var retrievedValues [][]MapPair
-			c := b.MapCursor()
+			c, err := b.MapCursor()
+			require.NoError(t, err)
 			defer c.Close()
 			for k, v := c.Seek(ctx, []byte("row-016")); k != nil; k, v = c.Next(ctx) {
 				retrievedKeys = append(retrievedKeys, k)
@@ -872,7 +873,8 @@ func mapCursors(ctx context.Context, t *testing.T, opts []BucketOption) {
 
 			var retrievedKeys [][]byte
 			var retrievedValues [][]MapPair
-			c := b.MapCursor()
+			c, err := b.MapCursor()
+			require.NoError(t, err)
 			defer c.Close()
 			retrieved := 0
 			for k, v := c.First(ctx); k != nil && retrieved < 3; k, v = c.Next(ctx) {
@@ -924,7 +926,8 @@ func mapCursors(ctx context.Context, t *testing.T, opts []BucketOption) {
 
 			var retrievedKeys [][]byte
 			var retrievedValues [][]MapPair
-			c := b.MapCursor()
+			c, err := b.MapCursor()
+			require.NoError(t, err)
 			defer c.Close()
 			retrieved := 0
 			for k, v := c.Seek(ctx, []byte("row-001")); k != nil && retrieved < 2; k, v = c.Next(ctx) {
@@ -1109,7 +1112,8 @@ func mapCursors(ctx context.Context, t *testing.T, opts []BucketOption) {
 
 			var retrievedKeys [][]byte
 			var retrievedValues [][]MapPair
-			c := b.MapCursor()
+			c, err := b.MapCursor()
+			require.NoError(t, err)
 			defer c.Close()
 			for k, v := c.Seek(ctx, []byte("row-016")); k != nil; k, v = c.Next(ctx) {
 				retrievedKeys = append(retrievedKeys, k)
@@ -1150,7 +1154,8 @@ func mapCursors(ctx context.Context, t *testing.T, opts []BucketOption) {
 
 			var retrievedKeys [][]byte
 			var retrievedValues [][]MapPair
-			c := b.MapCursor()
+			c, err := b.MapCursor()
+			require.NoError(t, err)
 			defer c.Close()
 			retrieved := 0
 			for k, v := c.First(ctx); k != nil && retrieved < 3; k, v = c.Next(ctx) {
@@ -1202,7 +1207,8 @@ func mapCursors(ctx context.Context, t *testing.T, opts []BucketOption) {
 
 			var retrievedKeys [][]byte
 			var retrievedValues [][]MapPair
-			c := b.MapCursor()
+			c, err := b.MapCursor()
+			require.NoError(t, err)
 			defer c.Close()
 			retrieved := 0
 			for k, v := c.Seek(ctx, []byte("row-001")); k != nil && retrieved < 2; k, v = c.Next(ctx) {
@@ -1243,7 +1249,8 @@ func mapCursors(ctx context.Context, t *testing.T, opts []BucketOption) {
 
 			var retrievedKeys [][]byte
 			var retrievedValues [][]MapPair
-			c := b.MapCursor()
+			c, err := b.MapCursor()
+			require.NoError(t, err)
 			defer c.Close()
 			retrieved := 0
 			for k, v := c.Seek(ctx, []byte("row-001")); k != nil && retrieved < 2; k, v = c.Next(ctx) {

@@ -267,7 +267,10 @@ func CalculateTargetVectorDimensionsFromBucket(ctx context.Context, b *lsmkv.Buc
 		// Since weaviate 1.34 default dimension bucket strategy is StrategyRoaringSet.
 		// For backward compatibility StrategyMapCollection is still supported.
 
-		c := b.MapCursor()
+		c, err := b.MapCursor()
+		if err != nil {
+			return dimensionality, fmt.Errorf("create cursor: %w", err)
+		}
 		defer c.Close()
 
 		var v []lsmkv.MapPair
