@@ -305,7 +305,7 @@ func (compressor *quantizedVectorsCompressor[T]) PrefillCache() {
 			// maxID which would cause us to allocate a huge cache.
 			// In that case, we consider that anything larger than a quadrillion is an error
 			// and should be skipped.
-			if v.Id > 1<<15 {
+			if v.Id > 1e15 {
 				continue
 			}
 
@@ -356,7 +356,7 @@ func (compressor *quantizedVectorsCompressor[T]) PrefillMultiCache(docIDVectors 
 			// maxID which would cause us to allocate a huge cache.
 			// In that case, we consider that anything larger than a quadrillion is an error
 			// and should be skipped.
-			if v.Id > 1<<15 {
+			if v.Id > 1e15 {
 				continue
 			}
 
