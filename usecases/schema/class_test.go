@@ -23,8 +23,8 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/modelsext"
+	"github.com/weaviate/weaviate/entities/tokenizer"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
@@ -283,7 +283,7 @@ func Test_AddClass(t *testing.T) {
 			for _, dataType := range []schema.DataType{
 				schema.DataTypeText, schema.DataTypeTextArray,
 			} {
-				for _, tokenization := range append(helpers.Tokenizations, "") {
+				for _, tokenization := range append(tokenizer.Tokenizations, "") {
 					testCases = append(testCases, testCase{
 						propName:       propName(dataType, tokenization),
 						dataType:       dataType.PropString(),
@@ -319,7 +319,7 @@ func Test_AddClass(t *testing.T) {
 						expectedErrMsg: "",
 					})
 
-					for _, tokenization := range append(helpers.Tokenizations, "non_existing") {
+					for _, tokenization := range append(tokenizer.Tokenizations, "non_existing") {
 						testCases = append(testCases, testCase{
 							propName:       propName(dataType, tokenization),
 							dataType:       dataType.PropString(),
@@ -347,7 +347,7 @@ func Test_AddClass(t *testing.T) {
 					callReadOnly:   true,
 				})
 
-				for _, tokenization := range append(helpers.Tokenizations, "non_existing") {
+				for _, tokenization := range append(tokenizer.Tokenizations, "non_existing") {
 					testCases = append(testCases, testCase{
 						propName:       fmt.Sprintf("RefProp_%d_%s", i, tokenization),
 						dataType:       dataType,
@@ -377,7 +377,7 @@ func Test_AddClass(t *testing.T) {
 					})
 				}
 
-				for _, tokenization := range append(helpers.Tokenizations, "non_existing") {
+				for _, tokenization := range append(tokenizer.Tokenizations, "non_existing") {
 					switch tokenization {
 					case models.PropertyTokenizationWord, models.PropertyTokenizationField:
 						continue
@@ -589,7 +589,7 @@ func Test_AddClass_DefaultsAndMigration(t *testing.T) {
 		for _, dataType := range []schema.DataType{
 			schema.DataTypeText, schema.DataTypeTextArray,
 		} {
-			for _, tokenization := range helpers.Tokenizations {
+			for _, tokenization := range tokenizer.Tokenizations {
 				testCases = append(testCases, testCase{
 					propName:             propName(dataType, tokenization),
 					dataType:             dataType,

@@ -25,13 +25,21 @@ import (
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
+	dynamicent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
+	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 func Benchmark_Migration(b *testing.B) {
@@ -47,18 +55,33 @@ func Benchmark_Migration(b *testing.B) {
 				schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 				shardState: shardState,
 			}
-			repo, err := New(logger, Config{
+			mockSchemaReader := schemaUC.NewMockSchemaReader(b)
+			mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
+			mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+				class := &models.Class{Class: className}
+				return readFunc(class, shardState)
+			}).Maybe()
+			mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
+			mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+			mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(b)
+			mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
+			mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+			mockNodeSelector := cluster.NewMockNodeSelector(b)
+			mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
+			mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
+			repo, err := New(logger, "node1", Config{
 				RootPath:                  dirName,
 				QueryMaximumResults:       1000,
 				MaxImportGoroutinesFactor: 1,
 				TrackVectorDimensions:     true,
-			}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor())
+			}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
+				mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 			require.Nil(b, err)
 			repo.SetSchemaGetter(schemaGetter)
 			require.Nil(b, repo.WaitForStartup(testCtx()))
 			defer repo.Shutdown(context.Background())
 
-			migrator := NewMigrator(repo, logger)
+			migrator := NewMigrator(repo, logger, "node1")
 
 			class := &models.Class{
 				Class:               "Test",
@@ -71,7 +94,7 @@ func Benchmark_Migration(b *testing.B) {
 				},
 			}
 
-			migrator.AddClass(context.Background(), class, schemaGetter.shardState)
+			migrator.AddClass(context.Background(), class)
 
 			schemaGetter.schema = schema
 
@@ -112,18 +135,33 @@ func Test_Migration(t *testing.T) {
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: shardState,
 	}
-	repo, err := New(logger, Config{
+	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		class := &models.Class{Class: className}
+		return readFunc(class, shardState)
+	}).Maybe()
+	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
+	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
+	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
+	repo, err := New(logger, "node1", Config{
 		RootPath:                  dirName,
 		QueryMaximumResults:       1000,
 		MaxImportGoroutinesFactor: 1,
 		TrackVectorDimensions:     true,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, nil,
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
 
-	migrator := NewMigrator(repo, logger)
+	migrator := NewMigrator(repo, logger, "node1")
 
 	t.Run("set schema", func(t *testing.T) {
 		class := &models.Class{
@@ -138,7 +176,7 @@ func Test_Migration(t *testing.T) {
 		}
 
 		require.Nil(t,
-			migrator.AddClass(context.Background(), class, schemaGetter.shardState))
+			migrator.AddClass(context.Background(), class))
 
 		schemaGetter.schema = schema
 	})
@@ -180,18 +218,33 @@ func Test_DimensionTracking(t *testing.T) {
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: shardState,
 	}
-	repo, err := New(logger, Config{
+	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		class := &models.Class{Class: className}
+		return readFunc(class, shardState)
+	}).Maybe()
+	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
+	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
+	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
+	repo, err := New(logger, "node1", Config{
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 		TrackVectorDimensions:     true,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, monitoring.GetMetrics(), memwatch.NewDummyMonitor())
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, monitoring.GetMetrics(), memwatch.NewDummyMonitor(),
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
 
-	migrator := NewMigrator(repo, logger)
+	migrator := NewMigrator(repo, logger, "node1")
 
 	t.Run("set schema", func(t *testing.T) {
 		class := &models.Class{
@@ -205,7 +258,7 @@ func Test_DimensionTracking(t *testing.T) {
 			},
 		}
 
-		require.Nil(t, migrator.AddClass(context.Background(), class, schemaGetter.shardState))
+		require.Nil(t, migrator.AddClass(context.Background(), class))
 
 		schemaGetter.schema = schema
 	})
@@ -250,7 +303,9 @@ func Test_DimensionTracking(t *testing.T) {
 			dim, err := shard.Dimensions(context.Background(), "")
 			assert.NoError(t, err)
 			assert.Equal(t, 12800, dim)
-			assert.Equal(t, 6400, shard.QuantizedDimensions(context.Background(), "", 64))
+			qdim, err := shard.QuantizedDimensions(context.Background(), "", 64)
+			assert.NoError(t, err)
+			assert.Equal(t, 6400, qdim)
 			return nil
 		})
 	})
@@ -275,7 +330,9 @@ func Test_DimensionTracking(t *testing.T) {
 			dim, err := shard.Dimensions(context.Background(), "")
 			assert.NoError(t, err)
 			assert.Equal(t, 11520, dim)
-			assert.Equal(t, 5760, shard.QuantizedDimensions(context.Background(), "", 64))
+			qdim, err := shard.QuantizedDimensions(context.Background(), "", 64)
+			assert.NoError(t, err)
+			assert.Equal(t, 5760, qdim)
 			return nil
 		})
 	})
@@ -326,9 +383,15 @@ func Test_DimensionTracking(t *testing.T) {
 			dim, err := shard.Dimensions(context.Background(), "")
 			assert.NoError(t, err)
 			assert.Equal(t, 6400, dim)
-			assert.Equal(t, 3200, shard.QuantizedDimensions(context.Background(), "", 64))
-			assert.Equal(t, 1600, shard.QuantizedDimensions(context.Background(), "", 32))
-			assert.Equal(t, 3200, shard.QuantizedDimensions(context.Background(), "", 0))
+			qdim, err := shard.QuantizedDimensions(context.Background(), "", 64)
+			assert.NoError(t, err)
+			assert.Equal(t, 3200, qdim)
+			qdim, err = shard.QuantizedDimensions(context.Background(), "", 32)
+			assert.NoError(t, err)
+			assert.Equal(t, 1600, qdim)
+			qdim, err = shard.QuantizedDimensions(context.Background(), "", 0)
+			assert.NoError(t, err)
+			assert.Equal(t, 3200, qdim)
 			return nil
 		})
 	})
@@ -379,10 +442,16 @@ func Test_DimensionTracking(t *testing.T) {
 			dim, err := shard.Dimensions(context.Background(), "")
 			assert.NoError(t, err)
 			assert.Equal(t, 12800, dim)
-			assert.Equal(t, 6400, shard.QuantizedDimensions(context.Background(), "", 64))
-			assert.Equal(t, 3200, shard.QuantizedDimensions(context.Background(), "", 32))
+			qdim, err := shard.QuantizedDimensions(context.Background(), "", 64)
+			assert.NoError(t, err)
+			assert.Equal(t, 6400, qdim)
+			qdim, err = shard.QuantizedDimensions(context.Background(), "", 32)
+			assert.NoError(t, err)
+			assert.Equal(t, 3200, qdim)
 			// segments = 0, will use 128/2 = 64 segments and so value should be 6400
-			assert.Equal(t, 6400, shard.QuantizedDimensions(context.Background(), "", 0))
+			qdim, err = shard.QuantizedDimensions(context.Background(), "", 0)
+			assert.NoError(t, err)
+			assert.Equal(t, 6400, qdim)
 			return nil
 		})
 	})
@@ -481,6 +550,16 @@ func TestTotalDimensionTrackingMetrics(t *testing.T) {
 
 			expectDimensions: dimensionsPerVector * objectCount,
 		},
+		{
+			name: "named_with_rq_1bit",
+			namedVectorConfig: func() enthnsw.UserConfig {
+				cfg := enthnsw.NewDefaultUserConfig()
+				cfg.RQ.Enabled = true
+				cfg.RQ.Bits = 1
+				return cfg
+			},
+			expectSegments: (dimensionsPerVector / 8) * objectCount,
+		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			var (
@@ -567,6 +646,8 @@ func TestTotalDimensionTrackingMetrics(t *testing.T) {
 			assertTotalMetrics(0, 0)
 			insertData()
 			assertTotalMetrics(tt.expectDimensions, tt.expectSegments)
+			err := db.GetIndex(schema.ClassName(class.Class)).drop()
+			require.NoError(t, err)
 			require.NoError(t, db.DeleteIndex(schema.ClassName(class.Class)))
 			assertTotalMetrics(0, 0)
 		})
@@ -575,6 +656,233 @@ func TestTotalDimensionTrackingMetrics(t *testing.T) {
 
 func intToUUID(i int) strfmt.UUID {
 	return strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
+}
+
+func TestGetDimensionCategory(t *testing.T) {
+	tests := []struct {
+		name             string
+		config           schemaConfig.VectorIndexConfig
+		expectedCategory DimensionCategory
+		expectedSegments int
+	}{
+		// HNSW Tests
+		{
+			name: "HNSW default (no compression)",
+			config: enthnsw.UserConfig{
+				PQ: enthnsw.PQConfig{Enabled: false},
+				BQ: enthnsw.BQConfig{Enabled: false},
+				SQ: enthnsw.SQConfig{Enabled: false},
+				RQ: enthnsw.RQConfig{Enabled: false},
+			},
+			expectedCategory: DimensionCategoryStandard,
+			expectedSegments: 0,
+		},
+		{
+			name: "HNSW with PQ enabled",
+			config: enthnsw.UserConfig{
+				PQ: enthnsw.PQConfig{Enabled: true, Segments: 16},
+				BQ: enthnsw.BQConfig{Enabled: false},
+				SQ: enthnsw.SQConfig{Enabled: false},
+				RQ: enthnsw.RQConfig{Enabled: false},
+			},
+			expectedCategory: DimensionCategoryPQ,
+			expectedSegments: 16,
+		},
+		{
+			name: "HNSW with PQ enabled (zero segments)",
+			config: enthnsw.UserConfig{
+				PQ: enthnsw.PQConfig{Enabled: true, Segments: 0},
+				BQ: enthnsw.BQConfig{Enabled: false},
+				SQ: enthnsw.SQConfig{Enabled: false},
+				RQ: enthnsw.RQConfig{Enabled: false},
+			},
+			expectedCategory: DimensionCategoryPQ,
+			expectedSegments: 0,
+		},
+		{
+			name: "HNSW with BQ enabled",
+			config: enthnsw.UserConfig{
+				PQ: enthnsw.PQConfig{Enabled: false},
+				BQ: enthnsw.BQConfig{Enabled: true},
+				SQ: enthnsw.SQConfig{Enabled: false},
+				RQ: enthnsw.RQConfig{Enabled: false},
+			},
+			expectedCategory: DimensionCategoryBQ,
+			expectedSegments: 0,
+		},
+		{
+			name: "HNSW with SQ enabled",
+			config: enthnsw.UserConfig{
+				PQ: enthnsw.PQConfig{Enabled: false},
+				BQ: enthnsw.BQConfig{Enabled: false},
+				SQ: enthnsw.SQConfig{Enabled: true},
+				RQ: enthnsw.RQConfig{Enabled: false},
+			},
+			expectedCategory: DimensionCategorySQ,
+			expectedSegments: 0,
+		},
+		{
+			name: "HNSW with RQ enabled",
+			config: enthnsw.UserConfig{
+				PQ: enthnsw.PQConfig{Enabled: false},
+				BQ: enthnsw.BQConfig{Enabled: false},
+				SQ: enthnsw.SQConfig{Enabled: false},
+				RQ: enthnsw.RQConfig{Enabled: true},
+			},
+			expectedCategory: DimensionCategoryRQ,
+			expectedSegments: 0,
+		},
+		{
+			name: "HNSW with multiple compression methods (PQ takes priority)",
+			config: enthnsw.UserConfig{
+				PQ: enthnsw.PQConfig{Enabled: true, Segments: 8},
+				BQ: enthnsw.BQConfig{Enabled: true},
+				SQ: enthnsw.SQConfig{Enabled: true},
+				RQ: enthnsw.RQConfig{Enabled: true},
+			},
+			expectedCategory: DimensionCategoryPQ,
+			expectedSegments: 8,
+		},
+
+		// Flat Tests
+		{
+			name: "Flat default (no compression)",
+			config: flatent.UserConfig{
+				BQ: flatent.CompressionUserConfig{Enabled: false},
+			},
+			expectedCategory: DimensionCategoryStandard,
+			expectedSegments: 0,
+		},
+		{
+			name: "Flat with BQ enabled",
+			config: flatent.UserConfig{
+				BQ: flatent.CompressionUserConfig{Enabled: true},
+			},
+			expectedCategory: DimensionCategoryBQ,
+			expectedSegments: 0,
+		},
+
+		// Dynamic Tests
+		{
+			name: "Dynamic default (no compression)",
+			config: dynamicent.UserConfig{
+				HnswUC: enthnsw.UserConfig{
+					PQ: enthnsw.PQConfig{Enabled: false},
+					BQ: enthnsw.BQConfig{Enabled: false},
+					SQ: enthnsw.SQConfig{Enabled: false},
+					RQ: enthnsw.RQConfig{Enabled: false},
+				},
+				FlatUC: flatent.UserConfig{
+					BQ: flatent.CompressionUserConfig{Enabled: false},
+				},
+			},
+			expectedCategory: DimensionCategoryStandard,
+			expectedSegments: 0,
+		},
+		{
+			name: "Dynamic with HNSW PQ enabled (HNSW takes priority)",
+			config: dynamicent.UserConfig{
+				HnswUC: enthnsw.UserConfig{
+					PQ: enthnsw.PQConfig{Enabled: true, Segments: 12},
+					BQ: enthnsw.BQConfig{Enabled: false},
+					SQ: enthnsw.SQConfig{Enabled: false},
+					RQ: enthnsw.RQConfig{Enabled: false},
+				},
+				FlatUC: flatent.UserConfig{
+					BQ: flatent.CompressionUserConfig{Enabled: true},
+				},
+			},
+			expectedCategory: DimensionCategoryPQ,
+			expectedSegments: 12,
+		},
+		{
+			name: "Dynamic with HNSW BQ enabled (HNSW takes priority)",
+			config: dynamicent.UserConfig{
+				HnswUC: enthnsw.UserConfig{
+					PQ: enthnsw.PQConfig{Enabled: false},
+					BQ: enthnsw.BQConfig{Enabled: true},
+					SQ: enthnsw.SQConfig{Enabled: false},
+					RQ: enthnsw.RQConfig{Enabled: false},
+				},
+				FlatUC: flatent.UserConfig{
+					BQ: flatent.CompressionUserConfig{Enabled: true},
+				},
+			},
+			expectedCategory: DimensionCategoryBQ,
+			expectedSegments: 0,
+		},
+		{
+			name: "Dynamic with HNSW standard, Flat BQ enabled (falls back to Flat)",
+			config: dynamicent.UserConfig{
+				HnswUC: enthnsw.UserConfig{
+					PQ: enthnsw.PQConfig{Enabled: false},
+					BQ: enthnsw.BQConfig{Enabled: false},
+					SQ: enthnsw.SQConfig{Enabled: false},
+					RQ: enthnsw.RQConfig{Enabled: false},
+				},
+				FlatUC: flatent.UserConfig{
+					BQ: flatent.CompressionUserConfig{Enabled: true},
+				},
+			},
+			expectedCategory: DimensionCategoryBQ,
+			expectedSegments: 0,
+		},
+		{
+			name: "Dynamic with HNSW standard, Flat standard (falls back to Flat standard)",
+			config: dynamicent.UserConfig{
+				HnswUC: enthnsw.UserConfig{
+					PQ: enthnsw.PQConfig{Enabled: false},
+					BQ: enthnsw.BQConfig{Enabled: false},
+					SQ: enthnsw.SQConfig{Enabled: false},
+					RQ: enthnsw.RQConfig{Enabled: false},
+				},
+				FlatUC: flatent.UserConfig{
+					BQ: flatent.CompressionUserConfig{Enabled: false},
+				},
+			},
+			expectedCategory: DimensionCategoryStandard,
+			expectedSegments: 0,
+		},
+
+		// Edge Cases
+		{
+			name: "Unknown config type (default case)",
+			config: struct {
+				schemaConfig.VectorIndexConfig
+			}{},
+			expectedCategory: DimensionCategoryStandard,
+			expectedSegments: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			category, segments := GetDimensionCategory(tt.config)
+
+			assert.Equal(t, tt.expectedCategory, category,
+				"Expected category %v, got %v", tt.expectedCategory, category)
+			assert.Equal(t, tt.expectedSegments, segments,
+				"Expected segments %d, got %d", tt.expectedSegments, segments)
+
+			// Verify that the category string representation is correct
+			expectedString := tt.expectedCategory.String()
+			assert.NotEmpty(t, expectedString, "Category string should not be empty")
+
+			// Verify specific string representations
+			switch tt.expectedCategory {
+			case DimensionCategoryStandard:
+				assert.Equal(t, "standard", expectedString)
+			case DimensionCategoryPQ:
+				assert.Equal(t, "pq", expectedString)
+			case DimensionCategoryBQ:
+				assert.Equal(t, "bq", expectedString)
+			case DimensionCategorySQ:
+				assert.Equal(t, "sq", expectedString)
+			case DimensionCategoryRQ:
+				assert.Equal(t, "rq", expectedString)
+			}
+		})
+	}
 }
 
 func TestDimensionTrackingWithGrouping(t *testing.T) {

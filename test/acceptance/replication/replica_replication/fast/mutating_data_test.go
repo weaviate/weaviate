@@ -152,10 +152,12 @@ func test(suite *ReplicationTestSuite, strategy string) {
 	cancel() // stop mutating to allow the verification to proceed
 
 	t.Log("Waiting for a while to ensure all data is replicated")
-	time.Sleep(time.Minute) // Wait a bit to ensure all data is replicated
 
 	// Verify that shards all have consistent data
 	t.Log("Verifying data consistency of tenant")
+
+	t.Log("Replication operation completed successfully, cancelling data mutation")
+	cancel() // stop mutating to allow the verification to proceed
 
 	verbose := verbosity.OutputVerbose
 	ns, err = helper.Client(t).Nodes.NodesGetClass(

@@ -15,7 +15,6 @@ import (
 	"context"
 
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 func (rs SchemaReader) WaitForUpdate(ctx context.Context, version uint64) error {
@@ -71,7 +70,7 @@ func (rs SchemaReader) ShardOwnerWithVersion(ctx context.Context, class, shard s
 		owner, _, err = s.ShardOwner(class, shard)
 		return err
 	})
-	return
+	return owner, err
 }
 
 // ShardFromUUID returns shard name of the provided uuid
@@ -85,7 +84,7 @@ func (rs SchemaReader) ShardFromUUIDWithVersion(ctx context.Context, class strin
 		}
 		return nil
 	})
-	return
+	return shard, err
 }
 
 // ShardReplicas returns the replica nodes of a shard
@@ -97,7 +96,7 @@ func (rs SchemaReader) ShardReplicasWithVersion(ctx context.Context, class, shar
 		nodes, _, err = s.ShardReplicas(class, shard)
 		return err
 	})
-	return
+	return nodes, err
 }
 
 // TenantsShardsWithVersion returns shard name for the provided tenant and its activity status
@@ -113,18 +112,5 @@ func (rs SchemaReader) TenantsShardsWithVersion(ctx context.Context, version uin
 		return nil
 	})
 
-	return
-}
-
-func (rs SchemaReader) CopyShardingStateWithVersion(ctx context.Context, class string, version uint64) (ss *sharding.State, err error) {
-	if version > 0 {
-		return rs.versionedSchemaReader.CopyShardingState(ctx, class, version)
-	}
-	rs.retry(func(s *schema) error {
-		if ss, _ = s.CopyShardingState(class); ss == nil {
-			return ErrClassNotFound
-		}
-		return nil
-	})
-	return
+	return tenantShards, err
 }

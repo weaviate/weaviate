@@ -161,7 +161,7 @@ func Test_Schema_Authorization(t *testing.T) {
 			case "RegisterSchemaUpdateCallback",
 				// introduced by sync.Mutex in go 1.18
 				"UpdateMeta", "GetSchemaSkipAuth", "IndexedInverted", "RLock", "RUnlock", "Lock", "Unlock",
-				"TryLock", "RLocker", "TryRLock", "CopyShardingState", "TxManager", "RestoreClass",
+				"TryLock", "RLocker", "TryRLock", "TxManager", "RestoreClass",
 				"ShardOwner", "TenantShard", "ShardFromUUID", "LockGuard", "RLockGuard", "ShardReplicas",
 				"GetCachedClassNoAuth",
 				// internal methods to indicate readiness state
@@ -227,7 +227,7 @@ func callFuncByName(manager interface{}, funcName string, params ...interface{})
 		in[i] = reflect.ValueOf(param)
 	}
 	out = m.Call(in)
-	return
+	return out, err
 }
 
 func allExportedMethods(subject interface{}) []string {

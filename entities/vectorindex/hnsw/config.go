@@ -35,7 +35,7 @@ const (
 	FilterStrategySweeping = "sweeping"
 	FilterStrategyAcorn    = "acorn"
 
-	DefaultFilterStrategy = FilterStrategySweeping
+	DefaultFilterStrategy = FilterStrategyAcorn
 
 	// Fail validation if those criteria are not met
 	MinmumMaxConnections  = 4
@@ -117,10 +117,10 @@ func (u *UserConfig) SetDefaults() {
 		Bits:         DefaultRQBits,
 		RescoreLimit: DefaultRQRescoreLimit,
 	}
-	if strategy := os.Getenv("HNSW_DEFAULT_FILTER_STRATEGY"); strategy == FilterStrategyAcorn {
-		u.FilterStrategy = FilterStrategyAcorn
-	} else {
+	if strategy := os.Getenv("HNSW_DEFAULT_FILTER_STRATEGY"); strategy == FilterStrategySweeping {
 		u.FilterStrategy = FilterStrategySweeping
+	} else {
+		u.FilterStrategy = FilterStrategyAcorn
 	}
 	u.Multivector = MultivectorConfig{
 		Aggregation: DefaultMultivectorAggregation,

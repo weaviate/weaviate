@@ -23,6 +23,8 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/repos/db"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
+	"github.com/weaviate/weaviate/cluster/usage"
 	"github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -30,57 +32,6 @@ import (
 
 func setupDebugHandlers(appState *state.State) {
 	logger := appState.Logger.WithField("handler", "debug")
-
-	http.HandleFunc(
-		"/debug/async-replication/remove-target-overrides",
-		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			collectionName := r.URL.Query().Get("collection")
-			if collectionName == "" {
-				http.Error(w, "collection is required", http.StatusBadRequest)
-				return
-			}
-			shardNamesStr := r.URL.Query().Get("shardNames")
-			if shardNamesStr == "" {
-				http.Error(w, "shardNames is required", http.StatusBadRequest)
-				return
-			}
-			shardNames := strings.Split(shardNamesStr, ",")
-			if len(shardNames) == 0 {
-				http.Error(w, "shardNames len > 0 is required", http.StatusBadRequest)
-				return
-			}
-			timeoutStr := r.URL.Query().Get("timeout")
-			timeoutDuration := time.Hour
-			var err error
-			if timeoutStr != "" {
-				timeoutDuration, err = time.ParseDuration(timeoutStr)
-				if err != nil {
-					http.Error(w, "timeout duration has invalid format", http.StatusBadRequest)
-					return
-				}
-			}
-			ctx, cancel := context.WithTimeout(context.Background(), timeoutDuration)
-			defer cancel()
-
-			idx := appState.DB.GetIndex(schema.ClassName(collectionName))
-			if idx == nil {
-				logger.WithField("collection", collectionName).Error("collection not found")
-				http.Error(w, "collection not found", http.StatusNotFound)
-				return
-			}
-			for _, shardName := range shardNames {
-				err = idx.IncomingRemoveAllAsyncReplicationTargetNodes(ctx, shardName)
-				if err != nil {
-					logger.WithError(err).WithField("collection", collectionName).WithField("shard", shardName).
-						Warn("debug endpoint failed to remove all async replication target nodes")
-					http.Error(w, "failed to remove all async replication target nodes", http.StatusInternalServerError)
-					return
-				}
-				logger.WithField("collection", collectionName).WithField("shard", shardName).
-					Info("debug endpoint removed all async replication target nodes")
-			}
-			w.WriteHeader(http.StatusAccepted)
-		}))
 
 	http.HandleFunc("/debug/index/rebuild/inverted", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		colName := r.URL.Query().Get("collection")
@@ -583,6 +534,26 @@ func setupDebugHandlers(appState *state.State) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
+	http.HandleFunc("/debug/usage", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		service := usage.NewService(appState.SchemaManager, appState.DB, appState.Modules, appState.Cluster.LocalName(), appState.Logger)
+
+		stats, err := service.Usage(r.Context())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		jsonBytes, err := json.Marshal(stats)
+		if err != nil {
+			logger.WithError(err).Error("marshal failed on stats")
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		w.WriteHeader(http.StatusOK)
+		w.Write(jsonBytes)
+	}))
+
 	http.HandleFunc("/debug/index/rebuild/vector", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !config.Enabled(os.Getenv("ASYNC_INDEXING")) {
 			http.Error(w, "async indexing is not enabled", http.StatusNotImplemented)
@@ -670,6 +641,46 @@ func setupDebugHandlers(appState *state.State) {
 		w.WriteHeader(http.StatusAccepted)
 	}))
 
+	http.HandleFunc("/debug/index/requantize/vector", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		colName := r.URL.Query().Get("collection")
+		shardName := r.URL.Query().Get("shard")
+		targetVector := r.URL.Query().Get("vector")
+
+		if colName == "" || shardName == "" {
+			http.Error(w, "collection and shard are required", http.StatusBadRequest)
+			return
+		}
+
+		idx := appState.DB.GetIndex(schema.ClassName(colName))
+		if idx == nil {
+			logger.WithField("collection", colName).Error("collection not found")
+			http.Error(w, "collection not found", http.StatusNotFound)
+			return
+		}
+
+		err := idx.DebugRequantizeIndex(context.Background(), shardName, targetVector)
+		if err != nil {
+			logger.
+				WithField("shard", shardName).
+				WithField("targetVector", targetVector).
+				WithError(err).
+				Error("failed to requantize vector index")
+			if errTxt := err.Error(); strings.Contains(errTxt, "not found") {
+				http.Error(w, "shard not found", http.StatusNotFound)
+			}
+
+			http.Error(w, "failed to requantize vector index", http.StatusInternalServerError)
+			return
+		}
+
+		logger.
+			WithField("shard", shardName).
+			WithField("targetVector", targetVector).
+			Info("requantize started")
+
+		w.WriteHeader(http.StatusAccepted)
+	}))
+
 	http.HandleFunc("/debug/stats/collection/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := strings.TrimSpace(strings.TrimPrefix(r.URL.Path, "/debug/stats/collection/"))
 		parts := strings.Split(path, "/")
@@ -712,7 +723,13 @@ func setupDebugHandlers(appState *state.State) {
 			return
 		}
 
-		stats, err := vidx.Stats()
+		h, ok := vidx.(hnswStats)
+		if !ok {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		stats, err := h.Stats()
 		if err != nil {
 			logger.Error(err)
 			http.Error(w, err.Error(), http.StatusBadRequest)
@@ -761,4 +778,8 @@ func setupDebugHandlers(appState *state.State) {
 
 type MaintenanceMode struct {
 	Enabled bool `json:"enabled"`
+}
+
+type hnswStats interface {
+	Stats() (*hnsw.HnswStats, error)
 }

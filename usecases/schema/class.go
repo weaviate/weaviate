@@ -26,7 +26,6 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
-	cschema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/classcache"
 	entcfg "github.com/weaviate/weaviate/entities/config"
@@ -207,6 +206,10 @@ func setDefaultQuantization(vectorIndexType string, vectorIndexConfig schemaConf
 			hnswConfig.PQ.Enabled = true
 		case "sq":
 			hnswConfig.SQ.Enabled = true
+		case "rq-1":
+			hnswConfig.RQ.Enabled = true
+			hnswConfig.RQ.Bits = 1
+			hnswConfig.RQ.RescoreLimit = hnsw.DefaultBRQRescoreLimit
 		case "rq-8":
 			hnswConfig.RQ.Enabled = true
 			hnswConfig.RQ.Bits = 8
@@ -289,29 +292,23 @@ func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m
 	}
 
 	for _, alias := range aliases {
-		var err error
-		_, err = h.schemaManager.CreateAlias(ctx, alias.Alias, class)
-		if errors.Is(err, cschema.ErrAliasExists) {
-			// Overwrite if user asks to during restore
-			if overwriteAlias {
-				_, err = h.schemaManager.DeleteAlias(ctx, alias.Alias)
-				if err != nil {
-					return fmt.Errorf("failed to restore alias for class: delete alias failed: %w", err)
-				}
-				// retry again
-				_, err = h.schemaManager.CreateAlias(ctx, alias.Alias, class)
-				if err != nil {
-					return fmt.Errorf("failed to restore alias for class: create alias failed: %w", err)
-				}
-				return nil
-			}
-			// Schema returned alias already exists error. So let user know
-			// that there is a "flag overwrite" if she want's to overwrite alias.
-			return fmt.Errorf("failed to restore alias for class: alias already exists. You can overwrite using `overwrite_alias` param when restoring")
+		resolved := h.schemaReader.ResolveAlias(alias.Alias)
+
+		// Alias do exist and don't want to overwrite
+		if resolved != "" && !overwriteAlias {
+			continue
 		}
 
+		if resolved != "" {
+			_, err := h.schemaManager.DeleteAlias(ctx, alias.Alias)
+			if err != nil {
+				return fmt.Errorf("failed to restore alias for class: delete alias %s failed: %w", alias.Alias, err)
+			}
+		}
+
+		_, err := h.schemaManager.CreateAlias(ctx, alias.Alias, class)
 		if err != nil {
-			return fmt.Errorf("failed to restore alias for class: %w", err)
+			return fmt.Errorf("failed to restore alias for class: create alias %s failed: %w", alias.Alias, err)
 		}
 	}
 
@@ -374,37 +371,13 @@ func UpdateClassInternal(h *Handler, ctx context.Context, className string, upda
 		return err
 	}
 
-	initial := h.schemaReader.ReadOnlyClass(className)
-	var shardingState *sharding.State
-
-	if initial != nil {
-		_, err := validateUpdatingMT(initial, updated)
-		if err != nil {
-			return err
-		}
-
-		initialRF := initial.ReplicationConfig.Factor
-		updatedRF := updated.ReplicationConfig.Factor
-
-		if initialRF != updatedRF {
-			ss, _, err := h.schemaManager.QueryShardingState(className)
-			if err != nil {
-				return fmt.Errorf("query sharding state for %q: %w", className, err)
-			}
-			shardingState, err = h.scaleOut.Scale(ctx, className, ss.Config, initialRF, updatedRF)
-			if err != nil {
-				return fmt.Errorf(
-					"scale %q from %d replicas to %d: %w",
-					className, initialRF, updatedRF, err)
-			}
-		}
-
+	if initial := h.schemaReader.ReadOnlyClass(className); initial != nil {
 		if err := validateImmutableFields(initial, updated); err != nil {
 			return err
 		}
 	}
-
-	_, err := h.schemaManager.UpdateClass(ctx, updated, shardingState)
+	// A nil sharding state means that the sharding state will not be updated.
+	_, err := h.schemaManager.UpdateClass(ctx, updated, nil)
 	return err
 }
 
@@ -947,6 +920,11 @@ func (h *Handler) validateVectorIndexType(vectorIndexType string) error {
 			return fmt.Errorf("the dynamic index can only be created under async indexing environment (ASYNC_INDEXING=true)")
 		}
 		return nil
+	case vectorindex.VectorIndexTypeSPFresh:
+		if !h.config.SPFreshEnabled {
+			return fmt.Errorf("the spfresh index is available only in experimental mode")
+		}
+		return nil
 	default:
 		return errors.Errorf("unrecognized or unsupported vectorIndexType %q",
 			vectorIndexType)
@@ -979,7 +957,7 @@ func validateUpdatingMT(current, update *models.Class) (enabled bool, err error)
 		err = validateMT(update)
 	}
 
-	return
+	return enabled, err
 }
 
 func validateImmutableFields(initial, updated *models.Class) error {

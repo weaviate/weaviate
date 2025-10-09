@@ -35,6 +35,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/entities/tokenizer"
 )
 
 // var metrics = lsmkv.BlockMetrics{}
@@ -94,8 +95,7 @@ func (b *BM25Searcher) wandBlock(
 	tokenizationTime := time.Since(start)
 	helpers.AnnotateSlowQueryLog(ctx, "kwd_1_tok_time", tokenizationTime)
 	start = time.Now()
-
-	for _, tokenization := range helpers.Tokenizations {
+	for _, tokenization := range tokenizer.Tokenizations {
 		propNames := propNamesByTokenization[tokenization]
 		if len(propNames) > 0 {
 			lenAllResults := len(allResults)

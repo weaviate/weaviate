@@ -15,7 +15,6 @@ package clusterintegrationtest
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"testing"
 	"time"
@@ -41,9 +40,6 @@ func TestDistributedBackups(t *testing.T) {
 
 	t.Run("setup", func(t *testing.T) {
 		overallShardState := multiShardState(numNodes)
-		shardStateSerialized, err := json.Marshal(overallShardState)
-		require.Nil(t, err)
-
 		backend = &fakeBackupBackend{
 			backupsPath: dirName,
 			backupID:    backupID,
@@ -55,18 +51,18 @@ func TestDistributedBackups(t *testing.T) {
 				name: fmt.Sprintf("node-%d", i),
 			}
 
-			node.init(dirName, shardStateSerialized, &nodes)
 			nodes = append(nodes, node)
+		}
+		for _, node := range nodes {
+			node.init(t, dirName, &nodes, overallShardState)
 		}
 	})
 
 	t.Run("apply schema", func(t *testing.T) {
 		for i := range nodes {
-			err := nodes[i].migrator.AddClass(context.Background(), class(),
-				nodes[i].schemaManager.shardState)
+			err := nodes[i].migrator.AddClass(context.Background(), class())
 			require.Nil(t, err)
-			err = nodes[i].migrator.AddClass(context.Background(), secondClassWithRef(),
-				nodes[i].schemaManager.shardState)
+			err = nodes[i].migrator.AddClass(context.Background(), secondClassWithRef())
 			require.Nil(t, err)
 			nodes[i].schemaManager.schema.Objects.Classes = append(nodes[i].schemaManager.schema.Objects.Classes,
 				class(), secondClassWithRef())

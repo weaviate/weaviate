@@ -59,14 +59,13 @@ type generativeQueryParams interface {
 }
 
 func NewReplier(
-	uses125 bool,
 	uses127 bool,
 	generativeQueryParams generativeQueryParams,
 	logger logrus.FieldLogger,
 ) *Replier {
 	return &Replier{
 		generative: generative.NewReplier(logger, generativeQueryParams, uses127),
-		mapper:     &Mapper{uses125: uses125},
+		mapper:     &Mapper{},
 		logger:     logger,
 	}
 }

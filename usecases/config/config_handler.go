@@ -119,7 +119,7 @@ type Config struct {
 	DefaultVectorizerModule             string                   `json:"default_vectorizer_module" yaml:"default_vectorizer_module"`
 	DefaultVectorDistanceMetric         string                   `json:"default_vector_distance_metric" yaml:"default_vector_distance_metric"`
 	EnableModules                       string                   `json:"enable_modules" yaml:"enable_modules"`
-	EnableApiBasedModules               bool                     `json:"enable_api_based_modules" yaml:"enable_api_based_modules"`
+	EnableApiBasedModules               bool                     `json:"api_based_modules_disabled" yaml:"api_based_modules_disabled"`
 	ModulesPath                         string                   `json:"modules_path" yaml:"modules_path"`
 	ModuleHttpClientTimeout             time.Duration            `json:"modules_client_timeout" yaml:"modules_client_timeout"`
 	AutoSchema                          AutoSchema               `json:"auto_schema" yaml:"auto_schema"`
@@ -158,6 +158,7 @@ type Config struct {
 	DistributedTasks                    DistributedTasksConfig   `json:"distributed_tasks" yaml:"distributed_tasks"`
 	ReplicationEngineMaxWorkers         int                      `json:"replication_engine_max_workers" yaml:"replication_engine_max_workers"`
 	ReplicationEngineFileCopyWorkers    int                      `json:"replication_engine_file_copy_workers" yaml:"replication_engine_file_copy_workers"`
+	SPFreshEnabled                      bool                     `json:"spfresh_enabled" yaml:"spfresh_enabled"`
 	// Raft Specific configuration
 	// TODO-RAFT: Do we want to be able to specify these with config file as well ?
 	Raft Raft
@@ -222,6 +223,9 @@ type Config struct {
 
 	// Usage configuration for the usage module
 	Usage usagetypes.UsageConfig `json:"usage" yaml:"usage"`
+
+	// The minimum timeout for the server to wait before it returns an error
+	MinimumInternalTimeout time.Duration `json:"minimum_internal_timeout" yaml:"minimum_internal_timeout"`
 }
 
 type MapToBlockamaxConfig struct {
@@ -536,10 +540,11 @@ type Raft struct {
 	SnapshotThreshold uint64
 	TrailingLogs      uint64
 
-	HeartbeatTimeout       time.Duration
-	ElectionTimeout        time.Duration
-	LeaderLeaseTimeout     time.Duration
-	TimeoutsMultiplier     int
+	HeartbeatTimeout   time.Duration
+	ElectionTimeout    time.Duration
+	LeaderLeaseTimeout time.Duration
+	TimeoutsMultiplier int
+
 	ConsistencyWaitTimeout time.Duration
 
 	BootstrapTimeout   time.Duration

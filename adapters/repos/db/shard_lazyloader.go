@@ -165,6 +165,9 @@ func (l *LazyLoadShard) NotifyReady() {
 }
 
 func (l *LazyLoadShard) GetStatus() storagestate.Status {
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
+
 	if l.loaded {
 		return l.shard.GetStatus()
 	}
@@ -493,17 +496,17 @@ func (l *LazyLoadShard) Dimensions(ctx context.Context, targetVector string) (in
 
 	// For unloaded shards, get dimensions from unloaded shard/tenant calculation
 	dimensionality, err := l.shardOpts.index.CalculateUnloadedDimensionsUsage(ctx, l.shardOpts.name, targetVector)
-	return dimensionality.Count, err
+	return dimensionality.Count * dimensionality.Dimensions, err
 }
 
-func (l *LazyLoadShard) QuantizedDimensions(ctx context.Context, targetVector string, segments int) int {
+func (l *LazyLoadShard) QuantizedDimensions(ctx context.Context, targetVector string, segments int) (int, error) {
 	l.mustLoad()
 	return l.shard.QuantizedDimensions(ctx, targetVector, segments)
 }
 
-func (l *LazyLoadShard) resetDimensionsLSM() error {
+func (l *LazyLoadShard) resetDimensionsLSM(ctx context.Context) error {
 	l.mustLoad()
-	return l.shard.resetDimensionsLSM()
+	return l.shard.resetDimensionsLSM(ctx)
 }
 
 func (l *LazyLoadShard) Aggregate(ctx context.Context, params aggregation.Params, modules *modules.Provider) (*aggregation.Result, error) {
@@ -560,6 +563,11 @@ func (l *LazyLoadShard) FillQueue(targetVector string, from uint64) error {
 func (l *LazyLoadShard) RepairIndex(ctx context.Context, targetVector string) error {
 	l.mustLoad()
 	return l.shard.RepairIndex(ctx, targetVector)
+}
+
+func (l *LazyLoadShard) RequantizeIndex(ctx context.Context, targetVector string) error {
+	l.mustLoad()
+	return l.shard.RequantizeIndex(ctx, targetVector)
 }
 
 func (l *LazyLoadShard) Shutdown(ctx context.Context) error {
