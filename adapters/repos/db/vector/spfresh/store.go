@@ -21,6 +21,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 type LSMStore struct {
@@ -31,13 +32,22 @@ type LSMStore struct {
 	metrics    *Metrics
 }
 
-func NewLSMStore(store *lsmkv.Store, metrics *Metrics, bucketName string) (*LSMStore, error) {
-	err := store.CreateOrLoadBucket(
-		context.Background(),
+func NewLSMStore(store *lsmkv.Store, metrics *Metrics, bucketName string, minMMapSize int64,
+	maxWalReuseSize int64,
+	allocChecker memwatch.AllocChecker,
+	lazyLoadSegments bool,
+	writeSegmentInfoIntoFileName bool,
+	writeMetadataFilesEnabled bool,
+) (*LSMStore, error) {
+	err := store.CreateOrLoadBucket(context.Background(),
 		bucketName,
 		lsmkv.WithStrategy(lsmkv.StrategySetCollection),
-		lsmkv.WithMinMMapSize(8192),
-		lsmkv.WithWalThreshold(4096),
+		lsmkv.WithAllocChecker(allocChecker),
+		lsmkv.WithMinMMapSize(minMMapSize),
+		lsmkv.WithMinWalThreshold(maxWalReuseSize),
+		lsmkv.WithLazySegmentLoading(lazyLoadSegments),
+		lsmkv.WithWriteSegmentInfoIntoFileName(writeSegmentInfoIntoFileName),
+		lsmkv.WithWriteMetadata(writeMetadataFilesEnabled),
 	)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to create or load bucket %s", bucketName)
@@ -157,7 +167,9 @@ func (l *LSMStore) Append(ctx context.Context, postingID uint64, vector Vector) 
 }
 
 func (l *LSMStore) Flush() error {
-	return l.bucket.FlushMemtable()
+	// nothing to do here
+	// Shard will take care of handling store's buckets
+	return nil
 }
 
 func bucketName(id string) string {
