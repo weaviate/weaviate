@@ -71,6 +71,9 @@ func (sg *SegmentGroup) findCompactionCandidates() (pair []int, level uint16) {
 	// SegmentGroup should refrain from flushing until its
 	// shard indicates otherwise
 	if sg.isReadyOnly() {
+		sg.logger.WithField("action", "lsm_compaction").
+			WithField("path", sg.dir).
+			Debug("compaction halted due to shard READONLY status")
 		return nil, 0
 	}
 
@@ -195,7 +198,8 @@ func (sg *SegmentGroup) segmentAtPos(pos int) *segment {
 
 func segmentID(path string) string {
 	filename := filepath.Base(path)
-	return strings.TrimSuffix(strings.TrimPrefix(filename, "segment-"), ".db")
+	filename, _, _ = strings.Cut(filename, ".")
+	return strings.TrimPrefix(filename, "segment-")
 }
 
 func (sg *SegmentGroup) compactOnce() (bool, error) {
@@ -563,7 +567,7 @@ func (sg *SegmentGroup) monitorSegments() {
 	if sg.metrics.criticalBucketsOnly {
 		bucket := path.Base(sg.dir)
 		if bucket != helpers.ObjectsBucketLSM &&
-			bucket != helpers.VectorsCompressedBucketLSM {
+			!strings.HasPrefix(bucket, helpers.VectorsCompressedBucketLSM) {
 			return
 		}
 		if bucket == helpers.ObjectsBucketLSM {
@@ -572,7 +576,7 @@ func (sg *SegmentGroup) monitorSegments() {
 				"path":     sg.dir,
 			}).Set(float64(sg.Len()))
 		}
-		if bucket == helpers.VectorsCompressedBucketLSM {
+		if strings.HasPrefix(bucket, helpers.VectorsCompressedBucketLSM) {
 			sg.metrics.CompressedVecsBucketSegments.With(prometheus.Labels{
 				"strategy": sg.strategy,
 				"path":     sg.dir,

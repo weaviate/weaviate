@@ -42,9 +42,10 @@ const (
 
 var (
 	BuiltInPolicies = map[string]string{
-		authorization.Viewer: authorization.READ,
-		authorization.Admin:  VALID_VERBS,
-		authorization.Root:   VALID_VERBS,
+		authorization.Viewer:   authorization.READ,
+		authorization.Admin:    VALID_VERBS,
+		authorization.Root:     VALID_VERBS,
+		authorization.ReadOnly: authorization.READ,
 	}
 	weaviate_actions_prefixes = map[string]string{
 		CRUD:                                 "manage",
@@ -444,7 +445,10 @@ func TrimRoleNamePrefix(name string) string {
 	return strings.TrimPrefix(name, ROLE_NAME_PREFIX)
 }
 
-func GetUserAndPrefix(name string) (string, string) {
+func GetUserAndPrefix(name string) (string, string, error) {
 	splits := strings.Split(name, PREFIX_SEPARATOR)
-	return splits[1], splits[0]
+	if len(splits) != 2 {
+		return "", "", fmt.Errorf("invalid name: %s", name)
+	}
+	return splits[1], splits[0], nil
 }

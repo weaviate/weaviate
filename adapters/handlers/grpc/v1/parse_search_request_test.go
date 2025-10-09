@@ -44,6 +44,7 @@ import (
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 )
 
+// TODO amourao: add operator and minimum should match to the tests
 var (
 	classname                = "TestClass"
 	refClass1                = "OtherClass"
@@ -2331,6 +2332,22 @@ func TestGRPCSearchRequest(t *testing.T) {
 					Certainty:     0.6,
 				},
 				TargetVectorCombination: &dto.TargetCombination{Type: dto.Minimum, Weights: []float32{0}},
+			},
+			error: false,
+		},
+		{
+			name: "non vector search with certainty requested",
+			req: &pb.SearchRequest{
+				Collection: mixedVectorsClass,
+				Metadata:   &pb.MetadataRequest{Certainty: true},
+			},
+			out: dto.GetParams{
+				ClassName:  mixedVectorsClass,
+				Pagination: defaultPagination,
+				Properties: defaultNamedVecProps,
+				AdditionalProperties: additional.Properties{
+					NoProps: false, Certainty: false,
+				},
 			},
 			error: false,
 		},

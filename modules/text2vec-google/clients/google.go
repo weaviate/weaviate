@@ -18,7 +18,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents/apikey"
@@ -30,11 +29,27 @@ import (
 
 type taskType string
 
+// Retrieval Use cases
 var (
-	// Specifies the given text is a document in a search/retrieval setting
-	retrievalQuery taskType = "RETRIEVAL_QUERY"
+	// Document Task Type:
 	// Specifies the given text is a query in a search/retrieval setting
 	retrievalDocument taskType = "RETRIEVAL_DOCUMENT"
+	// Query Task Types:
+	// Standard search query where you want to find relevant documents
+	retrievalQuery taskType = "RETRIEVAL_QUERY"
+	// Queries are expected to be proper questions
+	questionAnswering taskType = "QUESTION_ANSWERING"
+	// Retrieve a document from your corpus that proves or disproves a statement
+	factVerification taskType = "FACT_VERIFICATION"
+	// Retrieve relevant code blocks using plain text queries
+	retrievalCode taskType = "CODE_RETRIEVAL_QUERY"
+)
+
+// Single-input Use Cases
+var (
+	classification     taskType = "CLASSIFICATION"
+	clustering         taskType = "CLUSTERING"
+	semanticSimilarity taskType = "SEMANTIC_SIMILARITY"
 )
 
 func buildURL(useGenerativeAI bool, apiEndoint, projectID, modelID string) string {
@@ -43,7 +58,7 @@ func buildURL(useGenerativeAI bool, apiEndoint, projectID, modelID string) strin
 			// legacy PaLM API
 			return "https://generativelanguage.googleapis.com/v1beta3/models/embedding-gecko-001:batchEmbedText"
 		}
-		return fmt.Sprintf("https://generativelanguage.googleapis.com/v1/models/%s:batchEmbedContents", modelID)
+		return fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:batchEmbedContents", modelID)
 	}
 	urlTemplate := "https://%s/v1/projects/%s/locations/us-central1/publishers/google/models/%s:predict"
 	return fmt.Sprintf(urlTemplate, apiEndoint, projectID, modelID)
@@ -74,13 +89,13 @@ func New(apiKey string, useGoogleAuth bool, timeout time.Duration, logger logrus
 func (v *google) Vectorize(ctx context.Context, input []string,
 	config ent.VectorizationConfig, titlePropertyValue string,
 ) (*ent.VectorizationResult, error) {
-	return v.vectorize(ctx, input, retrievalDocument, titlePropertyValue, config)
+	return v.vectorize(ctx, input, v.getDocumentTaskType(config.TaskType), titlePropertyValue, config)
 }
 
 func (v *google) VectorizeQuery(ctx context.Context, input []string,
 	config ent.VectorizationConfig,
 ) (*ent.VectorizationResult, error) {
-	return v.vectorize(ctx, input, retrievalQuery, "", config)
+	return v.vectorize(ctx, input, v.getQueryTaskType(config.TaskType), "", config)
 }
 
 func (v *google) vectorize(ctx context.Context, input []string, taskType taskType,
@@ -137,7 +152,7 @@ func (v *google) useGenerativeAIEndpoint(config ent.VectorizationConfig) bool {
 
 func (v *google) getPayload(useGenerativeAI bool, input []string,
 	taskType taskType, title string, config ent.VectorizationConfig,
-) interface{} {
+) any {
 	if useGenerativeAI {
 		if v.isLegacy(config) {
 			return batchEmbedTextRequestLegacy{Texts: input}
@@ -153,23 +168,22 @@ func (v *google) getPayload(useGenerativeAI bool, input []string,
 					Content: content{
 						Parts: parts,
 					},
-					TaskType: taskType,
-					Title:    title,
+					TaskType:             taskType,
+					Title:                title,
+					OutputDimensionality: config.Dimensions,
 				},
 			},
 		}
 		return req
 	}
-	isModelVersion001 := strings.HasSuffix(config.Model, "@001")
 	instances := make([]instance, len(input))
 	for i := range input {
-		if isModelVersion001 {
-			instances[i] = instance{Content: input[i]}
-		} else {
-			instances[i] = instance{Content: input[i], TaskType: taskType, Title: title}
-		}
+		instances[i] = instance{Content: input[i], TaskType: taskType, Title: title}
 	}
-	return embeddingsRequest{instances}
+	if config.Dimensions != nil {
+		return embeddingsRequest{Instances: instances, Parameters: &parameters{OutputDimensionality: config.Dimensions}}
+	}
+	return embeddingsRequest{Instances: instances}
 }
 
 func (v *google) checkResponse(statusCode int, googleApiError *googleApiError) error {
@@ -268,13 +282,53 @@ func (v *google) isLegacy(config ent.VectorizationConfig) bool {
 	return isLegacyModel(config.Model)
 }
 
+func (v *google) getQueryTaskType(in string) taskType {
+	switch taskType(in) {
+	// Retrieval Use cases
+	case retrievalCode:
+		return retrievalCode
+	case questionAnswering:
+		return questionAnswering
+	case factVerification:
+		return factVerification
+	// Single-input Use Cases
+	case classification:
+		return classification
+	case clustering:
+		return clustering
+	case semanticSimilarity:
+		return semanticSimilarity
+	default:
+		return retrievalQuery
+	}
+}
+
+func (v *google) getDocumentTaskType(in string) taskType {
+	switch taskType(in) {
+	case classification:
+		return classification
+	case clustering:
+		return clustering
+	case semanticSimilarity:
+		return semanticSimilarity
+	default:
+		// default are retrieval use cases
+		return retrievalDocument
+	}
+}
+
 func isLegacyModel(model string) bool {
 	// Check if we are using legacy model which runs on deprecated PaLM API
 	return model == "embedding-gecko-001"
 }
 
 type embeddingsRequest struct {
-	Instances []instance `json:"instances,omitempty"`
+	Instances  []instance  `json:"instances,omitempty"`
+	Parameters *parameters `json:"parameters,omitempty"`
+}
+
+type parameters struct {
+	OutputDimensionality *int64 `json:"outputDimensionality,omitempty"`
 }
 
 type instance struct {
@@ -329,10 +383,11 @@ type batchEmbedContents struct {
 }
 
 type embedContentRequest struct {
-	Model    string   `json:"model"`
-	Content  content  `json:"content"`
-	TaskType taskType `json:"task_type,omitempty"`
-	Title    string   `json:"title,omitempty"`
+	Model                string   `json:"model"`
+	Content              content  `json:"content"`
+	TaskType             taskType `json:"taskType,omitempty"`
+	Title                string   `json:"title,omitempty"`
+	OutputDimensionality *int64   `json:"outputDimensionality,omitempty"`
 }
 
 type content struct {

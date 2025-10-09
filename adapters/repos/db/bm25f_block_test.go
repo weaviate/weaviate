@@ -27,10 +27,12 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/searchparams"
+	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 func TestBM25FJourneyBlock(t *testing.T) {
+	config.DefaultUsingBlockMaxWAND = true
 	dirName := t.TempDir()
 
 	logger := logrus.New()
@@ -293,6 +295,7 @@ func TestBM25FJourneyBlock(t *testing.T) {
 }
 
 func TestBM25FSinglePropBlock(t *testing.T) {
+	config.DefaultUsingBlockMaxWAND = true
 	dirName := t.TempDir()
 
 	logger := logrus.New()
@@ -347,6 +350,7 @@ func TestBM25FSinglePropBlock(t *testing.T) {
 }
 
 func TestBM25FWithFiltersBlock(t *testing.T) {
+	config.DefaultUsingBlockMaxWAND = true
 	dirName := t.TempDir()
 
 	logger := logrus.New()
@@ -450,6 +454,7 @@ func TestBM25FWithFiltersBlock(t *testing.T) {
 }
 
 func TestBM25FWithFilters_ScoreIsIdenticalWithOrWithoutFilterBlock(t *testing.T) {
+	config.DefaultUsingBlockMaxWAND = true
 	dirName := t.TempDir()
 
 	logger := logrus.New()
@@ -521,6 +526,7 @@ func TestBM25FWithFilters_ScoreIsIdenticalWithOrWithoutFilterBlock(t *testing.T)
 }
 
 func TestBM25FDifferentParamsJourneyBlock(t *testing.T) {
+	config.DefaultUsingBlockMaxWAND = true
 	dirName := t.TempDir()
 
 	logger := logrus.New()
@@ -586,6 +592,7 @@ func TestBM25FDifferentParamsJourneyBlock(t *testing.T) {
 
 // Compare with previous BM25 version to ensure the algorithm functions correctly
 func TestBM25FCompareBlock(t *testing.T) {
+	config.DefaultUsingBlockMaxWAND = true
 	dirName := t.TempDir()
 
 	logger := logrus.New()
@@ -671,6 +678,7 @@ func TestBM25FCompareBlock(t *testing.T) {
 }
 
 func TestBM25F_ComplexDocumentsBlock(t *testing.T) {
+	config.DefaultUsingBlockMaxWAND = true
 	dirName := t.TempDir()
 
 	logger := logrus.New()
@@ -768,6 +776,7 @@ func TestBM25F_ComplexDocumentsBlock(t *testing.T) {
 }
 
 func TestBM25F_SortMultiPropBlock(t *testing.T) {
+	config.DefaultUsingBlockMaxWAND = true
 	dirName := t.TempDir()
 
 	logger := logrus.New()
@@ -846,4 +855,76 @@ func TestBM25F_SortMultiPropBlock(t *testing.T) {
 		}
 
 	}
+}
+
+func TestBM25FWithFiltersMemtable(t *testing.T) {
+	config.DefaultUsingBlockMaxWAND = true
+	dirName := t.TempDir()
+
+	logger := logrus.New()
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
+	repo, err := New(logger, Config{
+		MemtablesFlushDirtyAfter:  60,
+		RootPath:                  dirName,
+		QueryMaximumResults:       10000,
+		MaxImportGoroutinesFactor: 1,
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor())
+	require.Nil(t, err)
+	repo.SetSchemaGetter(schemaGetter)
+	require.Nil(t, repo.WaitForStartup(context.TODO()))
+	defer repo.Shutdown(context.Background())
+
+	props := SetupClass(t, repo, schemaGetter, logger, 0.5, 1)
+
+	idx := repo.GetIndex("MyClass")
+	require.NotNil(t, idx)
+
+	filter := &filters.LocalFilter{
+		Root: &filters.Clause{
+			Operator: filters.OperatorOr,
+			Operands: []filters.Clause{
+				{
+					Operator: filters.OperatorNotEqual,
+					On: &filters.Path{
+						Class:    schema.ClassName("MyClass"),
+						Property: schema.PropertyName("title"),
+					},
+					Value: &filters.Value{
+						Value: "unrelated",
+						Type:  schema.DataType("text"),
+					},
+				},
+			},
+		},
+	}
+
+	resultIds := make([][]uint64, 2)
+	resultScores := make([][]float32, 2)
+	for i, location := range []string{"memory", "disk"} {
+		t.Run("bm25f with filter "+location, func(t *testing.T) {
+			kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title"}, Query: "my unrelated journey", AdditionalExplanations: true}
+			addit := additional.Properties{}
+			res, scores, err := idx.objectSearch(context.TODO(), 1000, filter, kwr, nil, nil, addit, nil, "", 0, props)
+
+			require.Nil(t, err)
+
+			for j, r := range res {
+				resultIds[i] = append(resultIds[i], r.DocID)
+				resultScores[i] = append(resultScores[i], scores[j])
+			}
+		})
+
+		for _, index := range repo.indices {
+			index.ForEachShard(func(name string, shard ShardLike) error {
+				err := shard.Store().FlushMemtables(context.Background())
+				require.Nil(t, err)
+				return nil
+			})
+		}
+	}
+	assert.Equal(t, resultIds[0], resultIds[1], "Result IDs should be the same for memory and disk")
+	assert.Equal(t, resultScores[0], resultScores[1], "Result scores should be the same for memory and disk")
 }

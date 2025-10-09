@@ -25,6 +25,7 @@ import (
 	"time"
 
 	entcfg "github.com/weaviate/weaviate/entities/config"
+	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/models"
 
 	"github.com/pkg/errors"
@@ -215,7 +216,9 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 		compactionCallbacks = cyclemanager.NewCallbackGroupNoop()
 	}
 
-	sg, err := newSegmentGroup(logger, metrics, compactionCallbacks,
+	b.desiredStrategy = b.strategy
+
+	sg, err := newSegmentGroup(ctx, logger, metrics,
 		sgConfig{
 			dir:                      dir,
 			strategy:                 b.strategy,
@@ -233,77 +236,13 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 			MinMMapSize:              b.minMMapSize,
 			bm25config:               b.bm25Config,
 			keepLevelCompaction:      b.keepLevelCompaction,
-		}, b.allocChecker)
+		}, compactionCallbacks, b,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("init disk segments: %w", err)
 	}
 
-	b.desiredStrategy = b.strategy
-	// Actual strategy is stored in segment files. In case it is SetCollection,
-	// while new implementation uses bitmaps and supposed to be RoaringSet,
-	// bucket and segmentgroup strategy is changed back to SetCollection
-	// (memtables will be created later on, with already modified strategy)
-	// TODO what if only WAL files exists, and there is no segment to get actual strategy?
-	if b.strategy == StrategyRoaringSet && len(sg.segments) > 0 &&
-		sg.segments[0].strategy == segmentindex.StrategySetCollection {
-		b.strategy = StrategySetCollection
-		b.desiredStrategy = StrategyRoaringSet
-		sg.strategy = StrategySetCollection
-	}
-	// As of v1.19 property's IndexInterval setting is replaced with
-	// IndexFilterable (roaring set) + IndexSearchable (map) and enabled by default.
-	// Buckets for text/text[] inverted indexes created before 1.19 have strategy
-	// map and name that since 1.19 is used by filterable indeverted index.
-	// Those buckets (roaring set by configuration, but in fact map) have to be
-	// renamed on startup by migrator. Here actual strategy is set based on
-	// data found in segment files
-	if b.strategy == StrategyRoaringSet && len(sg.segments) > 0 &&
-		sg.segments[0].strategy == segmentindex.StrategyMapCollection {
-		b.strategy = StrategyMapCollection
-		b.desiredStrategy = StrategyRoaringSet
-		sg.strategy = StrategyMapCollection
-	}
-
-	// Inverted segments share a lot of their logic as the MapCollection,
-	// and the main difference is in the way they store their data.
-	// Setting the desired strategy to Inverted will make sure that we can
-	// distinguish between the two strategies for search.
-	// The changes only apply when we have segments on disk,
-	// as the memtables will always be created with the MapCollection strategy.
-	if b.strategy == StrategyInverted && len(sg.segments) > 0 &&
-		sg.segments[0].strategy == segmentindex.StrategyMapCollection {
-		b.strategy = StrategyMapCollection
-		b.desiredStrategy = StrategyInverted
-		sg.strategy = StrategyMapCollection
-	} else if b.strategy == StrategyMapCollection && len(sg.segments) > 0 &&
-		sg.segments[0].strategy == segmentindex.StrategyInverted {
-		// TODO amourao: blockmax "else" to be removed before final release
-		// in case bucket was created as inverted and default strategy was reverted to map
-		// by unsetting corresponding env variable
-		b.strategy = StrategyInverted
-		b.desiredStrategy = StrategyMapCollection
-		sg.strategy = StrategyInverted
-	}
-
 	b.disk = sg
-
-	if err := b.mayRecoverFromCommitLogs(ctx); err != nil {
-		return nil, err
-	}
-
-	// segment load order is as follows:
-	// - find .tmp files and recover them first
-	// - find .db files and load them
-	//   - if there is a .wal file exists for a .db, remove the .db file
-	// - find .wal files and load them into a memtable
-	//   - flush the memtable to a segment file
-	// Thus, files may be loaded in a different order than they were created,
-	// and we need to re-sort them to ensure the order is correct, as compations
-	// and other operations are based on the creation order of the segments
-
-	sort.Slice(b.disk.segments, func(i, j int) bool {
-		return b.disk.segments[i].path < b.disk.segments[j].path
-	})
 
 	if b.active == nil {
 		err = b.setNewActiveMemtable()
@@ -387,13 +326,55 @@ func (b *Bucket) IterateObjects(ctx context.Context, f func(object *storobj.Obje
 	return nil
 }
 
-func (b *Bucket) ApplyToObjectDigests(ctx context.Context, f func(object *storobj.Object) error) error {
+func (b *Bucket) pauseCompaction(ctx context.Context) error {
+	return b.disk.pauseCompaction(ctx)
+}
+
+func (b *Bucket) resumeCompaction(ctx context.Context) error {
+	return b.disk.resumeCompaction(ctx)
+}
+
+// ApplyToObjectDigests iterates over all objects in the bucket, both in memtable
+// and on disk, and applies the given function to each object.
+// The afterInMemCallback is called after the in-memory memtable has been processed.
+// This allows the caller to perform actions that need to happen after the in-memory
+// objects have been processed.
+// The function f is called for each object, and if it returns an error, the
+// processing is stopped and the error is returned.
+// Note: this function pauses compaction while it is running, to ensure a consistent view of the data.
+func (b *Bucket) ApplyToObjectDigests(ctx context.Context,
+	afterInMemCallback func(), f func(object *storobj.Object) error,
+) error {
+	err := b.pauseCompaction(ctx)
+	if err != nil {
+		afterInMemCallback()
+		return fmt.Errorf("pausing compaction: %w", err)
+	}
+	defer func() {
+		ec := errorcompounder.New()
+
+		if err != nil {
+			ec.AddWrap(err, "during ApplyToObjectDigests")
+		}
+
+		err = b.resumeCompaction(ctx)
+		if err != nil {
+			ec.AddWrap(err, "resuming compaction after ApplyToObjectDigests")
+		}
+
+		err = ec.ToError()
+	}()
+
 	// note: it's important to first create the on disk cursor so to avoid potential double scanning over flushing memtable
 	onDiskCursor := b.CursorOnDisk()
 	defer onDiskCursor.Close()
 
+	inmemProcessedDocIDs := make(map[uint64]struct{})
+
 	// note: read-write access to active and flushing memtable will be blocked only during the scope of this inner function
-	err := func() error {
+	err = func() error {
+		defer afterInMemCallback()
+
 		inMemCursor := b.CursorInMem()
 		defer inMemCursor.Close()
 
@@ -409,6 +390,8 @@ func (b *Bucket) ApplyToObjectDigests(ctx context.Context, f func(object *storob
 				if err := f(obj); err != nil {
 					return fmt.Errorf("callback on object '%d' failed: %w", obj.DocID, err)
 				}
+
+				inmemProcessedDocIDs[obj.DocID] = struct{}{}
 			}
 		}
 
@@ -427,6 +410,11 @@ func (b *Bucket) ApplyToObjectDigests(ctx context.Context, f func(object *storob
 			if err != nil {
 				return fmt.Errorf("cannot unmarshal object: %w", err)
 			}
+
+			if _, ok := inmemProcessedDocIDs[obj.DocID]; ok {
+				continue
+			}
+
 			if err := f(obj); err != nil {
 				return fmt.Errorf("callback on object '%d' failed: %w", obj.DocID, err)
 			}
@@ -879,7 +867,7 @@ func (b *Bucket) MapList(ctx context.Context, key []byte, cfgs ...MapListOption)
 
 	segments := [][]MapPair{}
 	// before := time.Now()
-	disk, segmentsDisk, release, err := b.disk.getCollectionAndSegments(key)
+	disk, segmentsDisk, release, err := b.disk.getCollectionAndSegments(ctx, key)
 	if err != nil && !errors.Is(err, lsmkv.NotFound) {
 		return nil, err
 	}
@@ -1574,7 +1562,7 @@ func (b *Bucket) DocPointerWithScoreList(ctx context.Context, key []byte, propBo
 	}
 
 	segments := [][]terms.DocPointerWithScore{}
-	disk, segmentsDisk, release, err := b.disk.getCollectionAndSegments(key)
+	disk, segmentsDisk, release, err := b.disk.getCollectionAndSegments(ctx, key)
 	if err != nil && !errors.Is(err, lsmkv.NotFound) {
 		return nil, err
 	}
@@ -1588,7 +1576,7 @@ func (b *Bucket) DocPointerWithScoreList(ctx context.Context, key []byte, propBo
 
 	for i := range disk {
 		if ctx.Err() != nil {
-			return nil, ctx.Err()
+			return nil, fmt.Errorf("docPointerWithScoreList: %w", ctx.Err())
 		}
 		propLengths := make(map[uint64]uint32)
 		if segmentsDisk[i].strategy == segmentindex.StrategyInverted {
@@ -1710,7 +1698,7 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 		if b.active != nil {
 			memtable := b.active
 			n2, _ := fillTerm(memtable, key, active, filterDocIds)
-			if n2 > 0 {
+			if active.Count() > 0 {
 				output[len(segmentsDisk)+1] = append(output[len(segmentsDisk)+1], active)
 			}
 			n += n2
@@ -1731,7 +1719,7 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 		if b.flushing != nil {
 			memtable := b.flushing
 			n2, _ := fillTerm(memtable, key, flushing, filterDocIds)
-			if n2 > 0 {
+			if flushing.Count() > 0 {
 				output[len(segmentsDisk)] = append(output[len(segmentsDisk)], flushing)
 			}
 			n += n2
@@ -1766,6 +1754,11 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 		flushing.currentBlockImpact = float32(idfs[i])
 
 		idfCounts[queryTerm] = n
+	}
+
+	if ctx.Err() != nil {
+		release()
+		return nil, nil, func() {}, fmt.Errorf("after memtable terms: %w", ctx.Err())
 	}
 
 	for j := len(segmentsDisk) - 1; j >= 0; j-- {

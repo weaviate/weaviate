@@ -17,6 +17,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -28,9 +29,11 @@ import (
 
 var logOnceWhenRecoveringFromWAL sync.Once
 
-func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context) error {
+func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context, sg *SegmentGroup) error {
 	beforeAll := time.Now()
 	defer b.metrics.TrackStartupBucketRecovery(beforeAll)
+
+	recovered := false
 
 	// the context is only ever checked once at the beginning, as there is no
 	// point in aborting an ongoing recovery. It makes more sense to let it
@@ -118,7 +121,7 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context) error {
 		}
 
 		if mt.strategy == StrategyInverted {
-			mt.averagePropLength, _ = b.disk.GetAveragePropertyLength()
+			mt.averagePropLength, _ = sg.GetAveragePropertyLength()
 		}
 		if walForActiveMemtable {
 			_, err = cl.file.Seek(0, io.SeekEnd)
@@ -135,7 +138,7 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context) error {
 				continue
 			}
 
-			if err := b.disk.add(path + ".db"); err != nil {
+			if err := sg.add(path + ".db"); err != nil {
 				return err
 			}
 		}
@@ -143,12 +146,22 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context) error {
 		if b.strategy == StrategyReplace && b.monitorCount {
 			// having just flushed the memtable we now have the most up2date count which
 			// is a good place to update the metric
-			b.metrics.ObjectCount(b.disk.count())
+			b.metrics.ObjectCount(sg.count())
 		}
 
 		b.logger.WithField("action", "lsm_recover_from_active_wal_success").
 			WithField("path", filepath.Join(b.dir, fname)).
 			Debug("successfully recovered from write-ahead-log")
+
+		recovered = true
+
+	}
+
+	// force re-sort if any segment was added
+	if recovered {
+		sort.Slice(sg.segments, func(i, j int) bool {
+			return sg.segments[i].path < sg.segments[j].path
+		})
 	}
 
 	return nil

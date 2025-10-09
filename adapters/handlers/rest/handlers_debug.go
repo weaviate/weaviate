@@ -77,39 +77,64 @@ func setupDebugHandlers(appState *state.State) {
 	}))
 
 	http.HandleFunc("/debug/index/rebuild/inverted/suspend", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		changeFile("paused.mig", false, logger, appState, r, w)
+		changeFile("paused.mig", false, nil, logger, appState, r, w)
 	}))
 
 	http.HandleFunc("/debug/index/rebuild/inverted/resume", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		changeFile("paused.mig", true, logger, appState, r, w)
+		changeFile("paused.mig", true, nil, logger, appState, r, w)
 	}))
 
 	http.HandleFunc("/debug/index/rebuild/inverted/rollback", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		changeFile("rollback.mig", false, logger, appState, r, w)
+		changeFile("rollback.mig", false, nil, logger, appState, r, w)
 	}))
 
 	http.HandleFunc("/debug/index/rebuild/inverted/unrollback", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		changeFile("rollback.mig", true, logger, appState, r, w)
+		changeFile("rollback.mig", true, nil, logger, appState, r, w)
 	}))
 
 	http.HandleFunc("/debug/index/rebuild/inverted/start", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		changeFile("start.mig", false, logger, appState, r, w)
+		changeFile("start.mig", false, nil, logger, appState, r, w)
 	}))
 
 	http.HandleFunc("/debug/index/rebuild/inverted/unstart", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		changeFile("start.mig", true, logger, appState, r, w)
+		changeFile("start.mig", true, nil, logger, appState, r, w)
+	}))
+
+	http.HandleFunc("/debug/index/rebuild/inverted/reset", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		changeFile("reset.mig", false, nil, logger, appState, r, w)
+	}))
+
+	http.HandleFunc("/debug/index/rebuild/inverted/unreset", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		changeFile("reset.mig", true, nil, logger, appState, r, w)
+	}))
+
+	http.HandleFunc("/debug/index/rebuild/inverted/setProperties", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		propertiesToMigrateString := strings.TrimSpace(r.URL.Query().Get("properties"))
+
+		if propertiesToMigrateString == "" {
+			http.Error(w, "properties is required", http.StatusBadRequest)
+			return
+		}
+		propertiesToMigrate := strings.Split(propertiesToMigrateString, ",")
+		props := []byte(strings.Join(propertiesToMigrate, ","))
+
+		changeFile("properties.mig", false, props, logger, appState, r, w)
 	}))
 
 	http.HandleFunc("/debug/index/rebuild/inverted/reload", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		colName := r.URL.Query().Get("collection")
-		shardsToMigrateString := r.URL.Query().Get("shards")
 
 		if colName == "" {
 			http.Error(w, "collection name is required", http.StatusBadRequest)
 			return
 		}
 
-		shardsToMigrate := strings.Split(shardsToMigrateString, ",")[1:]
+		shardsToMigrateString := strings.TrimSpace(r.URL.Query().Get("shards"))
+
+		shardsToMigrate := []string{}
+		if shardsToMigrateString != "" {
+			shardsToMigrate = strings.Split(shardsToMigrateString, ",")
+		}
 
 		className := schema.ClassName(colName)
 		idx := appState.DB.GetIndex(className)
@@ -133,7 +158,7 @@ func setupDebugHandlers(appState *state.State) {
 						logger.WithField("shard", shardName).Error("failed to reinit shard " + err.Error())
 						output[shardName] = map[string]string{
 							"shard":       shardName,
-							"shardStatus": shard.GetStatusNoLoad().String(),
+							"shardStatus": shard.GetStatus().String(),
 							"status":      "error",
 							"message":     "failed to reinit shard",
 							"error":       err.Error(),
@@ -142,9 +167,16 @@ func setupDebugHandlers(appState *state.State) {
 					}
 					output[shardName] = map[string]string{
 						"shard":       shardName,
-						"shardStatus": shard.GetStatusNoLoad().String(),
+						"shardStatus": shard.GetStatus().String(),
 						"status":      "reinit",
 						"message":     "reinit shard started",
+					}
+				} else {
+					output[shardName] = map[string]string{
+						"shard":       shardName,
+						"shardStatus": shard.GetStatus().String(),
+						"status":      "skipped",
+						"message":     fmt.Sprintf("shard %s not selected", shardName),
 					}
 				}
 				return nil
@@ -203,7 +235,7 @@ func setupDebugHandlers(appState *state.State) {
 					shardPath := rootPath + "/" + classNameString + "/" + shardName + "/lsm/"
 					paths[shardName] = shardPath
 					output[shardName] = map[string]interface{}{
-						"shardStatus": shard.GetStatusNoLoad().String(),
+						"shardStatus": shard.GetStatus().String(),
 						"status":      "unknown",
 					}
 					return nil
@@ -375,6 +407,11 @@ func setupDebugHandlers(appState *state.State) {
 							"status":    "success",
 							"overrides": overrides,
 						}
+					} else {
+						response[shardName] = map[string]string{
+							"status":  "skipped",
+							"message": fmt.Sprintf("shard %s not selected", shardName),
+						}
 					}
 					return nil
 				},
@@ -451,6 +488,11 @@ func setupDebugHandlers(appState *state.State) {
 						response[shardName] = map[string]interface{}{
 							"status": "success",
 							"wrote":  overrides,
+						}
+					} else {
+						response[shardName] = map[string]string{
+							"status":  "skipped",
+							"message": fmt.Sprintf("shard %s not selected", shardName),
 						}
 					}
 					return nil
@@ -573,6 +615,46 @@ func setupDebugHandlers(appState *state.State) {
 			WithField("shard", shardName).
 			WithField("targetVector", targetVector).
 			Info("repair started")
+
+		w.WriteHeader(http.StatusAccepted)
+	}))
+
+	http.HandleFunc("/debug/index/requantize/vector", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		colName := r.URL.Query().Get("collection")
+		shardName := r.URL.Query().Get("shard")
+		targetVector := r.URL.Query().Get("vector")
+
+		if colName == "" || shardName == "" {
+			http.Error(w, "collection and shard are required", http.StatusBadRequest)
+			return
+		}
+
+		idx := appState.DB.GetIndex(schema.ClassName(colName))
+		if idx == nil {
+			logger.WithField("collection", colName).Error("collection not found")
+			http.Error(w, "collection not found", http.StatusNotFound)
+			return
+		}
+
+		err := idx.DebugRequantizeIndex(context.Background(), shardName, targetVector)
+		if err != nil {
+			logger.
+				WithField("shard", shardName).
+				WithField("targetVector", targetVector).
+				WithError(err).
+				Error("failed to requantize vector index")
+			if errTxt := err.Error(); strings.Contains(errTxt, "not found") {
+				http.Error(w, "shard not found", http.StatusNotFound)
+			}
+
+			http.Error(w, "failed to requantize vector index", http.StatusInternalServerError)
+			return
+		}
+
+		logger.
+			WithField("shard", shardName).
+			WithField("targetVector", targetVector).
+			Info("requantize started")
 
 		w.WriteHeader(http.StatusAccepted)
 	}))

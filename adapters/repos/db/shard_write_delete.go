@@ -28,12 +28,27 @@ func (s *Shard) DeleteObject(ctx context.Context, id strfmt.UUID, deletionTime t
 		return err
 	}
 
+	s.asyncReplicationRWMux.RLock()
+	defer s.asyncReplicationRWMux.RUnlock()
+
+	err := s.waitForMinimalHashTreeInitialization(ctx)
+	if err != nil {
+		return err
+	}
+
 	idBytes, err := uuid.MustParse(id.String()).MarshalBinary()
 	if err != nil {
 		return err
 	}
 
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+
+	// see comment in shard_write_put.go::putObjectLSM
+	lock := &s.docIdLock[s.uuidToIdLockPoolId(idBytes)]
+
+	lock.Lock()
+	defer lock.Unlock()
+
 	existing, err := bucket.Get([]byte(idBytes))
 	if err != nil {
 		return fmt.Errorf("unexpected error on previous lookup: %w", err)
@@ -58,6 +73,10 @@ func (s *Shard) DeleteObject(ctx context.Context, id strfmt.UUID, deletionTime t
 	}
 	if err != nil {
 		return fmt.Errorf("delete object from bucket: %w", err)
+	}
+
+	if err = s.mayDeleteObjectHashTree(idBytes, updateTime); err != nil {
+		return fmt.Errorf("object deletion in hashtree: %w", err)
 	}
 
 	err = s.cleanupInvertedIndexOnDelete(existing, docID)
@@ -87,10 +106,6 @@ func (s *Shard) DeleteObject(ctx context.Context, id strfmt.UUID, deletionTime t
 	})
 	if err != nil {
 		return err
-	}
-
-	if err = s.mayDeleteObjectHashTree(idBytes, updateTime); err != nil {
-		return fmt.Errorf("object deletion in hashtree: %w", err)
 	}
 
 	return nil
@@ -132,9 +147,6 @@ func (s *Shard) cleanupInvertedIndexOnDelete(previous []byte, docID uint64) erro
 }
 
 func (s *Shard) mayDeleteObjectHashTree(uuidBytes []byte, updateTime int64) error {
-	s.asyncReplicationRWMux.RLock()
-	defer s.asyncReplicationRWMux.RUnlock()
-
 	if s.hashtree == nil {
 		return nil
 	}

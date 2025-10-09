@@ -282,7 +282,7 @@ func TestProvider_UpdateVector(t *testing.T) {
 		ctx := context.Background()
 		modName := "colbert"
 		className := "SomeClass"
-		mod := newDummyModule(modName, modulecapabilities.Text2ColBERT)
+		mod := newDummyModule(modName, modulecapabilities.Text2Multivec)
 		class := models.Class{
 			Class: className,
 			VectorConfig: map[string]models.VectorConfig{

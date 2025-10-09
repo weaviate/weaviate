@@ -19,10 +19,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/weaviate/weaviate/entities/dto"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcounter"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
@@ -31,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/entities/dto"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
@@ -154,21 +154,16 @@ func (l *LazyLoadShard) NotifyReady() {
 	l.shard.NotifyReady()
 }
 
-func (l *LazyLoadShard) GetStatusNoLoad() storagestate.Status {
+func (l *LazyLoadShard) GetStatus() storagestate.Status {
 	if l.loaded {
 		return l.shard.GetStatus()
 	}
-	return storagestate.StatusLoading
+	return storagestate.StatusLazyLoading
 }
 
-func (l *LazyLoadShard) GetStatus() storagestate.Status {
+func (l *LazyLoadShard) UpdateStatus(status, reason string) error {
 	l.mustLoad()
-	return l.shard.GetStatus()
-}
-
-func (l *LazyLoadShard) UpdateStatus(status string) error {
-	l.mustLoad()
-	return l.shard.UpdateStatus(status)
+	return l.shard.UpdateStatus(status, reason)
 }
 
 func (l *LazyLoadShard) SetStatusReadonly(reason string) error {
@@ -475,6 +470,11 @@ func (l *LazyLoadShard) FillQueue(targetVector string, from uint64) error {
 func (l *LazyLoadShard) RepairIndex(ctx context.Context, targetVector string) error {
 	l.mustLoad()
 	return l.shard.RepairIndex(ctx, targetVector)
+}
+
+func (l *LazyLoadShard) RequantizeIndex(ctx context.Context, targetVector string) error {
+	l.mustLoad()
+	return l.shard.RequantizeIndex(ctx, targetVector)
 }
 
 func (l *LazyLoadShard) Shutdown(ctx context.Context) error {

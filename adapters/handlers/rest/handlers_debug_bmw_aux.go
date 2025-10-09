@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 
@@ -26,13 +27,17 @@ import (
 )
 
 func parseIndexAndShards(appState *state.State, r *http.Request) (string, []string, *db.Index, error) {
-	colName := r.URL.Query().Get("collection")
+	colName := strings.TrimSpace(r.URL.Query().Get("collection"))
 	if colName == "" {
 		return "", nil, nil, fmt.Errorf("collection is required")
 	}
 
-	shardsToMigrateString := r.URL.Query().Get("shards")
-	shardsToMigrate := strings.Split(shardsToMigrateString, ",")
+	shardsToMigrateString := strings.TrimSpace(r.URL.Query().Get("shards"))
+
+	shardsToMigrate := []string{}
+	if shardsToMigrateString != "" {
+		shardsToMigrate = strings.Split(shardsToMigrateString, ",")
+	}
 
 	className := schema.ClassName(colName)
 	classNameString := strings.ToLower(className.String())
@@ -45,7 +50,7 @@ func parseIndexAndShards(appState *state.State, r *http.Request) (string, []stri
 	return classNameString, shardsToMigrate, idx, nil
 }
 
-func changeFile(filename string, delete bool, logger *logrus.Entry, appState *state.State, r *http.Request, w http.ResponseWriter) {
+func changeFile(filename string, delete bool, content []byte, logger *logrus.Entry, appState *state.State, r *http.Request, w http.ResponseWriter) {
 	response := map[string]interface{}{}
 
 	func() {
@@ -61,52 +66,72 @@ func changeFile(filename string, delete bool, logger *logrus.Entry, appState *st
 			func(shardName string, shard db.ShardLike) error {
 				alreadyDid := false
 				if len(shardsToMigrate) == 0 || slices.Contains(shardsToMigrate, shardName) {
-					shardPath := rootPath + "/" + classNameString + "/" + shardName + "/lsm/"
-					_, err := os.Stat(shardPath + ".migrations/searchable_map_to_blockmax")
+					shardPath := filepath.Join(rootPath, classNameString, shardName, "lsm", ".migrations", "searchable_map_to_blockmax")
+					filenameShard := filepath.Join(shardPath, filename)
+					_, err := os.Stat(shardPath)
 					if err != nil {
 						return fmt.Errorf("shard not found or not ready")
 					}
 					if delete {
-						err = os.Remove(shardPath + ".migrations/searchable_map_to_blockmax/" + filename)
+						err = os.Remove(filenameShard)
 						if os.IsNotExist(err) {
 							alreadyDid = true
 						} else if err != nil {
-							return fmt.Errorf("failed to delete %s: %w", filename, err)
+							return fmt.Errorf("failed to delete %s: %w", filenameShard, err)
 						}
 					} else {
 						// check if the file already exists
-						_, err = os.Stat(shardPath + ".migrations/searchable_map_to_blockmax/" + filename)
+						_, err = os.Stat(filenameShard)
 						if err == nil {
 							alreadyDid = true
 						} else {
-							file, err := os.Create(shardPath + ".migrations/searchable_map_to_blockmax/" + filename)
+							file, err := os.Create(filenameShard)
 							if os.IsExist(err) {
 								alreadyDid = true
 							} else if err != nil {
-								return fmt.Errorf("failed to create %s: %w", filename, err)
+								return fmt.Errorf("failed to create %s: %w", filenameShard, err)
 							}
-							defer file.Close()
+							file.Close()
+						}
+
+						if content != nil {
+							file, err := os.Create(filenameShard)
+							if err != nil {
+								return fmt.Errorf("failed to create %s: %w", filenameShard, err)
+							}
+							_, err = file.Write(content)
+							if err != nil {
+								return fmt.Errorf("failed to write to %s: %w", filenameShard, err)
+							}
+							file.Close()
 						}
 					}
+					response[shardName] = map[string]string{
+						"status": "success",
+						"message": fmt.Sprintf("file %s %s in shard %s", filenameShard,
+							func() string {
+								if delete {
+									if alreadyDid {
+										return "already deleted"
+									}
+									return "deleted"
+								} else {
+									if alreadyDid {
+										return "already created"
+									} else if content != nil {
+										return "updated"
+									}
+								}
+								return "created"
+							}(), shardName),
+					}
+				} else {
+					response[shardName] = map[string]string{
+						"status":  "skipped",
+						"message": fmt.Sprintf("shard %s not selected", shardName),
+					}
+				}
 
-				}
-				response[shardName] = map[string]string{
-					"status": "success",
-					"message": fmt.Sprintf("file %s %s in shard %s", filename,
-						func() string {
-							if delete {
-								if alreadyDid {
-									return "already deleted"
-								}
-								return "deleted"
-							} else {
-								if alreadyDid {
-									return "already created"
-								}
-							}
-							return "created"
-						}(), shardName),
-				}
 				return nil
 			},
 		)

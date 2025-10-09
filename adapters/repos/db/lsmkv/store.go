@@ -103,17 +103,9 @@ func (s *Store) UpdateBucketsStatus(targetStatus storagestate.Status) error {
 	defer s.bucketAccessLock.RUnlock()
 
 	for _, b := range s.bucketsByName {
-		if b == nil {
-			continue
+		if b != nil {
+			b.UpdateStatus(targetStatus)
 		}
-
-		b.UpdateStatus(targetStatus)
-	}
-
-	if targetStatus == storagestate.StatusReadOnly {
-		s.logger.WithField("action", "lsm_compaction").
-			WithField("path", s.dir).
-			Warn("compaction halted due to shard READONLY status")
 	}
 
 	return nil
@@ -128,6 +120,10 @@ func (s *Store) init() error {
 
 func (s *Store) bucketDir(bucketName string) string {
 	return path.Join(s.dir, bucketName)
+}
+
+func (s *Store) GetDir() string {
+	return s.dir
 }
 
 // CreateOrLoadBucket registers a bucket with the given name. If state on disk

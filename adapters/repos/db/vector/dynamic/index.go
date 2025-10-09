@@ -14,6 +14,7 @@ package dynamic
 import (
 	"context"
 	"encoding/binary"
+	simpleErrors "errors"
 	"fmt"
 	"io"
 	"math"
@@ -78,6 +79,7 @@ type VectorIndex interface {
 	ValidateBeforeInsert(vector []float32) error
 	DistanceBetweenVectors(x, y []float32) (float32, error)
 	ContainsDoc(docID uint64) bool
+	Preload(id uint64, vector []float32)
 	DistancerProvider() distancer.Provider
 	AlreadyIndexed() uint64
 	QueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer
@@ -97,27 +99,29 @@ type upgradableIndexer interface {
 
 type dynamic struct {
 	sync.RWMutex
-	id                    string
-	targetVector          string
-	store                 *lsmkv.Store
-	logger                logrus.FieldLogger
-	rootPath              string
-	shardName             string
-	className             string
-	prometheusMetrics     *monitoring.PrometheusMetrics
-	vectorForIDThunk      common.VectorForID[float32]
-	tempVectorForIDThunk  common.TempVectorForID[float32]
-	distanceProvider      distancer.Provider
-	makeCommitLoggerThunk hnsw.MakeCommitLogger
-	threshold             uint64
-	index                 VectorIndex
-	upgraded              atomic.Bool
-	upgradeOnce           sync.Once
-	tombstoneCallbacks    cyclemanager.CycleCallbackGroup
-	hnswUC                hnswent.UserConfig
-	db                    *bbolt.DB
-	ctx                   context.Context
-	cancel                context.CancelFunc
+	id                      string
+	targetVector            string
+	store                   *lsmkv.Store
+	logger                  logrus.FieldLogger
+	rootPath                string
+	shardName               string
+	className               string
+	prometheusMetrics       *monitoring.PrometheusMetrics
+	vectorForIDThunk        common.VectorForID[float32]
+	tempVectorForIDThunk    common.TempVectorForID[float32]
+	distanceProvider        distancer.Provider
+	makeCommitLoggerThunk   hnsw.MakeCommitLogger
+	threshold               uint64
+	index                   VectorIndex
+	upgraded                atomic.Bool
+	upgradeOnce             sync.Once
+	tombstoneCallbacks      cyclemanager.CycleCallbackGroup
+	hnswUC                  hnswent.UserConfig
+	db                      *bbolt.DB
+	ctx                     context.Context
+	cancel                  context.CancelFunc
+	hnswWaitForCachePrefill bool
+	flatBQ                  bool
 }
 
 func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
@@ -149,24 +153,26 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	index := &dynamic{
-		id:                    cfg.ID,
-		targetVector:          cfg.TargetVector,
-		logger:                logger,
-		rootPath:              cfg.RootPath,
-		shardName:             cfg.ShardName,
-		className:             cfg.ClassName,
-		prometheusMetrics:     cfg.PrometheusMetrics,
-		vectorForIDThunk:      cfg.VectorForIDThunk,
-		tempVectorForIDThunk:  cfg.TempVectorForIDThunk,
-		distanceProvider:      cfg.DistanceProvider,
-		makeCommitLoggerThunk: cfg.MakeCommitLoggerThunk,
-		store:                 store,
-		threshold:             uc.Threshold,
-		tombstoneCallbacks:    cfg.TombstoneCallbacks,
-		hnswUC:                uc.HnswUC,
-		db:                    cfg.SharedDB,
-		ctx:                   ctx,
-		cancel:                cancel,
+		id:                      cfg.ID,
+		targetVector:            cfg.TargetVector,
+		logger:                  logger,
+		rootPath:                cfg.RootPath,
+		shardName:               cfg.ShardName,
+		className:               cfg.ClassName,
+		prometheusMetrics:       cfg.PrometheusMetrics,
+		vectorForIDThunk:        cfg.VectorForIDThunk,
+		tempVectorForIDThunk:    cfg.TempVectorForIDThunk,
+		distanceProvider:        cfg.DistanceProvider,
+		makeCommitLoggerThunk:   cfg.MakeCommitLoggerThunk,
+		store:                   store,
+		threshold:               uc.Threshold,
+		tombstoneCallbacks:      cfg.TombstoneCallbacks,
+		hnswUC:                  uc.HnswUC,
+		db:                      cfg.SharedDB,
+		ctx:                     ctx,
+		cancel:                  cancel,
+		hnswWaitForCachePrefill: cfg.HNSWWaitForCachePrefill,
+		flatBQ:                  uc.FlatUC.BQ.Enabled,
 	}
 
 	err := cfg.SharedDB.Update(func(tx *bolt.Tx) error {
@@ -208,6 +214,7 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 				TempVectorForIDThunk:  index.tempVectorForIDThunk,
 				DistanceProvider:      index.distanceProvider,
 				MakeCommitLoggerThunk: index.makeCommitLoggerThunk,
+				WaitForCachePrefill:   index.hnswWaitForCachePrefill,
 			},
 			index.hnswUC,
 			index.tombstoneCallbacks,
@@ -248,6 +255,10 @@ func (dynamic *dynamic) getBucketName() string {
 	}
 
 	return helpers.VectorsBucketLSM
+}
+
+func (dynamic *dynamic) getCompressedBucketName() string {
+	return helpers.GetCompressedBucketName(dynamic.targetVector)
 }
 
 func (dynamic *dynamic) Compressed() bool {
@@ -433,6 +444,12 @@ func (dynamic *dynamic) ContainsDoc(docID uint64) bool {
 	return dynamic.index.ContainsDoc(docID)
 }
 
+func (dynamic *dynamic) Preload(id uint64, vector []float32) {
+	dynamic.RLock()
+	defer dynamic.RUnlock()
+	dynamic.index.Preload(id, vector)
+}
+
 func (dynamic *dynamic) AlreadyIndexed() uint64 {
 	dynamic.RLock()
 	defer dynamic.RUnlock()
@@ -523,6 +540,7 @@ func (dynamic *dynamic) doUpgrade() error {
 			TempVectorForIDThunk:  dynamic.tempVectorForIDThunk,
 			DistanceProvider:      dynamic.distanceProvider,
 			MakeCommitLoggerThunk: dynamic.makeCommitLoggerThunk,
+			WaitForCachePrefill:   dynamic.hnswWaitForCachePrefill,
 		},
 		dynamic.hnswUC,
 		dynamic.tombstoneCallbacks,
@@ -579,8 +597,34 @@ func (dynamic *dynamic) doUpgrade() error {
 		return errors.Wrap(err, "update dynamic")
 	}
 
+	dynamic.index.Drop(dynamic.ctx)
 	dynamic.index = index
 	dynamic.upgraded.Store(true)
+
+	var errs []error
+	bDir := dynamic.store.Bucket(dynamic.getBucketName()).GetDir()
+	err = dynamic.store.ShutdownBucket(dynamic.ctx, dynamic.getBucketName())
+	if err != nil {
+		errs = append(errs, err)
+	}
+	err = os.RemoveAll(bDir)
+	if err != nil {
+		errs = append(errs, err)
+	}
+	if dynamic.flatBQ && !dynamic.hnswUC.BQ.Enabled {
+		bDir = dynamic.store.Bucket(dynamic.getCompressedBucketName()).GetDir()
+		err = dynamic.store.ShutdownBucket(dynamic.ctx, dynamic.getCompressedBucketName())
+		if err != nil {
+			errs = append(errs, err)
+		}
+		err = os.RemoveAll(bDir)
+		if err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if len(errs) > 0 {
+		dynamic.logger.Warn(simpleErrors.Join(errs...))
+	}
 
 	return nil
 }

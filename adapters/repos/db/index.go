@@ -645,6 +645,7 @@ type IndexConfig struct {
 	RootPath                            string
 	ClassName                           schema.ClassName
 	QueryMaximumResults                 int64
+	QueryHybridMaximumResults           int64
 	QueryNestedRefLimit                 int64
 	ResourceUsage                       config.ResourceUsage
 	MemtablesFlushDirtyAfter            int
@@ -1891,7 +1892,7 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 	// However we also have cases (related to FORCE_FULL_REPLICAS_SEARCH) where we want to avoid waiting for a shard to
 	// load, therefore we only call GetStatusNoLoad if replication is enabled -> another replica will be able to answer
 	// the request and we want to exit early
-	if i.replicationEnabled() && shard.GetStatusNoLoad() == storagestate.StatusLoading {
+	if i.replicationEnabled() && shard.GetStatus() == storagestate.StatusLoading {
 		return nil, nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
 	} else {
 		if shard.GetStatus() == storagestate.StatusLoading {
@@ -2036,6 +2037,32 @@ func (i *Index) initLocalShardWithForcedLoading(ctx context.Context, class *mode
 	}
 
 	i.shards.Store(shardName, shard)
+
+	return nil
+}
+
+func (i *Index) UnloadLocalShard(ctx context.Context, shardName string) error {
+	i.closeLock.RLock()
+	defer i.closeLock.RUnlock()
+
+	if i.closed {
+		return errAlreadyShutdown
+	}
+
+	i.shardCreateLocks.Lock(shardName)
+	defer i.shardCreateLocks.Unlock(shardName)
+
+	shardLike, ok := i.shards.LoadAndDelete(shardName)
+	if !ok {
+		return nil // shard was not found, nothing to unload
+	}
+
+	if err := shardLike.Shutdown(ctx); err != nil {
+		if !errors.Is(err, errAlreadyShutdown) {
+			return errors.Wrapf(err, "shutdown shard %q", shardName)
+		}
+		return errors.Wrapf(errAlreadyShutdown, "shutdown shard %q", shardName)
+	}
 
 	return nil
 }
@@ -2305,13 +2332,18 @@ func (i *Index) dropShards(names []string) error {
 
 			shard, ok := i.shards.LoadAndDelete(name)
 			if !ok {
-				return nil // shard already does not exist (or inactive)
-			}
-
-			if err := shard.drop(); err != nil {
-				ec.Add(err)
-				i.logger.WithField("action", "drop_shard").
-					WithField("shard", shard.ID()).Error(err)
+				// Ensure that if the shard is not loaded we delete any reference on disk for any data.
+				// This ensures that we also delete inactive shards/tenants
+				if err := os.RemoveAll(shardPath(i.path(), name)); err != nil {
+					ec.Add(err)
+					i.logger.WithField("action", "drop_shard").WithField("shard", shard.ID()).Error(err)
+				}
+			} else {
+				// If shard is loaded use the native primitive to drop it
+				if err := shard.drop(); err != nil {
+					ec.Add(err)
+					i.logger.WithField("action", "drop_shard").WithField("shard", shard.ID()).Error(err)
+				}
 			}
 
 			return nil
@@ -2541,7 +2573,7 @@ func (i *Index) updateShardStatus(ctx context.Context, shardName, targetStatus s
 		return i.remote.UpdateShardStatus(ctx, shardName, targetStatus, schemaVersion)
 	}
 	defer release()
-	return shard.UpdateStatus(targetStatus)
+	return shard.UpdateStatus(targetStatus, "manually set by user")
 }
 
 func (i *Index) IncomingUpdateShardStatus(ctx context.Context, shardName, targetStatus string, schemaVersion uint64) error {
@@ -2551,7 +2583,7 @@ func (i *Index) IncomingUpdateShardStatus(ctx context.Context, shardName, target
 	}
 	defer release()
 
-	return shard.UpdateStatus(targetStatus)
+	return shard.UpdateStatus(targetStatus, "manually set by user")
 }
 
 func (i *Index) findUUIDs(ctx context.Context,
@@ -2847,6 +2879,28 @@ func (i *Index) DebugRepairIndex(ctx context.Context, shardName, targetVector st
 		err := shard.RepairIndex(context.Background(), targetVector)
 		if err != nil {
 			i.logger.WithField("shard", shardName).WithError(err).Error("failed to repair vector index")
+			return
+		}
+	}, i.logger)
+
+	return nil
+}
+
+func (i *Index) DebugRequantizeIndex(ctx context.Context, shardName, targetVector string) error {
+	shard, release, err := i.GetShard(ctx, shardName)
+	if err != nil {
+		return err
+	}
+	if shard == nil {
+		return errors.New("shard not found")
+	}
+	defer release()
+
+	// Repair in the background
+	enterrors.GoWrapper(func() {
+		err := shard.RequantizeIndex(context.Background(), targetVector)
+		if err != nil {
+			i.logger.WithField("shard", shardName).WithError(err).Error("failed to requantize vector index")
 			return
 		}
 	}, i.logger)

@@ -202,10 +202,7 @@ func (index *flat) getBucketName() string {
 }
 
 func (index *flat) getCompressedBucketName() string {
-	if index.targetVector != "" {
-		return fmt.Sprintf("%s_%s", helpers.VectorsCompressedBucketLSM, index.targetVector)
-	}
-	return helpers.VectorsCompressedBucketLSM
+	return helpers.GetCompressedBucketName(index.targetVector)
 }
 
 func (index *flat) initBuckets(ctx context.Context, minMMapSize int64, minWalThreshold int64, allocchecker memwatch.AllocChecker) error {
@@ -337,15 +334,7 @@ func (index *flat) Add(ctx context.Context, id uint64, vector []float32) error {
 	slice := make([]byte, len(vector)*4)
 	index.storeVector(id, byteSliceFromFloat32Slice(vector, slice))
 
-	if index.isBQ() {
-		vectorBQ := index.bq.Encode(vector)
-		if index.isBQCached() {
-			index.bqCache.Grow(id)
-			index.bqCache.Preload(id, vectorBQ)
-		}
-		slice = make([]byte, len(vectorBQ)*8)
-		index.storeCompressedVector(id, byteSliceFromUint64Slice(vectorBQ, slice))
-	}
+	index.Preload(id, vector)
 	newCount := atomic.LoadUint64(&index.count)
 	atomic.StoreUint64(&index.count, newCount+1)
 	return nil
@@ -803,6 +792,18 @@ func (i *flat) ValidateMultiBeforeInsert(vector [][]float32) error {
 	return nil
 }
 
+func (index *flat) Preload(id uint64, vector []float32) {
+	if index.isBQ() {
+		vectorBQ := index.bq.Encode(vector)
+		if index.isBQCached() {
+			index.bqCache.Grow(id)
+			index.bqCache.Preload(id, vectorBQ)
+		}
+		slice := make([]byte, len(vectorBQ)*8)
+		index.storeCompressedVector(id, byteSliceFromUint64Slice(vectorBQ, slice))
+	}
+}
+
 func (index *flat) PostStartup() {
 	if !index.isBQCached() {
 		return
@@ -832,8 +833,19 @@ func (index *flat) PostStartup() {
 	if channel == nil {
 		return // nothing to do
 	}
-	for v := range channel {
-		vecs = append(vecs, v...)
+
+	for vectors := range channel {
+		for _, v := range vectors {
+			// if we mix little and big endian IDs by mistake, we might get a very large
+			// maxID which would cause us to allocate a huge cache.
+			// In that case, we consider that anything larger than a quadrillion is an error
+			// and should be skipped.
+			if v.Id > 1<<15 {
+				continue
+			}
+
+			vecs = append(vecs, v)
+		}
 	}
 
 	count := 0
@@ -1055,4 +1067,16 @@ type FlatStats struct{}
 
 func (s *FlatStats) IndexType() common.IndexType {
 	return common.IndexTypeFlat
+}
+
+func (h *flat) ShouldUpgrade() (bool, int) {
+	return false, 0
+}
+
+func (h *flat) Upgrade(callback func()) error {
+	return nil
+}
+
+func (h *flat) Upgraded() bool {
+	return false
 }

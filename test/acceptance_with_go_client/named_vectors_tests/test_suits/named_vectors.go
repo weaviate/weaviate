@@ -12,7 +12,6 @@
 package test_suits
 
 import (
-	"os"
 	"testing"
 
 	"github.com/weaviate/weaviate/test/docker"
@@ -35,6 +34,7 @@ func AllTests(endpoint string, asyncIndexingEnabled bool) func(t *testing.T) {
 		t.Run("aggregate", testAggregate(endpoint))
 		t.Run("vector index types", testVectorIndexTypesConfigurations(endpoint))
 		t.Run("colbert", testColBERT(endpoint, asyncIndexingEnabled))
+		t.Run("legacy vector index with quantization", testCompressedLegacyVectorIndex(endpoint))
 	}
 }
 
@@ -42,10 +42,6 @@ func ComposeModules() (composeModules *docker.Compose) {
 	composeModules = docker.New().
 		WithText2VecContextionary().
 		WithText2VecTransformers().
-		WithText2VecOpenAI(os.Getenv("OPENAI_APIKEY"), os.Getenv("OPENAI_ORGANIZATION"), os.Getenv("AZURE_APIKEY")).
-		WithText2VecCohere(os.Getenv("COHERE_APIKEY")).
-		WithGenerativeOpenAI(os.Getenv("OPENAI_APIKEY"), os.Getenv("OPENAI_ORGANIZATION"), os.Getenv("AZURE_APIKEY")).
-		WithGenerativeCohere(os.Getenv("COHERE_APIKEY")).
-		WithText2ColBERTJinaAI(os.Getenv("JINAAI_APIKEY"))
+		WithWeaviateEnv("ENABLE_API_BASED_MODULES", "true")
 	return
 }
