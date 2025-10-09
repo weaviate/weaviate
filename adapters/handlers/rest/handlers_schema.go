@@ -21,6 +21,7 @@ import (
 	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/schema"
+	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -288,7 +289,23 @@ func (s *schemaHandlers) getTenants(params schema.TenantsGetParams,
 	principal *models.Principal,
 ) middleware.Responder {
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
-	tenants, err := s.manager.GetConsistentTenants(ctx, principal, params.ClassName, *params.Consistency, nil)
+
+	// Build cursor if pagination parameters are provided
+	var cursor *filters.Cursor
+	if params.After != nil || params.Limit != nil {
+		cursor = &filters.Cursor{
+			After: "",
+			Limit: filters.LimitFlagNotSet,
+		}
+		if params.After != nil {
+			cursor.After = *params.After
+		}
+		if params.Limit != nil {
+			cursor.Limit = int(*params.Limit)
+		}
+	}
+
+	tenants, err := s.manager.GetConsistentTenants(ctx, principal, params.ClassName, *params.Consistency, cursor)
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
 		switch {

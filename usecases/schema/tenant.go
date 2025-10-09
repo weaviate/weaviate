@@ -14,12 +14,14 @@ package schema
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
+	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	modsloads3 "github.com/weaviate/weaviate/modules/offload-s3"
@@ -215,7 +217,7 @@ func (h *Handler) DeleteTenants(ctx context.Context, principal *models.Principal
 	return nil
 }
 
-func (h *Handler) GetConsistentTenants(ctx context.Context, principal *models.Principal, class string, consistency bool, tenants []string) ([]*models.Tenant, error) {
+func (h *Handler) GetConsistentTenants(ctx context.Context, principal *models.Principal, class string, consistency bool, cursor *filters.Cursor) ([]*models.Tenant, error) {
 	var allTenants []*models.Tenant
 	var err error
 
@@ -225,13 +227,18 @@ func (h *Handler) GetConsistentTenants(ctx context.Context, principal *models.Pr
 		class = rclass
 	}
 	if consistency {
-		allTenants, _, err = h.schemaManager.QueryTenants(class, tenants)
+		allTenants, _, err = h.schemaManager.QueryTenants(class, nil) // Get all tenants first
 	} else {
 		// If non consistent, fallback to the default implementation
-		allTenants, err = h.getTenantsByNames(class, tenants)
+		allTenants, err = h.getTenantsByNames(class, nil)
 	}
 	if err != nil {
 		return nil, err
+	}
+
+	// Apply pagination if cursor is provided
+	if cursor != nil {
+		allTenants = h.applyTenantPagination(allTenants, cursor)
 	}
 
 	resourceFilter := filter.New[*models.Tenant](h.Authorizer, h.config.Authorization.Rbac)
@@ -348,4 +355,54 @@ func convertNewTenantNames(status string) string {
 		return models.TenantActivityStatusFROZEN
 	}
 	return status
+}
+
+// applyTenantPagination applies cursor-based pagination to a list of tenants
+func (h *Handler) applyTenantPagination(tenants []*models.Tenant, cursor *filters.Cursor) []*models.Tenant {
+	if cursor == nil {
+		return tenants
+	}
+
+	// 1. Sort tenants by name (alphabetically)
+	sort.Slice(tenants, func(i, j int) bool {
+		return tenants[i].Name < tenants[j].Name
+	})
+
+	// 2. Find the position after the cursor
+	startIdx := 0
+	if cursor.After != "" {
+		// Find the first tenant name that is greater than cursor.After
+		found := false
+		for i, tenant := range tenants {
+			if tenant.Name == cursor.After {
+				// Exact match: start from the next tenant
+				startIdx = i + 1
+				found = true
+				break
+			}
+			if tenant.Name > cursor.After {
+				// No exact match: start from the first tenant greater than cursor
+				startIdx = i
+				found = true
+				break
+			}
+		}
+		// If cursor.After is greater than all tenant names, startIdx will remain at len(tenants)
+		// This handles the case where the cursor is beyond the end
+		if !found {
+			startIdx = len(tenants)
+		}
+	}
+
+	// 3. Apply limit
+	endIdx := len(tenants)
+	if cursor.Limit > 0 && startIdx+cursor.Limit < len(tenants) {
+		endIdx = startIdx + cursor.Limit
+	}
+
+	// 4. Return slice
+	if startIdx >= len(tenants) {
+		return []*models.Tenant{}
+	}
+	return tenants[startIdx:endIdx]
 }
