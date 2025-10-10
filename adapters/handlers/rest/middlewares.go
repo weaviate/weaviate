@@ -33,16 +33,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
-// clusterState interface for accessing cluster information
-type clusterState interface {
-	LocalName() string
-}
-
-// CoordinatorKey is a custom type for context keys to avoid collisions
-type CoordinatorKey string
-
-const coordinatorKey CoordinatorKey = "X-Weaviate-Coordinator"
-
 // The middleware configuration is for the handler executors. These do not apply to the swagger.json document.
 // The middleware executes after routing but before authentication, binding and validation
 //
@@ -139,7 +129,7 @@ func makeSetupGlobalMiddleware(appState *state.State, context *middleware.Contex
 		handler = addLiveAndReadyness(appState, handler)
 		handler = addHandleRoot(handler)
 		handler = makeAddModuleHandlers(appState.Modules)(handler)
-		handler = addInjectHeadersIntoContext(handler, appState.Cluster)
+		handler = addInjectHeadersIntoContext(handler)
 		handler = makeCatchPanics(appState.Logger, newPanicsRequestsTotal(appState.Metrics, appState.Logger))(handler)
 		handler = addSourceIpToContext(handler)
 		if appState.ServerConfig.Config.Monitoring.Enabled {
@@ -261,7 +251,7 @@ func addPreflight(next http.Handler, cfg config.CORS) http.Handler {
 	})
 }
 
-func addInjectHeadersIntoContext(next http.Handler, cluster clusterState) http.Handler {
+func addInjectHeadersIntoContext(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		changed := false
@@ -270,18 +260,6 @@ func addInjectHeadersIntoContext(next http.Handler, cluster clusterState) http.H
 				ctx = context.WithValue(ctx, k, v)
 				changed = true
 			}
-		}
-
-		// Inject coordinator node name for external REST requests
-		// This will be propagated to internal replication calls
-		coordinatorName := cluster.LocalName()
-		ctx = context.WithValue(ctx, coordinatorKey, coordinatorName)
-		changed = true
-
-		// Log coordinator information for debugging
-		if strings.HasPrefix(r.URL.Path, "/v1/") && r.Method != "OPTIONS" {
-			// Simple logging without importing logrus to avoid circular dependencies
-			fmt.Printf("coordinator: %s handling %s %s\n", coordinatorName, r.Method, r.URL.Path)
 		}
 
 		if changed {

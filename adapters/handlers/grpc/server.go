@@ -80,7 +80,6 @@ func CreateGRPCServer(state *state.State, options ...grpc.ServerOption) (*grpc.S
 	}
 
 	interceptors = append(interceptors, makeIPInterceptor())
-	interceptors = append(interceptors, makeCoordinatorInterceptor(state.Cluster))
 
 	if len(interceptors) > 0 {
 		o = append(o, grpc.ChainUnaryInterceptor(interceptors...))
@@ -164,7 +163,7 @@ func makeIPInterceptor() grpc.UnaryServerInterceptor {
 		clientIP := getRealClientIP(ctx)
 
 		// Add IP to context
-		ctx = context.WithValue(ctx, sourceIPKey, clientIP)
+		ctx = context.WithValue(ctx, "sourceIp", clientIP)
 
 		return handler(ctx, req)
 	}
@@ -205,30 +204,6 @@ func convertIP6ToIP4Loopback(ip string) string {
 	}
 	return ip
 }
-
-func makeCoordinatorInterceptor(cluster clusterState) grpc.UnaryServerInterceptor {
-	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
-		// Inject coordinator node name for gRPC requests
-		// This will be propagated to internal replication calls
-		coordinatorName := cluster.LocalName()
-		ctx = context.WithValue(ctx, coordinatorKey, coordinatorName)
-
-		// Log coordinator information for debugging
-		fmt.Printf("coordinator: %s handling gRPC %s\n", coordinatorName, info.FullMethod)
-		return handler(ctx, req)
-	}
-}
-
-// clusterState interface for accessing cluster information
-type clusterState interface {
-	LocalName() string
-}
-
-// CoordinatorKey is a custom type for context keys to avoid collisions
-type CoordinatorKey string
-
-const coordinatorKey CoordinatorKey = "X-Weaviate-Coordinator"
-const sourceIPKey CoordinatorKey = "sourceIp"
 
 func StartAndListen(s *grpc.Server, state *state.State) error {
 	lis, err := net.Listen("tcp", fmt.Sprintf(":%d",

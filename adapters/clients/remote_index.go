@@ -23,15 +23,15 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/weaviate/weaviate/entities/dto"
+	"github.com/weaviate/weaviate/entities/models"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
-
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
-	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
-	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -1026,12 +1026,6 @@ func setupRequest(
 	req, err := http.NewRequestWithContext(ctx, method, url.String(), body)
 	if err != nil {
 		return nil, fmt.Errorf("create http request: %w", err)
-	}
-	// Propagate coordinator if present in context
-	if v := ctx.Value("X-Weaviate-Coordinator"); v != nil {
-		if s, ok := v.(string); ok && s != "" {
-			req.Header.Set("X-Weaviate-Coordinator", s)
-		}
 	}
 	return req, nil
 }
