@@ -93,13 +93,9 @@ func (m *Manager) authorize(ctx context.Context, principal *models.Principal, ve
 	}
 
 	// Log all results at once if audit is enabled
-	auditDisabled := entcfg.Enabled(os.Getenv("AUTHORIZATION_RBAC_IP_IN_AUDIT_LOG_DISABLED")) // m.rbacConf.AuditLogSetDisabled.Get()
+	auditDisabled := entcfg.Enabled(os.Getenv("AUTHORIZATION_RBAC_AUDIT_LOG_DISABLED")) // m.rbacConf.AuditLogSetDisabled.Get()
 	if !skipAudit && !auditDisabled {
-		logger.WithFields(logrus.Fields{
-			"audit_log_set_disabled": auditDisabled,
-			"skipAudit":              skipAudit,
-			"dynamic_value_nil":      m.rbacConf.AuditLogSetDisabled == nil,
-		}).WithField("permissions", permResults).Info()
+		logger.WithFields(logrus.Fields{}).WithField("permissions", permResults).Info()
 	}
 
 	return nil
@@ -173,7 +169,7 @@ func (m *Manager) FilterAuthorizedResources(ctx context.Context, principal *mode
 		}
 	}
 
-	auditDisabled := entcfg.Enabled(os.Getenv("AUTHORIZATION_RBAC_IP_IN_AUDIT_LOG_DISABLED")) // m.rbacConf.AuditLogSetDisabled.Get()
+	auditDisabled := entcfg.Enabled(os.Getenv("AUTHORIZATION_RBAC_AUDIT_LOG_DISABLED")) // m.rbacConf.AuditLogSetDisabled.Get()
 	if !auditDisabled {
 		logger.WithFields(logrus.Fields{
 			"audit_log_set_disabled": auditDisabled,
