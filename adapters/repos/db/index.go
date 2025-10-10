@@ -1530,7 +1530,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 
 			// If the overall request is already canceled, skip without error
 			if ctx.Err() != nil {
-				i.logger.WithField("shardName", shardName).Info("context canceled")
+				i.logger.WithField("shardName", shardName).Warn("context canceled")
 				return nil
 			}
 
@@ -1827,7 +1827,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 			eg.Go(func() error {
 				// If the overall request is already canceled, skip this shard without error
 				if ctx.Err() != nil {
-					i.logger.WithField("shardName", shardName).Info("context canceled")
+					i.logger.WithField("shardName", shardName).Warn("context canceled")
 					return nil
 				}
 

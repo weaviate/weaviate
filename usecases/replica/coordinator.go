@@ -348,6 +348,12 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 
 				// let's fallback to the backups in the retry queue
 				for hr := range hostRetryQueue {
+					// Fast-path: if context is canceled, exit immediately
+					if workerCtx.Err() != nil {
+						replyCh <- _Result[T]{Err: workerCtx.Err()}
+						return
+					}
+
 					resp, err := op(workerCtx, hr.host, isFullReadWorker)
 					if err == nil {
 						replyCh <- _Result[T]{resp, err}
