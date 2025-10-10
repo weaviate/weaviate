@@ -16,12 +16,12 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/cluster/router/types"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
-
-	"github.com/go-openapi/strfmt"
-	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
@@ -222,8 +222,15 @@ func (f *finderStream) readBatchPart(ctx context.Context,
 		for r := range ch { // len(ch) == level
 			resp := r.Value
 			if r.Err != nil { // at least one node is not responding
-				f.log.WithField("op", "read_batch.get").WithField("replica", r.Value.Sender).
-					WithField("class", f.class).WithField("shard", batch.Shard).Error(r.Err)
+				// Downgrade noisy rollout errors
+				if errors.Is(r.Err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) ||
+					strings.Contains(r.Err.Error(), "connect:") || strings.Contains(r.Err.Error(), "read error") {
+					f.log.WithField("op", "read_batch.get").WithField("replica", r.Value.Sender).
+						WithField("class", f.class).WithField("shard", batch.Shard).Debug(r.Err)
+				} else {
+					f.log.WithField("op", "read_batch.get").WithField("replica", r.Value.Sender).
+						WithField("class", f.class).WithField("shard", batch.Shard).Error(r.Err)
+				}
 				resultCh <- batchResult{nil, ErrRead}
 				return
 			}
@@ -317,7 +324,13 @@ type BatchReply struct {
 // UpdateTimeAt gets update time from reply
 func (r BatchReply) UpdateTimeAt(idx int) int64 {
 	if len(r.DigestData) != 0 {
-		return r.DigestData[idx].UpdateTime
+		if idx < len(r.DigestData) {
+			return r.DigestData[idx].UpdateTime
+		}
+		return 0
 	}
-	return r.FullData[idx].UpdateTime()
+	if idx < len(r.FullData) {
+		return r.FullData[idx].UpdateTime()
+	}
+	return 0
 }

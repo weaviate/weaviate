@@ -201,12 +201,8 @@ func (f *Finder) CheckConsistency(ctx context.Context,
 		return nil
 	}
 
-	// Skip consistency check entirely if context is canceled (rollout scenario)
-	if ctx.Err() != nil {
-		f.log.WithField("op", "check_consistency").
-			Debugf("skipping consistency check due to context cancellation: %v", ctx.Err())
-		return nil
-	}
+	// Graceful draining: allow consistency checks to complete
+	// The shutdown middleware will prevent new requests from starting
 	for i, x := range xs { // check shard and node name are set
 		if x == nil {
 			return fmt.Errorf("contains nil at object at index %d", i)
@@ -227,10 +223,7 @@ func (f *Finder) CheckConsistency(ctx context.Context,
 	for _, part := range cluster(createBatch(xs)) {
 		part := part
 		gr.Go(func() error {
-			// Fast-path: if the request is already canceled, skip work for this shard
-			if ctx.Err() != nil {
-				return nil
-			}
+			// During shutdown, allow consistency checks to complete
 			_, err := f.checkShardConsistency(ctx, l, part)
 			if err != nil {
 				// Downgrade noisy rollout errors

@@ -227,18 +227,11 @@ func makeShutdownMiddleware(s *state.State) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if s.IsShuttingDown() {
-				// Allow read operations to continue during shutdown to reduce context cancellations
-				if r.Method == http.MethodGet {
-					s.Logger.WithField("method", r.Method).
-						WithField("path", r.URL.Path).
-						Info("allowing read request during shutdown")
-					next.ServeHTTP(w, r)
-					return
-				}
-
+				// During shutdown, reject new requests to allow graceful draining
+				// This prevents new requests from starting while existing ones complete
 				s.Logger.WithField("method", r.Method).
 					WithField("path", r.URL.Path).
-					Debug("rejecting request during shutdown")
+					Info("rejecting new request during shutdown (graceful draining)")
 
 				w.Header().Set("Connection", "close")
 				w.WriteHeader(http.StatusServiceUnavailable)

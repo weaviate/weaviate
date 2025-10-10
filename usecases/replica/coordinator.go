@@ -244,12 +244,16 @@ func (c *coordinator[T]) Push(ctx context.Context,
 		}
 	}()
 
+	// During shutdown, use shorter timeouts for faster completion
+	prepareTimeout := 5 * time.Second
+	finalizeTimeout := 5 * time.Second
+
 	//nolint:govet // we expressely don't want to cancel that context as the timeout will take care of it
-	ctxPrepare, _ := context.WithTimeout(context.Background(), 5*time.Second)
+	ctxPrepare, _ := context.WithTimeout(context.Background(), prepareTimeout)
 	nodeCh := c.broadcast(ctxPrepare, routingPlan.ReplicasHostAddrs, ask, level)
 
 	//nolint:govet // we expressely don't want to cancel that context as the timeout will take care of it
-	ctxFinalize, _ := context.WithTimeout(context.Background(), 5*time.Second)
+	ctxFinalize, _ := context.WithTimeout(context.Background(), finalizeTimeout)
 	commitCh := c.commitAll(ctxFinalize, nodeCh, com, callback)
 
 	// if there are additional hosts, we do a "best effort" write to them
@@ -348,16 +352,8 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 
 				// let's fallback to the backups in the retry queue
 				for hr := range hostRetryQueue {
-					// Fast-path: if context is canceled, exit immediately
-					if workerCtx.Err() != nil {
-						replyCh <- _Result[T]{Err: workerCtx.Err()}
-						return
-					}
-
-					if ctx.Err() != nil {
-						replyCh <- _Result[T]{Err: ctx.Err()}
-						return
-					}
+					// During shutdown, allow existing operations to complete
+					// No early exit on context cancellation for graceful draining
 
 					resp, err := op(workerCtx, hr.host, isFullReadWorker)
 					if err == nil {
