@@ -245,11 +245,11 @@ func (c *coordinator[T]) Push(ctx context.Context,
 	}()
 
 	//nolint:govet // we expressely don't want to cancel that context as the timeout will take care of it
-	ctxPrepare, _ := context.WithTimeout(context.Background(), 20*time.Second)
+	ctxPrepare, _ := context.WithTimeout(context.Background(), 5*time.Second)
 	nodeCh := c.broadcast(ctxPrepare, routingPlan.ReplicasHostAddrs, ask, level)
 
 	//nolint:govet // we expressely don't want to cancel that context as the timeout will take care of it
-	ctxFinalize, _ := context.WithTimeout(context.Background(), 20*time.Second)
+	ctxFinalize, _ := context.WithTimeout(context.Background(), 5*time.Second)
 	commitCh := c.commitAll(ctxFinalize, nodeCh, com, callback)
 
 	// if there are additional hosts, we do a "best effort" write to them
