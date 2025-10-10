@@ -107,6 +107,10 @@ func newRetryer() *retryer {
 func (r *retryer) retry(ctx context.Context, n int, work func(context.Context) (bool, error)) error {
 	delay := r.minBackOff
 	for {
+		// If the context is already canceled, return immediately without invoking work
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		keepTrying, err := work(ctx)
 		// On cancellation or deadline exceeded, return immediately without backoff/retry
 		if err != nil {
