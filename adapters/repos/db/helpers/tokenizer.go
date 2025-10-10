@@ -24,6 +24,7 @@ import (
 
 	"github.com/go-ego/gse"
 	koDict "github.com/ikawaha/kagome-dict-ko"
+	"github.com/ikawaha/kagome-dict/dict"
 	"github.com/ikawaha/kagome-dict/ipa"
 	kagomeTokenizer "github.com/ikawaha/kagome/v2/tokenizer"
 	"github.com/weaviate/weaviate/entities/models"
@@ -308,7 +309,18 @@ func initializeKagomeTokenizerKr() error {
 		startTime := time.Now()
 
 		dictInstance := koDict.Dict()
-		tokenizer, err := kagomeTokenizer.New(dictInstance)
+		options := []kagomeTokenizer.Option{
+			kagomeTokenizer.OmitBosEos(),
+		}
+
+		if os.Getenv("TOKENIZER_KAGOME_KR_USER_DICT_PATH") != "" {
+			userDict, err := dict.NewUserDict(os.Getenv("TOKENIZER_KAGOME_KR_USER_DICT_PATH"))
+			if err != nil {
+				return err
+			}
+			options = append(options, kagomeTokenizer.UserDict(userDict))
+		}
+		tokenizer, err := kagomeTokenizer.New(dictInstance, options...)
 		if err != nil {
 			return err
 		}
@@ -330,10 +342,12 @@ func tokenizeKagomeKr(in string) []string {
 	startTime := time.Now()
 
 	kagomeTokens := tokenizer.Tokenize(in)
-	terms := make([]string, 0, len(kagomeTokens))
 
+	var terms []string
 	for _, token := range kagomeTokens {
-		if token.Surface != "EOS" && token.Surface != "BOS" {
+		if extra := token.UserExtra(); extra != nil {
+			terms = append(terms, extra.Tokens...)
+		} else {
 			terms = append(terms, token.Surface)
 		}
 	}
@@ -356,7 +370,18 @@ func initializeKagomeTokenizerJa() error {
 		}
 		startTime := time.Now()
 		dictInstance := ipa.Dict()
-		tokenizer, err := kagomeTokenizer.New(dictInstance)
+		options := []kagomeTokenizer.Option{
+			kagomeTokenizer.OmitBosEos(),
+		}
+
+		if os.Getenv("TOKENIZER_KAGOME_JA_USER_DICT_PATH") != "" {
+			userDict, err := dict.NewUserDict(os.Getenv("TOKENIZER_KAGOME_JA_USER_DICT_PATH"))
+			if err != nil {
+				return err
+			}
+			options = append(options, kagomeTokenizer.UserDict(userDict))
+		}
+		tokenizer, err := kagomeTokenizer.New(dictInstance, options...)
 		if err != nil {
 			return err
 		}
@@ -378,11 +403,12 @@ func tokenizeKagomeJa(in string) []string {
 
 	startTime := time.Now()
 	kagomeTokens := tokenizer.Analyze(in, kagomeTokenizer.Search)
-	terms := make([]string, 0, len(kagomeTokens))
-
+	var terms []string
 	for _, token := range kagomeTokens {
-		if token.Surface != "EOS" && token.Surface != "BOS" {
-			terms = append(terms, strings.ToLower(token.Surface))
+		if extra := token.UserExtra(); extra != nil {
+			terms = append(terms, extra.Tokens...)
+		} else {
+			terms = append(terms, token.Surface)
 		}
 	}
 
