@@ -28,7 +28,7 @@ import (
 
 const (
 	defaultPullBackOffInitialInterval = time.Millisecond * 250
-	defaultPullBackOffMaxElapsedTime  = time.Second * 128
+	defaultPullBackOffMaxElapsedTime  = time.Second * 5
 )
 
 type (
@@ -351,6 +351,11 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 					// Fast-path: if context is canceled, exit immediately
 					if workerCtx.Err() != nil {
 						replyCh <- _Result[T]{Err: workerCtx.Err()}
+						return
+					}
+
+					if ctx.Err() != nil {
+						replyCh <- _Result[T]{Err: ctx.Err()}
 						return
 					}
 
