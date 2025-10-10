@@ -100,7 +100,7 @@ func (g *grouper) Do(ctx context.Context) ([]*storobj.Object, []float32, error) 
 DOCS_LOOP:
 	for i, docID := range g.ids {
 		binary.LittleEndian.PutUint64(docIDBytes, docID)
-		objData, err := g.objBucket.GetBySecondary(0, docIDBytes)
+		objData, err := g.objBucket.GetBySecondary(ctx, 0, docIDBytes)
 		if err != nil {
 			return nil, nil, fmt.Errorf("%w: could not get obj by doc id %d", err, docID)
 		}
@@ -213,7 +213,7 @@ func (g *grouper) getUnmarshalled(docID uint64,
 		// and we need to unmarshall it again so that a group won't get overridden
 		docIDBytes := make([]byte, 8)
 		binary.LittleEndian.PutUint64(docIDBytes, docID)
-		objData, err := g.objBucket.GetBySecondary(0, docIDBytes)
+		objData, err := g.objBucket.GetBySecondary(context.TODO(), 0, docIDBytes) // TODO: context
 		if err != nil {
 			return nil, fmt.Errorf("%w: could not get obj by doc id %d", err, docID)
 		}

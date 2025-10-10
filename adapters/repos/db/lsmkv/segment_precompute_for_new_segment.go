@@ -32,7 +32,7 @@ func (sg *SegmentGroup) initAndPrecomputeNewSegment(path string) (*segment, erro
 	// It is now safe to hold the RLock on the maintenanceLock because we know
 	// that the compaction routine will not try to obtain the Lock() until we
 	// have released the flushVsCompactLock.
-	segments, release := sg.getAndLockSegments()
+	segments, release := sg.getConsistentViewOfSegments()
 	defer release()
 
 	segment, err := newSegment(path, sg.logger,

@@ -541,7 +541,7 @@ func TestShard_RepairIndex(t *testing.T) {
 			buf := make([]byte, 8)
 			for i := 100; i < 300; i++ {
 				binary.LittleEndian.PutUint64(buf, uint64(i))
-				v, err := bucket.GetBySecondary(0, buf)
+				v, err := bucket.GetBySecondary(ctx, 0, buf)
 				require.NoError(t, err)
 				obj, err := storobj.FromBinary(v)
 				require.NoError(t, err)
