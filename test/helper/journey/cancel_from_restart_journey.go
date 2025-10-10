@@ -14,6 +14,7 @@ package journey
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"testing"
 	"time"
 
@@ -23,6 +24,15 @@ import (
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 )
+
+func randomString(length int) string {
+	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	b := make([]byte, length)
+	for i := range b {
+		b[i] = charset[rand.Intn(len(charset))]
+	}
+	return string(b)
+}
 
 func CancelFromRestartJourney(t *testing.T, cluster *docker.DockerCompose, nodeName, backend string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
@@ -39,6 +49,7 @@ func CancelFromRestartJourney(t *testing.T, cluster *docker.DockerCompose, nodeN
 			Class: className,
 			Properties: []*models.Property{
 				{Name: "textProp", DataType: []string{"text"}},
+				{Name: "largeProp", DataType: []string{"text"}},
 			},
 		})
 	})
@@ -50,7 +61,8 @@ func CancelFromRestartJourney(t *testing.T, cluster *docker.DockerCompose, nodeN
 				batch[j] = &models.Object{
 					Class: className,
 					Properties: map[string]interface{}{
-						"textProp": fmt.Sprintf("object-%d", i+j),
+						"textProp":  fmt.Sprintf("object-%d", i+j),
+						"largeProp": randomString(5000), // 5KB of random data per object
 					},
 				}
 			}
@@ -59,7 +71,7 @@ func CancelFromRestartJourney(t *testing.T, cluster *docker.DockerCompose, nodeN
 	})
 
 	t.Run("create backup", func(t *testing.T) {
-		resp, err := helper.CreateBackup(t, &models.BackupConfig{}, className, backend, backupID)
+		resp, err := helper.CreateBackup(t, &models.BackupConfig{CPUPercentage: 1, ChunkSize: 32}, className, backend, backupID)
 		require.Nil(t, err)
 		require.NotNil(t, resp.Payload)
 		require.NotNil(t, resp.Payload.Status)

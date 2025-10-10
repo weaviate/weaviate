@@ -23,6 +23,7 @@ import (
 
 func composeUp(t *testing.T, admins map[string]string, users map[string]string, viewers map[string]string) (*docker.DockerCompose, func()) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
 
 	builder := docker.New().WithWeaviateEnv("AUTOSCHEMA_ENABLED", "false").WithWeaviateEnv("REPLICA_MOVEMENT_ENABLED", "true").WithWeaviateWithGRPC().WithRBAC().WithApiKey()
 	adminUserNames := make([]string, 0, len(admins))
@@ -52,9 +53,10 @@ func composeUp(t *testing.T, admins map[string]string, users map[string]string, 
 
 	return compose, func() {
 		helper.ResetClient()
-		if err := compose.Terminate(ctx); err != nil {
+		terminateCtx, terminateCancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer terminateCancel()
+		if err := compose.Terminate(terminateCtx); err != nil {
 			t.Fatalf("failed to terminate test containers: %v", err)
 		}
-		cancel()
 	}
 }
