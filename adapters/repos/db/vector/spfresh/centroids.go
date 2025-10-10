@@ -18,7 +18,6 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 )
 
@@ -39,7 +38,6 @@ type CentroidIndex interface {
 var _ CentroidIndex = (*BruteForceIndex)(nil)
 
 type BruteForceIndex struct {
-	quantizer *compressionhelpers.RotationalQuantizer
 	distancer distancer.Provider
 	metrics   *Metrics
 
