@@ -1169,7 +1169,7 @@ func (b *Bucket) MapDeleteKey(rowKey, mapKey []byte) error {
 
 	if active.getStrategy() == StrategyInverted {
 		docID := binary.BigEndian.Uint64(mapKey)
-		if err := active.SetTombstone(docID); err != nil {
+		if err := active.SetTombstones([]uint64{docID}); err != nil {
 			return err
 		}
 	}
@@ -1228,6 +1228,20 @@ func (b *Bucket) DeleteWith(key []byte, deletionTime time.Time, opts ...Secondar
 	defer release()
 
 	return active.setTombstoneWith(key, deletionTime, opts...)
+}
+
+func (b *Bucket) InvertedDeleteDocs(docIDs []uint64) error {
+	if err := b.active.SetTombstones(docIDs); err != nil {
+		return err
+	}
+	b.disk.maintenanceLock.RLock()
+	defer b.disk.maintenanceLock.RUnlock()
+
+	// add flushing memtable tombstones to all segments
+	for _, seg := range b.disk.segments {
+		seg.getSegment().getInvertedData().tombstones.SetMany(docIDs)
+	}
+	return nil
 }
 
 func (b *Bucket) createNewActiveMemtable() (memtable, error) {
@@ -1581,13 +1595,6 @@ func (b *Bucket) FlushAndSwitch() error {
 		return fmt.Errorf("flush: %w", err)
 	}
 
-	var tombstones *sroar.Bitmap
-	if b.strategy == StrategyInverted {
-		if tombstones, err = b.flushing.ReadOnlyTombstones(); err != nil {
-			return fmt.Errorf("get tombstones: %w", err)
-		}
-	}
-
 	segment, err := b.disk.initAndPrecomputeNewSegment(segmentPath)
 	if err != nil {
 		return fmt.Errorf("precompute metadata: %w", err)
@@ -1595,51 +1602,6 @@ func (b *Bucket) FlushAndSwitch() error {
 
 	if err := b.atomicallyAddDiskSegmentAndRemoveFlushing(segment); err != nil {
 		return fmt.Errorf("add segment and remove flushing: %w", err)
-	}
-
-	switch b.strategy {
-	case StrategyInverted:
-		if !tombstones.IsEmpty() {
-			if err = func() error {
-				// As part of the discussions for
-				// https://github.com/weaviate/weaviate/pull/9104 we disocvered that
-				// there is a potential, non-critical bug in this logic. There can
-				// essentially be a race:
-				//
-				//   1. Imagine two segments A+B.
-				//   2. A compaction is started which merges A+B into AB
-				//   3. A flush happens while the compaction is ongoing, we extend A+B
-				//      with tombstones
-				//   4. The compaction finishes, A+B are replaced with AB, which does
-				//      not have the tombstones
-				//
-				// However, we deem the situation non-critical because any deleted
-				// object would be filtered out at the end of the search, so we're
-				// "only" wasting some CPU cycles on scoring objects that are already
-				// deleted. In addition, on the next restart the tombstones would be
-				// applied in a consistent fashion again, so this does not lead to
-				// permanent data loss; only a temporary non-critical divergence of
-				// in-memory vs on-disk state.
-				//
-				// As part of #9104, we have accepted this bug (as it is independent of
-				// the work done in 9104) and may revisit this logic at a a later
-				// point. #9104 simply changes from a maintenance RLock to a segment
-				// view which does not alter the behavior, but does help reduce lock
-				// contention.
-				segments, release := b.disk.getConsistentViewOfSegments()
-				defer release()
-
-				// add flushing memtable tombstones to all segments
-				for _, seg := range segments {
-					if _, err := seg.MergeTombstones(tombstones); err != nil {
-						return fmt.Errorf("merge tombstones: %w", err)
-					}
-				}
-				return nil
-			}(); err != nil {
-				return fmt.Errorf("add tombstones: %w", err)
-			}
-		}
 	}
 
 	took := time.Since(before)
