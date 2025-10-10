@@ -1530,7 +1530,8 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 
 			// If the overall request is already canceled, skip without error
 			if ctx.Err() != nil {
-				return ctx.Err()
+				i.logger.WithField("shardName", shardName).Info("context canceled")
+				return nil
 			}
 
 			shard, release, err := i.GetShard(ctx, shardName)
@@ -1826,8 +1827,10 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 			eg.Go(func() error {
 				// If the overall request is already canceled, skip this shard without error
 				if ctx.Err() != nil {
-					return ctx.Err()
+					i.logger.WithField("shardName", shardName).Info("context canceled")
+					return nil
 				}
+
 				localShardResult, localShardScores, err1 := i.localShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardName)
 				if err1 != nil {
 					// Ignore cancellations from this shard so other shards/replicas can still contribute
