@@ -1535,6 +1535,13 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 				err      error
 			)
 
+			// For short-running search operations, allow graceful completion
+			// but skip if context is already canceled to avoid unnecessary work
+			if ctx.Err() != nil {
+				i.logger.WithField("shardName", shardName).Debug("context canceled, skipping shard search")
+				return nil
+			}
+
 			shard, release, err := i.GetShard(ctx, shardName)
 			if err != nil {
 				return err
@@ -1826,6 +1833,13 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 		if shard != nil {
 			localSearches++
 			eg.Go(func() error {
+				// For short-running vector search operations, allow graceful completion
+				// but skip if context is already canceled to avoid unnecessary work
+				if ctx.Err() != nil {
+					i.logger.WithField("shardName", shardName).Debug("context canceled, skipping vector search")
+					return nil
+				}
+
 				localShardResult, localShardScores, err1 := i.localShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardName)
 				if err1 != nil {
 					// Ignore cancellations from this shard so other shards/replicas can still contribute
