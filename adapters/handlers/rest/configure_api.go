@@ -160,7 +160,6 @@ type vectorRepo interface {
 	objects.BatchVectorRepo
 	traverser.VectorSearcher
 	classification.VectorRepo
-	scaler.BackUpper
 	SetSchemaGetter(schema.SchemaGetter)
 	SetRouter(*router.Router)
 	WaitForStartup(ctx context.Context) error
@@ -482,8 +481,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		appState.Cluster, localClassifierRepo, appState.Logger)
 	appState.ClassificationRepo = classifierRepo
 
-	scaler := scaler.New(appState.Cluster, vectorRepo,
-		remoteIndexClient, appState.Logger, appState.ServerConfig.Config.Persistence.DataPath)
+	scaler := scaler.New(appState.Cluster, remoteIndexClient, appState.Logger)
 	appState.Scaler = scaler
 
 	server2port, err := parseNode2Port(appState)
