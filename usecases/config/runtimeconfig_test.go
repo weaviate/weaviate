@@ -28,19 +28,23 @@ import (
 )
 
 func TestParseRuntimeConfig(t *testing.T) {
-	// parser should fail if any unknown fields exist in the file
-	t.Run("parser should fail if any unknown fields exist in the file", func(t *testing.T) {
-		// rationale: Catch and fail early if any typo on the config file.
+	// parser should not fail if any unknown fields exist in the file
+	t.Run("parser should not fail if any unknown fields exist in the file", func(t *testing.T) {
+		// rationale: in case of downgrade, the config file might contain
+		// fields that are not known to the current version. We should ignore
+		// them, not fail.
 
-		buf := []byte(`autoschema_enabled: true`)
+		// note: typo and unknown field should be ignored and known fields should be parsed correctly
+		buf := []byte(`unknown_field: true
+autoschema_enbaled: true
+maximum_allowed_collections_count: 13
+`)
 		cfg, err := ParseRuntimeConfig(buf)
 		require.NoError(t, err)
-		assert.Equal(t, true, cfg.AutoschemaEnabled.Get())
-
-		buf = []byte(`autoschema_enbaled: false`) // note: typo.
-		cfg, err = ParseRuntimeConfig(buf)
-		require.ErrorContains(t, err, "autoschema_enbaled") // should contain misspelled field
-		assert.Nil(t, cfg)
+		// typo should be ignored, default value should be returned
+		assert.Equal(t, false, cfg.AutoschemaEnabled.Get())
+		// valid field should be parsed correctly
+		assert.Equal(t, 13, cfg.MaximumAllowedCollectionsCount.Get())
 	})
 
 	t.Run("YAML tag should be lower_snake_case", func(t *testing.T) {
