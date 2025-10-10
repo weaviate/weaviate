@@ -19,6 +19,8 @@ import (
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/cenkalti/backoff/v4"
 )
 
 type retryClient struct {
@@ -104,26 +106,26 @@ func newRetryer() *retryer {
 
 // n is the number of retries, work will always be called at least once.
 func (r *retryer) retry(ctx context.Context, n int, work func(context.Context) (bool, error)) error {
-	delay := r.minBackOff
-	for {
-		keepTrying, err := work(ctx)
-		if !keepTrying || n < 1 || err == nil {
-			return err
-		}
+	// Create exponential backoff with configured limits
+	b := backoff.NewExponentialBackOff()
+	b.InitialInterval = r.minBackOff
+	b.MaxInterval = r.maxBackOff
+	b.MaxElapsedTime = 0 // No overall time limit, only retry count limit
 
-		n--
-		if delay = backOff(delay); delay > r.maxBackOff {
-			delay = r.maxBackOff
+	// Wrap with max retries and context
+	backoffWithRetries := backoff.WithMaxRetries(b, uint64(n))
+	backoffWithContext := backoff.WithContext(backoffWithRetries, ctx)
+
+	// Execute the operation with backoff
+	return backoff.Retry(func() error {
+		keepTrying, err := work(ctx)
+		if !keepTrying || err == nil {
+			// Don't retry if work function says not to keep trying or if no error
+			return backoff.Permanent(err)
 		}
-		timer := time.NewTimer(delay)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			return fmt.Errorf("%w: %w", err, ctx.Err())
-		case <-timer.C:
-		}
-		timer.Stop()
-	}
+		// Return the error to trigger retry
+		return err
+	}, backoffWithContext)
 }
 
 func successCode(code int) bool {
