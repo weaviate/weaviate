@@ -565,7 +565,8 @@ func (m *AutoSchemaManager) autoTenants(ctx context.Context,
 		}
 
 		addStart := time.Now()
-		if err := m.addTenants(ctx, principal, className, tenants); err != nil {
+		version, err := m.addTenants(ctx, principal, className, tenants)
+		if err != nil {
 			return 0, totalTenants, fmt.Errorf("add tenants to class %q: %w", className, err)
 		}
 		m.tenantsCount.Add(float64(len(tenants)))
@@ -573,8 +574,8 @@ func (m *AutoSchemaManager) autoTenants(ctx context.Context,
 			"operation": "add",
 		}).Observe(time.Since(addStart).Seconds())
 
-		if vclass.Version > maxSchemaVersion {
-			maxSchemaVersion = vclass.Version
+		if version > maxSchemaVersion {
+			maxSchemaVersion = version
 		}
 	}
 
@@ -588,20 +589,20 @@ func (m *AutoSchemaManager) autoTenants(ctx context.Context,
 
 func (m *AutoSchemaManager) addTenants(ctx context.Context, principal *models.Principal,
 	class string, tenants []*models.Tenant,
-) error {
+) (uint64, error) {
 	if len(tenants) == 0 {
-		return fmt.Errorf(
+		return 0, fmt.Errorf(
 			"tenants must be included for multitenant-enabled class %q", class)
 	}
 	version, err := m.schemaManager.AddTenants(ctx, principal, class, tenants)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	err = m.schemaManager.WaitForUpdate(ctx, version)
 	if err != nil {
-		return fmt.Errorf("could not wait for update: %w", err)
+		return 0, fmt.Errorf("could not wait for update: %w", err)
 	}
 
-	return nil
+	return version, nil
 }

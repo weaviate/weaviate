@@ -51,6 +51,13 @@ type fakeSchemaManager struct {
 	GetSchemaResponse schema.Schema
 	GetschemaErr      error
 	tenantsEnabled    bool
+	// test controls
+	AddTenantsSchemaVersion uint64
+	AutoSchemaVersion       uint64
+	// observed
+	WaitedSchemaVersion    uint64
+	MaxWaitedSchemaVersion uint64
+	WaitedVersions         []uint64
 }
 
 func (f *fakeSchemaManager) UpdatePropertyAddDataType(ctx context.Context, principal *models.Principal,
@@ -152,7 +159,7 @@ func (f *fakeSchemaManager) AddClass(ctx context.Context, principal *models.Prin
 		classes = []*models.Class{class}
 	}
 	f.GetSchemaResponse.Objects.Classes = classes
-	return class, 0, nil
+	return class, f.AutoSchemaVersion, nil
 }
 
 func (f *fakeSchemaManager) AddClassProperty(ctx context.Context, principal *models.Principal,
@@ -181,17 +188,22 @@ func (f *fakeSchemaManager) AddClassProperty(ctx context.Context, principal *mod
 		}
 	}
 
-	return class, 0, nil
+	return class, f.AutoSchemaVersion, nil
 }
 
 func (f *fakeSchemaManager) AddTenants(ctx context.Context,
 	principal *models.Principal, class string, tenants []*models.Tenant,
 ) (uint64, error) {
 	f.tenantsEnabled = true
-	return 0, nil
+	return f.AddTenantsSchemaVersion, nil
 }
 
 func (f *fakeSchemaManager) WaitForUpdate(ctx context.Context, schemaVersion uint64) error {
+	f.WaitedSchemaVersion = schemaVersion
+	if schemaVersion > f.MaxWaitedSchemaVersion {
+		f.MaxWaitedSchemaVersion = schemaVersion
+	}
+	f.WaitedVersions = append(f.WaitedVersions, schemaVersion)
 	return nil
 }
 
@@ -201,6 +213,7 @@ func (f *fakeSchemaManager) StorageCandidates() []string {
 
 type fakeVectorRepo struct {
 	mock.Mock
+	CapturedSchemaVersion uint64
 }
 
 func (f *fakeVectorRepo) Exists(ctx context.Context, class string, id strfmt.UUID, repl *additional.ReplicationProperties, tenant string) (bool, error) {
@@ -247,6 +260,7 @@ func (f *fakeVectorRepo) Query(ctx context.Context, q *QueryInput) (search.Resul
 func (f *fakeVectorRepo) PutObject(ctx context.Context, concept *models.Object, vector []float32,
 	vectors map[string][]float32, multiVectors map[string][][]float32, repl *additional.ReplicationProperties, schemaVersion uint64,
 ) error {
+	f.CapturedSchemaVersion = schemaVersion
 	args := f.Called(concept, vector)
 	return args.Error(0)
 }
