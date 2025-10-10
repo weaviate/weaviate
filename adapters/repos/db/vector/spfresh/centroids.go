@@ -29,12 +29,10 @@ type Centroid struct {
 }
 
 type CentroidIndex interface {
-	Init(dims int32, distancer distancer.Provider)
 	Insert(id uint64, centroid *Centroid) error
 	Get(id uint64) *Centroid
 	MarkAsDeleted(id uint64) error
 	Exists(id uint64) bool
-	Quantizer() *compressionhelpers.RotationalQuantizer
 	Search(query []float32, k int) (*ResultSet, error)
 }
 
@@ -42,7 +40,7 @@ var _ CentroidIndex = (*BruteForceIndex)(nil)
 
 type BruteForceIndex struct {
 	quantizer *compressionhelpers.RotationalQuantizer
-	distancer *Distancer
+	distancer distancer.Provider
 	metrics   *Metrics
 
 	centroids *common.PagedArray[atomic.Pointer[Centroid]]
@@ -51,19 +49,10 @@ type BruteForceIndex struct {
 	counter   atomic.Int32
 }
 
-func NewBruteForceSPTAG(metrics *Metrics, pages, pageSize uint64) *BruteForceIndex {
+func NewBruteForceSPTAG(metrics *Metrics, distancer distancer.Provider, pages, pageSize uint64) *BruteForceIndex {
 	return &BruteForceIndex{
 		metrics:   metrics,
 		centroids: common.NewPagedArray[atomic.Pointer[Centroid]](pages, pageSize),
-	}
-}
-
-func (s *BruteForceIndex) Init(dims int32, distancer distancer.Provider) {
-	// TODO: seed
-	seed := uint64(42)
-	s.quantizer = compressionhelpers.NewRotationalQuantizer(int(dims), seed, 8, distancer)
-	s.distancer = &Distancer{
-		quantizer: s.quantizer,
 		distancer: distancer,
 	}
 }
@@ -133,10 +122,6 @@ func (s *BruteForceIndex) Exists(id uint64) bool {
 	return !centroid.Deleted
 }
 
-func (s *BruteForceIndex) Quantizer() *compressionhelpers.RotationalQuantizer {
-	return s.quantizer
-}
-
 var idsPool = sync.Pool{
 	New: func() any {
 		buf := make([]uint64, 0, 1024)
@@ -170,7 +155,7 @@ func (s *BruteForceIndex) Search(query []float32, k int) (*ResultSet, error) {
 			continue
 		}
 
-		dist, err := s.distancer.DistanceBetweenVectors(c.Uncompressed, query)
+		dist, err := s.distancer.SingleDist(c.Uncompressed, query)
 		if err != nil {
 			return nil, err
 		}

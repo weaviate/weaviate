@@ -80,7 +80,7 @@ func (s *SPFresh) doReassign(op reassignOperation) error {
 
 	// perform a RNG selection to determine the postings where the vector should be
 	// reassigned to.
-	q := s.Centroids.Quantizer().Restore(op.Vector.(CompressedVector).Data())
+	q := s.quantizer.Restore(op.Vector.(CompressedVector).Data())
 	replicas, needsReassign, err := s.RNGSelect(q, op.PostingID)
 	if err != nil {
 		return errors.Wrap(err, "failed to select replicas")

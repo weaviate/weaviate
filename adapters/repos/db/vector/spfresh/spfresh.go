@@ -60,6 +60,7 @@ type SPFresh struct {
 	dims               int32 // Number of dimensions of expected vectors
 	vectorSize         int32 // Size of the compressed vectors in bytes
 	distancer          *Distancer
+	quantizer          *compressionhelpers.RotationalQuantizer
 
 	// Internal components
 	Centroids    CentroidIndex           // Provides access to the centroids.
@@ -135,7 +136,7 @@ func New(cfg *Config, store *lsmkv.Store) (*SPFresh, error) {
 			return nil, err
 		}
 	} else {
-		s.Centroids = NewBruteForceSPTAG(metrics, 1024*1024, 1024)
+		s.Centroids = NewBruteForceSPTAG(metrics, cfg.Distancer, 1024*1024, 1024)
 	}
 
 	s.ctx, s.cancel = context.WithCancel(context.Background())
@@ -296,7 +297,7 @@ func (s *SPFresh) QueryVectorDistancer(queryVector []float32) common.QueryVector
 }
 
 func (s *SPFresh) CompressionStats() compressionhelpers.CompressionStats {
-	return s.Centroids.Quantizer().Stats()
+	return s.quantizer.Stats()
 }
 
 func (s *SPFresh) Preload(id uint64, vector []float32) {

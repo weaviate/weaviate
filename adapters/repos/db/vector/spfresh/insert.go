@@ -59,20 +59,20 @@ func (s *SPFresh) Add(ctx context.Context, id uint64, vector []float32) (err err
 	s.initDimensionsOnce.Do(func() {
 		s.dims = int32(len(vector))
 		s.setMaxPostingSize()
-		s.Centroids.Init(s.dims, s.config.Distancer)
+		s.quantizer = compressionhelpers.NewRotationalQuantizer(int(s.dims), 42, 8, s.config.Distancer)
 		s.distancer = &Distancer{
-			quantizer: s.Centroids.Quantizer(),
+			quantizer: s.quantizer,
 			distancer: s.config.Distancer,
 		}
 		vector = s.normalizeVec(vector)
-		compressed = s.Centroids.Quantizer().Encode(vector)
+		compressed = s.quantizer.Encode(vector)
 		s.vectorSize = int32(len(compressed))
 		s.Store.Init(s.vectorSize)
 	})
 
 	if compressed == nil {
 		vector = s.normalizeVec(vector)
-		compressed = s.Centroids.Quantizer().Encode(vector)
+		compressed = s.quantizer.Encode(vector)
 	}
 
 	// add the vector to the version map.

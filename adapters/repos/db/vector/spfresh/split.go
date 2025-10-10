@@ -235,7 +235,7 @@ func (s *SPFresh) splitPosting(posting Posting) ([]SplitResult, error) {
 
 	var data [][]float32
 	if cp, ok := posting.(*CompressedPosting); ok {
-		data = cp.Uncompress(s.Centroids.Quantizer())
+		data = cp.Uncompress(s.quantizer)
 	}
 
 	err := enc.Fit(data)
@@ -247,7 +247,7 @@ func (s *SPFresh) splitPosting(posting Posting) ([]SplitResult, error) {
 	for i := range results {
 		results[i] = SplitResult{
 			Uncompressed: enc.Centroid(byte(i)),
-			Centroid:     s.Centroids.Quantizer().Encode(enc.Centroid(byte(i))),
+			Centroid:     s.quantizer.Encode(enc.Centroid(byte(i))),
 			Posting: &CompressedPosting{
 				vectorSize: int(s.vectorSize),
 			},

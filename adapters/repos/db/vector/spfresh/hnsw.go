@@ -20,17 +20,13 @@ import (
 	"github.com/puzpuzpuz/xsync/v4"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 var _ CentroidIndex = (*HNSWIndex)(nil)
 
 type HNSWIndex struct {
-	quantizer *compressionhelpers.RotationalQuantizer
-	distancer *Distancer
 	metrics   *Metrics
 	hnsw      *hnsw.HNSW
 	centroids *common.PagedArray[atomic.Pointer[Centroid]]
@@ -66,16 +62,6 @@ func NewHNSWIndex(metrics *Metrics, store *lsmkv.Store, cfg *Config, pages, page
 	index.hnsw = h
 
 	return &index, nil
-}
-
-func (i *HNSWIndex) Init(dims int32, distancer distancer.Provider) {
-	// TODO: seed
-	seed := uint64(42)
-	i.quantizer = compressionhelpers.NewRotationalQuantizer(int(dims), seed, 8, distancer)
-	i.distancer = &Distancer{
-		quantizer: i.quantizer,
-		distancer: distancer,
-	}
 }
 
 func (i *HNSWIndex) Get(id uint64) *Centroid {
@@ -146,10 +132,6 @@ func (i *HNSWIndex) Exists(id uint64) bool {
 	}
 
 	return !centroid.Deleted
-}
-
-func (i *HNSWIndex) Quantizer() *compressionhelpers.RotationalQuantizer {
-	return i.quantizer
 }
 
 func (i *HNSWIndex) Search(query []float32, k int) (*ResultSet, error) {

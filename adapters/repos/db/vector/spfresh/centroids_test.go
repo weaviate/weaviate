@@ -24,8 +24,7 @@ import (
 func TestBruteForceIndex_Search(t *testing.T) {
 	dim := 64
 	q := compressionhelpers.NewRotationalQuantizer(dim, 42, 8, distancer.NewL2SquaredProvider())
-	sptag := NewBruteForceSPTAG(NewMetrics(nil, "n/a", "n/a"), 10, 10)
-	sptag.Init(int32(dim), distancer.NewL2SquaredProvider())
+	sptag := NewBruteForceSPTAG(NewMetrics(nil, "n/a", "n/a"), distancer.NewL2SquaredProvider(), 10, 10)
 
 	// Seed vectors
 	vectors := map[uint64][]float32{
@@ -97,8 +96,7 @@ func TestBruteForceIndex_Search(t *testing.T) {
 func BenchmarkSPTAGSearch(b *testing.B) {
 	dim := 64
 	q := compressionhelpers.NewRotationalQuantizer(dim, 42, 8, distancer.NewL2SquaredProvider())
-	sptag := NewBruteForceSPTAG(NewMetrics(nil, "n/a", "n/a"), 1024*1024, 1024)
-	sptag.Init(int32(dim), distancer.NewL2SquaredProvider())
+	sptag := NewBruteForceSPTAG(NewMetrics(nil, "n/a", "n/a"), distancer.NewL2SquaredProvider(), 1024*1024, 1024)
 	logger, _ := test.NewNullLogger()
 	vectors_size := 1000_000
 	queries_size := 100
