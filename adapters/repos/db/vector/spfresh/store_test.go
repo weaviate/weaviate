@@ -22,7 +22,7 @@ func TestStore(t *testing.T) {
 	ctx := t.Context()
 	t.Run("get", func(t *testing.T) {
 		store := testinghelpers.NewDummyStore(t)
-		s, err := NewLSMStore(store, NewMetrics(nil, "n/a", "n/a"), "test_bucket", 1024, 1024, nil, false, false, false)
+		s, err := NewLSMStore(store, NewMetrics(nil, "n/a", "n/a"), "test_bucket", StoreConfig{})
 		require.NoError(t, err)
 		s.Init(10)
 
@@ -52,7 +52,7 @@ func TestStore(t *testing.T) {
 
 	t.Run("multi-get", func(t *testing.T) {
 		store := testinghelpers.NewDummyStore(t)
-		s, err := NewLSMStore(store, NewMetrics(nil, "n/a", "n/a"), "test_bucket", 1024, 1024, nil, false, false, false)
+		s, err := NewLSMStore(store, NewMetrics(nil, "n/a", "n/a"), "test_bucket", StoreConfig{})
 		require.NoError(t, err)
 		s.Init(10)
 
@@ -91,7 +91,7 @@ func TestStore(t *testing.T) {
 
 	t.Run("put", func(t *testing.T) {
 		store := testinghelpers.NewDummyStore(t)
-		s, err := NewLSMStore(store, NewMetrics(nil, "n/a", "n/a"), "test_bucket", 1024, 1024, nil, false, false, false)
+		s, err := NewLSMStore(store, NewMetrics(nil, "n/a", "n/a"), "test_bucket", StoreConfig{})
 		require.NoError(t, err)
 		s.Init(10)
 
