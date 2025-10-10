@@ -1568,7 +1568,14 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 		}, shardName)
 	}
 	if err := eg.Wait(); err != nil {
-		return nil, nil, err
+		// Tolerate local shard cancellations during rollout if we already have some results.
+		// Proceed with available results; otherwise, fail.
+		if strings.Contains(err.Error(), context.Canceled.Error()) && len(resultObjects) > 0 {
+			i.logger.WithField("action", "object_vector_search").WithError(err).
+				Info("tolerating context.Canceled from a shard; proceeding with available results")
+		} else {
+			return nil, nil, err
+		}
 	}
 
 	if len(resultObjects) == len(resultScores) {
