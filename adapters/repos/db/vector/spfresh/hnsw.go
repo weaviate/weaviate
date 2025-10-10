@@ -6,12 +6,12 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/puzpuzpuz/xsync/v4"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	"github.com/weaviate/weaviate/entities/cyclemanager"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
@@ -24,15 +24,17 @@ type HNSWIndex struct {
 	hnsw      *hnsw.HNSW
 	centroids *common.PagedArray[atomic.Pointer[Centroid]]
 	counter   atomic.Int32
+	ids       *xsync.Map[uint64, struct{}]
 }
 
-func NewHNSWIndex(metrics *Metrics, store *lsmkv.Store, cfg hnsw.Config, ecfg ent.UserConfig, pages, pageSize uint64) (*HNSWIndex, error) {
+func NewHNSWIndex(metrics *Metrics, store *lsmkv.Store, cfg *Config, pages, pageSize uint64) (*HNSWIndex, error) {
 	index := HNSWIndex{
 		metrics:   metrics,
 		centroids: common.NewPagedArray[atomic.Pointer[Centroid]](pages, pageSize),
+		ids:       xsync.NewMap[uint64, struct{}](),
 	}
 
-	cfg.VectorForIDThunk = func(ctx context.Context, id uint64) ([]float32, error) {
+	cfg.Centroids.HNSWConfig.VectorForIDThunk = func(ctx context.Context, id uint64) ([]float32, error) {
 		centroid := index.Get(id)
 		if centroid == nil {
 			return nil, errors.New("not found")
@@ -40,7 +42,12 @@ func NewHNSWIndex(metrics *Metrics, store *lsmkv.Store, cfg hnsw.Config, ecfg en
 		return centroid.Uncompressed, nil
 	}
 
-	h, err := hnsw.New(cfg, ecfg, cyclemanager.NewCallbackGroupNoop(), store)
+	var userConfig ent.UserConfig
+	userConfig.SetDefaults()
+	userConfig.EF = 64
+	userConfig.EFConstruction = 64
+
+	h, err := hnsw.New(*cfg.Centroids.HNSWConfig, userConfig, cfg.TombstoneCallbacks, store)
 	if err != nil {
 		return nil, err
 	}
@@ -70,6 +77,8 @@ func (i *HNSWIndex) Get(id uint64) *Centroid {
 }
 
 func (i *HNSWIndex) Insert(id uint64, centroid *Centroid) error {
+	i.ids.Store(id, struct{}{})
+
 	page, slot := i.centroids.EnsurePageFor(id)
 	if page == nil {
 		return errors.New("failed to allocate page")
@@ -113,6 +122,8 @@ func (i *HNSWIndex) MarkAsDeleted(id uint64) error {
 			break
 		}
 	}
+
+	i.ids.Delete(id)
 
 	return i.hnsw.Delete(id)
 }

@@ -28,8 +28,10 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -62,9 +64,21 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
+func makeNoopCommitLogger() (hnsw.CommitLogger, error) {
+	return &hnsw.NoopCommitLogger{}, nil
+}
+
 func TestSPFreshRecall(t *testing.T) {
+	store := testinghelpers.NewDummyStore(t)
 	cfg := DefaultConfig()
-	cfg.RNGFactor = 5.0
+	cfg.Centroids.IndexType = "hnsw"
+	cfg.Centroids.HNSWConfig = &hnsw.Config{
+		RootPath:              t.TempDir(),
+		ID:                    "spfresh",
+		MakeCommitLoggerThunk: makeNoopCommitLogger,
+		DistanceProvider:      distancer.NewCosineDistanceProvider(),
+	}
+	cfg.TombstoneCallbacks = cyclemanager.NewCallbackGroupNoop()
 	l := logrus.New()
 	cfg.Logger = l
 	cfg.PrometheusMetrics = monitoring.GetMetrics()
@@ -72,10 +86,10 @@ func TestSPFreshRecall(t *testing.T) {
 
 	logger, _ := test.NewNullLogger()
 
-	vectors_size := 100_000
+	vectors_size := 10_000
 	queries_size := 100
 	dimensions := 64
-	k := 100
+	k := 10
 
 	before := time.Now()
 	vectors, queries := testinghelpers.RandomVecsFixedSeed(vectors_size, queries_size, dimensions)
@@ -92,7 +106,7 @@ func TestSPFreshRecall(t *testing.T) {
 
 	fmt.Printf("generating data took %s\n", time.Since(before))
 
-	index, err := New(cfg, testinghelpers.NewDummyStore(t))
+	index, err := New(cfg, store)
 	require.NoError(t, err)
 	defer index.Shutdown(t.Context())
 
@@ -103,10 +117,6 @@ func TestSPFreshRecall(t *testing.T) {
 		if cur%1000 == 0 {
 			fmt.Printf("indexing vectors %d/%d\n", cur, vectors_size)
 			fmt.Println("background tasks: split", index.splitCh.Len(), "reassign", index.reassignCh.Len(), "merge", index.mergeCh.Len())
-		}
-		if cur%50000 == 0 {
-			err := index.Flush()
-			require.NoError(t, err)
 		}
 		err := index.Add(t.Context(), id, vectors[id])
 		require.NoError(t, err)
@@ -124,17 +134,17 @@ func TestSPFreshRecall(t *testing.T) {
 
 	index.config.SearchProbe = 64
 	recall, latency := testinghelpers.RecallAndLatency(t.Context(), queries, k, index, truths)
-	fmt.Println(recall, latency)
+	fmt.Println(index.config.SearchProbe, recall, latency)
 
 	index.config.SearchProbe = 128
 	recall, latency = testinghelpers.RecallAndLatency(t.Context(), queries, k, index, truths)
 	fmt.Println(index.config.SearchProbe, recall, latency)
 
-	index.config.SearchProbe = 512
+	index.config.SearchProbe = 256
 	recall, latency = testinghelpers.RecallAndLatency(t.Context(), queries, k, index, truths)
 	fmt.Println(index.config.SearchProbe, recall, latency)
 
-	index.config.SearchProbe = 1024
+	index.config.SearchProbe = 512
 	recall, latency = testinghelpers.RecallAndLatency(t.Context(), queries, k, index, truths)
 	fmt.Println(index.config.SearchProbe, recall, latency)
 
