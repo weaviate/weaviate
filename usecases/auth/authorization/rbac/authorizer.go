@@ -91,9 +91,13 @@ func (m *Manager) authorize(ctx context.Context, principal *models.Principal, ve
 	}
 
 	// Log all results at once if audit is enabled
-	if !skipAudit && !m.rbacConf.AuditLogSetDisabled.Get() {
-		logger.WithField("audit_log_set_disabled", m.rbacConf.AuditLogSetDisabled.Get())
-		logger.WithField("permissions", permResults).Info()
+	auditDisabled := m.rbacConf.AuditLogSetDisabled.Get()
+	if !skipAudit && !auditDisabled {
+		logger.WithFields(logrus.Fields{
+			"audit_log_set_disabled": auditDisabled,
+			"skipAudit":              skipAudit,
+			"dynamic_value_nil":      m.rbacConf.AuditLogSetDisabled == nil,
+		}).WithField("permissions", permResults).Info()
 	}
 
 	return nil
@@ -167,8 +171,12 @@ func (m *Manager) FilterAuthorizedResources(ctx context.Context, principal *mode
 		}
 	}
 
-	if !m.rbacConf.AuditLogSetDisabled.Get() {
-		logger.WithField("permissions", permResults).Info()
+	auditDisabled := m.rbacConf.AuditLogSetDisabled.Get()
+	if !auditDisabled {
+		logger.WithFields(logrus.Fields{
+			"audit_log_set_disabled": auditDisabled,
+			"dynamic_value_nil":      m.rbacConf.AuditLogSetDisabled == nil,
+		}).WithField("permissions", permResults).Info()
 	}
 	return allowedResources, nil
 }
