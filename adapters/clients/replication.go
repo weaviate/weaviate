@@ -25,6 +25,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
+
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -75,7 +76,7 @@ func (c *replicationClient) DigestObjects(ctx context.Context,
 	if err != nil {
 		return resp, fmt.Errorf("create http request: %w", err)
 	}
-	err = c.do(c.timeoutUnit*20, req, body, &resp, numRetries)
+	err = c.do(c.timeoutUnit*5, req, body, &resp, numRetries)
 	return resp, err
 }
 
@@ -404,6 +405,10 @@ func backOff(d time.Duration) time.Duration {
 }
 
 func shouldRetry(code int) bool {
+	// Treat proxy buffer errors and client closed requests as non-retryable to switch replicas faster
+	if code == 507 /* Insufficient Storage (e.g., proxy buffer exceeded) */ || code == 499 /* Client Closed Request (common in proxies) */ {
+		return false
+	}
 	return code == http.StatusInternalServerError ||
 		code == http.StatusTooManyRequests ||
 		code == http.StatusServiceUnavailable
