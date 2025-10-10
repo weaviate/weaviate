@@ -217,11 +217,21 @@ func makeShutdownMiddleware(s *state.State) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if s.IsShuttingDown() {
-				// During shutdown, reject new requests to allow graceful draining
-				// This prevents new requests from starting while existing ones complete
+				// Only block external client requests, not internal replication requests
+				// Internal requests are identified by their path patterns
+				if isInternalReplicationRequest(r.URL.Path) {
+					// Allow internal replication requests to continue during shutdown
+					s.Logger.WithField("method", r.Method).
+						WithField("path", r.URL.Path).
+						Debug("allowing internal replication request during shutdown")
+					next.ServeHTTP(w, r)
+					return
+				}
+
+				// Block external client requests during shutdown
 				s.Logger.WithField("method", r.Method).
 					WithField("path", r.URL.Path).
-					Info("rejecting new request during shutdown (graceful draining)")
+					Info("rejecting external client request during shutdown (graceful draining)")
 
 				w.Header().Set("Connection", "close")
 				w.WriteHeader(http.StatusServiceUnavailable)
@@ -235,6 +245,33 @@ func makeShutdownMiddleware(s *state.State) func(http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+// isInternalReplicationRequest checks if the request is an internal replication request
+// that should be allowed to continue during shutdown
+func isInternalReplicationRequest(path string) bool {
+	// Internal replication requests have these path patterns:
+	// - /replicas/indices/{index}/shards/{shard}/objects/_digest
+	// - /replicas/indices/{index}/shards/{shard}/objects
+	// - /replicas/indices/{index}/shards/{shard}/objects/{id}
+	// - /replicas/indices/{index}/shards/{shard}/objects/{id}/_digest
+	// - /replicas/indices/{index}/shards/{shard}/objects/{id}/_digest/{digest}
+
+	// Check for internal replication paths
+	if strings.HasPrefix(path, "/replicas/indices/") {
+		return true
+	}
+
+	// Check for other internal cluster API paths
+	if strings.HasPrefix(path, "/indices/") ||
+		strings.HasPrefix(path, "/nodes/") ||
+		strings.HasPrefix(path, "/classifications/") ||
+		strings.HasPrefix(path, "/backups/") ||
+		strings.HasPrefix(path, "/cluster/users/") {
+		return true
+	}
+
+	return false
 }
 
 func addPreflight(next http.Handler, cfg config.CORS) http.Handler {
