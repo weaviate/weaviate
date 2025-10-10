@@ -133,7 +133,7 @@ func (f *Finder) GetOne(ctx context.Context,
 			return findOneReply{host, x.Version, r, x.UpdateTime, true}, err
 		}
 	}
-	replyCh, level, err := c.Pull(ctx, l, op, "", 20*time.Second)
+	replyCh, level, err := c.Pull(ctx, l, op, "", 60*time.Second)
 	if err != nil {
 		f.log.WithField("op", "pull.one").Error(err)
 		return nil, fmt.Errorf("%s %q: %w", MsgCLevel, l, ErrReplicas)
@@ -247,7 +247,7 @@ func (f *Finder) Exists(ctx context.Context,
 		}
 		return existReply{host, x}, err
 	}
-	replyCh, state, err := c.Pull(ctx, l, op, "", 20*time.Second)
+	replyCh, state, err := c.Pull(ctx, l, op, "", 60*time.Second)
 	if err != nil {
 		f.log.WithField("op", "pull.exist").Error(err)
 		return false, fmt.Errorf("%s %q: %w", MsgCLevel, l, ErrReplicas)
@@ -299,7 +299,7 @@ func (f *Finder) checkShardConsistency(ctx context.Context,
 		}
 	}
 
-	replyCh, state, err := c.Pull(ctx, l, op, batch.Node, 20*time.Second)
+	replyCh, state, err := c.Pull(ctx, l, op, batch.Node, 60*time.Second)
 	if err != nil {
 		return nil, fmt.Errorf("pull shard: %w", ErrReplicas)
 	}
