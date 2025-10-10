@@ -13,6 +13,7 @@ package traverser
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 
@@ -329,6 +330,11 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 			}
 
 			if err != nil {
+				// During rollout, vector side may cancel; don't fail entire hybrid on cancellation
+				if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
+					e.logger.WithField("action", "hybrid").WithField("error_text", errorText).Info("context canceled")
+					return nil
+				}
 				e.logger.WithField("action", "hybrid").WithField("error_text", errorText).Error(err)
 				return err
 			} else {
