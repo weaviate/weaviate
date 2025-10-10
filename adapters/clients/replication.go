@@ -405,13 +405,6 @@ func backOff(d time.Duration) time.Duration {
 }
 
 func shouldRetry(code int) bool {
-	// Treat proxy buffer errors and client closed requests as non-retryable to switch replicas faster
-	// Insufficient Storage (e.g., proxy buffer exceeded)
-	if code == http.StatusInsufficientStorage ||
-		// Client Closed Request (common in proxies)
-		code == 499 {
-		return false
-	}
 	return code == http.StatusInternalServerError ||
 		code == http.StatusTooManyRequests ||
 		code == http.StatusServiceUnavailable
