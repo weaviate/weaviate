@@ -28,7 +28,7 @@ import (
 
 const (
 	defaultPullBackOffInitialInterval = time.Millisecond * 250
-	defaultPullBackOffMaxElapsedTime  = time.Second * 128
+	defaultPullBackOffMaxElapsedTime  = time.Second * 30
 )
 
 type (
