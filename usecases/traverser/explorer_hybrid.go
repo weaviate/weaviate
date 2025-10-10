@@ -18,12 +18,11 @@ import (
 
 	"github.com/go-openapi/strfmt"
 
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-	"github.com/weaviate/weaviate/entities/models"
-
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
@@ -330,7 +329,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 			}
 
 			if err != nil {
-				e.logger.WithField("action", "hybrid").WithError(err).Error(errorText + " failed")
+				e.logger.WithField("action", "hybrid").WithField("error_text", errorText).Error(err)
 				return err
 			} else {
 				weights[0] = params.HybridSearch.Alpha
@@ -349,7 +348,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 			params := keywordParams
 			sparseResults, name, err := sparseSearch(ctx, e, params)
 			if err != nil {
-				e.logger.WithField("action", "hybrid").WithError(err).Error("sparseSearch failed")
+				e.logger.WithField("action", "hybrid").WithField("error_text", "sparseSearch").Error(err)
 				return err
 			} else {
 				weights[len(weights)-1] = 1 - params.HybridSearch.Alpha
