@@ -974,7 +974,10 @@ func makeServerShutdownHandler(
 			}
 		}
 
-		// stop reindexing on server shutdown
+		// Stop long-running background operations (reindexing, compaction, etc.)
+		// but allow short-running requests to complete
+		appState.Logger.WithField("action", "shutdown").
+			Info("Stopping long-running background operations during graceful shutdown")
 		appState.ReindexCtxCancel(fmt.Errorf("server shutdown"))
 
 		if appState.DistributedTaskScheduler != nil {

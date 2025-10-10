@@ -1535,12 +1535,6 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 				err      error
 			)
 
-			// If the overall request is already canceled, skip without error
-			if ctx.Err() != nil {
-				i.logger.WithField("shardName", shardName).Warn("context canceled")
-				return nil
-			}
-
 			shard, release, err := i.GetShard(ctx, shardName)
 			if err != nil {
 				return err
@@ -1832,12 +1826,6 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 		if shard != nil {
 			localSearches++
 			eg.Go(func() error {
-				// If the overall request is already canceled, skip this shard without error
-				if ctx.Err() != nil {
-					i.logger.WithField("shardName", shardName).Warn("context canceled")
-					return nil
-				}
-
 				localShardResult, localShardScores, err1 := i.localShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardName)
 				if err1 != nil {
 					// Ignore cancellations from this shard so other shards/replicas can still contribute
@@ -1860,8 +1848,11 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 		if shard == nil || i.Config.ForceFullReplicasSearch {
 			remoteSearches++
 			eg.Go(func() error {
+				// For short-running remote search operations, allow graceful completion
+				// but skip if context is already canceled to avoid unnecessary work
 				if ctx.Err() != nil {
-					return ctx.Err()
+					i.logger.WithField("shardName", shardName).Debug("context canceled, skipping remote search")
+					return nil
 				}
 				// If we have no local shard or if we force the query to reach all replicas
 				remoteShardObject, remoteShardScores, err2 := i.remoteShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardName)
