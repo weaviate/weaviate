@@ -25,6 +25,8 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
+const migrationPerformedFlag = "migration.performed.flag"
+
 type compressedVectorsMigrator struct {
 	logger logrus.FieldLogger
 }
@@ -41,32 +43,44 @@ func (m compressedVectorsMigrator) do(s *Shard) error {
 
 	lsmDir := s.store.GetDir()
 	vectorsCompressedPath := filepath.Join(lsmDir, helpers.VectorsCompressedBucketLSM)
-	if _, err := os.Stat(vectorsCompressedPath); !os.IsNotExist(err) {
+	if _, err := os.Stat(vectorsCompressedPath); !os.IsNotExist(err) && !m.isMigrationDone(lsmDir) {
 		switch totalVectors {
 		case 0:
 			// do nothing
 		case 1:
 			if len(s.index.vectorIndexUserConfigs) > 0 {
 				for targetVector, vectorIndexConfig := range s.index.vectorIndexUserConfigs {
-					// Rename old bucket to new target vector bucket
+					// rename old bucket to new target vector bucket
 					if err := m.migrate(targetVector, vectorIndexConfig, lsmDir, true); err != nil {
 						return fmt.Errorf("failed to rename old compressed vector bucket for target vector %s: %w", targetVector, err)
 					}
 				}
+			} else {
+				// we have only legacy vector index defined, there was no need for migration, but we need to mark it
+				// because we could have a scenario where we would add additional named vectors which could trigger
+				// the migration unnecessary again and break newly created named vector
+				if err := m.markMigrationDone(lsmDir); err != nil {
+					return fmt.Errorf("failed to mark migration as done: %w", err)
+				}
 			}
 		default:
-			// Copy old buckets to new target vector buckets
+			// copy old buckets to new target vector buckets
 			for targetVector, vectorIndexConfig := range s.index.vectorIndexUserConfigs {
 				if err := m.migrate(targetVector, vectorIndexConfig, lsmDir, false); err != nil {
 					return fmt.Errorf("failed to copy from old compressed vector bucket to new bucket for target vector: %s: %w", targetVector, err)
 				}
 			}
 			if s.index.vectorIndexUserConfig == nil {
-				// Remove the old bucket directory after all copies are complete, only if was not defined for legacy vector
+				// remove the old bucket directory after all copies are complete, only if was not defined for legacy vector
 				if err := os.RemoveAll(vectorsCompressedPath); err != nil {
 					return fmt.Errorf("failed to remove old bucket directory after copying all target vectors: %w", err)
 				}
 				m.logger.Info("removed old vectors compressed bucket")
+			} else {
+				// legacy vector defined together with named vectors, we need to mark that the migration was performed
+				if err := m.markMigrationDone(lsmDir); err != nil {
+					return fmt.Errorf("failed to mark migration as done: %w", err)
+				}
 			}
 		}
 	}
@@ -180,4 +194,26 @@ func (m compressedVectorsMigrator) copyFile(src, dst string) error {
 
 	_, err = io.Copy(dstFile, srcFile)
 	return err
+}
+
+func (m compressedVectorsMigrator) migrationPerformedFlagFile(lsmDir string) string {
+	return fmt.Sprintf("%s/%s/%s", lsmDir, helpers.VectorsCompressedBucketLSM, migrationPerformedFlag)
+}
+
+func (m compressedVectorsMigrator) markMigrationDone(lsmDir string) error {
+	file, err := os.Create(m.migrationPerformedFlagFile(lsmDir))
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	m.logger.Info("migration performed successfully")
+	return nil
+}
+
+func (m compressedVectorsMigrator) isMigrationDone(lsmDir string) bool {
+	_, err := os.Stat(m.migrationPerformedFlagFile(lsmDir))
+	if os.IsNotExist(err) {
+		return false
+	}
+	return err == nil
 }
