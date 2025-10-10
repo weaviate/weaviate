@@ -200,6 +200,13 @@ func (f *Finder) CheckConsistency(ctx context.Context,
 	if len(xs) == 0 {
 		return nil
 	}
+
+	// Skip consistency check entirely if context is canceled (rollout scenario)
+	if ctx.Err() != nil {
+		f.log.WithField("op", "check_consistency").
+			Debugf("skipping consistency check due to context cancellation: %v", ctx.Err())
+		return nil
+	}
 	for i, x := range xs { // check shard and node name are set
 		if x == nil {
 			return fmt.Errorf("contains nil at object at index %d", i)
@@ -222,8 +229,15 @@ func (f *Finder) CheckConsistency(ctx context.Context,
 		gr.Go(func() error {
 			_, err := f.checkShardConsistency(ctx, l, part)
 			if err != nil {
-				f.log.WithField("op", "check_shard_consistency").
-					WithField("shard", part.Shard).Error(err)
+				// Downgrade noisy rollout errors
+				if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) ||
+					strings.Contains(err.Error(), "connect:") || strings.Contains(err.Error(), "read error") {
+					f.log.WithField("op", "check_shard_consistency").
+						WithField("shard", part.Shard).Debug(err)
+				} else {
+					f.log.WithField("op", "check_shard_consistency").
+						WithField("shard", part.Shard).Error(err)
+				}
 			}
 			return err
 		}, part)
