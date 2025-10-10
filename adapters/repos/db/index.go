@@ -1500,8 +1500,15 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 		l := types.ConsistencyLevel(replProps.ConsistencyLevel)
 		err = i.replicator.CheckConsistency(ctx, l, outObjects)
 		if err != nil {
-			i.logger.WithField("action", "object_search").
-				Errorf("failed to check consistency of search results: %v", err)
+			// Downgrade noisy rollout errors
+			if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) ||
+				strings.Contains(err.Error(), "connect:") || strings.Contains(err.Error(), "read error") {
+				i.logger.WithField("action", "object_search").
+					Warnf("failed to check consistency of search results: %v", err)
+			} else {
+				i.logger.WithField("action", "object_search").
+					Errorf("failed to check consistency of search results: %v", err)
+			}
 		}
 	}
 
@@ -1918,8 +1925,15 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 		l := types.ConsistencyLevel(replProps.ConsistencyLevel)
 		err = i.replicator.CheckConsistency(ctx, l, out)
 		if err != nil {
-			i.logger.WithField("action", "object_vector_search").
-				Errorf("failed to check consistency of search results: %v", err)
+			// Downgrade noisy rollout errors
+			if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) ||
+				strings.Contains(err.Error(), "connect:") || strings.Contains(err.Error(), "read error") {
+				i.logger.WithField("action", "object_vector_search").
+					Infof("failed to check consistency of search results: %v", err)
+			} else {
+				i.logger.WithField("action", "object_vector_search").
+					Errorf("failed to check consistency of search results: %v", err)
+			}
 		}
 	}
 
