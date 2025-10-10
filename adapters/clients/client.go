@@ -15,6 +15,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -107,6 +108,15 @@ func (r *retryer) retry(ctx context.Context, n int, work func(context.Context) (
 	delay := r.minBackOff
 	for {
 		keepTrying, err := work(ctx)
+		// On cancellation or deadline exceeded, return immediately without backoff/retry
+		if err != nil {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return err
+			}
+			if ctx.Err() != nil {
+				return fmt.Errorf("%w: %w", err, ctx.Err())
+			}
+		}
 		if !keepTrying || n < 1 || err == nil {
 			return err
 		}
