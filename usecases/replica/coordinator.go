@@ -27,8 +27,8 @@ import (
 )
 
 const (
-	defaultPullBackOffInitialInterval = time.Millisecond * 250
-	defaultPullBackOffMaxElapsedTime  = time.Second * 30
+	defaultPullBackOffInitialInterval = time.Millisecond * 50
+	defaultPullBackOffMaxElapsedTime  = time.Second * 10
 )
 
 type (
@@ -340,6 +340,21 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 					replyCh <- _Result[T]{resp, err}
 					return
 				}
+
+				// Fast failover: immediately try next available host with shorter timeout
+				if hostIndex+1 < len(hosts) {
+					fallbackTimeout := time.Duration(float64(timeout) * 0.3) // 30% of original timeout for faster failover
+					fallbackCtx, fallbackCancel := context.WithTimeout(ctx, fallbackTimeout)
+					defer fallbackCancel()
+
+					resp, err := op(fallbackCtx, hosts[hostIndex+1], isFullReadWorker)
+					if err == nil {
+						successful.Add(1)
+						replyCh <- _Result[T]{resp, err}
+						return
+					}
+				}
+
 				// this host failed op on the first try, put it on the retry queue
 				hostRetryQueue <- hostRetry{
 					hosts[hostIndex],
@@ -348,7 +363,11 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 
 				// let's fallback to the backups in the retry queue
 				for hr := range hostRetryQueue {
-					resp, err := op(workerCtx, hr.host, isFullReadWorker)
+					// Use shorter timeout for retry attempts to fail faster
+					retryTimeout := time.Duration(float64(timeout) * 0.5) // 50% of original timeout for retries
+					retryCtx, _ := context.WithTimeout(ctx, retryTimeout)
+
+					resp, err := op(retryCtx, hr.host, isFullReadWorker)
 					if err == nil {
 						replyCh <- _Result[T]{resp, err}
 						return
