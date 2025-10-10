@@ -132,9 +132,9 @@ func (s *SPFresh) doSplit(postingID uint64, reassign bool) error {
 
 		// If the split fails because the posting contains identical vectors,
 		// we override the posting with a single vector
-		// s.logger.WithField("postingID", postingID).
-		// 	WithError(err).
-		// 	Debug("Cannot split posting: contains identical vectors, keeping only one vector")
+		s.logger.WithField("postingID", postingID).
+			WithError(err).
+			Debug("Cannot split posting: contains identical vectors, keeping only one vector")
 
 		pp := &CompressedPosting{
 			vectorSize: int(s.vectorSize),
@@ -164,6 +164,7 @@ func (s *SPFresh) doSplit(postingID uint64, reassign bool) error {
 
 			if dist < splitReuseEpsilon {
 				s.logger.WithField("postingID", postingID).
+					WithField("distance", dist).
 					Debug("Reusing existing posting for split operation")
 				postingReused = true
 				newPostingIDs[i] = postingID
@@ -253,20 +254,20 @@ func (s *SPFresh) splitPosting(posting Posting) ([]SplitResult, error) {
 		}
 	}
 
-	for _, v := range posting.Iter() {
+	for i, v := range data {
 		// compute the distance to each centroid
-		dA, err := v.DistanceWithRaw(s.distancer, results[0].Centroid)
+		dA, err := s.distancer.DistanceBetweenVectors(v, results[0].Uncompressed)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to compute distance to centroid 0")
 		}
-		dB, err := v.DistanceWithRaw(s.distancer, results[1].Centroid)
+		dB, err := s.distancer.DistanceBetweenVectors(v, results[1].Uncompressed)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to compute distance to centroid 1")
 		}
 		if dA < dB {
-			results[0].Posting.AddVector(v)
+			results[0].Posting.AddVector(posting.GetAt(i))
 		} else {
-			results[1].Posting.AddVector(v)
+			results[1].Posting.AddVector(posting.GetAt(i))
 		}
 	}
 

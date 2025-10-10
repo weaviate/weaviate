@@ -18,6 +18,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 )
 
 func (s *SPFresh) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) error {
@@ -59,16 +60,18 @@ func (s *SPFresh) Add(ctx context.Context, id uint64, vector []float32) (err err
 		s.dims = int32(len(vector))
 		s.setMaxPostingSize()
 		s.Centroids.Init(s.dims, s.config.Distancer)
-		compressed = s.Centroids.Quantizer().Encode(vector)
 		s.distancer = &Distancer{
 			quantizer: s.Centroids.Quantizer(),
 			distancer: s.config.Distancer,
 		}
+		vector = s.normalizeVec(vector)
+		compressed = s.Centroids.Quantizer().Encode(vector)
 		s.vectorSize = int32(len(compressed))
 		s.Store.Init(s.vectorSize)
 	})
 
 	if compressed == nil {
+		vector = s.normalizeVec(vector)
 		compressed = s.Centroids.Quantizer().Encode(vector)
 	}
 
@@ -101,6 +104,15 @@ func (s *SPFresh) Add(ctx context.Context, id uint64, vector []float32) (err err
 	}
 
 	return nil
+}
+
+func (s *SPFresh) normalizeVec(vec []float32) []float32 {
+	if s.distancer.distancer.Type() == "cosine-dot" {
+		// cosine-dot requires normalized vectors, as the dot product and cosine
+		// similarity are only identical if the vector is normalized
+		return distancer.Normalize(vec)
+	}
+	return vec
 }
 
 // ensureInitialPosting creates a new posting for vector v if the index is empty

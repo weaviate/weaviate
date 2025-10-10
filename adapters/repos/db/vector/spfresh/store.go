@@ -159,12 +159,6 @@ func (l *LSMStore) Append(ctx context.Context, postingID uint64, vector Vector) 
 	return l.bucket.SetAdd(buf[:], [][]byte{vector.(CompressedVector)})
 }
 
-func (l *LSMStore) Flush() error {
-	// nothing to do here
-	// Shard will take care of handling store's buckets
-	return nil
-}
-
 func bucketName(id string) string {
 	return fmt.Sprintf("spfresh_postings_%s", id)
 }

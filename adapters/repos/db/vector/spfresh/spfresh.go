@@ -87,15 +87,12 @@ type SPFresh struct {
 }
 
 func New(cfg *Config, store *lsmkv.Store) (*SPFresh, error) {
-	if err := cfg.Validate(); err != nil {
+	err := cfg.Validate()
+	if err != nil {
 		return nil, err
 	}
 
 	metrics := NewMetrics(cfg.PrometheusMetrics, cfg.ClassName, cfg.ShardName)
-
-	if cfg.CentroidIndex == nil {
-		cfg.CentroidIndex = NewBruteForceSPTAG(metrics, 1024*1024, 1024)
-	}
 
 	postingStore, err := NewLSMStore(store, metrics, bucketName(cfg.ID), cfg.Store)
 	if err != nil {
@@ -103,12 +100,11 @@ func New(cfg *Config, store *lsmkv.Store) (*SPFresh, error) {
 	}
 
 	s := SPFresh{
-		id:        cfg.ID,
-		logger:    cfg.Logger.WithField("component", "SPFresh"),
-		config:    cfg,
-		metrics:   metrics,
-		Store:     postingStore,
-		Centroids: cfg.CentroidIndex,
+		id:      cfg.ID,
+		logger:  cfg.Logger.WithField("component", "SPFresh"),
+		config:  cfg,
+		metrics: metrics,
+		Store:   postingStore,
 		// Capacity of the version map: 8k pages, 1M vectors each -> 8B vectors
 		// - An empty version map consumes 240KB of memory
 		// - Each allocated page consumes 1MB of memory
@@ -131,6 +127,15 @@ func New(cfg *Config, store *lsmkv.Store) (*SPFresh, error) {
 		// TODO: choose a better starting size since we can predict the max number of
 		// visited vectors based on cfg.InternalPostingCandidates.
 		visitedPool: visited.NewPool(1, 512, -1),
+	}
+
+	if cfg.Centroids.IndexType == "hnsw" {
+		s.Centroids, err = NewHNSWIndex(metrics, store, cfg, 1024*1024, 1024)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		s.Centroids = NewBruteForceSPTAG(metrics, 1024*1024, 1024)
 	}
 
 	s.ctx, s.cancel = context.WithCancel(context.Background())
@@ -211,6 +216,15 @@ func (s *SPFresh) Flush() error {
 }
 
 func (s *SPFresh) SwitchCommitLogs(ctx context.Context) error {
+	if s.config.Centroids.IndexType == "hnsw" {
+		hnswIndex, ok := s.Centroids.(*HNSWIndex)
+		if !ok {
+			return errors.Errorf("centroid index is not HNSW, but %T", s.Centroids)
+		}
+
+		return hnswIndex.hnsw.SwitchCommitLogs(ctx)
+	}
+
 	return nil
 }
 
@@ -221,6 +235,14 @@ func (s *SPFresh) ListFiles(ctx context.Context, basePath string) ([]string, err
 func (s *SPFresh) PostStartup() {
 	// This method can be used to perform any post-startup initialization
 	// For now, it does nothing
+	if s.config.Centroids.IndexType == "hnsw" {
+		hnswIndex, ok := s.Centroids.(*HNSWIndex)
+		if !ok {
+			return
+		}
+
+		hnswIndex.hnsw.PostStartup()
+	}
 }
 
 func (s *SPFresh) Compressed() bool {
@@ -278,6 +300,14 @@ func (s *SPFresh) CompressionStats() compressionhelpers.CompressionStats {
 }
 
 func (s *SPFresh) Preload(id uint64, vector []float32) {
+	if s.config.Centroids.IndexType == "hnsw" {
+		hnswIndex, ok := s.Centroids.(*HNSWIndex)
+		if !ok {
+			return
+		}
+
+		hnswIndex.hnsw.Preload(id, vector)
+	}
 }
 
 // deduplicator is a simple thread-safe structure to prevent duplicate values.

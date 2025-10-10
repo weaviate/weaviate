@@ -17,7 +17,9 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/schema/config"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/spfresh"
 	"github.com/weaviate/weaviate/usecases/memwatch"
@@ -32,19 +34,20 @@ type Config struct {
 	TargetVector              string
 	ShardName                 string
 	ClassName                 string
-	CentroidIndex             CentroidIndex
 	PrometheusMetrics         *monitoring.PrometheusMetrics
-	MaxPostingSize            uint32      `json:"maxPostingSize,omitempty"`            // Maximum number of vectors in a posting
-	MinPostingSize            uint32      `json:"minPostingSize,omitempty"`            // Minimum number of vectors in a posting
-	SplitWorkers              int         `json:"splitWorkers,omitempty"`              // Number of concurrent workers for split operations
-	ReassignWorkers           int         `json:"reassignWorkers,omitempty"`           // Number of concurrent workers for reassign operations
-	InternalPostingCandidates int         `json:"internalPostingCandidates,omitempty"` // Number of candidates to consider when running a centroid search internally
-	ReassignNeighbors         int         `json:"reassignNeighbors,omitempty"`         // Number of neighboring centroids to consider for reassigning vectors
-	Replicas                  int         `json:"replicas,omitempty"`                  // Number of closure replicas to maintain
-	RNGFactor                 float32     `json:"rngFactor,omitempty"`                 // Distance factor used by the RNG rule to determine how spread out replica selections are
-	MaxDistanceRatio          float32     `json:"maxDistanceRatio,omitempty"`          // Maximum distance ratio for the search, used to filter out candidates that are too far away
-	SearchProbe               int         `json:"searchProbe,omitempty"`               // Number of vectors to consider during search
-	Store                     StoreConfig `json:"store,omitempty"`                     // Configuration for the underlying LSMKV store
+	MaxPostingSize            uint32                          `json:"maxPostingSize,omitempty"`            // Maximum number of vectors in a posting
+	MinPostingSize            uint32                          `json:"minPostingSize,omitempty"`            // Minimum number of vectors in a posting
+	SplitWorkers              int                             `json:"splitWorkers,omitempty"`              // Number of concurrent workers for split operations
+	ReassignWorkers           int                             `json:"reassignWorkers,omitempty"`           // Number of concurrent workers for reassign operations
+	InternalPostingCandidates int                             `json:"internalPostingCandidates,omitempty"` // Number of candidates to consider when running a centroid search internally
+	ReassignNeighbors         int                             `json:"reassignNeighbors,omitempty"`         // Number of neighboring centroids to consider for reassigning vectors
+	Replicas                  int                             `json:"replicas,omitempty"`                  // Number of closure replicas to maintain
+	RNGFactor                 float32                         `json:"rngFactor,omitempty"`                 // Distance factor used by the RNG rule to determine how spread out replica selections are
+	MaxDistanceRatio          float32                         `json:"maxDistanceRatio,omitempty"`          // Maximum distance ratio for the search, used to filter out candidates that are too far away
+	SearchProbe               int                             `json:"searchProbe,omitempty"`               // Number of vectors to consider during search
+	Store                     StoreConfig                     `json:"store"`                               // Configuration for the underlying LSMKV store
+	Centroids                 CentroidConfig                  `json:"centroids"`                           // Configuration for the centroid index
+	TombstoneCallbacks        cyclemanager.CycleCallbackGroup // Callbacks for handling tombstones
 }
 
 type StoreConfig struct {
@@ -54,6 +57,11 @@ type StoreConfig struct {
 	LazyLoadSegments             bool                  `json:"lazyLoadSegments,omitempty"`             // Lazy load segments for the store
 	WriteSegmentInfoIntoFileName bool                  `json:"writeSegmentInfoIntoFileName,omitempty"` // Write segment info into file name for the store
 	WriteMetadataFilesEnabled    bool                  `json:"writeMetadataFilesEnabled,omitempty"`    // Write metadata files for the store
+}
+
+type CentroidConfig struct {
+	IndexType  string       `json:"indexType,omitempty"` // Type of centroid index to use, e.g. "bruteforce" or "hnsw"
+	HNSWConfig *hnsw.Config `json:"hnswConfig,omitempty"`
 }
 
 func (c *Config) Validate() error {
