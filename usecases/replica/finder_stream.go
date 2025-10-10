@@ -62,6 +62,15 @@ func (f *finderStream) readOne(ctx context.Context,
 		)
 
 		for r := range ch { // len(ch) == level
+			// Early exit if context is canceled during processing (shutdown scenario)
+			// This prevents unnecessary work during graceful shutdown
+			if ctx.Err() != nil {
+				f.log.WithField("op", "get").WithField("class", f.class).
+					WithField("shard", shard).WithField("uuid", id).
+					Debug("skipping readOne due to context cancellation")
+				resultCh <- ObjResult{nil, ErrRead}
+				return // exit the goroutine
+			}
 			resp := r.Value
 			if r.Err != nil { // a least one node is not responding
 				f.log.WithField("op", "get").WithField("replica", resp.sender).
