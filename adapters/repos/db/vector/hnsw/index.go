@@ -36,6 +36,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/storobj"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	confRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
@@ -201,6 +202,8 @@ type hnsw struct {
 	docIDVectors  map[uint64][]uint64
 	vecIDcounter  uint64
 	maxDocID      uint64
+
+	dynamicVarEnableAcornSmartSeed *confRuntime.DynamicValue[string]
 }
 
 type CommitLogger interface {
@@ -354,6 +357,8 @@ func New(cfg Config, uc ent.UserConfig,
 
 		docIDVectors:  make(map[uint64][]uint64),
 		muveraEncoder: muveraEncoder,
+
+		dynamicVarEnableAcornSmartSeed: confRuntime.NewDynamicValue("ENABLE_ACORN_SMART_SEED"),
 	}
 	index.acornSearch.Store(uc.FilterStrategy == ent.FilterStrategyAcorn)
 

@@ -15,7 +15,6 @@ import (
 	"context"
 	"fmt"
 	"math"
-	"os"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -788,7 +787,7 @@ func (h *hnsw) plantSeeds(strategy FilterStrategy, allowList helpers.AllowList, 
 		return nil
 	}
 
-	if os.Getenv("ENABLE_ACORN_SMART_SEED") == "true" {
+	if h.dynamicVarEnableAcornSmartSeed.Get() == "true" {
 		queue := h.pools.GetQueue()
 		connsSlice := h.pools.tempVectorsUint64.Get(h.maximumConnectionsLayerZero)
 
