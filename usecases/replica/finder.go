@@ -227,6 +227,10 @@ func (f *Finder) CheckConsistency(ctx context.Context,
 	for _, part := range cluster(createBatch(xs)) {
 		part := part
 		gr.Go(func() error {
+			// Fast-path: if the request is already canceled, skip work for this shard
+			if ctx.Err() != nil {
+				return nil
+			}
 			_, err := f.checkShardConsistency(ctx, l, part)
 			if err != nil {
 				// Downgrade noisy rollout errors
@@ -305,10 +309,18 @@ func (f *Finder) checkShardConsistency(ctx context.Context,
 		data, ids = batch.Extract() // extract from current content
 	)
 	op := func(ctx context.Context, host string, fullRead bool) (BatchReply, error) {
+		// Fast-path: if canceled, skip work for this host without error
+		if ctx.Err() != nil {
+			return BatchReply{Sender: host, IsDigest: !fullRead}, nil
+		}
 		if fullRead { // we already have the content
 			return BatchReply{Sender: host, IsDigest: false, FullData: data}, nil
 		} else {
-			xs, err := f.client.DigestReads(ctx, host, f.class, shard, ids, 0)
+			// Check again before remote call in case it canceled between checks
+			if ctx.Err() != nil {
+				return BatchReply{Sender: host, IsDigest: true}, nil
+			}
+			xs, err := f.client.DigestReads(ctx, host, f.class, shard, ids, 0) // TODO inside client request
 			return BatchReply{Sender: host, IsDigest: true, DigestData: xs}, err
 		}
 	}
