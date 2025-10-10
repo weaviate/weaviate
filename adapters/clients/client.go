@@ -15,11 +15,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/cenkalti/backoff/v4"
 )
 
 type retryClient struct {
@@ -90,54 +91,43 @@ func (c *retryClient) do(timeout time.Duration, req *http.Request, body []byte, 
 }
 
 type retryer struct {
-	minBackOff  time.Duration
-	maxBackOff  time.Duration
-	timeoutUnit time.Duration
+	backoffConfig *backoff.ExponentialBackOff
+	timeoutUnit   time.Duration
 }
 
 func newRetryer() *retryer {
+	backoffConfig := backoff.NewExponentialBackOff()
+	backoffConfig.InitialInterval = 250 * time.Millisecond
+	backoffConfig.MaxInterval = 2 * time.Second
+	backoffConfig.MaxElapsedTime = 10 * time.Second
+	backoffConfig.Multiplier = 2.0
+	backoffConfig.RandomizationFactor = 0.1
+
 	return &retryer{
-		minBackOff:  time.Millisecond * 250,
-		maxBackOff:  time.Second * 30,
-		timeoutUnit: time.Second, // used by unit tests
+		backoffConfig: backoffConfig,
+		timeoutUnit:   time.Second, // used by unit tests
 	}
 }
 
 // n is the number of retries, work will always be called at least once.
 func (r *retryer) retry(ctx context.Context, n int, work func(context.Context) (bool, error)) error {
-	delay := r.minBackOff
-	for {
-		// If the context is already canceled, return immediately without invoking work
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
+	// Create a new backoff instance for this retry operation
+	backoffConfig := *r.backoffConfig
+	backoffConfig.Reset()
+
+	operation := func() error {
 		keepTrying, err := work(ctx)
-		// On cancellation or deadline exceeded, return immediately without backoff/retry
-		if err != nil {
-			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-				return err
-			}
-			if ctx.Err() != nil {
-				return fmt.Errorf("%w: %w", err, ctx.Err())
-			}
-		}
-		if !keepTrying || n < 1 || err == nil {
-			return err
+
+		// If we shouldn't keep trying or no error, stop retrying
+		if !keepTrying || err == nil {
+			return backoff.Permanent(err)
 		}
 
-		n--
-		if delay = backOff(delay); delay > r.maxBackOff {
-			delay = r.maxBackOff
-		}
-		timer := time.NewTimer(delay)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			return fmt.Errorf("%w: %w", err, ctx.Err())
-		case <-timer.C:
-		}
-		timer.Stop()
+		// Return the error to trigger retry
+		return err
 	}
+
+	return backoff.Retry(operation, backoff.WithContext(&backoffConfig, ctx))
 }
 
 func successCode(code int) bool {
