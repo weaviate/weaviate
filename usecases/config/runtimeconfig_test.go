@@ -34,9 +34,11 @@ func TestParseRuntimeConfig(t *testing.T) {
 		// fields that are not known to the current version. We should ignore
 		// them, not fail.
 
-		buf := []byte(`autoschema_enbaled: true
+		// note: typo and unknown field should be ignored and known fields should be parsed correctly
+		buf := []byte(`unknown_field: true
+autoschema_enbaled: true
 maximum_allowed_collections_count: 13
-`) // note: typo.
+`)
 		cfg, err := ParseRuntimeConfig(buf)
 		require.NoError(t, err)
 		// typo should be ignored, default value should be returned

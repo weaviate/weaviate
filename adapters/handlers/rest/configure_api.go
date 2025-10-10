@@ -1849,7 +1849,7 @@ func initRuntimeOverrides(appState *state.State) {
 			defer cancel()
 
 			if err := cm.Run(ctx); err != nil {
-				appState.Logger.WithField("action", "runtime config manager startup ").WithError(err).
+				appState.Logger.WithField("action", "runtime config manager startup").WithError(err).
 					Fatal("runtime config manager stopped")
 			}
 		}, appState.Logger)

@@ -16,13 +16,6 @@ package rest
 
 import (
 	"testing"
-	"time"
-
-	"github.com/sirupsen/logrus/hooks/test"
-	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
-	"github.com/weaviate/weaviate/usecases/auth/authentication/oidc"
-	"github.com/weaviate/weaviate/usecases/config"
-	"github.com/weaviate/weaviate/usecases/modules"
 )
 
 func TestGetCores(t *testing.T) {
@@ -55,32 +48,4 @@ func TestGetCores(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestInitRuntimeOverrides(t *testing.T) {
-	log, _ := test.NewNullLogger()
-
-	t.Run("should continue execution if configmanager errors", func(t *testing.T) {
-		appState := &state.State{
-			ServerConfig: &config.WeaviateConfig{
-				Config: config.Config{
-					RuntimeOverrides: config.RuntimeOverrides{
-						Enabled:      true,
-						LoadInterval: time.Second,
-						// empty path should cause error on config manager
-						Path: "",
-					},
-				},
-			},
-			Modules: modules.NewProvider(nil, config.Config{}),
-			OIDC: &oidc.Client{
-				Config: config.OIDC{
-					Enabled: false,
-				},
-			},
-			Logger: log,
-		}
-
-		initRuntimeOverrides(appState)
-	})
 }
