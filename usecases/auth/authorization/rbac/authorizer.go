@@ -14,9 +14,11 @@ package rbac
 import (
 	"context"
 	"fmt"
+	"os"
 
 	"github.com/sirupsen/logrus"
 
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
@@ -91,7 +93,7 @@ func (m *Manager) authorize(ctx context.Context, principal *models.Principal, ve
 	}
 
 	// Log all results at once if audit is enabled
-	auditDisabled := m.rbacConf.AuditLogSetDisabled.Get()
+	auditDisabled := entcfg.Enabled(os.Getenv("AUTHORIZATION_RBAC_IP_IN_AUDIT_LOG_DISABLED")) // m.rbacConf.AuditLogSetDisabled.Get()
 	if !skipAudit && !auditDisabled {
 		logger.WithFields(logrus.Fields{
 			"audit_log_set_disabled": auditDisabled,
@@ -171,7 +173,7 @@ func (m *Manager) FilterAuthorizedResources(ctx context.Context, principal *mode
 		}
 	}
 
-	auditDisabled := m.rbacConf.AuditLogSetDisabled.Get()
+	auditDisabled := entcfg.Enabled(os.Getenv("AUTHORIZATION_RBAC_IP_IN_AUDIT_LOG_DISABLED")) // m.rbacConf.AuditLogSetDisabled.Get()
 	if !auditDisabled {
 		logger.WithFields(logrus.Fields{
 			"audit_log_set_disabled": auditDisabled,
