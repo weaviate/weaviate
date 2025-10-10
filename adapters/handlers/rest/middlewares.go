@@ -24,6 +24,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/cors"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/handlers/rest/raft"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/swagger_middleware"
@@ -218,7 +219,7 @@ func makeShutdownMiddleware(s *state.State) func(http.Handler) http.Handler {
 			if s.IsShuttingDown() {
 				s.Logger.WithField("method", r.Method).
 					WithField("path", r.URL.Path).
-					Debug("rejecting request during shutdown")
+					Info("rejecting request during shutdown")
 
 				w.Header().Set("Connection", "close")
 				w.WriteHeader(http.StatusServiceUnavailable)

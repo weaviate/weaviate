@@ -282,8 +282,7 @@ func FromEnv(config *Config) error {
 		}
 
 		// Disable Info-level audit logs of permission sets
-		auditSetDisabled := entcfg.Enabled(os.Getenv("AUTHORIZATION_RBAC_AUDIT_LOG_DISABLED"))
-		config.Authorization.Rbac.AuditLogSetDisabled = runtime.NewDynamicValue(auditSetDisabled)
+		config.Authorization.Rbac.AuditLogSetDisabled = runtime.NewDynamicValue(entcfg.Enabled(os.Getenv("AUTHORIZATION_RBAC_AUDIT_LOG_DISABLED")))
 
 		adminsString, ok := os.LookupEnv("AUTHORIZATION_RBAC_ROOT_USERS")
 		if ok {

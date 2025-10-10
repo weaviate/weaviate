@@ -92,6 +92,7 @@ func (m *Manager) authorize(ctx context.Context, principal *models.Principal, ve
 
 	// Log all results at once if audit is enabled
 	if !skipAudit && !m.rbacConf.AuditLogSetDisabled.Get() {
+		logger.WithField("audit_log_set_disabled", m.rbacConf.AuditLogSetDisabled.Get())
 		logger.WithField("permissions", permResults).Info()
 	}
 
