@@ -45,6 +45,8 @@ type ClientService interface {
 
 	BatchObjectsDelete(params *BatchObjectsDeleteParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*BatchObjectsDeleteOK, error)
 
+	BatchObjectsPatch(params *BatchObjectsPatchParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*BatchObjectsPatchOK, error)
+
 	BatchReferencesCreate(params *BatchReferencesCreateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*BatchReferencesCreateOK, error)
 
 	SetTransport(transport runtime.ClientTransport)
@@ -129,6 +131,47 @@ func (a *Client) BatchObjectsDelete(params *BatchObjectsDeleteParams, authInfo r
 	// unexpected success response
 	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
 	msg := fmt.Sprintf("unexpected success response for batch.objects.delete: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
+}
+
+/*
+BatchObjectsPatch partiallies update multiple objects as a batch using JSON merge patch
+
+Partially update multiple objects in bulk using JSON Merge Patch semantics (RFC 7396). <br/><br/>Only the properties provided in the request will be updated; omitted properties will be preserved. <br/><br/>To delete a property, set its value to `null`. <br/><br/>Meta-data and schema values are validated.
+*/
+func (a *Client) BatchObjectsPatch(params *BatchObjectsPatchParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*BatchObjectsPatchOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewBatchObjectsPatchParams()
+	}
+	op := &runtime.ClientOperation{
+		ID:                 "batch.objects.patch",
+		Method:             "PATCH",
+		PathPattern:        "/batch/objects",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &BatchObjectsPatchReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
+	if err != nil {
+		return nil, err
+	}
+	success, ok := result.(*BatchObjectsPatchOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for batch.objects.patch: API contract not enforced by server. Client expected to get an error, but got: %T", result)
 	panic(msg)
 }
 

@@ -262,6 +262,13 @@ func (f *fakeVectorRepo) BatchPutObjects(ctx context.Context, batch BatchObjects
 	return batch, args.Error(0)
 }
 
+func (f *fakeVectorRepo) BatchPatchObjects(ctx context.Context, batch BatchObjects,
+	repl *additional.ReplicationProperties, schemaVersion uint64,
+) (BatchObjects, error) {
+	args := f.Called(batch)
+	return batch, args.Error(0)
+}
+
 func (f *fakeVectorRepo) AddBatchReferences(ctx context.Context, batch BatchReferences,
 	repl *additional.ReplicationProperties, schemaVersion uint64,
 ) (BatchReferences, error) {

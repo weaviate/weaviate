@@ -258,3 +258,99 @@ func estimateStorBatchMemory(objs []*storobj.Object) int64 {
 
 	return sum
 }
+
+// BatchPatchObjects performs partial updates on multiple objects
+func (db *DB) BatchPatchObjects(ctx context.Context, objs objects.BatchObjects,
+	repl *additional.ReplicationProperties, schemaVersion uint64,
+) (objects.BatchObjects, error) {
+	// Group merge documents by class
+	mergeQueueByClass := make(map[string][]mergeQueueItem)
+	indexByClass := make(map[string]*Index)
+
+	if err := db.memMonitor.CheckAlloc(estimateBatchMemory(objs)); err != nil {
+		db.logger.WithError(err).Errorf("memory pressure: cannot process batch patch")
+		return nil, fmt.Errorf("cannot process batch patch: %w", err)
+	}
+
+	for _, item := range objs {
+		if item.Err != nil {
+			// item has a validation error or another reason to ignore
+			continue
+		}
+		if item.MergeDoc == nil {
+			// This should not happen if PatchObjects was called correctly
+			db.logger.Errorf("batch patch: item %d has no MergeDoc", item.OriginalIndex)
+			objs[item.OriginalIndex].Err = errors.New("internal error: missing merge document")
+			continue
+		}
+
+		queue := mergeQueueByClass[item.Object.Class]
+		queue = append(queue, mergeQueueItem{
+			mergeDoc:      *item.MergeDoc,
+			originalIndex: item.OriginalIndex,
+			tenant:        item.Object.Tenant,
+		})
+		mergeQueueByClass[item.Object.Class] = queue
+	}
+
+	// Acquire index locks for all classes
+	func() {
+		db.indexLock.RLock()
+		defer db.indexLock.RUnlock()
+
+		for class, queue := range mergeQueueByClass {
+			index, ok := db.indices[indexID(schema.ClassName(class))]
+			if !ok {
+				msg := fmt.Sprintf("could not find index for class %v. It might have been deleted in the meantime", class)
+				db.logger.Warn(msg)
+				for _, item := range queue {
+					if item.originalIndex >= len(objs) {
+						db.logger.Errorf(
+							"batch patch queue index out of bounds. len(objs) == %d, queue.originalIndex == %d",
+							len(objs), item.originalIndex)
+						break
+					}
+					objs[item.originalIndex].Err = errors.New(msg)
+				}
+				continue
+			}
+			index.dropIndex.RLock()
+			indexByClass[class] = index
+		}
+	}()
+
+	// Safely release remaining locks (in case of panic)
+	defer func() {
+		for _, index := range indexByClass {
+			if index != nil {
+				index.dropIndex.RUnlock()
+			}
+		}
+	}()
+
+	// Process each class
+	for class, index := range indexByClass {
+		queue := mergeQueueByClass[class]
+
+		// Process each merge document individually through Index.mergeObject
+		for _, item := range queue {
+			err := index.mergeObject(ctx, item.mergeDoc, repl, item.tenant, schemaVersion)
+			if err != nil {
+				objs[item.originalIndex].Err = err
+			}
+		}
+
+		// Remove index from map to skip releasing its lock in defer
+		indexByClass[class] = nil
+		index.dropIndex.RUnlock()
+	}
+
+	return objs, nil
+}
+
+// mergeQueueItem represents a merge operation in the batch queue
+type mergeQueueItem struct {
+	mergeDoc      objects.MergeDocument
+	originalIndex int
+	tenant        string
+}
