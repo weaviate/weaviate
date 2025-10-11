@@ -99,6 +99,9 @@ type DB struct {
 
 	bitmapBufPool      roaringset.BitmapBufPool
 	bitmapBufPoolClose func()
+	
+	// remoteReplicaIncoming enables direct local calls optimization
+	remoteReplicaIncoming *replica.RemoteReplicaIncoming
 }
 
 func (db *DB) GetSchemaGetter() schemaUC.SchemaGetter {
@@ -115,6 +118,21 @@ func (db *DB) GetConfig() Config {
 
 func (db *DB) GetRemoteIndex() sharding.RemoteIndexClient {
 	return db.remoteIndex
+}
+
+// SetRemoteReplicaIncoming sets the RemoteReplicaIncoming for all replicators
+// This enables direct local calls optimization
+func (db *DB) SetRemoteReplicaIncoming(remoteReplicaIncoming *replica.RemoteReplicaIncoming) {
+	db.remoteReplicaIncoming = remoteReplicaIncoming
+	
+	db.indexLock.RLock()
+	defer db.indexLock.RUnlock()
+	
+	for _, index := range db.indices {
+		if index.replicator != nil {
+			index.replicator.SetLocalReplicaIncoming(remoteReplicaIncoming)
+		}
+	}
 }
 
 func (db *DB) SetSchemaGetter(sg schemaUC.SchemaGetter) {

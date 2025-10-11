@@ -95,12 +95,18 @@ func NewReplicator(className string,
 			defaultPullBackOffInitialInterval,
 			defaultPullBackOffMaxElapsedTime,
 			getDeletionStrategy,
+			nil, // localReplicaIncoming will be set later if available
 		),
 	}, nil
 }
 
 func (r *Replicator) AllHostnames() []string {
 	return r.router.AllHostnames()
+}
+
+// SetLocalReplicaIncoming sets the local replica incoming handler for direct local access
+func (r *Replicator) SetLocalReplicaIncoming(localReplicaIncoming *RemoteReplicaIncoming) {
+	r.Finder.localReplicaIncoming = localReplicaIncoming
 }
 
 func (r *Replicator) PutObject(ctx context.Context,

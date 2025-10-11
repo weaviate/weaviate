@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/entities/diskio"
@@ -132,7 +133,7 @@ func (db *DB) init(ctx context.Context) error {
 				convertToVectorIndexConfigs(class.VectorConfig),
 				db.router, db.schemaGetter, db, db.logger, db.nodeResolver, db.remoteIndex,
 				db.replicaClient, &db.config.Replication, db.promMetrics, class, db.jobQueueCh, db.scheduler,
-				db.indexCheckpoints, db.memMonitor, db.reindexer, db.bitmapBufPool)
+				db.indexCheckpoints, db.memMonitor, db.reindexer, db.bitmapBufPool, db)
 			if err != nil {
 				return errors.Wrap(err, "create index")
 			}

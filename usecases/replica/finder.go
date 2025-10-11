@@ -65,10 +65,13 @@ type (
 type Finder struct {
 	router       router
 	nodeName     string
-	finderStream // stream of objects
+	class        string // Added class field
+	finderStream        // stream of objects
 	// control the op backoffs in the coordinator's Pull
 	coordinatorPullBackoffInitialInterval time.Duration
 	coordinatorPullBackoffMaxElapsedTime  time.Duration
+	// localReplicaIncoming provides direct access to local storage
+	localReplicaIncoming *RemoteReplicaIncoming
 }
 
 // NewFinder constructs a new finder instance
@@ -81,11 +84,13 @@ func NewFinder(className string,
 	coordinatorPullBackoffInitialInterval time.Duration,
 	coordinatorPullBackoffMaxElapsedTime time.Duration,
 	getDeletionStrategy func() string,
+	localReplicaIncoming *RemoteReplicaIncoming,
 ) *Finder {
 	cl := FinderClient{client}
 	return &Finder{
 		router:   router,
 		nodeName: nodeName,
+		class:    className,
 		finderStream: finderStream{
 			repairer: repairer{
 				class:               className,
@@ -98,6 +103,7 @@ func NewFinder(className string,
 		},
 		coordinatorPullBackoffInitialInterval: coordinatorPullBackoffInitialInterval,
 		coordinatorPullBackoffMaxElapsedTime:  coordinatorPullBackoffMaxElapsedTime,
+		localReplicaIncoming:                  localReplicaIncoming,
 	}
 }
 
@@ -110,6 +116,30 @@ func (f *Finder) GetOne(ctx context.Context,
 ) (*storobj.Object, error) {
 	c := newReadCoordinator[findOneReply](f, shard,
 		f.coordinatorPullBackoffInitialInterval, f.coordinatorPullBackoffMaxElapsedTime, f.getDeletionStrategy())
+
+	// TODO remove full read
+	if f.localReplicaIncoming != nil {
+		c.localReplicaIncoming = f.localReplicaIncoming
+		c.localOpFunc = func(ctx context.Context, host string, fullRead bool) (findOneReply, error) {
+			if fullRead {
+				r, err := f.localReplicaIncoming.FetchObject(ctx, f.class, shard, id)
+				return findOneReply{host, 0, r, r.UpdateTime(), false}, err
+			} else {
+				xs, err := f.localReplicaIncoming.DigestObjects(ctx, f.class, shard, []strfmt.UUID{id})
+				var x types.RepairResponse
+				if len(xs) == 1 {
+					x = xs[0]
+				}
+				r := Replica{
+					ID:                      id,
+					Deleted:                 x.Deleted,
+					LastUpdateTimeUnixMilli: x.UpdateTime,
+				}
+				return findOneReply{host, x.Version, r, x.UpdateTime, true}, err
+			}
+		}
+	}
+
 	op := func(ctx context.Context, host string, fullRead bool) (findOneReply, error) {
 		if fullRead {
 			r, err := f.client.FullRead(ctx, host, f.class, shard, id, props, adds, 0)

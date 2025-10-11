@@ -259,6 +259,7 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 	allocChecker memwatch.AllocChecker,
 	shardReindexer ShardReindexerV3,
 	bitmapBufPool roaringset.BitmapBufPool,
+	db *DB,
 ) (*Index, error) {
 	sd, err := stopwords.NewDetectorFromConfig(invertedIndexConfig.Stopwords)
 	if err != nil {
@@ -310,6 +311,11 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 	index.replicator, err = replica.NewReplicator(cfg.ClassName.String(), router, sg.NodeName(), getDeletionStrategy, replicaClient, promMetrics, logger)
 	if err != nil {
 		return nil, fmt.Errorf("create replicator for index %q: %w", index.ID(), err)
+	}
+
+	// Set RemoteReplicaIncoming for direct local calls optimization
+	if db != nil && db.remoteReplicaIncoming != nil {
+		index.replicator.SetLocalReplicaIncoming(db.remoteReplicaIncoming)
 	}
 
 	index.closingCtx, index.closingCancel = context.WithCancel(context.Background())
