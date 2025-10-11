@@ -463,8 +463,9 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 				default:
 				}
 
-				// Try this host (digest read for remaining hosts to respect "only one fullread" invariant)
-				resp, err := c.tryHost(workerCtx, host, timeout, op, false)
+				// Try this host (full read for first remaining host to ensure at least one full read succeeds)
+				fullRead := (hostIndex == 0) // First remaining host does full read
+				resp, err := c.tryHost(workerCtx, host, timeout, op, fullRead)
 				if err == nil {
 					currentSuccess := successful.Add(1)
 					replyCh <- _Result[T]{resp, err}
