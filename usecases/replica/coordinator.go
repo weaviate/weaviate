@@ -18,17 +18,15 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/cenkalti/backoff/v4"
-	"github.com/weaviate/weaviate/cluster/router/types"
-	"github.com/weaviate/weaviate/cluster/utils"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-
 	"github.com/sirupsen/logrus"
+
+	"github.com/weaviate/weaviate/cluster/router/types"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 const (
 	defaultPullBackOffInitialInterval = time.Millisecond * 250
-	defaultPullBackOffMaxElapsedTime  = time.Second * 128
+	defaultPullBackOffMaxElapsedTime  = time.Second * 5
 )
 
 type (
@@ -54,8 +52,26 @@ type (
 		pullBackOffPreInitialInterval time.Duration
 		pullBackOffMaxElapsedTime     time.Duration // stop retrying after this long
 		deletionStrategy              string
+		// localNodeName is used to detect when we're calling the local node
+		localNodeName string
+		// localReplicaIncoming provides direct access to local storage
+		localReplicaIncoming *RemoteReplicaIncoming
+		// localOpFunc provides a function to perform local operations
+		localOpFunc func(ctx context.Context, host string, fullRead bool) (T, error)
 	}
 )
+
+// isLocalNode checks if the given host corresponds to the local node
+func (c *coordinator[T]) isLocalNode(host string) bool {
+	if c.localNodeName == "" {
+		return false
+	}
+	localHostAddr, ok := c.Router.NodeHostname(c.localNodeName)
+	if !ok {
+		return false
+	}
+	return host == localHostAddr
+}
 
 // newCoordinator used by the replicator
 func newCoordinator[T any](r *Replicator, shard, requestID string, l logrus.FieldLogger,
@@ -70,6 +86,9 @@ func newCoordinator[T any](r *Replicator, shard, requestID string, l logrus.Fiel
 		TxID:                          requestID,
 		pullBackOffPreInitialInterval: defaultPullBackOffInitialInterval / 2,
 		pullBackOffMaxElapsedTime:     defaultPullBackOffMaxElapsedTime,
+		localNodeName:                 r.nodeName,
+		localReplicaIncoming:          nil, // Will be set by the caller if available
+		localOpFunc:                   nil, // Will be set by the caller if available
 	}
 }
 
@@ -84,9 +103,13 @@ func newReadCoordinator[T any](f *Finder, shard string,
 		Class:                         f.class,
 		Shard:                         shard,
 		metrics:                       f.metrics,
+		log:                           f.log,
 		pullBackOffPreInitialInterval: pullBackOffInitivalInterval / 2,
 		pullBackOffMaxElapsedTime:     pullBackOffMaxElapsedTime,
 		deletionStrategy:              deletionStrategy,
+		localNodeName:                 f.nodeName,
+		localReplicaIncoming:          nil, // Will be set by the caller if available
+		localOpFunc:                   nil, // Will be set by the caller if available
 	}
 }
 
@@ -95,23 +118,43 @@ func (c *coordinator[T]) broadcast(ctx context.Context,
 	replicas []string,
 	op readyOp, level int,
 ) <-chan _Result[string] {
+	c.log.WithField("op", "broadcast").WithField("replicas", len(replicas)).WithField("level", level).Info("Starting broadcast to replicas")
+
 	// prepare tells replicas to be ready
 	prepare := func() <-chan _Result[string] {
 		resChan := make(chan _Result[string], len(replicas))
 		f := func() { // broadcast
 			defer close(resChan)
+			c.log.WithField("op", "broadcast").Info("Starting parallel broadcast requests")
+
 			var wg sync.WaitGroup
 			wg.Add(len(replicas))
 			for _, replica := range replicas {
 				replica := replica
 				g := func() {
 					defer wg.Done()
-					err := op(ctx, replica, c.TxID)
+					c.log.WithField("op", "broadcast").WithField("replica", replica).WithField("txid", c.TxID).Info("Starting broadcast request to replica")
+
+					//nolint:govet // we expressely don't want to cancel that context as the timeout will take care of it
+					opctx, _ := context.WithTimeout(context.Background(), 30*time.Second)
+					c.log.WithField("op", "broadcast").WithFields(logrus.Fields{"replica": replica, "txid": c.TxID}).Info("context.WithTimeout")
+
+					start := time.Now()
+					err := op(opctx, replica, c.TxID)
+					duration := time.Since(start)
+
+					if err != nil {
+						c.log.WithField("op", "broadcast").WithField("replica", replica).WithField("error", err).WithField("duration", duration).Info("Broadcast request failed")
+					} else {
+						c.log.WithField("op", "broadcast").WithField("replica", replica).WithField("duration", duration).Info("Broadcast request succeeded")
+					}
+
 					resChan <- _Result[string]{replica, err}
 				}
 				enterrors.GoWrapper(g, c.log)
 			}
 			wg.Wait()
+			c.log.WithField("op", "broadcast").Info("All broadcast requests completed")
 		}
 		enterrors.GoWrapper(f, c.log)
 		return resChan
@@ -121,31 +164,57 @@ func (c *coordinator[T]) broadcast(ctx context.Context,
 	resChan := make(chan _Result[string], len(replicas))
 	f := func() {
 		defer close(resChan)
+		c.log.WithField("op", "broadcast").Info("Processing broadcast responses")
+
 		actives := make([]_Result[string], 0, level) // cache for active replicas
+		successCount := 0
+		failureCount := 0
+
 		for r := range prepare() {
 			if r.Err != nil { // connection error
-				c.log.WithField("op", "broadcast").Error(r.Err)
+				failureCount++
+				c.log.WithField("op", "broadcast").WithField("replica", r.Value).WithField("error", r.Err).Error("Broadcast response error")
 				continue
 			}
+
+			successCount++
+			c.log.WithField("op", "broadcast").WithField("replica", r.Value).Info("Broadcast response success")
 
 			level--
 			if level > 0 { // cache since level has not been reached yet
 				actives = append(actives, r)
+				c.log.WithField("op", "broadcast").WithField("remaining_level", level).Info("Caching successful replica, waiting for more")
 				continue
 			}
 			if level == 0 { // consistency level has been reached
+				c.log.WithField("op", "broadcast").WithField("success_count", successCount).Info("Consistency level reached, sending cached replicas")
 				for _, x := range actives {
 					resChan <- x
 				}
 			}
 			resChan <- r
 		}
+
+		c.log.WithField("op", "broadcast").WithField("success_count", successCount).WithField("failure_count", failureCount).Info("Broadcast response processing completed")
+
 		if level > 0 { // abort: nothing has been sent to the caller
-			fs := logrus.Fields{"op": "broadcast", "active": len(actives), "total": len(replicas)}
-			c.log.WithFields(fs).Error("abort")
+			fs := logrus.Fields{"op": "broadcast", "active": len(actives), "total": len(replicas), "required_level": level}
+			c.log.WithFields(fs).Error("Broadcast abort - insufficient successful replicas")
+
+			c.log.WithField("op", "broadcast").Info("Starting parallel abort operations for all replicas")
+			var abortWg sync.WaitGroup
 			for _, node := range replicas {
-				c.Abort(ctx, node, c.Class, c.Shard, c.TxID)
+				abortWg.Add(1)
+				go func(node string) {
+					defer abortWg.Done()
+					c.log.WithField("op", "broadcast").WithField("replica", node).Info("Sending abort to replica")
+					//nolint:govet // we expressely don't want to cancel that context as the timeout will take care of it
+					abortCtx, _ := context.WithTimeout(context.Background(), 3*time.Second)
+					c.Abort(abortCtx, node, c.Class, c.Shard, c.TxID)
+				}(node)
 			}
+			abortWg.Wait()
+			c.log.WithField("op", "broadcast").Info("All abort operations completed")
 			resChan <- _Result[string]{Err: fmt.Errorf("broadcast: %w", ErrReplicas)}
 		}
 	}
@@ -160,15 +229,22 @@ func (c *coordinator[T]) commitAll(ctx context.Context,
 	op commitOp[T],
 	callback func(successful int),
 ) <-chan _Result[T] {
+	c.log.WithField("op", "commitAll").Info("Starting commit phase")
+
 	replyCh := make(chan _Result[T], cap(broadcastCh))
 	f := func() { // tells active replicas to commit
 		// tells active replicas to commit
 
 		var successful atomic.Int32
+		var totalReplicas int32
 
 		defer func() {
+			successCount := int(successful.Load())
+			totalCount := int(totalReplicas)
+			c.log.WithField("op", "commitAll").WithField("successful", successCount).WithField("total", totalCount).Info("Commit phase completed")
+
 			if callback != nil {
-				callback(int(successful.Load()))
+				callback(successCount)
 			}
 		}()
 
@@ -176,24 +252,37 @@ func (c *coordinator[T]) commitAll(ctx context.Context,
 
 		for res := range broadcastCh {
 			if res.Err != nil {
+				c.log.WithField("op", "commitAll").WithField("error", res.Err).Error("Skipping commit due to broadcast error")
 				replyCh <- _Result[T]{Err: res.Err}
 				continue
 			}
 			replica := res.Value
+			totalReplicas++
+			c.log.WithField("op", "commitAll").WithField("replica", replica).WithField("txid", c.TxID).Info("Starting commit request to replica")
+
 			wg.Add(1)
 			g := func() {
 				defer wg.Done()
+				start := time.Now()
 				resp, err := op(ctx, replica, c.TxID)
+				duration := time.Since(start)
+
 				if err == nil {
 					successful.Add(1)
+					c.log.WithField("op", "commitAll").WithField("replica", replica).WithField("duration", duration).Info("Commit request succeeded")
+				} else {
+					c.log.WithField("op", "commitAll").WithField("replica", replica).WithField("error", err).WithField("duration", duration).Info("Commit request failed")
 				}
+
 				replyCh <- _Result[T]{resp, err}
 			}
 			enterrors.GoWrapper(g, c.log)
 		}
 
+		c.log.WithField("op", "commitAll").Info("Waiting for all commit requests to complete")
 		wg.Wait()
 		close(replyCh)
+		c.log.WithField("op", "commitAll").Info("All commit requests completed")
 	}
 	enterrors.GoWrapper(f, c.log)
 
@@ -206,24 +295,20 @@ func (c *coordinator[T]) Push(ctx context.Context,
 	ask readyOp,
 	com commitOp[T],
 ) (<-chan _Result[T], int, error) {
+	c.log.WithField("op", "Push").WithField("class", c.Class).WithField("shard", c.Shard).WithField("consistency_level", cl).Info("Starting Push operation")
+
 	routingPlan, err := c.Router.BuildWriteRoutingPlan(types.RoutingPlanBuildOptions{
 		Collection:       c.Class,
 		Shard:            c.Shard,
 		ConsistencyLevel: cl,
 	})
 	if err != nil {
+		c.log.WithField("op", "Push").WithField("error", err).Error("Failed to build write routing plan")
 		return nil, 0, fmt.Errorf("%w : class %q shard %q", err, c.Class, c.Shard)
 	}
 
 	level := routingPlan.IntConsistencyLevel
-
-	//nolint:govet // we expressely don't want to cancel that context as the timeout will take care of it
-	ctxWithTimeout, _ := context.WithTimeout(context.Background(), 20*time.Second)
-	c.log.WithFields(logrus.Fields{
-		"action":   "coordinator_push",
-		"duration": 20 * time.Second,
-		"level":    level,
-	}).Debug("context.WithTimeout")
+	c.log.WithField("op", "Push").WithField("level", level).WithField("replicas", len(routingPlan.ReplicasHostAddrs)).WithField("additional_hosts", len(routingPlan.AdditionalHostAddrs)).Info("Write routing plan created")
 
 	// create callback for metrics
 	// the use of an immediately invoked function expression (IIFE) captures the start time
@@ -235,6 +320,9 @@ func (c *coordinator[T]) Push(ctx context.Context,
 
 		return func(successful int) {
 			numReplicas := len(routingPlan.Replicas)
+			duration := time.Since(start)
+
+			c.log.WithField("op", "Push").WithField("successful", successful).WithField("total", numReplicas).WithField("duration", duration).Info("Push operation completed")
 
 			if numReplicas == successful {
 				c.metrics.IncWritesSucceedAll()
@@ -244,22 +332,34 @@ func (c *coordinator[T]) Push(ctx context.Context,
 				c.metrics.IncWritesFailed()
 			}
 
-			c.metrics.ObserveWriteDuration(time.Since(start))
+			c.metrics.ObserveWriteDuration(duration)
 		}
 	}()
 
-	nodeCh := c.broadcast(ctxWithTimeout, routingPlan.ReplicasHostAddrs, ask, level)
+	// During shutdown, use shorter timeouts for faster completion
+	prepareTimeout := 5 * time.Second
+	finalizeTimeout := 5 * time.Second
 
-	commitCh := c.commitAll(context.Background(), nodeCh, com, callback)
+	c.log.WithField("op", "Push").WithField("prepare_timeout", prepareTimeout).WithField("finalize_timeout", finalizeTimeout).Info("Starting two-phase commit")
+
+	//nolint:govet // we expressely don't want to cancel that context as the timeout will take care of it
+	ctxPrepare, _ := context.WithTimeout(context.Background(), prepareTimeout)
+	nodeCh := c.broadcast(ctxPrepare, routingPlan.ReplicasHostAddrs, ask, level)
+
+	//nolint:govet // we expressely don't want to cancel that context as the timeout will take care of it
+	ctxFinalize, _ := context.WithTimeout(context.Background(), finalizeTimeout)
+	commitCh := c.commitAll(ctxFinalize, nodeCh, com, callback)
 
 	// if there are additional hosts, we do a "best effort" write to them
 	// where we don't wait for a response because they are not part of the
 	// replicas used to reach level consistency
 	if len(routingPlan.AdditionalHostAddrs) > 0 {
-		additionalHostsBroadcast := c.broadcast(ctxWithTimeout, routingPlan.AdditionalHostAddrs, ask, len(routingPlan.AdditionalHostAddrs))
-		c.commitAll(context.Background(), additionalHostsBroadcast, com, nil)
+		c.log.WithField("op", "Push").WithField("additional_hosts", len(routingPlan.AdditionalHostAddrs)).Info("Starting best-effort write to additional hosts")
+		additionalHostsBroadcast := c.broadcast(ctxPrepare, routingPlan.AdditionalHostAddrs, ask, len(routingPlan.AdditionalHostAddrs))
+		c.commitAll(ctxFinalize, additionalHostsBroadcast, com, nil)
 	}
 
+	c.log.WithField("op", "Push").Info("Push operation initiated successfully")
 	return commitCh, level, nil
 }
 
@@ -290,7 +390,7 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 	}
 	level := routingPlan.IntConsistencyLevel
 	hosts := routingPlan.ReplicasHostAddrs
-	replyCh := make(chan _Result[T], level)
+	replyCh := make(chan _Result[T], level) // Buffer for level results
 	f := func() {
 		start := time.Now()
 		var successful atomic.Int32
@@ -303,82 +403,93 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 			} else {
 				c.metrics.IncReadsFailed()
 			}
-
 			c.metrics.ObserveReadDuration(time.Since(start))
 		}()
 
-		hostRetryQueue := make(chan hostRetry, len(hosts))
+		// Try level hosts initially (respecting invariants)
+		var wg sync.WaitGroup
+		var cancelled atomic.Bool
 
-		// put the "backups/fallbacks" on the retry queue
-		for i := level; i < len(hosts); i++ {
-			hostRetryQueue <- hostRetry{
-				hosts[i],
-				backoff.WithContext(utils.NewExponentialBackoff(c.pullBackOffPreInitialInterval, c.pullBackOffMaxElapsedTime), ctx),
-			}
-		}
+		// Create cancellable context for early exit
+		workerCtx, cancel := context.WithCancel(ctx)
+		defer cancel()
 
-		// kick off only level workers so that we avoid querying nodes unnecessarily
-		wg := sync.WaitGroup{}
-		wg.Add(level)
-		for i := 0; i < level; i++ {
-			hostIndex := i
-			isFullReadWorker := hostIndex == 0 // first worker will perform the fullRead
-			workerFunc := func() {
+		// Try directCandidate first if provided
+		if directCandidate != "" {
+			wg.Add(1)
+			go func() {
 				defer wg.Done()
-				workerCtx, workerCancel := context.WithTimeout(ctx, timeout)
-				defer workerCancel()
-				// each worker will first try its corresponding host (eg worker0 tries hosts[0],
-				// worker1 tries hosts[1], etc). We want the fullRead to be tried on hosts[0]
-				// because that will be the direct candidate (if a direct candidate was provided),
-				// if we only used the retry queue then we would not have the guarantee that the
-				// fullRead will be tried on hosts[0] first.
-				resp, err := op(workerCtx, hosts[hostIndex], isFullReadWorker)
-				// TODO return retryable info here, for now should be fine since most errors are considered retryable
-				// TODO have increasing timeout passed into each op (eg 1s, 2s, 4s, 8s, 16s, 32s, with some max) similar to backoff? future PR? or should we just set timeout once per worker in Pull?
+
+				// Check if we should exit early
+				select {
+				case <-workerCtx.Done():
+					return
+				default:
+				}
+
+				// Try directCandidate first (always full read for directCandidate)
+				resp, err := c.tryHost(workerCtx, directCandidate, timeout, op, true)
 				if err == nil {
-					successful.Add(1)
+					currentSuccess := successful.Add(1)
 					replyCh <- _Result[T]{resp, err}
+
+					// Early exit: cancel remaining workers if consistency level reached
+					if int(currentSuccess) >= level && !cancelled.Swap(true) {
+						c.log.WithField("op", "early_exit").WithField("successful", currentSuccess).WithField("level", level).Info("Consistency level reached, cancelling remaining workers")
+						cancel()
+					}
 					return
 				}
-				// this host failed op on the first try, put it on the retry queue
-				hostRetryQueue <- hostRetry{
-					hosts[hostIndex],
-					backoff.WithContext(utils.NewExponentialBackoff(c.pullBackOffPreInitialInterval, c.pullBackOffMaxElapsedTime), ctx),
-				}
-
-				// let's fallback to the backups in the retry queue
-				for hr := range hostRetryQueue {
-					resp, err := op(workerCtx, hr.host, isFullReadWorker)
-					if err == nil {
-						replyCh <- _Result[T]{resp, err}
-						return
-					}
-					nextBackOff := hr.currentBackOff.NextBackOff()
-					if nextBackOff == backoff.Stop {
-						// this host has run out of retries, send the result and note that
-						// we have the worker exit here with the assumption that once we've reached
-						// this many failures for this host, we've tried all other hosts enough
-						// that we're not going to reach level successes
-						replyCh <- _Result[T]{resp, err}
-						return
-					}
-
-					timer := time.NewTimer(nextBackOff)
-					select {
-					case <-workerCtx.Done():
-						timer.Stop()
-						replyCh <- _Result[T]{resp, err}
-						return
-					case <-timer.C:
-						hostRetryQueue <- hostRetry{hr.host, hr.currentBackOff}
-					}
-					timer.Stop()
-				}
-			}
-			enterrors.GoWrapper(workerFunc, c.log)
+			}()
 		}
+
+		// Try remaining hosts up to level
+		remainingWorkers := level
+		if directCandidate != "" {
+			remainingWorkers = level - 1 // One less since directCandidate is already tried
+		}
+
+		wg.Add(remainingWorkers)
+		for i := 0; i < remainingWorkers; i++ {
+			go func(hostIndex int, host string) {
+				defer wg.Done()
+
+				// Check if we should exit early
+				select {
+				case <-workerCtx.Done():
+					return
+				default:
+				}
+
+				// Try this host (full read for first remaining host to ensure at least one full read succeeds)
+				fullRead := (hostIndex == 0) // First remaining host does full read
+				resp, err := c.tryHost(workerCtx, host, timeout, op, fullRead)
+				if err == nil {
+					currentSuccess := successful.Add(1)
+					replyCh <- _Result[T]{resp, err}
+
+					// Early exit: cancel remaining workers if consistency level reached
+					if int(currentSuccess) >= level && !cancelled.Swap(true) {
+						c.log.WithField("op", "early_exit").WithField("successful", currentSuccess).WithField("level", level).Info("Consistency level reached, cancelling remaining workers")
+						cancel()
+					}
+					return
+				}
+			}(i, hosts[i])
+		}
+
 		wg.Wait()
-		// callers of this function rely on replyCh being closed
+
+		// Send error if we didn't reach consistency level
+		if int(successful.Load()) < level {
+			c.log.WithField("op", "Pull").WithField("successful", successful.Load()).WithField("level", level).Error("Failed to reach consistency level")
+			select {
+			case replyCh <- _Result[T]{Err: fmt.Errorf("cannot achieve consistency level %d: only %d successful", level, successful.Load())}:
+			default:
+				// Channel is full, skip error message
+			}
+		}
+
 		close(replyCh)
 	}
 	enterrors.GoWrapper(f, c.log)
@@ -386,8 +497,20 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 	return replyCh, level, nil
 }
 
-// hostRetry tracks how long we should wait to retry this host again
-type hostRetry struct {
-	host           string
-	currentBackOff backoff.BackOff
+// tryHost attempts to perform the operation on a single host
+func (c *coordinator[T]) tryHost(ctx context.Context, host string, timeout time.Duration, op readOp[T], fullRead bool) (T, error) {
+	hostCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	// Try local operation first if available
+	if c.localOpFunc != nil && c.isLocalNode(host) {
+		resp, err := c.localOpFunc(hostCtx, host, fullRead)
+		if err == nil {
+			return resp, nil
+		}
+		// Fall back to HTTP if local operation fails
+	}
+
+	// Use regular HTTP call
+	return op(hostCtx, host, fullRead)
 }

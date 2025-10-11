@@ -855,7 +855,7 @@ func (f *fakeFactory) newFinderWithTimings(thisNode string, tInitial time.Durati
 		f.t.Fatalf("could not create metrics: %v", err)
 	}
 
-	return replica.NewFinder(f.CLS, router, thisNode, f.RClient, metrics, f.log, tInitial, tMax, getDeletionStrategy)
+	return replica.NewFinder(f.CLS, router, thisNode, f.RClient, metrics, f.log, tInitial, tMax, getDeletionStrategy, nil)
 }
 
 func (f *fakeFactory) newFinder(thisNode string) *replica.Finder {

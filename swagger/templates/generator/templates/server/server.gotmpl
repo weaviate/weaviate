@@ -114,7 +114,7 @@ func init() {
 	flag.StringSliceVar(&enabledListeners, "scheme", defaultSchemes, "the listeners to enable, this can be repeated and defaults to the schemes in the swagger spec")
 	{{ end }}
 	flag.DurationVar(&cleanupTimeout, "cleanup-timeout", 10*time.Second, "grace period for which to wait before killing idle connections")
-	flag.DurationVar(&gracefulTimeout, "graceful-timeout", 15*time.Second, "grace period for which to wait before shutting down the server")
+	flag.DurationVar(&gracefulTimeout, "graceful-timeout", 120*time.Second, "grace period for which to wait before shutting down the server")
 	flag.Var(&maxHeaderSize, "max-header-size", "controls the maximum number of bytes the server will read parsing the request header's keys and values, including the request line. It does not limit the size of the request body")
 
 	flag.StringVar(&socketPath, "socket-path", "/var/run/todo-list.sock", "the unix socket to listen on")
@@ -219,7 +219,7 @@ func (s *Server) ConfigureFlags() {
 type Server struct {
 	EnabledListeners []string{{ if .UseGoStructFlags }} `long:"scheme" description:"the listeners to enable, this can be repeated and defaults to the schemes in the swagger spec"`{{ end }}
 	CleanupTimeout   time.Duration{{ if .UseGoStructFlags }}    `long:"cleanup-timeout" description:"grace period for which to wait before killing idle connections" default:"10s"`{{ end }}
-	GracefulTimeout  time.Duration{{ if .UseGoStructFlags }}    `long:"graceful-timeout" description:"grace period for which to wait before shutting down the server" default:"15s"`{{ end }}
+	GracefulTimeout  time.Duration{{ if .UseGoStructFlags }}    `long:"graceful-timeout" description:"grace period for which to wait before shutting down the server" default:"120s"`{{ end }}
 	MaxHeaderSize    flagext.ByteSize{{ if .UseGoStructFlags }} `long:"max-header-size" description:"controls the maximum number of bytes the server will read parsing the request header's keys and values, including the request line. It does not limit the size of the request body." default:"1MiB"`{{ end }}
 
 	SocketPath {{ if not .UseGoStructFlags }}string{{ else }}flags.Filename `long:"socket-path" description:"the unix socket to listen on" default:"/var/run/{{ dasherize .Name }}.sock"`{{ end }}

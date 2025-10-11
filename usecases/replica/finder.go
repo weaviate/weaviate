@@ -65,10 +65,13 @@ type (
 type Finder struct {
 	router       router
 	nodeName     string
-	finderStream // stream of objects
+	class        string // Added class field
+	finderStream        // stream of objects
 	// control the op backoffs in the coordinator's Pull
 	coordinatorPullBackoffInitialInterval time.Duration
 	coordinatorPullBackoffMaxElapsedTime  time.Duration
+	// localReplicaIncoming provides direct access to local storage
+	localReplicaIncoming *RemoteReplicaIncoming
 }
 
 // NewFinder constructs a new finder instance
@@ -81,11 +84,13 @@ func NewFinder(className string,
 	coordinatorPullBackoffInitialInterval time.Duration,
 	coordinatorPullBackoffMaxElapsedTime time.Duration,
 	getDeletionStrategy func() string,
+	localReplicaIncoming *RemoteReplicaIncoming,
 ) *Finder {
 	cl := FinderClient{client}
 	return &Finder{
 		router:   router,
 		nodeName: nodeName,
+		class:    className,
 		finderStream: finderStream{
 			repairer: repairer{
 				class:               className,
@@ -98,6 +103,7 @@ func NewFinder(className string,
 		},
 		coordinatorPullBackoffInitialInterval: coordinatorPullBackoffInitialInterval,
 		coordinatorPullBackoffMaxElapsedTime:  coordinatorPullBackoffMaxElapsedTime,
+		localReplicaIncoming:                  localReplicaIncoming,
 	}
 }
 
@@ -110,6 +116,30 @@ func (f *Finder) GetOne(ctx context.Context,
 ) (*storobj.Object, error) {
 	c := newReadCoordinator[findOneReply](f, shard,
 		f.coordinatorPullBackoffInitialInterval, f.coordinatorPullBackoffMaxElapsedTime, f.getDeletionStrategy())
+
+	// TODO remove full read
+	if f.localReplicaIncoming != nil {
+		c.localReplicaIncoming = f.localReplicaIncoming
+		c.localOpFunc = func(ctx context.Context, host string, fullRead bool) (findOneReply, error) {
+			if fullRead {
+				r, err := f.localReplicaIncoming.FetchObject(ctx, f.class, shard, id)
+				return findOneReply{host, 0, r, r.UpdateTime(), false}, err
+			} else {
+				xs, err := f.localReplicaIncoming.DigestObjects(ctx, f.class, shard, []strfmt.UUID{id})
+				var x types.RepairResponse
+				if len(xs) == 1 {
+					x = xs[0]
+				}
+				r := Replica{
+					ID:                      id,
+					Deleted:                 x.Deleted,
+					LastUpdateTimeUnixMilli: x.UpdateTime,
+				}
+				return findOneReply{host, x.Version, r, x.UpdateTime, true}, err
+			}
+		}
+	}
+
 	op := func(ctx context.Context, host string, fullRead bool) (findOneReply, error) {
 		if fullRead {
 			r, err := f.client.FullRead(ctx, host, f.class, shard, id, props, adds, 0)
@@ -133,7 +163,7 @@ func (f *Finder) GetOne(ctx context.Context,
 			return findOneReply{host, x.Version, r, x.UpdateTime, true}, err
 		}
 	}
-	replyCh, level, err := c.Pull(ctx, l, op, "", 20*time.Second)
+	replyCh, level, err := c.Pull(ctx, l, op, "", 10*time.Second)
 	if err != nil {
 		f.log.WithField("op", "pull.one").Error(err)
 		return nil, fmt.Errorf("%s %q: %w", MsgCLevel, l, ErrReplicas)
@@ -158,7 +188,7 @@ func (f *Finder) FindUUIDs(ctx context.Context,
 		return f.client.FindUUIDs(ctx, host, f.class, shard, filters)
 	}
 
-	replyCh, _, err := c.Pull(ctx, l, op, "", 30*time.Second)
+	replyCh, _, err := c.Pull(ctx, l, op, "", 5*time.Second)
 	if err != nil {
 		f.log.WithField("op", "pull.one").Error(err)
 		return nil, fmt.Errorf("%s %q: %w", MsgCLevel, l, ErrReplicas)
@@ -200,6 +230,9 @@ func (f *Finder) CheckConsistency(ctx context.Context,
 	if len(xs) == 0 {
 		return nil
 	}
+
+	// Graceful draining: allow consistency checks to complete
+	// The shutdown middleware will prevent new requests from starting
 	for i, x := range xs { // check shard and node name are set
 		if x == nil {
 			return fmt.Errorf("contains nil at object at index %d", i)
@@ -220,10 +253,18 @@ func (f *Finder) CheckConsistency(ctx context.Context,
 	for _, part := range cluster(createBatch(xs)) {
 		part := part
 		gr.Go(func() error {
+			// During shutdown, allow consistency checks to complete
 			_, err := f.checkShardConsistency(ctx, l, part)
 			if err != nil {
-				f.log.WithField("op", "check_shard_consistency").
-					WithField("shard", part.Shard).Error(err)
+				// Downgrade noisy rollout errors
+				if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) ||
+					strings.Contains(err.Error(), "connect:") || strings.Contains(err.Error(), "read error") {
+					f.log.WithField("op", "check_shard_consistency").
+						WithField("shard", part.Shard).Debug(err)
+				} else {
+					f.log.WithField("op", "check_shard_consistency").
+						WithField("shard", part.Shard).Error(err)
+				}
 			}
 			return err
 		}, part)
@@ -247,7 +288,7 @@ func (f *Finder) Exists(ctx context.Context,
 		}
 		return existReply{host, x}, err
 	}
-	replyCh, state, err := c.Pull(ctx, l, op, "", 20*time.Second)
+	replyCh, state, err := c.Pull(ctx, l, op, "", 10*time.Second)
 	if err != nil {
 		f.log.WithField("op", "pull.exist").Error(err)
 		return false, fmt.Errorf("%s %q: %w", MsgCLevel, l, ErrReplicas)
@@ -291,15 +332,23 @@ func (f *Finder) checkShardConsistency(ctx context.Context,
 		data, ids = batch.Extract() // extract from current content
 	)
 	op := func(ctx context.Context, host string, fullRead bool) (BatchReply, error) {
+		// Fast-path: if canceled, skip work for this host without error
+		if ctx.Err() != nil {
+			return BatchReply{Sender: host, IsDigest: !fullRead}, nil
+		}
 		if fullRead { // we already have the content
 			return BatchReply{Sender: host, IsDigest: false, FullData: data}, nil
 		} else {
-			xs, err := f.client.DigestReads(ctx, host, f.class, shard, ids, 0)
+			// Check again before remote call in case it canceled between checks
+			if ctx.Err() != nil {
+				return BatchReply{Sender: host, IsDigest: true}, nil
+			}
+			xs, err := f.client.DigestReads(ctx, host, f.class, shard, ids, 0) // TODO inside client request
 			return BatchReply{Sender: host, IsDigest: true, DigestData: xs}, err
 		}
 	}
 
-	replyCh, state, err := c.Pull(ctx, l, op, batch.Node, 20*time.Second)
+	replyCh, state, err := c.Pull(ctx, l, op, batch.Node, 10*time.Second)
 	if err != nil {
 		return nil, fmt.Errorf("pull shard: %w", ErrReplicas)
 	}

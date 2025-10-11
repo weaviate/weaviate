@@ -25,6 +25,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
+
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -57,7 +58,7 @@ func (c *replicationClient) FetchObject(ctx context.Context, host, index,
 	if err != nil {
 		return resp, fmt.Errorf("create http request: %w", err)
 	}
-	err = c.doCustomUnmarshal(c.timeoutUnit*20, req, nil, resp.UnmarshalBinary, numRetries)
+	err = c.doCustomUnmarshal(c.timeoutUnit*5, req, nil, resp.UnmarshalBinary, numRetries)
 	return resp, err
 }
 
@@ -75,7 +76,7 @@ func (c *replicationClient) DigestObjects(ctx context.Context,
 	if err != nil {
 		return resp, fmt.Errorf("create http request: %w", err)
 	}
-	err = c.do(c.timeoutUnit*20, req, body, &resp, numRetries)
+	err = c.do(c.timeoutUnit*5, req, body, &resp, numRetries)
 	return resp, err
 }
 
@@ -99,7 +100,7 @@ func (c *replicationClient) DigestObjectsInRange(ctx context.Context,
 	}
 
 	var resp replica.DigestObjectsInRangeResp
-	err = c.do(c.timeoutUnit*20, req, body, &resp, 9)
+	err = c.do(c.timeoutUnit*5, req, body, &resp, 9)
 	return resp.Digests, err
 }
 
@@ -117,7 +118,7 @@ func (c *replicationClient) HashTreeLevel(ctx context.Context,
 	if err != nil {
 		return resp, fmt.Errorf("create http request: %w", err)
 	}
-	err = c.do(c.timeoutUnit*20, req, body, &resp, 9)
+	err = c.do(c.timeoutUnit*5, req, body, &resp, 9)
 	return resp, err
 }
 
@@ -135,7 +136,7 @@ func (c *replicationClient) OverwriteObjects(ctx context.Context,
 	if err != nil {
 		return resp, fmt.Errorf("create http request: %w", err)
 	}
-	err = c.do(c.timeoutUnit*90, req, body, &resp, 9)
+	err = c.do(c.timeoutUnit*5, req, body, &resp, 9)
 	return resp, err
 }
 
@@ -156,7 +157,7 @@ func (c *replicationClient) FetchObjects(ctx context.Context, host,
 	}
 
 	req.URL.RawQuery = url.Values{"ids": []string{idsEncoded}}.Encode()
-	err = c.doCustomUnmarshal(c.timeoutUnit*90, req, nil, resp.UnmarshalBinary, 9)
+	err = c.doCustomUnmarshal(c.timeoutUnit*10, req, nil, resp.UnmarshalBinary, 9)
 	return resp, err
 }
 
@@ -175,7 +176,7 @@ func (c *replicationClient) PutObject(ctx context.Context, host, index,
 	}
 
 	clusterapi.IndicesPayloads.SingleObject.SetContentTypeHeaderReq(req)
-	err = c.do(c.timeoutUnit*90, req, body, &resp, 9)
+	err = c.do(c.timeoutUnit*5, req, body, &resp, 9)
 	return resp, err
 }
 
@@ -189,7 +190,7 @@ func (c *replicationClient) DeleteObject(ctx context.Context, host, index,
 		return resp, fmt.Errorf("create http request: %w", err)
 	}
 
-	err = c.do(c.timeoutUnit*90, req, nil, &resp, 9)
+	err = c.do(c.timeoutUnit*10, req, nil, &resp, 9)
 	return resp, err
 }
 
@@ -207,7 +208,7 @@ func (c *replicationClient) PutObjects(ctx context.Context, host, index,
 	}
 
 	clusterapi.IndicesPayloads.ObjectList.SetContentTypeHeaderReq(req)
-	err = c.do(c.timeoutUnit*90, req, body, &resp, 9)
+	err = c.do(c.timeoutUnit*5, req, body, &resp, 9)
 	return resp, err
 }
 
@@ -227,7 +228,7 @@ func (c *replicationClient) MergeObject(ctx context.Context, host, index, shard,
 	}
 
 	clusterapi.IndicesPayloads.MergeDoc.SetContentTypeHeaderReq(req)
-	err = c.do(c.timeoutUnit*90, req, body, &resp, 9)
+	err = c.do(c.timeoutUnit*5, req, body, &resp, 9)
 	return resp, err
 }
 
@@ -246,7 +247,7 @@ func (c *replicationClient) AddReferences(ctx context.Context, host, index,
 	}
 
 	clusterapi.IndicesPayloads.ReferenceList.SetContentTypeHeaderReq(req)
-	err = c.do(c.timeoutUnit*90, req, body, &resp, 9)
+	err = c.do(c.timeoutUnit*5, req, body, &resp, 9)
 	return resp, err
 }
 
@@ -263,7 +264,7 @@ func (c *replicationClient) DeleteObjects(ctx context.Context, host, index, shar
 	}
 
 	clusterapi.IndicesPayloads.BatchDeleteParams.SetContentTypeHeaderReq(req)
-	err = c.do(c.timeoutUnit*90, req, body, &resp, 9)
+	err = c.do(c.timeoutUnit*5, req, body, &resp, 9)
 	return resp, err
 }
 
@@ -322,7 +323,7 @@ func (c *replicationClient) Commit(ctx context.Context, host, index, shard strin
 		return fmt.Errorf("create http request: %w", err)
 	}
 
-	return c.do(c.timeoutUnit*90, req, nil, resp, 9)
+	return c.do(c.timeoutUnit*5, req, nil, resp, 9)
 }
 
 func (c *replicationClient) Abort(ctx context.Context, host, index, shard, requestID string) (

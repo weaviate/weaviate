@@ -15,11 +15,12 @@ import (
 	"fmt"
 
 	"github.com/sirupsen/logrus"
+	"golang.org/x/exp/slices"
+
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	schemaTypes "github.com/weaviate/weaviate/cluster/schema/types"
 	"github.com/weaviate/weaviate/usecases/cluster"
-	"golang.org/x/exp/slices"
 )
 
 type Router struct {
@@ -121,6 +122,17 @@ func (r *Router) routingPlanFromReplicas(
 
 	for _, replica := range replicas {
 		if replicaAddr, ok := r.clusterStateReader.NodeHostname(replica); ok {
+			// During rollout, skip nodes that are shutting down to prevent cascade failures
+			// Check if this node is currently shutting down by looking at memberlist state
+			if r.isNodeShuttingDown(replica) {
+				r.logger.WithField("collection", params.Collection).
+					WithField("shard", params.Shard).
+					WithField("replica", replica).
+					WithField("replica_addr", replicaAddr).
+					Debug("skipping replica during rollout - node is shutting down")
+				continue
+			}
+
 			// Local replica first is necessary due to the logic in finder where the first node is considered a "full read
 			// candidate". This means that instead of a doing a digest read we will get the "full read" (whatever that means).
 			// We handle the direct candidate here to ensure that the direct candidate is also part of the replica set
@@ -150,4 +162,16 @@ func (r *Router) NodeHostname(nodeName string) (string, bool) {
 
 func (r *Router) AllHostnames() []string {
 	return r.clusterStateReader.AllHostnames()
+}
+
+// isNodeShuttingDown checks if a node is currently shutting down during rollout
+// This helps prevent routing to nodes that are in the process of graceful shutdown
+func (r *Router) isNodeShuttingDown(nodeName string) bool {
+	// Check if the node is still reachable via memberlist
+	// If NodeHostname returns false, the node is no longer available
+	if _, ok := r.clusterStateReader.NodeHostname(nodeName); !ok {
+		return true
+	}
+
+	return false
 }

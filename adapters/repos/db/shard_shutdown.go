@@ -82,10 +82,19 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 		s.index.metrics.ObserveUpdateShardStatus(storagestate.StatusShutdown.String(), time.Since(start))
 	}()
 
+	// Stop long-running background operations (reindexing, compaction, etc.)
+	// but allow short-running requests to complete
+	s.index.logger.WithField("action", "shard_shutdown").
+		WithField("shard", s.name).
+		Info("Stopping long-running background operations during shard shutdown")
 	s.reindexer.Stop(s, fmt.Errorf("shard shutdown"))
 
+	// Stop long-running transfer operations during shutdown
 	s.haltForTransferMux.Lock()
 	if s.haltForTransferCancel != nil {
+		s.index.logger.WithField("action", "shard_shutdown").
+			WithField("shard", s.name).
+			Info("Stopping long-running transfer operations during shard shutdown")
 		s.haltForTransferCancel()
 	}
 	s.haltForTransferMux.Unlock()
