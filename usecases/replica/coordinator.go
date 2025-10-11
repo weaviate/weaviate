@@ -105,6 +105,7 @@ func newReadCoordinator[T any](f *Finder, shard string,
 		Class:                         f.class,
 		Shard:                         shard,
 		metrics:                       f.metrics,
+		log:                           f.log,
 		pullBackOffPreInitialInterval: pullBackOffInitivalInterval / 2,
 		pullBackOffMaxElapsedTime:     pullBackOffMaxElapsedTime,
 		deletionStrategy:              deletionStrategy,
@@ -460,7 +461,7 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 						if err != nil {
 							c.log.WithField("host", hr.host).
 								WithField("error", err).
-								Debug("Local retry operation failed, falling back to HTTP")
+								Info("Local retry operation failed, falling back to HTTP")
 							resp, err = op(retryCtx, hr.host, true)
 						}
 					} else {
@@ -513,7 +514,7 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 					if err != nil {
 						c.log.WithField("host", hosts[hostIndex]).
 							WithField("error", err).
-							Debug("Local operation failed, falling back to HTTP")
+							Info("Local operation failed, falling back to HTTP")
 						resp, err = op(workerCtx, hosts[hostIndex], isFullReadWorker)
 					}
 				} else {
@@ -563,7 +564,7 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 								if err != nil {
 									c.log.WithField("host", hosts[fallbackHostIndex]).
 										WithField("error", err).
-										Debug("Local fallback operation failed, falling back to HTTP")
+										Info("Local fallback operation failed, falling back to HTTP")
 									resp, err = op(fallbackCtx, hosts[fallbackHostIndex], isFullReadWorker)
 								}
 							} else {
