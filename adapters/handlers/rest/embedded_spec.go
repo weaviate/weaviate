@@ -2123,6 +2123,79 @@ func init() {
         "x-serviceIds": [
           "weaviate.local.manipulate"
         ]
+      },
+      "patch": {
+        "description": "Partially update multiple objects in bulk using JSON Merge Patch semantics (RFC 7396). \u003cbr/\u003e\u003cbr/\u003eOnly the properties provided in the request will be updated; omitted properties will be preserved. \u003cbr/\u003e\u003cbr/\u003eTo delete a property, set its value to ` + "`" + `null` + "`" + `. \u003cbr/\u003e\u003cbr/\u003eMeta-data and schema values are validated.",
+        "tags": [
+          "batch",
+          "objects"
+        ],
+        "summary": "Partially update multiple Objects as a batch using JSON Merge Patch.",
+        "operationId": "batch.objects.patch",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "objects": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/definitions/Object"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Request succeeded, see response body to get detailed information about each patched item.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/ObjectsGetResponse"
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.local.manipulate"
+        ]
       }
     },
     "/batch/references": {
@@ -10939,6 +11012,82 @@ func init() {
             "description": "Request succeeded, see response body to get detailed information about each batched item.",
             "schema": {
               "$ref": "#/definitions/BatchDeleteResponse"
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.local.manipulate"
+        ]
+      },
+      "patch": {
+        "description": "Partially update multiple objects in bulk using JSON Merge Patch semantics (RFC 7396). \u003cbr/\u003e\u003cbr/\u003eOnly the properties provided in the request will be updated; omitted properties will be preserved. \u003cbr/\u003e\u003cbr/\u003eTo delete a property, set its value to ` + "`" + `null` + "`" + `. \u003cbr/\u003e\u003cbr/\u003eMeta-data and schema values are validated.",
+        "tags": [
+          "batch",
+          "objects"
+        ],
+        "summary": "Partially update multiple Objects as a batch using JSON Merge Patch.",
+        "operationId": "batch.objects.patch",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "objects": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/definitions/Object"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "type": "string",
+            "description": "Determines how many replicas must acknowledge a request before it is considered successful",
+            "name": "consistency_level",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Request succeeded, see response body to get detailed information about each patched item.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/ObjectsGetResponse"
+              }
             }
           },
           "400": {

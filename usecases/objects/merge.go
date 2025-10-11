@@ -28,7 +28,6 @@ import (
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	authzerrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
-	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
@@ -191,63 +190,20 @@ func (m *Manager) mergeObjectSchemaAndVectorize(ctx context.Context, prevPropsSc
 	nextProps map[string]interface{}, prevVec, nextVec []float32, prevVecs models.Vectors, nextVecs models.Vectors,
 	id strfmt.UUID, class *models.Class,
 ) (*models.Object, error) {
-	var mergedProps map[string]interface{}
-
-	vector := nextVec
-	vectors := nextVecs
-	if prevPropsSch == nil {
-		mergedProps = nextProps
-	} else {
-		prevProps, ok := prevPropsSch.(map[string]interface{})
-		if !ok {
-			return nil, fmt.Errorf("expected previous schema to be map, but got %#v", prevPropsSch)
-		}
-
-		mergedProps = map[string]interface{}{}
-		for propName, propValue := range prevProps {
-			mergedProps[propName] = propValue
-		}
-		for propName, propValue := range nextProps {
-			mergedProps[propName] = propValue
-		}
-	}
-
-	// Note: vector could be a nil vector in case a vectorizer is configured,
-	// then the vectorizer will set it
-	obj := &models.Object{Class: class.Class, Properties: mergedProps, Vector: vector, Vectors: vectors, ID: id}
-	if err := m.modulesProvider.UpdateVector(ctx, obj, class, m.findObject, m.logger); err != nil {
-		return nil, err
-	}
-
-	// If there is no vectorization module and no updated vector, use the previous vector(s)
-	if obj.Vector == nil && class.Vectorizer == config.VectorizerModuleNone {
-		obj.Vector = prevVec
-	}
-
-	if obj.Vectors == nil {
-		obj.Vectors = models.Vectors{}
-	}
-
-	// check for each named vector if the previous vector should be used. This should only happen if
-	// - the vectorizer is none
-	// - the vector is not set in the update
-	// - the vector was set in the previous object
-	for name, vectorConfig := range class.VectorConfig {
-		if _, ok := vectorConfig.Vectorizer.(map[string]interface{})[config.VectorizerModuleNone]; !ok {
-			continue
-		}
-
-		prevTargetVector, ok := prevVecs[name]
-		if !ok {
-			continue
-		}
-
-		if _, ok := obj.Vectors[name]; !ok {
-			obj.Vectors[name] = prevTargetVector
-		}
-	}
-
-	return obj, nil
+	return mergeObjectSchemaAndVectorizeShared(
+		ctx,
+		prevPropsSch,
+		nextProps,
+		prevVec,
+		nextVec,
+		prevVecs,
+		nextVecs,
+		id,
+		class,
+		m.modulesProvider,
+		m.findObject,
+		m.logger,
+	)
 }
 
 func (m *Manager) splitPrimitiveAndRefs(in map[string]interface{}, sourceClass string,

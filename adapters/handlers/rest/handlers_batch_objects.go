@@ -154,6 +154,41 @@ func (h *batchObjectHandlers) referencesResponse(input objects.BatchReferences) 
 	return response
 }
 
+func (h *batchObjectHandlers) patchObjects(params batch.BatchObjectsPatchParams,
+	principal *models.Principal,
+) middleware.Responder {
+	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
+	repl, err := getReplicationProperties(params.ConsistencyLevel, nil)
+	if err != nil {
+		h.metricRequestsTotal.logError("", err)
+		return batch.NewBatchObjectsPatchBadRequest().
+			WithPayload(errPayloadFromSingleErr(err))
+	}
+
+	objs, err := h.manager.PatchObjects(ctx, principal, params.Body.Objects, repl)
+	if err != nil {
+		h.metricRequestsTotal.logError("", err)
+		switch {
+		case errors.As(err, &autherrs.Forbidden{}):
+			return batch.NewBatchObjectsPatchForbidden().
+				WithPayload(errPayloadFromSingleErr(err))
+		case errors.As(err, &objects.ErrInvalidUserInput{}):
+			return batch.NewBatchObjectsPatchUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(err))
+		case errors.As(err, &objects.ErrMultiTenancy{}):
+			return batch.NewBatchObjectsPatchUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(err))
+		default:
+			return batch.NewBatchObjectsPatchInternalServerError().
+				WithPayload(errPayloadFromSingleErr(err))
+		}
+	}
+
+	h.metricRequestsTotal.logOk("")
+	return batch.NewBatchObjectsPatchOK().
+		WithPayload(h.objectsResponse(objs))
+}
+
 func (h *batchObjectHandlers) deleteObjects(params batch.BatchObjectsDeleteParams,
 	principal *models.Principal,
 ) middleware.Responder {
@@ -249,6 +284,8 @@ func setupObjectBatchHandlers(api *operations.WeaviateAPI, manager *objects.Batc
 
 	api.BatchBatchObjectsCreateHandler = batch.
 		BatchObjectsCreateHandlerFunc(h.addObjects)
+	api.BatchBatchObjectsPatchHandler = batch.
+		BatchObjectsPatchHandlerFunc(h.patchObjects)
 	api.BatchBatchReferencesCreateHandler = batch.
 		BatchReferencesCreateHandlerFunc(h.addReferences)
 	api.BatchBatchObjectsDeleteHandler = batch.

@@ -226,6 +226,15 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 			expectedResources: authorization.ShardsData("", ""),
 		},
 		{
+			methodName: "PatchObjects",
+			additionalArgs: []interface{}{
+				[]*models.Object{{}},
+				&additional.ReplicationProperties{},
+			},
+			expectedVerb:      authorization.UPDATE,
+			expectedResources: authorization.ShardsData("", ""),
+		},
+		{
 			methodName: "AddReferences",
 			additionalArgs: []interface{}{
 				[]*models.BatchReference{{From: uri + "/ref", To: uri, Tenant: ""}},
@@ -271,7 +280,7 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 			authorizer.SetErr(errors.New("just a test fake"))
 			vectorRepo := &fakeVectorRepo{}
 			modulesProvider := getFakeModulesProvider()
-			manager := NewBatchManager(vectorRepo, modulesProvider, schemaManager, cfg, logger, authorizer, nil,
+			manager := NewBatchManager(vectorRepo, modulesProvider, schemaManager, cfg, logger, authorizer, nil, nil,
 				NewAutoSchemaManager(schemaManager, vectorRepo, cfg, authorizer, logger, prometheus.NewPedanticRegistry()))
 
 			args := append([]interface{}{context.Background(), principal}, test.additionalArgs...)

@@ -20,6 +20,7 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/objects/alias"
 )
@@ -36,6 +37,7 @@ type BatchManager struct {
 	modulesProvider   ModulesProvider
 	autoSchemaManager *AutoSchemaManager
 	metrics           *Metrics
+	allocChecker      *memwatch.Monitor
 }
 
 type BatchVectorRepo interface {
@@ -45,6 +47,8 @@ type BatchVectorRepo interface {
 
 type batchRepoNew interface {
 	BatchPutObjects(ctx context.Context, objects BatchObjects,
+		repl *additional.ReplicationProperties, schemaVersion uint64) (BatchObjects, error)
+	BatchPatchObjects(ctx context.Context, objects BatchObjects,
 		repl *additional.ReplicationProperties, schemaVersion uint64) (BatchObjects, error)
 	BatchDeleteObjects(ctx context.Context, params BatchDeleteParams, deletionTime time.Time,
 		repl *additional.ReplicationProperties, tenant string, schemaVersion uint64) (BatchDeleteResult, error)
@@ -56,7 +60,8 @@ type batchRepoNew interface {
 func NewBatchManager(vectorRepo BatchVectorRepo, modulesProvider ModulesProvider,
 	schemaManager schemaManager, config *config.WeaviateConfig,
 	logger logrus.FieldLogger, authorizer authorization.Authorizer,
-	prom *monitoring.PrometheusMetrics, autoSchemaManager *AutoSchemaManager,
+	prom *monitoring.PrometheusMetrics, allocChecker *memwatch.Monitor,
+	autoSchemaManager *AutoSchemaManager,
 ) *BatchManager {
 	return &BatchManager{
 		config:            config,
@@ -68,6 +73,7 @@ func NewBatchManager(vectorRepo BatchVectorRepo, modulesProvider ModulesProvider
 		authorizer:        authorizer,
 		autoSchemaManager: autoSchemaManager,
 		metrics:           NewMetrics(prom),
+		allocChecker:      allocChecker,
 	}
 }
 

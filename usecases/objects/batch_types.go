@@ -35,6 +35,7 @@ type BatchObject struct {
 	Err           error
 	Object        *models.Object
 	UUID          strfmt.UUID
+	MergeDoc      *MergeDocument // For PATCH operations, nil for PUT operations
 }
 
 // BatchObjects groups many Object items together. The order matches the
