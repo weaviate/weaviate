@@ -390,7 +390,7 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 	}
 	level := routingPlan.IntConsistencyLevel
 	hosts := routingPlan.ReplicasHostAddrs
-	replyCh := make(chan _Result[T], len(hosts)) // Buffer for all hosts
+	replyCh := make(chan _Result[T], level) // Buffer for level results
 	f := func() {
 		start := time.Now()
 		var successful atomic.Int32
@@ -408,7 +408,7 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 
 		// Try level hosts initially (respecting invariants)
 		var wg sync.WaitGroup
-		wg.Add(level)
+		var cancelOnce sync.Once
 
 		// Create cancellable context for early exit
 		workerCtx, cancel := context.WithCancel(ctx)
@@ -416,6 +416,7 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 
 		// Try directCandidate first if provided
 		if directCandidate != "" {
+			wg.Add(1)
 			go func() {
 				defer wg.Done()
 
@@ -426,16 +427,18 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 				default:
 				}
 
-				// Try directCandidate first
-				resp, err := c.tryHost(workerCtx, directCandidate, timeout, op)
+				// Try directCandidate first (always full read for directCandidate)
+				resp, err := c.tryHost(workerCtx, directCandidate, timeout, op, true)
 				if err == nil {
 					currentSuccess := successful.Add(1)
 					replyCh <- _Result[T]{resp, err}
 
 					// Early exit: cancel remaining workers if consistency level reached
 					if int(currentSuccess) >= level {
-						c.log.WithField("op", "early_exit").WithField("successful", currentSuccess).WithField("level", level).Info("Consistency level reached, cancelling remaining workers")
-						cancel()
+						cancelOnce.Do(func() {
+							c.log.WithField("op", "early_exit").WithField("successful", currentSuccess).WithField("level", level).Info("Consistency level reached, cancelling remaining workers")
+							cancel()
+						})
 					}
 					return
 				}
@@ -443,12 +446,13 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 		}
 
 		// Try remaining hosts up to level
-		startIndex := 0
+		remainingWorkers := level
 		if directCandidate != "" {
-			startIndex = 1 // Skip directCandidate if already tried
+			remainingWorkers = level - 1 // One less since directCandidate is already tried
 		}
 
-		for i := startIndex; i < level; i++ {
+		wg.Add(remainingWorkers)
+		for i := 0; i < remainingWorkers; i++ {
 			go func(hostIndex int, host string) {
 				defer wg.Done()
 
@@ -459,16 +463,18 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 				default:
 				}
 
-				// Try this host
-				resp, err := c.tryHost(workerCtx, host, timeout, op)
+				// Try this host (digest read for remaining hosts to respect "only one fullread" invariant)
+				resp, err := c.tryHost(workerCtx, host, timeout, op, false)
 				if err == nil {
 					currentSuccess := successful.Add(1)
 					replyCh <- _Result[T]{resp, err}
 
 					// Early exit: cancel remaining workers if consistency level reached
 					if int(currentSuccess) >= level {
-						c.log.WithField("op", "early_exit").WithField("successful", currentSuccess).WithField("level", level).Info("Consistency level reached, cancelling remaining workers")
-						cancel()
+						cancelOnce.Do(func() {
+							c.log.WithField("op", "early_exit").WithField("successful", currentSuccess).WithField("level", level).Info("Consistency level reached, cancelling remaining workers")
+							cancel()
+						})
 					}
 					return
 				}
@@ -480,7 +486,11 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 		// Send error if we didn't reach consistency level
 		if int(successful.Load()) < level {
 			c.log.WithField("op", "Pull").WithField("successful", successful.Load()).WithField("level", level).Error("Failed to reach consistency level")
-			replyCh <- _Result[T]{Err: fmt.Errorf("cannot achieve consistency level %d: only %d successful", level, successful.Load())}
+			select {
+			case replyCh <- _Result[T]{Err: fmt.Errorf("cannot achieve consistency level %d: only %d successful", level, successful.Load())}:
+			default:
+				// Channel is full, skip error message
+			}
 		}
 
 		close(replyCh)
@@ -491,13 +501,13 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 }
 
 // tryHost attempts to perform the operation on a single host
-func (c *coordinator[T]) tryHost(ctx context.Context, host string, timeout time.Duration, op readOp[T]) (T, error) {
+func (c *coordinator[T]) tryHost(ctx context.Context, host string, timeout time.Duration, op readOp[T], fullRead bool) (T, error) {
 	hostCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	// Try local operation first if available
 	if c.localOpFunc != nil && c.isLocalNode(host) {
-		resp, err := c.localOpFunc(hostCtx, host, true)
+		resp, err := c.localOpFunc(hostCtx, host, fullRead)
 		if err == nil {
 			return resp, nil
 		}
@@ -505,5 +515,5 @@ func (c *coordinator[T]) tryHost(ctx context.Context, host string, timeout time.
 	}
 
 	// Use regular HTTP call
-	return op(hostCtx, host, true)
+	return op(hostCtx, host, fullRead)
 }
