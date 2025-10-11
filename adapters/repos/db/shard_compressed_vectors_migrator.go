@@ -25,7 +25,7 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-const migrationPerformedFlag = "migration.performed.flag"
+const migrationNamedVectorsQuantizationIssuePerformedFlag = "migration.nvqi.performed.flag"
 
 type compressedVectorsMigrator struct {
 	logger logrus.FieldLogger
@@ -36,6 +36,10 @@ func newCompressedVectorsMigrator(logger logrus.FieldLogger) compressedVectorsMi
 }
 
 func (m compressedVectorsMigrator) do(s *Shard) error {
+	if m.isMigrationDone(s) {
+		// migration was performed, nothing to do
+		return nil
+	}
 	totalVectors := len(s.index.vectorIndexUserConfigs)
 	if s.index.vectorIndexUserConfig != nil {
 		totalVectors++
@@ -43,7 +47,7 @@ func (m compressedVectorsMigrator) do(s *Shard) error {
 
 	lsmDir := s.store.GetDir()
 	vectorsCompressedPath := filepath.Join(lsmDir, helpers.VectorsCompressedBucketLSM)
-	if _, err := os.Stat(vectorsCompressedPath); !os.IsNotExist(err) && !m.isMigrationDone(lsmDir) {
+	if _, err := os.Stat(vectorsCompressedPath); !os.IsNotExist(err) {
 		switch totalVectors {
 		case 0:
 			// do nothing
@@ -59,7 +63,7 @@ func (m compressedVectorsMigrator) do(s *Shard) error {
 				// we have only legacy vector index defined, there was no need for migration, but we need to mark it
 				// because we could have a scenario where we would add additional named vectors which could trigger
 				// the migration unnecessary again and break newly created named vector
-				if err := m.markMigrationDone(lsmDir); err != nil {
+				if err := m.markMigrationDone(s); err != nil {
 					return fmt.Errorf("failed to mark migration as done: %w", err)
 				}
 			}
@@ -78,10 +82,16 @@ func (m compressedVectorsMigrator) do(s *Shard) error {
 				m.logger.Info("removed old vectors compressed bucket")
 			} else {
 				// legacy vector defined together with named vectors, we need to mark that the migration was performed
-				if err := m.markMigrationDone(lsmDir); err != nil {
+				if err := m.markMigrationDone(s); err != nil {
 					return fmt.Errorf("failed to mark migration as done: %w", err)
 				}
 			}
+		}
+	} else if s.index.vectorIndexUserConfig != nil && m.isQuantizationEnabled(s.index.vectorIndexUserConfig) {
+		// a new legacy vector config was created, quantization is enabled but we didn't create the vectors_compressed
+		// folder yet but we need to mark that the migration was done in order for it to not be trigered on healthy vector indexes
+		if err := m.markMigrationDone(s); err != nil {
+			return fmt.Errorf("failed to mark migration as done: %w", err)
 		}
 	}
 	return nil
@@ -196,12 +206,12 @@ func (m compressedVectorsMigrator) copyFile(src, dst string) error {
 	return err
 }
 
-func (m compressedVectorsMigrator) migrationPerformedFlagFile(lsmDir string) string {
-	return fmt.Sprintf("%s/%s/%s", lsmDir, helpers.VectorsCompressedBucketLSM, migrationPerformedFlag)
+func (m compressedVectorsMigrator) migrationPerformedFlagFile(s *Shard) string {
+	return fmt.Sprintf("%s/%s", s.path(), migrationNamedVectorsQuantizationIssuePerformedFlag)
 }
 
-func (m compressedVectorsMigrator) markMigrationDone(lsmDir string) error {
-	file, err := os.Create(m.migrationPerformedFlagFile(lsmDir))
+func (m compressedVectorsMigrator) markMigrationDone(s *Shard) error {
+	file, err := os.Create(m.migrationPerformedFlagFile(s))
 	if err != nil {
 		return err
 	}
@@ -210,8 +220,8 @@ func (m compressedVectorsMigrator) markMigrationDone(lsmDir string) error {
 	return nil
 }
 
-func (m compressedVectorsMigrator) isMigrationDone(lsmDir string) bool {
-	_, err := os.Stat(m.migrationPerformedFlagFile(lsmDir))
+func (m compressedVectorsMigrator) isMigrationDone(s *Shard) bool {
+	_, err := os.Stat(m.migrationPerformedFlagFile(s))
 	if os.IsNotExist(err) {
 		return false
 	}
