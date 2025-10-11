@@ -408,7 +408,7 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 
 		// Try level hosts initially (respecting invariants)
 		var wg sync.WaitGroup
-		var cancelOnce sync.Once
+		var cancelled atomic.Bool
 
 		// Create cancellable context for early exit
 		workerCtx, cancel := context.WithCancel(ctx)
@@ -434,11 +434,9 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 					replyCh <- _Result[T]{resp, err}
 
 					// Early exit: cancel remaining workers if consistency level reached
-					if int(currentSuccess) >= level {
-						cancelOnce.Do(func() {
-							c.log.WithField("op", "early_exit").WithField("successful", currentSuccess).WithField("level", level).Info("Consistency level reached, cancelling remaining workers")
-							cancel()
-						})
+					if int(currentSuccess) >= level && !cancelled.Swap(true) {
+						c.log.WithField("op", "early_exit").WithField("successful", currentSuccess).WithField("level", level).Info("Consistency level reached, cancelling remaining workers")
+						cancel()
 					}
 					return
 				}
@@ -471,11 +469,9 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 					replyCh <- _Result[T]{resp, err}
 
 					// Early exit: cancel remaining workers if consistency level reached
-					if int(currentSuccess) >= level {
-						cancelOnce.Do(func() {
-							c.log.WithField("op", "early_exit").WithField("successful", currentSuccess).WithField("level", level).Info("Consistency level reached, cancelling remaining workers")
-							cancel()
-						})
+					if int(currentSuccess) >= level && !cancelled.Swap(true) {
+						c.log.WithField("op", "early_exit").WithField("successful", currentSuccess).WithField("level", level).Info("Consistency level reached, cancelling remaining workers")
+						cancel()
 					}
 					return
 				}
