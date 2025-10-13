@@ -112,6 +112,7 @@ type Server struct {
 	shuttingDown int32
 	interrupted  bool
 	interrupt    chan os.Signal
+	httpServers  []*http.Server
 }
 
 // Logf logs message either via defined user logger or via system one if no user logger is defined.
@@ -329,6 +330,8 @@ func (s *Server) Serve() (err error) {
 		}(tls.NewListener(s.httpsServerL, httpsServer.TLSConfig))
 	}
 
+	s.httpServers = servers
+
 	wg.Add(1)
 	go s.handleShutdown(wg, &servers)
 
@@ -415,46 +418,70 @@ func (s *Server) Shutdown() error {
 	return nil
 }
 
+// DisableKeepAlives disables HTTP keep-alives on all servers to stop accepting
+// new connections while still allowing existing connections to complete.
+// This should be called during the pre-shutdown phase after the readiness probe
+// has been updated but before draining connections.
+func (s *Server) DisableKeepAlives() {
+	for _, server := range s.httpServers {
+		server.SetKeepAlivesEnabled(false)
+	}
+}
+
 func (s *Server) handleShutdown(wg *sync.WaitGroup, serversPtr *[]*http.Server) {
-	// wg.Done must occur last, after s.api.ServerShutdown()
-	// (to preserve old behaviour)
 	defer wg.Done()
+	// Always invoke the API shutdown hook, even if servers fail to shutdown gracefully.
+	// This ensures critical cleanup always happens no matter if the server shutdown completed
+	// successfully or not.
+	defer s.api.ServerShutdown()
 
 	<-s.shutdown
-
 	servers := *serversPtr
-
 	ctx, cancel := context.WithTimeout(context.TODO(), s.GracefulTimeout)
 	defer cancel()
 
 	// first execute the pre-shutdown hook
 	s.api.PreServerShutdown()
 
-	shutdownChan := make(chan bool)
+	// Disable HTTP keep-alives immediately after PreServerShutdown to stop
+	// accepting new connections while allowing existing ones to complete.
+	// This happens after the readiness probe has been updated and shutdown
+	// flags have been set by PreServerShutdown.
+	s.DisableKeepAlives()
+
+	// Wait for all servers to attempt graceful shutdown
+	shutdownChan := make(chan bool, len(servers))
+
 	for i := range servers {
 		server := servers[i]
-		go func() {
-			var success bool
-			defer func() {
-				shutdownChan <- success
-			}()
+		go func(index int) {
 			if err := server.Shutdown(ctx); err != nil {
-				// Error from closing listeners, or context timeout:
-				s.Logf("HTTP server Shutdown: %v", err)
-			} else {
-				success = true
+				if errors.Is(err, context.DeadlineExceeded) {
+					s.Logf("server #%d: graceful shutdown timed out after %v, forcing close", index, s.GracefulTimeout)
+				} else {
+					s.Logf("server #%d: graceful shutdown error: %v, forcing close", index, err)
+				}
+
+				if closeErr := server.Close(); closeErr != nil {
+					s.Logf("server #%d: fallback force close also failed: %v", index, closeErr)
+				}
 			}
-		}()
+			shutdownChan <- true
+		}(i)
 	}
 
-	// Wait until all listeners have successfully shut down before calling ServerShutdown
-	success := true
-	for range servers {
-		success = success && <-shutdownChan
+	// Wait for all servers to complete shutdown attempts with timeout protection (GracefulTimeout)
+	for i := 0; i < len(servers); i++ {
+		select {
+		case <-shutdownChan:
+			// Server completed shutdown attempt with success or failure
+		case <-ctx.Done():
+			// Graceful timeout expired - log and continue with cleanup
+			s.Logf("timeout: %d/%d servers still shutting down after %v", len(servers)-i, len(servers), s.GracefulTimeout)
+			return
+		}
 	}
-	if success {
-		s.api.ServerShutdown()
-	}
+	s.Logf("all %d servers completed shutdown sequence", len(servers))
 }
 
 // GetHandler returns a handler useful for testing
