@@ -27,6 +27,19 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+// serviceConfig defines different retry policies for different RPC operation types:
+//
+// Apply/Query operations:
+//   - Higher retry count (5) and longer backoff (15s max)
+//   - Critical data operations that must succeed for cluster consistency
+//
+// Join/Remove/Notify operations:
+//   - Lower retry count (3) and shorter backoff (3s max)
+//   - Cluster management operations that should fail fast if nodes are unreachable
+//   - Join uses RESOURCE_EXHAUSTED to tell nodes what the leader is, so we don't retry this code
+//
+// INTERNAL errors are never retried because they indicate programming errors or
+// unexpected conditions that won't be resolved by retrying the same request
 const serviceConfig = `
 {
 	"methodConfig": [
@@ -47,8 +60,31 @@ const serviceConfig = `
 				"MaxBackoff": "15s",
 				"RetryableStatusCodes": [
 					"ABORTED",
-					"RESOURCE_EXHAUSTED",
-					"INTERNAL",
+					"RESOURCE_EXHAUSTED",					
+					"UNAVAILABLE"
+				]
+			}
+		},
+		{
+			"name": [
+				{
+					"service": "weaviate.internal.cluster.ClusterService", "method": "JoinPeer"
+				},
+				{
+					"service": "weaviate.internal.cluster.ClusterService", "method": "NotifyPeer"
+				},
+				{
+					"service": "weaviate.internal.cluster.ClusterService", "method": "RemovePeer"
+				}
+			],
+			"waitForReady": true,
+			"retryPolicy": {
+				"MaxAttempts": 3,
+				"BackoffMultiplier": 2,
+				"InitialBackoff": "0.5s",
+				"MaxBackoff": "3s",
+				"RetryableStatusCodes": [
+					"ABORTED",
 					"UNAVAILABLE"
 				]
 			}
@@ -122,7 +158,15 @@ func (cl *Client) Notify(ctx context.Context, remoteAddr string, req *cmd.Notify
 		return nil, fmt.Errorf("resolve address: %w", err)
 	}
 
-	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	options := []grpc.DialOption{
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithDefaultServiceConfig(serviceConfig),
+	}
+	if cl.sentryEnabled {
+		options = append(options, grpc.WithUnaryInterceptor(grpc_sentry.UnaryClientInterceptor()))
+	}
+
+	conn, err := grpc.NewClient(addr, options...)
 	if err != nil {
 		return nil, fmt.Errorf("dial: %w", err)
 	}

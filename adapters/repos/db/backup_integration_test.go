@@ -79,7 +79,7 @@ func TestBackup_DBLevel(t *testing.T) {
 		expectedPropLength, err := os.ReadFile(testShd.GetPropertyLengthTracker().FileName())
 		require.Nil(t, err)
 		var expectedShardState []byte
-		err = testShd.Index().schemaReader.Read(className, func(class *models.Class, state *sharding.State) error {
+		err = testShd.Index().schemaReader.Read(className, true, func(class *models.Class, state *sharding.State) error {
 			var jsonErr error
 			expectedShardState, jsonErr = state.JSON()
 			return jsonErr
@@ -275,7 +275,7 @@ func setupTestDB(t *testing.T, rootDir string, classes ...*models.Class) *DB {
 	}
 	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
-	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
 		class := &models.Class{Class: className}
 		return readFunc(class, shardState)
 	}).Maybe()
@@ -292,7 +292,7 @@ func setupTestDB(t *testing.T, rootDir string, classes ...*models.Class) *DB {
 		RootPath:                  rootDir,
 		QueryMaximumResults:       10,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
+	}, &FakeRemoteClient{}, &FakeNodeResolver{}, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	db.SetSchemaGetter(schemaGetter)
@@ -331,8 +331,8 @@ func TestDB_Shards(t *testing.T) {
 		}
 
 		mockSchemaReader := schemaUC.NewMockSchemaReader(t)
-		mockSchemaReader.EXPECT().Read(className, mock.Anything).RunAndReturn(
-			func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		mockSchemaReader.EXPECT().Read(className, mock.Anything, mock.Anything).RunAndReturn(
+			func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
 				class := &models.Class{Class: className}
 				return readFunc(class, shardState)
 			},
@@ -362,8 +362,8 @@ func TestDB_Shards(t *testing.T) {
 		}
 
 		mockSchemaReader := schemaUC.NewMockSchemaReader(t)
-		mockSchemaReader.EXPECT().Read(className, mock.Anything).RunAndReturn(
-			func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		mockSchemaReader.EXPECT().Read(className, mock.Anything, mock.Anything).RunAndReturn(
+			func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
 				class := &models.Class{Class: className}
 				return readFunc(class, shardState)
 			},
@@ -403,8 +403,8 @@ func TestDB_Shards(t *testing.T) {
 		}
 
 		mockSchemaReader := schemaUC.NewMockSchemaReader(t)
-		mockSchemaReader.EXPECT().Read(className, mock.Anything).RunAndReturn(
-			func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		mockSchemaReader.EXPECT().Read(className, mock.Anything, mock.Anything).RunAndReturn(
+			func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
 				class := &models.Class{Class: className}
 				return readFunc(class, shardState)
 			},
@@ -444,8 +444,8 @@ func TestDB_Shards(t *testing.T) {
 		}
 
 		mockSchemaReader := schemaUC.NewMockSchemaReader(t)
-		mockSchemaReader.EXPECT().Read(className, mock.Anything).RunAndReturn(
-			func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		mockSchemaReader.EXPECT().Read(className, mock.Anything, mock.Anything).RunAndReturn(
+			func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
 				class := &models.Class{Class: className}
 				return readFunc(class, shardState)
 			},
@@ -473,8 +473,8 @@ func TestDB_Shards(t *testing.T) {
 		}
 
 		mockSchemaReader := schemaUC.NewMockSchemaReader(t)
-		mockSchemaReader.EXPECT().Read(className, mock.Anything).RunAndReturn(
-			func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		mockSchemaReader.EXPECT().Read(className, mock.Anything, mock.Anything).RunAndReturn(
+			func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
 				class := &models.Class{Class: className}
 				return readFunc(class, shardState)
 			},
@@ -497,7 +497,7 @@ func TestDB_Shards(t *testing.T) {
 		mockSchemaReader := schemaUC.NewMockSchemaReader(t)
 		expectedErrorMsg := "invalid sharding state: state is nil"
 		mockSchemaReader.EXPECT().
-			Read(className, mock.Anything).
+			Read(className, mock.Anything, mock.Anything).
 			Return(fmt.Errorf("%s", expectedErrorMsg))
 
 		db := &DB{
@@ -515,7 +515,7 @@ func TestDB_Shards(t *testing.T) {
 		className := "ErrorClass"
 
 		mockSchemaReader := schemaUC.NewMockSchemaReader(t)
-		mockSchemaReader.EXPECT().Read(className, mock.Anything).Return(
+		mockSchemaReader.EXPECT().Read(className, mock.Anything, mock.Anything).Return(
 			fmt.Errorf("schema read failed"),
 		)
 

@@ -211,7 +211,7 @@ func testDB(t *testing.T, root string, classes []*models.Class, states map[strin
 	mockSchemaReader.EXPECT().Shards(mock.Anything).RunAndReturn(func(className string) ([]string, error) {
 		return states[className].AllPhysicalShards(), nil
 	}).Maybe()
-	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
 		for _, class := range classes {
 			if className == class.Class {
 				return readFunc(class, states[className])

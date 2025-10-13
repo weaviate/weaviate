@@ -93,6 +93,10 @@ func (bq *BinaryQuantizer) FromCompressedBytesWithSubsliceBuffer(compressed []by
 	*buffer = (*buffer)[:len(*buffer)-l]
 
 	for i := range slice {
+		if len(compressed[i*8:]) < 8 {
+			break
+		}
+
 		slice[i] = binary.LittleEndian.Uint64(compressed[i*8:])
 	}
 	return slice
