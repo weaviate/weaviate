@@ -402,3 +402,47 @@ func TestFlat_Validation(t *testing.T) {
 	err = index.Add(ctx, uint64(0), []float32{-2})
 	require.Error(t, err)
 }
+
+func TestFlat_ValidateCount(t *testing.T) {
+	ctx := t.Context()
+
+	store := testinghelpers.NewDummyStore(t)
+	rootPath := t.TempDir()
+	defer store.Shutdown(context.Background())
+
+	indexID := "id"
+	distancer := distancer.NewCosineDistanceProvider()
+	config := flatent.UserConfig{}
+	config.SetDefaults()
+
+	index, err := New(Config{
+		ID:               indexID,
+		RootPath:         rootPath,
+		DistanceProvider: distancer,
+	}, config, store)
+	require.Nil(t, err)
+	vectors := [][]float32{{-2, 0}, {-2, 1}}
+
+	for i := range vectors {
+		err = index.Add(ctx, uint64(i), vectors[i])
+		require.Nil(t, err)
+	}
+
+	count := index.AlreadyIndexed()
+	require.Equal(t, count, uint64(len(vectors)))
+	err = index.store.Bucket(index.getBucketName()).FlushAndSwitch()
+	require.Nil(t, err)
+
+	err = index.Shutdown(ctx)
+	require.Nil(t, err)
+	index = nil
+
+	index, err = New(Config{
+		ID:               indexID,
+		RootPath:         rootPath,
+		DistanceProvider: distancer,
+	}, config, store)
+	require.Nil(t, err)
+	newCount := index.AlreadyIndexed()
+	require.Equal(t, count, newCount)
+}
