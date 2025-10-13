@@ -457,6 +457,10 @@ func (sg *SegmentGroup) preinitializeNewSegment(newPathTmp string, oldPos ...int
 }
 
 func (sg *SegmentGroup) waitForReferenceCountToReachZero(segments ...Segment) {
+	if len(segments) == 0 {
+		return
+	}
+
 	const (
 		tickerInterval = 100 * time.Millisecond
 		warnThreshold  = 10 * time.Second

@@ -38,13 +38,18 @@ import (
 
 type SegmentGroup struct {
 	segments []Segment
+	// Holds map of all segments currently in use (based on consistentView requests).
+	// Segments are added to the map when consistentView is acquired and removed from map
+	// when they are released and number of refs is 0.
+	// It may contains segments that are no longer present in sg.segments, but still being read from
+	// (segments that were cleaned or compacted and replaced by new ones)
+	segmentsWithRefs      map[string]Segment // segment.path => segment
+	segmentRefCounterLock sync.Mutex
 
 	// Lock() for changing the currently active segments, RLock() for normal
 	// operation
 	maintenanceLock sync.RWMutex
 	dir             string
-
-	segmentRefCounterLock sync.Mutex
 
 	strategy string
 
@@ -116,6 +121,7 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 	now := time.Now()
 	sg := &SegmentGroup{
 		segments:                     make([]Segment, len(files)),
+		segmentsWithRefs:             map[string]Segment{},
 		dir:                          cfg.dir,
 		logger:                       logger,
 		metrics:                      metrics,
@@ -525,16 +531,20 @@ func (sg *SegmentGroup) getConsistentViewOfSegments() (segments []Segment, relea
 	copy(segments, sg.segments)
 
 	sg.segmentRefCounterLock.Lock()
-	for i := range segments {
-		segments[i].incRef()
+	for _, seg := range segments {
+		seg.incRef()
+		sg.segmentsWithRefs[seg.getPath()] = seg
 	}
 	sg.segmentRefCounterLock.Unlock()
 	sg.maintenanceLock.RUnlock()
 
 	return segments, func() {
 		sg.segmentRefCounterLock.Lock()
-		for i := range segments {
-			segments[i].decRef()
+		for _, seg := range segments {
+			seg.decRef()
+			if seg.getRefs() == 0 {
+				delete(sg.segmentsWithRefs, seg.getPath())
+			}
 		}
 		sg.segmentRefCounterLock.Unlock()
 	}
@@ -739,6 +749,17 @@ func (sg *SegmentGroup) shutdown(ctx context.Context) error {
 	if err := sg.segmentCleaner.close(); err != nil {
 		return err
 	}
+
+	// TODO aliszka:copy-on-read forbid consistent view to be created from that point
+	sg.segmentRefCounterLock.Lock()
+	segmentsWithRefs := make([]Segment, len(sg.segmentsWithRefs))
+	i := 0
+	for _, seg := range sg.segmentsWithRefs {
+		segmentsWithRefs[i] = seg
+		i++
+	}
+	sg.segmentRefCounterLock.Unlock()
+	sg.waitForReferenceCountToReachZero(segmentsWithRefs...)
 
 	// Lock acquirement placed after compaction cycle stop request, due to occasional deadlock,
 	// because compaction logic used in cycle also requires maintenance lock.
