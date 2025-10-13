@@ -49,6 +49,10 @@ type WeaviateRuntimeConfig struct {
 	UsageVerifyPermissions               *runtime.DynamicValue[bool]          `json:"usage_verify_permissions" yaml:"usage_verify_permissions"`
 	ReplicatedIndicesRequestQueueEnabled *runtime.DynamicValue[bool]          `json:"replicated_indices_request_queue_enabled" yaml:"replicated_indices_request_queue_enabled"`
 
+	// RAFT specific configs
+	RaftDrainSleep        *runtime.DynamicValue[time.Duration] `json:"raft_drain_sleep" yaml:"raft_drain_sleep"`
+	RaftTimoutsMultiplier *runtime.DynamicValue[int]           `json:"raft_timeouts_multiplier" yaml:"raft_timeouts_multiplier"`
+
 	// Experimental configs. Will be removed in the future.
 	OIDCIssuer            *runtime.DynamicValue[string]   `json:"exp_oidc_issuer" yaml:"exp_oidc_issuer"`
 	OIDCClientID          *runtime.DynamicValue[string]   `json:"exp_oidc_client_id" yaml:"exp_oidc_client_id"`

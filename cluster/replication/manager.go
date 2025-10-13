@@ -248,7 +248,7 @@ func (m *Manager) QueryShardingStateByCollection(c *cmd.QueryRequest) ([]byte, e
 	shards := make(map[string][]string)
 	var err error
 
-	err = m.schemaReader.Read(subCommand.Collection, func(_ *models.Class, state *sharding.State) error {
+	err = m.schemaReader.Read(subCommand.Collection, true, func(_ *models.Class, state *sharding.State) error {
 		if state == nil {
 			return fmt.Errorf("%w: %s", types.ErrNotFound, subCommand.Collection)
 		}
@@ -283,7 +283,7 @@ func (m *Manager) QueryShardingStateByCollectionAndShard(c *cmd.QueryRequest) ([
 		err    error
 	)
 
-	err = m.schemaReader.Read(subCommand.Collection, func(_ *models.Class, state *sharding.State) error {
+	err = m.schemaReader.Read(subCommand.Collection, true, func(_ *models.Class, state *sharding.State) error {
 		if state == nil {
 			return fmt.Errorf("%w: %s", types.ErrNotFound, subCommand.Collection)
 		}

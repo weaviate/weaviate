@@ -13,6 +13,7 @@ require (
 	github.com/tailor-inc/graphql v0.5.7
 	github.com/weaviate/weaviate v1.32.4-0.20250821224425-5469448cc83a
 	github.com/weaviate/weaviate-go-client/v5 v5.4.2-0.20250822111337-d751da280fa2
+	golang.org/x/sync v0.16.0
 )
 
 require (
@@ -197,7 +198,6 @@ require (
 	golang.org/x/exp v0.0.0-20240808152545-0cdaa3abc0fa // indirect
 	golang.org/x/net v0.42.0 // indirect
 	golang.org/x/oauth2 v0.30.0 // indirect
-	golang.org/x/sync v0.16.0 // indirect
 	golang.org/x/sys v0.34.0 // indirect
 	golang.org/x/text v0.27.0 // indirect
 	golang.org/x/time v0.12.0 // indirect

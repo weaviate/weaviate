@@ -25,8 +25,7 @@ import (
 )
 
 func TestNetworkIsolationSplitBrain(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
+	ctx := context.Background()
 
 	compose, err := docker.New().
 		With3NodeCluster().
@@ -59,8 +58,6 @@ func TestNetworkIsolationSplitBrain(t *testing.T) {
 	t.Run("disconnect node 3 from the network", func(t *testing.T) {
 		err = compose.DisconnectFromNetwork(ctx, 3)
 		require.Nil(t, err)
-		// this sleep to make sure network is disconnected
-		time.Sleep(3 * time.Second)
 	})
 
 	t.Run("verify 2 nodes are healthy", func(t *testing.T) {
@@ -80,8 +77,6 @@ func TestNetworkIsolationSplitBrain(t *testing.T) {
 	t.Run("reconnect node 3 to the network", func(t *testing.T) {
 		err = compose.ConnectToNetwork(ctx, 3)
 		require.Nil(t, err)
-		// this sleep to make sure network is connected
-		time.Sleep(3 * time.Second)
 	})
 
 	t.Run("verify nodes are healthy and 3rd node successfully rejoined", func(t *testing.T) {

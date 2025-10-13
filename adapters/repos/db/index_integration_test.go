@@ -139,8 +139,8 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 		break
 	}
 	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
-	mockSchemaReader.EXPECT().Read(class.Class, mock.Anything).
-		RunAndReturn(func(className string, readerFunc func(*models.Class, *sharding.State) error) error {
+	mockSchemaReader.EXPECT().Read(class.Class, mock.Anything, mock.Anything).
+		RunAndReturn(func(className string, retryIfClassNotFound bool, readerFunc func(*models.Class, *sharding.State) error) error {
 			return readerFunc(class, shardState)
 		}).Maybe()
 	router := routerTypes.NewMockRouter(t)
@@ -381,8 +381,8 @@ func TestIndex_DropReadOnlyIndexWithData(t *testing.T) {
 		break
 	}
 	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
-	mockSchemaReader.EXPECT().Read(class.Class, mock.Anything).
-		RunAndReturn(func(className string, readerFunc func(*models.Class, *sharding.State) error) error {
+	mockSchemaReader.EXPECT().Read(class.Class, mock.Anything, mock.Anything).
+		RunAndReturn(func(className string, retryIfClassNotFound bool, readerFunc func(*models.Class, *sharding.State) error) error {
 			return readerFunc(class, shardState)
 		}).Maybe()
 	router := routerTypes.NewMockRouter(t)
@@ -488,8 +488,8 @@ func TestIndex_DropUnloadedShard(t *testing.T) {
 		Workers: 1,
 	})
 	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
-	mockSchemaReader.EXPECT().Read(class.Class, mock.Anything).
-		RunAndReturn(func(className string, readerFunc func(*models.Class, *sharding.State) error) error {
+	mockSchemaReader.EXPECT().Read(class.Class, mock.Anything, mock.Anything).
+		RunAndReturn(func(className string, retryIfClassNotFound bool, readerFunc func(*models.Class, *sharding.State) error) error {
 			return readerFunc(class, shardState)
 		}).Maybe()
 	router := routerTypes.NewMockRouter(t)
@@ -577,8 +577,8 @@ func TestIndex_DropLoadedShard(t *testing.T) {
 		break
 	}
 	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
-	mockSchemaReader.EXPECT().Read(class.Class, mock.Anything).
-		RunAndReturn(func(className string, readerFunc func(*models.Class, *sharding.State) error) error {
+	mockSchemaReader.EXPECT().Read(class.Class, mock.Anything, mock.Anything).
+		RunAndReturn(func(className string, retryIfClassNotFound bool, readerFunc func(*models.Class, *sharding.State) error) error {
 			return readerFunc(class, shardState)
 		}).Maybe()
 	router := routerTypes.NewMockRouter(t)
@@ -650,8 +650,8 @@ func emptyIdx(t *testing.T, rootDir string, class *models.Class, shardState *sha
 	})
 
 	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
-	mockSchemaReader.EXPECT().Read(class.Class, mock.Anything).
-		RunAndReturn(func(className string, readerFunc func(*models.Class, *sharding.State) error) error {
+	mockSchemaReader.EXPECT().Read(class.Class, mock.Anything, mock.Anything).
+		RunAndReturn(func(className string, retryIfClassNotFound bool, readerFunc func(*models.Class, *sharding.State) error) error {
 			return readerFunc(class, shardState)
 		}).Maybe()
 	router := routerTypes.NewMockRouter(t)

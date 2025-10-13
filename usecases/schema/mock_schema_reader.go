@@ -506,17 +506,17 @@ func (_c *MockSchemaReader_MultiTenancyWithVersion_Call) RunAndReturn(run func(c
 	return _c
 }
 
-// Read provides a mock function with given fields: class, reader
-func (_m *MockSchemaReader) Read(class string, reader func(*models.Class, *sharding.State) error) error {
-	ret := _m.Called(class, reader)
+// Read provides a mock function with given fields: class, retryIfClassNotFound, reader
+func (_m *MockSchemaReader) Read(class string, retryIfClassNotFound bool, reader func(*models.Class, *sharding.State) error) error {
+	ret := _m.Called(class, retryIfClassNotFound, reader)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Read")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(string, func(*models.Class, *sharding.State) error) error); ok {
-		r0 = rf(class, reader)
+	if rf, ok := ret.Get(0).(func(string, bool, func(*models.Class, *sharding.State) error) error); ok {
+		r0 = rf(class, retryIfClassNotFound, reader)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -531,14 +531,15 @@ type MockSchemaReader_Read_Call struct {
 
 // Read is a helper method to define mock.On call
 //   - class string
+//   - retryIfClassNotFound bool
 //   - reader func(*models.Class , *sharding.State) error
-func (_e *MockSchemaReader_Expecter) Read(class interface{}, reader interface{}) *MockSchemaReader_Read_Call {
-	return &MockSchemaReader_Read_Call{Call: _e.mock.On("Read", class, reader)}
+func (_e *MockSchemaReader_Expecter) Read(class interface{}, retryIfClassNotFound interface{}, reader interface{}) *MockSchemaReader_Read_Call {
+	return &MockSchemaReader_Read_Call{Call: _e.mock.On("Read", class, retryIfClassNotFound, reader)}
 }
 
-func (_c *MockSchemaReader_Read_Call) Run(run func(class string, reader func(*models.Class, *sharding.State) error)) *MockSchemaReader_Read_Call {
+func (_c *MockSchemaReader_Read_Call) Run(run func(class string, retryIfClassNotFound bool, reader func(*models.Class, *sharding.State) error)) *MockSchemaReader_Read_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(string), args[1].(func(*models.Class, *sharding.State) error))
+		run(args[0].(string), args[1].(bool), args[2].(func(*models.Class, *sharding.State) error))
 	})
 	return _c
 }
@@ -548,7 +549,7 @@ func (_c *MockSchemaReader_Read_Call) Return(_a0 error) *MockSchemaReader_Read_C
 	return _c
 }
 
-func (_c *MockSchemaReader_Read_Call) RunAndReturn(run func(string, func(*models.Class, *sharding.State) error) error) *MockSchemaReader_Read_Call {
+func (_c *MockSchemaReader_Read_Call) RunAndReturn(run func(string, bool, func(*models.Class, *sharding.State) error) error) *MockSchemaReader_Read_Call {
 	_c.Call.Return(run)
 	return _c
 }

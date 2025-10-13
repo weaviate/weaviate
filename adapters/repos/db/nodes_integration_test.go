@@ -53,7 +53,7 @@ func TestNodesAPI_Journey(t *testing.T) {
 	}
 	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
-	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
 		class := &models.Class{Class: className}
 		return readFunc(class, shardState)
 	}).Maybe()
@@ -73,7 +73,7 @@ func TestNodesAPI_Journey(t *testing.T) {
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 		TrackVectorDimensions:     true,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, nil,
+	}, &FakeRemoteClient{}, &FakeNodeResolver{}, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, nil,
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
@@ -216,7 +216,7 @@ func TestLazyLoadedShards(t *testing.T) {
 	})
 
 	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
-	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readerFunc func(*models.Class, *sharding.State) error) error {
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readerFunc func(*models.Class, *sharding.State) error) error {
 		return readerFunc(class, shardState)
 	}).Maybe()
 	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: []*models.Class{class}}).Maybe()
@@ -225,7 +225,7 @@ func TestLazyLoadedShards(t *testing.T) {
 	mockSchema := schemaUC.NewMockSchemaGetter(t)
 	mockSchema.EXPECT().GetSchemaSkipAuth().Maybe().Return(fakeSchema)
 	mockSchema.EXPECT().ReadOnlyClass(className).Maybe().Return(class)
-	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
 		return readFunc(class, shardState)
 	}).Maybe()
 	mockSchema.EXPECT().NodeName().Maybe().Return("test-node")

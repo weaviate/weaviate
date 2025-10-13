@@ -91,7 +91,7 @@ func TestUpdateIndexTenants(t *testing.T) {
 			}
 
 			mockSchemaReader := schemaUC.NewMockSchemaReader(t)
-			mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+			mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
 				return readFunc(class, originalSS)
 			}).Maybe()
 			index, err := NewIndex(context.Background(), IndexConfig{
@@ -254,7 +254,7 @@ func TestUpdateIndexShards(t *testing.T) {
 				Workers: 1,
 			})
 			mockSchemaReader := schemaUC.NewMockSchemaReader(t)
-			mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+			mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
 				return readFunc(class, initialState)
 			}).Maybe()
 			// Create index with proper configuration
@@ -359,7 +359,7 @@ func TestListAndGetFilesWithIntegrityChecking(t *testing.T) {
 	}
 
 	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
-	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
 		return readFunc(class, originalSS)
 	}).Maybe()
 	index, err := NewIndex(context.Background(), IndexConfig{
@@ -368,7 +368,9 @@ func TestListAndGetFilesWithIntegrityChecking(t *testing.T) {
 		ReplicationFactor: 1,
 		ShardLoadLimiter:  NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
-		hnsw.NewDefaultUserConfig(), nil, nil, mockSchemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil, nil, NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop())
+		hnsw.NewDefaultUserConfig(), nil, nil, mockSchemaGetter,
+		mockSchemaReader, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil, nil,
+		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop())
 	require.NoError(t, err)
 
 	shard, err := NewShard(context.Background(), nil, "shard1", index, class, nil, scheduler, nil,
