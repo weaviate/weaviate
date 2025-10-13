@@ -77,7 +77,7 @@ type RevokeRoleFromGroupParams struct {
 
 	/* ID.
 
-	   group name
+	   The name of the group.
 	*/
 	ID string
 

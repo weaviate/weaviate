@@ -212,10 +212,12 @@ func TestDelegateSort(t *testing.T) {
 }
 
 func TestDelegateCleanUp(t *testing.T) {
+	logger, _ := test.NewNullLogger()
 	st := State{
 		delegate: delegate{
 			Name:     "N0",
 			dataPath: ".",
+			log:      logger,
 		},
 	}
 	diskSpace := func(path string) (DiskUsage, error) {

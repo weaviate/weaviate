@@ -143,7 +143,7 @@ func TestIndex_ObjectStorageSize_Comprehensive(t *testing.T) {
 			})
 
 			mockSchemaReader := schemaUC.NewMockSchemaReader(t)
-			mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readerFunc func(*models.Class, *sharding.State) error) error {
+			mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readerFunc func(*models.Class, *sharding.State) error) error {
 				return readerFunc(class, shardState)
 			}).Maybe()
 
@@ -151,8 +151,8 @@ func TestIndex_ObjectStorageSize_Comprehensive(t *testing.T) {
 			mockSchema := schemaUC.NewMockSchemaGetter(t)
 			mockSchema.EXPECT().GetSchemaSkipAuth().Maybe().Return(fakeSchema)
 			mockSchema.EXPECT().ReadOnlyClass(tt.className).Maybe().Return(class)
-			mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
-				return readFunc(class, shardState)
+			mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readerFunc func(*models.Class, *sharding.State) error) error {
+				return readerFunc(class, shardState)
 			}).Maybe()
 			mockSchema.EXPECT().NodeName().Maybe().Return("test-node")
 			mockSchema.EXPECT().ShardFromUUID("TestClass", mock.Anything).Return(tt.shardName).Maybe()
@@ -209,9 +209,13 @@ func TestIndex_ObjectStorageSize_Comprehensive(t *testing.T) {
 				require.NotNil(t, shard)
 				defer release()
 
-				objectStorageSize, err := shard.ObjectStorageSize(ctx)
+				lazyShard, ok := shard.(*LazyLoadShard)
+				require.True(t, ok)
+				require.NoError(t, lazyShard.Load(ctx))
+
+				objectStorageSize, err := lazyShard.shard.ObjectStorageSize(ctx)
 				require.NoError(t, err)
-				objectCount, err := shard.ObjectCount(ctx)
+				objectCount, err := lazyShard.shard.ObjectCount(ctx)
 				require.NoError(t, err)
 
 				// Verify object count
@@ -230,7 +234,11 @@ func TestIndex_ObjectStorageSize_Comprehensive(t *testing.T) {
 				require.NotNil(t, shard)
 				defer release()
 
-				objectStorageSize, err := shard.ObjectStorageSize(ctx)
+				lazyShard, ok := shard.(*LazyLoadShard)
+				require.True(t, ok)
+				require.NoError(t, lazyShard.Load(ctx))
+
+				objectStorageSize, err := lazyShard.shard.ObjectStorageSize(ctx)
 				require.NoError(t, err)
 				objectCount, err := shard.ObjectCount(ctx)
 				require.NoError(t, err)
@@ -305,7 +313,7 @@ func TestIndex_CalculateUnloadedObjectsMetrics_ActiveVsUnloaded(t *testing.T) {
 	})
 
 	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
-	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readerFunc func(*models.Class, *sharding.State) error) error {
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readerFunc func(*models.Class, *sharding.State) error) error {
 		return readerFunc(class, shardState)
 	}).Maybe()
 
@@ -313,8 +321,8 @@ func TestIndex_CalculateUnloadedObjectsMetrics_ActiveVsUnloaded(t *testing.T) {
 	mockSchema := schemaUC.NewMockSchemaGetter(t)
 	mockSchema.EXPECT().GetSchemaSkipAuth().Maybe().Return(fakeSchema)
 	mockSchema.EXPECT().ReadOnlyClass(className).Maybe().Return(class)
-	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
-		return readFunc(class, shardState)
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readerFunc func(*models.Class, *sharding.State) error) error {
+		return readerFunc(class, shardState)
 	}).Maybe()
 	mockSchema.EXPECT().NodeName().Maybe().Return("test-node")
 	mockSchema.EXPECT().ShardOwner(className, tenantNamePopulated).Maybe().Return("test-node", nil)
@@ -374,9 +382,12 @@ func TestIndex_CalculateUnloadedObjectsMetrics_ActiveVsUnloaded(t *testing.T) {
 	require.NotNil(t, objectsBucket)
 	require.NoError(t, objectsBucket.FlushMemtable())
 
-	activeObjectStorageSize, err := activeShard.ObjectStorageSize(ctx)
+	loadedShard, ok := activeShard.(*Shard)
+	require.True(t, ok)
+
+	activeObjectStorageSize, err := loadedShard.ObjectStorageSize(ctx)
 	require.NoError(t, err)
-	activeObjectCount, err := activeShard.ObjectCount(ctx)
+	activeObjectCount, err := loadedShard.ObjectCount(ctx)
 	require.NoError(t, err)
 	assert.Greater(t, activeObjectStorageSize, int64(0), "Active shard calculation should have object storage size > 0")
 
@@ -423,16 +434,20 @@ func TestIndex_CalculateUnloadedObjectsMetrics_ActiveVsUnloaded(t *testing.T) {
 	}))
 	newIndex.shards.LoadAndDelete(tenantNamePopulated)
 
-	inactiveObjectUsageOfPopulatedTenant, err := newIndex.CalculateUnloadedObjectsMetrics(ctx, tenantNamePopulated)
+	usage, err := newIndex.usageForCollection(ctx, time.Nanosecond, true, class.VectorConfig)
 	require.NoError(t, err)
-	// Compare active and inactive metrics
-	assert.Equal(t, int64(activeObjectCount), inactiveObjectUsageOfPopulatedTenant.Count, "Active and inactive object count should match")
-	assert.InDelta(t, activeObjectStorageSize, inactiveObjectUsageOfPopulatedTenant.StorageBytes, 1024, "Active and inactive object storage size should be close")
 
-	inactiveObjectUsageOfEmptyTenant, err := newIndex.CalculateUnloadedObjectsMetrics(ctx, tenantNameEmpty)
-	require.NoError(t, err)
-	assert.Equal(t, int64(0), inactiveObjectUsageOfEmptyTenant.Count)
-	assert.Equal(t, int64(0), inactiveObjectUsageOfEmptyTenant.StorageBytes)
+	for _, shardUsage := range usage.Shards {
+		if shardUsage.Name == tenantNamePopulated {
+			assert.Equal(t, int64(activeObjectCount), shardUsage.ObjectsCount, "Active and inactive object count should match")
+			assert.InDelta(t, activeObjectStorageSize, shardUsage.ObjectsStorageBytes, 1024, "Active and inactive object storage size should be close")
+		} else {
+			assert.Equal(t, tenantNameEmpty, shardUsage.Name)
+			assert.Equal(t, int64(0), shardUsage.ObjectsCount)
+			assert.Equal(t, uint64(0), shardUsage.ObjectsStorageBytes)
+
+		}
+	}
 
 	// Verify all mock expectations were met
 	mockSchema.AssertExpectations(t)

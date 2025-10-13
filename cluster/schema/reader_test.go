@@ -170,7 +170,7 @@ func TestSchemaReader_WithShardingStateCheck(t *testing.T) {
 			}
 
 			// WHEN
-			err := reader.Read(className, readerCallback)
+			err := reader.Read(className, true, readerCallback)
 
 			// THEN
 			if tt.expectedError != "" {

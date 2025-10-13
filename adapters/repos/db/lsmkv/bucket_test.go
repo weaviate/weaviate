@@ -24,7 +24,6 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
@@ -431,7 +430,7 @@ func TestNetCountComputationAtInit(t *testing.T) {
 	ctx := context.Background()
 	dirName := t.TempDir()
 	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithCalcCountNetAdditions(true), WithStrategy(StrategyReplace),
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithCalcCountNetAdditions(true), WithStrategy(StrategyReplace), WithMinWalThreshold(0),
 	)
 	require.NoError(t, err)
 
@@ -467,7 +466,7 @@ func TestNetCountComputationAtInit(t *testing.T) {
 	require.Equal(t, 4, fileTypes[".cna"]) // cna file for new segment not yet computed
 
 	b, err = NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithCalcCountNetAdditions(true), WithStrategy(StrategyReplace),
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithCalcCountNetAdditions(true), WithStrategy(StrategyReplace), WithMinWalThreshold(0),
 	)
 	require.NoError(t, err)
 

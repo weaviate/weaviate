@@ -21,5 +21,6 @@ func AllWithRestart(compose *docker.DockerCompose) func(t *testing.T) {
 	return func(t *testing.T) {
 		t.Run("named vectors", testNamedVectorsRestart(compose))
 		t.Run("vector search", testCompresseVectorTypesRestart(compose))
+		t.Run("legacy vector with named vectors", testLegacyAndNamedVectorRestart(compose))
 	}
 }

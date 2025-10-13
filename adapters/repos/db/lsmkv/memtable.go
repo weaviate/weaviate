@@ -65,6 +65,11 @@ func newMemtable(path string, strategy string, secondaryIndices uint16,
 	cl memtableCommitLogger, metrics *Metrics, logger logrus.FieldLogger,
 	enableChecksumValidation bool, bm25config *models.BM25Config, writeSegmentInfoIntoFileName bool, allocChecker memwatch.AllocChecker,
 ) (*Memtable, error) {
+	memtableMetrics, err := newMemtableMetrics(metrics, filepath.Dir(path), strategy)
+	if err != nil {
+		return nil, fmt.Errorf("init memtable metrics: %w", err)
+	}
+
 	m := &Memtable{
 		key:                          &binarySearchTree{},
 		keyMulti:                     &binarySearchTreeMulti{},
@@ -78,7 +83,7 @@ func newMemtable(path string, strategy string, secondaryIndices uint16,
 		secondaryIndices:             secondaryIndices,
 		dirtyAt:                      time.Time{},
 		createdAt:                    time.Now(),
-		metrics:                      newMemtableMetrics(metrics, filepath.Dir(path), strategy),
+		metrics:                      memtableMetrics,
 		enableChecksumValidation:     enableChecksumValidation,
 		bm25config:                   bm25config,
 		writeSegmentInfoIntoFileName: writeSegmentInfoIntoFileName,
@@ -91,7 +96,7 @@ func newMemtable(path string, strategy string, secondaryIndices uint16,
 		}
 	}
 
-	m.metrics.size(m.size)
+	m.metrics.observeSize(m.size)
 
 	if m.strategy == StrategyInverted {
 		m.tombstones = sroar.NewBitmap()
@@ -102,7 +107,7 @@ func newMemtable(path string, strategy string, secondaryIndices uint16,
 
 func (m *Memtable) get(key []byte) ([]byte, error) {
 	start := time.Now()
-	defer m.metrics.get(start.UnixNano())
+	defer m.metrics.observeGet(start.UnixNano())
 
 	if m.strategy != StrategyReplace {
 		return nil, errors.Errorf("get only possible with strategy 'replace'")
@@ -116,7 +121,7 @@ func (m *Memtable) get(key []byte) ([]byte, error) {
 
 func (m *Memtable) getBySecondary(pos int, key []byte) ([]byte, error) {
 	start := time.Now()
-	defer m.metrics.getBySecondary(start.UnixNano())
+	defer m.metrics.observeGetBySecondary(start.UnixNano())
 
 	if m.strategy != StrategyReplace {
 		return nil, errors.Errorf("get only possible with strategy 'replace'")
@@ -135,7 +140,7 @@ func (m *Memtable) getBySecondary(pos int, key []byte) ([]byte, error) {
 
 func (m *Memtable) put(key, value []byte, opts ...SecondaryKeyOption) error {
 	start := time.Now()
-	defer m.metrics.put(start.UnixNano())
+	defer m.metrics.observePut(start.UnixNano())
 
 	if m.strategy != StrategyReplace {
 		return errors.Errorf("put only possible with strategy 'replace'")
@@ -176,7 +181,7 @@ func (m *Memtable) put(key, value []byte, opts ...SecondaryKeyOption) error {
 	}
 
 	m.size += uint64(netAdditions)
-	m.metrics.size(m.size)
+	m.metrics.observeSize(m.size)
 	m.updateDirtyAt()
 
 	return nil
@@ -184,7 +189,7 @@ func (m *Memtable) put(key, value []byte, opts ...SecondaryKeyOption) error {
 
 func (m *Memtable) setTombstone(key []byte, opts ...SecondaryKeyOption) error {
 	start := time.Now()
-	defer m.metrics.setTombstone(start.UnixNano())
+	defer m.metrics.observeSetTombstone(start.UnixNano())
 
 	if m.strategy != "replace" {
 		return errors.Errorf("setTombstone only possible with strategy 'replace'")
@@ -216,7 +221,7 @@ func (m *Memtable) setTombstone(key []byte, opts ...SecondaryKeyOption) error {
 
 	m.key.setTombstone(key, nil, secondaryKeys)
 	m.size += uint64(len(key)) + 1 // 1 byte for tombstone
-	m.metrics.size(m.size)
+	m.metrics.observeSize(m.size)
 	m.updateDirtyAt()
 
 	return nil
@@ -224,7 +229,7 @@ func (m *Memtable) setTombstone(key []byte, opts ...SecondaryKeyOption) error {
 
 func (m *Memtable) setTombstoneWith(key []byte, deletionTime time.Time, opts ...SecondaryKeyOption) error {
 	start := time.Now()
-	defer m.metrics.setTombstone(start.UnixNano())
+	defer m.metrics.observeSetTombstone(start.UnixNano())
 
 	if m.strategy != "replace" {
 		return errors.Errorf("setTombstone only possible with strategy 'replace'")
@@ -258,7 +263,7 @@ func (m *Memtable) setTombstoneWith(key []byte, deletionTime time.Time, opts ...
 
 	m.key.setTombstone(key, tombstonedVal[:], secondaryKeys)
 	m.size += uint64(len(key)) + 1 // 1 byte for tombstone
-	m.metrics.size(m.size)
+	m.metrics.observeSize(m.size)
 	m.updateDirtyAt()
 
 	return nil
@@ -291,7 +296,7 @@ func errorFromTombstonedValue(tombstonedVal []byte) error {
 
 func (m *Memtable) getCollection(key []byte) ([]value, error) {
 	start := time.Now()
-	defer m.metrics.getCollection(start.UnixNano())
+	defer m.metrics.observeGetCollection(start.UnixNano())
 
 	// TODO amourao: check if this is needed for StrategyInverted
 	if m.strategy != StrategySetCollection && m.strategy != StrategyMapCollection && m.strategy != StrategyInverted {
@@ -312,7 +317,7 @@ func (m *Memtable) getCollection(key []byte) ([]value, error) {
 
 func (m *Memtable) getMap(key []byte) ([]MapPair, error) {
 	start := time.Now()
-	defer m.metrics.getMap(start.UnixNano())
+	defer m.metrics.observeGetMap(start.UnixNano())
 
 	if m.strategy != StrategyMapCollection && m.strategy != StrategyInverted {
 		return nil, errors.Errorf("getMap only possible with strategies %q, %q",
@@ -332,7 +337,7 @@ func (m *Memtable) getMap(key []byte) ([]MapPair, error) {
 
 func (m *Memtable) append(key []byte, values []value) error {
 	start := time.Now()
-	defer m.metrics.append(start.UnixNano())
+	defer m.metrics.observeAppend(start.UnixNano())
 
 	if m.strategy != StrategySetCollection && m.strategy != StrategyMapCollection {
 		return errors.Errorf("append only possible with strategies %q, %q",
@@ -355,7 +360,7 @@ func (m *Memtable) append(key []byte, values []value) error {
 	for _, value := range values {
 		m.size += uint64(len(value.value))
 	}
-	m.metrics.size(m.size)
+	m.metrics.observeSize(m.size)
 	m.updateDirtyAt()
 
 	return nil
@@ -363,7 +368,7 @@ func (m *Memtable) append(key []byte, values []value) error {
 
 func (m *Memtable) appendMapSorted(key []byte, pair MapPair) error {
 	start := time.Now()
-	defer m.metrics.appendMapSorted(start.UnixNano())
+	defer m.metrics.observeAppendMapSorted(start.UnixNano())
 
 	if m.strategy != StrategyMapCollection && m.strategy != StrategyInverted {
 		return errors.Errorf("append only possible with strategy %q, %q",
@@ -395,7 +400,7 @@ func (m *Memtable) appendMapSorted(key []byte, pair MapPair) error {
 
 	m.keyMap.insert(key, pair)
 	m.size += uint64(len(key) + len(valuesForCommitLog))
-	m.metrics.size(m.size)
+	m.metrics.observeSize(m.size)
 	m.updateDirtyAt()
 
 	return nil

@@ -95,7 +95,7 @@ func (d *DockerCompose) StopAt(ctx context.Context, nodeIndex int, timeout *time
 	}
 
 	// sleep to make sure that the off node is detected by memberlist and marked failed
-	// it shall be used with combination of "FAST_FAILURE_DETECTION" env flag
+	// it shall be used with combination of "MEMBERLIST_FAST_FAILURE_DETECTION" env flag
 	time.Sleep(3 * time.Second)
 
 	return nil
