@@ -15,13 +15,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"net/http"
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/hashicorp/memberlist"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
 // NodeSelector is an interface to select a portion of the available nodes in memberlist
@@ -44,6 +47,14 @@ type NodeSelector interface {
 	// NodeHostname return hosts address for a specific node name
 	NodeHostname(name string) (string, bool)
 	AllHostnames() []string
+	// AllOtherClusterMembers returns all cluster members discovered via memberlist with their raft addresses
+	// This is useful for bootstrap when the join config is incomplete
+	// TODO-RAFT: shall be removed once unifying with raft package
+	AllOtherClusterMembers(port int) map[string]string
+	// Leave marks the node as leaving the cluster (still visible but shutting down)
+	Leave() error
+	// Shutdown called when leaves the cluster gracefully and shuts down the memberlist instance
+	Shutdown() error
 }
 
 type State struct {
@@ -68,9 +79,9 @@ type Config struct {
 	AuthConfig              AuthConfig `json:"auth" yaml:"auth"`
 	AdvertiseAddr           string     `json:"advertiseAddr" yaml:"advertiseAddr"`
 	AdvertisePort           int        `json:"advertisePort" yaml:"advertisePort"`
-	// FastFailureDetection mostly for testing purpose, it will make memberlist sensitive and detect
+	// MemberlistFastFailureDetection mostly for testing purpose, it will make memberlist sensitive and detect
 	// failures (down nodes) faster.
-	FastFailureDetection bool `json:"fastFailureDetection" yaml:"fastFailureDetection"`
+	MemberlistFastFailureDetection bool `json:"memberlistFastFailureDetection" yaml:"memberlistFastFailureDetection"`
 	// LocalHost flag enables running a multi-node setup with the same localhost and different ports
 	Localhost bool `json:"localhost" yaml:"localhost"`
 	// MaintenanceNodes is experimental. You should not use this directly, but should use the
@@ -83,6 +94,8 @@ type Config struct {
 	// RaftBootstrapExpect is used to detect split-brain scenarios and attempt to rejoin the cluster
 	// TODO-RAFT-DB-63 : shall be removed once NodeAddress() is moved under raft cluster package
 	RaftBootstrapExpect int
+	// RequestQueueConfig is used to configure the request queue buffer for the replicated indices
+	RequestQueueConfig RequestQueueConfig `json:"requestQueueConfig" yaml:"requestQueueConfig"`
 }
 
 type AuthConfig struct {
@@ -98,9 +111,39 @@ func (ba BasicAuth) Enabled() bool {
 	return ba.Username != "" || ba.Password != ""
 }
 
-func Init(userConfig Config, grpcPort, raftBootstrapExpect int, dataPath string, nonStorageNodes map[string]struct{}, logger logrus.FieldLogger) (_ *State, err error) {
-	userConfig.RaftBootstrapExpect = raftBootstrapExpect
+const (
+	DefaultRequestQueueSize                   = 2000
+	DefaultRequestQueueFullHttpStatus         = http.StatusTooManyRequests
+	DefaultRequestQueueShutdownTimeoutSeconds = 90
+)
+
+// RequestQueueConfig is used to configure the request queue buffer for the replicated indices
+type RequestQueueConfig struct {
+	// IsEnabled is used to enable/disable the request queue, can be modified at runtime
+	IsEnabled *configRuntime.DynamicValue[bool] `json:"isEnabled" yaml:"isEnabled"`
+	// NumWorkers is used to configure the number of workers that handle requests from the queue
+	NumWorkers int `json:"numWorkers" yaml:"numWorkers"`
+	// QueueSize is used to configure the size of the request queue buffer
+	QueueSize int `json:"queueSize" yaml:"queueSize"`
+	// QueueFullHttpStatus is used to configure the http status code that is returned when the request queue is full
+	// Should usually be set to 429 or 504 (429 will be retried by the coordinator, 504 will not)
+	QueueFullHttpStatus int `json:"queueFullHttpStatus" yaml:"queueFullHttpStatus"`
+	// QueueShutdownTimeoutSeconds is used to configure the timeout for the request queue shutdown.
+	// This is the timeout for the workers to finish processing the requests in the queue
+	// and for the request queue to be drained.
+	// Should usually be set to 90 seconds, based on coordinator's timeout
+	QueueShutdownTimeoutSeconds int `json:"queueShutdownTimeoutSeconds" yaml:"queueShutdownTimeoutSeconds"`
+}
+
+func Init(userConfig Config, grpcPort, raftTimeoutsMultiplier int, dataPath string, nonStorageNodes map[string]struct{}, logger logrus.FieldLogger) (_ *State, err error) {
 	cfg := memberlist.DefaultLANConfig()
+	// DeadNodeReclaimTime controls the time before a dead node's name can be
+	// reclaimed by one with a different address or port. By default, this is 0,
+	// meaning nodes cannot be reclaimed this way.
+	cfg.DeadNodeReclaimTime = 30 * time.Second
+	// TCPTimeout default is 10, however in case of rollouts we need to increase it
+	// to avoid timeouts during the rollout
+	cfg.TCPTimeout = 10 * time.Second * time.Duration(raftTimeoutsMultiplier)
 	cfg.LogOutput = newLogParser(logger)
 	cfg.Name = userConfig.Hostname
 	state := State{
@@ -136,8 +179,9 @@ func Init(userConfig Config, grpcPort, raftBootstrapExpect int, dataPath string,
 		cfg.AdvertisePort = userConfig.AdvertisePort
 	}
 
-	if userConfig.FastFailureDetection {
+	if userConfig.MemberlistFastFailureDetection {
 		cfg.SuspicionMult = 1
+		cfg.DeadNodeReclaimTime = 5 * time.Second
 	}
 
 	if state.list, err = memberlist.Create(cfg); err != nil {
@@ -335,38 +379,58 @@ func (s *State) NodeHostname(nodeName string) (string, bool) {
 // NodeAddress is used to resolve the node name into an ip address without the port
 // TODO-RAFT-DB-63 : shall be replaced by Members() which returns members in the list
 func (s *State) NodeAddress(id string) string {
-	// network interruption detection which can cause a single node to be isolated from the cluster (split brain)
-	nodeCount := s.list.NumMembers()
-	var joinAddr []string
-	if s.config.Join != "" {
-		joinAddr = strings.Split(s.config.Join, ",")
-	}
-	if nodeCount == 1 && len(joinAddr) > 0 && s.config.RaftBootstrapExpect > 1 {
-		s.delegate.log.WithFields(logrus.Fields{
-			"action":     "memberlist_rejoin",
-			"node_count": nodeCount,
-		}).Warn("detected single node split-brain, attempting to rejoin memberlist cluster")
-		// Only attempt rejoin if we're supposed to be part of a larger cluster
-		_, err := s.list.Join(joinAddr)
-		if err != nil {
-			s.delegate.log.WithFields(logrus.Fields{
-				"action":          "memberlist_rejoin",
-				"remote_hostname": joinAddr,
-			}).WithError(err).Error("memberlist rejoin not successful")
-		} else {
-			s.delegate.log.WithFields(logrus.Fields{
-				"action":     "memberlist_rejoin",
-				"node_count": s.list.NumMembers(),
-			}).Info("Successfully rejoined the memberlist cluster")
-		}
+	addr, ok := s.NodeHostname(id)
+	if !ok {
+		return ""
 	}
 
-	for _, mem := range s.list.Members() {
-		if mem.Name == id {
-			return mem.Addr.String()
-		}
+	return strings.Split(addr, ":")[0] // get address without port
+}
+
+// AllOtherClusterMembers returns all cluster members discovered via memberlist with their raft addresses
+// This is useful for bootstrap when the join config is incomplete
+func (s *State) AllOtherClusterMembers(port int) map[string]string {
+	if s.list == nil {
+		return map[string]string{}
 	}
-	return ""
+
+	members := s.list.Members()
+	result := make(map[string]string, len(members))
+
+	for _, m := range members {
+		if m.Name == s.list.LocalNode().Name {
+			// skip self
+			continue
+		}
+		result[m.Name] = fmt.Sprintf("%s:%d", m.Addr.String(), port)
+	}
+
+	return result
+}
+
+// Leave marks the node as leaving the cluster (still visible but shutting down)
+func (s *State) Leave() error {
+	if s.list == nil {
+		return fmt.Errorf("memberlist not initialized")
+	}
+
+	s.delegate.log.Info("marking node as gracefully leaving...")
+
+	if err := s.list.Leave(5 * time.Second); err != nil {
+		return fmt.Errorf("failed to leave memberlist: %w", err)
+	}
+
+	s.delegate.log.Info("successfully marked as leaving in memberlist")
+	return nil
+}
+
+// Shutdown called when leaves the cluster gracefully and shuts down the memberlist instance
+func (s *State) Shutdown() error {
+	if s.list == nil {
+		return fmt.Errorf("memberlist not initialized")
+	}
+
+	return s.list.Shutdown()
 }
 
 func (s *State) NodeGRPCPort(nodeID string) (int, error) {

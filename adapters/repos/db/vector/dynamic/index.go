@@ -53,6 +53,7 @@ var dynamicBucket = []byte("dynamic")
 type Index interface {
 	// UnderlyingIndex returns the underlying index type (flat or hnsw)
 	UnderlyingIndex() common.IndexType
+	IsUpgraded() bool
 }
 
 type VectorIndex interface {
@@ -463,12 +464,14 @@ func (dynamic *dynamic) Upgrade(callback func()) error {
 	dynamic.upgradeOnce.Do(func() {
 		enterrors.GoWrapper(func() {
 			defer callback()
+			dynamic.logger.WithField("shard", dynamic.shardName).WithField("class", dynamic.className).Debugf("upgrade to HNSW started")
 
 			err := dynamic.doUpgrade()
 			if err != nil {
 				dynamic.logger.WithError(err).Error("failed to upgrade index")
 				return
 			}
+			dynamic.logger.WithField("shard", dynamic.shardName).WithField("class", dynamic.className).Debugf("upgrade to HNSW completed")
 		}, dynamic.logger)
 	})
 
@@ -663,6 +666,18 @@ func (dynamic *dynamic) UnderlyingIndex() common.IndexType {
 	dynamic.RLock()
 	defer dynamic.RUnlock()
 	return dynamic.index.Type()
+}
+
+func (dynamic *dynamic) IsUpgraded() bool {
+	dynamic.RLock()
+	defer dynamic.RUnlock()
+	return dynamic.upgraded.Load()
+}
+
+type DynamicStats struct{}
+
+func (s *DynamicStats) IndexType() common.IndexType {
+	return common.IndexTypeDynamic
 }
 
 // to make sure the dynamic index satisfies the Index interface

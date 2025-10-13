@@ -543,7 +543,8 @@ type Raft struct {
 	HeartbeatTimeout   time.Duration
 	ElectionTimeout    time.Duration
 	LeaderLeaseTimeout time.Duration
-	TimeoutsMultiplier int
+	TimeoutsMultiplier *runtime.DynamicValue[int]
+	DrainSleep         *runtime.DynamicValue[time.Duration]
 
 	ConsistencyWaitTimeout time.Duration
 

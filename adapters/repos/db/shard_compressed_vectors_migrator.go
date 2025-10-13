@@ -25,6 +25,8 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
+const migrationNamedVectorsQuantizationIssuePerformedFlag = "migration.nvqi.performed.flag"
+
 type compressedVectorsMigrator struct {
 	logger logrus.FieldLogger
 }
@@ -34,6 +36,10 @@ func newCompressedVectorsMigrator(logger logrus.FieldLogger) compressedVectorsMi
 }
 
 func (m compressedVectorsMigrator) do(s *Shard) error {
+	if m.isMigrationDone(s) {
+		// migration was performed, nothing to do
+		return nil
+	}
 	totalVectors := len(s.index.vectorIndexUserConfigs)
 	if s.index.vectorIndexUserConfig != nil {
 		totalVectors++
@@ -48,26 +54,44 @@ func (m compressedVectorsMigrator) do(s *Shard) error {
 		case 1:
 			if len(s.index.vectorIndexUserConfigs) > 0 {
 				for targetVector, vectorIndexConfig := range s.index.vectorIndexUserConfigs {
-					// Rename old bucket to new target vector bucket
+					// rename old bucket to new target vector bucket
 					if err := m.migrate(targetVector, vectorIndexConfig, lsmDir, true); err != nil {
 						return fmt.Errorf("failed to rename old compressed vector bucket for target vector %s: %w", targetVector, err)
 					}
 				}
+			} else {
+				// we have only legacy vector index defined, there was no need for migration, but we need to mark it
+				// because we could have a scenario where we would add additional named vectors which could trigger
+				// the migration unnecessary again and break newly created named vector
+				if err := m.markMigrationDone(s); err != nil {
+					return fmt.Errorf("failed to mark migration as done: %w", err)
+				}
 			}
 		default:
-			// Copy old buckets to new target vector buckets
+			// copy old buckets to new target vector buckets
 			for targetVector, vectorIndexConfig := range s.index.vectorIndexUserConfigs {
 				if err := m.migrate(targetVector, vectorIndexConfig, lsmDir, false); err != nil {
 					return fmt.Errorf("failed to copy from old compressed vector bucket to new bucket for target vector: %s: %w", targetVector, err)
 				}
 			}
 			if s.index.vectorIndexUserConfig == nil {
-				// Remove the old bucket directory after all copies are complete, only if was not defined for legacy vector
+				// remove the old bucket directory after all copies are complete, only if was not defined for legacy vector
 				if err := os.RemoveAll(vectorsCompressedPath); err != nil {
 					return fmt.Errorf("failed to remove old bucket directory after copying all target vectors: %w", err)
 				}
 				m.logger.Info("removed old vectors compressed bucket")
+			} else {
+				// legacy vector defined together with named vectors, we need to mark that the migration was performed
+				if err := m.markMigrationDone(s); err != nil {
+					return fmt.Errorf("failed to mark migration as done: %w", err)
+				}
 			}
+		}
+	} else if s.index.vectorIndexUserConfig != nil && m.isQuantizationEnabled(s.index.vectorIndexUserConfig) {
+		// a new legacy vector config was created, quantization is enabled but we didn't create the vectors_compressed
+		// folder yet but we need to mark that the migration was done in order for it to not be trigered on healthy vector indexes
+		if err := m.markMigrationDone(s); err != nil {
+			return fmt.Errorf("failed to mark migration as done: %w", err)
 		}
 	}
 	return nil
@@ -180,4 +204,26 @@ func (m compressedVectorsMigrator) copyFile(src, dst string) error {
 
 	_, err = io.Copy(dstFile, srcFile)
 	return err
+}
+
+func (m compressedVectorsMigrator) migrationPerformedFlagFile(s *Shard) string {
+	return fmt.Sprintf("%s/%s", s.path(), migrationNamedVectorsQuantizationIssuePerformedFlag)
+}
+
+func (m compressedVectorsMigrator) markMigrationDone(s *Shard) error {
+	file, err := os.Create(m.migrationPerformedFlagFile(s))
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	m.logger.Info("migration performed successfully")
+	return nil
+}
+
+func (m compressedVectorsMigrator) isMigrationDone(s *Shard) bool {
+	_, err := os.Stat(m.migrationPerformedFlagFile(s))
+	if os.IsNotExist(err) {
+		return false
+	}
+	return err == nil
 }

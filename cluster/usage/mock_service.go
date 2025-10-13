@@ -68,9 +68,9 @@ func (_c *MockService_SetJitterInterval_Call) RunAndReturn(run func(time.Duratio
 	return _c
 }
 
-// Usage provides a mock function with given fields: ctx
-func (_m *MockService) Usage(ctx context.Context) (*types.Report, error) {
-	ret := _m.Called(ctx)
+// Usage provides a mock function with given fields: ctx, exactObjectCount
+func (_m *MockService) Usage(ctx context.Context, exactObjectCount bool) (*types.Report, error) {
+	ret := _m.Called(ctx, exactObjectCount)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Usage")
@@ -78,19 +78,19 @@ func (_m *MockService) Usage(ctx context.Context) (*types.Report, error) {
 
 	var r0 *types.Report
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context) (*types.Report, error)); ok {
-		return rf(ctx)
+	if rf, ok := ret.Get(0).(func(context.Context, bool) (*types.Report, error)); ok {
+		return rf(ctx, exactObjectCount)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context) *types.Report); ok {
-		r0 = rf(ctx)
+	if rf, ok := ret.Get(0).(func(context.Context, bool) *types.Report); ok {
+		r0 = rf(ctx, exactObjectCount)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*types.Report)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
-		r1 = rf(ctx)
+	if rf, ok := ret.Get(1).(func(context.Context, bool) error); ok {
+		r1 = rf(ctx, exactObjectCount)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -105,13 +105,14 @@ type MockService_Usage_Call struct {
 
 // Usage is a helper method to define mock.On call
 //   - ctx context.Context
-func (_e *MockService_Expecter) Usage(ctx interface{}) *MockService_Usage_Call {
-	return &MockService_Usage_Call{Call: _e.mock.On("Usage", ctx)}
+//   - exactObjectCount bool
+func (_e *MockService_Expecter) Usage(ctx interface{}, exactObjectCount interface{}) *MockService_Usage_Call {
+	return &MockService_Usage_Call{Call: _e.mock.On("Usage", ctx, exactObjectCount)}
 }
 
-func (_c *MockService_Usage_Call) Run(run func(ctx context.Context)) *MockService_Usage_Call {
+func (_c *MockService_Usage_Call) Run(run func(ctx context.Context, exactObjectCount bool)) *MockService_Usage_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context))
+		run(args[0].(context.Context), args[1].(bool))
 	})
 	return _c
 }
@@ -121,7 +122,7 @@ func (_c *MockService_Usage_Call) Return(_a0 *types.Report, _a1 error) *MockServ
 	return _c
 }
 
-func (_c *MockService_Usage_Call) RunAndReturn(run func(context.Context) (*types.Report, error)) *MockService_Usage_Call {
+func (_c *MockService_Usage_Call) RunAndReturn(run func(context.Context, bool) (*types.Report, error)) *MockService_Usage_Call {
 	_c.Call.Return(run)
 	return _c
 }
