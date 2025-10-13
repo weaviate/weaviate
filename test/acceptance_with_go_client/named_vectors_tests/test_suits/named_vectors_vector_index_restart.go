@@ -325,3 +325,215 @@ func testCompresseVectorTypesRestart(compose *docker.DockerCompose) func(t *test
 		})
 	}
 }
+
+func testLegacyAndNamedVectorRestart(compose *docker.DockerCompose) func(t *testing.T) {
+	return func(t *testing.T) {
+		ctx := context.Background()
+		numberOfObjects := 100
+		tests := []struct {
+			name              string
+			vectorIndexConfig any
+			vectorIndexType   string
+		}{
+			{
+				name:              "flat BQ",
+				vectorIndexConfig: bq(false),
+				vectorIndexType:   "flat",
+			},
+			{
+				name:              "hnsw RQ",
+				vectorIndexConfig: rq(8),
+				vectorIndexType:   "hnsw",
+			},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				className := "LegacyNamedVectorsCompressedIndexTypeRestart"
+
+				host := compose.GetWeaviate().URI()
+				client, err := wvt.NewClient(wvt.Config{Scheme: "http", Host: host})
+				require.Nil(t, err)
+
+				client.Schema().ClassDeleter().WithClassName(className).Do(ctx)
+
+				targetVectorDimensions := map[string]int{
+					"default": 32,
+					"hnsw_sq": 1024,
+				}
+
+				class := &models.Class{
+					Class: className,
+					Properties: []*models.Property{
+						{
+							Name: "name", DataType: []string{schema.DataTypeText.String()},
+						},
+						{
+							Name: "description", DataType: []string{schema.DataTypeText.String()},
+						},
+					},
+					VectorIndexConfig: tt.vectorIndexConfig,
+					VectorIndexType:   tt.vectorIndexType,
+					Vectorizer:        "none",
+				}
+
+				generateVector := func(targetVector string) models.Vector {
+					dimensions := targetVectorDimensions[targetVector]
+					if strings.HasPrefix(targetVector, "mv_") {
+						return generateRandomMultiVector(dimensions, 5)
+					}
+					return generateRandomVector(dimensions)
+				}
+
+				generateVectors := func() models.Vectors {
+					vectors := models.Vectors{}
+					for targetVector := range targetVectorDimensions {
+						if targetVector != "default" {
+							vectors[targetVector] = generateVector(targetVector)
+						}
+					}
+					return vectors
+				}
+
+				insertObjects := func(t *testing.T, n int, onlyLegacy bool) {
+					objs := []*models.Object{}
+					for i := range n {
+						obj := &models.Object{
+							Class: className,
+							ID:    strfmt.UUID(uuid.NewString()),
+							Properties: map[string]any{
+								"name":        fmt.Sprintf("name %v", i),
+								"description": fmt.Sprintf("some description %v", i),
+							},
+						}
+						obj.Vector = generateRandomVector(targetVectorDimensions["default"])
+						if !onlyLegacy {
+							obj.Vectors = generateVectors()
+						}
+						objs = append(objs, obj)
+					}
+					batchInsertObjects(t, client, objs)
+				}
+
+				queryAllTargetVectors := func(t *testing.T, onlyLegacy bool) {
+					for targetVector := range targetVectorDimensions {
+						if onlyLegacy && targetVector != "default" {
+							continue
+						}
+						nearVector := client.GraphQL().NearVectorArgBuilder().
+							WithVector(generateVector(targetVector)).
+							WithTargetVectors(targetVector)
+						get := client.GraphQL().Get().
+							WithClassName(className).
+							WithNearVector(nearVector).
+							WithLimit(1000).
+							WithFields(graphql.Field{
+								Name: "_additional",
+								Fields: []graphql.Field{
+									{Name: "id"},
+								},
+							})
+						require.EventuallyWithT(t, func(ct *assert.CollectT) {
+							resp, err := get.Do(context.Background())
+							require.NoError(t, err)
+							require.NotNil(t, resp)
+							if len(resp.Data) == 0 {
+								return
+							}
+
+							ids := acceptance_with_go_client.GetIds(t, resp, className)
+							assert.Greater(ct, len(ids), 0, fmt.Sprintf("targetVector: %s", targetVector))
+						}, 5*time.Second, 1*time.Millisecond)
+					}
+				}
+
+				t.Run("create schema", func(t *testing.T) {
+					err := client.Schema().ClassCreator().WithClass(class).Do(ctx)
+					require.NoError(t, err)
+				})
+
+				t.Run("batch create only objects with legacy vector", func(t *testing.T) {
+					insertObjects(t, numberOfObjects, true)
+					testAllObjectsIndexed(t, client, className)
+				})
+
+				t.Run("query all target vectors", func(t *testing.T) {
+					queryAllTargetVectors(t, true)
+				})
+
+				t.Run("add a new named vector with quantization enabled", func(t *testing.T) {
+					// enable SQ with a limit above the number of inserted objects so that
+					// vectors compressed folder for that named vector won't get created
+					vectorConfig := map[string]models.VectorConfig{
+						"hnsw_sq": {
+							Vectorizer: map[string]any{
+								"none": map[string]any{},
+							},
+							VectorIndexType:   "hnsw",
+							VectorIndexConfig: sq(2*numberOfObjects + 1),
+						},
+					}
+					class.VectorConfig = vectorConfig
+					err := client.Schema().ClassUpdater().WithClass(class).Do(ctx)
+					require.NoError(t, err)
+					time.Sleep(1 * time.Second)
+					insertObjects(t, numberOfObjects, false)
+					testAllObjectsIndexed(t, client, className)
+				})
+
+				t.Run("query all target vectors after quantization enabled", func(t *testing.T) {
+					queryAllTargetVectors(t, false)
+				})
+
+				t.Run("check that vectors_compressed folder for newly added named vector was not created", func(t *testing.T) {
+					err := compose.Stop(ctx, compose.GetWeaviate().Name(), nil)
+					require.NoError(t, err)
+
+					err = compose.Start(ctx, compose.GetWeaviate().Name())
+					require.NoError(t, err)
+
+					host := compose.GetWeaviate().URI()
+					client, err = wvt.NewClient(wvt.Config{Scheme: "http", Host: host})
+					require.NoError(t, err)
+
+					nodeStatus, err := client.Cluster().NodesStatusGetter().WithOutput("verbose").Do(ctx)
+					require.NoError(t, err)
+					require.NotNil(t, nodeStatus)
+					require.NotEmpty(t, nodeStatus.Nodes)
+					require.NotEmpty(t, nodeStatus.Nodes[0].Shards)
+					var shardName string
+					for _, shard := range nodeStatus.Nodes[0].Shards {
+						if shard.Class == className {
+							shardName = shard.Name
+						}
+					}
+					require.NotEmpty(t, shardName)
+
+					weaviateContainer := compose.GetWeaviate().Container()
+					path := fmt.Sprintf("/data/%s/%s/lsm", strings.ToLower(className), shardName)
+					code, reader, err := weaviateContainer.Exec(ctx, []string{"ls", "-1", path})
+					require.NoError(t, err)
+					require.Equal(t, 0, code)
+
+					buf := new(strings.Builder)
+					_, err = io.Copy(buf, reader)
+					require.NoError(t, err)
+					output := buf.String()
+
+					var vectorsCompressedFolders []string
+					for line := range strings.SplitSeq(output, "\n") {
+						if strings.HasPrefix(line, "vectors_compressed") {
+							vectorsCompressedFolders = append(vectorsCompressedFolders, line)
+						}
+					}
+					// check that vectors compressed folder wasn't created unnecessary for target vector
+					for targetVector := range targetVectorDimensions {
+						assert.NotContains(t, vectorsCompressedFolders, fmt.Sprintf("vectors_compressed_%s", targetVector))
+					}
+					// check that search still works
+					queryAllTargetVectors(t, false)
+				})
+			})
+		}
+
+	}
+}
