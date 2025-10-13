@@ -53,7 +53,7 @@ func (o *DeleteRoleNoContent) WriteResponse(rw http.ResponseWriter, producer run
 const DeleteRoleBadRequestCode int = 400
 
 /*
-DeleteRoleBadRequest Bad request
+DeleteRoleBadRequest Malformed request.
 
 swagger:response deleteRoleBadRequest
 */

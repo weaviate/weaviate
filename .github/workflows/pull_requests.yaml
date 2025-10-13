@@ -70,7 +70,7 @@ jobs:
 
       - name: Upload SARIF file
         if: always() && steps.vuln-scan.outputs.exit_code != 1
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: results/image.sarif
 
@@ -386,7 +386,7 @@ jobs:
           fi
   Modules-Acceptance-Tests-large:
     name: modules large (${{ matrix.name }})
-    runs-on: DB-ubuntu-24.04-4-cores
+    runs-on: ubicloud-standard-4-ubuntu-2404
     needs: [Modules-On-Demand-Tests-Check]
     if: ${{ needs.Modules-On-Demand-Tests-Check.outputs.run_pipeline == 'true' }}  # no PRs from fork
     strategy:
@@ -611,7 +611,7 @@ jobs:
         run: ./test/run.sh ${{ matrix.test }}
   Acceptance-Tests-large:
     name: acceptance large (${{ matrix.name }})
-    runs-on: DB-ubuntu-24.04-4-cores
+    runs-on: ubicloud-standard-4-ubuntu-2404
     strategy:
       fail-fast: false
       matrix:
@@ -681,7 +681,7 @@ jobs:
           verbose: true
   Compile-and-upload-binaries:
     name: compile and upload binaries
-    runs-on: DB-ubuntu-24.04-4-cores
+    runs-on: ubicloud-standard-4-ubuntu-2404
     steps:
       - uses: actions/checkout@v5
       - name: Set up Go

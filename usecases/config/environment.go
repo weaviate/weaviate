@@ -16,6 +16,7 @@ import (
 	"math"
 	"os"
 	"regexp"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -27,7 +28,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/sentry"
 	"github.com/weaviate/weaviate/usecases/cluster"
-	"github.com/weaviate/weaviate/usecases/config/runtime"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
 const (
@@ -232,14 +233,14 @@ func FromEnv(config *Config) error {
 			jwksUrl = v
 		}
 
-		config.Authentication.OIDC.SkipClientIDCheck = runtime.NewDynamicValue(skipClientCheck)
-		config.Authentication.OIDC.Issuer = runtime.NewDynamicValue(issuer)
-		config.Authentication.OIDC.ClientID = runtime.NewDynamicValue(clientID)
-		config.Authentication.OIDC.Scopes = runtime.NewDynamicValue(scopes)
-		config.Authentication.OIDC.UsernameClaim = runtime.NewDynamicValue(userClaim)
-		config.Authentication.OIDC.GroupsClaim = runtime.NewDynamicValue(groupsClaim)
-		config.Authentication.OIDC.Certificate = runtime.NewDynamicValue(certificate)
-		config.Authentication.OIDC.JWKSUrl = runtime.NewDynamicValue(jwksUrl)
+		config.Authentication.OIDC.SkipClientIDCheck = configRuntime.NewDynamicValue(skipClientCheck)
+		config.Authentication.OIDC.Issuer = configRuntime.NewDynamicValue(issuer)
+		config.Authentication.OIDC.ClientID = configRuntime.NewDynamicValue(clientID)
+		config.Authentication.OIDC.Scopes = configRuntime.NewDynamicValue(scopes)
+		config.Authentication.OIDC.UsernameClaim = configRuntime.NewDynamicValue(userClaim)
+		config.Authentication.OIDC.GroupsClaim = configRuntime.NewDynamicValue(groupsClaim)
+		config.Authentication.OIDC.Certificate = configRuntime.NewDynamicValue(certificate)
+		config.Authentication.OIDC.JWKSUrl = configRuntime.NewDynamicValue(jwksUrl)
 	}
 
 	if entcfg.Enabled(os.Getenv("AUTHENTICATION_DB_USERS_ENABLED")) {
@@ -463,7 +464,7 @@ func FromEnv(config *Config) error {
 	if v := os.Getenv("DEFAULT_QUANTIZATION"); v != "" {
 		defaultQuantization = strings.ToLower(v)
 	}
-	config.DefaultQuantization = runtime.NewDynamicValue(defaultQuantization)
+	config.DefaultQuantization = configRuntime.NewDynamicValue(defaultQuantization)
 
 	if entcfg.Enabled(os.Getenv("EXPERIMENTAL_SPFRESH_ENABLED")) {
 		config.SPFreshEnabled = true
@@ -686,7 +687,7 @@ func FromEnv(config *Config) error {
 	if v := os.Getenv("AUTOSCHEMA_ENABLED"); v != "" {
 		autoSchemaEnabled = !(strings.ToLower(v) == "false")
 	}
-	config.AutoSchema.Enabled = runtime.NewDynamicValue(autoSchemaEnabled)
+	config.AutoSchema.Enabled = configRuntime.NewDynamicValue(autoSchemaEnabled)
 
 	config.AutoSchema.DefaultString = schema.DataTypeText.String()
 	if v := os.Getenv("AUTOSCHEMA_DEFAULT_STRING"); v != "" {
@@ -705,13 +706,13 @@ func FromEnv(config *Config) error {
 	if v := os.Getenv("TENANT_ACTIVITY_READ_LOG_LEVEL"); v != "" {
 		tenantActivityReadLogLevel = v
 	}
-	config.TenantActivityReadLogLevel = runtime.NewDynamicValue(tenantActivityReadLogLevel)
+	config.TenantActivityReadLogLevel = configRuntime.NewDynamicValue(tenantActivityReadLogLevel)
 
 	tenantActivityWriteLogLevel := "debug"
 	if v := os.Getenv("TENANT_ACTIVITY_WRITE_LOG_LEVEL"); v != "" {
 		tenantActivityWriteLogLevel = v
 	}
-	config.TenantActivityWriteLogLevel = runtime.NewDynamicValue(tenantActivityWriteLogLevel)
+	config.TenantActivityWriteLogLevel = configRuntime.NewDynamicValue(tenantActivityWriteLogLevel)
 
 	ru, err := parseResourceUsageEnvVars()
 	if err != nil {
@@ -792,7 +793,7 @@ func FromEnv(config *Config) error {
 		return err
 	}
 
-	config.Replication.AsyncReplicationDisabled = runtime.NewDynamicValue(entcfg.Enabled(os.Getenv("ASYNC_REPLICATION_DISABLED")))
+	config.Replication.AsyncReplicationDisabled = configRuntime.NewDynamicValue(entcfg.Enabled(os.Getenv("ASYNC_REPLICATION_DISABLED")))
 
 	if v := os.Getenv("REPLICATION_FORCE_DELETION_STRATEGY"); v != "" {
 		config.Replication.DeletionStrategy = v
@@ -810,7 +811,7 @@ func FromEnv(config *Config) error {
 	if err := parseInt(
 		"MAXIMUM_ALLOWED_COLLECTIONS_COUNT",
 		func(val int) {
-			config.SchemaHandlerConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(val)
+			config.SchemaHandlerConfig.MaximumAllowedCollectionsCount = configRuntime.NewDynamicValue(val)
 		},
 		DefaultMaximumAllowedCollectionsCount,
 	); err != nil {
@@ -887,18 +888,18 @@ func FromEnv(config *Config) error {
 		if duration < 0 {
 			return fmt.Errorf("REPLICA_MOVEMENT_MINIMUM_ASYNC_WAIT must be a positive duration")
 		}
-		config.ReplicaMovementMinimumAsyncWait = runtime.NewDynamicValue(duration)
+		config.ReplicaMovementMinimumAsyncWait = configRuntime.NewDynamicValue(duration)
 	} else {
-		config.ReplicaMovementMinimumAsyncWait = runtime.NewDynamicValue(DefaultReplicaMovementMinimumAsyncWait)
+		config.ReplicaMovementMinimumAsyncWait = configRuntime.NewDynamicValue(DefaultReplicaMovementMinimumAsyncWait)
 	}
 	revoctorizeCheckDisabled := false
 	if v := os.Getenv("REVECTORIZE_CHECK_DISABLED"); v != "" {
 		revoctorizeCheckDisabled = !(strings.ToLower(v) == "false")
 	}
-	config.RevectorizeCheckDisabled = runtime.NewDynamicValue(revoctorizeCheckDisabled)
+	config.RevectorizeCheckDisabled = configRuntime.NewDynamicValue(revoctorizeCheckDisabled)
 
 	querySlowLogEnabled := entcfg.Enabled(os.Getenv("QUERY_SLOW_LOG_ENABLED"))
-	config.QuerySlowLogEnabled = runtime.NewDynamicValue(querySlowLogEnabled)
+	config.QuerySlowLogEnabled = configRuntime.NewDynamicValue(querySlowLogEnabled)
 
 	querySlowLogThreshold := dbhelpers.DefaultSlowLogThreshold
 	if v := os.Getenv("QUERY_SLOW_LOG_THRESHOLD"); v != "" {
@@ -908,7 +909,7 @@ func FromEnv(config *Config) error {
 		}
 		querySlowLogThreshold = threshold
 	}
-	config.QuerySlowLogThreshold = runtime.NewDynamicValue(querySlowLogThreshold)
+	config.QuerySlowLogThreshold = configRuntime.NewDynamicValue(querySlowLogThreshold)
 
 	envName := "QUERY_BITMAP_BUFS_MAX_MEMORY"
 	config.QueryBitmapBufsMaxMemory = DefaultQueryBitmapBufsMaxMemory
@@ -934,7 +935,7 @@ func FromEnv(config *Config) error {
 	if v := os.Getenv("INVERTED_SORTER_DISABLED"); v != "" {
 		invertedSorterDisabled = !(strings.ToLower(v) == "false")
 	}
-	config.InvertedSorterDisabled = runtime.NewDynamicValue(invertedSorterDisabled)
+	config.InvertedSorterDisabled = configRuntime.NewDynamicValue(invertedSorterDisabled)
 
 	return nil
 }
@@ -1018,8 +1019,21 @@ func parseRAFTConfig(hostname string) (Raft, error) {
 
 	if err := parsePositiveInt(
 		"RAFT_TIMEOUTS_MULTIPLIER",
-		func(val int) { cfg.TimeoutsMultiplier = val },
-		1, // raft default
+		func(val int) { cfg.TimeoutsMultiplier = configRuntime.NewDynamicValue(val) },
+		5,
+		// 5 is the default value for raft timeout multiplier
+		// we are using 5 to tolerate the network delay and avoid extensive leader election triggered more frequently
+		// which would cause Memeroy/CPU pressure.
+		// for production requirement,it's recommended to set it to 5
+		// example : https://developer.hashicorp.com/consul/docs/reference/architecture/server#production-server-requirements
+
+		// e.g. in PROD incase of heacy load environments while there is rollout in progress which by default will
+		// trigger leader election more frequently this will be pressure on the nodes and we don't want to add more pressure
+		// by triggering leader elections more frequently.
+
+		// e.g. pipeline flakiness because we are runnining tests in bounded memory environments
+		// and this would cause the tests to fail because nodes won't respond to requests in time.
+
 	); err != nil {
 		return cfg, err
 	}
@@ -1052,6 +1066,14 @@ func parseRAFTConfig(hostname string) (Raft, error) {
 		"RAFT_CONSISTENCY_WAIT_TIMEOUT",
 		func(val int) { cfg.ConsistencyWaitTimeout = time.Second * time.Duration(val) },
 		10,
+	); err != nil {
+		return cfg, err
+	}
+
+	if err := parsePositiveDuration(
+		"RAFT_DRAIN_SLEEP",
+		func(val time.Duration) { cfg.DrainSleep = configRuntime.NewDynamicValue(val) },
+		200*time.Millisecond,
 	); err != nil {
 		return cfg, err
 	}
@@ -1217,6 +1239,24 @@ func parseIntVerify(envName string, defaultValue int, cb func(val int), verify f
 	}
 
 	cb(asInt)
+	return nil
+}
+
+// parsePositiveDuration parses an environment variable as time.Duration using time.ParseDuration,
+// applies a default when unset, and validates it is > 0.
+func parsePositiveDuration(envName string, cb func(val time.Duration), defaultValue time.Duration) error {
+	asDuration := defaultValue
+	if v := os.Getenv(envName); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			return fmt.Errorf("parse %s as duration: %w", envName, err)
+		}
+		asDuration = d
+	}
+	if asDuration <= 0 {
+		return fmt.Errorf("%s must be a duration greater than 0. Got: %v", envName, asDuration)
+	}
+	cb(asDuration)
 	return nil
 }
 
@@ -1417,7 +1457,7 @@ func parseClusterConfig() (cluster.Config, error) {
 		},
 	}
 
-	cfg.FastFailureDetection = entcfg.Enabled(os.Getenv("FAST_FAILURE_DETECTION"))
+	cfg.MemberlistFastFailureDetection = entcfg.Enabled(os.Getenv("MEMBERLIST_FAST_FAILURE_DETECTION")) || entcfg.Enabled(os.Getenv("FAST_FAILURE_DETECTION")) // backward compatibility
 
 	// MAINTENANCE_NODES is experimental and subject to removal/change. It is an optional, comma
 	// separated list of hostnames that are in maintenance mode. In maintenance mode, the node will
@@ -1438,6 +1478,22 @@ func parseClusterConfig() (cluster.Config, error) {
 			}
 		}
 	}
+
+	requestQueueIsEnabled := entcfg.Enabled(os.Getenv("REPLICATED_INDICES_REQUEST_QUEUE_ENABLED"))
+	cfg.RequestQueueConfig.IsEnabled = configRuntime.NewDynamicValue(requestQueueIsEnabled)
+	// choosing runtime.GOMAXPROCS(0)*2 for the number of workers as a reasonable default, but can be overridden
+	parsePositiveInt("REPLICATED_INDICES_REQUEST_QUEUE_NUM_WORKERS",
+		func(val int) { cfg.RequestQueueConfig.NumWorkers = val },
+		runtime.GOMAXPROCS(0)*2)
+	parseNonNegativeInt("REPLICATED_INDICES_REQUEST_QUEUE_SIZE",
+		func(val int) { cfg.RequestQueueConfig.QueueSize = val },
+		cluster.DefaultRequestQueueSize)
+	parsePositiveInt("REPLICATED_INDICES_REQUEST_QUEUE_FULL_HTTP_STATUS",
+		func(val int) { cfg.RequestQueueConfig.QueueFullHttpStatus = val },
+		cluster.DefaultRequestQueueFullHttpStatus)
+	parsePositiveInt("REPLICATED_INDICES_REQUEST_QUEUE_SHUTDOWN_TIMEOUT_SECONDS",
+		func(val int) { cfg.RequestQueueConfig.QueueShutdownTimeoutSeconds = val },
+		cluster.DefaultRequestQueueShutdownTimeoutSeconds)
 
 	return cfg, nil
 }

@@ -109,7 +109,15 @@ func (cpi *parallelIterator[T]) IterateAll() chan []VecAndID[T] {
 					"action": "hnsw_compressed_vector_cache_prefill",
 					"len":    len(v),
 					"lenk":   len(k),
-				}).Warn("skipping compressed vector with unexpected length")
+				}).Debug("skipping compressed vector with unexpected length")
+				continue
+			}
+			if cpi.loadId(k) > MaxValidID {
+				cpi.logger.WithFields(logrus.Fields{
+					"action": "hnsw_compressed_vector_cache_prefill",
+					"len":    len(v),
+					"lenk":   len(k),
+				}).Debug("skipping compressed vector with unexpected key endianness")
 				continue
 			}
 
@@ -143,9 +151,18 @@ func (cpi *parallelIterator[T]) IterateAll() chan []VecAndID[T] {
 						"action": "hnsw_compressed_vector_cache_prefill",
 						"len":    len(v),
 						"lenk":   len(k),
-					}).Warn("skipping compressed vector with unexpected length")
+					}).Debug("skipping compressed vector with unexpected length")
 					continue
 				}
+				if cpi.loadId(k) > MaxValidID {
+					cpi.logger.WithFields(logrus.Fields{
+						"action": "hnsw_compressed_vector_cache_prefill",
+						"len":    len(v),
+						"lenk":   len(k),
+					}).Debug("skipping compressed vector with unexpected key endianness")
+					continue
+				}
+
 				localResults = append(localResults, extract(k, v, &localBuf))
 				cpi.trackIndividual(len(localResults))
 			}
@@ -173,7 +190,15 @@ func (cpi *parallelIterator[T]) IterateAll() chan []VecAndID[T] {
 					"action": "hnsw_compressed_vector_cache_prefill",
 					"len":    len(v),
 					"lenk":   len(k),
-				}).Warn("skipping compressed vector with unexpected length")
+				}).Debug("skipping compressed vector with unexpected length")
+				continue
+			}
+			if cpi.loadId(k) > MaxValidID {
+				cpi.logger.WithFields(logrus.Fields{
+					"action": "hnsw_compressed_vector_cache_prefill",
+					"len":    len(v),
+					"lenk":   len(k),
+				}).Debug("skipping compressed vector with unexpected key endianness")
 				continue
 			}
 
@@ -214,7 +239,7 @@ func (cpi *parallelIterator[T]) iterateAllNoConcurrency() chan []VecAndID[T] {
 					"action": "hnsw_compressed_vector_cache_prefill",
 					"len":    len(v),
 					"lenk":   len(k),
-				}).Warn("skipping compressed vector with unexpected length")
+				}).Debug("skipping compressed vector with unexpected length")
 				continue
 			}
 			id := cpi.loadId(k)
@@ -318,6 +343,9 @@ func (cpi *parallelIterator[T]) cleanUpTempAllocs(localResults []VecAndID[T], lo
 		cp := make([]VecAndID[T], entriesToRecopy)
 		copy(cp, localResults)
 		localResults = cp
+	}
+	if len(localResults) < entriesToRecopy {
+		localResults = localResults[:entriesToRecopy]
 	}
 
 	// order is important. To get the correct mapping we need to iterated:
