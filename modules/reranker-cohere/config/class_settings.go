@@ -56,12 +56,3 @@ func (ic *classSettings) getStringProperty(name string, defaultValue string) *st
 func (ic *classSettings) Model() string {
 	return *ic.getStringProperty(modelProperty, DefaultCohereModel)
 }
-
-func contains[T comparable](s []T, e T) bool {
-	for _, v := range s {
-		if v == e {
-			return true
-		}
-	}
-	return false
-}

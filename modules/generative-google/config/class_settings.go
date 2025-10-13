@@ -205,12 +205,3 @@ func (ic *classSettings) TopK() int {
 func (ic *classSettings) TopP() float64 {
 	return ic.getFloatProperty(topPProperty, DefaultGoogleTopP)
 }
-
-func contains[T comparable](s []T, e T) bool {
-	for _, v := range s {
-		if v == e {
-			return true
-		}
-	}
-	return false
-}
