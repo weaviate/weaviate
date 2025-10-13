@@ -134,12 +134,34 @@ func (h *StreamHandler) send(ctx context.Context, streamId string, stream pb.Wea
 		return err
 	}
 	for {
-		if reportingQueue, ok := h.reportingQueues.Get(streamId); ok {
-			select {
-			case <-ctx.Done():
-				log.Debug("context cancelled, closing stream")
+		reportingQueue, ok := h.reportingQueues.Get(streamId)
+		if !ok {
+			// This should never happen, but if it does, we log it
+			log.Error("reporting queue not found")
+			return fmt.Errorf("reporting queue for stream %s not found", streamId)
+		}
+		select {
+		case <-ctx.Done():
+			log.Debug("context cancelled, closing stream")
+			// drain reporting queue in effort to communicate any inflight errors back to client
+			// despite the context being cancelled somewhere
+			for report := range reportingQueue {
+				for _, err := range report.Errors {
+					if h.metrics != nil {
+						h.metrics.OnStreamError(streamId)
+					}
+					if innerErr := stream.Send(newBatchErrorMessage(err)); innerErr != nil {
+						log.WithError(innerErr).Error("failed to send error message")
+					}
+				}
+			}
+			// Context cancelled, return error ending the stream
+			return ctx.Err()
+		case recvErr := <-errCh:
+			if recvErr != nil {
+				log.WithError(recvErr).Error("receive error, closing stream")
 				// drain reporting queue in effort to communicate any inflight errors back to client
-				// despite the context being cancelled somewhere
+				// despite the recv side of the stream failing in some way
 				for report := range reportingQueue {
 					for _, err := range report.Errors {
 						if h.metrics != nil {
@@ -150,85 +172,64 @@ func (h *StreamHandler) send(ctx context.Context, streamId string, stream pb.Wea
 						}
 					}
 				}
-				// Context cancelled, return error ending the stream
-				return ctx.Err()
-			case recvErr := <-errCh:
-				if recvErr != nil {
-					log.WithError(recvErr).Error("receive error, closing stream")
-					// drain reporting queue in effort to communicate any inflight errors back to client
-					// despite the recv side of the stream failing in some way
-					for report := range reportingQueue {
-						for _, err := range report.Errors {
-							if h.metrics != nil {
-								h.metrics.OnStreamError(streamId)
-							}
-							if innerErr := stream.Send(newBatchErrorMessage(err)); innerErr != nil {
-								log.WithError(innerErr).Error("failed to send error message")
-							}
-						}
-					}
-					if h.shuttingDown.Load() {
-						// the server must be shutting down on its own, so return an error saying so
-						log.Errorf("while server is shutting down, receiver errored: %v", recvErr)
-						return errShutdown(recvErr)
-					}
-					// Receiver errored in some way, send error to client
-					return recvErr
+				if h.shuttingDown.Load() {
+					// the server must be shutting down on its own, so return an error saying so
+					log.Errorf("while server is shutting down, receiver errored: %v", recvErr)
+					return errShutdown(recvErr)
 				}
-			case <-shuttingDownDone:
-				log.Debug("server is shutting down, will stop accepting new requests soon")
-				// If shutting down context has been set by shutdown.Drain then send the shutdown triggered message to the client
-				// so that it can backoff accordingly
-				if innerErr := stream.Send(newBatchShuttingDownMessage()); innerErr != nil {
-					log.WithError(innerErr).Error("failed to send shutdown triggered message")
-					return innerErr
+				// Receiver errored in some way, send error to client
+				return recvErr
+			}
+		case <-shuttingDownDone:
+			log.Debug("server is shutting down, will stop accepting new requests soon")
+			// If shutting down context has been set by shutdown.Drain then send the shutdown triggered message to the client
+			// so that it can backoff accordingly
+			if innerErr := stream.Send(newBatchShuttingDownMessage()); innerErr != nil {
+				log.WithError(innerErr).Error("failed to send shutdown triggered message")
+				return innerErr
+			}
+			shuttingDownDone = nil // only send once
+			h.shuttingDown.Store(true)
+		case report, ok := <-reportingQueue:
+			log.Debug("received report from worker")
+			// If the reporting queue is closed, we must finish the stream
+			if !ok {
+				if h.shuttingDown.Load() {
+					// the server must be shutting down on its own, so return an error saying so
+					log.Info("stream closed due to server shutdown")
+					return errShutdown(ErrShutdown)
 				}
-				shuttingDownDone = nil // only send once
-				h.shuttingDown.Store(true)
-			case report, ok := <-reportingQueue:
-				log.Debug("received report from worker")
-				// If the reporting queue is closed, we must finish the stream
-				if !ok {
-					if h.shuttingDown.Load() {
-						// the server must be shutting down on its own, so return an error saying so
-						log.Info("stream closed due to server shutdown")
-						return errShutdown(ErrShutdown)
-					}
-					// otherwise, the client must be closing its side of the stream, so close gracefully
-					log.Info("stream closed by client")
-					return <-errCh // will be nil if the client closed the stream gracefully or a recv error otherwise
-				}
-				// Received a report from a worker
-				for _, err := range report.Errors {
-					if h.metrics != nil {
-						h.metrics.OnStreamError(streamId)
-					}
-					if innerErr := stream.Send(newBatchErrorMessage(err)); innerErr != nil {
-						log.WithError(innerErr).Error("failed to send error message")
-						return innerErr
-					}
-				}
-				stats := h.workerStats(streamId)
-				stats.updateBatchSize(report.Stats.processingTime, len(h.processingQueue))
+				// otherwise, the client must be closing its side of the stream, so close gracefully
+				log.Info("stream closed by client")
+				return <-errCh // will be nil if the client closed the stream gracefully or a recv error otherwise
+			}
+			// Received a report from a worker
+			for _, err := range report.Errors {
 				if h.metrics != nil {
-					h.metrics.OnWorkerReport(streamId, stats.getThroughputEma(), stats.getProcessingTimeEma())
+					h.metrics.OnStreamError(streamId)
 				}
-				if innerErr := stream.Send(&pb.BatchStreamReply{
-					Message: &pb.BatchStreamReply_Backoff_{
-						Backoff: &pb.BatchStreamReply_Backoff{
-							NextBatchSize:  int32(stats.getBatchSize()),
-							BackoffSeconds: h.thresholdCubicBackoff(),
-						},
-					},
-				}); innerErr != nil {
+				if innerErr := stream.Send(newBatchErrorMessage(err)); innerErr != nil {
+					log.WithError(innerErr).Error("failed to send error message")
 					return innerErr
 				}
 			}
-		} else {
-			// This should never happen, but if it does, we log it
-			log.Error("read queue not found")
-			return fmt.Errorf("read queue for stream %s not found", streamId)
+			stats := h.workerStats(streamId)
+			stats.updateBatchSize(report.Stats.processingTime, len(h.processingQueue))
+			if h.metrics != nil {
+				h.metrics.OnWorkerReport(streamId, stats.getThroughputEma(), stats.getProcessingTimeEma())
+			}
+			if innerErr := stream.Send(&pb.BatchStreamReply{
+				Message: &pb.BatchStreamReply_Backoff_{
+					Backoff: &pb.BatchStreamReply_Backoff{
+						NextBatchSize:  int32(stats.getBatchSize()),
+						BackoffSeconds: h.thresholdCubicBackoff(),
+					},
+				},
+			}); innerErr != nil {
+				return innerErr
+			}
 		}
+
 	}
 }
 
