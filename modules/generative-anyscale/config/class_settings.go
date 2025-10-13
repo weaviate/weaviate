@@ -24,15 +24,6 @@ const (
 	temperatureProperty = "temperature"
 )
 
-var availableAnyscaleModels = []string{
-	"meta-llama/Llama-2-70b-chat-hf",
-	"meta-llama/Llama-2-13b-chat-hf",
-	"meta-llama/Llama-2-7b-chat-hf",
-	"codellama/CodeLlama-34b-Instruct-hf",
-	"mistralai/Mistral-7B-Instruct-v0.1",
-	"mistralai/Mixtral-8x7B-Instruct-v0.1",
-}
-
 // note we might want to separate the baseURL and completions URL in the future. Fine-tuned models also use this URL. 12/3/23
 var (
 	DefaultBaseURL                     = "https://api.endpoints.anyscale.com"
@@ -55,8 +46,8 @@ func (ic *classSettings) Validate(class *models.Class) error {
 		return errors.New("empty config")
 	}
 	model := ic.getStringProperty(modelProperty, DefaultAnyscaleModel)
-	if model == nil || !ic.validateModel(*model) {
-		return errors.Errorf("wrong Anyscale model name, available model names are: %v", availableAnyscaleModels)
+	if model == nil {
+		return errors.Errorf("no model name provided")
 	}
 
 	return nil
@@ -70,10 +61,6 @@ func (ic *classSettings) getStringProperty(name, defaultValue string) *string {
 func (ic *classSettings) getFloat64Property(name string, defaultValue *float64) *float64 {
 	var wrongVal float64 = -1
 	return ic.propertyValuesHelper.GetPropertyAsFloat64WithNotExists(ic.cfg, name, &wrongVal, defaultValue)
-}
-
-func (ic *classSettings) validateModel(model string) bool {
-	return basesettings.ValidateSetting(model, availableAnyscaleModels)
 }
 
 func (ic *classSettings) BaseURL() string {
