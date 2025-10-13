@@ -35,6 +35,7 @@ func TestRoaringSetCursorConsistentView(t *testing.T) {
 				"key2": bitmapFromSlice([]uint64{2}),
 			}),
 		},
+		segmentsWithRefs: map[string]Segment{},
 	}
 
 	// Active memtable contains key3->{3}

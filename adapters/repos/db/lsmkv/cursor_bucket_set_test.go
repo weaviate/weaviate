@@ -78,6 +78,7 @@ func TestSetCursorConsistentView(t *testing.T) {
 				"key2": {[]byte("value2")},
 			}),
 		},
+		segmentsWithRefs: map[string]Segment{},
 	}
 
 	// Active memtable contains key3->{3}

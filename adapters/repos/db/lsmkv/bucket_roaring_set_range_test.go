@@ -52,6 +52,7 @@ func TestRoaringSetRangeReaderConsistentView(t *testing.T) {
 				key2: roaringset.NewBitmap(2),
 			}, sroar.NewBitmap()),
 		},
+		segmentsWithRefs: map[string]Segment{},
 	}
 
 	// Active memtable contains key3->{3}
