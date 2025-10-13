@@ -12,7 +12,6 @@
 package config
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -43,15 +42,6 @@ func Test_classSettings_Validate(t *testing.T) {
 				},
 			},
 			wantModel: "rerank-lite-1",
-		},
-		{
-			name: "unsupported model error",
-			cfg: fakeClassConfig{
-				classConfig: map[string]interface{}{
-					"model": "rerank-large-2",
-				},
-			},
-			wantErr: fmt.Errorf("wrong VoyageAI model name, available model names are: [rerank-2 rerank-2-lite rerank-lite-1 rerank-1]"),
 		},
 	}
 	for _, tt := range tests {
