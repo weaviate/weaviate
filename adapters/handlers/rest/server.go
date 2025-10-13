@@ -112,6 +112,7 @@ type Server struct {
 	shuttingDown int32
 	interrupted  bool
 	interrupt    chan os.Signal
+	httpServers  []*http.Server
 }
 
 // Logf logs message either via defined user logger or via system one if no user logger is defined.
@@ -329,6 +330,8 @@ func (s *Server) Serve() (err error) {
 		}(tls.NewListener(s.httpsServerL, httpsServer.TLSConfig))
 	}
 
+	s.httpServers = servers
+
 	wg.Add(1)
 	go s.handleShutdown(wg, &servers)
 
@@ -415,6 +418,16 @@ func (s *Server) Shutdown() error {
 	return nil
 }
 
+// DisableKeepAlives disables HTTP keep-alives on all servers to stop accepting
+// new connections while still allowing existing connections to complete.
+// This should be called during the pre-shutdown phase after the readiness probe
+// has been updated but before draining connections.
+func (s *Server) DisableKeepAlives() {
+	for _, server := range s.httpServers {
+		server.SetKeepAlivesEnabled(false)
+	}
+}
+
 func (s *Server) handleShutdown(wg *sync.WaitGroup, serversPtr *[]*http.Server) {
 	defer wg.Done()
 	// Always invoke the API shutdown hook, even if servers fail to shutdown gracefully.
@@ -429,6 +442,12 @@ func (s *Server) handleShutdown(wg *sync.WaitGroup, serversPtr *[]*http.Server) 
 
 	// first execute the pre-shutdown hook
 	s.api.PreServerShutdown()
+
+	// Disable HTTP keep-alives immediately after PreServerShutdown to stop
+	// accepting new connections while allowing existing ones to complete.
+	// This happens after the readiness probe has been updated and shutdown
+	// flags have been set by PreServerShutdown.
+	s.DisableKeepAlives()
 
 	// Wait for all servers to attempt graceful shutdown
 	shutdownChan := make(chan bool, len(servers))
