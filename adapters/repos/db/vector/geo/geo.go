@@ -46,7 +46,7 @@ type vectorIndex interface {
 	Delete(id ...uint64) error
 	Dump(...string)
 	Drop(ctx context.Context) error
-	PostStartup()
+	PostStartup(ctx context.Context)
 }
 
 // Config is passed to the GeoIndex when its created
@@ -101,8 +101,8 @@ func (i *Index) Drop(ctx context.Context) error {
 	return nil
 }
 
-func (i *Index) PostStartup() {
-	i.vectorIndex.PostStartup()
+func (i *Index) PostStartup(ctx context.Context) {
+	i.vectorIndex.PostStartup(ctx)
 }
 
 func makeCommitLoggerFromConfig(config Config, maintenanceCallbacks cyclemanager.CycleCallbackGroup,
