@@ -54,6 +54,7 @@ type (
 		pullBackOffPreInitialInterval time.Duration
 		pullBackOffMaxElapsedTime     time.Duration // stop retrying after this long
 		deletionStrategy              string
+		localHostAddr                 string
 	}
 )
 
@@ -70,6 +71,12 @@ func newCoordinator[T any](r *Replicator, shard, requestID string, l logrus.Fiel
 		TxID:                          requestID,
 		pullBackOffPreInitialInterval: defaultPullBackOffInitialInterval / 2,
 		pullBackOffMaxElapsedTime:     defaultPullBackOffMaxElapsedTime,
+		localHostAddr: func() string {
+			if addr, ok := r.router.NodeHostname(r.nodeName); ok {
+				return addr
+			}
+			return ""
+		}(),
 	}
 }
 
@@ -84,6 +91,7 @@ func newReadCoordinator[T any](f *Finder, shard string,
 		Class:                         f.class,
 		Shard:                         shard,
 		metrics:                       f.metrics,
+		log:                           f.log,
 		pullBackOffPreInitialInterval: pullBackOffInitivalInterval / 2,
 		pullBackOffMaxElapsedTime:     pullBackOffMaxElapsedTime,
 		deletionStrategy:              deletionStrategy,
@@ -107,7 +115,7 @@ func (c *coordinator[T]) broadcast(ctx context.Context,
 				g := func() {
 					defer wg.Done()
 					//nolint:govet // we expressely don't want to cancel that context as the timeout will take care of it
-					opctx, _ := context.WithTimeout(context.Background(), 30*time.Second)
+					opctx, _ := context.WithTimeout(ctx, 30*time.Second)
 					err := op(opctx, replica, c.TxID)
 					resChan <- _Result[string]{replica, err}
 				}
@@ -147,7 +155,7 @@ func (c *coordinator[T]) broadcast(ctx context.Context,
 			c.log.WithFields(fs).Error("abort")
 			for _, node := range replicas {
 				//nolint:govet // we expressely don't want to cancel that context as the timeout will take care of it
-				abortCtx, _ := context.WithTimeout(context.Background(), 30*time.Second)
+				abortCtx, _ := context.WithTimeout(ctx, 30*time.Second)
 				c.Abort(abortCtx, node, c.Class, c.Shard, c.TxID)
 			}
 			resChan <- _Result[string]{Err: fmt.Errorf("broadcast: %w", ErrReplicas)}
@@ -163,6 +171,7 @@ func (c *coordinator[T]) commitAll(ctx context.Context,
 	broadcastCh <-chan _Result[string],
 	op commitOp[T],
 	callback func(successful int),
+	required int,
 ) <-chan _Result[T] {
 	replyCh := make(chan _Result[T], cap(broadcastCh))
 	f := func() { // tells active replicas to commit
@@ -179,6 +188,11 @@ func (c *coordinator[T]) commitAll(ctx context.Context,
 		wg := sync.WaitGroup{}
 
 		for res := range broadcastCh {
+			// If we've already reached the required number of successful commits,
+			// skip launching more work and just drain the channel.
+			if int(successful.Load()) >= required {
+				continue
+			}
 			if res.Err != nil {
 				replyCh <- _Result[T]{Err: res.Err}
 				continue
@@ -221,6 +235,15 @@ func (c *coordinator[T]) Push(ctx context.Context,
 
 	level := routingPlan.IntConsistencyLevel
 
+	// log push routing plan
+	c.log.WithFields(logrus.Fields{
+		"tx_id":                 c.TxID,
+		"level":                 level,
+		"replicas":              routingPlan.Replicas,
+		"replicas_host_addrs":   routingPlan.ReplicasHostAddrs,
+		"additional_host_addrs": routingPlan.AdditionalHostAddrs,
+	}).Info("replication push routing plan")
+
 	// create callback for metrics
 	// the use of an immediately invoked function expression (IIFE) captures the start time
 	// and returns the actual callback function.
@@ -241,27 +264,38 @@ func (c *coordinator[T]) Push(ctx context.Context,
 			}
 
 			c.metrics.ObserveWriteDuration(time.Since(start))
+
+			// log push outcome
+			c.log.WithFields(logrus.Fields{
+				"tx_id":        c.TxID,
+				"shard":        c.Shard,
+				"level":        level,
+				"successful":   successful,
+				"num_replicas": numReplicas,
+				"took":         time.Since(start).String(),
+			}).Info("replication push completed")
 		}
 	}()
 
-	// During shutdown, use shorter timeouts for faster completion
-	prepareTimeout := 5 * time.Second
-	finalizeTimeout := 5 * time.Second
+	prepareTimeout := 30 * time.Second
+	finalizeTimeout := 120 * time.Second
 
 	//nolint:govet // we expressely don't want to cancel that context as the timeout will take care of it
 	ctxPrepare, _ := context.WithTimeout(context.Background(), prepareTimeout)
-	nodeCh := c.broadcast(ctxPrepare, routingPlan.ReplicasHostAddrs, ask, level)
+	// include local host; composite client will route local without HTTP
+	pushTargets := routingPlan.ReplicasHostAddrs
+	nodeCh := c.broadcast(ctxPrepare, pushTargets, ask, level)
 
 	//nolint:govet // we expressely don't want to cancel that context as the timeout will take care of it
 	ctxFinalize, _ := context.WithTimeout(context.Background(), finalizeTimeout)
-	commitCh := c.commitAll(ctxFinalize, nodeCh, com, callback)
+	commitCh := c.commitAll(ctxFinalize, nodeCh, com, callback, level)
 
 	// if there are additional hosts, we do a "best effort" write to them
 	// where we don't wait for a response because they are not part of the
 	// replicas used to reach level consistency
 	if len(routingPlan.AdditionalHostAddrs) > 0 {
 		additionalHostsBroadcast := c.broadcast(ctxPrepare, routingPlan.AdditionalHostAddrs, ask, len(routingPlan.AdditionalHostAddrs))
-		c.commitAll(ctxFinalize, additionalHostsBroadcast, com, nil)
+		c.commitAll(ctxFinalize, additionalHostsBroadcast, com, nil, len(routingPlan.AdditionalHostAddrs))
 	}
 
 	return commitCh, level, nil
@@ -294,6 +328,15 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 	}
 	level := routingPlan.IntConsistencyLevel
 	hosts := routingPlan.ReplicasHostAddrs
+
+	// log pull routing plan
+	c.log.WithFields(logrus.Fields{
+		"tx_id":                    c.TxID,
+		"level":                    level,
+		"direct_candidate_replica": directCandidate,
+		"replicas":                 routingPlan.Replicas,
+		"replicas_host_addrs":      routingPlan.ReplicasHostAddrs,
+	}).Info("replication pull routing plan")
 	replyCh := make(chan _Result[T], level)
 	f := func() {
 		start := time.Now()
@@ -309,9 +352,21 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 			}
 
 			c.metrics.ObserveReadDuration(time.Since(start))
+
+			// log pull outcome
+			c.log.WithFields(logrus.Fields{
+				"tx_id":      c.TxID,
+				"level":      level,
+				"successful": successful.Load(),
+				"took":       time.Since(start).String(),
+			}).Info("replication pull completed")
 		}()
 
 		hostRetryQueue := make(chan hostRetry, len(hosts))
+		// early stop once level successes are reached
+		stopCh := make(chan struct{})
+		stopOnce := sync.Once{}
+		stop := func() { stopOnce.Do(func() { close(stopCh) }) }
 
 		// put the "backups/fallbacks" on the retry queue
 		for i := level; i < len(hosts); i++ {
@@ -329,34 +384,55 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 			isFullReadWorker := hostIndex == 0 // first worker will perform the fullRead
 			workerFunc := func() {
 				defer wg.Done()
-				workerCtx, workerCancel := context.WithTimeout(ctx, timeout)
+				// allow global early-stop to cancel workers
+				baseCtx, baseCancel := context.WithCancel(ctx)
+				defer baseCancel()
+				workerCtx, workerCancel := context.WithTimeout(baseCtx, timeout)
 				defer workerCancel()
 				// each worker will first try its corresponding host (eg worker0 tries hosts[0],
 				// worker1 tries hosts[1], etc). We want the fullRead to be tried on hosts[0]
 				// because that will be the direct candidate (if a direct candidate was provided),
 				// if we only used the retry queue then we would not have the guarantee that the
 				// fullRead will be tried on hosts[0] first.
+				// check if we already reached level before first attempt
+				select {
+				case <-stopCh:
+					return
+				default:
+				}
 				resp, err := op(workerCtx, hosts[hostIndex], isFullReadWorker)
 				// TODO return retryable info here, for now should be fine since most errors are considered retryable
 				// TODO have increasing timeout passed into each op (eg 1s, 2s, 4s, 8s, 16s, 32s, with some max) similar to backoff? future PR? or should we just set timeout once per worker in Pull?
 				if err == nil {
-					successful.Add(1)
+					if successful.Add(1) == int32(level) {
+						stop()
+					}
 					replyCh <- _Result[T]{resp, err}
 					return
 				}
 				// this host failed op on the first try, put it on the retry queue
-				hostRetryQueue <- hostRetry{
-					hosts[hostIndex],
-					backoff.WithContext(utils.NewExponentialBackoff(c.pullBackOffPreInitialInterval, c.pullBackOffMaxElapsedTime), ctx),
+				select {
+				case <-stopCh:
+					return
+				case hostRetryQueue <- hostRetry{hosts[hostIndex], backoff.WithContext(utils.NewExponentialBackoff(c.pullBackOffPreInitialInterval, c.pullBackOffMaxElapsedTime), ctx)}:
 				}
 
 				// let's fallback to the backups in the retry queue
 				for hr := range hostRetryQueue {
+					// if we already reached level, stop
+					select {
+					case <-stopCh:
+						return
+					default:
+					}
 					// During shutdown, allow existing operations to complete
 					// No early exit on context cancellation for graceful draining
 
 					resp, err := op(workerCtx, hr.host, isFullReadWorker)
 					if err == nil {
+						if successful.Add(1) == int32(level) {
+							stop()
+						}
 						replyCh <- _Result[T]{resp, err}
 						return
 					}
@@ -366,7 +442,11 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 						// we have the worker exit here with the assumption that once we've reached
 						// this many failures for this host, we've tried all other hosts enough
 						// that we're not going to reach level successes
-						replyCh <- _Result[T]{resp, err}
+						select {
+						case <-stopCh:
+							return
+						case replyCh <- _Result[T]{resp, err}:
+						}
 						return
 					}
 
@@ -374,10 +454,21 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 					select {
 					case <-workerCtx.Done():
 						timer.Stop()
-						replyCh <- _Result[T]{resp, err}
+						select {
+						case <-stopCh:
+							return
+						case replyCh <- _Result[T]{resp, err}:
+						}
+						return
+					case <-stopCh:
+						timer.Stop()
 						return
 					case <-timer.C:
-						hostRetryQueue <- hostRetry{hr.host, hr.currentBackOff}
+						select {
+						case <-stopCh:
+							// don't re-enqueue if stopping
+						case hostRetryQueue <- hostRetry{hr.host, hr.currentBackOff}:
+						}
 					}
 					timer.Stop()
 				}
