@@ -40,6 +40,9 @@ type WeaviateRuntimeConfig struct {
 	QuerySlowLogThreshold           *runtime.DynamicValue[time.Duration] `json:"query_slow_log_threshold" yaml:"query_slow_log_threshold"`
 	InvertedSorterDisabled          *runtime.DynamicValue[bool]          `json:"inverted_sorter_disabled" yaml:"inverted_sorter_disabled"`
 
+	// Authorization / RBAC
+	RbacAuditLogSetDisabled *runtime.DynamicValue[bool] `json:"rbac_audit_log_disabled" yaml:"rbac_audit_log_disabled"`
+
 	// RAFT specific configs
 	RaftDrainSleep        *runtime.DynamicValue[time.Duration] `json:"raft_drain_sleep" yaml:"raft_drain_sleep"`
 	RaftTimoutsMultiplier *runtime.DynamicValue[int]           `json:"raft_timeouts_multiplier" yaml:"raft_timeouts_multiplier"`

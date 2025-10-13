@@ -1512,8 +1512,15 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 		l := types.ConsistencyLevel(replProps.ConsistencyLevel)
 		err = i.replicator.CheckConsistency(ctx, l, outObjects)
 		if err != nil {
-			i.logger.WithField("action", "object_search").
-				Errorf("failed to check consistency of search results: %v", err)
+			// Downgrade noisy rollout errors
+			if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) ||
+				strings.Contains(err.Error(), "connect:") || strings.Contains(err.Error(), "read error") {
+				i.logger.WithField("action", "object_search").
+					Warnf("failed to check consistency of search results: %v", err)
+			} else {
+				i.logger.WithField("action", "object_search").
+					Errorf("failed to check consistency of search results: %v", err)
+			}
 		}
 	}
 
@@ -1540,6 +1547,13 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 				err      error
 			)
 
+			// For short-running search operations, allow graceful completion
+			// but skip if context is already canceled to avoid unnecessary work
+			if ctx.Err() != nil {
+				i.logger.WithField("shardName", shardName).Debug("context canceled, skipping shard search")
+				return nil
+			}
+
 			shard, release, err := i.GetShard(ctx, shardName)
 			if err != nil {
 				return err
@@ -1551,6 +1565,10 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 				helpers.AnnotateSlowQueryLog(localCtx, "is_coordinator", true)
 				objs, scores, err = shard.ObjectSearch(localCtx, limit, filters, keywordRanking, sort, cursor, addlProps, properties)
 				if err != nil {
+					// Ignore cancellations to allow other shards/replicas to contribute
+					if errors.Is(err, context.Canceled) || errors.Is(localCtx.Err(), context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
+						return nil
+					}
 					return fmt.Errorf(
 						"local shard object search %s: %w", shard.ID(), err)
 				}
@@ -1827,8 +1845,19 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 		if shard != nil {
 			localSearches++
 			eg.Go(func() error {
+				// For short-running vector search operations, allow graceful completion
+				// but skip if context is already canceled to avoid unnecessary work
+				if ctx.Err() != nil {
+					i.logger.WithField("shardName", shardName).Debug("context canceled, skipping vector search")
+					return nil
+				}
+
 				localShardResult, localShardScores, err1 := i.localShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardName)
 				if err1 != nil {
+					// Ignore cancellations from this shard so other shards/replicas can still contribute
+					if errors.Is(err1, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
+						return nil
+					}
 					return fmt.Errorf(
 						"local shard object search %s: %w", shard.ID(), err1)
 				}
@@ -1845,9 +1874,18 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 		if shard == nil || i.Config.ForceFullReplicasSearch {
 			remoteSearches++
 			eg.Go(func() error {
+				// For short-running remote search operations, allow graceful completion
+				// but skip if context is already canceled to avoid unnecessary work
+				if ctx.Err() != nil {
+					i.logger.WithField("shardName", shardName).Debug("context canceled, skipping remote search")
+					return nil
+				}
 				// If we have no local shard or if we force the query to reach all replicas
 				remoteShardObject, remoteShardScores, err2 := i.remoteShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardName)
 				if err2 != nil {
+					if errors.Is(err2, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
+						return nil
+					}
 					return fmt.Errorf(
 						"remote shard object search %s: %w", shardName, err2)
 				}
@@ -1904,8 +1942,15 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 		l := types.ConsistencyLevel(replProps.ConsistencyLevel)
 		err = i.replicator.CheckConsistency(ctx, l, out)
 		if err != nil {
-			i.logger.WithField("action", "object_vector_search").
-				Errorf("failed to check consistency of search results: %v", err)
+			// Downgrade noisy rollout errors
+			if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) ||
+				strings.Contains(err.Error(), "connect:") || strings.Contains(err.Error(), "read error") {
+				i.logger.WithField("action", "object_vector_search").
+					Infof("failed to check consistency of search results: %v", err)
+			} else {
+				i.logger.WithField("action", "object_vector_search").
+					Errorf("failed to check consistency of search results: %v", err)
+			}
 		}
 	}
 

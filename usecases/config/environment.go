@@ -276,6 +276,8 @@ func FromEnv(config *Config) error {
 
 	if entcfg.Enabled(os.Getenv("AUTHORIZATION_ENABLE_RBAC")) || entcfg.Enabled(os.Getenv("AUTHORIZATION_RBAC_ENABLED")) {
 		config.Authorization.Rbac.Enabled = true
+		// Disable Info-level audit logs of permission sets
+		config.Authorization.Rbac.AuditLogSetDisabled = runtime.NewDynamicValue(entcfg.Enabled(os.Getenv("AUTHORIZATION_RBAC_AUDIT_LOG_DISABLED")))
 
 		if entcfg.Enabled(os.Getenv("AUTHORIZATION_RBAC_IP_IN_AUDIT_LOG_DISABLED")) {
 			config.Authorization.Rbac.IpInAuditDisabled = true

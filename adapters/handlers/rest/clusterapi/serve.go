@@ -69,13 +69,18 @@ func NewServer(appState *state.State) *Server {
 
 	var handler http.Handler
 	handler = mux
+
+	// Add shutdown middleware for internal cluster API
+	// This allows internal replication requests to continue during shutdown
+	handler = makeInternalShutdownMiddleware(appState)(handler)
+
 	if appState.ServerConfig.Config.Sentry.Enabled {
 		// Wrap the default mux with Sentry to capture panics, report errors and
 		// measure performance.
 		//
 		// Alternatively, you can also wrap individual handlers if you need to
 		// use different options for different parts of your app.
-		handler = sentryhttp.New(sentryhttp.Options{}).Handle(mux)
+		handler = sentryhttp.New(sentryhttp.Options{}).Handle(handler)
 	}
 
 	if appState.ServerConfig.Config.Monitoring.Enabled {
@@ -143,6 +148,23 @@ func index() http.Handler {
 
 		json.NewEncoder(w).Encode(payload)
 	})
+}
+
+// makeInternalShutdownMiddleware creates middleware for the internal cluster API
+// During shutdown, it allows all internal requests to continue (unlike external API)
+func makeInternalShutdownMiddleware(appState *state.State) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if appState.IsShuttingDown() {
+				// For internal cluster API, allow all requests to continue during shutdown
+				// This ensures replication and other internal operations can complete
+				appState.Logger.WithField("method", r.Method).
+					WithField("path", r.URL.Path).
+					Debug("allowing internal cluster API request during shutdown")
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
 }
 
 // staticRoute is used to convert routes in our internal http server into static routes

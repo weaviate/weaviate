@@ -384,7 +384,8 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	// TODO: configure http transport for efficient intra-cluster comm
 	remoteIndexClient := clients.NewRemoteIndex(appState.ClusterHttpClient)
 	remoteNodesClient := clients.NewRemoteNode(appState.ClusterHttpClient)
-	replicationClient := clients.NewReplicationClient(appState.ClusterHttpClient)
+	// Build a composite replication client that bypasses HTTP for local node
+	replicationClient := clients.NewCompositeReplicationClient(appState.ClusterHttpClient)
 	repo, err := db.New(appState.Logger, db.Config{
 		ServerVersion:                       config.ServerVersion,
 		GitHash:                             build.Revision,
@@ -598,6 +599,10 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	appState.RemoteIndexIncoming = sharding.NewRemoteIndexIncoming(repo, appState.ClusterService.SchemaReader(), appState.Modules)
 	appState.RemoteNodeIncoming = sharding.NewRemoteNodeIncoming(repo)
 	appState.RemoteReplicaIncoming = replica.NewRemoteReplicaIncoming(repo, appState.ClusterService.SchemaReader())
+
+	localNodeName := appState.Cluster.LocalName()
+	localHostAddr, _ := appState.Cluster.NodeHostname(localNodeName)
+	replicationClient.SetLocal(appState.RemoteReplicaIncoming, localHostAddr)
 
 	backupManager := backup.NewHandler(appState.Logger, appState.Authorizer,
 		schemaManager, repo, appState.Modules, appState.RBAC, appState.APIKey.Dynamic)
@@ -939,6 +944,9 @@ func makeServerPreShutdownHandler(appState *state.State, shutdownCoordinator *Sh
 		// NOTE: give the readiness probe some time to detect the shutdown
 		time.Sleep(ReadinessProbeLeadTime)
 		appState.Logger.Info("pre-shutdown phase completed")
+		if err := appState.Cluster.Leave(); err != nil {
+			appState.Logger.WithError(err).Error("leave node from cluster")
+		}
 	}
 }
 
@@ -974,7 +982,10 @@ func makeServerShutdownHandler(
 			}
 		}
 
-		// stop reindexing on server shutdown
+		// Stop long-running background operations (reindexing, compaction, etc.)
+		// but allow short-running requests to complete
+		appState.Logger.WithField("action", "shutdown").
+			Info("Stopping long-running background operations during graceful shutdown")
 		appState.ReindexCtxCancel(fmt.Errorf("server shutdown"))
 
 		if appState.DistributedTaskScheduler != nil {
@@ -1889,6 +1900,7 @@ func initRuntimeOverrides(appState *state.State) {
 		registered.QuerySlowLogEnabled = appState.ServerConfig.Config.QuerySlowLogEnabled
 		registered.QuerySlowLogThreshold = appState.ServerConfig.Config.QuerySlowLogThreshold
 		registered.InvertedSorterDisabled = appState.ServerConfig.Config.InvertedSorterDisabled
+
 		registered.RaftDrainSleep = appState.ServerConfig.Config.Raft.DrainSleep
 		registered.RaftTimoutsMultiplier = appState.ServerConfig.Config.Raft.TimeoutsMultiplier
 
@@ -1905,6 +1917,10 @@ func initRuntimeOverrides(appState *state.State) {
 
 			hooks["OIDC"] = appState.OIDC.Init
 			appState.Logger.Log(logrus.InfoLevel, "registereing OIDC runtime overrides hooks")
+		}
+
+		if appState.ServerConfig.Config.Authorization.Rbac.Enabled {
+			registered.RbacAuditLogSetDisabled = appState.ServerConfig.Config.Authorization.Rbac.AuditLogSetDisabled
 		}
 
 		cm, err := configRuntime.NewConfigManager(

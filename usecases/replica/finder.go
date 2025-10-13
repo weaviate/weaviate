@@ -133,7 +133,7 @@ func (f *Finder) GetOne(ctx context.Context,
 			return findOneReply{host, x.Version, r, x.UpdateTime, true}, err
 		}
 	}
-	replyCh, level, err := c.Pull(ctx, l, op, "", 20*time.Second)
+	replyCh, level, err := c.Pull(ctx, l, op, "", 10*time.Second)
 	if err != nil {
 		f.log.WithField("op", "pull.one").Error(err)
 		return nil, fmt.Errorf("%s %q: %w", MsgCLevel, l, ErrReplicas)
@@ -158,7 +158,7 @@ func (f *Finder) FindUUIDs(ctx context.Context,
 		return f.client.FindUUIDs(ctx, host, f.class, shard, filters)
 	}
 
-	replyCh, _, err := c.Pull(ctx, l, op, "", 30*time.Second)
+	replyCh, _, err := c.Pull(ctx, l, op, "", 5*time.Second)
 	if err != nil {
 		f.log.WithField("op", "pull.one").Error(err)
 		return nil, fmt.Errorf("%s %q: %w", MsgCLevel, l, ErrReplicas)
@@ -200,6 +200,9 @@ func (f *Finder) CheckConsistency(ctx context.Context,
 	if len(xs) == 0 {
 		return nil
 	}
+
+	// Graceful draining: allow consistency checks to complete
+	// The shutdown middleware will prevent new requests from starting
 	for i, x := range xs { // check shard and node name are set
 		if x == nil {
 			return fmt.Errorf("contains nil at object at index %d", i)
@@ -220,10 +223,18 @@ func (f *Finder) CheckConsistency(ctx context.Context,
 	for _, part := range cluster(createBatch(xs)) {
 		part := part
 		gr.Go(func() error {
+			// During shutdown, allow consistency checks to complete
 			_, err := f.checkShardConsistency(ctx, l, part)
 			if err != nil {
-				f.log.WithField("op", "check_shard_consistency").
-					WithField("shard", part.Shard).Error(err)
+				// Downgrade noisy rollout errors
+				if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) ||
+					strings.Contains(err.Error(), "connect:") || strings.Contains(err.Error(), "read error") {
+					f.log.WithField("op", "check_shard_consistency").
+						WithField("shard", part.Shard).Debug(err)
+				} else {
+					f.log.WithField("op", "check_shard_consistency").
+						WithField("shard", part.Shard).Error(err)
+				}
 			}
 			return err
 		}, part)
@@ -247,7 +258,7 @@ func (f *Finder) Exists(ctx context.Context,
 		}
 		return existReply{host, x}, err
 	}
-	replyCh, state, err := c.Pull(ctx, l, op, "", 20*time.Second)
+	replyCh, state, err := c.Pull(ctx, l, op, "", 10*time.Second)
 	if err != nil {
 		f.log.WithField("op", "pull.exist").Error(err)
 		return false, fmt.Errorf("%s %q: %w", MsgCLevel, l, ErrReplicas)
@@ -291,15 +302,23 @@ func (f *Finder) checkShardConsistency(ctx context.Context,
 		data, ids = batch.Extract() // extract from current content
 	)
 	op := func(ctx context.Context, host string, fullRead bool) (BatchReply, error) {
+		// Fast-path: if canceled, skip work for this host without error
+		if ctx.Err() != nil {
+			return BatchReply{Sender: host, IsDigest: !fullRead}, nil
+		}
 		if fullRead { // we already have the content
 			return BatchReply{Sender: host, IsDigest: false, FullData: data}, nil
 		} else {
-			xs, err := f.client.DigestReads(ctx, host, f.class, shard, ids, 0)
+			// Check again before remote call in case it canceled between checks
+			if ctx.Err() != nil {
+				return BatchReply{Sender: host, IsDigest: true}, nil
+			}
+			xs, err := f.client.DigestReads(ctx, host, f.class, shard, ids, 0) // TODO inside client request
 			return BatchReply{Sender: host, IsDigest: true, DigestData: xs}, err
 		}
 	}
 
-	replyCh, state, err := c.Pull(ctx, l, op, batch.Node, 20*time.Second)
+	replyCh, state, err := c.Pull(ctx, l, op, batch.Node, 10*time.Second)
 	if err != nil {
 		return nil, fmt.Errorf("pull shard: %w", ErrReplicas)
 	}

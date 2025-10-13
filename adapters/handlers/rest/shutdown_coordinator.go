@@ -72,6 +72,7 @@ func (sc *ShutdownCoordinator) IsShuttingDown() bool {
 // will always report IsShuttingDown() as true for the lifetime of the instance.
 func (sc *ShutdownCoordinator) NotifyShutdown() {
 	if atomic.CompareAndSwapInt32(&sc.shuttingDown, 0, 1) {
-		sc.logger.Debug("notify shutdown")
+		sc.logger.WithField("action", "shutdown_initiated").
+			Info("SHUTDOWN INITIATED - Node will begin graceful draining")
 	}
 }
