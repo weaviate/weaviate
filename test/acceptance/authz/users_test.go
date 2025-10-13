@@ -15,6 +15,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -788,6 +790,12 @@ func TestGetLastUsageMultinode(t *testing.T) {
 		firstNode := compose.GetWeaviateNode(2)
 		secondNode := compose.GetWeaviateNode(1)
 		helper.SetupClient(firstNode.URI())
+
+		// NOTE: temporary workaround to get logs from the container
+		go func() {
+			rdr, _ := firstNode.Container().Logs(context.Background())
+			io.Copy(os.Stdout, rdr)
+		}()
 
 		dynUser := "dyn-user"
 		helper.DeleteUser(t, dynUser, adminKey)
