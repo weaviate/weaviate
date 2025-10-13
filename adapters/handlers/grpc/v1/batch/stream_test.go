@@ -23,6 +23,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/batch"
 	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/batch/mocks"
+	"github.com/weaviate/weaviate/entities/models"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 )
 
@@ -36,6 +37,9 @@ func TestStreamHandler(t *testing.T) {
 
 		mockBatcher := mocks.NewMockBatcher(t)
 		mockStream := newMockStream(ctx, t)
+		mockStream.EXPECT().Context().Return(ctx).Once()
+		mockAuthenticator := mocks.NewMockauthenticator(t)
+		mockAuthenticator.EXPECT().PrincipalFromContext(ctx).Return(&models.Principal{}, nil).Once()
 
 		recvCount := 0
 		mockStream.EXPECT().Recv().RunAndReturn(func() (*pb.BatchStreamRequest, error) {
@@ -49,10 +53,11 @@ func TestStreamHandler(t *testing.T) {
 				panic(fmt.Sprintf("should not be called more than twice, was called %d times", recvCount))
 			}
 		}).Times(2)
+		mockStream.EXPECT().Send(newBatchStreamStartedReply()).Return(nil).Once()
 
 		numWorkers := 1
 		shutdown := batch.NewShutdown(context.Background(), numWorkers)
-		handler := batch.Start(mockBatcher, nil, shutdown, numWorkers, shutdown.ProcessingQueue, logger)
+		handler := batch.Start(mockAuthenticator, nil, mockBatcher, nil, shutdown, numWorkers, shutdown.ProcessingQueue, logger)
 		err := handler.Handle(mockStream)
 		require.Equal(t, ctx.Err(), err, "Expected context cancelled error")
 	})
@@ -63,6 +68,9 @@ func TestStreamHandler(t *testing.T) {
 
 		mockBatcher := mocks.NewMockBatcher(t)
 		mockStream := newMockStream(ctx, t)
+		mockStream.EXPECT().Context().Return(ctx).Once()
+		mockAuthenticator := mocks.NewMockauthenticator(t)
+		mockAuthenticator.EXPECT().PrincipalFromContext(ctx).Return(&models.Principal{}, nil).Once()
 
 		recvCount := 0
 		mockStream.EXPECT().Recv().RunAndReturn(func() (*pb.BatchStreamRequest, error) {
@@ -79,10 +87,11 @@ func TestStreamHandler(t *testing.T) {
 		mockStream.EXPECT().Send(mock.MatchedBy(func(msg *pb.BatchStreamReply) bool {
 			return msg.GetBackoff() != nil
 		})).Return(nil).Maybe()
+		mockStream.EXPECT().Send(newBatchStreamStartedReply()).Return(nil).Once()
 
 		numWorkers := 1
 		shutdown := batch.NewShutdown(context.Background(), numWorkers)
-		handler := batch.Start(mockBatcher, nil, shutdown, numWorkers, shutdown.ProcessingQueue, logger)
+		handler := batch.Start(mockAuthenticator, nil, mockBatcher, nil, shutdown, numWorkers, shutdown.ProcessingQueue, logger)
 		err := handler.Handle(mockStream)
 		require.NoError(t, err, "Expected no error when streaming")
 	})
@@ -93,6 +102,9 @@ func TestStreamHandler(t *testing.T) {
 
 		mockBatcher := mocks.NewMockBatcher(t)
 		mockStream := newMockStream(ctx, t)
+		mockStream.EXPECT().Context().Return(ctx).Twice()
+		mockAuthenticator := mocks.NewMockauthenticator(t)
+		mockAuthenticator.EXPECT().PrincipalFromContext(ctx).Return(&models.Principal{}, nil).Once()
 
 		obj := &pb.BatchObject{
 			Collection: "TestClass",
@@ -120,10 +132,11 @@ func TestStreamHandler(t *testing.T) {
 		mockStream.EXPECT().Send(mock.MatchedBy(func(msg *pb.BatchStreamReply) bool {
 			return msg.GetBackoff() != nil
 		})).Return(nil).Once()
+		mockStream.EXPECT().Send(newBatchStreamStartedReply()).Return(nil).Once()
 
 		numWorkers := 1
 		shutdown := batch.NewShutdown(context.Background(), numWorkers)
-		handler := batch.Start(mockBatcher, nil, shutdown, numWorkers, shutdown.ProcessingQueue, logger)
+		handler := batch.Start(mockAuthenticator, nil, mockBatcher, nil, shutdown, numWorkers, shutdown.ProcessingQueue, logger)
 		err := handler.Handle(mockStream)
 		require.Equal(t, ctx.Err(), err, "Expected context cancelled error")
 	})
@@ -134,6 +147,9 @@ func TestStreamHandler(t *testing.T) {
 
 		mockBatcher := mocks.NewMockBatcher(t)
 		mockStream := newMockStream(ctx, t)
+		mockStream.EXPECT().Context().Return(ctx).Twice()
+		mockAuthenticator := mocks.NewMockauthenticator(t)
+		mockAuthenticator.EXPECT().PrincipalFromContext(ctx).Return(&models.Principal{}, nil).Once()
 
 		obj := &pb.BatchObject{
 			Collection: "TestClass",
@@ -161,10 +177,11 @@ func TestStreamHandler(t *testing.T) {
 		mockStream.EXPECT().Send(mock.MatchedBy(func(msg *pb.BatchStreamReply) bool {
 			return msg.GetBackoff() != nil
 		})).Return(nil).Maybe()
+		mockStream.EXPECT().Send(newBatchStreamStartedReply()).Return(nil).Once()
 
 		numWorkers := 1
 		shutdown := batch.NewShutdown(context.Background(), numWorkers)
-		handler := batch.Start(mockBatcher, nil, shutdown, numWorkers, shutdown.ProcessingQueue, logger)
+		handler := batch.Start(mockAuthenticator, nil, mockBatcher, nil, shutdown, numWorkers, shutdown.ProcessingQueue, logger)
 		err := handler.Handle(mockStream)
 		require.NoError(t, err, "Expected no error when streaming")
 	})
@@ -177,6 +194,9 @@ func TestStreamHandler(t *testing.T) {
 
 		mockBatcher := mocks.NewMockBatcher(t)
 		mockStream := newMockStream(ctx, t)
+		mockStream.EXPECT().Context().Return(ctx).Twice()
+		mockAuthenticator := mocks.NewMockauthenticator(t)
+		mockAuthenticator.EXPECT().PrincipalFromContext(ctx).Return(&models.Principal{}, nil).Once()
 
 		numObjs := 10000
 		objsCh := make(chan *pb.BatchObject, numObjs)
@@ -214,10 +234,11 @@ func TestStreamHandler(t *testing.T) {
 		mockStream.EXPECT().Send(mock.MatchedBy(func(msg *pb.BatchStreamReply) bool {
 			return msg.GetBackoff() != nil
 		})).Return(nil).Maybe()
+		mockStream.EXPECT().Send(newBatchStreamStartedReply()).Return(nil).Once()
 
 		numWorkers := 1
 		shutdown := batch.NewShutdown(context.Background(), numWorkers)
-		handler := batch.Start(mockBatcher, nil, shutdown, numWorkers, shutdown.ProcessingQueue, logger)
+		handler := batch.Start(mockAuthenticator, nil, mockBatcher, nil, shutdown, numWorkers, shutdown.ProcessingQueue, logger)
 		err := handler.Handle(mockStream)
 		require.NoError(t, err, "Expected no error when handling stream")
 		require.Len(t, objsCh, numObjs, "Expected all objects to be processed into mock channel")
@@ -257,6 +278,5 @@ func newBatchStreamErrReply(err string, obj *pb.BatchObject) *pb.BatchStreamRepl
 
 func newMockStream(ctx context.Context, t *testing.T) *mocks.MockWeaviate_BatchStreamServer[pb.BatchStreamRequest, pb.BatchStreamReply] {
 	stream := mocks.NewMockWeaviate_BatchStreamServer[pb.BatchStreamRequest, pb.BatchStreamReply](t)
-	stream.EXPECT().Context().Return(ctx).Once()
 	return stream
 }

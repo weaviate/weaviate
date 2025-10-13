@@ -32,7 +32,9 @@ import (
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/metadata"
 )
 
 func TestGRPC_Batching(t *testing.T) {
@@ -68,7 +70,7 @@ func TestGRPC_Batching(t *testing.T) {
 		defer setupClasses()()
 
 		// Open up a stream to read messages from
-		stream := start(ctx, t, grpcClient)
+		stream := start(ctx, t, grpcClient, "")
 
 		uuid0 := uuid.NewString()
 		uuid1 := uuid.NewString()
@@ -106,7 +108,7 @@ func TestGRPC_Batching(t *testing.T) {
 		defer setupClasses()()
 
 		// Open up a stream to read messages from
-		stream := start(ctx, t, grpcClient)
+		stream := start(ctx, t, grpcClient, "")
 
 		// Send a list of articles, one with a tenant incorrectly specified
 		objects := []*pb.BatchObject{
@@ -138,7 +140,7 @@ func TestGRPC_Batching(t *testing.T) {
 		defer setupClasses()()
 
 		// Open up a stream to read messages from
-		stream := start(ctx, t, grpcClient)
+		stream := start(ctx, t, grpcClient, "")
 
 		uuid0 := uuid.NewString()
 		// Send some articles and paragraphs in send message
@@ -176,7 +178,7 @@ func TestGRPC_Batching(t *testing.T) {
 		defer setupClasses()()
 
 		// Open up a stream to read messages from
-		stream := start(ctx, t, grpcClient)
+		stream := start(ctx, t, grpcClient, "")
 		defer stream.CloseSend()
 
 		// Send 50000 articles
@@ -226,7 +228,7 @@ func TestGRPC_Batching(t *testing.T) {
 		defer setupClasses()()
 
 		// Open up a stream to read messages from
-		stream := start(ctx, t, grpcClient)
+		stream := start(ctx, t, grpcClient, "")
 
 		// Send 50000 articles
 		var objects []*pb.BatchObject
@@ -335,7 +337,7 @@ func TestGRPC_ClusterBatching(t *testing.T) {
 		defer setupClasses()()
 
 		// Open up a stream to read messages from
-		stream := start(ctx, t, grpcClient)
+		stream := start(ctx, t, grpcClient, "")
 
 		// Send some articles and paragraphs in send message
 		objects := []*pb.BatchObject{
@@ -373,7 +375,7 @@ func TestGRPC_ClusterBatching(t *testing.T) {
 
 		helper.SetupClient(compose.GetWeaviateNode(firstNode).URI())
 		grpcClient, _ = client(t, compose.GetWeaviateNode(firstNode).GrpcURI())
-		stream := start(ctx, t, grpcClient)
+		stream := start(ctx, t, grpcClient, "")
 
 		var shuttingDown atomic.Bool
 		var sendWg sync.WaitGroup
@@ -425,7 +427,7 @@ func TestGRPC_ClusterBatching(t *testing.T) {
 					fmt.Printf("%s Stream closed by server due to shutdown\n", time.Now().Format("15:04:05"))
 					grpcClient, _ = client(t, compose.GetWeaviateNode(secondNode).GrpcURI())
 					streamRestartLock.Lock()
-					stream = start(ctx, t, grpcClient)
+					stream = start(ctx, t, grpcClient, "")
 					streamRestartLock.Unlock()
 					shuttingDown.Store(false)
 					continue // we expect this error when the server is shutting down
@@ -482,7 +484,7 @@ func TestGRPC_ClusterBatching(t *testing.T) {
 
 		helper.SetupClient(compose.GetWeaviateNode(node).URI())
 		grpcClient, _ = client(t, compose.GetWeaviateNode(node).GrpcURI())
-		stream := start(ctx, t, grpcClient)
+		stream := start(ctx, t, grpcClient, "")
 
 		batch := make([]*pb.BatchObject, 0, 1000)
 		for i := 0; i < 1000; i++ {
@@ -506,7 +508,161 @@ func TestGRPC_ClusterBatching(t *testing.T) {
 	})
 }
 
-func start(ctx context.Context, t *testing.T, grpcClient pb.WeaviateClient) pb.Weaviate_BatchStreamClient {
+func TestGRPC_AuthzBatching(t *testing.T) {
+	ctx := context.Background()
+
+	adminUser := "admin-user"
+	adminKey := "admin-key"
+	customUser := "custom-user"
+	customKey := "custom-key"
+
+	compose, err := docker.New().
+		WithWeaviateWithGRPC().
+		WithRBAC().
+		WithApiKey().
+		WithRbacRoots(adminUser).
+		WithUserApiKey(adminUser, adminKey).
+		WithUserApiKey(customUser, customKey).
+		Start(ctx)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, compose.Terminate(ctx))
+	}()
+
+	helper.SetupClient(compose.GetWeaviate().URI())
+	grpcClient, _ := client(t, compose.GetWeaviate().GrpcURI())
+
+	clsA := articles.ArticlesClass()
+	clsP := articles.ParagraphsClass()
+
+	setupClasses := func() func() {
+		helper.DeleteClassAuth(t, clsA.Class, adminKey)
+		helper.DeleteClassAuth(t, clsP.Class, adminKey)
+		// Create the schema
+		helper.CreateClassAuth(t, clsP, adminKey)
+		helper.CreateClassAuth(t, clsA, adminKey)
+		return func() {
+			helper.DeleteClassAuth(t, clsA.Class, adminKey)
+			helper.DeleteClassAuth(t, clsP.Class, adminKey)
+		}
+	}
+
+	t.Run("send objects and references without errors", func(t *testing.T) {
+		defer setupClasses()()
+
+		// Open up a stream to read messages from
+		stream := start(ctx, t, grpcClient, adminKey)
+
+		uuid0 := uuid.NewString()
+		uuid1 := uuid.NewString()
+		uuid2 := uuid.NewString()
+		// Send some articles and paragraphs in send message
+		objects := []*pb.BatchObject{
+			{Collection: clsA.Class, Uuid: uuid0},
+			{Collection: clsP.Class, Uuid: uuid1},
+			{Collection: clsP.Class, Uuid: uuid2},
+		}
+		// Send some references between the articles and paragraphs
+		references := []*pb.BatchReference{
+			{Name: "hasParagraphs", FromCollection: clsA.Class, FromUuid: uuid0, ToUuid: uuid1},
+			{Name: "hasParagraphs", FromCollection: clsA.Class, FromUuid: uuid0, ToUuid: uuid2},
+		}
+		err := send(stream, objects, references)
+		require.NoError(t, err, "sending Objects and References over the stream should not return an error")
+		stream.CloseSend()
+
+		for {
+			msg, err := stream.Recv()
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			require.NoError(t, err, "receiving from stream should not return an error")
+			require.Nil(t, msg.GetError(), "received message should not contain an error")
+		}
+
+		// Validate the number of articles created
+		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+			listA, err := helper.ListObjectsAuth(t, clsA.Class, adminKey)
+			require.NoError(t, err, "ListObjects should not return an error")
+			require.Len(ct, listA.Objects, 1, "Number of articles created should match the number sent")
+			require.NotNil(ct, listA.Objects[0].Properties.(map[string]any)["hasParagraphs"], "hasParagraphs should not be nil")
+			require.Len(ct, listA.Objects[0].Properties.(map[string]any)["hasParagraphs"], 2, "Article should have 2 paragraphs")
+
+			listP, err := helper.ListObjectsAuth(t, clsP.Class, adminKey)
+			require.NoError(t, err, "ListObjects should not return an error")
+			require.Len(ct, listP.Objects, 2, "Number of paragraphs created should match the number sent")
+		}, 10*time.Second, 1*time.Second, "Objects not created within time")
+	})
+
+	t.Run("fail to start stream due to lacking auth", func(t *testing.T) {
+		defer setupClasses()()
+
+		// Open up a stream to read messages from
+		stream, err := grpcClient.BatchStream(ctx)
+		require.NoError(t, err, "BatchStream should not return an error")
+
+		// Read the first "Started" message, which should now error
+		_, err = stream.Recv()
+		require.Error(t, err, "BatchStream Recv should return an error")
+		require.Contains(t, err.Error(), "unauthorized: invalid api key")
+	})
+
+	t.Run("send objects that should authz error and read the errors correctly", func(t *testing.T) {
+		defer setupClasses()()
+
+		// Create and assign role that can only create Articles
+		roleName := "article-creator"
+		helper.CreateRole(t, adminKey, &models.Role{Name: &roleName, Permissions: []*models.Permission{
+			{
+				Action: &authorization.CreateData,
+				Data:   &models.PermissionData{Collection: &clsA.Class},
+			},
+			{
+				Action: &authorization.UpdateData,
+				Data:   &models.PermissionData{Collection: &clsA.Class},
+			},
+		}})
+		helper.AssignRoleToUser(t, adminKey, roleName, customUser)
+		defer func() {
+			helper.RevokeRoleFromUser(t, adminKey, roleName, customUser)
+			helper.DeleteRole(t, adminKey, roleName)
+		}()
+
+		// Open up a stream to read messages from
+		stream := start(ctx, t, grpcClient, customKey)
+
+		uuid0 := uuid.NewString()
+		uuid1 := uuid.NewString()
+		uuid2 := uuid.NewString()
+
+		// Send some articles and paragraphs in send message
+		objects := []*pb.BatchObject{
+			{Collection: clsA.Class, Uuid: uuid0},
+			{Collection: clsA.Class, Uuid: uuid1},
+			{Collection: clsP.Class, Uuid: uuid2},
+		}
+		err := send(stream, objects, nil)
+		require.NoError(t, err, "sending Objects over the stream should not return an error")
+		stream.CloseSend()
+
+		// Read the error message
+		msg, err := stream.Recv()
+		require.NoError(t, err, "BatchStream should return a response")
+		if msg.GetBackoff() != nil {
+			// if we got a backoff message, read the next message which should contain the partial error
+			msg, err = stream.Recv()
+			require.NoError(t, err, "BatchStream should return a response")
+		}
+		require.NotNil(t, msg.GetError(), "Error message should not be nil")
+		require.Equal(t, "rbac: authorization, forbidden action: user 'custom-user' has insufficient permissions to update_data [[Domain: data, Collection: Paragraph, Tenant: *, Object: *]]", msg.GetError().Error)
+		require.Equal(t, objects[2].Uuid, msg.GetError().GetObject().Uuid, "Errored object should be the third one")
+	})
+}
+
+func start(ctx context.Context, t *testing.T, grpcClient pb.WeaviateClient, key string) pb.Weaviate_BatchStreamClient {
+	if key != "" {
+		ctx = metadata.AppendToOutgoingContext(context.Background(), "authorization", fmt.Sprintf("Bearer %s", key))
+	}
 	stream, err := grpcClient.BatchStream(ctx)
 	require.NoError(t, err, "BatchStream should not return an error")
 
@@ -515,6 +671,11 @@ func start(ctx context.Context, t *testing.T, grpcClient pb.WeaviateClient) pb.W
 		Message: &pb.BatchStreamRequest_Start_{Start: &pb.BatchStreamRequest_Start{}},
 	})
 	require.NoError(t, err, "sending Start over the stream should not return an error")
+
+	// Read the first "Started" message
+	msg, err := stream.Recv()
+	require.NoError(t, err, "BatchStream Recv should not return an error")
+	require.NotNil(t, msg.GetStarted(), "First message should be a Started message")
 
 	return stream
 }

@@ -12,6 +12,7 @@
 package batch
 
 import (
+	"context"
 	"math"
 	"sync"
 	"time"
@@ -31,6 +32,14 @@ func newBatchShuttingDownMessage() *pb.BatchStreamReply {
 	return &pb.BatchStreamReply{
 		Message: &pb.BatchStreamReply_ShuttingDown_{
 			ShuttingDown: &pb.BatchStreamReply_ShuttingDown{},
+		},
+	}
+}
+
+func newBatchStartedMessage() *pb.BatchStreamReply {
+	return &pb.BatchStreamReply{
+		Message: &pb.BatchStreamReply_Started_{
+			Started: &pb.BatchStreamReply_Started{},
 		},
 	}
 }
@@ -139,13 +148,14 @@ func NewWorkersStats(processingTime time.Duration) *workerStats {
 	}
 }
 
-func NewProcessRequest(objs []*pb.BatchObject, refs []*pb.BatchReference, streamId string, cl *pb.ConsistencyLevel, wg *sync.WaitGroup) *processRequest {
+func NewProcessRequest(objs []*pb.BatchObject, refs []*pb.BatchReference, streamId string, cl *pb.ConsistencyLevel, wg *sync.WaitGroup, ctx context.Context) *processRequest {
 	return &processRequest{
 		StreamId:         streamId,
 		ConsistencyLevel: cl,
 		Objects:          objs,
 		References:       refs,
 		Wg:               wg,
+		Ctx:              ctx,
 	}
 }
 

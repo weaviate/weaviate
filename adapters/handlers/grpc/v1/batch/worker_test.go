@@ -38,9 +38,6 @@ func TestWorkerLoop(t *testing.T) {
 	t.Run("should process from the queue and send data without error", func(t *testing.T) {
 		mockBatcher := mocks.NewMockBatcher(t)
 
-		ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
-		defer cancel()
-
 		reportingQueues := batch.NewReportingQueues()
 		reportingQueues.Make(StreamId)
 		processingQueue := batch.NewProcessingQueue(1)
@@ -54,7 +51,7 @@ func TestWorkerLoop(t *testing.T) {
 			Errors: nil,
 		}, nil).Times(1)
 		var wg sync.WaitGroup
-		batch.StartBatchWorkers(ctx, &wg, 1, processingQueue, reportingQueues, mockBatcher, logger)
+		batch.StartBatchWorkers(&wg, 1, processingQueue, reportingQueues, mockBatcher, logger)
 
 		// Send data
 		wg.Add(2)
@@ -64,6 +61,7 @@ func TestWorkerLoop(t *testing.T) {
 			StreamId,
 			nil,
 			&wg,
+			ctx,
 		)
 		processingQueue <- batch.NewProcessRequest(
 			nil,
@@ -71,6 +69,7 @@ func TestWorkerLoop(t *testing.T) {
 			StreamId,
 			nil,
 			&wg,
+			ctx,
 		)
 		close(processingQueue) // Allow the draining logic to exit naturally
 		wg.Wait()
@@ -79,9 +78,6 @@ func TestWorkerLoop(t *testing.T) {
 
 	t.Run("should process from the queue and send data returning partial error", func(t *testing.T) {
 		mockBatcher := mocks.NewMockBatcher(t)
-
-		ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
-		defer cancel()
 
 		reportingQueues := batch.NewReportingQueues()
 		reportingQueues.Make(StreamId)
@@ -119,7 +115,7 @@ func TestWorkerLoop(t *testing.T) {
 			Errors: errorsRefs,
 		}, nil).Times(1)
 		var wg sync.WaitGroup
-		batch.StartBatchWorkers(ctx, &wg, 1, processingQueue, reportingQueues, mockBatcher, logger)
+		batch.StartBatchWorkers(&wg, 1, processingQueue, reportingQueues, mockBatcher, logger)
 
 		// Send data
 		obj := &pb.BatchObject{}
@@ -134,6 +130,7 @@ func TestWorkerLoop(t *testing.T) {
 				StreamId,
 				nil,
 				&wg,
+				ctx,
 			)
 		}()
 

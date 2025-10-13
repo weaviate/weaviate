@@ -54,10 +54,10 @@ type processRequest struct {
 	Objects          []*pb.BatchObject
 	References       []*pb.BatchReference
 	Wg               *sync.WaitGroup
+	Ctx              context.Context
 }
 
 func StartBatchWorkers(
-	ctx context.Context,
 	wg *sync.WaitGroup,
 	concurrency int,
 	processingQueue processingQueue,
@@ -77,7 +77,7 @@ func StartBatchWorkers(
 				reportingQueues: reportingQueues,
 				processingQueue: processingQueue,
 			}
-			return w.Loop(ctx)
+			return w.Loop()
 		})
 	}
 }
@@ -101,7 +101,13 @@ func (w *Worker) sendObjects(ctx context.Context, errCh errCh, streamId string, 
 	})
 	if err != nil {
 		w.logger.WithField("streamId", streamId).WithError(err).Error("failed to batch objects")
-		return err
+		for _, obj := range objs {
+			errCh <- &pb.BatchStreamReply_Error{
+				Error:  err.Error(),
+				Detail: &pb.BatchStreamReply_Error_Object{Object: obj},
+			}
+		}
+		return nil
 	}
 	// Handle errors
 	errs := make([]*pb.BatchStreamReply_Error, 0, len(reply.GetErrors()))
@@ -140,7 +146,13 @@ func (w *Worker) sendReferences(ctx context.Context, errCh errCh, streamId strin
 		ConsistencyLevel: cl,
 	})
 	if err != nil {
-		return err
+		for _, ref := range refs {
+			errCh <- &pb.BatchStreamReply_Error{
+				Error:  err.Error(),
+				Detail: &pb.BatchStreamReply_Error_Reference{Reference: ref},
+			}
+		}
+		return nil
 	}
 	// Handle errors
 	errs := make([]*pb.BatchStreamReply_Error, 0, len(reply.GetErrors()))
@@ -176,10 +188,10 @@ func (w *Worker) report(streamId string, errs []*pb.BatchStreamReply_Error, stat
 }
 
 // Loop processes objects from the write queue, sending them to the batcher and handling shutdown signals.
-func (w *Worker) Loop(ctx context.Context) error {
+func (w *Worker) Loop() error {
 	for req := range w.processingQueue {
 		if req != nil {
-			if err := w.process(ctx, req); err != nil {
+			if err := w.process(req); err != nil {
 				w.logger.WithField("streamId", req.StreamId).WithField("error", err).Error("failed to process batch request")
 			}
 		} else {
@@ -190,10 +202,10 @@ func (w *Worker) Loop(ctx context.Context) error {
 	return nil // channel closed, exit loop
 }
 
-func (w *Worker) process(ctx context.Context, req *processRequest) error {
+func (w *Worker) process(req *processRequest) error {
 	defer req.Wg.Done()
 
-	ctx, cancel := context.WithTimeout(ctx, perProcessTimeout)
+	ctx, cancel := context.WithTimeout(req.Ctx, perProcessTimeout)
 	defer cancel()
 
 	start := time.Now()

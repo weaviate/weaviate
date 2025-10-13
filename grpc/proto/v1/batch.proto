@@ -40,6 +40,8 @@ message BatchStreamRequest {
 }
 
 message BatchStreamReply {
+  message Started {
+  }
   message ShuttingDown {
   }
   message Error {
@@ -57,6 +59,7 @@ message BatchStreamReply {
     Error error = 1;
     ShuttingDown shutting_down = 2;
     Backoff backoff = 3;
+    Started started = 4;
   }
 }
 

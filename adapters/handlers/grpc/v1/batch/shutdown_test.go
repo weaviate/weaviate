@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/batch"
 	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/batch/mocks"
+	"github.com/weaviate/weaviate/entities/models"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 )
 
@@ -36,6 +37,9 @@ func TestShutdownHappyPath(t *testing.T) {
 
 	mockBatcher := mocks.NewMockBatcher(t)
 	mockStream := newMockStream(ctx, t)
+	mockStream.EXPECT().Context().Return(ctx).Twice()
+	mockAuthenticator := mocks.NewMockauthenticator(t)
+	mockAuthenticator.EXPECT().PrincipalFromContext(ctx).Return(&models.Principal{}, nil).Once()
 
 	howManyObjs := 5000
 	objsCh := make(chan *pb.BatchObject, howManyObjs)
@@ -82,6 +86,7 @@ func TestShutdownHappyPath(t *testing.T) {
 		return msg.GetError().GetError() == "some error" &&
 			msg.GetError().GetObject() != nil
 	})).Return(nil).Maybe()
+	mockStream.EXPECT().Send(newBatchStreamStartedReply()).Return(nil).Once()
 	mockStream.EXPECT().Send(newBatchStreamShuttingDownReply()).Return(nil).Once()
 	mockStream.EXPECT().Send(mock.MatchedBy(func(msg *pb.BatchStreamReply) bool {
 		return msg.GetBackoff() != nil
@@ -89,7 +94,7 @@ func TestShutdownHappyPath(t *testing.T) {
 
 	numWorkers := 1
 	shutdown := batch.NewShutdown(ctx, numWorkers)
-	handler := batch.Start(mockBatcher, nil, shutdown, numWorkers, shutdown.ProcessingQueue, logger)
+	handler := batch.Start(mockAuthenticator, nil, mockBatcher, nil, shutdown, numWorkers, shutdown.ProcessingQueue, logger)
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
@@ -112,6 +117,8 @@ func TestShutdownAfterBrokenStream(t *testing.T) {
 	logger := logrus.New()
 
 	mockBatcher := mocks.NewMockBatcher(t)
+	mockAuthenticator := mocks.NewMockauthenticator(t)
+	mockAuthenticator.EXPECT().PrincipalFromContext(ctx).Return(&models.Principal{}, nil).Once()
 
 	howManyObjs := 5000
 	numErrs := howManyObjs / 10
@@ -136,6 +143,7 @@ func TestShutdownAfterBrokenStream(t *testing.T) {
 	}
 
 	stream := newMockStream(ctx, t)
+	stream.EXPECT().Context().Return(ctx).Twice()
 	var count int
 	networkErr := errors.New("some network error")
 	stream.EXPECT().Recv().RunAndReturn(func() (*pb.BatchStreamRequest, error) {
@@ -156,14 +164,14 @@ func TestShutdownAfterBrokenStream(t *testing.T) {
 		return msg.GetError().GetError() == "some error" &&
 			msg.GetError().GetObject() != nil
 	})).Return(nil).Times(numErrs)
-
+	stream.EXPECT().Send(newBatchStreamStartedReply()).Return(nil).Once()
 	stream.EXPECT().Send(mock.MatchedBy(func(msg *pb.BatchStreamReply) bool {
 		return msg.GetBackoff() != nil
 	})).Return(nil).Maybe()
 
 	numWorkers := 1
 	shutdown := batch.NewShutdown(ctx, numWorkers)
-	handler := batch.Start(mockBatcher, nil, shutdown, numWorkers, shutdown.ProcessingQueue, logger)
+	handler := batch.Start(mockAuthenticator, nil, mockBatcher, nil, shutdown, numWorkers, shutdown.ProcessingQueue, logger)
 	err := handler.Handle(stream)
 	require.NotNil(t, err, "handler should return an error")
 	require.ErrorAs(t, err, &networkErr, "handler should return network error")
@@ -179,6 +187,8 @@ func TestShutdownWithHangingClient(t *testing.T) {
 	logger := logrus.New()
 
 	mockBatcher := mocks.NewMockBatcher(t)
+	mockAuthenticator := mocks.NewMockauthenticator(t)
+	mockAuthenticator.EXPECT().PrincipalFromContext(ctx).Return(&models.Principal{}, nil).Once()
 
 	howManyObjs := 5000
 	numErrs := howManyObjs / 10
@@ -203,6 +213,7 @@ func TestShutdownWithHangingClient(t *testing.T) {
 	}
 
 	stream := newMockStream(ctx, t)
+	stream.EXPECT().Context().Return(ctx).Twice()
 	var count int
 	drain := make(chan struct{})
 	stream.EXPECT().Recv().RunAndReturn(func() (*pb.BatchStreamRequest, error) {
@@ -225,6 +236,7 @@ func TestShutdownWithHangingClient(t *testing.T) {
 		return msg.GetError().GetError() == "some error" &&
 			msg.GetError().GetObject() != nil
 	})).Return(nil).Times(numErrs)
+	stream.EXPECT().Send(newBatchStreamStartedReply()).Return(nil).Once()
 	stream.EXPECT().Send(newBatchStreamShuttingDownReply()).Return(nil).Once()
 	stream.EXPECT().Send(mock.MatchedBy(func(msg *pb.BatchStreamReply) bool {
 		return msg.GetBackoff() != nil
@@ -232,7 +244,7 @@ func TestShutdownWithHangingClient(t *testing.T) {
 
 	numWorkers := 1
 	shutdown := batch.NewShutdown(ctx, numWorkers)
-	handler := batch.Start(mockBatcher, nil, shutdown, numWorkers, shutdown.ProcessingQueue, logger)
+	handler := batch.Start(mockAuthenticator, nil, mockBatcher, nil, shutdown, numWorkers, shutdown.ProcessingQueue, logger)
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
@@ -250,6 +262,14 @@ func newBatchStreamShuttingDownReply() *pb.BatchStreamReply {
 	return &pb.BatchStreamReply{
 		Message: &pb.BatchStreamReply_ShuttingDown_{
 			ShuttingDown: &pb.BatchStreamReply_ShuttingDown{},
+		},
+	}
+}
+
+func newBatchStreamStartedReply() *pb.BatchStreamReply {
+	return &pb.BatchStreamReply{
+		Message: &pb.BatchStreamReply_Started_{
+			Started: &pb.BatchStreamReply_Started{},
 		},
 	}
 }

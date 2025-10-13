@@ -23,14 +23,22 @@ import (
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/models"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
 var ErrShutdown = status.Error(codes.Aborted, "server is shutting down")
 
+type authenticator interface {
+	PrincipalFromContext(ctx context.Context) (*models.Principal, error)
+}
+
 type StreamHandler struct {
+	authenticator        authenticator
+	authorizer           authorization.Authorizer
 	shuttingDownCtx      context.Context
 	logger               logrus.FieldLogger
 	reportingQueues      *reportingQueues
@@ -42,8 +50,10 @@ type StreamHandler struct {
 	workerStatsPerStream *sync.Map // map[string]*stats
 }
 
-func NewStreamHandler(shuttingDownCtx context.Context, recvWg, sendWg *sync.WaitGroup, reportingQueues *reportingQueues, processingQueue processingQueue, metrics *BatchStreamingMetrics, logger logrus.FieldLogger) *StreamHandler {
+func NewStreamHandler(authenticator authenticator, authorizer authorization.Authorizer, shuttingDownCtx context.Context, recvWg, sendWg *sync.WaitGroup, reportingQueues *reportingQueues, processingQueue processingQueue, metrics *BatchStreamingMetrics, logger logrus.FieldLogger) *StreamHandler {
 	h := &StreamHandler{
+		authenticator:        authenticator,
+		authorizer:           authorizer,
 		shuttingDownCtx:      shuttingDownCtx,
 		logger:               logger,
 		reportingQueues:      reportingQueues,
@@ -57,6 +67,12 @@ func NewStreamHandler(shuttingDownCtx context.Context, recvWg, sendWg *sync.Wait
 }
 
 func (h *StreamHandler) Handle(stream pb.Weaviate_BatchStreamServer) error {
+	ctx := stream.Context()
+	_, err := h.authenticator.PrincipalFromContext(ctx)
+	if err != nil {
+		return fmt.Errorf("authenticate: %w", err)
+	}
+
 	if h.metrics != nil {
 		h.metrics.OnStreamStart()
 		defer h.metrics.OnStreamStop()
@@ -82,7 +98,7 @@ func (h *StreamHandler) Handle(stream pb.Weaviate_BatchStreamServer) error {
 	defer h.teardown(streamId)
 
 	// Ensure that internal goroutines are cancelled when the stream exits for any reason
-	ctx, cancel := context.WithCancel(stream.Context())
+	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	// Channel to communicate receive errors from recv to the send loop
@@ -104,6 +120,10 @@ func (h *StreamHandler) send(ctx context.Context, streamId string, stream pb.Wea
 	shuttingDownDone := h.shuttingDownCtx.Done()
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
+	if err := stream.Send(newBatchStartedMessage()); err != nil {
+		h.logger.WithField("streamId", streamId).WithError(err).Error("failed to send started message")
+		return err
+	}
 	for {
 		if reportingQueue, ok := h.reportingQueues.Get(streamId); ok {
 			select {
@@ -275,6 +295,7 @@ func (h *StreamHandler) recv(ctx context.Context, streamId string, consistencyLe
 				Objects:          request.GetData().GetObjects().GetValues(),
 				References:       request.GetData().GetReferences().GetValues(),
 				Wg:               wg,
+				Ctx:              stream.Context(), // passes any authn information from the stream into the worker for authz
 			}
 			if h.metrics != nil {
 				h.metrics.OnStreamRequest(float64(len(h.processingQueue)) / float64(cap(h.processingQueue)))

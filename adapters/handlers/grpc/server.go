@@ -42,6 +42,7 @@ import (
 
 	v0 "github.com/weaviate/weaviate/adapters/handlers/grpc/v0"
 	v1 "github.com/weaviate/weaviate/adapters/handlers/grpc/v1"
+	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/auth"
 	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/batch"
 )
 
@@ -97,6 +98,15 @@ func CreateGRPCServer(state *state.State, options ...grpc.ServerOption) (*grpc.S
 	if len(interceptors) > 0 {
 		o = append(o, grpc.ChainUnaryInterceptor(interceptors...))
 	}
+
+	allowAnonymous := state.ServerConfig.Config.Authentication.AnonymousAccess.Enabled
+	authComposer := composer.New(
+		state.ServerConfig.Config.Authentication,
+		state.APIKey,
+		state.OIDC,
+	)
+
+	o = append(o, grpc.ChainStreamInterceptor(makeAuthStreamInterceptor(auth.NewHandler(allowAnonymous, authComposer))))
 
 	shutdown := batch.NewShutdown(context.Background(), v1.NUMCPU)
 	s := grpc.NewServer(o...)
@@ -172,6 +182,16 @@ func makeAuthInterceptor() grpc.UnaryServerInterceptor {
 		}
 
 		return resp, err
+	}
+}
+
+func makeAuthStreamInterceptor(auth *auth.Handler) grpc.StreamServerInterceptor {
+	return func(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+		_, err := auth.PrincipalFromContext(ss.Context())
+		if err != nil {
+			return status.Error(codes.Unauthenticated, err.Error())
+		}
+		return handler(srv, ss)
 	}
 }
 
