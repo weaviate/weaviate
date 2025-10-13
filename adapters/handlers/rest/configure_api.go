@@ -42,6 +42,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/health"
 	"google.golang.org/grpc/health/grpc_health_v1"
 
 	"github.com/weaviate/fgprof"
@@ -150,6 +151,10 @@ import (
 const (
 	MinimumRequiredContextionaryVersion = "1.0.2"
 	ReadinessProbeLeadTime              = 2 * time.Second
+	GrpcShutdownTimeout                 = 60 * time.Second
+	InternalServerTimeout               = 60 * time.Second
+	ClusterServiceTimeout               = 60 * time.Second
+	TelemetryStopTimeout                = 10 * time.Second
 )
 
 func makeConfigureServer(appState *state.State) func(*http.Server, string, string) {
@@ -910,14 +915,53 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 				backupScheduler.CleanupUnfinishedBackups(ctx)
 			}, appState.Logger)
 	}
-	api.PreServerShutdown = func() {
+	api.PreServerShutdown = makeServerPreShutdownHandler(appState, shutdownCoordinator, grpcHealthServer)
+	api.ServerShutdown = makeServerShutdownHandler(appState, grpcServer, grpcHealthServer, telemeter)
+	startGrpcServer(grpcServer, appState)
+	return setupGlobalMiddleware(api.Serve(setupMiddlewares))
+}
+
+// makeServerPreShutdownHandler creates the pre-shutdown handler function.
+// This handler runs before the main shutdown sequence to prepare the server
+// for graceful termination:
+//  1. Notify the shutdown coordinator to reject new requests
+//  2. Mark gRPC health check as NOT_SERVING
+//  3. Sleep for ReadinessProbeLeadTime (2s) to allow load balancers and
+//     orchestrators to detect the shutdown state and stop routing traffic
+//
+// This ensures external systems have time to stop sending new requests before
+// the server begins draining existing connections and shutting down components.
+func makeServerPreShutdownHandler(appState *state.State, shutdownCoordinator *ShutdownCoordinator, grpcHealthServer *health.Server) func() {
+	return func() {
 		appState.Logger.Info("pre-shutdown phase initiated")
 		shutdownCoordinator.NotifyShutdown()
 		grpcHealthServer.SetServingStatus("weaviate", grpc_health_v1.HealthCheckResponse_NOT_SERVING)
+		// NOTE: give the readiness probe some time to detect the shutdown
 		time.Sleep(ReadinessProbeLeadTime)
 		appState.Logger.Info("pre-shutdown phase completed")
 	}
-	api.ServerShutdown = func() {
+}
+
+// makeServerShutdownHandler creates the server shutdown handler function.
+// The shutdown sequence ensures graceful termination of all components:
+//  1. Stop telemetry collection (10s timeout)
+//  2. Cancel ongoing reindexing operations
+//  3. Close distributed task scheduler
+//  4. Gracefully stop the gRPC server with health checks (60s timeout)
+//  5. Flush Sentry events (2s)
+//  6. Close internal server connections (60s timeout)
+//  7. Close cluster service (60s timeout)
+//  8. Close dynamic API key management
+//
+// Each major component gets its own timeout to ensure one slow component
+// doesn't prevent others from shutting down gracefully.
+func makeServerShutdownHandler(
+	appState *state.State,
+	grpcServer *grpc.Server,
+	grpcHealthServer *health.Server,
+	telemeter *telemetry.Telemeter,
+) func() {
+	return func() {
 		if telemetryEnabled(appState) {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
@@ -937,42 +981,60 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			appState.DistributedTaskScheduler.Close()
 		}
 
-		// gracefully stop gRPC server
-		grpcHealthServer.Shutdown()
-		grpcServer.GracefulStop()
+		shutdownGrpcWithTimeout(grpcServer, grpcHealthServer, GrpcShutdownTimeout, appState.Logger)
 
 		if appState.ServerConfig.Config.Sentry.Enabled {
-			sentry.Flush(2 * time.Second)
+			sentry.Flush(TelemetryStopTimeout)
 		}
 
-		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-		defer cancel()
-
-		if err := appState.InternalServer.Close(ctx); err != nil {
+		internalCtx, internalCancel := context.WithTimeout(context.Background(), InternalServerTimeout)
+		defer internalCancel()
+		if err := appState.InternalServer.Close(internalCtx); err != nil {
 			appState.Logger.
 				WithError(err).
 				WithField("action", "shutdown").
-				Errorf("failed to gracefully shutdown")
+				Errorf("failed to gracefully shutdown internal server")
 		}
 
-		if err := appState.ClusterService.Close(ctx); err != nil {
+		clusterCtx, clusterCancel := context.WithTimeout(context.Background(), ClusterServiceTimeout)
+		defer clusterCancel()
+		if err := appState.ClusterService.Close(clusterCtx); err != nil {
 			appState.Logger.
 				WithError(err).
 				WithField("action", "shutdown").
-				Errorf("failed to gracefully shutdown")
+				Errorf("failed to gracefully shutdown cluster service")
 		}
 
 		if err := appState.APIKey.Dynamic.Close(); err != nil {
 			appState.Logger.
 				WithError(err).
 				WithField("action", "shutdown db users").
-				Errorf("failed to gracefully shutdown")
+				Errorf("failed to gracefully shutdown db users")
 		}
 	}
+}
 
-	startGrpcServer(grpcServer, appState)
+// shutdownGrpcWithTimeout handles graceful shutdown of gRPC servers with timeout.
+// It shuts down the health server first, then attempts a graceful stop of the main server.
+// If a graceful stop doesn't complete within the timeout, it forces an immediate stop to avoid
+// hanging forever.
+func shutdownGrpcWithTimeout(server *grpc.Server, healthServer *health.Server, timeout time.Duration, logger logrus.FieldLogger) {
+	healthServer.Shutdown()
+	done := make(chan struct{})
 
-	return setupGlobalMiddleware(api.Serve(setupMiddlewares))
+	enterrors.GoWrapper(func() {
+		server.GracefulStop()
+		close(done)
+	}, logger)
+
+	select {
+	case <-done:
+		logger.Info("gRPC server stopped gracefully")
+	case <-time.After(timeout):
+		logger.WithField("timeout", timeout).
+			Warn("gRPC graceful stop timed out, forcing immediate stop")
+		server.Stop()
+	}
 }
 
 func startBackupScheduler(appState *state.State) *backup.Scheduler {
