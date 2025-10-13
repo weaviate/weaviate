@@ -104,6 +104,8 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 		return errors.Wrap(err, "load commit logger state")
 	}
 
+	h.cachePrefilled.Store(state == nil)
+
 	if state == nil {
 		// nothing to do
 		return nil
@@ -486,9 +488,6 @@ func (h *hnsw) prefillCache() {
 	}
 
 	prefillCacheFunc := func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Minute)
-		defer cancel()
-
 		h.logger.WithFields(logrus.Fields{
 			"action":   "prefill_cache",
 			"duration": 60 * time.Minute,
@@ -502,12 +501,14 @@ func (h *hnsw) prefillCache() {
 				h.compressor.PrefillMultiCache(h.docIDVectors)
 			}
 		} else {
-			err = newVectorCachePrefiller(h.cache, h, h.logger).Prefill(ctx, limit)
+			err = newVectorCachePrefiller(h.cache, h, h.logger).Prefill(context.Background(), limit)
 		}
 
 		if err != nil {
 			h.logger.WithError(err).Error("prefill vector cache")
 		}
+
+		h.cachePrefilled.Store(true)
 	}
 
 	if h.waitForCachePrefill {

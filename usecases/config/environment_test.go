@@ -16,6 +16,7 @@ import (
 	"os"
 	"runtime"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -1320,6 +1321,89 @@ func TestParsePositiveFloat(t *testing.T) {
 				if tt.envValue != "" {
 					assert.Contains(t, err.Error(), tt.envName)
 				}
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tt.expected, result)
+			}
+		})
+	}
+}
+
+func TestParsePositiveDuration(t *testing.T) {
+	tests := []struct {
+		name         string
+		envValue     string
+		defaultValue time.Duration
+		expected     time.Duration
+		expectError  bool
+	}{
+		{
+			name:         "valid duration",
+			envValue:     "5s",
+			defaultValue: 1 * time.Second,
+			expected:     5 * time.Second,
+			expectError:  false,
+		},
+		{
+			name:         "valid duration with milliseconds",
+			envValue:     "500ms",
+			defaultValue: 1 * time.Second,
+			expected:     500 * time.Millisecond,
+			expectError:  false,
+		},
+		{
+			name:         "valid duration with minutes",
+			envValue:     "2m",
+			defaultValue: 1 * time.Second,
+			expected:     2 * time.Minute,
+			expectError:  false,
+		},
+		{
+			name:         "empty env uses default",
+			envValue:     "",
+			defaultValue: 3 * time.Second,
+			expected:     3 * time.Second,
+			expectError:  false,
+		},
+		{
+			name:         "invalid duration format",
+			envValue:     "invalid",
+			defaultValue: 1 * time.Second,
+			expected:     0,
+			expectError:  true,
+		},
+		{
+			name:         "zero duration not allowed",
+			envValue:     "0s",
+			defaultValue: 1 * time.Second,
+			expected:     0,
+			expectError:  true,
+		},
+		{
+			name:         "negative duration not allowed",
+			envValue:     "-1s",
+			defaultValue: 1 * time.Second,
+			expected:     0,
+			expectError:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Set environment variable
+			if tt.envValue != "" {
+				t.Setenv("TEST_DURATION", tt.envValue)
+			} else {
+				t.Setenv("TEST_DURATION", "")
+			}
+
+			var result time.Duration
+			err := parsePositiveDuration("TEST_DURATION", func(val time.Duration) {
+				result = val
+			}, tt.defaultValue)
+
+			if tt.expectError {
+				assert.Error(t, err)
 			} else {
 				assert.NoError(t, err)
 				assert.Equal(t, tt.expected, result)

@@ -24,6 +24,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	vectorIndex "github.com/weaviate/weaviate/entities/vectorindex/common"
+	"github.com/weaviate/weaviate/entities/vectorindex/flat"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
@@ -165,7 +167,7 @@ func TestIndex_CalculateUnloadedVectorsMetrics(t *testing.T) {
 			})
 
 			mockSchemaReader := schemaUC.NewMockSchemaReader(t)
-			mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readerFunc func(*models.Class, *sharding.State) error) error {
+			mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readerFunc func(*models.Class, *sharding.State) error) error {
 				return readerFunc(class, shardState)
 			}).Maybe()
 
@@ -173,8 +175,8 @@ func TestIndex_CalculateUnloadedVectorsMetrics(t *testing.T) {
 			mockSchema := schemaUC.NewMockSchemaGetter(t)
 			mockSchema.EXPECT().GetSchemaSkipAuth().Maybe().Return(fakeSchema)
 			mockSchema.EXPECT().ReadOnlyClass(tt.className).Maybe().Return(class)
-			mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
-				return readFunc(class, shardState)
+			mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readerFunc func(*models.Class, *sharding.State) error) error {
+				return readerFunc(class, shardState)
 			}).Maybe()
 			mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: []*models.Class{class}}).Maybe()
 			mockSchema.EXPECT().NodeName().Maybe().Return("test-node")
@@ -284,7 +286,11 @@ func TestIndex_CalculateUnloadedVectorsMetrics(t *testing.T) {
 				require.NotNil(t, shard)
 
 				// Get active metrics BEFORE releasing the shard
-				vectorStorageSize, err := shard.VectorStorageSize(ctx)
+				lazyShard, ok := shard.(*LazyLoadShard)
+				require.True(t, ok)
+				require.NoError(t, lazyShard.Load(ctx))
+				vectorStorageSize, uncompressed, err := lazyShard.shard.VectorStorageSize(ctx)
+				vectorStorageSize += uncompressed
 				require.NoError(t, err)
 				dimensions, err := shard.Dimensions(ctx, "")
 				require.NoError(t, err)
@@ -337,7 +343,10 @@ func TestIndex_CalculateUnloadedVectorsMetrics(t *testing.T) {
 				require.NotNil(t, shard)
 
 				// Get active metrics BEFORE releasing the shard
-				vectorStorageSize, err := shard.VectorStorageSize(ctx)
+				lazyShard, ok := shard.(*LazyLoadShard)
+				require.True(t, ok)
+				require.NoError(t, lazyShard.Load(ctx))
+				vectorStorageSize, _, err := lazyShard.shard.VectorStorageSize(ctx)
 				require.NoError(t, err)
 				dimensions, err := shard.Dimensions(ctx, "")
 				require.NoError(t, err)
@@ -464,7 +473,7 @@ func TestIndex_CalculateUnloadedDimensionsUsage(t *testing.T) {
 			})
 
 			mockSchemaReader := schemaUC.NewMockSchemaReader(t)
-			mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readerFunc func(*models.Class, *sharding.State) error) error {
+			mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readerFunc func(*models.Class, *sharding.State) error) error {
 				return readerFunc(class, shardState)
 			}).Maybe()
 
@@ -472,7 +481,7 @@ func TestIndex_CalculateUnloadedDimensionsUsage(t *testing.T) {
 			mockSchema := schemaUC.NewMockSchemaGetter(t)
 			mockSchema.EXPECT().GetSchemaSkipAuth().Maybe().Return(fakeSchema)
 			mockSchema.EXPECT().ReadOnlyClass(tt.className).Maybe().Return(class)
-			mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+			mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
 				return readFunc(class, shardState)
 			}).Maybe()
 			mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: []*models.Class{class}}).Maybe()
@@ -561,7 +570,11 @@ func TestIndex_CalculateUnloadedDimensionsUsage(t *testing.T) {
 				require.NotNil(t, shard)
 
 				// Get active metrics BEFORE releasing the shard
-				dimensionality, err := shard.DimensionsUsage(ctx, tt.targetVector)
+				lazyShard, ok := shard.(*LazyLoadShard)
+				require.True(t, ok)
+				require.NoError(t, lazyShard.Load(ctx))
+
+				dimensionality, err := lazyShard.shard.DimensionsUsage(ctx, tt.targetVector)
 				require.NoError(t, err)
 
 				assert.Equal(t, tt.expectedCount, dimensionality.Count)
@@ -588,7 +601,11 @@ func TestIndex_CalculateUnloadedDimensionsUsage(t *testing.T) {
 				require.NotNil(t, shard)
 
 				// Get active metrics BEFORE releasing the shard
-				dimensionality, err := shard.DimensionsUsage(ctx, tt.targetVector)
+				lazyShard, ok := shard.(*LazyLoadShard)
+				require.True(t, ok)
+				require.NoError(t, lazyShard.Load(ctx))
+
+				dimensionality, err := lazyShard.shard.DimensionsUsage(ctx, tt.targetVector)
 				require.NoError(t, err)
 
 				assert.Equal(t, tt.expectedCount, dimensionality.Count)
@@ -641,6 +658,7 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 		MultiTenancyConfig: &models.MultiTenancyConfig{
 			Enabled: true,
 		},
+		VectorConfig: map[string]models.VectorConfig{"": {VectorIndexConfig: flat.UserConfig{Distance: vectorIndex.DistanceCosine}}},
 	}
 
 	// Create fake schema
@@ -675,7 +693,7 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 	})
 
 	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
-	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readerFunc func(*models.Class, *sharding.State) error) error {
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readerFunc func(*models.Class, *sharding.State) error) error {
 		return readerFunc(class, shardState)
 	}).Maybe()
 	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: []*models.Class{class}}).Maybe()
@@ -684,8 +702,8 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 	mockSchema := schemaUC.NewMockSchemaGetter(t)
 	mockSchema.EXPECT().GetSchemaSkipAuth().Maybe().Return(fakeSchema)
 	mockSchema.EXPECT().ReadOnlyClass(className).Maybe().Return(class)
-	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
-		return readFunc(class, shardState)
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readerFunc func(*models.Class, *sharding.State) error) error {
+		return readerFunc(class, shardState)
 	}).Maybe()
 	mockSchema.EXPECT().NodeName().Maybe().Return("test-node")
 	mockSchema.EXPECT().TenantsShards(ctx, className, tenantNamePopulated).Maybe().
@@ -742,9 +760,6 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	// Wait for indexing to complete
-	time.Sleep(1 * time.Second)
-
 	// Vector dimensions are always aggregated from nodeWideMetricsObserver,
 	// but we don't need DB for this test. Gimicky, but it does the job.
 	db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
@@ -755,9 +770,13 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, activeShard)
 
-	activeVectorStorageSize, err := activeShard.VectorStorageSize(ctx)
+	shard, ok := activeShard.(*Shard)
+	require.True(t, ok)
+	activeVectorStorageSize, uncompressed, err := shard.VectorStorageSize(ctx)
+	activeVectorStorageSize += uncompressed
+
 	require.NoError(t, err)
-	dimensionality, err := activeShard.DimensionsUsage(ctx, "")
+	dimensionality, err := shard.DimensionsUsage(ctx, "")
 	require.NoError(t, err)
 	activeObjectCount, err := activeShard.ObjectCount(ctx)
 	require.NoError(t, err)
@@ -788,6 +807,13 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 	// Shut down the entire index to ensure all store metadata is persisted
 	require.NoError(t, index.Shutdown(ctx))
 
+	mockSchemaReader = schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().Read(className, mock.Anything, mock.Anything).RunAndReturn(
+		func(_ string, _ bool, fn func(*models.Class, *sharding.State) error) error {
+			return fn(nil, shardState)
+		},
+	)
+
 	// Create a new index instance to test inactive calculation methods
 	// This ensures we're testing the inactive methods on a fresh index that reads from disk
 	newIndex, err := NewIndex(ctx, IndexConfig{
@@ -812,23 +838,23 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 	newIndex.shards.LoadAndDelete(tenantNamePopulated)
 
 	// Compare active and inactive metrics
-	inactiveVectorStorageSizeOfPopulatedTenant, err := newIndex.CalculateUnloadedVectorsMetrics(ctx, tenantNamePopulated)
+	collectionUsage, err := newIndex.usageForCollection(ctx, time.Nanosecond, true, class.VectorConfig)
 	require.NoError(t, err)
-	assert.Equal(t, activeVectorStorageSize, inactiveVectorStorageSizeOfPopulatedTenant, "Active and inactive vector storage size should be very similar")
+	for _, tenant := range collectionUsage.Shards {
+		if tenant.Name == tenantNamePopulated {
+			assert.Equal(t, uint64(activeVectorStorageSize), tenant.VectorStorageBytes, "Active and inactive vector storage size should be very similar")
 
-	inactiveDimensionalityOfPopulatedTenant, err := newIndex.CalculateUnloadedDimensionsUsage(ctx, tenantNamePopulated, "")
+			assert.Equal(t, objectCount, tenant.NamedVectors[0].Dimensionalities[0].Count, "Active and inactive object count should match")
+			assert.Equal(t, vectorDimensions, tenant.NamedVectors[0].Dimensionalities[0].Dimensions, "Active and inactive dimensions should match")
+		} else {
+			// empty tenant
+			assert.Equal(t, tenantNameEmpty, tenant.Name)
+			assert.Equal(t, uint64(0), tenant.VectorStorageBytes, "Empty tenant should have 0 vector storage size")
+			assert.Len(t, tenant.NamedVectors, 0)
+			assert.Equal(t, int64(0), tenant.ObjectsCount)
+		}
+	}
 	require.NoError(t, err)
-	assert.Equal(t, objectCount, inactiveDimensionalityOfPopulatedTenant.Count, "Active and inactive object count should match")
-	assert.Equal(t, vectorDimensions, inactiveDimensionalityOfPopulatedTenant.Dimensions, "Active and inactive dimensions should match")
-
-	inactiveVectorStorageSizeOfEmptyTenant, err := newIndex.CalculateUnloadedVectorsMetrics(ctx, tenantNameEmpty)
-	require.NoError(t, err)
-	assert.Equal(t, int64(0), inactiveVectorStorageSizeOfEmptyTenant)
-
-	inactiveDimensionalityOfEmptyTenant, err := newIndex.CalculateUnloadedDimensionsUsage(ctx, tenantNameEmpty, "")
-	require.NoError(t, err)
-	assert.Equal(t, 0, inactiveDimensionalityOfEmptyTenant.Count)
-	assert.Equal(t, 0, inactiveDimensionalityOfEmptyTenant.Dimensions)
 
 	// Verify all mock expectations were met
 	mockSchema.AssertExpectations(t)

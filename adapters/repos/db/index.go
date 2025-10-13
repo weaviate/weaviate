@@ -16,7 +16,6 @@ import (
 	"fmt"
 	"os"
 	"path"
-	"path/filepath"
 	"runtime"
 	"runtime/debug"
 	"slices"
@@ -46,11 +45,9 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
-	usagetypes "github.com/weaviate/weaviate/cluster/usage/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/autocut"
-	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -420,7 +417,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 	var localShards []shardInfo
 	className := i.Config.ClassName.String()
 
-	err := i.schemaReader.Read(className, func(_ *models.Class, state *sharding.State) error {
+	err := i.schemaReader.Read(className, true, func(_ *models.Class, state *sharding.State) error {
 		if state == nil {
 			return fmt.Errorf("unable to retrieve sharding state for class %s", className)
 		}
@@ -632,6 +629,18 @@ func (i *Index) ForEachShardConcurrently(f func(name string, shard ShardLike) er
 		return nil
 	}
 	return i.shards.RangeConcurrently(i.logger, f)
+}
+
+func (i *Index) ForEachLoadedShardConcurrently(f func(name string, shard ShardLike) error) error {
+	return i.shards.RangeConcurrently(i.logger, func(name string, shard ShardLike) error {
+		// Skip lazy loaded shard which are not loaded
+		if asLazyLoadShard, ok := shard.(*LazyLoadShard); ok {
+			if !asLazyLoadShard.isLoaded() {
+				return nil
+			}
+		}
+		return f(name, shard)
+	})
 }
 
 // Iterate over all objects in the shard, applying the callback function to each one.  Adding or removing objects during iteration is not supported.
@@ -3146,188 +3155,188 @@ func (i *Index) tenantDirExists(tenantName string) (bool, error) {
 }
 
 // CalculateUnloadedObjectsMetrics calculates both object count and storage size for a cold tenant without loading it into memory
-func (i *Index) CalculateUnloadedObjectsMetrics(ctx context.Context, tenantName string) (usagetypes.ObjectUsage, error) {
-	// Obtain a lock that prevents tenant activation
-	i.shardCreateLocks.Lock(tenantName)
-	defer i.shardCreateLocks.Unlock(tenantName)
+// func (i *Index) CalculateUnloadedObjectsMetrics(ctx context.Context, tenantName string) (usagetypes.ObjectUsage, error) {
+// 	// Obtain a lock that prevents tenant activation
+// 	i.shardCreateLocks.Lock(tenantName)
+// 	defer i.shardCreateLocks.Unlock(tenantName)
 
-	// check if created in the meantime by concurrent call
-	if shard := i.shards.Loaded(tenantName); shard != nil {
-		size, err := shard.ObjectStorageSize(ctx)
-		if err != nil {
-			return usagetypes.ObjectUsage{}, err
-		}
+// 	// check if created in the meantime by concurrent call
+// 	if shard := i.shards.Loaded(tenantName); shard != nil {
+// 		size, err := shard.ObjectStorageSize(ctx)
+// 		if err != nil {
+// 			return usagetypes.ObjectUsage{}, err
+// 		}
 
-		count, err := shard.ObjectCountAsync(ctx)
-		if err != nil {
-			return usagetypes.ObjectUsage{}, err
-		}
+// 		count, err := shard.ObjectCountAsync(ctx)
+// 		if err != nil {
+// 			return usagetypes.ObjectUsage{}, err
+// 		}
 
-		return usagetypes.ObjectUsage{
-			Count:        count,
-			StorageBytes: size,
-		}, nil
-	}
+// 		return usagetypes.ObjectUsage{
+// 			Count:        count,
+// 			StorageBytes: size,
+// 		}, nil
+// 	}
 
-	if ok, err := i.tenantDirExists(tenantName); err != nil {
-		return usagetypes.ObjectUsage{}, err
-	} else if !ok {
-		return usagetypes.ObjectUsage{Count: 0, StorageBytes: 0}, nil
-	}
+// 	if ok, err := i.tenantDirExists(tenantName); err != nil {
+// 		return usagetypes.ObjectUsage{}, err
+// 	} else if !ok {
+// 		return usagetypes.ObjectUsage{Count: 0, StorageBytes: 0}, nil
+// 	}
 
-	// Parse all .cna files in the object store and sum them up
-	totalObjectCount := int64(0)
-	totalDiskSize := int64(0)
+// 	// Parse all .cna files in the object store and sum them up
+// 	totalObjectCount := int64(0)
+// 	totalDiskSize := int64(0)
 
-	// Use a single walk to avoid multiple filepath.Walk calls and reduce file descriptors
-	if err := filepath.Walk(shardPathObjectsLSM(i.path(), tenantName), func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
+// 	// Use a single walk to avoid multiple filepath.Walk calls and reduce file descriptors
+// 	if err := filepath.Walk(shardPathObjectsLSM(i.path(), tenantName), func(path string, info os.FileInfo, err error) error {
+// 		if err != nil {
+// 			return err
+// 		}
 
-		// Only count files, not directories
-		if !info.IsDir() {
-			totalDiskSize += info.Size()
+// 		// Only count files, not directories
+// 		if !info.IsDir() {
+// 			totalDiskSize += info.Size()
 
-			// Look for .cna files (net count additions)
-			if strings.HasSuffix(info.Name(), lsmkv.CountNetAdditionsFileSuffix) {
-				count, err := lsmkv.ReadCountNetAdditionsFile(path)
-				if err != nil {
-					i.logger.WithField("path", path).WithError(err).Warn("failed to read .cna file")
-					return err
-				}
-				totalObjectCount += count
-			}
+// 			// Look for .cna files (net count additions)
+// 			if strings.HasSuffix(info.Name(), lsmkv.CountNetAdditionsFileSuffix) {
+// 				count, err := lsmkv.ReadCountNetAdditionsFile(path)
+// 				if err != nil {
+// 					i.logger.WithField("path", path).WithError(err).Warn("failed to read .cna file")
+// 					return err
+// 				}
+// 				totalObjectCount += count
+// 			}
 
-			// Look for .metadata files (bloom filters + count net additions)
-			if strings.HasSuffix(info.Name(), lsmkv.MetadataFileSuffix) {
-				count, err := lsmkv.ReadObjectCountFromMetadataFile(path)
-				if err != nil {
-					i.logger.WithField("path", path).WithError(err).Warn("failed to read .metadata file")
-					return err
-				}
-				totalObjectCount += count
-			}
-		}
+// 			// Look for .metadata files (bloom filters + count net additions)
+// 			if strings.HasSuffix(info.Name(), lsmkv.MetadataFileSuffix) {
+// 				count, err := lsmkv.ReadObjectCountFromMetadataFile(path)
+// 				if err != nil {
+// 					i.logger.WithField("path", path).WithError(err).Warn("failed to read .metadata file")
+// 					return err
+// 				}
+// 				totalObjectCount += count
+// 			}
+// 		}
 
-		return nil
-	}); err != nil {
-		return usagetypes.ObjectUsage{}, err
-	}
+// 		return nil
+// 	}); err != nil {
+// 		return usagetypes.ObjectUsage{}, err
+// 	}
 
-	// If we can't determine object count, return the disk size as fallback
-	return usagetypes.ObjectUsage{
-		Count:        totalObjectCount,
-		StorageBytes: totalDiskSize,
-	}, nil
-}
+// 	// If we can't determine object count, return the disk size as fallback
+// 	return usagetypes.ObjectUsage{
+// 		Count:        totalObjectCount,
+// 		StorageBytes: totalDiskSize,
+// 	}, nil
+// }
 
 // CalculateUnloadedDimensionsUsage calculates dimensions and object count for an unloaded shard without loading it into memory
-func (i *Index) CalculateUnloadedDimensionsUsage(ctx context.Context, tenantName, targetVector string,
-) (usagetypes.Dimensionality, error) {
-	// Obtain a lock that prevents tenant activation
-	i.shardCreateLocks.Lock(tenantName)
-	defer i.shardCreateLocks.Unlock(tenantName)
+// func (i *Index) CalculateUnloadedDimensionsUsage(ctx context.Context, tenantName, targetVector string,
+// ) (usagetypes.Dimensionality, error) {
+// 	// Obtain a lock that prevents tenant activation
+// 	i.shardCreateLocks.Lock(tenantName)
+// 	defer i.shardCreateLocks.Unlock(tenantName)
 
-	// check if created in the meantime by concurrent call
-	if shard := i.shards.Loaded(tenantName); shard != nil {
-		return shard.DimensionsUsage(ctx, targetVector)
-	}
+// 	// check if created in the meantime by concurrent call
+// 	if shard := i.shards.Loaded(tenantName); shard != nil {
+// 		return shard.DimensionsUsage(ctx, targetVector)
+// 	}
 
-	if ok, err := i.tenantDirExists(tenantName); err != nil {
-		return usagetypes.Dimensionality{}, err
-	} else if !ok {
-		return usagetypes.Dimensionality{Count: 0, Dimensions: 0}, nil
-	}
+// 	if ok, err := i.tenantDirExists(tenantName); err != nil {
+// 		return usagetypes.Dimensionality{}, err
+// 	} else if !ok {
+// 		return usagetypes.Dimensionality{Count: 0, Dimensions: 0}, nil
+// 	}
 
-	bucketPath := shardPathDimensionsLSM(i.path(), tenantName)
-	strategy, err := lsmkv.DetermineUnloadedBucketStrategyAmong(bucketPath, DimensionsBucketPrioritizedStrategies)
-	if err != nil {
-		return usagetypes.Dimensionality{}, fmt.Errorf("determine dimensions bucket strategy: %w", err)
-	}
+// 	bucketPath := shardPathDimensionsLSM(i.path(), tenantName)
+// 	strategy, err := lsmkv.DetermineUnloadedBucketStrategyAmong(bucketPath, DimensionsBucketPrioritizedStrategies)
+// 	if err != nil {
+// 		return usagetypes.Dimensionality{}, fmt.Errorf("determine dimensions bucket strategy: %w", err)
+// 	}
 
-	bucket, err := lsmkv.NewBucketCreator().NewBucket(ctx,
-		bucketPath,
-		i.path(),
-		i.logger,
-		nil,
-		cyclemanager.NewCallbackGroupNoop(),
-		cyclemanager.NewCallbackGroupNoop(),
-		lsmkv.WithStrategy(strategy),
-	)
-	if err != nil {
-		return usagetypes.Dimensionality{}, err
-	}
-	defer bucket.Shutdown(ctx)
+// 	bucket, err := lsmkv.NewBucketCreator().NewBucket(ctx,
+// 		bucketPath,
+// 		i.path(),
+// 		i.logger,
+// 		nil,
+// 		cyclemanager.NewCallbackGroupNoop(),
+// 		cyclemanager.NewCallbackGroupNoop(),
+// 		lsmkv.WithStrategy(strategy),
+// 	)
+// 	if err != nil {
+// 		return usagetypes.Dimensionality{}, err
+// 	}
+// 	defer bucket.Shutdown(ctx)
 
-	return calcTargetVectorDimensionsFromBucket(ctx, bucket, targetVector)
-}
+// 	return calcTargetVectorDimensionsFromBucket(ctx, bucket, targetVector)
+// }
 
 // CalculateUnloadedVectorsMetrics calculates vector storage size for a cold tenant without loading it into memory
-func (i *Index) CalculateUnloadedVectorsMetrics(ctx context.Context, tenantName string) (int64, error) {
-	// Obtain a lock that prevents tenant activation
-	i.shardCreateLocks.Lock(tenantName)
-	defer i.shardCreateLocks.Unlock(tenantName)
+// func (i *Index) CalculateUnloadedVectorsMetrics(ctx context.Context, tenantName string) (int64, error) {
+// 	// Obtain a lock that prevents tenant activation
+// 	i.shardCreateLocks.Lock(tenantName)
+// 	defer i.shardCreateLocks.Unlock(tenantName)
 
-	// check if created in the meantime by concurrent call
-	if shard := i.shards.Loaded(tenantName); shard != nil {
-		return shard.VectorStorageSize(ctx)
-	}
+// 	// check if created in the meantime by concurrent call
+// 	if shard := i.shards.Loaded(tenantName); shard != nil {
+// 		return shard.VectorStorageSize(ctx)
+// 	}
 
-	if ok, err := i.tenantDirExists(tenantName); err != nil {
-		return 0, err
-	} else if !ok {
-		return 0, nil
-	}
+// 	if ok, err := i.tenantDirExists(tenantName); err != nil {
+// 		return 0, err
+// 	} else if !ok {
+// 		return 0, nil
+// 	}
 
-	totalSize := int64(0)
+// 	totalSize := int64(0)
 
-	// For each target vector, calculate storage size using dimensions bucket and config-based compression
-	for targetVector, config := range i.GetVectorIndexConfigs() {
-		err := func() error {
-			bucketPath := shardPathDimensionsLSM(i.path(), tenantName)
-			strategy, err := lsmkv.DetermineUnloadedBucketStrategyAmong(bucketPath, DimensionsBucketPrioritizedStrategies)
-			if err != nil {
-				return fmt.Errorf("determine dimensions bucket strategy: %w", err)
-			}
+// 	// For each target vector, calculate storage size using dimensions bucket and config-based compression
+// 	for targetVector, config := range i.GetVectorIndexConfigs() {
+// 		err := func() error {
+// 			bucketPath := shardPathDimensionsLSM(i.path(), tenantName)
+// 			strategy, err := lsmkv.DetermineUnloadedBucketStrategyAmong(bucketPath, DimensionsBucketPrioritizedStrategies)
+// 			if err != nil {
+// 				return fmt.Errorf("determine dimensions bucket strategy: %w", err)
+// 			}
 
-			// Get dimensions and object count from the dimensions bucket
-			bucket, err := lsmkv.NewBucketCreator().NewBucket(ctx,
-				bucketPath,
-				i.path(),
-				i.logger,
-				nil,
-				cyclemanager.NewCallbackGroupNoop(),
-				cyclemanager.NewCallbackGroupNoop(),
-				lsmkv.WithStrategy(strategy),
-			)
-			if err != nil {
-				return err
-			}
-			defer bucket.Shutdown(ctx)
+// 			// Get dimensions and object count from the dimensions bucket
+// 			bucket, err := lsmkv.NewBucketCreator().NewBucket(ctx,
+// 				bucketPath,
+// 				i.path(),
+// 				i.logger,
+// 				nil,
+// 				cyclemanager.NewCallbackGroupNoop(),
+// 				cyclemanager.NewCallbackGroupNoop(),
+// 				lsmkv.WithStrategy(strategy),
+// 			)
+// 			if err != nil {
+// 				return err
+// 			}
+// 			defer bucket.Shutdown(ctx)
 
-			dimensionality, err := calcTargetVectorDimensionsFromBucket(ctx, bucket, targetVector)
-			if err != nil {
-				return err
-			}
+// 			dimensionality, err := calcTargetVectorDimensionsFromBucket(ctx, bucket, targetVector)
+// 			if err != nil {
+// 				return err
+// 			}
 
-			if dimensionality.Count != 0 && dimensionality.Dimensions != 0 {
-				// Calculate uncompressed size (float32 = 4 bytes per dimension)
-				uncompressedSize := int64(dimensionality.Count) * int64(dimensionality.Dimensions) * 4
+// 			if dimensionality.Count != 0 && dimensionality.Dimensions != 0 {
+// 				// Calculate uncompressed size (float32 = 4 bytes per dimension)
+// 				uncompressedSize := int64(dimensionality.Count) * int64(dimensionality.Dimensions) * 4
 
-				// For inactive tenants, use vector index config for dimension tracking
-				// This is similar to the original shard dimension tracking approach
-				totalSize += int64(float64(uncompressedSize) / helpers.CompressionRatioFromConfig(config, dimensionality.Dimensions))
-			}
-			return nil
-		}()
-		if err != nil {
-			return 0, err
-		}
-	}
+// 				// For inactive tenants, use vector index config for dimension tracking
+// 				// This is similar to the original shard dimension tracking approach
+// 				totalSize += int64(float64(uncompressedSize) / helpers.CompressionRatioFromConfig(config, dimensionality.Dimensions))
+// 			}
+// 			return nil
+// 		}()
+// 		if err != nil {
+// 			return 0, err
+// 		}
+// 	}
 
-	return totalSize, nil
-}
+// 	return totalSize, nil
+// }
 
 func (i *Index) buildReadRoutingPlan(cl routerTypes.ConsistencyLevel, tenantName string) (routerTypes.ReadRoutingPlan, error) {
 	planOptions := routerTypes.RoutingPlanBuildOptions{

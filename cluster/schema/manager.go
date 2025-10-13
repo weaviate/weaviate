@@ -494,7 +494,7 @@ func (s *SchemaManager) SyncShard(cmd *command.ApplyRequest, schemaOnly bool) er
 			op:           cmd.GetType().String(),
 			updateSchema: func() error { return nil },
 			updateStore: func() error {
-				return s.schema.Read(req.Collection, func(class *models.Class, state *sharding.State) error {
+				return s.schema.Read(req.Collection, true, func(class *models.Class, state *sharding.State) error {
 					physical, ok := state.Physical[req.Shard]
 					// shard does not exist in the sharding state
 					if !ok {

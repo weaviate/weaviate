@@ -161,7 +161,7 @@ func TestReadRoutingWithFSM(t *testing.T) {
 				ReplicationFactor:   1,
 			}
 			schemaReaderMock.EXPECT().Shards(mock.Anything).Return(state.AllPhysicalShards(), nil).Maybe()
-			schemaReaderMock.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+			schemaReaderMock.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
 				class := &models.Class{Class: className}
 				return readFunc(class, state)
 			}).Maybe()
@@ -329,7 +329,7 @@ func TestWriteRoutingWithFSM(t *testing.T) {
 				ReplicationFactor:   1,
 			}
 			schemaReaderMock.EXPECT().Shards(mock.Anything).Return(state.AllPhysicalShards(), nil).Maybe()
-			schemaReaderMock.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+			schemaReaderMock.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
 				class := &models.Class{Class: className}
 				return readFunc(class, state)
 			}).Maybe()

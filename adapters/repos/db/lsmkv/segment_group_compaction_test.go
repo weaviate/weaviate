@@ -2366,7 +2366,7 @@ func compactSegments(sg *SegmentGroup, pair []int, newLevel uint16, resizeFactor
 
 	seg := &segment{
 		path:             left.getPath() + "+" + right.getPath(),
-		size:             int64(float32(left.getSize()+right.getSize()) * resizeFactor),
+		size:             int64(float32(left.Size()+right.Size()) * resizeFactor),
 		level:            newLevel,
 		observeMetaWrite: func(n int64) {},
 	}

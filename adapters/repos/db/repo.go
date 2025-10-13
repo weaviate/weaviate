@@ -29,7 +29,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	clusterReplication "github.com/weaviate/weaviate/cluster/replication"
 	"github.com/weaviate/weaviate/cluster/replication/types"
-	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	usagetypes "github.com/weaviate/weaviate/cluster/usage/types"
 	"github.com/weaviate/weaviate/cluster/utils"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -282,15 +281,6 @@ type Config struct {
 	MaintenanceModeEnabled      func() bool
 }
 
-func (db *DB) GetIndexLike(className schema.ClassName) IndexLike {
-	index := db.GetIndex(className)
-	if index == nil {
-		return nil
-	}
-
-	return index
-}
-
 // GetIndex returns the index if it exists or nil if it doesn't
 // by default it will retry 3 times between 0-150 ms to get the index
 // to handle the eventual consistency.
@@ -451,7 +441,7 @@ func (db *DB) SetNodeSelector(nodeSelector cluster.NodeSelector) {
 	db.nodeSelector = nodeSelector
 }
 
-func (db *DB) SetSchemaReader(schemaReader clusterSchema.SchemaReader) {
+func (db *DB) SetSchemaReader(schemaReader schemaUC.SchemaReader) {
 	db.schemaReader = schemaReader
 }
 
