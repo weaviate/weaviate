@@ -92,7 +92,7 @@ var (
 	ErrShardNotFound = errors.New("shard not found")
 )
 
-// shardMap is a syn.Map which specialized in storing shards
+// shardMap is a sync.Map which specialized in storing shards
 type shardMap sync.Map
 
 // Range calls f sequentially for each key and value present in the map.
@@ -238,6 +238,7 @@ type Index struct {
 	vectorIndexUserConfigLock sync.Mutex
 	vectorIndexUserConfig     schemaConfig.VectorIndexConfig
 	vectorIndexUserConfigs    map[string]schemaConfig.VectorIndexConfig
+	SPFreshEnabled            bool
 
 	partitioningEnabled bool
 
@@ -375,6 +376,7 @@ func NewIndex(
 		router:                  router,
 		shardResolver:           shardResolver,
 		bitmapBufPool:           bitmapBufPool,
+		SPFreshEnabled:          cfg.SPFreshEnabled,
 	}
 
 	getDeletionStrategy := func() string {
@@ -810,6 +812,8 @@ type IndexConfig struct {
 	QuerySlowLogThreshold  *configRuntime.DynamicValue[time.Duration]
 	InvertedSorterDisabled *configRuntime.DynamicValue[bool]
 	MaintenanceModeEnabled func() bool
+
+	SPFreshEnabled bool
 }
 
 func indexID(class schema.ClassName) string {
@@ -3237,4 +3241,26 @@ func (i *Index) buildReadRoutingPlan(cl routerTypes.ConsistencyLevel, tenantName
 	}
 
 	return readPlan, nil
+}
+
+func (i *Index) DebugRequantizeIndex(ctx context.Context, shardName, targetVector string) error {
+	shard, release, err := i.GetShard(ctx, shardName)
+	if err != nil {
+		return err
+	}
+	if shard == nil {
+		return errors.New("shard not found")
+	}
+	defer release()
+
+	// Repair in the background
+	enterrors.GoWrapper(func() {
+		err := shard.RequantizeIndex(context.Background(), targetVector)
+		if err != nil {
+			i.logger.WithField("shard", shardName).WithError(err).Error("failed to requantize vector index")
+			return
+		}
+	}, i.logger)
+
+	return nil
 }

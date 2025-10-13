@@ -192,6 +192,7 @@ type ShardLike interface {
 	// Debug methods
 	DebugResetVectorIndex(ctx context.Context, targetVector string) error
 	RepairIndex(ctx context.Context, targetVector string) error
+	RequantizeIndex(ctx context.Context, targetVector string) error
 }
 
 type onAddToPropertyValueIndex func(shard *Shard, docID uint64, property *inverted.Property) error
@@ -292,6 +293,8 @@ type Shard struct {
 
 	// shutdownRequested marks shard as requested for shutdown
 	shutdownRequested atomic.Bool
+
+	SPFreshEnabled bool
 }
 
 func (s *Shard) ID() string {
@@ -312,7 +315,7 @@ func (s *Shard) pathHashTree() string {
 
 func (s *Shard) vectorIndexID(targetVector string) string {
 	if targetVector != "" {
-		return fmt.Sprintf("vectors_%s", targetVector)
+		return fmt.Sprintf("%s_%s", helpers.VectorsBucketLSM, targetVector)
 	}
 	return "main"
 }

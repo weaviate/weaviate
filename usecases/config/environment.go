@@ -465,6 +465,10 @@ func FromEnv(config *Config) error {
 	}
 	config.DefaultQuantization = runtime.NewDynamicValue(defaultQuantization)
 
+	if entcfg.Enabled(os.Getenv("EXPERIMENTAL_SPFRESH_ENABLED")) {
+		config.SPFreshEnabled = true
+	}
+
 	if entcfg.Enabled(os.Getenv("INDEX_RANGEABLE_IN_MEMORY")) {
 		config.Persistence.IndexRangeableInMemory = true
 	}

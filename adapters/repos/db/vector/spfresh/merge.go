@@ -77,7 +77,12 @@ func (s *SPFresh) doMerge(postingID uint64) error {
 	s.logger.WithField("postingID", postingID).Debug("Merging posting")
 
 	var markedAsDone bool
-	s.postingLocks.Lock(postingID)
+	if !s.postingLocks.TryLock(postingID) {
+		// another merge operation is in progress for this posting
+		// re-enqueue the operation to be processed later
+		s.mergeList.done(postingID) // remove from the in-progress list
+		return s.enqueueMerge(s.ctx, postingID)
+	}
 	defer func() {
 		if !markedAsDone {
 			s.postingLocks.Unlock(postingID)
@@ -106,10 +111,6 @@ func (s *SPFresh) doMerge(postingID uint64) error {
 
 	// garbage collect the deleted vectors
 	newPosting := p.GarbageCollect(s.VersionMap)
-	vectorSet := make(map[uint64]struct{})
-	for _, v := range p.Iter() {
-		vectorSet[v.ID()] = struct{}{}
-	}
 	prevLen := newPosting.Len()
 
 	// skip if the posting is big enough
@@ -136,6 +137,11 @@ func (s *SPFresh) doMerge(postingID uint64) error {
 		return nil
 	}
 
+	vectorSet := make(map[uint64]struct{})
+	for _, v := range p.Iter() {
+		vectorSet[v.ID()] = struct{}{}
+	}
+
 	// get posting centroid
 	oldCentroid := s.SPTAG.Get(postingID)
 	if oldCentroid == nil {
@@ -148,7 +154,7 @@ func (s *SPFresh) doMerge(postingID uint64) error {
 		return errors.Wrapf(err, "failed to search for nearest centroid for posting %d", postingID)
 	}
 
-	if len(nearest) <= 1 {
+	if nearest.Len() <= 1 {
 		s.logger.WithField("postingID", postingID).
 			Debug("No candidates found for merge operation, skipping")
 
@@ -164,30 +170,30 @@ func (s *SPFresh) doMerge(postingID uint64) error {
 	}
 
 	// first centroid is the query centroid, the rest are candidates for merging
-	for i := 1; i < len(nearest); i++ {
+	for candidateID := range nearest.Iter() {
 		// check if the combined size of the postings is within limits
-		count := s.PostingSizes.Get(nearest[i].ID)
-		if int(count)+prevLen > int(s.config.MaxPostingSize) || s.mergeList.contains(nearest[i].ID) {
+		count := s.PostingSizes.Get(candidateID)
+		if int(count)+prevLen > int(s.config.MaxPostingSize) || s.mergeList.contains(candidateID) {
 			continue // Skip this candidate
 		}
 
 		// lock the candidate posting to ensure no concurrent modifications
 		// note: the candidate lock might be the same as the current posting lock
 		// so we need to ensure we don't deadlock
-		if s.postingLocks.Hash(postingID) != s.postingLocks.Hash(nearest[i].ID) {
+		if s.postingLocks.Hash(postingID) != s.postingLocks.Hash(candidateID) {
 			// lock the candidate posting
-			s.postingLocks.Lock(nearest[i].ID)
+			s.postingLocks.Lock(candidateID)
 			defer func() {
 				if !markedAsDone {
-					s.postingLocks.Unlock(nearest[i].ID)
+					s.postingLocks.Unlock(candidateID)
 				}
 			}()
 		}
 
 		// get the candidate posting
-		candidate, err := s.Store.Get(s.ctx, nearest[i].ID)
+		candidate, err := s.Store.Get(s.ctx, candidateID)
 		if err != nil {
-			return errors.Wrapf(err, "failed to get candidate posting %d for merge operation on posting %d", nearest[i].ID, postingID)
+			return errors.Wrapf(err, "failed to get candidate posting %d for merge operation on posting %d", candidateID, postingID)
 		}
 
 		var candidateLen int
@@ -204,10 +210,10 @@ func (s *SPFresh) doMerge(postingID uint64) error {
 		}
 
 		// delete the smallest posting and update the large posting
-		smallID, largeID := postingID, nearest[i].ID
+		smallID, largeID := postingID, candidateID
 		smallPosting := p
 		if prevLen > candidateLen {
-			smallID, largeID = nearest[i].ID, postingID
+			smallID, largeID = candidateID, postingID
 			smallPosting = candidate
 		}
 
@@ -229,8 +235,8 @@ func (s *SPFresh) doMerge(postingID uint64) error {
 
 		// mark the operation as done and unlock everything
 		markedAsDone = true
-		if s.postingLocks.Hash(postingID) != s.postingLocks.Hash(nearest[i].ID) {
-			s.postingLocks.Unlock(nearest[i].ID)
+		if s.postingLocks.Hash(postingID) != s.postingLocks.Hash(candidateID) {
+			s.postingLocks.Unlock(candidateID)
 		}
 		s.postingLocks.Unlock(postingID)
 
