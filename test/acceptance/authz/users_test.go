@@ -806,8 +806,10 @@ func TestGetLastUsageMultinode(t *testing.T) {
 		require.Less(t, user.LastUsedAt, time.Now())
 
 		// shutdown node, its login time should be transferred to other nodes
-		shutdownTimeout := 10 * time.Minute
-		err := firstNode.Container().Stop(ctx, &shutdownTimeout)
+		shutdownTimeout := 60 * time.Second
+		stopCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout+15*time.Second)
+		defer cancel()
+		err := firstNode.Container().Stop(stopCtx, &shutdownTimeout)
 		require.NoError(t, err)
 
 		// wait for the container to actually stop
