@@ -133,7 +133,7 @@ func NewDeleteRoleBadRequest() *DeleteRoleBadRequest {
 /*
 DeleteRoleBadRequest describes a response with status code 400, with default header values.
 
-Bad request
+Malformed request.
 */
 type DeleteRoleBadRequest struct {
 	Payload *models.ErrorResponse
