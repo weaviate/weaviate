@@ -66,6 +66,7 @@ func CreateGRPCServer(state *state.State, options ...grpc.ServerOption) (*grpc.S
 
 	var interceptors []grpc.UnaryServerInterceptor
 
+	interceptors = append(interceptors, makeShutdownCheckInterceptor(state))
 	interceptors = append(interceptors, makeAuthInterceptor())
 
 	// If sentry is enabled add automatic spans on gRPC requests
@@ -138,6 +139,34 @@ func makeMetricsInterceptor(logger logrus.FieldLogger, metrics *monitoring.Prome
 
 		return resp, err
 	}
+}
+
+func makeShutdownCheckInterceptor(state *state.State) grpc.UnaryServerInterceptor {
+	return func(
+		ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler,
+	) (any, error) {
+		// Skip health check service - it has its own shutdown handling via SetServingStatus
+		// Health checks use grpc.health.v1.Health service which is handled separately
+		if isHealthCheckService(info.FullMethod) {
+			return handler(ctx, req)
+		}
+
+		if state.IsShuttingDown() {
+			state.Logger.WithField("action", "grpc_shutdown_reject").
+				WithField("method", info.FullMethod).
+				Debug("rejecting gRPC request during shutdown")
+			return nil, status.Error(codes.Unavailable, "server is shutting down")
+		}
+
+		return handler(ctx, req)
+	}
+}
+
+// isHealthCheckService checks if the method belongs to the gRPC health check service.
+// The health service has its own shutdown handling via SetServingStatus and should not
+// be intercepted by the general shutdown check.
+func isHealthCheckService(fullMethod string) bool {
+	return strings.HasPrefix(fullMethod, "/"+grpc_health_v1.Health_ServiceDesc.ServiceName+"/")
 }
 
 func makeAuthInterceptor() grpc.UnaryServerInterceptor {
