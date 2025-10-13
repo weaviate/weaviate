@@ -944,6 +944,9 @@ func makeServerPreShutdownHandler(appState *state.State, shutdownCoordinator *Sh
 		// NOTE: give the readiness probe some time to detect the shutdown
 		time.Sleep(ReadinessProbeLeadTime)
 		appState.Logger.Info("pre-shutdown phase completed")
+		if err := appState.Cluster.Leave(); err != nil {
+			appState.Logger.WithError(err).Error("leave node from cluster")
+		}
 	}
 }
 
