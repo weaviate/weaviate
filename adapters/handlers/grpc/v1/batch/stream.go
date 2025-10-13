@@ -77,6 +77,10 @@ func (h *StreamHandler) Handle(stream pb.Weaviate_BatchStreamServer) error {
 		return fmt.Errorf("authenticate: %w", err)
 	}
 
+	if h.shuttingDownCtx.Err() != nil {
+		return errShutdown(fmt.Errorf("not accepting new streams: %w", h.shuttingDownCtx.Err()))
+	}
+
 	if h.metrics != nil {
 		h.metrics.OnStreamStart()
 		defer h.metrics.OnStreamStop()

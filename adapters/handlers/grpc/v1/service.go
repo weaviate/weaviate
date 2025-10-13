@@ -61,11 +61,11 @@ type Service struct {
 func NewService(traverser *traverser.Traverser, authComposer composer.TokenFunc,
 	allowAnonymousAccess bool, schemaManager *schemaManager.Manager,
 	batchManager *objects.BatchManager, config *config.Config, authorization authorization.Authorizer,
-	logger logrus.FieldLogger, shutdown *batch.Shutdown,
-) *Service {
+	logger logrus.FieldLogger,
+) (*Service, batch.Drain) {
 	authenticator := auth.NewHandler(allowAnonymousAccess, authComposer)
 	batchHandler := batch.NewHandler(authorization, batchManager, logger, authenticator, schemaManager)
-	batchStreamHandler := batch.Start(authenticator, authorization, batchHandler, prometheus.DefaultRegisterer, shutdown, NUMCPU, shutdown.ProcessingQueue, logger)
+	batchStreamHandler, batchDrain := batch.Start(authenticator, authorization, batchHandler, prometheus.DefaultRegisterer, NUMCPU, logger)
 	return &Service{
 		traverser:            traverser,
 		authComposer:         authComposer,
@@ -78,7 +78,7 @@ func NewService(traverser *traverser.Traverser, authComposer composer.TokenFunc,
 		authenticator:        authenticator,
 		batchHandler:         batchHandler,
 		batchStreamHandler:   batchStreamHandler,
-	}
+	}, batchDrain
 }
 
 func (s *Service) Aggregate(ctx context.Context, req *pb.AggregateRequest) (*pb.AggregateReply, error) {

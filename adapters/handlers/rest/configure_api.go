@@ -917,7 +917,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		grpcInstrument = monitoring.InstrumentGrpc(appState.GRPCServerMetrics)
 	}
 
-	grpcServer, shutdownDrain := createGrpcServer(appState, grpcInstrument...)
+	grpcServer, batchDrain := createGrpcServer(appState, grpcInstrument...)
 
 	setupMiddlewares := makeSetupMiddlewares(appState)
 	setupGlobalMiddleware := makeSetupGlobalMiddleware(appState, api.Context())
@@ -943,7 +943,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	}
 
 	api.PreServerShutdown = func() {
-		shutdownDrain()
+		batchDrain()
 	}
 
 	api.ServerShutdown = func() {

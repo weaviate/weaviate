@@ -28,7 +28,7 @@ import (
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 )
 
-func TestShutdownHappyPath(t *testing.T) {
+func TestDrainHappyPath(t *testing.T) {
 	ctx := context.Background()
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
@@ -68,14 +68,14 @@ func TestShutdownHappyPath(t *testing.T) {
 	}
 
 	var count int
-	drain := make(chan struct{})
+	shouldDrain := make(chan struct{})
 	mockStream.EXPECT().Recv().RunAndReturn(func() (*pb.BatchStreamRequest, error) {
 		count++
 		switch count {
 		case 1:
 			return newBatchStreamStartRequest(), nil
 		case 2:
-			close(drain)
+			close(shouldDrain)
 			return newBatchStreamObjsRequest(objs), nil
 		case 3:
 			return nil, io.EOF // End the stream
@@ -93,14 +93,13 @@ func TestShutdownHappyPath(t *testing.T) {
 	})).Return(nil).Maybe()
 
 	numWorkers := 1
-	shutdown := batch.NewShutdown(ctx, numWorkers)
-	handler := batch.Start(mockAuthenticator, nil, mockBatcher, nil, shutdown, numWorkers, shutdown.ProcessingQueue, logger)
+	handler, drain := batch.Start(mockAuthenticator, nil, mockBatcher, nil, numWorkers, logger)
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		<-drain
-		shutdown.Drain(logger)
+		<-shouldDrain
+		drain()
 	}()
 	err := handler.Handle(mockStream)
 	require.NotNil(t, err, "handler should return an error")
@@ -109,7 +108,7 @@ func TestShutdownHappyPath(t *testing.T) {
 	wg.Wait()
 }
 
-func TestShutdownAfterBrokenStream(t *testing.T) {
+func TestDrainAfterBrokenStream(t *testing.T) {
 	ctx := context.Background()
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
@@ -170,15 +169,14 @@ func TestShutdownAfterBrokenStream(t *testing.T) {
 	})).Return(nil).Maybe()
 
 	numWorkers := 1
-	shutdown := batch.NewShutdown(ctx, numWorkers)
-	handler := batch.Start(mockAuthenticator, nil, mockBatcher, nil, shutdown, numWorkers, shutdown.ProcessingQueue, logger)
+	handler, drain := batch.Start(mockAuthenticator, nil, mockBatcher, nil, numWorkers, logger)
 	err := handler.Handle(stream)
 	require.NotNil(t, err, "handler should return an error")
 	require.ErrorAs(t, err, &networkErr, "handler should return network error")
-	shutdown.Drain(logger)
+	drain()
 }
 
-func TestShutdownWithHangingClient(t *testing.T) {
+func TestDrainWithHangingClient(t *testing.T) {
 	testDuration := 5 * time.Minute
 	ctx := context.Background()
 	ctx, cancel := context.WithTimeout(ctx, testDuration)
@@ -215,7 +213,7 @@ func TestShutdownWithHangingClient(t *testing.T) {
 	stream := newMockStream(ctx, t)
 	stream.EXPECT().Context().Return(ctx).Twice()
 	var count int
-	drain := make(chan struct{})
+	shouldDrain := make(chan struct{})
 	stream.EXPECT().Recv().RunAndReturn(func() (*pb.BatchStreamRequest, error) {
 		count++
 		switch count {
@@ -224,7 +222,7 @@ func TestShutdownWithHangingClient(t *testing.T) {
 		case 2:
 			return newBatchStreamObjsRequest(objs), nil
 		case 3:
-			close(drain)
+			close(shouldDrain)
 			// simulate a client that does not close the stream correctly
 			time.Sleep(testDuration)
 			return nil, io.EOF
@@ -243,14 +241,13 @@ func TestShutdownWithHangingClient(t *testing.T) {
 	})).Return(nil).Maybe()
 
 	numWorkers := 1
-	shutdown := batch.NewShutdown(ctx, numWorkers)
-	handler := batch.Start(mockAuthenticator, nil, mockBatcher, nil, shutdown, numWorkers, shutdown.ProcessingQueue, logger)
+	handler, drain := batch.Start(mockAuthenticator, nil, mockBatcher, nil, numWorkers, logger)
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		<-drain
-		shutdown.Drain(logger)
+		<-shouldDrain
+		drain()
 	}()
 	err := handler.Handle(stream)
 	wg.Wait()

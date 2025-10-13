@@ -18,66 +18,40 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-type Shutdown struct {
-	HandlersCtx     context.Context
-	HandlersCancel  context.CancelFunc
-	RecvWg          *sync.WaitGroup
-	SendWg          *sync.WaitGroup
-	WorkersWg       *sync.WaitGroup
-	ProcessingQueue processingQueue
-}
-
-func NewShutdown(ctx context.Context, numWorkers int) *Shutdown {
-	var recvWg sync.WaitGroup
-	var sendWg sync.WaitGroup
-	var workersWg sync.WaitGroup
-
-	hCtx, hCancel := context.WithCancel(ctx)
-
-	return &Shutdown{
-		HandlersCtx:     hCtx,
-		HandlersCancel:  hCancel,
-		RecvWg:          &recvWg,
-		SendWg:          &sendWg,
-		WorkersWg:       &workersWg,
-		ProcessingQueue: NewProcessingQueue(numWorkers * 10), // buffer size of 10x workers
-	}
-}
-
 // Drain handles the graceful shutdown of all batch processing components.
 //
 // The order of operations needs to be as follows to ensure that there are no missed objects/references in any of the
-// write queues nor any missed errors in the read queues:
+// processing queue nor any missed errors in the reporting queues:
 //
 // 1. Stop accepting new requests in the handlers
 //   - This prevents new requests from being added to the system while we are shutting down
 //
 // 2. Wait for all in-flight Send requests to finish
-//   - This ensures that the write queues are no longer being written to
+//   - This ensures that the processing queue is no longer being written to
 //
-// 3. Stop the worker loops and drain the internal queue
-//   - This ensures that all currently waiting batch requests in the internal queue are processed
+// 3. Stop the worker loops and drain the processing queue
+//   - This ensures that all currently waiting batch requests in the processing queue are processed and any errors added to the reporting queues
 //
 // 4. Signal shutdown complete and wait for all streams to communicate this to clients
 //   - This ensures that all clients have acknowledged shutdown so that they can successfully reconnect to another node
 //
 // The batching shutdown is then considered complete as every queue has been drained successfully so the server
 // can move onto switching off the HTTP handlers and shutting itself down completely.
-func (s *Shutdown) Drain(logger logrus.FieldLogger) {
+func drain(triggerShuttingDown context.CancelFunc, recvWg *sync.WaitGroup, processingQueue processingQueue, workersWg *sync.WaitGroup, sendWg *sync.WaitGroup, logger logrus.FieldLogger) {
 	log := logger.WithField("action", "shutdown_drain")
 	// stop handlers first
-	s.HandlersCancel()
+	triggerShuttingDown()
 	log.Info("waiting for all receivers to finish")
-	s.RecvWg.Wait()
+	// wait for all currently open h.recv goroutines to complete thereby ensuring the processing queue is no longer being written to
+	recvWg.Wait()
 	log.Info("all receivers finished, closing processing queue")
 	// close the processing queue to signal to workers that no more requests will be coming and that they can exit
-	close(s.ProcessingQueue)
-	// wait for all workers to finish
+	close(processingQueue)
 	log.Info("waiting for all workers to drain the processing queue")
 	// wait for all the objects to be processed from the internal queue
-	s.WorkersWg.Wait()
+	workersWg.Wait()
 	log.Info("all workers finished, waiting for all senders to finish")
 	// wait for all streams to exit, i.e. be hungup by their clients
-	s.SendWg.Wait()
+	sendWg.Wait()
 	log.Info("all senders exited, shutdown complete")
 }

@@ -46,10 +46,8 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/batch"
 )
 
-type ShutdownServer func()
-
 // CreateGRPCServer creates *grpc.Server with optional grpc.Serveroption passed.
-func CreateGRPCServer(state *state.State, options ...grpc.ServerOption) (*grpc.Server, ShutdownServer) {
+func CreateGRPCServer(state *state.State, options ...grpc.ServerOption) (*grpc.Server, batch.Drain) {
 	o := []grpc.ServerOption{
 		grpc.MaxRecvMsgSize(state.ServerConfig.Config.GRPC.MaxMsgSize),
 		grpc.MaxSendMsgSize(state.ServerConfig.Config.GRPC.MaxMsgSize),
@@ -108,10 +106,9 @@ func CreateGRPCServer(state *state.State, options ...grpc.ServerOption) (*grpc.S
 
 	o = append(o, grpc.ChainStreamInterceptor(makeAuthStreamInterceptor(auth.NewHandler(allowAnonymous, authComposer))))
 
-	shutdown := batch.NewShutdown(context.Background(), v1.NUMCPU)
 	s := grpc.NewServer(o...)
 	weaviateV0 := v0.NewService()
-	weaviateV1 := v1.NewService(
+	weaviateV1, drainBatch := v1.NewService(
 		state.Traverser,
 		composer.New(
 			state.ServerConfig.Config.Authentication,
@@ -122,7 +119,6 @@ func CreateGRPCServer(state *state.State, options ...grpc.ServerOption) (*grpc.S
 		&state.ServerConfig.Config,
 		state.Authorizer,
 		state.Logger,
-		shutdown,
 	)
 	pbv0.RegisterWeaviateServer(s, weaviateV0)
 	pbv1.RegisterWeaviateServer(s, weaviateV1)
@@ -132,7 +128,7 @@ func CreateGRPCServer(state *state.State, options ...grpc.ServerOption) (*grpc.S
 
 	grpc_health_v1.RegisterHealthServer(s, weaviateV1)
 
-	return s, func() { shutdown.Drain(state.Logger) }
+	return s, drainBatch
 }
 
 func makeMetricsInterceptor(logger logrus.FieldLogger, metrics *monitoring.PrometheusMetrics) grpc.UnaryServerInterceptor {

@@ -12,22 +12,58 @@
 package batch
 
 import (
+	"context"
+	"sync"
+
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
+
+type Drain func()
 
 func Start(
 	authenticator authenticator,
 	authorizer authorization.Authorizer,
 	batchHandler Batcher,
 	reg prometheus.Registerer,
-	shutdown *Shutdown,
 	numWorkers int,
-	processingQueue processingQueue,
 	logger logrus.FieldLogger,
-) *StreamHandler {
+) (*StreamHandler, Drain) {
+	var recvWg *sync.WaitGroup
+	var sendWg *sync.WaitGroup
+	var workersWg *sync.WaitGroup
+
+	shuttingDownCtx, triggerShuttingDown := context.WithCancel(context.Background())
 	reportingQueues := NewReportingQueues()
-	StartBatchWorkers(shutdown.WorkersWg, numWorkers, processingQueue, reportingQueues, batchHandler, logger)
-	return NewStreamHandler(authenticator, authorizer, shutdown.HandlersCtx, shutdown.RecvWg, shutdown.SendWg, reportingQueues, processingQueue, NewBatchStreamingMetrics(reg), logger)
+	// buffer size of 10x workers helping to ensure minimal overhead between recv and workers while not using too much memory
+	// nor delaying shutdown too much by requiring a long drain period
+	processingQueue := NewProcessingQueue(numWorkers * 10)
+
+	StartBatchWorkers(workersWg, numWorkers, processingQueue, reportingQueues, batchHandler, logger)
+
+	handler := NewStreamHandler(
+		authenticator,
+		authorizer,
+		shuttingDownCtx,
+		recvWg,
+		sendWg,
+		reportingQueues,
+		processingQueue,
+		NewBatchStreamingMetrics(reg),
+		logger,
+	)
+
+	drain := func() {
+		drain(
+			triggerShuttingDown,
+			recvWg,
+			processingQueue,
+			workersWg,
+			sendWg,
+			logger,
+		)
+	}
+
+	return handler, drain
 }

@@ -56,8 +56,7 @@ func TestStreamHandler(t *testing.T) {
 		mockStream.EXPECT().Send(newBatchStreamStartedReply()).Return(nil).Once()
 
 		numWorkers := 1
-		shutdown := batch.NewShutdown(context.Background(), numWorkers)
-		handler := batch.Start(mockAuthenticator, nil, mockBatcher, nil, shutdown, numWorkers, shutdown.ProcessingQueue, logger)
+		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, nil, numWorkers, logger)
 		err := handler.Handle(mockStream)
 		require.Equal(t, ctx.Err(), err, "Expected context cancelled error")
 	})
@@ -90,8 +89,7 @@ func TestStreamHandler(t *testing.T) {
 		mockStream.EXPECT().Send(newBatchStreamStartedReply()).Return(nil).Once()
 
 		numWorkers := 1
-		shutdown := batch.NewShutdown(context.Background(), numWorkers)
-		handler := batch.Start(mockAuthenticator, nil, mockBatcher, nil, shutdown, numWorkers, shutdown.ProcessingQueue, logger)
+		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, nil, numWorkers, logger)
 		err := handler.Handle(mockStream)
 		require.NoError(t, err, "Expected no error when streaming")
 	})
@@ -135,8 +133,7 @@ func TestStreamHandler(t *testing.T) {
 		mockStream.EXPECT().Send(newBatchStreamStartedReply()).Return(nil).Once()
 
 		numWorkers := 1
-		shutdown := batch.NewShutdown(context.Background(), numWorkers)
-		handler := batch.Start(mockAuthenticator, nil, mockBatcher, nil, shutdown, numWorkers, shutdown.ProcessingQueue, logger)
+		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, nil, numWorkers, logger)
 		err := handler.Handle(mockStream)
 		require.Equal(t, ctx.Err(), err, "Expected context cancelled error")
 	})
@@ -180,8 +177,7 @@ func TestStreamHandler(t *testing.T) {
 		mockStream.EXPECT().Send(newBatchStreamStartedReply()).Return(nil).Once()
 
 		numWorkers := 1
-		shutdown := batch.NewShutdown(context.Background(), numWorkers)
-		handler := batch.Start(mockAuthenticator, nil, mockBatcher, nil, shutdown, numWorkers, shutdown.ProcessingQueue, logger)
+		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, nil, numWorkers, logger)
 		err := handler.Handle(mockStream)
 		require.NoError(t, err, "Expected no error when streaming")
 	})
@@ -237,8 +233,7 @@ func TestStreamHandler(t *testing.T) {
 		mockStream.EXPECT().Send(newBatchStreamStartedReply()).Return(nil).Once()
 
 		numWorkers := 1
-		shutdown := batch.NewShutdown(context.Background(), numWorkers)
-		handler := batch.Start(mockAuthenticator, nil, mockBatcher, nil, shutdown, numWorkers, shutdown.ProcessingQueue, logger)
+		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, nil, numWorkers, logger)
 		err := handler.Handle(mockStream)
 		require.NoError(t, err, "Expected no error when handling stream")
 		require.Len(t, objsCh, numObjs, "Expected all objects to be processed into mock channel")
