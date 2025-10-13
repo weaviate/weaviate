@@ -58,8 +58,8 @@ type VectorCompressor interface {
 	SetKeys(id uint64, docID uint64, relativeID uint64)
 	Prefetch(id uint64)
 	CountVectors() int64
-	PrefillCache()
-	PrefillMultiCache(docIDVectors map[uint64][]uint64)
+	PrefillCache(ctx context.Context)
+	PrefillMultiCache(ctx context.Context, docIDVectors map[uint64][]uint64)
 
 	DistanceBetweenCompressedVectorsFromIDs(ctx context.Context, x, y uint64) (float32, error)
 	NewDistancer(vector []float32) (CompressorDistancer, ReturnDistancerFn)
@@ -261,7 +261,7 @@ func (compressor *quantizedVectorsCompressor[T]) initCompressedStore() error {
 	return nil
 }
 
-func (compressor *quantizedVectorsCompressor[T]) PrefillCache() {
+func (compressor *quantizedVectorsCompressor[T]) PrefillCache(ctx context.Context) {
 	before := time.Now()
 
 	// The idea here is to first read everything from disk in one go, then grow
@@ -279,13 +279,17 @@ func (compressor *quantizedVectorsCompressor[T]) PrefillCache() {
 		compressor.compressedStore.Bucket(helpers.VectorsCompressedBucketLSM),
 		parallel, compressor.loadId, compressor.quantizer.FromCompressedBytesWithSubsliceBuffer,
 		compressor.logger)
-	channel := it.IterateAll()
-	if channel == nil {
-		return // nothing to do
-	}
+	vecsCh, abortedCh := it.IterateAll(ctx)
 
-	for v := range channel {
+	for v := range vecsCh {
 		vecs = append(vecs, v...)
+	}
+	if <-abortedCh {
+		compressor.logger.WithFields(logrus.Fields{
+			"action": "hnsw_compressed_vector_cache_prefill",
+			"took":   time.Since(before),
+		}).Warn("prefilled compressed vector cache aborted")
+		return
 	}
 
 	for i := range vecs {
@@ -309,7 +313,7 @@ func (compressor *quantizedVectorsCompressor[T]) PrefillCache() {
 	}).Info("prefilled compressed vector cache")
 }
 
-func (compressor *quantizedVectorsCompressor[T]) PrefillMultiCache(docIDVectors map[uint64][]uint64) {
+func (compressor *quantizedVectorsCompressor[T]) PrefillMultiCache(ctx context.Context, docIDVectors map[uint64][]uint64) {
 	before := time.Now()
 
 	parallel := 2 * runtime.GOMAXPROCS(0)
@@ -320,13 +324,17 @@ func (compressor *quantizedVectorsCompressor[T]) PrefillMultiCache(docIDVectors 
 		compressor.compressedStore.Bucket(helpers.VectorsCompressedBucketLSM),
 		parallel, compressor.loadId, compressor.quantizer.FromCompressedBytesWithSubsliceBuffer,
 		compressor.logger)
-	channel := it.IterateAll()
-	if channel == nil {
-		return // nothing to do
-	}
+	vecsCh, abortedCh := it.IterateAll(ctx)
 
-	for v := range channel {
+	for v := range vecsCh {
 		vecs = append(vecs, v...)
+	}
+	if <-abortedCh {
+		compressor.logger.WithFields(logrus.Fields{
+			"action": "hnsw_compressed_vector_cache_prefill",
+			"took":   time.Since(before),
+		}).Warn("prefilled compressed vector cache for multivector aborted")
+		return
 	}
 
 	for i := range vecs {
