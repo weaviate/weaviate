@@ -30,9 +30,9 @@ func Start(
 	numWorkers int,
 	logger logrus.FieldLogger,
 ) (*StreamHandler, Drain) {
-	var recvWg *sync.WaitGroup
-	var sendWg *sync.WaitGroup
-	var workersWg *sync.WaitGroup
+	recvWg := sync.WaitGroup{}
+	sendWg := sync.WaitGroup{}
+	workersWg := sync.WaitGroup{}
 
 	shuttingDownCtx, triggerShuttingDown := context.WithCancel(context.Background())
 	reportingQueues := NewReportingQueues()
@@ -40,14 +40,14 @@ func Start(
 	// nor delaying shutdown too much by requiring a long drain period
 	processingQueue := NewProcessingQueue(numWorkers * 10)
 
-	StartBatchWorkers(workersWg, numWorkers, processingQueue, reportingQueues, batchHandler, logger)
+	StartBatchWorkers(&workersWg, numWorkers, processingQueue, reportingQueues, batchHandler, logger)
 
 	handler := NewStreamHandler(
 		authenticator,
 		authorizer,
 		shuttingDownCtx,
-		recvWg,
-		sendWg,
+		&recvWg,
+		&sendWg,
 		reportingQueues,
 		processingQueue,
 		NewBatchStreamingMetrics(reg),
@@ -57,10 +57,10 @@ func Start(
 	drain := func() {
 		drain(
 			triggerShuttingDown,
-			recvWg,
+			&recvWg,
 			processingQueue,
-			workersWg,
-			sendWg,
+			&workersWg,
+			&sendWg,
 			logger,
 		)
 	}

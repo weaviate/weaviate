@@ -303,7 +303,7 @@ func (h *StreamHandler) recv(ctx context.Context, streamId string, consistencyLe
 				ConsistencyLevel: consistencyLevel,
 				Objects:          request.GetData().GetObjects().GetValues(),
 				References:       request.GetData().GetReferences().GetValues(),
-				Wg:               wg,
+				Wg:               wg,               // the worker will call wg.Done() when it is finished
 				Ctx:              stream.Context(), // passes any authn information from the stream into the worker for authz
 			}
 			if h.metrics != nil {
