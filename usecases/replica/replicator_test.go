@@ -849,7 +849,7 @@ func (f *fakeFactory) newRouter(thisNode string) types.Router {
 		return shards, nil
 	}).Maybe()
 
-	schemaReaderMock.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+	schemaReaderMock.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
 		class := &models.Class{Class: className}
 		shardingState := f.createDynamicShardingState()
 		return readFunc(class, shardingState)

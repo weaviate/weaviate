@@ -45,7 +45,9 @@ func NewActivateUser(ctx *middleware.Context, handler ActivateUserHandler) *Acti
 /*
 	ActivateUser swagger:route POST /users/db/{user_id}/activate users activateUser
 
-activate a deactivated user
+# Activate a user
+
+Activate a deactivated database user (`db` user type).
 */
 type ActivateUser struct {
 	Context *middleware.Context

@@ -26,12 +26,12 @@ import (
 	"github.com/go-openapi/validate"
 )
 
-// Permission permissions attached to a role.
+// Permission Permissions attached to a role.
 //
 // swagger:model Permission
 type Permission struct {
 
-	// allowed actions in weaviate.
+	// Allowed actions in weaviate.
 	// Required: true
 	// Enum: [manage_backups read_cluster create_data read_data update_data delete_data read_nodes create_roles read_roles update_roles delete_roles create_collections read_collections update_collections delete_collections assign_and_revoke_users create_users read_users update_users delete_users create_tenants read_tenants update_tenants delete_tenants create_replicate read_replicate update_replicate delete_replicate create_aliases read_aliases update_aliases delete_aliases assign_and_revoke_groups read_groups]
 	Action *string `json:"action"`
@@ -718,12 +718,12 @@ func (m *PermissionAliases) UnmarshalBinary(b []byte) error {
 	return nil
 }
 
-// PermissionBackups resources applicable for backup actions
+// PermissionBackups Resources applicable for backup actions.
 //
 // swagger:model PermissionBackups
 type PermissionBackups struct {
 
-	// string or regex. if a specific collection name, if left empty it will be ALL or *
+	// A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value `*` applies the permission to all collections.
 	Collection *string `json:"collection,omitempty"`
 }
 
@@ -755,12 +755,12 @@ func (m *PermissionBackups) UnmarshalBinary(b []byte) error {
 	return nil
 }
 
-// PermissionCollections resources applicable for collection and/or tenant actions
+// PermissionCollections Resources applicable for collection and/or tenant actions.
 //
 // swagger:model PermissionCollections
 type PermissionCollections struct {
 
-	// string or regex. if a specific collection name, if left empty it will be ALL or *
+	// A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value `*` applies the permission to all collections.
 	Collection *string `json:"collection,omitempty"`
 }
 
@@ -792,18 +792,18 @@ func (m *PermissionCollections) UnmarshalBinary(b []byte) error {
 	return nil
 }
 
-// PermissionData resources applicable for data actions
+// PermissionData Resources applicable for data actions.
 //
 // swagger:model PermissionData
 type PermissionData struct {
 
-	// string or regex. if a specific collection name, if left empty it will be ALL or *
+	// A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value `*` applies the permission to all collections.
 	Collection *string `json:"collection,omitempty"`
 
-	// string or regex. if a specific object ID, if left empty it will be ALL or *
+	// A string that specifies which objects this permission applies to. Can be an exact object ID or a regex pattern. The default value `*` applies the permission to all objects.
 	Object *string `json:"object,omitempty"`
 
-	// string or regex. if a specific tenant name, if left empty it will be ALL or *
+	// A string that specifies which tenants this permission applies to. Can be an exact tenant name or a regex pattern. The default value `*` applies the permission to all tenants.
 	Tenant *string `json:"tenant,omitempty"`
 }
 
@@ -924,15 +924,15 @@ func (m *PermissionGroups) UnmarshalBinary(b []byte) error {
 	return nil
 }
 
-// PermissionNodes resources applicable for cluster actions
+// PermissionNodes Resources applicable for cluster actions.
 //
 // swagger:model PermissionNodes
 type PermissionNodes struct {
 
-	// string or regex. if a specific collection name, if left empty it will be ALL or *
+	// A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value `*` applies the permission to all collections.
 	Collection *string `json:"collection,omitempty"`
 
-	// whether to allow (verbose) returning shards and stats data in the response
+	// Whether to allow (verbose) returning shards and stats data in the response.
 	// Enum: [verbose minimal]
 	Verbosity *string `json:"verbosity,omitempty"`
 }
@@ -1056,15 +1056,15 @@ func (m *PermissionReplicate) UnmarshalBinary(b []byte) error {
 	return nil
 }
 
-// PermissionRoles resources applicable for role actions
+// PermissionRoles Resources applicable for role actions.
 //
 // swagger:model PermissionRoles
 type PermissionRoles struct {
 
-	// string or regex. if a specific role name, if left empty it will be ALL or *
+	// A string that specifies which roles this permission applies to. Can be an exact role name or a regex pattern. The default value `*` applies the permission to all roles.
 	Role *string `json:"role,omitempty"`
 
-	// set the scope for the manage role permission
+	// Set the scope for the manage role permission.
 	// Enum: [all match]
 	Scope *string `json:"scope,omitempty"`
 }
@@ -1148,15 +1148,15 @@ func (m *PermissionRoles) UnmarshalBinary(b []byte) error {
 	return nil
 }
 
-// PermissionTenants resources applicable for tenant actions
+// PermissionTenants Resources applicable for tenant actions.
 //
 // swagger:model PermissionTenants
 type PermissionTenants struct {
 
-	// string or regex. if a specific collection name, if left empty it will be ALL or *
+	// A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value `*` applies the permission to all collections.
 	Collection *string `json:"collection,omitempty"`
 
-	// string or regex. if a specific tenant name, if left empty it will be ALL or *
+	// A string that specifies which tenants this permission applies to. Can be an exact tenant name or a regex pattern. The default value `*` applies the permission to all tenants.
 	Tenant *string `json:"tenant,omitempty"`
 }
 
@@ -1188,12 +1188,12 @@ func (m *PermissionTenants) UnmarshalBinary(b []byte) error {
 	return nil
 }
 
-// PermissionUsers resources applicable for user actions
+// PermissionUsers Resources applicable for user actions.
 //
 // swagger:model PermissionUsers
 type PermissionUsers struct {
 
-	// string or regex. if a specific name, if left empty it will be ALL or *
+	// A string that specifies which users this permission applies to. Can be an exact user name or a regex pattern. The default value `*` applies the permission to all users.
 	Users *string `json:"users,omitempty"`
 }
 

@@ -43,7 +43,7 @@ type Segment interface {
 	getStrategy() segmentindex.Strategy
 	getSecondaryIndexCount() uint16
 	getLevel() uint16
-	getSize() int64
+	Size() int64
 	setSize(size int64)
 
 	PayloadSize() int
@@ -510,8 +510,8 @@ func (s *segment) markForDeletion() error {
 
 // Size returns the total size of the segment in bytes, including the header
 // and index
-func (s *segment) Size() int {
-	return int(s.size)
+func (s *segment) Size() int64 {
+	return s.size
 }
 
 func (s *segment) getPath() string {
@@ -536,10 +536,6 @@ func (s *segment) getCountNetAdditions() int {
 
 func (s *segment) getLevel() uint16 {
 	return s.level
-}
-
-func (s *segment) getSize() int64 {
-	return s.size
 }
 
 func (s *segment) setSize(size int64) {

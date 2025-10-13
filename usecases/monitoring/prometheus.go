@@ -417,6 +417,18 @@ func EnsureRegisteredMetric[T prometheus.Collector](reg prometheus.Registerer, m
 	return metric, nil
 }
 
+func InitCounterVec(vec *prometheus.CounterVec, labelNames [][]string) {
+	for _, labels := range labelNames {
+		vec.WithLabelValues(labels...).Add(0)
+	}
+}
+
+func InitGaugeVec(vec *prometheus.GaugeVec, labelNames [][]string) {
+	for _, labels := range labelNames {
+		vec.WithLabelValues(labels...).Set(0)
+	}
+}
+
 func newPrometheusMetrics() *PrometheusMetrics {
 	return &PrometheusMetrics{
 		Registerer: prometheus.DefaultRegisterer,
