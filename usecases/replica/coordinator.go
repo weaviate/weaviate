@@ -277,25 +277,19 @@ func (c *coordinator[T]) Push(ctx context.Context,
 		}
 	}()
 
-	prepareTimeout := 30 * time.Second
-	finalizeTimeout := 120 * time.Second
-
 	//nolint:govet // we expressely don't want to cancel that context as the timeout will take care of it
-	ctxPrepare, _ := context.WithTimeout(context.Background(), prepareTimeout)
-	// include local host; composite client will route local without HTTP
-	pushTargets := routingPlan.ReplicasHostAddrs
-	nodeCh := c.broadcast(ctxPrepare, pushTargets, ask, level)
-
+	prepareCtx, _ := context.WithTimeout(ctx, 30*time.Second)
 	//nolint:govet // we expressely don't want to cancel that context as the timeout will take care of it
-	ctxFinalize, _ := context.WithTimeout(context.Background(), finalizeTimeout)
-	commitCh := c.commitAll(ctxFinalize, nodeCh, com, callback, level)
+	finalizeCtx, _ := context.WithTimeout(ctx, 120*time.Second)
+	nodeCh := c.broadcast(prepareCtx, routingPlan.ReplicasHostAddrs, ask, level)
+	commitCh := c.commitAll(finalizeCtx, nodeCh, com, callback, level)
 
 	// if there are additional hosts, we do a "best effort" write to them
 	// where we don't wait for a response because they are not part of the
 	// replicas used to reach level consistency
 	if len(routingPlan.AdditionalHostAddrs) > 0 {
-		additionalHostsBroadcast := c.broadcast(ctxPrepare, routingPlan.AdditionalHostAddrs, ask, len(routingPlan.AdditionalHostAddrs))
-		c.commitAll(ctxFinalize, additionalHostsBroadcast, com, nil, len(routingPlan.AdditionalHostAddrs))
+		additionalHostsBroadcast := c.broadcast(prepareCtx, routingPlan.AdditionalHostAddrs, ask, len(routingPlan.AdditionalHostAddrs))
+		c.commitAll(finalizeCtx, additionalHostsBroadcast, com, nil, len(routingPlan.AdditionalHostAddrs))
 	}
 
 	return commitCh, level, nil
