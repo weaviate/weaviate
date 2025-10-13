@@ -39,13 +39,6 @@ const (
 	DimensionCategoryRQ
 )
 
-// since v1.34 StrategyRoaringSet is default strategy for dimensions bucket,
-// StrategyMapCollection is left as backward compatibility for buckets created earlier
-var DimensionsBucketPrioritizedStrategies = []string{
-	lsmkv.StrategyRoaringSet,
-	lsmkv.StrategyMapCollection,
-}
-
 type DimensionInfo struct {
 	category DimensionCategory
 	segments int
