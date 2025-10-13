@@ -14,6 +14,7 @@ package replica
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -323,6 +324,25 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 	level := routingPlan.IntConsistencyLevel
 	hosts := routingPlan.ReplicasHostAddrs
 
+	// Prefer full-read on local node if it's part of the replica set; otherwise shuffle all to spread load
+	foundLocal := false
+	if c.localHostAddr != "" {
+		for i, h := range hosts {
+			if h == c.localHostAddr {
+				foundLocal = true
+				if i != 0 {
+					hosts[0], hosts[i] = hosts[i], hosts[0]
+				}
+				break
+			}
+		}
+	}
+	if !foundLocal {
+		rand.Shuffle(len(hosts), func(i, j int) {
+			hosts[i], hosts[j] = hosts[j], hosts[i]
+		})
+	}
+
 	// log pull routing plan
 	c.log.WithFields(logrus.Fields{
 		"tx_id":                    c.TxID,
@@ -383,6 +403,14 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 				defer baseCancel()
 				workerCtx, workerCancel := context.WithTimeout(baseCtx, timeout)
 				defer workerCancel()
+				// Slightly stagger non-fullread workers to give local/fullread a head start
+				if !isFullReadWorker {
+					select {
+					case <-stopCh:
+						return
+					case <-time.After(15 * time.Millisecond):
+					}
+				}
 				// each worker will first try its corresponding host (eg worker0 tries hosts[0],
 				// worker1 tries hosts[1], etc). We want the fullRead to be tried on hosts[0]
 				// because that will be the direct candidate (if a direct candidate was provided),
