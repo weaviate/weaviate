@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package batch_test
+package batch
 
 import (
 	"context"
@@ -20,7 +20,6 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/batch"
 	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/batch/mocks"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/usecases/replica"
@@ -38,9 +37,9 @@ func TestWorkerLoop(t *testing.T) {
 	t.Run("should process from the queue and send data without error", func(t *testing.T) {
 		mockBatcher := mocks.NewMockBatcher(t)
 
-		reportingQueues := batch.NewReportingQueues()
+		reportingQueues := NewReportingQueues()
 		reportingQueues.Make(StreamId)
-		processingQueue := batch.NewProcessingQueue(1)
+		processingQueue := NewProcessingQueue(1)
 
 		mockBatcher.EXPECT().BatchObjects(mock.Anything, mock.Anything).Return(&pb.BatchObjectsReply{
 			Took:   float32(1),
@@ -51,26 +50,26 @@ func TestWorkerLoop(t *testing.T) {
 			Errors: nil,
 		}, nil).Times(1)
 		var wg sync.WaitGroup
-		batch.StartBatchWorkers(&wg, 1, processingQueue, reportingQueues, mockBatcher, logger)
+		StartBatchWorkers(&wg, 1, processingQueue, reportingQueues, mockBatcher, logger)
 
 		// Send data
 		wg.Add(2)
-		processingQueue <- batch.NewProcessRequest(
-			[]*pb.BatchObject{{}},
-			nil,
-			StreamId,
-			nil,
-			&wg,
-			ctx,
-		)
-		processingQueue <- batch.NewProcessRequest(
-			nil,
-			[]*pb.BatchReference{{}},
-			StreamId,
-			nil,
-			&wg,
-			ctx,
-		)
+		processingQueue <- &processRequest{
+			Objects:          []*pb.BatchObject{{}},
+			References:       nil,
+			StreamId:         StreamId,
+			ConsistencyLevel: nil,
+			Wg:               &wg,
+			Ctx:              ctx,
+		}
+		processingQueue <- &processRequest{
+			Objects:          nil,
+			References:       []*pb.BatchReference{{}},
+			StreamId:         StreamId,
+			ConsistencyLevel: nil,
+			Wg:               &wg,
+			Ctx:              ctx,
+		}
 		close(processingQueue) // Allow the draining logic to exit naturally
 		wg.Wait()
 		require.Empty(t, processingQueue, "Expected processing queue to be empty after processing")
@@ -79,9 +78,9 @@ func TestWorkerLoop(t *testing.T) {
 	t.Run("should process from the queue and send data returning partial error", func(t *testing.T) {
 		mockBatcher := mocks.NewMockBatcher(t)
 
-		reportingQueues := batch.NewReportingQueues()
+		reportingQueues := NewReportingQueues()
 		reportingQueues.Make(StreamId)
-		processingQueue := batch.NewProcessingQueue(1)
+		processingQueue := NewProcessingQueue(1)
 
 		errorsObj := []*pb.BatchObjectsReply_BatchError{
 			{
@@ -115,7 +114,7 @@ func TestWorkerLoop(t *testing.T) {
 			Errors: errorsRefs,
 		}, nil).Times(1)
 		var wg sync.WaitGroup
-		batch.StartBatchWorkers(&wg, 1, processingQueue, reportingQueues, mockBatcher, logger)
+		StartBatchWorkers(&wg, 1, processingQueue, reportingQueues, mockBatcher, logger)
 
 		// Send data
 		obj := &pb.BatchObject{}
@@ -124,14 +123,14 @@ func TestWorkerLoop(t *testing.T) {
 		// while next send to processing queue is blocked by there only being one worker
 		wg.Add(1)
 		go func() {
-			processingQueue <- batch.NewProcessRequest(
-				[]*pb.BatchObject{obj, obj, obj},
-				[]*pb.BatchReference{ref, ref},
-				StreamId,
-				nil,
-				&wg,
-				ctx,
-			)
+			processingQueue <- &processRequest{
+				Objects:          []*pb.BatchObject{obj, obj, obj},
+				References:       []*pb.BatchReference{ref, ref},
+				StreamId:         StreamId,
+				ConsistencyLevel: nil,
+				Wg:               &wg,
+				Ctx:              ctx,
+			}
 		}()
 
 		rq, ok := reportingQueues.Get(StreamId)

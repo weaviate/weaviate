@@ -30,7 +30,11 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-var ErrShutdown = status.Error(codes.Aborted, "server is shutting down")
+var ErrShutdown = errors.New("server has shutdown")
+
+func errShutdown(err error) error {
+	return status.Error(codes.Aborted, err.Error())
+}
 
 type authenticator interface {
 	PrincipalFromContext(ctx context.Context) (*models.Principal, error)
@@ -115,20 +119,21 @@ func (h *StreamHandler) Handle(stream pb.Weaviate_BatchStreamServer) error {
 }
 
 func (h *StreamHandler) send(ctx context.Context, streamId string, stream pb.Weaviate_BatchStreamServer, errCh chan error) error {
+	log := h.logger.WithField("streamId", streamId)
 	// shuttingDown acts as a soft cancel here so we can send the shutting down message to the client.
 	// Once the workers are drained then h.shutdownFinished will be closed and we will shutdown completely
 	shuttingDownDone := h.shuttingDownCtx.Done()
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 	if err := stream.Send(newBatchStartedMessage()); err != nil {
-		h.logger.WithField("streamId", streamId).WithError(err).Error("failed to send started message")
+		log.WithError(err).Error("failed to send started message")
 		return err
 	}
 	for {
 		if reportingQueue, ok := h.reportingQueues.Get(streamId); ok {
 			select {
 			case <-ctx.Done():
-				h.logger.WithField("streamId", streamId).Debug("context cancelled, closing stream")
+				log.Debug("context cancelled, closing stream")
 				// drain reporting queue in effort to communicate any inflight errors back to client
 				// despite the context being cancelled somewhere
 				for report := range reportingQueue {
@@ -137,7 +142,7 @@ func (h *StreamHandler) send(ctx context.Context, streamId string, stream pb.Wea
 							h.metrics.OnStreamError(streamId)
 						}
 						if innerErr := stream.Send(newBatchErrorMessage(err)); innerErr != nil {
-							h.logger.WithField("streamId", streamId).WithError(innerErr).Error("failed to send error message")
+							log.WithError(innerErr).Error("failed to send error message")
 						}
 					}
 				}
@@ -145,7 +150,7 @@ func (h *StreamHandler) send(ctx context.Context, streamId string, stream pb.Wea
 				return ctx.Err()
 			case recvErr := <-errCh:
 				if recvErr != nil {
-					h.logger.WithField("streamId", streamId).WithError(recvErr).Error("receive error, closing stream")
+					log.WithError(recvErr).Error("receive error, closing stream")
 					// drain reporting queue in effort to communicate any inflight errors back to client
 					// despite the recv side of the stream failing in some way
 					for report := range reportingQueue {
@@ -154,39 +159,39 @@ func (h *StreamHandler) send(ctx context.Context, streamId string, stream pb.Wea
 								h.metrics.OnStreamError(streamId)
 							}
 							if innerErr := stream.Send(newBatchErrorMessage(err)); innerErr != nil {
-								h.logger.WithField("streamId", streamId).WithError(innerErr).Error("failed to send error message")
+								log.WithError(innerErr).Error("failed to send error message")
 							}
 						}
 					}
 					if h.shuttingDown.Load() {
 						// the server must be shutting down on its own, so return an error saying so
-						h.logger.WithField("streamId", streamId).Errorf("while server is shutting down, receiver errored: %v", recvErr)
-						return ErrShutdown
+						log.Errorf("while server is shutting down, receiver errored: %v", recvErr)
+						return errShutdown(recvErr)
 					}
 					// Receiver errored in some way, send error to client
 					return recvErr
 				}
 			case <-shuttingDownDone:
-				h.logger.WithField("streamId", streamId).Debug("server is shutting down, will stop accepting new requests soon")
+				log.Debug("server is shutting down, will stop accepting new requests soon")
 				// If shutting down context has been set by shutdown.Drain then send the shutdown triggered message to the client
 				// so that it can backoff accordingly
 				if innerErr := stream.Send(newBatchShuttingDownMessage()); innerErr != nil {
-					h.logger.WithField("streamId", streamId).WithError(innerErr).Error("failed to send shutdown triggered message")
+					log.WithError(innerErr).Error("failed to send shutdown triggered message")
 					return innerErr
 				}
 				shuttingDownDone = nil // only send once
 				h.shuttingDown.Store(true)
 			case report, ok := <-reportingQueue:
-				h.logger.WithField("streamId", streamId).Debug("received report from worker")
+				log.Debug("received report from worker")
 				// If the reporting queue is closed, we must finish the stream
 				if !ok {
 					if h.shuttingDown.Load() {
 						// the server must be shutting down on its own, so return an error saying so
-						h.logger.WithField("streamId", streamId).Info("stream closed due to server shutdown")
-						return ErrShutdown
+						log.Info("stream closed due to server shutdown")
+						return errShutdown(ErrShutdown)
 					}
 					// otherwise, the client must be closing its side of the stream, so close gracefully
-					h.logger.WithField("streamId", streamId).Info("stream closed by client")
+					log.Info("stream closed by client")
 					return <-errCh // will be nil if the client closed the stream gracefully or a recv error otherwise
 				}
 				// Received a report from a worker
@@ -195,7 +200,7 @@ func (h *StreamHandler) send(ctx context.Context, streamId string, stream pb.Wea
 						h.metrics.OnStreamError(streamId)
 					}
 					if innerErr := stream.Send(newBatchErrorMessage(err)); innerErr != nil {
-						h.logger.WithField("streamId", streamId).WithError(innerErr).Error("failed to send error message")
+						log.WithError(innerErr).Error("failed to send error message")
 						return innerErr
 					}
 				}
@@ -217,7 +222,7 @@ func (h *StreamHandler) send(ctx context.Context, streamId string, stream pb.Wea
 			}
 		} else {
 			// This should never happen, but if it does, we log it
-			h.logger.WithField("streamId", streamId).Error("read queue not found")
+			log.Error("read queue not found")
 			return fmt.Errorf("read queue for stream %s not found", streamId)
 		}
 	}
@@ -231,8 +236,9 @@ func (h *StreamHandler) close(streamId string, wg *sync.WaitGroup) {
 	h.workerStatsPerStream.Delete(streamId)
 }
 
-// Send adds a batch send request to the write queue and returns the number of objects in the request.
+// recv receives messages from the client through the stream and schedules them for processing by downstream workers.
 func (h *StreamHandler) recv(ctx context.Context, streamId string, consistencyLevel *pb.ConsistencyLevel, stream pb.Weaviate_BatchStreamServer) error {
+	log := h.logger.WithField("streamId", streamId)
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -257,7 +263,6 @@ func (h *StreamHandler) recv(ctx context.Context, streamId string, consistencyLe
 
 	wg := &sync.WaitGroup{}
 	defer h.close(streamId, wg)
-	log := h.logger.WithField("streamId", streamId)
 	for {
 		if ctx.Err() != nil {
 			return ctx.Err()

@@ -12,7 +12,6 @@
 package batch
 
 import (
-	"context"
 	"math"
 	"sync"
 	"time"
@@ -142,20 +141,9 @@ type workerStats struct {
 	processingTime time.Duration
 }
 
-func NewWorkersStats(processingTime time.Duration) *workerStats {
+func newWorkersStats(processingTime time.Duration) *workerStats {
 	return &workerStats{
 		processingTime: processingTime,
-	}
-}
-
-func NewProcessRequest(objs []*pb.BatchObject, refs []*pb.BatchReference, streamId string, cl *pb.ConsistencyLevel, wg *sync.WaitGroup, ctx context.Context) *processRequest {
-	return &processRequest{
-		StreamId:         streamId,
-		ConsistencyLevel: cl,
-		Objects:          objs,
-		References:       refs,
-		Wg:               wg,
-		Ctx:              ctx,
 	}
 }
 

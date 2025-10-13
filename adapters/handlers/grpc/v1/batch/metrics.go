@@ -18,8 +18,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
-// BatchStreamingCallbacks contains a set of callback functions that are invoked
-// on different stages of the batch streaming process.
+// BatchStreamingMetrics contains a set of functions that are invoked
+// on different stages of the batch streaming process to report metrics.
 type BatchStreamingMetrics struct {
 	OnStreamStart   func()
 	OnStreamStop    func()

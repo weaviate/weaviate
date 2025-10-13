@@ -13,7 +13,6 @@ package batch
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -88,26 +87,21 @@ func (w *Worker) isReplicationError(err string) bool {
 		(strings.Contains(err, "status code: 404, error: request not found")) // failed to find request on shutdown node
 }
 
-type errCh chan *pb.BatchStreamReply_Error
-
-func (w *Worker) sendObjects(ctx context.Context, errCh errCh, streamId string, objs []*pb.BatchObject, cl *pb.ConsistencyLevel, retries int) error {
-	if len(objs) == 0 {
-		w.logger.WithField("streamId", streamId).Error("received nil sendObjects request")
-		return fmt.Errorf("received nil sendObjects request")
-	}
+func (w *Worker) sendObjects(ctx context.Context, streamId string, objs []*pb.BatchObject, cl *pb.ConsistencyLevel, retries int) []*pb.BatchStreamReply_Error {
 	reply, err := w.batcher.BatchObjects(ctx, &pb.BatchObjectsRequest{
 		Objects:          objs,
 		ConsistencyLevel: cl,
 	})
 	if err != nil {
 		w.logger.WithField("streamId", streamId).WithError(err).Error("failed to batch objects")
+		errs := make([]*pb.BatchStreamReply_Error, 0, len(objs))
 		for _, obj := range objs {
-			errCh <- &pb.BatchStreamReply_Error{
+			errs = append(errs, &pb.BatchStreamReply_Error{
 				Error:  err.Error(),
 				Detail: &pb.BatchStreamReply_Error_Object{Object: obj},
-			}
+			})
 		}
-		return nil
+		return errs
 	}
 	// Handle errors
 	errs := make([]*pb.BatchStreamReply_Error, 0, len(reply.GetErrors()))
@@ -127,32 +121,27 @@ func (w *Worker) sendObjects(ctx context.Context, errCh errCh, streamId string, 
 			})
 		}
 	}
-	for _, err := range errs {
-		errCh <- err
-	}
 	if len(retriable) > 0 {
-		return w.sendObjects(ctx, errCh, streamId, retriable, cl, retries+1)
+		errs = append(errs, w.sendObjects(ctx, streamId, retriable, cl, retries+1)...)
 	}
-	return nil
+	return errs
 }
 
-func (w *Worker) sendReferences(ctx context.Context, errCh errCh, streamId string, refs []*pb.BatchReference, cl *pb.ConsistencyLevel, retries int) error {
-	if len(refs) == 0 {
-		w.logger.WithField("streamId", streamId).Error("received nil sendReferences request")
-		return fmt.Errorf("received nil sendReferences request")
-	}
+func (w *Worker) sendReferences(ctx context.Context, streamId string, refs []*pb.BatchReference, cl *pb.ConsistencyLevel, retries int) []*pb.BatchStreamReply_Error {
 	reply, err := w.batcher.BatchReferences(ctx, &pb.BatchReferencesRequest{
 		References:       refs,
 		ConsistencyLevel: cl,
 	})
 	if err != nil {
+		w.logger.WithField("streamId", streamId).WithError(err).Error("failed to batch references")
+		errs := make([]*pb.BatchStreamReply_Error, 0, len(refs))
 		for _, ref := range refs {
-			errCh <- &pb.BatchStreamReply_Error{
+			errs = append(errs, &pb.BatchStreamReply_Error{
 				Error:  err.Error(),
 				Detail: &pb.BatchStreamReply_Error_Reference{Reference: ref},
-			}
+			})
 		}
-		return nil
+		return errs
 	}
 	// Handle errors
 	errs := make([]*pb.BatchStreamReply_Error, 0, len(reply.GetErrors()))
@@ -172,13 +161,10 @@ func (w *Worker) sendReferences(ctx context.Context, errCh errCh, streamId strin
 			})
 		}
 	}
-	for _, err := range errs {
-		errCh <- err
-	}
 	if len(retriable) > 0 {
-		return w.sendReferences(ctx, errCh, streamId, retriable, cl, retries+1)
+		errs = append(errs, w.sendReferences(ctx, streamId, retriable, cl, retries+1)...)
 	}
-	return nil
+	return errs
 }
 
 func (w *Worker) report(streamId string, errs []*pb.BatchStreamReply_Error, stats *workerStats) {
@@ -191,9 +177,12 @@ func (w *Worker) report(streamId string, errs []*pb.BatchStreamReply_Error, stat
 func (w *Worker) Loop() error {
 	for req := range w.processingQueue {
 		if req != nil {
-			if err := w.process(req); err != nil {
-				w.logger.WithField("streamId", req.StreamId).WithField("error", err).Error("failed to process batch request")
-			}
+			start := time.Now()
+			w.report(
+				req.StreamId,
+				w.process(req),
+				newWorkersStats(time.Since(start)),
+			)
 		} else {
 			w.logger.WithField("action", "batch_worker_loop").Error("received nil process request")
 		}
@@ -202,29 +191,17 @@ func (w *Worker) Loop() error {
 	return nil // channel closed, exit loop
 }
 
-func (w *Worker) process(req *processRequest) error {
-	defer req.Wg.Done()
-
+func (w *Worker) process(req *processRequest) []*pb.BatchStreamReply_Error {
 	ctx, cancel := context.WithTimeout(req.Ctx, perProcessTimeout)
 	defer cancel()
+	defer req.Wg.Done()
 
-	start := time.Now()
-	errCh := make(chan *pb.BatchStreamReply_Error, len(req.Objects)+len(req.References))
+	errs := make([]*pb.BatchStreamReply_Error, 0, len(req.Objects)+len(req.References))
 	if req.Objects != nil {
-		if err := w.sendObjects(ctx, errCh, req.StreamId, req.Objects, req.ConsistencyLevel, 0); err != nil {
-			return err
-		}
+		errs = append(errs, w.sendObjects(ctx, req.StreamId, req.Objects, req.ConsistencyLevel, 0)...)
 	}
 	if req.References != nil {
-		if err := w.sendReferences(ctx, errCh, req.StreamId, req.References, req.ConsistencyLevel, 0); err != nil {
-			return err
-		}
+		errs = append(errs, w.sendReferences(ctx, req.StreamId, req.References, req.ConsistencyLevel, 0)...)
 	}
-	close(errCh)
-	errs := make([]*pb.BatchStreamReply_Error, 0, len(errCh))
-	for err := range errCh {
-		errs = append(errs, err)
-	}
-	w.report(req.StreamId, errs, NewWorkersStats(time.Since(start)))
-	return nil
+	return errs
 }
