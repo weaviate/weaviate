@@ -15,6 +15,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -789,6 +791,12 @@ func TestGetLastUsageMultinode(t *testing.T) {
 		secondNode := compose.GetWeaviateNode(1)
 		helper.SetupClient(firstNode.URI())
 
+		// NOTE: temporary workaround to get logs from the container
+		go func() {
+			rdr, _ := firstNode.Container().Logs(context.Background())
+			io.Copy(os.Stdout, rdr)
+		}()
+
 		dynUser := "dyn-user"
 		helper.DeleteUser(t, dynUser, adminKey)
 		defer helper.DeleteUser(t, dynUser, adminKey)
@@ -806,8 +814,10 @@ func TestGetLastUsageMultinode(t *testing.T) {
 		require.Less(t, user.LastUsedAt, time.Now())
 
 		// shutdown node, its login time should be transferred to other nodes
-		shutdownTimeout := 10 * time.Minute
-		err := firstNode.Container().Stop(ctx, &shutdownTimeout)
+		shutdownTimeout := 60 * time.Second
+		stopCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout+15*time.Second)
+		defer cancel()
+		err := firstNode.Container().Stop(stopCtx, &shutdownTimeout)
 		require.NoError(t, err)
 
 		// wait for the container to actually stop
