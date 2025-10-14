@@ -267,7 +267,12 @@ func (f *Finder) CheckConsistency(ctx context.Context,
 	}
 	// check shard consistency concurrently - return when required consistency is reached
 	parts := cluster(createBatch(xs))
-	requiredSuccess := len(parts) // For now, require all parts to succeed
+	// Use quorum-based consistency instead of requiring all parts to succeed
+	// This prevents blocking during node rollout when some shards are temporarily unavailable
+	requiredSuccess := (len(parts) + 1) / 2 // Quorum: majority of parts must succeed
+	if requiredSuccess < 1 {
+		requiredSuccess = 1 // At least one part must succeed
+	}
 
 	f.log.WithFields(logrus.Fields{
 		"op":               "finder_check_consistency",
