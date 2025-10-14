@@ -14,6 +14,7 @@ package replica
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -54,6 +55,7 @@ type (
 		pullBackOffPreInitialInterval time.Duration
 		pullBackOffMaxElapsedTime     time.Duration // stop retrying after this long
 		deletionStrategy              string
+		localHostAddr                 string
 	}
 )
 
@@ -87,6 +89,12 @@ func newReadCoordinator[T any](f *Finder, shard string,
 		pullBackOffPreInitialInterval: pullBackOffInitivalInterval / 2,
 		pullBackOffMaxElapsedTime:     pullBackOffMaxElapsedTime,
 		deletionStrategy:              deletionStrategy,
+		localHostAddr: func() string {
+			if addr, ok := f.router.NodeHostname(f.nodeName); ok {
+				return strings.Split(addr, ":")[0]
+			}
+			return ""
+		}(),
 	}
 }
 
@@ -320,9 +328,19 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 		// kick off only level workers so that we avoid querying nodes unnecessarily
 		wg := sync.WaitGroup{}
 		wg.Add(level)
+		// determine local index among the first 'level' hosts
+		fullReadIndex := 0
+		if c.localHostAddr != "" {
+			for i := 0; i < len(hosts); i++ {
+				if hosts[i] == c.localHostAddr {
+					fullReadIndex = i
+					break
+				}
+			}
+		}
 		for i := 0; i < level; i++ {
 			hostIndex := i
-			isFullReadWorker := hostIndex == 0 // first worker will perform the fullRead
+			isFullReadWorker := hostIndex == fullReadIndex // first worker will perform the fullRead
 			workerFunc := func() {
 				defer wg.Done()
 				workerCtx, workerCancel := context.WithTimeout(ctx, timeout)
