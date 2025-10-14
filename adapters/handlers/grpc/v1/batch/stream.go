@@ -30,6 +30,8 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+const SHUTDOWN_GRACE_PERIOD = 75 * time.Second
+
 var ErrShutdown = errors.New("server has shutdown")
 
 func errShutdown(err error) error {
@@ -299,7 +301,7 @@ func (h *StreamHandler) recv(ctx context.Context, streamId string, consistencyLe
 		select {
 		case request = <-reqCh:
 		case err = <-errCh:
-		case <-time.After(2 * time.Minute):
+		case <-time.After(SHUTDOWN_GRACE_PERIOD):
 			// This ensures that we don't hang indefinitely if the client does not close the stream
 			// after receiving the shutdown message for any reason
 			if h.shuttingDown.Load() {
