@@ -89,6 +89,7 @@ func TestGRPC_Batching(t *testing.T) {
 		}
 		err := send(stream, objects, references)
 		require.NoError(t, err, "sending Objects and References over the stream should not return an error")
+		stop(stream)
 		stream.CloseSend()
 
 		// Validate the number of articles created
@@ -119,6 +120,7 @@ func TestGRPC_Batching(t *testing.T) {
 		}
 		err := send(stream, objects, nil)
 		require.NoError(t, err, "sending Objects over the stream should not return an error")
+		stop(stream)
 		stream.CloseSend()
 
 		// Read the error message
@@ -156,6 +158,7 @@ func TestGRPC_Batching(t *testing.T) {
 		}
 		err := send(stream, objects, references)
 		require.NoError(t, err, "sending Objects and References over the stream should not return an error")
+		stop(stream)
 		stream.CloseSend()
 
 		// Read the error message
@@ -180,8 +183,6 @@ func TestGRPC_Batching(t *testing.T) {
 
 		// Open up a stream to read messages from
 		stream := start(ctx, t, grpcClient, "")
-		defer stream.CloseSend()
-
 		// Send 50000 articles
 		var objects []*pb.BatchObject
 		for i := 0; i < 50000; i++ {
@@ -194,6 +195,8 @@ func TestGRPC_Batching(t *testing.T) {
 			}
 		}
 		t.Log("Done adding objects to stream")
+		stop(stream)
+		stream.CloseSend()
 
 		go func() {
 			// Verify no errors returned from the stream
@@ -242,6 +245,7 @@ func TestGRPC_Batching(t *testing.T) {
 				t.Logf("Sent %d objects", i+1)
 			}
 		}
+		stop(stream)
 		stream.CloseSend()
 		t.Log("Done adding objects to stream")
 
@@ -348,6 +352,7 @@ func TestGRPC_ClusterBatching(t *testing.T) {
 		}
 		err := send(stream, objects, references)
 		require.NoError(t, err, "sending Objects and References over the stream should not return an error")
+		stop(stream)
 		stream.CloseSend()
 
 		// Validate the number of articles created
@@ -409,6 +414,7 @@ func TestGRPC_ClusterBatching(t *testing.T) {
 				}
 			}
 			fmt.Printf("%s Done sending objects\n", time.Now().Format("15:04:05"))
+			stop(stream)
 			stream.CloseSend()
 		}()
 
@@ -566,6 +572,7 @@ func TestGRPC_AuthzBatching(t *testing.T) {
 		}
 		err := send(stream, objects, references)
 		require.NoError(t, err, "sending Objects and References over the stream should not return an error")
+		stop(stream)
 		stream.CloseSend()
 
 		for {
@@ -640,6 +647,7 @@ func TestGRPC_AuthzBatching(t *testing.T) {
 		}
 		err := send(stream, objects, nil)
 		require.NoError(t, err, "sending Objects over the stream should not return an error")
+		stop(stream)
 		stream.CloseSend()
 
 		// Read the error message
@@ -698,4 +706,12 @@ func send(stream pb.Weaviate_BatchStreamClient, objs []*pb.BatchObject, refs []*
 	return stream.Send(&pb.BatchStreamRequest{
 		Message: &pb.BatchStreamRequest_Data_{Data: data},
 	})
+}
+
+func stop(stream pb.Weaviate_BatchStreamClient) {
+	// Send request to stop the batching process
+	err := stream.Send(&pb.BatchStreamRequest{
+		Message: &pb.BatchStreamRequest_Stop_{Stop: &pb.BatchStreamRequest_Stop{}},
+	})
+	require.NoError(nil, err, "sending Stop over the stream should not return an error")
 }

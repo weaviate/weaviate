@@ -54,6 +54,7 @@ type StreamHandler struct {
 	metrics              *BatchStreamingMetrics
 	shuttingDown         atomic.Bool
 	workerStatsPerStream *sync.Map // map[string]*stats
+	stoppingPerStream    sync.Map  // map[string]bool
 }
 
 func NewStreamHandler(authenticator authenticator, authorizer authorization.Authorizer, shuttingDownCtx context.Context, recvWg, sendWg *sync.WaitGroup, reportingQueues *reportingQueues, processingQueue processingQueue, metrics *BatchStreamingMetrics, logger logrus.FieldLogger) *StreamHandler {
@@ -68,6 +69,7 @@ func NewStreamHandler(authenticator authenticator, authorizer authorization.Auth
 		sendWg:               sendWg,
 		metrics:              metrics,
 		workerStatsPerStream: &sync.Map{},
+		stoppingPerStream:    sync.Map{},
 	}
 	return h
 }
@@ -163,10 +165,12 @@ func (h *StreamHandler) handleServerShuttingDown(stream pb.Weaviate_BatchStreamS
 
 func (h *StreamHandler) handleWorkerReport(report *report, closed bool, recvErrCh chan error, streamId string, stream pb.Weaviate_BatchStreamServer, logger *logrus.Entry) error {
 	logger.Debug("received report from worker")
-	// If the reporting queue is closed, we must finish the stream
+	// If the reporting queue is closed, then h.recv must've closed it itself either through erroring or the client closing its side of the stream
 	if closed {
-		if h.shuttingDown.Load() {
-			// the server must be shutting down on its own, so return an error saying so
+		if h.shuttingDown.Load() && !h.isStopping(streamId) {
+			// The server must be shutting down on its own, so return an error saying so provided that the client
+			// hasn't indicated that it has stopped the stream itself. This avoids telling a client that has already stopped
+			// of a shutting down server; it shouldn't care
 			logger.Info("stream closed due to server shutdown")
 			return errShutdown(ErrShutdown)
 		}
@@ -262,6 +266,7 @@ func (h *StreamHandler) close(streamId string, wg *sync.WaitGroup) {
 	h.logger.WithField("streamId", streamId).Debug("all workers done, closed reporting queue")
 	h.reportingQueues.Close(streamId)
 	h.workerStatsPerStream.Delete(streamId)
+	h.stoppingPerStream.Delete(streamId)
 }
 
 // recv receives messages from the client through the stream and schedules them for processing by downstream workers.
@@ -332,6 +337,8 @@ func (h *StreamHandler) recv(ctx context.Context, streamId string, consistencyLe
 			if h.metrics != nil {
 				h.metrics.OnStreamRequest(float64(len(h.processingQueue)) / float64(cap(h.processingQueue)))
 			}
+		} else if request.GetStop() != nil {
+			h.setStopping(streamId)
 		} else {
 			h.logger.WithField("streamId", streamId).WithField("request", request).Error("received invalid batch send request: data field is nil")
 			return fmt.Errorf("invalid batch send request: data field is nil")
@@ -342,6 +349,15 @@ func (h *StreamHandler) recv(ctx context.Context, streamId string, consistencyLe
 func (h *StreamHandler) workerStats(streamId string) *stats {
 	st, _ := h.workerStatsPerStream.LoadOrStore(streamId, newStats())
 	return st.(*stats)
+}
+
+func (h *StreamHandler) isStopping(streamId string) bool {
+	_, ok := h.stoppingPerStream.Load(streamId)
+	return ok
+}
+
+func (h *StreamHandler) setStopping(streamId string) {
+	h.stoppingPerStream.Store(streamId, true)
 }
 
 // Setup initializes a reporting queue for the given stream ID and adds it to the reporting queues map.

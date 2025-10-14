@@ -23,6 +23,8 @@ message BatchStreamRequest {
   message Start {
     optional ConsistencyLevel consistency_level = 1;
   }
+  message Stop{
+  }
   message Data {
     message Objects {
       repeated BatchObject values = 1;
@@ -36,6 +38,7 @@ message BatchStreamRequest {
   oneof message {
     Start start = 1;
     Data data = 2;
+    Stop stop = 3;
   }
 }
 
