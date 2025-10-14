@@ -359,7 +359,7 @@ func (f *Finder) checkShardConsistency(ctx context.Context,
 		}
 	}
 
-	replyCh, state, err := c.Pull(ctx, l, op, batch.Node, 20*time.Second)
+	replyCh, state, err := c.Pull(ctx, l, op, batch.Node, 5*time.Second)
 	if err != nil {
 		f.log.WithField("op", "pull.shard").Error(err)
 		return nil, fmt.Errorf("pull shard: %w", err)

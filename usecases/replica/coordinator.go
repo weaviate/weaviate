@@ -90,9 +90,7 @@ func newReadCoordinator[T any](f *Finder, shard string,
 		pullBackOffMaxElapsedTime:     pullBackOffMaxElapsedTime,
 		deletionStrategy:              deletionStrategy,
 		localHostAddr: func() string {
-			fmt.Println("f.nodeName", f.nodeName)
 			if addr, ok := f.router.NodeHostname(f.nodeName); ok {
-				fmt.Println("addr", addr)
 				return addr
 			}
 			return ""
@@ -289,6 +287,7 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 	op readOp[T], directCandidate string,
 	timeout time.Duration,
 ) (<-chan _Result[T], int, error) {
+	pullStart := time.Now()
 	routingPlan, err := c.Router.BuildReadRoutingPlan(types.RoutingPlanBuildOptions{
 		Collection:       c.Class,
 		Shard:            c.Shard,
@@ -298,6 +297,13 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 	if err != nil {
 		return nil, 0, fmt.Errorf("%w : class %q shard %q", err, c.Class, c.Shard)
 	}
+	c.log.WithFields(logrus.Fields{
+		"op":         "pull",
+		"phase":      "plan_built",
+		"duration":   time.Since(pullStart).String(),
+		"collection": c.Class,
+		"shard":      c.Shard,
+	}).Info("pull routing plan built")
 	level := routingPlan.IntConsistencyLevel
 	hosts := routingPlan.ReplicasHostAddrs
 	// deduplicate hosts to avoid launching multiple workers for the same node
@@ -350,6 +356,8 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 		errorCh := make(chan _Result[T], len(hosts))
 		// track whether a full-read succeeded (required for read-repair correctness)
 		fullSuccessCh := make(chan struct{}, 1)
+		// first result timing
+		var firstResultOnce sync.Once
 
 		wg := sync.WaitGroup{}
 		wg.Add(len(hosts))
@@ -449,6 +457,13 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 			for successCount+errorCount < total {
 				select {
 				case r := <-successCh:
+					firstResultOnce.Do(func() {
+						c.log.WithFields(logrus.Fields{
+							"op":       "pull",
+							"phase":    "first_result",
+							"duration": time.Since(pullStart).String(),
+						}).Info("pull first result received")
+					})
 					replyCh <- r
 					successCount++
 					if successCount >= level && fullReadSeen {
@@ -457,6 +472,13 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 						return
 					}
 				case <-fullSuccessCh:
+					firstResultOnce.Do(func() {
+						c.log.WithFields(logrus.Fields{
+							"op":       "pull",
+							"phase":    "first_result",
+							"duration": time.Since(pullStart).String(),
+						}).Info("pull first result received")
+					})
 					fullReadSeen = true
 					if successCount >= level {
 						stopOnce.Do(func() { close(doneCh); cancel() })
@@ -464,6 +486,13 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 						return
 					}
 				case r := <-errorCh:
+					firstResultOnce.Do(func() {
+						c.log.WithFields(logrus.Fields{
+							"op":       "pull",
+							"phase":    "first_result",
+							"duration": time.Since(pullStart).String(),
+						}).Info("pull first result received")
+					})
 					replyCh <- r
 					errorCount++
 				case <-ctx.Done():
