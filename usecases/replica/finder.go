@@ -18,6 +18,7 @@ import (
 	"math/rand"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-openapi/strfmt"
@@ -197,6 +198,14 @@ type ShardDesc struct {
 func (f *Finder) CheckConsistency(ctx context.Context,
 	l types.ConsistencyLevel, xs []*storobj.Object,
 ) error {
+	checkStart := time.Now()
+	f.log.WithFields(logrus.Fields{
+		"op":          "finder_check_consistency",
+		"method":      "CheckConsistency",
+		"consistency": l,
+		"num_objects": len(xs),
+	}).Info("finder CheckConsistency starting")
+
 	if len(xs) == 0 {
 		return nil
 	}
@@ -215,20 +224,203 @@ func (f *Finder) CheckConsistency(ctx context.Context,
 		}
 		return nil
 	}
-	// check shard consistency concurrently
-	gr, ctx := enterrors.NewErrorGroupWithContextWrapper(f.logger, ctx)
-	for _, part := range cluster(createBatch(xs)) {
-		part := part
-		gr.Go(func() error {
-			_, err := f.checkShardConsistency(ctx, l, part)
-			if err != nil {
-				f.log.WithField("op", "check_shard_consistency").
-					WithField("shard", part.Shard).Error(err)
-			}
-			return err
-		}, part)
+	// check shard consistency concurrently - return when required consistency is reached
+	parts := cluster(createBatch(xs))
+
+	// Determine required success based on consistency level
+	var requiredSuccess int
+	switch l {
+	case types.ConsistencyLevelOne:
+		requiredSuccess = 1 // At least one shard must succeed
+	case types.ConsistencyLevelQuorum:
+		requiredSuccess = (len(parts) + 1) / 2 // Majority of shards must succeed
+	case types.ConsistencyLevelAll:
+		requiredSuccess = len(parts) // All shards must succeed
+	default:
+		// Fallback to quorum for unknown consistency levels
+		requiredSuccess = (len(parts) + 1) / 2
 	}
-	return gr.Wait()
+
+	if requiredSuccess < 1 {
+		requiredSuccess = 1 // At least one part must succeed
+	}
+
+	f.log.WithFields(logrus.Fields{
+		"op":               "finder_check_consistency",
+		"method":           "CheckConsistency",
+		"num_parts":        len(parts),
+		"required_success": requiredSuccess,
+	}).Info("finder CheckConsistency launching shard checks")
+
+	// Use error group with context for coordinated cancellation
+	eg, egCtx := enterrors.NewErrorGroupWithContextWrapper(f.logger, ctx, "finder_check_consistency")
+
+	// Create a cancellable context for early termination when consistency is achieved
+	cancelCtx, cancel := context.WithCancel(egCtx)
+	defer cancel()
+
+	successCh := make(chan struct{}, len(parts))
+	errorCh := make(chan error, len(parts))
+
+	// Launch all checks
+	for i, part := range parts {
+		part := part
+		partIndex := i
+		eg.Go(func() error {
+			shardStart := time.Now()
+			f.log.WithFields(logrus.Fields{
+				"op":         "finder_check_consistency",
+				"shard":      part.Shard,
+				"part_index": partIndex,
+				"node":       part.Node,
+			}).Info("finder CheckConsistency starting shard check")
+
+			_, err := f.checkShardConsistency(cancelCtx, l, part)
+			shardDuration := time.Since(shardStart)
+
+			if err != nil {
+				f.log.WithFields(logrus.Fields{
+					"op":         "finder_check_consistency",
+					"shard":      part.Shard,
+					"part_index": partIndex,
+					"duration":   shardDuration.String(),
+					"error":      err,
+				}).Error("finder CheckConsistency shard check failed")
+				select {
+				case errorCh <- err:
+					f.log.WithFields(logrus.Fields{
+						"op":         "finder_check_consistency",
+						"shard":      part.Shard,
+						"part_index": partIndex,
+					}).Warn("finder CheckConsistency sent error to channel")
+				default:
+					f.log.WithFields(logrus.Fields{
+						"op":         "finder_check_consistency",
+						"shard":      part.Shard,
+						"part_index": partIndex,
+					}).Warn("finder CheckConsistency error channel full, dropping error")
+				}
+			} else {
+				f.log.WithFields(logrus.Fields{
+					"op":         "finder_check_consistency",
+					"shard":      part.Shard,
+					"part_index": partIndex,
+					"duration":   shardDuration.String(),
+				}).Info("finder CheckConsistency shard check succeeded")
+				select {
+				case successCh <- struct{}{}:
+					f.log.WithFields(logrus.Fields{
+						"op":         "finder_check_consistency",
+						"shard":      part.Shard,
+						"part_index": partIndex,
+					}).Warn("finder CheckConsistency sent success to channel")
+				default:
+					f.log.WithFields(logrus.Fields{
+						"op":         "finder_check_consistency",
+						"shard":      part.Shard,
+						"part_index": partIndex,
+					}).Warn("finder CheckConsistency success channel full, dropping success")
+				}
+			}
+			return nil
+		})
+	}
+
+	// Wait for required consistency level or all to complete
+	var successCount atomic.Int32
+	var errorCount atomic.Int32
+	var firstErr error
+	totalChecks := len(parts)
+
+	f.log.WithFields(logrus.Fields{
+		"op":               "finder_check_consistency",
+		"method":           "CheckConsistency",
+		"total_checks":     totalChecks,
+		"required_success": requiredSuccess,
+	}).Info("finder CheckConsistency starting collector loop")
+
+	for successCount.Load()+errorCount.Load() < int32(totalChecks) {
+		select {
+		case <-cancelCtx.Done():
+			checkDuration := time.Since(checkStart)
+			f.log.WithFields(logrus.Fields{
+				"op":       "finder_check_consistency",
+				"method":   "CheckConsistency",
+				"duration": checkDuration.String(),
+				"error":    cancelCtx.Err(),
+			}).Error("finder CheckConsistency context done")
+			return cancelCtx.Err()
+		case <-successCh:
+			newSuccessCount := successCount.Add(1)
+			f.log.WithFields(logrus.Fields{
+				"op":                "finder_check_consistency",
+				"method":            "CheckConsistency",
+				"successful_checks": newSuccessCount,
+				"required_success":  requiredSuccess,
+			}).Info("finder CheckConsistency received success")
+			if newSuccessCount >= int32(requiredSuccess) {
+				checkDuration := time.Since(checkStart)
+				f.log.WithFields(logrus.Fields{
+					"op":                "finder_check_consistency",
+					"method":            "CheckConsistency",
+					"duration":          checkDuration.String(),
+					"successful_checks": newSuccessCount,
+				}).Info("finder CheckConsistency achieved required level, cancelling remaining workers")
+				// Cancel remaining workers to avoid unnecessary work
+				cancel()
+				return nil
+			}
+		case err := <-errorCh:
+			newErrorCount := errorCount.Add(1)
+			f.log.WithFields(logrus.Fields{
+				"op":          "finder_check_consistency",
+				"method":      "CheckConsistency",
+				"error_count": newErrorCount,
+				"error":       err,
+			}).Info("finder CheckConsistency received error")
+			if firstErr == nil {
+				firstErr = err
+			}
+		case <-time.After(5 * time.Second):
+			// Add a timeout to detect if the collector loop is stuck
+			f.log.WithFields(logrus.Fields{
+				"op":                "finder_check_consistency",
+				"method":            "CheckConsistency",
+				"successful_checks": successCount.Load(),
+				"error_count":       errorCount.Load(),
+				"total_checks":      totalChecks,
+				"required_success":  requiredSuccess,
+			}).Warn("finder CheckConsistency collector loop timeout - no activity for 5s")
+		}
+	}
+
+	// All checks completed - check if we achieved required consistency
+	if successCount.Load() >= int32(requiredSuccess) {
+		checkDuration := time.Since(checkStart)
+		f.log.WithFields(logrus.Fields{
+			"op":                "finder_check_consistency",
+			"method":            "CheckConsistency",
+			"duration":          checkDuration.String(),
+			"successful_checks": successCount.Load(),
+		}).Info("finder CheckConsistency completed successfully")
+		return nil
+	}
+
+	// Log failure with details and return the first worker error (if any)
+	checkDuration := time.Since(checkStart)
+	f.log.WithFields(logrus.Fields{
+		"op":                "finder_check_consistency",
+		"method":            "CheckConsistency",
+		"duration":          checkDuration.String(),
+		"successful_checks": successCount.Load(),
+		"failed_checks":     errorCount.Load(),
+		"required_success":  requiredSuccess,
+	}).Error("finder CheckConsistency failed")
+
+	if firstErr != nil {
+		return fmt.Errorf("consistency check failed: cannot reach enough replicas: %w", firstErr)
+	}
+	return fmt.Errorf("consistency check failed: cannot reach enough replicas")
 }
 
 // Exists checks if an object exists which satisfies the giving consistency
