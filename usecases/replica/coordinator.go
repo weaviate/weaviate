@@ -13,6 +13,7 @@ package replica
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -299,6 +300,29 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 	}
 	level := routingPlan.IntConsistencyLevel
 	hosts := routingPlan.ReplicasHostAddrs
+	// deduplicate hosts to avoid launching multiple workers for the same node
+	if len(hosts) > 1 {
+		seen := make(map[string]struct{}, len(hosts))
+		unique := make([]string, 0, len(hosts))
+		duplicates := make([]string, 0)
+		for _, h := range hosts {
+			if _, ok := seen[h]; ok {
+				duplicates = append(duplicates, h)
+				continue
+			}
+			seen[h] = struct{}{}
+			unique = append(unique, h)
+		}
+		if len(duplicates) > 0 {
+			c.log.WithFields(logrus.Fields{
+				"op":           "pull",
+				"duplicates":   duplicates,
+				"original_cnt": len(routingPlan.ReplicasHostAddrs),
+				"unique_cnt":   len(unique),
+			}).Info("deduplicated replica hosts for pull")
+		}
+		hosts = unique
+	}
 	replyCh := make(chan _Result[T], level)
 	f := func() {
 		start := time.Now()
@@ -401,7 +425,11 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 					c.log.WithFields(logrus.Fields{"op": "pull", "host": hosts[hostIndex], "full_read": isFullReadWorker}).Info("pull worker success")
 					return
 				}
-				// on error, report unless already done
+				// on error, suppress expected cancellation noise; otherwise report unless already done
+				if errors.Is(err, context.Canceled) || workerCtx.Err() == context.Canceled {
+					c.log.WithFields(logrus.Fields{"op": "pull", "host": hosts[hostIndex]}).Debug("pull worker canceled by context")
+					return
+				}
 				select {
 				case <-doneCh:
 					c.log.WithFields(logrus.Fields{"op": "pull", "host": hosts[hostIndex]}).Info("pull worker cancelled after error")
