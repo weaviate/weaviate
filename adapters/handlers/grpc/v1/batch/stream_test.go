@@ -260,6 +260,14 @@ func newBatchStreamObjsRequest(objs []*pb.BatchObject) *pb.BatchStreamRequest {
 	}
 }
 
+func newBatchStreamStopRequest() *pb.BatchStreamRequest {
+	return &pb.BatchStreamRequest{
+		Message: &pb.BatchStreamRequest_Stop_{
+			Stop: &pb.BatchStreamRequest_Stop{},
+		},
+	}
+}
+
 func newBatchStreamErrReply(err string, obj *pb.BatchObject) *pb.BatchStreamReply {
 	return &pb.BatchStreamReply{
 		Message: &pb.BatchStreamReply_Error_{

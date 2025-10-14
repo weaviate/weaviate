@@ -54,7 +54,7 @@ type StreamHandler struct {
 	metrics              *BatchStreamingMetrics
 	shuttingDown         atomic.Bool
 	workerStatsPerStream *sync.Map // map[string]*stats
-	stoppingPerStream    sync.Map  // map[string]bool
+	stoppingPerStream    *sync.Map // map[string]struct{}
 }
 
 func NewStreamHandler(authenticator authenticator, authorizer authorization.Authorizer, shuttingDownCtx context.Context, recvWg, sendWg *sync.WaitGroup, reportingQueues *reportingQueues, processingQueue processingQueue, metrics *BatchStreamingMetrics, logger logrus.FieldLogger) *StreamHandler {
@@ -69,7 +69,7 @@ func NewStreamHandler(authenticator authenticator, authorizer authorization.Auth
 		sendWg:               sendWg,
 		metrics:              metrics,
 		workerStatsPerStream: &sync.Map{},
-		stoppingPerStream:    sync.Map{},
+		stoppingPerStream:    &sync.Map{},
 	}
 	return h
 }
@@ -145,7 +145,15 @@ func (h *StreamHandler) handleRecvErr(recvErr error, logger *logrus.Entry) error
 	}
 }
 
-func (h *StreamHandler) handleRecvClosed(logger *logrus.Entry) error {
+func (h *StreamHandler) handleRecvClosed(streamId string, logger *logrus.Entry) error {
+	if h.shuttingDown.Load() && !h.isStopping(streamId) {
+		// The server must be shutting down on its own, so return an error saying so provided that the client
+		// hasn't indicated that it has stopped the stream itself. This avoids telling a client that has already stopped
+		// of a shutting down server; it shouldn't care
+		logger.Info("stream closed due to server shutdown")
+		return errShutdown(ErrShutdown)
+	}
+	// otherwise, the client must be closing its side of the stream, so close gracefully
 	// client has closed its side of the stream, so close gracefully
 	logger.Info("stream closed by client")
 	return nil
@@ -215,6 +223,7 @@ func (h *StreamHandler) handleWorkerErrors(report *report, streamId string, stre
 }
 
 func (h *StreamHandler) send(ctx context.Context, streamId string, stream pb.Weaviate_BatchStreamServer, recvErrCh chan error) error {
+	defer h.stoppingPerStream.Delete(streamId)
 	log := h.logger.WithField("streamId", streamId)
 	// shuttingDown acts as a soft cancel here so we can send the shutting down message to the client.
 	// Once the workers are drained then h.shutdownFinished will be closed and we will shutdown completely
@@ -243,7 +252,7 @@ func (h *StreamHandler) send(ctx context.Context, streamId string, stream pb.Wea
 			h.drainReportingQueue(reportingQueue, streamId, stream, log)
 			if !ok {
 				// channel closed, client must have closed its side of the stream
-				return h.handleRecvClosed(log)
+				return h.handleRecvClosed(streamId, log)
 			}
 			// receiver errored, return the error to close the stream
 			return h.handleRecvErr(recvErr, log)
@@ -266,7 +275,6 @@ func (h *StreamHandler) close(streamId string, wg *sync.WaitGroup) {
 	h.logger.WithField("streamId", streamId).Debug("all workers done, closed reporting queue")
 	h.reportingQueues.Close(streamId)
 	h.workerStatsPerStream.Delete(streamId)
-	h.stoppingPerStream.Delete(streamId)
 }
 
 // recv receives messages from the client through the stream and schedules them for processing by downstream workers.
@@ -357,7 +365,7 @@ func (h *StreamHandler) isStopping(streamId string) bool {
 }
 
 func (h *StreamHandler) setStopping(streamId string) {
-	h.stoppingPerStream.Store(streamId, true)
+	h.stoppingPerStream.Store(streamId, struct{}{})
 }
 
 // Setup initializes a reporting queue for the given stream ID and adds it to the reporting queues map.
