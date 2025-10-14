@@ -6881,6 +6881,79 @@
         ],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
+      },
+      "patch": {
+        "description": "Partially update multiple objects in bulk using JSON Merge Patch semantics (RFC 7396). <br/><br/>Only the properties provided in the request will be updated; omitted properties will be preserved. <br/><br/>To delete a property, set its value to `null`. <br/><br/>Meta-data and schema values are validated.",
+        "operationId": "batch.objects.patch",
+        "x-serviceIds": [
+          "weaviate.local.manipulate"
+        ],
+        "parameters": [
+          {
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "objects": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/definitions/Object"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Request succeeded, see response body to get detailed information about each patched item.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/ObjectsGetResponse"
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "summary": "Partially update multiple Objects as a batch using JSON Merge Patch.",
+        "tags": [
+          "batch",
+          "objects"
+        ],
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false
       }
     },
     "/batch/references": {
