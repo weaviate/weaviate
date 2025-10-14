@@ -192,6 +192,8 @@ type ShardLike interface {
 
 	// Debug method for docID lock debugging and contention detection and simulation
 	DebugGetDocIdLockStatus() (bool, error)
+	DebugLockDocIds() error
+	DebugUnlockDocIds() (output bool)
 }
 
 type onAddToPropertyValueIndex func(shard *Shard, docID uint64, property *inverted.Property) error

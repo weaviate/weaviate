@@ -970,6 +970,209 @@ func setupDebugHandlers(appState *state.State) {
 		}
 		w.Write(jsonBytes)
 	}))
+
+	http.HandleFunc("/debug/lsm/force_deadlock", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		startTime := time.Now()
+		colName := r.URL.Query().Get("collection")
+		w.Header().Set("Content-Type", "application/json")
+		anyLocked := false
+
+		if colName == "" {
+			response := map[string]interface{}{
+				"error": "collection name is required",
+			}
+			jsonBytes, _ := json.Marshal(response)
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write(jsonBytes)
+			return
+		}
+
+		shardsToLockStr := strings.TrimSpace(r.URL.Query().Get("shards"))
+
+		shardsToLock := []string{}
+		if shardsToLockStr != "" {
+			shardsToLock = strings.Split(shardsToLockStr, ",")
+		}
+
+		locksToTestStr := strings.TrimSpace(r.URL.Query().Get("locks"))
+
+		var locksToTest []string
+		if locksToTestStr != "" {
+			locksToTest = strings.Split(locksToTestStr, ",")
+		} else {
+			locksToTest = []string{helpers.ObjectsBucketLSM}
+		}
+
+		timeoutDurationString := strings.TrimSpace(r.URL.Query().Get("timeout"))
+		var timeout time.Duration
+		if timeoutDurationString != "" {
+			var err error
+			timeout, err = time.ParseDuration(timeoutDurationString)
+			if err != nil {
+				response := map[string]interface{}{
+					"error": "invalid timeout duration format",
+				}
+				jsonBytes, _ := json.Marshal(response)
+				w.WriteHeader(http.StatusBadRequest)
+				w.Write(jsonBytes)
+				return
+			}
+		} else {
+			timeout = 30 * time.Second
+		}
+
+		className := schema.ClassName(colName)
+		idx := appState.DB.GetIndex(className)
+
+		if idx == nil {
+			logger.WithField("collection", colName).Error("collection not found or not ready")
+			response := map[string]interface{}{
+				"error": "collection not found or not ready",
+			}
+			jsonBytes, _ := json.Marshal(response)
+			w.WriteHeader(http.StatusNotFound)
+			w.Write(jsonBytes)
+			return
+		}
+
+		var err error
+
+		output := make(map[string]map[string]map[string]interface{})
+		idx.ForEachLoadedShard(
+			func(shardName string, shard db.ShardLike) error {
+				output[shardName] = make(map[string]map[string]interface{})
+				return nil
+			},
+		)
+		outputLock := sync.Mutex{}
+		eg := enterrors.NewErrorGroupWrapper(logger)
+		eg.SetLimit(-1)
+
+		for _, lockName := range locksToTest {
+			eg.Go(func() (err error) {
+				// shards will not be force loaded, as we are only getting the name
+				err = idx.ForEachLoadedShardConcurrently(
+					func(shardName string, shard db.ShardLike) error {
+						timeoutAfter := time.After(timeout)
+						if len(shardsToLock) == 0 || slices.Contains(shardsToLock, shardName) {
+
+							var lockOperation func() error
+							var unlockOperation func() bool
+							var checkStatusOperation func() (bool, error)
+							if lockName == "docIds" {
+								lockOperation = shard.DebugLockDocIds
+								unlockOperation = shard.DebugUnlockDocIds
+								checkStatusOperation = shard.DebugGetDocIdLockStatus
+							} else {
+								b := shard.Store().Bucket(lockName)
+								if b == nil {
+									output[shardName][lockName] = map[string]interface{}{
+										"error":   "error",
+										"locked":  false,
+										"took_ms": time.Since(startTime).Milliseconds(),
+										"message": fmt.Sprintf("bucket %s not found", lockName),
+									}
+									return nil
+								}
+								lockOperation = b.DebugLockSegmentGroup
+								unlockOperation = b.DebugUnlockSegmentGroup
+								checkStatusOperation = b.DebugGetSegmentGroupLockStatus
+							}
+
+							running := true
+							tries := 0
+							statusString := "unknown"
+							isLocked := false
+							startTimeInternal := time.Now()
+							for running {
+								select {
+								case <-timeoutAfter:
+									statusString = fmt.Sprintf("locked after %d tries and %s", tries, time.Since(startTimeInternal))
+									running = false
+									isLocked = true
+									anyLocked = true
+								default:
+									tries++
+									switch r.Method {
+									case http.MethodPost:
+										lockOperation()
+										running = false
+										statusString = "locked"
+									case http.MethodDelete:
+										unlockOperation()
+										running = false
+										statusString = "unlocked"
+									case http.MethodGet:
+										locked, err := checkStatusOperation()
+										if err != nil {
+											statusString = "error: " + err.Error()
+											running = false
+										} else if !locked {
+											statusString = fmt.Sprintf("unlocked after %d tries and %s", tries, time.Since(startTime))
+											running = false
+										}
+									}
+									time.Sleep(10 * time.Millisecond)
+								}
+							}
+							took := time.Since(startTimeInternal).Milliseconds()
+							outputLock.Lock()
+							output[shardName][lockName] = map[string]interface{}{
+								"locked":  isLocked,
+								"tries":   tries,
+								"took_ms": took,
+								"message": fmt.Sprintf("shard %s %s", shardName, statusString),
+							}
+							outputLock.Unlock()
+
+						} else {
+							outputLock.Lock()
+							output[shardName][lockName] = map[string]interface{}{
+								"status":  "skipped",
+								"locked":  false,
+								"took_ms": time.Since(startTime).Milliseconds(),
+								"message": fmt.Sprintf("shard %s not selected", shardName),
+							}
+							outputLock.Unlock()
+						}
+						return nil
+					},
+				)
+				return err
+			})
+		}
+
+		err = eg.Wait()
+
+		response := map[string]interface{}{
+			"shards": output,
+			"response": map[string]interface{}{
+				"took_ms": time.Since(startTime).Milliseconds(),
+				"locked":  anyLocked,
+			},
+		}
+
+		if err != nil {
+			logger.WithField("collection", colName).Error("failed to get shard names")
+			http.Error(w, "failed to get shard names", http.StatusInternalServerError)
+			response["error"] = "failed to get shard names: " + err.Error()
+		}
+
+		jsonBytes, err := json.Marshal(response)
+		if err != nil {
+			response := map[string]interface{}{
+				"error": "marshal failed on stats: " + err.Error(),
+			}
+			jsonBytes, _ := json.Marshal(response)
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write(jsonBytes)
+			return
+		}
+		if anyLocked {
+			w.WriteHeader(http.StatusServiceUnavailable)
+		}
+		w.Write(jsonBytes)
+	}))
 }
 
 type MaintenanceMode struct {
