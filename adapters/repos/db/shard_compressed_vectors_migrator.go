@@ -36,16 +36,17 @@ func newCompressedVectorsMigrator(logger logrus.FieldLogger) compressedVectorsMi
 }
 
 func (m compressedVectorsMigrator) do(s *Shard) error {
-	if m.isMigrationDone(s) {
-		// migration was performed, nothing to do
-		return nil
-	}
+	lsmDir := s.store.GetDir()
 	totalVectors := len(s.index.vectorIndexUserConfigs)
 	if s.index.vectorIndexUserConfig != nil {
 		totalVectors++
 	}
 
-	lsmDir := s.store.GetDir()
+	if m.isMigrationDone(lsmDir, totalVectors) {
+		// migration was performed, nothing to do
+		return nil
+	}
+
 	vectorsCompressedPath := filepath.Join(lsmDir, helpers.VectorsCompressedBucketLSM)
 	if _, err := os.Stat(vectorsCompressedPath); !os.IsNotExist(err) {
 		switch totalVectors {
@@ -59,13 +60,9 @@ func (m compressedVectorsMigrator) do(s *Shard) error {
 						return fmt.Errorf("failed to rename old compressed vector bucket for target vector %s: %w", targetVector, err)
 					}
 				}
-			} else {
-				// we have only legacy vector index defined, there was no need for migration, but we need to mark it
-				// because we could have a scenario where we would add additional named vectors which could trigger
-				// the migration unnecessary again and break newly created named vector
-				if err := m.markMigrationDone(s); err != nil {
-					return fmt.Errorf("failed to mark migration as done: %w", err)
-				}
+			}
+			if err := m.markMigrationDone(lsmDir); err != nil {
+				return fmt.Errorf("failed to mark migration as done: %w", err)
 			}
 		default:
 			// copy old buckets to new target vector buckets
@@ -82,7 +79,7 @@ func (m compressedVectorsMigrator) do(s *Shard) error {
 				m.logger.Info("removed old vectors compressed bucket")
 			} else {
 				// legacy vector defined together with named vectors, we need to mark that the migration was performed
-				if err := m.markMigrationDone(s); err != nil {
+				if err := m.markMigrationDone(lsmDir); err != nil {
 					return fmt.Errorf("failed to mark migration as done: %w", err)
 				}
 			}
@@ -90,7 +87,7 @@ func (m compressedVectorsMigrator) do(s *Shard) error {
 	} else if s.index.vectorIndexUserConfig != nil && m.isQuantizationEnabled(s.index.vectorIndexUserConfig) {
 		// a new legacy vector config was created, quantization is enabled but we didn't create the vectors_compressed
 		// folder yet but we need to mark that the migration was done in order for it to not be trigered on healthy vector indexes
-		if err := m.markMigrationDone(s); err != nil {
+		if err := m.markMigrationDone(lsmDir); err != nil {
 			return fmt.Errorf("failed to mark migration as done: %w", err)
 		}
 	}
@@ -109,8 +106,7 @@ func (m compressedVectorsMigrator) migrate(targetVector string,
 
 	targetVectorBucket := helpers.GetCompressedBucketName(targetVector)
 
-	// Skip if bucket names are the same (shouldn't happen with multiple configs)
-	if targetVectorBucket == helpers.VectorsCompressedBucketLSM {
+	if !renameBucket && targetVectorBucket == helpers.VectorsCompressedBucketLSM {
 		m.logger.Info("skipping migration, proper bucket exists for legacy vector")
 		return nil
 	}
@@ -118,7 +114,7 @@ func (m compressedVectorsMigrator) migrate(targetVector string,
 	targetVectorBucketPath := filepath.Join(lsmDir, targetVectorBucket)
 
 	// Skip if the proper bucket name already exists
-	if _, err := os.Stat(targetVectorBucketPath); err == nil {
+	if _, err := os.Stat(targetVectorBucketPath); !renameBucket && err == nil {
 		m.logger.Infof("skipping migration, proper bucket exists for target vector: %s", targetVector)
 		return nil
 	}
@@ -126,18 +122,35 @@ func (m compressedVectorsMigrator) migrate(targetVector string,
 	vectorsCompressedPath := filepath.Join(lsmDir, helpers.VectorsCompressedBucketLSM)
 
 	if renameBucket {
+		// We might have restored files from a backup, we need to redo the migration
+		if _, err := os.Stat(targetVectorBucketPath); !os.IsNotExist(err) {
+			m.logger.Infof("restored data from backup, we need to recreate the vectors compressed folder for target vector: %s", targetVector)
+			if err := os.RemoveAll(targetVectorBucketPath); err != nil {
+				return err
+			}
+		}
 		// Rename old bucket to new bucket
 		if err := os.Rename(vectorsCompressedPath, targetVectorBucketPath); err != nil {
 			return err
 		}
 		m.logger.Infof("renamed old vectors compressed bucket for target vector: %s", targetVector)
+		if err := os.Chdir(lsmDir); err != nil {
+			return err
+		}
+		err := os.Symlink(targetVectorBucket, vectorsCompressedPath)
+		if err != nil {
+			return err
+		}
+		m.logger.Infof("created symbolic link to old vectors compressed folder for target vector: %s", targetVector)
 		return nil
 	} else {
 		// Define temporary target vector bucket name
 		targetVectorBucketPathTmp := fmt.Sprintf("%s_tmp", targetVectorBucketPath)
 		// Check if temporary target vector bucket folder exists
-		if _, err := os.Stat(targetVectorBucketPathTmp); err == nil {
-			os.RemoveAll(targetVectorBucketPathTmp)
+		if _, err := os.Stat(targetVectorBucketPathTmp); !os.IsNotExist(err) {
+			if err := os.RemoveAll(targetVectorBucketPathTmp); err != nil {
+				return err
+			}
 		}
 		// Copy old bucket to temporary target vector bucket
 		if err := m.copyBucketContents(vectorsCompressedPath, targetVectorBucketPathTmp); err != nil {
@@ -206,12 +219,21 @@ func (m compressedVectorsMigrator) copyFile(src, dst string) error {
 	return err
 }
 
-func (m compressedVectorsMigrator) migrationPerformedFlagFile(s *Shard) string {
-	return fmt.Sprintf("%s/%s", s.path(), migrationNamedVectorsQuantizationIssuePerformedFlag)
+func (m compressedVectorsMigrator) migrationPerformedFlagFile(lsmDir string) string {
+	return filepath.Join(m.migrationDirectory(lsmDir), migrationNamedVectorsQuantizationIssuePerformedFlag)
 }
 
-func (m compressedVectorsMigrator) markMigrationDone(s *Shard) error {
-	file, err := os.Create(m.migrationPerformedFlagFile(s))
+func (m compressedVectorsMigrator) migrationDirectory(lsmDir string) string {
+	return filepath.Join(lsmDir, ".migrations")
+}
+
+func (m compressedVectorsMigrator) markMigrationDone(lsmDir string) error {
+	if _, err := os.Stat(m.migrationDirectory(lsmDir)); os.IsNotExist(err) {
+		if err := os.Mkdir(m.migrationDirectory(lsmDir), os.FileMode(0o755)); err != nil {
+			return err
+		}
+	}
+	file, err := os.Create(m.migrationPerformedFlagFile(lsmDir))
 	if err != nil {
 		return err
 	}
@@ -220,10 +242,23 @@ func (m compressedVectorsMigrator) markMigrationDone(s *Shard) error {
 	return nil
 }
 
-func (m compressedVectorsMigrator) isMigrationDone(s *Shard) bool {
-	_, err := os.Stat(m.migrationPerformedFlagFile(s))
+func (m compressedVectorsMigrator) isMigrationDone(lsmDir string, totalVectors int) bool {
+	_, err := os.Stat(m.migrationPerformedFlagFile(lsmDir))
 	if os.IsNotExist(err) {
 		return false
 	}
-	return err == nil
+	isMigrationDone := err == nil
+	if totalVectors == 1 {
+		isVectorsCompressedFolderSymlink := m.isVectorsCompressedFolderSymlink(lsmDir)
+		return isMigrationDone && isVectorsCompressedFolderSymlink
+	}
+	return isMigrationDone
+}
+
+func (m compressedVectorsMigrator) isVectorsCompressedFolderSymlink(lsmDir string) bool {
+	fileInfo, err := os.Lstat(filepath.Join(lsmDir, helpers.VectorsCompressedBucketLSM))
+	if err != nil {
+		return false
+	}
+	return (fileInfo.Mode() & os.ModeSymlink) != 0
 }
