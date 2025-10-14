@@ -352,7 +352,7 @@ func (s *Scheduler) scheduleQueues() (nothingScheduled bool) {
 
 	for _, id := range ids {
 		if s.ctx.Err() != nil {
-			return
+			return nothingScheduled
 		}
 
 		q := s.getQueue(id)
@@ -391,7 +391,7 @@ func (s *Scheduler) scheduleQueues() (nothingScheduled bool) {
 		nothingScheduled = count <= 0
 	}
 
-	return
+	return nothingScheduled
 }
 
 func (s *Scheduler) dispatchQueue(q *queueState) (int64, error) {

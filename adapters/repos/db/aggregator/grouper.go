@@ -120,7 +120,7 @@ func (g *grouper) fetchDocIDs(ctx context.Context) (ids []uint64, err error) {
 		ids = allowList.Slice()
 	}
 
-	return
+	return ids, err
 }
 
 func (g *grouper) hybrid(ctx context.Context, allowList helpers.AllowList, modules *modules.Provider) ([]uint64, error) {

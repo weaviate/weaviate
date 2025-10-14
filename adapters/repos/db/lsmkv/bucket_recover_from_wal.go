@@ -29,12 +29,7 @@ import (
 
 var logOnceWhenRecoveringFromWAL sync.Once
 
-func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context, sg *SegmentGroup, files map[string]int64) error {
-	beforeAll := time.Now()
-	defer b.metrics.TrackStartupBucketRecovery(beforeAll)
-
-	recovered := false
-
+func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context, sg *SegmentGroup, files map[string]int64) (err error) {
 	// the context is only ever checked once at the beginning, as there is no
 	// point in aborting an ongoing recovery. It makes more sense to let it
 	// complete and have the next recovery (this is called once per bucket) run
@@ -65,13 +60,34 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context, sg *SegmentGroup,
 		walFileNames = append(walFileNames, file)
 	}
 
-	if len(walFileNames) > 0 {
-		logOnceWhenRecoveringFromWAL.Do(func() {
-			b.logger.WithField("action", "lsm_recover_from_active_wal").
-				WithField("path", b.dir).
-				Debug("active write-ahead-log found")
-		})
+	if len(walFileNames) == 0 {
+		// nothing to do
+		return nil
 	}
+
+	logOnceWhenRecoveringFromWAL.Do(func() {
+		b.logger.WithField("action", "lsm_recover_from_active_wal").
+			WithField("path", b.dir).
+			Debug("active write-ahead-log found")
+	})
+
+	start := time.Now()
+
+	b.metrics.IncWalRecoveryCount(b.strategy)
+	b.metrics.IncWalRecoveryInProgress(b.strategy)
+
+	defer func() {
+		b.metrics.DecWalRecoveryInProgress(b.strategy)
+
+		if err != nil {
+			b.metrics.IncWalRecoveryFailureCount(b.strategy)
+			return
+		}
+
+		b.metrics.ObserveWalRecoveryDuration(b.strategy, time.Since(start))
+	}()
+
+	recovered := false
 
 	// recover from each log
 	for i, fname := range walFileNames {
@@ -102,7 +118,8 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context, sg *SegmentGroup,
 		}
 
 		meteredReader := diskio.NewMeteredReader(cl.file, b.metrics.TrackStartupReadWALDiskIO)
-		if err := newCommitLoggerParser(b.strategy, bufio.NewReaderSize(meteredReader, 32*1024), mt).Do(); err != nil {
+		errRecovery := newCommitLoggerParser(b.strategy, bufio.NewReaderSize(meteredReader, 32*1024), mt).Do()
+		if errRecovery != nil {
 			b.logger.WithField("action", "lsm_recover_from_active_wal_corruption").
 				WithField("path", filepath.Join(b.dir, fname)).
 				Error(errors.Wrap(err, "write-ahead-log ended abruptly, some elements may not have been recovered"))
@@ -111,7 +128,10 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context, sg *SegmentGroup,
 		if mt.strategy == StrategyInverted {
 			mt.averagePropLength, _ = sg.GetAveragePropertyLength()
 		}
-		if walForActiveMemtable {
+
+		// immediately flush the .wal file if there have been any damages during recovery. This means that the file is
+		// damaged and cannot be used for new writes.
+		if walForActiveMemtable && errRecovery == nil {
 			_, err = cl.file.Seek(0, io.SeekEnd)
 			if err != nil {
 				return err

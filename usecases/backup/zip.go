@@ -101,7 +101,7 @@ func (z *zip) WriteShard(ctx context.Context, sd *backup.ShardDescriptor) (writt
 	n, err = z.WriteRegulars(ctx, sd.Files)
 	written += n
 
-	return
+	return written, err
 }
 
 func (z *zip) WriteRegulars(ctx context.Context, relPaths []string) (written int64, err error) {
@@ -170,7 +170,7 @@ func (z *zip) writeOne(ctx context.Context, info fs.FileInfo, relPath string, r 
 		}
 		return written, fmt.Errorf("copy: %s %w", relPath, err)
 	}
-	return
+	return written, err
 }
 
 // lastWritten number of bytes
@@ -295,7 +295,7 @@ type readCloser struct {
 func (r *readCloser) Read(p []byte) (n int, err error) {
 	n, err = r.src.Read(p)
 	atomic.AddInt64(&r.n, int64(n))
-	return
+	return n, err
 }
 
 func (r *readCloser) Close() error { return r.src.Close() }

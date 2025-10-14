@@ -211,13 +211,33 @@ func segmentExtraInfo(level uint16, strategy segmentindex.Strategy) string {
 	return fmt.Sprintf(".l%d.s%d", level, strategy)
 }
 
-func (sg *SegmentGroup) compactOnce() (bool, error) {
+func (sg *SegmentGroup) compactOnce() (compacted bool, err error) {
 	// Is it safe to only occasionally lock instead of the entire duration? Yes,
 	// because other than compaction the only change to the segments array could
 	// be an append because of a new flush cycle, so we do not need to guarantee
 	// that the array contents stay stable over the duration of an entire
 	// compaction. We do however need to protect against a read-while-write (race
 	// condition) on the array. Thus any read from sg.segments need to protected
+	start := time.Now()
+
+	sg.metrics.IncCompactionCount(sg.strategy)
+	sg.metrics.IncCompactionInProgress(sg.strategy)
+
+	defer func() {
+		sg.metrics.DecCompactionInProgress(sg.strategy)
+
+		if err != nil {
+			sg.metrics.IncCompactionFailureCount(sg.strategy)
+			return
+		}
+
+		if !compacted {
+			sg.metrics.IncCompactionNoOp(sg.strategy)
+			return
+		}
+
+		sg.metrics.ObserveCompactionDuration(sg.strategy, time.Since(start))
+	}()
 
 	pair, level := sg.findCompactionCandidates()
 	if pair == nil {
@@ -247,6 +267,7 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 
 	leftSegment := sg.segmentAtPos(pair[0])
 	rightSegment := sg.segmentAtPos(pair[1])
+
 	var path string
 	if sg.writeSegmentInfoIntoFileName {
 		path = filepath.Join(sg.dir, "segment-"+segmentID(leftSegment.path)+"_"+segmentID(rightSegment.path)+segmentExtraInfo(level, leftSegment.strategy)+".db.tmp")
@@ -265,11 +286,6 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 	secondaryIndices := leftSegment.secondaryIndexCount
 	cleanupTombstones := !sg.keepTombstones && pair[0] == 0
 
-	pathLabel := "n/a"
-	if sg.metrics != nil && !sg.metrics.groupClasses {
-		pathLabel = sg.dir
-	}
-
 	maxNewFileSize := leftSegment.size + rightSegment.size
 
 	switch strategy {
@@ -277,15 +293,9 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 	// TODO: call metrics just once with variable strategy label
 
 	case segmentindex.StrategyReplace:
-
 		c := newCompactorReplace(f, leftSegment.newCursor(),
 			rightSegment.newCursor(), level, secondaryIndices,
 			scratchSpacePath, cleanupTombstones, sg.enableChecksumValidation, maxNewFileSize, sg.allocChecker)
-
-		if sg.metrics != nil {
-			sg.metrics.CompactionReplace.With(prometheus.Labels{"path": pathLabel}).Inc()
-			defer sg.metrics.CompactionReplace.With(prometheus.Labels{"path": pathLabel}).Dec()
-		}
 
 		if err := c.do(); err != nil {
 			return false, err
@@ -294,11 +304,6 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 		c := newCompactorSetCollection(f, leftSegment.newCollectionCursor(),
 			rightSegment.newCollectionCursor(), level, secondaryIndices,
 			scratchSpacePath, cleanupTombstones, sg.enableChecksumValidation, maxNewFileSize, sg.allocChecker)
-
-		if sg.metrics != nil {
-			sg.metrics.CompactionSet.With(prometheus.Labels{"path": pathLabel}).Inc()
-			defer sg.metrics.CompactionSet.With(prometheus.Labels{"path": pathLabel}).Dec()
-		}
 
 		if err := c.do(); err != nil {
 			return false, err
@@ -311,11 +316,6 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 			sg.mapRequiresSorting, cleanupTombstones,
 			sg.enableChecksumValidation, maxNewFileSize, sg.allocChecker)
 
-		if sg.metrics != nil {
-			sg.metrics.CompactionMap.With(prometheus.Labels{"path": pathLabel}).Inc()
-			defer sg.metrics.CompactionMap.With(prometheus.Labels{"path": pathLabel}).Dec()
-		}
-
 		if err := c.do(); err != nil {
 			return false, err
 		}
@@ -327,10 +327,6 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 			level, scratchSpacePath, cleanupTombstones,
 			sg.enableChecksumValidation, maxNewFileSize, sg.allocChecker)
 
-		if sg.metrics != nil {
-			sg.metrics.CompactionRoaringSet.With(prometheus.Labels{"path": pathLabel}).Set(1)
-			defer sg.metrics.CompactionRoaringSet.With(prometheus.Labels{"path": pathLabel}).Set(0)
-		}
 		if err := c.Do(); err != nil {
 			return false, err
 		}
@@ -341,11 +337,6 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 
 		c := roaringsetrange.NewCompactor(f, leftCursor, rightCursor,
 			level, cleanupTombstones, sg.enableChecksumValidation, maxNewFileSize)
-
-		if sg.metrics != nil {
-			sg.metrics.CompactionRoaringSetRange.With(prometheus.Labels{"path": pathLabel}).Set(1)
-			defer sg.metrics.CompactionRoaringSetRange.With(prometheus.Labels{"path": pathLabel}).Set(0)
-		}
 
 		if err := c.Do(); err != nil {
 			return false, err
@@ -363,11 +354,6 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 			leftSegment.newInvertedCursorReusable(),
 			rightSegment.newInvertedCursorReusable(),
 			level, secondaryIndices, scratchSpacePath, cleanupTombstones, k1, b, avgPropLen, maxNewFileSize, sg.allocChecker)
-
-		if sg.metrics != nil {
-			sg.metrics.CompactionMap.With(prometheus.Labels{"path": pathLabel}).Inc()
-			defer sg.metrics.CompactionMap.With(prometheus.Labels{"path": pathLabel}).Dec()
-		}
 
 		if err := c.do(); err != nil {
 			return false, err
@@ -440,6 +426,9 @@ func (sg *SegmentGroup) replaceCompactedSegments(old1, old2 int,
 			"file_right": oldR.path,
 		}).Error("failed to delete file already marked for deletion")
 	}
+
+	sg.metrics.DecSegmentTotalByStrategy(sg.strategy)
+	sg.metrics.ObserveSegmentSize(sg.strategy, seg.Size())
 
 	return nil
 }

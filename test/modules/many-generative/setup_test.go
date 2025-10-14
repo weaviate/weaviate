@@ -82,7 +82,7 @@ func createSingleNodeEnvironment(ctx context.Context,
 	).
 		WithWeaviate().
 		Start(ctx)
-	return
+	return compose, err
 }
 
 func composeModules(accessKey, secretKey, sessionToken string,
@@ -96,5 +96,5 @@ func composeModules(accessKey, secretKey, sessionToken string,
 		WithGenerativeGoogle(googleApiKey).
 		WithGenerativeOpenAI(openAIApiKey, openAIOrganization, "").
 		WithGenerativeCohere(cohereApiKey)
-	return
+	return composeModules
 }

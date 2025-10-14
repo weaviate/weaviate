@@ -131,7 +131,11 @@ func (p *Parser) extractFromQuery(generative *generate.Params, queries []*pb.Gen
 		generative.Options = p.aws(opts)
 		p.providerName = awsParams.Name
 	case *pb.GenerativeProvider_Cohere:
-		generative.Options = p.cohere(query.GetCohere())
+		opts := query.GetCohere()
+		if opts.GetImageProperties() != nil {
+			generative.Properties = append(generative.Properties, opts.GetImageProperties().Values...)
+		}
+		generative.Options = p.cohere(opts)
 		p.providerName = cohereParams.Name
 	case *pb.GenerativeProvider_Mistral:
 		generative.Options = p.mistral(query.GetMistral())
@@ -268,6 +272,8 @@ func (p *Parser) cohere(in *pb.GenerativeCohere) map[string]any {
 			StopSequences:    in.StopSequences.GetValues(),
 			FrequencyPenalty: in.FrequencyPenalty,
 			PresencePenalty:  in.PresencePenalty,
+			Images:           p.getStringPtrs(in.Images),
+			ImageProperties:  p.getStrings(in.ImageProperties),
 		},
 	}
 }

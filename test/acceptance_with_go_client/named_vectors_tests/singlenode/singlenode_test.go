@@ -61,7 +61,7 @@ func createSingleNodeEnvironment(ctx context.Context) (compose *docker.DockerCom
 	compose, err = test_suits.ComposeModules().
 		WithWeaviate().
 		Start(ctx)
-	return
+	return compose, err
 }
 
 func createSingleNodeEnvironmentAsyncIndexing(ctx context.Context) (compose *docker.DockerCompose, err error) {
@@ -70,5 +70,5 @@ func createSingleNodeEnvironmentAsyncIndexing(ctx context.Context) (compose *doc
 		WithWeaviateEnv("ASYNC_INDEXING_STALE_TIMEOUT", "1s").
 		WithWeaviate().
 		Start(ctx)
-	return
+	return compose, err
 }

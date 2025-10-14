@@ -14,10 +14,13 @@ package db
 import (
 	"context"
 	"encoding/binary"
+	"fmt"
 	"strings"
 	"time"
 
 	"github.com/sirupsen/logrus"
+
+	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
@@ -35,6 +38,12 @@ const (
 	DimensionCategoryPQ
 	DimensionCategoryBQ
 )
+
+// since v1.34 StrategyRoaringSet will be default strategy for dimensions bucket
+var DimensionsBucketPrioritizedStrategies = []string{
+	lsmkv.StrategyMapCollection,
+	lsmkv.StrategyRoaringSet,
+}
 
 func (s *Shard) Dimensions(ctx context.Context, targetVector string) int {
 	sum, _ := s.calcTargetVectorDimensions(ctx, targetVector, func(dimLength int, v []lsmkv.MapPair) (int, int) {
@@ -230,4 +239,59 @@ func correctEmptySegments(segments int, dimensions int) int {
 		return segments
 	}
 	return common.CalculateOptimalSegments(dimensions)
+}
+
+func (s *Shard) extendDimensionTrackerLSM(dimLength int, docID uint64, targetVector string) error {
+	return s.addToDimensionBucket(dimLength, docID, targetVector, false)
+}
+
+// Key (target vector name and dimensionality) | Value Doc IDs
+// targetVector,128 | 1,2,4,5,17
+// targetVector,128 | 1,2,4,5,17, Tombstone 4,
+func (s *Shard) removeDimensionsLSM(dimLength int, docID uint64, targetVector string) error {
+	return s.addToDimensionBucket(dimLength, docID, targetVector, true)
+}
+
+func (s *Shard) addToDimensionBucket(dimLength int, docID uint64, vecName string, tombstone bool) error {
+	b := s.store.Bucket(helpers.DimensionsBucketLSM)
+	if b == nil {
+		return errors.Errorf("add dimension bucket: no bucket dimensions")
+	}
+
+	if err := lsmkv.CheckExpectedStrategy(b.Strategy(), lsmkv.StrategyMapCollection, lsmkv.StrategyRoaringSet); err != nil {
+		return fmt.Errorf("addToDimensionBucket: %w", err)
+	}
+
+	vecNameBytes := []byte(vecName)
+	nameLen := len(vecNameBytes)
+	dim := uint32(dimLength)
+
+	switch b.Strategy() {
+	case lsmkv.StrategyMapCollection:
+		// Since weaviate 1.34 default dimension bucket strategy is StrategyRoaringSet.
+		// For backward compatibility StrategyMapCollection is still supported.
+
+		// 8 bytes for doc id (map key)
+		// 4 bytes for dim count (row key)
+		// len(vecName) bytes for vector name (prefix of row key)
+		buf := make([]byte, 12+nameLen)
+		binary.LittleEndian.PutUint64(buf[:8], docID)
+		binary.LittleEndian.PutUint32(buf[8+nameLen:], dim)
+		copy(buf[8:], vecNameBytes)
+
+		return b.MapSet(buf[8:], lsmkv.MapPair{
+			Key:       buf[:8],
+			Value:     []byte{},
+			Tombstone: tombstone,
+		})
+	default:
+		key := make([]byte, nameLen+4) // 4 for uint32 dimLength
+		copy(key[:nameLen], vecNameBytes)
+		binary.LittleEndian.PutUint32(key[nameLen:], dim)
+
+		if tombstone {
+			return b.RoaringSetRemoveOne(key, docID)
+		}
+		return b.RoaringSetAddOne(key, docID)
+	}
 }

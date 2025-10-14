@@ -162,14 +162,14 @@ func (db *DB) replicatedIndex(name string) (idx *Index, resp *replica.SimpleResp
 			*replica.NewError(replica.StatusClassNotFound, name),
 		}}
 	}
-	return
+	return idx, resp
 }
 
 func (i *Index) writableShard(name string) (ShardLike, func(), *replica.SimpleResponse) {
 	localShard, release, err := i.getOrInitShard(context.Background(), name)
 	if err != nil {
 		return nil, func() {}, &replica.SimpleResponse{Errors: []replica.Error{
-			{Code: replica.StatusShardNotFound, Msg: name},
+			{Code: replica.StatusShardNotFound, Msg: name, Err: err},
 		}}
 	}
 	if localShard.isReadOnly() != nil {
@@ -745,7 +745,7 @@ func (i *Index) DigestObjects(ctx context.Context,
 		}
 	}
 
-	return
+	return result, err
 }
 
 func (i *Index) IncomingDigestObjects(ctx context.Context,

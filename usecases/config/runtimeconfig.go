@@ -21,8 +21,9 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/usecases/config/runtime"
 	"gopkg.in/yaml.v3"
+
+	"github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
 // WeaviateRuntimeConfig is the collection all the supported configs that is
@@ -39,6 +40,10 @@ type WeaviateRuntimeConfig struct {
 	QuerySlowLogThreshold           *runtime.DynamicValue[time.Duration] `json:"query_slow_log_threshold" yaml:"query_slow_log_threshold"`
 	InvertedSorterDisabled          *runtime.DynamicValue[bool]          `json:"inverted_sorter_disabled" yaml:"inverted_sorter_disabled"`
 
+	// RAFT specific configs
+	RaftDrainSleep        *runtime.DynamicValue[time.Duration] `json:"raft_drain_sleep" yaml:"raft_drain_sleep"`
+	RaftTimoutsMultiplier *runtime.DynamicValue[int]           `json:"raft_timeouts_multiplier" yaml:"raft_timeouts_multiplier"`
+
 	// Experimental configs. Will be removed in the future.
 	OIDCIssuer            *runtime.DynamicValue[string]   `json:"exp_oidc_issuer" yaml:"exp_oidc_issuer"`
 	OIDCClientID          *runtime.DynamicValue[string]   `json:"exp_oidc_client_id" yaml:"exp_oidc_client_id"`
@@ -54,9 +59,6 @@ func ParseRuntimeConfig(buf []byte) (*WeaviateRuntimeConfig, error) {
 	var conf WeaviateRuntimeConfig
 
 	dec := yaml.NewDecoder(bytes.NewReader(buf))
-
-	// To catch fields different than ones in the struct (say typo)
-	dec.KnownFields(true)
 
 	// Am empty runtime yaml file is still a valid file. So treating io.EOF as
 	// non-error case returns default values of config.

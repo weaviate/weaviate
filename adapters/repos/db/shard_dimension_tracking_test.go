@@ -463,11 +463,11 @@ func TestTotalDimensionTrackingMetrics(t *testing.T) {
 			namedVectorConfig: func() enthnsw.UserConfig {
 				cfg := enthnsw.NewDefaultUserConfig()
 				cfg.PQ.Enabled = true
-				cfg.PQ.Segments = 10
+				cfg.PQ.Segments = 16 // segments should be a divisor of dimensions
 				return cfg
 			},
 
-			expectSegments: 10 * objectCount,
+			expectSegments: 16 * objectCount,
 		},
 		{
 			name: "named_with_pq_zero_segments",
