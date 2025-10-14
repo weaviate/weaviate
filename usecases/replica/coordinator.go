@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -109,75 +110,27 @@ func (c *coordinator[T]) broadcast(ctx context.Context,
 	replicas []string,
 	op readyOp, level int,
 ) <-chan _Result[string] {
+	// prepareCtx allows us to cancel in-flight prepares once we reach consistency
+	prepareCtx, prepareCancel := context.WithCancel(ctx)
 	// prepare tells replicas to be ready
 	prepare := func() <-chan _Result[string] {
 		resChan := make(chan _Result[string], len(replicas))
 		f := func() { // broadcast
 			defer close(resChan)
-
-			// Use context-aware error group for better cancellation handling
-			eg, egCtx := enterrors.NewErrorGroupWithContextWrapper(c.log, ctx, "broadcast")
-
-			// Launch all operations concurrently
-			successCh := make(chan _Result[string], len(replicas))
-			errorCh := make(chan _Result[string], len(replicas))
-
+			var wg sync.WaitGroup
+			wg.Add(len(replicas))
 			for _, replica := range replicas {
 				replica := replica
-				eg.Go(func() error {
-					err := op(egCtx, replica, c.TxID)
-
-					// Check if the operation was cancelled
-					if egCtx.Err() == context.Canceled {
-						if c.log != nil {
-							c.log.WithField("op", "broadcast").
-								WithField("host", replica).
-								WithField("worker_cancelled", true).
-								Info("worker operation cancelled during execution")
-						}
-						return nil // Don't propagate cancellation as error
-					}
-
-					result := _Result[string]{replica, err}
-					if err != nil {
-						select {
-						case errorCh <- result:
-						default: // Channel full, ignore
-						}
-					} else {
-						select {
-						case successCh <- result:
-						default: // Channel full, ignore
-						}
-					}
-					return nil
-				}, replica)
-			}
-
-			// Wait for required consistency level or all to complete
-			var successCount atomic.Int32
-			var errorCount atomic.Int32
-			totalReplicas := len(replicas)
-
-			for successCount.Load()+errorCount.Load() < int32(totalReplicas) {
-				select {
-				case <-egCtx.Done():
-					// Error group context cancelled, workers will be cancelled automatically
-					return
-				case result := <-successCh:
-					resChan <- result
-					// If we achieved required consistency, return early
-					if successCount.Add(1) >= int32(level) {
-						c.log.WithField("op", "broadcast").
-							WithField("successful_prepares", successCount.Load()).
-							Info("broadcast achieved required consistency level, returning early")
-						return
-					}
-				case result := <-errorCh:
-					errorCount.Add(1)
-					resChan <- result
+				g := func() {
+					defer wg.Done()
+					//nolint:govet // we expressely don't want to cancel that context as the timeout will take care of it
+					opctx, _ := context.WithTimeout(prepareCtx, 30*time.Second)
+					err := op(opctx, replica, c.TxID)
+					resChan <- _Result[string]{replica, err}
 				}
+				enterrors.GoWrapper(g, c.log)
 			}
+			wg.Wait()
 		}
 		enterrors.GoWrapper(f, c.log)
 		return resChan
@@ -200,6 +153,8 @@ func (c *coordinator[T]) broadcast(ctx context.Context,
 				continue
 			}
 			if level == 0 { // consistency level has been reached
+				// Cancel any remaining prepare workers to avoid extra work
+				prepareCancel()
 				for _, x := range actives {
 					resChan <- x
 				}
@@ -225,92 +180,40 @@ func (c *coordinator[T]) commitAll(ctx context.Context,
 	broadcastCh <-chan _Result[string],
 	op commitOp[T],
 	callback func(successful int),
-	requiredLevel int, // Add consistency level parameter
 ) <-chan _Result[T] {
 	replyCh := make(chan _Result[T], cap(broadcastCh))
 	f := func() { // tells active replicas to commit
-		defer close(replyCh)
-
 		var successful atomic.Int32
-		var totalCommits atomic.Int32
 
 		defer func() {
 			if callback != nil {
 				callback(int(successful.Load()))
 			}
+			close(replyCh)
 		}()
 
-		// Use context-aware error group for better cancellation handling
-		eg, egCtx := enterrors.NewErrorGroupWithContextWrapper(c.log, ctx, "commit_all")
-
-		// Launch all commit operations concurrently
-		successCh := make(chan _Result[T], cap(broadcastCh))
-		errorCh := make(chan _Result[T], cap(broadcastCh))
-
+		var wg sync.WaitGroup
 		for res := range broadcastCh {
 			if res.Err != nil {
 				replyCh <- _Result[T]{Err: res.Err}
 				continue
 			}
 			replica := res.Value
-			totalCommits.Add(1)
-
-			eg.Go(func() error {
-				resp, err := op(egCtx, replica, c.TxID)
-
-				// Check if the operation was cancelled
-				if egCtx.Err() == context.Canceled {
-					if c.log != nil {
-						c.log.WithField("op", "commit_all").
-							WithField("host", replica).
-							WithField("worker_cancelled", true).
-							Info("worker operation cancelled during execution")
-					}
-					return nil // Don't propagate cancellation as error
-				}
-
-				result := _Result[T]{resp, err}
+			wg.Add(1)
+			g := func() {
+				defer wg.Done()
+				//nolint:govet // we expressely don't want to cancel that context as the timeout will take care of it
+				opctx, _ := context.WithTimeout(ctx, 30*time.Second)
+				resp, err := op(opctx, replica, c.TxID)
 				if err == nil {
 					successful.Add(1)
-					select {
-					case successCh <- result:
-					default: // Channel full, ignore
-					}
-				} else {
-					select {
-					case errorCh <- result:
-					default: // Channel full, ignore
-					}
 				}
-				return nil
-			}, replica)
-		}
-
-		// Wait for all commits to complete or return early if we have enough successes
-		var successCount atomic.Int32
-		var errorCount atomic.Int32
-		totalCount := int(totalCommits.Load())
-
-		for successCount.Load()+errorCount.Load() < int32(totalCount) {
-			select {
-			case <-egCtx.Done():
-				// Error group context cancelled, workers will be cancelled automatically
-				return
-			case result := <-successCh:
-				replyCh <- result
-				// If we achieved required consistency level, return early
-				if successCount.Add(1) >= int32(requiredLevel) {
-					c.log.WithField("op", "commit_all").
-						WithField("successful_commits", successCount.Load()).
-						WithField("required_level", requiredLevel).
-						Info("commit achieved required consistency level, returning early")
-					return
-				}
-			case result := <-errorCh:
-				errorCount.Add(1)
-				replyCh <- result
+				replyCh <- _Result[T]{resp, err}
 			}
+			enterrors.GoWrapper(g, c.log)
 		}
+
+		wg.Wait()
 	}
 	enterrors.GoWrapper(f, c.log)
 
@@ -365,16 +268,17 @@ func (c *coordinator[T]) Push(ctx context.Context,
 		}
 	}()
 
-	nodeCh := c.broadcast(sharedCtx, routingPlan.ReplicasHostAddrs, ask, level)
+	// Use node IDs for broadcast to align with tests/mocks
+	nodeCh := c.broadcast(sharedCtx, routingPlan.Replicas, ask, level)
 
-	commitCh := c.commitAll(sharedCtx, nodeCh, com, callback, level)
+	commitCh := c.commitAll(sharedCtx, nodeCh, com, callback)
 
 	// if there are additional hosts, we do a "best effort" write to them
 	// where we don't wait for a response because they are not part of the
 	// replicas used to reach level consistency
 	if len(routingPlan.AdditionalHostAddrs) > 0 {
 		additionalHostsBroadcast := c.broadcast(sharedCtx, routingPlan.AdditionalHostAddrs, ask, len(routingPlan.AdditionalHostAddrs))
-		c.commitAll(sharedCtx, additionalHostsBroadcast, com, nil, 0)
+		c.commitAll(sharedCtx, additionalHostsBroadcast, com, nil)
 	}
 
 	return commitCh, level, nil
@@ -435,8 +339,11 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 			c.metrics.ObserveReadDuration(time.Since(start))
 		}()
 
+		// Make pull context cancelable so we can stop workers once we reach level
+		pullCtx, pullCancel := context.WithCancel(ctx)
+		defer pullCancel()
 		// Use context-aware error group for better cancellation handling
-		eg, egCtx := enterrors.NewErrorGroupWithContextWrapper(c.log, ctx, "pull")
+		eg, egCtx := enterrors.NewErrorGroupWithContextWrapper(c.log, pullCtx, "pull")
 
 		hostRetryQueue := make(chan hostRetry, len(hosts))
 
@@ -589,7 +496,8 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 						WithField("total_workers", totalWorkers).
 						WithField("cancelled_workers", totalWorkers-int(successCount.Load())).
 						Info("pull achieved required consistency level, returning early")
-					// Error group context will be cancelled automatically when function returns
+					// Proactively cancel remaining workers
+					pullCancel()
 					close(replyCh)
 					return
 				}
