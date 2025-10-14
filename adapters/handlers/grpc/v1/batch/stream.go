@@ -156,9 +156,12 @@ func (h *StreamHandler) handleRecvError(err error, queue reportingQueue, streamI
 		}
 	}
 	if h.shuttingDown.Load() {
-		// the server must be shutting down on its own, so return an error saying so
-		logger.Errorf("while server is shutting down, receiver errored: %v", err)
-		return errShutdown(err)
+		if err != nil {
+			// the server must be shutting down on its own, so return an error saying so
+			logger.Errorf("while server is shutting down, receiver errored: %v", err)
+			return errShutdown(err)
+		}
+		return errShutdown(ErrShutdown)
 	}
 	return err
 }
@@ -249,7 +252,6 @@ func (h *StreamHandler) send(ctx context.Context, streamId string, stream pb.Wea
 				return err
 			}
 		}
-
 	}
 }
 
