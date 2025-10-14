@@ -233,8 +233,8 @@ func (h *StreamHandler) send(ctx context.Context, streamId string, stream pb.Wea
 		return err
 	}
 	for {
-		reportingQueue, ok := h.reportingQueues.Get(streamId)
-		if !ok {
+		reportingQueue, exists := h.reportingQueues.Get(streamId)
+		if !exists {
 			// This should never happen, but if it does, we log it
 			log.Error("reporting queue not found")
 			return fmt.Errorf("reporting queue for stream %s not found", streamId)
@@ -246,11 +246,11 @@ func (h *StreamHandler) send(ctx context.Context, streamId string, stream pb.Wea
 			h.drainReportingQueue(reportingQueue, streamId, stream, log)
 			log.Error("context cancelled, closing stream")
 			return ctx.Err()
-		case recvErr, ok := <-recvErrCh:
+		case recvErr, open := <-recvErrCh:
 			// drain reporting queue in effort to communicate any inflight errors back to client
 			// despite the receiver throwing an error of some kind, or the client closing its side of the stream
 			h.drainReportingQueue(reportingQueue, streamId, stream, log)
-			if !ok {
+			if !open {
 				// channel closed, client must have closed its side of the stream
 				return h.handleRecvClosed(streamId, log)
 			}
@@ -261,8 +261,8 @@ func (h *StreamHandler) send(ctx context.Context, streamId string, stream pb.Wea
 				// only send server shutting down msg once, provided that it didn't error
 				shuttingDownDone = nil
 			}
-		case report, ok := <-reportingQueue:
-			if err := h.handleWorkerReport(report, !ok, recvErrCh, streamId, stream, log); err != nil {
+		case report, open := <-reportingQueue:
+			if err := h.handleWorkerReport(report, !open, recvErrCh, streamId, stream, log); err != nil {
 				return err
 			}
 		}
