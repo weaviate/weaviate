@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package clients
+package weaviateembed
 
 import "fmt"
 
