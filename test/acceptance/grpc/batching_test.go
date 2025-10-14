@@ -25,7 +25,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/batch"
 	"github.com/weaviate/weaviate/entities/models"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/test/acceptance/replication/common"
@@ -253,11 +252,6 @@ func TestGRPC_Batching(t *testing.T) {
 			// Verify no errors returned from the stream
 			for {
 				resp, err := stream.Recv()
-				if errors.Is(err, batch.ErrShutdown) {
-					// we expect this error when the server is shutting down
-					t.Log("Stream closed by server due to shutdown")
-					return
-				}
 				if errors.Is(err, io.EOF) {
 					// server closed the stream
 					t.Log("Stream closed by server")

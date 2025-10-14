@@ -249,9 +249,9 @@ func (h *StreamHandler) send(ctx context.Context, streamId string, stream pb.Wea
 			// receiver errored, return the error to close the stream
 			return h.handleRecvErr(recvErr, log)
 		case <-shuttingDownDone:
-			shuttingDownDone = nil // only send server shutting down msg once
-			if err := h.handleServerShuttingDown(stream, log); err != nil {
-				return err
+			if err := h.handleServerShuttingDown(stream, log); err == nil {
+				// only send server shutting down msg once, provided that it didn't error
+				shuttingDownDone = nil
 			}
 		case report, ok := <-reportingQueue:
 			if err := h.handleWorkerReport(report, !ok, recvErrCh, streamId, stream, log); err != nil {
