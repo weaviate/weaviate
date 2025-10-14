@@ -386,7 +386,7 @@ func TestGRPC_ClusterBatching(t *testing.T) {
 			for i := 0; i < 50000; i++ {
 				for shuttingDown.Load() {
 					stream.CloseSend()
-					fmt.Printf("%s Can't send, server is shutting down\n", time.Now().Format("15:04:05"))
+					t.Logf("%s Can't send, server is shutting down\n", time.Now().Format("15:04:05"))
 					time.Sleep(5 * time.Second)
 					continue
 				}
@@ -395,7 +395,7 @@ func TestGRPC_ClusterBatching(t *testing.T) {
 					Uuid:       helper.IntToUUID(uint64(i)).String(),
 				})
 				if len(batch) == 1000 {
-					fmt.Printf("%s Sending %vth batch of 1000 objects\n", time.Now().Format("15:04:05"), i/1000)
+					t.Logf("%s Sending %vth batch of 1000 objects\n", time.Now().Format("15:04:05"), i/1000)
 					streamRestartLock.RLock()
 					err := send(stream, batch, nil)
 					streamRestartLock.RUnlock()
@@ -421,11 +421,11 @@ func TestGRPC_ClusterBatching(t *testing.T) {
 				if err != nil {
 					st, ok := status.FromError(err)
 					if !ok || st.Code() != codes.Aborted {
-						fmt.Printf("%s Stream recv returned error: %v\n", time.Now().Format("15:04:05"), err)
+						t.Errorf("%s Stream recv returned error: %v\n", time.Now().Format("15:04:05"), err)
 						return
 					}
 					stream.CloseSend()
-					fmt.Printf("%s Stream closed by server due to shutdown\n", time.Now().Format("15:04:05"))
+					t.Logf("%s Stream closed by server due to shutdown\n", time.Now().Format("15:04:05"))
 					grpcClient, _ = client(t, compose.GetWeaviateNode(secondNode).GrpcURI())
 					streamRestartLock.Lock()
 					stream = start(ctx, t, grpcClient, "")
@@ -434,14 +434,14 @@ func TestGRPC_ClusterBatching(t *testing.T) {
 					continue // we expect this error when the server is shutting down
 				}
 				if errors.Is(err, io.EOF) {
-					fmt.Printf("%s Stream closed by server\n", time.Now().Format("15:04:05"))
+					t.Logf("%s Stream closed by server\n", time.Now().Format("15:04:05"))
 					return // server closed the stream
 				}
 				if resp.GetError() != nil {
-					fmt.Printf("%s Received unexpected error from server: %v\n", time.Now().Format("15:04:05"), resp.GetError())
+					t.Errorf("%s Received unexpected error from server: %v\n", time.Now().Format("15:04:05"), resp.GetError())
 				}
 				if resp.GetShuttingDown() != nil {
-					fmt.Printf("%s Shutdown triggered\n", time.Now().Format("15:04:05"))
+					t.Logf("%s Shutdown triggered\n", time.Now().Format("15:04:05"))
 					shuttingDown.Store(true)
 				}
 			}

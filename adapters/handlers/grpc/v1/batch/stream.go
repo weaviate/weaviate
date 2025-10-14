@@ -134,7 +134,7 @@ func (h *StreamHandler) drainReportingQueue(queue reportingQueue, streamId strin
 
 func (h *StreamHandler) handleRecvErr(recvErr error, logger *logrus.Entry) error {
 	if h.shuttingDown.Load() {
-		// the server must be shutting down on its own, so return an error saying so
+		// the server must be shutting down on its own, so return an error saying so that wraps the receiver error
 		logger.Errorf("while server is shutting down, receiver errored: %v", recvErr)
 		return errShutdown(recvErr)
 	} else {
@@ -144,12 +144,7 @@ func (h *StreamHandler) handleRecvErr(recvErr error, logger *logrus.Entry) error
 }
 
 func (h *StreamHandler) handleRecvClosed(logger *logrus.Entry) error {
-	if h.shuttingDown.Load() {
-		// the server must be shutting down on its own, so return an error saying so
-		logger.Info("stream closed due to server shutdown")
-		return errShutdown(ErrShutdown)
-	}
-	// otherwise, the client must be closing its side of the stream, so close gracefully
+	// client has closed its side of the stream, so close gracefully
 	logger.Info("stream closed by client")
 	return nil
 }
