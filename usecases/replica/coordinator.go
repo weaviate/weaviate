@@ -23,7 +23,6 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/cluster/router/types"
-	"github.com/weaviate/weaviate/cluster/utils"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
@@ -86,6 +85,7 @@ func newReadCoordinator[T any](f *Finder, shard string,
 		Class:                         f.class,
 		Shard:                         shard,
 		metrics:                       f.metrics,
+		log:                           f.log,
 		pullBackOffPreInitialInterval: pullBackOffInitivalInterval / 2,
 		pullBackOffMaxElapsedTime:     pullBackOffMaxElapsedTime,
 		deletionStrategy:              deletionStrategy,
@@ -315,20 +315,18 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 			c.metrics.ObserveReadDuration(time.Since(start))
 		}()
 
-		hostRetryQueue := make(chan hostRetry, len(hosts))
+		// shared cancellable context to abort in-flight ops once consistency is reached
+		cancelCtx, cancel := context.WithCancel(ctx)
 
-		// put the "backups/fallbacks" on the retry queue
-		for i := level; i < len(hosts); i++ {
-			hostRetryQueue <- hostRetry{
-				hosts[i],
-				backoff.WithContext(utils.NewExponentialBackoff(c.pullBackOffPreInitialInterval, c.pullBackOffMaxElapsedTime), ctx),
-			}
-		}
+		// start a worker per available replica and stop early once consistency reached
+		doneCh := make(chan struct{})
+		var stopOnce sync.Once
+		successCh := make(chan _Result[T], len(hosts))
+		errorCh := make(chan _Result[T], len(hosts))
 
-		// kick off only level workers so that we avoid querying nodes unnecessarily
 		wg := sync.WaitGroup{}
-		wg.Add(level)
-		// determine local index among the first 'level' hosts
+		wg.Add(len(hosts))
+		// determine local index among all hosts (prefer local for full read)
 		fullReadIndex := 0
 		if c.localHostAddr != "" {
 			for i := 0; i < len(hosts); i++ {
@@ -338,66 +336,80 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 				}
 			}
 		}
-		for i := 0; i < level; i++ {
+		// log routing details and which host will do full read
+		c.log.WithFields(logrus.Fields{
+			"op":                 "pull",
+			"level":              level,
+			"num_hosts":          len(hosts),
+			"full_read_host":     hosts[fullReadIndex],
+			"local_host_address": c.localHostAddr,
+		}).Info("pull starting with computed routing plan")
+		for i := 0; i < len(hosts); i++ {
 			hostIndex := i
 			isFullReadWorker := hostIndex == fullReadIndex // first worker will perform the fullRead
 			workerFunc := func() {
 				defer wg.Done()
-				workerCtx, workerCancel := context.WithTimeout(ctx, timeout)
+				workerCtx, workerCancel := context.WithTimeout(cancelCtx, timeout)
 				defer workerCancel()
+				// early exit if already satisfied
+				select {
+				case <-doneCh:
+					c.log.WithFields(logrus.Fields{"op": "pull", "host": hosts[hostIndex]}).Info("pull worker cancelled before start")
+					return
+				default:
+				}
 				// each worker will first try its corresponding host (eg worker0 tries hosts[0],
 				// worker1 tries hosts[1], etc). We want the fullRead to be tried on hosts[0]
 				// because that will be the direct candidate (if a direct candidate was provided),
 				// if we only used the retry queue then we would not have the guarantee that the
 				// fullRead will be tried on hosts[0] first.
+				c.log.WithFields(logrus.Fields{"op": "pull", "host": hosts[hostIndex], "full_read": isFullReadWorker}).Info("pull worker start")
 				resp, err := op(workerCtx, hosts[hostIndex], isFullReadWorker)
 				// TODO return retryable info here, for now should be fine since most errors are considered retryable
 				// TODO have increasing timeout passed into each op (eg 1s, 2s, 4s, 8s, 16s, 32s, with some max) similar to backoff? future PR? or should we just set timeout once per worker in Pull?
 				if err == nil {
-					successful.Add(1)
-					replyCh <- _Result[T]{resp, err}
+					// Do not cancel here; let the collector own cancellation once it has observed enough successes
+					successCh <- _Result[T]{resp, err}
+					c.log.WithFields(logrus.Fields{"op": "pull", "host": hosts[hostIndex], "full_read": isFullReadWorker}).Info("pull worker success")
 					return
 				}
-				// this host failed op on the first try, put it on the retry queue
-				hostRetryQueue <- hostRetry{
-					hosts[hostIndex],
-					backoff.WithContext(utils.NewExponentialBackoff(c.pullBackOffPreInitialInterval, c.pullBackOffMaxElapsedTime), ctx),
+				// on error, report unless already done
+				select {
+				case <-doneCh:
+					c.log.WithFields(logrus.Fields{"op": "pull", "host": hosts[hostIndex]}).Info("pull worker cancelled after error")
+					return
+				case errorCh <- _Result[T]{resp, err}:
 				}
-
-				// let's fallback to the backups in the retry queue
-				for hr := range hostRetryQueue {
-					resp, err := op(workerCtx, hr.host, isFullReadWorker)
-					if err == nil {
-						replyCh <- _Result[T]{resp, err}
-						return
-					}
-					nextBackOff := hr.currentBackOff.NextBackOff()
-					if nextBackOff == backoff.Stop {
-						// this host has run out of retries, send the result and note that
-						// we have the worker exit here with the assumption that once we've reached
-						// this many failures for this host, we've tried all other hosts enough
-						// that we're not going to reach level successes
-						replyCh <- _Result[T]{resp, err}
-						return
-					}
-
-					timer := time.NewTimer(nextBackOff)
-					select {
-					case <-workerCtx.Done():
-						timer.Stop()
-						replyCh <- _Result[T]{resp, err}
-						return
-					case <-timer.C:
-						hostRetryQueue <- hostRetry{hr.host, hr.currentBackOff}
-					}
-					timer.Stop()
-				}
+				c.log.WithFields(logrus.Fields{"op": "pull", "host": hosts[hostIndex]}).WithError(err).Info("pull worker error")
 			}
 			enterrors.GoWrapper(workerFunc, c.log)
 		}
-		wg.Wait()
-		// callers of this function rely on replyCh being closed
-		close(replyCh)
+		// collect results until we have enough successes or all workers finished
+		go func() {
+			defer close(replyCh)
+			var successCount, errorCount int
+			total := len(hosts)
+			for successCount+errorCount < total {
+				select {
+				case r := <-successCh:
+					replyCh <- r
+					successCount++
+					if successCount >= level {
+						stopOnce.Do(func() { close(doneCh); cancel() })
+						c.log.WithFields(logrus.Fields{"op": "pull", "successes": successCount, "level": level}).Info("pull achieved required consistency, stopping early")
+						return
+					}
+				case r := <-errorCh:
+					replyCh <- r
+					errorCount++
+				case <-ctx.Done():
+					stopOnce.Do(func() { close(doneCh); cancel() })
+					c.log.WithField("op", "pull").WithError(ctx.Err()).Info("pull context done")
+					return
+				}
+			}
+		}()
+		// let workers exit; no explicit wait needed since we close on early stop
 	}
 	enterrors.GoWrapper(f, c.log)
 
