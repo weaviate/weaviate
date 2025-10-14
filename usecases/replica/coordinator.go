@@ -14,7 +14,6 @@ package replica
 import (
 	"context"
 	"fmt"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -90,8 +89,10 @@ func newReadCoordinator[T any](f *Finder, shard string,
 		pullBackOffMaxElapsedTime:     pullBackOffMaxElapsedTime,
 		deletionStrategy:              deletionStrategy,
 		localHostAddr: func() string {
+			fmt.Println("f.nodeName", f.nodeName)
 			if addr, ok := f.router.NodeHostname(f.nodeName); ok {
-				return strings.Split(addr, ":")[0]
+				fmt.Println("addr", addr)
+				return addr
 			}
 			return ""
 		}(),
@@ -288,10 +289,10 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 	timeout time.Duration,
 ) (<-chan _Result[T], int, error) {
 	routingPlan, err := c.Router.BuildReadRoutingPlan(types.RoutingPlanBuildOptions{
-		Collection:             c.Class,
-		Shard:                  c.Shard,
-		ConsistencyLevel:       cl,
-		DirectCandidateReplica: directCandidate,
+		Collection:       c.Class,
+		Shard:            c.Shard,
+		ConsistencyLevel: cl,
+		// DirectCandidateReplica: directCandidate,
 	})
 	if err != nil {
 		return nil, 0, fmt.Errorf("%w : class %q shard %q", err, c.Class, c.Shard)
@@ -330,14 +331,14 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 		wg.Add(len(hosts))
 		// determine local index among all hosts (prefer local for full read)
 		fullReadIndex := 0
-		// if c.localHostAddr != "" {
-		// 	for i := 0; i < len(hosts); i++ {
-		// 		if hosts[i] == c.localHostAddr {
-		// 			fullReadIndex = i
-		// 			break
-		// 		}
-		// 	}
-		// }
+		if c.localHostAddr != "" {
+			for i := 0; i < len(hosts); i++ {
+				if hosts[i] == c.localHostAddr {
+					fullReadIndex = i
+					break
+				}
+			}
+		}
 		// log routing details and which host will do full read
 		c.log.WithFields(logrus.Fields{
 			"op":                 "pull",
@@ -359,6 +360,24 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 					c.log.WithFields(logrus.Fields{"op": "pull", "host": hosts[hostIndex]}).Info("pull worker cancelled before start")
 					return
 				default:
+				}
+				// verify target host is still part of memberlist before attempting
+				isMember := false
+				for _, live := range c.Router.AllHostnames() {
+					if live == hosts[hostIndex] {
+						isMember = true
+						break
+					}
+				}
+				if !isMember {
+					c.log.WithFields(logrus.Fields{"op": "pull", "host": hosts[hostIndex]}).Info("skipping non-member host during pull")
+					// report as error so standby logic/collector can progress
+					select {
+					case <-doneCh:
+						return
+					case errorCh <- _Result[T]{Err: fmt.Errorf("host not in memberlist: %s", hosts[hostIndex])}:
+					}
+					return
 				}
 				// each worker will first try its corresponding host (eg worker0 tries hosts[0],
 				// worker1 tries hosts[1], etc). We want the fullRead to be tried on hosts[0]

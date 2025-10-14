@@ -114,6 +114,12 @@ func (r *Router) routingPlanFromReplicas(
 		ReplicasHostAddrs: make([]string, 0, len(replicas)),
 	}
 
+	// If there was no local replica first specified, put the local node as direct candidate. If the local node is part of the replica set
+	// it will be handled as the direct candidate
+	if params.DirectCandidateReplica == "" {
+		params.DirectCandidateReplica = r.clusterStateReader.LocalName()
+	}
+
 	// Deterministic ordering: sort replica names and align host addresses accordingly
 	sort.Strings(replicas)
 	for _, replica := range replicas {
