@@ -103,61 +103,114 @@ func (c *coordinator[T]) broadcast(ctx context.Context,
 	replicas []string,
 	op readyOp, level int,
 ) <-chan _Result[string] {
-	// prepare tells replicas to be ready
-	prepare := func() <-chan _Result[string] {
-		resChan := make(chan _Result[string], len(replicas))
-		f := func() { // broadcast
-			defer close(resChan)
-			var wg sync.WaitGroup
-			wg.Add(len(replicas))
-			for _, replica := range replicas {
-				replica := replica
-				g := func() {
-					defer wg.Done()
-					err := op(ctx, replica, c.TxID)
-					resChan <- _Result[string]{replica, err}
+	// Create a cancellable context for early termination when consistency is achieved
+	cancelCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	resChan := make(chan _Result[string], len(replicas))
+	successCh := make(chan _Result[string], len(replicas))
+	errorCh := make(chan _Result[string], len(replicas))
+
+	// Launch all replica operations concurrently
+	var wg sync.WaitGroup
+	wg.Add(len(replicas))
+	for _, replica := range replicas {
+		replica := replica
+		go func() {
+			defer wg.Done()
+			err := op(cancelCtx, replica, c.TxID)
+			result := _Result[string]{replica, err}
+			if err != nil {
+				select {
+				case errorCh <- result:
+				case <-cancelCtx.Done():
+					// Context cancelled, don't send error
 				}
-				enterrors.GoWrapper(g, c.log)
+			} else {
+				select {
+				case successCh <- result:
+				case <-cancelCtx.Done():
+					// Context cancelled, don't send success
+				}
 			}
-			wg.Wait()
-		}
-		enterrors.GoWrapper(f, c.log)
-		return resChan
+		}()
 	}
 
-	// handle responses to prepare requests
-	resChan := make(chan _Result[string], len(replicas))
-	f := func() {
+	// Collector goroutine to handle results and implement early termination
+	go func() {
 		defer close(resChan)
-		actives := make([]_Result[string], 0, level) // cache for active replicas
-		for r := range prepare() {
-			if r.Err != nil { // connection error
-				c.log.WithField("op", "broadcast").Error(r.Err)
-				continue
-			}
+		defer wg.Wait() // Ensure all workers complete before closing
 
-			level--
-			if level > 0 { // cache since level has not been reached yet
-				actives = append(actives, r)
-				continue
-			}
-			if level == 0 { // consistency level has been reached
-				for _, x := range actives {
-					resChan <- x
+		var successCount, errorCount int
+		actives := make([]_Result[string], 0, level) // cache for active replicas
+		total := len(replicas)
+
+		for successCount+errorCount < total {
+			select {
+			case <-cancelCtx.Done():
+				// Context cancelled, abort remaining operations
+				c.log.WithFields(logrus.Fields{
+					"op":            "broadcast",
+					"success_count": successCount,
+					"error_count":   errorCount,
+					"level":         level,
+				}).Info("broadcast context cancelled")
+				return
+			case result := <-successCh:
+				successCount++
+				actives = append(actives, result)
+
+				if successCount >= level {
+					// Consistency level achieved - send all successful results and cancel remaining
+					c.log.WithFields(logrus.Fields{
+						"op":            "broadcast",
+						"success_count": successCount,
+						"level":         level,
+					}).Info("broadcast achieved required consistency, cancelling remaining operations")
+
+					// Send all successful results
+					for _, active := range actives {
+						resChan <- active
+					}
+
+					// Cancel remaining operations
+					cancel()
+					return
 				}
+			case result := <-errorCh:
+				errorCount++
+				c.log.WithFields(logrus.Fields{
+					"op":      "broadcast",
+					"replica": result.Value,
+					"error":   result.Err,
+				}).Error("broadcast replica failed")
 			}
-			resChan <- r
 		}
-		if level > 0 { // abort: nothing has been sent to the caller
-			fs := logrus.Fields{"op": "broadcast", "active": len(actives), "total": len(replicas)}
-			c.log.WithFields(fs).Error("abort")
-			for _, node := range replicas {
-				c.Abort(ctx, node, c.Class, c.Shard, c.TxID)
+
+		// All operations completed - check if we achieved consistency
+		if successCount >= level {
+			// Send all successful results
+			for _, active := range actives {
+				resChan <- active
+			}
+		} else {
+			// Abort: consistency level not achieved
+			c.log.WithFields(logrus.Fields{
+				"op":            "broadcast",
+				"success_count": successCount,
+				"error_count":   errorCount,
+				"level":         level,
+				"total":         total,
+			}).Error("broadcast failed to achieve consistency level")
+
+			// Abort all replicas
+			for _, replica := range replicas {
+				c.Abort(ctx, replica, c.Class, c.Shard, c.TxID)
 			}
 			resChan <- _Result[string]{Err: fmt.Errorf("broadcast: %w", ErrReplicas)}
 		}
-	}
-	enterrors.GoWrapper(f, c.log)
+	}()
+
 	return resChan
 }
 
