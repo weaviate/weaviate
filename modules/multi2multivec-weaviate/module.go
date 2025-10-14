@@ -23,12 +23,12 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/modules/multi2multivec-jinaai/clients"
-	"github.com/weaviate/weaviate/modules/multi2multivec-jinaai/ent"
-	"github.com/weaviate/weaviate/modules/multi2multivec-jinaai/vectorizer"
+	"github.com/weaviate/weaviate/modules/multi2multivec-weaviate/clients"
+	"github.com/weaviate/weaviate/modules/multi2multivec-weaviate/ent"
+	"github.com/weaviate/weaviate/modules/multi2multivec-weaviate/vectorizer"
 )
 
-const Name = "multi2multivec-jinaai"
+const Name = "multi2multivec-weaviate"
 
 func New() *Module {
 	return &Module{}

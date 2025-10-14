@@ -94,6 +94,7 @@ import (
 	modgenerativexai "github.com/weaviate/weaviate/modules/generative-xai"
 	modimage "github.com/weaviate/weaviate/modules/img2vec-neural"
 	modmulti2multivecjinaai "github.com/weaviate/weaviate/modules/multi2multivec-jinaai"
+	modmulti2multivecweaviate "github.com/weaviate/weaviate/modules/multi2multivec-weaviate"
 	modmulti2vecaws "github.com/weaviate/weaviate/modules/multi2vec-aws"
 	modbind "github.com/weaviate/weaviate/modules/multi2vec-bind"
 	modclip "github.com/weaviate/weaviate/modules/multi2vec-clip"
@@ -1200,6 +1201,7 @@ func registerModules(appState *state.State) error {
 		modnvidia.Name,
 		modmulti2vecnvidia.Name,
 		modmulti2multivecjinaai.Name,
+		modmulti2multivecweaviate.Name,
 		modmulti2vecaws.Name,
 	}
 	defaultGenerative := []string{
@@ -1419,6 +1421,14 @@ func registerModules(appState *state.State) error {
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", modmulti2multivecjinaai.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modmulti2multivecweaviate.Name]; ok {
+		appState.Modules.Register(modmulti2multivecweaviate.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modmulti2multivecweaviate.Name).
 			Debug("enabled module")
 	}
 
