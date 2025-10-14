@@ -73,8 +73,8 @@ func NewStreamHandler(authenticator authenticator, authorizer authorization.Auth
 }
 
 func (h *StreamHandler) Handle(stream pb.Weaviate_BatchStreamServer) error {
-	ctx := stream.Context()
-	_, err := h.authenticator.PrincipalFromContext(ctx)
+	streamCtx := stream.Context()
+	_, err := h.authenticator.PrincipalFromContext(streamCtx)
 	if err != nil {
 		return fmt.Errorf("authenticate: %w", err)
 	}
@@ -108,7 +108,7 @@ func (h *StreamHandler) Handle(stream pb.Weaviate_BatchStreamServer) error {
 	defer h.teardown(streamId)
 
 	// Ensure that internal goroutines are cancelled when the stream exits for any reason
-	ctx, cancel := context.WithCancel(ctx)
+	ctx, cancel := context.WithCancel(streamCtx)
 	defer cancel()
 
 	// Channel to communicate receive errors from recv to the send loop
@@ -226,8 +226,6 @@ func (h *StreamHandler) send(ctx context.Context, streamId string, stream pb.Wea
 	// shuttingDown acts as a soft cancel here so we can send the shutting down message to the client.
 	// Once the workers are drained then h.shutdownFinished will be closed and we will shutdown completely
 	shuttingDownDone := h.shuttingDownCtx.Done()
-	ticker := time.NewTicker(2 * time.Second)
-	defer ticker.Stop()
 	if err := stream.Send(newBatchStartedMessage()); err != nil {
 		log.WithError(err).Error("failed to send started message")
 		return err
@@ -293,14 +291,13 @@ func (h *StreamHandler) recv(ctx context.Context, streamId string, consistencyLe
 	wg := &sync.WaitGroup{}
 	defer h.close(streamId, wg)
 	for {
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
 		var request *pb.BatchStreamRequest
 		var err error
 		select {
 		case request = <-reqCh:
 		case err = <-errCh:
+		case <-ctx.Done():
+			return ctx.Err()
 		case <-time.After(SHUTDOWN_GRACE_PERIOD):
 			// This ensures that we don't hang indefinitely if the client does not close the stream
 			// after receiving the shutdown message for any reason
@@ -329,7 +326,7 @@ func (h *StreamHandler) recv(ctx context.Context, streamId string, consistencyLe
 				Objects:          request.GetData().GetObjects().GetValues(),
 				References:       request.GetData().GetReferences().GetValues(),
 				Wg:               wg,               // the worker will call wg.Done() when it is finished
-				Ctx:              stream.Context(), // passes any authn information from the stream into the worker for authz
+				StreamCtx:        stream.Context(), // passes any authn information from the stream into the worker for authz
 			}
 			if h.metrics != nil {
 				h.metrics.OnStreamRequest(float64(len(h.processingQueue)) / float64(cap(h.processingQueue)))

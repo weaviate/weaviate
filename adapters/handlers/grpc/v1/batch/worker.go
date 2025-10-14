@@ -53,7 +53,7 @@ type processRequest struct {
 	Objects          []*pb.BatchObject
 	References       []*pb.BatchReference
 	Wg               *sync.WaitGroup
-	Ctx              context.Context
+	StreamCtx        context.Context
 }
 
 func StartBatchWorkers(
@@ -104,9 +104,9 @@ func (w *Worker) sendObjects(ctx context.Context, streamId string, objs []*pb.Ba
 		return errs
 	}
 	// Handle errors
-	errs := make([]*pb.BatchStreamReply_Error, 0, len(reply.GetErrors()))
-	retriable := make([]*pb.BatchObject, 0, len(reply.GetErrors()))
+	errs := make([]*pb.BatchStreamReply_Error, 0)
 	if len(reply.GetErrors()) > 0 {
+		retriable := make([]*pb.BatchObject, 0)
 		for _, err := range reply.GetErrors() {
 			if err == nil {
 				continue
@@ -120,10 +120,11 @@ func (w *Worker) sendObjects(ctx context.Context, streamId string, objs []*pb.Ba
 				Detail: &pb.BatchStreamReply_Error_Object{Object: objs[err.Index]},
 			})
 		}
+		if len(retriable) > 0 {
+			errs = append(errs, w.sendObjects(ctx, streamId, retriable, cl, retries+1)...)
+		}
 	}
-	if len(retriable) > 0 {
-		errs = append(errs, w.sendObjects(ctx, streamId, retriable, cl, retries+1)...)
-	}
+
 	return errs
 }
 
@@ -144,9 +145,9 @@ func (w *Worker) sendReferences(ctx context.Context, streamId string, refs []*pb
 		return errs
 	}
 	// Handle errors
-	errs := make([]*pb.BatchStreamReply_Error, 0, len(reply.GetErrors()))
-	retriable := make([]*pb.BatchReference, 0, len(reply.GetErrors()))
+	errs := make([]*pb.BatchStreamReply_Error, 0)
 	if len(reply.GetErrors()) > 0 {
+		retriable := make([]*pb.BatchReference, 0)
 		for _, err := range reply.GetErrors() {
 			if err == nil {
 				continue
@@ -160,9 +161,9 @@ func (w *Worker) sendReferences(ctx context.Context, streamId string, refs []*pb
 				Detail: &pb.BatchStreamReply_Error_Reference{Reference: refs[err.Index]},
 			})
 		}
-	}
-	if len(retriable) > 0 {
-		errs = append(errs, w.sendReferences(ctx, streamId, retriable, cl, retries+1)...)
+		if len(retriable) > 0 {
+			errs = append(errs, w.sendReferences(ctx, streamId, retriable, cl, retries+1)...)
+		}
 	}
 	return errs
 }
@@ -176,23 +177,23 @@ func (w *Worker) report(streamId string, errs []*pb.BatchStreamReply_Error, stat
 // Loop processes objects from the write queue, sending them to the batcher and handling shutdown signals.
 func (w *Worker) Loop() error {
 	for req := range w.processingQueue {
-		if req != nil {
-			start := time.Now()
-			w.report(
-				req.StreamId,
-				w.process(req),
-				newWorkersStats(time.Since(start)),
-			)
-		} else {
+		if req == nil {
 			w.logger.WithField("action", "batch_worker_loop").Error("received nil process request")
+			continue
 		}
+		start := time.Now()
+		w.report(
+			req.StreamId,
+			w.process(req),
+			newWorkersStats(time.Since(start)),
+		)
 	}
 	w.logger.Debug("processing queue closed, shutting down worker")
 	return nil // channel closed, exit loop
 }
 
 func (w *Worker) process(req *processRequest) []*pb.BatchStreamReply_Error {
-	ctx, cancel := context.WithTimeout(req.Ctx, PER_PROCESS_TIMEOUT)
+	ctx, cancel := context.WithTimeout(req.StreamCtx, PER_PROCESS_TIMEOUT)
 	defer cancel()
 	defer req.Wg.Done()
 

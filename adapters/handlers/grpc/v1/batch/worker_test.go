@@ -60,7 +60,7 @@ func TestWorkerLoop(t *testing.T) {
 			StreamId:         StreamId,
 			ConsistencyLevel: nil,
 			Wg:               &wg,
-			Ctx:              ctx,
+			StreamCtx:        ctx,
 		}
 		processingQueue <- &processRequest{
 			Objects:          nil,
@@ -68,7 +68,7 @@ func TestWorkerLoop(t *testing.T) {
 			StreamId:         StreamId,
 			ConsistencyLevel: nil,
 			Wg:               &wg,
-			Ctx:              ctx,
+			StreamCtx:        ctx,
 		}
 		close(processingQueue) // Allow the draining logic to exit naturally
 		wg.Wait()
@@ -129,7 +129,7 @@ func TestWorkerLoop(t *testing.T) {
 				StreamId:         StreamId,
 				ConsistencyLevel: nil,
 				Wg:               &wg,
-				Ctx:              ctx,
+				StreamCtx:        ctx,
 			}
 		}()
 
