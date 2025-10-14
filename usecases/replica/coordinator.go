@@ -323,6 +323,8 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 		var stopOnce sync.Once
 		successCh := make(chan _Result[T], len(hosts))
 		errorCh := make(chan _Result[T], len(hosts))
+		// track whether a full-read succeeded (required for read-repair correctness)
+		fullSuccessCh := make(chan struct{}, 1)
 
 		wg := sync.WaitGroup{}
 		wg.Add(len(hosts))
@@ -370,6 +372,13 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 				if err == nil {
 					// Do not cancel here; let the collector own cancellation once it has observed enough successes
 					successCh <- _Result[T]{resp, err}
+					if isFullReadWorker {
+						// note a full-read success (best-effort; buffered channel prevents blocking)
+						select {
+						case fullSuccessCh <- struct{}{}:
+						default:
+						}
+					}
 					c.log.WithFields(logrus.Fields{"op": "pull", "host": hosts[hostIndex], "full_read": isFullReadWorker}).Info("pull worker success")
 					return
 				}
@@ -389,14 +398,22 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 			defer close(replyCh)
 			var successCount, errorCount int
 			total := len(hosts)
+			fullReadSeen := false
 			for successCount+errorCount < total {
 				select {
 				case r := <-successCh:
 					replyCh <- r
 					successCount++
-					if successCount >= level {
+					if successCount >= level && fullReadSeen {
 						stopOnce.Do(func() { close(doneCh); cancel() })
 						c.log.WithFields(logrus.Fields{"op": "pull", "successes": successCount, "level": level}).Info("pull achieved required consistency, stopping early")
+						return
+					}
+				case <-fullSuccessCh:
+					fullReadSeen = true
+					if successCount >= level {
+						stopOnce.Do(func() { close(doneCh); cancel() })
+						c.log.WithFields(logrus.Fields{"op": "pull", "successes": successCount, "level": level, "full_read": true}).Info("pull achieved required consistency (full read present), stopping early")
 						return
 					}
 				case r := <-errorCh:
