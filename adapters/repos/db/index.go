@@ -529,6 +529,18 @@ func (i *Index) ForEachShardConcurrently(f func(name string, shard ShardLike) er
 	return i.shards.RangeConcurrently(i.logger, f)
 }
 
+func (i *Index) ForEachLoadedShardConcurrently(f func(name string, shard ShardLike) error) error {
+	return i.shards.RangeConcurrently(i.logger, func(name string, shard ShardLike) error {
+		// Skip lazy loaded shard which are not loaded
+		if asLazyLoadShard, ok := shard.(*LazyLoadShard); ok {
+			if !asLazyLoadShard.isLoaded() {
+				return nil
+			}
+		}
+		return f(name, shard)
+	})
+}
+
 // Iterate over all objects in the shard, applying the callback function to each one.  Adding or removing objects during iteration is not supported.
 func (i *Index) IterateShards(ctx context.Context, cb func(index *Index, shard ShardLike) error) (err error) {
 	return i.ForEachShard(func(key string, shard ShardLike) error {

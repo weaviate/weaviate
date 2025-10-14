@@ -110,7 +110,7 @@ func NewConfigManager[T any](
 }
 
 // Run is a blocking call that starts the configmanager actor. Consumer probably want to
-// call it in different groutine. It also respects the passed in `ctx`.
+// call it in different goroutine. It also respects the passed in `ctx`.
 // Meaning, cancelling the passed `ctx` stops the actor.
 func (cm *ConfigManager[T]) Run(ctx context.Context) error {
 	return cm.loop(ctx)
