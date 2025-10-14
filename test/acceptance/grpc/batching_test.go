@@ -418,6 +418,10 @@ func TestGRPC_ClusterBatching(t *testing.T) {
 			defer recvWg.Done()
 			for {
 				resp, err := stream.Recv()
+				if errors.Is(err, io.EOF) {
+					t.Logf("%s Stream closed by server\n", time.Now().Format("15:04:05"))
+					return // server closed the stream
+				}
 				if err != nil {
 					st, ok := status.FromError(err)
 					if !ok || st.Code() != codes.Aborted {
@@ -432,10 +436,6 @@ func TestGRPC_ClusterBatching(t *testing.T) {
 					streamRestartLock.Unlock()
 					shuttingDown.Store(false)
 					continue // we expect this error when the server is shutting down
-				}
-				if errors.Is(err, io.EOF) {
-					t.Logf("%s Stream closed by server\n", time.Now().Format("15:04:05"))
-					return // server closed the stream
 				}
 				if resp.GetError() != nil {
 					t.Errorf("%s Received unexpected error from server: %v\n", time.Now().Format("15:04:05"), resp.GetError())
