@@ -24,8 +24,8 @@ type BatchStreamingMetrics struct {
 	OnStreamStart   func()
 	OnStreamStop    func()
 	OnStreamRequest func(queueLen float64)
-	OnStreamError   func(streamId string)
-	OnWorkerReport  func(streamId string, throughputEma float64, processingTimeEma time.Duration)
+	OnStreamError   func()
+	OnWorkerReport  func(throughputEma float64, processingTimeEma time.Duration)
 }
 
 func NewBatchStreamingMetrics(reg prometheus.Registerer) *BatchStreamingMetrics {
@@ -48,22 +48,19 @@ func NewBatchStreamingMetrics(reg prometheus.Registerer) *BatchStreamingMetrics 
 	streamTotalErrors := promauto.With(reg).NewCounterVec(prometheus.CounterOpts{
 		Namespace: "weaviate",
 		Name:      "batch_streaming_total_errors_per_stream",
-		Help:      "Total number of errors encountered during batch streaming operations",
-	}, []string{"stream_id"})
+		Help:      "Total number of errors reported across all streams",
+	}, []string{})
 
-	// Note: this is not a histogram of all processing times, but rather the EMA of processing times
-	// reported by the workers. As such, it is expected that there are far fewer observations than
-	// actual requests processed.
 	streamProcessingTimeEma := promauto.With(reg).NewHistogramVec(prometheus.HistogramOpts{
 		Namespace: "weaviate",
 		Name:      "batch_streaming_processing_time_ema",
 		Help:      "Exponential moving average of the processing time for the internal processing queue",
-	}, []string{"stream_id"})
+	}, []string{})
 	streamProcessingThroughputEma := promauto.With(reg).NewHistogramVec(prometheus.HistogramOpts{
 		Namespace: "weaviate",
 		Name:      "batch_streaming_processing_throughput_ema",
 		Help:      "Exponential moving average of the throughput (objects / second) for the internal processing queue",
-	}, []string{"stream_id"})
+	}, []string{})
 
 	return &BatchStreamingMetrics{
 		OnStreamStart: func() {
@@ -75,12 +72,12 @@ func NewBatchStreamingMetrics(reg prometheus.Registerer) *BatchStreamingMetrics 
 		OnStreamRequest: func(ratio float64) {
 			processingQueueUtilization.WithLabelValues().Observe(ratio)
 		},
-		OnStreamError: func(streamId string) {
-			streamTotalErrors.WithLabelValues(streamId).Inc()
+		OnStreamError: func() {
+			streamTotalErrors.WithLabelValues().Inc()
 		},
-		OnWorkerReport: func(streamId string, throughputEma float64, processingTimeEma time.Duration) {
-			streamProcessingThroughputEma.WithLabelValues(streamId).Observe(throughputEma)
-			streamProcessingTimeEma.WithLabelValues(streamId).Observe(float64(processingTimeEma.Seconds()))
+		OnWorkerReport: func(throughputEma float64, processingTimeEma time.Duration) {
+			streamProcessingThroughputEma.WithLabelValues().Observe(throughputEma)
+			streamProcessingTimeEma.WithLabelValues().Observe(float64(processingTimeEma.Seconds()))
 		},
 	}
 }

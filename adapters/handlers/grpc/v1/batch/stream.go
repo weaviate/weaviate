@@ -128,9 +128,9 @@ func (h *StreamHandler) Handle(stream pb.Weaviate_BatchStreamServer) error {
 	return h.send(ctx, streamId, stream, errCh)
 }
 
-func (h *StreamHandler) drainReportingQueue(queue reportingQueue, streamId string, stream pb.Weaviate_BatchStreamServer, logger *logrus.Entry) {
+func (h *StreamHandler) drainReportingQueue(queue reportingQueue, stream pb.Weaviate_BatchStreamServer, logger *logrus.Entry) {
 	for report := range queue {
-		h.handleWorkerErrors(report, streamId, stream, logger)
+		h.handleWorkerErrors(report, stream, logger)
 	}
 }
 
@@ -187,7 +187,7 @@ func (h *StreamHandler) handleWorkerReport(report *report, closed bool, recvErrC
 		return <-recvErrCh // will be nil if the client closed the stream gracefully or a recv error otherwise
 	}
 	// Received a report from a worker
-	h.handleWorkerErrors(report, streamId, stream, logger)
+	h.handleWorkerErrors(report, stream, logger)
 	// Recalculate stats and send backoff message
 	h.handleBackoff(report, streamId, stream, logger)
 	return nil
@@ -197,7 +197,7 @@ func (h *StreamHandler) handleBackoff(report *report, streamId string, stream pb
 	stats := h.workerStats(streamId)
 	stats.updateBatchSize(report.Stats.processingTime, len(h.processingQueue))
 	if h.metrics != nil {
-		h.metrics.OnWorkerReport(streamId, stats.getThroughputEma(), stats.getProcessingTimeEma())
+		h.metrics.OnWorkerReport(stats.getThroughputEma(), stats.getProcessingTimeEma())
 	}
 	if innerErr := stream.Send(&pb.BatchStreamReply{
 		Message: &pb.BatchStreamReply_Backoff_{
@@ -211,10 +211,10 @@ func (h *StreamHandler) handleBackoff(report *report, streamId string, stream pb
 	}
 }
 
-func (h *StreamHandler) handleWorkerErrors(report *report, streamId string, stream pb.Weaviate_BatchStreamServer, logger *logrus.Entry) {
+func (h *StreamHandler) handleWorkerErrors(report *report, stream pb.Weaviate_BatchStreamServer, logger *logrus.Entry) {
 	for _, err := range report.Errors {
 		if h.metrics != nil {
-			h.metrics.OnStreamError(streamId)
+			h.metrics.OnStreamError()
 		}
 		if innerErr := stream.Send(newBatchErrorMessage(err)); innerErr != nil {
 			logger.WithError(innerErr).Error("failed to send error message")
@@ -243,13 +243,13 @@ func (h *StreamHandler) send(ctx context.Context, streamId string, stream pb.Wea
 		case <-ctx.Done():
 			// drain reporting queue in effort to communicate any inflight errors back to client
 			// despite the context being cancelled somewhere
-			h.drainReportingQueue(reportingQueue, streamId, stream, log)
+			h.drainReportingQueue(reportingQueue, stream, log)
 			log.Error("context cancelled, closing stream")
 			return ctx.Err()
 		case recvErr, open := <-recvErrCh:
 			// drain reporting queue in effort to communicate any inflight errors back to client
 			// despite the receiver throwing an error of some kind, or the client closing its side of the stream
-			h.drainReportingQueue(reportingQueue, streamId, stream, log)
+			h.drainReportingQueue(reportingQueue, stream, log)
 			if !open {
 				// channel closed, client must have closed its side of the stream
 				return h.handleRecvClosed(streamId, log)
