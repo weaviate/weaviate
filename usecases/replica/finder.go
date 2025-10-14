@@ -18,6 +18,7 @@ import (
 	"math/rand"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-openapi/strfmt"
@@ -136,7 +137,7 @@ func (f *Finder) GetOne(ctx context.Context,
 	replyCh, level, err := c.Pull(ctx, l, op, "", 20*time.Second)
 	if err != nil {
 		f.log.WithField("op", "pull.one").Error(err)
-		return nil, fmt.Errorf("%s %q: %w", MsgCLevel, l, ErrReplicas)
+		return nil, fmt.Errorf("%s %q: %w", MsgCLevel, l, err)
 	}
 	result := <-f.readOne(ctx, shard, id, replyCh, level)
 	if err = result.Err; err != nil {
@@ -161,7 +162,7 @@ func (f *Finder) FindUUIDs(ctx context.Context,
 	replyCh, _, err := c.Pull(ctx, l, op, "", 30*time.Second)
 	if err != nil {
 		f.log.WithField("op", "pull.one").Error(err)
-		return nil, fmt.Errorf("%s %q: %w", MsgCLevel, l, ErrReplicas)
+		return nil, fmt.Errorf("%s %q: %w", MsgCLevel, l, err)
 	}
 
 	res := make(map[strfmt.UUID]struct{})
@@ -215,20 +216,79 @@ func (f *Finder) CheckConsistency(ctx context.Context,
 		}
 		return nil
 	}
-	// check shard consistency concurrently
-	gr, ctx := enterrors.NewErrorGroupWithContextWrapper(f.logger, ctx)
-	for _, part := range cluster(createBatch(xs)) {
+	// check shard consistency concurrently - return when required consistency is reached
+	parts := cluster(createBatch(xs))
+	requiredSuccess := len(parts) // For now, require all parts to succeed
+
+	// Use error group with context for coordinated cancellation
+	eg, egCtx := enterrors.NewErrorGroupWithContextWrapper(f.log, ctx, "finder_check_consistency")
+
+	successCh := make(chan struct{}, len(parts))
+	errorCh := make(chan error, len(parts))
+
+	// Launch all checks
+	for _, part := range parts {
 		part := part
-		gr.Go(func() error {
-			_, err := f.checkShardConsistency(ctx, l, part)
+		eg.Go(func() error {
+			_, err := f.checkShardConsistency(egCtx, l, part)
 			if err != nil {
 				f.log.WithField("op", "check_shard_consistency").
 					WithField("shard", part.Shard).Error(err)
+				select {
+				case errorCh <- err:
+				default:
+				}
+			} else {
+				select {
+				case successCh <- struct{}{}:
+				default:
+				}
 			}
-			return err
-		}, part)
+			return nil
+		})
 	}
-	return gr.Wait()
+
+	// Wait for required consistency level or all to complete
+	var successCount atomic.Int32
+	var errorCount atomic.Int32
+	var firstErr error
+	totalChecks := len(parts)
+
+	for successCount.Load()+errorCount.Load() < int32(totalChecks) {
+		select {
+		case <-egCtx.Done():
+			return egCtx.Err()
+		case <-successCh:
+			if successCount.Add(1) >= int32(requiredSuccess) {
+				f.log.WithField("op", "check_consistency").
+					WithField("successful_checks", successCount.Load()).
+					Debug("consistency check achieved required level, returning early")
+				return nil
+			}
+		case err := <-errorCh:
+			if firstErr == nil {
+				firstErr = err
+			}
+			errorCount.Add(1)
+		}
+	}
+
+	// All checks completed - check if we achieved required consistency
+	if successCount.Load() >= int32(requiredSuccess) {
+		return nil
+	}
+
+	// Log failure with details and return the first worker error (if any)
+	f.log.WithField("op", "check_consistency").
+		WithField("successful_checks", successCount.Load()).
+		WithField("failed_checks", errorCount.Load()).
+		WithField("required_success", requiredSuccess).
+		Error("consistency check failed")
+
+	if firstErr != nil {
+		return firstErr
+	}
+	return fmt.Errorf("consistency check failed")
 }
 
 // Exists checks if an object exists which satisfies the giving consistency
@@ -250,7 +310,7 @@ func (f *Finder) Exists(ctx context.Context,
 	replyCh, state, err := c.Pull(ctx, l, op, "", 20*time.Second)
 	if err != nil {
 		f.log.WithField("op", "pull.exist").Error(err)
-		return false, fmt.Errorf("%s %q: %w", MsgCLevel, l, ErrReplicas)
+		return false, fmt.Errorf("%s %q: %w", MsgCLevel, l, err)
 	}
 	result := <-f.readExistence(ctx, shard, id, replyCh, state)
 	if err = result.Err; err != nil {
@@ -301,7 +361,8 @@ func (f *Finder) checkShardConsistency(ctx context.Context,
 
 	replyCh, state, err := c.Pull(ctx, l, op, batch.Node, 20*time.Second)
 	if err != nil {
-		return nil, fmt.Errorf("pull shard: %w", ErrReplicas)
+		f.log.WithField("op", "pull.shard").Error(err)
+		return nil, fmt.Errorf("pull shard: %w", err)
 	}
 	result := <-f.readBatchPart(ctx, batch, ids, replyCh, state)
 	return result.Value, result.Err

@@ -999,14 +999,12 @@ func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 		byShard[shardName] = group
 	}
 
-	wg := &sync.WaitGroup{}
+	// Use context-aware error group for better cancellation handling
+	eg, egCtx := enterrors.NewErrorGroupWithContextWrapper(i.logger, ctx, "put_object_batch")
 	for shardName, group := range byShard {
 		shardName := shardName
 		group := group
-		wg.Add(1)
-		f := func() {
-			defer wg.Done()
-
+		eg.Go(func() error {
 			defer func() {
 				err := recover()
 				if err != nil {
@@ -1020,20 +1018,20 @@ func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 			}()
 			var errs []error
 			if replProps != nil {
-				errs = i.replicator.PutObjects(ctx, shardName, group.objects,
+				errs = i.replicator.PutObjects(egCtx, shardName, group.objects,
 					types.ConsistencyLevel(replProps.ConsistencyLevel), schemaVersion)
 			} else {
-				shard, release, err := i.GetShard(ctx, shardName)
+				shard, release, err := i.GetShard(egCtx, shardName)
 				if err != nil {
 					errs = []error{err}
 				} else if shard != nil {
 					i.shardTransferMutex.RLockGuard(func() error {
 						defer release()
-						errs = shard.PutObjectBatch(ctx, group.objects)
+						errs = shard.PutObjectBatch(egCtx, group.objects)
 						return nil
 					})
 				} else {
-					errs = i.remote.BatchPutObjects(ctx, shardName, group.objects, schemaVersion)
+					errs = i.remote.BatchPutObjects(egCtx, shardName, group.objects, schemaVersion)
 				}
 			}
 
@@ -1041,11 +1039,14 @@ func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 				desiredPos := group.pos[i]
 				out[desiredPos] = err
 			}
-		}
-		enterrors.GoWrapper(f, i.logger)
+			return nil
+		}, shardName)
 	}
 
-	wg.Wait()
+	// Wait for all batch operations to complete or context cancellation
+	if err := eg.Wait(); err != nil {
+		return out
+	}
 
 	return out
 }
@@ -1526,7 +1527,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 ) ([]*storobj.Object, []float32, error) {
 	resultObjects, resultScores := objectSearchPreallocate(limit, shards)
 
-	eg := enterrors.NewErrorGroupWrapper(i.logger, "filters:", filters)
+	eg, egCtx := enterrors.NewErrorGroupWithContextWrapper(i.logger, ctx, "filters:", filters)
 	eg.SetLimit(_NUMCPU * 2)
 	shardResultLock := sync.Mutex{}
 	for _, shardName := range shards {
@@ -1540,14 +1541,14 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 				err      error
 			)
 
-			shard, release, err := i.GetShard(ctx, shardName)
+			shard, release, err := i.GetShard(egCtx, shardName)
 			if err != nil {
 				return err
 			}
 
 			if shard != nil {
 				defer release()
-				localCtx := helpers.InitSlowQueryDetails(ctx)
+				localCtx := helpers.InitSlowQueryDetails(egCtx)
 				helpers.AnnotateSlowQueryLog(localCtx, "is_coordinator", true)
 				objs, scores, err = shard.ObjectSearch(localCtx, limit, filters, keywordRanking, sort, cursor, addlProps, properties)
 				if err != nil {
@@ -1559,7 +1560,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 				i.logger.WithField("shardName", shardName).Debug("shard was not found locally, search for object remotely")
 
 				objs, scores, nodeName, err = i.remote.SearchShard(
-					ctx, shardName, nil, nil, 0, limit, filters, keywordRanking,
+					egCtx, shardName, nil, nil, 0, limit, filters, keywordRanking,
 					sort, cursor, nil, addlProps, i.replicationEnabled(), nil, properties)
 				if err != nil {
 					return fmt.Errorf(
@@ -1803,7 +1804,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 		shardCap = len(shardNames) * limit
 	}
 
-	eg := enterrors.NewErrorGroupWrapper(i.logger, "tenant:", tenant)
+	eg, egCtx := enterrors.NewErrorGroupWithContextWrapper(i.logger, ctx, "tenant:", tenant)
 	eg.SetLimit(_NUMCPU * 2)
 	m := &sync.Mutex{}
 
@@ -1816,7 +1817,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 
 	for _, sn := range shardNames {
 		shardName := sn
-		shard, release, err := i.GetShard(ctx, shardName)
+		shard, release, err := i.GetShard(egCtx, shardName)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -1827,7 +1828,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 		if shard != nil {
 			localSearches++
 			eg.Go(func() error {
-				localShardResult, localShardScores, err1 := i.localShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardName)
+				localShardResult, localShardScores, err1 := i.localShardSearch(egCtx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardName)
 				if err1 != nil {
 					return fmt.Errorf(
 						"local shard object search %s: %w", shard.ID(), err1)
@@ -1846,7 +1847,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 			remoteSearches++
 			eg.Go(func() error {
 				// If we have no local shard or if we force the query to reach all replicas
-				remoteShardObject, remoteShardScores, err2 := i.remoteShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardName)
+				remoteShardObject, remoteShardScores, err2 := i.remoteShardSearch(egCtx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardName)
 				if err2 != nil {
 					return fmt.Errorf(
 						"remote shard object search %s: %w", shardName, err2)

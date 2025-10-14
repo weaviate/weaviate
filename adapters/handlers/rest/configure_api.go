@@ -376,6 +376,20 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	remoteIndexClient := clients.NewRemoteIndex(appState.ClusterHttpClient)
 	remoteNodesClient := clients.NewRemoteNode(appState.ClusterHttpClient)
 	replicationClient := clients.NewReplicationClient(appState.ClusterHttpClient)
+
+	var nonStorageNodes map[string]struct{}
+	if cfg := appState.ServerConfig.Config.Raft; cfg.MetadataOnlyVoters {
+		nonStorageNodes = parseVotersNames(cfg)
+	}
+
+	clusterState, err := cluster.Init(appState.ServerConfig.Config.Cluster, appState.ServerConfig.Config.Raft.TimeoutsMultiplier.Get(), appState.ServerConfig.Config.Persistence.DataPath, nonStorageNodes, appState.Logger)
+	if err != nil {
+		appState.Logger.WithField("action", "startup").WithError(err).
+			Error("could not init cluster state")
+		appState.Logger.Exit(1)
+	}
+
+	appState.Cluster = clusterState
 	repo, err := db.New(appState.Logger, db.Config{
 		ServerVersion:                       config.ServerVersion,
 		GitHash:                             build.Revision,
@@ -1039,21 +1053,6 @@ func startupRoutine(ctx context.Context, options *swag.CommandLineOptionsGroup) 
 	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
 		Debug("configured OIDC and anonymous access client")
 
-	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
-		Debug("initialized schema")
-
-	var nonStorageNodes map[string]struct{}
-	if cfg := serverConfig.Config.Raft; cfg.MetadataOnlyVoters {
-		nonStorageNodes = parseVotersNames(cfg)
-	}
-	clusterState, err := cluster.Init(serverConfig.Config.Cluster, serverConfig.Config.Raft.TimeoutsMultiplier.Get(), dataPath, nonStorageNodes, logger)
-	if err != nil {
-		logger.WithField("action", "startup").WithError(err).
-			Error("could not init cluster state")
-		logger.Exit(1)
-	}
-
-	appState.Cluster = clusterState
 	appState.Logger.
 		WithField("action", "startup").
 		Debug("startup routine complete")
@@ -1672,20 +1671,22 @@ func reasonableHttpClient(authConfig cluster.AuthConfig) *http.Client {
 	t := &http.Transport{
 		Proxy: http.ProxyFromEnvironment,
 		DialContext: (&net.Dialer{
-			Timeout:   30 * time.Second,
-			KeepAlive: 120 * time.Second,
+			Timeout:   5 * time.Second,
+			KeepAlive: 30 * time.Second,
 		}).DialContext,
 		MaxIdleConnsPerHost:   100,
 		MaxIdleConns:          100,
-		IdleConnTimeout:       90 * time.Second,
-		TLSHandshakeTimeout:   10 * time.Second,
+		IdleConnTimeout:       30 * time.Second,
+		TLSHandshakeTimeout:   3 * time.Second,
+		ResponseHeaderTimeout: 5 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
+		ForceAttemptHTTP2:     true,
 	}
 
 	if authConfig.BasicAuth.Enabled() {
-		return &http.Client{Transport: clientWithAuth{r: t, basicAuth: authConfig.BasicAuth}}
+		return &http.Client{Transport: clientWithAuth{r: t, basicAuth: authConfig.BasicAuth}, Timeout: 30 * time.Second}
 	}
-	return &http.Client{Transport: t}
+	return &http.Client{Transport: t, Timeout: 20 * time.Second}
 }
 
 func setupGoProfiling(config config.Config, logger logrus.FieldLogger) {
