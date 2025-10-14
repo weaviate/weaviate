@@ -109,6 +109,15 @@ func (f *Finder) GetOne(ctx context.Context,
 	props search.SelectProperties,
 	adds additional.Properties,
 ) (*storobj.Object, error) {
+	pullStart := time.Now()
+	f.log.WithFields(logrus.Fields{
+		"op":          "finder_get_one",
+		"method":      "GetOne",
+		"shard":       shard,
+		"id":          id,
+		"consistency": l,
+	}).Info("finder GetOne starting pull")
+
 	c := newReadCoordinator[findOneReply](f, shard,
 		f.coordinatorPullBackoffInitialInterval, f.coordinatorPullBackoffMaxElapsedTime, f.getDeletionStrategy())
 	op := func(ctx context.Context, host string, fullRead bool) (findOneReply, error) {
@@ -135,10 +144,23 @@ func (f *Finder) GetOne(ctx context.Context,
 		}
 	}
 	replyCh, level, err := c.Pull(ctx, l, op, "", 20*time.Second)
+	pullDuration := time.Since(pullStart)
 	if err != nil {
-		f.log.WithField("op", "pull.one").Error(err)
+		f.log.WithFields(logrus.Fields{
+			"op":       "finder_get_one",
+			"method":   "GetOne",
+			"duration": pullDuration.String(),
+			"error":    err,
+		}).Error("finder GetOne pull failed")
 		return nil, fmt.Errorf("%s %q: %w", MsgCLevel, l, err)
 	}
+	f.log.WithFields(logrus.Fields{
+		"op":       "finder_get_one",
+		"method":   "GetOne",
+		"duration": pullDuration.String(),
+		"level":    level,
+	}).Info("finder GetOne pull completed")
+
 	result := <-f.readOne(ctx, shard, id, replyCh, level)
 	if err = result.Err; err != nil {
 		err = fmt.Errorf("%s %q: %w", MsgCLevel, l, err)
@@ -152,6 +174,14 @@ func (f *Finder) GetOne(ctx context.Context,
 func (f *Finder) FindUUIDs(ctx context.Context,
 	className, shard string, filters *filters.LocalFilter, l types.ConsistencyLevel,
 ) (uuids []strfmt.UUID, err error) {
+	pullStart := time.Now()
+	f.log.WithFields(logrus.Fields{
+		"op":          "finder_find_uuids",
+		"method":      "FindUUIDs",
+		"shard":       shard,
+		"consistency": l,
+	}).Info("finder FindUUIDs starting pull")
+
 	c := newReadCoordinator[[]strfmt.UUID](f, shard,
 		f.coordinatorPullBackoffInitialInterval, f.coordinatorPullBackoffMaxElapsedTime, f.getDeletionStrategy())
 
@@ -160,10 +190,21 @@ func (f *Finder) FindUUIDs(ctx context.Context,
 	}
 
 	replyCh, _, err := c.Pull(ctx, l, op, "", 30*time.Second)
+	pullDuration := time.Since(pullStart)
 	if err != nil {
-		f.log.WithField("op", "pull.one").Error(err)
+		f.log.WithFields(logrus.Fields{
+			"op":       "finder_find_uuids",
+			"method":   "FindUUIDs",
+			"duration": pullDuration.String(),
+			"error":    err,
+		}).Error("finder FindUUIDs pull failed")
 		return nil, fmt.Errorf("%s %q: %w", MsgCLevel, l, err)
 	}
+	f.log.WithFields(logrus.Fields{
+		"op":       "finder_find_uuids",
+		"method":   "FindUUIDs",
+		"duration": pullDuration.String(),
+	}).Info("finder FindUUIDs pull completed")
 
 	res := make(map[strfmt.UUID]struct{})
 
@@ -198,6 +239,14 @@ type ShardDesc struct {
 func (f *Finder) CheckConsistency(ctx context.Context,
 	l types.ConsistencyLevel, xs []*storobj.Object,
 ) error {
+	checkStart := time.Now()
+	f.log.WithFields(logrus.Fields{
+		"op":          "finder_check_consistency",
+		"method":      "CheckConsistency",
+		"consistency": l,
+		"num_objects": len(xs),
+	}).Info("finder CheckConsistency starting")
+
 	if len(xs) == 0 {
 		return nil
 	}
@@ -219,6 +268,13 @@ func (f *Finder) CheckConsistency(ctx context.Context,
 	// check shard consistency concurrently - return when required consistency is reached
 	parts := cluster(createBatch(xs))
 	requiredSuccess := len(parts) // For now, require all parts to succeed
+
+	f.log.WithFields(logrus.Fields{
+		"op":               "finder_check_consistency",
+		"method":           "CheckConsistency",
+		"num_parts":        len(parts),
+		"required_success": requiredSuccess,
+	}).Info("finder CheckConsistency launching shard checks")
 
 	// Use error group with context for coordinated cancellation
 	eg, egCtx := enterrors.NewErrorGroupWithContextWrapper(f.log, ctx, "finder_check_consistency")
@@ -257,12 +313,23 @@ func (f *Finder) CheckConsistency(ctx context.Context,
 	for successCount.Load()+errorCount.Load() < int32(totalChecks) {
 		select {
 		case <-egCtx.Done():
+			checkDuration := time.Since(checkStart)
+			f.log.WithFields(logrus.Fields{
+				"op":       "finder_check_consistency",
+				"method":   "CheckConsistency",
+				"duration": checkDuration.String(),
+				"error":    egCtx.Err(),
+			}).Error("finder CheckConsistency context done")
 			return egCtx.Err()
 		case <-successCh:
 			if successCount.Add(1) >= int32(requiredSuccess) {
-				f.log.WithField("op", "check_consistency").
-					WithField("successful_checks", successCount.Load()).
-					Debug("consistency check achieved required level, returning early")
+				checkDuration := time.Since(checkStart)
+				f.log.WithFields(logrus.Fields{
+					"op":                "finder_check_consistency",
+					"method":            "CheckConsistency",
+					"duration":          checkDuration.String(),
+					"successful_checks": successCount.Load(),
+				}).Info("finder CheckConsistency achieved required level, returning early")
 				return nil
 			}
 		case err := <-errorCh:
@@ -275,15 +342,26 @@ func (f *Finder) CheckConsistency(ctx context.Context,
 
 	// All checks completed - check if we achieved required consistency
 	if successCount.Load() >= int32(requiredSuccess) {
+		checkDuration := time.Since(checkStart)
+		f.log.WithFields(logrus.Fields{
+			"op":                "finder_check_consistency",
+			"method":            "CheckConsistency",
+			"duration":          checkDuration.String(),
+			"successful_checks": successCount.Load(),
+		}).Info("finder CheckConsistency completed successfully")
 		return nil
 	}
 
 	// Log failure with details and return the first worker error (if any)
-	f.log.WithField("op", "check_consistency").
-		WithField("successful_checks", successCount.Load()).
-		WithField("failed_checks", errorCount.Load()).
-		WithField("required_success", requiredSuccess).
-		Error("consistency check failed")
+	checkDuration := time.Since(checkStart)
+	f.log.WithFields(logrus.Fields{
+		"op":                "finder_check_consistency",
+		"method":            "CheckConsistency",
+		"duration":          checkDuration.String(),
+		"successful_checks": successCount.Load(),
+		"failed_checks":     errorCount.Load(),
+		"required_success":  requiredSuccess,
+	}).Error("finder CheckConsistency failed")
 
 	if firstErr != nil {
 		return firstErr
@@ -297,6 +375,15 @@ func (f *Finder) Exists(ctx context.Context,
 	shard string,
 	id strfmt.UUID,
 ) (bool, error) {
+	pullStart := time.Now()
+	f.log.WithFields(logrus.Fields{
+		"op":          "finder_exists",
+		"method":      "Exists",
+		"shard":       shard,
+		"id":          id,
+		"consistency": l,
+	}).Info("finder Exists starting pull")
+
 	c := newReadCoordinator[existReply](f, shard,
 		f.coordinatorPullBackoffInitialInterval, f.coordinatorPullBackoffMaxElapsedTime, f.getDeletionStrategy())
 	op := func(ctx context.Context, host string, _ bool) (existReply, error) {
@@ -308,10 +395,23 @@ func (f *Finder) Exists(ctx context.Context,
 		return existReply{host, x}, err
 	}
 	replyCh, state, err := c.Pull(ctx, l, op, "", 20*time.Second)
+	pullDuration := time.Since(pullStart)
 	if err != nil {
-		f.log.WithField("op", "pull.exist").Error(err)
+		f.log.WithFields(logrus.Fields{
+			"op":       "finder_exists",
+			"method":   "Exists",
+			"duration": pullDuration.String(),
+			"error":    err,
+		}).Error("finder Exists pull failed")
 		return false, fmt.Errorf("%s %q: %w", MsgCLevel, l, err)
 	}
+	f.log.WithFields(logrus.Fields{
+		"op":       "finder_exists",
+		"method":   "Exists",
+		"duration": pullDuration.String(),
+		"state":    state,
+	}).Info("finder Exists pull completed")
+
 	result := <-f.readExistence(ctx, shard, id, replyCh, state)
 	if err = result.Err; err != nil {
 		err = fmt.Errorf("%s %q: %w", MsgCLevel, l, err)
@@ -344,6 +444,15 @@ func (f *Finder) checkShardConsistency(ctx context.Context,
 	l types.ConsistencyLevel,
 	batch ShardPart,
 ) ([]*storobj.Object, error) {
+	pullStart := time.Now()
+	f.log.WithFields(logrus.Fields{
+		"op":          "finder_check_shard_consistency",
+		"method":      "checkShardConsistency",
+		"shard":       batch.Shard,
+		"node":        batch.Node,
+		"consistency": l,
+	}).Info("finder checkShardConsistency starting pull")
+
 	var (
 		c = newReadCoordinator[BatchReply](f, batch.Shard,
 			f.coordinatorPullBackoffInitialInterval, f.coordinatorPullBackoffMaxElapsedTime, f.getDeletionStrategy())
@@ -360,10 +469,23 @@ func (f *Finder) checkShardConsistency(ctx context.Context,
 	}
 
 	replyCh, state, err := c.Pull(ctx, l, op, batch.Node, 5*time.Second)
+	pullDuration := time.Since(pullStart)
 	if err != nil {
-		f.log.WithField("op", "pull.shard").Error(err)
+		f.log.WithFields(logrus.Fields{
+			"op":       "finder_check_shard_consistency",
+			"method":   "checkShardConsistency",
+			"duration": pullDuration.String(),
+			"error":    err,
+		}).Error("finder checkShardConsistency pull failed")
 		return nil, fmt.Errorf("pull shard: %w", err)
 	}
+	f.log.WithFields(logrus.Fields{
+		"op":       "finder_check_shard_consistency",
+		"method":   "checkShardConsistency",
+		"duration": pullDuration.String(),
+		"state":    state,
+	}).Info("finder checkShardConsistency pull completed")
+
 	result := <-f.readBatchPart(ctx, batch, ids, replyCh, state)
 	return result.Value, result.Err
 }
