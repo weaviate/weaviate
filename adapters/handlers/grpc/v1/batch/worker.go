@@ -23,7 +23,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/replica"
 )
 
-const perProcessTimeout = 90 * time.Second
+const PER_PROCESS_TIMEOUT = 60 * time.Second
 
 type Batcher interface {
 	BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest) (*pb.BatchObjectsReply, error)
@@ -192,7 +192,7 @@ func (w *Worker) Loop() error {
 }
 
 func (w *Worker) process(req *processRequest) []*pb.BatchStreamReply_Error {
-	ctx, cancel := context.WithTimeout(req.Ctx, perProcessTimeout)
+	ctx, cancel := context.WithTimeout(req.Ctx, PER_PROCESS_TIMEOUT)
 	defer cancel()
 	defer req.Wg.Done()
 
