@@ -67,7 +67,7 @@ func TestStreamHandler(t *testing.T) {
 
 		mockBatcher := mocks.NewMockBatcher(t)
 		mockStream := newMockStream(ctx, t)
-		mockStream.EXPECT().Context().Return(ctx).Twice()
+		mockStream.EXPECT().Context().Return(ctx).Once()
 		mockAuthenticator := mocks.NewMockauthenticator(t)
 		mockAuthenticator.EXPECT().PrincipalFromContext(ctx).Return(&models.Principal{}, nil).Once()
 
