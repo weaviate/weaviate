@@ -168,7 +168,8 @@ func (w *Worker) sendReferences(ctx context.Context, streamId string, refs []*pb
 	return errs
 }
 
-func (w *Worker) report(streamId string, errs []*pb.BatchStreamReply_Error, stats *workerStats) {
+func (w *Worker) report(streamId string, wg *sync.WaitGroup, errs []*pb.BatchStreamReply_Error, stats *workerStats) {
+	defer wg.Done()
 	if ok := w.reportingQueues.Send(streamId, errs, stats); !ok {
 		w.logger.WithField("streamId", streamId).Warn("timed out sending errors to read queue, maybe the client disconnected?")
 	}
@@ -184,6 +185,7 @@ func (w *Worker) Loop() error {
 		start := time.Now()
 		w.report(
 			req.StreamId,
+			req.Wg,
 			w.process(req),
 			newWorkersStats(time.Since(start)),
 		)
@@ -195,7 +197,6 @@ func (w *Worker) Loop() error {
 func (w *Worker) process(req *processRequest) []*pb.BatchStreamReply_Error {
 	ctx, cancel := context.WithTimeout(req.StreamCtx, PER_PROCESS_TIMEOUT)
 	defer cancel()
-	defer req.Wg.Done()
 
 	errs := make([]*pb.BatchStreamReply_Error, 0, len(req.Objects)+len(req.References))
 	if req.Objects != nil {
