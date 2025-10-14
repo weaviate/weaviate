@@ -330,14 +330,14 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 		wg.Add(len(hosts))
 		// determine local index among all hosts (prefer local for full read)
 		fullReadIndex := 0
-		if c.localHostAddr != "" {
-			for i := 0; i < len(hosts); i++ {
-				if hosts[i] == c.localHostAddr {
-					fullReadIndex = i
-					break
-				}
-			}
-		}
+		// if c.localHostAddr != "" {
+		// 	for i := 0; i < len(hosts); i++ {
+		// 		if hosts[i] == c.localHostAddr {
+		// 			fullReadIndex = i
+		// 			break
+		// 		}
+		// 	}
+		// }
 		// log routing details and which host will do full read
 		c.log.WithFields(logrus.Fields{
 			"op":                 "pull",
