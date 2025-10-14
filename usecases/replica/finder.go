@@ -267,9 +267,21 @@ func (f *Finder) CheckConsistency(ctx context.Context,
 	}
 	// check shard consistency concurrently - return when required consistency is reached
 	parts := cluster(createBatch(xs))
-	// Use quorum-based consistency instead of requiring all parts to succeed
-	// This prevents blocking during node rollout when some shards are temporarily unavailable
-	requiredSuccess := (len(parts) + 1) / 2 // Quorum: majority of parts must succeed
+
+	// Determine required success based on consistency level
+	var requiredSuccess int
+	switch l {
+	case types.ConsistencyLevelOne:
+		requiredSuccess = 1 // At least one shard must succeed
+	case types.ConsistencyLevelQuorum:
+		requiredSuccess = (len(parts) + 1) / 2 // Majority of shards must succeed
+	case types.ConsistencyLevelAll:
+		requiredSuccess = len(parts) // All shards must succeed
+	default:
+		// Fallback to quorum for unknown consistency levels
+		requiredSuccess = (len(parts) + 1) / 2
+	}
+
 	if requiredSuccess < 1 {
 		requiredSuccess = 1 // At least one part must succeed
 	}
@@ -283,6 +295,10 @@ func (f *Finder) CheckConsistency(ctx context.Context,
 
 	// Use error group with context for coordinated cancellation
 	eg, egCtx := enterrors.NewErrorGroupWithContextWrapper(f.log, ctx, "finder_check_consistency")
+	
+	// Create a cancellable context for early termination when consistency is achieved
+	cancelCtx, cancel := context.WithCancel(egCtx)
+	defer cancel()
 
 	successCh := make(chan struct{}, len(parts))
 	errorCh := make(chan error, len(parts))
@@ -300,7 +316,7 @@ func (f *Finder) CheckConsistency(ctx context.Context,
 				"node":       part.Node,
 			}).Info("finder CheckConsistency starting shard check")
 
-			_, err := f.checkShardConsistency(egCtx, l, part)
+			_, err := f.checkShardConsistency(cancelCtx, l, part)
 			shardDuration := time.Since(shardStart)
 
 			if err != nil {
@@ -367,15 +383,15 @@ func (f *Finder) CheckConsistency(ctx context.Context,
 	for successCount.Load()+errorCount.Load() < int32(totalChecks) {
 		loopStart := time.Now()
 		select {
-		case <-egCtx.Done():
+		case <-cancelCtx.Done():
 			checkDuration := time.Since(checkStart)
 			f.log.WithFields(logrus.Fields{
 				"op":       "finder_check_consistency",
 				"method":   "CheckConsistency",
 				"duration": checkDuration.String(),
-				"error":    egCtx.Err(),
+				"error":    cancelCtx.Err(),
 			}).Error("finder CheckConsistency context done")
-			return egCtx.Err()
+			return cancelCtx.Err()
 		case <-successCh:
 			newSuccessCount := successCount.Add(1)
 			loopDuration := time.Since(loopStart)
@@ -393,7 +409,9 @@ func (f *Finder) CheckConsistency(ctx context.Context,
 					"method":            "CheckConsistency",
 					"duration":          checkDuration.String(),
 					"successful_checks": newSuccessCount,
-				}).Info("finder CheckConsistency achieved required level, returning early")
+				}).Info("finder CheckConsistency achieved required level, cancelling remaining workers")
+				// Cancel remaining workers to avoid unnecessary work
+				cancel()
 				return nil
 			}
 		case err := <-errorCh:
