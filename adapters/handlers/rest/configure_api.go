@@ -293,8 +293,6 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		})
 	}
 
-	appState.ResourceLimit = resources.NewLimit(appState.ServerConfig.Config.ResourceLimits, appState.Logger)
-
 	err := registerModules(appState)
 	if err != nil {
 		appState.Logger.
@@ -941,6 +939,7 @@ func startupRoutine(ctx context.Context, options *swag.CommandLineOptionsGroup) 
 	}
 
 	appState.Cluster = clusterState
+	appState.ResourceLimit = resources.NewLimit(appState.ServerConfig.Config.ResourceLimits, appState.Logger)
 	appState.Logger.
 		WithField("action", "startup").
 		Debug("startup routine complete")
@@ -1673,7 +1672,7 @@ func initRuntimeOverrides(appState *state.State) {
 	if appState.ServerConfig.Config.ResourceLimits.Enabled {
 		registered.ResourceLimitGoMaxProcs = appState.ServerConfig.Config.ResourceLimits.GoMaxProcs
 		registered.ResourceLimitGoMemLimit = appState.ServerConfig.Config.ResourceLimits.GoMemLimit
-		registered.ResourceLimitGoMemLimitFromCgroups = appState.ServerConfig.Config.ResourceLimits.GoMemLimitFromCgroupsRation
+		registered.ResourceLimitGoMemLimitFromCgroups = appState.ServerConfig.Config.ResourceLimits.GoMemLimitFromCgroupsRatio
 
 		hooks["ResourceLimit"] = appState.ResourceLimit.ApplyResourceLimits(appState.ServerConfig.Config.ResourceLimits)
 	}

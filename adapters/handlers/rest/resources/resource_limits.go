@@ -30,13 +30,25 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
+type Limits struct {
+	lock          sync.Mutex
+	cancelFunc    context.CancelFunc
+	logger        logrus.FieldLogger
+	previousLimit int64
+}
+
 func NewLimit(config config.ResourceLimits, logger logrus.FieldLogger) *Limits {
 	if config.Enabled && config.EnabledDeprecated {
 		logger.Warn("Both LIMIT_RESOURCES and LIMIT_RESOURCES_DYNAMIC_ENABLED are set to true. " +
 			"LIMIT_RESOURCES is deprecated and will be ignored. Please use LIMIT_RESOURCES_DYNAMIC_ENABLED going forward.")
 		config.EnabledDeprecated = false
 	}
-	limit := &Limits{cancelFunc: func() {}, logger: logger.WithField("action", "resource_limits")}
+	limit := &Limits{
+		lock:          sync.Mutex{},
+		cancelFunc:    func() {},
+		logger:        logger.WithField("action", "resource_limits"),
+		previousLimit: 0, // only used to check if the limit was changed and if a log message needs to be emited
+	}
 
 	if config.EnabledDeprecated {
 		limitResourcesDeprecated(logger)
@@ -52,25 +64,20 @@ func NewLimit(config config.ResourceLimits, logger logrus.FieldLogger) *Limits {
 	return limit
 }
 
-type Limits struct {
-	sync.Mutex
-	cancelFunc    context.CancelFunc
-	logger        logrus.FieldLogger
-	previousLimit int64
-}
-
 func (l *Limits) Shutdown() {
-	l.Lock()
-	defer l.Unlock()
+	l.lock.Lock()
+	defer l.lock.Unlock()
 	l.cancelFunc()
 }
 
 func (l *Limits) ApplyResourceLimits(conf config.ResourceLimits) func() error {
 	return func() error {
-		l.Lock()
-		defer l.Unlock()
+		l.lock.Lock()
+		defer l.lock.Unlock()
 
-		if goruntime.GOOS == "linux" && conf.GoMemLimitFromCgroupsRation.Get() > 0 {
+		if goruntime.GOOS == "linux" && conf.GoMemLimitFromCgroupsRatio.Get() > 0 {
+			l.applyCgroupLimit(conf) // run right away, the ticker will only fire after the waittime is over, which might be too late
+
 			l.cancelFunc()              // cancel any previous watcher
 			ctx := context.Background() // only used to cancel the goroutine in memlimit watcher
 			ctx, cancelFunc := context.WithCancel(ctx)
@@ -83,22 +90,7 @@ func (l *Limits) ApplyResourceLimits(conf config.ResourceLimits) func() error {
 					for {
 						select {
 						case <-ticker.C:
-							limit, err := memlimit.SetGoMemLimitWithOpts(
-								memlimit.WithRatio(conf.GoMemLimitFromCgroupsRation.Get()),
-								memlimit.WithProvider(memlimit.FromCgroup),
-							)
-							if err != nil {
-								l.logger.Warn("unable to set memory limit from cgroups: %w", err)
-								continue
-							}
-							if limit == l.previousLimit {
-								continue
-							}
-							l.logger.
-								WithField("limit", strconv.FormatInt(limit, 10)).
-								WithField("previous_limit", strconv.FormatInt(l.previousLimit, 10)).
-								Info("updated GOMEMLIMIT from cgroups")
-							l.previousLimit = limit
+							l.applyCgroupLimit(conf)
 						case <-ctx.Done():
 							return
 						}
@@ -119,6 +111,30 @@ func (l *Limits) ApplyResourceLimits(conf config.ResourceLimits) func() error {
 		}
 		return nil
 	}
+}
+
+func (l *Limits) applyCgroupLimit(conf config.ResourceLimits) {
+	limit, err := memlimit.SetGoMemLimitWithOpts(
+		memlimit.WithRatio(conf.GoMemLimitFromCgroupsRatio.Get()),
+		memlimit.WithProvider(memlimit.FromCgroup),
+	)
+	if err != nil {
+		l.logger.Warn("unable to set memory limit from cgroups: %w", err)
+		return
+	}
+	if limit == 0 {
+		l.logger.Warn("limit not set. Is GOMEMLIMIT set in the environment?")
+		return
+
+	}
+	if limit == l.previousLimit {
+		return
+	}
+	l.logger.
+		WithField("new_limit", strconv.FormatInt(limit, 10)).
+		WithField("previous_limit", strconv.FormatInt(l.previousLimit, 10)).
+		Info("updated GOMEMLIMIT from cgroups")
+	l.previousLimit = limit
 }
 
 func limitResourcesDeprecated(logger logrus.FieldLogger) {

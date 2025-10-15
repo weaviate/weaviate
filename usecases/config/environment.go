@@ -423,7 +423,7 @@ func FromEnv(config *Config) error {
 
 		parsePositiveFloat("GOMEMLIMIT_FROM_CGROUPS_RATIO",
 			func(val float64) {
-				config.ResourceLimits.GoMemLimitFromCgroupsRation = configRuntime.NewDynamicValue(val)
+				config.ResourceLimits.GoMemLimitFromCgroupsRatio = configRuntime.NewDynamicValue(val)
 			},
 			0.0)
 
