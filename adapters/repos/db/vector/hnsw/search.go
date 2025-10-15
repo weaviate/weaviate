@@ -298,111 +298,118 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 			}
 			copy(connectionsReusable, candidateNode.connections[level])
 		} else {
-			connectionsReusable = sliceConnectionsReusable.Slice
-			pendingNextRound := slicePendingNextRound.Slice
-			pendingThisRound := slicePendingThisRound.Slice
-
-			realLen := 0
-			index := 0
-
-			pendingNextRound = pendingNextRound[:len(candidateNode.connections[level])]
-			copy(pendingNextRound, candidateNode.connections[level])
-			hop := 1
-			maxHops := 2
-			for hop <= maxHops && realLen < 8*h.maximumConnectionsLayerZero && len(pendingNextRound) > 0 {
-				if cap(pendingThisRound) >= len(pendingNextRound) {
-					pendingThisRound = pendingThisRound[:len(pendingNextRound)]
-				} else {
-					pendingThisRound = make([]uint64, len(pendingNextRound))
-					slicePendingThisRound.Slice = pendingThisRound
-				}
-				copy(pendingThisRound, pendingNextRound)
-				pendingNextRound = pendingNextRound[:0]
-				for index < len(pendingThisRound) && realLen < 8*h.maximumConnectionsLayerZero {
-					nodeId := pendingThisRound[index]
-					index++
-					if ok := visited.Visited(nodeId); ok {
-						// skip if we've already visited this neighbor
-						continue
+			func() {
+				defer func() {
+					if recover() != nil {
+						candidateNode.Unlock()
 					}
-					if !visitedExp.Visited(nodeId) {
-						if !isMultivec {
-							if allowList.Contains(nodeId) {
-								connectionsReusable[realLen] = nodeId
-								realLen++
-								visitedExp.Visit(nodeId)
-								continue
-							}
-						} else {
-							var docID uint64
-							if h.compressed.Load() {
-								docID, _ = h.compressor.GetKeys(nodeId)
-							} else {
-								docID, _ = h.cache.GetKeys(nodeId)
-							}
-							if allowList.Contains(docID) {
-								connectionsReusable[realLen] = nodeId
-								realLen++
-								visitedExp.Visit(nodeId)
-								continue
-							}
-						}
+				}()
+				connectionsReusable = sliceConnectionsReusable.Slice
+				pendingNextRound := slicePendingNextRound.Slice
+				pendingThisRound := slicePendingThisRound.Slice
+
+				realLen := 0
+				index := 0
+
+				pendingNextRound = pendingNextRound[:len(candidateNode.connections[level])]
+				copy(pendingNextRound, candidateNode.connections[level])
+				hop := 1
+				maxHops := 2
+				for hop <= maxHops && realLen < 8*h.maximumConnectionsLayerZero && len(pendingNextRound) > 0 {
+					if cap(pendingThisRound) >= len(pendingNextRound) {
+						pendingThisRound = pendingThisRound[:len(pendingNextRound)]
 					} else {
-						continue
+						pendingThisRound = make([]uint64, len(pendingNextRound))
+						slicePendingThisRound.Slice = pendingThisRound
 					}
-					visitedExp.Visit(nodeId)
-
-					h.RLock()
-					h.shardedNodeLocks.RLock(nodeId)
-					node := h.nodes[nodeId]
-					h.shardedNodeLocks.RUnlock(nodeId)
-					h.RUnlock()
-					if node == nil {
-						continue
-					}
-					for _, expId := range node.connections[level] {
-						if visitedExp.Visited(expId) {
+					copy(pendingThisRound, pendingNextRound)
+					pendingNextRound = pendingNextRound[:0]
+					for index < len(pendingThisRound) && realLen < 8*h.maximumConnectionsLayerZero {
+						nodeId := pendingThisRound[index]
+						index++
+						if ok := visited.Visited(nodeId); ok {
+							// skip if we've already visited this neighbor
 							continue
 						}
-						if visited.Visited(expId) {
-							continue
-						}
-
-						if realLen >= 8*h.maximumConnectionsLayerZero {
-							break
-						}
-
-						if !isMultivec {
-							if allowList.Contains(expId) {
-								visitedExp.Visit(expId)
-								connectionsReusable[realLen] = expId
-								realLen++
-							} else if hop < maxHops {
-								visitedExp.Visit(expId)
-								pendingNextRound = append(pendingNextRound, expId)
+						if !visitedExp.Visited(nodeId) {
+							if !isMultivec {
+								if allowList.Contains(nodeId) {
+									connectionsReusable[realLen] = nodeId
+									realLen++
+									visitedExp.Visit(nodeId)
+									continue
+								}
+							} else {
+								var docID uint64
+								if h.compressed.Load() {
+									docID, _ = h.compressor.GetKeys(nodeId)
+								} else {
+									docID, _ = h.cache.GetKeys(nodeId)
+								}
+								if allowList.Contains(docID) {
+									connectionsReusable[realLen] = nodeId
+									realLen++
+									visitedExp.Visit(nodeId)
+									continue
+								}
 							}
 						} else {
-							var docID uint64
-							if h.compressed.Load() {
-								docID, _ = h.compressor.GetKeys(expId)
-							} else {
-								docID, _ = h.cache.GetKeys(expId)
+							continue
+						}
+						visitedExp.Visit(nodeId)
+
+						h.RLock()
+						h.shardedNodeLocks.RLock(nodeId)
+						node := h.nodes[nodeId]
+						h.shardedNodeLocks.RUnlock(nodeId)
+						h.RUnlock()
+						if node == nil {
+							continue
+						}
+						for _, expId := range node.connections[level] {
+							if visitedExp.Visited(expId) {
+								continue
 							}
-							if allowList.Contains(docID) {
-								visitedExp.Visit(expId)
-								connectionsReusable[realLen] = expId
-								realLen++
-							} else if hop < maxHops {
-								visitedExp.Visit(expId)
-								pendingNextRound = append(pendingNextRound, expId)
+							if visited.Visited(expId) {
+								continue
+							}
+
+							if realLen >= 8*h.maximumConnectionsLayerZero {
+								break
+							}
+
+							if !isMultivec {
+								if allowList.Contains(expId) {
+									visitedExp.Visit(expId)
+									connectionsReusable[realLen] = expId
+									realLen++
+								} else if hop < maxHops {
+									visitedExp.Visit(expId)
+									pendingNextRound = append(pendingNextRound, expId)
+								}
+							} else {
+								var docID uint64
+								if h.compressed.Load() {
+									docID, _ = h.compressor.GetKeys(expId)
+								} else {
+									docID, _ = h.cache.GetKeys(expId)
+								}
+								if allowList.Contains(docID) {
+									visitedExp.Visit(expId)
+									connectionsReusable[realLen] = expId
+									realLen++
+								} else if hop < maxHops {
+									visitedExp.Visit(expId)
+									pendingNextRound = append(pendingNextRound, expId)
+								}
 							}
 						}
 					}
+					hop++
 				}
-				hop++
-			}
-			slicePendingNextRound.Slice = pendingNextRound
-			connectionsReusable = connectionsReusable[:realLen]
+				slicePendingNextRound.Slice = pendingNextRound
+				connectionsReusable = connectionsReusable[:realLen]
+			}()
 		}
 		candidateNode.Unlock()
 
