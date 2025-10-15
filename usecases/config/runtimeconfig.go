@@ -70,9 +70,6 @@ func ParseRuntimeConfig(buf []byte) (*WeaviateRuntimeConfig, error) {
 
 	dec := yaml.NewDecoder(bytes.NewReader(buf))
 
-	// To catch fields different than ones in the struct (say typo)
-	dec.KnownFields(true)
-
 	// Am empty runtime yaml file is still a valid file. So treating io.EOF as
 	// non-error case returns default values of config.
 	if err := dec.Decode(&conf); err != nil && !errors.Is(err, io.EOF) {
