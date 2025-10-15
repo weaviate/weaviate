@@ -18,6 +18,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 )
 
 func (s *SPFresh) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) error {
@@ -58,18 +59,20 @@ func (s *SPFresh) Add(ctx context.Context, id uint64, vector []float32) (err err
 	s.initDimensionsOnce.Do(func() {
 		s.dims = int32(len(vector))
 		s.setMaxPostingSize()
-		s.SPTAG.Init(s.dims, s.config.Distancer)
-		compressed = s.SPTAG.Quantizer().Encode(vector)
+		s.quantizer = compressionhelpers.NewRotationalQuantizer(int(s.dims), 42, 8, s.config.Distancer)
 		s.distancer = &Distancer{
-			quantizer: s.SPTAG.Quantizer(),
+			quantizer: s.quantizer,
 			distancer: s.config.Distancer,
 		}
+		vector = s.normalizeVec(vector)
+		compressed = s.quantizer.Encode(vector)
 		s.vectorSize = int32(len(compressed))
 		s.Store.Init(s.vectorSize)
 	})
 
 	if compressed == nil {
-		compressed = s.SPTAG.Quantizer().Encode(vector)
+		vector = s.normalizeVec(vector)
+		compressed = s.quantizer.Encode(vector)
 	}
 
 	// add the vector to the version map.
@@ -80,14 +83,14 @@ func (s *SPFresh) Add(ctx context.Context, id uint64, vector []float32) (err err
 
 	v := NewCompressedVector(id, version, compressed)
 
-	targets, _, err := s.RNGSelect(v, 0)
+	targets, _, err := s.RNGSelect(vector, 0)
 	if err != nil {
 		return err
 	}
 
 	// if there are no postings found, ensure an initial posting is created
 	if targets.Len() == 0 {
-		targets, err = s.ensureInitialPosting(v)
+		targets, err = s.ensureInitialPosting(vector, compressed)
 		if err != nil {
 			return err
 		}
@@ -103,8 +106,17 @@ func (s *SPFresh) Add(ctx context.Context, id uint64, vector []float32) (err err
 	return nil
 }
 
+func (s *SPFresh) normalizeVec(vec []float32) []float32 {
+	if s.distancer.distancer.Type() == "cosine-dot" {
+		// cosine-dot requires normalized vectors, as the dot product and cosine
+		// similarity are only identical if the vector is normalized
+		return distancer.Normalize(vec)
+	}
+	return vec
+}
+
 // ensureInitialPosting creates a new posting for vector v if the index is empty
-func (s *SPFresh) ensureInitialPosting(v Vector) (*ResultSet, error) {
+func (s *SPFresh) ensureInitialPosting(v []float32, compressed []byte) (*ResultSet, error) {
 	s.initialPostingLock.Lock()
 	defer s.initialPostingLock.Unlock()
 
@@ -119,7 +131,11 @@ func (s *SPFresh) ensureInitialPosting(v Vector) (*ResultSet, error) {
 		postingID := s.IDs.Next()
 		s.PostingSizes.AllocPageFor(postingID)
 		// use the vector as the centroid and register it in the SPTAG
-		err = s.SPTAG.Insert(postingID, v)
+		err = s.Centroids.Insert(postingID, &Centroid{
+			Uncompressed: v,
+			Compressed:   compressed,
+			Deleted:      false,
+		})
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to upsert new centroid %d", postingID)
 		}
@@ -138,7 +154,7 @@ func (s *SPFresh) append(ctx context.Context, vector Vector, centroidID uint64, 
 	s.postingLocks.Lock(centroidID)
 
 	// check if the posting still exists
-	if !s.SPTAG.Exists(centroidID) {
+	if !s.Centroids.Exists(centroidID) {
 		// the posting might have been deleted concurrently,
 		// might happen if we are reassigning
 		if s.VersionMap.Get(vector.ID()) == vector.Version() {

@@ -95,7 +95,7 @@ func (p *PagedArray[T]) EnsurePageFor(id uint64) ([]T, int) {
 
 	// double-checked locking
 	p.mu.Lock()
-	page, _ = p.GetPageFor(id)
+	page, slot = p.GetPageFor(id)
 	if page != nil {
 		p.mu.Unlock()
 		return page, slot
