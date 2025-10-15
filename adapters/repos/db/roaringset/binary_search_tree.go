@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -236,10 +236,10 @@ func (n *BinarySearchNode) get(key []byte) (BitmapLayer, error) {
 func BinarySearchNodeFromRB(rbNode rbtree.Node) (bsNode *BinarySearchNode) {
 	if rbNode == nil {
 		bsNode = nil
-		return
+		return bsNode
 	}
 	bsNode = rbNode.(*BinarySearchNode)
-	return
+	return bsNode
 }
 
 func (n *BinarySearchNode) flattenInOrder() []*BinarySearchNode {

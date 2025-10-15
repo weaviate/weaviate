@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -15,6 +15,7 @@ import (
 	"os"
 	"sync/atomic"
 
+	"github.com/sirupsen/logrus"
 	entcfg "github.com/weaviate/weaviate/entities/config"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
@@ -64,6 +65,14 @@ func ValidateUserConfigUpdate(initial, updated config.VectorIndexConfig) error {
 			name:     "muvera enabled",
 			accessor: func(c ent.UserConfig) interface{} { return c.Multivector.MuveraConfig.Enabled },
 		},
+		{
+			name:     "skipDefaultQuantization",
+			accessor: func(c ent.UserConfig) interface{} { return c.SkipDefaultQuantization },
+		},
+		{
+			name:     "trackDefaultQuantization",
+			accessor: func(c ent.UserConfig) interface{} { return c.TrackDefaultQuantization },
+		},
 	}
 
 	for _, u := range immutableFields {
@@ -110,14 +119,27 @@ func (h *hnsw) UpdateUserConfig(updated config.VectorIndexConfig, callback func(
 
 	h.acornSearch.Store(parsed.FilterStrategy == ent.FilterStrategyAcorn)
 
-	if !parsed.PQ.Enabled && !parsed.BQ.Enabled && !parsed.SQ.Enabled {
+	if !parsed.PQ.Enabled && !parsed.BQ.Enabled && !parsed.SQ.Enabled && !parsed.RQ.Enabled {
 		callback()
 		return nil
 	}
 
+	// check if rq bits is immutable
+	if h.rqConfig.Enabled && parsed.RQ.Enabled {
+		if parsed.RQ.Bits != h.rqConfig.Bits {
+			callback()
+			return errors.Errorf("rq bits is immutable: attempted change from \"%v\" to \"%v\"",
+				h.rqConfig.Bits, parsed.RQ.Bits)
+		}
+	}
+
+	h.compressActionLock.Lock()
 	h.pqConfig = parsed.PQ
 	h.sqConfig = parsed.SQ
 	h.bqConfig = parsed.BQ
+	h.rqConfig = parsed.RQ
+	h.compressActionLock.Unlock()
+
 	if asyncEnabled() {
 		callback()
 		return nil
@@ -138,9 +160,20 @@ func asyncEnabled() bool {
 }
 
 func (h *hnsw) Upgrade(callback func()) error {
-	h.logger.WithField("action", "compress").Info("switching to compressed vectors")
+	h.logger.WithFields(logrus.Fields{
+		"action":       "compress",
+		"shard":        h.shardName,
+		"collection":   h.className,
+		"targetVector": h.getTargetVector(),
+	}).Info("switching to compressed vectors")
 
 	err := ent.ValidatePQConfig(h.pqConfig)
+	if err != nil {
+		callback()
+		return err
+	}
+
+	err = ent.ValidateRQConfig(h.rqConfig)
 	if err != nil {
 		callback()
 		return err
@@ -158,10 +191,21 @@ func (h *hnsw) compressThenCallback(callback func()) {
 		PQ: h.pqConfig,
 		BQ: h.bqConfig,
 		SQ: h.sqConfig,
+		RQ: h.rqConfig,
 	}
 	if err := h.compress(uc); err != nil {
-		h.logger.Error(err)
+		h.logger.WithFields(logrus.Fields{
+			"action":       "compress",
+			"shard":        h.shardName,
+			"collection":   h.className,
+			"targetVector": h.getTargetVector(),
+		}).WithError(err).Error("vector compression failed")
 		return
 	}
-	h.logger.WithField("action", "compress").Info("vector compression complete")
+	h.logger.WithFields(logrus.Fields{
+		"action":       "compress",
+		"shard":        h.shardName,
+		"collection":   h.className,
+		"targetVector": h.getTargetVector(),
+	}).Info("vector compression complete")
 }

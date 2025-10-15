@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -60,7 +60,7 @@ func testAggregate(host string) func(t *testing.T) {
 			VectorConfig: map[string]models.VectorConfig{
 				"first": {
 					Vectorizer: map[string]interface{}{
-						"text2vec-contextionary": map[string]interface{}{
+						"text2vec-model2vec": map[string]interface{}{
 							"vectorizeClassName": false,
 							"properties":         []string{"first"},
 						},
@@ -69,7 +69,7 @@ func testAggregate(host string) func(t *testing.T) {
 				},
 				"second": {
 					Vectorizer: map[string]interface{}{
-						"text2vec-contextionary": map[string]interface{}{
+						"text2vec-model2vec": map[string]interface{}{
 							"vectorizeClassName": false,
 							"properties":         []string{"second"},
 						},

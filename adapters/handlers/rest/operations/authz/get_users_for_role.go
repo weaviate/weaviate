@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -50,7 +50,9 @@ func NewGetUsersForRole(ctx *middleware.Context, handler GetUsersForRoleHandler)
 /*
 	GetUsersForRole swagger:route GET /authz/roles/{id}/user-assignments authz getUsersForRole
 
-get users assigned to role
+# Get users assigned to a role
+
+Fetch a list of users which have the specified role.
 */
 type GetUsersForRole struct {
 	Context *middleware.Context

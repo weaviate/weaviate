@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -23,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/noop"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/spfresh"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/vectorindex"
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
@@ -32,14 +33,14 @@ import (
 	"go.etcd.io/bbolt"
 )
 
-func (s *Shard) initShardVectors(ctx context.Context) error {
+func (s *Shard) initShardVectors(ctx context.Context, lazyLoadSegments bool) error {
 	if s.index.vectorIndexUserConfig != nil {
-		if err := s.initLegacyVector(ctx); err != nil {
+		if err := s.initLegacyVector(ctx, lazyLoadSegments); err != nil {
 			return err
 		}
 	}
 
-	if err := s.initTargetVectors(ctx); err != nil {
+	if err := s.initTargetVectors(ctx, lazyLoadSegments); err != nil {
 		return err
 	}
 
@@ -47,7 +48,7 @@ func (s *Shard) initShardVectors(ctx context.Context) error {
 }
 
 func (s *Shard) initVectorIndex(ctx context.Context,
-	targetVector string, vectorIndexUserConfig schemaConfig.VectorIndexConfig,
+	targetVector string, vectorIndexUserConfig schemaConfig.VectorIndexConfig, lazyLoadSegments bool,
 ) (VectorIndex, error) {
 	var distProv distancer.Provider
 
@@ -117,13 +118,18 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 						hnsw.WithSnapshotMinDeltaCommitlogsSizePercentage(s.index.Config.HNSWSnapshotMinDeltaCommitlogsSizePercentage),
 					)
 				},
-				AllocChecker:           s.index.allocChecker,
-				WaitForCachePrefill:    s.index.Config.HNSWWaitForCachePrefill,
-				FlatSearchConcurrency:  s.index.Config.HNSWFlatSearchConcurrency,
-				AcornFilterRatio:       s.index.Config.HNSWAcornFilterRatio,
-				VisitedListPoolMaxSize: s.index.Config.VisitedListPoolMaxSize,
-				DisableSnapshots:       s.index.Config.HNSWDisableSnapshots,
-				SnapshotOnStartup:      s.index.Config.HNSWSnapshotOnStartup,
+				AllocChecker:                 s.index.allocChecker,
+				MinMMapSize:                  s.index.Config.MinMMapSize,
+				MaxWalReuseSize:              s.index.Config.MaxReuseWalSize,
+				WaitForCachePrefill:          s.index.Config.HNSWWaitForCachePrefill,
+				FlatSearchConcurrency:        s.index.Config.HNSWFlatSearchConcurrency,
+				AcornFilterRatio:             s.index.Config.HNSWAcornFilterRatio,
+				VisitedListPoolMaxSize:       s.index.Config.VisitedListPoolMaxSize,
+				DisableSnapshots:             s.index.Config.HNSWDisableSnapshots,
+				SnapshotOnStartup:            s.index.Config.HNSWSnapshotOnStartup,
+				LazyLoadSegments:             lazyLoadSegments,
+				WriteSegmentInfoIntoFileName: s.index.Config.SegmentInfoIntoFileNameEnabled,
+				WriteMetadataFilesEnabled:    s.index.Config.WriteMetadataFilesEnabled,
 			}, hnswUserConfig, s.cycleCallbacks.vectorTombstoneCleanupCallbacks, s.store)
 			if err != nil {
 				return nil, errors.Wrapf(err, "init shard %q: hnsw index", s.ID())
@@ -146,12 +152,17 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 		vecIdxID := s.vectorIndexID(targetVector)
 
 		vi, err := flat.New(flat.Config{
-			ID:               vecIdxID,
-			TargetVector:     targetVector,
-			RootPath:         s.path(),
-			Logger:           s.index.logger,
-			DistanceProvider: distProv,
-			AllocChecker:     s.index.allocChecker,
+			ID:                           vecIdxID,
+			TargetVector:                 targetVector,
+			RootPath:                     s.path(),
+			Logger:                       s.index.logger,
+			DistanceProvider:             distProv,
+			AllocChecker:                 s.index.allocChecker,
+			MinMMapSize:                  s.index.Config.MinMMapSize,
+			MaxWalReuseSize:              s.index.Config.MaxReuseWalSize,
+			LazyLoadSegments:             lazyLoadSegments,
+			WriteSegmentInfoIntoFileName: s.index.Config.SegmentInfoIntoFileNameEnabled,
+			WriteMetadataFilesEnabled:    s.index.Config.WriteMetadataFilesEnabled,
 		}, flatUserConfig, s.store)
 		if err != nil {
 			return nil, errors.Wrapf(err, "init shard %q: flat index", s.ID())
@@ -201,18 +212,40 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 					hnsw.WithSnapshotMinDeltaCommitlogsSizePercentage(s.index.Config.HNSWSnapshotMinDeltaCommitlogsSizePercentage),
 				)
 			},
-			TombstoneCallbacks:    s.cycleCallbacks.vectorTombstoneCleanupCallbacks,
-			SharedDB:              sharedDB,
-			HNSWDisableSnapshots:  s.index.Config.HNSWDisableSnapshots,
-			HNSWSnapshotOnStartup: s.index.Config.HNSWSnapshotOnStartup,
+			TombstoneCallbacks:           s.cycleCallbacks.vectorTombstoneCleanupCallbacks,
+			SharedDB:                     sharedDB,
+			HNSWDisableSnapshots:         s.index.Config.HNSWDisableSnapshots,
+			HNSWSnapshotOnStartup:        s.index.Config.HNSWSnapshotOnStartup,
+			MinMMapSize:                  s.index.Config.MinMMapSize,
+			MaxWalReuseSize:              s.index.Config.MaxReuseWalSize,
+			LazyLoadSegments:             lazyLoadSegments,
+			AllocChecker:                 s.index.allocChecker,
+			WriteSegmentInfoIntoFileName: s.index.Config.SegmentInfoIntoFileNameEnabled,
 		}, dynamicUserConfig, s.store)
 		if err != nil {
 			return nil, errors.Wrapf(err, "init shard %q: dynamic index", s.ID())
 		}
 		vectorIndex = vi
+	case vectorindex.VectorIndexTypeSPFresh:
+		if !s.index.SPFreshEnabled {
+			return nil, errors.New("spfresh index is available only in experimental mode")
+		}
+		configs := spfresh.DefaultConfig()
+		configs.ID = s.vectorIndexID(targetVector)
+		configs.MinMMapSize = s.index.Config.MinMMapSize
+		configs.MaxReuseWalSize = s.index.Config.MaxReuseWalSize
+		configs.AllocChecker = s.index.allocChecker
+		configs.LazyLoadSegments = lazyLoadSegments
+		configs.WriteSegmentInfoIntoFileName = s.index.Config.SegmentInfoIntoFileNameEnabled
+		configs.WriteMetadataFilesEnabled = s.index.Config.WriteMetadataFilesEnabled
+		vi, err := spfresh.New(configs, s.store)
+		if err != nil {
+			return nil, errors.Wrapf(err, "init shard %q: spfresh index", s.ID())
+		}
+		vectorIndex = vi
 	default:
-		return nil, fmt.Errorf("unknown vector index type: %q. Choose one from [\"%s\", \"%s\", \"%s\"]",
-			vectorIndexUserConfig.IndexType(), vectorindex.VectorIndexTypeHNSW, vectorindex.VectorIndexTypeFLAT, vectorindex.VectorIndexTypeDYNAMIC)
+		return nil, fmt.Errorf("unknown vector index type: %q. Choose one from [\"%s\", \"%s\", \"%s\", \"%s\"]",
+			vectorIndexUserConfig.IndexType(), vectorindex.VectorIndexTypeHNSW, vectorindex.VectorIndexTypeFLAT, vectorindex.VectorIndexTypeDYNAMIC, vectorindex.VectorIndexTypeSPFresh)
 	}
 	defer vectorIndex.PostStartup()
 	return vectorIndex, nil
@@ -233,29 +266,34 @@ func (s *Shard) getOrInitDynamicVectorIndexDB() (*bbolt.DB, error) {
 	return s.dynamicVectorIndexDB, nil
 }
 
-func (s *Shard) initTargetVectors(ctx context.Context) error {
+func (s *Shard) initTargetVectors(ctx context.Context, lazyLoadSegments bool) error {
 	s.vectorIndexMu.Lock()
 	defer s.vectorIndexMu.Unlock()
+
+	if err := newCompressedVectorsMigrator(s.index.logger).do(s); err != nil {
+		s.index.logger.WithField("action", "init_target_vectors").
+			WithError(err).Error("failed to migrate vectors compressed folder")
+	}
 
 	s.vectorIndexes = make(map[string]VectorIndex, len(s.index.vectorIndexUserConfigs))
 	s.queues = make(map[string]*VectorIndexQueue, len(s.index.vectorIndexUserConfigs))
 
 	for targetVector, vectorIndexConfig := range s.index.vectorIndexUserConfigs {
-		if err := s.initTargetVectorWithLock(ctx, targetVector, vectorIndexConfig); err != nil {
+		if err := s.initTargetVectorWithLock(ctx, targetVector, vectorIndexConfig, lazyLoadSegments); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (s *Shard) initTargetVector(ctx context.Context, targetVector string, cfg schemaConfig.VectorIndexConfig) error {
+func (s *Shard) initTargetVector(ctx context.Context, targetVector string, cfg schemaConfig.VectorIndexConfig, lazyLoadSegments bool) error {
 	s.vectorIndexMu.Lock()
 	defer s.vectorIndexMu.Unlock()
-	return s.initTargetVectorWithLock(ctx, targetVector, cfg)
+	return s.initTargetVectorWithLock(ctx, targetVector, cfg, lazyLoadSegments)
 }
 
-func (s *Shard) initTargetVectorWithLock(ctx context.Context, targetVector string, cfg schemaConfig.VectorIndexConfig) error {
-	vectorIndex, err := s.initVectorIndex(ctx, targetVector, cfg)
+func (s *Shard) initTargetVectorWithLock(ctx context.Context, targetVector string, cfg schemaConfig.VectorIndexConfig, lazyLoadSegments bool) error {
+	vectorIndex, err := s.initVectorIndex(ctx, targetVector, cfg, lazyLoadSegments)
 	if err != nil {
 		return fmt.Errorf("cannot create vector index for %q: %w", targetVector, err)
 	}
@@ -269,11 +307,11 @@ func (s *Shard) initTargetVectorWithLock(ctx context.Context, targetVector strin
 	return nil
 }
 
-func (s *Shard) initLegacyVector(ctx context.Context) error {
+func (s *Shard) initLegacyVector(ctx context.Context, lazyLoadSegments bool) error {
 	s.vectorIndexMu.Lock()
 	defer s.vectorIndexMu.Unlock()
 
-	vectorIndex, err := s.initVectorIndex(ctx, "", s.index.vectorIndexUserConfig)
+	vectorIndex, err := s.initVectorIndex(ctx, "", s.index.vectorIndexUserConfig, lazyLoadSegments)
 	if err != nil {
 		return err
 	}

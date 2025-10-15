@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -38,6 +38,8 @@ import (
 	modgenerativeollama "github.com/weaviate/weaviate/modules/generative-ollama"
 	modgenerativeopenai "github.com/weaviate/weaviate/modules/generative-openai"
 	modgenerativexai "github.com/weaviate/weaviate/modules/generative-xai"
+	modmulti2multivecjinaai "github.com/weaviate/weaviate/modules/multi2multivec-jinaai"
+	modmulti2vecaws "github.com/weaviate/weaviate/modules/multi2vec-aws"
 	modmulti2veccohere "github.com/weaviate/weaviate/modules/multi2vec-cohere"
 	modmulti2vecgoogle "github.com/weaviate/weaviate/modules/multi2vec-google"
 	modmulti2vecjinaai "github.com/weaviate/weaviate/modules/multi2vec-jinaai"
@@ -48,7 +50,7 @@ import (
 	modrerankercohere "github.com/weaviate/weaviate/modules/reranker-cohere"
 	modrerankernvidia "github.com/weaviate/weaviate/modules/reranker-nvidia"
 	modrerankervoyageai "github.com/weaviate/weaviate/modules/reranker-voyageai"
-	modtext2colbertjinaai "github.com/weaviate/weaviate/modules/text2colbert-jinaai"
+	modtext2colbertjinaai "github.com/weaviate/weaviate/modules/text2multivec-jinaai"
 	modaws "github.com/weaviate/weaviate/modules/text2vec-aws"
 	modcohere "github.com/weaviate/weaviate/modules/text2vec-cohere"
 	modgoogle "github.com/weaviate/weaviate/modules/text2vec-google"
@@ -56,6 +58,7 @@ import (
 	modjinaai "github.com/weaviate/weaviate/modules/text2vec-jinaai"
 	modmistral "github.com/weaviate/weaviate/modules/text2vec-mistral"
 	modmodel2vec "github.com/weaviate/weaviate/modules/text2vec-model2vec"
+	modmorph "github.com/weaviate/weaviate/modules/text2vec-morph"
 	modnvidia "github.com/weaviate/weaviate/modules/text2vec-nvidia"
 	modollama "github.com/weaviate/weaviate/modules/text2vec-ollama"
 	modopenai "github.com/weaviate/weaviate/modules/text2vec-openai"
@@ -86,6 +89,8 @@ const (
 	envTestText2vecModel2VecImage = "TEST_TEXT2VEC_MODEL2VEC_IMAGE"
 	// envTestMockOIDCImage adds ability to pass a custom image to module tests
 	envTestMockOIDCImage = "TEST_MOCKOIDC_IMAGE"
+	// envTestMockOIDCHelperImage adds ability to pass a custom image to module tests
+	envTestMockOIDCHelperImage = "TEST_MOCKOIDC_HELPER_IMAGE"
 )
 
 const (
@@ -93,28 +98,30 @@ const (
 )
 
 type Compose struct {
-	enableModules              []string
-	defaultVectorizerModule    string
-	withMinIO                  bool
-	withGCS                    bool
-	withAzurite                bool
-	withBackendFilesystem      bool
-	withBackendS3              bool
-	withBackendS3Buckets       map[string]string
-	withBackupS3Bucket         string
-	withOffloadS3Bucket        string
-	withBackendGCS             bool
-	withBackendGCSBucket       string
-	withBackendAzure           bool
-	withBackendAzureContainer  string
-	withTransformers           bool
-	withModel2Vec              bool
-	withContextionary          bool
-	withQnATransformers        bool
-	withWeaviateExposeGRPCPort bool
-	withSecondWeaviate         bool
-	withWeaviateCluster        bool
-	withWeaviateClusterSize    int
+	enableModules               []string
+	defaultVectorizerModule     string
+	withMinIO                   bool
+	withGCS                     bool
+	withAzurite                 bool
+	withBackendFilesystem       bool
+	withBackendS3               bool
+	withBackendS3Buckets        map[string]string
+	withBackupS3Bucket          string
+	withOffloadS3Bucket         string
+	withBackendGCS              bool
+	withBackendGCSBucket        string
+	withBackendAzure            bool
+	withBackendAzureContainer   string
+	withTransformers            bool
+	withTransformersImage       string
+	withModel2Vec               bool
+	withContextionary           bool
+	withQnATransformers         bool
+	withWeaviateExposeGRPCPort  bool
+	withWeaviateExposeDebugPort bool
+	withSecondWeaviate          bool
+	withWeaviateCluster         bool
+	withWeaviateClusterSize     int
 
 	withWeaviateAuth               bool
 	withWeaviateBasicAuth          bool
@@ -126,8 +133,9 @@ type Compose struct {
 	weaviateAdminlistReadOnlyUsers []string
 	withWeaviateDbUsers            bool
 	withWeaviateRbac               bool
-	weaviateRbacAdmins             []string
+	weaviateRbacRoots              []string
 	weaviateRbacRootGroups         []string
+	weaviateRbacViewerGroups       []string
 	weaviateRbacViewers            []string
 	withSUMTransformers            bool
 	withCentroid                   bool
@@ -140,6 +148,7 @@ type Compose struct {
 	withOllamaGenerative           bool
 	withAutoschema                 bool
 	withMockOIDC                   bool
+	withMockOIDCWithCertificate    bool
 	weaviateEnvs                   map[string]string
 	removeEnvs                     map[string]struct{}
 }
@@ -162,6 +171,14 @@ func (d *Compose) WithAzurite() *Compose {
 
 func (d *Compose) WithText2VecTransformers() *Compose {
 	d.withTransformers = true
+	d.enableModules = append(d.enableModules, Text2VecTransformers)
+	d.defaultVectorizerModule = Text2VecTransformers
+	return d
+}
+
+func (d *Compose) WithText2VecTransformersImage(image string) *Compose {
+	d.withTransformers = true
+	d.withTransformersImage = image
 	d.enableModules = append(d.enableModules, Text2VecTransformers)
 	d.defaultVectorizerModule = Text2VecTransformers
 	return d
@@ -270,6 +287,12 @@ func (d *Compose) WithMulti2VecJinaAI(apiKey string) *Compose {
 	return d
 }
 
+func (d *Compose) WithMulti2MultivecJinaAI(apiKey string) *Compose {
+	d.weaviateEnvs["JINAAI_APIKEY"] = apiKey
+	d.enableModules = append(d.enableModules, modmulti2multivecjinaai.Name)
+	return d
+}
+
 func (d *Compose) WithMulti2VecBind() *Compose {
 	d.withBind = true
 	d.enableModules = append(d.enableModules, Multi2VecBind)
@@ -296,6 +319,12 @@ func (d *Compose) WithText2VecOpenAI(openAIApiKey, openAIOrganization, azureApiK
 	return d
 }
 
+func (d *Compose) WithText2VecMorph(apiKey string) *Compose {
+	d.weaviateEnvs["MORPH_APIKEY"] = apiKey
+	d.enableModules = append(d.enableModules, modmorph.Name)
+	return d
+}
+
 func (d *Compose) WithText2VecCohere(apiKey string) *Compose {
 	d.weaviateEnvs["COHERE_APIKEY"] = apiKey
 	d.enableModules = append(d.enableModules, modcohere.Name)
@@ -319,6 +348,14 @@ func (d *Compose) WithText2VecAWS(accessKey, secretKey, sessionToken string) *Co
 	d.weaviateEnvs["AWS_SECRET_KEY"] = secretKey
 	d.weaviateEnvs["AWS_SESSION_TOKEN"] = sessionToken
 	d.enableModules = append(d.enableModules, modaws.Name)
+	return d
+}
+
+func (d *Compose) WithMulti2VecAWS(accessKey, secretKey, sessionToken string) *Compose {
+	d.weaviateEnvs["AWS_ACCESS_KEY"] = accessKey
+	d.weaviateEnvs["AWS_SECRET_KEY"] = secretKey
+	d.weaviateEnvs["AWS_SESSION_TOKEN"] = sessionToken
+	d.enableModules = append(d.enableModules, modmulti2vecaws.Name)
 	return d
 }
 
@@ -359,7 +396,7 @@ func (d *Compose) WithText2VecJinaAI(apiKey string) *Compose {
 	return d
 }
 
-func (d *Compose) WithText2ColBERTJinaAI(apiKey string) *Compose {
+func (d *Compose) WithText2MultivecJinaAI(apiKey string) *Compose {
 	d.weaviateEnvs["JINAAI_APIKEY"] = apiKey
 	d.enableModules = append(d.enableModules, modtext2colbertjinaai.Name)
 	return d
@@ -380,7 +417,6 @@ func (d *Compose) WithText2VecNvidia(apiKey string) *Compose {
 func (d *Compose) WithText2VecModel2Vec() *Compose {
 	d.withModel2Vec = true
 	d.enableModules = append(d.enableModules, modmodel2vec.Name)
-	d.defaultVectorizerModule = Text2VecModel2Vec
 	return d
 }
 
@@ -468,9 +504,22 @@ func (d *Compose) WithWeaviate() *Compose {
 	return d.With1NodeCluster()
 }
 
+func (d *Compose) WithWeaviateWithAllPorts() *Compose {
+	d.With1NodeCluster()
+	d.withWeaviateExposeGRPCPort = true
+	d.withWeaviateExposeDebugPort = true
+	return d
+}
+
 func (d *Compose) WithWeaviateWithGRPC() *Compose {
 	d.With1NodeCluster()
 	d.withWeaviateExposeGRPCPort = true
+	return d
+}
+
+func (d *Compose) WithWeaviateWithDebugPort() *Compose {
+	d.With1NodeCluster()
+	d.withWeaviateExposeDebugPort = true
 	return d
 }
 
@@ -521,6 +570,11 @@ func (d *Compose) WithMockOIDC() *Compose {
 	return d
 }
 
+func (d *Compose) WithMockOIDCWithCertificate() *Compose {
+	d.withMockOIDCWithCertificate = true
+	return d
+}
+
 func (d *Compose) WithApiKey() *Compose {
 	d.withWeaviateApiKey = true
 	return d
@@ -547,11 +601,11 @@ func (d *Compose) WithDbUsers() *Compose {
 	return d
 }
 
-func (d *Compose) WithRbacAdmins(usernames ...string) *Compose {
+func (d *Compose) WithRbacRoots(usernames ...string) *Compose {
 	if !d.withWeaviateRbac {
 		panic("RBAC is not enabled. Chain .WithRBAC() first")
 	}
-	d.weaviateRbacAdmins = append(d.weaviateRbacAdmins, usernames...)
+	d.weaviateRbacRoots = append(d.weaviateRbacRoots, usernames...)
 	return d
 }
 
@@ -560,6 +614,14 @@ func (d *Compose) WithRbacRootGroups(groups ...string) *Compose {
 		panic("RBAC is not enabled. Chain .WithRBAC() first")
 	}
 	d.weaviateRbacRootGroups = append(d.weaviateRbacRootGroups, groups...)
+	return d
+}
+
+func (d *Compose) WithRbacViewerGroups(groups ...string) *Compose {
+	if !d.withWeaviateRbac {
+		panic("RBAC is not enabled. Chain .WithRBAC() first")
+	}
+	d.weaviateRbacViewerGroups = append(d.weaviateRbacViewerGroups, groups...)
 	return d
 }
 
@@ -663,6 +725,9 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 	}
 	if d.withTransformers {
 		image := os.Getenv(envTestText2vecTransformersImage)
+		if d.withTransformersImage != "" {
+			image = d.withTransformersImage
+		}
 		container, err := startT2VTransformers(ctx, networkName, image)
 		if err != nil {
 			return nil, errors.Wrapf(err, "start %s", Text2VecTransformers)
@@ -772,16 +837,34 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 		}
 		containers = append(containers, container)
 	}
-	if d.withMockOIDC {
+	if d.withMockOIDC || d.withMockOIDCWithCertificate {
+		var certificate, certificateKey string
+		if d.withMockOIDCWithCertificate {
+			// Generate certifcate and certificate's private key
+			certificate, certificateKey, err = GenerateCertificateAndKey(MockOIDC)
+			if err != nil {
+				return nil, errors.Wrapf(err, "cannot generate mock certificates for %s", MockOIDC)
+			}
+		}
 		image := os.Getenv(envTestMockOIDCImage)
-		container, err := startMockOIDC(ctx, networkName, image)
+		container, err := startMockOIDC(ctx, networkName, image, certificate, certificateKey)
 		if err != nil {
 			return nil, errors.Wrapf(err, "start %s", MockOIDC)
 		}
 		for k, v := range container.envSettings {
+			if k == "AUTHENTICATION_OIDC_CERTIFICATE" && envSettings[k] != "" {
+				// allow to pass some other certificate using WithWeaviateEnv method
+				continue
+			}
 			envSettings[k] = v
 		}
 		containers = append(containers, container)
+		helperImage := os.Getenv(envTestMockOIDCHelperImage)
+		helperContainer, err := startMockOIDCHelper(ctx, networkName, helperImage, certificate)
+		if err != nil {
+			return nil, errors.Wrapf(err, "start %s", MockOIDCHelper)
+		}
+		containers = append(containers, helperContainer)
 	}
 
 	if d.withWeaviateCluster {
@@ -809,7 +892,7 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 		delete(secondWeaviateSettings, "RAFT_PORT")
 		delete(secondWeaviateSettings, "RAFT_INTERNAL_PORT")
 		delete(secondWeaviateSettings, "RAFT_JOIN")
-		container, err := startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule, envSettings, networkName, image, hostname, d.withWeaviateExposeGRPCPort, "/v1/.well-known/ready")
+		container, err := startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule, envSettings, networkName, image, hostname, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, "/v1/.well-known/ready")
 		if err != nil {
 			return nil, errors.Wrapf(err, "start %s", hostname)
 		}
@@ -900,8 +983,8 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 		settings["AUTHORIZATION_RBAC_ENABLED"] = "true"
 		settings["AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED"] = "false" // incompatible
 
-		if len(d.weaviateRbacAdmins) > 0 {
-			settings["AUTHORIZATION_RBAC_ROOT_USERS"] = strings.Join(d.weaviateRbacAdmins, ",")
+		if len(d.weaviateRbacRoots) > 0 {
+			settings["AUTHORIZATION_RBAC_ROOT_USERS"] = strings.Join(d.weaviateRbacRoots, ",")
 		}
 		if len(d.weaviateRbacViewers) > 0 {
 			settings["AUTHORIZATION_VIEWER_USERS"] = strings.Join(d.weaviateRbacViewers, ",")
@@ -910,6 +993,10 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 		if len(d.weaviateRbacRootGroups) > 0 {
 			settings["AUTHORIZATION_RBAC_ROOT_GROUPS"] = strings.Join(d.weaviateRbacRootGroups, ",")
 		}
+		if len(d.weaviateRbacViewerGroups) > 0 {
+			settings["AUTHORIZATION_RBAC_READONLY_GROUPS"] = strings.Join(d.weaviateRbacViewerGroups, ",")
+		}
+
 	}
 
 	if d.withWeaviateDbUsers {
@@ -939,7 +1026,7 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 	}
 	eg.Go(func() (err error) {
 		cs[0], err = startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule,
-			config1, networkName, image, Weaviate1, d.withWeaviateExposeGRPCPort, wellKnownEndpointFunc("node1"))
+			config1, networkName, image, Weaviate1, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, wellKnownEndpointFunc("node1"))
 		if err != nil {
 			return errors.Wrapf(err, "start %s", Weaviate1)
 		}
@@ -955,7 +1042,7 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 		eg.Go(func() (err error) {
 			time.Sleep(time.Second * 10) // node1 needs to be up before we can start this node
 			cs[1], err = startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule,
-				config2, networkName, image, Weaviate2, d.withWeaviateExposeGRPCPort, wellKnownEndpointFunc("node2"))
+				config2, networkName, image, Weaviate2, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, wellKnownEndpointFunc("node2"))
 			if err != nil {
 				return errors.Wrapf(err, "start %s", Weaviate2)
 			}
@@ -972,7 +1059,7 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 		eg.Go(func() (err error) {
 			time.Sleep(time.Second * 10) // node1 needs to be up before we can start this node
 			cs[2], err = startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule,
-				config3, networkName, image, Weaviate3, d.withWeaviateExposeGRPCPort, wellKnownEndpointFunc("node3"))
+				config3, networkName, image, Weaviate3, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, wellKnownEndpointFunc("node3"))
 			if err != nil {
 				return errors.Wrapf(err, "start %s", Weaviate3)
 			}

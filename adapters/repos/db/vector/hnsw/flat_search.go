@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -28,7 +28,7 @@ import (
 func (h *hnsw) flatSearch(ctx context.Context, queryVector []float32, k, limit int,
 	allowList helpers.AllowList,
 ) ([]uint64, []float32, error) {
-	if !h.shouldRescore() {
+	if !h.shouldRescore() || h.muvera.Load() {
 		limit = k
 	}
 
@@ -111,7 +111,7 @@ func (h *hnsw) flatSearch(ctx context.Context, queryVector []float32, k, limit i
 	helpers.AnnotateSlowQueryLog(ctx, "flat_search_iteration_took", took)
 
 	beforeRescore := time.Now()
-	if h.shouldRescore() {
+	if h.shouldRescore() && !h.multivector.Load() {
 		compressorDistancer, fn := h.compressor.NewDistancer(queryVector)
 		if err := h.rescore(ctx, results, k, compressorDistancer); err != nil {
 			helpers.AnnotateSlowQueryLog(ctx, "context_error", "flat_search_rescore")

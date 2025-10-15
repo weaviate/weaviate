@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -15,6 +15,7 @@ import (
 	"errors"
 
 	"github.com/go-openapi/runtime/middleware"
+	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
@@ -29,6 +30,7 @@ import (
 type backupHandlers struct {
 	manager             *ubak.Scheduler
 	metricRequestsTotal restApiRequestsTotal
+	logger              logrus.FieldLogger
 }
 
 // compressionFromBCfg transforms model backup config to a backup compression config
@@ -160,11 +162,13 @@ func (s *backupHandlers) createBackupStatus(params backups.BackupsCreateStatusPa
 
 	strStatus := string(status.Status)
 	payload := models.BackupCreateStatusResponse{
-		Status:  &strStatus,
-		ID:      params.ID,
-		Path:    status.Path,
-		Backend: params.Backend,
-		Error:   status.Err,
+		Status:      &strStatus,
+		ID:          params.ID,
+		Path:        status.Path,
+		Backend:     params.Backend,
+		Error:       status.Err,
+		StartedAt:   strfmt.DateTime(status.StartedAt.UTC()),
+		CompletedAt: strfmt.DateTime(status.CompletedAt.UTC()),
 	}
 	s.metricRequestsTotal.logOk("")
 	return backups.NewBackupsCreateStatusOK().WithPayload(&payload)
@@ -175,22 +179,36 @@ func (s *backupHandlers) restoreBackup(params backups.BackupsRestoreParams,
 ) middleware.Responder {
 	bucket := ""
 	path := ""
+	roleOption := models.RestoreConfigRolesOptionsNoRestore
+	userOption := models.RestoreConfigUsersOptionsNoRestore
 	if params.Body.Config != nil {
 		bucket = params.Body.Config.Bucket
 		path = params.Body.Config.Path
+		if params.Body.Config.RolesOptions != nil {
+			roleOption = *params.Body.Config.RolesOptions
+		}
+		if params.Body.Config.UsersOptions != nil {
+			userOption = *params.Body.Config.UsersOptions
+		}
 	}
 	meta, err := s.manager.Restore(params.HTTPRequest.Context(), principal, &ubak.BackupRequest{
-		ID:          params.ID,
-		Backend:     params.Backend,
-		Include:     params.Body.Include,
-		Exclude:     params.Body.Exclude,
-		NodeMapping: params.Body.NodeMapping,
-		Compression: compressionFromRCfg(params.Body.Config),
-		Bucket:      bucket,
-		Path:        path,
-	})
+		ID:                params.ID,
+		Backend:           params.Backend,
+		Include:           params.Body.Include,
+		Exclude:           params.Body.Exclude,
+		NodeMapping:       params.Body.NodeMapping,
+		Compression:       compressionFromRCfg(params.Body.Config),
+		Bucket:            bucket,
+		Path:              path,
+		RbacRestoreOption: roleOption,
+		UserRestoreOption: userOption,
+	}, params.Body.OverwriteAlias)
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
+		s.logger.WithError(err).WithField("id", params.ID).
+			WithField("backend", params.Backend).
+			WithField("bucket", bucket).WithField("path", path).
+			Warn("failed to restore backup")
 		switch {
 		case errors.As(err, &authzerrors.Forbidden{}):
 			return backups.NewBackupsRestoreForbidden().
@@ -312,7 +330,7 @@ func (s *backupHandlers) list(params backups.BackupsListParams,
 func setupBackupHandlers(api *operations.WeaviateAPI,
 	scheduler *ubak.Scheduler, metrics *monitoring.PrometheusMetrics, logger logrus.FieldLogger,
 ) {
-	h := &backupHandlers{scheduler, newBackupRequestsTotal(metrics, logger)}
+	h := &backupHandlers{scheduler, newBackupRequestsTotal(metrics, logger), logger}
 	api.BackupsBackupsCreateHandler = backups.
 		BackupsCreateHandlerFunc(h.createBackup)
 	api.BackupsBackupsCreateStatusHandler = backups.

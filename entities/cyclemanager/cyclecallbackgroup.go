@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"runtime"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -271,6 +272,7 @@ func (c *cycleCallbackGroup) cycleCallbackParallel(shouldAbort ShouldAbortCallba
 func (c *cycleCallbackGroup) recover(callbackCustomId string, cancel context.CancelFunc) {
 	if r := recover(); r != nil {
 		entsentry.Recover(r)
+		debug.PrintStack()
 		c.logger.WithFields(logrus.Fields{
 			"action":       "cyclemanager",
 			"callback_id":  callbackCustomId,

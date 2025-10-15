@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -246,6 +246,51 @@ func (o *DeleteAllReplicationsInternalServerError) SetPayload(payload *models.Er
 func (o *DeleteAllReplicationsInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
 	rw.WriteHeader(500)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
+// DeleteAllReplicationsNotImplementedCode is the HTTP code returned for type DeleteAllReplicationsNotImplemented
+const DeleteAllReplicationsNotImplementedCode int = 501
+
+/*
+DeleteAllReplicationsNotImplemented Replica movement operations are disabled.
+
+swagger:response deleteAllReplicationsNotImplemented
+*/
+type DeleteAllReplicationsNotImplemented struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewDeleteAllReplicationsNotImplemented creates DeleteAllReplicationsNotImplemented with default headers values
+func NewDeleteAllReplicationsNotImplemented() *DeleteAllReplicationsNotImplemented {
+
+	return &DeleteAllReplicationsNotImplemented{}
+}
+
+// WithPayload adds the payload to the delete all replications not implemented response
+func (o *DeleteAllReplicationsNotImplemented) WithPayload(payload *models.ErrorResponse) *DeleteAllReplicationsNotImplemented {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the delete all replications not implemented response
+func (o *DeleteAllReplicationsNotImplemented) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *DeleteAllReplicationsNotImplemented) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(501)
 	if o.Payload != nil {
 		payload := o.Payload
 		if err := producer.Produce(rw, payload); err != nil {

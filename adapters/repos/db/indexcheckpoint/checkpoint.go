@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -90,7 +90,7 @@ func (c *Checkpoints) Get(shardID, targetVector string) (count uint64, exists bo
 		return 0, false, errors.Wrap(err, "get checkpoint")
 	}
 
-	return
+	return count, exists, err
 }
 
 func (c *Checkpoints) Update(shardID, targetVector string, id uint64) error {

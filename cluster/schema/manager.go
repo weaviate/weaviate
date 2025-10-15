@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -17,14 +17,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
-	gproto "google.golang.org/protobuf/proto"
-
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/sharding"
+	gproto "google.golang.org/protobuf/proto"
 )
 
 var (
@@ -37,6 +37,7 @@ type replicationFSM interface {
 	HasOngoingReplication(collection string, shard string, replica string) bool
 	DeleteReplicationsByCollection(collection string) error
 	DeleteReplicationsByTenants(collection string, tenants []string) error
+	SetUnCancellable(id uint64) error
 }
 
 type SchemaManager struct {
@@ -87,15 +88,26 @@ func (s *SchemaManager) SetReplicationFSM(fsm replicationFSM) {
 	s.replicationFSM = fsm
 }
 
-func (s *SchemaManager) Snapshot() ([]byte, error) {
+func (s *SchemaManager) SchemaSnapshot() ([]byte, error) {
 	var buf bytes.Buffer
 
 	err := json.NewEncoder(&buf).Encode(s.schema.MetaClasses())
 	return buf.Bytes(), err
 }
 
+func (s *SchemaManager) AliasSnapshot() ([]byte, error) {
+	var buf bytes.Buffer
+
+	err := json.NewEncoder(&buf).Encode(s.schema.aliases)
+	return buf.Bytes(), err
+}
+
 func (s *SchemaManager) Restore(data []byte, parser Parser) error {
 	return s.schema.Restore(data, parser)
+}
+
+func (s *SchemaManager) RestoreAliases(data []byte) error {
+	return s.schema.RestoreAlias(data)
 }
 
 func (s *SchemaManager) RestoreLegacy(data []byte, parser Parser) error {
@@ -113,10 +125,16 @@ func (s *SchemaManager) PreApplyFilter(req *command.ApplyRequest) error {
 
 	// Discard adding class if the name already exists or a similar one exists
 	if req.Type == command.ApplyRequest_TYPE_ADD_CLASS {
-		if other := s.schema.ClassEqual(req.Class); other == req.Class {
-			return fmt.Errorf("class name %s already exists", req.Class)
+		other, isAlias := s.schema.ClassEqual(req.Class)
+		item := "class"
+		if isAlias {
+			item = "alias"
+		}
+
+		if other == req.Class {
+			return fmt.Errorf("%s name %s already exists", item, req.Class)
 		} else if other != "" {
-			return fmt.Errorf("%w: found similar class %q", ErrClassExists, other)
+			return fmt.Errorf("%w: found similar %s %q", ErrClassExists, item, other)
 		}
 	}
 
@@ -151,6 +169,7 @@ func (s *SchemaManager) Close(ctx context.Context) (err error) {
 
 func (s *SchemaManager) AddClass(cmd *command.ApplyRequest, nodeID string, schemaOnly bool, enableSchemaCallback bool) error {
 	req := command.AddClassRequest{}
+	// dupa
 	if err := json.Unmarshal(cmd.SubCommand, &req); err != nil {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
@@ -475,7 +494,7 @@ func (s *SchemaManager) SyncShard(cmd *command.ApplyRequest, schemaOnly bool) er
 			op:           cmd.GetType().String(),
 			updateSchema: func() error { return nil },
 			updateStore: func() error {
-				return s.schema.Read(req.Collection, func(class *models.Class, state *sharding.State) error {
+				return s.schema.Read(req.Collection, true, func(class *models.Class, state *sharding.State) error {
 					physical, ok := state.Physical[req.Shard]
 					// shard does not exist in the sharding state
 					if !ok {
@@ -486,14 +505,21 @@ func (s *SchemaManager) SyncShard(cmd *command.ApplyRequest, schemaOnly bool) er
 						// return early
 						return nil
 					}
-					// collection is single-tenant and shard is present
+					// if shard doesn't belong to this node
+					if !slices.Contains(physical.BelongsToNodes, req.NodeId) {
+						// shut it down
+						s.db.ShutdownShard(cmd.Class, req.Shard)
+						// return early
+						return nil
+					}
+					// collection is single-tenant, shard is present, replica belongs to node
 					if !state.PartitioningEnabled {
 						// load it
 						s.db.LoadShard(cmd.Class, req.Shard)
 						// return early
 						return nil
 					}
-					// collection has multi-tenancy enabled and shard is present
+					// collection is multi-tenant, shard is present, replica belongs to node
 					switch physical.ActivityStatus() {
 					// tenant is active
 					case models.TenantActivityStatusACTIVE:
@@ -510,6 +536,33 @@ func (s *SchemaManager) SyncShard(cmd *command.ApplyRequest, schemaOnly bool) er
 					}
 					return nil
 				})
+			},
+			schemaOnly: schemaOnly,
+		},
+	)
+}
+
+func (s *SchemaManager) ReplicationAddReplicaToShard(cmd *command.ApplyRequest, schemaOnly bool) error {
+	req := command.ReplicationAddReplicaToShard{}
+	if err := json.Unmarshal(cmd.SubCommand, &req); err != nil {
+		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+
+	return s.apply(
+		applyOp{
+			op: cmd.GetType().String(),
+			updateSchema: func() error {
+				err := s.replicationFSM.SetUnCancellable(req.OpId)
+				if err != nil {
+					return fmt.Errorf("set un-cancellable: %w", err)
+				}
+				return s.schema.addReplicaToShard(cmd.Class, cmd.Version, req.Shard, req.TargetNode)
+			},
+			updateStore: func() error {
+				if req.TargetNode == s.schema.nodeID {
+					return s.db.AddReplicaToShard(req.Class, req.Shard, req.TargetNode)
+				}
+				return nil
 			},
 			schemaOnly: schemaOnly,
 		},

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/generictypes"
 )
 
@@ -46,7 +47,7 @@ func TestModulesWithSearchers(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 
 	t.Run("get a vector for a class", func(t *testing.T) {
-		p := NewProvider(logger)
+		p := NewProvider(logger, config.Config{})
 		p.SetSchemaGetter(&fakeSchemaGetter{
 			schema: sch,
 		})
@@ -78,7 +79,7 @@ func TestModulesWithSearchers(t *testing.T) {
 	})
 
 	t.Run("no module configured for a class", func(t *testing.T) {
-		p := NewProvider(logger)
+		p := NewProvider(logger, config.Config{})
 		p.SetSchemaGetter(&fakeSchemaGetter{
 			schema: sch,
 		})
@@ -110,7 +111,7 @@ func TestModulesWithSearchers(t *testing.T) {
 	})
 
 	t.Run("get a vector across classes", func(t *testing.T) {
-		p := NewProvider(logger)
+		p := NewProvider(logger, config.Config{})
 		p.SetSchemaGetter(&fakeSchemaGetter{
 			schema: sch,
 		})
@@ -147,7 +148,7 @@ func TestModulesWithSearchers(t *testing.T) {
 	})
 
 	t.Run("explore no vectorizer", func(t *testing.T) {
-		p := NewProvider(logger)
+		p := NewProvider(logger, config.Config{})
 		p.SetSchemaGetter(&fakeSchemaGetter{
 			schema: sch,
 		})
@@ -182,7 +183,7 @@ func TestModulesWithSearchers(t *testing.T) {
 	})
 
 	t.Run("get a multi vector for a class", func(t *testing.T) {
-		p := NewProvider(logger)
+		p := NewProvider(logger, config.Config{})
 		p.SetSchemaGetter(&fakeSchemaGetter{
 			schema: sch,
 		})
@@ -214,7 +215,7 @@ func TestModulesWithSearchers(t *testing.T) {
 	})
 
 	t.Run("get a multi vector across classes", func(t *testing.T) {
-		p := NewProvider(logger)
+		p := NewProvider(logger, config.Config{})
 		p.SetSchemaGetter(&fakeSchemaGetter{
 			schema: sch,
 		})

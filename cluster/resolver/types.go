@@ -4,16 +4,12 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
 
 package resolver
-
-const (
-	invalidAddr = "256.256.256.256:99999999"
-)
 
 // ClusterStateReader allows the resolver to compute node-id to ip addresses.
 type ClusterStateReader interface {
@@ -23,6 +19,9 @@ type ClusterStateReader interface {
 	NodeHostname(nodeName string) (string, bool)
 	// LocalName returns the local node name
 	LocalName() string
+	// AllOtherClusterMembers returns all cluster members discovered via memberlist with their addresses
+	// This is useful for bootstrap when the join config is incomplete
+	AllOtherClusterMembers(port int) map[string]string
 }
 
 type RaftConfig struct {
@@ -30,11 +29,6 @@ type RaftConfig struct {
 	RaftPort           int
 	IsLocalHost        bool
 	NodeNameToPortMap  map[string]int
-}
-
-type FQDNConfig struct {
-	RaftPort          int
-	IsLocalHost       bool
-	NodeNameToPortMap map[string]int
-	TLD               string
+	LocalName          string
+	LocalAddress       string
 }

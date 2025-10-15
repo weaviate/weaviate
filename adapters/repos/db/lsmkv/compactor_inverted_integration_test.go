@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -74,16 +74,18 @@ func validateMapPairListVsBlockMaxSearch(ctx context.Context, bucket *Bucket, ex
 		queries := []string{string(mapKey)}
 		duplicateTextBoosts := make([]int, 1)
 		diskTerms, _, release, err := bucket.CreateDiskTerm(float64(N), nil, queries, "", 1, duplicateTextBoosts, bm25config, ctx)
-
+		if err != nil {
+			return fmt.Errorf("failed to create disk term: %w", err)
+		}
 		defer func() {
 			release()
 		}()
 
 		expectedSet := make(map[uint64][]*terms.DocPointerWithScore, len(expected))
 		for _, diskTerm := range diskTerms {
-			topKHeap := DoBlockMaxWand(N, diskTerm, avgPropLen, true, 1, 1)
+			topKHeap, err := DoBlockMaxWand(ctx, N, diskTerm, avgPropLen, true, 1, 1, bucket.logger)
 			if err != nil {
-				return fmt.Errorf("failed to create disk term: %w", err)
+				return fmt.Errorf("failed to execute DoBlockMaxWand for diskTerm %v: %w", diskTerm, err)
 			}
 			for topKHeap.Len() > 0 {
 				item := topKHeap.Pop()
@@ -265,7 +267,7 @@ func validateMapPairListVsWandSearch(ctx context.Context, bucket *Bucket, expect
 			Count: 1,
 		}
 
-		topKHeap := DoWand(N, terms, avgPropLen, true, 1)
+		topKHeap := DoWand(ctx, N, terms, avgPropLen, true, 1)
 
 		for topKHeap.Len() > 0 {
 			item := topKHeap.Pop()
@@ -634,7 +636,8 @@ func compactionInvertedStrategy(ctx context.Context, t *testing.T, opts []Bucket
 	t.Run("verify previous1 before flush", func(t *testing.T) {
 		var retrieved []kv
 
-		c := bucket.MapCursor()
+		c, err := bucket.MapCursor()
+		require.NoError(t, err)
 		defer c.Close()
 		for k, _ := c.First(ctx); k != nil; k, _ = c.Next(ctx) {
 
@@ -673,7 +676,8 @@ func compactionInvertedStrategy(ctx context.Context, t *testing.T, opts []Bucket
 	t.Run("verify previous2 before flush", func(t *testing.T) {
 		var retrieved []kv
 
-		c := bucket.MapCursor()
+		c, err := bucket.MapCursor()
+		require.NoError(t, err)
 		defer c.Close()
 		for k, _ := c.First(ctx); k != nil; k, _ = c.Next(ctx) {
 
@@ -712,7 +716,8 @@ func compactionInvertedStrategy(ctx context.Context, t *testing.T, opts []Bucket
 	t.Run("verify segment1 before flush", func(t *testing.T) {
 		var retrieved []kv
 
-		c := bucket.MapCursor()
+		c, err := bucket.MapCursor()
+		require.NoError(t, err)
 		defer c.Close()
 		i := 0
 		for k, _ := c.First(ctx); k != nil; k, _ = c.Next(ctx) {
@@ -743,7 +748,8 @@ func compactionInvertedStrategy(ctx context.Context, t *testing.T, opts []Bucket
 	t.Run("verify segment1 after flush", func(t *testing.T) {
 		var retrieved []kv
 
-		c := bucket.MapCursor()
+		c, err := bucket.MapCursor()
+		require.NoError(t, err)
 		defer c.Close()
 		i := 0
 		for k, _ := c.First(ctx); k != nil; k, _ = c.Next(ctx) {
@@ -779,7 +785,8 @@ func compactionInvertedStrategy(ctx context.Context, t *testing.T, opts []Bucket
 	t.Run("verify segment2 before flush", func(t *testing.T) {
 		var retrieved []kv
 
-		c := bucket.MapCursor()
+		c, err := bucket.MapCursor()
+		require.NoError(t, err)
 		defer c.Close()
 		i := 0
 		for k, _ := c.First(ctx); k != nil; k, _ = c.Next(ctx) {
@@ -811,7 +818,8 @@ func compactionInvertedStrategy(ctx context.Context, t *testing.T, opts []Bucket
 	t.Run("verify segment2 after flush", func(t *testing.T) {
 		var retrieved []kv
 
-		c := bucket.MapCursor()
+		c, err := bucket.MapCursor()
+		require.NoError(t, err)
 		defer c.Close()
 		i := 0
 		for k, _ := c.First(ctx); k != nil; k, _ = c.Next(ctx) {
@@ -847,7 +855,8 @@ func compactionInvertedStrategy(ctx context.Context, t *testing.T, opts []Bucket
 	t.Run("verify control before compaction", func(t *testing.T) {
 		var retrieved []kv
 
-		c := bucket.MapCursor()
+		c, err := bucket.MapCursor()
+		require.NoError(t, err)
 		defer c.Close()
 		for k, _ := c.First(ctx); k != nil; k, _ = c.Next(ctx) {
 
@@ -879,7 +888,8 @@ func compactionInvertedStrategy(ctx context.Context, t *testing.T, opts []Bucket
 			t.Run("verify control during compaction", func(t *testing.T) {
 				var retrieved []kv
 
-				c := bucket.MapCursor()
+				c, err := bucket.MapCursor()
+				require.NoError(t, err)
 				defer c.Close()
 
 				for k, _ := c.First(ctx); k != nil; k, _ = c.Next(ctx) {
@@ -907,7 +917,8 @@ func compactionInvertedStrategy(ctx context.Context, t *testing.T, opts []Bucket
 	t.Run("verify control after compaction using a cursor", func(t *testing.T) {
 		var retrieved []kv
 
-		c := bucket.MapCursor()
+		c, err := bucket.MapCursor()
+		require.NoError(t, err)
 		defer c.Close()
 
 		for k, _ := c.First(ctx); k != nil; k, _ = c.Next(ctx) {
@@ -1012,7 +1023,8 @@ func compactionInvertedStrategy_RemoveUnnecessary(ctx context.Context, t *testin
 	t.Run("verify control before compaction", func(t *testing.T) {
 		var retrieved []kv
 
-		c := bucket.MapCursor()
+		c, err := bucket.MapCursor()
+		require.NoError(t, err)
 		defer c.Close()
 
 		for k, _ := c.First(ctx); k != nil; k, _ = c.Next(ctx) {
@@ -1041,7 +1053,8 @@ func compactionInvertedStrategy_RemoveUnnecessary(ctx context.Context, t *testin
 			t.Run("verify control during compaction", func(t *testing.T) {
 				var retrieved []kv
 
-				c := bucket.MapCursor()
+				c, err := bucket.MapCursor()
+				require.NoError(t, err)
 				defer c.Close()
 
 				for k, _ := c.First(ctx); k != nil; k, _ = c.Next(ctx) {
@@ -1069,7 +1082,8 @@ func compactionInvertedStrategy_RemoveUnnecessary(ctx context.Context, t *testin
 	t.Run("verify control after compaction", func(t *testing.T) {
 		var retrieved []kv
 
-		c := bucket.MapCursor()
+		c, err := bucket.MapCursor()
+		require.NoError(t, err)
 		defer c.Close()
 
 		for k, _ := c.First(ctx); k != nil; k, _ = c.Next(ctx) {

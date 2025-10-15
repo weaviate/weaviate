@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -267,6 +267,241 @@ func (_c *MockManager_DeleteReplicationsByTenants_Call) Return(_a0 error) *MockM
 }
 
 func (_c *MockManager_DeleteReplicationsByTenants_Call) RunAndReturn(run func(context.Context, string, []string) error) *MockManager_DeleteReplicationsByTenants_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// ForceDeleteAllReplications provides a mock function with given fields: ctx
+func (_m *MockManager) ForceDeleteAllReplications(ctx context.Context) error {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ForceDeleteAllReplications")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context) error); ok {
+		r0 = rf(ctx)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockManager_ForceDeleteAllReplications_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ForceDeleteAllReplications'
+type MockManager_ForceDeleteAllReplications_Call struct {
+	*mock.Call
+}
+
+// ForceDeleteAllReplications is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *MockManager_Expecter) ForceDeleteAllReplications(ctx interface{}) *MockManager_ForceDeleteAllReplications_Call {
+	return &MockManager_ForceDeleteAllReplications_Call{Call: _e.mock.On("ForceDeleteAllReplications", ctx)}
+}
+
+func (_c *MockManager_ForceDeleteAllReplications_Call) Run(run func(ctx context.Context)) *MockManager_ForceDeleteAllReplications_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context))
+	})
+	return _c
+}
+
+func (_c *MockManager_ForceDeleteAllReplications_Call) Return(_a0 error) *MockManager_ForceDeleteAllReplications_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockManager_ForceDeleteAllReplications_Call) RunAndReturn(run func(context.Context) error) *MockManager_ForceDeleteAllReplications_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// ForceDeleteReplicationByUuid provides a mock function with given fields: ctx, uuid
+func (_m *MockManager) ForceDeleteReplicationByUuid(ctx context.Context, uuid strfmt.UUID) error {
+	ret := _m.Called(ctx, uuid)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ForceDeleteReplicationByUuid")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, strfmt.UUID) error); ok {
+		r0 = rf(ctx, uuid)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockManager_ForceDeleteReplicationByUuid_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ForceDeleteReplicationByUuid'
+type MockManager_ForceDeleteReplicationByUuid_Call struct {
+	*mock.Call
+}
+
+// ForceDeleteReplicationByUuid is a helper method to define mock.On call
+//   - ctx context.Context
+//   - uuid strfmt.UUID
+func (_e *MockManager_Expecter) ForceDeleteReplicationByUuid(ctx interface{}, uuid interface{}) *MockManager_ForceDeleteReplicationByUuid_Call {
+	return &MockManager_ForceDeleteReplicationByUuid_Call{Call: _e.mock.On("ForceDeleteReplicationByUuid", ctx, uuid)}
+}
+
+func (_c *MockManager_ForceDeleteReplicationByUuid_Call) Run(run func(ctx context.Context, uuid strfmt.UUID)) *MockManager_ForceDeleteReplicationByUuid_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(strfmt.UUID))
+	})
+	return _c
+}
+
+func (_c *MockManager_ForceDeleteReplicationByUuid_Call) Return(_a0 error) *MockManager_ForceDeleteReplicationByUuid_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockManager_ForceDeleteReplicationByUuid_Call) RunAndReturn(run func(context.Context, strfmt.UUID) error) *MockManager_ForceDeleteReplicationByUuid_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// ForceDeleteReplicationsByCollection provides a mock function with given fields: ctx, collection
+func (_m *MockManager) ForceDeleteReplicationsByCollection(ctx context.Context, collection string) error {
+	ret := _m.Called(ctx, collection)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ForceDeleteReplicationsByCollection")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
+		r0 = rf(ctx, collection)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockManager_ForceDeleteReplicationsByCollection_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ForceDeleteReplicationsByCollection'
+type MockManager_ForceDeleteReplicationsByCollection_Call struct {
+	*mock.Call
+}
+
+// ForceDeleteReplicationsByCollection is a helper method to define mock.On call
+//   - ctx context.Context
+//   - collection string
+func (_e *MockManager_Expecter) ForceDeleteReplicationsByCollection(ctx interface{}, collection interface{}) *MockManager_ForceDeleteReplicationsByCollection_Call {
+	return &MockManager_ForceDeleteReplicationsByCollection_Call{Call: _e.mock.On("ForceDeleteReplicationsByCollection", ctx, collection)}
+}
+
+func (_c *MockManager_ForceDeleteReplicationsByCollection_Call) Run(run func(ctx context.Context, collection string)) *MockManager_ForceDeleteReplicationsByCollection_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *MockManager_ForceDeleteReplicationsByCollection_Call) Return(_a0 error) *MockManager_ForceDeleteReplicationsByCollection_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockManager_ForceDeleteReplicationsByCollection_Call) RunAndReturn(run func(context.Context, string) error) *MockManager_ForceDeleteReplicationsByCollection_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// ForceDeleteReplicationsByCollectionAndShard provides a mock function with given fields: ctx, collection, shard
+func (_m *MockManager) ForceDeleteReplicationsByCollectionAndShard(ctx context.Context, collection string, shard string) error {
+	ret := _m.Called(ctx, collection, shard)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ForceDeleteReplicationsByCollectionAndShard")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) error); ok {
+		r0 = rf(ctx, collection, shard)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockManager_ForceDeleteReplicationsByCollectionAndShard_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ForceDeleteReplicationsByCollectionAndShard'
+type MockManager_ForceDeleteReplicationsByCollectionAndShard_Call struct {
+	*mock.Call
+}
+
+// ForceDeleteReplicationsByCollectionAndShard is a helper method to define mock.On call
+//   - ctx context.Context
+//   - collection string
+//   - shard string
+func (_e *MockManager_Expecter) ForceDeleteReplicationsByCollectionAndShard(ctx interface{}, collection interface{}, shard interface{}) *MockManager_ForceDeleteReplicationsByCollectionAndShard_Call {
+	return &MockManager_ForceDeleteReplicationsByCollectionAndShard_Call{Call: _e.mock.On("ForceDeleteReplicationsByCollectionAndShard", ctx, collection, shard)}
+}
+
+func (_c *MockManager_ForceDeleteReplicationsByCollectionAndShard_Call) Run(run func(ctx context.Context, collection string, shard string)) *MockManager_ForceDeleteReplicationsByCollectionAndShard_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string))
+	})
+	return _c
+}
+
+func (_c *MockManager_ForceDeleteReplicationsByCollectionAndShard_Call) Return(_a0 error) *MockManager_ForceDeleteReplicationsByCollectionAndShard_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockManager_ForceDeleteReplicationsByCollectionAndShard_Call) RunAndReturn(run func(context.Context, string, string) error) *MockManager_ForceDeleteReplicationsByCollectionAndShard_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// ForceDeleteReplicationsByTargetNode provides a mock function with given fields: ctx, node
+func (_m *MockManager) ForceDeleteReplicationsByTargetNode(ctx context.Context, node string) error {
+	ret := _m.Called(ctx, node)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ForceDeleteReplicationsByTargetNode")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
+		r0 = rf(ctx, node)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockManager_ForceDeleteReplicationsByTargetNode_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ForceDeleteReplicationsByTargetNode'
+type MockManager_ForceDeleteReplicationsByTargetNode_Call struct {
+	*mock.Call
+}
+
+// ForceDeleteReplicationsByTargetNode is a helper method to define mock.On call
+//   - ctx context.Context
+//   - node string
+func (_e *MockManager_Expecter) ForceDeleteReplicationsByTargetNode(ctx interface{}, node interface{}) *MockManager_ForceDeleteReplicationsByTargetNode_Call {
+	return &MockManager_ForceDeleteReplicationsByTargetNode_Call{Call: _e.mock.On("ForceDeleteReplicationsByTargetNode", ctx, node)}
+}
+
+func (_c *MockManager_ForceDeleteReplicationsByTargetNode_Call) Run(run func(ctx context.Context, node string)) *MockManager_ForceDeleteReplicationsByTargetNode_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *MockManager_ForceDeleteReplicationsByTargetNode_Call) Return(_a0 error) *MockManager_ForceDeleteReplicationsByTargetNode_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockManager_ForceDeleteReplicationsByTargetNode_Call) RunAndReturn(run func(context.Context, string) error) *MockManager_ForceDeleteReplicationsByTargetNode_Call {
 	_c.Call.Return(run)
 	return _c
 }

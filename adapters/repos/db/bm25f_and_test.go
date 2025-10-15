@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -18,9 +18,16 @@ import (
 	"strings"
 	"testing"
 
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/sharding"
+
+	"github.com/stretchr/testify/mock"
+	"github.com/weaviate/weaviate/usecases/cluster"
+
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -34,16 +41,32 @@ func TestBM25FJourneyBlockAnd(t *testing.T) {
 	dirName := t.TempDir()
 
 	logger := logrus.New()
+	shardState := singleShardState()
 	schemaGetter := &fakeSchemaGetter{
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
-		shardState: singleShardState(),
+		shardState: shardState,
 	}
-	repo, err := New(logger, Config{
+	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
+		class := &models.Class{Class: className}
+		return readFunc(class, shardState)
+	}).Maybe()
+	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
+	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
+	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
+	repo, err := New(logger, "node1", Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor())
+	}, &FakeRemoteClient{}, &FakeNodeResolver{}, &FakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor(),
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(context.Background()))
@@ -79,7 +102,7 @@ func TestBM25FJourneyBlockAnd(t *testing.T) {
 
 			require.Nil(t, err)
 
-			kwr2 := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description"}, Query: q, SearchOperator: common_filters.SearchOperatorOr, MinimumShouldMatch: len(strings.Split(q, " "))}
+			kwr2 := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description"}, Query: q, SearchOperator: common_filters.SearchOperatorOr, MinimumOrTokensMatch: len(strings.Split(q, " "))}
 			res2, scores2, err := idx.objectSearch(context.TODO(), 1000, nil, kwr2, nil, nil, addit, nil, "", 0, props)
 
 			require.Nil(t, err)
@@ -102,9 +125,9 @@ func TestBM25FJourneyBlockAnd(t *testing.T) {
 
 		// depending on the minimum should match, we will have a different number of results showing up
 		expectedSizes := []int{3, 3, 2, 2, 2, 2, 1, 1}
-		for minimumShouldMatch, expectedSize := range expectedSizes {
+		for minimumOrTokensMatch, expectedSize := range expectedSizes {
 			t.Run("bm25f text with minimum should match with 0...len(queryTerms) "+location, func(t *testing.T) {
-				kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description"}, Query: "This is how we get to BM25F", MinimumShouldMatch: minimumShouldMatch}
+				kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description"}, Query: "This is how we get to BM25F", MinimumOrTokensMatch: minimumOrTokensMatch}
 				res, scores, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0, props)
 				// Print results
 				t.Log("--- Start results for search with AND ---")
@@ -115,8 +138,8 @@ func TestBM25FJourneyBlockAnd(t *testing.T) {
 				require.Equal(t, expectedSize, len(res))
 				require.Equal(t, uint64(0), res[0].DocID)
 
-				// if minimumShouldMatch < 3, title and description will both match, and thus the score will be higher
-				if minimumShouldMatch < 3 {
+				// if minimumOrTokensMatch < 3, title and description will both match, and thus the score will be higher
+				if minimumOrTokensMatch < 3 {
 					EqualFloats(t, scores[0], 5.470736, 3)
 				} else {
 					EqualFloats(t, scores[0], 4.0164075, 3)
@@ -132,16 +155,32 @@ func TestBM25FJourneyAnd(t *testing.T) {
 	dirName := t.TempDir()
 
 	logger := logrus.New()
+	shardState := singleShardState()
 	schemaGetter := &fakeSchemaGetter{
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
-		shardState: singleShardState(),
+		shardState: shardState,
 	}
-	repo, err := New(logger, Config{
+	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
+		class := &models.Class{Class: className}
+		return readFunc(class, shardState)
+	}).Maybe()
+	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
+	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
+	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
+	repo, err := New(logger, "node1", Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor())
+	}, &FakeRemoteClient{}, &FakeNodeResolver{}, &FakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor(),
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(context.Background()))
@@ -177,7 +216,7 @@ func TestBM25FJourneyAnd(t *testing.T) {
 
 			require.Nil(t, err)
 
-			kwr2 := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description"}, Query: q, SearchOperator: common_filters.SearchOperatorOr, MinimumShouldMatch: len(strings.Split(q, " "))}
+			kwr2 := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description"}, Query: q, SearchOperator: common_filters.SearchOperatorOr, MinimumOrTokensMatch: len(strings.Split(q, " "))}
 			res2, scores2, err := idx.objectSearch(context.TODO(), 1000, nil, kwr2, nil, nil, addit, nil, "", 0, props)
 
 			require.Nil(t, err)
@@ -200,9 +239,9 @@ func TestBM25FJourneyAnd(t *testing.T) {
 
 		// depending on the minimum should match, we will have a different number of results showing up
 		expectedSizes := []int{3, 3, 2, 2, 2, 2, 1, 1}
-		for minimumShouldMatch, expectedSize := range expectedSizes {
+		for minimumOrTokensMatch, expectedSize := range expectedSizes {
 			t.Run("bm25f text with minimum should match with 0...len(queryTerms) "+location, func(t *testing.T) {
-				kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description"}, Query: "This is how we get to BM25F", MinimumShouldMatch: minimumShouldMatch}
+				kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description"}, Query: "This is how we get to BM25F", MinimumOrTokensMatch: minimumOrTokensMatch}
 				res, scores, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0, props)
 				// Print results
 				t.Log("--- Start results for search with AND ---")

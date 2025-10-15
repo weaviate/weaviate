@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -25,7 +25,7 @@ import (
 )
 
 func TestCompactionReplaceStrategyStraggler(t *testing.T) {
-	opts := []BucketOption{WithStrategy(StrategyReplace)}
+	opts := []BucketOption{WithStrategy(StrategyReplace), WithCalcCountNetAdditions(true)}
 	size := 200
 
 	type kv struct {
@@ -213,7 +213,9 @@ func TestCompactionReplaceStrategyStraggler(t *testing.T) {
 	})
 
 	t.Run("verify count control before compaction", func(*testing.T) {
-		assert.Equal(t, len(expected), bucket.Count())
+		count, err := bucket.Count(context.Background())
+		require.NoError(t, err)
+		assert.Equal(t, len(expected), count)
 	})
 
 	t.Run("compact until no longer eligible", func(t *testing.T) {
@@ -253,7 +255,10 @@ func TestCompactionReplaceStrategyStraggler(t *testing.T) {
 		})
 
 	t.Run("verify count after compaction", func(*testing.T) {
-		assert.Equal(t, len(expected), bucket.Count())
+		count, err := bucket.Count(context.Background())
+		require.NoError(t, err)
+
+		assert.Equal(t, len(expected), count)
 	})
 }
 

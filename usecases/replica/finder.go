@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -15,18 +15,18 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
+	"math/rand"
 	"strings"
 	"time"
 
+	"github.com/go-openapi/strfmt"
+	"github.com/sirupsen/logrus"
+
+	"github.com/weaviate/weaviate/cluster/router/types"
+	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
-
-	"github.com/go-openapi/strfmt"
-	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/cluster/router/types"
-	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
@@ -34,12 +34,12 @@ import (
 )
 
 var (
-	// msgCLevel consistency level cannot be achieved
-	msgCLevel = "cannot achieve consistency level"
+	// MsgCLevel consistency level cannot be achieved
+	MsgCLevel = "cannot achieve consistency level"
 
-	errReplicas = errors.New("cannot reach enough replicas")
-	errRepair   = errors.New("read repair error")
-	errRead     = errors.New("read error")
+	ErrReplicas = errors.New("cannot reach enough replicas")
+	ErrRepair   = errors.New("read repair error")
+	ErrRead     = errors.New("read error")
 
 	ErrNoDiffFound = errors.New("no diff found")
 )
@@ -53,7 +53,7 @@ type (
 		UpdateTime int64  // sender's current update time
 		DigestRead bool
 	}
-	findOneReply senderReply[objects.Replica]
+	findOneReply senderReply[Replica]
 	existReply   struct {
 		Sender string
 		types.RepairResponse
@@ -74,13 +74,14 @@ type Finder struct {
 func NewFinder(className string,
 	router router,
 	nodeName string,
-	client rClient,
+	client RClient,
+	metrics *Metrics,
 	l logrus.FieldLogger,
 	coordinatorPullBackoffInitialInterval time.Duration,
 	coordinatorPullBackoffMaxElapsedTime time.Duration,
 	getDeletionStrategy func() string,
 ) *Finder {
-	cl := finderClient{client}
+	cl := FinderClient{client}
 	return &Finder{
 		router:   router,
 		nodeName: nodeName,
@@ -89,6 +90,7 @@ func NewFinder(className string,
 				class:               className,
 				getDeletionStrategy: getDeletionStrategy,
 				client:              cl,
+				metrics:             metrics,
 				logger:              l,
 			},
 			log: l,
@@ -121,7 +123,7 @@ func (f *Finder) GetOne(ctx context.Context,
 				x = xs[0]
 			}
 
-			r := objects.Replica{
+			r := Replica{
 				ID:                      id,
 				Deleted:                 x.Deleted,
 				LastUpdateTimeUnixMilli: x.UpdateTime,
@@ -133,12 +135,12 @@ func (f *Finder) GetOne(ctx context.Context,
 	replyCh, level, err := c.Pull(ctx, l, op, "", 20*time.Second)
 	if err != nil {
 		f.log.WithField("op", "pull.one").Error(err)
-		return nil, fmt.Errorf("%s %q: %w", msgCLevel, l, errReplicas)
+		return nil, fmt.Errorf("%s %q: %w", MsgCLevel, l, ErrReplicas)
 	}
 	result := <-f.readOne(ctx, shard, id, replyCh, level)
 	if err = result.Err; err != nil {
-		err = fmt.Errorf("%s %q: %w", msgCLevel, l, err)
-		if strings.Contains(err.Error(), errConflictExistOrDeleted.Error()) {
+		err = fmt.Errorf("%s %q: %w", MsgCLevel, l, err)
+		if strings.Contains(err.Error(), ErrConflictExistOrDeleted.Error()) {
 			err = objects.NewErrDirtyReadOfDeletedObject(err)
 		}
 	}
@@ -158,7 +160,7 @@ func (f *Finder) FindUUIDs(ctx context.Context,
 	replyCh, _, err := c.Pull(ctx, l, op, "", 30*time.Second)
 	if err != nil {
 		f.log.WithField("op", "pull.one").Error(err)
-		return nil, fmt.Errorf("%s %q: %w", msgCLevel, l, errReplicas)
+		return nil, fmt.Errorf("%s %q: %w", MsgCLevel, l, ErrReplicas)
 	}
 
 	res := make(map[strfmt.UUID]struct{})
@@ -247,12 +249,12 @@ func (f *Finder) Exists(ctx context.Context,
 	replyCh, state, err := c.Pull(ctx, l, op, "", 20*time.Second)
 	if err != nil {
 		f.log.WithField("op", "pull.exist").Error(err)
-		return false, fmt.Errorf("%s %q: %w", msgCLevel, l, errReplicas)
+		return false, fmt.Errorf("%s %q: %w", MsgCLevel, l, ErrReplicas)
 	}
 	result := <-f.readExistence(ctx, shard, id, replyCh, state)
 	if err = result.Err; err != nil {
-		err = fmt.Errorf("%s %q: %w", msgCLevel, l, err)
-		if strings.Contains(err.Error(), errConflictExistOrDeleted.Error()) {
+		err = fmt.Errorf("%s %q: %w", MsgCLevel, l, err)
+		if strings.Contains(err.Error(), ErrConflictExistOrDeleted.Error()) {
 			err = objects.NewErrDirtyReadOfDeletedObject(err)
 		}
 	}
@@ -279,26 +281,26 @@ func (f *Finder) NodeObject(ctx context.Context,
 // It returns the most recent objects or and error
 func (f *Finder) checkShardConsistency(ctx context.Context,
 	l types.ConsistencyLevel,
-	batch shardPart,
+	batch ShardPart,
 ) ([]*storobj.Object, error) {
 	var (
-		c = newReadCoordinator[batchReply](f, batch.Shard,
+		c = newReadCoordinator[BatchReply](f, batch.Shard,
 			f.coordinatorPullBackoffInitialInterval, f.coordinatorPullBackoffMaxElapsedTime, f.getDeletionStrategy())
 		shard     = batch.Shard
 		data, ids = batch.Extract() // extract from current content
 	)
-	op := func(ctx context.Context, host string, fullRead bool) (batchReply, error) {
+	op := func(ctx context.Context, host string, fullRead bool) (BatchReply, error) {
 		if fullRead { // we already have the content
-			return batchReply{Sender: host, IsDigest: false, FullData: data}, nil
+			return BatchReply{Sender: host, IsDigest: false, FullData: data}, nil
 		} else {
 			xs, err := f.client.DigestReads(ctx, host, f.class, shard, ids, 0)
-			return batchReply{Sender: host, IsDigest: true, DigestData: xs}, err
+			return BatchReply{Sender: host, IsDigest: true, DigestData: xs}, err
 		}
 	}
 
 	replyCh, state, err := c.Pull(ctx, l, op, batch.Node, 20*time.Second)
 	if err != nil {
-		return nil, fmt.Errorf("pull shard: %w", errReplicas)
+		return nil, fmt.Errorf("pull shard: %w", ErrReplicas)
 	}
 	result := <-f.readBatchPart(ctx, batch, ids, replyCh, state)
 	return result.Value, result.Err
@@ -319,11 +321,8 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 	shardName string, ht hashtree.AggregatedHashTree, diffTimeoutPerNode time.Duration,
 	targetNodeOverrides []additional.AsyncReplicationTargetNodeOverride,
 ) (diffReader *ShardDifferenceReader, err error) {
-	routingPlan, err := f.router.BuildReadRoutingPlan(types.RoutingPlanBuildOptions{
-		Collection:       f.class,
-		Shard:            shardName,
-		ConsistencyLevel: types.ConsistencyLevelOne,
-	})
+	options := f.router.BuildRoutingPlanOptions(shardName, shardName, types.ConsistencyLevelOne, "")
+	routingPlan, err := f.router.BuildReadRoutingPlan(options)
 	if err != nil {
 		return nil, fmt.Errorf("%w : class %q shard %q", err, f.class, shardName)
 	}
@@ -379,7 +378,7 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 	// If the caller provided a list of target node overrides, filter the replicas to only include
 	// the relevant overrides so that we only "push" updates to the specified nodes.
 	localNodeName := f.LocalNodeName()
-	targetNodesToUse := slices.Clone(routingPlan.Replicas)
+	targetNodesToUse := routingPlan.NodeNames()
 	if len(targetNodeOverrides) > 0 {
 		targetNodesToUse = make([]string, 0, len(targetNodeOverrides))
 		for _, override := range targetNodeOverrides {
@@ -389,8 +388,8 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 		}
 	}
 
-	replicaNodeNames := make([]string, 0, len(routingPlan.Replicas))
-	replicasHostAddrs := make([]string, 0, len(routingPlan.ReplicasHostAddrs))
+	replicaNodeNames := make([]string, 0, len(routingPlan.Replicas()))
+	replicasHostAddrs := make([]string, 0, len(routingPlan.HostAddresses()))
 	for _, replica := range targetNodesToUse {
 		replicaNodeNames = append(replicaNodeNames, replica)
 		replicaHostAddr, ok := f.router.NodeHostname(replica)
@@ -398,7 +397,18 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 			replicasHostAddrs = append(replicasHostAddrs, replicaHostAddr)
 		}
 	}
+
+	// shuffle the replicas to randomize the order in which we look for differences
+	if len(replicasHostAddrs) > 1 {
+		// Use the global rand package which is thread-safe
+		rand.Shuffle(len(replicasHostAddrs), func(i, j int) {
+			replicaNodeNames[i], replicaNodeNames[j] = replicaNodeNames[j], replicaNodeNames[i]
+			replicasHostAddrs[i], replicasHostAddrs[j] = replicasHostAddrs[j], replicasHostAddrs[i]
+		})
+	}
+
 	localHostAddr, _ := f.router.NodeHostname(localNodeName)
+
 	for i, targetNodeAddress := range replicasHostAddrs {
 		targetNodeName := replicaNodeNames[i]
 		if targetNodeAddress == localHostAddr {
@@ -421,14 +431,7 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 		return nil, err
 	}
 
-	var targetNodeName string
-	// TODO how to get rid of len == 1 check?
-	if len(targetNodeOverrides) == 1 {
-		targetNodeName = targetNodeOverrides[0].TargetNode
-	}
-	return &ShardDifferenceReader{
-		TargetNodeName: targetNodeName,
-	}, ErrNoDiffFound
+	return &ShardDifferenceReader{}, ErrNoDiffFound
 }
 
 func (f *Finder) DigestObjectsInRange(ctx context.Context,

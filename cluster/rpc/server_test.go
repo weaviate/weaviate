@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,6 +13,7 @@ package rpc
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"testing"
@@ -21,13 +22,15 @@ import (
 	"github.com/sirupsen/logrus"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/cluster/utils"
 	"github.com/weaviate/weaviate/usecases/fakes"
 	"github.com/weaviate/weaviate/usecases/monitoring"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
 const raftGrpcMessageMaxSize = 1024 * 1024 * 1024
@@ -368,6 +371,67 @@ func TestApply(t *testing.T) {
 			leaderAddr := fmt.Sprintf("localhost:%v", utils.MustGetFreeTCPPort())
 			test.members.leader = leaderAddr
 			test.testFunc(t, leaderAddr, test.members, test.executor)
+		})
+	}
+}
+
+func TestToRPCError(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      error
+		expected codes.Code
+	}{
+		{
+			name:     "ErrNotLeader maps to NotLeaderRPCCode",
+			err:      types.ErrNotLeader,
+			expected: NotLeaderRPCCode,
+		},
+		{
+			name:     "ErrLeaderNotFound maps to NotLeaderRPCCode",
+			err:      types.ErrLeaderNotFound,
+			expected: NotLeaderRPCCode,
+		},
+		{
+			name:     "ErrNotOpen maps to Unavailable",
+			err:      types.ErrNotOpen,
+			expected: codes.Unavailable,
+		},
+		{
+			name:     "ErrMTDisabled maps to FailedPrecondition",
+			err:      schema.ErrMTDisabled,
+			expected: codes.FailedPrecondition,
+		},
+		{
+			name:     "ErrNotFound maps to NotFound",
+			err:      types.ErrNotFound,
+			expected: codes.NotFound,
+		},
+		{
+			name:     "Unknown error maps to Internal",
+			err:      errors.New("unknown error"),
+			expected: codes.Internal,
+		},
+		{
+			name:     "Nil error returns nil",
+			err:      nil,
+			expected: codes.OK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := toRPCError(tt.err)
+
+			if tt.err == nil {
+				assert.Nil(t, result)
+				return
+			}
+
+			assert.NotNil(t, result)
+			st, ok := status.FromError(result)
+			assert.True(t, ok)
+			assert.Equal(t, tt.expected, st.Code())
+			assert.Contains(t, st.Message(), tt.err.Error())
 		})
 	}
 }

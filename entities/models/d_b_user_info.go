@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -31,32 +31,32 @@ import (
 // swagger:model DBUserInfo
 type DBUserInfo struct {
 
-	// activity status of the returned user
+	// Activity status of the returned user.
 	// Required: true
 	Active *bool `json:"active"`
 
-	// First 3 letters of the associated API-key
+	// First 3 letters of the associated API key.
 	// Max Length: 3
 	APIKeyFirstLetters string `json:"apiKeyFirstLetters,omitempty"`
 
-	// Date and time in ISO 8601 format (YYYY-MM-DDTHH:MM:SSZ)
+	// Date and time in ISO 8601 format: YYYY-MM-DDTHH:MM:SSZ.
 	// Format: date-time
 	CreatedAt strfmt.DateTime `json:"createdAt,omitempty"`
 
-	// type of the returned user
+	// Type of the returned user.
 	// Required: true
 	// Enum: [db_user db_env_user]
 	DbUserType *string `json:"dbUserType"`
 
-	// Date and time in ISO 8601 format (YYYY-MM-DDTHH:MM:SSZ)
+	// Date and time in ISO 8601 format: YYYY-MM-DDTHH:MM:SSZ.
 	// Format: date-time
 	LastUsedAt strfmt.DateTime `json:"lastUsedAt,omitempty"`
 
-	// The role names associated to the user
+	// The roles associated with the user.
 	// Required: true
 	Roles []string `json:"roles"`
 
-	// The user id of the given user
+	// The name (ID) of the user.
 	// Required: true
 	UserID *string `json:"userId"`
 }

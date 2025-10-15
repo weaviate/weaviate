@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -16,19 +16,18 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/storobj"
-	"github.com/weaviate/weaviate/usecases/objects"
 )
 
-// indexedBatch holds an indexed list of objects
-type indexedBatch struct {
+// IndexedBatch holds an indexed list of objects
+type IndexedBatch struct {
 	Data []*storobj.Object
 	// Index is z-index used to maintain object's order
 	Index []int
 }
 
-// createBatch creates indexedBatch from xs
-func createBatch(xs []*storobj.Object) indexedBatch {
-	var bi indexedBatch
+// createBatch creates IndexedBatch from xs
+func createBatch(xs []*storobj.Object) IndexedBatch {
+	var bi IndexedBatch
 	bi.Data = xs
 	bi.Index = make([]int, len(xs))
 	for i := 0; i < len(xs); i++ {
@@ -38,13 +37,13 @@ func createBatch(xs []*storobj.Object) indexedBatch {
 }
 
 // cluster data object by shard
-func cluster(bi indexedBatch) []shardPart {
+func cluster(bi IndexedBatch) []ShardPart {
 	index := bi.Index
 	data := bi.Data
 	sort.Slice(index, func(i, j int) bool {
 		return data[index[i]].BelongsToShard < data[index[j]].BelongsToShard
 	})
-	clusters := make([]shardPart, 0, 16)
+	clusters := make([]ShardPart, 0, 16)
 	// partition
 	cur := data[index[0]]
 	j := 0
@@ -52,7 +51,7 @@ func cluster(bi indexedBatch) []shardPart {
 		if data[index[i]].BelongsToShard == cur.BelongsToShard {
 			continue
 		}
-		clusters = append(clusters, shardPart{
+		clusters = append(clusters, ShardPart{
 			Shard: cur.BelongsToShard,
 			Node:  cur.BelongsToNode, Data: data,
 			Index: index[j:i],
@@ -61,7 +60,7 @@ func cluster(bi indexedBatch) []shardPart {
 		cur = data[index[j]]
 
 	}
-	clusters = append(clusters, shardPart{
+	clusters = append(clusters, ShardPart{
 		Shard: cur.BelongsToShard,
 		Node:  cur.BelongsToNode, Data: data,
 		Index: index[j:],
@@ -69,8 +68,8 @@ func cluster(bi indexedBatch) []shardPart {
 	return clusters
 }
 
-// shardPart represents a data partition belonging to a physical shard
-type shardPart struct {
+// ShardPart represents a data partition belonging to a physical shard
+type ShardPart struct {
 	Shard string // one-to-one mapping between Shard and Node
 	Node  string
 
@@ -78,7 +77,7 @@ type shardPart struct {
 	Index []int // index for data
 }
 
-func (b *shardPart) ObjectIDs() []strfmt.UUID {
+func (b *ShardPart) ObjectIDs() []strfmt.UUID {
 	xs := make([]strfmt.UUID, len(b.Index))
 	for i, idx := range b.Index {
 		xs[i] = b.Data[idx].ID()
@@ -86,13 +85,13 @@ func (b *shardPart) ObjectIDs() []strfmt.UUID {
 	return xs
 }
 
-func (b *shardPart) Extract() ([]objects.Replica, []strfmt.UUID) {
-	xs := make([]objects.Replica, len(b.Index))
+func (b *ShardPart) Extract() ([]Replica, []strfmt.UUID) {
+	xs := make([]Replica, len(b.Index))
 	ys := make([]strfmt.UUID, len(b.Index))
 
 	for i, idx := range b.Index {
 		p := b.Data[idx]
-		xs[i] = objects.Replica{ID: p.ID(), Deleted: false, Object: p}
+		xs[i] = Replica{ID: p.ID(), Deleted: false, Object: p}
 		ys[i] = p.ID()
 	}
 	return xs, ys

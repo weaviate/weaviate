@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -82,6 +82,29 @@ func input(prefix string) *graphql.InputObjectFieldConfig {
 				"imageProperties": &graphql.InputObjectFieldConfig{
 					Description: "imageProperties",
 					Type:        graphql.NewList(graphql.String),
+				},
+				"reasoningEffort": &graphql.InputObjectFieldConfig{
+					Description: "reasoningEffort",
+					Type: graphql.NewEnum(graphql.EnumConfig{
+						Name: fmt.Sprintf("%s%sReasoningEffort", prefix, Name),
+						Values: graphql.EnumValueConfigMap{
+							"minimal": &graphql.EnumValueConfig{Value: "minimal"},
+							"low":     &graphql.EnumValueConfig{Value: "low"},
+							"medium":  &graphql.EnumValueConfig{Value: "medium"},
+							"high":    &graphql.EnumValueConfig{Value: "high"},
+						},
+					}),
+				},
+				"verbosity": &graphql.InputObjectFieldConfig{
+					Description: "verbosity",
+					Type: graphql.NewEnum(graphql.EnumConfig{
+						Name: fmt.Sprintf("%s%sVerbosity", prefix, Name),
+						Values: graphql.EnumValueConfigMap{
+							"low":    &graphql.EnumValueConfig{Value: "low"},
+							"medium": &graphql.EnumValueConfig{Value: "medium"},
+							"high":   &graphql.EnumValueConfig{Value: "high"},
+						},
+					}),
 				},
 			},
 		}),

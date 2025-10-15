@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -28,7 +28,7 @@ import (
 
 func Test_NoRaceQuantizedVectorCompressor(t *testing.T) {
 	t.Run("loading and deleting data works", func(t *testing.T) {
-		compressor, err := compressionhelpers.NewBQCompressor(distancer.NewCosineDistanceProvider(), 1e12, nil, testinghelpers.NewDummyStore(t), nil)
+		compressor, err := compressionhelpers.NewBQCompressor(distancer.NewCosineDistanceProvider(), 1e12, nil, testinghelpers.NewDummyStore(t), 0, 0, nil, "name")
 		assert.Nil(t, err)
 		compressor.Preload(1, []float32{-0.5, 0.5})
 		vec, err := compressor.DistanceBetweenCompressedVectorsFromIDs(context.Background(), 1, 2)
@@ -44,7 +44,7 @@ func Test_NoRaceQuantizedVectorCompressor(t *testing.T) {
 	})
 
 	t.Run("distance are right when using BQ", func(t *testing.T) {
-		compressor, err := compressionhelpers.NewBQCompressor(distancer.NewCosineDistanceProvider(), 1e12, nil, testinghelpers.NewDummyStore(t), nil)
+		compressor, err := compressionhelpers.NewBQCompressor(distancer.NewCosineDistanceProvider(), 1e12, nil, testinghelpers.NewDummyStore(t), 0, 0, nil, "name")
 		assert.Nil(t, err)
 		compressor.Preload(1, []float32{-0.5, 0.5})
 		compressor.Preload(2, []float32{0.25, 0.7})
@@ -64,7 +64,7 @@ func Test_NoRaceQuantizedVectorCompressor(t *testing.T) {
 	})
 
 	t.Run("distance are right when using BQDistancer", func(t *testing.T) {
-		compressor, err := compressionhelpers.NewBQCompressor(distancer.NewCosineDistanceProvider(), 1e12, nil, testinghelpers.NewDummyStore(t), nil)
+		compressor, err := compressionhelpers.NewBQCompressor(distancer.NewCosineDistanceProvider(), 1e12, nil, testinghelpers.NewDummyStore(t), 0, 0, nil, "name")
 		assert.Nil(t, err)
 		compressor.Preload(1, []float32{-0.5, 0.5})
 		compressor.Preload(2, []float32{0.25, 0.7})
@@ -90,7 +90,7 @@ func Test_NoRaceQuantizedVectorCompressor(t *testing.T) {
 	})
 
 	t.Run("distance are right when using BQDistancer to compressed node", func(t *testing.T) {
-		compressor, err := compressionhelpers.NewBQCompressor(distancer.NewCosineDistanceProvider(), 1e12, nil, testinghelpers.NewDummyStore(t), nil)
+		compressor, err := compressionhelpers.NewBQCompressor(distancer.NewCosineDistanceProvider(), 1e12, nil, testinghelpers.NewDummyStore(t), 0, 0, nil, "name")
 		assert.Nil(t, err)
 		compressor.Preload(1, []float32{-0.5, 0.5})
 		compressor.Preload(2, []float32{0.25, 0.7})
@@ -143,7 +143,10 @@ func Test_NoRaceQuantizedVectorCompressor(t *testing.T) {
 		compressor, err := compressionhelpers.NewHNSWPQCompressor(
 			config, dist, dims, cacheMaxObjs, nil, trainingData,
 			testinghelpers.NewDummyStore(t),
+			0,
+			0,
 			memwatch.NewDummyMonitor(),
+			"name",
 		)
 		require.Nil(t, err)
 		d, _ := compressor.NewDistancer(storedVec)

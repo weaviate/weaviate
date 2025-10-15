@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -19,6 +19,9 @@ import (
 	"path"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/mock"
+	schema2 "github.com/weaviate/weaviate/usecases/schema"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -139,7 +142,7 @@ func TestFileStructureMigration(t *testing.T) {
 			i++
 		}
 
-		db := testDB(root, classes, states)
+		db := testDB(t, root, classes, states)
 		require.Nil(t, db.migrateFileStructureIfNecessary())
 	})
 
@@ -196,14 +199,27 @@ func assertShardRootContents(t *testing.T, shardsByClass map[string][]string, ro
 	expected.assert(t)
 
 	// Check if pq store was migrated to main store as "vectors_compressed" subdir
-	pqDir := path.Join(root, idx.Name(), shard.Name(), "lsm", helpers.VectorsCompressedBucketLSM)
+	pqDir := path.Join(root, idx.Name(), shard.Name(), "lsm", helpers.GetCompressedBucketName(idx.Name()))
 	info, err := os.Stat(pqDir)
 	require.NoError(t, err)
 	assert.True(t, info.IsDir())
 }
 
-func testDB(root string, classes []*models.Class, states map[string]*sharding.State) *DB {
+func testDB(t *testing.T, root string, classes []*models.Class, states map[string]*sharding.State) *DB {
 	logger, _ := test.NewNullLogger()
+	mockSchemaReader := schema2.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().Shards(mock.Anything).RunAndReturn(func(className string) ([]string, error) {
+		return states[className].AllPhysicalShards(), nil
+	}).Maybe()
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
+		for _, class := range classes {
+			if className == class.Class {
+				return readFunc(class, states[className])
+			}
+		}
+		return nil
+	}).Maybe()
+	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: classes}).Maybe()
 	return &DB{
 		config: Config{RootPath: root},
 		logger: logger,
@@ -211,6 +227,7 @@ func testDB(root string, classes []*models.Class, states map[string]*sharding.St
 			sch:    schema.Schema{Objects: &models.Schema{Classes: classes}},
 			states: states,
 		},
+		schemaReader: mockSchemaReader,
 	}
 }
 
@@ -273,6 +290,14 @@ func (sg *fakeMigrationSchemaGetter) ReadOnlyClass(class string) *models.Class {
 	return sg.sch.GetClass(class)
 }
 
+func (sg *fakeMigrationSchemaGetter) ResolveAlias(string) string {
+	return ""
+}
+
+func (sg *fakeMigrationSchemaGetter) GetAliasesForClass(string) []*models.Alias {
+	return nil
+}
+
 func (sg *fakeMigrationSchemaGetter) Nodes() []string {
 	return nil
 }
@@ -291,10 +316,6 @@ func (sg *fakeMigrationSchemaGetter) ResolveParentNodes(string, string) (map[str
 
 func (sg *fakeMigrationSchemaGetter) Statistics() map[string]any {
 	return nil
-}
-
-func (sg *fakeMigrationSchemaGetter) CopyShardingState(class string) *sharding.State {
-	return sg.states[class]
 }
 
 func (sg *fakeMigrationSchemaGetter) ShardOwner(class, shard string) (string, error) {

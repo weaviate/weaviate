@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -14,6 +14,7 @@ package traverser
 import (
 	"context"
 	"fmt"
+	"math"
 
 	"github.com/go-openapi/strfmt"
 
@@ -49,8 +50,8 @@ func sparseSearch(ctx context.Context, e *Explorer, params dto.GetParams) ([]*se
 		params.KeywordRanking.SearchOperator = params.HybridSearch.SearchOperator
 	}
 
-	if params.HybridSearch.MinimumShouldMatch != 0 {
-		params.KeywordRanking.MinimumShouldMatch = params.HybridSearch.MinimumShouldMatch
+	if params.HybridSearch.MinimumOrTokensMatch != 0 {
+		params.KeywordRanking.MinimumOrTokensMatch = params.HybridSearch.MinimumOrTokensMatch
 	}
 
 	totalLimit, err := e.CalculateTotalLimit(params.Pagination)
@@ -58,7 +59,7 @@ func sparseSearch(ctx context.Context, e *Explorer, params dto.GetParams) ([]*se
 		return nil, "", err
 	}
 
-	enforcedMin := MaxInt(params.Pagination.Offset+hybrid.DefaultLimit, totalLimit)
+	enforcedMin := MaxInt(params.Pagination.Offset+int(e.config.QueryHybridMaximumResults), totalLimit)
 
 	oldLimit := params.Pagination.Limit
 	params.Pagination.Limit = enforcedMin - params.Pagination.Offset
@@ -82,8 +83,8 @@ func sparseSearch(ctx context.Context, e *Explorer, params dto.GetParams) ([]*se
 // Do a nearvector search.  The results will be used in the hybrid algorithm
 func denseSearch(ctx context.Context, e *Explorer, params dto.GetParams, searchname string, targetVectors []string, searchVector *searchparams.NearVector) ([]*search.Result, string, error) {
 	params.Pagination.Offset = 0
-	if params.Pagination.Limit < hybrid.DefaultLimit {
-		params.Pagination.Limit = hybrid.DefaultLimit
+	if params.Pagination.Limit < int(e.config.QueryHybridMaximumResults) {
+		params.Pagination.Limit = int(e.config.QueryHybridMaximumResults)
 	}
 	params.Group = nil
 	params.GroupBy = nil
@@ -208,14 +209,14 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 	// pagination is handled after combining results
 	vectorParams := params
 	vectorParams.Pagination = &filters.Pagination{
-		Limit:   params.Pagination.Limit,
+		Limit:   int(math.Max(float64(e.config.QueryHybridMaximumResults), float64(params.Pagination.Limit))),
 		Offset:  0,
 		Autocut: -1,
 	}
 
 	keywordParams := params
 	keywordParams.Pagination = &filters.Pagination{
-		Limit:   params.Pagination.Limit,
+		Limit:   int(math.Max(float64(e.config.QueryHybridMaximumResults), float64(params.Pagination.Limit))),
 		Offset:  0,
 		Autocut: -1,
 	}
@@ -378,7 +379,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 
 	// The postProcess function is used to limit the number of results and to resolve references
 	// in the results.  It is called after all the subsearches have been completed, and before autocut
-	postProcess := func(results []*search.Result) ([]search.Result, error) {
+	postProcess := func(results []search.Result) ([]search.Result, error) {
 		totalLimit, err := e.CalculateTotalLimit(origParams.Pagination)
 		if err != nil {
 			return nil, err
@@ -388,32 +389,30 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 			results = results[:totalLimit]
 		}
 
-		res1 := make([]search.Result, 0, len(results))
-		for _, res := range results {
-			res1 = append(res1, *res)
-		}
-
-		res, err := e.searcher.ResolveReferences(ctx, res1, origParams.Properties, nil, origParams.AdditionalProperties, origParams.Tenant)
+		res, err := e.searcher.ResolveReferences(ctx, results, origParams.Properties, nil, origParams.AdditionalProperties, origParams.Tenant)
 		if err != nil {
 			return nil, err
 		}
+
 		return res, nil
 	}
 
 	res, err := hybrid.HybridCombiner(ctx, &hybrid.Params{
-		HybridSearch: origParams.HybridSearch,
-		Keyword:      origParams.KeywordRanking,
-		Class:        origParams.ClassName,
-		Autocut:      origParams.Pagination.Autocut,
-	}, results, weights, names, e.logger, postProcess)
+		HybridSearch:         origParams.HybridSearch,
+		Keyword:              origParams.KeywordRanking,
+		Class:                origParams.ClassName,
+		Autocut:              origParams.Pagination.Autocut,
+		ModuleParams:         origParams.ModuleParams,
+		AdditionalProperties: origParams.AdditionalProperties,
+	}, results, weights, names, e.logger, e.modulesProvider, postProcess)
 	if err != nil {
 		return nil, err
 	}
 
-	var pointerResultList hybrid.Results
+	var out []search.Result
 
 	if origParams.Pagination.Limit <= 0 {
-		origParams.Pagination.Limit = hybrid.DefaultLimit
+		origParams.Pagination.Limit = int(e.config.QueryHybridMaximumResults)
 	}
 
 	if origParams.Pagination.Offset < 0 {
@@ -421,20 +420,13 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 	}
 
 	if len(res) >= origParams.Pagination.Limit+origParams.Pagination.Offset {
-		pointerResultList = res[origParams.Pagination.Offset : origParams.Pagination.Limit+origParams.Pagination.Offset]
+		out = res[origParams.Pagination.Offset : origParams.Pagination.Limit+origParams.Pagination.Offset]
 	}
 	if len(res) < origParams.Pagination.Limit+origParams.Pagination.Offset && len(res) > origParams.Pagination.Offset {
-		pointerResultList = res[origParams.Pagination.Offset:]
+		out = res[origParams.Pagination.Offset:]
 	}
 	if len(res) <= origParams.Pagination.Offset {
-		pointerResultList = hybrid.Results{}
-	}
-
-	// The rest of weaviate uses []search.Result, so we convert the hpointerResultList to []search.Result
-
-	out := make([]search.Result, 0, len(pointerResultList))
-	for _, pointerResult := range pointerResultList {
-		out = append(out, *pointerResult)
+		out = []search.Result{}
 	}
 
 	if origParams.GroupBy != nil {

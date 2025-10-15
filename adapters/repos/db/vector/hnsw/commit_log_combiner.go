@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,13 +13,13 @@ package hnsw
 
 import (
 	"io"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 )
 
 type CommitLogCombiner struct {
@@ -27,16 +27,19 @@ type CommitLogCombiner struct {
 	id        string
 	threshold int64
 	logger    logrus.FieldLogger
+	fs        common.FS
 }
 
 func NewCommitLogCombiner(rootPath, id string, threshold int64,
 	logger logrus.FieldLogger,
+	fs common.FS,
 ) *CommitLogCombiner {
 	return &CommitLogCombiner{
 		rootPath:  rootPath,
 		id:        id,
 		threshold: threshold,
 		logger:    logger,
+		fs:        fs,
 	}
 }
 
@@ -47,7 +50,7 @@ func (c *CommitLogCombiner) Do(partitions ...string) (bool, error) {
 	executed := false
 	for {
 		// fileNames will already be in order
-		fileNames, err := getCommitFileNames(c.rootPath, c.id, 0)
+		fileNames, err := getCommitFileNames(c.rootPath, c.id, 0, c.fs)
 		if err != nil {
 			return executed, errors.Wrap(err, "obtain files names")
 		}
@@ -96,7 +99,7 @@ func (c *CommitLogCombiner) partitonFileNames(fileNames, partitions []string) []
 	for ; i < len(fileNames); i++ {
 		partFileNames = append(partFileNames, fileNames[i])
 	}
-	if len(fileNames) > 0 {
+	if len(partFileNames) > 0 {
 		partitioned = append(partitioned, partFileNames)
 	}
 	return partitioned
@@ -120,7 +123,7 @@ func (c *CommitLogCombiner) combineFirstMatch(fileNames []string) (bool, error) 
 			continue
 		}
 
-		currentStat, err := os.Stat(fileName)
+		currentStat, err := c.fs.Stat(fileName)
 		if err != nil {
 			return false, errors.Wrapf(err, "stat file %q", fileName)
 		}
@@ -130,7 +133,7 @@ func (c *CommitLogCombiner) combineFirstMatch(fileNames []string) (bool, error) 
 			continue
 		}
 
-		nextStat, err := os.Stat(fileNames[i+1])
+		nextStat, err := c.fs.Stat(fileNames[i+1])
 		if err != nil {
 			return false, errors.Wrapf(err, "stat file %q", fileNames[i+1])
 		}
@@ -183,18 +186,18 @@ func (c *CommitLogCombiner) combine(left, right string) error {
 }
 
 func (c *CommitLogCombiner) mergeFiles(outName, first, second string) error {
-	out, err := os.Create(outName)
+	out, err := c.fs.Create(outName)
 	if err != nil {
 		return errors.Wrapf(err, "open target file %q", outName)
 	}
 
-	source1, err := os.Open(first)
+	source1, err := c.fs.Open(first)
 	if err != nil {
 		return errors.Wrapf(err, "open first source file %q", first)
 	}
 	defer source1.Close()
 
-	source2, err := os.Open(second)
+	source2, err := c.fs.Open(second)
 	if err != nil {
 		return errors.Wrapf(err, "open second source file %q", second)
 	}
@@ -210,6 +213,10 @@ func (c *CommitLogCombiner) mergeFiles(outName, first, second string) error {
 	if err != nil {
 		return errors.Wrapf(err, "copy second source (%q) into target (%q)", second,
 			outName)
+	}
+
+	if err := out.Sync(); err != nil {
+		return errors.Wrapf(err, "sync target file %q", outName)
 	}
 
 	err = out.Close()
@@ -229,12 +236,12 @@ func (c *CommitLogCombiner) renameAndCleanUp(tmpName, finalName string,
 	// sources will. This will look to the corrupted file fixer as if a
 	// condensing had gone wrong and will delete the the source
 
-	if err := os.Rename(tmpName, finalName); err != nil {
+	if err := c.fs.Rename(tmpName, finalName); err != nil {
 		return errors.Wrapf(err, "rename tmp (%q) to final (%q)", tmpName, finalName)
 	}
 
 	for _, toDelete := range toDeletes {
-		if err := os.Remove(toDelete); err != nil {
+		if err := c.fs.Remove(toDelete); err != nil {
 			return errors.Wrapf(err, "clean up %q", toDelete)
 		}
 	}

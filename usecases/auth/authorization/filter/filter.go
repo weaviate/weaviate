@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -12,6 +12,7 @@
 package filter
 
 import (
+	"context"
 	"slices"
 
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
@@ -40,6 +41,7 @@ type FilterFn[T any] func(item T) string
 
 // Filter filters a slice of items based on authorization
 func (f *ResourceFilter[T]) Filter(
+	ctx context.Context,
 	logger logrus.FieldLogger,
 	principal *models.Principal,
 	items []T,
@@ -51,7 +53,7 @@ func (f *ResourceFilter[T]) Filter(
 	}
 	if !f.config.Enabled {
 		// here it's either you have the permissions or not so 1 check is enough
-		if err := f.authorizer.Authorize(principal, verb, resourceFn(items[0])); err != nil {
+		if err := f.authorizer.Authorize(ctx, principal, verb, resourceFn(items[0])); err != nil {
 			logger.WithFields(logrus.Fields{
 				"username":  principal.Username,
 				"verb":      verb,
@@ -74,7 +76,7 @@ func (f *ResourceFilter[T]) Filter(
 
 	// If all items have the same parent, we can do a single authorization check
 	if allSameParent {
-		err := f.authorizer.Authorize(principal, verb, authorization.WildcardPath(firstResource))
+		err := f.authorizer.Authorize(ctx, principal, verb, authorization.WildcardPath(firstResource))
 		if err != nil {
 			logger.WithFields(logrus.Fields{
 				"username": principal.Username,
@@ -96,7 +98,7 @@ func (f *ResourceFilter[T]) Filter(
 		resources = append(resources, resourceFn(item))
 	}
 
-	allowedList, err := f.authorizer.FilterAuthorizedResources(principal, verb, resources...)
+	allowedList, err := f.authorizer.FilterAuthorizedResources(ctx, principal, verb, resources...)
 	if err != nil {
 		logger.WithFields(logrus.Fields{
 			"username":  principal.Username,

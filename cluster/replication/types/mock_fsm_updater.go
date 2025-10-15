@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -32,65 +32,6 @@ type MockFSMUpdater_Expecter struct {
 
 func (_m *MockFSMUpdater) EXPECT() *MockFSMUpdater_Expecter {
 	return &MockFSMUpdater_Expecter{mock: &_m.Mock}
-}
-
-// AddReplicaToShard provides a mock function with given fields: ctx, collection, shard, nodeId
-func (_m *MockFSMUpdater) AddReplicaToShard(ctx context.Context, collection string, shard string, nodeId string) (uint64, error) {
-	ret := _m.Called(ctx, collection, shard, nodeId)
-
-	if len(ret) == 0 {
-		panic("no return value specified for AddReplicaToShard")
-	}
-
-	var r0 uint64
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, string) (uint64, error)); ok {
-		return rf(ctx, collection, shard, nodeId)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, string) uint64); ok {
-		r0 = rf(ctx, collection, shard, nodeId)
-	} else {
-		r0 = ret.Get(0).(uint64)
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context, string, string, string) error); ok {
-		r1 = rf(ctx, collection, shard, nodeId)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// MockFSMUpdater_AddReplicaToShard_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'AddReplicaToShard'
-type MockFSMUpdater_AddReplicaToShard_Call struct {
-	*mock.Call
-}
-
-// AddReplicaToShard is a helper method to define mock.On call
-//   - ctx context.Context
-//   - collection string
-//   - shard string
-//   - nodeId string
-func (_e *MockFSMUpdater_Expecter) AddReplicaToShard(ctx interface{}, collection interface{}, shard interface{}, nodeId interface{}) *MockFSMUpdater_AddReplicaToShard_Call {
-	return &MockFSMUpdater_AddReplicaToShard_Call{Call: _e.mock.On("AddReplicaToShard", ctx, collection, shard, nodeId)}
-}
-
-func (_c *MockFSMUpdater_AddReplicaToShard_Call) Run(run func(ctx context.Context, collection string, shard string, nodeId string)) *MockFSMUpdater_AddReplicaToShard_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string))
-	})
-	return _c
-}
-
-func (_c *MockFSMUpdater_AddReplicaToShard_Call) Return(_a0 uint64, _a1 error) *MockFSMUpdater_AddReplicaToShard_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *MockFSMUpdater_AddReplicaToShard_Call) RunAndReturn(run func(context.Context, string, string, string) (uint64, error)) *MockFSMUpdater_AddReplicaToShard_Call {
-	_c.Call.Return(run)
-	return _c
 }
 
 // DeleteReplicaFromShard provides a mock function with given fields: ctx, collection, shard, nodeId
@@ -148,6 +89,66 @@ func (_c *MockFSMUpdater_DeleteReplicaFromShard_Call) Return(_a0 uint64, _a1 err
 }
 
 func (_c *MockFSMUpdater_DeleteReplicaFromShard_Call) RunAndReturn(run func(context.Context, string, string, string) (uint64, error)) *MockFSMUpdater_DeleteReplicaFromShard_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// ReplicationAddReplicaToShard provides a mock function with given fields: ctx, collection, shard, nodeId, opId
+func (_m *MockFSMUpdater) ReplicationAddReplicaToShard(ctx context.Context, collection string, shard string, nodeId string, opId uint64) (uint64, error) {
+	ret := _m.Called(ctx, collection, shard, nodeId, opId)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ReplicationAddReplicaToShard")
+	}
+
+	var r0 uint64
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, uint64) (uint64, error)); ok {
+		return rf(ctx, collection, shard, nodeId, opId)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, uint64) uint64); ok {
+		r0 = rf(ctx, collection, shard, nodeId, opId)
+	} else {
+		r0 = ret.Get(0).(uint64)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, string, string, uint64) error); ok {
+		r1 = rf(ctx, collection, shard, nodeId, opId)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockFSMUpdater_ReplicationAddReplicaToShard_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ReplicationAddReplicaToShard'
+type MockFSMUpdater_ReplicationAddReplicaToShard_Call struct {
+	*mock.Call
+}
+
+// ReplicationAddReplicaToShard is a helper method to define mock.On call
+//   - ctx context.Context
+//   - collection string
+//   - shard string
+//   - nodeId string
+//   - opId uint64
+func (_e *MockFSMUpdater_Expecter) ReplicationAddReplicaToShard(ctx interface{}, collection interface{}, shard interface{}, nodeId interface{}, opId interface{}) *MockFSMUpdater_ReplicationAddReplicaToShard_Call {
+	return &MockFSMUpdater_ReplicationAddReplicaToShard_Call{Call: _e.mock.On("ReplicationAddReplicaToShard", ctx, collection, shard, nodeId, opId)}
+}
+
+func (_c *MockFSMUpdater_ReplicationAddReplicaToShard_Call) Run(run func(ctx context.Context, collection string, shard string, nodeId string, opId uint64)) *MockFSMUpdater_ReplicationAddReplicaToShard_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string), args[4].(uint64))
+	})
+	return _c
+}
+
+func (_c *MockFSMUpdater_ReplicationAddReplicaToShard_Call) Return(_a0 uint64, _a1 error) *MockFSMUpdater_ReplicationAddReplicaToShard_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockFSMUpdater_ReplicationAddReplicaToShard_Call) RunAndReturn(run func(context.Context, string, string, string, uint64) (uint64, error)) *MockFSMUpdater_ReplicationAddReplicaToShard_Call {
 	_c.Call.Return(run)
 	return _c
 }

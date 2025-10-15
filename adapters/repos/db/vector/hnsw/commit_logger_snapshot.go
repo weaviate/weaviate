@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -28,7 +28,9 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/packedconn"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
 	"github.com/weaviate/weaviate/entities/diskio"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -39,12 +41,21 @@ const (
 	snapshotConcurrency   = 8 // number of goroutines handling snapshot's checkpoints reading
 	snapshotDirSuffix     = ".hnsw.snapshot.d"
 	snapshotCheckInterval = 10 * time.Minute
+	maxExpectedConns      = 4096 * 4
 )
 
 const (
 	SnapshotCompressionTypePQ = iota + 1
 	SnapshotCompressionTypeSQ
 	SnapshotEncoderTypeMuvera
+	SnapshotCompressionTypeRQ
+	SnapshotCompressionTypeBRQ
+)
+
+// version of the snapshot file format
+const (
+	snapshotVersionV1 = 1 // initial version
+	snapshotVersionV2 = 2 // added packed connections support
 )
 
 func snapshotName(path string) string {
@@ -62,6 +73,9 @@ func snapshotDirectory(rootPath, name string) string {
 
 // Loads state of last available snapshot. Returns nil if no snaphshot was found.
 func (l *hnswCommitLogger) LoadSnapshot() (state *DeserializationResult, createdAt int64, err error) {
+	l.snapshotLock.Lock()
+	defer l.snapshotLock.Unlock()
+
 	logger, onFinish := l.setupSnapshotLogger(logrus.Fields{"method": "load_snapshot"})
 	defer func() { onFinish(err) }()
 
@@ -87,6 +101,9 @@ func (l *hnswCommitLogger) LoadSnapshot() (state *DeserializationResult, created
 // or from the entire commit log if there is no previous snapshot.
 // The snapshot state contains all but last commitlog (may still be in use and mutable).
 func (l *hnswCommitLogger) CreateSnapshot() (created bool, createdAt int64, err error) {
+	l.snapshotLock.Lock()
+	defer l.snapshotLock.Unlock()
+
 	logger, onFinish := l.setupSnapshotLogger(logrus.Fields{"method": "create_snapshot"})
 	defer func() { onFinish(err) }()
 
@@ -98,6 +115,9 @@ func (l *hnswCommitLogger) CreateSnapshot() (created bool, createdAt int64, err 
 // last snapshot. It is used at startup to automatically create a snapshot
 // while loading the commit log, to avoid having to load the commit log again.
 func (l *hnswCommitLogger) CreateAndLoadSnapshot() (state *DeserializationResult, createdAt int64, err error) {
+	l.snapshotLock.Lock()
+	defer l.snapshotLock.Unlock()
+
 	logger, onFinish := l.setupSnapshotLogger(logrus.Fields{"method": "create_and_load_snapshot"})
 	defer func() { onFinish(err) }()
 
@@ -167,7 +187,7 @@ func (l *hnswCommitLogger) createAndOptionallyLoadSnapshotOnLastOne(logger logru
 		return state, "", createdAt, nil
 	}
 
-	newState, err := loadCommitLoggerState(l.logger, commitlogPaths, state, nil)
+	newState, err := loadCommitLoggerState(l.fs, l.logger, commitlogPaths, state, nil)
 	if err != nil {
 		return nil, "", 0, errors.Wrapf(err, "apply delta commitlogs")
 	}
@@ -263,7 +283,7 @@ func (l *hnswCommitLogger) initSnapshotData() error {
 	fields["partitions"] = l.snapshotPartitions
 
 	if !l.snapshotDisabled {
-		if err := os.MkdirAll(snapshotDirectory(l.rootPath, l.id), 0o755); err != nil {
+		if err := l.fs.MkdirAll(snapshotDirectory(l.rootPath, l.id), 0o755); err != nil {
 			return errors.Wrapf(err, "make snapshot directory")
 		}
 
@@ -307,10 +327,10 @@ func (l *hnswCommitLogger) calcSnapshotSize(snapshotPath string) int64 {
 	}
 
 	totalSize := int64(0)
-	if info, err := os.Stat(snapshotPath); err == nil {
+	if info, err := l.fs.Stat(snapshotPath); err == nil {
 		totalSize += info.Size()
 	}
-	if info, err := os.Stat(snapshotPath + ".checkpoints"); err == nil {
+	if info, err := l.fs.Stat(snapshotPath + ".checkpoints"); err == nil {
 		totalSize += info.Size()
 	}
 	return totalSize
@@ -324,7 +344,7 @@ func (l *hnswCommitLogger) calcCommitlogsSize(commitLogPaths ...string) int64 {
 
 	totalSize := int64(0)
 	for i := range commitLogPaths {
-		if info, err := os.Stat(commitLogPaths[i]); err == nil {
+		if info, err := l.fs.Stat(commitLogPaths[i]); err == nil {
 			totalSize += info.Size()
 		}
 	}
@@ -340,7 +360,7 @@ func (l *hnswCommitLogger) snapshotFileName(commitLogFileName string) string {
 func (l *hnswCommitLogger) getLastSnapshot() (path string, createdAt int64, err error) {
 	snapshotDir := snapshotDirectory(l.rootPath, l.id)
 
-	entries, err := os.ReadDir(snapshotDir)
+	entries, err := l.fs.ReadDir(snapshotDir)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			// no snapshot directory, no snapshot
@@ -372,7 +392,7 @@ func (l *hnswCommitLogger) getLastSnapshot() (path string, createdAt int64, err 
 }
 
 func (l *hnswCommitLogger) getDeltaCommitlogs(createdAfter int64) (paths []string, err error) {
-	files, err := getCommitFiles(l.rootPath, l.id, createdAfter)
+	files, err := getCommitFiles(l.rootPath, l.id, createdAfter, l.fs)
 	if err != nil {
 		return nil, err
 	}
@@ -393,7 +413,7 @@ func (l *hnswCommitLogger) getDeltaCommitlogs(createdAfter int64) (paths []strin
 func (l *hnswCommitLogger) cleanupSnapshots(before int64) error {
 	snapshotDir := snapshotDirectory(l.rootPath, l.id)
 
-	files, err := os.ReadDir(snapshotDir)
+	files, err := l.fs.ReadDir(snapshotDir)
 	if err != nil {
 		return errors.Wrapf(err, "read snapshot directory %q", snapshotDir)
 	}
@@ -403,7 +423,7 @@ func (l *hnswCommitLogger) cleanupSnapshots(before int64) error {
 		if strings.HasSuffix(name, ".snapshot.tmp") {
 			// a temporary snapshot file was found which means that a previous
 			// snapshoting process never completed, we can safely remove it.
-			err := os.Remove(filepath.Join(snapshotDir, name))
+			err := l.fs.Remove(filepath.Join(snapshotDir, name))
 			if err != nil {
 				return errors.Wrapf(err, "remove tmp snapshot file %q", name)
 			}
@@ -417,7 +437,7 @@ func (l *hnswCommitLogger) cleanupSnapshots(before int64) error {
 			}
 
 			if i < before {
-				err := os.Remove(filepath.Join(snapshotDir, name))
+				err := l.fs.Remove(filepath.Join(snapshotDir, name))
 				if err != nil {
 					return errors.Wrapf(err, "remove snapshot file %q", name)
 				}
@@ -432,7 +452,7 @@ func (l *hnswCommitLogger) cleanupSnapshots(before int64) error {
 			}
 
 			if i < before {
-				err := os.Remove(filepath.Join(snapshotDir, name))
+				err := l.fs.Remove(filepath.Join(snapshotDir, name))
 				if err != nil {
 					return errors.Wrapf(err, "remove checkpoints file %q", name)
 				}
@@ -443,7 +463,13 @@ func (l *hnswCommitLogger) cleanupSnapshots(before int64) error {
 	return nil
 }
 
-func loadCommitLoggerState(logger logrus.FieldLogger, fileNames []string, state *DeserializationResult, metrics *Metrics) (*DeserializationResult, error) {
+func loadCommitLoggerState(fs common.FS, logger logrus.FieldLogger, fileNames []string, state *DeserializationResult, metrics *Metrics) (*DeserializationResult, error) {
+	start := time.Now()
+	defer func() {
+		logger.WithField("commitlog_files", len(fileNames)).
+			WithField("took", time.Since(start)).
+			Debug("commit log files loaded")
+	}()
 	var err error
 
 	fileNames, err = NewCorruptedCommitLogFixer().Do(fileNames)
@@ -455,7 +481,7 @@ func loadCommitLoggerState(logger logrus.FieldLogger, fileNames []string, state 
 		beforeIndividual := time.Now()
 
 		err = func() error {
-			fd, err := os.Open(fileName)
+			fd, err := fs.Open(fileName)
 			if err != nil {
 				return errors.Wrapf(err, "open commit log %q for reading", fileName)
 			}
@@ -475,7 +501,7 @@ func loadCommitLoggerState(logger logrus.FieldLogger, fileNames []string, state 
 				fdMetered = diskio.NewMeteredReader(fd,
 					metrics.TrackStartupReadCommitlogDiskIO)
 			}
-			fdBuf := bufio.NewReaderSize(fdMetered, 256*1024)
+			fdBuf := bufio.NewReaderSize(fdMetered, 512*1024)
 
 			var valid int
 			state, valid, err = NewDeserializer(logger).Do(fdBuf, state, false)
@@ -492,7 +518,7 @@ func loadCommitLoggerState(logger logrus.FieldLogger, fileNames []string, state 
 						Error("write-ahead-log ended abruptly, some elements may not have been recovered")
 
 					// we need to truncate the file to its valid length!
-					if err := os.Truncate(fileName, int64(valid)); err != nil {
+					if err := fs.Truncate(fileName, int64(valid)); err != nil {
 						return errors.Wrapf(err, "truncate corrupt commit log %q", fileName)
 					}
 				} else {
@@ -520,7 +546,19 @@ func (l *hnswCommitLogger) writeSnapshot(state *DeserializationResult, filename 
 	tmpSnapshotFileName := fmt.Sprintf("%s.tmp", filename)
 	checkPointsFileName := fmt.Sprintf("%s.checkpoints", filename)
 
-	snap, err := os.OpenFile(tmpSnapshotFileName, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o666)
+	// check if checkpoints with the same name already exist
+	if _, err := l.fs.Stat(checkPointsFileName); err == nil {
+		l.logger.WithField("action", "write_snapshot").
+			WithField("path", checkPointsFileName).
+			Info("writing new snapshot with same name as last snapshot, deleting checkpoints file")
+
+		err = l.fs.Remove(checkPointsFileName)
+		if err != nil {
+			return errors.Wrap(err, "remove existing checkpoints file")
+		}
+	}
+
+	snap, err := l.fs.OpenFile(tmpSnapshotFileName, os.O_WRONLY|os.O_TRUNC|os.O_CREATE, 0o666)
 	if err != nil {
 		return errors.Wrapf(err, "create snapshot file %q", tmpSnapshotFileName)
 	}
@@ -554,13 +592,13 @@ func (l *hnswCommitLogger) writeSnapshot(state *DeserializationResult, filename 
 	}
 
 	// write the checkpoints to a separate file
-	err = writeCheckpoints(checkPointsFileName, checkpoints)
+	err = writeCheckpoints(checkPointsFileName, checkpoints, l.fs)
 	if err != nil {
 		return errors.Wrap(err, "write checkpoints file")
 	}
 
 	// rename the temporary snapshot file to the final name
-	err = os.Rename(tmpSnapshotFileName, filename)
+	err = l.fs.Rename(tmpSnapshotFileName, filename)
 	if err != nil {
 		return errors.Wrapf(err, "rename snapshot file %q", tmpSnapshotFileName)
 	}
@@ -569,13 +607,18 @@ func (l *hnswCommitLogger) writeSnapshot(state *DeserializationResult, filename 
 }
 
 func (l *hnswCommitLogger) readSnapshot(path string) (*DeserializationResult, error) {
-	checkpoints, err := readCheckpoints(path)
+	start := time.Now()
+	defer func() {
+		l.logger.WithField("snapshot", path).WithField("took", time.Since(start).String()).Info("snapshot loaded")
+	}()
+
+	checkpoints, err := readCheckpoints(path, l.fs)
 	if err != nil {
 		// if for any reason the checkpoints file is not found or corrupted
 		// we need to remove the snapshot file and create a new one from the commit log.
-		_ = os.Remove(path)
+		_ = l.fs.Remove(path)
 		cpPath := path + ".checkpoints"
-		_ = os.Remove(cpPath)
+		_ = l.fs.Remove(cpPath)
 
 		l.logger.WithField("action", "hnsw_remove_corrupt_snapshot").
 			WithField("path", path).
@@ -589,9 +632,9 @@ func (l *hnswCommitLogger) readSnapshot(path string) (*DeserializationResult, er
 	if err != nil {
 		// if for any reason the snapshot file is not found or corrupted
 		// we need to remove the snapshot file and create a new one from the commit log.
-		_ = os.Remove(path)
+		_ = l.fs.Remove(path)
 		cpPath := path + ".checkpoints"
-		_ = os.Remove(cpPath)
+		_ = l.fs.Remove(cpPath)
 
 		l.logger.WithField("action", "hnsw_remove_corrupt_snapshot").
 			WithField("path", path).
@@ -664,24 +707,17 @@ func (l *hnswCommitLogger) writeStateTo(state *DeserializationResult, wr io.Writ
 		}
 		offset += writeUint32Size
 
-		if err := writeUint32(w, uint32(len(n.connections))); err != nil {
+		connData := n.connections.Data()
+		if err := writeUint32(w, uint32(len(connData))); err != nil {
 			return nil, err
 		}
 		offset += writeUint32Size
 
-		for _, ls := range n.connections {
-			if err := writeUint32(w, uint32(len(ls))); err != nil {
-				return nil, err
-			}
-			offset += writeUint32Size
-
-			for _, c := range ls {
-				if err := writeUint64(w, c); err != nil {
-					return nil, err
-				}
-				offset += writeUint64Size
-			}
+		_, err = w.Write(connData)
+		if err != nil {
+			return nil, errors.Wrapf(err, "write connections data for node %d", n.id)
 		}
+		offset += len(connData)
 
 		nonNilNodes++
 	}
@@ -702,7 +738,7 @@ func (l *hnswCommitLogger) writeMetadataTo(state *DeserializationResult, w io.Wr
 
 	// version
 	offset = 0
-	if err := writeByte(w, 0); err != nil {
+	if err := writeByte(w, snapshotVersionV2); err != nil {
 		return 0, err
 	}
 	offset += writeByteSize
@@ -717,9 +753,9 @@ func (l *hnswCommitLogger) writeMetadataTo(state *DeserializationResult, w io.Wr
 	}
 	offset += writeUint16Size
 
-	isEncoded := state.Compressed || state.MuveraEnabled
+	isCompressed := state.Compressed
 
-	if err := writeBool(w, isEncoded); err != nil {
+	if err := writeBool(w, isCompressed); err != nil {
 		return 0, err
 	}
 	offset += writeByteSize
@@ -789,7 +825,118 @@ func (l *hnswCommitLogger) writeMetadataTo(state *DeserializationResult, w io.Wr
 			return 0, err
 		}
 		offset += writeUint32Size
-	} else if state.MuveraEnabled && state.EncoderMuvera != nil { // Muvera
+
+	} else if state.Compressed && state.CompressionRQData != nil { // RQ
+		// first byte is the compression type
+		if err := writeByte(w, byte(SnapshotCompressionTypeRQ)); err != nil {
+			return 0, err
+		}
+		offset += writeByteSize
+
+		if err := writeUint32(w, state.CompressionRQData.InputDim); err != nil {
+			return 0, err
+		}
+		offset += writeUint32Size
+
+		if err := writeUint32(w, state.CompressionRQData.Bits); err != nil {
+			return 0, err
+		}
+		offset += writeUint32Size
+
+		if err := writeUint32(w, state.CompressionRQData.Rotation.OutputDim); err != nil {
+			return 0, err
+		}
+		offset += writeUint32Size
+
+		if err := writeUint32(w, state.CompressionRQData.Rotation.Rounds); err != nil {
+			return 0, err
+		}
+		offset += writeUint32Size
+
+		for _, swap := range state.CompressionRQData.Rotation.Swaps {
+			for _, dim := range swap {
+				if err := writeUint16(w, dim.I); err != nil {
+					return 0, err
+				}
+				offset += writeUint16Size
+
+				if err := writeUint16(w, dim.J); err != nil {
+					return 0, err
+				}
+				offset += writeUint16Size
+			}
+		}
+
+		for _, sign := range state.CompressionRQData.Rotation.Signs {
+			for _, dim := range sign {
+				if err := writeFloat32(w, dim); err != nil {
+					return 0, err
+				}
+				offset += writeFloat32Size
+			}
+		}
+
+	} else if state.Compressed && state.CompressionBRQData != nil { // BRQ
+		// first byte is the compression type
+		if err := writeByte(w, byte(SnapshotCompressionTypeBRQ)); err != nil {
+			return 0, err
+		}
+		offset += writeByteSize
+
+		if err := writeUint32(w, state.CompressionBRQData.InputDim); err != nil {
+			return 0, err
+		}
+		offset += writeUint32Size
+
+		if err := writeUint32(w, state.CompressionBRQData.Rotation.OutputDim); err != nil {
+			return 0, err
+		}
+		offset += writeUint32Size
+
+		if err := writeUint32(w, state.CompressionBRQData.Rotation.Rounds); err != nil {
+			return 0, err
+		}
+		offset += writeUint32Size
+
+		for _, swap := range state.CompressionBRQData.Rotation.Swaps {
+			for _, dim := range swap {
+				if err := writeUint16(w, dim.I); err != nil {
+					return 0, err
+				}
+				offset += writeUint16Size
+
+				if err := writeUint16(w, dim.J); err != nil {
+					return 0, err
+				}
+				offset += writeUint16Size
+			}
+		}
+
+		for _, sign := range state.CompressionBRQData.Rotation.Signs {
+			for _, dim := range sign {
+				if err := writeFloat32(w, dim); err != nil {
+					return 0, err
+				}
+				offset += writeFloat32Size
+			}
+		}
+
+		for _, rounding := range state.CompressionBRQData.Rounding {
+			if err := writeFloat32(w, rounding); err != nil {
+				return 0, err
+			}
+			offset += writeFloat32Size
+		}
+	}
+
+	isEncoded := state.MuveraEnabled
+
+	if err := writeBool(w, isEncoded); err != nil {
+		return 0, err
+	}
+	offset += writeByteSize
+
+	if state.MuveraEnabled && state.EncoderMuvera != nil { // Muvera
 		// first byte is the encoder type
 		if err := writeByte(w, byte(SnapshotEncoderTypeMuvera)); err != nil {
 			return 0, err
@@ -866,7 +1013,7 @@ func (l *hnswCommitLogger) readStateFrom(filename string, checkpoints []Checkpoi
 		LinksReplaced:     make(map[uint64]map[uint16]struct{}),
 	}
 
-	f, err := os.Open(filename)
+	f, err := l.fs.Open(filename)
 	if err != nil {
 		return nil, errors.Wrapf(err, "open snapshot file %q", filename)
 	}
@@ -882,8 +1029,9 @@ func (l *hnswCommitLogger) readStateFrom(filename string, checkpoints []Checkpoi
 	if err != nil {
 		return nil, errors.Wrapf(err, "read version")
 	}
-	if b[0] != 0 {
-		return nil, fmt.Errorf("unsupported version %d", b[0])
+	version := int(b[0])
+	if version < 0 || version > snapshotVersionV2 {
+		return nil, fmt.Errorf("unsupported snapshot version %d", version)
 	}
 
 	_, err = ReadAndHash(r, hasher, b[:8]) // entrypoint
@@ -902,16 +1050,18 @@ func (l *hnswCommitLogger) readStateFrom(filename string, checkpoints []Checkpoi
 	if err != nil {
 		return nil, errors.Wrapf(err, "read compressed")
 	}
-	isEncoded := b[0] == 1
+	isCompressed := b[0] == 1
 
 	// Compressed data
-	if isEncoded {
+	if isCompressed {
 		_, err = ReadAndHash(r, hasher, b[:1]) // encoding type
 		if err != nil {
 			return nil, errors.Wrapf(err, "read compressed")
 		}
 
 		switch b[0] {
+		case SnapshotEncoderTypeMuvera: // legacy Muvera snapshot
+			return nil, errors.New("discarding v1 Muvera snapshot")
 		case SnapshotCompressionTypePQ:
 			res.Compressed = true
 			_, err = ReadAndHash(r, hasher, b[:2]) // PQData.Dimensions
@@ -1004,6 +1154,165 @@ func (l *hnswCommitLogger) readStateFrom(filename string, checkpoints []Checkpoi
 				A:          a,
 				B:          b,
 			}
+		case SnapshotCompressionTypeRQ:
+			res.Compressed = true
+			_, err = ReadAndHash(r, hasher, b[:4]) // RQData.InputDim
+			if err != nil {
+				return nil, errors.Wrapf(err, "read RQData.Dimension")
+			}
+			inputDim := binary.LittleEndian.Uint32(b[:4])
+
+			_, err = ReadAndHash(r, hasher, b[:4]) // RQData.Bits
+			if err != nil {
+				return nil, errors.Wrapf(err, "read RQData.Bits")
+			}
+			bits := binary.LittleEndian.Uint32(b[:4])
+
+			_, err = ReadAndHash(r, hasher, b[:4]) // RQData.Rotation.OutputDim
+			if err != nil {
+				return nil, errors.Wrapf(err, "read RQData.Rotation.OutputDim")
+			}
+			outputDim := binary.LittleEndian.Uint32(b[:4])
+
+			_, err = ReadAndHash(r, hasher, b[:4]) // RQData.Rotation.Rounds
+			if err != nil {
+				return nil, errors.Wrapf(err, "read RQData.Rotation.Rounds")
+			}
+			rounds := binary.LittleEndian.Uint32(b[:4])
+
+			swaps := make([][]compressionhelpers.Swap, rounds)
+			for i := uint32(0); i < rounds; i++ {
+				swaps[i] = make([]compressionhelpers.Swap, outputDim/2)
+				for j := uint32(0); j < outputDim/2; j++ {
+					_, err = ReadAndHash(r, hasher, b[:2]) // RQData.Rotation.Swaps[i][j].I
+					if err != nil {
+						return nil, errors.Wrapf(err, "read RQData.Rotation.Swaps[i][j].I")
+					}
+					swaps[i][j].I = binary.LittleEndian.Uint16(b[:2])
+
+					_, err = ReadAndHash(r, hasher, b[:2]) // RQData.Rotation.Swaps[i][j].J
+					if err != nil {
+						return nil, errors.Wrapf(err, "read RQData.Rotation.Swaps[i][j].J")
+					}
+					swaps[i][j].J = binary.LittleEndian.Uint16(b[:2])
+				}
+			}
+
+			signs := make([][]float32, rounds)
+
+			for i := uint32(0); i < rounds; i++ {
+				signs[i] = make([]float32, outputDim)
+				for j := uint32(0); j < outputDim; j++ {
+					_, err = ReadAndHash(r, hasher, b[:4]) // RQData.Rotation.Signs[i][j]
+					if err != nil {
+						return nil, errors.Wrapf(err, "read RQData.Rotation.Signs[i][j]")
+					}
+					signs[i][j] = math.Float32frombits(binary.LittleEndian.Uint32(b[:4]))
+				}
+			}
+
+			res.CompressionRQData = &compressionhelpers.RQData{
+				InputDim: inputDim,
+				Bits:     bits,
+				Rotation: compressionhelpers.FastRotation{
+					OutputDim: outputDim,
+					Rounds:    rounds,
+					Swaps:     swaps,
+					Signs:     signs,
+				},
+			}
+		case SnapshotCompressionTypeBRQ:
+			res.Compressed = true
+			_, err = ReadAndHash(r, hasher, b[:4]) // BRQData.InputDim
+			if err != nil {
+				return nil, errors.Wrapf(err, "read BRQData.InputDim")
+			}
+			inputDim := binary.LittleEndian.Uint32(b[:4])
+
+			_, err = ReadAndHash(r, hasher, b[:4]) // BRQData.Rotation.OutputDim
+			if err != nil {
+				return nil, errors.Wrapf(err, "read BRQData.Rotation.OutputDim")
+			}
+			outputDim := binary.LittleEndian.Uint32(b[:4])
+
+			_, err = ReadAndHash(r, hasher, b[:4]) // BRQData.Rotation.Rounds
+			if err != nil {
+				return nil, errors.Wrapf(err, "read BRQData.Rotation.Rounds")
+			}
+			rounds := binary.LittleEndian.Uint32(b[:4])
+
+			swaps := make([][]compressionhelpers.Swap, rounds)
+
+			for i := uint32(0); i < rounds; i++ {
+				swaps[i] = make([]compressionhelpers.Swap, outputDim/2)
+				for j := uint32(0); j < outputDim/2; j++ {
+					_, err = ReadAndHash(r, hasher, b[:2]) // BRQData.Rotation.Swaps[i][j].I
+					if err != nil {
+						return nil, errors.Wrapf(err, "read BRQData.Rotation.Swaps[i][j].I")
+					}
+					swaps[i][j].I = binary.LittleEndian.Uint16(b[:2])
+
+					_, err = ReadAndHash(r, hasher, b[:2]) // BRQData.Rotation.Swaps[i][j].J
+					if err != nil {
+						return nil, errors.Wrapf(err, "read BRQData.Rotation.Swaps[i][j].J")
+					}
+					swaps[i][j].J = binary.LittleEndian.Uint16(b[:2])
+				}
+			}
+
+			signs := make([][]float32, rounds)
+
+			for i := uint32(0); i < rounds; i++ {
+				signs[i] = make([]float32, outputDim)
+				for j := uint32(0); j < outputDim; j++ {
+					_, err = ReadAndHash(r, hasher, b[:4]) // BRQData.Rotation.Signs[i][j]
+					if err != nil {
+						return nil, errors.Wrapf(err, "read BRQData.Rotation.Signs[i][j]")
+					}
+					signs[i][j] = math.Float32frombits(binary.LittleEndian.Uint32(b[:4]))
+				}
+			}
+
+			rounding := make([]float32, outputDim)
+
+			for i := uint32(0); i < outputDim; i++ {
+				_, err = ReadAndHash(r, hasher, b[:4]) // BRQData.Rounding[i]
+				if err != nil {
+					return nil, errors.Wrapf(err, "read BRQData.Rounding[i]")
+				}
+				rounding[i] = math.Float32frombits(binary.LittleEndian.Uint32(b[:4]))
+			}
+
+			res.CompressionBRQData = &compressionhelpers.BRQData{
+				InputDim: inputDim,
+				Rotation: compressionhelpers.FastRotation{
+					OutputDim: outputDim,
+					Rounds:    rounds,
+					Swaps:     swaps,
+					Signs:     signs,
+				},
+				Rounding: rounding,
+			}
+		default:
+			return nil, fmt.Errorf("unsupported compression type %d", b[0])
+		}
+	}
+
+	isEncoded := false
+	if version >= 2 {
+		_, err = ReadAndHash(r, hasher, b[:1]) // isEncoded
+		if err != nil {
+			return nil, errors.Wrapf(err, "read isEncoded")
+		}
+		isEncoded = b[0] == 1
+	}
+
+	if isEncoded {
+		_, err = ReadAndHash(r, hasher, b[:1]) // encoding type
+		if err != nil {
+			return nil, errors.Wrapf(err, "read encoding type")
+		}
+		switch b[0] {
 		case SnapshotEncoderTypeMuvera:
 			_, err = ReadAndHash(r, hasher, b[:4]) // Muvera.Dimensions
 			if err != nil {
@@ -1078,7 +1387,7 @@ func (l *hnswCommitLogger) readStateFrom(filename string, checkpoints []Checkpoi
 				S:            s,
 			}
 		default:
-			return nil, fmt.Errorf("unsupported compression type %d", b[0])
+			return nil, fmt.Errorf("unsupported encoder type %d", b[0])
 		}
 	}
 
@@ -1162,29 +1471,47 @@ func (l *hnswCommitLogger) readStateFrom(filename string, checkpoints []Checkpoi
 				connCount := int(binary.LittleEndian.Uint32(b[:4]))
 
 				if connCount > 0 {
-					node.connections = make([][]uint64, connCount)
-
-					for l := 0; l < connCount; l++ {
-						n, err = io.ReadFull(r, b[:4]) // connections count at level
+					if version < snapshotVersionV2 {
+						pconn, err := packedconn.NewWithMaxLayer(uint8(connCount))
 						if err != nil {
-							return errors.Wrapf(err, "read node connections count at level")
+							return errors.Wrapf(err, "create packed connections for node %d", node.id)
 						}
-						read += n
-						connCountAtLevel := int(binary.LittleEndian.Uint32(b[:4]))
 
-						if connCountAtLevel > 0 {
-							node.connections[l] = make([]uint64, connCountAtLevel)
+						for l := uint8(0); l < uint8(connCount); l++ {
+							n, err = io.ReadFull(r, b[:4]) // connections count at level
+							if err != nil {
+								return errors.Wrapf(err, "read node connections count at level")
+							}
+							read += n
+							connCountAtLevel := uint64(binary.LittleEndian.Uint32(b[:4]))
 
-							for c := 0; c < connCountAtLevel; c++ {
-								n, err = io.ReadFull(r, b[:8]) // connection at level
-								if err != nil {
-									return errors.Wrapf(err, "read node connection at level")
+							if connCountAtLevel > 0 {
+								if connCountAtLevel > maxExpectedConns {
+									return fmt.Errorf("node %d has too many connections: %v", node.id, connCountAtLevel)
 								}
-								node.connections[l][c] = binary.LittleEndian.Uint64(b[:8])
-								read += n
+								for c := uint64(0); c < connCountAtLevel; c++ {
+									n, err = io.ReadFull(r, b[:8]) // connection at level
+									if err != nil {
+										return errors.Wrapf(err, "read node connection at level")
+									}
+									connID := binary.LittleEndian.Uint64(b[:8])
+									pconn.InsertAtLayer(connID, l)
+									read += n
+								}
 							}
 						}
 
+						node.connections = pconn
+					} else {
+						// read the connections data
+						connData := make([]byte, connCount)
+						n, err = io.ReadFull(r, connData)
+						if err != nil {
+							return errors.Wrapf(err, "read node connections data")
+						}
+						read += n
+
+						node.connections = packedconn.NewWithData(connData)
 					}
 				}
 
@@ -1229,8 +1556,8 @@ type Checkpoint struct {
 	Hash   uint32
 }
 
-func writeCheckpoints(fileName string, checkpoints []Checkpoint) error {
-	checkpointFile, err := os.OpenFile(fileName, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o666)
+func writeCheckpoints(fileName string, checkpoints []Checkpoint, fs common.FS) error {
+	checkpointFile, err := fs.OpenFile(fileName, os.O_WRONLY|os.O_TRUNC|os.O_CREATE, 0o666)
 	if err != nil {
 		return fmt.Errorf("open new checkpoint file for writing: %w", err)
 	}
@@ -1261,10 +1588,10 @@ func writeCheckpoints(fileName string, checkpoints []Checkpoint) error {
 	return checkpointFile.Sync()
 }
 
-func readCheckpoints(snapshotFileName string) (checkpoints []Checkpoint, err error) {
+func readCheckpoints(snapshotFileName string, fs common.FS) (checkpoints []Checkpoint, err error) {
 	cpfn := snapshotFileName + ".checkpoints"
 
-	cpFile, err := os.Open(cpfn)
+	cpFile, err := fs.Open(cpfn)
 	if err != nil {
 		return nil, err
 	}

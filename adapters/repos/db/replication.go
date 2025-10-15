@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -59,6 +59,8 @@ type Replicator interface {
 	AbortReplication(shardName,
 		requestID string) interface{}
 }
+
+const tmpCopyExtension = ".copy.tmp" // indexcount and proplen temporary copy
 
 func (db *DB) ReplicateObject(ctx context.Context, class,
 	shard, requestID string, object *storobj.Object,
@@ -160,14 +162,14 @@ func (db *DB) replicatedIndex(name string) (idx *Index, resp *replica.SimpleResp
 			*replica.NewError(replica.StatusClassNotFound, name),
 		}}
 	}
-	return
+	return idx, resp
 }
 
-func (i *Index) writableShard(name string) (ShardLike, func(), *replica.SimpleResponse) {
-	localShard, release, err := i.getOrInitShard(context.Background(), name)
+func (i *Index) writableShard(ctx context.Context, name string) (ShardLike, func(), *replica.SimpleResponse) {
+	localShard, release, err := i.getOrInitShard(ctx, name)
 	if err != nil {
 		return nil, func() {}, &replica.SimpleResponse{Errors: []replica.Error{
-			{Code: replica.StatusShardNotFound, Msg: name},
+			{Code: replica.StatusShardNotFound, Msg: name, Err: err},
 		}}
 	}
 	if localShard.isReadOnly() != nil {
@@ -181,7 +183,7 @@ func (i *Index) writableShard(name string) (ShardLike, func(), *replica.SimpleRe
 }
 
 func (i *Index) ReplicateObject(ctx context.Context, shard, requestID string, object *storobj.Object) replica.SimpleResponse {
-	localShard, release, pr := i.writableShard(shard)
+	localShard, release, pr := i.writableShard(ctx, shard)
 	if pr != nil {
 		return *pr
 	}
@@ -192,7 +194,7 @@ func (i *Index) ReplicateObject(ctx context.Context, shard, requestID string, ob
 }
 
 func (i *Index) ReplicateUpdate(ctx context.Context, shard, requestID string, doc *objects.MergeDocument) replica.SimpleResponse {
-	localShard, release, pr := i.writableShard(shard)
+	localShard, release, pr := i.writableShard(ctx, shard)
 	if pr != nil {
 		return *pr
 	}
@@ -203,7 +205,7 @@ func (i *Index) ReplicateUpdate(ctx context.Context, shard, requestID string, do
 }
 
 func (i *Index) ReplicateDeletion(ctx context.Context, shard, requestID string, uuid strfmt.UUID, deletionTime time.Time) replica.SimpleResponse {
-	localShard, release, pr := i.writableShard(shard)
+	localShard, release, pr := i.writableShard(ctx, shard)
 	if pr != nil {
 		return *pr
 	}
@@ -214,7 +216,7 @@ func (i *Index) ReplicateDeletion(ctx context.Context, shard, requestID string, 
 }
 
 func (i *Index) ReplicateObjects(ctx context.Context, shard, requestID string, objects []*storobj.Object, schemaVersion uint64) replica.SimpleResponse {
-	localShard, release, pr := i.writableShard(shard)
+	localShard, release, pr := i.writableShard(ctx, shard)
 	if pr != nil {
 		return *pr
 	}
@@ -227,7 +229,7 @@ func (i *Index) ReplicateObjects(ctx context.Context, shard, requestID string, o
 func (i *Index) ReplicateDeletions(ctx context.Context, shard, requestID string,
 	uuids []strfmt.UUID, deletionTime time.Time, dryRun bool, schemaVersion uint64,
 ) replica.SimpleResponse {
-	localShard, release, pr := i.writableShard(shard)
+	localShard, release, pr := i.writableShard(ctx, shard)
 	if pr != nil {
 		return *pr
 	}
@@ -238,7 +240,7 @@ func (i *Index) ReplicateDeletions(ctx context.Context, shard, requestID string,
 }
 
 func (i *Index) ReplicateReferences(ctx context.Context, shard, requestID string, refs []objects.BatchReference) replica.SimpleResponse {
-	localShard, release, pr := i.writableShard(shard)
+	localShard, release, pr := i.writableShard(ctx, shard)
 	if pr != nil {
 		return *pr
 	}
@@ -401,24 +403,12 @@ func (i *Index) IncomingListFiles(ctx context.Context,
 		return nil, fmt.Errorf("shard %q could not list backup files: %w", shardName, err)
 	}
 
-	docIDCounter, err := os.OpenFile(shard.Counter().FileName()+".tmp", os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0o666)
-	if err != nil {
-		return nil, err
-	}
-	defer docIDCounter.Close()
-
-	_, err = io.Copy(docIDCounter, bytes.NewBuffer(sd.DocIDCounter))
+	err = i.tmpCopy(shard.Counter().FileName(), sd.DocIDCounter)
 	if err != nil {
 		return nil, err
 	}
 
-	propLengthTracker, err := os.OpenFile(shard.GetPropertyLengthTracker().FileName()+".tmp", os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0o666)
-	if err != nil {
-		return nil, err
-	}
-	defer propLengthTracker.Close()
-
-	_, err = io.Copy(propLengthTracker, bytes.NewBuffer(sd.PropLengthTracker))
+	err = i.tmpCopy(shard.GetPropertyLengthTracker().FileName(), sd.PropLengthTracker)
 	if err != nil {
 		return nil, err
 	}
@@ -433,6 +423,17 @@ func (i *Index) IncomingListFiles(ctx context.Context,
 	return files, nil
 }
 
+func (i *Index) tmpCopy(path string, b []byte) error {
+	tmpFile, err := os.OpenFile(path+tmpCopyExtension, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0o666)
+	if err != nil {
+		return err
+	}
+	defer tmpFile.Close()
+
+	_, err = io.Copy(tmpFile, bytes.NewBuffer(b))
+	return err
+}
+
 // IncomingGetFileMetadata returns file metadata at the given path in the specified shards's root
 // directory.
 func (i *Index) IncomingGetFileMetadata(ctx context.Context, shardName, relativeFilePath string) (file.FileMetadata, error) {
@@ -445,9 +446,9 @@ func (i *Index) IncomingGetFileMetadata(ctx context.Context, shardName, relative
 	}
 	defer release()
 
-	if strings.HasSuffix(relativeFilePath, shard.Counter().FileName()) ||
-		strings.HasSuffix(relativeFilePath, shard.GetPropertyLengthTracker().FileName()) {
-		relativeFilePath = relativeFilePath + ".tmp"
+	if strings.HasSuffix(shard.Counter().FileName(), relativeFilePath) ||
+		strings.HasSuffix(shard.GetPropertyLengthTracker().FileName(), relativeFilePath) {
+		relativeFilePath = relativeFilePath + tmpCopyExtension
 	}
 
 	return shard.GetFileMetadata(ctx, relativeFilePath)
@@ -467,9 +468,9 @@ func (i *Index) IncomingGetFile(ctx context.Context, shardName,
 	}
 	defer release()
 
-	if strings.HasSuffix(relativeFilePath, shard.Counter().FileName()) ||
-		strings.HasSuffix(relativeFilePath, shard.GetPropertyLengthTracker().FileName()) {
-		relativeFilePath = relativeFilePath + ".tmp"
+	if strings.HasSuffix(shard.Counter().FileName(), relativeFilePath) ||
+		strings.HasSuffix(shard.GetPropertyLengthTracker().FileName(), relativeFilePath) {
+		relativeFilePath = relativeFilePath + tmpCopyExtension
 	}
 
 	return shard.GetFile(ctx, relativeFilePath)
@@ -744,7 +745,7 @@ func (i *Index) DigestObjects(ctx context.Context,
 		}
 	}
 
-	return
+	return result, err
 }
 
 func (i *Index) IncomingDigestObjects(ctx context.Context,
@@ -799,27 +800,27 @@ func (i *Index) IncomingHashTreeLevel(ctx context.Context,
 
 func (i *Index) FetchObject(ctx context.Context,
 	shardName string, id strfmt.UUID,
-) (objects.Replica, error) {
+) (replica.Replica, error) {
 	shard, release, err := i.getOrInitShard(ctx, shardName)
 	if err != nil {
-		return objects.Replica{}, fmt.Errorf("shard %q does not exist locally", shardName)
+		return replica.Replica{}, fmt.Errorf("shard %q does not exist locally", shardName)
 	}
 
 	defer release()
 
 	if shard.GetStatus() == storagestate.StatusLoading {
-		return objects.Replica{}, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
+		return replica.Replica{}, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
 	}
 
 	obj, err := shard.ObjectByID(ctx, id, nil, additional.Properties{})
 	if err != nil {
-		return objects.Replica{}, fmt.Errorf("shard %q read repair get object: %w", shard.ID(), err)
+		return replica.Replica{}, fmt.Errorf("shard %q read repair get object: %w", shard.ID(), err)
 	}
 
 	if obj == nil {
 		deleted, deletionTime, err := shard.WasDeleted(ctx, id)
 		if err != nil {
-			return objects.Replica{}, err
+			return replica.Replica{}, err
 		}
 
 		var updateTime int64
@@ -827,14 +828,14 @@ func (i *Index) FetchObject(ctx context.Context,
 			updateTime = deletionTime.UnixMilli()
 		}
 
-		return objects.Replica{
+		return replica.Replica{
 			ID:                      id,
 			Deleted:                 deleted,
 			LastUpdateTimeUnixMilli: updateTime,
 		}, nil
 	}
 
-	return objects.Replica{
+	return replica.Replica{
 		Object:                  obj,
 		ID:                      obj.ID(),
 		LastUpdateTimeUnixMilli: obj.LastUpdateTimeUnix(),
@@ -843,7 +844,7 @@ func (i *Index) FetchObject(ctx context.Context,
 
 func (i *Index) FetchObjects(ctx context.Context,
 	shardName string, ids []strfmt.UUID,
-) ([]objects.Replica, error) {
+) ([]replica.Replica, error) {
 	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
 		return nil, fmt.Errorf("shard %q does not exist locally", shardName)
@@ -862,7 +863,7 @@ func (i *Index) FetchObjects(ctx context.Context,
 		return nil, fmt.Errorf("shard %q replication multi get objects: %w", shard.ID(), err)
 	}
 
-	resp := make([]objects.Replica, len(ids))
+	resp := make([]replica.Replica, len(ids))
 
 	for j, obj := range objs {
 		if obj == nil {
@@ -876,13 +877,13 @@ func (i *Index) FetchObjects(ctx context.Context,
 				updateTime = deletionTime.UnixMilli()
 			}
 
-			resp[j] = objects.Replica{
+			resp[j] = replica.Replica{
 				ID:                      ids[j],
 				Deleted:                 deleted,
 				LastUpdateTimeUnixMilli: updateTime,
 			}
 		} else {
-			resp[j] = objects.Replica{
+			resp[j] = replica.Replica{
 				Object:                  obj,
 				ID:                      obj.ID(),
 				LastUpdateTimeUnixMilli: obj.LastUpdateTimeUnix(),

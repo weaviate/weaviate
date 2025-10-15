@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -164,6 +164,51 @@ func (o *ReplicationDetailsNotFound) WriteResponse(rw http.ResponseWriter, produ
 	rw.WriteHeader(404)
 }
 
+// ReplicationDetailsUnprocessableEntityCode is the HTTP code returned for type ReplicationDetailsUnprocessableEntity
+const ReplicationDetailsUnprocessableEntityCode int = 422
+
+/*
+ReplicationDetailsUnprocessableEntity Request body is well-formed (i.e., syntactically correct), but semantically erroneous.
+
+swagger:response replicationDetailsUnprocessableEntity
+*/
+type ReplicationDetailsUnprocessableEntity struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewReplicationDetailsUnprocessableEntity creates ReplicationDetailsUnprocessableEntity with default headers values
+func NewReplicationDetailsUnprocessableEntity() *ReplicationDetailsUnprocessableEntity {
+
+	return &ReplicationDetailsUnprocessableEntity{}
+}
+
+// WithPayload adds the payload to the replication details unprocessable entity response
+func (o *ReplicationDetailsUnprocessableEntity) WithPayload(payload *models.ErrorResponse) *ReplicationDetailsUnprocessableEntity {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the replication details unprocessable entity response
+func (o *ReplicationDetailsUnprocessableEntity) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *ReplicationDetailsUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(422)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
 // ReplicationDetailsInternalServerErrorCode is the HTTP code returned for type ReplicationDetailsInternalServerError
 const ReplicationDetailsInternalServerErrorCode int = 500
 
@@ -201,6 +246,51 @@ func (o *ReplicationDetailsInternalServerError) SetPayload(payload *models.Error
 func (o *ReplicationDetailsInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
 	rw.WriteHeader(500)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
+// ReplicationDetailsNotImplementedCode is the HTTP code returned for type ReplicationDetailsNotImplemented
+const ReplicationDetailsNotImplementedCode int = 501
+
+/*
+ReplicationDetailsNotImplemented Replica movement operations are disabled.
+
+swagger:response replicationDetailsNotImplemented
+*/
+type ReplicationDetailsNotImplemented struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewReplicationDetailsNotImplemented creates ReplicationDetailsNotImplemented with default headers values
+func NewReplicationDetailsNotImplemented() *ReplicationDetailsNotImplemented {
+
+	return &ReplicationDetailsNotImplemented{}
+}
+
+// WithPayload adds the payload to the replication details not implemented response
+func (o *ReplicationDetailsNotImplemented) WithPayload(payload *models.ErrorResponse) *ReplicationDetailsNotImplemented {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the replication details not implemented response
+func (o *ReplicationDetailsNotImplemented) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *ReplicationDetailsNotImplemented) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(501)
 	if o.Payload != nil {
 		payload := o.Payload
 		if err := producer.Produce(rw, payload); err != nil {

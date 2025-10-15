@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -49,7 +49,9 @@ func NewAssignRoleToUser(ctx *middleware.Context, handler AssignRoleToUserHandle
 /*
 	AssignRoleToUser swagger:route POST /authz/users/{id}/assign authz assignRoleToUser
 
-Assign a role to a user
+# Assign a role to a user
+
+Assign one or more roles to a user. Users can have multiple roles.
 */
 type AssignRoleToUser struct {
 	Context *middleware.Context
@@ -90,7 +92,7 @@ func (o *AssignRoleToUser) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 // swagger:model AssignRoleToUserBody
 type AssignRoleToUserBody struct {
 
-	// the roles that assigned to user
+	// The roles that are assigned to the specified user.
 	Roles []string `json:"roles" yaml:"roles"`
 
 	// user type

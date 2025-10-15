@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -50,7 +50,7 @@ func (t *Traverser) GetClass(ctx context.Context, principal *models.Principal,
 	}
 
 	// validate here, because filters can contain references that need to be authorized
-	if err := t.validateFilters(principal, params.Filters); err != nil {
+	if err := t.validateFilters(ctx, principal, params.Filters); err != nil {
 		return nil, errors.Wrap(err, "invalid 'where' filter")
 	}
 
@@ -98,13 +98,13 @@ func (t *Traverser) probeForRefDepthLimit(props search.SelectProperties) error {
 	return nil
 }
 
-func (t *Traverser) validateFilters(principal *models.Principal, filter *filters.LocalFilter) error {
+func (t *Traverser) validateFilters(ctx context.Context, principal *models.Principal, filter *filters.LocalFilter) error {
 	if filter == nil {
 		return nil
 	}
 
 	f := func(name string) (*models.Class, error) {
-		err := t.authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata(name)...)
+		err := t.authorizer.Authorize(ctx, principal, authorization.READ, authorization.CollectionsMetadata(name)...)
 		if err != nil {
 			return nil, err
 		}

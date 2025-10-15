@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -181,7 +181,8 @@ func TestShardReplicationEngine(t *testing.T) {
 			1,
 			1,
 			1*time.Minute,
-			metrics.NewReplicationEngineCallbacks(prometheus.NewPedanticRegistry()))
+			metrics.NewReplicationEngineCallbacks(prometheus.NewPedanticRegistry()),
+		)
 		require.False(t, engine.IsRunning(), "engine should report not running before start")
 
 		var wg sync.WaitGroup

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -12,15 +12,17 @@
 package config
 
 import (
-	"errors"
 	"fmt"
 	"os"
+	"runtime"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/usecases/cluster"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
 const DefaultGoroutineFactor = 1.5
@@ -258,6 +260,13 @@ func TestEnvironmentMemtable_MaxDuration(t *testing.T) {
 
 func TestEnvironmentParseClusterConfig(t *testing.T) {
 	hostname, _ := os.Hostname()
+	defaultRequestQueueConfig := cluster.RequestQueueConfig{
+		IsEnabled:                   configRuntime.NewDynamicValue(false),
+		NumWorkers:                  runtime.GOMAXPROCS(0) * 2,
+		QueueSize:                   2000,
+		QueueFullHttpStatus:         429,
+		QueueShutdownTimeoutSeconds: 90,
+	}
 	tests := []struct {
 		name           string
 		envVars        map[string]string
@@ -273,22 +282,24 @@ func TestEnvironmentParseClusterConfig(t *testing.T) {
 				"CLUSTER_ADVERTISE_PORT":   "9999",
 			},
 			expectedResult: cluster.Config{
-				Hostname:         hostname,
-				GossipBindPort:   7100,
-				DataBindPort:     7101,
-				AdvertiseAddr:    "193.0.0.1",
-				AdvertisePort:    9999,
-				MaintenanceNodes: make([]string, 0),
+				Hostname:           hostname,
+				GossipBindPort:     7100,
+				DataBindPort:       7101,
+				AdvertiseAddr:      "193.0.0.1",
+				AdvertisePort:      9999,
+				MaintenanceNodes:   make([]string, 0),
+				RequestQueueConfig: defaultRequestQueueConfig,
 			},
 		},
 		{
 			name: "valid cluster config - no ports and advertiseaddr provided",
 			expectedResult: cluster.Config{
-				Hostname:         hostname,
-				GossipBindPort:   DefaultGossipBindPort,
-				DataBindPort:     DefaultGossipBindPort + 1,
-				AdvertiseAddr:    "",
-				MaintenanceNodes: make([]string, 0),
+				Hostname:           hostname,
+				GossipBindPort:     DefaultGossipBindPort,
+				DataBindPort:       DefaultGossipBindPort + 1,
+				AdvertiseAddr:      "",
+				MaintenanceNodes:   make([]string, 0),
+				RequestQueueConfig: defaultRequestQueueConfig,
 			},
 		},
 		{
@@ -297,28 +308,26 @@ func TestEnvironmentParseClusterConfig(t *testing.T) {
 				"CLUSTER_GOSSIP_BIND_PORT": "7777",
 			},
 			expectedResult: cluster.Config{
-				Hostname:         hostname,
-				GossipBindPort:   7777,
-				DataBindPort:     7778,
-				MaintenanceNodes: make([]string, 0),
+				Hostname:           hostname,
+				GossipBindPort:     7777,
+				DataBindPort:       7778,
+				MaintenanceNodes:   make([]string, 0),
+				RequestQueueConfig: defaultRequestQueueConfig,
 			},
 		},
 		{
-			name: "invalid cluster config - both ports provided",
+			name: "valid cluster config - both ports provided",
 			envVars: map[string]string{
 				"CLUSTER_GOSSIP_BIND_PORT": "7100",
 				"CLUSTER_DATA_BIND_PORT":   "7111",
 			},
-			expectedErr: errors.New("CLUSTER_DATA_BIND_PORT must be one port " +
-				"number greater than CLUSTER_GOSSIP_BIND_PORT"),
-		},
-		{
-			name: "invalid config - only data bind port provided",
-			envVars: map[string]string{
-				"CLUSTER_DATA_BIND_PORT": "7101",
+			expectedResult: cluster.Config{
+				Hostname:           hostname,
+				GossipBindPort:     7100,
+				DataBindPort:       7111,
+				MaintenanceNodes:   make([]string, 0),
+				RequestQueueConfig: defaultRequestQueueConfig,
 			},
-			expectedErr: errors.New("CLUSTER_DATA_BIND_PORT must be one port " +
-				"number greater than CLUSTER_GOSSIP_BIND_PORT"),
 		},
 		{
 			name: "schema sync disabled",
@@ -331,6 +340,30 @@ func TestEnvironmentParseClusterConfig(t *testing.T) {
 				DataBindPort:            7947,
 				IgnoreStartupSchemaSync: true,
 				MaintenanceNodes:        make([]string, 0),
+				RequestQueueConfig:      defaultRequestQueueConfig,
+			},
+		},
+		{
+			name: "request queue enabled with custom config",
+			envVars: map[string]string{
+				"REPLICATED_INDICES_REQUEST_QUEUE_ENABLED":                  "true",
+				"REPLICATED_INDICES_REQUEST_QUEUE_NUM_WORKERS":              "10",
+				"REPLICATED_INDICES_REQUEST_QUEUE_SIZE":                     "100",
+				"REPLICATED_INDICES_REQUEST_QUEUE_FULL_HTTP_STATUS":         "504",
+				"REPLICATED_INDICES_REQUEST_QUEUE_SHUTDOWN_TIMEOUT_SECONDS": "120",
+			},
+			expectedResult: cluster.Config{
+				Hostname:         hostname,
+				GossipBindPort:   7946,
+				DataBindPort:     7947,
+				MaintenanceNodes: make([]string, 0),
+				RequestQueueConfig: cluster.RequestQueueConfig{
+					IsEnabled:                   configRuntime.NewDynamicValue(true),
+					NumWorkers:                  10,
+					QueueSize:                   100,
+					QueueFullHttpStatus:         504,
+					QueueShutdownTimeoutSeconds: 120,
+				},
 			},
 		},
 	}
@@ -723,7 +756,15 @@ func TestEnvironmentAuthentication(t *testing.T) {
 			auth_env_var: []string{"AUTHENTICATION_OIDC_ENABLED"},
 			expected: Authentication{
 				OIDC: OIDC{
-					Enabled: true,
+					Enabled:           true,
+					Issuer:            configRuntime.NewDynamicValue(""),
+					ClientID:          configRuntime.NewDynamicValue(""),
+					SkipClientIDCheck: configRuntime.NewDynamicValue(false),
+					UsernameClaim:     configRuntime.NewDynamicValue(""),
+					GroupsClaim:       configRuntime.NewDynamicValue(""),
+					Scopes:            configRuntime.NewDynamicValue([]string(nil)),
+					Certificate:       configRuntime.NewDynamicValue(""),
+					JWKSUrl:           configRuntime.NewDynamicValue(""),
 				},
 			},
 		},
@@ -1280,6 +1321,89 @@ func TestParsePositiveFloat(t *testing.T) {
 				if tt.envValue != "" {
 					assert.Contains(t, err.Error(), tt.envName)
 				}
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tt.expected, result)
+			}
+		})
+	}
+}
+
+func TestParsePositiveDuration(t *testing.T) {
+	tests := []struct {
+		name         string
+		envValue     string
+		defaultValue time.Duration
+		expected     time.Duration
+		expectError  bool
+	}{
+		{
+			name:         "valid duration",
+			envValue:     "5s",
+			defaultValue: 1 * time.Second,
+			expected:     5 * time.Second,
+			expectError:  false,
+		},
+		{
+			name:         "valid duration with milliseconds",
+			envValue:     "500ms",
+			defaultValue: 1 * time.Second,
+			expected:     500 * time.Millisecond,
+			expectError:  false,
+		},
+		{
+			name:         "valid duration with minutes",
+			envValue:     "2m",
+			defaultValue: 1 * time.Second,
+			expected:     2 * time.Minute,
+			expectError:  false,
+		},
+		{
+			name:         "empty env uses default",
+			envValue:     "",
+			defaultValue: 3 * time.Second,
+			expected:     3 * time.Second,
+			expectError:  false,
+		},
+		{
+			name:         "invalid duration format",
+			envValue:     "invalid",
+			defaultValue: 1 * time.Second,
+			expected:     0,
+			expectError:  true,
+		},
+		{
+			name:         "zero duration not allowed",
+			envValue:     "0s",
+			defaultValue: 1 * time.Second,
+			expected:     0,
+			expectError:  true,
+		},
+		{
+			name:         "negative duration not allowed",
+			envValue:     "-1s",
+			defaultValue: 1 * time.Second,
+			expected:     0,
+			expectError:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Set environment variable
+			if tt.envValue != "" {
+				t.Setenv("TEST_DURATION", tt.envValue)
+			} else {
+				t.Setenv("TEST_DURATION", "")
+			}
+
+			var result time.Duration
+			err := parsePositiveDuration("TEST_DURATION", func(val time.Duration) {
+				result = val
+			}, tt.defaultValue)
+
+			if tt.expectError {
+				assert.Error(t, err)
 			} else {
 				assert.NoError(t, err)
 				assert.Equal(t, tt.expected, result)

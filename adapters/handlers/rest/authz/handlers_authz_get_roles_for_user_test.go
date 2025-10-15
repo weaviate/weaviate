@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -14,6 +14,10 @@ package authz
 import (
 	"fmt"
 	"testing"
+
+	"github.com/weaviate/weaviate/usecases/auth/authentication"
+
+	"github.com/stretchr/testify/mock"
 
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 
@@ -55,6 +59,7 @@ func TestGetRolesForUserSuccess(t *testing.T) {
 			params: authz.GetRolesForUserParams{
 				ID:               "testUser",
 				UserType:         string(userType),
+				HTTPRequest:      req,
 				IncludeFullRoles: &truep,
 			},
 			principal:   &models.Principal{Username: "user1", UserType: models.UserTypeInputDb},
@@ -66,6 +71,7 @@ func TestGetRolesForUserSuccess(t *testing.T) {
 				ID:               "testUser",
 				UserType:         string(userType),
 				IncludeFullRoles: &falseP,
+				HTTPRequest:      req,
 			},
 			principal:   &models.Principal{Username: "user1", UserType: models.UserTypeInputDb},
 			expectAuthz: true,
@@ -76,6 +82,7 @@ func TestGetRolesForUserSuccess(t *testing.T) {
 				ID:               "user1",
 				UserType:         string(userType),
 				IncludeFullRoles: &truep,
+				HTTPRequest:      req,
 			},
 			principal:   &models.Principal{Username: "user1", UserType: models.UserTypeInputDb},
 			expectAuthz: false,
@@ -85,12 +92,12 @@ func TestGetRolesForUserSuccess(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			if tt.expectAuthz {
-				authorizer.On("Authorize", tt.principal, authorization.READ, authorization.Users(tt.params.ID)[0]).Return(nil)
+				authorizer.On("Authorize", mock.Anything, tt.principal, authorization.READ, authorization.Users(tt.params.ID)[0]).Return(nil)
 				if *tt.params.IncludeFullRoles {
-					authorizer.On("Authorize", tt.principal, authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_ALL), authorization.Roles("testRole")[0]).Return(nil)
+					authorizer.On("Authorize", mock.Anything, tt.principal, authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_ALL), authorization.Roles("testRole")[0]).Return(nil)
 				}
 			}
-			controller.On("GetRolesForUser", tt.params.ID, models.UserTypeInputDb).Return(returnedPolices, nil)
+			controller.On("GetRolesForUserOrGroup", tt.params.ID, authentication.AuthTypeDb, false).Return(returnedPolices, nil)
 			controller.On("GetUsers", tt.params.ID).Return(map[string]*apikey.User{"testUser": {}}, nil)
 
 			h := &authZHandlers{
@@ -140,6 +147,7 @@ func TestGetRolesForUserForbidden(t *testing.T) {
 				ID:               "testUser",
 				UserType:         string(userType),
 				IncludeFullRoles: &truep,
+				HTTPRequest:      req,
 			},
 			principal:     &models.Principal{Username: "user1", UserType: userType},
 			authorizeErr:  fmt.Errorf("authorization error"),
@@ -162,13 +170,13 @@ func TestGetRolesForUserForbidden(t *testing.T) {
 					},
 				},
 			}
-			authorizer.On("Authorize", tt.principal, authorization.READ, authorization.Users(tt.params.ID)[0]).Return(nil)
+			authorizer.On("Authorize", mock.Anything, tt.principal, authorization.READ, authorization.Users(tt.params.ID)[0]).Return(nil)
 
-			authorizer.On("Authorize", tt.principal, authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_ALL), authorization.Roles("testRole")[0]).Return(tt.authorizeErr)
+			authorizer.On("Authorize", mock.Anything, tt.principal, authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_ALL), authorization.Roles("testRole")[0]).Return(tt.authorizeErr)
 			if tt.authorizeErr != nil {
-				authorizer.On("Authorize", tt.principal, authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_MATCH), authorization.Roles("testRole")[0]).Return(tt.authorizeErr)
+				authorizer.On("Authorize", mock.Anything, tt.principal, authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_MATCH), authorization.Roles("testRole")[0]).Return(tt.authorizeErr)
 			}
-			controller.On("GetRolesForUser", tt.params.ID, userType).Return(returnedPolices, nil)
+			controller.On("GetRolesForUserOrGroup", tt.params.ID, authentication.AuthType(userType), false).Return(returnedPolices, nil)
 			controller.On("GetUsers", tt.params.ID).Return(map[string]*apikey.User{tt.params.ID: {}}, nil)
 			h := &authZHandlers{
 				authorizer: authorizer,
@@ -200,8 +208,9 @@ func TestGetRolesForUserInternalServerError(t *testing.T) {
 		{
 			name: "internal server error",
 			params: authz.GetRolesForUserParams{
-				ID:       "testUser",
-				UserType: string(userType),
+				ID:          "testUser",
+				UserType:    string(userType),
+				HTTPRequest: req,
 			},
 			principal:     &models.Principal{Username: "user1", UserType: userType},
 			getRolesErr:   fmt.Errorf("internal server error"),
@@ -215,8 +224,8 @@ func TestGetRolesForUserInternalServerError(t *testing.T) {
 			controller := NewMockControllerAndGetUsers(t)
 			logger, _ := test.NewNullLogger()
 
-			authorizer.On("Authorize", tt.principal, authorization.READ, authorization.Users(tt.params.ID)[0]).Return(nil)
-			controller.On("GetRolesForUser", tt.params.ID, userType).Return(nil, tt.getRolesErr)
+			authorizer.On("Authorize", mock.Anything, tt.principal, authorization.READ, authorization.Users(tt.params.ID)[0]).Return(nil)
+			controller.On("GetRolesForUserOrGroup", tt.params.ID, authentication.AuthType(userType), false).Return(nil, tt.getRolesErr)
 			controller.On("GetUsers", tt.params.ID).Return(map[string]*apikey.User{tt.params.ID: {}}, nil)
 
 			h := &authZHandlers{

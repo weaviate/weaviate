@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -45,9 +45,9 @@ func NewBackupsList(ctx *middleware.Context, handler BackupsListHandler) *Backup
 /*
 	BackupsList swagger:route GET /backups/{backend} backups backupsList
 
-# List backups in progress
+# List all created backups
 
-[Coming soon] List all backups in progress not implemented yet.
+List all created backups IDs, Status
 */
 type BackupsList struct {
 	Context *middleware.Context

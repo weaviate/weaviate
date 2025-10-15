@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,6 +13,7 @@ package lsmkv
 
 import (
 	"bytes"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/lsmkv"
@@ -42,11 +43,15 @@ type cursorStateReplace struct {
 // Cursor holds a RLock for the flushing state. It needs to be closed using the
 // .Close() methods or otherwise the lock will never be released
 func (b *Bucket) Cursor() *CursorReplace {
-	b.flushLock.RLock()
-
 	if b.strategy != StrategyReplace {
 		panic("Cursor() called on strategy other than 'replace'")
 	}
+
+	cursorOpenedAt := time.Now()
+	b.metrics.IncBucketOpenedCursorsByStrategy(b.strategy)
+	b.metrics.IncBucketOpenCursorsByStrategy(b.strategy)
+
+	b.flushLock.RLock()
 
 	innerCursors, unlockSegmentGroup := b.disk.newCursors()
 
@@ -66,6 +71,9 @@ func (b *Bucket) Cursor() *CursorReplace {
 		unlock: func() {
 			unlockSegmentGroup()
 			b.flushLock.RUnlock()
+
+			b.metrics.DecBucketOpenCursorsByStrategy(b.strategy)
+			b.metrics.ObserveBucketCursorDurationByStrategy(b.strategy, time.Since(cursorOpenedAt))
 		},
 	}
 }

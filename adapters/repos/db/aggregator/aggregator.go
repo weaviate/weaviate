@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -33,9 +33,12 @@ type vectorIndex interface {
 	SearchByVectorDistance(ctx context.Context, vector []float32, targetDistance float32, maxLimit int64,
 		allowList helpers.AllowList) ([]uint64, []float32, error)
 	SearchByVector(ctx context.Context, vector []float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error)
+}
+
+type vectorIndexMulti interface {
 	SearchByMultiVectorDistance(ctx context.Context, vector [][]float32, targetDistance float32,
 		maxLimit int64, allowList helpers.AllowList) ([]uint64, []float32, error)
-	SearchByMultiVector(ctx context.Context, vector [][]float32, k int, allow helpers.AllowList) ([]uint64, []float32, error)
+	SearchByMultiVector(ctx context.Context, vector [][]float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error)
 }
 
 type Aggregator struct {
@@ -53,6 +56,7 @@ type Aggregator struct {
 	nestedCrossRefLimit    int64
 	bitmapFactory          *roaringset.BitmapFactory
 	modules                *modules.Provider
+	defaultLimit           int64
 }
 
 func New(store *lsmkv.Store, params aggregation.Params,
@@ -63,7 +67,7 @@ func New(store *lsmkv.Store, params aggregation.Params,
 	isFallbackToSearchable inverted.IsFallbackToSearchable,
 	tenant string, nestedCrossRefLimit int64,
 	bitmapFactory *roaringset.BitmapFactory,
-	modules *modules.Provider,
+	modules *modules.Provider, defaultLimit int64,
 ) *Aggregator {
 	return &Aggregator{
 		logger:                 logger,
@@ -80,6 +84,7 @@ func New(store *lsmkv.Store, params aggregation.Params,
 		nestedCrossRefLimit:    nestedCrossRefLimit,
 		bitmapFactory:          bitmapFactory,
 		modules:                modules,
+		defaultLimit:           defaultLimit,
 	}
 }
 

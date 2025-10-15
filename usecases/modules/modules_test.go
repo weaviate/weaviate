@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -15,12 +15,12 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"net/http"
 	"testing"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/tailor-inc/graphql"
+
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/models"
@@ -28,13 +28,14 @@ import (
 	"github.com/weaviate/weaviate/entities/moduletools"
 	enitiesSchema "github.com/weaviate/weaviate/entities/schema"
 	ubackup "github.com/weaviate/weaviate/usecases/backup"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 func TestModulesProvider(t *testing.T) {
 	t.Run("should register simple module", func(t *testing.T) {
 		// given
 		logger, _ := test.NewNullLogger()
-		modulesProvider := NewProvider(logger)
+		modulesProvider := NewProvider(logger, config.Config{})
 		class := &models.Class{
 			Class:      "ClassOne",
 			Vectorizer: "mod1",
@@ -70,7 +71,7 @@ func TestModulesProvider(t *testing.T) {
 	t.Run("should not register modules providing the same search param", func(t *testing.T) {
 		// given
 		logger, _ := test.NewNullLogger()
-		modulesProvider := NewProvider(logger)
+		modulesProvider := NewProvider(logger, config.Config{})
 		schemaGetter := getFakeSchemaGetter()
 		modulesProvider.SetSchemaGetter(schemaGetter)
 
@@ -86,7 +87,7 @@ func TestModulesProvider(t *testing.T) {
 	t.Run("should not register modules providing internal search param", func(t *testing.T) {
 		// given
 		logger, _ := test.NewNullLogger()
-		modulesProvider := NewProvider(logger)
+		modulesProvider := NewProvider(logger, config.Config{})
 		schemaGetter := getFakeSchemaGetter()
 		modulesProvider.SetSchemaGetter(schemaGetter)
 
@@ -113,7 +114,7 @@ func TestModulesProvider(t *testing.T) {
 	t.Run("should not register modules providing faulty params", func(t *testing.T) {
 		// given
 		logger, _ := test.NewNullLogger()
-		modulesProvider := NewProvider(logger)
+		modulesProvider := NewProvider(logger, config.Config{})
 		schemaGetter := getFakeSchemaGetter()
 		modulesProvider.SetSchemaGetter(schemaGetter)
 
@@ -141,7 +142,7 @@ func TestModulesProvider(t *testing.T) {
 	t.Run("should register simple additional property module", func(t *testing.T) {
 		// given
 		logger, _ := test.NewNullLogger()
-		modulesProvider := NewProvider(logger)
+		modulesProvider := NewProvider(logger, config.Config{})
 		class := &models.Class{
 			Class:      "ClassOne",
 			Vectorizer: "mod1",
@@ -190,7 +191,7 @@ func TestModulesProvider(t *testing.T) {
 	t.Run("should not register additional property modules providing the same params", func(t *testing.T) {
 		// given
 		logger, _ := test.NewNullLogger()
-		modulesProvider := NewProvider(logger)
+		modulesProvider := NewProvider(logger, config.Config{})
 		schemaGetter := getFakeSchemaGetter()
 		modulesProvider.SetSchemaGetter(schemaGetter)
 
@@ -214,7 +215,7 @@ func TestModulesProvider(t *testing.T) {
 	t.Run("should not register additional property modules providing internal search param", func(t *testing.T) {
 		// given
 		logger, _ := test.NewNullLogger()
-		modulesProvider := NewProvider(logger)
+		modulesProvider := NewProvider(logger, config.Config{})
 		schemaGetter := getFakeSchemaGetter()
 		modulesProvider.SetSchemaGetter(schemaGetter)
 
@@ -269,7 +270,7 @@ func TestModulesProvider(t *testing.T) {
 	t.Run("should not register additional property modules providing faulty params", func(t *testing.T) {
 		// given
 		logger, _ := test.NewNullLogger()
-		modulesProvider := NewProvider(logger)
+		modulesProvider := NewProvider(logger, config.Config{})
 		schemaGetter := getFakeSchemaGetter()
 		modulesProvider.SetSchemaGetter(schemaGetter)
 
@@ -319,7 +320,7 @@ func TestModulesProvider(t *testing.T) {
 	t.Run("should register module with alt names", func(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		module := &dummyBackupModuleWithAltNames{}
-		modulesProvider := NewProvider(logger)
+		modulesProvider := NewProvider(logger, config.Config{})
 		modulesProvider.Register(module)
 
 		modByName := modulesProvider.GetByName("SomeBackend")
@@ -336,7 +337,7 @@ func TestModulesProvider(t *testing.T) {
 	t.Run("should provide backup backend", func(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		module := &dummyBackupModuleWithAltNames{}
-		modulesProvider := NewProvider(logger)
+		modulesProvider := NewProvider(logger, config.Config{})
 		modulesProvider.Register(module)
 
 		provider, ok := interface{}(modulesProvider).(ubackup.BackupBackendProvider)
@@ -497,10 +498,6 @@ func (m *dummyBackupModuleWithAltNames) AltNames() []string {
 }
 
 func (m *dummyBackupModuleWithAltNames) Init(ctx context.Context, params moduletools.ModuleInitParams) error {
-	return nil
-}
-
-func (m *dummyBackupModuleWithAltNames) RootHandler() http.Handler {
 	return nil
 }
 

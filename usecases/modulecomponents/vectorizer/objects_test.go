@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -212,8 +212,9 @@ func TestVectorizingObjects(t *testing.T) {
 				excludedProperty:      test.excludedProperty,
 				lowerCase:             test.lowerCase,
 			}
-			text := v.Texts(context.Background(), test.input, cfg)
+			text, isEmpty := v.Texts(context.Background(), test.input, cfg)
 			assert.Equal(t, test.expectedClientCall, text)
+			assert.False(t, isEmpty)
 		})
 	}
 }

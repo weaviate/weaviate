@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -59,6 +59,10 @@ type NodesGetClassParams struct {
 	  Default: "minimal"
 	*/
 	Output *string
+	/*
+	  In: query
+	*/
+	ShardName *string
 }
 
 // BindRequest both binds and validates a request, it assumes that complex things implement a Validatable(strfmt.Registry) error interface
@@ -79,6 +83,11 @@ func (o *NodesGetClassParams) BindRequest(r *http.Request, route *middleware.Mat
 
 	qOutput, qhkOutput, _ := qs.GetOK("output")
 	if err := o.bindOutput(qOutput, qhkOutput, route.Formats); err != nil {
+		res = append(res, err)
+	}
+
+	qShardName, qhkShardName, _ := qs.GetOK("shardName")
+	if err := o.bindShardName(qShardName, qhkShardName, route.Formats); err != nil {
 		res = append(res, err)
 	}
 	if len(res) > 0 {
@@ -116,6 +125,24 @@ func (o *NodesGetClassParams) bindOutput(rawData []string, hasKey bool, formats 
 		return nil
 	}
 	o.Output = &raw
+
+	return nil
+}
+
+// bindShardName binds and validates parameter ShardName from query.
+func (o *NodesGetClassParams) bindShardName(rawData []string, hasKey bool, formats strfmt.Registry) error {
+	var raw string
+	if len(rawData) > 0 {
+		raw = rawData[len(rawData)-1]
+	}
+
+	// Required: false
+	// AllowEmptyValue: false
+
+	if raw == "" { // empty values pass all other validations
+		return nil
+	}
+	o.ShardName = &raw
 
 	return nil
 }

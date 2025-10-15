@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -64,7 +64,7 @@ func TestGetRolesSuccess(t *testing.T) {
 			authorizer := authorization.NewMockAuthorizer(t)
 			controller := NewMockControllerAndGetUsers(t)
 			logger, _ := test.NewNullLogger()
-			authorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+			authorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 			controller.On("GetRoles").Return(tt.expectedRoles, nil)
 
 			h := &authZHandlers{
@@ -73,7 +73,7 @@ func TestGetRolesSuccess(t *testing.T) {
 				logger:     logger,
 				rbacconfig: rbacconf.Config{Enabled: true, RootUsers: []string{"root"}},
 			}
-			res := h.getRoles(authz.GetRolesParams{}, tt.principal)
+			res := h.getRoles(authz.GetRolesParams{HTTPRequest: req}, tt.principal)
 			parsed, ok := res.(*authz.GetRolesOK)
 			assert.True(t, ok)
 			assert.Len(t, parsed.Payload, len(tt.expectedRoles))

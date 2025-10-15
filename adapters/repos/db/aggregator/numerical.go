@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -14,10 +14,11 @@ package aggregator
 import (
 	"math"
 	"sort"
+	"sync"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/entities/aggregation"
+	"github.com/weaviate/weaviate/entities/inverted"
 )
 
 func addNumericalAggregations(prop *aggregation.Property,
@@ -83,6 +84,7 @@ func newNumericalAggregator() *numericalAggregator {
 }
 
 type numericalAggregator struct {
+	sync.Mutex
 	count        uint64
 	min          float64
 	max          float64
@@ -146,6 +148,9 @@ func (a *numericalAggregator) AddNumberRow(number float64, count uint64) error {
 		// skip
 		return nil
 	}
+
+	a.Lock()
+	defer a.Unlock()
 
 	a.count += count
 	a.sum += number * float64(count)

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,6 +13,7 @@ package docker
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"runtime"
@@ -35,7 +36,8 @@ const (
 func startWeaviate(ctx context.Context,
 	enableModules []string, defaultVectorizerModule string,
 	extraEnvSettings map[string]string, networkName string,
-	weaviateImage, hostname string, exposeGRPCPort bool,
+	weaviateImage, hostname string,
+	exposeGRPCPort, exposeDebugPort bool,
 	wellKnownEndpoint string,
 ) (*DockerContainer, error) {
 	fromDockerFile := testcontainers.FromDockerfile{}
@@ -77,11 +79,14 @@ func startWeaviate(ctx context.Context,
 	}
 	env := map[string]string{
 		"AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED": "true",
-		"LOG_LEVEL":                 "debug",
-		"QUERY_DEFAULTS_LIMIT":      "20",
-		"PERSISTENCE_DATA_PATH":     "./data",
-		"DEFAULT_VECTORIZER_MODULE": "none",
-		"FAST_FAILURE_DETECTION":    "true",
+		"LOG_LEVEL":                         "debug",
+		"QUERY_DEFAULTS_LIMIT":              "20",
+		"PERSISTENCE_DATA_PATH":             "./data",
+		"DEFAULT_VECTORIZER_MODULE":         "none",
+		"MEMBERLIST_FAST_FAILURE_DETECTION": "true",
+		"DISABLE_TELEMETRY":                 "true",
+		"RAFT_DRAIN_SLEEP":                  "1ms", // almost as no sleep, no 0 because will fail validation
+		"RAFT_TIMEOUTS_MULTIPLIER":          "1",   // force raft timeouts to 1 to not affect tests which does do heavy restarts
 	}
 	if len(enableModules) > 0 {
 		env["ENABLE_MODULES"] = strings.Join(enableModules, ",")
@@ -92,6 +97,7 @@ func startWeaviate(ctx context.Context,
 	for key, value := range extraEnvSettings {
 		env[key] = value
 	}
+
 	httpPort := nat.Port("8080/tcp")
 	exposedPorts := []string{"8080/tcp"}
 	waitStrategies := []wait.Strategy{
@@ -103,6 +109,11 @@ func startWeaviate(ctx context.Context,
 		exposedPorts = append(exposedPorts, "50051/tcp")
 		waitStrategies = append(waitStrategies, wait.ForListeningPort(grpcPort))
 	}
+	debugPort := nat.Port("6060/tcp")
+	if exposeDebugPort {
+		exposedPorts = append(exposedPorts, "6060/tcp")
+		waitStrategies = append(waitStrategies, wait.ForListeningPort(debugPort))
+	}
 	req := testcontainers.ContainerRequest{
 		FromDockerfile: fromDockerFile,
 		Image:          weaviateImage,
@@ -113,6 +124,7 @@ func startWeaviate(ctx context.Context,
 			networkName: {containerName},
 		},
 		ExposedPorts: exposedPorts,
+		WaitingFor:   wait.ForAll(waitStrategies...),
 		Env:          env,
 		LifecycleHooks: []testcontainers.ContainerLifecycleHooks{
 			{
@@ -140,6 +152,9 @@ func startWeaviate(ctx context.Context,
 		Reuse:            false,
 	})
 	if err != nil {
+		if terminateErr := testcontainers.TerminateContainer(c); terminateErr != nil {
+			return nil, fmt.Errorf("%w: failed to terminate: %w", err, terminateErr)
+		}
 		return nil, err
 	}
 	httpUri, err := c.PortEndpoint(ctx, httpPort, "")
@@ -154,6 +169,13 @@ func startWeaviate(ctx context.Context,
 			return nil, err
 		}
 		endpoints[GRPC] = endpoint{grpcPort, grpcUri}
+	}
+	if exposeDebugPort {
+		debugUri, err := c.PortEndpoint(ctx, debugPort, "")
+		if err != nil {
+			return nil, err
+		}
+		endpoints[DEBUG] = endpoint{debugPort, debugUri}
 	}
 	return &DockerContainer{
 		name:        containerName,

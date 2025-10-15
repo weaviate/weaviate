@@ -1,0 +1,34 @@
+name: Find Issue Duplicates
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  issues: write
+
+jobs:
+  triage:
+    runs-on: ubuntu-latest
+    # Only run if issue has "bug" label or no labels
+    if: contains(github.event.issue.labels.*.name, 'bug') || toJSON(github.event.issue.labels) == '[]'
+    steps:
+      - name: Check for similar issues
+        id: similarity-check
+        uses: weaviate/weaviate-github-issue-triage@v1
+        with:
+          issue_body: ${{ github.event.issue.body }}
+          issue_number: ${{ github.event.issue.number }}
+          weaviate_url: ${{ secrets.WEAVIATE_URL }}
+          weaviate_api_key: ${{ secrets.WEAVIATE_API_KEY }} # optional
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          collection_name: GitHubIssuesWeaviate
+
+      - name: Log results
+        if: always()
+        run: |
+          echo "Found similar issue: ${{ steps.similarity-check.outputs.found_similar_issue }}"
+          echo "Comment posted: ${{ steps.similarity-check.outputs.comment_posted }}"
+          if [ "${{ steps.similarity-check.outputs.error_message }}" != "" ]; then
+            echo "Error: ${{ steps.similarity-check.outputs.error_message }}"
+          fi

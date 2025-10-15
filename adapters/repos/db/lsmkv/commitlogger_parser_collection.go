@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -21,47 +21,55 @@ import (
 
 func (p *commitloggerParser) doCollection() error {
 	for {
-		var commitType CommitType
-
-		err := binary.Read(p.checksumReader, binary.LittleEndian, &commitType)
-		if errors.Is(err, io.EOF) {
+		if ok, err := p.doCollectionOnce(); err != nil {
+			return err
+		} else if !ok {
 			break
 		}
-		if err != nil {
-			return errors.Wrap(err, "read commit type")
-		}
+	}
+	return nil
+}
 
-		if !CommitTypeCollection.Is(commitType) {
-			return errors.Errorf("found a %s commit on a collection bucket", commitType.String())
-		}
+func (p *commitloggerParser) doCollectionOnce() (ok bool, err error) {
+	var commitType CommitType
 
-		var version uint8
-
-		err = binary.Read(p.checksumReader, binary.LittleEndian, &version)
-		if err != nil {
-			return errors.Wrap(err, "read commit version")
-		}
-
-		switch version {
-		case 0:
-			{
-				err = p.parseCollectionNodeV0()
-			}
-		case 1:
-			{
-				err = p.parseCollectionNodeV1()
-			}
-		default:
-			{
-				return fmt.Errorf("unsupported commit version %d", version)
-			}
-		}
-		if err != nil {
-			return err
-		}
+	err = binary.Read(p.checksumReader, binary.LittleEndian, &commitType)
+	if errors.Is(err, io.EOF) {
+		return false, nil
+	}
+	if err != nil {
+		return false, errors.Wrap(err, "read commit type")
 	}
 
-	return nil
+	if !CommitTypeCollection.Is(commitType) {
+		return false, errors.Errorf("found a %s commit on a collection bucket", commitType.String())
+	}
+
+	var version uint8
+
+	err = binary.Read(p.checksumReader, binary.LittleEndian, &version)
+	if err != nil {
+		return false, errors.Wrap(err, "read commit version")
+	}
+
+	switch version {
+	case 0:
+		{
+			err = p.parseCollectionNodeV0()
+		}
+	case 1:
+		{
+			err = p.parseCollectionNodeV1()
+		}
+	default:
+		{
+			return false, fmt.Errorf("unsupported commit version %d", version)
+		}
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func (p *commitloggerParser) parseCollectionNodeV0() error {

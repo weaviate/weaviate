@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 	"io"
 	"path"
@@ -20,11 +21,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/weaviate/weaviate/cluster/router/types"
-	"go.etcd.io/bbolt"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
+	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
+	"go.etcd.io/bbolt"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
@@ -34,12 +34,14 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/dto"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
+	entinverted "github.com/weaviate/weaviate/entities/inverted"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/multi"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -56,7 +58,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 )
 
-const IdLockPoolSize = 128
+const IdLockPoolSize uint64 = 1024
 
 var (
 	errAlreadyShutdown    = errors.New("already shut or dropped")
@@ -64,19 +66,18 @@ var (
 )
 
 type ShardLike interface {
-	Index() *Index                  // Get the parent index
-	Name() string                   // Get the shard name
-	Store() *lsmkv.Store            // Get the underlying store
-	NotifyReady()                   // Set shard status to ready
-	GetStatus() storagestate.Status // Return the shard status
-	GetStatusNoLoad() storagestate.Status
-	UpdateStatus(status string) error                                                   // Set shard status
+	Index() *Index                                                                      // Get the parent index
+	Name() string                                                                       // Get the shard name
+	Store() *lsmkv.Store                                                                // Get the underlying store
+	NotifyReady()                                                                       // Set shard status to ready
+	GetStatus() storagestate.Status                                                     // Return the shard status
+	UpdateStatus(status, reason string) error                                           // Set shard status
 	SetStatusReadonly(reason string) error                                              // Set shard status to readonly with reason
 	FindUUIDs(ctx context.Context, filters *filters.LocalFilter) ([]strfmt.UUID, error) // Search and return document ids
 
 	Counter() *indexcounter.Counter
-	ObjectCount() int
-	ObjectCountAsync() int
+	ObjectCount(ctx context.Context) (int, error)
+	ObjectCountAsync(ctx context.Context) (int64, error)
 	GetPropertyLengthTracker() *inverted.JsonShardMetaData
 
 	PutObject(context.Context, *storobj.Object) error
@@ -96,7 +97,7 @@ type ShardLike interface {
 	ID() string // Get the shard id
 	drop() error
 	HaltForTransfer(ctx context.Context, offloading bool, inactivityTimeout time.Duration) error
-	initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper, props ...*models.Property)
+	initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper, lazyLoadSegments bool, props ...*models.Property)
 	ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) error
 	resumeMaintenanceCycles(ctx context.Context) error
 	GetFileMetadata(ctx context.Context, relativeFilePath string) (file.FileMetadata, error)
@@ -123,7 +124,7 @@ type ShardLike interface {
 	// TODO tests only
 	Versioner() *shardVersioner // Get the shard versioner
 
-	UpdateAsyncReplicationConfig(ctx context.Context, enabled bool) error
+	SetAsyncReplicationEnabled(ctx context.Context, enabled bool) error
 
 	isReadOnly() error
 	pathLSM() string
@@ -139,13 +140,12 @@ type ShardLike interface {
 	abortReplication(context.Context, string) replica.SimpleResponse
 	filePutter(context.Context, string) (io.WriteCloser, error)
 
-	// TODO tests only
-	Dimensions(ctx context.Context, targetVector string) int // dim(vector)*number vectors
-	QuantizedDimensions(ctx context.Context, targetVector string, segments int) int
+	// Dimensions returns the total number of dimensions for a given vector
+	Dimensions(ctx context.Context, targetVector string) (int, error)
+	QuantizedDimensions(ctx context.Context, targetVector string, segments int) (int, error)
 
 	extendDimensionTrackerLSM(dimLength int, docID uint64, targetVector string) error
-	publishDimensionMetrics(ctx context.Context)
-	resetDimensionsLSM() error
+	resetDimensionsLSM(ctx context.Context) error
 
 	addToPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error
 	deleteFromPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error
@@ -182,11 +182,16 @@ type ShardLike interface {
 
 	// A thread-safe counter that goes up any time there is activity on this
 	// shard. The absolute value has no meaning, it's only purpose is to compare
-	// the previous value to the current value.
-	Activity() int32
+	// the previous value to the current value. First value is for reads, second
+	// for writes.
+	Activity() (int32, int32)
 	// Debug methods
 	DebugResetVectorIndex(ctx context.Context, targetVector string) error
 	RepairIndex(ctx context.Context, targetVector string) error
+	RequantizeIndex(ctx context.Context, targetVector string) error
+
+	// Debug method for docID lock debugging and contention detection and simulation
+	DebugGetDocIdLockStatus() (bool, error)
 }
 
 type onAddToPropertyValueIndex func(shard *Shard, docID uint64, property *inverted.Property) error
@@ -218,16 +223,16 @@ type Shard struct {
 	queues        map[string]*VectorIndexQueue
 
 	// async replication
-	asyncReplicationRWMux      sync.RWMutex
-	asyncReplicationConfig     asyncReplicationConfig
-	hashtree                   hashtree.AggregatedHashTree
-	hashtreeFullyInitialized   bool
-	asyncReplicationCancelFunc context.CancelFunc
+	asyncReplicationRWMux           sync.RWMutex
+	asyncReplicationConfig          asyncReplicationConfig
+	hashtree                        hashtree.AggregatedHashTree
+	hashtreeFullyInitialized        bool
+	minimalHashtreeInitializationCh chan struct{}
+	asyncReplicationCancelFunc      context.CancelFunc
 
 	lastComparedHosts                 []string
 	lastComparedHostsMux              sync.RWMutex
 	asyncReplicationStatsByTargetNode map[string]*hashBeatHostStats
-	//
 
 	haltForTransferMux               sync.Mutex
 	haltForTransferInactivityTimeout time.Duration
@@ -238,9 +243,6 @@ type Shard struct {
 	status              ShardStatus
 	statusLock          sync.RWMutex
 	propertyIndicesLock sync.RWMutex
-
-	stopDimensionTracking        chan struct{}
-	dimensionTrackingInitialized atomic.Bool
 
 	centralJobQueue chan job // reference to queue used by all shards
 
@@ -263,7 +265,8 @@ type Shard struct {
 	bitmapFactory  *roaringset.BitmapFactory
 	bitmapBufPool  roaringset.BitmapBufPool
 
-	activityTracker atomic.Int32
+	activityTrackerRead  atomic.Int32
+	activityTrackerWrite atomic.Int32
 
 	// shared bolt database for dynamic vector indexes.
 	// nil if there is no configured dynamic vector index
@@ -289,6 +292,8 @@ type Shard struct {
 
 	// shutdownRequested marks shard as requested for shutdown
 	shutdownRequested atomic.Bool
+
+	SPFreshEnabled bool
 }
 
 func (s *Shard) ID() string {
@@ -309,15 +314,24 @@ func (s *Shard) pathHashTree() string {
 
 func (s *Shard) vectorIndexID(targetVector string) string {
 	if targetVector != "" {
-		return fmt.Sprintf("vectors_%s", targetVector)
+		return fmt.Sprintf("%s_%s", helpers.VectorsBucketLSM, targetVector)
 	}
 	return "main"
 }
 
-func (s *Shard) uuidToIdLockPoolId(idBytes []byte) uint8 {
-	// use the last byte of the uuid to determine which locking-pool a given object should use. The last byte is used
-	// as uuids probably often have some kind of order and the last byte will in general be the one that changes the most
-	return idBytes[15] % IdLockPoolSize
+// uuidToIdLockPoolId computes a lock pool id for a given uuid. The lock pool
+// is used to synchronize access to the same uuid. The pool size is fixed and
+// defined by IdLockPoolSize.
+// The function uses the XOR of the two halves of the UUID to ensure a good
+// distribution of UUIDs to lock pool ids. This helps to minimize lock
+// contention when multiple goroutines are accessing different UUIDs.
+// The result is then taken modulo the pool size to ensure it fits within the
+// bounds of the lock pool array.
+func (s *Shard) uuidToIdLockPoolId(uuidBytes []byte) uint {
+	lo := binary.LittleEndian.Uint64(uuidBytes[:8])
+	hi := binary.LittleEndian.Uint64(uuidBytes[8:16])
+
+	return uint((lo ^ hi) % IdLockPoolSize)
 }
 
 func (s *Shard) memtableDirtyConfig() lsmkv.BucketOption {
@@ -344,7 +358,8 @@ func (s *Shard) UpdateVectorIndexConfig(ctx context.Context, updated schemaConfi
 		return err
 	}
 
-	err := s.SetStatusReadonly("UpdateVectorIndexConfig")
+	reason := "UpdateVectorIndexConfig"
+	err := s.SetStatusReadonly(reason)
 	if err != nil {
 		return fmt.Errorf("attempt to mark read-only: %w", err)
 	}
@@ -355,7 +370,7 @@ func (s *Shard) UpdateVectorIndexConfig(ctx context.Context, updated schemaConfi
 	}
 
 	return index.UpdateUserConfig(updated, func() {
-		s.UpdateStatus(storagestate.StatusReady.String())
+		s.UpdateStatus(storagestate.StatusReady.String(), reason)
 	})
 }
 
@@ -363,7 +378,15 @@ func (s *Shard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string
 	if err := s.isReadOnly(); err != nil {
 		return err
 	}
-	if err := s.SetStatusReadonly("UpdateVectorIndexConfig"); err != nil {
+
+	i := 0
+	targetVecs := make([]string, len(updated))
+	for targetVec := range updated {
+		targetVecs[i] = targetVec
+		i++
+	}
+	reason := fmt.Sprintf("UpdateVectorIndexConfigs: %v", targetVecs)
+	if err := s.SetStatusReadonly(reason); err != nil {
 		return fmt.Errorf("attempt to mark read-only: %w", err)
 	}
 
@@ -376,7 +399,8 @@ func (s *Shard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string
 				break
 			}
 		} else {
-			if err = s.initTargetVector(ctx, targetVector, targetCfg); err != nil {
+			// dont lazy load segments on config update
+			if err = s.initTargetVector(ctx, targetVector, targetCfg, false); err != nil {
 				return fmt.Errorf("creating new vector index: %w", err)
 			}
 		}
@@ -384,7 +408,7 @@ func (s *Shard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string
 
 	f := func() {
 		wg.Wait()
-		s.UpdateStatus(storagestate.StatusReady.String())
+		s.UpdateStatus(storagestate.StatusReady.String(), reason)
 	}
 	enterrors.GoWrapper(f, s.index.logger)
 
@@ -392,24 +416,61 @@ func (s *Shard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string
 }
 
 // ObjectCount returns the exact count at any moment
-func (s *Shard) ObjectCount() int {
+func (s *Shard) ObjectCount(ctx context.Context) (int, error) {
 	b := s.store.Bucket(helpers.ObjectsBucketLSM)
 	if b == nil {
-		return 0
+		return 0, errors.New("object bucket does not exist")
 	}
 
-	return b.Count()
+	return b.Count(ctx)
 }
 
 // ObjectCountAsync returns the eventually consistent "async" count which is
 // much cheaper to obtain
-func (s *Shard) ObjectCountAsync() int {
+func (s *Shard) ObjectCountAsync(_ context.Context) (int64, error) {
 	b := s.store.Bucket(helpers.ObjectsBucketLSM)
 	if b == nil {
-		return 0
+		// we return no error, because we could have shards without the objects bucket
+		// the error is needed to satisfy the interface for lazy loaded shards possible errors
+		return 0, nil
 	}
 
-	return b.CountAsync()
+	return int64(b.CountAsync()), nil
+}
+
+func (s *Shard) ObjectStorageSize(ctx context.Context) (int64, error) {
+	metrics, err := shardusage.CalculateUnloadedObjectsMetrics(s.index.logger, s.index.path(), s.name)
+	if err != nil {
+		return 0, err
+	}
+	return metrics.StorageBytes, nil
+}
+
+// VectorStorageSize calculates the total storage size of all vector indexes in the shard
+func (s *Shard) VectorStorageSize(ctx context.Context) (int64, int64, error) {
+	vectorSize, err := shardusage.CalculateUnloadedVectorsMetrics(s.index.path(), s.name)
+	if err != nil {
+		return 0, 0, err
+	}
+
+	uncompressedSize := int64(0)
+	if err := s.ForEachVectorIndex(func(targetVector string, index VectorIndex) error {
+		// Get dimensions and object count from the dimensions bucket for this specific target vector
+		dimensionality, err := s.calcTargetVectorDimensions(ctx, targetVector)
+		if err != nil {
+			return err
+		}
+		if dimensionality.Count == 0 || dimensionality.Dimensions == 0 {
+			return nil
+		}
+
+		uncompressedSize += int64(dimensionality.Count) * int64(dimensionality.Dimensions) * 4
+		return nil
+	}); err != nil {
+		return 0, 0, err
+	}
+
+	return vectorSize, uncompressedSize, nil
 }
 
 func (s *Shard) isFallbackToSearchable() bool {
@@ -437,7 +498,7 @@ func shardPathLSM(indexPath, shardName string) string {
 }
 
 func bucketKeyPropertyLength(length int) ([]byte, error) {
-	return inverted.LexicographicallySortableInt64(int64(length))
+	return entinverted.LexicographicallySortableInt64(int64(length))
 }
 
 func bucketKeyPropertyNull(isNull bool) ([]byte, error) {
@@ -447,8 +508,9 @@ func bucketKeyPropertyNull(isNull bool) ([]byte, error) {
 	return []byte{uint8(filters.InternalNotNullState)}, nil
 }
 
-func (s *Shard) Activity() int32 {
-	return s.activityTracker.Load()
+// Activity score for read and write
+func (s *Shard) Activity() (int32, int32) {
+	return s.activityTrackerRead.Load(), s.activityTrackerWrite.Load()
 }
 
 func (s *Shard) registerAddToPropertyValueIndex(callback onAddToPropertyValueIndex) {

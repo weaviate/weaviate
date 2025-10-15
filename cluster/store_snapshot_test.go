@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -20,12 +20,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/require"
-
 	"github.com/hashicorp/raft"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
-
+	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/cluster/mocks"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/utils"
@@ -250,6 +248,7 @@ func setupTestSchema(t *testing.T, ms MockStore) {
 				Status:         models.TenantActivityStatusCOLD,
 			},
 		},
+		PartitioningEnabled: productClass.MultiTenancyConfig.Enabled,
 	}
 
 	categoryClass := &models.Class{
@@ -267,6 +266,7 @@ func setupTestSchema(t *testing.T, ms MockStore) {
 				Status:         models.TenantActivityStatusHOT,
 			},
 		},
+		PartitioningEnabled: categoryClass.MultiTenancyConfig.Enabled,
 	}
 
 	// Create mock raft logs to use with the Store's Apply method
@@ -333,8 +333,11 @@ func verifySchemaRestoration(t *testing.T, source, target MockStore) {
 				"Vector config count should match for class %s", sourceClass.Class)
 
 			// Compare sharding state
-			sourceShardingState := sourceSchema.CopyShardingState(sourceClass.Class)
-			targetShardingState := targetSchema.CopyShardingState(sourceClass.Class)
+			sourceShardingState, err := readShardingState(sourceSchema, sourceClass.Class)
+			require.Nil(t, err)
+
+			targetShardingState, err := readShardingState(targetSchema, targetClass.Class)
+			require.Nil(t, err)
 
 			if sourceShardingState != nil && targetShardingState != nil {
 				assert.Equal(t, len(sourceShardingState.Physical), len(targetShardingState.Physical),
@@ -389,7 +392,7 @@ func TestReplicationFactorMigration(t *testing.T) {
 					Status:         models.TenantActivityStatusHOT,
 				},
 			},
-			PartitioningEnabled: false,
+			PartitioningEnabled: class.MultiTenancyConfig.Enabled,
 			// uninitialized ReplicationFactor
 		}
 
@@ -408,7 +411,8 @@ func TestReplicationFactorMigration(t *testing.T) {
 		require.NotNil(t, source.store.SchemaReader().ReadOnlyClass(className),
 			"error while reading class schema")
 
-		sourceState := source.store.SchemaReader().CopyShardingState(className)
+		sourceState, err := readShardingState(source.store.SchemaReader(), class.Class)
+		require.Nil(t, err)
 		require.Equal(t, int64(1), sourceState.ReplicationFactor,
 			"error while copying sharding state")
 
@@ -438,7 +442,8 @@ func TestReplicationFactorMigration(t *testing.T) {
 		targetClass := target.store.SchemaReader().ReadOnlyClass(className)
 		require.NotNil(t, targetClass, "Class should be restored")
 
-		targetState := target.store.SchemaReader().CopyShardingState(className)
+		targetState, err := readShardingState(target.store.SchemaReader(), class.Class)
+		require.Nil(t, err)
 		require.NotNil(t, targetState, "Sharding state should be restored")
 		require.Equal(t, int64(1), targetState.ReplicationFactor,
 			"Replication factor should be migrated to match the number of nodes (1)")
@@ -467,7 +472,7 @@ func TestReplicationFactorMigration(t *testing.T) {
 		shardState := &sharding.State{
 			IndexID:             className,
 			Physical:            map[string]sharding.Physical{},
-			PartitioningEnabled: true,
+			PartitioningEnabled: class.MultiTenancyConfig.Enabled,
 			// uninitialized ReplicationFactor
 		}
 
@@ -487,7 +492,8 @@ func TestReplicationFactorMigration(t *testing.T) {
 		require.NotNil(t, source.store.SchemaReader().ReadOnlyClass(className),
 			"error while reading class schema")
 
-		sourceState := source.store.SchemaReader().CopyShardingState(className)
+		sourceState, err := readShardingState(source.store.SchemaReader(), class.Class)
+		require.Nil(t, err)
 		require.Equal(t, int64(1), sourceState.ReplicationFactor,
 			"source replication factor should be 1 before snapshot")
 		require.True(t, sourceState.PartitioningEnabled,
@@ -520,7 +526,8 @@ func TestReplicationFactorMigration(t *testing.T) {
 		targetClass := target.store.SchemaReader().ReadOnlyClass(className)
 		require.NotNil(t, targetClass, "error while reading class")
 
-		targetState := target.store.SchemaReader().CopyShardingState(className)
+		targetState, err := readShardingState(target.store.SchemaReader(), class.Class)
+		require.Nil(t, err)
 		require.NotNil(t, targetState, "Sharding state should be restored")
 		require.True(t, targetState.PartitioningEnabled,
 			"partitioning should still be enabled after restoring the snapshot")
@@ -552,7 +559,7 @@ func TestReplicationFactorMigration(t *testing.T) {
 					Status:         models.TenantActivityStatusHOT,
 				},
 			},
-			PartitioningEnabled: false,
+			PartitioningEnabled: class.MultiTenancyConfig.Enabled,
 			ReplicationFactor:   0,
 		}
 
@@ -571,7 +578,8 @@ func TestReplicationFactorMigration(t *testing.T) {
 		require.NotNil(t, source.store.SchemaReader().ReadOnlyClass(className),
 			"error while reading class schema")
 
-		sourceState := source.store.SchemaReader().CopyShardingState(className)
+		sourceState, err := readShardingState(source.store.SchemaReader(), class.Class)
+		require.Nil(t, err)
 		require.Equal(t, int64(1), sourceState.ReplicationFactor,
 			"error while copying sharding state")
 
@@ -601,7 +609,8 @@ func TestReplicationFactorMigration(t *testing.T) {
 		targetClass := target.store.SchemaReader().ReadOnlyClass(className)
 		require.NotNil(t, targetClass, "Class should be restored")
 
-		targetState := target.store.SchemaReader().CopyShardingState(className)
+		targetState, err := readShardingState(target.store.SchemaReader(), class.Class)
+		require.Nil(t, err)
 		require.NotNil(t, targetState, "Sharding state should be restored")
 		require.Equal(t, int64(1), targetState.ReplicationFactor,
 			"Replication factor should be migrated to match the number of nodes (1)")
@@ -650,7 +659,8 @@ func TestReplicationFactorMigration(t *testing.T) {
 		require.NotNil(t, source.store.SchemaReader().ReadOnlyClass(className),
 			"error while reading class schema")
 
-		sourceState := source.store.SchemaReader().CopyShardingState(className)
+		sourceState, err := readShardingState(source.store.SchemaReader(), class.Class)
+		require.Nil(t, err)
 		require.Equal(t, int64(1), sourceState.ReplicationFactor,
 			"source replication factor should be 1 before snapshot")
 		require.True(t, sourceState.PartitioningEnabled,
@@ -683,7 +693,8 @@ func TestReplicationFactorMigration(t *testing.T) {
 		targetClass := target.store.SchemaReader().ReadOnlyClass(className)
 		require.NotNil(t, targetClass, "error while reading class")
 
-		targetState := target.store.SchemaReader().CopyShardingState(className)
+		targetState, err := readShardingState(target.store.SchemaReader(), class.Class)
+		require.Nil(t, err)
 		require.NotNil(t, targetState, "Sharding state should be restored")
 		require.True(t, targetState.PartitioningEnabled,
 			"partitioning should still be enabled after restoring the snapshot")
@@ -715,7 +726,7 @@ func TestReplicationFactorMigration(t *testing.T) {
 					Status:         models.TenantActivityStatusHOT,
 				},
 			},
-			PartitioningEnabled: false,
+			PartitioningEnabled: class.MultiTenancyConfig.Enabled,
 			ReplicationFactor:   4,
 		}
 
@@ -734,7 +745,8 @@ func TestReplicationFactorMigration(t *testing.T) {
 		require.NotNil(t, source.store.SchemaReader().ReadOnlyClass(className),
 			"error while reading class schema")
 
-		sourceState := source.store.SchemaReader().CopyShardingState(className)
+		sourceState, err := readShardingState(source.store.SchemaReader(), class.Class)
+		require.Nil(t, err)
 		require.Equal(t, int64(4), sourceState.ReplicationFactor,
 			"error while copying sharding state")
 
@@ -764,7 +776,8 @@ func TestReplicationFactorMigration(t *testing.T) {
 		targetClass := target.store.SchemaReader().ReadOnlyClass(className)
 		require.NotNil(t, targetClass, "Class should be restored")
 
-		targetState := target.store.SchemaReader().CopyShardingState(className)
+		targetState, err := readShardingState(target.store.SchemaReader(), class.Class)
+		require.Nil(t, err)
 		require.NotNil(t, targetState, "Sharding state should be restored")
 		require.Equal(t, int64(4), targetState.ReplicationFactor,
 			"Replication factor should be migrated to match the number of nodes (1)")
@@ -793,7 +806,7 @@ func TestReplicationFactorMigration(t *testing.T) {
 		shardState := &sharding.State{
 			IndexID:             className,
 			Physical:            map[string]sharding.Physical{}, // Empty physical map for partitioning
-			PartitioningEnabled: true,
+			PartitioningEnabled: class.MultiTenancyConfig.Enabled,
 			ReplicationFactor:   3,
 		}
 
@@ -813,7 +826,8 @@ func TestReplicationFactorMigration(t *testing.T) {
 		require.NotNil(t, source.store.SchemaReader().ReadOnlyClass(className),
 			"error while reading class schema")
 
-		sourceState := source.store.SchemaReader().CopyShardingState(className)
+		sourceState, err := readShardingState(source.store.SchemaReader(), class.Class)
+		require.Nil(t, err)
 		require.Equal(t, int64(3), sourceState.ReplicationFactor,
 			"source replication factor should be 1 before snapshot")
 		require.True(t, sourceState.PartitioningEnabled,
@@ -846,7 +860,8 @@ func TestReplicationFactorMigration(t *testing.T) {
 		targetClass := target.store.SchemaReader().ReadOnlyClass(className)
 		require.NotNil(t, targetClass, "error while reading class")
 
-		targetState := target.store.SchemaReader().CopyShardingState(className)
+		targetState, err := readShardingState(target.store.SchemaReader(), class.Class)
+		require.Nil(t, err)
 		require.NotNil(t, targetState, "Sharding state should be restored")
 		require.True(t, targetState.PartitioningEnabled,
 			"partitioning should still be enabled after restoring the snapshot")
@@ -878,6 +893,7 @@ func TestReplicationFactorMigration(t *testing.T) {
 					Status:         models.TenantActivityStatusHOT,
 				},
 			},
+			PartitioningEnabled: class.MultiTenancyConfig.Enabled,
 		}
 
 		createClassLog := raft.Log{
@@ -961,7 +977,8 @@ func TestReplicationFactorMigration(t *testing.T) {
 					Status:         models.TenantActivityStatusHOT,
 				},
 			},
-			ReplicationFactor: 0,
+			PartitioningEnabled: class.MultiTenancyConfig.Enabled,
+			ReplicationFactor:   0,
 		}
 
 		createClassLog := raft.Log{
@@ -1045,7 +1062,8 @@ func TestReplicationFactorMigration(t *testing.T) {
 					Status:         models.TenantActivityStatusHOT,
 				},
 			},
-			ReplicationFactor: 3,
+			PartitioningEnabled: class.MultiTenancyConfig.Enabled,
+			ReplicationFactor:   3,
 		}
 
 		createClassLog := raft.Log{

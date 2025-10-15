@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -193,12 +193,12 @@ func (v *google) getEmbeddingsFromResponse(statusCode int, resBody embeddingsRes
 ) {
 	if respErr := v.checkResponse(statusCode, resBody.Error); respErr != nil {
 		err = respErr
-		return
+		return textEmbeddings, imageEmbeddings, videoEmbeddings, err
 	}
 
 	if len(resBody.Predictions) == 0 {
 		err = errors.Errorf("empty embeddings response")
-		return
+		return textEmbeddings, imageEmbeddings, videoEmbeddings, err
 	}
 
 	for _, p := range resBody.Predictions {
@@ -220,7 +220,7 @@ func (v *google) getEmbeddingsFromResponse(statusCode int, resBody embeddingsRes
 			videoEmbeddings = append(videoEmbeddings, embedding)
 		}
 	}
-	return
+	return textEmbeddings, imageEmbeddings, videoEmbeddings, err
 }
 
 func (v *google) getResponse(textVectors, imageVectors, videoVectors [][]float32) (*ent.VectorizationResult, error) {

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -15,6 +15,8 @@ import (
 	"io"
 	"os"
 	"unicode/utf8"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 )
 
 const (
@@ -31,13 +33,13 @@ type bufWriter struct {
 	err error
 	buf []byte
 	n   int
-	wr  *os.File
+	wr  common.File
 }
 
 // NewWriterSize returns a new Writer whose buffer has at least the specified
 // size. If the argument *os.File is already a Writer with large enough
 // size, it returns the underlying Writer.
-func NewWriterSize(w *os.File, size int) *bufWriter {
+func NewWriterSize(w common.File, size int) *bufWriter {
 	if size <= 0 {
 		size = defaultBufSize
 	}

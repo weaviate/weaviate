@@ -137,6 +137,10 @@ linters:
         path: adapters/repos/db/vector/.*/dump.go
       - linters:
           - staticcheck
+        path: adapters/repos/db/lsmkv/compaction_bench_test.go
+        text: QF1003 # could use tagged switch on strategy
+      - linters:
+          - staticcheck
         path: adapters/handlers/grpc/v1/filters.go
         text: QF1003 # could use tagged switch on propToFilterOn
       - linters:
@@ -313,7 +317,7 @@ linters:
         text: QF1008 # could remove embedded field <name> from selector
       - linters:
           - staticcheck
-        path: modules/text2colbert-jinaai/ent/class_settings.go
+        path: modules/text2multivec-jinaai/ent/class_settings.go
         text: QF1008 # could remove embedded field <name> from selector
       - linters:
           - staticcheck
@@ -473,6 +477,10 @@ linters:
         text: QF1012 # Use fmt.Fprintf(...) instead of Write([]byte(fmt.Sprintf(...)))
       - linters:
           - staticcheck
+        path: adapters/handlers/rest/handlers_debug.go
+        text: QF1012 # Use fmt.Fprintf(...) instead of Write([]byte(fmt.Sprintf(...)))
+      - linters:
+          - staticcheck
         path: modules/generative-anthropic/clients/anthropic.go
         text: ST1005 # error strings should not end with punctuation or newlines
       - linters:
@@ -481,8 +489,12 @@ linters:
         text: ST1005 # error strings should not end with punctuation or newlines
       - linters:
           - staticcheck
-        path: modules/text2vec-aws/clients/aws.go
+        path: usecases/modulecomponents/clients/aws/aws.go
         text: ST1005 # error strings should not end with punctuation or newlines
+      - linters:
+          - staticcheck
+        path: adapters/handlers/rest/clusterapi/indices_replicas_test.go
+        text: QF1003 # could use tagged switch on res.StatusCode / httpStatus
     paths:
       - third_party$
       - builtin$

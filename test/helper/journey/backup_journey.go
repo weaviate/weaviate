@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -68,7 +68,7 @@ func backupJourney(t *testing.T, className, backend, basebackupID string,
 			assert.Nil(t, backupResp)
 			assert.Error(t, err)
 
-			restoreResp, err := helper.RestoreBackup(t, helper.DefaultRestoreConfig(), className, backend, backupID, map[string]string{})
+			restoreResp, err := helper.RestoreBackup(t, helper.DefaultRestoreConfig(), className, backend, backupID, map[string]string{}, false)
 			assert.Nil(t, restoreResp)
 			assert.Error(t, err)
 		})
@@ -151,7 +151,7 @@ func backupJourney(t *testing.T, className, backend, basebackupID string,
 		}
 
 		t.Logf("cfg: %+v, className: %s, backend: %s, backupID: %s, nodeMapping: %+v\n", cfg, className, backend, backupID, nodeMapping)
-		resp, err := helper.RestoreBackup(t, cfg, className, backend, backupID, nodeMapping)
+		resp, err := helper.RestoreBackup(t, cfg, className, backend, backupID, nodeMapping, false)
 		require.Nil(t, err, "expected nil, got: %v", err)
 		assert.Equal(t, backupID, resp.Payload.ID)
 		assert.Equal(t, backend, resp.Payload.Backend)
@@ -232,7 +232,7 @@ func backupJourneyWithCancellation(t *testing.T, className, backend, basebackupI
 			assert.Nil(t, backupResp)
 			assert.Error(t, err)
 
-			restoreResp, err := helper.RestoreBackup(t, helper.DefaultRestoreConfig(), className, backend, backupID, map[string]string{})
+			restoreResp, err := helper.RestoreBackup(t, helper.DefaultRestoreConfig(), className, backend, backupID, map[string]string{}, false)
 			assert.Nil(t, restoreResp)
 			assert.Error(t, err)
 		})
@@ -284,6 +284,78 @@ func backupJourneyWithCancellation(t *testing.T, className, backend, basebackupI
 			require.NotNil(t, statusResp.Payload.Status)
 			require.Equal(t, string(backup.Cancelled), *statusResp.Payload.Status)
 		})
+	})
+}
+
+func backupJourneyWithListing(t *testing.T, journeyType journeyType, className, backend, backupID string, overrideBucket, overridePath string) {
+	if journeyType == clusterJourney && backend == "filesystem" || overrideBucket != "" {
+		return
+	}
+	if overridePath != "" {
+		backupID = fmt.Sprintf("%s_%s", backupID, overrideBucket)
+	}
+	// Create a backup first
+	cfg := helper.DefaultBackupConfig()
+	if overrideBucket != "" {
+		cfg.Bucket = overrideBucket
+		cfg.Path = overridePath
+	}
+	resp, err := helper.CreateBackup(t, cfg, className, backend, fmt.Sprintf("%s_for_listing", backupID))
+	helper.AssertRequestOk(t, resp, err, nil)
+
+	// Wait for backup to complete
+	ticker := time.NewTicker(90 * time.Second)
+wait:
+	for {
+		select {
+		case <-ticker.C:
+			break wait
+		default:
+			resp, err := helper.CreateBackupStatus(t, backend, fmt.Sprintf("%s_for_listing", backupID), overrideBucket, overridePath)
+			helper.AssertRequestOk(t, resp, err, nil)
+			if *resp.Payload.Status == string(backup.Success) {
+				break wait
+			}
+			time.Sleep(1 * time.Second)
+		}
+	}
+
+	// List backups and verify
+	listResp, err := helper.ListBackup(t, backend)
+	helper.AssertRequestOk(t, listResp, err, func() {
+		require.NotNil(t, listResp)
+		require.NotNil(t, listResp.Payload)
+		// Verify that our backup is in the list
+		found := false
+		for _, b := range listResp.Payload {
+			if b.ID == fmt.Sprintf("%s_for_listing", backupID) {
+				found = true
+				assert.Equal(t, string(backup.Success), b.Status)
+				assert.Contains(t, b.Classes, className)
+
+				// Validate timestamp fields
+				require.NotNil(t, b.StartedAt, "StartedAt should not be nil")
+				require.NotNil(t, b.CompletedAt, "CompletedAt should not be nil")
+
+				startTime := time.Time(b.StartedAt)
+				completedTime := time.Time(b.CompletedAt)
+
+				// Verify timestamps are reasonable
+				assert.False(t, startTime.IsZero(), "Start time should not be zero")
+				assert.False(t, completedTime.IsZero(), "Completed time should not be zero")
+				assert.True(t, completedTime.After(startTime), "Completed time should be after start time")
+
+				// Verify timestamps are recent (within last hour)
+				now := time.Now()
+				assert.True(t, startTime.After(now.Add(-1*time.Hour)), "Start time should be within the last hour")
+				assert.True(t, completedTime.After(now.Add(-1*time.Hour)), "Completed time should be within the last hour")
+
+				t.Logf("Backup %s: started at %v, completed at %v, duration: %v",
+					b.ID, startTime, completedTime, completedTime.Sub(startTime))
+				break
+			}
+		}
+		assert.True(t, found, "backup not found in list")
 	})
 }
 

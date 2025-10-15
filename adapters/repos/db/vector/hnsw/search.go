@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -97,6 +97,11 @@ func (h *hnsw) SearchByMultiVector(ctx context.Context, vectors [][]float32, k i
 	}
 
 	if h.muvera.Load() {
+		// this happens only if hnsw is empty so we need to initialize muvera encoder
+		if err := h.initMuveraEncoder(vectors); err != nil {
+			return nil, nil, err
+		}
+
 		muvera_query := h.muveraEncoder.EncodeQuery(vectors)
 		overfetch := 2
 		docIDs, _, err := h.SearchByVector(ctx, muvera_query, overfetch*k, allowList)
@@ -157,7 +162,29 @@ func (h *hnsw) SearchByMultiVectorDistance(ctx context.Context, vector [][]float
 		h.SearchByMultiVector, h.logger)
 }
 
+func (h *hnsw) initMuveraEncoder(vectors [][]float32) error {
+	if len(vectors) == 0 {
+		return fmt.Errorf("multi vector array is empty")
+	}
+	h.trackMuveraOnce.Do(func() {
+		h.muveraEncoder.InitEncoder(len(vectors[0]))
+		h.Lock()
+		if err := h.muveraEncoder.PersistMuvera(h.commitLog); err != nil {
+			h.Unlock()
+			h.logger.WithField("action", "persist muvera").Error(err)
+			return
+		}
+		h.Unlock()
+	})
+	return nil
+}
+
 func (h *hnsw) shouldRescore() bool {
+	if h.compressed.Load() {
+		if (h.sqConfig.Enabled && h.sqConfig.RescoreLimit == 0) || (h.rqConfig.Enabled && h.rqConfig.RescoreLimit == 0) {
+			return false
+		}
+	}
 	return h.compressed.Load() && !h.doNotRescore
 }
 
@@ -229,6 +256,7 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 	h.insertViableEntrypointsAsCandidatesAndResults(entrypoints, candidates,
 		results, level, visited, allowList)
 
+	isMultivec := h.multivector.Load() && !h.muvera.Load()
 	var worstResultDistance float32
 	var err error
 	if h.compressed.Load() {
@@ -293,7 +321,7 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 		}
 
 		if strategy != ACORN {
-			if len(candidateNode.connections[level]) > h.maximumConnectionsLayerZero {
+			if candidateNode.connections.LenAtLayer(uint8(level)) > h.maximumConnectionsLayerZero {
 				// How is it possible that we could ever have more connections than the
 				// allowed maximum? It is not anymore, but there was a bug that allowed
 				// this to happen in versions prior to v1.12.0:
@@ -305,11 +333,11 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 				//
 				// This was discovered as part of
 				// https://github.com/weaviate/weaviate/issues/1897
-				connectionsReusable = make([]uint64, len(candidateNode.connections[level]))
+				connectionsReusable = make([]uint64, candidateNode.connections.LenAtLayer(uint8(level)))
 			} else {
-				connectionsReusable = connectionsReusable[:len(candidateNode.connections[level])]
+				connectionsReusable = connectionsReusable[:candidateNode.connections.LenAtLayer(uint8(level))]
 			}
-			copy(connectionsReusable, candidateNode.connections[level])
+			connectionsReusable = candidateNode.connections.CopyLayer(connectionsReusable, uint8(level))
 		} else {
 			connectionsReusable = sliceConnectionsReusable.Slice
 			pendingNextRound := slicePendingNextRound.Slice
@@ -318,8 +346,8 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 			realLen := 0
 			index := 0
 
-			pendingNextRound = pendingNextRound[:len(candidateNode.connections[level])]
-			copy(pendingNextRound, candidateNode.connections[level])
+			pendingNextRound = pendingNextRound[:candidateNode.connections.LenAtLayer(uint8(level))]
+			pendingNextRound = candidateNode.connections.CopyLayer(pendingNextRound, uint8(level))
 			hop := 1
 			maxHops := 2
 			for hop <= maxHops && realLen < 8*h.maximumConnectionsLayerZero && len(pendingNextRound) > 0 {
@@ -339,11 +367,26 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 						continue
 					}
 					if !visitedExp.Visited(nodeId) {
-						if allowList.Contains(nodeId) {
-							connectionsReusable[realLen] = nodeId
-							realLen++
-							visitedExp.Visit(nodeId)
-							continue
+						if !isMultivec {
+							if allowList.Contains(nodeId) {
+								connectionsReusable[realLen] = nodeId
+								realLen++
+								visitedExp.Visit(nodeId)
+								continue
+							}
+						} else {
+							var docID uint64
+							if h.compressed.Load() {
+								docID, _ = h.compressor.GetKeys(nodeId)
+							} else {
+								docID, _ = h.cache.GetKeys(nodeId)
+							}
+							if allowList.Contains(docID) {
+								connectionsReusable[realLen] = nodeId
+								realLen++
+								visitedExp.Visit(nodeId)
+								continue
+							}
 						}
 					} else {
 						continue
@@ -358,7 +401,9 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 					if node == nil {
 						continue
 					}
-					for _, expId := range node.connections[level] {
+					iterator := node.connections.ElementIterator(uint8(level))
+					for iterator.Next() {
+						_, expId := iterator.Current()
 						if visitedExp.Visited(expId) {
 							continue
 						}
@@ -370,13 +415,30 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 							break
 						}
 
-						if allowList.Contains(expId) {
-							visitedExp.Visit(expId)
-							connectionsReusable[realLen] = expId
-							realLen++
-						} else if hop < maxHops {
-							visitedExp.Visit(expId)
-							pendingNextRound = append(pendingNextRound, expId)
+						if !isMultivec {
+							if allowList.Contains(expId) {
+								visitedExp.Visit(expId)
+								connectionsReusable[realLen] = expId
+								realLen++
+							} else if hop < maxHops {
+								visitedExp.Visit(expId)
+								pendingNextRound = append(pendingNextRound, expId)
+							}
+						} else {
+							var docID uint64
+							if h.compressed.Load() {
+								docID, _ = h.compressor.GetKeys(expId)
+							} else {
+								docID, _ = h.cache.GetKeys(expId)
+							}
+							if allowList.Contains(docID) {
+								visitedExp.Visit(expId)
+								connectionsReusable[realLen] = expId
+								realLen++
+							} else if hop < maxHops {
+								visitedExp.Visit(expId)
+								pendingNextRound = append(pendingNextRound, expId)
+							}
 						}
 					}
 				}
@@ -397,7 +459,17 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 			visited.Visit(neighborID)
 
 			if strategy == RRE && level == 0 {
-				if !allowList.Contains(neighborID) {
+				if isMultivec {
+					var docID uint64
+					if h.compressed.Load() {
+						docID, _ = h.compressor.GetKeys(neighborID)
+					} else {
+						docID, _ = h.cache.GetKeys(neighborID)
+					}
+					if !allowList.Contains(docID) {
+						continue
+					}
+				} else if !allowList.Contains(neighborID) {
 					continue
 				}
 			}
@@ -429,7 +501,17 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 					// have an allow list (i.e. the user has probably set some sort of a
 					// filter restricting this search further. As a result we have to
 					// ignore items not on the list
-					if !allowList.Contains(neighborID) {
+					if isMultivec {
+						var docID uint64
+						if h.compressed.Load() {
+							docID, _ = h.compressor.GetKeys(neighborID)
+						} else {
+							docID, _ = h.cache.GetKeys(neighborID)
+						}
+						if !allowList.Contains(docID) {
+							continue
+						}
+					} else if !allowList.Contains(neighborID) {
 						continue
 					}
 				}
@@ -478,6 +560,7 @@ func (h *hnsw) insertViableEntrypointsAsCandidatesAndResults(
 	entrypoints, candidates, results *priorityqueue.Queue[any], level int,
 	visitedList visited.ListSet, allowList helpers.AllowList,
 ) {
+	isMultivec := h.multivector.Load() && !h.muvera.Load()
 	for entrypoints.Len() > 0 {
 		ep := entrypoints.Pop()
 		visitedList.Visit(ep.ID)
@@ -487,7 +570,17 @@ func (h *hnsw) insertViableEntrypointsAsCandidatesAndResults(
 			// have an allow list (i.e. the user has probably set some sort of a
 			// filter restricting this search further. As a result we have to
 			// ignore items not on the list
-			if !allowList.Contains(ep.ID) {
+			if isMultivec {
+				var docID uint64
+				if h.compressed.Load() {
+					docID, _ = h.compressor.GetKeys(ep.ID)
+				} else {
+					docID, _ = h.cache.GetKeys(ep.ID)
+				}
+				if !allowList.Contains(docID) {
+					continue
+				}
+			} else if !allowList.Contains(ep.ID) {
 				continue
 			}
 		}
@@ -704,22 +797,32 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 	entryPointNode := h.nodes[entryPointID]
 	h.shardedNodeLocks.RUnlock(entryPointID)
 	useAcorn := h.acornEnabled(allowList)
+	isMultivec := h.multivector.Load() && !h.muvera.Load()
 	if useAcorn {
 		if entryPointNode == nil {
 			strategy = RRE
 		} else {
 			counter := float32(0)
 			entryPointNode.Lock()
-			if len(entryPointNode.connections) < 1 {
+			if entryPointNode.connections.Layers() < 1 {
 				strategy = ACORN
 			} else {
-				for _, id := range entryPointNode.connections[0] {
-					if allowList.Contains(id) {
+				iterator := entryPointNode.connections.ElementIterator(0)
+				for iterator.Next() {
+					_, value := iterator.Current()
+					if isMultivec {
+						if h.compressed.Load() {
+							value, _ = h.compressor.GetKeys(value)
+						} else {
+							value, _ = h.cache.GetKeys(value)
+						}
+					}
+					if allowList.Contains(value) {
 						counter++
 					}
 				}
 				entryPointNode.Unlock()
-				if counter/float32(len(h.nodes[entryPointID].connections[0])) > float32(h.acornFilterRatio) {
+				if counter/float32(h.nodes[entryPointID].connections.LenAtLayer(0)) > float32(h.acornFilterRatio) {
 					strategy = RRE
 				} else {
 					strategy = ACORN
@@ -734,8 +837,16 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 		it := allowList.Iterator()
 		idx, ok := it.Next()
 		h.shardedNodeLocks.RLockAll()
-		for ok && h.nodes[idx] == nil && h.hasTombstone(idx) {
-			idx, ok = it.Next()
+		if !isMultivec {
+			for ok && h.nodes[idx] == nil && h.hasTombstone(idx) {
+				idx, ok = it.Next()
+			}
+		} else {
+			_, exists := h.docIDVectors[idx]
+			for ok && !exists {
+				idx, ok = it.Next()
+				_, exists = h.docIDVectors[idx]
+			}
 		}
 		h.shardedNodeLocks.RUnlockAll()
 
@@ -927,6 +1038,11 @@ func (h *hnsw) rescore(ctx context.Context, res *priorityqueue.Queue[any], k int
 			res.Pop()
 		}
 	}
+	if h.rqConfig.Enabled && h.rqConfig.RescoreLimit >= k {
+		for res.Len() > h.rqConfig.RescoreLimit {
+			res.Pop()
+		}
+	}
 	ids := make([]uint64, res.Len())
 	i := len(ids) - 1
 	for res.Len() > 0 {
@@ -964,6 +1080,9 @@ func (h *hnsw) rescore(ctx context.Context, res *priorityqueue.Queue[any], k int
 				} else {
 					h.logger.
 						WithField("action", "rescore").
+						WithField("id", h.id).
+						WithField("class", h.className).
+						WithField("shard", h.shardName).
 						WithError(err).
 						Warnf("could not rescore node %d", id)
 				}

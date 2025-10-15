@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -12,16 +12,21 @@
 package lsmkv
 
 import (
+	"context"
+	"fmt"
 	"math"
 	"sort"
+	"strconv"
 
+	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 )
 
-func DoBlockMaxWand(limit int, results Terms, averagePropLength float64, additionalExplanations bool,
-	termCount, minimumShouldMatch int,
-) *priorityqueue.Queue[[]*terms.DocPointerWithScore] {
+func DoBlockMaxWand(ctx context.Context, limit int, results Terms, averagePropLength float64, additionalExplanations bool,
+	termCount, minimumOrTokensMatch int, logger logrus.FieldLogger,
+) (*priorityqueue.Queue[[]*terms.DocPointerWithScore], error) {
 	var docInfos []*terms.DocPointerWithScore
 	topKHeap := priorityqueue.NewMinWithId[[]*terms.DocPointerWithScore](limit)
 	worstDist := float64(-10000) // tf score can be negative
@@ -34,6 +39,38 @@ func DoBlockMaxWand(limit int, results Terms, averagePropLength float64, additio
 
 	for {
 		iterations++
+
+		if iterations%100000 == 0 && ctx != nil && ctx.Err() != nil {
+			segmentPath := ""
+			terms := ""
+			filterCardinality := -1
+			for _, r := range results {
+				if r == nil {
+					continue
+				}
+				if r.segment != nil {
+					segmentPath = r.segment.path
+					if r.filterDocIds != nil {
+						filterCardinality = r.filterDocIds.GetCardinality()
+					}
+				}
+				terms += r.QueryTerm() + ":" + strconv.Itoa(int(r.IdPointer())) + ":" + strconv.Itoa(r.Count()) + ", "
+			}
+			logger.WithFields(logrus.Fields{
+				"segment":           segmentPath,
+				"iterations":        iterations,
+				"pivotID":           pivotID,
+				"firstNonExhausted": firstNonExhausted,
+				"lenResults":        len(results),
+				"pivotPoint":        pivotPoint,
+				"upperBound":        upperBound,
+				"terms":             terms,
+				"filterCardinality": filterCardinality,
+				"limit":             limit,
+			}).Warnf("doBlockMaxWand: search timed out, returning partial results")
+			helpers.AnnotateSlowQueryLog(ctx, "kwd_4_iters", iterations)
+			return topKHeap, fmt.Errorf("doBlockMaxWand: search timed out, returning partial results")
+		}
 
 		cumScore := float64(0)
 		firstNonExhausted = -1
@@ -59,11 +96,12 @@ func DoBlockMaxWand(limit int, results Terms, averagePropLength float64, additio
 			}
 		}
 		if firstNonExhausted == -1 || pivotID == math.MaxUint64 {
-			return topKHeap
+			helpers.AnnotateSlowQueryLog(ctx, "kwd_4_iters", iterations)
+			return topKHeap, nil
 		}
 
 		upperBound = float32(0)
-		for i := 0; i < pivotPoint+1; i++ {
+		for i := 0; i <= pivotPoint; i++ {
 			if results[i].exhausted {
 				continue
 			}
@@ -93,9 +131,6 @@ func DoBlockMaxWand(limit int, results Terms, averagePropLength float64, additio
 						docInfos[term.QueryTermIndex()] = d
 					}
 
-					//if !topKHeap.ShouldEnqueue(upperBound, limit) {
-					//	break
-					//}
 				}
 				for _, term := range results {
 					if !term.exhausted && term.idPointer != pivotID {
@@ -103,7 +138,7 @@ func DoBlockMaxWand(limit int, results Terms, averagePropLength float64, additio
 					}
 					term.Advance()
 				}
-				if topKHeap.ShouldEnqueue(float32(score), limit) && termsMatched >= minimumShouldMatch {
+				if topKHeap.ShouldEnqueue(float32(score), limit) && termsMatched >= minimumOrTokensMatch {
 					topKHeap.InsertAndPop(pivotID, score, limit, &worstDist, docInfos)
 				}
 
@@ -164,8 +199,6 @@ func DoBlockMaxWand(limit int, results Terms, averagePropLength float64, additio
 					results[i], results[i-1] = results[i-1], results[i]
 				} else if results[i].exhausted && i < len(results)-1 {
 					results[i], results[i+1] = results[i+1], results[i]
-				} else {
-					break
 				}
 			}
 
@@ -174,8 +207,8 @@ func DoBlockMaxWand(limit int, results Terms, averagePropLength float64, additio
 	}
 }
 
-func DoBlockMaxAnd(limit int, resultsByTerm Terms, averagePropLength float64, additionalExplanations bool,
-	termCount int, minimumShouldMatch int,
+func DoBlockMaxAnd(ctx context.Context, limit int, resultsByTerm Terms, averagePropLength float64, additionalExplanations bool,
+	termCount int, minimumOrTokensMatch int, logger logrus.FieldLogger,
 ) *priorityqueue.Queue[[]*terms.DocPointerWithScore] {
 	results := TermsBySize(resultsByTerm)
 	var docInfos []*terms.DocPointerWithScore
@@ -186,12 +219,41 @@ func DoBlockMaxAnd(limit int, resultsByTerm Terms, averagePropLength float64, ad
 	pivotID := uint64(0)
 	upperBound := float32(0)
 
-	if minimumShouldMatch > len(results) {
+	if minimumOrTokensMatch > len(results) {
 		return topKHeap
 	}
 
 	for {
 		iterations++
+
+		if iterations%100000 == 0 && ctx != nil && ctx.Err() != nil {
+			segmentPath := ""
+			terms := ""
+			filterCardinality := -1
+			for _, r := range results {
+				if r == nil {
+					continue
+				}
+				if r.segment != nil {
+					segmentPath = r.segment.path
+					if r.filterDocIds != nil {
+						filterCardinality = r.filterDocIds.GetCardinality()
+					}
+				}
+				terms += r.QueryTerm() + ":" + strconv.Itoa(int(r.IdPointer())) + ":" + strconv.Itoa(r.Count()) + ", "
+			}
+			logger.WithFields(logrus.Fields{
+				"segment":           segmentPath,
+				"iterations":        iterations,
+				"pivotID":           pivotID,
+				"lenResults":        len(results),
+				"upperBound":        upperBound,
+				"terms":             terms,
+				"filterCardinality": filterCardinality,
+				"limit":             limit,
+			}).Warnf("DoBlockMaxAnd: search timed out, returning partial results")
+			return topKHeap
+		}
 
 		for i := 0; i < len(results); i++ {
 			if results[i].exhausted {
@@ -260,19 +322,22 @@ func DoBlockMaxAnd(limit int, resultsByTerm Terms, averagePropLength float64, ad
 	}
 }
 
-func DoWand(limit int, results *terms.Terms, averagePropLength float64, additionalExplanations bool,
-	minimumShouldMatch int,
+func DoWand(ctx context.Context, limit int, results *terms.Terms, averagePropLength float64, additionalExplanations bool,
+	minimumOrTokensMatch int,
 ) *priorityqueue.Queue[[]*terms.DocPointerWithScore] {
 	topKHeap := priorityqueue.NewMinWithId[[]*terms.DocPointerWithScore](limit)
 	worstDist := float64(-10000) // tf score can be negative
 	sort.Sort(results)
+	iterations := 0
 	for {
+		iterations++
 
 		if results.CompletelyExhausted() || results.Pivot(worstDist) {
+			helpers.AnnotateSlowQueryLog(ctx, "kwd_4_iters", iterations)
 			return topKHeap
 		}
 
-		id, score, additional, ok := results.ScoreNext(averagePropLength, additionalExplanations, minimumShouldMatch)
+		id, score, additional, ok := results.ScoreNext(averagePropLength, additionalExplanations, minimumOrTokensMatch)
 		results.SortFull()
 		if topKHeap.ShouldEnqueue(float32(score), limit) && ok {
 			topKHeap.InsertAndPop(id, score, limit, &worstDist, additional)

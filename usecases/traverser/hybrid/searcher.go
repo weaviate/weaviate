@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -30,23 +30,14 @@ import (
 	uc "github.com/weaviate/weaviate/usecases/schema"
 )
 
-const DefaultLimit = 100
-
 type Params struct {
 	*searchparams.HybridSearch
-	Keyword *searchparams.KeywordRanking
-	Class   string
-	Autocut int
+	Keyword              *searchparams.KeywordRanking
+	Class                string
+	Autocut              int
+	ModuleParams         map[string]interface{}
+	AdditionalProperties additional.Properties
 }
-
-// Result facilitates the pairing of a search result with its internal doc id.
-//
-// This type is key in generalising hybrid search across different use cases.
-// Some use cases require a full search result (Get{} queries) and others need
-// only a doc id (Aggregate{}) which the search.Result type does not contain.
-// It does now
-
-type Results []*search.Result
 
 // sparseSearchFunc is the signature of a closure which performs sparse search.
 // Any package which wishes use hybrid search must provide this. The weights are
@@ -63,7 +54,7 @@ type denseSearchFunc func(searchVector models.Vector) (results []*storobj.Object
 // This is optionally provided, and allows the caller to somehow change the nature of
 // the result set. For example, Get{} queries sometimes require resolving references,
 // which is implemented by doing the reference resolution within a postProcFunc closure.
-type postProcFunc func(hybridResults []*search.Result) (postProcResults []search.Result, err error)
+type postProcFunc func(hybridResults []search.Result) (postProcResults []search.Result, err error)
 
 type modulesProvider interface {
 	VectorFromInput(ctx context.Context,
@@ -71,6 +62,9 @@ type modulesProvider interface {
 	MultiVectorFromInput(ctx context.Context,
 		className, input, targetVector string) ([][]float32, error)
 	IsTargetVectorMultiVector(className, targetVector string) (bool, error)
+	GetExploreAdditionalExtend(ctx context.Context, in []search.Result,
+		moduleParams map[string]interface{}, searchVector models.Vector,
+		argumentModuleParams map[string]interface{}) ([]search.Result, error)
 }
 
 type targetVectorParamHelper interface {
@@ -78,7 +72,7 @@ type targetVectorParamHelper interface {
 }
 
 // Search executes sparse and dense searches and combines the result sets using Reciprocal Rank Fusion
-func Search(ctx context.Context, params *Params, logger logrus.FieldLogger, sparseSearch sparseSearchFunc, denseSearch denseSearchFunc, postProc postProcFunc, modules modulesProvider, schemaGetter uc.SchemaGetter, targetVectorParamHelper targetVectorParamHelper) ([]*search.Result, error) {
+func Search(ctx context.Context, params *Params, logger logrus.FieldLogger, sparseSearch sparseSearchFunc, denseSearch denseSearchFunc, postProc postProcFunc, modules modulesProvider, schemaGetter uc.SchemaGetter, targetVectorParamHelper targetVectorParamHelper) ([]search.Result, error) {
 	var (
 		found   [][]*search.Result
 		weights []float64
@@ -141,39 +135,30 @@ func Search(ctx context.Context, params *Params, logger logrus.FieldLogger, spar
 		return nil, fmt.Errorf("length of weights and results do not match for hybrid search %v vs. %v", len(weights), len(found))
 	}
 
-	var fused []*search.Result
-	if params.FusionAlgorithm == common_filters.HybridRankedFusion {
-		fused = FusionRanked(weights, found, names)
-	} else if params.FusionAlgorithm == common_filters.HybridRelativeScoreFusion {
-		fused = FusionRelativeScore(weights, found, names, true)
-	} else {
-		return nil, fmt.Errorf("unknown ranking algorithm %v for hybrid search", params.FusionAlgorithm)
+	fused, err := performFusion(params.FusionAlgorithm, weights, found, names)
+	if err != nil {
+		return nil, fmt.Errorf("hybrid search perform fusion: %w", err)
 	}
-
 	if postProc != nil {
-		sr, err := postProc(fused)
+		res, err := postProc(fused)
 		if err != nil {
 			return nil, fmt.Errorf("hybrid search post-processing: %w", err)
 		}
-		newResults := make([]*search.Result, len(sr))
-		for i := range sr {
-			newResults[i] = &sr[i]
-		}
-		fused = newResults
+		fused = res
 	}
 	if params.Autocut > 0 {
-		scores := make([]float32, len(fused))
-		for i := range fused {
-			scores[i] = fused[i].Score
-		}
-		cutOff := autocut.Autocut(scores, params.Autocut)
-		fused = fused[:cutOff]
+		fused = performAutocut(fused, params.Autocut)
 	}
-	return fused, nil
+	return extendHybridResults(ctx, fused, params.ModuleParams, params.AdditionalProperties, modules)
 }
 
 // Search combines the result sets using Reciprocal Rank Fusion or Relative Score Fusion
-func HybridCombiner(ctx context.Context, params *Params, resultSet [][]*search.Result, weights []float64, names []string, logger logrus.FieldLogger, postProc postProcFunc) ([]*search.Result, error) {
+func HybridCombiner(ctx context.Context,
+	params *Params, resultSet [][]*search.Result, weights []float64, names []string,
+	logger logrus.FieldLogger,
+	modulesProvider modulesProvider,
+	postProc postProcFunc,
+) ([]search.Result, error) {
 	if params.Vector != nil && params.NearVectorParams != nil {
 		return nil, fmt.Errorf("hybrid search: cannot have both vector and nearVectorParams")
 	}
@@ -191,36 +176,21 @@ func HybridCombiner(ctx context.Context, params *Params, resultSet [][]*search.R
 		return nil, fmt.Errorf("length of weights and names do not match for hybrid search %v vs. %v", len(weights), len(names))
 	}
 
-	var fused []*search.Result
-	if params.FusionAlgorithm == common_filters.HybridRankedFusion {
-		fused = FusionRanked(weights, resultSet, names)
-	} else if params.FusionAlgorithm == common_filters.HybridRelativeScoreFusion {
-		fused = FusionRelativeScore(weights, resultSet, names, true)
-	} else {
-		return nil, fmt.Errorf("unknown ranking algorithm %v for hybrid search", params.FusionAlgorithm)
+	fused, err := performFusion(params.FusionAlgorithm, weights, resultSet, names)
+	if err != nil {
+		return nil, fmt.Errorf("hybrid search perform fusion: %w", err)
 	}
-
 	if postProc != nil {
 		sr, err := postProc(fused)
 		if err != nil {
 			return nil, fmt.Errorf("hybrid search post-processing: %w", err)
 		}
-		newResults := make([]*search.Result, len(sr))
-		for i := range sr {
-			newResults[i] = &sr[i]
-		}
-		fused = newResults
+		fused = sr
 	}
-
 	if params.Autocut > 0 {
-		scores := make([]float32, len(fused))
-		for i := range fused {
-			scores[i] = fused[i].Score
-		}
-		cutOff := autocut.Autocut(scores, params.Autocut)
-		fused = fused[:cutOff]
+		fused = performAutocut(fused, params.Autocut)
 	}
-	return fused, nil
+	return extendHybridResults(ctx, fused, params.ModuleParams, params.AdditionalProperties, modulesProvider)
 }
 
 func processSparseSearch(results []*storobj.Object, scores []float32, err error) ([]*search.Result, error) {
@@ -325,4 +295,51 @@ func getTargetVector(targetVectors []string) string {
 		return targetVectors[0]
 	}
 	return ""
+}
+
+func performFusion(fusionAlgorithm int, weights []float64, resultSets [][]*search.Result, names []string) ([]search.Result, error) {
+	switch fusionAlgorithm {
+	case common_filters.HybridRankedFusion:
+		fused := FusionRanked(weights, resultSets, names)
+		return toSearchResults(fused), nil
+	case common_filters.HybridRelativeScoreFusion:
+		fused := FusionRelativeScore(weights, resultSets, names, true)
+		return toSearchResults(fused), nil
+	default:
+		return nil, fmt.Errorf("unknown ranking algorithm %v for hybrid search", fusionAlgorithm)
+	}
+}
+
+func performAutocut(res []search.Result, autocutVal int) []search.Result {
+	scores := make([]float32, len(res))
+	for i := range res {
+		scores[i] = res[i].Score
+	}
+	cutOff := autocut.Autocut(scores, autocutVal)
+	return res[:cutOff]
+}
+
+func extendHybridResults(ctx context.Context,
+	res []search.Result,
+	moduleParams map[string]interface{},
+	additionalProperties additional.Properties,
+	modulesProvider modulesProvider,
+) ([]search.Result, error) {
+	var err error
+	if modulesProvider != nil {
+		res, err = modulesProvider.GetExploreAdditionalExtend(ctx, res,
+			additionalProperties.ModuleParams, nil, moduleParams)
+		if err != nil {
+			return nil, fmt.Errorf("searcher: hybrid: extend: %w", err)
+		}
+	}
+	return res, nil
+}
+
+func toSearchResults(in []*search.Result) []search.Result {
+	res := make([]search.Result, len(in))
+	for i := range in {
+		res[i] = *in[i]
+	}
+	return res
 }

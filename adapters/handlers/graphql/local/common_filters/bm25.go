@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -19,21 +19,41 @@ import (
 )
 
 var (
-	SearchOperatorAnd = "SEARCH_OPERATOR_AND"
-	SearchOperatorOr  = "SEARCH_OPERATOR_OR"
+	SearchOperatorAnd = "OPERATOR_AND"
+	SearchOperatorOr  = "OPERATOR_OR"
 )
 
 func GenerateBM25SearchOperatorFields(prefixName string) *graphql.InputObjectFieldConfig {
+	searchesPrefixName := prefixName + "Searches"
 	return &graphql.InputObjectFieldConfig{
-		Description: "Search operator",
-		Type: graphql.NewEnum(graphql.EnumConfig{
-			Name: fmt.Sprintf("%sSearchOperatorEnum", prefixName),
-			Values: graphql.EnumValueConfigMap{
-				"And": &graphql.EnumValueConfig{Value: SearchOperatorAnd},
-				"Or":  &graphql.EnumValueConfig{Value: SearchOperatorOr},
+		Description: fmt.Sprintf("The search operator to use for the %s", searchesPrefixName),
+		Type: graphql.NewInputObject(
+			graphql.InputObjectConfig{
+				Name: searchesPrefixName,
+				Fields: graphql.InputObjectConfigFieldMap{
+					"operator": &graphql.InputObjectFieldConfig{
+						Description: "The search operator to use",
+						Type: graphql.NewEnum(graphql.EnumConfig{ // EnumConfig is a struct that defines the enum
+							Name: fmt.Sprintf("%sOperator", searchesPrefixName),
+							Values: graphql.EnumValueConfigMap{
+								"And": &graphql.EnumValueConfig{
+									Value:       SearchOperatorAnd,
+									Description: "All tokens must match",
+								},
+								"Or": &graphql.EnumValueConfig{
+									Value:       SearchOperatorOr,
+									Description: "At least one token must match",
+								},
+							},
+						}),
+					},
+					"minimumOrTokensMatch": &graphql.InputObjectFieldConfig{
+						Description: "The minimum number of tokens that should match (only for OR operator)",
+						Type:        graphql.Int,
+					},
+				},
 			},
-			Description: "Search operator (OR/AND)",
-		}),
+		),
 	}
 }
 
@@ -60,12 +80,11 @@ func ExtractBM25(source map[string]interface{}, explainScore bool) searchparams.
 
 	operator, ok := source["searchOperator"]
 	if ok {
-		args.SearchOperator = operator.(string)
-	}
-
-	minimumShouldMatch, ok := source["minimumShouldMatch"]
-	if ok {
-		args.MinimumShouldMatch = int(minimumShouldMatch.(int))
+		operator := operator.(map[string]interface{})
+		args.SearchOperator = operator["operator"].(string)
+		if operator["minimumOrTokensMatch"] != nil {
+			args.MinimumOrTokensMatch = int(operator["minimumOrTokensMatch"].(int))
+		}
 	}
 
 	return args

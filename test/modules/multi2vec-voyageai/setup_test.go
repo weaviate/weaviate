@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -41,11 +41,11 @@ func createSingleNodeEnvironment(ctx context.Context, apiKey string,
 	compose, err = composeModules(apiKey).
 		WithWeaviate().
 		Start(ctx)
-	return
+	return compose, err
 }
 
 func composeModules(apiKey string) (composeModules *docker.Compose) {
 	composeModules = docker.New().
 		WithMulti2VecVoyageAI(apiKey)
-	return
+	return composeModules
 }

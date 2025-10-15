@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -243,6 +243,11 @@ func (r *SegmentReader) readGreaterThanEqual(ctx context.Context, value uint64,
 ) (roaringset.BitmapLayer, error) {
 	firstLayer, ok := r.firstLayer()
 	if !ok {
+		return firstLayer, nil
+	}
+
+	if value == 0 {
+		// all values are >= 0
 		return firstLayer, nil
 	}
 

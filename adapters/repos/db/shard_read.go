@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -65,7 +65,7 @@ func (s *Shard) ObjectByIDErrDeleted(ctx context.Context, id strfmt.UUID, props 
 }
 
 func (s *Shard) ObjectByID(ctx context.Context, id strfmt.UUID, props search.SelectProperties, additional additional.Properties) (*storobj.Object, error) {
-	s.activityTracker.Add(1)
+	s.activityTrackerRead.Add(1)
 	idBytes, err := uuid.MustParse(id.String()).MarshalBinary()
 	if err != nil {
 		return nil, err
@@ -89,7 +89,7 @@ func (s *Shard) ObjectByID(ctx context.Context, id strfmt.UUID, props search.Sel
 }
 
 func (s *Shard) MultiObjectByID(ctx context.Context, query []multi.Identifier) ([]*storobj.Object, error) {
-	s.activityTracker.Add(1)
+	s.activityTrackerRead.Add(1)
 	objects := make([]*storobj.Object, len(query))
 
 	ids := make([][]byte, len(query))
@@ -175,7 +175,7 @@ func (s *Shard) ObjectDigestsInRange(ctx context.Context,
 // of a true negative would be considerably faster. For a (false) positive,
 // we'd still need to check, though.
 func (s *Shard) Exists(ctx context.Context, id strfmt.UUID) (bool, error) {
-	s.activityTracker.Add(1)
+	s.activityTrackerRead.Add(1)
 	idBytes, err := uuid.MustParse(id.String()).MarshalBinary()
 	if err != nil {
 		return false, err
@@ -288,7 +288,7 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 		})
 	}()
 
-	s.activityTracker.Add(1)
+	s.activityTrackerRead.Add(1)
 	if keywordRanking != nil {
 		if v := s.versioner.Version(); v < 2 {
 			return nil, nil, errors.Errorf(
@@ -298,11 +298,10 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 
 		var bm25objs []*storobj.Object
 		var bm25count []float32
-		var objs helpers.AllowList
 		var filterDocIds helpers.AllowList
 
 		if filters != nil {
-			objs, err = inverted.NewSearcher(s.index.logger, s.store,
+			filterDocIds, err = inverted.NewSearcher(s.index.logger, s.store,
 				s.index.getSchema.ReadOnlyClass, s.propertyIndices,
 				s.index.classSearcher, s.index.stopwords, s.versioner.Version(),
 				s.isFallbackToSearchable, s.tenant(), s.index.Config.QueryNestedRefLimit,
@@ -312,8 +311,7 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 				return nil, nil, err
 			}
 
-			filterDocIds = objs
-			defer objs.Close()
+			defer filterDocIds.Close()
 		}
 
 		className := s.index.Config.ClassName
@@ -338,7 +336,8 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 	objs, err := inverted.NewSearcher(s.index.logger, s.store, s.index.getSchema.ReadOnlyClass,
 		s.propertyIndices, s.index.classSearcher, s.index.stopwords, s.versioner.Version(),
 		s.isFallbackToSearchable, s.tenant(), s.index.Config.QueryNestedRefLimit, s.bitmapFactory).
-		Objects(ctx, limit, filters, sort, additional, s.index.Config.ClassName, properties)
+		Objects(ctx, limit, filters, sort, additional, s.index.Config.ClassName, properties,
+			s.index.Config.InvertedSorterDisabled)
 	return objs, nil, err
 }
 
@@ -358,7 +357,7 @@ func (s *Shard) VectorDistanceForQuery(ctx context.Context, docId uint64, search
 		case []float32:
 			distancer = index.QueryVectorDistancer(v)
 		case [][]float32:
-			distancer = index.QueryMultiVectorDistancer(v)
+			distancer = index.(VectorIndexMulti).QueryMultiVectorDistancer(v)
 		default:
 			return nil, fmt.Errorf("unsupported vector type: %T", v)
 		}
@@ -391,7 +390,7 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 		})
 	}()
 
-	s.activityTracker.Add(1)
+	s.activityTrackerRead.Add(1)
 
 	var allowList helpers.AllowList
 	if filters != nil {
@@ -442,7 +441,7 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 						return err
 					}
 				case [][]float32:
-					ids, dists, err = vidx.SearchByMultiVectorDistance(
+					ids, dists, err = vidx.(VectorIndexMulti).SearchByMultiVectorDistance(
 						ctx, searchVector, targetDist, s.index.Config.QueryMaximumResults, allowList)
 					if err != nil {
 						// This should normally not fail. A failure here could indicate that more
@@ -470,7 +469,7 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 						return err
 					}
 				case [][]float32:
-					ids, dists, err = vidx.SearchByMultiVector(ctx, searchVector, limit, allowList)
+					ids, dists, err = vidx.(VectorIndexMulti).SearchByMultiVector(ctx, searchVector, limit, allowList)
 					if err != nil {
 						// This should normally not fail. A failure here could indicate that more
 						// attention is required, for example because data is corrupted. That's
@@ -495,11 +494,12 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 		})
 	}
 
-	if err := eg.Wait(); err != nil {
-		return nil, nil, err
-	}
+	err := eg.Wait()
 	if allowList != nil {
-		defer allowList.Close()
+		allowList.Close()
+	}
+	if err != nil {
+		return nil, nil, err
 	}
 
 	idsCombined, distCombined, err := CombineMultiTargetResults(ctx, s, s.index.logger, idss, distss, targetVectors, searchVectors, targetCombination, limit, targetDist)
@@ -552,13 +552,21 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 }
 
 func (s *Shard) ObjectList(ctx context.Context, limit int, sort []filters.Sort, cursor *filters.Cursor, additional additional.Properties, className schema.ClassName) ([]*storobj.Object, error) {
-	s.activityTracker.Add(1)
+	s.activityTrackerRead.Add(1)
 	if len(sort) > 0 {
+		beforeSort := time.Now()
 		docIDs, err := s.sortedObjectList(ctx, limit, sort, className)
 		if err != nil {
 			return nil, err
 		}
+		helpers.AnnotateSlowQueryLog(ctx, "sort_took", time.Since(beforeSort))
 		bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+
+		beforeObjects := time.Now()
+		defer func() {
+			took := time.Since(beforeObjects)
+			helpers.AnnotateSlowQueryLog(ctx, "objects_took", took)
+		}()
 		return storobj.ObjectsByDocID(bucket, docIDs, additional, nil, s.index.logger)
 	}
 
@@ -606,8 +614,11 @@ func (s *Shard) cursorObjectList(ctx context.Context, c *filters.Cursor,
 	return out[:i], nil
 }
 
-func (s *Shard) sortedObjectList(ctx context.Context, limit int, sort []filters.Sort, className schema.ClassName) ([]uint64, error) {
-	lsmSorter, err := sorter.NewLSMSorter(s.store, s.index.getSchema.ReadOnlyClass, className)
+func (s *Shard) sortedObjectList(ctx context.Context, limit int, sort []filters.Sort,
+	className schema.ClassName,
+) ([]uint64, error) {
+	lsmSorter, err := sorter.NewLSMSorter(s.store, s.index.getSchema.ReadOnlyClass,
+		className, s.index.Config.InvertedSorterDisabled)
 	if err != nil {
 		return nil, errors.Wrap(err, "sort object list")
 	}
@@ -618,8 +629,11 @@ func (s *Shard) sortedObjectList(ctx context.Context, limit int, sort []filters.
 	return docIDs, nil
 }
 
-func (s *Shard) sortDocIDsAndDists(ctx context.Context, limit int, sort []filters.Sort, className schema.ClassName, docIDs []uint64, dists []float32) ([]uint64, []float32, error) {
-	lsmSorter, err := sorter.NewLSMSorter(s.store, s.index.getSchema.ReadOnlyClass, className)
+func (s *Shard) sortDocIDsAndDists(ctx context.Context, limit int, sort []filters.Sort,
+	className schema.ClassName, docIDs []uint64, dists []float32,
+) ([]uint64, []float32, error) {
+	lsmSorter, err := sorter.NewLSMSorter(s.store, s.index.getSchema.ReadOnlyClass,
+		className, s.index.Config.InvertedSorterDisabled)
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "sort objects with distances")
 	}
@@ -668,12 +682,27 @@ func (s *Shard) uuidFromDocID(docID uint64) (strfmt.UUID, error) {
 }
 
 func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID, deletionTime time.Time) error {
+	s.asyncReplicationRWMux.RLock()
+	defer s.asyncReplicationRWMux.RUnlock()
+
+	err := s.waitForMinimalHashTreeInitialization(ctx)
+	if err != nil {
+		return err
+	}
+
 	idBytes, err := uuid.MustParse(id.String()).MarshalBinary()
 	if err != nil {
 		return err
 	}
 
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+
+	// see comment in shard_write_put.go::putObjectLSM
+	lock := &s.docIdLock[s.uuidToIdLockPoolId(idBytes)]
+
+	lock.Lock()
+	defer lock.Unlock()
+
 	existing, err := bucket.Get(idBytes)
 	if err != nil {
 		return errors.Wrap(err, "unexpected error on previous lookup")
@@ -700,6 +729,10 @@ func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID, deletionT
 		return errors.Wrap(err, "delete object from bucket")
 	}
 
+	if err = s.mayDeleteObjectHashTree(idBytes, updateTime); err != nil {
+		return errors.Wrap(err, "object deletion in hashtree")
+	}
+
 	err = s.cleanupInvertedIndexOnDelete(existing, docID)
 	if err != nil {
 		return errors.Wrap(err, "delete object from bucket")
@@ -715,15 +748,11 @@ func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID, deletionT
 		return err
 	}
 
-	if err = s.mayDeleteObjectHashTree(idBytes, updateTime); err != nil {
-		return errors.Wrap(err, "object deletion in hashtree")
-	}
-
 	return nil
 }
 
 func (s *Shard) WasDeleted(ctx context.Context, id strfmt.UUID) (bool, time.Time, error) {
-	s.activityTracker.Add(1)
+	s.activityTrackerRead.Add(1)
 	idBytes, err := uuid.MustParse(id.String()).MarshalBinary()
 	if err != nil {
 		return false, time.Time{}, err

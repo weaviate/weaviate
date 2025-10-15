@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -90,11 +90,13 @@ func verifyBucketAgainstControl(t *testing.T, b *Bucket, control []*sroar.Bitmap
 		key := make([]byte, 8)
 		binary.LittleEndian.PutUint64(key, uint64(i))
 
-		actual, err := b.RoaringSetGet(key)
-		require.Nil(t, err)
+		func() {
+			actual, release, err := b.RoaringSetGet(key)
+			require.NoError(t, err)
+			defer release()
 
-		assert.Equal(t, controlBM.ToArray(), actual.ToArray())
-
+			assert.Equal(t, controlBM.ToArray(), actual.ToArray())
+		}()
 	}
 }
 
@@ -596,8 +598,10 @@ func compactionRoaringSetStrategy_FrequentPutDeleteOperations(ctx context.Contex
 			})
 
 			t.Run("verify that objects exist before compaction", func(t *testing.T) {
-				res, err := bucket.RoaringSetGet(key)
+				res, release, err := bucket.RoaringSetGet(key)
 				require.NoError(t, err)
+				defer release()
+
 				switch size {
 				case 5:
 					assert.Equal(t, 0, res.GetCardinality())
@@ -617,8 +621,10 @@ func compactionRoaringSetStrategy_FrequentPutDeleteOperations(ctx context.Contex
 			})
 
 			t.Run("verify that objects exist after compaction", func(t *testing.T) {
-				res, err := bucket.RoaringSetGet(key)
+				res, release, err := bucket.RoaringSetGet(key)
 				require.NoError(t, err)
+				defer release()
+
 				switch size {
 				case 5:
 					assert.Equal(t, 0, res.GetCardinality())

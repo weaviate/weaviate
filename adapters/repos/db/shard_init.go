@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	entsentry "github.com/weaviate/weaviate/entities/sentry"
@@ -35,7 +36,7 @@ import (
 func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	shardName string, index *Index, class *models.Class, jobQueueCh chan job,
 	scheduler *queue.Scheduler, indexCheckpoints *indexcheckpoint.Checkpoints,
-	reindexer ShardReindexerV3,
+	reindexer ShardReindexerV3, lazyLoadSegments bool, bitmapBufPool roaringset.BitmapBufPool,
 ) (_ *Shard, err error) {
 	start := time.Now()
 
@@ -45,19 +46,23 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		"index":  index.ID(),
 	}).Debugf("initializing shard %q", shardName)
 
+	metrics, err := NewMetrics(index.logger, promMetrics, string(index.Config.ClassName), shardName)
+	if err != nil {
+		return nil, fmt.Errorf("init shard %q metrics: %w", shardName, err)
+	}
+
 	s := &Shard{
 		index:       index,
 		class:       class,
 		name:        shardName,
 		promMetrics: promMetrics,
-		metrics: NewMetrics(index.logger, promMetrics,
-			string(index.Config.ClassName), shardName),
-		slowQueryReporter:     helpers.NewSlowQueryReporterFromEnv(index.logger),
-		stopDimensionTracking: make(chan struct{}),
-		replicationMap:        pendingReplicaTasks{Tasks: make(map[string]replicaTask, 32)},
-		centralJobQueue:       jobQueueCh,
-		scheduler:             scheduler,
-		indexCheckpoints:      indexCheckpoints,
+		metrics:     metrics,
+		slowQueryReporter: helpers.NewSlowQueryReporter(index.Config.QuerySlowLogEnabled,
+			index.Config.QuerySlowLogThreshold, index.logger),
+		replicationMap:   pendingReplicaTasks{Tasks: make(map[string]replicaTask, 32)},
+		centralJobQueue:  jobQueueCh,
+		scheduler:        scheduler,
+		indexCheckpoints: indexCheckpoints,
 
 		shutdownLock: new(sync.RWMutex),
 
@@ -65,6 +70,8 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		searchableBlockmaxPropNamesLock: new(sync.Mutex),
 		reindexer:                       reindexer,
 		usingBlockMaxWAND:               index.invertedIndexConfig.UsingBlockMaxWAND,
+		bitmapBufPool:                   bitmapBufPool,
+		SPFreshEnabled:                  index.SPFreshEnabled,
 	}
 
 	index.metrics.UpdateShardStatus("", storagestate.StatusLoading.String())
@@ -103,7 +110,8 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		index.metrics.ObserveUpdateShardStatus(s.status.Status.String(), time.Since(start))
 	}()
 
-	s.activityTracker.Store(1) // initial state
+	s.activityTrackerRead.Store(1)  // initial state
+	s.activityTrackerWrite.Store(1) // initial state
 	s.initCycleCallbacks()
 
 	s.docIdLock = make([]sync.Mutex, IdLockPoolSize)
@@ -124,15 +132,16 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 
 	_ = s.reindexer.RunBeforeLsmInit(ctx, s)
 
-	if err := s.initNonVector(ctx, class); err != nil {
+	if s.index.Config.LazySegmentsDisabled {
+		lazyLoadSegments = false // disable globally
+	}
+	if err := s.initNonVector(ctx, class, lazyLoadSegments); err != nil {
 		return nil, errors.Wrapf(err, "init shard %q", s.ID())
 	}
 
-	if err = s.initShardVectors(ctx); err != nil {
+	if err = s.initShardVectors(ctx, lazyLoadSegments); err != nil {
 		return nil, fmt.Errorf("init shard vectors: %w", err)
 	}
-
-	s.initDimensionTracking()
 
 	if asyncEnabled() {
 		f := func() {
@@ -170,7 +179,7 @@ func (s *Shard) cleanupPartialInit(ctx context.Context) {
 }
 
 func (s *Shard) NotifyReady() {
-	s.UpdateStatus(storagestate.StatusReady.String())
+	s.UpdateStatus(storagestate.StatusReady.String(), "notify ready")
 	s.index.logger.
 		WithField("action", "startup").
 		Debugf("shard=%s is ready", s.name)

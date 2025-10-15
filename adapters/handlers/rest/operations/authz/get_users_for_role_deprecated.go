@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -45,7 +45,9 @@ func NewGetUsersForRoleDeprecated(ctx *middleware.Context, handler GetUsersForRo
 /*
 	GetUsersForRoleDeprecated swagger:route GET /authz/roles/{id}/users authz getUsersForRoleDeprecated
 
-get users (db + OIDC) assigned to role. Deprecated, will be removed when 1.29 is not supported anymore
+# Get users assigned to a role
+
+Get all the users (`db` + `oidc`) who have been assigned a specific role. Deprecated, will be removed when v1.29 is not supported anymore.
 */
 type GetUsersForRoleDeprecated struct {
 	Context *middleware.Context

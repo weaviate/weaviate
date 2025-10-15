@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -288,13 +288,13 @@ func createRowReaderRoaringSet(value []byte, operator filters.Operator, data []k
 		value:     value,
 		operator:  operator,
 		newCursor: func() lsmkv.CursorRoaringSet { return &dummyCursorRoaringSet{data: data} },
-		getter: func(key []byte) (*sroar.Bitmap, error) {
+		getter: func(key []byte) (*sroar.Bitmap, func(), error) {
 			for i := 0; i < len(data); i++ {
 				if bytes.Equal([]byte(data[i].k), key) {
-					return roaringset.NewBitmap(data[i].v...), nil
+					return roaringset.NewBitmap(data[i].v...), noopRelease, nil
 				}
 			}
-			return nil, entlsmkv.NotFound
+			return nil, noopRelease, entlsmkv.NotFound
 		},
 		bitmapFactory: roaringset.NewBitmapFactory(roaringset.NewBitmapBufPoolNoop(), func() uint64 { return maxDocID }),
 	}

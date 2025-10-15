@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -53,7 +53,7 @@ func TestBuildUrlFn(t *testing.T) {
 	t.Run("buildUrlFn returns Azure Client when isAzure is true", func(t *testing.T) {
 		url, err := buildUrlFn(false, true, "resourceID", "deploymentID", "", config.DefaultApiVersion)
 		assert.Nil(t, err)
-		assert.Equal(t, "https://resourceID.openai.azure.com/openai/deployments/deploymentID/chat/completions?api-version=2024-02-01", url)
+		assert.Equal(t, "https://resourceID.openai.azure.com/openai/deployments/deploymentID/chat/completions?api-version=2024-06-01", url)
 	})
 	t.Run("buildUrlFn loads from environment variable", func(t *testing.T) {
 		url, err := buildUrlFn(false, false, "", "", "https://foobar.some.proxy", config.DefaultApiVersion)
@@ -64,7 +64,7 @@ func TestBuildUrlFn(t *testing.T) {
 	t.Run("buildUrlFn returns Azure Client with custom baseURL", func(t *testing.T) {
 		url, err := buildUrlFn(false, true, "resourceID", "deploymentID", "customBaseURL", config.DefaultApiVersion)
 		assert.Nil(t, err)
-		assert.Equal(t, "customBaseURL/openai/deployments/deploymentID/chat/completions?api-version=2024-02-01", url)
+		assert.Equal(t, "customBaseURL/openai/deployments/deploymentID/chat/completions?api-version=2024-06-01", url)
 	})
 }
 

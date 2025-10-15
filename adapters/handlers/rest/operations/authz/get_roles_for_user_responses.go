@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -28,7 +28,7 @@ import (
 const GetRolesForUserOKCode int = 200
 
 /*
-GetRolesForUserOK Role assigned users
+GetRolesForUserOK Roles assigned to the user.
 
 swagger:response getRolesForUserOK
 */
@@ -76,7 +76,7 @@ func (o *GetRolesForUserOK) WriteResponse(rw http.ResponseWriter, producer runti
 const GetRolesForUserBadRequestCode int = 400
 
 /*
-GetRolesForUserBadRequest Bad request
+GetRolesForUserBadRequest Malformed request.
 
 swagger:response getRolesForUserBadRequest
 */
@@ -191,7 +191,7 @@ func (o *GetRolesForUserForbidden) WriteResponse(rw http.ResponseWriter, produce
 const GetRolesForUserNotFoundCode int = 404
 
 /*
-GetRolesForUserNotFound no role found for user
+GetRolesForUserNotFound No roles found for specified user.
 
 swagger:response getRolesForUserNotFound
 */
@@ -216,7 +216,7 @@ func (o *GetRolesForUserNotFound) WriteResponse(rw http.ResponseWriter, producer
 const GetRolesForUserUnprocessableEntityCode int = 422
 
 /*
-GetRolesForUserUnprocessableEntity Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
+GetRolesForUserUnprocessableEntity The request syntax is correct, but the server couldn't process it due to semantic issues.
 
 swagger:response getRolesForUserUnprocessableEntity
 */

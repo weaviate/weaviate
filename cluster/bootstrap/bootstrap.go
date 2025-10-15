@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -19,9 +19,11 @@ import (
 
 	"github.com/getsentry/sentry-go"
 	"github.com/sirupsen/logrus"
+
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/resolver"
 	entSentry "github.com/weaviate/weaviate/entities/sentry"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 // PeerJoiner is the interface we expect to be able to talk to the other peers to either Join or Notify them
@@ -145,16 +147,26 @@ func (b *Bootstrapper) notify(ctx context.Context, remoteNodes map[string]string
 			return err
 		}
 	}
-	return
+	return err
 }
 
 // ResolveRemoteNodes returns a list of remoteNodes addresses resolved using addrResolver. The nodes id used are
-// taken from serverPortMap keys and ports from the values
+// taken from serverPortMap keys and ports from the values. Additionally, it includes nodes discovered via memberlist
+// to handle cases where the join config is incomplete.
 func ResolveRemoteNodes(addrResolver resolver.ClusterStateReader, serverPortMap map[string]int) map[string]string {
 	candidates := make(map[string]string, len(serverPortMap))
 	for name, raftPort := range serverPortMap {
 		if addr := addrResolver.NodeAddress(name); addr != "" {
 			candidates[name] = fmt.Sprintf("%s:%d", addr, raftPort)
+		}
+	}
+
+	// this is a fallback for cases where the join config is incomplete
+	memberlistNodes := addrResolver.AllOtherClusterMembers(config.DefaultRaftPort)
+	for name, addr := range memberlistNodes {
+		// Only add memberlist nodes that are NOT already in the join configuration
+		if _, exists := serverPortMap[name]; !exists {
+			candidates[name] = addr
 		}
 	}
 	return candidates

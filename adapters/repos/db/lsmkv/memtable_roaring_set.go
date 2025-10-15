@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -135,7 +135,7 @@ func (m *Memtable) roaringSetAdjustMeta(entriesChanged int) {
 	// estimation is therefore to take the changed entries and multiply them by
 	// 2.
 	m.size += uint64(entriesChanged * 2)
-	m.metrics.size(m.size)
+	m.metrics.observeSize(m.size)
 	m.updateDirtyAt()
 }
 

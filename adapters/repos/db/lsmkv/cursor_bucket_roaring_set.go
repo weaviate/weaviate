@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -12,6 +12,8 @@
 package lsmkv
 
 import (
+	"time"
+
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 )
@@ -55,6 +57,10 @@ func (b *Bucket) CursorRoaringSetKeyOnly() CursorRoaringSet {
 func (b *Bucket) cursorRoaringSet(keyOnly bool) CursorRoaringSet {
 	MustBeExpectedStrategy(b.strategy, StrategyRoaringSet)
 
+	cursorOpenedAt := time.Now()
+	b.metrics.IncBucketOpenedCursorsByStrategy(b.strategy)
+	b.metrics.IncBucketOpenCursorsByStrategy(b.strategy)
+
 	b.flushLock.RLock()
 
 	innerCursors, unlockSegmentGroup := b.disk.newRoaringSetCursors()
@@ -74,6 +80,9 @@ func (b *Bucket) cursorRoaringSet(keyOnly bool) CursorRoaringSet {
 		unlock: func() {
 			unlockSegmentGroup()
 			b.flushLock.RUnlock()
+
+			b.metrics.DecBucketOpenCursorsByStrategy(b.strategy)
+			b.metrics.ObserveBucketCursorDurationByStrategy(b.strategy, time.Since(cursorOpenedAt))
 		},
 	}
 }

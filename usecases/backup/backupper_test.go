@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -22,6 +22,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
@@ -45,86 +46,6 @@ func (r *backupper) waitForCompletion(n, ms int) backup.Status {
 		}
 	}
 	return ""
-}
-
-func TestBackupStatus(t *testing.T) {
-	t.Parallel()
-	var (
-		backendName = "s3"
-		id          = "1234"
-		ctx         = context.Background()
-		starTime    = time.Date(2022, 1, 1, 1, 0, 0, 0, time.UTC)
-		nodeHome    = id + "/" + nodeName
-		path        = "bucket/backups/" + nodeHome
-		rawstatus   = string(backup.Transferring)
-		want        = &models.BackupCreateStatusResponse{
-			ID:      id,
-			Path:    path,
-			Status:  &rawstatus,
-			Backend: backendName,
-		}
-	)
-
-	t.Run("ActiveState", func(t *testing.T) {
-		m := createManager(nil, nil, nil, nil)
-		m.backupper.lastOp.reqState = reqState{
-			Starttime: starTime,
-			ID:        id,
-			Status:    backup.Transferring,
-			Path:      path,
-		}
-		st, err := m.backupper.Status(ctx, backendName, id)
-		assert.Nil(t, err)
-		assert.Equal(t, want, st)
-	})
-
-	t.Run("GetBackupProvider", func(t *testing.T) {
-		m := createManager(nil, nil, nil, ErrAny)
-		_, err := m.backupper.Status(ctx, backendName, id)
-		assert.NotNil(t, err)
-	})
-
-	t.Run("MetadataNotFound", func(t *testing.T) {
-		backend := &fakeBackend{}
-		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(nil, ErrAny)
-		backend.On("GetObject", ctx, id, BackupFile).Return(nil, ErrAny)
-		m := createManager(nil, nil, backend, nil)
-		_, err := m.backupper.Status(ctx, backendName, id)
-		assert.NotNil(t, err)
-		nerr := backup.ErrNotFound{}
-		if !errors.As(err, &nerr) {
-			t.Errorf("error want=%v got=%v", nerr, err)
-		}
-	})
-
-	t.Run("ReadFromMetadata", func(t *testing.T) {
-		backend := &fakeBackend{}
-		bytes := marshalMeta(backup.BackupDescriptor{Status: string(backup.Transferring)})
-		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(bytes, nil)
-		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
-		m := createManager(nil, nil, backend, nil)
-		got, err := m.backupper.Status(ctx, backendName, id)
-		assert.Nil(t, err)
-		assert.Equal(t, want, got)
-	})
-
-	t.Run("ReadFromMetadataError", func(t *testing.T) {
-		backend := &fakeBackend{}
-		st := string(backup.Failed)
-		bytes := marshalMeta(backup.BackupDescriptor{Status: st, Error: "error1"})
-		want = &models.BackupCreateStatusResponse{
-			ID:      id,
-			Path:    path,
-			Status:  &st,
-			Backend: backendName,
-		}
-		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(bytes, nil)
-		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
-		m := createManager(nil, nil, backend, nil)
-		_, err := m.backupper.Status(ctx, backendName, id)
-		assert.NotNil(t, err)
-		assert.ErrorContains(t, err, "error1")
-	})
 }
 
 func TestBackupOnStatus(t *testing.T) {
@@ -691,5 +612,15 @@ func createManager(sourcer Sourcer, schema schemaManger, backend modulecapabilit
 	}
 
 	logger, _ := test.NewNullLogger()
-	return NewHandler(logger, mocks.NewMockAuthorizer(), schema, sourcer, backends)
+	return NewHandler(logger, mocks.NewMockAuthorizer(), schema, sourcer, backends, fakeRbacBackupWrapper{}, fakeRbacBackupWrapper{})
+}
+
+type fakeRbacBackupWrapper struct{}
+
+func (r fakeRbacBackupWrapper) Snapshot() ([]byte, error) {
+	return nil, nil
+}
+
+func (r fakeRbacBackupWrapper) Restore([]byte) error {
+	return nil
 }

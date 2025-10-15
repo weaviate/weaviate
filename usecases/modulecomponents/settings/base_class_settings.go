@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -14,6 +14,7 @@ package settings
 import (
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -26,6 +27,10 @@ const (
 	DefaultVectorizeClassName    = true
 	DefaultVectorizePropertyName = false
 )
+
+var errInvalidProperties = fmt.Errorf("invalid properties: didn't find a single property which is " +
+	"vectorizable and is not excluded from indexing. " +
+	"To fix this add a vectorizable property which is not excluded from indexing")
 
 type BaseClassSettings struct {
 	cfg                 moduletools.ClassConfig
@@ -86,6 +91,10 @@ func (s BaseClassSettings) PropertyIndexed(propName string) bool {
 	return !asBool
 }
 
+func (s BaseClassSettings) hasSourceProperties() bool {
+	return s.cfg != nil && len(s.Properties()) > 0
+}
+
 func (s BaseClassSettings) VectorizePropertyName(propName string) bool {
 	if s.cfg == nil {
 		return DefaultVectorizePropertyName
@@ -123,7 +132,7 @@ func (s BaseClassSettings) VectorizeClassName() bool {
 }
 
 func (s BaseClassSettings) Properties() []string {
-	if s.cfg == nil || len(s.cfg.Class()) == 0 {
+	if s.cfg == nil || len(s.GetSettings()) == 0 {
 		return nil
 	}
 
@@ -132,7 +141,7 @@ func (s BaseClassSettings) Properties() []string {
 		return nil
 	}
 
-	asArray, ok := field.([]interface{})
+	asArray, ok := field.([]any)
 	if ok {
 		asStringArray := make([]string, len(asArray))
 		for i := range asArray {
@@ -150,7 +159,7 @@ func (s BaseClassSettings) Properties() []string {
 }
 
 func (s BaseClassSettings) Model() string {
-	if s.cfg == nil || len(s.cfg.Class()) == 0 {
+	if s.cfg == nil || len(s.GetSettings()) == 0 {
 		return ""
 	}
 
@@ -164,9 +173,9 @@ func (s BaseClassSettings) Model() string {
 }
 
 func (s BaseClassSettings) ValidateClassSettings() error {
-	if s.cfg != nil && len(s.cfg.Class()) > 0 {
+	if s.cfg != nil && len(s.GetSettings()) > 0 {
 		if field, ok := s.GetSettings()["properties"]; ok {
-			fieldsArray, fieldsArrayOk := field.([]interface{})
+			fieldsArray, fieldsArrayOk := field.([]any)
 			if fieldsArrayOk {
 				if len(fieldsArray) == 0 {
 					return errors.New("properties field needs to have at least 1 property defined")
@@ -231,7 +240,7 @@ func (s BaseClassSettings) ValidateIndexState(class *models.Class) error {
 				"got %v", prop.Name, prop.DataType)
 		}
 
-		if prop.DataType[0] != string(schema.DataTypeText) {
+		if !s.isPropertyDataTypeSupported(prop.DataType[0]) {
 			// we can only vectorize text-like props
 			continue
 		}
@@ -242,16 +251,13 @@ func (s BaseClassSettings) ValidateIndexState(class *models.Class) error {
 		}
 	}
 
-	return fmt.Errorf("invalid properties: didn't find a single property which is " +
-		"of type string or text and is not excluded from indexing. In addition the " +
-		"class name is excluded from vectorization as well, meaning that it cannot be " +
-		"used to determine the vector position. To fix this, set 'vectorizeClassName' " +
-		"to true if the class name is contextionary-valid. Alternatively add at least " +
-		"contextionary-valid text/string property which is not excluded from " +
-		"indexing")
+	return errInvalidProperties
 }
 
 func (s BaseClassSettings) GetSettings() map[string]interface{} {
+	if s.cfg == nil || s.propertyHelper == nil {
+		return nil
+	}
 	return s.propertyHelper.GetSettings(s.cfg)
 }
 
@@ -261,23 +267,54 @@ func (s BaseClassSettings) Validate(class *models.Class) error {
 		return errors.New("empty config")
 	}
 
+	// validate properties setting if it's a right format only if it's defined
 	if err := s.ValidateClassSettings(); err != nil {
 		return err
 	}
 
-	err := s.ValidateIndexState(class)
-	if err != nil {
-		return err
+	if !s.isAutoSchemaEnabled() {
+		// validate class's properties against properties
+		err := s.ValidateIndexState(class)
+		if err != nil {
+			return err
+		}
 	}
 
 	return nil
 }
 
-func ValidateSetting[T string | int64](value T, availableValues []T) bool {
-	for i := range availableValues {
-		if value == availableValues[i] {
+func (s BaseClassSettings) isAutoSchemaEnabled() bool {
+	if s.cfg != nil && s.cfg.Config() != nil && s.cfg.Config().AutoSchema.Enabled != nil {
+		return s.cfg.Config().AutoSchema.Enabled.Get()
+	}
+	return false
+}
+
+func (s BaseClassSettings) isPropertyDataTypeSupported(dt string) bool {
+	switch schema.DataType(dt) {
+	case schema.DataTypeText, schema.DataTypeString, schema.DataTypeTextArray, schema.DataTypeStringArray:
+		return true
+	default:
+		// do nothing
+	}
+	if s.hasSourceProperties() {
+		// include additional property types
+		switch schema.DataType(dt) {
+		case schema.DataTypeObject, schema.DataTypeObjectArray:
 			return true
+		case schema.DataTypeInt, schema.DataTypeNumber, schema.DataTypeIntArray, schema.DataTypeNumberArray:
+			return true
+		case schema.DataTypeDate, schema.DataTypeDateArray:
+			return true
+		case schema.DataTypeBoolean, schema.DataTypeBooleanArray:
+			return true
+		default:
+			// do nothing
 		}
 	}
 	return false
+}
+
+func ValidateSetting[T string | int64](value T, availableValues []T) bool {
+	return slices.Contains(availableValues, value)
 }

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -253,8 +253,8 @@ func sortAndDedupValues(in []MapPair) []MapPair {
 func binarySearchNodeMapFromRB(rbNode rbtree.Node) (bsNode *binarySearchNodeMap) {
 	if rbNode == nil {
 		bsNode = nil
-		return
+		return bsNode
 	}
 	bsNode = rbNode.(*binarySearchNodeMap)
-	return
+	return bsNode
 }

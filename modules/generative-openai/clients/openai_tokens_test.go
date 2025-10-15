@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -116,6 +116,18 @@ func Test_getTokensCount(t *testing.T) {
 			model:    "gpt-4",
 			messages: exampleMessages,
 			want:     129,
+		},
+		{
+			name:     "gpt-5",
+			model:    "gpt-5",
+			messages: messages,
+			want:     117,
+		},
+		{
+			name:     "gpt-4o",
+			model:    "gpt-4o",
+			messages: messages,
+			want:     117,
 		},
 	}
 	for _, tt := range tests {

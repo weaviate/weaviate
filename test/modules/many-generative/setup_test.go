@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -82,7 +82,7 @@ func createSingleNodeEnvironment(ctx context.Context,
 	).
 		WithWeaviate().
 		Start(ctx)
-	return
+	return compose, err
 }
 
 func composeModules(accessKey, secretKey, sessionToken string,
@@ -96,5 +96,5 @@ func composeModules(accessKey, secretKey, sessionToken string,
 		WithGenerativeGoogle(googleApiKey).
 		WithGenerativeOpenAI(openAIApiKey, openAIOrganization, "").
 		WithGenerativeCohere(cohereApiKey)
-	return
+	return composeModules
 }

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -54,18 +54,18 @@ type generativeQueryParams interface {
 	ProviderName() string
 	ReturnMetadataForSingle() bool
 	ReturnMetadataForGrouped() bool
-	Debug() bool
+	ReturnDebugForSingle() bool
+	ReturnDebugForGrouped() bool
 }
 
 func NewReplier(
-	uses125 bool,
 	uses127 bool,
 	generativeQueryParams generativeQueryParams,
 	logger logrus.FieldLogger,
 ) *Replier {
 	return &Replier{
 		generative: generative.NewReplier(logger, generativeQueryParams, uses127),
-		mapper:     &Mapper{uses125: uses125},
+		mapper:     &Mapper{},
 		logger:     logger,
 	}
 }
@@ -115,7 +115,7 @@ func (r *Replier) extractObjectsToResults(res []interface{}, searchParams dto.Ge
 		var props *pb.PropertiesResult
 		var err error
 
-		props, err = r.extractPropertiesAnswer(scheme, asMap, searchParams.Properties, searchParams.ClassName, searchParams.AdditionalProperties)
+		props, err = r.extractPropertiesAnswer(scheme, asMap, searchParams.Properties, searchParams.ClassName, searchParams.Alias, searchParams.AdditionalProperties)
 		if err != nil {
 			return nil, "", nil, err
 		}
@@ -128,7 +128,7 @@ func (r *Replier) extractObjectsToResults(res []interface{}, searchParams dto.Ge
 		if generativeGroupResultsReturnDeprecated == "" && additionalProps.GenerativeGroupedDeprecated != "" {
 			generativeGroupResultsReturnDeprecated = additionalProps.GenerativeGroupedDeprecated
 		}
-		if generativeGroupResults == nil && additionalProps.GenerativeGrouped != nil {
+		if generativeGroupResults == nil && r.isGenerativeGroupedPresent(additionalProps.GenerativeGrouped) {
 			generativeGroupResults = additionalProps.GenerativeGrouped
 		}
 
@@ -141,6 +141,14 @@ func (r *Replier) extractObjectsToResults(res []interface{}, searchParams dto.Ge
 		results[i] = result
 	}
 	return results, generativeGroupResultsReturnDeprecated, generativeGroupResults, nil
+}
+
+func (r *Replier) isGenerativeGroupedPresent(grouped *pb.GenerativeResult) bool {
+	if grouped != nil && len(grouped.Values) > 0 &&
+		(len(grouped.Values[0].Result) > 0 || grouped.Values[0].Debug != nil || grouped.Values[0].Metadata != nil) {
+		return true
+	}
+	return false
 }
 
 func idToByte(idRaw interface{}) ([]byte, string, error) {
@@ -472,7 +480,7 @@ func (r *Replier) extractGroup(raw any, searchParams dto.GetParams, scheme schem
 	return ret, groupedGenerativeResults, nil
 }
 
-func (r *Replier) extractPropertiesAnswer(scheme schema.Schema, results map[string]interface{}, properties search.SelectProperties, className string, additionalPropsParams additional.Properties) (*pb.PropertiesResult, error) {
+func (r *Replier) extractPropertiesAnswer(scheme schema.Schema, results map[string]interface{}, properties search.SelectProperties, className, alias string, additionalPropsParams additional.Properties) (*pb.PropertiesResult, error) {
 	nonRefProps := &pb.Properties{
 		Fields: make(map[string]*pb.Value, 0),
 	}
@@ -528,7 +536,7 @@ func (r *Replier) extractPropertiesAnswer(scheme schema.Schema, results map[stri
 			if !ok {
 				continue
 			}
-			extractedRefProp, err := r.extractPropertiesAnswer(scheme, refLocal.Fields, prop.Refs[0].RefProperties, refLocal.Class, additionalPropsParams)
+			extractedRefProp, err := r.extractPropertiesAnswer(scheme, refLocal.Fields, prop.Refs[0].RefProperties, refLocal.Class, "", additionalPropsParams)
 			if err != nil {
 				continue
 			}
@@ -554,7 +562,11 @@ func (r *Replier) extractPropertiesAnswer(scheme schema.Schema, results map[stri
 		props.RefProps = refProps
 	}
 	props.RefPropsRequested = properties.HasRefs()
-	props.TargetCollection = className
+	if alias != "" {
+		props.TargetCollection = alias
+	} else {
+		props.TargetCollection = className
+	}
 	return &props, nil
 }
 

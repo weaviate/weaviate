@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -60,9 +60,17 @@ func ClassesContextionaryVectorizer(multishard bool) []*models.Class {
 	}
 }
 
+func ClassesModel2VecVectorizer(multishard bool) []*models.Class {
+	return []*models.Class{
+		document("text2vec-model2vec", multishard),
+		passage("text2vec-model2vec", multishard),
+	}
+}
+
 func document(vectorizer string, multishard bool) *models.Class {
 	class := &models.Class{
-		Class: Document,
+		Class:      Document,
+		Vectorizer: vectorizer,
 		ModuleConfig: map[string]interface{}{
 			vectorizer: map[string]interface{}{
 				"vectorizeClassName": false,
@@ -108,7 +116,8 @@ func document(vectorizer string, multishard bool) *models.Class {
 
 func passage(vectorizer string, multishard bool) *models.Class {
 	class := &models.Class{
-		Class: Passage,
+		Class:      Passage,
+		Vectorizer: vectorizer,
 		ModuleConfig: map[string]interface{}{
 			vectorizer: map[string]interface{}{
 				"vectorizeClassName": false,

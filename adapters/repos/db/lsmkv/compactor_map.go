@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -16,6 +16,8 @@ import (
 	"fmt"
 	"io"
 	"sort"
+
+	"github.com/weaviate/weaviate/usecases/memwatch"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/compactor"
 
@@ -50,13 +52,16 @@ type compactorMap struct {
 	// not guaranteed to be sorted yet
 	requiresSorting bool
 
+	allocChecker memwatch.AllocChecker
+
 	enableChecksumValidation bool
+	maxNewFileSize           int64
 }
 
 func newCompactorMapCollection(w io.WriteSeeker,
 	c1, c2 *segmentCursorCollectionReusable, level, secondaryIndexCount uint16,
 	scratchSpacePath string, requiresSorting bool, cleanupTombstones bool,
-	enableChecksumValidation bool, maxNewFileSize int64,
+	enableChecksumValidation bool, maxNewFileSize int64, allocChecker memwatch.AllocChecker,
 ) *compactorMap {
 	observeWrite := monitoring.GetMetrics().FileIOWrites.With(prometheus.Labels{
 		"operation": "compaction",
@@ -80,6 +85,8 @@ func newCompactorMapCollection(w io.WriteSeeker,
 		scratchSpacePath:         scratchSpacePath,
 		requiresSorting:          requiresSorting,
 		enableChecksumValidation: enableChecksumValidation,
+		maxNewFileSize:           maxNewFileSize,
+		allocChecker:             allocChecker,
 	}
 }
 
@@ -273,8 +280,9 @@ func (c *compactorMap) writeIndexes(f *segmentindex.SegmentFile,
 			"strategy":  StrategyMapCollection,
 			"operation": "writeIndices",
 		}),
+		AllocChecker: c.allocChecker,
 	}
-	_, err := f.WriteIndexes(indexes)
+	_, err := f.WriteIndexes(indexes, c.maxNewFileSize)
 	return err
 }
 

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -20,14 +20,13 @@ import (
 	"github.com/cenkalti/backoff/v4"
 	"github.com/hashicorp/raft"
 	"github.com/prometheus/client_golang/prometheus"
-	"google.golang.org/protobuf/proto"
-
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/sharding"
+	"google.golang.org/protobuf/proto"
 )
 
 func (s *Raft) AddClass(ctx context.Context, cls *models.Class, ss *sharding.State) (uint64, error) {
@@ -145,6 +144,28 @@ func (s *Raft) DeleteReplicaFromShard(ctx context.Context, class, shard, targetN
 	}
 	command := &cmd.ApplyRequest{
 		Type:       cmd.ApplyRequest_TYPE_DELETE_REPLICA_FROM_SHARD,
+		Class:      req.Class,
+		SubCommand: subCommand,
+	}
+	return s.Execute(ctx, command)
+}
+
+func (s *Raft) ReplicationAddReplicaToShard(ctx context.Context, class, shard, targetNode string, opId uint64) (uint64, error) {
+	if class == "" || shard == "" || targetNode == "" {
+		return 0, fmt.Errorf("empty class or shard or sourceNode or targetNode: %w", schema.ErrBadRequest)
+	}
+	req := cmd.ReplicationAddReplicaToShard{
+		Class:      class,
+		Shard:      shard,
+		TargetNode: targetNode,
+		OpId:       opId,
+	}
+	subCommand, err := json.Marshal(&req)
+	if err != nil {
+		return 0, fmt.Errorf("marshal request: %w", err)
+	}
+	command := &cmd.ApplyRequest{
+		Type:       cmd.ApplyRequest_TYPE_REPLICATION_REPLICATE_ADD_REPLICA_TO_SHARD,
 		Class:      req.Class,
 		SubCommand: subCommand,
 	}

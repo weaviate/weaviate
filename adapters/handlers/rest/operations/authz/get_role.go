@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -45,7 +45,9 @@ func NewGetRole(ctx *middleware.Context, handler GetRoleHandler) *GetRole {
 /*
 	GetRole swagger:route GET /authz/roles/{id} authz getRole
 
-Get a role
+# Get a role
+
+Fetch a role by its name.
 */
 type GetRole struct {
 	Context *middleware.Context

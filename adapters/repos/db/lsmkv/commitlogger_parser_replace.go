@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -27,44 +27,10 @@ func (p *commitloggerParser) doReplace() error {
 	var errWhileParsing error
 
 	for {
-		var commitType CommitType
-
-		err := binary.Read(p.checksumReader, binary.LittleEndian, &commitType)
-		if errors.Is(err, io.EOF) {
-			break
-		}
-		if err != nil {
-			errWhileParsing = errors.Wrap(err, "read commit type")
-			break
-		}
-		if !CommitTypeReplace.Is(commitType) {
-			return errors.Errorf("found a %s commit on a replace bucket", commitType.String())
-		}
-
-		var version uint8
-
-		err = binary.Read(p.checksumReader, binary.LittleEndian, &version)
-		if err != nil {
-			errWhileParsing = errors.Wrap(err, "read commit version")
-			break
-		}
-
-		switch version {
-		case 0:
-			{
-				err = p.doReplaceRecordV0(nodeCache)
-			}
-		case 1:
-			{
-				err = p.doReplaceRecordV1(nodeCache)
-			}
-		default:
-			{
-				return fmt.Errorf("unsupported commit version %d", version)
-			}
-		}
-		if err != nil {
+		if ok, err := p.doReplaceOnce(nodeCache); err != nil {
 			errWhileParsing = err
+			break
+		} else if !ok {
 			break
 		}
 	}
@@ -84,6 +50,47 @@ func (p *commitloggerParser) doReplace() error {
 	}
 
 	return errWhileParsing
+}
+
+func (p *commitloggerParser) doReplaceOnce(nodeCache map[string]segmentReplaceNode) (ok bool, err error) {
+	var commitType CommitType
+
+	err = binary.Read(p.checksumReader, binary.LittleEndian, &commitType)
+	if errors.Is(err, io.EOF) {
+		return false, nil
+	}
+	if err != nil {
+		return false, errors.Wrap(err, "read commit type")
+	}
+	if !CommitTypeReplace.Is(commitType) {
+		return false, errors.Errorf("found a %s commit on a replace bucket", commitType.String())
+	}
+
+	var version uint8
+
+	err = binary.Read(p.checksumReader, binary.LittleEndian, &version)
+	if err != nil {
+		return false, errors.Wrap(err, "read commit version")
+	}
+
+	switch version {
+	case 0:
+		{
+			err = p.doReplaceRecordV0(nodeCache)
+		}
+	case 1:
+		{
+			err = p.doReplaceRecordV1(nodeCache)
+		}
+	default:
+		{
+			return false, fmt.Errorf("unsupported commit version %d", version)
+		}
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func (p *commitloggerParser) doReplaceRecordV0(nodeCache map[string]segmentReplaceNode) error {

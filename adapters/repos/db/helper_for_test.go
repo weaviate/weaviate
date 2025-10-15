@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,12 +13,19 @@ package db
 
 import (
 	"context"
+	"log"
 	"math/rand"
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/mock"
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
+	"github.com/weaviate/weaviate/usecases/cluster"
+	"github.com/weaviate/weaviate/usecases/sharding"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 
@@ -34,6 +41,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
 
 func parkingGaragesSchema() schema.Schema {
@@ -216,22 +224,123 @@ func testShard(t *testing.T, ctx context.Context, className string, indexOpts ..
 		false, false, indexOpts...)
 }
 
-func testShardWithSettings(t *testing.T, ctx context.Context, class *models.Class,
-	vic schemaConfig.VectorIndexConfig, withStopwords, withCheckpoints bool, indexOpts ...func(*Index),
+func testShardMultiTenant(t *testing.T, ctx context.Context, className string, indexOpts ...func(*Index)) (ShardLike, *Index) {
+	return testShardWithMultiTenantSettings(t, ctx, &models.Class{Class: className}, enthnsw.UserConfig{Skip: true},
+		false, false, indexOpts...)
+}
+
+func createTestDatabaseWithClass(t *testing.T, metrics *monitoring.PrometheusMetrics, classes ...*models.Class) *DB {
+	t.Helper()
+
+	require.NotNil(t, metrics, "metrics parameter cannot be nil")
+	metricsCopy := *metrics
+	metricsCopy.Registerer = monitoring.NoopRegisterer
+
+	shardState := singleShardState()
+	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
+		for _, class := range classes {
+			if className == class.Class {
+				return readFunc(class, shardState)
+			}
+		}
+		return nil
+	}).Maybe()
+	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
+	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
+	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
+	db, err := New(logrus.New(), "node1", Config{
+		RootPath:                  t.TempDir(),
+		QueryMaximumResults:       10000,
+		MaxImportGoroutinesFactor: 1,
+		TrackVectorDimensions:     true,
+	}, &FakeRemoteClient{}, &FakeNodeResolver{}, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, &metricsCopy, memwatch.NewDummyMonitor(),
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
+	require.Nil(t, err)
+
+	db.SetSchemaGetter(&fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: classes}},
+		shardState: shardState,
+	})
+
+	require.Nil(t, db.WaitForStartup(t.Context()))
+	t.Cleanup(func() {
+		require.NoError(t, db.Shutdown(context.Background()))
+	})
+
+	return db
+}
+
+func publishVectorMetricsFromDB(t *testing.T, db *DB) {
+	t.Helper()
+
+	if !db.config.TrackVectorDimensions {
+		t.Logf("Vector dimensions tracking is disabled, returning 0")
+		return
+	}
+	db.metricsObserver.publishVectorMetrics(t.Context())
+}
+
+func getSingleShardNameFromRepo(repo *DB, className string) string {
+	shardName := ""
+	if !repo.config.TrackVectorDimensions {
+		log.Printf("Vector dimensions tracking is disabled, returning 0")
+		return shardName
+	}
+	index := repo.GetIndex(schema.ClassName(className))
+	index.ForEachShard(func(name string, shard ShardLike) error {
+		shardName = shard.Name()
+		return nil
+	})
+	return shardName
+}
+
+func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models.Class,
+	vic schemaConfig.VectorIndexConfig, withStopwords, withCheckpoints, multiTenant bool, indexOpts ...func(*Index),
 ) (ShardLike, *Index) {
 	tmpDir := t.TempDir()
 	logger, _ := test.NewNullLogger()
 	maxResults := int64(10_000)
 
-	repo, err := New(logger, Config{
+	var shardState *sharding.State
+	if multiTenant {
+		shardState = NewMultiTenantShardingStateBuilder().
+			WithIndexName("multi-tenant-index").
+			WithNodePrefix("node").
+			WithReplicationFactor(1).
+			WithTenant("foo-tenant", "HOT").
+			Build()
+	} else {
+		shardState = singleShardState()
+	}
+
+	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
+		class := &models.Class{Class: className}
+		return readFunc(class, shardState)
+	}).Maybe()
+	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
+	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
+	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
+	repo, err := New(logger, "node1", Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  tmpDir,
 		QueryMaximumResults:       maxResults,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor())
+	}, &FakeRemoteClient{}, &FakeNodeResolver{}, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
-
-	shardState := singleShardState()
 	sch := schema.Schema{
 		Objects: &models.Schema{
 			Classes: []*models.Class{class},
@@ -254,6 +363,9 @@ func testShardWithSettings(t *testing.T, ctx context.Context, class *models.Clas
 		require.NoError(t, err)
 	}
 
+	metrics, err := NewMetrics(logger, nil, class.Class, "")
+	require.NoError(t, err)
+
 	idx := &Index{
 		Config: IndexConfig{
 			RootPath:            tmpDir,
@@ -261,7 +373,7 @@ func testShardWithSettings(t *testing.T, ctx context.Context, class *models.Clas
 			QueryMaximumResults: maxResults,
 			ReplicationFactor:   1,
 		},
-		metrics:                NewMetrics(logger, nil, class.Class, ""),
+		metrics:                metrics,
 		partitioningEnabled:    shardState.PartitioningEnabled,
 		invertedIndexConfig:    iic,
 		vectorIndexUserConfig:  vic,
@@ -272,7 +384,7 @@ func testShardWithSettings(t *testing.T, ctx context.Context, class *models.Clas
 		stopwords:              sd,
 		indexCheckpoints:       checkpts,
 		allocChecker:           memwatch.NewDummyMonitor(),
-		shardCreateLocks:       esync.NewKeyLocker(),
+		shardCreateLocks:       esync.NewKeyLockerContext(),
 		scheduler:              repo.scheduler,
 		shardLoadLimiter:       NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
 		shardReindexer:         NewShardReindexerV3Noop(),
@@ -285,12 +397,25 @@ func testShardWithSettings(t *testing.T, ctx context.Context, class *models.Clas
 
 	shardName := shardState.AllPhysicalShards()[0]
 
-	shard, err := idx.initShard(ctx, shardName, class, nil, idx.Config.DisableLazyLoadShards)
+	shard, err := idx.initShard(ctx, shardName, class, nil, idx.Config.DisableLazyLoadShards, true)
 	require.NoError(t, err)
 
 	idx.shards.Store(shardName, shard)
 
 	return idx.shards.Load(shardName), idx
+}
+
+// Simplified functions that delegate to the common helper
+func testShardWithMultiTenantSettings(t *testing.T, ctx context.Context, class *models.Class,
+	vic schemaConfig.VectorIndexConfig, withStopwords, withCheckpoints bool, indexOpts ...func(*Index),
+) (ShardLike, *Index) {
+	return setupTestShardWithSettings(t, ctx, class, vic, withStopwords, withCheckpoints, true, indexOpts...)
+}
+
+func testShardWithSettings(t *testing.T, ctx context.Context, class *models.Class,
+	vic schemaConfig.VectorIndexConfig, withStopwords, withCheckpoints bool, indexOpts ...func(*Index),
+) (ShardLike, *Index) {
+	return setupTestShardWithSettings(t, ctx, class, vic, withStopwords, withCheckpoints, false, indexOpts...)
 }
 
 func testObject(className string) *storobj.Object {
@@ -318,6 +443,32 @@ func createRandomObjects(r *rand.Rand, className string, numObj int, vectorDim i
 
 		for d := 0; d < vectorDim; d++ {
 			obj[i].Vector[d] = r.Float32()
+		}
+	}
+	return obj
+}
+
+func createRandomMultiVectorObjects(r *rand.Rand, className string, numObj int, numTokens int, vectorDim int) []*storobj.Object {
+	obj := make([]*storobj.Object, numObj)
+
+	for i := 0; i < numObj; i++ {
+		obj[i] = &storobj.Object{
+			MarshallerVersion: 1,
+			Object: models.Object{
+				ID:    strfmt.UUID(uuid.NewString()),
+				Class: className,
+			},
+			MultiVectors: make(map[string][][]float32),
+		}
+
+		for t := 0; t < numTokens; t++ {
+			obj[i].MultiVectors["default"] = make([][]float32, vectorDim)
+			for d := 0; d < vectorDim; d++ {
+				obj[i].MultiVectors["default"][d] = make([]float32, vectorDim)
+				for d2 := 0; d2 < vectorDim; d2++ {
+					obj[i].MultiVectors["default"][d][d2] = r.Float32()
+				}
+			}
 		}
 	}
 	return obj

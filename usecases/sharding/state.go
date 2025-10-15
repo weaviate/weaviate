@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -193,6 +193,9 @@ func (s *State) DeleteReplicaFromShard(shard string, replica string) error {
 }
 
 func (s *State) NumberOfReplicas(shard string) (int64, error) {
+	if len(s.Physical) == 0 {
+		return 0, fmt.Errorf("empty shards: could not find shard %s", shard)
+	}
 	phys, ok := s.Physical[shard]
 	if !ok {
 		return 0, fmt.Errorf("could not find shard %s", shard)
@@ -215,49 +218,6 @@ func (p *Physical) DeleteReplica(replica string) error {
 	}
 	idx := slices.Index(p.BelongsToNodes, replica)
 	p.BelongsToNodes = slices.Delete(p.BelongsToNodes, idx, idx+1)
-	return nil
-}
-
-// AdjustReplicas shrinks or extends the replica set (p.BelongsToNodes)
-func (p *Physical) AdjustReplicas(count int, nodes cluster.NodeSelector) error {
-	if count < 0 {
-		return fmt.Errorf("negative replication factor: %d", count)
-	}
-	// let's be defensive here and make sure available replicas are unique.
-	available := make(map[string]bool)
-	for _, n := range p.BelongsToNodes {
-		available[n] = true
-	}
-	// a == b should be always true except in case of bug
-	if b, a := len(p.BelongsToNodes), len(available); b > a {
-		p.BelongsToNodes = p.BelongsToNodes[:a]
-		i := 0
-		for n := range available {
-			p.BelongsToNodes[i] = n
-			i++
-		}
-	}
-	if count < len(p.BelongsToNodes) { // less replicas wanted
-		p.BelongsToNodes = p.BelongsToNodes[:count]
-		return nil
-	}
-
-	names := nodes.StorageCandidates()
-	if count > len(names) {
-		return fmt.Errorf("not enough storage replicas: found %d want %d", len(names), count)
-	}
-
-	// make sure included nodes are unique
-	for _, n := range names {
-		if !available[n] {
-			p.BelongsToNodes = append(p.BelongsToNodes, n)
-			available[n] = true
-		}
-		if len(available) == count {
-			break
-		}
-	}
-
 	return nil
 }
 
@@ -673,11 +633,17 @@ func (s State) DeepCopy() State {
 		ReplicationFactor:   s.ReplicationFactor,
 	}
 
-	// TODO: in case of error we return an empty sharding state temporarily. The plan is to remove this
-	// DeepCopy method in a followup PR.
-	err := state.MigrateShardingStateReplicationFactor()
-	if err != nil {
-		return State{}
+	// TODO: currently we ignore migration errors by returning an empty State with
+	// initialized but empty maps/slices. This avoids panics in callers, but hides the
+	// underlying issue and may cause misleading replica counts or missing shard info.
+	// In the future, change DeepCopy to return (State, error) so the error can be
+	// propagated to callers, who can then decide what to do with it.
+	//
+	// Note: we only ensure Physical is non-nil here. Virtual is intentionally left
+	// nil to preserve the same semantics as InitState, where Virtual is only
+	// allocated when needed (e.g. via initVirtual for non-multi tenant sharding state).
+	if err := state.MigrateShardingStateReplicationFactor(); err != nil {
+		return State{Physical: make(map[string]Physical)}
 	}
 
 	return state

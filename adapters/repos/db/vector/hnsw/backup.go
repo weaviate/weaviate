@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -69,7 +69,7 @@ func (h *hnsw) ListFiles(ctx context.Context, basePath string) ([]string, error)
 		return nil, fmt.Errorf("failed to list files for hnsw commitlog: %w", err)
 	}
 
-	curr, _, err := getCurrentCommitLogFileName(logRoot)
+	curr, _, err := getCurrentCommitLogFileName(logRoot, h.fs)
 	if err != nil {
 		return nil, fmt.Errorf("current commitlog file name: %w", err)
 	}

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -509,9 +509,9 @@ func (b *Batch[T]) SubmitBatchAndWait(ctx context.Context, cfg moduletools.Class
 	return vecs, errs
 }
 
-type objectVectorizer func(context.Context, *models.Object, moduletools.ClassConfig) ([]float32, models.AdditionalProperties, error)
+type objectVectorizer[T []float32 | [][]float32] func(context.Context, *models.Object, moduletools.ClassConfig) (T, models.AdditionalProperties, error)
 
-func VectorizeBatch[T []float32](ctx context.Context, objs []*models.Object, skipObject []bool, cfg moduletools.ClassConfig, logger logrus.FieldLogger, objectVectorizer objectVectorizer) ([]T, []models.AdditionalProperties, map[int]error) {
+func VectorizeBatch[T []float32 | [][]float32](ctx context.Context, objs []*models.Object, skipObject []bool, cfg moduletools.ClassConfig, logger logrus.FieldLogger, objectVectorizer objectVectorizer[T]) ([]T, []models.AdditionalProperties, map[int]error) {
 	vecs := make([]T, len(objs))
 	// error should be the exception so dont preallocate
 	errs := make(map[int]error, 0)

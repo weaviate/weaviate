@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,12 +13,14 @@ package inverted
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"os"
 	"runtime/debug"
 	"slices"
 	"sort"
 	"strconv"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
@@ -33,6 +35,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/entities/tokenizer"
 )
 
 // var metrics = lsmkv.BlockMetrics{}
@@ -44,7 +47,8 @@ func (b *BM25Searcher) createBlockTerm(N float64, filterDocIds helpers.AllowList
 
 func (b *BM25Searcher) wandBlock(
 	ctx context.Context, filterDocIds helpers.AllowList, class *models.Class, params searchparams.KeywordRanking, limit int, additional additional.Properties,
-) ([]*storobj.Object, []float32, error) {
+) ([]*storobj.Object, []float32, bool, error) {
+	start := time.Now()
 	defer func() {
 		if !entcfg.Enabled(os.Getenv("DISABLE_RECOVERY_ON_PANIC")) {
 			if r := recover(); r != nil {
@@ -57,22 +61,23 @@ func (b *BM25Searcher) wandBlock(
 	// if the filter is empty, we can skip the search
 	// as no documents will match it
 	if filterDocIds != nil && filterDocIds.IsEmpty() {
-		return []*storobj.Object{}, []float32{}, nil
+		return []*storobj.Object{}, []float32{}, false, nil
 	}
 
-	allBucketsAreInverted, N, propNamesByTokenization, queryTermsByTokenization, duplicateBoostsByTokenization, propertyBoosts, averagePropLength, err := b.generateQueryTermsAndStats(class, params)
+	allBucketsAreInverted, N, propNamesByTokenization, queryTermsByTokenization, duplicateBoostsByTokenization, propertyBoosts, averagePropLength, err := b.generateQueryTermsAndStats(ctx, class, params)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, false, err
 	}
 
 	// fallback to the old search process if not all buckets are inverted
 	if !allBucketsAreInverted {
-		return b.wand(ctx, filterDocIds, class, params, limit, additional)
+		objects, scores, err := b.wand(ctx, filterDocIds, class, params, limit, additional)
+		return objects, scores, true, err
 	}
 
 	allResults := make([][][]*lsmkv.SegmentBlockMax, 0, len(params.Properties))
 	termCounts := make([][]string, 0, len(params.Properties))
-	minimumShouldMatchByProperty := make([]int, 0, len(params.Properties))
+	minimumOrTokensMatchByProperty := make([]int, 0, len(params.Properties))
 
 	// These locks are the segmentCompactions locks for the searched properties
 	// The old search process locked the compactions and read the full postings list into memory.
@@ -87,7 +92,10 @@ func (b *BM25Searcher) wandBlock(
 		}
 	}()
 
-	for _, tokenization := range helpers.Tokenizations {
+	tokenizationTime := time.Since(start)
+	helpers.AnnotateSlowQueryLog(ctx, "kwd_1_tok_time", tokenizationTime)
+	start = time.Now()
+	for _, tokenization := range tokenizer.Tokenizations {
 		propNames := propNamesByTokenization[tokenization]
 		if len(propNames) > 0 {
 			lenAllResults := len(allResults)
@@ -101,7 +109,7 @@ func (b *BM25Searcher) wandBlock(
 			for _, propName := range propNames {
 				results, idfCounts, release, err := b.createBlockTerm(N, filterDocIds, queryTerms, propName, propertyBoosts[propName], duplicateBoosts, b.config, ctx)
 				if err != nil {
-					return nil, nil, err
+					return nil, nil, false, err
 				}
 
 				if release != nil {
@@ -111,12 +119,12 @@ func (b *BM25Searcher) wandBlock(
 				allResults = append(allResults, results)
 				termCounts = append(termCounts, queryTerms)
 
-				minimumShouldMatch := params.MinimumShouldMatch
+				minimumOrTokensMatch := params.MinimumOrTokensMatch
 				if params.SearchOperator == common_filters.SearchOperatorAnd {
-					minimumShouldMatch = len(queryTerms)
+					minimumOrTokensMatch = len(queryTerms)
 				}
 
-				minimumShouldMatchByProperty = append(minimumShouldMatchByProperty, minimumShouldMatch)
+				minimumOrTokensMatchByProperty = append(minimumOrTokensMatchByProperty, minimumOrTokensMatch)
 				for _, term := range queryTerms {
 					globalIdfCounts[term] += idfCounts[term]
 					if idfCounts[term] > 0 {
@@ -148,8 +156,12 @@ func (b *BM25Searcher) wandBlock(
 					}
 				}
 			}
-
+			helpers.AnnotateSlowQueryLog(ctx, "kwd_2_terms_"+tokenization, len(queryTerms))
 		}
+	}
+
+	if ctx.Err() != nil {
+		return nil, nil, false, fmt.Errorf("after createBlockTerm: %w", ctx.Err())
 	}
 
 	// all results. Sum up the length of the results from all terms to get an upper bound of how many results there are
@@ -184,6 +196,10 @@ func (b *BM25Searcher) wandBlock(
 		}
 	}
 
+	termSearchTime := time.Since(start)
+	start = time.Now()
+	helpers.AnnotateSlowQueryLog(ctx, "kwd_3_term_time", termSearchTime)
+
 	eg := enterrors.NewErrorGroupWrapper(b.logger)
 	eg.SetLimit(_NUMCPU)
 
@@ -206,16 +222,16 @@ func (b *BM25Searcher) wandBlock(
 			}
 
 			// return early if there aren't enough terms to match
-			if len(allResults[i][j]) < minimumShouldMatchByProperty[i] {
+			if len(allResults[i][j]) < minimumOrTokensMatchByProperty[i] {
 				continue
 			}
 
 			eg.Go(func() (err error) {
 				var topKHeap *priorityqueue.Queue[[]*terms.DocPointerWithScore]
 				if params.SearchOperator == common_filters.SearchOperatorAnd {
-					topKHeap = lsmkv.DoBlockMaxAnd(internalLimit, allResults[i][j], averagePropLength, params.AdditionalExplanations, len(termCounts[i]), minimumShouldMatchByProperty[i])
+					topKHeap = lsmkv.DoBlockMaxAnd(ctx, internalLimit, allResults[i][j], averagePropLength, params.AdditionalExplanations, len(termCounts[i]), minimumOrTokensMatchByProperty[i], b.logger)
 				} else {
-					topKHeap = lsmkv.DoBlockMaxWand(internalLimit, allResults[i][j], averagePropLength, params.AdditionalExplanations, len(termCounts[i]), minimumShouldMatchByProperty[i])
+					topKHeap, _ = lsmkv.DoBlockMaxWand(ctx, internalLimit, allResults[i][j], averagePropLength, params.AdditionalExplanations, len(termCounts[i]), minimumOrTokensMatchByProperty[i], b.logger)
 				}
 				ids, scores, explanations, err := b.getTopKIds(topKHeap)
 				if err != nil {
@@ -234,11 +250,20 @@ func (b *BM25Searcher) wandBlock(
 	}
 
 	if err := eg.Wait(); err != nil {
-		return nil, nil, err
+		return nil, nil, false, err
 	}
 
+	blockSearchTime := time.Since(start)
+	start = time.Now()
+	helpers.AnnotateSlowQueryLog(ctx, "kwd_4_bmw_time", blockSearchTime)
+
 	objects, scores := b.combineResults(allIds, allScores, allExplanation, termCounts, additional, limit)
-	return objects, scores, nil
+
+	combineTime := time.Since(start)
+	helpers.AnnotateSlowQueryLog(ctx, "kwd_5_objects_time", combineTime)
+	helpers.AnnotateSlowQueryLog(ctx, "kwd_6_res_count", len(objects))
+
+	return objects, scores, false, nil
 }
 
 func (b *BM25Searcher) combineResults(allIds [][][]uint64, allScores [][][]float32, allExplanation [][][][]*terms.DocPointerWithScore, queryTerms [][]string, additional additional.Properties, limit int) ([]*storobj.Object, []float32) {

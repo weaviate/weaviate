@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -51,6 +51,14 @@ func makeFloat64Ptr(f float64) *float64 {
 
 func makeBoolPtr(b bool) *bool {
 	return &b
+}
+
+func makeStrPtrArray(values ...string) []*string {
+	arr := make([]*string, len(values))
+	for i := range values {
+		arr[i] = &values[i]
+	}
+	return arr
 }
 
 func getPropNames(props []*models.Property) []string {
@@ -376,6 +384,7 @@ func Test_RequestParser(t *testing.T) {
 									TargetVariant: makeStrPtr("targetVariant"),
 									Model:         makeStrPtr("model"),
 									Temperature:   makeFloat64Ptr(0.5),
+									MaxTokens:     makeInt64Ptr(500),
 								},
 							},
 						},
@@ -393,6 +402,7 @@ func Test_RequestParser(t *testing.T) {
 						TargetVariant: "targetVariant",
 						Model:         "model",
 						Temperature:   makeFloat64Ptr(0.5),
+						MaxTokens:     makeIntPtr(500),
 					},
 				},
 			},
@@ -458,6 +468,12 @@ func Test_RequestParser(t *testing.T) {
 									StopSequences: &pb.TextArray{
 										Values: []string{"stop"},
 									},
+									Images: &pb.TextArray{
+										Values: []string{"base64_encoded_image"},
+									},
+									ImageProperties: &pb.TextArray{
+										Values: []string{"image_property"},
+									},
 								},
 							},
 						},
@@ -465,7 +481,8 @@ func Test_RequestParser(t *testing.T) {
 				},
 			},
 			expected: &generate.Params{
-				Prompt: makeStrPtr("prompt"),
+				Prompt:     makeStrPtr("prompt"),
+				Properties: []string{"image_property"},
 				Options: map[string]any{
 					"cohere": cohere.Params{
 						BaseURL:          "url",
@@ -477,6 +494,8 @@ func Test_RequestParser(t *testing.T) {
 						FrequencyPenalty: makeFloat64Ptr(0.5),
 						PresencePenalty:  makeFloat64Ptr(0.5),
 						StopSequences:    []string{"stop"},
+						Images:           makeStrPtrArray("base64_encoded_image"),
+						ImageProperties:  []string{"image_property"},
 					},
 				},
 			},
@@ -687,6 +706,8 @@ func Test_RequestParser(t *testing.T) {
 									TopP:             makeFloat64Ptr(0.5),
 									FrequencyPenalty: makeFloat64Ptr(0.5),
 									PresencePenalty:  makeFloat64Ptr(0.5),
+									ReasoningEffort:  pb.GenerativeOpenAI_REASONING_EFFORT_HIGH.Enum(),
+									Verbosity:        pb.GenerativeOpenAI_VERBOSITY_LOW.Enum(),
 									Stop: &pb.TextArray{
 										Values: []string{"stop"},
 									},
@@ -712,6 +733,8 @@ func Test_RequestParser(t *testing.T) {
 						TopP:             makeFloat64Ptr(0.5),
 						FrequencyPenalty: makeFloat64Ptr(0.5),
 						PresencePenalty:  makeFloat64Ptr(0.5),
+						ReasoningEffort:  makeStrPtr("high"),
+						Verbosity:        makeStrPtr("low"),
 						Stop:             []string{"stop"},
 					},
 				},

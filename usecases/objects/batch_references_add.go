@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -73,7 +73,7 @@ func (b *BatchManager) AddReferences(ctx context.Context, principal *models.Prin
 		pathsData = append(pathsData, authorization.ShardsData(val.Class, val.Shard)...)
 	}
 
-	if err := b.authorizer.Authorize(principal, authorization.UPDATE, pathsData...); err != nil {
+	if err := b.authorizer.Authorize(ctx, principal, authorization.UPDATE, pathsData...); err != nil {
 		return nil, err
 	}
 
@@ -123,7 +123,7 @@ func (b *BatchManager) addReferences(ctx context.Context, principal *models.Prin
 
 	// target object is checked for existence - this is currently ONLY done with tenants enabled, but we should require
 	// the permission for everything, to not complicate things too much
-	if err := b.authorizer.Authorize(principal, authorization.READ, shardsDataPaths...); err != nil {
+	if err := b.authorizer.Authorize(ctx, principal, authorization.READ, shardsDataPaths...); err != nil {
 		return nil, err
 	}
 
@@ -292,13 +292,13 @@ func getReferenceClasses(ctx context.Context,
 	if classFrom == "" {
 		err = fmt.Errorf("references involving a multi-tenancy enabled class " +
 			"requires class name in the source beacon url")
-		return
+		return sourceClass, targetClass, schemaVersion, err
 	}
 
 	fromClass := fetchedClasses[classFrom]
 	if fromClass.Class == nil {
 		err = fmt.Errorf("source class %q not found in schema", classFrom)
-		return
+		return sourceClass, targetClass, schemaVersion, err
 	}
 
 	sourceClass = fromClass.Class
@@ -309,12 +309,12 @@ func getReferenceClasses(ctx context.Context,
 		refProp, err2 := schema.GetPropertyByName(sourceClass, fromProperty)
 		if err2 != nil {
 			err = fmt.Errorf("get source refprop %q: %w", classFrom, err2)
-			return
+			return sourceClass, targetClass, schemaVersion, err
 		}
 
 		if len(refProp.DataType) != 1 {
 			err = fmt.Errorf("multi-target references require the class name in the target beacon url")
-			return
+			return sourceClass, targetClass, schemaVersion, err
 		}
 		toClassName = refProp.DataType[0]
 	}
@@ -324,18 +324,18 @@ func getReferenceClasses(ctx context.Context,
 		targetVclasses, err2 := schemaManager.GetCachedClass(ctx, principal, toClassName)
 		if err2 != nil {
 			err = fmt.Errorf("get target class %q: %w", toClassName, err2)
-			return
+			return sourceClass, targetClass, schemaVersion, err
 		}
 		toClass = targetVclasses[toClassName]
 		fetchedClasses[toClassName] = toClass
 	}
 	if toClass.Class == nil {
 		err = fmt.Errorf("target class %q not found in schema", classFrom)
-		return
+		return sourceClass, targetClass, schemaVersion, err
 	}
 	targetClass = toClass.Class
 
-	return
+	return sourceClass, targetClass, schemaVersion, err
 }
 
 // validateTenantRefObject ensures that object exist for the given tenant key.

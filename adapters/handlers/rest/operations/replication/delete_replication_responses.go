@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -144,6 +144,96 @@ func (o *DeleteReplicationNotFound) WriteResponse(rw http.ResponseWriter, produc
 	rw.WriteHeader(404)
 }
 
+// DeleteReplicationConflictCode is the HTTP code returned for type DeleteReplicationConflict
+const DeleteReplicationConflictCode int = 409
+
+/*
+DeleteReplicationConflict The operation is not in a deletable state, e.g. it is a MOVE op in the DEHYDRATING state.
+
+swagger:response deleteReplicationConflict
+*/
+type DeleteReplicationConflict struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewDeleteReplicationConflict creates DeleteReplicationConflict with default headers values
+func NewDeleteReplicationConflict() *DeleteReplicationConflict {
+
+	return &DeleteReplicationConflict{}
+}
+
+// WithPayload adds the payload to the delete replication conflict response
+func (o *DeleteReplicationConflict) WithPayload(payload *models.ErrorResponse) *DeleteReplicationConflict {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the delete replication conflict response
+func (o *DeleteReplicationConflict) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *DeleteReplicationConflict) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(409)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
+// DeleteReplicationUnprocessableEntityCode is the HTTP code returned for type DeleteReplicationUnprocessableEntity
+const DeleteReplicationUnprocessableEntityCode int = 422
+
+/*
+DeleteReplicationUnprocessableEntity Request body is well-formed (i.e., syntactically correct), but semantically erroneous.
+
+swagger:response deleteReplicationUnprocessableEntity
+*/
+type DeleteReplicationUnprocessableEntity struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewDeleteReplicationUnprocessableEntity creates DeleteReplicationUnprocessableEntity with default headers values
+func NewDeleteReplicationUnprocessableEntity() *DeleteReplicationUnprocessableEntity {
+
+	return &DeleteReplicationUnprocessableEntity{}
+}
+
+// WithPayload adds the payload to the delete replication unprocessable entity response
+func (o *DeleteReplicationUnprocessableEntity) WithPayload(payload *models.ErrorResponse) *DeleteReplicationUnprocessableEntity {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the delete replication unprocessable entity response
+func (o *DeleteReplicationUnprocessableEntity) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *DeleteReplicationUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(422)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
 // DeleteReplicationInternalServerErrorCode is the HTTP code returned for type DeleteReplicationInternalServerError
 const DeleteReplicationInternalServerErrorCode int = 500
 
@@ -181,6 +271,51 @@ func (o *DeleteReplicationInternalServerError) SetPayload(payload *models.ErrorR
 func (o *DeleteReplicationInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
 	rw.WriteHeader(500)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
+// DeleteReplicationNotImplementedCode is the HTTP code returned for type DeleteReplicationNotImplemented
+const DeleteReplicationNotImplementedCode int = 501
+
+/*
+DeleteReplicationNotImplemented Replica movement operations are disabled.
+
+swagger:response deleteReplicationNotImplemented
+*/
+type DeleteReplicationNotImplemented struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewDeleteReplicationNotImplemented creates DeleteReplicationNotImplemented with default headers values
+func NewDeleteReplicationNotImplemented() *DeleteReplicationNotImplemented {
+
+	return &DeleteReplicationNotImplemented{}
+}
+
+// WithPayload adds the payload to the delete replication not implemented response
+func (o *DeleteReplicationNotImplemented) WithPayload(payload *models.ErrorResponse) *DeleteReplicationNotImplemented {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the delete replication not implemented response
+func (o *DeleteReplicationNotImplemented) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *DeleteReplicationNotImplemented) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(501)
 	if o.Payload != nil {
 		payload := o.Payload
 		if err := producer.Produce(rw, payload); err != nil {

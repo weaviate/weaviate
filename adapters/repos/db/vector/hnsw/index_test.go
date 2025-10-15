@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -174,6 +174,40 @@ func TestHnswIndexGrowSafely(t *testing.T) {
 		}
 
 		assert.Equal(t, growAttempts*8, nonNilNodes)
+	})
+}
+
+func TestHnswIndexValidatePQSegments(t *testing.T) {
+	cfg := createVectorHnswIndexTestConfig()
+	cfg.VectorForIDThunk = func(ctx context.Context, id uint64) ([]float32, error) {
+		return []float32{1, 2, 3, 4}, nil
+	}
+
+	uc := ent.UserConfig{
+		MaxConnections: 30,
+		EFConstruction: 60,
+		EF:             36,
+		PQ: ent.PQConfig{
+			Enabled:  true,
+			Segments: 3,
+		},
+	}
+
+	t.Run("segments are not a divisor of the vector dimensions", func(t *testing.T) {
+		index, err := New(cfg, uc, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
+		require.Nil(t, err)
+
+		err = index.ValidateBeforeInsert([]float32{1, 2, 3, 4})
+		require.ErrorContains(t, err, "pq segments must be a divisor of the vector dimensions")
+	})
+
+	t.Run("segments are not a divisor of the multivector dimensions", func(t *testing.T) {
+		uc.Multivector = ent.MultivectorConfig{Enabled: true}
+		index, err := New(cfg, uc, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
+		require.Nil(t, err)
+
+		err = index.ValidateMultiBeforeInsert([][]float32{{1, 2, 3, 4}})
+		require.ErrorContains(t, err, "pq segments must be a divisor of the vector dimensions")
 	})
 }
 

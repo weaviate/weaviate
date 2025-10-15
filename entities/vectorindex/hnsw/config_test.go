@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -63,6 +63,11 @@ func Test_UserConfig(t *testing.T) {
 					TrainingLimit: DefaultSQTrainingLimit,
 					RescoreLimit:  DefaultSQRescoreLimit,
 				},
+				RQ: RQConfig{
+					Enabled:      DefaultRQEnabled,
+					Bits:         DefaultRQBits,
+					RescoreLimit: DefaultRQRescoreLimit,
+				},
 				FilterStrategy: DefaultFilterStrategy,
 				Multivector: MultivectorConfig{
 					Enabled:     DefaultMultivectorEnabled,
@@ -108,6 +113,11 @@ func Test_UserConfig(t *testing.T) {
 					Enabled:       DefaultSQEnabled,
 					TrainingLimit: DefaultSQTrainingLimit,
 					RescoreLimit:  DefaultSQRescoreLimit,
+				},
+				RQ: RQConfig{
+					Enabled:      DefaultRQEnabled,
+					Bits:         DefaultRQBits,
+					RescoreLimit: DefaultRQRescoreLimit,
 				},
 				FilterStrategy: DefaultFilterStrategy,
 				Multivector: MultivectorConfig{
@@ -166,6 +176,11 @@ func Test_UserConfig(t *testing.T) {
 					TrainingLimit: DefaultSQTrainingLimit,
 					RescoreLimit:  DefaultSQRescoreLimit,
 				},
+				RQ: RQConfig{
+					Enabled:      DefaultRQEnabled,
+					Bits:         DefaultRQBits,
+					RescoreLimit: DefaultRQRescoreLimit,
+				},
 				FilterStrategy: DefaultFilterStrategy,
 				Multivector: MultivectorConfig{
 					Enabled:     DefaultMultivectorEnabled,
@@ -222,6 +237,11 @@ func Test_UserConfig(t *testing.T) {
 					Enabled:       DefaultSQEnabled,
 					TrainingLimit: DefaultSQTrainingLimit,
 					RescoreLimit:  DefaultSQRescoreLimit,
+				},
+				RQ: RQConfig{
+					Enabled:      DefaultRQEnabled,
+					Bits:         DefaultRQBits,
+					RescoreLimit: DefaultRQRescoreLimit,
 				},
 				FilterStrategy: DefaultFilterStrategy,
 				Multivector: MultivectorConfig{
@@ -281,7 +301,12 @@ func Test_UserConfig(t *testing.T) {
 					TrainingLimit: DefaultSQTrainingLimit,
 					RescoreLimit:  DefaultSQRescoreLimit,
 				},
-				FilterStrategy: DefaultFilterStrategy,
+				RQ: RQConfig{
+					Enabled:      DefaultRQEnabled,
+					Bits:         DefaultRQBits,
+					RescoreLimit: DefaultRQRescoreLimit,
+				},
+				FilterStrategy: FilterStrategySweeping,
 				Multivector: MultivectorConfig{
 					Enabled:     DefaultMultivectorEnabled,
 					Aggregation: DefaultMultivectorAggregation,
@@ -335,6 +360,11 @@ func Test_UserConfig(t *testing.T) {
 					Enabled:       DefaultSQEnabled,
 					TrainingLimit: DefaultSQTrainingLimit,
 					RescoreLimit:  DefaultSQRescoreLimit,
+				},
+				RQ: RQConfig{
+					Enabled:      DefaultRQEnabled,
+					Bits:         DefaultRQBits,
+					RescoreLimit: DefaultRQRescoreLimit,
 				},
 				FilterStrategy: DefaultFilterStrategy,
 				Multivector: MultivectorConfig{
@@ -400,6 +430,11 @@ func Test_UserConfig(t *testing.T) {
 					TrainingLimit: DefaultSQTrainingLimit,
 					RescoreLimit:  DefaultSQRescoreLimit,
 				},
+				RQ: RQConfig{
+					Enabled:      DefaultRQEnabled,
+					Bits:         DefaultRQBits,
+					RescoreLimit: DefaultRQRescoreLimit,
+				},
 				FilterStrategy: DefaultFilterStrategy,
 				Multivector: MultivectorConfig{
 					Enabled:     DefaultMultivectorEnabled,
@@ -462,6 +497,11 @@ func Test_UserConfig(t *testing.T) {
 					Enabled:       DefaultSQEnabled,
 					TrainingLimit: DefaultSQTrainingLimit,
 					RescoreLimit:  DefaultSQRescoreLimit,
+				},
+				RQ: RQConfig{
+					Enabled:      DefaultRQEnabled,
+					Bits:         DefaultRQBits,
+					RescoreLimit: DefaultRQRescoreLimit,
 				},
 				FilterStrategy: DefaultFilterStrategy,
 				Multivector: MultivectorConfig{
@@ -545,6 +585,11 @@ func Test_UserConfig(t *testing.T) {
 					Enabled:       DefaultSQEnabled,
 					TrainingLimit: DefaultSQTrainingLimit,
 					RescoreLimit:  DefaultSQRescoreLimit,
+				},
+				RQ: RQConfig{
+					Enabled:      DefaultRQEnabled,
+					Bits:         DefaultRQBits,
+					RescoreLimit: DefaultRQRescoreLimit,
 				},
 				FilterStrategy: DefaultFilterStrategy,
 				Multivector: MultivectorConfig{
@@ -640,6 +685,11 @@ func Test_UserConfig(t *testing.T) {
 					TrainingLimit: DefaultSQTrainingLimit,
 					RescoreLimit:  DefaultSQRescoreLimit,
 				},
+				RQ: RQConfig{
+					Enabled:      DefaultRQEnabled,
+					Bits:         DefaultRQBits,
+					RescoreLimit: DefaultRQRescoreLimit,
+				},
 				FilterStrategy: DefaultFilterStrategy,
 				Multivector: MultivectorConfig{
 					Enabled:     DefaultMultivectorEnabled,
@@ -694,6 +744,11 @@ func Test_UserConfig(t *testing.T) {
 					Enabled:       true,
 					TrainingLimit: DefaultSQTrainingLimit,
 					RescoreLimit:  DefaultSQRescoreLimit,
+				},
+				RQ: RQConfig{
+					Enabled:      DefaultRQEnabled,
+					Bits:         DefaultRQBits,
+					RescoreLimit: DefaultRQRescoreLimit,
 				},
 				FilterStrategy: DefaultFilterStrategy,
 				Multivector: MultivectorConfig{
@@ -765,7 +820,288 @@ func Test_UserConfig(t *testing.T) {
 					TrainingLimit: DefaultSQTrainingLimit,
 					RescoreLimit:  DefaultSQRescoreLimit,
 				},
+				RQ: RQConfig{
+					Enabled:      DefaultRQEnabled,
+					Bits:         DefaultRQBits,
+					RescoreLimit: DefaultRQRescoreLimit,
+				},
 				FilterStrategy: FilterStrategyAcorn,
+				Multivector: MultivectorConfig{
+					Enabled:     DefaultMultivectorEnabled,
+					Aggregation: DefaultMultivectorAggregation,
+					MuveraConfig: MuveraConfig{
+						Enabled:      DefaultMultivectorMuveraEnabled,
+						KSim:         DefaultMultivectorKSim,
+						DProjections: DefaultMultivectorDProjections,
+						Repetitions:  DefaultMultivectorRepetitions,
+					},
+				},
+			},
+		},
+		{
+			name: "max connections at maximum allowed value (2047)",
+			input: map[string]interface{}{
+				"maxConnections": json.Number("2047"),
+			},
+			expected: UserConfig{
+				CleanupIntervalSeconds: DefaultCleanupIntervalSeconds,
+				MaxConnections:         2047,
+				EFConstruction:         DefaultEFConstruction,
+				VectorCacheMaxObjects:  common.DefaultVectorCacheMaxObjects,
+				EF:                     DefaultEF,
+				Skip:                   DefaultSkip,
+				FlatSearchCutoff:       DefaultFlatSearchCutoff,
+				DynamicEFMin:           DefaultDynamicEFMin,
+				DynamicEFMax:           DefaultDynamicEFMax,
+				DynamicEFFactor:        DefaultDynamicEFFactor,
+				Distance:               common.DefaultDistanceMetric,
+				PQ: PQConfig{
+					Enabled:        DefaultPQEnabled,
+					BitCompression: DefaultPQBitCompression,
+					Segments:       DefaultPQSegments,
+					Centroids:      DefaultPQCentroids,
+					TrainingLimit:  DefaultPQTrainingLimit,
+					Encoder: PQEncoder{
+						Type:         DefaultPQEncoderType,
+						Distribution: DefaultPQEncoderDistribution,
+					},
+				},
+				SQ: SQConfig{
+					Enabled:       DefaultSQEnabled,
+					TrainingLimit: DefaultSQTrainingLimit,
+					RescoreLimit:  DefaultSQRescoreLimit,
+				},
+				RQ: RQConfig{
+					Enabled:      DefaultRQEnabled,
+					Bits:         DefaultRQBits,
+					RescoreLimit: DefaultRQRescoreLimit,
+				},
+				FilterStrategy: DefaultFilterStrategy,
+				Multivector: MultivectorConfig{
+					Enabled:     DefaultMultivectorEnabled,
+					Aggregation: DefaultMultivectorAggregation,
+					MuveraConfig: MuveraConfig{
+						Enabled:      DefaultMultivectorMuveraEnabled,
+						KSim:         DefaultMultivectorKSim,
+						DProjections: DefaultMultivectorDProjections,
+						Repetitions:  DefaultMultivectorRepetitions,
+					},
+				},
+			},
+		},
+		{
+			name: "max connections exceeds maximum allowed value (2048)",
+			input: map[string]interface{}{
+				"maxConnections": json.Number("2048"),
+			},
+			expectErr:    true,
+			expectErrMsg: "maxConnections must be less than 2048",
+		},
+		{
+			name: "with rq defaults",
+			input: map[string]interface{}{
+				"rq": map[string]interface{}{
+					"enabled": true,
+				},
+			},
+			expected: UserConfig{
+				CleanupIntervalSeconds: DefaultCleanupIntervalSeconds,
+				MaxConnections:         DefaultMaxConnections,
+				EFConstruction:         DefaultEFConstruction,
+				VectorCacheMaxObjects:  common.DefaultVectorCacheMaxObjects,
+				EF:                     DefaultEF,
+				Skip:                   DefaultSkip,
+				FlatSearchCutoff:       DefaultFlatSearchCutoff,
+				DynamicEFMin:           DefaultDynamicEFMin,
+				DynamicEFMax:           DefaultDynamicEFMax,
+				DynamicEFFactor:        DefaultDynamicEFFactor,
+				Distance:               common.DefaultDistanceMetric,
+				PQ: PQConfig{
+					Enabled:        DefaultPQEnabled,
+					BitCompression: DefaultPQBitCompression,
+					Segments:       DefaultPQSegments,
+					Centroids:      DefaultPQCentroids,
+					TrainingLimit:  DefaultPQTrainingLimit,
+					Encoder: PQEncoder{
+						Type:         DefaultPQEncoderType,
+						Distribution: DefaultPQEncoderDistribution,
+					},
+				},
+				SQ: SQConfig{
+					Enabled:       DefaultSQEnabled,
+					TrainingLimit: DefaultSQTrainingLimit,
+					RescoreLimit:  DefaultSQRescoreLimit,
+				},
+				RQ: RQConfig{
+					Enabled:      true,
+					Bits:         DefaultRQBits,
+					RescoreLimit: DefaultRQRescoreLimit,
+				},
+				FilterStrategy: DefaultFilterStrategy,
+				Multivector: MultivectorConfig{
+					Enabled:     DefaultMultivectorEnabled,
+					Aggregation: DefaultMultivectorAggregation,
+					MuveraConfig: MuveraConfig{
+						Enabled:      DefaultMultivectorMuveraEnabled,
+						KSim:         DefaultMultivectorKSim,
+						DProjections: DefaultMultivectorDProjections,
+						Repetitions:  DefaultMultivectorRepetitions,
+					},
+				},
+			},
+		},
+		{
+			name: "with rq 8 and rescore limit 0",
+			input: map[string]interface{}{
+				"rq": map[string]interface{}{
+					"enabled":      true,
+					"bits":         float64(8),
+					"rescoreLimit": float64(0),
+				},
+			},
+			expected: UserConfig{
+				CleanupIntervalSeconds: DefaultCleanupIntervalSeconds,
+				MaxConnections:         DefaultMaxConnections,
+				EFConstruction:         DefaultEFConstruction,
+				VectorCacheMaxObjects:  common.DefaultVectorCacheMaxObjects,
+				EF:                     DefaultEF,
+				Skip:                   DefaultSkip,
+				FlatSearchCutoff:       DefaultFlatSearchCutoff,
+				DynamicEFMin:           DefaultDynamicEFMin,
+				DynamicEFMax:           DefaultDynamicEFMax,
+				DynamicEFFactor:        DefaultDynamicEFFactor,
+				Distance:               common.DefaultDistanceMetric,
+				PQ: PQConfig{
+					Enabled:        DefaultPQEnabled,
+					BitCompression: DefaultPQBitCompression,
+					Segments:       DefaultPQSegments,
+					Centroids:      DefaultPQCentroids,
+					TrainingLimit:  DefaultPQTrainingLimit,
+					Encoder: PQEncoder{
+						Type:         DefaultPQEncoderType,
+						Distribution: DefaultPQEncoderDistribution,
+					},
+				},
+				SQ: SQConfig{
+					Enabled:       DefaultSQEnabled,
+					TrainingLimit: DefaultSQTrainingLimit,
+					RescoreLimit:  DefaultSQRescoreLimit,
+				},
+				RQ: RQConfig{
+					Enabled:      true,
+					Bits:         DefaultRQBits,
+					RescoreLimit: 0,
+				},
+				FilterStrategy: DefaultFilterStrategy,
+				Multivector: MultivectorConfig{
+					Enabled:     DefaultMultivectorEnabled,
+					Aggregation: DefaultMultivectorAggregation,
+					MuveraConfig: MuveraConfig{
+						Enabled:      DefaultMultivectorMuveraEnabled,
+						KSim:         DefaultMultivectorKSim,
+						DProjections: DefaultMultivectorDProjections,
+						Repetitions:  DefaultMultivectorRepetitions,
+					},
+				},
+			},
+		},
+		{
+			name: "with rq 1",
+			input: map[string]interface{}{
+				"rq": map[string]interface{}{
+					"enabled": true,
+					"bits":    float64(1),
+				},
+			},
+			expected: UserConfig{
+				CleanupIntervalSeconds: DefaultCleanupIntervalSeconds,
+				MaxConnections:         DefaultMaxConnections,
+				EFConstruction:         DefaultEFConstruction,
+				VectorCacheMaxObjects:  common.DefaultVectorCacheMaxObjects,
+				EF:                     DefaultEF,
+				Skip:                   DefaultSkip,
+				FlatSearchCutoff:       DefaultFlatSearchCutoff,
+				DynamicEFMin:           DefaultDynamicEFMin,
+				DynamicEFMax:           DefaultDynamicEFMax,
+				DynamicEFFactor:        DefaultDynamicEFFactor,
+				Distance:               common.DefaultDistanceMetric,
+				PQ: PQConfig{
+					Enabled:        DefaultPQEnabled,
+					BitCompression: DefaultPQBitCompression,
+					Segments:       DefaultPQSegments,
+					Centroids:      DefaultPQCentroids,
+					TrainingLimit:  DefaultPQTrainingLimit,
+					Encoder: PQEncoder{
+						Type:         DefaultPQEncoderType,
+						Distribution: DefaultPQEncoderDistribution,
+					},
+				},
+				SQ: SQConfig{
+					Enabled:       DefaultSQEnabled,
+					TrainingLimit: DefaultSQTrainingLimit,
+					RescoreLimit:  DefaultSQRescoreLimit,
+				},
+				RQ: RQConfig{
+					Enabled:      true,
+					Bits:         1,
+					RescoreLimit: DefaultBRQRescoreLimit,
+				},
+				FilterStrategy: DefaultFilterStrategy,
+				Multivector: MultivectorConfig{
+					Enabled:     DefaultMultivectorEnabled,
+					Aggregation: DefaultMultivectorAggregation,
+					MuveraConfig: MuveraConfig{
+						Enabled:      DefaultMultivectorMuveraEnabled,
+						KSim:         DefaultMultivectorKSim,
+						DProjections: DefaultMultivectorDProjections,
+						Repetitions:  DefaultMultivectorRepetitions,
+					},
+				},
+			},
+		},
+		{
+			name: "with rq 1 and rescore limit 100",
+			input: map[string]interface{}{
+				"rq": map[string]interface{}{
+					"enabled":      true,
+					"bits":         float64(1),
+					"rescoreLimit": float64(100),
+				},
+			},
+			expected: UserConfig{
+				CleanupIntervalSeconds: DefaultCleanupIntervalSeconds,
+				MaxConnections:         DefaultMaxConnections,
+				EFConstruction:         DefaultEFConstruction,
+				VectorCacheMaxObjects:  common.DefaultVectorCacheMaxObjects,
+				EF:                     DefaultEF,
+				Skip:                   DefaultSkip,
+				FlatSearchCutoff:       DefaultFlatSearchCutoff,
+				DynamicEFMin:           DefaultDynamicEFMin,
+				DynamicEFMax:           DefaultDynamicEFMax,
+				DynamicEFFactor:        DefaultDynamicEFFactor,
+				Distance:               common.DefaultDistanceMetric,
+				PQ: PQConfig{
+					Enabled:        DefaultPQEnabled,
+					BitCompression: DefaultPQBitCompression,
+					Segments:       DefaultPQSegments,
+					Centroids:      DefaultPQCentroids,
+					TrainingLimit:  DefaultPQTrainingLimit,
+					Encoder: PQEncoder{
+						Type:         DefaultPQEncoderType,
+						Distribution: DefaultPQEncoderDistribution,
+					},
+				},
+				SQ: SQConfig{
+					Enabled:       DefaultSQEnabled,
+					TrainingLimit: DefaultSQTrainingLimit,
+					RescoreLimit:  DefaultSQRescoreLimit,
+				},
+				RQ: RQConfig{
+					Enabled:      true,
+					Bits:         1,
+					RescoreLimit: 100,
+				},
+				FilterStrategy: DefaultFilterStrategy,
 				Multivector: MultivectorConfig{
 					Enabled:     DefaultMultivectorEnabled,
 					Aggregation: DefaultMultivectorAggregation,
@@ -799,14 +1135,14 @@ func Test_UserConfigFilterStrategy(t *testing.T) {
 	t.Run("default filter strategy is sweeping", func(t *testing.T) {
 		cfg := UserConfig{}
 		cfg.SetDefaults()
-		assert.Equal(t, FilterStrategySweeping, cfg.FilterStrategy)
+		assert.Equal(t, FilterStrategyAcorn, cfg.FilterStrategy)
 	})
 
 	t.Run("can override default strategy", func(t *testing.T) {
-		os.Setenv("HNSW_DEFAULT_FILTER_STRATEGY", FilterStrategyAcorn)
+		os.Setenv("HNSW_DEFAULT_FILTER_STRATEGY", FilterStrategySweeping)
 		cfg := UserConfig{}
 		cfg.SetDefaults()
-		assert.Equal(t, FilterStrategyAcorn, cfg.FilterStrategy)
+		assert.Equal(t, FilterStrategySweeping, cfg.FilterStrategy)
 		assert.Nil(t, os.Unsetenv("HNSW_DEFAULT_FILTER_STRATEGY"))
 	})
 }

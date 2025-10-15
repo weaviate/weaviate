@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -82,4 +82,16 @@ func timesFloatNUMCPU(factor float64, numcpu int) int {
 	}
 
 	return int(math.Max(1, math.Round(factor*float64(numcpu))))
+}
+
+func FractionOf(original, factor int) int {
+	if factor <= 0 {
+		return original
+	}
+
+	result := original / factor
+	if result < 1 {
+		return 1
+	}
+	return result
 }

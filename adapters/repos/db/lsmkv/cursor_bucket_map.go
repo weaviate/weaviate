@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"time"
 
 	"github.com/weaviate/weaviate/entities/lsmkv"
 )
@@ -41,7 +42,14 @@ type innerCursorMap interface {
 	seek([]byte) ([]byte, []MapPair, error)
 }
 
-func (b *Bucket) MapCursor(cfgs ...MapListOption) *CursorMap {
+func (b *Bucket) MapCursor(cfgs ...MapListOption) (*CursorMap, error) {
+	if b.strategy != StrategyMapCollection && b.strategy != StrategyInverted {
+		return nil, fmt.Errorf("cannot create map cursor on bucket with strategy %s", b.strategy)
+	}
+	cursorOpenedAt := time.Now()
+	b.metrics.IncBucketOpenedCursorsByStrategy(b.strategy)
+	b.metrics.IncBucketOpenCursorsByStrategy(b.strategy)
+
 	b.flushLock.RLock()
 
 	c := MapListOptionConfig{}
@@ -64,18 +72,24 @@ func (b *Bucket) MapCursor(cfgs ...MapListOption) *CursorMap {
 		unlock: func() {
 			unlockSegmentGroup()
 			b.flushLock.RUnlock()
+
+			b.metrics.DecBucketOpenCursorsByStrategy(b.strategy)
+			b.metrics.ObserveBucketCursorDurationByStrategy(b.strategy, time.Since(cursorOpenedAt))
 		},
 		// cursor are in order from oldest to newest, with the memtable cursor
 		// being at the very top
 		innerCursors: innerCursors,
 		listCfg:      c,
-	}
+	}, nil
 }
 
-func (b *Bucket) MapCursorKeyOnly(cfgs ...MapListOption) *CursorMap {
-	c := b.MapCursor(cfgs...)
+func (b *Bucket) MapCursorKeyOnly(cfgs ...MapListOption) (*CursorMap, error) {
+	c, err := b.MapCursor(cfgs...)
+	if err != nil {
+		return nil, err
+	}
 	c.keyOnly = true
-	return c
+	return c, nil
 }
 
 func (c *CursorMap) Seek(ctx context.Context, key []byte) ([]byte, []MapPair) {
@@ -84,10 +98,6 @@ func (c *CursorMap) Seek(ctx context.Context, key []byte) ([]byte, []MapPair) {
 }
 
 func (c *CursorMap) Next(ctx context.Context) ([]byte, []MapPair) {
-	// before := time.Now()
-	// defer func() {
-	// 	fmt.Printf("-- total next took %s\n", time.Since(before))
-	// }()
 	return c.serveCurrentStateAndAdvance(ctx)
 }
 
@@ -145,21 +155,52 @@ func (c *CursorMap) firstAll() {
 }
 
 func (c *CursorMap) serveCurrentStateAndAdvance(ctx context.Context) ([]byte, []MapPair) {
-	id, err := c.cursorWithLowestKey()
-	if err != nil {
-		if errors.Is(err, lsmkv.NotFound) {
-			return nil, nil
+	for {
+		id, err := c.cursorWithLowestKey()
+		if err != nil {
+			if errors.Is(err, lsmkv.NotFound) {
+				return nil, nil
+			}
 		}
-	}
 
-	// check if this is a duplicate key before checking for the remaining errors,
-	// as cases such as 'entities.Deleted' can be better handled inside
-	// mergeDuplicatesInCurrentStateAndAdvance where we can be sure to act on
-	// segments in the correct order
-	if ids, ok := c.haveDuplicatesInState(id); ok {
-		return c.mergeDuplicatesInCurrentStateAndAdvance(ctx, ids)
-	} else {
-		return c.mergeDuplicatesInCurrentStateAndAdvance(ctx, []int{id})
+		ids, _ := c.haveDuplicatesInState(id)
+
+		// take the key from any of the results, we have the guarantee that they're
+		// all the same
+		key := c.state[ids[0]].key
+
+		var perSegmentResults [][]MapPair
+
+		for _, id := range ids {
+			candidates := c.state[id].value
+			perSegmentResults = append(perSegmentResults, candidates)
+
+			c.advanceInner(id)
+		}
+
+		if c.listCfg.legacyRequireManualSorting {
+			for i := range perSegmentResults {
+				sort.Slice(perSegmentResults[i], func(a, b int) bool {
+					return bytes.Compare(perSegmentResults[i][a].Key,
+						perSegmentResults[i][b].Key) == -1
+				})
+			}
+		}
+
+		merged, err := newSortedMapMerger().do(ctx, perSegmentResults)
+		if err != nil {
+			panic(fmt.Errorf("unexpected error decoding map values: %w", err))
+		}
+		if len(merged) == 0 {
+			// all values deleted, proceed
+			continue
+		}
+
+		// TODO remove keyOnly option, not used anyway
+		if !c.keyOnly {
+			return key, merged
+		}
+		return key, nil
 	}
 }
 
@@ -204,55 +245,6 @@ func (c *CursorMap) haveDuplicatesInState(idWithLowestKey int) ([]int, bool) {
 	}
 
 	return idsFound, len(idsFound) > 1
-}
-
-// if there are no duplicates present it will still work as returning the
-// latest result is the same as returning the only result
-func (c *CursorMap) mergeDuplicatesInCurrentStateAndAdvance(ctx context.Context, ids []int) ([]byte, []MapPair) {
-	// take the key from any of the results, we have the guarantee that they're
-	// all the same
-	key := c.state[ids[0]].key
-
-	// appending := time.Duration(0)
-	// advancing := time.Duration(0)
-
-	var perSegmentResults [][]MapPair
-
-	for _, id := range ids {
-		candidates := c.state[id].value
-		perSegmentResults = append(perSegmentResults, candidates)
-
-		// before = time.Now()
-		c.advanceInner(id)
-		// advancing += time.Since(before)
-	}
-	// fmt.Printf("--- extract values [appending] took %s\n", appending)
-	// fmt.Printf("--- extract values [advancing] took %s\n", advancing)
-
-	if c.listCfg.legacyRequireManualSorting {
-		for i := range perSegmentResults {
-			sort.Slice(perSegmentResults[i], func(a, b int) bool {
-				return bytes.Compare(perSegmentResults[i][a].Key,
-					perSegmentResults[i][b].Key) == -1
-			})
-		}
-	}
-
-	merged, err := newSortedMapMerger().do(ctx, perSegmentResults)
-	if err != nil {
-		panic(fmt.Errorf("unexpected error decoding map values: %w", err))
-	}
-	if len(merged) == 0 {
-		// all values deleted, skip key
-		return c.Next(ctx)
-	}
-
-	// TODO remove keyOnly option, not used anyway
-	if !c.keyOnly {
-		return key, merged
-	} else {
-		return key, nil
-	}
 }
 
 func (c *CursorMap) advanceInner(id int) {

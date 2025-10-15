@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -16,8 +16,9 @@ import (
 	"encoding/binary"
 
 	"github.com/google/uuid"
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	ent "github.com/weaviate/weaviate/entities/inverted"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/tokenizer"
 )
 
 type IsFallbackToSearchable func() bool
@@ -76,7 +77,7 @@ func (a *Analyzer) Text(tokenization, in string) []Countable {
 func (a *Analyzer) TextArray(tokenization string, inArr []string) []Countable {
 	var terms []string
 	for _, in := range inArr {
-		terms = append(terms, helpers.Tokenize(tokenization, in)...)
+		terms = append(terms, tokenizer.Tokenize(tokenization, in)...)
 	}
 
 	counts := map[string]uint64{}
@@ -99,7 +100,7 @@ func (a *Analyzer) TextArray(tokenization string, inArr []string) []Countable {
 // Int requires no analysis, so it's actually just a simple conversion to a
 // string-formatted byte slice of the int
 func (a *Analyzer) Int(in int64) ([]Countable, error) {
-	data, err := LexicographicallySortableInt64(in)
+	data, err := ent.LexicographicallySortableInt64(in)
 	if err != nil {
 		return nil, err
 	}
@@ -138,7 +139,7 @@ func (a *Analyzer) UUIDArray(in []uuid.UUID) ([]Countable, error) {
 func (a *Analyzer) IntArray(in []int64) ([]Countable, error) {
 	out := make([]Countable, len(in))
 	for i := range in {
-		data, err := LexicographicallySortableInt64(in[i])
+		data, err := ent.LexicographicallySortableInt64(in[i])
 		if err != nil {
 			return nil, err
 		}
@@ -151,7 +152,7 @@ func (a *Analyzer) IntArray(in []int64) ([]Countable, error) {
 // Float requires no analysis, so it's actually just a simple conversion to a
 // lexicographically sortable byte slice.
 func (a *Analyzer) Float(in float64) ([]Countable, error) {
-	data, err := LexicographicallySortableFloat64(in)
+	data, err := ent.LexicographicallySortableFloat64(in)
 	if err != nil {
 		return nil, err
 	}
@@ -168,7 +169,7 @@ func (a *Analyzer) Float(in float64) ([]Countable, error) {
 func (a *Analyzer) FloatArray(in []float64) ([]Countable, error) {
 	out := make([]Countable, len(in))
 	for i := range in {
-		data, err := LexicographicallySortableFloat64(in[i])
+		data, err := ent.LexicographicallySortableFloat64(in[i])
 		if err != nil {
 			return nil, err
 		}
@@ -214,7 +215,7 @@ func (a *Analyzer) Bool(in bool) ([]Countable, error) {
 // being an explicitly allowed value as well.
 func (a *Analyzer) RefCount(in models.MultipleRef) ([]Countable, error) {
 	length := uint64(len(in))
-	data, err := LexicographicallySortableUint64(length)
+	data, err := ent.LexicographicallySortableUint64(length)
 	if err != nil {
 		return nil, err
 	}

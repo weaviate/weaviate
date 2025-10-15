@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -250,9 +250,9 @@ func testBatchObject(host string) func(t *testing.T) {
 							},
 							VectorIndexType: "flat",
 						},
-						c11y: {
+						m2vec: {
 							Vectorizer: map[string]interface{}{
-								text2vecContextionary: map[string]interface{}{
+								text2vecModel2Vec: map[string]interface{}{
 									"vectorizeClassName": false,
 								},
 							},
@@ -271,7 +271,7 @@ func testBatchObject(host string) func(t *testing.T) {
 						"none1": []float32{1, 2},
 						"none2": []float32{0.11, 0.22, 0.33},
 					},
-					generatedTargetVectors: []string{c11y, transformers_flat},
+					generatedTargetVectors: []string{m2vec, transformers_flat},
 				},
 			}
 			for _, tt := range tests {

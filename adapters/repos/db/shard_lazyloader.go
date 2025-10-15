@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -19,19 +19,21 @@ import (
 	"sync"
 	"time"
 
-	"github.com/weaviate/weaviate/cluster/router/types"
-	"github.com/weaviate/weaviate/entities/dto"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcounter"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
+	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/entities/dto"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
@@ -58,12 +60,14 @@ type LazyLoadShard struct {
 	mutex            sync.Mutex
 	memMonitor       memwatch.AllocChecker
 	shardLoadLimiter ShardLoadLimiter
+	lazyLoadSegments bool
 }
 
 func NewLazyLoadShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	shardName string, index *Index, class *models.Class, jobQueueCh chan job,
 	indexCheckpoints *indexcheckpoint.Checkpoints, memMonitor memwatch.AllocChecker,
 	shardLoadLimiter ShardLoadLimiter, shardReindexer ShardReindexerV3,
+	lazyLoadSegments bool, bitmapBufPool roaringset.BitmapBufPool,
 ) *LazyLoadShard {
 	if memMonitor == nil {
 		memMonitor = memwatch.NewDummyMonitor()
@@ -79,9 +83,11 @@ func NewLazyLoadShard(ctx context.Context, promMetrics *monitoring.PrometheusMet
 			scheduler:        index.scheduler,
 			indexCheckpoints: indexCheckpoints,
 			shardReindexer:   shardReindexer,
+			bitmapBufPool:    bitmapBufPool,
 		},
 		memMonitor:       memMonitor,
 		shardLoadLimiter: shardLoadLimiter,
+		lazyLoadSegments: lazyLoadSegments,
 	}
 }
 
@@ -94,6 +100,7 @@ type deferredShardOpts struct {
 	scheduler        *queue.Scheduler
 	indexCheckpoints *indexcheckpoint.Checkpoints
 	shardReindexer   ShardReindexerV3
+	bitmapBufPool    roaringset.BitmapBufPool
 }
 
 func (l *LazyLoadShard) mustLoad() {
@@ -125,7 +132,8 @@ func (l *LazyLoadShard) Load(ctx context.Context) error {
 
 	shard, err := NewShard(ctx, l.shardOpts.promMetrics, l.shardOpts.name, l.shardOpts.index,
 		l.shardOpts.class, l.shardOpts.jobQueueCh, l.shardOpts.scheduler,
-		l.shardOpts.indexCheckpoints, l.shardOpts.shardReindexer)
+		l.shardOpts.indexCheckpoints, l.shardOpts.shardReindexer, l.lazyLoadSegments,
+		l.shardOpts.bitmapBufPool)
 	if err != nil {
 		msg := fmt.Sprintf("Unable to load shard %s: %v", l.shardOpts.name, err)
 		l.shardOpts.index.logger.WithField("error", "shard_load").WithError(err).Error(msg)
@@ -156,21 +164,19 @@ func (l *LazyLoadShard) NotifyReady() {
 	l.shard.NotifyReady()
 }
 
-func (l *LazyLoadShard) GetStatusNoLoad() storagestate.Status {
+func (l *LazyLoadShard) GetStatus() storagestate.Status {
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
+
 	if l.loaded {
 		return l.shard.GetStatus()
 	}
-	return storagestate.StatusLoading
+	return storagestate.StatusLazyLoading
 }
 
-func (l *LazyLoadShard) GetStatus() storagestate.Status {
+func (l *LazyLoadShard) UpdateStatus(status, reason string) error {
 	l.mustLoad()
-	return l.shard.GetStatus()
-}
-
-func (l *LazyLoadShard) UpdateStatus(status string) error {
-	l.mustLoad()
-	return l.shard.UpdateStatus(status)
+	return l.shard.UpdateStatus(status, reason)
 }
 
 func (l *LazyLoadShard) SetStatusReadonly(reason string) error {
@@ -190,19 +196,24 @@ func (l *LazyLoadShard) Counter() *indexcounter.Counter {
 	return l.shard.Counter()
 }
 
-func (l *LazyLoadShard) ObjectCount() int {
+func (l *LazyLoadShard) ObjectCount(ctx context.Context) (int, error) {
 	l.mustLoad()
-	return l.shard.ObjectCount()
+	return l.shard.ObjectCount(ctx)
 }
 
-func (l *LazyLoadShard) ObjectCountAsync() int {
+func (l *LazyLoadShard) ObjectCountAsync(ctx context.Context) (int64, error) {
 	l.mutex.Lock()
-	if !l.loaded {
+	if l.loaded {
 		l.mutex.Unlock()
-		return 0
+		return l.shard.ObjectCountAsync(ctx)
 	}
 	l.mutex.Unlock()
-	return l.shard.ObjectCountAsync()
+	idx := l.shardOpts.index
+	objectUsage, err := shardusage.CalculateUnloadedObjectsMetrics(idx.logger, idx.path(), l.shardOpts.name)
+	if err != nil {
+		return 0, fmt.Errorf("error while getting object count for shard %s: %w", l.shardOpts.name, err)
+	}
+	return objectUsage.Count, nil
 }
 
 func (l *LazyLoadShard) GetPropertyLengthTracker() *inverted.JsonShardMetaData {
@@ -273,11 +284,11 @@ func (l *LazyLoadShard) UpdateVectorIndexConfigs(ctx context.Context, updated ma
 	return l.shard.UpdateVectorIndexConfigs(ctx, updated)
 }
 
-func (l *LazyLoadShard) UpdateAsyncReplicationConfig(ctx context.Context, enabled bool) error {
+func (l *LazyLoadShard) SetAsyncReplicationEnabled(ctx context.Context, enabled bool) error {
 	if err := l.Load(ctx); err != nil {
 		return err
 	}
-	return l.shard.UpdateAsyncReplicationConfig(ctx, enabled)
+	return l.shard.SetAsyncReplicationEnabled(ctx, enabled)
 }
 
 func (l *LazyLoadShard) addTargetNodeOverride(ctx context.Context, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error {
@@ -364,13 +375,15 @@ func (l *LazyLoadShard) drop() error {
 		shardName := l.shardOpts.name
 
 		// cleanup metrics
-		NewMetrics(idx.logger, l.shardOpts.promMetrics, className, shardName).
-			DeleteShardLabels(className, shardName)
-
-		// cleanup dimensions
-		if idx.Config.TrackVectorDimensions {
-			clearDimensionMetrics(l.shardOpts.promMetrics, className, shardName)
+		metrics, err := NewMetrics(idx.logger, l.shardOpts.promMetrics, className, shardName)
+		if err != nil {
+			return fmt.Errorf("shard metrics: %w", err)
 		}
+
+		metrics.DeleteShardLabels(className, shardName)
+
+		// cleanup dimensions: not deleted in s.metrics.DeleteShardLabels
+		clearDimensionMetrics(idx.Config, l.shardOpts.promMetrics, className, shardName)
 
 		// cleanup index checkpoints
 		if l.shardOpts.indexCheckpoints != nil {
@@ -397,9 +410,9 @@ func (l *LazyLoadShard) DebugResetVectorIndex(ctx context.Context, targetVector 
 	return l.shard.DebugResetVectorIndex(ctx, targetVector)
 }
 
-func (l *LazyLoadShard) initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper, props ...*models.Property) {
+func (l *LazyLoadShard) initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper, lazyLoadSegments bool, props ...*models.Property) {
 	l.mustLoad()
-	l.shard.initPropertyBuckets(ctx, eg, props...)
+	l.shard.initPropertyBuckets(ctx, eg, lazyLoadSegments, props...)
 }
 
 func (l *LazyLoadShard) HaltForTransfer(ctx context.Context, offloading bool, inactivityTimeout time.Duration) error {
@@ -447,24 +460,31 @@ func (l *LazyLoadShard) AnalyzeObject(object *storobj.Object) ([]inverted.Proper
 	return l.shard.AnalyzeObject(object)
 }
 
-func (l *LazyLoadShard) Dimensions(ctx context.Context, targetVector string) int {
-	l.mustLoad()
-	return l.shard.Dimensions(ctx, targetVector)
+func (l *LazyLoadShard) Dimensions(ctx context.Context, targetVector string) (int, error) {
+	l.mutex.Lock()
+	if l.loaded {
+		l.mutex.Unlock()
+		return l.shard.Dimensions(ctx, targetVector)
+	}
+	l.mutex.Unlock()
+
+	// For unloaded shards, get dimensions from unloaded shard/tenant calculation
+	idx := l.shardOpts.index
+	dimensionality, err := shardusage.CalculateUnloadedDimensionsUsage(ctx, idx.logger, idx.path(), l.shardOpts.name, targetVector)
+	if err != nil {
+		return 0, err
+	}
+	return dimensionality.Count * dimensionality.Dimensions, nil
 }
 
-func (l *LazyLoadShard) QuantizedDimensions(ctx context.Context, targetVector string, segments int) int {
+func (l *LazyLoadShard) QuantizedDimensions(ctx context.Context, targetVector string, segments int) (int, error) {
 	l.mustLoad()
 	return l.shard.QuantizedDimensions(ctx, targetVector, segments)
 }
 
-func (l *LazyLoadShard) publishDimensionMetrics(ctx context.Context) {
+func (l *LazyLoadShard) resetDimensionsLSM(ctx context.Context) error {
 	l.mustLoad()
-	l.shard.publishDimensionMetrics(ctx)
-}
-
-func (l *LazyLoadShard) resetDimensionsLSM() error {
-	l.mustLoad()
-	return l.shard.resetDimensionsLSM()
+	return l.shard.resetDimensionsLSM(ctx)
 }
 
 func (l *LazyLoadShard) Aggregate(ctx context.Context, params aggregation.Params, modules *modules.Provider) (*aggregation.Result, error) {
@@ -521,6 +541,11 @@ func (l *LazyLoadShard) FillQueue(targetVector string, from uint64) error {
 func (l *LazyLoadShard) RepairIndex(ctx context.Context, targetVector string) error {
 	l.mustLoad()
 	return l.shard.RepairIndex(ctx, targetVector)
+}
+
+func (l *LazyLoadShard) RequantizeIndex(ctx context.Context, targetVector string) error {
+	l.mustLoad()
+	return l.shard.RequantizeIndex(ctx, targetVector)
 }
 
 func (l *LazyLoadShard) Shutdown(ctx context.Context) error {
@@ -733,7 +758,7 @@ func (l *LazyLoadShard) isLoaded() bool {
 	return l.loaded
 }
 
-func (l *LazyLoadShard) Activity() int32 {
+func (l *LazyLoadShard) Activity() (int32, int32) {
 	var loaded bool
 	l.mutex.Lock()
 	loaded = l.loaded
@@ -742,7 +767,7 @@ func (l *LazyLoadShard) Activity() int32 {
 	if !loaded {
 		// don't force-load the shard, just report the same number every time, so
 		// the caller can figure out there was no activity
-		return 0
+		return 0, 0
 	}
 
 	return l.shard.Activity()
@@ -750,4 +775,12 @@ func (l *LazyLoadShard) Activity() int32 {
 
 func (l *LazyLoadShard) pathLSM() string {
 	return shardPathLSM(l.shardOpts.index.path(), l.shardOpts.name)
+}
+
+func (l *LazyLoadShard) blockLoading() func() {
+	l.mutex.Lock()
+
+	return func() {
+		l.mutex.Unlock()
+	}
 }

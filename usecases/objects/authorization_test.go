@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -298,7 +298,7 @@ func callFuncByName(manager interface{}, funcName string, params ...interface{})
 		in[i] = reflect.ValueOf(param)
 	}
 	out = m.Call(in)
-	return
+	return out, err
 }
 
 func allExportedMethods(subject interface{}, exceptions ...string) []string {

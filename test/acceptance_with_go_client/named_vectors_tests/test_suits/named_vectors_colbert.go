@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -438,11 +438,11 @@ func testColBERT(host string, asyncIndexingEnabled bool) func(t *testing.T) {
 						},
 					},
 					VectorIndexType: "hnsw",
-					Vectorizer:      "text2colbert-jinaai",
+					Vectorizer:      "text2multivec-jinaai",
 				}
 				err := client.Schema().ClassCreator().WithClass(class).Do(ctx)
 				require.Error(t, err)
-				assert.ErrorContains(t, err, `multi vector vectorizer: \"text2colbert-jinaai\" is only allowed to be defined using named vector configuration`)
+				assert.ErrorContains(t, err, `multi vector vectorizer: \"text2multivec-jinaai\" is only allowed to be defined using named vector configuration`)
 			})
 			t.Run("multi vector vectorizer with module config", func(t *testing.T) {
 				cleanup()
@@ -454,16 +454,16 @@ func testColBERT(host string, asyncIndexingEnabled bool) func(t *testing.T) {
 						},
 					},
 					ModuleConfig: map[string]interface{}{
-						"text2colbert-jinaai": map[string]interface{}{
+						"text2multivec-jinaai": map[string]interface{}{
 							"skip": true,
 						},
 					},
 					VectorIndexType: "hnsw",
-					Vectorizer:      "text2colbert-jinaai",
+					Vectorizer:      "text2multivec-jinaai",
 				}
 				err := client.Schema().ClassCreator().WithClass(class).Do(ctx)
 				require.Error(t, err)
-				assert.ErrorContains(t, err, `multi vector vectorizer: \"text2colbert-jinaai\" is only allowed to be defined using named vector configuration`)
+				assert.ErrorContains(t, err, `multi vector vectorizer: \"text2multivec-jinaai\" is only allowed to be defined using named vector configuration`)
 			})
 			t.Run("colbert vectorizer with multi vector index", func(t *testing.T) {
 				cleanup()
@@ -480,7 +480,7 @@ func testColBERT(host string, asyncIndexingEnabled bool) func(t *testing.T) {
 							"enabled": true,
 						},
 					},
-					Vectorizer: "text2colbert-jinaai",
+					Vectorizer: "text2multivec-jinaai",
 				}
 				err := client.Schema().ClassCreator().WithClass(class).Do(ctx)
 				require.Error(t, err)
@@ -538,9 +538,9 @@ func testColBERT(host string, asyncIndexingEnabled bool) func(t *testing.T) {
 						},
 					},
 					VectorConfig: map[string]models.VectorConfig{
-						c11y: {
+						m2vec: {
 							Vectorizer: map[string]interface{}{
-								text2vecContextionary: map[string]interface{}{
+								text2vecModel2Vec: map[string]interface{}{
 									"vectorizeClassName": false,
 								},
 							},
@@ -555,7 +555,7 @@ func testColBERT(host string, asyncIndexingEnabled bool) func(t *testing.T) {
 				}
 				err := client.Schema().ClassCreator().WithClass(class).Do(ctx)
 				require.Error(t, err)
-				assert.ErrorContains(t, err, `parse vector config for c11y: multi vector index configured but vectorizer: \"text2vec-contextionary\" doesn't support multi vectors`)
+				assert.ErrorContains(t, err, `parse vector config for m2vec: multi vector index configured but vectorizer: \"text2vec-model2vec\" doesn't support multi vectors`)
 			})
 			t.Run("named vector is colbert vectorizer with regular vector index", func(t *testing.T) {
 				cleanup()
@@ -569,7 +569,7 @@ func testColBERT(host string, asyncIndexingEnabled bool) func(t *testing.T) {
 					VectorConfig: map[string]models.VectorConfig{
 						"colbert": {
 							Vectorizer: map[string]interface{}{
-								"text2colbert-jinaai": map[string]interface{}{
+								"text2multivec-jinaai": map[string]interface{}{
 									"vectorizeClassName": false,
 								},
 							},
@@ -599,7 +599,7 @@ func testColBERT(host string, asyncIndexingEnabled bool) func(t *testing.T) {
 					VectorConfig: map[string]models.VectorConfig{
 						"colbert": {
 							Vectorizer: map[string]interface{}{
-								"text2colbert-jinaai": map[string]interface{}{
+								"text2multivec-jinaai": map[string]interface{}{
 									"vectorizeClassName": false,
 								},
 							},
@@ -634,7 +634,7 @@ func testColBERT(host string, asyncIndexingEnabled bool) func(t *testing.T) {
 					VectorConfig: map[string]models.VectorConfig{
 						"colbert": {
 							Vectorizer: map[string]interface{}{
-								"text2colbert-jinaai": map[string]interface{}{
+								"text2multivec-jinaai": map[string]interface{}{
 									"vectorizeClassName": false,
 								},
 							},
@@ -660,7 +660,7 @@ func testColBERT(host string, asyncIndexingEnabled bool) func(t *testing.T) {
 					VectorConfig: map[string]models.VectorConfig{
 						"colbert": {
 							Vectorizer: map[string]interface{}{
-								"text2colbert-jinaai": map[string]interface{}{
+								"text2multivec-jinaai": map[string]interface{}{
 									"vectorizeClassName": false,
 								},
 							},

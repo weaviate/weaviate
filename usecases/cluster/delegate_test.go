@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -212,10 +212,12 @@ func TestDelegateSort(t *testing.T) {
 }
 
 func TestDelegateCleanUp(t *testing.T) {
+	logger, _ := test.NewNullLogger()
 	st := State{
 		delegate: delegate{
 			Name:     "N0",
 			dataPath: ".",
+			log:      logger,
 		},
 	}
 	diskSpace := func(path string) (DiskUsage, error) {
