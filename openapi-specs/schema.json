@@ -8763,7 +8763,7 @@
     },
     "/tasks": {
       "get": {
-        "summary": "Lists all distributed tasks in the cluster.",
+        "summary": "Lists all distributed tasks in the cluster",
         "operationId": "distributedTasks.get",
         "x-serviceIds": [
           "weaviate.distributedTasks.get"
@@ -8773,7 +8773,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Distributed tasks successfully returned",
+            "description": "Distributed tasks successfully returned.",
             "schema": {
               "$ref": "#/definitions/DistributedTasks"
             }
@@ -8785,7 +8785,7 @@
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An internal server error occurred while retrieving distributed tasks. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
