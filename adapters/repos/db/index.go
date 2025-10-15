@@ -1546,6 +1546,12 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 			}
 
 			if shard != nil {
+				i.logger.WithFields(logrus.Fields{
+					"action":    "object_search_path",
+					"shardName": shardName,
+					"path":      "local",
+					"shardID":   shard.ID(),
+				}).Info("objectSearchByShard: using local shard path")
 				defer release()
 				localCtx := helpers.InitSlowQueryDetails(ctx)
 				helpers.AnnotateSlowQueryLog(localCtx, "is_coordinator", true)
@@ -1556,7 +1562,11 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 				}
 				nodeName = i.getSchema.NodeName()
 			} else {
-				i.logger.WithField("shardName", shardName).Debug("shard was not found locally, search for object remotely")
+				i.logger.WithFields(logrus.Fields{
+					"action":    "object_search_path",
+					"shardName": shardName,
+					"path":      "remote",
+				}).Info("objectSearchByShard: shard not found locally, using remote path")
 
 				// Skip remote shard if it's still loading to avoid unnecessary latency during rollout
 				if status, sErr := i.remote.GetShardStatus(ctx, shardName); sErr == nil {
@@ -1837,6 +1847,12 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 		}
 
 		if shard != nil {
+			i.logger.WithFields(logrus.Fields{
+				"action":    "object_vector_search_path",
+				"shardName": shardName,
+				"path":      "local",
+				"shardID":   shard.ID(),
+			}).Info("objectVectorSearch: using local shard path")
 			localSearches++
 			eg.Go(func() error {
 				localShardResult, localShardScores, err1 := i.localShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardName)
@@ -1855,8 +1871,30 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 		}
 
 		if shard == nil || i.Config.ForceFullReplicasSearch {
+			pathReason := "shard_not_found_locally"
+			if i.Config.ForceFullReplicasSearch {
+				pathReason = "force_full_replicas_search"
+			}
+			i.logger.WithFields(logrus.Fields{
+				"action":    "object_vector_search_path",
+				"shardName": shardName,
+				"path":      "remote",
+				"reason":    pathReason,
+			}).Info("objectVectorSearch: using remote shard path")
 			remoteSearches++
 			eg.Go(func() error {
+				// Skip remote shard if it's still loading to avoid unnecessary latency during rollout
+				if status, sErr := i.remote.GetShardStatus(ctx, shardName); sErr == nil {
+					if status == storagestate.StatusLoading.String() || status == storagestate.StatusLazyLoading.String() {
+						i.logger.WithFields(logrus.Fields{
+							"action":    "remote_vector_search_skip_loading",
+							"shardName": shardName,
+							"status":    status,
+						}).Info("skipping remote shard vector search because shard is loading")
+						return nil
+					}
+				}
+
 				// If we have no local shard or if we force the query to reach all replicas
 				remoteShardObject, remoteShardScores, err2 := i.remoteShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardName)
 				if err2 != nil {
