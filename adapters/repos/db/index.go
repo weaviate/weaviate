@@ -1220,7 +1220,7 @@ func (i *Index) IncomingGetObject(ctx context.Context, shardName string,
 	id strfmt.UUID, props search.SelectProperties,
 	additional additional.Properties,
 ) (*storobj.Object, error) {
-	shard, release, err := i.getOrInitShard(ctx, shardName)
+	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
 		return nil, err
 	}
@@ -1506,17 +1506,17 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 		outObjects = outObjects[:limit]
 	}
 
-	if i.replicationEnabled() {
-		if replProps == nil {
-			replProps = defaultConsistency(types.ConsistencyLevelOne)
-		}
-		l := types.ConsistencyLevel(replProps.ConsistencyLevel)
-		err = i.replicator.CheckConsistency(ctx, l, outObjects)
-		if err != nil {
-			i.logger.WithField("action", "object_search").
-				Errorf("failed to check consistency of search results: %v", err)
-		}
-	}
+	// if i.replicationEnabled() {
+	// 	if replProps == nil {
+	// 		replProps = defaultConsistency(types.ConsistencyLevelOne)
+	// 	}
+	// 	l := types.ConsistencyLevel(replProps.ConsistencyLevel)
+	// 	err = i.replicator.CheckConsistency(ctx, l, outObjects)
+	// 	if err != nil {
+	// 		i.logger.WithField("action", "object_search").
+	// 			Errorf("failed to check consistency of search results: %v", err)
+	// 	}
+	// }
 
 	return outObjects, outScores, nil
 }
@@ -1546,9 +1546,20 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 				return err
 			}
 
+			// Always release shard reference if acquired
 			if shard != nil {
 				defer release()
-				localCtx := helpers.InitSlowQueryDetails(egCtx)
+			}
+
+			if shard != nil && (shard.GetStatus() == storagestate.StatusReady || shard.GetStatus() == storagestate.StatusReadOnly) {
+				i.logger.WithFields(logrus.Fields{
+					"action":       "object_search_path",
+					"shardName":    shardName,
+					"path":         "local",
+					"shardID":      shard.ID(),
+					"shard_status": shard.GetStatus().String(),
+				}).Info("objectSearchByShard: using local shard path")
+				localCtx := helpers.InitSlowQueryDetails(ctx)
 				helpers.AnnotateSlowQueryLog(localCtx, "is_coordinator", true)
 				objs, scores, err = shard.ObjectSearch(localCtx, limit, filters, keywordRanking, sort, cursor, addlProps, properties)
 				if err != nil {
@@ -1557,7 +1568,18 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 				}
 				nodeName = i.getSchema.NodeName()
 			} else {
-				i.logger.WithField("shardName", shardName).Debug("shard was not found locally, search for object remotely")
+				var shardStatus string
+				if shard != nil {
+					shardStatus = shard.GetStatus().String()
+				} else {
+					shardStatus = "not_found"
+				}
+				i.logger.WithFields(logrus.Fields{
+					"action":       "object_search_path",
+					"shardName":    shardName,
+					"path":         "remote",
+					"shard_status": shardStatus,
+				}).Info("objectSearchByShard: shard not found locally or not ready, using remote path")
 
 				objs, scores, nodeName, err = i.remote.SearchShard(
 					egCtx, shardName, nil, nil, 0, limit, filters, keywordRanking,
@@ -1825,7 +1847,14 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 			defer release()
 		}
 
-		if shard != nil {
+		if shard != nil && (shard.GetStatus() == storagestate.StatusReady || shard.GetStatus() == storagestate.StatusReadOnly) {
+			i.logger.WithFields(logrus.Fields{
+				"action":       "object_vector_search_path",
+				"shardName":    shardName,
+				"path":         "local",
+				"shardID":      shard.ID(),
+				"shard_status": shard.GetStatus().String(),
+			}).Info("objectVectorSearch: using local shard path")
 			localSearches++
 			eg.Go(func() error {
 				localShardResult, localShardScores, err1 := i.localShardSearch(egCtx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardName)
@@ -1844,6 +1873,23 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 		}
 
 		if shard == nil || i.Config.ForceFullReplicasSearch {
+			pathReason := "shard_not_found_locally"
+			if i.Config.ForceFullReplicasSearch {
+				pathReason = "force_full_replicas_search"
+			}
+			i.logger.WithFields(logrus.Fields{
+				"action":    "object_vector_search_path",
+				"shardName": shardName,
+				"path":      "remote",
+				"reason":    pathReason,
+				"shard_status": func() string {
+					if shard != nil {
+						return shard.GetStatus().String()
+					} else {
+						return "not_found"
+					}
+				}(),
+			}).Info("objectVectorSearch: using remote shard path")
 			remoteSearches++
 			eg.Go(func() error {
 				// If we have no local shard or if we force the query to reach all replicas
@@ -1898,17 +1944,17 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 		dists = dists[:limit]
 	}
 
-	if i.replicationEnabled() {
-		if replProps == nil {
-			replProps = defaultConsistency(types.ConsistencyLevelOne)
-		}
-		l := types.ConsistencyLevel(replProps.ConsistencyLevel)
-		err = i.replicator.CheckConsistency(ctx, l, out)
-		if err != nil {
-			i.logger.WithField("action", "object_vector_search").
-				Errorf("failed to check consistency of search results: %v", err)
-		}
-	}
+	// if i.replicationEnabled() {
+	// 	if replProps == nil {
+	// 		replProps = defaultConsistency(types.ConsistencyLevelOne)
+	// 	}
+	// 	l := types.ConsistencyLevel(replProps.ConsistencyLevel)
+	// 	err = i.replicator.CheckConsistency(ctx, l, out)
+	// 	if err != nil {
+	// 		i.logger.WithField("action", "object_vector_search").
+	// 			Errorf("failed to check consistency of search results: %v", err)
+	// 	}
+	// }
 
 	return out, dists, nil
 }
@@ -2113,7 +2159,16 @@ func (i *Index) UnloadLocalShard(ctx context.Context, shardName string) error {
 func (i *Index) GetShard(ctx context.Context, shardName string) (
 	shard ShardLike, release func(), err error,
 ) {
-	return i.getOptInitLocalShard(ctx, shardName, false)
+	shard = i.shards.Load(shardName)
+	if shard == nil {
+		return nil, func() {}, nil
+	}
+
+	release, err = shard.preventShutdown()
+	if err != nil {
+		return nil, func() {}, fmt.Errorf("get/init local shard %q, no shutdown: %w", shardName, err)
+	}
+	return shard, release, nil
 }
 
 func (i *Index) getOrInitShard(ctx context.Context, shardName string) (

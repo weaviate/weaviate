@@ -295,7 +295,7 @@ func (f *Finder) CheckConsistency(ctx context.Context,
 
 	// Use error group with context for coordinated cancellation
 	eg, egCtx := enterrors.NewErrorGroupWithContextWrapper(f.log, ctx, "finder_check_consistency")
-	
+
 	// Create a cancellable context for early termination when consistency is achieved
 	cancelCtx, cancel := context.WithCancel(egCtx)
 	defer cancel()

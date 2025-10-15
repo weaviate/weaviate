@@ -19,8 +19,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/weaviate/weaviate/cluster/router/types"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 
@@ -30,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/backup"
@@ -168,7 +167,7 @@ func (l *LazyLoadShard) GetStatus() storagestate.Status {
 	if l.loaded {
 		return l.shard.GetStatus()
 	}
-	return storagestate.StatusLazyLoading
+	return storagestate.StatusLoading
 }
 
 func (l *LazyLoadShard) UpdateStatus(status, reason string) error {
