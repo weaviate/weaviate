@@ -117,7 +117,6 @@ type dynamic struct {
 	hnswSnapshotOnStartup        bool
 	hnswWaitForCachePrefill      bool
 	LazyLoadSegments             bool
-	flatBQ                       bool
 	WriteSegmentInfoIntoFileName bool
 	WriteMetadataFilesEnabled    bool
 }
@@ -176,7 +175,6 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 		hnswSnapshotOnStartup:        cfg.HNSWSnapshotOnStartup,
 		hnswWaitForCachePrefill:      cfg.HNSWWaitForCachePrefill,
 		LazyLoadSegments:             cfg.LazyLoadSegments,
-		flatBQ:                       uc.FlatUC.BQ.Enabled,
 		WriteSegmentInfoIntoFileName: cfg.WriteSegmentInfoIntoFileName,
 		WriteMetadataFilesEnabled:    cfg.WriteMetadataFilesEnabled,
 	}
@@ -531,6 +529,9 @@ func (dynamic *dynamic) doUpgrade() error {
 		return errors.Wrap(err, "index was closed while upgrading")
 	}
 
+	// Retrieve if BQ/RQX was used in flat index
+	wasCompressed := dynamic.index.Compressed()
+
 	err = dynamic.db.Update(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(dynamicBucket)
 		return b.Put(dynamic.dbKey(), []byte{1})
@@ -553,7 +554,9 @@ func (dynamic *dynamic) doUpgrade() error {
 	if err != nil {
 		errs = append(errs, err)
 	}
-	if dynamic.flatBQ && !dynamic.hnswUC.BQ.Enabled {
+	// Due to the potential for a different quantizer using a different endianness
+	// we remove the bucket here
+	if wasCompressed {
 		bDir = dynamic.store.Bucket(dynamic.getCompressedBucketName()).GetDir()
 		err = dynamic.store.ShutdownBucket(dynamic.ctx, dynamic.getCompressedBucketName())
 		if err != nil {

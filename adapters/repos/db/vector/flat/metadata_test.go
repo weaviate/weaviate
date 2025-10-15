@@ -16,6 +16,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"github.com/vmihailenco/msgpack/v5"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 
@@ -160,5 +161,161 @@ func Test_FlatDimensionsTargetVector(t *testing.T) {
 	t.Run("target vector file validation", func(t *testing.T) {
 		index.targetVector = "./../foo"
 		require.Equal(t, "meta_foo.db", index.getMetadataFile())
+	})
+}
+
+func Test_RQDataSerialization(t *testing.T) {
+	ctx := context.TODO()
+	store := testinghelpers.NewDummyStore(t)
+	rootPath := t.TempDir()
+	defer store.Shutdown(context.Background())
+	indexID := "rq-data-serialization"
+	distancer := distancer.NewCosineDistanceProvider()
+
+	config := flatent.UserConfig{}
+	config.SetDefaults()
+	rq := flatent.RQUserConfig{
+		Enabled:      true,
+		Cache:        false,
+		RescoreLimit: 10,
+	}
+	config.RQ = rq
+
+	index, err := New(Config{
+		ID:               indexID,
+		RootPath:         rootPath,
+		DistanceProvider: distancer,
+	}, config, store)
+	require.Nil(t, err)
+
+	t.Run("serialize and deserialize RQ1 data", func(t *testing.T) {
+		// Add some vectors to create quantizer data
+		err = index.Add(ctx, 1, []float32{1.0, 2.0, 3.0, 4.0})
+		require.Nil(t, err)
+		err = index.Add(ctx, 2, []float32{5.0, 6.0, 7.0, 8.0})
+		require.Nil(t, err)
+
+		// Test serialization
+		rq1Data, err := index.serializeRQ1Data()
+		require.Nil(t, err)
+		require.NotNil(t, rq1Data)
+		require.Equal(t, uint32(256), rq1Data.InputDim)
+		require.Greater(t, rq1Data.OutputDim, uint32(0))
+		require.Greater(t, rq1Data.Rounds, uint32(0))
+
+		// Test container creation and serialization
+		container := &RQDataContainer{
+			Version:         RQDataVersion,
+			CompressionType: CompressionTypeRQ1,
+			Data:            rq1Data,
+		}
+
+		// Serialize to msgpack
+		data, err := msgpack.Marshal(container)
+		require.Nil(t, err)
+		require.NotEmpty(t, data)
+
+		// Deserialize from msgpack
+		var restoredContainer RQDataContainer
+		err = msgpack.Unmarshal(data, &restoredContainer)
+		require.Nil(t, err)
+		require.Equal(t, container.Version, restoredContainer.Version)
+		require.Equal(t, container.CompressionType, restoredContainer.CompressionType)
+
+		// Test manual deserialization of Data field
+		err = index.handleDeserializedData(&restoredContainer)
+		require.Nil(t, err)
+	})
+
+	t.Run("compression type validation", func(t *testing.T) {
+		// Test with wrong compression type
+		wrongContainer := &RQDataContainer{
+			Version:         RQDataVersion,
+			CompressionType: CompressionTypeRQ8, // Wrong type
+			Data:            &RQ1Data{},
+		}
+
+		err = index.handleDeserializedData(wrongContainer)
+		require.NotNil(t, err)
+		require.ErrorContains(t, err, "compression type mismatch")
+	})
+
+	t.Run("version validation", func(t *testing.T) {
+		// Test with unsupported version
+		wrongVersionContainer := &RQDataContainer{
+			Version:         999, // Unsupported version
+			CompressionType: CompressionTypeRQ1,
+			Data:            &RQ1Data{},
+		}
+
+		err = index.handleDeserializedData(wrongVersionContainer)
+		require.NotNil(t, err)
+		require.ErrorContains(t, err, "unsupported RQ data version")
+	})
+}
+
+func Test_RQ8DataSerialization(t *testing.T) {
+	ctx := context.TODO()
+	store := testinghelpers.NewDummyStore(t)
+	rootPath := t.TempDir()
+	defer store.Shutdown(context.Background())
+	indexID := "rq8-data-serialization"
+	distancer := distancer.NewCosineDistanceProvider()
+
+	config := flatent.UserConfig{}
+	config.SetDefaults()
+	rq := flatent.RQUserConfig{
+		Enabled:      true,
+		Cache:        false,
+		RescoreLimit: 10,
+		Bits:         8,
+	}
+	config.RQ = rq
+
+	index, err := New(Config{
+		ID:               indexID,
+		RootPath:         rootPath,
+		DistanceProvider: distancer,
+	}, config, store)
+	require.Nil(t, err)
+
+	t.Run("serialize and deserialize RQ8 data", func(t *testing.T) {
+		// Add some vectors to create quantizer data
+		err = index.Add(ctx, 1, []float32{1.0, 2.0, 3.0, 4.0})
+		require.Nil(t, err)
+		err = index.Add(ctx, 2, []float32{5.0, 6.0, 7.0, 8.0})
+		require.Nil(t, err)
+
+		// Test serialization
+		rq8Data, err := index.serializeRQ8Data()
+		require.Nil(t, err)
+		require.NotNil(t, rq8Data)
+		require.Equal(t, uint32(4), rq8Data.InputDim)
+		require.Equal(t, uint32(8), rq8Data.Bits)
+		require.Greater(t, rq8Data.OutputDim, uint32(0))
+		require.Greater(t, rq8Data.Rounds, uint32(0))
+
+		// Test container creation and serialization
+		container := &RQDataContainer{
+			Version:         RQDataVersion,
+			CompressionType: CompressionTypeRQ8,
+			Data:            rq8Data,
+		}
+
+		// Serialize to msgpack
+		data, err := msgpack.Marshal(container)
+		require.Nil(t, err)
+		require.NotEmpty(t, data)
+
+		// Deserialize from msgpack
+		var restoredContainer RQDataContainer
+		err = msgpack.Unmarshal(data, &restoredContainer)
+		require.Nil(t, err)
+		require.Equal(t, container.Version, restoredContainer.Version)
+		require.Equal(t, container.CompressionType, restoredContainer.CompressionType)
+
+		// Test manual deserialization of Data field
+		err = index.handleDeserializedData(&restoredContainer)
+		require.Nil(t, err)
 	})
 }
