@@ -94,9 +94,9 @@ func (m *Migrator) freeze(ctx context.Context, idx *Index, class string, freeze 
 	}
 
 	for uidx, name := range freeze {
-		idx.shardTransferMutex.RLock(name)
-		defer idx.shardTransferMutex.RUnlock(name)
 		eg.Go(func() error {
+			idx.shardTransferMutex.RLock(name)
+			defer idx.shardTransferMutex.RUnlock(name)
 			originalStatus := models.TenantActivityStatusHOT
 			shard, release, err := idx.getOrInitShard(ctx, name)
 			if err != nil {

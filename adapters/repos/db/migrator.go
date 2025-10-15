@@ -463,6 +463,12 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 	if idx == nil {
 		return fmt.Errorf("cannot find index for %q", class.Class)
 	}
+	idx.closeLock.RLock()
+	defer idx.closeLock.RUnlock()
+	if idx.closed {
+		m.logger.WithField("index", idx.ID()).Debug("index is already shut down or dropped")
+		return errAlreadyShutdown
+	}
 
 	hot := make([]string, 0, len(updates))
 	cold := make([]string, 0, len(updates))
@@ -494,28 +500,25 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 		eg.SetLimit(_NUMCPU * 2)
 
 		for _, name := range hot {
-			func() {
+			// The timeout is rather arbitrary. It's meant to be so high that it can
+			// never stop a valid tenant activation use case, but low enough to
+			// prevent a context-leak.
+			eg.Go(func() error {
 				idx.shardTransferMutex.RLock(name)
 				defer idx.shardTransferMutex.RUnlock(name)
 
-				// The timeout is rather arbitrary. It's meant to be so high that it can
-				// never stop a valid tenant activation use case, but low enough to
-				// prevent a context-leak.
+				ctx, cancel := context.WithTimeout(context.Background(), 1*time.Hour)
+				defer cancel()
 
-				eg.Go(func() error {
-					ctx, cancel := context.WithTimeout(context.Background(), 1*time.Hour)
-					defer cancel()
-
-					if err := idx.loadLocalShard(ctx, name); err != nil {
-						ec.Add(err)
-						idx.logger.WithFields(logrus.Fields{
-							"action": "tenant_activation_lazy_load_shard",
-							"shard":  name,
-						}).WithError(err).Errorf("loading shard %q failed", name)
-					}
-					return nil
-				})
-			}()
+				if err := idx.loadLocalShard(ctx, name); err != nil {
+					ec.Add(err)
+					idx.logger.WithFields(logrus.Fields{
+						"action": "tenant_activation_lazy_load_shard",
+						"shard":  name,
+					}).WithError(err).Errorf("loading shard %q failed", name)
+				}
+				return nil
+			})
 		}
 		eg.Wait()
 	}
@@ -527,46 +530,35 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 		eg.SetLimit(_NUMCPU * 2)
 
 		for _, name := range cold {
-			func() {
+			eg.Go(func() error {
 				idx.shardTransferMutex.RLock(name)
 				defer idx.shardTransferMutex.RUnlock(name)
 
-				eg.Go(func() error {
-					idx.closeLock.RLock()
-					defer idx.closeLock.RUnlock()
+				idx.shardCreateLocks.Lock(name)
+				defer idx.shardCreateLocks.Unlock(name)
 
-					if idx.closed {
-						m.logger.WithField("index", idx.ID()).Debug("index is already shut down or dropped")
-						ec.Add(errAlreadyShutdown)
-						return nil
+				shard, ok := idx.shards.LoadAndDelete(name)
+				if !ok {
+					m.logger.WithField("shard", name).Debug("already shut down or dropped")
+					return nil // shard already does not exist or inactive
+				}
+
+				m.logger.WithField("shard", name).Debug("starting shutdown")
+
+				if err := shard.Shutdown(ctx); err != nil {
+					if errors.Is(err, errAlreadyShutdown) {
+						m.logger.WithField("shard", shard.Name()).Debug("already shut down or dropped")
+					} else {
+						idx.logger.
+							WithField("action", "shutdown_shard").
+							WithField("shard", shard.ID()).
+							Error(err)
+						ec.Add(err)
 					}
+				}
 
-					idx.shardCreateLocks.Lock(name)
-					defer idx.shardCreateLocks.Unlock(name)
-
-					shard, ok := idx.shards.LoadAndDelete(name)
-					if !ok {
-						m.logger.WithField("shard", name).Debug("already shut down or dropped")
-						return nil // shard already does not exist or inactive
-					}
-
-					m.logger.WithField("shard", name).Debug("starting shutdown")
-
-					if err := shard.Shutdown(ctx); err != nil {
-						if errors.Is(err, errAlreadyShutdown) {
-							m.logger.WithField("shard", shard.Name()).Debug("already shut down or dropped")
-						} else {
-							idx.logger.
-								WithField("action", "shutdown_shard").
-								WithField("shard", shard.ID()).
-								Error(err)
-							ec.Add(err)
-						}
-					}
-
-					return nil
-				})
-			}()
+				return nil
+			})
 		}
 
 		eg.Wait()
