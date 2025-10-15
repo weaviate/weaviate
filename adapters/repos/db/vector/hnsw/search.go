@@ -285,7 +285,7 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 			defer func() {
 				if err := recover(); err != nil {
 					candidateNode.Unlock()
-					panic(err)
+					panic(errors.Errorf("shard: %s, collection: %s, vectorIndex: %s, panic: %v", h.shardName, h.className, h.id, err))
 				}
 			}()
 
