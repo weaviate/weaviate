@@ -1540,7 +1540,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 				err      error
 			)
 
-			shard, release, err := i.GetShardWithoutInit(ctx, shardName)
+			shard, release, err := i.GetShard(ctx, shardName)
 			if err != nil {
 				return err
 			}
@@ -1838,7 +1838,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 
 	for _, sn := range shardNames {
 		shardName := sn
-		shard, release, err := i.GetShardWithoutInit(ctx, shardName)
+		shard, release, err := i.GetShard(ctx, shardName)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -2155,7 +2155,7 @@ func (i *Index) UnloadLocalShard(ctx context.Context, shardName string) error {
 	return nil
 }
 
-func (i *Index) GetShardWithoutInit(ctx context.Context, shardName string) (
+func (i *Index) GetShard(ctx context.Context, shardName string) (
 	shard ShardLike, release func(), err error,
 ) {
 	shard = i.shards.Load(shardName)
@@ -2167,14 +2167,7 @@ func (i *Index) GetShardWithoutInit(ctx context.Context, shardName string) (
 	if err != nil {
 		return nil, func() {}, fmt.Errorf("get/init local shard %q, no shutdown: %w", shardName, err)
 	}
-
 	return shard, release, nil
-}
-
-func (i *Index) GetShard(ctx context.Context, shardName string) (
-	shard ShardLike, release func(), err error,
-) {
-	return i.getOptInitLocalShard(ctx, shardName, false)
 }
 
 func (i *Index) getOrInitShard(ctx context.Context, shardName string) (
