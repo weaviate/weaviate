@@ -76,11 +76,16 @@ func NewStreamHandler(authenticator authenticator, authorizer authorization.Auth
 
 func (h *StreamHandler) Handle(stream pb.Weaviate_BatchStreamServer) error {
 	streamCtx := stream.Context()
+	// Authenticate at the highest level
 	_, err := h.authenticator.PrincipalFromContext(streamCtx)
 	if err != nil {
 		return fmt.Errorf("authenticate: %w", err)
 	}
 
+	// If the server is shutting down, we reject new streams
+	// This prevents new streams from being added to the system while we are shutting down
+	// Existing streams will be allowed to complete their work
+	// See drain() in drain.go for the full shutdown sequence
 	if h.shuttingDownCtx.Err() != nil {
 		return errShutdown(fmt.Errorf("not accepting new streams: %w", h.shuttingDownCtx.Err()))
 	}
@@ -114,18 +119,24 @@ func (h *StreamHandler) Handle(stream pb.Weaviate_BatchStreamServer) error {
 	defer cancel()
 
 	// Channel to communicate receive errors from recv to the send loop
-	errCh := make(chan error, 1)
+	recvErrCh := make(chan error, 1)
+	// Spawn recv process in its own goroutine
 	h.recvWg.Add(1)
 	enterrors.GoWrapper(func() {
 		defer h.recvWg.Done()
-		if err := h.recv(ctx, streamId, startReq.ConsistencyLevel, stream); err != nil {
-			errCh <- err
+		// If recv returns, then the stream has been closed by the client or an error has occurred
+		// In either case, we need to inform the send loop so that it can exit cleanly
+		// We do this by sending the error (or nil if the client closed the stream) to the recvErrCh channel
+		// and then closing the channel to signal that no more errors will be sent
+		if err := h.receiver(ctx, streamId, startReq.ConsistencyLevel, stream); err != nil {
+			recvErrCh <- err
 		}
-		close(errCh)
+		close(recvErrCh)
 	}, h.logger)
 	h.sendWg.Add(1)
 	defer h.sendWg.Done()
-	return h.send(ctx, streamId, stream, errCh)
+	// Start the send loop in this goroutine, it will exit when the stream is closed or an error occurs (including shutdowns)
+	return h.sender(ctx, streamId, stream, recvErrCh)
 }
 
 func (h *StreamHandler) drainReportingQueue(queue reportingQueue, stream pb.Weaviate_BatchStreamServer, logger *logrus.Entry) {
@@ -222,7 +233,7 @@ func (h *StreamHandler) handleWorkerErrors(report *report, stream pb.Weaviate_Ba
 	}
 }
 
-func (h *StreamHandler) send(ctx context.Context, streamId string, stream pb.Weaviate_BatchStreamServer, recvErrCh chan error) error {
+func (h *StreamHandler) sender(ctx context.Context, streamId string, stream pb.Weaviate_BatchStreamServer, recvErrCh chan error) error {
 	defer h.stoppingPerStream.Delete(streamId)
 	log := h.logger.WithField("streamId", streamId)
 	// shuttingDown acts as a soft cancel here so we can send the shutting down message to the client.
@@ -277,12 +288,11 @@ func (h *StreamHandler) close(streamId string, wg *sync.WaitGroup) {
 	h.workerStatsPerStream.Delete(streamId)
 }
 
-// recv receives messages from the client through the stream and schedules them for processing by downstream workers.
-func (h *StreamHandler) recv(ctx context.Context, streamId string, consistencyLevel *pb.ConsistencyLevel, stream pb.Weaviate_BatchStreamServer) error {
-	log := h.logger.WithField("streamId", streamId)
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
+// recv receives messages from the client through the stream in a non-blocking way for the receiver goroutine.
+//
+// The reasoning for this is so that any hanging clients, which are neither sending messages nor closing their side of the
+// stream, can be detected and force-closed during server shutdown.
+func (h *StreamHandler) recv(stream pb.Weaviate_BatchStreamServer) (chan *pb.BatchStreamRequest, chan error) {
 	reqCh := make(chan *pb.BatchStreamRequest)
 	errCh := make(chan error)
 	enterrors.GoWrapper(func() {
@@ -292,7 +302,9 @@ func (h *StreamHandler) recv(ctx context.Context, streamId string, consistencyLe
 		}()
 		for {
 			// stream context is cancelled once the send() method returns
-			// cleaning up this goroutine
+			// cleaning up this goroutine without needing any additional signalling
+			// i.e. when the stream is closed by the client or an error occurs
+			// including server shutdowns
 			req, err := stream.Recv()
 			if err != nil {
 				errCh <- err
@@ -301,28 +313,73 @@ func (h *StreamHandler) recv(ctx context.Context, streamId string, consistencyLe
 			reqCh <- req
 		}
 	}, h.logger)
+	return reqCh, errCh
+}
+
+// recv receives messages from the client through the stream and schedules them for processing by downstream workers.
+func (h *StreamHandler) receiver(ctx context.Context, streamId string, consistencyLevel *pb.ConsistencyLevel, stream pb.Weaviate_BatchStreamServer) error {
+	log := h.logger.WithField("streamId", streamId)
+
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 
 	wg := &sync.WaitGroup{}
 	defer h.close(streamId, wg)
+
+	shuttingDownDone := h.shuttingDownCtx.Done()
+	var gracePeriod <-chan time.Time
+
+	reqCh, errCh := h.recv(stream)
 	for {
+		// we must check for shutting down before we start blocking on h.recv in the event
+		// that the client is misbehaving by sending more messages after the shutdown signal
+		if h.shuttingDownCtx.Err() != nil {
+			shuttingDownDone = nil // only do this once
+			if gracePeriod == nil {
+				// if we haven't already started the grace period timer then do so now
+				gracePeriod = time.After(SHUTDOWN_GRACE_PERIOD)
+				log.Info("server is shutting down, will force close recv stream after grace period")
+			}
+			select {
+			case <-gracePeriod:
+				// if we're still looping after the grace period has expired then force close
+				log.Warn("grace period expired, closing recv stream")
+				cancel()
+				return ctx.Err()
+			default:
+				// otherwise continue as normal
+			}
+		}
+
 		var request *pb.BatchStreamRequest
 		var err error
+		// non-blocking select to receive messages from the stream
+		// this allows us to detect hanging clients during server shutdown
+		// we either receive a request, an error, or a shutdown signal
+		// if we receive a shutdown signal, we set up a grace period timer
+		// after which we will force close the stream if it hasn't closed already
+		// if we receive a request or an error, we process it as normal
+		// if the context is cancelled, we exit the loop
 		select {
 		case request = <-reqCh:
 		case err = <-errCh:
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-time.After(SHUTDOWN_GRACE_PERIOD):
-			// This ensures that we don't hang indefinitely if the client does not close the stream
-			// after receiving the shutdown message for any reason
-			if h.shuttingDown.Load() {
-				log.Warn("context cancelled waiting for request from stream, closing recv stream")
-				cancel()
-				return ctx.Err()
-			}
-			// If not shutting down, just loop around again and wait for the next request
+		case <-shuttingDownDone:
+			// if the client is misbehaving by keeping the stream open without sending any messages
+			// after the shutdown signal then we need to start the grace period timer
+			// so that we can force close the stream after the grace period has expired
+			shuttingDownDone = nil // only do this once
+			gracePeriod = time.After(SHUTDOWN_GRACE_PERIOD)
+			log.Info("server is shutting down, will force close recv stream after grace period")
 			continue
+		case <-gracePeriod:
+			// if we block waiting for stream.Recv() until the grace period expires then force close
+			log.Warn("grace period expired, closing recv stream")
+			cancel()
+			return ctx.Err()
 		}
+
 		if errors.Is(err, io.EOF) {
 			log.Debug("client closed stream")
 			return nil

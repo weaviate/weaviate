@@ -336,6 +336,83 @@ func TestDrainWithHangingClient(t *testing.T) {
 	require.ErrorAs(t, err, &context.Canceled, "handler should return context.Canceled error")
 }
 
+func TestDrainWithMisbehavingClient(t *testing.T) {
+	testDuration := 5 * time.Minute
+	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(ctx, testDuration)
+	defer cancel()
+
+	logger := logrus.New()
+
+	mockBatcher := mocks.NewMockBatcher(t)
+	mockAuthenticator := mocks.NewMockauthenticator(t)
+	mockAuthenticator.EXPECT().PrincipalFromContext(ctx).Return(&models.Principal{}, nil).Once()
+
+	howManyObjs := 5000
+	numErrs := howManyObjs / 10
+	mockBatcher.EXPECT().BatchObjects(mock.Anything, mock.Anything).RunAndReturn(func(ctx context.Context, req *pb.BatchObjectsRequest) (*pb.BatchObjectsReply, error) {
+		time.Sleep(100 * time.Millisecond)
+		errors := make([]*pb.BatchObjectsReply_BatchError, 0, numErrs)
+		for i := 0; i < numErrs; i++ {
+			errors = append(errors, &pb.BatchObjectsReply_BatchError{
+				Error: "some error",
+				Index: int32(i),
+			})
+		}
+		return &pb.BatchObjectsReply{
+			Took:   float32(1),
+			Errors: errors,
+		}, nil
+	}).Maybe()
+
+	objs := make([]*pb.BatchObject, 0, howManyObjs)
+	for i := 0; i < howManyObjs; i++ {
+		objs = append(objs, &pb.BatchObject{})
+	}
+
+	stream := newMockStream(ctx, t)
+	stream.EXPECT().Context().Return(ctx).Maybe()
+	var count int
+	shouldDrain := make(chan struct{})
+	stream.EXPECT().Recv().RunAndReturn(func() (*pb.BatchStreamRequest, error) {
+		count++
+		switch count {
+		case 1:
+			return newBatchStreamStartRequest(), nil
+		case 2:
+			close(shouldDrain)
+			return newBatchStreamObjsRequest(objs), nil
+		default:
+			// just keep sending data, the client is misbehaving
+			return newBatchStreamObjsRequest(objs), nil
+		}
+	}).Maybe()
+
+	stream.EXPECT().Send(mock.MatchedBy(func(msg *pb.BatchStreamReply) bool {
+		return msg.GetError().GetError() == "some error" &&
+			msg.GetError().GetObject() != nil
+	})).Return(nil).Maybe()
+	stream.EXPECT().Send(newBatchStreamStartedReply()).Return(nil).Once()
+	stream.EXPECT().Send(newBatchStreamShuttingDownReply()).Return(nil).Once()
+	stream.EXPECT().Send(mock.MatchedBy(func(msg *pb.BatchStreamReply) bool {
+		return msg.GetBackoff() != nil
+	})).Return(nil).Maybe()
+
+	numWorkers := 1
+	handler, drain := batch.Start(mockAuthenticator, nil, mockBatcher, nil, numWorkers, logger)
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		<-shouldDrain
+		drain()
+	}()
+	err := handler.Handle(stream)
+	wg.Wait()
+	require.NotNil(t, err, "handler should return error shutting down")
+	require.ErrorAs(t, err, &context.Canceled, "handler should return context.Canceled error")
+}
+
 func newBatchStreamShuttingDownReply() *pb.BatchStreamReply {
 	return &pb.BatchStreamReply{
 		Message: &pb.BatchStreamReply_ShuttingDown_{

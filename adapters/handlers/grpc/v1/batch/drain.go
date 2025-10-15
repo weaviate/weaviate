@@ -23,10 +23,10 @@ import (
 // The order of operations needs to be as follows to ensure that there are no missed objects/references in any of the
 // processing queue nor any missed errors in the reporting queues:
 //
-// 1. Stop accepting new requests in the handlers
-//   - This prevents new requests from being added to the system while we are shutting down
+// 1. Stop accepting creation of new streams in the handlers
+//   - This prevents new streams from being added to the system while we are shutting down
 //
-// 2. Wait for all in-flight Send requests to finish
+// 2. Wait for all in-process streams to be drained (i.e. all h.recv goroutines to complete)
 //   - This ensures that the processing queue is no longer being written to
 //
 // 3. Stop the worker loops and drain the processing queue
