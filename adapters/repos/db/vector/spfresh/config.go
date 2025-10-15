@@ -48,6 +48,7 @@ type Config struct {
 	Store                     StoreConfig                     `json:"store"`                               // Configuration for the underlying LSMKV store
 	Centroids                 CentroidConfig                  `json:"centroids"`                           // Configuration for the centroid index
 	TombstoneCallbacks        cyclemanager.CycleCallbackGroup // Callbacks for handling tombstones
+	Compressed                bool                            `json:"compressed,omitempty"` // Whether to store vectors in compressed format
 }
 
 type StoreConfig struct {
@@ -93,15 +94,17 @@ func DefaultConfig() *Config {
 }
 
 func ValidateUserConfigUpdate(initial, updated config.VectorIndexConfig) error {
-	_, ok := initial.(ent.UserConfig)
+	uc, ok := initial.(ent.UserConfig)
 	if !ok {
 		return errors.Errorf("initial is not UserConfig, but %T", initial)
 	}
 
-	_, ok = updated.(ent.UserConfig)
+	nuc, ok := updated.(ent.UserConfig)
 	if !ok {
 		return errors.Errorf("updated is not UserConfig, but %T", updated)
 	}
+
+	uc.Distance = nuc.Distance
 
 	// TODO add immutable fields
 
