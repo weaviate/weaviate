@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"sync"
 
+	"github.com/weaviate/weaviate/adapters/handlers/rest/resources"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 
 	"github.com/sirupsen/logrus"
@@ -83,6 +84,7 @@ type State struct {
 	AutoSchemaManager  *objects.AutoSchemaManager
 	ClusterHttpClient  *http.Client
 	ReindexCtxCancel   context.CancelCauseFunc
+	ResourceLimit      *resources.Limits
 	MemWatch           *memwatch.Monitor
 
 	ClusterService *rCluster.Service

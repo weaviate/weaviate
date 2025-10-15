@@ -39,6 +39,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/collectors/version"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/resources"
 	"google.golang.org/grpc"
 
 	"github.com/weaviate/fgprof"
@@ -157,47 +158,6 @@ type vectorRepo interface {
 	SetSchemaGetter(schemaUC.SchemaGetter)
 	WaitForStartup(ctx context.Context) error
 	Shutdown(ctx context.Context) error
-}
-
-func getCores() (int, error) {
-	cpuset, err := os.ReadFile("/sys/fs/cgroup/cpuset/cpuset.cpus")
-	if err != nil {
-		return 0, errors.Wrap(err, "read cpuset")
-	}
-	return calcCPUs(strings.TrimSpace(string(cpuset)))
-}
-
-func calcCPUs(cpuString string) (int, error) {
-	cores := 0
-	if cpuString == "" {
-		return 0, nil
-	}
-
-	// Split by comma to handle multiple ranges
-	ranges := strings.Split(cpuString, ",")
-	for _, r := range ranges {
-		// Check if it's a range (contains a hyphen)
-		if strings.Contains(r, "-") {
-			parts := strings.Split(r, "-")
-			if len(parts) != 2 {
-				return 0, fmt.Errorf("invalid CPU range format: %s", r)
-			}
-			start, err := strconv.Atoi(parts[0])
-			if err != nil {
-				return 0, fmt.Errorf("invalid start of CPU range: %s", parts[0])
-			}
-			end, err := strconv.Atoi(parts[1])
-			if err != nil {
-				return 0, fmt.Errorf("invalid end of CPU range: %s", parts[1])
-			}
-			cores += end - start + 1
-		} else {
-			// Single CPU
-			cores++
-		}
-	}
-
-	return cores, nil
 }
 
 func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *state.State {
@@ -333,7 +293,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		})
 	}
 
-	limitResources(appState)
+	appState.ResourceLimit = resources.NewLimit(appState.ServerConfig.Config.ResourceLimits, appState.Logger)
 
 	err := registerModules(appState)
 	if err != nil {
@@ -844,6 +804,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 					Errorf("failed to stop telemetry: %s", err.Error())
 			}
 		}
+
+		appState.ResourceLimit.Shutdown()
 
 		// stop reindexing on server shutdown
 		appState.ReindexCtxCancel(fmt.Errorf("server shutdown"))
@@ -1711,8 +1673,9 @@ func initRuntimeOverrides(appState *state.State) {
 	if appState.ServerConfig.Config.ResourceLimits.Enabled {
 		registered.ResourceLimitGoMaxProcs = appState.ServerConfig.Config.ResourceLimits.GoMaxProcs
 		registered.ResourceLimitGoMemLimit = appState.ServerConfig.Config.ResourceLimits.GoMemLimit
+		registered.ResourceLimitGoMemLimitFromCgroups = appState.ServerConfig.Config.ResourceLimits.GoMemLimitFromCgroupsRation
 
-		hooks["ResourceLimit"] = applyResourceLimits(appState.ServerConfig.Config.ResourceLimits)
+		hooks["ResourceLimit"] = appState.ResourceLimit.ApplyResourceLimits(appState.ServerConfig.Config.ResourceLimits)
 	}
 
 	cm, err := configRuntime.NewConfigManager(

@@ -96,10 +96,11 @@ type SchemaHandlerConfig struct {
 }
 
 type ResourceLimits struct {
-	Enabled           bool                          `json:"enabled" yaml:"enabled"`
-	EnabledDeprecated bool                          `json:"enabled_deprecated" yaml:"enabled_deprecated"`
-	GoMemLimit        *runtime.DynamicValue[string] `json:"go_mem_limit" yaml:"go_mem_limit"`
-	GoMaxProcs        *runtime.DynamicValue[int]    `json:"go_max_procs" yaml:"go_max_procs"`
+	Enabled                     bool                           `json:"enabled" yaml:"enabled"`
+	EnabledDeprecated           bool                           `json:"enabled_deprecated" yaml:"enabled_deprecated"`
+	GoMemLimitFromCgroupsRation *runtime.DynamicValue[float64] `json:"go_mem_limit_from_cgroups_ration" yaml:"go_mem_limit_from_cgroups_ration"`
+	GoMemLimit                  *runtime.DynamicValue[string]  `json:"go_mem_limit" yaml:"go_mem_limit"`
+	GoMaxProcs                  *runtime.DynamicValue[int]     `json:"go_max_procs" yaml:"go_max_procs"`
 }
 
 type RuntimeOverrides struct {

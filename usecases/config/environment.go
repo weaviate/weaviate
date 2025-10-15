@@ -419,9 +419,15 @@ func FromEnv(config *Config) error {
 		if v := os.Getenv("GOMEMLIMIT"); v != "" {
 			goMemLimit = v
 		}
-		config.ResourceLimits.GoMemLimit = runtime.NewDynamicValue(goMemLimit)
+		config.ResourceLimits.GoMemLimit = configRuntime.NewDynamicValue(goMemLimit)
 
-		parsePositiveInt("GOMAXPROCS", func(val int) { config.ResourceLimits.GoMaxProcs = runtime.NewDynamicValue(val) }, 0)
+		parsePositiveFloat("GOMEMLIMIT_FROM_CGROUPS_RATIO",
+			func(val float64) {
+				config.ResourceLimits.GoMemLimitFromCgroupsRation = configRuntime.NewDynamicValue(val)
+			},
+			0.0)
+
+		parsePositiveInt("GOMAXPROCS", func(val int) { config.ResourceLimits.GoMaxProcs = configRuntime.NewDynamicValue(val) }, 0)
 	}
 
 	parsePositiveFloat("REINDEXER_GOROUTINES_FACTOR",
