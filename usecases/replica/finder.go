@@ -16,7 +16,6 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
-	"runtime"
 	"slices"
 	"strings"
 	"sync/atomic"
@@ -200,17 +199,6 @@ func (f *Finder) CheckConsistency(ctx context.Context,
 	l types.ConsistencyLevel, xs []*storobj.Object,
 ) error {
 	checkStart := time.Now()
-
-	// Add stack trace to identify who is calling CheckConsistency
-	stackTrace := getCallerInfo()
-
-	f.log.WithFields(logrus.Fields{
-		"op":          "finder_check_consistency",
-		"method":      "CheckConsistency",
-		"consistency": l,
-		"num_objects": len(xs),
-		"stack_trace": stackTrace,
-	}).Info("finder CheckConsistency starting")
 
 	if len(xs) == 0 {
 		return nil
@@ -651,41 +639,4 @@ func (f *Finder) Overwrite(ctx context.Context,
 
 func (f *Finder) LocalNodeName() string {
 	return f.nodeName
-}
-
-// getCallerInfo returns information about the caller of CheckConsistency
-func getCallerInfo() string {
-	// Get multiple levels of callers to understand the call chain
-	var callers []string
-
-	for i := 2; i <= 5; i++ { // Skip getCallerInfo and CheckConsistency, get 4 levels
-		pc, file, line, ok := runtime.Caller(i)
-		if !ok {
-			break
-		}
-
-		fn := runtime.FuncForPC(pc)
-		if fn == nil {
-			break
-		}
-
-		// Extract just the function name and file name
-		funcName := fn.Name()
-		if idx := strings.LastIndex(funcName, "."); idx != -1 {
-			funcName = funcName[idx+1:]
-		}
-
-		fileName := file
-		if idx := strings.LastIndex(fileName, "/"); idx != -1 {
-			fileName = fileName[idx+1:]
-		}
-
-		callers = append(callers, fmt.Sprintf("%s:%s:%d", fileName, funcName, line))
-	}
-
-	if len(callers) == 0 {
-		return "unknown"
-	}
-
-	return strings.Join(callers, " -> ")
 }

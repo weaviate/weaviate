@@ -1505,17 +1505,17 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 		outObjects = outObjects[:limit]
 	}
 
-	if i.replicationEnabled() {
-		if replProps == nil {
-			replProps = defaultConsistency(types.ConsistencyLevelOne)
-		}
-		l := types.ConsistencyLevel(replProps.ConsistencyLevel)
-		err = i.replicator.CheckConsistency(ctx, l, outObjects)
-		if err != nil {
-			i.logger.WithField("action", "object_search").
-				Errorf("failed to check consistency of search results: %v", err)
-		}
-	}
+	// if i.replicationEnabled() {
+	// 	if replProps == nil {
+	// 		replProps = defaultConsistency(types.ConsistencyLevelOne)
+	// 	}
+	// 	l := types.ConsistencyLevel(replProps.ConsistencyLevel)
+	// 	err = i.replicator.CheckConsistency(ctx, l, outObjects)
+	// 	if err != nil {
+	// 		i.logger.WithField("action", "object_search").
+	// 			Errorf("failed to check consistency of search results: %v", err)
+	// 	}
+	// }
 
 	return outObjects, outScores, nil
 }
@@ -1545,7 +1545,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 				return err
 			}
 
-			if shard != nil {
+			if shard != nil && (shard.GetStatus() != storagestate.StatusLoading && shard.GetStatus() != storagestate.StatusLazyLoading) {
 				i.logger.WithFields(logrus.Fields{
 					"action":    "object_search_path",
 					"shardName": shardName,
@@ -1567,18 +1567,6 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 					"shardName": shardName,
 					"path":      "remote",
 				}).Info("objectSearchByShard: shard not found locally, using remote path")
-
-				// Skip remote shard if it's still loading to avoid unnecessary latency during rollout
-				if status, sErr := i.remote.GetShardStatus(ctx, shardName); sErr == nil {
-					if status == storagestate.StatusLoading.String() || status == storagestate.StatusLazyLoading.String() {
-						i.logger.WithFields(logrus.Fields{
-							"action":    "remote_object_search_skip_loading",
-							"shardName": shardName,
-							"status":    status,
-						}).Info("skipping remote shard search because shard is loading")
-						return nil
-					}
-				}
 
 				objs, scores, nodeName, err = i.remote.SearchShard(
 					ctx, shardName, nil, nil, 0, limit, filters, keywordRanking,
@@ -1947,17 +1935,17 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 		dists = dists[:limit]
 	}
 
-	if i.replicationEnabled() {
-		if replProps == nil {
-			replProps = defaultConsistency(types.ConsistencyLevelOne)
-		}
-		l := types.ConsistencyLevel(replProps.ConsistencyLevel)
-		err = i.replicator.CheckConsistency(ctx, l, out)
-		if err != nil {
-			i.logger.WithField("action", "object_vector_search").
-				Errorf("failed to check consistency of search results: %v", err)
-		}
-	}
+	// if i.replicationEnabled() {
+	// 	if replProps == nil {
+	// 		replProps = defaultConsistency(types.ConsistencyLevelOne)
+	// 	}
+	// 	l := types.ConsistencyLevel(replProps.ConsistencyLevel)
+	// 	err = i.replicator.CheckConsistency(ctx, l, out)
+	// 	if err != nil {
+	// 		i.logger.WithField("action", "object_vector_search").
+	// 			Errorf("failed to check consistency of search results: %v", err)
+	// 	}
+	// }
 
 	return out, dists, nil
 }
