@@ -47,11 +47,7 @@ func NewBackupsCreate(ctx *middleware.Context, handler BackupsCreateHandler) *Ba
 
 # Create a backup
 
-Initiates the creation of a backup for specified collections on a designated backend storage.
-
-Notes:
-- Backups are compressed using gzip by default.
-- Weaviate remains operational during the backup process.
+Initiates the creation of a backup for specified collections on a designated backend storage.<br/><br/>Notes:<br/>- Backups are compressed using gzip by default.<br/>- Weaviate remains operational during the backup process.
 */
 type BackupsCreate struct {
 	Context *middleware.Context

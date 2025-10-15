@@ -362,22 +362,7 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 	}
 }
 
-/*
-WeaviateAPI # Introduction
-
-	Weaviate is an open source, AI-native vector database that helps developers create intuitive and reliable AI-powered applications.
-	### Base Path
-
-The base path for the Weaviate server is structured as `[YOUR-WEAVIATE-HOST]:[PORT]/v1`. As an example, if you wish to access the `schema` endpoint on a local instance, you would navigate to `http://localhost:8080/v1/schema`. Ensure you replace `[YOUR-WEAVIATE-HOST]` and `[PORT]` with your actual server host and port number respectively.
-
-	### Questions?
-
-If you have any comments or questions, please feel free to reach out to us at the community forum [https://forum.weaviate.io/](https://forum.weaviate.io/).
-### Issues?
-If you find a bug or want to file a feature request, please open an issue on our GitHub repository for [Weaviate](https://github.com/weaviate/weaviate).
-### Need more documentation?
-For a quickstart, code examples, concepts and more, please visit our [documentation page](https://docs.weaviate.io/weaviate).
-*/
+/*WeaviateAPI # Introduction<br/> Weaviate is an open source, AI-native vector database that helps developers create intuitive and reliable AI-powered applications. <br/> ### Base Path <br/>The base path for the Weaviate server is structured as `[YOUR-WEAVIATE-HOST]:[PORT]/v1`. As an example, if you wish to access the `schema` endpoint on a local instance, you would navigate to `http://localhost:8080/v1/schema`. Ensure you replace `[YOUR-WEAVIATE-HOST]` and `[PORT]` with your actual server host and port number respectively. <br/> ### Questions? <br/>If you have any comments or questions, please feel free to reach out to us at the community forum [https://forum.weaviate.io/](https://forum.weaviate.io/). <br/>### Issues? <br/>If you find a bug or want to file a feature request, please open an issue on our GitHub repository for [Weaviate](https://github.com/weaviate/weaviate). <br/>### Need more documentation? <br/>For a quickstart, code examples, concepts and more, please visit our [documentation page](https://docs.weaviate.io/weaviate). */
 type WeaviateAPI struct {
 	spec            *loads.Document
 	context         *middleware.Context

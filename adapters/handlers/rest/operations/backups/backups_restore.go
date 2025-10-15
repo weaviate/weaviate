@@ -47,12 +47,7 @@ func NewBackupsRestore(ctx *middleware.Context, handler BackupsRestoreHandler) *
 
 # Restore from a backup
 
-Initiates the restoration of collections from a specified backup located on a designated backend.
-
-Requirements:
-- Target cluster must have the same number of nodes as the source cluster where the backup was created.
-- Collections included in the restore must not already exist on the target cluster.
-- Node names must match between the backup and the target cluster.
+Initiates the restoration of collections from a specified backup located on a designated backend.<br/><br/>Requirements:<br/>- Target cluster must have the same number of nodes as the source cluster where the backup was created.<br/>- Collections included in the restore must not already exist on the target cluster.<br/>- Node names must match between the backup and the target cluster.
 */
 type BackupsRestore struct {
 	Context *middleware.Context

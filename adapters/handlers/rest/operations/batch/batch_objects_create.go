@@ -54,10 +54,7 @@ func NewBatchObjectsCreate(ctx *middleware.Context, handler BatchObjectsCreateHa
 
 # Create objects in batch
 
-Registers multiple data objects in a single request for efficiency. Metadata and schema values for each object are validated.
-
-**Note (idempotence)**:
-This operation is idempotent based on the object UUIDs provided. If an object with a given UUID already exists, it will be overwritten (similar to a PUT operation for that specific object within the batch).
+Registers multiple data objects in a single request for efficiency. Metadata and schema values for each object are validated.<br/><br/>**Note (idempotence)**:<br/>This operation is idempotent based on the object UUIDs provided. If an object with a given UUID already exists, it will be overwritten (similar to a PUT operation for that specific object within the batch).
 */
 type BatchObjectsCreate struct {
 	Context *middleware.Context

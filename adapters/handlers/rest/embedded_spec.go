@@ -41,7 +41,7 @@ func init() {
   ],
   "swagger": "2.0",
   "info": {
-    "description": "# Introduction\n Weaviate is an open source, AI-native vector database that helps developers create intuitive and reliable AI-powered applications. \n ### Base Path \nThe base path for the Weaviate server is structured as ` + "`" + `[YOUR-WEAVIATE-HOST]:[PORT]/v1` + "`" + `. As an example, if you wish to access the ` + "`" + `schema` + "`" + ` endpoint on a local instance, you would navigate to ` + "`" + `http://localhost:8080/v1/schema` + "`" + `. Ensure you replace ` + "`" + `[YOUR-WEAVIATE-HOST]` + "`" + ` and ` + "`" + `[PORT]` + "`" + ` with your actual server host and port number respectively. \n ### Questions? \nIf you have any comments or questions, please feel free to reach out to us at the community forum [https://forum.weaviate.io/](https://forum.weaviate.io/). \n### Issues? \nIf you find a bug or want to file a feature request, please open an issue on our GitHub repository for [Weaviate](https://github.com/weaviate/weaviate). \n### Need more documentation? \nFor a quickstart, code examples, concepts and more, please visit our [documentation page](https://docs.weaviate.io/weaviate).",
+    "description": "# Introduction\u003cbr/\u003e Weaviate is an open source, AI-native vector database that helps developers create intuitive and reliable AI-powered applications. \u003cbr/\u003e ### Base Path \u003cbr/\u003eThe base path for the Weaviate server is structured as ` + "`" + `[YOUR-WEAVIATE-HOST]:[PORT]/v1` + "`" + `. As an example, if you wish to access the ` + "`" + `schema` + "`" + ` endpoint on a local instance, you would navigate to ` + "`" + `http://localhost:8080/v1/schema` + "`" + `. Ensure you replace ` + "`" + `[YOUR-WEAVIATE-HOST]` + "`" + ` and ` + "`" + `[PORT]` + "`" + ` with your actual server host and port number respectively. \u003cbr/\u003e ### Questions? \u003cbr/\u003eIf you have any comments or questions, please feel free to reach out to us at the community forum [https://forum.weaviate.io/](https://forum.weaviate.io/). \u003cbr/\u003e### Issues? \u003cbr/\u003eIf you find a bug or want to file a feature request, please open an issue on our GitHub repository for [Weaviate](https://github.com/weaviate/weaviate). \u003cbr/\u003e### Need more documentation? \u003cbr/\u003eFor a quickstart, code examples, concepts and more, please visit our [documentation page](https://docs.weaviate.io/weaviate).",
     "title": "Weaviate REST API",
     "contact": {
       "name": "Weaviate",
@@ -1648,7 +1648,7 @@ func init() {
         ]
       },
       "post": {
-        "description": "Initiates the creation of a backup for specified collections on a designated backend storage.\n\nNotes:\n- Backups are compressed using gzip by default.\n- Weaviate remains operational during the backup process.",
+        "description": "Initiates the creation of a backup for specified collections on a designated backend storage.\u003cbr/\u003e\u003cbr/\u003eNotes:\u003cbr/\u003e- Backups are compressed using gzip by default.\u003cbr/\u003e- Weaviate remains operational during the backup process.",
         "tags": [
           "backups"
         ],
@@ -1708,7 +1708,7 @@ func init() {
     },
     "/backups/{backend}/{id}": {
       "get": {
-        "description": "Checks the status of a specific backup creation process identified by its ID on the specified backend.\n\nClient libraries often provide a 'wait for completion' feature that polls this endpoint automatically. Use this endpoint for manual status checks or if 'wait for completion' is disabled.",
+        "description": "Checks the status of a specific backup creation process identified by its ID on the specified backend.\u003cbr/\u003e\u003cbr/\u003eClient libraries often provide a 'wait for completion' feature that polls this endpoint automatically. Use this endpoint for manual status checks or if 'wait for completion' is disabled.",
         "tags": [
           "backups"
         ],
@@ -1849,7 +1849,7 @@ func init() {
     },
     "/backups/{backend}/{id}/restore": {
       "get": {
-        "description": "Checks the status of a specific backup restoration process identified by the backup ID on the specified backend.\n\nClient libraries often provide a 'wait for completion' feature that polls this endpoint automatically. Use this endpoint for manual status checks or if 'wait for completion' is disabled.",
+        "description": "Checks the status of a specific backup restoration process identified by the backup ID on the specified backend.\u003cbr/\u003e\u003cbr/\u003eClient libraries often provide a 'wait for completion' feature that polls this endpoint automatically. Use this endpoint for manual status checks or if 'wait for completion' is disabled.",
         "tags": [
           "backups"
         ],
@@ -1917,7 +1917,7 @@ func init() {
         ]
       },
       "post": {
-        "description": "Initiates the restoration of collections from a specified backup located on a designated backend.\n\nRequirements:\n- Target cluster must have the same number of nodes as the source cluster where the backup was created.\n- Collections included in the restore must not already exist on the target cluster.\n- Node names must match between the backup and the target cluster.",
+        "description": "Initiates the restoration of collections from a specified backup located on a designated backend.\u003cbr/\u003e\u003cbr/\u003eRequirements:\u003cbr/\u003e- Target cluster must have the same number of nodes as the source cluster where the backup was created.\u003cbr/\u003e- Collections included in the restore must not already exist on the target cluster.\u003cbr/\u003e- Node names must match between the backup and the target cluster.",
         "tags": [
           "backups"
         ],
@@ -1990,7 +1990,7 @@ func init() {
     },
     "/batch/objects": {
       "post": {
-        "description": "Registers multiple data objects in a single request for efficiency. Metadata and schema values for each object are validated.\n\n**Note (idempotence)**:\nThis operation is idempotent based on the object UUIDs provided. If an object with a given UUID already exists, it will be overwritten (similar to a PUT operation for that specific object within the batch).",
+        "description": "Registers multiple data objects in a single request for efficiency. Metadata and schema values for each object are validated.\u003cbr/\u003e\u003cbr/\u003e**Note (idempotence)**:\u003cbr/\u003eThis operation is idempotent based on the object UUIDs provided. If an object with a given UUID already exists, it will be overwritten (similar to a PUT operation for that specific object within the batch).",
         "tags": [
           "batch",
           "objects"
@@ -2080,7 +2080,7 @@ func init() {
         ]
       },
       "delete": {
-        "description": "Removes multiple data objects based on a filter specified in the request body.\n\nDeletion occurs based on the filter criteria provided in the ` + "`" + `where` + "`" + ` clause. There is a configurable limit (default 10,000, set via ` + "`" + `QUERY_MAXIMUM_RESULTS` + "`" + `) on how many objects can be deleted in a single batch request to prevent excessive resource usage. Objects are deleted in the order they match the filter. To delete more objects than the limit allows, repeat the request until no more matching objects are found.",
+        "description": "Removes multiple data objects based on a filter specified in the request body.\u003cbr/\u003e\u003cbr/\u003eDeletion occurs based on the filter criteria provided in the ` + "`" + `where` + "`" + ` clause. There is a configurable limit (default 10,000, set via ` + "`" + `QUERY_MAXIMUM_RESULTS` + "`" + `) on how many objects can be deleted in a single batch request to prevent excessive resource usage. Objects are deleted in the order they match the filter. To delete more objects than the limit allows, repeat the request until no more matching objects are found.",
         "tags": [
           "batch",
           "objects"
@@ -2711,7 +2711,7 @@ func init() {
         ]
       },
       "post": {
-        "description": "Creates a new data object. The object's metadata and schema values are validated before creation.\n\n**Note (batch import)**:\nIf you plan on importing a large number of objects, using the ` + "`" + `/batch/objects` + "`" + ` endpoint is significantly more efficient than sending multiple single requests.\n\n**Note (idempotence)**:\nThis operation (POST) fails if an object with the provided ID already exists. To update an existing object, use the PUT or PATCH methods.",
+        "description": "Creates a new data object. The object's metadata and schema values are validated before creation.\u003cbr/\u003e\u003cbr/\u003e**Note (batch import)**:\u003cbr/\u003eIf you plan on importing a large number of objects, using the ` + "`" + `/batch/objects` + "`" + ` endpoint is significantly more efficient than sending multiple single requests.\u003cbr/\u003e\u003cbr/\u003e**Note (idempotence)**:\u003cbr/\u003eThis operation (POST) fails if an object with the provided ID already exists. To update an existing object, use the PUT or PATCH methods.",
         "tags": [
           "objects"
         ],
@@ -2775,7 +2775,7 @@ func init() {
     },
     "/objects/validate": {
       "post": {
-        "description": "Checks if a data object's structure conforms to the specified collection schema and metadata rules without actually storing the object.\n\nA successful validation returns a 200 OK status code with no body. If validation fails, an error response with details is returned.",
+        "description": "Checks if a data object's structure conforms to the specified collection schema and metadata rules without actually storing the object.\u003cbr/\u003e\u003cbr/\u003eA successful validation returns a 200 OK status code with no body. If validation fails, an error response with details is returned.",
         "tags": [
           "objects"
         ],
@@ -2981,7 +2981,7 @@ func init() {
         ]
       },
       "delete": {
-        "description": "Removes a data object from a specific collection (class), identified by its collection name (class) and UUID (` + "`" + `id` + "`" + `).\n\n**Note on deleting references (legacy format):**\nFor backward compatibility with older beacon formats (lacking a collection name), deleting a reference requires the beacon in the request to exactly match the stored format. Beacons always use ` + "`" + `localhost` + "`" + ` as the host, indicating the target is within the same Weaviate instance.",
+        "description": "Removes a data object from a specific collection (class), identified by its collection name (class) and UUID (` + "`" + `id` + "`" + `).\u003cbr/\u003e\u003cbr/\u003e**Note on deleting references (legacy format):**\u003cbr/\u003eFor backward compatibility with older beacon formats (lacking a collection name), deleting a reference requires the beacon in the request to exactly match the stored format. Beacons always use ` + "`" + `localhost` + "`" + ` as the host, indicating the target is within the same Weaviate instance.",
         "tags": [
           "objects"
         ],
@@ -3052,11 +3052,11 @@ func init() {
         ]
       },
       "head": {
-        "description": "Verifies the existence of a specific data object within a collection (class), identified by its collection name (class) and UUID (` + "`" + `id` + "`" + `), without returning the object itself.\n\nThis is faster than a GET request as it avoids retrieving and processing object data. Existence is confirmed by a 204 No Content status code, while non-existence results in a 404 Not Found.",
+        "description": "Verifies the existence of a specific data object within a collection (class), identified by its collection name (class) and UUID (` + "`" + `id` + "`" + `), without returning the object itself.\u003cbr/\u003e\u003cbr/\u003eThis is faster than a GET request as it avoids retrieving and processing object data. Existence is confirmed by a 204 No Content status code, while non-existence results in a 404 Not Found.",
         "tags": [
           "objects"
         ],
-        "summary": "Check whether an object exists",
+        "summary": "Check if an object exists",
         "operationId": "objects.class.head",
         "parameters": [
           {
@@ -3645,7 +3645,7 @@ func init() {
         "tags": [
           "objects"
         ],
-        "summary": "Check whether an object exists",
+        "summary": "Check if an object exists",
         "operationId": "objects.head",
         "deprecated": true,
         "parameters": [
@@ -4518,7 +4518,7 @@ func init() {
         ]
       },
       "post": {
-        "description": "Defines and creates a new collection (class) in the schema.\n\nIf ` + "`" + `AutoSchema` + "`" + ` is enabled (not recommended for production), Weaviate might attempt to infer schema from data during import. Manual definition via this endpoint provides explicit control.",
+        "description": "Defines and creates a new collection (class) in the schema.\u003cbr/\u003e\u003cbr/\u003eIf ` + "`" + `AutoSchema` + "`" + ` is enabled (not recommended for production), Weaviate might attempt to infer schema from data during import. Manual definition via this endpoint provides explicit control.",
         "tags": [
           "schema"
         ],
@@ -5225,11 +5225,11 @@ func init() {
         }
       },
       "head": {
-        "description": "Checks for the existence of a specific tenant within the given collection without returning tenant details.",
+        "description": "Checks for the existence of a specific tenant within the given collection (` + "`" + `className` + "`" + `).",
         "tags": [
           "schema"
         ],
-        "summary": "Check whether a tenant exists",
+        "summary": "Check if a tenant exists",
         "operationId": "tenant.exists",
         "parameters": [
           {
@@ -8086,7 +8086,7 @@ func init() {
           ]
         },
         "uncancelable": {
-          "description": "Whether the replica operation is uncancelable.",
+          "description": "Whether the replica operation can't be cancelled.",
           "type": "boolean"
         },
         "whenStartedUnixMs": {
@@ -8955,11 +8955,11 @@ func init() {
       "name": "backups"
     },
     {
-      "description": "Endpoints for user account management in Weaviate. This includes operations specific to Weaviate-managed database users (` + "`" + `db` + "`" + ` users), such as creation (which generates an API key), listing, deletion, activation/deactivation, and API key rotation. It also provides operations applicable to any authenticated user (` + "`" + `db` + "`" + ` or ` + "`" + `oidc` + "`" + `), like retrieving their own information (username and assigned roles).\n\n**User Types:**\n* **` + "`" + `db` + "`" + ` users:** Managed entirely within Weaviate (creation, deletion, API keys). Use these endpoints for full lifecycle management.\n* **` + "`" + `oidc` + "`" + ` users:** Authenticated via an external OpenID Connect provider. Their lifecycle (creation, credentials) is managed externally, but their role assignments *within Weaviate* are managed via the ` + "`" + `authz` + "`" + ` endpoints.",
+      "description": "Endpoints for user account management in Weaviate. This includes operations specific to Weaviate-managed database users (` + "`" + `db` + "`" + ` users), such as creation (which generates an API key), listing, deletion, activation/deactivation, and API key rotation. It also provides operations applicable to any authenticated user (` + "`" + `db` + "`" + ` or ` + "`" + `oidc` + "`" + `), like retrieving their own information (username and assigned roles).\u003cbr/\u003e\u003cbr/\u003e**User Types:**\u003cbr/\u003e* **` + "`" + `db` + "`" + ` users:** Managed entirely within Weaviate (creation, deletion, API keys). Use these endpoints for full lifecycle management.\u003cbr/\u003e* **` + "`" + `oidc` + "`" + ` users:** Authenticated via an external OpenID Connect provider. Their lifecycle (creation, credentials) is managed externally, but their role assignments *within Weaviate* are managed via the ` + "`" + `authz` + "`" + ` endpoints.",
       "name": "users"
     },
     {
-      "description": "Endpoints for managing Weaviate's Role-Based Access Control (RBAC) system. Access to Weaviate resources is granted through roles, which are collections of fine-grained permissions. \n\n**Permissions:** Define allowed actions (e.g., ` + "`" + `read_data` + "`" + `, ` + "`" + `create_collections` + "`" + `, ` + "`" + `delete_users` + "`" + `) on specific resources. Resources can be specified broadly (e.g., all collections: ` + "`" + `*` + "`" + `) or narrowly (e.g., a specific collection name, tenant pattern, user name, or role name).\n\n**Roles:** Are named sets of permissions. Managing roles involves creating roles with specific permissions, retrieving role definitions, deleting roles, and adding or removing permissions from existing roles.\n\n**Role assignment:** Roles grant their contained permissions to users or groups. These endpoints allow assigning roles to:\n* ` + "`" + `db` + "`" + ` users: Users managed directly by Weaviate via API or environment variables, authenticating with API keys.\n* ` + "`" + `oidc` + "`" + ` users: Users authenticated via an external OpenID Connect provider, managed externally but assigned roles within Weaviate.\n* OIDC ` + "`" + `groups` + "`" + `: Users authenticated via OIDC who belong to a group automatically inherit roles assigned to that group.\n\nOperations also include revoking roles, checking if a role has a specific permission, listing roles assigned to a user, and listing users/groups assigned to a role. The authorization framework applies universally to both ` + "`" + `db` + "`" + ` and ` + "`" + `oidc` + "`" + ` users based on their assigned roles.",
+      "description": "Endpoints for managing Weaviate's Role-Based Access Control (RBAC) system. Access to Weaviate resources is granted through roles, which are collections of fine-grained permissions. \u003cbr/\u003e\u003cbr/\u003e**Permissions:** Define allowed actions (e.g., ` + "`" + `read_data` + "`" + `, ` + "`" + `create_collections` + "`" + `, ` + "`" + `delete_users` + "`" + `) on specific resources. Resources can be specified broadly (e.g., all collections: ` + "`" + `*` + "`" + `) or narrowly (e.g., a specific collection name, tenant pattern, user name, or role name).\u003cbr/\u003e\u003cbr/\u003e**Roles:** Are named sets of permissions. Managing roles involves creating roles with specific permissions, retrieving role definitions, deleting roles, and adding or removing permissions from existing roles.\u003cbr/\u003e\u003cbr/\u003e**Role assignment:** Roles grant their contained permissions to users or groups. These endpoints allow assigning roles to:\u003cbr/\u003e* ` + "`" + `db` + "`" + ` users: Users managed directly by Weaviate via API or environment variables, authenticating with API keys.\u003cbr/\u003e* ` + "`" + `oidc` + "`" + ` users: Users authenticated via an external OpenID Connect provider, managed externally but assigned roles within Weaviate.\u003cbr/\u003e* OIDC ` + "`" + `groups` + "`" + `: Users authenticated via OIDC who belong to a group automatically inherit roles assigned to that group.\u003cbr/\u003e\u003cbr/\u003eOperations also include revoking roles, checking if a role has a specific permission, listing roles assigned to a user, and listing users/groups assigned to a role. The authorization framework applies universally to both ` + "`" + `db` + "`" + ` and ` + "`" + `oidc` + "`" + ` users based on their assigned roles.",
       "name": "authz"
     },
     {
@@ -8984,7 +8984,7 @@ func init() {
   ],
   "swagger": "2.0",
   "info": {
-    "description": "# Introduction\n Weaviate is an open source, AI-native vector database that helps developers create intuitive and reliable AI-powered applications. \n ### Base Path \nThe base path for the Weaviate server is structured as ` + "`" + `[YOUR-WEAVIATE-HOST]:[PORT]/v1` + "`" + `. As an example, if you wish to access the ` + "`" + `schema` + "`" + ` endpoint on a local instance, you would navigate to ` + "`" + `http://localhost:8080/v1/schema` + "`" + `. Ensure you replace ` + "`" + `[YOUR-WEAVIATE-HOST]` + "`" + ` and ` + "`" + `[PORT]` + "`" + ` with your actual server host and port number respectively. \n ### Questions? \nIf you have any comments or questions, please feel free to reach out to us at the community forum [https://forum.weaviate.io/](https://forum.weaviate.io/). \n### Issues? \nIf you find a bug or want to file a feature request, please open an issue on our GitHub repository for [Weaviate](https://github.com/weaviate/weaviate). \n### Need more documentation? \nFor a quickstart, code examples, concepts and more, please visit our [documentation page](https://docs.weaviate.io/weaviate).",
+    "description": "# Introduction\u003cbr/\u003e Weaviate is an open source, AI-native vector database that helps developers create intuitive and reliable AI-powered applications. \u003cbr/\u003e ### Base Path \u003cbr/\u003eThe base path for the Weaviate server is structured as ` + "`" + `[YOUR-WEAVIATE-HOST]:[PORT]/v1` + "`" + `. As an example, if you wish to access the ` + "`" + `schema` + "`" + ` endpoint on a local instance, you would navigate to ` + "`" + `http://localhost:8080/v1/schema` + "`" + `. Ensure you replace ` + "`" + `[YOUR-WEAVIATE-HOST]` + "`" + ` and ` + "`" + `[PORT]` + "`" + ` with your actual server host and port number respectively. \u003cbr/\u003e ### Questions? \u003cbr/\u003eIf you have any comments or questions, please feel free to reach out to us at the community forum [https://forum.weaviate.io/](https://forum.weaviate.io/). \u003cbr/\u003e### Issues? \u003cbr/\u003eIf you find a bug or want to file a feature request, please open an issue on our GitHub repository for [Weaviate](https://github.com/weaviate/weaviate). \u003cbr/\u003e### Need more documentation? \u003cbr/\u003eFor a quickstart, code examples, concepts and more, please visit our [documentation page](https://docs.weaviate.io/weaviate).",
     "title": "Weaviate REST API",
     "contact": {
       "name": "Weaviate",
@@ -10567,7 +10567,7 @@ func init() {
         ]
       },
       "post": {
-        "description": "Initiates the creation of a backup for specified collections on a designated backend storage.\n\nNotes:\n- Backups are compressed using gzip by default.\n- Weaviate remains operational during the backup process.",
+        "description": "Initiates the creation of a backup for specified collections on a designated backend storage.\u003cbr/\u003e\u003cbr/\u003eNotes:\u003cbr/\u003e- Backups are compressed using gzip by default.\u003cbr/\u003e- Weaviate remains operational during the backup process.",
         "tags": [
           "backups"
         ],
@@ -10627,7 +10627,7 @@ func init() {
     },
     "/backups/{backend}/{id}": {
       "get": {
-        "description": "Checks the status of a specific backup creation process identified by its ID on the specified backend.\n\nClient libraries often provide a 'wait for completion' feature that polls this endpoint automatically. Use this endpoint for manual status checks or if 'wait for completion' is disabled.",
+        "description": "Checks the status of a specific backup creation process identified by its ID on the specified backend.\u003cbr/\u003e\u003cbr/\u003eClient libraries often provide a 'wait for completion' feature that polls this endpoint automatically. Use this endpoint for manual status checks or if 'wait for completion' is disabled.",
         "tags": [
           "backups"
         ],
@@ -10768,7 +10768,7 @@ func init() {
     },
     "/backups/{backend}/{id}/restore": {
       "get": {
-        "description": "Checks the status of a specific backup restoration process identified by the backup ID on the specified backend.\n\nClient libraries often provide a 'wait for completion' feature that polls this endpoint automatically. Use this endpoint for manual status checks or if 'wait for completion' is disabled.",
+        "description": "Checks the status of a specific backup restoration process identified by the backup ID on the specified backend.\u003cbr/\u003e\u003cbr/\u003eClient libraries often provide a 'wait for completion' feature that polls this endpoint automatically. Use this endpoint for manual status checks or if 'wait for completion' is disabled.",
         "tags": [
           "backups"
         ],
@@ -10836,7 +10836,7 @@ func init() {
         ]
       },
       "post": {
-        "description": "Initiates the restoration of collections from a specified backup located on a designated backend.\n\nRequirements:\n- Target cluster must have the same number of nodes as the source cluster where the backup was created.\n- Collections included in the restore must not already exist on the target cluster.\n- Node names must match between the backup and the target cluster.",
+        "description": "Initiates the restoration of collections from a specified backup located on a designated backend.\u003cbr/\u003e\u003cbr/\u003eRequirements:\u003cbr/\u003e- Target cluster must have the same number of nodes as the source cluster where the backup was created.\u003cbr/\u003e- Collections included in the restore must not already exist on the target cluster.\u003cbr/\u003e- Node names must match between the backup and the target cluster.",
         "tags": [
           "backups"
         ],
@@ -10909,7 +10909,7 @@ func init() {
     },
     "/batch/objects": {
       "post": {
-        "description": "Registers multiple data objects in a single request for efficiency. Metadata and schema values for each object are validated.\n\n**Note (idempotence)**:\nThis operation is idempotent based on the object UUIDs provided. If an object with a given UUID already exists, it will be overwritten (similar to a PUT operation for that specific object within the batch).",
+        "description": "Registers multiple data objects in a single request for efficiency. Metadata and schema values for each object are validated.\u003cbr/\u003e\u003cbr/\u003e**Note (idempotence)**:\u003cbr/\u003eThis operation is idempotent based on the object UUIDs provided. If an object with a given UUID already exists, it will be overwritten (similar to a PUT operation for that specific object within the batch).",
         "tags": [
           "batch",
           "objects"
@@ -11002,7 +11002,7 @@ func init() {
         ]
       },
       "delete": {
-        "description": "Removes multiple data objects based on a filter specified in the request body.\n\nDeletion occurs based on the filter criteria provided in the ` + "`" + `where` + "`" + ` clause. There is a configurable limit (default 10,000, set via ` + "`" + `QUERY_MAXIMUM_RESULTS` + "`" + `) on how many objects can be deleted in a single batch request to prevent excessive resource usage. Objects are deleted in the order they match the filter. To delete more objects than the limit allows, repeat the request until no more matching objects are found.",
+        "description": "Removes multiple data objects based on a filter specified in the request body.\u003cbr/\u003e\u003cbr/\u003eDeletion occurs based on the filter criteria provided in the ` + "`" + `where` + "`" + ` clause. There is a configurable limit (default 10,000, set via ` + "`" + `QUERY_MAXIMUM_RESULTS` + "`" + `) on how many objects can be deleted in a single batch request to prevent excessive resource usage. Objects are deleted in the order they match the filter. To delete more objects than the limit allows, repeat the request until no more matching objects are found.",
         "tags": [
           "batch",
           "objects"
@@ -11677,7 +11677,7 @@ func init() {
         ]
       },
       "post": {
-        "description": "Creates a new data object. The object's metadata and schema values are validated before creation.\n\n**Note (batch import)**:\nIf you plan on importing a large number of objects, using the ` + "`" + `/batch/objects` + "`" + ` endpoint is significantly more efficient than sending multiple single requests.\n\n**Note (idempotence)**:\nThis operation (POST) fails if an object with the provided ID already exists. To update an existing object, use the PUT or PATCH methods.",
+        "description": "Creates a new data object. The object's metadata and schema values are validated before creation.\u003cbr/\u003e\u003cbr/\u003e**Note (batch import)**:\u003cbr/\u003eIf you plan on importing a large number of objects, using the ` + "`" + `/batch/objects` + "`" + ` endpoint is significantly more efficient than sending multiple single requests.\u003cbr/\u003e\u003cbr/\u003e**Note (idempotence)**:\u003cbr/\u003eThis operation (POST) fails if an object with the provided ID already exists. To update an existing object, use the PUT or PATCH methods.",
         "tags": [
           "objects"
         ],
@@ -11744,7 +11744,7 @@ func init() {
     },
     "/objects/validate": {
       "post": {
-        "description": "Checks if a data object's structure conforms to the specified collection schema and metadata rules without actually storing the object.\n\nA successful validation returns a 200 OK status code with no body. If validation fails, an error response with details is returned.",
+        "description": "Checks if a data object's structure conforms to the specified collection schema and metadata rules without actually storing the object.\u003cbr/\u003e\u003cbr/\u003eA successful validation returns a 200 OK status code with no body. If validation fails, an error response with details is returned.",
         "tags": [
           "objects"
         ],
@@ -11965,7 +11965,7 @@ func init() {
         ]
       },
       "delete": {
-        "description": "Removes a data object from a specific collection (class), identified by its collection name (class) and UUID (` + "`" + `id` + "`" + `).\n\n**Note on deleting references (legacy format):**\nFor backward compatibility with older beacon formats (lacking a collection name), deleting a reference requires the beacon in the request to exactly match the stored format. Beacons always use ` + "`" + `localhost` + "`" + ` as the host, indicating the target is within the same Weaviate instance.",
+        "description": "Removes a data object from a specific collection (class), identified by its collection name (class) and UUID (` + "`" + `id` + "`" + `).\u003cbr/\u003e\u003cbr/\u003e**Note on deleting references (legacy format):**\u003cbr/\u003eFor backward compatibility with older beacon formats (lacking a collection name), deleting a reference requires the beacon in the request to exactly match the stored format. Beacons always use ` + "`" + `localhost` + "`" + ` as the host, indicating the target is within the same Weaviate instance.",
         "tags": [
           "objects"
         ],
@@ -12042,11 +12042,11 @@ func init() {
         ]
       },
       "head": {
-        "description": "Verifies the existence of a specific data object within a collection (class), identified by its collection name (class) and UUID (` + "`" + `id` + "`" + `), without returning the object itself.\n\nThis is faster than a GET request as it avoids retrieving and processing object data. Existence is confirmed by a 204 No Content status code, while non-existence results in a 404 Not Found.",
+        "description": "Verifies the existence of a specific data object within a collection (class), identified by its collection name (class) and UUID (` + "`" + `id` + "`" + `), without returning the object itself.\u003cbr/\u003e\u003cbr/\u003eThis is faster than a GET request as it avoids retrieving and processing object data. Existence is confirmed by a 204 No Content status code, while non-existence results in a 404 Not Found.",
         "tags": [
           "objects"
         ],
-        "summary": "Check whether an object exists",
+        "summary": "Check if an object exists",
         "operationId": "objects.class.head",
         "parameters": [
           {
@@ -12674,7 +12674,7 @@ func init() {
         "tags": [
           "objects"
         ],
-        "summary": "Check whether an object exists",
+        "summary": "Check if an object exists",
         "operationId": "objects.head",
         "deprecated": true,
         "parameters": [
@@ -13559,7 +13559,7 @@ func init() {
         ]
       },
       "post": {
-        "description": "Defines and creates a new collection (class) in the schema.\n\nIf ` + "`" + `AutoSchema` + "`" + ` is enabled (not recommended for production), Weaviate might attempt to infer schema from data during import. Manual definition via this endpoint provides explicit control.",
+        "description": "Defines and creates a new collection (class) in the schema.\u003cbr/\u003e\u003cbr/\u003eIf ` + "`" + `AutoSchema` + "`" + ` is enabled (not recommended for production), Weaviate might attempt to infer schema from data during import. Manual definition via this endpoint provides explicit control.",
         "tags": [
           "schema"
         ],
@@ -14266,11 +14266,11 @@ func init() {
         }
       },
       "head": {
-        "description": "Checks for the existence of a specific tenant within the given collection without returning tenant details.",
+        "description": "Checks for the existence of a specific tenant within the given collection (` + "`" + `className` + "`" + `).",
         "tags": [
           "schema"
         ],
-        "summary": "Check whether a tenant exists",
+        "summary": "Check if a tenant exists",
         "operationId": "tenant.exists",
         "parameters": [
           {
@@ -17491,7 +17491,7 @@ func init() {
           ]
         },
         "uncancelable": {
-          "description": "Whether the replica operation is uncancelable.",
+          "description": "Whether the replica operation can't be cancelled.",
           "type": "boolean"
         },
         "whenStartedUnixMs": {
@@ -18369,11 +18369,11 @@ func init() {
       "name": "backups"
     },
     {
-      "description": "Endpoints for user account management in Weaviate. This includes operations specific to Weaviate-managed database users (` + "`" + `db` + "`" + ` users), such as creation (which generates an API key), listing, deletion, activation/deactivation, and API key rotation. It also provides operations applicable to any authenticated user (` + "`" + `db` + "`" + ` or ` + "`" + `oidc` + "`" + `), like retrieving their own information (username and assigned roles).\n\n**User Types:**\n* **` + "`" + `db` + "`" + ` users:** Managed entirely within Weaviate (creation, deletion, API keys). Use these endpoints for full lifecycle management.\n* **` + "`" + `oidc` + "`" + ` users:** Authenticated via an external OpenID Connect provider. Their lifecycle (creation, credentials) is managed externally, but their role assignments *within Weaviate* are managed via the ` + "`" + `authz` + "`" + ` endpoints.",
+      "description": "Endpoints for user account management in Weaviate. This includes operations specific to Weaviate-managed database users (` + "`" + `db` + "`" + ` users), such as creation (which generates an API key), listing, deletion, activation/deactivation, and API key rotation. It also provides operations applicable to any authenticated user (` + "`" + `db` + "`" + ` or ` + "`" + `oidc` + "`" + `), like retrieving their own information (username and assigned roles).\u003cbr/\u003e\u003cbr/\u003e**User Types:**\u003cbr/\u003e* **` + "`" + `db` + "`" + ` users:** Managed entirely within Weaviate (creation, deletion, API keys). Use these endpoints for full lifecycle management.\u003cbr/\u003e* **` + "`" + `oidc` + "`" + ` users:** Authenticated via an external OpenID Connect provider. Their lifecycle (creation, credentials) is managed externally, but their role assignments *within Weaviate* are managed via the ` + "`" + `authz` + "`" + ` endpoints.",
       "name": "users"
     },
     {
-      "description": "Endpoints for managing Weaviate's Role-Based Access Control (RBAC) system. Access to Weaviate resources is granted through roles, which are collections of fine-grained permissions. \n\n**Permissions:** Define allowed actions (e.g., ` + "`" + `read_data` + "`" + `, ` + "`" + `create_collections` + "`" + `, ` + "`" + `delete_users` + "`" + `) on specific resources. Resources can be specified broadly (e.g., all collections: ` + "`" + `*` + "`" + `) or narrowly (e.g., a specific collection name, tenant pattern, user name, or role name).\n\n**Roles:** Are named sets of permissions. Managing roles involves creating roles with specific permissions, retrieving role definitions, deleting roles, and adding or removing permissions from existing roles.\n\n**Role assignment:** Roles grant their contained permissions to users or groups. These endpoints allow assigning roles to:\n* ` + "`" + `db` + "`" + ` users: Users managed directly by Weaviate via API or environment variables, authenticating with API keys.\n* ` + "`" + `oidc` + "`" + ` users: Users authenticated via an external OpenID Connect provider, managed externally but assigned roles within Weaviate.\n* OIDC ` + "`" + `groups` + "`" + `: Users authenticated via OIDC who belong to a group automatically inherit roles assigned to that group.\n\nOperations also include revoking roles, checking if a role has a specific permission, listing roles assigned to a user, and listing users/groups assigned to a role. The authorization framework applies universally to both ` + "`" + `db` + "`" + ` and ` + "`" + `oidc` + "`" + ` users based on their assigned roles.",
+      "description": "Endpoints for managing Weaviate's Role-Based Access Control (RBAC) system. Access to Weaviate resources is granted through roles, which are collections of fine-grained permissions. \u003cbr/\u003e\u003cbr/\u003e**Permissions:** Define allowed actions (e.g., ` + "`" + `read_data` + "`" + `, ` + "`" + `create_collections` + "`" + `, ` + "`" + `delete_users` + "`" + `) on specific resources. Resources can be specified broadly (e.g., all collections: ` + "`" + `*` + "`" + `) or narrowly (e.g., a specific collection name, tenant pattern, user name, or role name).\u003cbr/\u003e\u003cbr/\u003e**Roles:** Are named sets of permissions. Managing roles involves creating roles with specific permissions, retrieving role definitions, deleting roles, and adding or removing permissions from existing roles.\u003cbr/\u003e\u003cbr/\u003e**Role assignment:** Roles grant their contained permissions to users or groups. These endpoints allow assigning roles to:\u003cbr/\u003e* ` + "`" + `db` + "`" + ` users: Users managed directly by Weaviate via API or environment variables, authenticating with API keys.\u003cbr/\u003e* ` + "`" + `oidc` + "`" + ` users: Users authenticated via an external OpenID Connect provider, managed externally but assigned roles within Weaviate.\u003cbr/\u003e* OIDC ` + "`" + `groups` + "`" + `: Users authenticated via OIDC who belong to a group automatically inherit roles assigned to that group.\u003cbr/\u003e\u003cbr/\u003eOperations also include revoking roles, checking if a role has a specific permission, listing roles assigned to a user, and listing users/groups assigned to a role. The authorization framework applies universally to both ` + "`" + `db` + "`" + ` and ` + "`" + `oidc` + "`" + ` users based on their assigned roles.",
       "name": "authz"
     },
     {

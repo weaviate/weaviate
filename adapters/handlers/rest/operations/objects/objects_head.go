@@ -45,7 +45,7 @@ func NewObjectsHead(ctx *middleware.Context, handler ObjectsHeadHandler) *Object
 /*
 	ObjectsHead swagger:route HEAD /objects/{id} objects objectsHead
 
-# Check whether an object exists
+# Check if an object exists
 
 Checks if an object exists in the system based on its UUID. <br/><br/>**Note**: This endpoint is deprecated and will be removed in a future version. Use the `/objects/{className}/{id}` endpoint instead.
 */

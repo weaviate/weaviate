@@ -98,13 +98,9 @@ func (a *Client) BackupsCancel(params *BackupsCancelParams, authInfo runtime.Cli
 }
 
 /*
-	BackupsCreate creates a backup
+BackupsCreate creates a backup
 
-	Initiates the creation of a backup for specified collections on a designated backend storage.
-
-Notes:
-- Backups are compressed using gzip by default.
-- Weaviate remains operational during the backup process.
+Initiates the creation of a backup for specified collections on a designated backend storage.<br/><br/>Notes:<br/>- Backups are compressed using gzip by default.<br/>- Weaviate remains operational during the backup process.
 */
 func (a *Client) BackupsCreate(params *BackupsCreateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*BackupsCreateOK, error) {
 	// TODO: Validate the params before sending
@@ -143,11 +139,9 @@ func (a *Client) BackupsCreate(params *BackupsCreateParams, authInfo runtime.Cli
 }
 
 /*
-	BackupsCreateStatus gets backup creation status
+BackupsCreateStatus gets backup creation status
 
-	Checks the status of a specific backup creation process identified by its ID on the specified backend.
-
-Client libraries often provide a 'wait for completion' feature that polls this endpoint automatically. Use this endpoint for manual status checks or if 'wait for completion' is disabled.
+Checks the status of a specific backup creation process identified by its ID on the specified backend.<br/><br/>Client libraries often provide a 'wait for completion' feature that polls this endpoint automatically. Use this endpoint for manual status checks or if 'wait for completion' is disabled.
 */
 func (a *Client) BackupsCreateStatus(params *BackupsCreateStatusParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*BackupsCreateStatusOK, error) {
 	// TODO: Validate the params before sending
@@ -227,14 +221,9 @@ func (a *Client) BackupsList(params *BackupsListParams, authInfo runtime.ClientA
 }
 
 /*
-	BackupsRestore restores from a backup
+BackupsRestore restores from a backup
 
-	Initiates the restoration of collections from a specified backup located on a designated backend.
-
-Requirements:
-- Target cluster must have the same number of nodes as the source cluster where the backup was created.
-- Collections included in the restore must not already exist on the target cluster.
-- Node names must match between the backup and the target cluster.
+Initiates the restoration of collections from a specified backup located on a designated backend.<br/><br/>Requirements:<br/>- Target cluster must have the same number of nodes as the source cluster where the backup was created.<br/>- Collections included in the restore must not already exist on the target cluster.<br/>- Node names must match between the backup and the target cluster.
 */
 func (a *Client) BackupsRestore(params *BackupsRestoreParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*BackupsRestoreOK, error) {
 	// TODO: Validate the params before sending
@@ -273,11 +262,9 @@ func (a *Client) BackupsRestore(params *BackupsRestoreParams, authInfo runtime.C
 }
 
 /*
-	BackupsRestoreStatus gets backup restoration status
+BackupsRestoreStatus gets backup restoration status
 
-	Checks the status of a specific backup restoration process identified by the backup ID on the specified backend.
-
-Client libraries often provide a 'wait for completion' feature that polls this endpoint automatically. Use this endpoint for manual status checks or if 'wait for completion' is disabled.
+Checks the status of a specific backup restoration process identified by the backup ID on the specified backend.<br/><br/>Client libraries often provide a 'wait for completion' feature that polls this endpoint automatically. Use this endpoint for manual status checks or if 'wait for completion' is disabled.
 */
 func (a *Client) BackupsRestoreStatus(params *BackupsRestoreStatusParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*BackupsRestoreStatusOK, error) {
 	// TODO: Validate the params before sending

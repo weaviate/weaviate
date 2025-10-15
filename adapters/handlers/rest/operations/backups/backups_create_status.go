@@ -47,9 +47,7 @@ func NewBackupsCreateStatus(ctx *middleware.Context, handler BackupsCreateStatus
 
 # Get backup creation status
 
-Checks the status of a specific backup creation process identified by its ID on the specified backend.
-
-Client libraries often provide a 'wait for completion' feature that polls this endpoint automatically. Use this endpoint for manual status checks or if 'wait for completion' is disabled.
+Checks the status of a specific backup creation process identified by its ID on the specified backend.<br/><br/>Client libraries often provide a 'wait for completion' feature that polls this endpoint automatically. Use this endpoint for manual status checks or if 'wait for completion' is disabled.
 */
 type BackupsCreateStatus struct {
 	Context *middleware.Context

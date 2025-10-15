@@ -47,13 +47,7 @@ func NewObjectsCreate(ctx *middleware.Context, handler ObjectsCreateHandler) *Ob
 
 # Create an object
 
-Creates a new data object. The object's metadata and schema values are validated before creation.
-
-**Note (batch import)**:
-If you plan on importing a large number of objects, using the `/batch/objects` endpoint is significantly more efficient than sending multiple single requests.
-
-**Note (idempotence)**:
-This operation (POST) fails if an object with the provided ID already exists. To update an existing object, use the PUT or PATCH methods.
+Creates a new data object. The object's metadata and schema values are validated before creation.<br/><br/>**Note (batch import)**:<br/>If you plan on importing a large number of objects, using the `/batch/objects` endpoint is significantly more efficient than sending multiple single requests.<br/><br/>**Note (idempotence)**:<br/>This operation (POST) fails if an object with the provided ID already exists. To update an existing object, use the PUT or PATCH methods.
 */
 type ObjectsCreate struct {
 	Context *middleware.Context

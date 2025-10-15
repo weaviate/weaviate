@@ -47,9 +47,7 @@ func NewBatchObjectsDelete(ctx *middleware.Context, handler BatchObjectsDeleteHa
 
 # Delete objects in batch
 
-Removes multiple data objects based on a filter specified in the request body.
-
-Deletion occurs based on the filter criteria provided in the `where` clause. There is a configurable limit (default 10,000, set via `QUERY_MAXIMUM_RESULTS`) on how many objects can be deleted in a single batch request to prevent excessive resource usage. Objects are deleted in the order they match the filter. To delete more objects than the limit allows, repeat the request until no more matching objects are found.
+Removes multiple data objects based on a filter specified in the request body.<br/><br/>Deletion occurs based on the filter criteria provided in the `where` clause. There is a configurable limit (default 10,000, set via `QUERY_MAXIMUM_RESULTS`) on how many objects can be deleted in a single batch request to prevent excessive resource usage. Objects are deleted in the order they match the filter. To delete more objects than the limit allows, repeat the request until no more matching objects are found.
 */
 type BatchObjectsDelete struct {
 	Context *middleware.Context

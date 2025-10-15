@@ -329,11 +329,9 @@ func (a *Client) SchemaDump(params *SchemaDumpParams, authInfo runtime.ClientAut
 }
 
 /*
-	SchemaObjectsCreate creates a new collection
+SchemaObjectsCreate creates a new collection
 
-	Defines and creates a new collection (class) in the schema.
-
-If `AutoSchema` is enabled (not recommended for production), Weaviate might attempt to infer schema from data during import. Manual definition via this endpoint provides explicit control.
+Defines and creates a new collection (class) in the schema.<br/><br/>If `AutoSchema` is enabled (not recommended for production), Weaviate might attempt to infer schema from data during import. Manual definition via this endpoint provides explicit control.
 */
 func (a *Client) SchemaObjectsCreate(params *SchemaObjectsCreateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SchemaObjectsCreateOK, error) {
 	// TODO: Validate the params before sending
@@ -618,9 +616,9 @@ func (a *Client) SchemaObjectsUpdate(params *SchemaObjectsUpdateParams, authInfo
 }
 
 /*
-TenantExists checks whether a tenant exists
+TenantExists checks if a tenant exists
 
-Checks for the existence of a specific tenant within the given collection without returning tenant details.
+Checks for the existence of a specific tenant within the given collection (`className`).
 */
 func (a *Client) TenantExists(params *TenantExistsParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*TenantExistsOK, error) {
 	// TODO: Validate the params before sending

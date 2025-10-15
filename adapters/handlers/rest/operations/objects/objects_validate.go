@@ -47,9 +47,7 @@ func NewObjectsValidate(ctx *middleware.Context, handler ObjectsValidateHandler)
 
 # Validate an object
 
-Checks if a data object's structure conforms to the specified collection schema and metadata rules without actually storing the object.
-
-A successful validation returns a 200 OK status code with no body. If validation fails, an error response with details is returned.
+Checks if a data object's structure conforms to the specified collection schema and metadata rules without actually storing the object.<br/><br/>A successful validation returns a 200 OK status code with no body. If validation fails, an error response with details is returned.
 */
 type ObjectsValidate struct {
 	Context *middleware.Context

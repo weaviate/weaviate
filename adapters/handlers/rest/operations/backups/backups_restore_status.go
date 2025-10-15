@@ -47,9 +47,7 @@ func NewBackupsRestoreStatus(ctx *middleware.Context, handler BackupsRestoreStat
 
 # Get backup restoration status
 
-Checks the status of a specific backup restoration process identified by the backup ID on the specified backend.
-
-Client libraries often provide a 'wait for completion' feature that polls this endpoint automatically. Use this endpoint for manual status checks or if 'wait for completion' is disabled.
+Checks the status of a specific backup restoration process identified by the backup ID on the specified backend.<br/><br/>Client libraries often provide a 'wait for completion' feature that polls this endpoint automatically. Use this endpoint for manual status checks or if 'wait for completion' is disabled.
 */
 type BackupsRestoreStatus struct {
 	Context *middleware.Context

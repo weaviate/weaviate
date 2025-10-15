@@ -71,7 +71,7 @@ type ReplicationReplicateDetailsReplicaResponse struct {
 	// Enum: [COPY MOVE]
 	Type *string `json:"type"`
 
-	// Whether the replica operation is uncancelable.
+	// Whether the replica operation can't be cancelled.
 	Uncancelable bool `json:"uncancelable,omitempty"`
 
 	// The UNIX timestamp in ms when the replication operation was initiated. This is an approximate time and so should not be used for precise timing.

@@ -83,12 +83,9 @@ type ClientService interface {
 }
 
 /*
-	ObjectsClassDelete deletes an object
+ObjectsClassDelete deletes an object
 
-	Removes a data object from a specific collection (class), identified by its collection name (class) and UUID (`id`).
-
-**Note on deleting references (legacy format):**
-For backward compatibility with older beacon formats (lacking a collection name), deleting a reference requires the beacon in the request to exactly match the stored format. Beacons always use `localhost` as the host, indicating the target is within the same Weaviate instance.
+Removes a data object from a specific collection (class), identified by its collection name (class) and UUID (`id`).<br/><br/>**Note on deleting references (legacy format):**<br/>For backward compatibility with older beacon formats (lacking a collection name), deleting a reference requires the beacon in the request to exactly match the stored format. Beacons always use `localhost` as the host, indicating the target is within the same Weaviate instance.
 */
 func (a *Client) ObjectsClassDelete(params *ObjectsClassDeleteParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ObjectsClassDeleteNoContent, error) {
 	// TODO: Validate the params before sending
@@ -168,11 +165,9 @@ func (a *Client) ObjectsClassGet(params *ObjectsClassGetParams, authInfo runtime
 }
 
 /*
-	ObjectsClassHead checks whether an object exists
+ObjectsClassHead checks if an object exists
 
-	Verifies the existence of a specific data object within a collection (class), identified by its collection name (class) and UUID (`id`), without returning the object itself.
-
-This is faster than a GET request as it avoids retrieving and processing object data. Existence is confirmed by a 204 No Content status code, while non-existence results in a 404 Not Found.
+Verifies the existence of a specific data object within a collection (class), identified by its collection name (class) and UUID (`id`), without returning the object itself.<br/><br/>This is faster than a GET request as it avoids retrieving and processing object data. Existence is confirmed by a 204 No Content status code, while non-existence results in a 404 Not Found.
 */
 func (a *Client) ObjectsClassHead(params *ObjectsClassHeadParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ObjectsClassHeadNoContent, error) {
 	// TODO: Validate the params before sending
@@ -416,15 +411,9 @@ func (a *Client) ObjectsClassReferencesPut(params *ObjectsClassReferencesPutPara
 }
 
 /*
-	ObjectsCreate creates an object
+ObjectsCreate creates an object
 
-	Creates a new data object. The object's metadata and schema values are validated before creation.
-
-**Note (batch import)**:
-If you plan on importing a large number of objects, using the `/batch/objects` endpoint is significantly more efficient than sending multiple single requests.
-
-**Note (idempotence)**:
-This operation (POST) fails if an object with the provided ID already exists. To update an existing object, use the PUT or PATCH methods.
+Creates a new data object. The object's metadata and schema values are validated before creation.<br/><br/>**Note (batch import)**:<br/>If you plan on importing a large number of objects, using the `/batch/objects` endpoint is significantly more efficient than sending multiple single requests.<br/><br/>**Note (idempotence)**:<br/>This operation (POST) fails if an object with the provided ID already exists. To update an existing object, use the PUT or PATCH methods.
 */
 func (a *Client) ObjectsCreate(params *ObjectsCreateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ObjectsCreateOK, error) {
 	// TODO: Validate the params before sending
@@ -545,7 +534,7 @@ func (a *Client) ObjectsGet(params *ObjectsGetParams, authInfo runtime.ClientAut
 }
 
 /*
-ObjectsHead checks whether an object exists
+ObjectsHead checks if an object exists
 
 Checks if an object exists in the system based on its UUID. <br/><br/>**Note**: This endpoint is deprecated and will be removed in a future version. Use the `/objects/{className}/{id}` endpoint instead.
 */
@@ -832,11 +821,9 @@ func (a *Client) ObjectsUpdate(params *ObjectsUpdateParams, authInfo runtime.Cli
 }
 
 /*
-	ObjectsValidate validates an object
+ObjectsValidate validates an object
 
-	Checks if a data object's structure conforms to the specified collection schema and metadata rules without actually storing the object.
-
-A successful validation returns a 200 OK status code with no body. If validation fails, an error response with details is returned.
+Checks if a data object's structure conforms to the specified collection schema and metadata rules without actually storing the object.<br/><br/>A successful validation returns a 200 OK status code with no body. If validation fails, an error response with details is returned.
 */
 func (a *Client) ObjectsValidate(params *ObjectsValidateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ObjectsValidateOK, error) {
 	// TODO: Validate the params before sending

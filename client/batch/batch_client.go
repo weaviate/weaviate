@@ -51,12 +51,9 @@ type ClientService interface {
 }
 
 /*
-	BatchObjectsCreate creates objects in batch
+BatchObjectsCreate creates objects in batch
 
-	Registers multiple data objects in a single request for efficiency. Metadata and schema values for each object are validated.
-
-**Note (idempotence)**:
-This operation is idempotent based on the object UUIDs provided. If an object with a given UUID already exists, it will be overwritten (similar to a PUT operation for that specific object within the batch).
+Registers multiple data objects in a single request for efficiency. Metadata and schema values for each object are validated.<br/><br/>**Note (idempotence)**:<br/>This operation is idempotent based on the object UUIDs provided. If an object with a given UUID already exists, it will be overwritten (similar to a PUT operation for that specific object within the batch).
 */
 func (a *Client) BatchObjectsCreate(params *BatchObjectsCreateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*BatchObjectsCreateOK, error) {
 	// TODO: Validate the params before sending
@@ -95,11 +92,9 @@ func (a *Client) BatchObjectsCreate(params *BatchObjectsCreateParams, authInfo r
 }
 
 /*
-	BatchObjectsDelete deletes objects in batch
+BatchObjectsDelete deletes objects in batch
 
-	Removes multiple data objects based on a filter specified in the request body.
-
-Deletion occurs based on the filter criteria provided in the `where` clause. There is a configurable limit (default 10,000, set via `QUERY_MAXIMUM_RESULTS`) on how many objects can be deleted in a single batch request to prevent excessive resource usage. Objects are deleted in the order they match the filter. To delete more objects than the limit allows, repeat the request until no more matching objects are found.
+Removes multiple data objects based on a filter specified in the request body.<br/><br/>Deletion occurs based on the filter criteria provided in the `where` clause. There is a configurable limit (default 10,000, set via `QUERY_MAXIMUM_RESULTS`) on how many objects can be deleted in a single batch request to prevent excessive resource usage. Objects are deleted in the order they match the filter. To delete more objects than the limit allows, repeat the request until no more matching objects are found.
 */
 func (a *Client) BatchObjectsDelete(params *BatchObjectsDeleteParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*BatchObjectsDeleteOK, error) {
 	// TODO: Validate the params before sending
