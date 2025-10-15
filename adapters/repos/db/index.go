@@ -1558,6 +1558,18 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 			} else {
 				i.logger.WithField("shardName", shardName).Debug("shard was not found locally, search for object remotely")
 
+				// Skip remote shard if it's still loading to avoid unnecessary latency during rollout
+				if status, sErr := i.remote.GetShardStatus(ctx, shardName); sErr == nil {
+					if status == storagestate.StatusLoading.String() || status == storagestate.StatusLazyLoading.String() {
+						i.logger.WithFields(logrus.Fields{
+							"action":    "remote_object_search_skip_loading",
+							"shardName": shardName,
+							"status":    status,
+						}).Info("skipping remote shard search because shard is loading")
+						return nil
+					}
+				}
+
 				objs, scores, nodeName, err = i.remote.SearchShard(
 					ctx, shardName, nil, nil, 0, limit, filters, keywordRanking,
 					sort, cursor, nil, addlProps, i.replicationEnabled(), nil, properties)
