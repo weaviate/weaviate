@@ -121,7 +121,7 @@ func (r *Router) routingPlanFromReplicas(
 	}
 
 	// Deterministic ordering: sort replica names and align host addresses accordingly
-	sort.Strings(replicas)
+	sort.Sort(sort.Reverse(sort.StringSlice(replicas)))
 	for _, replica := range replicas {
 		if replicaAddr, ok := r.clusterStateReader.NodeHostname(replica); ok {
 			routingPlan.Replicas = append(routingPlan.Replicas, replica)
