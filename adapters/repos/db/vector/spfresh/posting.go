@@ -14,6 +14,7 @@ package spfresh
 import (
 	"encoding/binary"
 	"iter"
+	"math"
 	"sync/atomic"
 
 	"github.com/pkg/errors"
@@ -30,11 +31,61 @@ const (
 type Vector interface {
 	ID() uint64
 	Version() VectorVersion
+	Encode() []byte
 	Distance(distancer *Distancer, other Vector) (float32, error)
 	DistanceWithRaw(distancer *Distancer, other []byte) (float32, error)
 }
 
 var _ Vector = CompressedVector(nil)
+
+type RawVector struct {
+	id      uint64
+	version VectorVersion
+	data    []float32
+}
+
+func NewRawVector(id uint64, version VectorVersion, data []float32) *RawVector {
+	return &RawVector{
+		id:      id,
+		version: version,
+		data:    data,
+	}
+}
+
+func (v *RawVector) ID() uint64 {
+	return v.id
+}
+
+func (v *RawVector) Version() VectorVersion {
+	return v.version
+}
+
+func (v *RawVector) Data() []float32 {
+	return v.data
+}
+
+func (v *RawVector) Distance(distancer *Distancer, other Vector) (float32, error) {
+	u, ok := other.(*RawVector)
+	if !ok {
+		return 0, errors.New("other vector is not an UncompressedVector")
+	}
+
+	return distancer.DistanceBetweenVectors(v.data, u.data)
+}
+
+func (v *RawVector) DistanceWithRaw(distancer *Distancer, other []byte) (float32, error) {
+	return 0, errors.New("not implemented")
+}
+
+func (v *RawVector) Encode() []byte {
+	data := make([]byte, 8+1+len(v.data)*4)
+	binary.LittleEndian.PutUint64(data[:8], v.id)
+	data[8] = byte(v.version)
+	for i := 0; i < len(v.data); i++ {
+		binary.LittleEndian.PutUint32(data[9+i*4:], math.Float32bits(v.data[i]))
+	}
+	return data
+}
 
 // A compressed vector is structured as follows:
 // - 8 bytes for the vector ID (uint64, little endian)
@@ -72,6 +123,10 @@ func (v CompressedVector) Data() []byte {
 	return v[8+1:]
 }
 
+func (v CompressedVector) Encode() []byte {
+	return v
+}
+
 func (v CompressedVector) Distance(distancer *Distancer, other Vector) (float32, error) {
 	c, ok := other.(CompressedVector)
 	if !ok {
@@ -94,24 +149,24 @@ type Posting interface {
 	Clone() Posting
 }
 
-var _ Posting = (*CompressedPosting)(nil)
+var _ Posting = (*EncodedPosting)(nil)
 
 // A Posting is a collection of vectors associated with the same centroid.
-type CompressedPosting struct {
+type EncodedPosting struct {
 	// total size in bytes of each vector
 	vectorSize int
+	compressed bool
 	data       []byte
 }
 
-func (p *CompressedPosting) AddVector(v Vector) {
-	c := v.(CompressedVector)
-	p.data = append(p.data, c...)
+func (p *EncodedPosting) AddVector(v Vector) {
+	p.data = append(p.data, v.Encode()...)
 }
 
 // GarbageCollect filters out vectors that are marked as deleted in the version map
 // and return the filtered posting.
 // This method doesn't allocate a new slice, the filtering is done in-place.
-func (p *CompressedPosting) GarbageCollect(versionMap *VersionMap) Posting {
+func (p *EncodedPosting) GarbageCollect(versionMap *VersionMap) Posting {
 	var i int
 	step := 8 + 1 + p.vectorSize
 	for i < len(p.data) {
@@ -130,7 +185,7 @@ func (p *CompressedPosting) GarbageCollect(versionMap *VersionMap) Posting {
 	return p
 }
 
-func (p *CompressedPosting) Len() int {
+func (p *EncodedPosting) Len() int {
 	step := int(8 + 1 + p.vectorSize)
 	var j int
 	for i := 0; i < len(p.data); i += step {
@@ -140,12 +195,31 @@ func (p *CompressedPosting) Len() int {
 	return j
 }
 
-func (p *CompressedPosting) Iter() iter.Seq2[int, Vector] {
+func (p *EncodedPosting) decode(buf []byte) Vector {
+	if p.compressed {
+		return CompressedVector(buf)
+	}
+
+	id := binary.LittleEndian.Uint64(buf[:8])
+	version := VectorVersion(buf[8])
+	data := make([]float32, (len(buf)-9)/4)
+	for i := range data {
+		data[i] = math.Float32frombits(binary.LittleEndian.Uint32(buf[9+i*4:]))
+	}
+
+	return &RawVector{
+		id:      id,
+		version: version,
+		data:    data,
+	}
+}
+
+func (p *EncodedPosting) Iter() iter.Seq2[int, Vector] {
 	step := 8 + 1 + p.vectorSize
 	return func(yield func(int, Vector) bool) {
 		var j int
 		for i := 0; i < len(p.data); i += step {
-			if !yield(j, CompressedVector(p.data[i:i+step])) {
+			if !yield(j, p.decode(p.data[i:i+step])) {
 				break
 			}
 			j++
@@ -153,25 +227,28 @@ func (p *CompressedPosting) Iter() iter.Seq2[int, Vector] {
 	}
 }
 
-func (p *CompressedPosting) GetAt(i int) Vector {
+func (p *EncodedPosting) GetAt(i int) Vector {
 	step := int(8 + 1 + p.vectorSize)
 	idx := i * step
-	return CompressedVector(p.data[idx : idx+step])
+	return p.decode(p.data[idx : idx+step])
 }
 
-func (p *CompressedPosting) Clone() Posting {
-	return &CompressedPosting{
+func (p *EncodedPosting) Clone() Posting {
+	return &EncodedPosting{
 		vectorSize: p.vectorSize,
 		data:       append([]byte(nil), p.data...),
 	}
 }
 
-func (p *CompressedPosting) Uncompress(quantizer *compressionhelpers.RotationalQuantizer) [][]float32 {
-	step := 8 + 1 + p.vectorSize
-	l := p.Len()
-	data := make([][]float32, 0, l)
-	for i := 0; i < len(p.data); i += step {
-		data = append(data, quantizer.Restore(p.data[i+9:i+step]))
+func (p *EncodedPosting) Uncompress(quantizer *compressionhelpers.RotationalQuantizer) [][]float32 {
+	data := make([][]float32, 0, p.Len())
+
+	for _, v := range p.Iter() {
+		if p.compressed {
+			data = append(data, quantizer.Restore(v.(CompressedVector).Data()))
+		} else {
+			data = append(data, v.(*RawVector).Data())
+		}
 	}
 
 	return data
@@ -241,7 +318,7 @@ func (v *VersionMap) Increment(previousVersion VectorVersion, id uint64) (Vector
 	page, slot := v.versions.GetPageFor(id)
 	ve := page[slot]
 	if ve.Deleted() || ve != previousVersion {
-		return 0, false
+		return ve, false
 	}
 
 	delBit := uint8(ve) & tombstoneMask // 0x00 or 0x80
@@ -250,6 +327,7 @@ func (v *VersionMap) Increment(previousVersion VectorVersion, id uint64) (Vector
 	if counter < 127 {
 		counter++
 	} else {
+		panic("vector version counter wrapped around, need to implement a mechanism to handle this")
 		counter = 0 // wraparound behavior
 	}
 
