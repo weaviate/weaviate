@@ -31,6 +31,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/aggregator"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers/tokenizer"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
@@ -264,6 +265,14 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create new index")
 	}
+
+	customTokenizers, err := tokenizer.InitUserDictTokenizers(invertedIndexConfig.TokenizerUserDict)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to create new index")
+	}
+	tokenizer.CustomTokenizersInitLock.Lock()
+	tokenizer.CustomTokenizers[class.Class] = customTokenizers
+	tokenizer.CustomTokenizersInitLock.Unlock()
 
 	if cfg.QueryNestedRefLimit == 0 {
 		cfg.QueryNestedRefLimit = config.DefaultQueryNestedCrossReferenceLimit

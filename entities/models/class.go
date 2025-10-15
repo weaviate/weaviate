@@ -30,7 +30,6 @@ import (
 //
 // swagger:model Class
 type Class struct {
-
 	// Name of the class (a.k.a. 'collection') (required). Multiple words should be concatenated in CamelCase, e.g. `ArticleAuthor`.
 	Class string `json:"class,omitempty"`
 
@@ -238,7 +237,6 @@ func (m *Class) ContextValidate(ctx context.Context, formats strfmt.Registry) er
 }
 
 func (m *Class) contextValidateInvertedIndexConfig(ctx context.Context, formats strfmt.Registry) error {
-
 	if m.InvertedIndexConfig != nil {
 		if err := m.InvertedIndexConfig.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
@@ -254,7 +252,6 @@ func (m *Class) contextValidateInvertedIndexConfig(ctx context.Context, formats 
 }
 
 func (m *Class) contextValidateMultiTenancyConfig(ctx context.Context, formats strfmt.Registry) error {
-
 	if m.MultiTenancyConfig != nil {
 		if err := m.MultiTenancyConfig.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
@@ -270,9 +267,7 @@ func (m *Class) contextValidateMultiTenancyConfig(ctx context.Context, formats s
 }
 
 func (m *Class) contextValidateProperties(ctx context.Context, formats strfmt.Registry) error {
-
 	for i := 0; i < len(m.Properties); i++ {
-
 		if m.Properties[i] != nil {
 			if err := m.Properties[i].ContextValidate(ctx, formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
@@ -283,14 +278,12 @@ func (m *Class) contextValidateProperties(ctx context.Context, formats strfmt.Re
 				return err
 			}
 		}
-
 	}
 
 	return nil
 }
 
 func (m *Class) contextValidateReplicationConfig(ctx context.Context, formats strfmt.Registry) error {
-
 	if m.ReplicationConfig != nil {
 		if err := m.ReplicationConfig.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
@@ -306,15 +299,12 @@ func (m *Class) contextValidateReplicationConfig(ctx context.Context, formats st
 }
 
 func (m *Class) contextValidateVectorConfig(ctx context.Context, formats strfmt.Registry) error {
-
 	for k := range m.VectorConfig {
-
 		if val, ok := m.VectorConfig[k]; ok {
 			if err := val.ContextValidate(ctx, formats); err != nil {
 				return err
 			}
 		}
-
 	}
 
 	return nil

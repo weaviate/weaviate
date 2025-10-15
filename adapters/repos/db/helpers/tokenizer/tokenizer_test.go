@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package helpers
+package tokenizer
 
 import (
 	"testing"
@@ -25,11 +25,11 @@ func TestTokeniseParallel(t *testing.T) {
 	init_gse_ch()
 	// Kagome tokenizer for Korean
 	t.Setenv("ENABLE_TOKENIZER_KAGOME_KR", "true")
-	_ = initializeKagomeTokenizerKr()
+	tokenizers.Korean, _ = initializeKagomeTokenizerKr(nil)
 
 	// Kagome tokenizer for Japanese
 	t.Setenv("ENABLE_TOKENIZER_KAGOME_JA", "true")
-	_ = initializeKagomeTokenizerJa()
+	tokenizers.Japanese, _ = initializeKagomeTokenizerJa(nil)
 	for i := 0; i < 1000; i++ {
 		go SingleTokenise(t)
 	}
@@ -176,7 +176,7 @@ func TestTokenize(t *testing.T) {
 		}
 
 		for _, tc := range testCases {
-			terms := TokenizeWithWildcards(tc.tokenization, input)
+			terms := TokenizeWithWildcardsForClass(tc.tokenization, input, "")
 			assert.ElementsMatch(t, tc.expected, terms)
 		}
 	})
@@ -190,7 +190,7 @@ func TestTokenizeAndCountDuplicates(t *testing.T) {
 	}
 
 	t.Setenv("ENABLE_TOKENIZER_KAGOME_KR", "true")
-	_ = initializeKagomeTokenizerKr()
+	tokenizers.Korean, _ = initializeKagomeTokenizerKr(nil)
 
 	alphaInput := "Hello You Beautiful World! hello you beautiful world!"
 

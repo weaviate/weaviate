@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers/tokenizer"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
@@ -162,8 +163,8 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 	propNamesByTokenization := map[string][]string{}
 	propertyBoosts := make(map[string]float32, len(params.Properties))
 
-	for _, tokenization := range helpers.Tokenizations {
-		queryTerms, dupBoosts := helpers.TokenizeAndCountDuplicates(tokenization, params.Query)
+	for _, tokenization := range tokenizer.Tokenizations {
+		queryTerms, dupBoosts := tokenizer.TokenizeAndCountDuplicatesForClass(tokenization, params.Query, class.Class)
 		queryTermsByTokenization[tokenization] = queryTerms
 		duplicateBoostsByTokenization[tokenization] = dupBoosts
 
@@ -256,7 +257,7 @@ func (b *BM25Searcher) wand(
 	allQueryTerms := make([]string, 0, 1000)
 	minimumOrTokensMatch := math.MaxInt64
 
-	for _, tokenization := range helpers.Tokenizations {
+	for _, tokenization := range tokenizer.Tokenizations {
 		propNames := propNamesByTokenization[tokenization]
 		if len(propNames) > 0 {
 			queryTerms, duplicateBoosts := queryTermsByTokenization[tokenization], duplicateBoostsByTokenization[tokenization]

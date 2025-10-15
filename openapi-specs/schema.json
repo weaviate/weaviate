@@ -686,6 +686,13 @@
         "usingBlockMaxWAND": {
           "description": "Using BlockMax WAND for query execution (default: 'false', will be 'true' for new collections created after 1.30).",
           "type": "boolean"
+        },
+        "tokenizerUserDict": {
+          "description": "User-defined dictionary for tokenization.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/TokenizerUserDictConfig"
+          }
         }
       },
       "type": "object"
@@ -2931,8 +2938,38 @@
           ]
         }
       }
+    },
+    "TokenizerUserDictConfig": {
+      "description": "A list of pairs of strings that should be replaced with another string during tokenization.",
+      "type": "object",
+      "properties": {
+        "tokenizer": {
+          "description": "The tokenizer to which the user dictionary should be applied. Currently, only the `kagame` ja and kr tokenizers supports user dictionaries.",
+          "type": "string"
+        },
+        "replacements": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "source": {
+                "description": "The string to be replaced.",
+                "type": "string"
+              },
+              "target": {
+                "description": "The string to replace with.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "source",
+              "target"
+            ]
+          }
+        }
+      }
     }
-  },
+},
   "externalDocs": {
     "url": "https://github.com/weaviate/weaviate"
   },
