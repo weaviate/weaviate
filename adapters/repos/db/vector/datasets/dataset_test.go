@@ -24,7 +24,7 @@ import (
 
 func TestLoadDataset(t *testing.T) {
 	logger := logrus.New()
-	hf := NewHubDataset("trengrj/ann-datasets", "dbpedia-openai-ada002-1536-angular-100k", logger)
+	hf := NewHubDataset("tobias-weaviate/ann-datasets", "dbpedia-openai-ada002-1536-float32-angular-100k", logger)
 
 	// Load training data
 	t.Log("Loading training data...")

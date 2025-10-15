@@ -57,13 +57,14 @@ require (
 	github.com/launchdarkly/go-sdk-common/v3 v3.4.0
 	github.com/launchdarkly/go-server-sdk/v7 v7.8.0
 	github.com/minio/minio-go/v7 v7.0.91
-	github.com/parquet-go/parquet-go v0.25.1
 	github.com/nyaruka/phonenumbers v1.2.2
+	github.com/parquet-go/parquet-go v0.25.1
 	github.com/pbnjay/memory v0.0.0-20210728143218-7b4eea64cf58
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.20.5
 	github.com/prometheus/client_model v0.6.2
 	github.com/prometheus/common v0.65.0
+	github.com/puzpuzpuz/xsync/v4 v4.2.0
 	github.com/rs/cors v1.5.0
 	github.com/sirupsen/logrus v1.9.3
 	github.com/spaolacci/murmur3 v1.1.0
@@ -220,7 +221,6 @@ require (
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/power-devops/perfstat v0.0.0-20240221224432-82ca36839d55 // indirect
 	github.com/prometheus/procfs v0.15.1 // indirect
-	github.com/puzpuzpuz/xsync/v4 v4.2.0 // indirect
 	github.com/rivo/uniseg v0.2.0 // indirect
 	github.com/rs/xid v1.6.0 // indirect
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
