@@ -47,7 +47,7 @@ type CreateUserParams struct {
 	  In: body
 	*/
 	Body CreateUserBody
-	/*user id
+	/*The name of the user.
 	  Required: true
 	  In: path
 	*/

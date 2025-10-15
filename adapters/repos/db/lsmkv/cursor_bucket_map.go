@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"time"
 
 	"github.com/weaviate/weaviate/entities/lsmkv"
 )
@@ -41,7 +42,14 @@ type innerCursorMap interface {
 	seek([]byte) ([]byte, []MapPair, error)
 }
 
-func (b *Bucket) MapCursor(cfgs ...MapListOption) *CursorMap {
+func (b *Bucket) MapCursor(cfgs ...MapListOption) (*CursorMap, error) {
+	if b.strategy != StrategyMapCollection && b.strategy != StrategyInverted {
+		return nil, fmt.Errorf("cannot create map cursor on bucket with strategy %s", b.strategy)
+	}
+	cursorOpenedAt := time.Now()
+	b.metrics.IncBucketOpenedCursorsByStrategy(b.strategy)
+	b.metrics.IncBucketOpenCursorsByStrategy(b.strategy)
+
 	b.flushLock.RLock()
 
 	c := MapListOptionConfig{}
@@ -64,18 +72,24 @@ func (b *Bucket) MapCursor(cfgs ...MapListOption) *CursorMap {
 		unlock: func() {
 			unlockSegmentGroup()
 			b.flushLock.RUnlock()
+
+			b.metrics.DecBucketOpenCursorsByStrategy(b.strategy)
+			b.metrics.ObserveBucketCursorDurationByStrategy(b.strategy, time.Since(cursorOpenedAt))
 		},
 		// cursor are in order from oldest to newest, with the memtable cursor
 		// being at the very top
 		innerCursors: innerCursors,
 		listCfg:      c,
-	}
+	}, nil
 }
 
-func (b *Bucket) MapCursorKeyOnly(cfgs ...MapListOption) *CursorMap {
-	c := b.MapCursor(cfgs...)
+func (b *Bucket) MapCursorKeyOnly(cfgs ...MapListOption) (*CursorMap, error) {
+	c, err := b.MapCursor(cfgs...)
+	if err != nil {
+		return nil, err
+	}
 	c.keyOnly = true
-	return c
+	return c, nil
 }
 
 func (c *CursorMap) Seek(ctx context.Context, key []byte) ([]byte, []MapPair) {

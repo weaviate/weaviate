@@ -83,7 +83,7 @@ func NewGetUsersForRoleDeprecatedOK() *GetUsersForRoleDeprecatedOK {
 /*
 GetUsersForRoleDeprecatedOK describes a response with status code 200, with default header values.
 
-Users assigned to this role
+Users assigned to this role.
 */
 type GetUsersForRoleDeprecatedOK struct {
 	Payload []string
@@ -149,7 +149,7 @@ func NewGetUsersForRoleDeprecatedBadRequest() *GetUsersForRoleDeprecatedBadReque
 /*
 GetUsersForRoleDeprecatedBadRequest describes a response with status code 400, with default header values.
 
-Bad request
+Malformed request.
 */
 type GetUsersForRoleDeprecatedBadRequest struct {
 	Payload *models.ErrorResponse
@@ -341,7 +341,7 @@ func NewGetUsersForRoleDeprecatedNotFound() *GetUsersForRoleDeprecatedNotFound {
 /*
 GetUsersForRoleDeprecatedNotFound describes a response with status code 404, with default header values.
 
-no role found
+No role found.
 */
 type GetUsersForRoleDeprecatedNotFound struct {
 }

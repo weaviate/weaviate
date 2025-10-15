@@ -301,14 +301,7 @@ func (s *SPFresh) CompressionStats() compressionhelpers.CompressionStats {
 }
 
 func (s *SPFresh) Preload(id uint64, vector []float32) {
-	if s.config.Centroids.IndexType == "hnsw" {
-		hnswIndex, ok := s.Centroids.(*HNSWIndex)
-		if !ok {
-			return
-		}
-
-		hnswIndex.hnsw.Preload(id, vector)
-	}
+	// for now, nothing to do here
 }
 
 // deduplicator is a simple thread-safe structure to prevent duplicate values.

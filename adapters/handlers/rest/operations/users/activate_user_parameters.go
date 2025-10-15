@@ -41,7 +41,7 @@ type ActivateUserParams struct {
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
-	/*user id
+	/*The name of the user.
 	  Required: true
 	  In: path
 	*/

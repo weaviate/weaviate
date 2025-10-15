@@ -93,7 +93,7 @@ func NewJsonShardMetaData(path string, logger logrus.FieldLogger) (t *JsonShardM
 	bytes, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) { // File doesn't exist, probably a new class(or a recount), return empty tracker
-			logger.Warnf("prop len tracker file %s does not exist, creating new tracker", path)
+			logger.Debugf("prop len tracker file %s does not exist, creating new tracker", path)
 			t.Flush()
 			return t, nil
 		}

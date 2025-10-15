@@ -169,7 +169,7 @@ func (i *Index) writableShard(ctx context.Context, name string) (ShardLike, func
 	localShard, release, err := i.getOrInitShard(ctx, name)
 	if err != nil {
 		return nil, func() {}, &replica.SimpleResponse{Errors: []replica.Error{
-			{Code: replica.StatusShardNotFound, Msg: name},
+			{Code: replica.StatusShardNotFound, Msg: name, Err: err},
 		}}
 	}
 	if localShard.isReadOnly() != nil {

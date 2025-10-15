@@ -66,7 +66,7 @@ func (s VersionedSchemaReader) Read(ctx context.Context,
 		return err
 	}
 
-	return s.schema.Read(class, reader)
+	return s.schema.Read(class, true, reader)
 }
 
 // ReadOnlyClass returns a shallow copy of a class.

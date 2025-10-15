@@ -28,7 +28,7 @@ import (
 const ListAllUsersOKCode int = 200
 
 /*
-ListAllUsersOK Info about the users
+ListAllUsersOK Info about the users.
 
 swagger:response listAllUsersOK
 */
