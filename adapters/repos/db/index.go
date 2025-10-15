@@ -201,7 +201,7 @@ type Index struct {
 
 	cycleCallbacks *indexCycleCallbacks
 
-	shardTransferMutex shardTransfer
+	shardTransferMutex *sync.RWMutex
 	lastBackup         atomic.Pointer[BackupState]
 
 	// canceled when either Shutdown or Drop called
@@ -281,7 +281,7 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 		remote:                  sharding.NewRemoteIndex(cfg.ClassName.String(), sg, nodeResolver, remoteClient),
 		metrics:                 NewMetrics(logger, promMetrics, cfg.ClassName.String(), "n/a"),
 		centralJobQueue:         jobQueueCh,
-		shardTransferMutex:      shardTransfer{log: logger, retryDuration: mutexRetryDuration, notifyDuration: mutexNotifyDuration},
+		shardTransferMutex:      &sync.RWMutex{},
 		scheduler:               scheduler,
 		indexCheckpoints:        indexCheckpoints,
 		allocChecker:            allocChecker,
@@ -984,11 +984,12 @@ func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 				if err != nil {
 					errs = []error{err}
 				} else if shard != nil {
-					i.shardTransferMutex.RLockGuard(func() error {
+					func() {
+						i.shardTransferMutex.RLock()
+						defer i.shardTransferMutex.RUnlock()
 						defer release()
 						errs = shard.PutObjectBatch(ctx, group.objects)
-						return nil
-					})
+					}()
 				} else {
 					errs = i.remote.BatchPutObjects(ctx, shardName, group.objects, schemaVersion)
 				}
@@ -1085,11 +1086,12 @@ func (i *Index) AddReferencesBatch(ctx context.Context, refs objects.BatchRefere
 			if err != nil {
 				errs = duplicateErr(err, len(group.refs))
 			} else if shard != nil {
-				i.shardTransferMutex.RLockGuard(func() error {
+				func() {
+					i.shardTransferMutex.RLock()
+					defer i.shardTransferMutex.RUnlock()
 					defer release()
 					errs = shard.AddReferencesBatch(ctx, group.refs)
-					return nil
-				})
+				}()
 			} else {
 				errs = i.remote.BatchAddReferences(ctx, shardName, group.refs, schemaVersion)
 			}
@@ -2687,11 +2689,12 @@ func (i *Index) batchDeleteObjects(ctx context.Context, shardUUIDs map[string][]
 						objects.BatchSimpleObject{Err: err},
 					}
 				} else if shard != nil {
-					i.shardTransferMutex.RLockGuard(func() error {
+					func() {
+						i.shardTransferMutex.RLock()
+						defer i.shardTransferMutex.RUnlock()
 						defer release()
 						objs = shard.DeleteObjectBatch(ctx, uuids, deletionTime, dryRun)
-						return nil
-					})
+					}()
 				} else {
 					objs = i.remote.DeleteObjectBatch(ctx, shardName, uuids, deletionTime, dryRun, schemaVersion)
 				}

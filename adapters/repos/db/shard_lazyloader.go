@@ -554,7 +554,7 @@ func (l *LazyLoadShard) prepareAddReferences(ctx context.Context, shardID string
 	return l.shard.prepareAddReferences(ctx, shardID, refs)
 }
 
-func (l *LazyLoadShard) commitReplication(ctx context.Context, shardID string, mutex *shardTransfer) interface{} {
+func (l *LazyLoadShard) commitReplication(ctx context.Context, shardID string, mutex *sync.RWMutex) interface{} {
 	l.mustLoad()
 	return l.shard.commitReplication(ctx, shardID, mutex)
 }

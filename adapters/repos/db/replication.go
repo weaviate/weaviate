@@ -155,7 +155,7 @@ func (db *DB) replicatedIndex(name string) (idx *Index, resp *replica.SimpleResp
 			*replica.NewError(replica.StatusClassNotFound, name),
 		}}
 	}
-	return
+	return idx, resp
 }
 
 func (i *Index) writableShard(name string) (ShardLike, func(), *replica.SimpleResponse) {
@@ -253,7 +253,7 @@ func (i *Index) CommitReplication(shard, requestID string) interface{} {
 
 	defer release()
 
-	return localShard.commitReplication(context.Background(), requestID, &i.shardTransferMutex)
+	return localShard.commitReplication(context.Background(), requestID, i.shardTransferMutex)
 }
 
 func (i *Index) AbortReplication(shard, requestID string) interface{} {
@@ -529,7 +529,7 @@ func (i *Index) DigestObjects(ctx context.Context,
 		}
 	}
 
-	return
+	return result, err
 }
 
 func (i *Index) IncomingDigestObjects(ctx context.Context,

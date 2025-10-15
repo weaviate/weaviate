@@ -14,7 +14,6 @@ package db
 import (
 	"context"
 	"fmt"
-	"sync"
 	"time"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -304,52 +303,4 @@ func (i *Index) marshalSchema() ([]byte, error) {
 	}
 
 	return b, err
-}
-
-const (
-	mutexRetryDuration  = time.Millisecond * 500
-	mutexNotifyDuration = 20 * time.Second
-)
-
-// shardTransfer is an adapter built around rwmutex that facilitates cooperative blocking between write and read locks
-type shardTransfer struct {
-	sync.RWMutex
-	log            logrus.FieldLogger
-	retryDuration  time.Duration
-	notifyDuration time.Duration
-}
-
-// LockWithContext attempts to acquire a write lock while respecting the provided context.
-// It reports whether the lock acquisition was successful or if the context has been cancelled.
-func (m *shardTransfer) LockWithContext(ctx context.Context) error {
-	return m.lock(ctx, m.TryLock)
-}
-
-func (m *shardTransfer) lock(ctx context.Context, tryLock func() bool) error {
-	if tryLock() {
-		return nil
-	}
-	curTime := time.Now()
-	t := time.NewTicker(m.retryDuration)
-	defer t.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-t.C:
-			if tryLock() {
-				return nil
-			}
-			if time.Since(curTime) > m.notifyDuration {
-				curTime = time.Now()
-				m.log.Info("backup process waiting for ongoing writes to finish")
-			}
-		}
-	}
-}
-
-func (s *shardTransfer) RLockGuard(reader func() error) error {
-	s.RLock()
-	defer s.RUnlock()
-	return reader()
 }

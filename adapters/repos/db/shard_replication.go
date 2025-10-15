@@ -58,7 +58,7 @@ func (p *pendingReplicaTasks) delete(requestID string) {
 	p.Unlock()
 }
 
-func (s *Shard) commitReplication(ctx context.Context, requestID string, backupReadLock *shardTransfer) interface{} {
+func (s *Shard) commitReplication(ctx context.Context, requestID string, backupReadLock *sync.RWMutex) interface{} {
 	f, ok := s.replicationMap.get(requestID)
 	if !ok {
 		return nil
