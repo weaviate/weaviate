@@ -194,6 +194,14 @@ type Index struct {
 	// RUnlock all picked indices
 	dropIndex sync.RWMutex
 
+	// The other locks in the index should always be called in the given order to prevent deadlocks:
+	// 1. closeLock
+	// 2. backupLock (for a specific shard)
+	// 3. shardCreateLocks (for a specific shard)
+	closeLock        sync.RWMutex       // protects against closing while doing operations
+	backupLock       *esync.KeyRWLocker // prevents writes while a backup is running
+	shardCreateLocks *esync.KeyLocker   // prevents concurrent shard status changes
+
 	metrics          *Metrics
 	centralJobQueue  chan job
 	scheduler        *queue.Scheduler
@@ -201,8 +209,7 @@ type Index struct {
 
 	cycleCallbacks *indexCycleCallbacks
 
-	shardTransferMutex shardTransfer
-	lastBackup         atomic.Pointer[BackupState]
+	lastBackup atomic.Pointer[BackupState]
 
 	// canceled when either Shutdown or Drop called
 	closingCtx    context.Context
@@ -210,16 +217,14 @@ type Index struct {
 
 	// always true if lazy shard loading is off, in the case of lazy shard
 	// loading will be set to true once the last shard was loaded.
-	allShardsReady   atomic.Bool
-	allocChecker     memwatch.AllocChecker
-	shardCreateLocks *esync.KeyLocker
+	allShardsReady atomic.Bool
+	allocChecker   memwatch.AllocChecker
 
 	replicationConfigLock sync.RWMutex
 
 	shardLoadLimiter ShardLoadLimiter
 
-	closeLock sync.RWMutex
-	closed    bool
+	closed bool
 
 	shardReindexer ShardReindexerV3
 }
@@ -281,7 +286,7 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 		remote:                  sharding.NewRemoteIndex(cfg.ClassName.String(), sg, nodeResolver, remoteClient),
 		metrics:                 NewMetrics(logger, promMetrics, cfg.ClassName.String(), "n/a"),
 		centralJobQueue:         jobQueueCh,
-		shardTransferMutex:      shardTransfer{log: logger, retryDuration: mutexRetryDuration, notifyDuration: mutexNotifyDuration},
+		backupLock:              esync.NewKeyRWLocker(),
 		scheduler:               scheduler,
 		indexCheckpoints:        indexCheckpoints,
 		allocChecker:            allocChecker,
@@ -774,8 +779,8 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object,
 	defer release()
 
 	// no replication, local shard
-	i.shardTransferMutex.RLock()
-	defer i.shardTransferMutex.RUnlock()
+	i.backupLock.RLock(shardName)
+	defer i.backupLock.RUnlock(shardName)
 
 	err = shard.PutObject(ctx, object)
 	if err != nil {
@@ -788,9 +793,6 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object,
 func (i *Index) IncomingPutObject(ctx context.Context, shardName string,
 	object *storobj.Object, schemaVersion uint64,
 ) error {
-	i.shardTransferMutex.RLock()
-	defer i.shardTransferMutex.RUnlock()
-
 	// This is a bit hacky, the problem here is that storobj.Parse() currently
 	// misses date fields as it has no way of knowing that a date-formatted
 	// string was actually a date type. However, adding this functionality to
@@ -801,6 +803,9 @@ func (i *Index) IncomingPutObject(ctx context.Context, shardName string,
 	if err := i.parseDateFieldsInProps(object.Object.Properties); err != nil {
 		return err
 	}
+
+	i.backupLock.RLock(shardName)
+	defer i.backupLock.RUnlock(shardName)
 
 	shard, release, err := i.getOrInitShard(ctx, shardName)
 	if err != nil {
@@ -984,11 +989,12 @@ func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 				if err != nil {
 					errs = []error{err}
 				} else if shard != nil {
-					i.shardTransferMutex.RLockGuard(func() error {
+					func() {
+						i.backupLock.RLock(shardName)
+						defer i.backupLock.RUnlock(shardName)
 						defer release()
 						errs = shard.PutObjectBatch(ctx, group.objects)
-						return nil
-					})
+					}()
 				} else {
 					errs = i.remote.BatchPutObjects(ctx, shardName, group.objects, schemaVersion)
 				}
@@ -1019,9 +1025,6 @@ func duplicateErr(in error, count int) []error {
 func (i *Index) IncomingBatchPutObjects(ctx context.Context, shardName string,
 	objects []*storobj.Object, schemaVersion uint64,
 ) []error {
-	i.shardTransferMutex.RLock()
-	defer i.shardTransferMutex.RUnlock()
-
 	// This is a bit hacky, the problem here is that storobj.Parse() currently
 	// misses date fields as it has no way of knowing that a date-formatted
 	// string was actually a date type. However, adding this functionality to
@@ -1034,6 +1037,9 @@ func (i *Index) IncomingBatchPutObjects(ctx context.Context, shardName string,
 			return duplicateErr(err, len(objects))
 		}
 	}
+
+	i.backupLock.RLock(shardName)
+	defer i.backupLock.RUnlock(shardName)
 
 	shard, release, err := i.getOrInitShard(ctx, shardName)
 	if err != nil {
@@ -1085,11 +1091,12 @@ func (i *Index) AddReferencesBatch(ctx context.Context, refs objects.BatchRefere
 			if err != nil {
 				errs = duplicateErr(err, len(group.refs))
 			} else if shard != nil {
-				i.shardTransferMutex.RLockGuard(func() error {
+				func() {
+					i.backupLock.RLock(shardName)
+					defer i.backupLock.RUnlock(shardName)
 					defer release()
 					errs = shard.AddReferencesBatch(ctx, group.refs)
-					return nil
-				})
+				}()
 			} else {
 				errs = i.remote.BatchAddReferences(ctx, shardName, group.refs, schemaVersion)
 			}
@@ -1107,8 +1114,8 @@ func (i *Index) AddReferencesBatch(ctx context.Context, refs objects.BatchRefere
 func (i *Index) IncomingBatchAddReferences(ctx context.Context, shardName string,
 	refs objects.BatchReferences, schemaVersion uint64,
 ) []error {
-	i.shardTransferMutex.RLock()
-	defer i.shardTransferMutex.RUnlock()
+	i.backupLock.RLock(shardName)
+	defer i.backupLock.RUnlock(shardName)
 
 	shard, release, err := i.getOrInitShard(ctx, shardName)
 	if err != nil {
@@ -1965,8 +1972,8 @@ func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID,
 	defer release()
 
 	// no replication, local shard
-	i.shardTransferMutex.RLock()
-	defer i.shardTransferMutex.RUnlock()
+	i.backupLock.RLock(shardName)
+	defer i.backupLock.RUnlock(shardName)
 	if err = shard.DeleteObject(ctx, id, deletionTime); err != nil {
 		return fmt.Errorf("delete local object: shard=%q: %w", shardName, err)
 	}
@@ -1976,8 +1983,8 @@ func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID,
 func (i *Index) IncomingDeleteObject(ctx context.Context, shardName string,
 	id strfmt.UUID, deletionTime time.Time, schemaVersion uint64,
 ) error {
-	i.shardTransferMutex.RLock()
-	defer i.shardTransferMutex.RUnlock()
+	i.backupLock.RLock(shardName)
+	defer i.backupLock.RUnlock(shardName)
 
 	shard, release, err := i.getOrInitShard(ctx, shardName)
 	if err != nil {
@@ -2171,8 +2178,8 @@ func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument,
 	defer release()
 
 	// no replication, local shard
-	i.shardTransferMutex.RLock()
-	defer i.shardTransferMutex.RUnlock()
+	i.backupLock.RLock(shardName)
+	defer i.backupLock.RUnlock(shardName)
 	if err = shard.MergeObject(ctx, merge); err != nil {
 		return fmt.Errorf("update local object: shard=%q: %w", shardName, err)
 	}
@@ -2183,8 +2190,8 @@ func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument,
 func (i *Index) IncomingMergeObject(ctx context.Context, shardName string,
 	mergeDoc objects.MergeDocument, schemaVersion uint64,
 ) error {
-	i.shardTransferMutex.RLock()
-	defer i.shardTransferMutex.RUnlock()
+	i.backupLock.RLock(shardName)
+	defer i.backupLock.RUnlock(shardName)
 
 	shard, release, err := i.getOrInitShard(ctx, shardName)
 	if err != nil {
@@ -2253,9 +2260,6 @@ func (i *Index) IncomingAggregate(ctx context.Context, shardName string,
 }
 
 func (i *Index) drop() error {
-	i.shardTransferMutex.RLock()
-	defer i.shardTransferMutex.RUnlock()
-
 	i.closeLock.Lock()
 	defer i.closeLock.Unlock()
 
@@ -2272,6 +2276,9 @@ func (i *Index) drop() error {
 	fields := logrus.Fields{"action": "drop_shard", "class": i.Config.ClassName}
 	dropShard := func(name string, _ ShardLike) error {
 		eg.Go(func() error {
+			i.backupLock.RLock(name)
+			defer i.backupLock.RUnlock(name)
+
 			i.shardCreateLocks.Lock(name)
 			defer i.shardCreateLocks.Unlock(name)
 
@@ -2310,9 +2317,6 @@ func (i *Index) drop() error {
 }
 
 func (i *Index) dropShards(names []string) error {
-	i.shardTransferMutex.RLock()
-	defer i.shardTransferMutex.RUnlock()
-
 	i.closeLock.RLock()
 	defer i.closeLock.RUnlock()
 
@@ -2327,6 +2331,8 @@ func (i *Index) dropShards(names []string) error {
 	for _, name := range names {
 		name := name
 		eg.Go(func() error {
+			i.backupLock.RLock(name)
+			defer i.backupLock.RUnlock(name)
 			i.shardCreateLocks.Lock(name)
 			defer i.shardCreateLocks.Unlock(name)
 
@@ -2355,9 +2361,6 @@ func (i *Index) dropShards(names []string) error {
 }
 
 func (i *Index) dropCloudShards(ctx context.Context, cloud modulecapabilities.OffloadCloud, names []string, nodeId string) error {
-	i.shardTransferMutex.RLock()
-	defer i.shardTransferMutex.RUnlock()
-
 	i.closeLock.RLock()
 	defer i.closeLock.RUnlock()
 
@@ -2370,8 +2373,9 @@ func (i *Index) dropCloudShards(ctx context.Context, cloud modulecapabilities.Of
 	eg.SetLimit(_NUMCPU * 2)
 
 	for _, name := range names {
-		name := name
 		eg.Go(func() error {
+			i.backupLock.RLock(name)
+			defer i.backupLock.RUnlock(name)
 			i.shardCreateLocks.Lock(name)
 			defer i.shardCreateLocks.Unlock(name)
 
@@ -2389,9 +2393,6 @@ func (i *Index) dropCloudShards(ctx context.Context, cloud modulecapabilities.Of
 }
 
 func (i *Index) Shutdown(ctx context.Context) error {
-	i.shardTransferMutex.RLock()
-	defer i.shardTransferMutex.RUnlock()
-
 	i.closeLock.Lock()
 	defer i.closeLock.Unlock()
 
@@ -2405,6 +2406,9 @@ func (i *Index) Shutdown(ctx context.Context) error {
 
 	// TODO allow every resource cleanup to run, before returning early with error
 	if err := i.shards.RangeConcurrently(i.logger, func(name string, shard ShardLike) error {
+		i.backupLock.RLock(name)
+		defer i.backupLock.RUnlock(name)
+
 		if err := shard.Shutdown(ctx); err != nil {
 			if !errors.Is(err, errAlreadyShutdown) {
 				return errors.Wrapf(err, "shutdown shard %q", name)
@@ -2687,11 +2691,12 @@ func (i *Index) batchDeleteObjects(ctx context.Context, shardUUIDs map[string][]
 						objects.BatchSimpleObject{Err: err},
 					}
 				} else if shard != nil {
-					i.shardTransferMutex.RLockGuard(func() error {
+					func() {
+						i.backupLock.RLock(shardName)
+						defer i.backupLock.RUnlock(shardName)
 						defer release()
 						objs = shard.DeleteObjectBatch(ctx, uuids, deletionTime, dryRun)
-						return nil
-					})
+					}()
 				} else {
 					objs = i.remote.DeleteObjectBatch(ctx, shardName, uuids, deletionTime, dryRun, schemaVersion)
 				}
@@ -2716,8 +2721,8 @@ func (i *Index) batchDeleteObjects(ctx context.Context, shardUUIDs map[string][]
 func (i *Index) IncomingDeleteObjectBatch(ctx context.Context, shardName string,
 	uuids []strfmt.UUID, deletionTime time.Time, dryRun bool, schemaVersion uint64,
 ) objects.BatchSimpleObjects {
-	i.shardTransferMutex.RLock()
-	defer i.shardTransferMutex.RUnlock()
+	i.backupLock.RLock(shardName)
+	defer i.backupLock.RUnlock(shardName)
 
 	shard, release, err := i.getOrInitShard(ctx, shardName)
 	if err != nil {

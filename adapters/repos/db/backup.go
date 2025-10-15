@@ -14,7 +14,6 @@ package db
 import (
 	"context"
 	"fmt"
-	"sync"
 	"time"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -66,12 +65,23 @@ func (db *DB) BackupDescriptors(ctx context.Context, bakid string, classes []str
 	f := func() {
 		for _, c := range classes {
 			desc := backup.ClassDescriptor{Name: c}
-			idx := db.GetIndex(schema.ClassName(c))
-			if idx == nil {
-				desc.Error = fmt.Errorf("class %v doesn't exist any more", c)
-			} else if err := idx.descriptor(ctx, bakid, &desc); err != nil {
-				desc.Error = fmt.Errorf("backup class %v descriptor: %w", c, err)
-			}
+			func() {
+				idx := db.GetIndex(schema.ClassName(c))
+				if idx == nil {
+					desc.Error = fmt.Errorf("class %v doesn't exist any more", c)
+					return
+				}
+				idx.closeLock.RLock()
+				defer idx.closeLock.RUnlock()
+				if idx.closed {
+					desc.Error = fmt.Errorf("index for class %v is closed", c)
+					return
+				}
+				if err := idx.descriptor(ctx, bakid, &desc); err != nil {
+					desc.Error = fmt.Errorf("backup class %v descriptor: %w", c, err)
+				}
+			}()
+
 			ds <- desc
 			if desc.Error != nil {
 				break
@@ -90,6 +100,12 @@ func (db *DB) ShardsBackup(
 	idx := db.GetIndex(schema.ClassName(class))
 	if idx == nil {
 		return cd, fmt.Errorf("no index for class %q", class)
+	}
+
+	idx.closeLock.RLock()
+	defer idx.closeLock.RUnlock()
+	if idx.closed {
+		return cd, fmt.Errorf("index for class %q is closed", class)
 	}
 
 	if err := idx.initBackup(bakID); err != nil {
@@ -112,19 +128,24 @@ func (db *DB) ShardsBackup(
 	}
 
 	// prevent writing into the index during collection of metadata
-	idx.shardTransferMutex.Lock()
-	defer idx.shardTransferMutex.Unlock()
 	for shardName, shard := range sm {
-		if err := shard.HaltForTransfer(ctx, false); err != nil {
-			return cd, fmt.Errorf("class %q: shard %q: begin backup: %w", class, shardName, err)
-		}
+		if err := func() error {
+			if err := shard.HaltForTransfer(ctx, false); err != nil {
+				return fmt.Errorf("class %q: shard %q: begin backup: %w", class, shardName, err)
+			}
+			idx.backupLock.Lock(shardName)
+			defer idx.backupLock.Unlock(shardName)
 
-		sd := backup.ShardDescriptor{Name: shardName}
-		if err := shard.ListBackupFiles(ctx, &sd); err != nil {
-			return cd, fmt.Errorf("class %q: shard %q: list backup files: %w", class, shardName, err)
-		}
+			sd := backup.ShardDescriptor{Name: shardName}
+			if err := shard.ListBackupFiles(ctx, &sd); err != nil {
+				return fmt.Errorf("class %q: shard %q: list backup files: %w", class, shardName, err)
+			}
 
-		cd.Shards = append(cd.Shards, &sd)
+			cd.Shards = append(cd.Shards, &sd)
+			return nil
+		}(); err != nil {
+			return cd, err
+		}
 	}
 
 	return cd, nil
@@ -213,15 +234,16 @@ func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.Cl
 			enterrors.GoWrapper(func() { i.ReleaseBackup(ctx, backupID) }, i.logger)
 		}
 	}()
-	// prevent writing into the index during collection of metadata
-	i.shardTransferMutex.Lock()
-	defer i.shardTransferMutex.Unlock()
 
 	if err = i.ForEachShard(func(name string, s ShardLike) error {
 		if err = s.HaltForTransfer(ctx, false); err != nil {
 			return fmt.Errorf("pause compaction and flush: %w", err)
 		}
+		// prevent writing into the index during collection of metadata
+		i.backupLock.Lock(name)
+		defer i.backupLock.Unlock(name)
 		var sd backup.ShardDescriptor
+
 		if err := s.ListBackupFiles(ctx, &sd); err != nil {
 			return fmt.Errorf("list shard %v files: %w", s.Name(), err)
 		}
@@ -304,52 +326,4 @@ func (i *Index) marshalSchema() ([]byte, error) {
 	}
 
 	return b, err
-}
-
-const (
-	mutexRetryDuration  = time.Millisecond * 500
-	mutexNotifyDuration = 20 * time.Second
-)
-
-// shardTransfer is an adapter built around rwmutex that facilitates cooperative blocking between write and read locks
-type shardTransfer struct {
-	sync.RWMutex
-	log            logrus.FieldLogger
-	retryDuration  time.Duration
-	notifyDuration time.Duration
-}
-
-// LockWithContext attempts to acquire a write lock while respecting the provided context.
-// It reports whether the lock acquisition was successful or if the context has been cancelled.
-func (m *shardTransfer) LockWithContext(ctx context.Context) error {
-	return m.lock(ctx, m.TryLock)
-}
-
-func (m *shardTransfer) lock(ctx context.Context, tryLock func() bool) error {
-	if tryLock() {
-		return nil
-	}
-	curTime := time.Now()
-	t := time.NewTicker(m.retryDuration)
-	defer t.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-t.C:
-			if tryLock() {
-				return nil
-			}
-			if time.Since(curTime) > m.notifyDuration {
-				curTime = time.Now()
-				m.log.Info("backup process waiting for ongoing writes to finish")
-			}
-		}
-	}
-}
-
-func (s *shardTransfer) RLockGuard(reader func() error) error {
-	s.RLock()
-	defer s.RUnlock()
-	return reader()
 }

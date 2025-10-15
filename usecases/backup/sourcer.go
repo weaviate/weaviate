@@ -37,9 +37,4 @@ type Sourcer interface { // implemented by the index
 
 	// ClassExists checks whether a class exits or not
 	ClassExists(name string) bool
-
-	// ListBackupable returns a list of all classes which can be backed up.
-	//
-	// A class cannot be backed up either if it doesn't exist or if it has more than one physical shard.
-	ListBackupable() []string
 }
