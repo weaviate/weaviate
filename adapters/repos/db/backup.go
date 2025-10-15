@@ -65,12 +65,18 @@ func (db *DB) BackupDescriptors(ctx context.Context, bakid string, classes []str
 	f := func() {
 		for _, c := range classes {
 			desc := backup.ClassDescriptor{Name: c}
-			idx := db.GetIndex(schema.ClassName(c))
-			if idx == nil {
-				desc.Error = fmt.Errorf("class %v doesn't exist any more", c)
-			} else if err := idx.descriptor(ctx, bakid, &desc); err != nil {
-				desc.Error = fmt.Errorf("backup class %v descriptor: %w", c, err)
-			}
+			func() {
+				idx := db.GetIndex(schema.ClassName(c))
+				if idx == nil {
+					desc.Error = fmt.Errorf("class %v doesn't exist any more", c)
+				}
+				idx.closeLock.Lock()
+				defer idx.closeLock.Unlock()
+				if err := idx.descriptor(ctx, bakid, &desc); err != nil {
+					desc.Error = fmt.Errorf("backup class %v descriptor: %w", c, err)
+				}
+			}()
+
 			ds <- desc
 			if desc.Error != nil {
 				break
