@@ -785,6 +785,11 @@ func (h *Handler) validatePropertyTokenization(tokenization string, propertyData
 					return fmt.Errorf("the GSE tokenizer is not enabled; set 'ENABLE_TOKENIZER_GSE' to 'true' to enable")
 				}
 				return nil
+			case models.PropertyTokenizationGseCh:
+				if !entcfg.Enabled(os.Getenv("ENABLE_TOKENIZER_GSE_CH")) {
+					return fmt.Errorf("the Chinese tokenizer is not enabled; set 'ENABLE_TOKENIZER_GSE_CH' to 'true' to enable")
+				}
+				return nil
 			case models.PropertyTokenizationKagomeKr:
 				if !entcfg.Enabled(os.Getenv("ENABLE_TOKENIZER_KAGOME_KR")) {
 					return fmt.Errorf("the Korean tokenizer is not enabled; set 'ENABLE_TOKENIZER_KAGOME_KR' to 'true' to enable")
@@ -913,6 +918,11 @@ func (h *Handler) validateVectorIndexType(vectorIndexType string) error {
 	case vectorindex.VectorIndexTypeDYNAMIC:
 		if !h.asyncIndexingEnabled {
 			return fmt.Errorf("the dynamic index can only be created under async indexing environment (ASYNC_INDEXING=true)")
+		}
+		return nil
+	case vectorindex.VectorIndexTypeSPFresh:
+		if !h.config.SPFreshEnabled {
+			return fmt.Errorf("the spfresh index is available only in experimental mode")
 		}
 		return nil
 	default:

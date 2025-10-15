@@ -13,6 +13,7 @@ package spfresh
 
 import (
 	"context"
+	"time"
 
 	"github.com/pkg/errors"
 )
@@ -38,6 +39,8 @@ func (s *SPFresh) enqueueMerge(ctx context.Context, postingID uint64) error {
 	// Enqueue the operation to the channel
 	s.mergeCh.Push(postingID)
 
+	s.metrics.EnqueueMergeTask()
+
 	return nil
 }
 
@@ -49,13 +52,15 @@ func (s *SPFresh) mergeWorker() {
 			return // Exit if the context is cancelled
 		}
 
+		s.metrics.DequeueMergeTask()
+
 		err := s.doMerge(postingID)
 		if err != nil {
 			if errors.Is(err, context.Canceled) {
 				continue
 			}
 
-			s.Logger.WithError(err).
+			s.logger.WithError(err).
 				WithField("postingID", postingID).
 				Error("Failed to process merge operation")
 			continue // Log the error and continue processing other operations
@@ -64,12 +69,20 @@ func (s *SPFresh) mergeWorker() {
 }
 
 func (s *SPFresh) doMerge(postingID uint64) error {
+	start := time.Now()
+	defer s.metrics.MergeDuration(start)
+
 	defer s.mergeList.done(postingID)
 
-	s.Logger.WithField("postingID", postingID).Debug("Merging posting")
+	s.logger.WithField("postingID", postingID).Debug("Merging posting")
 
 	var markedAsDone bool
-	s.postingLocks.Lock(postingID)
+	if !s.postingLocks.TryLock(postingID) {
+		// another merge operation is in progress for this posting
+		// re-enqueue the operation to be processed later
+		s.mergeList.done(postingID) // remove from the in-progress list
+		return s.enqueueMerge(s.ctx, postingID)
+	}
 	defer func() {
 		if !markedAsDone {
 			s.postingLocks.Unlock(postingID)
@@ -77,8 +90,8 @@ func (s *SPFresh) doMerge(postingID uint64) error {
 	}()
 
 	// Ensure the posting exists in the index
-	if !s.SPTAG.Exists(postingID) {
-		s.Logger.WithField("postingID", postingID).
+	if !s.Centroids.Exists(postingID) {
+		s.logger.WithField("postingID", postingID).
 			Debug("Posting not found, skipping merge operation")
 		return nil // Nothing to merge
 	}
@@ -86,7 +99,7 @@ func (s *SPFresh) doMerge(postingID uint64) error {
 	p, err := s.Store.Get(s.ctx, postingID)
 	if err != nil {
 		if errors.Is(err, ErrPostingNotFound) {
-			s.Logger.WithField("postingID", postingID).
+			s.logger.WithField("postingID", postingID).
 				Debug("Posting not found, skipping merge operation")
 			return nil
 		}
@@ -98,18 +111,14 @@ func (s *SPFresh) doMerge(postingID uint64) error {
 
 	// garbage collect the deleted vectors
 	newPosting := p.GarbageCollect(s.VersionMap)
-	vectorSet := make(map[uint64]struct{})
-	for _, v := range p.Iter() {
-		vectorSet[v.ID()] = struct{}{}
-	}
 	prevLen := newPosting.Len()
 
 	// skip if the posting is big enough
-	if prevLen >= int(s.Config.MinPostingSize) {
-		s.Logger.
+	if prevLen >= int(s.config.MinPostingSize) {
+		s.logger.
 			WithField("postingID", postingID).
 			WithField("size", prevLen).
-			WithField("min", s.Config.MinPostingSize).
+			WithField("min", s.config.MinPostingSize).
 			Debug("Posting is big enough, skipping merge operation")
 
 		if prevLen == initialLen {
@@ -128,20 +137,25 @@ func (s *SPFresh) doMerge(postingID uint64) error {
 		return nil
 	}
 
+	vectorSet := make(map[uint64]struct{})
+	for _, v := range p.Iter() {
+		vectorSet[v.ID()] = struct{}{}
+	}
+
 	// get posting centroid
-	oldCentroid := s.SPTAG.Get(postingID)
+	oldCentroid := s.Centroids.Get(postingID)
 	if oldCentroid == nil {
 		return errors.Errorf("centroid not found for posting %d", postingID)
 	}
 
 	// search for the closest centroids
-	nearest, err := s.SPTAG.Search(oldCentroid.Vector, s.Config.InternalPostingCandidates)
+	nearest, err := s.Centroids.Search(oldCentroid.Uncompressed, s.config.InternalPostingCandidates)
 	if err != nil {
 		return errors.Wrapf(err, "failed to search for nearest centroid for posting %d", postingID)
 	}
 
-	if len(nearest) <= 1 {
-		s.Logger.WithField("postingID", postingID).
+	if nearest.Len() <= 1 {
+		s.logger.WithField("postingID", postingID).
 			Debug("No candidates found for merge operation, skipping")
 
 		// persist the gc'ed posting
@@ -156,30 +170,30 @@ func (s *SPFresh) doMerge(postingID uint64) error {
 	}
 
 	// first centroid is the query centroid, the rest are candidates for merging
-	for i := 1; i < len(nearest); i++ {
+	for candidateID := range nearest.Iter() {
 		// check if the combined size of the postings is within limits
-		count := s.PostingSizes.Get(nearest[i].ID)
-		if int(count)+prevLen > int(s.Config.MaxPostingSize) || s.mergeList.contains(nearest[i].ID) {
+		count := s.PostingSizes.Get(candidateID)
+		if int(count)+prevLen > int(s.config.MaxPostingSize) || s.mergeList.contains(candidateID) {
 			continue // Skip this candidate
 		}
 
 		// lock the candidate posting to ensure no concurrent modifications
 		// note: the candidate lock might be the same as the current posting lock
 		// so we need to ensure we don't deadlock
-		if s.postingLocks.Hash(postingID) != s.postingLocks.Hash(nearest[i].ID) {
+		if s.postingLocks.Hash(postingID) != s.postingLocks.Hash(candidateID) {
 			// lock the candidate posting
-			s.postingLocks.Lock(nearest[i].ID)
+			s.postingLocks.Lock(candidateID)
 			defer func() {
 				if !markedAsDone {
-					s.postingLocks.Unlock(nearest[i].ID)
+					s.postingLocks.Unlock(candidateID)
 				}
 			}()
 		}
 
 		// get the candidate posting
-		candidate, err := s.Store.Get(s.ctx, nearest[i].ID)
+		candidate, err := s.Store.Get(s.ctx, candidateID)
 		if err != nil {
-			return errors.Wrapf(err, "failed to get candidate posting %d for merge operation on posting %d", nearest[i].ID, postingID)
+			return errors.Wrapf(err, "failed to get candidate posting %d for merge operation on posting %d", candidateID, postingID)
 		}
 
 		var candidateLen int
@@ -196,15 +210,15 @@ func (s *SPFresh) doMerge(postingID uint64) error {
 		}
 
 		// delete the smallest posting and update the large posting
-		smallID, largeID := postingID, nearest[i].ID
+		smallID, largeID := postingID, candidateID
 		smallPosting := p
 		if prevLen > candidateLen {
-			smallID, largeID = nearest[i].ID, postingID
+			smallID, largeID = candidateID, postingID
 			smallPosting = candidate
 		}
 
 		// mark the small posting as deleted in the SPTAG
-		err = s.SPTAG.MarkAsDeleted(smallID)
+		err = s.Centroids.MarkAsDeleted(smallID)
 		if err != nil {
 			return errors.Wrapf(err, "failed to delete centroid for posting %d", smallID)
 		}
@@ -221,23 +235,23 @@ func (s *SPFresh) doMerge(postingID uint64) error {
 
 		// mark the operation as done and unlock everything
 		markedAsDone = true
-		if s.postingLocks.Hash(postingID) != s.postingLocks.Hash(nearest[i].ID) {
-			s.postingLocks.Unlock(nearest[i].ID)
+		if s.postingLocks.Hash(postingID) != s.postingLocks.Hash(candidateID) {
+			s.postingLocks.Unlock(candidateID)
 		}
 		s.postingLocks.Unlock(postingID)
 
 		// if merged vectors are closer to their old centroid than the new one
 		// there may be better centroids for them out there.
 		// we need to reassign them in the background.
-		smallCentroid := s.SPTAG.Get(smallID)
-		largeCentroid := s.SPTAG.Get(largeID)
+		smallCentroid := s.Centroids.Get(smallID)
+		largeCentroid := s.Centroids.Get(largeID)
 		for _, v := range smallPosting.Iter() {
-			prevDist, err := smallCentroid.Vector.Distance(s.distancer, v)
+			prevDist, err := v.DistanceWithRaw(s.distancer, smallCentroid.Compressed)
 			if err != nil {
 				return errors.Wrapf(err, "failed to compute distance for vector %d in small posting %d", v.ID(), smallID)
 			}
 
-			newDist, err := largeCentroid.Vector.Distance(s.distancer, v)
+			newDist, err := v.DistanceWithRaw(s.distancer, largeCentroid.Compressed)
 			if err != nil {
 				return errors.Wrapf(err, "failed to compute distance for vector %d in large posting %d", v.ID(), largeID)
 			}

@@ -16,6 +16,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"sync/atomic"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
@@ -27,18 +28,29 @@ type LSMStore struct {
 	bucket     *lsmkv.Bucket
 	vectorSize atomic.Int32
 	locks      *common.ShardedRWLocks
+	metrics    *Metrics
 }
 
-func NewLSMStore(store *lsmkv.Store, bucketName string) (*LSMStore, error) {
-	err := store.CreateOrLoadBucket(context.Background(), bucketName, lsmkv.WithStrategy(lsmkv.StrategySetCollection))
+func NewLSMStore(store *lsmkv.Store, metrics *Metrics, bucketName string, cfg StoreConfig) (*LSMStore, error) {
+	err := store.CreateOrLoadBucket(context.Background(),
+		bucketName,
+		lsmkv.WithStrategy(lsmkv.StrategySetCollection),
+		lsmkv.WithAllocChecker(cfg.AllocChecker),
+		lsmkv.WithMinMMapSize(cfg.MinMMapSize),
+		lsmkv.WithMinWalThreshold(cfg.MaxReuseWalSize),
+		lsmkv.WithLazySegmentLoading(cfg.LazyLoadSegments),
+		lsmkv.WithWriteSegmentInfoIntoFileName(cfg.WriteSegmentInfoIntoFileName),
+		lsmkv.WithWriteMetadata(cfg.WriteMetadataFilesEnabled),
+	)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to create or load bucket %s", bucketName)
 	}
 
 	return &LSMStore{
-		store:  store,
-		bucket: store.Bucket(bucketName),
-		locks:  common.NewDefaultShardedRWLocks(),
+		store:   store,
+		bucket:  store.Bucket(bucketName),
+		locks:   common.NewDefaultShardedRWLocks(),
+		metrics: metrics,
 	}, nil
 }
 
@@ -50,6 +62,9 @@ func (l *LSMStore) Init(size int32) {
 }
 
 func (l *LSMStore) Get(ctx context.Context, postingID uint64) (Posting, error) {
+	start := time.Now()
+	defer l.metrics.StoreGetDuration(start)
+
 	vectorSize := l.vectorSize.Load()
 	if vectorSize == 0 {
 		// the store is empty
@@ -64,10 +79,6 @@ func (l *LSMStore) Get(ctx context.Context, postingID uint64) (Posting, error) {
 
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get posting %d", postingID)
-	}
-
-	if len(list) == 0 {
-		return nil, errors.WithStack(ErrPostingNotFound)
 	}
 
 	posting := CompressedPosting{
@@ -103,6 +114,9 @@ func (l *LSMStore) MultiGet(ctx context.Context, postingIDs []uint64) ([]Posting
 }
 
 func (l *LSMStore) Put(ctx context.Context, postingID uint64, posting Posting) error {
+	start := time.Now()
+	defer l.metrics.StorePutDuration(start)
+
 	if posting == nil {
 		return errors.New("posting cannot be nil")
 	}
@@ -133,6 +147,9 @@ func (l *LSMStore) Put(ctx context.Context, postingID uint64, posting Posting) e
 }
 
 func (l *LSMStore) Append(ctx context.Context, postingID uint64, vector Vector) error {
+	start := time.Now()
+	defer l.metrics.StoreAppendDuration(start)
+
 	var buf [8]byte
 	binary.LittleEndian.PutUint64(buf[:], postingID)
 
@@ -140,10 +157,6 @@ func (l *LSMStore) Append(ctx context.Context, postingID uint64, vector Vector) 
 	defer l.locks.Unlock(postingID)
 
 	return l.bucket.SetAdd(buf[:], [][]byte{vector.(CompressedVector)})
-}
-
-func (l *LSMStore) Flush() error {
-	return l.bucket.FlushMemtable()
 }
 
 func bucketName(id string) string {

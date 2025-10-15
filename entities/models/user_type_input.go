@@ -25,7 +25,7 @@ import (
 	"github.com/go-openapi/validate"
 )
 
-// UserTypeInput the type of user
+// UserTypeInput The type of the user. `db` users are managed by Weaviate, `oidc` users are managed by an external OIDC provider.
 //
 // swagger:model UserTypeInput
 type UserTypeInput string

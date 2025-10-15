@@ -53,6 +53,7 @@ var dynamicBucket = []byte("dynamic")
 type Index interface {
 	// UnderlyingIndex returns the underlying index type (flat or hnsw)
 	UnderlyingIndex() common.IndexType
+	IsUpgraded() bool
 }
 
 type VectorIndex interface {
@@ -73,6 +74,7 @@ type VectorIndex interface {
 	Multivector() bool
 	ValidateBeforeInsert(vector []float32) error
 	ContainsDoc(docID uint64) bool
+	Preload(id uint64, vector []float32)
 	QueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer
 	// Iterate over all indexed document ids in the index.
 	// Consistency or order is not guaranteed, as the index may be concurrently modified.
@@ -271,10 +273,7 @@ func (dynamic *dynamic) getBucketName() string {
 }
 
 func (dynamic *dynamic) getCompressedBucketName() string {
-	if dynamic.targetVector != "" {
-		return fmt.Sprintf("%s_%s", helpers.VectorsCompressedBucketLSM, dynamic.targetVector)
-	}
-	return helpers.VectorsCompressedBucketLSM
+	return helpers.GetCompressedBucketName(dynamic.targetVector)
 }
 
 func (dynamic *dynamic) Compressed() bool {
@@ -412,6 +411,12 @@ func (dynamic *dynamic) ContainsDoc(docID uint64) bool {
 	return dynamic.index.ContainsDoc(docID)
 }
 
+func (dynamic *dynamic) Preload(id uint64, vector []float32) {
+	dynamic.RLock()
+	defer dynamic.RUnlock()
+	dynamic.index.Preload(id, vector)
+}
+
 func (dynamic *dynamic) AlreadyIndexed() uint64 {
 	dynamic.RLock()
 	defer dynamic.RUnlock()
@@ -459,12 +464,14 @@ func (dynamic *dynamic) Upgrade(callback func()) error {
 	dynamic.upgradeOnce.Do(func() {
 		enterrors.GoWrapper(func() {
 			defer callback()
+			dynamic.logger.WithField("shard", dynamic.shardName).WithField("class", dynamic.className).Debugf("upgrade to HNSW started")
 
 			err := dynamic.doUpgrade()
 			if err != nil {
 				dynamic.logger.WithError(err).Error("failed to upgrade index")
 				return
 			}
+			dynamic.logger.WithField("shard", dynamic.shardName).WithField("class", dynamic.className).Debugf("upgrade to HNSW completed")
 		}, dynamic.logger)
 	})
 
@@ -659,6 +666,18 @@ func (dynamic *dynamic) UnderlyingIndex() common.IndexType {
 	dynamic.RLock()
 	defer dynamic.RUnlock()
 	return dynamic.index.Type()
+}
+
+func (dynamic *dynamic) IsUpgraded() bool {
+	dynamic.RLock()
+	defer dynamic.RUnlock()
+	return dynamic.upgraded.Load()
+}
+
+type DynamicStats struct{}
+
+func (s *DynamicStats) IndexType() common.IndexType {
+	return common.IndexTypeDynamic
 }
 
 // to make sure the dynamic index satisfies the Index interface

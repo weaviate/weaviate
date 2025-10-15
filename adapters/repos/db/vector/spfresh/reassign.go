@@ -13,6 +13,7 @@ package spfresh
 
 import (
 	"context"
+	"time"
 
 	"github.com/pkg/errors"
 )
@@ -38,6 +39,8 @@ func (s *SPFresh) enqueueReassign(ctx context.Context, postingID uint64, vector 
 	// Enqueue the operation to the channel
 	s.reassignCh.Push(reassignOperation{PostingID: postingID, Vector: vector})
 
+	s.metrics.EnqueueReassignTask()
+
 	return nil
 }
 
@@ -49,13 +52,15 @@ func (s *SPFresh) reassignWorker() {
 			return
 		}
 
+		s.metrics.DequeueReassignTask()
+
 		err := s.doReassign(op)
 		if err != nil {
 			if errors.Is(err, context.Canceled) {
 				continue
 			}
 
-			s.Logger.WithError(err).
+			s.logger.WithError(err).
 				WithField("vectorID", op.Vector.ID).
 				Error("Failed to process reassign operation")
 			continue // Log the error and continue processing other operations
@@ -64,7 +69,8 @@ func (s *SPFresh) reassignWorker() {
 }
 
 func (s *SPFresh) doReassign(op reassignOperation) error {
-	s.Logger.WithField("vectorID", op.Vector.ID()).Debug("Processing reassign operation")
+	start := time.Now()
+	defer s.metrics.ReassignDuration(start)
 
 	// check if the vector is still valid
 	version := s.VersionMap.Get(op.Vector.ID())
@@ -74,13 +80,15 @@ func (s *SPFresh) doReassign(op reassignOperation) error {
 
 	// perform a RNG selection to determine the postings where the vector should be
 	// reassigned to.
-	replicas, needsReassign, err := s.RNGSelect(op.Vector, op.PostingID)
+	q := s.quantizer.Restore(op.Vector.(CompressedVector).Data())
+	replicas, needsReassign, err := s.RNGSelect(q, op.PostingID)
 	if err != nil {
 		return errors.Wrap(err, "failed to select replicas")
 	}
 	if !needsReassign {
 		return nil
 	}
+
 	// check again if the version is still valid
 	version = s.VersionMap.Get(op.Vector.ID())
 	if version.Deleted() || version.Version() > op.Vector.Version().Version() {
@@ -92,7 +100,7 @@ func (s *SPFresh) doReassign(op reassignOperation) error {
 	version, ok := s.VersionMap.Increment(version, op.Vector.ID())
 	if !ok {
 		// Increment fails if a concurrent Increment happened (similar to a CAS operation)
-		s.Logger.WithField("vectorID", op.Vector.ID()).
+		s.logger.WithField("vectorID", op.Vector.ID()).
 			Debug("Vector version increment failed, skipping reassign operation")
 		return nil
 	}
@@ -101,15 +109,15 @@ func (s *SPFresh) doReassign(op reassignOperation) error {
 	newVector := NewCompressedVector(op.Vector.ID(), version, op.Vector.(CompressedVector).Data())
 
 	// append the vector to each replica
-	for _, replica := range replicas {
+	for id := range replicas.Iter() {
 		version = s.VersionMap.Get(newVector.ID())
 		if version.Deleted() || version.Version() > newVector.Version().Version() {
-			s.Logger.WithField("vectorID", op.Vector.ID()).
+			s.logger.WithField("vectorID", op.Vector.ID()).
 				Debug("Vector is deleted or has a newer version, skipping reassign operation")
 			return nil
 		}
 
-		added, err := s.append(s.ctx, newVector, replica, true)
+		added, err := s.append(s.ctx, newVector, id, true)
 		if err != nil {
 			return err
 		}

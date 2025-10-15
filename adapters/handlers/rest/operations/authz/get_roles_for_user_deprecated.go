@@ -45,7 +45,9 @@ func NewGetRolesForUserDeprecated(ctx *middleware.Context, handler GetRolesForUs
 /*
 	GetRolesForUserDeprecated swagger:route GET /authz/users/{id}/roles authz getRolesForUserDeprecated
 
-get roles assigned to user (DB + OIDC). Deprecated, will be removed when 1.29 is not supported anymore
+# Get roles assigned to a user
+
+Retrieve the roles assigned to a specific user (`db` + `oidc`). Deprecated, will be removed when 1.29 is not supported anymore
 */
 type GetRolesForUserDeprecated struct {
 	Context *middleware.Context

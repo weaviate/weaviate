@@ -13,17 +13,26 @@ package spfresh
 
 import (
 	"fmt"
+	"log"
+	"net/http"
+	_ "net/http/pprof"
+	"os"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 func distanceWrapper(provider distancer.Provider) func(x, y []float32) float32 {
@@ -33,19 +42,54 @@ func distanceWrapper(provider distancer.Provider) func(x, y []float32) float32 {
 	}
 }
 
+// Uncomment to enable pprof and prometheus metrics when running tests
+
+func TestMain(m *testing.M) {
+	runtime.SetMutexProfileFraction(1)
+
+	go func() {
+		addr := "127.0.0.1:6060"
+		log.Printf("pprof listening at http://%s/debug/pprof/\n", addr)
+		_ = http.ListenAndServe(addr, nil) // DefaultServeMux has pprof handlers
+	}()
+
+	go func() {
+		mux := http.NewServeMux()
+		mux.Handle("/metrics", promhttp.Handler())
+		if err := http.ListenAndServe(":2112", mux); err != nil {
+			fmt.Printf("metrics server on %s stopped: %v\n", ":2112", err)
+		}
+	}()
+
+	os.Exit(m.Run())
+}
+
+func makeNoopCommitLogger() (hnsw.CommitLogger, error) {
+	return &hnsw.NoopCommitLogger{}, nil
+}
+
 func TestSPFreshRecall(t *testing.T) {
+	store := testinghelpers.NewDummyStore(t)
 	cfg := DefaultConfig()
-	cfg.RNGFactor = 5.0
+	cfg.Centroids.IndexType = "hnsw"
+	cfg.Centroids.HNSWConfig = &hnsw.Config{
+		RootPath:              t.TempDir(),
+		ID:                    "spfresh",
+		MakeCommitLoggerThunk: makeNoopCommitLogger,
+		DistanceProvider:      distancer.NewCosineDistanceProvider(),
+	}
+	cfg.TombstoneCallbacks = cyclemanager.NewCallbackGroupNoop()
 	l := logrus.New()
-	// l.SetLevel(logrus.DebugLevel)
 	cfg.Logger = l
+	cfg.PrometheusMetrics = monitoring.GetMetrics()
+	cfg.PrometheusMetrics.Registerer.MustRegister()
 
 	logger, _ := test.NewNullLogger()
 
 	vectors_size := 10_000
 	queries_size := 100
 	dimensions := 64
-	k := 100
+	k := 10
 
 	before := time.Now()
 	vectors, queries := testinghelpers.RandomVecsFixedSeed(vectors_size, queries_size, dimensions)
@@ -62,7 +106,7 @@ func TestSPFreshRecall(t *testing.T) {
 
 	fmt.Printf("generating data took %s\n", time.Since(before))
 
-	index, err := New(cfg, testinghelpers.NewDummyStore(t))
+	index, err := New(cfg, store)
 	require.NoError(t, err)
 	defer index.Shutdown(t.Context())
 
@@ -72,6 +116,7 @@ func TestSPFreshRecall(t *testing.T) {
 		cur := count.Add(1)
 		if cur%1000 == 0 {
 			fmt.Printf("indexing vectors %d/%d\n", cur, vectors_size)
+			fmt.Println("background tasks: split", index.splitCh.Len(), "reassign", index.reassignCh.Len(), "merge", index.mergeCh.Len())
 		}
 		err := index.Add(t.Context(), id, vectors[id])
 		require.NoError(t, err)
@@ -80,12 +125,28 @@ func TestSPFreshRecall(t *testing.T) {
 	fmt.Printf("indexing done, took: %s, waiting for background tasks...\n", time.Since(before))
 
 	for index.splitCh.Len() > 0 || index.reassignCh.Len() > 0 || index.mergeCh.Len() > 0 {
+		fmt.Println("background tasks: split", index.splitCh.Len(), "reassign", index.reassignCh.Len(), "merge", index.mergeCh.Len())
+
 		time.Sleep(500 * time.Millisecond)
 	}
 
-	fmt.Printf("all background tasks done,took: %s\n", time.Since(before))
+	fmt.Println("all background tasks done, took: ", time.Since(before))
 
+	index.config.SearchProbe = 64
 	recall, latency := testinghelpers.RecallAndLatency(t.Context(), queries, k, index, truths)
-	fmt.Println(recall, latency)
+	fmt.Println(index.config.SearchProbe, recall, latency)
+
+	index.config.SearchProbe = 128
+	recall, latency = testinghelpers.RecallAndLatency(t.Context(), queries, k, index, truths)
+	fmt.Println(index.config.SearchProbe, recall, latency)
+
+	index.config.SearchProbe = 256
+	recall, latency = testinghelpers.RecallAndLatency(t.Context(), queries, k, index, truths)
+	fmt.Println(index.config.SearchProbe, recall, latency)
+
+	index.config.SearchProbe = 512
+	recall, latency = testinghelpers.RecallAndLatency(t.Context(), queries, k, index, truths)
+	fmt.Println(index.config.SearchProbe, recall, latency)
+
 	require.Greater(t, recall, float32(0.7))
 }

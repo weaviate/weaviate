@@ -13,6 +13,7 @@ package lsmkv
 
 import (
 	"fmt"
+	"os"
 	"regexp"
 	"strconv"
 	"sync"
@@ -32,7 +33,9 @@ var (
 )
 
 type lazySegment struct {
-	path        string
+	path string
+	size int64
+
 	logger      logrus.FieldLogger
 	metrics     *Metrics
 	existsLower existsOnLowerSegmentsFn
@@ -52,8 +55,23 @@ func newLazySegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		metrics.LazySegmentInit.Inc()
 	}
 
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("open file: %w", err)
+	}
+
+	defer func() {
+		file.Close()
+	}()
+
+	fileInfo, err := file.Stat()
+	if err != nil {
+		return nil, fmt.Errorf("stat file: %w", err)
+	}
+
 	return &lazySegment{
 		path:        path,
+		size:        fileInfo.Size(),
 		logger:      logger,
 		metrics:     metrics,
 		existsLower: existsLower,
@@ -133,11 +151,6 @@ func (s *lazySegment) getLevel() uint16 {
 	return s.segment.getLevel()
 }
 
-func (s *lazySegment) getSize() int64 {
-	s.mustLoad()
-	return s.segment.getSize()
-}
-
 func (s *lazySegment) setSize(size int64) {
 	s.mustLoad()
 	s.segment.setSize(size)
@@ -148,9 +161,8 @@ func (s *lazySegment) PayloadSize() int {
 	return s.segment.PayloadSize()
 }
 
-func (s *lazySegment) Size() int {
-	s.mustLoad()
-	return s.segment.Size()
+func (s *lazySegment) Size() int64 {
+	return s.size
 }
 
 func (s *lazySegment) close() error {

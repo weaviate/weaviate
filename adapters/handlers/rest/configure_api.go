@@ -454,6 +454,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		QuerySlowLogThreshold:                        appState.ServerConfig.Config.QuerySlowLogThreshold,
 		InvertedSorterDisabled:                       appState.ServerConfig.Config.InvertedSorterDisabled,
 		MaintenanceModeEnabled:                       appState.Cluster.MaintenanceModeEnabledForLocalhost,
+		SPFreshEnabled:                               appState.ServerConfig.Config.SPFreshEnabled,
 	}, remoteIndexClient, appState.Cluster, remoteNodesClient, replicationClient, appState.Metrics, appState.MemWatch, nil, nil, nil) // TODO client
 	if err != nil {
 		appState.Logger.
@@ -558,7 +559,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		HeartbeatTimeout:                appState.ServerConfig.Config.Raft.HeartbeatTimeout,
 		ElectionTimeout:                 appState.ServerConfig.Config.Raft.ElectionTimeout,
 		LeaderLeaseTimeout:              appState.ServerConfig.Config.Raft.LeaderLeaseTimeout,
-		TimeoutsMultiplier:              appState.ServerConfig.Config.Raft.TimeoutsMultiplier,
+		TimeoutsMultiplier:              appState.ServerConfig.Config.Raft.TimeoutsMultiplier.Get(),
 		SnapshotInterval:                appState.ServerConfig.Config.Raft.SnapshotInterval,
 		SnapshotThreshold:               appState.ServerConfig.Config.Raft.SnapshotThreshold,
 		TrailingLogs:                    appState.ServerConfig.Config.Raft.TrailingLogs,
@@ -584,6 +585,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		DistributedTasks:                appState.ServerConfig.Config.DistributedTasks,
 		ReplicaMovementDisabled:         appState.ServerConfig.Config.ReplicaMovementDisabled,
 		ReplicaMovementMinimumAsyncWait: appState.ServerConfig.Config.ReplicaMovementMinimumAsyncWait,
+		DrainSleep:                      appState.ServerConfig.Config.Raft.DrainSleep.Get(),
 	}
 	for _, name := range appState.ServerConfig.Config.Raft.Join[:rConfig.BootstrapExpect] {
 		if strings.Contains(name, rConfig.NodeID) {
@@ -1098,7 +1100,7 @@ func startupRoutine(ctx context.Context, options *swag.CommandLineOptionsGroup) 
 		nonStorageNodes = parseVotersNames(cfg)
 	}
 
-	clusterState, err := cluster.Init(serverConfig.Config.Cluster, serverConfig.Config.GRPC.Port, serverConfig.Config.Raft.BootstrapExpect, dataPath, nonStorageNodes, logger)
+	clusterState, err := cluster.Init(serverConfig.Config.Cluster, serverConfig.Config.GRPC.Port, serverConfig.Config.Raft.TimeoutsMultiplier.Get(), dataPath, nonStorageNodes, logger)
 	if err != nil {
 		logger.WithField("action", "startup").WithError(err).
 			Error("could not init cluster state")
@@ -1735,14 +1737,14 @@ func postInitModules(appState *state.State) {
 		// Initialize usage service for GCS
 		if usageGCSModule := appState.Modules.GetByName(modusagegcs.Name); usageGCSModule != nil {
 			if usageModuleWithService, ok := usageGCSModule.(modulecapabilities.ModuleWithUsageService); ok {
-				usageService := usage.NewService(appState.ClusterService.SchemaReader(), appState.DB, appState.Modules, appState.Cluster.LocalName(), usageModuleWithService.Logger())
+				usageService := usage.NewService(appState.SchemaManager, appState.DB, appState.Modules, usageModuleWithService.Logger())
 				usageModuleWithService.SetUsageService(usageService)
 			}
 		}
 		// Initialize usage service for S3
 		if usageS3Module := appState.Modules.GetByName(modusages3.Name); usageS3Module != nil {
 			if usageModuleWithService, ok := usageS3Module.(modulecapabilities.ModuleWithUsageService); ok {
-				usageService := usage.NewService(appState.SchemaManager, appState.DB, appState.Modules, appState.Cluster.LocalName(), usageModuleWithService.Logger())
+				usageService := usage.NewService(appState.SchemaManager, appState.DB, appState.Modules, usageModuleWithService.Logger())
 				usageModuleWithService.SetUsageService(usageService)
 			}
 		}
@@ -1930,6 +1932,9 @@ func initRuntimeOverrides(appState *state.State) {
 		registered.QuerySlowLogThreshold = appState.ServerConfig.Config.QuerySlowLogThreshold
 		registered.InvertedSorterDisabled = appState.ServerConfig.Config.InvertedSorterDisabled
 		registered.DefaultQuantization = appState.ServerConfig.Config.DefaultQuantization
+		registered.ReplicatedIndicesRequestQueueEnabled = appState.ServerConfig.Config.Cluster.RequestQueueConfig.IsEnabled
+		registered.RaftDrainSleep = appState.ServerConfig.Config.Raft.DrainSleep
+		registered.RaftTimoutsMultiplier = appState.ServerConfig.Config.Raft.TimeoutsMultiplier
 
 		if appState.Modules.UsageEnabled() {
 			// gcs config

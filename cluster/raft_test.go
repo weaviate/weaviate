@@ -14,6 +14,7 @@ package cluster
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -22,6 +23,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/hashicorp/raft"
+	raftbolt "github.com/hashicorp/raft-boltdb/v2"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -398,6 +400,17 @@ func TestRaftStoreInit(t *testing.T) {
 		addr  = fmt.Sprintf("%s:%d", m.cfg.Host, m.cfg.RaftPort)
 	)
 
+	// Initialize raft stores for testing
+	var err error
+	store.logStore, err = raftbolt.NewBoltStore(filepath.Join(store.cfg.WorkDir, "raft.db"))
+	assert.NoError(t, err)
+
+	store.logCache, err = raft.NewLogCache(128, store.logStore)
+	assert.NoError(t, err)
+
+	store.snapshotStore, err = raft.NewFileSnapshotStore(store.cfg.WorkDir, 2, store.log.Out)
+	assert.NoError(t, err)
+
 	// NotOpen
 	assert.ErrorIs(t, store.Join(m.store.cfg.NodeID, addr, true), types.ErrNotOpen)
 	assert.ErrorIs(t, store.Remove(m.store.cfg.NodeID), types.ErrNotOpen)
@@ -456,7 +469,7 @@ func TestRaftPanics(t *testing.T) {
 
 func readShardingState(schemaReader schema.SchemaReader, className string) (*sharding.State, error) {
 	var result *sharding.State
-	err := schemaReader.Read(className, func(_ *models.Class, state *sharding.State) error {
+	err := schemaReader.Read(className, true, func(_ *models.Class, state *sharding.State) error {
 		stateCopy := state.DeepCopy()
 		result = &stateCopy
 		return nil

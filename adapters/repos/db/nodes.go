@@ -195,7 +195,7 @@ func (i *Index) getShardsNodeStatus(ctx context.Context,
 					Loaded:               false,
 					ReplicationFactor:    replicationFactor,
 					NumberOfReplicas:     numberOfReplicas,
-					Compressed:           isAnyVectorIndexCompressed(shard),
+					// don't add compression status as this would trigger loading the shard
 				}
 				*status = append(*status, shardStatus)
 				shardCount++
@@ -251,7 +251,7 @@ func getShardReplicationDetails(i *Index, shardName string) (int64, int64) {
 	var numberOfReplicas int64
 	var replicationFactor int64
 	class := i.Config.ClassName.String()
-	err := i.schemaReader.Read(class, func(class *models.Class, state *sharding.State) error {
+	err := i.schemaReader.Read(class, true, func(class *models.Class, state *sharding.State) error {
 		var err error
 		replicationFactor = state.ReplicationFactor
 		numberOfReplicas, err = state.NumberOfReplicas(shardName)

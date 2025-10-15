@@ -14,7 +14,6 @@ package spfresh
 import (
 	"encoding/binary"
 	"iter"
-	"sync"
 	"sync/atomic"
 
 	"github.com/pkg/errors"
@@ -217,8 +216,10 @@ func NewVersionMap(pages, pageSize uint64) *VersionMap {
 }
 
 func (v *VersionMap) Get(id uint64) VectorVersion {
+	page, slot := v.versions.GetPageFor(id)
+
 	v.locks.RLock(id)
-	ve := v.versions.Get(id)
+	ve := page[slot]
 	v.locks.RUnlock(id)
 	return ve
 }
@@ -226,8 +227,10 @@ func (v *VersionMap) Get(id uint64) VectorVersion {
 // Delete removes the version entry for the given ID.
 // Used when an insert fails and the vector was not added anywhere.
 func (v *VersionMap) Delete(id uint64) {
+	page, slot := v.versions.GetPageFor(id)
+
 	v.locks.Lock(id)
-	v.versions.Delete(id)
+	page[slot] = 0
 	v.locks.Unlock(id)
 }
 
@@ -235,7 +238,8 @@ func (v *VersionMap) Increment(previousVersion VectorVersion, id uint64) (Vector
 	v.locks.Lock(id)
 	defer v.locks.Unlock(id)
 
-	ve := v.versions.Get(id)
+	page, slot := v.versions.GetPageFor(id)
+	ve := page[slot]
 	if ve.Deleted() || ve != previousVersion {
 		return 0, false
 	}
@@ -250,7 +254,7 @@ func (v *VersionMap) Increment(previousVersion VectorVersion, id uint64) (Vector
 	}
 
 	newVE := VectorVersion(delBit | counter)
-	v.versions.Set(id, newVE)
+	page[slot] = newVE
 
 	return newVE, true
 }
@@ -259,7 +263,8 @@ func (v *VersionMap) MarkDeleted(id uint64) VectorVersion {
 	v.locks.Lock(id)
 	defer v.locks.Unlock(id)
 
-	ve := v.versions.Get(id)
+	page, slot := v.versions.GetPageFor(id)
+	ve := page[slot]
 	if ve == 0 {
 		return 0
 	}
@@ -270,64 +275,59 @@ func (v *VersionMap) MarkDeleted(id uint64) VectorVersion {
 	counter := uint8(ve) & counterMask // 0-127
 
 	newVE := VectorVersion(tombstoneMask | counter)
-	v.versions.Set(id, newVE)
+	page[slot] = newVE
 	return newVE
 }
 
 func (v *VersionMap) IsDeleted(id uint64) bool {
+	page, slot := v.versions.GetPageFor(id)
 	v.locks.RLock(id)
-	ve := v.versions.Get(id)
+	ve := page[slot]
 	v.locks.RUnlock(id)
 	return ve.Deleted()
 }
 
 // AllocPageFor ensures that the version map has a page allocated for the given ID.
 func (v *VersionMap) AllocPageFor(id uint64) {
-	v.locks.Lock(id)
-	v.versions.AllocPageFor(id)
-	v.locks.Unlock(id)
+	v.versions.EnsurePageFor(id)
 }
 
 // PostingSizes keeps track of the number of vectors in each posting.
 type PostingSizes struct {
-	m     sync.RWMutex // Ensures pages are allocated atomically
-	sizes *common.PagedArray[uint32]
+	sizes   *common.PagedArray[uint32]
+	metrics *Metrics
 }
 
-func NewPostingSizes(pages, pageSize uint64) *PostingSizes {
+func NewPostingSizes(metrics *Metrics, pages, pageSize uint64) *PostingSizes {
 	return &PostingSizes{
-		sizes: common.NewPagedArray[uint32](pages, pageSize),
+		sizes:   common.NewPagedArray[uint32](pages, pageSize),
+		metrics: metrics,
 	}
 }
 
 func (v *PostingSizes) Get(postingID uint64) uint32 {
-	v.m.RLock()
 	page, slot := v.sizes.GetPageFor(postingID)
-	v.m.RUnlock()
 	return atomic.LoadUint32(&page[slot])
 }
 
 func (v *PostingSizes) Set(postingID uint64, newSize uint32) {
-	v.m.RLock()
 	page, slot := v.sizes.GetPageFor(postingID)
-	v.m.RUnlock()
 	atomic.StoreUint32(&page[slot], newSize)
+	v.metrics.ObservePostingSize(float64(newSize))
 }
 
 func (v *PostingSizes) Inc(postingID uint64, delta uint32) uint32 {
-	v.m.RLock()
 	page, slot := v.sizes.GetPageFor(postingID)
-	v.m.RUnlock()
-	return atomic.AddUint32(&page[slot], delta)
+	res := atomic.AddUint32(&page[slot], delta)
+	v.metrics.ObservePostingSize(float64(res))
+	return res
 }
 
 // AllocPageFor ensures the array has a page allocated for the given IDs.
 func (v *PostingSizes) AllocPageFor(id ...uint64) {
-	v.m.Lock()
 	for _, id := range id {
-		v.sizes.AllocPageFor(id)
+		v.sizes.EnsurePageFor(id)
 	}
-	v.m.Unlock()
 }
 
 type Distancer struct {
