@@ -130,11 +130,11 @@ func (db *DB) ShardsBackup(
 	// prevent writing into the index during collection of metadata
 	for shardName, shard := range sm {
 		if err := func() error {
-			idx.backupLock.Lock(shardName)
-			defer idx.backupLock.Unlock(shardName)
 			if err := shard.HaltForTransfer(ctx, false); err != nil {
 				return fmt.Errorf("class %q: shard %q: begin backup: %w", class, shardName, err)
 			}
+			idx.backupLock.Lock(shardName)
+			defer idx.backupLock.Unlock(shardName)
 
 			sd := backup.ShardDescriptor{Name: shardName}
 			if err := shard.ListBackupFiles(ctx, &sd); err != nil {
@@ -236,12 +236,12 @@ func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.Cl
 	}()
 
 	if err = i.ForEachShard(func(name string, s ShardLike) error {
-		// prevent writing into the index during collection of metadata
-		i.backupLock.Lock(name)
-		defer i.backupLock.Unlock(name)
 		if err = s.HaltForTransfer(ctx, false); err != nil {
 			return fmt.Errorf("pause compaction and flush: %w", err)
 		}
+		// prevent writing into the index during collection of metadata
+		i.backupLock.Lock(name)
+		defer i.backupLock.Unlock(name)
 		var sd backup.ShardDescriptor
 		if err := s.ListBackupFiles(ctx, &sd); err != nil {
 			return fmt.Errorf("list shard %v files: %w", s.Name(), err)
