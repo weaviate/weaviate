@@ -504,8 +504,8 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 			// never stop a valid tenant activation use case, but low enough to
 			// prevent a context-leak.
 			eg.Go(func() error {
-				idx.shardTransferMutex.RLock(name)
-				defer idx.shardTransferMutex.RUnlock(name)
+				idx.backupLock.RLock(name)
+				defer idx.backupLock.RUnlock(name)
 
 				ctx, cancel := context.WithTimeout(context.Background(), 1*time.Hour)
 				defer cancel()
@@ -531,8 +531,8 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 
 		for _, name := range cold {
 			eg.Go(func() error {
-				idx.shardTransferMutex.RLock(name)
-				defer idx.shardTransferMutex.RUnlock(name)
+				idx.backupLock.RLock(name)
+				defer idx.backupLock.RUnlock(name)
 
 				idx.shardCreateLocks.Lock(name)
 				defer idx.shardCreateLocks.Unlock(name)

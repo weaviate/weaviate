@@ -37,8 +37,8 @@ func (m *Migrator) frozen(ctx context.Context, idx *Index, frozen []string, ec *
 
 	for _, name := range frozen {
 		eg.Go(func() error {
-			idx.shardTransferMutex.RLock(name)
-			defer idx.shardTransferMutex.RUnlock(name)
+			idx.backupLock.RLock(name)
+			defer idx.backupLock.RUnlock(name)
 
 			shard, release, err := idx.getOrInitShard(ctx, name)
 			if err != nil {
@@ -95,8 +95,8 @@ func (m *Migrator) freeze(ctx context.Context, idx *Index, class string, freeze 
 
 	for uidx, name := range freeze {
 		eg.Go(func() error {
-			idx.shardTransferMutex.RLock(name)
-			defer idx.shardTransferMutex.RUnlock(name)
+			idx.backupLock.RLock(name)
+			defer idx.backupLock.RUnlock(name)
 			originalStatus := models.TenantActivityStatusHOT
 			shard, release, err := idx.getOrInitShard(ctx, name)
 			if err != nil {
@@ -223,8 +223,8 @@ func (m *Migrator) unfreeze(ctx context.Context, idx *Index, class string, unfre
 
 	for uidx, name := range unfreeze {
 		eg.Go(func() error {
-			idx.shardTransferMutex.RLock(name)
-			defer idx.shardTransferMutex.RUnlock(name)
+			idx.backupLock.RLock(name)
+			defer idx.backupLock.RUnlock(name)
 
 			// # is a delineator shall come from RAFT and it's away e.g. tenant1#node1
 			// to identify which node path in the cloud shall we get the data from.
