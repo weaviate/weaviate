@@ -329,7 +329,7 @@ func TestGRPCSearchRequest(t *testing.T) {
 						Certainty:   &one,
 						Distance:    &one,
 					},
-					TargetVectors: []string{"custom"},
+					Targets: &pb.Targets{TargetVectors: []string{"custom"}},
 				},
 			},
 			out: dto.GetParams{
@@ -350,6 +350,7 @@ func TestGRPCSearchRequest(t *testing.T) {
 					},
 					TargetVectors: []string{"custom"},
 				},
+				TargetVectorCombination: &dto.TargetCombination{Type: dto.Minimum, Weights: []float32{0}},
 			},
 			error: false,
 		},
@@ -373,7 +374,7 @@ func TestGRPCSearchRequest(t *testing.T) {
 							},
 						},
 					},
-					TargetVectors: []string{"custom"},
+					Targets: &pb.Targets{TargetVectors: []string{"custom"}},
 				},
 			},
 			out: dto.GetParams{
@@ -394,6 +395,7 @@ func TestGRPCSearchRequest(t *testing.T) {
 					},
 					TargetVectors: []string{"custom"},
 				},
+				TargetVectorCombination: &dto.TargetCombination{Type: dto.Minimum, Weights: []float32{0}},
 			},
 			error: false,
 		},
@@ -421,7 +423,7 @@ func TestGRPCSearchRequest(t *testing.T) {
 							},
 						},
 					},
-					TargetVectors: []string{"custom_colbert"},
+					Targets: &pb.Targets{TargetVectors: []string{"custom_colbert"}},
 				},
 			},
 			out: dto.GetParams{
@@ -442,6 +444,7 @@ func TestGRPCSearchRequest(t *testing.T) {
 					},
 					TargetVectors: []string{"custom_colbert"},
 				},
+				TargetVectorCombination: &dto.TargetCombination{Type: dto.Minimum, Weights: []float32{0}},
 			},
 			error: false,
 		},
@@ -459,7 +462,7 @@ func TestGRPCSearchRequest(t *testing.T) {
 							Type:        pb.Vectors_VECTOR_TYPE_SINGLE_FP32,
 						},
 					},
-					TargetVectors: []string{"custom"},
+					Targets: &pb.Targets{TargetVectors: []string{"custom"}},
 				},
 			},
 			out: dto.GetParams{
@@ -473,6 +476,7 @@ func TestGRPCSearchRequest(t *testing.T) {
 					WithDistance:  true,
 					TargetVectors: []string{"custom"},
 				},
+				TargetVectorCombination: &dto.TargetCombination{Type: dto.Minimum, Weights: []float32{0}},
 			},
 			error: false,
 		},
@@ -490,7 +494,7 @@ func TestGRPCSearchRequest(t *testing.T) {
 							Type:        pb.Vectors_VECTOR_TYPE_MULTI_FP32,
 						},
 					},
-					TargetVectors: []string{"custom_colbert"},
+					Targets: &pb.Targets{TargetVectors: []string{"custom_colbert"}},
 				},
 			},
 			out: dto.GetParams{
@@ -503,6 +507,7 @@ func TestGRPCSearchRequest(t *testing.T) {
 					Certainty:     1.0,
 					TargetVectors: []string{"custom_colbert"},
 				},
+				TargetVectorCombination: &dto.TargetCombination{Type: dto.Minimum, Weights: []float32{0}},
 			},
 			error: false,
 		},
@@ -544,7 +549,7 @@ func TestGRPCSearchRequest(t *testing.T) {
 		},
 		{
 			name: "Empty return properties given with new default logic",
-			req:  &pb.SearchRequest{Uses_123Api: true, Collection: classname, Properties: &pb.PropertiesRequest{}},
+			req:  &pb.SearchRequest{Collection: classname, Properties: &pb.PropertiesRequest{}},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination, Properties: search.SelectProperties{}, AdditionalProperties: additional.Properties{
 					NoProps: true,
@@ -589,7 +594,7 @@ func TestGRPCSearchRequest(t *testing.T) {
 		},
 		{
 			name: "Metadata ID only query using new default logic",
-			req:  &pb.SearchRequest{Uses_123Api: true, Collection: classname, Properties: &pb.PropertiesRequest{}, Metadata: &pb.MetadataRequest{Uuid: true}},
+			req:  &pb.SearchRequest{Collection: classname, Properties: &pb.PropertiesRequest{}, Metadata: &pb.MetadataRequest{Uuid: true}},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination,
 				Properties: search.SelectProperties{},
@@ -615,8 +620,8 @@ func TestGRPCSearchRequest(t *testing.T) {
 				Metadata:   &pb.MetadataRequest{Vector: true},
 				Properties: &pb.PropertiesRequest{},
 				NearVector: &pb.NearVector{
-					Vector:        []float32{1, 2, 3},
-					TargetVectors: []string{"custom"},
+					Vector:  []float32{1, 2, 3},
+					Targets: &pb.Targets{TargetVectors: []string{"custom"}},
 				},
 			},
 			out: dto.GetParams{
@@ -628,6 +633,7 @@ func TestGRPCSearchRequest(t *testing.T) {
 					TargetVectors: []string{"custom"},
 					Vectors:       []models.Vector{[]float32{1, 2, 3}},
 				},
+				TargetVectorCombination: &dto.TargetCombination{Type: dto.Minimum, Weights: []float32{0}},
 			},
 			error: false,
 		},
@@ -641,7 +647,7 @@ func TestGRPCSearchRequest(t *testing.T) {
 					Vectors: []*pb.Vectors{
 						{VectorBytes: byteops.Fp32SliceToBytes([]float32{1, 2, 3})},
 					},
-					TargetVectors: []string{"custom"},
+					Targets: &pb.Targets{TargetVectors: []string{"custom"}},
 				},
 			},
 			out: dto.GetParams{
@@ -653,6 +659,7 @@ func TestGRPCSearchRequest(t *testing.T) {
 					TargetVectors: []string{"custom"},
 					Vectors:       []models.Vector{[]float32{1, 2, 3}},
 				},
+				TargetVectorCombination: &dto.TargetCombination{Type: dto.Minimum, Weights: []float32{0}},
 			},
 			error: false,
 		},
@@ -666,7 +673,7 @@ func TestGRPCSearchRequest(t *testing.T) {
 					Vectors: []*pb.Vectors{
 						{VectorBytes: byteops.Fp32SliceOfSlicesToBytes([][]float32{{1, 2, 3}, {1, 2, 3}}), Type: pb.Vectors_VECTOR_TYPE_MULTI_FP32},
 					},
-					TargetVectors: []string{"custom_colbert"},
+					Targets: &pb.Targets{TargetVectors: []string{"custom_colbert"}},
 				},
 			},
 			out: dto.GetParams{
@@ -678,6 +685,7 @@ func TestGRPCSearchRequest(t *testing.T) {
 					TargetVectors: []string{"custom_colbert"},
 					Vectors:       []models.Vector{[][]float32{{1, 2, 3}, {1, 2, 3}}},
 				},
+				TargetVectorCombination: &dto.TargetCombination{Type: dto.Minimum, Weights: []float32{0}},
 			},
 			error: false,
 		},
@@ -691,7 +699,7 @@ func TestGRPCSearchRequest(t *testing.T) {
 					Vectors: []*pb.Vectors{
 						{VectorBytes: byteops.Fp32SliceOfSlicesToBytes([][]float32{{1, 2, 3}, {1, 2, 3}}), Type: pb.Vectors_VECTOR_TYPE_MULTI_FP32},
 					},
-					TargetVectors: []string{"custom"},
+					Targets: &pb.Targets{TargetVectors: []string{"custom"}},
 				},
 			},
 			error: true,
@@ -716,8 +724,8 @@ func TestGRPCSearchRequest(t *testing.T) {
 				Metadata:   &pb.MetadataRequest{Vector: true},
 				Properties: &pb.PropertiesRequest{},
 				NearVector: &pb.NearVector{
-					Vector:        []float32{1, 2, 3},
-					TargetVectors: []string{"custom", "first"},
+					Vector:  []float32{1, 2, 3},
+					Targets: &pb.Targets{TargetVectors: []string{"custom", "first"}},
 				},
 			},
 			out: dto.GetParams{
@@ -729,12 +737,12 @@ func TestGRPCSearchRequest(t *testing.T) {
 					Vectors:       []models.Vector{[]float32{1, 2, 3}, []float32{1, 2, 3}},
 					TargetVectors: []string{"custom", "first"},
 				},
-				TargetVectorCombination: &dto.TargetCombination{Type: dto.Minimum},
+				TargetVectorCombination: &dto.TargetCombination{Type: dto.Minimum, Weights: []float32{0, 0}},
 			}, error: false,
 		},
 		{
 			name: "Properties return all nonref values with new default logic",
-			req:  &pb.SearchRequest{Uses_123Api: true, Collection: classname, Properties: &pb.PropertiesRequest{ReturnAllNonrefProperties: true}},
+			req:  &pb.SearchRequest{Collection: classname, Properties: &pb.PropertiesRequest{ReturnAllNonrefProperties: true}},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination, Properties: defaultTestClassProps,
 			},
@@ -742,7 +750,7 @@ func TestGRPCSearchRequest(t *testing.T) {
 		},
 		{
 			name: "Properties return all nonref values with ref and specific props using new default logic",
-			req: &pb.SearchRequest{Uses_123Api: true, Collection: classname, Properties: &pb.PropertiesRequest{
+			req: &pb.SearchRequest{Collection: classname, Properties: &pb.PropertiesRequest{
 				ReturnAllNonrefProperties: true,
 				RefProperties: []*pb.RefPropertiesRequest{{
 					ReferenceProperty: "ref",
@@ -770,7 +778,7 @@ func TestGRPCSearchRequest(t *testing.T) {
 		},
 		{
 			name: "Properties return all nonref values with ref and all nonref props using new default logic",
-			req: &pb.SearchRequest{Uses_123Api: true, Collection: classname, Properties: &pb.PropertiesRequest{
+			req: &pb.SearchRequest{Collection: classname, Properties: &pb.PropertiesRequest{
 				ReturnAllNonrefProperties: true,
 				RefProperties: []*pb.RefPropertiesRequest{{
 					ReferenceProperty: "ref",
@@ -820,7 +828,7 @@ func TestGRPCSearchRequest(t *testing.T) {
 		},
 		{
 			name: "Properties return values only ref using new default logic",
-			req: &pb.SearchRequest{Uses_123Api: true, Collection: classname, Properties: &pb.PropertiesRequest{
+			req: &pb.SearchRequest{Collection: classname, Properties: &pb.PropertiesRequest{
 				RefProperties: []*pb.RefPropertiesRequest{
 					{
 						ReferenceProperty: "ref",
@@ -847,7 +855,7 @@ func TestGRPCSearchRequest(t *testing.T) {
 		},
 		{
 			name: "Properties return values non-ref with new default logic",
-			req:  &pb.SearchRequest{Uses_123Api: true, Collection: classname, Properties: &pb.PropertiesRequest{NonRefProperties: []string{"name", "CapitalizedName"}}},
+			req:  &pb.SearchRequest{Collection: classname, Properties: &pb.PropertiesRequest{NonRefProperties: []string{"name", "CapitalizedName"}}},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination, Properties: search.SelectProperties{{Name: "name", IsPrimitive: true}, {Name: "capitalizedName", IsPrimitive: true}},
 			},
@@ -913,12 +921,13 @@ func TestGRPCSearchRequest(t *testing.T) {
 			name: "hybrid targetvectors",
 			req: &pb.SearchRequest{
 				Collection: multiVecClass, Metadata: &pb.MetadataRequest{Vector: true, Certainty: false},
-				HybridSearch: &pb.Hybrid{TargetVectors: []string{"first"}, Query: "query", FusionType: pb.Hybrid_FUSION_TYPE_RANKED, Alpha: 0.75, Properties: []string{"first"}},
+				HybridSearch: &pb.Hybrid{Targets: &pb.Targets{TargetVectors: []string{"first"}}, Query: "query", FusionType: pb.Hybrid_FUSION_TYPE_RANKED, Alpha: 0.75, Properties: []string{"first"}},
 			},
 			out: dto.GetParams{
 				ClassName: multiVecClass, Pagination: defaultPagination, HybridSearch: &searchparams.HybridSearch{TargetVectors: []string{"first"}, Query: "query", FusionAlgorithm: common_filters.HybridRankedFusion, Alpha: 0.75, Properties: []string{"first"}},
-				Properties:           defaultNamedVecProps,
-				AdditionalProperties: additional.Properties{Vectors: []string{"custom", "first", "second"}, NoProps: false, Vector: true},
+				Properties:              defaultNamedVecProps,
+				AdditionalProperties:    additional.Properties{Vectors: []string{"custom", "first", "second"}, NoProps: false, Vector: true},
+				TargetVectorCombination: &dto.TargetCombination{Type: dto.Minimum, Weights: []float32{0}},
 			},
 			error: false,
 		},
@@ -1969,7 +1978,7 @@ func TestGRPCSearchRequest(t *testing.T) {
 		},
 		{
 			name: "No return values given nested with new default logic",
-			req:  &pb.SearchRequest{Uses_123Api: true, Collection: objClass, Properties: &pb.PropertiesRequest{ReturnAllNonrefProperties: true}},
+			req:  &pb.SearchRequest{Collection: objClass, Properties: &pb.PropertiesRequest{ReturnAllNonrefProperties: true}},
 			out: dto.GetParams{
 				ClassName: objClass, Pagination: defaultPagination,
 				Properties: search.SelectProperties{
@@ -2129,8 +2138,9 @@ func TestGRPCSearchRequest(t *testing.T) {
 			req: &pb.SearchRequest{
 				Collection: multiVecClass,
 				NearVector: &pb.NearVector{
-					Targets:         &pb.Targets{TargetVectors: []string{"first", "second"}, Combination: pb.CombinationMethod_COMBINATION_METHOD_TYPE_SUM},
-					VectorPerTarget: map[string][]byte{"first": byteVector([]float32{1, 2, 3}), "second": byteVector([]float32{1, 2, 3, 4})},
+					Targets: &pb.Targets{TargetVectors: []string{"first", "second"}, Combination: pb.CombinationMethod_COMBINATION_METHOD_TYPE_SUM},
+					// VectorPerTarget: map[string][]byte{"first": byteVector([]float32{1, 2, 3}), "second": byteVector([]float32{1, 2, 3, 4})},
+					VectorForTargets: []*pb.VectorForTarget{{Name: "first", VectorBytes: byteVector([]float32{1, 2, 3})}, {Name: "second", VectorBytes: byteVector([]float32{1, 2, 3, 4})}},
 				},
 			},
 			out: dto.GetParams{
@@ -2149,9 +2159,9 @@ func TestGRPCSearchRequest(t *testing.T) {
 			req: &pb.SearchRequest{
 				Collection: multiVecClass,
 				NearVector: &pb.NearVector{
-					VectorBytes:     byteVector([]float32{1, 2, 3}),
-					Targets:         &pb.Targets{TargetVectors: []string{"first", "second"}, Combination: pb.CombinationMethod_COMBINATION_METHOD_TYPE_SUM},
-					VectorPerTarget: map[string][]byte{"first": byteVector([]float32{1, 2, 3}), "second": byteVector([]float32{1, 2, 3, 4})},
+					VectorBytes:      byteVector([]float32{1, 2, 3}),
+					Targets:          &pb.Targets{TargetVectors: []string{"first", "second"}, Combination: pb.CombinationMethod_COMBINATION_METHOD_TYPE_SUM},
+					VectorForTargets: []*pb.VectorForTarget{{Name: "first", VectorBytes: byteVector([]float32{1, 2, 3})}, {Name: "second", VectorBytes: byteVector([]float32{1, 2, 3, 4})}},
 				},
 			},
 			out:   dto.GetParams{},
@@ -2162,9 +2172,8 @@ func TestGRPCSearchRequest(t *testing.T) {
 			req: &pb.SearchRequest{
 				Collection: multiVecClass,
 				NearVector: &pb.NearVector{
-					VectorBytes:     byteVector([]float32{1, 2, 3}),
-					Targets:         &pb.Targets{TargetVectors: []string{"first"}, Combination: pb.CombinationMethod_COMBINATION_METHOD_TYPE_SUM},
-					VectorPerTarget: map[string][]byte{"first": byteVector([]float32{1, 2, 3}), "second": byteVector([]float32{1, 2, 3, 4})},
+					Targets:          &pb.Targets{TargetVectors: []string{"first"}, Combination: pb.CombinationMethod_COMBINATION_METHOD_TYPE_SUM},
+					VectorForTargets: []*pb.VectorForTarget{{Name: "first", VectorBytes: byteVector([]float32{1, 2, 3})}, {Name: "second", VectorBytes: byteVector([]float32{1, 2, 3, 4})}},
 				},
 			},
 			out:   dto.GetParams{},
@@ -2212,8 +2221,8 @@ func TestGRPCSearchRequest(t *testing.T) {
 			req: &pb.SearchRequest{
 				Collection: multiVecClass,
 				NearVector: &pb.NearVector{
-					Targets:         &pb.Targets{TargetVectors: []string{"first", "second"}},
-					VectorPerTarget: map[string][]byte{"first": byteVector([]float32{1, 2, 3}), "second": byteVector([]float32{1, 2, 3, 4})},
+					Targets:          &pb.Targets{TargetVectors: []string{"first", "second"}},
+					VectorForTargets: []*pb.VectorForTarget{{Name: "first", VectorBytes: byteVector([]float32{1, 2, 3})}, {Name: "second", VectorBytes: byteVector([]float32{1, 2, 3, 4})}},
 				},
 				Metadata: &pb.MetadataRequest{Certainty: true},
 			},

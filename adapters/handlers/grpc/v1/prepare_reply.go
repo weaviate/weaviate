@@ -243,7 +243,6 @@ func (r *Replier) extractAdditionalProps(asMap map[string]any, additionalPropsPa
 		if ok {
 			vectorfmt, ok2 := vector.([]float32)
 			if ok2 {
-				addProps.Metadata.Vector = vectorfmt // deprecated, remove in a bit
 				addProps.Metadata.VectorBytes = byteops.Fp32SliceToBytes(vectorfmt)
 			}
 		}

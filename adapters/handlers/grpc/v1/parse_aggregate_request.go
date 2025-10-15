@@ -252,8 +252,6 @@ func (p *AggregateParser) Aggregate(req *pb.AggregateRequest) (*aggregation.Para
 				}
 			} else if len(hs.VectorBytes) > 0 {
 				vector = byteops.Fp32SliceFromBytes(hs.VectorBytes)
-			} else if len(hs.Vector) > 0 {
-				vector = hs.Vector
 			}
 
 			var distance float32
@@ -468,42 +466,52 @@ func extractTargetVectorsForAggregate(req *pb.AggregateRequest, class *models.Cl
 	var targets *pb.Targets
 	vectorSearch := false
 
-	extract := func(targets *pb.Targets, targetVectors *[]string) ([]string, *pb.Targets, bool) {
-		if targets != nil {
-			return targets.TargetVectors, targets, true
-		} else {
-			return *targetVectors, nil, true
+	extract := func(targets *pb.Targets) ([]string, *pb.Targets) {
+		if targets == nil {
+			return nil, nil
 		}
+		return targets.TargetVectors, targets
 	}
+
 	if hs := req.GetHybrid(); hs != nil {
-		targetVectors, targets, vectorSearch = extract(hs.Targets, &hs.TargetVectors)
+		targetVectors, targets = extract(hs.Targets)
+		vectorSearch = true
 	}
 	if na := req.GetNearAudio(); na != nil {
-		targetVectors, targets, vectorSearch = extract(na.Targets, &na.TargetVectors)
+		targetVectors, targets = extract(na.Targets)
+		vectorSearch = true
 	}
 	if nd := req.GetNearDepth(); nd != nil {
-		targetVectors, targets, vectorSearch = extract(nd.Targets, &nd.TargetVectors)
+		targetVectors, targets = extract(nd.Targets)
+		vectorSearch = true
 	}
 	if ni := req.GetNearImage(); ni != nil {
-		targetVectors, targets, vectorSearch = extract(ni.Targets, &ni.TargetVectors)
+		targetVectors, targets = extract(ni.Targets)
+		vectorSearch = true
 	}
 	if ni := req.GetNearImu(); ni != nil {
-		targetVectors, targets, vectorSearch = extract(ni.Targets, &ni.TargetVectors)
+		targetVectors, targets = extract(ni.Targets)
+		vectorSearch = true
 	}
 	if no := req.GetNearObject(); no != nil {
-		targetVectors, targets, vectorSearch = extract(no.Targets, &no.TargetVectors)
+		targetVectors, targets = extract(no.Targets)
+		vectorSearch = true
 	}
 	if nt := req.GetNearText(); nt != nil {
-		targetVectors, targets, vectorSearch = extract(nt.Targets, &nt.TargetVectors)
+		targetVectors, targets = extract(nt.Targets)
+		vectorSearch = true
 	}
 	if nt := req.GetNearThermal(); nt != nil {
-		targetVectors, targets, vectorSearch = extract(nt.Targets, &nt.TargetVectors)
+		targetVectors, targets = extract(nt.Targets)
+		vectorSearch = true
 	}
 	if nv := req.GetNearVector(); nv != nil {
-		targetVectors, targets, vectorSearch = extract(nv.Targets, &nv.TargetVectors)
+		targetVectors, targets = extract(nv.Targets)
+		vectorSearch = true
 	}
 	if nv := req.GetNearVideo(); nv != nil {
-		targetVectors, targets, vectorSearch = extract(nv.Targets, &nv.TargetVectors)
+		targetVectors, targets = extract(nv.Targets)
+		vectorSearch = true
 	}
 
 	var combination *dto.TargetCombination

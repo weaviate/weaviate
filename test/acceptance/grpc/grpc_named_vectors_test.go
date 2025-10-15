@@ -74,8 +74,6 @@ func TestGRPC_NamedVectors(t *testing.T) {
 					Query:         "Dune",
 					TargetVectors: []string{"all"},
 				},
-				Uses_123Api: true,
-				Uses_125Api: true,
 			})
 			require.NoError(t, err)
 			require.NotNil(t, resp)
@@ -100,7 +98,6 @@ func TestGRPC_NamedVectors(t *testing.T) {
 					Query:         "Dune",
 					TargetVectors: []string{"all"},
 				},
-				Uses_123Api: true,
 			})
 			require.NoError(t, err)
 			require.NotNil(t, resp)
@@ -128,8 +125,6 @@ func TestGRPC_NamedVectors(t *testing.T) {
 					},
 					TargetVectors: []string{"all"},
 				},
-				Uses_123Api: true,
-				Uses_125Api: true,
 			})
 			require.NoError(t, err)
 			require.NotNil(t, resp)
@@ -149,8 +144,6 @@ func TestGRPC_NamedVectors(t *testing.T) {
 					Query:         []string{"Dune"},
 					TargetVectors: []string{"all"},
 				},
-				Uses_123Api: true,
-				Uses_125Api: true,
 			})
 			require.NoError(t, err)
 			require.NotNil(t, resp)
@@ -175,7 +168,6 @@ func TestGRPC_NamedVectors(t *testing.T) {
 					Query:         []string{"Dune"},
 					TargetVectors: []string{"all"},
 				},
-				Uses_123Api: true,
 			})
 			require.NoError(t, err)
 			require.NotNil(t, resp)

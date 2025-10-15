@@ -140,8 +140,6 @@ func TestGRPC_ListValueReturn(t *testing.T) {
 					PrimitiveProperties: []string{"texts"},
 				}},
 			},
-			Uses_123Api: true,
-			Uses_125Api: true,
 		}
 		searchResp, err := grpcClient.Search(context.Background(), &in)
 		require.Nil(t, err)

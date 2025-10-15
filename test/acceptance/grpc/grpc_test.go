@@ -97,8 +97,6 @@ func TestGRPC(t *testing.T) {
 				Metadata: &pb.MetadataRequest{
 					Uuid: true,
 				},
-				Uses_123Api: true,
-				Uses_125Api: true,
 			},
 		},
 		{
@@ -108,8 +106,6 @@ func TestGRPC(t *testing.T) {
 				Metadata: &pb.MetadataRequest{
 					Uuid: true,
 				},
-				Uses_123Api: true,
-				Uses_125Api: true,
 			},
 		},
 	}
@@ -205,8 +201,6 @@ func TestGRPC(t *testing.T) {
 			HybridSearch: &pb.Hybrid{
 				Query: "Dune",
 			},
-			Uses_123Api: true,
-			Uses_125Api: true,
 		})
 		require.NoError(t, err)
 		require.NotNil(t, resp)
@@ -225,7 +219,6 @@ func TestGRPC(t *testing.T) {
 			HybridSearch: &pb.Hybrid{
 				Query: "Dune",
 			},
-			Uses_123Api: true,
 		})
 		require.NoError(t, err)
 		require.NotNil(t, resp)
@@ -239,8 +232,6 @@ func TestGRPC(t *testing.T) {
 			NearText: &pb.NearTextSearch{
 				Query: []string{"Dune"},
 			},
-			Uses_123Api: true,
-			Uses_125Api: true,
 		})
 		require.NoError(t, err)
 		require.NotNil(t, resp)
@@ -259,7 +250,6 @@ func TestGRPC(t *testing.T) {
 			NearText: &pb.NearTextSearch{
 				Query: []string{"Dune"},
 			},
-			Uses_123Api: true,
 		})
 		require.NoError(t, err)
 		require.NotNil(t, resp)

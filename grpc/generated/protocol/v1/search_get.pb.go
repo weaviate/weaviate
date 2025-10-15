@@ -37,25 +37,21 @@ type SearchRequest struct {
 	// protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
 	SortBy []*SortBy `protobuf:"bytes,34,rep,name=sort_by,json=sortBy,proto3" json:"sort_by,omitempty"`
 	// matches/searches for objects
-	Filters      *Filters           `protobuf:"bytes,40,opt,name=filters,proto3,oneof" json:"filters,omitempty"`
-	HybridSearch *Hybrid            `protobuf:"bytes,41,opt,name=hybrid_search,json=hybridSearch,proto3,oneof" json:"hybrid_search,omitempty"`
-	Bm25Search   *BM25              `protobuf:"bytes,42,opt,name=bm25_search,json=bm25Search,proto3,oneof" json:"bm25_search,omitempty"`
-	NearVector   *NearVector        `protobuf:"bytes,43,opt,name=near_vector,json=nearVector,proto3,oneof" json:"near_vector,omitempty"`
-	NearObject   *NearObject        `protobuf:"bytes,44,opt,name=near_object,json=nearObject,proto3,oneof" json:"near_object,omitempty"`
-	NearText     *NearTextSearch    `protobuf:"bytes,45,opt,name=near_text,json=nearText,proto3,oneof" json:"near_text,omitempty"`
-	NearImage    *NearImageSearch   `protobuf:"bytes,46,opt,name=near_image,json=nearImage,proto3,oneof" json:"near_image,omitempty"`
-	NearAudio    *NearAudioSearch   `protobuf:"bytes,47,opt,name=near_audio,json=nearAudio,proto3,oneof" json:"near_audio,omitempty"`
-	NearVideo    *NearVideoSearch   `protobuf:"bytes,48,opt,name=near_video,json=nearVideo,proto3,oneof" json:"near_video,omitempty"`
-	NearDepth    *NearDepthSearch   `protobuf:"bytes,49,opt,name=near_depth,json=nearDepth,proto3,oneof" json:"near_depth,omitempty"`
-	NearThermal  *NearThermalSearch `protobuf:"bytes,50,opt,name=near_thermal,json=nearThermal,proto3,oneof" json:"near_thermal,omitempty"`
-	NearImu      *NearIMUSearch     `protobuf:"bytes,51,opt,name=near_imu,json=nearImu,proto3,oneof" json:"near_imu,omitempty"`
-	Generative   *GenerativeSearch  `protobuf:"bytes,60,opt,name=generative,proto3,oneof" json:"generative,omitempty"`
-	Rerank       *Rerank            `protobuf:"bytes,61,opt,name=rerank,proto3,oneof" json:"rerank,omitempty"`
-	// Deprecated: Marked as deprecated in v1/search_get.proto.
-	Uses_123Api bool `protobuf:"varint,100,opt,name=uses_123_api,json=uses123Api,proto3" json:"uses_123_api,omitempty"`
-	// Deprecated: Marked as deprecated in v1/search_get.proto.
-	Uses_125Api   bool `protobuf:"varint,101,opt,name=uses_125_api,json=uses125Api,proto3" json:"uses_125_api,omitempty"`
-	Uses_127Api   bool `protobuf:"varint,102,opt,name=uses_127_api,json=uses127Api,proto3" json:"uses_127_api,omitempty"`
+	Filters       *Filters           `protobuf:"bytes,40,opt,name=filters,proto3,oneof" json:"filters,omitempty"`
+	HybridSearch  *Hybrid            `protobuf:"bytes,41,opt,name=hybrid_search,json=hybridSearch,proto3,oneof" json:"hybrid_search,omitempty"`
+	Bm25Search    *BM25              `protobuf:"bytes,42,opt,name=bm25_search,json=bm25Search,proto3,oneof" json:"bm25_search,omitempty"`
+	NearVector    *NearVector        `protobuf:"bytes,43,opt,name=near_vector,json=nearVector,proto3,oneof" json:"near_vector,omitempty"`
+	NearObject    *NearObject        `protobuf:"bytes,44,opt,name=near_object,json=nearObject,proto3,oneof" json:"near_object,omitempty"`
+	NearText      *NearTextSearch    `protobuf:"bytes,45,opt,name=near_text,json=nearText,proto3,oneof" json:"near_text,omitempty"`
+	NearImage     *NearImageSearch   `protobuf:"bytes,46,opt,name=near_image,json=nearImage,proto3,oneof" json:"near_image,omitempty"`
+	NearAudio     *NearAudioSearch   `protobuf:"bytes,47,opt,name=near_audio,json=nearAudio,proto3,oneof" json:"near_audio,omitempty"`
+	NearVideo     *NearVideoSearch   `protobuf:"bytes,48,opt,name=near_video,json=nearVideo,proto3,oneof" json:"near_video,omitempty"`
+	NearDepth     *NearDepthSearch   `protobuf:"bytes,49,opt,name=near_depth,json=nearDepth,proto3,oneof" json:"near_depth,omitempty"`
+	NearThermal   *NearThermalSearch `protobuf:"bytes,50,opt,name=near_thermal,json=nearThermal,proto3,oneof" json:"near_thermal,omitempty"`
+	NearImu       *NearIMUSearch     `protobuf:"bytes,51,opt,name=near_imu,json=nearImu,proto3,oneof" json:"near_imu,omitempty"`
+	Generative    *GenerativeSearch  `protobuf:"bytes,60,opt,name=generative,proto3,oneof" json:"generative,omitempty"`
+	Rerank        *Rerank            `protobuf:"bytes,61,opt,name=rerank,proto3,oneof" json:"rerank,omitempty"`
+	Uses_127Api   bool               `protobuf:"varint,102,opt,name=uses_127_api,json=uses127Api,proto3" json:"uses_127_api,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -263,22 +259,6 @@ func (x *SearchRequest) GetRerank() *Rerank {
 		return x.Rerank
 	}
 	return nil
-}
-
-// Deprecated: Marked as deprecated in v1/search_get.proto.
-func (x *SearchRequest) GetUses_123Api() bool {
-	if x != nil {
-		return x.Uses_123Api
-	}
-	return false
-}
-
-// Deprecated: Marked as deprecated in v1/search_get.proto.
-func (x *SearchRequest) GetUses_125Api() bool {
-	if x != nil {
-		return x.Uses_125Api
-	}
-	return false
 }
 
 func (x *SearchRequest) GetUses_127Api() bool {
@@ -1056,25 +1036,21 @@ func (x *SearchResult) GetGenerative() *GenerativeResult {
 }
 
 type MetadataResult struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	Id    string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	// protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
-	//
-	// Deprecated: Marked as deprecated in v1/search_get.proto.
-	Vector                    []float32 `protobuf:"fixed32,2,rep,packed,name=vector,proto3" json:"vector,omitempty"`
-	CreationTimeUnix          int64     `protobuf:"varint,3,opt,name=creation_time_unix,json=creationTimeUnix,proto3" json:"creation_time_unix,omitempty"`
-	CreationTimeUnixPresent   bool      `protobuf:"varint,4,opt,name=creation_time_unix_present,json=creationTimeUnixPresent,proto3" json:"creation_time_unix_present,omitempty"`
-	LastUpdateTimeUnix        int64     `protobuf:"varint,5,opt,name=last_update_time_unix,json=lastUpdateTimeUnix,proto3" json:"last_update_time_unix,omitempty"`
-	LastUpdateTimeUnixPresent bool      `protobuf:"varint,6,opt,name=last_update_time_unix_present,json=lastUpdateTimeUnixPresent,proto3" json:"last_update_time_unix_present,omitempty"`
-	Distance                  float32   `protobuf:"fixed32,7,opt,name=distance,proto3" json:"distance,omitempty"`
-	DistancePresent           bool      `protobuf:"varint,8,opt,name=distance_present,json=distancePresent,proto3" json:"distance_present,omitempty"`
-	Certainty                 float32   `protobuf:"fixed32,9,opt,name=certainty,proto3" json:"certainty,omitempty"`
-	CertaintyPresent          bool      `protobuf:"varint,10,opt,name=certainty_present,json=certaintyPresent,proto3" json:"certainty_present,omitempty"`
-	Score                     float32   `protobuf:"fixed32,11,opt,name=score,proto3" json:"score,omitempty"`
-	ScorePresent              bool      `protobuf:"varint,12,opt,name=score_present,json=scorePresent,proto3" json:"score_present,omitempty"`
-	ExplainScore              string    `protobuf:"bytes,13,opt,name=explain_score,json=explainScore,proto3" json:"explain_score,omitempty"`
-	ExplainScorePresent       bool      `protobuf:"varint,14,opt,name=explain_score_present,json=explainScorePresent,proto3" json:"explain_score_present,omitempty"`
-	IsConsistent              *bool     `protobuf:"varint,15,opt,name=is_consistent,json=isConsistent,proto3,oneof" json:"is_consistent,omitempty"`
+	state                     protoimpl.MessageState `protogen:"open.v1"`
+	Id                        string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	CreationTimeUnix          int64                  `protobuf:"varint,3,opt,name=creation_time_unix,json=creationTimeUnix,proto3" json:"creation_time_unix,omitempty"`
+	CreationTimeUnixPresent   bool                   `protobuf:"varint,4,opt,name=creation_time_unix_present,json=creationTimeUnixPresent,proto3" json:"creation_time_unix_present,omitempty"`
+	LastUpdateTimeUnix        int64                  `protobuf:"varint,5,opt,name=last_update_time_unix,json=lastUpdateTimeUnix,proto3" json:"last_update_time_unix,omitempty"`
+	LastUpdateTimeUnixPresent bool                   `protobuf:"varint,6,opt,name=last_update_time_unix_present,json=lastUpdateTimeUnixPresent,proto3" json:"last_update_time_unix_present,omitempty"`
+	Distance                  float32                `protobuf:"fixed32,7,opt,name=distance,proto3" json:"distance,omitempty"`
+	DistancePresent           bool                   `protobuf:"varint,8,opt,name=distance_present,json=distancePresent,proto3" json:"distance_present,omitempty"`
+	Certainty                 float32                `protobuf:"fixed32,9,opt,name=certainty,proto3" json:"certainty,omitempty"`
+	CertaintyPresent          bool                   `protobuf:"varint,10,opt,name=certainty_present,json=certaintyPresent,proto3" json:"certainty_present,omitempty"`
+	Score                     float32                `protobuf:"fixed32,11,opt,name=score,proto3" json:"score,omitempty"`
+	ScorePresent              bool                   `protobuf:"varint,12,opt,name=score_present,json=scorePresent,proto3" json:"score_present,omitempty"`
+	ExplainScore              string                 `protobuf:"bytes,13,opt,name=explain_score,json=explainScore,proto3" json:"explain_score,omitempty"`
+	ExplainScorePresent       bool                   `protobuf:"varint,14,opt,name=explain_score_present,json=explainScorePresent,proto3" json:"explain_score_present,omitempty"`
+	IsConsistent              *bool                  `protobuf:"varint,15,opt,name=is_consistent,json=isConsistent,proto3,oneof" json:"is_consistent,omitempty"`
 	// Deprecated: Marked as deprecated in v1/search_get.proto.
 	Generative string `protobuf:"bytes,16,opt,name=generative,proto3" json:"generative,omitempty"`
 	// Deprecated: Marked as deprecated in v1/search_get.proto.
@@ -1124,14 +1100,6 @@ func (x *MetadataResult) GetId() string {
 		return x.Id
 	}
 	return ""
-}
-
-// Deprecated: Marked as deprecated in v1/search_get.proto.
-func (x *MetadataResult) GetVector() []float32 {
-	if x != nil {
-		return x.Vector
-	}
-	return nil
 }
 
 func (x *MetadataResult) GetCreationTimeUnix() int64 {
@@ -1415,7 +1383,7 @@ var File_v1_search_get_proto protoreflect.FileDescriptor
 
 const file_v1_search_get_proto_rawDesc = "" +
 	"\n" +
-	"\x13v1/search_get.proto\x12\vweaviate.v1\x1a\rv1/base.proto\x1a\x14v1/base_search.proto\x1a\x13v1/generative.proto\x1a\x13v1/properties.proto\"\xc7\r\n" +
+	"\x13v1/search_get.proto\x12\vweaviate.v1\x1a\rv1/base.proto\x1a\x14v1/base_search.proto\x1a\x13v1/generative.proto\x1a\x13v1/properties.proto\"\x87\r\n" +
 	"\rSearchRequest\x12\x1e\n" +
 	"\n" +
 	"collection\x18\x01 \x01(\tR\n" +
@@ -1456,11 +1424,7 @@ const file_v1_search_get_proto_rawDesc = "" +
 	"\n" +
 	"generative\x18< \x01(\v2\x1d.weaviate.v1.GenerativeSearchH\x10R\n" +
 	"generative\x88\x01\x01\x120\n" +
-	"\x06rerank\x18= \x01(\v2\x13.weaviate.v1.RerankH\x11R\x06rerank\x88\x01\x01\x12$\n" +
-	"\fuses_123_api\x18d \x01(\bB\x02\x18\x01R\n" +
-	"uses123Api\x12$\n" +
-	"\fuses_125_api\x18e \x01(\bB\x02\x18\x01R\n" +
-	"uses125Api\x12 \n" +
+	"\x06rerank\x18= \x01(\v2\x13.weaviate.v1.RerankH\x11R\x06rerank\x88\x01\x01\x12 \n" +
 	"\fuses_127_api\x18f \x01(\bR\n" +
 	"uses127ApiB\x14\n" +
 	"\x12_consistency_levelB\r\n" +
@@ -1482,7 +1446,7 @@ const file_v1_search_get_proto_rawDesc = "" +
 	"\r_near_thermalB\v\n" +
 	"\t_near_imuB\r\n" +
 	"\v_generativeB\t\n" +
-	"\a_rerank\"s\n" +
+	"\a_rerankJ\x04\bd\x10eJ\x04\be\x10f\"s\n" +
 	"\aGroupBy\x12\x12\n" +
 	"\x04path\x18\x01 \x03(\tR\x04path\x12(\n" +
 	"\x10number_of_groups\x18\x02 \x01(\x05R\x0enumberOfGroups\x12*\n" +
@@ -1554,10 +1518,9 @@ const file_v1_search_get_proto_rawDesc = "" +
 	"\n" +
 	"generative\x18\x03 \x01(\v2\x1d.weaviate.v1.GenerativeResultH\x00R\n" +
 	"generative\x88\x01\x01B\r\n" +
-	"\v_generative\"\xd1\a\n" +
+	"\v_generative\"\xbb\a\n" +
 	"\x0eMetadataResult\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1a\n" +
-	"\x06vector\x18\x02 \x03(\x02B\x02\x18\x01R\x06vector\x12,\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12,\n" +
 	"\x12creation_time_unix\x18\x03 \x01(\x03R\x10creationTimeUnix\x12;\n" +
 	"\x1acreation_time_unix_present\x18\x04 \x01(\bR\x17creationTimeUnixPresent\x121\n" +
 	"\x15last_update_time_unix\x18\x05 \x01(\x03R\x12lastUpdateTimeUnix\x12@\n" +
@@ -1582,7 +1545,7 @@ const file_v1_search_get_proto_rawDesc = "" +
 	"\frerank_score\x18\x15 \x01(\x01R\vrerankScore\x120\n" +
 	"\x14rerank_score_present\x18\x16 \x01(\bR\x12rerankScorePresent\x12.\n" +
 	"\avectors\x18\x17 \x03(\v2\x14.weaviate.v1.VectorsR\avectorsB\x10\n" +
-	"\x0e_is_consistent\"\xce\x02\n" +
+	"\x0e_is_consistentJ\x04\b\x02\x10\x03\"\xce\x02\n" +
 	"\x10PropertiesResult\x12=\n" +
 	"\tref_props\x18\x02 \x03(\v2 .weaviate.v1.RefPropertiesResultR\brefProps\x12+\n" +
 	"\x11target_collection\x18\x03 \x01(\tR\x10targetCollection\x127\n" +

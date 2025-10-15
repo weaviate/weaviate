@@ -269,8 +269,6 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 			}
 		} else if len(hs.VectorBytes) > 0 {
 			vector = byteops.Fp32SliceFromBytes(hs.VectorBytes)
-		} else if len(hs.Vector) > 0 {
-			vector = hs.Vector
 		}
 
 		var distance float32
@@ -456,42 +454,52 @@ func extractTargetVectors(req *pb.SearchRequest, class *models.Class) ([]string,
 	var targets *pb.Targets
 	vectorSearch := false
 
-	extract := func(targets *pb.Targets, targetVectors *[]string) ([]string, *pb.Targets, bool) {
-		if targets != nil {
-			return targets.TargetVectors, targets, true
-		} else {
-			return *targetVectors, nil, true
+	extract := func(targets *pb.Targets) ([]string, *pb.Targets) {
+		if targets == nil {
+			return nil, nil
 		}
+		return targets.TargetVectors, targets
 	}
+
 	if hs := req.HybridSearch; hs != nil {
-		targetVectors, targets, vectorSearch = extract(hs.Targets, &hs.TargetVectors)
+		targetVectors, targets = extract(hs.Targets)
+		vectorSearch = true
 	}
 	if na := req.NearAudio; na != nil {
-		targetVectors, targets, vectorSearch = extract(na.Targets, &na.TargetVectors)
+		targetVectors, targets = extract(na.Targets)
+		vectorSearch = true
 	}
 	if nd := req.NearDepth; nd != nil {
-		targetVectors, targets, vectorSearch = extract(nd.Targets, &nd.TargetVectors)
+		targetVectors, targets = extract(nd.Targets)
+		vectorSearch = true
 	}
 	if ni := req.NearImage; ni != nil {
-		targetVectors, targets, vectorSearch = extract(ni.Targets, &ni.TargetVectors)
+		targetVectors, targets = extract(ni.Targets)
+		vectorSearch = true
 	}
 	if ni := req.NearImu; ni != nil {
-		targetVectors, targets, vectorSearch = extract(ni.Targets, &ni.TargetVectors)
+		targetVectors, targets = extract(ni.Targets)
+		vectorSearch = true
 	}
 	if no := req.NearObject; no != nil {
-		targetVectors, targets, vectorSearch = extract(no.Targets, &no.TargetVectors)
+		targetVectors, targets = extract(no.Targets)
+		vectorSearch = true
 	}
 	if nt := req.NearText; nt != nil {
-		targetVectors, targets, vectorSearch = extract(nt.Targets, &nt.TargetVectors)
+		targetVectors, targets = extract(nt.Targets)
+		vectorSearch = true
 	}
 	if nt := req.NearThermal; nt != nil {
-		targetVectors, targets, vectorSearch = extract(nt.Targets, &nt.TargetVectors)
+		targetVectors, targets = extract(nt.Targets)
+		vectorSearch = true
 	}
 	if nv := req.NearVector; nv != nil {
-		targetVectors, targets, vectorSearch = extract(nv.Targets, &nv.TargetVectors)
+		targetVectors, targets = extract(nv.Targets)
+		vectorSearch = true
 	}
 	if nv := req.NearVideo; nv != nil {
-		targetVectors, targets, vectorSearch = extract(nv.Targets, &nv.TargetVectors)
+		targetVectors, targets = extract(nv.Targets)
+		vectorSearch = true
 	}
 
 	var combination *dto.TargetCombination
@@ -1105,8 +1113,8 @@ func parseNearVec(nv *pb.NearVector, targetVectors []string,
 		vector = nv.Vector
 	}
 
-	if vector != nil && nv.VectorPerTarget != nil {
-		return nil, nil, fmt.Errorf("near_vector: either vector or VectorPerTarget must be provided, not both")
+	if vector != nil && nv.VectorForTargets != nil {
+		return nil, nil, fmt.Errorf("near_vector: either vector or VectorForTargets must be provided, not both")
 	}
 
 	targetVectorsTmp := targetVectors
@@ -1168,21 +1176,6 @@ func parseNearVec(nv *pb.NearVector, targetVectors []string,
 				}
 			} else {
 				vectors[i] = byteops.Fp32SliceFromBytes(nv.VectorForTargets[i].VectorBytes)
-			}
-		}
-	} else if nv.VectorPerTarget != nil {
-		if len(nv.VectorPerTarget) != len(targetVectorsTmp) {
-			return nil, nil, fmt.Errorf("near_vector: vector per target must be provided for all targets")
-		}
-		for i, target := range targetVectorsTmp {
-			if vec, ok := nv.VectorPerTarget[target]; ok {
-				vectors[i] = byteops.Fp32SliceFromBytes(vec)
-			} else {
-				var allNames []string
-				for k := range nv.VectorPerTarget {
-					allNames = append(allNames, k)
-				}
-				return nil, nil, fmt.Errorf("near_vector: vector for target %s is required. All target vectors: %v all vectors for targets %v", targetVectorsTmp[i], targetVectorsTmp, allNames)
 			}
 		}
 	} else {

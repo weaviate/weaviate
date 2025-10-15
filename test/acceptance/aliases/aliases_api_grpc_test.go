@@ -102,9 +102,8 @@ func Test_AliasesAPI_gRPC(t *testing.T) {
 			t.Run("search", func(t *testing.T) {
 				t.Run("get", func(t *testing.T) {
 					resp, err := grpcClient.Search(ctx, &pb.SearchRequest{
-						Collection:  tt.accessUsing,
-						Uses_123Api: true,
-						Uses_125Api: true,
+						Collection: tt.accessUsing,
+
 						Uses_127Api: true,
 					})
 					require.NoError(t, err)
@@ -121,8 +120,7 @@ func Test_AliasesAPI_gRPC(t *testing.T) {
 							On:        []string{"title"},
 							TestValue: &pb.Filters_ValueText{ValueText: "Dune"},
 						},
-						Uses_123Api: true,
-						Uses_125Api: true,
+
 						Uses_127Api: true,
 					})
 					require.NoError(t, err)
@@ -139,8 +137,7 @@ func Test_AliasesAPI_gRPC(t *testing.T) {
 						NearText: &pb.NearTextSearch{
 							Query: []string{"Dune"},
 						},
-						Uses_123Api: true,
-						Uses_125Api: true,
+
 						Uses_127Api: true,
 					})
 					require.NoError(t, err)
@@ -157,8 +154,7 @@ func Test_AliasesAPI_gRPC(t *testing.T) {
 							Query:      "Dune",
 							Properties: []string{"title"},
 						},
-						Uses_123Api: true,
-						Uses_125Api: true,
+
 						Uses_127Api: true,
 					})
 					require.NoError(t, err)
@@ -178,8 +174,7 @@ func Test_AliasesAPI_gRPC(t *testing.T) {
 						Properties: &pb.PropertiesRequest{
 							NonRefProperties: []string{"title"},
 						},
-						Uses_123Api: true,
-						Uses_125Api: true,
+
 						Uses_127Api: true,
 					})
 					require.NoError(t, err)
@@ -355,8 +350,7 @@ func Test_AliasesAPI_gRPC(t *testing.T) {
 							On:        []string{filters.InternalPropID},
 							TestValue: &pb.Filters_ValueText{ValueText: theMartian},
 						},
-						Uses_123Api: true,
-						Uses_125Api: true,
+
 						Uses_127Api: true,
 					})
 					require.NoError(t, err)
