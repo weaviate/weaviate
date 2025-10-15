@@ -1545,7 +1545,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 				return err
 			}
 
-			if shard != nil && (shard.GetStatus() != storagestate.StatusLoading && shard.GetStatus() != storagestate.StatusLazyLoading) {
+			if shard != nil && (shard.GetStatus() == storagestate.StatusReady || shard.GetStatus() == storagestate.StatusReadOnly) {
 				i.logger.WithFields(logrus.Fields{
 					"action":    "object_search_path",
 					"shardName": shardName,
@@ -1834,7 +1834,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 			defer release()
 		}
 
-		if shard != nil {
+		if shard != nil && (shard.GetStatus() == storagestate.StatusReady || shard.GetStatus() == storagestate.StatusReadOnly) {
 			i.logger.WithFields(logrus.Fields{
 				"action":    "object_vector_search_path",
 				"shardName": shardName,
@@ -1871,18 +1871,6 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 			}).Info("objectVectorSearch: using remote shard path")
 			remoteSearches++
 			eg.Go(func() error {
-				// Skip remote shard if it's still loading to avoid unnecessary latency during rollout
-				if status, sErr := i.remote.GetShardStatus(ctx, shardName); sErr == nil {
-					if status == storagestate.StatusLoading.String() || status == storagestate.StatusLazyLoading.String() {
-						i.logger.WithFields(logrus.Fields{
-							"action":    "remote_vector_search_skip_loading",
-							"shardName": shardName,
-							"status":    status,
-						}).Info("skipping remote shard vector search because shard is loading")
-						return nil
-					}
-				}
-
 				// If we have no local shard or if we force the query to reach all replicas
 				remoteShardObject, remoteShardScores, err2 := i.remoteShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardName)
 				if err2 != nil {
