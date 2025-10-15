@@ -162,12 +162,12 @@ func (r *parquetRowReader) close() {
 }
 
 type DataReader struct {
-	split           Split
-	rowReader       *parquetRowReader
-	rowBuffer       []parquet.Row
-	idColIdx        int
-	embeddingColIdx int
-	neighborColIdx  int
+	split          Split
+	rowReader      *parquetRowReader
+	rowBuffer      []parquet.Row
+	idColIdx       int
+	vectorColIdx   int
+	neighborColIdx int
 }
 
 type Split string
@@ -190,10 +190,10 @@ func (h *HubDataset) NewDataReader(split Split, bufferSize int) (*DataReader, er
 	}()
 
 	// Validate whether the expected columns are present in the parquet schema.
-	if err := h.validateColumns(rowReader.columnIndices, "id", "embedding"); err != nil {
+	if err := h.validateColumns(rowReader.columnIndices, "id", "vector"); err != nil {
 		return nil, err
 	}
-	idColIdx, embeddingColIdx := rowReader.columnIndices["id"], rowReader.columnIndices["embedding"]
+	idColIdx, vectorColIdx := rowReader.columnIndices["id"], rowReader.columnIndices["vector"]
 
 	neighborColIdx := -1
 	if split == TestSplit {
@@ -205,12 +205,12 @@ func (h *HubDataset) NewDataReader(split Split, bufferSize int) (*DataReader, er
 
 	closeRowReader = false
 	return &DataReader{
-		split:           split,
-		rowReader:       rowReader,
-		rowBuffer:       make([]parquet.Row, bufferSize),
-		idColIdx:        idColIdx,
-		embeddingColIdx: embeddingColIdx,
-		neighborColIdx:  neighborColIdx,
+		split:          split,
+		rowReader:      rowReader,
+		rowBuffer:      make([]parquet.Row, bufferSize),
+		idColIdx:       idColIdx,
+		vectorColIdx:   vectorColIdx,
+		neighborColIdx: neighborColIdx,
 	}, nil
 }
 
@@ -277,9 +277,9 @@ func (r *DataReader) ReadNextChunk() (*DataChunk, error) {
 					return false
 				}
 				ids = append(ids, uint64(colValues[0].Int64()))
-			case r.embeddingColIdx:
+			case r.vectorColIdx:
 				if len(colValues) != 1 || colValues[0].Kind() != parquet.ByteArray {
-					rowErr = errors.New("wrong format or missing value in embedding column")
+					rowErr = errors.New("wrong format or missing value in vector column")
 					return false
 				}
 				binaryData := colValues[0].ByteArray()
