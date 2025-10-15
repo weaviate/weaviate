@@ -316,7 +316,12 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 				realLen := 0
 				index := 0
 
-				pendingNextRound = pendingNextRound[:len(candidateNode.connections[level])]
+				if len(candidateNode.connections[level]) > h.maximumConnectionsLayerZero {
+					pendingNextRound = make([]uint64, len(candidateNode.connections[level]))
+					slicePendingNextRound.Slice = pendingNextRound
+				} else {
+					pendingNextRound = pendingNextRound[:len(candidateNode.connections[level])]
+				}
 				copy(pendingNextRound, candidateNode.connections[level])
 				hop := 1
 				maxHops := 2
