@@ -1545,14 +1545,19 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 				return err
 			}
 
+			// Always release shard reference if acquired
+			if shard != nil {
+				defer release()
+			}
+
 			if shard != nil && (shard.GetStatus() == storagestate.StatusReady || shard.GetStatus() == storagestate.StatusReadOnly) {
 				i.logger.WithFields(logrus.Fields{
-					"action":    "object_search_path",
-					"shardName": shardName,
-					"path":      "local",
-					"shardID":   shard.ID(),
+					"action":       "object_search_path",
+					"shardName":    shardName,
+					"path":         "local",
+					"shardID":      shard.ID(),
+					"shard_status": shard.GetStatus().String(),
 				}).Info("objectSearchByShard: using local shard path")
-				defer release()
 				localCtx := helpers.InitSlowQueryDetails(ctx)
 				helpers.AnnotateSlowQueryLog(localCtx, "is_coordinator", true)
 				objs, scores, err = shard.ObjectSearch(localCtx, limit, filters, keywordRanking, sort, cursor, addlProps, properties)
@@ -1562,11 +1567,18 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 				}
 				nodeName = i.getSchema.NodeName()
 			} else {
+				var shardStatus string
+				if shard != nil {
+					shardStatus = shard.GetStatus().String()
+				} else {
+					shardStatus = "not_found"
+				}
 				i.logger.WithFields(logrus.Fields{
-					"action":    "object_search_path",
-					"shardName": shardName,
-					"path":      "remote",
-				}).Info("objectSearchByShard: shard not found locally, using remote path")
+					"action":       "object_search_path",
+					"shardName":    shardName,
+					"path":         "remote",
+					"shard_status": shardStatus,
+				}).Info("objectSearchByShard: shard not found locally or not ready, using remote path")
 
 				objs, scores, nodeName, err = i.remote.SearchShard(
 					ctx, shardName, nil, nil, 0, limit, filters, keywordRanking,
@@ -1836,10 +1848,11 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 
 		if shard != nil && (shard.GetStatus() == storagestate.StatusReady || shard.GetStatus() == storagestate.StatusReadOnly) {
 			i.logger.WithFields(logrus.Fields{
-				"action":    "object_vector_search_path",
-				"shardName": shardName,
-				"path":      "local",
-				"shardID":   shard.ID(),
+				"action":       "object_vector_search_path",
+				"shardName":    shardName,
+				"path":         "local",
+				"shardID":      shard.ID(),
+				"shard_status": shard.GetStatus().String(),
 			}).Info("objectVectorSearch: using local shard path")
 			localSearches++
 			eg.Go(func() error {
@@ -1868,6 +1881,13 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 				"shardName": shardName,
 				"path":      "remote",
 				"reason":    pathReason,
+				"shard_status": func() string {
+					if shard != nil {
+						return shard.GetStatus().String()
+					} else {
+						return "not_found"
+					}
+				}(),
 			}).Info("objectVectorSearch: using remote shard path")
 			remoteSearches++
 			eg.Go(func() error {
