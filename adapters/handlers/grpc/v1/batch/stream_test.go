@@ -35,7 +35,7 @@ func TestStreamHandler(t *testing.T) {
 		ctx, cancel := context.WithTimeout(ctx, 1*time.Second)
 		defer cancel()
 
-		mockBatcher := mocks.NewMockBatcher(t)
+		mockBatcher := mocks.NewMockbatcher(t)
 		mockStream := newMockStream(ctx, t)
 		mockStream.EXPECT().Context().Return(ctx).Once()
 		mockAuthenticator := mocks.NewMockauthenticator(t)
@@ -65,7 +65,7 @@ func TestStreamHandler(t *testing.T) {
 		ctx, cancel := context.WithTimeout(ctx, 1*time.Second)
 		defer cancel()
 
-		mockBatcher := mocks.NewMockBatcher(t)
+		mockBatcher := mocks.NewMockbatcher(t)
 		mockStream := newMockStream(ctx, t)
 		mockStream.EXPECT().Context().Return(ctx).Once()
 		mockAuthenticator := mocks.NewMockauthenticator(t)
@@ -98,7 +98,7 @@ func TestStreamHandler(t *testing.T) {
 		ctx, cancel := context.WithTimeout(ctx, 1*time.Second)
 		defer cancel()
 
-		mockBatcher := mocks.NewMockBatcher(t)
+		mockBatcher := mocks.NewMockbatcher(t)
 		mockStream := newMockStream(ctx, t)
 		mockStream.EXPECT().Context().Return(ctx).Twice()
 		mockAuthenticator := mocks.NewMockauthenticator(t)
@@ -142,7 +142,7 @@ func TestStreamHandler(t *testing.T) {
 		ctx, cancel := context.WithTimeout(ctx, 1*time.Second)
 		defer cancel()
 
-		mockBatcher := mocks.NewMockBatcher(t)
+		mockBatcher := mocks.NewMockbatcher(t)
 		mockStream := newMockStream(ctx, t)
 		mockStream.EXPECT().Context().Return(ctx).Twice()
 		mockAuthenticator := mocks.NewMockauthenticator(t)
@@ -188,7 +188,7 @@ func TestStreamHandler(t *testing.T) {
 
 		logger := logrus.New()
 
-		mockBatcher := mocks.NewMockBatcher(t)
+		mockBatcher := mocks.NewMockbatcher(t)
 		mockStream := newMockStream(ctx, t)
 		mockStream.EXPECT().Context().Return(ctx).Twice()
 		mockAuthenticator := mocks.NewMockauthenticator(t)

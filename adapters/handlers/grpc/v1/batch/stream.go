@@ -74,6 +74,21 @@ func NewStreamHandler(authenticator authenticator, authorizer authorization.Auth
 	return h
 }
 
+// Handle is the main entrypoint for all Bidi StreamStream calls.
+//
+// It handles authentication, stream setup and teardown, and spawns the receiver goroutine
+// before entering the sender loop itself.
+//
+// At a high-level, the stream handler works as follows:
+//
+//  1. Authenticate the client's API key
+//  2. Check if the server is shutting down, if so, reject the stream
+//  3. Setup the stream (create reporting queue, etc)
+//  4. Spawn the receiver goroutine which receives messages from the stream and schedules them for processing by downstream workers in the processing queue
+//  5. Enter the sender loop which sends messages back through the stream based on reports from downstream workers through the stream-specific reporting queue
+//  6. Teardown the stream (delete reporting queue, etc)
+//
+// The receiver and sender loops communicate through channels to handle errors and stream closure gracefully.
 func (h *StreamHandler) Handle(stream pb.Weaviate_BatchStreamServer) error {
 	streamCtx := stream.Context()
 	// Authenticate at the highest level
@@ -284,14 +299,10 @@ func (h *StreamHandler) close(streamId string, wg *sync.WaitGroup) {
 	// Wait until all workers are done before closing the reporting queue
 	wg.Wait()
 	h.logger.WithField("streamId", streamId).Debug("all workers done, closed reporting queue")
-	h.reportingQueues.Close(streamId)
+	h.reportingQueues.close(streamId)
 	h.workerStatsPerStream.Delete(streamId)
 }
 
-// recv receives messages from the client through the stream in a non-blocking way for the receiver goroutine.
-//
-// The reasoning for this is so that any hanging clients, which are neither sending messages nor closing their side of the
-// stream, can be detected and force-closed during server shutdown.
 func (h *StreamHandler) recv(stream pb.Weaviate_BatchStreamServer) (chan *pb.BatchStreamRequest, chan error) {
 	reqCh := make(chan *pb.BatchStreamRequest)
 	errCh := make(chan error)
@@ -316,7 +327,6 @@ func (h *StreamHandler) recv(stream pb.Weaviate_BatchStreamServer) (chan *pb.Bat
 	return reqCh, errCh
 }
 
-// recv receives messages from the client through the stream and schedules them for processing by downstream workers.
 func (h *StreamHandler) receiver(ctx context.Context, streamId string, consistencyLevel *pb.ConsistencyLevel, stream pb.Weaviate_BatchStreamServer) error {
 	log := h.logger.WithField("streamId", streamId)
 
@@ -392,12 +402,12 @@ func (h *StreamHandler) receiver(ctx context.Context, streamId string, consisten
 		if request.GetData() != nil {
 			wg.Add(1)
 			h.processingQueue <- &processRequest{
-				StreamId:         streamId,
-				ConsistencyLevel: consistencyLevel,
-				Objects:          request.GetData().GetObjects().GetValues(),
-				References:       request.GetData().GetReferences().GetValues(),
-				Wg:               wg,               // the worker will call wg.Done() when it is finished
-				StreamCtx:        stream.Context(), // passes any authn information from the stream into the worker for authz
+				streamId:         streamId,
+				consistencyLevel: consistencyLevel,
+				objects:          request.GetData().GetObjects().GetValues(),
+				references:       request.GetData().GetReferences().GetValues(),
+				wg:               wg,               // the worker will call wg.Done() when it is finished
+				streamCtx:        stream.Context(), // passes any authn information from the stream into the worker for authz
 			}
 			if h.metrics != nil {
 				h.metrics.OnStreamRequest(float64(len(h.processingQueue)) / float64(cap(h.processingQueue)))
@@ -433,6 +443,6 @@ func (h *StreamHandler) setup(streamId string) {
 
 // Teardown closes the reporting queue for the given stream ID and removes it from the reporting queues map.
 func (h *StreamHandler) teardown(streamId string) {
-	h.reportingQueues.Delete(streamId)
+	h.reportingQueues.delete(streamId)
 	h.logger.WithField("streamId", streamId).Debug("teardown completed")
 }

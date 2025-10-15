@@ -22,10 +22,19 @@ import (
 
 type Drain func()
 
+// Start initializes the batch processing system by setting up the necessary components.
+//
+// It creates a stream handler for managing incoming batch requests, starts a specified number of
+// worker goroutines for processing these requests, and returns both the stream handler and a drain
+// function to gracefully shut down the system when needed.
+//
+// The drain function ensures that all ongoing processes are completed before the system is fully shut down,
+// preventing data loss or corruption, and should be called in the server.PreShutdown hook before the HTTP/gRPC
+// servers have been gracefully stopped themselves.
 func Start(
 	authenticator authenticator,
 	authorizer authorization.Authorizer,
-	batchHandler Batcher,
+	batchHandler batcher,
 	reg prometheus.Registerer,
 	numWorkers int,
 	logger logrus.FieldLogger,

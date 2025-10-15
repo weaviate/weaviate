@@ -35,7 +35,7 @@ func TestWorkerLoop(t *testing.T) {
 	logger := logrus.New()
 
 	t.Run("should process from the queue and send data without error", func(t *testing.T) {
-		mockBatcher := mocks.NewMockBatcher(t)
+		mockBatcher := mocks.NewMockbatcher(t)
 
 		reportingQueues := NewReportingQueues()
 		reportingQueues.Make(StreamId)
@@ -55,20 +55,20 @@ func TestWorkerLoop(t *testing.T) {
 		// Send data
 		wg.Add(2)
 		processingQueue <- &processRequest{
-			Objects:          []*pb.BatchObject{{}},
-			References:       nil,
-			StreamId:         StreamId,
-			ConsistencyLevel: nil,
-			Wg:               &wg,
-			StreamCtx:        ctx,
+			objects:          []*pb.BatchObject{{}},
+			references:       nil,
+			streamId:         StreamId,
+			consistencyLevel: nil,
+			wg:               &wg,
+			streamCtx:        ctx,
 		}
 		processingQueue <- &processRequest{
-			Objects:          nil,
-			References:       []*pb.BatchReference{{}},
-			StreamId:         StreamId,
-			ConsistencyLevel: nil,
-			Wg:               &wg,
-			StreamCtx:        ctx,
+			objects:          nil,
+			references:       []*pb.BatchReference{{}},
+			streamId:         StreamId,
+			consistencyLevel: nil,
+			wg:               &wg,
+			streamCtx:        ctx,
 		}
 		close(processingQueue) // Allow the draining logic to exit naturally
 		wg.Wait()
@@ -76,7 +76,7 @@ func TestWorkerLoop(t *testing.T) {
 	})
 
 	t.Run("should process from the queue and send data returning partial error", func(t *testing.T) {
-		mockBatcher := mocks.NewMockBatcher(t)
+		mockBatcher := mocks.NewMockbatcher(t)
 
 		reportingQueues := NewReportingQueues()
 		reportingQueues.Make(StreamId)
@@ -124,12 +124,12 @@ func TestWorkerLoop(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			processingQueue <- &processRequest{
-				Objects:          []*pb.BatchObject{obj, obj, obj},
-				References:       []*pb.BatchReference{ref, ref},
-				StreamId:         StreamId,
-				ConsistencyLevel: nil,
-				Wg:               &wg,
-				StreamCtx:        ctx,
+				objects:          []*pb.BatchObject{obj, obj, obj},
+				references:       []*pb.BatchReference{ref, ref},
+				streamId:         StreamId,
+				consistencyLevel: nil,
+				wg:               &wg,
+				streamCtx:        ctx,
 			}
 		}()
 

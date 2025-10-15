@@ -35,7 +35,7 @@ func TestDrainOfInProgressBatch(t *testing.T) {
 
 	logger := logrus.New()
 
-	mockBatcher := mocks.NewMockBatcher(t)
+	mockBatcher := mocks.NewMockbatcher(t)
 	mockStream := newMockStream(ctx, t)
 	mockStream.EXPECT().Context().Return(ctx).Twice()
 	mockAuthenticator := mocks.NewMockauthenticator(t)
@@ -115,7 +115,7 @@ func TestDrainOfFinishedBatch(t *testing.T) {
 
 	logger := logrus.New()
 
-	mockBatcher := mocks.NewMockBatcher(t)
+	mockBatcher := mocks.NewMockbatcher(t)
 	mockStream := newMockStream(ctx, t)
 	mockStream.EXPECT().Context().Return(ctx).Twice()
 	mockAuthenticator := mocks.NewMockauthenticator(t)
@@ -196,7 +196,7 @@ func TestDrainAfterBrokenStream(t *testing.T) {
 
 	logger := logrus.New()
 
-	mockBatcher := mocks.NewMockBatcher(t)
+	mockBatcher := mocks.NewMockbatcher(t)
 	mockAuthenticator := mocks.NewMockauthenticator(t)
 	mockAuthenticator.EXPECT().PrincipalFromContext(ctx).Return(&models.Principal{}, nil).Once()
 
@@ -265,7 +265,7 @@ func TestDrainWithHangingClient(t *testing.T) {
 
 	logger := logrus.New()
 
-	mockBatcher := mocks.NewMockBatcher(t)
+	mockBatcher := mocks.NewMockbatcher(t)
 	mockAuthenticator := mocks.NewMockauthenticator(t)
 	mockAuthenticator.EXPECT().PrincipalFromContext(ctx).Return(&models.Principal{}, nil).Once()
 
@@ -344,7 +344,7 @@ func TestDrainWithMisbehavingClient(t *testing.T) {
 
 	logger := logrus.New()
 
-	mockBatcher := mocks.NewMockBatcher(t)
+	mockBatcher := mocks.NewMockbatcher(t)
 	mockAuthenticator := mocks.NewMockauthenticator(t)
 	mockAuthenticator.EXPECT().PrincipalFromContext(ctx).Return(&models.Principal{}, nil).Once()
 

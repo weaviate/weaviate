@@ -87,7 +87,7 @@ packages:
       StorageBackend:
   github.com/weaviate/weaviate/adapters/handlers/grpc/v1/batch:
     interfaces:
-      Batcher:
+      batcher:
         config:
           dir: "adapters/handlers/grpc/v1/batch/mocks"
           outpkg: "mocks"

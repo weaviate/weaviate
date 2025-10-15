@@ -83,7 +83,7 @@ func (r *reportingQueues) Get(streamId string) (reportingQueue, bool) {
 	return queue, ok
 }
 
-func (r *reportingQueues) Close(streamId string) {
+func (r *reportingQueues) close(streamId string) {
 	r.lock.Lock()
 	defer r.lock.Unlock()
 	if queue, ok := r.queues[streamId]; ok {
@@ -95,25 +95,14 @@ func (r *reportingQueues) Close(streamId string) {
 	}
 }
 
-func (r *reportingQueues) CloseAll() {
-	r.lock.Lock()
-	defer r.lock.Unlock()
-	for streamId, queue := range r.queues {
-		if _, ok := r.closed[streamId]; !ok {
-			close(queue)
-			r.closed[streamId] = struct{}{}
-		}
-	}
-}
-
-func (r *reportingQueues) Delete(streamId string) {
+func (r *reportingQueues) delete(streamId string) {
 	r.lock.Lock()
 	defer r.lock.Unlock()
 	delete(r.queues, streamId)
 	delete(r.closed, streamId)
 }
 
-func (r *reportingQueues) Send(streamId string, errs []*pb.BatchStreamReply_Error, stats *workerStats) bool {
+func (r *reportingQueues) send(streamId string, errs []*pb.BatchStreamReply_Error, stats *workerStats) bool {
 	r.lock.RLock()
 	defer r.lock.RUnlock()
 	queue, ok := r.queues[streamId]
@@ -157,24 +146,33 @@ type stats struct {
 func newStats() *stats {
 	return &stats{
 		processingTimeEma: 0,
-		batchSize:         100,
-		throughputEma:     0,
+		// Start with a mid-range batch size of 100 (min 10, max 1000)
+		batchSize:     100,
+		throughputEma: 0,
 	}
 }
 
+// Optimum is that each worker takes at most 1s to process a batch so that shutdown does not take too long
+const IDEAL_PROCESSING_TIME = 1.0 // seconds
+
 func (s *stats) updateBatchSize(processingTime time.Duration, processingQueueLen int) {
-	// Optimum is that each worker takes at most 1s to process a batch so that shutdown does not take too long
-	ideal := 1.0 // seconds
 	// Understand the smoothing factor of the EMA as the half-life of the queue length
 	alpha := 1 - math.Exp(-math.Log(2)/float64(processingQueueLen))
 	s.lock.Lock()
 	defer s.lock.Unlock()
+	// Update EMAs using standard formula
+	// newEma = alpha*newValue + (1-alpha)*oldEma
+	// Throughput is measured in objects per second
 	s.throughputEma = alpha*float64(s.batchSize)/processingTime.Seconds() + (1-alpha)*s.throughputEma
 	s.processingTimeEma = alpha*processingTime.Seconds() + (1-alpha)*s.processingTimeEma
-	s.batchSize = int(float64(s.batchSize) * (ideal / s.processingTimeEma))
+	// Adjust batch size based on ratio of ideal time to processing time EMA
+	// If processing time is higher than ideal, batch size will decrease, and vice versa
+	s.batchSize = int(float64(s.batchSize) * (IDEAL_PROCESSING_TIME / s.processingTimeEma))
+	// Set a minimum batch size of 10 to avoid chattiness with client sending many small batches
 	if s.batchSize < 10 {
 		s.batchSize = 10
 	}
+	// Cap batch size to 1000 to avoid excessive downstream load
 	if s.batchSize > 1000 {
 		s.batchSize = 1000
 	}
@@ -207,6 +205,5 @@ func (s *stats) getThroughputEma() float64 {
 //   - usageRatio = 1.0 -> 1s
 func (h *StreamHandler) thresholdCubicBackoff() float32 {
 	usageRatio := float32(len(h.processingQueue)) / float32(cap(h.processingQueue))
-	maximumBackoffSeconds := float32(1.0) // Aligns with ideal processing time of 1s
-	return maximumBackoffSeconds * float32(math.Pow(float64(max(0, (usageRatio-0.6)/0.4)), 3))
+	return float32(IDEAL_PROCESSING_TIME) * float32(math.Pow(float64(max(0, (usageRatio-0.6)/0.4)), 3))
 }
