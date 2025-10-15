@@ -774,7 +774,7 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object,
 	defer release()
 
 	// no replication, local shard
-	i.shardTransferMutex.Lock(shardName)
+	i.shardTransferMutex.RLock(shardName)
 	defer i.shardTransferMutex.RUnlock(shardName)
 
 	err = shard.PutObject(ctx, object)
