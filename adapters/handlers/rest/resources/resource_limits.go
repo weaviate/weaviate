@@ -47,7 +47,7 @@ func NewLimit(config config.ResourceLimits, logger logrus.FieldLogger) *Limits {
 		lock:          sync.Mutex{},
 		cancelFunc:    func() {},
 		logger:        logger.WithField("action", "resource_limits"),
-		previousLimit: 0, // only used to check if the limit was changed and if a log message needs to be emited
+		previousLimit: 0, // only used to check if the limit was changed and if a log message needs to be emitted
 	}
 
 	if config.EnabledDeprecated {
@@ -95,7 +95,6 @@ func (l *Limits) ApplyResourceLimits(conf config.ResourceLimits) func() error {
 							return
 						}
 					}
-
 				}, l.logger)
 		} else if memLimit := conf.GoMemLimit.Get(); memLimit != "" {
 			limitBytes, err := parseMemLimit(memLimit)
