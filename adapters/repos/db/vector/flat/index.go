@@ -229,6 +229,7 @@ func (index *flat) initBuckets(ctx context.Context, cfg Config) error {
 		// In the future when the pure pread performance is on par with mmap, we
 		// should update this to pass the global setting.
 		lsmkv.WithPread(false),
+		lsmkv.WithCalcCountNetAdditions(true),
 	); err != nil {
 		return fmt.Errorf("create or load flat vectors bucket: %w", err)
 	}
@@ -257,6 +258,10 @@ func (index *flat) initBuckets(ctx context.Context, cfg Config) error {
 			return fmt.Errorf("create or load flat compressed vectors bucket: %w", err)
 		}
 	}
+
+	count := index.store.Bucket(index.getBucketName()).CountAsync()
+	atomic.StoreUint64(&index.count, uint64(count))
+
 	return nil
 }
 
