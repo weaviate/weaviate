@@ -103,6 +103,11 @@ SchemaObjectsUpdateForbidden Forbidden
 swagger:response schemaObjectsUpdateForbidden
 */
 type SchemaObjectsUpdateForbidden struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
 }
 
 // NewSchemaObjectsUpdateForbidden creates SchemaObjectsUpdateForbidden with default headers values
@@ -111,12 +116,27 @@ func NewSchemaObjectsUpdateForbidden() *SchemaObjectsUpdateForbidden {
 	return &SchemaObjectsUpdateForbidden{}
 }
 
+// WithPayload adds the payload to the schema objects update forbidden response
+func (o *SchemaObjectsUpdateForbidden) WithPayload(payload *models.ErrorResponse) *SchemaObjectsUpdateForbidden {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the schema objects update forbidden response
+func (o *SchemaObjectsUpdateForbidden) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
 // WriteResponse to the client
 func (o *SchemaObjectsUpdateForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
-
 	rw.WriteHeader(403)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
 }
 
 // SchemaObjectsUpdateNotFoundCode is the HTTP code returned for type SchemaObjectsUpdateNotFound

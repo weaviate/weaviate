@@ -7358,11 +7358,14 @@
               "$ref": "#/definitions/Class"
             }
           },
-            "401": {
+          "401": {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden"
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "404": {
             "description": "Collection not found.",
@@ -7493,7 +7496,7 @@
               "$ref": "#/definitions/ErrorResponse"
             }
           },
-            "500": {
+          "500": {
             "description": "An error occurred while retrieving shard statuses. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"

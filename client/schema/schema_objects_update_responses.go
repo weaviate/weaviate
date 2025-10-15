@@ -210,6 +210,7 @@ SchemaObjectsUpdateForbidden describes a response with status code 403, with def
 Forbidden
 */
 type SchemaObjectsUpdateForbidden struct {
+	Payload *models.ErrorResponse
 }
 
 // IsSuccess returns true when this schema objects update forbidden response has a 2xx status code
@@ -243,14 +244,25 @@ func (o *SchemaObjectsUpdateForbidden) Code() int {
 }
 
 func (o *SchemaObjectsUpdateForbidden) Error() string {
-	return fmt.Sprintf("[PUT /schema/{className}][%d] schemaObjectsUpdateForbidden ", 403)
+	return fmt.Sprintf("[PUT /schema/{className}][%d] schemaObjectsUpdateForbidden  %+v", 403, o.Payload)
 }
 
 func (o *SchemaObjectsUpdateForbidden) String() string {
-	return fmt.Sprintf("[PUT /schema/{className}][%d] schemaObjectsUpdateForbidden ", 403)
+	return fmt.Sprintf("[PUT /schema/{className}][%d] schemaObjectsUpdateForbidden  %+v", 403, o.Payload)
+}
+
+func (o *SchemaObjectsUpdateForbidden) GetPayload() *models.ErrorResponse {
+	return o.Payload
 }
 
 func (o *SchemaObjectsUpdateForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
 
 	return nil
 }
