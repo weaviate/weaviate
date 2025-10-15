@@ -489,83 +489,84 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 	ec := errorcompounder.NewSafe()
 	if len(hot) > 0 {
 		m.logger.WithField("action", "tenants_to_hot").Debug(hot)
-		idx.shardTransferMutex.RLock()
-		defer idx.shardTransferMutex.RUnlock()
 
 		eg := enterrors.NewErrorGroupWrapper(m.logger)
 		eg.SetLimit(_NUMCPU * 2)
 
 		for _, name := range hot {
-			name := name // prevent loop variable capture
-			// enterrors.GoWrapper(func() {
-			// The timeout is rather arbitrary. It's meant to be so high that it can
-			// never stop a valid tenant activation use case, but low enough to
-			// prevent a context-leak.
+			func() {
+				idx.shardTransferMutex.RLock(name)
+				defer idx.shardTransferMutex.RUnlock(name)
 
-			eg.Go(func() error {
-				ctx, cancel := context.WithTimeout(context.Background(), 1*time.Hour)
-				defer cancel()
+				// The timeout is rather arbitrary. It's meant to be so high that it can
+				// never stop a valid tenant activation use case, but low enough to
+				// prevent a context-leak.
 
-				if err := idx.loadLocalShard(ctx, name); err != nil {
-					ec.Add(err)
-					idx.logger.WithFields(logrus.Fields{
-						"action": "tenant_activation_lazy_load_shard",
-						"shard":  name,
-					}).WithError(err).Errorf("loading shard %q failed", name)
-				}
-				return nil
-			})
+				eg.Go(func() error {
+					ctx, cancel := context.WithTimeout(context.Background(), 1*time.Hour)
+					defer cancel()
+
+					if err := idx.loadLocalShard(ctx, name); err != nil {
+						ec.Add(err)
+						idx.logger.WithFields(logrus.Fields{
+							"action": "tenant_activation_lazy_load_shard",
+							"shard":  name,
+						}).WithError(err).Errorf("loading shard %q failed", name)
+					}
+					return nil
+				})
+			}()
 		}
-
 		eg.Wait()
 	}
 
 	if len(cold) > 0 {
 		m.logger.WithField("action", "tenants_to_cold").Debug(cold)
-		idx.shardTransferMutex.RLock()
-		defer idx.shardTransferMutex.RUnlock()
 
 		eg := enterrors.NewErrorGroupWrapper(m.logger)
 		eg.SetLimit(_NUMCPU * 2)
 
 		for _, name := range cold {
-			name := name
+			func() {
+				idx.shardTransferMutex.RLock(name)
+				defer idx.shardTransferMutex.RUnlock(name)
 
-			eg.Go(func() error {
-				idx.closeLock.RLock()
-				defer idx.closeLock.RUnlock()
+				eg.Go(func() error {
+					idx.closeLock.RLock()
+					defer idx.closeLock.RUnlock()
 
-				if idx.closed {
-					m.logger.WithField("index", idx.ID()).Debug("index is already shut down or dropped")
-					ec.Add(errAlreadyShutdown)
-					return nil
-				}
-
-				idx.shardCreateLocks.Lock(name)
-				defer idx.shardCreateLocks.Unlock(name)
-
-				shard, ok := idx.shards.LoadAndDelete(name)
-				if !ok {
-					m.logger.WithField("shard", name).Debug("already shut down or dropped")
-					return nil // shard already does not exist or inactive
-				}
-
-				m.logger.WithField("shard", name).Debug("starting shutdown")
-
-				if err := shard.Shutdown(ctx); err != nil {
-					if errors.Is(err, errAlreadyShutdown) {
-						m.logger.WithField("shard", shard.Name()).Debug("already shut down or dropped")
-					} else {
-						idx.logger.
-							WithField("action", "shutdown_shard").
-							WithField("shard", shard.ID()).
-							Error(err)
-						ec.Add(err)
+					if idx.closed {
+						m.logger.WithField("index", idx.ID()).Debug("index is already shut down or dropped")
+						ec.Add(errAlreadyShutdown)
+						return nil
 					}
-				}
 
-				return nil
-			})
+					idx.shardCreateLocks.Lock(name)
+					defer idx.shardCreateLocks.Unlock(name)
+
+					shard, ok := idx.shards.LoadAndDelete(name)
+					if !ok {
+						m.logger.WithField("shard", name).Debug("already shut down or dropped")
+						return nil // shard already does not exist or inactive
+					}
+
+					m.logger.WithField("shard", name).Debug("starting shutdown")
+
+					if err := shard.Shutdown(ctx); err != nil {
+						if errors.Is(err, errAlreadyShutdown) {
+							m.logger.WithField("shard", shard.Name()).Debug("already shut down or dropped")
+						} else {
+							idx.logger.
+								WithField("action", "shutdown_shard").
+								WithField("shard", shard.ID()).
+								Error(err)
+							ec.Add(err)
+						}
+					}
+
+					return nil
+				})
+			}()
 		}
 
 		eg.Wait()

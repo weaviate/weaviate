@@ -91,6 +91,12 @@ func (db *DB) ShardsBackup(
 		return cd, fmt.Errorf("no index for class %q", class)
 	}
 
+	idx.closeLock.Lock()
+	defer idx.closeLock.Unlock()
+	if idx == nil || idx.closed {
+		return cd, fmt.Errorf("index for class %q is closed", class)
+	}
+
 	if err := idx.initBackup(bakID); err != nil {
 		return cd, fmt.Errorf("init backup state for class %q: %w", class, err)
 	}
@@ -111,19 +117,24 @@ func (db *DB) ShardsBackup(
 	}
 
 	// prevent writing into the index during collection of metadata
-	idx.shardTransferMutex.Lock()
-	defer idx.shardTransferMutex.Unlock()
 	for shardName, shard := range sm {
-		if err := shard.HaltForTransfer(ctx, false); err != nil {
-			return cd, fmt.Errorf("class %q: shard %q: begin backup: %w", class, shardName, err)
-		}
+		if err := func() error {
+			idx.shardTransferMutex.Lock(shardName)
+			defer idx.shardTransferMutex.Unlock(shardName)
+			if err := shard.HaltForTransfer(ctx, false); err != nil {
+				return fmt.Errorf("class %q: shard %q: begin backup: %w", class, shardName, err)
+			}
 
-		sd := backup.ShardDescriptor{Name: shardName}
-		if err := shard.ListBackupFiles(ctx, &sd); err != nil {
-			return cd, fmt.Errorf("class %q: shard %q: list backup files: %w", class, shardName, err)
-		}
+			sd := backup.ShardDescriptor{Name: shardName}
+			if err := shard.ListBackupFiles(ctx, &sd); err != nil {
+				return fmt.Errorf("class %q: shard %q: list backup files: %w", class, shardName, err)
+			}
 
-		cd.Shards = append(cd.Shards, &sd)
+			cd.Shards = append(cd.Shards, &sd)
+			return nil
+		}(); err != nil {
+			return cd, err
+		}
 	}
 
 	return cd, nil
@@ -212,11 +223,11 @@ func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.Cl
 			enterrors.GoWrapper(func() { i.ReleaseBackup(ctx, backupID) }, i.logger)
 		}
 	}()
-	// prevent writing into the index during collection of metadata
-	i.shardTransferMutex.Lock()
-	defer i.shardTransferMutex.Unlock()
 
 	if err = i.ForEachShard(func(name string, s ShardLike) error {
+		// prevent writing into the index during collection of metadata
+		i.shardTransferMutex.Lock(name)
+		defer i.shardTransferMutex.Unlock(name)
 		if err = s.HaltForTransfer(ctx, false); err != nil {
 			return fmt.Errorf("pause compaction and flush: %w", err)
 		}

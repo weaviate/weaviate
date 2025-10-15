@@ -252,8 +252,10 @@ func (i *Index) CommitReplication(shard, requestID string) interface{} {
 	}
 
 	defer release()
+	i.shardTransferMutex.RLock(shard)
+	defer i.shardTransferMutex.RUnlock(shard)
 
-	return localShard.commitReplication(context.Background(), requestID, i.shardTransferMutex)
+	return localShard.commitReplication(context.Background(), requestID)
 }
 
 func (i *Index) AbortReplication(shard, requestID string) interface{} {
