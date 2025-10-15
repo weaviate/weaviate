@@ -69,9 +69,14 @@ func (db *DB) BackupDescriptors(ctx context.Context, bakid string, classes []str
 				idx := db.GetIndex(schema.ClassName(c))
 				if idx == nil {
 					desc.Error = fmt.Errorf("class %v doesn't exist any more", c)
+					return
 				}
 				idx.closeLock.Lock()
 				defer idx.closeLock.Unlock()
+				if idx.closed {
+					desc.Error = fmt.Errorf("index for class %v is closed", c)
+					return
+				}
 				if err := idx.descriptor(ctx, bakid, &desc); err != nil {
 					desc.Error = fmt.Errorf("backup class %v descriptor: %w", c, err)
 				}
@@ -99,7 +104,7 @@ func (db *DB) ShardsBackup(
 
 	idx.closeLock.Lock()
 	defer idx.closeLock.Unlock()
-	if idx == nil || idx.closed {
+	if idx.closed {
 		return cd, fmt.Errorf("index for class %q is closed", class)
 	}
 
