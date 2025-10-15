@@ -5290,11 +5290,11 @@ func init() {
         "tags": [
           "distributedTasks"
         ],
-        "summary": "Lists all distributed tasks in the cluster.",
+        "summary": "Lists all distributed tasks in the cluster",
         "operationId": "distributedTasks.get",
         "responses": {
           "200": {
-            "description": "Distributed tasks successfully returned",
+            "description": "Distributed tasks successfully returned.",
             "schema": {
               "$ref": "#/definitions/DistributedTasks"
             }
@@ -5306,7 +5306,7 @@ func init() {
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An internal server error occurred while retrieving distributed tasks. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -14331,11 +14331,11 @@ func init() {
         "tags": [
           "distributedTasks"
         ],
-        "summary": "Lists all distributed tasks in the cluster.",
+        "summary": "Lists all distributed tasks in the cluster",
         "operationId": "distributedTasks.get",
         "responses": {
           "200": {
-            "description": "Distributed tasks successfully returned",
+            "description": "Distributed tasks successfully returned.",
             "schema": {
               "$ref": "#/definitions/DistributedTasks"
             }
@@ -14347,7 +14347,7 @@ func init() {
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An internal server error occurred while retrieving distributed tasks. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
