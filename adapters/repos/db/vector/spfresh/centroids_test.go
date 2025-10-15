@@ -21,11 +21,10 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 )
 
-func TestBruteForceSPTAG_Search(t *testing.T) {
+func TestBruteForceIndex_Search(t *testing.T) {
 	dim := 64
 	q := compressionhelpers.NewRotationalQuantizer(dim, 42, 8, distancer.NewL2SquaredProvider())
-	sptag := NewBruteForceSPTAG(NewMetrics(nil, "n/a", "n/a"), 10, 10)
-	sptag.Init(int32(dim), distancer.NewL2SquaredProvider())
+	sptag := NewBruteForceSPTAG(NewMetrics(nil, "n/a", "n/a"), distancer.NewL2SquaredProvider(), 10, 10)
 
 	// Seed vectors
 	vectors := map[uint64][]float32{
@@ -44,7 +43,10 @@ func TestBruteForceSPTAG_Search(t *testing.T) {
 	// Encode and upsert
 	for id, v := range vectors {
 		encoded := q.Encode(v)
-		err := sptag.Insert(id, NewAnonymousCompressedVector(encoded))
+		err := sptag.Insert(id, &Centroid{
+			Uncompressed: v,
+			Compressed:   encoded,
+		})
 		require.NoError(t, err)
 	}
 
@@ -53,9 +55,8 @@ func TestBruteForceSPTAG_Search(t *testing.T) {
 	for i := range dim {
 		query[i] = float32(i + 11) // close to vector 2
 	}
-	encodedQuery := q.Encode(query)
 
-	results, err := sptag.Search(NewAnonymousCompressedVector(encodedQuery), 2)
+	results, err := sptag.Search(query, 2)
 	require.NoError(t, err)
 	require.True(t, len(results.data) >= 1)
 
@@ -67,7 +68,7 @@ func TestBruteForceSPTAG_Search(t *testing.T) {
 	err = sptag.MarkAsDeleted(2)
 	require.NoError(t, err)
 
-	results, err = sptag.Search(NewAnonymousCompressedVector(encodedQuery), 2)
+	results, err = sptag.Search(query, 2)
 	require.NoError(t, err)
 	require.NotContains(t, results.data, uint64(2))
 
@@ -76,14 +77,14 @@ func TestBruteForceSPTAG_Search(t *testing.T) {
 	require.Equal(t, uint64(3), results.data[1].ID)
 
 	// Test with an empty search
-	results, err = sptag.Search(NewAnonymousCompressedVector(encodedQuery), 0)
+	results, err = sptag.Search(query, 0)
 	require.NoError(t, err)
 	require.Empty(t, results)
 
 	// Get existing vector
 	existingVector := sptag.Get(1)
 	require.NotNil(t, existingVector)
-	require.Equal(t, q.Encode(vectors[1]), existingVector.Vector.(CompressedVector).Data())
+	require.Equal(t, vectors[1], existingVector.Uncompressed)
 	require.True(t, sptag.Exists(1))
 
 	// Get non-existing vector
@@ -95,8 +96,7 @@ func TestBruteForceSPTAG_Search(t *testing.T) {
 func BenchmarkSPTAGSearch(b *testing.B) {
 	dim := 64
 	q := compressionhelpers.NewRotationalQuantizer(dim, 42, 8, distancer.NewL2SquaredProvider())
-	sptag := NewBruteForceSPTAG(NewMetrics(nil, "n/a", "n/a"), 1024*1024, 1024)
-	sptag.Init(int32(dim), distancer.NewL2SquaredProvider())
+	sptag := NewBruteForceSPTAG(NewMetrics(nil, "n/a", "n/a"), distancer.NewL2SquaredProvider(), 1024*1024, 1024)
 	logger, _ := test.NewNullLogger()
 	vectors_size := 1000_000
 	queries_size := 100
@@ -105,14 +105,17 @@ func BenchmarkSPTAGSearch(b *testing.B) {
 
 	for i, v := range vectors {
 		encoded := q.Encode(v)
-		err := sptag.Insert(uint64(i), NewAnonymousCompressedVector(encoded))
+		err := sptag.Insert(uint64(i), &Centroid{
+			Uncompressed: v,
+			Compressed:   encoded,
+		})
 		require.NoError(b, err)
 	}
 
 	b.ResetTimer()
 	for b.Loop() {
 		compressionhelpers.Concurrently(logger, 100, func(taskIndex uint64) {
-			sptag.Search(NewAnonymousCompressedVector(q.Encode(vectors[0])), 64)
+			sptag.Search(vectors[0], 64)
 		})
 	}
 }
