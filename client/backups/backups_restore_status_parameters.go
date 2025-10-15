@@ -74,25 +74,25 @@ type BackupsRestoreStatusParams struct {
 
 	/* Backend.
 
-	   Backup backend name e.g. `filesystem`, `gcs`, `s3`, `azure`.
+	   Specifies the backend storage system where the backup resides (e.g., 'filesystem', 'gcs', 's3', 'azure').
 	*/
 	Backend string
 
 	/* Bucket.
 
-	   Name of the bucket, container, volume, etc
+	   Optional: Specifies the bucket, container, or volume name if required by the backend.
 	*/
 	Bucket *string
 
 	/* ID.
 
-	   The ID of a backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.
+	   The unique identifier of the backup being restored. Must be URL-safe and compatible with filesystem paths (only lowercase, numbers, underscore, minus characters allowed).
 	*/
 	ID string
 
 	/* Path.
 
-	   The path within the bucket
+	   Optional: Specifies the path within the bucket.
 	*/
 	Path *string
 

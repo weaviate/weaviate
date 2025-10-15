@@ -193,7 +193,7 @@ func (o *DeleteUserNotFound) WriteResponse(rw http.ResponseWriter, producer runt
 const DeleteUserUnprocessableEntityCode int = 422
 
 /*
-DeleteUserUnprocessableEntity The request syntax is correct, but the server couldn't process it due to semantic issues.
+DeleteUserUnprocessableEntity The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.
 
 swagger:response deleteUserUnprocessableEntity
 */

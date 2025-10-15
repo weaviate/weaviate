@@ -375,8 +375,8 @@ The base path for the Weaviate server is structured as `[YOUR-WEAVIATE-HOST]:[PO
 If you have any comments or questions, please feel free to reach out to us at the community forum [https://forum.weaviate.io/](https://forum.weaviate.io/).
 ### Issues?
 If you find a bug or want to file a feature request, please open an issue on our GitHub repository for [Weaviate](https://github.com/weaviate/weaviate).
-### Want more documentation?
-For a quickstart, code examples, concepts and more, please visit our [documentation page](https://weaviate.io/developers/weaviate).
+### Need more documentation?
+For a quickstart, code examples, concepts and more, please visit our [documentation page](https://docs.weaviate.io/weaviate).
 */
 type WeaviateAPI struct {
 	spec            *loads.Document

@@ -25,7 +25,7 @@ import (
 	"github.com/go-openapi/validate"
 )
 
-// SingleRef Either set beacon (direct reference) or set class and schema (concept reference)
+// SingleRef Either set beacon (direct reference) or set collection (class) and schema (concept reference)
 //
 // swagger:model SingleRef
 type SingleRef struct {
@@ -34,7 +34,7 @@ type SingleRef struct {
 	// Format: uri
 	Beacon strfmt.URI `json:"beacon,omitempty"`
 
-	// If using a concept reference (rather than a direct reference), specify the desired class name here
+	// If using a concept reference (rather than a direct reference), specify the desired collection (class) name here.
 	// Format: uri
 	Class strfmt.URI `json:"class,omitempty"`
 

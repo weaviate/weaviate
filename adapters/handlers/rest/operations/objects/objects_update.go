@@ -45,7 +45,7 @@ func NewObjectsUpdate(ctx *middleware.Context, handler ObjectsUpdateHandler) *Ob
 /*
 	ObjectsUpdate swagger:route PUT /objects/{id} objects objectsUpdate
 
-Update an Object based on its UUID.
+# Update an object
 
 Updates an object based on its UUID. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called. <br/><br/>**Note**: This endpoint is deprecated and will be removed in a future version. Use the `/objects/{className}/{id}` endpoint instead.
 */

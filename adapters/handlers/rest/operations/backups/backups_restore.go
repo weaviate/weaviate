@@ -45,9 +45,14 @@ func NewBackupsRestore(ctx *middleware.Context, handler BackupsRestoreHandler) *
 /*
 	BackupsRestore swagger:route POST /backups/{backend}/{id}/restore backups backupsRestore
 
-# Start a restoration process
+# Restore from a backup
 
-Starts a process of restoring a backup for a set of collections. <br/><br/>Any backup can be restored to any machine, as long as the number of nodes between source and target are identical.<br/><br/>Requrements:<br/><br/>- None of the collections to be restored already exist on the target restoration node(s).<br/>- The node names of the backed-up collections' must match those of the target restoration node(s).
+Initiates the restoration of collections from a specified backup located on a designated backend.
+
+Requirements:
+- Target cluster must have the same number of nodes as the source cluster where the backup was created.
+- Collections included in the restore must not already exist on the target cluster.
+- Node names must match between the backup and the target cluster.
 */
 type BackupsRestore struct {
 	Context *middleware.Context

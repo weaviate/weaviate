@@ -45,7 +45,7 @@ func NewObjectsDelete(ctx *middleware.Context, handler ObjectsDeleteHandler) *Ob
 /*
 	ObjectsDelete swagger:route DELETE /objects/{id} objects objectsDelete
 
-Delete an Object based on its UUID.
+# Delete an object
 
 Deletes an object from the database based on its UUID. <br/><br/>**Note**: This endpoint is deprecated and will be removed in a future version. Use the `/objects/{className}/{id}` endpoint instead.
 */

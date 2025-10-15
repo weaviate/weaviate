@@ -74,7 +74,10 @@ ObjectsValidateParams contains all the parameters to send to the API endpoint
 */
 type ObjectsValidateParams struct {
 
-	// Body.
+	/* Body.
+
+	   The object definition to validate.
+	*/
 	Body *models.Object
 
 	timeout    time.Duration

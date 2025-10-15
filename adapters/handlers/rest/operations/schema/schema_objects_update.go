@@ -45,9 +45,9 @@ func NewSchemaObjectsUpdate(ctx *middleware.Context, handler SchemaObjectsUpdate
 /*
 	SchemaObjectsUpdate swagger:route PUT /schema/{className} schema schemaObjectsUpdate
 
-# Update settings of an existing schema class
+# Update collection definition
 
-Add a property to an existing collection.
+Updates the configuration settings of an existing collection (class) based on the provided definition. Note: This operation modifies mutable settings specified in the request body. It does not add properties (use `POST /schema/{className}/properties` for that) or change the collection name.
 */
 type SchemaObjectsUpdate struct {
 	Context *middleware.Context

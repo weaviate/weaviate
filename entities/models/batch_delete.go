@@ -128,7 +128,7 @@ func (m *BatchDelete) UnmarshalBinary(b []byte) error {
 // swagger:model BatchDeleteMatch
 type BatchDeleteMatch struct {
 
-	// Class (name) which objects will be deleted.
+	// The name of the collection (class) from which to delete objects.
 	// Example: City
 	Class string `json:"class,omitempty"`
 

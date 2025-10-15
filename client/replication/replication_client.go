@@ -102,7 +102,9 @@ func (a *Client) CancelReplication(params *CancelReplicationParams, authInfo run
 }
 
 /*
-DeleteAllReplications schedules all replication operations for deletion across all collections shards and nodes
+DeleteAllReplications deletes all replication operations
+
+Schedules all replication operations for deletion across all collections, shards, and nodes.
 */
 func (a *Client) DeleteAllReplications(params *DeleteAllReplicationsParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*DeleteAllReplicationsNoContent, error) {
 	// TODO: Validate the params before sending

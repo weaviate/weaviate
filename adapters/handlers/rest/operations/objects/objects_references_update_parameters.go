@@ -46,22 +46,22 @@ type ObjectsReferencesUpdateParams struct {
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
-	/*
+	/*The new list of references.
 	  Required: true
 	  In: body
 	*/
 	Body models.MultipleRef
-	/*Unique ID of the Object.
+	/*Unique UUID of the source object.
 	  Required: true
 	  In: path
 	*/
 	ID strfmt.UUID
-	/*Unique name of the property related to the Object.
+	/*Unique name of the reference property of the source object.
 	  Required: true
 	  In: path
 	*/
 	PropertyName string
-	/*Specifies the tenant in a request targeting a multi-tenant class
+	/*Specifies the tenant in a request targeting a multi-tenant collection (class).
 	  In: query
 	*/
 	Tenant *string

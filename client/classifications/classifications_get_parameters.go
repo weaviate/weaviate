@@ -74,7 +74,7 @@ type ClassificationsGetParams struct {
 
 	/* ID.
 
-	   classification id
+	   The unique identifier (UUID) of the classification task.
 	*/
 	ID string
 

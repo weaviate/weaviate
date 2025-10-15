@@ -28,7 +28,7 @@ import (
 const ObjectsReferencesUpdateOKCode int = 200
 
 /*
-ObjectsReferencesUpdateOK Successfully replaced all the references.
+ObjectsReferencesUpdateOK References replaced successfully.
 
 swagger:response objectsReferencesUpdateOK
 */
@@ -123,7 +123,7 @@ func (o *ObjectsReferencesUpdateForbidden) WriteResponse(rw http.ResponseWriter,
 const ObjectsReferencesUpdateUnprocessableEntityCode int = 422
 
 /*
-ObjectsReferencesUpdateUnprocessableEntity Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?
+ObjectsReferencesUpdateUnprocessableEntity The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request. Ensure the property exists and is a reference type.
 
 swagger:response objectsReferencesUpdateUnprocessableEntity
 */
@@ -168,7 +168,7 @@ func (o *ObjectsReferencesUpdateUnprocessableEntity) WriteResponse(rw http.Respo
 const ObjectsReferencesUpdateInternalServerErrorCode int = 500
 
 /*
-ObjectsReferencesUpdateInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+ObjectsReferencesUpdateInternalServerError An error occurred while trying to fulfill the request. Check the ErrorResponse for details.
 
 swagger:response objectsReferencesUpdateInternalServerError
 */

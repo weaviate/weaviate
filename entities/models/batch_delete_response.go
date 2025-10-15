@@ -177,7 +177,7 @@ func (m *BatchDeleteResponse) UnmarshalBinary(b []byte) error {
 // swagger:model BatchDeleteResponseMatch
 type BatchDeleteResponseMatch struct {
 
-	// Class (name) which objects will be deleted.
+	// The name of the collection (class) from which to delete objects.
 	// Example: City
 	Class string `json:"class,omitempty"`
 
@@ -280,7 +280,7 @@ type BatchDeleteResponseResults struct {
 	// How many objects were matched by the filter.
 	Matches int64 `json:"matches"`
 
-	// With output set to "minimal" only objects with error occurred will the be described. Successfully deleted objects would be omitted. Output set to "verbose" will list all of the objets with their respective statuses.
+	// With output set to "minimal" only objects with error occurred will the be described. Successfully deleted objects would be omitted. Output set to "verbose" will list all of the objects with their respective statuses.
 	Objects []*BatchDeleteResponseResultsObjectsItems0 `json:"objects"`
 
 	// How many objects were successfully deleted in this round.
@@ -387,7 +387,7 @@ type BatchDeleteResponseResultsObjectsItems0 struct {
 	// errors
 	Errors *ErrorResponse `json:"errors,omitempty"`
 
-	// ID of the Object.
+	// The UUID of the object.
 	// Format: uuid
 	ID strfmt.UUID `json:"id,omitempty"`
 

@@ -74,12 +74,15 @@ ObjectsCreateParams contains all the parameters to send to the API endpoint
 */
 type ObjectsCreateParams struct {
 
-	// Body.
+	/* Body.
+
+	   The object to be created.
+	*/
 	Body *models.Object
 
 	/* ConsistencyLevel.
 
-	   Determines how many replicas must acknowledge a request before it is considered successful
+	   Determines how many replicas must acknowledge a request before it is considered successful.
 	*/
 	ConsistencyLevel *string
 

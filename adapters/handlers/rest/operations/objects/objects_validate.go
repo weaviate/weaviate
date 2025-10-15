@@ -45,9 +45,11 @@ func NewObjectsValidate(ctx *middleware.Context, handler ObjectsValidateHandler)
 /*
 	ObjectsValidate swagger:route POST /objects/validate objects objectsValidate
 
-Validate an Object based on a schema.
+# Validate an object
 
-Validate an object's schema and meta-data without creating it. <br/><br/>If the schema of the object is valid, the request should return nothing with a plain RESTful request. Otherwise, an error object will be returned.
+Checks if a data object's structure conforms to the specified collection schema and metadata rules without actually storing the object.
+
+A successful validation returns a 200 OK status code with no body. If validation fails, an error response with details is returned.
 */
 type ObjectsValidate struct {
 	Context *middleware.Context

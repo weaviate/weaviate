@@ -83,7 +83,7 @@ func NewTenantsGetOneOK() *TenantsGetOneOK {
 /*
 TenantsGetOneOK describes a response with status code 200, with default header values.
 
-load the tenant given the specified class
+Successfully retrieved tenant details.
 */
 type TenantsGetOneOK struct {
 	Payload *models.Tenant
@@ -275,7 +275,7 @@ func NewTenantsGetOneNotFound() *TenantsGetOneNotFound {
 /*
 TenantsGetOneNotFound describes a response with status code 404, with default header values.
 
-Tenant not found
+Tenant or collection not found.
 */
 type TenantsGetOneNotFound struct {
 }
@@ -331,7 +331,7 @@ func NewTenantsGetOneUnprocessableEntity() *TenantsGetOneUnprocessableEntity {
 /*
 TenantsGetOneUnprocessableEntity describes a response with status code 422, with default header values.
 
-Invalid tenant or class
+Invalid request.
 */
 type TenantsGetOneUnprocessableEntity struct {
 	Payload *models.ErrorResponse
@@ -399,7 +399,7 @@ func NewTenantsGetOneInternalServerError() *TenantsGetOneInternalServerError {
 /*
 TenantsGetOneInternalServerError describes a response with status code 500, with default header values.
 
-An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+An error occurred while retrieving the tenant. Check the ErrorResponse for details.
 */
 type TenantsGetOneInternalServerError struct {
 	Payload *models.ErrorResponse

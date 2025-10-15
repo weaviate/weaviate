@@ -28,7 +28,7 @@ import (
 const BackupsRestoreOKCode int = 200
 
 /*
-BackupsRestoreOK Backup restoration process successfully started.
+BackupsRestoreOK Backup restoration process initiated successfully. Check the status endpoint for progress.
 
 swagger:response backupsRestoreOK
 */
@@ -143,7 +143,7 @@ func (o *BackupsRestoreForbidden) WriteResponse(rw http.ResponseWriter, producer
 const BackupsRestoreNotFoundCode int = 404
 
 /*
-BackupsRestoreNotFound Not Found - Backup does not exist
+BackupsRestoreNotFound Backup not found on the specified backend with the given ID.
 
 swagger:response backupsRestoreNotFound
 */
@@ -188,7 +188,7 @@ func (o *BackupsRestoreNotFound) WriteResponse(rw http.ResponseWriter, producer 
 const BackupsRestoreUnprocessableEntityCode int = 422
 
 /*
-BackupsRestoreUnprocessableEntity Invalid backup restoration attempt.
+BackupsRestoreUnprocessableEntity Invalid backup restoration request. Check requirements and request body.
 
 swagger:response backupsRestoreUnprocessableEntity
 */
@@ -233,7 +233,7 @@ func (o *BackupsRestoreUnprocessableEntity) WriteResponse(rw http.ResponseWriter
 const BackupsRestoreInternalServerErrorCode int = 500
 
 /*
-BackupsRestoreInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+BackupsRestoreInternalServerError An internal server error occurred during restore initiation. Check the ErrorResponse for details.
 
 swagger:response backupsRestoreInternalServerError
 */

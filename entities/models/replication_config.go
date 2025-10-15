@@ -38,7 +38,7 @@ type ReplicationConfig struct {
 	// Enum: [NoAutomatedResolution DeleteOnConflict TimeBasedResolution]
 	DeletionStrategy string `json:"deletionStrategy,omitempty"`
 
-	// Number of times a class is replicated (default: 1).
+	// Number of times a collection (class) is replicated (default: 1).
 	Factor int64 `json:"factor,omitempty"`
 }
 

@@ -83,7 +83,7 @@ func NewSchemaObjectsUpdateOK() *SchemaObjectsUpdateOK {
 /*
 SchemaObjectsUpdateOK describes a response with status code 200, with default header values.
 
-Class was updated successfully
+Collection settings updated successfully.
 */
 type SchemaObjectsUpdateOK struct {
 	Payload *models.Class
@@ -210,7 +210,6 @@ SchemaObjectsUpdateForbidden describes a response with status code 403, with def
 Forbidden
 */
 type SchemaObjectsUpdateForbidden struct {
-	Payload *models.ErrorResponse
 }
 
 // IsSuccess returns true when this schema objects update forbidden response has a 2xx status code
@@ -244,25 +243,14 @@ func (o *SchemaObjectsUpdateForbidden) Code() int {
 }
 
 func (o *SchemaObjectsUpdateForbidden) Error() string {
-	return fmt.Sprintf("[PUT /schema/{className}][%d] schemaObjectsUpdateForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[PUT /schema/{className}][%d] schemaObjectsUpdateForbidden ", 403)
 }
 
 func (o *SchemaObjectsUpdateForbidden) String() string {
-	return fmt.Sprintf("[PUT /schema/{className}][%d] schemaObjectsUpdateForbidden  %+v", 403, o.Payload)
-}
-
-func (o *SchemaObjectsUpdateForbidden) GetPayload() *models.ErrorResponse {
-	return o.Payload
+	return fmt.Sprintf("[PUT /schema/{className}][%d] schemaObjectsUpdateForbidden ", 403)
 }
 
 func (o *SchemaObjectsUpdateForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
-	o.Payload = new(models.ErrorResponse)
-
-	// response payload
-	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
-		return err
-	}
 
 	return nil
 }
@@ -275,7 +263,7 @@ func NewSchemaObjectsUpdateNotFound() *SchemaObjectsUpdateNotFound {
 /*
 SchemaObjectsUpdateNotFound describes a response with status code 404, with default header values.
 
-Class to be updated does not exist
+Collection not found.
 */
 type SchemaObjectsUpdateNotFound struct {
 	Payload *models.ErrorResponse
@@ -343,7 +331,7 @@ func NewSchemaObjectsUpdateUnprocessableEntity() *SchemaObjectsUpdateUnprocessab
 /*
 SchemaObjectsUpdateUnprocessableEntity describes a response with status code 422, with default header values.
 
-Invalid update attempt
+Invalid update attempt.
 */
 type SchemaObjectsUpdateUnprocessableEntity struct {
 	Payload *models.ErrorResponse
@@ -411,7 +399,7 @@ func NewSchemaObjectsUpdateInternalServerError() *SchemaObjectsUpdateInternalSer
 /*
 SchemaObjectsUpdateInternalServerError describes a response with status code 500, with default header values.
 
-An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+An error occurred while updating the collection. Check the ErrorResponse for details.
 */
 type SchemaObjectsUpdateInternalServerError struct {
 	Payload *models.ErrorResponse

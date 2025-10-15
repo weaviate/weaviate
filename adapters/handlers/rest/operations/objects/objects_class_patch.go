@@ -45,9 +45,9 @@ func NewObjectsClassPatch(ctx *middleware.Context, handler ObjectsClassPatchHand
 /*
 	ObjectsClassPatch swagger:route PATCH /objects/{className}/{id} objects objectsClassPatch
 
-Update an Object based on its UUID (using patch semantics).
+# Patch an object
 
-Update an individual data object based on its class and uuid. This method supports json-merge style patch semantics (RFC 7396). Provided meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.
+Updates specific properties of an existing data object using JSON merge patch semantics (RFC 7396). The object is identified by its collection name (class) and UUID (`id`). Only the fields provided in the request body are modified. Metadata and schema values are validated, and the object's `lastUpdateTime` is updated.
 */
 type ObjectsClassPatch struct {
 	Context *middleware.Context

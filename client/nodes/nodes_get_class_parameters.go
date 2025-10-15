@@ -72,7 +72,10 @@ NodesGetClassParams contains all the parameters to send to the API endpoint
 */
 type NodesGetClassParams struct {
 
-	// ClassName.
+	/* ClassName.
+
+	   The name of the collection for which to retrieve node status.
+	*/
 	ClassName string
 
 	/* Output.

@@ -49,7 +49,7 @@ type NodesGetClassParams struct {
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
-	/*
+	/*The name of the collection for which to retrieve node status.
 	  Required: true
 	  In: path
 	*/

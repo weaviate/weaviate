@@ -809,7 +809,7 @@
           "type": "boolean",
           "x-omitempty": false
         }
-      }`
+      }
     },
     "JsonObject": {
       "description": "JSON object value.",
@@ -3036,7 +3036,7 @@
       "name": "Weaviate",
       "url": "https://github.com/weaviate"
     },
-    "description": "# Introduction\n Weaviate is an open source, AI-native vector database that helps developers create intuitive and reliable AI-powered applications. \n ### Base Path \nThe base path for the Weaviate server is structured as `[YOUR-WEAVIATE-HOST]:[PORT]/v1`. As an example, if you wish to access the `schema` endpoint on a local instance, you would navigate to `http://localhost:8080/v1/schema`. Ensure you replace `[YOUR-WEAVIATE-HOST]` and `[PORT]` with your actual server host and port number respectively. \n ### Questions? \nIf you have any comments or questions, please feel free to reach out to us at the community forum [https://forum.weaviate.io/](https://forum.weaviate.io/). \n### Issues? \nIf you find a bug or want to file a feature request, please open an issue on our GitHub repository for [Weaviate](https://github.com/weaviate/weaviate). \n### Want more documentation? \nFor a quickstart, code examples, concepts and more, please visit our [documentation page](https://docs.weaviate.io/weaviate).",
+    "description": "# Introduction\n Weaviate is an open source, AI-native vector database that helps developers create intuitive and reliable AI-powered applications. \n ### Base Path \nThe base path for the Weaviate server is structured as `[YOUR-WEAVIATE-HOST]:[PORT]/v1`. As an example, if you wish to access the `schema` endpoint on a local instance, you would navigate to `http://localhost:8080/v1/schema`. Ensure you replace `[YOUR-WEAVIATE-HOST]` and `[PORT]` with your actual server host and port number respectively. \n ### Questions? \nIf you have any comments or questions, please feel free to reach out to us at the community forum [https://forum.weaviate.io/](https://forum.weaviate.io/). \n### Issues? \nIf you find a bug or want to file a feature request, please open an issue on our GitHub repository for [Weaviate](https://github.com/weaviate/weaviate). \n### Need more documentation? \nFor a quickstart, code examples, concepts and more, please visit our [documentation page](https://docs.weaviate.io/weaviate).",
     "title": "Weaviate REST API",
     "version": "1.34.0-dev"
   },
@@ -3266,7 +3266,7 @@
             }
           },
           "422": {
-            "description": "Request body is well-formed but semantically erroneous.",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3315,7 +3315,7 @@
             }
           },
           "422": {
-            "description": "Request body is well-formed but semantically erroneous.",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3378,7 +3378,7 @@
             }
           },
           "422": {
-            "description": "Request body is well-formed but semantically erroneous.",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3440,7 +3440,7 @@
             "description": "Shard replica operation not found."
           },
           "422": {
-            "description": "Request body is well-formed but semantically erroneous.",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3502,7 +3502,7 @@
             }
           },
           "422": {
-            "description": "Request body is well-formed but semantically erroneous.",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3648,7 +3648,7 @@
             }
           },
           "422": {
-            "description": "Request body is well-formed but semantically erroneous.",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3871,7 +3871,7 @@
             "description": "User not found."
           },
           "422": {
-            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues.",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3958,7 +3958,7 @@
             }
           },
           "422": {
-            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues.",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -4013,7 +4013,7 @@
             "description": "User not found."
           },
           "422": {
-            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues.",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -4073,7 +4073,7 @@
             "description": "User not found."
           },
           "422": {
-            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues.",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -4133,7 +4133,7 @@
             "description": "User already activated."
           },
           "422": {
-            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues.",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -4208,7 +4208,7 @@
             "description": "User already deactivated."
           },
           "422": {
-            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues.",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -4309,7 +4309,7 @@
             }
           },
           "422": {
-            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues.",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -4387,7 +4387,7 @@
             "description": "No role found."
           },
           "422": {
-            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues.",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -4464,7 +4464,7 @@
             "description": "No role found."
           },
           "422": {
-            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues.",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -4630,7 +4630,7 @@
             }
           },
           "422": {
-            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues.",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -4887,7 +4887,7 @@
             "description": "No roles found for specified user."
           },
           "422": {
-            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues.",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -4963,7 +4963,7 @@
             "description": "No roles found for specified user."
           },
           "422": {
-            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues.",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -5331,7 +5331,7 @@
             "description": "The specified group was not found."
           },
           "422": {
-            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues.",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -5394,7 +5394,7 @@
             }
           },
           "422": {
-            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues.",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -5467,7 +5467,7 @@
             "description": "Successful query result but no matching objects were found."
           },
           "422": {
-            "description": "Request body is well-formed but semantically erroneous. Ensure the specified collection exists.",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request. Ensure the specified collection exists.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -5529,7 +5529,7 @@
             }
           },
           "422": {
-            "description": "Request body is well-formed but semantically erroneous. Ensure the collection exists and the object properties are valid.",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request. Ensure the collection exists and the object properties are valid.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -5778,7 +5778,7 @@
             "description": "Object not found."
           },
           "422": {
-            "description": "Request body is well-formed but semantically erroneous. Ensure the collection exists and the object properties are valid.",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request. Ensure the collection exists and the object properties are valid.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -5908,7 +5908,7 @@
             "description": "Object not found."
           },
           "422": {
-            "description": "Request body is well-formed but semantically erroneous.",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -5979,7 +5979,7 @@
             "description": "Object not found."
           },
           "422": {
-            "description": "Request body is well-formed but semantically erroneous.",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -5999,7 +5999,7 @@
         "x-available-in-websocket": true
       },
       "put": {
-        "description": "Replaces all properties of an existing data object. The object is identified by its collection name (class) and UUID (`id`). The request body must contain the complete object definition with the new property values.",
+        "description": "Replaces properties of an existing data object. The object is identified by its collection name (class) and UUID (`id`). The request body must contain the complete object definition with the new property values.",
         "operationId": "objects.class.put",
         "x-serviceIds": [
           "weaviate.local.manipulate"
@@ -6053,7 +6053,7 @@
             "description": "Object not found."
           },
           "422": {
-            "description": "Request body is well-formed but semantically erroneous. Ensure the collection exists and the object properties are valid.",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request. Ensure the collection exists and the object properties are valid.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -6195,7 +6195,7 @@
             "description": "Object does not exist."
           },
           "422": {
-            "description": "Request body is well-formed but semantically erroneous (e.g., invalid UUID format).",
+            "description": "Invalid data provided. Please check the values in your request (e.g., invalid UUID format).",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -6265,7 +6265,7 @@
             }
           },
           "422": {
-            "description": "Request body is well-formed but semantically erroneous. Ensure the property exists and is a reference type.",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request. Ensure the property exists and is a reference type.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -6334,7 +6334,7 @@
             }
           },
           "422": {
-            "description": "Request body is well-formed but semantically erroneous. Ensure the property exists and is a reference type.",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request. Ensure the property exists and is a reference type.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -6493,7 +6493,7 @@
             "description": "Source object not found."
           },
           "422": {
-            "description": "Request body is well-formed but semantically erroneous. Ensure the property exists and is a reference type.",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request. Ensure the property exists and is a reference type.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -6580,7 +6580,7 @@
             "description": "Source object not found."
           },
           "422": {
-            "description": "Request body is well-formed but semantically erroneous. Ensure the property exists and is a reference type.",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request. Ensure the property exists and is a reference type.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -6670,7 +6670,7 @@
             }
           },
           "422": {
-            "description": "Request body is well-formed but semantically erroneous. Ensure the property exists and is a reference type.",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request. Ensure the property exists and is a reference type.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -6722,7 +6722,7 @@
             }
           },
           "422": {
-            "description": "Request body is well-formed but the object is invalid according to the collection (class) definition.",
+            "description": "Request body is well-formed but the object is invalid according to the schema.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -6759,7 +6759,7 @@
               "type": "object",
               "properties": {
                 "fields": {
-                  "description": "Controls which fields are returned in the response for each object. Default is ALL.",
+                  "description": "Controls which fields are returned in the response for each object. Default is `ALL`.",
                   "type": "array",
                   "items": {
                     "type": "string",
@@ -6813,7 +6813,7 @@
             }
           },
           "422": {
-            "description": "Request body is well-formed but semantically erroneous. Ensure the collection exists and the object properties are valid.",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request. Ensure the collection exists and the object properties are valid.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -6879,7 +6879,7 @@
             }
           },
           "422": {
-            "description": "Request body is well-formed but semantically erroneous (e.g., invalid filter).",
+            "description": "Invalid data provided. Please check the values in your request (e.g., invalid filter).",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -6950,7 +6950,7 @@
             }
           },
           "422": {
-            "description": "Request body is well-formed but semantically erroneous. Ensure the collection exists and the object properties are valid.",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request. Ensure the collection exists and the object properties are valid.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -7010,7 +7010,7 @@
             }
           },
           "422": {
-            "description": "Request body is well-formed but semantically erroneous.",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -7068,7 +7068,7 @@
             }
           },
           "422": {
-            "description": "Request body is well-formed but semantically erroneous.",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }

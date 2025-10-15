@@ -76,16 +76,19 @@ type BackupsRestoreParams struct {
 
 	/* Backend.
 
-	   Backup backend name e.g. `filesystem`, `gcs`, `s3`, `azure`.
+	   Specifies the backend storage system where the backup resides (e.g., 'filesystem', 'gcs', 's3', 'azure').
 	*/
 	Backend string
 
-	// Body.
+	/* Body.
+
+	   Details of the restore request, including collections to include or exclude and node mapping if necessary.
+	*/
 	Body *models.BackupRestoreRequest
 
 	/* ID.
 
-	   The ID of a backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.
+	   The unique identifier of the backup to restore from. Must be URL-safe and compatible with filesystem paths (only lowercase, numbers, underscore, minus characters allowed).
 	*/
 	ID string
 
