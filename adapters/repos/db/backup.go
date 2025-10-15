@@ -243,7 +243,7 @@ func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.Cl
 		i.backupLock.Lock(name)
 		defer i.backupLock.Unlock(name)
 		var sd backup.ShardDescriptor
-		time.Sleep(10 * time.Second)
+
 		if err := s.ListBackupFiles(ctx, &sd); err != nil {
 			return fmt.Errorf("list shard %v files: %w", s.Name(), err)
 		}
