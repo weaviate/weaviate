@@ -224,7 +224,7 @@ func Test_NoRaceFlatIndex(t *testing.T) {
 						targetRecall = 0.8
 					}
 					if compression == CompressionRQ1 {
-						targetRecall = 0.7
+						targetRecall = 0.8
 					}
 					if compression == CompressionRQ8 {
 						targetRecall = 0.9
@@ -270,7 +270,7 @@ func Test_NoRaceFlatIndex(t *testing.T) {
 						targetRecall = 0.8
 					}
 					if compression == CompressionRQ1 {
-						targetRecall = 0.7
+						targetRecall = 0.8
 					}
 					if compression == CompressionRQ8 {
 						targetRecall = 0.9

@@ -17,6 +17,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
@@ -296,6 +297,98 @@ func (c *Cache) GetAllBytesInCurrentLock(ctx context.Context, start uint64, out 
 		return c.byteCache.GetAllInCurrentLock(ctx, start, out, errs)
 	}
 	return nil, errs, 0, 0
+}
+
+func (c *Cache) IterateUint64WithAllowlist(allow helpers.AllowList, action func(uint64, []uint64) error) error {
+	var id uint64
+	allowMax := uint64(0)
+
+	if allow != nil {
+		// nothing allowed, skip search
+		if allow.IsEmpty() {
+			return nil
+		}
+
+		allowMax = allow.Max()
+
+		id = allow.Min()
+	} else {
+		id = 0
+	}
+	all := c.Len()
+	pageSize := c.PageSize()
+	errs := make([]error, pageSize)
+	outUint64 := make([][]uint64, pageSize)
+	for id < uint64(all) && (allow == nil || id <= allowMax) {
+		vecs, errs, start, end := c.uint64Cache.GetAllInCurrentLock(context.Background(), id, outUint64, errs)
+
+		for i, vec := range vecs {
+			if i < (int(end) - int(start)) {
+				currentId := start + uint64(i)
+				if (currentId < uint64(all)) && (allow == nil || allow.Contains(currentId)) {
+					err := errs[i]
+					if err != nil {
+						return err
+					}
+					if len(vec) == 0 {
+						continue
+					}
+					err = action(currentId, vec)
+					if err != nil {
+						return err
+					}
+				}
+			}
+		}
+		id = end
+	}
+	return nil
+}
+
+func (c *Cache) IterateBytesWithAllowlist(allow helpers.AllowList, action func(uint64, []byte) error) error {
+	var id uint64
+	allowMax := uint64(0)
+
+	if allow != nil {
+		// nothing allowed, skip search
+		if allow.IsEmpty() {
+			return nil
+		}
+
+		allowMax = allow.Max()
+
+		id = allow.Min()
+	} else {
+		id = 0
+	}
+	all := c.Len()
+	pageSize := c.PageSize()
+	errs := make([]error, pageSize)
+	outBytes := make([][]byte, pageSize)
+	for id < uint64(all) && (allow == nil || id <= allowMax) {
+		vecs, errs, start, end := c.byteCache.GetAllInCurrentLock(context.Background(), id, outBytes, errs)
+
+		for i, vec := range vecs {
+			if i < (int(end) - int(start)) {
+				currentId := start + uint64(i)
+				if (currentId < uint64(all)) && (allow == nil || allow.Contains(currentId)) {
+					err := errs[i]
+					if err != nil {
+						return err
+					}
+					if len(vec) == 0 {
+						continue
+					}
+					err = action(currentId, vec)
+					if err != nil {
+						return err
+					}
+				}
+			}
+		}
+		id = end
+	}
+	return nil
 }
 
 // GetUint64 gets a uint64 vector from the cache

@@ -544,11 +544,18 @@ func (index *flat) searchByVectorQuantized(ctx context.Context, vector []float32
 }
 
 func (index *flat) createDistanceCalcQuantized(queryVector []float32) distanceCalc {
-	// Check quantizer type once outside the closure for performance
-	quantizerType := index.quantizer.Type()
+	switch index.compressionType {
+	case CompressionRQ1:
+		// For RQ-1 bit, use NewDistancer to get 5-bit query quantization for better accuracy
+		distancer := index.quantizer.(*BinaryRotationalQuantizerWrapper).NewDistancer(queryVector)
+		return func(vecAsBytes []byte) (float32, error) {
+			vecSliceQuantized := index.pool.uint64SlicePool.Get(len(vecAsBytes) / 8)
+			defer index.pool.uint64SlicePool.Put(vecSliceQuantized)
 
-	switch quantizerType {
-	case Uint64Quantizer:
+			candidate := uint64SliceFromByteSlice(vecAsBytes, vecSliceQuantized.slice)
+			return distancer.Distance(candidate)
+		}
+	case CompressionBQ:
 		queryQuantized := index.quantizer.EncodeUint64(queryVector)
 		return func(vecAsBytes []byte) (float32, error) {
 			vecSliceQuantized := index.pool.uint64SlicePool.Get(len(vecAsBytes) / 8)
@@ -557,16 +564,16 @@ func (index *flat) createDistanceCalcQuantized(queryVector []float32) distanceCa
 			candidate := uint64SliceFromByteSlice(vecAsBytes, vecSliceQuantized.slice)
 			return index.quantizer.DistanceBetweenUint64Vectors(candidate, queryQuantized)
 		}
-	case ByteQuantizer:
+	case CompressionRQ8:
 		queryQuantized := index.quantizer.EncodeBytes(queryVector)
 		return func(vecAsBytes []byte) (float32, error) {
 			// For byte quantizer, use the bytes directly without conversion
 			return index.quantizer.DistanceBetweenByteVectors(vecAsBytes, queryQuantized)
 		}
-	}
-
-	return func(vecAsBytes []byte) (float32, error) {
-		return 0, fmt.Errorf("unsupported quantizer data type: %v", quantizerType)
+	default:
+		return func(vecAsBytes []byte) (float32, error) {
+			return 0, fmt.Errorf("unsupported quantizer data type: %v", index.compressionType)
+		}
 	}
 }
 
@@ -628,99 +635,43 @@ func (index *flat) findTopVectors(heap *priorityqueue.Queue[any],
 func (index *flat) findTopVectorsQuantizedCached(heap *priorityqueue.Queue[any],
 	allow helpers.AllowList, limit int, queryVector []float32,
 ) error {
-	var id uint64
-	allowMax := uint64(0)
-
-	if allow != nil {
-		// nothing allowed, skip search
-		if allow.IsEmpty() {
+	switch index.compressionType {
+	case CompressionRQ1:
+		distancer := index.quantizer.(*BinaryRotationalQuantizerWrapper).NewDistancer(queryVector)
+		action := func(currentId uint64, vec []uint64) error {
+			distance, err := distancer.Distance(vec)
+			if err != nil {
+				return err
+			}
+			index.insertToHeap(heap, limit, currentId, distance)
 			return nil
 		}
-
-		allowMax = allow.Max()
-
-		id = allow.Min()
-	} else {
-		id = 0
-	}
-	all := index.cache.Len()
-
-	// Encode query vector once outside the loop for performance
-	var queryQuantizedUint64 []uint64
-	var queryQuantizedBytes []byte
-	var outUint64 [][]uint64
-	var outBytes [][]byte
-	var errs []error
-	var pageSize uint64
-
-	quantizerType := index.quantizer.Type()
-
-	switch quantizerType {
-	case Uint64Quantizer:
-		queryQuantizedUint64 = index.quantizer.EncodeUint64(queryVector)
-		pageSize = index.cache.uint64Cache.PageSize()
-		outUint64 = make([][]uint64, pageSize)
-		errs = make([]error, pageSize)
-	case ByteQuantizer:
-		queryQuantizedBytes = index.quantizer.EncodeBytes(queryVector)
-		pageSize = index.cache.byteCache.PageSize()
-		outBytes = make([][]byte, pageSize)
-		errs = make([]error, pageSize)
-	}
-
-	if quantizerType == Uint64Quantizer {
-		for id < uint64(all) && (allow == nil || id <= allowMax) {
-			vecs, errs, start, end := index.cache.uint64Cache.GetAllInCurrentLock(context.Background(), id, outUint64, errs)
-
-			for i, vec := range vecs {
-				if i < (int(end) - int(start)) {
-					currentId := start + uint64(i)
-					if (currentId < uint64(all)) && (allow == nil || allow.Contains(currentId)) {
-						err := errs[i]
-						if err != nil {
-							return err
-						}
-						if len(vec) == 0 {
-							continue
-						}
-						distance, err := index.quantizer.DistanceBetweenUint64Vectors(vec, queryQuantizedUint64)
-						if err != nil {
-							return err
-						}
-						index.insertToHeap(heap, limit, currentId, distance)
-					}
-				}
+		return index.cache.IterateUint64WithAllowlist(allow, action)
+	case CompressionBQ:
+		queryQuantizedUint64 := index.quantizer.EncodeUint64(queryVector)
+		action := func(currentId uint64, vec []uint64) error {
+			distance, err := index.quantizer.DistanceBetweenUint64Vectors(vec, queryQuantizedUint64)
+			if err != nil {
+				return err
 			}
-			id = end
+			index.insertToHeap(heap, limit, currentId, distance)
+			return nil
 		}
-	} else if quantizerType == ByteQuantizer {
-		for id < uint64(all) && (allow == nil || id <= allowMax) {
-			vecs, errs, start, end := index.cache.byteCache.GetAllInCurrentLock(context.Background(), id, outBytes, errs)
-
-			for i, vec := range vecs {
-				if i < (int(end) - int(start)) {
-					currentId := start + uint64(i)
-					if (currentId < uint64(all)) && (allow == nil || allow.Contains(currentId)) {
-						err := errs[i]
-						if err != nil {
-							return err
-						}
-						if len(vec) == 0 {
-							continue
-						}
-						distance, err := index.quantizer.DistanceBetweenByteVectors(vec, queryQuantizedBytes)
-						if err != nil {
-							return err
-						}
-						index.insertToHeap(heap, limit, currentId, distance)
-					}
-				}
+		return index.cache.IterateUint64WithAllowlist(allow, action)
+	case CompressionRQ8:
+		queryQuantizedBytes := index.quantizer.EncodeBytes(queryVector)
+		action := func(currentId uint64, vec []byte) error {
+			distance, err := index.quantizer.DistanceBetweenByteVectors(vec, queryQuantizedBytes)
+			if err != nil {
+				return err
 			}
-			id = end
+			index.insertToHeap(heap, limit, currentId, distance)
+			return nil
 		}
+		return index.cache.IterateBytesWithAllowlist(allow, action)
+	default:
+		return fmt.Errorf("unsupported quantizer data type: %v", index.compressionType)
 	}
-
-	return nil
 }
 
 func (index *flat) insertToHeap(heap *priorityqueue.Queue[any],
@@ -1207,34 +1158,51 @@ func (index *flat) QueryVectorDistancer(queryVector []float32) common.QueryVecto
 		if index.cache == nil {
 			distFunc = defaultDistFunc
 		} else {
-			// Pre-encode query vector once for performance
-			var queryVecEncodeUint64 []uint64
-			var queryVecEncodeBytes []byte
-
-			if index.quantizer.Type() == Uint64Quantizer {
-				queryVecEncodeUint64 = index.quantizer.EncodeUint64(queryVector)
-			} else if index.quantizer.Type() == ByteQuantizer {
-				queryVecEncodeBytes = index.quantizer.EncodeBytes(queryVector)
-			}
-
-			distFunc = func(nodeID uint64) (float32, error) {
-				if int32(nodeID) > index.cache.Len() {
-					return -1, fmt.Errorf("node %v is larger than the cache size %v", nodeID, index.cache.Len())
-				}
-				if index.quantizer.Type() == Uint64Quantizer {
+			// For RQ-1 bit, use NewDistancer to get 5-bit query quantization for better accuracy
+			// This matches HNSW behavior where queries use higher precision than data vectors
+			if index.compressionType == CompressionRQ1 && index.quantizer.Type() == Uint64Quantizer {
+				// Create a distancer that uses 5-bit query quantization
+				distancer := index.quantizer.(*BinaryRotationalQuantizerWrapper).NewDistancer(queryVector)
+				distFunc = func(nodeID uint64) (float32, error) {
+					if int32(nodeID) > index.cache.Len() {
+						return -1, fmt.Errorf("node %v is larger than the cache size %v", nodeID, index.cache.Len())
+					}
 					vec, err := index.cache.uint64Cache.Get(context.Background(), nodeID)
 					if err != nil {
 						return 0, err
 					}
-					return index.quantizer.DistanceBetweenUint64Vectors(vec, queryVecEncodeUint64)
-				} else if index.quantizer.Type() == ByteQuantizer {
-					vec, err := index.cache.byteCache.Get(context.Background(), nodeID)
-					if err != nil {
-						return 0, err
-					}
-					return index.quantizer.DistanceBetweenByteVectors(vec, queryVecEncodeBytes)
+					return distancer.Distance(vec)
 				}
-				return 0, fmt.Errorf("unsupported quantizer data type: %v", index.quantizer.Type())
+			} else {
+				// Pre-encode query vector once for performance (for other quantizers)
+				var queryVecEncodeUint64 []uint64
+				var queryVecEncodeBytes []byte
+
+				if index.quantizer.Type() == Uint64Quantizer {
+					queryVecEncodeUint64 = index.quantizer.EncodeUint64(queryVector)
+				} else if index.quantizer.Type() == ByteQuantizer {
+					queryVecEncodeBytes = index.quantizer.EncodeBytes(queryVector)
+				}
+
+				distFunc = func(nodeID uint64) (float32, error) {
+					if int32(nodeID) > index.cache.Len() {
+						return -1, fmt.Errorf("node %v is larger than the cache size %v", nodeID, index.cache.Len())
+					}
+					if index.quantizer.Type() == Uint64Quantizer {
+						vec, err := index.cache.uint64Cache.Get(context.Background(), nodeID)
+						if err != nil {
+							return 0, err
+						}
+						return index.quantizer.DistanceBetweenUint64Vectors(vec, queryVecEncodeUint64)
+					} else if index.quantizer.Type() == ByteQuantizer {
+						vec, err := index.cache.byteCache.Get(context.Background(), nodeID)
+						if err != nil {
+							return 0, err
+						}
+						return index.quantizer.DistanceBetweenByteVectors(vec, queryVecEncodeBytes)
+					}
+					return 0, fmt.Errorf("unsupported quantizer data type: %v", index.quantizer.Type())
+				}
 			}
 		}
 	default:
