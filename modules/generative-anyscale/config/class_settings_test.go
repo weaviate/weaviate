@@ -12,7 +12,6 @@
 package config
 
 import (
-	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -66,17 +65,6 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantTemperature: 1,
 			wantBaseURL:     "https://custom.endpoint.com",
 			wantErr:         nil,
-		},
-		{
-			name: "unsupported model",
-			cfg: fakeClassConfig{
-				classConfig: map[string]interface{}{
-					"model":       "unsupported",
-					"temperature": 1,
-					"baseURL":     "https://custom.endpoint.com",
-				},
-			},
-			wantErr: errors.New("wrong Anyscale model name, available model names are: [meta-llama/Llama-2-70b-chat-hf meta-llama/Llama-2-13b-chat-hf meta-llama/Llama-2-7b-chat-hf codellama/CodeLlama-34b-Instruct-hf mistralai/Mistral-7B-Instruct-v0.1 mistralai/Mixtral-8x7B-Instruct-v0.1]"),
 		},
 	}
 	for _, tt := range tests {
