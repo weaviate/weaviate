@@ -26,14 +26,6 @@ const (
 	DefaultCohereModel = "rerank-v3.5"
 )
 
-var availableCohereModels = []string{
-	"rerank-v3.5",
-	"rerank-english-v3.0",
-	"rerank-multilingual-v3.0",
-	"rerank-english-v2.0",
-	"rerank-multilingual-v2.0",
-}
-
 type classSettings struct {
 	cfg                  moduletools.ClassConfig
 	propertyValuesHelper basesettings.PropertyValuesHelper
@@ -49,8 +41,8 @@ func (ic *classSettings) Validate(class *models.Class) error {
 		return errors.New("empty config")
 	}
 	model := ic.getStringProperty(modelProperty, DefaultCohereModel)
-	if model == nil || !ic.validateModel(*model) {
-		return errors.Errorf("wrong Cohere model name, available model names are: %v", availableCohereModels)
+	if model == nil {
+		return errors.Errorf("no model provided")
 	}
 
 	return nil
@@ -61,19 +53,6 @@ func (ic *classSettings) getStringProperty(name string, defaultValue string) *st
 	return &asString
 }
 
-func (ic *classSettings) validateModel(model string) bool {
-	return contains(availableCohereModels, model)
-}
-
 func (ic *classSettings) Model() string {
 	return *ic.getStringProperty(modelProperty, DefaultCohereModel)
-}
-
-func contains[T comparable](s []T, e T) bool {
-	for _, v := range s {
-		if v == e {
-			return true
-		}
-	}
-	return false
 }
