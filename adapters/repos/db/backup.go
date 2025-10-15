@@ -71,8 +71,8 @@ func (db *DB) BackupDescriptors(ctx context.Context, bakid string, classes []str
 					desc.Error = fmt.Errorf("class %v doesn't exist any more", c)
 					return
 				}
-				idx.closeLock.Lock()
-				defer idx.closeLock.Unlock()
+				idx.closeLock.RLock()
+				defer idx.closeLock.RUnlock()
 				if idx.closed {
 					desc.Error = fmt.Errorf("index for class %v is closed", c)
 					return
@@ -102,8 +102,8 @@ func (db *DB) ShardsBackup(
 		return cd, fmt.Errorf("no index for class %q", class)
 	}
 
-	idx.closeLock.Lock()
-	defer idx.closeLock.Unlock()
+	idx.closeLock.RLock()
+	defer idx.closeLock.RUnlock()
 	if idx.closed {
 		return cd, fmt.Errorf("index for class %q is closed", class)
 	}
@@ -243,6 +243,7 @@ func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.Cl
 		i.backupLock.Lock(name)
 		defer i.backupLock.Unlock(name)
 		var sd backup.ShardDescriptor
+		time.Sleep(10 * time.Second)
 		if err := s.ListBackupFiles(ctx, &sd); err != nil {
 			return fmt.Errorf("list shard %v files: %w", s.Name(), err)
 		}
