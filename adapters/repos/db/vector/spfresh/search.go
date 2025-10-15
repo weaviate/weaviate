@@ -83,7 +83,7 @@ func (s *SPFresh) SearchByVector(ctx context.Context, vector []float32, k int, a
 			}
 
 			// skip duplicates
-			if visited.Visited(id) || s.VersionMap.Get(id) != v.Version() {
+			if visited.Visited(id) {
 				continue
 			}
 
