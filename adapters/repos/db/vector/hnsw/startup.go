@@ -14,7 +14,6 @@ package hnsw
 import (
 	"context"
 	"encoding/binary"
-	"fmt"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -160,7 +159,10 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 						h.logger,
 						data.Encoders,
 						h.store,
+						h.MinMMapSize,
+						h.MaxWalReuseSize,
 						h.allocChecker,
+						h.getTargetVector(),
 					)
 				} else {
 					h.compressor, err = compressionhelpers.RestoreHNSWPQMultiCompressor(
@@ -171,7 +173,10 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 						h.logger,
 						data.Encoders,
 						h.store,
+						h.MinMMapSize,
+						h.MaxWalReuseSize,
 						h.allocChecker,
+						h.getTargetVector(),
 					)
 				}
 				if err != nil {
@@ -190,7 +195,10 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 					data.B,
 					data.Dimensions,
 					h.store,
+					h.MinMMapSize,
+					h.MaxWalReuseSize,
 					h.allocChecker,
+					h.getTargetVector(),
 				)
 			} else {
 				h.compressor, err = compressionhelpers.RestoreHNSWSQMultiCompressor(
@@ -201,7 +209,10 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 					data.B,
 					data.Dimensions,
 					h.store,
+					h.MinMMapSize,
+					h.MaxWalReuseSize,
 					h.allocChecker,
+					h.getTargetVector(),
 				)
 			}
 			if err != nil {
@@ -285,15 +296,45 @@ func (h *hnsw) restoreDocMappings() error {
 	maxNodeID := uint64(0)
 	maxDocID := uint64(0)
 	buf := make([]byte, 8)
+
+	// Get the mappings bucket - handle case where it might be nil
+	bucket := h.store.Bucket(h.id + "_mv_mappings")
+	if bucket == nil {
+		err := errors.New("multivector mappings bucket not found")
+		h.logger.WithField("action", "restore_doc_mappings").
+			WithError(err)
+		return err
+	}
+
 	for _, node := range h.nodes {
 		if node == nil {
 			continue
 		}
 		binary.BigEndian.PutUint64(buf, node.id)
-		docIDBytes, err := h.store.Bucket(h.id + "_mv_mappings").Get(buf)
+		docIDBytes, err := bucket.Get(buf)
 		if err != nil {
-			return errors.Wrap(err, fmt.Sprintf("failed to get %s_mv_mappings from the bucket", h.id))
+			// If the mapping is not found (e.g., due to corrupted state after ungraceful shutdown),
+			// log a warning and skip this node instead of failing completely
+			h.logger.WithFields(map[string]interface{}{
+				"action":  "restore_doc_mappings",
+				"node_id": node.id,
+				"error":   err.Error(),
+			}).Error("skipping node with missing doc mapping")
+			h.nodes[node.id] = nil
+			continue
 		}
+
+		// Validate that we have enough bytes for a uint64 (8 bytes)
+		if len(docIDBytes) < 8 {
+			h.logger.WithFields(map[string]interface{}{
+				"action":       "restore_doc_mappings",
+				"node_id":      node.id,
+				"bytes_length": len(docIDBytes),
+			}).Error("skipping node with invalid doc mapping data")
+			h.nodes[node.id] = nil
+			continue
+		}
+
 		docID := binary.BigEndian.Uint64(docIDBytes)
 		if docID != prevDocID {
 			relativeID = 0

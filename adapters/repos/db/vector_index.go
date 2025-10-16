@@ -54,6 +54,7 @@ type VectorIndex interface {
 	// It must return false if the document does not exist, or has a tombstone.
 	ContainsDoc(docID uint64) bool
 	AlreadyIndexed() uint64
+	Preload(id uint64, vector []float32)
 	// Iterate over all indexed document ids in the index.
 	// Consistency or order is not guaranteed, as the index may be concurrently modified.
 	// If the callback returns false, the iteration will stop.
