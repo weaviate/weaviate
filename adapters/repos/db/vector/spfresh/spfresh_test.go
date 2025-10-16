@@ -32,6 +32,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
+	ent "github.com/weaviate/weaviate/entities/vectorindex/spfresh"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -98,7 +99,7 @@ func TestSPFreshRecall(t *testing.T) {
 
 	truths := make([][]uint64, queries_size)
 	compressionhelpers.Concurrently(logger, uint64(len(queries)), func(i uint64) {
-		res, _ := testinghelpers.BruteForce(logger, vectors, queries[i], k, distanceWrapper(cfg.Distancer))
+		res, _ := testinghelpers.BruteForce(logger, vectors, queries[i], k, distanceWrapper(distancer.NewL2SquaredProvider()))
 		mu.Lock()
 		truths[i] = res
 		mu.Unlock()
@@ -106,7 +107,7 @@ func TestSPFreshRecall(t *testing.T) {
 
 	fmt.Printf("generating data took %s\n", time.Since(before))
 
-	index, err := New(cfg, store)
+	index, err := New(cfg, ent.NewDefaultUserConfig(), store)
 	require.NoError(t, err)
 	defer index.Shutdown(t.Context())
 

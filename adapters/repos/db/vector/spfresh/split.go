@@ -107,7 +107,7 @@ func (s *SPFresh) doSplit(postingID uint64, reassign bool) error {
 	filtered := p.GarbageCollect(s.VersionMap)
 
 	// skip if the filtered posting is now too small
-	if lf := filtered.Len(); lf < int(s.config.MaxPostingSize) {
+	if lf := filtered.Len(); lf < int(s.maxPostingSize) {
 		if lf == lp {
 			// no changes, just return
 			return nil

@@ -59,10 +59,10 @@ func (s *SPFresh) Add(ctx context.Context, id uint64, vector []float32) (err err
 	s.initDimensionsOnce.Do(func() {
 		s.dims = int32(len(vector))
 		s.setMaxPostingSize()
-		s.quantizer = compressionhelpers.NewRotationalQuantizer(int(s.dims), 42, 8, s.config.Distancer)
+		s.quantizer = compressionhelpers.NewRotationalQuantizer(int(s.dims), 42, 8, s.config.DistanceProvider)
 		s.distancer = &Distancer{
 			quantizer: s.quantizer,
-			distancer: s.config.Distancer,
+			distancer: s.config.DistanceProvider,
 		}
 		vector = s.normalizeVec(vector)
 		compressed = s.quantizer.Encode(vector)
@@ -189,7 +189,7 @@ func (s *SPFresh) append(ctx context.Context, vector Vector, centroidID uint64, 
 	// however during a reassign, we want to split immediately.
 	// Also, reassign operations may cause the posting to grow beyond the max size
 	// temporarily. To avoid triggering unnecessary splits, we add a fine-tuned threshold.
-	max := s.config.MaxPostingSize
+	max := s.maxPostingSize
 	if reassigned {
 		max += reassignThreshold
 	}
@@ -242,11 +242,11 @@ func computeMaxPostingSize(dims int, compressed bool) uint32 {
 }
 
 func (s *SPFresh) setMaxPostingSize() {
-	if s.config.MaxPostingSize == 0 {
+	if s.maxPostingSize == 0 {
 		isCompressed := s.Compressed()
-		s.config.MaxPostingSize = computeMaxPostingSize(int(s.dims), isCompressed)
+		s.maxPostingSize = computeMaxPostingSize(int(s.dims), isCompressed)
 	}
-	if s.config.MaxPostingSize < s.config.MinPostingSize { // either set by the user or computed by the index we want to make sure it's at least the min posting size
-		s.config.MaxPostingSize = s.config.MinPostingSize
+	if s.maxPostingSize < s.minPostingSize { // either set by the user or computed by the index we want to make sure it's at least the min posting size
+		s.maxPostingSize = s.minPostingSize
 	}
 }

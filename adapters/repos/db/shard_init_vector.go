@@ -30,6 +30,7 @@ import (
 	dynamicent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	spfreshent "github.com/weaviate/weaviate/entities/vectorindex/spfresh"
 	"go.etcd.io/bbolt"
 )
 
@@ -230,28 +231,37 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 		if !s.index.SPFreshEnabled {
 			return nil, errors.New("spfresh index is available only in experimental mode")
 		}
-		cfg := spfresh.DefaultConfig()
-		cfg.Logger = s.index.logger
-		cfg.Distancer = distProv
-		cfg.RootPath = filepath.Join(s.path(), "spfresh")
-		cfg.ID = s.vectorIndexID(targetVector)
-		cfg.TargetVector = targetVector
-		cfg.ShardName = s.name
-		cfg.ClassName = s.index.Config.ClassName.String()
-		cfg.PrometheusMetrics = s.promMetrics
-		cfg.Store.MinMMapSize = s.index.Config.MinMMapSize
-		cfg.Store.MaxReuseWalSize = s.index.Config.MaxReuseWalSize
-		cfg.Store.AllocChecker = s.index.allocChecker
-		cfg.Store.LazyLoadSegments = lazyLoadSegments
-		cfg.Store.WriteSegmentInfoIntoFileName = s.index.Config.SegmentInfoIntoFileNameEnabled
-		cfg.Store.WriteMetadataFilesEnabled = s.index.Config.WriteMetadataFilesEnabled
-		cfg.TombstoneCallbacks = s.cycleCallbacks.vectorTombstoneCleanupCallbacks
+		userConfig, ok := vectorIndexUserConfig.(spfreshent.UserConfig)
+		if !ok {
+			return nil, errors.Errorf("spfresh vector index: config is not spfresh.UserConfig: %T",
+				vectorIndexUserConfig)
+		}
 
-		cfg.Centroids.IndexType = "hnsw"
-		cfg.Centroids.HNSWConfig = &hnsw.Config{
+		spfreshConfig := &spfresh.Config{
+			Logger:            s.index.logger,
+			DistanceProvider:  distProv,
+			RootPath:          filepath.Join(s.path(), "spfresh"),
+			ID:                s.vectorIndexID(targetVector),
+			TargetVector:      targetVector,
+			ShardName:         s.name,
+			ClassName:         s.index.Config.ClassName.String(),
+			PrometheusMetrics: s.promMetrics,
+			Store: spfresh.StoreConfig{
+				MinMMapSize:                  s.index.Config.MinMMapSize,
+				MaxReuseWalSize:              s.index.Config.MaxReuseWalSize,
+				AllocChecker:                 s.index.allocChecker,
+				LazyLoadSegments:             lazyLoadSegments,
+				WriteSegmentInfoIntoFileName: s.index.Config.SegmentInfoIntoFileNameEnabled,
+				WriteMetadataFilesEnabled:    s.index.Config.WriteMetadataFilesEnabled,
+			},
+			TombstoneCallbacks: s.cycleCallbacks.vectorTombstoneCleanupCallbacks,
+		}
+
+		spfreshConfig.Centroids.IndexType = "hnsw"
+		spfreshConfig.Centroids.HNSWConfig = &hnsw.Config{
 			Logger:                    s.index.logger,
 			RootPath:                  s.path(),
-			ID:                        cfg.ID + "_centroids",
+			ID:                        spfreshConfig.ID + "_centroids",
 			ShardName:                 s.name,
 			ClassName:                 s.index.Config.ClassName.String(),
 			PrometheusMetrics:         s.promMetrics,
@@ -259,7 +269,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 			TempMultiVectorForIDThunk: hnsw.NewTempMultiVectorForIDThunk(targetVector, s.readMultiVectorByIndexIDIntoSlice),
 			DistanceProvider:          distProv,
 			MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
-				return hnsw.NewCommitLogger(s.path(), cfg.ID+"_centroids",
+				return hnsw.NewCommitLogger(s.path(), spfreshConfig.ID+"_centroids",
 					s.index.logger, s.cycleCallbacks.vectorCommitLoggerCallbacks,
 					hnsw.WithAllocChecker(s.index.allocChecker),
 					hnsw.WithCommitlogThresholdForCombining(s.index.Config.HNSWMaxLogSize),
@@ -285,7 +295,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 			WriteMetadataFilesEnabled:    s.index.Config.WriteMetadataFilesEnabled,
 		}
 
-		vi, err := spfresh.New(cfg, s.store)
+		vi, err := spfresh.New(spfreshConfig, userConfig, s.store)
 		if err != nil {
 			return nil, errors.Wrapf(err, "init shard %q: spfresh index", s.ID())
 		}
