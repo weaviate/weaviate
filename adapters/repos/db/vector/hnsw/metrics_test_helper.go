@@ -12,9 +12,6 @@
 package hnsw
 
 import (
-	"fmt"
-	"runtime"
-
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
@@ -76,28 +73,9 @@ func createTestPrometheusMetrics() *monitoring.PrometheusMetrics {
 		TombstoneDeleteListSize: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "test_tombstone_delete_list_size",
 		}, []string{"class_name", "shard_name"}),
-		VectorIndexBatchMemoryEstimationRatio: prometheus.NewGaugeVec(prometheus.GaugeOpts{
-			Name: "test_vector_index_batch_memory_estimation_ratio",
-			Help: "Test metric for memory estimation ratio",
-		}, []string{"class_name", "shard_name"}),
 		VectorIndexMemoryAllocationRejected: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "test_vector_index_memory_allocation_rejected_total",
 			Help: "Test metric for memory allocation rejections",
 		}, []string{"class_name", "shard_name"}),
 	}
-}
-
-// fakeMemStatsReader is a test implementation of memStatsReader that simulates memory allocation.
-type fakeMemStatsReader struct {
-	allocValues []uint64
-	callCount   int
-}
-
-// ReadMemStats simulates reading memory statistics by returning pre-configured values.
-func (f *fakeMemStatsReader) ReadMemStats(m *runtime.MemStats) {
-	if f.callCount >= len(f.allocValues) {
-		panic(fmt.Sprintf("fakeMemStatsReader.ReadMemStats called too many times: call %d exceeds configured values (length %d)", f.callCount+1, len(f.allocValues)))
-	}
-	m.Alloc = f.allocValues[f.callCount]
-	f.callCount++
 }
