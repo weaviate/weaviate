@@ -298,7 +298,7 @@ func TestBatchPutObjects_UpdatesSameObjectsMultipleTimes(t *testing.T) {
 
 	for _, obj := range res {
 		version := obj.Schema.(map[string]interface{})["version"]
-		assert.Equal(t, int64(numUpdates-1), version, "should have latest version")
+		assert.Equal(t, float64(numUpdates-1), version, "should have latest version")
 	}
 }
 
