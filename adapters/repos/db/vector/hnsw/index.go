@@ -358,7 +358,7 @@ func New(cfg Config, uc ent.UserConfig,
 		docIDVectors:  make(map[uint64][]uint64),
 		muveraEncoder: muveraEncoder,
 
-		dynamicVarEnableAcornSmartSeed: confRuntime.NewDynamicValue("ENABLE_ACORN_SMART_SEED"),
+		dynamicVarEnableAcornSmartSeed: confRuntime.NewDynamicValue("ACORN_SMART_SEED_ENABLED"),
 	}
 	index.acornSearch.Store(uc.FilterStrategy == ent.FilterStrategyAcorn)
 
