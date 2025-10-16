@@ -690,6 +690,7 @@
         "tokenizerUserDict": {
           "description": "User-defined dictionary for tokenization.",
           "type": "array",
+          "x-omitempty": true,
           "items": {
             "$ref": "#/definitions/TokenizerUserDictConfig"
           }

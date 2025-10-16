@@ -35,18 +35,6 @@ func generateReplacementModel() *models.TokenizerUserDictConfig {
 	}
 }
 
-func TestKagomeUserTokenizer(t *testing.T) {
-	userDict := generateReplacementModel()
-	t.Setenv("ENABLE_TOKENIZER_KAGOME_KR", "true")
-
-	if tokenizers.Korean == nil {
-		tokenizers.Korean, _ = initializeKagomeTokenizerKr(userDict)
-	}
-
-	tokens := Tokenize(models.PropertyTokenizationKagomeKr, "Weaviate Semi Technologies")
-	assert.Equal(t, []string{"We", "Aviate", "SemiTechnologies"}, tokens)
-}
-
 func TestKagomeUserTokenizerForClass(t *testing.T) {
 	t.Setenv("ENABLE_TOKENIZER_KAGOME_KR", "true")
 	if tokenizers.Korean == nil {

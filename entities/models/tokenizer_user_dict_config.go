@@ -30,6 +30,7 @@ import (
 //
 // swagger:model TokenizerUserDictConfig
 type TokenizerUserDictConfig struct {
+
 	// replacements
 	Replacements []*TokenizerUserDictConfigReplacementsItems0 `json:"replacements"`
 
@@ -92,7 +93,9 @@ func (m *TokenizerUserDictConfig) ContextValidate(ctx context.Context, formats s
 }
 
 func (m *TokenizerUserDictConfig) contextValidateReplacements(ctx context.Context, formats strfmt.Registry) error {
+
 	for i := 0; i < len(m.Replacements); i++ {
+
 		if m.Replacements[i] != nil {
 			if err := m.Replacements[i].ContextValidate(ctx, formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
@@ -103,6 +106,7 @@ func (m *TokenizerUserDictConfig) contextValidateReplacements(ctx context.Contex
 				return err
 			}
 		}
+
 	}
 
 	return nil
@@ -130,6 +134,7 @@ func (m *TokenizerUserDictConfig) UnmarshalBinary(b []byte) error {
 //
 // swagger:model TokenizerUserDictConfigReplacementsItems0
 type TokenizerUserDictConfigReplacementsItems0 struct {
+
 	// The string to be replaced.
 	// Required: true
 	Source *string `json:"source"`
@@ -158,6 +163,7 @@ func (m *TokenizerUserDictConfigReplacementsItems0) Validate(formats strfmt.Regi
 }
 
 func (m *TokenizerUserDictConfigReplacementsItems0) validateSource(formats strfmt.Registry) error {
+
 	if err := validate.Required("source", "body", m.Source); err != nil {
 		return err
 	}
@@ -166,6 +172,7 @@ func (m *TokenizerUserDictConfigReplacementsItems0) validateSource(formats strfm
 }
 
 func (m *TokenizerUserDictConfigReplacementsItems0) validateTarget(formats strfmt.Registry) error {
+
 	if err := validate.Required("target", "body", m.Target); err != nil {
 		return err
 	}

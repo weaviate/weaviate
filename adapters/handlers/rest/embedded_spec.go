@@ -6451,7 +6451,8 @@ func init() {
           "type": "array",
           "items": {
             "$ref": "#/definitions/TokenizerUserDictConfig"
-          }
+          },
+          "x-omitempty": true
         },
         "usingBlockMaxWAND": {
           "description": "Using BlockMax WAND for query execution (default: 'false', will be 'true' for new collections created after 1.30).",
@@ -15070,7 +15071,8 @@ func init() {
           "type": "array",
           "items": {
             "$ref": "#/definitions/TokenizerUserDictConfig"
-          }
+          },
+          "x-omitempty": true
         },
         "usingBlockMaxWAND": {
           "description": "Using BlockMax WAND for query execution (default: 'false', will be 'true' for new collections created after 1.30).",
