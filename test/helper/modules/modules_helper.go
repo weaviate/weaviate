@@ -146,6 +146,53 @@ func DeleteGCSBucket(ctx context.Context, t *testing.T, bucketName string) {
 	}, 5*time.Second, 500*time.Millisecond)
 }
 
+// TryDeleteGCSBucket attempts to delete a GCS bucket without failing the test.
+// Unlike DeleteGCSBucket, this function logs errors instead of failing, making it
+// suitable for best-effort cleanup in defer statements or background goroutines.
+// It retries bucket deletion up to 10 times to handle eventual consistency issues.
+func TryDeleteGCSBucket(ctx context.Context, t *testing.T, bucketName string) {
+	opts := []option.ClientOption{option.WithoutAuthentication()}
+	if emulatorHost := os.Getenv("STORAGE_EMULATOR_HOST"); emulatorHost != "" {
+		opts = append(opts, option.WithEndpoint(emulatorHost))
+	}
+	client, err := storage.NewClient(ctx, opts...)
+	if err != nil {
+		t.Logf("Failed to create GCS client for cleanup of bucket %s: %v", bucketName, err)
+		return
+	}
+	defer client.Close()
+
+	bucket := client.Bucket(bucketName)
+	it := bucket.Objects(ctx, nil)
+	for {
+		objAttrs, err := it.Next()
+		if errors.Is(err, iterator.Done) {
+			break
+		}
+		if err != nil {
+			break
+		}
+		obj := bucket.Object(objAttrs.Name)
+		_ = obj.Delete(ctx)
+	}
+
+	success := false
+	for i := 0; i < 10; i++ {
+		err := bucket.Delete(ctx)
+		if err == nil {
+			success = true
+			break
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+
+	if success {
+		t.Logf("Successfully deleted bucket: %s", bucketName)
+	} else {
+		t.Logf("Could not delete bucket %s", bucketName)
+	}
+}
+
 func CreateAzureContainer(ctx context.Context, t *testing.T, endpoint, containerName string) {
 	t.Log("Creating azure container", containerName)
 	assert.EventuallyWithT(t, func(collect *assert.CollectT) {

@@ -47,6 +47,10 @@ import (
 	"github.com/weaviate/weaviate/usecases/traverser"
 )
 
+type shutdownTracker interface {
+	IsShuttingDown() bool
+}
+
 // State is the only source of application-wide state
 // NOTE: This is not true yet, see gh-723
 // TODO: remove dependencies to anything that's not an ent or uc
@@ -92,6 +96,8 @@ type State struct {
 
 	DistributedTaskScheduler *distributedtask.Scheduler
 	Migrator                 *db.Migrator
+	restShutdownTracker      shutdownTracker
+	grpcShutdownTracker      shutdownTracker
 }
 
 // GetGraphQL is the safe way to retrieve GraphQL from the state as it can be
@@ -110,4 +116,27 @@ func (s *State) SetGraphQL(gql graphql.GraphQL) {
 	s.gqlMutex.Lock()
 	s.GraphQL = gql
 	s.gqlMutex.Unlock()
+}
+
+func (s *State) SetShutdownRestTracker(tracker shutdownTracker) {
+	s.restShutdownTracker = tracker
+	s.Logger.Debug("REST shutdownTracker set successfully")
+}
+
+func (s *State) SetShutdownGrpcTracker(tracker shutdownTracker) {
+	s.grpcShutdownTracker = tracker
+	s.Logger.Debug("GRPC shutdownTracker set successfully")
+}
+
+func (s *State) IsShuttingDown() bool {
+	isRestShutdown := s.restShutdownTracker != nil && s.restShutdownTracker.IsShuttingDown()
+	isGrpcShutdown := s.grpcShutdownTracker != nil && s.grpcShutdownTracker.IsShuttingDown()
+	isShuttingDown := isRestShutdown || isGrpcShutdown
+
+	s.Logger.WithField("is_shutting_down", isShuttingDown).
+		WithField("is_rest_shutdown", isRestShutdown).
+		WithField("is_grpc_shutdown", isGrpcShutdown).
+		Trace("checking rest and grpc shutdown state")
+
+	return isShuttingDown
 }

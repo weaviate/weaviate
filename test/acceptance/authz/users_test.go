@@ -15,12 +15,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"os"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/weaviate/weaviate/client/meta"
 
 	"github.com/go-openapi/strfmt"
 
@@ -737,8 +737,10 @@ func TestGetLastUsageMultinode(t *testing.T) {
 
 	require.NoError(t, err)
 	defer func() {
-		if err := compose.Terminate(ctx); err != nil {
-			t.Fatalf("failed to terminate test containers: %s", err.Error())
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		if err := compose.Terminate(cleanupCtx); err != nil {
+			t.Logf("failed to terminate test containers: %s", err.Error())
 		}
 	}()
 
@@ -789,6 +791,12 @@ func TestGetLastUsageMultinode(t *testing.T) {
 		secondNode := compose.GetWeaviateNode(1)
 		helper.SetupClient(firstNode.URI())
 
+		// NOTE: temporary workaround to get logs from the container
+		go func() {
+			rdr, _ := firstNode.Container().Logs(context.Background())
+			io.Copy(os.Stdout, rdr)
+		}()
+
 		dynUser := "dyn-user"
 		helper.DeleteUser(t, dynUser, adminKey)
 		defer helper.DeleteUser(t, dynUser, adminKey)
@@ -806,22 +814,20 @@ func TestGetLastUsageMultinode(t *testing.T) {
 		require.Less(t, user.LastUsedAt, time.Now())
 
 		// shutdown node, its login time should be transferred to other nodes
-		timeout := time.Minute
-		err := firstNode.Container().Stop(ctx, &timeout)
+		shutdownTimeout := 60 * time.Second
+		stopCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout+15*time.Second)
+		defer cancel()
+		err := firstNode.Container().Stop(stopCtx, &shutdownTimeout)
 		require.NoError(t, err)
 
-		// wait to make sure that node is gone
-		start := time.Now()
-		for time.Since(start) < timeout {
-			_, err = helper.Client(t).Meta.MetaGet(meta.NewMetaGetParams(), nil)
+		// wait for the container to actually stop
+		require.Eventually(t, func() bool {
+			state, err := firstNode.Container().State(ctx)
 			if err != nil {
-				break
+				return true
 			}
-			time.Sleep(time.Second)
-		}
-		time.Sleep(time.Second * 5) // wait to make sure that node is gone
-		_, err = helper.Client(t).Meta.MetaGet(meta.NewMetaGetParams(), nil)
-		require.Error(t, err)
+			return !state.Running
+		}, shutdownTimeout, time.Second, "container should stop within timeout")
 
 		helper.ResetClient()
 		helper.SetupClient(secondNode.URI())
