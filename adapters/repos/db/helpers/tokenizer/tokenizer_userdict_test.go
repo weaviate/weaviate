@@ -45,9 +45,7 @@ func generateReplacementModel() *models.TokenizerUserDictConfig {
 
 func TestKagomeUserTokenizerForClass(t *testing.T) {
 	t.Setenv("ENABLE_TOKENIZER_KAGOME_KR", "true")
-	if tokenizers.Korean == nil {
-		tokenizers.Korean, _ = initializeKagomeTokenizerKr(nil)
-	}
+	InitOptionalTokenizers()
 
 	customTokenizers, err := InitUserDictTokenizers([]*models.TokenizerUserDictConfig{generateReplacementModel()})
 	className := "SomeClass"
