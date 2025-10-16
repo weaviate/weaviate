@@ -1878,8 +1878,15 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 						}
 					}()
 
-					// Remote worker
+					// Remote worker (delayed head-start to favor local in steady state)
 					go func() {
+						const remoteHeadStart = time.Second
+						select {
+						case <-time.After(remoteHeadStart):
+							// proceed
+						case <-raceCtx.Done():
+							return
+						}
 						objs, scores, errRem := i.remoteShardSearch(raceCtx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardName)
 						select {
 						case resCh <- vecRes{objs: objs, dists: scores, src: "remote", err: errRem}:

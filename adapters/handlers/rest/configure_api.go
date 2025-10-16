@@ -918,13 +918,13 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			}, appState.Logger)
 	}
 	api.ServerShutdown = func() {
-		if err := appState.Cluster.Leave(); err != nil {
-			appState.Logger.
-				WithError(err).
-				WithField("action", "shutdown").
-				Errorf("failed to leave cluster: %v", err)
-		}
-		time.Sleep(5 * time.Second) // drain period
+		// if err := appState.Cluster.Leave(); err != nil {
+		// 	appState.Logger.
+		// 		WithError(err).
+		// 		WithField("action", "shutdown").
+		// 		Errorf("failed to leave cluster: %v", err)
+		// }
+		// time.Sleep(5 * time.Second) // drain period
 
 		if telemetryEnabled(appState) {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
