@@ -67,11 +67,11 @@ func InvertedIndexConfigToModel(i InvertedIndexConfig) models.InvertedIndexConfi
 	m.IndexNullState = i.IndexNullState
 	m.IndexPropertyLength = i.IndexPropertyLength
 	m.UsingBlockMaxWAND = i.UsingBlockMaxWAND
-	m.TokenizerUserDict = i.TokenizerUserDict
 
-	m.TokenizerUserDict = make([]*models.TokenizerUserDictConfig, len(i.TokenizerUserDict))
-	// Force a copy to avoid references
-	copy(m.TokenizerUserDict, i.TokenizerUserDict)
+	if i.TokenizerUserDict != nil {
+		m.TokenizerUserDict = make([]*models.TokenizerUserDictConfig, len(i.TokenizerUserDict))
+		copy(m.TokenizerUserDict, i.TokenizerUserDict)
+	}
 
 	return m
 }

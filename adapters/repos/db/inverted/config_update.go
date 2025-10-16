@@ -93,6 +93,9 @@ func validateStopwordsConfigUpdate(initial, updated *models.InvertedIndexConfig)
 
 func validateTokenizerUserDictConfigUpdate(initial, updated *models.InvertedIndexConfig) error {
 	if updated.TokenizerUserDict == nil {
+		if initial.TokenizerUserDict == nil {
+			return nil
+		}
 		updated.TokenizerUserDict = make([]*models.TokenizerUserDictConfig, len(initial.TokenizerUserDict))
 		copy(updated.TokenizerUserDict, initial.TokenizerUserDict)
 		return nil
