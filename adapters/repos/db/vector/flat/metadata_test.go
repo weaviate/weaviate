@@ -196,18 +196,18 @@ func Test_RQDataSerialization(t *testing.T) {
 		require.Nil(t, err)
 
 		// Test serialization
-		rq1Data, err := index.serializeRQ1Data()
+		originalRQ1Data, err := index.serializeRQ1Data()
 		require.Nil(t, err)
-		require.NotNil(t, rq1Data)
-		require.Equal(t, uint32(256), rq1Data.InputDim)
-		require.Greater(t, rq1Data.OutputDim, uint32(0))
-		require.Greater(t, rq1Data.Rounds, uint32(0))
+		require.NotNil(t, originalRQ1Data)
+		require.Equal(t, uint32(256), originalRQ1Data.InputDim)
+		require.Greater(t, originalRQ1Data.OutputDim, uint32(0))
+		require.Greater(t, originalRQ1Data.Rounds, uint32(0))
 
 		// Test container creation and serialization
 		container := &RQDataContainer{
 			Version:         RQDataVersion,
 			CompressionType: CompressionTypeRQ1,
-			Data:            rq1Data,
+			Data:            originalRQ1Data,
 		}
 
 		// Serialize to msgpack
@@ -225,6 +225,17 @@ func Test_RQDataSerialization(t *testing.T) {
 		// Test manual deserialization of Data field
 		err = index.handleDeserializedData(&restoredContainer)
 		require.Nil(t, err)
+
+		restoredRQ1Data, err := index.serializeRQ1Data()
+		require.Nil(t, err)
+		require.NotNil(t, restoredRQ1Data)
+
+		require.Equal(t, originalRQ1Data.InputDim, restoredRQ1Data.InputDim)
+		require.Equal(t, originalRQ1Data.OutputDim, restoredRQ1Data.OutputDim)
+		require.Equal(t, originalRQ1Data.Rounds, restoredRQ1Data.Rounds)
+		require.Equal(t, originalRQ1Data.Swaps, restoredRQ1Data.Swaps)
+		require.Equal(t, originalRQ1Data.Signs, restoredRQ1Data.Signs)
+		require.Equal(t, originalRQ1Data.Rounding, restoredRQ1Data.Rounding)
 	})
 
 	t.Run("compression type validation", func(t *testing.T) {
@@ -287,19 +298,19 @@ func Test_RQ8DataSerialization(t *testing.T) {
 		require.Nil(t, err)
 
 		// Test serialization
-		rq8Data, err := index.serializeRQ8Data()
+		originalRQ8Data, err := index.serializeRQ8Data()
 		require.Nil(t, err)
-		require.NotNil(t, rq8Data)
-		require.Equal(t, uint32(4), rq8Data.InputDim)
-		require.Equal(t, uint32(8), rq8Data.Bits)
-		require.Greater(t, rq8Data.OutputDim, uint32(0))
-		require.Greater(t, rq8Data.Rounds, uint32(0))
+		require.NotNil(t, originalRQ8Data)
+		require.Equal(t, uint32(4), originalRQ8Data.InputDim)
+		require.Equal(t, uint32(8), originalRQ8Data.Bits)
+		require.Greater(t, originalRQ8Data.OutputDim, uint32(0))
+		require.Greater(t, originalRQ8Data.Rounds, uint32(0))
 
 		// Test container creation and serialization
 		container := &RQDataContainer{
 			Version:         RQDataVersion,
 			CompressionType: CompressionTypeRQ8,
-			Data:            rq8Data,
+			Data:            originalRQ8Data,
 		}
 
 		// Serialize to msgpack
@@ -317,5 +328,16 @@ func Test_RQ8DataSerialization(t *testing.T) {
 		// Test manual deserialization of Data field
 		err = index.handleDeserializedData(&restoredContainer)
 		require.Nil(t, err)
+
+		restoredRQ8Data, err := index.serializeRQ8Data()
+		require.Nil(t, err)
+		require.NotNil(t, restoredRQ8Data)
+
+		require.Equal(t, originalRQ8Data.InputDim, restoredRQ8Data.InputDim)
+		require.Equal(t, originalRQ8Data.Bits, restoredRQ8Data.Bits)
+		require.Equal(t, originalRQ8Data.OutputDim, restoredRQ8Data.OutputDim)
+		require.Equal(t, originalRQ8Data.Rounds, restoredRQ8Data.Rounds)
+		require.Equal(t, originalRQ8Data.Swaps, restoredRQ8Data.Swaps)
+		require.Equal(t, originalRQ8Data.Signs, restoredRQ8Data.Signs)
 	})
 }
