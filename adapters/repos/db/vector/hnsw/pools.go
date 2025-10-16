@@ -31,6 +31,7 @@ type pools struct {
 
 	tempVectors       *common.TempVectorsPool
 	tempVectorsUint64 *common.TempVectorUint64Pool
+	queuePool         *sync.Pool
 }
 
 func newPools(maxConnectionsLayerZero int, initialVisitedListPoolSize int) *pools {
@@ -47,6 +48,11 @@ func newPools(maxConnectionsLayerZero int, initialVisitedListPoolSize int) *pool
 		pqCandidates:      newPqMinPool(maxConnectionsLayerZero),
 		tempVectors:       common.NewTempVectorsPool(),
 		tempVectorsUint64: common.NewTempUint64VectorsPool(),
+		queuePool: &sync.Pool{
+			New: func() interface{} {
+				return common.NewQueue[uint64](16)
+			},
+		},
 	}
 }
 
@@ -106,4 +112,13 @@ func (pqh *pqMinWithIndexPool) GetMin(capacity int) *priorityqueue.Queue[uint64]
 
 func (pqh *pqMinWithIndexPool) Put(pq *priorityqueue.Queue[uint64]) {
 	pqh.pool.Put(pq)
+}
+
+func (p *pools) GetQueue() *common.Queue[uint64] {
+	return p.queuePool.Get().(*common.Queue[uint64])
+}
+
+func (p *pools) PutQueue(q *common.Queue[uint64]) {
+	q.Reset()
+	p.queuePool.Put(q)
 }

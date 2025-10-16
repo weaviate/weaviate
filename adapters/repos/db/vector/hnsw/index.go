@@ -37,6 +37,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/storobj"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	confRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
@@ -207,6 +208,8 @@ type hnsw struct {
 	MaxWalReuseSize int64
 
 	fs common.FS
+
+	dynamicVarEnableAcornSmartSeed *confRuntime.DynamicValue[string]
 }
 
 type CommitLogger interface {
@@ -367,6 +370,8 @@ func New(cfg Config, uc ent.UserConfig,
 		MinMMapSize:     cfg.MinMMapSize,
 		MaxWalReuseSize: cfg.MaxWalReuseSize,
 		fs:              common.NewOSFS(),
+
+		dynamicVarEnableAcornSmartSeed: confRuntime.NewDynamicValue("ACORN_SMART_SEED_ENABLED"),
 	}
 	index.acornSearch.Store(uc.FilterStrategy == ent.FilterStrategyAcorn)
 
