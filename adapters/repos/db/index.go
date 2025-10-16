@@ -1537,8 +1537,6 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 	eg.SetLimit(_NUMCPU * 2)
 	shardResultLock := sync.Mutex{}
 	for _, shardName := range shards {
-		shardName := shardName
-
 		eg.Go(func() error {
 			var (
 				objs     []*storobj.Object
@@ -1552,7 +1550,20 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 				return err
 			}
 
+			useLocal := false
 			if shard != nil {
+				status := shard.GetStatus()
+				if status == storagestate.StatusReady || status == storagestate.StatusReadOnly {
+					// Skip local if draining
+					if s, ok := shard.(*Shard); ok && s.shutdownRequested.Load() {
+						useLocal = false
+					} else {
+						useLocal = true
+					}
+				}
+			}
+
+			if useLocal {
 				defer release()
 				localCtx := helpers.InitSlowQueryDetails(ctx)
 				helpers.AnnotateSlowQueryLog(localCtx, "is_coordinator", true)
@@ -2116,12 +2127,14 @@ func (i *Index) UnloadLocalShard(ctx context.Context, shardName string) error {
 	return nil
 }
 
+// GetShard doesn't initialize the shard if it is not already loaded.
 func (i *Index) GetShard(ctx context.Context, shardName string) (
 	shard ShardLike, release func(), err error,
 ) {
 	return i.getOptInitLocalShard(ctx, shardName, false)
 }
 
+// getOrInitShard initializes the shard if it is not already loaded.
 func (i *Index) getOrInitShard(ctx context.Context, shardName string) (
 	shard ShardLike, release func(), err error,
 ) {
