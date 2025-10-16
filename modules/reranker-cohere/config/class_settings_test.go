@@ -12,12 +12,12 @@
 package config
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 func Test_classSettings_Validate(t *testing.T) {
@@ -42,15 +42,6 @@ func Test_classSettings_Validate(t *testing.T) {
 				},
 			},
 			wantModel: "rerank-english-v2.0",
-		},
-		{
-			name: "unsupported model error",
-			cfg: fakeClassConfig{
-				classConfig: map[string]interface{}{
-					"model": "rerank-french-v2.0",
-				},
-			},
-			wantErr: fmt.Errorf("wrong Cohere model name, available model names are: [rerank-v3.5 rerank-english-v3.0 rerank-multilingual-v3.0 rerank-english-v2.0 rerank-multilingual-v2.0]"),
 		},
 	}
 	for _, tt := range tests {
@@ -90,5 +81,9 @@ func (f fakeClassConfig) TargetVector() string {
 }
 
 func (f fakeClassConfig) PropertiesDataTypes() map[string]schema.DataType {
+	return nil
+}
+
+func (f fakeClassConfig) Config() *config.Config {
 	return nil
 }

@@ -12,12 +12,12 @@
 package config
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 func Test_classSettings_Validate(t *testing.T) {
@@ -55,16 +55,6 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantTemperature: 1,
 			wantBaseURL:     "https://api.mistral.ai",
 			wantErr:         nil,
-		},
-		{
-			name: "wrong model configured",
-			cfg: fakeClassConfig{
-				classConfig: map[string]interface{}{
-					"model": "wrong-model",
-				},
-			},
-			wantErr: fmt.Errorf("wrong Mistral model name, available model names are: " +
-				"[open-mistral-7b mistral-tiny-2312 mistral-tiny open-mixtral-8x7b mistral-small-2312 mistral-small mistral-small-2402 mistral-small-latest mistral-medium-latest mistral-medium-2312 mistral-medium mistral-large-latest mistral-large-2402]"),
 		},
 		{
 			name: "default settings with open-mistral-7b",
@@ -135,5 +125,9 @@ func (f fakeClassConfig) TargetVector() string {
 }
 
 func (f fakeClassConfig) PropertiesDataTypes() map[string]schema.DataType {
+	return nil
+}
+
+func (f fakeClassConfig) Config() *config.Config {
 	return nil
 }

@@ -25,13 +25,6 @@ const (
 	maxTokensProperty   = "maxTokens"
 )
 
-var availableMistralModels = []string{
-	"open-mistral-7b", "mistral-tiny-2312", "mistral-tiny", "open-mixtral-8x7b",
-	"mistral-small-2312", "mistral-small", "mistral-small-2402", "mistral-small-latest",
-	"mistral-medium-latest", "mistral-medium-2312", "mistral-medium", "mistral-large-latest",
-	"mistral-large-2402",
-}
-
 // note it might not like this -- might want int values for e.g. MaxTokens
 var (
 	DefaultBaseURL                    = "https://api.mistral.ai"
@@ -55,8 +48,8 @@ func (ic *classSettings) Validate(class *models.Class) error {
 		return errors.New("empty config")
 	}
 	model := ic.getStringProperty(modelProperty, DefaultMistralModel)
-	if model == nil || !ic.validateModel(*model) {
-		return errors.Errorf("wrong Mistral model name, available model names are: %v", availableMistralModels)
+	if model == nil {
+		return errors.Errorf("no model provided")
 	}
 
 	return nil
@@ -79,10 +72,6 @@ func (ic *classSettings) getFloat64Property(name string, defaultValue *float64) 
 
 func (ic *classSettings) GetMaxTokensForModel(model string) int {
 	return DefaultMistralMaxTokens
-}
-
-func (ic *classSettings) validateModel(model string) bool {
-	return basesettings.ValidateSetting(model, availableMistralModels)
 }
 
 func (ic *classSettings) BaseURL() string {

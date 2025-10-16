@@ -26,9 +26,9 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	clusterReplication "github.com/weaviate/weaviate/cluster/replication"
 	"github.com/weaviate/weaviate/cluster/replication/types"
-	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	usagetypes "github.com/weaviate/weaviate/cluster/usage/types"
 	"github.com/weaviate/weaviate/cluster/utils"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -47,6 +47,7 @@ import (
 
 type DB struct {
 	logger            logrus.FieldLogger
+	localNodeName     string
 	schemaGetter      schemaUC.SchemaGetter
 	config            Config
 	indices           map[string]*Index
@@ -60,9 +61,6 @@ type DB struct {
 	startupComplete   atomic.Bool
 	resourceScanState *resourceScanState
 	memMonitor        *memwatch.Monitor
-	nodeSelector      cluster.NodeSelector
-	schemaReader      schemaUC.SchemaReader
-	replicationFSM    types.ReplicationFSMReader
 
 	// indexLock is an RWMutex which allows concurrent access to various indexes,
 	// but only one modification at a time. R/W can be a bit confusing here,
@@ -100,7 +98,13 @@ type DB struct {
 
 	shardLoadLimiter ShardLoadLimiter
 
-	reindexer ShardReindexerV3
+	reindexer      ShardReindexerV3
+	nodeSelector   cluster.NodeSelector
+	schemaReader   schemaUC.SchemaReader
+	replicationFSM types.ReplicationFSMReader
+
+	bitmapBufPool      roaringset.BitmapBufPool
+	bitmapBufPoolClose func()
 }
 
 func (db *DB) GetSchemaGetter() schemaUC.SchemaGetter {
@@ -155,10 +159,11 @@ type IndexLike interface {
 	CalculateUnloadedVectorsMetrics(ctx context.Context, tenantName string) (int64, error)
 }
 
-func New(logger logrus.FieldLogger, config Config,
+func New(logger logrus.FieldLogger, localNodeName string, config Config,
 	remoteIndex sharding.RemoteIndexClient, nodeResolver nodeResolver,
 	remoteNodesClient sharding.RemoteNodeClient, replicaClient replica.Client,
 	promMetrics *monitoring.PrometheusMetrics, memMonitor *memwatch.Monitor,
+	nodeSelector cluster.NodeSelector, schemaReader schemaUC.SchemaReader, replicationFSM types.ReplicationFSMReader,
 ) (*DB, error) {
 	if memMonitor == nil {
 		memMonitor = memwatch.NewDummyMonitor()
@@ -170,6 +175,7 @@ func New(logger logrus.FieldLogger, config Config,
 
 	db := &DB{
 		logger:              logger,
+		localNodeName:       localNodeName,
 		config:              config,
 		indices:             map[string]*Index{},
 		remoteIndex:         remoteIndex,
@@ -183,6 +189,11 @@ func New(logger logrus.FieldLogger, config Config,
 		memMonitor:          memMonitor,
 		shardLoadLimiter:    NewShardLoadLimiter(metricsRegisterer, config.MaximumConcurrentShardLoads),
 		reindexer:           NewShardReindexerV3Noop(),
+		nodeSelector:        nodeSelector,
+		schemaReader:        schemaReader,
+		replicationFSM:      replicationFSM,
+		bitmapBufPool:       roaringset.NewBitmapBufPoolNoop(),
+		bitmapBufPoolClose:  func() {},
 	}
 
 	if db.maxNumberGoroutines == 0 {
@@ -268,10 +279,8 @@ type Config struct {
 	QuerySlowLogThreshold       *configRuntime.DynamicValue[time.Duration]
 	InvertedSorterDisabled      *configRuntime.DynamicValue[bool]
 	MaintenanceModeEnabled      func() bool
-}
 
-func (db *DB) GetIndexLike(className schema.ClassName) IndexLike {
-	return db.GetIndex(className)
+	SPFreshEnabled bool
 }
 
 // GetIndex returns the index if it exists or nil if it doesn't
@@ -357,6 +366,7 @@ func (db *DB) DeleteIndex(className schema.ClassName) error {
 
 func (db *DB) Shutdown(ctx context.Context) error {
 	db.shutdown <- struct{}{}
+	db.bitmapBufPoolClose()
 
 	if !asyncEnabled() {
 		// shut down the workers that add objects to
@@ -433,10 +443,16 @@ func (db *DB) SetNodeSelector(nodeSelector cluster.NodeSelector) {
 	db.nodeSelector = nodeSelector
 }
 
-func (db *DB) SetSchemaReader(schemaReader clusterSchema.SchemaReader) {
+func (db *DB) SetSchemaReader(schemaReader schemaUC.SchemaReader) {
 	db.schemaReader = schemaReader
 }
 
 func (db *DB) SetReplicationFSM(replicationFsm *clusterReplication.ShardReplicationFSM) {
 	db.replicationFSM = replicationFsm
+}
+
+func (db *DB) WithBitmapBufPool(bufPool roaringset.BitmapBufPool, close func()) *DB {
+	db.bitmapBufPool = bufPool
+	db.bitmapBufPoolClose = close
+	return db
 }

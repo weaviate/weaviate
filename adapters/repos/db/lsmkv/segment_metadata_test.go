@@ -53,8 +53,9 @@ func TestMetadataNoWrites(t *testing.T) {
 			secondaryIndexCount := 2
 			b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
 				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-				WithWriteMetadata(tt.writeMetadata), WithUseBloomFilter(tt.bloomFilter), WithCalcCountNetAdditions(tt.cna), WithSecondaryIndices(uint16(secondaryIndexCount)))
+				WithWriteMetadata(tt.writeMetadata), WithUseBloomFilter(tt.bloomFilter), WithCalcCountNetAdditions(tt.cna), WithSecondaryIndices(uint16(secondaryIndexCount)), WithStrategy(StrategyReplace))
 			require.NoError(t, err)
+			require.NoError(t, b.Shutdown(ctx))
 
 			require.NoError(t, b.Put([]byte("key"), []byte("value")))
 			require.NoError(t, b.FlushMemtable())
@@ -67,6 +68,12 @@ func TestMetadataNoWrites(t *testing.T) {
 					require.Equal(t, fileTypes[expectedFile], 1)
 				}
 			}
+
+			// read again
+			_, err = NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+				WithWriteMetadata(tt.writeMetadata), WithUseBloomFilter(tt.bloomFilter), WithCalcCountNetAdditions(tt.cna), WithSecondaryIndices(uint16(secondaryIndexCount)), WithStrategy(StrategyReplace))
+			require.NoError(t, err)
 		})
 	}
 }
@@ -78,7 +85,7 @@ func TestNoWriteIfBloomPresent(t *testing.T) {
 
 	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-		WithUseBloomFilter(true))
+		WithUseBloomFilter(true), WithStrategy(StrategyReplace))
 	require.NoError(t, err)
 	require.NoError(t, b.Put([]byte("key"), []byte("value")))
 	require.NoError(t, b.FlushMemtable())
@@ -91,7 +98,7 @@ func TestNoWriteIfBloomPresent(t *testing.T) {
 	// load with writeMetadata enabled, no metadata files should be written
 	b2, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-		WithUseBloomFilter(true), WithWriteMetadata(true))
+		WithUseBloomFilter(true), WithWriteMetadata(true), WithStrategy(StrategyReplace))
 	require.NoError(t, err)
 	require.NoError(t, b2.Shutdown(ctx))
 
@@ -101,6 +108,95 @@ func TestNoWriteIfBloomPresent(t *testing.T) {
 	require.Equal(t, fileTypes[".bloom"], 1)
 }
 
+func TestCnaNoBloomPresent(t *testing.T) {
+	ctx := context.Background()
+	logger, _ := test.NewNullLogger()
+	dirName := t.TempDir()
+
+	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		WithUseBloomFilter(false), WithWriteMetadata(true), WithCalcCountNetAdditions(true), WithStrategy(StrategyReplace))
+	require.NoError(t, err)
+	require.NoError(t, b.Put([]byte("key"), []byte("value")))
+	require.NoError(t, b.FlushMemtable())
+	fileTypes := countFileTypes(t, dirName)
+	require.Len(t, fileTypes, 2)
+	require.Equal(t, fileTypes[".db"], 1)
+	require.Equal(t, fileTypes[".metadata"], 1)
+
+	require.Equal(t, b.disk.segments[0].getSegment().getCountNetAdditions(), 1)
+	require.NoError(t, b.Shutdown(ctx))
+}
+
+func TestSecondaryBloomNoCna(t *testing.T) {
+	ctx := context.Background()
+	logger, _ := test.NewNullLogger()
+	dirName := t.TempDir()
+
+	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		WithUseBloomFilter(true), WithWriteMetadata(true), WithCalcCountNetAdditions(false), WithSecondaryIndices(2), WithStrategy(StrategyReplace))
+	require.NoError(t, err)
+	require.NoError(t, b.Put([]byte("key"), []byte("value"), WithSecondaryKey(0, []byte("key0")), WithSecondaryKey(1, []byte("key1"))))
+	require.NoError(t, b.FlushMemtable())
+	fileTypes := countFileTypes(t, dirName)
+	require.Len(t, fileTypes, 2)
+	require.Equal(t, fileTypes[".db"], 1)
+	require.Equal(t, fileTypes[".metadata"], 1)
+
+	require.True(t, b.disk.segments[0].getSegment().secondaryBloomFilters[0].Test([]byte("key0")))
+	require.False(t, b.disk.segments[0].getSegment().secondaryBloomFilters[0].Test([]byte("key1")))
+	require.True(t, b.disk.segments[0].getSegment().secondaryBloomFilters[1].Test([]byte("key1")))
+	require.False(t, b.disk.segments[0].getSegment().secondaryBloomFilters[1].Test([]byte("key0")))
+	require.NoError(t, b.Shutdown(ctx))
+}
+
+func TestMarkMetadataAsDeleted(t *testing.T) {
+	ctx := context.Background()
+	logger, _ := test.NewNullLogger()
+	dirName := t.TempDir()
+
+	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		WithUseBloomFilter(true), WithWriteMetadata(true), WithCalcCountNetAdditions(true), WithSecondaryIndices(2), WithStrategy(StrategyReplace))
+	require.NoError(t, err)
+	require.NoError(t, b.Put([]byte("key"), []byte("value"), WithSecondaryKey(0, []byte("key0")), WithSecondaryKey(1, []byte("key1"))))
+	require.NoError(t, b.FlushMemtable())
+	fileTypes := countFileTypes(t, dirName)
+	require.Len(t, fileTypes, 2)
+	require.Equal(t, fileTypes[".db"], 1)
+	require.Equal(t, fileTypes[".metadata"], 1)
+
+	sgment := b.disk.segments[0]
+	require.NoError(t, sgment.markForDeletion())
+	fileTypes = countFileTypes(t, dirName)
+	require.Len(t, fileTypes, 1)
+	require.Equal(t, fileTypes[DeleteMarkerSuffix], 2)
+}
+
+func TestDropImmediately(t *testing.T) {
+	ctx := context.Background()
+	logger, _ := test.NewNullLogger()
+	dirName := t.TempDir()
+
+	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		WithUseBloomFilter(true), WithWriteMetadata(true), WithCalcCountNetAdditions(true), WithSecondaryIndices(2), WithStrategy(StrategyReplace))
+	require.NoError(t, err)
+	require.NoError(t, b.Put([]byte("key"), []byte("value"), WithSecondaryKey(0, []byte("key0")), WithSecondaryKey(1, []byte("key1"))))
+	require.NoError(t, b.FlushMemtable())
+	fileTypes := countFileTypes(t, dirName)
+	require.Len(t, fileTypes, 2)
+	require.Equal(t, fileTypes[".db"], 1)
+	require.Equal(t, fileTypes[".metadata"], 1)
+
+	lazySgment := b.disk.segments[0]
+	sgment := lazySgment.getSegment()
+	require.NoError(t, sgment.dropImmediately())
+	fileTypes = countFileTypes(t, dirName)
+	require.Len(t, fileTypes, 0)
+}
+
 func TestCorruptFile(t *testing.T) {
 	dirName := t.TempDir()
 	ctx := context.Background()
@@ -108,7 +204,7 @@ func TestCorruptFile(t *testing.T) {
 
 	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-		WithWriteMetadata(true), WithUseBloomFilter(true), WithCalcCountNetAdditions(true), WithSecondaryIndices(uint16(2)))
+		WithWriteMetadata(true), WithUseBloomFilter(true), WithCalcCountNetAdditions(true), WithSecondaryIndices(uint16(2)), WithStrategy(StrategyReplace))
 	require.NoError(t, err)
 
 	require.NoError(t, b.Put([]byte("key"), []byte("value")))
@@ -124,7 +220,7 @@ func TestCorruptFile(t *testing.T) {
 	// broken file is ignored and correct one is recreated
 	b2, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-		WithWriteMetadata(true), WithUseBloomFilter(true), WithCalcCountNetAdditions(true), WithSecondaryIndices(uint16(2)))
+		WithWriteMetadata(true), WithUseBloomFilter(true), WithCalcCountNetAdditions(true), WithSecondaryIndices(uint16(2)), WithStrategy(StrategyReplace))
 	require.NoError(t, err)
 	value, err := b2.Get([]byte("key"))
 	require.NoError(t, err)

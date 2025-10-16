@@ -18,19 +18,21 @@ import (
 	"net"
 	"strings"
 
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-	"github.com/weaviate/weaviate/usecases/monitoring"
-
 	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
 	grpc_sentry "github.com/johnbellone/grpc-middleware-sentry"
 	"github.com/sirupsen/logrus"
-	cmd "github.com/weaviate/weaviate/cluster/proto/api"
-	"github.com/weaviate/weaviate/cluster/schema"
-	"github.com/weaviate/weaviate/cluster/types"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+
+	cmd "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/cluster/schema"
+	"github.com/weaviate/weaviate/cluster/types"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
+
+const NotLeaderRPCCode = codes.ResourceExhausted
 
 type raftPeers interface {
 	Join(id string, addr string, voter bool) error
@@ -176,7 +178,7 @@ func (s *Server) Open() error {
 // Close closes the server and free any used ressources.
 func (s *Server) Close() {
 	if s.grpcServer != nil {
-		s.grpcServer.Stop()
+		s.grpcServer.GracefulStop()
 	}
 }
 
@@ -189,7 +191,7 @@ func toRPCError(err error) error {
 	var ec codes.Code
 	switch {
 	case errors.Is(err, types.ErrNotLeader), errors.Is(err, types.ErrLeaderNotFound):
-		ec = codes.ResourceExhausted
+		ec = NotLeaderRPCCode
 	case errors.Is(err, types.ErrNotOpen):
 		ec = codes.Unavailable
 	case errors.Is(err, schema.ErrMTDisabled):

@@ -17,11 +17,18 @@ import (
 	"context"
 	"testing"
 
+	schema2 "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/sharding"
+
+	"github.com/stretchr/testify/mock"
+	"github.com/weaviate/weaviate/usecases/cluster"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -38,7 +45,7 @@ func TestFilterNullStateError(t *testing.T) {
 	class := createClassWithEverything(false, false)
 	migrator, repo, schemaGetter := createRepo(t)
 	defer repo.Shutdown(context.Background())
-	err := migrator.AddClass(context.Background(), class, schemaGetter.shardState)
+	err := migrator.AddClass(context.Background(), class)
 	require.Nil(t, err)
 	// update schema getter so it's in sync with class
 	schemaGetter.schema = schema.Schema{
@@ -78,7 +85,7 @@ func TestNullArrayClass(t *testing.T) {
 		t.Run("add nil object via "+name, func(t *testing.T) {
 			migrator, repo, schemaGetter := createRepo(t)
 			defer repo.Shutdown(context.Background())
-			err := migrator.AddClass(context.Background(), arrayClass, schemaGetter.shardState)
+			err := migrator.AddClass(context.Background(), arrayClass)
 			require.Nil(t, err)
 			// update schema getter so it's in sync with class
 			schemaGetter.schema = schema.Schema{
@@ -142,22 +149,38 @@ func TestNullArrayClass(t *testing.T) {
 }
 
 func createRepo(t *testing.T) (*Migrator, *DB, *fakeSchemaGetter) {
+	shardState := singleShardState()
 	schemaGetter := &fakeSchemaGetter{
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
-		shardState: singleShardState(),
+		shardState: shardState,
 	}
 	logger, _ := test.NewNullLogger()
 	dirName := t.TempDir()
-	repo, err := New(logger, Config{
+	mockSchemaReader := schema2.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
+		class := &models.Class{Class: className}
+		return readFunc(class, shardState)
+	}).Maybe()
+	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
+	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
+	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
+	repo, err := New(logger, "node1", Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor())
+	}, &FakeRemoteClient{}, &FakeNodeResolver{}, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
-	return NewMigrator(repo, logger), repo, schemaGetter
+	return NewMigrator(repo, logger, "node1"), repo, schemaGetter
 }
 
 func createClassWithEverything(IndexNullState bool, IndexPropertyLength bool) *models.Class {

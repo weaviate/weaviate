@@ -19,8 +19,9 @@ import (
 type EndpointName string
 
 var (
-	HTTP EndpointName = "http"
-	GRPC EndpointName = "grpc"
+	HTTP  EndpointName = "http"
+	GRPC  EndpointName = "grpc"
+	DEBUG EndpointName = "debug"
 )
 
 type endpoint struct {
@@ -45,6 +46,10 @@ func (d *DockerContainer) URI() string {
 
 func (d *DockerContainer) GrpcURI() string {
 	return d.GetEndpoint(GRPC)
+}
+
+func (d *DockerContainer) DebugURI() string {
+	return d.GetEndpoint(DEBUG)
 }
 
 func (d *DockerContainer) GetEndpoint(name EndpointName) string {

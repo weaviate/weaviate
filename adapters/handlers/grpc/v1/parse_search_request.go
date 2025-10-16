@@ -52,7 +52,8 @@ type generativeParser interface {
 	ProviderName() string
 	ReturnMetadataForSingle() bool
 	ReturnMetadataForGrouped() bool
-	Debug() bool
+	ReturnDebugForSingle() bool
+	ReturnDebugForGrouped() bool
 }
 
 type Parser struct {
@@ -582,32 +583,17 @@ func extractTargetCombinationSumWeights(targetVectors []string) []float32 {
 }
 
 func extractWeights(in *pb.Targets, weights []float32) error {
-	if in.WeightsForTargets != nil {
-		if len(in.WeightsForTargets) != len(in.TargetVectors) {
-			return fmt.Errorf("number of weights (%d) does not match number of targets (%d)", len(in.Weights), len(in.TargetVectors))
-		}
-
-		for i, v := range in.WeightsForTargets {
-			if v.Target != in.TargetVectors[i] {
-				return fmt.Errorf("target vector %s not found in target vectors", v.Target)
-			}
-			weights[i] = v.Weight
-		}
-		return nil
-	} else {
-		if len(in.Weights) != len(in.TargetVectors) {
-			return fmt.Errorf("number of weights (%d) does not match number of targets (%d)", len(in.Weights), len(in.TargetVectors))
-		}
-
-		for k, v := range in.Weights {
-			ind := indexOf(in.TargetVectors, k)
-			if ind == -1 {
-				return fmt.Errorf("target vector %s not found in target vectors", k)
-			}
-			weights[ind] = v
-		}
-		return nil
+	if len(in.WeightsForTargets) != len(in.TargetVectors) {
+		return fmt.Errorf("number of weights (%d) does not match number of targets (%d)", len(in.WeightsForTargets), len(in.TargetVectors))
 	}
+
+	for i, v := range in.WeightsForTargets {
+		if v.Target != in.TargetVectors[i] {
+			return fmt.Errorf("target vector %s not found in target vectors", v.Target)
+		}
+		weights[i] = v.Weight
+	}
+	return nil
 }
 
 func extractSorting(sortIn []*pb.SortBy) []filters.Sort {
@@ -838,7 +824,10 @@ func extractAdditionalPropsFromMetadata(class *models.Class, prop *pb.MetadataRe
 		Vectors:            prop.Vectors,
 	}
 
-	if vectorSearch && configvalidation.CheckCertaintyCompatibility(class, targetVectors) != nil {
+	// certainty is not compatible with
+	// - multi-vector search
+	// - non-vector search
+	if (vectorSearch && configvalidation.CheckCertaintyCompatibility(class, targetVectors) != nil) || !vectorSearch {
 		props.Certainty = false
 	} else {
 		props.Certainty = prop.Certainty
@@ -1263,15 +1252,6 @@ func parseNearVec(nv *pb.NearVector, targetVectors []string,
 		Vectors:       vectors,
 		TargetVectors: targetVectors,
 	}, targetCombination, nil
-}
-
-func indexOf(slice []string, value string) int {
-	for i, v := range slice {
-		if v == value {
-			return i
-		}
-	}
-	return -1
 }
 
 // extractPropertiesForModules extracts properties that are needed by modules but are not requested by the user

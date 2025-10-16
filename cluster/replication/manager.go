@@ -16,6 +16,9 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/sharding"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/prometheus/client_golang/prometheus"
 
@@ -242,21 +245,26 @@ func (m *Manager) QueryShardingStateByCollection(c *cmd.QueryRequest) ([]byte, e
 		return nil, fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	shardingState := m.schemaReader.CopyShardingState(subCommand.Collection)
-	if shardingState == nil {
-		return nil, fmt.Errorf("%w: %s", types.ErrNotFound, subCommand.Collection)
-	}
-
 	shards := make(map[string][]string)
-	for _, shard := range shardingState.Physical {
-		shards[shard.Name] = shard.BelongsToNodes
+	var err error
+
+	err = m.schemaReader.Read(subCommand.Collection, true, func(_ *models.Class, state *sharding.State) error {
+		if state == nil {
+			return fmt.Errorf("%w: %s", types.ErrNotFound, subCommand.Collection)
+		}
+		for _, physical := range state.Physical {
+			shards[physical.Name] = append([]string(nil), physical.BelongsToNodes...)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, wrapClassNotFoundErr(err, subCommand.Collection)
 	}
 
 	response := cmd.ShardingState{
 		Collection: subCommand.Collection,
 		Shards:     shards,
 	}
-
 	payload, err := json.Marshal(response)
 	if err != nil {
 		return nil, fmt.Errorf("could not marshal query response: %w", err)
@@ -270,32 +278,55 @@ func (m *Manager) QueryShardingStateByCollectionAndShard(c *cmd.QueryRequest) ([
 		return nil, fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	shardingState := m.schemaReader.CopyShardingState(subCommand.Collection)
-	if shardingState == nil {
-		return nil, fmt.Errorf("%w: %s", types.ErrNotFound, subCommand.Collection)
-	}
+	var (
+		shards map[string][]string
+		err    error
+	)
 
-	shards := make(map[string][]string)
-	for _, shard := range shardingState.Physical {
-		if shard.Name == subCommand.Shard {
-			shards[shard.Name] = shard.BelongsToNodes
+	err = m.schemaReader.Read(subCommand.Collection, true, func(_ *models.Class, state *sharding.State) error {
+		if state == nil {
+			return fmt.Errorf("%w: %s", types.ErrNotFound, subCommand.Collection)
 		}
-	}
 
-	if len(shards) == 0 {
-		return nil, fmt.Errorf("%w: %s", types.ErrNotFound, subCommand.Shard)
+		for _, physical := range state.Physical {
+			if physical.Name == subCommand.Shard {
+				shards = map[string][]string{
+					physical.Name: append([]string(nil), physical.BelongsToNodes...),
+				}
+				return nil
+			}
+		}
+		return fmt.Errorf("%w: %s", types.ErrNotFound, subCommand.Shard)
+	})
+	if err != nil {
+		return nil, wrapClassNotFoundErr(err, subCommand.Collection)
 	}
 
 	response := cmd.ShardingState{
 		Collection: subCommand.Collection,
 		Shards:     shards,
 	}
-
 	payload, err := json.Marshal(response)
 	if err != nil {
 		return nil, fmt.Errorf("could not marshal query response: %w", err)
 	}
 	return payload, nil
+}
+
+// wrapClassNotFoundErr normalizes errors from SchemaReader.Read so the HTTP layer
+// maps them to the correct HTTP status.
+//   - If the collection is missing, Read returns schema.ErrClassNotFound and does
+//     not invoke the callback. This wraps it as types.ErrNotFound with the collection
+//     name so it maps to HTTP 404.
+//   - Errors returned by the callback (e.g., shard not found) are passed through unchanged.
+func wrapClassNotFoundErr(err error, collection string) error {
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, schema.ErrClassNotFound) {
+		return fmt.Errorf("%w: %s", types.ErrNotFound, collection)
+	}
+	return err
 }
 
 func makeReplicationDetailsResponse(op *ShardReplicationOp, status *ShardReplicationOpStatus) cmd.ReplicationDetailsResponse {

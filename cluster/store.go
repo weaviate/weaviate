@@ -18,7 +18,6 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -28,6 +27,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/cluster/dynusers"
 	"github.com/weaviate/weaviate/cluster/fsm"
@@ -182,6 +182,10 @@ type Config struct {
 	// ReplicaMovementMinimumAsyncWait is the minimum time bound that replica movement operations will wait before
 	// async replication can complete.
 	ReplicaMovementMinimumAsyncWait *runtime.DynamicValue[time.Duration]
+
+	// DrainSleep is the time the node will wait for the cluster to process any ongoing
+	// operations before shutting down.
+	DrainSleep time.Duration
 }
 
 // Store is the implementation of RAFT on this local node. It will handle the local schema and RAFT operations (startup,
@@ -216,8 +220,7 @@ type Store struct {
 	logCache *raft.LogCache
 
 	// cluster bootstrap related attributes
-	bootstrapMutex sync.Mutex
-	candidates     map[string]string
+	candidates map[string]string
 	// bootstrapped is set once the node has either bootstrapped or recovered from RAFT log entries
 	bootstrapped atomic.Bool
 
@@ -318,6 +321,8 @@ func NewFSM(cfg Config, authZController authorization.Controller, snapshotter fs
 			RaftPort:           cfg.RaftPort,
 			IsLocalHost:        cfg.IsLocalHost,
 			NodeNameToPortMap:  cfg.NodeNameToPortMap,
+			LocalName:          cfg.NodeID,
+			LocalAddress:       fmt.Sprintf("%s:%d", cfg.Host, cfg.RaftPort),
 		}),
 		schemaManager:      schemaManager,
 		snapshotter:        snapshotter,
@@ -461,8 +466,11 @@ func (st *Store) onLeaderFound(timeout time.Duration) {
 	defer t.Stop()
 	for range t.C {
 
-		if leader := st.Leader(); leader != "" {
-			st.log.WithField("address", leader).Info("current Leader")
+		if leaderAddr := st.Leader(); leaderAddr != "" {
+			st.log.WithFields(logrus.Fields{
+				"action":         "leader_found",
+				"leader_address": leaderAddr,
+			}).Info("current leader")
 		} else {
 			continue
 		}
@@ -518,7 +526,7 @@ func (st *Store) Close(ctx context.Context) error {
 
 	// transfer leadership: it stops accepting client requests, ensures
 	// the target server is up to date and initiates the transfer
-	if st.IsLeader() {
+	if st.IsLeader() && len(st.raft.GetConfiguration().Configuration().Servers) > 1 {
 		st.log.Info("transferring leadership to another server")
 		if err := st.raft.LeadershipTransfer().Error(); err != nil {
 			st.log.WithError(err).Error("transferring leadership")
@@ -527,19 +535,35 @@ func (st *Store) Close(ctx context.Context) error {
 		}
 	}
 
+	// leave memberlist first to announce node graceful departure
+	if err := st.cfg.NodeSelector.Leave(); err != nil {
+		st.log.WithError(err).Error("leave node from cluster")
+	}
+
+	// drain any ongoing operations
+	time.Sleep(st.cfg.DrainSleep)
+
+	// Shutdown memberlist after leave to clean up resources and connections
+	if err := st.cfg.NodeSelector.Shutdown(); err != nil {
+		st.log.WithError(err).Error("shutdown node from cluster")
+	}
+
+	// close transport to stop accepting new connections
+	// this prevents "transport shutdown" errors during raft shutdown
+	st.log.Info("closing raft transport ...")
+	if err := st.raftTransport.Close(); err != nil {
+		st.log.WithError(err).Warn("failed to close raft transport")
+	}
+
+	// shutdown raft after transport is closed to ensure clean termination
+	st.log.Info("shutting down raft ...")
 	if err := st.raft.Shutdown().Error(); err != nil {
-		return err
+		st.log.WithError(err).Warn("raft shutdown failed")
 	}
 
 	st.open.Store(false)
 
-	st.log.Info("closing raft-net ...")
-	if err := st.raftTransport.Close(); err != nil {
-		// it's not that fatal if we weren't able to close
-		// the transport, that's why just warn
-		st.log.WithError(err).Warn("close raft-net")
-	}
-
+	// close log store after raft shutdown to persist final log entries
 	st.log.Info("closing log store ...")
 	if err := st.logStore.Close(); err != nil {
 		return fmt.Errorf("close log store: %w", err)
@@ -759,6 +783,14 @@ func (st *Store) raftConfig() *raft.Config {
 	logger := log.NewHCLogrusLogger("raft", st.log)
 	cfg.Logger = logger
 
+	st.log.WithFields(logrus.Fields{
+		"heartbeat_timeout":    cfg.HeartbeatTimeout,
+		"election_timeout":     cfg.ElectionTimeout,
+		"leader_lease_timeout": cfg.LeaderLeaseTimeout,
+		"snapshot_interval":    cfg.SnapshotInterval,
+		"snapshot_threshold":   cfg.SnapshotThreshold,
+		"trailing_logs":        cfg.TrailingLogs,
+	}).Debug("current raft config")
 	return cfg
 }
 

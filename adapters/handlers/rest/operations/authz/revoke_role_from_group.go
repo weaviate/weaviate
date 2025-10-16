@@ -20,6 +20,7 @@ import (
 	"context"
 	"net/http"
 
+	"github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
@@ -48,7 +49,9 @@ func NewRevokeRoleFromGroup(ctx *middleware.Context, handler RevokeRoleFromGroup
 /*
 	RevokeRoleFromGroup swagger:route POST /authz/groups/{id}/revoke authz revokeRoleFromGroup
 
-Revoke a role from a group
+# Revoke a role from a group
+
+Revoke roles from the specified group.
 */
 type RevokeRoleFromGroup struct {
 	Context *middleware.Context
@@ -89,17 +92,69 @@ func (o *RevokeRoleFromGroup) ServeHTTP(rw http.ResponseWriter, r *http.Request)
 // swagger:model RevokeRoleFromGroupBody
 type RevokeRoleFromGroupBody struct {
 
-	// the roles that revoked from group
+	// group type
+	GroupType models.GroupType `json:"groupType,omitempty" yaml:"groupType,omitempty"`
+
+	// The roles to revoke from the specified group.
 	Roles []string `json:"roles" yaml:"roles"`
 }
 
 // Validate validates this revoke role from group body
 func (o *RevokeRoleFromGroupBody) Validate(formats strfmt.Registry) error {
+	var res []error
+
+	if err := o.validateGroupType(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
 	return nil
 }
 
-// ContextValidate validates this revoke role from group body based on context it is used
+func (o *RevokeRoleFromGroupBody) validateGroupType(formats strfmt.Registry) error {
+	if swag.IsZero(o.GroupType) { // not required
+		return nil
+	}
+
+	if err := o.GroupType.Validate(formats); err != nil {
+		if ve, ok := err.(*errors.Validation); ok {
+			return ve.ValidateName("body" + "." + "groupType")
+		} else if ce, ok := err.(*errors.CompositeError); ok {
+			return ce.ValidateName("body" + "." + "groupType")
+		}
+		return err
+	}
+
+	return nil
+}
+
+// ContextValidate validate this revoke role from group body based on the context it is used
 func (o *RevokeRoleFromGroupBody) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	var res []error
+
+	if err := o.contextValidateGroupType(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+func (o *RevokeRoleFromGroupBody) contextValidateGroupType(ctx context.Context, formats strfmt.Registry) error {
+
+	if err := o.GroupType.ContextValidate(ctx, formats); err != nil {
+		if ve, ok := err.(*errors.Validation); ok {
+			return ve.ValidateName("body" + "." + "groupType")
+		} else if ce, ok := err.(*errors.CompositeError); ok {
+			return ce.ValidateName("body" + "." + "groupType")
+		}
+		return err
+	}
+
 	return nil
 }
 

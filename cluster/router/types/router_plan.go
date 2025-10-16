@@ -24,11 +24,13 @@ import (
 //   - Shard: The name of the shard to route to. For multi-tenant collections, this must be the tenant name.
 //     For single-tenant collections, this should be empty to route to all shards, or optionally set to a specific shard
 //     if targeting all shards when creating routing plans for reading.
+//   - Tenant: The tenant name targeted by this routing plan. Expected to be empty and ignored for single-tenant collections.
 //   - ConsistencyLevel: The desired level of consistency for the operation.
 //   - DirectCandidateNode: Optional. The preferred node to use first when building the routing plan.
 //     If empty, the local node is used as the default candidate.
 type RoutingPlanBuildOptions struct {
 	Shard               string
+	Tenant              string
 	ConsistencyLevel    ConsistencyLevel
 	DirectCandidateNode string
 }
@@ -37,8 +39,8 @@ type RoutingPlanBuildOptions struct {
 // Useful for debugging and logging.
 func (o RoutingPlanBuildOptions) String() string {
 	return fmt.Sprintf(
-		"RoutingPlanBuildOptions{shard: %q, consistencyLevel: %s, directCandidateNode: %q}",
-		o.Shard, o.ConsistencyLevel, o.DirectCandidateNode,
+		"RoutingPlanBuildOptions{shard: %q, tenant: %q, consistencyLevel: %s, directCandidateNode: %q}",
+		o.Shard, o.Tenant, o.ConsistencyLevel, o.DirectCandidateNode,
 	)
 }
 
@@ -46,28 +48,26 @@ func (o RoutingPlanBuildOptions) String() string {
 //
 // Fields:
 //   - Shard: The (optional) shard targeted by this routing plan. If empty, all relevant shards are targeted.
-//   - ReplicaSet: The ordered list of replicas to contact.
+//   - Tenant: The tenant name targeted by this routing plan. Expected to be empty and ignored for single-tenant collections.
+//   - ReplicaSet: The ordered list of Replicas to contact.
 //   - ConsistencyLevel: The user-specified consistency level.
 //   - IntConsistencyLevel: The resolved numeric value for the consistency level.
 type ReadRoutingPlan struct {
+	LocalHostname       string
 	Shard               string
-	ReplicaSet          ReplicaSet
+	Tenant              string
+	ReplicaSet          ReadReplicaSet
 	ConsistencyLevel    ConsistencyLevel
 	IntConsistencyLevel int
 }
 
 // String returns a human-readable representation of the ReadRoutingPlan,
-// including shard, consistency level, and list of replicas.
+// including shard, consistency level, and list of Replicas.
 func (p ReadRoutingPlan) String() string {
 	return fmt.Sprintf(
-		"ReadRoutingPlan{shard: %q, consistencyLevel: %s (%d), replicas: %v}",
-		p.Shard, p.ConsistencyLevel, p.IntConsistencyLevel, p.ReplicaSet,
+		"ReadRoutingPlan{shard: %q, tenant: %q, consistencyLevel: %s (%d), Replicas: %v}",
+		p.Shard, p.Tenant, p.ConsistencyLevel, p.IntConsistencyLevel, p.ReplicaSet,
 	)
-}
-
-// Replicas returns the replicas involved in the read operation.
-func (p ReadRoutingPlan) Replicas() []Replica {
-	return p.ReplicaSet.Replicas
 }
 
 // WriteRoutingPlan represents the plan for routing a write operation.
@@ -75,44 +75,39 @@ func (p ReadRoutingPlan) Replicas() []Replica {
 // Fields:
 //   - Shard: The shard targeted by this routing plan. For writing, this is required as a write operation
 //     always targets a specific shard. Usually, the shard is determined based on the object's UUID.
-//   - ReplicaSet: The ordered list of primary write replicas.
-//     Write replicas will normally also include read replicas. A node that accepts writes is also eligible to
+//   - Tenant: The tenant name targeted by this routing plan. Expected to be empty and ignored for single-tenant collections.
+//   - ReplicaSet: The ordered list of primary write Replicas.
+//     Write Replicas will normally also include read Replicas. A node that accepts writes is also eligible to
 //     serve reads.
-//   - AdditionalReplicaSet: Any secondary or additional replicas to include in the write operation.
+//   - AdditionalReplicaSet: Any secondary or additional Replicas to include in the write operation.
 //   - ConsistencyLevel: The user-specified consistency level.
 //   - IntConsistencyLevel: The resolved numeric value for the consistency level.
 type WriteRoutingPlan struct {
-	Shard                string
-	ReplicaSet           ReplicaSet
-	AdditionalReplicaSet ReplicaSet
-	ConsistencyLevel     ConsistencyLevel
-	IntConsistencyLevel  int
+	Shard               string
+	Tenant              string
+	ReplicaSet          WriteReplicaSet
+	ConsistencyLevel    ConsistencyLevel
+	IntConsistencyLevel int
 }
 
 // String returns a human-readable representation of the WriteRoutingPlan,
-// including shard, consistency level, write replicas, and additional replicas.
+// including shard, consistency level, write Replicas, and additional Replicas.
 func (p WriteRoutingPlan) String() string {
 	return fmt.Sprintf(
-		"WriteRoutingPlan{shard: %q, consistencyLevel: %s (%d), writeReplicas: %v, additionalReplicas: %v}",
-		p.Shard, p.ConsistencyLevel, p.IntConsistencyLevel, p.ReplicaSet, p.AdditionalReplicaSet,
+		"WriteRoutingPlan{shard: %q, tenant: %q, consistencyLevel: %s (%d), writeReplicas: %v}",
+		p.Shard, p.Tenant, p.ConsistencyLevel, p.IntConsistencyLevel, p.ReplicaSet,
 	)
-}
-
-// Replicas returns the primary write replicas for the operation.
-func (p WriteRoutingPlan) Replicas() []Replica {
-	return p.ReplicaSet.Replicas
-}
-
-// AdditionalReplicas returns secondary write replicas,
-// typically used during shard migration or replication.
-func (p WriteRoutingPlan) AdditionalReplicas() []Replica {
-	return p.AdditionalReplicaSet.Replicas
 }
 
 // LogFields returns a structured representation of the ReadRoutingPlan for logging purposes.
 func (p ReadRoutingPlan) LogFields() logrus.Fields {
+	tenant := p.Tenant
+	if tenant == "" {
+		tenant = "no tenant"
+	}
 	return logrus.Fields{
 		"shard":             p.Shard,
+		"tenant":            tenant,
 		"read_replica_set":  p.ReplicaSet,
 		"consistency_level": p.ConsistencyLevel,
 	}
@@ -120,93 +115,81 @@ func (p ReadRoutingPlan) LogFields() logrus.Fields {
 
 // LogFields returns a structured representation of the WriteRoutingPlan for logging purposes.
 func (p WriteRoutingPlan) LogFields() logrus.Fields {
+	tenant := p.Tenant
+	if tenant == "" {
+		tenant = "no tenant"
+	}
 	return logrus.Fields{
-		"shard":                  p.Shard,
-		"write_replica_set":      p.ReplicaSet,
-		"additional_replica_set": p.AdditionalReplicaSet,
-		"consistency_level":      p.ConsistencyLevel,
+		"shard":             p.Shard,
+		"tenant":            tenant,
+		"write_replica_set": p.ReplicaSet,
+		"consistency_level": p.ConsistencyLevel,
 	}
 }
 
-// ValidateConsistencyLevel validates that the resolved consistency level can be satisfied
-// by the number of available read replicas.
-//
-// Returns:
-//   - The resolved numeric consistency level.
-//   - An error if the level exceeds the number of available replicas.
-func (p ReadRoutingPlan) ValidateConsistencyLevel() (int, error) {
-	return validateConsistencyLevel(p.ConsistencyLevel, p.Replicas())
-}
-
-// ValidateConsistencyLevel validates that the resolved consistency level can be satisfied
-// by the number of available write replicas.
-//
-// Returns:
-//   - The resolved numeric consistency level.
-//   - An error if the level exceeds the number of available replicas.
-func (p WriteRoutingPlan) ValidateConsistencyLevel() (int, error) {
-	return validateConsistencyLevel(p.ConsistencyLevel, p.Replicas())
-}
-
-func validateConsistencyLevel(level ConsistencyLevel, replicas []Replica) (int, error) {
-	resolved := level.ToInt(len(replicas))
-	if resolved > len(replicas) {
-		return 0, fmt.Errorf(
-			"impossible to satisfy consistency level (%d) > available replicas (%d) replicas=%+q",
-			resolved, len(replicas), replicas,
-		)
-	}
-	return resolved, nil
-}
-
-// NodeNames returns the hostnames of the replicas included in the ReadRoutingPlan.
+// NodeNames returns the hostnames of the Replicas included in the ReadRoutingPlan.
 func (p ReadRoutingPlan) NodeNames() []string {
 	return p.ReplicaSet.NodeNames()
 }
 
-// HostAddresses returns the host addresses of all replicas in the ReadRoutingPlan.
+// HostAddresses returns the host addresses of all Replicas in the ReadRoutingPlan.
 func (p ReadRoutingPlan) HostAddresses() []string {
 	return p.ReplicaSet.HostAddresses()
 }
 
-// Shards returns the logical shard names associated with the replicas
+// Shards returns the logical shard names associated with the Replicas
 // in the ReadRoutingPlan.
 func (p ReadRoutingPlan) Shards() []string {
 	return p.ReplicaSet.Shards()
 }
 
-// HostNames returns the hostnames of the primary write replicas
+// Replicas returns a list of replicas
+func (p ReadRoutingPlan) Replicas() []Replica {
+	return p.ReplicaSet.Replicas
+}
+
+// HostNames returns the hostnames of the primary write Replicas
 // in the WriteRoutingPlan.
 func (p WriteRoutingPlan) HostNames() []string {
 	return p.ReplicaSet.HostAddresses()
 }
 
-// HostAddresses returns the host addresses of the primary write replicas
+// HostAddresses returns the host addresses of the primary write Replicas
 // in the WriteRoutingPlan.
 func (p WriteRoutingPlan) HostAddresses() []string {
 	return p.ReplicaSet.HostAddresses()
 }
 
 // Shards returns the logical shard names associated with the primary write
-// replicas in the WriteRoutingPlan.
+// Replicas in the WriteRoutingPlan.
 func (p WriteRoutingPlan) Shards() []string {
 	return p.ReplicaSet.Shards()
 }
 
-// AdditionalHostNames returns the hostnames of the additional write replicas,
+// Replicas returns a list of replicas
+func (p WriteRoutingPlan) Replicas() []Replica {
+	return p.ReplicaSet.Replicas
+}
+
+// AdditionalHostNames returns the hostnames of the additional write Replicas,
 // which are not part of the primary ReplicaSet, in the WriteRoutingPlan.
 func (p WriteRoutingPlan) AdditionalHostNames() []string {
-	return p.AdditionalReplicaSet.HostAddresses()
+	return p.ReplicaSet.AdditionalHostAddresses()
 }
 
 // AdditionalHostAddresses returns the host addresses of the additional write
-// replicas, which are not part of the primary ReplicaSet, in the WriteRoutingPlan.
+// Replicas, which are not part of the primary ReplicaSet, in the WriteRoutingPlan.
 func (p WriteRoutingPlan) AdditionalHostAddresses() []string {
-	return p.AdditionalReplicaSet.HostAddresses()
+	return p.ReplicaSet.AdditionalHostAddresses()
 }
 
-// AdditionalShards returns the shard names associated with the additional write replicas
+// AdditionalShards returns the shard names associated with the additional write Replicas
 // in the WriteRoutingPlan.
 func (p WriteRoutingPlan) AdditionalShards() []string {
-	return p.AdditionalReplicaSet.Shards()
+	return p.ReplicaSet.AdditionalShards()
+}
+
+// AdditionalReplicas returns a list of additional replicas
+func (p WriteRoutingPlan) AdditionalReplicas() []Replica {
+	return p.ReplicaSet.AdditionalReplicas
 }

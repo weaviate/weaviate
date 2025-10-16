@@ -13,9 +13,11 @@ package lsmkv
 
 import (
 	"fmt"
+	"os"
 	"regexp"
 	"strconv"
 	"sync"
+	"sync/atomic"
 
 	"github.com/weaviate/sroar"
 
@@ -25,12 +27,22 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
 )
 
+var (
+	levelRegEx    = regexp.MustCompile(`\.l(\d+)\.`)
+	strategyRegEx = regexp.MustCompile(`\.s(\d+)\.`)
+)
+
 type lazySegment struct {
-	path        string
+	path string
+	size int64
+
 	logger      logrus.FieldLogger
 	metrics     *Metrics
 	existsLower existsOnLowerSegmentsFn
 	cfg         segmentConfig
+
+	level    atomic.Pointer[uint16]
+	strategy atomic.Pointer[segmentindex.Strategy]
 
 	segment *segment
 	mux     sync.Mutex
@@ -43,8 +55,23 @@ func newLazySegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		metrics.LazySegmentInit.Inc()
 	}
 
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("open file: %w", err)
+	}
+
+	defer func() {
+		file.Close()
+	}()
+
+	fileInfo, err := file.Stat()
+	if err != nil {
+		return nil, fmt.Errorf("stat file: %w", err)
+	}
+
 	return &lazySegment{
 		path:        path,
+		size:        fileInfo.Size(),
 		logger:      logger,
 		metrics:     metrics,
 		existsLower: existsLower,
@@ -87,9 +114,16 @@ func (s *lazySegment) setPath(path string) {
 }
 
 func (s *lazySegment) getStrategy() segmentindex.Strategy {
-	strategy, found := s.numberFromPath("s")
+	ptr := s.strategy.Load()
+	if ptr != nil {
+		return *ptr
+	}
+
+	strategy, found := s.numberFromPath(strategyRegEx)
 	if found {
-		return segmentindex.Strategy(strategy)
+		strtg := segmentindex.Strategy(strategy)
+		s.strategy.Store(&strtg)
+		return strtg
 	}
 	s.mustLoad()
 	return s.segment.getStrategy()
@@ -101,18 +135,20 @@ func (s *lazySegment) getSecondaryIndexCount() uint16 {
 }
 
 func (s *lazySegment) getLevel() uint16 {
-	level, found := s.numberFromPath("l")
+	ptr := s.level.Load()
+	if ptr != nil {
+		return *ptr
+	}
+
+	level, found := s.numberFromPath(levelRegEx)
 	if found {
-		return uint16(level)
+		lvl := uint16(level)
+		s.level.Store(&lvl)
+		return lvl
 	}
 
 	s.mustLoad()
 	return s.segment.getLevel()
-}
-
-func (s *lazySegment) getSize() int64 {
-	s.mustLoad()
-	return s.segment.getSize()
 }
 
 func (s *lazySegment) setSize(size int64) {
@@ -125,9 +161,8 @@ func (s *lazySegment) PayloadSize() int {
 	return s.segment.PayloadSize()
 }
 
-func (s *lazySegment) Size() int {
-	s.mustLoad()
-	return s.segment.Size()
+func (s *lazySegment) Size() int64 {
+	return s.size
 }
 
 func (s *lazySegment) close() error {
@@ -248,14 +283,19 @@ func (s *lazySegment) replaceStratParseData(in []byte) ([]byte, []byte, error) {
 	return s.segment.replaceStratParseData(in)
 }
 
-func (s *lazySegment) roaringSetGet(key []byte) (roaringset.BitmapLayer, error) {
+func (s *lazySegment) roaringSetGet(key []byte, bitmapBufPool roaringset.BitmapBufPool,
+) (roaringset.BitmapLayer, func(), error) {
 	s.mustLoad()
-	return s.segment.roaringSetGet(key)
+	return s.segment.roaringSetGet(key, bitmapBufPool)
 }
 
-func (s *lazySegment) numberFromPath(str string) (int, bool) {
-	template := fmt.Sprintf(`\.%s(\d+)\.`, str)
-	re := regexp.MustCompile(template)
+func (s *lazySegment) roaringSetMergeWith(key []byte, input roaringset.BitmapLayer, bitmapBufPool roaringset.BitmapBufPool,
+) error {
+	s.mustLoad()
+	return s.segment.roaringSetMergeWith(key, input, bitmapBufPool)
+}
+
+func (s *lazySegment) numberFromPath(re *regexp.Regexp) (int, bool) {
 	match := re.FindStringSubmatch(s.path)
 	if len(match) > 1 {
 		num, err := strconv.Atoi(match[1])

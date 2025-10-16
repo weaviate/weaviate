@@ -27,6 +27,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/filters"
 )
@@ -237,6 +238,7 @@ func TestConcurrentWriting_RoaringSet(t *testing.T) {
 	bucket, err := NewBucketCreator().NewBucket(testCtx(), dirName, "", nullLogger(), nil,
 		cyclemanager.NewCallbackGroupNoop(), flushGroup,
 		WithStrategy(StrategyRoaringSet),
+		WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()),
 		WithMemtableThreshold(1000))
 	require.Nil(t, err)
 
@@ -272,9 +274,13 @@ func TestConcurrentWriting_RoaringSet(t *testing.T) {
 
 	t.Run("verify get", func(t *testing.T) {
 		for i := range keys {
-			value, err := bucket.RoaringSetGet(keys[i])
-			require.NoError(t, err)
-			assert.ElementsMatch(t, values[i], value.ToArray())
+			func() {
+				value, release, err := bucket.RoaringSetGet(keys[i])
+				require.NoError(t, err)
+				defer release()
+
+				assert.ElementsMatch(t, values[i], value.ToArray())
+			}()
 		}
 	})
 
@@ -450,7 +456,8 @@ func TestConcurrentWriting_Map(t *testing.T) {
 			targets[string(keys[i])] = values[i]
 		}
 
-		c := bucket.MapCursor()
+		c, err := bucket.MapCursor()
+		require.NoError(t, err)
 		defer c.Close()
 
 		ctx := context.Background()

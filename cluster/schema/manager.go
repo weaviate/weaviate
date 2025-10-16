@@ -125,10 +125,16 @@ func (s *SchemaManager) PreApplyFilter(req *command.ApplyRequest) error {
 
 	// Discard adding class if the name already exists or a similar one exists
 	if req.Type == command.ApplyRequest_TYPE_ADD_CLASS {
-		if other := s.schema.ClassEqual(req.Class); other == req.Class {
-			return fmt.Errorf("class name %s already exists", req.Class)
+		other, isAlias := s.schema.ClassEqual(req.Class)
+		item := "class"
+		if isAlias {
+			item = "alias"
+		}
+
+		if other == req.Class {
+			return fmt.Errorf("%s name %s already exists", item, req.Class)
 		} else if other != "" {
-			return fmt.Errorf("%w: found similar class %q", ErrClassExists, other)
+			return fmt.Errorf("%w: found similar %s %q", ErrClassExists, item, other)
 		}
 	}
 
@@ -488,7 +494,7 @@ func (s *SchemaManager) SyncShard(cmd *command.ApplyRequest, schemaOnly bool) er
 			op:           cmd.GetType().String(),
 			updateSchema: func() error { return nil },
 			updateStore: func() error {
-				return s.schema.Read(req.Collection, func(class *models.Class, state *sharding.State) error {
+				return s.schema.Read(req.Collection, true, func(class *models.Class, state *sharding.State) error {
 					physical, ok := state.Physical[req.Shard]
 					// shard does not exist in the sharding state
 					if !ok {

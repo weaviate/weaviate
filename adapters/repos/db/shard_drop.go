@@ -36,19 +36,13 @@ func (s *Shard) drop() (err error) {
 	s.metrics.baseMetrics.StartUnloadingShard()
 	s.replicationMap.clear()
 
-	if s.index.Config.TrackVectorDimensions {
-		// tracking vector dimensions goroutine only works when tracking is enabled
-		// that's why we are trying to stop it only in this case
-		s.stopDimensionTracking <- struct{}{}
-		// send 0 in when index gets dropped
-		s.clearDimensionMetrics()
-	}
-
 	s.index.logger.WithFields(logrus.Fields{
 		"action": "drop_shard",
 		"class":  s.class.Class,
 		"shard":  s.name,
 	}).Debug("dropping shard")
+
+	s.clearDimensionMetrics() // not deleted in s.metrics.DeleteShardLabels
 
 	s.mayStopAsyncReplication()
 
@@ -60,6 +54,29 @@ func (s *Shard) drop() (err error) {
 
 	ctx, cancel := context.WithTimeout(context.TODO(), 20*time.Second)
 	defer cancel()
+
+	// queues need to be closed first to make sure they are not writing anymore
+	// to their associated vector index, as they might still be using the store
+	// and other resources we are about to drop.
+	err = s.ForEachVectorQueue(func(targetVector string, queue *VectorIndexQueue) error {
+		if err = queue.Drop(); err != nil {
+			return fmt.Errorf("close queue of vector %q at %s: %w", targetVector, s.path(), err)
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	err = s.ForEachVectorIndex(func(targetVector string, index VectorIndex) error {
+		if err = index.Drop(ctx); err != nil {
+			return fmt.Errorf("remove vector index of vector %q at %s: %w", targetVector, s.path(), err)
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
 
 	// unregister all callbacks at once, in parallel
 	if err = cyclemanager.NewCombinedCallbackCtrl(0, s.index.logger,
@@ -92,26 +109,6 @@ func (s *Shard) drop() (err error) {
 	err = s.versioner.Drop()
 	if err != nil {
 		return errors.Wrapf(err, "remove version at %s", s.path())
-	}
-
-	err = s.ForEachVectorQueue(func(targetVector string, queue *VectorIndexQueue) error {
-		if err = queue.Drop(); err != nil {
-			return fmt.Errorf("close queue of vector %q at %s: %w", targetVector, s.path(), err)
-		}
-		return nil
-	})
-	if err != nil {
-		return err
-	}
-
-	err = s.ForEachVectorIndex(func(targetVector string, index VectorIndex) error {
-		if err = index.Drop(ctx); err != nil {
-			return fmt.Errorf("remove vector index of vector %q at %s: %w", targetVector, s.path(), err)
-		}
-		return nil
-	})
-	if err != nil {
-		return err
 	}
 
 	// delete property length tracker

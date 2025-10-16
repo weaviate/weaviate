@@ -38,12 +38,16 @@ func metricsCount(t *testing.T) {
 	defer cleanupMetricsClasses(t, 0, 20)
 	createImportQueryMetricsClasses(t, 0, 10)
 	backupID := startBackup(t, 0, 10)
-	waitForBackupToFinish(t, backupID)
-	metricsLinesBefore := countMetricsLines(t)
+	helper.ExpectBackupEventuallyCreated(t, backupID, "filesystem", nil, helper.WithPollInterval(time.Second), helper.WithDeadline(helper.MaxDeadline))
+	metricsLinesBefore, linesBefore := countMetricsLines(t)
 	createImportQueryMetricsClasses(t, 10, 20)
 	backupID = startBackup(t, 0, 20)
-	waitForBackupToFinish(t, backupID)
-	metricsLinesAfter := countMetricsLines(t)
+	helper.ExpectBackupEventuallyCreated(t, backupID, "filesystem", nil, helper.WithPollInterval(time.Second), helper.WithDeadline(helper.MaxDeadline))
+	metricsLinesAfter, linesAfter := countMetricsLines(t)
+	if metricsLinesAfter != metricsLinesBefore {
+		t.Logf("metric lines before:\n%s\n", strings.Join(linesBefore, "\n"))
+		t.Logf("metric lines after:\n%s\n", strings.Join(linesAfter, "\n"))
+	}
 	assert.Equal(t, metricsLinesBefore, metricsLinesAfter, "number of metrics should not have changed")
 }
 
@@ -170,7 +174,7 @@ func randomVector(dims int) []float32 {
 	return out
 }
 
-func countMetricsLines(t *testing.T) int {
+func countMetricsLines(t *testing.T) (int, []string) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 
@@ -187,9 +191,13 @@ func countMetricsLines(t *testing.T) int {
 
 	scanner := bufio.NewScanner(res.Body)
 	lineCount := 0
+	var lines []string
 	for scanner.Scan() {
 		line := scanner.Text()
 		if strings.Contains(line, "shards_loaded") || strings.Contains(line, "shards_loading") || strings.Contains(line, "shards_unloading") || strings.Contains(line, "shards_unloaded") {
+			continue
+		}
+		if strings.Contains(line, "weaviate_lsm_bucket_cursor_duration_seconds") {
 			continue
 		}
 		require.NotContains(
@@ -198,11 +206,12 @@ func countMetricsLines(t *testing.T) int {
 			strings.ToLower(metricClassPrefix),
 		)
 		lineCount++
+		lines = append(lines, line)
 	}
 
 	require.Nil(t, scanner.Err())
 
-	return lineCount
+	return lineCount, lines
 }
 
 func metricsClassName(classIndex int) string {
@@ -228,19 +237,4 @@ func startBackup(t *testing.T, start, end int) string {
 	require.Nil(t, err)
 
 	return backupID
-}
-
-func waitForBackupToFinish(t *testing.T, id string) {
-	getStatus := func() *backups.BackupsCreateStatusOK {
-		res, err := helper.Client(t).Backups.BackupsCreateStatus(
-			backups.NewBackupsCreateStatusParams().WithBackend("filesystem").WithID(id),
-			nil)
-		require.Nil(t, err)
-		return res
-	}
-	assert.EventuallyWithT(t, func(t *assert.CollectT) {
-		res := getStatus()
-		require.NotNil(t, res.Payload.Status)
-		assert.Equal(t, "SUCCESS", *res.Payload.Status)
-	}, 10*time.Minute, 1*time.Second)
 }

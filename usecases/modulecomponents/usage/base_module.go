@@ -23,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/usage/types"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	"github.com/weaviate/weaviate/usecases/build"
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
@@ -31,7 +32,6 @@ const (
 	// DefaultShardJitterInterval short for shard-level operations and can be configurable later on
 	DefaultShardJitterInterval = 100 * time.Millisecond
 	DefaultRuntimeLoadInterval = 2 * time.Minute
-	DefaultPolicyVersion       = "2025-06-01"
 )
 
 // BaseModule contains the common logic for usage collection modules
@@ -93,8 +93,9 @@ func (b *BaseModule) InitializeCommon(ctx context.Context, config *config.Config
 	if b.config.Usage.PolicyVersion != nil {
 		b.policyVersion = b.config.Usage.PolicyVersion.Get()
 	}
+
 	if b.policyVersion == "" {
-		b.policyVersion = DefaultPolicyVersion
+		b.policyVersion = build.Version
 	}
 
 	if b.config.Usage.ScrapeInterval != nil {
@@ -207,9 +208,6 @@ func (b *BaseModule) collectAndUploadPeriodically(ctx context.Context) {
 }
 
 func (b *BaseModule) collectAndUploadUsage(ctx context.Context) error {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
 	start := time.Now()
 	now := start.UTC()
 	collectionTime := time.Date(now.Year(), now.Month(), now.Day(), now.Hour(), now.Minute(), 0, 0, time.UTC).Format("2006-01-02T15-04-05Z")
@@ -230,9 +228,12 @@ func (b *BaseModule) collectAndUploadUsage(ctx context.Context) error {
 	}
 
 	// Set version on usage data
+	// Lock to protect shared fields and upload operation
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	usage.Version = b.policyVersion
+	usage.CollectingTime = collectionTime
 
-	usage.CollectingTIme = collectionTime
 	return b.storage.UploadUsageData(ctx, usage)
 }
 
@@ -241,7 +242,7 @@ func (b *BaseModule) collectUsageData(ctx context.Context) (*types.Report, error
 		return nil, fmt.Errorf("usage service not initialized")
 	}
 
-	usage, err := b.usageService.Usage(ctx)
+	usage, err := b.usageService.Usage(ctx, false)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get usage data: %w", err)
 	}

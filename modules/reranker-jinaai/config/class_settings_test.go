@@ -12,12 +12,12 @@
 package config
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 func Test_classSettings_Validate(t *testing.T) {
@@ -42,15 +42,6 @@ func Test_classSettings_Validate(t *testing.T) {
 				},
 			},
 			wantModel: "jina-reranker-v1-base-en",
-		},
-		{
-			name: "unsupported model error",
-			cfg: fakeClassConfig{
-				classConfig: map[string]interface{}{
-					"model": "jina-reranker-v1-base-pl",
-				},
-			},
-			wantErr: fmt.Errorf("wrong Jinaai model name, available model names are: [jina-reranker-v2-base-multilingual jina-reranker-v1-base-en jina-reranker-v1-turbo-en jina-reranker-v1-tiny-en jina-colbert-v1-en]"),
 		},
 	}
 	for _, tt := range tests {
@@ -90,5 +81,9 @@ func (f fakeClassConfig) TargetVector() string {
 }
 
 func (f fakeClassConfig) PropertiesDataTypes() map[string]schema.DataType {
+	return nil
+}
+
+func (f fakeClassConfig) Config() *config.Config {
 	return nil
 }

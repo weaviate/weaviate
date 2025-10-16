@@ -28,7 +28,7 @@ import (
 const AssignRoleToGroupOKCode int = 200
 
 /*
-AssignRoleToGroupOK Role assigned successfully
+AssignRoleToGroupOK Roles assigned successfully.
 
 swagger:response assignRoleToGroupOK
 */
@@ -53,7 +53,7 @@ func (o *AssignRoleToGroupOK) WriteResponse(rw http.ResponseWriter, producer run
 const AssignRoleToGroupBadRequestCode int = 400
 
 /*
-AssignRoleToGroupBadRequest Bad request
+AssignRoleToGroupBadRequest Malformed request.
 
 swagger:response assignRoleToGroupBadRequest
 */
@@ -168,7 +168,7 @@ func (o *AssignRoleToGroupForbidden) WriteResponse(rw http.ResponseWriter, produ
 const AssignRoleToGroupNotFoundCode int = 404
 
 /*
-AssignRoleToGroupNotFound role or group is not found.
+AssignRoleToGroupNotFound Role or group not found.
 
 swagger:response assignRoleToGroupNotFound
 */

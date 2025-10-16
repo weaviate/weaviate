@@ -17,11 +17,12 @@ import (
 )
 
 const (
-	StatusReadOnly Status = "READONLY"
-	StatusIndexing Status = "INDEXING"
-	StatusLoading  Status = "LOADING"
-	StatusReady    Status = "READY"
-	StatusShutdown Status = "SHUTDOWN"
+	StatusReadOnly    Status = "READONLY"
+	StatusIndexing    Status = "INDEXING"
+	StatusLoading     Status = "LOADING"
+	StatusLazyLoading Status = "LAZY_LOADING"
+	StatusReady       Status = "READY"
+	StatusShutdown    Status = "SHUTDOWN"
 )
 
 var ErrStatusReadOnlyWithReason = func(reason string) error {
@@ -53,5 +54,5 @@ func ValidateStatus(in string) (status Status, err error) {
 		err = ErrInvalidStatus
 	}
 
-	return
+	return status, err
 }
