@@ -1855,12 +1855,87 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 			}).Info("objectVectorSearch: using local shard path")
 			localSearches++
 			eg.Go(func() error {
-				localShardResult, localShardScores, err1 := i.localShardSearch(egCtx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardName)
-				if err1 != nil {
-					return fmt.Errorf(
-						"local shard object search %s: %w", shard.ID(), err1)
+				// Race local and remote (if replication is enabled) and take the first successful response
+				if i.replicationEnabled() {
+					type vecRes struct {
+						objs  []*storobj.Object
+						dists []float32
+						src   string // "local" or "remote"
+						err   error
+					}
+					resCh := make(chan vecRes, 2)
+					raceCtx, cancel := context.WithCancel(egCtx)
+					defer cancel()
+
+					// Local worker
+					go func() {
+						localCtx := helpers.InitSlowQueryDetails(raceCtx)
+						helpers.AnnotateSlowQueryLog(localCtx, "is_coordinator", true)
+						objs, scores, errLoc := i.localShardSearch(localCtx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardName)
+						select {
+						case resCh <- vecRes{objs: objs, dists: scores, src: "local", err: errLoc}:
+						case <-raceCtx.Done():
+						}
+					}()
+
+					// Remote worker
+					go func() {
+						objs, scores, errRem := i.remoteShardSearch(raceCtx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardName)
+						select {
+						case resCh <- vecRes{objs: objs, dists: scores, src: "remote", err: errRem}:
+						case <-raceCtx.Done():
+						}
+					}()
+
+					// Collect first successful
+					first := <-resCh
+					if first.err == nil {
+						cancel() // stop the other worker
+						m.Lock()
+						if first.src == "local" {
+							localResponses.Add(1)
+						} else {
+							i.logger.WithFields(logrus.Fields{
+								"action":    "object_vector_search_fallback",
+								"path":      "remote_first",
+								"shardName": shardName,
+							}).Warn("remote replica responded before local; using remote result")
+							remoteResponses.Add(1)
+						}
+						out = append(out, first.objs...)
+						dists = append(dists, first.dists...)
+						m.Unlock()
+						return nil
+					}
+
+					// If first errored, try second
+					second := <-resCh
+					if second.err != nil {
+						return fmt.Errorf("vector search failed on both local and remote for shard %s: local=%v remote=%v", shardName, first.err, second.err)
+					}
+					cancel()
+					m.Lock()
+					if second.src == "local" {
+						localResponses.Add(1)
+					} else {
+						i.logger.WithFields(logrus.Fields{
+							"action":    "object_vector_search_fallback",
+							"path":      "remote_second",
+							"shardName": shardName,
+						}).Warn("remote replica used after local error; using remote result")
+						remoteResponses.Add(1)
+					}
+					out = append(out, second.objs...)
+					dists = append(dists, second.dists...)
+					m.Unlock()
+					return nil
 				}
 
+				// Replication disabled: local only
+				localShardResult, localShardScores, err1 := i.localShardSearch(egCtx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardName)
+				if err1 != nil {
+					return fmt.Errorf("local shard object search %s: %w", shard.ID(), err1)
+				}
 				m.Lock()
 				localResponses.Add(1)
 				out = append(out, localShardResult...)

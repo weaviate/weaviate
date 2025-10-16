@@ -18,21 +18,21 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/weaviate/weaviate/cluster/router/types"
-	"github.com/weaviate/weaviate/entities/dto"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-	"github.com/weaviate/weaviate/entities/models"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/dto"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/multi"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
@@ -406,7 +406,8 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 		helpers.AnnotateSlowQueryLog(ctx, "filters_ids_matched", allowList.Len())
 	}
 
-	eg := enterrors.NewErrorGroupWrapper(s.index.logger)
+	// Use context-aware error group so cancellation propagates into workers
+	eg, egCtx := enterrors.NewErrorGroupWithContextWrapper(s.index.logger, ctx, "vector_search")
 	eg.SetLimit(_NUMCPU)
 	idss := make([][]uint64, len(targetVectors))
 	distss := make([][]float32, len(targetVectors))
@@ -416,11 +417,18 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 		i := i
 		targetVector := targetVector
 		eg.Go(func() error {
+			if err := egCtx.Err(); err != nil {
+				return err
+			}
 			var (
 				ids   []uint64
 				dists []float32
 				err   error
 			)
+
+			if err := egCtx.Err(); err != nil {
+				return err
+			}
 
 			vidx, ok := s.GetVectorIndex(targetVector)
 			if !ok {
@@ -431,7 +439,7 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 				switch searchVector := searchVectors[i].(type) {
 				case []float32:
 					ids, dists, err = vidx.SearchByVectorDistance(
-						ctx, searchVector, targetDist, s.index.Config.QueryMaximumResults, allowList)
+						egCtx, searchVector, targetDist, s.index.Config.QueryMaximumResults, allowList)
 					if err != nil {
 						// This should normally not fail. A failure here could indicate that more
 						// attention is required, for example because data is corrupted. That's
@@ -442,7 +450,7 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 					}
 				case [][]float32:
 					ids, dists, err = vidx.SearchByMultiVectorDistance(
-						ctx, searchVector, targetDist, s.index.Config.QueryMaximumResults, allowList)
+						egCtx, searchVector, targetDist, s.index.Config.QueryMaximumResults, allowList)
 					if err != nil {
 						// This should normally not fail. A failure here could indicate that more
 						// attention is required, for example because data is corrupted. That's
@@ -457,7 +465,7 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 			} else {
 				switch searchVector := searchVectors[i].(type) {
 				case []float32:
-					ids, dists, err = vidx.SearchByVector(ctx, searchVector, limit, allowList)
+					ids, dists, err = vidx.SearchByVector(egCtx, searchVector, limit, allowList)
 					if err != nil {
 						// This should normally not fail. A failure here could indicate that more
 						// attention is required, for example because data is corrupted. That's
@@ -469,7 +477,7 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 						return err
 					}
 				case [][]float32:
-					ids, dists, err = vidx.SearchByMultiVector(ctx, searchVector, limit, allowList)
+					ids, dists, err = vidx.SearchByMultiVector(egCtx, searchVector, limit, allowList)
 					if err != nil {
 						// This should normally not fail. A failure here could indicate that more
 						// attention is required, for example because data is corrupted. That's
@@ -494,11 +502,22 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 		})
 	}
 
+	if err := egCtx.Err(); err != nil {
+		if allowList != nil {
+			allowList.Close()
+		}
+		return nil, nil, err
+	}
+
 	err := eg.Wait()
 	if allowList != nil {
 		allowList.Close()
 	}
 	if err != nil {
+		return nil, nil, err
+	}
+
+	if err := ctx.Err(); err != nil {
 		return nil, nil, err
 	}
 
@@ -511,6 +530,10 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 		s.metrics.FilteredVectorVector(time.Since(beforeVector))
 	}
 	helpers.AnnotateSlowQueryLog(ctx, "vector_search_took", time.Since(beforeVector))
+
+	if ctx.Err() != nil {
+		return nil, nil, ctx.Err()
+	}
 
 	if groupBy != nil {
 		objs, dists, err := s.groupResults(ctx, idsCombined, distCombined, groupBy, additional, properties)
@@ -537,6 +560,10 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 	beforeObjects := time.Now()
 
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+	if ctx.Err() != nil {
+		return nil, nil, ctx.Err()
+	}
+
 	objs, err := storobj.ObjectsByDocID(bucket, idsCombined, additional, properties, s.index.logger)
 	if err != nil {
 		return nil, nil, err
