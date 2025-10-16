@@ -1506,17 +1506,17 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 		outObjects = outObjects[:limit]
 	}
 
-	// if i.replicationEnabled() {
-	// 	if replProps == nil {
-	// 		replProps = defaultConsistency(types.ConsistencyLevelOne)
-	// 	}
-	// 	l := types.ConsistencyLevel(replProps.ConsistencyLevel)
-	// 	err = i.replicator.CheckConsistency(ctx, l, outObjects)
-	// 	if err != nil {
-	// 		i.logger.WithField("action", "object_search").
-	// 			Errorf("failed to check consistency of search results: %v", err)
-	// 	}
-	// }
+	if i.replicationEnabled() {
+		if replProps == nil {
+			replProps = defaultConsistency(types.ConsistencyLevelOne)
+		}
+		l := types.ConsistencyLevel(replProps.ConsistencyLevel)
+		err = i.replicator.CheckConsistency(ctx, l, outObjects)
+		if err != nil {
+			i.logger.WithField("action", "object_search").
+				Errorf("failed to check consistency of search results: %v", err)
+		}
+	}
 
 	return outObjects, outScores, nil
 }
@@ -1531,8 +1531,6 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 	eg.SetLimit(_NUMCPU * 2)
 	shardResultLock := sync.Mutex{}
 	for _, shardName := range shards {
-		shardName := shardName
-
 		eg.Go(func() error {
 			var (
 				objs     []*storobj.Object
@@ -1944,17 +1942,17 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 		dists = dists[:limit]
 	}
 
-	// if i.replicationEnabled() {
-	// 	if replProps == nil {
-	// 		replProps = defaultConsistency(types.ConsistencyLevelOne)
-	// 	}
-	// 	l := types.ConsistencyLevel(replProps.ConsistencyLevel)
-	// 	err = i.replicator.CheckConsistency(ctx, l, out)
-	// 	if err != nil {
-	// 		i.logger.WithField("action", "object_vector_search").
-	// 			Errorf("failed to check consistency of search results: %v", err)
-	// 	}
-	// }
+	if i.replicationEnabled() {
+		if replProps == nil {
+			replProps = defaultConsistency(types.ConsistencyLevelOne)
+		}
+		l := types.ConsistencyLevel(replProps.ConsistencyLevel)
+		err = i.replicator.CheckConsistency(ctx, l, out)
+		if err != nil {
+			i.logger.WithField("action", "object_vector_search").
+				Errorf("failed to check consistency of search results: %v", err)
+		}
+	}
 
 	return out, dists, nil
 }
