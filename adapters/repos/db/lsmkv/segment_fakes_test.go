@@ -114,19 +114,19 @@ func (f *fakeSegment) getStrategy() segmentindex.Strategy {
 }
 
 func (f *fakeSegment) getSecondaryIndexCount() uint16 {
-	panic("not implemented") // TODO: Implement
+	panic("not implemented")
 }
 
 func (f *fakeSegment) getLevel() uint16 {
-	panic("not implemented") // TODO: Implement
+	panic("not implemented")
 }
 
 func (f *fakeSegment) Size() int64 {
-	return 0 // TODO: Implement
+	return 0
 }
 
 func (f *fakeSegment) setSize(size int64) {
-	panic("not implemented") // TODO: Implement
+	panic("not implemented")
 }
 
 func (f *fakeSegment) incRef() {
@@ -142,15 +142,15 @@ func (f *fakeSegment) getRefs() int {
 }
 
 func (f *fakeSegment) PayloadSize() int {
-	panic("not implemented") // TODO: Implement
+	panic("not implemented")
 }
 
 func (f *fakeSegment) close() error {
-	panic("not implemented") // TODO: Implement
+	panic("not implemented")
 }
 
 func (f *fakeSegment) dropMarked() error {
-	panic("not implemented") // TODO: Implement
+	panic("not implemented")
 }
 
 func (f *fakeSegment) get(key []byte) ([]byte, error) {
@@ -169,7 +169,7 @@ func (f *fakeSegment) get(key []byte) ([]byte, error) {
 }
 
 func (f *fakeSegment) getBySecondary(pos int, key []byte, buffer []byte) ([]byte, []byte, []byte, error) {
-	panic("not implemented") // TODO: Implement
+	panic("not implemented")
 }
 
 func (f *fakeSegment) getCollection(key []byte) ([]value, error) {
@@ -191,7 +191,10 @@ func (f *fakeSegment) getInvertedData() *segmentInvertedData {
 	return &segmentInvertedData{
 		tombstones: sroar.NewBitmap(),
 		propertyLengths: map[uint64]uint32{
-			0: 3, // TODO: do we need to use real data here or is hardcoded data ok?
+			// NOTE: we are returning hardcoded fake data here which is good enough
+			// for the purpose of this test. This could be extended to return real
+			// data if necessary in the future.
+			0: 3,
 			1: 3,
 		},
 		propertyLengthsLoaded:   true,
@@ -206,15 +209,15 @@ func (f *fakeSegment) getSegment() *segment {
 }
 
 func (f *fakeSegment) isLoaded() bool {
-	panic("not implemented") // TODO: Implement
+	panic("not implemented")
 }
 
 func (f *fakeSegment) markForDeletion() error {
-	panic("not implemented") // TODO: Implement
+	panic("not implemented")
 }
 
 func (f *fakeSegment) MergeTombstones(other *sroar.Bitmap) (*sroar.Bitmap, error) {
-	panic("not implemented") // TODO: Implement
+	panic("not implemented")
 }
 
 func (f *fakeSegment) newCollectionCursor() innerCursorCollection {
@@ -233,7 +236,7 @@ func (f *fakeSegment) newCollectionCursor() innerCursorCollection {
 }
 
 func (f *fakeSegment) newCollectionCursorReusable() *segmentCursorCollectionReusable {
-	panic("not implemented") // TODO: Implement
+	panic("not implemented")
 }
 
 func (f *fakeSegment) newCursor() innerCursorReplaceAllKeys {
@@ -241,7 +244,7 @@ func (f *fakeSegment) newCursor() innerCursorReplaceAllKeys {
 }
 
 func (f *fakeSegment) newCursorWithSecondaryIndex(pos int) *segmentCursorReplace {
-	panic("not implemented") // TODO: Implement
+	panic("not implemented")
 }
 
 func (f *fakeSegment) newMapCursor() innerCursorMap {
@@ -262,7 +265,7 @@ func (f *fakeSegment) newMapCursor() innerCursorMap {
 }
 
 func (f *fakeSegment) newNodeReader(offset nodeOffset, operation string) (*nodeReader, error) {
-	panic("not implemented") // TODO: Implement
+	panic("not implemented")
 }
 
 func (f *fakeSegment) newRoaringSetCursor() roaringset.SegmentCursor {
@@ -273,7 +276,7 @@ func (f *fakeSegment) newRoaringSetCursor() roaringset.SegmentCursor {
 }
 
 func (f *fakeSegment) newRoaringSetRangeCursor() roaringsetrange.SegmentCursor {
-	panic("not implemented") // TODO: Implement
+	panic("not implemented")
 }
 
 func (f *fakeSegment) newRoaringSetRangeReader() roaringsetrange.InnerReader {
@@ -285,7 +288,7 @@ func (f *fakeSegment) newRoaringSetRangeReader() roaringsetrange.InnerReader {
 }
 
 func (f *fakeSegment) quantileKeys(q int) [][]byte {
-	panic("not implemented") // TODO: Implement
+	panic("not implemented")
 }
 
 func (f *fakeSegment) ReadOnlyTombstones() (*sroar.Bitmap, error) {
@@ -293,12 +296,13 @@ func (f *fakeSegment) ReadOnlyTombstones() (*sroar.Bitmap, error) {
 		return nil, fmt.Errorf("tombstones only supported for inverted strategy")
 	}
 
-	// TODO: properly support deletes in test
+	// NOTE: This fake does not support deletes. Could be extended to track
+	// tobmstones as well if necessary.
 	return sroar.NewBitmap(), nil
 }
 
 func (f *fakeSegment) replaceStratParseData(in []byte) ([]byte, []byte, error) {
-	panic("not implemented") // TODO: Implement
+	panic("not implemented")
 }
 
 func (f *fakeSegment) roaringSetGet(key []byte, bitmapBufPool roaringset.BitmapBufPool) (roaringset.BitmapLayer, func(), error) {
