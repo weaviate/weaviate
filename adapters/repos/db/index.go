@@ -1605,7 +1605,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 			} else {
 				i.logger.WithField("shardName", shardName).Debug("shard was not found locally, search for object remotely")
 
-				remoteCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+				remoteCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 				defer cancel()
 				objs, scores, nodeName, err = i.remote.SearchShard(
 					remoteCtx, shardName, nil, nil, 0, limit, filters, keywordRanking,
@@ -1803,7 +1803,7 @@ func (i *Index) remoteShardSearch(ctx context.Context, searchVectors []models.Ve
 		// Search only what is necessary
 		// Bound remote vector search as well to avoid long hangs on peers shutting down
 
-		remoteCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		remoteCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
 		remoteResult, remoteDists, nodeName, err := i.remote.SearchShard(remoteCtx,
 			shardName, searchVectors, targetVectors, distance, limit, localFilters,
