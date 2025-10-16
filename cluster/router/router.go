@@ -13,13 +13,14 @@ package router
 
 import (
 	"fmt"
+	"sort"
 
 	"github.com/sirupsen/logrus"
+
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	schemaTypes "github.com/weaviate/weaviate/cluster/schema/types"
 	"github.com/weaviate/weaviate/usecases/cluster"
-	"golang.org/x/exp/slices"
 )
 
 type Router struct {
@@ -119,18 +120,12 @@ func (r *Router) routingPlanFromReplicas(
 		params.DirectCandidateReplica = r.clusterStateReader.LocalName()
 	}
 
+	// Deterministic ordering: sort replica names and align host addresses accordingly
+	sort.Sort(sort.Reverse(sort.StringSlice(replicas)))
 	for _, replica := range replicas {
 		if replicaAddr, ok := r.clusterStateReader.NodeHostname(replica); ok {
-			// Local replica first is necessary due to the logic in finder where the first node is considered a "full read
-			// candidate". This means that instead of a doing a digest read we will get the "full read" (whatever that means).
-			// We handle the direct candidate here to ensure that the direct candidate is also part of the replica set
-			if replica == params.DirectCandidateReplica {
-				routingPlan.Replicas = slices.Insert(routingPlan.Replicas, 0, replica)
-				routingPlan.ReplicasHostAddrs = slices.Insert(routingPlan.ReplicasHostAddrs, 0, replicaAddr)
-			} else {
-				routingPlan.Replicas = append(routingPlan.Replicas, replica)
-				routingPlan.ReplicasHostAddrs = append(routingPlan.ReplicasHostAddrs, replicaAddr)
-			}
+			routingPlan.Replicas = append(routingPlan.Replicas, replica)
+			routingPlan.ReplicasHostAddrs = append(routingPlan.ReplicasHostAddrs, replicaAddr)
 		}
 	}
 	if len(routingPlan.Replicas) == 0 {

@@ -19,6 +19,8 @@ import (
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/cenkalti/backoff/v4"
 )
 
 type retryClient struct {
@@ -33,12 +35,17 @@ func (c *retryClient) doWithCustomMarshaller(timeout time.Duration,
 	defer cancel()
 	req = req.WithContext(ctx)
 	try := func(ctx context.Context) (b bool, e error) {
+		select {
+		case <-ctx.Done():
+			return false, ctx.Err()
+		default:
+		}
 		if data != nil {
 			req.Body = io.NopCloser(bytes.NewReader(data))
 		}
 		res, err := c.client.Do(req)
 		if err != nil {
-			return false, fmt.Errorf("connect: %w", err)
+			return false, fmt.Errorf("connect from doWithCustomMarshaller: %w", err)
 		}
 		defer res.Body.Close()
 
@@ -65,12 +72,17 @@ func (c *retryClient) do(timeout time.Duration, req *http.Request, body []byte, 
 	defer cancel()
 	req = req.WithContext(ctx)
 	try := func(ctx context.Context) (bool, error) {
+		select {
+		case <-ctx.Done():
+			return false, ctx.Err()
+		default:
+		}
 		if body != nil {
 			req.Body = io.NopCloser(bytes.NewReader(body))
 		}
 		res, err := c.client.Do(req)
 		if err != nil {
-			return false, fmt.Errorf("connect: %w", err)
+			return false, fmt.Errorf("connect from do: %w", err)
 		}
 		defer res.Body.Close()
 
@@ -96,34 +108,26 @@ type retryer struct {
 
 func newRetryer() *retryer {
 	return &retryer{
-		minBackOff:  time.Millisecond * 250,
-		maxBackOff:  time.Second * 30,
+		minBackOff:  time.Millisecond * 100,
+		maxBackOff:  time.Second * 5,
 		timeoutUnit: time.Second, // used by unit tests
 	}
 }
 
 // n is the number of retries, work will always be called at least once.
 func (r *retryer) retry(ctx context.Context, n int, work func(context.Context) (bool, error)) error {
-	delay := r.minBackOff
-	for {
-		keepTrying, err := work(ctx)
-		if !keepTrying || n < 1 || err == nil {
-			return err
-		}
+	exp := backoff.NewExponentialBackOff()
+	exp.InitialInterval = r.minBackOff
+	exp.MaxInterval = r.maxBackOff
+	exp.MaxElapsedTime = time.Duration(n) * r.maxBackOff
 
-		n--
-		if delay = backOff(delay); delay > r.maxBackOff {
-			delay = r.maxBackOff
+	return backoff.Retry(func() error {
+		keepTrying, err := work(ctx)
+		if !keepTrying || err == nil {
+			return backoff.Permanent(err)
 		}
-		timer := time.NewTimer(delay)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			return fmt.Errorf("%w: %w", err, ctx.Err())
-		case <-timer.C:
-		}
-		timer.Stop()
-	}
+		return err
+	}, backoff.WithContext(exp, ctx))
 }
 
 func successCode(code int) bool {

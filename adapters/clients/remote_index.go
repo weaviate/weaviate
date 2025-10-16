@@ -23,15 +23,15 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/weaviate/weaviate/entities/dto"
-	"github.com/weaviate/weaviate/entities/models"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
+
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -543,7 +543,7 @@ func (c *RemoteIndex) GetShardQueueSize(ctx context.Context,
 	try := func(ctx context.Context) (bool, error) {
 		res, err := c.client.Do(req)
 		if err != nil {
-			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
+			return ctx.Err() == nil, fmt.Errorf("connect from GetShardQueueSize: %w", err)
 		}
 		defer res.Body.Close()
 
@@ -584,7 +584,7 @@ func (c *RemoteIndex) GetShardStatus(ctx context.Context,
 	try := func(ctx context.Context) (bool, error) {
 		res, err := c.client.Do(req)
 		if err != nil {
-			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
+			return ctx.Err() == nil, fmt.Errorf("connect from GetShardStatus: %w", err)
 		}
 		defer res.Body.Close()
 
@@ -632,7 +632,7 @@ func (c *RemoteIndex) UpdateShardStatus(ctx context.Context, hostName, indexName
 
 		res, err := c.client.Do(req)
 		if err != nil {
-			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
+			return ctx.Err() == nil, fmt.Errorf("connect from UpdateShardStatus: %w", err)
 		}
 		defer res.Body.Close()
 
@@ -662,7 +662,7 @@ func (c *RemoteIndex) PutFile(ctx context.Context, hostName, indexName,
 		clusterapi.IndicesPayloads.ShardFiles.SetContentTypeHeaderReq(req)
 		res, err := c.client.Do(req)
 		if err != nil {
-			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
+			return ctx.Err() == nil, fmt.Errorf("connect from PutFile: %w", err)
 		}
 		defer res.Body.Close()
 
@@ -693,7 +693,7 @@ func (c *RemoteIndex) CreateShard(ctx context.Context,
 	try := func(ctx context.Context) (bool, error) {
 		res, err := c.client.Do(req)
 		if err != nil {
-			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
+			return ctx.Err() == nil, fmt.Errorf("connect from CreateShard: %w", err)
 		}
 		defer res.Body.Close()
 
@@ -719,7 +719,7 @@ func (c *RemoteIndex) ReInitShard(ctx context.Context,
 	try := func(ctx context.Context) (bool, error) {
 		res, err := c.client.Do(req)
 		if err != nil {
-			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
+			return ctx.Err() == nil, fmt.Errorf("connect from ReInitShard: %w", err)
 		}
 		defer res.Body.Close()
 
@@ -751,7 +751,7 @@ func (c *RemoteIndex) IncreaseReplicationFactor(ctx context.Context,
 
 		res, err := c.client.Do(req)
 		if err != nil {
-			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
+			return ctx.Err() == nil, fmt.Errorf("connect from IncreaseReplicationFactor: %w", err)
 		}
 		defer res.Body.Close()
 
@@ -783,7 +783,7 @@ func (c *RemoteIndex) PauseFileActivity(ctx context.Context,
 	try := func(ctx context.Context) (bool, error) {
 		res, err := c.client.Do(req)
 		if err != nil {
-			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
+			return ctx.Err() == nil, fmt.Errorf("connect from PauseFileActivity: %w", err)
 		}
 		defer res.Body.Close()
 
@@ -810,7 +810,7 @@ func (c *RemoteIndex) ResumeFileActivity(ctx context.Context,
 	try := func(ctx context.Context) (bool, error) {
 		res, err := c.client.Do(req)
 		if err != nil {
-			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
+			return ctx.Err() == nil, fmt.Errorf("connect from ResumeFileActivity: %w", err)
 		}
 		defer res.Body.Close()
 
@@ -841,7 +841,7 @@ func (c *RemoteIndex) ListFiles(ctx context.Context,
 	try := func(ctx context.Context) (bool, error) {
 		res, err := c.client.Do(req)
 		if err != nil {
-			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
+			return ctx.Err() == nil, fmt.Errorf("connect from ListFiles: %w", err)
 		}
 		defer res.Body.Close()
 
@@ -882,7 +882,7 @@ func (c *RemoteIndex) GetFileMetadata(ctx context.Context, hostName, indexName,
 	try := func(ctx context.Context) (bool, error) {
 		res, err := c.client.Do(req)
 		if err != nil {
-			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
+			return ctx.Err() == nil, fmt.Errorf("connect from GetFileMetadata: %w", err)
 		}
 
 		if res.StatusCode != http.StatusOK {
@@ -924,7 +924,7 @@ func (c *RemoteIndex) GetFile(ctx context.Context, hostName, indexName,
 	try := func(ctx context.Context) (bool, error) {
 		res, err := c.client.Do(req)
 		if err != nil {
-			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
+			return ctx.Err() == nil, fmt.Errorf("connect from GetFile: %w", err)
 		}
 
 		if res.StatusCode != http.StatusOK {
@@ -966,7 +966,7 @@ func (c *RemoteIndex) AddAsyncReplicationTargetNode(
 	try := func(ctx context.Context) (bool, error) {
 		res, err := c.client.Do(req)
 		if err != nil {
-			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
+			return ctx.Err() == nil, fmt.Errorf("connect from AddAsyncReplicationTargetNode: %w", err)
 		}
 		defer res.Body.Close()
 
@@ -1001,7 +1001,7 @@ func (c *RemoteIndex) RemoveAsyncReplicationTargetNode(
 	try := func(ctx context.Context) (bool, error) {
 		res, err := c.client.Do(req)
 		if err != nil {
-			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
+			return ctx.Err() == nil, fmt.Errorf("connect from RemoveAsyncReplicationTargetNode: %w", err)
 		}
 		defer res.Body.Close()
 

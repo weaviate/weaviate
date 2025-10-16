@@ -999,14 +999,12 @@ func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 		byShard[shardName] = group
 	}
 
-	wg := &sync.WaitGroup{}
+	// Use context-aware error group for better cancellation handling
+	eg, egCtx := enterrors.NewErrorGroupWithContextWrapper(i.logger, ctx, "put_object_batch")
 	for shardName, group := range byShard {
 		shardName := shardName
 		group := group
-		wg.Add(1)
-		f := func() {
-			defer wg.Done()
-
+		eg.Go(func() error {
 			defer func() {
 				err := recover()
 				if err != nil {
@@ -1020,20 +1018,20 @@ func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 			}()
 			var errs []error
 			if replProps != nil {
-				errs = i.replicator.PutObjects(ctx, shardName, group.objects,
+				errs = i.replicator.PutObjects(egCtx, shardName, group.objects,
 					types.ConsistencyLevel(replProps.ConsistencyLevel), schemaVersion)
 			} else {
-				shard, release, err := i.GetShard(ctx, shardName)
+				shard, release, err := i.GetShard(egCtx, shardName)
 				if err != nil {
 					errs = []error{err}
 				} else if shard != nil {
 					i.shardTransferMutex.RLockGuard(func() error {
 						defer release()
-						errs = shard.PutObjectBatch(ctx, group.objects)
+						errs = shard.PutObjectBatch(egCtx, group.objects)
 						return nil
 					})
 				} else {
-					errs = i.remote.BatchPutObjects(ctx, shardName, group.objects, schemaVersion)
+					errs = i.remote.BatchPutObjects(egCtx, shardName, group.objects, schemaVersion)
 				}
 			}
 
@@ -1041,11 +1039,14 @@ func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 				desiredPos := group.pos[i]
 				out[desiredPos] = err
 			}
-		}
-		enterrors.GoWrapper(f, i.logger)
+			return nil
+		}, shardName)
 	}
 
-	wg.Wait()
+	// Wait for all batch operations to complete or context cancellation
+	if err := eg.Wait(); err != nil {
+		return out
+	}
 
 	return out
 }
@@ -1219,7 +1220,7 @@ func (i *Index) IncomingGetObject(ctx context.Context, shardName string,
 	id strfmt.UUID, props search.SelectProperties,
 	additional additional.Properties,
 ) (*storobj.Object, error) {
-	shard, release, err := i.getOrInitShard(ctx, shardName)
+	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
 		return nil, err
 	}
@@ -1526,12 +1527,10 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 ) ([]*storobj.Object, []float32, error) {
 	resultObjects, resultScores := objectSearchPreallocate(limit, shards)
 
-	eg := enterrors.NewErrorGroupWrapper(i.logger, "filters:", filters)
+	eg, egCtx := enterrors.NewErrorGroupWithContextWrapper(i.logger, ctx, "filters:", filters)
 	eg.SetLimit(_NUMCPU * 2)
 	shardResultLock := sync.Mutex{}
 	for _, shardName := range shards {
-		shardName := shardName
-
 		eg.Go(func() error {
 			var (
 				objs     []*storobj.Object
@@ -1540,13 +1539,24 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 				err      error
 			)
 
-			shard, release, err := i.GetShard(ctx, shardName)
+			shard, release, err := i.GetShard(egCtx, shardName)
 			if err != nil {
 				return err
 			}
 
+			// Always release shard reference if acquired
 			if shard != nil {
 				defer release()
+			}
+
+			if shard != nil && (shard.GetStatus() == storagestate.StatusReady || shard.GetStatus() == storagestate.StatusReadOnly) {
+				i.logger.WithFields(logrus.Fields{
+					"action":       "object_search_path",
+					"shardName":    shardName,
+					"path":         "local",
+					"shardID":      shard.ID(),
+					"shard_status": shard.GetStatus().String(),
+				}).Info("objectSearchByShard: using local shard path")
 				localCtx := helpers.InitSlowQueryDetails(ctx)
 				helpers.AnnotateSlowQueryLog(localCtx, "is_coordinator", true)
 				objs, scores, err = shard.ObjectSearch(localCtx, limit, filters, keywordRanking, sort, cursor, addlProps, properties)
@@ -1556,10 +1566,21 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 				}
 				nodeName = i.getSchema.NodeName()
 			} else {
-				i.logger.WithField("shardName", shardName).Debug("shard was not found locally, search for object remotely")
+				var shardStatus string
+				if shard != nil {
+					shardStatus = shard.GetStatus().String()
+				} else {
+					shardStatus = "not_found"
+				}
+				i.logger.WithFields(logrus.Fields{
+					"action":       "object_search_path",
+					"shardName":    shardName,
+					"path":         "remote",
+					"shard_status": shardStatus,
+				}).Info("objectSearchByShard: shard not found locally or not ready, using remote path")
 
 				objs, scores, nodeName, err = i.remote.SearchShard(
-					ctx, shardName, nil, nil, 0, limit, filters, keywordRanking,
+					egCtx, shardName, nil, nil, 0, limit, filters, keywordRanking,
 					sort, cursor, nil, addlProps, i.replicationEnabled(), nil, properties)
 				if err != nil {
 					return fmt.Errorf(
@@ -1803,7 +1824,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 		shardCap = len(shardNames) * limit
 	}
 
-	eg := enterrors.NewErrorGroupWrapper(i.logger, "tenant:", tenant)
+	eg, egCtx := enterrors.NewErrorGroupWithContextWrapper(i.logger, ctx, "tenant:", tenant)
 	eg.SetLimit(_NUMCPU * 2)
 	m := &sync.Mutex{}
 
@@ -1816,7 +1837,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 
 	for _, sn := range shardNames {
 		shardName := sn
-		shard, release, err := i.GetShard(ctx, shardName)
+		shard, release, err := i.GetShard(egCtx, shardName)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -1824,15 +1845,104 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 			defer release()
 		}
 
-		if shard != nil {
+		if shard != nil && (shard.GetStatus() == storagestate.StatusReady || shard.GetStatus() == storagestate.StatusReadOnly) {
+			i.logger.WithFields(logrus.Fields{
+				"action":       "object_vector_search_path",
+				"shardName":    shardName,
+				"path":         "local",
+				"shardID":      shard.ID(),
+				"shard_status": shard.GetStatus().String(),
+			}).Info("objectVectorSearch: using local shard path")
 			localSearches++
 			eg.Go(func() error {
-				localShardResult, localShardScores, err1 := i.localShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardName)
-				if err1 != nil {
-					return fmt.Errorf(
-						"local shard object search %s: %w", shard.ID(), err1)
+				// Race local and remote (if replication is enabled) and take the first successful response
+				if i.replicationEnabled() {
+					type vecRes struct {
+						objs  []*storobj.Object
+						dists []float32
+						src   string // "local" or "remote"
+						err   error
+					}
+					resCh := make(chan vecRes, 2)
+					raceCtx, cancel := context.WithCancel(egCtx)
+					defer cancel()
+
+					// Local worker
+					go func() {
+						localCtx := helpers.InitSlowQueryDetails(raceCtx)
+						helpers.AnnotateSlowQueryLog(localCtx, "is_coordinator", true)
+						objs, scores, errLoc := i.localShardSearch(localCtx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardName)
+						select {
+						case resCh <- vecRes{objs: objs, dists: scores, src: "local", err: errLoc}:
+						case <-raceCtx.Done():
+						}
+					}()
+
+					// Remote worker (delayed head-start to favor local in steady state)
+					go func() {
+						const remoteHeadStart = time.Second
+						select {
+						case <-time.After(remoteHeadStart):
+							// proceed
+						case <-raceCtx.Done():
+							return
+						}
+						objs, scores, errRem := i.remoteShardSearch(raceCtx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardName)
+						select {
+						case resCh <- vecRes{objs: objs, dists: scores, src: "remote", err: errRem}:
+						case <-raceCtx.Done():
+						}
+					}()
+
+					// Collect first successful
+					first := <-resCh
+					if first.err == nil {
+						cancel() // stop the other worker
+						m.Lock()
+						if first.src == "local" {
+							localResponses.Add(1)
+						} else {
+							i.logger.WithFields(logrus.Fields{
+								"action":    "object_vector_search_fallback",
+								"path":      "remote_first",
+								"shardName": shardName,
+							}).Warn("remote replica responded before local; using remote result")
+							remoteResponses.Add(1)
+						}
+						out = append(out, first.objs...)
+						dists = append(dists, first.dists...)
+						m.Unlock()
+						return nil
+					}
+
+					// If first errored, try second
+					second := <-resCh
+					if second.err != nil {
+						return fmt.Errorf("vector search failed on both local and remote for shard %s: local=%v remote=%v", shardName, first.err, second.err)
+					}
+					cancel()
+					m.Lock()
+					if second.src == "local" {
+						localResponses.Add(1)
+					} else {
+						i.logger.WithFields(logrus.Fields{
+							"action":    "object_vector_search_fallback",
+							"path":      "remote_second",
+							"shardName": shardName,
+						}).Warn("remote replica used after local error; using remote result")
+						remoteResponses.Add(1)
+					}
+					out = append(out, second.objs...)
+					dists = append(dists, second.dists...)
+					m.Unlock()
+					return nil
 				}
 
+				// Replication disabled: local only
+				localShardResult, localShardScores, err1 := i.localShardSearch(egCtx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardName)
+				if err1 != nil {
+					return fmt.Errorf("local shard object search %s: %w", shard.ID(), err1)
+				}
 				m.Lock()
 				localResponses.Add(1)
 				out = append(out, localShardResult...)
@@ -1843,10 +1953,27 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 		}
 
 		if shard == nil || i.Config.ForceFullReplicasSearch {
+			pathReason := "shard_not_found_locally"
+			if i.Config.ForceFullReplicasSearch {
+				pathReason = "force_full_replicas_search"
+			}
+			i.logger.WithFields(logrus.Fields{
+				"action":    "object_vector_search_path",
+				"shardName": shardName,
+				"path":      "remote",
+				"reason":    pathReason,
+				"shard_status": func() string {
+					if shard != nil {
+						return shard.GetStatus().String()
+					} else {
+						return "not_found"
+					}
+				}(),
+			}).Info("objectVectorSearch: using remote shard path")
 			remoteSearches++
 			eg.Go(func() error {
 				// If we have no local shard or if we force the query to reach all replicas
-				remoteShardObject, remoteShardScores, err2 := i.remoteShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardName)
+				remoteShardObject, remoteShardScores, err2 := i.remoteShardSearch(egCtx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardName)
 				if err2 != nil {
 					return fmt.Errorf(
 						"remote shard object search %s: %w", shardName, err2)
@@ -2112,7 +2239,16 @@ func (i *Index) UnloadLocalShard(ctx context.Context, shardName string) error {
 func (i *Index) GetShard(ctx context.Context, shardName string) (
 	shard ShardLike, release func(), err error,
 ) {
-	return i.getOptInitLocalShard(ctx, shardName, false)
+	shard = i.shards.Load(shardName)
+	if shard == nil {
+		return nil, func() {}, nil
+	}
+
+	release, err = shard.preventShutdown()
+	if err != nil {
+		return nil, func() {}, fmt.Errorf("get/init local shard %q, no shutdown: %w", shardName, err)
+	}
+	return shard, release, nil
 }
 
 func (i *Index) getOrInitShard(ctx context.Context, shardName string) (

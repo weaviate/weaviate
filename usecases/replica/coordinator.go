@@ -13,17 +13,17 @@ package replica
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
-	"github.com/weaviate/weaviate/cluster/router/types"
-	"github.com/weaviate/weaviate/cluster/utils"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-
 	"github.com/sirupsen/logrus"
+
+	"github.com/weaviate/weaviate/cluster/router/types"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 const (
@@ -54,6 +54,7 @@ type (
 		pullBackOffPreInitialInterval time.Duration
 		pullBackOffMaxElapsedTime     time.Duration // stop retrying after this long
 		deletionStrategy              string
+		localHostAddr                 string
 	}
 )
 
@@ -84,9 +85,16 @@ func newReadCoordinator[T any](f *Finder, shard string,
 		Class:                         f.class,
 		Shard:                         shard,
 		metrics:                       f.metrics,
+		log:                           f.log,
 		pullBackOffPreInitialInterval: pullBackOffInitivalInterval / 2,
 		pullBackOffMaxElapsedTime:     pullBackOffMaxElapsedTime,
 		deletionStrategy:              deletionStrategy,
+		localHostAddr: func() string {
+			if addr, ok := f.router.NodeHostname(f.nodeName); ok {
+				return addr
+			}
+			return ""
+		}(),
 	}
 }
 
@@ -95,61 +103,114 @@ func (c *coordinator[T]) broadcast(ctx context.Context,
 	replicas []string,
 	op readyOp, level int,
 ) <-chan _Result[string] {
-	// prepare tells replicas to be ready
-	prepare := func() <-chan _Result[string] {
-		resChan := make(chan _Result[string], len(replicas))
-		f := func() { // broadcast
-			defer close(resChan)
-			var wg sync.WaitGroup
-			wg.Add(len(replicas))
-			for _, replica := range replicas {
-				replica := replica
-				g := func() {
-					defer wg.Done()
-					err := op(ctx, replica, c.TxID)
-					resChan <- _Result[string]{replica, err}
+	// Create a cancellable context for early termination when consistency is achieved
+	cancelCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	resChan := make(chan _Result[string], len(replicas))
+	successCh := make(chan _Result[string], len(replicas))
+	errorCh := make(chan _Result[string], len(replicas))
+
+	// Launch all replica operations concurrently
+	var wg sync.WaitGroup
+	wg.Add(len(replicas))
+	for _, replica := range replicas {
+		replica := replica
+		go func() {
+			defer wg.Done()
+			err := op(cancelCtx, replica, c.TxID)
+			result := _Result[string]{replica, err}
+			if err != nil {
+				select {
+				case errorCh <- result:
+				case <-cancelCtx.Done():
+					// Context cancelled, don't send error
 				}
-				enterrors.GoWrapper(g, c.log)
+			} else {
+				select {
+				case successCh <- result:
+				case <-cancelCtx.Done():
+					// Context cancelled, don't send success
+				}
 			}
-			wg.Wait()
-		}
-		enterrors.GoWrapper(f, c.log)
-		return resChan
+		}()
 	}
 
-	// handle responses to prepare requests
-	resChan := make(chan _Result[string], len(replicas))
-	f := func() {
+	// Collector goroutine to handle results and implement early termination
+	go func() {
 		defer close(resChan)
-		actives := make([]_Result[string], 0, level) // cache for active replicas
-		for r := range prepare() {
-			if r.Err != nil { // connection error
-				c.log.WithField("op", "broadcast").Error(r.Err)
-				continue
-			}
+		defer wg.Wait() // Ensure all workers complete before closing
 
-			level--
-			if level > 0 { // cache since level has not been reached yet
-				actives = append(actives, r)
-				continue
-			}
-			if level == 0 { // consistency level has been reached
-				for _, x := range actives {
-					resChan <- x
+		var successCount, errorCount int
+		actives := make([]_Result[string], 0, level) // cache for active replicas
+		total := len(replicas)
+
+		for successCount+errorCount < total {
+			select {
+			case <-cancelCtx.Done():
+				// Context cancelled, abort remaining operations
+				c.log.WithFields(logrus.Fields{
+					"op":            "broadcast",
+					"success_count": successCount,
+					"error_count":   errorCount,
+					"level":         level,
+				}).Info("broadcast context cancelled")
+				return
+			case result := <-successCh:
+				successCount++
+				actives = append(actives, result)
+
+				if successCount >= level {
+					// Consistency level achieved - send all successful results and cancel remaining
+					c.log.WithFields(logrus.Fields{
+						"op":            "broadcast",
+						"success_count": successCount,
+						"level":         level,
+					}).Info("broadcast achieved required consistency, cancelling remaining operations")
+
+					// Send all successful results
+					for _, active := range actives {
+						resChan <- active
+					}
+
+					// Cancel remaining operations
+					cancel()
+					return
 				}
+			case result := <-errorCh:
+				errorCount++
+				c.log.WithFields(logrus.Fields{
+					"op":      "broadcast",
+					"replica": result.Value,
+					"error":   result.Err,
+				}).Error("broadcast replica failed")
 			}
-			resChan <- r
 		}
-		if level > 0 { // abort: nothing has been sent to the caller
-			fs := logrus.Fields{"op": "broadcast", "active": len(actives), "total": len(replicas)}
-			c.log.WithFields(fs).Error("abort")
-			for _, node := range replicas {
-				c.Abort(ctx, node, c.Class, c.Shard, c.TxID)
+
+		// All operations completed - check if we achieved consistency
+		if successCount >= level {
+			// Send all successful results
+			for _, active := range actives {
+				resChan <- active
+			}
+		} else {
+			// Abort: consistency level not achieved
+			c.log.WithFields(logrus.Fields{
+				"op":            "broadcast",
+				"success_count": successCount,
+				"error_count":   errorCount,
+				"level":         level,
+				"total":         total,
+			}).Error("broadcast failed to achieve consistency level")
+
+			// Abort all replicas
+			for _, replica := range replicas {
+				c.Abort(ctx, replica, c.Class, c.Shard, c.TxID)
 			}
 			resChan <- _Result[string]{Err: fmt.Errorf("broadcast: %w", ErrReplicas)}
 		}
-	}
-	enterrors.GoWrapper(f, c.log)
+	}()
+
 	return resChan
 }
 
@@ -279,17 +340,48 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 	op readOp[T], directCandidate string,
 	timeout time.Duration,
 ) (<-chan _Result[T], int, error) {
+	pullStart := time.Now()
 	routingPlan, err := c.Router.BuildReadRoutingPlan(types.RoutingPlanBuildOptions{
-		Collection:             c.Class,
-		Shard:                  c.Shard,
-		ConsistencyLevel:       cl,
-		DirectCandidateReplica: directCandidate,
+		Collection:       c.Class,
+		Shard:            c.Shard,
+		ConsistencyLevel: cl,
+		// DirectCandidateReplica: directCandidate,
 	})
 	if err != nil {
 		return nil, 0, fmt.Errorf("%w : class %q shard %q", err, c.Class, c.Shard)
 	}
+	c.log.WithFields(logrus.Fields{
+		"op":         "pull",
+		"phase":      "plan_built",
+		"duration":   time.Since(pullStart).String(),
+		"collection": c.Class,
+		"shard":      c.Shard,
+	}).Info("pull routing plan built")
 	level := routingPlan.IntConsistencyLevel
 	hosts := routingPlan.ReplicasHostAddrs
+	// deduplicate hosts to avoid launching multiple workers for the same node
+	if len(hosts) > 1 {
+		seen := make(map[string]struct{}, len(hosts))
+		unique := make([]string, 0, len(hosts))
+		duplicates := make([]string, 0)
+		for _, h := range hosts {
+			if _, ok := seen[h]; ok {
+				duplicates = append(duplicates, h)
+				continue
+			}
+			seen[h] = struct{}{}
+			unique = append(unique, h)
+		}
+		if len(duplicates) > 0 {
+			c.log.WithFields(logrus.Fields{
+				"op":           "pull",
+				"duplicates":   duplicates,
+				"original_cnt": len(routingPlan.ReplicasHostAddrs),
+				"unique_cnt":   len(unique),
+			}).Info("deduplicated replica hosts for pull")
+		}
+		hosts = unique
+	}
 	replyCh := make(chan _Result[T], level)
 	f := func() {
 		start := time.Now()
@@ -307,79 +399,164 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 			c.metrics.ObserveReadDuration(time.Since(start))
 		}()
 
-		hostRetryQueue := make(chan hostRetry, len(hosts))
+		// shared cancellable context to abort in-flight ops once consistency is reached
+		cancelCtx, cancel := context.WithCancel(ctx)
 
-		// put the "backups/fallbacks" on the retry queue
-		for i := level; i < len(hosts); i++ {
-			hostRetryQueue <- hostRetry{
-				hosts[i],
-				backoff.WithContext(utils.NewExponentialBackoff(c.pullBackOffPreInitialInterval, c.pullBackOffMaxElapsedTime), ctx),
+		// start a worker per available replica and stop early once consistency reached
+		doneCh := make(chan struct{})
+		var stopOnce sync.Once
+		successCh := make(chan _Result[T], len(hosts))
+		errorCh := make(chan _Result[T], len(hosts))
+		// track whether a full-read succeeded (required for read-repair correctness)
+		fullSuccessCh := make(chan struct{}, 1)
+		// first result timing
+		var firstResultOnce sync.Once
+
+		wg := sync.WaitGroup{}
+		wg.Add(len(hosts))
+		// determine local index among all hosts (prefer local for full read)
+		fullReadIndex := 0
+		if c.localHostAddr != "" {
+			for i := 0; i < len(hosts); i++ {
+				if hosts[i] == c.localHostAddr {
+					fullReadIndex = i
+					break
+				}
 			}
 		}
-
-		// kick off only level workers so that we avoid querying nodes unnecessarily
-		wg := sync.WaitGroup{}
-		wg.Add(level)
-		for i := 0; i < level; i++ {
+		// log routing details and which host will do full read
+		c.log.WithFields(logrus.Fields{
+			"op":                 "pull",
+			"level":              level,
+			"num_hosts":          len(hosts),
+			"full_read_host":     hosts[fullReadIndex],
+			"local_host_address": c.localHostAddr,
+		}).Info("pull starting with computed routing plan")
+		for i := 0; i < len(hosts); i++ {
 			hostIndex := i
-			isFullReadWorker := hostIndex == 0 // first worker will perform the fullRead
+			isFullReadWorker := hostIndex == fullReadIndex // first worker will perform the fullRead
 			workerFunc := func() {
 				defer wg.Done()
-				workerCtx, workerCancel := context.WithTimeout(ctx, timeout)
+				workerCtx, workerCancel := context.WithTimeout(cancelCtx, timeout)
 				defer workerCancel()
+				// early exit if already satisfied
+				select {
+				case <-doneCh:
+					c.log.WithFields(logrus.Fields{"op": "pull", "host": hosts[hostIndex]}).Info("pull worker cancelled before start")
+					return
+				default:
+				}
+				// verify target host is still part of memberlist before attempting
+				isMember := false
+				for _, live := range c.Router.AllHostnames() {
+					if live == hosts[hostIndex] {
+						isMember = true
+						break
+					}
+				}
+				if !isMember {
+					c.log.WithFields(logrus.Fields{"op": "pull", "host": hosts[hostIndex]}).Info("skipping non-member host during pull")
+					// report as error so standby logic/collector can progress
+					select {
+					case <-doneCh:
+						return
+					case errorCh <- _Result[T]{Err: fmt.Errorf("host not in memberlist: %s", hosts[hostIndex])}:
+					}
+					return
+				}
 				// each worker will first try its corresponding host (eg worker0 tries hosts[0],
 				// worker1 tries hosts[1], etc). We want the fullRead to be tried on hosts[0]
 				// because that will be the direct candidate (if a direct candidate was provided),
 				// if we only used the retry queue then we would not have the guarantee that the
 				// fullRead will be tried on hosts[0] first.
+				c.log.WithFields(logrus.Fields{"op": "pull", "host": hosts[hostIndex], "full_read": isFullReadWorker}).Info("pull worker start")
 				resp, err := op(workerCtx, hosts[hostIndex], isFullReadWorker)
 				// TODO return retryable info here, for now should be fine since most errors are considered retryable
 				// TODO have increasing timeout passed into each op (eg 1s, 2s, 4s, 8s, 16s, 32s, with some max) similar to backoff? future PR? or should we just set timeout once per worker in Pull?
 				if err == nil {
-					successful.Add(1)
-					replyCh <- _Result[T]{resp, err}
+					// Do not cancel here; let the collector own cancellation once it has observed enough successes
+					successCh <- _Result[T]{resp, err}
+					if isFullReadWorker {
+						// note a full-read success (best-effort; buffered channel prevents blocking)
+						select {
+						case fullSuccessCh <- struct{}{}:
+						default:
+						}
+					}
+					c.log.WithFields(logrus.Fields{"op": "pull", "host": hosts[hostIndex], "full_read": isFullReadWorker}).Info("pull worker success")
 					return
 				}
-				// this host failed op on the first try, put it on the retry queue
-				hostRetryQueue <- hostRetry{
-					hosts[hostIndex],
-					backoff.WithContext(utils.NewExponentialBackoff(c.pullBackOffPreInitialInterval, c.pullBackOffMaxElapsedTime), ctx),
+				// on error, suppress expected cancellation noise; otherwise report unless already done
+				if errors.Is(err, context.Canceled) || workerCtx.Err() == context.Canceled {
+					c.log.WithFields(logrus.Fields{"op": "pull", "host": hosts[hostIndex]}).Debug("pull worker canceled by context")
+					return
 				}
-
-				// let's fallback to the backups in the retry queue
-				for hr := range hostRetryQueue {
-					resp, err := op(workerCtx, hr.host, isFullReadWorker)
-					if err == nil {
-						replyCh <- _Result[T]{resp, err}
-						return
-					}
-					nextBackOff := hr.currentBackOff.NextBackOff()
-					if nextBackOff == backoff.Stop {
-						// this host has run out of retries, send the result and note that
-						// we have the worker exit here with the assumption that once we've reached
-						// this many failures for this host, we've tried all other hosts enough
-						// that we're not going to reach level successes
-						replyCh <- _Result[T]{resp, err}
-						return
-					}
-
-					timer := time.NewTimer(nextBackOff)
-					select {
-					case <-workerCtx.Done():
-						timer.Stop()
-						replyCh <- _Result[T]{resp, err}
-						return
-					case <-timer.C:
-						hostRetryQueue <- hostRetry{hr.host, hr.currentBackOff}
-					}
-					timer.Stop()
+				select {
+				case <-doneCh:
+					c.log.WithFields(logrus.Fields{"op": "pull", "host": hosts[hostIndex]}).Info("pull worker cancelled after error")
+					return
+				case errorCh <- _Result[T]{resp, err}:
 				}
+				c.log.WithFields(logrus.Fields{"op": "pull", "host": hosts[hostIndex]}).WithError(err).Info("pull worker error")
 			}
 			enterrors.GoWrapper(workerFunc, c.log)
 		}
-		wg.Wait()
-		// callers of this function rely on replyCh being closed
-		close(replyCh)
+		// collect results until we have enough successes or all workers finished
+		go func() {
+			defer close(replyCh)
+			var successCount, errorCount int
+			total := len(hosts)
+			fullReadSeen := false
+			for successCount+errorCount < total {
+				select {
+				case r := <-successCh:
+					firstResultOnce.Do(func() {
+						c.log.WithFields(logrus.Fields{
+							"op":       "pull",
+							"phase":    "first_result",
+							"duration": time.Since(pullStart).String(),
+						}).Info("pull first result received")
+					})
+					replyCh <- r
+					successCount++
+					// Only stop early when quorum is achieved AND we have at least one full-read result
+					if successCount >= level && fullReadSeen {
+						stopOnce.Do(func() { close(doneCh); cancel() })
+						c.log.WithFields(logrus.Fields{"op": "pull", "successes": successCount, "level": level}).Info("pull achieved required consistency, stopping early")
+						return
+					}
+				case <-fullSuccessCh:
+					firstResultOnce.Do(func() {
+						c.log.WithFields(logrus.Fields{
+							"op":       "pull",
+							"phase":    "first_result",
+							"duration": time.Since(pullStart).String(),
+						}).Info("pull first result received")
+					})
+					fullReadSeen = true
+					if successCount >= level {
+						stopOnce.Do(func() { close(doneCh); cancel() })
+						c.log.WithFields(logrus.Fields{"op": "pull", "successes": successCount, "level": level, "full_read": true}).Info("pull achieved required consistency (full read present), stopping early")
+						return
+					}
+				case r := <-errorCh:
+					firstResultOnce.Do(func() {
+						c.log.WithFields(logrus.Fields{
+							"op":       "pull",
+							"phase":    "first_result",
+							"duration": time.Since(pullStart).String(),
+						}).Info("pull first result received")
+					})
+					replyCh <- r
+					errorCount++
+				case <-ctx.Done():
+					stopOnce.Do(func() { close(doneCh); cancel() })
+					c.log.WithField("op", "pull").WithError(ctx.Err()).Info("pull context done")
+					return
+				}
+			}
+		}()
+		// let workers exit; no explicit wait needed since we close on early stop
 	}
 	enterrors.GoWrapper(f, c.log)
 
