@@ -52,6 +52,12 @@ func NewRawVector(id uint64, version VectorVersion, data []float32) *RawVector {
 	}
 }
 
+func NewAnonymousRawVector(data []float32) *RawVector {
+	return &RawVector{
+		data: data,
+	}
+}
+
 func (v *RawVector) ID() uint64 {
 	return v.id
 }
@@ -327,7 +333,6 @@ func (v *VersionMap) Increment(previousVersion VectorVersion, id uint64) (Vector
 	if counter < 127 {
 		counter++
 	} else {
-		panic("vector version counter wrapped around, need to implement a mechanism to handle this")
 		counter = 0 // wraparound behavior
 	}
 

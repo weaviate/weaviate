@@ -12,13 +12,18 @@
 package spfresh
 
 import (
+	"fmt"
+
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
+	vectorIndexCommon "github.com/weaviate/weaviate/entities/vectorindex/common"
 )
 
 // UserConfig defines the configuration options for the SPFresh index.
 // Will be populated once we decide what should be exposed.
-type UserConfig struct{}
+type UserConfig struct {
+	Distance string `json:"distance"`
+}
 
 // IndexType returns the type of the underlying vector index, thus making sure
 // the schema.VectorIndexConfig interface is implemented
@@ -27,9 +32,7 @@ func (u UserConfig) IndexType() string {
 }
 
 func (u UserConfig) DistanceName() string {
-	// TODO: add distance name
-	// panic("distanceName not implemented")
-	return common.DistanceL2Squared
+	return u.Distance
 }
 
 func (u UserConfig) IsMultiVector() bool {
@@ -38,22 +41,36 @@ func (u UserConfig) IsMultiVector() bool {
 
 // SetDefaults in the user-specifyable part of the config
 func (u *UserConfig) SetDefaults() {
-	// TODO: add defaults
-	// panic("setDefaults not implemented")
+	u.Distance = common.DistanceL2Squared
 }
 
 func NewDefaultUserConfig() UserConfig {
-	uc := UserConfig{}
+	var uc UserConfig
 	uc.SetDefaults()
 	return uc
 }
 
 // ParseAndValidateConfig from an unknown input value, as this is not further
 // specified in the API to allow of exchanging the index type
-func ParseAndValidateConfig(input interface{}, isMultiVector bool) (schemaConfig.VectorIndexConfig, error) {
-	// TODO: add validation
-	// panic("parseAndValidateConfig not implemented")
-	uc := UserConfig{}
+func ParseAndValidateConfig(input any, isMultiVector bool) (schemaConfig.VectorIndexConfig, error) {
+	var uc UserConfig
 	uc.SetDefaults()
+
+	if input == nil {
+		return uc, nil
+	}
+
+	asMap, ok := input.(map[string]any)
+	if !ok || asMap == nil {
+		return uc, fmt.Errorf("input must be a non-nil map")
+	}
+
+	err := vectorIndexCommon.OptionalStringFromMap(asMap, "distance", func(v string) {
+		uc.Distance = v
+	})
+	if err != nil {
+		return uc, err
+	}
+
 	return uc, nil
 }

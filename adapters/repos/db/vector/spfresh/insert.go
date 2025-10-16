@@ -14,7 +14,6 @@ package spfresh
 import (
 	"context"
 	"fmt"
-	"math"
 	"time"
 
 	"github.com/pkg/errors"
@@ -63,12 +62,14 @@ func (s *SPFresh) Add(ctx context.Context, id uint64, vector []float32) (err err
 		if s.config.Compressed {
 			s.quantizer = compressionhelpers.NewRotationalQuantizer(int(s.dims), 42, 8, s.config.Distancer)
 			s.vectorSize = int32(compressedVectorSize(int(s.dims)))
+		} else {
+			s.vectorSize = s.dims * 4
 		}
 		s.distancer = &Distancer{
 			quantizer: s.quantizer,
 			distancer: s.config.Distancer,
 		}
-		s.Store.Init(s.vectorSize)
+		s.Store.Init(s.vectorSize, s.config.Compressed)
 	})
 
 	// add the vector to the version map.
@@ -226,50 +227,4 @@ func (s *SPFresh) ValidateBeforeInsert(vector []float32) error {
 	}
 
 	return nil
-}
-
-// MaxPostingVectors returns how many vectors can fit in one posting
-// given the dimensions, compression and I/O budget.
-// I/O budget: SPANN recommends 12KB per posting for byte vectors
-// and 48KB for float32 vectors.
-// Dims is the number of dimensions of the vector, after compression
-// if applicable.
-func computeMaxPostingSize(dims int, compressed bool) uint32 {
-	bytesPerDim := 4
-	maxBytes := 48 * 1024 // default to float32 budget
-	metadata := 8 + 1     // id + version
-	if compressed {
-		bytesPerDim = 1
-		maxBytes = 12 * 1024                          // compressed budget
-		metadata += compressionhelpers.RQMetadataSize // RQ metadata
-	}
-
-	vBytes := dims*bytesPerDim + metadata
-
-	return uint32(math.Ceil(float64(maxBytes) / float64(vBytes)))
-}
-
-func compressedVectorSize(size int) int {
-	return size + compressionhelpers.RQMetadataSize
-}
-
-func (s *SPFresh) setMaxPostingSize() {
-	if s.config.MaxPostingSize == 0 {
-		isCompressed := s.Compressed()
-		s.config.MaxPostingSize = computeMaxPostingSize(int(s.dims), isCompressed)
-	}
-	// either set by the user or computed by the index we want to make sure it's at least the min posting size
-	if s.config.MaxPostingSize <= s.config.MinPostingSize {
-		s.config.MinPostingSize = s.config.MaxPostingSize / 2
-	}
-
-	s.config.MaxPostingSize = 178
-	s.config.MinPostingSize = 40
-	s.config.RNGFactor = 5
-
-	fmt.Println("max posting size:", s.config.MaxPostingSize)
-	fmt.Println("min posting size:", s.config.MinPostingSize)
-	fmt.Println("rng factor:", s.config.RNGFactor)
-
-	fmt.Println(int(s.config.MaxPostingSize)*(int(s.dims)+9+compressionhelpers.RQMetadataSize), "bytes per posting (compressed)")
 }
