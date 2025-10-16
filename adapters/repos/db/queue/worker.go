@@ -16,8 +16,11 @@ import (
 	"errors"
 	"time"
 
+	"github.com/cenkalti/backoff/v4"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 const (
@@ -34,7 +37,7 @@ func NewWorker(logger logrus.FieldLogger, retryInterval time.Duration) (*Worker,
 	ch := make(chan *Batch)
 
 	return &Worker{
-		logger:        logger,
+		logger:        logger.WithField("action", "queue_worker"),
 		retryInterval: retryInterval,
 		ch:            ch,
 	}, ch
@@ -76,7 +79,7 @@ func (w *Worker) do(batch *Batch) (err error) {
 		}
 
 		for i, t := range tasks {
-			err = t.Execute(batch.Ctx)
+			err = w.executeTaskRetryOnTransient(batch.Ctx, t)
 			// check if the full batch was canceled
 			if errors.Is(err, context.Canceled) {
 				return err
@@ -127,4 +130,39 @@ func (w *Worker) do(batch *Batch) (err error) {
 		case <-t.C:
 		}
 	}
+}
+
+func (w *Worker) executeTaskRetryOnTransient(ctx context.Context, t Task) error {
+	linearBackoff := backoff.NewExponentialBackOff()
+	linearBackoff.InitialInterval = w.retryInterval
+	linearBackoff.Multiplier = 1.0 // Linear growth (no exponential)
+	linearBackoff.MaxInterval = 3 * time.Second
+	linearBackoff.MaxElapsedTime = 0 // Retry forever for transient errors
+
+	backoffWithContext := backoff.WithContext(linearBackoff, ctx)
+
+	attempt := 1
+	return backoff.Retry(func() error {
+		err := t.Execute(ctx)
+		if err == nil {
+			// no error, fast path return
+			return nil
+		}
+
+		if !enterrors.IsTransient(err) {
+			return backoff.Permanent(err)
+		}
+
+		// any error left at this point is considered transient, retry forever
+		retryIn := linearBackoff.NextBackOff()
+
+		w.logger.
+			WithError(err).
+			WithField("attempt", attempt).
+			WithField("next_attempt_in", retryIn).
+			Warnf("transient error, attempt %d, retrying in %s", attempt, retryIn)
+
+		attempt++
+		return err
+	}, backoffWithContext)
 }
