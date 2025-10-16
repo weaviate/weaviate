@@ -74,6 +74,7 @@ func newMemoryAllocationTracker(metrics *Metrics, samplingRate float64, randFunc
 		samplingRate:   samplingRate,
 		randFunc:       randFunc,
 		memStatsReader: reader,
+		mu:             &sync.Mutex{},
 	}
 }
 
