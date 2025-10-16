@@ -700,7 +700,7 @@ func (s *Shard) initHashBeater(ctx context.Context, config asyncReplicationConfi
 					config.targetNodeOverrides = s.asyncReplicationConfig.targetNodeOverrides
 				}()
 
-				if (!s.index.asyncReplicationEnabled() && len(config.targetNodeOverrides) == 0) ||
+				if (!s.index.AsyncReplicationEnabledForShard(s.name) && len(config.targetNodeOverrides) == 0) ||
 					(config.maintenanceModeEnabled != nil && config.maintenanceModeEnabled()) {
 					// skip hashbeat iteration when async replication is disabled and no target node overrides are set
 					// or maintenance mode is enabled for localhost
