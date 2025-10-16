@@ -491,6 +491,14 @@ linters:
           - staticcheck
         path: modules/text2vec-aws/clients/aws.go
         text: ST1005 # error strings should not end with punctuation or newlines
+      - linters:
+        - staticcheck
+        path: adapters/handlers/rest/clusterapi/indices_replicas_test.go
+        text: QF1003 # could use tagged switch on res.StatusCode
+      - linters:
+        - staticcheck
+        path: adapters/handlers/rest/clusterapi/indices_replicas_test.go
+        text: QF1003 # could use tagged switch on httpStatus
     paths:
       - third_party$
       - builtin$

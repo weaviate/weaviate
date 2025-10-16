@@ -136,7 +136,7 @@ type ShardLike interface {
 	prepareDeleteObjects(context.Context, string, []strfmt.UUID, time.Time, bool) replica.SimpleResponse
 	prepareAddReferences(context.Context, string, []objects.BatchReference) replica.SimpleResponse
 
-	commitReplication(context.Context, string, *shardTransfer) interface{}
+	commitReplication(context.Context, string) interface{}
 	abortReplication(context.Context, string) replica.SimpleResponse
 	filePutter(context.Context, string) (io.WriteCloser, error)
 
@@ -189,6 +189,7 @@ type ShardLike interface {
 	// Debug methods
 	DebugResetVectorIndex(ctx context.Context, targetVector string) error
 	RepairIndex(ctx context.Context, targetVector string) error
+	RequantizeIndex(ctx context.Context, targetVector string) error
 
 	// Debug method for docID lock debugging and contention detection and simulation
 	DebugGetDocIdLockStatus() (bool, error)
@@ -316,7 +317,7 @@ func (s *Shard) pathHashTree() string {
 
 func (s *Shard) vectorIndexID(targetVector string) string {
 	if targetVector != "" {
-		return fmt.Sprintf("vectors_%s", targetVector)
+		return fmt.Sprintf("%s_%s", helpers.VectorsBucketLSM, targetVector)
 	}
 	return "main"
 }
@@ -379,6 +380,11 @@ func (s *Shard) UpdateVectorIndexConfig(ctx context.Context, updated schemaConfi
 func (s *Shard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string]schemaConfig.VectorIndexConfig) error {
 	if err := s.isReadOnly(); err != nil {
 		return err
+	}
+
+	if err := newCompressedVectorsMigrator(s.index.logger).doUpdate(s, updated); err != nil {
+		s.index.logger.WithField("action", "update_vector_index_configs").
+			Errorf("failed to migrate vectors compressed folder: %v", err)
 	}
 
 	i := 0
