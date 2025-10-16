@@ -16,7 +16,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/entities/tenantactivity"
@@ -96,27 +95,27 @@ func (o *nodeWideMetricsObserver) observeIfShardsReady() {
 
 // assumes that the caller already holds a db.indexLock.Rlock()
 func (o *nodeWideMetricsObserver) observeUnlocked() {
-	start := time.Now()
+	// start := time.Now()
 
-	totalObjectCount := 0
-	for _, index := range o.db.indices {
-		index.ForEachShard(func(name string, shard ShardLike) error {
-			totalObjectCount += shard.ObjectCountAsync()
-			return nil
-		})
-	}
+	// totalObjectCount := 0
+	// for _, index := range o.db.indices {
+	// 	index.ForEachShard(func(name string, shard ShardLike) error {
+	// 		totalObjectCount += shard.ObjectCountAsync()
+	// 		return nil
+	// 	})
+	// }
 
-	o.db.promMetrics.ObjectCount.With(prometheus.Labels{
-		"class_name": "n/a",
-		"shard_name": "n/a",
-	}).Set(float64(totalObjectCount))
+	// o.db.promMetrics.ObjectCount.With(prometheus.Labels{
+	// 	"class_name": "n/a",
+	// 	"shard_name": "n/a",
+	// }).Set(float64(totalObjectCount))
 
-	took := time.Since(start)
-	o.db.logger.WithFields(logrus.Fields{
-		"action":       "observe_node_wide_metrics",
-		"took":         took,
-		"object_count": totalObjectCount,
-	}).Debug("observed node wide metrics")
+	// took := time.Since(start)
+	// o.db.logger.WithFields(logrus.Fields{
+	// 	"action":       "observe_node_wide_metrics",
+	// 	"took":         took,
+	// 	"object_count": totalObjectCount,
+	// }).Debug("observed node wide metrics")
 }
 
 func (o *nodeWideMetricsObserver) Shutdown() {
