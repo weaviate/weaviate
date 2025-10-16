@@ -31,6 +31,14 @@ func generateReplacementModel() *models.TokenizerUserDictConfig {
 				Source: ptr("Semi Technologies"),
 				Target: ptr("SemiTechnologies"),
 			},
+			{
+				Source: ptr("Aviate"),
+				Target: ptr("Aviate"),
+			},
+			{
+				Source: ptr("We"),
+				Target: ptr("We"),
+			},
 		},
 	}
 }
@@ -51,6 +59,12 @@ func TestKagomeUserTokenizerForClass(t *testing.T) {
 	tokens := TokenizeForClass(models.PropertyTokenizationKagomeKr, "Weaviate Semi Technologies", className)
 	assert.Equal(t, []string{"We", "Aviate", "SemiTechnologies"}, tokens)
 
+	tokens = TokenizeForClass(models.PropertyTokenizationKagomeKr, "We Aviate", className)
+	assert.Equal(t, []string{"We", "Aviate"}, tokens)
+
 	tokens = TokenizeForClass(models.PropertyTokenizationKagomeKr, "Weaviate Semi Technologies", "")
 	assert.Equal(t, []string{"Weaviat", "e", "Sem", "i", "Technologie", "s"}, tokens)
+
+	tokens = TokenizeForClass(models.PropertyTokenizationKagomeKr, "We", "")
+	assert.Equal(t, []string{"W", "e"}, tokens)
 }
