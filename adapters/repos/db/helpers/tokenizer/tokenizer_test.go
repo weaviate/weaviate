@@ -25,11 +25,15 @@ func TestTokeniseParallel(t *testing.T) {
 	init_gse_ch()
 	// Kagome tokenizer for Korean
 	t.Setenv("ENABLE_TOKENIZER_KAGOME_KR", "true")
-	tokenizers.Korean, _ = initializeKagomeTokenizerKr(nil)
+	if tokenizers.Korean == nil {
+		tokenizers.Korean, _ = initializeKagomeTokenizerKr(nil)
+	}
 
 	// Kagome tokenizer for Japanese
 	t.Setenv("ENABLE_TOKENIZER_KAGOME_JA", "true")
-	tokenizers.Japanese, _ = initializeKagomeTokenizerJa(nil)
+	if tokenizers.Japanese == nil {
+		tokenizers.Japanese, _ = initializeKagomeTokenizerJa(nil)
+	}
 	for i := 0; i < 1000; i++ {
 		go SingleTokenise(t)
 	}
@@ -190,7 +194,9 @@ func TestTokenizeAndCountDuplicates(t *testing.T) {
 	}
 
 	t.Setenv("ENABLE_TOKENIZER_KAGOME_KR", "true")
-	tokenizers.Korean, _ = initializeKagomeTokenizerKr(nil)
+	if tokenizers.Korean == nil {
+		tokenizers.Korean, _ = initializeKagomeTokenizerKr(nil)
+	}
 
 	alphaInput := "Hello You Beautiful World! hello you beautiful world!"
 
