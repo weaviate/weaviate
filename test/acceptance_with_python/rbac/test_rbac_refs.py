@@ -1,5 +1,3 @@
-import uuid
-
 import pytest
 import weaviate
 import weaviate.classes as wvc

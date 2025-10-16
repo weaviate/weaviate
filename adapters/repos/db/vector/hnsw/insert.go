@@ -553,3 +553,13 @@ func (h *hnsw) insertInitialElement(node *vertex, nodeVec []float32) error {
 func (h *hnsw) generateLevel() uint8 {
 	return uint8(math.Floor(-math.Log(max(h.randFunc(), 1e-19)) * h.levelNormalizer))
 }
+
+func (h *hnsw) Preload(id uint64, vector []float32) {
+	if h.compressed.Load() && !h.multivector.Load() {
+		h.compressor.Preload(id, vector)
+	} else {
+		if !h.multivector.Load() {
+			h.cache.Preload(id, vector)
+		}
+	}
+}

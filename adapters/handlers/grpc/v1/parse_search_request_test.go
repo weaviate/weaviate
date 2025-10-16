@@ -2335,6 +2335,22 @@ func TestGRPCSearchRequest(t *testing.T) {
 			},
 			error: false,
 		},
+		{
+			name: "non vector search with certainty requested",
+			req: &pb.SearchRequest{
+				Collection: mixedVectorsClass,
+				Metadata:   &pb.MetadataRequest{Certainty: true},
+			},
+			out: dto.GetParams{
+				ClassName:  mixedVectorsClass,
+				Pagination: defaultPagination,
+				Properties: defaultNamedVecProps,
+				AdditionalProperties: additional.Properties{
+					NoProps: false, Certainty: false,
+				},
+			},
+			error: false,
+		},
 	}
 
 	parser := NewParser(false, getClass, getAlias)
