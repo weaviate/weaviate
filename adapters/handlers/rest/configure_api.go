@@ -435,6 +435,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		QuerySlowLogThreshold:                        appState.ServerConfig.Config.QuerySlowLogThreshold,
 		InvertedSorterDisabled:                       appState.ServerConfig.Config.InvertedSorterDisabled,
 		MaintenanceModeEnabled:                       appState.Cluster.MaintenanceModeEnabledForLocalhost,
+		StartupTime:                                  appState.StartupTime,
 	}, remoteIndexClient, appState.Cluster, remoteNodesClient, replicationClient, appState.Metrics, appState.MemWatch) // TODO client
 	if err != nil {
 		appState.Logger.
@@ -910,7 +911,27 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 				WithField("action", "shutdown").
 				Errorf("failed to gracefully leave cluster")
 		}
-		time.Sleep(10 * time.Second) // drain
+		// Wait for memberlist convergence: ensure local node is no longer a member
+		localName := appState.Cluster.LocalName()
+		maxWait := 10 * time.Second
+		tick := 100 * time.Millisecond
+		deadline := time.Now().Add(maxWait)
+		for time.Now().Before(deadline) {
+			if _, ok := appState.Cluster.NodeHostname(localName); !ok {
+				appState.Logger.WithFields(logrus.Fields{
+					"action":     "shutdown",
+					"node":       localName,
+					"membership": "left",
+				}).Info("memberlist confirms local node left")
+				break
+			}
+			appState.Logger.WithFields(logrus.Fields{
+				"action":     "shutdown",
+				"node":       localName,
+				"membership": "still_present",
+			}).Info("waiting for memberlist to forget local node")
+			time.Sleep(tick)
+		}
 
 		if telemetryEnabled(appState) {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/entities/diskio"
@@ -126,6 +127,7 @@ func (db *DB) init(ctx context.Context) error {
 				QuerySlowLogThreshold:                        db.config.QuerySlowLogThreshold,
 				InvertedSorterDisabled:                       db.config.InvertedSorterDisabled,
 				MaintenanceModeEnabled:                       db.config.MaintenanceModeEnabled,
+				StartupTime:                                  db.config.StartupTime,
 			}, db.schemaGetter.CopyShardingState(class.Class),
 				inverted.ConfigFromModel(invertedConfig),
 				convertToVectorIndexConfig(class.VectorIndexConfig),

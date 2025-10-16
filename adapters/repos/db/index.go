@@ -722,6 +722,7 @@ type IndexConfig struct {
 	QuerySlowLogThreshold  *configRuntime.DynamicValue[time.Duration]
 	InvertedSorterDisabled *configRuntime.DynamicValue[bool]
 	MaintenanceModeEnabled func() bool
+	StartupTime            time.Time
 }
 
 func indexID(class schema.ClassName) string {
@@ -1558,7 +1559,9 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 					if s, ok := shard.(*Shard); ok && s.shutdownRequested.Load() {
 						useLocal = false
 					} else {
-						useLocal = true
+						if time.Since(i.Config.StartupTime) > time.Second*60 {
+							useLocal = true
+						}
 					}
 				}
 			}
