@@ -506,6 +506,7 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 			defer close(replyCh)
 			var successCount, errorCount int
 			total := len(hosts)
+			fullReadSeen := false
 			for successCount+errorCount < total {
 				select {
 				case r := <-successCh:
@@ -518,9 +519,8 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 					})
 					replyCh <- r
 					successCount++
-					// Do not block on full read when quorum is achieved; proceed to stop early.
-					// Full read success is still noted via fullSuccessCh for repair paths, but should not delay quorum reads.
-					if successCount >= level {
+					// Only stop early when quorum is achieved AND we have at least one full-read result
+					if successCount >= level && fullReadSeen {
 						stopOnce.Do(func() { close(doneCh); cancel() })
 						c.log.WithFields(logrus.Fields{"op": "pull", "successes": successCount, "level": level}).Info("pull achieved required consistency, stopping early")
 						return
@@ -533,6 +533,7 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 							"duration": time.Since(pullStart).String(),
 						}).Info("pull first result received")
 					})
+					fullReadSeen = true
 					if successCount >= level {
 						stopOnce.Do(func() { close(doneCh); cancel() })
 						c.log.WithFields(logrus.Fields{"op": "pull", "successes": successCount, "level": level, "full_read": true}).Info("pull achieved required consistency (full read present), stopping early")
