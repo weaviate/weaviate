@@ -1581,6 +1581,8 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 			} else {
 				shardStatusStr = "not_found"
 			}
+			fmt.Println(time.Since(i.Config.StartupTime).Milliseconds())
+			fmt.Println(useLocal)
 			i.logger.WithFields(logrus.Fields{
 				"action":             "object_search_decision",
 				"shardName":          shardName,
@@ -1895,6 +1897,9 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 		} else {
 			shardStatusStr = "not_found"
 		}
+
+		fmt.Println(time.Since(i.Config.StartupTime).Milliseconds())
+		fmt.Println(useLocal)
 		i.logger.WithFields(logrus.Fields{
 			"action":             "object_search_decision",
 			"shardName":          shardName,
