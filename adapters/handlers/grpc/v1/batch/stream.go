@@ -214,27 +214,13 @@ func (h *StreamHandler) handleWorkerReport(report *report, closed bool, recvErrC
 	}
 	// Received a report from a worker
 	h.handleWorkerErrors(report, stream, logger)
-	// Recalculate stats and send backoff message
-	h.handleBackoff(report, streamId, stream, logger)
-	return nil
-}
-
-func (h *StreamHandler) handleBackoff(report *report, streamId string, stream pb.Weaviate_BatchStreamServer, logger *logrus.Entry) {
+	// Recalculate stats
 	stats := h.workerStats(streamId)
 	stats.updateBatchSize(report.Stats.processingTime, len(h.processingQueue))
 	if h.metrics != nil {
 		h.metrics.OnWorkerReport(stats.getThroughputEma(), stats.getProcessingTimeEma())
 	}
-	if innerErr := stream.Send(&pb.BatchStreamReply{
-		Message: &pb.BatchStreamReply_Backoff_{
-			Backoff: &pb.BatchStreamReply_Backoff{
-				NextBatchSize:  int32(stats.getBatchSize()),
-				BackoffSeconds: h.thresholdCubicBackoff(),
-			},
-		},
-	}); innerErr != nil {
-		logger.Errorf("failed to send backoff message: %s", innerErr)
-	}
+	return nil
 }
 
 func (h *StreamHandler) handleWorkerErrors(report *report, stream pb.Weaviate_BatchStreamServer, logger *logrus.Entry) {
@@ -411,6 +397,17 @@ func (h *StreamHandler) receiver(ctx context.Context, streamId string, consisten
 			}
 			if h.metrics != nil {
 				h.metrics.OnStreamRequest(float64(len(h.processingQueue)) / float64(cap(h.processingQueue)))
+			}
+			stats := h.workerStats(streamId)
+			if innerErr := stream.Send(&pb.BatchStreamReply{
+				Message: &pb.BatchStreamReply_Backoff_{
+					Backoff: &pb.BatchStreamReply_Backoff{
+						NextBatchSize:  int32(stats.getBatchSize()),
+						BackoffSeconds: h.thresholdCubicBackoff(),
+					},
+				},
+			}); innerErr != nil {
+				log.Errorf("failed to send backoff message: %s", innerErr)
 			}
 		} else if request.GetStop() != nil {
 			h.setStopping(streamId)
