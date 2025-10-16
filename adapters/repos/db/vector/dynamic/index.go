@@ -39,7 +39,6 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	schemaconfig "github.com/weaviate/weaviate/entities/schema/config"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
-	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -109,7 +108,7 @@ type dynamic struct {
 	upgraded                     atomic.Bool
 	upgradeOnce                  sync.Once
 	tombstoneCallbacks           cyclemanager.CycleCallbackGroup
-	hnswUC                       hnswent.UserConfig
+	uc                           ent.UserConfig
 	db                           *bbolt.DB
 	ctx                          context.Context
 	cancel                       context.CancelFunc
@@ -167,7 +166,7 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 		store:                        store,
 		threshold:                    uc.Threshold,
 		tombstoneCallbacks:           cfg.TombstoneCallbacks,
-		hnswUC:                       uc.HnswUC,
+		uc:                           uc,
 		db:                           cfg.SharedDB,
 		ctx:                          ctx,
 		cancel:                       cancel,
@@ -225,7 +224,7 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 				WriteSegmentInfoIntoFileName: cfg.WriteSegmentInfoIntoFileName,
 				WriteMetadataFilesEnabled:    cfg.WriteMetadataFilesEnabled,
 			},
-			index.hnswUC,
+			index.uc.HnswUC,
 			index.tombstoneCallbacks,
 			index.store,
 		)
@@ -327,7 +326,7 @@ func (dynamic *dynamic) UpdateUserConfig(updated schemaconfig.VectorIndexConfig,
 		defer dynamic.RUnlock()
 		dynamic.index.UpdateUserConfig(parsed.HnswUC, callback)
 	} else {
-		dynamic.hnswUC = parsed.HnswUC
+		dynamic.uc = parsed
 		dynamic.RLock()
 		defer dynamic.RUnlock()
 		dynamic.index.UpdateUserConfig(parsed.FlatUC, callback)
@@ -501,7 +500,7 @@ func (dynamic *dynamic) doUpgrade() error {
 			WriteSegmentInfoIntoFileName: dynamic.WriteSegmentInfoIntoFileName,
 			WriteMetadataFilesEnabled:    dynamic.WriteMetadataFilesEnabled,
 		},
-		dynamic.hnswUC,
+		dynamic.uc.HnswUC,
 		dynamic.tombstoneCallbacks,
 		dynamic.store,
 	)
@@ -529,9 +528,6 @@ func (dynamic *dynamic) doUpgrade() error {
 		return errors.Wrap(err, "index was closed while upgrading")
 	}
 
-	// Retrieve if BQ/RQX was used in flat index
-	wasCompressed := dynamic.index.Compressed()
-
 	err = dynamic.db.Update(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(dynamicBucket)
 		return b.Put(dynamic.dbKey(), []byte{1})
@@ -555,8 +551,15 @@ func (dynamic *dynamic) doUpgrade() error {
 		errs = append(errs, err)
 	}
 	// Due to the potential for a different quantizer using a different endianness
-	// we remove the bucket here
-	if wasCompressed {
+	// we remove the bucket here if needed
+	removeCompressedBucket := false
+	if dynamic.uc.FlatUC.BQ.Enabled && !dynamic.uc.HnswUC.BQ.Enabled {
+		removeCompressedBucket = true
+	} else if dynamic.uc.FlatUC.RQ.Enabled && !dynamic.uc.HnswUC.RQ.Enabled {
+		removeCompressedBucket = true
+	}
+
+	if removeCompressedBucket {
 		bDir = dynamic.store.Bucket(dynamic.getCompressedBucketName()).GetDir()
 		err = dynamic.store.ShutdownBucket(dynamic.ctx, dynamic.getCompressedBucketName())
 		if err != nil {
