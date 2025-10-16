@@ -47,7 +47,7 @@ func NewSchemaObjectsGet(ctx *middleware.Context, handler SchemaObjectsGetHandle
 
 # Get a single collection
 
-Retrieve the definition of a specific collection (class), including its properties, configuration, and vectorizer settings.
+Retrieve the definition of a specific collection (`className`), including its properties, configuration, and vectorizer settings.
 */
 type SchemaObjectsGet struct {
 	Context *middleware.Context

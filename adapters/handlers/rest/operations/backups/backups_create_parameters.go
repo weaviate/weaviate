@@ -46,7 +46,7 @@ type BackupsCreateParams struct {
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
-	/*Specifies the backend storage system where the backup will be stored (e.g., 'filesystem', 'gcs', 's3', 'azure').
+	/*Specifies the backend storage system where the backup will be stored (e.g., `filesystem`, `gcs`, `s3`, `azure`).
 	  Required: true
 	  In: path
 	*/

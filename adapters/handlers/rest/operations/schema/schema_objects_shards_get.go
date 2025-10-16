@@ -47,7 +47,7 @@ func NewSchemaObjectsShardsGet(ctx *middleware.Context, handler SchemaObjectsSha
 
 # Get the shards status of a collection
 
-Retrieves the status of all shards associated with the specified collection (class). For multi-tenant collections, use the 'tenant' query parameter to retrieve status for a specific tenant's shards.
+Retrieves the status of all shards associated with the specified collection (`className`). For multi-tenant collections, use the `tenant` query parameter to retrieve status for a specific tenant's shards.
 */
 type SchemaObjectsShardsGet struct {
 	Context *middleware.Context

@@ -49,12 +49,12 @@ type NodesGetClassParams struct {
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
-	/*The name of the collection for which to retrieve node status.
+	/*The name of the collection (class) for which to retrieve node status.
 	  Required: true
 	  In: path
 	*/
 	ClassName string
-	/*Controls the verbosity of the output, possible values are: "minimal", "verbose". Defaults to "minimal".
+	/*Controls the verbosity of the output, possible values are: `minimal`, `verbose`. Defaults to `minimal`.
 	  In: query
 	  Default: "minimal"
 	*/

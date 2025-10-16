@@ -51,7 +51,7 @@ type ClientService interface {
 /*
 NodesGet gets node status
 
-Retrieves status information about all nodes in the cluster. Use the 'output' query parameter to control the level of detail.
+Retrieves status information about all nodes in the cluster. Use the `output` query parameter to control the level of detail.
 */
 func (a *Client) NodesGet(params *NodesGetParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*NodesGetOK, error) {
 	// TODO: Validate the params before sending
@@ -92,7 +92,7 @@ func (a *Client) NodesGet(params *NodesGetParams, authInfo runtime.ClientAuthInf
 /*
 NodesGetClass gets node status by collection
 
-Retrieves status information only for the nodes that host shards for the specified collection (class). Use the 'output' query parameter to control the level of detail.
+Retrieves status information only for the nodes that host shards for the specified collection (`className`). Use the `output` query parameter to control the level of detail.
 */
 func (a *Client) NodesGetClass(params *NodesGetClassParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*NodesGetClassOK, error) {
 	// TODO: Validate the params before sending

@@ -47,7 +47,7 @@ func NewObjectsClassReferencesDelete(ctx *middleware.Context, handler ObjectsCla
 
 # Delete an object reference
 
-Removes a specific reference from a reference property (`propertyName`) of a source data object. The source object is identified by its collection name (class) and UUID (`id`). The reference to remove is specified in the request body.
+Removes a specific reference from a reference property (`propertyName`) of a source data object. The source object is identified by its collection name (`className`) and UUID (`id`). The reference to remove is specified in the request body.
 */
 type ObjectsClassReferencesDelete struct {
 	Context *middleware.Context

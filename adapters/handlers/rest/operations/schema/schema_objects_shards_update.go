@@ -47,7 +47,7 @@ func NewSchemaObjectsShardsUpdate(ctx *middleware.Context, handler SchemaObjects
 
 # Update a shard status
 
-Updates the status of a specific shard within a collection (e.g., sets it to 'READY' or 'READONLY'). This is typically used after resolving an underlying issue (like disk space) that caused a shard to become non-operational. There is also a convenience function in each client to set the status of all shards of a collection.
+Updates the status of a specific shard within a collection (e.g., sets it to `READY` or `READONLY`). This is typically used after resolving an underlying issue (like disk space) that caused a shard to become non-operational. There is also a convenience function in each client to set the status of all shards of a collection.
 */
 type SchemaObjectsShardsUpdate struct {
 	Context *middleware.Context

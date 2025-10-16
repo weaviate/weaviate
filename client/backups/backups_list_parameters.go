@@ -74,7 +74,7 @@ type BackupsListParams struct {
 
 	/* Backend.
 
-	   Specifies the backend storage system to list backups from (e.g., 'filesystem', 'gcs', 's3', 'azure').
+	   Specifies the backend storage system to list backups from (e.g., `filesystem`, `gcs`, `s3`, `azure`).
 	*/
 	Backend string
 

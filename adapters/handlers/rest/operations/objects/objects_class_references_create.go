@@ -47,7 +47,7 @@ func NewObjectsClassReferencesCreate(ctx *middleware.Context, handler ObjectsCla
 
 # Add an object reference
 
-Adds a new reference to a reference property (`propertyName`) on a source data object. The source object is identified by its collection name (class) and UUID (`id`). The reference to add is specified in the request body.
+Adds a new reference to a reference property (`propertyName`) on a source data object. The source object is identified by its collection name (`className`) and UUID (`id`). The reference to add is specified in the request body.
 */
 type ObjectsClassReferencesCreate struct {
 	Context *middleware.Context

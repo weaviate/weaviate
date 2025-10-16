@@ -66,7 +66,7 @@ type ReplicationReplicateDetailsReplicaResponse struct {
 	// Required: true
 	TargetNode *string `json:"targetNode"`
 
-	// Indicates whether the operation is a 'COPY' (source replica remains) or a 'MOVE' (source replica is removed after successful transfer).
+	// Indicates whether the operation is a `COPY` (source replica remains) or a `MOVE` (source replica is removed after successful transfer).
 	// Required: true
 	// Enum: [COPY MOVE]
 	Type *string `json:"type"`

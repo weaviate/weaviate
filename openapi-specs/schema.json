@@ -357,19 +357,19 @@
       "properties": {
         "href": {
           "type": "string",
-          "description": "target of the link"
+          "description": "Target of the link."
         },
         "rel": {
           "type": "string",
-          "description": "relationship if both resources are related, e.g. 'next', 'previous', 'parent', etc."
+          "description": "Relationship if both resources are related, e.g. 'next', 'previous', 'parent', etc."
         },
         "name": {
           "type": "string",
-          "description": "human readable name of the resource group"
+          "description": "Human readable name of the resource group."
         },
         "documentationHref": {
           "type": "string",
-          "description": "weaviate documentation about this resource group"
+          "description": "Weaviate documentation about this resource group."
         }
       }
     },
@@ -694,10 +694,10 @@
       "type": "array"
     },
     "InvertedIndexConfig": {
-      "description": "Configure the inverted index built into Weaviate (default: 60).",
+      "description": "Configure the inverted index built into Weaviate. See [Reference: Inverted index](https://docs.weaviate.io/weaviate/config-refs/indexing/inverted-index#inverted-index-parameters) for details.",
       "properties": {
         "cleanupIntervalSeconds": {
-          "description": "Asynchronous index clean up happens every n seconds",
+          "description": "Asynchronous index clean up happens every n seconds (default: 60).",
           "format": "int",
           "type": "number"
         },
@@ -708,19 +708,19 @@
           "$ref": "#/definitions/StopwordConfig"
         },
         "indexTimestamps": {
-          "description": "Index each object by its internal timestamps (default: 'false').",
+          "description": "Index each object by its internal timestamps (default: `false`).",
           "type": "boolean"
         },
         "indexNullState": {
-          "description": "Index each object with the null state (default: 'false').",
+          "description": "Index each object with the null state (default: `false`).",
           "type": "boolean"
         },
         "indexPropertyLength": {
-          "description": "Index length of properties (default: 'false').",
+          "description": "Index length of properties (default: `false`).",
           "type": "boolean"
         },
         "usingBlockMaxWAND": {
-          "description": "Using BlockMax WAND for query execution (default: 'false', will be 'true' for new collections created after 1.30).",
+          "description": "Using BlockMax WAND for query execution (default: `false`, will be `true` for new collections created after 1.30).",
           "type": "boolean"
         }
       },
@@ -734,7 +734,7 @@
           "type": "integer"
         },
         "asyncEnabled": {
-          "description": "Enable asynchronous replication (default: false).",
+          "description": "Enable asynchronous replication (default: `false`).",
           "type": "boolean",
           "x-omitempty": false
         },
@@ -752,7 +752,7 @@
       "type": "object"
     },
     "BM25Config": {
-      "description": "tuning parameters for the BM25 algorithm",
+      "description": "Tuning parameters for the BM25 algorithm.",
       "properties": {
         "k1": {
           "description": "Calibrates term-weight scaling based on the term frequency within a document (default: 1.2).",
@@ -768,10 +768,10 @@
       "type": "object"
     },
     "StopwordConfig": {
-      "description": "fine-grained control over stopword list usage",
+      "description": "Fine-grained control over stopword list usage.",
       "properties": {
         "preset": {
-          "description": "Pre-existing list of common words by language (default: 'en'). Options: ['en', 'none'].",
+          "description": "Pre-existing list of common words by language (default: `en`). Options: [`en`, `none`].",
           "type": "string"
         },
         "additions": {
@@ -937,7 +937,7 @@
           "type": "string"
         },
         "type": {
-          "description": "Specifies the type of replication operation to perform. 'COPY' creates a new replica on the target node while keeping the source replica. 'MOVE' creates a new replica on the target node and then removes the source replica upon successful completion. Defaults to 'COPY' if omitted.",
+          "description": "Specifies the type of replication operation to perform. `COPY` creates a new replica on the target node while keeping the source replica. `MOVE` creates a new replica on the target node and then removes the source replica upon successful completion. Defaults to `COPY` if omitted.",
           "type": "string",
           "enum": ["COPY", "MOVE"],
           "default": "COPY"
@@ -1122,7 +1122,7 @@
           "type": "string"
         },
         "type": {
-          "description": "Indicates whether the operation is a 'COPY' (source replica remains) or a 'MOVE' (source replica is removed after successful transfer).",
+          "description": "Indicates whether the operation is a `COPY` (source replica remains) or a `MOVE` (source replica is removed after successful transfer).",
           "type": "string",
           "enum": [
             "COPY",
@@ -1238,7 +1238,7 @@
       "type": "array"
     },
     "VectorWeights": {
-      "description": "Allow custom overrides of vector weights as math expressions. E.g. \"pancake\": \"7\" will set the weight for the word pancake to 7 in the vectorization, whereas \"w * 3\" would triple the originally calculated word. This is an open object, with OpenAPI Specification 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value (string/string) object.",
+      "description": "Allow custom overrides of vector weights as math expressions. E.g. `pancake`: `7` will set the weight for the word pancake to 7 in the vectorization, whereas `w * 3` would triple the originally calculated word. This is an open object, with OpenAPI Specification 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value (string/string) object.",
       "type": "object"
     },
     "PropertySchema": {
@@ -1336,7 +1336,7 @@
           "$ref": "#/definitions/MultiTenancyConfig"
         },
         "vectorizer": {
-          "description": "Specify how the vectors for this collection should be determined. The options are either 'none' - this means you have to import a vector with each object yourself - or the name of a module that provides vectorization capabilities, such as 'text2vec-weaviate'. If left empty, it will use the globally configured default ([`DEFAULT_VECTORIZER_MODULE`](https://docs.weaviate.io/deploy/configuration/env-vars)) which can itself either be 'none' or a specific module.",
+          "description": "Specify how the vectors for this collection should be determined. The options are either `none` - this means you have to import a vector with each object yourself - or the name of a module that provides vectorization capabilities, such as `text2vec-weaviate`. If left empty, it will use the globally configured default ([`DEFAULT_VECTORIZER_MODULE`](https://docs.weaviate.io/deploy/configuration/env-vars)) which can itself either be `none` or a specific module.",
           "type": "string"
         },
         "moduleConfig": {
@@ -1371,7 +1371,7 @@
           "type": "string"
         },
         "moduleConfig": {
-          "description": "Configuration specific to modules this Weaviate instance has installed",
+          "description": "Configuration specific to modules in a collection context.",
           "type": "object"
         },
         "name": {
@@ -1399,7 +1399,7 @@
           "x-nullable": true
         },
         "tokenization": {
-          "description": "Determines tokenization of the property as separate words or whole field. Optional. Applies to text and text[] data types. Allowed values are `word` (default; splits on any non-alphanumerical, lowercases), `lowercase` (splits on white spaces, lowercases), `whitespace` (splits on white spaces), `field` (trims). Not supported for remaining data types",
+          "description": "Determines how a property is indexed. This setting applies to `text` and `text[]` data types. The following tokenization methods are available:<br/><br/>- `word` (default): Splits the text on any non-alphanumeric characters and lowercases the tokens.<br/>- `lowercase`: Splits the text on whitespace and lowercases the tokens.<br/>- `whitespace`: Splits the text on whitespace. This tokenization is case-sensitive.<br/>- `field`: Indexes the entire property value as a single token after trimming whitespace.<br/>- `trigram`: Splits the property into rolling trigrams (three-character sequences).<br/>- `gse`: Uses the `gse` tokenizer, suitable for Chinese language text. [See `gse` docs](https://pkg.go.dev/github.com/go-ego/gse#section-readme).<br/>- `kagome_ja`: Uses the `Kagome` tokenizer with a Japanese (IPA) dictionary. [See `kagome` docs](https://github.com/ikawaha/kagome).<br/>- `kagome_kr`: Uses the `Kagome` tokenizer with a Korean dictionary. [See `kagome` docs](https://github.com/ikawaha/kagome).<br/><br/>See [Reference: Tokenization](https://docs.weaviate.io/weaviate/config-refs/collections#tokenization) for details.",
           "type": "string",
           "enum": [
             "word",
@@ -2255,7 +2255,7 @@
           "$ref": "#/definitions/PropertySchema"
         },
         "beacon": {
-          "description": "If using a direct reference, specify the URI to point to the cross-ref here. Should be in the form of weaviate://localhost/<uuid> for the example of a local cross-ref to an object",
+          "description": "If using a direct reference, specify the URI to point to the cross-reference here. Should be in the form of weaviate://localhost/<uuid> for the example of a local cross-reference to an object",
           "format": "uri",
           "type": "string"
         },
@@ -2338,13 +2338,13 @@
     "BatchReference": {
       "properties": {
         "from": {
-          "description": "Long-form beacon-style URI to identify the source of the cross-ref including the property name. Should be in the form of weaviate://localhost/<kinds>/<uuid>/<className>/<propertyName>, where <kinds> must be one of 'objects', 'objects' and <className> and <propertyName> must represent the cross-ref property of source class to be used.",
+          "description": "Long-form beacon-style URI to identify the source of the cross-reference, including the property name. Should be in the form of `weaviate://localhost/objects/<uuid>/<className>/<propertyName>`, where `<className>` and `<propertyName>` must represent the cross-reference property of the source class to be used.",
           "format": "uri",
           "type": "string",
           "example": "weaviate://localhost/Zoo/a5d09582-4239-4702-81c9-92a6e0122bb4/hasAnimals"
         },
         "to": {
-          "description": "Short-form URI to point to the cross-ref. Should be in the form of weaviate://localhost/<uuid> for the example of a local cross-ref to an object",
+          "description": "Short-form URI to point to the cross-reference. Should be in the form of `weaviate://localhost/<uuid>` for the example of a local cross-reference to an object.",
           "example": "weaviate://localhost/97525810-a9a5-4eb0-858a-71449aeb007f",
           "format": "uri",
           "type": "string"
@@ -2387,13 +2387,13 @@
     "GeoCoordinates": {
       "properties": {
         "latitude": {
-          "description": "The latitude of the point on earth in decimal form",
+          "description": "The latitude of the point on earth in decimal form.",
           "format": "float",
           "type": "number",
           "x-nullable": true
         },
         "longitude": {
-          "description": "The longitude of the point on earth in decimal form",
+          "description": "The longitude of the point on earth in decimal form.",
           "format": "float",
           "type": "number",
           "x-nullable": true
@@ -2407,29 +2407,29 @@
           "type": "string"
         },
         "internationalFormatted": {
-          "description": "Read-only. Parsed result in the international format (e.g. +49 123 ...)",
+          "description": "Read-only. Parsed result in the international format (e.g. `+49 123 456789`).",
           "type": "string"
         },
         "defaultCountry": {
-          "description": "Optional. The ISO 3166-1 alpha-2 country code. This is used to figure out the correct countryCode and international format if only a national number (e.g. 0123 4567) is provided",
+          "description": "Optional. The ISO 3166-1 alpha-2 country code. This is used to figure out the correct `countryCode` and international format if only a national number (e.g. `0123 4567`) is provided.",
           "type": "string"
         },
         "countryCode": {
-          "description": "Read-only. The numerical country code (e.g. 49)",
+          "description": "Read-only. The numerical country code (e.g. `49`).",
           "format": "uint64",
           "type": "number"
         },
         "national": {
-          "description": "Read-only. The numerical representation of the national part",
+          "description": "Read-only. The numerical representation of the national part.",
           "format": "uint64",
           "type": "number"
         },
         "nationalFormatted": {
-          "description": "Read-only. Parsed result in the national format (e.g. 0123 456789)",
+          "description": "Read-only. Parsed result in the national format (e.g. `0123 456789`).",
           "type": "string"
         },
         "valid": {
-          "description": "Read-only. Indicates whether the parsed number is a valid phone number",
+          "description": "Read-only. Indicates whether the parsed number is a valid phone number.",
           "type": "boolean"
         }
       }
@@ -2538,7 +2538,7 @@
           }
         },
         "output": {
-          "description": "Controls the verbosity of the output, possible values are: \"minimal\", \"verbose\". Defaults to \"minimal\".",
+          "description": "Controls the verbosity of the output, possible values are: `minimal`, `verbose`. Defaults to `minimal`.",
           "type": "string",
           "default": "minimal"
         },
@@ -2576,7 +2576,7 @@
           }
         },
         "output": {
-          "description": "Controls the verbosity of the output, possible values are: \"minimal\", \"verbose\". Defaults to \"minimal\".",
+          "description": "Controls the verbosity of the output, possible values are: `minimal`, `verbose`. Defaults to `minimal`.",
           "type": "string",
           "default": "minimal"
         },
@@ -2601,7 +2601,7 @@
               "x-omitempty": false
             },
             "limit": {
-              "description": "The most amount of objects that can be deleted in a single query, equals QUERY_MAXIMUM_RESULTS.",
+              "description": "The most amount of objects that can be deleted in a single query, equals [`QUERY_MAXIMUM_RESULTS`](https://docs.weaviate.io/deploy/configuration/env-vars#QUERY_MAXIMUM_RESULTS).",
               "type": "number",
               "format": "int64",
               "x-omitempty": false
@@ -2619,7 +2619,7 @@
               "x-omitempty": false
             },
             "objects": {
-              "description": "With output set to \"minimal\" only objects with error occurred will the be described. Successfully deleted objects would be omitted. Output set to \"verbose\" will list all of the objects with their respective statuses.",
+              "description": "With output set to `minimal` only objects with error occurred will the be described. Successfully deleted objects would be omitted. Output set to `verbose` will list all of the objects with their respective statuses.",
               "type": "array",
               "items": {
                 "description": "Results for this specific Object.",
@@ -3115,7 +3115,7 @@
       "type": "string"
     },
     "CommonOutputVerbosityParameterQuery": {
-      "description": "Controls the verbosity of the output, possible values are: \"minimal\", \"verbose\". Defaults to \"minimal\".",
+      "description": "Controls the verbosity of the output, possible values are: `minimal`, `verbose`. Defaults to `minimal`.",
       "in": "query",
       "name": "output",
       "required": false,
@@ -3607,7 +3607,7 @@
     "/replication/replicate/{id}/cancel": {
       "post": {
         "summary": "Cancel a replication operation",
-        "description": "Requests the cancellation of an active replication operation identified by its ID. The operation will be stopped, but its record will remain in the 'CANCELLED' state (can't be resumed) and will not be automatically deleted.",
+        "description": "Requests the cancellation of an active replication operation identified by its ID. The operation will be stopped, but its record will remain in the `CANCELLED` state (can't be resumed) and will not be automatically deleted.",
         "operationId": "cancelReplication",
         "x-serviceIds": [
           "weaviate.replication.replicate.cancel"
@@ -5663,7 +5663,7 @@
         "deprecated": true
       },
       "patch": {
-        "description": "Update an object based on its UUID (using patch semantics). This method supports json-merge style patch semantics (RFC 7396). Provided meta-data and schema values are validated. LastUpdateTime is set to the time this function is called. <br/><br/>**Note**: This endpoint is deprecated and will be removed in a future version. Use the `/objects/{className}/{id}` endpoint instead.",
+        "description": "Update an object based on its UUID (using patch semantics). This method supports json-merge style patch semantics (RFC 7396). Provided meta-data and schema values are validated. `lastUpdateTimeUnix` is set to the time this function is called. <br/><br/>**Note**: This endpoint is deprecated and will be removed in a future version. Use the `/objects/{className}/{id}` endpoint instead.",
         "operationId": "objects.patch",
         "x-serviceIds": [
           "weaviate.local.manipulate"
@@ -5731,7 +5731,7 @@
         "deprecated": true
       },
       "put": {
-        "description": "Updates an object based on its UUID. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called. <br/><br/>**Note**: This endpoint is deprecated and will be removed in a future version. Use the `/objects/{className}/{id}` endpoint instead.",
+        "description": "Updates an object based on its UUID. Given meta-data and schema values are validated. `lastUpdateTimeUnix` is set to the time this function is called. <br/><br/>**Note**: This endpoint is deprecated and will be removed in a future version. Use the `/objects/{className}/{id}` endpoint instead.",
         "operationId": "objects.update",
         "x-serviceIds": [
           "weaviate.local.manipulate"
@@ -5848,7 +5848,7 @@
     },
     "/objects/{className}/{id}": {
       "get": {
-        "description": "Get a data object based on its collection name (class) and UUID (`id`).",
+        "description": "Get a data object based on its collection name (`className`) and UUID (`id`).",
         "operationId": "objects.class.get",
         "x-serviceIds": [
           "weaviate.local.query"
@@ -5928,7 +5928,7 @@
         "x-available-in-websocket": false
       },
       "delete": {
-        "description": "Removes a data object from a specific collection (class), identified by its collection name (class) and UUID (`id`).<br/><br/>**Note on deleting references (legacy format):**<br/>For backward compatibility with older beacon formats (lacking a collection name), deleting a reference requires the beacon in the request to exactly match the stored format. Beacons always use `localhost` as the host, indicating the target is within the same Weaviate instance.",
+        "description": "Removes a data object from a specific collection, identified by its collection name (`className`) and UUID (`id`).<br/><br/>**Note on deleting references (legacy format):**<br/>For backward compatibility with older beacon formats (lacking a collection name), deleting a reference requires the beacon in the request to exactly match the stored format. Beacons always use `localhost` as the host, indicating the target is within the same Weaviate instance.",
         "operationId": "objects.class.delete",
         "x-serviceIds": [
           "weaviate.local.manipulate"
@@ -5999,7 +5999,7 @@
         "x-available-in-websocket": true
       },
       "put": {
-        "description": "Replaces properties of an existing data object. The object is identified by its collection name (class) and UUID (`id`). The request body must contain the complete object definition with the new property values.",
+        "description": "Replaces properties of an existing data object. The object is identified by its collection name (`className`) and UUID (`id`). The request body must contain the complete object definition with the new property values.",
         "operationId": "objects.class.put",
         "x-serviceIds": [
           "weaviate.local.manipulate"
@@ -6073,7 +6073,7 @@
         "x-available-in-websocket": false
       },
       "patch": {
-        "description": "Updates specific properties of an existing data object using JSON merge patch semantics (RFC 7396). The object is identified by its collection name (class) and UUID (`id`). Only the fields provided in the request body are modified. Metadata and schema values are validated, and the object's `lastUpdateTime` is updated.",
+        "description": "Updates specific properties of an existing data object using JSON merge patch semantics (RFC 7396). The object is identified by its collection name (`className`) and UUID (`id`). Only the fields provided in the request body are modified. Metadata and schema values are validated, and the object's `lastUpdateTimeUnix` is updated.",
         "operationId": "objects.class.patch",
         "x-serviceIds": [
           "weaviate.local.manipulate"
@@ -6150,7 +6150,7 @@
         "x-available-in-websocket": false
       },
       "head": {
-        "description": "Verifies the existence of a specific data object within a collection (class), identified by its collection name (class) and UUID (`id`), without returning the object itself.<br/><br/>This is faster than a GET request as it avoids retrieving and processing object data. Existence is confirmed by a 204 No Content status code, while non-existence results in a 404 Not Found.",
+        "description": "Verifies the existence of a specific data object within a collection (class), identified by its collection name (`className`) and UUID (`id`), without returning the object itself.<br/><br/>This is faster than a GET request as it avoids retrieving and processing object data. Existence is confirmed by a 204 No Content status code, while non-existence results in a 404 Not Found.",
         "operationId": "objects.class.head",
         "x-serviceIds": [
           "weaviate.local.manipulate"
@@ -6426,7 +6426,7 @@
     },
     "/objects/{className}/{id}/references/{propertyName}": {
       "post": {
-        "description": "Adds a new reference to a reference property (`propertyName`) on a source data object. The source object is identified by its collection name (class) and UUID (`id`). The reference to add is specified in the request body.",
+        "description": "Adds a new reference to a reference property (`propertyName`) on a source data object. The source object is identified by its collection name (`className`) and UUID (`id`). The reference to add is specified in the request body.",
         "operationId": "objects.class.references.create",
         "x-serviceIds": [
           "weaviate.local.manipulate"
@@ -6513,7 +6513,7 @@
         "x-available-in-websocket": false
       },
       "put": {
-        "description": "Replaces all existing references for a specific reference property (`propertyName`) on a source data object. The source object is identified by its collection name (class) and UUID (`id`). The new set of references is provided in the request body.",
+        "description": "Replaces all existing references for a specific reference property (`propertyName`) on a source data object. The source object is identified by its collection name (`className`) and UUID (`id`). The new set of references is provided in the request body.",
         "operationId": "objects.class.references.put",
         "x-serviceIds": [
           "weaviate.local.manipulate"
@@ -6600,7 +6600,7 @@
         "x-available-in-websocket": false
       },
       "delete": {
-        "description": "Removes a specific reference from a reference property (`propertyName`) of a source data object. The source object is identified by its collection name (class) and UUID (`id`). The reference to remove is specified in the request body.",
+        "description": "Removes a specific reference from a reference property (`propertyName`) of a source data object. The source object is identified by its collection name (`className`) and UUID (`id`). The reference to remove is specified in the request body.",
         "operationId": "objects.class.references.delete",
         "x-serviceIds": [
           "weaviate.local.manipulate"
@@ -7172,7 +7172,7 @@
       },
       "post": {
         "summary": "Create a new collection",
-        "description": "Defines and creates a new collection (class) in the schema.<br/><br/>If `AutoSchema` is enabled (not recommended for production), Weaviate might attempt to infer schema from data during import. Manual definition via this endpoint provides explicit control.",
+        "description": "Defines and creates a new collection (class).<br/><br/>If [`AutoSchema`](https://docs.weaviate.io/weaviate/config-refs/collections#auto-schema) is enabled (not recommended for production), Weaviate might attempt to infer schema from data during import. Manual definition via this endpoint provides explicit control.",
         "operationId": "schema.objects.create",
         "x-serviceIds": [
           "weaviate.local.add.meta"
@@ -7225,7 +7225,7 @@
     "/schema/{className}": {
       "get": {
         "summary": "Get a single collection",
-        "description": "Retrieve the definition of a specific collection (class), including its properties, configuration, and vectorizer settings.",
+        "description": "Retrieve the definition of a specific collection (`className`), including its properties, configuration, and vectorizer settings.",
         "operationId": "schema.objects.get",
         "x-serviceIds": [
           "weaviate.local.get.meta"
@@ -7325,7 +7325,7 @@
       },
       "put": {
         "summary": "Update collection definition",
-        "description": "Updates the configuration settings of an existing collection (class) based on the provided definition. Note: This operation modifies mutable settings specified in the request body. It does not add properties (use `POST /schema/{className}/properties` for that) or change the collection name.",
+        "description": "Updates the configuration settings of an existing collection (`className`) based on the provided definition. Note: This operation modifies mutable settings specified in the request body. It does not add properties (use `POST /schema/{className}/properties` for that) or change the collection name.",
         "operationId": "schema.objects.update",
         "x-serviceIds": [
           "weaviate.local.manipulate.meta"
@@ -7391,7 +7391,7 @@
     "/schema/{className}/properties": {
       "post": {
         "summary": "Add a property to a collection",
-        "description": "Adds a new property definition to an existing collection (class) definition.",
+        "description": "Adds a new property definition to an existing collection (`className`) definition.",
         "operationId": "schema.objects.properties.add",
         "x-serviceIds": [
           "weaviate.local.manipulate.meta"
@@ -7451,7 +7451,7 @@
     "/schema/{className}/shards": {
       "get": {
         "summary": "Get the shards status of a collection",
-        "description": "Retrieves the status of all shards associated with the specified collection (class). For multi-tenant collections, use the 'tenant' query parameter to retrieve status for a specific tenant's shards.",
+        "description": "Retrieves the status of all shards associated with the specified collection (`className`). For multi-tenant collections, use the `tenant` query parameter to retrieve status for a specific tenant's shards.",
         "operationId": "schema.objects.shards.get",
         "x-serviceIds": [
           "weaviate.local.get.meta"
@@ -7508,7 +7508,7 @@
     "/schema/{className}/shards/{shardName}": {
       "put": {
         "summary": "Update a shard status",
-        "description": "Updates the status of a specific shard within a collection (e.g., sets it to 'READY' or 'READONLY'). This is typically used after resolving an underlying issue (like disk space) that caused a shard to become non-operational. There is also a convenience function in each client to set the status of all shards of a collection.",
+        "description": "Updates the status of a specific shard within a collection (e.g., sets it to `READY` or `READONLY`). This is typically used after resolving an underlying issue (like disk space) that caused a shard to become non-operational. There is also a convenience function in each client to set the status of all shards of a collection.",
         "operationId": "schema.objects.shards.update",
         "x-serviceIds": [
           "weaviate.local.manipulate.meta"
@@ -7581,7 +7581,7 @@
     "/schema/{className}/tenants": {
       "post": {
         "summary": "Create a new tenant",
-        "description": "Creates one or more new tenants for a specified collection (class). Multi-tenancy must be enabled for the collection via its definition.",
+        "description": "Creates one or more new tenants for a specified collection (`className`). Multi-tenancy must be enabled for the collection via its definition.",
         "operationId": "tenants.create",
         "tags": [
           "schema"
@@ -7642,7 +7642,7 @@
       },
       "put": {
         "summary": "Update a tenant",
-        "description": "Updates the activity status (e.g., 'ACTIVE', 'INACTIVE', etc.) of one or more specified tenants within a collection (class).",
+        "description": "Updates the activity status (e.g., `ACTIVE`, `INACTIVE`, etc.) of one or more specified tenants within a collection (`className`).",
         "operationId": "tenants.update",
         "tags": [
           "schema"
@@ -7703,7 +7703,7 @@
       },
       "delete": {
         "summary": "Delete tenants",
-        "description": "Deletes one or more specified tenants from a collection (class). WARNING: This action permanently deletes all data associated with the specified tenants.",
+        "description": "Deletes one or more specified tenants from a collection (`className`). WARNING: This action permanently deletes all data associated with the specified tenants.",
         "operationId": "tenants.delete",
         "tags": [
           "schema"
@@ -7879,7 +7879,7 @@
       },
       "get": {
         "summary": "Get a specific tenant",
-        "description": "Retrieves details about a specific tenant within the given collection (class), such as its current activity status.",
+        "description": "Retrieves details about a specific tenant within the given collection (`className`), such as its current activity status.",
         "operationId": "tenants.get.one",
         "tags": [
           "schema"
@@ -8220,7 +8220,7 @@
             "in": "path",
             "required": true,
             "type": "string",
-            "description": "Specifies the backend storage system where the backup will be stored (e.g., 'filesystem', 'gcs', 's3', 'azure')."
+            "description": "Specifies the backend storage system where the backup will be stored (e.g., `filesystem`, `gcs`, `s3`, `azure`)."
           },
           {
             "in": "body",
@@ -8278,7 +8278,7 @@
             "in": "path",
             "required": true,
             "type": "string",
-            "description": "Specifies the backend storage system to list backups from (e.g., 'filesystem', 'gcs', 's3', 'azure')."
+            "description": "Specifies the backend storage system to list backups from (e.g., `filesystem`, `gcs`, `s3`, `azure`)."
           }
         ],
         "responses": {
@@ -8329,7 +8329,7 @@
             "in": "path",
             "required": true,
             "type": "string",
-            "description": "Specifies the backend storage system where the backup resides (e.g., 'filesystem', 'gcs', 's3', 'azure')."
+            "description": "Specifies the backend storage system where the backup resides (e.g., `filesystem`, `gcs`, `s3`, `azure`)."
           },
           {
             "name": "id",
@@ -8405,7 +8405,7 @@
             "in": "path",
             "required": true,
             "type": "string",
-            "description": "Specifies the backend storage system where the backup resides (e.g., 'filesystem', 'gcs', 's3', 'azure')."
+            "description": "Specifies the backend storage system where the backup resides (e.g., `filesystem`, `gcs`, `s3`, `azure`)."
           },
           {
             "name": "id",
@@ -8474,7 +8474,7 @@
             "in": "path",
             "required": true,
             "type": "string",
-            "description": "Specifies the backend storage system where the backup resides (e.g., 'filesystem', 'gcs', 's3', 'azure')."
+            "description": "Specifies the backend storage system where the backup resides (e.g., `filesystem`, `gcs`, `s3`, `azure`)."
           },
           {
             "name": "id",
@@ -8545,7 +8545,7 @@
             "in": "path",
             "required": true,
             "type": "string",
-            "description": "Specifies the backend storage system where the backup resides (e.g., 'filesystem', 'gcs', 's3', 'azure')."
+            "description": "Specifies the backend storage system where the backup resides (e.g., `filesystem`, `gcs`, `s3`, `azure`)."
           },
           {
             "name": "id",
@@ -8645,7 +8645,7 @@
     "/nodes": {
       "get": {
         "summary": "Get node status",
-        "description": "Retrieves status information about all nodes in the cluster. Use the 'output' query parameter to control the level of detail.",
+        "description": "Retrieves status information about all nodes in the cluster. Use the `output` query parameter to control the level of detail.",
         "operationId": "nodes.get",
         "x-serviceIds": [
           "weaviate.nodes.status.get"
@@ -8698,7 +8698,7 @@
     "/nodes/{className}": {
       "get": {
         "summary": "Get node status by collection",
-        "description": "Retrieves status information only for the nodes that host shards for the specified collection (class). Use the 'output' query parameter to control the level of detail.",
+        "description": "Retrieves status information only for the nodes that host shards for the specified collection (`className`). Use the `output` query parameter to control the level of detail.",
         "operationId": "nodes.get.class",
         "x-serviceIds": [
           "weaviate.nodes.status.get.class"
@@ -8709,7 +8709,7 @@
         "parameters": [
           {
             "name": "className",
-            "description": "The name of the collection for which to retrieve node status.",
+            "description": "The name of the collection (class) for which to retrieve node status.",
             "in": "path",
             "required": true,
             "type": "string"

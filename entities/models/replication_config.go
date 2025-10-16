@@ -31,7 +31,7 @@ import (
 // swagger:model ReplicationConfig
 type ReplicationConfig struct {
 
-	// Enable asynchronous replication (default: false).
+	// Enable asynchronous replication (default: `false`).
 	AsyncEnabled bool `json:"asyncEnabled"`
 
 	// Conflict resolution strategy for deleted objects.

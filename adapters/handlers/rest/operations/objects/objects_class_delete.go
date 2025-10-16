@@ -47,7 +47,7 @@ func NewObjectsClassDelete(ctx *middleware.Context, handler ObjectsClassDeleteHa
 
 # Delete an object
 
-Removes a data object from a specific collection (class), identified by its collection name (class) and UUID (`id`).<br/><br/>**Note on deleting references (legacy format):**<br/>For backward compatibility with older beacon formats (lacking a collection name), deleting a reference requires the beacon in the request to exactly match the stored format. Beacons always use `localhost` as the host, indicating the target is within the same Weaviate instance.
+Removes a data object from a specific collection, identified by its collection name (`className`) and UUID (`id`).<br/><br/>**Note on deleting references (legacy format):**<br/>For backward compatibility with older beacon formats (lacking a collection name), deleting a reference requires the beacon in the request to exactly match the stored format. Beacons always use `localhost` as the host, indicating the target is within the same Weaviate instance.
 */
 type ObjectsClassDelete struct {
 	Context *middleware.Context

@@ -30,7 +30,7 @@ import (
 // swagger:model SingleRef
 type SingleRef struct {
 
-	// If using a direct reference, specify the URI to point to the cross-ref here. Should be in the form of weaviate://localhost/<uuid> for the example of a local cross-ref to an object
+	// If using a direct reference, specify the URI to point to the cross-reference here. Should be in the form of weaviate://localhost/<uuid> for the example of a local cross-reference to an object
 	// Format: uri
 	Beacon strfmt.URI `json:"beacon,omitempty"`
 

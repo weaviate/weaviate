@@ -76,7 +76,7 @@ type BackupsRestoreParams struct {
 
 	/* Backend.
 
-	   Specifies the backend storage system where the backup resides (e.g., 'filesystem', 'gcs', 's3', 'azure').
+	   Specifies the backend storage system where the backup resides (e.g., `filesystem`, `gcs`, `s3`, `azure`).
 	*/
 	Backend string
 

@@ -41,7 +41,7 @@ type BatchDeleteResponse struct {
 	// match
 	Match *BatchDeleteResponseMatch `json:"match,omitempty"`
 
-	// Controls the verbosity of the output, possible values are: "minimal", "verbose". Defaults to "minimal".
+	// Controls the verbosity of the output, possible values are: `minimal`, `verbose`. Defaults to `minimal`.
 	Output *string `json:"output,omitempty"`
 
 	// results
@@ -274,13 +274,13 @@ type BatchDeleteResponseResults struct {
 	// How many objects should have been deleted but could not be deleted.
 	Failed int64 `json:"failed"`
 
-	// The most amount of objects that can be deleted in a single query, equals QUERY_MAXIMUM_RESULTS.
+	// The most amount of objects that can be deleted in a single query, equals [`QUERY_MAXIMUM_RESULTS`](https://docs.weaviate.io/deploy/configuration/env-vars#QUERY_MAXIMUM_RESULTS).
 	Limit int64 `json:"limit"`
 
 	// How many objects were matched by the filter.
 	Matches int64 `json:"matches"`
 
-	// With output set to "minimal" only objects with error occurred will the be described. Successfully deleted objects would be omitted. Output set to "verbose" will list all of the objects with their respective statuses.
+	// With output set to `minimal` only objects with error occurred will the be described. Successfully deleted objects would be omitted. Output set to `verbose` will list all of the objects with their respective statuses.
 	Objects []*BatchDeleteResponseResultsObjectsItems0 `json:"objects"`
 
 	// How many objects were successfully deleted in this round.

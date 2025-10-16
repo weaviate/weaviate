@@ -85,7 +85,7 @@ type ClientService interface {
 /*
 ObjectsClassDelete deletes an object
 
-Removes a data object from a specific collection (class), identified by its collection name (class) and UUID (`id`).<br/><br/>**Note on deleting references (legacy format):**<br/>For backward compatibility with older beacon formats (lacking a collection name), deleting a reference requires the beacon in the request to exactly match the stored format. Beacons always use `localhost` as the host, indicating the target is within the same Weaviate instance.
+Removes a data object from a specific collection, identified by its collection name (`className`) and UUID (`id`).<br/><br/>**Note on deleting references (legacy format):**<br/>For backward compatibility with older beacon formats (lacking a collection name), deleting a reference requires the beacon in the request to exactly match the stored format. Beacons always use `localhost` as the host, indicating the target is within the same Weaviate instance.
 */
 func (a *Client) ObjectsClassDelete(params *ObjectsClassDeleteParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ObjectsClassDeleteNoContent, error) {
 	// TODO: Validate the params before sending
@@ -126,7 +126,7 @@ func (a *Client) ObjectsClassDelete(params *ObjectsClassDeleteParams, authInfo r
 /*
 ObjectsClassGet gets an object
 
-Get a data object based on its collection name (class) and UUID (`id`).
+Get a data object based on its collection name (`className`) and UUID (`id`).
 */
 func (a *Client) ObjectsClassGet(params *ObjectsClassGetParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ObjectsClassGetOK, error) {
 	// TODO: Validate the params before sending
@@ -167,7 +167,7 @@ func (a *Client) ObjectsClassGet(params *ObjectsClassGetParams, authInfo runtime
 /*
 ObjectsClassHead checks if an object exists
 
-Verifies the existence of a specific data object within a collection (class), identified by its collection name (class) and UUID (`id`), without returning the object itself.<br/><br/>This is faster than a GET request as it avoids retrieving and processing object data. Existence is confirmed by a 204 No Content status code, while non-existence results in a 404 Not Found.
+Verifies the existence of a specific data object within a collection (class), identified by its collection name (`className`) and UUID (`id`), without returning the object itself.<br/><br/>This is faster than a GET request as it avoids retrieving and processing object data. Existence is confirmed by a 204 No Content status code, while non-existence results in a 404 Not Found.
 */
 func (a *Client) ObjectsClassHead(params *ObjectsClassHeadParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ObjectsClassHeadNoContent, error) {
 	// TODO: Validate the params before sending
@@ -208,7 +208,7 @@ func (a *Client) ObjectsClassHead(params *ObjectsClassHeadParams, authInfo runti
 /*
 ObjectsClassPatch patches an object
 
-Updates specific properties of an existing data object using JSON merge patch semantics (RFC 7396). The object is identified by its collection name (class) and UUID (`id`). Only the fields provided in the request body are modified. Metadata and schema values are validated, and the object's `lastUpdateTime` is updated.
+Updates specific properties of an existing data object using JSON merge patch semantics (RFC 7396). The object is identified by its collection name (`className`) and UUID (`id`). Only the fields provided in the request body are modified. Metadata and schema values are validated, and the object's `lastUpdateTimeUnix` is updated.
 */
 func (a *Client) ObjectsClassPatch(params *ObjectsClassPatchParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ObjectsClassPatchNoContent, error) {
 	// TODO: Validate the params before sending
@@ -249,7 +249,7 @@ func (a *Client) ObjectsClassPatch(params *ObjectsClassPatchParams, authInfo run
 /*
 ObjectsClassPut replaces an object
 
-Replaces properties of an existing data object. The object is identified by its collection name (class) and UUID (`id`). The request body must contain the complete object definition with the new property values.
+Replaces properties of an existing data object. The object is identified by its collection name (`className`) and UUID (`id`). The request body must contain the complete object definition with the new property values.
 */
 func (a *Client) ObjectsClassPut(params *ObjectsClassPutParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ObjectsClassPutOK, error) {
 	// TODO: Validate the params before sending
@@ -290,7 +290,7 @@ func (a *Client) ObjectsClassPut(params *ObjectsClassPutParams, authInfo runtime
 /*
 ObjectsClassReferencesCreate adds an object reference
 
-Adds a new reference to a reference property (`propertyName`) on a source data object. The source object is identified by its collection name (class) and UUID (`id`). The reference to add is specified in the request body.
+Adds a new reference to a reference property (`propertyName`) on a source data object. The source object is identified by its collection name (`className`) and UUID (`id`). The reference to add is specified in the request body.
 */
 func (a *Client) ObjectsClassReferencesCreate(params *ObjectsClassReferencesCreateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ObjectsClassReferencesCreateOK, error) {
 	// TODO: Validate the params before sending
@@ -331,7 +331,7 @@ func (a *Client) ObjectsClassReferencesCreate(params *ObjectsClassReferencesCrea
 /*
 ObjectsClassReferencesDelete deletes an object reference
 
-Removes a specific reference from a reference property (`propertyName`) of a source data object. The source object is identified by its collection name (class) and UUID (`id`). The reference to remove is specified in the request body.
+Removes a specific reference from a reference property (`propertyName`) of a source data object. The source object is identified by its collection name (`className`) and UUID (`id`). The reference to remove is specified in the request body.
 */
 func (a *Client) ObjectsClassReferencesDelete(params *ObjectsClassReferencesDeleteParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ObjectsClassReferencesDeleteNoContent, error) {
 	// TODO: Validate the params before sending
@@ -372,7 +372,7 @@ func (a *Client) ObjectsClassReferencesDelete(params *ObjectsClassReferencesDele
 /*
 ObjectsClassReferencesPut replaces object references
 
-Replaces all existing references for a specific reference property (`propertyName`) on a source data object. The source object is identified by its collection name (class) and UUID (`id`). The new set of references is provided in the request body.
+Replaces all existing references for a specific reference property (`propertyName`) on a source data object. The source object is identified by its collection name (`className`) and UUID (`id`). The new set of references is provided in the request body.
 */
 func (a *Client) ObjectsClassReferencesPut(params *ObjectsClassReferencesPutParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ObjectsClassReferencesPutOK, error) {
 	// TODO: Validate the params before sending
@@ -618,7 +618,7 @@ func (a *Client) ObjectsList(params *ObjectsListParams, authInfo runtime.ClientA
 /*
 ObjectsPatch patches an object
 
-Update an object based on its UUID (using patch semantics). This method supports json-merge style patch semantics (RFC 7396). Provided meta-data and schema values are validated. LastUpdateTime is set to the time this function is called. <br/><br/>**Note**: This endpoint is deprecated and will be removed in a future version. Use the `/objects/{className}/{id}` endpoint instead.
+Update an object based on its UUID (using patch semantics). This method supports json-merge style patch semantics (RFC 7396). Provided meta-data and schema values are validated. `lastUpdateTimeUnix` is set to the time this function is called. <br/><br/>**Note**: This endpoint is deprecated and will be removed in a future version. Use the `/objects/{className}/{id}` endpoint instead.
 */
 func (a *Client) ObjectsPatch(params *ObjectsPatchParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ObjectsPatchNoContent, error) {
 	// TODO: Validate the params before sending
@@ -782,7 +782,7 @@ func (a *Client) ObjectsReferencesUpdate(params *ObjectsReferencesUpdateParams, 
 /*
 ObjectsUpdate updates an object
 
-Updates an object based on its UUID. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called. <br/><br/>**Note**: This endpoint is deprecated and will be removed in a future version. Use the `/objects/{className}/{id}` endpoint instead.
+Updates an object based on its UUID. Given meta-data and schema values are validated. `lastUpdateTimeUnix` is set to the time this function is called. <br/><br/>**Note**: This endpoint is deprecated and will be removed in a future version. Use the `/objects/{className}/{id}` endpoint instead.
 */
 func (a *Client) ObjectsUpdate(params *ObjectsUpdateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ObjectsUpdateOK, error) {
 	// TODO: Validate the params before sending

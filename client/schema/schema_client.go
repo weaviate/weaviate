@@ -331,7 +331,7 @@ func (a *Client) SchemaDump(params *SchemaDumpParams, authInfo runtime.ClientAut
 /*
 SchemaObjectsCreate creates a new collection
 
-Defines and creates a new collection (class) in the schema.<br/><br/>If `AutoSchema` is enabled (not recommended for production), Weaviate might attempt to infer schema from data during import. Manual definition via this endpoint provides explicit control.
+Defines and creates a new collection (class).<br/><br/>If [`AutoSchema`](https://docs.weaviate.io/weaviate/config-refs/collections#auto-schema) is enabled (not recommended for production), Weaviate might attempt to infer schema from data during import. Manual definition via this endpoint provides explicit control.
 */
 func (a *Client) SchemaObjectsCreate(params *SchemaObjectsCreateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SchemaObjectsCreateOK, error) {
 	// TODO: Validate the params before sending
@@ -413,7 +413,7 @@ func (a *Client) SchemaObjectsDelete(params *SchemaObjectsDeleteParams, authInfo
 /*
 SchemaObjectsGet gets a single collection
 
-Retrieve the definition of a specific collection (class), including its properties, configuration, and vectorizer settings.
+Retrieve the definition of a specific collection (`className`), including its properties, configuration, and vectorizer settings.
 */
 func (a *Client) SchemaObjectsGet(params *SchemaObjectsGetParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SchemaObjectsGetOK, error) {
 	// TODO: Validate the params before sending
@@ -454,7 +454,7 @@ func (a *Client) SchemaObjectsGet(params *SchemaObjectsGetParams, authInfo runti
 /*
 SchemaObjectsPropertiesAdd adds a property to a collection
 
-Adds a new property definition to an existing collection (class) definition.
+Adds a new property definition to an existing collection (`className`) definition.
 */
 func (a *Client) SchemaObjectsPropertiesAdd(params *SchemaObjectsPropertiesAddParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SchemaObjectsPropertiesAddOK, error) {
 	// TODO: Validate the params before sending
@@ -495,7 +495,7 @@ func (a *Client) SchemaObjectsPropertiesAdd(params *SchemaObjectsPropertiesAddPa
 /*
 SchemaObjectsShardsGet gets the shards status of a collection
 
-Retrieves the status of all shards associated with the specified collection (class). For multi-tenant collections, use the 'tenant' query parameter to retrieve status for a specific tenant's shards.
+Retrieves the status of all shards associated with the specified collection (`className`). For multi-tenant collections, use the `tenant` query parameter to retrieve status for a specific tenant's shards.
 */
 func (a *Client) SchemaObjectsShardsGet(params *SchemaObjectsShardsGetParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SchemaObjectsShardsGetOK, error) {
 	// TODO: Validate the params before sending
@@ -536,7 +536,7 @@ func (a *Client) SchemaObjectsShardsGet(params *SchemaObjectsShardsGetParams, au
 /*
 SchemaObjectsShardsUpdate updates a shard status
 
-Updates the status of a specific shard within a collection (e.g., sets it to 'READY' or 'READONLY'). This is typically used after resolving an underlying issue (like disk space) that caused a shard to become non-operational. There is also a convenience function in each client to set the status of all shards of a collection.
+Updates the status of a specific shard within a collection (e.g., sets it to `READY` or `READONLY`). This is typically used after resolving an underlying issue (like disk space) that caused a shard to become non-operational. There is also a convenience function in each client to set the status of all shards of a collection.
 */
 func (a *Client) SchemaObjectsShardsUpdate(params *SchemaObjectsShardsUpdateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SchemaObjectsShardsUpdateOK, error) {
 	// TODO: Validate the params before sending
@@ -577,7 +577,7 @@ func (a *Client) SchemaObjectsShardsUpdate(params *SchemaObjectsShardsUpdatePara
 /*
 SchemaObjectsUpdate updates collection definition
 
-Updates the configuration settings of an existing collection (class) based on the provided definition. Note: This operation modifies mutable settings specified in the request body. It does not add properties (use `POST /schema/{className}/properties` for that) or change the collection name.
+Updates the configuration settings of an existing collection (`className`) based on the provided definition. Note: This operation modifies mutable settings specified in the request body. It does not add properties (use `POST /schema/{className}/properties` for that) or change the collection name.
 */
 func (a *Client) SchemaObjectsUpdate(params *SchemaObjectsUpdateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SchemaObjectsUpdateOK, error) {
 	// TODO: Validate the params before sending
@@ -659,7 +659,7 @@ func (a *Client) TenantExists(params *TenantExistsParams, authInfo runtime.Clien
 /*
 TenantsCreate creates a new tenant
 
-Creates one or more new tenants for a specified collection (class). Multi-tenancy must be enabled for the collection via its definition.
+Creates one or more new tenants for a specified collection (`className`). Multi-tenancy must be enabled for the collection via its definition.
 */
 func (a *Client) TenantsCreate(params *TenantsCreateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*TenantsCreateOK, error) {
 	// TODO: Validate the params before sending
@@ -700,7 +700,7 @@ func (a *Client) TenantsCreate(params *TenantsCreateParams, authInfo runtime.Cli
 /*
 TenantsDelete deletes tenants
 
-Deletes one or more specified tenants from a collection (class). WARNING: This action permanently deletes all data associated with the specified tenants.
+Deletes one or more specified tenants from a collection (`className`). WARNING: This action permanently deletes all data associated with the specified tenants.
 */
 func (a *Client) TenantsDelete(params *TenantsDeleteParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*TenantsDeleteOK, error) {
 	// TODO: Validate the params before sending
@@ -782,7 +782,7 @@ func (a *Client) TenantsGet(params *TenantsGetParams, authInfo runtime.ClientAut
 /*
 TenantsGetOne gets a specific tenant
 
-Retrieves details about a specific tenant within the given collection (class), such as its current activity status.
+Retrieves details about a specific tenant within the given collection (`className`), such as its current activity status.
 */
 func (a *Client) TenantsGetOne(params *TenantsGetOneParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*TenantsGetOneOK, error) {
 	// TODO: Validate the params before sending
@@ -823,7 +823,7 @@ func (a *Client) TenantsGetOne(params *TenantsGetOneParams, authInfo runtime.Cli
 /*
 TenantsUpdate updates a tenant
 
-Updates the activity status (e.g., 'ACTIVE', 'INACTIVE', etc.) of one or more specified tenants within a collection (class).
+Updates the activity status (e.g., `ACTIVE`, `INACTIVE`, etc.) of one or more specified tenants within a collection (`className`).
 */
 func (a *Client) TenantsUpdate(params *TenantsUpdateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*TenantsUpdateOK, error) {
 	// TODO: Validate the params before sending

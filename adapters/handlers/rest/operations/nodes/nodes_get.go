@@ -47,7 +47,7 @@ func NewNodesGet(ctx *middleware.Context, handler NodesGetHandler) *NodesGet {
 
 # Get node status
 
-Retrieves status information about all nodes in the cluster. Use the 'output' query parameter to control the level of detail.
+Retrieves status information about all nodes in the cluster. Use the `output` query parameter to control the level of detail.
 */
 type NodesGet struct {
 	Context *middleware.Context

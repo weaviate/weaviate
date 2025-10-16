@@ -47,7 +47,7 @@ func NewObjectsClassGet(ctx *middleware.Context, handler ObjectsClassGetHandler)
 
 # Get an object
 
-Get a data object based on its collection name (class) and UUID (`id`).
+Get a data object based on its collection name (`className`) and UUID (`id`).
 */
 type ObjectsClassGet struct {
 	Context *middleware.Context

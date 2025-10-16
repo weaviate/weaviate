@@ -47,7 +47,7 @@ func NewSchemaObjectsPropertiesAdd(ctx *middleware.Context, handler SchemaObject
 
 # Add a property to a collection
 
-Adds a new property definition to an existing collection (class) definition.
+Adds a new property definition to an existing collection (`className`) definition.
 */
 type SchemaObjectsPropertiesAdd struct {
 	Context *middleware.Context

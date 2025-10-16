@@ -47,7 +47,7 @@ func NewTenantsUpdate(ctx *middleware.Context, handler TenantsUpdateHandler) *Te
 
 # Update a tenant
 
-Updates the activity status (e.g., 'ACTIVE', 'INACTIVE', etc.) of one or more specified tenants within a collection (class).
+Updates the activity status (e.g., `ACTIVE`, `INACTIVE`, etc.) of one or more specified tenants within a collection (`className`).
 */
 type TenantsUpdate struct {
 	Context *middleware.Context

@@ -42,7 +42,7 @@ type BackupsCreateStatusParams struct {
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
-	/*Specifies the backend storage system where the backup resides (e.g., 'filesystem', 'gcs', 's3', 'azure').
+	/*Specifies the backend storage system where the backup resides (e.g., `filesystem`, `gcs`, `s3`, `azure`).
 	  Required: true
 	  In: path
 	*/

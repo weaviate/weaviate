@@ -47,7 +47,7 @@ func NewSchemaObjectsUpdate(ctx *middleware.Context, handler SchemaObjectsUpdate
 
 # Update collection definition
 
-Updates the configuration settings of an existing collection (class) based on the provided definition. Note: This operation modifies mutable settings specified in the request body. It does not add properties (use `POST /schema/{className}/properties` for that) or change the collection name.
+Updates the configuration settings of an existing collection (`className`) based on the provided definition. Note: This operation modifies mutable settings specified in the request body. It does not add properties (use `POST /schema/{className}/properties` for that) or change the collection name.
 */
 type SchemaObjectsUpdate struct {
 	Context *middleware.Context

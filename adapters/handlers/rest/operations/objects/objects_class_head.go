@@ -47,7 +47,7 @@ func NewObjectsClassHead(ctx *middleware.Context, handler ObjectsClassHeadHandle
 
 # Check if an object exists
 
-Verifies the existence of a specific data object within a collection (class), identified by its collection name (class) and UUID (`id`), without returning the object itself.<br/><br/>This is faster than a GET request as it avoids retrieving and processing object data. Existence is confirmed by a 204 No Content status code, while non-existence results in a 404 Not Found.
+Verifies the existence of a specific data object within a collection (class), identified by its collection name (`className`) and UUID (`id`), without returning the object itself.<br/><br/>This is faster than a GET request as it avoids retrieving and processing object data. Existence is confirmed by a 204 No Content status code, while non-existence results in a 404 Not Found.
 */
 type ObjectsClassHead struct {
 	Context *middleware.Context

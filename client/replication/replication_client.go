@@ -63,7 +63,7 @@ type ClientService interface {
 /*
 CancelReplication cancels a replication operation
 
-Requests the cancellation of an active replication operation identified by its ID. The operation will be stopped, but its record will remain in the 'CANCELLED' state (can't be resumed) and will not be automatically deleted.
+Requests the cancellation of an active replication operation identified by its ID. The operation will be stopped, but its record will remain in the `CANCELLED` state (can't be resumed) and will not be automatically deleted.
 */
 func (a *Client) CancelReplication(params *CancelReplicationParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*CancelReplicationNoContent, error) {
 	// TODO: Validate the params before sending

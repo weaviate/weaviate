@@ -47,7 +47,7 @@ func NewObjectsClassPut(ctx *middleware.Context, handler ObjectsClassPutHandler)
 
 # Replace an object
 
-Replaces properties of an existing data object. The object is identified by its collection name (class) and UUID (`id`). The request body must contain the complete object definition with the new property values.
+Replaces properties of an existing data object. The object is identified by its collection name (`className`) and UUID (`id`). The request body must contain the complete object definition with the new property values.
 */
 type ObjectsClassPut struct {
 	Context *middleware.Context

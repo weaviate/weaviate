@@ -47,7 +47,7 @@ func NewObjectsClassReferencesPut(ctx *middleware.Context, handler ObjectsClassR
 
 # Replace object references
 
-Replaces all existing references for a specific reference property (`propertyName`) on a source data object. The source object is identified by its collection name (class) and UUID (`id`). The new set of references is provided in the request body.
+Replaces all existing references for a specific reference property (`propertyName`) on a source data object. The source object is identified by its collection name (`className`) and UUID (`id`). The new set of references is provided in the request body.
 */
 type ObjectsClassReferencesPut struct {
 	Context *middleware.Context

@@ -47,7 +47,7 @@ func NewNodesGetClass(ctx *middleware.Context, handler NodesGetClassHandler) *No
 
 # Get node status by collection
 
-Retrieves status information only for the nodes that host shards for the specified collection (class). Use the 'output' query parameter to control the level of detail.
+Retrieves status information only for the nodes that host shards for the specified collection (`className`). Use the `output` query parameter to control the level of detail.
 */
 type NodesGetClass struct {
 	Context *middleware.Context

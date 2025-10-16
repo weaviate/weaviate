@@ -47,7 +47,7 @@ func NewObjectsPatch(ctx *middleware.Context, handler ObjectsPatchHandler) *Obje
 
 # Patch an object
 
-Update an object based on its UUID (using patch semantics). This method supports json-merge style patch semantics (RFC 7396). Provided meta-data and schema values are validated. LastUpdateTime is set to the time this function is called. <br/><br/>**Note**: This endpoint is deprecated and will be removed in a future version. Use the `/objects/{className}/{id}` endpoint instead.
+Update an object based on its UUID (using patch semantics). This method supports json-merge style patch semantics (RFC 7396). Provided meta-data and schema values are validated. `lastUpdateTimeUnix` is set to the time this function is called. <br/><br/>**Note**: This endpoint is deprecated and will be removed in a future version. Use the `/objects/{className}/{id}` endpoint instead.
 */
 type ObjectsPatch struct {
 	Context *middleware.Context

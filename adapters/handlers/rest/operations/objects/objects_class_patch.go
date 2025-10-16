@@ -47,7 +47,7 @@ func NewObjectsClassPatch(ctx *middleware.Context, handler ObjectsClassPatchHand
 
 # Patch an object
 
-Updates specific properties of an existing data object using JSON merge patch semantics (RFC 7396). The object is identified by its collection name (class) and UUID (`id`). Only the fields provided in the request body are modified. Metadata and schema values are validated, and the object's `lastUpdateTime` is updated.
+Updates specific properties of an existing data object using JSON merge patch semantics (RFC 7396). The object is identified by its collection name (`className`) and UUID (`id`). Only the fields provided in the request body are modified. Metadata and schema values are validated, and the object's `lastUpdateTimeUnix` is updated.
 */
 type ObjectsClassPatch struct {
 	Context *middleware.Context

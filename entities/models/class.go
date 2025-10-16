@@ -64,7 +64,7 @@ type Class struct {
 	// Name of the vector index type to use for the collection (e.g. `hnsw` or `flat`).
 	VectorIndexType string `json:"vectorIndexType,omitempty"`
 
-	// Specify how the vectors for this collection should be determined. The options are either 'none' - this means you have to import a vector with each object yourself - or the name of a module that provides vectorization capabilities, such as 'text2vec-weaviate'. If left empty, it will use the globally configured default ([`DEFAULT_VECTORIZER_MODULE`](https://docs.weaviate.io/deploy/configuration/env-vars)) which can itself either be 'none' or a specific module.
+	// Specify how the vectors for this collection should be determined. The options are either `none` - this means you have to import a vector with each object yourself - or the name of a module that provides vectorization capabilities, such as `text2vec-weaviate`. If left empty, it will use the globally configured default ([`DEFAULT_VECTORIZER_MODULE`](https://docs.weaviate.io/deploy/configuration/env-vars)) which can itself either be `none` or a specific module.
 	Vectorizer string `json:"vectorizer,omitempty"`
 }
 

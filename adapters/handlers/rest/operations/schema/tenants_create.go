@@ -47,7 +47,7 @@ func NewTenantsCreate(ctx *middleware.Context, handler TenantsCreateHandler) *Te
 
 # Create a new tenant
 
-Creates one or more new tenants for a specified collection (class). Multi-tenancy must be enabled for the collection via its definition.
+Creates one or more new tenants for a specified collection (`className`). Multi-tenancy must be enabled for the collection via its definition.
 */
 type TenantsCreate struct {
 	Context *middleware.Context

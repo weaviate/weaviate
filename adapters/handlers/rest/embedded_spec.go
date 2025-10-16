@@ -1608,7 +1608,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "Specifies the backend storage system to list backups from (e.g., 'filesystem', 'gcs', 's3', 'azure').",
+            "description": "Specifies the backend storage system to list backups from (e.g., ` + "`" + `filesystem` + "`" + `, ` + "`" + `gcs` + "`" + `, ` + "`" + `s3` + "`" + `, ` + "`" + `azure` + "`" + `).",
             "name": "backend",
             "in": "path",
             "required": true
@@ -1657,7 +1657,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "Specifies the backend storage system where the backup will be stored (e.g., 'filesystem', 'gcs', 's3', 'azure').",
+            "description": "Specifies the backend storage system where the backup will be stored (e.g., ` + "`" + `filesystem` + "`" + `, ` + "`" + `gcs` + "`" + `, ` + "`" + `s3` + "`" + `, ` + "`" + `azure` + "`" + `).",
             "name": "backend",
             "in": "path",
             "required": true
@@ -1717,7 +1717,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "Specifies the backend storage system where the backup resides (e.g., 'filesystem', 'gcs', 's3', 'azure').",
+            "description": "Specifies the backend storage system where the backup resides (e.g., ` + "`" + `filesystem` + "`" + `, ` + "`" + `gcs` + "`" + `, ` + "`" + `s3` + "`" + `, ` + "`" + `azure` + "`" + `).",
             "name": "backend",
             "in": "path",
             "required": true
@@ -1791,7 +1791,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "Specifies the backend storage system where the backup resides (e.g., 'filesystem', 'gcs', 's3', 'azure').",
+            "description": "Specifies the backend storage system where the backup resides (e.g., ` + "`" + `filesystem` + "`" + `, ` + "`" + `gcs` + "`" + `, ` + "`" + `s3` + "`" + `, ` + "`" + `azure` + "`" + `).",
             "name": "backend",
             "in": "path",
             "required": true
@@ -1858,7 +1858,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "Specifies the backend storage system where the backup resides (e.g., 'filesystem', 'gcs', 's3', 'azure').",
+            "description": "Specifies the backend storage system where the backup resides (e.g., ` + "`" + `filesystem` + "`" + `, ` + "`" + `gcs` + "`" + `, ` + "`" + `s3` + "`" + `, ` + "`" + `azure` + "`" + `).",
             "name": "backend",
             "in": "path",
             "required": true
@@ -1926,7 +1926,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "Specifies the backend storage system where the backup resides (e.g., 'filesystem', 'gcs', 's3', 'azure').",
+            "description": "Specifies the backend storage system where the backup resides (e.g., ` + "`" + `filesystem` + "`" + `, ` + "`" + `gcs` + "`" + `, ` + "`" + `s3` + "`" + `, ` + "`" + `azure` + "`" + `).",
             "name": "backend",
             "in": "path",
             "required": true
@@ -2516,7 +2516,7 @@ func init() {
     },
     "/nodes": {
       "get": {
-        "description": "Retrieves status information about all nodes in the cluster. Use the 'output' query parameter to control the level of detail.",
+        "description": "Retrieves status information about all nodes in the cluster. Use the ` + "`" + `output` + "`" + ` query parameter to control the level of detail.",
         "tags": [
           "nodes"
         ],
@@ -2569,7 +2569,7 @@ func init() {
     },
     "/nodes/{className}": {
       "get": {
-        "description": "Retrieves status information only for the nodes that host shards for the specified collection (class). Use the 'output' query parameter to control the level of detail.",
+        "description": "Retrieves status information only for the nodes that host shards for the specified collection (` + "`" + `className` + "`" + `). Use the ` + "`" + `output` + "`" + ` query parameter to control the level of detail.",
         "tags": [
           "nodes"
         ],
@@ -2578,7 +2578,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "The name of the collection for which to retrieve node status.",
+            "description": "The name of the collection (class) for which to retrieve node status.",
             "name": "className",
             "in": "path",
             "required": true
@@ -2827,7 +2827,7 @@ func init() {
     },
     "/objects/{className}/{id}": {
       "get": {
-        "description": "Get a data object based on its collection name (class) and UUID (` + "`" + `id` + "`" + `).",
+        "description": "Get a data object based on its collection name (` + "`" + `className` + "`" + `) and UUID (` + "`" + `id` + "`" + `).",
         "tags": [
           "objects"
         ],
@@ -2907,7 +2907,7 @@ func init() {
         ]
       },
       "put": {
-        "description": "Replaces properties of an existing data object. The object is identified by its collection name (class) and UUID (` + "`" + `id` + "`" + `). The request body must contain the complete object definition with the new property values.",
+        "description": "Replaces properties of an existing data object. The object is identified by its collection name (` + "`" + `className` + "`" + `) and UUID (` + "`" + `id` + "`" + `). The request body must contain the complete object definition with the new property values.",
         "tags": [
           "objects"
         ],
@@ -2981,7 +2981,7 @@ func init() {
         ]
       },
       "delete": {
-        "description": "Removes a data object from a specific collection (class), identified by its collection name (class) and UUID (` + "`" + `id` + "`" + `).\u003cbr/\u003e\u003cbr/\u003e**Note on deleting references (legacy format):**\u003cbr/\u003eFor backward compatibility with older beacon formats (lacking a collection name), deleting a reference requires the beacon in the request to exactly match the stored format. Beacons always use ` + "`" + `localhost` + "`" + ` as the host, indicating the target is within the same Weaviate instance.",
+        "description": "Removes a data object from a specific collection, identified by its collection name (` + "`" + `className` + "`" + `) and UUID (` + "`" + `id` + "`" + `).\u003cbr/\u003e\u003cbr/\u003e**Note on deleting references (legacy format):**\u003cbr/\u003eFor backward compatibility with older beacon formats (lacking a collection name), deleting a reference requires the beacon in the request to exactly match the stored format. Beacons always use ` + "`" + `localhost` + "`" + ` as the host, indicating the target is within the same Weaviate instance.",
         "tags": [
           "objects"
         ],
@@ -3052,7 +3052,7 @@ func init() {
         ]
       },
       "head": {
-        "description": "Verifies the existence of a specific data object within a collection (class), identified by its collection name (class) and UUID (` + "`" + `id` + "`" + `), without returning the object itself.\u003cbr/\u003e\u003cbr/\u003eThis is faster than a GET request as it avoids retrieving and processing object data. Existence is confirmed by a 204 No Content status code, while non-existence results in a 404 Not Found.",
+        "description": "Verifies the existence of a specific data object within a collection (class), identified by its collection name (` + "`" + `className` + "`" + `) and UUID (` + "`" + `id` + "`" + `), without returning the object itself.\u003cbr/\u003e\u003cbr/\u003eThis is faster than a GET request as it avoids retrieving and processing object data. Existence is confirmed by a 204 No Content status code, while non-existence results in a 404 Not Found.",
         "tags": [
           "objects"
         ],
@@ -3117,7 +3117,7 @@ func init() {
         ]
       },
       "patch": {
-        "description": "Updates specific properties of an existing data object using JSON merge patch semantics (RFC 7396). The object is identified by its collection name (class) and UUID (` + "`" + `id` + "`" + `). Only the fields provided in the request body are modified. Metadata and schema values are validated, and the object's ` + "`" + `lastUpdateTime` + "`" + ` is updated.",
+        "description": "Updates specific properties of an existing data object using JSON merge patch semantics (RFC 7396). The object is identified by its collection name (` + "`" + `className` + "`" + `) and UUID (` + "`" + `id` + "`" + `). Only the fields provided in the request body are modified. Metadata and schema values are validated, and the object's ` + "`" + `lastUpdateTimeUnix` + "`" + ` is updated.",
         "tags": [
           "objects"
         ],
@@ -3195,7 +3195,7 @@ func init() {
     },
     "/objects/{className}/{id}/references/{propertyName}": {
       "put": {
-        "description": "Replaces all existing references for a specific reference property (` + "`" + `propertyName` + "`" + `) on a source data object. The source object is identified by its collection name (class) and UUID (` + "`" + `id` + "`" + `). The new set of references is provided in the request body.",
+        "description": "Replaces all existing references for a specific reference property (` + "`" + `propertyName` + "`" + `) on a source data object. The source object is identified by its collection name (` + "`" + `className` + "`" + `) and UUID (` + "`" + `id` + "`" + `). The new set of references is provided in the request body.",
         "tags": [
           "objects"
         ],
@@ -3282,7 +3282,7 @@ func init() {
         ]
       },
       "post": {
-        "description": "Adds a new reference to a reference property (` + "`" + `propertyName` + "`" + `) on a source data object. The source object is identified by its collection name (class) and UUID (` + "`" + `id` + "`" + `). The reference to add is specified in the request body.",
+        "description": "Adds a new reference to a reference property (` + "`" + `propertyName` + "`" + `) on a source data object. The source object is identified by its collection name (` + "`" + `className` + "`" + `) and UUID (` + "`" + `id` + "`" + `). The reference to add is specified in the request body.",
         "tags": [
           "objects"
         ],
@@ -3369,7 +3369,7 @@ func init() {
         ]
       },
       "delete": {
-        "description": "Removes a specific reference from a reference property (` + "`" + `propertyName` + "`" + `) of a source data object. The source object is identified by its collection name (class) and UUID (` + "`" + `id` + "`" + `). The reference to remove is specified in the request body.",
+        "description": "Removes a specific reference from a reference property (` + "`" + `propertyName` + "`" + `) of a source data object. The source object is identified by its collection name (` + "`" + `className` + "`" + `) and UUID (` + "`" + `id` + "`" + `). The reference to remove is specified in the request body.",
         "tags": [
           "objects"
         ],
@@ -3520,7 +3520,7 @@ func init() {
         ]
       },
       "put": {
-        "description": "Updates an object based on its UUID. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called. \u003cbr/\u003e\u003cbr/\u003e**Note**: This endpoint is deprecated and will be removed in a future version. Use the ` + "`" + `/objects/{className}/{id}` + "`" + ` endpoint instead.",
+        "description": "Updates an object based on its UUID. Given meta-data and schema values are validated. ` + "`" + `lastUpdateTimeUnix` + "`" + ` is set to the time this function is called. \u003cbr/\u003e\u003cbr/\u003e**Note**: This endpoint is deprecated and will be removed in a future version. Use the ` + "`" + `/objects/{className}/{id}` + "`" + ` endpoint instead.",
         "tags": [
           "objects"
         ],
@@ -3688,7 +3688,7 @@ func init() {
         ]
       },
       "patch": {
-        "description": "Update an object based on its UUID (using patch semantics). This method supports json-merge style patch semantics (RFC 7396). Provided meta-data and schema values are validated. LastUpdateTime is set to the time this function is called. \u003cbr/\u003e\u003cbr/\u003e**Note**: This endpoint is deprecated and will be removed in a future version. Use the ` + "`" + `/objects/{className}/{id}` + "`" + ` endpoint instead.",
+        "description": "Update an object based on its UUID (using patch semantics). This method supports json-merge style patch semantics (RFC 7396). Provided meta-data and schema values are validated. ` + "`" + `lastUpdateTimeUnix` + "`" + ` is set to the time this function is called. \u003cbr/\u003e\u003cbr/\u003e**Note**: This endpoint is deprecated and will be removed in a future version. Use the ` + "`" + `/objects/{className}/{id}` + "`" + ` endpoint instead.",
         "tags": [
           "objects"
         ],
@@ -4343,7 +4343,7 @@ func init() {
     },
     "/replication/replicate/{id}/cancel": {
       "post": {
-        "description": "Requests the cancellation of an active replication operation identified by its ID. The operation will be stopped, but its record will remain in the 'CANCELLED' state (can't be resumed) and will not be automatically deleted.",
+        "description": "Requests the cancellation of an active replication operation identified by its ID. The operation will be stopped, but its record will remain in the ` + "`" + `CANCELLED` + "`" + ` state (can't be resumed) and will not be automatically deleted.",
         "tags": [
           "replication"
         ],
@@ -4518,7 +4518,7 @@ func init() {
         ]
       },
       "post": {
-        "description": "Defines and creates a new collection (class) in the schema.\u003cbr/\u003e\u003cbr/\u003eIf ` + "`" + `AutoSchema` + "`" + ` is enabled (not recommended for production), Weaviate might attempt to infer schema from data during import. Manual definition via this endpoint provides explicit control.",
+        "description": "Defines and creates a new collection (class).\u003cbr/\u003e\u003cbr/\u003eIf [` + "`" + `AutoSchema` + "`" + `](https://docs.weaviate.io/weaviate/config-refs/collections#auto-schema) is enabled (not recommended for production), Weaviate might attempt to infer schema from data during import. Manual definition via this endpoint provides explicit control.",
         "tags": [
           "schema"
         ],
@@ -4571,7 +4571,7 @@ func init() {
     },
     "/schema/{className}": {
       "get": {
-        "description": "Retrieve the definition of a specific collection (class), including its properties, configuration, and vectorizer settings.",
+        "description": "Retrieve the definition of a specific collection (` + "`" + `className` + "`" + `), including its properties, configuration, and vectorizer settings.",
         "tags": [
           "schema"
         ],
@@ -4624,7 +4624,7 @@ func init() {
         ]
       },
       "put": {
-        "description": "Updates the configuration settings of an existing collection (class) based on the provided definition. Note: This operation modifies mutable settings specified in the request body. It does not add properties (use ` + "`" + `POST /schema/{className}/properties` + "`" + ` for that) or change the collection name.",
+        "description": "Updates the configuration settings of an existing collection (` + "`" + `className` + "`" + `) based on the provided definition. Note: This operation modifies mutable settings specified in the request body. It does not add properties (use ` + "`" + `POST /schema/{className}/properties` + "`" + ` for that) or change the collection name.",
         "tags": [
           "schema"
         ],
@@ -4736,7 +4736,7 @@ func init() {
     },
     "/schema/{className}/properties": {
       "post": {
-        "description": "Adds a new property definition to an existing collection (class) definition.",
+        "description": "Adds a new property definition to an existing collection (` + "`" + `className` + "`" + `) definition.",
         "tags": [
           "schema"
         ],
@@ -4796,7 +4796,7 @@ func init() {
     },
     "/schema/{className}/shards": {
       "get": {
-        "description": "Retrieves the status of all shards associated with the specified collection (class). For multi-tenant collections, use the 'tenant' query parameter to retrieve status for a specific tenant's shards.",
+        "description": "Retrieves the status of all shards associated with the specified collection (` + "`" + `className` + "`" + `). For multi-tenant collections, use the ` + "`" + `tenant` + "`" + ` query parameter to retrieve status for a specific tenant's shards.",
         "tags": [
           "schema"
         ],
@@ -4853,7 +4853,7 @@ func init() {
     },
     "/schema/{className}/shards/{shardName}": {
       "put": {
-        "description": "Updates the status of a specific shard within a collection (e.g., sets it to 'READY' or 'READONLY'). This is typically used after resolving an underlying issue (like disk space) that caused a shard to become non-operational. There is also a convenience function in each client to set the status of all shards of a collection.",
+        "description": "Updates the status of a specific shard within a collection (e.g., sets it to ` + "`" + `READY` + "`" + ` or ` + "`" + `READONLY` + "`" + `). This is typically used after resolving an underlying issue (like disk space) that caused a shard to become non-operational. There is also a convenience function in each client to set the status of all shards of a collection.",
         "tags": [
           "schema"
         ],
@@ -4982,7 +4982,7 @@ func init() {
         }
       },
       "put": {
-        "description": "Updates the activity status (e.g., 'ACTIVE', 'INACTIVE', etc.) of one or more specified tenants within a collection (class).",
+        "description": "Updates the activity status (e.g., ` + "`" + `ACTIVE` + "`" + `, ` + "`" + `INACTIVE` + "`" + `, etc.) of one or more specified tenants within a collection (` + "`" + `className` + "`" + `).",
         "tags": [
           "schema"
         ],
@@ -5043,7 +5043,7 @@ func init() {
         }
       },
       "post": {
-        "description": "Creates one or more new tenants for a specified collection (class). Multi-tenancy must be enabled for the collection via its definition.",
+        "description": "Creates one or more new tenants for a specified collection (` + "`" + `className` + "`" + `). Multi-tenancy must be enabled for the collection via its definition.",
         "tags": [
           "schema"
         ],
@@ -5104,7 +5104,7 @@ func init() {
         }
       },
       "delete": {
-        "description": "Deletes one or more specified tenants from a collection (class). WARNING: This action permanently deletes all data associated with the specified tenants.",
+        "description": "Deletes one or more specified tenants from a collection (` + "`" + `className` + "`" + `). WARNING: This action permanently deletes all data associated with the specified tenants.",
         "tags": [
           "schema"
         ],
@@ -5162,7 +5162,7 @@ func init() {
     },
     "/schema/{className}/tenants/{tenantName}": {
       "get": {
-        "description": "Retrieves details about a specific tenant within the given collection (class), such as its current activity status.",
+        "description": "Retrieves details about a specific tenant within the given collection (` + "`" + `className` + "`" + `), such as its current activity status.",
         "tags": [
           "schema"
         ],
@@ -5853,7 +5853,7 @@ func init() {
       }
     },
     "BM25Config": {
-      "description": "tuning parameters for the BM25 algorithm",
+      "description": "Tuning parameters for the BM25 algorithm.",
       "type": "object",
       "properties": {
         "b": {
@@ -6213,7 +6213,7 @@ func init() {
           }
         },
         "output": {
-          "description": "Controls the verbosity of the output, possible values are: \"minimal\", \"verbose\". Defaults to \"minimal\".",
+          "description": "Controls the verbosity of the output, possible values are: ` + "`" + `minimal` + "`" + `, ` + "`" + `verbose` + "`" + `. Defaults to ` + "`" + `minimal` + "`" + `.",
           "type": "string",
           "default": "minimal"
         }
@@ -6251,7 +6251,7 @@ func init() {
           }
         },
         "output": {
-          "description": "Controls the verbosity of the output, possible values are: \"minimal\", \"verbose\". Defaults to \"minimal\".",
+          "description": "Controls the verbosity of the output, possible values are: ` + "`" + `minimal` + "`" + `, ` + "`" + `verbose` + "`" + `. Defaults to ` + "`" + `minimal` + "`" + `.",
           "type": "string",
           "default": "minimal"
         },
@@ -6265,7 +6265,7 @@ func init() {
               "x-omitempty": false
             },
             "limit": {
-              "description": "The most amount of objects that can be deleted in a single query, equals QUERY_MAXIMUM_RESULTS.",
+              "description": "The most amount of objects that can be deleted in a single query, equals [` + "`" + `QUERY_MAXIMUM_RESULTS` + "`" + `](https://docs.weaviate.io/deploy/configuration/env-vars#QUERY_MAXIMUM_RESULTS).",
               "type": "number",
               "format": "int64",
               "x-omitempty": false
@@ -6277,7 +6277,7 @@ func init() {
               "x-omitempty": false
             },
             "objects": {
-              "description": "With output set to \"minimal\" only objects with error occurred will the be described. Successfully deleted objects would be omitted. Output set to \"verbose\" will list all of the objects with their respective statuses.",
+              "description": "With output set to ` + "`" + `minimal` + "`" + ` only objects with error occurred will the be described. Successfully deleted objects would be omitted. Output set to ` + "`" + `verbose` + "`" + ` will list all of the objects with their respective statuses.",
               "type": "array",
               "items": {
                 "description": "Results for this specific Object.",
@@ -6316,7 +6316,7 @@ func init() {
     "BatchReference": {
       "properties": {
         "from": {
-          "description": "Long-form beacon-style URI to identify the source of the cross-ref including the property name. Should be in the form of weaviate://localhost/\u003ckinds\u003e/\u003cuuid\u003e/\u003cclassName\u003e/\u003cpropertyName\u003e, where \u003ckinds\u003e must be one of 'objects', 'objects' and \u003cclassName\u003e and \u003cpropertyName\u003e must represent the cross-ref property of source class to be used.",
+          "description": "Long-form beacon-style URI to identify the source of the cross-reference, including the property name. Should be in the form of ` + "`" + `weaviate://localhost/objects/\u003cuuid\u003e/\u003cclassName\u003e/\u003cpropertyName\u003e` + "`" + `, where ` + "`" + `\u003cclassName\u003e` + "`" + ` and ` + "`" + `\u003cpropertyName\u003e` + "`" + ` must represent the cross-reference property of the source class to be used.",
           "type": "string",
           "format": "uri",
           "example": "weaviate://localhost/Zoo/a5d09582-4239-4702-81c9-92a6e0122bb4/hasAnimals"
@@ -6326,7 +6326,7 @@ func init() {
           "type": "string"
         },
         "to": {
-          "description": "Short-form URI to point to the cross-ref. Should be in the form of weaviate://localhost/\u003cuuid\u003e for the example of a local cross-ref to an object",
+          "description": "Short-form URI to point to the cross-reference. Should be in the form of ` + "`" + `weaviate://localhost/\u003cuuid\u003e` + "`" + ` for the example of a local cross-reference to an object.",
           "type": "string",
           "format": "uri",
           "example": "weaviate://localhost/97525810-a9a5-4eb0-858a-71449aeb007f"
@@ -6567,7 +6567,7 @@ func init() {
           "type": "string"
         },
         "vectorizer": {
-          "description": "Specify how the vectors for this collection should be determined. The options are either 'none' - this means you have to import a vector with each object yourself - or the name of a module that provides vectorization capabilities, such as 'text2vec-weaviate'. If left empty, it will use the globally configured default ([` + "`" + `DEFAULT_VECTORIZER_MODULE` + "`" + `](https://docs.weaviate.io/deploy/configuration/env-vars)) which can itself either be 'none' or a specific module.",
+          "description": "Specify how the vectors for this collection should be determined. The options are either ` + "`" + `none` + "`" + ` - this means you have to import a vector with each object yourself - or the name of a module that provides vectorization capabilities, such as ` + "`" + `text2vec-weaviate` + "`" + `. If left empty, it will use the globally configured default ([` + "`" + `DEFAULT_VECTORIZER_MODULE` + "`" + `](https://docs.weaviate.io/deploy/configuration/env-vars)) which can itself either be ` + "`" + `none` + "`" + ` or a specific module.",
           "type": "string"
         }
       }
@@ -6895,13 +6895,13 @@ func init() {
     "GeoCoordinates": {
       "properties": {
         "latitude": {
-          "description": "The latitude of the point on earth in decimal form",
+          "description": "The latitude of the point on earth in decimal form.",
           "type": "number",
           "format": "float",
           "x-nullable": true
         },
         "longitude": {
-          "description": "The longitude of the point on earth in decimal form",
+          "description": "The longitude of the point on earth in decimal form.",
           "type": "number",
           "format": "float",
           "x-nullable": true
@@ -6998,34 +6998,34 @@ func init() {
       ]
     },
     "InvertedIndexConfig": {
-      "description": "Configure the inverted index built into Weaviate (default: 60).",
+      "description": "Configure the inverted index built into Weaviate. See [Reference: Inverted index](https://docs.weaviate.io/weaviate/config-refs/indexing/inverted-index#inverted-index-parameters) for details.",
       "type": "object",
       "properties": {
         "bm25": {
           "$ref": "#/definitions/BM25Config"
         },
         "cleanupIntervalSeconds": {
-          "description": "Asynchronous index clean up happens every n seconds",
+          "description": "Asynchronous index clean up happens every n seconds (default: 60).",
           "type": "number",
           "format": "int"
         },
         "indexNullState": {
-          "description": "Index each object with the null state (default: 'false').",
+          "description": "Index each object with the null state (default: ` + "`" + `false` + "`" + `).",
           "type": "boolean"
         },
         "indexPropertyLength": {
-          "description": "Index length of properties (default: 'false').",
+          "description": "Index length of properties (default: ` + "`" + `false` + "`" + `).",
           "type": "boolean"
         },
         "indexTimestamps": {
-          "description": "Index each object by its internal timestamps (default: 'false').",
+          "description": "Index each object by its internal timestamps (default: ` + "`" + `false` + "`" + `).",
           "type": "boolean"
         },
         "stopwords": {
           "$ref": "#/definitions/StopwordConfig"
         },
         "usingBlockMaxWAND": {
-          "description": "Using BlockMax WAND for query execution (default: 'false', will be 'true' for new collections created after 1.30).",
+          "description": "Using BlockMax WAND for query execution (default: ` + "`" + `false` + "`" + `, will be ` + "`" + `true` + "`" + ` for new collections created after 1.30).",
           "type": "boolean"
         }
       }
@@ -7038,19 +7038,19 @@ func init() {
       "type": "object",
       "properties": {
         "documentationHref": {
-          "description": "weaviate documentation about this resource group",
+          "description": "Weaviate documentation about this resource group.",
           "type": "string"
         },
         "href": {
-          "description": "target of the link",
+          "description": "Target of the link.",
           "type": "string"
         },
         "name": {
-          "description": "human readable name of the resource group",
+          "description": "Human readable name of the resource group.",
           "type": "string"
         },
         "rel": {
-          "description": "relationship if both resources are related, e.g. 'next', 'previous', 'parent', etc.",
+          "description": "Relationship if both resources are related, e.g. 'next', 'previous', 'parent', etc.",
           "type": "string"
         }
       }
@@ -7715,12 +7715,12 @@ func init() {
     "PhoneNumber": {
       "properties": {
         "countryCode": {
-          "description": "Read-only. The numerical country code (e.g. 49)",
+          "description": "Read-only. The numerical country code (e.g. ` + "`" + `49` + "`" + `).",
           "type": "number",
           "format": "uint64"
         },
         "defaultCountry": {
-          "description": "Optional. The ISO 3166-1 alpha-2 country code. This is used to figure out the correct countryCode and international format if only a national number (e.g. 0123 4567) is provided",
+          "description": "Optional. The ISO 3166-1 alpha-2 country code. This is used to figure out the correct ` + "`" + `countryCode` + "`" + ` and international format if only a national number (e.g. ` + "`" + `0123 4567` + "`" + `) is provided.",
           "type": "string"
         },
         "input": {
@@ -7728,20 +7728,20 @@ func init() {
           "type": "string"
         },
         "internationalFormatted": {
-          "description": "Read-only. Parsed result in the international format (e.g. +49 123 ...)",
+          "description": "Read-only. Parsed result in the international format (e.g. ` + "`" + `+49 123 456789` + "`" + `).",
           "type": "string"
         },
         "national": {
-          "description": "Read-only. The numerical representation of the national part",
+          "description": "Read-only. The numerical representation of the national part.",
           "type": "number",
           "format": "uint64"
         },
         "nationalFormatted": {
-          "description": "Read-only. Parsed result in the national format (e.g. 0123 456789)",
+          "description": "Read-only. Parsed result in the national format (e.g. ` + "`" + `0123 456789` + "`" + `).",
           "type": "string"
         },
         "valid": {
-          "description": "Read-only. Indicates whether the parsed number is a valid phone number",
+          "description": "Read-only. Indicates whether the parsed number is a valid phone number.",
           "type": "boolean"
         }
       }
@@ -7799,7 +7799,7 @@ func init() {
           "x-nullable": true
         },
         "moduleConfig": {
-          "description": "Configuration specific to modules this Weaviate instance has installed",
+          "description": "Configuration specific to modules in a collection context.",
           "type": "object"
         },
         "name": {
@@ -7815,7 +7815,7 @@ func init() {
           "x-omitempty": true
         },
         "tokenization": {
-          "description": "Determines tokenization of the property as separate words or whole field. Optional. Applies to text and text[] data types. Allowed values are ` + "`" + `word` + "`" + ` (default; splits on any non-alphanumerical, lowercases), ` + "`" + `lowercase` + "`" + ` (splits on white spaces, lowercases), ` + "`" + `whitespace` + "`" + ` (splits on white spaces), ` + "`" + `field` + "`" + ` (trims). Not supported for remaining data types",
+          "description": "Determines how a property is indexed. This setting applies to ` + "`" + `text` + "`" + ` and ` + "`" + `text[]` + "`" + ` data types. The following tokenization methods are available:\u003cbr/\u003e\u003cbr/\u003e- ` + "`" + `word` + "`" + ` (default): Splits the text on any non-alphanumeric characters and lowercases the tokens.\u003cbr/\u003e- ` + "`" + `lowercase` + "`" + `: Splits the text on whitespace and lowercases the tokens.\u003cbr/\u003e- ` + "`" + `whitespace` + "`" + `: Splits the text on whitespace. This tokenization is case-sensitive.\u003cbr/\u003e- ` + "`" + `field` + "`" + `: Indexes the entire property value as a single token after trimming whitespace.\u003cbr/\u003e- ` + "`" + `trigram` + "`" + `: Splits the property into rolling trigrams (three-character sequences).\u003cbr/\u003e- ` + "`" + `gse` + "`" + `: Uses the ` + "`" + `gse` + "`" + ` tokenizer, suitable for Chinese language text. [See ` + "`" + `gse` + "`" + ` docs](https://pkg.go.dev/github.com/go-ego/gse#section-readme).\u003cbr/\u003e- ` + "`" + `kagome_ja` + "`" + `: Uses the ` + "`" + `Kagome` + "`" + ` tokenizer with a Japanese (IPA) dictionary. [See ` + "`" + `kagome` + "`" + ` docs](https://github.com/ikawaha/kagome).\u003cbr/\u003e- ` + "`" + `kagome_kr` + "`" + `: Uses the ` + "`" + `Kagome` + "`" + ` tokenizer with a Korean dictionary. [See ` + "`" + `kagome` + "`" + ` docs](https://github.com/ikawaha/kagome).\u003cbr/\u003e\u003cbr/\u003eSee [Reference: Tokenization](https://docs.weaviate.io/weaviate/config-refs/collections#tokenization) for details.",
           "type": "string",
           "enum": [
             "word",
@@ -7958,7 +7958,7 @@ func init() {
       "type": "object",
       "properties": {
         "asyncEnabled": {
-          "description": "Enable asynchronous replication (default: false).",
+          "description": "Enable asynchronous replication (default: ` + "`" + `false` + "`" + `).",
           "type": "boolean",
           "x-omitempty": false
         },
@@ -8078,7 +8078,7 @@ func init() {
           "type": "string"
         },
         "type": {
-          "description": "Indicates whether the operation is a 'COPY' (source replica remains) or a 'MOVE' (source replica is removed after successful transfer).",
+          "description": "Indicates whether the operation is a ` + "`" + `COPY` + "`" + ` (source replica remains) or a ` + "`" + `MOVE` + "`" + ` (source replica is removed after successful transfer).",
           "type": "string",
           "enum": [
             "COPY",
@@ -8214,7 +8214,7 @@ func init() {
           "type": "string"
         },
         "type": {
-          "description": "Specifies the type of replication operation to perform. 'COPY' creates a new replica on the target node while keeping the source replica. 'MOVE' creates a new replica on the target node and then removes the source replica upon successful completion. Defaults to 'COPY' if omitted.",
+          "description": "Specifies the type of replication operation to perform. ` + "`" + `COPY` + "`" + ` creates a new replica on the target node while keeping the source replica. ` + "`" + `MOVE` + "`" + ` creates a new replica on the target node and then removes the source replica upon successful completion. Defaults to ` + "`" + `COPY` + "`" + ` if omitted.",
           "type": "string",
           "default": "COPY",
           "enum": [
@@ -8445,7 +8445,7 @@ func init() {
       "description": "Either set beacon (direct reference) or set collection (class) and schema (concept reference)",
       "properties": {
         "beacon": {
-          "description": "If using a direct reference, specify the URI to point to the cross-ref here. Should be in the form of weaviate://localhost/\u003cuuid\u003e for the example of a local cross-ref to an object",
+          "description": "If using a direct reference, specify the URI to point to the cross-reference here. Should be in the form of weaviate://localhost/\u003cuuid\u003e for the example of a local cross-reference to an object",
           "type": "string",
           "format": "uri"
         },
@@ -8526,7 +8526,7 @@ func init() {
       }
     },
     "StopwordConfig": {
-      "description": "fine-grained control over stopword list usage",
+      "description": "Fine-grained control over stopword list usage.",
       "type": "object",
       "properties": {
         "additions": {
@@ -8537,7 +8537,7 @@ func init() {
           }
         },
         "preset": {
-          "description": "Pre-existing list of common words by language (default: 'en'). Options: ['en', 'none'].",
+          "description": "Pre-existing list of common words by language (default: ` + "`" + `en` + "`" + `). Options: [` + "`" + `en` + "`" + `, ` + "`" + `none` + "`" + `].",
           "type": "string"
         },
         "removals": {
@@ -8653,7 +8653,7 @@ func init() {
       }
     },
     "VectorWeights": {
-      "description": "Allow custom overrides of vector weights as math expressions. E.g. \"pancake\": \"7\" will set the weight for the word pancake to 7 in the vectorization, whereas \"w * 3\" would triple the originally calculated word. This is an open object, with OpenAPI Specification 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value (string/string) object.",
+      "description": "Allow custom overrides of vector weights as math expressions. E.g. ` + "`" + `pancake` + "`" + `: ` + "`" + `7` + "`" + ` will set the weight for the word pancake to 7 in the vectorization, whereas ` + "`" + `w * 3` + "`" + ` would triple the originally calculated word. This is an open object, with OpenAPI Specification 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value (string/string) object.",
       "type": "object"
     },
     "Vectors": {
@@ -8900,7 +8900,7 @@ func init() {
     "CommonOutputVerbosityParameterQuery": {
       "type": "string",
       "default": "minimal",
-      "description": "Controls the verbosity of the output, possible values are: \"minimal\", \"verbose\". Defaults to \"minimal\".",
+      "description": "Controls the verbosity of the output, possible values are: ` + "`" + `minimal` + "`" + `, ` + "`" + `verbose` + "`" + `. Defaults to ` + "`" + `minimal` + "`" + `.",
       "name": "output",
       "in": "query"
     },
@@ -10527,7 +10527,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "Specifies the backend storage system to list backups from (e.g., 'filesystem', 'gcs', 's3', 'azure').",
+            "description": "Specifies the backend storage system to list backups from (e.g., ` + "`" + `filesystem` + "`" + `, ` + "`" + `gcs` + "`" + `, ` + "`" + `s3` + "`" + `, ` + "`" + `azure` + "`" + `).",
             "name": "backend",
             "in": "path",
             "required": true
@@ -10576,7 +10576,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "Specifies the backend storage system where the backup will be stored (e.g., 'filesystem', 'gcs', 's3', 'azure').",
+            "description": "Specifies the backend storage system where the backup will be stored (e.g., ` + "`" + `filesystem` + "`" + `, ` + "`" + `gcs` + "`" + `, ` + "`" + `s3` + "`" + `, ` + "`" + `azure` + "`" + `).",
             "name": "backend",
             "in": "path",
             "required": true
@@ -10636,7 +10636,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "Specifies the backend storage system where the backup resides (e.g., 'filesystem', 'gcs', 's3', 'azure').",
+            "description": "Specifies the backend storage system where the backup resides (e.g., ` + "`" + `filesystem` + "`" + `, ` + "`" + `gcs` + "`" + `, ` + "`" + `s3` + "`" + `, ` + "`" + `azure` + "`" + `).",
             "name": "backend",
             "in": "path",
             "required": true
@@ -10710,7 +10710,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "Specifies the backend storage system where the backup resides (e.g., 'filesystem', 'gcs', 's3', 'azure').",
+            "description": "Specifies the backend storage system where the backup resides (e.g., ` + "`" + `filesystem` + "`" + `, ` + "`" + `gcs` + "`" + `, ` + "`" + `s3` + "`" + `, ` + "`" + `azure` + "`" + `).",
             "name": "backend",
             "in": "path",
             "required": true
@@ -10777,7 +10777,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "Specifies the backend storage system where the backup resides (e.g., 'filesystem', 'gcs', 's3', 'azure').",
+            "description": "Specifies the backend storage system where the backup resides (e.g., ` + "`" + `filesystem` + "`" + `, ` + "`" + `gcs` + "`" + `, ` + "`" + `s3` + "`" + `, ` + "`" + `azure` + "`" + `).",
             "name": "backend",
             "in": "path",
             "required": true
@@ -10845,7 +10845,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "Specifies the backend storage system where the backup resides (e.g., 'filesystem', 'gcs', 's3', 'azure').",
+            "description": "Specifies the backend storage system where the backup resides (e.g., ` + "`" + `filesystem` + "`" + `, ` + "`" + `gcs` + "`" + `, ` + "`" + `s3` + "`" + `, ` + "`" + `azure` + "`" + `).",
             "name": "backend",
             "in": "path",
             "required": true
@@ -11447,7 +11447,7 @@ func init() {
     },
     "/nodes": {
       "get": {
-        "description": "Retrieves status information about all nodes in the cluster. Use the 'output' query parameter to control the level of detail.",
+        "description": "Retrieves status information about all nodes in the cluster. Use the ` + "`" + `output` + "`" + ` query parameter to control the level of detail.",
         "tags": [
           "nodes"
         ],
@@ -11457,7 +11457,7 @@ func init() {
           {
             "type": "string",
             "default": "minimal",
-            "description": "Controls the verbosity of the output, possible values are: \"minimal\", \"verbose\". Defaults to \"minimal\".",
+            "description": "Controls the verbosity of the output, possible values are: ` + "`" + `minimal` + "`" + `, ` + "`" + `verbose` + "`" + `. Defaults to ` + "`" + `minimal` + "`" + `.",
             "name": "output",
             "in": "query"
           }
@@ -11504,7 +11504,7 @@ func init() {
     },
     "/nodes/{className}": {
       "get": {
-        "description": "Retrieves status information only for the nodes that host shards for the specified collection (class). Use the 'output' query parameter to control the level of detail.",
+        "description": "Retrieves status information only for the nodes that host shards for the specified collection (` + "`" + `className` + "`" + `). Use the ` + "`" + `output` + "`" + ` query parameter to control the level of detail.",
         "tags": [
           "nodes"
         ],
@@ -11513,7 +11513,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "The name of the collection for which to retrieve node status.",
+            "description": "The name of the collection (class) for which to retrieve node status.",
             "name": "className",
             "in": "path",
             "required": true
@@ -11526,7 +11526,7 @@ func init() {
           {
             "type": "string",
             "default": "minimal",
-            "description": "Controls the verbosity of the output, possible values are: \"minimal\", \"verbose\". Defaults to \"minimal\".",
+            "description": "Controls the verbosity of the output, possible values are: ` + "`" + `minimal` + "`" + `, ` + "`" + `verbose` + "`" + `. Defaults to ` + "`" + `minimal` + "`" + `.",
             "name": "output",
             "in": "query"
           }
@@ -11796,7 +11796,7 @@ func init() {
     },
     "/objects/{className}/{id}": {
       "get": {
-        "description": "Get a data object based on its collection name (class) and UUID (` + "`" + `id` + "`" + `).",
+        "description": "Get a data object based on its collection name (` + "`" + `className` + "`" + `) and UUID (` + "`" + `id` + "`" + `).",
         "tags": [
           "objects"
         ],
@@ -11888,7 +11888,7 @@ func init() {
         ]
       },
       "put": {
-        "description": "Replaces properties of an existing data object. The object is identified by its collection name (class) and UUID (` + "`" + `id` + "`" + `). The request body must contain the complete object definition with the new property values.",
+        "description": "Replaces properties of an existing data object. The object is identified by its collection name (` + "`" + `className` + "`" + `) and UUID (` + "`" + `id` + "`" + `). The request body must contain the complete object definition with the new property values.",
         "tags": [
           "objects"
         ],
@@ -11965,7 +11965,7 @@ func init() {
         ]
       },
       "delete": {
-        "description": "Removes a data object from a specific collection (class), identified by its collection name (class) and UUID (` + "`" + `id` + "`" + `).\u003cbr/\u003e\u003cbr/\u003e**Note on deleting references (legacy format):**\u003cbr/\u003eFor backward compatibility with older beacon formats (lacking a collection name), deleting a reference requires the beacon in the request to exactly match the stored format. Beacons always use ` + "`" + `localhost` + "`" + ` as the host, indicating the target is within the same Weaviate instance.",
+        "description": "Removes a data object from a specific collection, identified by its collection name (` + "`" + `className` + "`" + `) and UUID (` + "`" + `id` + "`" + `).\u003cbr/\u003e\u003cbr/\u003e**Note on deleting references (legacy format):**\u003cbr/\u003eFor backward compatibility with older beacon formats (lacking a collection name), deleting a reference requires the beacon in the request to exactly match the stored format. Beacons always use ` + "`" + `localhost` + "`" + ` as the host, indicating the target is within the same Weaviate instance.",
         "tags": [
           "objects"
         ],
@@ -12042,7 +12042,7 @@ func init() {
         ]
       },
       "head": {
-        "description": "Verifies the existence of a specific data object within a collection (class), identified by its collection name (class) and UUID (` + "`" + `id` + "`" + `), without returning the object itself.\u003cbr/\u003e\u003cbr/\u003eThis is faster than a GET request as it avoids retrieving and processing object data. Existence is confirmed by a 204 No Content status code, while non-existence results in a 404 Not Found.",
+        "description": "Verifies the existence of a specific data object within a collection (class), identified by its collection name (` + "`" + `className` + "`" + `) and UUID (` + "`" + `id` + "`" + `), without returning the object itself.\u003cbr/\u003e\u003cbr/\u003eThis is faster than a GET request as it avoids retrieving and processing object data. Existence is confirmed by a 204 No Content status code, while non-existence results in a 404 Not Found.",
         "tags": [
           "objects"
         ],
@@ -12113,7 +12113,7 @@ func init() {
         ]
       },
       "patch": {
-        "description": "Updates specific properties of an existing data object using JSON merge patch semantics (RFC 7396). The object is identified by its collection name (class) and UUID (` + "`" + `id` + "`" + `). Only the fields provided in the request body are modified. Metadata and schema values are validated, and the object's ` + "`" + `lastUpdateTime` + "`" + ` is updated.",
+        "description": "Updates specific properties of an existing data object using JSON merge patch semantics (RFC 7396). The object is identified by its collection name (` + "`" + `className` + "`" + `) and UUID (` + "`" + `id` + "`" + `). Only the fields provided in the request body are modified. Metadata and schema values are validated, and the object's ` + "`" + `lastUpdateTimeUnix` + "`" + ` is updated.",
         "tags": [
           "objects"
         ],
@@ -12194,7 +12194,7 @@ func init() {
     },
     "/objects/{className}/{id}/references/{propertyName}": {
       "put": {
-        "description": "Replaces all existing references for a specific reference property (` + "`" + `propertyName` + "`" + `) on a source data object. The source object is identified by its collection name (class) and UUID (` + "`" + `id` + "`" + `). The new set of references is provided in the request body.",
+        "description": "Replaces all existing references for a specific reference property (` + "`" + `propertyName` + "`" + `) on a source data object. The source object is identified by its collection name (` + "`" + `className` + "`" + `) and UUID (` + "`" + `id` + "`" + `). The new set of references is provided in the request body.",
         "tags": [
           "objects"
         ],
@@ -12287,7 +12287,7 @@ func init() {
         ]
       },
       "post": {
-        "description": "Adds a new reference to a reference property (` + "`" + `propertyName` + "`" + `) on a source data object. The source object is identified by its collection name (class) and UUID (` + "`" + `id` + "`" + `). The reference to add is specified in the request body.",
+        "description": "Adds a new reference to a reference property (` + "`" + `propertyName` + "`" + `) on a source data object. The source object is identified by its collection name (` + "`" + `className` + "`" + `) and UUID (` + "`" + `id` + "`" + `). The reference to add is specified in the request body.",
         "tags": [
           "objects"
         ],
@@ -12380,7 +12380,7 @@ func init() {
         ]
       },
       "delete": {
-        "description": "Removes a specific reference from a reference property (` + "`" + `propertyName` + "`" + `) of a source data object. The source object is identified by its collection name (class) and UUID (` + "`" + `id` + "`" + `). The reference to remove is specified in the request body.",
+        "description": "Removes a specific reference from a reference property (` + "`" + `propertyName` + "`" + `) of a source data object. The source object is identified by its collection name (` + "`" + `className` + "`" + `) and UUID (` + "`" + `id` + "`" + `). The reference to remove is specified in the request body.",
         "tags": [
           "objects"
         ],
@@ -12540,7 +12540,7 @@ func init() {
         ]
       },
       "put": {
-        "description": "Updates an object based on its UUID. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called. \u003cbr/\u003e\u003cbr/\u003e**Note**: This endpoint is deprecated and will be removed in a future version. Use the ` + "`" + `/objects/{className}/{id}` + "`" + ` endpoint instead.",
+        "description": "Updates an object based on its UUID. Given meta-data and schema values are validated. ` + "`" + `lastUpdateTimeUnix` + "`" + ` is set to the time this function is called. \u003cbr/\u003e\u003cbr/\u003e**Note**: This endpoint is deprecated and will be removed in a future version. Use the ` + "`" + `/objects/{className}/{id}` + "`" + ` endpoint instead.",
         "tags": [
           "objects"
         ],
@@ -12717,7 +12717,7 @@ func init() {
         ]
       },
       "patch": {
-        "description": "Update an object based on its UUID (using patch semantics). This method supports json-merge style patch semantics (RFC 7396). Provided meta-data and schema values are validated. LastUpdateTime is set to the time this function is called. \u003cbr/\u003e\u003cbr/\u003e**Note**: This endpoint is deprecated and will be removed in a future version. Use the ` + "`" + `/objects/{className}/{id}` + "`" + ` endpoint instead.",
+        "description": "Update an object based on its UUID (using patch semantics). This method supports json-merge style patch semantics (RFC 7396). Provided meta-data and schema values are validated. ` + "`" + `lastUpdateTimeUnix` + "`" + ` is set to the time this function is called. \u003cbr/\u003e\u003cbr/\u003e**Note**: This endpoint is deprecated and will be removed in a future version. Use the ` + "`" + `/objects/{className}/{id}` + "`" + ` endpoint instead.",
         "tags": [
           "objects"
         ],
@@ -13384,7 +13384,7 @@ func init() {
     },
     "/replication/replicate/{id}/cancel": {
       "post": {
-        "description": "Requests the cancellation of an active replication operation identified by its ID. The operation will be stopped, but its record will remain in the 'CANCELLED' state (can't be resumed) and will not be automatically deleted.",
+        "description": "Requests the cancellation of an active replication operation identified by its ID. The operation will be stopped, but its record will remain in the ` + "`" + `CANCELLED` + "`" + ` state (can't be resumed) and will not be automatically deleted.",
         "tags": [
           "replication"
         ],
@@ -13559,7 +13559,7 @@ func init() {
         ]
       },
       "post": {
-        "description": "Defines and creates a new collection (class) in the schema.\u003cbr/\u003e\u003cbr/\u003eIf ` + "`" + `AutoSchema` + "`" + ` is enabled (not recommended for production), Weaviate might attempt to infer schema from data during import. Manual definition via this endpoint provides explicit control.",
+        "description": "Defines and creates a new collection (class).\u003cbr/\u003e\u003cbr/\u003eIf [` + "`" + `AutoSchema` + "`" + `](https://docs.weaviate.io/weaviate/config-refs/collections#auto-schema) is enabled (not recommended for production), Weaviate might attempt to infer schema from data during import. Manual definition via this endpoint provides explicit control.",
         "tags": [
           "schema"
         ],
@@ -13612,7 +13612,7 @@ func init() {
     },
     "/schema/{className}": {
       "get": {
-        "description": "Retrieve the definition of a specific collection (class), including its properties, configuration, and vectorizer settings.",
+        "description": "Retrieve the definition of a specific collection (` + "`" + `className` + "`" + `), including its properties, configuration, and vectorizer settings.",
         "tags": [
           "schema"
         ],
@@ -13665,7 +13665,7 @@ func init() {
         ]
       },
       "put": {
-        "description": "Updates the configuration settings of an existing collection (class) based on the provided definition. Note: This operation modifies mutable settings specified in the request body. It does not add properties (use ` + "`" + `POST /schema/{className}/properties` + "`" + ` for that) or change the collection name.",
+        "description": "Updates the configuration settings of an existing collection (` + "`" + `className` + "`" + `) based on the provided definition. Note: This operation modifies mutable settings specified in the request body. It does not add properties (use ` + "`" + `POST /schema/{className}/properties` + "`" + ` for that) or change the collection name.",
         "tags": [
           "schema"
         ],
@@ -13777,7 +13777,7 @@ func init() {
     },
     "/schema/{className}/properties": {
       "post": {
-        "description": "Adds a new property definition to an existing collection (class) definition.",
+        "description": "Adds a new property definition to an existing collection (` + "`" + `className` + "`" + `) definition.",
         "tags": [
           "schema"
         ],
@@ -13837,7 +13837,7 @@ func init() {
     },
     "/schema/{className}/shards": {
       "get": {
-        "description": "Retrieves the status of all shards associated with the specified collection (class). For multi-tenant collections, use the 'tenant' query parameter to retrieve status for a specific tenant's shards.",
+        "description": "Retrieves the status of all shards associated with the specified collection (` + "`" + `className` + "`" + `). For multi-tenant collections, use the ` + "`" + `tenant` + "`" + ` query parameter to retrieve status for a specific tenant's shards.",
         "tags": [
           "schema"
         ],
@@ -13894,7 +13894,7 @@ func init() {
     },
     "/schema/{className}/shards/{shardName}": {
       "put": {
-        "description": "Updates the status of a specific shard within a collection (e.g., sets it to 'READY' or 'READONLY'). This is typically used after resolving an underlying issue (like disk space) that caused a shard to become non-operational. There is also a convenience function in each client to set the status of all shards of a collection.",
+        "description": "Updates the status of a specific shard within a collection (e.g., sets it to ` + "`" + `READY` + "`" + ` or ` + "`" + `READONLY` + "`" + `). This is typically used after resolving an underlying issue (like disk space) that caused a shard to become non-operational. There is also a convenience function in each client to set the status of all shards of a collection.",
         "tags": [
           "schema"
         ],
@@ -14023,7 +14023,7 @@ func init() {
         }
       },
       "put": {
-        "description": "Updates the activity status (e.g., 'ACTIVE', 'INACTIVE', etc.) of one or more specified tenants within a collection (class).",
+        "description": "Updates the activity status (e.g., ` + "`" + `ACTIVE` + "`" + `, ` + "`" + `INACTIVE` + "`" + `, etc.) of one or more specified tenants within a collection (` + "`" + `className` + "`" + `).",
         "tags": [
           "schema"
         ],
@@ -14084,7 +14084,7 @@ func init() {
         }
       },
       "post": {
-        "description": "Creates one or more new tenants for a specified collection (class). Multi-tenancy must be enabled for the collection via its definition.",
+        "description": "Creates one or more new tenants for a specified collection (` + "`" + `className` + "`" + `). Multi-tenancy must be enabled for the collection via its definition.",
         "tags": [
           "schema"
         ],
@@ -14145,7 +14145,7 @@ func init() {
         }
       },
       "delete": {
-        "description": "Deletes one or more specified tenants from a collection (class). WARNING: This action permanently deletes all data associated with the specified tenants.",
+        "description": "Deletes one or more specified tenants from a collection (` + "`" + `className` + "`" + `). WARNING: This action permanently deletes all data associated with the specified tenants.",
         "tags": [
           "schema"
         ],
@@ -14203,7 +14203,7 @@ func init() {
     },
     "/schema/{className}/tenants/{tenantName}": {
       "get": {
-        "description": "Retrieves details about a specific tenant within the given collection (class), such as its current activity status.",
+        "description": "Retrieves details about a specific tenant within the given collection (` + "`" + `className` + "`" + `), such as its current activity status.",
         "tags": [
           "schema"
         ],
@@ -14894,7 +14894,7 @@ func init() {
       }
     },
     "BM25Config": {
-      "description": "tuning parameters for the BM25 algorithm",
+      "description": "Tuning parameters for the BM25 algorithm.",
       "type": "object",
       "properties": {
         "b": {
@@ -15257,7 +15257,7 @@ func init() {
           }
         },
         "output": {
-          "description": "Controls the verbosity of the output, possible values are: \"minimal\", \"verbose\". Defaults to \"minimal\".",
+          "description": "Controls the verbosity of the output, possible values are: ` + "`" + `minimal` + "`" + `, ` + "`" + `verbose` + "`" + `. Defaults to ` + "`" + `minimal` + "`" + `.",
           "type": "string",
           "default": "minimal"
         }
@@ -15311,7 +15311,7 @@ func init() {
           }
         },
         "output": {
-          "description": "Controls the verbosity of the output, possible values are: \"minimal\", \"verbose\". Defaults to \"minimal\".",
+          "description": "Controls the verbosity of the output, possible values are: ` + "`" + `minimal` + "`" + `, ` + "`" + `verbose` + "`" + `. Defaults to ` + "`" + `minimal` + "`" + `.",
           "type": "string",
           "default": "minimal"
         },
@@ -15325,7 +15325,7 @@ func init() {
               "x-omitempty": false
             },
             "limit": {
-              "description": "The most amount of objects that can be deleted in a single query, equals QUERY_MAXIMUM_RESULTS.",
+              "description": "The most amount of objects that can be deleted in a single query, equals [` + "`" + `QUERY_MAXIMUM_RESULTS` + "`" + `](https://docs.weaviate.io/deploy/configuration/env-vars#QUERY_MAXIMUM_RESULTS).",
               "type": "number",
               "format": "int64",
               "x-omitempty": false
@@ -15337,7 +15337,7 @@ func init() {
               "x-omitempty": false
             },
             "objects": {
-              "description": "With output set to \"minimal\" only objects with error occurred will the be described. Successfully deleted objects would be omitted. Output set to \"verbose\" will list all of the objects with their respective statuses.",
+              "description": "With output set to ` + "`" + `minimal` + "`" + ` only objects with error occurred will the be described. Successfully deleted objects would be omitted. Output set to ` + "`" + `verbose` + "`" + ` will list all of the objects with their respective statuses.",
               "type": "array",
               "items": {
                 "$ref": "#/definitions/BatchDeleteResponseResultsObjectsItems0"
@@ -15379,7 +15379,7 @@ func init() {
           "x-omitempty": false
         },
         "limit": {
-          "description": "The most amount of objects that can be deleted in a single query, equals QUERY_MAXIMUM_RESULTS.",
+          "description": "The most amount of objects that can be deleted in a single query, equals [` + "`" + `QUERY_MAXIMUM_RESULTS` + "`" + `](https://docs.weaviate.io/deploy/configuration/env-vars#QUERY_MAXIMUM_RESULTS).",
           "type": "number",
           "format": "int64",
           "x-omitempty": false
@@ -15391,7 +15391,7 @@ func init() {
           "x-omitempty": false
         },
         "objects": {
-          "description": "With output set to \"minimal\" only objects with error occurred will the be described. Successfully deleted objects would be omitted. Output set to \"verbose\" will list all of the objects with their respective statuses.",
+          "description": "With output set to ` + "`" + `minimal` + "`" + ` only objects with error occurred will the be described. Successfully deleted objects would be omitted. Output set to ` + "`" + `verbose` + "`" + ` will list all of the objects with their respective statuses.",
           "type": "array",
           "items": {
             "$ref": "#/definitions/BatchDeleteResponseResultsObjectsItems0"
@@ -15431,7 +15431,7 @@ func init() {
     "BatchReference": {
       "properties": {
         "from": {
-          "description": "Long-form beacon-style URI to identify the source of the cross-ref including the property name. Should be in the form of weaviate://localhost/\u003ckinds\u003e/\u003cuuid\u003e/\u003cclassName\u003e/\u003cpropertyName\u003e, where \u003ckinds\u003e must be one of 'objects', 'objects' and \u003cclassName\u003e and \u003cpropertyName\u003e must represent the cross-ref property of source class to be used.",
+          "description": "Long-form beacon-style URI to identify the source of the cross-reference, including the property name. Should be in the form of ` + "`" + `weaviate://localhost/objects/\u003cuuid\u003e/\u003cclassName\u003e/\u003cpropertyName\u003e` + "`" + `, where ` + "`" + `\u003cclassName\u003e` + "`" + ` and ` + "`" + `\u003cpropertyName\u003e` + "`" + ` must represent the cross-reference property of the source class to be used.",
           "type": "string",
           "format": "uri",
           "example": "weaviate://localhost/Zoo/a5d09582-4239-4702-81c9-92a6e0122bb4/hasAnimals"
@@ -15441,7 +15441,7 @@ func init() {
           "type": "string"
         },
         "to": {
-          "description": "Short-form URI to point to the cross-ref. Should be in the form of weaviate://localhost/\u003cuuid\u003e for the example of a local cross-ref to an object",
+          "description": "Short-form URI to point to the cross-reference. Should be in the form of ` + "`" + `weaviate://localhost/\u003cuuid\u003e` + "`" + ` for the example of a local cross-reference to an object.",
           "type": "string",
           "format": "uri",
           "example": "weaviate://localhost/97525810-a9a5-4eb0-858a-71449aeb007f"
@@ -15743,7 +15743,7 @@ func init() {
           "type": "string"
         },
         "vectorizer": {
-          "description": "Specify how the vectors for this collection should be determined. The options are either 'none' - this means you have to import a vector with each object yourself - or the name of a module that provides vectorization capabilities, such as 'text2vec-weaviate'. If left empty, it will use the globally configured default ([` + "`" + `DEFAULT_VECTORIZER_MODULE` + "`" + `](https://docs.weaviate.io/deploy/configuration/env-vars)) which can itself either be 'none' or a specific module.",
+          "description": "Specify how the vectors for this collection should be determined. The options are either ` + "`" + `none` + "`" + ` - this means you have to import a vector with each object yourself - or the name of a module that provides vectorization capabilities, such as ` + "`" + `text2vec-weaviate` + "`" + `. If left empty, it will use the globally configured default ([` + "`" + `DEFAULT_VECTORIZER_MODULE` + "`" + `](https://docs.weaviate.io/deploy/configuration/env-vars)) which can itself either be ` + "`" + `none` + "`" + ` or a specific module.",
           "type": "string"
         }
       }
@@ -16094,13 +16094,13 @@ func init() {
     "GeoCoordinates": {
       "properties": {
         "latitude": {
-          "description": "The latitude of the point on earth in decimal form",
+          "description": "The latitude of the point on earth in decimal form.",
           "type": "number",
           "format": "float",
           "x-nullable": true
         },
         "longitude": {
-          "description": "The longitude of the point on earth in decimal form",
+          "description": "The longitude of the point on earth in decimal form.",
           "type": "number",
           "format": "float",
           "x-nullable": true
@@ -16230,34 +16230,34 @@ func init() {
       ]
     },
     "InvertedIndexConfig": {
-      "description": "Configure the inverted index built into Weaviate (default: 60).",
+      "description": "Configure the inverted index built into Weaviate. See [Reference: Inverted index](https://docs.weaviate.io/weaviate/config-refs/indexing/inverted-index#inverted-index-parameters) for details.",
       "type": "object",
       "properties": {
         "bm25": {
           "$ref": "#/definitions/BM25Config"
         },
         "cleanupIntervalSeconds": {
-          "description": "Asynchronous index clean up happens every n seconds",
+          "description": "Asynchronous index clean up happens every n seconds (default: 60).",
           "type": "number",
           "format": "int"
         },
         "indexNullState": {
-          "description": "Index each object with the null state (default: 'false').",
+          "description": "Index each object with the null state (default: ` + "`" + `false` + "`" + `).",
           "type": "boolean"
         },
         "indexPropertyLength": {
-          "description": "Index length of properties (default: 'false').",
+          "description": "Index length of properties (default: ` + "`" + `false` + "`" + `).",
           "type": "boolean"
         },
         "indexTimestamps": {
-          "description": "Index each object by its internal timestamps (default: 'false').",
+          "description": "Index each object by its internal timestamps (default: ` + "`" + `false` + "`" + `).",
           "type": "boolean"
         },
         "stopwords": {
           "$ref": "#/definitions/StopwordConfig"
         },
         "usingBlockMaxWAND": {
-          "description": "Using BlockMax WAND for query execution (default: 'false', will be 'true' for new collections created after 1.30).",
+          "description": "Using BlockMax WAND for query execution (default: ` + "`" + `false` + "`" + `, will be ` + "`" + `true` + "`" + ` for new collections created after 1.30).",
           "type": "boolean"
         }
       }
@@ -16270,19 +16270,19 @@ func init() {
       "type": "object",
       "properties": {
         "documentationHref": {
-          "description": "weaviate documentation about this resource group",
+          "description": "Weaviate documentation about this resource group.",
           "type": "string"
         },
         "href": {
-          "description": "target of the link",
+          "description": "Target of the link.",
           "type": "string"
         },
         "name": {
-          "description": "human readable name of the resource group",
+          "description": "Human readable name of the resource group.",
           "type": "string"
         },
         "rel": {
-          "description": "relationship if both resources are related, e.g. 'next', 'previous', 'parent', etc.",
+          "description": "Relationship if both resources are related, e.g. 'next', 'previous', 'parent', etc.",
           "type": "string"
         }
       }
@@ -17120,12 +17120,12 @@ func init() {
     "PhoneNumber": {
       "properties": {
         "countryCode": {
-          "description": "Read-only. The numerical country code (e.g. 49)",
+          "description": "Read-only. The numerical country code (e.g. ` + "`" + `49` + "`" + `).",
           "type": "number",
           "format": "uint64"
         },
         "defaultCountry": {
-          "description": "Optional. The ISO 3166-1 alpha-2 country code. This is used to figure out the correct countryCode and international format if only a national number (e.g. 0123 4567) is provided",
+          "description": "Optional. The ISO 3166-1 alpha-2 country code. This is used to figure out the correct ` + "`" + `countryCode` + "`" + ` and international format if only a national number (e.g. ` + "`" + `0123 4567` + "`" + `) is provided.",
           "type": "string"
         },
         "input": {
@@ -17133,20 +17133,20 @@ func init() {
           "type": "string"
         },
         "internationalFormatted": {
-          "description": "Read-only. Parsed result in the international format (e.g. +49 123 ...)",
+          "description": "Read-only. Parsed result in the international format (e.g. ` + "`" + `+49 123 456789` + "`" + `).",
           "type": "string"
         },
         "national": {
-          "description": "Read-only. The numerical representation of the national part",
+          "description": "Read-only. The numerical representation of the national part.",
           "type": "number",
           "format": "uint64"
         },
         "nationalFormatted": {
-          "description": "Read-only. Parsed result in the national format (e.g. 0123 456789)",
+          "description": "Read-only. Parsed result in the national format (e.g. ` + "`" + `0123 456789` + "`" + `).",
           "type": "string"
         },
         "valid": {
-          "description": "Read-only. Indicates whether the parsed number is a valid phone number",
+          "description": "Read-only. Indicates whether the parsed number is a valid phone number.",
           "type": "boolean"
         }
       }
@@ -17204,7 +17204,7 @@ func init() {
           "x-nullable": true
         },
         "moduleConfig": {
-          "description": "Configuration specific to modules this Weaviate instance has installed",
+          "description": "Configuration specific to modules in a collection context.",
           "type": "object"
         },
         "name": {
@@ -17220,7 +17220,7 @@ func init() {
           "x-omitempty": true
         },
         "tokenization": {
-          "description": "Determines tokenization of the property as separate words or whole field. Optional. Applies to text and text[] data types. Allowed values are ` + "`" + `word` + "`" + ` (default; splits on any non-alphanumerical, lowercases), ` + "`" + `lowercase` + "`" + ` (splits on white spaces, lowercases), ` + "`" + `whitespace` + "`" + ` (splits on white spaces), ` + "`" + `field` + "`" + ` (trims). Not supported for remaining data types",
+          "description": "Determines how a property is indexed. This setting applies to ` + "`" + `text` + "`" + ` and ` + "`" + `text[]` + "`" + ` data types. The following tokenization methods are available:\u003cbr/\u003e\u003cbr/\u003e- ` + "`" + `word` + "`" + ` (default): Splits the text on any non-alphanumeric characters and lowercases the tokens.\u003cbr/\u003e- ` + "`" + `lowercase` + "`" + `: Splits the text on whitespace and lowercases the tokens.\u003cbr/\u003e- ` + "`" + `whitespace` + "`" + `: Splits the text on whitespace. This tokenization is case-sensitive.\u003cbr/\u003e- ` + "`" + `field` + "`" + `: Indexes the entire property value as a single token after trimming whitespace.\u003cbr/\u003e- ` + "`" + `trigram` + "`" + `: Splits the property into rolling trigrams (three-character sequences).\u003cbr/\u003e- ` + "`" + `gse` + "`" + `: Uses the ` + "`" + `gse` + "`" + ` tokenizer, suitable for Chinese language text. [See ` + "`" + `gse` + "`" + ` docs](https://pkg.go.dev/github.com/go-ego/gse#section-readme).\u003cbr/\u003e- ` + "`" + `kagome_ja` + "`" + `: Uses the ` + "`" + `Kagome` + "`" + ` tokenizer with a Japanese (IPA) dictionary. [See ` + "`" + `kagome` + "`" + ` docs](https://github.com/ikawaha/kagome).\u003cbr/\u003e- ` + "`" + `kagome_kr` + "`" + `: Uses the ` + "`" + `Kagome` + "`" + ` tokenizer with a Korean dictionary. [See ` + "`" + `kagome` + "`" + ` docs](https://github.com/ikawaha/kagome).\u003cbr/\u003e\u003cbr/\u003eSee [Reference: Tokenization](https://docs.weaviate.io/weaviate/config-refs/collections#tokenization) for details.",
           "type": "string",
           "enum": [
             "word",
@@ -17363,7 +17363,7 @@ func init() {
       "type": "object",
       "properties": {
         "asyncEnabled": {
-          "description": "Enable asynchronous replication (default: false).",
+          "description": "Enable asynchronous replication (default: ` + "`" + `false` + "`" + `).",
           "type": "boolean",
           "x-omitempty": false
         },
@@ -17483,7 +17483,7 @@ func init() {
           "type": "string"
         },
         "type": {
-          "description": "Indicates whether the operation is a 'COPY' (source replica remains) or a 'MOVE' (source replica is removed after successful transfer).",
+          "description": "Indicates whether the operation is a ` + "`" + `COPY` + "`" + ` (source replica remains) or a ` + "`" + `MOVE` + "`" + ` (source replica is removed after successful transfer).",
           "type": "string",
           "enum": [
             "COPY",
@@ -17619,7 +17619,7 @@ func init() {
           "type": "string"
         },
         "type": {
-          "description": "Specifies the type of replication operation to perform. 'COPY' creates a new replica on the target node while keeping the source replica. 'MOVE' creates a new replica on the target node and then removes the source replica upon successful completion. Defaults to 'COPY' if omitted.",
+          "description": "Specifies the type of replication operation to perform. ` + "`" + `COPY` + "`" + ` creates a new replica on the target node while keeping the source replica. ` + "`" + `MOVE` + "`" + ` creates a new replica on the target node and then removes the source replica upon successful completion. Defaults to ` + "`" + `COPY` + "`" + ` if omitted.",
           "type": "string",
           "default": "COPY",
           "enum": [
@@ -17850,7 +17850,7 @@ func init() {
       "description": "Either set beacon (direct reference) or set collection (class) and schema (concept reference)",
       "properties": {
         "beacon": {
-          "description": "If using a direct reference, specify the URI to point to the cross-ref here. Should be in the form of weaviate://localhost/\u003cuuid\u003e for the example of a local cross-ref to an object",
+          "description": "If using a direct reference, specify the URI to point to the cross-reference here. Should be in the form of weaviate://localhost/\u003cuuid\u003e for the example of a local cross-reference to an object",
           "type": "string",
           "format": "uri"
         },
@@ -17931,7 +17931,7 @@ func init() {
       }
     },
     "StopwordConfig": {
-      "description": "fine-grained control over stopword list usage",
+      "description": "Fine-grained control over stopword list usage.",
       "type": "object",
       "properties": {
         "additions": {
@@ -17942,7 +17942,7 @@ func init() {
           }
         },
         "preset": {
-          "description": "Pre-existing list of common words by language (default: 'en'). Options: ['en', 'none'].",
+          "description": "Pre-existing list of common words by language (default: ` + "`" + `en` + "`" + `). Options: [` + "`" + `en` + "`" + `, ` + "`" + `none` + "`" + `].",
           "type": "string"
         },
         "removals": {
@@ -18058,7 +18058,7 @@ func init() {
       }
     },
     "VectorWeights": {
-      "description": "Allow custom overrides of vector weights as math expressions. E.g. \"pancake\": \"7\" will set the weight for the word pancake to 7 in the vectorization, whereas \"w * 3\" would triple the originally calculated word. This is an open object, with OpenAPI Specification 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value (string/string) object.",
+      "description": "Allow custom overrides of vector weights as math expressions. E.g. ` + "`" + `pancake` + "`" + `: ` + "`" + `7` + "`" + ` will set the weight for the word pancake to 7 in the vectorization, whereas ` + "`" + `w * 3` + "`" + ` would triple the originally calculated word. This is an open object, with OpenAPI Specification 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value (string/string) object.",
       "type": "object"
     },
     "Vectors": {
@@ -18314,7 +18314,7 @@ func init() {
     "CommonOutputVerbosityParameterQuery": {
       "type": "string",
       "default": "minimal",
-      "description": "Controls the verbosity of the output, possible values are: \"minimal\", \"verbose\". Defaults to \"minimal\".",
+      "description": "Controls the verbosity of the output, possible values are: ` + "`" + `minimal` + "`" + `, ` + "`" + `verbose` + "`" + `. Defaults to ` + "`" + `minimal` + "`" + `.",
       "name": "output",
       "in": "query"
     },
