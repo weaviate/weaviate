@@ -40,7 +40,7 @@ func (suite *ReplicationTestSuite) TestReplicationFactorIncrease() {
 		WithText2VecContextionary().
 		WithWeaviateEnv("PERSISTENCE_MAX_REUSE_WAL_SIZE", "0").
 		WithWeaviateEnv("PERSISTENCE_MEMTABLES_FLUSH_DIRTY_AFTER_SECONDS", "1"). // flush fast enough so object counts are correct
-		WithWeaviateEnv("ASYNC_REPLICATION_FREQUENCY", "500*time.Millisecond").
+		WithWeaviateEnv("ASYNC_REPLICATION_FREQUENCY", "500ms").
 		Start(ctx)
 	require.Nil(t, err)
 	defer func() {
