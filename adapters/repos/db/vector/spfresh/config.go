@@ -85,8 +85,8 @@ func DefaultConfig() *Config {
 		Logger:                    logrus.New(),
 		Distancer:                 distancer.NewL2SquaredProvider(),
 		MinPostingSize:            10,
-		SplitWorkers:              w - 4,
-		ReassignWorkers:           w - 4,
+		SplitWorkers:              w,
+		ReassignWorkers:           w,
 		InternalPostingCandidates: 64,
 		SearchProbe:               64,
 		ReassignNeighbors:         8,
@@ -150,11 +150,4 @@ func (s *SPFresh) setMaxPostingSize() {
 	if s.config.MaxPostingSize <= s.config.MinPostingSize {
 		s.config.MinPostingSize = s.config.MaxPostingSize / 2
 	}
-
-	fmt.Println("max posting size:", s.config.MaxPostingSize)
-	fmt.Println("min posting size:", s.config.MinPostingSize)
-	fmt.Println("rng factor:", s.config.RNGFactor)
-	fmt.Println("distance function:", s.config.Distancer.Type())
-
-	fmt.Println(int(s.config.MaxPostingSize)*(int(s.dims)+9+compressionhelpers.RQMetadataSize), "bytes per posting (compressed)")
 }
