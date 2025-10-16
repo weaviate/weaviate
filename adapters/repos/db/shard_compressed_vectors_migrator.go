@@ -134,12 +134,19 @@ func (m compressedVectorsMigrator) migrate(targetVector string,
 			return err
 		}
 		m.logger.Infof("renamed old vectors compressed bucket for target vector: %s", targetVector)
-		if err := os.Chdir(lsmDir); err != nil {
-			return err
-		}
-		err := os.Symlink(targetVectorBucket, vectorsCompressedPath)
+		cwd, err := os.Getwd()
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to get current working directory: %w", err)
+		}
+		if err := os.Chdir(lsmDir); err != nil {
+			return fmt.Errorf("failed to set the current working directory to %s: %w", lsmDir, err)
+		}
+		err = os.Symlink(targetVectorBucket, helpers.VectorsCompressedBucketLSM)
+		if err != nil {
+			return fmt.Errorf("failed to create a symlink: %w", err)
+		}
+		if err := os.Chdir(cwd); err != nil {
+			return fmt.Errorf("failed to set the current working back to %s: %w", cwd, err)
 		}
 		m.logger.Infof("created symbolic link to old vectors compressed folder for target vector: %s", targetVector)
 		return nil
