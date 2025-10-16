@@ -673,22 +673,32 @@ func (c *readObserverCache) GetOrCreate(key string, metrics *Metrics) BytesReadO
 	return observer
 }
 
-// TODO: locking?
+// WARNING: This method is NOT thread-safe on its own. The caller must ensure
+// that it is safe to read and manipulate the refs. In practice, this is done
+// using a SegmentGroup.segmentRefCounterLock which both protects against racy
+// access, as well as guarantees a consistent view across refs of ALL segments
+// in the group.
 func (s *segment) incRef() {
-	// fmt.Printf("%s: INCREF %p %d -> %d\n", s.getPath(), s, s.refCount, s.refCount+1)
 	s.refCount++
 }
 
-// TODO: locking?
+// WARNING: This method is NOT thread-safe on its own. The caller must ensure
+// that it is safe to read and manipulate the refs. In practice, this is done
+// using a SegmentGroup.segmentRefCounterLock which both protects against racy
+// access, as well as guarantees a consistent view across refs of ALL segments
+// in the group.
 func (s *segment) decRef() {
-	// fmt.Printf("%s: DECREF %p %d -> %d\n", s.getPath(), s, s.refCount, s.refCount-1)
 	if s.refCount <= 0 {
 		panic("refCount already zero")
 	}
 	s.refCount--
 }
 
-// TODO: locking?
+// WARNING: This method is NOT thread-safe on its own. The caller must ensure
+// that it is safe to read and manipulate the refs. In practice, this is done
+// using a SegmentGroup.segmentRefCounterLock which both protects against racy
+// access, as well as guarantees a consistent view across refs of ALL segments
+// in the group.
 func (s *segment) getRefs() int {
 	return s.refCount
 }
