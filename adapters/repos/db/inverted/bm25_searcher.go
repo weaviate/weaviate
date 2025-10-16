@@ -44,14 +44,15 @@ import (
 )
 
 type BM25Searcher struct {
-	config         schema.BM25Config
-	store          *lsmkv.Store
-	getClass       func(string) *models.Class
-	classSearcher  ClassSearcher // to allow recursive searches on ref-props
-	propIndices    propertyspecific.Indices
-	propLenTracker propLengthRetriever
-	logger         logrus.FieldLogger
-	shardVersion   uint16
+	config           schema.BM25Config
+	store            *lsmkv.Store
+	getClass         func(string) *models.Class
+	classSearcher    ClassSearcher // to allow recursive searches on ref-props
+	propIndices      propertyspecific.Indices
+	propLenTracker   propLengthRetriever
+	logger           logrus.FieldLogger
+	shardVersion     uint16
+	stopWordDetector stopwords.StopwordDetector
 }
 
 type propLengthRetriever interface {
@@ -68,18 +69,20 @@ type termListRequest struct {
 
 func NewBM25Searcher(config schema.BM25Config, store *lsmkv.Store,
 	getClass func(string) *models.Class, propIndices propertyspecific.Indices,
-	classSearcher ClassSearcher, propLenTracker propLengthRetriever,
+	classSearcher ClassSearcher, stopwords stopwords.StopwordDetector,
+	propLenTracker propLengthRetriever,
 	logger logrus.FieldLogger, shardVersion uint16,
 ) *BM25Searcher {
 	return &BM25Searcher{
-		config:         config,
-		store:          store,
-		getClass:       getClass,
-		propIndices:    propIndices,
-		classSearcher:  classSearcher,
-		propLenTracker: propLenTracker,
-		logger:         logger.WithField("action", "bm25_search"),
-		shardVersion:   shardVersion,
+		config:           config,
+		store:            store,
+		getClass:         getClass,
+		propIndices:      propIndices,
+		classSearcher:    classSearcher,
+		propLenTracker:   propLenTracker,
+		logger:           logger.WithField("action", "bm25_search"),
+		shardVersion:     shardVersion,
+		stopWordDetector: stopwords,
 	}
 }
 
@@ -145,15 +148,6 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 	// which would require the old WAND implementation.
 	allBucketsAreInverted := true
 
-	var stopWordDetector *stopwords.Detector
-	if class.InvertedIndexConfig != nil && class.InvertedIndexConfig.Stopwords != nil {
-		var err error
-		stopWordDetector, err = stopwords.NewDetectorFromConfig(*(class.InvertedIndexConfig.Stopwords))
-		if err != nil {
-			return false, 0, nil, nil, nil, nil, 0, err
-		}
-	}
-
 	// There are currently cases, for different tokenization:
 	// word, lowercase, whitespace and field.
 	// Query is tokenized and respective properties are then searched for the search terms,
@@ -171,7 +165,7 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 		// stopword filtering for word tokenization
 		if tokenization == models.PropertyTokenizationWord {
 			queryTerms, dupBoosts = b.removeStopwordsFromQueryTerms(queryTermsByTokenization[tokenization],
-				duplicateBoostsByTokenization[tokenization], stopWordDetector)
+				duplicateBoostsByTokenization[tokenization], b.stopWordDetector)
 			queryTermsByTokenization[tokenization] = queryTerms
 			duplicateBoostsByTokenization[tokenization] = dupBoosts
 		}
@@ -371,7 +365,7 @@ func (b *BM25Searcher) wand(
 }
 
 func (b *BM25Searcher) removeStopwordsFromQueryTerms(queryTerms []string,
-	duplicateBoost []int, detector *stopwords.Detector,
+	duplicateBoost []int, detector stopwords.StopwordDetector,
 ) ([]string, []int) {
 	if detector == nil || len(queryTerms) == 0 {
 		return queryTerms, duplicateBoost
