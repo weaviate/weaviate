@@ -255,6 +255,14 @@ type Index struct {
 	// RUnlock all picked indices
 	dropIndex sync.RWMutex
 
+	// The other locks in the index should always be called in the given order to prevent deadlocks:
+	// 1. closeLock
+	// 2. backupLock (for a specific shard)
+	// 3. shardCreateLocks (for a specific shard)
+	closeLock        sync.RWMutex       // protects against closing while doing operations
+	backupLock       *esync.KeyRWLocker // prevents writes while a backup is running
+	shardCreateLocks *esync.KeyLocker   // prevents concurrent shard status changes
+
 	metrics          *Metrics
 	centralJobQueue  chan job
 	scheduler        *queue.Scheduler
@@ -262,8 +270,7 @@ type Index struct {
 
 	cycleCallbacks *indexCycleCallbacks
 
-	shardTransferMutex shardTransfer
-	lastBackup         atomic.Pointer[BackupState]
+	lastBackup atomic.Pointer[BackupState]
 
 	// canceled when either Shutdown or Drop called
 	closingCtx    context.Context
@@ -271,16 +278,14 @@ type Index struct {
 
 	// always true if lazy shard loading is off, in the case of lazy shard
 	// loading will be set to true once the last shard was loaded.
-	allShardsReady   atomic.Bool
-	allocChecker     memwatch.AllocChecker
-	shardCreateLocks *esync.KeyLocker
+	allShardsReady atomic.Bool
+	allocChecker   memwatch.AllocChecker
 
 	replicationConfigLock sync.RWMutex
 
 	shardLoadLimiter ShardLoadLimiter
 
-	closeLock sync.RWMutex
-	closed    bool
+	closed bool
 
 	shardReindexer ShardReindexerV3
 
@@ -360,7 +365,7 @@ func NewIndex(
 		remote:                  sharding.NewRemoteIndex(cfg.ClassName.String(), sg, nodeResolver, remoteClient),
 		metrics:                 metrics,
 		centralJobQueue:         jobQueueCh,
-		shardTransferMutex:      shardTransfer{log: logger, retryDuration: mutexRetryDuration, notifyDuration: mutexNotifyDuration},
+		backupLock:              esync.NewKeyRWLocker(),
 		scheduler:               scheduler,
 		indexCheckpoints:        indexCheckpoints,
 		allocChecker:            allocChecker,
@@ -915,8 +920,8 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object,
 	}
 
 	// no replication, local shard
-	i.shardTransferMutex.RLock()
-	defer i.shardTransferMutex.RUnlock()
+	i.backupLock.RLock(shardName)
+	defer i.backupLock.RUnlock(shardName)
 
 	err = shard.PutObject(ctx, object)
 	if err != nil {
@@ -929,9 +934,6 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object,
 func (i *Index) IncomingPutObject(ctx context.Context, shardName string,
 	object *storobj.Object, schemaVersion uint64,
 ) error {
-	i.shardTransferMutex.RLock()
-	defer i.shardTransferMutex.RUnlock()
-
 	// This is a bit hacky, the problem here is that storobj.Parse() currently
 	// misses date fields as it has no way of knowing that a date-formatted
 	// string was actually a date type. However, adding this functionality to
@@ -942,6 +944,9 @@ func (i *Index) IncomingPutObject(ctx context.Context, shardName string,
 	if err := i.parseDateFieldsInProps(object.Object.Properties); err != nil {
 		return err
 	}
+
+	i.backupLock.RLock(shardName)
+	defer i.backupLock.RUnlock(shardName)
 
 	shard, release, err := i.getOrInitShard(ctx, shardName)
 	if err != nil {
@@ -1234,10 +1239,12 @@ func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 				if err != nil {
 					errs = []error{err}
 				} else if shard != nil {
-					i.shardTransferMutex.RLockGuard(func() error {
+					func() {
+						i.backupLock.RLock(shardName)
+						defer i.backupLock.RUnlock(shardName)
+						defer release()
 						errs = shard.PutObjectBatch(ctx, group.objects)
-						return nil
-					})
+					}()
 				} else {
 					errs = i.remote.BatchPutObjects(ctx, shardName, group.objects, schemaVersion)
 				}
@@ -1268,9 +1275,6 @@ func duplicateErr(in error, count int) []error {
 func (i *Index) IncomingBatchPutObjects(ctx context.Context, shardName string,
 	objects []*storobj.Object, schemaVersion uint64,
 ) []error {
-	i.shardTransferMutex.RLock()
-	defer i.shardTransferMutex.RUnlock()
-
 	// This is a bit hacky, the problem here is that storobj.Parse() currently
 	// misses date fields as it has no way of knowing that a date-formatted
 	// string was actually a date type. However, adding this functionality to
@@ -1283,6 +1287,9 @@ func (i *Index) IncomingBatchPutObjects(ctx context.Context, shardName string,
 			return duplicateErr(err, len(objects))
 		}
 	}
+
+	i.backupLock.RLock(shardName)
+	defer i.backupLock.RUnlock(shardName)
 
 	shard, release, err := i.getOrInitShard(ctx, shardName)
 	if err != nil {
@@ -1335,21 +1342,19 @@ func (i *Index) AddReferencesBatch(ctx context.Context, refs objects.BatchRefere
 		if i.shardHasMultipleReplicasWrite(tenantName, shardName) {
 			errs = i.replicator.AddReferences(ctx, shardName, group.refs, routerTypes.ConsistencyLevel(replProps.ConsistencyLevel), schemaVersion)
 		} else {
-			// anonymous function to ensure that the shard is released after each loop iteration
-			func() {
-				shard, release, err := i.getShardForDirectLocalOperation(ctx, tenantName, shardName, localShardOperationWrite)
-				defer release()
-				if err != nil {
-					errs = duplicateErr(err, len(group.refs))
-				} else if shard != nil {
-					i.shardTransferMutex.RLockGuard(func() error {
-						errs = shard.AddReferencesBatch(ctx, group.refs)
-						return nil
-					})
-				} else {
-					errs = i.remote.BatchAddReferences(ctx, shardName, group.refs, schemaVersion)
-				}
-			}()
+			shard, release, err := i.getShardForDirectLocalOperation(ctx, tenantName, shardName, localShardOperationWrite)
+			if err != nil {
+				errs = duplicateErr(err, len(group.refs))
+			} else if shard != nil {
+				func() {
+					i.backupLock.RLock(shardName)
+					defer i.backupLock.RUnlock(shardName)
+					defer release()
+					errs = shard.AddReferencesBatch(ctx, group.refs)
+				}()
+			} else {
+				errs = i.remote.BatchAddReferences(ctx, shardName, group.refs, schemaVersion)
+			}
 		}
 
 		for i, err := range errs {
@@ -1364,8 +1369,8 @@ func (i *Index) AddReferencesBatch(ctx context.Context, refs objects.BatchRefere
 func (i *Index) IncomingBatchAddReferences(ctx context.Context, shardName string,
 	refs objects.BatchReferences, schemaVersion uint64,
 ) []error {
-	i.shardTransferMutex.RLock()
-	defer i.shardTransferMutex.RUnlock()
+	i.backupLock.RLock(shardName)
+	defer i.backupLock.RUnlock(shardName)
 
 	shard, release, err := i.getOrInitShard(ctx, shardName)
 	if err != nil {
@@ -2215,8 +2220,8 @@ func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID,
 	}
 
 	// no replication, local shard
-	i.shardTransferMutex.RLock()
-	defer i.shardTransferMutex.RUnlock()
+	i.backupLock.RLock(shardName)
+	defer i.backupLock.RUnlock(shardName)
 	if err = shard.DeleteObject(ctx, id, deletionTime); err != nil {
 		return fmt.Errorf("delete local object: shard=%q: %w", shardName, err)
 	}
@@ -2226,8 +2231,8 @@ func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID,
 func (i *Index) IncomingDeleteObject(ctx context.Context, shardName string,
 	id strfmt.UUID, deletionTime time.Time, schemaVersion uint64,
 ) error {
-	i.shardTransferMutex.RLock()
-	defer i.shardTransferMutex.RUnlock()
+	i.backupLock.RLock(shardName)
+	defer i.backupLock.RUnlock(shardName)
 
 	shard, release, err := i.getOrInitShard(ctx, shardName)
 	if err != nil {
@@ -2422,8 +2427,8 @@ func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument,
 	}
 
 	// no replication, local shard
-	i.shardTransferMutex.RLock()
-	defer i.shardTransferMutex.RUnlock()
+	i.backupLock.RLock(shardName)
+	defer i.backupLock.RUnlock(shardName)
 	if err = shard.MergeObject(ctx, merge); err != nil {
 		return fmt.Errorf("update local object: shard=%q: %w", shardName, err)
 	}
@@ -2434,8 +2439,8 @@ func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument,
 func (i *Index) IncomingMergeObject(ctx context.Context, shardName string,
 	mergeDoc objects.MergeDocument, schemaVersion uint64,
 ) error {
-	i.shardTransferMutex.RLock()
-	defer i.shardTransferMutex.RUnlock()
+	i.backupLock.RLock(shardName)
+	defer i.backupLock.RUnlock(shardName)
 
 	shard, release, err := i.getOrInitShard(ctx, shardName)
 	if err != nil {
@@ -2502,9 +2507,6 @@ func (i *Index) IncomingAggregate(ctx context.Context, shardName string,
 }
 
 func (i *Index) drop() error {
-	i.shardTransferMutex.RLock()
-	defer i.shardTransferMutex.RUnlock()
-
 	i.closeLock.Lock()
 	defer i.closeLock.Unlock()
 
@@ -2521,6 +2523,9 @@ func (i *Index) drop() error {
 	fields := logrus.Fields{"action": "drop_shard", "class": i.Config.ClassName}
 	dropShard := func(shardName string, _ ShardLike) error {
 		eg.Go(func() error {
+			i.backupLock.RLock(shardName)
+			defer i.backupLock.RUnlock(shardName)
+
 			i.shardCreateLocks.Lock(shardName)
 			defer i.shardCreateLocks.Unlock(shardName)
 
@@ -2563,9 +2568,6 @@ func (i *Index) DropShard(name string) error {
 }
 
 func (i *Index) dropShards(names []string) error {
-	i.shardTransferMutex.RLock()
-	defer i.shardTransferMutex.RUnlock()
-
 	i.closeLock.RLock()
 	defer i.closeLock.RUnlock()
 
@@ -2580,6 +2582,8 @@ func (i *Index) dropShards(names []string) error {
 	for _, name := range names {
 		name := name
 		eg.Go(func() error {
+			i.backupLock.RLock(name)
+			defer i.backupLock.RUnlock(name)
 			i.shardCreateLocks.Lock(name)
 			defer i.shardCreateLocks.Unlock(name)
 
@@ -2608,9 +2612,6 @@ func (i *Index) dropShards(names []string) error {
 }
 
 func (i *Index) dropCloudShards(ctx context.Context, cloud modulecapabilities.OffloadCloud, names []string, nodeId string) error {
-	i.shardTransferMutex.RLock()
-	defer i.shardTransferMutex.RUnlock()
-
 	i.closeLock.RLock()
 	defer i.closeLock.RUnlock()
 
@@ -2623,8 +2624,9 @@ func (i *Index) dropCloudShards(ctx context.Context, cloud modulecapabilities.Of
 	eg.SetLimit(_NUMCPU * 2)
 
 	for _, name := range names {
-		name := name
 		eg.Go(func() error {
+			i.backupLock.RLock(name)
+			defer i.backupLock.RUnlock(name)
 			i.shardCreateLocks.Lock(name)
 			defer i.shardCreateLocks.Unlock(name)
 
@@ -2642,9 +2644,6 @@ func (i *Index) dropCloudShards(ctx context.Context, cloud modulecapabilities.Of
 }
 
 func (i *Index) Shutdown(ctx context.Context) error {
-	i.shardTransferMutex.RLock()
-	defer i.shardTransferMutex.RUnlock()
-
 	i.closeLock.Lock()
 	defer i.closeLock.Unlock()
 
@@ -2658,6 +2657,9 @@ func (i *Index) Shutdown(ctx context.Context) error {
 
 	// TODO allow every resource cleanup to run, before returning early with error
 	if err := i.shards.RangeConcurrently(i.logger, func(name string, shard ShardLike) error {
+		i.backupLock.RLock(name)
+		defer i.backupLock.RUnlock(name)
+
 		if err := shard.Shutdown(ctx); err != nil {
 			if !errors.Is(err, errAlreadyShutdown) {
 				return errors.Wrapf(err, "shutdown shard %q", name)
@@ -2938,12 +2940,13 @@ func (i *Index) batchDeleteObjects(ctx context.Context, shardUUIDs map[string][]
 					objs = objects.BatchSimpleObjects{
 						objects.BatchSimpleObject{Err: err},
 					}
-				}
-				if shard != nil {
-					i.shardTransferMutex.RLockGuard(func() error {
+				} else if shard != nil {
+					func() {
+						i.backupLock.RLock(shardName)
+						defer i.backupLock.RUnlock(shardName)
+						defer release()
 						objs = shard.DeleteObjectBatch(ctx, uuids, deletionTime, dryRun)
-						return nil
-					})
+					}()
 				} else {
 					objs = i.remote.DeleteObjectBatch(ctx, shardName, uuids, deletionTime, dryRun, schemaVersion)
 				}
@@ -2968,8 +2971,8 @@ func (i *Index) batchDeleteObjects(ctx context.Context, shardUUIDs map[string][]
 func (i *Index) IncomingDeleteObjectBatch(ctx context.Context, shardName string,
 	uuids []strfmt.UUID, deletionTime time.Time, dryRun bool, schemaVersion uint64,
 ) objects.BatchSimpleObjects {
-	i.shardTransferMutex.RLock()
-	defer i.shardTransferMutex.RUnlock()
+	i.backupLock.RLock(shardName)
+	defer i.backupLock.RUnlock(shardName)
 
 	shard, release, err := i.getOrInitShard(ctx, shardName)
 	if err != nil {
@@ -3153,190 +3156,6 @@ func (i *Index) tenantDirExists(tenantName string) (bool, error) {
 	}
 	return true, nil
 }
-
-// CalculateUnloadedObjectsMetrics calculates both object count and storage size for a cold tenant without loading it into memory
-// func (i *Index) CalculateUnloadedObjectsMetrics(ctx context.Context, tenantName string) (usagetypes.ObjectUsage, error) {
-// 	// Obtain a lock that prevents tenant activation
-// 	i.shardCreateLocks.Lock(tenantName)
-// 	defer i.shardCreateLocks.Unlock(tenantName)
-
-// 	// check if created in the meantime by concurrent call
-// 	if shard := i.shards.Loaded(tenantName); shard != nil {
-// 		size, err := shard.ObjectStorageSize(ctx)
-// 		if err != nil {
-// 			return usagetypes.ObjectUsage{}, err
-// 		}
-
-// 		count, err := shard.ObjectCountAsync(ctx)
-// 		if err != nil {
-// 			return usagetypes.ObjectUsage{}, err
-// 		}
-
-// 		return usagetypes.ObjectUsage{
-// 			Count:        count,
-// 			StorageBytes: size,
-// 		}, nil
-// 	}
-
-// 	if ok, err := i.tenantDirExists(tenantName); err != nil {
-// 		return usagetypes.ObjectUsage{}, err
-// 	} else if !ok {
-// 		return usagetypes.ObjectUsage{Count: 0, StorageBytes: 0}, nil
-// 	}
-
-// 	// Parse all .cna files in the object store and sum them up
-// 	totalObjectCount := int64(0)
-// 	totalDiskSize := int64(0)
-
-// 	// Use a single walk to avoid multiple filepath.Walk calls and reduce file descriptors
-// 	if err := filepath.Walk(shardPathObjectsLSM(i.path(), tenantName), func(path string, info os.FileInfo, err error) error {
-// 		if err != nil {
-// 			return err
-// 		}
-
-// 		// Only count files, not directories
-// 		if !info.IsDir() {
-// 			totalDiskSize += info.Size()
-
-// 			// Look for .cna files (net count additions)
-// 			if strings.HasSuffix(info.Name(), lsmkv.CountNetAdditionsFileSuffix) {
-// 				count, err := lsmkv.ReadCountNetAdditionsFile(path)
-// 				if err != nil {
-// 					i.logger.WithField("path", path).WithError(err).Warn("failed to read .cna file")
-// 					return err
-// 				}
-// 				totalObjectCount += count
-// 			}
-
-// 			// Look for .metadata files (bloom filters + count net additions)
-// 			if strings.HasSuffix(info.Name(), lsmkv.MetadataFileSuffix) {
-// 				count, err := lsmkv.ReadObjectCountFromMetadataFile(path)
-// 				if err != nil {
-// 					i.logger.WithField("path", path).WithError(err).Warn("failed to read .metadata file")
-// 					return err
-// 				}
-// 				totalObjectCount += count
-// 			}
-// 		}
-
-// 		return nil
-// 	}); err != nil {
-// 		return usagetypes.ObjectUsage{}, err
-// 	}
-
-// 	// If we can't determine object count, return the disk size as fallback
-// 	return usagetypes.ObjectUsage{
-// 		Count:        totalObjectCount,
-// 		StorageBytes: totalDiskSize,
-// 	}, nil
-// }
-
-// CalculateUnloadedDimensionsUsage calculates dimensions and object count for an unloaded shard without loading it into memory
-// func (i *Index) CalculateUnloadedDimensionsUsage(ctx context.Context, tenantName, targetVector string,
-// ) (usagetypes.Dimensionality, error) {
-// 	// Obtain a lock that prevents tenant activation
-// 	i.shardCreateLocks.Lock(tenantName)
-// 	defer i.shardCreateLocks.Unlock(tenantName)
-
-// 	// check if created in the meantime by concurrent call
-// 	if shard := i.shards.Loaded(tenantName); shard != nil {
-// 		return shard.DimensionsUsage(ctx, targetVector)
-// 	}
-
-// 	if ok, err := i.tenantDirExists(tenantName); err != nil {
-// 		return usagetypes.Dimensionality{}, err
-// 	} else if !ok {
-// 		return usagetypes.Dimensionality{Count: 0, Dimensions: 0}, nil
-// 	}
-
-// 	bucketPath := shardPathDimensionsLSM(i.path(), tenantName)
-// 	strategy, err := lsmkv.DetermineUnloadedBucketStrategyAmong(bucketPath, DimensionsBucketPrioritizedStrategies)
-// 	if err != nil {
-// 		return usagetypes.Dimensionality{}, fmt.Errorf("determine dimensions bucket strategy: %w", err)
-// 	}
-
-// 	bucket, err := lsmkv.NewBucketCreator().NewBucket(ctx,
-// 		bucketPath,
-// 		i.path(),
-// 		i.logger,
-// 		nil,
-// 		cyclemanager.NewCallbackGroupNoop(),
-// 		cyclemanager.NewCallbackGroupNoop(),
-// 		lsmkv.WithStrategy(strategy),
-// 	)
-// 	if err != nil {
-// 		return usagetypes.Dimensionality{}, err
-// 	}
-// 	defer bucket.Shutdown(ctx)
-
-// 	return calcTargetVectorDimensionsFromBucket(ctx, bucket, targetVector)
-// }
-
-// CalculateUnloadedVectorsMetrics calculates vector storage size for a cold tenant without loading it into memory
-// func (i *Index) CalculateUnloadedVectorsMetrics(ctx context.Context, tenantName string) (int64, error) {
-// 	// Obtain a lock that prevents tenant activation
-// 	i.shardCreateLocks.Lock(tenantName)
-// 	defer i.shardCreateLocks.Unlock(tenantName)
-
-// 	// check if created in the meantime by concurrent call
-// 	if shard := i.shards.Loaded(tenantName); shard != nil {
-// 		return shard.VectorStorageSize(ctx)
-// 	}
-
-// 	if ok, err := i.tenantDirExists(tenantName); err != nil {
-// 		return 0, err
-// 	} else if !ok {
-// 		return 0, nil
-// 	}
-
-// 	totalSize := int64(0)
-
-// 	// For each target vector, calculate storage size using dimensions bucket and config-based compression
-// 	for targetVector, config := range i.GetVectorIndexConfigs() {
-// 		err := func() error {
-// 			bucketPath := shardPathDimensionsLSM(i.path(), tenantName)
-// 			strategy, err := lsmkv.DetermineUnloadedBucketStrategyAmong(bucketPath, DimensionsBucketPrioritizedStrategies)
-// 			if err != nil {
-// 				return fmt.Errorf("determine dimensions bucket strategy: %w", err)
-// 			}
-
-// 			// Get dimensions and object count from the dimensions bucket
-// 			bucket, err := lsmkv.NewBucketCreator().NewBucket(ctx,
-// 				bucketPath,
-// 				i.path(),
-// 				i.logger,
-// 				nil,
-// 				cyclemanager.NewCallbackGroupNoop(),
-// 				cyclemanager.NewCallbackGroupNoop(),
-// 				lsmkv.WithStrategy(strategy),
-// 			)
-// 			if err != nil {
-// 				return err
-// 			}
-// 			defer bucket.Shutdown(ctx)
-
-// 			dimensionality, err := calcTargetVectorDimensionsFromBucket(ctx, bucket, targetVector)
-// 			if err != nil {
-// 				return err
-// 			}
-
-// 			if dimensionality.Count != 0 && dimensionality.Dimensions != 0 {
-// 				// Calculate uncompressed size (float32 = 4 bytes per dimension)
-// 				uncompressedSize := int64(dimensionality.Count) * int64(dimensionality.Dimensions) * 4
-
-// 				// For inactive tenants, use vector index config for dimension tracking
-// 				// This is similar to the original shard dimension tracking approach
-// 				totalSize += int64(float64(uncompressedSize) / helpers.CompressionRatioFromConfig(config, dimensionality.Dimensions))
-// 			}
-// 			return nil
-// 		}()
-// 		if err != nil {
-// 			return 0, err
-// 		}
-// 	}
-
-// 	return totalSize, nil
-// }
 
 func (i *Index) buildReadRoutingPlan(cl routerTypes.ConsistencyLevel, tenantName string) (routerTypes.ReadRoutingPlan, error) {
 	planOptions := routerTypes.RoutingPlanBuildOptions{
