@@ -145,10 +145,12 @@ type stats struct {
 
 func newStats() *stats {
 	return &stats{
-		processingTimeEma: 0,
+		// Start assuming the batch size is correct. This will reduce if the batch size should be larger.
+		processingTimeEma: 1,
 		// Start with a mid-range batch size of 100 (min 10, max 1000)
-		batchSize:     100,
-		throughputEma: 0,
+		batchSize: 100,
+		// Start at default batchSize / default processingTimeEma
+		throughputEma: 100,
 	}
 }
 
@@ -197,13 +199,13 @@ func (s *stats) getThroughputEma() float64 {
 }
 
 // Cubic backoff function based on processing queue utilisation:
-// backoff(r) = b * max(0, (r - 0.6) / 0.4) ^ 3, with b = 1s
+// backoff(r) = b * max(0, (r - 0.4) / 0.6) ^ 3, with b = 1s
 // E.g.
-//   - usageRatio = 0.6 -> 0s
-//   - usageRatio = 0.8 -> 0.13s
-//   - usageRatio = 0.9 -> 0.42s
+//   - usageRatio = 0.4 -> 0s
+//   - usageRatio = 0.6 -> 0.037s
+//   - usageRatio = 0.8 -> 0.296s
 //   - usageRatio = 1.0 -> 1s
 func (h *StreamHandler) thresholdCubicBackoff() float32 {
 	usageRatio := float32(len(h.processingQueue)) / float32(cap(h.processingQueue))
-	return float32(IDEAL_PROCESSING_TIME) * float32(math.Pow(float64(max(0, (usageRatio-0.6)/0.4)), 3))
+	return float32(IDEAL_PROCESSING_TIME) * float32(math.Pow(float64(max(0, (usageRatio-0.4)/0.6)), 3))
 }
