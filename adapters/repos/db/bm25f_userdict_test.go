@@ -144,14 +144,13 @@ func TestBM25FUserDictTest(t *testing.T) {
 	require.Nil(t, repo.WaitForStartup(context.TODO()))
 	defer repo.Shutdown(context.Background())
 
-	props, migrator := SetupUserDictClass(t, repo, schemaGetter, logger, 0.5, 1)
+	props, migrator := SetupUserDictClass(t, repo, schemaGetter, logger, config.DefaultBM25k1, config.DefaultBM25b)
 	className := schema.ClassName("MyClass")
 	idx := repo.GetIndex(className)
 	require.NotNil(t, idx)
 
 	for _, location := range []string{"memory", "disk"} {
 		t.Run("bm25f Aviate "+location, func(t *testing.T) {
-			// Check boosted
 			kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title"}, Query: "Aviate"}
 			addit := additional.Properties{}
 			res, scores, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0, props)
@@ -166,13 +165,12 @@ func TestBM25FUserDictTest(t *testing.T) {
 			require.Equal(t, uint64(1), res[2].DocID)
 
 			// Check scores
-			EqualFloats(t, float32(0.24735281), scores[0], 5)
-			EqualFloats(t, float32(0.18638557), scores[1], 5)
-			EqualFloats(t, float32(0.17412336), scores[2], 5)
+			EqualFloats(t, float32(0.18053718), scores[0], 5)
+			EqualFloats(t, float32(0.12627266), scores[1], 5)
+			EqualFloats(t, float32(0.11628625), scores[2], 5)
 		})
 
 		t.Run("bm25f Weaviate "+location, func(t *testing.T) {
-			// Check boosted
 			kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title"}, Query: "Weaviate"}
 			addit := additional.Properties{}
 			res, scores, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0, props)
@@ -187,13 +185,12 @@ func TestBM25FUserDictTest(t *testing.T) {
 			require.Equal(t, uint64(1), res[2].DocID)
 
 			// Check scores
-			EqualFloats(t, float32(1.0845481), scores[0], 5)
-			EqualFloats(t, float32(0.24735281), scores[1], 5)
-			EqualFloats(t, float32(0.17412336), scores[2], 5)
+			EqualFloats(t, float32(0.73476064), scores[0], 5)
+			EqualFloats(t, float32(0.18053718), scores[1], 5)
+			EqualFloats(t, float32(0.11628625), scores[2], 5)
 		})
 
 		t.Run("bm25f We Aviate "+location, func(t *testing.T) {
-			// Check boosted
 			kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title"}, Query: "We Aviate"}
 			addit := additional.Properties{}
 			res, scores, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0, props)
@@ -208,9 +205,9 @@ func TestBM25FUserDictTest(t *testing.T) {
 			require.Equal(t, uint64(4), res[2].DocID)
 
 			// Check scores
-			EqualFloats(t, float32(1.0302471), scores[0], 5)
-			EqualFloats(t, float32(0.93770987), scores[1], 5)
-			EqualFloats(t, float32(0.40645638), scores[2], 5)
+			EqualFloats(t, float32(0.68803847), scores[0], 5)
+			EqualFloats(t, float32(0.61507285), scores[1], 5)
+			EqualFloats(t, float32(0.2856433), scores[2], 5)
 		})
 
 		for _, index := range repo.indices {
@@ -246,9 +243,9 @@ func TestBM25FUserDictTest(t *testing.T) {
 			require.Equal(t, uint64(3), res[2].DocID)
 
 			// Check scores
-			EqualFloats(t, float32(0.40645638), scores[0], 5)
-			EqualFloats(t, float32(0.32623473), scores[1], 5)
-			EqualFloats(t, float32(0.2969322), scores[2], 5)
+			EqualFloats(t, float32(0.2856433), scores[0], 5)
+			EqualFloats(t, float32(0.21787204), scores[1], 5)
+			EqualFloats(t, float32(0.194767), scores[2], 5)
 		})
 
 		t.Run("bm25f Weaviate", func(t *testing.T) {
@@ -267,9 +264,9 @@ func TestBM25FUserDictTest(t *testing.T) {
 			require.Equal(t, uint64(3), res[2].DocID)
 
 			// Check scores
-			EqualFloats(t, float32(0.40645638), scores[0], 5)
-			EqualFloats(t, float32(0.32623473), scores[1], 5)
-			EqualFloats(t, float32(0.2969322), scores[2], 5)
+			EqualFloats(t, float32(0.2856433), scores[0], 5)
+			EqualFloats(t, float32(0.21787204), scores[1], 5)
+			EqualFloats(t, float32(0.194767), scores[2], 5)
 		})
 
 		t.Run("bm25f We Aviate", func(t *testing.T) {
@@ -288,9 +285,9 @@ func TestBM25FUserDictTest(t *testing.T) {
 			require.Equal(t, uint64(4), res[2].DocID)
 
 			// Check scores
-			EqualFloats(t, float32(1.1823584), scores[0], 5)
-			EqualFloats(t, float32(1.0761585), scores[1], 5)
-			EqualFloats(t, float32(0.81291276), scores[2], 5)
+			EqualFloats(t, float32(0.7896242), scores[0], 5)
+			EqualFloats(t, float32(0.7058856), scores[1], 5)
+			EqualFloats(t, float32(0.5712866), scores[2], 5)
 		})
 	})
 }
