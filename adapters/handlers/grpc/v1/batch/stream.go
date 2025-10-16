@@ -166,7 +166,7 @@ func (h *StreamHandler) handleRecvErr(recvErr error, logger *logrus.Entry) error
 		logger.Errorf("while server is shutting down, receiver errored: %v", recvErr)
 		return errShutdown(recvErr)
 	} else {
-		logger.WithError(recvErr).Error("receive error, closing stream")
+		logger.Errorf("receive error, closing stream: %s", recvErr)
 		return recvErr
 	}
 }
@@ -190,7 +190,7 @@ func (h *StreamHandler) handleServerShuttingDown(stream pb.Weaviate_BatchStreamS
 	// If shutting down context has been set by shutdown.Drain then send the shutdown triggered message to the client
 	// so that it can backoff accordingly
 	if innerErr := stream.Send(newBatchShuttingDownMessage()); innerErr != nil {
-		logger.WithError(innerErr).Error("failed to send shutdown triggered message")
+		logger.Errorf("failed to send shutdown triggered message: %s", innerErr)
 		return innerErr
 	}
 	h.shuttingDown.Store(true)
@@ -233,7 +233,7 @@ func (h *StreamHandler) handleBackoff(report *report, streamId string, stream pb
 			},
 		},
 	}); innerErr != nil {
-		logger.WithError(innerErr).Error("failed to send backoff message")
+		logger.Errorf("failed to send backoff message: %s", innerErr)
 	}
 }
 
@@ -243,7 +243,7 @@ func (h *StreamHandler) handleWorkerErrors(report *report, stream pb.Weaviate_Ba
 			h.metrics.OnStreamError()
 		}
 		if innerErr := stream.Send(newBatchErrorMessage(err)); innerErr != nil {
-			logger.WithError(innerErr).Error("failed to send error message")
+			logger.Errorf("failed to send error message: %s", innerErr)
 		}
 	}
 }
@@ -255,7 +255,7 @@ func (h *StreamHandler) sender(ctx context.Context, streamId string, stream pb.W
 	// Once the workers are drained then h.shutdownFinished will be closed and we will shutdown completely
 	shuttingDownDone := h.shuttingDownCtx.Done()
 	if err := stream.Send(newBatchStartedMessage()); err != nil {
-		log.WithError(err).Error("failed to send started message")
+		log.Errorf("failed to send started message: %s", err)
 		return err
 	}
 	for {
@@ -395,7 +395,7 @@ func (h *StreamHandler) receiver(ctx context.Context, streamId string, consisten
 			return nil
 		}
 		if err != nil {
-			log.WithError(err).Error("failed to receive batch stream request")
+			log.Errorf("failed to receive batch stream request: %s", err)
 			// Tell the sender to stop processing this stream because of a client hangup error
 			return err
 		}

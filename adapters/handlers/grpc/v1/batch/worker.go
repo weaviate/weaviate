@@ -99,7 +99,7 @@ func (w *worker) sendObjects(ctx context.Context, streamId string, objs []*pb.Ba
 		ConsistencyLevel: cl,
 	})
 	if err != nil {
-		w.logger.WithField("streamId", streamId).WithError(err).Error("failed to batch objects")
+		w.logger.WithField("streamId", streamId).Errorf("failed to batch objects: %s", err)
 		errs := make([]*pb.BatchStreamReply_Error, 0, len(objs))
 		for _, obj := range objs {
 			errs = append(errs, &pb.BatchStreamReply_Error{
@@ -139,7 +139,7 @@ func (w *worker) sendReferences(ctx context.Context, streamId string, refs []*pb
 		ConsistencyLevel: cl,
 	})
 	if err != nil {
-		w.logger.WithField("streamId", streamId).WithError(err).Error("failed to batch references")
+		w.logger.WithField("streamId", streamId).Errorf("failed to batch references: %s", err)
 		errs := make([]*pb.BatchStreamReply_Error, 0, len(refs))
 		for _, ref := range refs {
 			errs = append(errs, &pb.BatchStreamReply_Error{
