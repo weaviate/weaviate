@@ -13,6 +13,7 @@ package hnsw
 
 import (
 	"runtime"
+	"sync"
 )
 
 const (
@@ -51,6 +52,7 @@ type memoryAllocationTracker struct {
 	memBefore       runtime.MemStats
 	estimatedMemory int64
 	shouldTrack     bool
+	mu              *sync.Mutex
 }
 
 // newMemoryAllocationTracker creates a new memory allocation tracker.
@@ -86,11 +88,9 @@ func newMemoryAllocationTracker(metrics *Metrics, samplingRate float64, randFunc
 //
 // Parameters:
 //   - estimatedMemory: The estimated memory usage in bytes for the operation
-//
-// This method is safe to call concurrently only if the tracker is not being used by
-// another goroutine for a different operation. In practice, each HNSW index instance
-// has its own tracker and operations are processed sequentially within an index.
 func (t *memoryAllocationTracker) BeginTracking(estimatedMemory int64) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	t.estimatedMemory = estimatedMemory
 	t.shouldTrack = t.randFunc() < t.samplingRate
 	if !t.shouldTrack {
@@ -113,10 +113,9 @@ func (t *memoryAllocationTracker) BeginTracking(estimatedMemory int64) {
 //   - Ratio < 1.0: Estimation was too conservative (wasted memory headroom)
 //
 // If the operation was not sampled, this method returns immediately with no overhead.
-//
-// This method is safe to call concurrently only if the tracker is not being used by
-// another goroutine for a different operation.
 func (t *memoryAllocationTracker) EndTracking() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	if !t.shouldTrack {
 		return
 	}
