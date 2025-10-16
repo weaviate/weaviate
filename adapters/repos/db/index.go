@@ -635,6 +635,14 @@ func (i *Index) updateInvertedIndexConfig(ctx context.Context,
 
 	i.invertedIndexConfig = updated
 
+	customTokenizers, err := tokenizer.InitUserDictTokenizers(updated.TokenizerUserDict)
+	if err != nil {
+		return errors.Wrap(err, "failed to update inverted index config")
+	}
+	tokenizer.CustomTokenizersInitLock.Lock()
+	tokenizer.CustomTokenizers[i.getClass().Class] = customTokenizers
+	tokenizer.CustomTokenizersInitLock.Unlock()
+
 	return nil
 }
 

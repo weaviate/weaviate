@@ -73,6 +73,13 @@ func init() {
 		}
 	}
 	ApacTokenizerThrottle = make(chan struct{}, numParallel)
+	InitOptionalTokenizers()
+	CustomTokenizersInitLock.Lock()
+	CustomTokenizers = make(map[string]*KagomeTokenizers)
+	CustomTokenizersInitLock.Unlock()
+}
+
+func InitOptionalTokenizers() {
 	if entcfg.Enabled(os.Getenv("USE_GSE")) || entcfg.Enabled(os.Getenv("ENABLE_TOKENIZER_GSE")) {
 		UseGse = true
 		Tokenizations = append(Tokenizations, models.PropertyTokenizationGse)
@@ -95,9 +102,6 @@ func init() {
 			tokenizers.Japanese, _ = initializeKagomeTokenizerJa(nil)
 		}
 	}
-	CustomTokenizersInitLock.Lock()
-	CustomTokenizers = make(map[string]*KagomeTokenizers)
-	CustomTokenizersInitLock.Unlock()
 }
 
 func init_gse() {
