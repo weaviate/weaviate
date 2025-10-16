@@ -904,6 +904,14 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			}, appState.Logger)
 	}
 	api.ServerShutdown = func() {
+		if err := appState.Cluster.Leave(); err != nil {
+			appState.Logger.
+				WithError(err).
+				WithField("action", "shutdown").
+				Errorf("failed to gracefully leave cluster")
+		}
+		time.Sleep(10 * time.Second) // drain
+
 		if telemetryEnabled(appState) {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
@@ -974,6 +982,7 @@ func startBackupScheduler(appState *state.State) *backup.Scheduler {
 // TODO: Split up and don't write into global variables. Instead return an appState
 func startupRoutine(ctx context.Context, options *swag.CommandLineOptionsGroup) *state.State {
 	appState := &state.State{}
+	appState.StartupTime = time.Now()
 
 	logger := logger()
 	appState.Logger = logger
