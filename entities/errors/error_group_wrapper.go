@@ -19,10 +19,10 @@ import (
 	"runtime/debug"
 
 	"github.com/sirupsen/logrus"
+	"golang.org/x/sync/errgroup"
 
 	entcfg "github.com/weaviate/weaviate/entities/config"
 	entsentry "github.com/weaviate/weaviate/entities/sentry"
-	"golang.org/x/sync/errgroup"
 )
 
 // ErrorGroupWrapper is a custom type that embeds errgroup.Group.
@@ -127,7 +127,7 @@ func (egw *ErrorGroupWrapper) Wait() error {
 		logBase = logBase.WithField("stack", string(stackBuf))
 	}
 
-	logBase.Debugf("Waiting for %d jobs to finish with limit %d", egw.routineCounter, egw.limitSet)
+	// logBase.Debugf("Waiting for %d jobs to finish with limit %d", egw.routineCounter, egw.limitSet)
 
 	if err := egw.Group.Wait(); err != nil {
 		return err

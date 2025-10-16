@@ -18,6 +18,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/entities/tenantactivity"
 )
 
@@ -123,20 +124,20 @@ func (o *nodeWideMetricsObserver) Shutdown() {
 }
 
 func (o *nodeWideMetricsObserver) observeActivity() {
-	start := time.Now()
-	current := o.getCurrentActivity()
+	// start := time.Now()
+	// current := o.getCurrentActivity()
 
-	o.activityLock.Lock()
-	defer o.activityLock.Unlock()
+	// o.activityLock.Lock()
+	// defer o.activityLock.Unlock()
 
-	o.lastTenantUsage, o.lastTenantUsageReads, o.lastTenantUsageWrites = o.analyzeActivityDelta(current)
-	o.activityTracker = current
+	// o.lastTenantUsage, o.lastTenantUsageReads, o.lastTenantUsageWrites = o.analyzeActivityDelta(current)
+	// o.activityTracker = current
 
-	took := time.Since(start)
-	o.db.logger.WithFields(logrus.Fields{
-		"action": "observe_tenantactivity",
-		"took":   took,
-	}).Debug("observed tenant activity stats")
+	// took := time.Since(start)
+	// o.db.logger.WithFields(logrus.Fields{
+	// 	"action": "observe_tenantactivity",
+	// 	"took":   took,
+	// }).Debug("observed tenant activity stats")
 }
 
 func (o *nodeWideMetricsObserver) logActivity(col, tenant, activityType string, value int32) {
