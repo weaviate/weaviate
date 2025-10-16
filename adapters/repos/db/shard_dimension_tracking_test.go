@@ -575,6 +575,8 @@ func TestTotalDimensionTrackingMetrics(t *testing.T) {
 			assertTotalMetrics(0, 0)
 			insertData()
 			assertTotalMetrics(tt.expectDimensions, tt.expectSegments)
+			err := db.GetIndex(schema.ClassName(class.Class)).drop()
+			require.NoError(t, err)
 			require.NoError(t, db.DeleteIndex(schema.ClassName(class.Class)))
 			assertTotalMetrics(0, 0)
 		})

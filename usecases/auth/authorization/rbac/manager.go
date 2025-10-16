@@ -257,7 +257,10 @@ func (m *Manager) GetUsersForRole(roleName string, userType models.UserTypeInput
 	}
 	users := make([]string, 0, len(pusers))
 	for idx := range pusers {
-		user, prefix := conv.GetUserAndPrefix(pusers[idx])
+		user, prefix, err := conv.GetUserAndPrefix(pusers[idx])
+		if err != nil {
+			return nil, fmt.Errorf("GetUserAndPrefix: %w", err)
+		}
 		if user == conv.InternalPlaceHolder {
 			continue
 		}
