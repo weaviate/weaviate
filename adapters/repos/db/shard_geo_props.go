@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -167,9 +168,22 @@ func (s *Shard) addToGeoIndex(ctx context.Context, propName string,
 		return nil
 	}
 
-	// geo coordinates is the only supported one at the moment
-	asGeo, ok := propValue.(*models.GeoCoordinates)
-	if !ok {
+	var asGeo *models.GeoCoordinates
+	switch val := propValue.(type) {
+	case map[string]any:
+		asGeoBytes, err := json.Marshal(val)
+		if err != nil {
+			return fmt.Errorf("adjust geo property type: marshal geo property map: %w", err)
+		}
+		var asGeoAdjusted models.GeoCoordinates
+		err = json.Unmarshal(asGeoBytes, &asGeoAdjusted)
+		if err != nil {
+			return fmt.Errorf("adjust geo property type: unmarshal geo property map: %w", err)
+		}
+		asGeo = &asGeoAdjusted
+	case *models.GeoCoordinates:
+		asGeo = val
+	default:
 		return fmt.Errorf("expected prop to be of type %T, but got: %T",
 			&models.GeoCoordinates{}, propValue)
 	}
