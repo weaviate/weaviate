@@ -40,6 +40,8 @@ type Metrics struct {
 	tombstoneStart                prometheus.Gauge
 	tombstoneEnd                  prometheus.Gauge
 	tombstoneProgress             prometheus.Gauge
+	batchMemoryEstimationRatio    prometheus.Gauge
+	memoryAllocationRejected      prometheus.Counter
 }
 
 func NewMetrics(prom *monitoring.PrometheusMetrics,
@@ -160,6 +162,16 @@ func NewMetrics(prom *monitoring.PrometheusMetrics,
 		"shard_name": shardName,
 	})
 
+	batchMemoryEstimationRatio := prom.VectorIndexBatchMemoryEstimationRatio.With(prometheus.Labels{
+		"class_name": className,
+		"shard_name": shardName,
+	})
+
+	memoryAllocationRejected := prom.VectorIndexMemoryAllocationRejected.With(prometheus.Labels{
+		"class_name": className,
+		"shard_name": shardName,
+	})
+
 	return &Metrics{
 		enabled:                       true,
 		tombstones:                    tombstones,
@@ -182,6 +194,8 @@ func NewMetrics(prom *monitoring.PrometheusMetrics,
 		tombstoneStart:                tombstoneStart,
 		tombstoneEnd:                  tombstoneEnd,
 		tombstoneProgress:             tombstoneProgress,
+		batchMemoryEstimationRatio:    batchMemoryEstimationRatio,
+		memoryAllocationRejected:      memoryAllocationRejected,
 	}
 }
 
@@ -394,4 +408,27 @@ func (m *Metrics) TrackStartupReadCommitlogDiskIO(read int64, nanoseconds int64)
 	seconds := float64(nanoseconds) / float64(time.Second)
 	throughput := float64(read) / float64(seconds)
 	m.startupDiskIO.With(prometheus.Labels{"operation": "hnsw_read_commitlog"}).Observe(throughput)
+}
+
+// SetBatchMemoryEstimationRatio sets the ratio of actual to estimated memory usage for a batch operation.
+// The ratio helps identify memory estimation accuracy: values greater than 1.0 indicate underestimation,
+// values approximately equal to 1.0 indicate accurate estimation, and values less than 1.0 indicate
+// overestimation.
+func (m *Metrics) SetBatchMemoryEstimationRatio(ratio float64) {
+	if !m.enabled {
+		return
+	}
+
+	m.batchMemoryEstimationRatio.Set(ratio)
+}
+
+// MemoryAllocationRejected increments the counter tracking batch operations rejected due to insufficient memory.
+// This metric helps identify when the memory pressure is causing batch operations to be rejected by the
+// memory allocation checker.
+func (m *Metrics) MemoryAllocationRejected() {
+	if !m.enabled {
+		return
+	}
+
+	m.memoryAllocationRejected.Inc()
 }

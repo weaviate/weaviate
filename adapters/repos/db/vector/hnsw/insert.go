@@ -108,10 +108,13 @@ func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) 
 		return err
 	}
 
-	if err := h.allocChecker.CheckAlloc(estimateBatchMemory(vectors)); err != nil {
+	estimatedMemory := estimateBatchMemory(vectors)
+	if err := h.allocChecker.CheckAlloc(estimatedMemory); err != nil {
+		h.metrics.MemoryAllocationRejected()
 		return fmt.Errorf("add batch of %d vectors: %w", len(vectors), err)
 	}
 
+	h.memoryTracker.BeginTracking(estimatedMemory)
 	if h.multivector.Load() && !h.muvera.Load() {
 		return errors.Errorf("AddBatch called on multivector index")
 	}
@@ -189,6 +192,8 @@ func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) 
 
 		h.insertMetrics.total(globalBefore)
 	}
+	h.memoryTracker.EndTracking()
+
 	return nil
 }
 
