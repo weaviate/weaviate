@@ -180,10 +180,9 @@ func TestGRPCSearch(t *testing.T) {
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
 				resp, err := grpcClient.Search(ctx, &protocol.SearchRequest{
-					Collection:  class.Class,
-					NearVector:  tt.nearVector,
-					Uses_123Api: true,
-					Uses_125Api: true,
+					Collection: class.Class,
+					NearVector: tt.nearVector,
+
 					Uses_127Api: true,
 				})
 				require.NoError(t, err)
@@ -232,8 +231,7 @@ func TestGRPCSearch(t *testing.T) {
 								TargetVectors: []string{"regular"},
 							},
 						},
-						Uses_123Api: true,
-						Uses_125Api: true,
+
 						Uses_127Api: true,
 					})
 					require.NoError(t, err)
@@ -262,8 +260,7 @@ func TestGRPCSearch(t *testing.T) {
 							TargetVectors: []string{"regular"},
 						},
 					},
-					Uses_123Api: true,
-					Uses_125Api: true,
+
 					Uses_127Api: true,
 				})
 				require.NoError(t, err)
@@ -289,8 +286,7 @@ func TestGRPCSearch(t *testing.T) {
 							TargetVectors: []string{"colbert"},
 						},
 					},
-					Uses_123Api: true,
-					Uses_125Api: true,
+
 					Uses_127Api: true,
 				})
 				require.NoError(t, err)
@@ -317,8 +313,7 @@ func TestGRPCSearch(t *testing.T) {
 						TargetVectors: []string{"regular"},
 					},
 				},
-				Uses_123Api: true,
-				Uses_125Api: true,
+
 				Uses_127Api: true,
 			})
 			require.NoError(t, err)
@@ -348,8 +343,7 @@ func TestGRPCSearch(t *testing.T) {
 						TargetVectors: []string{"colbert"},
 					},
 				},
-				Uses_123Api: true,
-				Uses_125Api: true,
+
 				Uses_127Api: true,
 			})
 			require.NoError(t, err)
@@ -388,8 +382,7 @@ func TestGRPCSearch(t *testing.T) {
 						TargetVectors: []string{"regular", "colbert"},
 					},
 				},
-				Uses_123Api: true,
-				Uses_125Api: true,
+
 				Uses_127Api: true,
 			})
 			require.NoError(t, err)
@@ -438,8 +431,7 @@ func TestGRPCSearch(t *testing.T) {
 						TargetVectors: []string{"regular", "colbert", "description"},
 					},
 				},
-				Uses_123Api: true,
-				Uses_125Api: true,
+
 				Uses_127Api: true,
 			})
 			require.NoError(t, err)
@@ -499,8 +491,7 @@ func TestGRPCSearch(t *testing.T) {
 								TargetVectors:     []string{"regular", "regular"},
 							},
 						},
-						Uses_123Api: true,
-						Uses_125Api: true,
+
 						Uses_127Api: true,
 					})
 					require.NoError(t, err)
@@ -566,8 +557,7 @@ func TestGRPCSearch(t *testing.T) {
 								TargetVectors:     tt.targetVectors,
 							},
 						},
-						Uses_123Api: true,
-						Uses_125Api: true,
+
 						Uses_127Api: true,
 					})
 					require.NoError(t, err)
@@ -615,8 +605,7 @@ func TestGRPCSearch(t *testing.T) {
 						TargetVectors: []string{"regular", "regular", "colbert", "colbert"},
 					},
 				},
-				Uses_123Api: true,
-				Uses_125Api: true,
+
 				Uses_127Api: true,
 			})
 			require.NoError(t, err)
@@ -705,8 +694,7 @@ func TestGRPCSearch(t *testing.T) {
 								TargetVectors:     tt.targetVectors,
 							},
 						},
-						Uses_123Api: true,
-						Uses_125Api: true,
+
 						Uses_127Api: true,
 					})
 					require.NoError(t, err)
@@ -777,8 +765,7 @@ func TestGRPCSearch(t *testing.T) {
 								TargetVectors:     []string{"regular", "description"},
 							},
 						},
-						Uses_123Api: true,
-						Uses_125Api: true,
+
 						Uses_127Api: true,
 					})
 					require.NoError(t, err)
@@ -842,8 +829,7 @@ func TestGRPCSearch(t *testing.T) {
 								TargetVectors:     []string{"regular", "regular"},
 							},
 						},
-						Uses_123Api: true,
-						Uses_125Api: true,
+
 						Uses_127Api: true,
 					})
 					require.NoError(t, err)
@@ -912,8 +898,7 @@ func TestGRPCSearch(t *testing.T) {
 								TargetVectors:     tt.targetVectors,
 							},
 						},
-						Uses_123Api: true,
-						Uses_125Api: true,
+
 						Uses_127Api: true,
 					})
 					require.NoError(t, err)
@@ -1007,8 +992,7 @@ func TestGRPCSearch(t *testing.T) {
 								TargetVectors:     tt.targetVectors,
 							},
 						},
-						Uses_123Api: true,
-						Uses_125Api: true,
+
 						Uses_127Api: true,
 					})
 					require.NoError(t, err)
@@ -1067,8 +1051,7 @@ func TestGRPCSearch(t *testing.T) {
 								TargetVectors:     []string{"regular", "regular"},
 							},
 						},
-						Uses_123Api: true,
-						Uses_125Api: true,
+
 						Uses_127Api: true,
 					})
 					require.NoError(t, err)

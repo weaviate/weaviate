@@ -102,8 +102,6 @@ func TestGRPC_FilteredSearch(t *testing.T) {
 							Target: &pb.FilterTarget_Property{Property: propName},
 						},
 					},
-					Uses_123Api: true,
-					Uses_125Api: true,
 				}
 				t.Run(fmt.Sprintf("with singular token %q", tok1), func(t *testing.T) {
 					t.Parallel()
@@ -172,8 +170,6 @@ func TestGRPC_FilteredSearch(t *testing.T) {
 							Target: &pb.FilterTarget_Property{Property: propName},
 						},
 					},
-					Uses_123Api: true,
-					Uses_125Api: true,
 				}
 
 				searchResp, err := grpcClient.Search(context.Background(), &in)
@@ -213,8 +209,6 @@ func TestGRPC_FilteredSearch(t *testing.T) {
 							Target: &pb.FilterTarget_Property{Property: propName},
 						},
 					},
-					Uses_123Api: true,
-					Uses_125Api: true,
 				}
 
 				searchResp, err := grpcClient.Search(context.Background(), &in)
