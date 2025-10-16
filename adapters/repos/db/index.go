@@ -1551,6 +1551,10 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 				return err
 			}
 
+			if shard != nil {
+				defer release()
+			}
+
 			useLocal := false
 			if shard != nil {
 				status := shard.GetStatus()
@@ -1565,6 +1569,26 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 					}
 				}
 			}
+
+			// log decision inputs
+			var shardStatusStr string
+			var shutdownReq bool
+			if s, ok := shard.(*Shard); ok {
+				shutdownReq = s.shutdownRequested.Load()
+			}
+			if shard != nil {
+				shardStatusStr = shard.GetStatus().String()
+			} else {
+				shardStatusStr = "not_found"
+			}
+			i.logger.WithFields(logrus.Fields{
+				"action":             "object_search_decision",
+				"shardName":          shardName,
+				"shard_status":       shardStatusStr,
+				"shutdown_requested": shutdownReq,
+				"since_startup_ms":   time.Since(i.Config.StartupTime).Milliseconds(),
+				"use_local":          useLocal,
+			}).Info("objectSearchByShard: local/remote decision")
 
 			if useLocal {
 				defer release()
@@ -1845,7 +1869,42 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 			defer release()
 		}
 
+		useLocal := false
 		if shard != nil {
+			status := shard.GetStatus()
+			if status == storagestate.StatusReady || status == storagestate.StatusReadOnly {
+				// Skip local if draining
+				if s, ok := shard.(*Shard); ok && s.shutdownRequested.Load() {
+					useLocal = false
+				} else {
+					if time.Since(i.Config.StartupTime) > time.Second*60 {
+						useLocal = true
+					}
+				}
+			}
+		}
+
+		// log decision inputs
+		var shardStatusStr string
+		var shutdownReq bool
+		if s, ok := shard.(*Shard); ok {
+			shutdownReq = s.shutdownRequested.Load()
+		}
+		if shard != nil {
+			shardStatusStr = shard.GetStatus().String()
+		} else {
+			shardStatusStr = "not_found"
+		}
+		i.logger.WithFields(logrus.Fields{
+			"action":             "object_search_decision",
+			"shardName":          shardName,
+			"shard_status":       shardStatusStr,
+			"shutdown_requested": shutdownReq,
+			"since_startup_ms":   time.Since(i.Config.StartupTime).Milliseconds(),
+			"use_local":          useLocal,
+		}).Info("objectSearchByShard: local/remote decision")
+
+		if useLocal {
 			localSearches++
 			eg.Go(func() error {
 				localShardResult, localShardScores, err1 := i.localShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardName)
