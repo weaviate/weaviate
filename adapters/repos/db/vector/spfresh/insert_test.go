@@ -21,12 +21,14 @@ import (
 
 func TestSPFreshOptimizedPostingSize(t *testing.T) {
 	cfg := DefaultConfig()
+	uc := ent.NewDefaultUserConfig()
+	uc.CentroidsIndexType = "bruteforce"
 	store := testinghelpers.NewDummyStore(t)
 
 	vector := make([]float32, 100)
 
 	t.Run("max posting size computed by the index", func(t *testing.T) {
-		index, err := New(cfg, ent.NewDefaultUserConfig(), store)
+		index, err := New(cfg, uc, store)
 		require.NoError(t, err)
 		defer index.Shutdown(t.Context())
 
@@ -38,7 +40,6 @@ func TestSPFreshOptimizedPostingSize(t *testing.T) {
 	})
 
 	t.Run("max posting size set by the user", func(t *testing.T) {
-		uc := ent.NewDefaultUserConfig()
 		uc.MaxPostingSize = 56
 		index, err := New(cfg, uc, store)
 		require.NoError(t, err)
@@ -52,7 +53,6 @@ func TestSPFreshOptimizedPostingSize(t *testing.T) {
 	})
 
 	t.Run("max posting size small", func(t *testing.T) {
-		uc := ent.NewDefaultUserConfig()
 		uc.MaxPostingSize = 2
 		index, err := New(cfg, uc, store)
 		require.NoError(t, err)
