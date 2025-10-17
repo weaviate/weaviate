@@ -26,17 +26,17 @@ for file in $all_files; do
     # Use grep -nE to get line numbers and matching lines, then exclude lines with defer or // before wg...Done()
     # and lines ending with //nolint:SA2000
     matches=$(grep -nE "$pattern" "$file" | grep -vE "$exclude" | grep -vE "$nolint_exclude" || true)
-    if [ -n "$matches" ]; then
+    if [[ -n "$matches" ]]; then
         while IFS= read -r match; do
             lineno=$(echo "$match" | cut -d: -f1)
             line=$(echo "$match" | cut -d: -f2-)
-            echo "Error: $file:$lineno: $line"
+            echo "Error: $file:$lineno: $line" >&2
         done <<< "$matches"
         found_error=true
     fi
 
 done
 
-if [ "$found_error" = true ]; then
+if [[ "$found_error" = true ]]; then
     exit 1
 fi
