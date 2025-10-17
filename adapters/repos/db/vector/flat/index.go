@@ -26,6 +26,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	bolt "go.etcd.io/bbolt"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
@@ -40,7 +41,6 @@ import (
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/usecases/floatcomp"
-	bolt "go.etcd.io/bbolt"
 )
 
 const (
@@ -666,6 +666,14 @@ func (index *flat) normalized(vector []float32) []float32 {
 func (index *flat) SearchByVectorDistance(ctx context.Context, vector []float32,
 	targetDistance float32, maxLimit int64, allow helpers.AllowList,
 ) ([]uint64, []float32, error) {
+	start := time.Now()
+	defer func() {
+		took := time.Since(start)
+		index.logger.WithFields(logrus.Fields{
+			"action": "SearchByVectorDistance completed",
+			"took":   took,
+		}).Debugf("flat SearchByVectorDistance completed in %s", took)
+	}()
 	var (
 		searchParams = newSearchByDistParams(maxLimit)
 

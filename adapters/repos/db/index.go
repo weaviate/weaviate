@@ -1698,6 +1698,14 @@ func (i *Index) singleLocalShardObjectVectorSearch(ctx context.Context, searchVe
 	sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties,
 	shard ShardLike, targetCombination *dto.TargetCombination, properties []string,
 ) ([]*storobj.Object, []float32, error) {
+	start := time.Now()
+	defer func() {
+		took := time.Since(start)
+		i.logger.WithFields(logrus.Fields{
+			"action": "search_completed",
+			"took":   took,
+		}).Debugf("singleLocalShardObjectVectorSearch completed in %s", took)
+	}()
 	ctx = helpers.InitSlowQueryDetails(ctx)
 	helpers.AnnotateSlowQueryLog(ctx, "is_coordinator", true)
 	if shard.GetStatus() == storagestate.StatusLoading {
@@ -1713,6 +1721,14 @@ func (i *Index) singleLocalShardObjectVectorSearch(ctx context.Context, searchVe
 
 // to be called after validating multi-tenancy
 func (i *Index) targetShardNames(ctx context.Context, tenant string) ([]string, error) {
+	start := time.Now()
+	defer func() {
+		took := time.Since(start)
+		i.logger.WithFields(logrus.Fields{
+			"action": "search_completed",
+			"took":   took,
+		}).Debugf("targetShardNames completed in %s", took)
+	}()
 	className := i.Config.ClassName.String()
 	if !i.partitioningEnabled {
 		return i.getSchema.CopyShardingState(className).AllPhysicalShards(), nil
@@ -1838,7 +1854,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 		i.logger.WithFields(logrus.Fields{
 			"action": "search_completed",
 			"took":   took,
-		}).Debugf("objectvectorsearch completed in %s", took)
+		}).Debugf("objectVectorSearch completed in %s", took)
 	}()
 	if err := i.validateMultiTenancy(tenant); err != nil {
 		return nil, nil, err

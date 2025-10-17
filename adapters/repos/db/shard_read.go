@@ -374,6 +374,13 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 	startTime := time.Now()
 
 	defer func() {
+		took := time.Since(startTime)
+		s.index.logger.WithFields(logrus.Fields{
+			"action": "ObjectVectorSearch completed",
+			"took":   took,
+		}).Debugf("internal ObjectVectorSearch completed in %s", took)
+	}()
+	defer func() {
 		s.slowQueryReporter.LogIfSlow(ctx, startTime, map[string]any{
 			"collection": s.index.Config.ClassName,
 			"shard":      s.ID(),
