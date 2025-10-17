@@ -144,7 +144,7 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*SPFresh, error) {
 		centroidsIndexType: uc.CentroidsIndexType,
 	}
 
-	if cfg.Centroids.IndexType == "hnsw" {
+	if s.centroidsIndexType == "hnsw" {
 		s.Centroids, err = NewHNSWIndex(metrics, store, cfg, 1024*1024, 1024)
 		if err != nil {
 			return nil, err

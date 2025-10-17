@@ -43,7 +43,6 @@ type Config struct {
 	InternalPostingCandidates int                             `json:"internalPostingCandidates,omitempty"` // Number of candidates to consider when running a centroid search internally
 	ReassignNeighbors         int                             `json:"reassignNeighbors,omitempty"`         // Number of neighboring centroids to consider for reassigning vectors
 	MaxDistanceRatio          float32                         `json:"maxDistanceRatio,omitempty"`          // Maximum distance ratio for the search, used to filter out candidates that are too far away
-	SearchProbe               int                             `json:"searchProbe,omitempty"`               // Number of vectors to consider during search
 	Store                     StoreConfig                     `json:"store"`                               // Configuration for the underlying LSMKV store
 	Centroids                 CentroidConfig                  `json:"centroids"`                           // Configuration for the centroid index
 	TombstoneCallbacks        cyclemanager.CycleCallbackGroup // Callbacks for handling tombstones
@@ -82,7 +81,6 @@ func DefaultConfig() *Config {
 		SplitWorkers:              w,
 		ReassignWorkers:           w,
 		InternalPostingCandidates: 64,
-		SearchProbe:               64,
 		ReassignNeighbors:         8,
 		MaxDistanceRatio:          10_000,
 		DistanceProvider:          distancer.NewL2SquaredProvider(),
