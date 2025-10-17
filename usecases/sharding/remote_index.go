@@ -586,10 +586,6 @@ func (ri *RemoteIndex) queryReplicas(
 		fmt.Printf("DEBUG: Launched %d goroutines for remote replicas\n", launched)
 
 		// Wait for first success or timeout - return immediately on first success
-		var lastErr error
-
-		// Add a timeout to prevent waiting forever
-		timeout := time.After(3 * time.Second)
 
 		for {
 			select {
@@ -601,16 +597,12 @@ func (ri *RemoteIndex) queryReplicas(
 					return rr.r, rr.node, nil
 				}
 				if rr.err != nil {
-					lastErr = rr.err
 					fmt.Printf("DEBUG: Error from %s: %v\n", rr.node, rr.err)
 					// Continue waiting for more responses - maybe another replica will succeed
 				}
 			case <-egCtx.Done():
 				fmt.Printf("DEBUG: Error group context cancelled: %v\n", egCtx.Err())
 				return nil, "", egCtx.Err()
-			case <-timeout:
-				fmt.Printf("DEBUG: Timeout waiting for responses, returning last error: %v\n", lastErr)
-				return nil, "", fmt.Errorf("timeout waiting for replica responses: %w", lastErr)
 			}
 		}
 	}
