@@ -250,6 +250,19 @@ func ListObjects(t *testing.T, class string) (*models.ObjectsListResponse, error
 	return resp.Payload, nil
 }
 
+func ListObjectsAuth(t *testing.T, class string, key string) (*models.ObjectsListResponse, error) {
+	params := objects.NewObjectsListParams()
+	if class != "" {
+		params.WithClass(&class)
+	}
+
+	resp, err := Client(t).Objects.ObjectsList(params, CreateAuth(key))
+	if err != nil {
+		return nil, err
+	}
+	return resp.Payload, nil
+}
+
 func TenantListObjects(t *testing.T, class string, tenant string) (*models.ObjectsListResponse, error) {
 	params := objects.NewObjectsListParams().WithTenant(&tenant)
 	if class != "" {

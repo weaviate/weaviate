@@ -46,6 +46,16 @@ func StopNodeAt(ctx context.Context, t *testing.T, compose *docker.DockerCompose
 	<-time.After(1 * time.Second) // give time for shutdown
 }
 
+func StopNodeAtWithTimeout(ctx context.Context, t *testing.T, compose *docker.DockerCompose, index int, timeout time.Duration) {
+	<-time.After(1 * time.Second)
+	if err := compose.StopAt(ctx, index, &timeout); err != nil {
+		// try one more time after 1 second
+		<-time.After(1 * time.Second)
+		require.NoError(t, compose.StopAt(ctx, index, &timeout))
+	}
+	<-time.After(1 * time.Second) // give time for shutdown
+}
+
 // startNodeAt starts the node container at the given index.
 //
 // NOTE: the index is 1-based, so starting the first node requires index=1, not 0

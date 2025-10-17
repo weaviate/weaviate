@@ -47,7 +47,6 @@ import (
 
 	"github.com/weaviate/fgprof"
 	"github.com/weaviate/weaviate/adapters/clients"
-	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/batch"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/authz"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/db_users"
@@ -919,8 +918,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		grpcInstrument = monitoring.InstrumentGrpc(appState.GRPCServerMetrics)
 	}
 
-	grpcShutdown := batch.NewShutdown(context.Background())
-	grpcServer := createGrpcServer(appState, grpcShutdown, grpcInstrument...)
+	grpcServer, batchDrain := createGrpcServer(appState, grpcInstrument...)
 
 	setupMiddlewares := makeSetupMiddlewares(appState)
 	setupGlobalMiddleware := makeSetupGlobalMiddleware(appState, api.Context())
@@ -946,7 +944,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	}
 
 	api.PreServerShutdown = func() {
-		grpcShutdown.Drain(appState.Logger)
+		batchDrain()
 	}
 
 	api.ServerShutdown = func() {
