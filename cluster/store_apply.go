@@ -400,8 +400,8 @@ func (st *Store) Apply(l *raft.Log) any {
 	wg := sync.WaitGroup{}
 	wg.Add(1)
 	g := func() {
+		defer wg.Done()
 		f()
-		wg.Done()
 	}
 	enterrors.GoWrapper(g, st.log)
 	wg.Wait()
