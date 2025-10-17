@@ -11,7 +11,9 @@
 
 package compressionhelpers
 
-import "encoding/binary"
+import (
+	"encoding/binary"
+)
 
 type quantizerDistancer[T byte | uint64] interface {
 	Distance(x []T) (float32, error)
@@ -91,6 +93,10 @@ func (bq *BinaryQuantizer) FromCompressedBytesWithSubsliceBuffer(compressed []by
 	*buffer = (*buffer)[:len(*buffer)-l]
 
 	for i := range slice {
+		if len(compressed[i*8:]) < 8 {
+			break
+		}
+
 		slice[i] = binary.LittleEndian.Uint64(compressed[i*8:])
 	}
 	return slice

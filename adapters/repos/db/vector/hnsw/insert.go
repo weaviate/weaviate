@@ -114,6 +114,7 @@ func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) 
 		return fmt.Errorf("add batch of %d vectors: %w", len(vectors), err)
 	}
 
+	h.memoryTracker.BeginTracking(estimatedMemory)
 	if h.multivector.Load() && !h.muvera.Load() {
 		return errors.Errorf("AddBatch called on multivector index")
 	}
@@ -521,4 +522,14 @@ func estimateBatchMemory(vecs [][]float32) int64 {
 	}
 
 	return sum
+}
+
+func (h *hnsw) Preload(id uint64, vector []float32) {
+	if h.compressed.Load() && !h.multivector.Load() {
+		h.compressor.Preload(id, vector)
+	} else {
+		if !h.multivector.Load() {
+			h.cache.Preload(id, vector)
+		}
+	}
 }

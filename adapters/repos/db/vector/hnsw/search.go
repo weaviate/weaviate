@@ -315,131 +315,149 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 			continue
 		}
 
-		if strategy != ACORN {
-			if len(candidateNode.connections[level]) > h.maximumConnectionsLayerZero {
-				// How is it possible that we could ever have more connections than the
-				// allowed maximum? It is not anymore, but there was a bug that allowed
-				// this to happen in versions prior to v1.12.0:
-				// https://github.com/weaviate/weaviate/issues/1868
-				//
-				// As a result the length of this slice is entirely unpredictable and we
-				// can no longer retrieve it from the pool. Instead we need to fallback
-				// to allocating a new slice.
-				//
-				// This was discovered as part of
-				// https://github.com/weaviate/weaviate/issues/1897
-				connectionsReusable = make([]uint64, len(candidateNode.connections[level]))
-			} else {
-				connectionsReusable = connectionsReusable[:len(candidateNode.connections[level])]
-			}
-			copy(connectionsReusable, candidateNode.connections[level])
-		} else {
-			connectionsReusable = sliceConnectionsReusable.Slice
-			pendingNextRound := slicePendingNextRound.Slice
-			pendingThisRound := slicePendingThisRound.Slice
+		func() {
+			// ensure we unlock the node even if we panic while
+			// accessing its connections
+			defer func() {
+				if err := recover(); err != nil {
+					candidateNode.Unlock()
+					panic(errors.Errorf("shard: %s, collection: %s, vectorIndex: %s, panic: %v", h.shardName, h.className, h.id, err))
+				}
+			}()
 
-			realLen := 0
-			index := 0
-
-			pendingNextRound = pendingNextRound[:len(candidateNode.connections[level])]
-			copy(pendingNextRound, candidateNode.connections[level])
-			hop := 1
-			maxHops := 2
-			for hop <= maxHops && realLen < 8*h.maximumConnectionsLayerZero && len(pendingNextRound) > 0 {
-				if cap(pendingThisRound) >= len(pendingNextRound) {
-					pendingThisRound = pendingThisRound[:len(pendingNextRound)]
+			if strategy != ACORN {
+				if len(candidateNode.connections[level]) > h.maximumConnectionsLayerZero {
+					// How is it possible that we could ever have more connections than the
+					// allowed maximum? It is not anymore, but there was a bug that allowed
+					// this to happen in versions prior to v1.12.0:
+					// https://github.com/weaviate/weaviate/issues/1868
+					//
+					// As a result the length of this slice is entirely unpredictable and we
+					// can no longer retrieve it from the pool. Instead we need to fallback
+					// to allocating a new slice.
+					//
+					// This was discovered as part of
+					// https://github.com/weaviate/weaviate/issues/1897
+					connectionsReusable = make([]uint64, len(candidateNode.connections[level]))
 				} else {
-					pendingThisRound = make([]uint64, len(pendingNextRound))
-					slicePendingThisRound.Slice = pendingThisRound
+					connectionsReusable = connectionsReusable[:len(candidateNode.connections[level])]
 				}
-				copy(pendingThisRound, pendingNextRound)
-				pendingNextRound = pendingNextRound[:0]
-				for index < len(pendingThisRound) && realLen < 8*h.maximumConnectionsLayerZero {
-					nodeId := pendingThisRound[index]
-					index++
-					if ok := visited.Visited(nodeId); ok {
-						// skip if we've already visited this neighbor
-						continue
-					}
-					if !visitedExp.Visited(nodeId) {
-						if !isMultivec {
-							if allowList.Contains(nodeId) {
-								connectionsReusable[realLen] = nodeId
-								realLen++
-								visitedExp.Visit(nodeId)
-								continue
-							}
-						} else {
-							var docID uint64
-							if h.compressed.Load() {
-								docID, _ = h.compressor.GetKeys(nodeId)
-							} else {
-								docID, _ = h.cache.GetKeys(nodeId)
-							}
-							if allowList.Contains(docID) {
-								connectionsReusable[realLen] = nodeId
-								realLen++
-								visitedExp.Visit(nodeId)
-								continue
-							}
-						}
+				copy(connectionsReusable, candidateNode.connections[level])
+			} else {
+
+				connectionsReusable = sliceConnectionsReusable.Slice
+				pendingNextRound := slicePendingNextRound.Slice
+				pendingThisRound := slicePendingThisRound.Slice
+
+				realLen := 0
+				index := 0
+
+				if len(candidateNode.connections[level]) > h.maximumConnectionsLayerZero {
+					pendingNextRound = make([]uint64, len(candidateNode.connections[level]))
+					slicePendingNextRound.Slice = pendingNextRound
+				} else {
+					pendingNextRound = pendingNextRound[:len(candidateNode.connections[level])]
+				}
+				copy(pendingNextRound, candidateNode.connections[level])
+				hop := 1
+				maxHops := 2
+				for hop <= maxHops && realLen < 8*h.maximumConnectionsLayerZero && len(pendingNextRound) > 0 {
+					if cap(pendingThisRound) >= len(pendingNextRound) {
+						pendingThisRound = pendingThisRound[:len(pendingNextRound)]
 					} else {
-						continue
+						pendingThisRound = make([]uint64, len(pendingNextRound))
+						slicePendingThisRound.Slice = pendingThisRound
 					}
-					visitedExp.Visit(nodeId)
-
-					h.RLock()
-					h.shardedNodeLocks.RLock(nodeId)
-					node := h.nodes[nodeId]
-					h.shardedNodeLocks.RUnlock(nodeId)
-					h.RUnlock()
-					if node == nil {
-						continue
-					}
-					for _, expId := range node.connections[level] {
-						if visitedExp.Visited(expId) {
+					copy(pendingThisRound, pendingNextRound)
+					pendingNextRound = pendingNextRound[:0]
+					for index < len(pendingThisRound) && realLen < 8*h.maximumConnectionsLayerZero {
+						nodeId := pendingThisRound[index]
+						index++
+						if ok := visited.Visited(nodeId); ok {
+							// skip if we've already visited this neighbor
 							continue
 						}
-						if visited.Visited(expId) {
-							continue
-						}
-
-						if realLen >= 8*h.maximumConnectionsLayerZero {
-							break
-						}
-
-						if !isMultivec {
-							if allowList.Contains(expId) {
-								visitedExp.Visit(expId)
-								connectionsReusable[realLen] = expId
-								realLen++
-							} else if hop < maxHops {
-								visitedExp.Visit(expId)
-								pendingNextRound = append(pendingNextRound, expId)
+						if !visitedExp.Visited(nodeId) {
+							if !isMultivec {
+								if allowList.Contains(nodeId) {
+									connectionsReusable[realLen] = nodeId
+									realLen++
+									visitedExp.Visit(nodeId)
+									continue
+								}
+							} else {
+								var docID uint64
+								if h.compressed.Load() {
+									docID, _ = h.compressor.GetKeys(nodeId)
+								} else {
+									docID, _ = h.cache.GetKeys(nodeId)
+								}
+								if allowList.Contains(docID) {
+									connectionsReusable[realLen] = nodeId
+									realLen++
+									visitedExp.Visit(nodeId)
+									continue
+								}
 							}
 						} else {
-							var docID uint64
-							if h.compressed.Load() {
-								docID, _ = h.compressor.GetKeys(expId)
-							} else {
-								docID, _ = h.cache.GetKeys(expId)
+							continue
+						}
+						visitedExp.Visit(nodeId)
+
+						h.RLock()
+						h.shardedNodeLocks.RLock(nodeId)
+						node := h.nodes[nodeId]
+						h.shardedNodeLocks.RUnlock(nodeId)
+						h.RUnlock()
+						if node == nil {
+							continue
+						}
+						for _, expId := range node.connections[level] {
+							if visitedExp.Visited(expId) {
+								continue
 							}
-							if allowList.Contains(docID) {
-								visitedExp.Visit(expId)
-								connectionsReusable[realLen] = expId
-								realLen++
-							} else if hop < maxHops {
-								visitedExp.Visit(expId)
-								pendingNextRound = append(pendingNextRound, expId)
+							if visited.Visited(expId) {
+								continue
+							}
+
+							if realLen >= 8*h.maximumConnectionsLayerZero {
+								break
+							}
+
+							if !isMultivec {
+								if allowList.Contains(expId) {
+									visitedExp.Visit(expId)
+									connectionsReusable[realLen] = expId
+									realLen++
+								} else if hop < maxHops {
+									visitedExp.Visit(expId)
+									pendingNextRound = append(pendingNextRound, expId)
+								}
+							} else {
+								var docID uint64
+								if h.compressed.Load() {
+									docID, _ = h.compressor.GetKeys(expId)
+								} else {
+									docID, _ = h.cache.GetKeys(expId)
+								}
+								if allowList.Contains(docID) {
+									visitedExp.Visit(expId)
+									connectionsReusable[realLen] = expId
+									realLen++
+								} else if hop < maxHops {
+									visitedExp.Visit(expId)
+									pendingNextRound = append(pendingNextRound, expId)
+								}
 							}
 						}
 					}
+					hop++
 				}
-				hop++
+				slicePendingNextRound.Slice = pendingNextRound
+				connectionsReusable = connectionsReusable[:realLen]
 			}
-			slicePendingNextRound.Slice = pendingNextRound
-			connectionsReusable = connectionsReusable[:realLen]
-		}
+		}()
+
 		candidateNode.Unlock()
 
 		for _, neighborID := range connectionsReusable {
