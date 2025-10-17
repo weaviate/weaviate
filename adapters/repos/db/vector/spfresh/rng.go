@@ -22,7 +22,7 @@ import (
 // If `reassignedFromID` is non-zero, the function will abort and return false
 // if one of the selected postings is equal to `reassignedFromID`.
 func (s *SPFresh) RNGSelect(query []float32, reassignedFromID uint64) (*ResultSet, bool, error) {
-	replicas := NewResultSet(s.config.Replicas)
+	replicas := NewResultSet(int(s.replicas))
 	candidates, err := s.Centroids.Search(query, s.config.InternalPostingCandidates)
 	if err != nil {
 		return nil, false, errors.Wrap(err, "failed to search for nearest neighbors")
@@ -39,7 +39,7 @@ func (s *SPFresh) RNGSelect(query []float32, reassignedFromID uint64) (*ResultSe
 				return nil, false, errors.Wrapf(err, "failed to compute distance for edge %d -> %d", cID, r.ID)
 			}
 
-			if centerDist <= (1.0/s.config.RNGFactor)*cDistance {
+			if centerDist <= (1.0/s.rngFactor)*cDistance {
 				tooClose = true
 				break
 			}
@@ -54,7 +54,7 @@ func (s *SPFresh) RNGSelect(query []float32, reassignedFromID uint64) (*ResultSe
 		}
 
 		replicas.data = append(replicas.data, Result{ID: cID, Distance: cDistance})
-		if replicas.Len() >= s.config.Replicas {
+		if replicas.Len() >= int(s.replicas) {
 			break
 		}
 	}
