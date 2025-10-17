@@ -132,6 +132,7 @@ func indexConfig(vectorId, tempDir string, logger *logrus.Logger, vectors [][]fl
 			copy(container.Slice, vectors[int(id)])
 			return container.Slice, nil
 		},
+		AllocChecker: memwatch.NewDummyMonitor(),
 	}
 }
 
