@@ -23,6 +23,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 func TestScheduler(t *testing.T) {
@@ -251,13 +252,7 @@ func TestScheduler(t *testing.T) {
 		s.Schedule(t.Context())
 		<-started
 		s.Wait(q.ID())
-
 		for i := 0; i < 30; i++ {
-			if i == 3 {
-				require.Equal(t, 3, called[uint64(i)])
-				continue
-			}
-
 			require.Equal(t, 1, called[uint64(i)], "task %d should have been executed once", i)
 		}
 
@@ -282,7 +277,7 @@ func TestScheduler(t *testing.T) {
 
 				called[t.key]++
 				if t.key == 3 && called[t.key] < 3 {
-					return errors.New("invalid task")
+					return enterrors.NewNotEnoughMemory("transient OOM")
 				}
 
 				return nil
