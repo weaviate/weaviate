@@ -36,7 +36,7 @@ func TestStreamHandler(t *testing.T) {
 		defer cancel()
 
 		mockBatcher := mocks.NewMockbatcher(t)
-		mockStream := newMockStream(ctx, t)
+		mockStream := newMockStream(t)
 		mockStream.EXPECT().Context().Return(ctx).Once()
 		mockAuthenticator := mocks.NewMockauthenticator(t)
 		mockAuthenticator.EXPECT().PrincipalFromContext(ctx).Return(&models.Principal{}, nil).Once()
@@ -66,7 +66,7 @@ func TestStreamHandler(t *testing.T) {
 		defer cancel()
 
 		mockBatcher := mocks.NewMockbatcher(t)
-		mockStream := newMockStream(ctx, t)
+		mockStream := newMockStream(t)
 		mockStream.EXPECT().Context().Return(ctx).Once()
 		mockAuthenticator := mocks.NewMockauthenticator(t)
 		mockAuthenticator.EXPECT().PrincipalFromContext(ctx).Return(&models.Principal{}, nil).Once()
@@ -83,9 +83,6 @@ func TestStreamHandler(t *testing.T) {
 				panic(fmt.Sprintf("should not be called more than twice, was called %d times", recvCount))
 			}
 		}).Times(2)
-		mockStream.EXPECT().Send(mock.MatchedBy(func(msg *pb.BatchStreamReply) bool {
-			return msg.GetBackoff() != nil
-		})).Return(nil).Maybe()
 		mockStream.EXPECT().Send(newBatchStreamStartedReply()).Return(nil).Once()
 
 		numWorkers := 1
@@ -99,7 +96,7 @@ func TestStreamHandler(t *testing.T) {
 		defer cancel()
 
 		mockBatcher := mocks.NewMockbatcher(t)
-		mockStream := newMockStream(ctx, t)
+		mockStream := newMockStream(t)
 		mockStream.EXPECT().Context().Return(ctx).Twice()
 		mockAuthenticator := mocks.NewMockauthenticator(t)
 		mockAuthenticator.EXPECT().PrincipalFromContext(ctx).Return(&models.Principal{}, nil).Once()
@@ -126,9 +123,9 @@ func TestStreamHandler(t *testing.T) {
 				panic(fmt.Sprintf("should not be called more than thrice, was called %d times", recvCount))
 			}
 		}).Times(3)
-		mockStream.EXPECT().Send(newBatchStreamErrReply("batcher error", obj)).Return(nil).Once()
 		mockStream.EXPECT().Send(mock.MatchedBy(func(msg *pb.BatchStreamReply) bool {
-			return msg.GetBackoff() != nil
+			errs := msg.GetResults().GetErrors()
+			return len(errs) > 0 && errs[0].Error == "batcher error" && errs[0].GetUuid() == obj.Uuid
 		})).Return(nil).Once()
 		mockStream.EXPECT().Send(newBatchStreamStartedReply()).Return(nil).Once()
 
@@ -143,7 +140,7 @@ func TestStreamHandler(t *testing.T) {
 		defer cancel()
 
 		mockBatcher := mocks.NewMockbatcher(t)
-		mockStream := newMockStream(ctx, t)
+		mockStream := newMockStream(t)
 		mockStream.EXPECT().Context().Return(ctx).Twice()
 		mockAuthenticator := mocks.NewMockauthenticator(t)
 		mockAuthenticator.EXPECT().PrincipalFromContext(ctx).Return(&models.Principal{}, nil).Once()
@@ -170,10 +167,10 @@ func TestStreamHandler(t *testing.T) {
 				panic(fmt.Sprintf("should not be called more than thrice, was called %d times", recvCount))
 			}
 		}).Times(3)
-		mockStream.EXPECT().Send(newBatchStreamErrReply("batcher error", obj)).Return(nil).Once()
 		mockStream.EXPECT().Send(mock.MatchedBy(func(msg *pb.BatchStreamReply) bool {
-			return msg.GetBackoff() != nil
-		})).Return(nil).Maybe()
+			errs := msg.GetResults().GetErrors()
+			return len(errs) > 0 && errs[0].Error == "batcher error" && errs[0].GetUuid() == obj.Uuid
+		})).Return(nil).Once()
 		mockStream.EXPECT().Send(newBatchStreamStartedReply()).Return(nil).Once()
 
 		numWorkers := 1
@@ -189,8 +186,8 @@ func TestStreamHandler(t *testing.T) {
 		logger := logrus.New()
 
 		mockBatcher := mocks.NewMockbatcher(t)
-		mockStream := newMockStream(ctx, t)
-		mockStream.EXPECT().Context().Return(ctx).Twice()
+		mockStream := newMockStream(t)
+		mockStream.EXPECT().Context().Return(ctx).Maybe()
 		mockAuthenticator := mocks.NewMockauthenticator(t)
 		mockAuthenticator.EXPECT().PrincipalFromContext(ctx).Return(&models.Principal{}, nil).Once()
 
@@ -205,7 +202,7 @@ func TestStreamHandler(t *testing.T) {
 				Took:   float32(time.Since(start).Seconds()),
 				Errors: nil,
 			}, nil
-		}).Once()
+		}).Maybe()
 
 		objs := make([]*pb.BatchObject, 0, numObjs)
 		for i := 0; i < numObjs; i++ {
@@ -227,10 +224,10 @@ func TestStreamHandler(t *testing.T) {
 			}
 		}).Times(3)
 
-		mockStream.EXPECT().Send(mock.MatchedBy(func(msg *pb.BatchStreamReply) bool {
-			return msg.GetBackoff() != nil
-		})).Return(nil).Maybe()
 		mockStream.EXPECT().Send(newBatchStreamStartedReply()).Return(nil).Once()
+		mockStream.EXPECT().Send(mock.MatchedBy(func(msg *pb.BatchStreamReply) bool {
+			return msg.GetResults() != nil
+		})).Return(nil).Maybe()
 
 		numWorkers := 1
 		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, nil, numWorkers, logger)
@@ -268,18 +265,7 @@ func newBatchStreamStopRequest() *pb.BatchStreamRequest {
 	}
 }
 
-func newBatchStreamErrReply(err string, obj *pb.BatchObject) *pb.BatchStreamReply {
-	return &pb.BatchStreamReply{
-		Message: &pb.BatchStreamReply_Error_{
-			Error: &pb.BatchStreamReply_Error{
-				Error:  err,
-				Detail: &pb.BatchStreamReply_Error_Object{Object: obj},
-			},
-		},
-	}
-}
-
-func newMockStream(ctx context.Context, t *testing.T) *mocks.MockWeaviate_BatchStreamServer[pb.BatchStreamRequest, pb.BatchStreamReply] {
+func newMockStream(t *testing.T) *mocks.MockWeaviate_BatchStreamServer[pb.BatchStreamRequest, pb.BatchStreamReply] {
 	stream := mocks.NewMockWeaviate_BatchStreamServer[pb.BatchStreamRequest, pb.BatchStreamReply](t)
 	return stream
 }

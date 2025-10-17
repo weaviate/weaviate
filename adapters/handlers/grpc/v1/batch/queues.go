@@ -19,10 +19,13 @@ import (
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 )
 
-func newBatchErrorMessage(err *pb.BatchStreamReply_Error) *pb.BatchStreamReply {
+func newBatchResultsMessage(successes []*pb.BatchStreamReply_Results_Success, errors []*pb.BatchStreamReply_Results_Error) *pb.BatchStreamReply {
 	return &pb.BatchStreamReply{
-		Message: &pb.BatchStreamReply_Error_{
-			Error: err,
+		Message: &pb.BatchStreamReply_Results_{
+			Results: &pb.BatchStreamReply_Results{
+				Errors:    errors,
+				Successes: successes,
+			},
 		},
 	}
 }
@@ -44,8 +47,9 @@ func newBatchStartedMessage() *pb.BatchStreamReply {
 }
 
 type report struct {
-	Errors []*pb.BatchStreamReply_Error
-	Stats  *workerStats
+	Errors    []*pb.BatchStreamReply_Results_Error
+	Successes []*pb.BatchStreamReply_Results_Success
+	Stats     *workerStats
 }
 
 type (
@@ -102,7 +106,7 @@ func (r *reportingQueues) delete(streamId string) {
 	delete(r.closed, streamId)
 }
 
-func (r *reportingQueues) send(streamId string, errs []*pb.BatchStreamReply_Error, stats *workerStats) bool {
+func (r *reportingQueues) send(streamId string, successes []*pb.BatchStreamReply_Results_Success, errors []*pb.BatchStreamReply_Results_Error, stats *workerStats) bool {
 	r.lock.RLock()
 	defer r.lock.RUnlock()
 	queue, ok := r.queues[streamId]
@@ -110,7 +114,7 @@ func (r *reportingQueues) send(streamId string, errs []*pb.BatchStreamReply_Erro
 		return false
 	}
 	select {
-	case queue <- &report{Errors: errs, Stats: stats}:
+	case queue <- &report{Successes: successes, Errors: errors, Stats: stats}:
 		return true
 	case <-time.After(1 * time.Second):
 		return false
@@ -196,16 +200,4 @@ func (s *stats) getThroughputEma() float64 {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
 	return s.throughputEma
-}
-
-// Cubic backoff function based on processing queue utilisation:
-// backoff(r) = b * max(0, (r - 0.4) / 0.6) ^ 3, with b = 1s
-// E.g.
-//   - usageRatio = 0.4 -> 0s
-//   - usageRatio = 0.6 -> 0.037s
-//   - usageRatio = 0.8 -> 0.296s
-//   - usageRatio = 1.0 -> 1s
-func (h *StreamHandler) thresholdCubicBackoff() float32 {
-	usageRatio := float32(len(h.processingQueue)) / float32(cap(h.processingQueue))
-	return float32(IDEAL_PROCESSING_TIME) * float32(math.Pow(float64(max(0, (usageRatio-0.4)/0.6)), 3))
 }

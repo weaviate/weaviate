@@ -45,9 +45,9 @@ func Start(
 
 	shuttingDownCtx, triggerShuttingDown := context.WithCancel(context.Background())
 	reportingQueues := NewReportingQueues()
-	// buffer size of 10x workers helping to ensure minimal overhead between recv and workers while not using too much memory
+	// buffer size of 1.5x workers helping to ensure minimal overhead between recv and workers while not using too much memory
 	// nor delaying shutdown too much by requiring a long drain period
-	processingQueue := NewProcessingQueue(numWorkers * 10)
+	processingQueue := NewProcessingQueue(int(float32(numWorkers) * 1.5))
 
 	StartBatchWorkers(&workersWg, numWorkers, processingQueue, reportingQueues, batchHandler, logger)
 

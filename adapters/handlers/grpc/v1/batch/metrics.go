@@ -23,8 +23,8 @@ import (
 type BatchStreamingMetrics struct {
 	OnStreamStart   func()
 	OnStreamStop    func()
-	OnStreamRequest func(queueLen float64)
-	OnStreamError   func()
+	OnStreamRequest func(ratio float64)
+	OnStreamError   func(numErrs int)
 	OnWorkerReport  func(throughputEma float64, processingTimeEma time.Duration)
 }
 
@@ -72,8 +72,8 @@ func NewBatchStreamingMetrics(reg prometheus.Registerer) *BatchStreamingMetrics 
 		OnStreamRequest: func(ratio float64) {
 			processingQueueUtilization.WithLabelValues().Observe(ratio)
 		},
-		OnStreamError: func() {
-			streamTotalErrors.WithLabelValues().Inc()
+		OnStreamError: func(numErrs int) {
+			streamTotalErrors.WithLabelValues().Add(float64(numErrs))
 		},
 		OnWorkerReport: func(throughputEma float64, processingTimeEma time.Duration) {
 			streamProcessingThroughputEma.WithLabelValues().Observe(throughputEma)

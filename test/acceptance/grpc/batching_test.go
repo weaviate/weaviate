@@ -123,16 +123,19 @@ func TestGRPC_Batching(t *testing.T) {
 		stop(stream)
 		stream.CloseSend()
 
-		// Read the error message
-		errMsg, err := stream.Recv()
-		for errMsg.GetBackoff() != nil {
-			// if we got a backoff message, read the next message which should be the error
-			errMsg, err = stream.Recv()
-		}
+		// Read the results message
+		msg, err := stream.Recv()
 		require.NoError(t, err, "BatchStream should return a response")
-		require.NotNil(t, errMsg, "Error message should not be nil")
-		require.Equal(t, "class Article has multi-tenancy disabled, but request was with tenant", errMsg.GetError().Error)
-		require.Equal(t, objects[1].Tenant, errMsg.GetError().GetObject().Tenant, "Errored object should be the second one")
+		require.NotNil(t, msg, "Message should not be nil")
+		require.NotNil(t, msg.GetResults(), "Results message should not be nil")
+		require.Len(t, msg.GetResults().GetErrors(), 1, "There should be one error")
+		require.Len(t, msg.GetResults().GetSuccesses(), 2, "There should be two successes")
+
+		require.Equal(t, objects[0].Uuid, msg.GetResults().GetSuccesses()[0].GetUuid(), "First object UUID should match")
+		require.Equal(t, objects[2].Uuid, msg.GetResults().GetSuccesses()[1].GetUuid(), "Third object UUID should match")
+
+		require.Equal(t, "class Article has multi-tenancy disabled, but request was with tenant", msg.GetResults().GetErrors()[0].GetError())
+		require.Equal(t, objects[1].Uuid, msg.GetResults().GetErrors()[0].GetUuid(), "Errored object should be the second one")
 
 		list, err := helper.ListObjects(t, clsA.Class)
 		require.NoError(t, err, "ListObjects should not return an error")
@@ -146,32 +149,36 @@ func TestGRPC_Batching(t *testing.T) {
 		stream := start(ctx, t, grpcClient, "")
 
 		uuid0 := uuid.NewString()
+		uuid1 := uuid.NewString()
 		// Send some articles and paragraphs in send message
 		objects := []*pb.BatchObject{
 			{Collection: clsA.Class, Uuid: uuid0},
-			{Collection: clsP.Class, Uuid: uuid.NewString()},
+			{Collection: clsP.Class, Uuid: uuid1},
 		}
 		// Send a list of references, one pointing to a non-existent object
 		references := []*pb.BatchReference{
-			{Name: "hasParagraphs", FromCollection: clsA.Class, FromUuid: uuid0, ToUuid: UUID1},
-			{Name: "hasParagraphss", FromCollection: clsA.Class, FromUuid: uuid0, ToUuid: UUID2},
+			{Name: "hasParagraphs", FromCollection: clsA.Class, FromUuid: uuid0, ToUuid: uuid0},
+			{Name: "hasParagraphss", FromCollection: clsA.Class, FromUuid: uuid0, ToUuid: uuid1},
 		}
 		err := send(stream, objects, references)
 		require.NoError(t, err, "sending Objects and References over the stream should not return an error")
 		stop(stream)
 		stream.CloseSend()
 
-		// Read the error message
-		errMsg, err := stream.Recv()
-		for errMsg.GetBackoff() != nil {
-			// if we got a backoff message, read the next message which should be the error
-			errMsg, err = stream.Recv()
-		}
+		// Read the results message
+		msg, err := stream.Recv()
 		require.NoError(t, err, "BatchStream should return a response")
-		require.NotNil(t, errMsg, "Error message should not be nil")
-		require.NotNil(t, errMsg.GetError(), "Error message should not be nil")
-		require.Equal(t, "property hasParagraphss does not exist for class Article", errMsg.GetError().Error)
-		require.Equal(t, references[1].ToUuid, errMsg.GetError().GetReference().ToUuid, "Errored reference should be the second one")
+		require.NotNil(t, msg, "Message should not be nil")
+		require.NotNil(t, msg.GetResults(), "Results message should not be nil")
+		require.Len(t, msg.GetResults().GetErrors(), 1, "There should be one error")
+		require.Len(t, msg.GetResults().GetSuccesses(), 3, "There should be three successes")
+
+		require.Equal(t, uuid0, msg.GetResults().GetSuccesses()[0].GetUuid(), "First object UUID should match")
+		require.Equal(t, objects[1].Uuid, msg.GetResults().GetSuccesses()[1].GetUuid(), "Second object UUID should match")
+		require.Equal(t, toBeacon(references[0]), msg.GetResults().GetSuccesses()[2].GetBeacon(), "First reference beacon should match")
+
+		require.Equal(t, "property hasParagraphss does not exist for class Article", msg.GetResults().GetErrors()[0].GetError())
+		require.Equal(t, toBeacon(references[1]), msg.GetResults().GetErrors()[0].GetBeacon(), "Second reference beacon should match")
 
 		obj, err := helper.GetObject(t, clsA.Class, strfmt.UUID(uuid0))
 		require.NoError(t, err, "ListObjects should not return an error")
@@ -211,8 +218,11 @@ func TestGRPC_Batching(t *testing.T) {
 					t.Errorf("Stream recv returned error: %v", err)
 					return
 				}
-				if resp.GetError() != nil {
-					t.Errorf("Received unexpected error from server: %v", resp.GetError())
+				if len(resp.GetResults().GetErrors()) != 0 {
+					t.Error("Received unexpected errors from server:")
+					for _, e := range resp.GetResults().GetErrors() {
+						t.Errorf("Error: %s", e.GetError())
+					}
 				}
 			}
 		}()
@@ -265,8 +275,11 @@ func TestGRPC_Batching(t *testing.T) {
 					t.Errorf("Stream recv returned error: %v", err)
 					return
 				}
-				if resp.GetError() != nil {
-					t.Errorf("Received unexpected error from server: %v", resp.GetError())
+				if len(resp.GetResults().GetErrors()) != 0 {
+					t.Error("Received unexpected errors from server:")
+					for _, e := range resp.GetResults().GetErrors() {
+						t.Errorf("Error: %s", e.GetError())
+					}
 				}
 			}
 		}()
@@ -443,8 +456,11 @@ func TestGRPC_ClusterBatching(t *testing.T) {
 					shuttingDown.Store(false)
 					continue // we expect this error when the server is shutting down
 				}
-				if resp.GetError() != nil {
-					t.Errorf("%s Received unexpected error from server: %v\n", time.Now().Format("15:04:05"), resp.GetError())
+				if len(resp.GetResults().GetErrors()) != 0 {
+					t.Error("Received unexpected errors from server:")
+					for _, e := range resp.GetResults().GetErrors() {
+						t.Errorf("Error: %s", e.GetError())
+					}
 				}
 				if resp.GetShuttingDown() != nil {
 					t.Logf("%s Shutdown triggered\n", time.Now().Format("15:04:05"))
@@ -581,7 +597,7 @@ func TestGRPC_AuthzBatching(t *testing.T) {
 				break
 			}
 			require.NoError(t, err, "receiving from stream should not return an error")
-			require.Nil(t, msg.GetError(), "received message should not contain an error")
+			require.Len(t, msg.GetResults().GetErrors(), 0, "received message should not contain an error")
 		}
 
 		// Validate the number of articles created
@@ -653,14 +669,11 @@ func TestGRPC_AuthzBatching(t *testing.T) {
 		// Read the error message
 		msg, err := stream.Recv()
 		require.NoError(t, err, "BatchStream should return a response")
-		if msg.GetBackoff() != nil {
-			// if we got a backoff message, read the next message which should contain the partial error
-			msg, err = stream.Recv()
-			require.NoError(t, err, "BatchStream should return a response")
-		}
-		require.NotNil(t, msg.GetError(), "Error message should not be nil")
-		require.Equal(t, "rbac: authorization, forbidden action: user 'custom-user' has insufficient permissions to update_data [[Domain: data, Collection: Paragraph, Tenant: *, Object: *]]", msg.GetError().Error)
-		require.Equal(t, objects[2].Uuid, msg.GetError().GetObject().Uuid, "Errored object should be the third one")
+		require.NotNil(t, msg, "Message should not be nil")
+		require.NotNil(t, msg.GetResults(), "Results message should not be nil")
+
+		require.Equal(t, "rbac: authorization, forbidden action: user 'custom-user' has insufficient permissions to update_data [[Domain: data, Collection: Paragraph, Tenant: *, Object: *]]", msg.GetResults().GetErrors()[0].Error)
+		require.Equal(t, objects[2].Uuid, msg.GetResults().GetErrors()[0].GetUuid(), "Errored object should be the third one")
 	})
 }
 
@@ -714,4 +727,8 @@ func stop(stream pb.Weaviate_BatchStreamClient) {
 		Message: &pb.BatchStreamRequest_Stop_{Stop: &pb.BatchStreamRequest_Stop{}},
 	})
 	require.NoError(nil, err, "sending Stop over the stream should not return an error")
+}
+
+func toBeacon(ref *pb.BatchReference) string {
+	return fmt.Sprintf("weaviate://localhost/%s/%s/%s", ref.FromCollection, ref.FromUuid, ref.Name)
 }

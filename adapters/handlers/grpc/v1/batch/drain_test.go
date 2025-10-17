@@ -36,8 +36,8 @@ func TestDrainOfInProgressBatch(t *testing.T) {
 	logger := logrus.New()
 
 	mockBatcher := mocks.NewMockbatcher(t)
-	mockStream := newMockStream(ctx, t)
-	mockStream.EXPECT().Context().Return(ctx).Twice()
+	mockStream := newMockStream(t)
+	mockStream.EXPECT().Context().Return(ctx).Maybe()
 	mockAuthenticator := mocks.NewMockauthenticator(t)
 	mockAuthenticator.EXPECT().PrincipalFromContext(ctx).Return(&models.Principal{}, nil).Once()
 
@@ -60,7 +60,7 @@ func TestDrainOfInProgressBatch(t *testing.T) {
 			Took:   float32(1),
 			Errors: errors,
 		}, nil
-	}).Once()
+	}).Maybe()
 
 	objs := make([]*pb.BatchObject, 0, howManyObjs)
 	for i := 0; i < howManyObjs; i++ {
@@ -83,14 +83,10 @@ func TestDrainOfInProgressBatch(t *testing.T) {
 		panic("should not be called more than thrice")
 	}).Times(3)
 	mockStream.EXPECT().Send(mock.MatchedBy(func(msg *pb.BatchStreamReply) bool {
-		return msg.GetError().GetError() == "some error" &&
-			msg.GetError().GetObject() != nil
+		return msg.GetResults() != nil
 	})).Return(nil).Maybe()
 	mockStream.EXPECT().Send(newBatchStreamStartedReply()).Return(nil).Once()
 	mockStream.EXPECT().Send(newBatchStreamShuttingDownReply()).Return(nil).Once()
-	mockStream.EXPECT().Send(mock.MatchedBy(func(msg *pb.BatchStreamReply) bool {
-		return msg.GetBackoff() != nil
-	})).Return(nil).Maybe()
 
 	numWorkers := 1
 	handler, drain := batch.Start(mockAuthenticator, nil, mockBatcher, nil, numWorkers, logger)
@@ -116,8 +112,8 @@ func TestDrainOfFinishedBatch(t *testing.T) {
 	logger := logrus.New()
 
 	mockBatcher := mocks.NewMockbatcher(t)
-	mockStream := newMockStream(ctx, t)
-	mockStream.EXPECT().Context().Return(ctx).Twice()
+	mockStream := newMockStream(t)
+	mockStream.EXPECT().Context().Return(ctx).Maybe()
 	mockAuthenticator := mocks.NewMockauthenticator(t)
 	mockAuthenticator.EXPECT().PrincipalFromContext(ctx).Return(&models.Principal{}, nil).Once()
 
@@ -140,7 +136,7 @@ func TestDrainOfFinishedBatch(t *testing.T) {
 			Took:   float32(1),
 			Errors: errors,
 		}, nil
-	}).Once()
+	}).Maybe()
 
 	objs := make([]*pb.BatchObject, 0, howManyObjs)
 	for i := 0; i < howManyObjs; i++ {
@@ -165,14 +161,10 @@ func TestDrainOfFinishedBatch(t *testing.T) {
 		panic("should not be called more than four times")
 	}).Times(4)
 	mockStream.EXPECT().Send(mock.MatchedBy(func(msg *pb.BatchStreamReply) bool {
-		return msg.GetError().GetError() == "some error" &&
-			msg.GetError().GetObject() != nil
+		return msg.GetResults() != nil
 	})).Return(nil).Maybe()
 	mockStream.EXPECT().Send(newBatchStreamStartedReply()).Return(nil).Once()
 	mockStream.EXPECT().Send(newBatchStreamShuttingDownReply()).Return(nil).Once()
-	mockStream.EXPECT().Send(mock.MatchedBy(func(msg *pb.BatchStreamReply) bool {
-		return msg.GetBackoff() != nil
-	})).Return(nil).Maybe()
 
 	numWorkers := 1
 	handler, drain := batch.Start(mockAuthenticator, nil, mockBatcher, nil, numWorkers, logger)
@@ -201,9 +193,9 @@ func TestDrainAfterBrokenStream(t *testing.T) {
 	mockAuthenticator.EXPECT().PrincipalFromContext(ctx).Return(&models.Principal{}, nil).Once()
 
 	howManyObjs := 5000
-	numErrs := howManyObjs / 10
 	mockBatcher.EXPECT().BatchObjects(mock.Anything, mock.Anything).RunAndReturn(func(ctx context.Context, req *pb.BatchObjectsRequest) (*pb.BatchObjectsReply, error) {
 		time.Sleep(100 * time.Millisecond)
+		numErrs := int(len(req.Objects) / 10)
 		errors := make([]*pb.BatchObjectsReply_BatchError, 0, numErrs)
 		for i := 0; i < numErrs; i++ {
 			errors = append(errors, &pb.BatchObjectsReply_BatchError{
@@ -215,18 +207,18 @@ func TestDrainAfterBrokenStream(t *testing.T) {
 			Took:   float32(1),
 			Errors: errors,
 		}, nil
-	}).Once()
+	}).Maybe()
 
 	objs := make([]*pb.BatchObject, 0, howManyObjs)
 	for i := 0; i < howManyObjs; i++ {
 		objs = append(objs, &pb.BatchObject{})
 	}
 
-	stream := newMockStream(ctx, t)
-	stream.EXPECT().Context().Return(ctx).Twice()
+	mockStream := newMockStream(t)
+	mockStream.EXPECT().Context().Return(ctx).Maybe()
 	var count int
 	networkErr := errors.New("some network error")
-	stream.EXPECT().Recv().RunAndReturn(func() (*pb.BatchStreamRequest, error) {
+	mockStream.EXPECT().Recv().RunAndReturn(func() (*pb.BatchStreamRequest, error) {
 		count++
 		switch count {
 		case 1:
@@ -240,18 +232,14 @@ func TestDrainAfterBrokenStream(t *testing.T) {
 		panic("should not be called more than thrice")
 	}).Times(3)
 
-	stream.EXPECT().Send(mock.MatchedBy(func(msg *pb.BatchStreamReply) bool {
-		return msg.GetError().GetError() == "some error" &&
-			msg.GetError().GetObject() != nil
-	})).Return(nil).Times(numErrs)
-	stream.EXPECT().Send(newBatchStreamStartedReply()).Return(nil).Once()
-	stream.EXPECT().Send(mock.MatchedBy(func(msg *pb.BatchStreamReply) bool {
-		return msg.GetBackoff() != nil
+	mockStream.EXPECT().Send(mock.MatchedBy(func(msg *pb.BatchStreamReply) bool {
+		return msg.GetResults() != nil
 	})).Return(nil).Maybe()
+	mockStream.EXPECT().Send(newBatchStreamStartedReply()).Return(nil).Once()
 
 	numWorkers := 1
 	handler, drain := batch.Start(mockAuthenticator, nil, mockBatcher, nil, numWorkers, logger)
-	err := handler.Handle(stream)
+	err := handler.Handle(mockStream)
 	require.NotNil(t, err, "handler should return an error")
 	require.ErrorAs(t, err, &networkErr, "handler should return network error")
 	drain()
@@ -270,9 +258,9 @@ func TestDrainWithHangingClient(t *testing.T) {
 	mockAuthenticator.EXPECT().PrincipalFromContext(ctx).Return(&models.Principal{}, nil).Once()
 
 	howManyObjs := 5000
-	numErrs := howManyObjs / 10
 	mockBatcher.EXPECT().BatchObjects(mock.Anything, mock.Anything).RunAndReturn(func(ctx context.Context, req *pb.BatchObjectsRequest) (*pb.BatchObjectsReply, error) {
 		time.Sleep(100 * time.Millisecond)
+		numErrs := int(len(req.Objects) / 10)
 		errors := make([]*pb.BatchObjectsReply_BatchError, 0, numErrs)
 		for i := 0; i < numErrs; i++ {
 			errors = append(errors, &pb.BatchObjectsReply_BatchError{
@@ -284,18 +272,18 @@ func TestDrainWithHangingClient(t *testing.T) {
 			Took:   float32(1),
 			Errors: errors,
 		}, nil
-	}).Once()
+	}).Maybe()
 
 	objs := make([]*pb.BatchObject, 0, howManyObjs)
 	for i := 0; i < howManyObjs; i++ {
 		objs = append(objs, &pb.BatchObject{})
 	}
 
-	stream := newMockStream(ctx, t)
-	stream.EXPECT().Context().Return(ctx).Twice()
+	mockStream := newMockStream(t)
+	mockStream.EXPECT().Context().Return(ctx).Maybe()
 	var count int
 	shouldDrain := make(chan struct{})
-	stream.EXPECT().Recv().RunAndReturn(func() (*pb.BatchStreamRequest, error) {
+	mockStream.EXPECT().Recv().RunAndReturn(func() (*pb.BatchStreamRequest, error) {
 		count++
 		switch count {
 		case 1:
@@ -311,15 +299,11 @@ func TestDrainWithHangingClient(t *testing.T) {
 		panic("should not be called more than thrice")
 	}).Times(3)
 
-	stream.EXPECT().Send(mock.MatchedBy(func(msg *pb.BatchStreamReply) bool {
-		return msg.GetError().GetError() == "some error" &&
-			msg.GetError().GetObject() != nil
-	})).Return(nil).Times(numErrs)
-	stream.EXPECT().Send(newBatchStreamStartedReply()).Return(nil).Once()
-	stream.EXPECT().Send(newBatchStreamShuttingDownReply()).Return(nil).Once()
-	stream.EXPECT().Send(mock.MatchedBy(func(msg *pb.BatchStreamReply) bool {
-		return msg.GetBackoff() != nil
+	mockStream.EXPECT().Send(mock.MatchedBy(func(msg *pb.BatchStreamReply) bool {
+		return msg.GetResults() != nil
 	})).Return(nil).Maybe()
+	mockStream.EXPECT().Send(newBatchStreamStartedReply()).Return(nil).Once()
+	mockStream.EXPECT().Send(newBatchStreamShuttingDownReply()).Return(nil).Once()
 
 	numWorkers := 1
 	handler, drain := batch.Start(mockAuthenticator, nil, mockBatcher, nil, numWorkers, logger)
@@ -330,7 +314,7 @@ func TestDrainWithHangingClient(t *testing.T) {
 		<-shouldDrain
 		drain()
 	}()
-	err := handler.Handle(stream)
+	err := handler.Handle(mockStream)
 	wg.Wait()
 	require.NotNil(t, err, "handler should return error shutting down")
 	require.ErrorAs(t, err, &context.Canceled, "handler should return context.Canceled error")
@@ -349,9 +333,9 @@ func TestDrainWithMisbehavingClient(t *testing.T) {
 	mockAuthenticator.EXPECT().PrincipalFromContext(ctx).Return(&models.Principal{}, nil).Once()
 
 	howManyObjs := 5000
-	numErrs := howManyObjs / 10
 	mockBatcher.EXPECT().BatchObjects(mock.Anything, mock.Anything).RunAndReturn(func(ctx context.Context, req *pb.BatchObjectsRequest) (*pb.BatchObjectsReply, error) {
 		time.Sleep(100 * time.Millisecond)
+		numErrs := int(len(req.Objects) / 10)
 		errors := make([]*pb.BatchObjectsReply_BatchError, 0, numErrs)
 		for i := 0; i < numErrs; i++ {
 			errors = append(errors, &pb.BatchObjectsReply_BatchError{
@@ -370,11 +354,11 @@ func TestDrainWithMisbehavingClient(t *testing.T) {
 		objs = append(objs, &pb.BatchObject{})
 	}
 
-	stream := newMockStream(ctx, t)
-	stream.EXPECT().Context().Return(ctx).Maybe()
+	mockStream := newMockStream(t)
+	mockStream.EXPECT().Context().Return(ctx).Maybe()
 	var count int
 	shouldDrain := make(chan struct{})
-	stream.EXPECT().Recv().RunAndReturn(func() (*pb.BatchStreamRequest, error) {
+	mockStream.EXPECT().Recv().RunAndReturn(func() (*pb.BatchStreamRequest, error) {
 		count++
 		switch count {
 		case 1:
@@ -388,15 +372,11 @@ func TestDrainWithMisbehavingClient(t *testing.T) {
 		}
 	}).Maybe()
 
-	stream.EXPECT().Send(mock.MatchedBy(func(msg *pb.BatchStreamReply) bool {
-		return msg.GetError().GetError() == "some error" &&
-			msg.GetError().GetObject() != nil
+	mockStream.EXPECT().Send(mock.MatchedBy(func(msg *pb.BatchStreamReply) bool {
+		return msg.GetResults() != nil
 	})).Return(nil).Maybe()
-	stream.EXPECT().Send(newBatchStreamStartedReply()).Return(nil).Once()
-	stream.EXPECT().Send(newBatchStreamShuttingDownReply()).Return(nil).Once()
-	stream.EXPECT().Send(mock.MatchedBy(func(msg *pb.BatchStreamReply) bool {
-		return msg.GetBackoff() != nil
-	})).Return(nil).Maybe()
+	mockStream.EXPECT().Send(newBatchStreamStartedReply()).Return(nil).Once()
+	mockStream.EXPECT().Send(newBatchStreamShuttingDownReply()).Return(nil).Once()
 
 	numWorkers := 1
 	handler, drain := batch.Start(mockAuthenticator, nil, mockBatcher, nil, numWorkers, logger)
@@ -407,7 +387,7 @@ func TestDrainWithMisbehavingClient(t *testing.T) {
 		<-shouldDrain
 		drain()
 	}()
-	err := handler.Handle(stream)
+	err := handler.Handle(mockStream)
 	wg.Wait()
 	require.NotNil(t, err, "handler should return error shutting down")
 	require.ErrorAs(t, err, &context.Canceled, "handler should return context.Canceled error")

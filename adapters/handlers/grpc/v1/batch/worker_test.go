@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -34,7 +35,7 @@ func TestWorkerLoop(t *testing.T) {
 
 	logger := logrus.New()
 
-	t.Run("should process from the queue and send data without error", func(t *testing.T) {
+	t.Run("should process separate objs & refs requests from the queue and send data without error", func(t *testing.T) {
 		mockBatcher := mocks.NewMockbatcher(t)
 
 		reportingQueues := NewReportingQueues()
@@ -52,10 +53,18 @@ func TestWorkerLoop(t *testing.T) {
 		var wg sync.WaitGroup
 		StartBatchWorkers(&wg, 1, processingQueue, reportingQueues, mockBatcher, logger)
 
+		UUID0 := uuid.New().String()
+		ref1 := &pb.BatchReference{
+			FromUuid:       UUID0,
+			ToUuid:         uuid.New().String(),
+			Name:           "ref",
+			FromCollection: "Class",
+		}
+
 		// Send data
 		wg.Add(2)
 		processingQueue <- &processRequest{
-			objects:          []*pb.BatchObject{{}},
+			objects:          []*pb.BatchObject{{Uuid: UUID0}},
 			references:       nil,
 			streamId:         StreamId,
 			consistencyLevel: nil,
@@ -64,18 +73,43 @@ func TestWorkerLoop(t *testing.T) {
 		}
 		processingQueue <- &processRequest{
 			objects:          nil,
-			references:       []*pb.BatchReference{{}},
+			references:       []*pb.BatchReference{ref1},
 			streamId:         StreamId,
 			consistencyLevel: nil,
 			wg:               &wg,
 			streamCtx:        ctx,
 		}
+
+		rq, ok := reportingQueues.Get(StreamId)
+		require.True(t, ok, "Expected reporting queue to exist and to contain message")
+
+		// Read first report from worker
+		report := <-rq
+
+		require.NotNil(t, report.Successes, "Expected successes to be returned")
+		require.Equal(t, 0, len(report.Errors), "Expected no errors to be returned")
+		require.NotNil(t, report.Stats, "Expected stats to be returned")
+		require.Len(t, report.Successes, 1, "Expected one result to be returned")
+
+		require.Equal(t, UUID0, report.Successes[0].GetUuid(), "Expected first result's UUID to match")
+
+		// Read second report from worker
+		report = <-rq
+
+		require.NotNil(t, report.Successes, "Expected successes to be returned")
+		require.Equal(t, 0, len(report.Errors), "Expected no errors to be returned")
+		require.NotNil(t, report.Stats, "Expected stats to be returned")
+		require.Len(t, report.Successes, 1, "Expected one result to be returned")
+
+		require.Equal(t, toBeacon(ref1), report.Successes[0].GetBeacon(), "Expected second result's beacon to match")
+
+		require.Empty(t, rq, "Expected reporting queue to be empty after reading all messages")
 		close(processingQueue) // Allow the draining logic to exit naturally
 		wg.Wait()
 		require.Empty(t, processingQueue, "Expected processing queue to be empty after processing")
 	})
 
-	t.Run("should process from the queue and send data returning partial error", func(t *testing.T) {
+	t.Run("should process combined objs & refs request from the queue and send data returning errors", func(t *testing.T) {
 		mockBatcher := mocks.NewMockbatcher(t)
 
 		reportingQueues := NewReportingQueues()
@@ -117,15 +151,28 @@ func TestWorkerLoop(t *testing.T) {
 		StartBatchWorkers(&wg, 1, processingQueue, reportingQueues, mockBatcher, logger)
 
 		// Send data
-		obj := &pb.BatchObject{}
-		ref := &pb.BatchReference{}
+		UUID0 := uuid.New().String()
+		UUID1 := uuid.New().String()
+		UUID2 := uuid.New().String()
+		ref1 := &pb.BatchReference{
+			FromUuid:       UUID0,
+			ToUuid:         UUID1,
+			Name:           "ref",
+			FromCollection: "Class",
+		}
+		ref2 := &pb.BatchReference{
+			FromUuid:       UUID1,
+			ToUuid:         UUID2,
+			Name:           "ref",
+			FromCollection: "Class",
+		}
 		// must use goroutine to avoid deadlock due to one worker sending error over read stream
 		// while next send to processing queue is blocked by there only being one worker
 		wg.Add(1)
 		go func() {
 			processingQueue <- &processRequest{
-				objects:          []*pb.BatchObject{obj, obj, obj},
-				references:       []*pb.BatchReference{ref, ref},
+				objects:          []*pb.BatchObject{{Uuid: UUID0}, {Uuid: UUID1}, {Uuid: UUID2}},
+				references:       []*pb.BatchReference{ref1, ref2},
 				streamId:         StreamId,
 				consistencyLevel: nil,
 				wg:               &wg,
@@ -138,13 +185,20 @@ func TestWorkerLoop(t *testing.T) {
 
 		// Read first report from worker
 		report := <-rq
+		require.NotNil(t, report.Successes, "Expected successes to be returned")
 		require.NotNil(t, report.Errors, "Expected errors to be returned")
 		require.NotNil(t, report.Stats, "Expected stats to be returned")
+		require.Len(t, report.Successes, 3, "Expected three successes to be returned")
 		require.Len(t, report.Errors, 2, "Expected two errors to be returned")
-		require.Equal(t, "objs error", report.Errors[0].Error, "Expected error message to match")
-		require.Equal(t, obj, report.Errors[0].GetObject(), "Expected object to match")
-		require.Equal(t, "refs error", report.Errors[1].Error, "Expected error message to match")
-		require.Equal(t, ref, report.Errors[1].GetReference(), "Expected reference to match")
+
+		require.Equal(t, UUID0, report.Successes[0].GetUuid(), "Expected first success' UUID to match")
+		require.Equal(t, UUID2, report.Successes[1].GetUuid(), "Expected second success' UUID to match")
+		require.Equal(t, toBeacon(ref2), report.Successes[2].GetBeacon(), "Expected third success' beacon to match")
+
+		require.Equal(t, "objs error", report.Errors[0].GetError(), "Expected first error to be first non-retriable object error")
+		require.Equal(t, UUID1, report.Errors[0].GetUuid(), "Expected first error's UUID to match")
+		require.Equal(t, "refs error", report.Errors[1].GetError(), "Expected second error to be first non-retriable reference error")
+		require.Equal(t, toBeacon(ref1), report.Errors[1].GetBeacon(), "Expected second error's beacon to match")
 
 		require.Empty(t, rq, "Expected reporting queue to be empty after reading all messages")
 		close(processingQueue) // Allow the draining logic to exit naturally

@@ -47,22 +47,27 @@ message BatchStreamReply {
   }
   message ShuttingDown {
   }
-  message Error {
-    string error = 1;
-    oneof detail {
-      BatchObject object = 2;
-      BatchReference reference = 3;
+  message Results {
+    message Error {
+      string error = 1;
+      oneof detail {
+        string uuid = 2;
+        string beacon = 3;
+      }
     }
-  }
-  message Backoff {
-    int32 next_batch_size = 1;
-    float backoff_seconds = 2;
+    message Success {
+      oneof detail {
+        string uuid = 2;
+        string beacon = 3;
+      }
+    }
+    repeated Error errors = 1;
+    repeated Success successes = 2;
   }
   oneof message {
-    Error error = 1;
+    Results results = 1;
     ShuttingDown shutting_down = 2;
-    Backoff backoff = 3;
-    Started started = 4;
+    Started started = 3;
   }
 }
 

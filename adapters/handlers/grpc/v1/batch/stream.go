@@ -156,7 +156,7 @@ func (h *StreamHandler) Handle(stream pb.Weaviate_BatchStreamServer) error {
 
 func (h *StreamHandler) drainReportingQueue(queue reportingQueue, stream pb.Weaviate_BatchStreamServer, logger *logrus.Entry) {
 	for report := range queue {
-		h.handleWorkerErrors(report, stream, logger)
+		h.handleWorkerResults(report, stream, logger)
 	}
 }
 
@@ -213,7 +213,7 @@ func (h *StreamHandler) handleWorkerReport(report *report, closed bool, recvErrC
 		return <-recvErrCh // will be nil if the client closed the stream gracefully or a recv error otherwise
 	}
 	// Received a report from a worker
-	h.handleWorkerErrors(report, stream, logger)
+	h.handleWorkerResults(report, stream, logger)
 	// Recalculate stats
 	stats := h.workerStats(streamId)
 	stats.updateBatchSize(report.Stats.processingTime, len(h.processingQueue))
@@ -223,14 +223,12 @@ func (h *StreamHandler) handleWorkerReport(report *report, closed bool, recvErrC
 	return nil
 }
 
-func (h *StreamHandler) handleWorkerErrors(report *report, stream pb.Weaviate_BatchStreamServer, logger *logrus.Entry) {
-	for _, err := range report.Errors {
-		if h.metrics != nil {
-			h.metrics.OnStreamError()
-		}
-		if innerErr := stream.Send(newBatchErrorMessage(err)); innerErr != nil {
-			logger.Errorf("failed to send error message: %s", innerErr)
-		}
+func (h *StreamHandler) handleWorkerResults(report *report, stream pb.Weaviate_BatchStreamServer, logger *logrus.Entry) {
+	if h.metrics != nil {
+		h.metrics.OnStreamError(len(report.Errors))
+	}
+	if innerErr := stream.Send(newBatchResultsMessage(report.Successes, report.Errors)); innerErr != nil {
+		logger.Errorf("failed to send results message: %s", innerErr)
 	}
 }
 
@@ -386,29 +384,44 @@ func (h *StreamHandler) receiver(ctx context.Context, streamId string, consisten
 			return err
 		}
 		if request.GetData() != nil {
-			wg.Add(1)
-			h.processingQueue <- &processRequest{
-				streamId:         streamId,
-				consistencyLevel: consistencyLevel,
-				objects:          request.GetData().GetObjects().GetValues(),
-				references:       request.GetData().GetReferences().GetValues(),
-				wg:               wg,               // the worker will call wg.Done() when it is finished
-				streamCtx:        stream.Context(), // passes any authn information from the stream into the worker for authz
+			push := func(objs []*pb.BatchObject, refs []*pb.BatchReference) {
+				wg.Add(1)
+				h.processingQueue <- &processRequest{
+					streamId:         streamId,
+					consistencyLevel: consistencyLevel,
+					objects:          objs,
+					references:       refs,
+					wg:               wg,               // the worker will call wg.Done() when it is finished
+					streamCtx:        stream.Context(), // passes any authN information from the stream into the worker for authZ
+					start:            time.Now(),
+				}
+				if h.metrics != nil {
+					h.metrics.OnStreamRequest(float64(len(h.processingQueue)) / float64(cap(h.processingQueue)))
+				}
 			}
-			if h.metrics != nil {
-				h.metrics.OnStreamRequest(float64(len(h.processingQueue)) / float64(cap(h.processingQueue)))
+
+			// Split the client-sent objects into batches according to the current batch size
+			// This allows clients to send however many objects they want without overwhelming
+			// the downstream workers
+			batchSize := h.workerStats(streamId).getBatchSize()
+			objs := request.GetData().GetObjects().GetValues()
+			var batch []*pb.BatchObject
+			if len(objs) > batchSize {
+				batch = make([]*pb.BatchObject, 0, batchSize)
+				for _, obj := range request.GetData().GetObjects().GetValues() {
+					batch = append(batch, obj)
+					if len(batch) == batchSize {
+						push(batch, nil)
+						batch = make([]*pb.BatchObject, 0, batchSize)
+					}
+				}
+			} else {
+				batch = objs
 			}
-			stats := h.workerStats(streamId)
-			if innerErr := stream.Send(&pb.BatchStreamReply{
-				Message: &pb.BatchStreamReply_Backoff_{
-					Backoff: &pb.BatchStreamReply_Backoff{
-						NextBatchSize:  int32(stats.getBatchSize()),
-						BackoffSeconds: h.thresholdCubicBackoff(),
-					},
-				},
-			}); innerErr != nil {
-				log.Errorf("failed to send backoff message: %s", innerErr)
-			}
+			// refs are fast so don't need to be efficiently batched
+			// we just accept however many the client sends assuming it'll be fine
+			push(batch, request.GetData().GetReferences().GetValues())
+
 		} else if request.GetStop() != nil {
 			h.setStopping(streamId)
 		} else {
