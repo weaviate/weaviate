@@ -16,7 +16,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math/rand"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -535,20 +534,45 @@ func (ri *RemoteIndex) queryReplicas(
 		return do(replica, host)
 	}
 
-	queryUntil := func(replicas []string) (resp interface{}, node string, err error) {
-		for _, node = range replicas {
-			if errC := ctx.Err(); errC != nil {
-				return nil, node, errC
+	// Fire queries to replicas concurrently (ignoring self) and return on first success.
+	queryFirstSuccess := func(replicas []string) (resp interface{}, node string, err error) {
+		type result struct {
+			r    interface{}
+			node string
+			err  error
+		}
+		resCh := make(chan result, len(replicas))
+		var launched int
+		for _, rep := range replicas {
+			// Skip local (queryOne returns (nil,nil) for local), avoid launching no-op goroutines
+			if rep == ri.localNodeName {
+				continue
 			}
-			if resp, err = queryOne(node); err == nil {
-				return resp, node, nil
+			launched++
+			go func(n string) {
+				r, e := queryOne(n)
+				resCh <- result{r, n, e}
+			}(rep)
+		}
+		if launched == 0 {
+			return nil, "", fmt.Errorf("no remote replicas to query")
+		}
+		var lastErr error
+		for i := 0; i < launched; i++ {
+			select {
+			case rr := <-resCh:
+				if rr.err == nil && rr.r != nil {
+					return rr.r, rr.node, nil
+				}
+				if rr.err != nil {
+					lastErr = rr.err
+				}
+			case <-ctx.Done():
+				return nil, "", ctx.Err()
 			}
 		}
-		return resp, node, err
+		return nil, "", lastErr
 	}
-	first := rand.Intn(len(replicas))
-	if resp, node, err = queryUntil(replicas[first:]); err != nil && first != 0 {
-		return queryUntil(replicas[:first])
-	}
-	return resp, node, err
+
+	return queryFirstSuccess(replicas)
 }
