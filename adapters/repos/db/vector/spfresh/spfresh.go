@@ -211,8 +211,15 @@ func (s *SPFresh) Shutdown(ctx context.Context) error {
 }
 
 func (s *SPFresh) Flush() error {
-	// nothing to do here
-	// Shard will take care of handling store's buckets
+	if s.config.Centroids.IndexType == "hnsw" {
+		hnswIndex, ok := s.Centroids.(*HNSWIndex)
+		if !ok {
+			return errors.Errorf("centroid index is not HNSW, but %T", s.Centroids)
+		}
+
+		return hnswIndex.hnsw.Flush()
+	}
+
 	return nil
 }
 
@@ -247,7 +254,7 @@ func (s *SPFresh) PostStartup() {
 }
 
 func (s *SPFresh) Compressed() bool {
-	return true
+	return s.config.Compressed
 }
 
 func (s *SPFresh) Multivector() bool {

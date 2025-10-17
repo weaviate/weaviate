@@ -12,11 +12,14 @@
 package spfresh
 
 import (
+	"fmt"
 	"io"
+	"math"
 	"runtime"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
@@ -48,6 +51,7 @@ type Config struct {
 	Store                     StoreConfig                     `json:"store"`                               // Configuration for the underlying LSMKV store
 	Centroids                 CentroidConfig                  `json:"centroids"`                           // Configuration for the centroid index
 	TombstoneCallbacks        cyclemanager.CycleCallbackGroup // Callbacks for handling tombstones
+	Compressed                bool                            `json:"compressed,omitempty"` // Whether to store vectors in compressed format
 }
 
 type StoreConfig struct {
@@ -84,26 +88,66 @@ func DefaultConfig() *Config {
 		SplitWorkers:              w,
 		ReassignWorkers:           w,
 		InternalPostingCandidates: 64,
-		SearchProbe:               128,
+		SearchProbe:               64,
 		ReassignNeighbors:         8,
 		Replicas:                  8,
 		RNGFactor:                 10.0,
 		MaxDistanceRatio:          10_000,
+		Compressed:                false,
 	}
 }
 
 func ValidateUserConfigUpdate(initial, updated config.VectorIndexConfig) error {
-	_, ok := initial.(ent.UserConfig)
+	uc, ok := initial.(ent.UserConfig)
 	if !ok {
 		return errors.Errorf("initial is not UserConfig, but %T", initial)
 	}
 
-	_, ok = updated.(ent.UserConfig)
+	nuc, ok := updated.(ent.UserConfig)
 	if !ok {
 		return errors.Errorf("updated is not UserConfig, but %T", updated)
 	}
 
-	// TODO add immutable fields
+	if uc.Distance != nuc.Distance {
+		return fmt.Errorf("distance function cannot be changed once set (was '%s', cannot change to '%s')",
+			uc.Distance, nuc.Distance)
+	}
 
 	return nil
+}
+
+// MaxPostingVectors returns how many vectors can fit in one posting
+// given the dimensions, compression and I/O budget.
+// I/O budget: SPANN recommends 12KB per posting for byte vectors
+// and 48KB for float32 vectors.
+// Dims is the number of dimensions of the vector, after compression
+// if applicable.
+func computeMaxPostingSize(dims int, compressed bool) uint32 {
+	bytesPerDim := 4
+	maxBytes := 48 * 1024 // default to float32 budget
+	metadata := 8 + 1     // id + version
+	if compressed {
+		bytesPerDim = 1
+		maxBytes = 12 * 1024                          // compressed budget
+		metadata += compressionhelpers.RQMetadataSize // RQ metadata
+	}
+
+	vBytes := dims*bytesPerDim + metadata
+
+	return uint32(math.Ceil(float64(maxBytes) / float64(vBytes)))
+}
+
+func compressedVectorSize(size int) int {
+	return size + compressionhelpers.RQMetadataSize
+}
+
+func (s *SPFresh) setMaxPostingSize() {
+	if s.config.MaxPostingSize == 0 {
+		isCompressed := s.Compressed()
+		s.config.MaxPostingSize = computeMaxPostingSize(int(s.dims), isCompressed)
+	}
+
+	if s.config.MaxPostingSize <= s.config.MinPostingSize {
+		s.config.MinPostingSize = s.config.MaxPostingSize / 2
+	}
 }
