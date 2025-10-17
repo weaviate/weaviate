@@ -529,6 +529,12 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 	if idx == nil {
 		return fmt.Errorf("cannot find index for %q", class.Class)
 	}
+	idx.closeLock.RLock()
+	defer idx.closeLock.RUnlock()
+	if idx.closed {
+		m.logger.WithField("index", idx.ID()).Debug("index is already shut down or dropped")
+		return errAlreadyShutdown
+	}
 
 	hot := make([]string, 0, len(updates))
 	cold := make([]string, 0, len(updates))
@@ -555,20 +561,18 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 	ec := errorcompounder.NewSafe()
 	if len(hot) > 0 {
 		m.logger.WithField("action", "tenants_to_hot").Debug(hot)
-		idx.shardTransferMutex.RLock()
-		defer idx.shardTransferMutex.RUnlock()
 
 		eg := enterrors.NewErrorGroupWrapper(m.logger)
 		eg.SetLimit(_NUMCPU * 2)
 
 		for _, name := range hot {
-			name := name // prevent loop variable capture
-			// enterrors.GoWrapper(func() {
 			// The timeout is rather arbitrary. It's meant to be so high that it can
 			// never stop a valid tenant activation use case, but low enough to
 			// prevent a context-leak.
-
 			eg.Go(func() error {
+				idx.backupLock.RLock(name)
+				defer idx.backupLock.RUnlock(name)
+
 				ctx, cancel := context.WithTimeout(context.Background(), 1*time.Hour)
 				defer cancel()
 
@@ -582,30 +586,19 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 				return nil
 			})
 		}
-
 		eg.Wait()
 	}
 
 	if len(cold) > 0 {
 		m.logger.WithField("action", "tenants_to_cold").Debug(cold)
-		idx.shardTransferMutex.RLock()
-		defer idx.shardTransferMutex.RUnlock()
 
 		eg := enterrors.NewErrorGroupWrapper(m.logger)
 		eg.SetLimit(_NUMCPU * 2)
 
 		for _, name := range cold {
-			name := name
-
 			eg.Go(func() error {
-				idx.closeLock.RLock()
-				defer idx.closeLock.RUnlock()
-
-				if idx.closed {
-					m.logger.WithField("index", idx.ID()).Debug("index is already shut down or dropped")
-					ec.Add(errAlreadyShutdown)
-					return nil
-				}
+				idx.backupLock.RLock(name)
+				defer idx.backupLock.RUnlock(name)
 
 				idx.shardCreateLocks.Lock(name)
 				defer idx.shardCreateLocks.Unlock(name)

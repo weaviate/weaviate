@@ -254,7 +254,7 @@ func (s *Shard) initTargetVectors(ctx context.Context, lazyLoadSegments bool) er
 
 	if err := newCompressedVectorsMigrator(s.index.logger).do(s); err != nil {
 		s.index.logger.WithField("action", "init_target_vectors").
-			WithError(err).Error("failed to migrate vectors compressed folder")
+			Errorf("failed to migrate vectors compressed folder: %v", err)
 	}
 
 	s.vectorIndexes = make(map[string]VectorIndex, len(s.index.vectorIndexUserConfigs))
