@@ -21,15 +21,15 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/weaviate/weaviate/entities/dto"
-	"github.com/weaviate/weaviate/entities/models"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
+	"github.com/weaviate/weaviate/entities/dto"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -38,10 +38,11 @@ import (
 )
 
 type RemoteIndex struct {
-	class        string
-	stateGetter  shardingStateGetter
-	client       RemoteIndexClient
-	nodeResolver nodeResolver
+	class         string
+	stateGetter   shardingStateGetter
+	client        RemoteIndexClient
+	nodeResolver  nodeResolver
+	localNodeName string
 }
 
 type shardingStateGetter interface {
@@ -53,12 +54,14 @@ type shardingStateGetter interface {
 func NewRemoteIndex(className string,
 	stateGetter shardingStateGetter, nodeResolver nodeResolver,
 	client RemoteIndexClient,
+	localNodeName string,
 ) *RemoteIndex {
 	return &RemoteIndex{
-		class:        className,
-		stateGetter:  stateGetter,
-		client:       client,
-		nodeResolver: nodeResolver,
+		class:         className,
+		stateGetter:   stateGetter,
+		client:        client,
+		nodeResolver:  nodeResolver,
+		localNodeName: localNodeName,
 	}
 }
 
@@ -521,6 +524,10 @@ func (ri *RemoteIndex) queryReplicas(
 	}
 
 	queryOne := func(replica string) (interface{}, error) {
+		if replica == ri.localNodeName {
+			// Skip local node to ensure we don't query again our local shard -> it is handled separately in the search
+			return nil, nil
+		}
 		host, ok := ri.nodeResolver.NodeHostname(replica)
 		if !ok || host == "" {
 			return nil, fmt.Errorf("resolve node name %q to host", replica)
