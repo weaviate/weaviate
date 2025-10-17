@@ -30,7 +30,7 @@ import (
 // It detects if the queue has a checkpoint then it enqueues all the
 // remaining vectors to the on-disk queue, then deletes the checkpoint.
 func (s *Shard) ConvertQueue(targetVector string) error {
-	if !asyncEnabled() {
+	if !s.index.asyncIndexingEnabled {
 		return nil
 	}
 
@@ -60,7 +60,7 @@ func (s *Shard) ConvertQueue(targetVector string) error {
 // FillQueue is a helper function that enqueues all vectors from the
 // LSM store to the on-disk queue.
 func (s *Shard) FillQueue(targetVector string, from uint64) error {
-	if !asyncEnabled() {
+	if !s.index.asyncIndexingEnabled {
 		return nil
 	}
 
@@ -256,7 +256,7 @@ func (s *Shard) iterateOnLSMObjects(
 // It it safe to call or interrupt this method at any time.
 // If ASYNC_INDEXING is disabled, it's a no-op.
 func (s *Shard) RepairIndex(ctx context.Context, targetVector string) error {
-	if !asyncEnabled() {
+	if !s.index.asyncIndexingEnabled {
 		return nil
 	}
 
