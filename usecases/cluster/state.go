@@ -14,6 +14,7 @@ package cluster
 import (
 	"fmt"
 	"net"
+	"net/http"
 	"slices"
 	"strings"
 	"sync"
@@ -22,6 +23,7 @@ import (
 	"github.com/hashicorp/memberlist"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
 // NodeSelector is an interface to select a portion of the available nodes in memberlist
@@ -84,6 +86,8 @@ type Config struct {
 	// them in maintenance mode. In addition, we may want to have the cluster nodes not in
 	// maintenance mode be aware of which nodes are in maintenance mode in the future.
 	MaintenanceNodes []string `json:"maintenanceNodes" yaml:"maintenanceNodes"`
+	// RequestQueueConfig is used to configure the request queue buffer for the replicated indices
+	RequestQueueConfig RequestQueueConfig `json:"requestQueueConfig" yaml:"requestQueueConfig"`
 }
 
 type AuthConfig struct {
@@ -97,6 +101,30 @@ type BasicAuth struct {
 
 func (ba BasicAuth) Enabled() bool {
 	return ba.Username != "" || ba.Password != ""
+}
+
+const (
+	DefaultRequestQueueSize                   = 2000
+	DefaultRequestQueueFullHttpStatus         = http.StatusTooManyRequests
+	DefaultRequestQueueShutdownTimeoutSeconds = 90
+)
+
+// RequestQueueConfig is used to configure the request queue buffer for the replicated indices
+type RequestQueueConfig struct {
+	// IsEnabled is used to enable/disable the request queue, can be modified at runtime
+	IsEnabled *configRuntime.DynamicValue[bool] `json:"isEnabled" yaml:"isEnabled"`
+	// NumWorkers is used to configure the number of workers that handle requests from the queue
+	NumWorkers int `json:"numWorkers" yaml:"numWorkers"`
+	// QueueSize is used to configure the size of the request queue buffer
+	QueueSize int `json:"queueSize" yaml:"queueSize"`
+	// QueueFullHttpStatus is used to configure the http status code that is returned when the request queue is full
+	// Should usually be set to 429 or 504 (429 will be retried by the coordinator, 504 will not)
+	QueueFullHttpStatus int `json:"queueFullHttpStatus" yaml:"queueFullHttpStatus"`
+	// QueueShutdownTimeoutSeconds is used to configure the timeout for the request queue shutdown.
+	// This is the timeout for the workers to finish processing the requests in the queue
+	// and for the request queue to be drained.
+	// Should usually be set to 90 seconds, based on coordinator's timeout
+	QueueShutdownTimeoutSeconds int `json:"queueShutdownTimeoutSeconds" yaml:"queueShutdownTimeoutSeconds"`
 }
 
 func Init(userConfig Config, raftTimeoutsMultiplier int, dataPath string, nonStorageNodes map[string]struct{}, logger logrus.FieldLogger) (_ *State, err error) {

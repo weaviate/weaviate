@@ -13,11 +13,14 @@ package lsmkv
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path"
 	"path/filepath"
+	"strings"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/entities/storagestate"
 )
 
@@ -42,6 +45,26 @@ func (b *Bucket) FlushMemtable() error {
 func (b *Bucket) ListFiles(ctx context.Context, basePath string) ([]string, error) {
 	bucketRoot := b.disk.dir
 
+	files, err := b.listFiles(bucketRoot, basePath)
+	if err != nil {
+		return nil, err
+	}
+
+	// This is temporary check for the vectors_compressed folder, should be removed in v1.36
+	// We need to be able to downgrade to a version that doesn't contain the named vectors with quantization fix
+	// in order to be able to do that we need to also look for vectors_compressed folder and include it during backup
+	if strings.Contains(basePath, fmt.Sprintf("%s_", helpers.VectorsCompressedBucketLSM)) {
+		vectorCompressedFiles, err := b.tryTolistLegacyVectorCompressed(basePath)
+		if err != nil {
+			return nil, errors.Errorf("failed to list files in legacy vectors_compressed folder for bucket: %s", err)
+		}
+		files = append(files, vectorCompressedFiles...)
+	}
+
+	return files, nil
+}
+
+func (b *Bucket) listFiles(bucketRoot, basePath string) ([]string, error) {
 	entries, err := os.ReadDir(bucketRoot)
 	if err != nil {
 		return nil, errors.Errorf("failed to list files for bucket: %s", err)
@@ -66,5 +89,15 @@ func (b *Bucket) ListFiles(ctx context.Context, basePath string) ([]string, erro
 
 		files = append(files, path.Join(basePath, entry.Name()))
 	}
+
 	return files, nil
+}
+
+func (b *Bucket) tryTolistLegacyVectorCompressed(basePath string) ([]string, error) {
+	vectorsCompressedBucketRoot := filepath.Join(b.GetRootDir(), "lsm", helpers.VectorsCompressedBucketLSM)
+	vectorsCompressedBasePath := filepath.Join(basePath[:strings.LastIndex(basePath, "/")], helpers.VectorsCompressedBucketLSM)
+	if _, err := os.Stat(vectorsCompressedBucketRoot); !os.IsNotExist(err) {
+		return b.listFiles(vectorsCompressedBucketRoot, vectorsCompressedBasePath)
+	}
+	return nil, nil
 }
