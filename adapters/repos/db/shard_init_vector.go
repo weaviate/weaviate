@@ -118,6 +118,8 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 					)
 				},
 				AllocChecker:                 s.index.allocChecker,
+				MinMMapSize:                  s.index.Config.MinMMapSize,
+				MaxWalReuseSize:              s.index.Config.MaxReuseWalSize,
 				WaitForCachePrefill:          s.index.Config.HNSWWaitForCachePrefill,
 				FlatSearchConcurrency:        s.index.Config.HNSWFlatSearchConcurrency,
 				AcornFilterRatio:             s.index.Config.HNSWAcornFilterRatio,
@@ -249,6 +251,11 @@ func (s *Shard) getOrInitDynamicVectorIndexDB() (*bbolt.DB, error) {
 func (s *Shard) initTargetVectors(ctx context.Context, lazyLoadSegments bool) error {
 	s.vectorIndexMu.Lock()
 	defer s.vectorIndexMu.Unlock()
+
+	if err := newCompressedVectorsMigrator(s.index.logger).do(s); err != nil {
+		s.index.logger.WithField("action", "init_target_vectors").
+			Errorf("failed to migrate vectors compressed folder: %v", err)
+	}
 
 	s.vectorIndexes = make(map[string]VectorIndex, len(s.index.vectorIndexUserConfigs))
 	s.queues = make(map[string]*VectorIndexQueue, len(s.index.vectorIndexUserConfigs))

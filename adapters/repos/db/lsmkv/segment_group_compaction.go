@@ -538,7 +538,7 @@ func (sg *SegmentGroup) monitorSegments() {
 	if sg.metrics.criticalBucketsOnly {
 		bucket := path.Base(sg.dir)
 		if bucket != helpers.ObjectsBucketLSM &&
-			bucket != helpers.VectorsCompressedBucketLSM {
+			!strings.HasPrefix(bucket, helpers.VectorsCompressedBucketLSM) {
 			return
 		}
 		if bucket == helpers.ObjectsBucketLSM {
@@ -547,7 +547,7 @@ func (sg *SegmentGroup) monitorSegments() {
 				"path":     sg.dir,
 			}).Set(float64(sg.Len()))
 		}
-		if bucket == helpers.VectorsCompressedBucketLSM {
+		if strings.HasPrefix(bucket, helpers.VectorsCompressedBucketLSM) {
 			sg.metrics.CompressedVecsBucketSegments.With(prometheus.Labels{
 				"strategy": sg.strategy,
 				"path":     sg.dir,

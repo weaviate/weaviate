@@ -200,10 +200,7 @@ func (index *flat) getBucketName() string {
 }
 
 func (index *flat) getCompressedBucketName() string {
-	if index.targetVector != "" {
-		return fmt.Sprintf("%s_%s", helpers.VectorsCompressedBucketLSM, index.targetVector)
-	}
-	return helpers.VectorsCompressedBucketLSM
+	return helpers.GetCompressedBucketName(index.targetVector)
 }
 
 func (index *flat) initBuckets(ctx context.Context, cfg Config) error {
@@ -346,15 +343,7 @@ func (index *flat) Add(ctx context.Context, id uint64, vector []float32) error {
 	slice := make([]byte, len(vector)*4)
 	index.storeVector(id, byteSliceFromFloat32Slice(vector, slice))
 
-	if index.isBQ() {
-		vectorBQ := index.bq.Encode(vector)
-		if index.isBQCached() {
-			index.bqCache.Grow(id)
-			index.bqCache.Preload(id, vectorBQ)
-		}
-		slice = make([]byte, len(vectorBQ)*8)
-		index.storeCompressedVector(id, byteSliceFromUint64Slice(vectorBQ, slice))
-	}
+	index.Preload(id, vector)
 	newCount := atomic.LoadUint64(&index.count)
 	atomic.StoreUint64(&index.count, newCount+1)
 	return nil
@@ -825,6 +814,18 @@ func (i *flat) ValidateMultiBeforeInsert(vector [][]float32) error {
 	return nil
 }
 
+func (index *flat) Preload(id uint64, vector []float32) {
+	if index.isBQ() {
+		vectorBQ := index.bq.Encode(vector)
+		if index.isBQCached() {
+			index.bqCache.Grow(id)
+			index.bqCache.Preload(id, vectorBQ)
+		}
+		slice := make([]byte, len(vectorBQ)*8)
+		index.storeCompressedVector(id, byteSliceFromUint64Slice(vectorBQ, slice))
+	}
+}
+
 func (index *flat) PostStartup(ctx context.Context) {
 	if !index.isBQCached() {
 		return
@@ -853,8 +854,18 @@ func (index *flat) PostStartup(ctx context.Context) {
 		binary.BigEndian.Uint64, index.bq.FromCompressedBytesWithSubsliceBuffer, index.logger)
 	vecsCh, abortedCh := it.IterateAll(ctx)
 
-	for v := range vecsCh {
-		vecs = append(vecs, v...)
+	for vectors := range vecsCh {
+		for _, v := range vectors {
+			// if we mix little and big endian IDs by mistake, we might get a very large
+			// maxID which would cause us to allocate a huge cache.
+			// In that case, we consider that anything larger than a quadrillion is an error
+			// and should be skipped.
+			if v.Id > 1e15 {
+				continue
+			}
+
+			vecs = append(vecs, v)
+		}
 	}
 	if <-abortedCh {
 		index.logger.WithFields(logrus.Fields{

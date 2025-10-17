@@ -132,14 +132,22 @@ func (cpi *parallelIterator[T]) IterateAll(ctx context.Context) (out chan []VecA
 					"action": "hnsw_compressed_vector_cache_prefill",
 					"len":    len(v),
 					"lenk":   len(k),
-				}).Warn("skipping compressed vector with unexpected length")
+				}).Debug("skipping compressed vector with unexpected length")
+				continue
+			}
+			if cpi.loadId(k) > MaxValidID {
+				cpi.logger.WithFields(logrus.Fields{
+					"action": "hnsw_compressed_vector_cache_prefill",
+					"len":    len(v),
+					"lenk":   len(k),
+				}).Debug("skipping compressed vector with unexpected key endianness")
 				continue
 			}
 
 			localResults = append(localResults, extract(k, v, &localBuf))
 			cpi.trackIndividual(len(localResults))
 		}
-		cpi.cleanUpTempAllocs(localResults, &localBuf)
+		localResults = cpi.cleanUpTempAllocs(localResults, &localBuf)
 
 		out <- localResults
 	}, cpi.logger)
@@ -175,13 +183,22 @@ func (cpi *parallelIterator[T]) IterateAll(ctx context.Context) (out chan []VecA
 						"action": "hnsw_compressed_vector_cache_prefill",
 						"len":    len(v),
 						"lenk":   len(k),
-					}).Warn("skipping compressed vector with unexpected length")
+					}).Debug("skipping compressed vector with unexpected length")
 					continue
 				}
+				if cpi.loadId(k) > MaxValidID {
+					cpi.logger.WithFields(logrus.Fields{
+						"action": "hnsw_compressed_vector_cache_prefill",
+						"len":    len(v),
+						"lenk":   len(k),
+					}).Debug("skipping compressed vector with unexpected key endianness")
+					continue
+				}
+
 				localResults = append(localResults, extract(k, v, &localBuf))
 				cpi.trackIndividual(len(localResults))
 			}
-			cpi.cleanUpTempAllocs(localResults, &localBuf)
+			localResults = cpi.cleanUpTempAllocs(localResults, &localBuf)
 
 			out <- localResults
 		}, cpi.logger)
@@ -214,14 +231,22 @@ func (cpi *parallelIterator[T]) IterateAll(ctx context.Context) (out chan []VecA
 					"action": "hnsw_compressed_vector_cache_prefill",
 					"len":    len(v),
 					"lenk":   len(k),
-				}).Warn("skipping compressed vector with unexpected length")
+				}).Debug("skipping compressed vector with unexpected length")
+				continue
+			}
+			if cpi.loadId(k) > MaxValidID {
+				cpi.logger.WithFields(logrus.Fields{
+					"action": "hnsw_compressed_vector_cache_prefill",
+					"len":    len(v),
+					"lenk":   len(k),
+				}).Debug("skipping compressed vector with unexpected key endianness")
 				continue
 			}
 
 			localResults = append(localResults, extract(k, v, &localBuf))
 			cpi.trackIndividual(len(localResults))
 		}
-		cpi.cleanUpTempAllocs(localResults, &localBuf)
+		localResults = cpi.cleanUpTempAllocs(localResults, &localBuf)
 
 		out <- localResults
 	}, cpi.logger)
@@ -271,7 +296,7 @@ func (cpi *parallelIterator[T]) iterateAllNoConcurrency(ctx context.Context) (ou
 					"action": "hnsw_compressed_vector_cache_prefill",
 					"len":    len(v),
 					"lenk":   len(k),
-				}).Warn("skipping compressed vector with unexpected length")
+				}).Debug("skipping compressed vector with unexpected length")
 				continue
 			}
 			id := cpi.loadId(k)
@@ -348,10 +373,10 @@ type VecAndID[T uint64 | byte] struct {
 	Vec []T
 }
 
-func (cpi *parallelIterator[T]) cleanUpTempAllocs(localResults []VecAndID[T], localBuf *[]T) {
+func (cpi *parallelIterator[T]) cleanUpTempAllocs(localResults []VecAndID[T], localBuf *[]T) []VecAndID[T] {
 	usedSpaceInBuffer := cap(*localBuf) - len(*localBuf)
 	if len(localResults) == 0 || usedSpaceInBuffer == cap(*localBuf) {
-		return
+		return localResults
 	}
 
 	// We allocate localBuf in chunks of 1000 vectors to avoid allocations for every single vector we load, which is a
@@ -371,6 +396,16 @@ func (cpi *parallelIterator[T]) cleanUpTempAllocs(localResults []VecAndID[T], lo
 	*localBuf = (*localBuf)[:cap(*localBuf)]
 	copy(fittingLocalBuf, (*localBuf)[unusedLength:])
 
+	// make sure we don't go out of bounds.
+	if entriesToRecopy > cap(localResults) {
+		cp := make([]VecAndID[T], entriesToRecopy)
+		copy(cp, localResults)
+		localResults = cp
+	}
+	if len(localResults) < entriesToRecopy {
+		localResults = localResults[:entriesToRecopy]
+	}
+
 	// order is important. To get the correct mapping we need to iterated:
 	// - localResults from the back
 	// - fittingLocalBuf from the front
@@ -381,4 +416,6 @@ func (cpi *parallelIterator[T]) cleanUpTempAllocs(localResults []VecAndID[T], lo
 
 	// explicitly tell GC that the old buffer can go away
 	*localBuf = nil
+
+	return localResults
 }
