@@ -498,8 +498,6 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	}
 
 	nodeName := appState.Cluster.LocalName()
-	nodeAddr, _ := appState.Cluster.NodeHostname(nodeName)
-	addrs := strings.Split(nodeAddr, ":")
 	dataPath := appState.ServerConfig.Config.Persistence.DataPath
 
 	schemaParser := schema.NewParser(appState.Cluster, vectorIndex.ParseAndValidateConfig, migrator, appState.Modules)
@@ -507,7 +505,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	rConfig := rCluster.Config{
 		WorkDir:                         filepath.Join(dataPath, config.DefaultRaftDir),
 		NodeID:                          nodeName,
-		Host:                            addrs[0],
+		Host:                            appState.Cluster.LocalNodeAddress(),
 		RaftPort:                        appState.ServerConfig.Config.Raft.Port,
 		RPCPort:                         appState.ServerConfig.Config.Raft.InternalRPCPort,
 		RaftRPCMessageMaxSize:           appState.ServerConfig.Config.Raft.RPCMessageMaxSize,

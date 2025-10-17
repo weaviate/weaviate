@@ -23,6 +23,7 @@ import (
 	"github.com/hashicorp/memberlist"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
@@ -314,7 +315,17 @@ func (s *State) ClusterHealthScore() int {
 	return s.list.GetHealthScore()
 }
 
+// LocalNodeAddress returns the address of the local node (including self)
+// This is used for initialization purposes where we need the local node's address
+func (s *State) LocalNodeAddress() string {
+	return s.list.LocalNode().Addr.String()
+}
+
 func (s *State) NodeHostname(nodeName string) (string, bool) {
+	// Exclude self to avoid routing requests to local node during rollouts
+	if nodeName == s.LocalName() {
+		return "", false
+	}
 	for _, mem := range s.list.Members() {
 		if mem.Name == nodeName {
 			// TODO: how can we find out the actual data port as opposed to relying on
