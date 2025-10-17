@@ -535,12 +535,15 @@ func (ri *RemoteIndex) queryReplicas(
 	}
 
 	// Fire queries to replicas concurrently (ignoring self) and return on first success.
+	// Uses a cancellable context to signal other attempts to stop early.
 	queryFirstSuccess := func(replicas []string) (resp interface{}, node string, err error) {
 		type result struct {
 			r    interface{}
 			node string
 			err  error
 		}
+		gctx, cancel := context.WithCancel(ctx)
+		defer cancel()
 		resCh := make(chan result, len(replicas))
 		var launched int
 		for _, rep := range replicas {
@@ -550,8 +553,18 @@ func (ri *RemoteIndex) queryReplicas(
 			}
 			launched++
 			go func(n string) {
+				// bail out quickly if we were cancelled before starting
+				select {
+				case <-gctx.Done():
+					return
+				default:
+				}
 				r, e := queryOne(n)
-				resCh <- result{r, n, e}
+				// only report if still relevant
+				select {
+				case resCh <- result{r, n, e}:
+				case <-gctx.Done():
+				}
 			}(rep)
 		}
 		if launched == 0 {
@@ -562,13 +575,14 @@ func (ri *RemoteIndex) queryReplicas(
 			select {
 			case rr := <-resCh:
 				if rr.err == nil && rr.r != nil {
+					cancel()
 					return rr.r, rr.node, nil
 				}
 				if rr.err != nil {
 					lastErr = rr.err
 				}
-			case <-ctx.Done():
-				return nil, "", ctx.Err()
+			case <-gctx.Done():
+				return nil, "", gctx.Err()
 			}
 		}
 		return nil, "", lastErr
