@@ -27,7 +27,13 @@ const (
 )
 
 func (s *SPFresh) SearchByVector(ctx context.Context, vector []float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
-	queryVector := NewAnonymousCompressedVector(s.quantizer.Encode(vector))
+	vector = s.normalizeVec(vector)
+	var queryVector Vector
+	if s.config.Compressed {
+		queryVector = NewAnonymousCompressedVector(s.quantizer.Encode(vector))
+	} else {
+		queryVector = NewAnonymousRawVector(vector)
+	}
 
 	var selected []uint64
 	var postings []Posting

@@ -316,12 +316,24 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateEndpoints() {
 
 func getRequest(t *testing.T, className string) *models.ReplicationReplicateReplicaRequest {
 	verbose := verbosity.OutputVerbose
-	nodes, err := helper.Client(t).Nodes.NodesGetClass(nodes.NewNodesGetClassParams().WithOutput(&verbose).WithClassName(className), nil)
+	var ns *nodes.NodesGetClassOK
+	var err error
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		ns, err = helper.Client(t).Nodes.NodesGetClass(nodes.NewNodesGetClassParams().WithOutput(&verbose).WithClassName(className), nil)
+		if err != nil {
+			ct.Errorf("failed to get nodes for class %s: %v", className, err)
+			return
+		}
+		if len(ns.Payload.Nodes) != 3 {
+			ct.Errorf("expected at 3 nodes for class %s, got %d", className, len(ns.Payload.Nodes))
+			return
+		}
+	}, 10*time.Second, 1*time.Second, "nodes should have 3 nodes for class %s", className)
 	require.Nil(t, err)
 	return &models.ReplicationReplicateReplicaRequest{
 		Collection: &className,
-		SourceNode: &nodes.Payload.Nodes[0].Name,
-		TargetNode: &nodes.Payload.Nodes[1].Name,
-		Shard:      &nodes.Payload.Nodes[0].Shards[0].Name,
+		SourceNode: &ns.Payload.Nodes[0].Name,
+		TargetNode: &ns.Payload.Nodes[1].Name,
+		Shard:      &ns.Payload.Nodes[0].Shards[0].Name,
 	}
 }

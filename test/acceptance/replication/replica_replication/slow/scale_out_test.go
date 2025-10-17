@@ -66,7 +66,7 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateScaleOut() {
 	helper.CreateClass(t, cls)
 
 	// Load data
-	batch := make([]*models.Object, 0, 10000)
+	batch := make([]*models.Object, 0, 1000)
 	tenantNames := make([]string, 0, 100)
 	t.Log("Loading data into tenants...")
 	for i := 0; i < 100; i++ {
@@ -78,7 +78,7 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateScaleOut() {
 				WithTenant(tenantName).
 				Object()))
 		}
-		if len(batch) == 10000 {
+		if len(batch) == 1000 {
 			helper.CreateObjectsBatch(t, batch)
 			batch = batch[:0] // reset batch for next iteration
 		}
