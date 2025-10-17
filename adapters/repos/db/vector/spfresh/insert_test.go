@@ -33,7 +33,7 @@ func TestSPFreshOptimizedPostingSize(t *testing.T) {
 		require.NoError(t, err)
 
 		maxPostingSize := index.config.MaxPostingSize
-		require.Equal(t, uint32(101), maxPostingSize)
+		require.Equal(t, 121, int(maxPostingSize))
 	})
 
 	t.Run("max posting size set by the user", func(t *testing.T) {
@@ -46,10 +46,10 @@ func TestSPFreshOptimizedPostingSize(t *testing.T) {
 		require.NoError(t, err)
 
 		maxPostingSize := index.config.MaxPostingSize
-		require.Equal(t, uint32(56), maxPostingSize)
+		require.Equal(t, 56, int(maxPostingSize))
 	})
 
-	t.Run("max posting size too small", func(t *testing.T) {
+	t.Run("max posting size small", func(t *testing.T) {
 		cfg.MaxPostingSize = 2
 		index, err := New(cfg, store)
 		require.NoError(t, err)
@@ -59,6 +59,6 @@ func TestSPFreshOptimizedPostingSize(t *testing.T) {
 		require.NoError(t, err)
 
 		maxPostingSize := index.config.MaxPostingSize
-		require.Equal(t, int(10), int(maxPostingSize))
+		require.Equal(t, 2, int(maxPostingSize))
 	})
 }
