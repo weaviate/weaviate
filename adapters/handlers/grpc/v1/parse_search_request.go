@@ -835,7 +835,10 @@ func extractAdditionalPropsFromMetadata(class *models.Class, prop *pb.MetadataRe
 		Vectors:            prop.Vectors,
 	}
 
-	if vectorSearch && configvalidation.CheckCertaintyCompatibility(class, targetVectors) != nil {
+	// certainty is not compatible with
+	// - multi-vector search
+	// - non-vector search
+	if (vectorSearch && configvalidation.CheckCertaintyCompatibility(class, targetVectors) != nil) || !vectorSearch {
 		props.Certainty = false
 	} else {
 		props.Certainty = prop.Certainty

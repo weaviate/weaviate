@@ -530,6 +530,11 @@ func (l *LazyLoadShard) RepairIndex(ctx context.Context, targetVector string) er
 	return l.shard.RepairIndex(ctx, targetVector)
 }
 
+func (l *LazyLoadShard) RequantizeIndex(ctx context.Context, targetVector string) error {
+	l.mustLoad()
+	return l.shard.RequantizeIndex(ctx, targetVector)
+}
+
 func (l *LazyLoadShard) Shutdown(ctx context.Context) error {
 	if !l.isLoaded() {
 		return nil
@@ -607,9 +612,9 @@ func (l *LazyLoadShard) prepareAddReferences(ctx context.Context, shardID string
 	return l.shard.prepareAddReferences(ctx, shardID, refs)
 }
 
-func (l *LazyLoadShard) commitReplication(ctx context.Context, shardID string, mutex *shardTransfer) interface{} {
+func (l *LazyLoadShard) commitReplication(ctx context.Context, shardID string) interface{} {
 	l.mustLoad()
-	return l.shard.commitReplication(ctx, shardID, mutex)
+	return l.shard.commitReplication(ctx, shardID)
 }
 
 func (l *LazyLoadShard) abortReplication(ctx context.Context, shardID string) replica.SimpleResponse {
