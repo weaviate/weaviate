@@ -16,6 +16,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"sync"
 	"testing"
 
@@ -27,51 +28,84 @@ import (
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/search"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/objects"
 )
 
-func TestBatchPutObjects_ConcurrentBatches(t *testing.T) {
-	dirName := t.TempDir()
+type testRepo struct {
+	*DB
+	t *testing.T
+}
+
+func setupTestRepo(t *testing.T, className string, properties []*models.Property) *testRepo {
+	t.Helper()
 
 	logger := logrus.New()
 	schemaGetter := &fakeSchemaGetter{
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: singleShardState(),
 	}
+
 	repo, err := New(logger, Config{
 		MemtablesFlushDirtyAfter:  60,
-		RootPath:                  dirName,
+		RootPath:                  t.TempDir(),
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 		TrackVectorDimensions:     true,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor())
-	require.Nil(t, err)
+	require.NoError(t, err)
+
+	repo.asyncIndexingEnabled = rand.Int()%2 == 0
 	repo.SetSchemaGetter(schemaGetter)
-	require.Nil(t, repo.WaitForStartup(testCtx()))
+	require.NoError(t, repo.WaitForStartup(testCtx()))
 
-	defer func() {
-		require.Nil(t, repo.Shutdown(context.Background()))
-	}()
-
-	migrator := NewMigrator(repo, logger)
+	t.Cleanup(func() {
+		require.NoError(t, repo.Shutdown(context.Background()))
+	})
 
 	class := &models.Class{
-		Class:               "ConcurrentBatch",
+		Class:               className,
 		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 		InvertedIndexConfig: invertedConfig(),
-		Properties: []*models.Property{
-			{
-				Name:         "stringProp",
-				DataType:     schema.DataTypeText.PropString(),
-				Tokenization: models.PropertyTokenizationWhitespace,
-			},
-		},
+		Properties:          properties,
 	}
 
-	require.Nil(t, migrator.AddClass(context.Background(), class, schemaGetter.shardState))
+	migrator := NewMigrator(repo, logger)
+	require.NoError(t, migrator.AddClass(context.Background(), class, schemaGetter.shardState))
 	schemaGetter.schema.Objects = &models.Schema{Classes: []*models.Class{class}}
+
+	return &testRepo{DB: repo, t: t}
+}
+
+func (r *testRepo) awaitIndexing() {
+	r.t.Helper()
+	if r.asyncIndexingEnabled {
+		r.scheduler.WaitAll()
+	}
+}
+
+func (r *testRepo) search(className string, limit int) []search.Result {
+	r.t.Helper()
+	r.awaitIndexing()
+
+	res, err := r.Search(context.Background(), dto.GetParams{
+		ClassName:  className,
+		Pagination: &filters.Pagination{Limit: limit},
+	})
+	require.NoError(r.t, err)
+	return res
+}
+
+func TestBatchPutObjects_ConcurrentBatches(t *testing.T) {
+	repo := setupTestRepo(t, "ConcurrentBatch", []*models.Property{
+		{
+			Name:         "stringProp",
+			DataType:     schema.DataTypeText.PropString(),
+			Tokenization: models.PropertyTokenizationWhitespace,
+		},
+	})
 
 	numGoroutines := 10
 	objectsPerGoroutine := 50
@@ -124,57 +158,18 @@ func TestBatchPutObjects_ConcurrentBatches(t *testing.T) {
 		t.Errorf("goroutine error: %v", err)
 	}
 
-	params := dto.GetParams{
-		ClassName:  "ConcurrentBatch",
-		Pagination: &filters.Pagination{Limit: 1000},
-	}
-	res, err := repo.Search(context.Background(), params)
-	require.Nil(t, err)
-
-	expectedTotal := numGoroutines * objectsPerGoroutine
-	assert.Equal(t, expectedTotal, len(res), "should have all objects")
+	res := repo.search("ConcurrentBatch", 1000)
+	assert.Equal(t, numGoroutines*objectsPerGoroutine, len(res), "should have all objects")
 }
 
 func TestBatchPutObjects_LargeSequentialBatches(t *testing.T) {
-	dirName := t.TempDir()
-
-	logger := logrus.New()
-	schemaGetter := &fakeSchemaGetter{
-		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
-		shardState: singleShardState(),
-	}
-	repo, err := New(logger, Config{
-		MemtablesFlushDirtyAfter:  60,
-		RootPath:                  dirName,
-		QueryMaximumResults:       10000,
-		MaxImportGoroutinesFactor: 1,
-		TrackVectorDimensions:     true,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor())
-	require.Nil(t, err)
-	repo.SetSchemaGetter(schemaGetter)
-	require.Nil(t, repo.WaitForStartup(testCtx()))
-
-	defer func() {
-		require.Nil(t, repo.Shutdown(context.Background()))
-	}()
-
-	migrator := NewMigrator(repo, logger)
-
-	class := &models.Class{
-		Class:               "LargeBatch",
-		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
-		InvertedIndexConfig: invertedConfig(),
-		Properties: []*models.Property{
-			{
-				Name:         "stringProp",
-				DataType:     schema.DataTypeText.PropString(),
-				Tokenization: models.PropertyTokenizationWhitespace,
-			},
+	repo := setupTestRepo(t, "LargeBatch", []*models.Property{
+		{
+			Name:         "stringProp",
+			DataType:     schema.DataTypeText.PropString(),
+			Tokenization: models.PropertyTokenizationWhitespace,
 		},
-	}
-
-	require.Nil(t, migrator.AddClass(context.Background(), class, schemaGetter.shardState))
-	schemaGetter.schema.Objects = &models.Schema{Classes: []*models.Class{class}}
+	})
 
 	numBatches := 5
 	batchSize := 200
@@ -199,64 +194,25 @@ func TestBatchPutObjects_LargeSequentialBatches(t *testing.T) {
 		}
 
 		batchRes, err := repo.BatchPutObjects(context.Background(), batch, nil, 0)
-		require.Nil(t, err, "batch %d failed", batchNum)
+		require.NoError(t, err, "batch %d failed", batchNum)
 
 		for _, res := range batchRes {
 			assert.Nil(t, res.Err, "batch %d had error", batchNum)
 		}
 	}
 
-	params := dto.GetParams{
-		ClassName:  "LargeBatch",
-		Pagination: &filters.Pagination{Limit: 2000},
-	}
-	res, err := repo.Search(context.Background(), params)
-	require.Nil(t, err)
-
-	expectedTotal := numBatches * batchSize
-	assert.Equal(t, expectedTotal, len(res))
+	res := repo.search("LargeBatch", 2000)
+	assert.Equal(t, numBatches*batchSize, len(res))
 }
 
 func TestBatchPutObjects_UpdatesSameObjectsMultipleTimes(t *testing.T) {
-	dirName := t.TempDir()
-
-	logger := logrus.New()
-	schemaGetter := &fakeSchemaGetter{
-		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
-		shardState: singleShardState(),
-	}
-	repo, err := New(logger, Config{
-		MemtablesFlushDirtyAfter:  60,
-		RootPath:                  dirName,
-		QueryMaximumResults:       10000,
-		MaxImportGoroutinesFactor: 1,
-		TrackVectorDimensions:     true,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor())
-	require.Nil(t, err)
-	repo.SetSchemaGetter(schemaGetter)
-	require.Nil(t, repo.WaitForStartup(testCtx()))
-
-	defer func() {
-		require.Nil(t, repo.Shutdown(context.Background()))
-	}()
-
-	migrator := NewMigrator(repo, logger)
-
-	class := &models.Class{
-		Class:               "UpdateTest",
-		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
-		InvertedIndexConfig: invertedConfig(),
-		Properties: []*models.Property{
-			{
-				Name:         "version",
-				DataType:     schema.DataTypeInt.PropString(),
-				Tokenization: models.PropertyTokenizationWhitespace,
-			},
+	repo := setupTestRepo(t, "UpdateTest", []*models.Property{
+		{
+			Name:         "version",
+			DataType:     schema.DataTypeInt.PropString(),
+			Tokenization: models.PropertyTokenizationWhitespace,
 		},
-	}
-
-	require.Nil(t, migrator.AddClass(context.Background(), class, schemaGetter.shardState))
-	schemaGetter.schema.Objects = &models.Schema{Classes: []*models.Class{class}}
+	})
 
 	numObjects := 10
 	numUpdates := 5
@@ -280,68 +236,30 @@ func TestBatchPutObjects_UpdatesSameObjectsMultipleTimes(t *testing.T) {
 		}
 
 		batchRes, err := repo.BatchPutObjects(context.Background(), batch, nil, 0)
-		require.Nil(t, err, "update round %d failed", updateRound)
+		require.NoError(t, err, "update round %d failed", updateRound)
 
 		for _, res := range batchRes {
 			assert.Nil(t, res.Err)
 		}
 	}
 
-	params := dto.GetParams{
-		ClassName:  "UpdateTest",
-		Pagination: &filters.Pagination{Limit: 100},
-	}
-	res, err := repo.Search(context.Background(), params)
-	require.Nil(t, err)
-
+	res := repo.search("UpdateTest", 100)
 	assert.Equal(t, numObjects, len(res), "should have exactly numObjects, not duplicates")
 
-	for _, obj := range res {
-		version := obj.Schema.(map[string]interface{})["version"]
+	for _, result := range res {
+		version := result.Schema.(map[string]interface{})["version"]
 		assert.Equal(t, float64(numUpdates-1), version, "should have latest version")
 	}
 }
 
 func TestBatchPutObjects_ContextCancellation(t *testing.T) {
-	dirName := t.TempDir()
-
-	logger := logrus.New()
-	schemaGetter := &fakeSchemaGetter{
-		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
-		shardState: singleShardState(),
-	}
-	repo, err := New(logger, Config{
-		MemtablesFlushDirtyAfter:  60,
-		RootPath:                  dirName,
-		QueryMaximumResults:       10000,
-		MaxImportGoroutinesFactor: 1,
-		TrackVectorDimensions:     true,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor())
-	require.Nil(t, err)
-	repo.SetSchemaGetter(schemaGetter)
-	require.Nil(t, repo.WaitForStartup(testCtx()))
-
-	defer func() {
-		require.Nil(t, repo.Shutdown(context.Background()))
-	}()
-
-	migrator := NewMigrator(repo, logger)
-
-	class := &models.Class{
-		Class:               "ContextCancel",
-		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
-		InvertedIndexConfig: invertedConfig(),
-		Properties: []*models.Property{
-			{
-				Name:         "stringProp",
-				DataType:     schema.DataTypeText.PropString(),
-				Tokenization: models.PropertyTokenizationWhitespace,
-			},
+	repo := setupTestRepo(t, "ContextCancel", []*models.Property{
+		{
+			Name:         "stringProp",
+			DataType:     schema.DataTypeText.PropString(),
+			Tokenization: models.PropertyTokenizationWhitespace,
 		},
-	}
-
-	require.Nil(t, migrator.AddClass(context.Background(), class, schemaGetter.shardState))
-	schemaGetter.schema.Objects = &models.Schema{Classes: []*models.Class{class}}
+	})
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -365,7 +283,7 @@ func TestBatchPutObjects_ContextCancellation(t *testing.T) {
 	}
 
 	batchRes, err := repo.BatchPutObjects(ctx, batch, nil, 0)
-	require.Nil(t, err)
+	require.NoError(t, err)
 
 	errorCount := 0
 	for _, res := range batchRes {
