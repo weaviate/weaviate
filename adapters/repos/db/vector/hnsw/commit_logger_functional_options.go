@@ -14,6 +14,7 @@ package hnsw
 import (
 	"time"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
@@ -71,6 +72,13 @@ func WithSnapshotMinDeltaCommitlogsNumer(number int) CommitlogOption {
 func WithSnapshotMinDeltaCommitlogsSizePercentage(percentage int) CommitlogOption {
 	return func(l *hnswCommitLogger) error {
 		l.snapshotMinDeltaCommitlogsSizePercentage = percentage
+		return nil
+	}
+}
+
+func WithFS(fs common.FS) CommitlogOption {
+	return func(l *hnswCommitLogger) error {
+		l.fs = fs
 		return nil
 	}
 }
