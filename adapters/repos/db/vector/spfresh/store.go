@@ -29,6 +29,7 @@ type LSMStore struct {
 	vectorSize atomic.Int32
 	locks      *common.ShardedRWLocks
 	metrics    *Metrics
+	compressed bool
 }
 
 func NewLSMStore(store *lsmkv.Store, metrics *Metrics, bucketName string, cfg StoreConfig) (*LSMStore, error) {
@@ -57,8 +58,9 @@ func NewLSMStore(store *lsmkv.Store, metrics *Metrics, bucketName string, cfg St
 // Init is called by the index upon receiving the first vector and
 // determining the vector size.
 // Prior to calling this method, the store will assume the index is empty.
-func (l *LSMStore) Init(size int32) {
+func (l *LSMStore) Init(size int32, compressed bool) {
 	l.vectorSize.Store(size)
+	l.compressed = compressed
 }
 
 func (l *LSMStore) Get(ctx context.Context, postingID uint64) (Posting, error) {
@@ -71,19 +73,19 @@ func (l *LSMStore) Get(ctx context.Context, postingID uint64) (Posting, error) {
 		return nil, errors.WithStack(ErrPostingNotFound)
 	}
 
-	l.locks.RLock(postingID)
 	var buf [8]byte
 	binary.LittleEndian.PutUint64(buf[:], postingID)
+	l.locks.RLock(postingID)
 	list, err := l.bucket.SetList(buf[:])
 	l.locks.RUnlock(postingID)
-
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get posting %d", postingID)
 	}
 
-	posting := CompressedPosting{
+	posting := EncodedPosting{
 		vectorSize: int(vectorSize),
 		data:       make([]byte, 0, len(list)*(8+1+int(vectorSize))),
+		compressed: l.compressed,
 	}
 
 	for _, v := range list {
@@ -126,7 +128,7 @@ func (l *LSMStore) Put(ctx context.Context, postingID uint64, posting Posting) e
 
 	set := make([][]byte, posting.Len())
 	for i, v := range posting.Iter() {
-		set[i] = v.(CompressedVector)
+		set[i] = v.Encode()
 	}
 
 	l.locks.Lock(postingID)
@@ -156,7 +158,7 @@ func (l *LSMStore) Append(ctx context.Context, postingID uint64, vector Vector) 
 	l.locks.Lock(postingID)
 	defer l.locks.Unlock(postingID)
 
-	return l.bucket.SetAdd(buf[:], [][]byte{vector.(CompressedVector)})
+	return l.bucket.SetAdd(buf[:], [][]byte{vector.Encode()})
 }
 
 func bucketName(id string) string {
