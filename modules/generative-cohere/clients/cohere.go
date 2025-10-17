@@ -139,15 +139,15 @@ func (v *cohere) Generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 	}
 
 	var resBody generateResponse
-	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
-	}
-
-	if res.StatusCode != 200 || resBody.FinishReason == "ERROR" {
+	unmarshalErr := json.Unmarshal(bodyBytes, &resBody)
+	if res.StatusCode != 200 || (unmarshalErr == nil && resBody.FinishReason == "ERROR") {
 		if resBody.Message.ErrorMessage != "" {
 			return nil, errors.Errorf("connection to Cohere API failed with status: %d error: %v", res.StatusCode, resBody.Message.ErrorMessage)
 		}
 		return nil, errors.Errorf("connection to Cohere API failed with status: %d", res.StatusCode)
+	}
+	if unmarshalErr != nil {
+		return nil, errors.Wrap(err, fmt.Sprintf("unmarshal Cohere API response body. Got: %v", string(bodyBytes)))
 	}
 
 	textResponse := resBody.Message.GetMessage()

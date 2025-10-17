@@ -216,13 +216,15 @@ func (v *Client) vectorize(ctx context.Context, input []string, model string, se
 	vrs.WithLabelValues("text2vec", endpoint).Observe(float64(len(bodyBytes)))
 
 	var resBody embedding
-	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
+	unmarshalErr := json.Unmarshal(bodyBytes, &resBody)
+	// prioritize sending the status code error over the unmarshal error which is a result of the non-200 status code
+	if res.StatusCode != 200 || (unmarshalErr == nil && resBody.Error != nil) {
+		return nil, nil, 0, v.getError(res.StatusCode, requestID, resBody.Error, settings.IsAzure)
+	}
+	if unmarshalErr != nil {
 		return nil, nil, 0, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
 	}
 
-	if res.StatusCode != 200 || resBody.Error != nil {
-		return nil, nil, 0, v.getError(res.StatusCode, requestID, resBody.Error, settings.IsAzure)
-	}
 	rateLimit := v.getRateLimitsFromHeader(v.sampledLogger, res.Header, settings.IsAzure)
 
 	texts := make([]string, len(resBody.Data))

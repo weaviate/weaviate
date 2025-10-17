@@ -129,17 +129,17 @@ func (v *anyscale) Generate(ctx context.Context, cfg moduletools.ClassConfig, pr
 	}
 
 	var resBody generateResponse
-	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
-	}
-
-	if res.StatusCode != 200 || resBody.Error != nil {
+	unmarshalErr := json.Unmarshal(bodyBytes, &resBody)
+	// prioritize sending the status code error over the unmarshal error which is a result of the non-200 status code
+	if res.StatusCode != 200 || (unmarshalErr == nil && resBody.Error != nil) {
 		if resBody.Error != nil {
 			return nil, errors.Errorf("connection to Anyscale API failed with status: %d error: %v", res.StatusCode, resBody.Error.Message)
 		}
 		return nil, errors.Errorf("connection to Anyscale API failed with status: %d", res.StatusCode)
 	}
-
+	if unmarshalErr != nil {
+		return nil, errors.Wrap(err, fmt.Sprintf("unmarshal Anyscale API response body. Got: %v", string(bodyBytes)))
+	}
 	textResponse := resBody.Choices[0].Message.Content
 
 	return &modulecapabilities.GenerateResponse{

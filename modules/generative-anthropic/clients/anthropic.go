@@ -148,13 +148,16 @@ func (a *anthropic) generate(ctx context.Context, cfg moduletools.ClassConfig, p
 	}
 
 	var resBody generateResponse
-
-	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
+	unmarshalErr := json.Unmarshal(bodyBytes, &resBody)
+	// prioritize sending the status code error over the unmarshal error which is a result of the non-200 status code
+	if res.StatusCode != 200 || (unmarshalErr == nil && resBody.Error.Type != "error") {
+		if resBody.Error.Type != "error" {
+			return nil, errors.Errorf("connection to Anthropic API failed with status: %d error: %v", res.StatusCode, resBody.Error.Message)
+		}
+		return nil, errors.Errorf("connection to Anthropic API failed with status: %d - %v: %v", res.StatusCode, resBody.Error.Type, resBody.Error.Message)
 	}
-
-	if res.StatusCode != 200 && resBody.Type == "error" {
-		return nil, fmt.Errorf("Anthropic API error: %s - %s", resBody.Error.Type, resBody.Error.Message)
+	if unmarshalErr != nil {
+		return nil, errors.Wrap(err, fmt.Sprintf("unmarshal Anthropic API response body. Got: %v", string(bodyBytes)))
 	}
 
 	textResponse := resBody.Content[0].Text
