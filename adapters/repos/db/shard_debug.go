@@ -25,7 +25,7 @@ import (
 // This function assumes the node is not receiving any traffic besides the
 // debug endpoints and that async indexing is enabled.
 func (s *Shard) DebugResetVectorIndex(ctx context.Context, targetVector string) error {
-	if !asyncEnabled() {
+	if !s.index.asyncIndexingEnabled {
 		return fmt.Errorf("async indexing is not enabled")
 	}
 

@@ -156,7 +156,8 @@ func (db *DB) localNodeShardStats(ctx context.Context,
 func (db *DB) localNodeBatchStats() *models.BatchStats {
 	rate := db.ratePerSecond.Load()
 	stats := &models.BatchStats{RatePerSecond: rate}
-	if !asyncEnabled() {
+	if !db.asyncIndexingEnabled {
+
 		ql := int64(len(db.jobQueueCh))
 		stats.QueueLength = &ql
 	}

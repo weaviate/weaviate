@@ -145,7 +145,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 
 	s.initDimensionTracking()
 
-	if asyncEnabled() {
+	if s.index.asyncIndexingEnabled {
 		f := func() {
 			_ = s.ForEachVectorQueue(func(targetVector string, _ *VectorIndexQueue) error {
 				if err := s.ConvertQueue(targetVector); err != nil {
