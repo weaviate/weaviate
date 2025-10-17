@@ -40,13 +40,13 @@ func Test_statsUpdateBatchSize(t *testing.T) {
 		// when it takes more than 1s to process, the batch size should decrease
 	})
 
-	t.Run("batch size should not go below 10", func(t *testing.T) {
+	t.Run("batch size should not go below 1", func(t *testing.T) {
 		stats := newStats() // default batch size is 100
 		for i := 0; i < 100; i++ {
 			stats.updateBatchSize(10 * time.Second)
 		}
-		require.Equal(t, 10, stats.getBatchSize())
-		// when it takes more than 1s to process, the batch size should decrease, but not below 10
+		require.Equal(t, 1, stats.getBatchSize())
+		// when it takes more than 1s to process, the batch size should decrease, but not below 1
 	})
 
 	t.Run("batch size should not go above 1000", func(t *testing.T) {
