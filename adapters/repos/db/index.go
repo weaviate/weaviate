@@ -1555,7 +1555,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 				defer release()
 			}
 
-			useLocal := true
+			useLocal := false
 			if shard != nil {
 				status := shard.GetStatus()
 				if status == storagestate.StatusReady || status == storagestate.StatusReadOnly {
@@ -1564,7 +1564,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 						useLocal = false
 					} else {
 						if time.Since(i.Config.StartupTime) > time.Second*60 {
-							// useLocal = true
+							useLocal = true
 						}
 					}
 				}
@@ -1907,7 +1907,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 			defer release()
 		}
 
-		useLocal := true
+		useLocal := false
 		if shard != nil {
 			status := shard.GetStatus()
 			if status == storagestate.StatusReady || status == storagestate.StatusReadOnly {
@@ -1916,7 +1916,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 					useLocal = false
 				} else {
 					if time.Since(i.Config.StartupTime) > time.Second*60 {
-						// useLocal = true
+						useLocal = true
 					}
 				}
 			}
