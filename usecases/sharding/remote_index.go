@@ -323,11 +323,38 @@ func (ri *RemoteIndex) SearchShard(ctx context.Context, shard string,
 		second []float32
 	}
 	f := func(node, host string) (interface{}, error) {
-		objs, scores, err := ri.client.SearchShard(ctx, host, ri.class, shard,
+		attemptCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+		defer cancel()
+		start := time.Now()
+		objs, scores, err := ri.client.SearchShard(attemptCtx, host, ri.class, shard,
 			queryVec, targetVector, distance, limit, filters, keywordRanking, sort, cursor, groupBy, adds, targetCombination, properties)
+		took := time.Since(start)
 		if err != nil {
+			if errors.Is(err, context.DeadlineExceeded) {
+				logrus.WithFields(logrus.Fields{
+					"action": "remote_shard_search_timeout",
+					"shard":  shard,
+					"node":   node,
+					"class":  ri.class,
+					"took":   took,
+				}).Debug("remote shard search timed out")
+			}
+			logrus.WithFields(logrus.Fields{
+				"action": "remote_shard_search_attempt",
+				"shard":  shard,
+				"node":   node,
+				"class":  ri.class,
+				"took":   took,
+			}).Debug("remote shard search attempt finished with error")
 			return nil, err
 		}
+		logrus.WithFields(logrus.Fields{
+			"action": "remote_shard_search_attempt",
+			"shard":  shard,
+			"node":   node,
+			"class":  ri.class,
+			"took":   took,
+		}).Debug("remote shard search attempt finished successfully")
 		return pair{objs, scores}, err
 	}
 	rr, node, err := ri.queryReplicas(ctx, shard, f)

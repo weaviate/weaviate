@@ -1559,12 +1559,12 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 			if shard != nil {
 				status := shard.GetStatus()
 				if status == storagestate.StatusReady || status == storagestate.StatusReadOnly {
+					useLocal = true
 					// Skip local if draining
 					if s, ok := shard.(*Shard); ok && s.shutdownRequested.Load() {
 						useLocal = false
 					} else {
 						if time.Since(i.Config.StartupTime) > time.Second*60 {
-							useLocal = true
 						}
 					}
 				}
@@ -1911,12 +1911,12 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 		if shard != nil {
 			status := shard.GetStatus()
 			if status == storagestate.StatusReady || status == storagestate.StatusReadOnly {
+				useLocal = true
 				// Skip local if draining
 				if s, ok := shard.(*Shard); ok && s.shutdownRequested.Load() {
 					useLocal = false
 				} else {
 					if time.Since(i.Config.StartupTime) > time.Second*60 {
-						useLocal = true
 					}
 				}
 			}
