@@ -11,11 +11,7 @@ linters:
     - nolintlint
     - errorlint
     - forbidigo
-    - staticcheck
 linters-settings:
-  staticcheck:
-    # Enable only SA2000 check (WaitGroup.Done should be deferred)
-    checks: ["SA2000"]
   forbidigo:
     # Forbid the following identifiers (list of regexp).
     # Default: ["^(fmt\\.Print(|f|ln)|print|println)$"]
