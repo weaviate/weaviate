@@ -1856,7 +1856,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 		shardCap = len(shardNames) * limit
 	}
 
-	eg := enterrors.NewErrorGroupWrapper(i.logger, "tenant:", tenant)
+	eg, egCtx := enterrors.NewErrorGroupWithContextWrapper(i.logger, ctx, "tenant:", tenant)
 	eg.SetLimit(_NUMCPU * 2)
 	m := &sync.Mutex{}
 
@@ -1904,7 +1904,6 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 			shardStatusStr = "not_found"
 		}
 
-		fmt.Println(time.Since(i.Config.StartupTime).Milliseconds())
 		fmt.Println(useLocal)
 		i.logger.WithFields(logrus.Fields{
 			"action":             "object_search_decision",
@@ -1918,7 +1917,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 		if useLocal {
 			localSearches++
 			eg.Go(func() error {
-				localShardResult, localShardScores, err1 := i.localShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardName)
+				localShardResult, localShardScores, err1 := i.localShardSearch(egCtx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardName)
 				if err1 != nil {
 					return fmt.Errorf(
 						"local shard object search %s: %w", shard.ID(), err1)
@@ -1937,7 +1936,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 			remoteSearches++
 			eg.Go(func() error {
 				// If we have no local shard or if we force the query to reach all replicas
-				remoteShardObject, remoteShardScores, err2 := i.remoteShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardName)
+				remoteShardObject, remoteShardScores, err2 := i.remoteShardSearch(egCtx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardName)
 				if err2 != nil {
 					return fmt.Errorf(
 						"remote shard object search %s: %w", shardName, err2)
