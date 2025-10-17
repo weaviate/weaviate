@@ -1556,15 +1556,37 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 			}
 
 			useLocal := false
+			var cachePrefilled bool
+
+			// Always check HNSW cache prefilled status first
+			if shard != nil {
+				if s, ok := shard.(*Shard); ok {
+					s.vectorIndexMu.RLock()
+					vi := s.vectorIndex
+					s.vectorIndexMu.RUnlock()
+					if vi != nil {
+						// Check if this is an HNSW index and if cache is prefilled
+						if hnswIndex, ok := vi.(interface{ CachePrefilled() bool }); ok {
+							cachePrefilled = hnswIndex.CachePrefilled()
+						} else {
+							// Non-HNSW index, assume ready
+							cachePrefilled = true
+						}
+					}
+				}
+			}
+
+			// Now apply the decision logic
 			if shard != nil {
 				status := shard.GetStatus()
 				if status == storagestate.StatusReady || status == storagestate.StatusReadOnly {
-					useLocal = true
 					// Skip local if draining
 					if s, ok := shard.(*Shard); ok && s.shutdownRequested.Load() {
 						useLocal = false
 					} else {
-						if time.Since(i.Config.StartupTime) > time.Second*60 {
+						// Only use local if cache is prefilled
+						if cachePrefilled {
+							useLocal = true
 						}
 					}
 				}
@@ -1575,6 +1597,16 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 			var shutdownReq bool
 			if s, ok := shard.(*Shard); ok {
 				shutdownReq = s.shutdownRequested.Load()
+				s.vectorIndexMu.RLock()
+				vi := s.vectorIndex
+				s.vectorIndexMu.RUnlock()
+				if vi != nil {
+					if hnswIndex, ok := vi.(interface{ CachePrefilled() bool }); ok {
+						cachePrefilled = hnswIndex.CachePrefilled()
+					} else {
+						cachePrefilled = true // Non-HNSW index
+					}
+				}
 			}
 			if shard != nil {
 				shardStatusStr = shard.GetStatus().String()
@@ -1586,7 +1618,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 				"shardName":          shardName,
 				"shard_status":       shardStatusStr,
 				"shutdown_requested": shutdownReq,
-				"since_startup_ms":   time.Since(i.Config.StartupTime).Milliseconds(),
+				"cache_prefilled":    cachePrefilled,
 				"use_local":          useLocal,
 			}).Info("objectSearchByShard: local/remote decision")
 
@@ -1602,11 +1634,8 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 				nodeName = i.getSchema.NodeName()
 			} else {
 				i.logger.WithField("shardName", shardName).Debug("shard was not found locally, search for object remotely")
-
-				remoteCtx, cancel := context.WithTimeout(egCtx, 10*time.Second)
-				defer cancel()
 				objs, scores, nodeName, err = i.remote.SearchShard(
-					remoteCtx, shardName, nil, nil, 0, limit, filters, keywordRanking,
+					egCtx, shardName, nil, nil, 0, limit, filters, keywordRanking,
 					sort, cursor, nil, addlProps, i.replicationEnabled(), nil, properties)
 				if err != nil {
 					return fmt.Errorf(
@@ -1825,9 +1854,7 @@ func (i *Index) remoteShardSearch(ctx context.Context, searchVectors []models.Ve
 		// Search only what is necessary
 		// Bound remote vector search as well to avoid long hangs on peers shutting down
 
-		remoteCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		defer cancel()
-		remoteResult, remoteDists, nodeName, err := i.remote.SearchShard(remoteCtx,
+		remoteResult, remoteDists, nodeName, err := i.remote.SearchShard(ctx,
 			shardName, searchVectors, targetVectors, distance, limit, localFilters,
 			nil, sort, nil, groupBy, additional, i.replicationEnabled(), targetCombination, properties)
 		if err != nil {
@@ -1871,9 +1898,61 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 		}
 
 		if shard != nil {
-			defer release()
-			return i.singleLocalShardObjectVectorSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters,
-				sort, groupBy, additionalProps, shard, targetCombination, properties)
+			// Only go local if READY/READONLY, not draining, warmup window passed, and HNSW cache prefilled
+			useLocal := false
+			var cachePrefilled bool
+
+			// Always check HNSW cache prefilled status first
+			if s, ok := shard.(*Shard); ok {
+				s.vectorIndexMu.RLock()
+				vi := s.vectorIndex
+				s.vectorIndexMu.RUnlock()
+				if vi != nil {
+					// Check if this is an HNSW index and if cache is prefilled
+					if hnswIndex, ok := vi.(interface{ CachePrefilled() bool }); ok {
+						cachePrefilled = hnswIndex.CachePrefilled()
+					} else {
+						// Non-HNSW index, assume ready
+						cachePrefilled = true
+					}
+				}
+			}
+
+			// Now apply the decision logic
+			status := shard.GetStatus()
+			if status == storagestate.StatusReady || status == storagestate.StatusReadOnly {
+				if s, ok := shard.(*Shard); ok && s.shutdownRequested.Load() {
+					useLocal = false
+				} else {
+					// Only use local if cache is prefilled
+					if cachePrefilled {
+						useLocal = true
+					}
+				}
+			}
+
+			// Log decision for single-shard path
+			var shardStatusStr string
+			var shutdownReq bool
+			if s, ok := shard.(*Shard); ok {
+				shutdownReq = s.shutdownRequested.Load()
+			}
+			shardStatusStr = shard.GetStatus().String()
+			i.logger.WithFields(logrus.Fields{
+				"action":             "object_vector_search_decision",
+				"shardName":          shardNames[0],
+				"shard_status":       shardStatusStr,
+				"shutdown_requested": shutdownReq,
+				"cache_prefilled":    cachePrefilled,
+				"use_local":          useLocal,
+			}).Info("objectVectorSearch: local/remote decision")
+			if useLocal {
+				defer release()
+				return i.singleLocalShardObjectVectorSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters,
+					sort, groupBy, additionalProps, shard, targetCombination, properties)
+			}
+			// else prefer remote path; don't hold the local shard
+			release()
 		}
 	}
 
@@ -1908,15 +1987,37 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 		}
 
 		useLocal := false
+		var cachePrefilled bool
+
+		// Always check HNSW cache prefilled status first
+		if shard != nil {
+			if s, ok := shard.(*Shard); ok {
+				s.vectorIndexMu.RLock()
+				vi := s.vectorIndex
+				s.vectorIndexMu.RUnlock()
+				if vi != nil {
+					// Check if this is an HNSW index and if cache is prefilled
+					if hnswIndex, ok := vi.(interface{ CachePrefilled() bool }); ok {
+						cachePrefilled = hnswIndex.CachePrefilled()
+					} else {
+						// Non-HNSW index, assume ready
+						cachePrefilled = true
+					}
+				}
+			}
+		}
+
+		// Now apply the decision logic
 		if shard != nil {
 			status := shard.GetStatus()
 			if status == storagestate.StatusReady || status == storagestate.StatusReadOnly {
-				useLocal = true
 				// Skip local if draining
 				if s, ok := shard.(*Shard); ok && s.shutdownRequested.Load() {
 					useLocal = false
 				} else {
-					if time.Since(i.Config.StartupTime) > time.Second*60 {
+					// Only use local if cache is prefilled
+					if cachePrefilled {
+						useLocal = true
 					}
 				}
 			}
@@ -1939,7 +2040,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 			"shardName":          shardName,
 			"shard_status":       shardStatusStr,
 			"shutdown_requested": shutdownReq,
-			"since_startup_ms":   time.Since(i.Config.StartupTime).Milliseconds(),
+			"cache_prefilled":    cachePrefilled,
 			"use_local":          useLocal,
 		}).Info("objectSearchByShard: local/remote decision")
 

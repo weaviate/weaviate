@@ -24,6 +24,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
@@ -875,6 +876,10 @@ func (h *hnsw) Upgraded() bool {
 
 func (h *hnsw) AlreadyIndexed() uint64 {
 	return uint64(h.cache.CountVectors())
+}
+
+func (h *hnsw) CachePrefilled() bool {
+	return h.cachePrefilled.Load()
 }
 
 func (h *hnsw) GetKeys(id uint64) (uint64, uint64, error) {

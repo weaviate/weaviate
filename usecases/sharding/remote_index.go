@@ -323,46 +323,33 @@ func (ri *RemoteIndex) SearchShard(ctx context.Context, shard string,
 		second []float32
 	}
 	f := func(node, host string) (interface{}, error) {
-		attemptCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
-		defer cancel()
 		start := time.Now()
-		objs, scores, err := ri.client.SearchShard(attemptCtx, host, ri.class, shard,
+		objs, scores, err := ri.client.SearchShard(ctx, host, ri.class, shard,
 			queryVec, targetVector, distance, limit, filters, keywordRanking, sort, cursor, groupBy, adds, targetCombination, properties)
 		took := time.Since(start)
 		if err != nil {
 			if errors.Is(err, context.DeadlineExceeded) {
-				logrus.WithFields(logrus.Fields{
-					"action": "remote_shard_search_timeout",
-					"shard":  shard,
-					"node":   node,
-					"class":  ri.class,
-					"took":   took,
-				}).Debug("remote shard search timed out")
+				fmt.Println("timeout")
 			}
-			logrus.WithFields(logrus.Fields{
-				"action": "remote_shard_search_attempt",
-				"shard":  shard,
-				"node":   node,
-				"class":  ri.class,
-				"took":   took,
-			}).Debug("remote shard search attempt finished with error")
-			return nil, err
+			fmt.Println(took.String())
+			return nil, fmt.Errorf("remote shard search failed: %w", err)
 		}
-		logrus.WithFields(logrus.Fields{
-			"action": "remote_shard_search_attempt",
-			"shard":  shard,
-			"node":   node,
-			"class":  ri.class,
-			"took":   took,
-		}).Debug("remote shard search attempt finished successfully")
-		return pair{objs, scores}, err
+		fmt.Println("success")
+		fmt.Println(took.String())
+		return pair{objs, scores}, nil
 	}
 	rr, node, err := ri.queryReplicas(ctx, shard, f)
 	if err != nil {
-		return nil, nil, node, err
+		return nil, nil, node, fmt.Errorf("remote shard search failed: %w", err)
 	}
 	r := rr.(pair)
-	return r.first, r.second, node, err
+	logrus.WithFields(logrus.Fields{
+		"action": "remote_shard_search_winner",
+		"class":  ri.class,
+		"shard":  shard,
+		"node":   node,
+	}).Debug("remote shard search winner selected")
+	return r.first, r.second, node, nil
 }
 
 func (ri *RemoteIndex) Aggregate(
@@ -586,7 +573,9 @@ func (ri *RemoteIndex) queryReplicas(
 					return
 				default:
 				}
+
 				r, e := queryOne(n)
+
 				// only report if still relevant
 				select {
 				case resCh <- result{r, n, e}:
@@ -598,21 +587,30 @@ func (ri *RemoteIndex) queryReplicas(
 			return nil, "", fmt.Errorf("no remote replicas to query")
 		}
 		var lastErr error
-		for i := 0; i < launched; i++ {
+		successCount := 0
+		errorCount := 0
+
+		for {
 			select {
 			case rr := <-resCh:
 				if rr.err == nil && rr.r != nil {
+					// SUCCESS! Cancel other goroutines and return immediately
 					cancel()
 					return rr.r, rr.node, nil
 				}
 				if rr.err != nil {
 					lastErr = rr.err
+					errorCount++
+				}
+
+				// If we've received responses from all goroutines and none succeeded, return error
+				if successCount+errorCount >= launched {
+					return nil, "", lastErr
 				}
 			case <-gctx.Done():
 				return nil, "", gctx.Err()
 			}
 		}
-		return nil, "", lastErr
 	}
 
 	return queryFirstSuccess(replicas)
