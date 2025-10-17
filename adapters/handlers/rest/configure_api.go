@@ -1814,6 +1814,7 @@ func initRuntimeOverrides(appState *state.State) {
 		registered.InvertedSorterDisabled = appState.ServerConfig.Config.InvertedSorterDisabled
 		registered.RaftDrainSleep = appState.ServerConfig.Config.Raft.DrainSleep
 		registered.RaftTimoutsMultiplier = appState.ServerConfig.Config.Raft.TimeoutsMultiplier
+		registered.ReplicatedIndicesRequestQueueEnabled = appState.ServerConfig.Config.Cluster.RequestQueueConfig.IsEnabled
 
 		hooks := make(map[string]func() error)
 

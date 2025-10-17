@@ -524,3 +524,13 @@ func estimateBatchMemory(vecs [][]float32) int64 {
 
 	return sum
 }
+
+func (h *hnsw) Preload(id uint64, vector []float32) {
+	if h.compressed.Load() && !h.multivector.Load() {
+		h.compressor.Preload(id, vector)
+	} else {
+		if !h.multivector.Load() {
+			h.cache.Preload(id, vector)
+		}
+	}
+}
