@@ -477,7 +477,10 @@ func TrimRoleNamePrefix(name string) string {
 	return strings.TrimPrefix(name, ROLE_NAME_PREFIX)
 }
 
-func GetUserAndPrefix(name string) (string, string) {
+func GetUserAndPrefix(name string) (string, string, error) {
 	splits := strings.Split(name, PREFIX_SEPARATOR)
-	return splits[1], splits[0]
+	if len(splits) != 2 {
+		return "", "", fmt.Errorf("invalid name: %s", name)
+	}
+	return splits[1], splits[0], nil
 }

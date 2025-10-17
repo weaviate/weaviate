@@ -259,8 +259,10 @@ func (i *Index) CommitReplication(shard, requestID string) interface{} {
 	}
 
 	defer release()
+	i.backupLock.RLock(shard)
+	defer i.backupLock.RUnlock(shard)
 
-	return localShard.commitReplication(context.Background(), requestID, &i.shardTransferMutex)
+	return localShard.commitReplication(context.Background(), requestID)
 }
 
 func (i *Index) AbortReplication(shard, requestID string) interface{} {
@@ -391,8 +393,8 @@ func (i *Index) IncomingListFiles(ctx context.Context,
 	sd := backup.ShardDescriptor{Name: shardName}
 
 	// prevent writing into the index during collection of metadata
-	i.shardTransferMutex.Lock()
-	defer i.shardTransferMutex.Unlock()
+	i.backupLock.Lock(shardName)
+	defer i.backupLock.Unlock(shardName)
 
 	// flushing memtable before gathering the files to prevent the inclusion of a partially written file
 	if err = shard.Store().FlushMemtables(ctx); err != nil {
