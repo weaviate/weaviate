@@ -135,12 +135,12 @@ func compressedVectorSize(size int) int {
 }
 
 func (s *SPFresh) setMaxPostingSize() {
-	if s.config.MaxPostingSize == 0 {
+	if s.maxPostingSize == 0 {
 		isCompressed := s.Compressed()
-		s.config.MaxPostingSize = computeMaxPostingSize(int(s.dims), isCompressed)
+		s.maxPostingSize = computeMaxPostingSize(int(s.dims), isCompressed)
 	}
 
-	if s.config.MaxPostingSize <= s.config.MinPostingSize {
-		s.config.MinPostingSize = s.config.MaxPostingSize / 2
+	if s.maxPostingSize <= s.minPostingSize {
+		s.minPostingSize = s.maxPostingSize / 2
 	}
 }

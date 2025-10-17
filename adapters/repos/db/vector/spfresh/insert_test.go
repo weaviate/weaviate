@@ -33,7 +33,7 @@ func TestSPFreshOptimizedPostingSize(t *testing.T) {
 		err = index.Add(t.Context(), 0, vector)
 		require.NoError(t, err)
 
-		maxPostingSize := index.config.MaxPostingSize
+		maxPostingSize := index.maxPostingSize
 		require.Equal(t, 121, int(maxPostingSize))
 	})
 
@@ -47,20 +47,21 @@ func TestSPFreshOptimizedPostingSize(t *testing.T) {
 		err = index.Add(t.Context(), 0, vector)
 		require.NoError(t, err)
 
-		maxPostingSize := index.config.MaxPostingSize
+		maxPostingSize := index.maxPostingSize
 		require.Equal(t, 56, int(maxPostingSize))
 	})
 
 	t.Run("max posting size small", func(t *testing.T) {
-		cfg.MaxPostingSize = 2
-		index, err := New(cfg, store)
+		uc := ent.NewDefaultUserConfig()
+		uc.MaxPostingSize = 2
+		index, err := New(cfg, uc, store)
 		require.NoError(t, err)
 		defer index.Shutdown(t.Context())
 
 		err = index.Add(t.Context(), 0, vector)
 		require.NoError(t, err)
 
-		maxPostingSize := index.config.MaxPostingSize
+		maxPostingSize := index.maxPostingSize
 		require.Equal(t, 2, int(maxPostingSize))
 	})
 }

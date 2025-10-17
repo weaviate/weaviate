@@ -14,8 +14,6 @@ package spfresh
 import (
 	"fmt"
 
-	"fmt"
-
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	vectorIndexCommon "github.com/weaviate/weaviate/entities/vectorindex/common"
 )

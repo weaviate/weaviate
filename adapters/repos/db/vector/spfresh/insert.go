@@ -60,7 +60,7 @@ func (s *SPFresh) Add(ctx context.Context, id uint64, vector []float32) (err err
 		s.dims = int32(len(vector))
 		s.setMaxPostingSize()
 		if s.config.Compressed {
-			s.quantizer = compressionhelpers.NewRotationalQuantizer(int(s.dims), 42, 8, s.config.Distancer)
+			s.quantizer = compressionhelpers.NewRotationalQuantizer(int(s.dims), 42, 8, s.config.DistanceProvider)
 			s.vectorSize = int32(compressedVectorSize(int(s.dims)))
 		} else {
 			s.vectorSize = s.dims * 4
@@ -116,7 +116,7 @@ func (s *SPFresh) Add(ctx context.Context, id uint64, vector []float32) (err err
 }
 
 func (s *SPFresh) normalizeVec(vec []float32) []float32 {
-	if s.config.Distancer.Type() == "cosine-dot" {
+	if s.config.DistanceProvider.Type() == "cosine-dot" {
 		// cosine-dot requires normalized vectors, as the dot product and cosine
 		// similarity are only identical if the vector is normalized
 		return distancer.Normalize(vec)
