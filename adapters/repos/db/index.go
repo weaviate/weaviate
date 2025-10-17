@@ -1564,7 +1564,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 						useLocal = false
 					} else {
 						if time.Since(i.Config.StartupTime) > time.Second*60 {
-							// useLocal = true
+							useLocal = true
 						}
 					}
 				}
@@ -1742,6 +1742,14 @@ func (i *Index) localShardSearch(ctx context.Context, searchVectors []models.Vec
 	sort []filters.Sort, groupBy *searchparams.GroupBy, additionalProps additional.Properties,
 	targetCombination *dto.TargetCombination, properties []string, shardName string,
 ) ([]*storobj.Object, []float32, error) {
+	start := time.Now()
+	defer func() {
+		took := time.Since(start)
+		i.logger.WithFields(logrus.Fields{
+			"action": "search_completed",
+			"took":   took,
+		}).Debugf("localShardSearch completed in %s", took)
+	}()
 	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
 		return nil, nil, err
@@ -1824,6 +1832,14 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 	groupBy *searchparams.GroupBy, additionalProps additional.Properties,
 	replProps *additional.ReplicationProperties, tenant string, targetCombination *dto.TargetCombination, properties []string,
 ) ([]*storobj.Object, []float32, error) {
+	start := time.Now()
+	defer func() {
+		took := time.Since(start)
+		i.logger.WithFields(logrus.Fields{
+			"action": "search_completed",
+			"took":   took,
+		}).Debugf("objectvectorsearch completed in %s", took)
+	}()
 	if err := i.validateMultiTenancy(tenant); err != nil {
 		return nil, nil, err
 	}
@@ -1884,7 +1900,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 					useLocal = false
 				} else {
 					if time.Since(i.Config.StartupTime) > time.Second*60 {
-						// useLocal = true
+						useLocal = true
 					}
 				}
 			}
@@ -1929,7 +1945,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 			})
 		}
 
-		if shard == nil || i.Config.ForceFullReplicasSearch {
+		if shard == nil || i.Config.ForceFullReplicasSearch || !useLocal {
 			remoteSearches++
 			eg.Go(func() error {
 				// If we have no local shard or if we force the query to reach all replicas
