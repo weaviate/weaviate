@@ -90,19 +90,20 @@ type PrometheusMetrics struct {
 	VectorIndexQueueInsertCount *prometheus.CounterVec
 	VectorIndexQueueDeleteCount *prometheus.CounterVec
 
-	VectorIndexTombstones              *prometheus.GaugeVec
-	VectorIndexTombstoneCleanupThreads *prometheus.GaugeVec
-	VectorIndexTombstoneCleanedCount   *prometheus.CounterVec
-	VectorIndexTombstoneUnexpected     *prometheus.CounterVec
-	VectorIndexTombstoneCycleStart     *prometheus.GaugeVec
-	VectorIndexTombstoneCycleEnd       *prometheus.GaugeVec
-	VectorIndexTombstoneCycleProgress  *prometheus.GaugeVec
-	VectorIndexOperations              *prometheus.GaugeVec
-	VectorIndexDurations               *prometheus.SummaryVec
-	VectorIndexSize                    *prometheus.GaugeVec
-	VectorIndexMaintenanceDurations    *prometheus.SummaryVec
-	VectorDimensionsSum                *prometheus.GaugeVec
-	VectorSegmentsSum                  *prometheus.GaugeVec
+	VectorIndexTombstones               *prometheus.GaugeVec
+	VectorIndexTombstoneCleanupThreads  *prometheus.GaugeVec
+	VectorIndexTombstoneCleanedCount    *prometheus.CounterVec
+	VectorIndexTombstoneUnexpected      *prometheus.CounterVec
+	VectorIndexTombstoneCycleStart      *prometheus.GaugeVec
+	VectorIndexTombstoneCycleEnd        *prometheus.GaugeVec
+	VectorIndexTombstoneCycleProgress   *prometheus.GaugeVec
+	VectorIndexOperations               *prometheus.GaugeVec
+	VectorIndexDurations                *prometheus.SummaryVec
+	VectorIndexSize                     *prometheus.GaugeVec
+	VectorIndexMaintenanceDurations     *prometheus.SummaryVec
+	VectorDimensionsSum                 *prometheus.GaugeVec
+	VectorSegmentsSum                   *prometheus.GaugeVec
+	VectorIndexMemoryAllocationRejected *prometheus.CounterVec
 
 	StartupProgress  *prometheus.GaugeVec
 	StartupDurations *prometheus.SummaryVec
@@ -319,6 +320,7 @@ func (pm *PrometheusMetrics) DeleteShard(className, shardName string) error {
 	pm.VectorIndexMaintenanceDurations.DeletePartialMatch(labels)
 	pm.VectorIndexDurations.DeletePartialMatch(labels)
 	pm.VectorIndexSize.DeletePartialMatch(labels)
+	pm.VectorIndexMemoryAllocationRejected.DeletePartialMatch(labels)
 	pm.StartupProgress.DeletePartialMatch(labels)
 	pm.StartupDurations.DeletePartialMatch(labels)
 	pm.StartupDiskIO.DeletePartialMatch(labels)
@@ -629,6 +631,10 @@ func newPrometheusMetrics() *PrometheusMetrics {
 		VectorSegmentsSum: promauto.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "vector_segments_sum",
 			Help: "Total segments in a shard if quantization enabled",
+		}, []string{"class_name", "shard_name"}),
+		VectorIndexMemoryAllocationRejected: promauto.NewCounterVec(prometheus.CounterOpts{
+			Name: "vector_index_memory_allocation_rejected_total",
+			Help: "Total number of batch operations rejected due to insufficient memory",
 		}, []string{"class_name", "shard_name"}),
 
 		// Startup metrics

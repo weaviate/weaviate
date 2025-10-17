@@ -109,6 +109,7 @@ func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) 
 	}
 
 	if err := h.allocChecker.CheckAlloc(estimateBatchMemory(vectors)); err != nil {
+		h.metrics.MemoryAllocationRejected()
 		return fmt.Errorf("add batch of %d vectors: %w", len(vectors), err)
 	}
 
