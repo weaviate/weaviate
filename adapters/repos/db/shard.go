@@ -284,6 +284,9 @@ type Shard struct {
 	// allows concurrent shut read/write
 	shutdownLock *sync.RWMutex
 
+	shutCtx       context.Context
+	shutCtxCancel context.CancelCauseFunc
+
 	reindexer                             ShardReindexerV3
 	callbacksAddToPropertyValueIndex      []onAddToPropertyValueIndex
 	callbacksRemoveFromPropertyValueIndex []onDeleteFromPropertyValueIndex

@@ -45,7 +45,7 @@ func TestBackup_SwitchCommitLogs(t *testing.T) {
 		},
 	}, enthnsw.NewDefaultUserConfig(), cyclemanager.NewCallbackGroupNoop(), nil)
 	require.Nil(t, err)
-	idx.PostStartup()
+	idx.PostStartup(context.Background())
 
 	ctx, cancel := context.WithTimeout(ctx, time.Second)
 	defer cancel()
@@ -74,7 +74,7 @@ func TestBackup_ListFiles(t *testing.T) {
 		},
 	}, enthnsw.NewDefaultUserConfig(), cyclemanager.NewCallbackGroupNoop(), nil)
 	require.Nil(t, err)
-	idx.PostStartup()
+	idx.PostStartup(context.Background())
 
 	t.Run("assert expected index contents", func(t *testing.T) {
 		files, err := idx.ListFiles(ctx, dirName)

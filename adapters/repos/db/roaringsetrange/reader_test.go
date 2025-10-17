@@ -278,14 +278,15 @@ func TestCombinedReader(t *testing.T) {
 	})
 
 	t.Run("segment-in-memory + memtable readers", func(t *testing.T) {
-		s := NewSegmentInMemory()
-		s.MergeMemtable(mt1)
-		s.MergeMemtable(mt2)
+		logger, _ := test.NewNullLogger()
+		s := NewSegmentInMemory(logger)
+		s.MergeMemtableEventually(mt1)
+		s.MergeMemtableEventually(mt2)
 
-		segInMemoReader, release := NewSegmentInMemoryReader(s, roaringset.NewBitmapBufPoolNoop())
+		readers, release := s.Readers(roaringset.NewBitmapBufPoolNoop())
 		mtReader := NewMemtableReader(mt3)
 
-		reader := NewCombinedReader([]InnerReader{segInMemoReader, mtReader}, release, 4, logger)
+		reader := NewCombinedReader(append(readers, mtReader), release, 4, logger)
 
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {

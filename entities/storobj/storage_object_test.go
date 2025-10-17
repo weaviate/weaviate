@@ -12,6 +12,7 @@
 package storobj
 
 import (
+	"context"
 	cryptorand "crypto/rand"
 	"encoding/binary"
 	"fmt"
@@ -1587,11 +1588,11 @@ type fakeBucket struct {
 	objects map[uint64][]byte
 }
 
-func (f *fakeBucket) GetBySecondary(_ int, _ []byte) ([]byte, error) {
+func (f *fakeBucket) GetBySecondary(_ context.Context, _ int, _ []byte) ([]byte, error) {
 	panic("not implemented")
 }
 
-func (f *fakeBucket) GetBySecondaryWithBuffer(indexID int, docIDBytes []byte, lsmBuf []byte) ([]byte, []byte, error) {
+func (f *fakeBucket) GetBySecondaryWithBuffer(ctx context.Context, indexID int, docIDBytes []byte, lsmBuf []byte) ([]byte, []byte, error) {
 	docID := binary.LittleEndian.Uint64(docIDBytes)
 	objBytes, ok := f.objects[docID]
 	if !ok {

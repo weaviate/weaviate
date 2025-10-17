@@ -45,31 +45,42 @@ type Segment interface {
 	getLevel() uint16
 	Size() int64
 	setSize(size int64)
+	incRef()
+	decRef()
+	getRefs() int
 
 	PayloadSize() int
 	close() error
+	dropMarked() error
 	get(key []byte) ([]byte, error)
-	getBySecondaryIntoMemory(pos int, key []byte, buffer []byte) ([]byte, []byte, []byte, error)
+	getBySecondary(pos int, key []byte, buffer []byte) ([]byte, []byte, []byte, error)
 	getCollection(key []byte) ([]value, error)
 	getInvertedData() *segmentInvertedData
 	getSegment() *segment
 	isLoaded() bool
 	markForDeletion() error
 	MergeTombstones(other *sroar.Bitmap) (*sroar.Bitmap, error)
-	newCollectionCursor() *segmentCursorCollection
+	newCollectionCursor() innerCursorCollection
 	newCollectionCursorReusable() *segmentCursorCollectionReusable
-	newCursor() *segmentCursorReplace
+	newCursor() innerCursorReplaceAllKeys
 	newCursorWithSecondaryIndex(pos int) *segmentCursorReplace
-	newMapCursor() *segmentCursorMap
+	newMapCursor() innerCursorMap
 	newNodeReader(offset nodeOffset, operation string) (*nodeReader, error)
-	newRoaringSetCursor() *roaringset.SegmentCursor
+	newRoaringSetCursor() roaringset.SegmentCursor
 	newRoaringSetRangeCursor() roaringsetrange.SegmentCursor
-	newRoaringSetRangeReader() *roaringsetrange.SegmentReader
+	newRoaringSetRangeReader() roaringsetrange.InnerReader
 	quantileKeys(q int) [][]byte
 	ReadOnlyTombstones() (*sroar.Bitmap, error)
 	replaceStratParseData(in []byte) ([]byte, []byte, error)
 	roaringSetGet(key []byte, bitmapBufPool roaringset.BitmapBufPool) (roaringset.BitmapLayer, func(), error)
 	roaringSetMergeWith(key []byte, input roaringset.BitmapLayer, bitmapBufPool roaringset.BitmapBufPool) error
+
+	// map/bmw specific
+	hasKey(key []byte) bool
+	getDocCount(key []byte) uint64
+
+	// replace specific
+	getCountNetAdditions() int
 }
 
 type segment struct {
@@ -105,6 +116,7 @@ type segment struct {
 	invertedData   *segmentInvertedData
 
 	observeMetaWrite diskio.MeteredWriterCallback // used for precomputing meta (cna + bloom)
+	refCount         int
 }
 
 type diskIndex interface {
@@ -659,4 +671,34 @@ func (c *readObserverCache) GetOrCreate(key string, metrics *Metrics) BytesReadO
 	observer := metrics.ReadObserver(key)
 	c.Store(key, observer)
 	return observer
+}
+
+// WARNING: This method is NOT thread-safe on its own. The caller must ensure
+// that it is safe to read and manipulate the refs. In practice, this is done
+// using a SegmentGroup.segmentRefCounterLock which both protects against racy
+// access, as well as guarantees a consistent view across refs of ALL segments
+// in the group.
+func (s *segment) incRef() {
+	s.refCount++
+}
+
+// WARNING: This method is NOT thread-safe on its own. The caller must ensure
+// that it is safe to read and manipulate the refs. In practice, this is done
+// using a SegmentGroup.segmentRefCounterLock which both protects against racy
+// access, as well as guarantees a consistent view across refs of ALL segments
+// in the group.
+func (s *segment) decRef() {
+	if s.refCount <= 0 {
+		panic("refCount already zero")
+	}
+	s.refCount--
+}
+
+// WARNING: This method is NOT thread-safe on its own. The caller must ensure
+// that it is safe to read and manipulate the refs. In practice, this is done
+// using a SegmentGroup.segmentRefCounterLock which both protects against racy
+// access, as well as guarantees a consistent view across refs of ALL segments
+// in the group.
+func (s *segment) getRefs() int {
+	return s.refCount
 }

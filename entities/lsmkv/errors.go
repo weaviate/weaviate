@@ -42,3 +42,7 @@ func (e ErrDeleted) Error() string {
 func (e ErrDeleted) Unwrap() error {
 	return Deleted
 }
+
+func IsDeletedOrNotFound(err error) bool {
+	return errors.Is(err, Deleted) || errors.Is(err, NotFound)
+}
