@@ -328,9 +328,6 @@ func (ri *RemoteIndex) SearchShard(ctx context.Context, shard string,
 			queryVec, targetVector, distance, limit, filters, keywordRanking, sort, cursor, groupBy, adds, targetCombination, properties)
 		took := time.Since(start)
 		if err != nil {
-			if errors.Is(err, context.DeadlineExceeded) {
-				fmt.Println("timeout")
-			}
 			fmt.Println(took.String())
 			return nil, fmt.Errorf("remote shard search failed: %w", err)
 		}
@@ -549,66 +546,72 @@ func (ri *RemoteIndex) queryReplicas(
 	}
 
 	// Fire queries to replicas concurrently (ignoring self) and return on first success.
-	// Uses a cancellable context to signal other attempts to stop early.
+	// Uses ErrorGroupWithContextWrapper for robust concurrent execution.
 	queryFirstSuccess := func(replicas []string) (resp interface{}, node string, err error) {
+		fmt.Printf("DEBUG: queryReplicas starting with %d replicas: %v\n", len(replicas), replicas)
 		type result struct {
 			r    interface{}
 			node string
 			err  error
 		}
-		gctx, cancel := context.WithCancel(ctx)
-		defer cancel()
-		resCh := make(chan result, len(replicas))
+
+		// Use ErrorGroupWithContextWrapper for robust concurrent execution
+		eg, egCtx := enterrors.NewErrorGroupWithContextWrapper(nil, ctx, "queryReplicas")
+		resCh := make(chan result, len(replicas)) // Buffered channel to prevent blocking
 		var launched int
+
 		for _, rep := range replicas {
 			// Skip local (queryOne returns (nil,nil) for local), avoid launching no-op goroutines
 			if rep == ri.localNodeName {
 				continue
 			}
 			launched++
-			go func(n string) {
-				// bail out quickly if we were cancelled before starting
-				select {
-				case <-gctx.Done():
-					return
-				default:
-				}
+			rep := rep // Capture loop variable
+			eg.Go(func() error {
+				r, e := queryOne(rep)
 
-				r, e := queryOne(n)
-
-				// only report if still relevant
+				// Send result to channel (non-blocking due to buffered channel)
 				select {
-				case resCh <- result{r, n, e}:
-				case <-gctx.Done():
+				case resCh <- result{r, rep, e}:
+					return nil
+				case <-egCtx.Done():
+					return egCtx.Err()
 				}
-			}(rep)
+			})
 		}
+
 		if launched == 0 {
 			return nil, "", fmt.Errorf("no remote replicas to query")
 		}
+		fmt.Printf("DEBUG: Launched %d goroutines for remote replicas\n", launched)
+
+		// Wait for first success or all failures
 		var lastErr error
-		successCount := 0
 		errorCount := 0
 
 		for {
 			select {
 			case rr := <-resCh:
+				fmt.Printf("DEBUG: Received response from %s: err=%v, hasResult=%v\n", rr.node, rr.err, rr.r != nil)
 				if rr.err == nil && rr.r != nil {
-					// SUCCESS! Cancel other goroutines and return immediately
-					cancel()
+					// SUCCESS! Return immediately (context cancellation will stop other goroutines)
+					fmt.Printf("DEBUG: SUCCESS from %s, returning immediately\n", rr.node)
 					return rr.r, rr.node, nil
 				}
 				if rr.err != nil {
 					lastErr = rr.err
 					errorCount++
+					fmt.Printf("DEBUG: Error from %s: %v (errorCount=%d/%d)\n", rr.node, rr.err, errorCount, launched)
 				}
 
 				// If we've received responses from all goroutines and none succeeded, return error
-				if successCount+errorCount >= launched {
+				if errorCount >= launched {
+					fmt.Printf("DEBUG: All %d replicas failed, returning error\n", launched)
 					return nil, "", lastErr
 				}
-			case <-gctx.Done():
-				return nil, "", gctx.Err()
+			case <-egCtx.Done():
+				fmt.Printf("DEBUG: Error group context cancelled: %v\n", egCtx.Err())
+				return nil, "", egCtx.Err()
 			}
 		}
 	}
