@@ -189,7 +189,6 @@ func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) 
 
 		h.insertMetrics.total(globalBefore)
 	}
-  
 	return nil
 }
 

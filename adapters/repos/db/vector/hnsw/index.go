@@ -330,8 +330,10 @@ func New(cfg Config, uc ent.UserConfig,
 		efMin:    int64(uc.DynamicEFMin),
 		efMax:    int64(uc.DynamicEFMax),
 		efFactor: int64(uc.DynamicEFFactor),
+
 		metrics:   NewMetrics(cfg.PrometheusMetrics, cfg.ClassName, cfg.ShardName),
 		shardName: cfg.ShardName,
+
 		randFunc:                  rand.Float64,
 		compressActionLock:        &sync.RWMutex{},
 		className:                 cfg.ClassName,
