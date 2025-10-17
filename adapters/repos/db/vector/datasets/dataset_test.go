@@ -8,7 +8,6 @@
 //
 //  CONTACT: hello@weaviate.io
 //
-
 //go:build benchmark
 // +build benchmark
 
@@ -18,13 +17,11 @@ import (
 	"math"
 	"testing"
 
-	"github.com/sirupsen/logrus"
 	"gotest.tools/v3/assert"
 )
 
 func TestLoadDataset(t *testing.T) {
-	logger := logrus.New()
-	hf := NewHubDataset("tobias-weaviate/ann-datasets", "dbpedia-openai-ada002-1536-float32-angular-100k", logger)
+	hf := NewHubDataset("tobias-weaviate/ann-datasets", "dbpedia-openai-ada002-1536-float32-angular-100k")
 
 	// Load training data
 	t.Log("Loading training data...")
@@ -127,9 +124,7 @@ func TestLoadDataset(t *testing.T) {
 
 // TODO: Upload FIQA files in binary format to get these tests working.
 func TestLoadFIQATrainData(t *testing.T) {
-	logger := logrus.New()
-	logger.SetLevel(logrus.DebugLevel)
-	hf := NewHubDataset("tobias-weaviate/ann-datasets", "fiqa-google-embeddinggemma300m-768-angular-54k", logger)
+	hf := NewHubDataset("tobias-weaviate/ann-datasets", "fiqa-google-embeddinggemma300m-768-angular-54k")
 	ids, vectors, err := hf.LoadTrainData()
 	if err != nil {
 		t.Fatalf("Failed to load training data: %v", err)
@@ -152,9 +147,7 @@ func TestLoadFIQATrainData(t *testing.T) {
 }
 
 func TestLoadFIQATestData(t *testing.T) {
-	logger := logrus.New()
-	logger.SetLevel(logrus.DebugLevel)
-	hf := NewHubDataset("tobias-weaviate/ann-datasets", "fiqa-google-embeddinggemma300m-768-angular-54k", logger)
+	hf := NewHubDataset("tobias-weaviate/ann-datasets", "fiqa-google-embeddinggemma300m-768-angular-54k")
 	neighbors, vectors, err := hf.LoadTestData()
 	if err != nil {
 		t.Fatalf("Failed to load test data: %v", err)
@@ -182,9 +175,7 @@ func TestLoadFIQATestData(t *testing.T) {
 }
 
 func BenchmarkLoadData(b *testing.B) {
-	logger := logrus.New()
-	logger.SetLevel(logrus.FatalLevel)
-	hf := NewHubDataset("trengrj/ann-datasets", "dbpedia-openai-ada002-1536-angular-100k", logger)
+	hf := NewHubDataset("trengrj/ann-datasets", "dbpedia-openai-ada002-1536-angular-100k")
 	// Warmup runs to ensure that the data is downloaded.
 	hf.LoadTestData()
 	ids, vectors, _ := hf.LoadTrainData()
