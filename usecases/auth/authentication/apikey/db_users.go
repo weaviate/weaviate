@@ -151,6 +151,7 @@ func NewDBUser(path string, enabled bool, logger logrus.FieldLogger) (*DBUser, e
 	return dbUsers, nil
 }
 
+// ensure all fields are non-nil after a restore to avoid nil map panics
 func restoreAllFields(data dbUserdata) dbUserdata {
 	if data.SecureKeyStorageById == nil {
 		data.SecureKeyStorageById = make(map[string]string)
