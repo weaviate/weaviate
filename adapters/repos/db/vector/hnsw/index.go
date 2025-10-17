@@ -39,21 +39,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
-// runtimeMemStatsReader is the production implementation of memStatsReader that
-// delegates to runtime.ReadMemStats.
-type runtimeMemStatsReader struct{}
-
-func (r runtimeMemStatsReader) ReadMemStats(m *runtime.MemStats) {
-	runtime.ReadMemStats(m)
-}
-
-// memoryTracker defines the interface for tracking memory allocation during batch operations.
-// Implementations should support being called repeatedly for multiple batch operations.
-type memoryTracker interface {
-	BeginTracking(estimatedMemory int64)
-	EndTracking()
-}
-
 type hnsw struct {
 	// global lock to prevent concurrent map read/write, etc.
 	sync.RWMutex
@@ -154,7 +139,6 @@ type hnsw struct {
 
 	metrics       *Metrics
 	insertMetrics *insertMetrics
-	memoryTracker memoryTracker
 
 	randFunc func() float64 // added to temporarily get rid on flakiness in tombstones related tests. to be removed after fixing WEAVIATE-179
 
@@ -308,7 +292,6 @@ func New(cfg Config, uc ent.UserConfig,
 	}
 	resetCtx, resetCtxCancel := context.WithCancel(context.Background())
 	shutdownCtx, shutdownCtxCancel := context.WithCancel(context.Background())
-	metrics := NewMetrics(cfg.PrometheusMetrics, cfg.ClassName, cfg.ShardName)
 	index := &hnsw{
 		maximumConnections: uc.MaxConnections,
 
@@ -347,8 +330,7 @@ func New(cfg Config, uc ent.UserConfig,
 		efMin:    int64(uc.DynamicEFMin),
 		efMax:    int64(uc.DynamicEFMax),
 		efFactor: int64(uc.DynamicEFFactor),
-
-		metrics:   metrics,
+		metrics:   NewMetrics(cfg.PrometheusMetrics, cfg.ClassName, cfg.ShardName),
 		shardName: cfg.ShardName,
 		randFunc:                  rand.Float64,
 		compressActionLock:        &sync.RWMutex{},
