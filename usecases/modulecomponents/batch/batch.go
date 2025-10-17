@@ -282,6 +282,7 @@ timeLoop:
 }
 
 func (b *Batch[T]) sendBatch(job BatchJob[T], objCounter int, rateLimit *modulecomponents.RateLimits, timePerToken float64, reservedReqs int, concurrentBatch bool) {
+	defer job.wg.Done()
 	maxTokensPerBatch := b.settings.MaxTokensPerBatch(job.cfg)
 	estimatedTokensInCurrentBatch := 0
 	numRequests := 0
@@ -424,7 +425,6 @@ func (b *Batch[T]) sendBatch(job BatchJob[T], objCounter int, rateLimit *modulec
 		apiKeyHash:        job.apiKeyHash,
 		concurrentBatch:   concurrentBatch,
 	}
-	job.wg.Done()
 	b.concurrentBatches.Add(-1)
 	monitoring.GetMetrics().T2VBatches.WithLabelValues(b.Label).Dec()
 }
