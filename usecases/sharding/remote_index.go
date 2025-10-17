@@ -328,6 +328,7 @@ func (ri *RemoteIndex) SearchShard(ctx context.Context, shard string,
 			queryVec, targetVector, distance, limit, filters, keywordRanking, sort, cursor, groupBy, adds, targetCombination, properties)
 		took := time.Since(start)
 		if err != nil {
+			fmt.Println("error", err)
 			fmt.Println(took.String())
 			return nil, fmt.Errorf("remote shard search failed: %w", err)
 		}
