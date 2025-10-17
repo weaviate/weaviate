@@ -585,33 +585,32 @@ func (ri *RemoteIndex) queryReplicas(
 		}
 		fmt.Printf("DEBUG: Launched %d goroutines for remote replicas\n", launched)
 
-		// Wait for first success or all failures
+		// Wait for first success or timeout - return immediately on first success
 		var lastErr error
-		errorCount := 0
+
+		// Add a timeout to prevent waiting forever
+		timeout := time.After(3 * time.Second)
 
 		for {
 			select {
 			case rr := <-resCh:
 				fmt.Printf("DEBUG: Received response from %s: err=%v, hasResult=%v\n", rr.node, rr.err, rr.r != nil)
 				if rr.err == nil && rr.r != nil {
-					// SUCCESS! Return immediately (context cancellation will stop other goroutines)
+					// SUCCESS! Return immediately - we don't need to wait for others
 					fmt.Printf("DEBUG: SUCCESS from %s, returning immediately\n", rr.node)
 					return rr.r, rr.node, nil
 				}
 				if rr.err != nil {
 					lastErr = rr.err
-					errorCount++
-					fmt.Printf("DEBUG: Error from %s: %v (errorCount=%d/%d)\n", rr.node, rr.err, errorCount, launched)
-				}
-
-				// If we've received responses from all goroutines and none succeeded, return error
-				if errorCount >= launched {
-					fmt.Printf("DEBUG: All %d replicas failed, returning error\n", launched)
-					return nil, "", lastErr
+					fmt.Printf("DEBUG: Error from %s: %v\n", rr.node, rr.err)
+					// Continue waiting for more responses - maybe another replica will succeed
 				}
 			case <-egCtx.Done():
 				fmt.Printf("DEBUG: Error group context cancelled: %v\n", egCtx.Err())
 				return nil, "", egCtx.Err()
+			case <-timeout:
+				fmt.Printf("DEBUG: Timeout waiting for responses, returning last error: %v\n", lastErr)
+				return nil, "", fmt.Errorf("timeout waiting for replica responses: %w", lastErr)
 			}
 		}
 	}
