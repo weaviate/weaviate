@@ -161,9 +161,9 @@ func newStats() *stats {
 // Optimum is that each worker takes at most 1s to process a batch so that shutdown does not take too long
 const IDEAL_PROCESSING_TIME = 1.0 // seconds
 
-func (s *stats) updateBatchSize(processingTime time.Duration, processingQueueLen int) {
+func (s *stats) updateBatchSize(processingTime time.Duration, processingQueueCap int) {
 	// Understand the smoothing factor of the EMA as the half-life of the queue length
-	alpha := 1 - math.Exp(-math.Log(2)/float64(processingQueueLen))
+	alpha := 1 - math.Exp(-math.Log(2)/float64(processingQueueCap))
 	s.lock.Lock()
 	defer s.lock.Unlock()
 	// Update EMAs using standard formula

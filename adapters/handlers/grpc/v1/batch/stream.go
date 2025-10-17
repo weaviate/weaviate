@@ -216,7 +216,7 @@ func (h *StreamHandler) handleWorkerReport(report *report, closed bool, recvErrC
 	h.handleWorkerResults(report, stream, logger)
 	// Recalculate stats
 	stats := h.workerStats(streamId)
-	stats.updateBatchSize(report.Stats.processingTime, len(h.processingQueue))
+	stats.updateBatchSize(report.Stats.processingTime, cap(h.processingQueue))
 	if h.metrics != nil {
 		h.metrics.OnWorkerReport(stats.getThroughputEma(), stats.getProcessingTimeEma())
 	}
@@ -393,7 +393,6 @@ func (h *StreamHandler) receiver(ctx context.Context, streamId string, consisten
 					references:       refs,
 					wg:               wg,               // the worker will call wg.Done() when it is finished
 					streamCtx:        stream.Context(), // passes any authN information from the stream into the worker for authZ
-					start:            time.Now(),
 				}
 				if h.metrics != nil {
 					h.metrics.OnStreamRequest(float64(len(h.processingQueue)) / float64(cap(h.processingQueue)))

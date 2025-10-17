@@ -49,9 +49,6 @@ type processRequest struct {
 	// This context contains metadata relevant to the stream as a whole, e.g. auth info,
 	// that is required for downstream authZ checks by the workers, e.g. data-specific RBAC.
 	streamCtx context.Context
-	// The time when the processing of this request started. This is used to calculate the total
-	// processing time from when the request was added to the queue to when it was fully processed by a worker.
-	start time.Time
 }
 
 // StartBatchWorkers launches a specified number of worker goroutines to process batch requests.
@@ -234,6 +231,7 @@ func (w *worker) Loop() error {
 }
 
 func (w *worker) process(req *processRequest) {
+	start := time.Now()
 	defer req.wg.Done()
 
 	ctx, cancel := context.WithTimeout(req.streamCtx, PER_PROCESS_TIMEOUT)
@@ -252,7 +250,7 @@ func (w *worker) process(req *processRequest) {
 		errors = append(errors, errorsInner...)
 	}
 
-	stats := newWorkersStats(time.Since(req.start))
+	stats := newWorkersStats(time.Since(start))
 	if ok := w.reportingQueues.send(req.streamId, successes, errors, stats); !ok {
 		w.logger.WithField("streamId", req.streamId).Warn("timed out sending errors to reporting queue, maybe the client disconnected?")
 	}
