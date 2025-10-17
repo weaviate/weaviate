@@ -565,7 +565,7 @@ func (s *Shard) removeTargetNodeOverride(ctx context.Context, targetNodeOverride
 	// if there are no overrides left, return the async replication config to what it
 	// was before overrides were added
 	if targetNodeOverrideLen == 0 {
-		return s.SetAsyncReplicationEnabled(ctx, s.index.Config.AsyncReplicationEnabled)
+		return s.SetAsyncReplicationEnabled(ctx, s.index.AsyncReplicationEnabledForShard(s.name))
 	}
 	return nil
 }
@@ -577,7 +577,7 @@ func (s *Shard) removeAllTargetNodeOverrides(ctx context.Context) error {
 		defer s.asyncReplicationRWMux.Unlock()
 		s.asyncReplicationConfig.targetNodeOverrides = make([]additional.AsyncReplicationTargetNodeOverride, 0)
 	}()
-	return s.SetAsyncReplicationEnabled(ctx, s.index.Config.AsyncReplicationEnabled)
+	return s.SetAsyncReplicationEnabled(ctx, s.index.AsyncReplicationEnabledForShard(s.name))
 }
 
 func (s *Shard) getAsyncReplicationStats(ctx context.Context) []*models.AsyncReplicationStatus {
@@ -700,7 +700,7 @@ func (s *Shard) initHashBeater(ctx context.Context, config asyncReplicationConfi
 					config.targetNodeOverrides = s.asyncReplicationConfig.targetNodeOverrides
 				}()
 
-				if (!s.index.asyncReplicationEnabled() && len(config.targetNodeOverrides) == 0) ||
+				if (!s.index.AsyncReplicationEnabledForShard(s.name) && len(config.targetNodeOverrides) == 0) ||
 					(config.maintenanceModeEnabled != nil && config.maintenanceModeEnabled()) {
 					// skip hashbeat iteration when async replication is disabled and no target node overrides are set
 					// or maintenance mode is enabled for localhost
