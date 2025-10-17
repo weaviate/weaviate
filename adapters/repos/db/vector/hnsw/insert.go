@@ -437,7 +437,14 @@ func (h *hnsw) addOne(ctx context.Context, vector []float32, node *vertex) error
 	h.nodes[nodeId] = node
 	h.shardedNodeLocks.Unlock(nodeId)
 
-	h.Preload(node.id, vector)
+	singleVector := !h.multivector.Load() || h.muvera.Load()
+	if singleVector {
+		if h.compressed.Load() {
+			h.compressor.Preload(nodeId, vector)
+		} else {
+			h.cache.Preload(nodeId, vector)
+		}
+	}
 
 	h.insertMetrics.prepareAndInsertNode(before)
 	before = time.Now()
