@@ -1534,7 +1534,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 ) ([]*storobj.Object, []float32, error) {
 	resultObjects, resultScores := objectSearchPreallocate(limit, shards)
 
-	eg := enterrors.NewErrorGroupWrapper(i.logger, "filters:", filters)
+	eg, egCtx := enterrors.NewErrorGroupWithContextWrapper(i.logger, ctx, "filters:", filters)
 	eg.SetLimit(_NUMCPU * 2)
 	shardResultLock := sync.Mutex{}
 	for _, shardName := range shards {
@@ -1546,7 +1546,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 				err      error
 			)
 
-			shard, release, err := i.GetShard(ctx, shardName)
+			shard, release, err := i.GetShard(egCtx, shardName)
 			if err != nil {
 				return err
 			}
@@ -1594,7 +1594,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 
 			if useLocal {
 				defer release()
-				localCtx := helpers.InitSlowQueryDetails(ctx)
+				localCtx := helpers.InitSlowQueryDetails(egCtx)
 				helpers.AnnotateSlowQueryLog(localCtx, "is_coordinator", true)
 				objs, scores, err = shard.ObjectSearch(localCtx, limit, filters, keywordRanking, sort, cursor, addlProps, properties)
 				if err != nil {
@@ -1605,7 +1605,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 			} else {
 				i.logger.WithField("shardName", shardName).Debug("shard was not found locally, search for object remotely")
 
-				remoteCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+				remoteCtx, cancel := context.WithTimeout(egCtx, 10*time.Second)
 				defer cancel()
 				objs, scores, nodeName, err = i.remote.SearchShard(
 					remoteCtx, shardName, nil, nil, 0, limit, filters, keywordRanking,
@@ -1904,7 +1904,6 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 			shardStatusStr = "not_found"
 		}
 
-		fmt.Println(useLocal)
 		i.logger.WithFields(logrus.Fields{
 			"action":             "object_search_decision",
 			"shardName":          shardName,
