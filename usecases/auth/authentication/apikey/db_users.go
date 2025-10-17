@@ -112,31 +112,13 @@ func NewDBUser(path string, enabled bool, logger logrus.FieldLogger) (*DBUser, e
 		}
 	}
 
-	if snapshot.Data.SecureKeyStorageById == nil {
-		snapshot.Data.SecureKeyStorageById = make(map[string]string)
-	}
-	if snapshot.Data.IdentifierToId == nil {
-		snapshot.Data.IdentifierToId = make(map[string]string)
-	}
-	if snapshot.Data.IdToIdentifier == nil {
-		snapshot.Data.IdToIdentifier = make(map[string]string)
-	}
-	if snapshot.Data.Users == nil {
-		snapshot.Data.Users = make(map[string]*User)
-	}
-	if snapshot.Data.UserKeyRevoked == nil {
-		snapshot.Data.UserKeyRevoked = make(map[string]struct{})
-	}
-
-	if snapshot.Data.ImportedApiKeysWeakHash == nil {
-		snapshot.Data.ImportedApiKeysWeakHash = make(map[string][sha256.Size]byte)
-	}
+	data := restoreAllFields(snapshot.Data)
 
 	dbUsers := &DBUser{
 		path:         fullpath,
 		lock:         &sync.RWMutex{},
 		weakHashLock: &sync.RWMutex{},
-		data:         snapshot.Data,
+		data:         data,
 		memoryOnlyData: memoryOnlyData{
 			weakKeyStorageById:     make(map[string][sha256.Size]byte),
 			importedApiKeysBlocked: make([][sha256.Size]byte, 0),
@@ -167,6 +149,30 @@ func NewDBUser(path string, enabled bool, logger logrus.FieldLogger) (*DBUser, e
 	}
 
 	return dbUsers, nil
+}
+
+// ensure all fields are non-nil after a restore to avoid nil map panics
+func restoreAllFields(data dbUserdata) dbUserdata {
+	if data.SecureKeyStorageById == nil {
+		data.SecureKeyStorageById = make(map[string]string)
+	}
+	if data.IdentifierToId == nil {
+		data.IdentifierToId = make(map[string]string)
+	}
+	if data.IdToIdentifier == nil {
+		data.IdToIdentifier = make(map[string]string)
+	}
+	if data.Users == nil {
+		data.Users = make(map[string]*User)
+	}
+	if data.UserKeyRevoked == nil {
+		data.UserKeyRevoked = make(map[string]struct{})
+	}
+
+	if data.ImportedApiKeysWeakHash == nil {
+		data.ImportedApiKeysWeakHash = make(map[string][sha256.Size]byte)
+	}
+	return data
 }
 
 func (c *DBUser) CreateUser(userId, secureHash, userIdentifier, apiKeyFirstLetters string, createdAt time.Time) error {
@@ -460,7 +466,7 @@ func (c *DBUser) Restore(snapshot []byte) error {
 	if snapshotRestore.Version != SnapshotVersion {
 		return fmt.Errorf("invalid snapshot version")
 	}
-	c.data = snapshotRestore.Data
+	c.data = restoreAllFields(snapshotRestore.Data)
 
 	return nil
 }
