@@ -15,7 +15,6 @@ import (
 	"context"
 	"fmt"
 	"math"
-	"os"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -31,7 +30,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/cluster/router"
 	"github.com/weaviate/weaviate/cluster/utils"
-	entcfg "github.com/weaviate/weaviate/entities/config"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -177,13 +175,13 @@ func New(logger logrus.FieldLogger, config Config,
 		reindexer:            NewShardReindexerV3Noop(),
 		bitmapBufPool:        roaringset.NewBitmapBufPoolNoop(),
 		bitmapBufPoolClose:   func() {},
-		asyncIndexingEnabled: entcfg.Enabled(os.Getenv("ASYNC_INDEXING")),
+		asyncIndexingEnabled: config.AsyncIndexingEnabled,
 	}
 
 	if db.maxNumberGoroutines == 0 {
 		return db, errors.New("no workers to add batch-jobs configured.")
 	}
-	if !asyncEnabled() {
+	if !db.asyncIndexingEnabled {
 		db.jobQueueCh = make(chan job, 100000)
 		db.shutDownWg.Add(db.maxNumberGoroutines)
 		for i := 0; i < db.maxNumberGoroutines; i++ {
@@ -262,6 +260,7 @@ type Config struct {
 	QuerySlowLogThreshold       *configRuntime.DynamicValue[time.Duration]
 	InvertedSorterDisabled      *configRuntime.DynamicValue[bool]
 	MaintenanceModeEnabled      func() bool
+	AsyncIndexingEnabled        bool
 }
 
 // GetIndex returns the index if it exists or nil if it doesn't
@@ -349,7 +348,7 @@ func (db *DB) Shutdown(ctx context.Context) error {
 	db.shutdown <- struct{}{}
 	db.bitmapBufPoolClose()
 
-	if !asyncEnabled() {
+	if !db.asyncIndexingEnabled {
 		// shut down the workers that add objects to
 		for i := 0; i < db.maxNumberGoroutines; i++ {
 			db.jobQueueCh <- job{
@@ -358,7 +357,7 @@ func (db *DB) Shutdown(ctx context.Context) error {
 		}
 	}
 
-	if asyncEnabled() {
+	if db.asyncIndexingEnabled {
 		// shut down the async workers
 		err := db.scheduler.Close()
 		if err != nil {
@@ -380,7 +379,7 @@ func (db *DB) Shutdown(ctx context.Context) error {
 
 	db.shutDownWg.Wait() // wait until job queue shutdown is completed
 
-	if asyncEnabled() {
+	if db.asyncIndexingEnabled {
 		db.indexCheckpoints.Close()
 	}
 
