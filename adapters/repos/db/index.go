@@ -647,8 +647,6 @@ func (i *Index) updateInvertedIndexConfig(ctx context.Context,
 	if err != nil {
 		return errors.Wrap(err, "failed to update inverted index config")
 	}
-	i.logger.Errorf("updated inverted index config: %+v", updated)
-
 	return nil
 }
 

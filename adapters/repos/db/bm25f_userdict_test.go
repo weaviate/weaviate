@@ -33,7 +33,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
-func BM25FinvertedUserDictConfig(k1, b float32, stopWordPreset string) *models.InvertedIndexConfig {
+func BM25FinvertedUserDictConfig(k1, b float32) *models.InvertedIndexConfig {
 	ptr := func(s string) *string { return &s }
 	return &models.InvertedIndexConfig{
 		Bm25: &models.BM25Config{
@@ -42,7 +42,7 @@ func BM25FinvertedUserDictConfig(k1, b float32, stopWordPreset string) *models.I
 		},
 		CleanupIntervalSeconds: 60,
 		Stopwords: &models.StopwordConfig{
-			Preset: stopWordPreset,
+			Preset: "en",
 		},
 		IndexNullState:      true,
 		IndexPropertyLength: true,
@@ -76,7 +76,7 @@ func SetupUserDictClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGe
 
 	class := &models.Class{
 		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
-		InvertedIndexConfig: BM25FinvertedUserDictConfig(k1, b, "none"),
+		InvertedIndexConfig: BM25FinvertedUserDictConfig(k1, b),
 		Class:               "MyClass",
 
 		Properties: []*models.Property{
@@ -85,6 +85,13 @@ func SetupUserDictClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGe
 				DataType:        schema.DataTypeText.PropString(),
 				Tokenization:    models.PropertyTokenizationKagomeKr,
 				IndexFilterable: &vFalse,
+				IndexSearchable: &vTrue,
+			},
+			{
+				Name:            "text",
+				DataType:        schema.DataTypeText.PropString(),
+				Tokenization:    models.PropertyTokenizationWord,
+				IndexFilterable: &vTrue,
 				IndexSearchable: &vTrue,
 			},
 		},
@@ -105,11 +112,11 @@ func SetupUserDictClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGe
 	migrator.AddClass(context.Background(), class, schemaGetter.shardState)
 
 	testData := []map[string]interface{}{}
-	testData = append(testData, map[string]interface{}{"title": "Weaviate is a product by Semi Technologies"})
-	testData = append(testData, map[string]interface{}{"title": "We Aviate is a product by SemiTechnologies"})
-	testData = append(testData, map[string]interface{}{"title": "Aviate Technologies"})
-	testData = append(testData, map[string]interface{}{"title": "W e Aviate Technologies will match as tokenizer splits"})
-	testData = append(testData, map[string]interface{}{"title": "An unrelated title"})
+	testData = append(testData, map[string]interface{}{"title": "Weaviate is a product by Semi Technologies", "text": "Weaviate is a product by Semi Technologies"})
+	testData = append(testData, map[string]interface{}{"title": "We Aviate is a product by SemiTechnologies", "text": "We Aviate is a product by SemiTechnologies"})
+	testData = append(testData, map[string]interface{}{"title": "Aviate Technologies", "text": "Aviate Technologies"})
+	testData = append(testData, map[string]interface{}{"title": "W e Aviate Technologies will match as tokenizer splits", "text": "W e Aviate Technologies will match as tokenizer splits"})
+	testData = append(testData, map[string]interface{}{"title": "An unrelated title", "text": "An unrelated title"})
 
 	for i, data := range testData {
 		id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
@@ -223,7 +230,8 @@ func TestBM25FUserDictTest(t *testing.T) {
 		class := repo.schemaGetter.ReadOnlyClass(className.String())
 		class.InvertedIndexConfig.TokenizerUserDict = []*models.TokenizerUserDictConfig{}
 		ctx := context.Background()
-		migrator.UpdateInvertedIndexConfig(ctx, string(className), class.InvertedIndexConfig)
+		err := migrator.UpdateInvertedIndexConfig(ctx, string(className), class.InvertedIndexConfig)
+		require.Nil(t, err)
 	})
 
 	t.Run("Updated tokenizer", func(t *testing.T) {
