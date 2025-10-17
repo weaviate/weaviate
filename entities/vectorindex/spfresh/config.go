@@ -16,7 +16,6 @@ import (
 
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
-	vectorIndexCommon "github.com/weaviate/weaviate/entities/vectorindex/common"
 )
 
 // UserConfig defines the configuration options for the SPFresh index.
@@ -65,7 +64,7 @@ func ParseAndValidateConfig(input any, isMultiVector bool) (schemaConfig.VectorI
 		return uc, fmt.Errorf("input must be a non-nil map")
 	}
 
-	err := vectorIndexCommon.OptionalStringFromMap(asMap, "distance", func(v string) {
+	err := common.OptionalStringFromMap(asMap, "distance", func(v string) {
 		uc.Distance = v
 	})
 	if err != nil {
