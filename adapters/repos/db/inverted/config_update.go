@@ -36,6 +36,11 @@ func ValidateUserConfigUpdate(initial, updated *models.InvertedIndexConfig) erro
 		return err
 	}
 
+	err = validateTokenizerUserDictConfigUpdate(initial, updated)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -83,5 +88,21 @@ func validateStopwordsConfigUpdate(initial, updated *models.InvertedIndexConfig)
 		return err
 	}
 
+	return nil
+}
+
+func validateTokenizerUserDictConfigUpdate(initial, updated *models.InvertedIndexConfig) error {
+	if updated.TokenizerUserDict == nil {
+		if initial.TokenizerUserDict == nil {
+			return nil
+		}
+		updated.TokenizerUserDict = make([]*models.TokenizerUserDictConfig, len(initial.TokenizerUserDict))
+		copy(updated.TokenizerUserDict, initial.TokenizerUserDict)
+		return nil
+	}
+	err := validateTokenizerUserDictConfig(updated.TokenizerUserDict)
+	if err != nil {
+		return err
+	}
 	return nil
 }

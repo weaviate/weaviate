@@ -23,7 +23,7 @@ import (
 )
 
 func TestAnalyzer(t *testing.T) {
-	a := NewAnalyzer(nil)
+	a := NewAnalyzer(nil, "SomeClass")
 
 	countable := func(data []string, freq []int) []Countable {
 		countable := make([]Countable, len(data))
@@ -408,7 +408,7 @@ func TestAnalyzer_DefaultEngPreset(t *testing.T) {
 		return countable
 	}
 
-	a := NewAnalyzer(nil)
+	a := NewAnalyzer(nil, "SomeClass")
 	input := "Hello you-beautiful_World"
 
 	t.Run("with text", func(t *testing.T) {

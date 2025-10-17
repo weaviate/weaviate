@@ -25,6 +25,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers/tokenizer"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
@@ -578,9 +579,9 @@ func (s *Searcher) extractTokenizableProp(prop *models.Property, propType schema
 		// if the operator is like, we cannot apply the regular text-splitting
 		// logic as it would remove all wildcard symbols
 		if operator == filters.OperatorLike {
-			terms = helpers.TokenizeWithWildcards(prop.Tokenization, valueString)
+			terms = tokenizer.TokenizeWithWildcardsForClass(prop.Tokenization, valueString, class.Class)
 		} else {
-			terms = helpers.Tokenize(prop.Tokenization, valueString)
+			terms = tokenizer.TokenizeForClass(prop.Tokenization, valueString, class.Class)
 		}
 	default:
 		return nil, fmt.Errorf("expected value type to be text, got %v", propType)

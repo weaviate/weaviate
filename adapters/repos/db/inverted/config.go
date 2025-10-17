@@ -39,6 +39,11 @@ func ValidateConfig(conf *models.InvertedIndexConfig) error {
 		return err
 	}
 
+	err = validateTokenizerUserDictConfig(conf.TokenizerUserDict)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -65,6 +70,16 @@ func ConfigFromModel(iicm *models.InvertedIndexConfig) schema.InvertedIndexConfi
 		conf.Stopwords.Preset = iicm.Stopwords.Preset
 		conf.Stopwords.Additions = iicm.Stopwords.Additions
 		conf.Stopwords.Removals = iicm.Stopwords.Removals
+	}
+
+	if iicm.TokenizerUserDict != nil {
+		conf.TokenizerUserDict = make([]*models.TokenizerUserDictConfig, len(iicm.TokenizerUserDict))
+		for i, tudc := range iicm.TokenizerUserDict {
+			conf.TokenizerUserDict[i] = &models.TokenizerUserDictConfig{
+				Replacements: tudc.Replacements,
+				Tokenizer:    tudc.Tokenizer,
+			}
+		}
 	}
 
 	conf.UsingBlockMaxWAND = iicm.UsingBlockMaxWAND
@@ -165,4 +180,31 @@ func removeStopwordAdditionsIfInPreset(conf *models.StopwordConfig, foundAdditio
 		}
 	}
 	conf.Additions = trimmedAdditions
+}
+
+func validateTokenizerUserDictConfig(conf []*models.TokenizerUserDictConfig) error {
+	if conf == nil {
+		return nil
+	}
+	// find duplicate from and to entries
+	for _, c := range conf {
+		seen := make(map[string]map[string]struct{})
+		for _, repl := range c.Replacements {
+			if repl.Source == nil || repl.Target == nil {
+				return errors.Errorf("both source and target must be set")
+			}
+			if strings.TrimSpace(*repl.Source) == "" || strings.TrimSpace(*repl.Target) == "" {
+				return errors.Errorf("source and target cannot be empty or whitespace")
+			}
+			if _, ok := seen[*repl.Source]; !ok {
+				seen[*repl.Source] = make(map[string]struct{})
+			}
+			if _, ok := seen[*repl.Source][*repl.Target]; ok {
+				return errors.Errorf("found duplicate replacement from '%s' to '%s'",
+					*repl.Source, *repl.Target)
+			}
+			seen[*repl.Source][*repl.Target] = struct{}{}
+		}
+	}
+	return nil
 }

@@ -25,6 +25,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers/tokenizer"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
@@ -95,7 +96,7 @@ func (b *BM25Searcher) wandBlock(
 	helpers.AnnotateSlowQueryLog(ctx, "kwd_1_tok_time", tokenizationTime)
 	start = time.Now()
 
-	for _, tokenization := range helpers.Tokenizations {
+	for _, tokenization := range tokenizer.Tokenizations {
 		propNames := propNamesByTokenization[tokenization]
 		if len(propNames) > 0 {
 			lenAllResults := len(allResults)
@@ -178,7 +179,7 @@ func (b *BM25Searcher) wandBlock(
 		}
 		internalLimit = limit
 
-	} else if len(allResults) > 1 {
+	} else {
 		// we only need to increase the limit if there are multiple properties
 		// TODO: the limit is increased by 10 to make sure candidates that are on the edge of the limit are not missed for multi-property search
 		// the proper fix is to either make sure that the limit is always high enough, or force a rerank of the top results from all properties
