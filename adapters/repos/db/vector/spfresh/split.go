@@ -69,6 +69,13 @@ func (s *SPFresh) splitWorker() {
 	}
 }
 
+func abs(a float32) float32 {
+	if a < 0 {
+		return -a
+	}
+	return a
+}
+
 // doSplit performs the actual split operation for a given postingID.
 // If reassign is true, it will enqueue reassign operations for vectors that
 // may need to be moved to other postings after the split.
@@ -134,10 +141,11 @@ func (s *SPFresh) doSplit(postingID uint64, reassign bool) error {
 		// we override the posting with a single vector
 		s.logger.WithField("postingID", postingID).
 			WithError(err).
-			Debug("Cannot split posting: contains identical vectors, keeping only one vector")
+			Debug("cannot split posting: contains identical vectors, keeping only one vector")
 
-		pp := &CompressedPosting{
+		pp := &EncodedPosting{
 			vectorSize: int(s.vectorSize),
+			compressed: s.config.Compressed,
 		}
 		pp.AddVector(filtered.GetAt(0))
 		err = s.Store.Put(s.ctx, postingID, pp)
@@ -162,10 +170,10 @@ func (s *SPFresh) doSplit(postingID uint64, reassign bool) error {
 				return errors.Wrapf(err, "failed to compute distance for split operation on posting %d", postingID)
 			}
 
-			if dist < splitReuseEpsilon {
+			if abs(dist) < splitReuseEpsilon {
 				s.logger.WithField("postingID", postingID).
 					WithField("distance", dist).
-					Debug("Reusing existing posting for split operation")
+					Debug("reusing existing posting for split operation")
 				postingReused = true
 				newPostingIDs[i] = postingID
 				err = s.Store.Put(s.ctx, postingID, result[i].Posting)
@@ -234,7 +242,7 @@ func (s *SPFresh) splitPosting(posting Posting) ([]SplitResult, error) {
 	enc := compressionhelpers.NewKMeansEncoder(2, int(s.dims), 0)
 
 	var data [][]float32
-	if cp, ok := posting.(*CompressedPosting); ok {
+	if cp, ok := posting.(*EncodedPosting); ok {
 		data = cp.Uncompress(s.quantizer)
 	}
 
@@ -247,10 +255,14 @@ func (s *SPFresh) splitPosting(posting Posting) ([]SplitResult, error) {
 	for i := range results {
 		results[i] = SplitResult{
 			Uncompressed: enc.Centroid(byte(i)),
-			Centroid:     s.quantizer.Encode(enc.Centroid(byte(i))),
-			Posting: &CompressedPosting{
+			Posting: &EncodedPosting{
 				vectorSize: int(s.vectorSize),
+				compressed: s.config.Compressed,
 			},
+		}
+
+		if s.config.Compressed {
+			results[i].Centroid = s.quantizer.Encode(enc.Centroid(byte(i)))
 		}
 	}
 
@@ -299,13 +311,13 @@ func (s *SPFresh) enqueueReassignAfterSplit(oldPostingID uint64, newPostingIDs [
 			_, exists := reassignedVectors[vid]
 			if !exists && !v.Version().Deleted() && s.VersionMap.Get(vid) == v.Version() {
 				// compute distance from v to its new centroid
-				newDist, err := v.DistanceWithRaw(s.distancer, s.Centroids.Get(newPostingIDs[i]).Compressed)
+				newDist, err := s.Centroids.Get(newPostingIDs[i]).Distance(s.distancer, v)
 				if err != nil {
 					return errors.Wrapf(err, "failed to compute distance for vector %d in new posting %d", vid, newPostingIDs[i])
 				}
 
 				// compute distance from v to the old centroid
-				oldDist, err := v.DistanceWithRaw(s.distancer, oldCentroid.Compressed)
+				oldDist, err := oldCentroid.Distance(s.distancer, v)
 				if err != nil {
 					return errors.Wrapf(err, "failed to compute distance for vector %d in old posting %d", vid, oldPostingID)
 				}
@@ -366,22 +378,22 @@ func (s *SPFresh) enqueueReassignAfterSplit(oldPostingID uint64, newPostingIDs [
 				continue
 			}
 
-			distNeighbor, err := v.DistanceWithRaw(s.distancer, s.Centroids.Get(neighborID).Compressed)
+			distNeighbor, err := s.Centroids.Get(neighborID).Distance(s.distancer, v)
 			if err != nil {
 				return errors.Wrapf(err, "failed to compute distance for vector %d in neighbor posting %d", vid, neighborID)
 			}
 
-			distOld, err := v.DistanceWithRaw(s.distancer, oldCentroid.Compressed)
+			distOld, err := oldCentroid.Distance(s.distancer, v)
 			if err != nil {
 				return errors.Wrapf(err, "failed to compute distance for vector %d in old posting %d", vid, oldPostingID)
 			}
 
-			distA0, err := v.DistanceWithRaw(s.distancer, s.Centroids.Get(newPostingIDs[0]).Compressed)
+			distA0, err := s.Centroids.Get(newPostingIDs[0]).Distance(s.distancer, v)
 			if err != nil {
 				return errors.Wrapf(err, "failed to compute distance for vector %d in new posting %d", vid, newPostingIDs[0])
 			}
 
-			distA1, err := v.DistanceWithRaw(s.distancer, s.Centroids.Get(newPostingIDs[1]).Compressed)
+			distA1, err := s.Centroids.Get(newPostingIDs[1]).Distance(s.distancer, v)
 			if err != nil {
 				return errors.Wrapf(err, "failed to compute distance for vector %d in new posting %d", vid, newPostingIDs[1])
 			}

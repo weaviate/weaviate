@@ -14,6 +14,8 @@ package spfresh
 import (
 	"fmt"
 
+	"fmt"
+
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	vectorIndexCommon "github.com/weaviate/weaviate/entities/vectorindex/common"
 )
@@ -68,7 +70,7 @@ func (u *UserConfig) SetDefaults() {
 }
 
 func NewDefaultUserConfig() UserConfig {
-	uc := UserConfig{}
+	var uc UserConfig
 	uc.SetDefaults()
 	return uc
 }

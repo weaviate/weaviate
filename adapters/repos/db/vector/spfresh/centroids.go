@@ -27,6 +27,17 @@ type Centroid struct {
 	Deleted      bool
 }
 
+func (c *Centroid) Distance(distancer *Distancer, v Vector) (float32, error) {
+	switch v := v.(type) {
+	case *RawVector:
+		return distancer.DistanceBetweenVectors(c.Uncompressed, v.Data())
+	case CompressedVector:
+		return v.DistanceWithRaw(distancer, c.Compressed)
+	default:
+		return 0, errors.Errorf("unknown vector type: %T", v)
+	}
+}
+
 type CentroidIndex interface {
 	Insert(id uint64, centroid *Centroid) error
 	Get(id uint64) *Centroid

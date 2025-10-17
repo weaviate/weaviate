@@ -246,12 +246,12 @@ func (s *SPFresh) doMerge(postingID uint64) error {
 		smallCentroid := s.Centroids.Get(smallID)
 		largeCentroid := s.Centroids.Get(largeID)
 		for _, v := range smallPosting.Iter() {
-			prevDist, err := v.DistanceWithRaw(s.distancer, smallCentroid.Compressed)
+			prevDist, err := smallCentroid.Distance(s.distancer, v)
 			if err != nil {
 				return errors.Wrapf(err, "failed to compute distance for vector %d in small posting %d", v.ID(), smallID)
 			}
 
-			newDist, err := v.DistanceWithRaw(s.distancer, largeCentroid.Compressed)
+			newDist, err := largeCentroid.Distance(s.distancer, v)
 			if err != nil {
 				return errors.Wrapf(err, "failed to compute distance for vector %d in large posting %d", v.ID(), largeID)
 			}
