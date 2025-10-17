@@ -417,9 +417,13 @@ func (h *StreamHandler) receiver(ctx context.Context, streamId string, consisten
 			} else {
 				batch = objs
 			}
-			// refs are fast so don't need to be efficiently batched
-			// we just accept however many the client sends assuming it'll be fine
-			push(batch, request.GetData().GetReferences().GetValues())
+
+			refs := request.GetData().GetReferences().GetValues()
+			if len(batch) > 0 || len(refs) > 0 {
+				// refs are fast so don't need to be efficiently batched
+				// we just accept however many the client sends assuming it'll be fine
+				push(batch, request.GetData().GetReferences().GetValues())
+			}
 
 		} else if request.GetStop() != nil {
 			h.setStopping(streamId)
