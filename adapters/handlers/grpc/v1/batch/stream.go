@@ -216,7 +216,7 @@ func (h *StreamHandler) handleWorkerReport(report *report, closed bool, recvErrC
 	h.handleWorkerResults(report, stream, logger)
 	// Recalculate stats
 	stats := h.workerStats(streamId)
-	stats.updateBatchSize(report.Stats.processingTime, cap(h.processingQueue))
+	stats.updateBatchSize(report.Stats.processingTime)
 	if h.metrics != nil {
 		h.metrics.OnWorkerReport(stats.getThroughputEma(), stats.getProcessingTimeEma())
 	}

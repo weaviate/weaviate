@@ -12,7 +12,6 @@
 package batch
 
 import (
-	"math"
 	"sync"
 	"time"
 
@@ -161,9 +160,9 @@ func newStats() *stats {
 // Optimum is that each worker takes at most 1s to process a batch so that shutdown does not take too long
 const IDEAL_PROCESSING_TIME = 1.0 // seconds
 
-func (s *stats) updateBatchSize(processingTime time.Duration, processingQueueCap int) {
-	// Understand the smoothing factor of the EMA as the half-life of the queue length
-	alpha := 1 - math.Exp(-math.Log(2)/float64(processingQueueCap))
+func (s *stats) updateBatchSize(processingTime time.Duration) {
+	// Set alpha to equally weight latest measurement and historical EMA
+	alpha := 0.5
 	s.lock.Lock()
 	defer s.lock.Unlock()
 	// Update EMAs using standard formula
@@ -174,9 +173,8 @@ func (s *stats) updateBatchSize(processingTime time.Duration, processingQueueCap
 	// Adjust batch size based on ratio of ideal time to processing time EMA
 	// If processing time is higher than ideal, batch size will decrease, and vice versa
 	s.batchSize = int(float64(s.batchSize) * (IDEAL_PROCESSING_TIME / s.processingTimeEma))
-	// Set a minimum batch size of 10 to avoid chattiness with client sending many small batches
-	if s.batchSize < 10 {
-		s.batchSize = 10
+	if s.batchSize < 1 {
+		s.batchSize = 1
 	}
 	// Cap batch size to 1000 to avoid excessive downstream load
 	if s.batchSize > 1000 {
