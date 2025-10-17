@@ -1555,7 +1555,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 				defer release()
 			}
 
-			useLocal := false
+			useLocal := true
 			if shard != nil {
 				status := shard.GetStatus()
 				if status == storagestate.StatusReady || status == storagestate.StatusReadOnly {
@@ -1907,7 +1907,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 			defer release()
 		}
 
-		useLocal := false
+		useLocal := true
 		if shard != nil {
 			status := shard.GetStatus()
 			if status == storagestate.StatusReady || status == storagestate.StatusReadOnly {
