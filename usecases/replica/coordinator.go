@@ -279,6 +279,7 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 	op readOp[T], directCandidate string,
 	timeout time.Duration,
 ) (<-chan _Result[T], int, error) {
+	pullStart := time.Now()
 	routingPlan, err := c.Router.BuildReadRoutingPlan(types.RoutingPlanBuildOptions{
 		Collection:             c.Class,
 		Shard:                  c.Shard,
@@ -290,6 +291,16 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 	}
 	level := routingPlan.IntConsistencyLevel
 	hosts := routingPlan.ReplicasHostAddrs
+	c.log.WithFields(logrus.Fields{
+		"action":           "pull_start",
+		"tx_id":            c.TxID,
+		"class":            c.Class,
+		"shard":            c.Shard,
+		"level":            level,
+		"num_hosts":        len(hosts),
+		"hosts":            hosts,
+		"direct_candidate": directCandidate,
+	}).Info("pull starting")
 	replyCh := make(chan _Result[T], level)
 	f := func() {
 		start := time.Now()
@@ -327,6 +338,15 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 				defer wg.Done()
 				workerCtx, workerCancel := context.WithTimeout(ctx, timeout)
 				defer workerCancel()
+				workerStart := time.Now()
+				c.log.WithFields(logrus.Fields{
+					"action":    "pull_worker_start",
+					"tx_id":     c.TxID,
+					"class":     c.Class,
+					"shard":     c.Shard,
+					"host":      hosts[hostIndex],
+					"full_read": isFullReadWorker,
+				}).Info("pull worker start")
 				// each worker will first try its corresponding host (eg worker0 tries hosts[0],
 				// worker1 tries hosts[1], etc). We want the fullRead to be tried on hosts[0]
 				// because that will be the direct candidate (if a direct candidate was provided),
@@ -338,8 +358,27 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 				if err == nil {
 					successful.Add(1)
 					replyCh <- _Result[T]{resp, err}
+					c.log.WithFields(logrus.Fields{
+						"action":    "pull_worker_success",
+						"tx_id":     c.TxID,
+						"class":     c.Class,
+						"shard":     c.Shard,
+						"host":      hosts[hostIndex],
+						"full_read": isFullReadWorker,
+						"took":      time.Since(workerStart),
+					}).Info("pull worker success")
 					return
 				}
+				c.log.WithFields(logrus.Fields{
+					"action":    "pull_worker_error",
+					"tx_id":     c.TxID,
+					"class":     c.Class,
+					"shard":     c.Shard,
+					"host":      hosts[hostIndex],
+					"full_read": isFullReadWorker,
+					"took":      time.Since(workerStart),
+					"error":     err,
+				}).Warn("pull worker error")
 				// this host failed op on the first try, put it on the retry queue
 				// tie backoff to the worker's context so cancellation stops retries immediately
 				hostRetryQueue <- hostRetry{
@@ -352,8 +391,27 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 					resp, err := op(workerCtx, hr.host, isFullReadWorker)
 					if err == nil {
 						replyCh <- _Result[T]{resp, err}
+						c.log.WithFields(logrus.Fields{
+							"action":    "pull_worker_success",
+							"tx_id":     c.TxID,
+							"class":     c.Class,
+							"shard":     c.Shard,
+							"host":      hr.host,
+							"full_read": isFullReadWorker,
+							"took":      time.Since(workerStart),
+						}).Info("pull worker success")
 						return
 					}
+					c.log.WithFields(logrus.Fields{
+						"action":    "pull_worker_retry_error",
+						"tx_id":     c.TxID,
+						"class":     c.Class,
+						"shard":     c.Shard,
+						"host":      hr.host,
+						"full_read": isFullReadWorker,
+						"took":      time.Since(workerStart),
+						"error":     err,
+					}).Warn("pull worker retry error")
 					nextBackOff := hr.currentBackOff.NextBackOff()
 					if nextBackOff == backoff.Stop {
 						// this host has run out of retries, send the result and note that
@@ -389,7 +447,13 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 		close(replyCh)
 	}
 	enterrors.GoWrapper(f, c.log)
-
+	c.log.WithFields(logrus.Fields{
+		"action": "pull_enqueued",
+		"tx_id":  c.TxID,
+		"class":  c.Class,
+		"shard":  c.Shard,
+		"took":   time.Since(pullStart),
+	}).Debug("pull goroutine enqueued")
 	return replyCh, level, nil
 }
 
