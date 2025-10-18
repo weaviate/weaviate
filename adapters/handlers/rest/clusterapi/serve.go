@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"time"
 
 	sentryhttp "github.com/getsentry/sentry-go/http"
 
@@ -45,11 +46,27 @@ func NewServer(appState *state.State) *Server {
 		Debugf("serving cluster api on port %d", port)
 
 	indices := NewIndices(appState.RemoteIndexIncoming, appState.DB, auth, appState.Cluster.MaintenanceModeEnabledForLocalhost, appState.Logger)
+
+	// Create warmup check function that returns true if node is still in warmup period
+	warmupCheckEnabled := func() bool {
+		if appState.DB == nil {
+			return false
+		}
+		readyTime := appState.DB.GetReadyTime()
+		if readyTime.IsZero() {
+			// Ready time not set, check if DB is still starting up
+			return !appState.DB.StartupComplete()
+		}
+		// Check if node has been ready for at least 30 seconds
+		return time.Since(readyTime) < 30*time.Second
+	}
+
 	replicatedIndices := NewReplicatedIndices(
 		appState.RemoteReplicaIncoming,
 		appState.Scaler,
 		auth,
 		appState.Cluster.MaintenanceModeEnabledForLocalhost,
+		warmupCheckEnabled,
 		appState.ServerConfig.Config.Cluster.RequestQueueConfig,
 		appState.Logger)
 	classifications := NewClassifications(appState.ClassificationRepo.TxManager(), auth)

@@ -477,7 +477,7 @@ func (index *flat) searchByVectorBQ(ctx context.Context, vector []float32, k int
 	// we expect to be mostly IO-bound, so more goroutines than CPUs is fine
 	distancesUncompressedVectors := make([]float32, len(idsSlice.slice))
 
-	eg, ctx := enterrors.NewErrorGroupWithContextWrapper(index.logger, ctx)
+	eg := enterrors.NewErrorGroupWrapper(index.logger, "flat_vector_search")
 	for workerID := 0; workerID < index.concurrentCacheReads; workerID++ {
 		workerID := workerID
 		eg.Go(func() error {

@@ -81,6 +81,8 @@ type replicatedIndices struct {
 	// maintenanceModeEnabled is an experimental feature to allow the system to be
 	// put into a maintenance mode where all replicatedIndices requests just return a 418
 	maintenanceModeEnabled func() bool
+	// warmupCheckEnabled is a function to check if the node is still in warmup period
+	warmupCheckEnabled func() bool
 
 	requestQueueConfig cluster.RequestQueueConfig
 	// requestQueue buffers requests until they're picked up by a worker, goal is to avoid
@@ -121,6 +123,7 @@ func NewReplicatedIndices(
 	scaler localScaler,
 	auth auth,
 	maintenanceModeEnabled func() bool,
+	warmupCheckEnabled func() bool,
 	requestQueueConfig cluster.RequestQueueConfig,
 	logger logrus.FieldLogger,
 ) *replicatedIndices {
@@ -138,6 +141,7 @@ func NewReplicatedIndices(
 		scaler:                 scaler,
 		auth:                   auth,
 		maintenanceModeEnabled: maintenanceModeEnabled,
+		warmupCheckEnabled:     warmupCheckEnabled,
 		requestQueue:           make(chan queuedRequest, requestQueueConfig.QueueSize),
 		requestQueueConfig:     requestQueueConfig,
 		logger:                 logger,
@@ -182,6 +186,16 @@ func (i *replicatedIndices) indicesHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if i.maintenanceModeEnabled() {
 			http.Error(w, "418 Maintenance mode", http.StatusTeapot)
+			return
+		}
+
+		// Check if node is still in warmup period (30 seconds after becoming ready)
+		if i.warmupCheckEnabled != nil && i.warmupCheckEnabled() {
+			i.logger.WithFields(logrus.Fields{
+				"action": "reject_replication_request",
+				"reason": "node_warmup_period",
+			}).Debug("rejecting replication request - node still in warmup period")
+			http.Error(w, "423 Locked - node warming up", http.StatusLocked)
 			return
 		}
 
