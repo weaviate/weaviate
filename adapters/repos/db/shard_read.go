@@ -413,7 +413,7 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 		helpers.AnnotateSlowQueryLog(ctx, "filters_ids_matched", allowList.Len())
 	}
 
-	eg, egCtx := enterrors.NewErrorGroupWithContextWrapper(s.index.logger, ctx, "vector_search")
+	eg := enterrors.NewErrorGroupWrapper(s.index.logger, "vector_search")
 	eg.SetLimit(_NUMCPU)
 	idss := make([][]uint64, len(targetVectors))
 	distss := make([][]float32, len(targetVectors))
@@ -423,7 +423,7 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 		i := i
 		targetVector := targetVector
 		eg.Go(func() error {
-			if err := egCtx.Err(); err != nil {
+			if err := ctx.Err(); err != nil {
 				return err
 			}
 
@@ -442,7 +442,7 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 				switch searchVector := searchVectors[i].(type) {
 				case []float32:
 					ids, dists, err = vidx.SearchByVectorDistance(
-						egCtx, searchVector, targetDist, s.index.Config.QueryMaximumResults, allowList)
+						ctx, searchVector, targetDist, s.index.Config.QueryMaximumResults, allowList)
 					if err != nil {
 						// This should normally not fail. A failure here could indicate that more
 						// attention is required, for example because data is corrupted. That's
@@ -453,7 +453,7 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 					}
 				case [][]float32:
 					ids, dists, err = vidx.SearchByMultiVectorDistance(
-						egCtx, searchVector, targetDist, s.index.Config.QueryMaximumResults, allowList)
+						ctx, searchVector, targetDist, s.index.Config.QueryMaximumResults, allowList)
 					if err != nil {
 						// This should normally not fail. A failure here could indicate that more
 						// attention is required, for example because data is corrupted. That's
@@ -468,7 +468,7 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 			} else {
 				switch searchVector := searchVectors[i].(type) {
 				case []float32:
-					ids, dists, err = vidx.SearchByVector(egCtx, searchVector, limit, allowList)
+					ids, dists, err = vidx.SearchByVector(ctx, searchVector, limit, allowList)
 					if err != nil {
 						// This should normally not fail. A failure here could indicate that more
 						// attention is required, for example because data is corrupted. That's
@@ -480,7 +480,7 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 						return err
 					}
 				case [][]float32:
-					ids, dists, err = vidx.SearchByMultiVector(egCtx, searchVector, limit, allowList)
+					ids, dists, err = vidx.SearchByMultiVector(ctx, searchVector, limit, allowList)
 					if err != nil {
 						// This should normally not fail. A failure here could indicate that more
 						// attention is required, for example because data is corrupted. That's
@@ -505,7 +505,7 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 		})
 	}
 
-	if err := egCtx.Err(); err != nil {
+	if err := ctx.Err(); err != nil {
 		return nil, nil, errors.Wrap(err, "vector search")
 	}
 

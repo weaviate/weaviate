@@ -561,7 +561,8 @@ func (ri *RemoteIndex) queryReplicas(
 
 		// Use regular ErrorGroupWrapper to avoid context cancellation on individual failures
 		// This allows the first-success logic to work properly
-		eg := enterrors.NewErrorGroupWrapper(nil, "queryReplicas")
+		logger := logrus.New()
+		eg := enterrors.NewErrorGroupWrapper(logger, "queryReplicas")
 		resCh := make(chan result, len(replicas)) // Buffered channel to prevent blocking
 		var launched int
 

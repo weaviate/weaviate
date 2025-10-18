@@ -1535,7 +1535,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 ) ([]*storobj.Object, []float32, error) {
 	resultObjects, resultScores := objectSearchPreallocate(limit, shards)
 
-	eg, egCtx := enterrors.NewErrorGroupWithContextWrapper(i.logger, ctx, "filters:", filters)
+	eg := enterrors.NewErrorGroupWrapper(i.logger, "filters:", filters)
 	eg.SetLimit(_NUMCPU * 2)
 	shardResultLock := sync.Mutex{}
 	for _, shardName := range shards {
@@ -1547,7 +1547,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 				err      error
 			)
 
-			shard, release, err := i.GetShard(egCtx, shardName)
+			shard, release, err := i.GetShard(ctx, shardName)
 			if err != nil {
 				return err
 			}
@@ -1608,7 +1608,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 				i.logger.WithField("shardName", shardName).Debug("shard not found locally, checking if it's a lazy-loaded shard")
 
 				// Try to get the shard with forced loading
-				lazyShard, lazyRelease, lazyErr := i.getOrInitShard(egCtx, shardName)
+				lazyShard, lazyRelease, lazyErr := i.getOrInitShard(ctx, shardName)
 				if lazyErr == nil && lazyShard != nil {
 					defer lazyRelease()
 
@@ -1702,7 +1702,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 
 			if useLocal {
 				defer release()
-				localCtx := helpers.InitSlowQueryDetails(egCtx)
+				localCtx := helpers.InitSlowQueryDetails(ctx)
 				helpers.AnnotateSlowQueryLog(localCtx, "is_coordinator", true)
 				objs, scores, err = shard.ObjectSearch(localCtx, limit, filters, keywordRanking, sort, cursor, addlProps, properties)
 				if err != nil {
@@ -1716,7 +1716,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 				// Use dynamic timeout: consume a chunk of remaining parent context time
 				// This allows normal operation while preventing long hangs
 				timeout := 5 * time.Second
-				if deadline, ok := egCtx.Deadline(); ok {
+				if deadline, ok := ctx.Deadline(); ok {
 					remaining := time.Until(deadline)
 					if remaining < timeout {
 						timeout = remaining / 2 // Use half of remaining time
@@ -1725,7 +1725,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 						}
 					}
 				}
-				remoteCtx, cancel := context.WithTimeout(egCtx, timeout)
+				remoteCtx, cancel := context.WithTimeout(ctx, timeout)
 				defer cancel()
 				objs, scores, nodeName, err = i.remote.SearchShard(
 					remoteCtx, shardName, nil, nil, 0, limit, filters, keywordRanking,
@@ -2085,7 +2085,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 		shardCap = len(shardNames) * limit
 	}
 
-	eg, egCtx := enterrors.NewErrorGroupWithContextWrapper(i.logger, ctx, "tenant:", tenant)
+	eg := enterrors.NewErrorGroupWrapper(i.logger, "tenant:", tenant)
 	eg.SetLimit(_NUMCPU * 2)
 	m := &sync.Mutex{}
 
@@ -2251,7 +2251,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 		if useLocal {
 			localSearches++
 			eg.Go(func() error {
-				localShardResult, localShardScores, err1 := i.localShardSearch(egCtx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardName)
+				localShardResult, localShardScores, err1 := i.localShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardName)
 				if err1 != nil {
 					return fmt.Errorf(
 						"local shard object search %s: %w", shard.ID(), err1)
@@ -2270,7 +2270,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 			remoteSearches++
 			eg.Go(func() error {
 				// If we have no local shard or if we force the query to reach all replicas
-				remoteShardObject, remoteShardScores, err2 := i.remoteShardSearch(egCtx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardName)
+				remoteShardObject, remoteShardScores, err2 := i.remoteShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardName)
 				if err2 != nil {
 					// Log the remote search failure but don't fail the entire search
 					// This allows other shards to succeed even if one remote search fails

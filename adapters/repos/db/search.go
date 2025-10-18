@@ -217,17 +217,17 @@ func (db *DB) CrossClassVectorSearch(ctx context.Context, vector models.Vector, 
 	var searchErrors []error
 	totalLimit := offset + limit
 
-	// Context-aware error group to allow early cancellation
-	eg, egCtx := enterrors.NewErrorGroupWithContextWrapper(db.logger, ctx, "cross_index_object_vector_search")
+	// Use regular error group to allow all searches to complete even if some fail
+	eg := enterrors.NewErrorGroupWrapper(db.logger, "cross_index_object_vector_search")
 
 	db.indexLock.RLock()
 	for _, index := range db.indices {
 		eg.Go(func() error {
-			if err := egCtx.Err(); err != nil {
+			if err := ctx.Err(); err != nil {
 				return err
 			}
 
-			objs, dist, err := index.objectVectorSearch(egCtx, []models.Vector{vector}, []string{targetVector},
+			objs, dist, err := index.objectVectorSearch(ctx, []models.Vector{vector}, []string{targetVector},
 				0, totalLimit, filters, nil, nil,
 				additional.Properties{}, nil, "", nil, nil)
 			if err != nil {

@@ -49,10 +49,10 @@ func (s *Shard) initNonVector(ctx context.Context, class *models.Class, lazyLoad
 	// Run all other inits in parallel and use a single error group to wait for
 	// all init tasks, the wait statement is at the end of this method. No other
 	// methods should attempt to wait on this error group.
-	eg, egCtx := enterrors.NewErrorGroupWithContextWrapper(s.index.logger, ctx, "init_shard_non_vector")
+	eg := enterrors.NewErrorGroupWrapper(s.index.logger, "init_shard_non_vector")
 
 	eg.Go(func() error {
-		return s.initObjectBucket(egCtx)
+		return s.initObjectBucket(ctx)
 	})
 
 	eg.Go(func() error {
