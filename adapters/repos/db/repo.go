@@ -99,6 +99,9 @@ type DB struct {
 
 	bitmapBufPool      roaringset.BitmapBufPool
 	bitmapBufPoolClose func()
+
+	// Track when the node started up for rollout decision making
+	startupTime time.Time
 }
 
 func (db *DB) GetSchemaGetter() schemaUC.SchemaGetter {
@@ -130,6 +133,8 @@ func (db *DB) GetScheduler() *queue.Scheduler {
 }
 
 func (db *DB) WaitForStartup(ctx context.Context) error {
+	db.startupTime = time.Now() // Track when the node started up
+
 	err := db.init(ctx)
 	if err != nil {
 		return err
@@ -142,6 +147,9 @@ func (db *DB) WaitForStartup(ctx context.Context) error {
 }
 
 func (db *DB) StartupComplete() bool { return db.startupComplete.Load() }
+
+// GetStartupTime returns when the node started up
+func (db *DB) GetStartupTime() time.Time { return db.startupTime }
 
 func New(logger logrus.FieldLogger, config Config,
 	remoteIndex sharding.RemoteIndexClient, nodeResolver nodeResolver,

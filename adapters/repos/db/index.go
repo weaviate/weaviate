@@ -1574,29 +1574,130 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 					if s, ok := shard.(*Shard); ok && s.shutdownRequested.Load() {
 						useLocal = false
 					} else {
-						// Use local only if cache is prefilled
-						useLocal = cachePrefilled
+						// During rollouts, prefer local even with cold cache to avoid remote failures
+						// This provides better resilience during node lifecycle events
+						// For newly started nodes (within 30 seconds), prefer remote to avoid slow local operations
+						nodeStartupTime := i.Config.StartupTime
+						// Check if startup time is valid (not zero)
+						if !nodeStartupTime.IsZero() {
+							timeSinceStartup := time.Since(nodeStartupTime)
+							if timeSinceStartup < 30*time.Second {
+								// Node started recently, prefer remote to avoid slow local operations during warmup
+								useLocal = false
+								i.logger.WithFields(logrus.Fields{
+									"shardName":        shardName,
+									"timeSinceStartup": timeSinceStartup.String(),
+									"reason":           "recent_startup_prefer_remote",
+								}).Debug("preferring remote search due to recent node startup")
+							} else {
+								// Node has been running for a while, use cache prefilled status
+								useLocal = cachePrefilled
+							}
+						} else {
+							// Startup time not set, use cache prefilled status
+							useLocal = cachePrefilled
+						}
 					}
 				} else {
 					useLocal = false
 				}
+			} else {
+				// Shard is nil - this could be a lazy-loaded shard that hasn't been loaded yet
+				// Try to get it with forced loading to see if it exists locally
+				i.logger.WithField("shardName", shardName).Debug("shard not found locally, checking if it's a lazy-loaded shard")
 
-				// Log decision for objectSearchByShard
-				var shardStatusStr string
-				var shutdownReq bool
-				if s, ok := shard.(*Shard); ok {
-					shutdownReq = s.shutdownRequested.Load()
+				// Try to get the shard with forced loading
+				lazyShard, lazyRelease, lazyErr := i.getOrInitShard(egCtx, shardName)
+				if lazyErr == nil && lazyShard != nil {
+					defer lazyRelease()
+
+					// Check if this is a lazy-loaded shard that needs to be loaded
+					if _, ok := lazyShard.(*LazyLoadShard); ok {
+						i.logger.WithField("shardName", shardName).Debug("found lazy-loaded shard, checking if it should be loaded")
+
+						// For lazy-loaded shards, consider startup time
+						nodeStartupTime := i.Config.StartupTime
+						// Check if startup time is valid (not zero)
+						if !nodeStartupTime.IsZero() {
+							timeSinceStartup := time.Since(nodeStartupTime)
+							if timeSinceStartup < 30*time.Second {
+								// Node started recently, prefer remote to avoid slow lazy loading
+								useLocal = false
+								i.logger.WithFields(logrus.Fields{
+									"shardName":        shardName,
+									"timeSinceStartup": timeSinceStartup.String(),
+									"reason":           "recent_startup_lazy_shard_prefer_remote",
+								}).Debug("preferring remote search for lazy-loaded shard due to recent node startup")
+							} else {
+								// Node has been running for a while, prefer loading lazy shards locally
+								status := lazyShard.GetStatus()
+								if status == storagestate.StatusLoading {
+									// Shard is loading, wait for it to complete
+									i.logger.WithField("shardName", shardName).Debug("lazy-loaded shard is loading, waiting for completion")
+									useLocal = true
+								} else if status == storagestate.StatusReady || status == storagestate.StatusReadOnly {
+									// Shard is ready, use local
+									useLocal = true
+								}
+							}
+						} else {
+							// Startup time not set, use normal logic
+							status := lazyShard.GetStatus()
+							if status == storagestate.StatusLoading {
+								i.logger.WithField("shardName", shardName).Debug("lazy-loaded shard is loading, waiting for completion")
+								useLocal = true
+							} else if status == storagestate.StatusReady || status == storagestate.StatusReadOnly {
+								useLocal = true
+							}
+						}
+					} else {
+						// Regular shard, use local if ready
+						status := lazyShard.GetStatus()
+						if status == storagestate.StatusReady || status == storagestate.StatusReadOnly {
+							useLocal = true
+						}
+					}
+				} else if lazyErr != nil {
+					// Error getting shard, log and prefer remote
+					i.logger.WithFields(logrus.Fields{
+						"shardName": shardName,
+						"error":     lazyErr,
+					}).Warn("failed to get lazy-loaded shard, preferring remote search")
+					useLocal = false
 				}
-				shardStatusStr = shard.GetStatus().String()
-				i.logger.WithFields(logrus.Fields{
-					"action":             "object_search_decision",
-					"shardName":          shardName,
-					"shard_status":       shardStatusStr,
-					"shutdown_requested": shutdownReq,
-					"cache_prefilled":    cachePrefilled,
-					"use_local":          useLocal,
-				}).Info("objectSearchByShard: local/remote decision")
 			}
+
+			// Log decision for objectSearchByShard
+			var shardStatusStr string
+			var shutdownReq bool
+			var cachePrefilled bool
+			if s, ok := shard.(*Shard); ok {
+				shutdownReq = s.shutdownRequested.Load()
+				// Check cache prefilled status for logging
+				s.vectorIndexMu.RLock()
+				vi := s.vectorIndex
+				s.vectorIndexMu.RUnlock()
+				if vi != nil {
+					if hnswIndex, ok := vi.(interface{ CachePrefilled() bool }); ok {
+						cachePrefilled = hnswIndex.CachePrefilled()
+					} else {
+						cachePrefilled = true
+					}
+				}
+			}
+			if shard != nil {
+				shardStatusStr = shard.GetStatus().String()
+			} else {
+				shardStatusStr = "not_found"
+			}
+			i.logger.WithFields(logrus.Fields{
+				"action":             "object_search_decision",
+				"shardName":          shardName,
+				"shard_status":       shardStatusStr,
+				"shutdown_requested": shutdownReq,
+				"cache_prefilled":    cachePrefilled,
+				"use_local":          useLocal,
+			}).Info("objectSearchByShard: local/remote decision")
 
 			if useLocal {
 				defer release()
@@ -1914,7 +2015,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 				}
 			}
 
-			// Only go local if READY/READONLY, not draining, and HNSW cache prefilled
+			// Only go local if READY/READONLY, not draining, and prefer local during rollouts
 			useLocal := true
 			status := shard.GetStatus()
 			if status == storagestate.StatusReady || status == storagestate.StatusReadOnly {
@@ -1922,8 +2023,9 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 				if s, ok := shard.(*Shard); ok && s.shutdownRequested.Load() {
 					useLocal = false
 				} else {
-					// Use local only if cache is prefilled
-					useLocal = cachePrefilled
+					// During rollouts, prefer local even with cold cache to avoid remote failures
+					// This provides better resilience during node lifecycle events
+					useLocal = true
 				}
 			} else {
 				useLocal = false
@@ -1946,8 +2048,27 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 			}).Info("objectVectorSearch: local/remote decision")
 			if useLocal {
 				defer release()
-				return i.singleLocalShardObjectVectorSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters,
+				result, scores, err := i.singleLocalShardObjectVectorSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters,
 					sort, groupBy, additionalProps, shard, targetCombination, properties)
+				if err != nil {
+					// Local search failed, try remote as fallback
+					i.logger.WithFields(logrus.Fields{
+						"action":    "local_search_failed_fallback",
+						"shardName": shardNames[0],
+						"error":     err,
+					}).Warn("local shard search failed, trying remote fallback")
+					// Don't hold the local shard anymore
+					release()
+					// Try remote search
+					remoteResult, remoteScores, _, remoteErr := i.remote.SearchShard(ctx,
+						shardNames[0], searchVectors, targetVectors, dist, limit, localFilters,
+						nil, sort, nil, groupBy, additionalProps, i.replicationEnabled(), targetCombination, properties)
+					if remoteErr != nil {
+						return nil, nil, fmt.Errorf("both local and remote search failed: local=%w, remote=%w", err, remoteErr)
+					}
+					return remoteResult, remoteScores, nil
+				}
+				return result, scores, nil
 			}
 			// else prefer remote path; don't hold the local shard
 			release()
@@ -2013,10 +2134,95 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 				if s, ok := shard.(*Shard); ok && s.shutdownRequested.Load() {
 					useLocal = false
 				} else {
-					// Use local only if cache is prefilled
-					useLocal = cachePrefilled
+					// During rollouts, prefer local even with cold cache to avoid remote failures
+					// This provides better resilience during node lifecycle events
+					// For newly started nodes (within 30 seconds), prefer remote to avoid slow local operations
+					nodeStartupTime := i.Config.StartupTime
+					// Check if startup time is valid (not zero)
+					if !nodeStartupTime.IsZero() {
+						timeSinceStartup := time.Since(nodeStartupTime)
+						if timeSinceStartup < 30*time.Second {
+							// Node started recently, prefer remote to avoid slow local operations during warmup
+							useLocal = false
+							i.logger.WithFields(logrus.Fields{
+								"shardName":        shardNames[0],
+								"timeSinceStartup": timeSinceStartup.String(),
+								"reason":           "recent_startup_prefer_remote",
+							}).Debug("preferring remote search due to recent node startup")
+						} else {
+							// Node has been running for a while, use cache prefilled status
+							useLocal = cachePrefilled
+						}
+					} else {
+						// Startup time not set, use cache prefilled status
+						useLocal = cachePrefilled
+					}
 				}
 			} else {
+				useLocal = false
+			}
+		} else {
+			// Shard is nil - this could be a lazy-loaded shard that hasn't been loaded yet
+			// Try to get it with forced loading to see if it exists locally
+			i.logger.WithField("shardName", shardNames[0]).Debug("shard not found locally, checking if it's a lazy-loaded shard")
+
+			// Try to get the shard with forced loading
+			lazyShard, lazyRelease, lazyErr := i.getOrInitShard(ctx, shardNames[0])
+			if lazyErr == nil && lazyShard != nil {
+				defer lazyRelease()
+
+				// Check if this is a lazy-loaded shard that needs to be loaded
+				if _, ok := lazyShard.(*LazyLoadShard); ok {
+					i.logger.WithField("shardName", shardNames[0]).Debug("found lazy-loaded shard, checking if it should be loaded")
+
+					// For lazy-loaded shards, consider startup time
+					nodeStartupTime := i.Config.StartupTime
+					// Check if startup time is valid (not zero)
+					if !nodeStartupTime.IsZero() {
+						timeSinceStartup := time.Since(nodeStartupTime)
+						if timeSinceStartup < 30*time.Second {
+							// Node started recently, prefer remote to avoid slow lazy loading
+							useLocal = false
+							i.logger.WithFields(logrus.Fields{
+								"shardName":        shardNames[0],
+								"timeSinceStartup": timeSinceStartup.String(),
+								"reason":           "recent_startup_lazy_shard_prefer_remote",
+							}).Debug("preferring remote search for lazy-loaded shard due to recent node startup")
+						} else {
+							// Node has been running for a while, prefer loading lazy shards locally
+							status := lazyShard.GetStatus()
+							if status == storagestate.StatusLoading {
+								// Shard is loading, wait for it to complete
+								i.logger.WithField("shardName", shardNames[0]).Debug("lazy-loaded shard is loading, waiting for completion")
+								useLocal = true
+							} else if status == storagestate.StatusReady || status == storagestate.StatusReadOnly {
+								// Shard is ready, use local
+								useLocal = true
+							}
+						}
+					} else {
+						// Startup time not set, use normal logic
+						status := lazyShard.GetStatus()
+						if status == storagestate.StatusLoading {
+							i.logger.WithField("shardName", shardNames[0]).Debug("lazy-loaded shard is loading, waiting for completion")
+							useLocal = true
+						} else if status == storagestate.StatusReady || status == storagestate.StatusReadOnly {
+							useLocal = true
+						}
+					}
+				} else {
+					// Regular shard, use local if ready
+					status := lazyShard.GetStatus()
+					if status == storagestate.StatusReady || status == storagestate.StatusReadOnly {
+						useLocal = true
+					}
+				}
+			} else if lazyErr != nil {
+				// Error getting shard, log and prefer remote
+				i.logger.WithFields(logrus.Fields{
+					"shardName": shardNames[0],
+					"error":     lazyErr,
+				}).Warn("failed to get lazy-loaded shard, preferring remote search")
 				useLocal = false
 			}
 		}
@@ -2065,8 +2271,14 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 				// If we have no local shard or if we force the query to reach all replicas
 				remoteShardObject, remoteShardScores, err2 := i.remoteShardSearch(egCtx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardName)
 				if err2 != nil {
-					return fmt.Errorf(
-						"remote shard object search %s: %w", shardName, err2)
+					// Log the remote search failure but don't fail the entire search
+					// This allows other shards to succeed even if one remote search fails
+					i.logger.WithFields(logrus.Fields{
+						"action":    "remote_search_failed",
+						"shardName": shardName,
+						"error":     err2,
+					}).Warn("remote shard search failed, continuing with other shards")
+					return nil // Don't fail the entire search
 				}
 				m.Lock()
 				remoteResponses.Add(1)
