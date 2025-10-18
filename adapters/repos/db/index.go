@@ -1552,7 +1552,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 				return err
 			}
 
-			if shard != nil {
+			if shard != nil && (shard.GetStatus() == storagestate.StatusReady || shard.GetStatus() == storagestate.StatusReadOnly) {
 				defer release()
 				localCtx := helpers.InitSlowQueryDetails(ctx)
 				helpers.AnnotateSlowQueryLog(localCtx, "is_coordinator", true)
@@ -1831,7 +1831,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 			defer release()
 		}
 
-		if shard != nil {
+		if shard != nil && (shard.GetStatus() == storagestate.StatusReady || shard.GetStatus() == storagestate.StatusReadOnly) {
 			localSearches++
 			eg.Go(func() error {
 				localShardResult, localShardScores, err1 := i.localShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardName)

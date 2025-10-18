@@ -413,10 +413,7 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 	beforeVector := time.Now()
 
 	for i, targetVector := range targetVectors {
-		i := i
-		targetVector := targetVector
 		eg.Go(func() error {
-
 			var (
 				ids   []uint64
 				dists []float32
