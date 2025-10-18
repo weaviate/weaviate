@@ -19,11 +19,11 @@ import (
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
+	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/cluster/utils"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
-
-	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -219,12 +219,6 @@ func (c *coordinator[T]) Push(ctx context.Context,
 
 	//nolint:govet // we expressely don't want to cancel that context as the timeout will take care of it
 	ctxWithTimeout, _ := context.WithTimeout(context.Background(), 20*time.Second)
-	c.log.WithFields(logrus.Fields{
-		"action":   "coordinator_push",
-		"duration": 20 * time.Second,
-		"level":    level,
-	}).Debug("context.WithTimeout")
-
 	// create callback for metrics
 	// the use of an immediately invoked function expression (IIFE) captures the start time
 	// and returns the actual callback function.
@@ -327,6 +321,7 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 				defer wg.Done()
 				workerCtx, workerCancel := context.WithTimeout(ctx, timeout)
 				defer workerCancel()
+
 				// each worker will first try its corresponding host (eg worker0 tries hosts[0],
 				// worker1 tries hosts[1], etc). We want the fullRead to be tried on hosts[0]
 				// because that will be the direct candidate (if a direct candidate was provided),
@@ -341,9 +336,10 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 					return
 				}
 				// this host failed op on the first try, put it on the retry queue
+				// tie backoff to the worker's context so cancellation stops retries immediately
 				hostRetryQueue <- hostRetry{
 					hosts[hostIndex],
-					backoff.WithContext(utils.NewExponentialBackoff(c.pullBackOffPreInitialInterval, c.pullBackOffMaxElapsedTime), ctx),
+					backoff.WithContext(utils.NewExponentialBackoff(c.pullBackOffPreInitialInterval, c.pullBackOffMaxElapsedTime), workerCtx),
 				}
 
 				// let's fallback to the backups in the retry queue
@@ -370,7 +366,13 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 						replyCh <- _Result[T]{resp, err}
 						return
 					case <-timer.C:
-						hostRetryQueue <- hostRetry{hr.host, hr.currentBackOff}
+						// requeue only if still alive
+						select {
+						case <-workerCtx.Done():
+							// don't requeue on cancellation
+						default:
+							hostRetryQueue <- hostRetry{hr.host, hr.currentBackOff}
+						}
 					}
 					timer.Stop()
 				}
@@ -382,7 +384,6 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 		close(replyCh)
 	}
 	enterrors.GoWrapper(f, c.log)
-
 	return replyCh, level, nil
 }
 

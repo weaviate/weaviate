@@ -15,6 +15,7 @@ import (
 	"context"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 
@@ -92,6 +93,9 @@ type State struct {
 
 	DistributedTaskScheduler *distributedtask.Scheduler
 	Migrator                 *db.Migrator
+
+	// StartupTime records when the process initialized; useful for warmup windows
+	StartupTime time.Time
 }
 
 // GetGraphQL is the safe way to retrieve GraphQL from the state as it can be

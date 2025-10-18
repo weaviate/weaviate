@@ -19,10 +19,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/entities/models"
-
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/refcache"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -30,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/entities/dto"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
@@ -214,17 +213,19 @@ func (db *DB) CrossClassVectorSearch(ctx context.Context, vector models.Vector, 
 	}()
 	var found search.Results
 
-	wg := &sync.WaitGroup{}
 	mutex := &sync.Mutex{}
 	var searchErrors []error
 	totalLimit := offset + limit
 
+	// Use regular error group to allow all searches to complete even if some fail
+	eg := enterrors.NewErrorGroupWrapper(db.logger, "cross_index_object_vector_search")
+
 	db.indexLock.RLock()
 	for _, index := range db.indices {
-		wg.Add(1)
-		index := index
-		f := func() {
-			defer wg.Done()
+		eg.Go(func() error {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 
 			objs, dist, err := index.objectVectorSearch(ctx, []models.Vector{vector}, []string{targetVector},
 				0, totalLimit, filters, nil, nil,
@@ -238,12 +239,14 @@ func (db *DB) CrossClassVectorSearch(ctx context.Context, vector models.Vector, 
 			mutex.Lock()
 			found = append(found, storobj.SearchResultsWithDists(objs, additional.Properties{}, dist)...)
 			mutex.Unlock()
-		}
-		enterrors.GoWrapper(f, index.logger)
+			return nil
+		}, index.ID())
 	}
 	db.indexLock.RUnlock()
 
-	wg.Wait()
+	if err := eg.Wait(); err != nil {
+		return nil, errors.Wrap(err, "cross class vector search")
+	}
 
 	if len(searchErrors) > 0 {
 		var msg strings.Builder

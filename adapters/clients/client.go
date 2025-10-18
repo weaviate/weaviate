@@ -96,8 +96,8 @@ type retryer struct {
 
 func newRetryer() *retryer {
 	return &retryer{
-		minBackOff:  time.Millisecond * 250,
-		maxBackOff:  time.Second * 30,
+		minBackOff:  time.Millisecond * 100,
+		maxBackOff:  time.Second * 10,
 		timeoutUnit: time.Second, // used by unit tests
 	}
 }
