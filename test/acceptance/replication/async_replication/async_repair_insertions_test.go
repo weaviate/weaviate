@@ -19,6 +19,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/client/nodes"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/models"
@@ -31,23 +32,20 @@ import (
 
 func (suite *AsyncReplicationTestSuite) TestAsyncRepairObjectInsertionScenario() {
 	t := suite.T()
-	mainCtx := context.Background()
+	ctx := context.Background()
 
 	clusterSize := 3
 
 	compose, err := docker.New().
 		WithWeaviateCluster(clusterSize).
 		WithText2VecContextionary().
-		Start(mainCtx)
+		Start(ctx)
 	require.Nil(t, err)
 	defer func() {
-		if err := compose.Terminate(mainCtx); err != nil {
+		if err := compose.Terminate(ctx); err != nil {
 			t.Fatalf("failed to terminate test containers: %s", err.Error())
 		}
 	}()
-
-	ctx, cancel := context.WithTimeout(mainCtx, 15*time.Minute)
-	defer cancel()
 
 	paragraphClass := articles.ParagraphsClass()
 
