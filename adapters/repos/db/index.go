@@ -723,6 +723,7 @@ type IndexConfig struct {
 	InvertedSorterDisabled *configRuntime.DynamicValue[bool]
 	MaintenanceModeEnabled func() bool
 	StartupTime            time.Time
+	ReadyTime              time.Time
 }
 
 func indexID(class schema.ClassName) string {
@@ -1576,25 +1577,25 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 					} else {
 						// During rollouts, prefer local even with cold cache to avoid remote failures
 						// This provides better resilience during node lifecycle events
-						// For newly started nodes (within 30 seconds), prefer remote to avoid slow local operations
-						nodeStartupTime := i.Config.StartupTime
-						// Check if startup time is valid (not zero)
-						if !nodeStartupTime.IsZero() {
-							timeSinceStartup := time.Since(nodeStartupTime)
-							if timeSinceStartup < 30*time.Second {
-								// Node started recently, prefer remote to avoid slow local operations during warmup
+						// For newly ready nodes (within 30 seconds), prefer remote to avoid slow local operations
+						nodeReadyTime := i.Config.ReadyTime
+						// Check if ready time is valid (not zero)
+						if !nodeReadyTime.IsZero() {
+							timeSinceReady := time.Since(nodeReadyTime)
+							if timeSinceReady < 30*time.Second {
+								// Node became ready recently, prefer remote to avoid slow local operations during warmup
 								useLocal = false
 								i.logger.WithFields(logrus.Fields{
-									"shardName":        shardName,
-									"timeSinceStartup": timeSinceStartup.String(),
-									"reason":           "recent_startup_prefer_remote",
-								}).Debug("preferring remote search due to recent node startup")
+									"shardName":      shardName,
+									"timeSinceReady": timeSinceReady.String(),
+									"reason":         "recent_ready_prefer_remote",
+								}).Debug("preferring remote search due to recent node ready")
 							} else {
-								// Node has been running for a while, use cache prefilled status
+								// Node has been ready for a while, use cache prefilled status
 								useLocal = cachePrefilled
 							}
 						} else {
-							// Startup time not set, use cache prefilled status
+							// Ready time not set, use cache prefilled status
 							useLocal = cachePrefilled
 						}
 					}
@@ -1615,21 +1616,21 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 					if _, ok := lazyShard.(*LazyLoadShard); ok {
 						i.logger.WithField("shardName", shardName).Debug("found lazy-loaded shard, checking if it should be loaded")
 
-						// For lazy-loaded shards, consider startup time
-						nodeStartupTime := i.Config.StartupTime
-						// Check if startup time is valid (not zero)
-						if !nodeStartupTime.IsZero() {
-							timeSinceStartup := time.Since(nodeStartupTime)
-							if timeSinceStartup < 30*time.Second {
-								// Node started recently, prefer remote to avoid slow lazy loading
+						// For lazy-loaded shards, consider ready time
+						nodeReadyTime := i.Config.ReadyTime
+						// Check if ready time is valid (not zero)
+						if !nodeReadyTime.IsZero() {
+							timeSinceReady := time.Since(nodeReadyTime)
+							if timeSinceReady < 30*time.Second {
+								// Node became ready recently, prefer remote to avoid slow lazy loading
 								useLocal = false
 								i.logger.WithFields(logrus.Fields{
-									"shardName":        shardName,
-									"timeSinceStartup": timeSinceStartup.String(),
-									"reason":           "recent_startup_lazy_shard_prefer_remote",
-								}).Debug("preferring remote search for lazy-loaded shard due to recent node startup")
+									"shardName":      shardName,
+									"timeSinceReady": timeSinceReady.String(),
+									"reason":         "recent_ready_lazy_shard_prefer_remote",
+								}).Debug("preferring remote search for lazy-loaded shard due to recent node ready")
 							} else {
-								// Node has been running for a while, prefer loading lazy shards locally
+								// Node has been ready for a while, prefer loading lazy shards locally
 								status := lazyShard.GetStatus()
 								if status == storagestate.StatusLoading {
 									// Shard is loading, wait for it to complete
@@ -1641,7 +1642,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 								}
 							}
 						} else {
-							// Startup time not set, use normal logic
+							// Ready time not set, use normal logic
 							status := lazyShard.GetStatus()
 							if status == storagestate.StatusLoading {
 								i.logger.WithField("shardName", shardName).Debug("lazy-loaded shard is loading, waiting for completion")
@@ -2136,25 +2137,25 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 				} else {
 					// During rollouts, prefer local even with cold cache to avoid remote failures
 					// This provides better resilience during node lifecycle events
-					// For newly started nodes (within 30 seconds), prefer remote to avoid slow local operations
-					nodeStartupTime := i.Config.StartupTime
-					// Check if startup time is valid (not zero)
-					if !nodeStartupTime.IsZero() {
-						timeSinceStartup := time.Since(nodeStartupTime)
-						if timeSinceStartup < 30*time.Second {
-							// Node started recently, prefer remote to avoid slow local operations during warmup
+					// For newly ready nodes (within 30 seconds), prefer remote to avoid slow local operations
+					nodeReadyTime := i.Config.ReadyTime
+					// Check if ready time is valid (not zero)
+					if !nodeReadyTime.IsZero() {
+						timeSinceReady := time.Since(nodeReadyTime)
+						if timeSinceReady < 30*time.Second {
+							// Node became ready recently, prefer remote to avoid slow local operations during warmup
 							useLocal = false
 							i.logger.WithFields(logrus.Fields{
-								"shardName":        shardNames[0],
-								"timeSinceStartup": timeSinceStartup.String(),
-								"reason":           "recent_startup_prefer_remote",
-							}).Debug("preferring remote search due to recent node startup")
+								"shardName":      shardNames[0],
+								"timeSinceReady": timeSinceReady.String(),
+								"reason":         "recent_ready_prefer_remote",
+							}).Debug("preferring remote search due to recent node ready")
 						} else {
-							// Node has been running for a while, use cache prefilled status
+							// Node has been ready for a while, use cache prefilled status
 							useLocal = cachePrefilled
 						}
 					} else {
-						// Startup time not set, use cache prefilled status
+						// Ready time not set, use cache prefilled status
 						useLocal = cachePrefilled
 					}
 				}
@@ -2175,21 +2176,21 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 				if _, ok := lazyShard.(*LazyLoadShard); ok {
 					i.logger.WithField("shardName", shardNames[0]).Debug("found lazy-loaded shard, checking if it should be loaded")
 
-					// For lazy-loaded shards, consider startup time
-					nodeStartupTime := i.Config.StartupTime
-					// Check if startup time is valid (not zero)
-					if !nodeStartupTime.IsZero() {
-						timeSinceStartup := time.Since(nodeStartupTime)
-						if timeSinceStartup < 30*time.Second {
-							// Node started recently, prefer remote to avoid slow lazy loading
+					// For lazy-loaded shards, consider ready time
+					nodeReadyTime := i.Config.ReadyTime
+					// Check if ready time is valid (not zero)
+					if !nodeReadyTime.IsZero() {
+						timeSinceReady := time.Since(nodeReadyTime)
+						if timeSinceReady < 30*time.Second {
+							// Node became ready recently, prefer remote to avoid slow lazy loading
 							useLocal = false
 							i.logger.WithFields(logrus.Fields{
-								"shardName":        shardNames[0],
-								"timeSinceStartup": timeSinceStartup.String(),
-								"reason":           "recent_startup_lazy_shard_prefer_remote",
-							}).Debug("preferring remote search for lazy-loaded shard due to recent node startup")
+								"shardName":      shardNames[0],
+								"timeSinceReady": timeSinceReady.String(),
+								"reason":         "recent_ready_lazy_shard_prefer_remote",
+							}).Debug("preferring remote search for lazy-loaded shard due to recent node ready")
 						} else {
-							// Node has been running for a while, prefer loading lazy shards locally
+							// Node has been ready for a while, prefer loading lazy shards locally
 							status := lazyShard.GetStatus()
 							if status == storagestate.StatusLoading {
 								// Shard is loading, wait for it to complete
@@ -2201,7 +2202,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 							}
 						}
 					} else {
-						// Startup time not set, use normal logic
+						// Ready time not set, use normal logic
 						status := lazyShard.GetStatus()
 						if status == storagestate.StatusLoading {
 							i.logger.WithField("shardName", shardNames[0]).Debug("lazy-loaded shard is loading, waiting for completion")

@@ -154,6 +154,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 			InvertedSorterDisabled:                       m.db.config.InvertedSorterDisabled,
 			MaintenanceModeEnabled:                       m.db.config.MaintenanceModeEnabled,
 			StartupTime:                                  m.db.config.StartupTime,
+			ReadyTime:                                    m.db.config.ReadyTime,
 		},
 		shardState,
 		// no backward-compatibility check required, since newly added classes will

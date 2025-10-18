@@ -90,6 +90,15 @@ func (o *nodeWideMetricsObserver) observeIfShardsReady() {
 		return
 	}
 
+	// Set ready time when all shards are ready for the first time
+	if o.db.readyTime.IsZero() {
+		o.db.readyTime = time.Now()
+		o.db.config.ReadyTime = o.db.readyTime
+		o.db.logger.WithFields(logrus.Fields{
+			"action": "node_ready",
+		}).Info("all shards ready, node is now ready to serve traffic")
+	}
+
 	o.observeUnlocked()
 }
 

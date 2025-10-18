@@ -102,6 +102,9 @@ type DB struct {
 
 	// Track when the node started up for rollout decision making
 	startupTime time.Time
+
+	// Track when the node becomes ready (when all indices are ready)
+	readyTime time.Time
 }
 
 func (db *DB) GetSchemaGetter() schemaUC.SchemaGetter {
@@ -150,6 +153,9 @@ func (db *DB) StartupComplete() bool { return db.startupComplete.Load() }
 
 // GetStartupTime returns when the node started up
 func (db *DB) GetStartupTime() time.Time { return db.startupTime }
+
+// GetReadyTime returns when the node became ready
+func (db *DB) GetReadyTime() time.Time { return db.readyTime }
 
 func New(logger logrus.FieldLogger, config Config,
 	remoteIndex sharding.RemoteIndexClient, nodeResolver nodeResolver,
@@ -266,6 +272,7 @@ type Config struct {
 	InvertedSorterDisabled      *configRuntime.DynamicValue[bool]
 	MaintenanceModeEnabled      func() bool
 	StartupTime                 time.Time
+	ReadyTime                   time.Time
 }
 
 // GetIndex returns the index if it exists or nil if it doesn't
