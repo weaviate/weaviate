@@ -18,21 +18,21 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/weaviate/weaviate/cluster/router/types"
-	"github.com/weaviate/weaviate/entities/dto"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-	"github.com/weaviate/weaviate/entities/models"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/dto"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/multi"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
@@ -374,6 +374,13 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 	startTime := time.Now()
 
 	defer func() {
+		took := time.Since(startTime)
+		s.index.logger.WithFields(logrus.Fields{
+			"action": "ObjectVectorSearch completed",
+			"took":   took,
+		}).Debugf("internal ObjectVectorSearch completed in %s", took)
+	}()
+	defer func() {
 		s.slowQueryReporter.LogIfSlow(ctx, startTime, map[string]any{
 			"collection": s.index.Config.ClassName,
 			"shard":      s.ID(),
@@ -406,7 +413,7 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 		helpers.AnnotateSlowQueryLog(ctx, "filters_ids_matched", allowList.Len())
 	}
 
-	eg := enterrors.NewErrorGroupWrapper(s.index.logger)
+	eg := enterrors.NewErrorGroupWrapper(s.index.logger, "vector_search")
 	eg.SetLimit(_NUMCPU)
 	idss := make([][]uint64, len(targetVectors))
 	distss := make([][]float32, len(targetVectors))
@@ -416,6 +423,10 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 		i := i
 		targetVector := targetVector
 		eg.Go(func() error {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+
 			var (
 				ids   []uint64
 				dists []float32
@@ -492,6 +503,10 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 			distss[i] = dists
 			return nil
 		})
+	}
+
+	if err := ctx.Err(); err != nil {
+		return nil, nil, errors.Wrap(err, "vector search")
 	}
 
 	err := eg.Wait()
