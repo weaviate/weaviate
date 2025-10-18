@@ -28,7 +28,7 @@ import (
 const ClusterGetStatisticsOKCode int = 200
 
 /*
-ClusterGetStatisticsOK Cluster statistics successfully returned
+ClusterGetStatisticsOK Successfully retrieved Raft cluster statistics.
 
 swagger:response clusterGetStatisticsOK
 */
@@ -143,7 +143,7 @@ func (o *ClusterGetStatisticsForbidden) WriteResponse(rw http.ResponseWriter, pr
 const ClusterGetStatisticsUnprocessableEntityCode int = 422
 
 /*
-ClusterGetStatisticsUnprocessableEntity Invalid backup restoration status attempt.
+ClusterGetStatisticsUnprocessableEntity Invalid request for cluster statistics.
 
 swagger:response clusterGetStatisticsUnprocessableEntity
 */
@@ -188,7 +188,7 @@ func (o *ClusterGetStatisticsUnprocessableEntity) WriteResponse(rw http.Response
 const ClusterGetStatisticsInternalServerErrorCode int = 500
 
 /*
-ClusterGetStatisticsInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+ClusterGetStatisticsInternalServerError An internal server error occurred while retrieving cluster statistics. Check the ErrorResponse for details.
 
 swagger:response clusterGetStatisticsInternalServerError
 */

@@ -28,10 +28,10 @@ import (
 // swagger:model GeoCoordinates
 type GeoCoordinates struct {
 
-	// The latitude of the point on earth in decimal form
+	// The latitude of the point on earth in decimal form.
 	Latitude *float32 `json:"latitude,omitempty"`
 
-	// The longitude of the point on earth in decimal form
+	// The longitude of the point on earth in decimal form.
 	Longitude *float32 `json:"longitude,omitempty"`
 }
 

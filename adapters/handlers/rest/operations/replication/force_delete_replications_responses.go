@@ -188,7 +188,7 @@ func (o *ForceDeleteReplicationsForbidden) WriteResponse(rw http.ResponseWriter,
 const ForceDeleteReplicationsUnprocessableEntityCode int = 422
 
 /*
-ForceDeleteReplicationsUnprocessableEntity Request body is well-formed (i.e., syntactically correct), but semantically erroneous.
+ForceDeleteReplicationsUnprocessableEntity The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.
 
 swagger:response forceDeleteReplicationsUnprocessableEntity
 */

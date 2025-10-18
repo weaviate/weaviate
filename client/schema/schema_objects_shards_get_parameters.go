@@ -72,10 +72,16 @@ SchemaObjectsShardsGetParams contains all the parameters to send to the API endp
 */
 type SchemaObjectsShardsGetParams struct {
 
-	// ClassName.
+	/* ClassName.
+
+	   The name of the collection (class) whose shards to query.
+	*/
 	ClassName string
 
-	// Tenant.
+	/* Tenant.
+
+	   The name of the tenant for which to retrieve shard statuses (only applicable for multi-tenant collections).
+	*/
 	Tenant *string
 
 	timeout    time.Duration

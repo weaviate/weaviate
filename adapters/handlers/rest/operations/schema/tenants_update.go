@@ -45,9 +45,9 @@ func NewTenantsUpdate(ctx *middleware.Context, handler TenantsUpdateHandler) *Te
 /*
 	TenantsUpdate swagger:route PUT /schema/{className}/tenants schema tenantsUpdate
 
-Update a tenant.
+# Update a tenant
 
-Update tenant of a specific class
+Updates the activity status (e.g., `ACTIVE`, `INACTIVE`, etc.) of one or more specified tenants within a collection (`className`).
 */
 type TenantsUpdate struct {
 	Context *middleware.Context

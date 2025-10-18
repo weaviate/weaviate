@@ -74,13 +74,22 @@ SchemaObjectsShardsUpdateParams contains all the parameters to send to the API e
 */
 type SchemaObjectsShardsUpdateParams struct {
 
-	// Body.
+	/* Body.
+
+	   The shard status object containing the desired new status.
+	*/
 	Body *models.ShardStatus
 
-	// ClassName.
+	/* ClassName.
+
+	   The name of the collection (class) containing the shard.
+	*/
 	ClassName string
 
-	// ShardName.
+	/* ShardName.
+
+	   The name of the shard to update.
+	*/
 	ShardName string
 
 	timeout    time.Duration

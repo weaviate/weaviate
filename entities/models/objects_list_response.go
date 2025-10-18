@@ -25,7 +25,7 @@ import (
 	"github.com/go-openapi/swag"
 )
 
-// ObjectsListResponse List of Objects.
+// ObjectsListResponse List of objects.
 //
 // swagger:model ObjectsListResponse
 type ObjectsListResponse struct {
@@ -33,10 +33,10 @@ type ObjectsListResponse struct {
 	// deprecations
 	Deprecations []*Deprecation `json:"deprecations"`
 
-	// The actual list of Objects.
+	// The actual list of objects.
 	Objects []*Object `json:"objects"`
 
-	// The total number of Objects for the query. The number of items in a response may be smaller due to paging.
+	// The total number of objects for the query. The number of items in a response may be smaller due to paging.
 	TotalResults int64 `json:"totalResults,omitempty"`
 }
 

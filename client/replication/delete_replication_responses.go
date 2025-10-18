@@ -399,7 +399,7 @@ func NewDeleteReplicationUnprocessableEntity() *DeleteReplicationUnprocessableEn
 /*
 DeleteReplicationUnprocessableEntity describes a response with status code 422, with default header values.
 
-Request body is well-formed (i.e., syntactically correct), but semantically erroneous.
+The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.
 */
 type DeleteReplicationUnprocessableEntity struct {
 	Payload *models.ErrorResponse

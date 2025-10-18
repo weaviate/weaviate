@@ -49,7 +49,7 @@ type SchemaDumpParams struct {
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
-	/*If consistency is true, the request will be proxied to the leader to ensure strong schema consistency
+	/*If true, the request is proxied to the cluster leader to ensure strong schema consistency. Default is true.
 	  In: header
 	  Default: true
 	*/

@@ -45,9 +45,9 @@ func NewObjectsClassReferencesDelete(ctx *middleware.Context, handler ObjectsCla
 /*
 	ObjectsClassReferencesDelete swagger:route DELETE /objects/{className}/{id}/references/{propertyName} objects objectsClassReferencesDelete
 
-Delete a single reference from the list of references.
+# Delete an object reference
 
-Delete the single reference that is given in the body from the list of references that this property has.
+Removes a specific reference from a reference property (`propertyName`) of a source data object. The source object is identified by its collection name (`className`) and UUID (`id`). The reference to remove is specified in the request body.
 */
 type ObjectsClassReferencesDelete struct {
 	Context *middleware.Context

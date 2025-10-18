@@ -28,7 +28,7 @@ import (
 const SchemaObjectsDeleteOKCode int = 200
 
 /*
-SchemaObjectsDeleteOK Removed the Object class from the schema.
+SchemaObjectsDeleteOK Collection deleted successfully.
 
 swagger:response schemaObjectsDeleteOK
 */
@@ -53,7 +53,7 @@ func (o *SchemaObjectsDeleteOK) WriteResponse(rw http.ResponseWriter, producer r
 const SchemaObjectsDeleteBadRequestCode int = 400
 
 /*
-SchemaObjectsDeleteBadRequest Could not delete the Object class.
+SchemaObjectsDeleteBadRequest Could not delete the collection. See the error response for details.
 
 swagger:response schemaObjectsDeleteBadRequest
 */
@@ -168,7 +168,7 @@ func (o *SchemaObjectsDeleteForbidden) WriteResponse(rw http.ResponseWriter, pro
 const SchemaObjectsDeleteInternalServerErrorCode int = 500
 
 /*
-SchemaObjectsDeleteInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+SchemaObjectsDeleteInternalServerError An error occurred during collection deletion. Check the ErrorResponse for details.
 
 swagger:response schemaObjectsDeleteInternalServerError
 */

@@ -72,12 +72,15 @@ BatchObjectsCreateParams contains all the parameters to send to the API endpoint
 */
 type BatchObjectsCreateParams struct {
 
-	// Body.
+	/* Body.
+
+	   The request body containing the objects to be created.
+	*/
 	Body BatchObjectsCreateBody
 
 	/* ConsistencyLevel.
 
-	   Determines how many replicas must acknowledge a request before it is considered successful
+	   Determines how many replicas must acknowledge a request before it is considered successful.
 	*/
 	ConsistencyLevel *string
 

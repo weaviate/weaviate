@@ -83,7 +83,7 @@ func NewNodesGetClassOK() *NodesGetClassOK {
 /*
 NodesGetClassOK describes a response with status code 200, with default header values.
 
-Nodes status successfully returned
+Successfully retrieved the status for nodes relevant to the specified collection.
 */
 type NodesGetClassOK struct {
 	Payload *models.NodesStatusResponse
@@ -275,7 +275,7 @@ func NewNodesGetClassNotFound() *NodesGetClassNotFound {
 /*
 NodesGetClassNotFound describes a response with status code 404, with default header values.
 
-Not Found - Backup does not exist
+Not Found.
 */
 type NodesGetClassNotFound struct {
 	Payload *models.ErrorResponse
@@ -343,7 +343,7 @@ func NewNodesGetClassUnprocessableEntity() *NodesGetClassUnprocessableEntity {
 /*
 NodesGetClassUnprocessableEntity describes a response with status code 422, with default header values.
 
-Invalid backup restoration status attempt.
+Invalid request for node status.
 */
 type NodesGetClassUnprocessableEntity struct {
 	Payload *models.ErrorResponse
@@ -411,7 +411,7 @@ func NewNodesGetClassInternalServerError() *NodesGetClassInternalServerError {
 /*
 NodesGetClassInternalServerError describes a response with status code 500, with default header values.
 
-An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+An internal server error occurred while retrieving node status for the collection. Check the ErrorResponse for details.
 */
 type NodesGetClassInternalServerError struct {
 	Payload *models.ErrorResponse

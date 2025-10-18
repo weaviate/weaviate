@@ -45,20 +45,20 @@ type ObjectsClassPatchParams struct {
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
-	/*RFC 7396-style patch, the body contains the object to merge into the existing object.
+	/*RFC 7396-style JSON merge patch object containing the fields to update.
 	  In: body
 	*/
 	Body *models.Object
-	/*The class name as defined in the schema
+	/*Name of the collection (class) the object belongs to.
 	  Required: true
 	  In: path
 	*/
 	ClassName string
-	/*Determines how many replicas must acknowledge a request before it is considered successful
+	/*Determines how many replicas must acknowledge a request before it is considered successful.
 	  In: query
 	*/
 	ConsistencyLevel *string
-	/*The uuid of the data object to update.
+	/*Unique UUID of the object to be patched.
 	  Required: true
 	  In: path
 	*/

@@ -46,31 +46,31 @@ type ObjectsClassReferencesDeleteParams struct {
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
-	/*
+	/*The reference to remove.
 	  Required: true
 	  In: body
 	*/
 	Body *models.SingleRef
-	/*The class name as defined in the schema
+	/*Name of the collection (class) the source object belongs to.
 	  Required: true
 	  In: path
 	*/
 	ClassName string
-	/*Determines how many replicas must acknowledge a request before it is considered successful
+	/*Determines how many replicas must acknowledge a request before it is considered successful.
 	  In: query
 	*/
 	ConsistencyLevel *string
-	/*Unique ID of the Object.
+	/*Unique UUID of the source object.
 	  Required: true
 	  In: path
 	*/
 	ID strfmt.UUID
-	/*Unique name of the property related to the Object.
+	/*Unique name of the reference property of the source object.
 	  Required: true
 	  In: path
 	*/
 	PropertyName string
-	/*Specifies the tenant in a request targeting a multi-tenant class
+	/*Specifies the tenant in a request targeting a multi-tenant collection (class).
 	  In: query
 	*/
 	Tenant *string

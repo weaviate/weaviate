@@ -76,7 +76,7 @@ type GraphqlBatchParams struct {
 
 	/* Body.
 
-	   The GraphQL queries.
+	   An array containing multiple GraphQL query objects to execute in batch.
 	*/
 	Body models.GraphQLQueries
 

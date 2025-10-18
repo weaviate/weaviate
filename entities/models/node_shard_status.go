@@ -33,7 +33,7 @@ type NodeShardStatus struct {
 	// The status of the async replication.
 	AsyncReplicationStatus []*AsyncReplicationStatus `json:"asyncReplicationStatus"`
 
-	// The name of shard's class.
+	// The name of shard's collection (class).
 	Class string `json:"class"`
 
 	// The status of vector compression/quantization.

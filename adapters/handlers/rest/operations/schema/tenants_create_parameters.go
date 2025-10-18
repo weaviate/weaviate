@@ -45,12 +45,12 @@ type TenantsCreateParams struct {
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
-	/*
+	/*An array of tenant objects to create.
 	  Required: true
 	  In: body
 	*/
 	Body []*models.Tenant
-	/*
+	/*The name of the multi-tenant enabled collection (class).
 	  Required: true
 	  In: path
 	*/

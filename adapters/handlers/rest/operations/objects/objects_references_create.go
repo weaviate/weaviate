@@ -45,9 +45,9 @@ func NewObjectsReferencesCreate(ctx *middleware.Context, handler ObjectsReferenc
 /*
 	ObjectsReferencesCreate swagger:route POST /objects/{id}/references/{propertyName} objects objectsReferencesCreate
 
-Add a single reference to a class-property.
+# Add an object reference
 
-Add a cross-reference. <br/><br/>**Note**: This endpoint is deprecated and will be removed in a future version. Use the `/objects/{className}/{id}/references/{propertyName}` endpoint instead.
+Add a reference to a specific property of a data object. <br/><br/>**Note**: This endpoint is deprecated and will be removed in a future version. Use the `/objects/{className}/{id}/references/{propertyName}` endpoint instead.
 */
 type ObjectsReferencesCreate struct {
 	Context *middleware.Context

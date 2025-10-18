@@ -72,12 +72,15 @@ NodesGetClassParams contains all the parameters to send to the API endpoint
 */
 type NodesGetClassParams struct {
 
-	// ClassName.
+	/* ClassName.
+
+	   The name of the collection (class) for which to retrieve node status.
+	*/
 	ClassName string
 
 	/* Output.
 
-	   Controls the verbosity of the output, possible values are: "minimal", "verbose". Defaults to "minimal".
+	   Controls the verbosity of the output, possible values are: `minimal`, `verbose`. Defaults to `minimal`.
 
 	   Default: "minimal"
 	*/

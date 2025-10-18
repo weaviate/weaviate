@@ -25,16 +25,16 @@ import (
 	"github.com/go-openapi/validate"
 )
 
-// SingleRef Either set beacon (direct reference) or set class and schema (concept reference)
+// SingleRef Either set beacon (direct reference) or set collection (class) and schema (concept reference)
 //
 // swagger:model SingleRef
 type SingleRef struct {
 
-	// If using a direct reference, specify the URI to point to the cross-ref here. Should be in the form of weaviate://localhost/<uuid> for the example of a local cross-ref to an object
+	// If using a direct reference, specify the URI to point to the cross-reference here. Should be in the form of weaviate://localhost/<uuid> for the example of a local cross-reference to an object
 	// Format: uri
 	Beacon strfmt.URI `json:"beacon,omitempty"`
 
-	// If using a concept reference (rather than a direct reference), specify the desired class name here
+	// If using a concept reference (rather than a direct reference), specify the desired collection (class) name here.
 	// Format: uri
 	Class strfmt.URI `json:"class,omitempty"`
 

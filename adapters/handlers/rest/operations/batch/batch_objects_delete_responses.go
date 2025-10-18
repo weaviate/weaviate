@@ -28,7 +28,7 @@ import (
 const BatchObjectsDeleteOKCode int = 200
 
 /*
-BatchObjectsDeleteOK Request succeeded, see response body to get detailed information about each batched item.
+BatchObjectsDeleteOK Request processed successfully. See response body for matching objects and deletion results.
 
 swagger:response batchObjectsDeleteOK
 */
@@ -188,7 +188,7 @@ func (o *BatchObjectsDeleteForbidden) WriteResponse(rw http.ResponseWriter, prod
 const BatchObjectsDeleteUnprocessableEntityCode int = 422
 
 /*
-BatchObjectsDeleteUnprocessableEntity Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
+BatchObjectsDeleteUnprocessableEntity Invalid data provided. Please check the values in your request (e.g., invalid filter).
 
 swagger:response batchObjectsDeleteUnprocessableEntity
 */
@@ -233,7 +233,7 @@ func (o *BatchObjectsDeleteUnprocessableEntity) WriteResponse(rw http.ResponseWr
 const BatchObjectsDeleteInternalServerErrorCode int = 500
 
 /*
-BatchObjectsDeleteInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+BatchObjectsDeleteInternalServerError An error occurred while trying to fulfill the request. Check the ErrorResponse for details.
 
 swagger:response batchObjectsDeleteInternalServerError
 */

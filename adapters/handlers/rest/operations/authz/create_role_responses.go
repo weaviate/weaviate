@@ -213,7 +213,7 @@ func (o *CreateRoleConflict) WriteResponse(rw http.ResponseWriter, producer runt
 const CreateRoleUnprocessableEntityCode int = 422
 
 /*
-CreateRoleUnprocessableEntity The request syntax is correct, but the server couldn't process it due to semantic issues.
+CreateRoleUnprocessableEntity The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.
 
 swagger:response createRoleUnprocessableEntity
 */

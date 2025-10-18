@@ -77,7 +77,7 @@ func NewClassificationsPostCreated() *ClassificationsPostCreated {
 /*
 ClassificationsPostCreated describes a response with status code 201, with default header values.
 
-Successfully started classification.
+Classification task successfully initiated. The response body contains the classification details including its ID.
 */
 type ClassificationsPostCreated struct {
 	Payload *models.Classification
@@ -145,7 +145,7 @@ func NewClassificationsPostBadRequest() *ClassificationsPostBadRequest {
 /*
 ClassificationsPostBadRequest describes a response with status code 400, with default header values.
 
-Incorrect request
+Invalid request body or parameters.
 */
 type ClassificationsPostBadRequest struct {
 	Payload *models.ErrorResponse
@@ -337,7 +337,7 @@ func NewClassificationsPostInternalServerError() *ClassificationsPostInternalSer
 /*
 ClassificationsPostInternalServerError describes a response with status code 500, with default header values.
 
-An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+An internal server error occurred while starting the classification task. Check the ErrorResponse for details.
 */
 type ClassificationsPostInternalServerError struct {
 	Payload *models.ErrorResponse

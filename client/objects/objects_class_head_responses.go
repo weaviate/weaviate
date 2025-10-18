@@ -263,7 +263,7 @@ func NewObjectsClassHeadNotFound() *ObjectsClassHeadNotFound {
 /*
 ObjectsClassHeadNotFound describes a response with status code 404, with default header values.
 
-Object doesn't exist.
+Object does not exist.
 */
 type ObjectsClassHeadNotFound struct {
 }
@@ -319,7 +319,7 @@ func NewObjectsClassHeadUnprocessableEntity() *ObjectsClassHeadUnprocessableEnti
 /*
 ObjectsClassHeadUnprocessableEntity describes a response with status code 422, with default header values.
 
-Request is well-formed (i.e., syntactically correct), but erroneous.
+Invalid data provided. Please check the values in your request (e.g., invalid UUID format).
 */
 type ObjectsClassHeadUnprocessableEntity struct {
 	Payload *models.ErrorResponse
@@ -387,7 +387,7 @@ func NewObjectsClassHeadInternalServerError() *ObjectsClassHeadInternalServerErr
 /*
 ObjectsClassHeadInternalServerError describes a response with status code 500, with default header values.
 
-An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+An error occurred while trying to fulfill the request. Check the ErrorResponse for details.
 */
 type ObjectsClassHeadInternalServerError struct {
 	Payload *models.ErrorResponse

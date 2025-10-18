@@ -45,9 +45,9 @@ func NewGraphqlBatch(ctx *middleware.Context, handler GraphqlBatchHandler) *Grap
 /*
 	GraphqlBatch swagger:route POST /graphql/batch graphql graphqlBatch
 
-Get a response based on GraphQL.
+# Perform batched GraphQL queries
 
-Perform a batched GraphQL query
+Executes multiple GraphQL queries provided in the request body as an array. Allows performing several queries in a single network request for efficiency.
 */
 type GraphqlBatch struct {
 	Context *middleware.Context

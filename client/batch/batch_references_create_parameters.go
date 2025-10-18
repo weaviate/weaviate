@@ -76,13 +76,13 @@ type BatchReferencesCreateParams struct {
 
 	/* Body.
 
-	   A list of references to be batched. The ideal size depends on the used database connector. Please see the documentation of the used connector for help
+	   A list of references to be batched. The ideal size depends on the used database connector. Please see the documentation of the used connector for help.
 	*/
 	Body []*models.BatchReference
 
 	/* ConsistencyLevel.
 
-	   Determines how many replicas must acknowledge a request before it is considered successful
+	   Determines how many replicas must acknowledge a request before it is considered successful.
 	*/
 	ConsistencyLevel *string
 

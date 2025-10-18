@@ -31,42 +31,42 @@ import (
 // swagger:model Classification
 type Classification struct {
 
-	// base the text-based classification on these fields (of type text)
+	// Base the text-based classification on these fields (of type text).
 	// Example: ["description"]
 	BasedOnProperties []string `json:"basedOnProperties"`
 
-	// class (name) which is used in this classification
+	// The name of the collection (class) which is used in this classification.
 	// Example: City
 	Class string `json:"class,omitempty"`
 
-	// which ref-property to set as part of the classification
+	// Which ref-property to set as part of the classification.
 	// Example: ["inCountry"]
 	ClassifyProperties []string `json:"classifyProperties"`
 
-	// error message if status == failed
+	// Error message if status == failed.
 	// Example: classify xzy: something went wrong
 	Error string `json:"error,omitempty"`
 
 	// filters
 	Filters *ClassificationFilters `json:"filters,omitempty"`
 
-	// ID to uniquely identify this classification run
+	// ID to uniquely identify this classification run.
 	// Example: ee722219-b8ec-4db1-8f8d-5150bb1a9e0c
 	// Format: uuid
 	ID strfmt.UUID `json:"id,omitempty"`
 
-	// additional meta information about the classification
+	// Additional meta information about the classification.
 	Meta *ClassificationMeta `json:"meta,omitempty"`
 
-	// classification-type specific settings
+	// Classification-type specific settings.
 	Settings interface{} `json:"settings,omitempty"`
 
-	// status of this classification
+	// Status of this classification.
 	// Example: running
 	// Enum: [running completed failed]
 	Status string `json:"status,omitempty"`
 
-	// which algorithm to use for classifications
+	// Which algorithm to use for classifications.
 	Type string `json:"type,omitempty"`
 }
 
@@ -264,13 +264,13 @@ func (m *Classification) UnmarshalBinary(b []byte) error {
 // swagger:model ClassificationFilters
 type ClassificationFilters struct {
 
-	// limit the objects to be classified
+	// Limit the objects to be classified.
 	SourceWhere *WhereFilter `json:"sourceWhere,omitempty"`
 
-	// Limit the possible sources when using an algorithm which doesn't really on training data, e.g. 'contextual'. When using an algorithm with a training set, such as 'knn', limit the training set instead
+	// Limit the possible sources when using an algorithm which doesn't really on training data, e.g. 'contextual'. When using an algorithm with a training set, such as 'knn', limit the training set instead.
 	TargetWhere *WhereFilter `json:"targetWhere,omitempty"`
 
-	// Limit the training objects to be considered during the classification. Can only be used on types with explicit training sets, such as 'knn'
+	// Limit the training objects to be considered during the classification. Can only be used on types with explicit training sets, such as 'knn'.
 	TrainingSetWhere *WhereFilter `json:"trainingSetWhere,omitempty"`
 }
 

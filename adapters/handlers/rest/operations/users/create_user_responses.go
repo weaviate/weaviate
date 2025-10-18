@@ -188,7 +188,7 @@ func (o *CreateUserForbidden) WriteResponse(rw http.ResponseWriter, producer run
 const CreateUserNotFoundCode int = 404
 
 /*
-CreateUserNotFound user not found
+CreateUserNotFound User not found.
 
 swagger:response createUserNotFound
 */
@@ -278,7 +278,7 @@ func (o *CreateUserConflict) WriteResponse(rw http.ResponseWriter, producer runt
 const CreateUserUnprocessableEntityCode int = 422
 
 /*
-CreateUserUnprocessableEntity The request syntax is correct, but the server couldn't process it due to semantic issues.
+CreateUserUnprocessableEntity The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.
 
 swagger:response createUserUnprocessableEntity
 */

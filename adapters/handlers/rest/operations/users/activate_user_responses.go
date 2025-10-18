@@ -218,7 +218,7 @@ func (o *ActivateUserConflict) WriteResponse(rw http.ResponseWriter, producer ru
 const ActivateUserUnprocessableEntityCode int = 422
 
 /*
-ActivateUserUnprocessableEntity The request syntax is correct, but the server couldn't process it due to semantic issues.
+ActivateUserUnprocessableEntity The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.
 
 swagger:response activateUserUnprocessableEntity
 */

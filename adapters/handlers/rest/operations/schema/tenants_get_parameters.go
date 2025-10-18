@@ -49,12 +49,12 @@ type TenantsGetParams struct {
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
-	/*
+	/*The name of the collection (class) whose tenants to list.
 	  Required: true
 	  In: path
 	*/
 	ClassName string
-	/*If consistency is true, the request will be proxied to the leader to ensure strong schema consistency
+	/*If true, the request is proxied to the cluster leader to ensure strong schema consistency. Default is true.
 	  In: header
 	  Default: true
 	*/

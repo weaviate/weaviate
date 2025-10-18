@@ -46,12 +46,12 @@ type SchemaObjectsPropertiesAddParams struct {
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
-	/*
+	/*The definition of the property to add.
 	  Required: true
 	  In: body
 	*/
 	Body *models.Property
-	/*
+	/*The name of the collection (class) to add the property to.
 	  Required: true
 	  In: path
 	*/
