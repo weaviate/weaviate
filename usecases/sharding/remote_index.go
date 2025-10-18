@@ -323,31 +323,19 @@ func (ri *RemoteIndex) SearchShard(ctx context.Context, shard string,
 		second []float32
 	}
 	f := func(node, host string) (interface{}, error) {
-		start := time.Now()
 		objs, scores, err := ri.client.SearchShard(ctx, host, ri.class, shard,
 			queryVec, targetVector, distance, limit, filters, keywordRanking, sort, cursor, groupBy, adds, targetCombination, properties)
-		took := time.Since(start)
 		if err != nil {
-			fmt.Println("error", err)
-			fmt.Println(took.String())
-			return nil, fmt.Errorf("remote shard search failed: %w", err)
+			return nil, err
 		}
-		fmt.Println("success")
-		fmt.Println(took.String())
 		return pair{objs, scores}, nil
 	}
 	rr, node, err := ri.queryReplicas(ctx, shard, f)
 	if err != nil {
-		return nil, nil, node, fmt.Errorf("remote shard search failed: %w", err)
+		return nil, nil, node, err
 	}
 	r := rr.(pair)
-	logrus.WithFields(logrus.Fields{
-		"action": "remote_shard_search_winner",
-		"class":  ri.class,
-		"shard":  shard,
-		"node":   node,
-	}).Debug("remote shard search winner selected")
-	return r.first, r.second, node, nil
+	return r.first, r.second, node, err
 }
 
 func (ri *RemoteIndex) Aggregate(
@@ -552,7 +540,6 @@ func (ri *RemoteIndex) queryReplicas(
 	// Fire queries to replicas concurrently (ignoring self) and return on first success.
 	// Uses regular ErrorGroupWrapper to avoid context cancellation on individual failures.
 	queryFirstSuccess := func(replicas []string) (resp interface{}, node string, err error) {
-		fmt.Printf("DEBUG: queryReplicas starting with %d replicas: %v\n", len(replicas), replicas)
 		type result struct {
 			r    interface{}
 			node string
@@ -589,7 +576,6 @@ func (ri *RemoteIndex) queryReplicas(
 		if launched == 0 {
 			return nil, "", fmt.Errorf("no remote replicas to query")
 		}
-		fmt.Printf("DEBUG: Launched %d goroutines for remote replicas\n", launched)
 
 		// Wait for first success or timeout - return immediately on first success
 		// Use a separate goroutine to wait for the error group to complete
@@ -601,22 +587,17 @@ func (ri *RemoteIndex) queryReplicas(
 		for {
 			select {
 			case rr := <-resCh:
-				fmt.Printf("DEBUG: Received response from %s: err=%v, hasResult=%v\n", rr.node, rr.err, rr.r != nil)
 				if rr.err == nil && rr.r != nil {
 					// SUCCESS! Return immediately - we don't need to wait for others
-					fmt.Printf("DEBUG: SUCCESS from %s, returning immediately\n", rr.node)
 					return rr.r, rr.node, nil
 				}
 				if rr.err != nil {
-					fmt.Printf("DEBUG: Error from %s: %v\n", rr.node, rr.err)
 					// Continue waiting for more responses - maybe another replica will succeed
 				}
 			case <-ctx.Done():
-				fmt.Printf("DEBUG: Parent context cancelled: %v\n", ctx.Err())
 				return nil, "", ctx.Err()
 			case err := <-egDone:
 				// All goroutines completed, check if we got any results
-				fmt.Printf("DEBUG: All goroutines completed, error: %v\n", err)
 				// If we reach here, no replica succeeded
 				return nil, "", fmt.Errorf("all replicas failed: %w", err)
 			}
