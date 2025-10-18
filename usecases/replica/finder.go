@@ -191,11 +191,11 @@ type ShardDesc struct {
 	Node string
 }
 
-// CheckConsistency for objects belonging to different physical shards.
+// ReadRepair for objects belonging to different physical shards.
 //
 // For each x in xs the fields BelongsToNode and BelongsToShard must be set non empty
-func (f *Finder) CheckConsistency(ctx context.Context,
-	l types.ConsistencyLevel, xs []*storobj.Object,
+func (f *Finder) ReadRepair(ctx context.Context,
+	cl types.ConsistencyLevel, xs []*storobj.Object,
 ) error {
 	if len(xs) == 0 {
 		return nil
@@ -209,18 +209,18 @@ func (f *Finder) CheckConsistency(ctx context.Context,
 		}
 	}
 
-	if l == types.ConsistencyLevelOne { // already consistent
+	if cl == types.ConsistencyLevelOne { // already consistent
 		for i := range xs {
 			xs[i].IsConsistent = true
 		}
 		return nil
 	}
+
 	// check shard consistency concurrently
 	gr, ctx := enterrors.NewErrorGroupWithContextWrapper(f.logger, ctx)
 	for _, part := range cluster(createBatch(xs)) {
-		part := part
 		gr.Go(func() error {
-			_, err := f.checkShardConsistency(ctx, l, part)
+			_, err := f.readRepairShard(ctx, cl, part)
 			if err != nil {
 				f.log.WithField("op", "check_shard_consistency").
 					WithField("shard", part.Shard).Error(err)
@@ -280,7 +280,7 @@ func (f *Finder) NodeObject(ctx context.Context,
 
 // checkShardConsistency checks consistency for a set of objects belonging to a shard
 // It returns the most recent objects or and error
-func (f *Finder) checkShardConsistency(ctx context.Context,
+func (f *Finder) readRepairShard(ctx context.Context,
 	l types.ConsistencyLevel,
 	batch ShardPart,
 ) ([]*storobj.Object, error) {
@@ -299,7 +299,8 @@ func (f *Finder) checkShardConsistency(ctx context.Context,
 		}
 	}
 
-	replyCh, state, err := c.Pull(ctx, l, op, batch.Node, 20*time.Second)
+	// TODO: dynamically calculate timeout based on data size
+	replyCh, state, err := c.Pull(ctx, l, op, batch.Node, 10*time.Second)
 	if err != nil {
 		return nil, fmt.Errorf("pull shard: %w", ErrReplicas)
 	}

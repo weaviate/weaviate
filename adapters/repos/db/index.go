@@ -294,7 +294,7 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 		vectorIndexUserConfigs:  vectorIndexUserConfigs,
 		stopwords:               sd,
 		partitioningEnabled:     shardState.PartitioningEnabled,
-		remote:                  sharding.NewRemoteIndex(cfg.ClassName.String(), sg, nodeResolver, remoteClient),
+		remote:                  sharding.NewRemoteIndex(cfg.ClassName.String(), sg, nodeResolver, remoteClient, sg.NodeName()),
 		metrics:                 metrics,
 		centralJobQueue:         jobQueueCh,
 		backupLock:              esync.NewKeyRWLocker(),
@@ -1517,7 +1517,7 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 			replProps = defaultConsistency(types.ConsistencyLevelOne)
 		}
 		l := types.ConsistencyLevel(replProps.ConsistencyLevel)
-		err = i.replicator.CheckConsistency(ctx, l, outObjects)
+		err = i.replicator.ReadRepair(ctx, l, outObjects)
 		if err != nil {
 			i.logger.WithField("action", "object_search").
 				Errorf("failed to check consistency of search results: %v", err)
@@ -1552,7 +1552,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 				return err
 			}
 
-			if shard != nil {
+			if shard != nil && (shard.GetStatus() == storagestate.StatusReady || shard.GetStatus() == storagestate.StatusReadOnly) {
 				defer release()
 				localCtx := helpers.InitSlowQueryDetails(ctx)
 				helpers.AnnotateSlowQueryLog(localCtx, "is_coordinator", true)
@@ -1831,7 +1831,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 			defer release()
 		}
 
-		if shard != nil {
+		if shard != nil && (shard.GetStatus() == storagestate.StatusReady || shard.GetStatus() == storagestate.StatusReadOnly) {
 			localSearches++
 			eg.Go(func() error {
 				localShardResult, localShardScores, err1 := i.localShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardName)
@@ -1909,7 +1909,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 			replProps = defaultConsistency(types.ConsistencyLevelOne)
 		}
 		l := types.ConsistencyLevel(replProps.ConsistencyLevel)
-		err = i.replicator.CheckConsistency(ctx, l, out)
+		err = i.replicator.ReadRepair(ctx, l, out)
 		if err != nil {
 			i.logger.WithField("action", "object_vector_search").
 				Errorf("failed to check consistency of search results: %v", err)

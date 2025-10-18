@@ -784,7 +784,7 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 			require.ElementsMatch(t, want, got)
 		}
 
-		err := finder.CheckConsistency(ctx, types.ConsistencyLevelAll, directR)
+		err := finder.ReadRepair(ctx, types.ConsistencyLevelAll, directR)
 		require.Nil(t, err)
 		require.Equal(t, want, directR)
 	})
@@ -972,7 +972,7 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 			require.ElementsMatch(t, want, got)
 		}
 
-		err := finder.CheckConsistency(ctx, types.ConsistencyLevelAll, xs)
+		err := finder.ReadRepair(ctx, types.ConsistencyLevelAll, xs)
 		require.Nil(t, err)
 		require.Equal(t, want, xs)
 	})
@@ -1069,7 +1069,7 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 			require.ElementsMatch(t, want, got)
 		}
 
-		err := finder.CheckConsistency(ctx, types.ConsistencyLevelAll, xs)
+		err := finder.ReadRepair(ctx, types.ConsistencyLevelAll, xs)
 		require.Nil(t, err)
 		require.Equal(t, want, xs)
 	})
@@ -1162,7 +1162,7 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 			Return(repairR3, nil).
 			Once()
 
-		err := finder.CheckConsistency(ctx, types.ConsistencyLevelAll, xs)
+		err := finder.ReadRepair(ctx, types.ConsistencyLevelAll, xs)
 		require.Nil(t, err)
 		require.Equal(t, want, xs)
 	})
@@ -1231,7 +1231,7 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 			Return(repairR2, nil).
 			Once()
 
-		err := finder.CheckConsistency(ctx, types.ConsistencyLevelAll, xs)
+		err := finder.ReadRepair(ctx, types.ConsistencyLevelAll, xs)
 		require.Nil(t, err)
 		require.Equal(t, want, xs)
 	})
@@ -1312,7 +1312,7 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 			Return(repairR2, nil).
 			Once()
 
-		err := finder.CheckConsistency(ctx, types.ConsistencyLevelAll, xs)
+		err := finder.ReadRepair(ctx, types.ConsistencyLevelAll, xs)
 		require.Nil(t, err)
 		require.Equal(t, want, xs)
 	})
@@ -1389,7 +1389,7 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 			Return(repairR3, nil).
 			Once()
 
-		err := finder.CheckConsistency(ctx, types.ConsistencyLevelAll, xs)
+		err := finder.ReadRepair(ctx, types.ConsistencyLevelAll, xs)
 		require.Nil(t, err)
 		require.Equal(t, want, xs)
 	})
@@ -1460,7 +1460,7 @@ func TestRepairerCheckConsistencyQuorum(t *testing.T) {
 		require.ElementsMatch(t, want, got)
 	}
 
-	err := finder.CheckConsistency(ctx, types.ConsistencyLevelQuorum, xs)
+	err := finder.ReadRepair(ctx, types.ConsistencyLevelQuorum, xs)
 	require.Nil(t, err)
 	require.Equal(t, want, xs)
 }
