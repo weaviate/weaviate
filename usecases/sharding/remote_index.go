@@ -543,11 +543,14 @@ func (ri *RemoteIndex) queryReplicas(
 		if !ok || host == "" {
 			return nil, fmt.Errorf("resolve node name %q to host", replica)
 		}
+
+		// The timeout will be handled by the HTTP client itself
+		// Individual remote calls will timeout based on client configuration
 		return do(replica, host)
 	}
 
 	// Fire queries to replicas concurrently (ignoring self) and return on first success.
-	// Uses ErrorGroupWithContextWrapper for robust concurrent execution.
+	// Uses regular ErrorGroupWrapper to avoid context cancellation on individual failures.
 	queryFirstSuccess := func(replicas []string) (resp interface{}, node string, err error) {
 		fmt.Printf("DEBUG: queryReplicas starting with %d replicas: %v\n", len(replicas), replicas)
 		type result struct {
@@ -556,8 +559,9 @@ func (ri *RemoteIndex) queryReplicas(
 			err  error
 		}
 
-		// Use ErrorGroupWithContextWrapper for robust concurrent execution
-		eg, egCtx := enterrors.NewErrorGroupWithContextWrapper(nil, ctx, "queryReplicas")
+		// Use regular ErrorGroupWrapper to avoid context cancellation on individual failures
+		// This allows the first-success logic to work properly
+		eg := enterrors.NewErrorGroupWrapper(nil, "queryReplicas")
 		resCh := make(chan result, len(replicas)) // Buffered channel to prevent blocking
 		var launched int
 
@@ -575,8 +579,8 @@ func (ri *RemoteIndex) queryReplicas(
 				select {
 				case resCh <- result{r, rep, e}:
 					return nil
-				case <-egCtx.Done():
-					return egCtx.Err()
+				case <-ctx.Done():
+					return ctx.Err()
 				}
 			})
 		}
@@ -587,6 +591,11 @@ func (ri *RemoteIndex) queryReplicas(
 		fmt.Printf("DEBUG: Launched %d goroutines for remote replicas\n", launched)
 
 		// Wait for first success or timeout - return immediately on first success
+		// Use a separate goroutine to wait for the error group to complete
+		egDone := make(chan error, 1)
+		go func() {
+			egDone <- eg.Wait()
+		}()
 
 		for {
 			select {
@@ -601,9 +610,14 @@ func (ri *RemoteIndex) queryReplicas(
 					fmt.Printf("DEBUG: Error from %s: %v\n", rr.node, rr.err)
 					// Continue waiting for more responses - maybe another replica will succeed
 				}
-			case <-egCtx.Done():
-				fmt.Printf("DEBUG: Error group context cancelled: %v\n", egCtx.Err())
-				return nil, "", egCtx.Err()
+			case <-ctx.Done():
+				fmt.Printf("DEBUG: Parent context cancelled: %v\n", ctx.Err())
+				return nil, "", ctx.Err()
+			case err := <-egDone:
+				// All goroutines completed, check if we got any results
+				fmt.Printf("DEBUG: All goroutines completed, error: %v\n", err)
+				// If we reach here, no replica succeeded
+				return nil, "", fmt.Errorf("all replicas failed: %w", err)
 			}
 		}
 	}
