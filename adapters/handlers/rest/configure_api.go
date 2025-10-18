@@ -80,6 +80,7 @@ import (
 	modgenerativeanyscale "github.com/weaviate/weaviate/modules/generative-anyscale"
 	modgenerativeaws "github.com/weaviate/weaviate/modules/generative-aws"
 	modgenerativecohere "github.com/weaviate/weaviate/modules/generative-cohere"
+	modgenerativecontextualai "github.com/weaviate/weaviate/modules/generative-contextualai"
 	modgenerativedatabricks "github.com/weaviate/weaviate/modules/generative-databricks"
 	modgenerativedummy "github.com/weaviate/weaviate/modules/generative-dummy"
 	modgenerativefriendliai "github.com/weaviate/weaviate/modules/generative-friendliai"
@@ -106,6 +107,7 @@ import (
 	modqna "github.com/weaviate/weaviate/modules/qna-transformers"
 	modcentroid "github.com/weaviate/weaviate/modules/ref2vec-centroid"
 	modrerankercohere "github.com/weaviate/weaviate/modules/reranker-cohere"
+	modrerankercontextualai "github.com/weaviate/weaviate/modules/reranker-contextualai"
 	modrerankerdummy "github.com/weaviate/weaviate/modules/reranker-dummy"
 	modrerankerjinaai "github.com/weaviate/weaviate/modules/reranker-jinaai"
 	modrerankernvidia "github.com/weaviate/weaviate/modules/reranker-nvidia"
@@ -1175,6 +1177,7 @@ func registerModules(appState *state.State) error {
 		modgenerativeanyscale.Name,
 		modgenerativeaws.Name,
 		modgenerativecohere.Name,
+		modgenerativecontextualai.Name,
 		modgenerativedatabricks.Name,
 		modgenerativefriendliai.Name,
 		modgenerativegoogle.Name,
@@ -1186,6 +1189,7 @@ func registerModules(appState *state.State) error {
 	}
 	defaultOthers := []string{
 		modrerankercohere.Name,
+		modrerankercontextualai.Name,
 		modrerankervoyageai.Name,
 		modrerankerjinaai.Name,
 		modrerankernvidia.Name,
@@ -1271,6 +1275,14 @@ func registerModules(appState *state.State) error {
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", modrerankercohere.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modrerankercontextualai.Name]; ok {
+		appState.Modules.Register(modrerankercontextualai.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modrerankercontextualai.Name).
 			Debug("enabled module")
 	}
 
@@ -1441,6 +1453,14 @@ func registerModules(appState *state.State) error {
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", modgenerativecohere.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modgenerativecontextualai.Name]; ok {
+		appState.Modules.Register(modgenerativecontextualai.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modgenerativecontextualai.Name).
 			Debug("enabled module")
 	}
 

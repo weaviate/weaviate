@@ -1161,6 +1161,20 @@ local-usage-s3)
     echo "Dashboards should be available at:"
     echo "- Overview: http://localhost:3000/d/weaviate-overview/weaviate-overview"
     ;;
+  local-contextualai)
+    echo "Starting Weaviate with Contextual AI modules..."
+    echo "Make sure to set CONTEXTUAL_API_KEY environment variable"
+    
+    AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
+    ENABLE_API_BASED_MODULES=true \
+    RAFT_BOOTSTRAP_TIMEOUT=300 \
+    go_run ./cmd/weaviate-server \
+      --scheme http \
+      --host "127.0.0.1" \
+      --port 8080 \
+      --read-timeout=600s \
+      --write-timeout=600s
+    ;;
   *)
     echo "Invalid config" 2>&1
     exit 1
