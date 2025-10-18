@@ -74,7 +74,7 @@ func TestFinderCantReachEnoughReplicas(t *testing.T) {
 		finder = f.newFinder("A")
 	)
 
-	finder.CheckConsistency(ctx, types.ConsistencyLevelAll, []*storobj.Object{objectEx("1", 1, "S", "N")})
+	finder.ReadRepair(ctx, types.ConsistencyLevelAll, []*storobj.Object{objectEx("1", 1, "S", "N")})
 	f.assertLogErrorContains(t, replica.ErrReplicas.Error())
 }
 
@@ -631,7 +631,7 @@ func TestFinderCheckConsistencyALL(t *testing.T) {
 		f.RClient.On("DigestObjects", anyVal, nodes[1], cls, shard, ids).Return(digestR, nil)
 		f.RClient.On("DigestObjects", anyVal, nodes[2], cls, shard, ids).Return(digestR, errAny)
 
-		err := finder.CheckConsistency(ctx, types.ConsistencyLevelAll, xs)
+		err := finder.ReadRepair(ctx, types.ConsistencyLevelAll, xs)
 		want := setObjectsConsistency(xs, false)
 		assert.ErrorIs(t, err, replica.ErrRead)
 		assert.ElementsMatch(t, want, xs)
@@ -649,7 +649,7 @@ func TestFinderCheckConsistencyALL(t *testing.T) {
 		f.RClient.On("DigestObjects", anyVal, nodes[2], cls, shard, ids).Return(digestR, nil)
 
 		want := setObjectsConsistency(xs, true)
-		err := finder.CheckConsistency(ctx, types.ConsistencyLevelAll, xs)
+		err := finder.ReadRepair(ctx, types.ConsistencyLevelAll, xs)
 		assert.Nil(t, err)
 		assert.ElementsMatch(t, want, xs)
 	})
@@ -678,7 +678,7 @@ func TestFinderCheckConsistencyALL(t *testing.T) {
 		f.RClient.On("DigestObjects", anyVal, nodes[2], cls, shards[1], idSet2).Return(digestR2, nil)
 
 		want := setObjectsConsistency(xs, true)
-		err := finder.CheckConsistency(ctx, types.ConsistencyLevelAll, xs)
+		err := finder.ReadRepair(ctx, types.ConsistencyLevelAll, xs)
 		assert.Nil(t, err)
 		assert.ElementsMatch(t, want, xs)
 	})
@@ -715,7 +715,7 @@ func TestFinderCheckConsistencyALL(t *testing.T) {
 		f.RClient.On("DigestObjects", anyVal, nodes[1], cls, shards[2], ids3).Return(digestR3, nil)
 
 		want := setObjectsConsistency(xs, true)
-		err := finder.CheckConsistency(ctx, types.ConsistencyLevelAll, xs)
+		err := finder.ReadRepair(ctx, types.ConsistencyLevelAll, xs)
 		assert.Nil(t, err)
 		assert.ElementsMatch(t, want, xs)
 	})
@@ -752,7 +752,7 @@ func TestFinderCheckConsistencyALL(t *testing.T) {
 		f.RClient.On("DigestObjects", anyVal, nodes[2], cls, shards[2], ids3).Return(digestR3, nil)
 
 		want := setObjectsConsistency(xs, true)
-		err := finder.CheckConsistency(ctx, types.ConsistencyLevelAll, xs)
+		err := finder.ReadRepair(ctx, types.ConsistencyLevelAll, xs)
 		assert.Nil(t, err)
 		assert.ElementsMatch(t, want, xs)
 	})
@@ -788,12 +788,12 @@ func TestFinderCheckConsistencyQuorum(t *testing.T) {
 			}
 		)
 
-		assert.Nil(t, finder.CheckConsistency(ctx, types.ConsistencyLevelQuorum, nil))
+		assert.Nil(t, finder.ReadRepair(ctx, types.ConsistencyLevelQuorum, nil))
 
-		err := finder.CheckConsistency(ctx, types.ConsistencyLevelQuorum, xs1)
+		err := finder.ReadRepair(ctx, types.ConsistencyLevelQuorum, xs1)
 		assert.NotNil(t, err)
 
-		err = finder.CheckConsistency(ctx, types.ConsistencyLevelQuorum, xs2)
+		err = finder.ReadRepair(ctx, types.ConsistencyLevelQuorum, xs2)
 		assert.NotNil(t, err)
 	})
 
@@ -815,7 +815,7 @@ func TestFinderCheckConsistencyQuorum(t *testing.T) {
 		f.RClient.On("DigestObjects", anyVal, nodes[1], cls, shard, ids).Return(digestR, errAny)
 		f.RClient.On("DigestObjects", anyVal, nodes[2], cls, shard, ids).Return(digestR, errAny)
 
-		err := finder.CheckConsistency(ctx, types.ConsistencyLevelAll, xs)
+		err := finder.ReadRepair(ctx, types.ConsistencyLevelAll, xs)
 		want := setObjectsConsistency(xs, false)
 		assert.ErrorIs(t, err, replica.ErrRead)
 		assert.ElementsMatch(t, want, xs)
@@ -841,7 +841,7 @@ func TestFinderCheckConsistencyQuorum(t *testing.T) {
 		f.RClient.On("DigestObjects", anyVal, nodes[1], cls, shard, ids).Return(digestR, nil)
 		f.RClient.On("DigestObjects", anyVal, nodes[2], cls, shard, ids).Return(digestR, errAny)
 
-		err := finder.CheckConsistency(ctx, types.ConsistencyLevelQuorum, xs)
+		err := finder.ReadRepair(ctx, types.ConsistencyLevelQuorum, xs)
 		assert.Nil(t, err)
 		assert.ElementsMatch(t, want, xs)
 	})
@@ -863,7 +863,7 @@ func TestFinderCheckConsistencyOne(t *testing.T) {
 		want = setObjectsConsistency(xs, true)
 	)
 
-	err := finder.CheckConsistency(ctx, types.ConsistencyLevelOne, xs)
+	err := finder.ReadRepair(ctx, types.ConsistencyLevelOne, xs)
 	assert.Nil(t, err)
 	assert.Equal(t, want, xs)
 }

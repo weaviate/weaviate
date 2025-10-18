@@ -1516,11 +1516,11 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 		if replProps == nil {
 			replProps = defaultConsistency(types.ConsistencyLevelOne)
 		}
-		l := types.ConsistencyLevel(replProps.ConsistencyLevel)
-		err = i.replicator.CheckConsistency(ctx, l, outObjects)
+
+		err = i.replicator.ReadRepair(ctx, types.ConsistencyLevel(replProps.ConsistencyLevel), outObjects)
 		if err != nil {
-			i.logger.WithField("action", "object_search").
-				Errorf("failed to check consistency of search results: %v", err)
+			i.logger.WithField("action", "read_repai_on_object_search").
+				Errorf("failed to read repair on object search: %v", err)
 		}
 	}
 
@@ -1908,8 +1908,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 		if replProps == nil {
 			replProps = defaultConsistency(types.ConsistencyLevelOne)
 		}
-		l := types.ConsistencyLevel(replProps.ConsistencyLevel)
-		err = i.replicator.CheckConsistency(ctx, l, out)
+		err = i.replicator.ReadRepair(ctx, types.ConsistencyLevel(replProps.ConsistencyLevel), out)
 		if err != nil {
 			i.logger.WithField("action", "object_vector_search").
 				Errorf("failed to check consistency of search results: %v", err)
