@@ -1700,14 +1700,16 @@ func reasonableHttpClient(authConfig cluster.AuthConfig) *http.Client {
 	t := &http.Transport{
 		Proxy: http.ProxyFromEnvironment,
 		DialContext: (&net.Dialer{
-			Timeout:   30 * time.Second,
+			Timeout:   5 * time.Second, // Reduced from 30s for faster failure detection
 			KeepAlive: 120 * time.Second,
 		}).DialContext,
 		MaxIdleConnsPerHost:   100,
 		MaxIdleConns:          100,
 		IdleConnTimeout:       90 * time.Second,
-		TLSHandshakeTimeout:   10 * time.Second,
+		TLSHandshakeTimeout:   3 * time.Second, // Reduced from 10s for faster TLS failures
 		ExpectContinueTimeout: 1 * time.Second,
+		// Add response header timeout to prevent hanging on slow responses
+		ResponseHeaderTimeout: 10 * time.Second,
 	}
 
 	if authConfig.BasicAuth.Enabled() {
