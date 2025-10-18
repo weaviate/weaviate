@@ -580,9 +580,9 @@ func (ri *RemoteIndex) queryReplicas(
 		// Wait for first success or timeout - return immediately on first success
 		// Use a separate goroutine to wait for the error group to complete
 		egDone := make(chan error, 1)
-		go func() {
+		enterrors.GoWrapper(func() {
 			egDone <- eg.Wait()
-		}()
+		}, logger)
 
 		for {
 			select {
