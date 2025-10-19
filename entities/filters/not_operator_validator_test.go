@@ -20,9 +20,10 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
-func TestValidateNotOperator(t *testing.T) {
-	// Helper function to create a mock authorizedGetClass
-	authorizedGetClass := func(string) (*models.Class, error) {
+// Test helper functions to reduce code duplication
+
+func newMockAuthorizedGetClass() func(string) (*models.Class, error) {
+	return func(string) (*models.Class, error) {
 		return &models.Class{
 			Class: "TestClass",
 			Properties: []*models.Property{
@@ -32,309 +33,151 @@ func TestValidateNotOperator(t *testing.T) {
 			},
 		}, nil
 	}
+}
 
-	t.Run("Not operator with no operands", func(t *testing.T) {
-		clause := &Clause{
-			Operator: OperatorNot,
-			Operands: []Clause{}, // No operands
-		}
+func newSimpleClause(op Operator, prop string, dataType schema.DataType, value interface{}) Clause {
+	return Clause{
+		Operator: op,
+		On:       &Path{Class: "TestClass", Property: schema.PropertyName(prop)},
+		Value:    &Value{Type: dataType, Value: value},
+	}
+}
 
-		err := validateNotOperator(authorizedGetClass, newClauseWrapper(clause))
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "no children for operator")
-		assert.Contains(t, err.Error(), "Not")
-	})
+func newNotClause(operands ...Clause) *Clause {
+	// Ensure operands is never nil, always a slice (even if empty)
+	if operands == nil {
+		operands = []Clause{}
+	}
+	return &Clause{
+		Operator: OperatorNot,
+		Operands: operands,
+	}
+}
 
-	t.Run("Not operator with one valid operand", func(t *testing.T) {
-		clause := &Clause{
-			Operator: OperatorNot,
-			Operands: []Clause{
-				{
-					Operator: OperatorEqual,
-					On: &Path{
-						Class:    "TestClass",
-						Property: "status",
-					},
-					Value: &Value{
-						Type:  schema.DataTypeText,
-						Value: "active",
-					},
-				},
-			},
-		}
+func newLogicalClause(op Operator, operands ...Clause) Clause {
+	return Clause{Operator: op, Operands: operands}
+}
 
-		err := validateNotOperator(authorizedGetClass, newClauseWrapper(clause))
-		assert.NoError(t, err)
-	})
+func TestValidateNotOperator(t *testing.T) {
+	getClass := newMockAuthorizedGetClass()
 
-	t.Run("Not operator with two operands", func(t *testing.T) {
-		clause := &Clause{
-			Operator: OperatorNot,
-			Operands: []Clause{
-				{
-					Operator: OperatorEqual,
-					On: &Path{
-						Class:    "TestClass",
-						Property: "status",
-					},
-					Value: &Value{
-						Type:  schema.DataTypeText,
-						Value: "active",
-					},
-				},
-				{
-					Operator: OperatorGreaterThan,
-					On: &Path{
-						Class:    "TestClass",
-						Property: "count",
-					},
-					Value: &Value{
-						Type:  schema.DataTypeInt,
-						Value: 10,
-					},
-				},
-			},
-		}
+	tests := []struct {
+		name           string
+		clause         *Clause
+		expectError    bool
+		errorContains  []string
+	}{
+		{
+			name:          "no operands",
+			clause:        &Clause{Operator: OperatorNot, Operands: []Clause{}},
+			expectError:   true,
+			errorContains: []string{"no children for operator", "Not"},
+		},
+		{
+			name: "one valid operand",
+			clause: newNotClause(
+				newSimpleClause(OperatorEqual, "status", schema.DataTypeText, "active"),
+			),
+			expectError: false,
+		},
+		{
+			name: "two operands",
+			clause: newNotClause(
+				newSimpleClause(OperatorEqual, "status", schema.DataTypeText, "active"),
+				newSimpleClause(OperatorGreaterThan, "count", schema.DataTypeInt, 10),
+			),
+			expectError:   true,
+			errorContains: []string{"too many children for operator", "Not", "Expected 1, given 2"},
+		},
+		{
+			name: "three operands",
+			clause: newNotClause(
+				newSimpleClause(OperatorEqual, "status", schema.DataTypeText, "active"),
+				newSimpleClause(OperatorGreaterThan, "count", schema.DataTypeInt, 10),
+				newSimpleClause(OperatorLessThan, "count", schema.DataTypeInt, 100),
+			),
+			expectError:   true,
+			errorContains: []string{"too many children for operator", "Not", "Expected 1, given 3"},
+		},
+		{
+			name: "nested And operand",
+			clause: newNotClause(
+				newLogicalClause(OperatorAnd,
+					newSimpleClause(OperatorEqual, "status", schema.DataTypeText, "active"),
+					newSimpleClause(OperatorGreaterThan, "count", schema.DataTypeInt, 10),
+				),
+			),
+			expectError: false,
+		},
+		{
+			name: "nested Or operand",
+			clause: newNotClause(
+				newLogicalClause(OperatorOr,
+					newSimpleClause(OperatorEqual, "status", schema.DataTypeText, "active"),
+					newSimpleClause(OperatorEqual, "active", schema.DataTypeBoolean, true),
+				),
+			),
+			expectError: false,
+		},
+		{
+			name: "nested Not operand",
+			clause: newNotClause(
+				*newNotClause(
+					newSimpleClause(OperatorEqual, "status", schema.DataTypeText, "active"),
+				),
+			),
+			expectError: false,
+		},
+	}
 
-		err := validateNotOperator(authorizedGetClass, newClauseWrapper(clause))
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "too many children for operator")
-		assert.Contains(t, err.Error(), "Not")
-		assert.Contains(t, err.Error(), "Expected 1, given 2")
-	})
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateNotOperator(getClass, newClauseWrapper(tt.clause))
 
-	t.Run("Not operator with multiple operands", func(t *testing.T) {
-		clause := &Clause{
-			Operator: OperatorNot,
-			Operands: []Clause{
-				{
-					Operator: OperatorEqual,
-					On: &Path{
-						Class:    "TestClass",
-						Property: "status",
-					},
-					Value: &Value{
-						Type:  schema.DataTypeText,
-						Value: "active",
-					},
-				},
-				{
-					Operator: OperatorGreaterThan,
-					On: &Path{
-						Class:    "TestClass",
-						Property: "count",
-					},
-					Value: &Value{
-						Type:  schema.DataTypeInt,
-						Value: 10,
-					},
-				},
-				{
-					Operator: OperatorLessThan,
-					On: &Path{
-						Class:    "TestClass",
-						Property: "count",
-					},
-					Value: &Value{
-						Type:  schema.DataTypeInt,
-						Value: 100,
-					},
-				},
-			},
-		}
-
-		err := validateNotOperator(authorizedGetClass, newClauseWrapper(clause))
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "too many children for operator")
-		assert.Contains(t, err.Error(), "Not")
-		assert.Contains(t, err.Error(), "Expected 1, given 3")
-	})
-
-	t.Run("Not operator with nested And operand", func(t *testing.T) {
-		clause := &Clause{
-			Operator: OperatorNot,
-			Operands: []Clause{
-				{
-					Operator: OperatorAnd,
-					Operands: []Clause{
-						{
-							Operator: OperatorEqual,
-							On: &Path{
-								Class:    "TestClass",
-								Property: "status",
-							},
-							Value: &Value{
-								Type:  schema.DataTypeText,
-								Value: "active",
-							},
-						},
-						{
-							Operator: OperatorGreaterThan,
-							On: &Path{
-								Class:    "TestClass",
-								Property: "count",
-							},
-							Value: &Value{
-								Type:  schema.DataTypeInt,
-								Value: 10,
-							},
-						},
-					},
-				},
-			},
-		}
-
-		err := validateNotOperator(authorizedGetClass, newClauseWrapper(clause))
-		assert.NoError(t, err)
-	})
-
-	t.Run("Not operator with nested Or operand", func(t *testing.T) {
-		clause := &Clause{
-			Operator: OperatorNot,
-			Operands: []Clause{
-				{
-					Operator: OperatorOr,
-					Operands: []Clause{
-						{
-							Operator: OperatorEqual,
-							On: &Path{
-								Class:    "TestClass",
-								Property: "status",
-							},
-							Value: &Value{
-								Type:  schema.DataTypeText,
-								Value: "active",
-							},
-						},
-						{
-							Operator: OperatorEqual,
-							On: &Path{
-								Class:    "TestClass",
-								Property: "active",
-							},
-							Value: &Value{
-								Type:  schema.DataTypeBoolean,
-								Value: true,
-							},
-						},
-					},
-				},
-			},
-		}
-
-		err := validateNotOperator(authorizedGetClass, newClauseWrapper(clause))
-		assert.NoError(t, err)
-	})
-
-	t.Run("Not operator with nested Not operand", func(t *testing.T) {
-		// Not(Not(condition)) - while logically redundant, should validate
-		clause := &Clause{
-			Operator: OperatorNot,
-			Operands: []Clause{
-				{
-					Operator: OperatorNot,
-					Operands: []Clause{
-						{
-							Operator: OperatorEqual,
-							On: &Path{
-								Class:    "TestClass",
-								Property: "status",
-							},
-							Value: &Value{
-								Type:  schema.DataTypeText,
-								Value: "active",
-							},
-						},
-					},
-				},
-			},
-		}
-
-		err := validateNotOperator(authorizedGetClass, newClauseWrapper(clause))
-		assert.NoError(t, err)
-	})
+			if tt.expectError {
+				require.Error(t, err)
+				for _, substr := range tt.errorContains {
+					assert.Contains(t, err.Error(), substr)
+				}
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
 }
 
 func TestIntegrationWithValidateClause(t *testing.T) {
-	// Helper function to create a mock authorizedGetClass
-	authorizedGetClass := func(string) (*models.Class, error) {
-		return &models.Class{
-			Class: "TestClass",
-			Properties: []*models.Property{
-				{Name: "status", DataType: schema.DataTypeText.PropString()},
-			},
-		}, nil
-	}
+	getClass := newMockAuthorizedGetClass()
 
 	t.Run("ValidateClause routes Not operator correctly", func(t *testing.T) {
-		// Test that validateClause properly routes to validateNotOperator
-		clause := &Clause{
-			Operator: OperatorNot,
-			Operands: []Clause{}, // No operands - should fail
-		}
+		clause := &Clause{Operator: OperatorNot, Operands: []Clause{}}
+		err := validateClause(getClass, newClauseWrapper(clause))
 
-		err := validateClause(authorizedGetClass, newClauseWrapper(clause))
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "no children for operator")
 		assert.Contains(t, err.Error(), "Not")
 	})
 
-	t.Run("ValidateFilters with Not operator", func(t *testing.T) {
+	t.Run("ValidateFilters with valid Not operator", func(t *testing.T) {
 		filter := &LocalFilter{
-			Root: &Clause{
-				Operator: OperatorNot,
-				Operands: []Clause{
-					{
-						Operator: OperatorEqual,
-						On: &Path{
-							Class:    "TestClass",
-							Property: "status",
-						},
-						Value: &Value{
-							Type:  schema.DataTypeText,
-							Value: "active",
-						},
-					},
-				},
-			},
+			Root: newNotClause(
+				newSimpleClause(OperatorEqual, "status", schema.DataTypeText, "active"),
+			),
 		}
 
-		err := ValidateFilters(authorizedGetClass, filter)
+		err := ValidateFilters(getClass, filter)
 		assert.NoError(t, err)
 	})
 
 	t.Run("ValidateFilters with invalid Not operator", func(t *testing.T) {
 		filter := &LocalFilter{
-			Root: &Clause{
-				Operator: OperatorNot,
-				Operands: []Clause{
-					{
-						Operator: OperatorEqual,
-						On: &Path{
-							Class:    "TestClass",
-							Property: "status",
-						},
-						Value: &Value{
-							Type:  schema.DataTypeText,
-							Value: "active",
-						},
-					},
-					{
-						Operator: OperatorGreaterThan,
-						On: &Path{
-							Class:    "TestClass",
-							Property: "count",
-						},
-						Value: &Value{
-							Type:  schema.DataTypeInt,
-							Value: 10,
-						},
-					},
-				},
-			},
+			Root: newNotClause(
+				newSimpleClause(OperatorEqual, "status", schema.DataTypeText, "active"),
+				newSimpleClause(OperatorGreaterThan, "count", schema.DataTypeInt, 10),
+			),
 		}
 
-		err := ValidateFilters(authorizedGetClass, filter)
+		err := ValidateFilters(getClass, filter)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "too many children for operator")
 		assert.Contains(t, err.Error(), "Not")
