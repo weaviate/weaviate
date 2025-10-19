@@ -44,6 +44,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/health/grpc_health_v1"
 
 	"github.com/weaviate/fgprof"
 	"github.com/weaviate/weaviate/adapters/clients"
@@ -154,7 +155,10 @@ import (
 	"github.com/weaviate/weaviate/usecases/traverser"
 )
 
-const MinimumRequiredContextionaryVersion = "1.0.2"
+const (
+	MinimumRequiredContextionaryVersion = "1.0.2"
+	ReadinessProbeLeadTime              = 2 * time.Second
+)
 
 func makeConfigureServer(appState *state.State) func(*http.Server, string, string) {
 	return func(s *http.Server, scheme, addr string) {
@@ -853,6 +857,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	defer cancel()
 
 	appState := MakeAppState(ctx, connectorOptionGroup)
+	shutdownCoordinator := NewShutdownCoordinator(appState.Logger)
 
 	appState.Logger.WithFields(logrus.Fields{
 		"server_version": config.ServerVersion,
@@ -920,7 +925,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	}
 
 	grpcShutdown := batch.NewShutdown(context.Background())
-	grpcServer := createGrpcServer(appState, grpcShutdown, grpcInstrument...)
+	grpcServer, grpcHealthServer := createGrpcServer(appState, grpcShutdown, grpcInstrument...)
 
 	setupMiddlewares := makeSetupMiddlewares(appState)
 	setupGlobalMiddleware := makeSetupGlobalMiddleware(appState, api.Context())
@@ -945,8 +950,24 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			}, appState.Logger)
 	}
 
+	appState.SetShutdownRestTracker(shutdownCoordinator)
+	appState.SetShutdownGrpcTracker(shutdownCoordinator)
+
 	api.PreServerShutdown = func() {
+		appState.Logger.Info("pre-shutdown phase initiated")
+
+		shutdownCoordinator.NotifyShutdown()
+		grpcHealthServer.SetServingStatus("weaviate", grpc_health_v1.HealthCheckResponse_NOT_SERVING)
+		appState.Logger.Debug("notified shutdown coordinator and marked gRPC as unhealthy")
+
+		// NOTE: give health checks and readiness probes time to detect the shutdown without excessive delay
+		appState.Logger.Debug("wait for health check propagation")
+		time.Sleep(ReadinessProbeLeadTime)
+
+		appState.Logger.Debug("start gRPC draining connections")
 		grpcShutdown.Drain(appState.Logger)
+
+		appState.Logger.Info("pre-shutdown phase completed")
 	}
 
 	api.ServerShutdown = func() {
@@ -970,6 +991,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// gracefully stop gRPC server
+		grpcHealthServer.Shutdown()
 		grpcServer.GracefulStop()
 
 		if appState.ServerConfig.Config.Sentry.Enabled {
@@ -1007,9 +1029,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 				Errorf("failed to gracefully shutdown")
 		}
 	}
-
 	startGrpcServer(grpcServer, appState)
-
 	return setupGlobalMiddleware(api.Serve(setupMiddlewares))
 }
 
