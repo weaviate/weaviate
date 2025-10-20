@@ -1559,21 +1559,11 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 				useLocal = true
 			}
 
-			// Log decision for objectSearchByShard
-			var shardStatusStr string
-			var shutdownReq bool
-
-			if shard != nil {
-				shardStatusStr = shard.GetStatus().String()
-			} else {
-				shardStatusStr = "not_found"
-			}
 			i.logger.WithFields(logrus.Fields{
-				"action":             "object_search_decision",
-				"shardName":          shardName,
-				"shard_status":       shardStatusStr,
-				"shutdown_requested": shutdownReq,
-				"use_local":          useLocal,
+				"action":       "object_search_decision",
+				"shardName":    shardName,
+				"shard_status": shard.GetStatus().String(),
+				"use_local":    useLocal,
 			}).Info("objectSearchByShard: local/remote decision")
 
 			if useLocal {
@@ -1589,22 +1579,8 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 			} else {
 				i.logger.WithField("shardName", shardName).Debug("shard was not found locally, search for object remotely")
 
-				// Use dynamic timeout: consume a chunk of remaining parent context time
-				// This allows normal operation while preventing long hangs
-				timeout := 5 * time.Second
-				if deadline, ok := ctx.Deadline(); ok {
-					remaining := time.Until(deadline)
-					if remaining < timeout {
-						timeout = remaining / 2 // Use half of remaining time
-						if timeout < 1*time.Second {
-							timeout = 1 * time.Second // Minimum 1s
-						}
-					}
-				}
-				remoteCtx, cancel := context.WithTimeout(ctx, timeout)
-				defer cancel()
 				objs, scores, nodeName, err = i.remote.SearchShard(
-					remoteCtx, shardName, nil, nil, 0, limit, filters, keywordRanking,
+					ctx, shardName, nil, nil, 0, limit, filters, keywordRanking,
 					sort, cursor, nil, addlProps, i.replicationEnabled(), nil, properties)
 				if err != nil {
 					return fmt.Errorf(
@@ -1696,14 +1672,6 @@ func (i *Index) singleLocalShardObjectVectorSearch(ctx context.Context, searchVe
 	sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties,
 	shard ShardLike, targetCombination *dto.TargetCombination, properties []string,
 ) ([]*storobj.Object, []float32, error) {
-	start := time.Now()
-	defer func() {
-		took := time.Since(start)
-		i.logger.WithFields(logrus.Fields{
-			"action": "search_completed",
-			"took":   took,
-		}).Debugf("singleLocalShardObjectVectorSearch completed in %s", took)
-	}()
 	ctx = helpers.InitSlowQueryDetails(ctx)
 	helpers.AnnotateSlowQueryLog(ctx, "is_coordinator", true)
 	if shard.GetStatus() == storagestate.StatusLoading {
@@ -1719,14 +1687,6 @@ func (i *Index) singleLocalShardObjectVectorSearch(ctx context.Context, searchVe
 
 // to be called after validating multi-tenancy
 func (i *Index) targetShardNames(ctx context.Context, tenant string) ([]string, error) {
-	start := time.Now()
-	defer func() {
-		took := time.Since(start)
-		i.logger.WithFields(logrus.Fields{
-			"action": "search_completed",
-			"took":   took,
-		}).Debugf("targetShardNames completed in %s", took)
-	}()
 	className := i.Config.ClassName.String()
 	if !i.partitioningEnabled {
 		return i.getSchema.CopyShardingState(className).AllPhysicalShards(), nil
@@ -1756,14 +1716,6 @@ func (i *Index) localShardSearch(ctx context.Context, searchVectors []models.Vec
 	sort []filters.Sort, groupBy *searchparams.GroupBy, additionalProps additional.Properties,
 	targetCombination *dto.TargetCombination, properties []string, shardName string,
 ) ([]*storobj.Object, []float32, error) {
-	start := time.Now()
-	defer func() {
-		took := time.Since(start)
-		i.logger.WithFields(logrus.Fields{
-			"action": "search_completed",
-			"took":   took,
-		}).Debugf("localShardSearch completed in %s", took)
-	}()
 	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
 		return nil, nil, err
@@ -1820,24 +1772,7 @@ func (i *Index) remoteShardSearch(ctx context.Context, searchVectors []models.Ve
 			outScores = append(outScores, remoteShardResult.Scores...)
 		}
 	} else {
-		// Search only what is necessary
-		// Bound remote vector search as well to avoid long hangs on peers shutting down
-
-		// Use dynamic timeout: consume a chunk of remaining parent context time
-		// This allows normal operation while preventing long hangs
-		timeout := 5 * time.Second
-		if deadline, ok := ctx.Deadline(); ok {
-			remaining := time.Until(deadline)
-			if remaining < timeout {
-				timeout = remaining / 2 // Use half of remaining time
-				if timeout < 1*time.Second {
-					timeout = 1 * time.Second // Minimum 1s
-				}
-			}
-		}
-		remoteCtx, cancel := context.WithTimeout(ctx, timeout)
-		defer cancel()
-		remoteResult, remoteDists, nodeName, err := i.remote.SearchShard(remoteCtx,
+		remoteResult, remoteDists, nodeName, err := i.remote.SearchShard(ctx,
 			shardName, searchVectors, targetVectors, distance, limit, localFilters,
 			nil, sort, nil, groupBy, additional, i.replicationEnabled(), targetCombination, properties)
 		if err != nil {
@@ -1858,14 +1793,6 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 	groupBy *searchparams.GroupBy, additionalProps additional.Properties,
 	replProps *additional.ReplicationProperties, tenant string, targetCombination *dto.TargetCombination, properties []string,
 ) ([]*storobj.Object, []float32, error) {
-	start := time.Now()
-	defer func() {
-		took := time.Since(start)
-		i.logger.WithFields(logrus.Fields{
-			"action": "search_completed",
-			"took":   took,
-		}).Debugf("objectVectorSearch completed in %s", took)
-	}()
 	if err := i.validateMultiTenancy(tenant); err != nil {
 		return nil, nil, err
 	}
@@ -1886,19 +1813,11 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 				useLocal = true
 			}
 
-			// Log decision for single-shard path
-			var shardStatusStr string
-			var shutdownReq bool
-			if s, ok := shard.(*Shard); ok {
-				shutdownReq = s.shutdownRequested.Load()
-			}
-			shardStatusStr = shard.GetStatus().String()
 			i.logger.WithFields(logrus.Fields{
-				"action":             "object_vector_search_decision",
-				"shardName":          shardNames[0],
-				"shard_status":       shardStatusStr,
-				"shutdown_requested": shutdownReq,
-				"use_local":          useLocal,
+				"action":       "object_vector_search_decision",
+				"shardName":    shardNames[0],
+				"shard_status": shard.GetStatus().String(),
+				"use_local":    useLocal,
 			}).Info("objectVectorSearch: local/remote decision")
 			if useLocal {
 				defer release()
@@ -1966,23 +1885,11 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 			useLocal = true
 		}
 
-		// log decision inputs
-		var shardStatusStr string
-		var shutdownReq bool
-		if s, ok := shard.(*Shard); ok {
-			shutdownReq = s.shutdownRequested.Load()
-		}
-		if shard != nil {
-			shardStatusStr = shard.GetStatus().String()
-		} else {
-			shardStatusStr = "not_found"
-		}
-
 		i.logger.WithFields(logrus.Fields{
-			"action":             "object_search_decision",
-			"shardName":          shardName,
-			"shard_status":       shardStatusStr,
-			"shutdown_requested": shutdownReq,
+			"action":       "object_search_decision",
+			"shardName":    shardName,
+			"shard_status": shard.GetStatus().String(),
+			"use_local":    useLocal,
 		}).Info("objectVectorSearch: local/remote decision")
 
 		if useLocal {
