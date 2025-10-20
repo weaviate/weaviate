@@ -93,7 +93,7 @@ func TestClientMetaInfo(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, "Reranker - Contextual AI", meta["name"])
-	assert.Equal(t, "https://contextual.ai/rerank/", meta["documentationHref"])
+	assert.Equal(t, "https://docs.contextual.ai/api-reference/rerank/rerank", meta["documentationHref"])
 }
 
 func TestRankErrorHandling(t *testing.T) {

@@ -14,6 +14,6 @@ package clients
 func (c *contextualai) MetaInfo() (map[string]interface{}, error) {
 	return map[string]interface{}{
 		"name":              "Generative Search - Contextual AI",
-		"documentationHref": "https://contextual.ai/generate/",
+		"documentationHref": "https://docs.contextual.ai/api-reference/generate/generate",
 	}, nil
 }

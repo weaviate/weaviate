@@ -190,7 +190,7 @@ func TestClientMetaInfo(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, "Generative Search - Contextual AI", meta["name"])
-	assert.Equal(t, "https://contextual.ai/generate/", meta["documentationHref"])
+	assert.Equal(t, "https://docs.contextual.ai/api-reference/generate/generate", meta["documentationHref"])
 }
 
 func TestAPIErrorHandling(t *testing.T) {
