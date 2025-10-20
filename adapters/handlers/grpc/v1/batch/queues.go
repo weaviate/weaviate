@@ -180,7 +180,7 @@ func (s *stats) updateBatchSize(processingTime time.Duration) {
 	} else if s.processingTimeEma-IDEAL_PROCESSING_TIME < -0.1 {
 		s.batchSizeEma = s.ema(s.batchSizeEma+100, s.batchSizeEma)
 	}
-	s.throughputEma = s.ema(s.batchSizeEma/processingTime.Seconds(), s.throughputEma)
+	s.throughputEma = s.ema(s.batchSizeEma/s.processingTimeEma, s.throughputEma)
 
 	if s.batchSizeEma < 100 {
 		s.batchSizeEma = 100
