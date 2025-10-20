@@ -435,7 +435,6 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		QuerySlowLogThreshold:                        appState.ServerConfig.Config.QuerySlowLogThreshold,
 		InvertedSorterDisabled:                       appState.ServerConfig.Config.InvertedSorterDisabled,
 		MaintenanceModeEnabled:                       appState.Cluster.MaintenanceModeEnabledForLocalhost,
-		StartupTime:                                  appState.StartupTime,
 	}, remoteIndexClient, appState.Cluster, remoteNodesClient, replicationClient, appState.Metrics, appState.MemWatch) // TODO client
 	if err != nil {
 		appState.Logger.
@@ -1001,8 +1000,6 @@ func startBackupScheduler(appState *state.State) *backup.Scheduler {
 // TODO: Split up and don't write into global variables. Instead return an appState
 func startupRoutine(ctx context.Context, options *swag.CommandLineOptionsGroup) *state.State {
 	appState := &state.State{}
-	appState.StartupTime = time.Now()
-
 	logger := logger()
 	appState.Logger = logger
 

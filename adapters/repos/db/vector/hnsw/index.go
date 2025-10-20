@@ -878,10 +878,6 @@ func (h *hnsw) AlreadyIndexed() uint64 {
 	return uint64(h.cache.CountVectors())
 }
 
-func (h *hnsw) CachePrefilled() bool {
-	return h.cachePrefilled.Load()
-}
-
 func (h *hnsw) GetKeys(id uint64) (uint64, uint64, error) {
 	docID, relativeID := h.cache.GetKeys(id)
 	return docID, relativeID, nil

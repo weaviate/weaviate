@@ -15,9 +15,6 @@ import (
 	"context"
 	"net/http"
 	"sync"
-	"time"
-
-	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 
 	"github.com/sirupsen/logrus"
 
@@ -33,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/oidc"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 	"github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -93,9 +91,6 @@ type State struct {
 
 	DistributedTaskScheduler *distributedtask.Scheduler
 	Migrator                 *db.Migrator
-
-	// StartupTime records when the process initialized; useful for warmup windows
-	StartupTime time.Time
 }
 
 // GetGraphQL is the safe way to retrieve GraphQL from the state as it can be

@@ -722,8 +722,6 @@ type IndexConfig struct {
 	QuerySlowLogThreshold  *configRuntime.DynamicValue[time.Duration]
 	InvertedSorterDisabled *configRuntime.DynamicValue[bool]
 	MaintenanceModeEnabled func() bool
-	StartupTime            time.Time
-	ReadyTime              time.Time
 }
 
 func indexID(class schema.ClassName) string {
@@ -1558,46 +1556,11 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 
 			useLocal := false
 			if shard != nil {
-				// Check cache prefilled status for objectSearchByShard
-				cachePrefilled := true
-				if vi, ok := shard.GetVectorIndex(""); ok && vi != nil {
-					if hnswIndex, ok := vi.(interface{ CachePrefilled() bool }); ok {
-						cachePrefilled = hnswIndex.CachePrefilled()
-					} else {
-						// Non-HNSW index, assume ready
-						cachePrefilled = true
-					}
-				}
-
 				status := shard.GetStatus()
 				if status == storagestate.StatusReady || status == storagestate.StatusReadOnly {
 					// Skip local if draining
 					if s, ok := shard.(*Shard); ok && s.shutdownRequested.Load() {
 						useLocal = false
-					} else {
-						// During rollouts, prefer local even with cold cache to avoid remote failures
-						// This provides better resilience during node lifecycle events
-						// For newly ready nodes (within 30 seconds), prefer remote to avoid slow local operations
-						nodeReadyTime := i.Config.ReadyTime
-						// Check if ready time is valid (not zero)
-						if !nodeReadyTime.IsZero() {
-							timeSinceReady := time.Since(nodeReadyTime)
-							if timeSinceReady < 30*time.Second {
-								// Node became ready recently, prefer remote to avoid slow local operations during warmup
-								useLocal = false
-								i.logger.WithFields(logrus.Fields{
-									"shardName":      shardName,
-									"timeSinceReady": timeSinceReady.String(),
-									"reason":         "recent_ready_prefer_remote",
-								}).Debug("preferring remote search due to recent node ready")
-							} else {
-								// Node has been ready for a while, use cache prefilled status
-								useLocal = cachePrefilled
-							}
-						} else {
-							// Ready time not set, use cache prefilled status
-							useLocal = cachePrefilled
-						}
 					}
 				} else {
 					useLocal = false
@@ -1616,40 +1579,13 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 					if _, ok := lazyShard.(*LazyLoadShard); ok {
 						i.logger.WithField("shardName", shardName).Debug("found lazy-loaded shard, checking if it should be loaded")
 
-						// For lazy-loaded shards, consider ready time
-						nodeReadyTime := i.Config.ReadyTime
-						// Check if ready time is valid (not zero)
-						if !nodeReadyTime.IsZero() {
-							timeSinceReady := time.Since(nodeReadyTime)
-							if timeSinceReady < 30*time.Second {
-								// Node became ready recently, prefer remote to avoid slow lazy loading
-								useLocal = false
-								i.logger.WithFields(logrus.Fields{
-									"shardName":      shardName,
-									"timeSinceReady": timeSinceReady.String(),
-									"reason":         "recent_ready_lazy_shard_prefer_remote",
-								}).Debug("preferring remote search for lazy-loaded shard due to recent node ready")
-							} else {
-								// Node has been ready for a while, prefer loading lazy shards locally
-								status := lazyShard.GetStatus()
-								if status == storagestate.StatusLoading {
-									// Shard is loading, wait for it to complete
-									i.logger.WithField("shardName", shardName).Debug("lazy-loaded shard is loading, waiting for completion")
-									useLocal = true
-								} else if status == storagestate.StatusReady || status == storagestate.StatusReadOnly {
-									// Shard is ready, use local
-									useLocal = true
-								}
-							}
-						} else {
-							// Ready time not set, use normal logic
-							status := lazyShard.GetStatus()
-							if status == storagestate.StatusLoading {
-								i.logger.WithField("shardName", shardName).Debug("lazy-loaded shard is loading, waiting for completion")
-								useLocal = true
-							} else if status == storagestate.StatusReady || status == storagestate.StatusReadOnly {
-								useLocal = true
-							}
+						// Ready time not set, use normal logic
+						status := lazyShard.GetStatus()
+						if status == storagestate.StatusLoading {
+							i.logger.WithField("shardName", shardName).Debug("lazy-loaded shard is loading, waiting for completion")
+							useLocal = true
+						} else if status == storagestate.StatusReady || status == storagestate.StatusReadOnly {
+							useLocal = true
 						}
 					} else {
 						// Regular shard, use local if ready
@@ -1671,21 +1607,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 			// Log decision for objectSearchByShard
 			var shardStatusStr string
 			var shutdownReq bool
-			var cachePrefilled bool
-			if s, ok := shard.(*Shard); ok {
-				shutdownReq = s.shutdownRequested.Load()
-				// Check cache prefilled status for logging
-				s.vectorIndexMu.RLock()
-				vi := s.vectorIndex
-				s.vectorIndexMu.RUnlock()
-				if vi != nil {
-					if hnswIndex, ok := vi.(interface{ CachePrefilled() bool }); ok {
-						cachePrefilled = hnswIndex.CachePrefilled()
-					} else {
-						cachePrefilled = true
-					}
-				}
-			}
+
 			if shard != nil {
 				shardStatusStr = shard.GetStatus().String()
 			} else {
@@ -1696,7 +1618,6 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 				"shardName":          shardName,
 				"shard_status":       shardStatusStr,
 				"shutdown_requested": shutdownReq,
-				"cache_prefilled":    cachePrefilled,
 				"use_local":          useLocal,
 			}).Info("objectSearchByShard: local/remote decision")
 
@@ -2005,17 +1926,6 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 		}
 
 		if shard != nil {
-			// Check cache prefilled status for single-shard path
-			cachePrefilled := true
-			if vi, ok := shard.GetVectorIndex(""); ok && vi != nil {
-				if hnswIndex, ok := vi.(interface{ CachePrefilled() bool }); ok {
-					cachePrefilled = hnswIndex.CachePrefilled()
-				} else {
-					// Non-HNSW index, assume ready
-					cachePrefilled = true
-				}
-			}
-
 			// Only go local if READY/READONLY, not draining, and prefer local during rollouts
 			useLocal := true
 			status := shard.GetStatus()
@@ -2044,7 +1954,6 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 				"shardName":          shardNames[0],
 				"shard_status":       shardStatusStr,
 				"shutdown_requested": shutdownReq,
-				"cache_prefilled":    cachePrefilled,
 				"use_local":          useLocal,
 			}).Info("objectVectorSearch: local/remote decision")
 			if useLocal {
@@ -2107,25 +2016,6 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 		}
 
 		useLocal := false
-		var cachePrefilled bool
-
-		// Always check HNSW cache prefilled status first
-		if shard != nil {
-			if s, ok := shard.(*Shard); ok {
-				s.vectorIndexMu.RLock()
-				vi := s.vectorIndex
-				s.vectorIndexMu.RUnlock()
-				if vi != nil {
-					// Check if this is an HNSW index and if cache is prefilled
-					if hnswIndex, ok := vi.(interface{ CachePrefilled() bool }); ok {
-						cachePrefilled = hnswIndex.CachePrefilled()
-					} else {
-						// Non-HNSW index, assume ready
-						cachePrefilled = true
-					}
-				}
-			}
-		}
 
 		// Now apply the decision logic
 		if shard != nil {
@@ -2134,30 +2024,6 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 				// Skip local if draining
 				if s, ok := shard.(*Shard); ok && s.shutdownRequested.Load() {
 					useLocal = false
-				} else {
-					// During rollouts, prefer local even with cold cache to avoid remote failures
-					// This provides better resilience during node lifecycle events
-					// For newly ready nodes (within 30 seconds), prefer remote to avoid slow local operations
-					nodeReadyTime := i.Config.ReadyTime
-					// Check if ready time is valid (not zero)
-					if !nodeReadyTime.IsZero() {
-						timeSinceReady := time.Since(nodeReadyTime)
-						if timeSinceReady < 30*time.Second {
-							// Node became ready recently, prefer remote to avoid slow local operations during warmup
-							useLocal = false
-							i.logger.WithFields(logrus.Fields{
-								"shardName":      shardNames[0],
-								"timeSinceReady": timeSinceReady.String(),
-								"reason":         "recent_ready_prefer_remote",
-							}).Debug("preferring remote search due to recent node ready")
-						} else {
-							// Node has been ready for a while, use cache prefilled status
-							useLocal = cachePrefilled
-						}
-					} else {
-						// Ready time not set, use cache prefilled status
-						useLocal = cachePrefilled
-					}
 				}
 			} else {
 				useLocal = false
@@ -2176,40 +2042,13 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 				if _, ok := lazyShard.(*LazyLoadShard); ok {
 					i.logger.WithField("shardName", shardNames[0]).Debug("found lazy-loaded shard, checking if it should be loaded")
 
-					// For lazy-loaded shards, consider ready time
-					nodeReadyTime := i.Config.ReadyTime
-					// Check if ready time is valid (not zero)
-					if !nodeReadyTime.IsZero() {
-						timeSinceReady := time.Since(nodeReadyTime)
-						if timeSinceReady < 30*time.Second {
-							// Node became ready recently, prefer remote to avoid slow lazy loading
-							useLocal = false
-							i.logger.WithFields(logrus.Fields{
-								"shardName":      shardNames[0],
-								"timeSinceReady": timeSinceReady.String(),
-								"reason":         "recent_ready_lazy_shard_prefer_remote",
-							}).Debug("preferring remote search for lazy-loaded shard due to recent node ready")
-						} else {
-							// Node has been ready for a while, prefer loading lazy shards locally
-							status := lazyShard.GetStatus()
-							if status == storagestate.StatusLoading {
-								// Shard is loading, wait for it to complete
-								i.logger.WithField("shardName", shardNames[0]).Debug("lazy-loaded shard is loading, waiting for completion")
-								useLocal = true
-							} else if status == storagestate.StatusReady || status == storagestate.StatusReadOnly {
-								// Shard is ready, use local
-								useLocal = true
-							}
-						}
-					} else {
-						// Ready time not set, use normal logic
-						status := lazyShard.GetStatus()
-						if status == storagestate.StatusLoading {
-							i.logger.WithField("shardName", shardNames[0]).Debug("lazy-loaded shard is loading, waiting for completion")
-							useLocal = true
-						} else if status == storagestate.StatusReady || status == storagestate.StatusReadOnly {
-							useLocal = true
-						}
+					// Ready time not set, use normal logic
+					status := lazyShard.GetStatus()
+					if status == storagestate.StatusLoading {
+						i.logger.WithField("shardName", shardNames[0]).Debug("lazy-loaded shard is loading, waiting for completion")
+						useLocal = true
+					} else if status == storagestate.StatusReady || status == storagestate.StatusReadOnly {
+						useLocal = true
 					}
 				} else {
 					// Regular shard, use local if ready
@@ -2245,7 +2084,6 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 			"shardName":          shardName,
 			"shard_status":       shardStatusStr,
 			"shutdown_requested": shutdownReq,
-			"cache_prefilled":    cachePrefilled,
 		}).Info("objectVectorSearch: local/remote decision")
 
 		if useLocal {
@@ -2382,22 +2220,10 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 		return res, scores, nil
 	}
 
-	// Vector search - check if cache is prefilled for HNSW indices (informational only)
-	cachePrefilled := true
-	if vi, ok := shard.GetVectorIndex(""); ok && vi != nil {
-		if hnswIndex, ok := vi.(interface{ CachePrefilled() bool }); ok {
-			cachePrefilled = hnswIndex.CachePrefilled()
-		} else {
-			// Non-HNSW index, assume ready
-			cachePrefilled = true
-		}
-	}
-
 	// Log cache status for monitoring (but don't block execution)
 	i.logger.WithFields(logrus.Fields{
-		"action":          "incoming_vector_search",
-		"shardName":       shardName,
-		"cache_prefilled": cachePrefilled,
+		"action":    "incoming_vector_search",
+		"shardName": shardName,
 	}).Info("IncomingSearch: executing vector search")
 
 	res, resDists, err := shard.ObjectVectorSearch(
