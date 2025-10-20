@@ -14,7 +14,6 @@ package dynamic
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strconv"
 	"sync"
@@ -43,9 +42,6 @@ var logger, _ = test.NewNullLogger()
 
 func TestDynamic(t *testing.T) {
 	ctx := context.Background()
-	currentIndexing := os.Getenv("ASYNC_INDEXING")
-	os.Setenv("ASYNC_INDEXING", "true")
-	defer os.Setenv("ASYNC_INDEXING", currentIndexing)
 	dimensions := 20
 	vectors_size := 1_000
 	queries_size := 10
@@ -89,6 +85,7 @@ func TestDynamic(t *testing.T) {
 		TempVectorForIDThunk: TempVectorForIDThunk(vectors),
 		TombstoneCallbacks:   noopCallback,
 		SharedDB:             db,
+		AsyncIndexingEnabled: true,
 	}, ent.UserConfig{
 		Threshold: uint64(vectors_size),
 		Distance:  distancer.Type(),
@@ -124,9 +121,6 @@ func TestDynamic(t *testing.T) {
 }
 
 func TestDynamicReturnsErrorIfNoAsync(t *testing.T) {
-	currentIndexing := os.Getenv("ASYNC_INDEXING")
-	os.Unsetenv("ASYNC_INDEXING")
-	defer os.Setenv("ASYNC_INDEXING", currentIndexing)
 	rootPath := t.TempDir()
 	noopCallback := cyclemanager.NewCallbackGroupNoop()
 	fuc := flatent.UserConfig{}
@@ -151,6 +145,7 @@ func TestDynamicReturnsErrorIfNoAsync(t *testing.T) {
 		TempVectorForIDThunk: TempVectorForIDThunk(nil),
 		TombstoneCallbacks:   noopCallback,
 		SharedDB:             db,
+		AsyncIndexingEnabled: false, // Explicitly set to false to test error condition
 	}, ent.UserConfig{
 		Threshold: uint64(100),
 		Distance:  distancer.Type(),
@@ -158,6 +153,7 @@ func TestDynamicReturnsErrorIfNoAsync(t *testing.T) {
 		FlatUC:    fuc,
 	}, testinghelpers.NewDummyStore(t))
 	assert.NotNil(t, err)
+	assert.Contains(t, err.Error(), "async indexing")
 }
 
 func TempVectorForIDThunk(vectors [][]float32) func(context.Context, uint64, *common.VectorSlice) ([]float32, error) {
@@ -169,9 +165,6 @@ func TempVectorForIDThunk(vectors [][]float32) func(context.Context, uint64, *co
 
 func TestDynamicWithTargetVectors(t *testing.T) {
 	ctx := context.Background()
-	currentIndexing := os.Getenv("ASYNC_INDEXING")
-	os.Setenv("ASYNC_INDEXING", "true")
-	defer os.Setenv("ASYNC_INDEXING", currentIndexing)
 	dimensions := 20
 	vectors_size := 1_000
 	queries_size := 10
@@ -220,6 +213,7 @@ func TestDynamicWithTargetVectors(t *testing.T) {
 			TempVectorForIDThunk: TempVectorForIDThunk(vectors),
 			TombstoneCallbacks:   noopCallback,
 			SharedDB:             db,
+			AsyncIndexingEnabled: true,
 		}, ent.UserConfig{
 			Threshold: uint64(vectors_size),
 			Distance:  distancer.Type(),
@@ -260,7 +254,6 @@ func TestDynamicWithTargetVectors(t *testing.T) {
 
 func TestDynamicUpgradeCancelation(t *testing.T) {
 	ctx := context.Background()
-	t.Setenv("ASYNC_INDEXING", "true")
 	dimensions := 20
 	vectors_size := 1_000
 	queries_size := 10
@@ -305,6 +298,7 @@ func TestDynamicUpgradeCancelation(t *testing.T) {
 		TempVectorForIDThunk: TempVectorForIDThunk(vectors),
 		TombstoneCallbacks:   noopCallback,
 		SharedDB:             db,
+		AsyncIndexingEnabled: true,
 	}, ent.UserConfig{
 		Threshold: uint64(vectors_size),
 		Distance:  distancer.Type(),
@@ -342,7 +336,6 @@ func TestDynamicUpgradeCancelation(t *testing.T) {
 
 func TestDynamicWithDifferentCompressionSchema(t *testing.T) {
 	ctx := context.Background()
-	t.Setenv("ASYNC_INDEXING", "true")
 	dimensions := 20
 	vectors_size := 1_000
 	threshold := 600
@@ -409,6 +402,7 @@ func TestDynamicWithDifferentCompressionSchema(t *testing.T) {
 		TombstoneCallbacks:      noopCallback,
 		SharedDB:                db,
 		HNSWWaitForCachePrefill: true,
+		AsyncIndexingEnabled:    true,
 	}
 	uc := ent.UserConfig{
 		Threshold: uint64(threshold),
@@ -474,9 +468,6 @@ func TestDynamicWithDifferentCompressionSchema(t *testing.T) {
 
 func TestDynamicAndStoreOperations(t *testing.T) {
 	ctx := context.Background()
-	currentIndexing := os.Getenv("ASYNC_INDEXING")
-	os.Setenv("ASYNC_INDEXING", "true")
-	defer os.Setenv("ASYNC_INDEXING", currentIndexing)
 	dimensions := 20
 	vectors_size := 1_000
 	queries_size := 10
@@ -519,6 +510,7 @@ func TestDynamicAndStoreOperations(t *testing.T) {
 		TempVectorForIDThunk: TempVectorForIDThunk(vectors),
 		TombstoneCallbacks:   noopCallback,
 		SharedDB:             db,
+		AsyncIndexingEnabled: true,
 	}, ent.UserConfig{
 		Threshold: uint64(vectors_size),
 		Distance:  distancer.Type(),

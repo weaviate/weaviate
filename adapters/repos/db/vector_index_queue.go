@@ -62,7 +62,7 @@ func NewVectorIndexQueue(
 	viq := VectorIndexQueue{
 		shard:        shard,
 		scheduler:    shard.scheduler,
-		asyncEnabled: shard.index.asyncIndexingEnabled,
+		asyncEnabled: shard.index.AsyncIndexingEnabled,
 	}
 	viq.vectorIndex = index
 

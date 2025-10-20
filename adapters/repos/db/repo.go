@@ -100,7 +100,7 @@ type DB struct {
 	bitmapBufPool      roaringset.BitmapBufPool
 	bitmapBufPoolClose func()
 
-	asyncIndexingEnabled bool
+	AsyncIndexingEnabled bool
 }
 
 func (db *DB) GetSchemaGetter() schemaUC.SchemaGetter {
@@ -175,13 +175,13 @@ func New(logger logrus.FieldLogger, config Config,
 		reindexer:            NewShardReindexerV3Noop(),
 		bitmapBufPool:        roaringset.NewBitmapBufPoolNoop(),
 		bitmapBufPoolClose:   func() {},
-		asyncIndexingEnabled: config.AsyncIndexingEnabled,
+		AsyncIndexingEnabled: config.AsyncIndexingEnabled,
 	}
 
 	if db.maxNumberGoroutines == 0 {
 		return db, errors.New("no workers to add batch-jobs configured.")
 	}
-	if !db.asyncIndexingEnabled {
+	if !db.AsyncIndexingEnabled {
 		db.jobQueueCh = make(chan job, 100000)
 		db.shutDownWg.Add(db.maxNumberGoroutines)
 		for i := 0; i < db.maxNumberGoroutines; i++ {
@@ -348,7 +348,7 @@ func (db *DB) Shutdown(ctx context.Context) error {
 	db.shutdown <- struct{}{}
 	db.bitmapBufPoolClose()
 
-	if !db.asyncIndexingEnabled {
+	if !db.AsyncIndexingEnabled {
 		// shut down the workers that add objects to
 		for i := 0; i < db.maxNumberGoroutines; i++ {
 			db.jobQueueCh <- job{
@@ -357,7 +357,7 @@ func (db *DB) Shutdown(ctx context.Context) error {
 		}
 	}
 
-	if db.asyncIndexingEnabled {
+	if db.AsyncIndexingEnabled {
 		// shut down the async workers
 		err := db.scheduler.Close()
 		if err != nil {
@@ -379,7 +379,7 @@ func (db *DB) Shutdown(ctx context.Context) error {
 
 	db.shutDownWg.Wait() // wait until job queue shutdown is completed
 
-	if db.asyncIndexingEnabled {
+	if db.AsyncIndexingEnabled {
 		db.indexCheckpoints.Close()
 	}
 

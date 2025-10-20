@@ -213,11 +213,11 @@ func getRandomSeed() *rand.Rand {
 
 func testShard(t *testing.T, ctx context.Context, className string, indexOpts ...func(*Index)) (ShardLike, *Index) {
 	return testShardWithSettings(t, ctx, &models.Class{Class: className}, enthnsw.UserConfig{Skip: true},
-		false, false, indexOpts...)
+		false, false, false, indexOpts...)
 }
 
 func testShardWithSettings(t *testing.T, ctx context.Context, class *models.Class,
-	vic schemaConfig.VectorIndexConfig, withStopwords, withCheckpoints bool, indexOpts ...func(*Index),
+	vic schemaConfig.VectorIndexConfig, withStopwords, withCheckpoints, withAsyncIndexingEnabled bool, indexOpts ...func(*Index),
 ) (ShardLike, *Index) {
 	tmpDir := t.TempDir()
 	logger, _ := test.NewNullLogger()
@@ -228,6 +228,7 @@ func testShardWithSettings(t *testing.T, ctx context.Context, class *models.Clas
 		RootPath:                  tmpDir,
 		QueryMaximumResults:       maxResults,
 		MaxImportGoroutinesFactor: 1,
+		AsyncIndexingEnabled:      withAsyncIndexingEnabled,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor())
 	require.Nil(t, err)
 

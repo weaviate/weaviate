@@ -50,6 +50,7 @@ type Config struct {
 	AllocChecker                 memwatch.AllocChecker
 	WriteSegmentInfoIntoFileName bool
 	WriteMetadataFilesEnabled    bool
+	AsyncIndexingEnabled         bool
 }
 
 func (c Config) Validate() error {

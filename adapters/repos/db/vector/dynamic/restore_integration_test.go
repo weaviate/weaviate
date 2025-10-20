@@ -13,7 +13,6 @@ package dynamic
 
 import (
 	"context"
-	"os"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -36,9 +35,6 @@ import (
 
 func TestBackup_Integration(t *testing.T) {
 	ctx := context.Background()
-	currentIndexing := os.Getenv("ASYNC_INDEXING")
-	os.Setenv("ASYNC_INDEXING", "true")
-	defer os.Setenv("ASYNC_INDEXING", currentIndexing)
 	dimensions := 20
 	vectors_size := 1_000
 	queries_size := 10
@@ -91,6 +87,7 @@ func TestBackup_Integration(t *testing.T) {
 		TempVectorForIDThunk: TempVectorForIDThunk(vectors),
 		TombstoneCallbacks:   noopCallback,
 		SharedDB:             db,
+		AsyncIndexingEnabled: true,
 	}
 
 	uc := ent.UserConfig{

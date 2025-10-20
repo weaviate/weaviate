@@ -47,7 +47,7 @@ func (s *Shard) putBatch(ctx context.Context,
 	objects []*storobj.Object,
 ) []error {
 	s.activityTrackerWrite.Add(1)
-	if s.index.asyncIndexingEnabled {
+	if s.index.AsyncIndexingEnabled {
 		return s.putBatchAsync(ctx, objects)
 	}
 	// Workers are started with the first batch and keep working as there are objects to add from any batch. Each batch

@@ -373,8 +373,6 @@ func TestIndex_DropReadOnlyIndexWithData(t *testing.T) {
 }
 
 func TestIndex_DropUnloadedShard(t *testing.T) {
-	t.Setenv("ASYNC_INDEXING", "true")
-
 	dirName := t.TempDir()
 	logger, _ := test.NewNullLogger()
 	class := &models.Class{
@@ -416,7 +414,7 @@ func TestIndex_DropUnloadedShard(t *testing.T) {
 		hnsw.NewDefaultUserConfig(), nil, nil, &fakeSchemaGetter{
 			schema: fakeSchema, shardState: shardState,
 		}, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, cpFile, memwatch.NewDummyMonitor(),
-		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false)
+		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), true)
 	require.Nil(t, err)
 
 	// at this point the shard is not loaded yet.
@@ -447,8 +445,6 @@ func TestIndex_DropUnloadedShard(t *testing.T) {
 }
 
 func TestIndex_DropLoadedShard(t *testing.T) {
-	t.Setenv("ASYNC_INDEXING", "true")
-
 	dirName := t.TempDir()
 	logger, _ := test.NewNullLogger()
 	class := &models.Class{
@@ -483,10 +479,11 @@ func TestIndex_DropLoadedShard(t *testing.T) {
 		Workers: 1,
 	})
 	index, err := NewIndex(testCtx(), IndexConfig{
-		RootPath:          dirName,
-		ClassName:         schema.ClassName(class.Class),
-		ReplicationFactor: 1,
-		ShardLoadLimiter:  NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
+		RootPath:                dirName,
+		ClassName:               schema.ClassName(class.Class),
+		ReplicationFactor:       1,
+		ShardLoadLimiter:        NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
+		AsyncReplicationEnabled: true,
 	}, shardState, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		hnsw.NewDefaultUserConfig(), nil, nil, &fakeSchemaGetter{
 			schema: fakeSchema, shardState: shardState,
@@ -580,12 +577,11 @@ func getIndexFilenames(rootDir, indexName string) ([]string, error) {
 }
 
 func TestIndex_DebugResetVectorIndex(t *testing.T) {
-	t.Setenv("ASYNC_INDEXING", "true")
 	t.Setenv("ASYNC_INDEXING_STALE_TIMEOUT", "100ms")
 
 	ctx := context.Background()
 	class := &models.Class{Class: "reindextest"}
-	shard, index := testShardWithSettings(t, ctx, &models.Class{Class: class.Class}, hnsw.UserConfig{}, false, true /* withCheckpoints */)
+	shard, index := testShardWithSettings(t, ctx, &models.Class{Class: class.Class}, hnsw.UserConfig{}, false, true, false)
 
 	// unknown shard
 	err := index.DebugResetVectorIndex(ctx, "unknown", "")
@@ -655,7 +651,6 @@ func TestIndex_DebugResetVectorIndex(t *testing.T) {
 }
 
 func TestIndex_DebugResetVectorIndexTargetVector(t *testing.T) {
-	t.Setenv("ASYNC_INDEXING", "true")
 	t.Setenv("ASYNC_INDEXING_STALE_TIMEOUT", "100ms")
 
 	ctx := context.Background()
@@ -666,6 +661,7 @@ func TestIndex_DebugResetVectorIndexTargetVector(t *testing.T) {
 		&models.Class{Class: class.Class},
 		nil,
 		false,
+		true,
 		true,
 		func(i *Index) {
 			i.vectorIndexUserConfigs = make(map[string]schemaConfig.VectorIndexConfig)
@@ -747,7 +743,6 @@ func TestIndex_DebugResetVectorIndexTargetVector(t *testing.T) {
 }
 
 func TestIndex_DebugResetVectorIndexPQ(t *testing.T) {
-	t.Setenv("ASYNC_INDEXING", "true")
 	t.Setenv("ASYNC_INDEXING_STALE_TIMEOUT", "100ms")
 
 	ctx := context.Background()
@@ -765,6 +760,7 @@ func TestIndex_DebugResetVectorIndexPQ(t *testing.T) {
 		&models.Class{Class: "reindextest"},
 		cfg,
 		false,
+		true,
 		true,
 	)
 
@@ -844,7 +840,6 @@ func TestIndex_DebugResetVectorIndexPQ(t *testing.T) {
 }
 
 func TestIndex_DebugResetVectorIndexFlat(t *testing.T) {
-	t.Setenv("ASYNC_INDEXING", "true")
 	t.Setenv("ASYNC_INDEX_INTERVAL", "100ms")
 
 	ctx := context.Background()
@@ -855,6 +850,7 @@ func TestIndex_DebugResetVectorIndexFlat(t *testing.T) {
 		&models.Class{Class: class.Class, VectorIndexType: "flat"},
 		flat.UserConfig{},
 		false,
+		true,
 		true,
 	)
 
@@ -875,8 +871,6 @@ func randVector(dim int) []float32 {
 }
 
 func TestIndex_ConvertQueue(t *testing.T) {
-	t.Setenv("ASYNC_INDEXING", "true")
-
 	ctx := context.Background()
 	class := &models.Class{Class: "preloadtest"}
 	shard, index := testShardWithSettings(
@@ -885,6 +879,7 @@ func TestIndex_ConvertQueue(t *testing.T) {
 		&models.Class{Class: class.Class},
 		hnsw.UserConfig{},
 		false,
+		true,
 		true,
 	)
 	amount := 1000
@@ -932,8 +927,6 @@ func TestIndex_ConvertQueue(t *testing.T) {
 }
 
 func TestIndex_ConvertQueueTargetVector(t *testing.T) {
-	t.Setenv("ASYNC_INDEXING", "true")
-
 	ctx := context.Background()
 	class := &models.Class{Class: "preloadtest"}
 	shard, index := testShardWithSettings(
@@ -942,6 +935,7 @@ func TestIndex_ConvertQueueTargetVector(t *testing.T) {
 		&models.Class{Class: class.Class},
 		hnsw.UserConfig{},
 		false,
+		true,
 		true,
 		func(i *Index) {
 			i.vectorIndexUserConfigs = make(map[string]schemaConfig.VectorIndexConfig)

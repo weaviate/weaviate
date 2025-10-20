@@ -162,7 +162,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 		convertToVectorIndexConfigs(class.VectorConfig),
 		m.db.router, m.db.schemaGetter, m.db, m.logger, m.db.nodeResolver, m.db.remoteIndex,
 		m.db.replicaClient, &m.db.config.Replication, m.db.promMetrics, class, m.db.jobQueueCh, m.db.scheduler,
-		m.db.indexCheckpoints, m.db.memMonitor, m.db.reindexer, m.db.bitmapBufPool, m.db.asyncIndexingEnabled)
+		m.db.indexCheckpoints, m.db.memMonitor, m.db.reindexer, m.db.bitmapBufPool, m.db.AsyncIndexingEnabled)
 	if err != nil {
 		return errors.Wrap(err, "create index")
 	}
