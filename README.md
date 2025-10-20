@@ -131,12 +131,9 @@ For a complete list of all functionalities, visit the [official Weaviate documen
 
 ### Demo projects & recipes
 
-These demos are working applications that highlight some of Weaviate's capabilities. Their source code is available on GitHub.
+On [our demos page](https://weaviate.io/community/demos) you can find working applications that highlight some of Weaviate's capabilities. Their source code is available on GitHub.
 
-- [Elysia](https://elysia.weaviate.io) ([GitHub](https://github.com/weaviate/elysia)): Elysia is a decision tree based agentic system which intelligently decides what tools to use, what results have been obtained, whether it should continue the process or whether its goal has been completed.
-- [Verba](https://verba.weaviate.io) ([GitHub](https://github.com/weaviate/verba)): A community-driven open-source application designed to offer an end-to-end, streamlined, and user-friendly interface for Retrieval-Augmented Generation (RAG) out of the box.
-- [Healthsearch](https://healthsearch.weaviate.io) ([GitHub](https://github.com/weaviate/healthsearch-demo)): An open-source project aimed at showcasing the potential of leveraging user-written reviews and queries to retrieve supplement products based on specific health effects.
-- [Awesome-Moviate](https://awesome-moviate.weaviate.io/) ([GitHub](https://github.com/weaviate-tutorials/awesome-moviate)): A movie search and recommendation engine that allows keyword-based (BM25), semantic, and hybrid searches.
+- [Elysia](https://elysia.weaviate.io) ([GitHub](https://github.com/weaviate/elysia)): Elysia is an open source agentic RAG framework that uses a decision tree based architecture to intelligently decide what tools to use, what results have been obtained, whether it should continue the process or whether its goal has been completed.
 
 We also maintain extensive repositories of **Jupyter Notebooks** and **TypeScript code snippets** that cover how to use Weaviate features and integrations:
 
