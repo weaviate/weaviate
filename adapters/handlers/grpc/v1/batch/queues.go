@@ -12,6 +12,7 @@
 package batch
 
 import (
+	"math"
 	"sync"
 	"time"
 
@@ -61,7 +62,8 @@ type (
 // The buffer size can be adjusted based on expected load and performance requirements
 // to optimize throughput and resource usage. But is required so that there is a small buffer
 // that can be quickly flushed in the event of a shutdown.
-func NewProcessingQueue(bufferSize int) processingQueue {
+func NewProcessingQueue(numWorkers int) processingQueue {
+	bufferSize := int(math.Ceil(float64(numWorkers) / 4))
 	return make(processingQueue, bufferSize)
 }
 
@@ -170,9 +172,16 @@ func (s *stats) updateBatchSize(processingTime time.Duration) {
 	// Throughput is measured in objects per second
 	s.throughputEma = alpha*float64(s.batchSize)/processingTime.Seconds() + (1-alpha)*s.throughputEma
 	s.processingTimeEma = alpha*processingTime.Seconds() + (1-alpha)*s.processingTimeEma
-	// Adjust batch size based on ratio of ideal time to processing time EMA
-	// If processing time is higher than ideal, batch size will decrease, and vice versa
-	s.batchSize = int(float64(s.batchSize) * (IDEAL_PROCESSING_TIME / s.processingTimeEma))
+	if s.processingTimeEma-IDEAL_PROCESSING_TIME > 0.1 {
+		// Decrement fast if we're over the ideal processing time
+		// e.g., if ema is 5s (5x ideal), reduce batch size by 500
+		s.batchSize -= int(math.Ceil(100 * s.processingTimeEma / IDEAL_PROCESSING_TIME))
+	} else if s.processingTimeEma-IDEAL_PROCESSING_TIME < 0.1 {
+		// Increment slowly if we're under the ideal processing time
+		// e.g., if ema is 0.5s (0.5x ideal), increase batch size by 100
+		s.batchSize += 100
+	}
+	// Can't have negative or fractional batch size
 	if s.batchSize < 1 {
 		s.batchSize = 1
 	}
