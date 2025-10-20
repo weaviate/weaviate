@@ -45,12 +45,12 @@ type TenantsUpdateParams struct {
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
-	/*
+	/*An array of tenant objects specifying the tenants to update and their desired new status.
 	  Required: true
 	  In: body
 	*/
 	Body []*models.Tenant
-	/*
+	/*The name of the collection (class) containing the tenants.
 	  Required: true
 	  In: path
 	*/

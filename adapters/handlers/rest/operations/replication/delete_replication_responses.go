@@ -193,7 +193,7 @@ func (o *DeleteReplicationConflict) WriteResponse(rw http.ResponseWriter, produc
 const DeleteReplicationUnprocessableEntityCode int = 422
 
 /*
-DeleteReplicationUnprocessableEntity Request body is well-formed (i.e., syntactically correct), but semantically erroneous.
+DeleteReplicationUnprocessableEntity The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.
 
 swagger:response deleteReplicationUnprocessableEntity
 */

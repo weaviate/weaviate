@@ -74,7 +74,10 @@ SchemaObjectsCreateParams contains all the parameters to send to the API endpoin
 */
 type SchemaObjectsCreateParams struct {
 
-	// ObjectClass.
+	/* ObjectClass.
+
+	   The definition of the collection (class) to create.
+	*/
 	ObjectClass *models.Class
 
 	timeout    time.Duration

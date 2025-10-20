@@ -89,7 +89,7 @@ func NewObjectsClassPatchNoContent() *ObjectsClassPatchNoContent {
 /*
 ObjectsClassPatchNoContent describes a response with status code 204, with default header values.
 
-Successfully applied. No content provided.
+Object patched successfully.
 */
 type ObjectsClassPatchNoContent struct {
 }
@@ -145,7 +145,7 @@ func NewObjectsClassPatchBadRequest() *ObjectsClassPatchBadRequest {
 /*
 ObjectsClassPatchBadRequest describes a response with status code 400, with default header values.
 
-The patch-JSON is malformed.
+Malformed patch request body.
 */
 type ObjectsClassPatchBadRequest struct {
 	Payload *models.ErrorResponse
@@ -337,7 +337,7 @@ func NewObjectsClassPatchNotFound() *ObjectsClassPatchNotFound {
 /*
 ObjectsClassPatchNotFound describes a response with status code 404, with default header values.
 
-Successful query result but no resource was found.
+Object not found.
 */
 type ObjectsClassPatchNotFound struct {
 }
@@ -393,7 +393,7 @@ func NewObjectsClassPatchUnprocessableEntity() *ObjectsClassPatchUnprocessableEn
 /*
 ObjectsClassPatchUnprocessableEntity describes a response with status code 422, with default header values.
 
-The patch-JSON is valid but unprocessable.
+The patch object is valid JSON but is unprocessable for other reasons (e.g., invalid schema).
 */
 type ObjectsClassPatchUnprocessableEntity struct {
 	Payload *models.ErrorResponse
@@ -461,7 +461,7 @@ func NewObjectsClassPatchInternalServerError() *ObjectsClassPatchInternalServerE
 /*
 ObjectsClassPatchInternalServerError describes a response with status code 500, with default header values.
 
-An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+An error occurred while trying to fulfill the request. Check the ErrorResponse for details.
 */
 type ObjectsClassPatchInternalServerError struct {
 	Payload *models.ErrorResponse

@@ -52,7 +52,7 @@ func NewWeaviateRoot(ctx *middleware.Context, handler WeaviateRootHandler) *Weav
 
 # List available endpoints
 
-Get links to other endpoints to help discover the REST API
+Get links to other endpoints to help discover the REST API.
 */
 type WeaviateRoot struct {
 	Context *middleware.Context

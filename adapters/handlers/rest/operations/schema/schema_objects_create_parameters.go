@@ -45,7 +45,7 @@ type SchemaObjectsCreateParams struct {
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
-	/*
+	/*The definition of the collection (class) to create.
 	  Required: true
 	  In: body
 	*/

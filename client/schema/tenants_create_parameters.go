@@ -74,10 +74,16 @@ TenantsCreateParams contains all the parameters to send to the API endpoint
 */
 type TenantsCreateParams struct {
 
-	// Body.
+	/* Body.
+
+	   An array of tenant objects to create.
+	*/
 	Body []*models.Tenant
 
-	// ClassName.
+	/* ClassName.
+
+	   The name of the multi-tenant enabled collection (class).
+	*/
 	ClassName string
 
 	timeout    time.Duration
