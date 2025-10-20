@@ -97,8 +97,8 @@ func StartBatchWorkers(
 
 func (w *worker) isReplicationError(err string) bool {
 	return strings.Contains(err, replica.ErrReplicas.Error()) || // any error due to replicating to shutdown node
-		(strings.Contains(err, "connect: Post") && strings.Contains(err, ":commit")) || // failed to connect to shutdown node when committing
-		(strings.Contains(err, "status code: 404, error: request not found")) || // failed to find request on shutdown node
+		strings.Contains(err, "connect: Post") || // failed to connect to shutdown node
+		strings.Contains(err, "status code: 404, error: request not found") || // failed to find request on shutdown node
 		(strings.Contains(err, "resolve node name") && strings.Contains(err, "to host")) // failed to resolve to other shutdown node in cluster
 }
 
