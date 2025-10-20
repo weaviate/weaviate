@@ -151,16 +151,16 @@ type stats struct {
 func newStats() *stats {
 	return &stats{
 		// Start assuming the batch size is correct. This will reduce if the batch size should be larger.
-		processingTimeEma: 1,
-		// Start with a mid-range batch size of 100 (min 10, max 1000)
-		batchSizeEma: 100,
+		processingTimeEma: time.Second.Seconds(),
+		// Start with a lower range batch size of 200 (min 100, max 1000)
+		batchSizeEma: 200,
 		// Start at default batchSizeEma / default processingTimeEma
-		throughputEma: 100,
+		throughputEma: 200,
 	}
 }
 
 // Optimum is that each worker takes at most 1s to process a batch so that shutdown does not take too long
-const IDEAL_PROCESSING_TIME = 1.0 // seconds
+var IDEAL_PROCESSING_TIME = time.Second.Seconds()
 
 // Update EMAs using standard formula
 // newEma = alpha*newValue + (1-alpha)*oldEma
@@ -174,13 +174,13 @@ func (s *stats) updateBatchSize(processingTime time.Duration) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
-	s.throughputEma = s.ema(s.batchSizeEma/processingTime.Seconds(), s.throughputEma)
 	s.processingTimeEma = s.ema(processingTime.Seconds(), s.processingTimeEma)
 	if s.processingTimeEma-IDEAL_PROCESSING_TIME > 0.1 {
 		s.batchSizeEma = s.ema(s.batchSizeEma-100, s.batchSizeEma)
-	} else if s.processingTimeEma-IDEAL_PROCESSING_TIME < 0.1 {
+	} else if s.processingTimeEma-IDEAL_PROCESSING_TIME < -0.1 {
 		s.batchSizeEma = s.ema(s.batchSizeEma+100, s.batchSizeEma)
 	}
+	s.throughputEma = s.ema(s.batchSizeEma/processingTime.Seconds(), s.throughputEma)
 
 	if s.batchSizeEma < 100 {
 		s.batchSizeEma = 100
