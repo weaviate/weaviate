@@ -114,11 +114,11 @@ func (s *SPFresh) doMerge(postingID uint64) error {
 	prevLen := newPosting.Len()
 
 	// skip if the posting is big enough
-	if prevLen >= int(s.config.MinPostingSize) {
+	if prevLen >= int(s.minPostingSize) {
 		s.logger.
 			WithField("postingID", postingID).
 			WithField("size", prevLen).
-			WithField("min", s.config.MinPostingSize).
+			WithField("min", s.minPostingSize).
 			Debug("Posting is big enough, skipping merge operation")
 
 		if prevLen == initialLen {
@@ -173,7 +173,7 @@ func (s *SPFresh) doMerge(postingID uint64) error {
 	for candidateID := range nearest.Iter() {
 		// check if the combined size of the postings is within limits
 		count := s.PostingSizes.Get(candidateID)
-		if int(count)+prevLen > int(s.config.MaxPostingSize) || s.mergeList.contains(candidateID) {
+		if int(count)+prevLen > int(s.maxPostingSize) || s.mergeList.contains(candidateID) {
 			continue // Skip this candidate
 		}
 

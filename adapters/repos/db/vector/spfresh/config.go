@@ -31,23 +31,18 @@ import (
 
 type Config struct {
 	Logger                    logrus.FieldLogger
-	Distancer                 distancer.Provider
+	DistanceProvider          distancer.Provider
 	RootPath                  string
 	ID                        string
 	TargetVector              string
 	ShardName                 string
 	ClassName                 string
 	PrometheusMetrics         *monitoring.PrometheusMetrics
-	MaxPostingSize            uint32                          `json:"maxPostingSize,omitempty"`            // Maximum number of vectors in a posting
-	MinPostingSize            uint32                          `json:"minPostingSize,omitempty"`            // Minimum number of vectors in a posting
 	SplitWorkers              int                             `json:"splitWorkers,omitempty"`              // Number of concurrent workers for split operations
 	ReassignWorkers           int                             `json:"reassignWorkers,omitempty"`           // Number of concurrent workers for reassign operations
 	InternalPostingCandidates int                             `json:"internalPostingCandidates,omitempty"` // Number of candidates to consider when running a centroid search internally
 	ReassignNeighbors         int                             `json:"reassignNeighbors,omitempty"`         // Number of neighboring centroids to consider for reassigning vectors
-	Replicas                  int                             `json:"replicas,omitempty"`                  // Number of closure replicas to maintain
-	RNGFactor                 float32                         `json:"rngFactor,omitempty"`                 // Distance factor used by the RNG rule to determine how spread out replica selections are
 	MaxDistanceRatio          float32                         `json:"maxDistanceRatio,omitempty"`          // Maximum distance ratio for the search, used to filter out candidates that are too far away
-	SearchProbe               int                             `json:"searchProbe,omitempty"`               // Number of vectors to consider during search
 	Store                     StoreConfig                     `json:"store"`                               // Configuration for the underlying LSMKV store
 	Centroids                 CentroidConfig                  `json:"centroids"`                           // Configuration for the centroid index
 	TombstoneCallbacks        cyclemanager.CycleCallbackGroup // Callbacks for handling tombstones
@@ -83,16 +78,12 @@ func DefaultConfig() *Config {
 
 	return &Config{
 		Logger:                    logrus.New(),
-		Distancer:                 distancer.NewL2SquaredProvider(),
-		MinPostingSize:            10,
 		SplitWorkers:              w,
 		ReassignWorkers:           w,
 		InternalPostingCandidates: 64,
-		SearchProbe:               64,
 		ReassignNeighbors:         8,
-		Replicas:                  8,
-		RNGFactor:                 10.0,
 		MaxDistanceRatio:          10_000,
+		DistanceProvider:          distancer.NewL2SquaredProvider(),
 		Compressed:                false,
 	}
 }
@@ -142,12 +133,12 @@ func compressedVectorSize(size int) int {
 }
 
 func (s *SPFresh) setMaxPostingSize() {
-	if s.config.MaxPostingSize == 0 {
+	if s.maxPostingSize == 0 {
 		isCompressed := s.Compressed()
-		s.config.MaxPostingSize = computeMaxPostingSize(int(s.dims), isCompressed)
+		s.maxPostingSize = computeMaxPostingSize(int(s.dims), isCompressed)
 	}
 
-	if s.config.MaxPostingSize <= s.config.MinPostingSize {
-		s.config.MinPostingSize = s.config.MaxPostingSize / 2
+	if s.maxPostingSize <= s.minPostingSize {
+		s.minPostingSize = s.maxPostingSize / 2
 	}
 }
