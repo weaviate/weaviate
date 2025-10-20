@@ -64,6 +64,10 @@ func (c Config) Validate() error {
 		ec.Addf("distancerProvider cannot be nil")
 	}
 
+	if !c.AsyncIndexingEnabled {
+		ec.Addf("the dynamic index can only be created when async indexing is enabled")
+	}
+
 	return ec.ToError()
 }
 

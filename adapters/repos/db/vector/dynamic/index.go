@@ -137,10 +137,6 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 		return nil, errors.Wrap(err, "invalid config")
 	}
 
-	if !cfg.AsyncIndexingEnabled {
-		return nil, errors.New("the dynamic index can only be created when async indexing is enabled")
-	}
-
 	logger := cfg.Logger
 	if logger == nil {
 		l := logrus.New()
