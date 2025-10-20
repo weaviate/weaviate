@@ -125,10 +125,10 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 		h.trackRQOnce.Do(func() {
 			if singleVector {
 				h.compressor, err = compressionhelpers.NewRQCompressor(
-					h.distancerProvider, 1e12, h.logger, h.store, h.allocChecker, int(h.rqConfig.Bits), int(h.dims))
+					h.distancerProvider, 1e12, h.logger, h.store, h.allocChecker, int(h.rqConfig.Bits), int(h.dims), h.getTargetVector())
 			} else {
 				h.compressor, err = compressionhelpers.NewRQMultiCompressor(
-					h.distancerProvider, 1e12, h.logger, h.store, h.allocChecker, int(h.rqConfig.Bits), int(h.dims))
+					h.distancerProvider, 1e12, h.logger, h.store, h.allocChecker, int(h.rqConfig.Bits), int(h.dims), h.getTargetVector())
 			}
 			if err == nil {
 				h.rqConfig.RescoreLimit = cfg.RQ.RescoreLimit

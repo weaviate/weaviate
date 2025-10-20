@@ -235,6 +235,15 @@ func sq(trainingLimit int) map[string]interface{} {
 	}
 }
 
+func rq(bits int) map[string]interface{} {
+	return map[string]interface{}{
+		"rq": map[string]interface{}{
+			"enabled": true,
+			"bits":    bits,
+		},
+	}
+}
+
 func bq(multiVector bool) map[string]interface{} {
 	bq := map[string]interface{}{
 		"bq": map[string]interface{}{

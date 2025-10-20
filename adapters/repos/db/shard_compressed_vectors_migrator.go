@@ -182,12 +182,12 @@ func (m compressedVectorsMigrator) migrate(targetVector string,
 func (m compressedVectorsMigrator) isQuantizationEnabled(vectorConfig schemaConfig.VectorIndexConfig) bool {
 	switch vc := vectorConfig.(type) {
 	case hnsw.UserConfig:
-		return vc.BQ.Enabled || vc.PQ.Enabled || vc.SQ.Enabled
+		return vc.BQ.Enabled || vc.PQ.Enabled || vc.SQ.Enabled || vc.RQ.Enabled
 	case flat.UserConfig:
 		return vc.BQ.Enabled || vc.PQ.Enabled || vc.SQ.Enabled
 	case dynamic.UserConfig:
 		flatCompressionEnabled := vc.FlatUC.BQ.Enabled || vc.FlatUC.PQ.Enabled || vc.FlatUC.SQ.Enabled
-		hnswCompressionEnabled := vc.HnswUC.BQ.Enabled || vc.HnswUC.PQ.Enabled || vc.HnswUC.SQ.Enabled
+		hnswCompressionEnabled := vc.HnswUC.BQ.Enabled || vc.HnswUC.PQ.Enabled || vc.HnswUC.SQ.Enabled || vc.HnswUC.RQ.Enabled
 		return flatCompressionEnabled || hnswCompressionEnabled
 	default:
 		return false

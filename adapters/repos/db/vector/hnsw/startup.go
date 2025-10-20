@@ -234,6 +234,7 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 						data.Rotation.Signs,
 						h.store,
 						h.allocChecker,
+						h.getTargetVector(),
 					)
 				})
 			} else {
@@ -250,6 +251,7 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 						data.Rotation.Signs,
 						h.store,
 						h.allocChecker,
+						h.getTargetVector(),
 					)
 				})
 			}
