@@ -42,12 +42,12 @@ type SchemaObjectsShardsGetParams struct {
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
-	/*
+	/*The name of the collection (class) whose shards to query.
 	  Required: true
 	  In: path
 	*/
 	ClassName string
-	/*
+	/*The name of the tenant for which to retrieve shard statuses (only applicable for multi-tenant collections).
 	  In: query
 	*/
 	Tenant *string

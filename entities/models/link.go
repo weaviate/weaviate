@@ -28,16 +28,16 @@ import (
 // swagger:model Link
 type Link struct {
 
-	// weaviate documentation about this resource group
+	// Weaviate documentation about this resource group.
 	DocumentationHref string `json:"documentationHref,omitempty"`
 
-	// target of the link
+	// Target of the link.
 	Href string `json:"href,omitempty"`
 
-	// human readable name of the resource group
+	// Human readable name of the resource group.
 	Name string `json:"name,omitempty"`
 
-	// relationship if both resources are related, e.g. 'next', 'previous', 'parent', etc.
+	// Relationship if both resources are related, e.g. 'next', 'previous', 'parent', etc.
 	Rel string `json:"rel,omitempty"`
 }
 

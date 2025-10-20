@@ -28,7 +28,7 @@ import (
 const ObjectsClassReferencesPutOKCode int = 200
 
 /*
-ObjectsClassReferencesPutOK Successfully replaced all the references.
+ObjectsClassReferencesPutOK References replaced successfully.
 
 swagger:response objectsClassReferencesPutOK
 */
@@ -168,7 +168,7 @@ func (o *ObjectsClassReferencesPutForbidden) WriteResponse(rw http.ResponseWrite
 const ObjectsClassReferencesPutNotFoundCode int = 404
 
 /*
-ObjectsClassReferencesPutNotFound Source object doesn't exist.
+ObjectsClassReferencesPutNotFound Source object not found.
 
 swagger:response objectsClassReferencesPutNotFound
 */
@@ -193,7 +193,7 @@ func (o *ObjectsClassReferencesPutNotFound) WriteResponse(rw http.ResponseWriter
 const ObjectsClassReferencesPutUnprocessableEntityCode int = 422
 
 /*
-ObjectsClassReferencesPutUnprocessableEntity Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?
+ObjectsClassReferencesPutUnprocessableEntity The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request. Ensure the property exists and is a reference type.
 
 swagger:response objectsClassReferencesPutUnprocessableEntity
 */
@@ -238,7 +238,7 @@ func (o *ObjectsClassReferencesPutUnprocessableEntity) WriteResponse(rw http.Res
 const ObjectsClassReferencesPutInternalServerErrorCode int = 500
 
 /*
-ObjectsClassReferencesPutInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+ObjectsClassReferencesPutInternalServerError An error occurred while trying to fulfill the request. Check the ErrorResponse for details.
 
 swagger:response objectsClassReferencesPutInternalServerError
 */

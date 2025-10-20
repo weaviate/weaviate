@@ -359,7 +359,7 @@ func NewCreateUserNotFound() *CreateUserNotFound {
 /*
 CreateUserNotFound describes a response with status code 404, with default header values.
 
-user not found
+User not found.
 */
 type CreateUserNotFound struct {
 	Payload *models.ErrorResponse
@@ -495,7 +495,7 @@ func NewCreateUserUnprocessableEntity() *CreateUserUnprocessableEntity {
 /*
 CreateUserUnprocessableEntity describes a response with status code 422, with default header values.
 
-The request syntax is correct, but the server couldn't process it due to semantic issues.
+The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.
 */
 type CreateUserUnprocessableEntity struct {
 	Payload *models.ErrorResponse

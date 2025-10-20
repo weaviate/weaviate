@@ -45,9 +45,9 @@ func NewSchemaObjectsCreate(ctx *middleware.Context, handler SchemaObjectsCreate
 /*
 	SchemaObjectsCreate swagger:route POST /schema schema schemaObjectsCreate
 
-Create a new Object class in the schema.
+# Create a new collection
 
-Create a new data object collection. <br/><br/>If AutoSchema is enabled, Weaviate will attempt to infer the schema from the data at import time. However, manual schema definition is recommended for production environments.
+Defines and creates a new collection (class).<br/><br/>If [`AutoSchema`](https://docs.weaviate.io/weaviate/config-refs/collections#auto-schema) is enabled (not recommended for production), Weaviate might attempt to infer schema from data during import. Manual definition via this endpoint provides explicit control.
 */
 type SchemaObjectsCreate struct {
 	Context *middleware.Context
