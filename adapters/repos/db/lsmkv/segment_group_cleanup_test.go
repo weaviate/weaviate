@@ -24,9 +24,8 @@ import (
 
 func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 	assertSegment := func(t *testing.T, sg *SegmentGroup, idx int, expectedName string, expectedSize int64) {
-		seg := sg.segments[idx].getSegment()
-		assert.Equal(t, filepath.Join(sg.dir, expectedName), seg.path)
-		assert.Equal(t, expectedSize, seg.size)
+		assert.Equal(t, filepath.Join(sg.dir, expectedName), sg.segments[idx].getPath())
+		assert.Equal(t, expectedSize, sg.segments[idx].Size())
 	}
 	requireCandidateFound := func(t *testing.T, idx, expIdx, startIdx, expStartIdx, lastIdx, expLastIdx int) {
 		require.Equal(t, expIdx, idx)

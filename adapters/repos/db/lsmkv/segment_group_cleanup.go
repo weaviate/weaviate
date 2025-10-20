@@ -567,7 +567,7 @@ func (sg *SegmentGroup) makeKeyExistsOnUpperSegments(segments []Segment, startId
 
 	return func(key []byte) (bool, error) {
 		for i := range upperSegments {
-			if exists, err := upperSegments[i].getSegment().exists(key); err != nil {
+			if exists, err := upperSegments[i].existsKey(key); err != nil {
 				return false, err
 			} else if exists {
 				return true, nil
@@ -613,7 +613,7 @@ func (sg *SegmentGroup) replaceSegment(segmentPos int, tmpSegmentPath string,
 		// compaction itself was successful.
 		sg.logger.WithError(err).WithFields(logrus.Fields{
 			"action": "lsm_replace_cleaned_segment_delete_file",
-			"file":   oldSegment.path,
+			"file":   oldSegment.getPath(),
 		}).Error("failed to delete file already marked for deletion")
 	}
 

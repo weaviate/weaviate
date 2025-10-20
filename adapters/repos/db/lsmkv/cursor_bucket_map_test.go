@@ -85,7 +85,7 @@ func TestMapCursorConsistentView(t *testing.T) {
 	}
 
 	// Active memtable contains key3->{3}
-	initialMemtable := newTestMemtableMap(t, map[string][]MapPair{
+	initialMemtable := newTestMemtableMap(map[string][]MapPair{
 		"key3": {{Key: []byte("ak1"), Value: []byte("av1")}},
 	})
 
@@ -115,7 +115,7 @@ func TestMapCursorConsistentView(t *testing.T) {
 
 	// 2) Switch memtables (new empty active, old active -> flushing)
 	switched, err := b.atomicallySwitchMemtable(func() (memtable, error) {
-		return newTestMemtableMap(t, nil), nil
+		return newTestMemtableMap(nil), nil
 	})
 	require.NoError(t, err)
 	require.True(t, switched)

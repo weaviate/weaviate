@@ -19,12 +19,14 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/sroar"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
 	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/lsmkv"
+	"github.com/weaviate/weaviate/entities/schema"
 )
 
 func newFakeReplaceSegment(kv map[string][]byte) *fakeSegment {
@@ -99,6 +101,11 @@ type fakeSegment struct {
 	refs                  int
 	path                  string
 	getCounter            int
+
+	isMarkedForDeletion  bool
+	isStrippedExtensions bool
+	strippedLeftSegID    string
+	strippedRightSegID   string
 }
 
 func (f *fakeSegment) getPath() string {
@@ -141,7 +148,11 @@ func (f *fakeSegment) getRefs() int {
 	return f.refs
 }
 
-func (f *fakeSegment) PayloadSize() int {
+func (f *fakeSegment) indexSize() int {
+	panic("not implemented")
+}
+
+func (f *fakeSegment) payloadSize() int {
 	panic("not implemented")
 }
 
@@ -204,16 +215,13 @@ func (f *fakeSegment) getInvertedData() *segmentInvertedData {
 	}
 }
 
-func (f *fakeSegment) getSegment() *segment {
-	panic("getSegment called in a test. missing an interface somewhere?")
-}
-
 func (f *fakeSegment) isLoaded() bool {
 	panic("not implemented")
 }
 
 func (f *fakeSegment) markForDeletion() error {
-	panic("not implemented")
+	f.isMarkedForDeletion = true
+	return nil
 }
 
 func (f *fakeSegment) MergeTombstones(other *sroar.Bitmap) (*sroar.Bitmap, error) {
@@ -363,6 +371,55 @@ func (s *fakeSegment) getCountNetAdditions() int {
 	s.getCounter++
 
 	return len(s.replaceStore)
+}
+
+func (s *fakeSegment) getPropertyLengths() (map[uint64]uint32, error) {
+	panic("not implemented")
+}
+
+func (s *fakeSegment) newInvertedCursorReusable() *segmentCursorInvertedReusable {
+	panic("not implemented")
+}
+
+func (s *fakeSegment) existsKey(key []byte) (bool, error) {
+	panic("not implemented")
+}
+
+func (s *fakeSegment) stripTmpExtensions(leftSegmentID, rightSegmentID string) error {
+	s.isStrippedExtensions = true
+	s.strippedLeftSegID = leftSegmentID
+	s.strippedRightSegID = rightSegmentID
+	return nil
+}
+
+func (s *fakeSegment) newSegmentBlockMax(key []byte, queryTermIndex int, idf float64, propertyBoost float32, tombstones *sroar.Bitmap, filterDocIds helpers.AllowList, averagePropLength float64, config schema.BM25Config) *SegmentBlockMax {
+	// we're taking a bit of a creative route to make this work with a fake
+	// segment. We have existing functions to create a SegmentBlockMax from a
+	// memtable which are used with real memtables. So if we convert the fake
+	// segment into a memtable, we can reuse that code
+	keys := map[string][]MapPair{}
+
+	for k, v := range s.collectionStore {
+		mv, err := newMapDecoder().Do(v, false)
+		if err != nil {
+			panic(err)
+		}
+		keys[k] = mv
+	}
+
+	mt := newTestMemtableInverted(keys)
+	bmwd := NewSegmentBlockMaxDecoded(key, 0, propertyBoost, filterDocIds, averagePropLength, config)
+
+	fillTerm(mt, key, bmwd, filterDocIds)
+
+	bmwd.idf = idf
+	if !bmwd.Exhausted() {
+		bmwd.advanceOnTombstoneOrFilter()
+	}
+
+	s.getCounter++
+
+	return bmwd
 }
 
 type fakeSegmentCursorReplace struct {

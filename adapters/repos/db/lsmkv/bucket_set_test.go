@@ -21,7 +21,7 @@ func TestSetWritePathRefCount(t *testing.T) {
 	b := Bucket{
 		strategy: StrategySetCollection,
 		disk:     &SegmentGroup{segments: []Segment{}},
-		active:   newTestMemtableSet(t, nil),
+		active:   newTestMemtableSet(nil),
 	}
 
 	expectedRefs := 0

@@ -176,9 +176,6 @@ type Bucket struct {
 	writeSegmentInfoIntoFileName bool
 
 	bm25Config *models.BM25Config
-	// newSegmentBlockMax typically points to NewSegmentBlockMax, but can be
-	// overridden for testing.
-	newSegmentBlockMax SegmentBlockMaxConstructor
 }
 
 func NewBucketCreator() *Bucket { return &Bucket{} }
@@ -214,7 +211,6 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 		calcCountNetAdditions:        false,
 		haltedFlushTimer:             interval.NewBackoffTimer(),
 		writeSegmentInfoIntoFileName: false,
-		newSegmentBlockMax:           NewSegmentBlockMax,
 	}
 
 	for _, opt := range opts {
@@ -997,8 +993,7 @@ func (b *Bucket) mapListFromConsistentView(ctx context.Context, view BucketConsi
 
 		propLengths := make(map[uint64]uint32)
 		if segmentsDisk[i].getStrategy() == segmentindex.StrategyInverted {
-			sgm := segmentsDisk[i].getSegment()
-			propLengths, err = sgm.GetPropertyLengths()
+			propLengths, err = segmentsDisk[i].getPropertyLengths()
 			if err != nil {
 				return nil, err
 			}
@@ -1797,9 +1792,7 @@ func (b *Bucket) docPointerWithScoreListFromConsistentView(ctx context.Context, 
 		}
 		propLengths := make(map[uint64]uint32)
 		if segmentsDisk[i].getStrategy() == segmentindex.StrategyInverted {
-			sgm := segmentsDisk[i].getSegment()
-
-			propLengths, err = sgm.GetPropertyLengths()
+			propLengths, err = segmentsDisk[i].getPropertyLengths()
 			if err != nil {
 				return nil, err
 			}
@@ -2001,7 +1994,7 @@ func (b *Bucket) createDiskTermFromCV(ctx context.Context, view BucketConsistent
 		}
 
 		for i, key := range query {
-			term := b.newSegmentBlockMax(segment, []byte(key), i, idfs[i], propertyBoost, allTombstones, filterDocIds, averagePropLength, config)
+			term := segment.newSegmentBlockMax([]byte(key), i, idfs[i], propertyBoost, allTombstones, filterDocIds, averagePropLength, config)
 			if term != nil {
 				output[j] = append(output[j], term)
 			}

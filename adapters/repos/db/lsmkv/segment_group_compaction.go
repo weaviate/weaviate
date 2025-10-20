@@ -94,12 +94,11 @@ func (sg *SegmentGroup) findCompactionCandidates() (pair []int, level uint16) {
 		left, right := sg.segments[leftId], sg.segments[leftId+1]
 
 		if left.getLevel() == right.getLevel() {
-			leftS, rightS := sg.segments[leftId].getSegment(), sg.segments[leftId+1].getSegment()
-			if leftS.secondaryIndexCount != rightS.secondaryIndexCount {
+			if left.getSecondaryIndexCount() != right.getSecondaryIndexCount() {
 				// only pair of segments with the same secondary indexes are compacted
 				continue
 			}
-			if sg.compactionFitsSizeLimit(leftS, rightS) {
+			if sg.compactionFitsSizeLimit(left, right) {
 				// max size not exceeded
 				matchingPairFound = true
 				matchingLeftId = leftId
@@ -111,14 +110,14 @@ func (sg *SegmentGroup) findCompactionCandidates() (pair []int, level uint16) {
 				// data, the levels are all still at zero, and they can be compacted
 				// with the existing re-ingested segments.
 				if sg.keepLevelCompaction {
-					matchingLevel = leftS.level
+					matchingLevel = left.getLevel()
 				} else {
-					matchingLevel = leftS.level + 1
+					matchingLevel = left.getLevel() + 1
 				}
 			} else if matchingPairFound {
 				// older segment of same level as pair's level exist.
 				// keep unchanged level
-				matchingLevel = leftS.level
+				matchingLevel = left.getLevel()
 			}
 		} else {
 			if matchingPairFound {
@@ -127,17 +126,16 @@ func (sg *SegmentGroup) findCompactionCandidates() (pair []int, level uint16) {
 				break
 			}
 			if sg.compactLeftOverSegments && !leftoverPairFound {
-				leftS, rightS := sg.segments[leftId].getSegment(), sg.segments[leftId+1].getSegment()
-				if leftS.secondaryIndexCount != rightS.secondaryIndexCount {
+				if left.getSecondaryIndexCount() != right.getSecondaryIndexCount() {
 					// only pair of segments with the same secondary indexes are compacted
 					continue
 				}
 				// leftover segments enabled, none leftover pair found yet
-				if sg.compactionFitsSizeLimit(leftS, rightS) && isSimilarSegmentSizes(leftS.size, rightS.size) {
+				if sg.compactionFitsSizeLimit(left, right) && isSimilarSegmentSizes(left.Size(), right.Size()) {
 					// max size not exceeded, segment sizes similar despite different levels
 					leftoverPairFound = true
 					leftoverLeftId = leftId
-					leftoverLevel = leftS.level
+					leftoverLevel = left.getLevel()
 				}
 			}
 		}
@@ -190,14 +188,6 @@ func isSimilarSegmentSizes(leftSize, rightSize int64) bool {
 	}
 	// if higher size not 2x bigger than lower
 	return lowerSize*factorDef >= higherSize
-}
-
-// segmentAtPos retrieves the segment for the given position using a read-lock
-func (sg *SegmentGroup) segmentAtPos(pos int) *segment {
-	sg.maintenanceLock.RLock()
-	defer sg.maintenanceLock.RUnlock()
-
-	return sg.segments[pos].getSegment()
 }
 
 func segmentID(path string) string {
@@ -264,65 +254,67 @@ func (sg *SegmentGroup) compactOnce() (compacted bool, err error) {
 		}
 	}
 
-	leftSegment := sg.segmentAtPos(pair[0])
-	rightSegment := sg.segmentAtPos(pair[1])
+	var left, right Segment
+	func() {
+		sg.maintenanceLock.RLock()
+		defer sg.maintenanceLock.RUnlock()
 
-	var path string
+		left = sg.segments[pair[0]]
+		right = sg.segments[pair[1]]
+	}()
+
+	strategy := left.getStrategy()
+	leftPath := left.getPath()
+	rightPath := right.getPath()
+
+	var filename string
 	if sg.writeSegmentInfoIntoFileName {
-		path = filepath.Join(sg.dir, "segment-"+segmentID(leftSegment.path)+"_"+segmentID(rightSegment.path)+segmentExtraInfo(level, leftSegment.strategy)+".db.tmp")
+		filename = "segment-" + segmentID(leftPath) + "_" + segmentID(rightPath) + segmentExtraInfo(level, strategy) + ".db.tmp"
 	} else {
-		path = filepath.Join(sg.dir, "segment-"+segmentID(leftSegment.path)+"_"+segmentID(rightSegment.path)+".db.tmp")
+		filename = "segment-" + segmentID(leftPath) + "_" + segmentID(rightPath) + ".db.tmp"
 	}
+	path := filepath.Join(sg.dir, filename)
 
 	f, err := os.Create(path)
 	if err != nil {
 		return false, err
 	}
 
-	scratchSpacePath := rightSegment.path + "compaction.scratch.d"
-
-	strategy := leftSegment.strategy
-	secondaryIndices := leftSegment.secondaryIndexCount
+	scratchSpacePath := rightPath + "compaction.scratch.d"
+	secondaryIndices := left.getSecondaryIndexCount()
 	cleanupTombstones := !sg.keepTombstones && pair[0] == 0
-
-	maxNewFileSize := leftSegment.size + rightSegment.size
+	maxNewFileSize := left.Size() + right.Size()
 
 	switch strategy {
 
 	// TODO: call metrics just once with variable strategy label
 
 	case segmentindex.StrategyReplace:
-		c := newCompactorReplace(f, leftSegment.newCursor(),
-			rightSegment.newCursor(), level, secondaryIndices,
-			scratchSpacePath, cleanupTombstones, sg.enableChecksumValidation, maxNewFileSize, sg.allocChecker)
+		c := newCompactorReplace(f, left.newCursor(), right.newCursor(),
+			level, secondaryIndices, scratchSpacePath, cleanupTombstones,
+			sg.enableChecksumValidation, maxNewFileSize, sg.allocChecker)
 
 		if err := c.do(); err != nil {
 			return false, err
 		}
 	case segmentindex.StrategySetCollection:
-		c := newCompactorSetCollection(f, leftSegment.newCollectionCursor(),
-			rightSegment.newCollectionCursor(), level, secondaryIndices,
-			scratchSpacePath, cleanupTombstones, sg.enableChecksumValidation, maxNewFileSize, sg.allocChecker)
+		c := newCompactorSetCollection(f, left.newCollectionCursor(), right.newCollectionCursor(),
+			level, secondaryIndices, scratchSpacePath, cleanupTombstones,
+			sg.enableChecksumValidation, maxNewFileSize, sg.allocChecker)
 
 		if err := c.do(); err != nil {
 			return false, err
 		}
 	case segmentindex.StrategyMapCollection:
-		c := newCompactorMapCollection(f,
-			leftSegment.newCollectionCursorReusable(),
-			rightSegment.newCollectionCursorReusable(),
-			level, secondaryIndices, scratchSpacePath,
-			sg.mapRequiresSorting, cleanupTombstones,
+		c := newCompactorMapCollection(f, left.newCollectionCursorReusable(), right.newCollectionCursorReusable(),
+			level, secondaryIndices, scratchSpacePath, sg.mapRequiresSorting, cleanupTombstones,
 			sg.enableChecksumValidation, maxNewFileSize, sg.allocChecker)
 
 		if err := c.do(); err != nil {
 			return false, err
 		}
 	case segmentindex.StrategyRoaringSet:
-		leftCursor := leftSegment.newRoaringSetCursor()
-		rightCursor := rightSegment.newRoaringSetCursor()
-
-		c := roaringset.NewCompactor(f, leftCursor, rightCursor,
+		c := roaringset.NewCompactor(f, left.newRoaringSetCursor(), right.newRoaringSetCursor(),
 			level, scratchSpacePath, cleanupTombstones,
 			sg.enableChecksumValidation, maxNewFileSize, sg.allocChecker)
 
@@ -331,10 +323,7 @@ func (sg *SegmentGroup) compactOnce() (compacted bool, err error) {
 		}
 
 	case segmentindex.StrategyRoaringSetRange:
-		leftCursor := leftSegment.newRoaringSetRangeCursor()
-		rightCursor := rightSegment.newRoaringSetRangeCursor()
-
-		c := roaringsetrange.NewCompactor(f, leftCursor, rightCursor,
+		c := roaringsetrange.NewCompactor(f, left.newRoaringSetRangeCursor(), right.newRoaringSetRangeCursor(),
 			level, cleanupTombstones, sg.enableChecksumValidation, maxNewFileSize)
 
 		if err := c.Do(); err != nil {
@@ -349,10 +338,9 @@ func (sg *SegmentGroup) compactOnce() (compacted bool, err error) {
 			k1 = sg.bm25config.K1
 		}
 
-		c := newCompactorInverted(f,
-			leftSegment.newInvertedCursorReusable(),
-			rightSegment.newInvertedCursorReusable(),
-			level, secondaryIndices, scratchSpacePath, cleanupTombstones, k1, b, avgPropLen, maxNewFileSize, sg.allocChecker)
+		c := newCompactorInverted(f, left.newInvertedCursorReusable(), right.newInvertedCursorReusable(),
+			level, secondaryIndices, scratchSpacePath, cleanupTombstones,
+			k1, b, avgPropLen, maxNewFileSize, sg.allocChecker)
 
 		if err := c.do(); err != nil {
 			return false, err
@@ -375,7 +363,7 @@ func (sg *SegmentGroup) compactOnce() (compacted bool, err error) {
 	}
 
 	replacer := newSegmentReplacer(sg, pair[0], pair[1], newSegment)
-	oldL, oldR, err := replacer.switchOnDisk()
+	oldLeft, oldRight, err := replacer.switchOnDisk()
 	if err != nil {
 		return false, fmt.Errorf("replace compacted segments on disk: %w", err)
 	}
@@ -397,14 +385,14 @@ func (sg *SegmentGroup) compactOnce() (compacted bool, err error) {
 	// ref-counting is introduced, is already a significant change at the point
 	// of writing this comment. Thus, to minimize further risks, we keep the
 	// existing logic for now.
-	if err := sg.deleteOldSegmentsFromDisk(oldL, oldR); err != nil {
+	if err := sg.deleteOldSegmentsFromDisk(oldLeft, oldRight); err != nil {
 		// don't abort if the delete fails, we can still continue (albeit
 		// without freeing disk space that should have been freed). The
 		// compaction itself was successful.
 		sg.logger.WithError(err).WithFields(logrus.Fields{
 			"action":     "lsm_replace_compacted_segments_delete_files",
-			"file_left":  oldL.getPath(),
-			"file_right": oldR.getPath(),
+			"file_left":  oldLeft.getPath(),
+			"file_right": oldRight.getPath(),
 		}).Error("failed to delete file already marked for deletion")
 	}
 
@@ -431,7 +419,7 @@ func (sg *SegmentGroup) preinitializeNewSegment(newPathTmp string, oldPos ...int
 			defer sg.maintenanceLock.RUnlock()
 
 			for i := range oldPos {
-				updatedCountNetAdditions += sg.segments[oldPos[i]].getSegment().getCountNetAdditions()
+				updatedCountNetAdditions += sg.segments[oldPos[i]].getCountNetAdditions()
 			}
 		}()
 	}
@@ -597,16 +585,16 @@ func (sg *SegmentGroup) segmentLevelStats() segmentLevelStats {
 			stats.unloaded++
 			continue
 		}
-		sgm := seg.getSegment()
-		stats.count[sgm.level]++
+		level := seg.getLevel()
+		stats.count[level]++
 
-		cur := stats.indexes[sgm.level]
-		cur += sgm.index.Size()
-		stats.indexes[sgm.level] = cur
+		cur := stats.indexes[level]
+		cur += seg.indexSize()
+		stats.indexes[level] = cur
 
-		cur = stats.payloads[sgm.level]
-		cur += seg.PayloadSize()
-		stats.payloads[sgm.level] = cur
+		cur = stats.payloads[level]
+		cur += seg.payloadSize()
+		stats.payloads[level] = cur
 	}
 
 	return stats
@@ -677,12 +665,12 @@ func (s *segmentLevelStats) report(metrics *Metrics,
 	}).Set(float64(s.unloaded))
 }
 
-func (sg *SegmentGroup) compactionFitsSizeLimit(left, right *segment) bool {
+func (sg *SegmentGroup) compactionFitsSizeLimit(left, right Segment) bool {
 	if sg.maxSegmentSize == 0 {
 		// no limit is set, always return true
 		return true
 	}
 
-	totalSize := left.size + right.size
+	totalSize := left.Size() + right.Size()
 	return totalSize <= sg.maxSegmentSize
 }

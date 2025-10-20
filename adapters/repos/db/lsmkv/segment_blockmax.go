@@ -186,11 +186,11 @@ func generateSingleFilter(tombstones *sroar.Bitmap, filterDocIds helpers.AllowLi
 	return tombstones, filterSroar
 }
 
-type SegmentBlockMaxConstructor func(s Segment, key []byte, queryTermIndex int, idf float64, propertyBoost float32, tombstones *sroar.Bitmap, filterDocIds helpers.AllowList, averagePropLength float64, config schema.BM25Config) *SegmentBlockMax
+func (s *segment) newSegmentBlockMax(key []byte, queryTermIndex int, idf float64, propertyBoost float32, tombstones *sroar.Bitmap, filterDocIds helpers.AllowList, averagePropLength float64, config schema.BM25Config) *SegmentBlockMax {
+	return NewSegmentBlockMax(s, key, queryTermIndex, idf, propertyBoost, tombstones, filterDocIds, averagePropLength, config)
+}
 
-func NewSegmentBlockMax(si Segment, key []byte, queryTermIndex int, idf float64, propertyBoost float32, tombstones *sroar.Bitmap, filterDocIds helpers.AllowList, averagePropLength float64, config schema.BM25Config) *SegmentBlockMax {
-	s := si.getSegment()
-
+func NewSegmentBlockMax(s *segment, key []byte, queryTermIndex int, idf float64, propertyBoost float32, tombstones *sroar.Bitmap, filterDocIds helpers.AllowList, averagePropLength float64, config schema.BM25Config) *SegmentBlockMax {
 	node, err := s.index.Get(key)
 	if err != nil {
 		return nil
@@ -349,7 +349,7 @@ func (s *SegmentBlockMax) advanceOnTombstoneOrFilter() {
 func (s *SegmentBlockMax) reset() error {
 	var err error
 
-	s.propLengths, err = s.segment.GetPropertyLengths()
+	s.propLengths, err = s.segment.getPropertyLengths()
 	if err != nil {
 		return err
 	}
