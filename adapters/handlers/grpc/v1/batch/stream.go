@@ -290,6 +290,10 @@ func (h *StreamHandler) sender(ctx context.Context, streamId string, stream pb.W
 					log.Errorf("failed to send final results message after reporting queue closed: %s", err)
 				}
 				log.Debug("reportingQueue is closed, closing stream")
+				recvErr := <-recvErrCh
+				if recvErr != nil {
+					return h.handleRecvErr(recvErr, log)
+				}
 				return h.handleRecvClosed(streamId, log)
 			}
 		}
@@ -481,6 +485,9 @@ func (r *batchResults) shouldSend() bool {
 
 func (r *batchResults) send(stream pb.Weaviate_BatchStreamServer) error {
 	defer r.reset()
+	if len(r.successes) == 0 && len(r.errors) == 0 {
+		return nil
+	}
 	if err := stream.Send(newBatchResultsMessage(r.successes, r.errors)); err != nil {
 		return err
 	}
