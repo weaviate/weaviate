@@ -37,8 +37,7 @@ func (sg *SegmentGroup) newMapCursors() ([]innerCursorMap, func()) {
 
 	for i, segment := range segments {
 		if segment.getStrategy() == segmentindex.StrategyInverted {
-			// TODO: we need to remove the .getSegment() call here, otherwise this is not testable
-			out[i] = segment.getSegment().newInvertedCursorReusable()
+			out[i] = segment.newInvertedCursorReusable()
 		} else {
 			out[i] = segment.newMapCursor()
 		}

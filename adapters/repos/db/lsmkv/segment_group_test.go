@@ -591,7 +591,7 @@ func TestSegmentGroup_Inverted_ConsistentViewAcrossSegmentAddition(t *testing.T)
 	segments, release := sg.getConsistentViewOfSegments()
 	defer release()
 
-	require.NoError(t, validateMapPairListVsBlockMaxSearchFromSingleSegment(t, ctx, segments[0], []kv{
+	require.NoError(t, validateMapPairListVsBlockMaxSearchFromSingleSegment(ctx, segments[0], []kv{
 		{key: []byte("key1"), values: []MapPair{NewMapPairFromDocIdAndTf(0, 2, 1, false)}},
 	}))
 
@@ -602,7 +602,7 @@ func TestSegmentGroup_Inverted_ConsistentViewAcrossSegmentAddition(t *testing.T)
 	sg.addInitializedSegment(newFakeInvertedSegment(segment2Data))
 
 	// old view remains unchanged
-	require.NoError(t, validateMapPairListVsBlockMaxSearchFromSingleSegment(t, ctx, segments[0], []kv{
+	require.NoError(t, validateMapPairListVsBlockMaxSearchFromSingleSegment(ctx, segments[0], []kv{
 		{key: []byte("key1"), values: []MapPair{NewMapPairFromDocIdAndTf(0, 2, 1, false)}},
 	}))
 
@@ -610,7 +610,7 @@ func TestSegmentGroup_Inverted_ConsistentViewAcrossSegmentAddition(t *testing.T)
 	segments, release = sg.getConsistentViewOfSegments()
 	defer release()
 
-	require.NoError(t, validateMapPairListVsBlockMaxSearchFromSegments(t, ctx, segments, []kv{
+	require.NoError(t, validateMapPairListVsBlockMaxSearchFromSegments(ctx, segments, []kv{
 		{key: []byte("key1"), values: []MapPair{
 			NewMapPairFromDocIdAndTf(0, 2, 1, false),
 			NewMapPairFromDocIdAndTf(1, 2, 1, false),
@@ -643,7 +643,7 @@ func TestSegmentGroup_Inverted_ConsistentViewAcrossSegmentSwitch(t *testing.T) {
 	defer release()
 
 	validateView := func(t *testing.T, segments []Segment) {
-		require.NoError(t, validateMapPairListVsBlockMaxSearchFromSegments(t, ctx, segments, []kv{
+		require.NoError(t, validateMapPairListVsBlockMaxSearchFromSegments(ctx, segments, []kv{
 			{key: []byte("key1"), values: []MapPair{
 				NewMapPairFromDocIdAndTf(0, 2, 1, false),
 				NewMapPairFromDocIdAndTf(1, 2, 1, false),

@@ -39,7 +39,7 @@ func TestRoaringSetCursorConsistentView(t *testing.T) {
 	}
 
 	// Active memtable contains key3->{3}
-	initialMemtable := newTestMemtableRoaringSet(t, map[string][]uint64{
+	initialMemtable := newTestMemtableRoaringSet(map[string][]uint64{
 		"key3": {3},
 	})
 
@@ -70,7 +70,7 @@ func TestRoaringSetCursorConsistentView(t *testing.T) {
 
 	// 2) Switch memtables (new empty active, old active -> flushing)
 	switched, err := b.atomicallySwitchMemtable(func() (memtable, error) {
-		return newTestMemtableRoaringSet(t, nil), nil
+		return newTestMemtableRoaringSet(nil), nil
 	})
 	require.NoError(t, err)
 	require.True(t, switched)

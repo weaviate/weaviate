@@ -13,14 +13,10 @@ package lsmkv
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/entities/diskio"
 )
 
 func newSegmentReplacer(sg *SegmentGroup, oldLeftPos, oldRightPos int, newSeg Segment) *segmentReplacer {
@@ -46,10 +42,9 @@ const replaceSegmentWarnThreshold = 300 * time.Millisecond
 // replaceCompactedSegmentsOnDisk performs the segment switch on disk without
 // affecting the currently running app. Therefore it is non-blocking to the
 // current application. The in-memory switch has to be done separately.
-func (sr *segmentReplacer) switchOnDisk() (*segment, *segment, error) {
+func (sr *segmentReplacer) switchOnDisk() (Segment, Segment, error) {
 	var leftSegment, rightSegment Segment
 	var leftSegID, rightSegID string
-	var leftSegImpl, rightSegImpl *segment
 
 	sr.sg.maintenanceLock.RLock()
 	if !sr.replaceSingleSegment {
@@ -64,7 +59,6 @@ func (sr *segmentReplacer) switchOnDisk() (*segment, *segment, error) {
 		}
 		sr.oldLeftPath = leftSegment.getPath()
 		leftSegID = segmentID(sr.oldLeftPath)
-		leftSegImpl = leftSegment.getSegment()
 	}
 
 	if err := rightSegment.markForDeletion(); err != nil {
@@ -72,32 +66,15 @@ func (sr *segmentReplacer) switchOnDisk() (*segment, *segment, error) {
 	}
 	sr.oldRightPath = rightSegment.getPath()
 	rightSegID = segmentID(sr.oldRightPath)
-	rightSegImpl = rightSegment.getSegment()
 
 	// the old segments have been deleted, we can now safely remove the .tmp
 	// extension from the new segment itself and the pre-computed files which
 	// carried the name of the second old segment
-	newSeg := sr.newSeg.getSegment() // TODO: This prevents testing with a fake
-	newPath, err := sr.stripTmpExtension(newSeg.path, leftSegID, rightSegID)
-	if err != nil {
-		return nil, nil, errors.Wrap(err, "strip .tmp extension of new segment")
-	}
-	newSeg.path = newPath
-
-	for i, pth := range newSeg.metaPaths {
-		updated, err := sr.stripTmpExtension(pth, leftSegID, rightSegID)
-		if err != nil {
-			return nil, nil, errors.Wrap(err, "strip .tmp extension of new segment")
-		}
-		newSeg.metaPaths[i] = updated
+	if err := sr.newSeg.stripTmpExtensions(leftSegID, rightSegID); err != nil {
+		return nil, nil, fmt.Errorf("strip .tmp extensions of new segment: %w", err)
 	}
 
-	err = diskio.Fsync(sr.sg.dir)
-	if err != nil {
-		return nil, nil, fmt.Errorf("fsync segment directory %s: %w", sr.sg.dir, err)
-	}
-
-	return leftSegImpl, rightSegImpl, nil
+	return leftSegment, rightSegment, nil
 }
 
 func (sr *segmentReplacer) switchInMemory() error {
@@ -135,20 +112,4 @@ func (sr *segmentReplacer) observeReplaceDuration(start time.Time) {
 	} else {
 		fields.Debug(msg)
 	}
-}
-
-func (sr *segmentReplacer) stripTmpExtension(oldPath, left, right string) (string, error) {
-	ext := filepath.Ext(oldPath)
-	if ext != ".tmp" {
-		return "", errors.Errorf("segment %q did not have .tmp extension", oldPath)
-	}
-	newPath := oldPath[:len(oldPath)-len(ext)]
-
-	newPath = strings.ReplaceAll(newPath, fmt.Sprintf("%s_%s", left, right), right)
-
-	if err := os.Rename(oldPath, newPath); err != nil {
-		return "", errors.Wrapf(err, "rename %q -> %q", oldPath, newPath)
-	}
-
-	return newPath, nil
 }

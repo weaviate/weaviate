@@ -22,9 +22,11 @@ import (
 	"github.com/weaviate/sroar"
 
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
+	"github.com/weaviate/weaviate/entities/schema"
 )
 
 var (
@@ -98,8 +100,7 @@ func (s *lazySegment) load() error {
 }
 
 func (s *lazySegment) mustLoad() {
-	err := s.load()
-	if err != nil {
+	if err := s.load(); err != nil {
 		panic(fmt.Errorf("error loading segment %q: %w", s.path, err))
 	}
 }
@@ -156,9 +157,14 @@ func (s *lazySegment) setSize(size int64) {
 	s.segment.setSize(size)
 }
 
-func (s *lazySegment) PayloadSize() int {
+func (s *lazySegment) indexSize() int {
 	s.mustLoad()
-	return s.segment.PayloadSize()
+	return s.segment.indexSize()
+}
+
+func (s *lazySegment) payloadSize() int {
+	s.mustLoad()
+	return s.segment.payloadSize()
 }
 
 func (s *lazySegment) Size() int64 {
@@ -204,11 +210,6 @@ func (s *lazySegment) getCollection(key []byte) ([]value, error) {
 func (s *lazySegment) getInvertedData() *segmentInvertedData {
 	s.mustLoad()
 	return s.segment.getInvertedData()
-}
-
-func (s *lazySegment) getSegment() *segment {
-	s.mustLoad()
-	return s.segment
 }
 
 func (s *lazySegment) isLoaded() bool {
@@ -331,6 +332,26 @@ func (s *lazySegment) hasKey(key []byte) bool {
 	return s.segment.hasKey(key)
 }
 
+func (s *lazySegment) getPropertyLengths() (map[uint64]uint32, error) {
+	if err := s.load(); err != nil {
+		return nil, fmt.Errorf("lazySegment::getPropertyLengths: %w", err)
+	}
+	return s.segment.getPropertyLengths()
+}
+
+func (s *lazySegment) newInvertedCursorReusable() *segmentCursorInvertedReusable {
+	s.mustLoad()
+	return s.segment.newInvertedCursorReusable()
+}
+
+func (s *lazySegment) newSegmentBlockMax(key []byte, queryTermIndex int, idf float64,
+	propertyBoost float32, tombstones *sroar.Bitmap, filterDocIds helpers.AllowList,
+	averagePropLength float64, config schema.BM25Config,
+) *SegmentBlockMax {
+	s.mustLoad()
+	return s.segment.newSegmentBlockMax(key, queryTermIndex, idf, propertyBoost, tombstones, filterDocIds, averagePropLength, config)
+}
+
 func (s *lazySegment) getDocCount(key []byte) uint64 {
 	s.mustLoad()
 	return s.segment.getDocCount(key)
@@ -339,4 +360,18 @@ func (s *lazySegment) getDocCount(key []byte) uint64 {
 func (s *lazySegment) getCountNetAdditions() int {
 	s.mustLoad()
 	return s.segment.getCountNetAdditions()
+}
+
+func (s *lazySegment) existsKey(key []byte) (bool, error) {
+	if err := s.load(); err != nil {
+		return false, fmt.Errorf("lazySegment::existsKey: %w", err)
+	}
+	return s.segment.existsKey(key)
+}
+
+func (s *lazySegment) stripTmpExtensions(leftSegmentID, rightSegmentID string) error {
+	if err := s.load(); err != nil {
+		return fmt.Errorf("lazySegment::stripTmpExtensions: %w", err)
+	}
+	return s.segment.stripTmpExtensions(leftSegmentID, rightSegmentID)
 }
