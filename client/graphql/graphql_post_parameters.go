@@ -76,7 +76,7 @@ type GraphqlPostParams struct {
 
 	/* Body.
 
-	   The GraphQL query request parameters.
+	   The GraphQL query to execute, including the query string and optional variables.
 	*/
 	Body *models.GraphQLQuery
 

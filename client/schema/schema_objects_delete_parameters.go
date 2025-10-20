@@ -72,7 +72,10 @@ SchemaObjectsDeleteParams contains all the parameters to send to the API endpoin
 */
 type SchemaObjectsDeleteParams struct {
 
-	// ClassName.
+	/* ClassName.
+
+	   The name of the collection (class) to delete.
+	*/
 	ClassName string
 
 	timeout    time.Duration

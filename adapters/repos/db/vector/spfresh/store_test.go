@@ -22,9 +22,9 @@ func TestStore(t *testing.T) {
 	ctx := t.Context()
 	t.Run("get", func(t *testing.T) {
 		store := testinghelpers.NewDummyStore(t)
-		s, err := NewLSMStore(store, NewMetrics(nil, "n/a", "n/a"), "test_bucket", 1024, 1024, nil, false, false, false)
+		s, err := NewLSMStore(store, NewMetrics(nil, "n/a", "n/a"), "test_bucket", StoreConfig{})
 		require.NoError(t, err)
-		s.Init(10)
+		s.Init(10, true)
 
 		// unknown posting
 		p, err := s.Get(ctx, 1)
@@ -32,8 +32,9 @@ func TestStore(t *testing.T) {
 		require.Equal(t, p.Len(), 0)
 
 		// create a posting
-		posting := CompressedPosting{
+		posting := EncodedPosting{
 			vectorSize: 10,
+			compressed: true,
 		}
 		posting.AddVector(NewCompressedVector(1, 1, []byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}))
 		err = s.Put(ctx, 1, &posting)
@@ -52,9 +53,9 @@ func TestStore(t *testing.T) {
 
 	t.Run("multi-get", func(t *testing.T) {
 		store := testinghelpers.NewDummyStore(t)
-		s, err := NewLSMStore(store, NewMetrics(nil, "n/a", "n/a"), "test_bucket", 1024, 1024, nil, false, false, false)
+		s, err := NewLSMStore(store, NewMetrics(nil, "n/a", "n/a"), "test_bucket", StoreConfig{})
 		require.NoError(t, err)
-		s.Init(10)
+		s.Init(10, true)
 
 		// nil
 		ps, err := s.MultiGet(ctx, nil)
@@ -68,11 +69,12 @@ func TestStore(t *testing.T) {
 		require.Equal(t, ps[1].Len(), 0)
 		require.Equal(t, ps[2].Len(), 0)
 
-		var postings []*CompressedPosting
+		var postings []*EncodedPosting
 		// create a few postings
 		for i := range 5 {
-			posting := CompressedPosting{
+			posting := EncodedPosting{
 				vectorSize: 10,
+				compressed: true,
 			}
 			posting.AddVector(NewCompressedVector(uint64(i), 1, []byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}))
 			postings = append(postings, &posting)
@@ -91,16 +93,16 @@ func TestStore(t *testing.T) {
 
 	t.Run("put", func(t *testing.T) {
 		store := testinghelpers.NewDummyStore(t)
-		s, err := NewLSMStore(store, NewMetrics(nil, "n/a", "n/a"), "test_bucket", 1024, 1024, nil, false, false, false)
+		s, err := NewLSMStore(store, NewMetrics(nil, "n/a", "n/a"), "test_bucket", StoreConfig{})
 		require.NoError(t, err)
-		s.Init(10)
+		s.Init(10, true)
 
 		// nil posting
 		err = s.Put(ctx, 1, nil)
 		require.Error(t, err)
 
 		// empty posting
-		err = s.Put(ctx, 1, &CompressedPosting{vectorSize: 10})
+		err = s.Put(ctx, 1, &EncodedPosting{vectorSize: 10})
 		require.NoError(t, err)
 	})
 }

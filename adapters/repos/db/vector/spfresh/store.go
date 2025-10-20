@@ -21,7 +21,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
-	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 type LSMStore struct {
@@ -30,24 +29,19 @@ type LSMStore struct {
 	vectorSize atomic.Int32
 	locks      *common.ShardedRWLocks
 	metrics    *Metrics
+	compressed bool
 }
 
-func NewLSMStore(store *lsmkv.Store, metrics *Metrics, bucketName string, minMMapSize int64,
-	maxWalReuseSize int64,
-	allocChecker memwatch.AllocChecker,
-	lazyLoadSegments bool,
-	writeSegmentInfoIntoFileName bool,
-	writeMetadataFilesEnabled bool,
-) (*LSMStore, error) {
+func NewLSMStore(store *lsmkv.Store, metrics *Metrics, bucketName string, cfg StoreConfig) (*LSMStore, error) {
 	err := store.CreateOrLoadBucket(context.Background(),
 		bucketName,
 		lsmkv.WithStrategy(lsmkv.StrategySetCollection),
-		lsmkv.WithAllocChecker(allocChecker),
-		lsmkv.WithMinMMapSize(minMMapSize),
-		lsmkv.WithMinWalThreshold(maxWalReuseSize),
-		lsmkv.WithLazySegmentLoading(lazyLoadSegments),
-		lsmkv.WithWriteSegmentInfoIntoFileName(writeSegmentInfoIntoFileName),
-		lsmkv.WithWriteMetadata(writeMetadataFilesEnabled),
+		lsmkv.WithAllocChecker(cfg.AllocChecker),
+		lsmkv.WithMinMMapSize(cfg.MinMMapSize),
+		lsmkv.WithMinWalThreshold(cfg.MaxReuseWalSize),
+		lsmkv.WithLazySegmentLoading(cfg.LazyLoadSegments),
+		lsmkv.WithWriteSegmentInfoIntoFileName(cfg.WriteSegmentInfoIntoFileName),
+		lsmkv.WithWriteMetadata(cfg.WriteMetadataFilesEnabled),
 	)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to create or load bucket %s", bucketName)
@@ -64,8 +58,9 @@ func NewLSMStore(store *lsmkv.Store, metrics *Metrics, bucketName string, minMMa
 // Init is called by the index upon receiving the first vector and
 // determining the vector size.
 // Prior to calling this method, the store will assume the index is empty.
-func (l *LSMStore) Init(size int32) {
+func (l *LSMStore) Init(size int32, compressed bool) {
 	l.vectorSize.Store(size)
+	l.compressed = compressed
 }
 
 func (l *LSMStore) Get(ctx context.Context, postingID uint64) (Posting, error) {
@@ -78,19 +73,19 @@ func (l *LSMStore) Get(ctx context.Context, postingID uint64) (Posting, error) {
 		return nil, errors.WithStack(ErrPostingNotFound)
 	}
 
-	l.locks.RLock(postingID)
 	var buf [8]byte
 	binary.LittleEndian.PutUint64(buf[:], postingID)
+	l.locks.RLock(postingID)
 	list, err := l.bucket.SetList(buf[:])
 	l.locks.RUnlock(postingID)
-
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get posting %d", postingID)
 	}
 
-	posting := CompressedPosting{
+	posting := EncodedPosting{
 		vectorSize: int(vectorSize),
 		data:       make([]byte, 0, len(list)*(8+1+int(vectorSize))),
+		compressed: l.compressed,
 	}
 
 	for _, v := range list {
@@ -133,7 +128,7 @@ func (l *LSMStore) Put(ctx context.Context, postingID uint64, posting Posting) e
 
 	set := make([][]byte, posting.Len())
 	for i, v := range posting.Iter() {
-		set[i] = v.(CompressedVector)
+		set[i] = v.Encode()
 	}
 
 	l.locks.Lock(postingID)
@@ -163,13 +158,7 @@ func (l *LSMStore) Append(ctx context.Context, postingID uint64, vector Vector) 
 	l.locks.Lock(postingID)
 	defer l.locks.Unlock(postingID)
 
-	return l.bucket.SetAdd(buf[:], [][]byte{vector.(CompressedVector)})
-}
-
-func (l *LSMStore) Flush() error {
-	// nothing to do here
-	// Shard will take care of handling store's buckets
-	return nil
+	return l.bucket.SetAdd(buf[:], [][]byte{vector.Encode()})
 }
 
 func bucketName(id string) string {

@@ -28,7 +28,7 @@ import (
 const BackupsRestoreStatusOKCode int = 200
 
 /*
-BackupsRestoreStatusOK Backup restoration status successfully returned
+BackupsRestoreStatusOK Successfully retrieved the status of the backup restoration process.
 
 swagger:response backupsRestoreStatusOK
 */
@@ -143,7 +143,7 @@ func (o *BackupsRestoreStatusForbidden) WriteResponse(rw http.ResponseWriter, pr
 const BackupsRestoreStatusNotFoundCode int = 404
 
 /*
-BackupsRestoreStatusNotFound Not Found - Backup does not exist
+BackupsRestoreStatusNotFound Backup not found on the specified backend with the given ID.
 
 swagger:response backupsRestoreStatusNotFound
 */
@@ -188,7 +188,7 @@ func (o *BackupsRestoreStatusNotFound) WriteResponse(rw http.ResponseWriter, pro
 const BackupsRestoreStatusInternalServerErrorCode int = 500
 
 /*
-BackupsRestoreStatusInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+BackupsRestoreStatusInternalServerError An internal server error occurred while checking restore status. Check the ErrorResponse for details.
 
 swagger:response backupsRestoreStatusInternalServerError
 */

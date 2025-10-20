@@ -257,7 +257,7 @@ func NewObjectsHeadNotFound() *ObjectsHeadNotFound {
 /*
 ObjectsHeadNotFound describes a response with status code 404, with default header values.
 
-Object doesn't exist.
+Object does not exist.
 */
 type ObjectsHeadNotFound struct {
 }
@@ -313,7 +313,7 @@ func NewObjectsHeadInternalServerError() *ObjectsHeadInternalServerError {
 /*
 ObjectsHeadInternalServerError describes a response with status code 500, with default header values.
 
-An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+An error occurred while trying to fulfill the request. Check the ErrorResponse for details.
 */
 type ObjectsHeadInternalServerError struct {
 	Payload *models.ErrorResponse

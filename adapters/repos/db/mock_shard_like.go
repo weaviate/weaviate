@@ -3389,17 +3389,17 @@ func (_c *MockShardLike_batchExtendInvertedIndexItemsLSMNoFrequency_Call) RunAnd
 	return _c
 }
 
-// commitReplication provides a mock function with given fields: _a0, _a1, _a2
-func (_m *MockShardLike) commitReplication(_a0 context.Context, _a1 string, _a2 *shardTransfer) interface{} {
-	ret := _m.Called(_a0, _a1, _a2)
+// commitReplication provides a mock function with given fields: _a0, _a1
+func (_m *MockShardLike) commitReplication(_a0 context.Context, _a1 string) interface{} {
+	ret := _m.Called(_a0, _a1)
 
 	if len(ret) == 0 {
 		panic("no return value specified for commitReplication")
 	}
 
 	var r0 interface{}
-	if rf, ok := ret.Get(0).(func(context.Context, string, *shardTransfer) interface{}); ok {
-		r0 = rf(_a0, _a1, _a2)
+	if rf, ok := ret.Get(0).(func(context.Context, string) interface{}); ok {
+		r0 = rf(_a0, _a1)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(interface{})
@@ -3417,14 +3417,13 @@ type MockShardLike_commitReplication_Call struct {
 // commitReplication is a helper method to define mock.On call
 //   - _a0 context.Context
 //   - _a1 string
-//   - _a2 *shardTransfer
-func (_e *MockShardLike_Expecter) commitReplication(_a0 interface{}, _a1 interface{}, _a2 interface{}) *MockShardLike_commitReplication_Call {
-	return &MockShardLike_commitReplication_Call{Call: _e.mock.On("commitReplication", _a0, _a1, _a2)}
+func (_e *MockShardLike_Expecter) commitReplication(_a0 interface{}, _a1 interface{}) *MockShardLike_commitReplication_Call {
+	return &MockShardLike_commitReplication_Call{Call: _e.mock.On("commitReplication", _a0, _a1)}
 }
 
-func (_c *MockShardLike_commitReplication_Call) Run(run func(_a0 context.Context, _a1 string, _a2 *shardTransfer)) *MockShardLike_commitReplication_Call {
+func (_c *MockShardLike_commitReplication_Call) Run(run func(_a0 context.Context, _a1 string)) *MockShardLike_commitReplication_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(*shardTransfer))
+		run(args[0].(context.Context), args[1].(string))
 	})
 	return _c
 }
@@ -3434,7 +3433,7 @@ func (_c *MockShardLike_commitReplication_Call) Return(_a0 interface{}) *MockSha
 	return _c
 }
 
-func (_c *MockShardLike_commitReplication_Call) RunAndReturn(run func(context.Context, string, *shardTransfer) interface{}) *MockShardLike_commitReplication_Call {
+func (_c *MockShardLike_commitReplication_Call) RunAndReturn(run func(context.Context, string) interface{}) *MockShardLike_commitReplication_Call {
 	_c.Call.Return(run)
 	return _c
 }

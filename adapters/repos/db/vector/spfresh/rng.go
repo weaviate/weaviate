@@ -21,25 +21,25 @@ import (
 // postings that are not too close to already selected ones based on the RNGFactor.
 // If `reassignedFromID` is non-zero, the function will abort and return false
 // if one of the selected postings is equal to `reassignedFromID`.
-func (s *SPFresh) RNGSelect(query Vector, reassignedFromID uint64) (*ResultSet, bool, error) {
-	replicas := NewResultSet(s.config.Replicas)
-	candidates, err := s.SPTAG.Search(query, s.config.InternalPostingCandidates)
+func (s *SPFresh) RNGSelect(query []float32, reassignedFromID uint64) (*ResultSet, bool, error) {
+	replicas := NewResultSet(int(s.replicas))
+	candidates, err := s.Centroids.Search(query, s.config.InternalPostingCandidates)
 	if err != nil {
 		return nil, false, errors.Wrap(err, "failed to search for nearest neighbors")
 	}
 
 	for cID, cDistance := range candidates.Iter() {
-		cCenter := s.SPTAG.Get(cID)
+		cCenter := s.Centroids.Get(cID)
 
 		tooClose := false
 		for _, r := range replicas.data {
-			rCenter := s.SPTAG.Get(r.ID)
-			centerDist, err := cCenter.Vector.Distance(s.distancer, rCenter.Vector)
+			rCenter := s.Centroids.Get(r.ID)
+			centerDist, err := s.distancer.DistanceBetweenVectors(cCenter.Uncompressed, rCenter.Uncompressed)
 			if err != nil {
 				return nil, false, errors.Wrapf(err, "failed to compute distance for edge %d -> %d", cID, r.ID)
 			}
 
-			if centerDist <= (1.0/s.config.RNGFactor)*cDistance {
+			if centerDist <= (1.0/s.rngFactor)*cDistance {
 				tooClose = true
 				break
 			}
@@ -54,7 +54,7 @@ func (s *SPFresh) RNGSelect(query Vector, reassignedFromID uint64) (*ResultSet, 
 		}
 
 		replicas.data = append(replicas.data, Result{ID: cID, Distance: cDistance})
-		if replicas.Len() >= s.config.Replicas {
+		if replicas.Len() >= int(s.replicas) {
 			break
 		}
 	}

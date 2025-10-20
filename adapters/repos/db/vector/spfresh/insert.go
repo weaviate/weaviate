@@ -18,6 +18,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 )
 
 func (s *SPFresh) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) error {
@@ -51,43 +52,54 @@ func (s *SPFresh) Add(ctx context.Context, id uint64, vector []float32) (err err
 	start := time.Now()
 	defer s.metrics.InsertVector(start)
 
-	var compressed []byte
+	vector = s.normalizeVec(vector)
 
 	// init components that require knowing the vector dimensions
 	// and compressed size
 	s.initDimensionsOnce.Do(func() {
 		s.dims = int32(len(vector))
 		s.setMaxPostingSize()
-		s.SPTAG.Init(s.dims, s.config.Distancer)
-		compressed = s.SPTAG.Quantizer().Encode(vector)
-		s.distancer = &Distancer{
-			quantizer: s.SPTAG.Quantizer(),
-			distancer: s.config.Distancer,
+		if s.config.Compressed {
+			s.quantizer = compressionhelpers.NewRotationalQuantizer(int(s.dims), 42, 8, s.config.DistanceProvider)
+			s.vectorSize = int32(compressedVectorSize(int(s.dims)))
+		} else {
+			s.vectorSize = s.dims * 4
 		}
-		s.vectorSize = int32(len(compressed))
-		s.Store.Init(s.vectorSize)
+		s.distancer = &Distancer{
+			quantizer: s.quantizer,
+			distancer: s.config.DistanceProvider,
+		}
+		s.Store.Init(s.vectorSize, s.config.Compressed)
 	})
-
-	if compressed == nil {
-		compressed = s.SPTAG.Quantizer().Encode(vector)
-	}
 
 	// add the vector to the version map.
 	// TODO: if the vector already exists, invalidate all previous instances
 	// by incrementing the version
 	s.VersionMap.AllocPageFor(id)
-	version, _ := s.VersionMap.Increment(0, id)
+	version, ok := s.VersionMap.Increment(0, id)
+	if !ok {
+		panic("version map increment failed for new vector")
+	}
 
-	v := NewCompressedVector(id, version, compressed)
+	var v Vector
 
-	targets, _, err := s.RNGSelect(v, 0)
+	var compressed []byte
+
+	if s.config.Compressed {
+		compressed = s.quantizer.Encode(vector)
+		v = NewCompressedVector(id, version, compressed)
+	} else {
+		v = NewRawVector(id, version, vector)
+	}
+
+	targets, _, err := s.RNGSelect(vector, 0)
 	if err != nil {
 		return err
 	}
 
 	// if there are no postings found, ensure an initial posting is created
 	if targets.Len() == 0 {
-		targets, err = s.ensureInitialPosting(v)
+		targets, err = s.ensureInitialPosting(vector, compressed)
 		if err != nil {
 			return err
 		}
@@ -103,8 +115,17 @@ func (s *SPFresh) Add(ctx context.Context, id uint64, vector []float32) (err err
 	return nil
 }
 
+func (s *SPFresh) normalizeVec(vec []float32) []float32 {
+	if s.config.DistanceProvider.Type() == "cosine-dot" {
+		// cosine-dot requires normalized vectors, as the dot product and cosine
+		// similarity are only identical if the vector is normalized
+		return distancer.Normalize(vec)
+	}
+	return vec
+}
+
 // ensureInitialPosting creates a new posting for vector v if the index is empty
-func (s *SPFresh) ensureInitialPosting(v Vector) (*ResultSet, error) {
+func (s *SPFresh) ensureInitialPosting(v []float32, compressed []byte) (*ResultSet, error) {
 	s.initialPostingLock.Lock()
 	defer s.initialPostingLock.Unlock()
 
@@ -119,7 +140,11 @@ func (s *SPFresh) ensureInitialPosting(v Vector) (*ResultSet, error) {
 		postingID := s.IDs.Next()
 		s.PostingSizes.AllocPageFor(postingID)
 		// use the vector as the centroid and register it in the SPTAG
-		err = s.SPTAG.Insert(postingID, v)
+		err = s.Centroids.Insert(postingID, &Centroid{
+			Uncompressed: v,
+			Compressed:   compressed,
+			Deleted:      false,
+		})
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to upsert new centroid %d", postingID)
 		}
@@ -138,7 +163,7 @@ func (s *SPFresh) append(ctx context.Context, vector Vector, centroidID uint64, 
 	s.postingLocks.Lock(centroidID)
 
 	// check if the posting still exists
-	if !s.SPTAG.Exists(centroidID) {
+	if !s.Centroids.Exists(centroidID) {
 		// the posting might have been deleted concurrently,
 		// might happen if we are reassigning
 		if s.VersionMap.Get(vector.ID()) == vector.Version() {
@@ -173,7 +198,7 @@ func (s *SPFresh) append(ctx context.Context, vector Vector, centroidID uint64, 
 	// however during a reassign, we want to split immediately.
 	// Also, reassign operations may cause the posting to grow beyond the max size
 	// temporarily. To avoid triggering unnecessary splits, we add a fine-tuned threshold.
-	max := s.config.MaxPostingSize
+	max := s.maxPostingSize
 	if reassigned {
 		max += reassignThreshold
 	}
@@ -202,35 +227,4 @@ func (s *SPFresh) ValidateBeforeInsert(vector []float32) error {
 	}
 
 	return nil
-}
-
-// MaxPostingVectors returns how many vectors can fit in one posting
-// given the dimensions, compression and I/O budget.
-// I/O budget: SPANN recommends 12KB per posting for byte vectors
-// and 48KB for float32 vectors.
-// Dims is the number of dimensions of the vector, after compression
-// if applicable.
-func computeMaxPostingSize(dims int, compressed bool) uint32 {
-	bytesPerDim := 4
-	maxBytes := 48 * 1024 // default to float32 budget
-	metadata := 4 + 1     // id + version
-	if compressed {
-		bytesPerDim = 1
-		maxBytes = 12 * 1024                          // compressed budget
-		metadata += compressionhelpers.RQMetadataSize // RQ metadata
-	}
-
-	vBytes := dims*bytesPerDim + metadata
-
-	return uint32(maxBytes / vBytes)
-}
-
-func (s *SPFresh) setMaxPostingSize() {
-	if s.config.MaxPostingSize == 0 {
-		isCompressed := s.Compressed()
-		s.config.MaxPostingSize = computeMaxPostingSize(int(s.dims), isCompressed)
-	}
-	if s.config.MaxPostingSize < s.config.MinPostingSize { // either set by the user or computed by the index we want to make sure it's at least the min posting size
-		s.config.MaxPostingSize = s.config.MinPostingSize
-	}
 }

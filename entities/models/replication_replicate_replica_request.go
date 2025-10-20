@@ -47,7 +47,7 @@ type ReplicationReplicateReplicaRequest struct {
 	// Required: true
 	TargetNode *string `json:"targetNode"`
 
-	// Specifies the type of replication operation to perform. 'COPY' creates a new replica on the target node while keeping the source replica. 'MOVE' creates a new replica on the target node and then removes the source replica upon successful completion. Defaults to 'COPY' if omitted.
+	// Specifies the type of replication operation to perform. `COPY` creates a new replica on the target node while keeping the source replica. `MOVE` creates a new replica on the target node and then removes the source replica upon successful completion. Defaults to `COPY` if omitted.
 	// Enum: [COPY MOVE]
 	Type *string `json:"type,omitempty"`
 }

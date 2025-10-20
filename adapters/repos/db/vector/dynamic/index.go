@@ -39,7 +39,6 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	schemaconfig "github.com/weaviate/weaviate/entities/schema/config"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
-	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -109,7 +108,7 @@ type dynamic struct {
 	upgraded                     atomic.Bool
 	upgradeOnce                  sync.Once
 	tombstoneCallbacks           cyclemanager.CycleCallbackGroup
-	hnswUC                       hnswent.UserConfig
+	uc                           ent.UserConfig
 	db                           *bbolt.DB
 	ctx                          context.Context
 	cancel                       context.CancelFunc
@@ -117,7 +116,6 @@ type dynamic struct {
 	hnswSnapshotOnStartup        bool
 	hnswWaitForCachePrefill      bool
 	LazyLoadSegments             bool
-	flatBQ                       bool
 	WriteSegmentInfoIntoFileName bool
 	WriteMetadataFilesEnabled    bool
 }
@@ -168,7 +166,7 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 		store:                        store,
 		threshold:                    uc.Threshold,
 		tombstoneCallbacks:           cfg.TombstoneCallbacks,
-		hnswUC:                       uc.HnswUC,
+		uc:                           uc,
 		db:                           cfg.SharedDB,
 		ctx:                          ctx,
 		cancel:                       cancel,
@@ -176,7 +174,6 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 		hnswSnapshotOnStartup:        cfg.HNSWSnapshotOnStartup,
 		hnswWaitForCachePrefill:      cfg.HNSWWaitForCachePrefill,
 		LazyLoadSegments:             cfg.LazyLoadSegments,
-		flatBQ:                       uc.FlatUC.BQ.Enabled,
 		WriteSegmentInfoIntoFileName: cfg.WriteSegmentInfoIntoFileName,
 		WriteMetadataFilesEnabled:    cfg.WriteMetadataFilesEnabled,
 	}
@@ -227,7 +224,7 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 				WriteSegmentInfoIntoFileName: cfg.WriteSegmentInfoIntoFileName,
 				WriteMetadataFilesEnabled:    cfg.WriteMetadataFilesEnabled,
 			},
-			index.hnswUC,
+			index.uc.HnswUC,
 			index.tombstoneCallbacks,
 			index.store,
 		)
@@ -329,7 +326,7 @@ func (dynamic *dynamic) UpdateUserConfig(updated schemaconfig.VectorIndexConfig,
 		defer dynamic.RUnlock()
 		dynamic.index.UpdateUserConfig(parsed.HnswUC, callback)
 	} else {
-		dynamic.hnswUC = parsed.HnswUC
+		dynamic.uc = parsed
 		dynamic.RLock()
 		defer dynamic.RUnlock()
 		dynamic.index.UpdateUserConfig(parsed.FlatUC, callback)
@@ -503,7 +500,7 @@ func (dynamic *dynamic) doUpgrade() error {
 			WriteSegmentInfoIntoFileName: dynamic.WriteSegmentInfoIntoFileName,
 			WriteMetadataFilesEnabled:    dynamic.WriteMetadataFilesEnabled,
 		},
-		dynamic.hnswUC,
+		dynamic.uc.HnswUC,
 		dynamic.tombstoneCallbacks,
 		dynamic.store,
 	)
@@ -553,7 +550,16 @@ func (dynamic *dynamic) doUpgrade() error {
 	if err != nil {
 		errs = append(errs, err)
 	}
-	if dynamic.flatBQ && !dynamic.hnswUC.BQ.Enabled {
+	// Due to the potential for a different quantizer using a different endianness
+	// we remove the bucket here if needed
+	removeCompressedBucket := false
+	if dynamic.uc.FlatUC.BQ.Enabled && !dynamic.uc.HnswUC.BQ.Enabled {
+		removeCompressedBucket = true
+	} else if dynamic.uc.FlatUC.RQ.Enabled && !dynamic.uc.HnswUC.RQ.Enabled {
+		removeCompressedBucket = true
+	}
+
+	if removeCompressedBucket {
 		bDir = dynamic.store.Bucket(dynamic.getCompressedBucketName()).GetDir()
 		err = dynamic.store.ShutdownBucket(dynamic.ctx, dynamic.getCompressedBucketName())
 		if err != nil {

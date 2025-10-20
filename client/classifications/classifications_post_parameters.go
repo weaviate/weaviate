@@ -76,7 +76,7 @@ type ClassificationsPostParams struct {
 
 	/* Params.
 
-	   parameters to start a classification
+	   Configuration parameters for the classification task, including type, target properties, and training data references.
 	*/
 	Params *models.Classification
 

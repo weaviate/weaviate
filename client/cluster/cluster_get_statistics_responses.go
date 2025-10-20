@@ -77,7 +77,7 @@ func NewClusterGetStatisticsOK() *ClusterGetStatisticsOK {
 /*
 ClusterGetStatisticsOK describes a response with status code 200, with default header values.
 
-Cluster statistics successfully returned
+Successfully retrieved Raft cluster statistics.
 */
 type ClusterGetStatisticsOK struct {
 	Payload *models.ClusterStatisticsResponse
@@ -269,7 +269,7 @@ func NewClusterGetStatisticsUnprocessableEntity() *ClusterGetStatisticsUnprocess
 /*
 ClusterGetStatisticsUnprocessableEntity describes a response with status code 422, with default header values.
 
-Invalid backup restoration status attempt.
+Invalid request for cluster statistics.
 */
 type ClusterGetStatisticsUnprocessableEntity struct {
 	Payload *models.ErrorResponse
@@ -337,7 +337,7 @@ func NewClusterGetStatisticsInternalServerError() *ClusterGetStatisticsInternalS
 /*
 ClusterGetStatisticsInternalServerError describes a response with status code 500, with default header values.
 
-An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+An internal server error occurred while retrieving cluster statistics. Check the ErrorResponse for details.
 */
 type ClusterGetStatisticsInternalServerError struct {
 	Payload *models.ErrorResponse

@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
+	ent "github.com/weaviate/weaviate/entities/vectorindex/spfresh"
 )
 
 const (
@@ -53,6 +54,13 @@ type SPFresh struct {
 	config  *Config // Config contains internal configuration settings.
 	metrics *Metrics
 
+	maxPostingSize     uint32
+	minPostingSize     uint32
+	replicas           uint32
+	rngFactor          float32
+	searchProbe        uint32
+	centroidsIndexType string
+
 	// some components require knowing the vector size beforehand
 	// and can only be initialized once the first vector has been
 	// received
@@ -60,9 +68,10 @@ type SPFresh struct {
 	dims               int32 // Number of dimensions of expected vectors
 	vectorSize         int32 // Size of the compressed vectors in bytes
 	distancer          *Distancer
+	quantizer          *compressionhelpers.RotationalQuantizer
 
 	// Internal components
-	SPTAG        *BruteForceSPTAG        // Provides access to the SPTAG index for centroid operations.
+	Centroids    CentroidIndex           // Provides access to the centroids.
 	Store        *LSMStore               // Used for managing persistence of postings.
 	IDs          common.MonotonicCounter // Shared monotonic counter for generating unique IDs for new postings.
 	VersionMap   *VersionMap             // Stores vector versions in-memory.
@@ -86,14 +95,15 @@ type SPFresh struct {
 	initialPostingLock sync.Mutex
 }
 
-func New(cfg *Config, store *lsmkv.Store) (*SPFresh, error) {
-	if err := cfg.Validate(); err != nil {
+func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*SPFresh, error) {
+	err := cfg.Validate()
+	if err != nil {
 		return nil, err
 	}
 
 	metrics := NewMetrics(cfg.PrometheusMetrics, cfg.ClassName, cfg.ShardName)
 
-	postingStore, err := NewLSMStore(store, metrics, bucketName(cfg.ID), cfg.MinMMapSize, cfg.MaxReuseWalSize, cfg.AllocChecker, cfg.LazyLoadSegments, cfg.WriteSegmentInfoIntoFileName, cfg.WriteMetadataFilesEnabled)
+	postingStore, err := NewLSMStore(store, metrics, bucketName(cfg.ID), cfg.Store)
 	if err != nil {
 		return nil, err
 	}
@@ -104,7 +114,6 @@ func New(cfg *Config, store *lsmkv.Store) (*SPFresh, error) {
 		config:  cfg,
 		metrics: metrics,
 		Store:   postingStore,
-		SPTAG:   NewBruteForceSPTAG(metrics, 1024*1024, 1024),
 		// Capacity of the version map: 8k pages, 1M vectors each -> 8B vectors
 		// - An empty version map consumes 240KB of memory
 		// - Each allocated page consumes 1MB of memory
@@ -126,7 +135,22 @@ func New(cfg *Config, store *lsmkv.Store) (*SPFresh, error) {
 		mergeList:  newDeduplicator(),
 		// TODO: choose a better starting size since we can predict the max number of
 		// visited vectors based on cfg.InternalPostingCandidates.
-		visitedPool: visited.NewPool(1, 512, -1),
+		visitedPool:        visited.NewPool(1, 512, -1),
+		maxPostingSize:     uc.MaxPostingSize,
+		minPostingSize:     uc.MinPostingSize,
+		replicas:           uc.Replicas,
+		rngFactor:          uc.RNGFactor,
+		searchProbe:        uc.SearchProbe,
+		centroidsIndexType: uc.CentroidsIndexType,
+	}
+
+	if s.centroidsIndexType == "hnsw" {
+		s.Centroids, err = NewHNSWIndex(metrics, store, cfg, 1024*1024, 1024)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		s.Centroids = NewBruteForceSPTAG(metrics, cfg.DistanceProvider, 1024*1024, 1024)
 	}
 
 	s.ctx, s.cancel = context.WithCancel(context.Background())
@@ -169,8 +193,7 @@ func (s *SPFresh) Type() common.IndexType {
 }
 
 func (s *SPFresh) UpdateUserConfig(updated schemaConfig.VectorIndexConfig, callback func()) error {
-	// TODO: add update user config
-	// return errors.New("UpdateUserConfig is not supported for the spfresh index")
+	callback()
 	return nil
 }
 
@@ -202,12 +225,28 @@ func (s *SPFresh) Shutdown(ctx context.Context) error {
 }
 
 func (s *SPFresh) Flush() error {
-	// nothing to do here
-	// Shard will take care of handling store's buckets
+	if s.config.Centroids.IndexType == "hnsw" {
+		hnswIndex, ok := s.Centroids.(*HNSWIndex)
+		if !ok {
+			return errors.Errorf("centroid index is not HNSW, but %T", s.Centroids)
+		}
+
+		return hnswIndex.hnsw.Flush()
+	}
+
 	return nil
 }
 
 func (s *SPFresh) SwitchCommitLogs(ctx context.Context) error {
+	if s.config.Centroids.IndexType == "hnsw" {
+		hnswIndex, ok := s.Centroids.(*HNSWIndex)
+		if !ok {
+			return errors.Errorf("centroid index is not HNSW, but %T", s.Centroids)
+		}
+
+		return hnswIndex.hnsw.SwitchCommitLogs(ctx)
+	}
+
 	return nil
 }
 
@@ -218,10 +257,18 @@ func (s *SPFresh) ListFiles(ctx context.Context, basePath string) ([]string, err
 func (s *SPFresh) PostStartup() {
 	// This method can be used to perform any post-startup initialization
 	// For now, it does nothing
+	if s.config.Centroids.IndexType == "hnsw" {
+		hnswIndex, ok := s.Centroids.(*HNSWIndex)
+		if !ok {
+			return
+		}
+
+		hnswIndex.hnsw.PostStartup()
+	}
 }
 
 func (s *SPFresh) Compressed() bool {
-	return true
+	return s.config.Compressed
 }
 
 func (s *SPFresh) Multivector() bool {
@@ -260,7 +307,7 @@ func (s *SPFresh) QueryVectorDistancer(queryVector []float32) common.QueryVector
 			return 0, err
 		}
 
-		dist, err := s.config.Distancer.SingleDist(queryVector, float32SliceFromByteSlice(vec, make([]float32, len(vec)/4)))
+		dist, err := s.config.DistanceProvider.SingleDist(queryVector, float32SliceFromByteSlice(vec, make([]float32, len(vec)/4)))
 		if err != nil {
 			return 0, err
 		}
@@ -271,10 +318,11 @@ func (s *SPFresh) QueryVectorDistancer(queryVector []float32) common.QueryVector
 }
 
 func (s *SPFresh) CompressionStats() compressionhelpers.CompressionStats {
-	return s.SPTAG.Quantizer().Stats()
+	return s.quantizer.Stats()
 }
 
 func (s *SPFresh) Preload(id uint64, vector []float32) {
+	// for now, nothing to do here
 }
 
 // deduplicator is a simple thread-safe structure to prevent duplicate values.

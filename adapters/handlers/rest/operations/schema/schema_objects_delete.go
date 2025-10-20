@@ -45,9 +45,9 @@ func NewSchemaObjectsDelete(ctx *middleware.Context, handler SchemaObjectsDelete
 /*
 	SchemaObjectsDelete swagger:route DELETE /schema/{className} schema schemaObjectsDelete
 
-Remove an Object class (and all data in the instances) from the schema.
+Delete a collection (and all associated data)
 
-Remove a collection from the schema. This will also delete all the objects in the collection.
+Removes a collection definition from the schema. WARNING: This action permanently deletes all data objects stored within the collection.
 */
 type SchemaObjectsDelete struct {
 	Context *middleware.Context

@@ -52,9 +52,9 @@ func NewBatchObjectsCreate(ctx *middleware.Context, handler BatchObjectsCreateHa
 /*
 	BatchObjectsCreate swagger:route POST /batch/objects batch objects batchObjectsCreate
 
-Creates new Objects based on a Object template as a batch.
+# Create objects in batch
 
-Create new objects in bulk. <br/><br/>Meta-data and schema values are validated. <br/><br/>**Note: idempotence of `/batch/objects`**: <br/>`POST /batch/objects` is idempotent, and will overwrite any existing object given the same id.
+Registers multiple data objects in a single request for efficiency. Metadata and schema values for each object are validated.<br/><br/>**Note (idempotence)**:<br/>This operation is idempotent based on the object UUIDs provided. If an object with a given UUID already exists, it will be overwritten (similar to a PUT operation for that specific object within the batch).
 */
 type BatchObjectsCreate struct {
 	Context *middleware.Context
@@ -95,10 +95,10 @@ func (o *BatchObjectsCreate) ServeHTTP(rw http.ResponseWriter, r *http.Request) 
 // swagger:model BatchObjectsCreateBody
 type BatchObjectsCreateBody struct {
 
-	// Define which fields need to be returned. Default value is ALL
+	// Controls which fields are returned in the response for each object. Default is `ALL`.
 	Fields []*string `json:"fields" yaml:"fields"`
 
-	// objects
+	// Array of objects to be created.
 	Objects []*models.Object `json:"objects" yaml:"objects"`
 }
 

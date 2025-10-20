@@ -193,7 +193,7 @@ func (o *CancelReplicationConflict) WriteResponse(rw http.ResponseWriter, produc
 const CancelReplicationUnprocessableEntityCode int = 422
 
 /*
-CancelReplicationUnprocessableEntity Request body is well-formed (i.e., syntactically correct), but semantically erroneous.
+CancelReplicationUnprocessableEntity The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.
 
 swagger:response cancelReplicationUnprocessableEntity
 */

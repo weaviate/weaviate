@@ -77,7 +77,7 @@ func NewTenantsDeleteOK() *TenantsDeleteOK {
 /*
 TenantsDeleteOK describes a response with status code 200, with default header values.
 
-Deleted tenants from specified class.
+Tenants deleted successfully.
 */
 type TenantsDeleteOK struct {
 }
@@ -257,7 +257,7 @@ func NewTenantsDeleteUnprocessableEntity() *TenantsDeleteUnprocessableEntity {
 /*
 TenantsDeleteUnprocessableEntity describes a response with status code 422, with default header values.
 
-Invalid Tenant class
+Invalid request.
 */
 type TenantsDeleteUnprocessableEntity struct {
 	Payload *models.ErrorResponse
@@ -325,7 +325,7 @@ func NewTenantsDeleteInternalServerError() *TenantsDeleteInternalServerError {
 /*
 TenantsDeleteInternalServerError describes a response with status code 500, with default header values.
 
-An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+An error occurred while deleting tenants. Check the ErrorResponse for details.
 */
 type TenantsDeleteInternalServerError struct {
 	Payload *models.ErrorResponse

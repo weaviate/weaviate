@@ -83,7 +83,7 @@ func NewBackupsCreateStatusOK() *BackupsCreateStatusOK {
 /*
 BackupsCreateStatusOK describes a response with status code 200, with default header values.
 
-Backup creation status successfully returned
+Successfully retrieved the status of the backup creation process.
 */
 type BackupsCreateStatusOK struct {
 	Payload *models.BackupCreateStatusResponse
@@ -275,7 +275,7 @@ func NewBackupsCreateStatusNotFound() *BackupsCreateStatusNotFound {
 /*
 BackupsCreateStatusNotFound describes a response with status code 404, with default header values.
 
-Not Found - Backup does not exist
+Backup not found on the specified backend with the given ID.
 */
 type BackupsCreateStatusNotFound struct {
 	Payload *models.ErrorResponse
@@ -343,7 +343,7 @@ func NewBackupsCreateStatusUnprocessableEntity() *BackupsCreateStatusUnprocessab
 /*
 BackupsCreateStatusUnprocessableEntity describes a response with status code 422, with default header values.
 
-Invalid backup restoration status attempt.
+Invalid request to check backup creation status.
 */
 type BackupsCreateStatusUnprocessableEntity struct {
 	Payload *models.ErrorResponse
@@ -411,7 +411,7 @@ func NewBackupsCreateStatusInternalServerError() *BackupsCreateStatusInternalSer
 /*
 BackupsCreateStatusInternalServerError describes a response with status code 500, with default header values.
 
-An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+An internal server error occurred while checking backup status. Check the ErrorResponse for details.
 */
 type BackupsCreateStatusInternalServerError struct {
 	Payload *models.ErrorResponse

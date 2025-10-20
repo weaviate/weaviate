@@ -24,7 +24,6 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
@@ -246,6 +245,8 @@ type BufferedLinksLogger interface {
 
 type MakeCommitLogger func() (CommitLogger, error)
 
+type HNSW = hnsw
+
 // New creates a new HNSW index, the commit logger is provided through a thunk
 // (a function which can be deferred). This is because creating a commit logger
 // opens files for writing. However, checking whether a file is present, is a
@@ -254,7 +255,7 @@ type MakeCommitLogger func() (CommitLogger, error)
 // checks first and only then is the commit logger created
 func New(cfg Config, uc ent.UserConfig,
 	tombstoneCallbacks cyclemanager.CycleCallbackGroup, store *lsmkv.Store,
-) (*hnsw, error) {
+) (*HNSW, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, errors.Wrap(err, "invalid config")
 	}

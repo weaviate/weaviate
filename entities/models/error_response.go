@@ -25,7 +25,7 @@ import (
 	"github.com/go-openapi/swag"
 )
 
-// ErrorResponse An error response given by Weaviate end-points.
+// ErrorResponse An error response returned by Weaviate endpoints.
 //
 // swagger:model ErrorResponse
 type ErrorResponse struct {

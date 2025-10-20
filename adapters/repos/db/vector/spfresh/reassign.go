@@ -72,8 +72,6 @@ func (s *SPFresh) doReassign(op reassignOperation) error {
 	start := time.Now()
 	defer s.metrics.ReassignDuration(start)
 
-	s.logger.WithField("vectorID", op.Vector.ID()).Debug("Processing reassign operation")
-
 	// check if the vector is still valid
 	version := s.VersionMap.Get(op.Vector.ID())
 	if version.Deleted() || version.Version() > op.Vector.Version().Version() {
@@ -82,7 +80,13 @@ func (s *SPFresh) doReassign(op reassignOperation) error {
 
 	// perform a RNG selection to determine the postings where the vector should be
 	// reassigned to.
-	replicas, needsReassign, err := s.RNGSelect(op.Vector, op.PostingID)
+	var q []float32
+	if s.config.Compressed {
+		q = s.quantizer.Restore(op.Vector.(CompressedVector).Data())
+	} else {
+		q = op.Vector.(*RawVector).Data()
+	}
+	replicas, needsReassign, err := s.RNGSelect(q, op.PostingID)
 	if err != nil {
 		return errors.Wrap(err, "failed to select replicas")
 	}
@@ -102,19 +106,24 @@ func (s *SPFresh) doReassign(op reassignOperation) error {
 	if !ok {
 		// Increment fails if a concurrent Increment happened (similar to a CAS operation)
 		s.logger.WithField("vectorID", op.Vector.ID()).
-			Debug("Vector version increment failed, skipping reassign operation")
+			Debug("vector version increment failed, skipping reassign operation")
 		return nil
 	}
 
 	// create a new vector with the updated version
-	newVector := NewCompressedVector(op.Vector.ID(), version, op.Vector.(CompressedVector).Data())
+	var newVector Vector
+	if s.config.Compressed {
+		newVector = NewCompressedVector(op.Vector.ID(), version, op.Vector.(CompressedVector).Data())
+	} else {
+		newVector = NewRawVector(op.Vector.ID(), version, op.Vector.(*RawVector).Data())
+	}
 
 	// append the vector to each replica
 	for id := range replicas.Iter() {
 		version = s.VersionMap.Get(newVector.ID())
 		if version.Deleted() || version.Version() > newVector.Version().Version() {
 			s.logger.WithField("vectorID", op.Vector.ID()).
-				Debug("Vector is deleted or has a newer version, skipping reassign operation")
+				Debug("vector is deleted or has a newer version, skipping reassign operation")
 			return nil
 		}
 

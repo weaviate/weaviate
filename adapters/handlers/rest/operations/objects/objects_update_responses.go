@@ -28,7 +28,7 @@ import (
 const ObjectsUpdateOKCode int = 200
 
 /*
-ObjectsUpdateOK Successfully received.
+ObjectsUpdateOK Object replaced successfully.
 
 swagger:response objectsUpdateOK
 */
@@ -143,7 +143,7 @@ func (o *ObjectsUpdateForbidden) WriteResponse(rw http.ResponseWriter, producer 
 const ObjectsUpdateNotFoundCode int = 404
 
 /*
-ObjectsUpdateNotFound Successful query result but no resource was found.
+ObjectsUpdateNotFound Object not found.
 
 swagger:response objectsUpdateNotFound
 */
@@ -168,7 +168,7 @@ func (o *ObjectsUpdateNotFound) WriteResponse(rw http.ResponseWriter, producer r
 const ObjectsUpdateUnprocessableEntityCode int = 422
 
 /*
-ObjectsUpdateUnprocessableEntity Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
+ObjectsUpdateUnprocessableEntity The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request. Ensure the collection exists and the object properties are valid.
 
 swagger:response objectsUpdateUnprocessableEntity
 */
@@ -213,7 +213,7 @@ func (o *ObjectsUpdateUnprocessableEntity) WriteResponse(rw http.ResponseWriter,
 const ObjectsUpdateInternalServerErrorCode int = 500
 
 /*
-ObjectsUpdateInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+ObjectsUpdateInternalServerError An error occurred while trying to fulfill the request. Check the ErrorResponse for details.
 
 swagger:response objectsUpdateInternalServerError
 */
