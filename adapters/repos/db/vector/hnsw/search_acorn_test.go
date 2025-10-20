@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
 func TestAcornSmartSeeding(t *testing.T) {
@@ -366,6 +367,7 @@ func TestSmartSeedingBFSFailureScenarios(t *testing.T) {
 				return vectors[int(id)], nil
 			},
 			AcornFilterRatio: 0.5,
+			AcornSmartSeed:   runtime.NewDynamicValue(true),
 		}, ent.UserConfig{
 			MaxConnections:        16,
 			EFConstruction:        32,

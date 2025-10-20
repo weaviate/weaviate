@@ -141,6 +141,7 @@ func (db *DB) init(ctx context.Context) error {
 				InvertedSorterDisabled:                       db.config.InvertedSorterDisabled,
 				MaintenanceModeEnabled:                       db.config.MaintenanceModeEnabled,
 				SPFreshEnabled:                               db.config.SPFreshEnabled,
+				AcornSmartSeed:                               db.config.AcornSmartSeed,
 			},
 				inverted.ConfigFromModel(invertedConfig),
 				convertToVectorIndexConfig(class.VectorIndexConfig),

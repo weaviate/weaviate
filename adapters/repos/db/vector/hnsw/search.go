@@ -809,7 +809,7 @@ func (h *hnsw) plantSeeds(strategy FilterStrategy, allowList helpers.AllowList, 
 		return nil
 	}
 
-	if h.dynamicVarEnableAcornSmartSeed.Get() == "true" {
+	if h.AcornSmartSeed.Get() {
 		queue := h.pools.GetQueue()
 		connsSlice := h.pools.tempVectorsUint64.Get(h.maximumConnectionsLayerZero)
 
