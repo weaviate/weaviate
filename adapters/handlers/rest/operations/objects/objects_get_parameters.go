@@ -43,12 +43,12 @@ type ObjectsGetParams struct {
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
-	/*Unique ID of the Object.
+	/*Unique UUID of the object to be retrieved.
 	  Required: true
 	  In: path
 	*/
 	ID strfmt.UUID
-	/*Include additional information, such as classification infos. Allowed values include: classification, vector, interpretation
+	/*Include additional information, such as classification information. Allowed values include: `classification`, `vector` and `interpretation`.
 	  In: query
 	*/
 	Include *string

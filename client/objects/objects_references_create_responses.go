@@ -77,7 +77,7 @@ func NewObjectsReferencesCreateOK() *ObjectsReferencesCreateOK {
 /*
 ObjectsReferencesCreateOK describes a response with status code 200, with default header values.
 
-Successfully added the reference.
+Reference added successfully.
 */
 type ObjectsReferencesCreateOK struct {
 }
@@ -257,7 +257,7 @@ func NewObjectsReferencesCreateUnprocessableEntity() *ObjectsReferencesCreateUnp
 /*
 ObjectsReferencesCreateUnprocessableEntity describes a response with status code 422, with default header values.
 
-Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?
+The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request. Ensure the property exists and is a reference type.
 */
 type ObjectsReferencesCreateUnprocessableEntity struct {
 	Payload *models.ErrorResponse
@@ -325,7 +325,7 @@ func NewObjectsReferencesCreateInternalServerError() *ObjectsReferencesCreateInt
 /*
 ObjectsReferencesCreateInternalServerError describes a response with status code 500, with default header values.
 
-An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+An error occurred while trying to fulfill the request. Check the ErrorResponse for details.
 */
 type ObjectsReferencesCreateInternalServerError struct {
 	Payload *models.ErrorResponse

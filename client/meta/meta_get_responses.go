@@ -71,7 +71,7 @@ func NewMetaGetOK() *MetaGetOK {
 /*
 MetaGetOK describes a response with status code 200, with default header values.
 
-Successful response.
+Successfully retrieved meta information.
 */
 type MetaGetOK struct {
 	Payload *models.Meta
@@ -263,7 +263,7 @@ func NewMetaGetInternalServerError() *MetaGetInternalServerError {
 /*
 MetaGetInternalServerError describes a response with status code 500, with default header values.
 
-An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+An internal server error occurred while retrieving meta information. Check the ErrorResponse for details.
 */
 type MetaGetInternalServerError struct {
 	Payload *models.ErrorResponse

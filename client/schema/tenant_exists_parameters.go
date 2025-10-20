@@ -73,18 +73,24 @@ TenantExistsParams contains all the parameters to send to the API endpoint
 */
 type TenantExistsParams struct {
 
-	// ClassName.
+	/* ClassName.
+
+	   The name of the collection (class) to check within.
+	*/
 	ClassName string
 
 	/* Consistency.
 
-	   If consistency is true, the request will be proxied to the leader to ensure strong schema consistency
+	   If true, the request is proxied to the cluster leader to ensure strong schema consistency. Default is true.
 
 	   Default: true
 	*/
 	Consistency *bool
 
-	// TenantName.
+	/* TenantName.
+
+	   The name of the tenant to check for.
+	*/
 	TenantName string
 
 	timeout    time.Duration

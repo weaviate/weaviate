@@ -28,7 +28,7 @@ import (
 const ObjectsReferencesDeleteNoContentCode int = 204
 
 /*
-ObjectsReferencesDeleteNoContent Successfully deleted.
+ObjectsReferencesDeleteNoContent Reference deleted successfully.
 
 swagger:response objectsReferencesDeleteNoContent
 */
@@ -123,7 +123,7 @@ func (o *ObjectsReferencesDeleteForbidden) WriteResponse(rw http.ResponseWriter,
 const ObjectsReferencesDeleteNotFoundCode int = 404
 
 /*
-ObjectsReferencesDeleteNotFound Successful query result but no resource was found.
+ObjectsReferencesDeleteNotFound Object or reference not found.
 
 swagger:response objectsReferencesDeleteNotFound
 */
@@ -168,7 +168,7 @@ func (o *ObjectsReferencesDeleteNotFound) WriteResponse(rw http.ResponseWriter, 
 const ObjectsReferencesDeleteInternalServerErrorCode int = 500
 
 /*
-ObjectsReferencesDeleteInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+ObjectsReferencesDeleteInternalServerError An error occurred while trying to fulfill the request. Check the ErrorResponse for details.
 
 swagger:response objectsReferencesDeleteInternalServerError
 */

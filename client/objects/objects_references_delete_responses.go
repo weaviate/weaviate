@@ -77,7 +77,7 @@ func NewObjectsReferencesDeleteNoContent() *ObjectsReferencesDeleteNoContent {
 /*
 ObjectsReferencesDeleteNoContent describes a response with status code 204, with default header values.
 
-Successfully deleted.
+Reference deleted successfully.
 */
 type ObjectsReferencesDeleteNoContent struct {
 }
@@ -257,7 +257,7 @@ func NewObjectsReferencesDeleteNotFound() *ObjectsReferencesDeleteNotFound {
 /*
 ObjectsReferencesDeleteNotFound describes a response with status code 404, with default header values.
 
-Successful query result but no resource was found.
+Object or reference not found.
 */
 type ObjectsReferencesDeleteNotFound struct {
 	Payload *models.ErrorResponse
@@ -325,7 +325,7 @@ func NewObjectsReferencesDeleteInternalServerError() *ObjectsReferencesDeleteInt
 /*
 ObjectsReferencesDeleteInternalServerError describes a response with status code 500, with default header values.
 
-An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+An error occurred while trying to fulfill the request. Check the ErrorResponse for details.
 */
 type ObjectsReferencesDeleteInternalServerError struct {
 	Payload *models.ErrorResponse

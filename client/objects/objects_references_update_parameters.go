@@ -74,12 +74,15 @@ ObjectsReferencesUpdateParams contains all the parameters to send to the API end
 */
 type ObjectsReferencesUpdateParams struct {
 
-	// Body.
+	/* Body.
+
+	   The new list of references.
+	*/
 	Body models.MultipleRef
 
 	/* ID.
 
-	   Unique ID of the Object.
+	   Unique UUID of the source object.
 
 	   Format: uuid
 	*/
@@ -87,13 +90,13 @@ type ObjectsReferencesUpdateParams struct {
 
 	/* PropertyName.
 
-	   Unique name of the property related to the Object.
+	   Unique name of the reference property of the source object.
 	*/
 	PropertyName string
 
 	/* Tenant.
 
-	   Specifies the tenant in a request targeting a multi-tenant class
+	   Specifies the tenant in a request targeting a multi-tenant collection (class).
 	*/
 	Tenant *string
 

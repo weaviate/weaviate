@@ -216,7 +216,7 @@ func (o *GetRolesForGroupNotFound) WriteResponse(rw http.ResponseWriter, produce
 const GetRolesForGroupUnprocessableEntityCode int = 422
 
 /*
-GetRolesForGroupUnprocessableEntity The request syntax is correct, but the server couldn't process it due to semantic issues.
+GetRolesForGroupUnprocessableEntity The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.
 
 swagger:response getRolesForGroupUnprocessableEntity
 */

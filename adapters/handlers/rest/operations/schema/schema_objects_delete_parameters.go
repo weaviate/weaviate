@@ -41,7 +41,7 @@ type SchemaObjectsDeleteParams struct {
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
-	/*
+	/*The name of the collection (class) to delete.
 	  Required: true
 	  In: path
 	*/

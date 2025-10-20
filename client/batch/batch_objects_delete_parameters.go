@@ -74,18 +74,21 @@ BatchObjectsDeleteParams contains all the parameters to send to the API endpoint
 */
 type BatchObjectsDeleteParams struct {
 
-	// Body.
+	/* Body.
+
+	   The request body containing the match filter and output configuration.
+	*/
 	Body *models.BatchDelete
 
 	/* ConsistencyLevel.
 
-	   Determines how many replicas must acknowledge a request before it is considered successful
+	   Determines how many replicas must acknowledge a request before it is considered successful.
 	*/
 	ConsistencyLevel *string
 
 	/* Tenant.
 
-	   Specifies the tenant in a request targeting a multi-tenant class
+	   Specifies the tenant in a request targeting a multi-tenant collection (class).
 	*/
 	Tenant *string
 
