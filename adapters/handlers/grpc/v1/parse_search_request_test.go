@@ -329,7 +329,7 @@ func TestGRPCSearchRequest(t *testing.T) {
 						Certainty:   &one,
 						Distance:    &one,
 					},
-					TargetVectors: []string{"custom"},
+					Targets: &pb.Targets{TargetVectors: []string{"custom"}},
 				},
 			},
 			out: dto.GetParams{
@@ -350,6 +350,7 @@ func TestGRPCSearchRequest(t *testing.T) {
 					},
 					TargetVectors: []string{"custom"},
 				},
+				TargetVectorCombination: &dto.TargetCombination{Type: dto.DefaultTargetCombinationType, Weights: []float32{0}},
 			},
 			error: false,
 		},
@@ -373,7 +374,7 @@ func TestGRPCSearchRequest(t *testing.T) {
 							},
 						},
 					},
-					TargetVectors: []string{"custom"},
+					Targets: &pb.Targets{TargetVectors: []string{"custom"}},
 				},
 			},
 			out: dto.GetParams{
@@ -394,6 +395,7 @@ func TestGRPCSearchRequest(t *testing.T) {
 					},
 					TargetVectors: []string{"custom"},
 				},
+				TargetVectorCombination: &dto.TargetCombination{Type: dto.DefaultTargetCombinationType, Weights: []float32{0}},
 			},
 			error: false,
 		},
@@ -421,7 +423,7 @@ func TestGRPCSearchRequest(t *testing.T) {
 							},
 						},
 					},
-					TargetVectors: []string{"custom_colbert"},
+					Targets: &pb.Targets{TargetVectors: []string{"custom_colbert"}},
 				},
 			},
 			out: dto.GetParams{
@@ -442,6 +444,7 @@ func TestGRPCSearchRequest(t *testing.T) {
 					},
 					TargetVectors: []string{"custom_colbert"},
 				},
+				TargetVectorCombination: &dto.TargetCombination{Type: dto.DefaultTargetCombinationType, Weights: []float32{0}},
 			},
 			error: false,
 		},
@@ -459,7 +462,7 @@ func TestGRPCSearchRequest(t *testing.T) {
 							Type:        pb.Vectors_VECTOR_TYPE_SINGLE_FP32,
 						},
 					},
-					TargetVectors: []string{"custom"},
+					Targets: &pb.Targets{TargetVectors: []string{"custom"}},
 				},
 			},
 			out: dto.GetParams{
@@ -473,6 +476,7 @@ func TestGRPCSearchRequest(t *testing.T) {
 					WithDistance:  true,
 					TargetVectors: []string{"custom"},
 				},
+				TargetVectorCombination: &dto.TargetCombination{Type: dto.DefaultTargetCombinationType, Weights: []float32{0}},
 			},
 			error: false,
 		},
@@ -490,7 +494,7 @@ func TestGRPCSearchRequest(t *testing.T) {
 							Type:        pb.Vectors_VECTOR_TYPE_MULTI_FP32,
 						},
 					},
-					TargetVectors: []string{"custom_colbert"},
+					Targets: &pb.Targets{TargetVectors: []string{"custom_colbert"}},
 				},
 			},
 			out: dto.GetParams{
@@ -503,6 +507,7 @@ func TestGRPCSearchRequest(t *testing.T) {
 					Certainty:     1.0,
 					TargetVectors: []string{"custom_colbert"},
 				},
+				TargetVectorCombination: &dto.TargetCombination{Type: dto.DefaultTargetCombinationType, Weights: []float32{0}},
 			},
 			error: false,
 		},
@@ -615,8 +620,8 @@ func TestGRPCSearchRequest(t *testing.T) {
 				Metadata:   &pb.MetadataRequest{Vector: true},
 				Properties: &pb.PropertiesRequest{},
 				NearVector: &pb.NearVector{
-					Vector:        []float32{1, 2, 3},
-					TargetVectors: []string{"custom"},
+					Vector:  []float32{1, 2, 3},
+					Targets: &pb.Targets{TargetVectors: []string{"custom"}},
 				},
 			},
 			out: dto.GetParams{
@@ -628,6 +633,7 @@ func TestGRPCSearchRequest(t *testing.T) {
 					TargetVectors: []string{"custom"},
 					Vectors:       []models.Vector{[]float32{1, 2, 3}},
 				},
+				TargetVectorCombination: &dto.TargetCombination{Type: dto.DefaultTargetCombinationType, Weights: []float32{0}},
 			},
 			error: false,
 		},
@@ -641,7 +647,7 @@ func TestGRPCSearchRequest(t *testing.T) {
 					Vectors: []*pb.Vectors{
 						{VectorBytes: byteops.Fp32SliceToBytes([]float32{1, 2, 3})},
 					},
-					TargetVectors: []string{"custom"},
+					Targets: &pb.Targets{TargetVectors: []string{"custom"}},
 				},
 			},
 			out: dto.GetParams{
@@ -653,6 +659,7 @@ func TestGRPCSearchRequest(t *testing.T) {
 					TargetVectors: []string{"custom"},
 					Vectors:       []models.Vector{[]float32{1, 2, 3}},
 				},
+				TargetVectorCombination: &dto.TargetCombination{Type: dto.DefaultTargetCombinationType, Weights: []float32{0}},
 			},
 			error: false,
 		},
@@ -666,7 +673,7 @@ func TestGRPCSearchRequest(t *testing.T) {
 					Vectors: []*pb.Vectors{
 						{VectorBytes: byteops.Fp32SliceOfSlicesToBytes([][]float32{{1, 2, 3}, {1, 2, 3}}), Type: pb.Vectors_VECTOR_TYPE_MULTI_FP32},
 					},
-					TargetVectors: []string{"custom_colbert"},
+					Targets: &pb.Targets{TargetVectors: []string{"custom_colbert"}},
 				},
 			},
 			out: dto.GetParams{
@@ -678,6 +685,7 @@ func TestGRPCSearchRequest(t *testing.T) {
 					TargetVectors: []string{"custom_colbert"},
 					Vectors:       []models.Vector{[][]float32{{1, 2, 3}, {1, 2, 3}}},
 				},
+				TargetVectorCombination: &dto.TargetCombination{Type: dto.DefaultTargetCombinationType, Weights: []float32{0}},
 			},
 			error: false,
 		},
@@ -691,7 +699,7 @@ func TestGRPCSearchRequest(t *testing.T) {
 					Vectors: []*pb.Vectors{
 						{VectorBytes: byteops.Fp32SliceOfSlicesToBytes([][]float32{{1, 2, 3}, {1, 2, 3}}), Type: pb.Vectors_VECTOR_TYPE_MULTI_FP32},
 					},
-					TargetVectors: []string{"custom"},
+					Targets: &pb.Targets{TargetVectors: []string{"custom"}},
 				},
 			},
 			error: true,
@@ -716,8 +724,8 @@ func TestGRPCSearchRequest(t *testing.T) {
 				Metadata:   &pb.MetadataRequest{Vector: true},
 				Properties: &pb.PropertiesRequest{},
 				NearVector: &pb.NearVector{
-					Vector:        []float32{1, 2, 3},
-					TargetVectors: []string{"custom", "first"},
+					Vector:  []float32{1, 2, 3},
+					Targets: &pb.Targets{TargetVectors: []string{"custom", "first"}},
 				},
 			},
 			out: dto.GetParams{
@@ -729,7 +737,7 @@ func TestGRPCSearchRequest(t *testing.T) {
 					Vectors:       []models.Vector{[]float32{1, 2, 3}, []float32{1, 2, 3}},
 					TargetVectors: []string{"custom", "first"},
 				},
-				TargetVectorCombination: &dto.TargetCombination{Type: dto.Minimum},
+				TargetVectorCombination: &dto.TargetCombination{Type: dto.Minimum, Weights: []float32{0, 0}},
 			}, error: false,
 		},
 		{
@@ -913,12 +921,14 @@ func TestGRPCSearchRequest(t *testing.T) {
 			name: "hybrid targetvectors",
 			req: &pb.SearchRequest{
 				Collection: multiVecClass, Metadata: &pb.MetadataRequest{Vector: true, Certainty: false},
-				HybridSearch: &pb.Hybrid{TargetVectors: []string{"first"}, Query: "query", FusionType: pb.Hybrid_FUSION_TYPE_RANKED, Alpha: 0.75, Properties: []string{"first"}},
+				HybridSearch: &pb.Hybrid{Targets: &pb.Targets{TargetVectors: []string{"first"}}, Query: "query", FusionType: pb.Hybrid_FUSION_TYPE_RANKED, Alpha: 0.75, Properties: []string{"first"}},
 			},
 			out: dto.GetParams{
-				ClassName: multiVecClass, Pagination: defaultPagination, HybridSearch: &searchparams.HybridSearch{TargetVectors: []string{"first"}, Query: "query", FusionAlgorithm: common_filters.HybridRankedFusion, Alpha: 0.75, Properties: []string{"first"}},
-				Properties:           defaultNamedVecProps,
-				AdditionalProperties: additional.Properties{Vectors: []string{"custom", "first", "second"}, NoProps: false, Vector: true},
+				ClassName: multiVecClass, Pagination: defaultPagination,
+				HybridSearch:            &searchparams.HybridSearch{TargetVectors: []string{"first"}, Query: "query", FusionAlgorithm: common_filters.HybridRankedFusion, Alpha: 0.75, Properties: []string{"first"}},
+				Properties:              defaultNamedVecProps,
+				AdditionalProperties:    additional.Properties{Vectors: []string{"custom", "first", "second"}, NoProps: false, Vector: true},
+				TargetVectorCombination: &dto.TargetCombination{Type: dto.DefaultTargetCombinationType, Weights: []float32{0}},
 			},
 			error: false,
 		},
