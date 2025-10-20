@@ -181,7 +181,7 @@ func (h *StreamHandler) handleRecvClosed(streamId string, logger *logrus.Entry) 
 	}
 	// otherwise, the client must be closing its side of the stream, so close gracefully
 	// client has closed its side of the stream, so close gracefully
-	logger.Info("stream closed by client")
+	logger.Info("stream closed by client gracefully")
 	return nil
 }
 
@@ -197,7 +197,7 @@ func (h *StreamHandler) handleServerShuttingDown(stream pb.Weaviate_BatchStreamS
 	return nil
 }
 
-func (h *StreamHandler) handleWorkerReport(report *report, closed bool, recvErrCh chan error, streamId string, stream pb.Weaviate_BatchStreamServer, logger *logrus.Entry) error {
+func (h *StreamHandler) handleWorkerReport(report *report, closed bool, streamId string, stream pb.Weaviate_BatchStreamServer, logger *logrus.Entry) error {
 	logger.Debug("received report from worker")
 	// If the reporting queue is closed, then h.recv must've closed it itself either through erroring or the client closing its side of the stream
 	if closed {
@@ -208,9 +208,7 @@ func (h *StreamHandler) handleWorkerReport(report *report, closed bool, recvErrC
 			logger.Info("stream closed due to server shutdown")
 			return errShutdown(ErrShutdown)
 		}
-		// otherwise, the client must be closing its side of the stream, so close gracefully
-		logger.Info("stream closed by client")
-		return <-recvErrCh // will be nil if the client closed the stream gracefully or a recv error otherwise
+		return nil
 	}
 	// Received a report from a worker
 	h.handleWorkerResults(report, stream, logger)
@@ -272,8 +270,11 @@ func (h *StreamHandler) sender(ctx context.Context, streamId string, stream pb.W
 				shuttingDownDone = nil
 			}
 		case report, open := <-reportingQueue:
-			if err := h.handleWorkerReport(report, !open, recvErrCh, streamId, stream, log); err != nil {
+			if err := h.handleWorkerReport(report, !open, streamId, stream, log); err != nil {
 				return err
+			}
+			if !open {
+				return h.handleRecvClosed(streamId, log)
 			}
 		}
 	}
