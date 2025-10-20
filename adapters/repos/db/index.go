@@ -1567,7 +1567,6 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 			}).Info("objectSearchByShard: local/remote decision")
 
 			if useLocal {
-				defer release()
 				localCtx := helpers.InitSlowQueryDetails(ctx)
 				helpers.AnnotateSlowQueryLog(localCtx, "is_coordinator", true)
 				objs, scores, err = shard.ObjectSearch(localCtx, limit, filters, keywordRanking, sort, cursor, addlProps, properties)
