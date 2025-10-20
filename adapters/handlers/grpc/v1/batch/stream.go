@@ -156,9 +156,12 @@ func (h *StreamHandler) Handle(stream pb.Weaviate_BatchStreamServer) error {
 	return h.sender(ctx, streamId, stream, recvErrCh)
 }
 
-func (h *StreamHandler) drainReportingQueue(queue reportingQueue, stream pb.Weaviate_BatchStreamServer, logger *logrus.Entry) {
+func (h *StreamHandler) drainReportingQueue(queue reportingQueue, batchResults *batchResults, stream pb.Weaviate_BatchStreamServer, logger *logrus.Entry) {
 	for report := range queue {
-		h.handleWorkerResults(report, stream, logger)
+		h.handleWorkerResults(report, batchResults, stream, logger)
+	}
+	if err := batchResults.send(stream); err != nil {
+		logger.Errorf("failed to send final results message while draining reporting queue: %s", err)
 	}
 }
 
@@ -199,7 +202,7 @@ func (h *StreamHandler) handleServerShuttingDown(stream pb.Weaviate_BatchStreamS
 	return nil
 }
 
-func (h *StreamHandler) handleWorkerReport(report *report, closed bool, streamId string, stream pb.Weaviate_BatchStreamServer, logger *logrus.Entry) error {
+func (h *StreamHandler) handleWorkerReport(report *report, closed bool, batchResults *batchResults, streamId string, stream pb.Weaviate_BatchStreamServer, logger *logrus.Entry) error {
 	logger.Debug("received report from worker")
 	// If the reporting queue is closed, then h.recv must've closed it itself either through erroring or the client closing its side of the stream
 	if closed {
@@ -213,7 +216,7 @@ func (h *StreamHandler) handleWorkerReport(report *report, closed bool, streamId
 		return nil
 	}
 	// Received a report from a worker
-	h.handleWorkerResults(report, stream, logger)
+	h.handleWorkerResults(report, batchResults, stream, logger)
 	// Recalculate stats
 	stats := h.workerStats(streamId)
 	stats.updateBatchSize(report.Stats.processingTime)
@@ -223,12 +226,15 @@ func (h *StreamHandler) handleWorkerReport(report *report, closed bool, streamId
 	return nil
 }
 
-func (h *StreamHandler) handleWorkerResults(report *report, stream pb.Weaviate_BatchStreamServer, logger *logrus.Entry) {
+func (h *StreamHandler) handleWorkerResults(report *report, batchResults *batchResults, stream pb.Weaviate_BatchStreamServer, logger *logrus.Entry) {
 	if h.metrics != nil {
 		h.metrics.OnStreamError(len(report.Errors))
 	}
-	if innerErr := stream.Send(newBatchResultsMessage(report.Successes, report.Errors)); innerErr != nil {
-		logger.Errorf("failed to send results message: %s", innerErr)
+	batchResults.add(report.Successes, report.Errors)
+	if batchResults.shouldSend() {
+		if innerErr := batchResults.send(stream); innerErr != nil {
+			logger.Errorf("failed to send results message: %s", innerErr)
+		}
 	}
 }
 
@@ -242,6 +248,7 @@ func (h *StreamHandler) sender(ctx context.Context, streamId string, stream pb.W
 		log.Errorf("failed to send started message: %s", err)
 		return err
 	}
+	batchResults := newBatchResults()
 	for {
 		reportingQueue, exists := h.reportingQueues.Get(streamId)
 		if !exists {
@@ -253,14 +260,17 @@ func (h *StreamHandler) sender(ctx context.Context, streamId string, stream pb.W
 		case <-ctx.Done():
 			// drain reporting queue in effort to communicate any inflight errors back to client
 			// despite the context being cancelled somewhere
-			h.drainReportingQueue(reportingQueue, stream, log)
+			log.Debug("context is done, draining reporting queue before closing stream")
+			h.drainReportingQueue(reportingQueue, batchResults, stream, log)
 			log.Error("context cancelled, closing stream")
 			return ctx.Err()
 		case recvErr, open := <-recvErrCh:
 			// drain reporting queue in effort to communicate any inflight errors back to client
 			// despite the receiver throwing an error of some kind, or the client closing its side of the stream
-			h.drainReportingQueue(reportingQueue, stream, log)
+			log.Debug("receiver has closed, draining reporting queue before closing stream")
+			h.drainReportingQueue(reportingQueue, batchResults, stream, log)
 			if !open {
+				log.Debug("recvErrCh closed, closing stream")
 				// channel closed, client must have closed its side of the stream
 				return h.handleRecvClosed(streamId, log)
 			}
@@ -272,10 +282,14 @@ func (h *StreamHandler) sender(ctx context.Context, streamId string, stream pb.W
 				shuttingDownDone = nil
 			}
 		case report, open := <-reportingQueue:
-			if err := h.handleWorkerReport(report, !open, streamId, stream, log); err != nil {
+			if err := h.handleWorkerReport(report, !open, batchResults, streamId, stream, log); err != nil {
 				return err
 			}
 			if !open {
+				if err := batchResults.send(stream); err != nil {
+					log.Errorf("failed to send final results message after reporting queue closed: %s", err)
+				}
+				log.Debug("reportingQueue is closed, closing stream")
 				return h.handleRecvClosed(streamId, log)
 			}
 		}
@@ -437,6 +451,40 @@ func (h *StreamHandler) receiver(ctx context.Context, streamId string, consisten
 			return fmt.Errorf("invalid batch send request: data field is nil")
 		}
 	}
+}
+
+type batchResults struct {
+	successes []*pb.BatchStreamReply_Results_Success
+	errors    []*pb.BatchStreamReply_Results_Error
+}
+
+func newBatchResults() *batchResults {
+	return &batchResults{
+		successes: make([]*pb.BatchStreamReply_Results_Success, 0, 10000),
+		errors:    make([]*pb.BatchStreamReply_Results_Error, 0),
+	}
+}
+
+func (r *batchResults) add(successes []*pb.BatchStreamReply_Results_Success, errors []*pb.BatchStreamReply_Results_Error) {
+	r.successes = append(r.successes, successes...)
+	r.errors = append(r.errors, errors...)
+}
+
+func (r *batchResults) reset() {
+	r.successes = r.successes[:0]
+	r.errors = r.errors[:0]
+}
+
+func (r *batchResults) shouldSend() bool {
+	return len(r.successes)+len(r.errors) > 10000
+}
+
+func (r *batchResults) send(stream pb.Weaviate_BatchStreamServer) error {
+	defer r.reset()
+	if err := stream.Send(newBatchResultsMessage(r.successes, r.errors)); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (h *StreamHandler) workerStats(streamId string) *stats {
