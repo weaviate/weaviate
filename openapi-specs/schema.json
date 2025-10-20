@@ -946,7 +946,10 @@
         "type": {
           "description": "Specifies the type of replication operation to perform. 'COPY' creates a new replica on the target node while keeping the source replica. 'MOVE' creates a new replica on the target node and then removes the source replica upon successful completion. Defaults to 'COPY' if omitted.",
           "type": "string",
-          "enum": ["COPY", "MOVE"],
+          "enum": [
+            "COPY",
+            "MOVE"
+          ],
           "default": "COPY"
         }
       },
@@ -1166,7 +1169,15 @@
           "type": "integer"
         }
       },
-      "required": ["id", "shard", "sourceNode", "targetNode", "collection", "status", "type"]
+      "required": [
+        "id",
+        "shard",
+        "sourceNode",
+        "targetNode",
+        "collection",
+        "status",
+        "type"
+      ]
     },
     "ReplicationReplicateForceDeleteRequest": {
       "description": "Specifies the parameters available when force deleting replication operations.",
@@ -1680,7 +1691,7 @@
           "maximum": 80,
           "x-nullable": false
         },
-        "rolesOptions" : {
+        "rolesOptions": {
           "description": "How roles should be restored",
           "type": "string",
           "enum": [
@@ -1689,7 +1700,7 @@
           ],
           "default": "noRestore"
         },
-        "usersOptions" : {
+        "usersOptions": {
           "description": "How users should be restored",
           "type": "string",
           "enum": [
@@ -1811,6 +1822,11 @@
             "description": "Timestamp when the backup process completed (successfully or with failure)",
             "type": "string",
             "format": "date-time"
+          },
+          "size": {
+            "description": "Size of the backup in Gibs",
+            "type": "number",
+            "format": "float64"
           }
         }
       }
@@ -1845,9 +1861,9 @@
           }
         },
         "overwriteAlias": {
-            "description": "Allows ovewriting the collection alias if there is a conflict",
-            "type": "boolean"
-       }
+          "description": "Allows ovewriting the collection alias if there is a conflict",
+          "type": "boolean"
+        }
       }
     },
     "BackupRestoreResponse": {
@@ -1975,13 +1991,19 @@
         },
         "numberOfReplicas": {
           "description": "Number of replicas for the shard.",
-          "type": ["integer", "null"],
+          "type": [
+            "integer",
+            "null"
+          ],
           "format": "int64",
           "x-omitempty": true
         },
         "replicationFactor": {
           "description": "Minimum number of replicas for the shard.",
-          "type": ["integer", "null"],
+          "type": [
+            "integer",
+            "null"
+          ],
           "format": "int64",
           "x-omitempty": true
         }
@@ -2090,11 +2112,11 @@
           "format": "date-time"
         },
         "finishedNodes": {
-            "description": "The nodes that finished the task.",
-            "type": "array",
-            "items": {
-                "type": "string"
-            }
+          "description": "The nodes that finished the task.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         },
         "error": {
           "description": "The high level reason why the task failed.",
@@ -2102,8 +2124,8 @@
           "x-omitempty": true
         },
         "payload": {
-            "description": "The payload of the task.",
-            "type": "object"
+          "description": "The payload of the task.",
+          "type": "object"
         }
       }
     },
@@ -3910,12 +3932,12 @@
               "type": "object",
               "properties": {
                 "import": {
-                  "type":"boolean",
+                  "type": "boolean",
                   "description": "EXPERIMENTAL, DONT USE. THIS WILL BE REMOVED AGAIN. - import api key from static user",
                   "default": false
                 },
                 "createTime": {
-                  "type":"string",
+                  "type": "string",
                   "format": "date-time",
                   "description": "EXPERIMENTAL, DONT USE. THIS WILL BE REMOVED AGAIN. - set the given time as creation time"
                 }
@@ -8122,7 +8144,7 @@
               "$ref": "#/definitions/ErrorResponse"
             }
           },
-	  "404": {
+          "404": {
             "description": "Not Found - Alias does not exist",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
@@ -8218,6 +8240,18 @@
             "required": true,
             "type": "string",
             "description": "Backup backend name e.g. filesystem, gcs, s3."
+          },
+          {
+            "name": "order",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "enum": [
+              "asc",
+              "desc"
+            ],
+            "default": "desc",
+            "description": "Order of returned list of backups based on creation time. (asc or desc)"
           }
         ],
         "responses": {

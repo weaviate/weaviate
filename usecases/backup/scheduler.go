@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -311,11 +312,16 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 	return nil
 }
 
-func (s *Scheduler) List(ctx context.Context, principal *models.Principal, backend string) (*models.BackupListResponse, error) {
+func (s *Scheduler) List(ctx context.Context, principal *models.Principal, backend string, sortingOrder *string) (*models.BackupListResponse, error) {
 	var err error
 	defer func(begin time.Time) {
 		logOperation(s.logger, "list_backup", "", backend, time.Now(), err)
 	}(time.Now())
+
+	if sortingOrder == nil {
+		desc := "desc"
+		sortingOrder = &desc
+	}
 
 	backupBackend, err := s.backends.BackupBackend(backend)
 	if err != nil {
@@ -327,6 +333,8 @@ func (s *Scheduler) List(ctx context.Context, principal *models.Principal, backe
 		return nil, err
 	}
 
+	slices.SortFunc(backups, sortBackups(*sortingOrder))
+
 	response := make(models.BackupListResponse, len(backups))
 	for i, b := range backups {
 		response[i] = &models.BackupListResponseItems0{
@@ -335,10 +343,29 @@ func (s *Scheduler) List(ctx context.Context, principal *models.Principal, backe
 			Status:      string(b.Status),
 			StartedAt:   strfmt.DateTime(b.StartedAt.UTC()),
 			CompletedAt: strfmt.DateTime(b.CompletedAt.UTC()),
+			Size:        float64(b.PreCompressionSizeBytes) / (1024 * 1024 * 1024), // Convert bytes to GiB,
 		}
 	}
 
 	return &response, nil
+}
+
+func sortBackups(order string) func(a, b *backup.DistributedBackupDescriptor) int {
+	cmp := 1
+	if order == "desc" {
+		cmp = -1
+	}
+
+	return func(a, b *backup.DistributedBackupDescriptor) int {
+		if a.StartedAt.Before(b.StartedAt) {
+			return -1 * cmp
+		}
+		if a.StartedAt.After(b.StartedAt) {
+			return 1 * cmp
+		}
+
+		return 0
+	}
 }
 
 func coordBackend(provider BackupBackendProvider, backend, id, overrideBucket, overridePath string) (coordStore, error) {

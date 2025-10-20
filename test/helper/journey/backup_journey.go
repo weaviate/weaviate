@@ -333,6 +333,8 @@ wait:
 				assert.Equal(t, string(backup.Success), b.Status)
 				assert.Contains(t, b.Classes, className)
 
+				// assert.Equal(t, 0, b.Size, "size ")
+
 				// Validate timestamp fields
 				require.NotNil(t, b.StartedAt, "StartedAt should not be nil")
 				require.NotNil(t, b.CompletedAt, "CompletedAt should not be nil")
