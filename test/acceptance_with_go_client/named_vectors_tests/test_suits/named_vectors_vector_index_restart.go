@@ -53,6 +53,7 @@ func testCompresseVectorTypesRestart(compose *docker.DockerCompose) func(t *test
 			"flat_bq":         1024,
 			"mv_uncompressed": 64,
 			"mv_bq":           128,
+			"hnsw_8bit_rq":    1600,
 		}
 
 		vectorConfig := map[string]models.VectorConfig{
@@ -111,6 +112,12 @@ func testCompresseVectorTypesRestart(compose *docker.DockerCompose) func(t *test
 				},
 				VectorIndexType:   "hnsw",
 				VectorIndexConfig: bq(true),
+			},
+			"hnsw_8bit_rq": {
+				Vectorizer: map[string]any{
+					"none": map[string]any{},
+				},
+				VectorIndexType: "hnsw",
 			},
 		}
 
@@ -228,6 +235,18 @@ func testCompresseVectorTypesRestart(compose *docker.DockerCompose) func(t *test
 			err = client.Schema().ClassUpdater().WithClass(class).Do(ctx)
 			require.NoError(t, err)
 			time.Sleep(1 * time.Second)
+			// enable RQ 8bit
+			vectorConfig["hnsw_8bit_rq"] = models.VectorConfig{
+				Vectorizer: map[string]any{
+					"none": map[string]any{},
+				},
+				VectorIndexType:   "hnsw",
+				VectorIndexConfig: rq(8),
+			}
+			class.VectorConfig = vectorConfig
+			err = client.Schema().ClassUpdater().WithClass(class).Do(ctx)
+			require.NoError(t, err)
+			time.Sleep(1 * time.Second)
 		})
 
 		t.Run("query all target vectors after quantization enabled", func(t *testing.T) {
@@ -267,7 +286,7 @@ func testCompresseVectorTypesRestart(compose *docker.DockerCompose) func(t *test
 			}
 			assert.NotContains(t, vectorsCompressedFolders, "vectors_compressed")
 			for targetVector := range targetVectorDimensions {
-				if strings.HasSuffix(targetVector, "_pq") || strings.HasSuffix(targetVector, "_sq") || strings.HasSuffix(targetVector, "_bq") {
+				if strings.HasSuffix(targetVector, "q") {
 					assert.Contains(t, vectorsCompressedFolders, fmt.Sprintf("vectors_compressed_%s", targetVector))
 				}
 			}

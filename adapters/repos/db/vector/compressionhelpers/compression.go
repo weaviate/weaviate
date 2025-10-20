@@ -772,6 +772,7 @@ func NewRQCompressor(
 	allocChecker memwatch.AllocChecker,
 	bits int,
 	dim int,
+	targetVector string,
 ) (VectorCompressor, error) {
 	quantizer := NewRotationalQuantizer(dim, DefaultFastRotationSeed, bits, distance)
 	var rqVectorsCompressor *quantizedVectorsCompressor[byte]
@@ -783,6 +784,7 @@ func NewRQCompressor(
 			storeId:         binary.BigEndian.PutUint64,
 			loadId:          binary.BigEndian.Uint64,
 			logger:          logger,
+			targetVector:    targetVector,
 		}
 	default:
 		return nil, errors.New("invalid bits value, only 8 bits are supported")
@@ -808,6 +810,7 @@ func RestoreRQCompressor(
 	signs [][]float32,
 	store *lsmkv.Store,
 	allocChecker memwatch.AllocChecker,
+	targetVector string,
 ) (VectorCompressor, error) {
 	quantizer, err := RestoreRotationalQuantizer(dimensions, bits, outputDim, rounds, swaps, signs, distance)
 	if err != nil {
@@ -822,6 +825,7 @@ func RestoreRQCompressor(
 			storeId:         binary.BigEndian.PutUint64,
 			loadId:          binary.BigEndian.Uint64,
 			logger:          logger,
+			targetVector:    targetVector,
 		}
 	default:
 		return nil, errors.New("invalid bits value, only 8 bits are supported")
@@ -843,6 +847,7 @@ func NewRQMultiCompressor(
 	allocChecker memwatch.AllocChecker,
 	bits int,
 	dim int,
+	targetVector string,
 ) (VectorCompressor, error) {
 	quantizer := NewRotationalQuantizer(dim, DefaultFastRotationSeed, bits, distance)
 	var rqVectorsCompressor *quantizedVectorsCompressor[byte]
@@ -854,6 +859,7 @@ func NewRQMultiCompressor(
 			storeId:         binary.BigEndian.PutUint64,
 			loadId:          binary.BigEndian.Uint64,
 			logger:          logger,
+			targetVector:    targetVector,
 		}
 	default:
 		return nil, errors.New("invalid bits value, only 8 bits are supported")
@@ -879,6 +885,7 @@ func RestoreRQMultiCompressor(
 	signs [][]float32,
 	store *lsmkv.Store,
 	allocChecker memwatch.AllocChecker,
+	targetVector string,
 ) (VectorCompressor, error) {
 	quantizer, err := RestoreRotationalQuantizer(dimensions, bits, outputDim, rounds, swaps, signs, distance)
 	if err != nil {
@@ -893,6 +900,7 @@ func RestoreRQMultiCompressor(
 			storeId:         binary.BigEndian.PutUint64,
 			loadId:          binary.BigEndian.Uint64,
 			logger:          logger,
+			targetVector:    targetVector,
 		}
 	default:
 		return nil, errors.New("invalid bits value, only 8 bits are supported")
