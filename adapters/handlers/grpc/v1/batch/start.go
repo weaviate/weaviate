@@ -14,6 +14,7 @@ package batch
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
@@ -47,8 +48,9 @@ func Start(
 	reportingQueues := NewReportingQueues()
 	processingQueue := NewProcessingQueue(numWorkers)
 
-	StartBatchWorkers(&workersWg, numWorkers, processingQueue, reportingQueues, batchHandler, logger)
-
+	enqueuedObjectsCounter := atomic.Int32{}
+	metrics := NewBatchStreamingMetrics(reg)
+	StartBatchWorkers(&workersWg, numWorkers, processingQueue, reportingQueues, batchHandler, &enqueuedObjectsCounter, metrics, logger)
 	handler := NewStreamHandler(
 		authenticator,
 		authorizer,
@@ -57,7 +59,8 @@ func Start(
 		&sendWg,
 		reportingQueues,
 		processingQueue,
-		NewBatchStreamingMetrics(reg),
+		&enqueuedObjectsCounter,
+		metrics,
 		logger,
 	)
 

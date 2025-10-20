@@ -43,33 +43,35 @@ type authenticator interface {
 }
 
 type StreamHandler struct {
-	authenticator        authenticator
-	authorizer           authorization.Authorizer
-	shuttingDownCtx      context.Context
-	logger               logrus.FieldLogger
-	reportingQueues      *reportingQueues
-	processingQueue      processingQueue
-	recvWg               *sync.WaitGroup
-	sendWg               *sync.WaitGroup
-	metrics              *BatchStreamingMetrics
-	shuttingDown         atomic.Bool
-	workerStatsPerStream *sync.Map // map[string]*stats
-	stoppingPerStream    *sync.Map // map[string]struct{}
+	authenticator          authenticator
+	authorizer             authorization.Authorizer
+	shuttingDownCtx        context.Context
+	logger                 logrus.FieldLogger
+	reportingQueues        *reportingQueues
+	processingQueue        processingQueue
+	recvWg                 *sync.WaitGroup
+	sendWg                 *sync.WaitGroup
+	enqueuedObjectsCounter *atomic.Int32
+	metrics                *BatchStreamingMetrics
+	shuttingDown           atomic.Bool
+	workerStatsPerStream   *sync.Map // map[string]*stats
+	stoppingPerStream      *sync.Map // map[string]struct{}
 }
 
-func NewStreamHandler(authenticator authenticator, authorizer authorization.Authorizer, shuttingDownCtx context.Context, recvWg, sendWg *sync.WaitGroup, reportingQueues *reportingQueues, processingQueue processingQueue, metrics *BatchStreamingMetrics, logger logrus.FieldLogger) *StreamHandler {
+func NewStreamHandler(authenticator authenticator, authorizer authorization.Authorizer, shuttingDownCtx context.Context, recvWg, sendWg *sync.WaitGroup, reportingQueues *reportingQueues, processingQueue processingQueue, enqueuedObjectsCounter *atomic.Int32, metrics *BatchStreamingMetrics, logger logrus.FieldLogger) *StreamHandler {
 	h := &StreamHandler{
-		authenticator:        authenticator,
-		authorizer:           authorizer,
-		shuttingDownCtx:      shuttingDownCtx,
-		logger:               logger,
-		reportingQueues:      reportingQueues,
-		processingQueue:      processingQueue,
-		recvWg:               recvWg,
-		sendWg:               sendWg,
-		metrics:              metrics,
-		workerStatsPerStream: &sync.Map{},
-		stoppingPerStream:    &sync.Map{},
+		authenticator:          authenticator,
+		authorizer:             authorizer,
+		shuttingDownCtx:        shuttingDownCtx,
+		logger:                 logger,
+		reportingQueues:        reportingQueues,
+		processingQueue:        processingQueue,
+		recvWg:                 recvWg,
+		sendWg:                 sendWg,
+		enqueuedObjectsCounter: enqueuedObjectsCounter,
+		metrics:                metrics,
+		workerStatsPerStream:   &sync.Map{},
+		stoppingPerStream:      &sync.Map{},
 	}
 	return h
 }
@@ -216,7 +218,7 @@ func (h *StreamHandler) handleWorkerReport(report *report, closed bool, streamId
 	stats := h.workerStats(streamId)
 	stats.updateBatchSize(report.Stats.processingTime)
 	if h.metrics != nil {
-		h.metrics.OnWorkerReport(stats.getThroughputEma(), stats.getProcessingTimeEma())
+		h.metrics.OnWorkerReport(stats.getThroughputEma())
 	}
 	return nil
 }
@@ -387,6 +389,10 @@ func (h *StreamHandler) receiver(ctx context.Context, streamId string, consisten
 		if request.GetData() != nil {
 			push := func(objs []*pb.BatchObject, refs []*pb.BatchReference) {
 				wg.Add(1)
+				howMany := len(objs) + len(refs)
+				if h.metrics != nil {
+					h.metrics.OnProcessingQueuePush(howMany)
+				}
 				h.processingQueue <- &processRequest{
 					streamId:         streamId,
 					consistencyLevel: consistencyLevel,
@@ -395,9 +401,7 @@ func (h *StreamHandler) receiver(ctx context.Context, streamId string, consisten
 					wg:               wg,               // the worker will call wg.Done() when it is finished
 					streamCtx:        stream.Context(), // passes any authN information from the stream into the worker for authZ
 				}
-				if h.metrics != nil {
-					h.metrics.OnStreamRequest(float64(len(h.processingQueue)) / float64(cap(h.processingQueue)))
-				}
+				h.enqueuedObjectsCounter.Add(int32(howMany))
 			}
 
 			// Split the client-sent objects into batches according to the current batch size

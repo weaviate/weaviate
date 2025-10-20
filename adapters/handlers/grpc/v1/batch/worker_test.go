@@ -14,6 +14,7 @@ package batch
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -51,7 +52,7 @@ func TestWorkerLoop(t *testing.T) {
 			Errors: nil,
 		}, nil).Times(1)
 		var wg sync.WaitGroup
-		StartBatchWorkers(&wg, 1, processingQueue, reportingQueues, mockBatcher, logger)
+		StartBatchWorkers(&wg, 1, processingQueue, reportingQueues, mockBatcher, &atomic.Int32{}, nil, logger)
 
 		UUID0 := uuid.New().String()
 		ref1 := &pb.BatchReference{
@@ -148,7 +149,7 @@ func TestWorkerLoop(t *testing.T) {
 			Errors: errorsRefs,
 		}, nil).Times(1)
 		var wg sync.WaitGroup
-		StartBatchWorkers(&wg, 1, processingQueue, reportingQueues, mockBatcher, logger)
+		StartBatchWorkers(&wg, 1, processingQueue, reportingQueues, mockBatcher, &atomic.Int32{}, nil, logger)
 
 		// Send data
 		UUID0 := uuid.New().String()

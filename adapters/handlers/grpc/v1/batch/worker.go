@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -32,10 +33,12 @@ type batcher interface {
 }
 
 type worker struct {
-	batcher         batcher
-	logger          logrus.FieldLogger
-	reportingQueues *reportingQueues
-	processingQueue processingQueue
+	batcher                batcher
+	logger                 logrus.FieldLogger
+	reportingQueues        *reportingQueues
+	processingQueue        processingQueue
+	enqueuedObjectsCounter *atomic.Int32
+	metrics                *BatchStreamingMetrics
 }
 
 type processRequest struct {
@@ -69,6 +72,8 @@ func StartBatchWorkers(
 	processingQueue processingQueue,
 	reportingQueues *reportingQueues,
 	batcher batcher,
+	enqueuedObjectsCounter *atomic.Int32,
+	metrics *BatchStreamingMetrics,
 	logger logrus.FieldLogger,
 ) {
 	eg := enterrors.NewErrorGroupWrapper(logger)
@@ -78,10 +83,12 @@ func StartBatchWorkers(
 		eg.Go(func() error {
 			defer wg.Done()
 			w := &worker{
-				batcher:         batcher,
-				logger:          logger,
-				reportingQueues: reportingQueues,
-				processingQueue: processingQueue,
+				batcher:                batcher,
+				logger:                 logger,
+				reportingQueues:        reportingQueues,
+				processingQueue:        processingQueue,
+				enqueuedObjectsCounter: enqueuedObjectsCounter,
+				metrics:                metrics,
 			}
 			return w.Loop()
 		})
@@ -224,6 +231,11 @@ func (w *worker) Loop() error {
 			w.logger.WithField("action", "batch_worker_loop").Error("received nil process request")
 			continue
 		}
+		howMany := len(req.objects) + len(req.references)
+		if w.metrics != nil {
+			w.metrics.OnProcessingQueuePull(howMany)
+		}
+		w.enqueuedObjectsCounter.Add(-int32(howMany))
 		w.process(req)
 	}
 	w.logger.Debug("processing queue closed, shutting down worker")
@@ -252,6 +264,6 @@ func (w *worker) process(req *processRequest) {
 
 	stats := newWorkersStats(time.Since(start))
 	if ok := w.reportingQueues.send(req.streamId, successes, errors, stats); !ok {
-		w.logger.WithField("streamId", req.streamId).Warn("timed out sending errors to reporting queue, maybe the client disconnected?")
+		w.logger.WithField("streamId", req.streamId).Warn("timed out sending a worker report to the reporting queue, maybe the client disconnected?")
 	}
 }

@@ -12,8 +12,6 @@
 package batch
 
 import (
-	"time"
-
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
@@ -21,11 +19,12 @@ import (
 // BatchStreamingMetrics contains a set of functions that are invoked
 // on different stages of the batch streaming process to report metrics.
 type BatchStreamingMetrics struct {
-	OnStreamStart   func()
-	OnStreamStop    func()
-	OnStreamRequest func(ratio float64)
-	OnStreamError   func(numErrs int)
-	OnWorkerReport  func(throughputEma float64, processingTimeEma time.Duration)
+	OnStreamStart         func()
+	OnStreamStop          func()
+	OnStreamError         func(numErrs int)
+	OnWorkerReport        func(throughputEma float64)
+	OnProcessingQueuePush func(enqueued int)
+	OnProcessingQueuePull func(dequeued int)
 }
 
 func NewBatchStreamingMetrics(reg prometheus.Registerer) *BatchStreamingMetrics {
@@ -39,27 +38,22 @@ func NewBatchStreamingMetrics(reg prometheus.Registerer) *BatchStreamingMetrics 
 		Help:      "Number of currently open batch streaming connections",
 	}, []string{})
 
-	processingQueueUtilization := promauto.With(reg).NewHistogramVec(prometheus.HistogramOpts{
-		Namespace: "weaviate",
-		Name:      "batch_streaming_processing_queue_utilization",
-		Help:      "Relative utilization of the batch processing queue",
-	}, []string{})
-
 	streamTotalErrors := promauto.With(reg).NewCounterVec(prometheus.CounterOpts{
 		Namespace: "weaviate",
 		Name:      "batch_streaming_total_errors_per_stream",
 		Help:      "Total number of errors reported across all streams",
 	}, []string{})
 
-	streamProcessingTimeEma := promauto.With(reg).NewHistogramVec(prometheus.HistogramOpts{
-		Namespace: "weaviate",
-		Name:      "batch_streaming_processing_time_ema",
-		Help:      "Exponential moving average of the processing time for the internal processing queue",
-	}, []string{})
 	streamProcessingThroughputEma := promauto.With(reg).NewHistogramVec(prometheus.HistogramOpts{
 		Namespace: "weaviate",
 		Name:      "batch_streaming_processing_throughput_ema",
 		Help:      "Exponential moving average of the throughput (objects / second) for the internal processing queue",
+	}, []string{})
+
+	streamEnqueuedObjects := promauto.With(reg).NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "weaviate",
+		Name:      "batch_streaming_enqueued_objects_total",
+		Help:      "Total number of objects and references enqueued for processing across all streams",
 	}, []string{})
 
 	return &BatchStreamingMetrics{
@@ -69,15 +63,17 @@ func NewBatchStreamingMetrics(reg prometheus.Registerer) *BatchStreamingMetrics 
 		OnStreamStop: func() {
 			openStreams.WithLabelValues().Dec()
 		},
-		OnStreamRequest: func(ratio float64) {
-			processingQueueUtilization.WithLabelValues().Observe(ratio)
-		},
 		OnStreamError: func(numErrs int) {
 			streamTotalErrors.WithLabelValues().Add(float64(numErrs))
 		},
-		OnWorkerReport: func(throughputEma float64, processingTimeEma time.Duration) {
+		OnWorkerReport: func(throughputEma float64) {
 			streamProcessingThroughputEma.WithLabelValues().Observe(throughputEma)
-			streamProcessingTimeEma.WithLabelValues().Observe(float64(processingTimeEma.Seconds()))
+		},
+		OnProcessingQueuePush: func(enqueued int) {
+			streamEnqueuedObjects.WithLabelValues().Add(float64(enqueued))
+		},
+		OnProcessingQueuePull: func(dequeued int) {
+			streamEnqueuedObjects.WithLabelValues().Add(-float64(dequeued))
 		},
 	}
 }

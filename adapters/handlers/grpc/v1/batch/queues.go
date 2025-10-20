@@ -122,7 +122,7 @@ func (r *reportingQueues) send(streamId string, successes []*pb.BatchStreamReply
 	}
 }
 
-// Make initializes a read queue for the given stream ID if it does not already exist.
+// Make initializes a reporting queue for the given stream ID if it does not already exist.
 func (r *reportingQueues) Make(streamId string) {
 	r.lock.Lock()
 	defer r.lock.Unlock()
@@ -144,7 +144,7 @@ func newWorkersStats(processingTime time.Duration) *workerStats {
 type stats struct {
 	lock              sync.RWMutex
 	processingTimeEma float64
-	batchSize         int
+	batchSizeEma      float64
 	throughputEma     float64
 }
 
@@ -153,8 +153,8 @@ func newStats() *stats {
 		// Start assuming the batch size is correct. This will reduce if the batch size should be larger.
 		processingTimeEma: 1,
 		// Start with a mid-range batch size of 100 (min 10, max 1000)
-		batchSize: 100,
-		// Start at default batchSize / default processingTimeEma
+		batchSizeEma: 100,
+		// Start at default batchSizeEma / default processingTimeEma
 		throughputEma: 100,
 	}
 }
@@ -162,45 +162,38 @@ func newStats() *stats {
 // Optimum is that each worker takes at most 1s to process a batch so that shutdown does not take too long
 const IDEAL_PROCESSING_TIME = 1.0 // seconds
 
+// Update EMAs using standard formula
+// newEma = alpha*newValue + (1-alpha)*oldEma
+func (s *stats) ema(new float64, ema float64) float64 {
+	alpha := 0.25
+	return alpha*new + (1-alpha)*ema
+}
+
 func (s *stats) updateBatchSize(processingTime time.Duration) {
-	// Set alpha to equally weight latest measurement and historical EMA
-	alpha := 0.5
+	// Set alpha to favour historic data more heavily to smooth out spikes
 	s.lock.Lock()
 	defer s.lock.Unlock()
-	// Update EMAs using standard formula
-	// newEma = alpha*newValue + (1-alpha)*oldEma
-	// Throughput is measured in objects per second
-	s.throughputEma = alpha*float64(s.batchSize)/processingTime.Seconds() + (1-alpha)*s.throughputEma
-	s.processingTimeEma = alpha*processingTime.Seconds() + (1-alpha)*s.processingTimeEma
+
+	s.throughputEma = s.ema(s.batchSizeEma/processingTime.Seconds(), s.throughputEma)
+	s.processingTimeEma = s.ema(processingTime.Seconds(), s.processingTimeEma)
 	if s.processingTimeEma-IDEAL_PROCESSING_TIME > 0.1 {
-		// Decrement fast if we're over the ideal processing time
-		// e.g., if ema is 5s (5x ideal), reduce batch size by 500
-		s.batchSize -= int(math.Ceil(100 * s.processingTimeEma / IDEAL_PROCESSING_TIME))
+		s.batchSizeEma = s.ema(s.batchSizeEma-100, s.batchSizeEma)
 	} else if s.processingTimeEma-IDEAL_PROCESSING_TIME < 0.1 {
-		// Increment slowly if we're under the ideal processing time
-		// e.g., if ema is 0.5s (0.5x ideal), increase batch size by 100
-		s.batchSize += 100
+		s.batchSizeEma = s.ema(s.batchSizeEma+100, s.batchSizeEma)
 	}
-	// Can't have negative or fractional batch size
-	if s.batchSize < 1 {
-		s.batchSize = 1
+
+	if s.batchSizeEma < 100 {
+		s.batchSizeEma = 100
 	}
-	// Cap batch size to 1000 to avoid excessive downstream load
-	if s.batchSize > 1000 {
-		s.batchSize = 1000
+	if s.batchSizeEma > 1000 {
+		s.batchSizeEma = 1000
 	}
 }
 
 func (s *stats) getBatchSize() int {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
-	return s.batchSize
-}
-
-func (s *stats) getProcessingTimeEma() time.Duration {
-	s.lock.RLock()
-	defer s.lock.RUnlock()
-	return time.Duration(s.processingTimeEma * time.Second.Seconds())
+	return int(math.Ceil(s.batchSizeEma))
 }
 
 func (s *stats) getThroughputEma() float64 {
