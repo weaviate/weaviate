@@ -13,6 +13,7 @@ package hnsw
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"testing"
 
@@ -319,8 +320,21 @@ func TestAddBatch_UpdateExistingVectors(t *testing.T) {
 }
 
 func TestAddBatch_ConcurrentAddBatchCalls(t *testing.T) {
-	index := testHNSW(t)
-	defer index.Shutdown(context.Background())
+	vectorStore := &sync.Map{}
+	vectorForID := func(ctx context.Context, id uint64) ([]float32, error) {
+		if vec, ok := vectorStore.Load(id); ok {
+			return vec.([]float32), nil
+		}
+		return nil, fmt.Errorf("vector not found: %d", id)
+	}
+
+	index := testHNSWWithCustomVectorFunc(t, vectorForID)
+	defer func(index *hnsw, ctx context.Context) {
+		err := index.Shutdown(ctx)
+		if err != nil {
+			t.Errorf("shutdown error: %v", err)
+		}
+	}(index, context.Background())
 
 	numGoroutines := 10
 	vectorsPerGoroutine := 100
@@ -328,8 +342,7 @@ func TestAddBatch_ConcurrentAddBatchCalls(t *testing.T) {
 
 	var wg sync.WaitGroup
 	wg.Add(numGoroutines)
-
-	errors := make(chan error, numGoroutines)
+	errs := make(chan error, numGoroutines)
 
 	for g := 0; g < numGoroutines; g++ {
 		go func(goroutineID int) {
@@ -345,19 +358,20 @@ func TestAddBatch_ConcurrentAddBatchCalls(t *testing.T) {
 				for j := 0; j < dims; j++ {
 					vectors[i][j] = float32(goroutineID*vectorsPerGoroutine+i*dims+j) / 10000.0
 				}
+				vectorStore.Store(ids[i], vectors[i])
 			}
 
 			err := index.AddBatch(context.Background(), ids, vectors)
 			if err != nil {
-				errors <- err
+				errs <- err
 			}
 		}(g)
 	}
 
 	wg.Wait()
-	close(errors)
+	close(errs)
 
-	for err := range errors {
+	for err := range errs {
 		t.Errorf("goroutine error: %v", err)
 	}
 
@@ -378,6 +392,34 @@ func testHNSWWithAllocChecker(t *testing.T, allocChecker memwatch.AllocChecker) 
 		MakeCommitLoggerThunk: MakeNoopCommitLogger,
 		DistanceProvider:      distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk:      testVectorForID,
+		AllocChecker:          allocChecker,
+	}
+
+	index, err := New(cfg, ent.UserConfig{
+		MaxConnections: 30,
+		EFConstruction: 60,
+		EF:             36,
+	}, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
+	require.Nil(t, err)
+
+	return index
+}
+
+func testHNSWWithCustomVectorFunc(t *testing.T, vectorForID func(context.Context, uint64) ([]float32, error)) *hnsw {
+	return testHNSWWithCustomVectorFuncAndAllocChecker(t, vectorForID, memwatch.NewDummyMonitor())
+}
+
+func testHNSWWithCustomVectorFuncAndAllocChecker(
+	t *testing.T,
+	vectorForID func(context.Context, uint64) ([]float32, error),
+	allocChecker memwatch.AllocChecker,
+) *hnsw {
+	cfg := Config{
+		RootPath:              t.TempDir(),
+		ID:                    "test-hnsw",
+		MakeCommitLoggerThunk: MakeNoopCommitLogger,
+		DistanceProvider:      distancer.NewCosineDistanceProvider(),
+		VectorForIDThunk:      vectorForID,
 		AllocChecker:          allocChecker,
 	}
 
