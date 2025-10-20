@@ -33,7 +33,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
-func (db *DB) UsageForIndex(ctx context.Context, logger logrus.FieldLogger, className schema.ClassName, jitterInterval time.Duration, exactObjectCount bool, vectorsConfig map[string]models.VectorConfig) (*types.CollectionUsage, error) {
+func (db *DB) UsageForIndex(ctx context.Context, className schema.ClassName, jitterInterval time.Duration, exactObjectCount bool, vectorsConfig map[string]models.VectorConfig) (*types.CollectionUsage, error) {
 	var (
 		index  *Index
 		exists bool
@@ -56,10 +56,10 @@ func (db *DB) UsageForIndex(ctx context.Context, logger logrus.FieldLogger, clas
 		index.dropIndex.RUnlock()
 	}()
 
-	return index.usageForCollection(ctx, logger, jitterInterval, exactObjectCount, vectorsConfig)
+	return index.usageForCollection(ctx, jitterInterval, exactObjectCount, vectorsConfig)
 }
 
-func (i *Index) usageForCollection(ctx context.Context, logger logrus.FieldLogger, jitterInterval time.Duration, exactObjectCount bool, vectorConfig map[string]models.VectorConfig) (*types.CollectionUsage, error) {
+func (i *Index) usageForCollection(ctx context.Context, jitterInterval time.Duration, exactObjectCount bool, vectorConfig map[string]models.VectorConfig) (*types.CollectionUsage, error) {
 	collectionUsage := &types.CollectionUsage{
 		Name:              i.Config.ClassName.String(),
 		ReplicationFactor: int(i.Config.ReplicationFactor),
@@ -86,7 +86,7 @@ func (i *Index) usageForCollection(ctx context.Context, logger logrus.FieldLogge
 		return nil, fmt.Errorf("schemareader: %w", err)
 	}
 
-	logger.WithField("class", i.Config.ClassName.String()).Debugf("Creating usage report with %d shards", len(localShards))
+	i.logger.WithField("class", i.Config.ClassName.String()).Debugf("creating usage report with %d shards", len(localShards))
 	var uniqueShardCount int
 
 	// There is an important distinction between the state of the shard in the schema (in schemaReader) and the local
@@ -95,16 +95,12 @@ func (i *Index) usageForCollection(ctx context.Context, logger logrus.FieldLogge
 	// After collection all local shards from the sharding state, we now need to iterate through these shards, lock them
 	// individually against changes in the _local_ state (i.e. loading/unloading) and then collect their usage based
 	// on this local state.
-	totalJitter := time.Duration(0)
-	counter := 0
 	start := time.Now()
 	for shardName := range localShards {
 		if err := func() error {
 			// Add jitter between tenant processing to not overload the system if there are many shards
 			if len(collectionUsage.Shards) > 0 {
-				start1 := time.Now()
 				addJitter(jitterInterval)
-				totalJitter += time.Since(start1)
 			}
 
 			i.shardCreateLocks.Lock(shardName)
@@ -188,17 +184,22 @@ func (i *Index) usageForCollection(ctx context.Context, logger logrus.FieldLogge
 		}(); err != nil {
 			return nil, err
 		}
-		counter++
-		if counter%1000 == 0 {
-			logger.WithFields(
+		if uniqueShardCount%1000 == 0 {
+			i.logger.WithFields(
 				logrus.Fields{
 					"class":            i.Config.ClassName.String(),
-					"processed_shards": counter,
+					"processed_shards": uniqueShardCount,
 					"took":             time.Since(start).Seconds(),
-					"jitter_total":     totalJitter.Seconds(),
-				}).Debugf("Processed %d/%d shards for usage report", counter, len(localShards))
+				}).Debugf("processed %d/%d shards for usage report", uniqueShardCount, len(localShards))
 		}
 	}
+
+	i.logger.WithFields(
+		logrus.Fields{
+			"class":            i.Config.ClassName.String(),
+			"processed_shards": uniqueShardCount,
+			"took":             time.Since(start).Seconds(),
+		}).Debugf("finished processing %d/%d shards for usage report", uniqueShardCount, len(localShards))
 
 	collectionUsage.UniqueShardCount = uniqueShardCount
 	sort.Sort(collectionUsage.Shards)
@@ -241,7 +242,7 @@ func (i *Index) calculateLoadedShardUsage(ctx context.Context, shard *Shard, exa
 		return nil, err
 	}
 
-	nonLSMStorage, err := shardusage.CalculateNonLSMStorage(i.path(), shard.Name())
+	vectorCommitLogsStorageSize, queueFoldersStorageSize, err := shardusage.CalculateNonLSMStorage(i.path(), shard.Name())
 	if err != nil {
 		return nil, err
 	}
@@ -250,10 +251,10 @@ func (i *Index) calculateLoadedShardUsage(ctx context.Context, shard *Shard, exa
 		Name:                  shard.Name(),
 		Status:                strings.ToLower(models.TenantActivityStatusACTIVE),
 		ObjectsCount:          objectCount,
-		ObjectsStorageBytes:   uint64(objectStorageSize) - uint64(uncompressedVectorSize),
-		VectorStorageBytes:    uint64(vectorStorageSize) + uint64(uncompressedVectorSize),
-		IndexStorageBytes:     indexUsage,
-		FullShardStorageBytes: nonLSMStorage + indexUsage + uint64(objectStorageSize) + uint64(vectorStorageSize),
+		ObjectsStorageBytes:   uint64(objectStorageSize) - uint64(uncompressedVectorSize),                               // objects without vectors
+		VectorStorageBytes:    uint64(vectorStorageSize) + uint64(uncompressedVectorSize) + vectorCommitLogsStorageSize, // lsm/vectors + objects vectors + commit.log folders
+		IndexStorageBytes:     indexUsage,                                                                               // lsm property folders and dimensions folder
+		FullShardStorageBytes: vectorCommitLogsStorageSize + queueFoldersStorageSize + indexUsage + uint64(objectStorageSize) + uint64(vectorStorageSize),
 	}
 	// Get vector usage for each named vector
 	vectorConfigs := i.GetVectorIndexConfigs()
@@ -353,7 +354,7 @@ func (i *Index) calculateUnloadedShardUsage(ctx context.Context, shardName strin
 		return nil, err
 	}
 
-	nonLSMStorage, err := shardusage.CalculateNonLSMStorage(i.path(), shardName)
+	vectorCommitLogsStorageSize, queueFoldersStorageSize, err := shardusage.CalculateNonLSMStorage(i.path(), shardName)
 	if err != nil {
 		return nil, err
 	}
@@ -363,7 +364,7 @@ func (i *Index) calculateUnloadedShardUsage(ctx context.Context, shardName strin
 		ObjectsCount:          objectUsage.Count,
 		Status:                strings.ToLower(models.TenantActivityStatusINACTIVE),
 		IndexStorageBytes:     indexUsage,
-		FullShardStorageBytes: nonLSMStorage + indexUsage + uint64(objectUsage.StorageBytes) + uint64(vectorStorageSize),
+		FullShardStorageBytes: vectorCommitLogsStorageSize + queueFoldersStorageSize + indexUsage + uint64(objectUsage.StorageBytes) + uint64(vectorStorageSize),
 	}
 
 	// Get named vector data for cold shards from schema configuration

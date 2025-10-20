@@ -40,16 +40,15 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	reindexer ShardReindexerV3, lazyLoadSegments bool, bitmapBufPool roaringset.BitmapBufPool,
 ) (_ *Shard, err error) {
 	start := time.Now()
-
-	if err := os.RemoveAll(shardusage.UsageTmpFilePath(index.path(), shardName)); err != nil {
-		return nil, err
-	}
-
 	index.logger.WithFields(logrus.Fields{
 		"action": "init_shard",
 		"shard":  shardName,
 		"index":  index.ID(),
 	}).Debugf("initializing shard %q", shardName)
+
+	if shardusage.RemoveComputedUsageFileForUnloadedShard(index.path(), shardName); err != nil {
+		return nil, fmt.Errorf("shard %q: remove computed usage file for unloaded shard: %w", shardName, err)
+	}
 
 	metrics, err := NewMetrics(index.logger, promMetrics, string(index.Config.ClassName), shardName)
 	if err != nil {

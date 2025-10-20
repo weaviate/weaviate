@@ -79,7 +79,7 @@ func (s *service) Usage(ctx context.Context, exactObjectCount bool) (*types.Repo
 		if err != nil {
 			return nil, fmt.Errorf("collection %s: %w", collection.Class, err)
 		}
-		collectionUsage, err := s.db.UsageForIndex(ctx, s.logger, entschema.ClassName(collection.Class), s.jitterInterval, exactObjectCount, vectorConfig)
+		collectionUsage, err := s.db.UsageForIndex(ctx, entschema.ClassName(collection.Class), s.jitterInterval, exactObjectCount, vectorConfig)
 		// we lock the local index against being deleted while we collect usage, however we cannot lock the RAFT schema
 		// against being changed. If the class was deleted in the RAFT schema, we simply skip it here
 		// as it is no longer relevant for the current node usage

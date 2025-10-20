@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"os"
 	"path"
 	"path/filepath"
 	"slices"
@@ -30,7 +31,7 @@ import (
 )
 
 func UsageTmpFilePath(indexPath, shardName string) string {
-	return path.Join(indexPath, shardName, "USAGE_TMP.tmp")
+	return path.Join(indexPath, shardName, "usage.json.tmp")
 }
 
 func shardPathLSM(indexPath, shardName string) string {
@@ -43,6 +44,16 @@ func shardPathObjectsLSM(indexPath, shardName string) string {
 
 func shardPathDimensionsLSM(indexPath, shardName string) string {
 	return path.Join(shardPathLSM(indexPath, shardName), helpers.DimensionsBucketLSM)
+}
+
+func RemoveComputedUsageFileForUnloadedShard(indexPath, shardName string) error {
+	usageFilePath := UsageTmpFilePath(indexPath, shardName)
+	if _, err := os.Stat(usageFilePath); !os.IsNotExist(err) {
+		if err := os.RemoveAll(usageFilePath); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // CalculateUnloadedDimensionsUsage calculates dimensions and object count for an unloaded shard without loading it into memory
@@ -172,21 +183,21 @@ func CalculateUnloadedIndicesSize(lsmPath string, directories []string) (uint64,
 }
 
 // CalculateNonLSMStorage calculates the full storage used by a shard, including objects, vectors, and indices
-func CalculateNonLSMStorage(path, shardName string) (uint64, error) {
-	totalSize := uint64(0)
+func CalculateNonLSMStorage(path, shardName string) (uint64, uint64, error) {
+	var vectorCommitLogsStorageSize, queueFoldersStorageSize uint64
 	shardPath := filepath.Join(path, shardName)
 
 	files, dirs, err := diskio.GetFileWithSizes(shardPath)
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 
 	// Add sizes of all files in the shard root directory
 	for _, size := range files {
-		totalSize += uint64(size)
+		vectorCommitLogsStorageSize += uint64(size)
 	}
 	for _, dir := range dirs {
-		if strings.Contains(dir, "lsm") {
+		if dir == "lsm" {
 			// lsm folder is already calculated, no need to read two times
 			continue
 		}
@@ -194,16 +205,22 @@ func CalculateNonLSMStorage(path, shardName string) (uint64, error) {
 		fullPath := filepath.Join(shardPath, dir)
 		filesSubFolder, _, err := diskio.GetFileWithSizes(fullPath)
 		if err != nil {
-			return 0, err
+			return 0, 0, err
 		}
 
+		totalSize := uint64(0)
 		for _, size := range filesSubFolder {
 			totalSize += uint64(size)
+		}
+		if strings.HasSuffix(dir, "commitlog.d") {
+			vectorCommitLogsStorageSize += totalSize
+		} else {
+			queueFoldersStorageSize += totalSize
 		}
 
 	}
 
-	return totalSize, nil
+	return vectorCommitLogsStorageSize, queueFoldersStorageSize, nil
 }
 
 // CalculateTargetVectorDimensionsFromBucket calculates dimensions and object count for a target vector from an LSMKV bucket
