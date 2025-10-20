@@ -871,7 +871,6 @@ func TestSchedulerList(t *testing.T) {
 		fs.backend.On("AllBackups", mock.Anything).Return(backups, nil)
 
 		t.Run("return results sorted by default (desc)", func(t *testing.T) {
-
 			resp, err := fs.scheduler().List(ctx, nil, backendName, nil)
 			assert.Nil(t, err)
 			assert.NotNil(t, resp)
