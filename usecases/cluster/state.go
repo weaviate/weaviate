@@ -323,9 +323,9 @@ func (s *State) LocalNodeAddress() string {
 
 func (s *State) NodeHostname(nodeName string) (string, bool) {
 	// Exclude self to avoid routing requests to local node during rollouts
-	// if nodeName == s.LocalName() {
-	// 	return "", false
-	// }
+	if s.list.NumMembers() > 1 && nodeName == s.LocalName() {
+		return "", false
+	}
 	for _, mem := range s.list.Members() {
 		if mem.Name == nodeName {
 			// TODO: how can we find out the actual data port as opposed to relying on
