@@ -103,7 +103,7 @@ type PrometheusMetrics struct {
 	VectorIndexMaintenanceDurations     *prometheus.SummaryVec
 	VectorDimensionsSum                 *prometheus.GaugeVec
 	VectorSegmentsSum                   *prometheus.GaugeVec
-	VectorIndexMemoryAllocationRejected *prometheus.CounterVec
+	VectorIndexMemoryAllocationRejected prometheus.Counter
 
 	StartupProgress  *prometheus.GaugeVec
 	StartupDurations *prometheus.SummaryVec
@@ -320,7 +320,6 @@ func (pm *PrometheusMetrics) DeleteShard(className, shardName string) error {
 	pm.VectorIndexMaintenanceDurations.DeletePartialMatch(labels)
 	pm.VectorIndexDurations.DeletePartialMatch(labels)
 	pm.VectorIndexSize.DeletePartialMatch(labels)
-	pm.VectorIndexMemoryAllocationRejected.DeletePartialMatch(labels)
 	pm.StartupProgress.DeletePartialMatch(labels)
 	pm.StartupDurations.DeletePartialMatch(labels)
 	pm.StartupDiskIO.DeletePartialMatch(labels)
@@ -632,10 +631,10 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "vector_segments_sum",
 			Help: "Total segments in a shard if quantization enabled",
 		}, []string{"class_name", "shard_name"}),
-		VectorIndexMemoryAllocationRejected: promauto.NewCounterVec(prometheus.CounterOpts{
+		VectorIndexMemoryAllocationRejected: promauto.NewCounter(prometheus.CounterOpts{
 			Name: "vector_index_memory_allocation_rejected_total",
-			Help: "Total number of batch operations rejected due to insufficient memory",
-		}, []string{"class_name", "shard_name"}),
+			Help: "Total number of batch operations rejected per node due to insufficient memory",
+		}),
 
 		// Startup metrics
 		StartupProgress: promauto.NewGaugeVec(prometheus.GaugeOpts{

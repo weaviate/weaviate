@@ -161,10 +161,7 @@ func NewMetrics(prom *monitoring.PrometheusMetrics,
 		"shard_name": shardName,
 	})
 
-	memoryAllocationRejected := prom.VectorIndexMemoryAllocationRejected.With(prometheus.Labels{
-		"class_name": className,
-		"shard_name": shardName,
-	})
+	memoryAllocationRejected := prom.VectorIndexMemoryAllocationRejected
 
 	return &Metrics{
 		enabled:                       true,
