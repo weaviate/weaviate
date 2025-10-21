@@ -1827,13 +1827,11 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 		if err != nil {
 			return nil, nil, err
 		}
-		if shard != nil {
-			defer release()
-		}
 
 		if shard != nil {
 			localSearches++
 			eg.Go(func() error {
+				defer release()
 				localShardResult, localShardScores, err1 := i.localShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardName)
 				if err1 != nil {
 					return fmt.Errorf(
