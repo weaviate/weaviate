@@ -1563,7 +1563,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 				}
 				nodeName = i.getSchema.NodeName()
 			} else {
-				i.logger.WithField("shardName", shardName).Debug("shard was not found locally, search for object remotely")
+				i.logger.WithField("shardName", shardName).Infof("shard was not found locally, search for object remotely: %t, status: %s", shard == nil, shard.GetStatus().String())
 
 				objs, scores, nodeName, err = i.remote.SearchShard(
 					ctx, shardName, nil, nil, 0, limit, filters, keywordRanking,
@@ -1853,6 +1853,8 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 		if shard == nil || i.Config.ForceFullReplicasSearch {
 			remoteSearches++
 			eg.Go(func() error {
+				i.logger.WithField("shardName", shardName).Infof("objectVectorSearch: remote shard: %t, status: %s", local, shard.GetStatus().String())
+
 				// If we have no local shard or if we force the query to reach all replicas
 				remoteShardObject, remoteShardScores, err2 := i.remoteShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardName)
 				if err2 != nil {
