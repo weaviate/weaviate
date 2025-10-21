@@ -1828,7 +1828,10 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 			return nil, nil, err
 		}
 
-		if shard != nil {
+		local := shard != nil
+		i.logger.WithField("shardName", shardName).Infof("objectVectorSearch: local shard: %t, status: %s", local, shard.GetStatus().String())
+
+		if local {
 			localSearches++
 			eg.Go(func() error {
 				defer release()
