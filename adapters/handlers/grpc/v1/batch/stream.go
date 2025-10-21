@@ -432,29 +432,28 @@ func (h *StreamHandler) receiver(ctx context.Context, streamId string, consisten
 			// Split the client-sent objects into batches according to the current batch size
 			// This allows clients to send however many objects they want without overwhelming
 			// the downstream workers
-			// batchSize := h.workerStats(streamId).getBatchSize()
-			// objs := request.GetData().GetObjects().GetValues()
-			// var batch []*pb.BatchObject
-			// if len(objs) > batchSize {
-			// 	batch = make([]*pb.BatchObject, 0, batchSize)
-			// 	for _, obj := range request.GetData().GetObjects().GetValues() {
-			// 		batch = append(batch, obj)
-			// 		if len(batch) == batchSize {
-			// 			push(batch, nil)
-			// 			batch = make([]*pb.BatchObject, 0, batchSize)
-			// 		}
-			// 	}
-			// } else {
-			// 	batch = objs
-			// }
+			batchSize := h.workerStats(streamId).getBatchSize()
+			objs := request.GetData().GetObjects().GetValues()
+			var batch []*pb.BatchObject
+			if len(objs) > batchSize {
+				batch = make([]*pb.BatchObject, 0, batchSize)
+				for _, obj := range request.GetData().GetObjects().GetValues() {
+					batch = append(batch, obj)
+					if len(batch) == batchSize {
+						push(batch, nil)
+						batch = make([]*pb.BatchObject, 0, batchSize)
+					}
+				}
+			} else {
+				batch = objs
+			}
 
-			// refs := request.GetData().GetReferences().GetValues()
-			// if len(batch) > 0 || len(refs) > 0 {
-			// 	// refs are fast so don't need to be efficiently batched
-			// 	// we just accept however many the client sends assuming it'll be fine
-			// 	push(batch, refs)
-			// }
-			push(request.GetData().GetObjects().GetValues(), request.GetData().GetReferences().GetValues())
+			refs := request.GetData().GetReferences().GetValues()
+			if len(batch) > 0 || len(refs) > 0 {
+				// refs are fast so don't need to be efficiently batched
+				// we just accept however many the client sends assuming it'll be fine
+				push(batch, refs)
+			}
 
 		} else if request.GetStop() != nil {
 			h.setStopping(streamId)
