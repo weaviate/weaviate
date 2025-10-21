@@ -222,10 +222,6 @@ func (db *DB) CrossClassVectorSearch(ctx context.Context, vector models.Vector, 
 	db.indexLock.RLock()
 	for _, index := range db.indices {
 		eg.Go(func() error {
-			if err := ctx.Err(); err != nil {
-				return err
-			}
-
 			objs, dist, err := index.objectVectorSearch(ctx, []models.Vector{vector}, []string{targetVector},
 				0, totalLimit, filters, nil, nil,
 				additional.Properties{}, nil, "", nil, nil)
