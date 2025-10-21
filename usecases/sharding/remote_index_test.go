@@ -60,7 +60,7 @@ func TestQueryReplica(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		rindex := RemoteIndex{"C", &test.schema, nil, &test.resolver}
+		rindex := RemoteIndex{"C", &test.schema, nil, &test.resolver, "node"}
 		got, lastNode, err := rindex.queryReplicas(test.ctx, "S", doIf(test.targetNode))
 		if !test.success {
 			if got != nil {

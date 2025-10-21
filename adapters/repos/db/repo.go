@@ -271,8 +271,6 @@ type Config struct {
 	QuerySlowLogThreshold       *configRuntime.DynamicValue[time.Duration]
 	InvertedSorterDisabled      *configRuntime.DynamicValue[bool]
 	MaintenanceModeEnabled      func() bool
-	StartupTime                 time.Time
-	ReadyTime                   time.Time
 }
 
 // GetIndex returns the index if it exists or nil if it doesn't

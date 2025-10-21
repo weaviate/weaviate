@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -215,21 +216,20 @@ func (f *Finder) CheckConsistency(ctx context.Context,
 		return nil
 	}
 
-	return nil
-	// // check shard consistency concurrently
-	// gr, ctx := enterrors.NewErrorGroupWithContextWrapper(f.logger, ctx)
-	// for _, part := range cluster(createBatch(xs)) {
-	// 	part := part
-	// 	gr.Go(func() error {
-	// 		_, err := f.checkShardConsistency(ctx, l, part)
-	// 		if err != nil {
-	// 			f.log.WithField("op", "check_shard_consistency").
-	// 				WithField("shard", part.Shard).Error(err)
-	// 		}
-	// 		return err
-	// 	}, part)
-	// }
-	// return gr.Wait()
+	// check shard consistency concurrently
+	gr, ctx := enterrors.NewErrorGroupWithContextWrapper(f.logger, ctx)
+	for _, part := range cluster(createBatch(xs)) {
+		part := part
+		gr.Go(func() error {
+			_, err := f.checkShardConsistency(ctx, l, part)
+			if err != nil {
+				f.log.WithField("op", "check_shard_consistency").
+					WithField("shard", part.Shard).Error(err)
+			}
+			return err
+		}, part)
+	}
+	return gr.Wait()
 }
 
 // Exists checks if an object exists which satisfies the giving consistency
