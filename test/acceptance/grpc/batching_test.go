@@ -36,9 +36,7 @@ import (
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
-	"google.golang.org/grpc/status"
 )
 
 func TestGRPC_Batching(t *testing.T) {
@@ -446,19 +444,8 @@ func TestGRPC_ClusterBatching(t *testing.T) {
 					return // server closed the stream
 				}
 				if err != nil {
-					st, ok := status.FromError(err)
-					if !ok || st.Code() != codes.Aborted {
-						t.Errorf("%s Stream recv returned error: %v\n", time.Now().Format("15:04:05"), err)
-						return
-					}
-					stream.CloseSend()
-					t.Logf("%s Stream closed by server due to shutdown\n", time.Now().Format("15:04:05"))
-					grpcClient, _ = client(t, compose.GetWeaviateNode(secondNode).GrpcURI())
-					streamRestartLock.Lock()
-					stream = start(ctx, t, grpcClient, "")
-					streamRestartLock.Unlock()
-					shuttingDown.Store(false)
-					continue // we expect this error when the server is shutting down
+					t.Errorf("%s Stream recv returned error: %v\n", time.Now().Format("15:04:05"), err)
+					return
 				}
 				if len(resp.GetResults().GetErrors()) != 0 {
 					t.Error("Received unexpected errors from server:")
@@ -469,6 +456,15 @@ func TestGRPC_ClusterBatching(t *testing.T) {
 				if resp.GetShuttingDown() != nil {
 					t.Logf("%s Shutdown triggered\n", time.Now().Format("15:04:05"))
 					shuttingDown.Store(true)
+				}
+				if resp.GetShutdown() != nil {
+					stream.CloseSend()
+					t.Logf("%s Stream closed by server due to shutdown\n", time.Now().Format("15:04:05"))
+					grpcClient, _ = client(t, compose.GetWeaviateNode(secondNode).GrpcURI())
+					streamRestartLock.Lock()
+					stream = start(ctx, t, grpcClient, "")
+					streamRestartLock.Unlock()
+					shuttingDown.Store(false)
 				}
 			}
 		}()
