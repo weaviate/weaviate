@@ -77,9 +77,11 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 	}
 
 	// Ensure tenants are created if auto-tenant is enabled and wait for the newer schema version
-	if autoTenantSchemaVersion, _, err := m.autoSchemaManager.autoTenants(ctx, principal, []*models.Object{object}, fetchedClasses); err != nil {
+	autoTenantSchemaVersion, _, err := m.autoSchemaManager.autoTenants(ctx, principal, []*models.Object{object}, fetchedClasses)
+	if err != nil {
 		return nil, err
-	} else if autoTenantSchemaVersion > maxSchemaVersion {
+	}
+	if autoTenantSchemaVersion > maxSchemaVersion {
 		maxSchemaVersion = autoTenantSchemaVersion
 	}
 
