@@ -167,7 +167,7 @@ func (l *LazyLoadShard) GetStatus() storagestate.Status {
 	if l.loaded {
 		return l.shard.GetStatus()
 	}
-	return storagestate.StatusLoading
+	return storagestate.StatusLazyLoading
 }
 
 func (l *LazyLoadShard) UpdateStatus(status, reason string) error {
