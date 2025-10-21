@@ -454,11 +454,6 @@ func TestDynamicWithDifferentCompressionSchema(t *testing.T) {
 	require.NoError(t, err)
 	dummyStore.FlushMemtables(t.Context())
 
-	// open the db again
-	db, err = bbolt.Open(filepath.Join(tempDir, "index.db"), 0o666, nil)
-	require.NoError(t, err)
-	config.SharedDB = db
-
 	dynamic, err = New(config, uc, dummyStore)
 	require.NoError(t, err)
 	dynamic.PostStartup()

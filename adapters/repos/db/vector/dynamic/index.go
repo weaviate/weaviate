@@ -457,9 +457,6 @@ func (dynamic *dynamic) Shutdown(ctx context.Context) error {
 	dynamic.Lock()
 	defer dynamic.Unlock()
 
-	if err := dynamic.db.Close(); err != nil {
-		return err
-	}
 	return dynamic.index.Shutdown(ctx)
 }
 
