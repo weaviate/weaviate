@@ -13,9 +13,12 @@ package test
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
+	"math"
+	"math/rand/v2"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -354,9 +357,9 @@ func TestGRPC_ClusterBatching(t *testing.T) {
 
 		// Send some articles and paragraphs in send message
 		objects := []*pb.BatchObject{
-			{Collection: clsA.Class, Uuid: UUID0},
-			{Collection: clsP.Class, Uuid: UUID1},
-			{Collection: clsP.Class, Uuid: UUID2},
+			{Collection: clsA.Class, Uuid: UUID0, Vectors: []*pb.Vectors{{Name: "default", VectorBytes: randomByteVector(512)}}},
+			{Collection: clsP.Class, Uuid: UUID1, Vectors: []*pb.Vectors{{Name: "default", VectorBytes: randomByteVector(512)}}},
+			{Collection: clsP.Class, Uuid: UUID2, Vectors: []*pb.Vectors{{Name: "default", VectorBytes: randomByteVector(512)}}},
 		}
 		// Send some references between the articles and paragraphs
 		references := []*pb.BatchReference{
@@ -411,6 +414,7 @@ func TestGRPC_ClusterBatching(t *testing.T) {
 				batch = append(batch, &pb.BatchObject{
 					Collection: clsA.Class,
 					Uuid:       helper.IntToUUID(uint64(i)).String(),
+					Vectors:    []*pb.Vectors{{Name: "default", VectorBytes: randomByteVector(256)}},
 				})
 				if len(batch) == 1000 {
 					t.Logf("%s Sending %vth batch of 1000 objects\n", time.Now().Format("15:04:05"), i/1000)
@@ -731,4 +735,14 @@ func stop(stream pb.Weaviate_BatchStreamClient) {
 
 func toBeacon(ref *pb.BatchReference) string {
 	return fmt.Sprintf("weaviate://localhost/%s/%s/%s", ref.FromCollection, ref.FromUuid, ref.Name)
+}
+
+func randomByteVector(dim int) []byte {
+	vector := make([]byte, dim*4)
+
+	for i := 0; i < dim; i++ {
+		binary.LittleEndian.PutUint32(vector[i*4:i*4+4], math.Float32bits(rand.Float32()))
+	}
+
+	return vector
 }
