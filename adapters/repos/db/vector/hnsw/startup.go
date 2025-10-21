@@ -118,11 +118,8 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 
 	h.currentMaximumLayer = int(state.Level)
 	h.entryPointID = state.Entrypoint
+	h.tombstones = state.Tombstones
 	h.Unlock()
-
-	for id := range state.Tombstones {
-		h.tombstones.Store(id, struct{}{})
-	}
 
 	if h.multivector.Load() {
 		if !h.muvera.Load() {

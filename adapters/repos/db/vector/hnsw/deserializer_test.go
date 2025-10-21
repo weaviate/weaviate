@@ -21,6 +21,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/puzpuzpuz/xsync/v4"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -412,7 +413,7 @@ func TestDeserializerTruncateReadAddLinks(t *testing.T) {
 }
 
 func TestDeserializerAddTombstone(t *testing.T) {
-	tombstones := map[uint64]struct{}{}
+	tombstones := xsync.NewMap[uint64, struct{}]()
 	ids := []uint64{2, 3, 4, 5, 6}
 
 	for _, id := range ids {
@@ -440,13 +441,14 @@ func TestDeserializerAddTombstone(t *testing.T) {
 }
 
 func TestDeserializerRemoveTombstone(t *testing.T) {
-	tombstones := map[uint64]struct{}{
-		1: {},
-		2: {},
-		3: {},
-		4: {},
-		5: {},
-	}
+	tombstones := xsync.NewMap[uint64, struct{}]()
+	tombstones.Store(1, struct{}{})
+	tombstones.Store(2, struct{}{})
+	tombstones.Store(3, struct{}{})
+	tombstones.Store(4, struct{}{})
+	tombstones.Store(5, struct{}{})
+	tombstones.Store(6, struct{}{})
+
 	ids := []uint64{2, 3, 4, 5, 7}
 	deletedTombstones := map[uint64]struct{}{
 		6: {},
