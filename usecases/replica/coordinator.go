@@ -83,6 +83,7 @@ func newReadCoordinator[T any](f *Finder, shard string,
 		Router:                        f.router,
 		Class:                         f.class,
 		Shard:                         shard,
+		log:                           f.log,
 		metrics:                       f.metrics,
 		pullBackOffPreInitialInterval: pullBackOffInitivalInterval / 2,
 		pullBackOffMaxElapsedTime:     pullBackOffMaxElapsedTime,
@@ -370,6 +371,13 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 						replyCh <- _Result[T]{resp, err}
 						return
 					case <-timer.C:
+						// requeue only if still alive
+						select {
+						case <-workerCtx.Done():
+							// don't requeue on cancellation
+						default:
+							hostRetryQueue <- hostRetry{hr.host, hr.currentBackOff}
+						}
 						hostRetryQueue <- hostRetry{hr.host, hr.currentBackOff}
 					}
 					timer.Stop()
