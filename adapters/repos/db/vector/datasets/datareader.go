@@ -161,10 +161,10 @@ func NewLocalDataReader(localFile string, split Split, startRow int, endRow int,
 		}
 	}()
 	// Validate whether the expected columns are present in the parquet schema.
-	if err := validateColumns(rowReader.columnIndices, "id", "vector"); err != nil {
+	if err := validateColumns(rowReader.columnIndices, "id", "embedding"); err != nil {
 		return nil, err
 	}
-	idColIdx, vectorColIdx := rowReader.columnIndices["id"], rowReader.columnIndices["vector"]
+	idColIdx, vectorColIdx := rowReader.columnIndices["id"], rowReader.columnIndices["embedding"]
 
 	neighborColIdx := -1
 	if split == TestSplit {

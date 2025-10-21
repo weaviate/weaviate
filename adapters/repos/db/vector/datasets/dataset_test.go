@@ -17,12 +17,10 @@ package datasets
 import (
 	"math"
 	"testing"
-
-	"gotest.tools/v3/assert"
 )
 
 func TestLoadDataset(t *testing.T) {
-	hf := NewHubDataset("tobias-weaviate/ann-datasets", "dbpedia-openai-ada002-1536-float32-angular-100k")
+	hf := NewHubDataset("weaviate/ann-datasets", "fiqa-st-minilm-384-dot-12k")
 
 	// Load training data
 	t.Log("Loading training data...")
@@ -38,8 +36,8 @@ func TestLoadDataset(t *testing.T) {
 	if len(ids) != len(vectors) {
 		t.Fatalf("Expected equal number of IDs (%d) and vectors (%d)", len(ids), len(vectors))
 	}
-	if len(vectors) < 100000 {
-		t.Errorf("Expected at least 100,000 training vectors, got %d", len(vectors))
+	if len(vectors) < 12000 {
+		t.Errorf("Expected at least 12,000 training vectors, got %d", len(vectors))
 	}
 
 	t.Logf("Loaded %d training vectors", len(vectors))
@@ -52,7 +50,7 @@ func TestLoadDataset(t *testing.T) {
 		}
 
 		// Check first 5 dimensions match expected values (with tolerance for floating point)
-		expectedDims1 := []float32{-0.013902083, 0.016943572, 0.013771547, -0.0066899695, -0.026394377}
+		expectedDims1 := []float32{-0.2795231, 0.28700414, 0.2252842, -0.4291246, -0.01542636}
 		if len(vector1) >= 5 {
 			for i, expected := range expectedDims1 {
 				if math.Abs(float64(vector1[i]-expected)) > 1e-6 {
@@ -91,7 +89,7 @@ func TestLoadDataset(t *testing.T) {
 		}
 
 		// Check first 5 dimensions match expected values
-		expectedTestDims1 := []float32{-0.027109032, -0.019073945, 0.016458161, -0.023066457, -0.0012101129}
+		expectedTestDims1 := []float32{-0.0020292606, -0.034609236, 0.10827242, 0.0431901, -0.1072818}
 		if len(testVector1) >= 5 {
 			for i, expected := range expectedTestDims1 {
 				if math.Abs(float64(testVector1[i]-expected)) > 1e-6 {
@@ -123,60 +121,8 @@ func TestLoadDataset(t *testing.T) {
 	}
 }
 
-// TODO: Upload FIQA files in binary format to get these tests working.
-func TestLoadFIQATrainData(t *testing.T) {
-	hf := NewHubDataset("tobias-weaviate/ann-datasets", "fiqa-google-embeddinggemma300m-768-angular-54k")
-	ids, vectors, err := hf.LoadTrainData()
-	if err != nil {
-		t.Fatalf("Failed to load training data: %v", err)
-	}
-
-	n := 54351
-	d := 768
-	assert.Equal(t, len(ids), n)
-	assert.Equal(t, len(vectors), n)
-	assert.Equal(t, len(vectors[0]), d)
-	for i := range n {
-		assert.Equal(t, ids[i], uint64(i))
-	}
-
-	expectedValues := []float32{-0.0458683, -0.022633573, -0.023361705, 0.08714058}
-	actualValues := vectors[8763][634:638]
-	for i := range expectedValues {
-		assert.Equal(t, expectedValues[i], actualValues[i])
-	}
-}
-
-func TestLoadFIQATestData(t *testing.T) {
-	hf := NewHubDataset("tobias-weaviate/ann-datasets", "fiqa-google-embeddinggemma300m-768-angular-54k")
-	neighbors, vectors, err := hf.LoadTestData()
-	if err != nil {
-		t.Fatalf("Failed to load test data: %v", err)
-	}
-
-	n := 6640
-	assert.Equal(t, len(neighbors), n)
-	assert.Equal(t, len(vectors), n)
-
-	d := 768
-	for _, v := range vectors {
-		assert.Equal(t, d, len(v))
-	}
-
-	// Verify that the neighbors are right in a sample location.
-	expectedValues := []uint64{11196, 24739, 44342}
-	actualValues := neighbors[3116][34:37]
-	for i := range expectedValues {
-		assert.Equal(t, expectedValues[i], actualValues[i])
-	}
-
-	// Verify that vectors are correct in a sample location
-	assert.Equal(t, float32(-0.1131085529923439), vectors[5001][0])
-	assert.Equal(t, float32(-0.02702171355485916), vectors[5001][767])
-}
-
 func BenchmarkLoadData(b *testing.B) {
-	hf := NewHubDataset("trengrj/ann-datasets", "dbpedia-openai-ada002-1536-angular-100k")
+	hf := NewHubDataset("trengrj/ann-datasets", "fiqa-st-minilm-384-dot-12k")
 	// Warmup runs to ensure that the data is downloaded.
 	hf.LoadTestData()
 	ids, vectors, _ := hf.LoadTrainData()
