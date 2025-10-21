@@ -517,7 +517,7 @@ func Test_AddClassWithLimits(t *testing.T) {
 				name:                 "async indexing disabled",
 				asyncIndexingEnabled: false,
 
-				expectError: "the dynamic index can only be created under async indexing environment (ASYNC_INDEXING=true)",
+				expectError: "the dynamic index can only be created when async indexing is enabled",
 			},
 			{
 				name:                 "async indexing enabled",
