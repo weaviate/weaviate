@@ -447,7 +447,7 @@ func (st *Store) init() error {
 		return fmt.Errorf("net.resolve tcp address=%v: %w", address, err)
 	}
 
-	st.raftTransport, err = st.raftResolver.NewTCPTransport(address, tcpAddr, tcpMaxPool, tcpTimeout, st.log)
+	st.raftTransport, err = st.raftResolver.NewTCPTransport(fmt.Sprintf("0.0.0.0:%d", st.cfg.RaftPort), tcpAddr, tcpMaxPool, tcpTimeout, st.log)
 	if err != nil {
 		return fmt.Errorf("raft transport address=%v tcpAddress=%v maxPool=%v timeOut=%v: %w", address, tcpAddr, tcpMaxPool, tcpTimeout, err)
 	}
