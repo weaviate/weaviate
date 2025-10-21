@@ -17,9 +17,8 @@ import (
 	"path"
 	"time"
 
-	"github.com/weaviate/weaviate/entities/schema"
-
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcounter"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
@@ -27,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
@@ -49,7 +49,7 @@ func (s *Shard) initNonVector(ctx context.Context, class *models.Class, lazyLoad
 	// Run all other inits in parallel and use a single error group to wait for
 	// all init tasks, the wait statement is at the end of this method. No other
 	// methods should attempt to wait on this error group.
-	eg := enterrors.NewErrorGroupWrapper(s.index.logger)
+	eg := enterrors.NewErrorGroupWrapper(s.index.logger, "init_shard_non_vector")
 
 	eg.Go(func() error {
 		return s.initObjectBucket(ctx)

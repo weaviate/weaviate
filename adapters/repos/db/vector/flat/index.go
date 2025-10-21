@@ -26,6 +26,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	bolt "go.etcd.io/bbolt"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
@@ -40,7 +41,6 @@ import (
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/usecases/floatcomp"
-	bolt "go.etcd.io/bbolt"
 )
 
 const (
@@ -409,6 +409,14 @@ func (index *flat) SearchByMultiVector(ctx context.Context, vectors [][]float32,
 }
 
 func (index *flat) searchByVector(ctx context.Context, vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
+	start := time.Now()
+	defer func() {
+		took := time.Since(start)
+		index.logger.WithFields(logrus.Fields{
+			"action": "searchByVector completed",
+			"took":   took,
+		}).Debugf("internal searchByVector completed in %s", took)
+	}()
 	// TODO: pass context into inner methods, so it can be checked more granuarly
 	heap := index.pqResults.GetMax(k)
 	defer index.pqResults.Put(heap)
@@ -469,10 +477,13 @@ func (index *flat) searchByVectorBQ(ctx context.Context, vector []float32, k int
 	// we expect to be mostly IO-bound, so more goroutines than CPUs is fine
 	distancesUncompressedVectors := make([]float32, len(idsSlice.slice))
 
-	eg := enterrors.NewErrorGroupWrapper(index.logger)
+	eg, ctx := enterrors.NewErrorGroupWithContextWrapper(index.logger, ctx)
 	for workerID := 0; workerID < index.concurrentCacheReads; workerID++ {
 		workerID := workerID
 		eg.Go(func() error {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			for idPos := workerID; idPos < len(idsSlice.slice); idPos += index.concurrentCacheReads {
 				id := idsSlice.slice[idPos]
 				candidateAsBytes, err := index.vectorById(id)
@@ -666,6 +677,14 @@ func (index *flat) normalized(vector []float32) []float32 {
 func (index *flat) SearchByVectorDistance(ctx context.Context, vector []float32,
 	targetDistance float32, maxLimit int64, allow helpers.AllowList,
 ) ([]uint64, []float32, error) {
+	start := time.Now()
+	defer func() {
+		took := time.Since(start)
+		index.logger.WithFields(logrus.Fields{
+			"action": "SearchByVectorDistance completed",
+			"took":   took,
+		}).Debugf("flat SearchByVectorDistance completed in %s", took)
+	}()
 	var (
 		searchParams = newSearchByDistParams(maxLimit)
 

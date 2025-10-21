@@ -43,6 +43,10 @@ type State struct {
 	localNodeName string // TODO: localNodeName is static it is better to store just once
 }
 
+func (s *State) LocalNodeName() string {
+	return s.localNodeName
+}
+
 // MigrateFromOldFormat checks if the old (pre-v1.17) format was used and
 // migrates it into the new format for backward-compatibility with all classes
 // created before v1.17
