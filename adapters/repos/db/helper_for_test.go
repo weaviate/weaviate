@@ -287,6 +287,7 @@ func testShardWithSettings(t *testing.T, ctx context.Context, class *models.Clas
 	for _, opt := range indexOpts {
 		opt(idx)
 	}
+	idx.AsyncIndexingEnabled = withAsyncIndexingEnabled
 
 	shardName := shardState.AllPhysicalShards()[0]
 
