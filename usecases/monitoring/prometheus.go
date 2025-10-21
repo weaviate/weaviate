@@ -632,7 +632,7 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Help: "Total segments in a shard if quantization enabled",
 		}, []string{"class_name", "shard_name"}),
 		VectorIndexMemoryAllocationRejected: promauto.NewCounter(prometheus.CounterOpts{
-			Name: "vector_index_memory_allocation_rejected_total",
+			Name: "weaviate_vector_index_memory_allocation_rejected_total",
 			Help: "Total number of batch operations rejected per node due to insufficient memory",
 		}),
 
