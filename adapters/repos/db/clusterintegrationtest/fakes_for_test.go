@@ -55,9 +55,7 @@ type node struct {
 	hostname      string
 }
 
-func (n *node) init(dirName string, shardStateRaw []byte,
-	allNodes *[]*node,
-) {
+func (n *node) init(dirName string, shardStateRaw []byte, allNodes *[]*node, asyncIndexEnabled bool) {
 	localDir := path.Join(dirName, n.name)
 	logger, _ := test.NewNullLogger()
 
@@ -85,6 +83,7 @@ func (n *node) init(dirName string, shardStateRaw []byte,
 		RootPath:                  localDir,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
+		AsyncIndexingEnabled:      asyncIndexEnabled,
 	}, client, nodeResolver, nodesClient, replicaClient, nil, memwatch.NewDummyMonitor())
 	if err != nil {
 		panic(err)
