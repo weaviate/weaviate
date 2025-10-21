@@ -360,10 +360,10 @@ func sortBackups(order AllBackupsOrder) func(a, b *backup.DistributedBackupDescr
 
 	return func(a, b *backup.DistributedBackupDescriptor) int {
 		if a.StartedAt.Before(b.StartedAt) {
-			return -1 * cmp
+			return -cmp
 		}
 		if a.StartedAt.After(b.StartedAt) {
-			return 1 * cmp
+			return cmp
 		}
 
 		return 0
