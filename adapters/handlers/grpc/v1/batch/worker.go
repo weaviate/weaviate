@@ -104,10 +104,6 @@ func (w *worker) isReplicationError(err string) bool {
 }
 
 func (w *worker) sendObjects(ctx context.Context, streamId string, objs []*pb.BatchObject, cl *pb.ConsistencyLevel, retries int) ([]*pb.BatchStreamReply_Results_Success, []*pb.BatchStreamReply_Results_Error) {
-	if retries > 0 {
-		// exponential backoff with 2 ** n and 100ms base
-		<-time.After(time.Duration(math.Pow(2, float64(retries))) * 100 * time.Millisecond)
-	}
 	reply, err := w.batcher.BatchObjects(ctx, &pb.BatchObjectsRequest{
 		Objects:          objs,
 		ConsistencyLevel: cl,
@@ -170,10 +166,6 @@ func toBeacon(ref *pb.BatchReference) string {
 }
 
 func (w *worker) sendReferences(ctx context.Context, streamId string, refs []*pb.BatchReference, cl *pb.ConsistencyLevel, retries int) ([]*pb.BatchStreamReply_Results_Success, []*pb.BatchStreamReply_Results_Error) {
-	if retries > 0 {
-		// exponential backoff with 2 ** n and 100ms base
-		<-time.After(time.Duration(math.Pow(2, float64(retries))) * 100 * time.Millisecond)
-	}
 	reply, err := w.batcher.BatchReferences(ctx, &pb.BatchReferencesRequest{
 		References:       refs,
 		ConsistencyLevel: cl,
