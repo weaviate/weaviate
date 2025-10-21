@@ -23,7 +23,9 @@ import (
 	"sync/atomic"
 
 	"github.com/pkg/errors"
+	"github.com/puzpuzpuz/xsync/v4"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
@@ -47,8 +49,6 @@ type hnsw struct {
 	// can only run sequentially, this separate lock helps assuring this without
 	// blocking the general usage of the hnsw index
 	deleteLock *sync.Mutex
-
-	tombstoneLock *sync.RWMutex
 
 	// prevents tombstones cleanup to be performed in parallel with index reset operation
 	resetLock *sync.RWMutex
@@ -121,7 +121,7 @@ type hnsw struct {
 	// but have not been cleaned up yet) Cleanup is the process of removal of all
 	// outgoing edges to the tombstone as well as deleting the tombstone itself.
 	// This process should happen periodically.
-	tombstones map[uint64]struct{}
+	tombstones *xsync.Map[uint64, struct{}]
 
 	tombstoneCleanupCallbackCtrl cyclemanager.CycleCallbackCtrl
 
@@ -323,11 +323,10 @@ func New(cfg Config, uc ent.UserConfig,
 		multiVectorForID:      vectorCache.MultiGet,
 		id:                    cfg.ID,
 		rootPath:              cfg.RootPath,
-		tombstones:            map[uint64]struct{}{},
+		tombstones:            xsync.NewMap[uint64, struct{}](),
 		logger:                cfg.Logger,
 		distancerProvider:     cfg.DistanceProvider,
 		deleteLock:            &sync.Mutex{},
-		tombstoneLock:         &sync.RWMutex{},
 		resetLock:             &sync.RWMutex{},
 		resetCtx:              resetCtx,
 		resetCtxCancel:        resetCtxCancel,
@@ -1026,7 +1025,7 @@ func (h *hnsw) Stats() (*HnswStats, error) {
 		EntryPointID:       h.entryPointID,
 		DistributionLayers: distributionLayers,
 		UnreachablePoints:  h.calculateUnreachablePoints(),
-		NumTombstones:      len(h.tombstones),
+		NumTombstones:      h.tombstones.Size(),
 		CacheSize:          h.cache.Len(),
 		Compressed:         h.compressed.Load(),
 	}

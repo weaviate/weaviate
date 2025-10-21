@@ -96,7 +96,7 @@ func TestNilCheckOnPartiallyCleanedNode(t *testing.T) {
 	})
 
 	t.Run("the corrupt node is now marked deleted", func(t *testing.T) {
-		_, ok := vectorIndex.tombstones[1]
+		_, ok := vectorIndex.tombstones.Load(1)
 		assert.True(t, ok)
 	})
 }

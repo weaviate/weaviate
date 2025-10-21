@@ -24,6 +24,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/puzpuzpuz/xsync/v4"
 	"github.com/sirupsen/logrus"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	entsentry "github.com/weaviate/weaviate/entities/sentry"
@@ -134,8 +135,6 @@ func (h *hnsw) resetIfEmpty() (empty bool, err error) {
 	defer h.resetLock.Unlock()
 	h.Lock()
 	defer h.Unlock()
-	h.tombstoneLock.Lock()
-	defer h.tombstoneLock.Unlock()
 
 	empty = func() bool {
 		h.shardedNodeLocks.RLock(h.entryPointID)
@@ -160,8 +159,6 @@ func (h *hnsw) resetIfOnlyNode(needle *vertex, denyList helpers.AllowList) (only
 	defer h.resetLock.Unlock()
 	h.Lock()
 	defer h.Unlock()
-	h.tombstoneLock.Lock()
-	defer h.tombstoneLock.Unlock()
 
 	onlyNode = func() bool {
 		h.shardedNodeLocks.RLockAll()
@@ -191,20 +188,19 @@ func (h *hnsw) resetUnlocked() error {
 	h.currentMaximumLayer = 0
 	h.initialInsertOnce = &sync.Once{}
 	h.nodes = make([]*vertex, cache.InitialSize)
-	h.tombstones = make(map[uint64]struct{})
+	h.tombstones.Clear()
 
 	return h.commitLog.Reset()
 }
 
 func (h *hnsw) tombstonesAsDenyList() helpers.AllowList {
 	deleteList := helpers.NewAllowList()
-	h.tombstoneLock.Lock()
-	defer h.tombstoneLock.Unlock()
 
 	tombstones := h.tombstones
-	for id := range tombstones {
+	tombstones.Range(func(id uint64, _ struct{}) bool {
 		deleteList.Insert(id)
-	}
+		return true
+	})
 
 	return deleteList
 }
@@ -228,16 +224,13 @@ func (h *hnsw) copyTombstonesToAllowList(breakCleanUpTombstonedNodes breakCleanU
 	lenOfNodes := uint64(len(h.nodes))
 	h.RUnlock()
 
-	h.tombstoneLock.Lock()
-	defer h.tombstoneLock.Unlock()
-
 	deleteList = helpers.NewAllowList()
 
 	// First of all, check if we even have enough tombstones to justify a
 	// cleanup.  Cleaning up tombstones requires iteration over every possible
 	// node in the graph which also includes locking portions of the graph, so we
 	// want to make sure we have enough tombstones to justify the cleanup.
-	numberOfTombstones := int64(len(h.tombstones))
+	numberOfTombstones := int64(h.tombstones.Size())
 	if numberOfTombstones == 0 {
 		return false, nil
 	}
@@ -264,20 +257,21 @@ func (h *hnsw) copyTombstonesToAllowList(breakCleanUpTombstonedNodes breakCleanU
 	// willing to make.
 
 	elementsOnList := int64(0)
-	for id := range h.tombstones {
+	h.tombstones.Range(func(id uint64, _ struct{}) bool {
 		if elementsOnList >= maxTombstonesPerCycle() {
 			// we've reached the limit of tombstones we want to process in one
-			break
+			return false
 		}
 
 		if lenOfNodes <= id {
 			// we're trying to delete an id outside the possible range, nothing to do
-			continue
+			return true
 		}
 
 		deleteList.Insert(id)
 		elementsOnList++
-	}
+		return true
+	})
 
 	return true, deleteList
 }
@@ -327,9 +321,7 @@ func (h *hnsw) cleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallba
 
 	h.metrics.SetTombstoneDeleteListSize(deleteList.Len())
 
-	h.tombstoneLock.Lock()
-	total_tombstones := len(h.tombstones)
-	h.tombstoneLock.Unlock()
+	total_tombstones := h.tombstones.Size()
 
 	h.logger.WithFields(logrus.Fields{
 		"action":              "tombstone_cleanup_begin",
@@ -810,36 +802,28 @@ func (h *hnsw) isOnlyNodeUnlocked(needle *vertex, denyList helpers.AllowList) bo
 }
 
 func (h *hnsw) hasTombstone(id uint64) bool {
-	h.tombstoneLock.RLock()
-	defer h.tombstoneLock.RUnlock()
-	_, ok := h.tombstones[id]
+	_, ok := h.tombstones.Load(id)
 	return ok
 }
 
 // hasTombstones checks whether at least one node of the provided ids has a tombstone attached.
 func (h *hnsw) hasTombstones(ids []uint64) bool {
-	h.tombstoneLock.RLock()
-	defer h.tombstoneLock.RUnlock()
-
 	var has bool
 	for _, id := range ids {
-		_, ok := h.tombstones[id]
+		_, ok := h.tombstones.Load(id)
 		has = has || ok
 	}
 	return has
 }
 
 func (h *hnsw) addTombstone(ids ...uint64) error {
-	h.tombstoneLock.Lock()
-	defer h.tombstoneLock.Unlock()
-
 	if h.tombstones == nil {
-		h.tombstones = map[uint64]struct{}{}
+		h.tombstones = xsync.NewMap[uint64, struct{}]()
 	}
 
 	for _, id := range ids {
 		h.metrics.AddTombstone()
-		h.tombstones[id] = struct{}{}
+		h.tombstones.Store(id, struct{}{})
 		if err := h.commitLog.AddTombstone(id); err != nil {
 			return err
 		}
@@ -854,9 +838,7 @@ func (h *hnsw) removeTombstonesAndNodes(deleteList helpers.AllowList, breakClean
 			return false, nil
 		}
 		h.metrics.RemoveTombstone()
-		h.tombstoneLock.Lock()
-		delete(h.tombstones, id)
-		h.tombstoneLock.Unlock()
+		h.tombstones.Delete(id)
 
 		h.resetLock.Lock()
 		h.shardedNodeLocks.Lock(id)

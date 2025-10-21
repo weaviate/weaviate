@@ -23,6 +23,7 @@ import (
 	"testing"
 
 	"github.com/pkg/errors"
+	"github.com/puzpuzpuz/xsync/v4"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -1214,11 +1215,16 @@ func readFromCommitLogs(t *testing.T, fileNames ...string) *hnsw {
 		require.Nil(t, err)
 	}
 
+	tombstones := xsync.NewMap[uint64, struct{}]()
+	for id := range res.Tombstones {
+		tombstones.Store(id, struct{}{})
+	}
+
 	return &hnsw{
 		nodes:               removeTrailingNilNodes(res.Nodes),
 		currentMaximumLayer: int(res.Level),
 		entryPointID:        res.Entrypoint,
-		tombstones:          res.Tombstones,
+		tombstones:          tombstones,
 	}
 }
 

@@ -120,9 +120,9 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 	h.entryPointID = state.Entrypoint
 	h.Unlock()
 
-	h.tombstoneLock.Lock()
-	h.tombstones = state.Tombstones
-	h.tombstoneLock.Unlock()
+	for id := range state.Tombstones {
+		h.tombstones.Store(id, struct{}{})
+	}
 
 	if h.multivector.Load() {
 		if !h.muvera.Load() {
@@ -462,10 +462,8 @@ func (h *hnsw) tombstoneCleanup(shouldAbort cyclemanager.ShouldAbortCallback) bo
 // restart we need to reset it to the current number of tombstones read from
 // the commit log.
 func (h *hnsw) resetTombstoneMetric() {
-	h.tombstoneLock.Lock()
-	defer h.tombstoneLock.Unlock()
-	if len(h.tombstones) > 0 {
-		h.metrics.SetTombstone(len(h.tombstones))
+	if size := h.tombstones.Size(); size > 0 {
+		h.metrics.SetTombstone(size)
 	}
 }
 
