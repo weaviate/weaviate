@@ -241,6 +241,34 @@ func Test_Add_Object_WithNoVectorizerModule(t *testing.T) {
 	})
 }
 
+func Test_Add_Object_Uses_Max_SchemaVersion_For_Write_With_AutoTenant(t *testing.T) {
+	const autoSchemaVersion uint64 = 41
+	const tenantVersion uint64 = 42
+
+	sch := schema.Schema{Objects: &models.Schema{Classes: []*models.Class{{
+		Class: "FooMT", Vectorizer: config.VectorizerModuleNone, VectorIndexConfig: hnsw.UserConfig{},
+		MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true, AutoTenantCreation: true},
+	}}}}
+
+	vectorRepo := &fakeVectorRepo{}
+	vectorRepo.On("PutObject", mock.Anything, mock.Anything).Return(nil).Once()
+	schemaManager := &fakeSchemaManager{GetSchemaResponse: sch, AddTenantsSchemaVersion: tenantVersion, AutoSchemaVersion: autoSchemaVersion}
+	cfg := &config.WeaviateConfig{Config: config.Config{AutoSchema: config.AutoSchema{Enabled: runtime.NewDynamicValue(true)}}}
+	authorizer := mocks.NewMockAuthorizer()
+	logger, _ := test.NewNullLogger()
+	modulesProvider := getFakeModulesProvider()
+	metrics := &fakeMetrics{}
+	manager := NewManager(schemaManager, cfg, logger, authorizer, vectorRepo, modulesProvider, metrics, nil,
+		NewAutoSchemaManager(schemaManager, vectorRepo, cfg, authorizer, logger, prometheus.NewPedanticRegistry()))
+
+	modulesProvider.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).Return(nil, nil)
+
+	_, err := manager.AddObject(context.Background(), nil, &models.Object{Class: "FooMT", Tenant: "t1"}, nil)
+	require.NoError(t, err)
+
+	assert.Equal(t, tenantVersion, vectorRepo.CapturedSchemaVersion)
+}
+
 func Test_Add_Object_WithExternalVectorizerModule(t *testing.T) {
 	var (
 		vectorRepo      *fakeVectorRepo
