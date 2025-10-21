@@ -47,6 +47,8 @@ message BatchStreamReply {
   }
   message ShuttingDown {
   }
+  message Shutdown {
+  }
   message Backoff {
     int32 batch_size = 1;
   }
@@ -70,8 +72,9 @@ message BatchStreamReply {
   oneof message {
     Results results = 1;
     ShuttingDown shutting_down = 2;
-    Started started = 3;
-    Backoff backoff = 4;
+    Shutdown shutdown = 3;
+    Started started = 4;
+    Backoff backoff = 5;
   }
 }
 

@@ -87,6 +87,7 @@ func TestDrainOfInProgressBatch(t *testing.T) {
 	})).Return(nil).Maybe()
 	mockStream.EXPECT().Send(newBatchStreamStartedReply()).Return(nil).Once()
 	mockStream.EXPECT().Send(newBatchStreamShuttingDownReply()).Return(nil).Once()
+	mockStream.EXPECT().Send(newBatchStreamShutdownReply()).Return(nil).Once()
 
 	numWorkers := 1
 	handler, drain := batch.Start(mockAuthenticator, nil, mockBatcher, nil, numWorkers, logger)
@@ -98,8 +99,7 @@ func TestDrainOfInProgressBatch(t *testing.T) {
 		drain()
 	}()
 	err := handler.Handle(mockStream)
-	require.NotNil(t, err, "handler should return an error")
-	require.ErrorAs(t, err, &batch.ErrShutdown, "handler should return error shutting down")
+	require.Nil(t, err, "handler should not return an error got: %s", err)
 	require.Len(t, objsCh, howManyObjs, "all objects should have been processed")
 	wg.Wait()
 }
@@ -155,7 +155,7 @@ func TestDrainOfFinishedBatch(t *testing.T) {
 		case 3:
 			return newBatchStreamStopRequest(), nil
 		case 4:
-			close(shouldDrain)
+			defer close(shouldDrain)
 			return nil, io.EOF // End the stream
 		}
 		panic("should not be called more than four times")
@@ -164,7 +164,8 @@ func TestDrainOfFinishedBatch(t *testing.T) {
 		return msg.GetResults() != nil
 	})).Return(nil).Maybe()
 	mockStream.EXPECT().Send(newBatchStreamStartedReply()).Return(nil).Once()
-	mockStream.EXPECT().Send(newBatchStreamShuttingDownReply()).Return(nil).Once()
+	// depending on timings, may or may not be emitted
+	mockStream.EXPECT().Send(newBatchStreamShuttingDownReply()).Return(nil).Maybe()
 
 	numWorkers := 1
 	handler, drain := batch.Start(mockAuthenticator, nil, mockBatcher, nil, numWorkers, logger)
@@ -383,6 +384,7 @@ func TestDrainWithMisbehavingClient(t *testing.T) {
 	})).Return(nil).Maybe()
 	mockStream.EXPECT().Send(newBatchStreamStartedReply()).Return(nil).Once()
 	mockStream.EXPECT().Send(newBatchStreamShuttingDownReply()).Return(nil).Once()
+	// Will not emit shutdown message since client never stops sending messages, it gets hung up on instead
 
 	numWorkers := 1
 	handler, drain := batch.Start(mockAuthenticator, nil, mockBatcher, nil, numWorkers, logger)
@@ -403,6 +405,14 @@ func newBatchStreamShuttingDownReply() *pb.BatchStreamReply {
 	return &pb.BatchStreamReply{
 		Message: &pb.BatchStreamReply_ShuttingDown_{
 			ShuttingDown: &pb.BatchStreamReply_ShuttingDown{},
+		},
+	}
+}
+
+func newBatchStreamShutdownReply() *pb.BatchStreamReply {
+	return &pb.BatchStreamReply{
+		Message: &pb.BatchStreamReply_Shutdown_{
+			Shutdown: &pb.BatchStreamReply_Shutdown{},
 		},
 	}
 }

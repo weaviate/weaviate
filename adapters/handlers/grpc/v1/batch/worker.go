@@ -146,6 +146,8 @@ func (w *worker) sendObjects(ctx context.Context, streamId string, objs []*pb.Ba
 			})
 		}
 		if len(retriable) > 0 {
+			// exponential backoff with 2 ** n and 100ms base
+			<-time.After(time.Duration(math.Pow(2, float64(retries))) * 100 * time.Millisecond)
 			successesInner, errorsInner := w.sendObjects(ctx, streamId, retriable, cl, retries+1)
 			successes = append(successes, successesInner...)
 			errors = append(errors, errorsInner...)
@@ -210,6 +212,8 @@ func (w *worker) sendReferences(ctx context.Context, streamId string, refs []*pb
 			})
 		}
 		if len(retriable) > 0 {
+			// exponential backoff with 2 ** n and 100ms base
+			<-time.After(time.Duration(math.Pow(2, float64(retries))) * 100 * time.Millisecond)
 			successesInner, errorsInner := w.sendReferences(ctx, streamId, retriable, cl, retries+1)
 			successes = append(successes, successesInner...)
 			errors = append(errors, errorsInner...)

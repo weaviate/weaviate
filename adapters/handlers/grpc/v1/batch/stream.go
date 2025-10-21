@@ -162,27 +162,33 @@ func (h *StreamHandler) drainReportingQueue(queue reportingQueue, batchResults *
 	}
 	if err := batchResults.send(stream); err != nil {
 		logger.Errorf("failed to send final results message while draining reporting queue: %s", err)
+		return
 	}
+	batchResults.reset()
 }
 
 func (h *StreamHandler) handleRecvErr(recvErr error, logger *logrus.Entry) error {
 	if h.shuttingDown.Load() {
 		// the server must be shutting down on its own, so return an error saying so that wraps the receiver error
 		logger.Errorf("while server is shutting down, receiver errored: %v", recvErr)
-		return errShutdown(recvErr)
+		return recvErr
 	} else {
 		logger.Errorf("receive error, closing stream: %s", recvErr)
 		return recvErr
 	}
 }
 
-func (h *StreamHandler) handleRecvClosed(streamId string, logger *logrus.Entry) error {
+func (h *StreamHandler) handleRecvClosed(streamId string, stream pb.Weaviate_BatchStreamServer, logger *logrus.Entry) error {
 	if h.shuttingDown.Load() && !h.isStopping(streamId) {
 		// The server must be shutting down on its own, so return an error saying so provided that the client
 		// hasn't indicated that it has stopped the stream itself. This avoids telling a client that has already stopped
 		// of a shutting down server; it shouldn't care
 		logger.Info("stream closed due to server shutdown")
-		return errShutdown(ErrShutdown)
+		if err := stream.Send(newBatchShutdownMessage()); err != nil {
+			logger.Errorf("failed to send shutdown message: %s", err)
+			return err
+		}
+		return nil
 	}
 	// otherwise, the client must be closing its side of the stream, so close gracefully
 	// client has closed its side of the stream, so close gracefully
@@ -202,19 +208,8 @@ func (h *StreamHandler) handleServerShuttingDown(stream pb.Weaviate_BatchStreamS
 	return nil
 }
 
-func (h *StreamHandler) handleWorkerReport(report *report, closed bool, batchResults *batchResults, streamId string, stream pb.Weaviate_BatchStreamServer, logger *logrus.Entry) error {
+func (h *StreamHandler) handleWorkerReport(report *report, batchResults *batchResults, streamId string, stream pb.Weaviate_BatchStreamServer, logger *logrus.Entry) error {
 	logger.Debug("received report from worker")
-	// If the reporting queue is closed, then h.recv must've closed it itself either through erroring or the client closing its side of the stream
-	if closed {
-		if h.shuttingDown.Load() && !h.isStopping(streamId) {
-			// The server must be shutting down on its own, so return an error saying so provided that the client
-			// hasn't indicated that it has stopped the stream itself. This avoids telling a client that has already stopped
-			// of a shutting down server; it shouldn't care
-			logger.Info("stream closed due to server shutdown")
-			return errShutdown(ErrShutdown)
-		}
-		return nil
-	}
 	// Received a report from a worker
 	h.handleWorkerResults(report, batchResults, stream, logger)
 	// Recalculate stats
@@ -234,7 +229,9 @@ func (h *StreamHandler) handleWorkerResults(report *report, batchResults *batchR
 	if batchResults.shouldSend() {
 		if innerErr := batchResults.send(stream); innerErr != nil {
 			logger.Errorf("failed to send results message: %s", innerErr)
+			return
 		}
+		batchResults.reset()
 	}
 }
 
@@ -274,7 +271,7 @@ func (h *StreamHandler) sender(ctx context.Context, streamId string, stream pb.W
 			if !open {
 				log.Debug("recvErrCh closed, closing stream")
 				// channel closed, client must have closed its side of the stream
-				return h.handleRecvClosed(streamId, log)
+				return h.handleRecvClosed(streamId, stream, log)
 			}
 			// receiver errored, return the error to close the stream
 			return h.handleRecvErr(recvErr, log)
@@ -284,9 +281,6 @@ func (h *StreamHandler) sender(ctx context.Context, streamId string, stream pb.W
 				shuttingDownDone = nil
 			}
 		case report, open := <-reportingQueue:
-			if err := h.handleWorkerReport(report, !open, batchResults, streamId, stream, log); err != nil {
-				return err
-			}
 			if !open {
 				if err := batchResults.send(stream); err != nil {
 					log.Errorf("failed to send final results message after reporting queue closed: %s", err)
@@ -296,7 +290,10 @@ func (h *StreamHandler) sender(ctx context.Context, streamId string, stream pb.W
 				if recvErr != nil {
 					return h.handleRecvErr(recvErr, log)
 				}
-				return h.handleRecvClosed(streamId, log)
+				return h.handleRecvClosed(streamId, stream, log)
+			}
+			if err := h.handleWorkerReport(report, batchResults, streamId, stream, log); err != nil {
+				return err
 			}
 		case <-timer.C:
 			// Periodically send the current batchSizeEma to the client to adjust its sending rate
@@ -435,28 +432,29 @@ func (h *StreamHandler) receiver(ctx context.Context, streamId string, consisten
 			// Split the client-sent objects into batches according to the current batch size
 			// This allows clients to send however many objects they want without overwhelming
 			// the downstream workers
-			batchSize := h.workerStats(streamId).getBatchSize()
-			objs := request.GetData().GetObjects().GetValues()
-			var batch []*pb.BatchObject
-			if len(objs) > batchSize {
-				batch = make([]*pb.BatchObject, 0, batchSize)
-				for _, obj := range request.GetData().GetObjects().GetValues() {
-					batch = append(batch, obj)
-					if len(batch) == batchSize {
-						push(batch, nil)
-						batch = make([]*pb.BatchObject, 0, batchSize)
-					}
-				}
-			} else {
-				batch = objs
-			}
+			// batchSize := h.workerStats(streamId).getBatchSize()
+			// objs := request.GetData().GetObjects().GetValues()
+			// var batch []*pb.BatchObject
+			// if len(objs) > batchSize {
+			// 	batch = make([]*pb.BatchObject, 0, batchSize)
+			// 	for _, obj := range request.GetData().GetObjects().GetValues() {
+			// 		batch = append(batch, obj)
+			// 		if len(batch) == batchSize {
+			// 			push(batch, nil)
+			// 			batch = make([]*pb.BatchObject, 0, batchSize)
+			// 		}
+			// 	}
+			// } else {
+			// 	batch = objs
+			// }
 
-			refs := request.GetData().GetReferences().GetValues()
-			if len(batch) > 0 || len(refs) > 0 {
-				// refs are fast so don't need to be efficiently batched
-				// we just accept however many the client sends assuming it'll be fine
-				push(batch, request.GetData().GetReferences().GetValues())
-			}
+			// refs := request.GetData().GetReferences().GetValues()
+			// if len(batch) > 0 || len(refs) > 0 {
+			// 	// refs are fast so don't need to be efficiently batched
+			// 	// we just accept however many the client sends assuming it'll be fine
+			// 	push(batch, refs)
+			// }
+			push(request.GetData().GetObjects().GetValues(), request.GetData().GetReferences().GetValues())
 
 		} else if request.GetStop() != nil {
 			h.setStopping(streamId)
@@ -494,7 +492,6 @@ func (r *batchResults) shouldSend() bool {
 }
 
 func (r *batchResults) send(stream pb.Weaviate_BatchStreamServer) error {
-	defer r.reset()
 	if len(r.successes) == 0 && len(r.errors) == 0 {
 		return nil
 	}
