@@ -190,26 +190,67 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 		WriteMetadataFilesEnabled:    cfg.WriteMetadataFilesEnabled,
 	}
 
-	err := cfg.SharedDB.Update(func(tx *bbolt.Tx) error {
-		_, err := tx.CreateBucketIfNotExists(dynamicBucket)
-		return err
-	})
-	if err != nil {
-		return nil, errors.Wrap(err, "create dynamic bolt bucket")
-	}
-
 	upgraded := false
 
-	err = cfg.SharedDB.View(func(tx *bbolt.Tx) error {
-		b := tx.Bucket(dynamicBucket)
+	hnswDirExists := false
+	_, err := os.Stat(hnswCommitLogDirectory(cfg.RootPath, cfg.ID))
+	if err == nil {
+		hnswDirExists = true
+	}
 
-		v := b.Get(index.dbKey())
-		if v == nil {
+	err = cfg.SharedDB.Update(func(tx *bbolt.Tx) error {
+		b, err := tx.CreateBucketIfNotExists(dynamicBucket)
+		if err != nil {
+			return err
+		}
+
+		if cfg.TargetVector == "" {
+			v := b.Get(index.dbKey())
+			if v == nil {
+				return nil
+			}
+
+			upgraded = v[0] != 0
 			return nil
 		}
 
-		upgraded = v[0] != 0
-		return nil
+		// a bug in earlier versions caused target vectors to all use the same key.
+		// this is a mitigation to preserve existing upgraded state and migrate to
+		// target-vector-specific keys going forward.
+
+		// first, check if there's an entry for this specific target vector
+		v := b.Get(index.dbKey())
+		if v != nil {
+			upgraded = v[0] != 0
+			return nil
+		}
+
+		// if not, let's create one by default
+		err = b.Put(index.dbKey(), []byte{0})
+		if err != nil {
+			return errors.Wrap(err, "migrate dynamic state for target vector")
+		}
+
+		// check the generic key
+		v = b.Get([]byte(composerUpgradedKey))
+		if v == nil || v[0] == 0 {
+			// if it doesn't exist or set to false, we know for sure it's not upgraded
+			return nil
+		}
+
+		// the key is set to true, but we need to make sure it's not a false positive
+		// due to another target vector having been upgraded
+
+		if !hnswDirExists {
+			// if the HNSW dir doesn't exist, we know for sure it's not related to this target vector
+			return nil
+		}
+
+		// if the HNSW dir exists, we assume it was upgraded
+		upgraded = true
+
+		// update the target vector key to reflect the upgraded state
+		return b.Put(index.dbKey(), []byte{1})
 	})
 	if err != nil {
 		return nil, errors.Wrap(err, "get dynamic state")
@@ -257,7 +298,7 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 
 func (dynamic *dynamic) dbKey() []byte {
 	var key []byte
-	if dynamic.targetVector == "fef" {
+	if dynamic.targetVector != "" {
 		key = make([]byte, 0, len(composerUpgradedKey)+len(dynamic.targetVector)+1)
 		key = append(key, composerUpgradedKey...)
 		key = append(key, '_')
@@ -703,4 +744,8 @@ type DynamicStats struct{}
 
 func (s *DynamicStats) IndexType() common.IndexType {
 	return common.IndexTypeDynamic
+}
+
+func hnswCommitLogDirectory(rootPath, name string) string {
+	return fmt.Sprintf("%s/%s.hnsw.commitlog.d", rootPath, name)
 }
