@@ -18,6 +18,7 @@ import (
 	"math"
 
 	"github.com/pkg/errors"
+	"github.com/puzpuzpuz/xsync/v4"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
@@ -40,7 +41,7 @@ type DeserializationResult struct {
 	NodesDeleted       map[uint64]struct{}
 	Entrypoint         uint64
 	Level              uint16
-	Tombstones         map[uint64]struct{}
+	Tombstones         *xsync.Map[uint64, struct{}]
 	TombstonesDeleted  map[uint64]struct{}
 	EntrypointChanged  bool
 	CompressionPQData  *compressionhelpers.PQData
@@ -99,7 +100,7 @@ func (d *Deserializer) Do(fd *bufio.Reader, initialState *DeserializationResult,
 		out = &DeserializationResult{
 			Nodes:             make([]*vertex, cache.InitialSize),
 			NodesDeleted:      make(map[uint64]struct{}),
-			Tombstones:        make(map[uint64]struct{}),
+			Tombstones:        xsync.NewMap[uint64, struct{}](),
 			TombstonesDeleted: make(map[uint64]struct{}),
 			LinksReplaced:     make(map[uint64]map[uint16]struct{}),
 		}
@@ -153,7 +154,7 @@ func (d *Deserializer) Do(fd *bufio.Reader, initialState *DeserializationResult,
 			out.Entrypoint = 0
 			out.Level = 0
 			out.Nodes = make([]*vertex, cache.InitialSize)
-			out.Tombstones = make(map[uint64]struct{})
+			out.Tombstones.Clear()
 		case AddPQ:
 			var totalRead int
 			totalRead, err = d.ReadPQ(fd, out)
@@ -394,31 +395,31 @@ func (d *Deserializer) ReadAddLinks(r io.Reader,
 	return 12 + int(length)*8, nil
 }
 
-func (d *Deserializer) ReadAddTombstone(r io.Reader, tombstones map[uint64]struct{}) error {
+func (d *Deserializer) ReadAddTombstone(r io.Reader, tombstones *xsync.Map[uint64, struct{}]) error {
 	id, err := d.readUint64(r)
 	if err != nil {
 		return err
 	}
 
-	tombstones[id] = struct{}{}
+	tombstones.Store(id, struct{}{})
 
 	return nil
 }
 
-func (d *Deserializer) ReadRemoveTombstone(r io.Reader, tombstones map[uint64]struct{}, tombstonesDeleted map[uint64]struct{}) error {
+func (d *Deserializer) ReadRemoveTombstone(r io.Reader, tombstones *xsync.Map[uint64, struct{}], tombstonesDeleted map[uint64]struct{}) error {
 	id, err := d.readUint64(r)
 	if err != nil {
 		return err
 	}
 
-	_, ok := tombstones[id]
+	_, ok := tombstones.Load(id)
 	if !ok {
 		// Tombstone is not present but may exist in older commit log
 		// wWe need to keep track of it so we can delete it later
 		tombstonesDeleted[id] = struct{}{}
 	} else {
 		// Tombstone is present, we can delete it
-		delete(tombstones, id)
+		tombstones.Delete(id)
 	}
 
 	return nil
