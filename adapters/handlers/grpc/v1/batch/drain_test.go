@@ -302,6 +302,9 @@ func TestDrainWithHangingClient(t *testing.T) {
 	mockStream.EXPECT().Send(mock.MatchedBy(func(msg *pb.BatchStreamReply) bool {
 		return msg.GetResults() != nil
 	})).Return(nil).Maybe()
+	mockStream.EXPECT().Send(mock.MatchedBy(func(msg *pb.BatchStreamReply) bool {
+		return msg.GetBackoff() != nil
+	})).Return(nil).Maybe()
 	mockStream.EXPECT().Send(newBatchStreamStartedReply()).Return(nil).Once()
 	mockStream.EXPECT().Send(newBatchStreamShuttingDownReply()).Return(nil).Once()
 
@@ -374,6 +377,9 @@ func TestDrainWithMisbehavingClient(t *testing.T) {
 
 	mockStream.EXPECT().Send(mock.MatchedBy(func(msg *pb.BatchStreamReply) bool {
 		return msg.GetResults() != nil
+	})).Return(nil).Maybe()
+	mockStream.EXPECT().Send(mock.MatchedBy(func(msg *pb.BatchStreamReply) bool {
+		return msg.GetBackoff() != nil
 	})).Return(nil).Maybe()
 	mockStream.EXPECT().Send(newBatchStreamStartedReply()).Return(nil).Once()
 	mockStream.EXPECT().Send(newBatchStreamShuttingDownReply()).Return(nil).Once()

@@ -249,6 +249,8 @@ func (h *StreamHandler) sender(ctx context.Context, streamId string, stream pb.W
 		return err
 	}
 	batchResults := newBatchResults()
+	timer := time.NewTicker(5 * time.Second)
+	defer timer.Stop()
 	for {
 		reportingQueue, exists := h.reportingQueues.Get(streamId)
 		if !exists {
@@ -295,6 +297,14 @@ func (h *StreamHandler) sender(ctx context.Context, streamId string, stream pb.W
 					return h.handleRecvErr(recvErr, log)
 				}
 				return h.handleRecvClosed(streamId, log)
+			}
+		case <-timer.C:
+			// Periodically send the current batchSizeEma to the client to adjust its sending rate
+			batchSize := h.workerStats(streamId).getBatchSize()
+			log.WithField("batchSize", batchSize).Debug("sending backoff message to client")
+			if err := stream.Send(newBatchBackoffMessage(batchSize)); err != nil {
+				log.Errorf("failed to send backoff message: %s", err)
+				return err
 			}
 		}
 	}

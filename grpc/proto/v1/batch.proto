@@ -47,6 +47,9 @@ message BatchStreamReply {
   }
   message ShuttingDown {
   }
+  message Backoff {
+    int32 batch_size = 1;
+  }
   message Results {
     message Error {
       string error = 1;
@@ -68,6 +71,7 @@ message BatchStreamReply {
     Results results = 1;
     ShuttingDown shutting_down = 2;
     Started started = 3;
+    Backoff backoff = 4;
   }
 }
 

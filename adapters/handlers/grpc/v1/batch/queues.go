@@ -46,6 +46,16 @@ func newBatchStartedMessage() *pb.BatchStreamReply {
 	}
 }
 
+func newBatchBackoffMessage(batchSize int) *pb.BatchStreamReply {
+	return &pb.BatchStreamReply{
+		Message: &pb.BatchStreamReply_Backoff_{
+			Backoff: &pb.BatchStreamReply_Backoff{
+				BatchSize: int32(batchSize),
+			},
+		},
+	}
+}
+
 type report struct {
 	Errors    []*pb.BatchStreamReply_Results_Error
 	Successes []*pb.BatchStreamReply_Results_Success
