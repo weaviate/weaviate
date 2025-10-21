@@ -333,7 +333,8 @@ wait:
 				assert.Equal(t, string(backup.Success), b.Status)
 				assert.Contains(t, b.Classes, className)
 
-				// assert.Equal(t, 0, b.Size, "size ")
+				// Validate backup size is reported and greater than 0
+				assert.Greater(t, b.Size, float64(0), "Backup size should be greater than 0")
 
 				// Validate timestamp fields
 				require.NotNil(t, b.StartedAt, "StartedAt should not be nil")

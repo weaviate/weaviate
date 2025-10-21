@@ -36,6 +36,13 @@ const (
 	errMsgHigherVersion = "unable to restore backup as it was produced by a higher version"
 )
 
+type AllBackupsOrder string
+
+const (
+	AllBackupsOrderAsc  AllBackupsOrder = "asc"
+	AllBackupsOrderDesc AllBackupsOrder = "desc"
+)
+
 // Scheduler assigns backup operations to coordinators.
 type Scheduler struct {
 	// deps
@@ -318,11 +325,6 @@ func (s *Scheduler) List(ctx context.Context, principal *models.Principal, backe
 		logOperation(s.logger, "list_backup", "", backend, time.Now(), err)
 	}(time.Now())
 
-	if sortingOrder == nil {
-		desc := "desc"
-		sortingOrder = &desc
-	}
-
 	backupBackend, err := s.backends.BackupBackend(backend)
 	if err != nil {
 		return nil, err
@@ -333,7 +335,7 @@ func (s *Scheduler) List(ctx context.Context, principal *models.Principal, backe
 		return nil, err
 	}
 
-	slices.SortFunc(backups, sortBackups(*sortingOrder))
+	slices.SortFunc(backups, sortBackups(AllBackupsOrder(*sortingOrder)))
 
 	response := make(models.BackupListResponse, len(backups))
 	for i, b := range backups {
@@ -350,9 +352,9 @@ func (s *Scheduler) List(ctx context.Context, principal *models.Principal, backe
 	return &response, nil
 }
 
-func sortBackups(order string) func(a, b *backup.DistributedBackupDescriptor) int {
+func sortBackups(order AllBackupsOrder) func(a, b *backup.DistributedBackupDescriptor) int {
 	cmp := 1
-	if order == "desc" {
+	if order == AllBackupsOrderDesc {
 		cmp = -1
 	}
 

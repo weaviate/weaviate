@@ -759,25 +759,26 @@ func TestSchedulerRestoreRequestValidation(t *testing.T) {
 func TestSchedulerList(t *testing.T) {
 	t.Parallel()
 	var (
-		backendName = "s3"
-		ctx         = context.Background()
-		backupID1   = "backup-1"
-		backupID2   = "backup-2"
-		cls1        = "Class1"
-		cls2        = "Class2"
+		backendName         = "s3"
+		ctx                 = context.Background()
+		backupID1           = "backup-1"
+		backupID2           = "backup-2"
+		cls1                = "Class1"
+		cls2                = "Class2"
+		defaultListOrdering = func(s string) *string { return &s }("desc")
 	)
 
 	t.Run("BackendNotFound", func(t *testing.T) {
 		fs := newFakeScheduler(nil)
 		fs.backendErr = ErrAny
-		_, err := fs.scheduler().List(ctx, nil, backendName, nil)
+		_, err := fs.scheduler().List(ctx, nil, backendName, defaultListOrdering)
 		assert.NotNil(t, err)
 	})
 
 	t.Run("AllBackupsFails", func(t *testing.T) {
 		fs := newFakeScheduler(nil)
 		fs.backend.On("AllBackups", mock.Anything).Return(nil, ErrAny)
-		_, err := fs.scheduler().List(ctx, nil, backendName, nil)
+		_, err := fs.scheduler().List(ctx, nil, backendName, defaultListOrdering)
 		assert.NotNil(t, err)
 		assert.Equal(t, ErrAny, err)
 	})
@@ -804,7 +805,7 @@ func TestSchedulerList(t *testing.T) {
 		}
 		fs.backend.On("AllBackups", mock.Anything).Return(backups, nil)
 
-		resp, err := fs.scheduler().List(ctx, nil, backendName, nil)
+		resp, err := fs.scheduler().List(ctx, nil, backendName, defaultListOrdering)
 		assert.Nil(t, err)
 		assert.NotNil(t, resp)
 		assert.Len(t, *resp, 2)
@@ -826,7 +827,7 @@ func TestSchedulerList(t *testing.T) {
 		fs := newFakeScheduler(nil)
 		fs.backend.On("AllBackups", mock.Anything).Return([]*backup.DistributedBackupDescriptor{}, nil)
 
-		resp, err := fs.scheduler().List(ctx, nil, backendName, nil)
+		resp, err := fs.scheduler().List(ctx, nil, backendName, defaultListOrdering)
 		assert.Nil(t, err)
 		assert.NotNil(t, resp)
 		assert.Len(t, *resp, 0)
@@ -871,7 +872,7 @@ func TestSchedulerList(t *testing.T) {
 		fs.backend.On("AllBackups", mock.Anything).Return(backups, nil)
 
 		t.Run("return results sorted by default (desc)", func(t *testing.T) {
-			resp, err := fs.scheduler().List(ctx, nil, backendName, nil)
+			resp, err := fs.scheduler().List(ctx, nil, backendName, defaultListOrdering)
 			assert.Nil(t, err)
 			assert.NotNil(t, resp)
 			assert.Len(t, *resp, 5)
