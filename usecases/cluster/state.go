@@ -166,11 +166,11 @@ func Init(userConfig Config, grpcPort, raftTimeoutsMultiplier int, dataPath stri
 	cfg.Events = events{&state.delegate}
 	if userConfig.GossipBindPort != 0 {
 		cfg.BindPort = userConfig.GossipBindPort
-		cfg.BindAddr = "0.0.0.0"
 	}
 
 	if userConfig.AdvertiseAddr != "" {
 		cfg.AdvertiseAddr = userConfig.AdvertiseAddr
+		cfg.BindAddr = "0.0.0.0"
 	}
 
 	if userConfig.AdvertisePort != 0 {
