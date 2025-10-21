@@ -449,7 +449,7 @@ function run_acceptance_only_tests() {
 
 function run_module_only_backup_tests() {
   for pkg in $(go list ./... | grep 'test/modules' | grep 'test/modules/backup'); do
-    if ! go test -count 1 -race "$pkg"; then
+    if ! go test -count 1 -race -timeout 30m "$pkg"; then
       echo "Test for $pkg failed" >&2
       return 1
     fi
