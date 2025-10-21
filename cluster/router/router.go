@@ -13,13 +13,15 @@ package router
 
 import (
 	"fmt"
+	"sort"
 
 	"github.com/sirupsen/logrus"
+	"golang.org/x/exp/slices"
+
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	schemaTypes "github.com/weaviate/weaviate/cluster/schema/types"
 	"github.com/weaviate/weaviate/usecases/cluster"
-	"golang.org/x/exp/slices"
 )
 
 type Router struct {
@@ -27,6 +29,7 @@ type Router struct {
 	metadataReader       schemaTypes.SchemaReader
 	replicationFSMReader replicationTypes.ReplicationFSMReader
 	clusterStateReader   cluster.NodeSelector
+	localName            string
 }
 
 func New(logger *logrus.Logger, clusterStateReader cluster.NodeSelector, metadataReader schemaTypes.SchemaReader, replicationFSMReader replicationTypes.ReplicationFSMReader) *Router {
@@ -35,6 +38,7 @@ func New(logger *logrus.Logger, clusterStateReader cluster.NodeSelector, metadat
 		replicationFSMReader: replicationFSMReader,
 		metadataReader:       metadataReader,
 		clusterStateReader:   clusterStateReader,
+		localName:            clusterStateReader.LocalName(),
 	}
 }
 
@@ -116,8 +120,11 @@ func (r *Router) routingPlanFromReplicas(
 	// If there was no local replica first specified, put the local node as direct candidate. If the local node is part of the replica set
 	// it will be handled as the direct candidate
 	if params.DirectCandidateReplica == "" {
-		params.DirectCandidateReplica = r.clusterStateReader.LocalName()
+		params.DirectCandidateReplica = r.localName
 	}
+
+	// Deterministic ordering: sort replica names and align host addresses accordingly
+	sort.Sort(sort.Reverse(sort.StringSlice(replicas)))
 
 	for _, replica := range replicas {
 		if replicaAddr, ok := r.clusterStateReader.NodeHostname(replica); ok {

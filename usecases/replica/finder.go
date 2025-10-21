@@ -215,6 +215,7 @@ func (f *Finder) CheckConsistency(ctx context.Context,
 		}
 		return nil
 	}
+
 	// check shard consistency concurrently
 	gr, ctx := enterrors.NewErrorGroupWithContextWrapper(f.logger, ctx)
 	for _, part := range cluster(createBatch(xs)) {

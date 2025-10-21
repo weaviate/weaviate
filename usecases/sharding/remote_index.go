@@ -16,20 +16,19 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math/rand"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"github.com/weaviate/weaviate/entities/dto"
-	"github.com/weaviate/weaviate/entities/models"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
+	"github.com/weaviate/weaviate/entities/dto"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -38,10 +37,11 @@ import (
 )
 
 type RemoteIndex struct {
-	class        string
-	stateGetter  shardingStateGetter
-	client       RemoteIndexClient
-	nodeResolver nodeResolver
+	class         string
+	stateGetter   shardingStateGetter
+	client        RemoteIndexClient
+	nodeResolver  nodeResolver
+	localNodeName string
 }
 
 type shardingStateGetter interface {
@@ -53,12 +53,14 @@ type shardingStateGetter interface {
 func NewRemoteIndex(className string,
 	stateGetter shardingStateGetter, nodeResolver nodeResolver,
 	client RemoteIndexClient,
+	localNodeName string,
 ) *RemoteIndex {
 	return &RemoteIndex{
-		class:        className,
-		stateGetter:  stateGetter,
-		client:       client,
-		nodeResolver: nodeResolver,
+		class:         className,
+		stateGetter:   stateGetter,
+		client:        client,
+		nodeResolver:  nodeResolver,
+		localNodeName: localNodeName,
 	}
 }
 
@@ -321,19 +323,31 @@ func (ri *RemoteIndex) SearchShard(ctx context.Context, shard string,
 		second []float32
 	}
 	f := func(node, host string) (interface{}, error) {
+		start := time.Now()
 		objs, scores, err := ri.client.SearchShard(ctx, host, ri.class, shard,
 			queryVec, targetVector, distance, limit, filters, keywordRanking, sort, cursor, groupBy, adds, targetCombination, properties)
+		took := time.Since(start)
 		if err != nil {
-			return nil, err
+			fmt.Println("error", err)
+			fmt.Println(took.String())
+			return nil, fmt.Errorf("remote shard search failed: %w", err)
 		}
-		return pair{objs, scores}, err
+		fmt.Println("success")
+		fmt.Println(took.String())
+		return pair{objs, scores}, nil
 	}
 	rr, node, err := ri.queryReplicas(ctx, shard, f)
 	if err != nil {
-		return nil, nil, node, err
+		return nil, nil, node, fmt.Errorf("remote shard search failed: %w", err)
 	}
 	r := rr.(pair)
-	return r.first, r.second, node, err
+	logrus.WithFields(logrus.Fields{
+		"action": "remote_shard_search_winner",
+		"class":  ri.class,
+		"shard":  shard,
+		"node":   node,
+	}).Debug("remote shard search winner selected")
+	return r.first, r.second, node, nil
 }
 
 func (ri *RemoteIndex) Aggregate(
@@ -521,27 +535,93 @@ func (ri *RemoteIndex) queryReplicas(
 	}
 
 	queryOne := func(replica string) (interface{}, error) {
+		if replica == ri.localNodeName {
+			// Skip local node to ensure we don't query again our local shard -> it is handled separately in the search
+			return nil, nil
+		}
 		host, ok := ri.nodeResolver.NodeHostname(replica)
 		if !ok || host == "" {
 			return nil, fmt.Errorf("resolve node name %q to host", replica)
 		}
+
+		// The timeout will be handled by the HTTP client itself
+		// Individual remote calls will timeout based on client configuration
 		return do(replica, host)
 	}
 
-	queryUntil := func(replicas []string) (resp interface{}, node string, err error) {
-		for _, node = range replicas {
-			if errC := ctx.Err(); errC != nil {
-				return nil, node, errC
+	// Fire queries to replicas concurrently (ignoring self) and return on first success.
+	// Uses regular ErrorGroupWrapper to avoid context cancellation on individual failures.
+	queryFirstSuccess := func(replicas []string) (resp interface{}, node string, err error) {
+		fmt.Printf("DEBUG: queryReplicas starting with %d replicas: %v\n", len(replicas), replicas)
+		type result struct {
+			r    interface{}
+			node string
+			err  error
+		}
+
+		// Use regular ErrorGroupWrapper to avoid context cancellation on individual failures
+		// This allows the first-success logic to work properly
+		logger := logrus.New()
+		eg := enterrors.NewErrorGroupWrapper(logger, "queryReplicas")
+		resCh := make(chan result, len(replicas)) // Buffered channel to prevent blocking
+		var launched int
+
+		for _, rep := range replicas {
+			// Skip local (queryOne returns (nil,nil) for local), avoid launching no-op goroutines
+			if rep == ri.localNodeName {
+				continue
 			}
-			if resp, err = queryOne(node); err == nil {
-				return resp, node, nil
+			launched++
+			rep := rep // Capture loop variable
+			eg.Go(func() error {
+				r, e := queryOne(rep)
+
+				// Send result to channel (non-blocking due to buffered channel)
+				select {
+				case resCh <- result{r, rep, e}:
+					return nil
+				case <-ctx.Done():
+					return ctx.Err()
+				}
+			})
+		}
+
+		if launched == 0 {
+			return nil, "", fmt.Errorf("no remote replicas to query")
+		}
+		fmt.Printf("DEBUG: Launched %d goroutines for remote replicas\n", launched)
+
+		// Wait for first success or timeout - return immediately on first success
+		// Use a separate goroutine to wait for the error group to complete
+		egDone := make(chan error, 1)
+		go func() {
+			egDone <- eg.Wait()
+		}()
+
+		for {
+			select {
+			case rr := <-resCh:
+				fmt.Printf("DEBUG: Received response from %s: err=%v, hasResult=%v\n", rr.node, rr.err, rr.r != nil)
+				if rr.err == nil && rr.r != nil {
+					// SUCCESS! Return immediately - we don't need to wait for others
+					fmt.Printf("DEBUG: SUCCESS from %s, returning immediately\n", rr.node)
+					return rr.r, rr.node, nil
+				}
+				if rr.err != nil {
+					fmt.Printf("DEBUG: Error from %s: %v\n", rr.node, rr.err)
+					// Continue waiting for more responses - maybe another replica will succeed
+				}
+			case <-ctx.Done():
+				fmt.Printf("DEBUG: Parent context cancelled: %v\n", ctx.Err())
+				return nil, "", ctx.Err()
+			case err := <-egDone:
+				// All goroutines completed, check if we got any results
+				fmt.Printf("DEBUG: All goroutines completed, error: %v\n", err)
+				// If we reach here, no replica succeeded
+				return nil, "", fmt.Errorf("all replicas failed: %w", err)
 			}
 		}
-		return resp, node, err
 	}
-	first := rand.Intn(len(replicas))
-	if resp, node, err = queryUntil(replicas[first:]); err != nil && first != 0 {
-		return queryUntil(replicas[:first])
-	}
-	return resp, node, err
+
+	return queryFirstSuccess(replicas)
 }
