@@ -246,7 +246,7 @@ func TestDelete_WithCleaningUpTombstonesOnce(t *testing.T) {
 	})
 
 	t.Run("verify the graph no longer has any tombstones", func(t *testing.T) {
-		assert.Len(t, vectorIndex.tombstones, 0)
+		assert.Equal(t, vectorIndex.tombstones.Size(), 0)
 	})
 
 	t.Run("destroy the index", func(t *testing.T) {
@@ -542,7 +542,7 @@ func TestDelete_WithCleaningUpTombstonesInBetween(t *testing.T) {
 	})
 
 	t.Run("verify the graph no longer has any tombstones", func(t *testing.T) {
-		assert.Len(t, vectorIndex.tombstones, 0)
+		assert.Equal(t, vectorIndex.tombstones.Size(), 0)
 	})
 
 	t.Run("delete the remaining elements", func(t *testing.T) {
@@ -917,7 +917,7 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce(t *testing.T) {
 	})
 
 	t.Run("verify the graph no longer has any tombstones", func(t *testing.T) {
-		assert.Len(t, vectorIndex.tombstones, 0)
+		assert.Equal(t, vectorIndex.tombstones.Size(), 0)
 	})
 
 	t.Run("destroy the index", func(t *testing.T) {
@@ -1103,7 +1103,7 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce_DoesNotCrash(t *t
 	})
 
 	t.Run("verify the graph no longer has any tombstones", func(t *testing.T) {
-		assert.Len(t, vectorIndex.tombstones, 0)
+		assert.Equal(t, vectorIndex.tombstones.Size(), 0)
 	})
 
 	t.Run("destroy the index", func(t *testing.T) {
@@ -1901,7 +1901,7 @@ func TestDelete_WithCleaningUpTombstonesWithHighConcurrency(t *testing.T) {
 	})
 
 	t.Run("verify the graph no longer has any tombstones", func(t *testing.T) {
-		assert.Len(t, vectorIndex.tombstones, 0)
+		assert.Equal(t, vectorIndex.tombstones.Size(), 0)
 	})
 
 	t.Run("destroy the index", func(t *testing.T) {
@@ -2066,7 +2066,7 @@ func Test_DeleteTombstoneMetrics(t *testing.T) {
 	})
 
 	t.Run("verify the graph no longer has any tombstones", func(t *testing.T) {
-		assert.Len(t, vectorIndex.tombstones, 0)
+		assert.Equal(t, vectorIndex.tombstones.Size(), 0)
 	})
 
 	t.Run("verify tombstone metric is zero", func(t *testing.T) {

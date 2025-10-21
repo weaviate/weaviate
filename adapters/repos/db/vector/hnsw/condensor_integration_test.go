@@ -1199,6 +1199,20 @@ func assertIndicesFromCommitLogsMatch(t *testing.T, fileNameControl string, file
 	control := readFromCommitLogs(t, fileNameControl)
 	actual := readFromCommitLogs(t, fileNames...)
 
+	// hide tombstones for comparison
+	// and compare them manually
+	cTombstones := control.tombstones
+	control.tombstones = nil
+	aTombstones := actual.tombstones
+	actual.tombstones = nil
+	assert.Equal(t, cTombstones.Size(), aTombstones.Size(),
+		"tombstone count should match")
+	cTombstones.Range(func(key uint64, _ struct{}) bool {
+		_, ok := aTombstones.Load(key)
+		assert.True(t, ok, "tombstone for ID %d should be present", key)
+		return true
+	})
+
 	assert.Equal(t, control, actual)
 }
 
