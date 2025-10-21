@@ -1932,6 +1932,8 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 	ctx = helpers.InitSlowQueryDetails(ctx)
 	helpers.AnnotateSlowQueryLog(ctx, "is_coordinator", false)
 
+	i.logger.WithField("shardName", shardName).Infof("IncomingSearch: shard status: %s", shard.GetStatus().String())
+
 	// Hacky fix here
 	// shard.GetStatus() will force a lazy shard to load and we have usecases that rely on that behaviour that a search
 	// will force a lazy loaded shard to load
