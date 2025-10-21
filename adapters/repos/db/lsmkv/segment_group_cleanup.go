@@ -468,7 +468,13 @@ func (c *segmentCleanerCommon) cleanupOnce(shouldAbort cyclemanager.ShouldAbortC
 
 		oldSegment := segments[candidateIdx]
 		segmentId := segmentID(oldSegment.getPath())
-		tmpSegmentPath = filepath.Join(c.sg.dir, "segment-"+segmentId+segmentExtraInfo(oldSegment.getLevel(), oldSegment.getStrategy())+".db.tmp")
+		var filename string
+		if c.sg.writeSegmentInfoIntoFileName {
+			filename = "segment-" + segmentId + segmentExtraInfo(oldSegment.getLevel(), oldSegment.getStrategy()) + ".db.tmp"
+		} else {
+			filename = "segment-" + segmentId + ".db.tmp"
+		}
+		tmpSegmentPath = filepath.Join(c.sg.dir, filename)
 		scratchSpacePath := oldSegment.getPath() + "cleanup.scratch.d"
 
 		start := time.Now()
