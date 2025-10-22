@@ -44,8 +44,7 @@ var (
 	tokenizers            KagomeTokenizers     // Tokenizers for Korean and Japanese
 	kagomeInitLock        sync.Mutex           // Lock for kagome initialization
 
-	CustomTokenizers         map[string]*KagomeTokenizers
-	CustomTokenizersInitLock sync.Mutex
+	CustomTokenizers sync.Map
 )
 
 type KagomeTokenizers struct {
@@ -74,9 +73,7 @@ func init() {
 	}
 	ApacTokenizerThrottle = make(chan struct{}, numParallel)
 	InitOptionalTokenizers()
-	CustomTokenizersInitLock.Lock()
-	CustomTokenizers = make(map[string]*KagomeTokenizers)
-	CustomTokenizersInitLock.Unlock()
+	CustomTokenizers = sync.Map{}
 }
 
 func InitOptionalTokenizers() {
@@ -133,13 +130,14 @@ func init_gse_ch() {
 }
 
 func TokenizeForClass(tokenization string, in string, class string) []string {
-	if tokenization == models.PropertyTokenizationKagomeKr && CustomTokenizers[class] != nil && CustomTokenizers[class].Korean != nil {
+	tokenizer, ok := CustomTokenizers.Load(class)
+	if tokenization == models.PropertyTokenizationKagomeKr && ok && tokenizer.(*KagomeTokenizers).Korean != nil {
 		ApacTokenizerThrottle <- struct{}{}
 		defer func() { <-ApacTokenizerThrottle }()
-		return tokenizeKagome(CustomTokenizers[class].Korean, kagomeTokenizer.Normal, models.PropertyTokenizationKagomeKr, in)
-	} else if tokenization == models.PropertyTokenizationKagomeJa && CustomTokenizers[class] != nil && CustomTokenizers[class].Japanese != nil {
+		return tokenizeKagome(tokenizer.(*KagomeTokenizers).Korean, kagomeTokenizer.Normal, models.PropertyTokenizationKagomeKr, in)
+	} else if tokenization == models.PropertyTokenizationKagomeJa && ok && tokenizer.(*KagomeTokenizers).Japanese != nil {
 		defer func() { <-ApacTokenizerThrottle }()
-		return tokenizeKagome(CustomTokenizers[class].Japanese, kagomeTokenizer.Search, models.PropertyTokenizationKagomeJa, in)
+		return tokenizeKagome(tokenizer.(*KagomeTokenizers).Japanese, kagomeTokenizer.Search, models.PropertyTokenizationKagomeJa, in)
 	} else {
 		return Tokenize(tokenization, in)
 	}

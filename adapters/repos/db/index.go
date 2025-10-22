@@ -270,9 +270,7 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create new index")
 	}
-	tokenizer.CustomTokenizersInitLock.Lock()
-	tokenizer.CustomTokenizers[class.Class] = customTokenizers
-	tokenizer.CustomTokenizersInitLock.Unlock()
+	tokenizer.CustomTokenizers.Store(cfg.ClassName.String(), customTokenizers)
 
 	if cfg.QueryNestedRefLimit == 0 {
 		cfg.QueryNestedRefLimit = config.DefaultQueryNestedCrossReferenceLimit
@@ -639,14 +637,10 @@ func (i *Index) updateInvertedIndexConfig(ctx context.Context,
 	if err != nil {
 		return errors.Wrap(err, "failed to update inverted index config")
 	}
-	tokenizer.CustomTokenizersInitLock.Lock()
-	tokenizer.CustomTokenizers[i.getClass().Class] = customTokenizers
-	tokenizer.CustomTokenizersInitLock.Unlock()
+	tokenizer.CustomTokenizers.Store(i.Config.ClassName.String(), customTokenizers)
 
-	i.stopwords, err = stopwords.NewDetectorFromConfig(updated.Stopwords)
-	if err != nil {
-		return errors.Wrap(err, "failed to update inverted index config")
-	}
+	i.stopwords.SetAdditions(updated.Stopwords.Additions)
+	i.stopwords.SetRemovals(updated.Stopwords.Removals)
 	return nil
 }
 

@@ -50,9 +50,7 @@ func TestKagomeUserTokenizerForClass(t *testing.T) {
 	customTokenizers, err := InitUserDictTokenizers([]*models.TokenizerUserDictConfig{generateReplacementModel()})
 	className := "SomeClass"
 	assert.Nil(t, err)
-	CustomTokenizersInitLock.Lock()
-	CustomTokenizers[className] = customTokenizers
-	CustomTokenizersInitLock.Unlock()
+	CustomTokenizers.Store(className, customTokenizers)
 
 	tokens := TokenizeForClass(models.PropertyTokenizationKagomeKr, "Weaviate Semi Technologies", className)
 	assert.Equal(t, []string{"We", "Aviate", "SemiTechnologies"}, tokens)
