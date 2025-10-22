@@ -553,9 +553,6 @@ func TestDynamicAndStoreOperations(t *testing.T) {
 // where named vectors would all use the same boltdb bucket key after upgrade.
 func TestDynamicStoreMigrationBug(t *testing.T) {
 	ctx := context.Background()
-	currentIndexing := os.Getenv("ASYNC_INDEXING")
-	os.Setenv("ASYNC_INDEXING", "true")
-	defer os.Setenv("ASYNC_INDEXING", currentIndexing)
 	dimensions := 20
 	vectors_size := 1_000
 	queries_size := 10
@@ -616,6 +613,7 @@ func TestDynamicStoreMigrationBug(t *testing.T) {
 			TempVectorForIDThunk: TempVectorForIDThunk(vectors),
 			TombstoneCallbacks:   noopCallback,
 			SharedDB:             db,
+			AsyncIndexingEnabled: true,
 		}, ent.UserConfig{
 			Threshold: uint64(vectors_size),
 			Distance:  distancer.Type(),
@@ -692,6 +690,7 @@ func TestDynamicStoreMigrationBug(t *testing.T) {
 			TempVectorForIDThunk: TempVectorForIDThunk(vectors),
 			TombstoneCallbacks:   noopCallback,
 			SharedDB:             db,
+			AsyncIndexingEnabled: true,
 		}, ent.UserConfig{
 			Threshold: uint64(vectors_size),
 			Distance:  distancer.Type(),
@@ -767,6 +766,7 @@ func TestDynamicStoreMigrationBug(t *testing.T) {
 			TempVectorForIDThunk: TempVectorForIDThunk(vectors),
 			TombstoneCallbacks:   noopCallback,
 			SharedDB:             db,
+			AsyncIndexingEnabled: true,
 		}, ent.UserConfig{
 			Threshold: uint64(vectors_size),
 			Distance:  distancer.Type(),
