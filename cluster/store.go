@@ -441,7 +441,7 @@ func (st *Store) init() error {
 	}
 
 	// tcp transport
-	address := fmt.Sprintf("%s:%d", st.cfg.Host, st.cfg.RaftPort)
+	address := fmt.Sprintf("%s:%d", "0.0.0.0", st.cfg.RaftPort)
 	tcpAddr, err := net.ResolveTCPAddr("tcp", address)
 	if err != nil {
 		return fmt.Errorf("net.resolve tcp address=%v: %w", address, err)
