@@ -397,12 +397,14 @@ func TestGRPC_ClusterBatching(t *testing.T) {
 		var recvWg sync.WaitGroup
 		var streamRestartLock sync.RWMutex
 
+		numObjs := 20000
+		batchSize := numObjs / 100
 		// start a goroutine that continuously sends objects
 		sendWg.Add(1)
 		go func() {
 			defer sendWg.Done()
-			batch := make([]*pb.BatchObject, 0, 200)
-			for i := 0; i < 20000; i++ {
+			batch := make([]*pb.BatchObject, 0, batchSize)
+			for i := 0; i < numObjs; i++ {
 				for shuttingDown.Load() {
 					stream.CloseSend()
 					t.Logf("%s Can't send, server is shutting down\n", time.Now().Format("15:04:05"))
@@ -414,8 +416,8 @@ func TestGRPC_ClusterBatching(t *testing.T) {
 					Uuid:       helper.IntToUUID(uint64(i)).String(),
 					Vectors:    []*pb.Vectors{{Name: "default", VectorBytes: randomByteVector(128)}},
 				})
-				if len(batch) == 200 {
-					t.Logf("%s Sending %vth batch of 200 objects\n", time.Now().Format("15:04:05"), i/200)
+				if len(batch) == batchSize {
+					t.Logf("%s Sending %vth batch of %v objects\n", time.Now().Format("15:04:05"), i/batchSize, batchSize)
 					streamRestartLock.RLock()
 					err := send(stream, batch, nil)
 					streamRestartLock.RUnlock()
@@ -424,7 +426,7 @@ func TestGRPC_ClusterBatching(t *testing.T) {
 						fmt.Printf("%s Server closed the stream\n", time.Now().Format("15:04:05"))
 						continue
 					}
-					batch = make([]*pb.BatchObject, 0, 200)
+					batch = make([]*pb.BatchObject, 0, batchSize)
 				}
 			}
 			fmt.Printf("%s Done sending objects\n", time.Now().Format("15:04:05"))
@@ -492,7 +494,7 @@ func TestGRPC_ClusterBatching(t *testing.T) {
 				ObjectsCount: true,
 			})
 			require.NoError(t, err, "Aggregate should not return an error")
-			require.GreaterOrEqual(ct, *res.GetSingleResult().ObjectsCount, int64(50000), "Number of articles created should match the number sent")
+			require.GreaterOrEqual(ct, *res.GetSingleResult().ObjectsCount, int64(numObjs), "Number of articles created should match the number sent")
 		}, 300*time.Second, 5*time.Second, "Objects not replicated within time")
 	})
 
