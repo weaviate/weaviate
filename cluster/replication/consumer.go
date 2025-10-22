@@ -292,7 +292,7 @@ func (c *CopyOpConsumer) Consume(workerCtx context.Context, in <-chan ShardRepli
 						<-c.tokens // Release token when completed
 						// Delete the operation from the ongoingOps map when the operation processing is complete
 						c.ongoingOps.DeleteInFlight(op.Op.ID)
-						wg.Done()
+						wg.Done() //nolint:SA2000
 						opCancel()
 					}()
 

@@ -29,7 +29,10 @@ import (
 
 func (suite *ReplicationTestSuite) TestReadRepair() {
 	t := suite.T()
-	ctx := context.Background()
+	mainCtx := context.Background()
+
+	ctx, cancel := context.WithTimeout(mainCtx, 10*time.Minute)
+	defer cancel()
 
 	compose, err := docker.New().
 		With3NodeCluster().

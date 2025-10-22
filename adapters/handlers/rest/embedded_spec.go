@@ -1596,6 +1596,17 @@ func init() {
             "name": "backend",
             "in": "path",
             "required": true
+          },
+          {
+            "enum": [
+              "asc",
+              "desc"
+            ],
+            "type": "string",
+            "default": "desc",
+            "description": "Order of returned list of backups based on creation time. (asc or desc)",
+            "name": "order",
+            "in": "query"
           }
         ],
         "responses": {
@@ -5980,6 +5991,11 @@ func init() {
           "id": {
             "description": "The ID of the backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
             "type": "string"
+          },
+          "size": {
+            "description": "Size of the backup in Gibs",
+            "type": "number",
+            "format": "float64"
           },
           "startedAt": {
             "description": "Timestamp when the backup process started",
@@ -10438,6 +10454,17 @@ func init() {
             "name": "backend",
             "in": "path",
             "required": true
+          },
+          {
+            "enum": [
+              "asc",
+              "desc"
+            ],
+            "type": "string",
+            "default": "desc",
+            "description": "Order of returned list of backups based on creation time. (asc or desc)",
+            "name": "order",
+            "in": "query"
           }
         ],
         "responses": {
@@ -14948,6 +14975,11 @@ func init() {
         "id": {
           "description": "The ID of the backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
           "type": "string"
+        },
+        "size": {
+          "description": "Size of the backup in Gibs",
+          "type": "number",
+          "format": "float64"
         },
         "startedAt": {
           "description": "Timestamp when the backup process started",
