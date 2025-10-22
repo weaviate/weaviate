@@ -313,12 +313,30 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateEndpoints() {
 
 func getRequest(t *testing.T, className string) *models.ReplicationReplicateReplicaRequest {
 	verbose := verbosity.OutputVerbose
-	nodes, err := helper.Client(t).Nodes.NodesGetClass(nodes.NewNodesGetClassParams().WithOutput(&verbose).WithClassName(className), nil)
-	require.Nil(t, err)
+	var nodesResp *nodes.NodesGetClassOK
+	var err error
+
+	// Wait for the class to be fully initialized and propagated across the cluster
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		nodesResp, err = helper.Client(t).Nodes.NodesGetClass(nodes.NewNodesGetClassParams().WithOutput(&verbose).WithClassName(className), nil)
+		assert.Nil(ct, err, "NodesGetClass should succeed")
+		if err == nil {
+			assert.NotNil(ct, nodesResp, "nodes response should not be nil")
+			if nodesResp != nil && nodesResp.Payload != nil && len(nodesResp.Payload.Nodes) >= 2 {
+				assert.GreaterOrEqual(ct, len(nodesResp.Payload.Nodes[0].Shards), 1, "first node should have at least one shard")
+			}
+		}
+	}, 30*time.Second, 100*time.Millisecond, "class %s should be initialized and available on nodes", className)
+
+	require.NotNil(t, nodesResp)
+	require.NotNil(t, nodesResp.Payload)
+	require.GreaterOrEqual(t, len(nodesResp.Payload.Nodes), 2, "should have at least 2 nodes")
+	require.GreaterOrEqual(t, len(nodesResp.Payload.Nodes[0].Shards), 1, "first node should have at least one shard")
+
 	return &models.ReplicationReplicateReplicaRequest{
 		CollectionID:        &className,
-		SourceNodeName:      &nodes.Payload.Nodes[0].Name,
-		DestinationNodeName: &nodes.Payload.Nodes[1].Name,
-		ShardID:             &nodes.Payload.Nodes[0].Shards[0].Name,
+		SourceNodeName:      &nodesResp.Payload.Nodes[0].Name,
+		DestinationNodeName: &nodesResp.Payload.Nodes[1].Name,
+		ShardID:             &nodesResp.Payload.Nodes[0].Shards[0].Name,
 	}
 }
