@@ -77,7 +77,10 @@ func TestReplicationTestSuite(t *testing.T) {
 
 func (suite *ReplicationTestSuite) TestImmediateReplicaCRUD() {
 	t := suite.T()
-	ctx := context.Background()
+	mainCtx := context.Background()
+
+	ctx, cancel := context.WithTimeout(mainCtx, 10*time.Minute)
+	defer cancel()
 
 	compose, err := docker.New().
 		With3NodeCluster().
@@ -309,7 +312,10 @@ func (suite *ReplicationTestSuite) TestImmediateReplicaCRUD() {
 
 func (suite *ReplicationTestSuite) TestEventualReplicaCRUD() {
 	t := suite.T()
-	ctx := context.Background()
+	mainCtx := context.Background()
+
+	ctx, cancel := context.WithTimeout(mainCtx, 5*time.Minute)
+	defer cancel()
 
 	compose, err := docker.New().
 		With3NodeCluster().
