@@ -175,6 +175,7 @@ func (c *cycleCallbackGroup) cycleCallbackParallel(shouldAbort ShouldAbortCallba
 	i := 0
 	for r := 0; r < routinesLimit; r++ {
 		f := func() {
+			defer wg.Done()
 			for callbackId := range ch {
 				if shouldAbort() {
 					// keep reading from channel until it is closed
@@ -228,7 +229,6 @@ func (c *cycleCallbackGroup) cycleCallbackParallel(shouldAbort ShouldAbortCallba
 					}
 				}()
 			}
-			wg.Done()
 		}
 		enterrors.GoWrapper(f, c.logger)
 	}

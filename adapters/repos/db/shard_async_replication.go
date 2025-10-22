@@ -181,7 +181,7 @@ func (s *Shard) getAsyncReplicationConfig() (config asyncReplicationConfig, err 
 
 	config.maintenanceModeEnabled = s.index.Config.MaintenanceModeEnabled
 
-	return
+	return config, err
 }
 
 func optParseInt(s string, defaultVal, minVal, maxVal int) (val int, err error) {
@@ -1078,62 +1078,62 @@ func (s *Shard) propagateObjects(ctx context.Context, config asyncReplicationCon
 	for range config.propagationConcurrency {
 		enterrors.GoWrapper(func() {
 			for uuidBatch := range batchCh {
-				localObjs, err := s.MultiObjectByID(ctx, wrapIDsInMulti(uuidBatch))
-				if err != nil {
-					resultCh <- workerResponse{
-						err: fmt.Errorf("fetching local objects: %w", err),
-					}
-					wg.Done()
-					continue
-				}
-
-				batch := make([]*objects.VObject, 0, len(localObjs))
-
-				for _, obj := range localObjs {
-					if obj == nil {
-						// local object was deleted meanwhile
-						continue
+				func() {
+					defer wg.Done()
+					localObjs, err := s.MultiObjectByID(ctx, wrapIDsInMulti(uuidBatch))
+					if err != nil {
+						resultCh <- workerResponse{
+							err: fmt.Errorf("fetching local objects: %w", err),
+						}
+						return
 					}
 
-					var vectors map[string][]float32
-					var multiVectors map[string][][]float32
+					batch := make([]*objects.VObject, 0, len(localObjs))
 
-					if obj.Vectors != nil {
-						vectors = make(map[string][]float32, len(obj.Vectors))
-						for targetVector, v := range obj.Vectors {
-							vectors[targetVector] = v
+					for _, obj := range localObjs {
+						if obj == nil {
+							// local object was deleted meanwhile
+							continue
+						}
+
+						var vectors map[string][]float32
+						var multiVectors map[string][][]float32
+
+						if obj.Vectors != nil {
+							vectors = make(map[string][]float32, len(obj.Vectors))
+							for targetVector, v := range obj.Vectors {
+								vectors[targetVector] = v
+							}
+						}
+						if obj.MultiVectors != nil {
+							multiVectors = make(map[string][][]float32, len(obj.MultiVectors))
+							for targetVector, v := range obj.MultiVectors {
+								multiVectors[targetVector] = v
+							}
+						}
+
+						obj := &objects.VObject{
+							ID:                      obj.ID(),
+							LastUpdateTimeUnixMilli: obj.LastUpdateTimeUnix(),
+							LatestObject:            &obj.Object,
+							Vector:                  obj.Vector,
+							Vectors:                 vectors,
+							MultiVectors:            multiVectors,
+							StaleUpdateTime:         remoteStaleUpdateTime[obj.ID()],
+						}
+
+						batch = append(batch, obj)
+					}
+
+					if len(batch) > 0 {
+						resp, err := s.index.replicator.Overwrite(ctx, host, s.class.Class, s.name, batch)
+
+						resultCh <- workerResponse{
+							resp: resp,
+							err:  err,
 						}
 					}
-					if obj.MultiVectors != nil {
-						multiVectors = make(map[string][][]float32, len(obj.MultiVectors))
-						for targetVector, v := range obj.MultiVectors {
-							multiVectors[targetVector] = v
-						}
-					}
-
-					obj := &objects.VObject{
-						ID:                      obj.ID(),
-						LastUpdateTimeUnixMilli: obj.LastUpdateTimeUnix(),
-						LatestObject:            &obj.Object,
-						Vector:                  obj.Vector,
-						Vectors:                 vectors,
-						MultiVectors:            multiVectors,
-						StaleUpdateTime:         remoteStaleUpdateTime[obj.ID()],
-					}
-
-					batch = append(batch, obj)
-				}
-
-				if len(batch) > 0 {
-					resp, err := s.index.replicator.Overwrite(ctx, host, s.class.Class, s.name, batch)
-
-					resultCh <- workerResponse{
-						resp: resp,
-						err:  err,
-					}
-				}
-
-				wg.Done()
+				}()
 			}
 		}, s.index.logger)
 	}
