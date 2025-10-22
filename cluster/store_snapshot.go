@@ -180,8 +180,8 @@ func (st *Store) Restore(rc io.ReadCloser) error {
 	wg.Add(1)
 	var err error
 	g := func() {
+		defer wg.Done()
 		err = f()
-		wg.Done()
 	}
 	enterrors.GoWrapper(g, st.log)
 	wg.Wait()

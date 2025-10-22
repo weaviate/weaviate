@@ -500,6 +500,7 @@ func TestDynamicAndStoreOperations(t *testing.T) {
 		VectorCacheMaxObjects: 1_000_000,
 	}
 	dynamic, err := New(Config{
+		AllocChecker:          memwatch.NewDummyMonitor(),
 		RootPath:              rootPath,
 		ID:                    "nil-vector-test",
 		MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
@@ -610,6 +611,7 @@ func TestDynamicStoreMigrationBug(t *testing.T) {
 			TargetVector:          "target_" + strconv.Itoa(i),
 			RootPath:              rootPath,
 			ID:                    "nil-vector-test_" + strconv.Itoa(i),
+			AllocChecker:          memwatch.NewDummyMonitor(),
 			MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
 			DistanceProvider:      distancer,
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
@@ -685,6 +687,7 @@ func TestDynamicStoreMigrationBug(t *testing.T) {
 			TargetVector:          "target_" + strconv.Itoa(i),
 			RootPath:              rootPath,
 			ID:                    "nil-vector-test_" + strconv.Itoa(i),
+			AllocChecker:          memwatch.NewDummyMonitor(),
 			MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
 			DistanceProvider:      distancer,
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
@@ -759,6 +762,7 @@ func TestDynamicStoreMigrationBug(t *testing.T) {
 			TargetVector:          "target_" + strconv.Itoa(i),
 			RootPath:              rootPath,
 			ID:                    "nil-vector-test_" + strconv.Itoa(i),
+			AllocChecker:          memwatch.NewDummyMonitor(),
 			MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
 			DistanceProvider:      distancer,
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
