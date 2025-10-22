@@ -266,6 +266,7 @@ func (dynamic *dynamic) init(cfg *Config) (bool, error) {
 		hnswDirExists = true
 	}
 
+	dbKey := dynamic.dbKey()
 	err = cfg.SharedDB.Update(func(tx *bbolt.Tx) error {
 		b, err := tx.CreateBucketIfNotExists(dynamicBucket)
 		if err != nil {
@@ -273,7 +274,7 @@ func (dynamic *dynamic) init(cfg *Config) (bool, error) {
 		}
 
 		if cfg.TargetVector == "" {
-			v := b.Get(dynamic.dbKey())
+			v := b.Get(dbKey)
 			if v == nil {
 				return nil
 			}
@@ -287,38 +288,27 @@ func (dynamic *dynamic) init(cfg *Config) (bool, error) {
 		// target-vector-specific keys going forward.
 
 		// first, check if there's an entry for this specific target vector
-		v := b.Get(dynamic.dbKey())
+		v := b.Get(dbKey)
 		if v != nil {
 			upgraded = v[0] != 0
 			return nil
 		}
 
 		// if not, let's create one by default
-		err = b.Put(dynamic.dbKey(), []byte{0})
+		// and infer the upgraded state from the existence of the HNSW dir
+		if hnswDirExists {
+			err = b.Put(dbKey, []byte{1})
+		} else {
+			err = b.Put(dbKey, []byte{0})
+		}
 		if err != nil {
 			return errors.Wrap(err, "migrate dynamic state for target vector")
 		}
 
-		// check the generic key
-		v = b.Get([]byte(composerUpgradedKey))
-		if v == nil || v[0] == 0 {
-			// if it doesn't exist or set to false, we know for sure it's not upgraded
-			return nil
-		}
-
-		// the key is set to true, but we need to make sure it's not a false positive
-		// due to another target vector having been upgraded
-
-		if !hnswDirExists {
-			// if the HNSW dir doesn't exist, we know for sure it's not related to this target vector
-			return nil
-		}
-
 		// if the HNSW dir exists, we assume it was upgraded
-		upgraded = true
+		upgraded = hnswDirExists
 
-		// update the target vector key to reflect the upgraded state
-		return b.Put(dynamic.dbKey(), []byte{1})
+		return nil
 	})
 	if err != nil {
 		return false, errors.Wrap(err, "get dynamic state")
