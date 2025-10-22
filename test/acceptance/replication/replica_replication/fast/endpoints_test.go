@@ -42,16 +42,22 @@ func (suite *ReplicationTestSuite) SetupSuite() {
 	t.Setenv("TEST_WEAVIATE_IMAGE", "weaviate/test-server")
 
 	mainCtx := context.Background()
+	ctx, cancel := context.WithTimeout(mainCtx, 10*time.Minute)
 
 	compose, err := docker.New().
 		WithWeaviateCluster(3).
 		WithWeaviateEnv("REPLICA_MOVEMENT_MINIMUM_ASYNC_WAIT", "5s").
 		WithWeaviateEnv("REPLICA_MOVEMENT_ENABLED", "true").
-		Start(mainCtx)
+		Start(ctx)
 	require.Nil(t, err)
+	if cancel != nil {
+		cancel()
+	}
 	suite.compose = compose
 	suite.down = func() {
-		if err := compose.Terminate(mainCtx); err != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+		defer cancel()
+		if err := compose.Terminate(ctx); err != nil {
 			t.Fatalf("failed to terminate test containers: %s", err.Error())
 		}
 	}
