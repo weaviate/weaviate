@@ -497,8 +497,6 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	}
 
 	nodeName := appState.Cluster.LocalName()
-	nodeAddr, _ := appState.Cluster.NodeHostname(nodeName)
-	addrs := strings.Split(nodeAddr, ":")
 	dataPath := appState.ServerConfig.Config.Persistence.DataPath
 
 	schemaParser := schema.NewParser(appState.Cluster, vectorIndex.ParseAndValidateConfig, migrator, appState.Modules)
@@ -506,7 +504,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	rConfig := rCluster.Config{
 		WorkDir:                         filepath.Join(dataPath, config.DefaultRaftDir),
 		NodeID:                          nodeName,
-		Host:                            addrs[0],
+		Host:                            appState.Cluster.LocalNodeAddress(),
 		RaftPort:                        appState.ServerConfig.Config.Raft.Port,
 		RPCPort:                         appState.ServerConfig.Config.Raft.InternalRPCPort,
 		RaftRPCMessageMaxSize:           appState.ServerConfig.Config.Raft.RPCMessageMaxSize,
@@ -904,6 +902,34 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			}, appState.Logger)
 	}
 	api.ServerShutdown = func() {
+		if err := appState.Cluster.Leave(); err != nil {
+			appState.Logger.
+				WithError(err).
+				WithField("action", "shutdown").
+				Errorf("failed to gracefully leave cluster")
+		}
+		// Wait for memberlist convergence: ensure local node is no longer a member
+		localName := appState.Cluster.LocalName()
+		maxWait := 10 * time.Second
+		tick := 100 * time.Millisecond
+		deadline := time.Now().Add(maxWait)
+		for time.Now().Before(deadline) {
+			if _, ok := appState.Cluster.NodeHostname(localName); !ok {
+				appState.Logger.WithFields(logrus.Fields{
+					"action":     "shutdown",
+					"node":       localName,
+					"membership": "left",
+				}).Info("memberlist confirms local node left")
+				break
+			}
+			appState.Logger.WithFields(logrus.Fields{
+				"action":     "shutdown",
+				"node":       localName,
+				"membership": "still_present",
+			}).Info("waiting for memberlist to forget local node")
+			time.Sleep(tick)
+		}
+
 		if telemetryEnabled(appState) {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
@@ -974,7 +1000,6 @@ func startBackupScheduler(appState *state.State) *backup.Scheduler {
 // TODO: Split up and don't write into global variables. Instead return an appState
 func startupRoutine(ctx context.Context, options *swag.CommandLineOptionsGroup) *state.State {
 	appState := &state.State{}
-
 	logger := logger()
 	appState.Logger = logger
 
@@ -1672,14 +1697,16 @@ func reasonableHttpClient(authConfig cluster.AuthConfig) *http.Client {
 	t := &http.Transport{
 		Proxy: http.ProxyFromEnvironment,
 		DialContext: (&net.Dialer{
-			Timeout:   30 * time.Second,
+			Timeout:   5 * time.Second, // Reduced from 30s for faster failure detection
 			KeepAlive: 120 * time.Second,
 		}).DialContext,
 		MaxIdleConnsPerHost:   100,
 		MaxIdleConns:          100,
 		IdleConnTimeout:       90 * time.Second,
-		TLSHandshakeTimeout:   10 * time.Second,
+		TLSHandshakeTimeout:   3 * time.Second, // Reduced from 10s for faster TLS failures
 		ExpectContinueTimeout: 1 * time.Second,
+		// Add response header timeout to prevent hanging on slow responses
+		ResponseHeaderTimeout: 10 * time.Second,
 	}
 
 	if authConfig.BasicAuth.Enabled() {
