@@ -904,6 +904,34 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			}, appState.Logger)
 	}
 	api.ServerShutdown = func() {
+		if err := appState.Cluster.Leave(); err != nil {
+			appState.Logger.
+				WithError(err).
+				WithField("action", "shutdown").
+				Errorf("failed to gracefully leave cluster")
+		}
+		// Wait for memberlist convergence: ensure local node is no longer a member
+		localName := appState.Cluster.LocalName()
+		maxWait := 10 * time.Second
+		tick := 100 * time.Millisecond
+		deadline := time.Now().Add(maxWait)
+		for time.Now().Before(deadline) {
+			if _, ok := appState.Cluster.NodeHostname(localName); !ok {
+				appState.Logger.WithFields(logrus.Fields{
+					"action":     "shutdown",
+					"node":       localName,
+					"membership": "left",
+				}).Info("memberlist confirms local node left")
+				break
+			}
+			appState.Logger.WithFields(logrus.Fields{
+				"action":     "shutdown",
+				"node":       localName,
+				"membership": "still_present",
+			}).Info("waiting for memberlist to forget local node")
+			time.Sleep(tick)
+		}
+
 		if telemetryEnabled(appState) {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
@@ -1680,6 +1708,7 @@ func reasonableHttpClient(authConfig cluster.AuthConfig) *http.Client {
 		IdleConnTimeout:       90 * time.Second,
 		TLSHandshakeTimeout:   10 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
+		ResponseHeaderTimeout: 10 * time.Second,
 	}
 
 	if authConfig.BasicAuth.Enabled() {

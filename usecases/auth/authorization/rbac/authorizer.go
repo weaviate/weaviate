@@ -92,7 +92,7 @@ func (m *Manager) authorize(ctx context.Context, principal *models.Principal, ve
 
 	// Log all results at once if audit is enabled
 	if !skipAudit {
-		logger.WithField("permissions", permResults).Info()
+		// logger.WithField("permissions", permResults).Info()
 	}
 
 	return nil
@@ -166,6 +166,6 @@ func (m *Manager) FilterAuthorizedResources(ctx context.Context, principal *mode
 		}
 	}
 
-	logger.WithField("permissions", permResults).Info()
+	// logger.WithField("permissions", permResults).Info()
 	return allowedResources, nil
 }

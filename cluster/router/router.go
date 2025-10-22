@@ -13,13 +13,15 @@ package router
 
 import (
 	"fmt"
+	"sort"
 
 	"github.com/sirupsen/logrus"
+	"golang.org/x/exp/slices"
+
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	schemaTypes "github.com/weaviate/weaviate/cluster/schema/types"
 	"github.com/weaviate/weaviate/usecases/cluster"
-	"golang.org/x/exp/slices"
 )
 
 type Router struct {
@@ -118,6 +120,9 @@ func (r *Router) routingPlanFromReplicas(
 	if params.DirectCandidateReplica == "" {
 		params.DirectCandidateReplica = r.clusterStateReader.LocalName()
 	}
+
+	// Deterministic ordering: sort replica names and align host addresses accordingly
+	sort.Sort(sort.Reverse(sort.StringSlice(replicas)))
 
 	for _, replica := range replicas {
 		if replicaAddr, ok := r.clusterStateReader.NodeHostname(replica); ok {

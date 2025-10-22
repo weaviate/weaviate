@@ -294,7 +294,7 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 		vectorIndexUserConfigs:  vectorIndexUserConfigs,
 		stopwords:               sd,
 		partitioningEnabled:     shardState.PartitioningEnabled,
-		remote:                  sharding.NewRemoteIndex(cfg.ClassName.String(), sg, nodeResolver, remoteClient),
+		remote:                  sharding.NewRemoteIndex(cfg.ClassName.String(), sg, nodeResolver, remoteClient, sg.NodeName()),
 		metrics:                 metrics,
 		centralJobQueue:         jobQueueCh,
 		backupLock:              esync.NewKeyRWLocker(),
@@ -1563,7 +1563,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 				}
 				nodeName = i.getSchema.NodeName()
 			} else {
-				i.logger.WithField("shardName", shardName).Debug("shard was not found locally, search for object remotely")
+				i.logger.WithField("shardName", shardName).Infof("shard was not found locally, search for object remotely: %t, status: %s", shard == nil, shard.GetStatus().String())
 
 				objs, scores, nodeName, err = i.remote.SearchShard(
 					ctx, shardName, nil, nil, 0, limit, filters, keywordRanking,
@@ -1827,13 +1827,14 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 		if err != nil {
 			return nil, nil, err
 		}
-		if shard != nil {
-			defer release()
-		}
 
-		if shard != nil {
+		local := shard != nil
+		i.logger.WithField("shardName", shardName).Infof("objectVectorSearch: local shard: %t, status: %s", local, shard.GetStatus().String())
+
+		if local {
 			localSearches++
 			eg.Go(func() error {
+				defer release()
 				localShardResult, localShardScores, err1 := i.localShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardName)
 				if err1 != nil {
 					return fmt.Errorf(
@@ -1852,6 +1853,8 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 		if shard == nil || i.Config.ForceFullReplicasSearch {
 			remoteSearches++
 			eg.Go(func() error {
+				i.logger.WithField("shardName", shardName).Infof("objectVectorSearch: remote shard: %t, status: %s", local, shard.GetStatus().String())
+
 				// If we have no local shard or if we force the query to reach all replicas
 				remoteShardObject, remoteShardScores, err2 := i.remoteShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardName)
 				if err2 != nil {
@@ -1933,6 +1936,8 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 
 	ctx = helpers.InitSlowQueryDetails(ctx)
 	helpers.AnnotateSlowQueryLog(ctx, "is_coordinator", false)
+
+	i.logger.WithField("shardName", shardName).Infof("IncomingSearch: shard status: %s", shard.GetStatus().String())
 
 	// Hacky fix here
 	// shard.GetStatus() will force a lazy shard to load and we have usecases that rely on that behaviour that a search
