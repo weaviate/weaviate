@@ -278,11 +278,11 @@ func (r *DataReader) ReadNextChunk() (*DataChunk, error) {
 				}
 				vectors = append(vectors, convertedVector)
 			case r.neighborColIdx:
-				const expectedNeighbors = 100
-				if len(colValues) != expectedNeighbors || colValues[0].Kind() != parquet.Int64 {
-					rowErr = fmt.Errorf("failed to find a list of %d int64 values in the neighbor column", expectedNeighbors)
+				if len(colValues) == 0 || colValues[0].Kind() != parquet.Int64 {
+					rowErr = fmt.Errorf("failed to find a list of int64 values in the neighbor column")
+					return false
 				}
-				rowNeighbors := make([]uint64, expectedNeighbors)
+				rowNeighbors := make([]uint64, len(colValues))
 				for j, v := range colValues {
 					rowNeighbors[j] = uint64(v.Int64())
 				}
