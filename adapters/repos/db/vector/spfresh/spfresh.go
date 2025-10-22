@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"math"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/pkg/errors"
@@ -193,6 +194,14 @@ func (s *SPFresh) Type() common.IndexType {
 }
 
 func (s *SPFresh) UpdateUserConfig(updated schemaConfig.VectorIndexConfig, callback func()) error {
+	parsed, ok := updated.(ent.UserConfig)
+	if !ok {
+		callback()
+		return errors.Errorf("config is not UserConfig, but %T", updated)
+	}
+
+	atomic.StoreUint32(&s.searchProbe, parsed.SearchProbe)
+
 	callback()
 	return nil
 }
