@@ -437,7 +437,7 @@ func TestDeserializerAddTombstone(t *testing.T) {
 		6: {},
 	}
 
-	assert.Equal(t, expected, tombstones)
+	assert.Equal(t, expected, testinghelpers.XsyncMapToMap(tombstones))
 }
 
 func TestDeserializerRemoveTombstone(t *testing.T) {
@@ -447,7 +447,6 @@ func TestDeserializerRemoveTombstone(t *testing.T) {
 	tombstones.Store(3, struct{}{})
 	tombstones.Store(4, struct{}{})
 	tombstones.Store(5, struct{}{})
-	tombstones.Store(6, struct{}{})
 
 	ids := []uint64{2, 3, 4, 5, 7}
 	deletedTombstones := map[uint64]struct{}{
@@ -476,7 +475,7 @@ func TestDeserializerRemoveTombstone(t *testing.T) {
 		7: {},
 	}
 
-	assert.Equal(t, expectedTombstones, tombstones)
+	assert.Equal(t, expectedTombstones, testinghelpers.XsyncMapToMap(tombstones))
 	assert.Equal(t, expectedDeletedTombstones, deletedTombstones)
 }
 
