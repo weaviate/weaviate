@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/pkg/errors"
@@ -16,11 +17,22 @@ import (
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
 )
 
+const (
+	DefaultBaseURL = "https://api.embedding.weaviate.io"
+	URLPath        = "/v1/embeddings/embed"
+)
+
 type Client[T dto.Embedding] struct {
 	httpClient *http.Client
-	urlBuilder *weaviateEmbedUrlBuilder
 	defaultRPM int
 	defaultTPM int
+}
+
+type embeddingsRequest struct {
+	Input         []string `json:"input"`
+	IsSearchQuery bool     `json:"is_search_query,omitempty"`
+	Model         string   `json:"model"`
+	Dimensions    *int64   `json:"dimensions,omitempty"`
 }
 
 type embeddingsResponseError struct {
@@ -44,41 +56,46 @@ func New[T dto.Embedding](timeout time.Duration, defaultRPM, defaultTPM int) *Cl
 		httpClient: &http.Client{
 			Timeout: timeout,
 		},
-		urlBuilder: newWeaviateEmbedUrlBuilder(),
 		defaultRPM: defaultRPM,
 		defaultTPM: defaultTPM,
 	}
 }
 
-func (c *Client[T]) Vectorize(ctx context.Context, embeddingRequest interface{}, model, baseURL string) (*embeddingsResponse[T], error) {
-	body, err := json.Marshal(embeddingRequest)
+func (c *Client[T]) Vectorize(ctx context.Context, input []string, query bool, dimensions *int64, model, baseURL string) (*embeddingsResponse[T], error) {
+	request := embeddingsRequest{Input: input, IsSearchQuery: query, Model: model, Dimensions: dimensions}
+	body, err := json.Marshal(request)
 	if err != nil {
 		return nil, errors.Wrap(err, "marshal body")
 	}
 
-	url := c.getWeaviateEmbedURL(ctx, baseURL)
-	req, err := http.NewRequestWithContext(ctx, "POST", url,
-		bytes.NewReader(body))
+	url, err := c.getWeaviateEmbedURL(ctx, baseURL)
+	if err != nil {
+		return nil, errors.Wrap(err, "join API host and path")
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(body))
 	if err != nil {
 		return nil, errors.Wrap(err, "create POST request")
 	}
+
 	token, err := getToken(ctx)
 	if err != nil {
 		return nil, errors.Wrap(err, "authentication token")
 	}
+
 	clusterURL, err := getClusterURL(ctx)
 	if err != nil {
 		return nil, errors.Wrap(err, "cluster URL")
 	}
 
 	req.Header.Set("Authorization", token)
-	req.Header.Add("X-Weaviate-Embedding-Model", model)
 	req.Header.Add("X-Weaviate-Cluster-Url", clusterURL)
 
 	res, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, errors.Wrap(err, "send POST request")
 	}
+
 	defer res.Body.Close()
 	bodyBytes, err := io.ReadAll(res.Body)
 	if err != nil {
@@ -102,8 +119,14 @@ func (c *Client[T]) Vectorize(ctx context.Context, embeddingRequest interface{},
 	return &resBody, nil
 }
 
-func (c *Client[T]) getWeaviateEmbedURL(ctx context.Context, baseURL string) string {
-	return c.urlBuilder.url(baseURL)
+func (c *Client[T]) getWeaviateEmbedURL(ctx context.Context, baseURL string) (string, error) {
+	var host string
+	if baseURL != "" {
+		host = baseURL
+	} else {
+		host = DefaultBaseURL
+	}
+	return url.JoinPath(host, URLPath)
 }
 
 func getToken(ctx context.Context) (string, error) {

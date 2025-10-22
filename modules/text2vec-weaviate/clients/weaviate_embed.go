@@ -15,6 +15,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/moduletools"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
@@ -28,12 +29,6 @@ const (
 	DefaultTPM = 10_000_000
 )
 
-type embeddingsRequest struct {
-	Texts         []string `json:"texts"`
-	IsSearchQuery bool     `json:"is_search_query,omitempty"`
-	Dimensions    *int64   `json:"dimensions,omitempty"`
-}
-
 type vectorizer struct {
 	client *weaviateembed.Client[[]float32]
 }
@@ -44,38 +39,25 @@ func New(timeout time.Duration) *vectorizer {
 	}
 }
 
-func (v *vectorizer) Vectorize(ctx context.Context, input []string,
-	cfg moduletools.ClassConfig,
+func (v *vectorizer) Vectorize(ctx context.Context, input []string, cfg moduletools.ClassConfig,
 ) (*modulecomponents.VectorizationResult[[]float32], *modulecomponents.RateLimits, int, error) {
-	config := v.getVectorizationConfig(cfg)
-	return v.vectorize(ctx, input, config.Model, config.BaseURL, false, config)
+	return v.vectorize(ctx, input, false, cfg)
 }
 
 func (v *vectorizer) VectorizeQuery(ctx context.Context, input []string,
 	cfg moduletools.ClassConfig,
 ) (*modulecomponents.VectorizationResult[[]float32], error) {
-	config := v.getVectorizationConfig(cfg)
-	res, _, _, err := v.vectorize(ctx, input, config.Model, config.BaseURL, true, config)
+	res, _, _, err := v.vectorize(ctx, input, true, cfg)
 	return res, err
 }
 
-func (v *vectorizer) getVectorizationConfig(cfg moduletools.ClassConfig) ent.VectorizationConfig {
-	icheck := ent.NewClassSettings(cfg)
-	return ent.VectorizationConfig{
-		Model:      icheck.Model(),
-		BaseURL:    icheck.BaseURL(),
-		Dimensions: icheck.Dimensions(),
-	}
-}
-
-func (v *vectorizer) vectorize(ctx context.Context, input []string,
-	model, baseURL string, isSearchQuery bool, config ent.VectorizationConfig,
+func (v *vectorizer) vectorize(ctx context.Context, input []string, isSearchQuery bool,
+	cfg moduletools.ClassConfig,
 ) (*modulecomponents.VectorizationResult[[]float32], *modulecomponents.RateLimits, int, error) {
-	embeddingRequest := v.getEmbeddingsRequest(input, isSearchQuery, config.Dimensions)
-
-	embeddingsResponse, err := v.client.Vectorize(ctx, embeddingRequest, model, baseURL)
+	settings := ent.NewClassSettings(cfg)
+	embeddingsResponse, err := v.client.Vectorize(ctx, input, isSearchQuery, settings.Dimensions(), settings.Model(), settings.BaseURL())
 	if err != nil {
-		return nil, nil, 0, err
+		return nil, nil, 0, errors.Wrap(err, "text2vec-weaviate module")
 	}
 
 	return &modulecomponents.VectorizationResult[[]float32]{
@@ -83,10 +65,6 @@ func (v *vectorizer) vectorize(ctx context.Context, input []string,
 		Dimensions: len(embeddingsResponse.Embeddings[0]),
 		Vector:     embeddingsResponse.Embeddings,
 	}, nil, modulecomponents.GetTotalTokens(embeddingsResponse.Metadata.Usage), nil
-}
-
-func (v *vectorizer) getEmbeddingsRequest(texts []string, isSearchQuery bool, dimensions *int64) embeddingsRequest {
-	return embeddingsRequest{Texts: texts, IsSearchQuery: isSearchQuery, Dimensions: dimensions}
 }
 
 func (v *vectorizer) GetApiKeyHash(ctx context.Context, config moduletools.ClassConfig) [32]byte {

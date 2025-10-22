@@ -20,7 +20,6 @@ import (
 const (
 	DefaultBaseURL               = ""
 	DefaultWeaviateModel         = "Snowflake/snowflake-arctic-embed-l-v2.0"
-	DefaultTruncate              = "right"
 	DefaultVectorizeClassName    = true
 	DefaultPropertyIndexed       = true
 	DefaultVectorizePropertyName = false

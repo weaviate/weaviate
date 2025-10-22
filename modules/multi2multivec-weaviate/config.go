@@ -18,13 +18,13 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/modules/multi2multivec-jinaai/ent"
+	"github.com/weaviate/weaviate/modules/multi2multivec-weaviate/ent"
 )
 
 func (m *Module) ClassConfigDefaults() map[string]interface{} {
 	return map[string]interface{}{
 		ent.BaseURLProperty:  ent.DefaultBaseURL,
-		ent.ModelProperty:    ent.DefaultJinaAIModel,
+		ent.ModelProperty:    ent.DefaultWeaviateModel,
 		"vectorizeClassName": ent.DefaultVectorizeClassName,
 	}
 }
