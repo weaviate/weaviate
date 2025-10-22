@@ -16,6 +16,11 @@ repos:
         entry: ./tools/linter_go_routines.sh
         language: system
         types: [ go ]
+      - id: wait groups
+        name: wait groups
+        entry: ./tools/linter_waitgroups_done.sh
+        language: system
+        types: [ go ]
   - repo: https://github.com/golangci/golangci-lint
     rev: v2.4.0
     hooks:
