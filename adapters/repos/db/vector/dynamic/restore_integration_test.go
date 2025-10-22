@@ -119,11 +119,6 @@ func TestBackup_Integration(t *testing.T) {
 	assert.Nil(t, idx.Flush())
 	assert.Nil(t, idx.Shutdown(context.Background()))
 
-	// open the db again
-	db, err = bbolt.Open(dbPath, 0o666, nil)
-	require.NoError(t, err)
-	config.SharedDB = db
-
 	idx, err = New(config, uc, store)
 	require.Nil(t, err)
 	idx.PostStartup()
