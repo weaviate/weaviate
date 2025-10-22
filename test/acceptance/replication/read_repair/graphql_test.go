@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -29,7 +30,10 @@ import (
 
 func (suite *ReplicationTestSuite) TestGraphqlSearch() {
 	t := suite.T()
-	ctx := context.Background()
+	mainCtx := context.Background()
+
+	ctx, cancel := context.WithTimeout(mainCtx, 10*time.Minute)
+	defer cancel()
 
 	compose, err := docker.New().
 		WithWeaviateCluster(3).
