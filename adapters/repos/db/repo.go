@@ -373,8 +373,10 @@ func (db *DB) batchWorker(first bool) {
 			db.shutDownWg.Done()
 			return
 		}
-		defer jobToAdd.batcher.wg.Done()
-		jobToAdd.batcher.storeSingleObjectInAdditionalStorage(jobToAdd.ctx, jobToAdd.object, jobToAdd.status, jobToAdd.index)
+		func() {
+			defer jobToAdd.batcher.wg.Done()
+			jobToAdd.batcher.storeSingleObjectInAdditionalStorage(jobToAdd.ctx, jobToAdd.object, jobToAdd.status, jobToAdd.index)
+		}()
 
 		objectCounter += 1
 		if first && time.Now().After(checkTime) { // only have one worker report the rate per second
