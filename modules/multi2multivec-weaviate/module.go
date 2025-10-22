@@ -13,7 +13,6 @@ package modm2mvjinaai
 
 import (
 	"context"
-	"os"
 	"time"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents/batch"
@@ -61,7 +60,7 @@ func (m *Module) Init(ctx context.Context,
 	params moduletools.ModuleInitParams,
 ) error {
 	m.logger = params.GetLogger()
-	if err := m.initVectorizer(ctx, params.GetConfig().ModuleHttpClientTimeout, params.GetLogger()); err != nil {
+	if err := m.initVectorizer(ctx, params.GetConfig().ModuleHttpClientTimeout); err != nil {
 		return errors.Wrap(err, "init vectorizer")
 	}
 
@@ -91,11 +90,8 @@ func (m *Module) InitExtension(modules []modulecapabilities.Module) error {
 	return nil
 }
 
-func (m *Module) initVectorizer(ctx context.Context, timeout time.Duration,
-	logger logrus.FieldLogger,
-) error {
-	apiKey := os.Getenv("JINAAI_APIKEY")
-	client := clients.New(apiKey, timeout, logger)
+func (m *Module) initVectorizer(ctx context.Context, timeout time.Duration) error {
+	client := clients.New(timeout)
 
 	m.vectorizer = vectorizer.New(client)
 	m.metaClient = client

@@ -27,8 +27,8 @@ const (
 )
 
 const (
-	DefaultBaseURL            = "https://api.jina.ai"
-	DefaultJinaAIModel        = "jina-embeddings-v4"
+	DefaultBaseURL            = ""
+	DefaultWeaviateModel      = "colpali"
 	DefaultVectorizeClassName = false
 )
 
@@ -46,7 +46,7 @@ func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
 
 // JinaAI settings
 func (cs *classSettings) Model() string {
-	return cs.base.GetPropertyAsString(ModelProperty, DefaultJinaAIModel)
+	return cs.base.GetPropertyAsString(ModelProperty, DefaultWeaviateModel)
 }
 
 func (cs *classSettings) BaseURL() string {
