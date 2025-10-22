@@ -15,6 +15,7 @@ package db
 
 import (
 	"context"
+	"os"
 	"testing"
 	"time"
 
@@ -1302,7 +1303,11 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 		})
 
 		t.Run("async", func(t *testing.T) {
+			currentStaleTimeout := os.Getenv("ASYNC_INDEXING_STALE_TIMEOUT")
+			currentSchedulerInterval := os.Getenv("QUEUE_SCHEDULER_INTERVAL")
 			t.Setenv("ASYNC_INDEXING_STALE_TIMEOUT", "1s")
+			defer t.Setenv("ASYNC_INDEXING_STALE_TIMEOUT", currentStaleTimeout)
+			defer t.Setenv("QUEUE_SCHEDULER_INTERVAL", currentSchedulerInterval)
 
 			runBatch(t, true)
 		})
