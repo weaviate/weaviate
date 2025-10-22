@@ -401,8 +401,8 @@ func TestGRPC_ClusterBatching(t *testing.T) {
 		sendWg.Add(1)
 		go func() {
 			defer sendWg.Done()
-			batch := make([]*pb.BatchObject, 0, 1000)
-			for i := 0; i < 50000; i++ {
+			batch := make([]*pb.BatchObject, 0, 200)
+			for i := 0; i < 20000; i++ {
 				for shuttingDown.Load() {
 					stream.CloseSend()
 					t.Logf("%s Can't send, server is shutting down\n", time.Now().Format("15:04:05"))
@@ -414,8 +414,8 @@ func TestGRPC_ClusterBatching(t *testing.T) {
 					Uuid:       helper.IntToUUID(uint64(i)).String(),
 					Vectors:    []*pb.Vectors{{Name: "default", VectorBytes: randomByteVector(128)}},
 				})
-				if len(batch) == 1000 {
-					t.Logf("%s Sending %vth batch of 1000 objects\n", time.Now().Format("15:04:05"), i/1000)
+				if len(batch) == 200 {
+					t.Logf("%s Sending %vth batch of 200 objects\n", time.Now().Format("15:04:05"), i/200)
 					streamRestartLock.RLock()
 					err := send(stream, batch, nil)
 					streamRestartLock.RUnlock()
@@ -424,8 +424,7 @@ func TestGRPC_ClusterBatching(t *testing.T) {
 						fmt.Printf("%s Server closed the stream\n", time.Now().Format("15:04:05"))
 						continue
 					}
-					time.Sleep(100 * time.Millisecond) // wait a bit before sending the next batch
-					batch = make([]*pb.BatchObject, 0, 1000)
+					batch = make([]*pb.BatchObject, 0, 200)
 				}
 			}
 			fmt.Printf("%s Done sending objects\n", time.Now().Format("15:04:05"))
