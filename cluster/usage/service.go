@@ -14,6 +14,7 @@ package usage
 import (
 	"context"
 	"fmt"
+	"runtime/debug"
 	"sort"
 	"time"
 
@@ -113,5 +114,9 @@ func (s *service) Usage(ctx context.Context, exactObjectCount bool) (*types.Repo
 			})
 		}
 	}
+
+	// -1 returns current limit without changing it
+	usage.GoMemLimit = debug.SetMemoryLimit(-1)
+
 	return usage, nil
 }
