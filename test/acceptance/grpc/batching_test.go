@@ -412,7 +412,7 @@ func TestGRPC_ClusterBatching(t *testing.T) {
 				batch = append(batch, &pb.BatchObject{
 					Collection: clsA.Class,
 					Uuid:       helper.IntToUUID(uint64(i)).String(),
-					Vectors:    []*pb.Vectors{{Name: "default", VectorBytes: randomByteVector(256)}},
+					Vectors:    []*pb.Vectors{{Name: "default", VectorBytes: randomByteVector(128)}},
 				})
 				if len(batch) == 1000 {
 					t.Logf("%s Sending %vth batch of 1000 objects\n", time.Now().Format("15:04:05"), i/1000)
