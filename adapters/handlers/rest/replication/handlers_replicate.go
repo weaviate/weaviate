@@ -386,7 +386,7 @@ func (h *replicationHandler) listReplication(params replication.ListReplicationP
 	return replication.NewListReplicationOK().WithPayload(h.generateArrayReplicationDetailsResponse(includeHistory, response))
 }
 
-func (h *replicationHandler) generateShardingStateResponse(collection string, shards map[string][]string) *models.ReplicationShardingStateResponse {
+func (h *replicationHandler) generateShardingState(collection string, shards map[string][]string) *models.ReplicationShardingState {
 	shardsResponse := make([]*models.ReplicationShardReplicas, 0, len(shards))
 	for shard, replicas := range shards {
 		shardsResponse = append(shardsResponse, &models.ReplicationShardReplicas{
@@ -394,11 +394,9 @@ func (h *replicationHandler) generateShardingStateResponse(collection string, sh
 			Replicas: replicas,
 		})
 	}
-	return &models.ReplicationShardingStateResponse{
-		ShardingState: &models.ReplicationShardingState{
-			Collection: collection,
-			Shards:     shardsResponse,
-		},
+	return &models.ReplicationShardingState{
+		Collection: collection,
+		Shards:     shardsResponse,
 	}
 }
 
@@ -432,5 +430,90 @@ func (h *replicationHandler) getCollectionShardingState(params replication.GetCo
 		return replication.NewGetCollectionShardingStateInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
-	return replication.NewGetCollectionShardingStateOK().WithPayload(h.generateShardingStateResponse(shardingState.Collection, shardingState.Shards))
+	return replication.NewGetCollectionShardingStateOK().WithPayload(
+		&models.ReplicationShardingStateResponse{
+			ShardingState: h.generateShardingState(shardingState.Collection, shardingState.Shards),
+		})
+}
+
+// getReplicationScale validates input, authorizes, and returns a projected sharding state for a given replication factor.
+func (h *replicationHandler) getReplicationScale(params replication.ReplicationScalePreviewParams, principal *models.Principal) middleware.Responder {
+	ctx := params.HTTPRequest.Context()
+
+	// Validate input
+	if params.Collection == "" {
+		return replication.NewReplicationScalePreviewBadRequest().WithPayload(
+			cerrors.ErrPayloadFromSingleErr(fmt.Errorf("collection name must be provided")),
+		)
+	}
+	if params.ReplicationFactor <= 0 {
+		return replication.NewReplicationScalePreviewBadRequest().WithPayload(
+			cerrors.ErrPayloadFromSingleErr(fmt.Errorf("replication factor must be greater than zero")),
+		)
+	}
+
+	// Authorize
+	if err := h.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Replications(params.Collection, "*")); err != nil {
+		return replication.NewReplicationScalePreviewForbidden().WithPayload(
+			cerrors.ErrPayloadFromSingleErr(err),
+		)
+	}
+
+	// Query the manager for the projected sharding state
+	shardingState, err := h.replicationManager.ScalePreview(ctx, params.Collection, int(params.ReplicationFactor))
+	if errors.Is(err, replicationTypes.ErrNotFound) {
+		return replication.NewReplicationScalePreviewNotFound()
+	} else if err != nil {
+		return replication.NewReplicationScalePreviewInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+	}
+
+	// Return the generated sharding state response
+	return replication.NewReplicationScalePreviewOK().WithPayload(
+		&models.ReplicationScalePreviewResponse{
+			ShardingState: h.generateShardingState(shardingState.Collection, shardingState.Shards),
+		},
+	)
+}
+
+// postReplicationScale validates input, authorizes, and applies scaling to match the desired sharding state.
+func (h *replicationHandler) postReplicationScale(params replication.ReplicationScaleApplyParams, principal *models.Principal) middleware.Responder {
+	ctx := params.HTTPRequest.Context()
+
+	// Validate input
+	if params.Body == nil || params.Body.Collection == "" || len(params.Body.Shards) == 0 {
+		return replication.NewReplicationScaleApplyBadRequest().WithPayload(
+			cerrors.ErrPayloadFromSingleErr(fmt.Errorf("body must contain collection and shards")),
+		)
+	}
+
+	// Authorize
+	if err := h.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Replications(params.Body.Collection, "*")); err != nil {
+		return replication.NewReplicationScaleApplyForbidden().WithPayload(
+			cerrors.ErrPayloadFromSingleErr(err),
+		)
+	}
+
+	// Construct desired sharding state
+	desiredState := api.ShardingState{
+		Collection: params.Body.Collection,
+		Shards:     make(map[string][]string),
+	}
+	for _, shard := range params.Body.Shards {
+		desiredState.Shards[shard.Shard] = shard.Replicas
+	}
+
+	// Apply scaling via the manager
+	operationIDs, err := h.replicationManager.ScaleApply(ctx, desiredState)
+	if errors.Is(err, replicationTypes.ErrNotFound) {
+		return replication.NewReplicationScaleApplyNotFound()
+	} else if err != nil {
+		return replication.NewReplicationScaleApplyInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+	}
+
+	// Return operation IDs for any shard creation tasks
+	return replication.NewReplicationScaleApplyOK().WithPayload(
+		&models.ReplicationScaleApplyResponse{
+			OperationIds: operationIDs,
+		},
+	)
 }

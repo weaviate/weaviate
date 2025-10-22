@@ -22,6 +22,7 @@ import (
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/schema"
+	"github.com/weaviate/weaviate/usecases/cluster"
 )
 
 var ErrBadRequest = errors.New("bad request")
@@ -29,13 +30,15 @@ var ErrBadRequest = errors.New("bad request")
 type Manager struct {
 	replicationFSM *ShardReplicationFSM
 	schemaReader   schema.SchemaReader
+	nodeSelector   cluster.NodeSelector
 }
 
-func NewManager(schemaReader schema.SchemaReader, reg prometheus.Registerer) *Manager {
+func NewManager(schemaReader schema.SchemaReader, nodeSelector cluster.NodeSelector, reg prometheus.Registerer) *Manager {
 	replicationFSM := NewShardReplicationFSM(reg)
 	return &Manager{
 		replicationFSM: replicationFSM,
 		schemaReader:   schemaReader,
+		nodeSelector:   nodeSelector,
 	}
 }
 
@@ -289,6 +292,40 @@ func (m *Manager) QueryShardingStateByCollectionAndShard(c *cmd.QueryRequest) ([
 	response := cmd.ShardingState{
 		Collection: subCommand.Collection,
 		Shards:     shards,
+	}
+
+	payload, err := json.Marshal(response)
+	if err != nil {
+		return nil, fmt.Errorf("could not marshal query response: %w", err)
+	}
+	return payload, nil
+}
+
+func (m *Manager) QueryReplicationScalePreview(c *cmd.QueryRequest) ([]byte, error) {
+	subCommand := cmd.ReplicationScalePreviewRequest{}
+	if err := json.Unmarshal(c.SubCommand, &subCommand); err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+
+	shardingState := m.schemaReader.CopyShardingState(subCommand.Collection)
+
+	for name, shard := range shardingState.Physical {
+		if err := shard.AdjustReplicas(int(subCommand.ReplicationFactor), m.nodeSelector); err != nil {
+			return nil, err
+		}
+		shardingState.Physical[name] = shard
+	}
+
+	shards := make(map[string][]string)
+	for _, shard := range shardingState.Physical {
+		shards[shard.Name] = shard.BelongsToNodes
+	}
+
+	response := cmd.ReplicationScalePreviewResponse{
+		ShardingState: cmd.ShardingState{
+			Collection: subCommand.Collection,
+			Shards:     shards,
+		},
 	}
 
 	payload, err := json.Marshal(response)

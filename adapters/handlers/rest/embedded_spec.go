@@ -3900,6 +3900,149 @@ func init() {
         ]
       }
     },
+    "/replication/scale": {
+      "get": {
+        "description": "Computes and returns the expected ReplicationShardingState for the desired replication factor. The replication factor must be a positive integer greater than zero.",
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "replication"
+        ],
+        "summary": "Preview replication scaling plan for a given replication factor",
+        "operationId": "replicationScalePreview",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The collection name to get the sharding state for.",
+            "name": "collection",
+            "in": "query",
+            "required": true
+          },
+          {
+            "minimum": 1,
+            "type": "integer",
+            "description": "The desired replication factor to scale to. Must be a positive integer greater than zero.",
+            "name": "replicationFactor",
+            "in": "query",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Projected sharding state for the desired replication factor",
+            "schema": {
+              "$ref": "#/definitions/ReplicationScalePreviewResponse"
+            }
+          },
+          "400": {
+            "description": "Bad request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Collection not found.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "501": {
+            "description": "Replica movement operations are disabled.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.replication.scale.get"
+        ]
+      },
+      "post": {
+        "description": "Receives a desired ReplicationShardingState and performs scaling operations by assigning or removing replicas on shards as necessary, based on the difference between the current and provided sharding states. Shard creation tasks are tracked and returned as operation IDs. Shard drop tasks are applied immediately and are not tracked.",
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "replication"
+        ],
+        "summary": "Apply replication scaling based on provided sharding state",
+        "operationId": "replicationScaleApply",
+        "parameters": [
+          {
+            "description": "The desired ReplicationShardingState to apply to the cluster.",
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/ReplicationShardingState"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of replication shard copy operation IDs initiated for the scale operation",
+            "schema": {
+              "$ref": "#/definitions/ReplicationScaleApplyResponse"
+            }
+          },
+          "400": {
+            "description": "Bad request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Collection not found.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "501": {
+            "description": "Replica movement operations are disabled.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.replication.scale.post"
+        ]
+      }
+    },
     "/replication/sharding-state": {
       "get": {
         "description": "Fetches the current sharding state, including replica locations and statuses, for all collections or a specified collection. If a shard name is provided along with a collection, the state for that specific shard is returned.",
@@ -7596,6 +7739,35 @@ func init() {
           "description": "The unique identifier (ID) assigned to the registered replication operation.",
           "type": "string",
           "format": "uuid"
+        }
+      }
+    },
+    "ReplicationScaleApplyResponse": {
+      "description": "Response for the POST /replication/scale endpoint containing the list of initiated shard copy operation IDs.",
+      "type": "object",
+      "required": [
+        "operationIds"
+      ],
+      "properties": {
+        "operationIds": {
+          "description": "List of shard copy operation IDs created during scaling.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      }
+    },
+    "ReplicationScalePreviewResponse": {
+      "description": "Response for the GET /replication/scale endpoint containing the projected sharding state for the requested replication factor.",
+      "type": "object",
+      "required": [
+        "shardingState"
+      ],
+      "properties": {
+        "shardingState": {
+          "$ref": "#/definitions/ReplicationShardingState"
         }
       }
     },
@@ -12306,6 +12478,149 @@ func init() {
         ]
       }
     },
+    "/replication/scale": {
+      "get": {
+        "description": "Computes and returns the expected ReplicationShardingState for the desired replication factor. The replication factor must be a positive integer greater than zero.",
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "replication"
+        ],
+        "summary": "Preview replication scaling plan for a given replication factor",
+        "operationId": "replicationScalePreview",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The collection name to get the sharding state for.",
+            "name": "collection",
+            "in": "query",
+            "required": true
+          },
+          {
+            "minimum": 1,
+            "type": "integer",
+            "description": "The desired replication factor to scale to. Must be a positive integer greater than zero.",
+            "name": "replicationFactor",
+            "in": "query",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Projected sharding state for the desired replication factor",
+            "schema": {
+              "$ref": "#/definitions/ReplicationScalePreviewResponse"
+            }
+          },
+          "400": {
+            "description": "Bad request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Collection not found.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "501": {
+            "description": "Replica movement operations are disabled.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.replication.scale.get"
+        ]
+      },
+      "post": {
+        "description": "Receives a desired ReplicationShardingState and performs scaling operations by assigning or removing replicas on shards as necessary, based on the difference between the current and provided sharding states. Shard creation tasks are tracked and returned as operation IDs. Shard drop tasks are applied immediately and are not tracked.",
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "replication"
+        ],
+        "summary": "Apply replication scaling based on provided sharding state",
+        "operationId": "replicationScaleApply",
+        "parameters": [
+          {
+            "description": "The desired ReplicationShardingState to apply to the cluster.",
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/ReplicationShardingState"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of replication shard copy operation IDs initiated for the scale operation",
+            "schema": {
+              "$ref": "#/definitions/ReplicationScaleApplyResponse"
+            }
+          },
+          "400": {
+            "description": "Bad request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Collection not found.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "501": {
+            "description": "Replica movement operations are disabled.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.replication.scale.post"
+        ]
+      }
+    },
     "/replication/sharding-state": {
       "get": {
         "description": "Fetches the current sharding state, including replica locations and statuses, for all collections or a specified collection. If a shard name is provided along with a collection, the state for that specific shard is returned.",
@@ -16321,6 +16636,35 @@ func init() {
           "description": "The unique identifier (ID) assigned to the registered replication operation.",
           "type": "string",
           "format": "uuid"
+        }
+      }
+    },
+    "ReplicationScaleApplyResponse": {
+      "description": "Response for the POST /replication/scale endpoint containing the list of initiated shard copy operation IDs.",
+      "type": "object",
+      "required": [
+        "operationIds"
+      ],
+      "properties": {
+        "operationIds": {
+          "description": "List of shard copy operation IDs created during scaling.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      }
+    },
+    "ReplicationScalePreviewResponse": {
+      "description": "Response for the GET /replication/scale endpoint containing the projected sharding state for the requested replication factor.",
+      "type": "object",
+      "required": [
+        "shardingState"
+      ],
+      "properties": {
+        "shardingState": {
+          "$ref": "#/definitions/ReplicationShardingState"
         }
       }
     },

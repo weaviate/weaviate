@@ -903,7 +903,10 @@
         "transferType": {
           "description": "Specifies the type of replication operation to perform. 'COPY' creates a new replica on the destination node while keeping the source replica. 'MOVE' creates a new replica on the destination node and then removes the source replica upon successful completion. Defaults to 'COPY' if omitted.",
           "type": "string",
-          "enum": ["COPY", "MOVE"],
+          "enum": [
+            "COPY",
+            "MOVE"
+          ],
           "default": "COPY"
         }
       },
@@ -937,6 +940,35 @@
         }
       },
       "type": "object"
+    },
+    "ReplicationScalePreviewResponse": {
+      "type": "object",
+      "description": "Response for the GET /replication/scale endpoint containing the projected sharding state for the requested replication factor.",
+      "properties": {
+        "shardingState": {
+          "$ref": "#/definitions/ReplicationShardingState"
+        }
+      },
+      "required": [
+        "shardingState"
+      ]
+    },
+    "ReplicationScaleApplyResponse": {
+      "type": "object",
+      "description": "Response for the POST /replication/scale endpoint containing the list of initiated shard copy operation IDs.",
+      "properties": {
+        "operationIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "description": "List of shard copy operation IDs created during scaling."
+        }
+      },
+      "required": [
+        "operationIds"
+      ]
     },
     "ReplicationDisableReplicaRequest": {
       "description": "Specifies the parameters required to mark a specific shard replica as inactive (soft-delete) on a particular node. This action typically prevents the replica from serving requests but does not immediately remove its data.",
@@ -1098,7 +1130,15 @@
           }
         }
       },
-      "required": ["id", "shardId", "sourceNodeId", "targetNodeId", "collection", "status", "transferType"]
+      "required": [
+        "id",
+        "shardId",
+        "sourceNodeId",
+        "targetNodeId",
+        "collection",
+        "status",
+        "transferType"
+      ]
     },
     "ReplicationReplicateForceDeleteRequest": {
       "description": "Specifies the parameters available when force deleting replication operations.",
@@ -1612,7 +1652,7 @@
           "maximum": 80,
           "x-nullable": false
         },
-        "rolesOptions" : {
+        "rolesOptions": {
           "description": "How roles should be restored",
           "type": "string",
           "enum": [
@@ -1621,7 +1661,7 @@
           ],
           "default": "noRestore"
         },
-        "usersOptions" : {
+        "usersOptions": {
           "description": "How users should be restored",
           "type": "string",
           "enum": [
@@ -1903,13 +1943,19 @@
         },
         "numberOfReplicas": {
           "description": "Number of replicas for the shard.",
-          "type": ["integer", "null"],
+          "type": [
+            "integer",
+            "null"
+          ],
           "format": "int64",
           "x-omitempty": true
         },
         "replicationFactor": {
           "description": "Minimum number of replicas for the shard.",
-          "type": ["integer", "null"],
+          "type": [
+            "integer",
+            "null"
+          ],
           "format": "int64",
           "x-omitempty": true
         }
@@ -2018,11 +2064,11 @@
           "format": "date-time"
         },
         "finishedNodes": {
-            "description": "The nodes that finished the task.",
-            "type": "array",
-            "items": {
-                "type": "string"
-            }
+          "description": "The nodes that finished the task.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         },
         "error": {
           "description": "The high level reason why the task failed.",
@@ -2030,8 +2076,8 @@
           "x-omitempty": true
         },
         "payload": {
-            "description": "The payload of the task.",
-            "type": "object"
+          "description": "The payload of the task.",
+          "type": "object"
         }
       }
     },
@@ -3433,7 +3479,7 @@
         "description": "Retrieves a list of currently registered replication operations, optionally filtered by collection, shard, or node ID.",
         "operationId": "listReplication",
         "x-serviceIds": [
-          "weaviate.replication.replicate.details" 
+          "weaviate.replication.replicate.details"
         ],
         "tags": [
           "replication"
@@ -3629,7 +3675,150 @@
             }
           },
           "404": {
-            "description": "Collection or shard not found.", 
+            "description": "Collection or shard not found.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "501": {
+            "description": "Replica movement operations are disabled.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/replication/scale": {
+      "get": {
+        "summary": "Preview replication scaling plan for a given replication factor",
+        "description": "Computes and returns the expected ReplicationShardingState for the desired replication factor. The replication factor must be a positive integer greater than zero.",
+        "operationId": "replicationScalePreview",
+        "x-serviceIds": [
+          "weaviate.replication.scale.get"
+        ],
+        "tags": [
+          "replication"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "name": "collection",
+            "in": "query",
+            "description": "The collection name to get the sharding state for.",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "replicationFactor",
+            "in": "query",
+            "description": "The desired replication factor to scale to. Must be a positive integer greater than zero.",
+            "required": true,
+            "type": "integer",
+            "minimum": 1
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Projected sharding state for the desired replication factor",
+            "schema": {
+              "$ref": "#/definitions/ReplicationScalePreviewResponse"
+            }
+          },
+          "400": {
+            "description": "Bad request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Collection not found.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "501": {
+            "description": "Replica movement operations are disabled.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Apply replication scaling based on provided sharding state",
+        "description": "Receives a desired ReplicationShardingState and performs scaling operations by assigning or removing replicas on shards as necessary, based on the difference between the current and provided sharding states. Shard creation tasks are tracked and returned as operation IDs. Shard drop tasks are applied immediately and are not tracked.",
+        "operationId": "replicationScaleApply",
+        "x-serviceIds": [
+          "weaviate.replication.scale.post"
+        ],
+        "tags": [
+          "replication"
+        ],
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "in": "body",
+            "name": "body",
+            "description": "The desired ReplicationShardingState to apply to the cluster.",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/ReplicationShardingState"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of replication shard copy operation IDs initiated for the scale operation",
+            "schema": {
+              "$ref": "#/definitions/ReplicationScaleApplyResponse"
+            }
+          },
+          "400": {
+            "description": "Bad request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Collection not found.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3817,12 +4006,12 @@
               "type": "object",
               "properties": {
                 "import": {
-                  "type":"boolean",
+                  "type": "boolean",
                   "description": "EXPERIMENTAL, DONT USE. THIS WILL BE REMOVED AGAIN. - import api key from static user",
                   "default": false
                 },
                 "createTime": {
-                  "type":"string",
+                  "type": "string",
                   "format": "date-time",
                   "description": "EXPERIMENTAL, DONT USE. THIS WILL BE REMOVED AGAIN. - set the given time as creation time"
                 }

@@ -22,6 +22,9 @@ type Manager interface {
 	QueryShardingStateByCollection(ctx context.Context, collection string) (api.ShardingState, error)
 	QueryShardingStateByCollectionAndShard(ctx context.Context, collection string, shard string) (api.ShardingState, error)
 
+	ScalePreview(ctx context.Context, collection string, replicationFactor int) (api.ShardingState, error)
+	ScaleApply(ctx context.Context, desiredState api.ShardingState) ([]strfmt.UUID, error)
+
 	ReplicationReplicateReplica(ctx context.Context, opId strfmt.UUID, sourceNode string, sourceCollection string, sourceShard string, targetNode string, transferType string) error
 
 	// GetReplicationDetailsByReplicationId retrieves the details of a replication operation by its UUID.

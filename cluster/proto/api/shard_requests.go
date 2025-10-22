@@ -164,6 +164,15 @@ type ReplicationQueryShardingStateByCollectionAndShardRequest struct {
 	Shard      string
 }
 
+type ReplicationScalePreviewRequest struct {
+	Collection        string
+	ReplicationFactor int
+}
+
+type ReplicationScalePreviewResponse struct {
+	ShardingState ShardingState
+}
+
 type ReplicationDeleteAllRequest struct {
 	Version int
 }

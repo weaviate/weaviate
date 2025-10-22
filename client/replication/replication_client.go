@@ -57,6 +57,10 @@ type ClientService interface {
 
 	ReplicationDetails(params *ReplicationDetailsParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ReplicationDetailsOK, error)
 
+	ReplicationScaleApply(params *ReplicationScaleApplyParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ReplicationScaleApplyOK, error)
+
+	ReplicationScalePreview(params *ReplicationScalePreviewParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ReplicationScalePreviewOK, error)
+
 	SetTransport(transport runtime.ClientTransport)
 }
 
@@ -383,6 +387,88 @@ func (a *Client) ReplicationDetails(params *ReplicationDetailsParams, authInfo r
 	// unexpected success response
 	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
 	msg := fmt.Sprintf("unexpected success response for replicationDetails: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
+}
+
+/*
+ReplicationScaleApply applies replication scaling based on provided sharding state
+
+Receives a desired ReplicationShardingState and performs scaling operations by assigning or removing replicas on shards as necessary, based on the difference between the current and provided sharding states. Shard creation tasks are tracked and returned as operation IDs. Shard drop tasks are applied immediately and are not tracked.
+*/
+func (a *Client) ReplicationScaleApply(params *ReplicationScaleApplyParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ReplicationScaleApplyOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewReplicationScaleApplyParams()
+	}
+	op := &runtime.ClientOperation{
+		ID:                 "replicationScaleApply",
+		Method:             "POST",
+		PathPattern:        "/replication/scale",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &ReplicationScaleApplyReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
+	if err != nil {
+		return nil, err
+	}
+	success, ok := result.(*ReplicationScaleApplyOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for replicationScaleApply: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
+}
+
+/*
+ReplicationScalePreview previews replication scaling plan for a given replication factor
+
+Computes and returns the expected ReplicationShardingState for the desired replication factor. The replication factor must be a positive integer greater than zero.
+*/
+func (a *Client) ReplicationScalePreview(params *ReplicationScalePreviewParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ReplicationScalePreviewOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewReplicationScalePreviewParams()
+	}
+	op := &runtime.ClientOperation{
+		ID:                 "replicationScalePreview",
+		Method:             "GET",
+		PathPattern:        "/replication/scale",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &ReplicationScalePreviewReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
+	if err != nil {
+		return nil, err
+	}
+	success, ok := result.(*ReplicationScalePreviewOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for replicationScalePreview: API contract not enforced by server. Client expected to get an error, but got: %T", result)
 	panic(msg)
 }
 

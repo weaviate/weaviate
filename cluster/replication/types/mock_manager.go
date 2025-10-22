@@ -966,6 +966,123 @@ func (_c *MockManager_ReplicationReplicateReplica_Call) RunAndReturn(run func(co
 	return _c
 }
 
+// ScaleApply provides a mock function with given fields: ctx, desiredState
+func (_m *MockManager) ScaleApply(ctx context.Context, desiredState api.ShardingState) ([]strfmt.UUID, error) {
+	ret := _m.Called(ctx, desiredState)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ScaleApply")
+	}
+
+	var r0 []strfmt.UUID
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, api.ShardingState) ([]strfmt.UUID, error)); ok {
+		return rf(ctx, desiredState)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, api.ShardingState) []strfmt.UUID); ok {
+		r0 = rf(ctx, desiredState)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]strfmt.UUID)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, api.ShardingState) error); ok {
+		r1 = rf(ctx, desiredState)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockManager_ScaleApply_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ScaleApply'
+type MockManager_ScaleApply_Call struct {
+	*mock.Call
+}
+
+// ScaleApply is a helper method to define mock.On call
+//   - ctx context.Context
+//   - desiredState api.ShardingState
+func (_e *MockManager_Expecter) ScaleApply(ctx interface{}, desiredState interface{}) *MockManager_ScaleApply_Call {
+	return &MockManager_ScaleApply_Call{Call: _e.mock.On("ScaleApply", ctx, desiredState)}
+}
+
+func (_c *MockManager_ScaleApply_Call) Run(run func(ctx context.Context, desiredState api.ShardingState)) *MockManager_ScaleApply_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(api.ShardingState))
+	})
+	return _c
+}
+
+func (_c *MockManager_ScaleApply_Call) Return(_a0 []strfmt.UUID, _a1 error) *MockManager_ScaleApply_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockManager_ScaleApply_Call) RunAndReturn(run func(context.Context, api.ShardingState) ([]strfmt.UUID, error)) *MockManager_ScaleApply_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// ScalePreview provides a mock function with given fields: ctx, collection, replicationFactor
+func (_m *MockManager) ScalePreview(ctx context.Context, collection string, replicationFactor int) (api.ShardingState, error) {
+	ret := _m.Called(ctx, collection, replicationFactor)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ScalePreview")
+	}
+
+	var r0 api.ShardingState
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, int) (api.ShardingState, error)); ok {
+		return rf(ctx, collection, replicationFactor)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, int) api.ShardingState); ok {
+		r0 = rf(ctx, collection, replicationFactor)
+	} else {
+		r0 = ret.Get(0).(api.ShardingState)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, int) error); ok {
+		r1 = rf(ctx, collection, replicationFactor)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockManager_ScalePreview_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ScalePreview'
+type MockManager_ScalePreview_Call struct {
+	*mock.Call
+}
+
+// ScalePreview is a helper method to define mock.On call
+//   - ctx context.Context
+//   - collection string
+//   - replicationFactor int
+func (_e *MockManager_Expecter) ScalePreview(ctx interface{}, collection interface{}, replicationFactor interface{}) *MockManager_ScalePreview_Call {
+	return &MockManager_ScalePreview_Call{Call: _e.mock.On("ScalePreview", ctx, collection, replicationFactor)}
+}
+
+func (_c *MockManager_ScalePreview_Call) Run(run func(ctx context.Context, collection string, replicationFactor int)) *MockManager_ScalePreview_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(int))
+	})
+	return _c
+}
+
+func (_c *MockManager_ScalePreview_Call) Return(_a0 api.ShardingState, _a1 error) *MockManager_ScalePreview_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockManager_ScalePreview_Call) RunAndReturn(run func(context.Context, string, int) (api.ShardingState, error)) *MockManager_ScalePreview_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // NewMockManager creates a new instance of MockManager. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
 func NewMockManager(t interface {

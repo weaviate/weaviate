@@ -269,6 +269,12 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		ReplicationReplicationDetailsHandler: replication.ReplicationDetailsHandlerFunc(func(params replication.ReplicationDetailsParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation replication.ReplicationDetails has not yet been implemented")
 		}),
+		ReplicationReplicationScaleApplyHandler: replication.ReplicationScaleApplyHandlerFunc(func(params replication.ReplicationScaleApplyParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation replication.ReplicationScaleApply has not yet been implemented")
+		}),
+		ReplicationReplicationScalePreviewHandler: replication.ReplicationScalePreviewHandlerFunc(func(params replication.ReplicationScalePreviewParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation replication.ReplicationScalePreview has not yet been implemented")
+		}),
 		AuthzRevokeRoleFromGroupHandler: authz.RevokeRoleFromGroupHandlerFunc(func(params authz.RevokeRoleFromGroupParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation authz.RevokeRoleFromGroup has not yet been implemented")
 		}),
@@ -528,6 +534,10 @@ type WeaviateAPI struct {
 	ReplicationReplicateHandler replication.ReplicateHandler
 	// ReplicationReplicationDetailsHandler sets the operation handler for the replication details operation
 	ReplicationReplicationDetailsHandler replication.ReplicationDetailsHandler
+	// ReplicationReplicationScaleApplyHandler sets the operation handler for the replication scale apply operation
+	ReplicationReplicationScaleApplyHandler replication.ReplicationScaleApplyHandler
+	// ReplicationReplicationScalePreviewHandler sets the operation handler for the replication scale preview operation
+	ReplicationReplicationScalePreviewHandler replication.ReplicationScalePreviewHandler
 	// AuthzRevokeRoleFromGroupHandler sets the operation handler for the revoke role from group operation
 	AuthzRevokeRoleFromGroupHandler authz.RevokeRoleFromGroupHandler
 	// AuthzRevokeRoleFromUserHandler sets the operation handler for the revoke role from user operation
@@ -849,6 +859,12 @@ func (o *WeaviateAPI) Validate() error {
 	}
 	if o.ReplicationReplicationDetailsHandler == nil {
 		unregistered = append(unregistered, "replication.ReplicationDetailsHandler")
+	}
+	if o.ReplicationReplicationScaleApplyHandler == nil {
+		unregistered = append(unregistered, "replication.ReplicationScaleApplyHandler")
+	}
+	if o.ReplicationReplicationScalePreviewHandler == nil {
+		unregistered = append(unregistered, "replication.ReplicationScalePreviewHandler")
 	}
 	if o.AuthzRevokeRoleFromGroupHandler == nil {
 		unregistered = append(unregistered, "authz.RevokeRoleFromGroupHandler")
@@ -1274,6 +1290,14 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
 	o.handlers["GET"]["/replication/replicate/{id}"] = replication.NewReplicationDetails(o.context, o.ReplicationReplicationDetailsHandler)
+	if o.handlers["POST"] == nil {
+		o.handlers["POST"] = make(map[string]http.Handler)
+	}
+	o.handlers["POST"]["/replication/scale"] = replication.NewReplicationScaleApply(o.context, o.ReplicationReplicationScaleApplyHandler)
+	if o.handlers["GET"] == nil {
+		o.handlers["GET"] = make(map[string]http.Handler)
+	}
+	o.handlers["GET"]["/replication/scale"] = replication.NewReplicationScalePreview(o.context, o.ReplicationReplicationScalePreviewHandler)
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
