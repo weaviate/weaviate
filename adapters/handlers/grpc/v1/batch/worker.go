@@ -97,10 +97,11 @@ func StartBatchWorkers(
 }
 
 func (w *worker) isReplicationError(err string) bool {
-	return strings.Contains(err, replica.ErrReplicas.Error()) || // any error due to replicating to shutdown node
-		strings.Contains(err, "connect: Post") || // failed to connect to shutdown node
-		strings.Contains(err, "status code: 404, error: request not found") || // failed to find request on shutdown node
-		(strings.Contains(err, "resolve node name") && strings.Contains(err, "to host")) // failed to resolve to other shutdown node in cluster
+	return strings.Contains(err, replica.ErrReplicas.Error()) || // coordinator: any error due to replicating to shutdown node
+		strings.Contains(err, "connect: Post") || // rest: failed to connect to shutdown node
+		strings.Contains(err, "status code: 404, error: request not found") || // rest: failed to find request on shutdown node
+		(strings.Contains(err, "resolve node name") && strings.Contains(err, "to host")) || // memberlist: failed to resolve to other shutdown node in cluster
+		(strings.Contains(err, "the client connection is closing")) // grpc: connection to other shutdown node is closed
 }
 
 func (w *worker) sendObjects(ctx context.Context, streamId string, objs []*pb.BatchObject, cl *pb.ConsistencyLevel, retries int) ([]*pb.BatchStreamReply_Results_Success, []*pb.BatchStreamReply_Results_Error) {
