@@ -143,6 +143,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"github.com/weaviate/weaviate/usecases/telemetry"
+	"github.com/weaviate/weaviate/usecases/telemetry/opentelemetry"
 	"github.com/weaviate/weaviate/usecases/traverser"
 )
 
@@ -219,6 +220,13 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 
 	// initializing at the top to reflect the config changes before we pass on to different components.
 	initRuntimeOverrides(appState)
+
+	// Initialize OpenTelemetry tracing
+	if err := opentelemetry.Init(appState.Logger); err != nil {
+		appState.Logger.
+			WithField("action", "startup").WithError(err).
+			Fatal("failed to initialize OpenTelemetry")
+	}
 
 	if appState.ServerConfig.Config.Monitoring.Enabled {
 		appState.HTTPServerMetrics = monitoring.NewHTTPServerMetrics(monitoring.DefaultMetricsNamespace, prometheus.DefaultRegisterer)
@@ -1682,10 +1690,14 @@ func reasonableHttpClient(authConfig cluster.AuthConfig) *http.Client {
 		ExpectContinueTimeout: 1 * time.Second,
 	}
 
+	// TODO only if enabled
+	// Wrap with OpenTelemetry tracing
+	transport := monitoring.NewTracingTransport(t)
+
 	if authConfig.BasicAuth.Enabled() {
-		return &http.Client{Transport: clientWithAuth{r: t, basicAuth: authConfig.BasicAuth}}
+		return &http.Client{Transport: clientWithAuth{r: transport, basicAuth: authConfig.BasicAuth}}
 	}
-	return &http.Client{Transport: t}
+	return &http.Client{Transport: transport}
 }
 
 func setupGoProfiling(config config.Config, logger logrus.FieldLogger) {

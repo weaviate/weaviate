@@ -34,6 +34,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/usecases/telemetry/opentelemetry"
 )
 
 // ServerVersion is deprecated. Use `build.Version`. It's there for backward compatiblility.
@@ -214,6 +215,9 @@ type Config struct {
 	//
 	// This flat may be removed in the future.
 	InvertedSorterDisabled *runtime.DynamicValue[bool] `json:"inverted_sorter_disabled" yaml:"inverted_sorter_disabled"`
+
+	// OpenTelemetry configuration
+	OpenTelemetry *opentelemetry.Config `json:"opentelemetry" yaml:"opentelemetry"`
 }
 
 type MapToBlockamaxConfig struct {
