@@ -49,7 +49,7 @@ func TestBM25FJourneyBlockAnd(t *testing.T) {
 	require.Nil(t, repo.WaitForStartup(context.Background()))
 	defer repo.Shutdown(context.Background())
 
-	props := SetupClass(t, repo, schemaGetter, logger, 1.2, 0.75)
+	props, _ := SetupClass(t, repo, schemaGetter, logger, 1.2, 0.75, "none")
 
 	idx := repo.GetIndex("MyClass")
 
@@ -147,7 +147,7 @@ func TestBM25FJourneyAnd(t *testing.T) {
 	require.Nil(t, repo.WaitForStartup(context.Background()))
 	defer repo.Shutdown(context.Background())
 
-	props := SetupClass(t, repo, schemaGetter, logger, 1.2, 0.75)
+	props, _ := SetupClass(t, repo, schemaGetter, logger, 1.2, 0.75, "none")
 
 	idx := repo.GetIndex("MyClass")
 

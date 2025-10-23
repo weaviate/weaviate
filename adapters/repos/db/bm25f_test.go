@@ -51,14 +51,14 @@ func BM25FinvertedConfig(k1, b float32, stopWordPreset string) *models.InvertedI
 	}
 }
 
-func SetupClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, logger logrus.FieldLogger, k1, b float32,
-) []string {
+func SetupClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, logger logrus.FieldLogger, k1, b float32, preset string,
+) ([]string, *Migrator) {
 	vFalse := false
 	vTrue := true
 
 	class := &models.Class{
 		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
-		InvertedIndexConfig: BM25FinvertedConfig(k1, b, "none"),
+		InvertedIndexConfig: BM25FinvertedConfig(k1, b, preset),
 		Class:               "MyClass",
 
 		Properties: []*models.Property{
@@ -163,7 +163,7 @@ func SetupClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, lo
 		err := repo.PutObject(context.Background(), obj, vector, nil, nil, nil, 0)
 		require.Nil(t, err)
 	}
-	return props
+	return props, migrator
 }
 
 // DuplicatedFrom SetupClass to make sure this new test does not alter the results of the existing one
@@ -243,7 +243,7 @@ func TestBM25FJourney(t *testing.T) {
 	require.Nil(t, repo.WaitForStartup(context.TODO()))
 	defer repo.Shutdown(context.Background())
 
-	props := SetupClass(t, repo, schemaGetter, logger, 1.2, 0.75)
+	props, _ := SetupClass(t, repo, schemaGetter, logger, 1.2, 0.75, "none")
 
 	idx := repo.GetIndex("MyClass")
 	require.NotNil(t, idx)
@@ -493,7 +493,7 @@ func TestBM25FSingleProp(t *testing.T) {
 	require.Nil(t, repo.WaitForStartup(context.TODO()))
 	defer repo.Shutdown(context.Background())
 
-	props := SetupClass(t, repo, schemaGetter, logger, 0.5, 100)
+	props, _ := SetupClass(t, repo, schemaGetter, logger, 0.5, 100, "none")
 
 	idx := repo.GetIndex("MyClass")
 	require.NotNil(t, idx)
@@ -536,7 +536,7 @@ func TestBM25FWithFilters(t *testing.T) {
 	require.Nil(t, repo.WaitForStartup(context.TODO()))
 	defer repo.Shutdown(context.Background())
 
-	props := SetupClass(t, repo, schemaGetter, logger, 0.5, 100)
+	props, _ := SetupClass(t, repo, schemaGetter, logger, 0.5, 100, "none")
 
 	idx := repo.GetIndex("MyClass")
 	require.NotNil(t, idx)
@@ -660,7 +660,7 @@ func TestBM25FDifferentParamsJourney(t *testing.T) {
 	require.Nil(t, repo.WaitForStartup(context.TODO()))
 	defer repo.Shutdown(context.Background())
 
-	props := SetupClass(t, repo, schemaGetter, logger, 0.5, 100)
+	props, _ := SetupClass(t, repo, schemaGetter, logger, 0.5, 100, "none")
 
 	idx := repo.GetIndex("MyClass")
 	require.NotNil(t, idx)
@@ -729,7 +729,7 @@ func TestBM25FCompare(t *testing.T) {
 	require.Nil(t, repo.WaitForStartup(context.TODO()))
 	defer repo.Shutdown(context.Background())
 
-	props := SetupClass(t, repo, schemaGetter, logger, 0.5, 100)
+	props, _ := SetupClass(t, repo, schemaGetter, logger, 0.5, 100, "none")
 
 	idx := repo.GetIndex("MyClass")
 	require.NotNil(t, idx)

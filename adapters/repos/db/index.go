@@ -627,6 +627,9 @@ func (i *Index) updateInvertedIndexConfig(ctx context.Context,
 
 	i.invertedIndexConfig = updated
 
+	i.stopwords.SetAdditions(updated.Stopwords.Additions)
+	i.stopwords.SetRemovals(updated.Stopwords.Removals)
+
 	return nil
 }
 
