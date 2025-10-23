@@ -50,6 +50,7 @@ type Config struct {
 	AllocChecker                 memwatch.AllocChecker
 	WriteSegmentInfoIntoFileName bool
 	WriteMetadataFilesEnabled    bool
+	AsyncIndexingEnabled         bool
 }
 
 func (c Config) Validate() error {
@@ -61,6 +62,10 @@ func (c Config) Validate() error {
 
 	if c.DistanceProvider == nil {
 		ec.Addf("distancerProvider cannot be nil")
+	}
+
+	if !c.AsyncIndexingEnabled {
+		ec.Addf("the dynamic index can only be created when async indexing is enabled")
 	}
 
 	return ec.ToError()

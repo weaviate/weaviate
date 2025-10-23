@@ -43,7 +43,7 @@ func (db *DB) BatchPutObjects(ctx context.Context, objs objects.BatchObjects,
 	// memory is available) is deferred until the dequeue step. This way, pushing
 	// onto the queue is not blocked, and dequeing does not accidentally run OOM
 	// because enqueuing was too fast.
-	if !db.asyncIndexingEnabled {
+	if !db.AsyncIndexingEnabled {
 		if err := db.memMonitor.CheckAlloc(estimateBatchMemory(objs)); err != nil {
 			db.logger.WithError(err).Errorf("memory pressure: cannot process batch")
 			return nil, fmt.Errorf("cannot process batch: %w", err)
