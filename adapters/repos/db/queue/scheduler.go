@@ -164,7 +164,7 @@ func (s *Scheduler) Start() {
 	chans := make([]chan *Batch, s.Workers)
 
 	for i := 0; i < s.Workers; i++ {
-		worker, ch := NewWorker(s.Logger.WithField("worker_id", i), s.RetryInterval)
+		worker, ch := NewWorker(s.Logger.WithField("worker_id", i))
 		chans[i] = ch
 
 		s.wg.Add(1)
