@@ -84,7 +84,8 @@ type replicatedIndices struct {
 	requestQueueConfig cluster.RequestQueueConfig
 	// requestQueue buffers requests until they're picked up by a worker, goal is to avoid
 	// overwhelming the system with requests during spikes (also allows for backpressure)
-	requestQueue chan queuedRequest
+	requestQueueLock sync.RWMutex
+	requestQueue     chan queuedRequest
 	// startWorkersOnce ensures that the workers are started only once
 	startWorkersOnce sync.Once
 	// set to true when shutting down
@@ -184,9 +185,11 @@ func (i *replicatedIndices) indicesHandler() http.HandlerFunc {
 			return
 		}
 
+		i.requestQueueLock.RLock()
 		// Check if we're shutting down
 		if i.isShutdown.Load() {
 			http.Error(w, "503 Service Unavailable - shutting down", http.StatusServiceUnavailable)
+			i.requestQueueLock.RUnlock()
 			return
 		}
 
@@ -201,11 +204,14 @@ func (i *replicatedIndices) indicesHandler() http.HandlerFunc {
 			default:
 				http.Error(w, "too many buffered requests", i.requestQueueConfig.QueueFullHttpStatus)
 				wg.Done() //nolint:SA2000
+				i.requestQueueLock.RUnlock()
 				return
 			}
+			i.requestQueueLock.RUnlock()
 			wg.Wait()
 			return
 		}
+		i.requestQueueLock.RUnlock()
 		// if the request queue is not enabled, handle the request directly
 		i.handleRequest(queuedRequest{r: r, w: w, wg: nil})
 	}
@@ -1005,7 +1011,10 @@ func (i *replicatedIndices) Close(ctx context.Context) error {
 			close(done)
 		}, i.logger)
 
+		i.requestQueueLock.Lock()
 		close(i.requestQueue)
+		i.requestQueueLock.Unlock()
+
 		select {
 		case <-done:
 			// Workers finished gracefully
