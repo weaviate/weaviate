@@ -22,6 +22,7 @@ import (
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
@@ -347,6 +348,72 @@ func TestReplicatedIndicesShutdown(t *testing.T) {
 			assert.Equal(t, http.StatusServiceUnavailable, res.StatusCode)
 		})
 	}
+}
+
+func TestReplicatedIndicesRejectsRequestsDuringShutdown(t *testing.T) {
+	noopAuth := clusterapi.NewNoopAuthHandler()
+	fakeReplicator := newFakeReplicator(true)
+	logger, _ := test.NewNullLogger()
+
+	cfg := cluster.RequestQueueConfig{
+		IsEnabled:  configRuntime.NewDynamicValue(true),
+		NumWorkers: 1,
+		QueueSize:  1,
+	}
+
+	indices := clusterapi.NewReplicatedIndices(
+		fakeReplicator,
+		nil,
+		noopAuth,
+		func() bool { return false },
+		cfg,
+		logger,
+	)
+
+	mux := http.NewServeMux()
+	mux.Handle("/replicas/indices/", indices.Indices())
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	requestKey := fmt.Sprintf("%s=%s", replica.RequestKey, "shutdown_race")
+	reqURL := fmt.Sprintf("%s/replicas/indices/MyClass/shards/myshard:commit?%s", server.URL, requestKey)
+
+	firstDone := make(chan struct{})
+	go func() {
+		defer close(firstDone)
+		req, err := http.NewRequest("POST", reqURL, nil)
+		require.NoError(t, err)
+
+		res, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		defer res.Body.Close()
+	}()
+
+	select {
+	case <-fakeReplicator.WaitForStart():
+	case <-time.After(1 * time.Second):
+		t.Fatalf("timed out waiting for first request to start")
+	}
+
+	closeErr := make(chan error, 1)
+	go func() {
+		closeErr <- indices.Close(context.Background())
+	}()
+
+	time.Sleep(20 * time.Millisecond)
+
+	secondReq, err := http.NewRequest("POST", reqURL, nil)
+	require.NoError(t, err)
+
+	secondRes, err := http.DefaultClient.Do(secondReq)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusServiceUnavailable, secondRes.StatusCode)
+	secondRes.Body.Close()
+
+	fakeReplicator.Done()
+
+	require.NoError(t, <-closeErr)
+	<-firstDone
 }
 
 func TestReplicatedIndicesShutdownMultipleCalls(t *testing.T) {
