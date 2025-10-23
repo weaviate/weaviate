@@ -57,7 +57,7 @@ func setupTestRepo(t *testing.T, className string, properties []*models.Property
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor())
 	require.NoError(t, err)
 
-	repo.asyncIndexingEnabled = rand.Int()%2 == 0
+	repo.AsyncIndexingEnabled = rand.Int()%2 == 0
 	repo.SetSchemaGetter(schemaGetter)
 	require.NoError(t, repo.WaitForStartup(testCtx()))
 
@@ -81,7 +81,7 @@ func setupTestRepo(t *testing.T, className string, properties []*models.Property
 
 func (r *testRepo) awaitIndexing() {
 	r.t.Helper()
-	if r.asyncIndexingEnabled {
+	if r.AsyncIndexingEnabled {
 		r.scheduler.WaitAll()
 	}
 }
