@@ -245,7 +245,7 @@ func (i *replicatedIndices) indicesHandler() http.HandlerFunc {
 				i.writeResponse(w, err)
 				return
 			}
-			wg.Wait()
+			wg.Wait() // worker calls Done() after handling request
 			return
 		}
 
