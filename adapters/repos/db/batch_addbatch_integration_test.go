@@ -48,16 +48,18 @@ func setupTestRepo(t *testing.T, className string, properties []*models.Property
 		shardState: singleShardState(),
 	}
 
+	asyncEnabled := rand.Int()%2 == 0
+
 	repo, err := New(logger, Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  t.TempDir(),
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 		TrackVectorDimensions:     true,
+		AsyncIndexingEnabled:      asyncEnabled,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor())
 	require.NoError(t, err)
 
-	repo.AsyncIndexingEnabled = rand.Int()%2 == 0
 	repo.SetSchemaGetter(schemaGetter)
 	require.NoError(t, repo.WaitForStartup(testCtx()))
 
