@@ -443,14 +443,13 @@ func (st *Store) init() error {
 	}
 
 	// tcp transport
-	bindAddress := fmt.Sprintf("%s:%d", st.cfg.BindAddr, st.cfg.RaftPort)
 	advertiseAddress := fmt.Sprintf("%s:%d", st.cfg.Host, st.cfg.RaftPort)
-
 	tcpAddr, err := net.ResolveTCPAddr("tcp", advertiseAddress)
 	if err != nil {
 		return fmt.Errorf("net.resolve tcp address=%v: %w", advertiseAddress, err)
 	}
 
+	bindAddress := fmt.Sprintf("%s:%d", st.cfg.BindAddr, st.cfg.RaftPort)
 	st.raftTransport, err = st.raftResolver.NewTCPTransport(bindAddress, tcpAddr, tcpMaxPool, tcpTimeout, st.log)
 	if err != nil {
 		return fmt.Errorf("raft transport address=%v tcpAddress=%v maxPool=%v timeOut=%v: %w", bindAddress, tcpAddr, tcpMaxPool, tcpTimeout, err)

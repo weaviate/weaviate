@@ -331,6 +331,8 @@ func (s *State) ClusterHealthScore() int {
 
 func (s *State) NodeHostname(nodeName string) (string, bool) {
 	for _, mem := range s.list.Members() {
+		fmt.Println("mem.Name", mem.Name)
+		fmt.Println("mem.address", mem.Addr.String())
 		if mem.Name == nodeName {
 			// TODO: how can we find out the actual data port as opposed to relying on
 			// the convention that it's 1 higher than the gossip port
