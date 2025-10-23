@@ -36,19 +36,19 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairObjectUpdateScenario() {
 
 	clusterSize := 3
 
+	ctx, cancel := context.WithTimeout(mainCtx, 10*time.Minute)
+	defer cancel()
+
 	compose, err := docker.New().
 		WithWeaviateCluster(clusterSize).
 		WithText2VecContextionary().
-		Start(mainCtx)
+		Start(ctx)
 	require.Nil(t, err)
 	defer func() {
-		if err := compose.Terminate(mainCtx); err != nil {
+		if err := compose.Terminate(ctx); err != nil {
 			t.Fatalf("failed to terminate test containers: %s", err.Error())
 		}
 	}()
-
-	ctx, cancel := context.WithTimeout(mainCtx, 10*time.Minute)
-	defer cancel()
 
 	paragraphClass := articles.ParagraphsClass()
 

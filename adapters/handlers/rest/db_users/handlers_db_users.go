@@ -269,11 +269,11 @@ func (h *dynUserHandler) getLastUsed(users []*apikey.User) map[string]time.Time 
 	for i, nodeName := range nodes {
 		i, nodeName := i, nodeName
 		enterrors.GoWrapper(func() {
+			defer wg.Done()
 			status, err := h.remoteUser.GetAndUpdateLastUsedTime(ctx, nodeName, usersWithTime, true)
 			if err == nil {
 				userStatuses[i] = status
 			}
-			wg.Done()
 		}, h.logger)
 	}
 	wg.Wait()
@@ -300,9 +300,9 @@ func (h *dynUserHandler) getLastUsed(users []*apikey.User) map[string]time.Time 
 		for _, nodeName := range nodes {
 			nodeName := nodeName
 			enterrors.GoWrapper(func() {
+				defer wg.Done()
 				// dont care about returns or errors
 				_, _ = h.remoteUser.GetAndUpdateLastUsedTime(ctx2, nodeName, usersWithTime, false)
-				wg.Done()
 			}, h.logger)
 		}
 		wg.Wait() // wait so cancelFunc2 is not executed too early
