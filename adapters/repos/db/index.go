@@ -2354,10 +2354,6 @@ func (i *Index) drop() error {
 	return os.RemoveAll(i.path())
 }
 
-func (i *Index) DropShard(name string) error {
-	return i.dropShards([]string{name})
-}
-
 func (i *Index) dropShards(names []string) error {
 	i.closeLock.RLock()
 	defer i.closeLock.RUnlock()
