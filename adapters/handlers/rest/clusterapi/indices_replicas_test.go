@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -350,15 +351,22 @@ func TestReplicatedIndicesShutdown(t *testing.T) {
 	}
 }
 
+// TestReplicatedIndicesRejectsRequestsDuringShutdown verifies that the request queue
+// properly rejects new requests with HTTP 503 during shutdown, and that there's no
+// data race between closing the requestQueue channel and handlers attempting to send on it.
+//
+// This test uses an aggressive stress strategy to maximize the likelihood of triggering
+// the race condition that was detected in CI (see GitHub Actions run 18751697729).
 func TestReplicatedIndicesRejectsRequestsDuringShutdown(t *testing.T) {
 	noopAuth := clusterapi.NewNoopAuthHandler()
 	fakeReplicator := newFakeReplicator(true)
 	logger, _ := test.NewNullLogger()
 
+	// Configure with enough workers and queue size to handle concurrent load
 	cfg := cluster.RequestQueueConfig{
 		IsEnabled:  configRuntime.NewDynamicValue(true),
-		NumWorkers: 1,
-		QueueSize:  1,
+		NumWorkers: 10,
+		QueueSize:  100,
 	}
 
 	indices := clusterapi.NewReplicatedIndices(
@@ -378,6 +386,8 @@ func TestReplicatedIndicesRejectsRequestsDuringShutdown(t *testing.T) {
 	requestKey := fmt.Sprintf("%s=%s", replica.RequestKey, "shutdown_race")
 	reqURL := fmt.Sprintf("%s/replicas/indices/MyClass/shards/myshard:commit?%s", server.URL, requestKey)
 
+	// Send one request that will block in a worker to simulate active processing during shutdown.
+	// This ensures workers are busy when Close() is called, mimicking real production scenarios.
 	firstDone := make(chan struct{})
 	go func() {
 		defer close(firstDone)
@@ -389,28 +399,74 @@ func TestReplicatedIndicesRejectsRequestsDuringShutdown(t *testing.T) {
 		defer res.Body.Close()
 	}()
 
+	// Wait for the first request to start processing before proceeding with shutdown test
 	select {
 	case <-fakeReplicator.WaitForStart():
 	case <-time.After(1 * time.Second):
 		t.Fatalf("timed out waiting for first request to start")
 	}
 
+	// Stress test strategy to trigger the race between Close() and handler goroutines:
+	// Without the RWMutex fix, this test reliably reproduces the data race where:
+	// - Close() tries to close(requestQueue) at indices_replicas.go:1029
+	// - Handlers try to send on requestQueue at indices_replicas.go:207
+	// The fix uses RWMutex to ensure these operations cannot happen concurrently.
+
+	const numConcurrentRequests = 100
+	var wg sync.WaitGroup
+	got503 := atomic.Bool{}
+
+	// Helper to launch a wave of concurrent requests
+	sendRequests := func() {
+		for i := 0; i < numConcurrentRequests; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				req, err := http.NewRequest("POST", reqURL, nil)
+				if err != nil {
+					return
+				}
+
+				res, err := http.DefaultClient.Do(req)
+				if err != nil {
+					return
+				}
+				defer func() { _ = res.Body.Close() }()
+
+				// Track if we got 503 (shutdown response)
+				if res.StatusCode == http.StatusServiceUnavailable {
+					got503.Store(true)
+				}
+			}()
+		}
+	}
+
+	// Phase 1: Launch first wave of 100 concurrent requests to create queue pressure
+	sendRequests()
+
+	// Phase 2: Give requests time to queue up, then initiate shutdown
+	time.Sleep(10 * time.Millisecond)
+
 	closeErr := make(chan error, 1)
 	go func() {
 		closeErr <- indices.Close(context.Background())
 	}()
 
-	time.Sleep(20 * time.Millisecond)
+	// Phase 3: Launch second wave immediately during shutdown
+	// This creates maximum contention - new requests racing with Close() closing the channel.
+	// Without the RWMutex fix, this reliably triggers the race detector.
+	time.Sleep(1 * time.Millisecond) // Brief delay to let Close() start
+	sendRequests()
 
-	secondReq, err := http.NewRequest("POST", reqURL, nil)
-	require.NoError(t, err)
-
-	secondRes, err := http.DefaultClient.Do(secondReq)
-	require.NoError(t, err)
-	require.Equal(t, http.StatusServiceUnavailable, secondRes.StatusCode)
-	secondRes.Body.Close()
-
+	// Phase 4: Unblock the worker processing the first request so shutdown can complete
+	time.Sleep(5 * time.Millisecond)
 	fakeReplicator.Done()
+
+	// Wait for all concurrent requests to finish
+	wg.Wait()
+
+	// Verify that at least some requests during shutdown received proper 503 rejection
+	require.True(t, got503.Load(), "expected at least one request to receive 503 during shutdown")
 
 	require.NoError(t, <-closeErr)
 	<-firstDone
