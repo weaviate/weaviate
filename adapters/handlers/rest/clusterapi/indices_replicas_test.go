@@ -356,7 +356,7 @@ func TestReplicatedIndicesShutdown(t *testing.T) {
 // data race between closing the requestQueue channel and handlers attempting to send on it.
 //
 // This test uses an aggressive stress strategy to maximize the likelihood of triggering
-// the race condition that was detected in CI (see GitHub Actions run 18751697729).
+// the race condition that was detected in CI.
 func TestReplicatedIndicesRejectsRequestsDuringShutdown(t *testing.T) {
 	noopAuth := clusterapi.NewNoopAuthHandler()
 	fakeReplicator := newFakeReplicator(true)
