@@ -24,6 +24,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
@@ -50,11 +51,11 @@ var _ common.VectorIndex = (*SPFresh)(nil)
 // while exposing a synchronous API for searching and updating vectors.
 // Note: this is a work in progress and not all features are implemented yet.
 type SPFresh struct {
-	id      string
-	logger  logrus.FieldLogger
-	config  *Config // Config contains internal configuration settings.
-	metrics *Metrics
-
+	id                 string
+	logger             logrus.FieldLogger
+	config             *Config // Config contains internal configuration settings.
+	metrics            *Metrics
+	scheduler          *queue.Scheduler
 	maxPostingSize     uint32
 	minPostingSize     uint32
 	replicas           uint32
@@ -110,11 +111,12 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*SPFresh, error) {
 	}
 
 	s := SPFresh{
-		id:      cfg.ID,
-		logger:  cfg.Logger.WithField("component", "SPFresh"),
-		config:  cfg,
-		metrics: metrics,
-		Store:   postingStore,
+		id:        cfg.ID,
+		logger:    cfg.Logger.WithField("component", "SPFresh"),
+		config:    cfg,
+		scheduler: cfg.Scheduler,
+		metrics:   metrics,
+		Store:     postingStore,
 		// Capacity of the version map: 8k pages, 1M vectors each -> 8B vectors
 		// - An empty version map consumes 240KB of memory
 		// - Each allocated page consumes 1MB of memory
