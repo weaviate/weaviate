@@ -130,14 +130,21 @@ type RequestQueueConfig struct {
 }
 
 func Init(userConfig Config, grpcPort, raftTimeoutsMultiplier int, dataPath string, nonStorageNodes map[string]struct{}, logger logrus.FieldLogger) (_ *State, err error) {
-	cfg := memberlist.DefaultWANConfig()
+	cfg := memberlist.DefaultLANConfig()
 	// DeadNodeReclaimTime controls the time before a dead node's name can be
 	// reclaimed by one with a different address or port. By default, this is 0,
 	// meaning nodes cannot be reclaimed this way.
-	// cfg.DeadNodeReclaimTime = 60 * time.Second
+	cfg.DeadNodeReclaimTime = 60 * time.Second
 	// TCPTimeout default is 10, however in case of rollouts we need to increase it
 	// to avoid timeouts during the rollout
-	// cfg.TCPTimeout = 10 * time.Second * time.Duration(raftTimeoutsMultiplier)
+	cfg.TCPTimeout = 10 * time.Second * time.Duration(raftTimeoutsMultiplier)
+
+	if userConfig.AdvertiseAddr != "" {
+		// if advertise addr is set, use WAN config to allow NAT traversal
+		// with more relaxed conditions
+		cfg = memberlist.DefaultWANConfig()
+	}
+
 	cfg.LogOutput = newLogParser(logger)
 	cfg.Name = userConfig.Hostname
 	state := State{
