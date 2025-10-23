@@ -120,6 +120,7 @@ func (m *Memtable) Nodes() []*MemtableNode {
 	for i := 0; i < routines-1; i++ {
 		i := i
 		errors.GoWrapper(func() {
+			defer wg.Done()
 			for j := 0; j < 64; j += routines {
 				bit := i + j
 				for value, key := range m.additions {
@@ -131,7 +132,6 @@ func (m *Memtable) Nodes() []*MemtableNode {
 					}
 				}
 			}
-			wg.Done()
 		}, m.logger)
 	}
 
