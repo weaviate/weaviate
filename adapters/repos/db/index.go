@@ -64,6 +64,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 	esync "github.com/weaviate/weaviate/entities/sync"
+	"github.com/weaviate/weaviate/entities/tokenizer"
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/config"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
@@ -335,6 +336,14 @@ func NewIndex(
 	shardReindexer ShardReindexerV3,
 	bitmapBufPool roaringset.BitmapBufPool,
 ) (*Index, error) {
+	customTokenizers, err := tokenizer.InitUserDictTokenizers(invertedIndexConfig.TokenizerUserDict)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to create new index")
+	}
+	if customTokenizers != nil {
+		tokenizer.CustomTokenizers.Store(cfg.ClassName.String(), customTokenizers)
+	}
+
 	sd, err := stopwords.NewDetectorFromConfig(invertedIndexConfig.Stopwords)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create new index")
@@ -737,6 +746,12 @@ func (i *Index) updateInvertedIndexConfig(ctx context.Context,
 	defer i.invertedIndexConfigLock.Unlock()
 
 	i.invertedIndexConfig = updated
+
+	customTokenizers, err := tokenizer.InitUserDictTokenizers(updated.TokenizerUserDict)
+	if err != nil {
+		return errors.Wrap(err, "failed to update inverted index config")
+	}
+	tokenizer.CustomTokenizers.Store(i.Config.ClassName.String(), customTokenizers)
 
 	return nil
 }
