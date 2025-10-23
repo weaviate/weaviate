@@ -209,7 +209,7 @@ type hnsw struct {
 
 	fs common.FS
 
-	dynamicVarEnableAcornSmartSeed *confRuntime.DynamicValue[string]
+	AcornSmartSeed *confRuntime.DynamicValue[bool]
 }
 
 type CommitLogger interface {
@@ -371,7 +371,7 @@ func New(cfg Config, uc ent.UserConfig,
 		MaxWalReuseSize: cfg.MaxWalReuseSize,
 		fs:              common.NewOSFS(),
 
-		dynamicVarEnableAcornSmartSeed: confRuntime.NewDynamicValue("ACORN_SMART_SEED_ENABLED"),
+		AcornSmartSeed: cfg.AcornSmartSeed,
 	}
 	index.acornSearch.Store(uc.FilterStrategy == ent.FilterStrategyAcorn)
 
