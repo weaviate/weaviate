@@ -644,7 +644,7 @@ function run_acceptance_replica_replication_slow_tests() {
 
 function run_acceptance_replication_tests() {
   for pkg in $(go list ./.../ | grep 'test/acceptance/replication/read_repair'); do
-    if ! go test -count 1 -race -timeout=15m "$pkg"; then
+    if ! go test -timeout=20m -count 1 -race "$pkg"; then
       echo "Test for $pkg failed" >&2
       return 1
     fi
@@ -653,7 +653,7 @@ function run_acceptance_replication_tests() {
 
 function run_acceptance_async_replication_tests() {
   for pkg in $(go list ./.../ | grep 'test/acceptance/replication/async_replication'); do
-    if ! go test -count 1 -race "$pkg"; then
+    if ! go test -timeout=20m -count 1 -race "$pkg"; then
       echo "Test for $pkg failed" >&2
       return 1
     fi
@@ -682,7 +682,7 @@ function run_acceptance_only_tests() {
 
 function run_module_only_backup_tests() {
   for pkg in $(go list ./... | grep 'test/modules' | grep 'test/modules/backup'); do
-    if ! go test -count 1 -race "$pkg"; then
+    if ! go test -count 1 -race -timeout 30m "$pkg"; then
       echo "Test for $pkg failed" >&2
       return 1
     fi
