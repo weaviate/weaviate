@@ -360,12 +360,12 @@ func (s *Store) runJobOnBuckets(ctx context.Context,
 		wg.Add(1)
 		b := bucket
 		f := func() {
+			defer wg.Done()
 			status.Lock()
 			defer status.Unlock()
 			res, err := jobFunc(ctx, b)
 			resultQueue <- res
 			status.buckets[b] = err
-			wg.Done()
 		}
 		enterrors.GoWrapper(f, s.logger)
 	}

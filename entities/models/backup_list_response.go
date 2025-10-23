@@ -100,6 +100,9 @@ type BackupListResponseItems0 struct {
 	// The ID of the backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.
 	ID string `json:"id,omitempty"`
 
+	// Size of the backup in Gibs
+	Size float64 `json:"size,omitempty"`
+
 	// Timestamp when the backup process started
 	// Format: date-time
 	StartedAt strfmt.DateTime `json:"startedAt,omitempty"`
