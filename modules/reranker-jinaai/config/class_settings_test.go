@@ -12,7 +12,6 @@
 package config
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -43,15 +42,6 @@ func Test_classSettings_Validate(t *testing.T) {
 				},
 			},
 			wantModel: "jina-reranker-v1-base-en",
-		},
-		{
-			name: "unsupported model error",
-			cfg: fakeClassConfig{
-				classConfig: map[string]interface{}{
-					"model": "jina-reranker-v1-base-pl",
-				},
-			},
-			wantErr: fmt.Errorf("wrong Jinaai model name, available model names are: [jina-reranker-v2-base-multilingual jina-reranker-v1-base-en jina-reranker-v1-turbo-en jina-reranker-v1-tiny-en jina-colbert-v1-en]"),
 		},
 	}
 	for _, tt := range tests {

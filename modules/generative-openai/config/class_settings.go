@@ -40,20 +40,6 @@ var availableOpenAILegacyModels = []string{
 	"text-davinci-003",
 }
 
-var availableOpenAIModels = []string{
-	"gpt-3.5-turbo",
-	"gpt-3.5-turbo-16k",
-	"gpt-3.5-turbo-1106",
-	"gpt-4",
-	"gpt-4-32k",
-	"gpt-4-1106-preview",
-	"gpt-4o",
-	"gpt-4o-mini",
-	"gpt-5",
-	"gpt-5-mini",
-	"gpt-5-nano",
-}
-
 var availableReasoningEffortValues = []string{
 	"minimal", "low", "medium", "high",
 }
@@ -156,8 +142,8 @@ func (ic *classSettings) Validate(class *models.Class) error {
 	}
 
 	model := ic.getStringProperty(modelProperty, DefaultOpenAIModel)
-	if model == nil || !ic.validateModel(*model) {
-		return errors.Errorf("wrong OpenAI model name, available model names are: %v", availableOpenAIModels)
+	if model == nil {
+		return errors.Errorf("no model provided")
 	}
 
 	temperature := ic.Temperature()
@@ -231,10 +217,6 @@ func (ic *classSettings) getBoolProperty(name string, defaultValue bool) *bool {
 func (ic *classSettings) getFloatProperty(name string, defaultValue *float64) *float64 {
 	wrongVal := float64(-1.0)
 	return ic.propertyValuesHelper.GetPropertyAsFloat64WithNotExists(ic.cfg, name, &wrongVal, defaultValue)
-}
-
-func (ic *classSettings) validateModel(model string) bool {
-	return contains(availableOpenAIModels, model) || contains(availableOpenAILegacyModels, model)
 }
 
 func (ic *classSettings) validateApiVersion(apiVersion string) bool {

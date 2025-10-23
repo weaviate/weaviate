@@ -704,6 +704,8 @@ func (l *hnswCommitLogger) logCombiningThreshold() int64 {
 }
 
 func (l *hnswCommitLogger) Drop(ctx context.Context) error {
+	l.Lock()
+	defer l.Unlock()
 	if err := l.commitLogger.Close(); err != nil {
 		return errors.Wrap(err, "close hnsw commit logger prior to delete")
 	}

@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -27,8 +28,8 @@ import (
 const numTenants = 50
 
 func Test_MultiTenantBackupJourney(t *testing.T) {
-	// Set up a context with a 30-minute timeout to manage test duration
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
+	defer cancel()
 
 	// Define test cases using a table-driven approach
 	tests := []struct {
@@ -77,7 +78,8 @@ func multiTenantBackupJourneyStart(t *testing.T, ctx context.Context, override b
 	}
 
 	t.Run("single node", func(t *testing.T) {
-		ctx := context.Background()
+		ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+		defer cancel()
 		t.Log("pre-instance env setup")
 		gcsBackupJourneyBucketName := "gcp-single-node"
 		t.Setenv(envGCSCredentials, "")
@@ -116,7 +118,8 @@ func multiTenantBackupJourneyStart(t *testing.T, ctx context.Context, override b
 	})
 
 	t.Run("multiple node", func(t *testing.T) {
-		ctx := context.Background()
+		ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+		defer cancel()
 		t.Log("pre-instance env setup")
 		gcsBackupJourneyBucketName := "gcp-multiple-nodes"
 		t.Setenv(envGCSCredentials, "")
@@ -127,6 +130,7 @@ func multiTenantBackupJourneyStart(t *testing.T, ctx context.Context, override b
 			WithBackendGCS(gcsBackupJourneyBucketName).
 			WithText2VecContextionary().
 			WithWeaviateCluster(3).
+			WithWeaviateEnv("ENABLE_CLEANUP_UNFINISHED_BACKUPS", "true").
 			Start(ctx)
 		require.Nil(t, err)
 		defer func() {

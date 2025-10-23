@@ -200,10 +200,7 @@ func (index *flat) getBucketName() string {
 }
 
 func (index *flat) getCompressedBucketName() string {
-	if index.targetVector != "" {
-		return fmt.Sprintf("%s_%s", helpers.VectorsCompressedBucketLSM, index.targetVector)
-	}
-	return helpers.VectorsCompressedBucketLSM
+	return helpers.GetCompressedBucketName(index.targetVector)
 }
 
 func (index *flat) initBuckets(ctx context.Context, cfg Config) error {
@@ -231,6 +228,7 @@ func (index *flat) initBuckets(ctx context.Context, cfg Config) error {
 		// In the future when the pure pread performance is on par with mmap, we
 		// should update this to pass the global setting.
 		lsmkv.WithPread(false),
+		lsmkv.WithCalcCountNetAdditions(true),
 	); err != nil {
 		return fmt.Errorf("create or load flat vectors bucket: %w", err)
 	}
@@ -258,6 +256,10 @@ func (index *flat) initBuckets(ctx context.Context, cfg Config) error {
 			return fmt.Errorf("create or load flat compressed vectors bucket: %w", err)
 		}
 	}
+
+	count := index.store.Bucket(index.getBucketName()).CountAsync()
+	atomic.StoreUint64(&index.count, uint64(count))
+
 	return nil
 }
 
@@ -341,15 +343,7 @@ func (index *flat) Add(ctx context.Context, id uint64, vector []float32) error {
 	slice := make([]byte, len(vector)*4)
 	index.storeVector(id, byteSliceFromFloat32Slice(vector, slice))
 
-	if index.isBQ() {
-		vectorBQ := index.bq.Encode(vector)
-		if index.isBQCached() {
-			index.bqCache.Grow(id)
-			index.bqCache.Preload(id, vectorBQ)
-		}
-		slice = make([]byte, len(vectorBQ)*8)
-		index.storeCompressedVector(id, byteSliceFromUint64Slice(vectorBQ, slice))
-	}
+	index.Preload(id, vector)
 	newCount := atomic.LoadUint64(&index.count)
 	atomic.StoreUint64(&index.count, newCount+1)
 	return nil
@@ -820,6 +814,18 @@ func (i *flat) ValidateMultiBeforeInsert(vector [][]float32) error {
 	return nil
 }
 
+func (index *flat) Preload(id uint64, vector []float32) {
+	if index.isBQ() {
+		vectorBQ := index.bq.Encode(vector)
+		if index.isBQCached() {
+			index.bqCache.Grow(id)
+			index.bqCache.Preload(id, vectorBQ)
+		}
+		slice := make([]byte, len(vectorBQ)*8)
+		index.storeCompressedVector(id, byteSliceFromUint64Slice(vectorBQ, slice))
+	}
+}
+
 func (index *flat) PostStartup() {
 	if !index.isBQCached() {
 		return
@@ -849,8 +855,19 @@ func (index *flat) PostStartup() {
 	if channel == nil {
 		return // nothing to do
 	}
-	for v := range channel {
-		vecs = append(vecs, v...)
+
+	for vectors := range channel {
+		for _, v := range vectors {
+			// if we mix little and big endian IDs by mistake, we might get a very large
+			// maxID which would cause us to allocate a huge cache.
+			// In that case, we consider that anything larger than a quadrillion is an error
+			// and should be skipped.
+			if v.Id > 1e15 {
+				continue
+			}
+
+			vecs = append(vecs, v)
+		}
 	}
 
 	count := 0

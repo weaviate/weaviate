@@ -176,66 +176,6 @@ func testSchemaValidation(host string) func(t *testing.T) {
 			assert.Len(t, resultVectors, 1)
 		})
 
-		t.Run("generative module wrong configuration - legacy configuration", func(t *testing.T) {
-			class := &models.Class{
-				Class: "GenerativeOpenAIModuleLegacyValidation",
-				Properties: []*models.Property{
-					{
-						Name:     "text",
-						DataType: []string{schema.DataTypeText.String()},
-					},
-				},
-				ModuleConfig: map[string]interface{}{
-					"generative-openai": map[string]interface{}{
-						"model": "wrong-model",
-					},
-				},
-				Vectorizer:      text2vecModel2Vec,
-				VectorIndexType: "hnsw",
-			}
-			err := client.Schema().ClassCreator().WithClass(class).Do(ctx)
-			require.Error(t, err)
-			assert.ErrorContains(t, err, "wrong OpenAI model name")
-		})
-
-		t.Run("generative module wrong configuration - multiple vectors", func(t *testing.T) {
-			class := &models.Class{
-				Class: "GenerativeOpenAIModuleValidation",
-				Properties: []*models.Property{
-					{
-						Name:     "text",
-						DataType: []string{schema.DataTypeText.String()},
-					},
-				},
-				VectorConfig: map[string]models.VectorConfig{
-					m2vec: {
-						Vectorizer: map[string]interface{}{
-							text2vecModel2Vec: map[string]interface{}{
-								"vectorizeClassName": false,
-							},
-						},
-						VectorIndexType: "hnsw",
-					},
-					transformers_flat: {
-						Vectorizer: map[string]interface{}{
-							text2vecTransformers: map[string]interface{}{
-								"vectorizeClassName": false,
-							},
-						},
-						VectorIndexType: "flat",
-					},
-				},
-				ModuleConfig: map[string]interface{}{
-					"generative-openai": map[string]interface{}{
-						"model": "wrong-model",
-					},
-				},
-			}
-			err := client.Schema().ClassCreator().WithClass(class).Do(ctx)
-			require.Error(t, err)
-			assert.ErrorContains(t, err, "wrong OpenAI model name")
-		})
-
 		t.Run("generative module proper configuration - multiple vectors", func(t *testing.T) {
 			class := &models.Class{
 				Class: "GenerativeOpenAIModuleValidationProperConfig",

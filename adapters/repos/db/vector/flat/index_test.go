@@ -321,6 +321,76 @@ func TestFlat_QueryVectorDistancer(t *testing.T) {
 	}
 }
 
+func TestFlat_Preload(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+
+	cases := []struct {
+		name     string
+		distance string
+		bq       bool
+		cache    bool
+	}{
+		{name: "euclidean", distance: "l2-squared"},
+		{name: "cosine_with_bq_cache", distance: "cosine-dot"},
+	}
+
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			dirName := t.TempDir()
+
+			var distanceProvider distancer.Provider
+			if tt.distance == "cosine-dot" {
+				distanceProvider = distancer.NewCosineDistanceProvider()
+			} else {
+				distanceProvider = distancer.NewL2SquaredProvider()
+			}
+
+			bq := flatent.CompressionUserConfig{
+				Enabled: true, Cache: true, RescoreLimit: 10,
+			}
+			store, err := lsmkv.New(dirName, dirName, logger, nil,
+				cyclemanager.NewCallbackGroupNoop(),
+				cyclemanager.NewCallbackGroupNoop(),
+				cyclemanager.NewCallbackGroupNoop())
+			require.Nil(t, err)
+			defer store.Shutdown(context.Background())
+
+			index, err := New(Config{
+				ID:               "test-preload",
+				RootPath:         dirName,
+				DistanceProvider: distanceProvider,
+			}, flatent.UserConfig{
+				BQ: bq,
+			}, store)
+			require.Nil(t, err)
+			defer index.Shutdown(context.Background())
+
+			rawVector1 := []float32{4, -1, 4}
+			id1 := uint64(1)
+
+			ctx := context.Background()
+			err = index.Add(ctx, id1, rawVector1)
+			require.Nil(t, err)
+
+			vec1, err := index.bqCache.Get(ctx, id1)
+			require.NoError(t, err)
+			require.NotNil(t, vec1)
+
+			// Ensure deleting removes the cached vector
+			index.Delete(id1)
+			vec, err := index.bqCache.Get(ctx, id1)
+			require.NoError(t, err)
+			require.Nil(t, vec)
+
+			// Preload and check binary vector is identical to original
+			index.Preload(id1, rawVector1)
+			vec2, err := index.bqCache.Get(ctx, id1)
+			require.NoError(t, err)
+			require.InDeltaSlice(t, vec1, vec2, 0.0001)
+		})
+	}
+}
+
 func TestConcurrentReads(t *testing.T) {
 	ctx := context.Background()
 	dirName := t.TempDir()
@@ -401,4 +471,48 @@ func TestFlat_Validation(t *testing.T) {
 	// add a vector with 1 dim
 	err = index.Add(ctx, uint64(0), []float32{-2})
 	require.Error(t, err)
+}
+
+func TestFlat_ValidateCount(t *testing.T) {
+	ctx := t.Context()
+
+	store := testinghelpers.NewDummyStore(t)
+	rootPath := t.TempDir()
+	defer store.Shutdown(context.Background())
+
+	indexID := "id"
+	distancer := distancer.NewCosineDistanceProvider()
+	config := flatent.UserConfig{}
+	config.SetDefaults()
+
+	index, err := New(Config{
+		ID:               indexID,
+		RootPath:         rootPath,
+		DistanceProvider: distancer,
+	}, config, store)
+	require.Nil(t, err)
+	vectors := [][]float32{{-2, 0}, {-2, 1}}
+
+	for i := range vectors {
+		err = index.Add(ctx, uint64(i), vectors[i])
+		require.Nil(t, err)
+	}
+
+	count := index.AlreadyIndexed()
+	require.Equal(t, count, uint64(len(vectors)))
+	err = index.store.Bucket(index.getBucketName()).FlushAndSwitch()
+	require.Nil(t, err)
+
+	err = index.Shutdown(ctx)
+	require.Nil(t, err)
+	index = nil
+
+	index, err = New(Config{
+		ID:               indexID,
+		RootPath:         rootPath,
+		DistanceProvider: distancer,
+	}, config, store)
+	require.Nil(t, err)
+	newCount := index.AlreadyIndexed()
+	require.Equal(t, count, newCount)
 }

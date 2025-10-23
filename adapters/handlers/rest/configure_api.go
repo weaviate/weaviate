@@ -1814,6 +1814,7 @@ func initRuntimeOverrides(appState *state.State) {
 		registered.InvertedSorterDisabled = appState.ServerConfig.Config.InvertedSorterDisabled
 		registered.RaftDrainSleep = appState.ServerConfig.Config.Raft.DrainSleep
 		registered.RaftTimoutsMultiplier = appState.ServerConfig.Config.Raft.TimeoutsMultiplier
+		registered.ReplicatedIndicesRequestQueueEnabled = appState.ServerConfig.Config.Cluster.RequestQueueConfig.IsEnabled
 
 		hooks := make(map[string]func() error)
 
@@ -1840,8 +1841,7 @@ func initRuntimeOverrides(appState *state.State) {
 			hooks,
 			prometheus.DefaultRegisterer)
 		if err != nil {
-			appState.Logger.WithField("action", "startup").WithError(err).Fatal("could not create runtime config manager")
-			os.Exit(1)
+			appState.Logger.WithField("action", "startup").WithError(err).Error("could not create runtime config manager")
 		}
 
 		enterrors.GoWrapper(func() {
@@ -1850,7 +1850,7 @@ func initRuntimeOverrides(appState *state.State) {
 			defer cancel()
 
 			if err := cm.Run(ctx); err != nil {
-				appState.Logger.WithField("action", "runtime config manager startup ").WithError(err).
+				appState.Logger.WithField("action", "runtime config manager startup").WithError(err).
 					Fatal("runtime config manager stopped")
 			}
 		}, appState.Logger)
