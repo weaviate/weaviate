@@ -155,19 +155,23 @@ func Init(userConfig Config, grpcPort, raftTimeoutsMultiplier int, dataPath stri
 	}
 	cfg.Delegate = &state.delegate
 	cfg.Events = events{&state.delegate}
-	if userConfig.GossipBindPort != 0 {
-		cfg.BindPort = userConfig.GossipBindPort
-	}
 
 	if userConfig.AdvertiseAddr != "" {
 		cfg.AdvertiseAddr = userConfig.AdvertiseAddr
-		cfg.BindAddr = userConfig.BindAddr
-		// default to gossip bind port if advertise port is not set
+		// default to gossip bind port if advertise port is not set to not default to memberlist port 7946
 		cfg.AdvertisePort = userConfig.GossipBindPort
 	}
 
 	if userConfig.AdvertisePort != 0 {
 		cfg.AdvertisePort = userConfig.AdvertisePort
+	}
+
+	if userConfig.BindAddr != "" {
+		cfg.BindAddr = userConfig.BindAddr
+	}
+
+	if userConfig.GossipBindPort != 0 {
+		cfg.BindPort = userConfig.GossipBindPort
 	}
 
 	if userConfig.MemberlistFastFailureDetection {
