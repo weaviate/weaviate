@@ -30,7 +30,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
-	reposdb "github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/dto"
@@ -511,10 +510,6 @@ func (i *indices) postObjectBatch(w http.ResponseWriter, r *http.Request,
 	}
 
 	errs := i.shards.BatchPutObjects(r.Context(), index, shard, objs, schemaVersion)
-	if len(errs) > 0 && errors.Is(errs[0], reposdb.ErrShardNotFound) {
-		http.Error(w, errs[0].Error(), http.StatusInternalServerError)
-		return
-	}
 	errsJSON, err := IndicesPayloads.ErrorList.Marshal(errs)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
