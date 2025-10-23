@@ -187,34 +187,24 @@ func (i *replicatedIndices) indicesHandler() http.HandlerFunc {
 			return
 		}
 
-		// Check if we're shutting down
 		if i.isShutdown.Load() {
 			http.Error(w, "503 Service Unavailable - shutting down", http.StatusServiceUnavailable)
 			return
 		}
 
-		// if the request queue is enabled, add the request to the queue
 		if i.requestQueueConfig.IsEnabled != nil && i.requestQueueConfig.IsEnabled.Get() {
-			// ensure the workers are started (if this didn't happen at startup)
 			i.startWorkersOnce.Do(i.startWorkers)
 
-			// Fast path: check shutdown without lock
-			if i.isShutdown.Load() {
-				http.Error(w, "503 Service Unavailable - shutting down", http.StatusServiceUnavailable)
-				return
-			}
-
-			var wg sync.WaitGroup
-			enqueued := false
 			i.requestQueueMu.RLock()
-			// Double-check shutdown under lock
 			if i.isShutdown.Load() {
 				i.requestQueueMu.RUnlock()
 				http.Error(w, "503 Service Unavailable - shutting down", http.StatusServiceUnavailable)
 				return
 			}
 
+			var wg sync.WaitGroup
 			wg.Add(1)
+			enqueued := false
 			select {
 			case i.requestQueue <- queuedRequest{r: r, w: w, wg: &wg}:
 				enqueued = true
@@ -231,7 +221,7 @@ func (i *replicatedIndices) indicesHandler() http.HandlerFunc {
 			wg.Wait()
 			return
 		}
-		// if the request queue is not enabled, handle the request directly
+
 		i.handleRequest(queuedRequest{r: r, w: w, wg: nil})
 	}
 }
