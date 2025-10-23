@@ -74,6 +74,7 @@ type Config struct {
 	SkipSchemaSyncRepair    bool       `json:"skipSchemaSyncRepair" yaml:"skipSchemaSyncRepair"`
 	AuthConfig              AuthConfig `json:"auth" yaml:"auth"`
 	AdvertiseAddr           string     `json:"advertiseAddr" yaml:"advertiseAddr"`
+	BindAddr                string     `json:"bindAddr" yaml:"bindAddr"`
 	AdvertisePort           int        `json:"advertisePort" yaml:"advertisePort"`
 	// MemberlistFastFailureDetection mostly for testing purpose, it will make memberlist sensitive and detect
 	// failures (down nodes) faster.
@@ -133,7 +134,7 @@ func Init(userConfig Config, grpcPort, raftTimeoutsMultiplier int, dataPath stri
 	// DeadNodeReclaimTime controls the time before a dead node's name can be
 	// reclaimed by one with a different address or port. By default, this is 0,
 	// meaning nodes cannot be reclaimed this way.
-	cfg.DeadNodeReclaimTime = 60 * time.Second
+	// cfg.DeadNodeReclaimTime = 60 * time.Second
 	// TCPTimeout default is 10, however in case of rollouts we need to increase it
 	// to avoid timeouts during the rollout
 	// cfg.TCPTimeout = 10 * time.Second * time.Duration(raftTimeoutsMultiplier)
@@ -160,6 +161,7 @@ func Init(userConfig Config, grpcPort, raftTimeoutsMultiplier int, dataPath stri
 
 	if userConfig.AdvertiseAddr != "" {
 		cfg.AdvertiseAddr = userConfig.AdvertiseAddr
+		cfg.BindAddr = userConfig.BindAddr
 	}
 
 	if userConfig.AdvertisePort != 0 {
@@ -309,6 +311,18 @@ func (s *State) NodeCount() int {
 // LocalName() return local node name
 func (s *State) LocalName() string {
 	return s.list.LocalNode().Name
+}
+
+// LocalAddr() return local address
+func (s *State) LocalAddr() string {
+	return s.list.LocalNode().Addr.String()
+}
+
+func (s *State) LocalBindAddr() string {
+	if s.config.BindAddr == "" {
+		return s.LocalAddr()
+	}
+	return s.config.BindAddr
 }
 
 func (s *State) ClusterHealthScore() int {
