@@ -441,20 +441,23 @@ func (st *Store) init() error {
 	}
 
 	// tcp transport
-	address := fmt.Sprintf("%s:%d", st.cfg.Host, st.cfg.RaftPort)
-	tcpAddr, err := net.ResolveTCPAddr("tcp", address)
+	bindAddress := fmt.Sprintf("%s:%d", "0.0.0.0", st.cfg.RaftPort)
+	advertiseAddress := fmt.Sprintf("%s:%d", st.cfg.Host, st.cfg.RaftPort)
+
+	tcpAddr, err := net.ResolveTCPAddr("tcp", advertiseAddress)
 	if err != nil {
-		return fmt.Errorf("net.resolve tcp address=%v: %w", address, err)
+		return fmt.Errorf("net.resolve tcp address=%v: %w", advertiseAddress, err)
 	}
 
-	st.raftTransport, err = st.raftResolver.NewTCPTransport(address, tcpAddr, tcpMaxPool, tcpTimeout, st.log)
+	st.raftTransport, err = st.raftResolver.NewTCPTransport(bindAddress, tcpAddr, tcpMaxPool, tcpTimeout, st.log)
 	if err != nil {
-		return fmt.Errorf("raft transport address=%v tcpAddress=%v maxPool=%v timeOut=%v: %w", address, tcpAddr, tcpMaxPool, tcpTimeout, err)
+		return fmt.Errorf("raft transport address=%v tcpAddress=%v maxPool=%v timeOut=%v: %w", bindAddress, tcpAddr, tcpMaxPool, tcpTimeout, err)
 	}
 	st.log.WithFields(logrus.Fields{
-		"address":    address,
-		"tcpMaxPool": tcpMaxPool,
-		"tcpTimeout": tcpTimeout,
+		"bindAddress":      bindAddress,
+		"advertiseAddress": advertiseAddress,
+		"tcpMaxPool":       tcpMaxPool,
+		"tcpTimeout":       tcpTimeout,
 	}).Info("tcp transport")
 
 	return err

@@ -24,6 +24,7 @@ import (
 	"github.com/hashicorp/memberlist"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
@@ -133,14 +134,14 @@ type RequestQueueConfig struct {
 }
 
 func Init(userConfig Config, grpcPort, raftTimeoutsMultiplier int, dataPath string, nonStorageNodes map[string]struct{}, logger logrus.FieldLogger) (_ *State, err error) {
-	cfg := memberlist.DefaultLANConfig()
+	cfg := memberlist.DefaultWANConfig()
 	// DeadNodeReclaimTime controls the time before a dead node's name can be
 	// reclaimed by one with a different address or port. By default, this is 0,
 	// meaning nodes cannot be reclaimed this way.
-	cfg.DeadNodeReclaimTime = 30 * time.Second
+	cfg.DeadNodeReclaimTime = 60 * time.Second
 	// TCPTimeout default is 10, however in case of rollouts we need to increase it
 	// to avoid timeouts during the rollout
-	cfg.TCPTimeout = 10 * time.Second * time.Duration(raftTimeoutsMultiplier)
+	// cfg.TCPTimeout = 10 * time.Second * time.Duration(raftTimeoutsMultiplier)
 	cfg.LogOutput = newLogParser(logger)
 	cfg.Name = userConfig.Hostname
 	state := State{
@@ -170,6 +171,7 @@ func Init(userConfig Config, grpcPort, raftTimeoutsMultiplier int, dataPath stri
 
 	if userConfig.AdvertiseAddr != "" {
 		cfg.AdvertiseAddr = userConfig.AdvertiseAddr
+		cfg.BindAddr = "0.0.0.0"
 	}
 
 	if userConfig.AdvertisePort != 0 {
@@ -376,6 +378,9 @@ func (s *State) NodeHostname(nodeName string) (string, bool) {
 // NodeAddress is used to resolve the node name into an ip address without the port
 // TODO-RAFT-DB-63 : shall be replaced by Members() which returns members in the list
 func (s *State) NodeAddress(id string) string {
+	for _, mem := range s.list.Members() {
+		fmt.Println("member", mem.Name, mem.Addr.String())
+	}
 	addr, ok := s.NodeHostname(id)
 	if !ok {
 		return ""
