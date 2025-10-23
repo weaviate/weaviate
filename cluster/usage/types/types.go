@@ -35,6 +35,8 @@ type Report struct {
 
 	// The local node's view of the schema
 	Schema *models.Schema `json:"schema,omitempty"`
+
+	GoMemLimit int64 `json:"go_mem_limit,omitempty"`
 }
 
 // CollectionUsage represents metrics for a single collection
