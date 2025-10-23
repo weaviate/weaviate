@@ -519,8 +519,6 @@ func (r ResourceUsage) Validate() error {
 }
 
 type Raft struct {
-	AdvertiseAddr     string
-	BindAddr          string
 	Port              int
 	InternalRPCPort   int
 	RPCMessageMaxSize int

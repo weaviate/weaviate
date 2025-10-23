@@ -918,16 +918,6 @@ func parseRAFTConfig(hostname string) (Raft, error) {
 		MetadataOnlyVoters: entcfg.Enabled(os.Getenv("RAFT_METADATA_ONLY_VOTERS")),
 	}
 
-	advertiseAddr, advertiseAddrSet := os.LookupEnv("RAFT_ADVERTISE_ADDR")
-	if advertiseAddrSet {
-		cfg.AdvertiseAddr = advertiseAddr
-	}
-
-	bindAddr, bindAddrSet := os.LookupEnv("RAFT_BIND_ADDR")
-	if bindAddrSet {
-		cfg.BindAddr = bindAddr
-	}
-
 	if err := parsePositiveInt(
 		"RAFT_PORT",
 		func(val int) { cfg.Port = val },
