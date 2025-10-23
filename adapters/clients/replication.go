@@ -135,7 +135,9 @@ func (c *replicationClient) OverwriteObjects(ctx context.Context,
 	if err != nil {
 		return resp, fmt.Errorf("create http request: %w", err)
 	}
-	err = c.do(c.timeoutUnit*90, req, body, &resp, 9)
+
+	err = c.tryOnce(req, body, &resp)
+
 	return resp, err
 }
 
@@ -363,6 +365,29 @@ func newHttpReplicaCMD(host, cmd, index, shard, requestId string, body io.Reader
 	q := url.Values{replica.RequestKey: []string{requestId}}.Encode()
 	url := url.URL{Scheme: "http", Host: host, Path: path, RawQuery: q}
 	return http.NewRequest(http.MethodPost, url.String(), body)
+}
+
+func (c *replicationClient) tryOnce(req *http.Request, body []byte, resp interface{}) (err error) {
+	if body != nil {
+		req.Body = io.NopCloser(bytes.NewReader(body))
+	}
+
+	res, err := c.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("connect: %w", err)
+	}
+	defer res.Body.Close()
+
+	if code := res.StatusCode; code != http.StatusOK {
+		b, _ := io.ReadAll(res.Body)
+		return fmt.Errorf("status code: %v, error: %s", code, b)
+	}
+
+	if err := json.NewDecoder(res.Body).Decode(resp); err != nil {
+		return fmt.Errorf("decode response: %w", err)
+	}
+
+	return nil
 }
 
 func (c *replicationClient) do(timeout time.Duration, req *http.Request, body []byte, resp interface{}, numRetries int) (err error) {
