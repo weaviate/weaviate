@@ -80,9 +80,9 @@ func DefaultConfig() *Config {
 		Logger:                    logrus.New(),
 		SplitWorkers:              w,
 		ReassignWorkers:           w,
-		InternalPostingCandidates: 64,
-		ReassignNeighbors:         8,
-		MaxDistanceRatio:          10_000,
+		InternalPostingCandidates: ent.DefaultInternalPostingCandidates,
+		ReassignNeighbors:         ent.DefaultReassignNeighbors,
+		MaxDistanceRatio:          ent.DefaultMaxDistanceRatio,
 		DistanceProvider:          distancer.NewL2SquaredProvider(),
 		Compressed:                false,
 	}

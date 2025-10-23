@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"runtime"
 	"time"
 
 	"github.com/pkg/errors"
@@ -236,7 +237,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 			return nil, errors.Errorf("spfresh vector index: config is not spfresh.UserConfig: %T",
 				vectorIndexUserConfig)
 		}
-
+		w := runtime.GOMAXPROCS(0)
 		spfreshConfigID := s.vectorIndexID(targetVector)
 		spfreshConfig := &spfresh.Config{
 			Logger:            s.index.logger,
@@ -255,7 +256,12 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 				WriteSegmentInfoIntoFileName: s.index.Config.SegmentInfoIntoFileNameEnabled,
 				WriteMetadataFilesEnabled:    s.index.Config.WriteMetadataFilesEnabled,
 			},
-			TombstoneCallbacks: s.cycleCallbacks.vectorTombstoneCleanupCallbacks,
+			SplitWorkers:              w,
+			ReassignWorkers:           w,
+			InternalPostingCandidates: spfreshent.DefaultInternalPostingCandidates,
+			ReassignNeighbors:         spfreshent.DefaultReassignNeighbors,
+			MaxDistanceRatio:          spfreshent.DefaultMaxDistanceRatio,
+			TombstoneCallbacks:        s.cycleCallbacks.vectorTombstoneCleanupCallbacks,
 			Centroids: spfresh.CentroidConfig{
 				HNSWConfig: &hnsw.Config{
 					Logger:                    s.index.logger,
