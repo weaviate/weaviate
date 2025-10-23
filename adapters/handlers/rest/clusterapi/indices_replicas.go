@@ -197,26 +197,31 @@ func (i *replicatedIndices) indicesHandler() http.HandlerFunc {
 		if i.requestQueueConfig.IsEnabled != nil && i.requestQueueConfig.IsEnabled.Get() {
 			// ensure the workers are started (if this didn't happen at startup)
 			i.startWorkersOnce.Do(i.startWorkers)
-			var wg sync.WaitGroup
-			enqueued := false
-			i.requestQueueMu.RLock()
-			shuttingDown := i.isShutdown.Load()
-			if !shuttingDown {
-				wg.Add(1)
-				select {
-				case i.requestQueue <- queuedRequest{r: r, w: w, wg: &wg}:
-					enqueued = true
-				default:
-					// queue full, respond below
-					wg.Add(-1) // revert the Add since we won't enqueue
-				}
-			}
-			i.requestQueueMu.RUnlock()
 
-			if shuttingDown {
+			// Fast path: check shutdown without lock
+			if i.isShutdown.Load() {
 				http.Error(w, "503 Service Unavailable - shutting down", http.StatusServiceUnavailable)
 				return
 			}
+
+			var wg sync.WaitGroup
+			enqueued := false
+			i.requestQueueMu.RLock()
+			// Double-check shutdown under lock
+			if i.isShutdown.Load() {
+				i.requestQueueMu.RUnlock()
+				http.Error(w, "503 Service Unavailable - shutting down", http.StatusServiceUnavailable)
+				return
+			}
+
+			wg.Add(1)
+			select {
+			case i.requestQueue <- queuedRequest{r: r, w: w, wg: &wg}:
+				enqueued = true
+			default:
+				wg.Add(-1)
+			}
+			i.requestQueueMu.RUnlock()
 
 			if !enqueued {
 				http.Error(w, "too many buffered requests", i.requestQueueConfig.QueueFullHttpStatus)
