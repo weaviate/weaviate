@@ -581,7 +581,7 @@ func TestIndex_DebugResetVectorIndex(t *testing.T) {
 
 	ctx := context.Background()
 	class := &models.Class{Class: "reindextest"}
-	shard, index := testShardWithSettings(t, ctx, &models.Class{Class: class.Class}, hnsw.UserConfig{}, false, true, false)
+	shard, index := testShardWithSettings(t, ctx, &models.Class{Class: class.Class}, hnsw.UserConfig{}, false, true, true)
 
 	// unknown shard
 	err := index.DebugResetVectorIndex(ctx, "unknown", "")
