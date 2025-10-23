@@ -476,7 +476,7 @@ func gettingObjectsWithFilters(t *testing.T) {
 		t.Run("error by description containing just stopwords", func(t *testing.T) {
 			errors := graphqlhelper.ErrorGraphQL(t, helper.RootAuth, query("to be or not to be"))
 			require.Len(t, errors, 1)
-			assert.Contains(t, errors[0].Message, inverted.ErrOnlyStopwords)
+			assert.Contains(t, errors[0].Message, inverted.ErrOnlyStopwords.Error())
 		})
 	})
 
