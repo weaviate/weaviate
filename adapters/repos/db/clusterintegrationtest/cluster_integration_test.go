@@ -18,7 +18,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/rand"
-	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -81,7 +80,7 @@ func testDistributed(t *testing.T, dirName string, rnd *rand.Rand, batch bool) {
 				name: fmt.Sprintf("node-%d", i),
 			}
 
-			node.init(dirName, shardStateSerialized, &nodes)
+			node.init(dirName, shardStateSerialized, &nodes, false)
 			nodes = append(nodes, node)
 		}
 	})
@@ -691,16 +690,16 @@ func TestDistributedVectorDistance(t *testing.T) {
 	rnd := getRandomSeed()
 	ctx := context.Background()
 	cases := []struct {
-		asyncIndexing bool
+		asyncIndexingEnabled bool
 	}{
-		{asyncIndexing: true},
-		{asyncIndexing: false},
+		{asyncIndexingEnabled: true},
+		{asyncIndexingEnabled: false},
 	}
 	for _, tt := range cases {
-		t.Run("async indexing:"+strconv.FormatBool(tt.asyncIndexing), func(t *testing.T) {
-			os.Setenv("ASYNC_INDEXING", strconv.FormatBool(tt.asyncIndexing))
+		t.Run("async indexing:"+strconv.FormatBool(tt.asyncIndexingEnabled), func(t *testing.T) {
+			t.Setenv("ASYNC_INDEXING", strconv.FormatBool(tt.asyncIndexingEnabled))
 
-			collection := multiVectorClass(tt.asyncIndexing)
+			collection := multiVectorClass(tt.asyncIndexingEnabled)
 
 			overallShardState := multiShardState(numberOfNodes)
 			shardStateSerialized, err := json.Marshal(overallShardState)
@@ -712,7 +711,7 @@ func TestDistributedVectorDistance(t *testing.T) {
 					name: fmt.Sprintf("node-%d", i),
 				}
 
-				node.init(dirName, shardStateSerialized, &nodes)
+				node.init(dirName, shardStateSerialized, &nodes, tt.asyncIndexingEnabled)
 				nodes = append(nodes, node)
 			}
 

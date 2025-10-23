@@ -1415,3 +1415,31 @@ func TestParsePositiveDuration(t *testing.T) {
 		})
 	}
 }
+
+func TestEnvironmentAsyncIndexing(t *testing.T) {
+	factors := []struct {
+		name     string
+		value    []string
+		expected bool
+	}{
+		{"Valid: true", []string{"true"}, true},
+		{"Valid: false", []string{"false"}, false},
+		{"Valid: 1", []string{"1"}, true},
+		{"Valid: 0", []string{"0"}, false},
+		{"Valid: on", []string{"on"}, true},
+		{"Valid: off", []string{"off"}, false},
+		{"not given", []string{}, false},
+	}
+	for _, tt := range factors {
+		t.Run(tt.name, func(t *testing.T) {
+			if len(tt.value) == 1 {
+				t.Setenv("ASYNC_INDEXING", tt.value[0])
+			}
+			conf := Config{}
+			err := FromEnv(&conf)
+
+			require.Nil(t, err)
+			require.Equal(t, tt.expected, conf.AsyncIndexingEnabled)
+		})
+	}
+}

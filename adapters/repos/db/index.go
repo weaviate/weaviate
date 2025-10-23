@@ -174,7 +174,8 @@ type Index struct {
 	vectorIndexUserConfig     schemaConfig.VectorIndexConfig
 	vectorIndexUserConfigs    map[string]schemaConfig.VectorIndexConfig
 
-	partitioningEnabled bool
+	partitioningEnabled  bool
+	AsyncIndexingEnabled bool
 
 	invertedIndexConfig     schema.InvertedIndexConfig
 	invertedIndexConfigLock sync.Mutex
@@ -260,6 +261,7 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 	allocChecker memwatch.AllocChecker,
 	shardReindexer ShardReindexerV3,
 	bitmapBufPool roaringset.BitmapBufPool,
+	asyncIndexingEnabled bool,
 ) (*Index, error) {
 	sd, err := stopwords.NewDetectorFromConfig(invertedIndexConfig.Stopwords)
 	if err != nil {
@@ -290,6 +292,7 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 		vectorIndexUserConfigs:  vectorIndexUserConfigs,
 		stopwords:               sd,
 		partitioningEnabled:     shardState.PartitioningEnabled,
+		AsyncIndexingEnabled:    asyncIndexingEnabled,
 		remote:                  sharding.NewRemoteIndex(cfg.ClassName.String(), sg, nodeResolver, remoteClient),
 		metrics:                 metrics,
 		centralJobQueue:         jobQueueCh,
