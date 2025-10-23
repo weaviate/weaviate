@@ -230,7 +230,7 @@ const (
 	QueryRequest_TYPE_GET_SHARDING_STATE_BY_COLLECTION_AND_SHARD      QueryRequest_Type = 205
 	QueryRequest_TYPE_GET_ALL_REPLICATION_DETAILS                     QueryRequest_Type = 206
 	QueryRequest_TYPE_GET_REPLICATION_OPERATION_STATE                 QueryRequest_Type = 207
-	QueryRequest_TYPE_GET_REPLICATION_SCALE_PREVIEW                   QueryRequest_Type = 208
+	QueryRequest_TYPE_GET_REPLICATION_SCALE_PLAN                      QueryRequest_Type = 208
 	QueryRequest_TYPE_DISTRIBUTED_TASK_LIST                           QueryRequest_Type = 300
 )
 
@@ -260,7 +260,7 @@ var (
 		205: "TYPE_GET_SHARDING_STATE_BY_COLLECTION_AND_SHARD",
 		206: "TYPE_GET_ALL_REPLICATION_DETAILS",
 		207: "TYPE_GET_REPLICATION_OPERATION_STATE",
-		208: "TYPE_GET_REPLICATION_SCALE_PREVIEW",
+		208: "TYPE_GET_REPLICATION_SCALE_PLAN",
 		300: "TYPE_DISTRIBUTED_TASK_LIST",
 	}
 	QueryRequest_Type_value = map[string]int32{
@@ -287,7 +287,7 @@ var (
 		"TYPE_GET_SHARDING_STATE_BY_COLLECTION_AND_SHARD":      205,
 		"TYPE_GET_ALL_REPLICATION_DETAILS":                     206,
 		"TYPE_GET_REPLICATION_OPERATION_STATE":                 207,
-		"TYPE_GET_REPLICATION_SCALE_PREVIEW":                   208,
+		"TYPE_GET_REPLICATION_SCALE_PLAN":                      208,
 		"TYPE_DISTRIBUTED_TASK_LIST":                           300,
 	}
 )
@@ -1652,11 +1652,11 @@ const file_api_message_proto_rawDesc = "" +
 	"\x1eTYPE_DISTRIBUTED_TASK_CLEAN_UP\x10\xaf\x02\"A\n" +
 	"\rApplyResponse\x12\x18\n" +
 	"\aversion\x18\x01 \x01(\x04R\aversion\x12\x16\n" +
-	"\x06leader\x18\x02 \x01(\tR\x06leader\"\xbd\a\n" +
+	"\x06leader\x18\x02 \x01(\tR\x06leader\"\xba\a\n" +
 	"\fQueryRequest\x12@\n" +
 	"\x04type\x18\x01 \x01(\x0e2,.weaviate.internal.cluster.QueryRequest.TypeR\x04type\x12\x1f\n" +
 	"\vsub_command\x18\x02 \x01(\fR\n" +
-	"subCommand\"\xc9\x06\n" +
+	"subCommand\"\xc6\x06\n" +
 	"\x04Type\x12\x14\n" +
 	"\x10TYPE_UNSPECIFIED\x10\x00\x12\x14\n" +
 	"\x10TYPE_GET_CLASSES\x10\x01\x12\x13\n" +
@@ -1680,8 +1680,8 @@ const file_api_message_proto_rawDesc = "" +
 	"%TYPE_GET_SHARDING_STATE_BY_COLLECTION\x10\xcc\x01\x124\n" +
 	"/TYPE_GET_SHARDING_STATE_BY_COLLECTION_AND_SHARD\x10\xcd\x01\x12%\n" +
 	" TYPE_GET_ALL_REPLICATION_DETAILS\x10\xce\x01\x12)\n" +
-	"$TYPE_GET_REPLICATION_OPERATION_STATE\x10\xcf\x01\x12'\n" +
-	"\"TYPE_GET_REPLICATION_SCALE_PREVIEW\x10\xd0\x01\x12\x1f\n" +
+	"$TYPE_GET_REPLICATION_OPERATION_STATE\x10\xcf\x01\x12$\n" +
+	"\x1fTYPE_GET_REPLICATION_SCALE_PLAN\x10\xd0\x01\x12\x1f\n" +
 	"\x1aTYPE_DISTRIBUTED_TASK_LIST\x10\xac\x02\")\n" +
 	"\rQueryResponse\x12\x18\n" +
 	"\apayload\x18\x01 \x01(\fR\apayload\"u\n" +

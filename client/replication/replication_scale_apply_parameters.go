@@ -76,9 +76,9 @@ type ReplicationScaleApplyParams struct {
 
 	/* Body.
 
-	   The desired ReplicationShardingState to apply to the cluster.
+	   The replication scaling plan specifying the collection and its shard-level replica adjustments.
 	*/
-	Body *models.ReplicationShardingState
+	Body *models.ReplicationScalePlan
 
 	timeout    time.Duration
 	Context    context.Context
@@ -134,13 +134,13 @@ func (o *ReplicationScaleApplyParams) SetHTTPClient(client *http.Client) {
 }
 
 // WithBody adds the body to the replication scale apply params
-func (o *ReplicationScaleApplyParams) WithBody(body *models.ReplicationShardingState) *ReplicationScaleApplyParams {
+func (o *ReplicationScaleApplyParams) WithBody(body *models.ReplicationScalePlan) *ReplicationScaleApplyParams {
 	o.SetBody(body)
 	return o
 }
 
 // SetBody adds the body to the replication scale apply params
-func (o *ReplicationScaleApplyParams) SetBody(body *models.ReplicationShardingState) {
+func (o *ReplicationScaleApplyParams) SetBody(body *models.ReplicationScalePlan) {
 	o.Body = body
 }
 

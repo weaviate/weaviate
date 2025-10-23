@@ -24,42 +24,42 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// ReplicationScalePreviewHandlerFunc turns a function with the right signature into a replication scale preview handler
-type ReplicationScalePreviewHandlerFunc func(ReplicationScalePreviewParams, *models.Principal) middleware.Responder
+// GetReplicationScalePlanHandlerFunc turns a function with the right signature into a get replication scale plan handler
+type GetReplicationScalePlanHandlerFunc func(GetReplicationScalePlanParams, *models.Principal) middleware.Responder
 
 // Handle executing the request and returning a response
-func (fn ReplicationScalePreviewHandlerFunc) Handle(params ReplicationScalePreviewParams, principal *models.Principal) middleware.Responder {
+func (fn GetReplicationScalePlanHandlerFunc) Handle(params GetReplicationScalePlanParams, principal *models.Principal) middleware.Responder {
 	return fn(params, principal)
 }
 
-// ReplicationScalePreviewHandler interface for that can handle valid replication scale preview params
-type ReplicationScalePreviewHandler interface {
-	Handle(ReplicationScalePreviewParams, *models.Principal) middleware.Responder
+// GetReplicationScalePlanHandler interface for that can handle valid get replication scale plan params
+type GetReplicationScalePlanHandler interface {
+	Handle(GetReplicationScalePlanParams, *models.Principal) middleware.Responder
 }
 
-// NewReplicationScalePreview creates a new http.Handler for the replication scale preview operation
-func NewReplicationScalePreview(ctx *middleware.Context, handler ReplicationScalePreviewHandler) *ReplicationScalePreview {
-	return &ReplicationScalePreview{Context: ctx, Handler: handler}
+// NewGetReplicationScalePlan creates a new http.Handler for the get replication scale plan operation
+func NewGetReplicationScalePlan(ctx *middleware.Context, handler GetReplicationScalePlanHandler) *GetReplicationScalePlan {
+	return &GetReplicationScalePlan{Context: ctx, Handler: handler}
 }
 
 /*
-	ReplicationScalePreview swagger:route GET /replication/scale replication replicationScalePreview
+	GetReplicationScalePlan swagger:route GET /replication/scale replication getReplicationScalePlan
 
-# Preview replication scaling plan for a given replication factor
+# Get replication scale plan
 
-Computes and returns the expected ReplicationShardingState for the desired replication factor. The replication factor must be a positive integer greater than zero.
+Computes and returns a replication scale plan for a given collection and desired replication factor. The plan includes, for each shard, a list of nodes to be added and a list of nodes to be removed.
 */
-type ReplicationScalePreview struct {
+type GetReplicationScalePlan struct {
 	Context *middleware.Context
-	Handler ReplicationScalePreviewHandler
+	Handler GetReplicationScalePlanHandler
 }
 
-func (o *ReplicationScalePreview) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
+func (o *GetReplicationScalePlan) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	route, rCtx, _ := o.Context.RouteInfo(r)
 	if rCtx != nil {
 		*r = *rCtx
 	}
-	var Params = NewReplicationScalePreviewParams()
+	var Params = NewGetReplicationScalePlanParams()
 	uprinc, aCtx, err := o.Context.Authorize(r, route)
 	if err != nil {
 		o.Context.Respond(rw, r, route.Produces, route, err)

@@ -31,22 +31,48 @@ import (
 // swagger:model ReplicationScaleApplyResponse
 type ReplicationScaleApplyResponse struct {
 
+	// The name of the collection associated with this replication scaling plan.
+	// Required: true
+	Collection string `json:"collection"`
+
 	// List of shard copy operation IDs created during scaling.
 	// Required: true
 	OperationIds []strfmt.UUID `json:"operationIds"`
+
+	// The unique identifier of the replication scaling plan that generated these operations.
+	// Required: true
+	// Format: uuid
+	PlanID strfmt.UUID `json:"planId"`
 }
 
 // Validate validates this replication scale apply response
 func (m *ReplicationScaleApplyResponse) Validate(formats strfmt.Registry) error {
 	var res []error
 
+	if err := m.validateCollection(formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.validateOperationIds(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validatePlanID(formats); err != nil {
 		res = append(res, err)
 	}
 
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+func (m *ReplicationScaleApplyResponse) validateCollection(formats strfmt.Registry) error {
+
+	if err := validate.RequiredString("collection", "body", m.Collection); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -62,6 +88,19 @@ func (m *ReplicationScaleApplyResponse) validateOperationIds(formats strfmt.Regi
 			return err
 		}
 
+	}
+
+	return nil
+}
+
+func (m *ReplicationScaleApplyResponse) validatePlanID(formats strfmt.Registry) error {
+
+	if err := validate.Required("planId", "body", strfmt.UUID(m.PlanID)); err != nil {
+		return err
+	}
+
+	if err := validate.FormatOf("planId", "body", "uuid", m.PlanID.String(), formats); err != nil {
+		return err
 	}
 
 	return nil

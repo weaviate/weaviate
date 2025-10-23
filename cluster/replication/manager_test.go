@@ -1290,3 +1290,206 @@ func TestReplicationFSM_HasOngoingReplication(t *testing.T) {
 		})
 	}
 }
+
+func TestManager_QueryReplicationScalePlan(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		schemaSetup   func(*testing.T, *schema.SchemaManager) error
+		queryRequest  *api.QueryRequest
+		wantErr       error
+		wantScalePlan *api.ReplicationScalePlanResponse
+	}{
+		{
+			name: "invalid collection name returns class not found error",
+			queryRequest: &api.QueryRequest{
+				Type: api.QueryRequest_TYPE_GET_REPLICATION_SCALE_PLAN,
+				SubCommand: mustMarshal(api.ReplicationScalePlanRequest{
+					Collection:        "NonExistentCollection",
+					ReplicationFactor: 1,
+				}),
+			},
+			wantErr: replication.ErrClassNotFound,
+		},
+		{
+			name: "single shard adds node to satisfy replication",
+			schemaSetup: func(t *testing.T, s *schema.SchemaManager) error {
+				return s.AddClass(
+					buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{
+						Class: &models.Class{
+							Class:             "TestCollection",
+							ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+						},
+						State: &sharding.State{
+							Physical: map[string]sharding.Physical{
+								"shard1": {BelongsToNodes: []string{"node1"}},
+							},
+						},
+					}),
+					"node1", true, false,
+				)
+			},
+			queryRequest: &api.QueryRequest{
+				Type: api.QueryRequest_TYPE_GET_REPLICATION_SCALE_PLAN,
+				SubCommand: mustMarshal(api.ReplicationScalePlanRequest{
+					Collection:        "TestCollection",
+					ReplicationFactor: 2,
+				}),
+			},
+			wantScalePlan: &api.ReplicationScalePlanResponse{
+				ReplicationScalePlan: api.ReplicationScalePlan{
+					Collection: "TestCollection",
+					ShardReplicationScaleActions: map[string]api.ShardReplicationScaleActions{
+						"shard1": {
+							AddNodes:    map[string]string{"node2": "node1"},
+							RemoveNodes: map[string]struct{}{},
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "multiple shards add same target node",
+			schemaSetup: func(t *testing.T, s *schema.SchemaManager) error {
+				return s.AddClass(
+					buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{
+						Class: &models.Class{
+							Class:             "TestCollection",
+							ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+						},
+						State: &sharding.State{
+							Physical: map[string]sharding.Physical{
+								"shard1": {BelongsToNodes: []string{"node1"}},
+								"shard2": {BelongsToNodes: []string{"node1"}},
+							},
+						},
+					}),
+					"node1", true, false,
+				)
+			},
+			queryRequest: &api.QueryRequest{
+				Type: api.QueryRequest_TYPE_GET_REPLICATION_SCALE_PLAN,
+				SubCommand: mustMarshal(api.ReplicationScalePlanRequest{
+					Collection:        "TestCollection",
+					ReplicationFactor: 2,
+				}),
+			},
+			wantScalePlan: &api.ReplicationScalePlanResponse{
+				ReplicationScalePlan: api.ReplicationScalePlan{
+					Collection: "TestCollection",
+					ShardReplicationScaleActions: map[string]api.ShardReplicationScaleActions{
+						"shard1": {AddNodes: map[string]string{"node2": "node1"}, RemoveNodes: map[string]struct{}{}},
+						"shard2": {AddNodes: map[string]string{"node2": "node1"}, RemoveNodes: map[string]struct{}{}},
+					},
+				},
+			},
+		},
+		{
+			name: "replication factor already satisfied (no changes)",
+			schemaSetup: func(t *testing.T, s *schema.SchemaManager) error {
+				return s.AddClass(
+					buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{
+						Class: &models.Class{
+							Class:             "TestCollection",
+							ReplicationConfig: &models.ReplicationConfig{Factor: 2},
+						},
+						State: &sharding.State{
+							Physical: map[string]sharding.Physical{
+								"shard1": {BelongsToNodes: []string{"node1", "node2"}},
+							},
+						},
+					}),
+					"node1", true, false,
+				)
+			},
+			queryRequest: &api.QueryRequest{
+				Type: api.QueryRequest_TYPE_GET_REPLICATION_SCALE_PLAN,
+				SubCommand: mustMarshal(api.ReplicationScalePlanRequest{
+					Collection:        "TestCollection",
+					ReplicationFactor: 2,
+				}),
+			},
+			wantScalePlan: &api.ReplicationScalePlanResponse{
+				ReplicationScalePlan: api.ReplicationScalePlan{
+					Collection:                   "TestCollection",
+					ShardReplicationScaleActions: map[string]api.ShardReplicationScaleActions{},
+				},
+			},
+		},
+		{
+			name: "replication factor lower removes extra nodes",
+			schemaSetup: func(t *testing.T, s *schema.SchemaManager) error {
+				return s.AddClass(
+					buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{
+						Class: &models.Class{
+							Class:             "TestCollection",
+							ReplicationConfig: &models.ReplicationConfig{Factor: 2},
+						},
+						State: &sharding.State{
+							Physical: map[string]sharding.Physical{
+								"shard1": {BelongsToNodes: []string{"node1", "node2", "node3"}},
+							},
+						},
+					}),
+					"node1", true, false,
+				)
+			},
+			queryRequest: &api.QueryRequest{
+				Type: api.QueryRequest_TYPE_GET_REPLICATION_SCALE_PLAN,
+				SubCommand: mustMarshal(api.ReplicationScalePlanRequest{
+					Collection:        "TestCollection",
+					ReplicationFactor: 1,
+				}),
+			},
+			wantScalePlan: &api.ReplicationScalePlanResponse{
+				ReplicationScalePlan: api.ReplicationScalePlan{
+					Collection: "TestCollection",
+					ShardReplicationScaleActions: map[string]api.ShardReplicationScaleActions{
+						"shard1": {RemoveNodes: map[string]struct{}{"node2": {}, "node3": {}}, AddNodes: map[string]string{}},
+					},
+				},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			reg := prometheus.NewPedanticRegistry()
+			parser := fakes.NewMockParser()
+			parser.On("ParseClass", mock.Anything).Return(nil)
+			schemaManager := schema.NewSchemaManager("node1", nil, parser, reg, logrus.New())
+			manager := replication.NewManager(schemaManager.NewSchemaReader(), mocks.NewMockNodeSelector("node1", "node2", "node3"), reg)
+
+			if tt.schemaSetup != nil {
+				require.NoError(t, tt.schemaSetup(t, schemaManager))
+			}
+
+			gotResp, err := manager.QueryReplicationScalePlan(tt.queryRequest)
+			if tt.wantErr != nil {
+				assert.ErrorIs(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+
+			var got api.ReplicationScalePlanResponse
+			require.NoError(t, json.Unmarshal(gotResp, &got))
+
+			// Ignore PlanID (random UUID)
+			got.ReplicationScalePlan.PlanID = ""
+
+			assert.Equal(t, tt.wantScalePlan, &got)
+		})
+	}
+}
+
+func mustMarshal(v interface{}) []byte {
+	data, err := json.Marshal(v)
+	if err != nil {
+		panic(err)
+	}
+	return data
+}

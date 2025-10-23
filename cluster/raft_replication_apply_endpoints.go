@@ -14,8 +14,8 @@ package cluster
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"math/rand"
 	"strings"
 
 	"github.com/go-openapi/strfmt"
@@ -25,135 +25,98 @@ import (
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 )
 
-func (s *Raft) ScaleApply(ctx context.Context, desiredState api.ShardingState) (opsUUIDs []strfmt.UUID, err error) {
-	defer func() {
-		if err != nil {
-			s.ForceDeleteReplicationsByCollection(ctx, desiredState.Collection)
-		}
-	}()
-
-	ops, err := s.GetReplicationDetailsByCollection(ctx, desiredState.Collection)
-	if err != nil {
-		return nil, fmt.Errorf("get replication details for %q: %w", desiredState.Collection, err)
+func (s *Raft) ApplyReplicationScalePlan(ctx context.Context, scalePlan api.ReplicationScalePlan) (opsUUIDs []strfmt.UUID, err error) {
+	// while not strictly necessary, scaling while there are ongoing replications is disallowed
+	ops, err := s.GetReplicationDetailsByCollection(ctx, scalePlan.Collection)
+	if err != nil && !errors.Is(err, replicationTypes.ErrReplicationOperationNotFound) {
+		return nil, fmt.Errorf("get replication details for %q: %w", scalePlan.Collection, err)
 	}
 	for _, op := range ops {
 		if api.ShardReplicationState(op.Status.State) != api.CANCELLED && api.ShardReplicationState(op.Status.State) != api.READY {
-			return nil, fmt.Errorf("cannot scale while there are ongoing replications for collection %q", desiredState.Collection)
+			return nil, fmt.Errorf("cannot scale while there are ongoing replications for collection %q", scalePlan.Collection)
 		}
 	}
 
-	shardingState, _, err := s.QueryShardingState(desiredState.Collection)
-	if err != nil {
-		return nil, fmt.Errorf("query sharding state for %q: %w", desiredState.Collection, err)
+	// validate scale plan
+	for shardName, shardActions := range scalePlan.ShardReplicationScaleActions {
+		sourceNodeUsage := make(map[string]int)
+
+		for newNode, sourceNode := range shardActions.AddNodes {
+			if newNode == sourceNode {
+				return nil, fmt.Errorf("node %q in shard %q cannot be added as replica from itself", newNode, shardName)
+			}
+
+			if _, isBeingRemoved := shardActions.RemoveNodes[newNode]; isBeingRemoved {
+				return nil, fmt.Errorf("node %q in shard %q cannot be both removed and added", newNode, shardName)
+			}
+
+			if sourceNode != "" {
+				sourceNodeUsage[sourceNode]++
+				if sourceNodeUsage[sourceNode] > 1 {
+					if _, isBeingRemoved := shardActions.RemoveNodes[sourceNode]; isBeingRemoved {
+						return nil, fmt.Errorf("invalid scale plan: source node %q for shard %q is marked for removal and used multiple times as source for additions", sourceNode, shardName)
+					}
+				}
+			}
+		}
 	}
 
-	currentShards := make(map[string][]string)
+	defer func() {
+		if err != nil {
+			for _, opsUUID := range opsUUIDs {
+				err := s.ForceDeleteReplicationByUuid(ctx, opsUUID)
+				if err != nil {
+					// Log the error but don't stop the cleanup process
+					s.log.Warnf("failed to force delete replication %q: %v", opsUUID, err)
+				}
+			}
+			opsUUIDs = nil
+		}
+	}()
 
-	for shardName, shard := range shardingState.Physical {
-		currentShards[shardName] = shard.BelongsToNodes
-	}
-
-	diff := diffNodesPerShard(currentShards, desiredState.Shards)
-
-	for shardName, nodes := range diff {
-		if len(nodes.Added) == 0 && len(nodes.Removed) == 0 {
-			continue
+	for shardName, shardActions := range scalePlan.ShardReplicationScaleActions {
+		for node := range shardActions.RemoveNodes {
+			_, err := s.DeleteReplicaFromShard(ctx, scalePlan.Collection, shardName, node)
+			if err != nil {
+				return opsUUIDs, fmt.Errorf("delete replica %s from shard %s: %w", node, shardName, err)
+			}
 		}
 
-		if len(nodes.Added) > 0 && len(nodes.Remaining) == 0 {
-			return nil, fmt.Errorf("cannot determine source node for shard %q: no remaining nodes", shardName)
-		}
+		for newNode, sourceNode := range shardActions.AddNodes {
+			if sourceNode == "" {
+				// empty source node means create empty replica
+				_, err := s.AddReplicaToShard(ctx, scalePlan.Collection, shardName, newNode)
+				if err != nil {
+					return opsUUIDs, fmt.Errorf("add empty replica %q to shard %s: %w", newNode, shardName, err)
+				}
+				continue
+			}
 
-		for _, node := range nodes.Added {
+			var transferType api.ShardReplicationTransferType
+
+			_, isBeingRemoved := shardActions.RemoveNodes[sourceNode]
+			if isBeingRemoved {
+				transferType = api.MOVE
+			} else {
+				transferType = api.COPY
+			}
+
 			id, err := uuid.NewRandom()
 			if err != nil {
-				return nil, fmt.Errorf("create uuid for new replica: %w", err)
+				return opsUUIDs, fmt.Errorf("create uuid for new replica: %w", err)
 			}
 			uuid := strfmt.UUID(id.String())
 
-			sourceNode := nodes.Remaining[rand.Intn(len(nodes.Remaining))]
-
-			err = s.ReplicationReplicateReplica(ctx, uuid, sourceNode, desiredState.Collection, shardName, node, api.COPY.String())
+			err = s.ReplicationReplicateReplica(ctx, uuid, sourceNode, scalePlan.Collection, shardName, newNode, transferType.String())
 			if err != nil {
-				return nil, fmt.Errorf("replication add replica to shard for %q: %w", desiredState.Collection, err)
+				return opsUUIDs, fmt.Errorf("replication add replica to shard for %q: %w", scalePlan.Collection, err)
 			}
 
 			opsUUIDs = append(opsUUIDs, uuid)
 		}
-
-		for _, node := range nodes.Removed {
-			if _, err := s.DeleteReplicaFromShard(ctx, desiredState.Collection, shardName, node); err != nil {
-				return nil, fmt.Errorf("delete replica %s from shard %s: %w", node, shardName, err)
-			}
-		}
 	}
 
 	return opsUUIDs, nil
-}
-
-func diffNodesPerShard(before, after map[string][]string) map[string]struct {
-	Remaining []string
-	Removed   []string
-	Added     []string
-} {
-	result := make(map[string]struct {
-		Remaining []string
-		Removed   []string
-		Added     []string
-	}, len(before))
-
-	for shardName, beforeShard := range before {
-		afterShard, ok := after[shardName]
-		if !ok {
-			// Shard missing entirely in the new state — all previous nodes are removed
-			result[shardName] = struct {
-				Remaining []string
-				Removed   []string
-				Added     []string
-			}{
-				Remaining: nil,
-				Removed:   beforeShard,
-				Added:     nil,
-			}
-			continue
-		}
-
-		beforeSet := make(map[string]struct{}, len(beforeShard))
-		for _, n := range beforeShard {
-			beforeSet[n] = struct{}{}
-		}
-
-		afterSet := make(map[string]struct{}, len(afterShard))
-		for _, n := range afterShard {
-			afterSet[n] = struct{}{}
-		}
-
-		var remaining, removed, added []string
-		for _, n := range beforeShard {
-			if _, ok := afterSet[n]; ok {
-				remaining = append(remaining, n)
-			} else {
-				removed = append(removed, n)
-			}
-		}
-		for _, n := range afterShard {
-			if _, ok := beforeSet[n]; !ok {
-				added = append(added, n)
-			}
-		}
-
-		result[shardName] = struct {
-			Remaining []string
-			Removed   []string
-			Added     []string
-		}{
-			Remaining: remaining,
-			Removed:   removed,
-			Added:     added,
-		}
-	}
-
-	return result
 }
 
 func (s *Raft) ReplicationReplicateReplica(ctx context.Context, uuid strfmt.UUID, sourceNode string, sourceCollection string, sourceShard string, targetNode string, transferType string) error {

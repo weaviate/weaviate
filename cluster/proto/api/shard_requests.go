@@ -155,6 +155,17 @@ type ShardingState struct {
 	Shards     map[string][]string
 }
 
+type ReplicationScalePlan struct {
+	PlanID                       strfmt.UUID
+	Collection                   string
+	ShardReplicationScaleActions map[string]ShardReplicationScaleActions
+}
+
+type ShardReplicationScaleActions struct {
+	RemoveNodes map[string]struct{}
+	AddNodes    map[string]string
+}
+
 type ReplicationQueryShardingStateByCollectionRequest struct {
 	Collection string
 }
@@ -164,13 +175,13 @@ type ReplicationQueryShardingStateByCollectionAndShardRequest struct {
 	Shard      string
 }
 
-type ReplicationScalePreviewRequest struct {
+type ReplicationScalePlanRequest struct {
 	Collection        string
 	ReplicationFactor int
 }
 
-type ReplicationScalePreviewResponse struct {
-	ShardingState ShardingState
+type ReplicationScalePlanResponse struct {
+	ReplicationScalePlan ReplicationScalePlan
 }
 
 type ReplicationDeleteAllRequest struct {

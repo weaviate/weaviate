@@ -436,83 +436,109 @@ func (h *replicationHandler) getCollectionShardingState(params replication.GetCo
 		})
 }
 
-// getReplicationScale validates input, authorizes, and returns a projected sharding state for a given replication factor.
-func (h *replicationHandler) getReplicationScale(params replication.ReplicationScalePreviewParams, principal *models.Principal) middleware.Responder {
+// getReplicationScalePlan validates input, authorizes, and returns a scaling plan for the desired replication factor.
+func (h *replicationHandler) getReplicationScalePlan(params replication.GetReplicationScalePlanParams, principal *models.Principal) middleware.Responder {
 	ctx := params.HTTPRequest.Context()
 
 	// Validate input
 	if params.Collection == "" {
-		return replication.NewReplicationScalePreviewBadRequest().WithPayload(
+		return replication.NewGetReplicationScalePlanBadRequest().WithPayload(
 			cerrors.ErrPayloadFromSingleErr(fmt.Errorf("collection name must be provided")),
 		)
 	}
 	if params.ReplicationFactor <= 0 {
-		return replication.NewReplicationScalePreviewBadRequest().WithPayload(
+		return replication.NewGetReplicationScalePlanBadRequest().WithPayload(
 			cerrors.ErrPayloadFromSingleErr(fmt.Errorf("replication factor must be greater than zero")),
 		)
 	}
 
 	// Authorize
 	if err := h.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Replications(params.Collection, "*")); err != nil {
-		return replication.NewReplicationScalePreviewForbidden().WithPayload(
+		return replication.NewGetReplicationScalePlanForbidden().WithPayload(
 			cerrors.ErrPayloadFromSingleErr(err),
 		)
 	}
 
-	// Query the manager for the projected sharding state
-	shardingState, err := h.replicationManager.ScalePreview(ctx, params.Collection, int(params.ReplicationFactor))
+	scalePlan, err := h.replicationManager.GetReplicationScalePlan(ctx, params.Collection, int(params.ReplicationFactor))
 	if errors.Is(err, replicationTypes.ErrNotFound) {
-		return replication.NewReplicationScalePreviewNotFound()
+		return replication.NewGetReplicationScalePlanNotFound()
 	} else if err != nil {
-		return replication.NewReplicationScalePreviewInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+		return replication.NewGetReplicationScalePlanInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
-	// Return the generated sharding state response
-	return replication.NewReplicationScalePreviewOK().WithPayload(
-		&models.ReplicationScalePreviewResponse{
-			ShardingState: h.generateShardingState(shardingState.Collection, shardingState.Shards),
-		},
-	)
+	modelsScalePlan := &models.ReplicationScalePlan{
+		PlanID:            scalePlan.PlanID,
+		Collection:        scalePlan.Collection,
+		ShardScaleActions: make(map[string]models.ReplicationScalePlanShardScaleActionsAnon),
+	}
+
+	for shard, actions := range scalePlan.ShardReplicationScaleActions {
+		modelsActions := models.ReplicationScalePlanShardScaleActionsAnon{
+			RemoveNodes: make([]string, 0, len(actions.RemoveNodes)),
+			AddNodes:    make(map[string]string),
+		}
+		for node := range actions.RemoveNodes {
+			modelsActions.RemoveNodes = append(modelsActions.RemoveNodes, node)
+		}
+		for node, sourceNode := range actions.AddNodes {
+			modelsActions.AddNodes[node] = sourceNode
+		}
+		modelsScalePlan.ShardScaleActions[shard] = modelsActions
+	}
+
+	return replication.NewGetReplicationScalePlanOK().WithPayload(modelsScalePlan)
 }
 
-// postReplicationScale validates input, authorizes, and applies scaling to match the desired sharding state.
-func (h *replicationHandler) postReplicationScale(params replication.ReplicationScaleApplyParams, principal *models.Principal) middleware.Responder {
+// applyReplicationScalePlan validates input, authorizes, and applies scaling to match the desired sharding state.
+func (h *replicationHandler) applyReplicationScalePlan(params replication.ReplicationScaleApplyParams, principal *models.Principal) middleware.Responder {
 	ctx := params.HTTPRequest.Context()
 
-	// Validate input
-	if params.Body == nil || params.Body.Collection == "" || len(params.Body.Shards) == 0 {
+	modelsScalePlan := params.Body
+
+	// Validate input non nil body and not nil scale plan
+	if modelsScalePlan == nil || modelsScalePlan.PlanID == "" || modelsScalePlan.Collection == "" {
 		return replication.NewReplicationScaleApplyBadRequest().WithPayload(
-			cerrors.ErrPayloadFromSingleErr(fmt.Errorf("body must contain collection and shards")),
+			cerrors.ErrPayloadFromSingleErr(fmt.Errorf("a valid scale plan with plan ID and collection name must be provided")),
 		)
 	}
 
 	// Authorize
-	if err := h.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Replications(params.Body.Collection, "*")); err != nil {
+	if err := h.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Replications(modelsScalePlan.Collection, "*")); err != nil {
 		return replication.NewReplicationScaleApplyForbidden().WithPayload(
 			cerrors.ErrPayloadFromSingleErr(err),
 		)
 	}
 
-	// Construct desired sharding state
-	desiredState := api.ShardingState{
-		Collection: params.Body.Collection,
-		Shards:     make(map[string][]string),
-	}
-	for _, shard := range params.Body.Shards {
-		desiredState.Shards[shard.Shard] = shard.Replicas
+	scalePlan := api.ReplicationScalePlan{
+		PlanID:                       modelsScalePlan.PlanID,
+		Collection:                   modelsScalePlan.Collection,
+		ShardReplicationScaleActions: make(map[string]api.ShardReplicationScaleActions),
 	}
 
-	// Apply scaling via the manager
-	operationIDs, err := h.replicationManager.ScaleApply(ctx, desiredState)
+	for shard, actions := range modelsScalePlan.ShardScaleActions {
+		scalePlan.ShardReplicationScaleActions[shard] = api.ShardReplicationScaleActions{
+			RemoveNodes: make(map[string]struct{}, len(actions.RemoveNodes)),
+			AddNodes:    make(map[string]string, len(actions.AddNodes)),
+		}
+		for _, node := range actions.RemoveNodes {
+			scalePlan.ShardReplicationScaleActions[shard].RemoveNodes[node] = struct{}{}
+		}
+		for node, sourceNode := range actions.AddNodes {
+			scalePlan.ShardReplicationScaleActions[shard].AddNodes[node] = sourceNode
+		}
+	}
+
+	operationIDs, err := h.replicationManager.ApplyReplicationScalePlan(ctx, scalePlan)
 	if errors.Is(err, replicationTypes.ErrNotFound) {
 		return replication.NewReplicationScaleApplyNotFound()
 	} else if err != nil {
 		return replication.NewReplicationScaleApplyInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
-	// Return operation IDs for any shard creation tasks
 	return replication.NewReplicationScaleApplyOK().WithPayload(
 		&models.ReplicationScaleApplyResponse{
+			PlanID:       scalePlan.PlanID,
+			Collection:   scalePlan.Collection,
 			OperationIds: operationIDs,
 		},
 	)

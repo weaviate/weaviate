@@ -51,6 +51,8 @@ type ClientService interface {
 
 	GetCollectionShardingState(params *GetCollectionShardingStateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetCollectionShardingStateOK, error)
 
+	GetReplicationScalePlan(params *GetReplicationScalePlanParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetReplicationScalePlanOK, error)
+
 	ListReplication(params *ListReplicationParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ListReplicationOK, error)
 
 	Replicate(params *ReplicateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ReplicateOK, error)
@@ -58,8 +60,6 @@ type ClientService interface {
 	ReplicationDetails(params *ReplicationDetailsParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ReplicationDetailsOK, error)
 
 	ReplicationScaleApply(params *ReplicationScaleApplyParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ReplicationScaleApplyOK, error)
-
-	ReplicationScalePreview(params *ReplicationScalePreviewParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ReplicationScalePreviewOK, error)
 
 	SetTransport(transport runtime.ClientTransport)
 }
@@ -268,6 +268,47 @@ func (a *Client) GetCollectionShardingState(params *GetCollectionShardingStatePa
 }
 
 /*
+GetReplicationScalePlan gets replication scale plan
+
+Computes and returns a replication scale plan for a given collection and desired replication factor. The plan includes, for each shard, a list of nodes to be added and a list of nodes to be removed.
+*/
+func (a *Client) GetReplicationScalePlan(params *GetReplicationScalePlanParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetReplicationScalePlanOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewGetReplicationScalePlanParams()
+	}
+	op := &runtime.ClientOperation{
+		ID:                 "getReplicationScalePlan",
+		Method:             "GET",
+		PathPattern:        "/replication/scale",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &GetReplicationScalePlanReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
+	if err != nil {
+		return nil, err
+	}
+	success, ok := result.(*GetReplicationScalePlanOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for getReplicationScalePlan: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
+}
+
+/*
 ListReplication lists replication operations
 
 Retrieves a list of currently registered replication operations, optionally filtered by collection, shard, or node ID.
@@ -391,9 +432,9 @@ func (a *Client) ReplicationDetails(params *ReplicationDetailsParams, authInfo r
 }
 
 /*
-ReplicationScaleApply applies replication scaling based on provided sharding state
+ReplicationScaleApply applies replication scaling plan
 
-Receives a desired ReplicationShardingState and performs scaling operations by assigning or removing replicas on shards as necessary, based on the difference between the current and provided sharding states. Shard creation tasks are tracked and returned as operation IDs. Shard drop tasks are applied immediately and are not tracked.
+Apply a replication scaling plan that specifies nodes to add or remove per shard for a given collection.
 */
 func (a *Client) ReplicationScaleApply(params *ReplicationScaleApplyParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ReplicationScaleApplyOK, error) {
 	// TODO: Validate the params before sending
@@ -428,47 +469,6 @@ func (a *Client) ReplicationScaleApply(params *ReplicationScaleApplyParams, auth
 	// unexpected success response
 	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
 	msg := fmt.Sprintf("unexpected success response for replicationScaleApply: API contract not enforced by server. Client expected to get an error, but got: %T", result)
-	panic(msg)
-}
-
-/*
-ReplicationScalePreview previews replication scaling plan for a given replication factor
-
-Computes and returns the expected ReplicationShardingState for the desired replication factor. The replication factor must be a positive integer greater than zero.
-*/
-func (a *Client) ReplicationScalePreview(params *ReplicationScalePreviewParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ReplicationScalePreviewOK, error) {
-	// TODO: Validate the params before sending
-	if params == nil {
-		params = NewReplicationScalePreviewParams()
-	}
-	op := &runtime.ClientOperation{
-		ID:                 "replicationScalePreview",
-		Method:             "GET",
-		PathPattern:        "/replication/scale",
-		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
-		Schemes:            []string{"https"},
-		Params:             params,
-		Reader:             &ReplicationScalePreviewReader{formats: a.formats},
-		AuthInfo:           authInfo,
-		Context:            params.Context,
-		Client:             params.HTTPClient,
-	}
-	for _, opt := range opts {
-		opt(op)
-	}
-
-	result, err := a.transport.Submit(op)
-	if err != nil {
-		return nil, err
-	}
-	success, ok := result.(*ReplicationScalePreviewOK)
-	if ok {
-		return success, nil
-	}
-	// unexpected success response
-	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
-	msg := fmt.Sprintf("unexpected success response for replicationScalePreview: API contract not enforced by server. Client expected to get an error, but got: %T", result)
 	panic(msg)
 }
 

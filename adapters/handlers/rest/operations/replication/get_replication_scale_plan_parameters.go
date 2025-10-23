@@ -27,24 +27,24 @@ import (
 	"github.com/go-openapi/validate"
 )
 
-// NewReplicationScalePreviewParams creates a new ReplicationScalePreviewParams object
+// NewGetReplicationScalePlanParams creates a new GetReplicationScalePlanParams object
 //
 // There are no default values defined in the spec.
-func NewReplicationScalePreviewParams() ReplicationScalePreviewParams {
+func NewGetReplicationScalePlanParams() GetReplicationScalePlanParams {
 
-	return ReplicationScalePreviewParams{}
+	return GetReplicationScalePlanParams{}
 }
 
-// ReplicationScalePreviewParams contains all the bound params for the replication scale preview operation
+// GetReplicationScalePlanParams contains all the bound params for the get replication scale plan operation
 // typically these are obtained from a http.Request
 //
-// swagger:parameters replicationScalePreview
-type ReplicationScalePreviewParams struct {
+// swagger:parameters getReplicationScalePlan
+type GetReplicationScalePlanParams struct {
 
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
-	/*The collection name to get the sharding state for.
+	/*The collection name to get the scaling plan for.
 	  Required: true
 	  In: query
 	*/
@@ -60,8 +60,8 @@ type ReplicationScalePreviewParams struct {
 // BindRequest both binds and validates a request, it assumes that complex things implement a Validatable(strfmt.Registry) error interface
 // for simple values it will use straight method calls.
 //
-// To ensure default values, the struct must have been initialized with NewReplicationScalePreviewParams() beforehand.
-func (o *ReplicationScalePreviewParams) BindRequest(r *http.Request, route *middleware.MatchedRoute) error {
+// To ensure default values, the struct must have been initialized with NewGetReplicationScalePlanParams() beforehand.
+func (o *GetReplicationScalePlanParams) BindRequest(r *http.Request, route *middleware.MatchedRoute) error {
 	var res []error
 
 	o.HTTPRequest = r
@@ -84,7 +84,7 @@ func (o *ReplicationScalePreviewParams) BindRequest(r *http.Request, route *midd
 }
 
 // bindCollection binds and validates parameter Collection from query.
-func (o *ReplicationScalePreviewParams) bindCollection(rawData []string, hasKey bool, formats strfmt.Registry) error {
+func (o *GetReplicationScalePlanParams) bindCollection(rawData []string, hasKey bool, formats strfmt.Registry) error {
 	if !hasKey {
 		return errors.Required("collection", "query", rawData)
 	}
@@ -105,7 +105,7 @@ func (o *ReplicationScalePreviewParams) bindCollection(rawData []string, hasKey 
 }
 
 // bindReplicationFactor binds and validates parameter ReplicationFactor from query.
-func (o *ReplicationScalePreviewParams) bindReplicationFactor(rawData []string, hasKey bool, formats strfmt.Registry) error {
+func (o *GetReplicationScalePlanParams) bindReplicationFactor(rawData []string, hasKey bool, formats strfmt.Registry) error {
 	if !hasKey {
 		return errors.Required("replicationFactor", "query", rawData)
 	}
@@ -135,7 +135,7 @@ func (o *ReplicationScalePreviewParams) bindReplicationFactor(rawData []string, 
 }
 
 // validateReplicationFactor carries on validations for parameter ReplicationFactor
-func (o *ReplicationScalePreviewParams) validateReplicationFactor(formats strfmt.Registry) error {
+func (o *GetReplicationScalePlanParams) validateReplicationFactor(formats strfmt.Registry) error {
 
 	if err := validate.MinimumInt("replicationFactor", "query", o.ReplicationFactor, 1, false); err != nil {
 		return err

@@ -45,11 +45,11 @@ type ReplicationScaleApplyParams struct {
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
-	/*The desired ReplicationShardingState to apply to the cluster.
+	/*The replication scaling plan specifying the collection and its shard-level replica adjustments.
 	  Required: true
 	  In: body
 	*/
-	Body *models.ReplicationShardingState
+	Body *models.ReplicationScalePlan
 }
 
 // BindRequest both binds and validates a request, it assumes that complex things implement a Validatable(strfmt.Registry) error interface
@@ -63,7 +63,7 @@ func (o *ReplicationScaleApplyParams) BindRequest(r *http.Request, route *middle
 
 	if runtime.HasBody(r) {
 		defer r.Body.Close()
-		var body models.ReplicationShardingState
+		var body models.ReplicationScalePlan
 		if err := route.Consumer.Consume(r.Body, &body); err != nil {
 			if err == io.EOF {
 				res = append(res, errors.Required("body", "body", ""))

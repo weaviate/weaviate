@@ -239,37 +239,37 @@ func (s *Raft) QueryShardingStateByCollectionAndShard(ctx context.Context, colle
 	return response, nil
 }
 
-func (s *Raft) ScalePreview(ctx context.Context, collection string, replicationFactor int) (api.ShardingState, error) {
-	request := &api.ReplicationScalePreviewRequest{
+func (s *Raft) GetReplicationScalePlan(ctx context.Context, collection string, replicationFactor int) (api.ReplicationScalePlan, error) {
+	request := &api.ReplicationScalePlanRequest{
 		Collection:        collection,
 		ReplicationFactor: replicationFactor,
 	}
 
 	subCommand, err := json.Marshal(request)
 	if err != nil {
-		return api.ShardingState{}, fmt.Errorf("marshal request: %w", err)
+		return api.ReplicationScalePlan{}, fmt.Errorf("marshal request: %w", err)
 	}
 
 	command := &api.QueryRequest{
-		Type:       api.QueryRequest_TYPE_GET_REPLICATION_SCALE_PREVIEW,
+		Type:       api.QueryRequest_TYPE_GET_REPLICATION_SCALE_PLAN,
 		SubCommand: subCommand,
 	}
 
 	queryResponse, err := s.Query(ctx, command)
 	if err != nil {
 		if strings.Contains(err.Error(), replicationTypes.ErrNotFound.Error()) {
-			return api.ShardingState{}, fmt.Errorf("%w: %w", types.ErrNotFound, replicationTypes.ErrNotFound)
+			return api.ReplicationScalePlan{}, fmt.Errorf("%w: %w", types.ErrNotFound, replicationTypes.ErrNotFound)
 		}
-		return api.ShardingState{}, fmt.Errorf("failed to execute query: %w", err)
+		return api.ReplicationScalePlan{}, fmt.Errorf("failed to execute query: %w", err)
 	}
 
-	response := api.ShardingState{}
+	response := api.ReplicationScalePlanResponse{}
 	err = json.Unmarshal(queryResponse.Payload, &response)
 	if err != nil {
-		return api.ShardingState{}, fmt.Errorf("failed to unmarshal query response: %w", err)
+		return api.ReplicationScalePlan{}, fmt.Errorf("failed to unmarshal query response: %w", err)
 	}
 
-	return response, nil
+	return response.ReplicationScalePlan, nil
 }
 
 func (s *Raft) ReplicationGetReplicaOpStatus(ctx context.Context, id uint64) (api.ShardReplicationState, error) {

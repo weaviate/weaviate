@@ -52,8 +52,8 @@ func SetupHandlers(enabled bool, api *operations.WeaviateAPI, replicationManager
 
 	// Sharding state query handlers
 	api.ReplicationGetCollectionShardingStateHandler = replication.GetCollectionShardingStateHandlerFunc(h.getCollectionShardingState)
-	api.ReplicationReplicationScalePreviewHandler = replication.ReplicationScalePreviewHandlerFunc(h.getReplicationScale)
-	api.ReplicationReplicationScaleApplyHandler = replication.ReplicationScaleApplyHandlerFunc(h.postReplicationScale)
+	api.ReplicationGetReplicationScalePlanHandler = replication.GetReplicationScalePlanHandlerFunc(h.getReplicationScalePlan)
+	api.ReplicationReplicationScaleApplyHandler = replication.ReplicationScaleApplyHandlerFunc(h.applyReplicationScalePlan)
 
 	// Replication node details query handlers
 	api.ReplicationListReplicationHandler = replication.ListReplicationHandlerFunc(h.listReplication)
@@ -78,8 +78,8 @@ func setupUnimplementedHandlers(api *operations.WeaviateAPI) {
 	api.ReplicationGetCollectionShardingStateHandler = replication.GetCollectionShardingStateHandlerFunc(func(replication.GetCollectionShardingStateParams, *models.Principal) middleware.Responder {
 		return replication.NewGetCollectionShardingStateNotImplemented()
 	})
-	api.ReplicationReplicationScalePreviewHandler = replication.ReplicationScalePreviewHandlerFunc(func(replication.ReplicationScalePreviewParams, *models.Principal) middleware.Responder {
-		return replication.NewReplicationScalePreviewNotImplemented()
+	api.ReplicationGetReplicationScalePlanHandler = replication.GetReplicationScalePlanHandlerFunc(func(replication.GetReplicationScalePlanParams, *models.Principal) middleware.Responder {
+		return replication.NewGetReplicationScalePlanNotImplemented()
 	})
 	api.ReplicationReplicationScaleApplyHandler = replication.ReplicationScaleApplyHandlerFunc(func(replication.ReplicationScaleApplyParams, *models.Principal) middleware.Responder {
 		return replication.NewReplicationScaleApplyNotImplemented()

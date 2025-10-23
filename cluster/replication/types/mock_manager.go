@@ -36,6 +36,65 @@ func (_m *MockManager) EXPECT() *MockManager_Expecter {
 	return &MockManager_Expecter{mock: &_m.Mock}
 }
 
+// ApplyReplicationScalePlan provides a mock function with given fields: ctx, scalePlan
+func (_m *MockManager) ApplyReplicationScalePlan(ctx context.Context, scalePlan api.ReplicationScalePlan) ([]strfmt.UUID, error) {
+	ret := _m.Called(ctx, scalePlan)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ApplyReplicationScalePlan")
+	}
+
+	var r0 []strfmt.UUID
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, api.ReplicationScalePlan) ([]strfmt.UUID, error)); ok {
+		return rf(ctx, scalePlan)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, api.ReplicationScalePlan) []strfmt.UUID); ok {
+		r0 = rf(ctx, scalePlan)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]strfmt.UUID)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, api.ReplicationScalePlan) error); ok {
+		r1 = rf(ctx, scalePlan)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockManager_ApplyReplicationScalePlan_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ApplyReplicationScalePlan'
+type MockManager_ApplyReplicationScalePlan_Call struct {
+	*mock.Call
+}
+
+// ApplyReplicationScalePlan is a helper method to define mock.On call
+//   - ctx context.Context
+//   - scalePlan api.ReplicationScalePlan
+func (_e *MockManager_Expecter) ApplyReplicationScalePlan(ctx interface{}, scalePlan interface{}) *MockManager_ApplyReplicationScalePlan_Call {
+	return &MockManager_ApplyReplicationScalePlan_Call{Call: _e.mock.On("ApplyReplicationScalePlan", ctx, scalePlan)}
+}
+
+func (_c *MockManager_ApplyReplicationScalePlan_Call) Run(run func(ctx context.Context, scalePlan api.ReplicationScalePlan)) *MockManager_ApplyReplicationScalePlan_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(api.ReplicationScalePlan))
+	})
+	return _c
+}
+
+func (_c *MockManager_ApplyReplicationScalePlan_Call) Return(_a0 []strfmt.UUID, _a1 error) *MockManager_ApplyReplicationScalePlan_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockManager_ApplyReplicationScalePlan_Call) RunAndReturn(run func(context.Context, api.ReplicationScalePlan) ([]strfmt.UUID, error)) *MockManager_ApplyReplicationScalePlan_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // CancelReplication provides a mock function with given fields: ctx, uuid
 func (_m *MockManager) CancelReplication(ctx context.Context, uuid strfmt.UUID) error {
 	ret := _m.Called(ctx, uuid)
@@ -799,6 +858,64 @@ func (_c *MockManager_GetReplicationDetailsByTargetNode_Call) RunAndReturn(run f
 	return _c
 }
 
+// GetReplicationScalePlan provides a mock function with given fields: ctx, collection, replicationFactor
+func (_m *MockManager) GetReplicationScalePlan(ctx context.Context, collection string, replicationFactor int) (api.ReplicationScalePlan, error) {
+	ret := _m.Called(ctx, collection, replicationFactor)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetReplicationScalePlan")
+	}
+
+	var r0 api.ReplicationScalePlan
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, int) (api.ReplicationScalePlan, error)); ok {
+		return rf(ctx, collection, replicationFactor)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, int) api.ReplicationScalePlan); ok {
+		r0 = rf(ctx, collection, replicationFactor)
+	} else {
+		r0 = ret.Get(0).(api.ReplicationScalePlan)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, int) error); ok {
+		r1 = rf(ctx, collection, replicationFactor)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockManager_GetReplicationScalePlan_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetReplicationScalePlan'
+type MockManager_GetReplicationScalePlan_Call struct {
+	*mock.Call
+}
+
+// GetReplicationScalePlan is a helper method to define mock.On call
+//   - ctx context.Context
+//   - collection string
+//   - replicationFactor int
+func (_e *MockManager_Expecter) GetReplicationScalePlan(ctx interface{}, collection interface{}, replicationFactor interface{}) *MockManager_GetReplicationScalePlan_Call {
+	return &MockManager_GetReplicationScalePlan_Call{Call: _e.mock.On("GetReplicationScalePlan", ctx, collection, replicationFactor)}
+}
+
+func (_c *MockManager_GetReplicationScalePlan_Call) Run(run func(ctx context.Context, collection string, replicationFactor int)) *MockManager_GetReplicationScalePlan_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(int))
+	})
+	return _c
+}
+
+func (_c *MockManager_GetReplicationScalePlan_Call) Return(_a0 api.ReplicationScalePlan, _a1 error) *MockManager_GetReplicationScalePlan_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockManager_GetReplicationScalePlan_Call) RunAndReturn(run func(context.Context, string, int) (api.ReplicationScalePlan, error)) *MockManager_GetReplicationScalePlan_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // QueryShardingStateByCollection provides a mock function with given fields: ctx, collection
 func (_m *MockManager) QueryShardingStateByCollection(ctx context.Context, collection string) (api.ShardingState, error) {
 	ret := _m.Called(ctx, collection)
@@ -962,123 +1079,6 @@ func (_c *MockManager_ReplicationReplicateReplica_Call) Return(_a0 error) *MockM
 }
 
 func (_c *MockManager_ReplicationReplicateReplica_Call) RunAndReturn(run func(context.Context, strfmt.UUID, string, string, string, string, string) error) *MockManager_ReplicationReplicateReplica_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// ScaleApply provides a mock function with given fields: ctx, desiredState
-func (_m *MockManager) ScaleApply(ctx context.Context, desiredState api.ShardingState) ([]strfmt.UUID, error) {
-	ret := _m.Called(ctx, desiredState)
-
-	if len(ret) == 0 {
-		panic("no return value specified for ScaleApply")
-	}
-
-	var r0 []strfmt.UUID
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, api.ShardingState) ([]strfmt.UUID, error)); ok {
-		return rf(ctx, desiredState)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, api.ShardingState) []strfmt.UUID); ok {
-		r0 = rf(ctx, desiredState)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]strfmt.UUID)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context, api.ShardingState) error); ok {
-		r1 = rf(ctx, desiredState)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// MockManager_ScaleApply_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ScaleApply'
-type MockManager_ScaleApply_Call struct {
-	*mock.Call
-}
-
-// ScaleApply is a helper method to define mock.On call
-//   - ctx context.Context
-//   - desiredState api.ShardingState
-func (_e *MockManager_Expecter) ScaleApply(ctx interface{}, desiredState interface{}) *MockManager_ScaleApply_Call {
-	return &MockManager_ScaleApply_Call{Call: _e.mock.On("ScaleApply", ctx, desiredState)}
-}
-
-func (_c *MockManager_ScaleApply_Call) Run(run func(ctx context.Context, desiredState api.ShardingState)) *MockManager_ScaleApply_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(api.ShardingState))
-	})
-	return _c
-}
-
-func (_c *MockManager_ScaleApply_Call) Return(_a0 []strfmt.UUID, _a1 error) *MockManager_ScaleApply_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *MockManager_ScaleApply_Call) RunAndReturn(run func(context.Context, api.ShardingState) ([]strfmt.UUID, error)) *MockManager_ScaleApply_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// ScalePreview provides a mock function with given fields: ctx, collection, replicationFactor
-func (_m *MockManager) ScalePreview(ctx context.Context, collection string, replicationFactor int) (api.ShardingState, error) {
-	ret := _m.Called(ctx, collection, replicationFactor)
-
-	if len(ret) == 0 {
-		panic("no return value specified for ScalePreview")
-	}
-
-	var r0 api.ShardingState
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, int) (api.ShardingState, error)); ok {
-		return rf(ctx, collection, replicationFactor)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, string, int) api.ShardingState); ok {
-		r0 = rf(ctx, collection, replicationFactor)
-	} else {
-		r0 = ret.Get(0).(api.ShardingState)
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context, string, int) error); ok {
-		r1 = rf(ctx, collection, replicationFactor)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// MockManager_ScalePreview_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ScalePreview'
-type MockManager_ScalePreview_Call struct {
-	*mock.Call
-}
-
-// ScalePreview is a helper method to define mock.On call
-//   - ctx context.Context
-//   - collection string
-//   - replicationFactor int
-func (_e *MockManager_Expecter) ScalePreview(ctx interface{}, collection interface{}, replicationFactor interface{}) *MockManager_ScalePreview_Call {
-	return &MockManager_ScalePreview_Call{Call: _e.mock.On("ScalePreview", ctx, collection, replicationFactor)}
-}
-
-func (_c *MockManager_ScalePreview_Call) Run(run func(ctx context.Context, collection string, replicationFactor int)) *MockManager_ScalePreview_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(int))
-	})
-	return _c
-}
-
-func (_c *MockManager_ScalePreview_Call) Return(_a0 api.ShardingState, _a1 error) *MockManager_ScalePreview_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *MockManager_ScalePreview_Call) RunAndReturn(run func(context.Context, string, int) (api.ShardingState, error)) *MockManager_ScalePreview_Call {
 	_c.Call.Return(run)
 	return _c
 }

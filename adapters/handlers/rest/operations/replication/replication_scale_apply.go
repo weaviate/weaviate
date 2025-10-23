@@ -45,9 +45,9 @@ func NewReplicationScaleApply(ctx *middleware.Context, handler ReplicationScaleA
 /*
 	ReplicationScaleApply swagger:route POST /replication/scale replication replicationScaleApply
 
-# Apply replication scaling based on provided sharding state
+# Apply replication scaling plan
 
-Receives a desired ReplicationShardingState and performs scaling operations by assigning or removing replicas on shards as necessary, based on the difference between the current and provided sharding states. Shard creation tasks are tracked and returned as operation IDs. Shard drop tasks are applied immediately and are not tracked.
+Apply a replication scaling plan that specifies nodes to add or remove per shard for a given collection.
 */
 type ReplicationScaleApply struct {
 	Context *middleware.Context

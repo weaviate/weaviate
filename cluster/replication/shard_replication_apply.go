@@ -61,7 +61,12 @@ func (s *ShardReplicationFSM) RegisterError(c *api.ReplicationRegisterErrorReque
 // is held
 func (s *ShardReplicationFSM) writeOpIntoFSM(op ShardReplicationOp, status ShardReplicationOpStatus) error {
 	if _, ok := s.opsByTargetFQDN[op.TargetShard]; ok {
-		return ErrShardAlreadyReplicating
+		// First check the status of the existing op. If it's READY or CANCELLED we can accept a new op
+		if existingOpStatus, ok := s.statusById[op.ID]; ok {
+			if existingOpStatus.GetCurrentState() != api.READY && existingOpStatus.GetCurrentState() != api.CANCELLED {
+				return ErrShardAlreadyReplicating
+			}
+		}
 	}
 
 	if existingOps, ok := s.opsBySourceFQDN[op.SourceShard]; ok {

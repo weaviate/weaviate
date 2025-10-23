@@ -126,10 +126,10 @@ func (st *Store) Query(req *cmd.QueryRequest) (*cmd.QueryResponse, error) {
 		if err != nil {
 			return &cmd.QueryResponse{}, fmt.Errorf("could not get sharding state by collection and shard: %w", err)
 		}
-	case cmd.QueryRequest_TYPE_GET_REPLICATION_SCALE_PREVIEW:
-		payload, err = st.replicationManager.QueryReplicationScalePreview(req)
+	case cmd.QueryRequest_TYPE_GET_REPLICATION_SCALE_PLAN:
+		payload, err = st.replicationManager.QueryReplicationScalePlan(req)
 		if err != nil {
-			return &cmd.QueryResponse{}, fmt.Errorf("could not get replication scale preview: %w", err)
+			return &cmd.QueryResponse{}, fmt.Errorf("could not get replication scale plan: %w", err)
 		}
 	case cmd.QueryRequest_TYPE_GET_ALL_REPLICATION_DETAILS:
 		payload, err = st.replicationManager.GetAllReplicationDetails(req)
