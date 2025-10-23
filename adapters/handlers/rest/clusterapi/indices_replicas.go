@@ -173,23 +173,19 @@ func (i *replicatedIndices) writeResponse(w http.ResponseWriter, err error) {
 	}
 }
 
-func (i *replicatedIndices) enqueueRequest(r *http.Request, w http.ResponseWriter) (*sync.WaitGroup, error) {
+func (i *replicatedIndices) enqueueRequest(r *http.Request, w http.ResponseWriter, wg *sync.WaitGroup) error {
 	i.requestQueueMu.RLock()
 	defer i.requestQueueMu.RUnlock()
 
 	if i.isShutdown.Load() {
-		return nil, errReplicatedIndicesShutdown
+		return errReplicatedIndicesShutdown
 	}
-
-	wg := &sync.WaitGroup{}
-	wg.Add(1)
 
 	select {
 	case i.requestQueue <- queuedRequest{r: r, w: w, wg: wg}:
-		return wg, nil
+		return nil
 	default:
-		wg.Done() //nolint:SA2000
-		return nil, errReplicatedIndicesQueueFull
+		return errReplicatedIndicesQueueFull
 	}
 }
 
@@ -238,8 +234,11 @@ func (i *replicatedIndices) indicesHandler() http.HandlerFunc {
 		if i.queueEnabled() {
 			i.startWorkersOnce.Do(i.startWorkers)
 
-			wg, err := i.enqueueRequest(r, w)
+			wg := &sync.WaitGroup{}
+			wg.Add(1)
+			err := i.enqueueRequest(r, w, wg)
 			if err != nil {
+				wg.Done() //nolint:SA2000
 				i.writeResponse(w, err)
 				return
 			}
