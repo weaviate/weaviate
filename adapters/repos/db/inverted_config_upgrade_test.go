@@ -52,56 +52,66 @@ func TestUpdateInvertedConfigStopwords(t *testing.T) {
 	idx := repo.GetIndex(className)
 	require.NotNil(t, idx)
 
-	for _, location := range []string{"memory", "disk"} {
-		t.Run("bm25f journey "+location, func(t *testing.T) {
-			filter := &filters.LocalFilter{
-				Root: &filters.Clause{
-					On: &filters.Path{
-						Class:    className,
-						Property: schema.PropertyName("description"),
-					},
-					Value: &filters.Value{
-						Value: []string{"journey"},
-						Type:  schema.DataTypeText,
-					},
-					Operator: filters.ContainsAny,
+	t.Run("bm25f journey (not stopword)", func(t *testing.T) {
+		filter := &filters.LocalFilter{
+			Root: &filters.Clause{
+				On: &filters.Path{
+					Class:    className,
+					Property: schema.PropertyName("description"),
 				},
-			}
-			res, _, err := idx.objectSearch(context.TODO(), 1000, filter, nil, nil, nil, additional.Properties{}, nil, "", 0, props)
-			require.Nil(t, err)
-			t.Log("--- Start results for singleprop search ---")
-			for _, r := range res {
-				t.Logf("Result id: %v, title: %v\n", r.DocID, r.Object.Properties.(map[string]interface{})["description"])
-			}
-			require.Equal(t, len(res), 5)
-		})
-
-		t.Run("bm25f a "+location, func(t *testing.T) {
-			filter := &filters.LocalFilter{
-				Root: &filters.Clause{
-					On: &filters.Path{
-						Class:    className,
-						Property: schema.PropertyName("description"),
-					},
-					Value: &filters.Value{
-						Value: []string{"a"},
-						Type:  schema.DataTypeText,
-					},
-					Operator: filters.ContainsAny,
+				Value: &filters.Value{
+					Value: []string{"journey"},
+					Type:  schema.DataTypeText,
 				},
-			}
-			_, _, err := idx.objectSearch(context.TODO(), 1000, filter, nil, nil, nil, additional.Properties{}, nil, "", 0, props)
-			require.Error(t, err)
-		})
-
-		for _, index := range repo.indices {
-			index.ForEachShard(func(name string, shard ShardLike) error {
-				err := shard.Store().FlushMemtables(context.Background())
-				require.Nil(t, err)
-				return nil
-			})
+				Operator: filters.ContainsAny,
+			},
 		}
-	}
+		res, _, err := idx.objectSearch(context.TODO(), 1000, filter, nil, nil, nil, additional.Properties{}, nil, "", 0, props)
+		require.Nil(t, err)
+		t.Log("--- Start results for singleprop search ---")
+		for _, r := range res {
+			t.Logf("Result id: %v, title: %v\n", r.DocID, r.Object.Properties.(map[string]interface{})["description"])
+		}
+		require.Equal(t, len(res), 5)
+	})
+
+	t.Run("bm25f a (stopword)", func(t *testing.T) {
+		filter := &filters.LocalFilter{
+			Root: &filters.Clause{
+				On: &filters.Path{
+					Class:    className,
+					Property: schema.PropertyName("description"),
+				},
+				Value: &filters.Value{
+					Value: []string{"a"},
+					Type:  schema.DataTypeText,
+				},
+				Operator: filters.ContainsAny,
+			},
+		}
+		_, _, err := idx.objectSearch(context.TODO(), 1000, filter, nil, nil, nil, additional.Properties{}, nil, "", 0, props)
+		require.Error(t, err)
+	})
+
+	t.Run("bm25f a journey (stopword + not stopword)", func(t *testing.T) {
+		filter := &filters.LocalFilter{
+			Root: &filters.Clause{
+				On: &filters.Path{
+					Class:    className,
+					Property: schema.PropertyName("description"),
+				},
+				Value: &filters.Value{
+					Value: []string{"a", "journey"},
+					Type:  schema.DataTypeText,
+				},
+				Operator: filters.ContainsAny,
+			},
+		}
+		res, _, err := idx.objectSearch(context.TODO(), 1000, filter, nil, nil, nil, additional.Properties{}, nil, "", 0, props)
+		require.Nil(t, err)
+		// all results contain "journey", "a" is a stopword and ignored
+		require.Equal(t, len(res), 5)
+	})
 
 	t.Run("update stopwords", func(t *testing.T) {
 		class := repo.schemaGetter.ReadOnlyClass(className.String())
@@ -117,7 +127,7 @@ func TestUpdateInvertedConfigStopwords(t *testing.T) {
 	})
 
 	t.Run("Updated stopwords", func(t *testing.T) {
-		t.Run("bm25f journey", func(t *testing.T) {
+		t.Run("bm25f journey (stopword)", func(t *testing.T) {
 			filter := &filters.LocalFilter{
 				Root: &filters.Clause{
 					On: &filters.Path{
@@ -132,10 +142,11 @@ func TestUpdateInvertedConfigStopwords(t *testing.T) {
 				},
 			}
 			_, _, err := idx.objectSearch(context.TODO(), 1000, filter, nil, nil, nil, additional.Properties{}, nil, "", 0, props)
+			// now an error, as "journey" was added to stopwords, and we are searching only for stopwords
 			require.Error(t, err)
 		})
 
-		t.Run("bm25f a", func(t *testing.T) {
+		t.Run("bm25f a (not a stopword)", func(t *testing.T) {
 			filter := &filters.LocalFilter{
 				Root: &filters.Clause{
 					On: &filters.Path{
@@ -150,11 +161,29 @@ func TestUpdateInvertedConfigStopwords(t *testing.T) {
 				},
 			}
 			res, _, err := idx.objectSearch(context.TODO(), 1000, filter, nil, nil, nil, additional.Properties{}, nil, "", 0, props)
+			// now no error, as "a" was removed from stopwords
 			require.Nil(t, err)
-			t.Log("--- Start results for singleprop search ---")
-			for _, r := range res {
-				t.Logf("Result id: %v, title: %v\n", r.DocID, r.Object.Properties.(map[string]interface{})["description"])
+			// all results contain "a"
+			require.Equal(t, len(res), 2)
+		})
+
+		t.Run("bm25f a journey (not stopword + stopword)", func(t *testing.T) {
+			filter := &filters.LocalFilter{
+				Root: &filters.Clause{
+					On: &filters.Path{
+						Class:    className,
+						Property: schema.PropertyName("description"),
+					},
+					Value: &filters.Value{
+						Value: []string{"a", "journey"},
+						Type:  schema.DataTypeText,
+					},
+					Operator: filters.ContainsAny,
+				},
 			}
+			res, _, err := idx.objectSearch(context.TODO(), 1000, filter, nil, nil, nil, additional.Properties{}, nil, "", 0, props)
+			require.Nil(t, err)
+			// all results contain "a", "journey" is now a stopword and ignored
 			require.Equal(t, len(res), 2)
 		})
 	})
