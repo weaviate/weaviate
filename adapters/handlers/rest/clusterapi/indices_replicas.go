@@ -152,7 +152,7 @@ func (i *replicatedIndices) startWorkers() {
 			for rq := range i.requestQueue {
 				if rq.r.Context().Err() != nil {
 					if rq.wg != nil {
-						rq.wg.Done()
+						rq.wg.Done() //nolint:SA2000
 					}
 					rq.w.WriteHeader(http.StatusRequestTimeout)
 					continue
@@ -190,7 +190,7 @@ func (i *replicatedIndices) indicesHandler() http.HandlerFunc {
 			case i.requestQueue <- queuedRequest{r: r, w: w, wg: &wg}:
 			default:
 				http.Error(w, "too many buffered requests", i.requestQueueConfig.QueueFullHttpStatus)
-				wg.Done()
+				wg.Done() //nolint:SA2000
 				return
 			}
 			wg.Wait()
@@ -971,8 +971,10 @@ func (i *replicatedIndices) Close(ctx context.Context) error {
 						i.logger.WithField("action", "close_replicated_indices").Debug("queue closed")
 						return err
 					}
-					rq.w.WriteHeader(http.StatusRequestTimeout)
-					rq.wg.Done()
+					func() {
+						defer rq.wg.Done()
+						rq.w.WriteHeader(http.StatusRequestTimeout)
+					}()
 				default:
 					i.logger.WithField("action", "close_replicated_indices").Debug("no more requests to drain")
 					return err

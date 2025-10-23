@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -29,7 +30,8 @@ const (
 )
 
 func Test_MultiTenantBackupJourney(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
+	defer cancel()
 
 	multiTenantBackupJourneyStart(t, ctx, false, "backups", "", "")
 	t.Run("with override bucket and path", func(t *testing.T) {
@@ -49,7 +51,8 @@ func multiTenantBackupJourneyStart(t *testing.T, ctx context.Context, override b
 	}
 
 	t.Run("multiple node", func(t *testing.T) {
-		ctx := context.Background()
+		ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+		defer cancel()
 		t.Log("pre-instance env setup")
 		containerToUse := containerName
 		if override {

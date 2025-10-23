@@ -306,7 +306,8 @@ func (s *backupHandlers) list(params backups.BackupsListParams,
 	principal *models.Principal,
 ) middleware.Responder {
 	payload, err := s.manager.List(
-		params.HTTPRequest.Context(), principal, params.Backend)
+		params.HTTPRequest.Context(), principal, params.Backend, params.Order,
+	)
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
 		switch {
