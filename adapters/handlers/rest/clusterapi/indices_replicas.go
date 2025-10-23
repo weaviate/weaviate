@@ -82,10 +82,12 @@ type replicatedIndices struct {
 	maintenanceModeEnabled func() bool
 
 	requestQueueConfig cluster.RequestQueueConfig
+	// requestQueueLock is used to synchronize sending to the requestQueue and closing it, without
+	// this we would have a race condition in case the channel closed right before we try to send.
+	requestQueueLock sync.RWMutex
 	// requestQueue buffers requests until they're picked up by a worker, goal is to avoid
 	// overwhelming the system with requests during spikes (also allows for backpressure)
-	requestQueueLock sync.RWMutex
-	requestQueue     chan queuedRequest
+	requestQueue chan queuedRequest
 	// startWorkersOnce ensures that the workers are started only once
 	startWorkersOnce sync.Once
 	// set to true when shutting down
