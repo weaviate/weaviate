@@ -170,6 +170,9 @@ func (i *replicatedIndices) writeResponse(w http.ResponseWriter, err error) {
 		http.Error(w, responseShuttingDown, http.StatusServiceUnavailable)
 	case errors.Is(err, errReplicatedIndicesQueueFull):
 		http.Error(w, responseQueueFull, i.requestQueueConfig.QueueFullHttpStatus)
+	default:
+		i.logger.WithError(err).Error("unhandled error in replicated indices handler")
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 	}
 }
 
