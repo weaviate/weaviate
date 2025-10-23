@@ -107,7 +107,7 @@ func (opq *OperationsQueue) Close() error {
 
 func (opq *OperationsQueue) EnqueueSplit(ctx context.Context, postingID uint64) error {
 	if !opq.asyncEnabled {
-		return errors.New("async is not enabled")
+		return errors.New("async is not enabled enqueue split")
 	}
 
 	/*start := time.Now()
@@ -135,7 +135,7 @@ func (opq *OperationsQueue) EnqueueSplit(ctx context.Context, postingID uint64) 
 
 func (opq *OperationsQueue) EnqueueMerge(ctx context.Context, postingID uint64) error {
 	if !opq.asyncEnabled {
-		return errors.New("async is not enabled")
+		return errors.New("async is not enabled enqueue merge")
 	}
 
 	/*start := time.Now()
@@ -163,7 +163,7 @@ func (opq *OperationsQueue) EnqueueMerge(ctx context.Context, postingID uint64) 
 
 func (opq *OperationsQueue) EnqueueReassign(ctx context.Context, postingID uint64) error {
 	if !opq.asyncEnabled {
-		return errors.New("async is not enabled")
+		return errors.New("async is not enabled enqueue reassign")
 	}
 
 	/*start := time.Now()

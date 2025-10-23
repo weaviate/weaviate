@@ -83,10 +83,11 @@ type SPFresh struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	splitCh    *common.UnboundedChannel[uint64]            // Channel for split operations
-	mergeCh    *common.UnboundedChannel[uint64]            // Channel for merge operations
-	reassignCh *common.UnboundedChannel[reassignOperation] // Channel for reassign operations
-	wg         sync.WaitGroup
+	//splitCh    *common.UnboundedChannel[uint64]            // Channel for split operations
+	//mergeCh    *common.UnboundedChannel[uint64]            // Channel for merge operations
+	operationsQueue OperationsQueue
+	reassignCh      *common.UnboundedChannel[reassignOperation] // Channel for reassign operations
+	wg              sync.WaitGroup
 
 	splitList *deduplicator // Prevents duplicate split operations
 	mergeList *deduplicator // Prevents duplicate merge operations
@@ -131,8 +132,8 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*SPFresh, error) {
 		postingLocks: common.NewDefaultShardedRWLocks(),
 		// TODO: Eventually, we'll create sharded workers between all instances of SPFresh
 		// to minimize the number of goroutines while still maximizing CPU usage and I/O throughput.
-		splitCh:    common.MakeUnboundedChannel[uint64](),
-		mergeCh:    common.MakeUnboundedChannel[uint64](),
+		//splitCh:    common.MakeUnboundedChannel[uint64](),
+		//mergeCh:    common.MakeUnboundedChannel[uint64](),
 		reassignCh: common.MakeUnboundedChannel[reassignOperation](),
 		splitList:  newDeduplicator(),
 		mergeList:  newDeduplicator(),
@@ -159,10 +160,10 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*SPFresh, error) {
 	s.ctx, s.cancel = context.WithCancel(context.Background())
 
 	// start N workers to process split operations
-	for i := 0; i < s.config.SplitWorkers; i++ {
+	/*for i := 0; i < s.config.SplitWorkers; i++ {
 		s.wg.Add(1)
 		enterrors.GoWrapper(s.splitWorker, s.logger)
-	}
+	}*/
 
 	// start M workers to process reassign operations
 	for i := 0; i < s.config.ReassignWorkers; i++ {
@@ -171,8 +172,8 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*SPFresh, error) {
 	}
 
 	// start a single worker to process merge operations
-	s.wg.Add(1)
-	enterrors.GoWrapper(s.mergeWorker, s.logger)
+	/*s.wg.Add(1)
+	enterrors.GoWrapper(s.mergeWorker, s.logger)*/
 
 	return &s, nil
 }
@@ -227,9 +228,9 @@ func (s *SPFresh) Shutdown(ctx context.Context) error {
 	s.cancel()
 
 	// Close the split channel to signal workers to stop
-	s.splitCh.Close(ctx)
+	//s.splitCh.Close(ctx)
 	s.reassignCh.Close(ctx)
-	s.mergeCh.Close(ctx)
+	//s.mergeCh.Close(ctx)
 
 	s.wg.Wait() // Wait for all workers to finish
 	return nil
