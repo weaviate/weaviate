@@ -241,7 +241,7 @@ func (s *Searcher) extractPropValuePair(
 	}
 	if filter.Operands != nil {
 		// nested filter
-		children, err := s.extractPropValuePairs(ctx, filter.Operands, className)
+		children, err := s.extractPropValuePairs(ctx, filter.Operands, filter.Operator, className)
 		if err != nil {
 			return nil, err
 		}
@@ -310,7 +310,7 @@ func (s *Searcher) extractPropValuePair(
 }
 
 func (s *Searcher) extractPropValuePairs(ctx context.Context,
-	operands []filters.Clause, className schema.ClassName,
+	operands []filters.Clause, operator filters.Operator, className schema.ClassName,
 ) ([]*propValuePair, error) {
 	children := make([]*propValuePair, len(operands))
 	eg := enterrors.NewErrorGroupWrapper(s.logger)
@@ -324,6 +324,9 @@ func (s *Searcher) extractPropValuePairs(ctx context.Context,
 		eg.Go(func() error {
 			ctx := concurrency.ContextWithFractionalBudget(ctx, concurrencyReductionFactor, concurrency.NUMCPU)
 			child, err := s.extractPropValuePair(ctx, &clause, className)
+			if err != nil && err.Error() == "invalid search term, only stopwords provided. Stopwords can be configured in class.invertedIndexConfig.stopwords" && operator == filters.ContainsAny {
+				return nil
+			}
 			if err != nil {
 				return fmt.Errorf("nested clause at pos %d: %w", i, err)
 			}
@@ -335,7 +338,13 @@ func (s *Searcher) extractPropValuePairs(ctx context.Context,
 	if err := eg.Wait(); err != nil {
 		return nil, fmt.Errorf("nested query: %w", err)
 	}
-	return children, nil
+	finalChildren := make([]*propValuePair, 0, len(children))
+	for _, child := range children {
+		if child != nil {
+			finalChildren = append(finalChildren, child)
+		}
+	}
+	return finalChildren, nil
 }
 
 func (s *Searcher) extractReferenceFilter(prop *models.Property,
@@ -715,7 +724,7 @@ func (s *Searcher) extractContains(ctx context.Context,
 		return nil, fmt.Errorf("unsupported type '%T' for '%v' operator", propType, operator)
 	}
 
-	children, err := s.extractPropValuePairs(ctx, operands, schema.ClassName(class.Class))
+	children, err := s.extractPropValuePairs(ctx, operands, operator, schema.ClassName(class.Class))
 	if err != nil {
 		return nil, err
 	}
