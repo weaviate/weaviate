@@ -187,14 +187,14 @@ func configureMemberlistAddresses(cfg *memberlist.Config, userConfig Config) err
 
 // configureMemberlistSettings applies additional memberlist settings
 func configureMemberlistSettings(cfg *memberlist.Config, userConfig Config, raftTimeoutsMultiplier int) {
+	// Set dead node reclaim time to 60 seconds by default
+	cfg.DeadNodeReclaimTime = 60 * time.Second
+
 	// Configure timeouts and failure detection
 	if userConfig.MemberlistFastFailureDetection {
 		cfg.SuspicionMult = 1
 		cfg.DeadNodeReclaimTime = 5 * time.Second
 	}
-
-	// Set dead node reclaim time
-	cfg.DeadNodeReclaimTime = 60 * time.Second
 
 	// Set TCP timeout based on configuration type
 	if userConfig.AdvertiseAddr != "" {
