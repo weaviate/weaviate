@@ -162,6 +162,8 @@ func Init(userConfig Config, grpcPort, raftTimeoutsMultiplier int, dataPath stri
 	if userConfig.AdvertiseAddr != "" {
 		cfg.AdvertiseAddr = userConfig.AdvertiseAddr
 		cfg.BindAddr = userConfig.BindAddr
+		// default to gossip bind port if advertise port is not set
+		cfg.AdvertisePort = userConfig.GossipBindPort
 	}
 
 	if userConfig.AdvertisePort != 0 {
@@ -315,7 +317,11 @@ func (s *State) LocalName() string {
 
 // LocalAddr() return local address
 func (s *State) LocalAddr() string {
-	return s.list.LocalNode().Addr.String()
+	if s.config.AdvertiseAddr == "" {
+		return s.list.LocalNode().Addr.String()
+	}
+
+	return s.config.AdvertiseAddr
 }
 
 func (s *State) LocalBindAddr() string {
@@ -331,8 +337,6 @@ func (s *State) ClusterHealthScore() int {
 
 func (s *State) NodeHostname(nodeName string) (string, bool) {
 	for _, mem := range s.list.Members() {
-		fmt.Println("mem.Name", mem.Name)
-		fmt.Println("mem.address", mem.Addr.String())
 		if mem.Name == nodeName {
 			// TODO: how can we find out the actual data port as opposed to relying on
 			// the convention that it's 1 higher than the gossip port
