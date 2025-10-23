@@ -82,6 +82,9 @@ type replicatedIndices struct {
 	maintenanceModeEnabled func() bool
 
 	requestQueueConfig cluster.RequestQueueConfig
+	// requestQueueLock is used to synchronize sending to the requestQueue and closing it, without
+	// this we would have a race condition in case the channel closed right before we try to send.
+	requestQueueLock sync.RWMutex
 	// requestQueue buffers requests until they're picked up by a worker, goal is to avoid
 	// overwhelming the system with requests during spikes (also allows for backpressure)
 	requestQueue chan queuedRequest
@@ -184,9 +187,11 @@ func (i *replicatedIndices) indicesHandler() http.HandlerFunc {
 			return
 		}
 
+		i.requestQueueLock.RLock()
 		// Check if we're shutting down
 		if i.isShutdown.Load() {
 			http.Error(w, "503 Service Unavailable - shutting down", http.StatusServiceUnavailable)
+			i.requestQueueLock.RUnlock()
 			return
 		}
 
@@ -201,11 +206,14 @@ func (i *replicatedIndices) indicesHandler() http.HandlerFunc {
 			default:
 				http.Error(w, "too many buffered requests", i.requestQueueConfig.QueueFullHttpStatus)
 				wg.Done() //nolint:SA2000
+				i.requestQueueLock.RUnlock()
 				return
 			}
+			i.requestQueueLock.RUnlock()
 			wg.Wait()
 			return
 		}
+		i.requestQueueLock.RUnlock()
 		// if the request queue is not enabled, handle the request directly
 		i.handleRequest(queuedRequest{r: r, w: w, wg: nil})
 	}
@@ -1005,7 +1013,10 @@ func (i *replicatedIndices) Close(ctx context.Context) error {
 			close(done)
 		}, i.logger)
 
+		i.requestQueueLock.Lock()
 		close(i.requestQueue)
+		i.requestQueueLock.Unlock()
+
 		select {
 		case <-done:
 			// Workers finished gracefully
