@@ -52,7 +52,7 @@ func TestUpdateInvertedConfigStopwords(t *testing.T) {
 	idx := repo.GetIndex(className)
 	require.NotNil(t, idx)
 
-	t.Run("bm25f journey (not stopword)", func(t *testing.T) {
+	t.Run("object query with filter  journey (not stopword)", func(t *testing.T) {
 		filter := &filters.LocalFilter{
 			Root: &filters.Clause{
 				On: &filters.Path{
@@ -75,7 +75,7 @@ func TestUpdateInvertedConfigStopwords(t *testing.T) {
 		require.Equal(t, len(res), 5)
 	})
 
-	t.Run("bm25f a (stopword)", func(t *testing.T) {
+	t.Run("object query with filter  a (stopword)", func(t *testing.T) {
 		filter := &filters.LocalFilter{
 			Root: &filters.Clause{
 				On: &filters.Path{
@@ -93,7 +93,7 @@ func TestUpdateInvertedConfigStopwords(t *testing.T) {
 		require.Error(t, err)
 	})
 
-	t.Run("bm25f a journey (stopword + not stopword)", func(t *testing.T) {
+	t.Run("object query with filter  a journey (stopword + not stopword)", func(t *testing.T) {
 		filter := &filters.LocalFilter{
 			Root: &filters.Clause{
 				On: &filters.Path{
@@ -127,7 +127,7 @@ func TestUpdateInvertedConfigStopwords(t *testing.T) {
 	})
 
 	t.Run("Updated stopwords", func(t *testing.T) {
-		t.Run("bm25f journey (stopword)", func(t *testing.T) {
+		t.Run("object query with filter  journey (stopword)", func(t *testing.T) {
 			filter := &filters.LocalFilter{
 				Root: &filters.Clause{
 					On: &filters.Path{
@@ -146,7 +146,7 @@ func TestUpdateInvertedConfigStopwords(t *testing.T) {
 			require.Error(t, err)
 		})
 
-		t.Run("bm25f a (not a stopword)", func(t *testing.T) {
+		t.Run("object query with filter  a (not a stopword)", func(t *testing.T) {
 			filter := &filters.LocalFilter{
 				Root: &filters.Clause{
 					On: &filters.Path{
@@ -167,7 +167,7 @@ func TestUpdateInvertedConfigStopwords(t *testing.T) {
 			require.Equal(t, len(res), 2)
 		})
 
-		t.Run("bm25f a journey (not stopword + stopword)", func(t *testing.T) {
+		t.Run("object query with filter  a journey (not stopword + stopword)", func(t *testing.T) {
 			filter := &filters.LocalFilter{
 				Root: &filters.Clause{
 					On: &filters.Path{
