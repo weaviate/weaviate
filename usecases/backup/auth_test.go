@@ -80,7 +80,7 @@ func Test_Authorization(t *testing.T) {
 		},
 		{
 			methodName:     "List",
-			additionalArgs: []interface{}{"filesystem"},
+			additionalArgs: []interface{}{"filesystem", func(s string) *string { return &s }("desc")},
 			classes:        []string{"ABC"},
 			ignoreAuthZ:    true,
 		},
