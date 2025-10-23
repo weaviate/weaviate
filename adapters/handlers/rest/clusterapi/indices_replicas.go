@@ -98,6 +98,16 @@ type replicatedIndices struct {
 }
 
 var (
+	errReplicatedIndicesShutdown  = errors.New("replicated indices shutting down")
+	errReplicatedIndicesQueueFull = errors.New("replicated indices request queue full")
+)
+
+const (
+	responseShuttingDown = "503 Service Unavailable - shutting down"
+	responseQueueFull    = "too many buffered requests"
+)
+
+var (
 	regxObject = regexp.MustCompile(`\/replicas\/indices\/(` + cl + `)` +
 		`\/shards\/(` + sh + `)\/objects\/(` + ob + `)(\/[0-9]{1,64})?`)
 	regxOverwriteObjects = regexp.MustCompile(`\/indices\/(` + cl + `)` +
@@ -150,6 +160,39 @@ func NewReplicatedIndices(
 	return i
 }
 
+func (i *replicatedIndices) queueEnabled() bool {
+	return i.requestQueueConfig.IsEnabled != nil && i.requestQueueConfig.IsEnabled.Get()
+}
+
+func (i *replicatedIndices) writeResponse(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, errReplicatedIndicesShutdown):
+		http.Error(w, responseShuttingDown, http.StatusServiceUnavailable)
+	case errors.Is(err, errReplicatedIndicesQueueFull):
+		http.Error(w, responseQueueFull, i.requestQueueConfig.QueueFullHttpStatus)
+	}
+}
+
+func (i *replicatedIndices) enqueueRequest(r *http.Request, w http.ResponseWriter) (*sync.WaitGroup, error) {
+	i.requestQueueMu.RLock()
+	defer i.requestQueueMu.RUnlock()
+
+	if i.isShutdown.Load() {
+		return nil, errReplicatedIndicesShutdown
+	}
+
+	wg := &sync.WaitGroup{}
+	wg.Add(1)
+
+	select {
+	case i.requestQueue <- queuedRequest{r: r, w: w, wg: wg}:
+		return wg, nil
+	default:
+		wg.Done() //nolint:SA2000
+		return nil, errReplicatedIndicesQueueFull
+	}
+}
+
 type queuedRequest struct {
 	r *http.Request
 	w http.ResponseWriter
@@ -188,36 +231,18 @@ func (i *replicatedIndices) indicesHandler() http.HandlerFunc {
 		}
 
 		if i.isShutdown.Load() {
-			http.Error(w, "503 Service Unavailable - shutting down", http.StatusServiceUnavailable)
+			i.writeResponse(w, errReplicatedIndicesShutdown)
 			return
 		}
 
-		if i.requestQueueConfig.IsEnabled != nil && i.requestQueueConfig.IsEnabled.Get() {
+		if i.queueEnabled() {
 			i.startWorkersOnce.Do(i.startWorkers)
 
-			i.requestQueueMu.RLock()
-			if i.isShutdown.Load() {
-				i.requestQueueMu.RUnlock()
-				http.Error(w, "503 Service Unavailable - shutting down", http.StatusServiceUnavailable)
+			wg, err := i.enqueueRequest(r, w)
+			if err != nil {
+				i.writeResponse(w, err)
 				return
 			}
-
-			var wg sync.WaitGroup
-			wg.Add(1)
-			enqueued := false
-			select {
-			case i.requestQueue <- queuedRequest{r: r, w: w, wg: &wg}:
-				enqueued = true
-			default:
-				wg.Add(-1)
-			}
-			i.requestQueueMu.RUnlock()
-
-			if !enqueued {
-				http.Error(w, "too many buffered requests", i.requestQueueConfig.QueueFullHttpStatus)
-				return
-			}
-
 			wg.Wait()
 			return
 		}
