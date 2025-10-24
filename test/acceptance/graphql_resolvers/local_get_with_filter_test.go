@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
 
 	"github.com/go-openapi/strfmt"
@@ -475,7 +476,7 @@ func gettingObjectsWithFilters(t *testing.T) {
 		t.Run("error by description containing just stopwords", func(t *testing.T) {
 			errors := graphqlhelper.ErrorGraphQL(t, helper.RootAuth, query("to be or not to be"))
 			require.Len(t, errors, 1)
-			assert.Contains(t, errors[0].Message, "invalid search term, only stopwords provided. Stopwords can be configured in class.invertedIndexConfig.stopwords")
+			assert.Contains(t, errors[0].Message, inverted.ErrOnlyStopwords.Error())
 		})
 	})
 
