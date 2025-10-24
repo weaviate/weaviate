@@ -19,15 +19,12 @@ import (
 )
 
 const (
-	DefaultMaxPostingSize            = 0 // it means that it will be computed dynamically by the index
-	DefaultMinPostingSize            = 10
-	DefaultReplicas                  = 8
-	DefaultRNGFactor                 = 10.0
-	DefaultSearchProbe               = 64
-	DefaultCentroidsIndexType        = "hnsw"
-	DefaultInternalPostingCandidates = 64
-	DefaultReassignNeighbors         = 8
-	DefaultMaxDistanceRatio          = 10_000
+	DefaultMaxPostingSize     = 0 // it means that it will be computed dynamically by the index
+	DefaultMinPostingSize     = 10
+	DefaultReplicas           = 8
+	DefaultRNGFactor          = 10.0
+	DefaultSearchProbe        = 64
+	DefaultCentroidsIndexType = "hnsw"
 )
 
 // UserConfig defines the configuration options for the SPFresh index.
