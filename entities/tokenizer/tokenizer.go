@@ -446,16 +446,3 @@ func TokenizeAndCountDuplicatesForClass(tokenization string, in string, class st
 
 	return unique, boosts
 }
-
-func (t *KagomeTokenizers) Tokenize(in string) []string {
-	if t.Japanese != nil && KagomeJaEnabled {
-		ApacTokenizerThrottle <- struct{}{}
-		defer func() { <-ApacTokenizerThrottle }()
-		return tokenizeKagome(tokenizers.Japanese, kagomeTokenizer.Search, models.PropertyTokenizationKagomeJa, in)
-	} else if t.Korean != nil && KagomeKrEnabled {
-		ApacTokenizerThrottle <- struct{}{}
-		defer func() { <-ApacTokenizerThrottle }()
-		return tokenizeKagome(tokenizers.Korean, kagomeTokenizer.Normal, models.PropertyTokenizationKagomeKr, in)
-	}
-	return []string{}
-}
