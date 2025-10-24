@@ -220,6 +220,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 			LazyLoadSegments:             lazyLoadSegments,
 			AllocChecker:                 s.index.allocChecker,
 			WriteSegmentInfoIntoFileName: s.index.Config.SegmentInfoIntoFileNameEnabled,
+			AsyncIndexingEnabled:         s.index.AsyncIndexingEnabled,
 		}, dynamicUserConfig, s.store)
 		if err != nil {
 			return nil, errors.Wrapf(err, "init shard %q: dynamic index", s.ID())

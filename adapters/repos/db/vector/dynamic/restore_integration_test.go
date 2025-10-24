@@ -13,7 +13,6 @@ package dynamic
 
 import (
 	"context"
-	"os"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -30,14 +29,12 @@ import (
 	ent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 	"go.etcd.io/bbolt"
 )
 
 func TestBackup_Integration(t *testing.T) {
 	ctx := context.Background()
-	currentIndexing := os.Getenv("ASYNC_INDEXING")
-	os.Setenv("ASYNC_INDEXING", "true")
-	defer os.Setenv("ASYNC_INDEXING", currentIndexing)
 	dimensions := 20
 	vectors_size := 1_000
 	queries_size := 10
@@ -72,6 +69,7 @@ func TestBackup_Integration(t *testing.T) {
 	})
 
 	config := Config{
+		AllocChecker:     memwatch.NewDummyMonitor(),
 		RootPath:         dirName,
 		ID:               indexID,
 		Logger:           logger,
@@ -89,6 +87,7 @@ func TestBackup_Integration(t *testing.T) {
 		TempVectorForIDThunk: TempVectorForIDThunk(vectors),
 		TombstoneCallbacks:   noopCallback,
 		SharedDB:             db,
+		AsyncIndexingEnabled: true,
 	}
 
 	uc := ent.UserConfig{

@@ -535,9 +535,9 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 		}
 	}
 
-	createShard := func(t *testing.T) (ShardLike, *VectorIndexQueue) {
+	createShard := func(t *testing.T, asyncIndexingEnabled bool) (ShardLike, *VectorIndexQueue) {
 		vectorIndexConfig := hnsw.UserConfig{Distance: common.DefaultDistanceMetric}
-		shard, _ := testShardWithSettings(t, ctx, class, vectorIndexConfig, true, true)
+		shard, _ := testShardWithSettings(t, ctx, class, vectorIndexConfig, true, true, asyncIndexingEnabled)
 		queue, ok := shard.GetVectorIndexQueue("")
 		require.True(t, ok)
 		return shard, queue
@@ -545,7 +545,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 
 	t.Run("single object", func(t *testing.T) {
 		t.Run("sanity check - search after add", func(t *testing.T) {
-			shard, queue := createShard(t)
+			shard, queue := createShard(t, true)
 
 			t.Run("add object", func(t *testing.T) {
 				err := shard.PutObject(ctx, createOrigObj())
@@ -573,7 +573,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 		})
 
 		t.Run("replace with different object, same vector", func(t *testing.T) {
-			shard, queue := createShard(t)
+			shard, queue := createShard(t, true)
 
 			t.Run("add object", func(t *testing.T) {
 				err := shard.PutObject(ctx, createOrigObj())
@@ -608,7 +608,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 		})
 
 		t.Run("replace with different object, different vector", func(t *testing.T) {
-			shard, queue := createShard(t)
+			shard, queue := createShard(t, true)
 
 			t.Run("add object", func(t *testing.T) {
 				err := shard.PutObject(ctx, createOrigObj())
@@ -645,7 +645,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 		})
 
 		t.Run("replace with different object, different geo", func(t *testing.T) {
-			shard, queue := createShard(t)
+			shard, queue := createShard(t, true)
 
 			t.Run("add object", func(t *testing.T) {
 				err := shard.PutObject(ctx, createOrigObj())
@@ -685,7 +685,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 		})
 
 		t.Run("merge with different object, same vector", func(t *testing.T) {
-			shard, queue := createShard(t)
+			shard, queue := createShard(t, true)
 
 			t.Run("add object", func(t *testing.T) {
 				err := shard.PutObject(ctx, createOrigObj())
@@ -720,7 +720,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 		})
 
 		t.Run("merge with different object, different vector", func(t *testing.T) {
-			shard, queue := createShard(t)
+			shard, queue := createShard(t, true)
 
 			t.Run("add object", func(t *testing.T) {
 				err := shard.PutObject(ctx, createOrigObj())
@@ -757,7 +757,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 		})
 
 		t.Run("merge with different object, different geo", func(t *testing.T) {
-			shard, _ := createShard(t)
+			shard, _ := createShard(t, true)
 
 			t.Run("add object", func(t *testing.T) {
 				err := shard.PutObject(ctx, createOrigObj())
@@ -791,7 +791,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 		})
 
 		t.Run("replace with same object, same vector", func(t *testing.T) {
-			shard, _ := createShard(t)
+			shard, _ := createShard(t, true)
 
 			t.Run("add object", func(t *testing.T) {
 				err := shard.PutObject(ctx, createOrigObj())
@@ -823,7 +823,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 		})
 
 		t.Run("replace with same object, different vector", func(t *testing.T) {
-			shard, _ := createShard(t)
+			shard, _ := createShard(t, true)
 
 			t.Run("add object", func(t *testing.T) {
 				err := shard.PutObject(ctx, createOrigObj())
@@ -856,7 +856,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 		})
 
 		t.Run("replace with same object, different geo", func(t *testing.T) {
-			shard, _ := createShard(t)
+			shard, _ := createShard(t, true)
 
 			t.Run("add object", func(t *testing.T) {
 				err := shard.PutObject(ctx, createOrigObj())
@@ -892,7 +892,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 		})
 
 		t.Run("merge with same object, same vector", func(t *testing.T) {
-			shard, _ := createShard(t)
+			shard, _ := createShard(t, true)
 
 			t.Run("add object", func(t *testing.T) {
 				err := shard.PutObject(ctx, createOrigObj())
@@ -931,7 +931,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 		})
 
 		t.Run("merge with same object, different vector", func(t *testing.T) {
-			shard, _ := createShard(t)
+			shard, _ := createShard(t, true)
 
 			t.Run("add object", func(t *testing.T) {
 				err := shard.PutObject(ctx, createOrigObj())
@@ -970,7 +970,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 		})
 
 		t.Run("merge with same object, different geo", func(t *testing.T) {
-			shard, _ := createShard(t)
+			shard, _ := createShard(t, true)
 
 			t.Run("add object", func(t *testing.T) {
 				err := shard.PutObject(ctx, createOrigObj())
@@ -1011,9 +1011,9 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 	})
 
 	t.Run("batch", func(t *testing.T) {
-		runBatch := func(t *testing.T) {
+		runBatch := func(t *testing.T, asyncIndexingEnabled bool) {
 			t.Run("sanity check - search after add", func(t *testing.T) {
-				shard, queue := createShard(t)
+				shard, queue := createShard(t, asyncIndexingEnabled)
 
 				t.Run("add batch", func(t *testing.T) {
 					errs := shard.PutObjectBatch(ctx, []*storobj.Object{createOrigObj()})
@@ -1043,7 +1043,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 			})
 
 			t.Run("replace with different object, same vector", func(t *testing.T) {
-				shard, queue := createShard(t)
+				shard, queue := createShard(t, asyncIndexingEnabled)
 
 				t.Run("add batch", func(t *testing.T) {
 					errs := shard.PutObjectBatch(ctx, []*storobj.Object{createOrigObj()})
@@ -1082,7 +1082,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 			})
 
 			t.Run("replace with different object, different vector", func(t *testing.T) {
-				shard, queue := createShard(t)
+				shard, queue := createShard(t, asyncIndexingEnabled)
 
 				t.Run("add batch", func(t *testing.T) {
 					errs := shard.PutObjectBatch(ctx, []*storobj.Object{createOrigObj()})
@@ -1123,7 +1123,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 			})
 
 			t.Run("replace with different object, different geo", func(t *testing.T) {
-				shard, queue := createShard(t)
+				shard, queue := createShard(t, asyncIndexingEnabled)
 
 				t.Run("add batch", func(t *testing.T) {
 					errs := shard.PutObjectBatch(ctx, []*storobj.Object{createOrigObj()})
@@ -1167,7 +1167,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 			})
 
 			t.Run("replace with same object, same vector", func(t *testing.T) {
-				shard, queue := createShard(t)
+				shard, queue := createShard(t, asyncIndexingEnabled)
 
 				t.Run("add batch", func(t *testing.T) {
 					errs := shard.PutObjectBatch(ctx, []*storobj.Object{createOrigObj()})
@@ -1209,7 +1209,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 			})
 
 			t.Run("replace with same object, different vector", func(t *testing.T) {
-				shard, queue := createShard(t)
+				shard, queue := createShard(t, asyncIndexingEnabled)
 
 				t.Run("add batch", func(t *testing.T) {
 					errs := shard.PutObjectBatch(ctx, []*storobj.Object{createOrigObj()})
@@ -1252,7 +1252,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 			})
 
 			t.Run("replace with same object, different geo", func(t *testing.T) {
-				shard, queue := createShard(t)
+				shard, queue := createShard(t, asyncIndexingEnabled)
 
 				t.Run("add batch", func(t *testing.T) {
 					errs := shard.PutObjectBatch(ctx, []*storobj.Object{createOrigObj()})
@@ -1299,24 +1299,17 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 		}
 
 		t.Run("sync", func(t *testing.T) {
-			currentIndexing := os.Getenv("ASYNC_INDEXING")
-			t.Setenv("ASYNC_INDEXING", "")
-			defer t.Setenv("ASYNC_INDEXING", currentIndexing)
-
-			runBatch(t)
+			runBatch(t, false)
 		})
 
 		t.Run("async", func(t *testing.T) {
-			currentIndexing := os.Getenv("ASYNC_INDEXING")
 			currentStaleTimeout := os.Getenv("ASYNC_INDEXING_STALE_TIMEOUT")
 			currentSchedulerInterval := os.Getenv("QUEUE_SCHEDULER_INTERVAL")
-			t.Setenv("ASYNC_INDEXING", "true")
 			t.Setenv("ASYNC_INDEXING_STALE_TIMEOUT", "1s")
-			defer t.Setenv("ASYNC_INDEXING", currentIndexing)
 			defer t.Setenv("ASYNC_INDEXING_STALE_TIMEOUT", currentStaleTimeout)
 			defer t.Setenv("QUEUE_SCHEDULER_INTERVAL", currentSchedulerInterval)
 
-			runBatch(t)
+			runBatch(t, true)
 		})
 	})
 }
