@@ -57,10 +57,6 @@ func (m *MockSchemaExecutor) LoadShard(class string, shard string) {
 	m.Called(class, shard)
 }
 
-func (m *MockSchemaExecutor) DropShard(class string, shard string) {
-	m.Called(class, shard)
-}
-
 func (m *MockSchemaExecutor) ShutdownShard(class string, shard string) {
 	m.Called(class, shard)
 }

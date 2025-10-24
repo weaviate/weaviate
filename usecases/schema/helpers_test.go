@@ -110,9 +110,6 @@ func (f *fakeDB) DeleteReplicaFromShard(class string, shard string, targetNode s
 func (f *fakeDB) LoadShard(class string, shard string) {
 }
 
-func (f *fakeDB) DropShard(class string, shard string) {
-}
-
 func (f *fakeDB) ShutdownShard(class string, shard string) {
 }
 
