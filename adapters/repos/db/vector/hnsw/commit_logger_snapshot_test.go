@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/puzpuzpuz/xsync/v4"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
@@ -1366,7 +1367,7 @@ func TestMetadataWriteAndRestore(t *testing.T) {
 			Level:      6,
 			Compressed: false,
 			Nodes:      make([]*vertex, size),
-			Tombstones: make(map[uint64]struct{}),
+			Tombstones: xsync.NewMap[uint64, struct{}](),
 		}
 
 		c, err := packedconn.NewWithMaxLayer(2)
@@ -1379,7 +1380,7 @@ func TestMetadataWriteAndRestore(t *testing.T) {
 			}
 
 			if i%5 == 0 {
-				state.Tombstones[uint64(i)] = struct{}{}
+				state.Tombstones.Store(uint64(i), struct{}{})
 			}
 
 			state.Nodes[i] = &vertex{

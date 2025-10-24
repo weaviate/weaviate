@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/puzpuzpuz/xsync/v4"
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
@@ -346,4 +347,13 @@ func DistanceWrapper(provider distancer.Provider) func(x, y []float32) float32 {
 		dist, _ := provider.SingleDist(x, y)
 		return dist
 	}
+}
+
+func XsyncMapToMap[K comparable, V any](m *xsync.Map[K, V]) map[K]V {
+	result := make(map[K]V)
+	m.Range(func(key K, value V) bool {
+		result[key] = value
+		return true
+	})
+	return result
 }

@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus/testutil"
+	"github.com/puzpuzpuz/xsync/v4"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -245,7 +246,7 @@ func TestDelete_WithCleaningUpTombstonesOnce(t *testing.T) {
 	})
 
 	t.Run("verify the graph no longer has any tombstones", func(t *testing.T) {
-		assert.Len(t, vectorIndex.tombstones, 0)
+		assert.Equal(t, vectorIndex.tombstones.Size(), 0)
 	})
 
 	t.Run("destroy the index", func(t *testing.T) {
@@ -439,10 +440,7 @@ func TestDelete_WithConcurrentEntrypointDeletionAndTombstoneCleanup(t *testing.T
 	})
 
 	t.Run("verify the graph no longer has any tombstones", func(t *testing.T) {
-		vectorIndex.tombstoneLock.Lock()
-		defer vectorIndex.tombstoneLock.Unlock()
-
-		assert.Len(t, vectorIndex.tombstones, 0)
+		assert.Equal(t, vectorIndex.tombstones.Size(), 0)
 	})
 
 	t.Run("destroy the index", func(t *testing.T) {
@@ -544,7 +542,7 @@ func TestDelete_WithCleaningUpTombstonesInBetween(t *testing.T) {
 	})
 
 	t.Run("verify the graph no longer has any tombstones", func(t *testing.T) {
-		assert.Len(t, vectorIndex.tombstones, 0)
+		assert.Equal(t, vectorIndex.tombstones.Size(), 0)
 	})
 
 	t.Run("delete the remaining elements", func(t *testing.T) {
@@ -769,7 +767,7 @@ func TestDelete_WithCleaningUpTombstonesStoppedShouldNotRemoveTombstoneMarks(t *
 		for _, id := range ids {
 			assert.Equal(t, 1, int(id%2))
 		}
-		assert.True(t, len(index.tombstones) > 0)
+		assert.True(t, index.tombstones.Size() > 0)
 	})
 
 	t.Run("destroy the index", func(t *testing.T) {
@@ -919,7 +917,7 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce(t *testing.T) {
 	})
 
 	t.Run("verify the graph no longer has any tombstones", func(t *testing.T) {
-		assert.Len(t, vectorIndex.tombstones, 0)
+		assert.Equal(t, vectorIndex.tombstones.Size(), 0)
 	})
 
 	t.Run("destroy the index", func(t *testing.T) {
@@ -1105,7 +1103,7 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce_DoesNotCrash(t *t
 	})
 
 	t.Run("verify the graph no longer has any tombstones", func(t *testing.T) {
-		assert.Len(t, vectorIndex.tombstones, 0)
+		assert.Equal(t, vectorIndex.tombstones.Size(), 0)
 	})
 
 	t.Run("destroy the index", func(t *testing.T) {
@@ -1422,10 +1420,10 @@ func TestDelete_MoreEntrypointIssues(t *testing.T) {
 	// manually build the index
 	index.entryPointID = 2
 	index.currentMaximumLayer = 1
-	index.tombstones = map[uint64]struct{}{
-		0: {},
-		1: {},
-	}
+	index.tombstones = xsync.NewMap[uint64, struct{}]()
+	index.tombstones.Store(0, struct{}{})
+	index.tombstones.Store(1, struct{}{})
+
 	index.nodes = make([]*vertex, 50)
 	conns, _ := packedconn.NewWithElements([][]uint64{
 		{1},
@@ -1903,7 +1901,7 @@ func TestDelete_WithCleaningUpTombstonesWithHighConcurrency(t *testing.T) {
 	})
 
 	t.Run("verify the graph no longer has any tombstones", func(t *testing.T) {
-		assert.Len(t, vectorIndex.tombstones, 0)
+		assert.Equal(t, vectorIndex.tombstones.Size(), 0)
 	})
 
 	t.Run("destroy the index", func(t *testing.T) {
@@ -2068,7 +2066,7 @@ func Test_DeleteTombstoneMetrics(t *testing.T) {
 	})
 
 	t.Run("verify the graph no longer has any tombstones", func(t *testing.T) {
-		assert.Len(t, vectorIndex.tombstones, 0)
+		assert.Equal(t, vectorIndex.tombstones.Size(), 0)
 	})
 
 	t.Run("verify tombstone metric is zero", func(t *testing.T) {

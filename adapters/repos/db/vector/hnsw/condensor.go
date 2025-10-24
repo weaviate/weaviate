@@ -129,21 +129,27 @@ func (c *MemoryCondensor) Do(fileName string) error {
 		}
 	}
 
-	for ts := range res.Tombstones {
+	res.Tombstones.Range(func(key uint64, value struct{}) bool {
 		// If the tombstone was later removed, consolidate the two operations into a noop
-		if _, ok := res.TombstonesDeleted[ts]; ok {
-			continue
+		if _, ok := res.TombstonesDeleted[key]; ok {
+			return true
 		}
 
-		if err := c.AddTombstone(ts); err != nil {
-			return errors.Wrapf(err,
-				"write tombstone for node %d to commit log", ts)
+		if e := c.AddTombstone(key); e != nil {
+			err = errors.Wrapf(err,
+				"write tombstone for node %d to commit log", key)
+			return false
 		}
+
+		return true
+	})
+	if err != nil {
+		return err
 	}
 
 	for rmts := range res.TombstonesDeleted {
 		// If the tombstone was added previously, consolidate the two operations into a noop
-		if _, ok := res.Tombstones[rmts]; ok {
+		if _, ok := res.Tombstones.Load(rmts); ok {
 			continue
 		}
 

@@ -29,6 +29,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/puzpuzpuz/xsync/v4"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
@@ -644,7 +645,7 @@ func (l *hnswCommitLogger) writeStateTo(state *DeserializationResult, wr io.Writ
 		buf.Reset()
 
 		if n != nil {
-			_, hasATombstone := state.Tombstones[n.id]
+			_, hasATombstone := state.Tombstones.Load(n.id)
 			_, tombstoneIsCleaned := state.TombstonesDeleted[n.id]
 
 			if hasATombstone && tombstoneIsCleaned {
@@ -886,7 +887,7 @@ func (l *hnswCommitLogger) writeMetadataTo(state *DeserializationResult, w io.Wr
 func (l *hnswCommitLogger) readStateFrom(filename string) (*DeserializationResult, error) {
 	res := &DeserializationResult{
 		NodesDeleted:      make(map[uint64]struct{}),
-		Tombstones:        make(map[uint64]struct{}),
+		Tombstones:        xsync.NewMap[uint64, struct{}](),
 		TombstonesDeleted: make(map[uint64]struct{}),
 		LinksReplaced:     make(map[uint64]map[uint16]struct{}),
 	}
@@ -970,7 +971,7 @@ func (l *hnswCommitLogger) legacyReadSnapshotBody(filename string, f common.File
 
 				if b[0] == 1 {
 					mu.Lock()
-					res.Tombstones[node.id] = struct{}{}
+					res.Tombstones.Store(node.id, struct{}{})
 					mu.Unlock()
 				} else if b[0] != 2 {
 					return fmt.Errorf("unsupported node existence state")
@@ -1139,7 +1140,7 @@ func (l *hnswCommitLogger) readSnapshotBody(f common.File, res *DeserializationR
 
 						if b[0] == 1 {
 							mu.Lock()
-							res.Tombstones[node.id] = struct{}{}
+							res.Tombstones.Store(node.id, struct{}{})
 							mu.Unlock()
 						} else if b[0] != 2 {
 							return fmt.Errorf("unsupported node existence state")

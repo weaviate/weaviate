@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/puzpuzpuz/xsync/v4"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/packedconn"
@@ -53,12 +54,18 @@ func (h *hnsw) Dump(labels ...string) {
 
 // DumpJSON to stdout for debugging purposes
 func (h *hnsw) DumpJSON(labels ...string) {
+	tMap := make(map[uint64]struct{})
+	h.tombstones.Range(func(key uint64, _ struct{}) bool {
+		tMap[key] = struct{}{}
+		return true
+	})
+
 	dump := JSONDump{
 		Labels:              labels,
 		ID:                  h.id,
 		Entrypoint:          h.entryPointID,
 		CurrentMaximumLayer: h.currentMaximumLayer,
-		Tombstones:          h.tombstones,
+		Tombstones:          tMap,
 	}
 	for _, node := range h.nodes {
 		if node == nil {
@@ -133,7 +140,10 @@ func NewFromJSONDump(dumpBytes []byte, vecForID common.VectorForID[float32]) (*h
 
 	index.currentMaximumLayer = dump.CurrentMaximumLayer
 	index.entryPointID = dump.Entrypoint
-	index.tombstones = dump.Tombstones
+	index.tombstones = xsync.NewMap[uint64, struct{}]()
+	for id := range dump.Tombstones {
+		index.tombstones.Store(id, struct{}{})
+	}
 
 	for _, n := range dump.Nodes {
 		connections, err := packedconn.NewWithElements(n.Connections)
@@ -173,7 +183,10 @@ func NewFromJSONDumpMap(dumpBytes []byte, vecForID common.VectorForID[float32]) 
 
 	index.currentMaximumLayer = dump.CurrentMaximumLayer
 	index.entryPointID = dump.Entrypoint
-	index.tombstones = dump.Tombstones
+	index.tombstones = xsync.NewMap[uint64, struct{}]()
+	for id := range dump.Tombstones {
+		index.tombstones.Store(id, struct{}{})
+	}
 
 	for _, n := range dump.Nodes {
 		connections, err := packedconn.NewWithMaxLayer(uint8(len(n.Connections) - 1))
