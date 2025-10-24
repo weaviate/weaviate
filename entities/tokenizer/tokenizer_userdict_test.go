@@ -83,4 +83,7 @@ func TestKagomeUserTokenizerForClassValidate(t *testing.T) {
 	err = AddCustomDict(className, []*models.TokenizerUserDictConfig{format})
 	// target can be empty, it will work as deletion
 	assert.Nil(t, err)
+
+	err = AddCustomDict(className, []*models.TokenizerUserDictConfig{format, format}) // duplicate tokenizer config
+	assert.Error(t, err)
 }

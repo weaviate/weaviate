@@ -164,7 +164,7 @@ func TestValidateConfig(t *testing.T) {
 		}
 	})
 
-	t.Run("user dict tokenizer with duplicate sources", func(t *testing.T) {
+	t.Run("with user dict tokenizer with duplicate sources", func(t *testing.T) {
 		ptr := func(s string) *string { return &s }
 		in := &models.InvertedIndexConfig{
 			TokenizerUserDict: []*models.TokenizerUserDictConfig{
@@ -188,7 +188,7 @@ func TestValidateConfig(t *testing.T) {
 		assert.EqualError(t, err, "found duplicate replacement source 'Weaviate'")
 	})
 
-	t.Run("user dict tokenizer with nil source", func(t *testing.T) {
+	t.Run("with user dict tokenizer with nil source", func(t *testing.T) {
 		ptr := func(s string) *string { return &s }
 		in := &models.InvertedIndexConfig{
 			TokenizerUserDict: []*models.TokenizerUserDictConfig{
@@ -208,7 +208,45 @@ func TestValidateConfig(t *testing.T) {
 		assert.EqualError(t, err, "both source and target must be set")
 	})
 
-	t.Run("user dict tokenizer with empty target", func(t *testing.T) {
+	t.Run("with user dict tokenizer with invalid tokenizer", func(t *testing.T) {
+		ptr := func(s string) *string { return &s }
+		in := &models.InvertedIndexConfig{
+			TokenizerUserDict: []*models.TokenizerUserDictConfig{
+				{
+					Tokenizer: "",
+					Replacements: []*models.TokenizerUserDictConfigReplacementsItems0{
+						{
+							Source: nil,
+							Target: ptr(""),
+						},
+					},
+				},
+			},
+		}
+
+		err := ValidateConfig(in)
+		assert.EqualError(t, err, "tokenizer '' in tokenizer user dict config is not supported")
+	})
+
+	t.Run("with user dict tokenizer with duplicate tokenizer", func(t *testing.T) {
+		in := &models.InvertedIndexConfig{
+			TokenizerUserDict: []*models.TokenizerUserDictConfig{
+				{
+					Tokenizer:    models.PropertyTokenizationKagomeKr,
+					Replacements: []*models.TokenizerUserDictConfigReplacementsItems0{},
+				},
+				{
+					Tokenizer:    models.PropertyTokenizationKagomeKr,
+					Replacements: []*models.TokenizerUserDictConfigReplacementsItems0{},
+				},
+			},
+		}
+
+		err := ValidateConfig(in)
+		assert.EqualError(t, err, "found duplicate tokenizer '"+models.PropertyTokenizationKagomeKr+"' in tokenizer user dict config")
+	})
+
+	t.Run("with user dict tokenizer with empty target", func(t *testing.T) {
 		ptr := func(s string) *string { return &s }
 		in := &models.InvertedIndexConfig{
 			TokenizerUserDict: []*models.TokenizerUserDictConfig{

@@ -187,8 +187,17 @@ func validateTokenizerUserDictConfig(conf []*models.TokenizerUserDictConfig) err
 		return nil
 	}
 	// find duplicate from and to entries
+	seenTokenizers := make(map[string]struct{})
 	for _, c := range conf {
 		seen := make(map[string]struct{})
+		if c.Tokenizer != models.PropertyTokenizationKagomeKr && c.Tokenizer != models.PropertyTokenizationKagomeJa {
+			return errors.Errorf("tokenizer '%s' in tokenizer user dict config is not supported", c.Tokenizer)
+		}
+		if _, ok := seenTokenizers[c.Tokenizer]; !ok {
+			seenTokenizers[c.Tokenizer] = struct{}{}
+		} else {
+			return errors.Errorf("found duplicate tokenizer '%s' in tokenizer user dict config", c.Tokenizer)
+		}
 		for _, repl := range c.Replacements {
 			if repl.Source == nil || repl.Target == nil {
 				return errors.Errorf("both source and target must be set")

@@ -70,11 +70,16 @@ func initUserDictTokenizers(config []*models.TokenizerUserDictConfig) (*KagomeTo
 	if config == nil {
 		return nil, nil
 	}
-
+	seen := make(map[string]struct{})
 	for _, tokenizerConfig := range config {
-		if tokenizerConfig == nil || tokenizerConfig.Tokenizer == "" {
+		if tokenizerConfig == nil {
 			continue
 		}
+		if _, ok := seen[tokenizerConfig.Tokenizer]; ok {
+			return nil, fmt.Errorf("found duplicate tokenizer '%s' in tokenizer user dict config", tokenizerConfig.Tokenizer)
+		}
+		seen[tokenizerConfig.Tokenizer] = struct{}{}
+
 		switch tokenizerConfig.Tokenizer {
 		case models.PropertyTokenizationKagomeJa:
 			tokenizerJa, err := initializeKagomeTokenizerJa(tokenizerConfig)
