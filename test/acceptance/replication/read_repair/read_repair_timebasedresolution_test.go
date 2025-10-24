@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -28,7 +29,10 @@ import (
 
 func (suite *ReplicationTestSuite) TestReadRepairTimebasedResolution() {
 	t := suite.T()
-	ctx := context.Background()
+	mainCtx := context.Background()
+
+	ctx, cancel := context.WithTimeout(mainCtx, 15*time.Minute)
+	defer cancel()
 
 	compose, err := docker.New().
 		With3NodeCluster().
