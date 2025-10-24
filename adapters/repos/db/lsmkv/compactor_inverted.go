@@ -109,12 +109,12 @@ func (c *compactorInverted) do() error {
 		return errors.Wrap(err, "get tombstones")
 	}
 
-	propertyLengthsToWrite, err := c.c1.segment.GetPropertyLengths()
+	propertyLengthsToWrite, err := c.c1.segment.getPropertyLengths()
 	if err != nil {
 		return errors.Wrap(err, "get property lengths")
 	}
 
-	propertyLengthsToClean, err := c.c2.segment.GetPropertyLengths()
+	propertyLengthsToClean, err := c.c2.segment.getPropertyLengths()
 	if err != nil {
 		return errors.Wrap(err, "get property lengths")
 	}

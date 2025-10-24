@@ -24,23 +24,22 @@ type segmentCursorMap struct {
 	nextOffset uint64
 }
 
-func (s *segment) newMapCursor() *segmentCursorMap {
+func (s *segment) newMapCursor() innerCursorMap {
 	return &segmentCursorMap{
 		segment: s,
 	}
 }
 
 func (sg *SegmentGroup) newMapCursors() ([]innerCursorMap, func()) {
-	segments, release := sg.getAndLockSegments()
+	segments, release := sg.getConsistentViewOfSegments()
 
 	out := make([]innerCursorMap, len(segments))
 
 	for i, segment := range segments {
-		sgm := segment.getSegment()
-		if sgm.getStrategy() == segmentindex.StrategyInverted {
-			out[i] = sgm.newInvertedCursorReusable()
+		if segment.getStrategy() == segmentindex.StrategyInverted {
+			out[i] = segment.newInvertedCursorReusable()
 		} else {
-			out[i] = sgm.newMapCursor()
+			out[i] = segment.newMapCursor()
 		}
 	}
 

@@ -127,7 +127,7 @@ func TestBackup_IntegrationHnsw(t *testing.T) {
 
 	idx, err := New(config, hnswuc, cyclemanager.NewCallbackGroupNoop(), store)
 	require.Nil(t, err)
-	idx.PostStartup()
+	idx.PostStartup(context.Background())
 
 	compressionhelpers.Concurrently(logger, uint64(vectors_size), func(i uint64) {
 		idx.Add(ctx, i, vectors[i])
@@ -140,7 +140,7 @@ func TestBackup_IntegrationHnsw(t *testing.T) {
 
 	idx, err = New(config, hnswuc, cyclemanager.NewCallbackGroupNoop(), store)
 	require.Nil(t, err)
-	idx.PostStartup()
+	idx.PostStartup(context.Background())
 
 	recall2, _ := testinghelpers.RecallAndLatency(ctx, queries, k, idx, truths)
 	assert.Equal(t, recall1, recall2)

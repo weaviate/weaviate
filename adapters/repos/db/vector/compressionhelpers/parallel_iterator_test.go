@@ -25,7 +25,26 @@ import (
 )
 
 func TestCompressedParallelIterator(t *testing.T) {
-	tests := []iteratorTestCase{
+	// enough vectors so that ctx will be checked while cursor is running
+	testsCancellable := []iteratorTestCase{
+		{
+			name:      "many vectors, many parallel routines",
+			totalVecs: 1000,
+			parallel:  16,
+		},
+		{
+			name:      "many vectors, more than allocation size per routine, two routines",
+			totalVecs: 2020,
+			parallel:  2,
+		},
+		{
+			name:      "many vectors, single routine",
+			totalVecs: 1000,
+			parallel:  1,
+		},
+	}
+
+	tests := append(testsCancellable, []iteratorTestCase{
 		{
 			name:      "single vector, many parallel routines",
 			totalVecs: 1,
@@ -42,21 +61,6 @@ func TestCompressedParallelIterator(t *testing.T) {
 			parallel:  16,
 		},
 		{
-			name:      "many vectors, many parallel routines",
-			totalVecs: 1000,
-			parallel:  16,
-		},
-		{
-			name:      "many vectors, single routine",
-			totalVecs: 1000,
-			parallel:  1,
-		},
-		{
-			name:      "many vectors, more than allocation size per routine, two routines",
-			totalVecs: 2020,
-			parallel:  2,
-		},
-		{
 			name:      "one fewer vectors than routines",
 			totalVecs: 5,
 			parallel:  6,
@@ -71,7 +75,7 @@ func TestCompressedParallelIterator(t *testing.T) {
 			totalVecs: 7,
 			parallel:  6,
 		},
-	}
+	}...)
 
 	quantization := []string{"pq", "bq", "sq"}
 	testsWithQuantization := make([]iteratorTestCase, len(tests)*len(quantization))
@@ -99,6 +103,7 @@ func TestCompressedParallelIterator(t *testing.T) {
 				fromCompressed := q.FromCompressedBytesWithSubsliceBuffer
 				cpi := NewParallelIterator(bucket, test.parallel, loadId, fromCompressed, logger)
 				testIterator(t, cpi, test, assertValue)
+
 			case "bq":
 				assertValue := func(t *testing.T, vec VecAndID[uint64]) {
 					assert.Equal(t, vec.Id, vec.Vec[0])
@@ -123,6 +128,65 @@ func TestCompressedParallelIterator(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("aborted pq", func(t *testing.T) {
+		logger, _ := logrustest.NewNullLogger()
+		loadId := binary.BigEndian.Uint64
+		q := &ProductQuantizer{}
+		fromCompressed := q.FromCompressedBytesWithSubsliceBuffer
+
+		t.Run("context already cancelled", func(t *testing.T) {
+			for _, test := range tests {
+				t.Run(test.name, func(t *testing.T) {
+					bucket := buildCompressedBucketForTest(t, test.totalVecs)
+					defer bucket.Shutdown(context.Background())
+
+					cpi := NewParallelIterator(bucket, test.parallel, loadId, fromCompressed, logger)
+					ctxCancelled, cancel := context.WithCancel(context.Background())
+					cancel()
+
+					vecsCh, abortedCh := cpi.IterateAll(ctxCancelled)
+					require.True(t, <-abortedCh, "iterator should have been aborted")
+
+					_, ok := <-vecsCh
+					require.False(t, ok, "vectors channel should be empty")
+				})
+			}
+		})
+
+		t.Run("context cancelled in the meantime", func(t *testing.T) {
+			for _, test := range testsCancellable {
+				t.Run(test.name, func(t *testing.T) {
+					bucket := buildCompressedBucketForTest(t, test.totalVecs)
+					defer bucket.Shutdown(context.Background())
+
+					cpi := NewParallelIterator(bucket, test.parallel, loadId, fromCompressed, logger)
+					ctxCancellable, cancel := context.WithCancel(context.Background())
+
+					vecsCh, abortedCh := cpi.IterateAll(ctxCancellable)
+					cancel()
+
+					var allVecs []VecAndID[byte]
+					for vecs := range vecsCh {
+						allVecs = append(allVecs, vecs...)
+					}
+
+					require.True(t, <-abortedCh, "iterator should have been aborted")
+
+					idsFound := make(map[uint64]struct{})
+					for _, vec := range allVecs {
+						_, ok := idsFound[vec.Id]
+						require.False(t, ok, "id %d found more than once", vec.Id)
+						idsFound[vec.Id] = struct{}{}
+
+						valAsUint64 := binary.LittleEndian.Uint64(vec.Vec)
+						assert.Equal(t, vec.Id, valAsUint64)
+					}
+					require.Greater(t, test.totalVecs, len(idsFound))
+				})
+			}
+		})
+	})
 }
 
 type iteratorTestCase struct {
@@ -137,9 +201,9 @@ func testIterator[T uint64 | byte](t *testing.T, cpi *parallelIterator[T], test 
 ) {
 	require.NotNil(t, cpi)
 
-	ch := cpi.IterateAll()
+	vecsCh, abortedCh := cpi.IterateAll(context.Background())
 	idsFound := make(map[uint64]struct{})
-	for vecs := range ch {
+	for vecs := range vecsCh {
 		for _, vec := range vecs {
 			if _, ok := idsFound[vec.Id]; ok {
 				t.Errorf("id %d found more than once", vec.Id)
@@ -154,6 +218,7 @@ func testIterator[T uint64 | byte](t *testing.T, cpi *parallelIterator[T], test 
 	// we already know that the ids are unique, so we can just check the
 	// length
 	require.Len(t, idsFound, test.totalVecs)
+	require.False(t, <-abortedCh)
 }
 
 func buildCompressedBucketForTest(t *testing.T, totalVecs int) *lsmkv.Bucket {

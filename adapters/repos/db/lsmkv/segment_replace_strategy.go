@@ -62,7 +62,7 @@ func (s *segment) get(key []byte) ([]byte, error) {
 	return v, nil
 }
 
-func (s *segment) getBySecondaryIntoMemory(pos int, key []byte, buffer []byte) ([]byte, []byte, []byte, error) {
+func (s *segment) getBySecondary(pos int, key []byte, buffer []byte) ([]byte, []byte, []byte, error) {
 	if s.strategy != segmentindex.StrategyReplace {
 		return nil, nil, nil, fmt.Errorf("get only possible for strategy %q", StrategyReplace)
 	}
@@ -137,9 +137,9 @@ func (s *segment) replaceStratParseData(in []byte) ([]byte, []byte, error) {
 	return in[9+valueLength+4 : 9+valueLength+4+uint64(pkLength)], in[9 : 9+valueLength], nil
 }
 
-func (s *segment) exists(key []byte) (bool, error) {
-	if s.strategy != segmentindex.StrategyReplace {
-		return false, fmt.Errorf("exists only possible for strategy %q", StrategyReplace)
+func (s *segment) existsKey(key []byte) (bool, error) {
+	if err := segmentindex.CheckExpectedStrategy(s.strategy, segmentindex.StrategyReplace); err != nil {
+		return false, fmt.Errorf("segment::existsKey: %w", err)
 	}
 
 	if s.useBloomFilter && !s.bloomFilter.Test(key) {

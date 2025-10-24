@@ -75,7 +75,7 @@ type VectorIndex interface {
 	Flush() error
 	SwitchCommitLogs(ctx context.Context) error
 	ListFiles(ctx context.Context, basePath string) ([]string, error)
-	PostStartup()
+	PostStartup(ctx context.Context)
 	Compressed() bool
 	Multivector() bool
 	ValidateBeforeInsert(vector []float32) error
@@ -483,10 +483,10 @@ func (dynamic *dynamic) ValidateMultiBeforeInsert(vector [][]float32) error {
 	return dynamic.index.ValidateMultiBeforeInsert(vector)
 }
 
-func (dynamic *dynamic) PostStartup() {
+func (dynamic *dynamic) PostStartup(ctx context.Context) {
 	dynamic.Lock()
 	defer dynamic.Unlock()
-	dynamic.index.PostStartup()
+	dynamic.index.PostStartup(ctx)
 }
 
 func (dynamic *dynamic) DistanceBetweenVectors(x, y []float32) (float32, error) {

@@ -17,14 +17,10 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"time"
-
-	"github.com/pkg/errors"
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
-	"github.com/weaviate/weaviate/entities/diskio"
 	bolt "go.etcd.io/bbolt"
 )
 
@@ -147,7 +143,7 @@ func (c *segmentCleanerCommon) close() error {
 // index of first newer segment to start cleanup from, index of last newer segment
 // to finish cleanup on, callback to be executed after cleanup is successfully completed
 // and error in case of issues occurred while finding candidate
-func (c *segmentCleanerCommon) findCandidate() (int, int, int, onCompletedFunc, error) {
+func (c *segmentCleanerCommon) findCandidate(segments []Segment) (int, int, int, onCompletedFunc, error) {
 	nowTs := time.Now().UnixNano()
 	nextAllowedTs := nowTs - int64(c.sg.cleanupInterval)
 	nextAllowedStoredTs := c.readNextAllowed()
@@ -157,7 +153,7 @@ func (c *segmentCleanerCommon) findCandidate() (int, int, int, onCompletedFunc, 
 		return emptyIdx, emptyIdx, emptyIdx, nil, nil
 	}
 
-	ids, sizes, err := c.getSegmentIdsAndSizes()
+	ids, sizes, err := c.getSegmentIdsAndSizes(segments)
 	if err != nil {
 		return emptyIdx, emptyIdx, emptyIdx, nil, err
 	}
@@ -196,10 +192,7 @@ func (c *segmentCleanerCommon) findCandidate() (int, int, int, onCompletedFunc, 
 	return emptyIdx, emptyIdx, emptyIdx, nil, nil
 }
 
-func (c *segmentCleanerCommon) getSegmentIdsAndSizes() ([]int64, []int64, error) {
-	segments, release := c.sg.getAndLockSegments()
-	defer release()
-
+func (c *segmentCleanerCommon) getSegmentIdsAndSizes(segments []Segment) ([]int64, []int64, error) {
 	var ids []int64
 	var sizes []int64
 	if count := len(segments); count > 1 {
@@ -428,102 +421,118 @@ func (c *segmentCleanerCommon) cleanupOnce(shouldAbort cyclemanager.ShouldAbortC
 		return false, nil
 	}
 
-	var err error
-	candidateIdx, startIdx, lastIdx, onCompleted, err := c.findCandidate()
-	if err != nil {
-		return false, err
-	}
-	if candidateIdx == emptyIdx {
-		return false, nil
-	}
+	var candidateIdx, startIdx, lastIdx int
+	var onCompleted onCompletedFunc
+	var tmpSegmentPath string
 
-	if c.sg.allocChecker != nil {
-		// allocChecker is optional
-		if err := c.sg.allocChecker.CheckAlloc(100 * 1024 * 1024); err != nil {
-			// if we don't have at least 100MB to spare, don't start a cleanup. A
-			// cleanup does not actually need a 100MB, but it will create garbage
-			// that needs to be cleaned up. If we're so close to the memory limit, we
-			// can increase stability by preventing anything that's not strictly
-			// necessary. Cleanup can simply resume when the cluster has been
-			// scaled.
-			c.sg.logger.WithFields(logrus.Fields{
-				"action": "lsm_cleanup",
-				"event":  "cleanup_skipped_oom",
-				"path":   c.sg.dir,
-			}).WithError(err).
-				Warnf("skipping cleanup due to memory pressure")
+	ok, err := func() (bool, error) {
+		segments, release := c.sg.getConsistentViewOfSegments()
+		defer release()
 
-			return false, nil
-		}
-	}
-
-	if shouldAbort() {
-		c.sg.logger.WithFields(logrus.Fields{
-			"action": "lsm_cleanup",
-			"path":   c.sg.dir,
-		}).Warnf("skipping cleanup due to shouldAbort")
-		return false, nil
-	}
-
-	oldSegment := c.sg.segmentAtPos(candidateIdx)
-	segmentId := segmentID(oldSegment.path)
-	var filename string
-	if c.sg.writeSegmentInfoIntoFileName {
-		filename = "segment-" + segmentId + segmentExtraInfo(oldSegment.getLevel(), oldSegment.getStrategy()) + ".db.tmp"
-	} else {
-		filename = "segment-" + segmentId + ".db.tmp"
-	}
-	tmpSegmentPath := filepath.Join(c.sg.dir, filename)
-	scratchSpacePath := oldSegment.path + "cleanup.scratch.d"
-
-	start := time.Now()
-	c.sg.logger.WithFields(logrus.Fields{
-		"action":       "lsm_cleanup",
-		"path":         c.sg.dir,
-		"candidateIdx": candidateIdx,
-		"startIdx":     startIdx,
-		"lastIdx":      lastIdx,
-		"segmentId":    segmentId,
-	}).Info("cleanup started with candidate")
-	defer func() {
-		l := c.sg.logger.WithFields(logrus.Fields{
-			"action":    "lsm_cleanup",
-			"path":      c.sg.dir,
-			"segmentId": segmentId,
-			"took":      time.Since(start),
-		})
-		if err == nil {
-			l.Info("clenaup finished")
-		} else {
-			l.WithError(err).Error("cleanup failed")
-		}
-	}()
-
-	file, err := os.Create(tmpSegmentPath)
-	if err != nil {
-		return false, err
-	}
-
-	switch c.sg.strategy {
-	case StrategyReplace:
-		c := newSegmentCleanerReplace(file, oldSegment.newCursor(),
-			c.sg.makeKeyExistsOnUpperSegments(startIdx, lastIdx), oldSegment.level,
-			oldSegment.secondaryIndexCount, scratchSpacePath, c.sg.enableChecksumValidation)
-		if err = c.do(shouldAbort); err != nil {
+		var err error
+		candidateIdx, startIdx, lastIdx, onCompleted, err = c.findCandidate(segments)
+		if err != nil {
 			return false, err
 		}
-	default:
-		err = fmt.Errorf("unsported strategy %q", c.sg.strategy)
-		return false, err
-	}
+		if candidateIdx == emptyIdx {
+			return false, nil
+		}
 
-	if err = file.Sync(); err != nil {
-		err = fmt.Errorf("fsync cleaned segment file: %w", err)
+		if c.sg.allocChecker != nil {
+			// allocChecker is optional
+			if err := c.sg.allocChecker.CheckAlloc(100 * 1024 * 1024); err != nil {
+				// if we don't have at least 100MB to spare, don't start a cleanup. A
+				// cleanup does not actually need a 100MB, but it will create garbage
+				// that needs to be cleaned up. If we're so close to the memory limit, we
+				// can increase stability by preventing anything that's not strictly
+				// necessary. Cleanup can simply resume when the cluster has been
+				// scaled.
+				c.sg.logger.WithFields(logrus.Fields{
+					"action": "lsm_cleanup",
+					"event":  "cleanup_skipped_oom",
+					"path":   c.sg.dir,
+				}).WithError(err).
+					Warnf("skipping cleanup due to memory pressure")
+
+				return false, nil
+			}
+		}
+
+		if shouldAbort() {
+			c.sg.logger.WithFields(logrus.Fields{
+				"action": "lsm_cleanup",
+				"path":   c.sg.dir,
+			}).Warnf("skipping cleanup due to shouldAbort")
+			return false, nil
+		}
+
+		oldSegment := segments[candidateIdx]
+		segmentId := segmentID(oldSegment.getPath())
+		var filename string
+		if c.sg.writeSegmentInfoIntoFileName {
+			filename = "segment-" + segmentId + segmentExtraInfo(oldSegment.getLevel(), oldSegment.getStrategy()) + ".db.tmp"
+		} else {
+			filename = "segment-" + segmentId + ".db.tmp"
+		}
+		tmpSegmentPath = filepath.Join(c.sg.dir, filename)
+		scratchSpacePath := oldSegment.getPath() + "cleanup.scratch.d"
+
+		start := time.Now()
+		c.sg.logger.WithFields(logrus.Fields{
+			"action":       "lsm_cleanup",
+			"path":         c.sg.dir,
+			"candidateIdx": candidateIdx,
+			"startIdx":     startIdx,
+			"lastIdx":      lastIdx,
+			"segmentId":    segmentId,
+		}).Info("cleanup started with candidate")
+		defer func() {
+			l := c.sg.logger.WithFields(logrus.Fields{
+				"action":    "lsm_cleanup",
+				"path":      c.sg.dir,
+				"segmentId": segmentId,
+				"took":      time.Since(start),
+			})
+			if err == nil {
+				l.Info("clenaup finished")
+			} else {
+				l.WithError(err).Error("cleanup failed")
+			}
+		}()
+
+		file, err := os.Create(tmpSegmentPath)
+		if err != nil {
+			return false, err
+		}
+
+		switch c.sg.strategy {
+		case StrategyReplace:
+			c := newSegmentCleanerReplace(file, oldSegment.newCursor(),
+				c.sg.makeKeyExistsOnUpperSegments(segments, startIdx, lastIdx), oldSegment.getLevel(),
+				oldSegment.getSecondaryIndexCount(), scratchSpacePath, c.sg.enableChecksumValidation)
+			if err = c.do(shouldAbort); err != nil {
+				return false, err
+			}
+		default:
+			err = fmt.Errorf("unsported strategy %q", c.sg.strategy)
+			return false, err
+		}
+
+		if err = file.Sync(); err != nil {
+			err = fmt.Errorf("fsync cleaned segment file: %w", err)
+			return false, err
+		}
+		if err = file.Close(); err != nil {
+			err = fmt.Errorf("close cleaned segment file: %w", err)
+			return false, err
+		}
+		return true, nil
+	}()
+	if err != nil {
 		return false, err
 	}
-	if err = file.Close(); err != nil {
-		err = fmt.Errorf("close cleaned segment file: %w", err)
-		return false, err
+	if !ok {
+		return false, nil
 	}
 
 	segment, err := c.sg.replaceSegment(candidateIdx, tmpSegmentPath)
@@ -545,31 +554,20 @@ type onCompletedFunc func(size int64) error
 
 type keyExistsOnUpperSegmentsFunc func(key []byte) (bool, error)
 
-func (sg *SegmentGroup) makeKeyExistsOnUpperSegments(startIdx, lastIdx int) keyExistsOnUpperSegmentsFunc {
+func (sg *SegmentGroup) makeKeyExistsOnUpperSegments(segments []Segment, startIdx, lastIdx int) keyExistsOnUpperSegmentsFunc {
+	var upperSegments []Segment
+	if startIdx <= lastIdx {
+		upperSegments = segments[startIdx : lastIdx+1]
+	} else {
+		upperSegments = make([]Segment, startIdx-lastIdx+1)
+		for i := lastIdx; i <= startIdx; i++ {
+			upperSegments[startIdx-i] = segments[i]
+		}
+	}
+
 	return func(key []byte) (bool, error) {
-		// asc order by default
-		i := startIdx
-		updateI := func() { i++ }
-		if startIdx > lastIdx {
-			// dest order
-			i = lastIdx
-			updateI = func() { i-- }
-		}
-
-		segAtPos := func() *segment {
-			segments, release := sg.getAndLockSegments()
-			defer release()
-
-			if i >= startIdx && i <= lastIdx {
-				j := i
-				updateI()
-				return segments[j].getSegment()
-			}
-			return nil
-		}
-
-		for seg := segAtPos(); seg != nil; seg = segAtPos() {
-			if exists, err := seg.exists(key); err != nil {
+		for i := range upperSegments {
+			if exists, err := upperSegments[i].existsKey(key); err != nil {
 				return false, err
 			} else if exists {
 				return true, nil
@@ -579,109 +577,45 @@ func (sg *SegmentGroup) makeKeyExistsOnUpperSegments(startIdx, lastIdx int) keyE
 	}
 }
 
-func (sg *SegmentGroup) replaceSegment(segmentIdx int, tmpSegmentPath string,
+func (sg *SegmentGroup) replaceSegment(segmentPos int, tmpSegmentPath string,
 ) (*segment, error) {
-	oldSegment := sg.segmentAtPos(segmentIdx)
-	countNetAdditions := oldSegment.countNetAdditions
-
-	// as a guardrail validate that the segment is considered a .tmp segment.
-	// This way we can be sure that we're not accidentally operating on a live
-	// segment as the segment group completely ignores .tmp segment files
-	if !strings.HasSuffix(tmpSegmentPath, ".tmp") {
-		return nil, fmt.Errorf("pre computing a segment expects a .tmp segment path")
-	}
-
-	seg, err := newSegment(tmpSegmentPath, sg.logger, sg.metrics, nil,
-		segmentConfig{
-			mmapContents:                 sg.mmapContents,
-			useBloomFilter:               sg.useBloomFilter,
-			calcCountNetAdditions:        sg.calcCountNetAdditions,
-			overwriteDerived:             true,
-			enableChecksumValidation:     sg.enableChecksumValidation,
-			MinMMapSize:                  sg.MinMMapSize,
-			allocChecker:                 sg.allocChecker,
-			precomputedCountNetAdditions: &countNetAdditions,
-			writeMetadata:                sg.writeMetadata,
-		})
+	newSegment, err := sg.preinitializeNewSegment(tmpSegmentPath, segmentPos)
 	if err != nil {
 		return nil, fmt.Errorf("precompute segment meta: %w", err)
 	}
 
-	newSegment, err := sg.replaceSegmentBlocking(segmentIdx, oldSegment, seg)
+	replacer := newSegmentReplacer(sg, segmentPos, segmentPos, newSegment)
+	_, oldSegment, err := replacer.switchOnDisk()
 	if err != nil {
-		return nil, fmt.Errorf("replace segment (blocking): %w", err)
+		return nil, fmt.Errorf("replace cleaned segment on disk: %w", err)
 	}
 
-	if err := sg.deleteOldSegmentsNonBlocking(oldSegment); err != nil {
+	if err := replacer.switchInMemory(); err != nil {
+		return nil, fmt.Errorf("replace cleaned segment (blocking): %w", err)
+	}
+
+	// NOTE: The delete logic will wait for the ref count to reach zero, to
+	// ensure we are not deleting any segments that are still being referenced,
+	// e.g. from cursor or other "slow" readers.
+	//
+	// The whole compaction cycle is single-threaded, so waiting for a delete,
+	// also means we are essentially delaying the next compaction. That is not
+	// ideal and also not strictly necessary. We could extract the delete logic
+	// into a simple job queue that runs in a separate goroutine.
+	//
+	// However, https://github.com/weaviate/weaviate/pull/9104, where
+	// ref-counting is introduced, is already a significant change at the point
+	// of writing this comment. Thus, to minimize further risks, we keep the
+	// existing logic for now.
+	if err := sg.deleteOldSegmentsFromDisk(oldSegment); err != nil {
 		// don't abort if the delete fails, we can still continue (albeit
 		// without freeing disk space that should have been freed). The
 		// compaction itself was successful.
 		sg.logger.WithError(err).WithFields(logrus.Fields{
-			"action": "lsm_replace_segments_delete_file",
-			"file":   oldSegment.path,
+			"action": "lsm_replace_cleaned_segment_delete_file",
+			"file":   oldSegment.getPath(),
 		}).Error("failed to delete file already marked for deletion")
 	}
 
 	return newSegment, nil
-}
-
-func (sg *SegmentGroup) replaceSegmentBlocking(
-	segmentIdx int, oldSegment *segment, newSegment *segment,
-) (*segment, error) {
-	sg.maintenanceLock.Lock()
-	defer sg.maintenanceLock.Unlock()
-
-	start := time.Now()
-
-	if err := oldSegment.close(); err != nil {
-		return nil, fmt.Errorf("close disk segment %q: %w", oldSegment.path, err)
-	}
-	if err := oldSegment.markForDeletion(); err != nil {
-		return nil, fmt.Errorf("drop disk segment %q: %w", oldSegment.path, err)
-	}
-	if err := diskio.Fsync(sg.dir); err != nil {
-		return nil, fmt.Errorf("fsync segment directory %q: %w", sg.dir, err)
-	}
-
-	segmentId := segmentID(oldSegment.path)
-	newPath, err := sg.stripTmpExtension(newSegment.path, segmentId, segmentId)
-	if err != nil {
-		return nil, errors.Wrap(err, "strip .tmp extension of new segment")
-	}
-	newSegment.path = newPath
-
-	// the old segment have been deleted, we can now safely remove the .tmp
-	// extension from the new segment itself and the pre-computed files
-	for i, tmpPath := range newSegment.metaPaths {
-		path, err := sg.stripTmpExtension(tmpPath, segmentId, segmentId)
-		if err != nil {
-			return nil, fmt.Errorf("strip .tmp extension of new segment %q: %w", tmpPath, err)
-		}
-		newSegment.metaPaths[i] = path
-	}
-
-	sg.segments[segmentIdx] = newSegment
-
-	sg.observeReplaceDuration(start, segmentIdx, oldSegment, newSegment)
-	return newSegment, nil
-}
-
-func (sg *SegmentGroup) observeReplaceDuration(
-	start time.Time, segmentIdx int, oldSegment, newSegment *segment,
-) {
-	// observe duration - warn if it took too long
-	took := time.Since(start)
-	fields := sg.logger.WithFields(logrus.Fields{
-		"action":        "lsm_replace_segment_blocking",
-		"segment_index": segmentIdx,
-		"path_old":      oldSegment.path,
-		"path_new":      newSegment.path,
-		"took":          took,
-	})
-	msg := fmt.Sprintf("replacing segment took %s", took)
-	if took > replaceSegmentWarnThreshold {
-		fields.Warn(msg)
-	} else {
-		fields.Debug(msg)
-	}
 }

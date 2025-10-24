@@ -28,7 +28,7 @@ import (
 type segmentCleanerReplace struct {
 	w                        io.WriteSeeker
 	bufw                     *bufio.Writer
-	cursor                   *segmentCursorReplace
+	cursor                   innerCursorReplaceAllKeys
 	keyExistsFn              keyExistsOnUpperSegmentsFunc
 	version                  uint16
 	level                    uint16
@@ -37,7 +37,7 @@ type segmentCleanerReplace struct {
 	enableChecksumValidation bool
 }
 
-func newSegmentCleanerReplace(w io.WriteSeeker, cursor *segmentCursorReplace,
+func newSegmentCleanerReplace(w io.WriteSeeker, cursor innerCursorReplaceAllKeys,
 	keyExistsFn keyExistsOnUpperSegmentsFunc, level, secondaryIndexCount uint16,
 	scratchSpacePath string, enableChecksumValidation bool,
 ) *segmentCleanerReplace {

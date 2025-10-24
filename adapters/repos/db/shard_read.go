@@ -29,6 +29,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -198,7 +199,7 @@ func (s *Shard) objectByIndexID(ctx context.Context, indexID uint64, acceptDelet
 	binary.LittleEndian.PutUint64(keyBuf, indexID)
 
 	bytes, err := s.store.Bucket(helpers.ObjectsBucketLSM).
-		GetBySecondary(0, keyBuf)
+		GetBySecondary(ctx, 0, keyBuf)
 	if err != nil {
 		return nil, err
 	}
@@ -225,7 +226,7 @@ func (s *Shard) readVectorByIndexIDIntoSlice(ctx context.Context, indexID uint64
 	binary.LittleEndian.PutUint64(container.Buff8, indexID)
 
 	bytes, newBuff, err := s.store.Bucket(helpers.ObjectsBucketLSM).
-		GetBySecondaryIntoMemory(0, container.Buff8, container.Buff)
+		GetBySecondaryWithBuffer(ctx, 0, container.Buff8, container.Buff)
 	if err != nil {
 		return nil, err
 	}
@@ -248,7 +249,7 @@ func (s *Shard) readMultiVectorByIndexIDIntoSlice(ctx context.Context, indexID u
 	binary.LittleEndian.PutUint64(container.Buff8, indexID)
 
 	bytes, newBuff, err := s.store.Bucket(helpers.ObjectsBucketLSM).
-		GetBySecondaryIntoMemory(0, container.Buff8, container.Buff)
+		GetBySecondaryWithBuffer(ctx, 0, container.Buff8, container.Buff)
 	if err != nil {
 		return nil, err
 	}
@@ -374,6 +375,11 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 	startTime := time.Now()
 
 	defer func() {
+		// reduce lsm stats
+		helpers.ReplaceSlowQueryEntry(ctx, "lsm_get_by_secondary", func(old []lsmkv.BucketSlowLogEntry) lsmkv.BucketSlowLogEntryStats {
+			return lsmkv.BucketSlowLogEntries(old).Reduce()
+		})
+
 		s.slowQueryReporter.LogIfSlow(ctx, startTime, map[string]any{
 			"collection": s.index.Config.ClassName,
 			"shard":      s.ID(),
@@ -668,7 +674,7 @@ func (s *Shard) uuidFromDocID(docID uint64) (strfmt.UUID, error) {
 		return "", fmt.Errorf("write doc id to buffer: %w", err)
 	}
 	docIDBytes := keyBuf.Bytes()
-	res, err := bucket.GetBySecondary(0, docIDBytes)
+	res, err := bucket.GetBySecondary(context.TODO(), 0, docIDBytes) // TODO: context
 	if err != nil {
 		return "", fmt.Errorf("get object by doc id: %w", err)
 	}

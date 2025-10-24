@@ -24,9 +24,8 @@ import (
 
 func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 	assertSegment := func(t *testing.T, sg *SegmentGroup, idx int, expectedName string, expectedSize int64) {
-		seg := sg.segments[idx].getSegment()
-		assert.Equal(t, filepath.Join(sg.dir, expectedName), seg.path)
-		assert.Equal(t, expectedSize, seg.size)
+		assert.Equal(t, filepath.Join(sg.dir, expectedName), sg.segments[idx].getPath())
+		assert.Equal(t, expectedSize, sg.segments[idx].Size())
 	}
 	requireCandidateFound := func(t *testing.T, idx, expIdx, startIdx, expStartIdx, lastIdx, expLastIdx int) {
 		require.Equal(t, expIdx, idx)
@@ -65,7 +64,7 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 		require.NoError(t, sc.init())
 		defer sc.close()
 
-		idx, startIdx, lastIdx, onCompleted, err := sc.findCandidate()
+		idx, startIdx, lastIdx, onCompleted, err := sc.findCandidate(sg.segments)
 		require.NoError(t, err)
 		requireCandidateNotFound(t, idx, startIdx, lastIdx)
 		assert.Nil(t, onCompleted)
@@ -88,7 +87,7 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 		require.NoError(t, sc.init())
 		defer sc.close()
 
-		idx, startIdx, lastIdx, onCompleted, err := sc.findCandidate()
+		idx, startIdx, lastIdx, onCompleted, err := sc.findCandidate(sg.segments)
 		require.NoError(t, err)
 		requireCandidateNotFound(t, idx, startIdx, lastIdx)
 		assert.Nil(t, onCompleted)
@@ -123,7 +122,7 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 		sc.init()
 		defer sc.close()
 
-		idx1, startIdx1, lastIdx1, onCompleted1, err1 := sc.findCandidate()
+		idx1, startIdx1, lastIdx1, onCompleted1, err1 := sc.findCandidate(sg.segments)
 		require.NoError(t, err1)
 		requireCandidateFound(t, idx1, 0, startIdx1, 1, lastIdx1, 3)
 		assertSegment(t, sg, idx1, "segment-0001.db", 10001)
@@ -131,7 +130,7 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 		onCompleted1(9001)
 		sg.segments[idx1].setSize(9001)
 
-		idx2, startIdx2, lastIdx2, onCompleted2, err2 := sc.findCandidate()
+		idx2, startIdx2, lastIdx2, onCompleted2, err2 := sc.findCandidate(sg.segments)
 		require.NoError(t, err2)
 		requireCandidateFound(t, idx2, 1, startIdx2, 2, lastIdx2, 3)
 		assertSegment(t, sg, idx2, "segment-0002.db", 10002)
@@ -139,7 +138,7 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 		onCompleted2(9002)
 		sg.segments[idx2].setSize(9002)
 
-		idx3, startIdx3, lastIdx3, onCompleted3, err3 := sc.findCandidate()
+		idx3, startIdx3, lastIdx3, onCompleted3, err3 := sc.findCandidate(sg.segments)
 		require.NoError(t, err3)
 		requireCandidateFound(t, idx3, 2, startIdx3, 3, lastIdx3, 3)
 		assertSegment(t, sg, idx3, "segment-0003.db", 10003)
@@ -147,7 +146,7 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 		onCompleted3(9003)
 		sg.segments[idx3].setSize(9003)
 
-		idx4, startIdx4, lastIdx4, onCompleted4, err4 := sc.findCandidate()
+		idx4, startIdx4, lastIdx4, onCompleted4, err4 := sc.findCandidate(sg.segments)
 		require.NoError(t, err4)
 		requireCandidateNotFound(t, idx4, startIdx4, lastIdx4)
 		assert.Nil(t, onCompleted4)
@@ -184,7 +183,7 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 		defer sc.close()
 
 		t.Run("1st round, all but last cleaned", func(t *testing.T) {
-			idx1, startIdx1, lastIdx1, onCompleted1, err1 := sc.findCandidate()
+			idx1, startIdx1, lastIdx1, onCompleted1, err1 := sc.findCandidate(sg.segments)
 			require.NoError(t, err1)
 			requireCandidateFound(t, idx1, 0, startIdx1, 1, lastIdx1, 3)
 			assertSegment(t, sg, idx1, "segment-0001.db", 10001)
@@ -192,7 +191,7 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 			onCompleted1(9001)
 			sg.segments[idx1].setSize(9001)
 
-			idx2, startIdx2, lastIdx2, onCompleted2, err2 := sc.findCandidate()
+			idx2, startIdx2, lastIdx2, onCompleted2, err2 := sc.findCandidate(sg.segments)
 			require.NoError(t, err2)
 			requireCandidateFound(t, idx2, 1, startIdx2, 2, lastIdx2, 3)
 			assertSegment(t, sg, idx2, "segment-0002.db", 10002)
@@ -200,7 +199,7 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 			onCompleted2(9002)
 			sg.segments[idx2].setSize(9002)
 
-			idx3, startIdx3, lastIdx3, onCompleted3, err3 := sc.findCandidate()
+			idx3, startIdx3, lastIdx3, onCompleted3, err3 := sc.findCandidate(sg.segments)
 			require.NoError(t, err3)
 			requireCandidateFound(t, idx3, 2, startIdx3, 3, lastIdx3, 3)
 			assertSegment(t, sg, idx3, "segment-0003.db", 10003)
@@ -208,14 +207,14 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 			onCompleted3(9003)
 			sg.segments[idx3].setSize(9003)
 
-			idx4, startIdx4, lastIdx4, onCompleted4, err4 := sc.findCandidate()
+			idx4, startIdx4, lastIdx4, onCompleted4, err4 := sc.findCandidate(sg.segments)
 			require.NoError(t, err4)
 			requireCandidateNotFound(t, idx4, startIdx4, lastIdx4)
 			assert.Nil(t, onCompleted4)
 		})
 
 		t.Run("no candidates before interval", func(t *testing.T) {
-			idx, startIdx, lastIdx, onCompleted, err := sc.findCandidate()
+			idx, startIdx, lastIdx, onCompleted, err := sc.findCandidate(sg.segments)
 			require.NoError(t, err)
 			requireCandidateNotFound(t, idx, startIdx, lastIdx)
 			assert.Nil(t, onCompleted)
@@ -226,7 +225,7 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 		})
 
 		t.Run("2nd round, no candiates due to no new segments", func(t *testing.T) {
-			idx, startIdx, lastIdx, onCompleted, err := sc.findCandidate()
+			idx, startIdx, lastIdx, onCompleted, err := sc.findCandidate(sg.segments)
 			require.NoError(t, err)
 			requireCandidateNotFound(t, idx, startIdx, lastIdx)
 			assert.Nil(t, onCompleted)
@@ -264,7 +263,7 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 		defer sc.close()
 
 		t.Run("1st round, all but last cleaned", func(t *testing.T) {
-			idx1, startIdx1, lastIdx1, onCompleted1, err1 := sc.findCandidate()
+			idx1, startIdx1, lastIdx1, onCompleted1, err1 := sc.findCandidate(sg.segments)
 			require.NoError(t, err1)
 			requireCandidateFound(t, idx1, 0, startIdx1, 1, lastIdx1, 3)
 			assertSegment(t, sg, idx1, "segment-0001.db", 10001)
@@ -272,7 +271,7 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 			onCompleted1(9001)
 			sg.segments[idx1].setSize(9001)
 
-			idx2, startIdx2, lastIdx2, onCompleted2, err2 := sc.findCandidate()
+			idx2, startIdx2, lastIdx2, onCompleted2, err2 := sc.findCandidate(sg.segments)
 			require.NoError(t, err2)
 			requireCandidateFound(t, idx2, 1, startIdx2, 2, lastIdx2, 3)
 			assertSegment(t, sg, idx2, "segment-0002.db", 10002)
@@ -280,7 +279,7 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 			onCompleted2(9002)
 			sg.segments[idx2].setSize(9002)
 
-			idx3, startIdx3, lastIdx3, onCompleted3, err3 := sc.findCandidate()
+			idx3, startIdx3, lastIdx3, onCompleted3, err3 := sc.findCandidate(sg.segments)
 			require.NoError(t, err3)
 			requireCandidateFound(t, idx3, 2, startIdx3, 3, lastIdx3, 3)
 			assertSegment(t, sg, idx3, "segment-0003.db", 10003)
@@ -288,14 +287,14 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 			onCompleted3(9003)
 			sg.segments[idx3].setSize(9003)
 
-			idx4, startIdx4, lastIdx4, onCompleted4, err4 := sc.findCandidate()
+			idx4, startIdx4, lastIdx4, onCompleted4, err4 := sc.findCandidate(sg.segments)
 			require.NoError(t, err4)
 			requireCandidateNotFound(t, idx4, startIdx4, lastIdx4)
 			assert.Nil(t, onCompleted4)
 		})
 
 		t.Run("no candidates before interval", func(t *testing.T) {
-			idx, startIdx, lastIdx, onCompleted, err := sc.findCandidate()
+			idx, startIdx, lastIdx, onCompleted, err := sc.findCandidate(sg.segments)
 			require.NoError(t, err)
 			requireCandidateNotFound(t, idx, startIdx, lastIdx)
 			assert.Nil(t, onCompleted)
@@ -321,7 +320,7 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 		})
 
 		t.Run("2nd round, new candidates then same candiates again", func(t *testing.T) {
-			idx1, startIdx1, lastIdx1, onCompleted1, err1 := sc.findCandidate()
+			idx1, startIdx1, lastIdx1, onCompleted1, err1 := sc.findCandidate(sg.segments)
 			require.NoError(t, err1)
 			requireCandidateFound(t, idx1, 3, startIdx1, 4, lastIdx1, 5)
 			assertSegment(t, sg, idx1, "segment-0004.db", 10004)
@@ -329,7 +328,7 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 			onCompleted1(9004)
 			sg.segments[idx1].setSize(9004)
 
-			idx2, startIdx2, lastIdx2, onCompleted2, err2 := sc.findCandidate()
+			idx2, startIdx2, lastIdx2, onCompleted2, err2 := sc.findCandidate(sg.segments)
 			require.NoError(t, err2)
 			requireCandidateFound(t, idx2, 4, startIdx2, 5, lastIdx2, 5)
 			assertSegment(t, sg, idx2, "segment-0005.db", 10005)
@@ -337,7 +336,7 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 			onCompleted2(9005)
 			sg.segments[idx2].setSize(9005)
 
-			idx3, startIdx3, lastIdx3, onCompleted3, err3 := sc.findCandidate()
+			idx3, startIdx3, lastIdx3, onCompleted3, err3 := sc.findCandidate(sg.segments)
 			require.NoError(t, err3)
 			requireCandidateFound(t, idx3, 0, startIdx3, 4, lastIdx3, 5)
 			assertSegment(t, sg, idx3, "segment-0001.db", 9001)
@@ -345,7 +344,7 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 			onCompleted3(8001)
 			sg.segments[idx3].setSize(8001)
 
-			idx4, startIdx4, lastIdx4, onCompleted4, err4 := sc.findCandidate()
+			idx4, startIdx4, lastIdx4, onCompleted4, err4 := sc.findCandidate(sg.segments)
 			require.NoError(t, err4)
 			requireCandidateFound(t, idx4, 1, startIdx4, 4, lastIdx4, 5)
 			assertSegment(t, sg, idx4, "segment-0002.db", 9002)
@@ -353,7 +352,7 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 			onCompleted4(8002)
 			sg.segments[idx4].setSize(8002)
 
-			idx5, startIdx5, lastIdx5, onCompleted5, err5 := sc.findCandidate()
+			idx5, startIdx5, lastIdx5, onCompleted5, err5 := sc.findCandidate(sg.segments)
 			require.NoError(t, err5)
 			requireCandidateFound(t, idx5, 2, startIdx5, 4, lastIdx5, 5)
 			assertSegment(t, sg, idx5, "segment-0003.db", 9003)
@@ -361,7 +360,7 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 			onCompleted5(8003)
 			sg.segments[idx5].setSize(8003)
 
-			idx6, startIdx6, lastIdx6, onCompleted6, err6 := sc.findCandidate()
+			idx6, startIdx6, lastIdx6, onCompleted6, err6 := sc.findCandidate(sg.segments)
 			require.NoError(t, err6)
 			requireCandidateNotFound(t, idx6, startIdx6, lastIdx6)
 			assert.Nil(t, onCompleted6)
@@ -372,7 +371,7 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 		})
 
 		t.Run("3rd round, no candidates due to no new segments", func(t *testing.T) {
-			idx, startIdx, lastIdx, onCompleted, err := sc.findCandidate()
+			idx, startIdx, lastIdx, onCompleted, err := sc.findCandidate(sg.segments)
 			require.NoError(t, err)
 			requireCandidateNotFound(t, idx, startIdx, lastIdx)
 			assert.Nil(t, onCompleted)
@@ -411,7 +410,7 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 
 		t.Run("1st round, all but last cleaned", func(t *testing.T) {
 			// not cleaned before, cleaning considering 2+3+4
-			idx1, startIdx1, lastIdx1, onCompleted1, err1 := sc.findCandidate()
+			idx1, startIdx1, lastIdx1, onCompleted1, err1 := sc.findCandidate(sg.segments)
 			require.NoError(t, err1)
 			requireCandidateFound(t, idx1, 0, startIdx1, 1, lastIdx1, 3)
 			assertSegment(t, sg, idx1, "segment-0001.db", 10001)
@@ -420,7 +419,7 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 			sg.segments[idx1].setSize(9001)
 
 			// not cleaned before, cleaning considering 3+4
-			idx2, startIdx2, lastIdx2, onCompleted2, err2 := sc.findCandidate()
+			idx2, startIdx2, lastIdx2, onCompleted2, err2 := sc.findCandidate(sg.segments)
 			require.NoError(t, err2)
 			requireCandidateFound(t, idx2, 1, startIdx2, 2, lastIdx2, 3)
 			assertSegment(t, sg, idx2, "segment-0002.db", 10002)
@@ -429,7 +428,7 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 			sg.segments[idx2].setSize(9002)
 
 			// not cleaned before, cleaning considering 4
-			idx3, startIdx3, lastIdx3, onCompleted3, err3 := sc.findCandidate()
+			idx3, startIdx3, lastIdx3, onCompleted3, err3 := sc.findCandidate(sg.segments)
 			require.NoError(t, err3)
 			requireCandidateFound(t, idx3, 2, startIdx3, 3, lastIdx3, 3)
 			assertSegment(t, sg, idx3, "segment-0003.db", 10003)
@@ -438,14 +437,14 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 			sg.segments[idx3].setSize(9003)
 
 			// skipping 4 as last one
-			idx4, startIdx4, lastIdx4, onCompleted4, err4 := sc.findCandidate()
+			idx4, startIdx4, lastIdx4, onCompleted4, err4 := sc.findCandidate(sg.segments)
 			require.NoError(t, err4)
 			requireCandidateNotFound(t, idx4, startIdx4, lastIdx4)
 			assert.Nil(t, onCompleted4)
 		})
 
 		t.Run("no candidates before interval", func(t *testing.T) {
-			idx, startIdx, lastIdx, onCompleted, err := sc.findCandidate()
+			idx, startIdx, lastIdx, onCompleted, err := sc.findCandidate(sg.segments)
 			require.NoError(t, err)
 			requireCandidateNotFound(t, idx, startIdx, lastIdx)
 			assert.Nil(t, onCompleted)
@@ -472,7 +471,7 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 
 		t.Run("2nd round, only new candidates due to sum of new sizes not big enough", func(t *testing.T) {
 			// not cleaned before, cleaning considering 5+6
-			idx1, startIdx1, lastIdx1, onCompleted1, err1 := sc.findCandidate()
+			idx1, startIdx1, lastIdx1, onCompleted1, err1 := sc.findCandidate(sg.segments)
 			require.NoError(t, err1)
 			requireCandidateFound(t, idx1, 3, startIdx1, 4, lastIdx1, 5)
 			assertSegment(t, sg, idx1, "segment-0004.db", 10004)
@@ -481,7 +480,7 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 			sg.segments[idx1].setSize(9004)
 
 			// not cleaned before, cleaning considering 6
-			idx2, startIdx2, lastIdx2, onCompleted2, err2 := sc.findCandidate()
+			idx2, startIdx2, lastIdx2, onCompleted2, err2 := sc.findCandidate(sg.segments)
 			require.NoError(t, err2)
 			requireCandidateFound(t, idx2, 4, startIdx2, 5, lastIdx2, 5)
 			assertSegment(t, sg, idx2, "segment-0005.db", 405)
@@ -491,7 +490,7 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 
 			// skipping 6 as last one
 			// skipping 1,2,3 due to sum of new sizes (5+6) not big enough compared to old segments' sizes
-			idx3, startIdx3, lastIdx3, onCompleted3, err3 := sc.findCandidate()
+			idx3, startIdx3, lastIdx3, onCompleted3, err3 := sc.findCandidate(sg.segments)
 			require.NoError(t, err3)
 			requireCandidateNotFound(t, idx3, startIdx3, lastIdx3)
 			assert.Nil(t, onCompleted3)
@@ -503,7 +502,7 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 
 		t.Run("3rd round, no candidates due to no new segments", func(t *testing.T) {
 			// no changes in segments
-			idx, startIdx, lastIdx, onCompleted, err := sc.findCandidate()
+			idx, startIdx, lastIdx, onCompleted, err := sc.findCandidate(sg.segments)
 			require.NoError(t, err)
 			requireCandidateNotFound(t, idx, startIdx, lastIdx)
 			assert.Nil(t, onCompleted)
@@ -530,7 +529,7 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 
 		t.Run("4th round, new and old candidates due to sum of new sizes big enough", func(t *testing.T) {
 			// not cleaned before, cleaning considering 7+8
-			idx1, startIdx1, lastIdx1, onCompleted1, err1 := sc.findCandidate()
+			idx1, startIdx1, lastIdx1, onCompleted1, err1 := sc.findCandidate(sg.segments)
 			require.NoError(t, err1)
 			requireCandidateFound(t, idx1, 5, startIdx1, 6, lastIdx1, 7)
 			assertSegment(t, sg, idx1, "segment-0006.db", 406)
@@ -539,7 +538,7 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 			sg.segments[idx1].setSize(306)
 
 			// not cleaned before, cleaning considering 8
-			idx2, startIdx2, lastIdx2, onCompleted2, err2 := sc.findCandidate()
+			idx2, startIdx2, lastIdx2, onCompleted2, err2 := sc.findCandidate(sg.segments)
 			require.NoError(t, err2)
 			requireCandidateFound(t, idx2, 6, startIdx2, 7, lastIdx2, 7)
 			assertSegment(t, sg, idx2, "segment-0007.db", 407)
@@ -548,7 +547,7 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 			sg.segments[idx2].setSize(307)
 
 			// sum of sizes (5+6+7+8) big enough compared to segment's size, cleaning considering 5+6+7+8
-			idx3, startIdx3, lastIdx3, onCompleted3, err3 := sc.findCandidate()
+			idx3, startIdx3, lastIdx3, onCompleted3, err3 := sc.findCandidate(sg.segments)
 			require.NoError(t, err3)
 			requireCandidateFound(t, idx3, 0, startIdx3, 4, lastIdx3, 7)
 			assertSegment(t, sg, idx3, "segment-0001.db", 9001)
@@ -557,7 +556,7 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 			sg.segments[idx3].setSize(8001)
 
 			// sum of sizes (5+6+7+8) big enough compared to segment's size, cleaning considering 5+6+7+8
-			idx4, startIdx4, lastIdx4, onCompleted4, err4 := sc.findCandidate()
+			idx4, startIdx4, lastIdx4, onCompleted4, err4 := sc.findCandidate(sg.segments)
 			require.NoError(t, err4)
 			requireCandidateFound(t, idx4, 1, startIdx4, 4, lastIdx4, 7)
 			assertSegment(t, sg, idx4, "segment-0002.db", 9002)
@@ -566,7 +565,7 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 			sg.segments[idx4].setSize(8002)
 
 			// sum of sizes (5+6+7+8) big enough compared to segment's size, cleaning considering 5+6+7+8
-			idx5, startIdx5, lastIdx5, onCompleted5, err5 := sc.findCandidate()
+			idx5, startIdx5, lastIdx5, onCompleted5, err5 := sc.findCandidate(sg.segments)
 			require.NoError(t, err5)
 			requireCandidateFound(t, idx5, 2, startIdx5, 4, lastIdx5, 7)
 			assertSegment(t, sg, idx5, "segment-0003.db", 9003)
@@ -576,7 +575,7 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 
 			// skipping 4 due to sum of new sizes (7+8) not big enough compared to segment's size
 			// sum of sizes (7+8) big enough compared to segment's size, cleaning considering 7+8
-			idx6, startIdx6, lastIdx6, onCompleted6, err6 := sc.findCandidate()
+			idx6, startIdx6, lastIdx6, onCompleted6, err6 := sc.findCandidate(sg.segments)
 			require.NoError(t, err6)
 			requireCandidateFound(t, idx6, 4, startIdx6, 6, lastIdx6, 7)
 			assertSegment(t, sg, idx6, "segment-0005.db", 305)
@@ -584,7 +583,7 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 			onCompleted6(205)
 			sg.segments[idx6].setSize(205)
 
-			idx7, startIdx7, lastIdx7, onCompleted7, err7 := sc.findCandidate()
+			idx7, startIdx7, lastIdx7, onCompleted7, err7 := sc.findCandidate(sg.segments)
 			require.NoError(t, err7)
 			requireCandidateNotFound(t, idx7, startIdx7, lastIdx7)
 			assert.Nil(t, onCompleted7)
@@ -627,7 +626,7 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 
 		t.Run("1st round, all but last cleaned", func(t *testing.T) {
 			// not cleaned before, cleaning considering 2+3+4+5
-			idx1, startIdx1, lastIdx1, onCompleted1, err1 := sc.findCandidate()
+			idx1, startIdx1, lastIdx1, onCompleted1, err1 := sc.findCandidate(sg.segments)
 			require.NoError(t, err1)
 			requireCandidateFound(t, idx1, 0, startIdx1, 1, lastIdx1, 4)
 			assertSegment(t, sg, idx1, "segment-0001.db", 10001)
@@ -636,7 +635,7 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 			sg.segments[idx1].setSize(9001)
 
 			// not cleaned before, cleaning considering 3+4+5
-			idx2, startIdx2, lastIdx2, onCompleted2, err2 := sc.findCandidate()
+			idx2, startIdx2, lastIdx2, onCompleted2, err2 := sc.findCandidate(sg.segments)
 			require.NoError(t, err2)
 			requireCandidateFound(t, idx2, 1, startIdx2, 2, lastIdx2, 4)
 			assertSegment(t, sg, idx2, "segment-0002.db", 10002)
@@ -645,7 +644,7 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 			sg.segments[idx2].setSize(9002)
 
 			// not cleaned before, cleaning considering 4+5
-			idx3, startIdx3, lastIdx3, onCompleted3, err3 := sc.findCandidate()
+			idx3, startIdx3, lastIdx3, onCompleted3, err3 := sc.findCandidate(sg.segments)
 			require.NoError(t, err3)
 			requireCandidateFound(t, idx3, 2, startIdx3, 3, lastIdx3, 4)
 			assertSegment(t, sg, idx3, "segment-0003.db", 10003)
@@ -654,7 +653,7 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 			sg.segments[idx3].setSize(9003)
 
 			// not cleaned before, cleaning considering 5
-			idx4, startIdx4, lastIdx4, onCompleted4, err4 := sc.findCandidate()
+			idx4, startIdx4, lastIdx4, onCompleted4, err4 := sc.findCandidate(sg.segments)
 			require.NoError(t, err4)
 			requireCandidateFound(t, idx4, 3, startIdx4, 4, lastIdx4, 4)
 			assertSegment(t, sg, idx4, "segment-0004.db", 10004)
@@ -663,14 +662,14 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 			sg.segments[idx4].setSize(9004)
 
 			// skipping 5 as last one
-			idx5, startIdx5, lastIdx5, onCompleted5, err5 := sc.findCandidate()
+			idx5, startIdx5, lastIdx5, onCompleted5, err5 := sc.findCandidate(sg.segments)
 			require.NoError(t, err5)
 			requireCandidateNotFound(t, idx5, startIdx5, lastIdx5)
 			assert.Nil(t, onCompleted5)
 		})
 
 		t.Run("no candidates before interval", func(t *testing.T) {
-			idx, startIdx, lastIdx, onCompleted, err := sc.findCandidate()
+			idx, startIdx, lastIdx, onCompleted, err := sc.findCandidate(sg.segments)
 			require.NoError(t, err)
 			requireCandidateNotFound(t, idx, startIdx, lastIdx)
 			assert.Nil(t, onCompleted)
@@ -692,7 +691,7 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 
 		t.Run("2nd round, no candidates due to no new segments", func(t *testing.T) {
 			// no new segments
-			idx, startIdx, lastIdx, onCompleted, err := sc.findCandidate()
+			idx, startIdx, lastIdx, onCompleted, err := sc.findCandidate(sg.segments)
 			require.NoError(t, err)
 			requireCandidateNotFound(t, idx, startIdx, lastIdx)
 			assert.Nil(t, onCompleted)
@@ -714,7 +713,7 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 
 		t.Run("3rd round, new segments cleaned and some old ones", func(t *testing.T) {
 			// not cleaned before, cleaning considering 6
-			idx1, startIdx1, lastIdx1, onCompleted1, err1 := sc.findCandidate()
+			idx1, startIdx1, lastIdx1, onCompleted1, err1 := sc.findCandidate(sg.segments)
 			require.NoError(t, err1)
 			requireCandidateFound(t, idx1, 2, startIdx1, 3, lastIdx1, 3)
 			assertSegment(t, sg, idx1, "segment-0005.db", 10005)
@@ -724,7 +723,7 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 
 			// size changed, cleanup considering all next segments, including new ones
 			// sum of sizes (4+5+6) big enough compared to segment's size, cleaning considering 4+5+6
-			idx2, startIdx2, lastIdx2, onCompleted2, err2 := sc.findCandidate()
+			idx2, startIdx2, lastIdx2, onCompleted2, err2 := sc.findCandidate(sg.segments)
 			require.NoError(t, err2)
 			requireCandidateFound(t, idx2, 0, startIdx2, 3, lastIdx2, 1)
 			assertSegment(t, sg, idx2, "segment-0002.db", 20002)
@@ -745,7 +744,7 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 
 		t.Run("3rd round ongoing, new segments cleaned and some old ones", func(t *testing.T) {
 			// not cleaned before, cleaning considering 7
-			idx1, startIdx1, lastIdx1, onCompleted1, err1 := sc.findCandidate()
+			idx1, startIdx1, lastIdx1, onCompleted1, err1 := sc.findCandidate(sg.segments)
 			require.NoError(t, err1)
 			requireCandidateFound(t, idx1, 3, startIdx1, 4, lastIdx1, 4)
 			assertSegment(t, sg, idx1, "segment-0006.db", 10006)
@@ -755,7 +754,7 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 
 			// size changed, cleanup considering all next segments, including new ones
 			// sum of sizes (5+6+7) big enough compared to segment's size, cleaning considering 5+6+7
-			idx2, startIdx2, lastIdx2, onCompleted2, err2 := sc.findCandidate()
+			idx2, startIdx2, lastIdx2, onCompleted2, err2 := sc.findCandidate(sg.segments)
 			require.NoError(t, err2)
 			requireCandidateFound(t, idx2, 1, startIdx2, 4, lastIdx2, 2)
 			assertSegment(t, sg, idx2, "segment-0004.db", 20004)
@@ -764,7 +763,7 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 			sg.segments[idx2].setSize(19004)
 
 			// skipping 7 as last one
-			idx3, startIdx3, lastIdx3, onCompleted3, err3 := sc.findCandidate()
+			idx3, startIdx3, lastIdx3, onCompleted3, err3 := sc.findCandidate(sg.segments)
 			require.NoError(t, err3)
 			requireCandidateNotFound(t, idx3, startIdx3, lastIdx3)
 			assert.Nil(t, onCompleted3)
@@ -785,7 +784,7 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 		})
 
 		t.Run("4th round, no candidates due to no new segments", func(t *testing.T) {
-			idx, startIdx, lastIdx, onCompleted, err := sc.findCandidate()
+			idx, startIdx, lastIdx, onCompleted, err := sc.findCandidate(sg.segments)
 			require.NoError(t, err)
 			requireCandidateNotFound(t, idx, startIdx, lastIdx)
 			assert.Nil(t, onCompleted)
@@ -807,7 +806,7 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 
 		t.Run("5th round, new segments cleaned and some old ones", func(t *testing.T) {
 			// not cleaned before, cleaning considering 8
-			idx1, startIdx1, lastIdx1, onCompleted1, err1 := sc.findCandidate()
+			idx1, startIdx1, lastIdx1, onCompleted1, err1 := sc.findCandidate(sg.segments)
 			require.NoError(t, err1)
 			requireCandidateFound(t, idx1, 2, startIdx1, 3, lastIdx1, 3)
 			assertSegment(t, sg, idx1, "segment-0007.db", 10007)
@@ -817,7 +816,7 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 
 			// size changed, cleanup considering all next segments, including new ones
 			// sum of sizes (7+8) big enough compared to segment's size, cleaning considering 7+8
-			idx2, startIdx2, lastIdx2, onCompleted2, err2 := sc.findCandidate()
+			idx2, startIdx2, lastIdx2, onCompleted2, err2 := sc.findCandidate(sg.segments)
 			require.NoError(t, err2)
 			requireCandidateFound(t, idx2, 1, startIdx2, 3, lastIdx2, 2)
 			assertSegment(t, sg, idx2, "segment-0006.db", 20006)
@@ -827,7 +826,7 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 
 			// size changed, cleanup considering all next segments, including new ones
 			// sum of sizes (6+7+8) big enough compared to segment's size, cleaning considering 6+7+8
-			idx3, startIdx3, lastIdx3, onCompleted3, err3 := sc.findCandidate()
+			idx3, startIdx3, lastIdx3, onCompleted3, err3 := sc.findCandidate(sg.segments)
 			require.NoError(t, err3)
 			requireCandidateFound(t, idx3, 0, startIdx3, 3, lastIdx3, 1)
 			assertSegment(t, sg, idx3, "segment-0004.db", 40004)
@@ -836,7 +835,7 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 			sg.segments[idx3].setSize(39004)
 
 			// skipping 8 as last one
-			idx4, startIdx4, lastIdx4, onCompleted4, err4 := sc.findCandidate()
+			idx4, startIdx4, lastIdx4, onCompleted4, err4 := sc.findCandidate(sg.segments)
 			require.NoError(t, err4)
 			requireCandidateNotFound(t, idx4, startIdx4, lastIdx4)
 			assert.Nil(t, onCompleted4)

@@ -77,6 +77,8 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 	}
 	s.shut.Store(true)
 	s.shutdownRequested.Store(false)
+	s.shutCtxCancel(fmt.Errorf("shutdown %q", s.ID()))
+
 	start := time.Now()
 	defer func() {
 		s.index.metrics.ObserveUpdateShardStatus(storagestate.StatusShutdown.String(), time.Since(start))

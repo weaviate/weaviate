@@ -47,7 +47,7 @@ func TestPeriodicTombstoneRemoval(t *testing.T) {
 		MaxConnections:         30,
 		EFConstruction:         128,
 	}, tombstoneCallbacks, testinghelpers.NewDummyStore(t))
-	index.PostStartup()
+	index.PostStartup(context.Background())
 
 	require.Nil(t, err)
 

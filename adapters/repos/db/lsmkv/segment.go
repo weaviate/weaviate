@@ -17,8 +17,11 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
 
@@ -31,6 +34,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/entities/diskio"
 	"github.com/weaviate/weaviate/entities/lsmkv"
+	"github.com/weaviate/weaviate/entities/schema"
 	entsentry "github.com/weaviate/weaviate/entities/sentry"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/mmap"
@@ -45,31 +49,47 @@ type Segment interface {
 	getLevel() uint16
 	Size() int64
 	setSize(size int64)
+	incRef()
+	decRef()
+	getRefs() int
 
-	PayloadSize() int
+	indexSize() int
+	payloadSize() int
 	close() error
+	dropMarked() error
 	get(key []byte) ([]byte, error)
-	getBySecondaryIntoMemory(pos int, key []byte, buffer []byte) ([]byte, []byte, []byte, error)
+	getBySecondary(pos int, key []byte, buffer []byte) ([]byte, []byte, []byte, error)
 	getCollection(key []byte) ([]value, error)
 	getInvertedData() *segmentInvertedData
-	getSegment() *segment
 	isLoaded() bool
 	markForDeletion() error
+	stripTmpExtensions(leftSegmentID, rightSegmentID string) error
 	MergeTombstones(other *sroar.Bitmap) (*sroar.Bitmap, error)
-	newCollectionCursor() *segmentCursorCollection
+	newCollectionCursor() innerCursorCollection
 	newCollectionCursorReusable() *segmentCursorCollectionReusable
-	newCursor() *segmentCursorReplace
+	newCursor() innerCursorReplaceAllKeys
 	newCursorWithSecondaryIndex(pos int) *segmentCursorReplace
-	newMapCursor() *segmentCursorMap
+	newMapCursor() innerCursorMap
 	newNodeReader(offset nodeOffset, operation string) (*nodeReader, error)
-	newRoaringSetCursor() *roaringset.SegmentCursor
+	newRoaringSetCursor() roaringset.SegmentCursor
 	newRoaringSetRangeCursor() roaringsetrange.SegmentCursor
-	newRoaringSetRangeReader() *roaringsetrange.SegmentReader
+	newRoaringSetRangeReader() roaringsetrange.InnerReader
 	quantileKeys(q int) [][]byte
 	ReadOnlyTombstones() (*sroar.Bitmap, error)
 	replaceStratParseData(in []byte) ([]byte, []byte, error)
 	roaringSetGet(key []byte, bitmapBufPool roaringset.BitmapBufPool) (roaringset.BitmapLayer, func(), error)
 	roaringSetMergeWith(key []byte, input roaringset.BitmapLayer, bitmapBufPool roaringset.BitmapBufPool) error
+
+	// map/bmw specific
+	hasKey(key []byte) bool
+	getDocCount(key []byte) uint64
+	getPropertyLengths() (map[uint64]uint32, error)
+	newInvertedCursorReusable() *segmentCursorInvertedReusable
+	newSegmentBlockMax(key []byte, queryTermIndex int, idf float64, propertyBoost float32, tombstones *sroar.Bitmap, filterDocIds helpers.AllowList, averagePropLength float64, config schema.BM25Config) *SegmentBlockMax
+
+	// replace specific
+	getCountNetAdditions() int
+	existsKey(key []byte) (bool, error)
 }
 
 type segment struct {
@@ -105,6 +125,7 @@ type segment struct {
 	invertedData   *segmentInvertedData
 
 	observeMetaWrite diskio.MeteredWriterCallback // used for precomputing meta (cna + bloom)
+	refCount         int
 }
 
 type diskIndex interface {
@@ -492,6 +513,43 @@ func (s *segment) markForDeletion() error {
 	return nil
 }
 
+func (s *segment) stripTmpExtensions(leftSegmentID, rightSegmentID string) error {
+	newPath, err := stripTmpExtension(s.path, leftSegmentID, rightSegmentID)
+	if err != nil {
+		return err
+	}
+	s.path = newPath
+
+	for i := range s.metaPaths {
+		newPath, err := stripTmpExtension(s.metaPaths[i], leftSegmentID, rightSegmentID)
+		if err != nil {
+			return err
+		}
+		s.metaPaths[i] = newPath
+	}
+
+	dir := filepath.Dir(s.path)
+	if err := diskio.Fsync(dir); err != nil {
+		return fmt.Errorf("fsync segment directory %s: %w", dir, err)
+	}
+
+	return nil
+}
+
+func stripTmpExtension(path, leftSegmentID, rightSegmentID string) (string, error) {
+	ext := filepath.Ext(path)
+	if ext != ".tmp" {
+		return "", errors.Errorf("path %q did not have .tmp extension", path)
+	}
+
+	newPath := strings.ReplaceAll(path[:len(path)-len(ext)], fmt.Sprintf("%s_%s", leftSegmentID, rightSegmentID), rightSegmentID)
+	if err := os.Rename(path, newPath); err != nil {
+		return "", errors.Wrapf(err, "rename %q -> %q", path, newPath)
+	}
+
+	return newPath, nil
+}
+
 // Size returns the total size of the segment in bytes, including the header
 // and index
 func (s *segment) Size() int64 {
@@ -530,17 +588,17 @@ func (s *segment) getInvertedData() *segmentInvertedData {
 	return s.invertedData
 }
 
-func (s *segment) getSegment() *segment {
-	return s
-}
-
 func (s *segment) isLoaded() bool {
 	return true
 }
 
-// PayloadSize is only the payload of the index, excluding the index
-func (s *segment) PayloadSize() int {
+// payloadSize is only the payload of the index, excluding the index
+func (s *segment) payloadSize() int {
 	return int(s.dataEndPos)
+}
+
+func (s *segment) indexSize() int {
+	return s.index.Size()
 }
 
 type nodeReader struct {
@@ -659,4 +717,34 @@ func (c *readObserverCache) GetOrCreate(key string, metrics *Metrics) BytesReadO
 	observer := metrics.ReadObserver(key)
 	c.Store(key, observer)
 	return observer
+}
+
+// WARNING: This method is NOT thread-safe on its own. The caller must ensure
+// that it is safe to read and manipulate the refs. In practice, this is done
+// using a SegmentGroup.segmentRefCounterLock which both protects against racy
+// access, as well as guarantees a consistent view across refs of ALL segments
+// in the group.
+func (s *segment) incRef() {
+	s.refCount++
+}
+
+// WARNING: This method is NOT thread-safe on its own. The caller must ensure
+// that it is safe to read and manipulate the refs. In practice, this is done
+// using a SegmentGroup.segmentRefCounterLock which both protects against racy
+// access, as well as guarantees a consistent view across refs of ALL segments
+// in the group.
+func (s *segment) decRef() {
+	if s.refCount <= 0 {
+		panic("refCount already zero")
+	}
+	s.refCount--
+}
+
+// WARNING: This method is NOT thread-safe on its own. The caller must ensure
+// that it is safe to read and manipulate the refs. In practice, this is done
+// using a SegmentGroup.segmentRefCounterLock which both protects against racy
+// access, as well as guarantees a consistent view across refs of ALL segments
+// in the group.
+func (s *segment) getRefs() int {
+	return s.refCount
 }

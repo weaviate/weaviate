@@ -26,7 +26,7 @@ type segmentCursorInvertedReusable struct {
 }
 
 func (s *segment) newInvertedCursorReusable() *segmentCursorInvertedReusable {
-	propLengths, err := s.GetPropertyLengths()
+	propLengths, err := s.getPropertyLengths()
 	if err != nil {
 		return nil
 	}
