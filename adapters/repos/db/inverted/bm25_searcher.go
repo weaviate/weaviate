@@ -163,7 +163,7 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 		// stopword filtering for word tokenization
 		if tokenization == models.PropertyTokenizationWord {
 			queryTerms, dupBoosts = b.removeStopwordsFromQueryTerms(queryTermsByTokenization[tokenization],
-				duplicateBoostsByTokenization[tokenization], b.stopWordDetector)
+				duplicateBoostsByTokenization[tokenization])
 			queryTermsByTokenization[tokenization] = queryTerms
 			duplicateBoostsByTokenization[tokenization] = dupBoosts
 		}
@@ -362,10 +362,8 @@ func (b *BM25Searcher) wand(
 	return objects, scores, err
 }
 
-func (b *BM25Searcher) removeStopwordsFromQueryTerms(queryTerms []string,
-	duplicateBoost []int, detector stopwords.StopwordDetector,
-) ([]string, []int) {
-	if detector == nil || len(queryTerms) == 0 {
+func (b *BM25Searcher) removeStopwordsFromQueryTerms(queryTerms []string, duplicateBoost []int) ([]string, []int) {
+	if b.stopWordDetector == nil || len(queryTerms) == 0 {
 		return queryTerms, duplicateBoost
 	}
 
@@ -376,7 +374,7 @@ WordLoop:
 			return queryTerms, duplicateBoost
 		}
 		queryTerm := queryTerms[i]
-		if detector.IsStopword(queryTerm) {
+		if b.stopWordDetector.IsStopword(queryTerm) {
 			queryTerms[i] = queryTerms[len(queryTerms)-1]
 			queryTerms = queryTerms[:len(queryTerms)-1]
 			duplicateBoost[i] = duplicateBoost[len(duplicateBoost)-1]
