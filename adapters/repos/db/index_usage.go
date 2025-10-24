@@ -13,9 +13,7 @@ package db
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"os"
 	"sort"
 	"strings"
 	"time"
@@ -315,21 +313,9 @@ func (i *Index) calculateLoadedShardUsage(ctx context.Context, shard *Shard, exa
 }
 
 func (i *Index) calculateUnloadedShardUsage(ctx context.Context, shardName string, vectorConfigs map[string]models.VectorConfig) (*types.ShardUsage, error) {
-	exists, err := diskio.FileExists(shardusage.UsageTmpFilePath(i.path(), shardName))
-	if err != nil {
-		return nil, err
-	}
-	if exists {
+	if shardusage.ComputedUsageDataExists(i.path(), shardName) {
 		// usage has been pre-calculated and can be read from disk
-		usage, err := os.ReadFile(shardusage.UsageTmpFilePath(i.path(), shardName))
-		if err != nil {
-			return nil, fmt.Errorf("read pre-calculated usage from disk: %w", err)
-		}
-		shardUsage := &types.ShardUsage{}
-		if err := json.Unmarshal(usage, shardUsage); err != nil {
-			return nil, fmt.Errorf("unmarshal pre-calculated usage from disk: %w", err)
-		}
-		return shardUsage, nil
+		return shardusage.LoadComputedUsageData(i.path(), shardName)
 	}
 	lsmPath := shardPathLSM(i.path(), shardName)
 
@@ -401,13 +387,9 @@ func (i *Index) calculateUnloadedShardUsage(ctx context.Context, shardName strin
 	shardUsage.VectorStorageBytes = uint64(vectorStorageSize) + uncompressedVectorSize
 
 	sort.Sort(shardUsage.NamedVectors)
-	// write to disk for next time
-	data, err := json.Marshal(shardUsage)
-	if err != nil {
-		return nil, fmt.Errorf("marshal pre-calculated usage for disk: %w", err)
-	}
-	if err := os.WriteFile(shardusage.UsageTmpFilePath(i.path(), shardName), data, 0o600); err != nil {
-		return nil, fmt.Errorf("write pre-calculated usage to disk: %w", err)
+
+	if err := shardusage.SaveComputedUsageData(i.path(), shardName, shardUsage); err != nil {
+		return nil, fmt.Errorf("save usage to disk: %w", err)
 	}
 	return shardUsage, err
 }

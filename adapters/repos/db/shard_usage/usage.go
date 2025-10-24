@@ -14,6 +14,7 @@ package shardusage
 import (
 	"context"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path"
@@ -30,10 +31,6 @@ import (
 	"github.com/weaviate/weaviate/entities/diskio"
 )
 
-func UsageTmpFilePath(indexPath, shardName string) string {
-	return path.Join(indexPath, shardName, "usage.json.tmp")
-}
-
 func shardPathLSM(indexPath, shardName string) string {
 	return path.Join(indexPath, shardName, "lsm")
 }
@@ -46,14 +43,59 @@ func shardPathDimensionsLSM(indexPath, shardName string) string {
 	return path.Join(shardPathLSM(indexPath, shardName), helpers.DimensionsBucketLSM)
 }
 
-func RemoveComputedUsageFileForUnloadedShard(indexPath, shardName string) error {
-	usageFilePath := UsageTmpFilePath(indexPath, shardName)
+func usageTmpFilePath(indexPath, shardName string) string {
+	return path.Join(indexPath, shardName, "usage.json.tmp")
+}
+
+// ComputedUsageDataExists checks if pre-calculated shard usage data file exists
+func ComputedUsageDataExists(indexPath, shardName string) bool {
+	_, err := os.Stat(usageTmpFilePath(indexPath, shardName))
+	return !os.IsNotExist(err)
+}
+
+// RemoveComputedUsageDataForUnloadedShard removes pre-calculated shard usage data from disk
+func RemoveComputedUsageDataForUnloadedShard(indexPath, shardName string) error {
+	usageFilePath := usageTmpFilePath(indexPath, shardName)
 	if _, err := os.Stat(usageFilePath); !os.IsNotExist(err) {
 		if err := os.RemoveAll(usageFilePath); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// SaveComputedUsageData saves pre-calculated shard usage data to disk
+func SaveComputedUsageData(indexPath, shardName string, shardUsage *types.ShardUsage) error {
+	data, err := json.Marshal(usageDisk(shardUsage))
+	if err != nil {
+		return fmt.Errorf("marshal pre-calculated usage for disk: %w", err)
+	}
+	if err := os.WriteFile(usageTmpFilePath(indexPath, shardName), data, os.FileMode(0o600)); err != nil {
+		return fmt.Errorf("write pre-calculated usage to disk: %w", err)
+	}
+	return nil
+}
+
+// LoadComputedUsageData loads pre-calculated shard usage data, checks version of saved data before returning
+func LoadComputedUsageData(indexPath, shardName string) (*types.ShardUsage, error) {
+	// usage has been pre-calculated and can be read from disk
+	usage, err := os.ReadFile(usageTmpFilePath(indexPath, shardName))
+	if err != nil {
+		return nil, fmt.Errorf("read pre-calculated usage from disk: %w", err)
+	}
+	usageDisk := &types.UsageDisk{}
+	if err := json.Unmarshal(usage, usageDisk); err != nil {
+		return nil, fmt.Errorf("unmarshal pre-calculated usage from disk: %w", err)
+	}
+	if usageDisk.Version != types.UsageDiskVersion {
+		return nil, fmt.Errorf("usage data saved to disk version mismatch: currently supported version is: %d but got: %d",
+			types.UsageDiskVersion, usageDisk.Version)
+	}
+	return usageDisk.ShardUsage, nil
+}
+
+func usageDisk(shardUsage *types.ShardUsage) *types.UsageDisk {
+	return &types.UsageDisk{Version: types.UsageDiskVersion, ShardUsage: shardUsage}
 }
 
 // CalculateUnloadedDimensionsUsage calculates dimensions and object count for an unloaded shard without loading it into memory

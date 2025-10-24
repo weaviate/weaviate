@@ -15,6 +15,16 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
+const UsageDiskVersion int = 1
+
+// UsageDisk defines format of saved pre-computed shard usage data
+type UsageDisk struct {
+	// Version of the
+	Version int `json:"version"`
+	// ShardUsage
+	ShardUsage *ShardUsage `json:"shardUsage"`
+}
+
 // Report represents the usage metrics report from the metrics endpoint
 type Report struct {
 	// The version of usage policy, current weaviate version

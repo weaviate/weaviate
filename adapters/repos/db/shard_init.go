@@ -46,7 +46,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		"index":  index.ID(),
 	}).Debugf("initializing shard %q", shardName)
 
-	if shardusage.RemoveComputedUsageFileForUnloadedShard(index.path(), shardName); err != nil {
+	if shardusage.RemoveComputedUsageDataForUnloadedShard(index.path(), shardName); err != nil {
 		return nil, fmt.Errorf("shard %q: remove computed usage file for unloaded shard: %w", shardName, err)
 	}
 
