@@ -341,12 +341,15 @@ func (s *Searcher) extractPropValuePairs(ctx context.Context,
 	if err := eg.Wait(); err != nil {
 		return nil, fmt.Errorf("nested query: %w", err)
 	}
-	finalChildren := make([]*propValuePair, 0, len(children))
-	for _, child := range children {
-		if child != nil {
-			finalChildren = append(finalChildren, child)
+	i := 0
+	for _, c := range children {
+		if c != nil {
+			children[i] = c
+			i++
 		}
 	}
+	children = children[:i]
+
 	// if all children were stopwords and the operator is ContainsAny,
 	// we return the stopword error anyway for consistency with other
 	// filter behaviors
@@ -359,10 +362,10 @@ func (s *Searcher) extractPropValuePairs(ctx context.Context,
 	// TODO(amourao): the stopword logic should be rethought globally,
 	// as returning errors for specific filter values may generate unexpected
 	// results for the end user
-	if len(finalChildren) == 0 && operator == filters.ContainsAny {
+	if len(children) == 0 && operator == filters.ContainsAny {
 		return nil, ErrOnlyStopwords
 	}
-	return finalChildren, nil
+	return children, nil
 }
 
 func (s *Searcher) extractReferenceFilter(prop *models.Property,
