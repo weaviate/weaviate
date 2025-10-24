@@ -63,7 +63,7 @@ type memtable interface {
 	getAndUpdateWritesSinceLastSync(logger logrus.FieldLogger) bool
 
 	ReadOnlyTombstones() (*sroar.Bitmap, error)
-	SetTombstone(docId uint64) error
+	SetTombstones(docIds []uint64) error
 	GetPropLengths() (uint64, uint64, error)
 
 	newCursor() innerCursorReplace
@@ -561,7 +561,7 @@ func (m *Memtable) ReadOnlyTombstones() (*sroar.Bitmap, error) {
 	return nil, lsmkv.NotFound
 }
 
-func (m *Memtable) SetTombstone(docId uint64) error {
+func (m *Memtable) SetTombstones(docIds []uint64) error {
 	if m.strategy != StrategyInverted {
 		return errors.Errorf("tombstones only supported for strategy %q", StrategyInverted)
 	}
@@ -569,7 +569,7 @@ func (m *Memtable) SetTombstone(docId uint64) error {
 	m.Lock()
 	defer m.Unlock()
 
-	m.tombstones.Set(docId)
+	m.tombstones.SetMany(docIds)
 
 	return nil
 }
