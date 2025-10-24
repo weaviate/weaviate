@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -22,12 +23,14 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/diskio"
 	vectorIndex "github.com/weaviate/weaviate/entities/vectorindex/common"
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -271,7 +274,11 @@ func TestIndex_CalculateUnloadedVectorsMetrics(t *testing.T) {
 				lazyShard, ok := shard.(*LazyLoadShard)
 				require.True(t, ok)
 				require.NoError(t, lazyShard.Load(ctx))
-				vectorStorageSize, uncompressed, err := lazyShard.shard.VectorStorageSize(ctx)
+				lsmPath := filepath.Join(index.path(), shard.Name(), "lsm")
+				_, directories, err := diskio.GetFileWithSizes(lsmPath)
+				require.NoError(t, err)
+
+				vectorStorageSize, uncompressed, err := lazyShard.shard.VectorStorageSize(ctx, lsmPath, directories)
 				vectorStorageSize += uncompressed
 				require.NoError(t, err)
 				dimensions, err := shard.Dimensions(ctx, "")
@@ -328,7 +335,12 @@ func TestIndex_CalculateUnloadedVectorsMetrics(t *testing.T) {
 				lazyShard, ok := shard.(*LazyLoadShard)
 				require.True(t, ok)
 				require.NoError(t, lazyShard.Load(ctx))
-				vectorStorageSize, _, err := lazyShard.shard.VectorStorageSize(ctx)
+
+				lsmPath := filepath.Join(index.path(), shard.Name(), "lsm")
+				_, directories, err := diskio.GetFileWithSizes(lsmPath)
+				require.NoError(t, err)
+
+				vectorStorageSize, _, err := lazyShard.shard.VectorStorageSize(ctx, lsmPath, directories)
 				require.NoError(t, err)
 				dimensions, err := shard.Dimensions(ctx, "")
 				require.NoError(t, err)
@@ -715,7 +727,8 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 	// but we don't need DB for this test. Gimicky, but it does the job.
 	db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
 	publishVectorMetricsFromDB(t, db)
-
+	// Give time for HNSW commit logger condensing process to finish
+	time.Sleep(1 * time.Second)
 	// Test active shard vector storage size
 	activeShard, release, err := index.GetShard(ctx, tenantNamePopulated)
 	require.NoError(t, err)
@@ -723,10 +736,18 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 
 	shard, ok := activeShard.(*Shard)
 	require.True(t, ok)
-	activeVectorStorageSize, uncompressed, err := shard.VectorStorageSize(ctx)
-	activeVectorStorageSize += uncompressed
 
+	lsmPath := filepath.Join(index.path(), shard.Name(), "lsm")
+	_, directories, err := diskio.GetFileWithSizes(lsmPath)
 	require.NoError(t, err)
+
+	activeVectorStorageSize, uncompressed, err := shard.VectorStorageSize(ctx, lsmPath, directories)
+	require.NoError(t, err)
+	activeVectorStorageSize += uncompressed
+	commitLogSize, _, err := shardusage.CalculateNonLSMStorage(index.path(), shard.Name())
+	require.NoError(t, err)
+	activeVectorStorageSize += int64(commitLogSize)
+
 	dimensionality, err := shard.DimensionsUsage(ctx, "")
 	require.NoError(t, err)
 	activeObjectCount, err := activeShard.ObjectCount(ctx)
@@ -734,7 +755,7 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 	assert.Greater(t, activeVectorStorageSize, int64(0), "Active shard calculation should have vector storage size > 0")
 
 	// Test that active calculations are correct
-	expectedSize := int64(objectCount * vectorDimensions * 4)
+	expectedSize := int64(objectCount*vectorDimensions*4) + int64(commitLogSize)
 	assert.Equal(t, expectedSize, activeVectorStorageSize, "Active vector storage size should be close to expected")
 	assert.Equal(t, objectCount, dimensionality.Count, "Active shard object count should match")
 	assert.Equal(t, vectorDimensions, dimensionality.Dimensions, "Active shard dimensions should match")
@@ -794,7 +815,6 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 	for _, tenant := range collectionUsage.Shards {
 		if tenant.Name == tenantNamePopulated {
 			assert.Equal(t, uint64(activeVectorStorageSize), tenant.VectorStorageBytes, "Active and inactive vector storage size should be very similar")
-
 			assert.Equal(t, objectCount, tenant.NamedVectors[0].Dimensionalities[0].Count, "Active and inactive object count should match")
 			assert.Equal(t, vectorDimensions, tenant.NamedVectors[0].Dimensionalities[0].Dimensions, "Active and inactive dimensions should match")
 		} else {
