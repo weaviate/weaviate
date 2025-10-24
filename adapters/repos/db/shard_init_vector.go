@@ -240,6 +240,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 		spfreshConfigID := s.vectorIndexID(targetVector)
 		spfreshConfig := &spfresh.Config{
 			Logger:            s.index.logger,
+			Scheduler:         s.index.scheduler,
 			DistanceProvider:  distProv,
 			RootPath:          filepath.Join(s.path(), "spfresh"),
 			ID:                spfreshConfigID,

@@ -19,6 +19,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
@@ -31,6 +32,7 @@ import (
 
 type Config struct {
 	Logger                    logrus.FieldLogger
+	Scheduler                 *queue.Scheduler
 	DistanceProvider          distancer.Provider
 	RootPath                  string
 	ID                        string

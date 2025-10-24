@@ -37,14 +37,18 @@ func (s *SPFresh) enqueueMerge(ctx context.Context, postingID uint64) error {
 	}
 
 	// Enqueue the operation to the channel
-	s.mergeCh.Push(postingID)
+	//s.mergeCh.Push(postingID)
+	err := s.operationsQueue.EnqueueMerge(ctx, postingID)
+	if err != nil {
+		return errors.Wrapf(err, "failed to enqueue merge operation for posting %d", postingID)
+	}
 
 	s.metrics.EnqueueMergeTask()
 
 	return nil
 }
 
-func (s *SPFresh) mergeWorker() {
+/*func (s *SPFresh) mergeWorker() {
 	defer s.wg.Done()
 
 	for postingID := range s.mergeCh.Out() {
@@ -66,7 +70,7 @@ func (s *SPFresh) mergeWorker() {
 			continue // Log the error and continue processing other operations
 		}
 	}
-}
+}*/
 
 func (s *SPFresh) doMerge(postingID uint64) error {
 	start := time.Now()

@@ -38,14 +38,18 @@ func (s *SPFresh) enqueueSplit(ctx context.Context, postingID uint64) error {
 	}
 
 	// Enqueue the operation to the channel
-	s.splitCh.Push(postingID)
+	//s.splitCh.Push(postingID)
+	err := s.operationsQueue.EnqueueSplit(ctx, postingID)
+	if err != nil {
+		return errors.Wrapf(err, "failed to enqueue split operation for posting %d", postingID)
+	}
 
 	s.metrics.EnqueueSplitTask()
 
 	return nil
 }
 
-func (s *SPFresh) splitWorker() {
+/*func (s *SPFresh) splitWorker() {
 	defer s.wg.Done()
 
 	for postingID := range s.splitCh.Out() {
@@ -67,7 +71,7 @@ func (s *SPFresh) splitWorker() {
 			continue // Log the error and continue processing other operations
 		}
 	}
-}
+}*/
 
 func abs(a float32) float32 {
 	if a < 0 {
