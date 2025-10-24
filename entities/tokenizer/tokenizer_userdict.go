@@ -20,6 +20,15 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
+func AddCustomDict(className string, configs []*models.TokenizerUserDictConfig) error {
+	tokenizers, err := initUserDictTokenizers(configs)
+	if err != nil {
+		return err
+	}
+	customTokenizers.Store(className, tokenizers)
+	return nil
+}
+
 func createUserDictReaderFromModel(config *models.TokenizerUserDictConfig) io.Reader {
 	if config == nil || config.Replacements == nil || len(config.Replacements) == 0 {
 		return nil
@@ -49,8 +58,8 @@ func NewUserDictFromModel(config *models.TokenizerUserDictConfig) (*dict.UserDic
 	return r.NewUserDict()
 }
 
-func InitUserDictTokenizers(config []*models.TokenizerUserDictConfig) (*KagomeTokenizers, error) {
-	customTokenizers := &KagomeTokenizers{}
+func initUserDictTokenizers(config []*models.TokenizerUserDictConfig) (*KagomeTokenizers, error) {
+	tokenizers := &KagomeTokenizers{}
 	if config == nil {
 		return nil, nil
 	}
@@ -65,16 +74,16 @@ func InitUserDictTokenizers(config []*models.TokenizerUserDictConfig) (*KagomeTo
 			if err != nil {
 				return nil, err
 			}
-			customTokenizers.Japanese = tokenizerJa
+			tokenizers.Japanese = tokenizerJa
 		case models.PropertyTokenizationKagomeKr:
 			tokenizerKr, err := initializeKagomeTokenizerKr(tokenizerConfig)
 			if err != nil {
 				return nil, err
 			}
-			customTokenizers.Korean = tokenizerKr
+			tokenizers.Korean = tokenizerKr
 		default:
 			return nil, fmt.Errorf("tokenizer %s does not support user dictionaries", tokenizerConfig.Tokenizer)
 		}
 	}
-	return customTokenizers, nil
+	return tokenizers, nil
 }

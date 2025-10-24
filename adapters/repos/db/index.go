@@ -336,12 +336,9 @@ func NewIndex(
 	shardReindexer ShardReindexerV3,
 	bitmapBufPool roaringset.BitmapBufPool,
 ) (*Index, error) {
-	customTokenizers, err := tokenizer.InitUserDictTokenizers(invertedIndexConfig.TokenizerUserDict)
+	err := tokenizer.AddCustomDict(class.Class, invertedIndexConfig.TokenizerUserDict)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create new index")
-	}
-	if customTokenizers != nil {
-		tokenizer.CustomTokenizers.Store(cfg.ClassName.String(), customTokenizers)
 	}
 
 	sd, err := stopwords.NewDetectorFromConfig(invertedIndexConfig.Stopwords)
@@ -747,11 +744,10 @@ func (i *Index) updateInvertedIndexConfig(ctx context.Context,
 
 	i.invertedIndexConfig = updated
 
-	customTokenizers, err := tokenizer.InitUserDictTokenizers(updated.TokenizerUserDict)
+	err := tokenizer.AddCustomDict(i.Config.ClassName.String(), updated.TokenizerUserDict)
 	if err != nil {
-		return errors.Wrap(err, "failed to update inverted index config")
+		return errors.Wrap(err, "updating inverted index config")
 	}
-	tokenizer.CustomTokenizers.Store(i.Config.ClassName.String(), customTokenizers)
 
 	return nil
 }

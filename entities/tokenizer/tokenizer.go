@@ -44,7 +44,7 @@ var (
 	tokenizers            KagomeTokenizers     // Tokenizers for Korean and Japanese
 	kagomeInitLock        sync.Mutex           // Lock for kagome initialization
 
-	CustomTokenizers sync.Map
+	customTokenizers sync.Map
 )
 
 type KagomeTokenizers struct {
@@ -73,7 +73,7 @@ func init() {
 	}
 	ApacTokenizerThrottle = make(chan struct{}, numParallel)
 	InitOptionalTokenizers()
-	CustomTokenizers = sync.Map{}
+	customTokenizers = sync.Map{}
 }
 
 func InitOptionalTokenizers() {
@@ -130,7 +130,7 @@ func init_gse_ch() {
 }
 
 func TokenizeForClass(tokenization string, in string, class string) []string {
-	tokenizer, ok := CustomTokenizers.Load(class)
+	tokenizer, ok := customTokenizers.Load(class)
 	if tokenization == models.PropertyTokenizationKagomeKr && ok && tokenizer.(*KagomeTokenizers).Korean != nil {
 		ApacTokenizerThrottle <- struct{}{}
 		defer func() { <-ApacTokenizerThrottle }()
