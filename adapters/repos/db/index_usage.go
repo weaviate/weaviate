@@ -240,7 +240,7 @@ func (i *Index) calculateLoadedShardUsage(ctx context.Context, shard *Shard, exa
 		return nil, err
 	}
 
-	vectorCommitLogsStorageSize, queueFoldersStorageSize, err := shardusage.CalculateNonLSMStorage(i.path(), shard.Name())
+	vectorCommitLogsStorageSize, otherNonLSMFoldersStorageSize, err := shardusage.CalculateNonLSMStorage(i.path(), shard.Name())
 	if err != nil {
 		return nil, err
 	}
@@ -252,7 +252,7 @@ func (i *Index) calculateLoadedShardUsage(ctx context.Context, shard *Shard, exa
 		ObjectsStorageBytes:   uint64(objectStorageSize) - uint64(uncompressedVectorSize),                               // objects without vectors
 		VectorStorageBytes:    uint64(vectorStorageSize) + uint64(uncompressedVectorSize) + vectorCommitLogsStorageSize, // lsm/vectors + objects vectors + commit.log folders
 		IndexStorageBytes:     indexUsage,                                                                               // lsm property folders and dimensions folder
-		FullShardStorageBytes: vectorCommitLogsStorageSize + queueFoldersStorageSize + indexUsage + uint64(objectStorageSize) + uint64(vectorStorageSize),
+		FullShardStorageBytes: vectorCommitLogsStorageSize + otherNonLSMFoldersStorageSize + indexUsage + uint64(objectStorageSize) + uint64(vectorStorageSize),
 	}
 	// Get vector usage for each named vector
 	vectorConfigs := i.GetVectorIndexConfigs()
@@ -346,20 +346,13 @@ func (i *Index) calculateUnloadedShardUsage(ctx context.Context, shardName strin
 		return nil, err
 	}
 
-	vectorCommitLogsStorageSize, queueFoldersStorageSize, err := shardusage.CalculateNonLSMStorage(i.path(), shardName)
+	vectorCommitLogsStorageSize, otherNonLSMFoldersStorageSize, err := shardusage.CalculateNonLSMStorage(i.path(), shardName)
 	if err != nil {
 		return nil, err
 	}
 
-	shardUsage := &types.ShardUsage{
-		Name:                  shardName,
-		ObjectsCount:          objectUsage.Count,
-		Status:                strings.ToLower(models.TenantActivityStatusINACTIVE),
-		IndexStorageBytes:     indexUsage,
-		FullShardStorageBytes: vectorCommitLogsStorageSize + queueFoldersStorageSize + indexUsage + uint64(objectUsage.StorageBytes) + uint64(vectorStorageSize),
-	}
-
 	// Get named vector data for cold shards from schema configuration
+	var namedVectors types.VectorsUsage
 	uncompressedVectorSize := uint64(0) // calculate total uncompressed vector size for all vectors
 	for targetVector, vectorConfig := range vectorConfigs {
 		vectorUsage := &types.VectorUsage{
@@ -387,13 +380,21 @@ func (i *Index) calculateUnloadedShardUsage(ctx context.Context, shardName strin
 		uncompressedVectorSize += uint64(dimensionalities.Count) * uint64(dimensionalities.Dimensions) * 4
 		vectorUsage.Dimensionalities = append(vectorUsage.Dimensionalities, &dimensionalities)
 		vectorUsage.MultiVectorConfig = multiVectorConfigFromConfig(vectorIndexConfig)
-		shardUsage.NamedVectors = append(shardUsage.NamedVectors, vectorUsage)
+		namedVectors = append(namedVectors, vectorUsage)
 	}
-	shardUsage.ObjectsStorageBytes = uint64(objectUsage.StorageBytes) - uncompressedVectorSize
-	shardUsage.VectorStorageBytes = uint64(vectorStorageSize) + uncompressedVectorSize
 
-	sort.Sort(shardUsage.NamedVectors)
+	sort.Sort(namedVectors)
 
+	shardUsage := &types.ShardUsage{
+		Name:                  shardName,
+		ObjectsCount:          objectUsage.Count,
+		Status:                strings.ToLower(models.TenantActivityStatusINACTIVE),
+		ObjectsStorageBytes:   uint64(objectUsage.StorageBytes) - uncompressedVectorSize,
+		VectorStorageBytes:    uint64(vectorStorageSize) + uncompressedVectorSize + vectorCommitLogsStorageSize,
+		IndexStorageBytes:     indexUsage,
+		FullShardStorageBytes: vectorCommitLogsStorageSize + otherNonLSMFoldersStorageSize + indexUsage + uint64(objectUsage.StorageBytes) + uint64(vectorStorageSize),
+		NamedVectors:          namedVectors,
+	}
 	if err := shardusage.SaveComputedUsageData(i.path(), shardName, shardUsage); err != nil {
 		return nil, fmt.Errorf("save usage to disk: %w", err)
 	}

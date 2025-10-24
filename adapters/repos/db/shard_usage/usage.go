@@ -226,7 +226,7 @@ func CalculateUnloadedIndicesSize(lsmPath string, directories []string) (uint64,
 
 // CalculateNonLSMStorage calculates the full storage used by a shard, including objects, vectors, and indices
 func CalculateNonLSMStorage(path, shardName string) (uint64, uint64, error) {
-	var vectorCommitLogsStorageSize, queueFoldersStorageSize uint64
+	var vectorCommitLogsStorageSize, otherNonLSMFoldersStorageSize uint64
 	shardPath := filepath.Join(path, shardName)
 
 	files, dirs, err := diskio.GetFileWithSizes(shardPath)
@@ -236,7 +236,7 @@ func CalculateNonLSMStorage(path, shardName string) (uint64, uint64, error) {
 
 	// Add sizes of all files in the shard root directory
 	for _, size := range files {
-		vectorCommitLogsStorageSize += uint64(size)
+		otherNonLSMFoldersStorageSize += uint64(size)
 	}
 	for _, dir := range dirs {
 		if dir == "lsm" {
@@ -254,15 +254,14 @@ func CalculateNonLSMStorage(path, shardName string) (uint64, uint64, error) {
 		for _, size := range filesSubFolder {
 			totalSize += uint64(size)
 		}
-		if strings.HasSuffix(dir, "commitlog.d") {
+		if strings.HasSuffix(dir, "commitlog.d") || strings.HasSuffix(dir, "snapshot.d") {
 			vectorCommitLogsStorageSize += totalSize
 		} else {
-			queueFoldersStorageSize += totalSize
+			otherNonLSMFoldersStorageSize += totalSize
 		}
-
 	}
 
-	return vectorCommitLogsStorageSize, queueFoldersStorageSize, nil
+	return vectorCommitLogsStorageSize, otherNonLSMFoldersStorageSize, nil
 }
 
 // CalculateTargetVectorDimensionsFromBucket calculates dimensions and object count for a target vector from an LSMKV bucket

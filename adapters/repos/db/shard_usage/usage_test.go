@@ -263,9 +263,9 @@ func TestStorageCalculation(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, sizeTracker["property_someProp_searchable"]+sizeTracker["property_someProp"]+sizeTracker["property__id"]+sizeTracker[helpers.DimensionsBucketLSM], indexBytes)
 
-	vectorCommitLogsStorageSize, queueFoldersStorageSize, err := CalculateNonLSMStorage(dirName, "shard1")
+	vectorCommitLogsStorageSize, otherNonLSMFoldersStorageSize, err := CalculateNonLSMStorage(dirName, "shard1")
 	require.NoError(t, err)
-	require.Equal(t, expectedTotal, vectorCommitLogsStorageSize+queueFoldersStorageSize+indexBytes+uint64(objectsBytes.StorageBytes)+uint64(vectorBytes))
+	require.Equal(t, expectedTotal, vectorCommitLogsStorageSize+otherNonLSMFoldersStorageSize+indexBytes+uint64(objectsBytes.StorageBytes)+uint64(vectorBytes))
 }
 
 func BenchmarkStorageCalculation(b *testing.B) {
@@ -320,9 +320,9 @@ func BenchmarkStorageCalculation(b *testing.B) {
 		require.NoError(b, err)
 		require.Equal(b, sizeTracker["property_someProp_searchable"]+sizeTracker["property_someProp"]+sizeTracker["property__id"]+sizeTracker[helpers.DimensionsBucketLSM], indexBytes)
 
-		vectorCommitLogsStorageSize, queueFoldersStorageSize, err := CalculateNonLSMStorage(dirName, "shard1")
+		vectorCommitLogsStorageSize, otherNonLSMFoldersStorageSize, err := CalculateNonLSMStorage(dirName, "shard1")
 		require.NoError(b, err)
-		require.Equal(b, expectedTotal, vectorCommitLogsStorageSize+queueFoldersStorageSize+indexBytes+uint64(objectsBytes.StorageBytes)+uint64(vectorBytes))
+		require.Equal(b, expectedTotal, vectorCommitLogsStorageSize+otherNonLSMFoldersStorageSize+indexBytes+uint64(objectsBytes.StorageBytes)+uint64(vectorBytes))
 
 	}
 }
