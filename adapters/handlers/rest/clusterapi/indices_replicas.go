@@ -86,6 +86,8 @@ type replicatedIndices struct {
 	// requestQueue buffers requests until they're picked up by a worker, goal is to avoid
 	// overwhelming the system with requests during spikes (also allows for backpressure)
 	requestQueue chan queuedRequest
+	// requestQueueMu guards access to the queue during shutdown
+	requestQueueMu sync.RWMutex
 	// startWorkersOnce ensures that the workers are started only once
 	startWorkersOnce sync.Once
 	// set to true when shutting down
@@ -94,6 +96,16 @@ type replicatedIndices struct {
 	workerWg sync.WaitGroup
 	logger   logrus.FieldLogger
 }
+
+var (
+	errReplicatedIndicesShutdown  = errors.New("replicated indices shutting down")
+	errReplicatedIndicesQueueFull = errors.New("replicated indices request queue full")
+)
+
+const (
+	responseShuttingDown = "503 Service Unavailable - shutting down"
+	responseQueueFull    = "too many buffered requests"
+)
 
 var (
 	regxObject = regexp.MustCompile(`\/replicas\/indices\/(` + cl + `)` +
@@ -148,6 +160,38 @@ func NewReplicatedIndices(
 	return i
 }
 
+func (i *replicatedIndices) queueEnabled() bool {
+	return i.requestQueueConfig.IsEnabled != nil && i.requestQueueConfig.IsEnabled.Get()
+}
+
+func (i *replicatedIndices) writeResponse(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, errReplicatedIndicesShutdown):
+		http.Error(w, responseShuttingDown, http.StatusServiceUnavailable)
+	case errors.Is(err, errReplicatedIndicesQueueFull):
+		http.Error(w, responseQueueFull, i.requestQueueConfig.QueueFullHttpStatus)
+	default:
+		i.logger.WithError(err).Error("unhandled error in replicated indices handler")
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+	}
+}
+
+func (i *replicatedIndices) enqueueRequest(r *http.Request, w http.ResponseWriter, wg *sync.WaitGroup) error {
+	i.requestQueueMu.RLock()
+	defer i.requestQueueMu.RUnlock()
+
+	if i.isShutdown.Load() {
+		return errReplicatedIndicesShutdown
+	}
+
+	select {
+	case i.requestQueue <- queuedRequest{r: r, w: w, wg: wg}:
+		return nil
+	default:
+		return errReplicatedIndicesQueueFull
+	}
+}
+
 type queuedRequest struct {
 	r *http.Request
 	w http.ResponseWriter
@@ -185,29 +229,26 @@ func (i *replicatedIndices) indicesHandler() http.HandlerFunc {
 			return
 		}
 
-		// Check if we're shutting down
 		if i.isShutdown.Load() {
-			http.Error(w, "503 Service Unavailable - shutting down", http.StatusServiceUnavailable)
+			i.writeResponse(w, errReplicatedIndicesShutdown)
 			return
 		}
 
-		// if the request queue is enabled, add the request to the queue
-		if i.requestQueueConfig.IsEnabled != nil && i.requestQueueConfig.IsEnabled.Get() {
-			// ensure the workers are started (if this didn't happen at startup)
+		if i.queueEnabled() {
 			i.startWorkersOnce.Do(i.startWorkers)
-			wg := sync.WaitGroup{}
+
+			wg := &sync.WaitGroup{}
 			wg.Add(1)
-			select {
-			case i.requestQueue <- queuedRequest{r: r, w: w, wg: &wg}:
-			default:
-				http.Error(w, "too many buffered requests", i.requestQueueConfig.QueueFullHttpStatus)
+			err := i.enqueueRequest(r, w, wg)
+			if err != nil {
 				wg.Done() //nolint:SA2000
+				i.writeResponse(w, err)
 				return
 			}
-			wg.Wait()
+			wg.Wait() // worker calls Done() after handling request
 			return
 		}
-		// if the request queue is not enabled, handle the request directly
+
 		i.handleRequest(queuedRequest{r: r, w: w, wg: nil})
 	}
 }
@@ -1006,7 +1047,9 @@ func (i *replicatedIndices) Close(ctx context.Context) error {
 			close(done)
 		}, i.logger)
 
+		i.requestQueueMu.Lock()
 		close(i.requestQueue)
+		i.requestQueueMu.Unlock()
 		select {
 		case <-done:
 			// Workers finished gracefully
