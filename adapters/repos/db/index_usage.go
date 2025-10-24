@@ -315,7 +315,13 @@ func (i *Index) calculateLoadedShardUsage(ctx context.Context, shard *Shard, exa
 func (i *Index) calculateUnloadedShardUsage(ctx context.Context, shardName string, vectorConfigs map[string]models.VectorConfig) (*types.ShardUsage, error) {
 	if shardusage.ComputedUsageDataExists(i.path(), shardName) {
 		// usage has been pre-calculated and can be read from disk
-		return shardusage.LoadComputedUsageData(i.path(), shardName)
+		shardUsage, err := shardusage.LoadComputedUsageData(i.path(), shardName)
+		if err != nil {
+			// in case of error just log an information and proceed with computation
+			i.logger.Errorf("failed to load pre-calculated usage data for shard %s: %v", shardName, err)
+		} else {
+			return shardUsage, nil
+		}
 	}
 	lsmPath := shardPathLSM(i.path(), shardName)
 

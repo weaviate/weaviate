@@ -88,7 +88,7 @@ func LoadComputedUsageData(indexPath, shardName string) (*types.ShardUsage, erro
 		return nil, fmt.Errorf("unmarshal pre-calculated usage from disk: %w", err)
 	}
 	if usageDisk.Version != types.UsageDiskVersion {
-		return nil, fmt.Errorf("usage data saved to disk version mismatch: currently supported version is: %d but got: %d",
+		return nil, fmt.Errorf("usage data saved to disk version mismatch, currently supported version is %d but got %d",
 			types.UsageDiskVersion, usageDisk.Version)
 	}
 	return usageDisk.ShardUsage, nil
