@@ -188,3 +188,125 @@ func TestUpdateInvertedConfigStopwords(t *testing.T) {
 		})
 	})
 }
+
+func TestUpdateInvertedConfigStopwordsPresetSwitch(t *testing.T) {
+	dirName := t.TempDir()
+
+	logger := logrus.New()
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
+	repo, err := New(logger, Config{
+		MemtablesFlushDirtyAfter:  60,
+		RootPath:                  dirName,
+		QueryMaximumResults:       10000,
+		MaxImportGoroutinesFactor: 1,
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor())
+	require.Nil(t, err)
+	repo.SetSchemaGetter(schemaGetter)
+	require.Nil(t, repo.WaitForStartup(context.TODO()))
+	defer repo.Shutdown(context.Background())
+
+	props, migrator := SetupClass(t, repo, schemaGetter, logger, 1.2, 0.75, "en")
+
+	className := schema.ClassName("MyClass")
+	idx := repo.GetIndex(className)
+	require.NotNil(t, idx)
+
+	filterPresetWord := &filters.LocalFilter{
+		Root: &filters.Clause{
+			On: &filters.Path{
+				Class:    className,
+				Property: schema.PropertyName("description"),
+			},
+			Value: &filters.Value{
+				Value: []string{"the"},
+				Type:  schema.DataTypeText,
+			},
+			Operator: filters.ContainsAny,
+		},
+	}
+
+	t.Run("initial preset word is stopword", func(t *testing.T) {
+		_, _, err := idx.objectSearch(context.TODO(), 1000, filterPresetWord, nil, nil, nil, additional.Properties{}, nil, "", 0, props)
+		require.Error(t, err)
+	})
+
+	additionWord := "journey"
+	filterAddition := &filters.LocalFilter{
+		Root: &filters.Clause{
+			On: &filters.Path{
+				Class:    className,
+				Property: schema.PropertyName("description"),
+			},
+			Value: &filters.Value{
+				Value: []string{additionWord},
+				Type:  schema.DataTypeText,
+			},
+			Operator: filters.ContainsAny,
+		},
+	}
+
+	t.Run("update preset en with addition/removal", func(t *testing.T) {
+		class := repo.schemaGetter.ReadOnlyClass(className.String())
+		class.InvertedIndexConfig.Stopwords = &models.StopwordConfig{
+			Preset:    "en",
+			Additions: []string{additionWord},
+			Removals:  []string{"boo"},
+		}
+
+		// UpdateInvertedIndexConfig only calls SetAdditions/SetRemovals on the
+		// existing detector, so previous preset entries do not change.
+		// Now we have stopwords including all "en" stopword plus "boo"
+		err := migrator.UpdateInvertedIndexConfig(context.Background(), string(className), class.InvertedIndexConfig)
+		require.Nil(t, err)
+
+		_, _, err = idx.objectSearch(context.TODO(), 1000, filterAddition, nil, nil, nil, additional.Properties{}, nil, "", 0, props)
+		require.Error(t, err)
+
+		// "the" is still a stopword, as the preset was recreated from default config
+		_, _, err = idx.objectSearch(context.TODO(), 1000, filterPresetWord, nil, nil, nil, additional.Properties{}, nil, "", 0, props)
+		require.Error(t, err)
+	})
+
+	t.Run("switch to none preset with new addition", func(t *testing.T) {
+		class := repo.schemaGetter.ReadOnlyClass(className.String())
+		class.InvertedIndexConfig.Stopwords = &models.StopwordConfig{
+			Preset:    "none",
+			Additions: []string{"custom"},
+			Removals:  []string{},
+		}
+
+		// Because the detector was only mutated incrementally, switching to the
+		// "none" preset below still leaves the old "en" words (and additions) active.
+		// Now we should have all stopwords including only the "none" preset words plus "custom" but not "boo".
+		err := migrator.UpdateInvertedIndexConfig(context.Background(), string(className), class.InvertedIndexConfig)
+		require.Nil(t, err)
+
+		res, _, err := idx.objectSearch(context.TODO(), 1000, filterAddition, nil, nil, nil, additional.Properties{}, nil, "", 0, props)
+		require.Nil(t, err)
+		require.Greater(t, len(res), 0)
+
+		res, _, err = idx.objectSearch(context.TODO(), 1000, filterPresetWord, nil, nil, nil, additional.Properties{}, nil, "", 0, props)
+		require.Nil(t, err)
+		require.Greater(t, len(res), 0)
+
+		filterCustom := &filters.LocalFilter{
+			Root: &filters.Clause{
+				On: &filters.Path{
+					Class:    className,
+					Property: schema.PropertyName("description"),
+				},
+				Value: &filters.Value{
+					Value: []string{"custom"},
+					Type:  schema.DataTypeText,
+				},
+				Operator: filters.ContainsAny,
+			},
+		}
+
+		_, _, err = idx.objectSearch(context.TODO(), 1000, filterCustom, nil, nil, nil, additional.Properties{}, nil, "", 0, props)
+		require.Error(t, err)
+	})
+}

@@ -627,8 +627,16 @@ func (i *Index) updateInvertedIndexConfig(ctx context.Context,
 
 	i.invertedIndexConfig = updated
 
-	i.stopwords.SetAdditions(updated.Stopwords.Additions)
-	i.stopwords.SetRemovals(updated.Stopwords.Removals)
+	if i.stopwords.Preset() != updated.Stopwords.Preset {
+		sd, err := stopwords.NewDetectorFromConfig(updated.Stopwords)
+		if err != nil {
+			return fmt.Errorf("update inverted index config: %w", err)
+		}
+		i.stopwords = sd
+	} else {
+		i.stopwords.SetAdditions(updated.Stopwords.Additions)
+		i.stopwords.SetRemovals(updated.Stopwords.Removals)
+	}
 
 	return nil
 }

@@ -25,6 +25,7 @@ type StopwordDetector interface {
 
 type Detector struct {
 	sync.Mutex
+	preset    string
 	stopwords map[string]struct{}
 }
 
@@ -36,6 +37,7 @@ func NewDetectorFromConfig(config models.StopwordConfig) (*Detector, error) {
 
 	d.SetAdditions(config.Additions)
 	d.SetRemovals(config.Removals)
+	d.preset = config.Preset
 
 	return d, nil
 }
@@ -58,7 +60,7 @@ func NewDetectorFromPreset(preset string) (*Detector, error) {
 	for _, word := range list {
 		d.stopwords[word] = struct{}{}
 	}
-
+	d.preset = preset
 	return d, nil
 }
 
@@ -86,4 +88,8 @@ func (d *Detector) IsStopword(word string) bool {
 
 	_, ok := d.stopwords[word]
 	return ok
+}
+
+func (d *Detector) Preset() string {
+	return d.preset
 }
