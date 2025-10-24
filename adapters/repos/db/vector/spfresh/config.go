@@ -63,11 +63,34 @@ type CentroidConfig struct {
 	HNSWConfig *hnsw.Config `json:"hnswConfig,omitempty"`
 }
 
+const (
+	DefaultInternalPostingCandidates = 64
+	DefaultReassignNeighbors         = 8
+	DefaultMaxDistanceRatio          = 10_000
+)
+
 func (c *Config) Validate() error {
 	if c.Logger == nil {
 		logger := logrus.New()
 		logger.Out = io.Discard
 		c.Logger = logger
+	}
+
+	w := runtime.GOMAXPROCS(0)
+	if c.SplitWorkers <= 0 {
+		c.SplitWorkers = w
+	}
+	if c.ReassignWorkers <= 0 {
+		c.ReassignWorkers = w
+	}
+	if c.InternalPostingCandidates <= 0 {
+		c.InternalPostingCandidates = DefaultInternalPostingCandidates
+	}
+	if c.ReassignNeighbors <= 0 {
+		c.ReassignNeighbors = DefaultReassignNeighbors
+	}
+	if c.MaxDistanceRatio <= 0 {
+		c.MaxDistanceRatio = DefaultMaxDistanceRatio
 	}
 
 	return nil
@@ -80,9 +103,9 @@ func DefaultConfig() *Config {
 		Logger:                    logrus.New(),
 		SplitWorkers:              w,
 		ReassignWorkers:           w,
-		InternalPostingCandidates: 64,
-		ReassignNeighbors:         8,
-		MaxDistanceRatio:          10_000,
+		InternalPostingCandidates: DefaultInternalPostingCandidates,
+		ReassignNeighbors:         DefaultReassignNeighbors,
+		MaxDistanceRatio:          DefaultMaxDistanceRatio,
 		DistanceProvider:          distancer.NewL2SquaredProvider(),
 		Compressed:                false,
 	}
