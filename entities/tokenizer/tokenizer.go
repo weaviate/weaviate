@@ -351,7 +351,7 @@ func initializeKagomeTokenizer(dictInstance *dict.Dict, userDict *models.Tokeniz
 	if userDict != nil {
 		dict, err := NewUserDictFromModel(userDict)
 		if err != nil {
-			panic(err)
+			return nil, err
 		}
 		if dict != nil {
 			options = append(options, kagomeTokenizer.UserDict(dict))

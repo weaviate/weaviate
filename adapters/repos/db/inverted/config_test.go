@@ -163,10 +163,75 @@ func TestValidateConfig(t *testing.T) {
 			assert.Equal(t, test.expectedLength, len(in.Stopwords.Additions))
 		}
 	})
+
+	t.Run("user dict tokenizer with duplicate sources", func(t *testing.T) {
+		ptr := func(s string) *string { return &s }
+		in := &models.InvertedIndexConfig{
+			TokenizerUserDict: []*models.TokenizerUserDictConfig{
+				{
+					Tokenizer: models.PropertyTokenizationKagomeKr,
+					Replacements: []*models.TokenizerUserDictConfigReplacementsItems0{
+						{
+							Source: ptr("Weaviate"),
+							Target: ptr("We Aviate"),
+						},
+						{
+							Source: ptr("Weaviate"),
+							Target: ptr("Wee Aviate"),
+						},
+					},
+				},
+			},
+		}
+
+		err := ValidateConfig(in)
+		assert.EqualError(t, err, "found duplicate replacement source 'Weaviate'")
+	})
+
+	t.Run("user dict tokenizer with nil source", func(t *testing.T) {
+		ptr := func(s string) *string { return &s }
+		in := &models.InvertedIndexConfig{
+			TokenizerUserDict: []*models.TokenizerUserDictConfig{
+				{
+					Tokenizer: models.PropertyTokenizationKagomeKr,
+					Replacements: []*models.TokenizerUserDictConfigReplacementsItems0{
+						{
+							Source: nil,
+							Target: ptr(""),
+						},
+					},
+				},
+			},
+		}
+
+		err := ValidateConfig(in)
+		assert.EqualError(t, err, "both source and target must be set")
+	})
+
+	t.Run("user dict tokenizer with empty target", func(t *testing.T) {
+		ptr := func(s string) *string { return &s }
+		in := &models.InvertedIndexConfig{
+			TokenizerUserDict: []*models.TokenizerUserDictConfig{
+				{
+					Tokenizer: models.PropertyTokenizationKagomeKr,
+					Replacements: []*models.TokenizerUserDictConfigReplacementsItems0{
+						{
+							Source: ptr("Weaviate"),
+							Target: ptr(""),
+						},
+					},
+				},
+			},
+		}
+
+		err := ValidateConfig(in)
+		assert.Nil(t, err)
+	})
 }
 
 func TestConfigFromModel(t *testing.T) {
 	t.Run("with all fields set", func(t *testing.T) {
+		ptr := func(s string) *string { return &s }
 		k1 := 1.12
 		b := 0.7
 
@@ -178,6 +243,17 @@ func TestConfigFromModel(t *testing.T) {
 			Stopwords: &models.StopwordConfig{
 				Preset: "en",
 			},
+			TokenizerUserDict: []*models.TokenizerUserDictConfig{
+				{
+					Tokenizer: models.PropertyTokenizationKagomeKr,
+					Replacements: []*models.TokenizerUserDictConfigReplacementsItems0{
+						{
+							Source: ptr("Weaviate"),
+							Target: ptr("We Aviate"),
+						},
+					},
+				},
+			},
 		}
 
 		expected := schema.InvertedIndexConfig{
@@ -188,12 +264,24 @@ func TestConfigFromModel(t *testing.T) {
 			Stopwords: models.StopwordConfig{
 				Preset: "en",
 			},
+			TokenizerUserDict: []*models.TokenizerUserDictConfig{
+				{
+					Tokenizer: models.PropertyTokenizationKagomeKr,
+					Replacements: []*models.TokenizerUserDictConfigReplacementsItems0{
+						{
+							Source: ptr("Weaviate"),
+							Target: ptr("We Aviate"),
+						},
+					},
+				},
+			},
 		}
 
 		conf := ConfigFromModel(in)
 		assert.True(t, almostEqual(t, conf.BM25.K1, expected.BM25.K1))
 		assert.True(t, almostEqual(t, conf.BM25.B, expected.BM25.B))
 		assert.Equal(t, expected.Stopwords, conf.Stopwords)
+		assert.Equal(t, expected.TokenizerUserDict, conf.TokenizerUserDict)
 	})
 
 	t.Run("with no BM25 params set", func(t *testing.T) {

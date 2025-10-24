@@ -188,22 +188,21 @@ func validateTokenizerUserDictConfig(conf []*models.TokenizerUserDictConfig) err
 	}
 	// find duplicate from and to entries
 	for _, c := range conf {
-		seen := make(map[string]map[string]struct{})
+		seen := make(map[string]struct{})
 		for _, repl := range c.Replacements {
 			if repl.Source == nil || repl.Target == nil {
 				return errors.Errorf("both source and target must be set")
 			}
-			if strings.TrimSpace(*repl.Source) == "" || strings.TrimSpace(*repl.Target) == "" {
-				return errors.Errorf("source and target cannot be empty or whitespace")
+			if strings.TrimSpace(*repl.Source) == "" {
+				return errors.Errorf("source cannot be empty or whitespace")
 			}
 			if _, ok := seen[*repl.Source]; !ok {
-				seen[*repl.Source] = make(map[string]struct{})
+				seen[*repl.Source] = struct{}{}
+			} else {
+				return errors.Errorf("found duplicate replacement source '%s'", *repl.Source)
 			}
-			if _, ok := seen[*repl.Source][*repl.Target]; ok {
-				return errors.Errorf("found duplicate replacement from '%s' to '%s'",
-					*repl.Source, *repl.Target)
-			}
-			seen[*repl.Source][*repl.Target] = struct{}{}
+
+			seen[*repl.Source] = struct{}{}
 		}
 	}
 	return nil

@@ -63,3 +63,24 @@ func TestKagomeUserTokenizerForClass(t *testing.T) {
 	tokens = TokenizeForClass(models.PropertyTokenizationKagomeKr, "We", "")
 	assert.Equal(t, []string{"W", "e"}, tokens)
 }
+
+func TestKagomeUserTokenizerForClassValidate(t *testing.T) {
+	t.Setenv("ENABLE_TOKENIZER_KAGOME_KR", "true")
+	InitOptionalTokenizers()
+	ptr := func(s string) *string { return &s }
+	className := "TestClass"
+	format := generateReplacementModel()
+	format.Replacements[2].Source = nil // invalid
+	err := AddCustomDict(className, []*models.TokenizerUserDictConfig{format})
+	assert.Error(t, err)
+
+	format.Replacements[2].Source = ptr("Weaviate") // duplicate source
+	err = AddCustomDict(className, []*models.TokenizerUserDictConfig{format})
+	assert.Error(t, err)
+
+	format.Replacements[2].Source = ptr("Aviate")
+	format.Replacements[2].Target = ptr("") // empty target
+	err = AddCustomDict(className, []*models.TokenizerUserDictConfig{format})
+	// target can be empty, it will work as deletion
+	assert.Nil(t, err)
+}

@@ -29,13 +29,16 @@ func AddCustomDict(className string, configs []*models.TokenizerUserDictConfig) 
 	return nil
 }
 
-func createUserDictReaderFromModel(config *models.TokenizerUserDictConfig) io.Reader {
+func createUserDictReaderFromModel(config *models.TokenizerUserDictConfig) (io.Reader, error) {
 	if config == nil || config.Replacements == nil || len(config.Replacements) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	var sb strings.Builder
 	for _, r := range config.Replacements {
+		if r.Source == nil || r.Target == nil {
+			return nil, fmt.Errorf("both source and target must be set")
+		}
 		// Each line in the user dictionary must have 4 columns:
 		// surface form, reading, pronunciation, part of speech (optional)
 		// We set reading and pronunciation to be the same as the surface form
@@ -43,7 +46,7 @@ func createUserDictReaderFromModel(config *models.TokenizerUserDictConfig) io.Re
 		sb.WriteString(line)
 	}
 
-	return strings.NewReader(sb.String())
+	return strings.NewReader(sb.String()), nil
 }
 
 func NewUserDictFromModel(config *models.TokenizerUserDictConfig) (*dict.UserDict, error) {
@@ -51,7 +54,11 @@ func NewUserDictFromModel(config *models.TokenizerUserDictConfig) (*dict.UserDic
 		return nil, nil
 	}
 
-	r, err := dict.NewUserDicRecords(createUserDictReaderFromModel(config))
+	dictReader, err := createUserDictReaderFromModel(config)
+	if err != nil {
+		return nil, err
+	}
+	r, err := dict.NewUserDicRecords(dictReader)
 	if err != nil {
 		return nil, err
 	}
