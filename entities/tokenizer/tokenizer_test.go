@@ -19,17 +19,12 @@ import (
 )
 
 func TestTokeniseParallel(t *testing.T) {
-	UseGse = true
-	init_gse()
-	UseGseCh = true
-	init_gse_ch()
+	t.Setenv("USE_GSE", "true")
+	t.Setenv("ENABLE_TOKENIZER_GSE_CH", "true")
 	// Kagome tokenizer for Korean
 	t.Setenv("ENABLE_TOKENIZER_KAGOME_KR", "true")
-	_ = initializeKagomeTokenizerKr()
-
-	// Kagome tokenizer for Japanese
 	t.Setenv("ENABLE_TOKENIZER_KAGOME_JA", "true")
-	_ = initializeKagomeTokenizerJa()
+	InitOptionalTokenizers()
 	for i := 0; i < 1000; i++ {
 		go SingleTokenise(t)
 	}
@@ -176,7 +171,7 @@ func TestTokenize(t *testing.T) {
 		}
 
 		for _, tc := range testCases {
-			terms := TokenizeWithWildcards(tc.tokenization, input)
+			terms := TokenizeWithWildcardsForClass(tc.tokenization, input, "")
 			assert.ElementsMatch(t, tc.expected, terms)
 		}
 	})
@@ -190,7 +185,7 @@ func TestTokenizeAndCountDuplicates(t *testing.T) {
 	}
 
 	t.Setenv("ENABLE_TOKENIZER_KAGOME_KR", "true")
-	_ = initializeKagomeTokenizerKr()
+	InitOptionalTokenizers()
 
 	alphaInput := "Hello You Beautiful World! hello you beautiful world!"
 
@@ -253,7 +248,7 @@ func TestTokenizeAndCountDuplicates(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.tokenization, func(t *testing.T) {
-			terms, dups := TokenizeAndCountDuplicates(tc.tokenization, tc.input)
+			terms, dups := TokenizeAndCountDuplicatesForClass(tc.tokenization, tc.input, "")
 
 			assert.Len(t, terms, len(tc.expected))
 			assert.Len(t, dups, len(tc.expected))

@@ -7040,6 +7040,14 @@ func init() {
         "stopwords": {
           "$ref": "#/definitions/StopwordConfig"
         },
+        "tokenizerUserDict": {
+          "description": "User-defined dictionary for tokenization.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/TokenizerUserDictConfig"
+          },
+          "x-omitempty": true
+        },
         "usingBlockMaxWAND": {
           "description": "Using BlockMax WAND for query execution (default: ` + "`" + `false` + "`" + `, will be ` + "`" + `true` + "`" + ` for new collections created after 1.30).",
           "type": "boolean"
@@ -8587,6 +8595,36 @@ func init() {
         },
         "name": {
           "description": "The name of the tenant (required).",
+          "type": "string"
+        }
+      }
+    },
+    "TokenizerUserDictConfig": {
+      "description": "A list of pairs of strings that should be replaced with another string during tokenization.",
+      "type": "object",
+      "properties": {
+        "replacements": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "source",
+              "target"
+            ],
+            "properties": {
+              "source": {
+                "description": "The string to be replaced.",
+                "type": "string"
+              },
+              "target": {
+                "description": "The string to replace with.",
+                "type": "string"
+              }
+            }
+          }
+        },
+        "tokenizer": {
+          "description": "The tokenizer to which the user dictionary should be applied. Currently, only the ` + "`" + `kagame` + "`" + ` ja and kr tokenizers supports user dictionaries.",
           "type": "string"
         }
       }
@@ -16288,6 +16326,14 @@ func init() {
         "stopwords": {
           "$ref": "#/definitions/StopwordConfig"
         },
+        "tokenizerUserDict": {
+          "description": "User-defined dictionary for tokenization.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/TokenizerUserDictConfig"
+          },
+          "x-omitempty": true
+        },
         "usingBlockMaxWAND": {
           "description": "Using BlockMax WAND for query execution (default: ` + "`" + `false` + "`" + `, will be ` + "`" + `true` + "`" + ` for new collections created after 1.30).",
           "type": "boolean"
@@ -18008,6 +18054,39 @@ func init() {
         },
         "name": {
           "description": "The name of the tenant (required).",
+          "type": "string"
+        }
+      }
+    },
+    "TokenizerUserDictConfig": {
+      "description": "A list of pairs of strings that should be replaced with another string during tokenization.",
+      "type": "object",
+      "properties": {
+        "replacements": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/TokenizerUserDictConfigReplacementsItems0"
+          }
+        },
+        "tokenizer": {
+          "description": "The tokenizer to which the user dictionary should be applied. Currently, only the ` + "`" + `kagame` + "`" + ` ja and kr tokenizers supports user dictionaries.",
+          "type": "string"
+        }
+      }
+    },
+    "TokenizerUserDictConfigReplacementsItems0": {
+      "type": "object",
+      "required": [
+        "source",
+        "target"
+      ],
+      "properties": {
+        "source": {
+          "description": "The string to be replaced.",
+          "type": "string"
+        },
+        "target": {
+          "description": "The string to replace with.",
           "type": "string"
         }
       }

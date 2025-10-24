@@ -275,7 +275,7 @@ func (b *referencesBatcher) analyzeRef(obj *storobj.Object, ref objects.BatchRef
 		refs = parsed
 	}
 
-	a := inverted.NewAnalyzer(nil)
+	a := inverted.NewAnalyzer(nil, "")
 
 	countItems, err := a.RefCount(refs)
 	if err != nil {
