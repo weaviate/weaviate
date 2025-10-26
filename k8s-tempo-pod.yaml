@@ -1,0 +1,27 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: tempo-pod
+  labels:
+    app: tempo
+spec:
+  containers:
+  - name: tempo
+    image: grafana/tempo:latest # Use a specific version in production, e.g., grafana/tempo:2.2.0
+    args:
+      - -config.file=/etc/tempo/tempo.yaml
+    ports:
+      - name: http
+        containerPort: 3200
+      - name: otlp-grpc
+        containerPort: 4317
+      - name: otlp-http
+        containerPort: 4318
+    volumeMounts:
+      - name: tempo-config
+        mountPath: /etc/tempo
+        readOnly: true
+  volumes:
+    - name: tempo-config
+      configMap:
+        name: tempo-config # This ConfigMap will hold your tempo.yaml configuration
