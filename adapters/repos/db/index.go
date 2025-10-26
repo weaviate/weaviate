@@ -1841,6 +1841,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 		localCtx, span := otel.Tracer("weaviate-search").Start(ctx, "i.GetShard",
 			trace.WithSpanKind(trace.SpanKindInternal),
 			trace.WithAttributes(attribute.String("shard.name", shardName)),
+			trace.WithAttributes(attribute.String("node.name", i.getSchema.NodeName())),
 		)
 		shard, release, err := i.GetShard(localCtx, shardName)
 		span.End()
