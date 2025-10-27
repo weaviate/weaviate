@@ -308,7 +308,7 @@ func (q *DiskQueue) DequeueBatch() (batch *Batch, err error) {
 		c, err = q.checkIfStale()
 		if c == nil {
 			// no chunk to read, check if the queue hasn't been used for a while
-			if q.Size() == 0 && time.Since(q.lastPushTime) > q.inactivePeriod {
+			if q.isInactive() {
 				// queue is inactive, release some resources
 				q.releaseResources()
 			}
@@ -562,11 +562,19 @@ func (q *DiskQueue) readChunkRecordCount(path string) (uint64, error) {
 	return readChunkHeader(f)
 }
 
+func (q *DiskQueue) isInactive() bool {
+	if q.Size() > 0 {
+		return false
+	}
+	tm := time.Since(q.lastPushTime)
+	return tm > q.staleTimeout && tm > q.inactivePeriod
+}
+
 func (q *DiskQueue) releaseResources() {
 	q.m.Lock()
 	defer q.m.Unlock()
 
-	q.w.w.Release()
+	q.w.Release()
 }
 
 var readerPool = sync.Pool{
@@ -775,6 +783,10 @@ func (w *chunkWriter) Flush() error {
 	}
 
 	return w.w.Flush()
+}
+
+func (w *chunkWriter) Release() {
+	w.w.Release()
 }
 
 func (w *chunkWriter) Close() error {
