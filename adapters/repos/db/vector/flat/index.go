@@ -808,7 +808,7 @@ func (index *flat) Preload(id uint64, vector []float32) {
 	}
 }
 
-func (index *flat) PostStartup() {
+func (index *flat) PostStartup(ctx context.Context) {
 	if !index.isBQCached() {
 		return
 	}
@@ -828,17 +828,15 @@ func (index *flat) PostStartup() {
 
 	before := time.Now()
 	bucket := index.store.Bucket(index.getCompressedBucketName())
+
 	// we expect to be IO-bound, so more goroutines than CPUs is fine, we do
 	// however want some kind of relationship to the machine size, so
 	// 2*GOMAXPROCS seems like a good default.
-	it := compressionhelpers.NewParallelIterator[uint64](bucket, 2*runtime.GOMAXPROCS(0),
+	it := compressionhelpers.NewParallelIterator(bucket, 2*runtime.GOMAXPROCS(0),
 		binary.BigEndian.Uint64, index.bq.FromCompressedBytesWithSubsliceBuffer, index.logger)
-	channel := it.IterateAll()
-	if channel == nil {
-		return // nothing to do
-	}
+	vecsCh, abortedCh := it.IterateAll(ctx)
 
-	for vectors := range channel {
+	for vectors := range vecsCh {
 		for _, v := range vectors {
 			// if we mix little and big endian IDs by mistake, we might get a very large
 			// maxID which would cause us to allocate a huge cache.
@@ -851,10 +849,15 @@ func (index *flat) PostStartup() {
 			vecs = append(vecs, v)
 		}
 	}
+	if <-abortedCh {
+		index.logger.WithFields(logrus.Fields{
+			"action": "preload_bq_cache",
+			"took":   time.Since(before),
+		}).Warn("preload vectors aborted")
+		return
+	}
 
-	count := 0
 	for i := range vecs {
-		count++
 		if vecs[i].Id > maxID {
 			maxID = vecs[i].Id
 		}
@@ -872,10 +875,10 @@ func (index *flat) PostStartup() {
 	took := time.Since(before)
 	index.logger.WithFields(logrus.Fields{
 		"action":   "preload_bq_cache",
-		"count":    count,
+		"count":    len(vecs),
 		"took":     took,
 		"index_id": index.id,
-	}).Debugf("pre-loaded %d vectors in %s", count, took)
+	}).Debugf("pre-loaded %d vectors in %s", len(vecs), took)
 }
 
 func (index *flat) ContainsDoc(id uint64) bool {
