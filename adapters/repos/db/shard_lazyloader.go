@@ -57,7 +57,7 @@ type LazyLoadShard struct {
 	shardOpts        *deferredShardOpts
 	shard            *Shard
 	loaded           bool
-	mutex            sync.Mutex
+	mutex            sync.RWMutex
 	memMonitor       memwatch.AllocChecker
 	shardLoadLimiter ShardLoadLimiter
 	lazyLoadSegments bool
@@ -165,8 +165,8 @@ func (l *LazyLoadShard) NotifyReady() {
 }
 
 func (l *LazyLoadShard) GetStatus() storagestate.Status {
-	l.mutex.Lock()
-	defer l.mutex.Unlock()
+	l.mutex.RLock()
+	defer l.mutex.RUnlock()
 
 	if l.loaded {
 		return l.shard.GetStatus()
@@ -202,12 +202,12 @@ func (l *LazyLoadShard) ObjectCount(ctx context.Context) (int, error) {
 }
 
 func (l *LazyLoadShard) ObjectCountAsync(ctx context.Context) (int64, error) {
-	l.mutex.Lock()
+	l.mutex.RLock()
 	if l.loaded {
-		l.mutex.Unlock()
+		l.mutex.RUnlock()
 		return l.shard.ObjectCountAsync(ctx)
 	}
-	l.mutex.Unlock()
+	l.mutex.RUnlock()
 	idx := l.shardOpts.index
 	objectUsage, err := shardusage.CalculateUnloadedObjectsMetrics(idx.logger, idx.path(), l.shardOpts.name, true)
 	if err != nil {
@@ -461,12 +461,12 @@ func (l *LazyLoadShard) AnalyzeObject(object *storobj.Object) ([]inverted.Proper
 }
 
 func (l *LazyLoadShard) Dimensions(ctx context.Context, targetVector string) (int, error) {
-	l.mutex.Lock()
+	l.mutex.RLock()
 	if l.loaded {
-		l.mutex.Unlock()
+		l.mutex.RUnlock()
 		return l.shard.Dimensions(ctx, targetVector)
 	}
-	l.mutex.Unlock()
+	l.mutex.RUnlock()
 
 	// For unloaded shards, get dimensions from unloaded shard/tenant calculation
 	idx := l.shardOpts.index
@@ -752,17 +752,17 @@ func (l *LazyLoadShard) Metrics() *Metrics {
 }
 
 func (l *LazyLoadShard) isLoaded() bool {
-	l.mutex.Lock()
-	defer l.mutex.Unlock()
+	l.mutex.RLock()
+	defer l.mutex.RUnlock()
 
 	return l.loaded
 }
 
 func (l *LazyLoadShard) Activity() (int32, int32) {
 	var loaded bool
-	l.mutex.Lock()
+	l.mutex.RLock()
 	loaded = l.loaded
-	l.mutex.Unlock()
+	l.mutex.RUnlock()
 
 	if !loaded {
 		// don't force-load the shard, just report the same number every time, so
