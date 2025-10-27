@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"path/filepath"
 	"runtime"
 	"runtime/debug"
 	"slices"
@@ -29,7 +30,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-
 	"github.com/weaviate/weaviate/adapters/repos/db/aggregator"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
@@ -45,6 +45,7 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/autocut"
+	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -2494,6 +2495,10 @@ func (i *Index) drop() error {
 
 	i.closingCancel()
 
+	// backup in progress
+	lastBackup := i.lastBackup.Load()
+	keepFiles := lastBackup != nil
+
 	eg := enterrors.NewErrorGroupWrapper(i.logger)
 	eg.SetLimit(_NUMCPU * 2)
 	fields := logrus.Fields{"action": "drop_shard", "class": i.Config.ClassName}
@@ -2509,7 +2514,7 @@ func (i *Index) drop() error {
 			if !ok {
 				return nil // shard already does not exist
 			}
-			if err := shard.drop(); err != nil {
+			if err := shard.drop(keepFiles); err != nil {
 				logrus.WithFields(fields).WithField("id", shard.ID()).Error(err)
 			}
 
@@ -2536,7 +2541,11 @@ func (i *Index) drop() error {
 		return err
 	}
 
-	return os.RemoveAll(i.path())
+	if !keepFiles {
+		return os.RemoveAll(i.path())
+	} else {
+		return os.Rename(i.path(), path.Join(i.Config.RootPath, backup.DeleteMarker+i.ID()))
+	}
 }
 
 func (i *Index) dropShards(names []string) error {
@@ -2569,7 +2578,7 @@ func (i *Index) dropShards(names []string) error {
 				}
 			} else {
 				// If shard is loaded use the native primitive to drop it
-				if err := shard.drop(); err != nil {
+				if err := shard.drop(false); err != nil {
 					ec.Add(err)
 					i.logger.WithField("action", "drop_shard").WithField("shard", shard.ID()).Error(err)
 				}
@@ -3154,4 +3163,8 @@ func (i *Index) DebugRequantizeIndex(ctx context.Context, shardName, targetVecto
 	}, i.logger)
 
 	return nil
+}
+
+func GetBackupPath(rootPath string, class string) string {
+	return filepath.Join(rootPath, backup.DeleteMarker+indexID(schema.ClassName(class)))
 }

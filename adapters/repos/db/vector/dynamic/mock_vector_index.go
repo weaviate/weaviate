@@ -589,17 +589,17 @@ func (_c *MockVectorIndex_DistancerProvider_Call) RunAndReturn(run func() distan
 	return _c
 }
 
-// Drop provides a mock function with given fields: ctx
-func (_m *MockVectorIndex) Drop(ctx context.Context) error {
-	ret := _m.Called(ctx)
+// Drop provides a mock function with given fields: ctx, keepFiles
+func (_m *MockVectorIndex) Drop(ctx context.Context, keepFiles bool) error {
+	ret := _m.Called(ctx, keepFiles)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Drop")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context) error); ok {
-		r0 = rf(ctx)
+	if rf, ok := ret.Get(0).(func(context.Context, bool) error); ok {
+		r0 = rf(ctx, keepFiles)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -614,13 +614,14 @@ type MockVectorIndex_Drop_Call struct {
 
 // Drop is a helper method to define mock.On call
 //   - ctx context.Context
-func (_e *MockVectorIndex_Expecter) Drop(ctx interface{}) *MockVectorIndex_Drop_Call {
-	return &MockVectorIndex_Drop_Call{Call: _e.mock.On("Drop", ctx)}
+//   - keepFiles bool
+func (_e *MockVectorIndex_Expecter) Drop(ctx interface{}, keepFiles interface{}) *MockVectorIndex_Drop_Call {
+	return &MockVectorIndex_Drop_Call{Call: _e.mock.On("Drop", ctx, keepFiles)}
 }
 
-func (_c *MockVectorIndex_Drop_Call) Run(run func(ctx context.Context)) *MockVectorIndex_Drop_Call {
+func (_c *MockVectorIndex_Drop_Call) Run(run func(ctx context.Context, keepFiles bool)) *MockVectorIndex_Drop_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context))
+		run(args[0].(context.Context), args[1].(bool))
 	})
 	return _c
 }
@@ -630,7 +631,7 @@ func (_c *MockVectorIndex_Drop_Call) Return(_a0 error) *MockVectorIndex_Drop_Cal
 	return _c
 }
 
-func (_c *MockVectorIndex_Drop_Call) RunAndReturn(run func(context.Context) error) *MockVectorIndex_Drop_Call {
+func (_c *MockVectorIndex_Drop_Call) RunAndReturn(run func(context.Context, bool) error) *MockVectorIndex_Drop_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -1705,7 +1706,8 @@ func (_c *MockVectorIndex_ValidateMultiBeforeInsert_Call) RunAndReturn(run func(
 func NewMockVectorIndex(t interface {
 	mock.TestingT
 	Cleanup(func())
-}) *MockVectorIndex {
+},
+) *MockVectorIndex {
 	mock := &MockVectorIndex{}
 	mock.Mock.Test(t)
 

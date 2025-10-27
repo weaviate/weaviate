@@ -318,14 +318,14 @@ Loop:
 	return nil
 }
 
-func (u *uploader) releaseIndexes(classes []string, ID string) {
+func (u *uploader) releaseIndexes(classes []string, bakID string) {
 	for _, class := range classes {
 		className := class
 		enterrors.GoWrapper(func() {
-			if err := u.sourcer.ReleaseBackup(context.Background(), ID, className); err != nil {
+			if err := u.sourcer.ReleaseBackup(context.Background(), bakID, className); err != nil {
 				u.log.WithFields(logrus.Fields{
 					"class":    className,
-					"backupID": ID,
+					"backupID": bakID,
 				}).Error("failed to release backup")
 			}
 		}, u.log)
