@@ -45,10 +45,16 @@ func SetupClient(uri string) {
 	ServerPort = port
 }
 
-// parseScheme extracts the scheme from a URI if present.
-// Returns the scheme and the remaining URI without the scheme.
+// parseScheme extracts the scheme from a URI if present, defaulting to "http".
+//
+// If the URI contains "://", the part before it is extracted as the scheme.
+// If no scheme is found, "http" is used as the default.
+//
+// Returns the scheme and the remaining URI with the scheme prefix removed.
+//
 // Examples:
 //   - "http://localhost:8080" -> ("http", "localhost:8080")
+//   - "https://localhost:8443" -> ("https", "localhost:8443")
 //   - "localhost:8080" -> ("http", "localhost:8080")
 func parseScheme(uri string) (scheme, remaining string) {
 	scheme = "http"
@@ -65,10 +71,17 @@ func parseScheme(uri string) (scheme, remaining string) {
 	return scheme, remaining
 }
 
-// parseHostPort extracts the host and port from a URI.
+// parseHostPort extracts the host and port from a URI by splitting on ":".
+//
+// The URI should include "host:port". If the format doesn't match
+// (no colon or more than one colon), empty strings are returned for both values.
+//
+// Returns the host and port as separate strings.
+//
 // Examples:
 //   - "localhost:8080" -> ("localhost", "8080")
 //   - "127.0.0.1:9090" -> ("127.0.0.1", "9090")
+//   - "example.com:443" -> ("example.com", "443")
 func parseHostPort(uri string) (host, port string) {
 	res := strings.Split(uri, ":")
 	if len(res) == 2 {
