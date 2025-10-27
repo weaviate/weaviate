@@ -500,7 +500,7 @@ func TestQueueAutoReleaseResources(t *testing.T) {
 
 		q := makeQueue(t, s, discardExecutor())
 		q.Pause() // prevent scheduler from processing the queue
-		q.inactivePeriod = 400 * time.Millisecond
+		q.inactivityPeriod = 400 * time.Millisecond
 		pushMany(t, q, 1, 100, 200, 300)
 		require.Equal(t, int64(3), q.Size())
 		q.staleTimeout = 0 // disable stale timeout for this test
@@ -543,7 +543,7 @@ func TestQueueAutoReleaseResources(t *testing.T) {
 
 		q := makeQueue(t, s, discardExecutor())
 		q.Pause() // prevent scheduler from processing the queue
-		q.inactivePeriod = 400 * time.Millisecond
+		q.inactivityPeriod = 400 * time.Millisecond
 		pushMany(t, q, 1, 100, 200, 300)
 		require.Equal(t, int64(3), q.Size())
 		q.staleTimeout = 0 // disable stale timeout for this test

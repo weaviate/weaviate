@@ -37,9 +37,9 @@ const (
 	// If no tasks are pushed to the queue for this duration, the partial chunk is scheduled.
 	defaultStaleTimeout = 100 * time.Millisecond
 
-	// defaultInactivePeriod is the duration after which a queue is considered inactive and
+	// defaultInactivityPeriod is the duration after which a queue is considered inactive and
 	// can release resources.
-	defaultInactivePeriod = 1 * time.Minute
+	defaultInactivityPeriod = 1 * time.Minute
 
 	// chunkWriterBufferSize is the size of the buffer used by the chunk writer.
 	// It should be large enough to hold a few records, but not too large to avoid
@@ -70,7 +70,7 @@ type DiskQueue struct {
 	// Logger for the queue. Wrappers of this queue should use this logger.
 	Logger           logrus.FieldLogger
 	staleTimeout     time.Duration
-	inactivePeriod   time.Duration
+	inactivityPeriod time.Duration
 	taskDecoder      TaskDecoder
 	scheduler        *Scheduler
 	id               string
@@ -101,7 +101,7 @@ type DiskQueueOptions struct {
 	// Optional
 	Logger           logrus.FieldLogger
 	StaleTimeout     time.Duration
-	InactivePeriod   time.Duration
+	InactivityPeriod time.Duration
 	ChunkSize        uint64
 	OnBatchProcessed func()
 	Metrics          *Metrics
@@ -136,8 +136,8 @@ func NewDiskQueue(opt DiskQueueOptions) (*DiskQueue, error) {
 	if opt.ChunkSize <= 0 {
 		opt.ChunkSize = defaultChunkSize
 	}
-	if opt.InactivePeriod <= 0 {
-		opt.InactivePeriod = defaultInactivePeriod
+	if opt.InactivityPeriod <= 0 {
+		opt.InactivityPeriod = defaultInactivityPeriod
 	}
 
 	q := DiskQueue{
@@ -146,7 +146,7 @@ func NewDiskQueue(opt DiskQueueOptions) (*DiskQueue, error) {
 		dir:              opt.Dir,
 		Logger:           opt.Logger,
 		staleTimeout:     opt.StaleTimeout,
-		inactivePeriod:   opt.InactivePeriod,
+		inactivityPeriod: opt.InactivityPeriod,
 		taskDecoder:      opt.TaskDecoder,
 		metrics:          opt.Metrics,
 		onBatchProcessed: opt.OnBatchProcessed,
@@ -567,7 +567,7 @@ func (q *DiskQueue) isInactive() bool {
 		return false
 	}
 	tm := time.Since(q.lastPushTime)
-	return tm > q.staleTimeout && tm > q.inactivePeriod
+	return tm > q.staleTimeout && tm > q.inactivityPeriod
 }
 
 func (q *DiskQueue) releaseResources() {
@@ -708,11 +708,9 @@ func readChunkHeader(r io.Reader) (uint64, error) {
 // at which point the partial chunk is promoted to a new chunk file.
 // The chunkWriter is not thread-safe and should be used with a lock.
 type chunkWriter struct {
-	logger  logrus.FieldLogger
-	maxSize uint64
-	dir     string
-	// w is a buffered writer for the current chunk file.
-	// it must not be used directly, use getWriter() instead.
+	logger      logrus.FieldLogger
+	maxSize     uint64
+	dir         string
 	w           lazyBufferedWriter
 	f           *os.File
 	size        uint64
