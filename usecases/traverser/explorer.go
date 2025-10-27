@@ -18,6 +18,8 @@ import (
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema/configvalidation"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/trace"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
@@ -131,6 +133,11 @@ func (e *Explorer) SetSchemaGetter(sg uc.SchemaGetter) {
 func (e *Explorer) GetClass(ctx context.Context,
 	params dto.GetParams,
 ) ([]interface{}, error) {
+	ctx, span := otel.Tracer("weaviate-search").Start(ctx, "explorer.GetClass",
+		trace.WithSpanKind(trace.SpanKindInternal),
+	)
+	defer span.End()
+
 	if params.Pagination == nil {
 		params.Pagination = &filters.Pagination{
 			Offset: 0,
@@ -214,6 +221,11 @@ func (e *Explorer) getClassKeywordBased(ctx context.Context, params dto.GetParam
 func (e *Explorer) getClassVectorSearch(ctx context.Context,
 	params dto.GetParams,
 ) ([]search.Result, models.Vector, error) {
+	ctx, span := otel.Tracer("weaviate-search").Start(ctx, "explorer.getClassVectorSearch",
+		trace.WithSpanKind(trace.SpanKindInternal),
+	)
+	defer span.End()
+
 	targetVectors, err := e.targetFromParams(ctx, params)
 	if err != nil {
 		return nil, nil, errors.Errorf("explorer: get class: vectorize params: %v", err)
@@ -237,6 +249,10 @@ func (e *Explorer) getClassVectorSearch(ctx context.Context,
 }
 
 func (e *Explorer) searchForTargets(ctx context.Context, params dto.GetParams, targetVectors []string, searchVectorParams *searchparams.NearVector) ([]search.Result, []models.Vector, error) {
+	ctx, span := otel.Tracer("weaviate-search").Start(ctx, "explorer.searchForTargets",
+		trace.WithSpanKind(trace.SpanKindInternal),
+	)
+	defer span.End()
 	var err error
 	searchVectors := make([]models.Vector, len(targetVectors))
 	eg := enterrors.NewErrorGroupWrapper(e.logger)

@@ -184,3 +184,4 @@ kubectl port-forward service/prometheus-service 9090:9090
 ```
 
 This will enable the service map feature in Grafana to visualize the relationships between services.
+

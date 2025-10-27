@@ -12,3 +12,4 @@ datasources:
     editable: false
     jsonData:
       timeInterval: "5s"
+

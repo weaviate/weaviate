@@ -18,6 +18,9 @@ import (
 
 	"github.com/weaviate/weaviate/entities/classcache"
 	"github.com/weaviate/weaviate/entities/versioned"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -294,6 +297,10 @@ func (s *Service) Search(ctx context.Context, req *pb.SearchRequest) (*pb.Search
 }
 
 func (s *Service) search(ctx context.Context, req *pb.SearchRequest) (*pb.SearchReply, error) {
+	ctx, span := otel.Tracer("weaviate-search").Start(ctx, "service.search",
+		trace.WithSpanKind(trace.SpanKindInternal),
+		trace.WithAttributes(attribute.String("node.name", s.schemaManager.NodeName())))
+	defer span.End()
 	before := time.Now()
 
 	principal, err := s.principalFromContext(ctx)
