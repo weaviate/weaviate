@@ -101,8 +101,8 @@ func TestWriteAheadLogThreshold_Replace(t *testing.T) {
 			}
 
 			bucket.flushLock.RLock()
-			walFile := bucket.active.commitlog.walPath()
-			walSize := bucket.active.commitlog.size()
+			walFile := bucket.active.commitlogWalPath()
+			walSize := bucket.active.commitlogSize()
 			bucket.flushLock.RUnlock()
 
 			if firstWalFile == "" {
@@ -203,7 +203,7 @@ func TestMemtableThreshold_Replace(t *testing.T) {
 			}
 
 			bucket.flushLock.RLock()
-			activePath := bucket.active.path
+			activePath := bucket.active.Path()
 			activeSize := bucket.active.Size()
 			bucket.flushLock.RUnlock()
 
@@ -257,7 +257,7 @@ func TestMemtableFlushesIfDirty(t *testing.T) {
 		require.Nil(t, err)
 
 		t.Run("assert no segments exist initially", func(t *testing.T) {
-			segments, release := bucket.disk.getAndLockSegments()
+			segments, release := bucket.disk.getConsistentViewOfSegments()
 			defer release()
 
 			assert.Equal(t, 0, len(segments))
@@ -270,7 +270,7 @@ func TestMemtableFlushesIfDirty(t *testing.T) {
 		})
 
 		t.Run("assert no segments exist even after passing the dirty threshold", func(t *testing.T) {
-			segments, release := bucket.disk.getAndLockSegments()
+			segments, release := bucket.disk.getConsistentViewOfSegments()
 			defer release()
 
 			assert.Equal(t, 0, len(segments))
@@ -306,7 +306,7 @@ func TestMemtableFlushesIfDirty(t *testing.T) {
 		})
 
 		t.Run("assert no segments exist initially", func(t *testing.T) {
-			segments, release := bucket.disk.getAndLockSegments()
+			segments, release := bucket.disk.getConsistentViewOfSegments()
 			defer release()
 
 			assert.Equal(t, 0, len(segments))
@@ -319,7 +319,7 @@ func TestMemtableFlushesIfDirty(t *testing.T) {
 		})
 
 		t.Run("assert that a flush has occurred (and one segment exists)", func(t *testing.T) {
-			segments, release := bucket.disk.getAndLockSegments()
+			segments, release := bucket.disk.getConsistentViewOfSegments()
 			defer release()
 
 			assert.Equal(t, 1, len(segments))
@@ -355,7 +355,7 @@ func TestMemtableFlushesIfDirty(t *testing.T) {
 		})
 
 		t.Run("assert no segments exist initially", func(t *testing.T) {
-			segments, release := bucket.disk.getAndLockSegments()
+			segments, release := bucket.disk.getConsistentViewOfSegments()
 			defer release()
 
 			assert.Equal(t, 0, len(segments))
@@ -375,7 +375,7 @@ func TestMemtableFlushesIfDirty(t *testing.T) {
 		})
 
 		t.Run("assert that flush has occurred in the meantime", func(t *testing.T) {
-			segments, release := bucket.disk.getAndLockSegments()
+			segments, release := bucket.disk.getConsistentViewOfSegments()
 			defer release()
 
 			// at least 2 segments should be created already

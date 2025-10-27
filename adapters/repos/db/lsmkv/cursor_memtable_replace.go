@@ -24,8 +24,6 @@ type memtableCursor struct {
 	data    []*binarySearchNode
 	keyFn   func(n *binarySearchNode) []byte
 	current int
-	lock    func()
-	unlock  func()
 }
 
 func (m *Memtable) newCursor() innerCursorReplace {
@@ -46,8 +44,6 @@ func (m *Memtable) newCursor() innerCursorReplace {
 		keyFn: func(n *binarySearchNode) []byte {
 			return n.key
 		},
-		lock:   m.RLock,
-		unlock: m.RUnlock,
 	}
 }
 
@@ -67,8 +63,6 @@ func (m *Memtable) newBlockingCursor() (innerCursorReplace, func()) {
 		keyFn: func(n *binarySearchNode) []byte {
 			return n.key
 		},
-		lock:   func() {},
-		unlock: func() {},
 	}, m.RUnlock
 }
 
@@ -141,9 +135,6 @@ func (m *Memtable) newCursorWithSecondaryIndex(pos int) innerCursorReplace {
 			}
 			return n.secondaryKeys[pos]
 		},
-		// cursor data is immutable thus locks are not needed
-		lock:   func() {},
-		unlock: func() {},
 	}
 }
 
@@ -157,9 +148,6 @@ func cp(b []byte) []byte {
 }
 
 func (c *memtableCursor) first() ([]byte, []byte, error) {
-	c.lock()
-	defer c.unlock()
-
 	if len(c.data) == 0 {
 		return nil, nil, lsmkv.NotFound
 	}
@@ -173,9 +161,6 @@ func (c *memtableCursor) first() ([]byte, []byte, error) {
 }
 
 func (c *memtableCursor) seek(key []byte) ([]byte, []byte, error) {
-	c.lock()
-	defer c.unlock()
-
 	pos := c.posLargerThanEqual(key)
 	if pos == -1 {
 		return nil, nil, lsmkv.NotFound
@@ -199,9 +184,6 @@ func (c *memtableCursor) posLargerThanEqual(key []byte) int {
 }
 
 func (c *memtableCursor) next() ([]byte, []byte, error) {
-	c.lock()
-	defer c.unlock()
-
 	c.current++
 	if c.current >= len(c.data) {
 		return nil, nil, lsmkv.NotFound

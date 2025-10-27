@@ -19,10 +19,16 @@ type Seeker interface {
 	Seek(key []byte) (segmentindex.Node, error)
 }
 
+type SegmentCursor interface {
+	First() ([]byte, BitmapLayer, error)
+	Next() ([]byte, BitmapLayer, error)
+	Seek([]byte) ([]byte, BitmapLayer, error)
+}
+
 // A SegmentCursor iterates over all key-value pairs in a single disk segment.
 // You can either start at the beginning using [*SegmentCursor.First] or start
 // at an arbitrary key that you may find using [*SegmentCursor.Seek]
-type SegmentCursor struct {
+type segmentCursor struct {
 	index      Seeker
 	data       []byte
 	nextOffset uint64
@@ -30,17 +36,17 @@ type SegmentCursor struct {
 
 // NewSegmentCursor creates a cursor for a single disk segment. Make sure that
 // the data buf is already sliced correctly to start at the payload, as calling
-// [*SegmentCursor.First] will start reading at offset 0 relative to the passed
+// [*segmentCursor.First] will start reading at offset 0 relative to the passed
 // in buffer. Similarly, the buffer may only contain payloads, as the buffer end
 // is used to determine if more keys can be found.
 //
 // Therefore if the payload is part of a longer continuous buffer, the cursor
 // should be initialized with data[payloadStartPos:payloadEndPos]
-func NewSegmentCursor(data []byte, index Seeker) *SegmentCursor {
-	return &SegmentCursor{index: index, data: data, nextOffset: 0}
+func NewSegmentCursor(data []byte, index Seeker) *segmentCursor {
+	return &segmentCursor{index: index, data: data, nextOffset: 0}
 }
 
-func (c *SegmentCursor) Next() ([]byte, BitmapLayer, error) {
+func (c *segmentCursor) Next() ([]byte, BitmapLayer, error) {
 	if c.nextOffset >= uint64(len(c.data)) {
 		return nil, BitmapLayer{}, nil
 	}
@@ -54,12 +60,12 @@ func (c *SegmentCursor) Next() ([]byte, BitmapLayer, error) {
 	return sn.PrimaryKey(), layer, nil
 }
 
-func (c *SegmentCursor) First() ([]byte, BitmapLayer, error) {
+func (c *segmentCursor) First() ([]byte, BitmapLayer, error) {
 	c.nextOffset = 0
 	return c.Next()
 }
 
-func (c *SegmentCursor) Seek(key []byte) ([]byte, BitmapLayer, error) {
+func (c *segmentCursor) Seek(key []byte) ([]byte, BitmapLayer, error) {
 	node, err := c.index.Seek(key)
 	if err != nil {
 		return nil, BitmapLayer{}, err
