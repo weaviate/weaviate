@@ -15,6 +15,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/binary"
+	stderrors "errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -194,21 +195,23 @@ func (q *DiskQueue) Close() error {
 	q.m.Lock()
 	defer q.m.Unlock()
 
+	var errs []error
+
 	if q.w != nil {
 		err := q.w.Close()
 		if err != nil {
-			return errors.Wrap(err, "failed to close chunk writer")
+			errs = append(errs, errors.Wrap(err, "failed to close chunk writer"))
 		}
 	}
 
 	if q.r != nil {
 		err := q.r.Close()
 		if err != nil {
-			return errors.Wrap(err, "failed to close chunk reader")
+			errs = append(errs, errors.Wrap(err, "failed to close chunk reader"))
 		}
 	}
 
-	return nil
+	return stderrors.Join(errs...)
 }
 
 func (q *DiskQueue) Metrics() *Metrics {
@@ -750,26 +753,28 @@ func (w *chunkWriter) Flush() error {
 }
 
 func (w *chunkWriter) Close() error {
+	var errs []error
+
 	err := w.w.Flush()
 	if err != nil {
-		return err
+		errs = append(errs, errors.Wrap(err, "failed to flush buffer"))
 	}
 
 	if w.f != nil {
 		err = w.f.Sync()
 		if err != nil {
-			return errors.Wrap(err, "failed to sync")
+			errs = append(errs, errors.Wrap(err, "failed to sync"))
 		}
 
 		err := w.f.Close()
 		if err != nil {
-			return errors.Wrap(err, "failed to close chunk")
+			errs = append(errs, errors.Wrap(err, "failed to close chunk"))
 		}
 
 		w.f = nil
 	}
 
-	return nil
+	return stderrors.Join(errs...)
 }
 
 func (w *chunkWriter) Create() error {
