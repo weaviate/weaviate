@@ -127,10 +127,12 @@ func startWeaviate(ctx context.Context,
 				PostStarts: []testcontainers.ContainerHook{
 					func(ctx context.Context, container testcontainers.Container) error {
 						for _, waitStrategy := range waitStrategies {
-							ctx, cancel := context.WithTimeout(ctx, 180*time.Second)
-							defer cancel()
+							if err := func() error {
+								ctx, cancel := context.WithTimeout(ctx, 180*time.Second)
+								defer cancel()
 
-							if err := waitStrategy.WaitUntilReady(ctx, container); err != nil {
+								return waitStrategy.WaitUntilReady(ctx, container)
+							}(); err != nil {
 								return err
 							}
 						}
