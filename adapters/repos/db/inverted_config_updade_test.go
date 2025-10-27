@@ -52,7 +52,7 @@ func TestUpdateInvertedConfigStopwords(t *testing.T) {
 	idx := repo.GetIndex(className)
 	require.NotNil(t, idx)
 
-	t.Run("object query with filter  journey (not stopword)", func(t *testing.T) {
+	t.Run("object query with filter journey (not stopword)", func(t *testing.T) {
 		filter := &filters.LocalFilter{
 			Root: &filters.Clause{
 				On: &filters.Path{
@@ -75,7 +75,7 @@ func TestUpdateInvertedConfigStopwords(t *testing.T) {
 		require.Equal(t, len(res), 5)
 	})
 
-	t.Run("object query with filter  a (stopword)", func(t *testing.T) {
+	t.Run("object query with filter a (stopword)", func(t *testing.T) {
 		filter := &filters.LocalFilter{
 			Root: &filters.Clause{
 				On: &filters.Path{
@@ -93,7 +93,7 @@ func TestUpdateInvertedConfigStopwords(t *testing.T) {
 		require.Error(t, err)
 	})
 
-	t.Run("object query with filter  a journey (stopword + not stopword)", func(t *testing.T) {
+	t.Run("object query with filter a journey (stopword + not stopword)", func(t *testing.T) {
 		filter := &filters.LocalFilter{
 			Root: &filters.Clause{
 				On: &filters.Path{
@@ -127,7 +127,7 @@ func TestUpdateInvertedConfigStopwords(t *testing.T) {
 	})
 
 	t.Run("Updated stopwords", func(t *testing.T) {
-		t.Run("object query with filter  journey (stopword)", func(t *testing.T) {
+		t.Run("object query with filter journey (stopword)", func(t *testing.T) {
 			filter := &filters.LocalFilter{
 				Root: &filters.Clause{
 					On: &filters.Path{
@@ -167,7 +167,7 @@ func TestUpdateInvertedConfigStopwords(t *testing.T) {
 			require.Equal(t, len(res), 2)
 		})
 
-		t.Run("object query with filter  a journey (not stopword + stopword)", func(t *testing.T) {
+		t.Run("object query with filter a journey (not stopword + stopword)", func(t *testing.T) {
 			filter := &filters.LocalFilter{
 				Root: &filters.Clause{
 					On: &filters.Path{
@@ -308,5 +308,192 @@ func TestUpdateInvertedConfigStopwordsPresetSwitch(t *testing.T) {
 
 		_, _, err = idx.objectSearch(context.TODO(), 1000, filterCustom, nil, nil, nil, additional.Properties{}, nil, "", 0, props)
 		require.Error(t, err)
+	})
+}
+
+func TestUpdateInvertedConfigStopwordsPersistence(t *testing.T) {
+	dirName := t.TempDir()
+
+	logger := logrus.New()
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
+	repo, err := New(logger, Config{
+		MemtablesFlushDirtyAfter:  60,
+		RootPath:                  dirName,
+		QueryMaximumResults:       10000,
+		MaxImportGoroutinesFactor: 1,
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor())
+	require.Nil(t, err)
+	repo.SetSchemaGetter(schemaGetter)
+	require.Nil(t, repo.WaitForStartup(context.TODO()))
+
+	props, migrator := SetupClass(t, repo, schemaGetter, logger, 1.2, 0.75, "en")
+
+	className := schema.ClassName("MyClass")
+	idx := repo.GetIndex(className)
+	require.NotNil(t, idx)
+
+	t.Run("update stopwords", func(t *testing.T) {
+		class := repo.schemaGetter.ReadOnlyClass(className.String())
+		class.InvertedIndexConfig.Stopwords = &models.StopwordConfig{
+			Preset:    "en",
+			Additions: []string{},
+			Removals:  []string{"a"},
+		}
+
+		ctx := context.Background()
+		err := migrator.UpdateInvertedIndexConfig(ctx, string(className), class.InvertedIndexConfig)
+		require.Nil(t, err)
+	})
+
+	t.Run("update stopwords", func(t *testing.T) {
+		class := repo.schemaGetter.ReadOnlyClass(className.String())
+		class.InvertedIndexConfig.Stopwords = &models.StopwordConfig{
+			Preset:    "en",
+			Additions: []string{"journey"},
+			Removals:  []string{},
+		}
+
+		ctx := context.Background()
+		err := migrator.UpdateInvertedIndexConfig(ctx, string(className), class.InvertedIndexConfig)
+		require.Nil(t, err)
+	})
+
+	t.Run("Before shutdown", func(t *testing.T) {
+		t.Run("object query with filter journey (stopword)", func(t *testing.T) {
+			filter := &filters.LocalFilter{
+				Root: &filters.Clause{
+					On: &filters.Path{
+						Class:    className,
+						Property: schema.PropertyName("description"),
+					},
+					Value: &filters.Value{
+						Value: []string{"journey"},
+						Type:  schema.DataTypeText,
+					},
+					Operator: filters.ContainsAny,
+				},
+			}
+			_, _, err := idx.objectSearch(context.TODO(), 1000, filter, nil, nil, nil, additional.Properties{}, nil, "", 0, props)
+			// now an error, as "journey" was added to stopwords, and we are searching only for stopwords
+			require.Error(t, err)
+		})
+
+		t.Run("object query with filter  a (not a stopword)", func(t *testing.T) {
+			filter := &filters.LocalFilter{
+				Root: &filters.Clause{
+					On: &filters.Path{
+						Class:    className,
+						Property: schema.PropertyName("description"),
+					},
+					Value: &filters.Value{
+						Value: []string{"a"},
+						Type:  schema.DataTypeText,
+					},
+					Operator: filters.ContainsAny,
+				},
+			}
+			_, _, err := idx.objectSearch(context.TODO(), 1000, filter, nil, nil, nil, additional.Properties{}, nil, "", 0, props)
+			// now error, as the "journey" update overwrote the previous removal of "a"
+			require.Error(t, err)
+		})
+
+		t.Run("object query with filter a journey (not stopword + stopword)", func(t *testing.T) {
+			filter := &filters.LocalFilter{
+				Root: &filters.Clause{
+					On: &filters.Path{
+						Class:    className,
+						Property: schema.PropertyName("description"),
+					},
+					Value: &filters.Value{
+						Value: []string{"a", "journey"},
+						Type:  schema.DataTypeText,
+					},
+					Operator: filters.ContainsAny,
+				},
+			}
+			_, _, err := idx.objectSearch(context.TODO(), 1000, filter, nil, nil, nil, additional.Properties{}, nil, "", 0, props)
+			// now error, as the "journey" update overwrote the previous removal of "a", and they are both stopwords again
+			require.Error(t, err)
+		})
+	})
+
+	err = repo.Shutdown(context.Background())
+	require.Nil(t, err)
+
+	// reopen
+	repo, err = New(logger, Config{
+		MemtablesFlushDirtyAfter:  60,
+		RootPath:                  dirName,
+		QueryMaximumResults:       10000,
+		MaxImportGoroutinesFactor: 1,
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor())
+	require.Nil(t, err)
+	repo.SetSchemaGetter(schemaGetter)
+	require.Nil(t, repo.WaitForStartup(context.TODO()))
+	defer repo.Shutdown(context.Background())
+
+	idx = repo.GetIndex(className)
+	require.NotNil(t, idx)
+
+	t.Run("After shutdown", func(t *testing.T) {
+		t.Run("object query with filter journey (stopword)", func(t *testing.T) {
+			filter := &filters.LocalFilter{
+				Root: &filters.Clause{
+					On: &filters.Path{
+						Class:    className,
+						Property: schema.PropertyName("description"),
+					},
+					Value: &filters.Value{
+						Value: []string{"journey"},
+						Type:  schema.DataTypeText,
+					},
+					Operator: filters.ContainsAny,
+				},
+			}
+			_, _, err := idx.objectSearch(context.TODO(), 1000, filter, nil, nil, nil, additional.Properties{}, nil, "", 0, props)
+			// now an error, as "journey" was added to stopwords, and we are searching only for stopwords
+			require.Error(t, err)
+		})
+
+		t.Run("object query with filter  a (not a stopword)", func(t *testing.T) {
+			filter := &filters.LocalFilter{
+				Root: &filters.Clause{
+					On: &filters.Path{
+						Class:    className,
+						Property: schema.PropertyName("description"),
+					},
+					Value: &filters.Value{
+						Value: []string{"a"},
+						Type:  schema.DataTypeText,
+					},
+					Operator: filters.ContainsAny,
+				},
+			}
+			_, _, err := idx.objectSearch(context.TODO(), 1000, filter, nil, nil, nil, additional.Properties{}, nil, "", 0, props)
+			// now error, as the "journey" update overwrote the previous removal of "a"
+			require.Error(t, err)
+		})
+
+		t.Run("object query with filter a journey (not stopword + stopword)", func(t *testing.T) {
+			filter := &filters.LocalFilter{
+				Root: &filters.Clause{
+					On: &filters.Path{
+						Class:    className,
+						Property: schema.PropertyName("description"),
+					},
+					Value: &filters.Value{
+						Value: []string{"a", "journey"},
+						Type:  schema.DataTypeText,
+					},
+					Operator: filters.ContainsAny,
+				},
+			}
+			_, _, err := idx.objectSearch(context.TODO(), 1000, filter, nil, nil, nil, additional.Properties{}, nil, "", 0, props)
+			// now error, as the "journey" update overwrote the previous removal of "a", and they are both stopwords again
+			require.Error(t, err)
+		})
 	})
 }
