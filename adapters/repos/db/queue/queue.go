@@ -37,6 +37,10 @@ const (
 	// If no tasks are pushed to the queue for this duration, the partial chunk is scheduled.
 	defaultStaleTimeout = 100 * time.Millisecond
 
+	// defaultInactivePeriod is the duration after which a queue is considered inactive and
+	// can release resources.
+	defaultInactivePeriod = 1 * time.Minute
+
 	// chunkWriterBufferSize is the size of the buffer used by the chunk writer.
 	// It should be large enough to hold a few records, but not too large to avoid
 	// taking up too much memory when the number of queues is large.
@@ -66,6 +70,7 @@ type DiskQueue struct {
 	// Logger for the queue. Wrappers of this queue should use this logger.
 	Logger           logrus.FieldLogger
 	staleTimeout     time.Duration
+	inactivePeriod   time.Duration
 	taskDecoder      TaskDecoder
 	scheduler        *Scheduler
 	id               string
@@ -96,6 +101,7 @@ type DiskQueueOptions struct {
 	// Optional
 	Logger           logrus.FieldLogger
 	StaleTimeout     time.Duration
+	InactivePeriod   time.Duration
 	ChunkSize        uint64
 	OnBatchProcessed func()
 	Metrics          *Metrics
@@ -130,6 +136,9 @@ func NewDiskQueue(opt DiskQueueOptions) (*DiskQueue, error) {
 	if opt.ChunkSize <= 0 {
 		opt.ChunkSize = defaultChunkSize
 	}
+	if opt.InactivePeriod <= 0 {
+		opt.InactivePeriod = defaultInactivePeriod
+	}
 
 	q := DiskQueue{
 		id:               opt.ID,
@@ -137,6 +146,7 @@ func NewDiskQueue(opt DiskQueueOptions) (*DiskQueue, error) {
 		dir:              opt.Dir,
 		Logger:           opt.Logger,
 		staleTimeout:     opt.StaleTimeout,
+		inactivePeriod:   opt.InactivePeriod,
 		taskDecoder:      opt.TaskDecoder,
 		metrics:          opt.Metrics,
 		onBatchProcessed: opt.OnBatchProcessed,
@@ -296,6 +306,13 @@ func (q *DiskQueue) DequeueBatch() (batch *Batch, err error) {
 	// check if the partial chunk is stale (e.g no tasks were pushed for a while)
 	if c == nil || c.f == nil {
 		c, err = q.checkIfStale()
+		if c == nil {
+			// no chunk to read, check if the queue hasn't been used for a while
+			if q.Size() == 0 && time.Since(q.lastPushTime) > q.inactivePeriod {
+				// queue is inactive, release some resources
+				q.releaseResources()
+			}
+		}
 		if c == nil || err != nil || c.f == nil {
 			return nil, err
 		}
@@ -543,6 +560,13 @@ func (q *DiskQueue) readChunkRecordCount(path string) (uint64, error) {
 	defer f.Close()
 
 	return readChunkHeader(f)
+}
+
+func (q *DiskQueue) releaseResources() {
+	q.m.Lock()
+	defer q.m.Unlock()
+
+	q.w.w.Release()
 }
 
 var readerPool = sync.Pool{
