@@ -17,6 +17,7 @@ import (
 	"io"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-openapi/strfmt"
@@ -56,7 +57,7 @@ import (
 type LazyLoadShard struct {
 	shardOpts        *deferredShardOpts
 	shard            *Shard
-	loaded           bool
+	loaded           atomic.Bool
 	mutex            sync.Mutex
 	memMonitor       memwatch.AllocChecker
 	shardLoadLimiter ShardLoadLimiter
@@ -117,7 +118,7 @@ func (l *LazyLoadShard) Load(ctx context.Context) error {
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 
-	if l.loaded {
+	if l.loaded.Load() {
 		return nil
 	}
 
@@ -141,7 +142,7 @@ func (l *LazyLoadShard) Load(ctx context.Context) error {
 	}
 
 	l.shard = shard
-	l.loaded = true
+	l.loaded.Store(true)
 
 	return nil
 }
@@ -168,7 +169,7 @@ func (l *LazyLoadShard) GetStatus() storagestate.Status {
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 
-	if l.loaded {
+	if l.loaded.Load() {
 		return l.shard.GetStatus()
 	}
 	return storagestate.StatusLazyLoading
@@ -203,7 +204,7 @@ func (l *LazyLoadShard) ObjectCount(ctx context.Context) (int, error) {
 
 func (l *LazyLoadShard) ObjectCountAsync(ctx context.Context) (int64, error) {
 	l.mutex.Lock()
-	if l.loaded {
+	if l.loaded.Load() {
 		l.mutex.Unlock()
 		return l.shard.ObjectCountAsync(ctx)
 	}
@@ -369,7 +370,7 @@ func (l *LazyLoadShard) drop() error {
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 
-	if !l.loaded {
+	if !l.loaded.Load() {
 		idx := l.shardOpts.index
 		className := idx.Config.ClassName.String()
 		shardName := l.shardOpts.name
@@ -462,7 +463,7 @@ func (l *LazyLoadShard) AnalyzeObject(object *storobj.Object) ([]inverted.Proper
 
 func (l *LazyLoadShard) Dimensions(ctx context.Context, targetVector string) (int, error) {
 	l.mutex.Lock()
-	if l.loaded {
+	if l.loaded.Load() {
 		l.mutex.Unlock()
 		return l.shard.Dimensions(ctx, targetVector)
 	}
@@ -755,16 +756,11 @@ func (l *LazyLoadShard) isLoaded() bool {
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 
-	return l.loaded
+	return l.loaded.Load()
 }
 
 func (l *LazyLoadShard) Activity() (int32, int32) {
-	var loaded bool
-	l.mutex.Lock()
-	loaded = l.loaded
-	l.mutex.Unlock()
-
-	if !loaded {
+	if !l.loaded.Load() {
 		// don't force-load the shard, just report the same number every time, so
 		// the caller can figure out there was no activity
 		return 0, 0
