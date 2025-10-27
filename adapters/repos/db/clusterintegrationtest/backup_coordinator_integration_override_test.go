@@ -17,6 +17,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -54,6 +56,7 @@ func TestDistributedBackupsOverride(t *testing.T) {
 			node := &node{
 				name: fmt.Sprintf("node-%d", i),
 			}
+			require.NoError(t, os.MkdirAll(filepath.Join(dirName, node.name), 0o777))
 
 			node.init(dirName, shardStateSerialized, &nodes)
 			nodes = append(nodes, node)

@@ -45,6 +45,7 @@ func TestBackupWithConcurrentDelete(t *testing.T) {
 				{Name: "num", DataType: schema.DataTypeText.PropString()},
 				{Name: "int", DataType: schema.DataTypeInt.PropString()},
 			},
+			Vectorizer:         "none",
 			MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
 		}
 		require.NoError(t, c.Schema().ClassCreator().WithClass(class).Do(ctx))
