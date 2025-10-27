@@ -1049,6 +1049,9 @@ func (r *chunkReader) ReadChunk() (*chunk, error) {
 	r.m.Lock()
 
 	if r.cursor >= len(r.chunkList) {
+		r.cursor = 0
+		r.chunkList = nil
+		clear(r.chunks)
 		r.m.Unlock()
 		return nil, nil
 	}
