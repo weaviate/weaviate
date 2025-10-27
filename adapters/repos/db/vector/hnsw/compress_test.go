@@ -188,8 +188,8 @@ func Test_NoRaceCompressNamedVectorsDoNotCollide(t *testing.T) {
 
 	index1, _ = New(config1, uc1, cyclemanager.NewCallbackGroupNoop(), dummyStore)
 	index2, _ = New(config2, uc2, cyclemanager.NewCallbackGroupNoop(), dummyStore)
-	index1.PostStartup()
-	index2.PostStartup()
+	index1.PostStartup(context.Background())
+	index2.PostStartup(context.Background())
 
 	_, _, err = index1.SearchByVector(t.Context(), queries1[0], 10, nil)
 	assert.Nil(t, err)
@@ -263,8 +263,8 @@ func Test_NoRaceCompressNamedVectorsDoNotMessEachOther(t *testing.T) {
 
 	index1, _ = New(config1, uc1, cyclemanager.NewCallbackGroupNoop(), dummyStore)
 	index2, _ = New(config2, uc2, cyclemanager.NewCallbackGroupNoop(), dummyStore)
-	index1.PostStartup()
-	index2.PostStartup()
+	index1.PostStartup(context.Background())
+	index2.PostStartup(context.Background())
 
 	sample1, _, err = index1.SearchByVector(t.Context(), queries1[0], 10, nil)
 	assert.Nil(t, err)

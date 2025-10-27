@@ -115,7 +115,7 @@ func TestCnaNoBloomPresent(t *testing.T) {
 	require.Equal(t, fileTypes[".db"], 1)
 	require.Equal(t, fileTypes[".metadata"], 1)
 
-	require.Equal(t, b.disk.segments[0].getSegment().getCountNetAdditions(), 1)
+	require.Equal(t, b.disk.segments[0].getCountNetAdditions(), 1)
 	require.NoError(t, b.Shutdown(ctx))
 }
 
@@ -126,7 +126,10 @@ func TestSecondaryBloomNoCna(t *testing.T) {
 
 	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-		WithUseBloomFilter(true), WithWriteMetadata(true), WithCalcCountNetAdditions(false), WithSecondaryIndices(2))
+		WithUseBloomFilter(true),
+		WithWriteMetadata(true),
+		WithCalcCountNetAdditions(false),
+		WithSecondaryIndices(2))
 	require.NoError(t, err)
 	require.NoError(t, b.Put([]byte("key"), []byte("value"), WithSecondaryKey(0, []byte("key0")), WithSecondaryKey(1, []byte("key1"))))
 	require.NoError(t, b.FlushMemtable())
@@ -135,10 +138,14 @@ func TestSecondaryBloomNoCna(t *testing.T) {
 	require.Equal(t, fileTypes[".db"], 1)
 	require.Equal(t, fileTypes[".metadata"], 1)
 
-	require.True(t, b.disk.segments[0].getSegment().secondaryBloomFilters[0].Test([]byte("key0")))
-	require.False(t, b.disk.segments[0].getSegment().secondaryBloomFilters[0].Test([]byte("key1")))
-	require.True(t, b.disk.segments[0].getSegment().secondaryBloomFilters[1].Test([]byte("key1")))
-	require.False(t, b.disk.segments[0].getSegment().secondaryBloomFilters[1].Test([]byte("key0")))
+	require.Len(t, b.disk.segments, 1)
+	segment, ok := b.disk.segments[0].(*segment)
+	require.True(t, ok)
+
+	require.True(t, segment.secondaryBloomFilters[0].Test([]byte("key0")))
+	require.False(t, segment.secondaryBloomFilters[0].Test([]byte("key1")))
+	require.True(t, segment.secondaryBloomFilters[1].Test([]byte("key1")))
+	require.False(t, segment.secondaryBloomFilters[1].Test([]byte("key0")))
 	require.NoError(t, b.Shutdown(ctx))
 }
 

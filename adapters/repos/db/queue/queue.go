@@ -15,6 +15,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/binary"
+	stderrors "errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -35,6 +36,10 @@ const (
 	// defaultStaleTimeout is the duration after which a partial chunk is considered stale.
 	// If no tasks are pushed to the queue for this duration, the partial chunk is scheduled.
 	defaultStaleTimeout = 100 * time.Millisecond
+
+	// defaultInactivityPeriod is the duration after which a queue is considered inactive and
+	// can release resources.
+	defaultInactivityPeriod = 1 * time.Minute
 
 	// chunkWriterBufferSize is the size of the buffer used by the chunk writer.
 	// It should be large enough to hold a few records, but not too large to avoid
@@ -65,6 +70,7 @@ type DiskQueue struct {
 	// Logger for the queue. Wrappers of this queue should use this logger.
 	Logger           logrus.FieldLogger
 	staleTimeout     time.Duration
+	inactivityPeriod time.Duration
 	taskDecoder      TaskDecoder
 	scheduler        *Scheduler
 	id               string
@@ -95,6 +101,7 @@ type DiskQueueOptions struct {
 	// Optional
 	Logger           logrus.FieldLogger
 	StaleTimeout     time.Duration
+	InactivityPeriod time.Duration
 	ChunkSize        uint64
 	OnBatchProcessed func()
 	Metrics          *Metrics
@@ -129,6 +136,9 @@ func NewDiskQueue(opt DiskQueueOptions) (*DiskQueue, error) {
 	if opt.ChunkSize <= 0 {
 		opt.ChunkSize = defaultChunkSize
 	}
+	if opt.InactivityPeriod <= 0 {
+		opt.InactivityPeriod = defaultInactivityPeriod
+	}
 
 	q := DiskQueue{
 		id:               opt.ID,
@@ -136,6 +146,7 @@ func NewDiskQueue(opt DiskQueueOptions) (*DiskQueue, error) {
 		dir:              opt.Dir,
 		Logger:           opt.Logger,
 		staleTimeout:     opt.StaleTimeout,
+		inactivityPeriod: opt.InactivityPeriod,
 		taskDecoder:      opt.TaskDecoder,
 		metrics:          opt.Metrics,
 		onBatchProcessed: opt.OnBatchProcessed,
@@ -194,21 +205,23 @@ func (q *DiskQueue) Close() error {
 	q.m.Lock()
 	defer q.m.Unlock()
 
+	var errs []error
+
 	if q.w != nil {
 		err := q.w.Close()
 		if err != nil {
-			return errors.Wrap(err, "failed to close chunk writer")
+			errs = append(errs, errors.Wrap(err, "failed to close chunk writer"))
 		}
 	}
 
 	if q.r != nil {
 		err := q.r.Close()
 		if err != nil {
-			return errors.Wrap(err, "failed to close chunk reader")
+			errs = append(errs, errors.Wrap(err, "failed to close chunk reader"))
 		}
 	}
 
-	return nil
+	return stderrors.Join(errs...)
 }
 
 func (q *DiskQueue) Metrics() *Metrics {
@@ -293,6 +306,13 @@ func (q *DiskQueue) DequeueBatch() (batch *Batch, err error) {
 	// check if the partial chunk is stale (e.g no tasks were pushed for a while)
 	if c == nil || c.f == nil {
 		c, err = q.checkIfStale()
+		if c == nil {
+			// no chunk to read, check if the queue hasn't been used for a while
+			if q.isInactive() {
+				// queue is inactive, release some resources
+				q.releaseResources()
+			}
+		}
 		if c == nil || err != nil || c.f == nil {
 			return nil, err
 		}
@@ -542,6 +562,24 @@ func (q *DiskQueue) readChunkRecordCount(path string) (uint64, error) {
 	return readChunkHeader(f)
 }
 
+func (q *DiskQueue) isInactive() bool {
+	if q.Size() > 0 {
+		return false
+	}
+	q.m.RLock()
+	defer q.m.RUnlock()
+
+	tm := time.Since(q.lastPushTime)
+	return tm > q.staleTimeout && tm > q.inactivityPeriod
+}
+
+func (q *DiskQueue) releaseResources() {
+	q.m.Lock()
+	defer q.m.Unlock()
+
+	q.w.Release()
+}
+
 var readerPool = sync.Pool{
 	New: func() any {
 		return bufio.NewReaderSize(nil, defaultChunkSize)
@@ -676,7 +714,7 @@ type chunkWriter struct {
 	logger      logrus.FieldLogger
 	maxSize     uint64
 	dir         string
-	w           *bufio.Writer
+	w           lazyBufferedWriter
 	f           *os.File
 	size        uint64
 	recordCount uint64
@@ -691,7 +729,6 @@ func newChunkWriter(dir string, reader *chunkReader, logger logrus.FieldLogger, 
 		reader:  reader,
 		logger:  logger,
 		maxSize: maxSize,
-		w:       bufio.NewWriterSize(nil, chunkWriterBufferSize),
 	}
 
 	err := ch.Open()
@@ -749,27 +786,33 @@ func (w *chunkWriter) Flush() error {
 	return w.w.Flush()
 }
 
+func (w *chunkWriter) Release() {
+	w.w.Release()
+}
+
 func (w *chunkWriter) Close() error {
+	var errs []error
+
 	err := w.w.Flush()
 	if err != nil {
-		return err
+		errs = append(errs, errors.Wrap(err, "failed to flush buffer"))
 	}
 
 	if w.f != nil {
 		err = w.f.Sync()
 		if err != nil {
-			return errors.Wrap(err, "failed to sync")
+			errs = append(errs, errors.Wrap(err, "failed to sync"))
 		}
 
 		err := w.f.Close()
 		if err != nil {
-			return errors.Wrap(err, "failed to close chunk")
+			errs = append(errs, errors.Wrap(err, "failed to close chunk"))
 		}
 
 		w.f = nil
 	}
 
-	return nil
+	return stderrors.Join(errs...)
 }
 
 func (w *chunkWriter) Create() error {
@@ -1007,6 +1050,9 @@ func (r *chunkReader) ReadChunk() (*chunk, error) {
 	r.m.Lock()
 
 	if r.cursor >= len(r.chunkList) {
+		r.cursor = 0
+		r.chunkList = nil
+		clear(r.chunks)
 		r.m.Unlock()
 		return nil, nil
 	}
@@ -1091,3 +1137,72 @@ func (r *chunkReader) RemoveChunk(c *chunk) (bool, error) {
 
 // compile time check for Queue interface
 var _ = Queue(new(DiskQueue))
+
+// lazyBufferedWriter is a bufio.Writer that initializes
+// the underlying buffer only when the first Write is called.
+type lazyBufferedWriter struct {
+	w *bufio.Writer
+	f *os.File
+}
+
+func (w *lazyBufferedWriter) Write(p []byte) (nn int, err error) {
+	if w.w == nil {
+		w.w = getBufioWriter(w.f)
+	}
+
+	return w.w.Write(p)
+}
+
+func (w *lazyBufferedWriter) Flush() error {
+	if w.w == nil {
+		return nil
+	}
+
+	return w.w.Flush()
+}
+
+func (w *lazyBufferedWriter) Reset(f *os.File) {
+	w.f = f
+	if w.w != nil {
+		w.w.Reset(f)
+	}
+}
+
+func (w *lazyBufferedWriter) WriteByte(c byte) error {
+	if w.w == nil {
+		w.w = getBufioWriter(w.f)
+	}
+
+	return w.w.WriteByte(c)
+}
+
+// Release returns the buffered writer to the pool.
+// It should be called when a queue is either closed or hasn't been used for a while.
+// The lazyBufferedWriter can still be used after calling Release(),
+// but a new bufio.Writer will be allocated on the next Write.
+func (w *lazyBufferedWriter) Release() {
+	if w.w != nil {
+		buf := w.w
+		w.w = nil
+		putBufioWriter(buf)
+	}
+}
+
+var bufioWriterPool = sync.Pool{
+	New: func() any {
+		return bufio.NewWriterSize(nil, chunkWriterBufferSize)
+	},
+}
+
+func getBufioWriter(f *os.File) *bufio.Writer {
+	w := bufioWriterPool.Get().(*bufio.Writer)
+	if f != nil {
+		w.Reset(f)
+	}
+	return w
+}
+
+func putBufioWriter(w *bufio.Writer) {
+	w.Reset(nil)
+	bufioWriterPool.Put(w)
+}
