@@ -73,18 +73,14 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
-var (
-
-	// Use runtime.GOMAXPROCS instead of runtime.NumCPU because NumCPU returns
-	// the physical CPU cores. However, in a containerization context, that might
-	// not be what we want. The physical node could have 128 cores, but we could
-	// be cgroup-limited to 2 cores. In that case, we want 2 to be our limit, not
-	// 128. It isn't guaranteed that MAXPROCS reflects the cgroup limit, but at
-	// least there is a chance that it was set correctly. If not, it defaults to
-	// NumCPU anyway, so we're not any worse off.
-	_NUMCPU          = runtime.GOMAXPROCS(0)
-	ErrShardNotFound = errors.New("shard not found")
-)
+// Use runtime.GOMAXPROCS instead of runtime.NumCPU because NumCPU returns
+// the physical CPU cores. However, in a containerization context, that might
+// not be what we want. The physical node could have 128 cores, but we could
+// be cgroup-limited to 2 cores. In that case, we want 2 to be our limit, not
+// 128. It isn't guaranteed that MAXPROCS reflects the cgroup limit, but at
+// least there is a chance that it was set correctly. If not, it defaults to
+// NumCPU anyway, so we're not any worse off.
+var _NUMCPU = runtime.GOMAXPROCS(0)
 
 // shardMap is a syn.Map which specialized in storing shards
 type shardMap sync.Map
@@ -2521,10 +2517,6 @@ func (i *Index) drop() error {
 	}
 
 	return os.RemoveAll(i.path())
-}
-
-func (i *Index) DropShard(name string) error {
-	return i.dropShards([]string{name})
 }
 
 func (i *Index) dropShards(names []string) error {
