@@ -1107,7 +1107,7 @@ type lazyBufferedWriter struct {
 
 func (w *lazyBufferedWriter) Write(p []byte) (nn int, err error) {
 	if w.w == nil {
-		w.w = bufio.NewWriterSize(w.f, chunkWriterBufferSize)
+		w.w = getBufioWriter(w.f)
 	}
 
 	return w.w.Write(p)
@@ -1130,8 +1130,38 @@ func (w *lazyBufferedWriter) Reset(f *os.File) {
 
 func (w *lazyBufferedWriter) WriteByte(c byte) error {
 	if w.w == nil {
-		w.w = bufio.NewWriterSize(w.f, chunkWriterBufferSize)
+		w.w = getBufioWriter(w.f)
 	}
 
 	return w.w.WriteByte(c)
+}
+
+// Release returns the buffered writer to the pool.
+// It should be called when a queue is either closed or hasn't been used for a while.
+// The lazyBufferedWriter can still be used after calling Release(),
+// but a new bufio.Writer will be allocated on the next Write.
+func (w *lazyBufferedWriter) Release() {
+	if w.w != nil {
+		putBufioWriter(w.w)
+		w.w = nil
+	}
+}
+
+var bufioWriterPool = sync.Pool{
+	New: func() any {
+		return bufio.NewWriterSize(nil, chunkWriterBufferSize)
+	},
+}
+
+func getBufioWriter(f *os.File) *bufio.Writer {
+	w := bufioWriterPool.Get().(*bufio.Writer)
+	if f != nil {
+		w.Reset(f)
+	}
+	return w
+}
+
+func putBufioWriter(w *bufio.Writer) {
+	w.Reset(nil)
+	bufioWriterPool.Put(w)
 }
