@@ -55,6 +55,8 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		return nil, fmt.Errorf("init shard %q metrics: %w", shardName, err)
 	}
 
+	shutCtx, shutCtxCancel := context.WithCancelCause(context.Background())
+
 	s := &Shard{
 		index:       index,
 		class:       class,
@@ -68,7 +70,9 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		scheduler:        scheduler,
 		indexCheckpoints: indexCheckpoints,
 
-		shutdownLock: new(sync.RWMutex),
+		shutdownLock:  new(sync.RWMutex),
+		shutCtx:       shutCtx,
+		shutCtxCancel: shutCtxCancel,
 
 		status:                          ShardStatus{Status: storagestate.StatusLoading},
 		searchableBlockmaxPropNamesLock: new(sync.Mutex),

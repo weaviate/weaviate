@@ -20,8 +20,6 @@ import (
 type memtableCursorCollection struct {
 	data    []*binarySearchNodeMulti
 	current int
-	lock    func()
-	unlock  func()
 }
 
 func (m *Memtable) newCollectionCursor() innerCursorCollection {
@@ -37,17 +35,10 @@ func (m *Memtable) newCollectionCursor() innerCursorCollection {
 
 	data := m.keyMulti.flattenInOrder()
 
-	return &memtableCursorCollection{
-		data:   data,
-		lock:   m.RLock,
-		unlock: m.RUnlock,
-	}
+	return &memtableCursorCollection{data: data}
 }
 
 func (c *memtableCursorCollection) first() ([]byte, []value, error) {
-	c.lock()
-	defer c.unlock()
-
 	if len(c.data) == 0 {
 		return nil, nil, lsmkv.NotFound
 	}
@@ -60,9 +51,6 @@ func (c *memtableCursorCollection) first() ([]byte, []value, error) {
 }
 
 func (c *memtableCursorCollection) seek(key []byte) ([]byte, []value, error) {
-	c.lock()
-	defer c.unlock()
-
 	pos := c.posLargerThanEqual(key)
 	if pos == -1 {
 		return nil, nil, lsmkv.NotFound
@@ -85,9 +73,6 @@ func (c *memtableCursorCollection) posLargerThanEqual(key []byte) int {
 }
 
 func (c *memtableCursorCollection) next() ([]byte, []value, error) {
-	c.lock()
-	defer c.unlock()
-
 	c.current++
 	if c.current >= len(c.data) {
 		return nil, nil, lsmkv.NotFound
