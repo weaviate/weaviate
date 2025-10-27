@@ -262,7 +262,7 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 		return nil, err
 	}
 
-	files, err := diskio.GetFileWithSizes(dir)
+	files, _, err := diskio.GetFileWithSizes(dir)
 	if err != nil {
 		return nil, err
 	}

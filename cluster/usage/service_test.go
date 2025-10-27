@@ -13,6 +13,7 @@ package usage
 
 import (
 	"context"
+	"runtime/debug"
 	"sort"
 	"strings"
 	"testing"
@@ -56,6 +57,10 @@ func TestService_Usage_SingleTenant(t *testing.T) {
 	compressionRatio := 1.
 	dimensionality := 3
 	dimensionCount := 1
+	memLimit := int64(1_000_000)
+
+	debug.SetMemoryLimit(memLimit)
+
 	class := &models.Class{
 		Class: className,
 		ReplicationConfig: &models.ReplicationConfig{
@@ -137,6 +142,8 @@ func TestService_Usage_SingleTenant(t *testing.T) {
 	assert.Equal(t, dimensionality, dim.Dimensions)
 	assert.Equal(t, dimensionCount, dim.Count)
 
+	assert.Equal(t, memLimit, result.GoMemLimit)
+
 	mockSchemaGetter.AssertExpectations(t)
 	mockBackupProvider.AssertExpectations(t)
 }
@@ -155,6 +162,9 @@ func TestService_Usage_MultiTenant_HotAndCold(t *testing.T) {
 	compression := "standard"
 	compressionRatio := 1.0
 	dimensionCount := 2
+	memLimit := int64(100_000)
+
+	debug.SetMemoryLimit(memLimit)
 
 	class := &models.Class{
 		Class:              className,
@@ -256,6 +266,8 @@ func TestService_Usage_MultiTenant_HotAndCold(t *testing.T) {
 	dim := vector.Dimensionalities[0]
 	assert.Equal(t, 3, dim.Dimensions)
 	assert.Equal(t, dimensionCount, dim.Count)
+
+	assert.Equal(t, memLimit, result.GoMemLimit)
 
 	mockSchema.AssertExpectations(t)
 	mockBackupProvider.AssertExpectations(t)

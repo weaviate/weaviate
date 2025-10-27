@@ -444,7 +444,7 @@ func (s *Shard) ObjectCountAsync(_ context.Context) (int64, error) {
 }
 
 func (s *Shard) ObjectStorageSize(ctx context.Context) (int64, error) {
-	metrics, err := shardusage.CalculateUnloadedObjectsMetrics(s.index.logger, s.index.path(), s.name)
+	metrics, err := shardusage.CalculateUnloadedObjectsMetrics(s.index.logger, s.index.path(), s.name, false)
 	if err != nil {
 		return 0, err
 	}
@@ -452,8 +452,8 @@ func (s *Shard) ObjectStorageSize(ctx context.Context) (int64, error) {
 }
 
 // VectorStorageSize calculates the total storage size of all vector indexes in the shard
-func (s *Shard) VectorStorageSize(ctx context.Context) (int64, int64, error) {
-	vectorSize, err := shardusage.CalculateUnloadedVectorsMetrics(s.index.path(), s.name)
+func (s *Shard) VectorStorageSize(ctx context.Context, lsmPath string, directories []string) (int64, int64, error) {
+	vectorSize, err := shardusage.CalculateUnloadedVectorsMetrics(lsmPath, directories)
 	if err != nil {
 		return 0, 0, err
 	}
