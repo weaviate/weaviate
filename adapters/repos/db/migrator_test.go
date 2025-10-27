@@ -330,8 +330,6 @@ func TestListAndGetFilesWithIntegrityChecking(t *testing.T) {
 	}
 	mockSchemaGetter.On("ReadOnlyClass", "TestClass").Return(class).Maybe()
 
-	mockSchemaGetter.On("ShardOwner", "TestClass", "shard1").Return("node1", nil)
-
 	logger := logrus.New()
 	scheduler := queue.NewScheduler(queue.SchedulerOptions{
 		Logger:  logger,
