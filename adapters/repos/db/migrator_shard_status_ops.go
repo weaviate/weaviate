@@ -55,7 +55,12 @@ func (m *Migrator) frozen(ctx context.Context, idx *Index, frozen []string, ec *
 				return nil
 			}
 
-			if err := shard.drop(); err != nil {
+			idx.shardCreateLocks.Lock(name)
+			defer idx.shardCreateLocks.Unlock(name)
+
+			idx.shards.LoadAndDelete(name)
+
+			if err := shard.drop(false); err != nil {
 				ec.Add(err)
 			}
 			return nil

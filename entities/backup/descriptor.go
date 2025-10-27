@@ -16,6 +16,11 @@ import (
 	"time"
 )
 
+// DeleteMarker marks indices that have been deleted during an ongoing backup and are already removed from index and schema
+// however still present on disk. Such indices should be deleted after the backup is done. In case of a crash they are
+// deleted after weaviate restart
+const DeleteMarker = "__DELETE_ME_AFTER_BACKUP__"
+
 // NodeDescriptor contains data related to one participant in DBRO
 type NodeDescriptor struct {
 	Classes                 []string `json:"classes"`
