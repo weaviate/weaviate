@@ -239,20 +239,22 @@ func TestAuthZGraphQLRefsGroupBy(t *testing.T) {
 
 	t.Run("One permission is missing", func(t *testing.T) {
 		for _, permissions := range generateMissingLists(requiredPermissions) {
-			role := &models.Role{Name: &roleName, Permissions: permissions}
-			helper.DeleteRole(t, adminKey, *role.Name)
-			helper.CreateRole(t, adminKey, role)
-			helper.AssignRoleToUser(t, adminKey, roleName, customUser)
-			defer helper.DeleteRole(t, adminKey, *role.Name)
-			res, err := queryGQL(t, groupByQuery, customKey)
-			if err != nil {
-				require.Nil(t, res)
-				var errForbidden *graphql.GraphqlPostForbidden
-				require.True(t, errors.As(err, &errForbidden))
-			} else {
-				require.NotNil(t, res.Payload.Errors)
-				require.Contains(t, res.Payload.Errors[0].Message, "forbidden")
-			}
+			func() {
+				role := &models.Role{Name: &roleName, Permissions: permissions}
+				helper.DeleteRole(t, adminKey, *role.Name)
+				helper.CreateRole(t, adminKey, role)
+				helper.AssignRoleToUser(t, adminKey, roleName, customUser)
+				defer helper.DeleteRole(t, adminKey, *role.Name)
+				res, err := queryGQL(t, groupByQuery, customKey)
+				if err != nil {
+					require.Nil(t, res)
+					var errForbidden *graphql.GraphqlPostForbidden
+					require.True(t, errors.As(err, &errForbidden))
+				} else {
+					require.NotNil(t, res.Payload.Errors)
+					require.Contains(t, res.Payload.Errors[0].Message, "forbidden")
+				}
+			}()
 		}
 	})
 }

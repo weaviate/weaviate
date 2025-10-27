@@ -546,16 +546,18 @@ func TestDynamicUsers(t *testing.T) {
 
 		apiKeys := make([]string, 0, len(userNames))
 		for i, userName := range userNames {
-			helper.DeleteUser(t, userName, adminKey)
-			apiKey := helper.CreateUser(t, userName, adminKey)
-			apiKeys = append(apiKeys, apiKey)
-			defer helper.DeleteUser(t, userName, adminKey) // runs at end of test function to clear everything
-			if i%2 == 0 {
-				helper.AssignRoleToUser(t, adminKey, "viewer", userName)
-			}
-			if i%5 == 0 {
-				helper.DeactivateUser(t, adminKey, userName, false)
-			}
+			func() {
+				helper.DeleteUser(t, userName, adminKey)
+				apiKey := helper.CreateUser(t, userName, adminKey)
+				apiKeys = append(apiKeys, apiKey)
+				defer helper.DeleteUser(t, userName, adminKey) // runs at end of test function to clear everything
+				if i%2 == 0 {
+					helper.AssignRoleToUser(t, adminKey, "viewer", userName)
+				}
+				if i%5 == 0 {
+					helper.DeactivateUser(t, adminKey, userName, false)
+				}
+			}()
 		}
 
 		allUsersAdmin := helper.ListAllUsers(t, adminKey)
@@ -594,15 +596,17 @@ func TestDynamicUsers(t *testing.T) {
 		}
 
 		for i, userName := range userNames {
-			helper.DeleteUser(t, userName, adminKey)
-			helper.CreateUser(t, userName, adminKey)
-			defer helper.DeleteUser(t, userName, adminKey) // runs at end of test function to clear everything
-			if i%2 == 0 {
-				helper.AssignRoleToUser(t, adminKey, "viewer", userName)
-			}
-			if i%5 == 0 {
-				helper.DeactivateUser(t, adminKey, userName, false)
-			}
+			func() {
+				helper.DeleteUser(t, userName, adminKey)
+				helper.CreateUser(t, userName, adminKey)
+				defer helper.DeleteUser(t, userName, adminKey) // runs at end of test function to clear everything
+				if i%2 == 0 {
+					helper.AssignRoleToUser(t, adminKey, "viewer", userName)
+				}
+				if i%5 == 0 {
+					helper.DeactivateUser(t, adminKey, userName, false)
+				}
+			}()
 		}
 
 		allUsers := helper.ListAllUsers(t, adminKey)
@@ -640,9 +644,11 @@ func TestDynamicUsers(t *testing.T) {
 			userNames = append(userNames, userName)
 		}
 		for _, userName := range userNames {
-			helper.DeleteUser(t, userName, adminKey)
-			helper.CreateUser(t, userName, adminKey)
-			defer helper.DeleteUser(t, userName, adminKey) // runs at end of test function to clear everything
+			func() {
+				helper.DeleteUser(t, userName, adminKey)
+				helper.CreateUser(t, userName, adminKey)
+				defer helper.DeleteUser(t, userName, adminKey) // runs at end of test function to clear everything
+			}()
 		}
 
 		// create role that can only view finance users
