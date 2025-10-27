@@ -15,9 +15,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
+	"github.com/weaviate/weaviate/entities/diskio"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/pkg/errors"
@@ -174,6 +177,15 @@ func (db *DB) ReleaseBackup(ctx context.Context, bakID, class string) (err error
 	idx := db.GetIndex(schema.ClassName(class))
 	if idx != nil {
 		return idx.ReleaseBackup(ctx, bakID)
+	} else {
+		path := filepath.Join(db.config.RootPath, backup.DeleteMarker+indexID(schema.ClassName(class)))
+		exists, err := diskio.DirExists(path)
+		if err != nil {
+			return err
+		}
+		if exists {
+			return os.RemoveAll(path)
+		}
 	}
 	return nil
 }

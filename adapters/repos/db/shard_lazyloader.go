@@ -361,7 +361,7 @@ func (l *LazyLoadShard) ID() string {
 	return shardId(l.shardOpts.index.ID(), l.shardOpts.name)
 }
 
-func (l *LazyLoadShard) drop() error {
+func (l *LazyLoadShard) drop(keepFiles bool) error {
 	// if not loaded, execute simplified drop without loading shard:
 	// - perform required actions
 	// - remove entire shard directory
@@ -393,14 +393,16 @@ func (l *LazyLoadShard) drop() error {
 		}
 
 		// remove shard dir
-		if err := os.RemoveAll(shardPath(idx.path(), shardName)); err != nil {
-			return fmt.Errorf("delete shard dir: %w", err)
+		if !keepFiles {
+			if err := os.RemoveAll(shardPath(idx.path(), shardName)); err != nil {
+				return fmt.Errorf("delete shard dir: %w", err)
+			}
 		}
 
 		return nil
 	}
 
-	return l.shard.drop()
+	return l.shard.drop(keepFiles)
 }
 
 func (l *LazyLoadShard) DebugResetVectorIndex(ctx context.Context, targetVector string) error {

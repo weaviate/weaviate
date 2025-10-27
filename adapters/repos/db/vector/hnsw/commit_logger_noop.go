@@ -86,7 +86,7 @@ func (n *NoopCommitLogger) Reset() error {
 	return nil
 }
 
-func (n *NoopCommitLogger) Drop(ctx context.Context) error {
+func (n *NoopCommitLogger) Drop(ctx context.Context, keepFiles bool) error {
 	return nil
 }
 

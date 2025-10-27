@@ -15,7 +15,10 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"os"
+	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -23,6 +26,7 @@ import (
 	"github.com/cenkalti/backoff/v4"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/entities/backup"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
@@ -154,6 +158,29 @@ func New(logger logrus.FieldLogger, config Config,
 	metricsRegisterer := monitoring.NoopRegisterer
 	if promMetrics != nil && promMetrics.Registerer != nil {
 		metricsRegisterer = promMetrics.Registerer
+	}
+
+	// drop any partially deleted indices that were kept for backup purposes. This should only happen after a crash
+	dir, err := os.ReadDir(config.RootPath)
+	if err != nil {
+		return nil, err
+	}
+	for _, entry := range dir {
+		if !entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if strings.HasPrefix(name, backup.DeleteMarker) {
+			if err := os.RemoveAll(filepath.Join(config.RootPath, name)); err != nil {
+				return nil, err
+			}
+			logger.WithFields(logrus.Fields{
+				"action":     "startup",
+				"directory":  name,
+				"index_path": filepath.Join(config.RootPath, name),
+				"index":      name[len(backup.DeleteMarker):],
+			}).Info("removed partially deleted index directory: " + name + "Did Weaviate crash?")
+		}
 	}
 
 	db := &DB{

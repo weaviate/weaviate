@@ -25,7 +25,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/weaviate/weaviate/entities/backup"
+	entBackup "github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/diskio"
 )
 
@@ -74,7 +74,7 @@ func (z *zip) Close() error {
 }
 
 // WriteShard writes shard internal files including in memory files stored in sd
-func (z *zip) WriteShard(ctx context.Context, sd *backup.ShardDescriptor) (written int64, err error) {
+func (z *zip) WriteShard(ctx context.Context, sd *entBackup.ShardDescriptor) (written int64, err error) {
 	var n int64 // temporary written bytes
 	for _, x := range [3]struct {
 		relPath string
@@ -130,7 +130,15 @@ func (z *zip) WriteRegular(ctx context.Context, relPath string) (written int64, 
 	absPath := filepath.Join(z.sourcePath, relPath)
 	info, err := os.Stat(absPath)
 	if err != nil {
-		return written, fmt.Errorf("stat: %w", err)
+		if os.IsNotExist(err) {
+			absPath = filepath.Join(z.sourcePath, entBackup.DeleteMarker+relPath)
+			info, err = os.Stat(absPath)
+			if err != nil {
+				return written, fmt.Errorf("stat for deleted files: %w", err)
+			}
+		} else {
+			return written, fmt.Errorf("stat: %w", err)
+		}
 	}
 	if !info.Mode().IsRegular() {
 		return 0, nil // ignore directories
