@@ -20,6 +20,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -506,8 +507,6 @@ func (q *shardsQueue) getWhenReady(ctx context.Context) (key string, tasks []Sha
 			q.lock.Lock()
 			// check if this is latest ctx and deadline exceeded. if so then top key is to be returned
 			if q.timerCtx == timerCtx && errors.Is(timerCtx.Err(), context.DeadlineExceeded) {
-				defer q.lock.Unlock()
-
 				if q.runShardQueue.Len() > 0 {
 					key := q.runShardQueue.Pop().Value
 					if q.runShardQueue.Len() > 0 {
@@ -520,9 +519,11 @@ func (q *shardsQueue) getWhenReady(ctx context.Context) (key string, tasks []Sha
 					}
 					tasks := q.tasksPerShard[key]
 					delete(q.tasksPerShard, key)
+					q.lock.Unlock()
 					return key, tasks, nil
 				}
 				// should not happen
+				q.lock.Unlock()
 				return "", nil, fmt.Errorf("shards queue empty")
 			}
 
