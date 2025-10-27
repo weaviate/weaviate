@@ -19,9 +19,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/weaviate/weaviate/cluster/replication/metrics"
-
 	"github.com/sirupsen/logrus"
+
+	"github.com/weaviate/weaviate/cluster/replication/metrics"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
@@ -200,11 +200,11 @@ func (e *ShardReplicationEngine) Start(ctx context.Context) error {
 		// Graceful shutdown executed when stopping the replication engine
 	case producerErr := <-producerErrChan:
 		if !errors.Is(producerErr, context.Canceled) {
-			e.logger.WithField("engine", e).WithError(producerErr).Error("stopping replication engine producer after failure")
+			e.logger.WithField("engine", e).Errorf("stopping replication engine producer after failure: %v", producerErr)
 			err = fmt.Errorf("replication engine producer failed with: %w", producerErr)
 		}
 	case consumerErr := <-consumerErrChan:
-		e.logger.WithField("engine", e).WithError(consumerErr).Error("stopping replication engine consumer after failure")
+		e.logger.WithField("engine", e).Errorf("stopping replication engine consumer after failure: %v", consumerErr)
 		err = fmt.Errorf("replication engine consumer failed with: %w", consumerErr)
 	}
 

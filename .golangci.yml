@@ -27,6 +27,8 @@ linters:
         - pattern: ^fmt\.Print.*$
           msg: Do not commit print statements.
         - pattern: ^spew\.(ConfigState\.)?Dump$
+        - pattern: \.WithError\(
+          msg: Do not use .WithError method, because it does print the error as attribute, instead use .Errorf()  
       exclude-godoc-examples: true
   exclusions:
     generated: lax

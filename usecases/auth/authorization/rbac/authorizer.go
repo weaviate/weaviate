@@ -66,7 +66,7 @@ func (m *Manager) authorize(ctx context.Context, principal *models.Principal, ve
 		if err != nil {
 			logger.WithFields(logrus.Fields{
 				"resource": resource,
-			}).WithError(err).Error("failed to enforce policy")
+			}).Errorf("failed to enforce policy: %v", err)
 			return err
 		}
 
@@ -84,7 +84,7 @@ func (m *Manager) authorize(ctx context.Context, principal *models.Principal, ve
 
 		if !allowed {
 			if !skipAudit {
-				logger.WithField("permissions", permResults).Error("authorization denied")
+				logger.WithField("permissions", permResults).Errorf("authorization denied")
 			}
 			return fmt.Errorf("rbac: %w", errors.NewForbidden(principal, prettyPermissionsActions(perm), prettyPermissionsResources(perm)))
 		}
@@ -148,7 +148,7 @@ func (m *Manager) FilterAuthorizedResources(ctx context.Context, principal *mode
 	for _, resource := range uniqueResources {
 		allowed, err := m.checkPermissions(principal, resource, verb)
 		if err != nil {
-			logger.WithError(err).WithField("resource", resource).Error("failed to enforce policy")
+			logger.WithField("resource", resource).Errorf("failed to enforce policy: %v", err)
 			return nil, err
 		}
 

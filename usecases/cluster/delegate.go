@@ -20,10 +20,10 @@ import (
 	"sync"
 	"time"
 
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-
 	"github.com/hashicorp/memberlist"
 	"github.com/sirupsen/logrus"
+
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 // _OpCode represents the type of supported operation
@@ -271,8 +271,7 @@ func (d *delegate) updater(period, minPeriod time.Duration, du func(path string)
 		}
 		space, err := du(d.dataPath)
 		if err != nil {
-			d.log.WithField("action", "delegate.local_state.disk_usage").WithError(err).
-				Error("disk space updater failed")
+			d.log.WithField("action", "delegate.local_state.disk_usage").Errorf("disk space updater failed: %v", err)
 		} else {
 			d.setOwnSpace(space)
 		}
