@@ -566,6 +566,9 @@ func (q *DiskQueue) isInactive() bool {
 	if q.Size() > 0 {
 		return false
 	}
+	q.m.RLock()
+	defer q.m.RUnlock()
+
 	tm := time.Since(q.lastPushTime)
 	return tm > q.staleTimeout && tm > q.inactivityPeriod
 }
@@ -1179,8 +1182,9 @@ func (w *lazyBufferedWriter) WriteByte(c byte) error {
 // but a new bufio.Writer will be allocated on the next Write.
 func (w *lazyBufferedWriter) Release() {
 	if w.w != nil {
-		putBufioWriter(w.w)
+		buf := w.w
 		w.w = nil
+		putBufioWriter(buf)
 	}
 }
 
