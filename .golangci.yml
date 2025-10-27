@@ -506,7 +506,7 @@ linters:
         text: QF1003 # could use tagged switch on httpStatus
       - linters:
         - gocritic
-        path: usecases/memwatch/monitor_test.go
+        path: usecases/memwatch/monitor_test.go # we skip this file as we do defer inside for loop in purpose to mock resource leaking
         text: deferInLoop
     paths:
       - third_party$
