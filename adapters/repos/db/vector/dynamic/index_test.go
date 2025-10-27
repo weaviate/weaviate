@@ -457,7 +457,7 @@ func TestDynamicWithDifferentCompressionSchema(t *testing.T) {
 
 	dynamic, err = New(config, uc, dummyStore)
 	require.NoError(t, err)
-	dynamic.PostStartup()
+	dynamic.PostStartup(context.Background())
 	recall2, _ := testinghelpers.RecallAndLatency(ctx, queries, k, dynamic, truths)
 	assert.Equal(t, recall, recall2)
 }
