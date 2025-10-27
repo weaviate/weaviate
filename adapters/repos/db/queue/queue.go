@@ -676,10 +676,12 @@ func readChunkHeader(r io.Reader) (uint64, error) {
 // at which point the partial chunk is promoted to a new chunk file.
 // The chunkWriter is not thread-safe and should be used with a lock.
 type chunkWriter struct {
-	logger      logrus.FieldLogger
-	maxSize     uint64
-	dir         string
-	w           *bufio.Writer
+	logger  logrus.FieldLogger
+	maxSize uint64
+	dir     string
+	// w is a buffered writer for the current chunk file.
+	// it must not be used directly, use getWriter() instead.
+	w           lazyBufferedWriter
 	f           *os.File
 	size        uint64
 	recordCount uint64
@@ -694,7 +696,6 @@ func newChunkWriter(dir string, reader *chunkReader, logger logrus.FieldLogger, 
 		reader:  reader,
 		logger:  logger,
 		maxSize: maxSize,
-		w:       bufio.NewWriterSize(nil, chunkWriterBufferSize),
 	}
 
 	err := ch.Open()
@@ -1096,3 +1097,41 @@ func (r *chunkReader) RemoveChunk(c *chunk) (bool, error) {
 
 // compile time check for Queue interface
 var _ = Queue(new(DiskQueue))
+
+// lazyBufferedWriter is a bufio.Writer that initializes
+// the underlying buffer only when the first Write is called.
+type lazyBufferedWriter struct {
+	w *bufio.Writer
+	f *os.File
+}
+
+func (w *lazyBufferedWriter) Write(p []byte) (nn int, err error) {
+	if w.w == nil {
+		w.w = bufio.NewWriterSize(w.f, chunkWriterBufferSize)
+	}
+
+	return w.w.Write(p)
+}
+
+func (w *lazyBufferedWriter) Flush() error {
+	if w.w == nil {
+		return nil
+	}
+
+	return w.w.Flush()
+}
+
+func (w *lazyBufferedWriter) Reset(f *os.File) {
+	w.f = f
+	if w.w != nil {
+		w.w.Reset(f)
+	}
+}
+
+func (w *lazyBufferedWriter) WriteByte(c byte) error {
+	if w.w == nil {
+		w.w = bufio.NewWriterSize(w.f, chunkWriterBufferSize)
+	}
+
+	return w.w.WriteByte(c)
+}
