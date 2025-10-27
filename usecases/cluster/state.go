@@ -132,7 +132,7 @@ type RequestQueueConfig struct {
 func Init(userConfig Config, raftTimeoutsMultiplier int, dataPath string, nonStorageNodes map[string]struct{}, logger logrus.FieldLogger) (_ *State, err error) {
 	// Validate configuration first
 	if err := validateClusterConfig(userConfig); err != nil {
-		logger.Error("invalid cluster configuration: %w", err)
+		logger.Errorf("invalid cluster configuration: %v", err)
 		return nil, errors.Wrap(err, "validate cluster config")
 	}
 
@@ -145,7 +145,7 @@ func Init(userConfig Config, raftTimeoutsMultiplier int, dataPath string, nonSto
 
 	// Configure addresses
 	if err := configureMemberlistAddresses(cfg, userConfig); err != nil {
-		logger.WithError(err).Error("failed to configure memberlist addresses")
+		logger.Errorf("failed to configure memberlist addresses: %v", err)
 		return nil, errors.Wrap(err, "configure memberlist addresses")
 	}
 
@@ -168,8 +168,7 @@ func Init(userConfig Config, raftTimeoutsMultiplier int, dataPath string, nonSto
 
 	// Initialize delegate
 	if err := state.delegate.init(diskSpace); err != nil {
-		logger.WithField("action", "init_state.delegate_init").WithError(err).
-			Error("delegate init failed")
+		logger.WithField("action", "init_state.delegate_init").Errorf("delegate init failed: %v", err)
 		return nil, errors.Wrap(err, "delegate init")
 	}
 
@@ -200,7 +199,7 @@ func Init(userConfig Config, raftTimeoutsMultiplier int, dataPath string, nonSto
 			"advertise_addr": cfg.AdvertiseAddr,
 			"advertise_port": cfg.AdvertisePort,
 			"config_type":    getConfigType(userConfig),
-		}).WithError(err).Error("memberlist not created")
+		}).Errorf("memberlist not created: %v", err)
 		return nil, errors.Wrap(err, "create memberlist")
 	}
 	var joinAddr []string
