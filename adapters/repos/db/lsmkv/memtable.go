@@ -12,11 +12,13 @@
 package lsmkv
 
 import (
+	"bufio"
 	"encoding/binary"
 	"fmt"
 	"math"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/weaviate/weaviate/usecases/memwatch"
@@ -24,11 +26,84 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/sroar"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
+	"github.com/weaviate/weaviate/entities/diskio"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/models"
 )
+
+type memtable interface {
+	get(key []byte) ([]byte, error)
+	getBySecondary(pos int, key []byte) ([]byte, error)
+	put(key, value []byte, opts ...SecondaryKeyOption) error
+	setTombstone(key []byte, opts ...SecondaryKeyOption) error
+	setTombstoneWith(key []byte, deletionTime time.Time, opts ...SecondaryKeyOption) error
+
+	getCollection(key []byte) ([]value, error)
+	getMap(key []byte) ([]MapPair, error)
+	append(key []byte, values []value) error
+	appendMapSorted(key []byte, pair MapPair) error
+
+	Size() uint64
+	Path() string
+	ActiveDuration() time.Duration
+	DirtyDuration() time.Duration
+	updateDirtyAt()
+	countStats() *countStats
+	getStrategy() string
+	commitlogSize() int64
+	commitlogWalPath() string
+
+	writeWAL() error
+	flushWAL() error
+	flush() (string, error)
+	setAveragePropertyLength(avgPropLength float64, propLengthCount uint64)
+	getAndUpdateWritesSinceLastSync(logger logrus.FieldLogger) bool
+
+	ReadOnlyTombstones() (*sroar.Bitmap, error)
+	SetTombstone(docId uint64) error
+	GetPropLengths() (uint64, uint64, error)
+
+	newCursor() innerCursorReplace
+	newBlockingCursor() (innerCursorReplace, func())
+	newCursorWithSecondaryIndex(pos int) innerCursorReplace
+	newCollectionCursor() innerCursorCollection
+	newRoaringSetCursor() roaringset.InnerCursor
+	newRoaringSetRangeReader() roaringsetrange.InnerReader
+	newMapCursor() innerCursorMap
+
+	roaringSetAddOne(key []byte, value uint64) error
+	roaringSetAddList(key []byte, values []uint64) error
+	roaringSetAddBitmap(key []byte, bm *sroar.Bitmap) error
+	roaringSetRemoveOne(key []byte, value uint64) error
+	roaringSetRemoveList(key []byte, values []uint64) error
+	roaringSetRemoveBitmap(key []byte, bm *sroar.Bitmap) error
+	roaringSetAddRemoveSlices(key []byte, additions []uint64, deletions []uint64) error
+	roaringSetGet(key []byte) (roaringset.BitmapLayer, error)
+	roaringSetAdjustMeta(entriesChanged int)
+	roaringSetAddCommitLog(key []byte, additions []uint64, deletions []uint64) error
+
+	roaringSetRangeAdd(key uint64, values ...uint64) error
+	roaringSetRangeRemove(key uint64, values ...uint64) error
+	roaringSetRangeAddRemove(key uint64, additions []uint64, deletions []uint64) error
+	roaringSetRangeAdjustMeta(entriesChanged int)
+	roaringSetRangeAddCommitLog(key uint64, additions []uint64, deletions []uint64) error
+	extractRoaringSetRange() *roaringsetrange.Memtable
+
+	flushDataReplace(f *segmentindex.SegmentFile) ([]segmentindex.Key, error)
+	flushDataSet(f *segmentindex.SegmentFile) ([]segmentindex.Key, error)
+	flushDataMap(f *segmentindex.SegmentFile) ([]segmentindex.Key, error)
+	flushDataCollection(f *segmentindex.SegmentFile, flat []*binarySearchNodeMulti) ([]segmentindex.Key, error)
+	flushDataInverted(f *segmentindex.SegmentFile, ogF *diskio.MeteredWriter, bufw *bufio.Writer) ([]segmentindex.Key, *sroar.Bitmap, error)
+	flushDataRoaringSet(f *segmentindex.SegmentFile) ([]segmentindex.Key, error)
+	flushDataRoaringSetRange(f *segmentindex.SegmentFile) ([]segmentindex.Key, error)
+
+	incWriterCount()
+	decWriterCount()
+	getWriterCount() int64
+}
 
 type Memtable struct {
 	sync.RWMutex
@@ -59,6 +134,13 @@ type Memtable struct {
 	averagePropLength            float64
 	propLengthCount              uint64
 	writeSegmentInfoIntoFileName bool
+
+	// We're only tracking the refcount for writers. Readers get a consistent
+	// view of all memtables & segments, so they don't need ref-counting.
+	// Writers do, because if we have an ongoing write, we cannot start flushing
+	// the memtable. This prevents the memtable from being flushed while writers
+	// are active, ensuring data consistency during concurrent operations.
+	writerCount atomic.Int64
 }
 
 func newMemtable(path string, strategy string, secondaryIndices uint16,
@@ -413,6 +495,13 @@ func (m *Memtable) Size() uint64 {
 	return m.size
 }
 
+func (m *Memtable) Path() string {
+	m.RLock()
+	defer m.RUnlock()
+
+	return m.path
+}
+
 func (m *Memtable) ActiveDuration() time.Duration {
 	m.RLock()
 	defer m.RUnlock()
@@ -509,4 +598,78 @@ func (m *Memtable) GetPropLengths() (uint64, uint64, error) {
 	}
 
 	return propLengthSum, propLengthCount, nil
+}
+
+func (m *Memtable) incWriterCount() {
+	m.writerCount.Add(1)
+}
+
+func (m *Memtable) decWriterCount() {
+	m.writerCount.Add(-1)
+}
+
+func (m *Memtable) getWriterCount() int64 {
+	return m.writerCount.Load()
+}
+
+func (m *Memtable) getStrategy() string {
+	return m.strategy
+}
+
+func (m *Memtable) setAveragePropertyLength(avgPropLength float64, propLengthCount uint64) {
+	m.Lock()
+	defer m.Unlock()
+
+	m.averagePropLength = avgPropLength
+	m.propLengthCount = propLengthCount
+}
+
+func (m *Memtable) commitlogSize() int64 {
+	return m.commitlog.size()
+}
+
+func (m *Memtable) commitlogWalPath() string {
+	return m.commitlog.walPath()
+}
+
+func (m *Memtable) getAndUpdateWritesSinceLastSync(logger logrus.FieldLogger) bool {
+	m.Lock()
+	defer m.Unlock()
+
+	hasWrites := m.writesSinceLastSync
+	if !hasWrites {
+		// had no work this iteration, cycle manager can back off
+		return false
+	}
+
+	err := m.commitlog.flushBuffers()
+	if err != nil {
+		logger.WithField("action", "lsm_memtable_flush").
+			WithField("path", m.path).
+			WithError(err).
+			Errorf("flush and switch failed")
+
+		return false
+	}
+
+	err = m.commitlog.sync()
+	if err != nil {
+		logger.WithField("action", "lsm_memtable_flush").
+			WithField("path", m.path).
+			WithError(err).
+			Errorf("flush and switch failed")
+
+		return false
+	}
+	m.writesSinceLastSync = false
+	// there was work in this iteration, cycle manager should not back off and revisit soon
+	return true
+}
+
+func (m *Memtable) extractRoaringSetRange() *roaringsetrange.Memtable {
+	m.RLock()
+	defer m.RUnlock()
+
+	result := m.roaringSetRange
+	return result
 }
