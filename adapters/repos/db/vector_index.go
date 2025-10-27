@@ -44,7 +44,7 @@ type VectorIndex interface {
 	Flush() error
 	SwitchCommitLogs(ctx context.Context) error
 	ListFiles(ctx context.Context, basePath string) ([]string, error)
-	PostStartup()
+	PostStartup(ctx context.Context)
 	Compressed() bool
 	Multivector() bool
 	ValidateBeforeInsert(vector []float32) error
