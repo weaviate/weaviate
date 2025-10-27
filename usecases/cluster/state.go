@@ -132,7 +132,7 @@ type RequestQueueConfig struct {
 func Init(userConfig Config, raftTimeoutsMultiplier int, dataPath string, nonStorageNodes map[string]struct{}, logger logrus.FieldLogger) (_ *State, err error) {
 	// Validate configuration first
 	if err := validateClusterConfig(userConfig); err != nil {
-		logger.WithError(err).Error("invalid cluster configuration")
+		logger.Error("invalid cluster configuration: %w", err)
 		return nil, errors.Wrap(err, "validate cluster config")
 	}
 
@@ -335,7 +335,7 @@ func (s *State) LocalName() string {
 	return s.list.LocalNode().Name
 }
 
-// LocalAddr() return local address
+// LocalAddr() returns local address
 func (s *State) LocalAddr() string {
 	if s.config.AdvertiseAddr == "" {
 		return s.list.LocalNode().Addr.String()
@@ -538,7 +538,7 @@ func configureMemberlistPorts(cfg *memberlist.Config, userConfig Config) {
 		cfg.AdvertisePort = userConfig.AdvertisePort
 	} else if userConfig.AdvertiseAddr != "" && userConfig.GossipBindPort != 0 {
 		// Only set to GossipBindPort if AdvertiseAddr is set but AdvertisePort is not
-		//  to avoid defaulting to memberlist port 7946
+		// to avoid defaulting to memberlist port 7946
 		cfg.AdvertisePort = userConfig.GossipBindPort
 	}
 }
