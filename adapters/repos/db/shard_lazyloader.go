@@ -778,9 +778,9 @@ func (l *LazyLoadShard) pathLSM() string {
 }
 
 func (l *LazyLoadShard) blockLoading() func() {
-	l.mutex.Lock()
+	l.mutex.RLock()
 
 	return func() {
-		l.mutex.Unlock()
+		l.mutex.RUnlock()
 	}
 }
