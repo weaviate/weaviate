@@ -17,6 +17,7 @@ import (
 	"io"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-openapi/strfmt"
@@ -56,7 +57,7 @@ import (
 type LazyLoadShard struct {
 	shardOpts        *deferredShardOpts
 	shard            *Shard
-	loaded           bool
+	loaded           atomic.Bool
 	mutex            sync.RWMutex
 	memMonitor       memwatch.AllocChecker
 	shardLoadLimiter ShardLoadLimiter
@@ -114,10 +115,15 @@ func (l *LazyLoadShard) mustLoadCtx(ctx context.Context) {
 }
 
 func (l *LazyLoadShard) Load(ctx context.Context) error {
+	// fast path without lock
+	if l.loaded.Load() {
+		return nil
+	}
+
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 
-	if l.loaded {
+	if l.loaded.Load() {
 		return nil
 	}
 
@@ -141,7 +147,8 @@ func (l *LazyLoadShard) Load(ctx context.Context) error {
 	}
 
 	l.shard = shard
-	l.loaded = true
+	// now we know that the shard is fully loaded and ready. We can use the boolean for fast-path checks without locks
+	l.loaded.Store(true)
 
 	return nil
 }
@@ -165,10 +172,7 @@ func (l *LazyLoadShard) NotifyReady() {
 }
 
 func (l *LazyLoadShard) GetStatus() storagestate.Status {
-	l.mutex.RLock()
-	defer l.mutex.RUnlock()
-
-	if l.loaded {
+	if l.loaded.Load() {
 		return l.shard.GetStatus()
 	}
 	return storagestate.StatusLazyLoading
@@ -202,12 +206,15 @@ func (l *LazyLoadShard) ObjectCount(ctx context.Context) (int, error) {
 }
 
 func (l *LazyLoadShard) ObjectCountAsync(ctx context.Context) (int64, error) {
-	l.mutex.RLock()
-	if l.loaded {
-		l.mutex.RUnlock()
+	if l.loaded.Load() { // fast path
 		return l.shard.ObjectCountAsync(ctx)
 	}
-	l.mutex.RUnlock()
+	l.mutex.RLock()
+	defer l.mutex.RUnlock()
+	if l.loaded.Load() {
+		return l.shard.ObjectCountAsync(ctx)
+	}
+
 	idx := l.shardOpts.index
 	objectUsage, err := shardusage.CalculateUnloadedObjectsMetrics(idx.logger, idx.path(), l.shardOpts.name, true)
 	if err != nil {
@@ -350,7 +357,7 @@ func (l *LazyLoadShard) MultiObjectByID(ctx context.Context, query []multi.Ident
 func (l *LazyLoadShard) ObjectDigestsInRange(ctx context.Context,
 	initialUUID, finalUUID strfmt.UUID, limit int,
 ) (objs []types.RepairResponse, err error) {
-	if !l.isLoaded() {
+	if !l.loaded.Load() {
 		return nil, err
 	}
 
@@ -369,7 +376,7 @@ func (l *LazyLoadShard) drop() error {
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 
-	if !l.loaded {
+	if !l.loaded.Load() {
 		idx := l.shardOpts.index
 		className := idx.Config.ClassName.String()
 		shardName := l.shardOpts.name
@@ -461,12 +468,15 @@ func (l *LazyLoadShard) AnalyzeObject(object *storobj.Object) ([]inverted.Proper
 }
 
 func (l *LazyLoadShard) Dimensions(ctx context.Context, targetVector string) (int, error) {
-	l.mutex.RLock()
-	if l.loaded {
-		l.mutex.RUnlock()
+	if l.loaded.Load() { // fast path
 		return l.shard.Dimensions(ctx, targetVector)
 	}
-	l.mutex.RUnlock()
+	l.mutex.RLock()
+	defer l.mutex.RUnlock()
+
+	if l.loaded.Load() { // fast path
+		return l.shard.Dimensions(ctx, targetVector)
+	}
 
 	// For unloaded shards, get dimensions from unloaded shard/tenant calculation
 	idx := l.shardOpts.index
@@ -549,7 +559,7 @@ func (l *LazyLoadShard) RequantizeIndex(ctx context.Context, targetVector string
 }
 
 func (l *LazyLoadShard) Shutdown(ctx context.Context) error {
-	if !l.isLoaded() {
+	if !l.loaded.Load() {
 		return nil
 	}
 	return l.shard.Shutdown(ctx)
@@ -563,7 +573,7 @@ func (l *LazyLoadShard) preventShutdown() (release func(), err error) {
 }
 
 func (l *LazyLoadShard) HashTreeLevel(ctx context.Context, level int, discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error) {
-	if !l.isLoaded() {
+	if !l.loaded.Load() {
 		return []hashtree.Digest{}, nil
 	}
 	return l.shard.HashTreeLevel(ctx, level, discriminant)
@@ -752,19 +762,11 @@ func (l *LazyLoadShard) Metrics() *Metrics {
 }
 
 func (l *LazyLoadShard) isLoaded() bool {
-	l.mutex.RLock()
-	defer l.mutex.RUnlock()
-
-	return l.loaded
+	return l.loaded.Load()
 }
 
 func (l *LazyLoadShard) Activity() (int32, int32) {
-	var loaded bool
-	l.mutex.RLock()
-	loaded = l.loaded
-	l.mutex.RUnlock()
-
-	if !loaded {
+	if !l.loaded.Load() {
 		// don't force-load the shard, just report the same number every time, so
 		// the caller can figure out there was no activity
 		return 0, 0
@@ -777,10 +779,9 @@ func (l *LazyLoadShard) pathLSM() string {
 	return shardPathLSM(l.shardOpts.index.path(), l.shardOpts.name)
 }
 
-func (l *LazyLoadShard) blockLoading() func() {
+func (l *LazyLoadShard) RlockGuard(f func(shard *LazyLoadShard)) {
 	l.mutex.RLock()
+	defer l.mutex.RUnlock()
 
-	return func() {
-		l.mutex.RUnlock()
-	}
+	f(l)
 }

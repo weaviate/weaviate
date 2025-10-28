@@ -136,22 +136,20 @@ func (i *Index) usageForCollection(ctx context.Context, jitterInterval time.Dura
 				if isLazy {
 					// distinguish between loaded and unloaded lazy shards - make sure that the shard is not loaded
 					// while we calculate usage for the unloaded case by blocking loading
-					func() {
-						release := lazyShard.blockLoading()
-						defer release()
-
-						if lazyShard.loaded {
-							shardUsage, err2 = i.calculateLoadedShardUsage(ctx, lazyShard.shard, exactObjectCount)
-							if err2 != nil {
-								err2 = fmt.Errorf("loaded lazy shard %s: %w", shardName, err2)
+					lazyShard.RlockGuard(
+						func(lazyShard *LazyLoadShard) {
+							if lazyShard.loaded.Load() {
+								shardUsage, err2 = i.calculateLoadedShardUsage(ctx, lazyShard.shard, exactObjectCount)
+								if err2 != nil {
+									err2 = fmt.Errorf("loaded lazy shard %s: %w", shardName, err2)
+								}
+							} else {
+								shardUsage, err2 = i.calculateUnloadedShardUsage(ctx, shardName, vectorConfig)
+								if err2 != nil {
+									err2 = fmt.Errorf("unloaded lazy shard %s: %w", shardName, err2)
+								}
 							}
-						} else {
-							shardUsage, err2 = i.calculateUnloadedShardUsage(ctx, shardName, vectorConfig)
-							if err2 != nil {
-								err2 = fmt.Errorf("unloaded lazy shard %s: %w", shardName, err2)
-							}
-						}
-					}()
+						})
 				} else {
 					loadedShard, ok := shard.(*Shard)
 					if !ok {
