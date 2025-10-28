@@ -160,26 +160,26 @@ func New(logger logrus.FieldLogger, config Config,
 		metricsRegisterer = promMetrics.Registerer
 	}
 
-	// drop any partially deleted indices that were kept for backup purposes. This should only happen after a crash
+	// drop any partially deleted indices that were kept for backup purposes. This should only happen after a crash.
+	// Dont return errors here for missing files etc, as we just want to do a best-effort cleanup.
 	dir, err := os.ReadDir(config.RootPath)
-	if err != nil {
-		return nil, err
-	}
-	for _, entry := range dir {
-		if !entry.IsDir() {
-			continue
-		}
-		name := entry.Name()
-		if strings.HasPrefix(name, backup.DeleteMarker) {
-			if err := os.RemoveAll(filepath.Join(config.RootPath, name)); err != nil {
-				return nil, err
+	if err == nil {
+		for _, entry := range dir {
+			if !entry.IsDir() {
+				continue
 			}
-			logger.WithFields(logrus.Fields{
-				"action":     "startup",
-				"directory":  name,
-				"index_path": filepath.Join(config.RootPath, name),
-				"index":      name[len(backup.DeleteMarker):],
-			}).Info("removed partially deleted index directory: " + name + "Did Weaviate crash?")
+			name := entry.Name()
+			if strings.HasPrefix(name, backup.DeleteMarker) {
+				if err := os.RemoveAll(filepath.Join(config.RootPath, name)); err != nil {
+					return nil, err
+				}
+				logger.WithFields(logrus.Fields{
+					"action":     "startup",
+					"directory":  name,
+					"index_path": filepath.Join(config.RootPath, name),
+					"index":      name[len(backup.DeleteMarker):],
+				}).Info("removed partially deleted index directory: " + name + "Did Weaviate crash?")
+			}
 		}
 	}
 
