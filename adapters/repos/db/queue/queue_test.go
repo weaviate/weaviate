@@ -487,3 +487,79 @@ func TestPartialChunkRecovery(t *testing.T) {
 		})
 	}
 }
+
+func TestQueueAutoReleaseResources(t *testing.T) {
+	t.Parallel()
+
+	t.Run("releases bufio writer after inactivity period", func(t *testing.T) {
+		t.Parallel()
+
+		s := makeScheduler(t)
+		s.Start()
+		defer s.Close()
+
+		q := makeQueue(t, s, discardExecutor())
+		q.Pause() // prevent scheduler from processing the queue
+		q.inactivityPeriod = 400 * time.Millisecond
+		pushMany(t, q, 1, 100, 200, 300)
+		require.Equal(t, int64(3), q.Size())
+		q.staleTimeout = 0 // disable stale timeout for this test
+
+		batch, err := q.DequeueBatch()
+		require.NoError(t, err)
+		batch.Done()
+
+		// bufio writer should be in use
+		require.NotNil(t, q.w.w.w)
+
+		// wait for longer than the inactivity period
+		time.Sleep(700 * time.Millisecond)
+
+		// call DequeueBatch to trigger the inactivity check
+		_, err = q.DequeueBatch()
+		require.NoError(t, err)
+
+		// bufio writer should be released
+		require.Nil(t, q.w.w.w)
+
+		// push another record to ensure the queue still works
+		err = q.Push(makeRecord(1, 400))
+		require.NoError(t, err)
+		require.Equal(t, int64(1), q.Size())
+
+		_, err = q.DequeueBatch()
+		require.NoError(t, err)
+
+		// bufio writer should be in use again
+		require.NotNil(t, q.w.w.w)
+	})
+
+	t.Run("doesn't release bufio writer after inactivity period if queue is not empty", func(t *testing.T) {
+		t.Parallel()
+
+		s := makeScheduler(t)
+		s.Start()
+		defer s.Close()
+
+		q := makeQueue(t, s, discardExecutor())
+		q.Pause() // prevent scheduler from processing the queue
+		q.inactivityPeriod = 400 * time.Millisecond
+		pushMany(t, q, 1, 100, 200, 300)
+		require.Equal(t, int64(3), q.Size())
+		q.staleTimeout = 0 // disable stale timeout for this test
+
+		// bufio writer should be in use
+		require.NotNil(t, q.w.w.w)
+
+		// wait for longer than the inactivity period
+		time.Sleep(700 * time.Millisecond)
+
+		// call DequeueBatch to trigger the inactivity check
+		batch, err := q.DequeueBatch()
+		require.NoError(t, err)
+		batch.Done()
+
+		// bufio writer should not be released
+		require.NotNil(t, q.w.w.w)
+	})
+}

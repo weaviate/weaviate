@@ -59,7 +59,7 @@ func (s *Shard) initGeoProp(prop *models.Property) error {
 	}
 	s.propertyIndicesLock.Unlock()
 
-	idx.PostStartup()
+	idx.PostStartup(s.shutCtx)
 
 	return nil
 }
