@@ -297,36 +297,36 @@ func (s *Service) Search(ctx context.Context, req *pb.SearchRequest) (*pb.Search
 }
 
 func (s *Service) search(ctx context.Context, req *pb.SearchRequest) (*pb.SearchReply, error) {
-	ctx, span := otel.Tracer("weaviate-search").Start(ctx, "service.search",
+	ctx, span := otel.Tracer("weaviate-search").Start(ctx, "Service.search",
 		trace.WithSpanKind(trace.SpanKindInternal),
 		trace.WithAttributes(attribute.String("node.name", s.schemaManager.NodeName())))
 	defer span.End()
 	before := time.Now()
 
-	ctx, span = otel.Tracer("weaviate-search").Start(ctx, "service.search.principalFromContext",
+	spanCtx, span := otel.Tracer("weaviate-search").Start(ctx, "s.principalFromContext",
 		trace.WithSpanKind(trace.SpanKindInternal),
 	)
-	principal, err := s.principalFromContext(ctx)
+	principal, err := s.principalFromContext(spanCtx)
 	span.End()
 	if err != nil {
 		return nil, fmt.Errorf("extract auth: %w", err)
 	}
-	ctx, span = otel.Tracer("weaviate-search").Start(ctx, "service.search.AddPrincipalToContext",
+	spanCtx, span = otel.Tracer("weaviate-search").Start(ctx, "restctx.AddPrincipalToContext",
 		trace.WithSpanKind(trace.SpanKindInternal),
 	)
-	ctx = restCtx.AddPrincipalToContext(ctx, principal)
+	ctx = restCtx.AddPrincipalToContext(spanCtx, principal)
 	span.End()
 
-	ctx, span = otel.Tracer("weaviate-search").Start(ctx, "service.search.NewParser",
+	spanCtx, span = otel.Tracer("weaviate-search").Start(ctx, "NewParser",
 		trace.WithSpanKind(trace.SpanKindInternal),
 	)
 	parser := NewParser(
 		req.Uses_127Api,
-		s.classGetterWithAuthzFunc(ctx, principal, req.Tenant),
+		s.classGetterWithAuthzFunc(spanCtx, principal, req.Tenant),
 	)
 	span.End()
 
-	ctx, span = otel.Tracer("weaviate-search").Start(ctx, "service.search.NewReplier",
+	_, span = otel.Tracer("weaviate-search").Start(ctx, "NewReplier",
 		trace.WithSpanKind(trace.SpanKindInternal),
 	)
 	replier := NewReplier(
@@ -337,7 +337,7 @@ func (s *Service) search(ctx context.Context, req *pb.SearchRequest) (*pb.Search
 	)
 	span.End()
 
-	ctx, span = otel.Tracer("weaviate-search").Start(ctx, "service.search.parser.Search",
+	_, span = otel.Tracer("weaviate-search").Start(ctx, "Search",
 		trace.WithSpanKind(trace.SpanKindInternal),
 	)
 	searchParams, err := parser.Search(req, s.config)
@@ -346,7 +346,7 @@ func (s *Service) search(ctx context.Context, req *pb.SearchRequest) (*pb.Search
 	}
 	span.End()
 
-	ctx, span = otel.Tracer("weaviate-search").Start(ctx, "service.search.validateClassAndProperty",
+	_, span = otel.Tracer("weaviate-search").Start(ctx, "validateClassAndProperty",
 		trace.WithSpanKind(trace.SpanKindInternal),
 	)
 	if err := s.validateClassAndProperty(searchParams); err != nil {
@@ -354,22 +354,18 @@ func (s *Service) search(ctx context.Context, req *pb.SearchRequest) (*pb.Search
 	}
 	span.End()
 
-	ctx, span = otel.Tracer("weaviate-search").Start(ctx, "service.search.traverser.GetClass",
-		trace.WithSpanKind(trace.SpanKindInternal),
-	)
-	res, err := s.traverser.GetClass(restCtx.AddPrincipalToContext(ctx, principal), principal, searchParams)
+	res, err := s.traverser.GetClass(ctx, principal, searchParams)
 	if err != nil {
 		return nil, err
 	}
-	span.End()
 
-	ctx, span = otel.Tracer("weaviate-search").Start(ctx, "service.search.replier.Search",
+	_, span = otel.Tracer("weaviate-search").Start(ctx, "s.schemaManager.GetSchemaSkipAuth",
 		trace.WithSpanKind(trace.SpanKindInternal),
 	)
 	scheme := s.schemaManager.GetSchemaSkipAuth()
 	span.End()
 
-	ctx, span = otel.Tracer("weaviate-search").Start(ctx, "service.search.replier.Search.Return",
+	_, span = otel.Tracer("weaviate-search").Start(ctx, "replier.Search",
 		trace.WithSpanKind(trace.SpanKindInternal),
 	)
 	r, err := replier.Search(res, before, searchParams, scheme)
