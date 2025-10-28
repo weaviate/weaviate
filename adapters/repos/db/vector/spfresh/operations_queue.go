@@ -34,7 +34,7 @@ type OperationsQueue struct {
 	*queue.DiskQueue
 
 	scheduler *queue.Scheduler
-	//metrics      *VectorIndexQueueMetrics TODO: add metrics
+	// metrics      *VectorIndexQueueMetrics TODO: add metrics
 
 	// If positive, accumulates vectors in a batch before indexing them.
 	// Otherwise, the batch size is determined by the size of a chunk file
@@ -60,7 +60,7 @@ func NewOperationsQueue(
 		opq.batchSize = batchSize
 	}
 
-	//viq.metrics = NewVectorIndexQueueMetrics(logger, shard.promMetrics, shard.index.Config.ClassName.String(), shard.Name(), targetVector) TODO: add metrics
+	// viq.metrics = NewVectorIndexQueueMetrics(logger, shard.promMetrics, shard.index.Config.ClassName.String(), shard.Name(), targetVector) TODO: add metrics
 
 	q, err := queue.NewDiskQueue(
 		queue.DiskQueueOptions{
@@ -73,7 +73,7 @@ func NewOperationsQueue(
 			},
 			OnBatchProcessed: opq.OnBatchProcessed,
 			StaleTimeout:     staleTimeout,
-			//Metrics:          opq.metrics.QueueMetrics(), TODO: add metrics
+			// Metrics:          opq.metrics.QueueMetrics(), TODO: add metrics
 		},
 	)
 	if err != nil {
@@ -101,7 +101,6 @@ func (opq *OperationsQueue) Close() error {
 }
 
 func (opq *OperationsQueue) EnqueueSplit(ctx context.Context, postingID uint64) error {
-
 	/*start := time.Now()
 	defer opq.metrics.Insert(start, 1) TODO: add metrics*/
 
@@ -126,7 +125,6 @@ func (opq *OperationsQueue) EnqueueSplit(ctx context.Context, postingID uint64) 
 }
 
 func (opq *OperationsQueue) EnqueueMerge(ctx context.Context, postingID uint64) error {
-
 	/*start := time.Now()
 	defer opq.metrics.Insert(start, 1) TODO: add metrics*/
 
@@ -151,7 +149,6 @@ func (opq *OperationsQueue) EnqueueMerge(ctx context.Context, postingID uint64) 
 }
 
 func (opq *OperationsQueue) EnqueueReassign(ctx context.Context, postingID uint64) error {
-
 	/*start := time.Now()
 	defer opq.metrics.Insert(start, 1) TODO: add metrics*/
 

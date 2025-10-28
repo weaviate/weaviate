@@ -38,7 +38,6 @@ func (s *SPFresh) enqueueSplit(ctx context.Context, postingID uint64) error {
 	}
 
 	// Enqueue the operation to the channel
-	//s.splitCh.Push(postingID)
 	err := s.operationsQueue.EnqueueSplit(ctx, postingID)
 	if err != nil {
 		return errors.Wrapf(err, "failed to enqueue split operation for posting %d", postingID)

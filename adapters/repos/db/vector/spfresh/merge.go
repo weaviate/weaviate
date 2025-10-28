@@ -37,7 +37,6 @@ func (s *SPFresh) enqueueMerge(ctx context.Context, postingID uint64) error {
 	}
 
 	// Enqueue the operation to the channel
-	//s.mergeCh.Push(postingID)
 	err := s.operationsQueue.EnqueueMerge(ctx, postingID)
 	if err != nil {
 		return errors.Wrapf(err, "failed to enqueue merge operation for posting %d", postingID)

@@ -117,7 +117,7 @@ func TestSPFreshRecall(t *testing.T) {
 		cur := count.Add(1)
 		if cur%1000 == 0 {
 			fmt.Printf("indexing vectors %d/%d\n", cur, vectors_size)
-			//fmt.Println("background tasks: split", index.splitCh.Len(), "reassign", index.reassignCh.Len(), "merge", index.mergeCh.Len())
+			// fmt.Println("background tasks: split", index.splitCh.Len(), "reassign", index.reassignCh.Len(), "merge", index.mergeCh.Len())
 		}
 		err := index.Add(t.Context(), id, vectors[id])
 		require.NoError(t, err)

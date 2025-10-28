@@ -83,8 +83,6 @@ type SPFresh struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	//splitCh    *common.UnboundedChannel[uint64]            // Channel for split operations
-	//mergeCh    *common.UnboundedChannel[uint64]            // Channel for merge operations
 	operationsQueue OperationsQueue
 	reassignCh      *common.UnboundedChannel[reassignOperation] // Channel for reassign operations
 	wg              sync.WaitGroup
