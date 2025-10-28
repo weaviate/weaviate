@@ -559,6 +559,8 @@ func (l *LazyLoadShard) RequantizeIndex(ctx context.Context, targetVector string
 }
 
 func (l *LazyLoadShard) Shutdown(ctx context.Context) error {
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
 	if !l.loaded.Load() {
 		return nil
 	}
