@@ -24,7 +24,7 @@ type StopwordDetector interface {
 }
 
 type Detector struct {
-	sync.Mutex
+	sync.RWMutex
 	preset    string
 	stopwords map[string]struct{}
 }
@@ -83,13 +83,29 @@ func (d *Detector) SetRemovals(removals []string) {
 }
 
 func (d *Detector) IsStopword(word string) bool {
-	d.Lock()
-	defer d.Unlock()
+	d.RLock()
+	defer d.RUnlock()
 
 	_, ok := d.stopwords[word]
 	return ok
 }
 
 func (d *Detector) Preset() string {
+	d.RLock()
+	defer d.RUnlock()
 	return d.preset
+}
+
+func (d *Detector) Replace(newStopwords *Detector) {
+	d.Lock()
+	defer d.Unlock()
+
+	newStopwords.RLock()
+	defer newStopwords.RUnlock()
+	copied := make(map[string]struct{}, len(newStopwords.stopwords))
+	for k := range newStopwords.stopwords {
+		copied[k] = struct{}{}
+	}
+	d.stopwords = copied
+	d.preset = newStopwords.preset
 }

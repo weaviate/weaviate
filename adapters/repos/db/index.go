@@ -631,7 +631,7 @@ func (i *Index) updateInvertedIndexConfig(ctx context.Context,
 	if err != nil {
 		return fmt.Errorf("update inverted index config: %w", err)
 	}
-	i.stopwords = sd
+	i.stopwords.Replace(sd)
 
 	return nil
 }
