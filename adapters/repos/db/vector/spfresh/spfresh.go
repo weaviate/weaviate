@@ -165,6 +165,12 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*SPFresh, error) {
 		enterrors.GoWrapper(s.splitWorker, s.logger)
 	}*/
 
+	operationQueue, err := NewOperationsQueue(&s, cfg.TargetVector)
+	if err != nil {
+		return nil, err
+	}
+	s.operationsQueue = *operationQueue
+
 	// start M workers to process reassign operations
 	for i := 0; i < s.config.ReassignWorkers; i++ {
 		s.wg.Add(1)
