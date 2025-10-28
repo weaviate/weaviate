@@ -1822,6 +1822,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 	}
 
 	eg := enterrors.NewErrorGroupWrapper(i.logger, "tenant:", tenant)
+	// TODO remove this temp thing
 	eg.SetLimit(999999)
 	m := &sync.Mutex{}
 
