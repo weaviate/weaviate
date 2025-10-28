@@ -16,13 +16,13 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 )
 
-func (s *segment) newRoaringSetCursor() *roaringset.SegmentCursor {
+func (s *segment) newRoaringSetCursor() roaringset.SegmentCursor {
 	return roaringset.NewSegmentCursor(s.contents[s.dataStartPos:s.dataEndPos],
 		&roaringSetSeeker{s.index})
 }
 
 func (sg *SegmentGroup) newRoaringSetCursors() ([]roaringset.InnerCursor, func()) {
-	segments, release := sg.getAndLockSegments()
+	segments, release := sg.getConsistentViewOfSegments()
 
 	out := make([]roaringset.InnerCursor, len(segments))
 

@@ -471,7 +471,7 @@ func Test_Compactor(t *testing.T) {
 	}
 }
 
-func cursorCompactor(t *testing.T, leftCursor, rightCursor *SegmentCursor, maxNewFileSize int64, cleanup, checkSum bool) []byte {
+func cursorCompactor(t *testing.T, leftCursor, rightCursor SegmentCursor, maxNewFileSize int64, cleanup, checkSum bool) []byte {
 	t.Helper()
 	dir := t.TempDir()
 

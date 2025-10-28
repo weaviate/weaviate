@@ -272,7 +272,7 @@ func (s *SPFresh) ListFiles(ctx context.Context, basePath string) ([]string, err
 	return nil, nil
 }
 
-func (s *SPFresh) PostStartup() {
+func (s *SPFresh) PostStartup(ctx context.Context) {
 	// This method can be used to perform any post-startup initialization
 	// For now, it does nothing
 	if s.config.Centroids.IndexType == "hnsw" {
@@ -281,7 +281,7 @@ func (s *SPFresh) PostStartup() {
 			return
 		}
 
-		hnswIndex.hnsw.PostStartup()
+		hnswIndex.hnsw.PostStartup(ctx)
 	}
 }
 
