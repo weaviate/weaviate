@@ -12,6 +12,7 @@
 package apikey
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -48,7 +49,7 @@ func TestInvalidApiKey(t *testing.T) {
 			wrapper, err := New(conf, logger)
 			require.NoError(t, err)
 
-			_, err = wrapper.ValidateAndExtract("invalid-key", nil)
+			_, err = wrapper.ValidateAndExtract(context.Background(), "invalid-key", nil)
 			require.Error(t, err)
 			require.Contains(t, err.Error(), "unauthorized: invalid api key")
 		})
@@ -82,7 +83,7 @@ func TestValidStaticKey(t *testing.T) {
 			wrapper, err := New(conf, logger)
 			require.NoError(t, err)
 
-			principal, err := wrapper.ValidateAndExtract("valid-key", nil)
+			principal, err := wrapper.ValidateAndExtract(context.Background(), "valid-key", nil)
 			if testCase.expectError {
 				require.Error(t, err)
 				require.Contains(t, err.Error(), "unauthorized: invalid api key")
@@ -128,7 +129,7 @@ func TestValidDynamicKey(t *testing.T) {
 
 			require.NoError(t, wrapper.Dynamic.CreateUser(userId, hash, identifier, "", time.Now()))
 
-			principal, err := wrapper.ValidateAndExtract(apiKey, nil)
+			principal, err := wrapper.ValidateAndExtract(context.Background(), apiKey, nil)
 			if testCase.expectError {
 				require.Error(t, err)
 				require.Contains(t, err.Error(), "unauthorized: invalid api key")

@@ -12,6 +12,7 @@
 package composer
 
 import (
+	"context"
 	"fmt"
 	"testing"
 
@@ -44,10 +45,10 @@ func Test_TokenAuthComposer(t *testing.T) {
 				},
 			},
 			token: "does not matter",
-			apiKey: func(t string, s []string) (*models.Principal, error) {
+			apiKey: func(ctx context.Context, t string, s []string) (*models.Principal, error) {
 				panic("i should never be called")
 			},
-			oidc: func(t string, s []string) (*models.Principal, error) {
+			oidc: func(ctx context.Context, t string, s []string) (*models.Principal, error) {
 				return nil, nil
 			},
 			expectErr: false,
@@ -63,10 +64,10 @@ func Test_TokenAuthComposer(t *testing.T) {
 				},
 			},
 			token: "does not matter",
-			apiKey: func(t string, s []string) (*models.Principal, error) {
+			apiKey: func(ctx context.Context, t string, s []string) (*models.Principal, error) {
 				panic("i should never be called")
 			},
-			oidc: func(t string, s []string) (*models.Principal, error) {
+			oidc: func(ctx context.Context, t string, s []string) (*models.Principal, error) {
 				return nil, fmt.Errorf("oidc says nope!")
 			},
 			expectErr:    true,
@@ -83,10 +84,10 @@ func Test_TokenAuthComposer(t *testing.T) {
 				},
 			},
 			token: "does not matter",
-			apiKey: func(t string, s []string) (*models.Principal, error) {
+			apiKey: func(ctx context.Context, t string, s []string) (*models.Principal, error) {
 				panic("i should never be called")
 			},
-			oidc: func(t string, s []string) (*models.Principal, error) {
+			oidc: func(ctx context.Context, t string, s []string) (*models.Principal, error) {
 				return nil, nil
 			},
 			expectErr: false,
@@ -102,10 +103,10 @@ func Test_TokenAuthComposer(t *testing.T) {
 				},
 			},
 			token: "does not matter",
-			apiKey: func(t string, s []string) (*models.Principal, error) {
+			apiKey: func(ctx context.Context, t string, s []string) (*models.Principal, error) {
 				panic("i should never be called")
 			},
-			oidc: func(t string, s []string) (*models.Principal, error) {
+			oidc: func(ctx context.Context, t string, s []string) (*models.Principal, error) {
 				return nil, fmt.Errorf("thou shalt not pass")
 			},
 			expectErr:    true,
@@ -122,10 +123,10 @@ func Test_TokenAuthComposer(t *testing.T) {
 				},
 			},
 			token: "does not matter",
-			apiKey: func(t string, s []string) (*models.Principal, error) {
+			apiKey: func(ctx context.Context, t string, s []string) (*models.Principal, error) {
 				return nil, nil
 			},
-			oidc: func(t string, s []string) (*models.Principal, error) {
+			oidc: func(ctx context.Context, t string, s []string) (*models.Principal, error) {
 				panic("i should never be called")
 			},
 			expectErr: false,
@@ -141,10 +142,10 @@ func Test_TokenAuthComposer(t *testing.T) {
 				},
 			},
 			token: "does not matter",
-			apiKey: func(t string, s []string) (*models.Principal, error) {
+			apiKey: func(ctx context.Context, t string, s []string) (*models.Principal, error) {
 				return nil, fmt.Errorf("you think I let anyone through?")
 			},
-			oidc: func(t string, s []string) (*models.Principal, error) {
+			oidc: func(ctx context.Context, t string, s []string) (*models.Principal, error) {
 				panic("i should never be called")
 			},
 			expectErr:    true,
@@ -161,10 +162,10 @@ func Test_TokenAuthComposer(t *testing.T) {
 				},
 			},
 			token: "does not matter",
-			apiKey: func(t string, s []string) (*models.Principal, error) {
+			apiKey: func(ctx context.Context, t string, s []string) (*models.Principal, error) {
 				return nil, fmt.Errorf("it's a pretty key, but not good enough")
 			},
-			oidc: func(t string, s []string) (*models.Principal, error) {
+			oidc: func(ctx context.Context, t string, s []string) (*models.Principal, error) {
 				panic("i should never be called")
 			},
 			expectErr:    true,
@@ -181,10 +182,10 @@ func Test_TokenAuthComposer(t *testing.T) {
 				},
 			},
 			token: "",
-			apiKey: func(t string, s []string) (*models.Principal, error) {
+			apiKey: func(ctx context.Context, t string, s []string) (*models.Principal, error) {
 				return nil, fmt.Errorf("really? an empty one?")
 			},
-			oidc: func(t string, s []string) (*models.Principal, error) {
+			oidc: func(ctx context.Context, t string, s []string) (*models.Principal, error) {
 				panic("i should never be called")
 			},
 			expectErr:    true,
@@ -201,10 +202,10 @@ func Test_TokenAuthComposer(t *testing.T) {
 				},
 			},
 			token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c",
-			apiKey: func(t string, s []string) (*models.Principal, error) {
+			apiKey: func(ctx context.Context, t string, s []string) (*models.Principal, error) {
 				panic("i should never be called")
 			},
-			oidc: func(t string, s []string) (*models.Principal, error) {
+			oidc: func(ctx context.Context, t string, s []string) (*models.Principal, error) {
 				return nil, fmt.Errorf("john doe ... that sounds like a fake name!")
 			},
 			expectErr:    true,
@@ -219,7 +220,7 @@ func Test_TokenAuthComposer(t *testing.T) {
 				fakeValidator{v: test.apiKey},
 				fakeValidator{v: test.oidc},
 			)
-			_, err := v(test.token, nil)
+			_, err := v(context.Background(), test.token, nil)
 			if test.expectErr {
 				require.NotNil(t, err)
 				assert.Contains(t, err.Error(), test.expectErrMsg)
@@ -235,6 +236,6 @@ type fakeValidator struct {
 	v TokenFunc
 }
 
-func (v fakeValidator) ValidateAndExtract(t string, s []string) (*models.Principal, error) {
-	return v.v(t, s)
+func (v fakeValidator) ValidateAndExtract(ctx context.Context, t string, s []string) (*models.Principal, error) {
+	return v.v(ctx, t, s)
 }

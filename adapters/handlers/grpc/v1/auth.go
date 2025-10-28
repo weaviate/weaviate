@@ -27,32 +27,32 @@ import (
 func (s *Service) principalFromContext(ctx context.Context) (*models.Principal, error) {
 	md, ok := metadata.FromIncomingContext(ctx)
 	if !ok {
-		return s.tryAnonymous()
+		return s.tryAnonymous(ctx)
 	}
 
 	// the grpc library will lowercase all md keys, so we need to make sure to
 	// check a lowercase key
 	authValue, ok := md["authorization"]
 	if !ok {
-		return s.tryAnonymous()
+		return s.tryAnonymous(ctx)
 	}
 
 	if len(authValue) == 0 {
-		return s.tryAnonymous()
+		return s.tryAnonymous(ctx)
 	}
 
 	if !strings.HasPrefix(authValue[0], "Bearer ") {
-		return s.tryAnonymous()
+		return s.tryAnonymous(ctx)
 	}
 
 	token := strings.TrimPrefix(authValue[0], "Bearer ")
-	return s.authComposer(token, nil)
+	return s.authComposer(ctx, token, nil)
 }
 
-func (s *Service) tryAnonymous() (*models.Principal, error) {
+func (s *Service) tryAnonymous(ctx context.Context) (*models.Principal, error) {
 	if s.allowAnonymousAccess {
 		return nil, nil
 	}
 
-	return s.authComposer("", nil)
+	return s.authComposer(ctx, "", nil)
 }

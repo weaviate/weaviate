@@ -105,7 +105,7 @@ func TestAuth(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			s := &Service{
 				allowAnonymousAccess: test.allowAnon,
-				authComposer: func(token string, scopes []string) (*models.Principal, error) {
+				authComposer: func(ctx context.Context, token string, scopes []string) (*models.Principal, error) {
 					if token == "" {
 						return nil, fmt.Errorf("not allowed")
 					}

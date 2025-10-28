@@ -12,6 +12,7 @@
 package apikey
 
 import (
+	"context"
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/json"
@@ -24,6 +25,8 @@ import (
 
 	"github.com/sirupsen/logrus"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/alexedwards/argon2id"
 
@@ -366,9 +369,14 @@ func (c *DBUser) IsBlockedKey(token string) bool {
 	return false
 }
 
-func (c *DBUser) ValidateAndExtract(key, userIdentifier string) (*models.Principal, error) {
+func (c *DBUser) ValidateAndExtract(ctx context.Context, key, userIdentifier string) (*models.Principal, error) {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
+
+	ctx, span := otel.Tracer("weaviate-search").Start(ctx, "DBUser.ValidateAndExtract",
+		trace.WithSpanKind(trace.SpanKindInternal),
+	)
+	defer span.End()
 
 	userId, ok := c.data.IdentifierToId[userIdentifier]
 	if !ok {
@@ -383,12 +391,11 @@ func (c *DBUser) ValidateAndExtract(key, userIdentifier string) (*models.Princip
 	weakHash, ok := c.memoryOnlyData.weakKeyStorageById[userId]
 	c.weakHashLock.RUnlock()
 	if ok {
-		// use the secureHash as salt for the computation of the weaker in-memory
-		if err := c.validateWeakHash([]byte(key+secureHash), weakHash); err != nil {
+		if err := c.validateWeakHash(ctx, []byte(key+secureHash), weakHash); err != nil {
 			return nil, err
 		}
 	} else {
-		if err := c.validateStrongHash(key, secureHash, userId); err != nil {
+		if err := c.validateStrongHash(ctx, key, secureHash, userId); err != nil {
 			return nil, err
 		}
 	}
@@ -410,7 +417,11 @@ func (c *DBUser) ValidateAndExtract(key, userIdentifier string) (*models.Princip
 	return &models.Principal{Username: userId, UserType: models.UserTypeInputDb}, nil
 }
 
-func (c *DBUser) validateWeakHash(key []byte, weakHash [32]byte) error {
+func (c *DBUser) validateWeakHash(ctx context.Context, key []byte, weakHash [32]byte) error {
+	_, span := otel.Tracer("weaviate-search").Start(ctx, "validateWeakHash",
+		trace.WithSpanKind(trace.SpanKindInternal),
+	)
+	defer span.End()
 	keyHash := sha256.Sum256(key)
 	if subtle.ConstantTimeCompare(keyHash[:], weakHash[:]) != 1 {
 		return fmt.Errorf("invalid token")
@@ -419,7 +430,11 @@ func (c *DBUser) validateWeakHash(key []byte, weakHash [32]byte) error {
 	return nil
 }
 
-func (c *DBUser) validateStrongHash(key, secureHash, userId string) error {
+func (c *DBUser) validateStrongHash(ctx context.Context, key, secureHash, userId string) error {
+	_, span := otel.Tracer("weaviate-search").Start(ctx, "validateStrongHash",
+		trace.WithSpanKind(trace.SpanKindInternal),
+	)
+	defer span.End()
 	match, err := argon2id.ComparePasswordAndHash(key, secureHash)
 	if err != nil {
 		return err

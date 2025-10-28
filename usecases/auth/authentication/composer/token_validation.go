@@ -12,13 +12,15 @@
 package composer
 
 import (
+	"context"
+
 	"github.com/golang-jwt/jwt/v4"
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
-type TokenFunc func(token string, scopes []string) (*models.Principal, error)
+type TokenFunc func(ctx context.Context, token string, scopes []string) (*models.Principal, error)
 
 // New provides an OpenAPI compatible token validation
 // function that validates the token either as OIDC or as an StaticAPIKey token
@@ -43,19 +45,19 @@ func New(config config.Authentication,
 func pickAuthSchemeDynamically(
 	apiKey authValidator, oidc authValidator,
 ) TokenFunc {
-	return func(token string, scopes []string) (*models.Principal, error) {
+	return func(ctx context.Context, token string, scopes []string) (*models.Principal, error) {
 		_, err := jwt.Parse(token, func(t *jwt.Token) (interface{}, error) {
 			return nil, nil
 		})
 
 		if err != nil && errors.Is(err, jwt.ErrTokenMalformed) {
-			return apiKey.ValidateAndExtract(token, scopes)
+			return apiKey.ValidateAndExtract(ctx, token, scopes)
 		}
 
-		return oidc.ValidateAndExtract(token, scopes)
+		return oidc.ValidateAndExtract(ctx, token, scopes)
 	}
 }
 
 type authValidator interface {
-	ValidateAndExtract(token string, scopes []string) (*models.Principal, error)
+	ValidateAndExtract(ctx context.Context, token string, scopes []string) (*models.Principal, error)
 }

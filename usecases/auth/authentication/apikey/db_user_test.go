@@ -12,6 +12,7 @@
 package apikey
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
@@ -82,13 +83,13 @@ func TestConcurrentValidate(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		wg.Add(2)
 		go func() {
-			_, err := dynUsers.ValidateAndExtract(randomKey, identifier)
+			_, err := dynUsers.ValidateAndExtract(context.Background(), randomKey, identifier)
 			require.NoError(t, err)
 			wg.Done()
 		}()
 
 		go func() {
-			_, err := dynUsers.ValidateAndExtract(randomKey2, identifier2)
+			_, err := dynUsers.ValidateAndExtract(context.Background(), randomKey2, identifier2)
 			require.NoError(t, err)
 			wg.Done()
 		}()
@@ -118,7 +119,7 @@ func TestDynUserTestSlowAfterWeakHash(t *testing.T) {
 	require.False(t, ok)
 
 	startSlow := time.Now()
-	_, err = dynUsers.ValidateAndExtract(randomKey, identifier)
+	_, err = dynUsers.ValidateAndExtract(context.Background(), randomKey, identifier)
 	require.NoError(t, err)
 	tookSlow := time.Since(startSlow)
 
@@ -126,7 +127,7 @@ func TestDynUserTestSlowAfterWeakHash(t *testing.T) {
 	require.True(t, ok)
 
 	startFast := time.Now()
-	_, err = dynUsers.ValidateAndExtract(randomKey, identifier)
+	_, err = dynUsers.ValidateAndExtract(context.Background(), randomKey, identifier)
 	require.NoError(t, err)
 	tookFast := time.Since(startFast)
 	require.Less(t, tookFast, tookSlow)
@@ -146,7 +147,7 @@ func TestUpdateUser(t *testing.T) {
 	randomKeyOld, _, err := keys.DecodeApiKey(apiKey)
 	require.NoError(t, err)
 
-	principal, err := dynUsers.ValidateAndExtract(randomKeyOld, oldIdentifier)
+	principal, err := dynUsers.ValidateAndExtract(context.Background(), randomKeyOld, oldIdentifier)
 	require.NoError(t, err)
 	require.NotNil(t, principal)
 
@@ -158,19 +159,19 @@ func TestUpdateUser(t *testing.T) {
 	randomKeyNew, _, err := keys.DecodeApiKey(apiKeyNew)
 	require.NoError(t, err)
 
-	principal, err = dynUsers.ValidateAndExtract(randomKeyOld, oldIdentifier)
+	principal, err = dynUsers.ValidateAndExtract(context.Background(), randomKeyOld, oldIdentifier)
 	require.Error(t, err)
 	require.Nil(t, principal)
 
 	// first login with new key is slow again, second is fast
 	startSlow := time.Now()
-	principal, err = dynUsers.ValidateAndExtract(randomKeyNew, newIdentifier)
+	principal, err = dynUsers.ValidateAndExtract(context.Background(), randomKeyNew, newIdentifier)
 	require.NoError(t, err)
 	require.NotNil(t, principal)
 	tookSlow := time.Since(startSlow)
 
 	startFast := time.Now()
-	_, err = dynUsers.ValidateAndExtract(randomKeyNew, newIdentifier)
+	_, err = dynUsers.ValidateAndExtract(context.Background(), randomKeyNew, newIdentifier)
 	require.NoError(t, err)
 	tookFast := time.Since(startFast)
 	require.Less(t, tookFast, tookSlow)
@@ -198,18 +199,18 @@ func TestSnapShotAndRestore(t *testing.T) {
 
 	// first login is slow, second is fast
 	startSlow := time.Now()
-	principal, err := dynUsers.ValidateAndExtract(login1, identifier)
+	principal, err := dynUsers.ValidateAndExtract(context.Background(), login1, identifier)
 	require.NoError(t, err)
 	require.NotNil(t, principal)
 	tookSlow := time.Since(startSlow)
 
 	startFast := time.Now()
-	_, err = dynUsers.ValidateAndExtract(login1, identifier)
+	_, err = dynUsers.ValidateAndExtract(context.Background(), login1, identifier)
 	require.NoError(t, err)
 	tookFast := time.Since(startFast)
 	require.Less(t, tookFast, tookSlow)
 
-	principal2, err := dynUsers.ValidateAndExtract(login2, identifier2)
+	principal2, err := dynUsers.ValidateAndExtract(context.Background(), login2, identifier2)
 	require.NoError(t, err)
 	require.NotNil(t, principal2)
 
@@ -232,12 +233,12 @@ func TestSnapShotAndRestore(t *testing.T) {
 	require.Equal(t, snapShot, snapshot2)
 
 	startAfterRestoreSlow := time.Now()
-	_, err = dynUsers2.ValidateAndExtract(login1, identifier)
+	_, err = dynUsers2.ValidateAndExtract(context.Background(), login1, identifier)
 	require.NoError(t, err)
 	tookAfterRestore := time.Since(startAfterRestoreSlow)
 	require.Less(t, tookFast, tookAfterRestore)
 
-	_, err = dynUsers2.ValidateAndExtract(login2, identifier2)
+	_, err = dynUsers2.ValidateAndExtract(context.Background(), login2, identifier2)
 	require.Error(t, err)
 
 	apiKey3, hash3, identifier3, err := keys.CreateApiKeyAndHash()
@@ -246,7 +247,7 @@ func TestSnapShotAndRestore(t *testing.T) {
 
 	login3, _, err := keys.DecodeApiKey(apiKey3)
 	require.NoError(t, err)
-	_, err = dynUsers2.ValidateAndExtract(login3, identifier3)
+	_, err = dynUsers2.ValidateAndExtract(context.Background(), login3, identifier3)
 	require.Error(t, err)
 }
 
@@ -291,7 +292,7 @@ func TestLastUsedTime(t *testing.T) {
 
 	login, _, err := keys.DecodeApiKey(apiKey)
 	require.NoError(t, err)
-	_, err = dynUsers.ValidateAndExtract(login, identifier)
+	_, err = dynUsers.ValidateAndExtract(context.Background(), login, identifier)
 	require.NoError(t, err)
 
 	user, err = dynUsers.GetUsers(userId)
@@ -347,7 +348,7 @@ func TestImportingAndSuspendingStaticKeys(t *testing.T) {
 
 	login, _, err := keys.DecodeApiKey(apiKey)
 	require.NoError(t, err)
-	_, err = dynUsers.ValidateAndExtract(login, identifier)
+	_, err = dynUsers.ValidateAndExtract(context.Background(), login, identifier)
 	require.NoError(t, err)
 
 	principal, err = dynUsers.ValidateImportedKey(importedApiKey)
@@ -393,7 +394,7 @@ func TestImportingStaticKeys(t *testing.T) {
 
 		login, _, err := keys.DecodeApiKey(apiKey)
 		require.NoError(t, err)
-		_, err = dynUsers.ValidateAndExtract(login, identifier)
+		_, err = dynUsers.ValidateAndExtract(context.Background(), login, identifier)
 		require.NoError(t, err)
 
 		users, err = dynUsers.GetUsers(userId)

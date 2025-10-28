@@ -17,6 +17,7 @@ package operations
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strings"
@@ -330,7 +331,7 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 			return middleware.NotImplemented("operation WeaviateWellknownReadiness has not yet been implemented")
 		}),
 
-		OidcAuth: func(token string, scopes []string) (*models.Principal, error) {
+		OidcAuth: func(ctx context.Context, token string, scopes []string) (*models.Principal, error) {
 			return nil, errors.NotImplemented("oauth2 bearer auth (oidc) has not yet been implemented")
 		},
 		// default authorizer is authorized meaning no requests are blocked
@@ -391,7 +392,7 @@ type WeaviateAPI struct {
 
 	// OidcAuth registers a function that takes an access token and a collection of required scopes and returns a principal
 	// it performs authentication based on an oauth2 bearer token provided in the request
-	OidcAuth func(string, []string) (*models.Principal, error)
+	OidcAuth func(context.Context, string, []string) (*models.Principal, error)
 
 	// APIAuthorizer provides access control (ACL/RBAC/ABAC) by providing access to the request and authenticated principal
 	APIAuthorizer runtime.Authorizer
@@ -930,9 +931,8 @@ func (o *WeaviateAPI) AuthenticatorsFor(schemes map[string]spec.SecurityScheme) 
 		switch name {
 		case "oidc":
 			result[name] = o.BearerAuthenticator(name, func(token string, scopes []string) (interface{}, error) {
-				return o.OidcAuth(token, scopes)
+				return o.OidcAuth(context.Background(), token, scopes)
 			})
-
 		}
 	}
 	return result
