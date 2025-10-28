@@ -18,6 +18,8 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/filters"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/weaviate/weaviate/entities/dto"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -29,6 +31,10 @@ import (
 func (t *Traverser) GetClass(ctx context.Context, principal *models.Principal,
 	params dto.GetParams,
 ) ([]interface{}, error) {
+	ctx, span := otel.Tracer("weaviate-search").Start(ctx, "traverser.GetClass",
+		trace.WithSpanKind(trace.SpanKindInternal),
+	)
+	defer span.End()
 	before := time.Now()
 
 	ok := t.ratelimiter.TryInc()

@@ -4,7 +4,19 @@ metadata:
   name: tempo-pod
   labels:
     app: tempo
+  annotations:
+    sidecar.istio.io/inject: "false"
 spec:
+  affinity:
+    podAntiAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector:
+          matchExpressions:
+          - key: app
+            operator: In
+            values:
+            - weaviate
+        topologyKey: kubernetes.io/hostname
   containers:
   - name: tempo
     image: grafana/tempo:latest # Use a specific version in production, e.g., grafana/tempo:2.2.0

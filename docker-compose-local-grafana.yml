@@ -13,3 +13,4 @@ services:
       - ./local-grafana-config/dashboard-files:/var/lib/grafana/dashboards
     extra_hosts:
       - "host.docker.internal:host-gateway"
+
