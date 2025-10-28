@@ -16,7 +16,6 @@ import (
 	"fmt"
 	"os"
 	"path"
-	"path/filepath"
 	"runtime"
 	"runtime/debug"
 	"slices"
@@ -41,7 +40,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/cluster/router"
-	types "github.com/weaviate/weaviate/cluster/router/types"
+	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/autocut"
@@ -2495,7 +2494,8 @@ func (i *Index) drop() error {
 
 	i.closingCancel()
 
-	// backup in progress
+	// Check if a backup is in progress. Dont delete files in this case so the backup process can complete successfully
+	// The files will be deleted after the backup is completed and in case of a crash on next startup.
 	lastBackup := i.lastBackup.Load()
 	keepFiles := lastBackup != nil
 
@@ -3163,8 +3163,4 @@ func (i *Index) DebugRequantizeIndex(ctx context.Context, shardName, targetVecto
 	}, i.logger)
 
 	return nil
-}
-
-func GetBackupPath(rootPath string, class string) string {
-	return filepath.Join(rootPath, backup.DeleteMarker+indexID(schema.ClassName(class)))
 }

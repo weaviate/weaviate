@@ -178,6 +178,7 @@ func (db *DB) ReleaseBackup(ctx context.Context, bakID, class string) (err error
 	if idx != nil {
 		return idx.ReleaseBackup(ctx, bakID)
 	} else {
+		// index has been deleted in the meantime. Cleanup files that were kept to complete backup
 		path := filepath.Join(db.config.RootPath, backup.DeleteMarker+indexID(schema.ClassName(class)))
 		exists, err := diskio.DirExists(path)
 		if err != nil {
