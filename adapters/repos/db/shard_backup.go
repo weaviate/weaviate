@@ -264,13 +264,6 @@ func (s *Shard) readBackupMetadata(d *backup.ShardDescriptor) (err error) {
 	return nil
 }
 
-func (s *Shard) nodeName() (string, error) {
-	node, err := s.index.getSchema.ShardOwner(
-		s.index.Config.ClassName.String(), s.name)
-
-	return node, err
-}
-
 func (s *Shard) GetFileMetadata(ctx context.Context, relativeFilePath string) (file.FileMetadata, error) {
 	s.haltForTransferMux.Lock()
 	defer s.haltForTransferMux.Unlock()
