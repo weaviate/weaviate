@@ -165,7 +165,7 @@ func (s *Searcher) objectsByDocID(ctx context.Context, it docIDsIterator,
 		loop++
 
 		binary.LittleEndian.PutUint64(docIDBytes, docID)
-		res, err := bucket.GetBySecondary(0, docIDBytes)
+		res, err := bucket.GetBySecondary(ctx, 0, docIDBytes)
 		if err != nil {
 			return nil, err
 		}
