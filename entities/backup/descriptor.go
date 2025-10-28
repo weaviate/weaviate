@@ -16,9 +16,9 @@ import (
 	"time"
 )
 
-// DeleteMarker marks indices that have been deleted during an ongoing backup and are already removed from index and schema
-// however still present on disk. Such indices should be deleted after the backup is done. In case of a crash they are
-// deleted after weaviate restart
+// DeleteMarker marks folders of indices that have been deleted during an ongoing backup and are already removed from
+// store and schema. However, we want to keep them on disk to ensure that the backup can complete. The folders are
+// removed after backup completion. In case of a crash they are deleted at the next startup.
 const DeleteMarker = "__DELETE_ME_AFTER_BACKUP__"
 
 // NodeDescriptor contains data related to one participant in DBRO

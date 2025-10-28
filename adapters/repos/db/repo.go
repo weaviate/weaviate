@@ -160,7 +160,7 @@ func New(logger logrus.FieldLogger, config Config,
 		metricsRegisterer = promMetrics.Registerer
 	}
 
-	// drop any partially deleted indices that were kept for backup purposes. This should only happen after a crash.
+	// delete any leftover indices that were kept for backup purposes. This should only happen after a crash.
 	// Dont return errors here for missing files etc, as we just want to do a best-effort cleanup.
 	dir, err := os.ReadDir(config.RootPath)
 	if err == nil {
