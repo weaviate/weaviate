@@ -266,7 +266,6 @@ func (i *Index) calculateLoadedShardUsage(ctx context.Context, shard *Shard, exa
 			return fmt.Errorf("vector index %s not found in config", targetVector)
 		}
 		indexType := vectorIndexConfig.IndexType()
-		bits := enthnsw.GetRQBits(vectorIndexConfig)
 
 		// For dynamic indexes, get the actual underlying index type
 		isDynamic := false
@@ -276,7 +275,7 @@ func (i *Index) calculateLoadedShardUsage(ctx context.Context, shard *Shard, exa
 			isDynamic = true
 			isDynamicUpgraded = dynamicIndex.IsUpgraded()
 		}
-		category, _ := GetDimensionCategory(vectorIndexConfig, isDynamicUpgraded)
+		dimInfo := GetDimensionCategory(vectorIndexConfig, isDynamicUpgraded)
 
 		dimensionality, err := shard.DimensionsUsage(ctx, targetVector)
 		if err != nil {
@@ -287,11 +286,11 @@ func (i *Index) calculateLoadedShardUsage(ctx context.Context, shard *Shard, exa
 
 		vectorUsage := &types.VectorUsage{
 			Name:                   targetVector,
-			Compression:            category.String(),
+			Compression:            dimInfo.category.String(),
 			VectorIndexType:        indexType,
 			IsDynamic:              isDynamic,
 			VectorCompressionRatio: compressionRatio,
-			Bits:                   bits,
+			Bits:                   dimInfo.bits,
 			MultiVectorConfig:      multiVectorConfigFromConfig(vectorIndexConfig),
 		}
 
@@ -368,8 +367,8 @@ func (i *Index) calculateUnloadedShardUsage(ctx context.Context, shardName strin
 		vectorUsage.IsDynamic = vectorConfig.VectorIndexType == common.IndexTypeDynamic
 		if !vectorUsage.IsDynamic {
 			// for cold tenants we cannot distinguish know if dynamic has been upgraded or not. Do not include wrong data
-			category, _ := GetDimensionCategory(vectorIndexConfig, false)
-			vectorUsage.Compression = category.String()
+			dimInfo := GetDimensionCategory(vectorIndexConfig, false)
+			vectorUsage.Compression = dimInfo.category.String()
 			vectorUsage.VectorIndexType = vectorIndexConfig.IndexType()
 		}
 

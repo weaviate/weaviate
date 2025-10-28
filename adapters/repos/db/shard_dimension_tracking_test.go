@@ -618,6 +618,7 @@ func TestGetDimensionCategory(t *testing.T) {
 		config           schemaConfig.VectorIndexConfig
 		expectedCategory DimensionCategory
 		expectedSegments int
+		expectedBits     int16
 		upgradedDynamic  bool
 	}{
 		// HNSW Tests
@@ -631,6 +632,7 @@ func TestGetDimensionCategory(t *testing.T) {
 			},
 			expectedCategory: DimensionCategoryStandard,
 			expectedSegments: 0,
+			expectedBits:     0,
 		},
 		{
 			name: "HNSW with PQ enabled",
@@ -642,6 +644,7 @@ func TestGetDimensionCategory(t *testing.T) {
 			},
 			expectedCategory: DimensionCategoryPQ,
 			expectedSegments: 16,
+			expectedBits:     0,
 		},
 		{
 			name: "HNSW with PQ enabled (zero segments)",
@@ -653,6 +656,7 @@ func TestGetDimensionCategory(t *testing.T) {
 			},
 			expectedCategory: DimensionCategoryPQ,
 			expectedSegments: 0,
+			expectedBits:     0,
 		},
 		{
 			name: "HNSW with BQ enabled",
@@ -664,6 +668,7 @@ func TestGetDimensionCategory(t *testing.T) {
 			},
 			expectedCategory: DimensionCategoryBQ,
 			expectedSegments: 0,
+			expectedBits:     0,
 		},
 		{
 			name: "HNSW with SQ enabled",
@@ -675,17 +680,31 @@ func TestGetDimensionCategory(t *testing.T) {
 			},
 			expectedCategory: DimensionCategorySQ,
 			expectedSegments: 0,
+			expectedBits:     0,
 		},
 		{
-			name: "HNSW with RQ enabled",
+			name: "HNSW with RQ-1 enabled",
 			config: enthnsw.UserConfig{
 				PQ: enthnsw.PQConfig{Enabled: false},
 				BQ: enthnsw.BQConfig{Enabled: false},
 				SQ: enthnsw.SQConfig{Enabled: false},
-				RQ: enthnsw.RQConfig{Enabled: true},
+				RQ: enthnsw.RQConfig{Enabled: true, Bits: 1},
 			},
 			expectedCategory: DimensionCategoryRQ,
 			expectedSegments: 0,
+			expectedBits:     1,
+		},
+		{
+			name: "HNSW with RQ-8 enabled",
+			config: enthnsw.UserConfig{
+				PQ: enthnsw.PQConfig{Enabled: false},
+				BQ: enthnsw.BQConfig{Enabled: false},
+				SQ: enthnsw.SQConfig{Enabled: false},
+				RQ: enthnsw.RQConfig{Enabled: true, Bits: 8},
+			},
+			expectedCategory: DimensionCategoryRQ,
+			expectedSegments: 0,
+			expectedBits:     8,
 		},
 		{
 			name: "HNSW with multiple compression methods (PQ takes priority)",
@@ -697,6 +716,7 @@ func TestGetDimensionCategory(t *testing.T) {
 			},
 			expectedCategory: DimensionCategoryPQ,
 			expectedSegments: 8,
+			expectedBits:     0,
 		},
 
 		// Flat Tests
@@ -707,6 +727,7 @@ func TestGetDimensionCategory(t *testing.T) {
 			},
 			expectedCategory: DimensionCategoryStandard,
 			expectedSegments: 0,
+			expectedBits:     0,
 		},
 		{
 			name: "Flat with BQ enabled",
@@ -715,6 +736,7 @@ func TestGetDimensionCategory(t *testing.T) {
 			},
 			expectedCategory: DimensionCategoryBQ,
 			expectedSegments: 0,
+			expectedBits:     0,
 		},
 
 		// Dynamic Tests
@@ -733,6 +755,7 @@ func TestGetDimensionCategory(t *testing.T) {
 			},
 			expectedCategory: DimensionCategoryStandard,
 			expectedSegments: 0,
+			expectedBits:     0,
 		},
 		{
 			name: "upgraded Dynamic with HNSW PQ enabled",
@@ -750,6 +773,25 @@ func TestGetDimensionCategory(t *testing.T) {
 			expectedCategory: DimensionCategoryPQ,
 			expectedSegments: 12,
 			upgradedDynamic:  true,
+			expectedBits:     0,
+		},
+		{
+			name: "upgraded Dynamic with HNSW RQ enabled",
+			config: dynamicent.UserConfig{
+				HnswUC: enthnsw.UserConfig{
+					PQ: enthnsw.PQConfig{Enabled: false},
+					BQ: enthnsw.BQConfig{Enabled: false},
+					SQ: enthnsw.SQConfig{Enabled: false},
+					RQ: enthnsw.RQConfig{Enabled: true, Bits: 8},
+				},
+				FlatUC: flatent.UserConfig{
+					BQ: flatent.CompressionUserConfig{Enabled: true},
+				},
+			},
+			expectedCategory: DimensionCategoryRQ,
+			expectedSegments: 0,
+			upgradedDynamic:  true,
+			expectedBits:     8,
 		},
 		{
 			name: "Dynamic with HNSW BQ enabled",
@@ -767,6 +809,7 @@ func TestGetDimensionCategory(t *testing.T) {
 			upgradedDynamic:  true,
 			expectedCategory: DimensionCategoryBQ,
 			expectedSegments: 0,
+			expectedBits:     0,
 		},
 		{
 			name: "not-upgraded Dynamic with HNSW RQ, Flat BQ enabled",
@@ -783,6 +826,7 @@ func TestGetDimensionCategory(t *testing.T) {
 			},
 			expectedCategory: DimensionCategoryBQ,
 			expectedSegments: 0,
+			expectedBits:     0,
 		},
 		{
 			name: "Dynamic with HNSW standard, Flat standard (falls back to Flat standard)",
@@ -799,6 +843,7 @@ func TestGetDimensionCategory(t *testing.T) {
 			},
 			expectedCategory: DimensionCategoryStandard,
 			expectedSegments: 0,
+			expectedBits:     0,
 		},
 
 		// Edge Cases
@@ -809,17 +854,20 @@ func TestGetDimensionCategory(t *testing.T) {
 			}{},
 			expectedCategory: DimensionCategoryStandard,
 			expectedSegments: 0,
+			expectedBits:     0,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			category, segments := GetDimensionCategory(tt.config, tt.upgradedDynamic)
+			dimInfo := GetDimensionCategory(tt.config, tt.upgradedDynamic)
 
-			assert.Equal(t, tt.expectedCategory, category,
-				"Expected category %v, got %v", tt.expectedCategory, category)
-			assert.Equal(t, tt.expectedSegments, segments,
-				"Expected segments %d, got %d", tt.expectedSegments, segments)
+			assert.Equal(t, tt.expectedCategory, dimInfo.category,
+				"Expected category %v, got %v", tt.expectedCategory, dimInfo.category)
+			assert.Equal(t, tt.expectedSegments, dimInfo.segments,
+				"Expected segments %d, got %d", tt.expectedSegments, dimInfo.segments)
+			assert.Equal(t, tt.expectedBits, dimInfo.bits,
+				"Expected bits %d, got %d", tt.expectedBits, dimInfo.bits)
 
 			// Verify that the category string representation is correct
 			expectedString := tt.expectedCategory.String()

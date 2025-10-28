@@ -822,6 +822,100 @@ func TestUsageWithDynamicIndex(t *testing.T) {
 		require.InDelta(t, *shardDynamicHNSW.ObjectsStorageBytes, *shardHNSW.ObjectsStorageBytes, float64(*shardDynamicHNSW.ObjectsStorageBytes)*0.1)
 		require.Equal(t, vectorDynamicHNSW.Dimensionalities, vectorHNSW.Dimensionalities)
 	})
+
+	t.Run("dynamic with RQ", func(t *testing.T) {
+		className := sanitizeName("Class" + t.Name())
+
+		c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
+		defer c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
+
+		class := &models.Class{
+			Class: className,
+			Properties: []*models.Property{
+				{
+					Name: "name", DataType: []string{schema.DataTypeText.String()},
+				},
+				{
+					Name: "description", DataType: []string{schema.DataTypeText.String()},
+				},
+			},
+			VectorConfig: map[string]models.VectorConfig{
+				dynamic1024: {
+					Vectorizer: map[string]any{
+						"none": map[string]any{},
+					},
+					VectorIndexType: "dynamic",
+					VectorIndexConfig: map[string]any{
+						"threshold": 1001,
+						hnsw: map[string]any{
+							"rq": map[string]any{
+								"enabled": true,
+							},
+						},
+						flat: map[string]any{},
+					},
+				},
+			},
+		}
+
+		require.NoError(t, c.Schema().ClassCreator().WithClass(class).Do(ctx))
+
+		insertObjects(t, 1000, c, className, "", models.Vectors{
+			dynamic1024: generateRandomVector(targetVectorDimensions[dynamic1024]),
+		}, nil)
+		testAllObjectsIndexed(t, c, className)
+
+		colUsage, err := getDebugUsageWithPortAndCollection(debug, className)
+		require.NoError(t, err)
+		require.NotNil(t, colUsage)
+
+		require.Len(t, colUsage.Shards, 1)
+		shard := colUsage.Shards[0]
+		require.Equal(t, &objectCount1, shard.ObjectsCount)
+		require.Len(t, shard.NamedVectors, 1)
+		require.Equal(t, dynamic1024, *shard.NamedVectors[0].Name)
+		require.Equal(t, flat, *shard.NamedVectors[0].VectorIndexType)
+		require.NotNil(t, shard.NamedVectors[0].Compression)
+		require.Equal(t, "standard", *shard.NamedVectors[0].Compression)
+		require.NotEmpty(t, shard.NamedVectors[0].IsDynamic)
+		require.NotEmpty(t, shard.NamedVectors[0].Dimensionalities)
+		require.NotNil(t, shard.NamedVectors[0].Dimensionalities[0].Dimensions)
+		require.NotNil(t, shard.NamedVectors[0].Dimensionalities[0].Count)
+		require.Equal(t, dimensions, *shard.NamedVectors[0].Dimensionalities[0].Dimensions)
+		require.Equal(t, objectCount1, *shard.NamedVectors[0].Dimensionalities[0].Count)
+
+		insertObjects(t, 1000, c, className, "", models.Vectors{
+			dynamic1024: generateRandomVector(targetVectorDimensions[dynamic1024]),
+		}, nil)
+		testAllObjectsIndexed(t, c, className)
+
+		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+			colUsageHnsw, err := getDebugUsageWithPortAndCollection(debug, className)
+			require.NoError(ct, err)
+			require.NotNil(ct, colUsageHnsw)
+
+			require.Len(ct, colUsageHnsw.Shards, 1)
+			shardHnsw := colUsageHnsw.Shards[0]
+			require.NotNil(ct, shardHnsw.ObjectsCount)
+			require.Equal(ct, objectCount2, *shardHnsw.ObjectsCount)
+			require.Len(ct, shardHnsw.NamedVectors, 1)
+			require.NotNil(ct, shardHnsw.NamedVectors[0].Name)
+			require.NotNil(ct, shardHnsw.NamedVectors[0].VectorIndexType)
+			require.NotNil(ct, shardHnsw.NamedVectors[0].Compression)
+			require.Equal(ct, dynamic1024, *shardHnsw.NamedVectors[0].Name)
+			require.Equal(ct, hnsw, *shardHnsw.NamedVectors[0].VectorIndexType)
+			require.NotEmpty(ct, shardHnsw.NamedVectors[0].IsDynamic)
+			require.True(ct, *shardHnsw.NamedVectors[0].IsDynamic)
+			require.Equal(ct, "rq", *shardHnsw.NamedVectors[0].Compression)
+			require.NotNil(ct, shardHnsw.NamedVectors[0].Bits)
+			require.Equal(ct, 8, *shardHnsw.NamedVectors[0].Bits)
+			require.NotEmpty(ct, shardHnsw.NamedVectors[0].Dimensionalities)
+			require.NotNil(ct, shardHnsw.NamedVectors[0].Dimensionalities[0].Dimensions)
+			require.NotNil(ct, shardHnsw.NamedVectors[0].Dimensionalities[0].Count)
+			require.Equal(ct, dimensions, *shardHnsw.NamedVectors[0].Dimensionalities[0].Dimensions)
+			require.Equal(ct, objectCount2, *shardHnsw.NamedVectors[0].Dimensionalities[0].Count)
+		}, 5*time.Minute, 500*time.Millisecond)
+	})
 }
 
 func sanitizeName(name string) string {
