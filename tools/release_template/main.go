@@ -72,25 +72,30 @@ func makeLinks(languages []language, version string) string {
 
 func getModels(languages []language) ([]language, error) {
 	for i, lang := range languages {
-		resp, err := http.Get(fmt.Sprintf(
-			"%s/docker-compose/parameters/contextionary-models?language=%s",
-			configurationAPIOrigin, lang.code))
-		if err != nil {
-			return nil, errors.Wrapf(err, "language %s", lang.label)
-		}
+		if err := func() error {
+			resp, err := http.Get(fmt.Sprintf(
+				"%s/docker-compose/parameters/contextionary-models?language=%s",
+				configurationAPIOrigin, lang.code))
+			if err != nil {
+				return errors.Wrapf(err, "language %s", lang.label)
+			}
 
-		defer resp.Body.Close()
-		bytes, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return nil, errors.Wrapf(err, "language %s", lang.label)
-		}
+			defer resp.Body.Close()
+			bytes, err := io.ReadAll(resp.Body)
+			if err != nil {
+				return errors.Wrapf(err, "language %s", lang.label)
+			}
 
-		model, err := extractModel(bytes)
-		if err != nil {
-			return nil, errors.Wrapf(err, "language %s", lang.label)
-		}
+			model, err := extractModel(bytes)
+			if err != nil {
+				return errors.Wrapf(err, "language %s", lang.label)
+			}
 
-		languages[i].model = model
+			languages[i].model = model
+			return nil
+		}(); err != nil {
+			return nil, err
+		}
 	}
 
 	return languages, nil

@@ -20,19 +20,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/weaviate/weaviate/client/meta"
-
 	"github.com/go-openapi/strfmt"
-
-	"github.com/weaviate/weaviate/test/docker"
-
 	"github.com/stretchr/testify/assert"
-	"github.com/weaviate/weaviate/client/users"
-
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/client/authz"
+	"github.com/weaviate/weaviate/client/meta"
+	"github.com/weaviate/weaviate/client/users"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
@@ -549,7 +545,6 @@ func TestDynamicUsers(t *testing.T) {
 			helper.DeleteUser(t, userName, adminKey)
 			apiKey := helper.CreateUser(t, userName, adminKey)
 			apiKeys = append(apiKeys, apiKey)
-			defer helper.DeleteUser(t, userName, adminKey) // runs at end of test function to clear everything
 			if i%2 == 0 {
 				helper.AssignRoleToUser(t, adminKey, "viewer", userName)
 			}
@@ -557,6 +552,12 @@ func TestDynamicUsers(t *testing.T) {
 				helper.DeactivateUser(t, adminKey, userName, false)
 			}
 		}
+		// cleanup at end of test
+		defer func() {
+			for _, userName := range userNames {
+				helper.DeleteUser(t, userName, adminKey)
+			}
+		}()
 
 		allUsersAdmin := helper.ListAllUsers(t, adminKey)
 		require.Len(t, allUsersAdmin, len(userNames)+len(staticUsers)+1)
@@ -596,7 +597,6 @@ func TestDynamicUsers(t *testing.T) {
 		for i, userName := range userNames {
 			helper.DeleteUser(t, userName, adminKey)
 			helper.CreateUser(t, userName, adminKey)
-			defer helper.DeleteUser(t, userName, adminKey) // runs at end of test function to clear everything
 			if i%2 == 0 {
 				helper.AssignRoleToUser(t, adminKey, "viewer", userName)
 			}
@@ -604,6 +604,12 @@ func TestDynamicUsers(t *testing.T) {
 				helper.DeactivateUser(t, adminKey, userName, false)
 			}
 		}
+		// cleanup at end of test
+		defer func() {
+			for _, userName := range userNames {
+				helper.DeleteUser(t, userName, adminKey)
+			}
+		}()
 
 		allUsers := helper.ListAllUsers(t, adminKey)
 		require.Len(t, allUsers, len(userNames)+len(staticUsers)+1)
@@ -642,8 +648,13 @@ func TestDynamicUsers(t *testing.T) {
 		for _, userName := range userNames {
 			helper.DeleteUser(t, userName, adminKey)
 			helper.CreateUser(t, userName, adminKey)
-			defer helper.DeleteUser(t, userName, adminKey) // runs at end of test function to clear everything
 		}
+		// cleanup at end of test
+		defer func() {
+			for _, userName := range userNames {
+				helper.DeleteUser(t, userName, adminKey)
+			}
+		}()
 
 		// create role that can only view finance users
 		readUserAction := authorization.ReadUsers

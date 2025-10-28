@@ -1206,9 +1206,9 @@ func (i *Index) objectByID(ctx context.Context, id strfmt.UUID,
 	if err != nil {
 		return obj, err
 	}
+	defer release()
 
 	if shard != nil {
-		defer release()
 		if obj, err = shard.ObjectByID(ctx, id, props, addl); err != nil {
 			return obj, fmt.Errorf("get local object: shard=%s: %w", shardName, err)
 		}
@@ -1296,10 +1296,15 @@ func (i *Index) multiObjectByID(ctx context.Context,
 		if err != nil {
 			return nil, err
 		} else if shard != nil {
-			defer release()
-			objects, err = shard.MultiObjectByID(ctx, group.ids)
+			func() {
+				defer release()
+				objects, err = shard.MultiObjectByID(ctx, group.ids)
+				if err != nil {
+					err = errors.Wrapf(err, "local shard %s", shardId(i.ID(), shardName))
+				}
+			}()
 			if err != nil {
-				return nil, errors.Wrapf(err, "local shard %s", shardId(i.ID(), shardName))
+				return nil, err
 			}
 		} else {
 			objects, err = i.remote.MultiGetObjects(ctx, shardName, extractIDsFromMulti(group.ids))
@@ -1832,30 +1837,27 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 	var remoteSearches int64
 	var remoteResponses atomic.Int64
 
-	for _, sn := range shardNames {
-		shardName := sn
-		localCtx, span := otel.Tracer("weaviate-search").Start(ctx, "i.GetShard",
+	for _, shardName := range shardNames {
+		spanCtx, span := otel.Tracer("weaviate-search").Start(ctx, "i.GetShard",
 			trace.WithSpanKind(trace.SpanKindInternal),
 			trace.WithAttributes(attribute.String("shard.name", shardName)),
 			trace.WithAttributes(attribute.String("node.name", i.getSchema.NodeName())),
 		)
-		shard, release, err := i.GetShard(localCtx, shardName)
+		shard, release, err := i.GetShard(spanCtx, shardName)
 		span.End()
 		if err != nil {
 			return nil, nil, err
-		}
-		if shard != nil {
-			defer release()
 		}
 
 		if shard != nil {
 			localSearches++
 			eg.Go(func() error {
-				localCtx, span := otel.Tracer("weaviate-search").Start(ctx, "i.localShardSearch",
+				defer release()
+				spanCtx, span := otel.Tracer("weaviate-search").Start(ctx, "i.localShardSearch",
 					trace.WithSpanKind(trace.SpanKindInternal),
 					trace.WithAttributes(attribute.String("shard.name", shardName)),
 				)
-				localShardResult, localShardScores, err1 := i.localShardSearch(localCtx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardName)
+				localShardResult, localShardScores, err1 := i.localShardSearch(spanCtx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardName)
 				span.End()
 				if err1 != nil {
 					return fmt.Errorf(

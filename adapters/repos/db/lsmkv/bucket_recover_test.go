@@ -20,6 +20,7 @@ import (
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
@@ -252,8 +253,10 @@ func testBucketContent(t *testing.T, strategy string, b *Bucket, maxObject int) 
 		case StrategyRoaringSet:
 			get, release, err := b.RoaringSetGet(key)
 			require.NoError(t, err)
-			defer release()
-			require.True(t, get.Contains(uint64(i)))
+			func() {
+				defer release()
+				require.True(t, get.Contains(uint64(i)))
+			}()
 		case StrategyRoaringSetRange:
 			//_, err :=  b.Rang
 			//require.NoError(t,err)
