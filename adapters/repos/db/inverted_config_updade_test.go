@@ -256,9 +256,9 @@ func TestUpdateInvertedConfigStopwordsPresetSwitch(t *testing.T) {
 			Removals:  []string{"boo"},
 		}
 
-		// UpdateInvertedIndexConfig only calls SetAdditions/SetRemovals on the
-		// existing detector, so previous preset entries do not change.
-		// Now we have stopwords including all "en" stopword plus "boo"
+		// UpdateInvertedIndexConfig rebuilds the detector from config using
+		// NewDetectorFromConfig, so the preset is recreated from "en" default.
+		// Now we have all "en" stopwords plus "journey", with "boo" removed (if it existed).
 		err := migrator.UpdateInvertedIndexConfig(context.Background(), string(className), class.InvertedIndexConfig)
 		require.Nil(t, err)
 
@@ -278,9 +278,9 @@ func TestUpdateInvertedConfigStopwordsPresetSwitch(t *testing.T) {
 			Removals:  []string{},
 		}
 
-		// Because the detector was only mutated incrementally, switching to the
-		// "none" preset below still leaves the old "en" words (and additions) active.
-		// Now we should have all stopwords including only the "none" preset words plus "custom" but not "boo".
+		// UpdateInvertedIndexConfig rebuilds the detector from scratch using
+		// NewDetectorFromConfig. Switching to "none" preset clears all old "en"
+		// words and previous additions. Only "custom" should be a stopword now.
 		err := migrator.UpdateInvertedIndexConfig(context.Background(), string(className), class.InvertedIndexConfig)
 		require.Nil(t, err)
 
