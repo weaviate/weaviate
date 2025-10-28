@@ -1822,7 +1822,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 	}
 
 	eg := enterrors.NewErrorGroupWrapper(i.logger, "tenant:", tenant)
-	eg.SetLimit(_NUMCPU * 2)
+	eg.SetLimit(999999)
 	m := &sync.Mutex{}
 
 	out := make([]*storobj.Object, 0, shardCap)
