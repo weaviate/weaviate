@@ -130,6 +130,8 @@ func NewShardedUInt64LockCache(vecForID common.VectorForID[uint64], maxSize int,
 }
 
 func (s *shardedLockCache[T]) All() [][]T {
+	s.maintenanceLock.RLock()
+	defer s.maintenanceLock.RUnlock()
 	return s.cache
 }
 
@@ -548,6 +550,8 @@ func NewShardedMultiByteLockCache(multipleVecForID common.VectorForID[byte], max
 }
 
 func (s *shardedMultipleLockCache[T]) All() [][]T {
+	s.maintenanceLock.RLock()
+	defer s.maintenanceLock.RUnlock()
 	return s.cache
 }
 

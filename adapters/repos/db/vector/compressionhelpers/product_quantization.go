@@ -393,6 +393,11 @@ func (pq *ProductQuantizer) Fit(data [][]float32) error {
 			return err
 		}
 	case UseKMeansEncoder:
+		for _, v := range data {
+			if len(v) != pq.dimensions {
+				return fmt.Errorf("unexpected vector length %d in PQ training data, expected %d", len(v), pq.dimensions)
+			}
+		}
 		mutex := sync.Mutex{}
 		var errorResult error = nil
 		pq.kms = make([]PQEncoder, pq.m)
