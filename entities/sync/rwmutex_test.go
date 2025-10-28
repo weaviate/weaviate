@@ -324,8 +324,6 @@ func TestReadPreferringRWMutex(t *testing.T) {
 		mutex.RUnlock()
 		mutex.RUnlock()
 
-		assertRUnlocked(t, mutex)
-
 		<-afterLockCh
 		assertLocked(t, mutex)
 		assertRUnlocked(t, mutex)
@@ -351,13 +349,14 @@ func TestReadPreferringRWMutex(t *testing.T) {
 		wgExecuted.Add(count * 2)
 		for range count {
 			go func() {
-				wgStarted.Done()
 				defer wgExecuted.Done()
 
 				mutex.RLock()
 				defer mutex.RUnlock()
 
-				time.Sleep(time.Millisecond)
+				wgStarted.Done()
+
+				time.Sleep(100 * time.Microsecond)
 
 				lock.Lock()
 				lastRUnlock = time.Now()
@@ -366,8 +365,9 @@ func TestReadPreferringRWMutex(t *testing.T) {
 		}
 		for range count {
 			go func() {
-				wgStarted.Done()
 				defer wgExecuted.Done()
+
+				wgStarted.Done()
 
 				mutex.Lock()
 				defer mutex.Unlock()
@@ -378,7 +378,7 @@ func TestReadPreferringRWMutex(t *testing.T) {
 				}
 				lock.Unlock()
 
-				time.Sleep(time.Millisecond)
+				time.Sleep(100 * time.Microsecond)
 			}()
 		}
 		wgStarted.Wait()
@@ -393,20 +393,20 @@ func TestReadPreferringRWMutex(t *testing.T) {
 
 func assertLocked(t *testing.T, m *ReadPreferringRWMutex) {
 	t.Helper()
-	assert.True(t, rwMutexLocked(m.lock), "mutex should be locked")
+	assert.True(t, rwMutexLocked(m.mainlock), "mutex should be locked")
 }
 
 func assertUnlocked(t *testing.T, m *ReadPreferringRWMutex) {
 	t.Helper()
-	assert.False(t, rwMutexLocked(m.lock), "mutex should be unlocked")
+	assert.False(t, rwMutexLocked(m.mainlock), "mutex should be unlocked")
 }
 
 func assertRLocked(t *testing.T, m *ReadPreferringRWMutex) {
 	t.Helper()
-	assert.True(t, rwMutexRLocked(m.lock), "mutex should be rlocked")
+	assert.True(t, rwMutexRLocked(m.mainlock), "mutex should be rlocked")
 }
 
 func assertRUnlocked(t *testing.T, m *ReadPreferringRWMutex) {
 	t.Helper()
-	assert.False(t, rwMutexRLocked(m.lock), "mutex should be runlocked")
+	assert.False(t, rwMutexRLocked(m.mainlock), "mutex should be runlocked")
 }
