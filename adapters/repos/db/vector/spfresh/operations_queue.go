@@ -22,7 +22,6 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
-	"github.com/weaviate/weaviate/entities/dto"
 )
 
 const (
@@ -34,8 +33,7 @@ const (
 type OperationsQueue struct {
 	*queue.DiskQueue
 
-	asyncEnabled bool
-	scheduler    *queue.Scheduler
+	scheduler *queue.Scheduler
 	//metrics      *VectorIndexQueueMetrics TODO: add metrics
 
 	// If positive, accumulates vectors in a batch before indexing them.
@@ -54,7 +52,6 @@ func NewOperationsQueue(
 	opq := OperationsQueue{
 		spfreshIndex: spfreshIndex,
 		scheduler:    spfreshIndex.scheduler,
-		asyncEnabled: true, // TODO: check if we need to remove it
 	}
 
 	staleTimeout, _ := time.ParseDuration(os.Getenv("SPFRESH_OPERATIONS_STALE_TIMEOUT"))
@@ -84,14 +81,12 @@ func NewOperationsQueue(
 	}
 	opq.DiskQueue = q
 
-	if opq.asyncEnabled {
-		err = q.Init()
-		if err != nil {
-			return nil, errors.Wrap(err, "failed to initialize vector index queue")
-		}
-
-		spfreshIndex.scheduler.RegisterQueue(&opq)
+	err = q.Init()
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to initialize vector index queue")
 	}
+
+	spfreshIndex.scheduler.RegisterQueue(&opq)
 
 	return &opq, nil
 }
@@ -106,9 +101,6 @@ func (opq *OperationsQueue) Close() error {
 }
 
 func (opq *OperationsQueue) EnqueueSplit(ctx context.Context, postingID uint64) error {
-	if !opq.asyncEnabled {
-		return errors.New("async is not enabled enqueue split")
-	}
 
 	/*start := time.Now()
 	defer opq.metrics.Insert(start, 1) TODO: add metrics*/
@@ -134,9 +126,6 @@ func (opq *OperationsQueue) EnqueueSplit(ctx context.Context, postingID uint64) 
 }
 
 func (opq *OperationsQueue) EnqueueMerge(ctx context.Context, postingID uint64) error {
-	if !opq.asyncEnabled {
-		return errors.New("async is not enabled enqueue merge")
-	}
 
 	/*start := time.Now()
 	defer opq.metrics.Insert(start, 1) TODO: add metrics*/
@@ -162,9 +151,6 @@ func (opq *OperationsQueue) EnqueueMerge(ctx context.Context, postingID uint64) 
 }
 
 func (opq *OperationsQueue) EnqueueReassign(ctx context.Context, postingID uint64) error {
-	if !opq.asyncEnabled {
-		return errors.New("async is not enabled enqueue reassign")
-	}
 
 	/*start := time.Now()
 	defer opq.metrics.Insert(start, 1) TODO: add metrics*/
@@ -189,57 +175,10 @@ func (opq *OperationsQueue) EnqueueReassign(ctx context.Context, postingID uint6
 	return nil
 }
 
-// DequeueBatch dequeues a batch of tasks from the queue.
-// If the queue is configured to accumulate vectors in a batch, it will dequeue
-// tasks until the target batch size is reached.
-// Otherwise, dequeues a single chunk file worth of tasks.
-func (opq *OperationsQueue) DequeueBatch() (*queue.Batch, error) {
-	if opq.batchSize <= 0 {
-		return opq.DiskQueue.DequeueBatch()
-	}
-
-	var batches []*queue.Batch
-	var taskCount int
-
-	for {
-		batch, err := opq.DiskQueue.DequeueBatch()
-		if err != nil {
-			return nil, err
-		}
-
-		if batch == nil {
-			break
-		}
-
-		batches = append(batches, batch)
-
-		taskCount += len(batch.Tasks)
-		if taskCount >= opq.batchSize {
-			break
-		}
-	}
-
-	if len(batches) == 0 {
-		return nil, nil
-	}
-
-	return queue.MergeBatches(batches...), nil
-}
-
-func (opq *OperationsQueue) Delete(ids ...uint64) error {
-	// TODO: implement
-	// do we have cases where we delete from the queue?
-	return nil
-}
-
 func (opq *OperationsQueue) Flush() error {
 	if opq == nil {
 		// the queue is nil when the shard is not fully initialized
 		return nil
-	}
-
-	if !opq.asyncEnabled {
-		return opq.spfreshIndex.Flush()
 	}
 
 	return opq.DiskQueue.Flush()
@@ -255,12 +194,6 @@ func (opq *OperationsQueue) OnBatchProcessed() {
 	if err := opq.spfreshIndex.Flush(); err != nil {
 		opq.Logger.WithError(err).Error("failed to flush vector index")
 	}
-}
-
-// ResetWith resets the queue with the given vector index.
-// The queue must be paused before calling this method.
-func (opq *OperationsQueue) ResetWith(spfreshIndex *SPFresh) {
-	opq.spfreshIndex = spfreshIndex
 }
 
 type OperationsQueueDecoder struct {
@@ -318,42 +251,6 @@ func (t *Task[T]) Execute(ctx context.Context) error {
 	return errors.Errorf("unknown operation: %d", t.Op())
 }
 
-func (t *Task[T]) NewGroup(op uint8, tasks ...queue.Task) queue.Task {
-	panic("NewGroup not implemented")
-}
-
-type TaskGroup[T dto.Embedding] struct {
-	op      uint8
-	ids     []uint64
-	vectors []T
-	idx     *SPFresh
-}
-
-func (t *TaskGroup[T]) Op() uint8 {
-	return t.op
-}
-
-func (t *TaskGroup[T]) Key() uint64 {
-	return t.ids[0]
-}
-
-func (t *TaskGroup[T]) Execute(ctx context.Context) error {
-	if ctx.Err() != nil {
-		return ctx.Err()
-	}
-
-	switch t.op {
-	case operationsQueueSplitOp:
-		return t.idx.doSplit(t.ids[0], true) // TODO: check if we need to pass reassign
-	case operationsQueueMergeOp:
-		return t.idx.doMerge(t.ids[0])
-	case operationsQueueReassignOp:
-		return t.idx.doReassign(reassignOperation{PostingID: t.ids[0], Vector: nil}) // TODO: get vector from the index
-	}
-
-	return errors.Errorf("unknown operation: %d", t.Op())
-}
-
 func encodeOperation(buf []byte, id uint64, op uint8) ([]byte, error) {
 	switch op {
 	case operationsQueueSplitOp:
@@ -378,9 +275,3 @@ func encodeOperation(buf []byte, id uint64, op uint8) ([]byte, error) {
 		return nil, errors.Errorf("unrecognized operation: %d", op)
 	}
 }
-
-// compile time check for TaskGrouper interface
-var (
-	_ = queue.TaskGrouper(new(Task[[]float32]))
-	_ = queue.TaskGrouper(new(Task[[][]float32]))
-)
