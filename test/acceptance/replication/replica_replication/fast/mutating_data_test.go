@@ -171,8 +171,8 @@ func test(suite *ReplicationTestSuite, strategy string) {
 
 	objectCountByReplica := make(map[string]int64)
 	for node, address := range nodeToAddress {
-		helper.SetupClient(address)
-		res, err := helper.Client(t).Graphql.GraphqlPost(graphql.NewGraphqlPostParams().WithBody(&models.GraphQLQuery{
+		nodeClient := helper.NewClient(t, address)
+		res, err := nodeClient.Graphql.GraphqlPost(graphql.NewGraphqlPostParams().WithBody(&models.GraphQLQuery{
 			Query: fmt.Sprintf(`{ Aggregate { %s(tenant: "%s") { meta { count } } } }`, cls.Class, tenantName),
 		}), nil)
 		require.Nil(t, err, "failed to get object count for tenant %s on node %s", tenantName, node)
