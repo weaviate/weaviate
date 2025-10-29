@@ -254,8 +254,8 @@ func testBucketContent(t *testing.T, strategy string, b *Bucket, maxObject int) 
 			get, release, err := b.RoaringSetGet(key)
 			require.NoError(t, err)
 			func() {
-				defer release()
 				require.True(t, get.Contains(uint64(i)))
+				defer release()
 			}()
 		case StrategyRoaringSetRange:
 			//_, err :=  b.Rang
