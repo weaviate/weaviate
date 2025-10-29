@@ -504,31 +504,41 @@ func (q *shardsQueue) getWhenReady(ctx context.Context) (key string, tasks []Sha
 			return "", nil, fmt.Errorf("context check (shardsQueue): %w / %w", ctx.Err(), context.Cause(ctx))
 
 		case <-timerCtx.Done():
-			q.lock.Lock()
-			// check if this is latest ctx and deadline exceeded. if so then top key is to be returned
-			if q.timerCtx == timerCtx && errors.Is(timerCtx.Err(), context.DeadlineExceeded) {
-				if q.runShardQueue.Len() > 0 {
-					key := q.runShardQueue.Pop().Value
+			var (
+				retKey   string
+				retTasks []ShardReindexTaskV3
+				retErr   error
+			)
+			func() {
+				q.lock.Lock()
+				defer q.lock.Unlock()
+				// check if this is latest ctx and deadline exceeded. if so then top key is to be returned
+				if q.timerCtx == timerCtx && errors.Is(timerCtx.Err(), context.DeadlineExceeded) {
 					if q.runShardQueue.Len() > 0 {
-						// set timer to next/top shard
-						tm := q.idToTime(q.runShardQueue.Top().ID)
-						q.timerCtx, q.timerCtxCancel = q.deadlineCtx(tm)
-					} else {
-						// set timer to "infinity"
-						q.timerCtx, q.timerCtxCancel = q.infiniteDeadlineCtx()
+						retKey = q.runShardQueue.Pop().Value
+						if q.runShardQueue.Len() > 0 {
+							// set timer to next/top shard
+							tm := q.idToTime(q.runShardQueue.Top().ID)
+							q.timerCtx, q.timerCtxCancel = q.deadlineCtx(tm)
+						} else {
+							// set timer to "infinity"
+							q.timerCtx, q.timerCtxCancel = q.infiniteDeadlineCtx()
+						}
+						retTasks = q.tasksPerShard[retKey]
+						delete(q.tasksPerShard, retKey)
+						return
 					}
-					tasks := q.tasksPerShard[key]
-					delete(q.tasksPerShard, key)
-					q.lock.Unlock()
-					return key, tasks, nil
+					// should not happen
+					retErr = fmt.Errorf("shards queue empty")
+					return
 				}
-				// should not happen
-				q.lock.Unlock()
-				return "", nil, fmt.Errorf("shards queue empty")
-			}
 
-			timerCtx, timerCtxCancel = q.timerCtx, q.timerCtxCancel
-			q.lock.Unlock()
+				// refresh local timer copies from shared state
+				timerCtx, timerCtxCancel = q.timerCtx, q.timerCtxCancel
+			}()
+			if retErr != nil || retKey != "" {
+				return retKey, retTasks, retErr
+			}
 		}
 	}
 }
