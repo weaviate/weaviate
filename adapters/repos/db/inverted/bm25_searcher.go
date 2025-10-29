@@ -410,7 +410,7 @@ func (b *BM25Searcher) getTopKObjects(topKHeap *priorityqueue.Queue[[]*terms.Doc
 		explanations = append(explanations, res.Value)
 	}
 
-	objs, err := storobj.ObjectsByDocID(objectsBucket, ids, additional, nil, b.logger)
+	objs, err := storobj.ObjectsByDocID(context.Background(), objectsBucket, ids, additional, nil, b.logger)
 	if err != nil {
 		return objs, nil, errors.Errorf("objects loading")
 	}

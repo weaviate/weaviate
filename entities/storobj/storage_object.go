@@ -33,6 +33,9 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/usecases/byteops"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 )
 
 var bufPool *bufferPool
@@ -309,20 +312,26 @@ type bucket interface {
 	GetBySecondaryWithBuffer(context.Context, int, []byte, []byte) ([]byte, []byte, error)
 }
 
-func ObjectsByDocID(bucket bucket, ids []uint64,
+func ObjectsByDocID(ctx context.Context, bucket bucket, ids []uint64,
 	additional additional.Properties, properties []string, logger logrus.FieldLogger,
 ) ([]*Object, error) {
 	if len(ids) == 1 { // no need to try to run concurrently if there is just one result anyway
 		return objectsByDocIDSequential(bucket, ids, additional, properties)
 	}
 
-	return objectsByDocIDParallel(bucket, ids, additional, properties, logger)
+	return objectsByDocIDParallel(ctx, bucket, ids, additional, properties, logger)
 }
 
-func objectsByDocIDParallel(bucket bucket, ids []uint64,
+func objectsByDocIDParallel(ctx context.Context, bucket bucket, ids []uint64,
 	addProp additional.Properties, properties []string, logger logrus.FieldLogger,
 ) ([]*Object, error) {
 	parallel := 2 * runtime.GOMAXPROCS(0)
+
+	ctx, span := otel.Tracer("weaviate-search").Start(ctx, "storobj.ObjectsByDocID",
+		trace.WithSpanKind(trace.SpanKindInternal),
+		trace.WithAttributes(attribute.Int("parallel", parallel)),
+	)
+	defer span.End()
 
 	out := make([]*Object, len(ids))
 
@@ -346,6 +355,11 @@ func objectsByDocIDParallel(bucket bucket, ids []uint64,
 		}
 
 		eg.Go(func() error {
+			_, span := otel.Tracer("weaviate-search").Start(ctx, "objectsByDocIDSequential",
+				trace.WithAttributes(attribute.Int("num_ids", len(ids[start:end]))),
+			)
+			defer span.End()
+
 			objs, err := objectsByDocIDSequential(bucket, ids[start:end], addProp, properties)
 			if err != nil {
 				return err
