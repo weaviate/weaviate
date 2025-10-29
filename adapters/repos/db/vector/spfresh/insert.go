@@ -69,7 +69,7 @@ func (s *SPFresh) Add(ctx context.Context, id uint64, vector []float32) (err err
 			quantizer: s.quantizer,
 			distancer: s.config.DistanceProvider,
 		}
-		s.Store.Init(s.vectorSize, s.config.Compressed)
+		s.PostingStore.Init(s.vectorSize, s.config.Compressed)
 	})
 
 	// add the vector to the version map.
@@ -179,7 +179,7 @@ func (s *SPFresh) append(ctx context.Context, vector Vector, centroidID uint64, 
 	}
 
 	// append the new vector to the existing posting
-	err := s.Store.Append(ctx, centroidID, vector)
+	err := s.PostingStore.Append(ctx, centroidID, vector)
 	if err != nil {
 		s.postingLocks.Unlock(centroidID)
 		return false, err

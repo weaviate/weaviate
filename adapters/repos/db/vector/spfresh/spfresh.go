@@ -73,7 +73,7 @@ type SPFresh struct {
 
 	// Internal components
 	Centroids    CentroidIndex           // Provides access to the centroids.
-	Store        *LSMStore               // Used for managing persistence of postings.
+	PostingStore *PostingStore           // Used for managing persistence of postings.
 	IDs          common.MonotonicCounter // Shared monotonic counter for generating unique IDs for new postings.
 	VersionMap   *VersionMap             // Stores vector versions in-memory.
 	PostingSizes *PostingSizes           // Stores the size of each posting in-memory.
@@ -104,17 +104,17 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*SPFresh, error) {
 
 	metrics := NewMetrics(cfg.PrometheusMetrics, cfg.ClassName, cfg.ShardName)
 
-	postingStore, err := NewLSMStore(store, metrics, bucketName(cfg.ID), cfg.Store)
+	postingStore, err := NewPostingStore(store, metrics, bucketName(cfg.ID), cfg.Store)
 	if err != nil {
 		return nil, err
 	}
 
 	s := SPFresh{
-		id:      cfg.ID,
-		logger:  cfg.Logger.WithField("component", "SPFresh"),
-		config:  cfg,
-		metrics: metrics,
-		Store:   postingStore,
+		id:           cfg.ID,
+		logger:       cfg.Logger.WithField("component", "SPFresh"),
+		config:       cfg,
+		metrics:      metrics,
+		PostingStore: postingStore,
 		// Capacity of the version map: 8k pages, 1M vectors each -> 8B vectors
 		// - An empty version map consumes 240KB of memory
 		// - Each allocated page consumes 1MB of memory
@@ -311,7 +311,7 @@ func (s *SPFresh) QueryVectorDistancer(queryVector []float32) common.QueryVector
 	distFunc := func(id uint64) (float32, error) {
 		var buf [8]byte
 		binary.BigEndian.PutUint64(buf[:], id)
-		vec, err := s.Store.store.Bucket(bucketName).Get(buf[:])
+		vec, err := s.PostingStore.store.Bucket(bucketName).Get(buf[:])
 		if err != nil {
 			return 0, err
 		}

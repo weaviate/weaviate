@@ -96,7 +96,7 @@ func (s *SPFresh) doMerge(postingID uint64) error {
 		return nil // Nothing to merge
 	}
 
-	p, err := s.Store.Get(s.ctx, postingID)
+	p, err := s.PostingStore.Get(s.ctx, postingID)
 	if err != nil {
 		if errors.Is(err, ErrPostingNotFound) {
 			s.logger.WithField("postingID", postingID).
@@ -127,7 +127,7 @@ func (s *SPFresh) doMerge(postingID uint64) error {
 		}
 
 		// persist the gc'ed posting
-		err = s.Store.Put(s.ctx, postingID, newPosting)
+		err = s.PostingStore.Put(s.ctx, postingID, newPosting)
 		if err != nil {
 			return errors.Wrapf(err, "failed to put filtered posting %d", postingID)
 		}
@@ -159,7 +159,7 @@ func (s *SPFresh) doMerge(postingID uint64) error {
 			Debug("No candidates found for merge operation, skipping")
 
 		// persist the gc'ed posting
-		err = s.Store.Put(s.ctx, postingID, newPosting)
+		err = s.PostingStore.Put(s.ctx, postingID, newPosting)
 		if err != nil {
 			return errors.Wrapf(err, "failed to put filtered posting %d", postingID)
 		}
@@ -191,7 +191,7 @@ func (s *SPFresh) doMerge(postingID uint64) error {
 		}
 
 		// get the candidate posting
-		candidate, err := s.Store.Get(s.ctx, candidateID)
+		candidate, err := s.PostingStore.Get(s.ctx, candidateID)
 		if err != nil {
 			return errors.Wrapf(err, "failed to get candidate posting %d for merge operation on posting %d", candidateID, postingID)
 		}
@@ -224,7 +224,7 @@ func (s *SPFresh) doMerge(postingID uint64) error {
 		}
 
 		// persist the merged posting first
-		err = s.Store.Put(s.ctx, largeID, newPosting)
+		err = s.PostingStore.Put(s.ctx, largeID, newPosting)
 		if err != nil {
 			return errors.Wrapf(err, "failed to put merged posting %d after merge operation", postingID)
 		}
@@ -270,7 +270,7 @@ func (s *SPFresh) doMerge(postingID uint64) error {
 
 	// if no candidates were found, just persist the gc'ed posting
 	s.PostingSizes.Set(postingID, uint32(newPosting.Len()))
-	err = s.Store.Put(s.ctx, postingID, newPosting)
+	err = s.PostingStore.Put(s.ctx, postingID, newPosting)
 	if err != nil {
 		return errors.Wrapf(err, "failed to put filtered posting %d", postingID)
 	}

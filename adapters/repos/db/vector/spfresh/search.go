@@ -63,7 +63,7 @@ func (s *SPFresh) SearchByVector(ctx context.Context, vector []float32, k int, a
 	}
 
 	// read all the selected postings
-	postings, err = s.Store.MultiGet(ctx, selected)
+	postings, err = s.PostingStore.MultiGet(ctx, selected)
 	if err != nil {
 		return nil, nil, err
 	}
