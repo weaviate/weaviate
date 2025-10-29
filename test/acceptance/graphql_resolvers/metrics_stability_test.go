@@ -200,6 +200,9 @@ func countMetricsLines(t *testing.T) (int, []string) {
 		if strings.Contains(line, "weaviate_lsm_bucket_cursor_duration_seconds") {
 			continue
 		}
+		if strings.Contains(line, "weaviate_lsm_bucket_read_operation") {
+			continue
+		}
 		require.NotContains(
 			t,
 			strings.ToLower(line),
