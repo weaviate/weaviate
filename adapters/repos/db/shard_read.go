@@ -560,6 +560,7 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 
 	beforeObjects := time.Now()
 
+	// TODO make sure these traces are right
 	_, span = otel.Tracer("weaviate-search").Start(ctx, "s.store.Bucket",
 		trace.WithSpanKind(trace.SpanKindInternal),
 	)
