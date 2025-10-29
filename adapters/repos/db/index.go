@@ -1830,8 +1830,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 	// Ensure minimum concurrency limit of this search is 3 so that containerised deployments
 	// with rf=3 will always execute all the local shard searches concurrently
 	// this is because containers will have _NUMCPU = 1 minimum (e.g. fractional CPU limits)
-	// eg.SetLimit(_NUMCPU*2 + 1)
-	eg.SetLimit(_NUMCPU * 2)
+	eg.SetLimit(_NUMCPU*2 + 1)
 	m := &sync.Mutex{}
 
 	out := make([]*storobj.Object, 0, shardCap)
