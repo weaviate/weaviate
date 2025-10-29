@@ -64,6 +64,34 @@ func NewDetectorFromPreset(preset string) (*Detector, error) {
 	return d, nil
 }
 
+func (d *Detector) ReplaceDetectorFromConfig(config models.StopwordConfig) error {
+	d.Lock()
+	defer d.Unlock()
+
+	stopwords := map[string]struct{}{}
+	if config.Preset != "" {
+		list, ok := Presets[config.Preset]
+		if !ok {
+			return errors.Errorf("preset %q not known to stopword detector", config.Preset)
+		}
+		for _, word := range list {
+			stopwords[word] = struct{}{}
+		}
+	}
+
+	for _, word := range config.Additions {
+		stopwords[word] = struct{}{}
+	}
+
+	for _, word := range config.Removals {
+		delete(stopwords, word)
+	}
+
+	d.stopwords = stopwords
+	d.preset = config.Preset
+	return nil
+}
+
 func (d *Detector) SetAdditions(additions []string) {
 	d.Lock()
 	defer d.Unlock()
@@ -94,18 +122,4 @@ func (d *Detector) Preset() string {
 	d.RLock()
 	defer d.RUnlock()
 	return d.preset
-}
-
-func (d *Detector) Replace(newStopwords *Detector) {
-	d.Lock()
-	defer d.Unlock()
-
-	newStopwords.RLock()
-	defer newStopwords.RUnlock()
-	copied := make(map[string]struct{}, len(newStopwords.stopwords))
-	for k := range newStopwords.stopwords {
-		copied[k] = struct{}{}
-	}
-	d.stopwords = copied
-	d.preset = newStopwords.preset
 }
