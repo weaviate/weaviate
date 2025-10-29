@@ -564,6 +564,10 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 		trace.WithSpanKind(trace.SpanKindInternal),
 	)
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+	span.End()
+	_, span = otel.Tracer("weaviate-search").Start(ctx, "storobj.ObjectsByDocID",
+		trace.WithSpanKind(trace.SpanKindInternal),
+	)
 	objs, err := storobj.ObjectsByDocID(bucket, idsCombined, additional, properties, s.index.logger)
 	span.End()
 	if err != nil {
