@@ -242,7 +242,7 @@ func testBucketContent(t *testing.T, strategy string, b *Bucket, maxObject int) 
 			require.NoError(t, err)
 			require.Equal(t, val, get)
 
-			secondary, err := b.GetBySecondary(0, []byte(fmt.Sprintf("bonjour%d", i)))
+			secondary, err := b.GetBySecondary(ctx, 0, []byte(fmt.Sprintf("bonjour%d", i)))
 			require.NoError(t, err)
 			require.Equal(t, val, secondary)
 		case StrategySetCollection:
@@ -350,11 +350,11 @@ func TestBucketReloadAfterWalDamange(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, []byte(fmt.Sprintf("world%d", i)), val)
 
-		secondary0, err := b.GetBySecondary(0, []byte(fmt.Sprintf("bonjour%d", i)))
+		secondary0, err := b.GetBySecondary(ctx, 0, []byte(fmt.Sprintf("bonjour%d", i)))
 		require.NoError(t, err)
 		require.Equal(t, []byte(fmt.Sprintf("world%d", i)), secondary0)
 
-		secondary1, err := b.GetBySecondary(1, []byte(fmt.Sprintf("hallo%d", i)))
+		secondary1, err := b.GetBySecondary(ctx, 1, []byte(fmt.Sprintf("hallo%d", i)))
 		require.NoError(t, err)
 		require.Equal(t, []byte(fmt.Sprintf("world%d", i)), secondary1)
 	}

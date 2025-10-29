@@ -13,7 +13,9 @@ package lsmkv
 
 import (
 	"context"
+	"time"
 
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
 	"github.com/weaviate/weaviate/entities/concurrency"
@@ -25,10 +27,10 @@ func (b *Bucket) RoaringSetRangeAdd(key uint64, values ...uint64) error {
 		return err
 	}
 
-	b.flushLock.RLock()
-	defer b.flushLock.RUnlock()
+	active, release := b.getActiveMemtableForWrite()
+	defer release()
 
-	return b.active.roaringSetRangeAdd(key, values...)
+	return active.roaringSetRangeAdd(key, values...)
 }
 
 func (b *Bucket) RoaringSetRangeRemove(key uint64, values ...uint64) error {
@@ -36,10 +38,10 @@ func (b *Bucket) RoaringSetRangeRemove(key uint64, values ...uint64) error {
 		return err
 	}
 
-	b.flushLock.RLock()
-	defer b.flushLock.RUnlock()
+	active, release := b.getActiveMemtableForWrite()
+	defer release()
 
-	return b.active.roaringSetRangeRemove(key, values...)
+	return active.roaringSetRangeRemove(key, values...)
 }
 
 type ReaderRoaringSetRange interface {
@@ -50,27 +52,53 @@ type ReaderRoaringSetRange interface {
 func (b *Bucket) ReaderRoaringSetRange() ReaderRoaringSetRange {
 	MustBeExpectedStrategy(b.strategy, StrategyRoaringSetRange)
 
-	b.flushLock.RLock()
-
-	var release func()
-	var readers []roaringsetrange.InnerReader
 	if b.keepSegmentsInMemory {
-		reader, releaseInt := roaringsetrange.NewSegmentInMemoryReader(b.disk.roaringSetRangeSegmentInMemory, b.bitmapBufPool)
-		readers, release = []roaringsetrange.InnerReader{reader}, releaseInt
-	} else {
-		readers, release = b.disk.newRoaringSetRangeReaders()
+		return b.readerRoaringSetRangeFromSegmentInMemo()
 	}
+	return b.readerRoaringSetRangeFromSegments()
+}
 
-	// we have a flush-RLock, so we have the guarantee that the flushing state
-	// will not change for the lifetime of the cursor, thus there can only be two
-	// states: either a flushing memtable currently exists - or it doesn't
-	if b.flushing != nil {
-		readers = append(readers, b.flushing.newRoaringSetRangeReader())
+func (b *Bucket) readerRoaringSetRangeFromSegments() ReaderRoaringSetRange {
+	view := b.getConsistentView()
+
+	readers := make([]roaringsetrange.InnerReader, len(view.Disk))
+	for i, segment := range view.Disk {
+		readers[i] = segment.newRoaringSetRangeReader()
 	}
-	readers = append(readers, b.active.newRoaringSetRangeReader())
+	if view.Flushing != nil {
+		readers = append(readers, view.Flushing.newRoaringSetRangeReader())
+	}
+	readers = append(readers, view.Active.newRoaringSetRangeReader())
 
-	return roaringsetrange.NewCombinedReader(readers, func() {
-		release()
-		b.flushLock.RUnlock()
-	}, concurrency.SROAR_MERGE, b.logger)
+	return roaringsetrange.NewCombinedReader(readers, view.Release, concurrency.SROAR_MERGE, b.logger)
+}
+
+func (b *Bucket) readerRoaringSetRangeFromSegmentInMemo() ReaderRoaringSetRange {
+	var active, flushing memtable
+	var readers []roaringsetrange.InnerReader
+	var release func()
+
+	func() {
+		beforeFlushLock := time.Now()
+
+		b.flushLock.RLock()
+		defer b.flushLock.RUnlock()
+
+		if took := time.Since(beforeFlushLock); took > 100*time.Millisecond {
+			b.logger.WithFields(logrus.Fields{
+				"duration": took,
+				"action":   "lsm_bucket_get_acquire_flush_lock",
+			}).Debugf("Waited more than 100ms to obtain a flush lock during get")
+		}
+
+		active, flushing = b.active, b.flushing
+		readers, release = b.disk.roaringSetRangeSegmentInMemory.Readers(b.bitmapBufPool)
+	}()
+
+	if flushing != nil {
+		readers = append(readers, flushing.newRoaringSetRangeReader())
+	}
+	readers = append(readers, active.newRoaringSetRangeReader())
+
+	return roaringsetrange.NewCombinedReader(readers, release, concurrency.SROAR_MERGE, b.logger)
 }

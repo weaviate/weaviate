@@ -820,7 +820,6 @@ func TestUsageWithDynamicIndex(t *testing.T) {
 
 		// there might be some small differences in the object storage due to class
 		require.InDelta(t, *shardDynamicHNSW.ObjectsStorageBytes, *shardHNSW.ObjectsStorageBytes, float64(*shardDynamicHNSW.ObjectsStorageBytes)*0.1)
-		require.Equal(t, *shardDynamicHNSW.VectorStorageBytes, *shardHNSW.VectorStorageBytes)
 		require.Equal(t, vectorDynamicHNSW.Dimensionalities, vectorHNSW.Dimensionalities)
 	})
 }

@@ -14,6 +14,7 @@ package usage
 import (
 	"context"
 	"fmt"
+	"runtime/debug"
 	"sort"
 	"time"
 
@@ -73,6 +74,8 @@ func (s *service) Usage(ctx context.Context, exactObjectCount bool) (*types.Repo
 		Backups:     make([]*types.BackupUsage, 0),
 	}
 
+	s.logger.Infof("Creating usage report with %d collections", len(collections))
+	// Collect usage for each collection
 	for _, collection := range collections {
 		vectorConfig, err := config.ExtractVectorConfigs(collection)
 		if err != nil {
@@ -114,5 +117,9 @@ func (s *service) Usage(ctx context.Context, exactObjectCount bool) (*types.Repo
 			})
 		}
 	}
+
+	// -1 returns current limit without changing it
+	usage.GoMemLimit = debug.SetMemoryLimit(-1)
+
 	return usage, nil
 }
