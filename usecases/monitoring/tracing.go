@@ -112,10 +112,10 @@ func GRPCTracingInterceptor() grpc.UnaryServerInterceptor {
 		)
 		defer span.End()
 
-		// Add trace context to incoming metadata
+		// Add trace context to outgoing metadata
 		md = metadata.New(nil)
 		otel.GetTextMapPropagator().Inject(ctx, propagationMetadataCarrier(md))
-		ctx = metadata.NewIncomingContext(ctx, md)
+		ctx = metadata.NewOutgoingContext(ctx, md)
 
 		// Execute the request
 		start := time.Now()
