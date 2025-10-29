@@ -24,6 +24,7 @@ import (
 	"github.com/hashicorp/memberlist"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
@@ -78,6 +79,7 @@ type Config struct {
 	SkipSchemaSyncRepair    bool       `json:"skipSchemaSyncRepair" yaml:"skipSchemaSyncRepair"`
 	AuthConfig              AuthConfig `json:"auth" yaml:"auth"`
 	AdvertiseAddr           string     `json:"advertiseAddr" yaml:"advertiseAddr"`
+	BindAddr                string     `json:"bindAddr" yaml:"bindAddr"`
 	AdvertisePort           int        `json:"advertisePort" yaml:"advertisePort"`
 	// MemberlistFastFailureDetection mostly for testing purpose, it will make memberlist sensitive and detect
 	// failures (down nodes) faster.
@@ -136,16 +138,32 @@ type RequestQueueConfig struct {
 }
 
 func Init(userConfig Config, grpcPort, raftTimeoutsMultiplier int, dataPath string, nonStorageNodes map[string]struct{}, logger logrus.FieldLogger) (_ *State, err error) {
-	cfg := memberlist.DefaultLANConfig()
-	// DeadNodeReclaimTime controls the time before a dead node's name can be
-	// reclaimed by one with a different address or port. By default, this is 0,
-	// meaning nodes cannot be reclaimed this way.
-	cfg.DeadNodeReclaimTime = 30 * time.Second
-	// TCPTimeout default is 10, however in case of rollouts we need to increase it
-	// to avoid timeouts during the rollout
-	cfg.TCPTimeout = 10 * time.Second * time.Duration(raftTimeoutsMultiplier)
+	// Validate configuration first
+	if err := validateClusterConfig(userConfig); err != nil {
+		logger.Errorf("invalid cluster configuration: %v", err)
+		return nil, errors.Wrap(err, "validate cluster config")
+	}
+
+	// Select appropriate memberlist configuration
+	cfg := selectMemberlistConfig(userConfig)
+
+	// Configure basic settings
 	cfg.LogOutput = newLogParser(logger)
 	cfg.Name = userConfig.Hostname
+
+	// Configure addresses
+	if err := configureMemberlistAddresses(cfg, userConfig); err != nil {
+		logger.Errorf("failed to configure memberlist addresses: %v", err)
+		return nil, errors.Wrap(err, "configure memberlist addresses")
+	}
+
+	// Configure ports
+	configureMemberlistPorts(cfg, userConfig)
+
+	// Configure additional settings
+	configureMemberlistSettings(cfg, userConfig, raftTimeoutsMultiplier)
+
+	// Create state
 	state := State{
 		config:          userConfig,
 		localGrpcPort:   grpcPort,
@@ -161,35 +179,40 @@ func Init(userConfig Config, grpcPort, raftTimeoutsMultiplier int, dataPath stri
 		},
 	}
 
+	// Initialize delegate
 	if err := state.delegate.init(diskSpace); err != nil {
-		logger.WithField("action", "init_state.delegate_init").WithError(err).
-			Error("delegate init failed")
+		logger.WithField("action", "init_state.delegate_init").Errorf("delegate init failed: %v", err)
+		return nil, errors.Wrap(err, "delegate init")
 	}
+
+	// Set delegate and events
 	cfg.Delegate = &state.delegate
 	cfg.Events = events{&state.delegate}
-	if userConfig.GossipBindPort != 0 {
-		cfg.BindPort = userConfig.GossipBindPort
-	}
 
-	if userConfig.AdvertiseAddr != "" {
-		cfg.AdvertiseAddr = userConfig.AdvertiseAddr
-	}
+	// Log configuration details
+	logger.WithFields(logrus.Fields{
+		"action":          "memberlist_config",
+		"hostname":        userConfig.Hostname,
+		"bind_addr":       cfg.BindAddr,
+		"bind_port":       cfg.BindPort,
+		"advertise_addr":  cfg.AdvertiseAddr,
+		"advertise_port":  cfg.AdvertisePort,
+		"config_type":     getConfigType(userConfig),
+		"tcp_timeout":     cfg.TCPTimeout,
+		"raft_multiplier": raftTimeoutsMultiplier,
+	}).Info("memberlist configuration")
 
-	if userConfig.AdvertisePort != 0 {
-		cfg.AdvertisePort = userConfig.AdvertisePort
-	}
-
-	if userConfig.MemberlistFastFailureDetection {
-		cfg.SuspicionMult = 1
-		cfg.DeadNodeReclaimTime = 5 * time.Second
-	}
-
+	// Create memberlist
 	if state.list, err = memberlist.Create(cfg); err != nil {
 		logger.WithFields(logrus.Fields{
-			"action":    "memberlist_init",
-			"hostname":  userConfig.Hostname,
-			"bind_port": userConfig.GossipBindPort,
-		}).WithError(err).Error("memberlist not created")
+			"action":         "memberlist_init",
+			"hostname":       userConfig.Hostname,
+			"bind_addr":      cfg.BindAddr,
+			"bind_port":      cfg.BindPort,
+			"advertise_addr": cfg.AdvertiseAddr,
+			"advertise_port": cfg.AdvertisePort,
+			"config_type":    getConfigType(userConfig),
+		}).Errorf("memberlist not created: %v", err)
 		return nil, errors.Wrap(err, "create memberlist")
 	}
 	var joinAddr []string
@@ -362,6 +385,22 @@ func (s *State) LocalName() string {
 	return s.list.LocalNode().Name
 }
 
+// LocalAddr() returns local address
+func (s *State) LocalAddr() string {
+	if s.config.AdvertiseAddr == "" {
+		return s.list.LocalNode().Addr.String()
+	}
+
+	return s.config.AdvertiseAddr
+}
+
+func (s *State) LocalBindAddr() string {
+	if s.config.BindAddr == "" {
+		return s.LocalAddr()
+	}
+	return s.config.BindAddr
+}
+
 func (s *State) ClusterHealthScore() int {
 	return s.list.GetHealthScore()
 }
@@ -494,4 +533,115 @@ func (s *State) nodeInMaintenanceMode(node string) bool {
 	defer s.maintenanceNodesLock.RUnlock()
 
 	return slices.Contains(s.config.MaintenanceNodes, node)
+}
+
+// validateClusterConfig validates the cluster configuration
+func validateClusterConfig(userConfig Config) error {
+	// Validate port ranges
+	if userConfig.GossipBindPort != 0 && (userConfig.GossipBindPort < 1024 || userConfig.GossipBindPort > 65535) {
+		return fmt.Errorf("invalid GossipBindPort: %d (must be between 1024-65535)", userConfig.GossipBindPort)
+	}
+
+	if userConfig.DataBindPort != 0 && (userConfig.DataBindPort < 1024 || userConfig.DataBindPort > 65535) {
+		return fmt.Errorf("invalid DataBindPort: %d (must be between 1024-65535)", userConfig.DataBindPort)
+	}
+
+	if userConfig.AdvertisePort != 0 && (userConfig.AdvertisePort < 1024 || userConfig.AdvertisePort > 65535) {
+		return fmt.Errorf("invalid AdvertisePort: %d (must be between 1024-65535)", userConfig.AdvertisePort)
+	}
+
+	// Validate IP addresses
+	if userConfig.AdvertiseAddr != "" && net.ParseIP(userConfig.AdvertiseAddr) == nil {
+		return fmt.Errorf("invalid AdvertiseAddr: %s (must be a valid IP address)", userConfig.AdvertiseAddr)
+	}
+
+	if userConfig.BindAddr != "" && net.ParseIP(userConfig.BindAddr) == nil {
+		return fmt.Errorf("invalid BindAddr: %s (must be a valid IP address)", userConfig.BindAddr)
+	}
+
+	// Validate hostname
+	if userConfig.Hostname == "" {
+		return fmt.Errorf("hostname cannot be empty")
+	}
+
+	return nil
+}
+
+// selectMemberlistConfig selects the appropriate memberlist configuration based on environment
+func selectMemberlistConfig(userConfig Config) *memberlist.Config {
+	var cfg *memberlist.Config
+
+	// Explicit selection based on environment
+	if userConfig.Localhost {
+		cfg = memberlist.DefaultLocalConfig()
+	} else if userConfig.AdvertiseAddr != "" {
+		cfg = memberlist.DefaultWANConfig()
+	} else {
+		cfg = memberlist.DefaultLANConfig()
+	}
+
+	return cfg
+}
+
+// configureMemberlistPorts handles port configuration with clear logic
+func configureMemberlistPorts(cfg *memberlist.Config, userConfig Config) {
+	// Set bind port first
+	if userConfig.GossipBindPort != 0 {
+		cfg.BindPort = userConfig.GossipBindPort
+	}
+
+	// Set advertise port
+	if userConfig.AdvertisePort != 0 {
+		cfg.AdvertisePort = userConfig.AdvertisePort
+	} else if userConfig.AdvertiseAddr != "" && userConfig.GossipBindPort != 0 {
+		// Only set to GossipBindPort if AdvertiseAddr is set but AdvertisePort is not
+		// to avoid defaulting to memberlist port 7946
+		cfg.AdvertisePort = userConfig.GossipBindPort
+	}
+}
+
+// configureMemberlistAddresses handles address configuration with validation
+func configureMemberlistAddresses(cfg *memberlist.Config, userConfig Config) error {
+	// Set bind address
+	if userConfig.BindAddr != "" {
+		cfg.BindAddr = userConfig.BindAddr
+	}
+
+	// Set advertise address
+	if userConfig.AdvertiseAddr != "" {
+		cfg.AdvertiseAddr = userConfig.AdvertiseAddr
+	}
+
+	return nil
+}
+
+// configureMemberlistSettings applies additional memberlist settings
+func configureMemberlistSettings(cfg *memberlist.Config, userConfig Config, raftTimeoutsMultiplier int) {
+	// Set dead node reclaim time to 60 seconds by default
+	cfg.DeadNodeReclaimTime = 60 * time.Second
+
+	// Configure timeouts and failure detection
+	if userConfig.MemberlistFastFailureDetection {
+		cfg.SuspicionMult = 1
+		cfg.DeadNodeReclaimTime = 5 * time.Second
+	}
+
+	// Set TCP timeout based on configuration type
+	if userConfig.AdvertiseAddr != "" {
+		// WAN config - use 30 seconds
+		cfg.TCPTimeout = 30 * time.Second * time.Duration(raftTimeoutsMultiplier)
+	} else {
+		// LAN/Local config - use 10 seconds
+		cfg.TCPTimeout = 10 * time.Second * time.Duration(raftTimeoutsMultiplier)
+	}
+}
+
+// getConfigType returns a string describing the configuration type
+func getConfigType(userConfig Config) string {
+	if userConfig.Localhost {
+		return "LOCAL"
+	} else if userConfig.AdvertiseAddr != "" {
+		return "WAN"
+	}
+	return "LAN"
 }
