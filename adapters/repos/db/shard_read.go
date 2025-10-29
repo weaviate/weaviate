@@ -16,11 +16,11 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/dto"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/trace"
@@ -422,8 +422,9 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 		helpers.AnnotateSlowQueryLog(ctx, "filters_ids_matched", allowList.Len())
 	}
 
-	eg := enterrors.NewErrorGroupWrapper(s.index.logger)
-	eg.SetLimit(_NUMCPU)
+	// eg := enterrors.NewErrorGroupWrapper(s.index.logger)
+	// eg.SetLimit(_NUMCPU)
+	wg := &sync.WaitGroup{}
 	idss := make([][]uint64, len(targetVectors))
 	distss := make([][]float32, len(targetVectors))
 	beforeVector := time.Now()
@@ -431,7 +432,7 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 	for i, targetVector := range targetVectors {
 		i := i
 		targetVector := targetVector
-		eg.Go(func() error {
+		go func() error {
 			var (
 				ids   []uint64
 				dists []float32
@@ -515,20 +516,20 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 			idss[i] = ids
 			distss[i] = dists
 			return nil
-		})
+		}()
 	}
 
 	_, waitSpan := otel.Tracer("weaviate-search").Start(ctx, "eg.Wait",
 		trace.WithSpanKind(trace.SpanKindInternal),
 	)
-	err := eg.Wait()
+	wg.Wait()
 	waitSpan.End()
 	if allowList != nil {
 		allowList.Close()
 	}
-	if err != nil {
-		return nil, nil, err
-	}
+	// if err != nil {
+	// 	return nil, nil, err
+	// }
 
 	idsCombined, distCombined, err := CombineMultiTargetResults(ctx, s, s.index.logger, idss, distss, targetVectors, searchVectors, targetCombination, limit, targetDist)
 	if err != nil {
