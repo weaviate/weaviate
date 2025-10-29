@@ -1850,7 +1850,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 		}
 
 		release()
-		localShard := shard != nil
+		localShard := shard != nil && shard.GetStatus() == storagestate.StatusReady
 
 		if localShard {
 			localSearches++
