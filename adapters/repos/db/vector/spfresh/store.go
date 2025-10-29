@@ -161,6 +161,6 @@ func (p *PostingStore) Append(ctx context.Context, postingID uint64, vector Vect
 	return p.bucket.SetAdd(buf[:], [][]byte{vector.Encode()})
 }
 
-func bucketName(id string) string {
+func postingBucketName(id string) string {
 	return fmt.Sprintf("spfresh_postings_%s", id)
 }

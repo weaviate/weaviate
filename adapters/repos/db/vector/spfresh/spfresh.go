@@ -104,7 +104,7 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*SPFresh, error) {
 
 	metrics := NewMetrics(cfg.PrometheusMetrics, cfg.ClassName, cfg.ShardName)
 
-	postingStore, err := NewPostingStore(store, metrics, bucketName(cfg.ID), cfg.Store)
+	postingStore, err := NewPostingStore(store, metrics, postingBucketName(cfg.ID), cfg.Store)
 	if err != nil {
 		return nil, err
 	}
