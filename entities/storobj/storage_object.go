@@ -316,7 +316,7 @@ func ObjectsByDocID(ctx context.Context, bucket bucket, ids []uint64,
 	additional additional.Properties, properties []string, logger logrus.FieldLogger,
 ) ([]*Object, error) {
 	if len(ids) == 1 { // no need to try to run concurrently if there is just one result anyway
-		return objectsByDocIDSequential(bucket, ids, additional, properties)
+		return objectsByDocIDSequential(ctx, bucket, ids, additional, properties)
 	}
 
 	return objectsByDocIDParallel(ctx, bucket, ids, additional, properties, logger)
@@ -327,7 +327,7 @@ func objectsByDocIDParallel(ctx context.Context, bucket bucket, ids []uint64,
 ) ([]*Object, error) {
 	parallel := 2 * runtime.GOMAXPROCS(0)
 
-	ctx, span := otel.Tracer("weaviate-search").Start(ctx, "storobj.ObjectsByDocID",
+	ctx, span := otel.Tracer("weaviate-search").Start(ctx, "objectsByDocIDParallel",
 		trace.WithSpanKind(trace.SpanKindInternal),
 		trace.WithAttributes(attribute.Int("parallel", parallel)),
 	)
@@ -355,12 +355,7 @@ func objectsByDocIDParallel(ctx context.Context, bucket bucket, ids []uint64,
 		}
 
 		eg.Go(func() error {
-			_, span := otel.Tracer("weaviate-search").Start(ctx, "objectsByDocIDSequential",
-				trace.WithAttributes(attribute.Int("num_ids", len(ids[start:end]))),
-			)
-			defer span.End()
-
-			objs, err := objectsByDocIDSequential(bucket, ids[start:end], addProp, properties)
+			objs, err := objectsByDocIDSequential(ctx, bucket, ids[start:end], addProp, properties)
 			if err != nil {
 				return err
 			}
@@ -385,12 +380,16 @@ func objectsByDocIDParallel(ctx context.Context, bucket bucket, ids []uint64,
 	return out[:j], nil
 }
 
-func objectsByDocIDSequential(bucket bucket, ids []uint64,
+func objectsByDocIDSequential(ctx context.Context, bucket bucket, ids []uint64,
 	additional additional.Properties, properties []string,
 ) ([]*Object, error) {
 	if bucket == nil {
 		return nil, fmt.Errorf("objects bucket not found")
 	}
+	_, span := otel.Tracer("weaviate-search").Start(ctx, "objectsByDocIDSequential",
+		trace.WithAttributes(attribute.Int("num_ids", len(ids))),
+	)
+	defer span.End()
 
 	var (
 		docIDBuf = make([]byte, 8)

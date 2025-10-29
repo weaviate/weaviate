@@ -1529,7 +1529,7 @@ func BenchmarkObjectsByDocID(b *testing.B) {
 					require.Nil(t, err)
 
 				} else {
-					_, err := objectsByDocIDSequential(bucket, ids[:tt.amount], additional.Properties{}, nil)
+					_, err := objectsByDocIDSequential(context.Background(), bucket, ids[:tt.amount], additional.Properties{}, nil)
 					require.Nil(t, err)
 				}
 			}
