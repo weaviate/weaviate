@@ -112,10 +112,10 @@ func GRPCTracingInterceptor() grpc.UnaryServerInterceptor {
 		)
 		defer span.End()
 
-		// Add trace context to outgoing metadata
+		// Add trace context to incoming metadata
 		md = metadata.New(nil)
 		otel.GetTextMapPropagator().Inject(ctx, propagationMetadataCarrier(md))
-		ctx = metadata.NewOutgoingContext(ctx, md)
+		ctx = metadata.NewIncomingContext(ctx, md)
 
 		// Execute the request
 		start := time.Now()
@@ -144,6 +144,12 @@ func GRPCTracingInterceptor() grpc.UnaryServerInterceptor {
 				attribute.Int64("duration_ms", duration.Milliseconds()),
 			),
 		)
+
+		// Add debug trace context to outgoing metadata for debugging (optional)
+		outMD := metadata.New(map[string]string{"x-trace-id": span.SpanContext().TraceID().String()})
+		if err := grpc.SetTrailer(ctx, outMD); err != nil {
+			span.RecordError(err)
+		}
 
 		return resp, err
 	}
