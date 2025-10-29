@@ -1881,7 +1881,12 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 			remoteSearches++
 			eg.Go(func() error {
 				// If we have no local shard or if we force the query to reach all replicas
-				remoteShardObject, remoteShardScores, err2 := i.remoteShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardName)
+				spanCtx, span := otel.Tracer("weaviate-search").Start(ctx, "i.remoteShardSearch",
+					trace.WithSpanKind(trace.SpanKindInternal),
+					trace.WithAttributes(attribute.String("shard.name", shardName)),
+				)
+				remoteShardObject, remoteShardScores, err2 := i.remoteShardSearch(spanCtx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardName)
+				span.End()
 				if err2 != nil {
 					return fmt.Errorf(
 						"remote shard object search %s: %w", shardName, err2)
