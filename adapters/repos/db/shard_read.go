@@ -374,6 +374,10 @@ func (s *Shard) VectorDistanceForQuery(ctx context.Context, docId uint64, search
 }
 
 func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.Vector, targetVectors []string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination, properties []string) ([]*storobj.Object, []float32, error) {
+	ctx, span := otel.Tracer("weaviate-search").Start(ctx, "Shard.ObjectVectorSearch",
+		trace.WithSpanKind(trace.SpanKindInternal),
+	)
+	defer span.End()
 	startTime := time.Now()
 
 	defer func() {
@@ -434,11 +438,11 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 				err   error
 			)
 
-			_, span := otel.Tracer("weaviate-search").Start(ctx, "s.GetVectorIndex",
+			_, gviSpan := otel.Tracer("weaviate-search").Start(ctx, "s.GetVectorIndex",
 				trace.WithSpanKind(trace.SpanKindInternal),
 			)
 			vidx, ok := s.GetVectorIndex(targetVector)
-			span.End()
+			gviSpan.End()
 			if !ok {
 				return fmt.Errorf("index for target vector %q not found", targetVector)
 			}
@@ -473,11 +477,11 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 			} else {
 				switch searchVector := searchVectors[i].(type) {
 				case []float32:
-					spanCtx, span := otel.Tracer("weaviate-search").Start(ctx, "vidx.SearchByVector",
+					sbvCtx, sbvSpan := otel.Tracer("weaviate-search").Start(ctx, "vidx.SearchByVector",
 						trace.WithSpanKind(trace.SpanKindInternal),
 					)
-					ids, dists, err = vidx.SearchByVector(spanCtx, searchVector, limit, allowList)
-					span.End()
+					ids, dists, err = vidx.SearchByVector(sbvCtx, searchVector, limit, allowList)
+					sbvSpan.End()
 					if err != nil {
 						// This should normally not fail. A failure here could indicate that more
 						// attention is required, for example because data is corrupted. That's
@@ -514,11 +518,11 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 		})
 	}
 
-	_, span := otel.Tracer("weaviate-search").Start(ctx, "eg.Wait",
+	_, waitSpan := otel.Tracer("weaviate-search").Start(ctx, "eg.Wait",
 		trace.WithSpanKind(trace.SpanKindInternal),
 	)
 	err := eg.Wait()
-	span.End()
+	waitSpan.End()
 	if allowList != nil {
 		allowList.Close()
 	}
@@ -561,19 +565,19 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 	beforeObjects := time.Now()
 
 	// TODO make sure these traces are right
-	_, span = otel.Tracer("weaviate-search").Start(ctx, "s.store.Bucket",
+	_, bucketSpan := otel.Tracer("weaviate-search").Start(ctx, "s.store.Bucket",
 		trace.WithSpanKind(trace.SpanKindInternal),
 	)
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
-	span.End()
-	_, span = otel.Tracer("weaviate-search").Start(ctx, "storobj.ObjectsByDocID",
+	bucketSpan.End()
+	_, objsByDocIDSpan := otel.Tracer("weaviate-search").Start(ctx, "storobj.ObjectsByDocID",
 		trace.WithSpanKind(trace.SpanKindInternal),
 	)
 	objs, err := storobj.ObjectsByDocID(bucket, idsCombined, additional, properties, s.index.logger)
+	objsByDocIDSpan.End()
 	if err != nil {
 		return nil, nil, err
 	}
-	span.End()
 
 	took := time.Since(beforeObjects)
 	if filters != nil {

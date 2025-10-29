@@ -1705,11 +1705,11 @@ func (i *Index) localShardSearch(ctx context.Context, searchVectors []models.Vec
 	sort []filters.Sort, groupBy *searchparams.GroupBy, additionalProps additional.Properties,
 	targetCombination *dto.TargetCombination, properties []string, shardName string,
 ) ([]*storobj.Object, []float32, error) {
-	localCtx, span := otel.Tracer("weaviate-search").Start(ctx, "i.GetShard",
+	getShardCtx, getShardSpan := otel.Tracer("weaviate-search").Start(ctx, "i.localShardSearch.GetShard",
 		trace.WithSpanKind(trace.SpanKindInternal),
 	)
-	shard, release, err := i.GetShard(localCtx, shardName)
-	span.End()
+	shard, release, err := i.GetShard(getShardCtx, shardName)
+	getShardSpan.End()
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1719,12 +1719,12 @@ func (i *Index) localShardSearch(ctx context.Context, searchVectors []models.Vec
 
 	ctx = helpers.InitSlowQueryDetails(ctx)
 	helpers.AnnotateSlowQueryLog(ctx, "is_coordinator", true)
-	localCtx, span = otel.Tracer("weaviate-search").Start(ctx, "Shard.ObjectVectorSearch",
+	ovsCtx, ovsSpan := otel.Tracer("weaviate-search").Start(ctx, "Shard.ObjectVectorSearch",
 		trace.WithSpanKind(trace.SpanKindInternal),
 	)
 	localShardResult, localShardScores, err := shard.ObjectVectorSearch(
-		localCtx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties)
-	span.End()
+		ovsCtx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties)
+	ovsSpan.End()
 	if err != nil {
 		return nil, nil, errors.Wrapf(err, "shard %s", shard.ID())
 	}
@@ -1791,23 +1791,31 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 	groupBy *searchparams.GroupBy, additionalProps additional.Properties,
 	replProps *additional.ReplicationProperties, tenant string, targetCombination *dto.TargetCombination, properties []string,
 ) ([]*storobj.Object, []float32, error) {
+	ctx, span := otel.Tracer("weaviate-search").Start(ctx, "i.objectVectorSearch",
+		trace.WithSpanKind(trace.SpanKindInternal),
+	)
+	defer span.End()
+
+	preSpanCtx, preSpan := otel.Tracer("weaviate-search").Start(ctx, "i.pre",
+		trace.WithSpanKind(trace.SpanKindInternal),
+	)
 	if err := i.validateMultiTenancy(tenant); err != nil {
 		return nil, nil, err
 	}
-	shardNames, err := i.targetShardNames(ctx, tenant)
+	shardNames, err := i.targetShardNames(preSpanCtx, tenant)
 	if err != nil || len(shardNames) == 0 {
 		return nil, nil, err
 	}
 
 	if len(shardNames) == 1 && !i.Config.ForceFullReplicasSearch {
-		shard, release, err := i.GetShard(ctx, shardNames[0])
+		shard, release, err := i.GetShard(preSpanCtx, shardNames[0])
 		if err != nil {
 			return nil, nil, err
 		}
 
 		if shard != nil {
 			defer release()
-			return i.singleLocalShardObjectVectorSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters,
+			return i.singleLocalShardObjectVectorSearch(preSpanCtx, searchVectors, targetVectors, dist, limit, localFilters,
 				sort, groupBy, additionalProps, shard, targetCombination, properties)
 		}
 	}
@@ -1821,8 +1829,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 		shardCap = len(shardNames) * limit
 	}
 
-	eg := enterrors.NewErrorGroupWrapper(i.logger, "tenant:", tenant)
-	eg.SetLimit(_NUMCPU * 2)
+	wg := &sync.WaitGroup{}
 	m := &sync.Mutex{}
 
 	out := make([]*storobj.Object, 0, shardCap)
@@ -1832,15 +1839,19 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 	var remoteSearches int64
 	var remoteResponses atomic.Int64
 
+	preSpan.End()
+
 	for _, sn := range shardNames {
 		shardName := sn
-		localCtx, span := otel.Tracer("weaviate-search").Start(ctx, "i.GetShard",
+
+		getShardCtx, getShardSpan := otel.Tracer("weaviate-search").Start(ctx, "i.objectVectorSearch.GetShard",
 			trace.WithSpanKind(trace.SpanKindInternal),
 			trace.WithAttributes(attribute.String("shard.name", shardName)),
 			trace.WithAttributes(attribute.String("node.name", i.getSchema.NodeName())),
 		)
-		shard, release, err := i.GetShard(localCtx, shardName)
-		span.End()
+		shard, release, err := i.GetShard(getShardCtx, shardName)
+		getShardSpan.End()
+
 		if err != nil {
 			return nil, nil, err
 		}
@@ -1848,21 +1859,24 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 			defer release()
 		}
 
+		wg.Add(1)
+
 		if shard != nil {
 			localSearches++
-			eg.Go(func() error {
-				localCtx, span := otel.Tracer("weaviate-search").Start(ctx, "i.localShardSearch",
+			go func() error {
+				defer wg.Done()
+				localShardSearchCtx, localShardSearchSpan := otel.Tracer("weaviate-search").Start(ctx, "i.localShardSearch",
 					trace.WithSpanKind(trace.SpanKindInternal),
 					trace.WithAttributes(attribute.String("shard.name", shardName)),
 				)
-				localShardResult, localShardScores, err1 := i.localShardSearch(localCtx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardName)
-				span.End()
+				localShardResult, localShardScores, err1 := i.localShardSearch(localShardSearchCtx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardName)
+				localShardSearchSpan.End()
 				if err1 != nil {
 					return fmt.Errorf(
 						"local shard object search %s: %w", shard.ID(), err1)
 				}
 
-				_, span = otel.Tracer("weaviate-search").Start(ctx, "m.Lock",
+				_, lockSpan := otel.Tracer("weaviate-search").Start(ctx, "m.Lock",
 					trace.WithSpanKind(trace.SpanKindInternal),
 					trace.WithAttributes(attribute.String("shard.name", shardName)),
 				)
@@ -1871,14 +1885,15 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 				out = append(out, localShardResult...)
 				dists = append(dists, localShardScores...)
 				m.Unlock()
-				span.End()
+				lockSpan.End()
 				return nil
-			})
+			}()
 		}
 
 		if shard == nil || i.Config.ForceFullReplicasSearch {
 			remoteSearches++
-			eg.Go(func() error {
+			go func() error {
+				defer wg.Done()
 				// If we have no local shard or if we force the query to reach all replicas
 				remoteShardObject, remoteShardScores, err2 := i.remoteShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardName)
 				if err2 != nil {
@@ -1891,13 +1906,20 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 				dists = append(dists, remoteShardScores...)
 				m.Unlock()
 				return nil
-			})
+			}()
 		}
 	}
 
-	if err := eg.Wait(); err != nil {
-		return nil, nil, err
-	}
+	_, waitSpan := otel.Tracer("weaviate-search").Start(ctx, "i.objectVectorSearch.Wait",
+		trace.WithSpanKind(trace.SpanKindInternal),
+	)
+	wg.Wait()
+	waitSpan.End()
+
+	postCtx, postSpan := otel.Tracer("weaviate-search").Start(ctx, "i.objectVectorSearch.Post",
+		trace.WithSpanKind(trace.SpanKindInternal),
+	)
+	defer postSpan.End()
 
 	// If we are force querying all replicas, we need to run deduplication on the result.
 	if i.Config.ForceFullReplicasSearch {
@@ -1936,7 +1958,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 			replProps = defaultConsistency(types.ConsistencyLevelOne)
 		}
 		l := types.ConsistencyLevel(replProps.ConsistencyLevel)
-		err = i.replicator.CheckConsistency(ctx, l, out)
+		err = i.replicator.CheckConsistency(postCtx, l, out)
 		if err != nil {
 			i.logger.WithField("action", "object_vector_search").
 				Errorf("failed to check consistency of search results: %v", err)
