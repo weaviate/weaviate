@@ -1827,7 +1827,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 	}
 
 	eg := enterrors.NewErrorGroupWrapper(i.logger, "tenant:", tenant)
-	eg.SetLimit(_NUMCPU * 2)
+	// eg.SetLimit(_NUMCPU * 2)
 	m := &sync.Mutex{}
 
 	out := make([]*storobj.Object, 0, shardCap)
@@ -1867,16 +1867,12 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 						"local shard object search %s: %w", shardName, err1)
 				}
 
-				_, span = otel.Tracer("weaviate-search").Start(ctx, "m.Lock",
-					trace.WithSpanKind(trace.SpanKindInternal),
-					trace.WithAttributes(attribute.String("shard.name", shardName)),
-				)
 				m.Lock()
 				localResponses.Add(1)
 				out = append(out, localShardResult...)
 				dists = append(dists, localShardScores...)
 				m.Unlock()
-				span.End()
+
 				return nil
 			})
 		}
