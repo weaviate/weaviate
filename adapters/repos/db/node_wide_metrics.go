@@ -24,7 +24,6 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/tenantactivity"
-	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
@@ -454,9 +453,9 @@ func calculateShardDimensionMetrics(ctx context.Context, sl ShardLike) Dimension
 
 // Calculate vector dimensions for a vector index in a shard.
 func calcVectorDimensionMetrics(ctx context.Context, sl ShardLike, vecName string, vecCfg schemaConfig.VectorIndexConfig) DimensionMetrics {
-	switch category, segments := GetDimensionCategoryLegacy(vecCfg); category {
+	switch dimInfo := GetDimensionCategoryLegacy(vecCfg); dimInfo.category {
 	case DimensionCategoryPQ:
-		count, _ := sl.QuantizedDimensions(ctx, vecName, segments)
+		count, _ := sl.QuantizedDimensions(ctx, vecName, dimInfo.segments)
 		return DimensionMetrics{Uncompressed: 0, Compressed: count}
 	case DimensionCategoryBQ:
 		// BQ: 1 bit per dimension, packed into uint64 blocks (8 bytes per 64 dimensions)
@@ -471,7 +470,7 @@ func calcVectorDimensionMetrics(ctx context.Context, sl ShardLike, vecName strin
 		// For bits=1: equivalent to BQ (1 bit per dimension, packed in uint64 blocks)
 		// For bits=8: 8 bits per dimension (1 byte per dimension)
 		count, _ := sl.Dimensions(ctx, vecName)
-		bits := enthnsw.GetRQBits(vecCfg)
+		bits := dimInfo.bits
 		// RQ 8 Bit : DimensionMetrics{Uncompressed: bytes, Compressed: 0}
 		// RQ 1 Bit : DimensionMetrics{Uncompressed: 0, Compressed: bytes}
 		// this because of legacy vector_dimensions_sum is uncompressed and vector_segments_sum is compressed
