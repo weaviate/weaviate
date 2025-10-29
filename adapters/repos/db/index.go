@@ -2186,8 +2186,8 @@ func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensu
 	}
 
 	// make sure same shard is not inited in parallel
-	i.shardCreateLocks.Lock(shardName)
-	defer i.shardCreateLocks.Unlock(shardName)
+	// i.shardCreateLocks.Lock(shardName)
+	// defer i.shardCreateLocks.Unlock(shardName)
 
 	// check if created in the meantime by concurrent call
 	shard = i.shards.Load(shardName)
