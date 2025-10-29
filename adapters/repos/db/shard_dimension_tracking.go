@@ -210,6 +210,9 @@ func getFlatCompression(config flatent.UserConfig) DimensionInfo {
 	if config.BQ.Enabled {
 		return DimensionInfo{category: DimensionCategoryBQ}
 	}
+	if config.RQ.Enabled {
+		return DimensionInfo{category: DimensionCategoryRQ, bits: int16(config.RQ.Bits)}
+	}
 	// Note: Flat indices only support BQ compression currently
 	return DimensionInfo{category: DimensionCategoryStandard}
 }
