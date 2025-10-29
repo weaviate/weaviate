@@ -1203,9 +1203,9 @@ func (i *Index) objectByID(ctx context.Context, id strfmt.UUID,
 	if err != nil {
 		return obj, err
 	}
+	defer release()
 
 	if shard != nil {
-		defer release()
 		if obj, err = shard.ObjectByID(ctx, id, props, addl); err != nil {
 			return obj, fmt.Errorf("get local object: shard=%s: %w", shardName, err)
 		}
@@ -1293,10 +1293,15 @@ func (i *Index) multiObjectByID(ctx context.Context,
 		if err != nil {
 			return nil, err
 		} else if shard != nil {
-			defer release()
-			objects, err = shard.MultiObjectByID(ctx, group.ids)
+			func() {
+				defer release()
+				objects, err = shard.MultiObjectByID(ctx, group.ids)
+				if err != nil {
+					err = errors.Wrapf(err, "local shard %s", shardId(i.ID(), shardName))
+				}
+			}()
 			if err != nil {
-				return nil, errors.Wrapf(err, "local shard %s", shardId(i.ID(), shardName))
+				return nil, err
 			}
 		} else {
 			objects, err = i.remote.MultiGetObjects(ctx, shardName, extractIDsFromMulti(group.ids))
@@ -1817,23 +1822,22 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 	var remoteSearches int64
 	var remoteResponses atomic.Int64
 
-	for _, sn := range shardNames {
-		shardName := sn
+	for _, shardName := range shardNames {
 		shard, release, err := i.GetShard(ctx, shardName)
 		if err != nil {
 			return nil, nil, err
 		}
-		if shard != nil {
-			defer release()
-		}
 
-		if shard != nil {
+		release()
+		localShard := shard != nil
+
+		if localShard {
 			localSearches++
 			eg.Go(func() error {
 				localShardResult, localShardScores, err1 := i.localShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardName)
 				if err1 != nil {
 					return fmt.Errorf(
-						"local shard object search %s: %w", shard.ID(), err1)
+						"local shard object search %s: %w", shardName, err1)
 				}
 
 				m.Lock()
@@ -1845,7 +1849,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 			})
 		}
 
-		if shard == nil || i.Config.ForceFullReplicasSearch {
+		if !localShard || i.Config.ForceFullReplicasSearch {
 			remoteSearches++
 			eg.Go(func() error {
 				// If we have no local shard or if we force the query to reach all replicas

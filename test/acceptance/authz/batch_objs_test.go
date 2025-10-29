@@ -67,14 +67,16 @@ func TestAuthZBatchObjs(t *testing.T) {
 		},
 	}
 
+	// Cleanup classes after all tests complete
+	className1 := "AuthZBatchObjs1"
+	className2 := "AuthZBatchObjs2"
+	defer deleteObjectClass(t, className1, adminAuth)
+	defer deleteObjectClass(t, className2, adminAuth)
+
 	for _, tt := range tests {
 		// add classes with object
-		className1 := "AuthZBatchObjs1"
-		className2 := "AuthZBatchObjs2"
 		deleteObjectClass(t, className1, adminAuth)
 		deleteObjectClass(t, className2, adminAuth)
-		defer deleteObjectClass(t, className1, adminAuth)
-		defer deleteObjectClass(t, className2, adminAuth)
 		c1 := &models.Class{
 			Class: className1,
 			Properties: []*models.Property{
