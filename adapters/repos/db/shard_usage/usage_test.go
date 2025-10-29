@@ -178,7 +178,7 @@ func TestCalculateUnloadedObjectsMetrics(t *testing.T) {
 				require.Equal(t, 4, fileTypes[".cna"])
 			}
 
-			metrics, err := CalculateUnloadedObjectsMetrics(logger, dirName, "tenant")
+			metrics, err := CalculateUnloadedObjectsMetrics(logger, dirName, "tenant", true)
 			require.NoError(t, err)
 			require.Equal(t, metrics.Count, int64(4))
 
@@ -194,7 +194,7 @@ func TestCalculateUnloadedObjectsMetrics(t *testing.T) {
 				require.Equal(t, 4, fileTypes[".cna"])
 			}
 
-			metrics, err = CalculateUnloadedObjectsMetrics(logger, dirName, "tenant")
+			metrics, err = CalculateUnloadedObjectsMetrics(logger, dirName, "tenant", true)
 			require.NoError(t, err)
 			require.Equal(t, metrics.Count, int64(4))
 		})
@@ -246,23 +246,83 @@ func TestStorageCalculation(t *testing.T) {
 	}
 
 	// calculate storage and compare
-	fulShardBytes, err := CalculateShardStorage(dirName, "shard1")
-	require.NoError(t, err)
 	expectedTotal := uint64(0)
 	for _, size := range sizeTracker {
 		expectedTotal += size
 	}
-	require.Equal(t, expectedTotal, fulShardBytes)
 
-	objectsBytes, err := CalculateUnloadedObjectsMetrics(logger, dirName, "shard1")
+	objectsBytes, err := CalculateUnloadedObjectsMetrics(logger, dirName, "shard1", false)
 	require.NoError(t, err)
 	require.Equal(t, sizeTracker[helpers.ObjectsBucketLSM], uint64(objectsBytes.StorageBytes))
 
-	vectorBytes, err := CalculateUnloadedVectorsMetrics(dirName, "shard1")
+	vectorBytes, err := CalculateUnloadedVectorsMetrics(lsmFolder, buckets)
 	require.NoError(t, err)
 	require.Equal(t, sizeTracker["vectors"]+sizeTracker["vectors_compressed"]+sizeTracker["vectors_compressed_named_vector"], uint64(vectorBytes))
 
-	indexBytes, err := CalculateUnloadedIndicesSize(dirName, "shard1")
+	indexBytes, err := CalculateUnloadedIndicesSize(lsmFolder, buckets)
 	require.NoError(t, err)
 	require.Equal(t, sizeTracker["property_someProp_searchable"]+sizeTracker["property_someProp"]+sizeTracker["property__id"]+sizeTracker[helpers.DimensionsBucketLSM], indexBytes)
+
+	vectorCommitLogsStorageSize, otherNonLSMFoldersStorageSize, err := CalculateNonLSMStorage(dirName, "shard1")
+	require.NoError(t, err)
+	require.Equal(t, expectedTotal, vectorCommitLogsStorageSize+otherNonLSMFoldersStorageSize+indexBytes+uint64(objectsBytes.StorageBytes)+uint64(vectorBytes))
+}
+
+func BenchmarkStorageCalculation(b *testing.B) {
+	for n := 0; n < b.N; n++ {
+		logger, _ := test.NewNullLogger()
+
+		dirName := b.TempDir()
+
+		// create a LSM path for a shard
+		lsmFolder := shardPathLSM(dirName, "shard1")
+		require.NoError(b, os.MkdirAll(lsmFolder, 0o777))
+
+		buckets := []string{helpers.ObjectsBucketLSM, helpers.DimensionsBucketLSM, "vectors", "vectors_compressed", "vectors_compressed_named_vector", "property_someProp_searchable", "property_someProp", "property__id"}
+		sizeTracker := make(map[string]uint64, len(buckets))
+
+		// create different buckets with dummy files with varying sizes
+		for _, bucket := range buckets {
+			bucketPath := filepath.Join(lsmFolder, bucket)
+			require.NoError(b, os.MkdirAll(bucketPath, 0o777))
+			sizeTracker[bucket] = 0
+
+			// create some dummy files
+			for i := 0; i < 10; i++ {
+				filePath := filepath.Join(bucketPath, fmt.Sprintf("file%d.db", i))
+				f, err := os.Create(filePath)
+				require.NoError(b, err)
+
+				size := 8000
+				sizeTracker[bucket] += uint64(size)
+				data := make([]byte, size)
+				_, err = f.Write(data)
+				require.NoError(b, err)
+				require.NoError(b, f.Close())
+			}
+		}
+
+		// calculate storage and compare
+		expectedTotal := uint64(0)
+		for _, size := range sizeTracker {
+			expectedTotal += size
+		}
+
+		objectsBytes, err := CalculateUnloadedObjectsMetrics(logger, dirName, "shard1", false)
+		require.NoError(b, err)
+		require.Equal(b, sizeTracker[helpers.ObjectsBucketLSM], uint64(objectsBytes.StorageBytes))
+
+		vectorBytes, err := CalculateUnloadedVectorsMetrics(lsmFolder, buckets)
+		require.NoError(b, err)
+		require.Equal(b, sizeTracker["vectors"]+sizeTracker["vectors_compressed"]+sizeTracker["vectors_compressed_named_vector"], uint64(vectorBytes))
+
+		indexBytes, err := CalculateUnloadedIndicesSize(lsmFolder, buckets)
+		require.NoError(b, err)
+		require.Equal(b, sizeTracker["property_someProp_searchable"]+sizeTracker["property_someProp"]+sizeTracker["property__id"]+sizeTracker[helpers.DimensionsBucketLSM], indexBytes)
+
+		vectorCommitLogsStorageSize, otherNonLSMFoldersStorageSize, err := CalculateNonLSMStorage(dirName, "shard1")
+		require.NoError(b, err)
+		require.Equal(b, expectedTotal, vectorCommitLogsStorageSize+otherNonLSMFoldersStorageSize+indexBytes+uint64(objectsBytes.StorageBytes)+uint64(vectorBytes))
+
+	}
 }

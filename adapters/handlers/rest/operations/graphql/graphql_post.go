@@ -45,9 +45,9 @@ func NewGraphqlPost(ctx *middleware.Context, handler GraphqlPostHandler) *Graphq
 /*
 	GraphqlPost swagger:route POST /graphql graphql graphqlPost
 
-# Get a response based on GraphQL
+# Perform a GraphQL query
 
-Get a response based on a GraphQL query
+Executes a single GraphQL query provided in the request body. Use this endpoint for all Weaviate data queries and exploration.
 */
 type GraphqlPost struct {
 	Context *middleware.Context

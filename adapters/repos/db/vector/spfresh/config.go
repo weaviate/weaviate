@@ -12,11 +12,14 @@
 package spfresh
 
 import (
+	"fmt"
 	"io"
+	"math"
 	"runtime"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
@@ -28,26 +31,22 @@ import (
 
 type Config struct {
 	Logger                    logrus.FieldLogger
-	Distancer                 distancer.Provider
+	DistanceProvider          distancer.Provider
 	RootPath                  string
 	ID                        string
 	TargetVector              string
 	ShardName                 string
 	ClassName                 string
 	PrometheusMetrics         *monitoring.PrometheusMetrics
-	MaxPostingSize            uint32                          `json:"maxPostingSize,omitempty"`            // Maximum number of vectors in a posting
-	MinPostingSize            uint32                          `json:"minPostingSize,omitempty"`            // Minimum number of vectors in a posting
 	SplitWorkers              int                             `json:"splitWorkers,omitempty"`              // Number of concurrent workers for split operations
 	ReassignWorkers           int                             `json:"reassignWorkers,omitempty"`           // Number of concurrent workers for reassign operations
 	InternalPostingCandidates int                             `json:"internalPostingCandidates,omitempty"` // Number of candidates to consider when running a centroid search internally
 	ReassignNeighbors         int                             `json:"reassignNeighbors,omitempty"`         // Number of neighboring centroids to consider for reassigning vectors
-	Replicas                  int                             `json:"replicas,omitempty"`                  // Number of closure replicas to maintain
-	RNGFactor                 float32                         `json:"rngFactor,omitempty"`                 // Distance factor used by the RNG rule to determine how spread out replica selections are
 	MaxDistanceRatio          float32                         `json:"maxDistanceRatio,omitempty"`          // Maximum distance ratio for the search, used to filter out candidates that are too far away
-	SearchProbe               int                             `json:"searchProbe,omitempty"`               // Number of vectors to consider during search
 	Store                     StoreConfig                     `json:"store"`                               // Configuration for the underlying LSMKV store
 	Centroids                 CentroidConfig                  `json:"centroids"`                           // Configuration for the centroid index
 	TombstoneCallbacks        cyclemanager.CycleCallbackGroup // Callbacks for handling tombstones
+	Compressed                bool                            `json:"compressed,omitempty"` // Whether to store vectors in compressed format
 }
 
 type StoreConfig struct {
@@ -64,11 +63,34 @@ type CentroidConfig struct {
 	HNSWConfig *hnsw.Config `json:"hnswConfig,omitempty"`
 }
 
+const (
+	DefaultInternalPostingCandidates = 64
+	DefaultReassignNeighbors         = 8
+	DefaultMaxDistanceRatio          = 10_000
+)
+
 func (c *Config) Validate() error {
 	if c.Logger == nil {
 		logger := logrus.New()
 		logger.Out = io.Discard
 		c.Logger = logger
+	}
+
+	w := runtime.GOMAXPROCS(0)
+	if c.SplitWorkers <= 0 {
+		c.SplitWorkers = w
+	}
+	if c.ReassignWorkers <= 0 {
+		c.ReassignWorkers = w
+	}
+	if c.InternalPostingCandidates <= 0 {
+		c.InternalPostingCandidates = DefaultInternalPostingCandidates
+	}
+	if c.ReassignNeighbors <= 0 {
+		c.ReassignNeighbors = DefaultReassignNeighbors
+	}
+	if c.MaxDistanceRatio <= 0 {
+		c.MaxDistanceRatio = DefaultMaxDistanceRatio
 	}
 
 	return nil
@@ -79,31 +101,67 @@ func DefaultConfig() *Config {
 
 	return &Config{
 		Logger:                    logrus.New(),
-		Distancer:                 distancer.NewL2SquaredProvider(),
-		MinPostingSize:            10,
 		SplitWorkers:              w,
 		ReassignWorkers:           w,
-		InternalPostingCandidates: 64,
-		SearchProbe:               128,
-		ReassignNeighbors:         8,
-		Replicas:                  8,
-		RNGFactor:                 10.0,
-		MaxDistanceRatio:          10_000,
+		InternalPostingCandidates: DefaultInternalPostingCandidates,
+		ReassignNeighbors:         DefaultReassignNeighbors,
+		MaxDistanceRatio:          DefaultMaxDistanceRatio,
+		DistanceProvider:          distancer.NewL2SquaredProvider(),
+		Compressed:                false,
 	}
 }
 
 func ValidateUserConfigUpdate(initial, updated config.VectorIndexConfig) error {
-	_, ok := initial.(ent.UserConfig)
+	uc, ok := initial.(ent.UserConfig)
 	if !ok {
 		return errors.Errorf("initial is not UserConfig, but %T", initial)
 	}
 
-	_, ok = updated.(ent.UserConfig)
+	nuc, ok := updated.(ent.UserConfig)
 	if !ok {
 		return errors.Errorf("updated is not UserConfig, but %T", updated)
 	}
 
-	// TODO add immutable fields
+	if uc.Distance != nuc.Distance {
+		return fmt.Errorf("distance function cannot be changed once set (was '%s', cannot change to '%s')",
+			uc.Distance, nuc.Distance)
+	}
 
 	return nil
+}
+
+// MaxPostingVectors returns how many vectors can fit in one posting
+// given the dimensions, compression and I/O budget.
+// I/O budget: SPANN recommends 12KB per posting for byte vectors
+// and 48KB for float32 vectors.
+// Dims is the number of dimensions of the vector, after compression
+// if applicable.
+func computeMaxPostingSize(dims int, compressed bool) uint32 {
+	bytesPerDim := 4
+	maxBytes := 48 * 1024 // default to float32 budget
+	metadata := 8 + 1     // id + version
+	if compressed {
+		bytesPerDim = 1
+		maxBytes = 12 * 1024                          // compressed budget
+		metadata += compressionhelpers.RQMetadataSize // RQ metadata
+	}
+
+	vBytes := dims*bytesPerDim + metadata
+
+	return uint32(math.Ceil(float64(maxBytes) / float64(vBytes)))
+}
+
+func compressedVectorSize(size int) int {
+	return size + compressionhelpers.RQMetadataSize
+}
+
+func (s *SPFresh) setMaxPostingSize() {
+	if s.maxPostingSize == 0 {
+		isCompressed := s.Compressed()
+		s.maxPostingSize = computeMaxPostingSize(int(s.dims), isCompressed)
+	}
+
+	if s.maxPostingSize <= s.minPostingSize {
+		s.minPostingSize = s.maxPostingSize / 2
+	}
 }

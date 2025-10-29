@@ -146,17 +146,6 @@ func (e *executor) ShutdownShard(class string, shard string) {
 	}
 }
 
-func (e *executor) DropShard(class string, shard string) {
-	ctx := context.Background()
-	if err := e.migrator.DropShard(ctx, class, shard); err != nil {
-		e.logger.WithFields(logrus.Fields{
-			"action": "drop_shard",
-			"class":  class,
-			"shard":  shard,
-		}).WithError(err).Warn("migrator")
-	}
-}
-
 // RestoreClassDir restores classes on the filesystem directly from the temporary class backup stored on disk.
 // This function is invoked by the Raft store when a restoration request is sent by the backup coordinator.
 func (e *executor) RestoreClassDir(class string) error {

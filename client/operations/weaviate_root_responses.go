@@ -57,7 +57,7 @@ func NewWeaviateRootOK() *WeaviateRootOK {
 /*
 WeaviateRootOK describes a response with status code 200, with default header values.
 
-Weaviate is alive and ready to serve content
+Weaviate is alive and ready.
 */
 type WeaviateRootOK struct {
 	Payload *WeaviateRootOKBody

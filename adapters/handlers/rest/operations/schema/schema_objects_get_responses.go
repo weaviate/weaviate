@@ -28,7 +28,7 @@ import (
 const SchemaObjectsGetOKCode int = 200
 
 /*
-SchemaObjectsGetOK Found the Class, returned as body
+SchemaObjectsGetOK Successfully retrieved the collection definition.
 
 swagger:response schemaObjectsGetOK
 */
@@ -143,7 +143,7 @@ func (o *SchemaObjectsGetForbidden) WriteResponse(rw http.ResponseWriter, produc
 const SchemaObjectsGetNotFoundCode int = 404
 
 /*
-SchemaObjectsGetNotFound This class does not exist
+SchemaObjectsGetNotFound Collection not found.
 
 swagger:response schemaObjectsGetNotFound
 */
@@ -168,7 +168,7 @@ func (o *SchemaObjectsGetNotFound) WriteResponse(rw http.ResponseWriter, produce
 const SchemaObjectsGetInternalServerErrorCode int = 500
 
 /*
-SchemaObjectsGetInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+SchemaObjectsGetInternalServerError An error occurred while retrieving the collection definition. Check the ErrorResponse for details.
 
 swagger:response schemaObjectsGetInternalServerError
 */

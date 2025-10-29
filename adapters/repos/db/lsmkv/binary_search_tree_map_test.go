@@ -210,3 +210,109 @@ func Test_BinarySearchTreeMap(t *testing.T) {
 		}, res)
 	})
 }
+
+func TestBSTMap_Flatten(t *testing.T) {
+	t.Run("flattened bst is snapshot of current bst", func(t *testing.T) {
+		rowkey1 := "rowkey-1"
+		rowkey2 := "rowkey-2"
+		rowkey3 := "rowkey-3"
+		rowkey4 := "rowkey-4"
+
+		rowkeys := map[string][]byte{
+			rowkey1: []byte(rowkey1),
+			rowkey2: []byte(rowkey2),
+			rowkey3: []byte(rowkey3),
+			rowkey4: []byte(rowkey4),
+		}
+		pairs := map[string]MapPair{
+			rowkey1: {
+				Key:       []byte("key-1"),
+				Value:     []byte("val-1"),
+				Tombstone: false,
+			},
+			rowkey2: {
+				Key:       []byte("key-2"),
+				Value:     nil,
+				Tombstone: true,
+			},
+			rowkey3: {
+				Key:       []byte("key-3"),
+				Value:     []byte("val-3"),
+				Tombstone: false,
+			},
+		}
+		pairsUpdated := map[string]MapPair{
+			rowkey1: {
+				Key:       []byte("key-1"),
+				Value:     nil,
+				Tombstone: true,
+			},
+			rowkey2: {
+				Key:       []byte("key-2"),
+				Value:     []byte("val-22"),
+				Tombstone: false,
+			},
+			rowkey3: {
+				Key:       []byte("key-3"),
+				Value:     nil,
+				Tombstone: true,
+			},
+			rowkey4: {
+				Key:       []byte("key-4"),
+				Value:     []byte("val-44"),
+				Tombstone: false,
+			},
+		}
+
+		type expectedFlattened struct {
+			rowkey []byte
+			pair   MapPair
+		}
+		assertFlattenedMatches := func(t *testing.T, flattened []*binarySearchNodeMap, expected []expectedFlattened) {
+			t.Helper()
+			require.Len(t, flattened, len(expected))
+			for i, exp := range expected {
+				assert.Equal(t, exp.rowkey, flattened[i].key)
+				require.Len(t, flattened[i].values, 1)
+				val := flattened[i].values[0]
+				assert.Equal(t, exp.pair.Key, val.Key)
+				assert.Equal(t, exp.pair.Value, val.Value)
+				assert.Equal(t, exp.pair.Tombstone, val.Tombstone)
+			}
+		}
+
+		bst := &binarySearchTreeMap{}
+		// mixed order
+		bst.insert(rowkeys[rowkey3], pairs[rowkey3])
+		bst.insert(rowkeys[rowkey1], pairs[rowkey1])
+		bst.insert(rowkeys[rowkey2], pairs[rowkey2])
+
+		expectedBeforeUpdate := []expectedFlattened{
+			{rowkeys[rowkey1], pairs[rowkey1]},
+			{rowkeys[rowkey2], pairs[rowkey2]},
+			{rowkeys[rowkey3], pairs[rowkey3]},
+		}
+
+		flatBeforeUpdate := bst.flattenInOrder()
+		assertFlattenedMatches(t, flatBeforeUpdate, expectedBeforeUpdate)
+
+		t.Run("flattened bst does not change on bst update", func(t *testing.T) {
+			// mixed order
+			bst.insert(rowkeys[rowkey3], pairsUpdated[rowkey3])
+			bst.insert(rowkeys[rowkey4], pairsUpdated[rowkey4])
+			bst.insert(rowkeys[rowkey1], pairsUpdated[rowkey1])
+			bst.insert(rowkeys[rowkey2], pairsUpdated[rowkey2])
+
+			expectedAfterUpdate := []expectedFlattened{
+				{rowkeys[rowkey1], pairsUpdated[rowkey1]},
+				{rowkeys[rowkey2], pairsUpdated[rowkey2]},
+				{rowkeys[rowkey3], pairsUpdated[rowkey3]},
+				{rowkeys[rowkey4], pairsUpdated[rowkey4]},
+			}
+
+			flatAfterUpdate := bst.flattenInOrder()
+			assertFlattenedMatches(t, flatBeforeUpdate, expectedBeforeUpdate)
+			assertFlattenedMatches(t, flatAfterUpdate, expectedAfterUpdate)
+		})
+	})
+}

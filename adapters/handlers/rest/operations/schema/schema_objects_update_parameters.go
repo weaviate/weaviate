@@ -46,12 +46,12 @@ type SchemaObjectsUpdateParams struct {
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
-	/*
+	/*The name of the collection (class) to update.
 	  Required: true
 	  In: path
 	*/
 	ClassName string
-	/*
+	/*The updated collection definition containing the settings to modify.
 	  Required: true
 	  In: body
 	*/

@@ -876,7 +876,7 @@ func (index *flat) Preload(id uint64, vector []float32) {
 	}
 }
 
-func (index *flat) PostStartup() {
+func (index *flat) PostStartup(ctx context.Context) {
 	if !index.Cached() || index.quantizer == nil {
 		return
 	}
@@ -908,11 +908,9 @@ func (index *flat) PostStartup() {
 			binary.BigEndian.Uint64, func(compressed []byte, buf *[]uint64) []uint64 {
 				return index.quantizer.FromCompressedBytesToUint64(compressed, buf)
 			}, index.logger)
-		channel := it.IterateAll()
-		if channel == nil {
-			return // nothing to do
-		}
-		for vectors := range channel {
+		vecsCh, abortedCh := it.IterateAll(ctx)
+
+		for vectors := range vecsCh {
 			for _, v := range vectors {
 				// if we mix little and big endian IDs by mistake, we might get a very large
 				// maxID which would cause us to allocate a huge cache.
@@ -924,6 +922,15 @@ func (index *flat) PostStartup() {
 
 				vecs = append(vecs, v)
 			}
+		}
+		if <-abortedCh {
+			index.logger.WithFields(logrus.Fields{
+				"action":   "preload_cache",
+				"count":    len(vecs),
+				"took":     time.Since(before),
+				"index_id": index.id,
+			}).Warn("preload vectors aborted")
+			return
 		}
 
 		for i := range vecs {
@@ -942,11 +949,9 @@ func (index *flat) PostStartup() {
 			binary.BigEndian.Uint64, func(compressed []byte, buf *[]byte) []byte {
 				return index.quantizer.FromCompressedBytesToBytes(compressed, buf)
 			}, index.logger)
-		channel := it.IterateAll()
-		if channel == nil {
-			return // nothing to do
-		}
-		for vectors := range channel {
+		vecsCh, abortedCh := it.IterateAll(ctx)
+
+		for vectors := range vecsCh {
 			for _, v := range vectors {
 				// if we mix little and big endian IDs by mistake, we might get a very large
 				// maxID which would cause us to allocate a huge cache.
@@ -958,6 +963,15 @@ func (index *flat) PostStartup() {
 
 				vecs = append(vecs, v)
 			}
+		}
+		if <-abortedCh {
+			index.logger.WithFields(logrus.Fields{
+				"action":   "preload_cache",
+				"count":    len(vecs),
+				"took":     time.Since(before),
+				"index_id": index.id,
+			}).Warn("preload vectors aborted")
+			return
 		}
 
 		for i := range vecs {
@@ -979,13 +993,21 @@ func (index *flat) PostStartup() {
 			binary.BigEndian.Uint64, func(compressed []byte, buf *[]uint64) []uint64 {
 				return index.quantizer.FromCompressedBytesToUint64(compressed, buf)
 			}, index.logger)
-		channel := it.IterateAll()
-		if channel != nil {
-			for v := range channel {
-				for _, vec := range v {
-					index.cache.PreloadNoLockUint64(vec.Id, vec.Vec)
-				}
+		vecsCh, abortedCh := it.IterateAll(ctx)
+
+		for vectors := range vecsCh {
+			for _, v := range vectors {
+				index.cache.PreloadNoLockUint64(v.Id, v.Vec)
 			}
+		}
+		if <-abortedCh {
+			index.logger.WithFields(logrus.Fields{
+				"action":   "preload_cache",
+				"count":    count,
+				"took":     time.Since(before),
+				"index_id": index.id,
+			}).Warn("preload vectors aborted")
+			return
 		}
 	} else if index.quantizer.Type() == ByteQuantizer {
 		index.cache.SetSizeAndGrowNoLockBytes(maxID)
@@ -994,13 +1016,21 @@ func (index *flat) PostStartup() {
 			binary.BigEndian.Uint64, func(compressed []byte, buf *[]byte) []byte {
 				return index.quantizer.FromCompressedBytesToBytes(compressed, buf)
 			}, index.logger)
-		channel := it.IterateAll()
-		if channel != nil {
-			for v := range channel {
-				for _, vec := range v {
-					index.cache.PreloadNoLockBytes(vec.Id, vec.Vec)
-				}
+		vecsCh, abortedCh := it.IterateAll(ctx)
+
+		for vectors := range vecsCh {
+			for _, v := range vectors {
+				index.cache.PreloadNoLockBytes(v.Id, v.Vec)
 			}
+		}
+		if <-abortedCh {
+			index.logger.WithFields(logrus.Fields{
+				"action":   "preload_cache",
+				"count":    count,
+				"took":     time.Since(before),
+				"index_id": index.id,
+			}).Warn("preload vectors aborted")
+			return
 		}
 	}
 

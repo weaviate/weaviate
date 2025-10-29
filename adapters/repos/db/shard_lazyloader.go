@@ -209,7 +209,7 @@ func (l *LazyLoadShard) ObjectCountAsync(ctx context.Context) (int64, error) {
 	}
 	l.mutex.Unlock()
 	idx := l.shardOpts.index
-	objectUsage, err := shardusage.CalculateUnloadedObjectsMetrics(idx.logger, idx.path(), l.shardOpts.name)
+	objectUsage, err := shardusage.CalculateUnloadedObjectsMetrics(idx.logger, idx.path(), l.shardOpts.name, true)
 	if err != nil {
 		return 0, fmt.Errorf("error while getting object count for shard %s: %w", l.shardOpts.name, err)
 	}
@@ -625,9 +625,9 @@ func (l *LazyLoadShard) prepareAddReferences(ctx context.Context, shardID string
 	return l.shard.prepareAddReferences(ctx, shardID, refs)
 }
 
-func (l *LazyLoadShard) commitReplication(ctx context.Context, shardID string, mutex *shardTransfer) interface{} {
+func (l *LazyLoadShard) commitReplication(ctx context.Context, shardID string) interface{} {
 	l.mustLoad()
-	return l.shard.commitReplication(ctx, shardID, mutex)
+	return l.shard.commitReplication(ctx, shardID)
 }
 
 func (l *LazyLoadShard) abortReplication(ctx context.Context, shardID string) replica.SimpleResponse {

@@ -26,7 +26,7 @@ import (
 const WeaviateWellknownLivenessOKCode int = 200
 
 /*
-WeaviateWellknownLivenessOK The application is able to respond to HTTP requests
+WeaviateWellknownLivenessOK The application is alive and responding to HTTP requests.
 
 swagger:response weaviateWellknownLivenessOK
 */

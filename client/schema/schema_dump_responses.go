@@ -71,7 +71,7 @@ func NewSchemaDumpOK() *SchemaDumpOK {
 /*
 SchemaDumpOK describes a response with status code 200, with default header values.
 
-Successfully dumped the database schema.
+Successfully retrieved the database schema.
 */
 type SchemaDumpOK struct {
 	Payload *models.Schema
@@ -263,7 +263,7 @@ func NewSchemaDumpInternalServerError() *SchemaDumpInternalServerError {
 /*
 SchemaDumpInternalServerError describes a response with status code 500, with default header values.
 
-An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+An error occurred while retrieving the schema. Check the ErrorResponse for details.
 */
 type SchemaDumpInternalServerError struct {
 	Payload *models.ErrorResponse

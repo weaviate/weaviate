@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"math"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/pkg/errors"
@@ -28,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
+	ent "github.com/weaviate/weaviate/entities/vectorindex/spfresh"
 )
 
 const (
@@ -52,6 +54,13 @@ type SPFresh struct {
 	logger  logrus.FieldLogger
 	config  *Config // Config contains internal configuration settings.
 	metrics *Metrics
+
+	maxPostingSize     uint32
+	minPostingSize     uint32
+	replicas           uint32
+	rngFactor          float32
+	searchProbe        uint32
+	centroidsIndexType string
 
 	// some components require knowing the vector size beforehand
 	// and can only be initialized once the first vector has been
@@ -87,7 +96,7 @@ type SPFresh struct {
 	initialPostingLock sync.Mutex
 }
 
-func New(cfg *Config, store *lsmkv.Store) (*SPFresh, error) {
+func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*SPFresh, error) {
 	err := cfg.Validate()
 	if err != nil {
 		return nil, err
@@ -127,16 +136,22 @@ func New(cfg *Config, store *lsmkv.Store) (*SPFresh, error) {
 		mergeList:  newDeduplicator(),
 		// TODO: choose a better starting size since we can predict the max number of
 		// visited vectors based on cfg.InternalPostingCandidates.
-		visitedPool: visited.NewPool(1, 512, -1),
+		visitedPool:        visited.NewPool(1, 512, -1),
+		maxPostingSize:     uc.MaxPostingSize,
+		minPostingSize:     uc.MinPostingSize,
+		replicas:           uc.Replicas,
+		rngFactor:          uc.RNGFactor,
+		searchProbe:        uc.SearchProbe,
+		centroidsIndexType: uc.CentroidsIndexType,
 	}
 
-	if cfg.Centroids.IndexType == "hnsw" {
+	if s.centroidsIndexType == "hnsw" {
 		s.Centroids, err = NewHNSWIndex(metrics, store, cfg, 1024*1024, 1024)
 		if err != nil {
 			return nil, err
 		}
 	} else {
-		s.Centroids = NewBruteForceSPTAG(metrics, cfg.Distancer, 1024*1024, 1024)
+		s.Centroids = NewBruteForceSPTAG(metrics, cfg.DistanceProvider, 1024*1024, 1024)
 	}
 
 	s.ctx, s.cancel = context.WithCancel(context.Background())
@@ -179,6 +194,14 @@ func (s *SPFresh) Type() common.IndexType {
 }
 
 func (s *SPFresh) UpdateUserConfig(updated schemaConfig.VectorIndexConfig, callback func()) error {
+	parsed, ok := updated.(ent.UserConfig)
+	if !ok {
+		callback()
+		return errors.Errorf("config is not UserConfig, but %T", updated)
+	}
+
+	atomic.StoreUint32(&s.searchProbe, parsed.SearchProbe)
+
 	callback()
 	return nil
 }
@@ -211,8 +234,15 @@ func (s *SPFresh) Shutdown(ctx context.Context) error {
 }
 
 func (s *SPFresh) Flush() error {
-	// nothing to do here
-	// Shard will take care of handling store's buckets
+	if s.config.Centroids.IndexType == "hnsw" {
+		hnswIndex, ok := s.Centroids.(*HNSWIndex)
+		if !ok {
+			return errors.Errorf("centroid index is not HNSW, but %T", s.Centroids)
+		}
+
+		return hnswIndex.hnsw.Flush()
+	}
+
 	return nil
 }
 
@@ -233,7 +263,7 @@ func (s *SPFresh) ListFiles(ctx context.Context, basePath string) ([]string, err
 	return nil, nil
 }
 
-func (s *SPFresh) PostStartup() {
+func (s *SPFresh) PostStartup(ctx context.Context) {
 	// This method can be used to perform any post-startup initialization
 	// For now, it does nothing
 	if s.config.Centroids.IndexType == "hnsw" {
@@ -242,12 +272,12 @@ func (s *SPFresh) PostStartup() {
 			return
 		}
 
-		hnswIndex.hnsw.PostStartup()
+		hnswIndex.hnsw.PostStartup(ctx)
 	}
 }
 
 func (s *SPFresh) Compressed() bool {
-	return true
+	return s.config.Compressed
 }
 
 func (s *SPFresh) Multivector() bool {
@@ -286,7 +316,7 @@ func (s *SPFresh) QueryVectorDistancer(queryVector []float32) common.QueryVector
 			return 0, err
 		}
 
-		dist, err := s.config.Distancer.SingleDist(queryVector, float32SliceFromByteSlice(vec, make([]float32, len(vec)/4)))
+		dist, err := s.config.DistanceProvider.SingleDist(queryVector, float32SliceFromByteSlice(vec, make([]float32, len(vec)/4)))
 		if err != nil {
 			return 0, err
 		}

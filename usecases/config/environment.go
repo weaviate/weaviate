@@ -947,7 +947,6 @@ func FromEnv(config *Config) error {
 }
 
 func parseRAFTConfig(hostname string) (Raft, error) {
-	// flag.IntVar()
 	cfg := Raft{
 		MetadataOnlyVoters: entcfg.Enabled(os.Getenv("RAFT_METADATA_ONLY_VOTERS")),
 	}
@@ -1408,16 +1407,16 @@ func parseClusterConfig() (cluster.Config, error) {
 	cfg.Join = os.Getenv("CLUSTER_JOIN")
 
 	advertiseAddr, advertiseAddrSet := os.LookupEnv("CLUSTER_ADVERTISE_ADDR")
-	advertisePort, advertisePortSet := os.LookupEnv("CLUSTER_ADVERTISE_PORT")
-
-	cfg.Localhost = entcfg.Enabled(os.Getenv("CLUSTER_IN_LOCALHOST"))
-	gossipBind, gossipBindSet := os.LookupEnv("CLUSTER_GOSSIP_BIND_PORT")
-	dataBind, dataBindSet := os.LookupEnv("CLUSTER_DATA_BIND_PORT")
-
 	if advertiseAddrSet {
 		cfg.AdvertiseAddr = advertiseAddr
 	}
 
+	bindAddr, bindAddrSet := os.LookupEnv("CLUSTER_BIND_ADDR")
+	if bindAddrSet {
+		cfg.BindAddr = bindAddr
+	}
+
+	advertisePort, advertisePortSet := os.LookupEnv("CLUSTER_ADVERTISE_PORT")
 	if advertisePortSet {
 		asInt, err := strconv.Atoi(advertisePort)
 		if err != nil {
@@ -1425,6 +1424,10 @@ func parseClusterConfig() (cluster.Config, error) {
 		}
 		cfg.AdvertisePort = asInt
 	}
+
+	cfg.Localhost = entcfg.Enabled(os.Getenv("CLUSTER_IN_LOCALHOST"))
+	gossipBind, gossipBindSet := os.LookupEnv("CLUSTER_GOSSIP_BIND_PORT")
+	dataBind, dataBindSet := os.LookupEnv("CLUSTER_DATA_BIND_PORT")
 
 	if gossipBindSet {
 		asInt, err := strconv.Atoi(gossipBind)

@@ -137,7 +137,7 @@ type ShardLike interface {
 	prepareDeleteObjects(context.Context, string, []strfmt.UUID, time.Time, bool) replica.SimpleResponse
 	prepareAddReferences(context.Context, string, []objects.BatchReference) replica.SimpleResponse
 
-	commitReplication(context.Context, string, *shardTransfer) interface{}
+	commitReplication(context.Context, string) interface{}
 	abortReplication(context.Context, string) replica.SimpleResponse
 	filePutter(context.Context, string) (io.WriteCloser, error)
 
@@ -280,6 +280,9 @@ type Shard struct {
 	// allows concurrent shut read/write
 	shutdownLock *sync.RWMutex
 
+	shutCtx       context.Context
+	shutCtxCancel context.CancelCauseFunc
+
 	reindexer                             ShardReindexerV3
 	callbacksAddToPropertyValueIndex      []onAddToPropertyValueIndex
 	callbacksRemoveFromPropertyValueIndex []onDeleteFromPropertyValueIndex
@@ -381,6 +384,11 @@ func (s *Shard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string
 		return err
 	}
 
+	if err := newCompressedVectorsMigrator(s.index.logger).doUpdate(s, updated); err != nil {
+		s.index.logger.WithField("action", "update_vector_index_configs").
+			Errorf("failed to migrate vectors compressed folder: %v", err)
+	}
+
 	i := 0
 	targetVecs := make([]string, len(updated))
 	for targetVec := range updated {
@@ -441,7 +449,7 @@ func (s *Shard) ObjectCountAsync(_ context.Context) (int64, error) {
 }
 
 func (s *Shard) ObjectStorageSize(ctx context.Context) (int64, error) {
-	metrics, err := shardusage.CalculateUnloadedObjectsMetrics(s.index.logger, s.index.path(), s.name)
+	metrics, err := shardusage.CalculateUnloadedObjectsMetrics(s.index.logger, s.index.path(), s.name, false)
 	if err != nil {
 		return 0, err
 	}
@@ -449,8 +457,8 @@ func (s *Shard) ObjectStorageSize(ctx context.Context) (int64, error) {
 }
 
 // VectorStorageSize calculates the total storage size of all vector indexes in the shard
-func (s *Shard) VectorStorageSize(ctx context.Context) (int64, int64, error) {
-	vectorSize, err := shardusage.CalculateUnloadedVectorsMetrics(s.index.path(), s.name)
+func (s *Shard) VectorStorageSize(ctx context.Context, lsmPath string, directories []string) (int64, int64, error) {
+	vectorSize, err := shardusage.CalculateUnloadedVectorsMetrics(lsmPath, directories)
 	if err != nil {
 		return 0, 0, err
 	}

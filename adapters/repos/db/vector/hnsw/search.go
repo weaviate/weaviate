@@ -263,7 +263,12 @@ func (h *hnsw) populateAcornCandidates(acornSlices *acornSlices,
 	index := 0
 
 	candidateNode.Lock()
-	pendingNextRound = pendingNextRound[:candidateNode.connections.LenAtLayer(uint8(level))]
+	if len(candidateNode.connections[level]) > h.maximumConnectionsLayerZero {
+		pendingNextRound = make([]uint64, len(candidateNode.connections[level]))
+		slicePendingNextRound.Slice = pendingNextRound
+	} else {
+		pendingNextRound = pendingNextRound[:len(candidateNode.connections[level])]
+	}
 	pendingNextRound = candidateNode.connections.CopyLayer(pendingNextRound, uint8(level))
 	candidateNode.Unlock()
 	hop := 1
@@ -653,16 +658,16 @@ func (h *hnsw) currentWorstResultDistanceToByte(results *priorityqueue.Queue[any
 	}
 }
 
-func (h *hnsw) distanceFromBytesToFloatNode(concreteDistancer compressionhelpers.CompressorDistancer, nodeID uint64) (float32, error) {
+func (h *hnsw) distanceFromBytesToFloatNode(ctx context.Context, concreteDistancer compressionhelpers.CompressorDistancer, nodeID uint64) (float32, error) {
 	slice := h.pools.tempVectors.Get(int(h.dims))
 	defer h.pools.tempVectors.Put(slice)
 	var vec []float32
 	var err error
 	if h.muvera.Load() || !h.multivector.Load() {
-		vec, err = h.TempVectorForIDThunk(context.Background(), nodeID, slice)
+		vec, err = h.TempVectorForIDThunk(ctx, nodeID, slice)
 	} else {
 		docID, relativeID := h.cache.GetKeys(nodeID)
-		vecs, err := h.TempMultiVectorForIDThunk(context.Background(), docID, slice)
+		vecs, err := h.TempMultiVectorForIDThunk(ctx, docID, slice)
 		if err != nil {
 			return 0, err
 		} else if len(vecs) <= int(relativeID) {
@@ -1155,7 +1160,7 @@ func (h *hnsw) rescore(ctx context.Context, res *priorityqueue.Queue[any], k int
 				}
 
 				id := ids[idPos]
-				dist, err := h.distanceFromBytesToFloatNode(compressorDistancer, id)
+				dist, err := h.distanceFromBytesToFloatNode(ctx, compressorDistancer, id)
 				if err == nil {
 					addID(id, dist)
 				} else {

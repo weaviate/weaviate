@@ -49,7 +49,7 @@ type NodesGetParams struct {
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
-	/*Controls the verbosity of the output, possible values are: "minimal", "verbose". Defaults to "minimal".
+	/*Controls the verbosity of the output, possible values are: `minimal`, `verbose`. Defaults to `minimal`.
 	  In: query
 	  Default: "minimal"
 	*/

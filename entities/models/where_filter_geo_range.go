@@ -24,7 +24,7 @@ import (
 	"github.com/go-openapi/swag"
 )
 
-// WhereFilterGeoRange filter within a distance of a georange
+// WhereFilterGeoRange Filter within a distance of a georange.
 //
 // swagger:model WhereFilterGeoRange
 type WhereFilterGeoRange struct {

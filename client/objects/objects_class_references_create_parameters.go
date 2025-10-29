@@ -74,24 +74,27 @@ ObjectsClassReferencesCreateParams contains all the parameters to send to the AP
 */
 type ObjectsClassReferencesCreateParams struct {
 
-	// Body.
+	/* Body.
+
+	   The reference to add.
+	*/
 	Body *models.SingleRef
 
 	/* ClassName.
 
-	   The class name as defined in the schema
+	   Name of the collection (class) the source object belongs to.
 	*/
 	ClassName string
 
 	/* ConsistencyLevel.
 
-	   Determines how many replicas must acknowledge a request before it is considered successful
+	   Determines how many replicas must acknowledge a request before it is considered successful.
 	*/
 	ConsistencyLevel *string
 
 	/* ID.
 
-	   Unique ID of the Object.
+	   Unique UUID of the source object.
 
 	   Format: uuid
 	*/
@@ -99,13 +102,13 @@ type ObjectsClassReferencesCreateParams struct {
 
 	/* PropertyName.
 
-	   Unique name of the property related to the Object.
+	   Unique name of the reference property of the source object.
 	*/
 	PropertyName string
 
 	/* Tenant.
 
-	   Specifies the tenant in a request targeting a multi-tenant class
+	   Specifies the tenant in a request targeting a multi-tenant collection (class).
 	*/
 	Tenant *string
 

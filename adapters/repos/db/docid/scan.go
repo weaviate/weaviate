@@ -116,7 +116,7 @@ func (os *objectScannerLSM) scan() error {
 					return newContext.Err()
 				}
 				binary.LittleEndian.PutUint64(docIDBytes, id)
-				res, err := os.objectsBucket.GetBySecondary(0, docIDBytes)
+				res, err := os.objectsBucket.GetBySecondary(context.TODO(), 0, docIDBytes) // TODO: Context!
 				if err != nil {
 					return err
 				}

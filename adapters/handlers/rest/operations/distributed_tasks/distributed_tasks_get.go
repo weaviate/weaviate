@@ -45,7 +45,7 @@ func NewDistributedTasksGet(ctx *middleware.Context, handler DistributedTasksGet
 /*
 	DistributedTasksGet swagger:route GET /tasks distributedTasks distributedTasksGet
 
-Lists all distributed tasks in the cluster.
+Lists all distributed tasks in the cluster
 */
 type DistributedTasksGet struct {
 	Context *middleware.Context

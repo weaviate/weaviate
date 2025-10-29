@@ -77,7 +77,7 @@ func NewClassificationsGetOK() *ClassificationsGetOK {
 /*
 ClassificationsGetOK describes a response with status code 200, with default header values.
 
-Found the classification, returned as body
+Successfully retrieved the classification details.
 */
 type ClassificationsGetOK struct {
 	Payload *models.Classification
@@ -269,7 +269,7 @@ func NewClassificationsGetNotFound() *ClassificationsGetNotFound {
 /*
 ClassificationsGetNotFound describes a response with status code 404, with default header values.
 
-Not Found - Classification does not exist
+Classification with the given ID not found.
 */
 type ClassificationsGetNotFound struct {
 }
@@ -325,7 +325,7 @@ func NewClassificationsGetInternalServerError() *ClassificationsGetInternalServe
 /*
 ClassificationsGetInternalServerError describes a response with status code 500, with default header values.
 
-An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+An internal server error occurred while retrieving the classification status. Check the ErrorResponse for details.
 */
 type ClassificationsGetInternalServerError struct {
 	Payload *models.ErrorResponse

@@ -73,12 +73,15 @@ TenantsGetParams contains all the parameters to send to the API endpoint
 */
 type TenantsGetParams struct {
 
-	// ClassName.
+	/* ClassName.
+
+	   The name of the collection (class) whose tenants to list.
+	*/
 	ClassName string
 
 	/* Consistency.
 
-	   If consistency is true, the request will be proxied to the leader to ensure strong schema consistency
+	   If true, the request is proxied to the cluster leader to ensure strong schema consistency. Default is true.
 
 	   Default: true
 	*/

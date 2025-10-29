@@ -43,12 +43,12 @@ type TenantsDeleteParams struct {
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
-	/*
+	/*The name of the collection (class) from which to delete tenants.
 	  Required: true
 	  In: path
 	*/
 	ClassName string
-	/*
+	/*An array of tenant names to delete.
 	  Required: true
 	  In: body
 	*/

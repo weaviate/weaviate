@@ -77,7 +77,7 @@ func NewTenantsCreateOK() *TenantsCreateOK {
 /*
 TenantsCreateOK describes a response with status code 200, with default header values.
 
-Added new tenants to the specified class
+Tenants created successfully.
 */
 type TenantsCreateOK struct {
 	Payload []*models.Tenant
@@ -267,7 +267,7 @@ func NewTenantsCreateUnprocessableEntity() *TenantsCreateUnprocessableEntity {
 /*
 TenantsCreateUnprocessableEntity describes a response with status code 422, with default header values.
 
-Invalid Tenant class
+Invalid request.
 */
 type TenantsCreateUnprocessableEntity struct {
 	Payload *models.ErrorResponse
@@ -335,7 +335,7 @@ func NewTenantsCreateInternalServerError() *TenantsCreateInternalServerError {
 /*
 TenantsCreateInternalServerError describes a response with status code 500, with default header values.
 
-An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+An error occurred while creating tenants. Check the ErrorResponse for details.
 */
 type TenantsCreateInternalServerError struct {
 	Payload *models.ErrorResponse

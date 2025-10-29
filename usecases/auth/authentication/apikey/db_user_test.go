@@ -13,6 +13,7 @@ package apikey
 
 import (
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"sync"
@@ -454,4 +455,33 @@ func TestRestoreInvalidData(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Error(t, dynUsers.Restore([]byte("invalid json")))
+}
+
+func TestRestoreIncompleteData(t *testing.T) {
+	dynUsers, err := NewDBUser(t.TempDir(), false, log)
+	require.NoError(t, err)
+
+	snapShot, err := dynUsers.Snapshot()
+	require.NoError(t, err)
+
+	var root map[string]interface{}
+	require.NoError(t, json.Unmarshal(snapShot, &root))
+	if data, ok := root["Data"].(map[string]interface{}); ok {
+		delete(data, "ImportedApiKeysWeakHash")
+	}
+	snapShot, err = json.Marshal(root)
+	require.NoError(t, err)
+
+	dynUsers2, err := NewDBUser(t.TempDir(), true, log)
+	require.NoError(t, err)
+	err = dynUsers2.Restore(snapShot)
+	require.NoError(t, err)
+
+	importedApiKey := "importedApiKey"
+	userId := "user"
+	createdAt := time.Now().Add(-time.Hour)
+	require.NoError(t, dynUsers2.CreateUserWithKey(userId, importedApiKey[:3], sha256.Sum256([]byte(importedApiKey)), createdAt))
+	user, err := dynUsers2.GetUsers(userId)
+	require.NoError(t, err)
+	require.Equal(t, user[userId].Id, userId)
 }

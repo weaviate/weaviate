@@ -15,6 +15,16 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
+const UsageDiskVersion int = 1
+
+// UsageDisk defines format of saved pre-computed shard usage data
+type UsageDisk struct {
+	// Version of the
+	Version int `json:"version"`
+	// ShardUsage
+	ShardUsage *ShardUsage `json:"shardUsage"`
+}
+
 // Report represents the usage metrics report from the metrics endpoint
 type Report struct {
 	// The version of usage policy, current weaviate version
@@ -35,6 +45,8 @@ type Report struct {
 
 	// The local node's view of the schema
 	Schema *models.Schema `json:"schema,omitempty"`
+
+	GoMemLimit int64 `json:"go_mem_limit,omitempty"`
 }
 
 // CollectionUsage represents metrics for a single collection
@@ -61,19 +73,19 @@ type ShardUsage struct {
 	Status string `json:"status,omitempty"`
 
 	// The number of objects in the shard
-	ObjectsCount int64 `json:"objects_count,omitempty"`
+	ObjectsCount int64 `json:"objects_count"`
 
 	// The disk storage used by objects in bytes
-	ObjectsStorageBytes uint64 `json:"objects_storage_bytes,omitempty"`
+	ObjectsStorageBytes uint64 `json:"objects_storage_bytes"`
 
 	// The disk storage used by vectors in bytes
-	VectorStorageBytes uint64 `json:"vector_storage_bytes,omitempty"`
+	VectorStorageBytes uint64 `json:"vector_storage_bytes"`
 
 	// The disk storage used by indices in bytes
-	IndexStorageBytes uint64 `json:"index_storage_bytes,omitempty"`
+	IndexStorageBytes uint64 `json:"index_storage_bytes"`
 
 	// The disk storage used by the full shard in bytes (objects + vectors + indices + hnsw commitlogs)
-	FullShardStorageBytes uint64 `json:"full_shard_storage_bytes,omitempty"`
+	FullShardStorageBytes uint64 `json:"full_shard_storage_bytes"`
 
 	// List of named vectors and their metrics
 	NamedVectors VectorsUsage `json:"named_vectors,omitempty"`
@@ -82,7 +94,7 @@ type ShardUsage struct {
 // VectorUsage represents metrics for a single vector index
 type VectorUsage struct {
 	// The name of the vector
-	Name string `json:"name,omitempty"`
+	Name string `json:"name"`
 
 	// The type of vector index (for dynamic indexes, this shows the underlying type: flat/hnsw)
 	VectorIndexType string `json:"vector_index_type,omitempty"`
