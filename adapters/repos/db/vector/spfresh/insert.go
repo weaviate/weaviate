@@ -138,7 +138,6 @@ func (s *SPFresh) ensureInitialPosting(v []float32, compressed []byte) (*ResultS
 	// if no postings were found, create a new posting while holding the lock
 	if targets.Len() == 0 {
 		postingID := s.IDs.Next()
-		s.PostingSizes.AllocPageFor(postingID)
 		// use the vector as the centroid and register it in the SPTAG
 		err = s.Centroids.Insert(postingID, &Centroid{
 			Uncompressed: v,
@@ -186,12 +185,13 @@ func (s *SPFresh) append(ctx context.Context, vector Vector, centroidID uint64, 
 	}
 
 	// increment the size of the posting
-	s.PostingSizes.Inc(centroidID, 1)
+	count, err := s.PostingSizes.Inc(ctx, centroidID, 1)
+	if err != nil {
+		s.postingLocks.Unlock(centroidID)
+		return false, err
+	}
 
 	s.postingLocks.Unlock(centroidID)
-
-	// ensure the posting size is within the configured limits
-	count := s.PostingSizes.Get(centroidID)
 
 	// If the posting is too big, we need to split it.
 	// During an insert, we want to split asynchronously

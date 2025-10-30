@@ -20,7 +20,7 @@ type PostingSizes struct {
 	store   *PostingSizeStore
 }
 
-func NewPostingSizes(store *lsmkv.Store, id string, metrics *Metrics, cfg StoreConfig) (*PostingSizes, error) {
+func NewPostingSizes(store *lsmkv.Store, metrics *Metrics, id string, cfg StoreConfig) (*PostingSizes, error) {
 	pStore, err := NewPostingSizeStore(store, metrics, postingSizeBucketName(id), cfg)
 	if err != nil {
 		return nil, err
@@ -42,7 +42,7 @@ func NewPostingSizes(store *lsmkv.Store, id string, metrics *Metrics, cfg StoreC
 
 // Get returns the size of the posting with the given ID.
 func (v *PostingSizes) Get(ctx context.Context, postingID uint64) (uint32, error) {
-	return v.cache.Get(ctx, postingID, otter.LoaderFunc[uint64, uint32](func(ctx context.Context, key uint64) (uint32, error) {
+	size, err := v.cache.Get(ctx, postingID, otter.LoaderFunc[uint64, uint32](func(ctx context.Context, key uint64) (uint32, error) {
 		size, err := v.store.Get(ctx, postingID)
 		if err != nil {
 			var e storobj.ErrNotFound
@@ -55,6 +55,11 @@ func (v *PostingSizes) Get(ctx context.Context, postingID uint64) (uint32, error
 
 		return size, nil
 	}))
+	if errors.Is(err, otter.ErrNotFound) {
+		return 0, ErrPostingNotFound
+	}
+
+	return size, err
 }
 
 // Sets the size of the posting to newSize.
@@ -74,7 +79,9 @@ func (v *PostingSizes) Set(ctx context.Context, postingID uint64, newSize uint32
 func (v *PostingSizes) Inc(ctx context.Context, postingID uint64, delta uint32) (uint32, error) {
 	old, err := v.Get(ctx, postingID)
 	if err != nil {
-		return 0, err
+		if !errors.Is(err, ErrPostingNotFound) {
+			return 0, err
+		}
 	}
 
 	newSize := old + delta

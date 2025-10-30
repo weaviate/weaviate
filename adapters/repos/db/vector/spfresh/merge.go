@@ -132,9 +132,7 @@ func (s *SPFresh) doMerge(postingID uint64) error {
 			return errors.Wrapf(err, "failed to put filtered posting %d", postingID)
 		}
 		// update the size of the posting after successful Persist
-		s.PostingSizes.Set(postingID, uint32(prevLen))
-
-		return nil
+		return s.PostingSizes.Set(context.TODO(), postingID, uint32(prevLen))
 	}
 
 	vectorSet := make(map[uint64]struct{})
@@ -164,7 +162,10 @@ func (s *SPFresh) doMerge(postingID uint64) error {
 			return errors.Wrapf(err, "failed to put filtered posting %d", postingID)
 		}
 		// update the size of the posting after successful Persist
-		s.PostingSizes.Set(postingID, uint32(prevLen))
+		err = s.PostingSizes.Set(context.TODO(), postingID, uint32(prevLen))
+		if err != nil {
+			return errors.Wrapf(err, "failed to set size of posting %d to %d", postingID, prevLen)
+		}
 
 		return nil
 	}
@@ -172,7 +173,10 @@ func (s *SPFresh) doMerge(postingID uint64) error {
 	// first centroid is the query centroid, the rest are candidates for merging
 	for candidateID := range nearest.Iter() {
 		// check if the combined size of the postings is within limits
-		count := s.PostingSizes.Get(candidateID)
+		count, err := s.PostingSizes.Get(context.TODO(), candidateID)
+		if err != nil {
+			return errors.Wrapf(err, "failed to get posting size for candidate %d", candidateID)
+		}
 		if int(count)+prevLen > int(s.maxPostingSize) || s.mergeList.contains(candidateID) {
 			continue // Skip this candidate
 		}
@@ -230,8 +234,14 @@ func (s *SPFresh) doMerge(postingID uint64) error {
 		}
 
 		// set the small posting size to 0 and update the large posting size only after successful persist
-		s.PostingSizes.Set(smallID, 0)
-		s.PostingSizes.Set(largeID, uint32(newPosting.Len()))
+		err = s.PostingSizes.Set(context.TODO(), smallID, 0)
+		if err != nil {
+			return errors.Wrapf(err, "failed to set size of merged posting %d to 0", smallID)
+		}
+		err = s.PostingSizes.Set(context.TODO(), largeID, uint32(newPosting.Len()))
+		if err != nil {
+			return errors.Wrapf(err, "failed to set size of merged posting %d to %d", largeID, newPosting.Len())
+		}
 
 		// mark the operation as done and unlock everything
 		markedAsDone = true
@@ -269,7 +279,7 @@ func (s *SPFresh) doMerge(postingID uint64) error {
 	}
 
 	// if no candidates were found, just persist the gc'ed posting
-	s.PostingSizes.Set(postingID, uint32(newPosting.Len()))
+	s.PostingSizes.Set(context.TODO(), postingID, uint32(newPosting.Len()))
 	err = s.PostingStore.Put(s.ctx, postingID, newPosting)
 	if err != nil {
 		return errors.Wrapf(err, "failed to put filtered posting %d", postingID)

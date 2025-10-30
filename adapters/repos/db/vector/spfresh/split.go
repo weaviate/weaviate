@@ -126,7 +126,11 @@ func (s *SPFresh) doSplit(postingID uint64, reassign bool) error {
 			return errors.Wrapf(err, "failed to put filtered posting %d after split operation", postingID)
 		}
 
-		s.PostingSizes.Set(postingID, uint32(lf))
+		err = s.PostingSizes.Set(context.TODO(), postingID, uint32(lf))
+		if err != nil {
+			return errors.Wrapf(err, "failed to set posting size for posting %d after split operation", postingID)
+		}
+
 		return nil
 	}
 
@@ -153,7 +157,10 @@ func (s *SPFresh) doSplit(postingID uint64, reassign bool) error {
 			return errors.Wrapf(err, "failed to put single vector posting %d after split operation", postingID)
 		}
 		// update posting size after successful persist
-		s.PostingSizes.Set(postingID, 1)
+		err = s.PostingSizes.Set(context.TODO(), postingID, 1)
+		if err != nil {
+			return errors.Wrapf(err, "failed to set posting size for posting %d after split operation", postingID)
+		}
 
 		return nil
 	}
@@ -181,7 +188,10 @@ func (s *SPFresh) doSplit(postingID uint64, reassign bool) error {
 					return errors.Wrapf(err, "failed to put reused posting %d after split operation", postingID)
 				}
 				// update posting size after successful persist
-				s.PostingSizes.Set(postingID, uint32(result[i].Posting.Len()))
+				err = s.PostingSizes.Set(context.TODO(), postingID, uint32(result[i].Posting.Len()))
+				if err != nil {
+					return errors.Wrapf(err, "failed to set posting size for reused posting %d after split operation", postingID)
+				}
 
 				continue
 			}
@@ -195,8 +205,10 @@ func (s *SPFresh) doSplit(postingID uint64, reassign bool) error {
 			return errors.Wrapf(err, "failed to put new posting %d after split operation", newPostingID)
 		}
 		// allocate and set posting size after successful persist
-		s.PostingSizes.AllocPageFor(newPostingID)
-		s.PostingSizes.Set(newPostingID, uint32(result[i].Posting.Len()))
+		err = s.PostingSizes.Set(context.TODO(), newPostingID, uint32(result[i].Posting.Len()))
+		if err != nil {
+			return errors.Wrapf(err, "failed to set posting size for posting %d after split operation", newPostingID)
+		}
 
 		// add the new centroid to the SPTAG index
 		err = s.Centroids.Insert(newPostingID, &Centroid{
@@ -215,7 +227,10 @@ func (s *SPFresh) doSplit(postingID uint64, reassign bool) error {
 		if err != nil {
 			return errors.Wrapf(err, "failed to delete old centroid %d after split operation", postingID)
 		}
-		s.PostingSizes.Set(postingID, 0)
+		err = s.PostingSizes.Set(context.TODO(), postingID, 0)
+		if err != nil {
+			return errors.Wrapf(err, "failed to set posting size for posting %d after split operation", postingID)
+		}
 	}
 
 	// Mark the split operation as done
