@@ -324,16 +324,22 @@ func (s *Shard) sanitizeFilePath(relativeFilePath string) (string, error) {
 	combinedPath := filepath.Join(s.index.Config.RootPath, cleanFilePath)
 	finalPath, err := filepath.EvalSymlinks(combinedPath)
 	if err != nil {
-		return "", fmt.Errorf("resolve symlinks for %q: %w", combinedPath, err)
+		return "", fmt.Errorf("resolve symlinks for %q: %w", finalPath, err)
 	}
 	finalPath = filepath.Clean(finalPath)
 
-	rel, err := filepath.Rel(s.index.Config.RootPath, finalPath)
+	// Resolve symlinks in root path - this is important for testing on MacOs where /var is a symlink
+	rootPath, err := filepath.EvalSymlinks(s.index.Config.RootPath)
 	if err != nil {
-		return "", fmt.Errorf("make %q relative to %q: %w", combinedPath, s.index.Config.RootPath, err)
+		return "", fmt.Errorf("resolve symlinks for root path %q: %w", s.index.Config.RootPath, err)
+	}
+
+	rel, err := filepath.Rel(rootPath, finalPath)
+	if err != nil {
+		return "", fmt.Errorf("make %q relative to %q: %w", finalPath, rootPath, err)
 	}
 	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return "", fmt.Errorf("file path %q is outside shard root %q", relativeFilePath, s.index.Config.RootPath)
+		return "", fmt.Errorf("file path %q is outside shard root %q", finalPath, rootPath)
 	}
-	return combinedPath, nil
+	return finalPath, nil
 }
