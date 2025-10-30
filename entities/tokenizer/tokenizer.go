@@ -87,22 +87,18 @@ func InitOptionalTokenizers() {
 		UseGseCh = true
 		init_gse_ch()
 	}
-	if entcfg.Enabled(os.Getenv("ENABLE_TOKENIZER_KAGOME_KR")) {
+	if entcfg.Enabled(os.Getenv("ENABLE_TOKENIZER_KAGOME_KR")) && tokenizers.Korean == nil {
 		// Acquire lock to prevent initialization race
 		kagomeInitLock.Lock()
 		Tokenizations = append(Tokenizations, models.PropertyTokenizationKagomeKr)
-		if tokenizers.Korean == nil {
-			tokenizers.Korean, _ = initializeKagomeTokenizerKr(nil)
-		}
+		tokenizers.Korean, _ = initializeKagomeTokenizerKr(nil)
 		KagomeKrEnabled = true
 		kagomeInitLock.Unlock()
 	}
-	if entcfg.Enabled(os.Getenv("ENABLE_TOKENIZER_KAGOME_JA")) {
+	if entcfg.Enabled(os.Getenv("ENABLE_TOKENIZER_KAGOME_JA")) && tokenizers.Japanese == nil {
 		kagomeInitLock.Lock()
 		Tokenizations = append(Tokenizations, models.PropertyTokenizationKagomeJa)
-		if tokenizers.Japanese == nil {
-			tokenizers.Japanese, _ = initializeKagomeTokenizerJa(nil)
-		}
+		tokenizers.Japanese, _ = initializeKagomeTokenizerJa(nil)
 		KagomeJaEnabled = true
 		kagomeInitLock.Unlock()
 	}
