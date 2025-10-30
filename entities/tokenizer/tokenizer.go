@@ -32,13 +32,11 @@ import (
 )
 
 var (
-	gseTokenizer    *gse.Segmenter  // Japanese
-	gseTokenizerCh  *gse.Segmenter  // Chinese
-	gseLock         = &sync.Mutex{} // Lock for gse
-	UseGse          = false         // Load Japanese dictionary and prepare tokenizer
-	UseGseCh        = false         // Load Chinese dictionary and prepare tokenizer
-	KagomeKrEnabled = false         // Load Korean dictionary and prepare tokenizer
-	KagomeJaEnabled = false         // Load Japanese dictionary and prepare tokenizer
+	gseTokenizer   *gse.Segmenter  // Japanese
+	gseTokenizerCh *gse.Segmenter  // Chinese
+	gseLock        = &sync.Mutex{} // Lock for gse
+	UseGse         = false         // Load Japanese dictionary and prepare tokenizer
+	UseGseCh       = false         // Load Chinese dictionary and prepare tokenizer
 	// The Tokenizer Libraries can consume a lot of memory, so we limit the number of parallel tokenizers
 	ApacTokenizerThrottle = chan struct{}(nil) // Throttle for tokenizers
 	tokenizers            KagomeTokenizers     // Tokenizers for Korean and Japanese
@@ -92,14 +90,12 @@ func InitOptionalTokenizers() {
 		kagomeInitLock.Lock()
 		Tokenizations = append(Tokenizations, models.PropertyTokenizationKagomeKr)
 		tokenizers.Korean, _ = initializeKagomeTokenizerKr(nil)
-		KagomeKrEnabled = true
 		kagomeInitLock.Unlock()
 	}
 	if entcfg.Enabled(os.Getenv("ENABLE_TOKENIZER_KAGOME_JA")) && tokenizers.Japanese == nil {
 		kagomeInitLock.Lock()
 		Tokenizations = append(Tokenizations, models.PropertyTokenizationKagomeJa)
 		tokenizers.Japanese, _ = initializeKagomeTokenizerJa(nil)
-		KagomeJaEnabled = true
 		kagomeInitLock.Unlock()
 	}
 }
@@ -350,10 +346,10 @@ func initializeKagomeTokenizer(dictInstance *dict.Dict, userDict *models.Tokeniz
 }
 
 func tokenizeKagome(tokenizer *kagomeTokenizer.Tokenizer, mode kagomeTokenizer.TokenizeMode, label string, in string) []string {
-	if label == models.PropertyTokenizationKagomeJa && (tokenizer == nil || !KagomeJaEnabled) {
+	if label == models.PropertyTokenizationKagomeJa && tokenizer == nil {
 		return []string{}
 	}
-	if label == models.PropertyTokenizationKagomeKr && (tokenizer == nil || !KagomeKrEnabled) {
+	if label == models.PropertyTokenizationKagomeKr && tokenizer == nil {
 		return []string{}
 	}
 	startTime := time.Now()
