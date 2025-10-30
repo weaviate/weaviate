@@ -177,11 +177,6 @@ func (opq *OperationsQueue) Flush() error {
 	return opq.DiskQueue.Flush()
 }
 
-func (opq *OperationsQueue) BeforeSchedule() (skip bool) {
-	// TODO: do we need this?
-	return false
-}
-
 // Flush the vector index after a batch is processed.
 func (opq *OperationsQueue) OnBatchProcessed() {
 	if err := opq.spfreshIndex.Flush(); err != nil {
@@ -262,16 +257,9 @@ func (t *Task) Execute(ctx context.Context) error {
 
 func encodeOperation(buf []byte, id uint64, op uint8) ([]byte, error) {
 	switch op {
-	case operationsQueueSplitOp:
+	case operationsQueueSplitOp, operationsQueueMergeOp:
 		// write the operation first
-		buf = append(buf, operationsQueueSplitOp)
-		// put multi or normal vector operation header!
-		buf = binary.BigEndian.AppendUint64(buf, id)
-		return buf, nil
-	case operationsQueueMergeOp:
-		// write the operation first
-		buf = append(buf, operationsQueueMergeOp)
-		// put multi or normal vector operation header!
+		buf = append(buf, op)
 		buf = binary.BigEndian.AppendUint64(buf, id)
 		return buf, nil
 	default:
