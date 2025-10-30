@@ -412,7 +412,7 @@ func (h *replicationHandler) getCollectionShardingState(params replication.GetCo
 		shard = *params.Shard
 	}
 
-	if err := h.authorizer.Authorize(ctx, principal, authorization.READ, collection, shard); err != nil {
+	if err := h.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Replications(collection, shard)); err != nil {
 		return replication.NewGetCollectionShardingStateForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
