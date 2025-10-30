@@ -41,7 +41,7 @@ linters:
       - legacy
       - std-error-handling
     rules:
-      - path: ^deprecations/gen\.go$  // generated file
+      - path: ^deprecations/gen\.go$  # generated file
         linters:
           - staticcheck
           - govet
@@ -70,7 +70,7 @@ linters:
         text: composites
       - linters:
           - govet
-        text: 'buildtag: +build line is no longer needed'  // please tackle this and remove all of those lines :) 
+        text: 'buildtag: +build line is no longer needed'  # please tackle this and remove all of those lines :)
       - linters:
           - staticcheck
         path: ^adapters/handlers/grpc/v1\/(?:[^\/]+\/)*[^\/]+\.go$
