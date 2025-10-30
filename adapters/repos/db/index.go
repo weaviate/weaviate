@@ -627,6 +627,11 @@ func (i *Index) updateInvertedIndexConfig(ctx context.Context,
 
 	i.invertedIndexConfig = updated
 
+	err := i.stopwords.ReplaceDetectorFromConfig(updated.Stopwords)
+	if err != nil {
+		return fmt.Errorf("update inverted index config: %w", err)
+	}
+
 	return nil
 }
 
