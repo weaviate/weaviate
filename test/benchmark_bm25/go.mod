@@ -79,7 +79,7 @@ require (
 	github.com/vcaesar/cedar v0.20.2 // indirect
 	github.com/vmihailenco/msgpack/v5 v5.4.1 // indirect
 	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
-	github.com/weaviate/sroar v0.0.12 // indirect
+	github.com/weaviate/sroar v0.0.13 // indirect
 	go.mongodb.org/mongo-driver v1.14.0 // indirect
 	golang.org/x/exp v0.0.0-20240808152545-0cdaa3abc0fa // indirect
 	golang.org/x/net v0.41.0 // indirect
