@@ -59,18 +59,17 @@ func (s *SPFresh) doReassign(op reassignOperation) error {
 
 	// perform a RNG selection to determine the postings where the vector should be
 	// reassigned to.
-	var q []float32
-	if s.config.Compressed {
-		q = s.quantizer.Restore(op.Vector.(CompressedVector).Data())
-	} else {
-		q = op.Vector.(*RawVector).Data()
+	q, err := s.config.VectorByIndexID(s.ctx, op.Vector.ID(), s.config.TargetVector)
+	if err != nil {
+		return errors.Wrap(err, "failed to get vector by index ID")
 	}
-	if q == nil {
-		var err error
-		q, err = s.config.VectorByIndexID(s.ctx, op.Vector.ID(), s.config.TargetVector)
+	if s.config.Compressed {
+		err = op.Vector.(*CompressedVector).SetData(s.quantizer.Encode(q))
 		if err != nil {
-			return errors.Wrap(err, "failed to get vector by index ID")
+			return errors.Wrap(err, "failed to set vector data")
 		}
+	} else {
+		op.Vector.(*RawVector).SetData(q)
 	}
 
 	replicas, needsReassign, err := s.RNGSelect(q, op.PostingID)
