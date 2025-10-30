@@ -8,7 +8,6 @@ import (
 	"github.com/maypok86/otter/v2"
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
-	"github.com/weaviate/weaviate/entities/storobj"
 )
 
 // PostingSizes keeps track of the number of vectors in each posting.
@@ -45,8 +44,7 @@ func (v *PostingSizes) Get(ctx context.Context, postingID uint64) (uint32, error
 	size, err := v.cache.Get(ctx, postingID, otter.LoaderFunc[uint64, uint32](func(ctx context.Context, key uint64) (uint32, error) {
 		size, err := v.store.Get(ctx, postingID)
 		if err != nil {
-			var e storobj.ErrNotFound
-			if errors.As(err, &e) {
+			if errors.Is(err, ErrPostingNotFound) {
 				return 0, otter.ErrNotFound
 			}
 
@@ -128,11 +126,10 @@ func (p *PostingSizeStore) Get(ctx context.Context, postingID uint64) (uint32, e
 	binary.LittleEndian.PutUint64(buf[:], postingID)
 	v, err := p.bucket.Get(buf[:])
 	if err != nil {
-		var e storobj.ErrNotFound
-		if errors.As(err, &e) {
-			return 0, errors.WithStack(ErrPostingNotFound)
-		}
 		return 0, errors.Wrapf(err, "failed to get posting size for %d", postingID)
+	}
+	if len(v) == 0 {
+		return 0, ErrPostingNotFound
 	}
 
 	return binary.LittleEndian.Uint32(v), nil
