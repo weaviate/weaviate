@@ -9,6 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
+//nolint:govet
 //go:build ignore
 
 package main
