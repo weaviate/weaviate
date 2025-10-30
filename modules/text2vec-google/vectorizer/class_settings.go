@@ -42,6 +42,8 @@ const (
 	DefaultTaskType              = "RETRIEVAL_QUERY"
 )
 
+const GoogleCloudProjectEnv = "GOOGLE_CLOUD_PROJECT"
+
 // default dimensions are set to 768 bc of being backward compatible with earlier models
 // textembedding-gecko@001 and embedding-001 that were default ones
 var DefaultDimensions int64 = 768
@@ -149,7 +151,7 @@ func (ic *classSettings) ApiEndpoint() string {
 }
 
 func (ic *classSettings) ProjectID() string {
-	return ic.getStringProperty(projectIDProperty, "")
+	return ic.getStringProperty(projectIDProperty, os.Getenv(GoogleCloudProjectEnv, ""))
 }
 
 func (ic *classSettings) Model() string {
