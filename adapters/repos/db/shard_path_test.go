@@ -1,7 +1,6 @@
 package db
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -9,6 +8,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/backup"
 )
 
 func TestShardFileSanitize(t *testing.T) {
@@ -19,8 +19,6 @@ func TestShardFileSanitize(t *testing.T) {
 	ctx := testCtx()
 	className := "TestClass"
 	shd, _ := testShard(t, ctx, className)
-	rootPath := shd.Index().Config.RootPath
-	fmt.Println(rootPath)
 	require.NoError(t, shd.HaltForTransfer(ctx, false, 100*time.Millisecond))
 	amount := 10
 
@@ -35,10 +33,13 @@ func TestShardFileSanitize(t *testing.T) {
 	require.Nil(t, err)
 	require.Equal(t, amount, len(objs))
 
-	file, err := shd.GetFile(ctx, "../001/secret.txt")
-	require.NoError(t, err)
+	_, err = shd.GetFile(ctx, "../001/secret.txt")
+	require.Error(t, err)
 
-	buf := make([]byte, 6)
-	_, err = file.Read(buf)
+	ret := &backup.ShardDescriptor{}
+	require.NoError(t, shd.ListBackupFiles(ctx, ret))
+
+	file, err := shd.GetFile(ctx, ret.ShardVersionPath)
 	require.NoError(t, err)
+	require.NotNil(t, file)
 }

@@ -17,6 +17,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/weaviate/weaviate/entities/backup"
@@ -283,7 +284,10 @@ func (s *Shard) GetFileMetadata(ctx context.Context, relativeFilePath string) (f
 
 	s.mayResetInactivityTimer()
 
-	finalPath := filepath.Join(s.Index().Config.RootPath, relativeFilePath)
+	finalPath, err := s.sanitizeFilePath(relativeFilePath)
+	if err != nil {
+		return file.FileMetadata{}, fmt.Errorf("sanitize file path %q: %w", relativeFilePath, err)
+	}
 	return file.GetFileMetadata(finalPath)
 }
 
@@ -298,7 +302,10 @@ func (s *Shard) GetFile(ctx context.Context, relativeFilePath string) (io.ReadCl
 
 	s.mayResetInactivityTimer()
 
-	finalPath := filepath.Join(s.Index().Config.RootPath, relativeFilePath)
+	finalPath, err := s.sanitizeFilePath(relativeFilePath)
+	if err != nil {
+		return nil, fmt.Errorf("sanitize file path %q: %w", relativeFilePath, err)
+	}
 
 	reader, err := os.Open(finalPath)
 	if err != nil {
@@ -306,4 +313,21 @@ func (s *Shard) GetFile(ctx context.Context, relativeFilePath string) (io.ReadCl
 	}
 
 	return reader, nil
+}
+
+func (s *Shard) sanitizeFilePath(relativeFilePath string) (string, error) {
+	// clean the path to remove any ../ or ./ sequences
+	cleanFilePath := filepath.Clean(relativeFilePath)
+	if filepath.IsAbs(cleanFilePath) {
+		return "", fmt.Errorf("relative file path %q is an absolute path", relativeFilePath)
+	}
+	final := filepath.Join(s.index.Config.RootPath, cleanFilePath)
+	rel, err := filepath.Rel(s.index.Config.RootPath, final)
+	if err != nil {
+		return "", fmt.Errorf("make %q relative to %q: %w", final, s.index.Config.RootPath, err)
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("file path %q is outside shard root %q", relativeFilePath, s.index.Config.RootPath)
+	}
+	return final, nil
 }
