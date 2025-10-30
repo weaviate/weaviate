@@ -47,6 +47,8 @@ func TestShardFileSanitize(t *testing.T) {
 	// try to read outside of the shard directory
 	_, err = shd.GetFile(ctx, "../001/secret.txt")
 	require.Error(t, err)
+	_, err = shd.GetFileMetadata(ctx, "../001/secret.txt")
+	require.Error(t, err)
 
 	// create a second "fake" index and shard and try to read it
 	otherShardDir := filepath.Join(idx.Config.RootPath, "otherIndex", "otherShard")
@@ -56,6 +58,8 @@ func TestShardFileSanitize(t *testing.T) {
 	file, err := shd.GetFile(ctx, filepath.Join(otherShardDir, "secret.txt"))
 	require.Error(t, err)
 	require.Nil(t, file)
+	_, err = shd.GetFileMetadata(ctx, filepath.Join(otherShardDir, "secret.txt"))
+	require.Error(t, err)
 
 	// now read a valid file
 	ret := &backup.ShardDescriptor{}

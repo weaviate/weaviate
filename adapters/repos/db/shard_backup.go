@@ -321,13 +321,19 @@ func (s *Shard) sanitizeFilePath(relativeFilePath string) (string, error) {
 	if filepath.IsAbs(cleanFilePath) {
 		return "", fmt.Errorf("relative file path %q is an absolute path", relativeFilePath)
 	}
-	final := filepath.Join(s.index.Config.RootPath, cleanFilePath)
-	rel, err := filepath.Rel(s.index.Config.RootPath, final)
+	combinedPath := filepath.Join(s.index.Config.RootPath, cleanFilePath)
+	finalPath, err := filepath.EvalSymlinks(combinedPath)
 	if err != nil {
-		return "", fmt.Errorf("make %q relative to %q: %w", final, s.index.Config.RootPath, err)
+		return "", fmt.Errorf("resolve symlinks for %q: %w", combinedPath, err)
+	}
+	finalPath = filepath.Clean(finalPath)
+
+	rel, err := filepath.Rel(s.index.Config.RootPath, finalPath)
+	if err != nil {
+		return "", fmt.Errorf("make %q relative to %q: %w", combinedPath, s.index.Config.RootPath, err)
 	}
 	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return "", fmt.Errorf("file path %q is outside shard root %q", relativeFilePath, s.index.Config.RootPath)
 	}
-	return final, nil
+	return combinedPath, nil
 }
