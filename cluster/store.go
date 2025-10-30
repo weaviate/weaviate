@@ -179,7 +179,7 @@ type Config struct {
 	// DistributedTasks is the configuration for the distributed task manager.
 	DistributedTasks config.DistributedTasksConfig
 
-	ReplicaMovementDisabled bool
+	ReplicaMovementEnabled bool
 
 	// ReplicaMovementMinimumAsyncWait is the minimum time bound that replica movement operations will wait before
 	// async replication can complete.
