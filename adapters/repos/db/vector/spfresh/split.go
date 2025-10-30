@@ -48,30 +48,6 @@ func (s *SPFresh) enqueueSplit(ctx context.Context, postingID uint64) error {
 	return nil
 }
 
-/*func (s *SPFresh) splitWorker() {
-	defer s.wg.Done()
-
-	for postingID := range s.splitCh.Out() {
-		if s.ctx.Err() != nil {
-			return
-		}
-
-		s.metrics.DequeueSplitTask()
-
-		err := s.doSplit(postingID, true)
-		if err != nil {
-			if errors.Is(err, context.Canceled) {
-				continue
-			}
-
-			s.logger.WithError(err).
-				WithField("postingID", postingID).
-				Error("Failed to process split operation")
-			continue // Log the error and continue processing other operations
-		}
-	}
-}*/
-
 func abs(a float32) float32 {
 	if a < 0 {
 		return -a

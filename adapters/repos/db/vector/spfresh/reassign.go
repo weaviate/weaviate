@@ -46,30 +46,6 @@ func (s *SPFresh) enqueueReassign(ctx context.Context, postingID uint64, vector 
 	return nil
 }
 
-/* func (s *SPFresh) reassignWorker() {
-	defer s.wg.Done()
-
-	for op := range s.reassignCh.Out() {
-		if s.ctx.Err() != nil {
-			return
-		}
-
-		s.metrics.DequeueReassignTask()
-
-		err := s.doReassign(op)
-		if err != nil {
-			if errors.Is(err, context.Canceled) {
-				continue
-			}
-
-			s.logger.WithError(err).
-				WithField("vectorID", op.Vector.ID).
-				Error("Failed to process reassign operation")
-			continue // Log the error and continue processing other operations
-		}
-	}
-} */
-
 func (s *SPFresh) doReassign(op reassignOperation) error {
 	s.metrics.DequeueReassignTask()
 	start := time.Now()
