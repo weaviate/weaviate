@@ -372,12 +372,10 @@ func (db *DB) Shutdown(ctx context.Context) error {
 		}
 	}
 
-	if asyncEnabled() {
-		// shut down the async workers
-		err := db.scheduler.Close()
-		if err != nil {
-			return errors.Wrap(err, "close scheduler")
-		}
+	// shut down the async workers
+	err := db.scheduler.Close()
+	if err != nil {
+		return errors.Wrap(err, "close scheduler")
 	}
 
 	if db.metricsObserver != nil {

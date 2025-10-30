@@ -114,12 +114,12 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*SPFresh, error) {
 	}
 
 	s := SPFresh{
-		id:        cfg.ID,
-		logger:    cfg.Logger.WithField("component", "SPFresh"),
-		config:    cfg,
-		scheduler: cfg.Scheduler,
-		metrics:   metrics,
-		Store:     postingStore,
+		id:           cfg.ID,
+		logger:       cfg.Logger.WithField("component", "SPFresh"),
+		config:       cfg,
+		scheduler:    cfg.Scheduler,
+		metrics:      metrics,
+		PostingStore: postingStore,
 		// Capacity of the version map: 8k pages, 1M vectors each -> 8B vectors
 		// - An empty version map consumes 240KB of memory
 		// - Each allocated page consumes 1MB of memory
