@@ -27,6 +27,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
@@ -82,6 +83,14 @@ func TestSPFreshRecall(t *testing.T) {
 	cfg.TombstoneCallbacks = cyclemanager.NewCallbackGroupNoop()
 	l := logrus.New()
 	cfg.Logger = l
+	scheduler := queue.NewScheduler(
+		queue.SchedulerOptions{
+			Logger: l,
+		},
+	)
+	scheduler.Start()
+	cfg.Scheduler = scheduler
+	cfg.Scheduler = scheduler
 	cfg.PrometheusMetrics = monitoring.GetMetrics()
 	cfg.PrometheusMetrics.Registerer.MustRegister()
 
