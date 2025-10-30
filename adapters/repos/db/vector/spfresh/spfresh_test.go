@@ -12,6 +12,7 @@
 package spfresh
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
@@ -90,7 +91,6 @@ func TestSPFreshRecall(t *testing.T) {
 	)
 	scheduler.Start()
 	cfg.Scheduler = scheduler
-	cfg.Scheduler = scheduler
 	cfg.PrometheusMetrics = monitoring.GetMetrics()
 	cfg.PrometheusMetrics.Registerer.MustRegister()
 
@@ -103,7 +103,9 @@ func TestSPFreshRecall(t *testing.T) {
 
 	before := time.Now()
 	vectors, queries := testinghelpers.RandomVecsFixedSeed(vectors_size, queries_size, dimensions)
-
+	cfg.VectorByIndexID = func(ctx context.Context, indexID uint64, targetVector string) ([]float32, error) {
+		return vectors[indexID], nil
+	}
 	var mu sync.Mutex
 
 	truths := make([][]uint64, queries_size)
@@ -139,6 +141,11 @@ func TestSPFreshRecall(t *testing.T) {
 
 		time.Sleep(500 * time.Millisecond)
 	}*/
+
+	for index.operationsQueue.DiskQueue.Size() > 0 {
+		fmt.Println("background tasks: ", index.operationsQueue.DiskQueue.Size())
+		time.Sleep(500 * time.Millisecond)
+	}
 
 	fmt.Println("all background tasks done, took: ", time.Since(before))
 
