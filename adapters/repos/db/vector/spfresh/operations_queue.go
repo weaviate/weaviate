@@ -116,7 +116,7 @@ func (opq *OperationsQueue) EnqueueSplit(ctx context.Context, postingID uint64) 
 		return errors.Wrap(err, "failed to encode record")
 	}
 
-	err = opq.DiskQueue.Push(buf)
+	err = opq.Push(buf)
 	if err != nil {
 		return errors.Wrap(err, "failed to push record to queue")
 	}
@@ -140,7 +140,7 @@ func (opq *OperationsQueue) EnqueueMerge(ctx context.Context, postingID uint64) 
 		return errors.Wrap(err, "failed to encode record")
 	}
 
-	err = opq.DiskQueue.Push(buf)
+	err = opq.Push(buf)
 	if err != nil {
 		return errors.Wrap(err, "failed to push record to queue")
 	}
@@ -160,7 +160,7 @@ func (opq *OperationsQueue) EnqueueReassign(ctx context.Context, postingID uint6
 	binary.BigEndian.PutUint64(buf[9:17], vecID)
 	buf[17] = byte(version)
 
-	err := opq.DiskQueue.Push(buf)
+	err := opq.Push(buf)
 	if err != nil {
 		return errors.Wrap(err, "failed to push record to queue")
 	}
