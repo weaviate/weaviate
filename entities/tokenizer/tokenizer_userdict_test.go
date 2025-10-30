@@ -62,6 +62,16 @@ func TestKagomeUserTokenizerForClass(t *testing.T) {
 
 	tokens = TokenizeForClass(models.PropertyTokenizationKagomeKr, "We", "")
 	assert.Equal(t, []string{"W", "e"}, tokens)
+
+	// Test removing the custom dictionary
+	err = AddCustomDict(className, nil)
+	assert.Nil(t, err)
+
+	tokens = TokenizeForClass(models.PropertyTokenizationKagomeKr, "Weaviate Semi Technologies", className)
+	assert.Equal(t, []string{"Weaviat", "e", "Sem", "i", "Technologie", "s"}, tokens)
+
+	tokens = TokenizeForClass(models.PropertyTokenizationKagomeKr, "We", className)
+	assert.Equal(t, []string{"W", "e"}, tokens)
 }
 
 func TestKagomeUserTokenizerForClassValidate(t *testing.T) {

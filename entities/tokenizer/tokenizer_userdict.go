@@ -21,9 +21,13 @@ import (
 )
 
 func AddCustomDict(className string, configs []*models.TokenizerUserDictConfig) error {
+	customTokenizers.Delete(className)
 	tokenizers, err := initUserDictTokenizers(configs)
 	if err != nil {
 		return err
+	}
+	if tokenizers == nil {
+		return nil
 	}
 	customTokenizers.Store(className, tokenizers)
 	return nil
@@ -66,8 +70,8 @@ func NewUserDictFromModel(config *models.TokenizerUserDictConfig) (*dict.UserDic
 }
 
 func initUserDictTokenizers(config []*models.TokenizerUserDictConfig) (*KagomeTokenizers, error) {
-	tokenizers := &KagomeTokenizers{}
-	if config == nil {
+	var tokenizers *KagomeTokenizers
+	if len(config) == 0 {
 		return nil, nil
 	}
 	seen := make(map[string]struct{})
@@ -77,6 +81,9 @@ func initUserDictTokenizers(config []*models.TokenizerUserDictConfig) (*KagomeTo
 		}
 		if _, ok := seen[tokenizerConfig.Tokenizer]; ok {
 			return nil, fmt.Errorf("found duplicate tokenizer '%s' in tokenizer user dict config", tokenizerConfig.Tokenizer)
+		}
+		if tokenizers == nil {
+			tokenizers = &KagomeTokenizers{}
 		}
 		seen[tokenizerConfig.Tokenizer] = struct{}{}
 
