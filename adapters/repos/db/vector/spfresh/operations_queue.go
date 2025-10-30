@@ -148,23 +148,19 @@ func (opq *OperationsQueue) EnqueueMerge(ctx context.Context, postingID uint64) 
 	return nil
 }
 
-func (opq *OperationsQueue) EnqueueReassign(ctx context.Context, postingID uint64) error {
+func (opq *OperationsQueue) EnqueueReassign(ctx context.Context, postingID uint64, vecID uint64, version VectorVersion) error {
 	/*start := time.Now()
 	defer opq.metrics.Insert(start, 1) TODO: add metrics*/
 
-	var buf []byte
-	var err error
-
 	// TODO: validate postingID
 
-	// encode split
-	buf = buf[:0]
-	buf, err = encodeOperation(buf, postingID, operationsQueueReassignOp)
-	if err != nil {
-		return errors.Wrap(err, "failed to encode record")
-	}
+	buf := make([]byte, 18)
+	buf[0] = operationsQueueReassignOp
+	binary.BigEndian.PutUint64(buf[1:9], postingID)
+	binary.BigEndian.PutUint64(buf[9:17], vecID)
+	buf[17] = byte(version)
 
-	err = opq.DiskQueue.Push(buf)
+	err := opq.DiskQueue.Push(buf)
 	if err != nil {
 		return errors.Wrap(err, "failed to push record to queue")
 	}
@@ -202,36 +198,52 @@ func (v *OperationsQueueDecoder) DecodeTask(data []byte) (queue.Task, error) {
 	data = data[1:]
 
 	switch op {
-	case operationsQueueSplitOp, operationsQueueMergeOp, operationsQueueReassignOp:
+	case operationsQueueSplitOp, operationsQueueMergeOp:
 		// decode id
 		id := binary.BigEndian.Uint64(data)
 
-		return &Task[uint64]{
+		return &Task{
 			op:  op,
 			id:  id,
 			idx: v.q.spfreshIndex,
+		}, nil
+	case operationsQueueReassignOp:
+		// decode id
+		postingID := binary.BigEndian.Uint64(data)
+		data = data[8:]
+		vecID := binary.BigEndian.Uint64(data)
+		data = data[8:]
+		version := VectorVersion(data[0])
+		return &Task{
+			op:      op,
+			id:      postingID,
+			vecID:   vecID,
+			version: version,
+			idx:     v.q.spfreshIndex,
 		}, nil
 	}
 
 	return nil, errors.Errorf("unknown operation: %d", op)
 }
 
-type Task[T any] struct {
-	op  uint8
-	id  uint64
-	idx *SPFresh
+type Task struct {
+	op      uint8
+	id      uint64
+	vecID   uint64
+	version VectorVersion
+	idx     *SPFresh
 }
 
-func (t *Task[T]) Op() uint8 {
+func (t *Task) Op() uint8 {
 	return t.op
 }
 
-func (t *Task[T]) Key() uint64 {
+func (t *Task) Key() uint64 {
 	// TODO: find a better way to get the key
 	return t.id
 }
 
-func (t *Task[T]) Execute(ctx context.Context) error {
+func (t *Task) Execute(ctx context.Context) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
@@ -242,7 +254,7 @@ func (t *Task[T]) Execute(ctx context.Context) error {
 	case operationsQueueMergeOp:
 		return t.idx.doMerge(t.id)
 	case operationsQueueReassignOp:
-		return t.idx.doReassign(reassignOperation{PostingID: t.id, Vector: nil}) // TODO: get vector from the index
+		return t.idx.doReassign(reassignOperation{PostingID: t.id, Vector: &RawVector{id: t.vecID, version: t.version, data: nil}}) // TODO: get vector from the index
 	}
 
 	return errors.Errorf("unknown operation: %d", t.Op())
@@ -259,12 +271,6 @@ func encodeOperation(buf []byte, id uint64, op uint8) ([]byte, error) {
 	case operationsQueueMergeOp:
 		// write the operation first
 		buf = append(buf, operationsQueueMergeOp)
-		// put multi or normal vector operation header!
-		buf = binary.BigEndian.AppendUint64(buf, id)
-		return buf, nil
-	case operationsQueueReassignOp:
-		// write the operation first
-		buf = append(buf, operationsQueueReassignOp)
 		// put multi or normal vector operation header!
 		buf = binary.BigEndian.AppendUint64(buf, id)
 		return buf, nil

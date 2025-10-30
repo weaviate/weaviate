@@ -36,15 +36,17 @@ func (s *SPFresh) enqueueReassign(ctx context.Context, postingID uint64, vector 
 		return err
 	}
 
-	// Enqueue the operation to the channel
-	s.reassignCh.Push(reassignOperation{PostingID: postingID, Vector: vector})
+	err := s.operationsQueue.EnqueueReassign(ctx, postingID, vector.ID(), vector.Version())
+	if err != nil {
+		return errors.Wrapf(err, "failed to enqueue reassign operation for posting %d", postingID)
+	}
 
 	s.metrics.EnqueueReassignTask()
 
 	return nil
 }
 
-func (s *SPFresh) reassignWorker() {
+/* func (s *SPFresh) reassignWorker() {
 	defer s.wg.Done()
 
 	for op := range s.reassignCh.Out() {
@@ -66,9 +68,10 @@ func (s *SPFresh) reassignWorker() {
 			continue // Log the error and continue processing other operations
 		}
 	}
-}
+} */
 
 func (s *SPFresh) doReassign(op reassignOperation) error {
+	s.metrics.DequeueReassignTask()
 	start := time.Now()
 	defer s.metrics.ReassignDuration(start)
 
@@ -86,6 +89,14 @@ func (s *SPFresh) doReassign(op reassignOperation) error {
 	} else {
 		q = op.Vector.(*RawVector).Data()
 	}
+	if q == nil {
+		var err error
+		q, err = s.config.VectorByIndexID(s.ctx, op.Vector.ID(), s.config.TargetVector)
+		if err != nil {
+			return errors.Wrap(err, "failed to get vector by index ID")
+		}
+	}
+
 	replicas, needsReassign, err := s.RNGSelect(q, op.PostingID)
 	if err != nil {
 		return errors.Wrap(err, "failed to select replicas")

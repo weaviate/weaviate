@@ -199,6 +199,16 @@ func New(logger logrus.FieldLogger, localNodeName string, config Config,
 	if db.maxNumberGoroutines == 0 {
 		return db, errors.New("no workers to add batch-jobs configured.")
 	}
+
+	// create and start the scheduler regardless of the async setting
+	// it will be used either for async indexing or for spfresh background tasks
+	db.shutDownWg.Add(1)
+	db.scheduler = queue.NewScheduler(queue.SchedulerOptions{
+		Logger:  logger,
+		OnClose: db.shutDownWg.Done,
+	})
+	db.scheduler.Start()
+
 	if !asyncEnabled() {
 		db.jobQueueCh = make(chan job, 100000)
 		db.shutDownWg.Add(db.maxNumberGoroutines)
@@ -206,21 +216,6 @@ func New(logger logrus.FieldLogger, localNodeName string, config Config,
 			i := i
 			enterrors.GoWrapper(func() { db.batchWorker(i == 0) }, db.logger)
 		}
-		// since queues are created regardless of the async setting, we need to
-		// create a scheduler anyway, but there is no need to start it
-		db.scheduler = queue.NewScheduler(queue.SchedulerOptions{
-			Logger: logger,
-		})
-	} else {
-		logger.Info("async indexing enabled")
-
-		db.shutDownWg.Add(1)
-		db.scheduler = queue.NewScheduler(queue.SchedulerOptions{
-			Logger:  logger,
-			OnClose: db.shutDownWg.Done,
-		})
-
-		db.scheduler.Start()
 	}
 
 	return db, nil

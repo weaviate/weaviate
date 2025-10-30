@@ -12,6 +12,7 @@
 package spfresh
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"math"
@@ -40,15 +41,16 @@ type Config struct {
 	ShardName                 string
 	ClassName                 string
 	PrometheusMetrics         *monitoring.PrometheusMetrics
-	SplitWorkers              int                             `json:"splitWorkers,omitempty"`              // Number of concurrent workers for split operations
-	ReassignWorkers           int                             `json:"reassignWorkers,omitempty"`           // Number of concurrent workers for reassign operations
-	InternalPostingCandidates int                             `json:"internalPostingCandidates,omitempty"` // Number of candidates to consider when running a centroid search internally
-	ReassignNeighbors         int                             `json:"reassignNeighbors,omitempty"`         // Number of neighboring centroids to consider for reassigning vectors
-	MaxDistanceRatio          float32                         `json:"maxDistanceRatio,omitempty"`          // Maximum distance ratio for the search, used to filter out candidates that are too far away
-	Store                     StoreConfig                     `json:"store"`                               // Configuration for the underlying LSMKV store
-	Centroids                 CentroidConfig                  `json:"centroids"`                           // Configuration for the centroid index
-	TombstoneCallbacks        cyclemanager.CycleCallbackGroup // Callbacks for handling tombstones
-	Compressed                bool                            `json:"compressed,omitempty"` // Whether to store vectors in compressed format
+	SplitWorkers              int                                                                               `json:"splitWorkers,omitempty"`              // Number of concurrent workers for split operations
+	ReassignWorkers           int                                                                               `json:"reassignWorkers,omitempty"`           // Number of concurrent workers for reassign operations
+	InternalPostingCandidates int                                                                               `json:"internalPostingCandidates,omitempty"` // Number of candidates to consider when running a centroid search internally
+	ReassignNeighbors         int                                                                               `json:"reassignNeighbors,omitempty"`         // Number of neighboring centroids to consider for reassigning vectors
+	MaxDistanceRatio          float32                                                                           `json:"maxDistanceRatio,omitempty"`          // Maximum distance ratio for the search, used to filter out candidates that are too far away
+	Store                     StoreConfig                                                                       `json:"store"`                               // Configuration for the underlying LSMKV store
+	Centroids                 CentroidConfig                                                                    `json:"centroids"`                           // Configuration for the centroid index
+	TombstoneCallbacks        cyclemanager.CycleCallbackGroup                                                   // Callbacks for handling tombstones
+	Compressed                bool                                                                              `json:"compressed,omitempty"`      // Whether to store vectors in compressed format
+	VectorByIndexID           func(ctx context.Context, indexID uint64, targetVector string) ([]float32, error) `json:"vectorByIndexID,omitempty"` // Function to get a vector by index ID
 }
 
 type StoreConfig struct {

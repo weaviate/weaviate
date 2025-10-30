@@ -28,7 +28,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/spfresh"
 )
@@ -84,7 +83,6 @@ type SPFresh struct {
 	cancel context.CancelFunc
 
 	operationsQueue OperationsQueue
-	reassignCh      *common.UnboundedChannel[reassignOperation] // Channel for reassign operations
 	wg              sync.WaitGroup
 
 	splitList *deduplicator // Prevents duplicate split operations
@@ -128,13 +126,8 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*SPFresh, error) {
 		PostingSizes: NewPostingSizes(metrics, 1024*1024, 1024),
 
 		postingLocks: common.NewDefaultShardedRWLocks(),
-		// TODO: Eventually, we'll create sharded workers between all instances of SPFresh
-		// to minimize the number of goroutines while still maximizing CPU usage and I/O throughput.
-		//splitCh:    common.MakeUnboundedChannel[uint64](),
-		//mergeCh:    common.MakeUnboundedChannel[uint64](),
-		reassignCh: common.MakeUnboundedChannel[reassignOperation](),
-		splitList:  newDeduplicator(),
-		mergeList:  newDeduplicator(),
+		splitList:    newDeduplicator(),
+		mergeList:    newDeduplicator(),
 		// TODO: choose a better starting size since we can predict the max number of
 		// visited vectors based on cfg.InternalPostingCandidates.
 		visitedPool:        visited.NewPool(1, 512, -1),
@@ -157,27 +150,11 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*SPFresh, error) {
 
 	s.ctx, s.cancel = context.WithCancel(context.Background())
 
-	// start N workers to process split operations
-	/*for i := 0; i < s.config.SplitWorkers; i++ {
-		s.wg.Add(1)
-		enterrors.GoWrapper(s.splitWorker, s.logger)
-	}*/
-
 	operationQueue, err := NewOperationsQueue(&s, cfg.TargetVector)
 	if err != nil {
 		return nil, err
 	}
 	s.operationsQueue = *operationQueue
-
-	// start M workers to process reassign operations
-	for i := 0; i < s.config.ReassignWorkers; i++ {
-		s.wg.Add(1)
-		enterrors.GoWrapper(s.reassignWorker, s.logger)
-	}
-
-	// start a single worker to process merge operations
-	/*s.wg.Add(1)
-	enterrors.GoWrapper(s.mergeWorker, s.logger)*/
 
 	return &s, nil
 }
@@ -232,9 +209,10 @@ func (s *SPFresh) Shutdown(ctx context.Context) error {
 	s.cancel()
 
 	// Close the split channel to signal workers to stop
-	//s.splitCh.Close(ctx)
-	s.reassignCh.Close(ctx)
-	//s.mergeCh.Close(ctx)
+	// s.splitCh.Close(ctx)
+	// s.reassignCh.Close(ctx)
+	// s.mergeCh.Close(ctx)
+	s.config.Scheduler.Close()
 
 	s.wg.Wait() // Wait for all workers to finish
 	return nil

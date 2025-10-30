@@ -72,6 +72,7 @@ func (s *SPFresh) enqueueMerge(ctx context.Context, postingID uint64) error {
 }*/
 
 func (s *SPFresh) doMerge(postingID uint64) error {
+	s.metrics.DequeueMergeTask()
 	start := time.Now()
 	defer s.metrics.MergeDuration(start)
 

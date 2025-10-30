@@ -83,6 +83,7 @@ func abs(a float32) float32 {
 // If reassign is true, it will enqueue reassign operations for vectors that
 // may need to be moved to other postings after the split.
 func (s *SPFresh) doSplit(postingID uint64, reassign bool) error {
+	s.metrics.DequeueSplitTask()
 	start := time.Now()
 	defer s.metrics.SplitDuration(start)
 
