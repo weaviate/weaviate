@@ -38,20 +38,20 @@ type cursorStateCollection struct {
 	err   error
 }
 
-// SetCursor holds a RLock for the flushing state. It needs to be closed using the
-// .Close() methods or otherwise the lock will never be released
+// SetCursor behaves like [Cursor], but for the RoaringSet strategy. It
+// needs to be closed using .Close() to free references to the underlying
+// segments.
 func (b *Bucket) SetCursor() *CursorSet {
+	MustBeExpectedStrategy(b.strategy, StrategySetCollection)
 	b.flushLock.RLock()
-
-	if b.strategy != StrategySetCollection {
-		panic("SetCursor() called on strategy other than 'set'")
-	}
+	defer b.flushLock.RUnlock()
 
 	innerCursors, unlockSegmentGroup := b.disk.newCollectionCursors()
 
-	// we have a flush-RLock, so we have the guarantee that the flushing state
-	// will not change for the lifetime of the cursor, thus there can only be two
-	// states: either a flushing memtable currently exists - or it doesn't
+	// we hold a flush-lock during initialzation, but we release it before
+	// returning to the caller. However, `*memtable.newCollectionCursor` creates
+	// a deep copy of the entire content, so this cursor will remain valid even
+	// after we release the lock
 	if b.flushing != nil {
 		innerCursors = append(innerCursors, b.flushing.newCollectionCursor())
 	}
@@ -61,7 +61,6 @@ func (b *Bucket) SetCursor() *CursorSet {
 	return &CursorSet{
 		unlock: func() {
 			unlockSegmentGroup()
-			b.flushLock.RUnlock()
 		},
 		// cursor are in order from oldest to newest, with the memtable cursor
 		// being at the very top

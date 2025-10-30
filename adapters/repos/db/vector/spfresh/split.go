@@ -98,7 +98,7 @@ func (s *SPFresh) doSplit(postingID uint64, reassign bool) error {
 	}
 
 	// load the posting from disk
-	p, err := s.Store.Get(s.ctx, postingID)
+	p, err := s.PostingStore.Get(s.ctx, postingID)
 	if err != nil {
 		if errors.Is(err, ErrPostingNotFound) {
 			s.logger.WithField("postingID", postingID).
@@ -121,12 +121,16 @@ func (s *SPFresh) doSplit(postingID uint64, reassign bool) error {
 		}
 
 		// persist the gc'ed posting
-		err = s.Store.Put(s.ctx, postingID, filtered)
+		err = s.PostingStore.Put(s.ctx, postingID, filtered)
 		if err != nil {
 			return errors.Wrapf(err, "failed to put filtered posting %d after split operation", postingID)
 		}
 
-		s.PostingSizes.Set(postingID, uint32(lf))
+		err = s.PostingSizes.Set(context.TODO(), postingID, uint32(lf))
+		if err != nil {
+			return errors.Wrapf(err, "failed to set posting size for posting %d after split operation", postingID)
+		}
+
 		return nil
 	}
 
@@ -148,12 +152,15 @@ func (s *SPFresh) doSplit(postingID uint64, reassign bool) error {
 			compressed: s.config.Compressed,
 		}
 		pp.AddVector(filtered.GetAt(0))
-		err = s.Store.Put(s.ctx, postingID, pp)
+		err = s.PostingStore.Put(s.ctx, postingID, pp)
 		if err != nil {
 			return errors.Wrapf(err, "failed to put single vector posting %d after split operation", postingID)
 		}
 		// update posting size after successful persist
-		s.PostingSizes.Set(postingID, 1)
+		err = s.PostingSizes.Set(context.TODO(), postingID, 1)
+		if err != nil {
+			return errors.Wrapf(err, "failed to set posting size for posting %d after split operation", postingID)
+		}
 
 		return nil
 	}
@@ -176,12 +183,15 @@ func (s *SPFresh) doSplit(postingID uint64, reassign bool) error {
 					Debug("reusing existing posting for split operation")
 				postingReused = true
 				newPostingIDs[i] = postingID
-				err = s.Store.Put(s.ctx, postingID, result[i].Posting)
+				err = s.PostingStore.Put(s.ctx, postingID, result[i].Posting)
 				if err != nil {
 					return errors.Wrapf(err, "failed to put reused posting %d after split operation", postingID)
 				}
 				// update posting size after successful persist
-				s.PostingSizes.Set(postingID, uint32(result[i].Posting.Len()))
+				err = s.PostingSizes.Set(context.TODO(), postingID, uint32(result[i].Posting.Len()))
+				if err != nil {
+					return errors.Wrapf(err, "failed to set posting size for reused posting %d after split operation", postingID)
+				}
 
 				continue
 			}
@@ -190,13 +200,15 @@ func (s *SPFresh) doSplit(postingID uint64, reassign bool) error {
 		// otherwise, we need to create a new posting for the new centroid
 		newPostingID := s.IDs.Next()
 		newPostingIDs[i] = newPostingID
-		err = s.Store.Put(s.ctx, newPostingID, result[i].Posting)
+		err = s.PostingStore.Put(s.ctx, newPostingID, result[i].Posting)
 		if err != nil {
 			return errors.Wrapf(err, "failed to put new posting %d after split operation", newPostingID)
 		}
 		// allocate and set posting size after successful persist
-		s.PostingSizes.AllocPageFor(newPostingID)
-		s.PostingSizes.Set(newPostingID, uint32(result[i].Posting.Len()))
+		err = s.PostingSizes.Set(context.TODO(), newPostingID, uint32(result[i].Posting.Len()))
+		if err != nil {
+			return errors.Wrapf(err, "failed to set posting size for posting %d after split operation", newPostingID)
+		}
 
 		// add the new centroid to the SPTAG index
 		err = s.Centroids.Insert(newPostingID, &Centroid{
@@ -215,7 +227,10 @@ func (s *SPFresh) doSplit(postingID uint64, reassign bool) error {
 		if err != nil {
 			return errors.Wrapf(err, "failed to delete old centroid %d after split operation", postingID)
 		}
-		s.PostingSizes.Set(postingID, 0)
+		err = s.PostingSizes.Set(context.TODO(), postingID, 0)
+		if err != nil {
+			return errors.Wrapf(err, "failed to set posting size for posting %d after split operation", postingID)
+		}
 	}
 
 	// Mark the split operation as done
@@ -359,7 +374,7 @@ func (s *SPFresh) enqueueReassignAfterSplit(oldPostingID uint64, newPostingIDs [
 		}
 		seen[neighborID] = struct{}{}
 
-		p, err := s.Store.Get(s.ctx, neighborID)
+		p, err := s.PostingStore.Get(s.ctx, neighborID)
 		if err != nil {
 			if errors.Is(err, ErrPostingNotFound) {
 				s.logger.WithField("postingID", neighborID).

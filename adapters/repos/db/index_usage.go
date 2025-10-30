@@ -18,10 +18,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
 	"github.com/weaviate/weaviate/cluster/usage/types"
+	"github.com/weaviate/weaviate/entities/diskio"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
@@ -82,6 +84,7 @@ func (i *Index) usageForCollection(ctx context.Context, jitterInterval time.Dura
 		return nil, fmt.Errorf("schemareader: %w", err)
 	}
 
+	i.logger.WithField("class", i.Config.ClassName.String()).Debugf("creating usage report with %d shards", len(localShards))
 	var uniqueShardCount int
 
 	// There is an important distinction between the state of the shard in the schema (in schemaReader) and the local
@@ -90,6 +93,7 @@ func (i *Index) usageForCollection(ctx context.Context, jitterInterval time.Dura
 	// After collection all local shards from the sharding state, we now need to iterate through these shards, lock them
 	// individually against changes in the _local_ state (i.e. loading/unloading) and then collect their usage based
 	// on this local state.
+	start := time.Now()
 	for shardName := range localShards {
 		if err := func() error {
 			// Add jitter between tenant processing to not overload the system if there are many shards
@@ -178,7 +182,22 @@ func (i *Index) usageForCollection(ctx context.Context, jitterInterval time.Dura
 		}(); err != nil {
 			return nil, err
 		}
+		if uniqueShardCount%1000 == 0 {
+			i.logger.WithFields(
+				logrus.Fields{
+					"class":            i.Config.ClassName.String(),
+					"processed_shards": uniqueShardCount,
+					"took":             time.Since(start).Seconds(),
+				}).Debugf("processed %d/%d shards for usage report", uniqueShardCount, len(localShards))
+		}
 	}
+
+	i.logger.WithFields(
+		logrus.Fields{
+			"class":            i.Config.ClassName.String(),
+			"processed_shards": uniqueShardCount,
+			"took":             time.Since(start).Seconds(),
+		}).Debugf("finished processing %d/%d shards for usage report", uniqueShardCount, len(localShards))
 
 	collectionUsage.UniqueShardCount = uniqueShardCount
 	sort.Sort(collectionUsage.Shards)
@@ -204,17 +223,24 @@ func (i *Index) calculateLoadedShardUsage(ctx context.Context, shard *Shard, exa
 		}
 	}
 
-	vectorStorageSize, uncompressedVectorSize, err := shard.VectorStorageSize(ctx)
+	lsmPath := shardPathLSM(i.path(), shard.Name())
+
+	_, directories, err := diskio.GetFileWithSizes(lsmPath)
 	if err != nil {
 		return nil, err
 	}
 
-	indexUsage, err := shardusage.CalculateUnloadedIndicesSize(i.path(), shard.Name())
+	vectorStorageSize, uncompressedVectorSize, err := shard.VectorStorageSize(ctx, lsmPath, directories)
 	if err != nil {
 		return nil, err
 	}
 
-	shardStorage, err := shardusage.CalculateShardStorage(i.path(), shard.Name())
+	indexUsage, err := shardusage.CalculateUnloadedIndicesSize(lsmPath, directories)
+	if err != nil {
+		return nil, err
+	}
+
+	vectorCommitLogsStorageSize, otherNonLSMFoldersStorageSize, err := shardusage.CalculateNonLSMStorage(i.path(), shard.Name())
 	if err != nil {
 		return nil, err
 	}
@@ -223,10 +249,10 @@ func (i *Index) calculateLoadedShardUsage(ctx context.Context, shard *Shard, exa
 		Name:                  shard.Name(),
 		Status:                strings.ToLower(models.TenantActivityStatusACTIVE),
 		ObjectsCount:          objectCount,
-		ObjectsStorageBytes:   uint64(objectStorageSize) - uint64(uncompressedVectorSize),
-		VectorStorageBytes:    uint64(vectorStorageSize) + uint64(uncompressedVectorSize),
-		IndexStorageBytes:     indexUsage,
-		FullShardStorageBytes: shardStorage,
+		ObjectsStorageBytes:   uint64(objectStorageSize) - uint64(uncompressedVectorSize),                               // objects without vectors
+		VectorStorageBytes:    uint64(vectorStorageSize) + uint64(uncompressedVectorSize) + vectorCommitLogsStorageSize, // lsm/vectors + objects vectors + commit.log folders
+		IndexStorageBytes:     indexUsage,                                                                               // lsm property folders and dimensions folder
+		FullShardStorageBytes: vectorCommitLogsStorageSize + otherNonLSMFoldersStorageSize + indexUsage + uint64(objectStorageSize) + uint64(vectorStorageSize),
 	}
 	// Get vector usage for each named vector
 	vectorConfigs := i.GetVectorIndexConfigs()
@@ -240,7 +266,6 @@ func (i *Index) calculateLoadedShardUsage(ctx context.Context, shard *Shard, exa
 			return fmt.Errorf("vector index %s not found in config", targetVector)
 		}
 		indexType := vectorIndexConfig.IndexType()
-		bits := enthnsw.GetRQBits(vectorIndexConfig)
 
 		// For dynamic indexes, get the actual underlying index type
 		isDynamic := false
@@ -250,7 +275,7 @@ func (i *Index) calculateLoadedShardUsage(ctx context.Context, shard *Shard, exa
 			isDynamic = true
 			isDynamicUpgraded = dynamicIndex.IsUpgraded()
 		}
-		category, _ := GetDimensionCategory(vectorIndexConfig, isDynamicUpgraded)
+		dimInfo := GetDimensionCategory(vectorIndexConfig, isDynamicUpgraded)
 
 		dimensionality, err := shard.DimensionsUsage(ctx, targetVector)
 		if err != nil {
@@ -261,11 +286,11 @@ func (i *Index) calculateLoadedShardUsage(ctx context.Context, shard *Shard, exa
 
 		vectorUsage := &types.VectorUsage{
 			Name:                   targetVector,
-			Compression:            category.String(),
+			Compression:            dimInfo.category.String(),
 			VectorIndexType:        indexType,
 			IsDynamic:              isDynamic,
 			VectorCompressionRatio: compressionRatio,
-			Bits:                   bits,
+			Bits:                   dimInfo.bits,
 			MultiVectorConfig:      multiVectorConfigFromConfig(vectorIndexConfig),
 		}
 
@@ -287,50 +312,51 @@ func (i *Index) calculateLoadedShardUsage(ctx context.Context, shard *Shard, exa
 }
 
 func (i *Index) calculateUnloadedShardUsage(ctx context.Context, shardName string, vectorConfigs map[string]models.VectorConfig) (*types.ShardUsage, error) {
+	if shardusage.ComputedUsageDataExists(i.path(), shardName) {
+		// usage has been pre-calculated and can be read from disk
+		shardUsage, err := shardusage.LoadComputedUsageData(i.path(), shardName)
+		if err != nil {
+			// in case of error just log an information and proceed with computation
+			i.logger.Errorf("failed to load pre-calculated usage data for shard %s: %v", shardName, err)
+		} else {
+			return shardUsage, nil
+		}
+	}
+	lsmPath := shardPathLSM(i.path(), shardName)
+
+	_, directories, err := diskio.GetFileWithSizes(lsmPath)
+	if err != nil {
+		return nil, err
+	}
+
 	// Cold tenant: calculate from disk without loading
-	objectUsage, err := shardusage.CalculateUnloadedObjectsMetrics(i.logger, i.path(), shardName)
+	objectUsage, err := shardusage.CalculateUnloadedObjectsMetrics(i.logger, i.path(), shardName, true)
 	if err != nil {
 		return nil, err
 	}
 
-	vectorIndexConfigs := i.GetVectorIndexConfigs()
-
-	vectorStorageSize, err := shardusage.CalculateUnloadedVectorsMetrics(i.path(), shardName)
+	vectorStorageSize, err := shardusage.CalculateUnloadedVectorsMetrics(lsmPath, directories)
 	if err != nil {
 		return nil, err
 	}
 
-	uncompressedVectorSize, err := shardusage.CalculateUnloadedUncompressedVectorSize(ctx, i.logger, i.path(), shardName, vectorIndexConfigs)
+	indexUsage, err := shardusage.CalculateUnloadedIndicesSize(lsmPath, directories)
 	if err != nil {
 		return nil, err
 	}
 
-	indexUsage, err := shardusage.CalculateUnloadedIndicesSize(i.path(), shardName)
+	vectorCommitLogsStorageSize, otherNonLSMFoldersStorageSize, err := shardusage.CalculateNonLSMStorage(i.path(), shardName)
 	if err != nil {
 		return nil, err
-	}
-
-	shardStorage, err := shardusage.CalculateShardStorage(i.path(), shardName)
-	if err != nil {
-		return nil, err
-	}
-
-	shardUsage := &types.ShardUsage{
-		Name:                  shardName,
-		ObjectsCount:          objectUsage.Count,
-		Status:                strings.ToLower(models.TenantActivityStatusINACTIVE),
-		ObjectsStorageBytes:   uint64(objectUsage.StorageBytes) - uint64(uncompressedVectorSize),
-		VectorStorageBytes:    uint64(vectorStorageSize) + uint64(uncompressedVectorSize),
-		IndexStorageBytes:     indexUsage,
-		FullShardStorageBytes: shardStorage,
 	}
 
 	// Get named vector data for cold shards from schema configuration
+	var namedVectors types.VectorsUsage
+	uncompressedVectorSize := uint64(0) // calculate total uncompressed vector size for all vectors
 	for targetVector, vectorConfig := range vectorConfigs {
 		vectorUsage := &types.VectorUsage{
 			Name:                   targetVector,
 			VectorCompressionRatio: 1.0, // Default ratio for cold shards
-
 		}
 
 		vectorIndexConfig, ok := vectorConfig.VectorIndexConfig.(schemaConfig.VectorIndexConfig)
@@ -341,8 +367,8 @@ func (i *Index) calculateUnloadedShardUsage(ctx context.Context, shardName strin
 		vectorUsage.IsDynamic = vectorConfig.VectorIndexType == common.IndexTypeDynamic
 		if !vectorUsage.IsDynamic {
 			// for cold tenants we cannot distinguish know if dynamic has been upgraded or not. Do not include wrong data
-			category, _ := GetDimensionCategory(vectorIndexConfig, false)
-			vectorUsage.Compression = category.String()
+			dimInfo := GetDimensionCategory(vectorIndexConfig, false)
+			vectorUsage.Compression = dimInfo.category.String()
 			vectorUsage.VectorIndexType = vectorIndexConfig.IndexType()
 		}
 
@@ -350,11 +376,27 @@ func (i *Index) calculateUnloadedShardUsage(ctx context.Context, shardName strin
 		if err != nil {
 			return nil, err
 		}
+		uncompressedVectorSize += uint64(dimensionalities.Count) * uint64(dimensionalities.Dimensions) * 4
 		vectorUsage.Dimensionalities = append(vectorUsage.Dimensionalities, &dimensionalities)
 		vectorUsage.MultiVectorConfig = multiVectorConfigFromConfig(vectorIndexConfig)
-		shardUsage.NamedVectors = append(shardUsage.NamedVectors, vectorUsage)
+		namedVectors = append(namedVectors, vectorUsage)
 	}
-	sort.Sort(shardUsage.NamedVectors)
+
+	sort.Sort(namedVectors)
+
+	shardUsage := &types.ShardUsage{
+		Name:                  shardName,
+		ObjectsCount:          objectUsage.Count,
+		Status:                strings.ToLower(models.TenantActivityStatusINACTIVE),
+		ObjectsStorageBytes:   uint64(objectUsage.StorageBytes) - uncompressedVectorSize,
+		VectorStorageBytes:    uint64(vectorStorageSize) + uncompressedVectorSize + vectorCommitLogsStorageSize,
+		IndexStorageBytes:     indexUsage,
+		FullShardStorageBytes: vectorCommitLogsStorageSize + otherNonLSMFoldersStorageSize + indexUsage + uint64(objectUsage.StorageBytes) + uint64(vectorStorageSize),
+		NamedVectors:          namedVectors,
+	}
+	if err := shardusage.SaveComputedUsageData(i.path(), shardName, shardUsage); err != nil {
+		return nil, fmt.Errorf("save usage to disk: %w", err)
+	}
 	return shardUsage, err
 }
 

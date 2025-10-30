@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/puzpuzpuz/xsync/v4"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
@@ -73,7 +74,7 @@ type SPFresh struct {
 
 	// Internal components
 	Centroids    CentroidIndex           // Provides access to the centroids.
-	Store        *LSMStore               // Used for managing persistence of postings.
+	PostingStore *PostingStore           // Used for managing persistence of postings.
 	IDs          common.MonotonicCounter // Shared monotonic counter for generating unique IDs for new postings.
 	VersionMap   *VersionMap             // Stores vector versions in-memory.
 	PostingSizes *PostingSizes           // Stores the size of each posting in-memory.
@@ -104,17 +105,22 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*SPFresh, error) {
 
 	metrics := NewMetrics(cfg.PrometheusMetrics, cfg.ClassName, cfg.ShardName)
 
-	postingStore, err := NewLSMStore(store, metrics, bucketName(cfg.ID), cfg.Store)
+	postingStore, err := NewPostingStore(store, metrics, postingBucketName(cfg.ID), cfg.Store)
+	if err != nil {
+		return nil, err
+	}
+
+	postingSizes, err := NewPostingSizes(store, metrics, cfg.ID, cfg.Store)
 	if err != nil {
 		return nil, err
 	}
 
 	s := SPFresh{
-		id:      cfg.ID,
-		logger:  cfg.Logger.WithField("component", "SPFresh"),
-		config:  cfg,
-		metrics: metrics,
-		Store:   postingStore,
+		id:           cfg.ID,
+		logger:       cfg.Logger.WithField("component", "SPFresh"),
+		config:       cfg,
+		metrics:      metrics,
+		PostingStore: postingStore,
 		// Capacity of the version map: 8k pages, 1M vectors each -> 8B vectors
 		// - An empty version map consumes 240KB of memory
 		// - Each allocated page consumes 1MB of memory
@@ -124,7 +130,7 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*SPFresh, error) {
 		// - An empty posting sizes buffer consumes 240KB of memory
 		// - Each allocated page consumes 4MB of memory
 		// - A fully used posting sizes consumes 4GB of memory
-		PostingSizes: NewPostingSizes(metrics, 1024*1024, 1024),
+		PostingSizes: postingSizes,
 
 		postingLocks: common.NewDefaultShardedRWLocks(),
 		// TODO: Eventually, we'll create sharded workers between all instances of SPFresh
@@ -263,7 +269,7 @@ func (s *SPFresh) ListFiles(ctx context.Context, basePath string) ([]string, err
 	return nil, nil
 }
 
-func (s *SPFresh) PostStartup() {
+func (s *SPFresh) PostStartup(ctx context.Context) {
 	// This method can be used to perform any post-startup initialization
 	// For now, it does nothing
 	if s.config.Centroids.IndexType == "hnsw" {
@@ -272,7 +278,7 @@ func (s *SPFresh) PostStartup() {
 			return
 		}
 
-		hnswIndex.hnsw.PostStartup()
+		hnswIndex.hnsw.PostStartup(ctx)
 	}
 }
 
@@ -311,7 +317,7 @@ func (s *SPFresh) QueryVectorDistancer(queryVector []float32) common.QueryVector
 	distFunc := func(id uint64) (float32, error) {
 		var buf [8]byte
 		binary.BigEndian.PutUint64(buf[:], id)
-		vec, err := s.Store.store.Bucket(bucketName).Get(buf[:])
+		vec, err := s.PostingStore.store.Bucket(bucketName).Get(buf[:])
 		if err != nil {
 			return 0, err
 		}
@@ -336,42 +342,29 @@ func (s *SPFresh) Preload(id uint64, vector []float32) {
 
 // deduplicator is a simple thread-safe structure to prevent duplicate values.
 type deduplicator struct {
-	mu sync.RWMutex
-	m  map[uint64]struct{}
+	m *xsync.Map[uint64, struct{}]
 }
 
 func newDeduplicator() *deduplicator {
 	return &deduplicator{
-		m: make(map[uint64]struct{}),
+		m: xsync.NewMap[uint64, struct{}](),
 	}
 }
 
 // tryAdd attempts to add an ID to the deduplicator.
 // Returns true if the ID was added, false if it already exists.
 func (d *deduplicator) tryAdd(id uint64) bool {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-
-	_, exists := d.m[id]
-	if !exists {
-		d.m[id] = struct{}{}
-	}
-	return !exists
+	_, loaded := d.m.LoadOrStore(id, struct{}{})
+	return !loaded
 }
 
 // done marks an ID as processed, removing it from the deduplicator.
 func (d *deduplicator) done(id uint64) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-
-	delete(d.m, id)
+	d.m.Delete(id)
 }
 
 // contains checks if an ID is already in the deduplicator.
 func (d *deduplicator) contains(id uint64) bool {
-	d.mu.RLock()
-	defer d.mu.RUnlock()
-
-	_, exists := d.m[id]
+	_, exists := d.m.Load(id)
 	return exists
 }

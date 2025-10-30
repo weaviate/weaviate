@@ -735,8 +735,8 @@ const file_v1_file_replication_proto_rawDesc = "" +
 	"\x12ResumeFileActivity\x12&.weaviate.v1.ResumeFileActivityRequest\x1a'.weaviate.v1.ResumeFileActivityResponse\x12J\n" +
 	"\tListFiles\x12\x1d.weaviate.v1.ListFilesRequest\x1a\x1e.weaviate.v1.ListFilesResponse\x12U\n" +
 	"\x0fGetFileMetadata\x12#.weaviate.v1.GetFileMetadataRequest\x1a\x19.weaviate.v1.FileMetadata(\x010\x01\x12B\n" +
-	"\aGetFile\x12\x1b.weaviate.v1.GetFileRequest\x1a\x16.weaviate.v1.FileChunk(\x010\x01Bj\n" +
-	"#io.weaviate.client.grpc.protocol.v1B\rWeaviateProtoZ4github.com/weaviate/weaviate/grpc/generated;protocolb\x06proto3"
+	"\aGetFile\x12\x1b.weaviate.v1.GetFileRequest\x1a\x16.weaviate.v1.FileChunk(\x010\x01By\n" +
+	"#io.weaviate.client.grpc.protocol.v1B\x1cWeaviateProtoFileReplicationZ4github.com/weaviate/weaviate/grpc/generated;protocolb\x06proto3"
 
 var (
 	file_v1_file_replication_proto_rawDescOnce sync.Once

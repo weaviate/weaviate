@@ -19,57 +19,62 @@ message BatchReferencesRequest {
   optional ConsistencyLevel consistency_level = 2;
 }
 
-message BatchSendRequest {
-  message Stop {
-  }
-  message Objects {
-    repeated BatchObject values = 1;
-  }
-  message References {
-    repeated BatchReference values = 1;
-  }
-  string stream_id = 1;
-  oneof message {
-    Objects objects = 2;
-    References references = 3;
-    Stop stop = 4;
-  }
-}
-
-message BatchSendReply {
-  int32 next_batch_size = 1;
-  float backoff_seconds = 2;
-}
-
 message BatchStreamRequest {
-  optional ConsistencyLevel consistency_level = 1;
-  optional int32 object_index = 2;
-  optional int32 reference_index = 3;
+  message Start {
+    optional ConsistencyLevel consistency_level = 1;
+  }
+  message Stop{
+  }
+  message Data {
+    message Objects {
+      repeated BatchObject values = 1;
+    }
+    message References {
+      repeated BatchReference values = 1;
+    }
+    Objects objects = 1;
+    References references = 2;
+  }
+  oneof message {
+    Start start = 1;
+    Data data = 2;
+    Stop stop = 3;
+  }
 }
 
-message BatchStreamMessage {
-  message Start {
-  }
-  message Stop {
-  }
-  message Shutdown {
+message BatchStreamReply {
+  message Started {
   }
   message ShuttingDown {
   }
-  message Error {
-    string error = 1;
-    int32 index = 2;
-    bool is_retriable = 3;
-    bool is_object = 4;
-    bool is_reference = 5;
+  message Shutdown {
   }
-  string stream_id = 1;
+  message Backoff {
+    int32 batch_size = 1;
+  }
+  message Results {
+    message Error {
+      string error = 1;
+      oneof detail {
+        string uuid = 2;
+        string beacon = 3;
+      }
+    }
+    message Success {
+      oneof detail {
+        string uuid = 2;
+        string beacon = 3;
+      }
+    }
+    repeated Error errors = 1;
+    repeated Success successes = 2;
+  }
   oneof message {
-    Error error = 2;
-    Start start = 3;
-    Stop stop = 4;
-    Shutdown shutdown = 5;
-    ShuttingDown shutting_down = 6;
+    Results results = 1;
+    ShuttingDown shutting_down = 2;
+    Shutdown shutdown = 3;
+    Started started = 4;
+    Backoff backoff = 5;
   }
 }
 

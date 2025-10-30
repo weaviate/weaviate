@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/auth"
 	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/classcache"
@@ -30,17 +31,13 @@ import (
 
 type Handler struct {
 	authorizer    authorization.Authorizer
-	authenticator authenticator
+	authenticator *auth.Handler
 	batchManager  *objects.BatchManager
 	logger        logrus.FieldLogger
 	schemaManager *schemaManager.Manager
 }
 
-type authenticator interface {
-	PrincipalFromContext(ctx context.Context) (*models.Principal, error)
-}
-
-func NewHandler(authorizer authorization.Authorizer, batchManager *objects.BatchManager, logger logrus.FieldLogger, authenticator authenticator, schemaManager *schemaManager.Manager) *Handler {
+func NewHandler(authorizer authorization.Authorizer, batchManager *objects.BatchManager, logger logrus.FieldLogger, authenticator *auth.Handler, schemaManager *schemaManager.Manager) *Handler {
 	return &Handler{
 		authorizer:    authorizer,
 		authenticator: authenticator,
