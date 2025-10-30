@@ -13,13 +13,16 @@ package helper
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/go-openapi/runtime"
+	httptransport "github.com/go-openapi/runtime/client"
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
+	"github.com/weaviate/weaviate/client"
 	"github.com/weaviate/weaviate/entities/modelsext"
 
 	"github.com/weaviate/weaviate/client/batch"
@@ -40,6 +43,70 @@ func SetupClient(uri string) {
 	}
 	ServerHost = host
 	ServerPort = port
+}
+
+// parseScheme extracts the scheme from a URI if present, defaulting to "http".
+//
+// If the URI contains "://", the part before it is extracted as the scheme.
+// If no scheme is found, "http" is used as the default.
+//
+// Returns the scheme and the remaining URI with the scheme prefix removed.
+//
+// Examples:
+//   - "http://localhost:8080" -> ("http", "localhost:8080")
+//   - "https://localhost:8443" -> ("https", "localhost:8443")
+//   - "localhost:8080" -> ("http", "localhost:8080")
+func parseScheme(uri string) (scheme, remaining string) {
+	scheme = "http"
+	remaining = uri
+
+	if strings.Contains(uri, "://") {
+		parts := strings.Split(uri, "://")
+		if len(parts) == 2 {
+			scheme = parts[0]
+			remaining = parts[1]
+		}
+	}
+
+	return scheme, remaining
+}
+
+// parseHostPort extracts the host and port from a URI by splitting on ":".
+//
+// The URI should include "host:port". If the format doesn't match
+// (no colon or more than one colon), empty strings are returned for both values.
+//
+// Returns the host and port as separate strings.
+//
+// Examples:
+//   - "localhost:8080" -> ("localhost", "8080")
+//   - "127.0.0.1:9090" -> ("127.0.0.1", "9090")
+//   - "example.com:443" -> ("example.com", "443")
+func parseHostPort(uri string) (host, port string) {
+	res := strings.Split(uri, ":")
+	if len(res) == 2 {
+		host, port = res[0], res[1]
+	}
+	return host, port
+}
+
+// NewClient creates a new immutable client configured for the given URI.
+// This function does not modify global state and is safe to use in concurrent tests.
+// The URI can optionally include a scheme (e.g., "http://localhost:8080" or "localhost:8080").
+// Use this instead of SetupClient() + Client() to avoid data races when tests use goroutines
+// that concurrently access the client.
+func NewClient(t *testing.T, uri string) *client.Weaviate {
+	scheme, remaining := parseScheme(uri)
+	host, port := parseHostPort(remaining)
+
+	transport := httptransport.New(fmt.Sprintf("%s:%s", host, port), "/v1", []string{scheme})
+
+	if t != nil && DebugHTTP {
+		transport.SetDebug(true)
+		transport.SetLogger(&testLogger{t: t})
+	}
+
+	return client.New(transport, strfmt.Default)
 }
 
 func SetupGRPCClient(t *testing.T, uri string) {
