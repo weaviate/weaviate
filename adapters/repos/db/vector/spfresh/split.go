@@ -98,7 +98,7 @@ func (s *SPFresh) doSplit(postingID uint64, reassign bool) error {
 	}
 
 	// load the posting from disk
-	p, err := s.Store.Get(s.ctx, postingID)
+	p, err := s.PostingStore.Get(s.ctx, postingID)
 	if err != nil {
 		if errors.Is(err, ErrPostingNotFound) {
 			s.logger.WithField("postingID", postingID).
@@ -121,7 +121,7 @@ func (s *SPFresh) doSplit(postingID uint64, reassign bool) error {
 		}
 
 		// persist the gc'ed posting
-		err = s.Store.Put(s.ctx, postingID, filtered)
+		err = s.PostingStore.Put(s.ctx, postingID, filtered)
 		if err != nil {
 			return errors.Wrapf(err, "failed to put filtered posting %d after split operation", postingID)
 		}
@@ -148,7 +148,7 @@ func (s *SPFresh) doSplit(postingID uint64, reassign bool) error {
 			compressed: s.config.Compressed,
 		}
 		pp.AddVector(filtered.GetAt(0))
-		err = s.Store.Put(s.ctx, postingID, pp)
+		err = s.PostingStore.Put(s.ctx, postingID, pp)
 		if err != nil {
 			return errors.Wrapf(err, "failed to put single vector posting %d after split operation", postingID)
 		}
@@ -176,7 +176,7 @@ func (s *SPFresh) doSplit(postingID uint64, reassign bool) error {
 					Debug("reusing existing posting for split operation")
 				postingReused = true
 				newPostingIDs[i] = postingID
-				err = s.Store.Put(s.ctx, postingID, result[i].Posting)
+				err = s.PostingStore.Put(s.ctx, postingID, result[i].Posting)
 				if err != nil {
 					return errors.Wrapf(err, "failed to put reused posting %d after split operation", postingID)
 				}
@@ -190,7 +190,7 @@ func (s *SPFresh) doSplit(postingID uint64, reassign bool) error {
 		// otherwise, we need to create a new posting for the new centroid
 		newPostingID := s.IDs.Next()
 		newPostingIDs[i] = newPostingID
-		err = s.Store.Put(s.ctx, newPostingID, result[i].Posting)
+		err = s.PostingStore.Put(s.ctx, newPostingID, result[i].Posting)
 		if err != nil {
 			return errors.Wrapf(err, "failed to put new posting %d after split operation", newPostingID)
 		}
@@ -359,7 +359,7 @@ func (s *SPFresh) enqueueReassignAfterSplit(oldPostingID uint64, newPostingIDs [
 		}
 		seen[neighborID] = struct{}{}
 
-		p, err := s.Store.Get(s.ctx, neighborID)
+		p, err := s.PostingStore.Get(s.ctx, neighborID)
 		if err != nil {
 			if errors.Is(err, ErrPostingNotFound) {
 				s.logger.WithField("postingID", neighborID).
