@@ -245,7 +245,7 @@ func (t *Task) Execute(ctx context.Context) error {
 
 	switch t.op {
 	case operationsQueueSplitOp:
-		return t.idx.doSplit(t.id, true) // TODO: check if we need to pass reassign
+		return t.idx.doSplit(t.id, true)
 	case operationsQueueMergeOp:
 		return t.idx.doMerge(t.id)
 	case operationsQueueReassignOp:
