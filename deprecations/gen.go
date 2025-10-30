@@ -9,6 +9,9 @@
 //  CONTACT: hello@weaviate.io
 //
 
+//go:build ignore
+// +build ignore
+
 // The following directive is necessary to make the package coherent:
 // This program generates data.go.
 //
