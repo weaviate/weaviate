@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/puzpuzpuz/xsync/v4"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
@@ -109,6 +110,11 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*SPFresh, error) {
 		return nil, err
 	}
 
+	postingSizes, err := NewPostingSizes(store, metrics, cfg.ID, cfg.Store)
+	if err != nil {
+		return nil, err
+	}
+
 	s := SPFresh{
 		id:           cfg.ID,
 		logger:       cfg.Logger.WithField("component", "SPFresh"),
@@ -124,7 +130,7 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*SPFresh, error) {
 		// - An empty posting sizes buffer consumes 240KB of memory
 		// - Each allocated page consumes 4MB of memory
 		// - A fully used posting sizes consumes 4GB of memory
-		PostingSizes: NewPostingSizes(metrics, 1024*1024, 1024),
+		PostingSizes: postingSizes,
 
 		postingLocks: common.NewDefaultShardedRWLocks(),
 		// TODO: Eventually, we'll create sharded workers between all instances of SPFresh
@@ -336,42 +342,29 @@ func (s *SPFresh) Preload(id uint64, vector []float32) {
 
 // deduplicator is a simple thread-safe structure to prevent duplicate values.
 type deduplicator struct {
-	mu sync.RWMutex
-	m  map[uint64]struct{}
+	m *xsync.Map[uint64, struct{}]
 }
 
 func newDeduplicator() *deduplicator {
 	return &deduplicator{
-		m: make(map[uint64]struct{}),
+		m: xsync.NewMap[uint64, struct{}](),
 	}
 }
 
 // tryAdd attempts to add an ID to the deduplicator.
 // Returns true if the ID was added, false if it already exists.
 func (d *deduplicator) tryAdd(id uint64) bool {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-
-	_, exists := d.m[id]
-	if !exists {
-		d.m[id] = struct{}{}
-	}
-	return !exists
+	_, loaded := d.m.LoadOrStore(id, struct{}{})
+	return !loaded
 }
 
 // done marks an ID as processed, removing it from the deduplicator.
 func (d *deduplicator) done(id uint64) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-
-	delete(d.m, id)
+	d.m.Delete(id)
 }
 
 // contains checks if an ID is already in the deduplicator.
 func (d *deduplicator) contains(id uint64) bool {
-	d.mu.RLock()
-	defer d.mu.RUnlock()
-
-	_, exists := d.m[id]
+	_, exists := d.m.Load(id)
 	return exists
 }

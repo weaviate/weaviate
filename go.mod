@@ -84,7 +84,7 @@ require (
 	golang.org/x/net v0.42.0
 	golang.org/x/oauth2 v0.30.0
 	golang.org/x/sync v0.16.0
-	golang.org/x/sys v0.34.0
+	golang.org/x/sys v0.37.0
 	golang.org/x/text v0.27.0
 	golang.org/x/time v0.12.0
 	gonum.org/v1/gonum v0.15.1
@@ -196,6 +196,7 @@ require (
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mattn/go-runewidth v0.0.15 // indirect
+	github.com/maypok86/otter/v2 v2.2.1 // indirect
 	github.com/miekg/dns v1.1.31 // indirect
 	github.com/minio/crc64nvme v1.0.1 // indirect
 	github.com/minio/md5-simd v1.1.2 // indirect
@@ -254,4 +255,4 @@ require (
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 )
 
-go 1.24
+go 1.24.0
