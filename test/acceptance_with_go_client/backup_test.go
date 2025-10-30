@@ -165,7 +165,7 @@ func TestBackupWithConcurrentDelete(t *testing.T) {
 		require.NoError(t, usage.CollectionUsageDifference(*report, usageReports[i]))
 	}
 
-	// verify that we can insert new data (needs to be after usage module comparison, becuse this adds new data)
+	// verify that we can insert new data (needs to be after usage module comparison, because this adds new data)
 	for i, name := range classNames {
 		// can insert more data
 		objs := make([]*models.Object, 1+i)

@@ -337,6 +337,7 @@ func TestRenamingDuringBackup(t *testing.T) {
 	writeDirRename := filepath.Join(dir, backup.DeleteMarker+"collection")
 
 	require.NoError(t, os.MkdirAll(writeDir, os.ModePerm))
+	counter := 0
 	for i := range 100 {
 		f, err := os.Create(filepath.Join(writeDir, strconv.Itoa(i)+".tmp"))
 		require.NoError(t, err)
@@ -349,6 +350,7 @@ func TestRenamingDuringBackup(t *testing.T) {
 		require.NoError(t, err)
 		_, err = f.Write([]byte{byte(i)})
 		require.NoError(t, err)
+		counter += size + i
 
 		require.NoError(t, f.Close())
 		sd.Files = append(sd.Files, filepath.Join("collection", strconv.Itoa(i)+".tmp"))
@@ -376,7 +378,7 @@ func TestRenamingDuringBackup(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, f.Close())
 	sd.PropLengthTrackerPath = filepath.Join("collection", "propLength.tmp")
-	sd.Version = []byte("12345")
+	sd.PropLengthTracker = []byte("12345")
 
 	// start backup process
 	z, rc := NewZip(dir, 0)
@@ -398,6 +400,9 @@ func TestRenamingDuringBackup(t *testing.T) {
 	compressBuf := bytes.NewBuffer(make([]byte, 0, 1000_000))
 	_, err = io.Copy(compressBuf, rc)
 	require.NoError(t, err)
+	require.NoError(t, rc.Close())
+
+	require.NoError(t, os.RemoveAll(dir))
 
 	uz, wc := NewUnzip(dir2)
 	go func() {
@@ -410,4 +415,15 @@ func TestRenamingDuringBackup(t *testing.T) {
 	require.NoError(t, uz.Close())
 
 	wg.Wait()
+
+	// check restored backup
+	readDir := filepath.Join(dir2, "collection")
+	counter2 := 0
+	for i := range 100 {
+		buf, err := os.ReadFile(filepath.Join(readDir, strconv.Itoa(i)+".tmp"))
+		require.NoError(t, err)
+		// files have a random length AND their last byte is the index
+		counter2 += len(buf) - 1 + int(buf[len(buf)-1])
+	}
+	require.Equal(t, counter, counter2)
 }
