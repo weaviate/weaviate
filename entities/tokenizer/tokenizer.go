@@ -94,6 +94,7 @@ func InitOptionalTokenizers() {
 		if tokenizers.Korean == nil {
 			tokenizers.Korean, _ = initializeKagomeTokenizerKr(nil)
 		}
+		KagomeKrEnabled = true
 		kagomeInitLock.Unlock()
 	}
 	if entcfg.Enabled(os.Getenv("ENABLE_TOKENIZER_KAGOME_JA")) {
@@ -102,6 +103,7 @@ func InitOptionalTokenizers() {
 		if tokenizers.Japanese == nil {
 			tokenizers.Japanese, _ = initializeKagomeTokenizerJa(nil)
 		}
+		KagomeJaEnabled = true
 		kagomeInitLock.Unlock()
 	}
 }
@@ -313,7 +315,6 @@ func initializeKagomeTokenizerKr(userDict *models.TokenizerUserDictConfig) (*kag
 	if err != nil {
 		return nil, err
 	}
-	KagomeKrEnabled = true
 	monitoring.GetMetrics().TokenizerInitializeDuration.WithLabelValues(models.PropertyTokenizationKagomeKr).Observe(float64(time.Since(startTime).Seconds()))
 	return tokenizer, nil
 }
@@ -327,7 +328,6 @@ func initializeKagomeTokenizerJa(userDict *models.TokenizerUserDictConfig) (*kag
 	if err != nil {
 		return nil, err
 	}
-	KagomeJaEnabled = true
 	monitoring.GetMetrics().TokenizerInitializeDuration.WithLabelValues(models.PropertyTokenizationKagomeJa).Observe(float64(time.Since(startTime).Seconds()))
 	return tokenizer, nil
 }
