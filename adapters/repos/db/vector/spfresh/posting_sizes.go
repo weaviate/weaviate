@@ -12,6 +12,8 @@ import (
 )
 
 // PostingSizes keeps track of the number of vectors in each posting.
+// It uses a combination of an LSMKV store for persistence and an in-memory
+// cache for fast access.
 type PostingSizes struct {
 	metrics *Metrics
 	cache   *otter.Cache[uint64, uint32]
@@ -38,6 +40,7 @@ func NewPostingSizes(store *lsmkv.Store, id string, metrics *Metrics, cfg StoreC
 	}, nil
 }
 
+// Get returns the size of the posting with the given ID.
 func (v *PostingSizes) Get(ctx context.Context, postingID uint64) (uint32, error) {
 	return v.cache.Get(ctx, postingID, otter.LoaderFunc[uint64, uint32](func(ctx context.Context, key uint64) (uint32, error) {
 		size, err := v.store.Get(ctx, postingID)
@@ -54,6 +57,39 @@ func (v *PostingSizes) Get(ctx context.Context, postingID uint64) (uint32, error
 	}))
 }
 
+// Sets the size of the posting to newSize.
+// This method assumes the posting has been locked for writing by the caller.
+func (v *PostingSizes) Set(ctx context.Context, postingID uint64, newSize uint32) error {
+	err := v.store.Set(ctx, postingID, newSize)
+	if err != nil {
+		return err
+	}
+	v.cache.Set(postingID, newSize)
+	v.metrics.ObservePostingSize(float64(newSize))
+	return nil
+}
+
+// Incr increments the size of the posting by delta and returns the new size.
+// This method assumes the posting has been locked for writing by the caller.
+func (v *PostingSizes) Inc(ctx context.Context, postingID uint64, delta uint32) (uint32, error) {
+	old, err := v.Get(ctx, postingID)
+	if err != nil {
+		return 0, err
+	}
+
+	newSize := old + delta
+	err = v.store.Set(ctx, postingID, newSize)
+	if err != nil {
+		return 0, err
+	}
+
+	v.cache.Set(postingID, newSize)
+	v.metrics.ObservePostingSize(float64(newSize))
+	return newSize, nil
+}
+
+// PostingSizeStore is a persistent store for posting sizes.
+// It stores the sizes in an LSMKV bucket.
 type PostingSizeStore struct {
 	store  *lsmkv.Store
 	bucket *lsmkv.Bucket
