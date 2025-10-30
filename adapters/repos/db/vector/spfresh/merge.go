@@ -47,30 +47,6 @@ func (s *SPFresh) enqueueMerge(ctx context.Context, postingID uint64) error {
 	return nil
 }
 
-/*func (s *SPFresh) mergeWorker() {
-	defer s.wg.Done()
-
-	for postingID := range s.mergeCh.Out() {
-		if s.ctx.Err() != nil {
-			return // Exit if the context is cancelled
-		}
-
-		s.metrics.DequeueMergeTask()
-
-		err := s.doMerge(postingID)
-		if err != nil {
-			if errors.Is(err, context.Canceled) {
-				continue
-			}
-
-			s.logger.WithError(err).
-				WithField("postingID", postingID).
-				Error("Failed to process merge operation")
-			continue // Log the error and continue processing other operations
-		}
-	}
-}*/
-
 func (s *SPFresh) doMerge(postingID uint64) error {
 	s.metrics.DequeueMergeTask()
 	start := time.Now()
