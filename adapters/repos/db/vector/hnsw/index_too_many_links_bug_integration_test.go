@@ -10,7 +10,6 @@
 //
 
 //go:build integrationTest && !race
-// +build integrationTest,!race
 
 package hnsw
 
