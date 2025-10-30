@@ -88,16 +88,21 @@ func InitOptionalTokenizers() {
 		init_gse_ch()
 	}
 	if entcfg.Enabled(os.Getenv("ENABLE_TOKENIZER_KAGOME_KR")) {
+		// Acquire lock to prevent initialization race
+		kagomeInitLock.Lock()
 		Tokenizations = append(Tokenizations, models.PropertyTokenizationKagomeKr)
 		if tokenizers.Korean == nil {
 			tokenizers.Korean, _ = initializeKagomeTokenizerKr(nil)
 		}
+		kagomeInitLock.Unlock()
 	}
 	if entcfg.Enabled(os.Getenv("ENABLE_TOKENIZER_KAGOME_JA")) {
+		kagomeInitLock.Lock()
 		Tokenizations = append(Tokenizations, models.PropertyTokenizationKagomeJa)
 		if tokenizers.Japanese == nil {
 			tokenizers.Japanese, _ = initializeKagomeTokenizerJa(nil)
 		}
+		kagomeInitLock.Unlock()
 	}
 }
 
@@ -301,46 +306,30 @@ func tokenizeGseCh(in string) []string {
 }
 
 func initializeKagomeTokenizerKr(userDict *models.TokenizerUserDictConfig) (*kagomeTokenizer.Tokenizer, error) {
-	// Acquire lock to prevent initialization race
-	kagomeInitLock.Lock()
-	defer kagomeInitLock.Unlock()
+	startTime := time.Now()
 
-	if entcfg.Enabled(os.Getenv("ENABLE_TOKENIZER_KAGOME_KR")) {
-		startTime := time.Now()
-
-		dictInstance := koDict.Dict()
-		tokenizer, err := initializeKagomeTokenizer(dictInstance, userDict)
-		if err != nil {
-			return nil, err
-		}
-		KagomeKrEnabled = true
-		monitoring.GetMetrics().TokenizerInitializeDuration.WithLabelValues(models.PropertyTokenizationKagomeKr).Observe(float64(time.Since(startTime).Seconds()))
-		return tokenizer, nil
+	dictInstance := koDict.Dict()
+	tokenizer, err := initializeKagomeTokenizer(dictInstance, userDict)
+	if err != nil {
+		return nil, err
 	}
-
-	return nil, nil
+	KagomeKrEnabled = true
+	monitoring.GetMetrics().TokenizerInitializeDuration.WithLabelValues(models.PropertyTokenizationKagomeKr).Observe(float64(time.Since(startTime).Seconds()))
+	return tokenizer, nil
 }
 
 func initializeKagomeTokenizerJa(userDict *models.TokenizerUserDictConfig) (*kagomeTokenizer.Tokenizer, error) {
-	// Acquire lock to prevent initialization race
-	kagomeInitLock.Lock()
-	defer kagomeInitLock.Unlock()
+	startTime := time.Now()
 
-	if entcfg.Enabled(os.Getenv("ENABLE_TOKENIZER_KAGOME_JA")) {
-		startTime := time.Now()
-
-		var err error
-		dictInstance := ipa.Dict()
-		tokenizer, err := initializeKagomeTokenizer(dictInstance, userDict)
-		if err != nil {
-			return nil, err
-		}
-		KagomeJaEnabled = true
-		monitoring.GetMetrics().TokenizerInitializeDuration.WithLabelValues(models.PropertyTokenizationKagomeJa).Observe(float64(time.Since(startTime).Seconds()))
-		return tokenizer, nil
+	var err error
+	dictInstance := ipa.Dict()
+	tokenizer, err := initializeKagomeTokenizer(dictInstance, userDict)
+	if err != nil {
+		return nil, err
 	}
-
-	return nil, nil
+	KagomeJaEnabled = true
+	monitoring.GetMetrics().TokenizerInitializeDuration.WithLabelValues(models.PropertyTokenizationKagomeJa).Observe(float64(time.Since(startTime).Seconds()))
+	return tokenizer, nil
 }
 
 func initializeKagomeTokenizer(dictInstance *dict.Dict, userDict *models.TokenizerUserDictConfig) (*kagomeTokenizer.Tokenizer, error) {
