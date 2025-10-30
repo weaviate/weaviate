@@ -18,7 +18,7 @@ func TestShardFileSanitize(t *testing.T) {
 
 	ctx := testCtx()
 	className := "TestClass"
-	shd, _ := testShard(t, ctx, className)
+	shd, idx := testShard(t, ctx, className)
 	require.NoError(t, shd.HaltForTransfer(ctx, false, 100*time.Millisecond))
 	amount := 10
 
@@ -33,13 +33,24 @@ func TestShardFileSanitize(t *testing.T) {
 	require.Nil(t, err)
 	require.Equal(t, amount, len(objs))
 
+	// try to read outside of the shard directory
 	_, err = shd.GetFile(ctx, "../001/secret.txt")
 	require.Error(t, err)
 
+	// create a second "fake" index and shard and try to read it
+	otherShardDir := filepath.Join(idx.Config.RootPath, "otherIndex", "otherShard")
+	require.NoError(t, os.MkdirAll(otherShardDir, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(otherShardDir, "secret.txt"), []byte("secret"), 0o700))
+
+	file, err := shd.GetFile(ctx, filepath.Join(otherShardDir, "secret.txt"))
+	require.Error(t, err)
+	require.Nil(t, file)
+
+	// now read a valid file
 	ret := &backup.ShardDescriptor{}
 	require.NoError(t, shd.ListBackupFiles(ctx, ret))
 
-	file, err := shd.GetFile(ctx, ret.ShardVersionPath)
+	file, err = shd.GetFile(ctx, ret.ShardVersionPath)
 	require.NoError(t, err)
 	require.NotNil(t, file)
 }
