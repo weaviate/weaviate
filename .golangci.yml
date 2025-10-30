@@ -69,9 +69,6 @@ linters:
           - govet
         text: composites
       - linters:
-          - govet
-        text: 'buildtag: +build line is no longer needed'  # please tackle this and remove all of those lines :)
-      - linters:
           - staticcheck
         path: ^adapters/handlers/grpc/v1\/(?:[^\/]+\/)*[^\/]+\.go$
         text: SA1019
