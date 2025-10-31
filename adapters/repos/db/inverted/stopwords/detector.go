@@ -24,7 +24,8 @@ type StopwordDetector interface {
 }
 
 type Detector struct {
-	sync.Mutex
+	sync.RWMutex
+	preset    string
 	stopwords map[string]struct{}
 }
 
@@ -36,6 +37,7 @@ func NewDetectorFromConfig(config models.StopwordConfig) (*Detector, error) {
 
 	d.SetAdditions(config.Additions)
 	d.SetRemovals(config.Removals)
+	d.preset = config.Preset
 
 	return d, nil
 }
@@ -58,8 +60,36 @@ func NewDetectorFromPreset(preset string) (*Detector, error) {
 	for _, word := range list {
 		d.stopwords[word] = struct{}{}
 	}
-
+	d.preset = preset
 	return d, nil
+}
+
+func (d *Detector) ReplaceDetectorFromConfig(config models.StopwordConfig) error {
+	d.Lock()
+	defer d.Unlock()
+
+	stopwords := map[string]struct{}{}
+	if config.Preset != "" {
+		list, ok := Presets[config.Preset]
+		if !ok {
+			return errors.Errorf("preset %q not known to stopword detector", config.Preset)
+		}
+		for _, word := range list {
+			stopwords[word] = struct{}{}
+		}
+	}
+
+	for _, word := range config.Additions {
+		stopwords[word] = struct{}{}
+	}
+
+	for _, word := range config.Removals {
+		delete(stopwords, word)
+	}
+
+	d.stopwords = stopwords
+	d.preset = config.Preset
+	return nil
 }
 
 func (d *Detector) SetAdditions(additions []string) {
@@ -81,9 +111,15 @@ func (d *Detector) SetRemovals(removals []string) {
 }
 
 func (d *Detector) IsStopword(word string) bool {
-	d.Lock()
-	defer d.Unlock()
+	d.RLock()
+	defer d.RUnlock()
 
 	_, ok := d.stopwords[word]
 	return ok
+}
+
+func (d *Detector) Preset() string {
+	d.RLock()
+	defer d.RUnlock()
+	return d.preset
 }

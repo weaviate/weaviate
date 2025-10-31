@@ -31,6 +31,7 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateOfLargeShard() {
 
 	compose, err := docker.New().
 		WithWeaviateCluster(3).
+		WithWeaviateEnv("REPLICA_MOVEMENT_ENABLED", "true").
 		Start(mainCtx)
 	require.Nil(t, err)
 	defer func() {
