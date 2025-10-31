@@ -24,6 +24,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
@@ -97,6 +98,7 @@ func Test_NoRaceCompressionRecall(t *testing.T) {
 				copy(container.Slice, vectors[int(id)])
 				return container.Slice, nil
 			},
+			MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
 		}, uc, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
 		init := time.Now()
 		compressionhelpers.Concurrently(logger, uint64(vectors_size), func(id uint64) {

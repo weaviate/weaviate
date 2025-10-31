@@ -1105,32 +1105,19 @@ func (t *ShardReindexTask_MapToBlockmax) calcPropLenInverted(items []inverted.Co
 func (t *ShardReindexTask_MapToBlockmax) bucketOptions(shard ShardLike, strategy string,
 	keepLevelCompaction, keepTombstones bool, memtableOptFactor int,
 ) []lsmkv.BucketOption {
-	index := shard.Index()
+	cfg := shard.Index().Config
 
-	opts := []lsmkv.BucketOption{
-		lsmkv.WithDirtyThreshold(time.Duration(index.Config.MemtablesFlushDirtyAfter) * time.Second),
-		lsmkv.WithDynamicMemtableSizing(
-			index.Config.MemtablesInitialSizeMB*memtableOptFactor,
-			index.Config.MemtablesMaxSizeMB*memtableOptFactor,
-			index.Config.MemtablesMinActiveSeconds*memtableOptFactor,
-			index.Config.MemtablesMaxActiveSeconds*memtableOptFactor,
-		),
-		lsmkv.WithPread(index.Config.AvoidMMap),
-		lsmkv.WithAllocChecker(index.allocChecker),
-		lsmkv.WithMaxSegmentSize(index.Config.MaxSegmentSize),
-		lsmkv.WithSegmentsChecksumValidationEnabled(index.Config.LSMEnableSegmentsChecksumValidation),
-		lsmkv.WithStrategy(strategy),
+	return shard.makeDefaultBucketOptions(strategy,
 		lsmkv.WithKeepLevelCompaction(keepLevelCompaction),
 		lsmkv.WithKeepTombstones(keepTombstones),
-		lsmkv.WithWriteSegmentInfoIntoFileName(index.Config.SegmentInfoIntoFileNameEnabled),
-		lsmkv.WithWriteMetadata(index.Config.WriteMetadataFilesEnabled),
-	}
-
-	if strategy == lsmkv.StrategyMapCollection && shard.Versioner().Version() < 2 {
-		opts = append(opts, lsmkv.WithLegacyMapSorting())
-	}
-
-	return opts
+		// overwrite DynamicMemtableSizing
+		lsmkv.WithDynamicMemtableSizing(
+			memtableOptFactor*cfg.MemtablesInitialSizeMB,
+			memtableOptFactor*cfg.MemtablesMaxSizeMB,
+			memtableOptFactor*cfg.MemtablesMinActiveSeconds,
+			memtableOptFactor*cfg.MemtablesMaxActiveSeconds,
+		),
+	)
 }
 
 func (t *ShardReindexTask_MapToBlockmax) reindexBucketName(propName string) string {

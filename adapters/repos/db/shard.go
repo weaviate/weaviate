@@ -128,6 +128,7 @@ type ShardLike interface {
 
 	isReadOnly() error
 	pathLSM() string
+	makeDefaultBucketOptions(strategy string, customOptions ...lsmkv.BucketOption) []lsmkv.BucketOption
 
 	preparePutObject(context.Context, string, *storobj.Object) replica.SimpleResponse
 	preparePutObjects(context.Context, string, []*storobj.Object) replica.SimpleResponse
@@ -297,6 +298,8 @@ type Shard struct {
 	shutdownRequested atomic.Bool
 
 	SPFreshEnabled bool
+
+	lazySegmentLoadingEnabled bool
 }
 
 func (s *Shard) ID() string {
@@ -335,25 +338,6 @@ func (s *Shard) uuidToIdLockPoolId(uuidBytes []byte) uint {
 	hi := binary.LittleEndian.Uint64(uuidBytes[8:16])
 
 	return uint((lo ^ hi) % IdLockPoolSize)
-}
-
-func (s *Shard) memtableDirtyConfig() lsmkv.BucketOption {
-	return lsmkv.WithDirtyThreshold(
-		time.Duration(s.index.Config.MemtablesFlushDirtyAfter) * time.Second)
-}
-
-func (s *Shard) dynamicMemtableSizing() lsmkv.BucketOption {
-	return lsmkv.WithDynamicMemtableSizing(
-		s.index.Config.MemtablesInitialSizeMB,
-		s.index.Config.MemtablesMaxSizeMB,
-		s.index.Config.MemtablesMinActiveSeconds,
-		s.index.Config.MemtablesMaxActiveSeconds,
-	)
-}
-
-func (s *Shard) segmentCleanupConfig() lsmkv.BucketOption {
-	return lsmkv.WithSegmentsCleanupInterval(
-		time.Duration(s.index.Config.SegmentsCleanupIntervalSeconds) * time.Second)
 }
 
 func (s *Shard) UpdateVectorIndexConfig(ctx context.Context, updated schemaConfig.VectorIndexConfig) error {

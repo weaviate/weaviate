@@ -21,6 +21,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
@@ -72,6 +73,7 @@ func Test_NoRaceCompressReturnsErrorWhenNotEnoughData(t *testing.T) {
 			copy(container.Slice, vectors[int(id)])
 			return container.Slice, nil
 		},
+		MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
 	}, uc, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
 	defer index.Shutdown(context.Background())
 	assert.Nil(t, compressionhelpers.ConcurrentlyWithError(logger, uint64(len(vectors)), func(id uint64) error {
@@ -130,6 +132,7 @@ func indexConfig(vectorId, tempDir string, logger *logrus.Logger, vectors [][]fl
 			copy(container.Slice, vectors[int(id)])
 			return container.Slice, nil
 		},
+		MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
 	}
 }
 

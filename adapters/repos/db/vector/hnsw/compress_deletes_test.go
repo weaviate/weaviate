@@ -23,6 +23,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
@@ -73,6 +74,7 @@ func Test_NoRaceCompressDoesNotCrash(t *testing.T) {
 			copy(container.Slice, vectors[int(id)])
 			return container.Slice, nil
 		},
+		MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
 	}, uc, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
 	defer index.Shutdown(context.Background())
 	assert.Nil(t, compressionhelpers.ConcurrentlyWithError(logger, uint64(len(vectors)), func(id uint64) error {
@@ -144,6 +146,7 @@ func TestHnswPqNilVectors(t *testing.T) {
 			return vec, nil
 		},
 		TempVectorForIDThunk: TempVectorForIDThunk(vectors),
+		MakeBucketOptions:    lsmkv.MakeNoopBucketOptions,
 	}, userConfig, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
 
 	require.NoError(t, err)

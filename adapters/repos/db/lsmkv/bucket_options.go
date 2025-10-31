@@ -20,7 +20,14 @@ import (
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
-type BucketOption func(b *Bucket) error
+type (
+	BucketOption      func(b *Bucket) error
+	MakeBucketOptions func(strategy string, customOptions ...BucketOption) []BucketOption
+)
+
+func MakeNoopBucketOptions(strategy string, _ ...BucketOption) []BucketOption {
+	return []BucketOption{WithStrategy(strategy)}
+}
 
 func WithStrategy(strategy string) BucketOption {
 	return func(b *Bucket) error {

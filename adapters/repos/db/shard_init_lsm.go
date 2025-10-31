@@ -30,7 +30,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
-func (s *Shard) initNonVector(ctx context.Context, class *models.Class, lazyLoadSegments bool) error {
+func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
 	before := time.Now()
 	defer func() {
 		took := time.Since(before)
@@ -82,7 +82,7 @@ func (s *Shard) initNonVector(ctx context.Context, class *models.Class, lazyLoad
 
 	// error group is passed, so properties can be initialized in parallel with
 	// the other initializations going on here.
-	s.initProperties(eg, class, lazyLoadSegments)
+	s.initProperties(eg, class)
 
 	err := eg.Wait()
 	if err != nil {
@@ -146,24 +146,12 @@ func (s *Shard) initLSMStore() error {
 }
 
 func (s *Shard) initObjectBucket(ctx context.Context) error {
-	opts := []lsmkv.BucketOption{
-		lsmkv.WithStrategy(lsmkv.StrategyReplace),
+	opts := s.makeDefaultBucketOptions(lsmkv.StrategyReplace,
 		lsmkv.WithSecondaryIndices(2),
-		lsmkv.WithPread(s.index.Config.AvoidMMap),
 		lsmkv.WithKeepTombstones(true),
-		s.dynamicMemtableSizing(),
-		s.memtableDirtyConfig(),
-		lsmkv.WithAllocChecker(s.index.allocChecker),
-		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
-		lsmkv.WithSegmentsChecksumValidationEnabled(s.index.Config.LSMEnableSegmentsChecksumValidation),
-		s.segmentCleanupConfig(),
-		lsmkv.WithMinMMapSize(s.index.Config.MinMMapSize),
-		lsmkv.WithMinWalThreshold(s.index.Config.MaxReuseWalSize),
 		lsmkv.WithCalcCountNetAdditions(true),
-		// dont lazy segment load object bucket - we need it in most (all?) operations
-		lsmkv.WithWriteSegmentInfoIntoFileName(s.index.Config.SegmentInfoIntoFileNameEnabled),
-		lsmkv.WithWriteMetadata(s.index.Config.WriteMetadataFilesEnabled),
-	}
+		lsmkv.WithLazySegmentLoading(false), // always load
+	)
 
 	if s.metrics != nil && !s.metrics.grouped {
 		// If metrics are grouped we cannot observe the count of an individual

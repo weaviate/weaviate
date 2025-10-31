@@ -17,6 +17,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/vmihailenco/msgpack/v5"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 
@@ -35,9 +36,10 @@ func Test_FlatDimensions(t *testing.T) {
 	config.SetDefaults()
 
 	index, err := New(Config{
-		ID:               indexID,
-		RootPath:         rootPath,
-		DistanceProvider: distancer,
+		ID:                indexID,
+		RootPath:          rootPath,
+		DistanceProvider:  distancer,
+		MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
 	}, config, store)
 
 	t.Run("initial dimensions zero", func(t *testing.T) {
@@ -77,9 +79,10 @@ func Test_FlatDimensions(t *testing.T) {
 		index = nil
 
 		index, err = New(Config{
-			ID:               indexID,
-			RootPath:         rootPath,
-			DistanceProvider: distancer,
+			ID:                indexID,
+			RootPath:          rootPath,
+			DistanceProvider:  distancer,
+			MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
 		}, config, store)
 
 		require.Nil(t, err)
@@ -96,9 +99,10 @@ func Test_FlatDimensions(t *testing.T) {
 		index = nil
 
 		index, err = New(Config{
-			ID:               indexID,
-			RootPath:         emptyRoot,
-			DistanceProvider: distancer,
+			ID:                indexID,
+			RootPath:          emptyRoot,
+			DistanceProvider:  distancer,
+			MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
 		}, config, store)
 
 		require.Nil(t, err)
@@ -122,10 +126,11 @@ func Test_FlatDimensionsTargetVector(t *testing.T) {
 	config.SetDefaults()
 
 	index, err := New(Config{
-		ID:               indexID,
-		RootPath:         rootPath,
-		TargetVector:     "target",
-		DistanceProvider: distancer,
+		ID:                indexID,
+		RootPath:          rootPath,
+		TargetVector:      "target",
+		DistanceProvider:  distancer,
+		MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
 	}, config, store)
 
 	t.Run("initial dimensions zero", func(t *testing.T) {
@@ -144,10 +149,11 @@ func Test_FlatDimensionsTargetVector(t *testing.T) {
 		index = nil
 
 		index, err = New(Config{
-			ID:               indexID,
-			RootPath:         rootPath,
-			TargetVector:     "target",
-			DistanceProvider: distancer,
+			ID:                indexID,
+			RootPath:          rootPath,
+			TargetVector:      "target",
+			DistanceProvider:  distancer,
+			MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
 		}, config, store)
 
 		require.Nil(t, err)
@@ -182,9 +188,10 @@ func Test_RQDataSerialization(t *testing.T) {
 	config.RQ = rq
 
 	index, err := New(Config{
-		ID:               indexID,
-		RootPath:         rootPath,
-		DistanceProvider: distancer,
+		ID:                indexID,
+		RootPath:          rootPath,
+		DistanceProvider:  distancer,
+		MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
 	}, config, store)
 	require.Nil(t, err)
 
@@ -284,9 +291,10 @@ func Test_RQ8DataSerialization(t *testing.T) {
 	config.RQ = rq
 
 	index, err := New(Config{
-		ID:               indexID,
-		RootPath:         rootPath,
-		DistanceProvider: distancer,
+		ID:                indexID,
+		RootPath:          rootPath,
+		DistanceProvider:  distancer,
+		MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
 	}, config, store)
 	require.Nil(t, err)
 

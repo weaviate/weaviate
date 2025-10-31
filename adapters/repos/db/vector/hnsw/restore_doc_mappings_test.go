@@ -18,6 +18,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
@@ -43,6 +44,7 @@ func TestRestoreDocMappingsWithMissingBucket(t *testing.T) {
 		TempVectorForIDThunk: func(ctx context.Context, id uint64, container *common.VectorSlice) ([]float32, error) {
 			return nil, nil
 		},
+		MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
 	}, uc, cyclemanager.NewCallbackGroupNoop(), store)
 
 	assert.Nil(t, err)
@@ -75,6 +77,7 @@ func TestRestoreDocMappingsWithNilData(t *testing.T) {
 		TempVectorForIDThunk: func(ctx context.Context, id uint64, container *common.VectorSlice) ([]float32, error) {
 			return nil, nil
 		},
+		MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
 	}, uc, cyclemanager.NewCallbackGroupNoop(), store)
 
 	assert.Nil(t, err)
