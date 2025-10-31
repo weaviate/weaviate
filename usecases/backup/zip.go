@@ -230,7 +230,7 @@ func (u *unzip) ReadChunk() (written int64, err error) {
 	for {
 		header, err := u.r.Next()
 		if err != nil {
-			if err == io.EOF { // end of the loop
+			if errors.Is(err, io.EOF) { // end of the loop
 				return written, nil
 			}
 			return written, fmt.Errorf("fetch next: %w", err)

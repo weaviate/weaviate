@@ -21,6 +21,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -70,12 +71,13 @@ func TestZip(t *testing.T) {
 	uz, wc := NewUnzip(pathDest)
 
 	// decompression reader
-	var uzInputLen int64
+	var uzInputLen atomic.Int64
 	go func() {
-		uzInputLen, err = io.Copy(wc, compressBuf)
+		uzInputLen2, err := io.Copy(wc, compressBuf)
 		if err != nil {
 			t.Errorf("writer: %v", err)
 		}
+		uzInputLen.Store(uzInputLen2)
 		if err := wc.Close(); err != nil {
 			t.Errorf("close writer: %v", err)
 		}
@@ -90,7 +92,7 @@ func TestZip(t *testing.T) {
 		t.Errorf("close reader: %v", err)
 	}
 
-	fmt.Printf("unzip input_size=%d output_size=%d\n", uzInputLen, uzOutputLen)
+	fmt.Printf("unzip input_size=%d output_size=%d\n", uzInputLen.Load(), uzOutputLen)
 
 	_, err = os.Stat(pathDest)
 	if err != nil {
@@ -100,7 +102,7 @@ func TestZip(t *testing.T) {
 	if zInputLen != uzOutputLen {
 		t.Errorf("zip input size %d != unzip output size %d", uzOutputLen, zInputLen)
 	}
-	if zOutputLen != uzInputLen {
+	if zOutputLen != uzInputLen.Load() {
 		t.Errorf("zip output size %d != unzip input size %d", zOutputLen, uzInputLen)
 	}
 }
