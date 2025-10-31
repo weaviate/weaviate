@@ -250,8 +250,8 @@ func (t *SplitTask) Op() uint8 {
 }
 
 func (t *SplitTask) Key() uint64 {
-	// TODO: find a better way to get the key
-	return t.id
+	// postings sharing same lock are run by the same worker to reduce contention
+	return t.idx.postingLocks.Hash(t.id)
 }
 
 func (t *SplitTask) Execute(ctx context.Context) error {
@@ -272,8 +272,8 @@ func (t *MergeTask) Op() uint8 {
 }
 
 func (t *MergeTask) Key() uint64 {
-	// TODO: find a better way to get the key
-	return 1
+	// merge must be run sequentially, so we use a fixed key
+	return uint64(taskQueueMergeOp)
 }
 
 func (t *MergeTask) Execute(ctx context.Context) error {
@@ -296,8 +296,8 @@ func (t *ReassignTask) Op() uint8 {
 }
 
 func (t *ReassignTask) Key() uint64 {
-	// TODO: find a better way to get the key
-	return t.id
+	// postings sharing same lock are run by the same worker to reduce contention
+	return t.idx.postingLocks.Hash(t.id)
 }
 
 func (t *ReassignTask) Execute(ctx context.Context) error {
