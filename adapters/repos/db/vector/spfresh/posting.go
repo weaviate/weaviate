@@ -69,10 +69,6 @@ func (v *RawVector) Data() []float32 {
 	return v.data
 }
 
-func (v *RawVector) SetData(data []float32) {
-	v.data = data
-}
-
 func (v *RawVector) Distance(distancer *Distancer, other Vector) (float32, error) {
 	u, ok := other.(*RawVector)
 	if !ok {
@@ -130,15 +126,6 @@ func (v CompressedVector) Version() VectorVersion {
 
 func (v CompressedVector) Data() []byte {
 	return v[8+1:]
-}
-
-func (v *CompressedVector) SetData(data []byte) error {
-	if len(*v) == 8+1 {
-		copy((*v)[9:], data)
-		return nil
-	}
-
-	return errors.Errorf("compressed vector is not the correct size: %d", len(*v))
 }
 
 func (v CompressedVector) Encode() []byte {
