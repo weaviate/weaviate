@@ -16,9 +16,10 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/health"
 )
 
-func createGrpcServer(state *state.State, options ...grpc.ServerOption) *grpc.Server {
+func createGrpcServer(state *state.State, options ...grpc.ServerOption) (*grpc.Server, *health.Server) {
 	return grpcHandler.CreateGRPCServer(state, options...)
 }
 

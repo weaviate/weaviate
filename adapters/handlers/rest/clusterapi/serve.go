@@ -96,6 +96,9 @@ func NewServer(appState *state.State) *Server {
 		)
 	}
 
+	// Add shutdown check middleware as the outermost layer to reject requests during shutdown
+	handler = shutdownCheckMiddleware(handler, appState)
+
 	return &Server{
 		server: &http.Server{
 			Addr:    fmt.Sprintf(":%d", port),
@@ -181,4 +184,21 @@ func staticRoute(mux *http.ServeMux) monitoring.StaticRouteLabel {
 		}
 		return r, route
 	}
+}
+
+// shutdownCheckMiddleware wraps the handler to reject new requests during shutdown.
+// This middleware checks if the server is shutting down and returns 503 Service Unavailable
+// for any new requests, preventing the cluster API from accepting new work while shutdown
+// is in progress.
+func shutdownCheckMiddleware(next http.Handler, appState *state.State) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if appState.IsShuttingDown() {
+			appState.Logger.WithField("action", "cluster_api_shutdown_reject").
+				WithField("path", r.URL.Path).
+				Debug("rejecting request during shutdown")
+			http.Error(w, "Service shutting down", http.StatusServiceUnavailable)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }

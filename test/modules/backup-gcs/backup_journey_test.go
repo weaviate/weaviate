@@ -13,7 +13,9 @@ package test
 
 import (
 	"context"
+	"fmt"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -37,6 +39,11 @@ const (
 	gcsBackupJourneyBackupIDCluster    = "gcs_backup_cluster"
 	gcsBackupJourneyProjectID          = "gcs_backup_journey"
 )
+
+// generateUniqueBucketName creates a unique bucket name for each test run
+func generateUniqueBucketName(baseName string) string {
+	return fmt.Sprintf("%s-%d", baseName, time.Now().Unix())
+}
 
 func Test_BackupJourney(t *testing.T) {
 	tests := []struct {
@@ -75,7 +82,7 @@ func runBackupJourney(t *testing.T, ctx context.Context, override bool, containe
 	t.Run("single node", func(t *testing.T) {
 		ctx := context.Background()
 		t.Log("pre-instance env setup")
-		gcsBackupJourneyBucketName := "gcp-single-node"
+		gcsBackupJourneyBucketName := generateUniqueBucketName("gcp-single-node")
 		t.Setenv(envGCSCredentials, "")
 		t.Setenv(envGCSProjectID, gcsBackupJourneyProjectID)
 		t.Setenv(envGCSBucket, gcsBackupJourneyBucketName)
@@ -97,17 +104,25 @@ func runBackupJourney(t *testing.T, ctx context.Context, override bool, containe
 		t.Setenv(envGCSEndpoint, compose.GetGCS().URI())
 		t.Setenv(envGCSStorageEmulatorHost, compose.GetGCS().URI())
 		moduleshelper.CreateGCSBucket(ctx, t, gcsBackupJourneyProjectID, gcsBackupJourneyBucketName)
+
+		var uniqueOverrideBucket string
 		if override {
-			moduleshelper.CreateGCSBucket(ctx, t, gcsBackupJourneyProjectID, overrideBucket)
-			defer moduleshelper.DeleteGCSBucket(ctx, t, overrideBucket)
+			uniqueOverrideBucket = generateUniqueBucketName(overrideBucket)
+			moduleshelper.CreateGCSBucket(ctx, t, gcsBackupJourneyProjectID, uniqueOverrideBucket)
 		}
-		defer moduleshelper.DeleteGCSBucket(ctx, t, gcsBackupJourneyBucketName)
+
+		defer func() {
+			go moduleshelper.TryDeleteGCSBucket(ctx, t, gcsBackupJourneyBucketName)
+			if override {
+				go moduleshelper.TryDeleteGCSBucket(ctx, t, uniqueOverrideBucket)
+			}
+		}()
 
 		helper.SetupClient(compose.GetWeaviate().URI())
 
 		t.Run("backup-gcs", func(t *testing.T) {
 			journey.BackupJourneyTests_SingleNode(t, compose.GetWeaviate().URI(),
-				"gcs", gcsBackupJourneyClassName, gcsBackupJourneyBackupIDSingleNode+overrideBucket, nil, override, overrideBucket, overridePath)
+				"gcs", gcsBackupJourneyClassName, gcsBackupJourneyBackupIDSingleNode+uniqueOverrideBucket, nil, override, uniqueOverrideBucket, overridePath)
 		})
 
 		t.Run("cancel after restart", func(t *testing.T) {
@@ -119,7 +134,7 @@ func runBackupJourney(t *testing.T, ctx context.Context, override bool, containe
 	t.Run("multiple node", func(t *testing.T) {
 		ctx := context.Background()
 		t.Log("pre-instance env setup")
-		gcsBackupJourneyBucketName := "gcp-multiple-nodes"
+		gcsBackupJourneyBucketName := generateUniqueBucketName("gcp-multiple-nodes")
 		t.Setenv(envGCSCredentials, "")
 		t.Setenv(envGCSProjectID, gcsBackupJourneyProjectID)
 		t.Setenv(envGCSBucket, gcsBackupJourneyBucketName)
@@ -141,17 +156,25 @@ func runBackupJourney(t *testing.T, ctx context.Context, override bool, containe
 		t.Setenv(envGCSEndpoint, compose.GetGCS().URI())
 		t.Setenv(envGCSStorageEmulatorHost, compose.GetGCS().URI())
 		moduleshelper.CreateGCSBucket(ctx, t, gcsBackupJourneyProjectID, gcsBackupJourneyBucketName)
+
+		var uniqueOverrideBucket string
 		if override {
-			moduleshelper.CreateGCSBucket(ctx, t, gcsBackupJourneyProjectID, overrideBucket)
-			defer moduleshelper.DeleteGCSBucket(ctx, t, overrideBucket)
+			uniqueOverrideBucket = generateUniqueBucketName(overrideBucket)
+			moduleshelper.CreateGCSBucket(ctx, t, gcsBackupJourneyProjectID, uniqueOverrideBucket)
 		}
-		defer moduleshelper.DeleteGCSBucket(ctx, t, gcsBackupJourneyBucketName)
+
+		defer func() {
+			go moduleshelper.TryDeleteGCSBucket(ctx, t, gcsBackupJourneyBucketName)
+			if override {
+				go moduleshelper.TryDeleteGCSBucket(ctx, t, uniqueOverrideBucket)
+			}
+		}()
 
 		helper.SetupClient(compose.GetWeaviate().URI())
 
 		t.Run("backup-gcs", func(t *testing.T) {
 			journey.BackupJourneyTests_Cluster(t, "gcs", gcsBackupJourneyClassName,
-				gcsBackupJourneyBackupIDCluster+overrideBucket, nil, override, overrideBucket, overridePath, compose.GetWeaviate().URI(), compose.GetWeaviateNode(2).URI())
+				gcsBackupJourneyBackupIDCluster+uniqueOverrideBucket, nil, override, uniqueOverrideBucket, overridePath, compose.GetWeaviate().URI(), compose.GetWeaviateNode(2).URI())
 		})
 	})
 }
