@@ -12,6 +12,7 @@
 package backup
 
 import (
+	"archive/tar"
 	"bytes"
 	"compress/gzip"
 	"context"
@@ -22,6 +23,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/backup"
 )
 
@@ -101,6 +103,46 @@ func TestZip(t *testing.T) {
 	if zOutputLen != uzInputLen {
 		t.Errorf("zip output size %d != unzip input size %d", zOutputLen, uzInputLen)
 	}
+}
+
+func TestUnzipPathEscape(t *testing.T) {
+	destPath := t.TempDir()               // destination directory for unzip
+	tmpDir := t.TempDir()                 // temporary directory to create files
+	completelyUnrelatedDir := t.TempDir() // directory that should not be written to
+
+	// create a tar.gz archive with a file that tries to escape destPath
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "test1.txt"), []byte("malicious content"), 0o644))
+	info, err := os.Stat(filepath.Join(tmpDir, "test1.txt"))
+	require.NoError(t, err)
+	header, err := tar.FileInfoHeader(info, info.Name())
+	require.NoError(t, err)
+
+	var buf bytes.Buffer
+	gzw, _ := gzip.NewWriterLevel(&buf, zipLevel(0))
+	tarWriter := tar.NewWriter(gzw)
+
+	content := []byte("malicious content")
+	header.Name = "../003/file.txt" // relative path that tries to escape the destPath to completelyUnrelatedDir
+	require.NoError(t, tarWriter.WriteHeader(header))
+	_, err = tarWriter.Write(content)
+	require.NoError(t, err)
+	require.NoError(t, tarWriter.Close())
+	require.NoError(t, gzw.Close())
+
+	// now restore from the archive to destPath, all writes should be contained within destPath
+	uz, wc := NewUnzip(destPath)
+	go func() {
+		_, err = io.Copy(wc, &buf)
+		require.NoError(t, err)
+		require.NoError(t, wc.Close())
+	}()
+
+	_, err = uz.ReadChunk()
+	require.NoError(t, err)
+
+	entries, err := os.ReadDir(completelyUnrelatedDir)
+	require.NoError(t, err)
+	require.Len(t, entries, 0, "no files should be written outside of destPath")
 }
 
 func TestZipLevel(t *testing.T) {
