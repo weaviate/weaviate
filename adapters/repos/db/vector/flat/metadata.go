@@ -37,12 +37,14 @@ func (index *flat) getMetadataFile() string {
 	return fmt.Sprintf("%s.db", metadataPrefix)
 }
 
-func (index *flat) removeMetadataFile() error {
-	path := filepath.Join(index.rootPath, index.getMetadataFile())
+func (index *flat) removeMetadataFile(keepFiles bool) error {
 	index.closeMetadata()
-	err := os.Remove(path)
-	if err != nil {
-		return errors.Wrapf(err, "remove metadata file %q", path)
+	if !keepFiles {
+		path := filepath.Join(index.rootPath, index.getMetadataFile())
+		err := os.Remove(path)
+		if err != nil {
+			return errors.Wrapf(err, "remove metadata file %q", path)
+		}
 	}
 	return nil
 }

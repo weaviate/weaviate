@@ -261,7 +261,7 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 	})
 
 	t.Run("destroy the index", func(t *testing.T) {
-		require.Nil(t, index.Drop(context.Background()))
+		require.Nil(t, index.Drop(context.Background(), false))
 		require.Nil(t, commitLoggerCallbacksCtrl.Unregister(ctx))
 		require.Nil(t, tombstoneCleanupCallbacksCtrl.Unregister(ctx))
 	})

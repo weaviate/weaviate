@@ -98,7 +98,7 @@ func Test_DynamicEF(t *testing.T) {
 			actualEF := index.searchTimeEF(test.limit)
 			assert.Equal(t, test.expectedEf, actualEF)
 
-			require.Nil(t, index.Drop(context.Background()))
+			require.Nil(t, index.Drop(context.Background(), false))
 		})
 	}
 }

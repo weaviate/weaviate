@@ -113,7 +113,7 @@ func getDebugUsageWithPortAndCollection(host, collection string) (CollectionUsag
 }
 
 // Get a specific collection by name
-func getDebugUsageForCollection(collection string) (*CollectionUsage, error) {
+func GetDebugUsageForCollection(collection string) (*CollectionUsage, error) {
 	report, err := getDebugUsage()
 	if err != nil {
 		return nil, err
@@ -158,14 +158,14 @@ func collectionsDifference(a, b []CollectionUsage) error {
 		return errors.New("Collections length differs")
 	}
 	for i := range a {
-		if err := collectionUsageDifference(a[i], b[i]); err != nil {
+		if err := CollectionUsageDifference(a[i], b[i]); err != nil {
 			return errors.New("Collections[" + itoa(i) + "]: " + err.Error())
 		}
 	}
 	return nil
 }
 
-func collectionUsageDifference(a, b CollectionUsage) error {
+func CollectionUsageDifference(a, b CollectionUsage) error {
 	if valueStr(a.Name) != valueStr(b.Name) {
 		return errors.New("Name differs: '" + valueStr(a.Name) + "' vs '" + valueStr(b.Name) + "'")
 	}
