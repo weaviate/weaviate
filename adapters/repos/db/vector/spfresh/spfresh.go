@@ -83,7 +83,7 @@ type SPFresh struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	operationsQueue OperationsQueue
+	taskQueue TaskQueue
 
 	visitedPool *visited.Pool
 
@@ -150,11 +150,11 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*SPFresh, error) {
 
 	s.ctx, s.cancel = context.WithCancel(context.Background())
 
-	operationQueue, err := NewOperationsQueue(&s, cfg.TargetVector)
+	taskQueue, err := NewTaskQueue(&s, cfg.TargetVector)
 	if err != nil {
 		return nil, err
 	}
-	s.operationsQueue = *operationQueue
+	s.taskQueue = *taskQueue
 
 	return &s, nil
 }
@@ -208,7 +208,7 @@ func (s *SPFresh) Shutdown(ctx context.Context) error {
 	// Cancel the context to prevent new operations from being enqueued
 	s.cancel()
 
-	s.operationsQueue.Close()
+	s.taskQueue.Close()
 
 	return nil
 }

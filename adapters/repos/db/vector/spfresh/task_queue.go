@@ -22,12 +22,12 @@ import (
 )
 
 const (
-	operationsQueueSplitOp uint8 = iota + 1
-	operationsQueueMergeOp
-	operationsQueueReassignOp
+	taskQueueSplitOp uint8 = iota + 1
+	taskQueueMergeOp
+	taskQueueReassignOp
 )
 
-type OperationsQueue struct {
+type TaskQueue struct {
 	*queue.DiskQueue
 
 	scheduler *queue.Scheduler
@@ -37,11 +37,11 @@ type OperationsQueue struct {
 	mergeList    *deduplicator // Prevents duplicate merge operations
 }
 
-func NewOperationsQueue(
+func NewTaskQueue(
 	spfreshIndex *SPFresh,
 	targetVector string,
-) (*OperationsQueue, error) {
-	opq := OperationsQueue{
+) (*TaskQueue, error) {
+	opq := TaskQueue{
 		spfreshIndex: spfreshIndex,
 		scheduler:    spfreshIndex.scheduler,
 		splitList:    newDeduplicator(),
@@ -54,11 +54,10 @@ func NewOperationsQueue(
 			Logger:    spfreshIndex.logger,
 			Scheduler: spfreshIndex.scheduler,
 			Dir:       filepath.Join(spfreshIndex.config.RootPath, fmt.Sprintf("%s.queue.d", spfreshIndex.config.ID)),
-			TaskDecoder: &OperationsQueueDecoder{
+			TaskDecoder: &TaskQueueDecoder{
 				q: &opq,
 			},
 			OnBatchProcessed: opq.OnBatchProcessed,
-			// Metrics:          opq.metrics.QueueMetrics(), TODO: add metrics
 		},
 	)
 	if err != nil {
@@ -76,19 +75,19 @@ func NewOperationsQueue(
 	return &opq, nil
 }
 
-func (opq *OperationsQueue) SplitDone(postingID uint64) {
+func (opq *TaskQueue) SplitDone(postingID uint64) {
 	opq.splitList.done(postingID)
 }
 
-func (opq *OperationsQueue) MergeDone(postingID uint64) {
+func (opq *TaskQueue) MergeDone(postingID uint64) {
 	opq.mergeList.done(postingID)
 }
 
-func (opq *OperationsQueue) MergeContains(postingID uint64) bool {
+func (opq *TaskQueue) MergeContains(postingID uint64) bool {
 	return opq.mergeList.contains(postingID)
 }
 
-func (opq *OperationsQueue) EnqueueSplit(ctx context.Context, postingID uint64) error {
+func (opq *TaskQueue) EnqueueSplit(ctx context.Context, postingID uint64) error {
 	if opq.spfreshIndex.ctx == nil {
 		return nil // Not started yet
 	}
@@ -101,7 +100,7 @@ func (opq *OperationsQueue) EnqueueSplit(ctx context.Context, postingID uint64) 
 		return err
 	}
 
-	// Check if the operation is already in progress
+	// Check if the task is already in progress
 	if !opq.splitList.tryAdd(postingID) {
 		return nil
 	}
@@ -110,7 +109,7 @@ func (opq *OperationsQueue) EnqueueSplit(ctx context.Context, postingID uint64) 
 
 	// encode split
 	buf = buf[:0]
-	buf, err = encodeOperation(buf, postingID, operationsQueueSplitOp)
+	buf, err = encodeTask(buf, postingID, taskQueueSplitOp)
 	if err != nil {
 		return errors.Wrap(err, "failed to encode record")
 	}
@@ -124,7 +123,7 @@ func (opq *OperationsQueue) EnqueueSplit(ctx context.Context, postingID uint64) 
 	return nil
 }
 
-func (opq *OperationsQueue) EnqueueMerge(ctx context.Context, postingID uint64) error {
+func (opq *TaskQueue) EnqueueMerge(ctx context.Context, postingID uint64) error {
 	if opq.spfreshIndex.ctx == nil {
 		return nil // Not started yet
 	}
@@ -147,7 +146,7 @@ func (opq *OperationsQueue) EnqueueMerge(ctx context.Context, postingID uint64) 
 
 	// encode split
 	buf = buf[:0]
-	buf, err = encodeOperation(buf, postingID, operationsQueueMergeOp)
+	buf, err = encodeTask(buf, postingID, taskQueueMergeOp)
 	if err != nil {
 		return errors.Wrap(err, "failed to encode record")
 	}
@@ -161,7 +160,7 @@ func (opq *OperationsQueue) EnqueueMerge(ctx context.Context, postingID uint64) 
 	return nil
 }
 
-func (opq *OperationsQueue) EnqueueReassign(ctx context.Context, postingID uint64, vecID uint64, version VectorVersion) error {
+func (opq *TaskQueue) EnqueueReassign(ctx context.Context, postingID uint64, vecID uint64, version VectorVersion) error {
 	if opq.spfreshIndex.ctx == nil {
 		return nil // Not started yet
 	}
@@ -175,7 +174,7 @@ func (opq *OperationsQueue) EnqueueReassign(ctx context.Context, postingID uint6
 	}
 
 	buf := make([]byte, 18)
-	buf[0] = operationsQueueReassignOp
+	buf[0] = taskQueueReassignOp
 	binary.LittleEndian.PutUint64(buf[1:9], postingID)
 	binary.LittleEndian.PutUint64(buf[9:17], vecID)
 	buf[17] = byte(version)
@@ -190,22 +189,22 @@ func (opq *OperationsQueue) EnqueueReassign(ctx context.Context, postingID uint6
 }
 
 // Flush the vector index after a batch is processed.
-func (opq *OperationsQueue) OnBatchProcessed() {
+func (opq *TaskQueue) OnBatchProcessed() {
 	if err := opq.spfreshIndex.Flush(); err != nil {
 		opq.Logger.WithError(err).Error("failed to flush vector index")
 	}
 }
 
-type OperationsQueueDecoder struct {
-	q *OperationsQueue
+type TaskQueueDecoder struct {
+	q *TaskQueue
 }
 
-func (v *OperationsQueueDecoder) DecodeTask(data []byte) (queue.Task, error) {
+func (v *TaskQueueDecoder) DecodeTask(data []byte) (queue.Task, error) {
 	op := data[0]
 	data = data[1:]
 
 	switch op {
-	case operationsQueueSplitOp, operationsQueueMergeOp:
+	case taskQueueSplitOp, taskQueueMergeOp:
 		// decode id
 		id := binary.LittleEndian.Uint64(data)
 
@@ -214,7 +213,7 @@ func (v *OperationsQueueDecoder) DecodeTask(data []byte) (queue.Task, error) {
 			id:  id,
 			idx: v.q.spfreshIndex,
 		}, nil
-	case operationsQueueReassignOp:
+	case taskQueueReassignOp:
 		// decode id
 		postingID := binary.LittleEndian.Uint64(data)
 		data = data[8:]
@@ -256,20 +255,20 @@ func (t *Task) Execute(ctx context.Context) error {
 	}
 
 	switch t.op {
-	case operationsQueueSplitOp:
+	case taskQueueSplitOp:
 		return t.idx.doSplit(t.id, true)
-	case operationsQueueMergeOp:
+	case taskQueueMergeOp:
 		return t.idx.doMerge(t.id)
-	case operationsQueueReassignOp:
-		return t.idx.doReassign(reassignOperation{PostingID: t.id, Vector: &RawVector{id: t.vecID, version: t.version, data: nil}}) // TODO: get vector from the index
+	case taskQueueReassignOp:
+		return t.idx.doReassign(reassignOperation{PostingID: t.id, Vector: &RawVector{id: t.vecID, version: t.version, data: nil}})
 	}
 
 	return errors.Errorf("unknown operation: %d", t.Op())
 }
 
-func encodeOperation(buf []byte, id uint64, op uint8) ([]byte, error) {
+func encodeTask(buf []byte, id uint64, op uint8) ([]byte, error) {
 	switch op {
-	case operationsQueueSplitOp, operationsQueueMergeOp:
+	case taskQueueSplitOp, taskQueueMergeOp:
 		// write the operation first
 		buf = append(buf, op)
 		buf = binary.LittleEndian.AppendUint64(buf, id)

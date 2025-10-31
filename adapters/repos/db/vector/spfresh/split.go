@@ -40,7 +40,7 @@ func (s *SPFresh) doSplit(postingID uint64, reassign bool) error {
 	defer func() {
 		if !markedAsDone {
 			s.postingLocks.Unlock(postingID)
-			s.operationsQueue.SplitDone(postingID)
+			s.taskQueue.SplitDone(postingID)
 		}
 	}()
 
@@ -187,7 +187,7 @@ func (s *SPFresh) doSplit(postingID uint64, reassign bool) error {
 	// Mark the split operation as done
 	markedAsDone = true
 	s.postingLocks.Unlock(postingID)
-	s.operationsQueue.SplitDone(postingID)
+	s.taskQueue.SplitDone(postingID)
 
 	if !reassign {
 		return nil
@@ -291,7 +291,7 @@ func (s *SPFresh) enqueueReassignAfterSplit(oldPostingID uint64, newPostingIDs [
 				if newDist >= oldDist {
 					// the vector is closer to the old centroid, which means it may be also closer to a neighboring centroid,
 					// we need to reassign it
-					err = s.operationsQueue.EnqueueReassign(s.ctx, newPostingIDs[i], v.ID(), v.Version())
+					err = s.taskQueue.EnqueueReassign(s.ctx, newPostingIDs[i], v.ID(), v.Version())
 					if err != nil {
 						return errors.Wrapf(err, "failed to enqueue reassign for vector %d after split", vid)
 					}
@@ -376,7 +376,7 @@ func (s *SPFresh) enqueueReassignAfterSplit(oldPostingID uint64, newPostingIDs [
 			}
 
 			// the vector is closer to one of the new centroids, it needs to be reassigned
-			err = s.operationsQueue.EnqueueReassign(s.ctx, neighborID, v.ID(), v.Version())
+			err = s.taskQueue.EnqueueReassign(s.ctx, neighborID, v.ID(), v.Version())
 			if err != nil {
 				return errors.Wrapf(err, "failed to enqueue reassign for vector %d after split", vid)
 			}

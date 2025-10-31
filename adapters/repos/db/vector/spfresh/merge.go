@@ -23,7 +23,7 @@ func (s *SPFresh) doMerge(postingID uint64) error {
 	start := time.Now()
 	defer s.metrics.MergeDuration(start)
 
-	defer s.operationsQueue.MergeDone(postingID)
+	defer s.taskQueue.MergeDone(postingID)
 
 	s.logger.WithField("postingID", postingID).Debug("Merging posting")
 
@@ -31,8 +31,8 @@ func (s *SPFresh) doMerge(postingID uint64) error {
 	if !s.postingLocks.TryLock(postingID) {
 		// another merge operation is in progress for this posting
 		// re-enqueue the operation to be processed later
-		s.operationsQueue.MergeDone(postingID) // remove from the in-progress list
-		return s.operationsQueue.EnqueueMerge(s.ctx, postingID)
+		s.taskQueue.MergeDone(postingID) // remove from the in-progress list
+		return s.taskQueue.EnqueueMerge(s.ctx, postingID)
 	}
 	defer func() {
 		if !markedAsDone {
@@ -128,7 +128,7 @@ func (s *SPFresh) doMerge(postingID uint64) error {
 		if err != nil {
 			return errors.Wrapf(err, "failed to get posting size for candidate %d", candidateID)
 		}
-		if int(count)+prevLen > int(s.maxPostingSize) || s.operationsQueue.MergeContains(candidateID) {
+		if int(count)+prevLen > int(s.maxPostingSize) || s.taskQueue.MergeContains(candidateID) {
 			continue // Skip this candidate
 		}
 
@@ -219,7 +219,7 @@ func (s *SPFresh) doMerge(postingID uint64) error {
 
 			if prevDist < newDist {
 				// the vector is closer to the old centroid, we need to reassign it
-				err = s.operationsQueue.EnqueueReassign(s.ctx, largeID, v.ID(), v.Version())
+				err = s.taskQueue.EnqueueReassign(s.ctx, largeID, v.ID(), v.Version())
 				if err != nil {
 					return errors.Wrapf(err, "failed to enqueue reassign for vector %d after merge", v.ID())
 				}
