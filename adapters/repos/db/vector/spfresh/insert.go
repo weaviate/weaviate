@@ -166,7 +166,7 @@ func (s *SPFresh) append(ctx context.Context, vector Vector, centroidID uint64, 
 		// the posting might have been deleted concurrently,
 		// might happen if we are reassigning
 		if s.VersionMap.Get(vector.ID()) == vector.Version() {
-			err := s.enqueueReassign(ctx, centroidID, vector)
+			err := s.operationsQueue.EnqueueReassign(ctx, centroidID, vector.ID(), vector.Version())
 			if err != nil {
 				s.postingLocks.Unlock(centroidID)
 				return false, err
@@ -206,7 +206,7 @@ func (s *SPFresh) append(ctx context.Context, vector Vector, centroidID uint64, 
 		if reassigned {
 			err = s.doSplit(centroidID, false)
 		} else {
-			err = s.enqueueSplit(ctx, centroidID)
+			err = s.operationsQueue.EnqueueSplit(ctx, centroidID)
 		}
 		if err != nil {
 			return false, err

@@ -19,35 +19,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 )
 
-func (s *SPFresh) enqueueSplit(ctx context.Context, postingID uint64) error {
-	if s.ctx == nil {
-		return nil // Not started yet
-	}
-
-	if err := s.ctx.Err(); err != nil {
-		return err
-	}
-
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-
-	// Check if the operation is already in progress
-	if !s.splitList.tryAdd(postingID) {
-		return nil
-	}
-
-	// Enqueue the operation to the channel
-	err := s.operationsQueue.EnqueueSplit(ctx, postingID)
-	if err != nil {
-		return errors.Wrapf(err, "failed to enqueue split operation for posting %d", postingID)
-	}
-
-	s.metrics.EnqueueSplitTask()
-
-	return nil
-}
-
 func abs(a float32) float32 {
 	if a < 0 {
 		return -a
@@ -69,7 +40,7 @@ func (s *SPFresh) doSplit(postingID uint64, reassign bool) error {
 	defer func() {
 		if !markedAsDone {
 			s.postingLocks.Unlock(postingID)
-			s.splitList.done(postingID)
+			s.operationsQueue.SplitDone(postingID)
 		}
 	}()
 
@@ -216,7 +187,7 @@ func (s *SPFresh) doSplit(postingID uint64, reassign bool) error {
 	// Mark the split operation as done
 	markedAsDone = true
 	s.postingLocks.Unlock(postingID)
-	s.splitList.done(postingID)
+	s.operationsQueue.SplitDone(postingID)
 
 	if !reassign {
 		return nil
@@ -320,7 +291,7 @@ func (s *SPFresh) enqueueReassignAfterSplit(oldPostingID uint64, newPostingIDs [
 				if newDist >= oldDist {
 					// the vector is closer to the old centroid, which means it may be also closer to a neighboring centroid,
 					// we need to reassign it
-					err = s.enqueueReassign(s.ctx, newPostingIDs[i], v)
+					err = s.operationsQueue.EnqueueReassign(s.ctx, newPostingIDs[i], v.ID(), v.Version())
 					if err != nil {
 						return errors.Wrapf(err, "failed to enqueue reassign for vector %d after split", vid)
 					}
@@ -405,7 +376,7 @@ func (s *SPFresh) enqueueReassignAfterSplit(oldPostingID uint64, newPostingIDs [
 			}
 
 			// the vector is closer to one of the new centroids, it needs to be reassigned
-			err = s.enqueueReassign(s.ctx, neighborID, v)
+			err = s.operationsQueue.EnqueueReassign(s.ctx, neighborID, v.ID(), v.Version())
 			if err != nil {
 				return errors.Wrapf(err, "failed to enqueue reassign for vector %d after split", vid)
 			}

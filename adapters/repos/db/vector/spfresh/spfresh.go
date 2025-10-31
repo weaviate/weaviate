@@ -84,10 +84,6 @@ type SPFresh struct {
 	cancel context.CancelFunc
 
 	operationsQueue OperationsQueue
-	wg              sync.WaitGroup
-
-	splitList *deduplicator // Prevents duplicate split operations
-	mergeList *deduplicator // Prevents duplicate merge operations
 
 	visitedPool *visited.Pool
 
@@ -132,8 +128,6 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*SPFresh, error) {
 		PostingSizes: postingSizes,
 
 		postingLocks: common.NewDefaultShardedRWLocks(),
-		splitList:    newDeduplicator(),
-		mergeList:    newDeduplicator(),
 		// TODO: choose a better starting size since we can predict the max number of
 		// visited vectors based on cfg.InternalPostingCandidates.
 		visitedPool:        visited.NewPool(1, 512, -1),
@@ -214,13 +208,8 @@ func (s *SPFresh) Shutdown(ctx context.Context) error {
 	// Cancel the context to prevent new operations from being enqueued
 	s.cancel()
 
-	// Close the split channel to signal workers to stop
-	// s.splitCh.Close(ctx)
-	// s.reassignCh.Close(ctx)
-	// s.mergeCh.Close(ctx)
-	s.config.Scheduler.Close()
+	s.operationsQueue.Close()
 
-	s.wg.Wait() // Wait for all workers to finish
 	return nil
 }
 

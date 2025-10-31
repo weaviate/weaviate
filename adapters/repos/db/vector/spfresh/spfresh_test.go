@@ -103,9 +103,9 @@ func TestSPFreshRecall(t *testing.T) {
 
 	before := time.Now()
 	vectors, queries := testinghelpers.RandomVecsFixedSeed(vectors_size, queries_size, dimensions)
-	cfg.VectorByIndexID = func(ctx context.Context, indexID uint64, targetVector string) ([]float32, error) {
+	cfg.VectorForIDThunk = hnsw.NewVectorForIDThunk(cfg.TargetVector, func(ctx context.Context, indexID uint64, targetVector string) ([]float32, error) {
 		return vectors[indexID], nil
-	}
+	})
 	var mu sync.Mutex
 
 	truths := make([][]uint64, queries_size)

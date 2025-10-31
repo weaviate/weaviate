@@ -12,7 +12,6 @@
 package spfresh
 
 import (
-	"context"
 	"time"
 
 	"github.com/pkg/errors"
@@ -21,29 +20,6 @@ import (
 type reassignOperation struct {
 	PostingID uint64
 	Vector    Vector
-}
-
-func (s *SPFresh) enqueueReassign(ctx context.Context, postingID uint64, vector Vector) error {
-	if s.ctx == nil {
-		return nil // Not started yet
-	}
-
-	if err := s.ctx.Err(); err != nil {
-		return err
-	}
-
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-
-	err := s.operationsQueue.EnqueueReassign(ctx, postingID, vector.ID(), vector.Version())
-	if err != nil {
-		return errors.Wrapf(err, "failed to enqueue reassign operation for posting %d", postingID)
-	}
-
-	s.metrics.EnqueueReassignTask()
-
-	return nil
 }
 
 func (s *SPFresh) doReassign(op reassignOperation) error {
@@ -59,7 +35,7 @@ func (s *SPFresh) doReassign(op reassignOperation) error {
 
 	// perform a RNG selection to determine the postings where the vector should be
 	// reassigned to.
-	q, err := s.config.VectorByIndexID(s.ctx, op.Vector.ID(), s.config.TargetVector)
+	q, err := s.config.VectorForIDThunk(s.ctx, op.Vector.ID())
 	if err != nil {
 		return errors.Wrap(err, "failed to get vector by index ID")
 	}

@@ -256,7 +256,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 				WriteSegmentInfoIntoFileName: s.index.Config.SegmentInfoIntoFileNameEnabled,
 				WriteMetadataFilesEnabled:    s.index.Config.WriteMetadataFilesEnabled,
 			},
-			VectorByIndexID:    s.vectorByIndexID,
+			VectorForIDThunk:   hnsw.NewVectorForIDThunk(targetVector, s.vectorByIndexID),
 			TombstoneCallbacks: s.cycleCallbacks.vectorTombstoneCleanupCallbacks,
 			Centroids: spfresh.CentroidConfig{
 				HNSWConfig: &hnsw.Config{

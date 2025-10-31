@@ -200,8 +200,7 @@ func New(logger logrus.FieldLogger, localNodeName string, config Config,
 		return db, errors.New("no workers to add batch-jobs configured.")
 	}
 
-	// create and start the scheduler regardless of the async setting
-	// it will be used either for async indexing or for spfresh background tasks
+	// scheduler used by async indexing and spfresh background queues
 	db.shutDownWg.Add(1)
 	db.scheduler = queue.NewScheduler(queue.SchedulerOptions{
 		Logger:  logger,

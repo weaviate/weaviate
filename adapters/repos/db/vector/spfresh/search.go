@@ -118,7 +118,7 @@ func (s *SPFresh) SearchByVector(ctx context.Context, vector []float32, k int, a
 		// if the posting size is lower than the configured minimum,
 		// enqueue a merge operation
 		if postingSize < int(s.minPostingSize) {
-			err = s.enqueueMerge(ctx, selected[i])
+			err = s.operationsQueue.EnqueueMerge(ctx, selected[i])
 			if err != nil {
 				return nil, nil, errors.Wrapf(err, "failed to enqueue merge for posting %d", selected[i])
 			}

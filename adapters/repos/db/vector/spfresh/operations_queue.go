@@ -15,10 +15,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
-	"os"
 	"path/filepath"
-	"strconv"
-	"time"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
@@ -34,15 +31,10 @@ type OperationsQueue struct {
 	*queue.DiskQueue
 
 	scheduler *queue.Scheduler
-	// metrics      *VectorIndexQueueMetrics TODO: add metrics
-
-	// If positive, accumulates vectors in a batch before indexing them.
-	// Otherwise, the batch size is determined by the size of a chunk file
-	// (typically 10MB worth of vectors).
-	// Batch size is not guaranteed to match this value exactly.
-	batchSize int
 
 	spfreshIndex *SPFresh
+	splitList    *deduplicator // Prevents duplicate split operations
+	mergeList    *deduplicator // Prevents duplicate merge operations
 }
 
 func NewOperationsQueue(
@@ -52,19 +44,13 @@ func NewOperationsQueue(
 	opq := OperationsQueue{
 		spfreshIndex: spfreshIndex,
 		scheduler:    spfreshIndex.scheduler,
+		splitList:    newDeduplicator(),
+		mergeList:    newDeduplicator(),
 	}
-
-	staleTimeout, _ := time.ParseDuration(os.Getenv("SPFRESH_OPERATIONS_STALE_TIMEOUT"))
-	batchSize, _ := strconv.Atoi(os.Getenv("SPFRESH_OPERATIONS_BATCH_SIZE"))
-	if batchSize > 0 {
-		opq.batchSize = batchSize
-	}
-
-	// viq.metrics = NewVectorIndexQueueMetrics(logger, shard.promMetrics, shard.index.Config.ClassName.String(), shard.Name(), targetVector) TODO: add metrics
 
 	q, err := queue.NewDiskQueue(
 		queue.DiskQueueOptions{
-			ID:        fmt.Sprintf("vector_index_queue_%s_%s", spfreshIndex.config.ShardName, spfreshIndex.config.ID),
+			ID:        fmt.Sprintf("spfresh_ops_queue_%s_%s", spfreshIndex.config.ShardName, spfreshIndex.config.ID),
 			Logger:    spfreshIndex.logger,
 			Scheduler: spfreshIndex.scheduler,
 			Dir:       filepath.Join(spfreshIndex.config.RootPath, fmt.Sprintf("%s.queue.d", spfreshIndex.config.ID)),
@@ -72,7 +58,6 @@ func NewOperationsQueue(
 				q: &opq,
 			},
 			OnBatchProcessed: opq.OnBatchProcessed,
-			StaleTimeout:     staleTimeout,
 			// Metrics:          opq.metrics.QueueMetrics(), TODO: add metrics
 		},
 	)
@@ -91,23 +76,37 @@ func NewOperationsQueue(
 	return &opq, nil
 }
 
-func (opq *OperationsQueue) Close() error {
-	if opq == nil {
-		// the queue is nil when the shard is not fully initialized
-		return nil
-	}
+func (opq *OperationsQueue) SplitDone(postingID uint64) {
+	opq.splitList.done(postingID)
+}
 
-	return opq.DiskQueue.Close()
+func (opq *OperationsQueue) MergeDone(postingID uint64) {
+	opq.mergeList.done(postingID)
+}
+
+func (opq *OperationsQueue) MergeContains(postingID uint64) bool {
+	return opq.mergeList.contains(postingID)
 }
 
 func (opq *OperationsQueue) EnqueueSplit(ctx context.Context, postingID uint64) error {
-	/*start := time.Now()
-	defer opq.metrics.Insert(start, 1) TODO: add metrics*/
+	if opq.spfreshIndex.ctx == nil {
+		return nil // Not started yet
+	}
 
+	if err := opq.spfreshIndex.ctx.Err(); err != nil {
+		return err
+	}
+
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	// Check if the operation is already in progress
+	if !opq.splitList.tryAdd(postingID) {
+		return nil
+	}
 	var buf []byte
 	var err error
-
-	// TODO: validate postingID
 
 	// encode split
 	buf = buf[:0]
@@ -116,22 +115,36 @@ func (opq *OperationsQueue) EnqueueSplit(ctx context.Context, postingID uint64) 
 		return errors.Wrap(err, "failed to encode record")
 	}
 
-	err = opq.Push(buf)
-	if err != nil {
-		return errors.Wrap(err, "failed to push record to queue")
+	if err := opq.Push(buf); err != nil {
+		return errors.Wrap(err, "failed to push split operation to queue")
 	}
+
+	opq.spfreshIndex.metrics.EnqueueSplitTask()
 
 	return nil
 }
 
 func (opq *OperationsQueue) EnqueueMerge(ctx context.Context, postingID uint64) error {
-	/*start := time.Now()
-	defer opq.metrics.Insert(start, 1) TODO: add metrics*/
+
+	if opq.spfreshIndex.ctx == nil {
+		return nil // Not started yet
+	}
+
+	if err := opq.spfreshIndex.ctx.Err(); err != nil {
+		return err
+	}
+
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	// Check if the operation is already in progress
+	if !opq.mergeList.tryAdd(postingID) {
+		return nil
+	}
 
 	var buf []byte
 	var err error
-
-	// TODO: validate postingID
 
 	// encode split
 	buf = buf[:0]
@@ -140,41 +153,41 @@ func (opq *OperationsQueue) EnqueueMerge(ctx context.Context, postingID uint64) 
 		return errors.Wrap(err, "failed to encode record")
 	}
 
-	err = opq.Push(buf)
-	if err != nil {
-		return errors.Wrap(err, "failed to push record to queue")
+	if err := opq.Push(buf); err != nil {
+		return errors.Wrap(err, "failed to push merge operation to queue")
 	}
+
+	opq.spfreshIndex.metrics.EnqueueMergeTask()
 
 	return nil
 }
 
 func (opq *OperationsQueue) EnqueueReassign(ctx context.Context, postingID uint64, vecID uint64, version VectorVersion) error {
-	/*start := time.Now()
-	defer opq.metrics.Insert(start, 1) TODO: add metrics*/
+	if opq.spfreshIndex.ctx == nil {
+		return nil // Not started yet
+	}
 
-	// TODO: validate postingID
+	if err := opq.spfreshIndex.ctx.Err(); err != nil {
+		return err
+	}
+
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 
 	buf := make([]byte, 18)
 	buf[0] = operationsQueueReassignOp
-	binary.BigEndian.PutUint64(buf[1:9], postingID)
-	binary.BigEndian.PutUint64(buf[9:17], vecID)
+	binary.LittleEndian.PutUint64(buf[1:9], postingID)
+	binary.LittleEndian.PutUint64(buf[9:17], vecID)
 	buf[17] = byte(version)
 
-	err := opq.Push(buf)
-	if err != nil {
-		return errors.Wrap(err, "failed to push record to queue")
+	if err := opq.Push(buf); err != nil {
+		return errors.Wrap(err, "failed to push reassign operation to queue")
 	}
+
+	opq.spfreshIndex.metrics.EnqueueReassignTask()
 
 	return nil
-}
-
-func (opq *OperationsQueue) Flush() error {
-	if opq == nil {
-		// the queue is nil when the shard is not fully initialized
-		return nil
-	}
-
-	return opq.DiskQueue.Flush()
 }
 
 // Flush the vector index after a batch is processed.
@@ -195,7 +208,7 @@ func (v *OperationsQueueDecoder) DecodeTask(data []byte) (queue.Task, error) {
 	switch op {
 	case operationsQueueSplitOp, operationsQueueMergeOp:
 		// decode id
-		id := binary.BigEndian.Uint64(data)
+		id := binary.LittleEndian.Uint64(data)
 
 		return &Task{
 			op:  op,
@@ -204,9 +217,9 @@ func (v *OperationsQueueDecoder) DecodeTask(data []byte) (queue.Task, error) {
 		}, nil
 	case operationsQueueReassignOp:
 		// decode id
-		postingID := binary.BigEndian.Uint64(data)
+		postingID := binary.LittleEndian.Uint64(data)
 		data = data[8:]
-		vecID := binary.BigEndian.Uint64(data)
+		vecID := binary.LittleEndian.Uint64(data)
 		data = data[8:]
 		version := VectorVersion(data[0])
 		return &Task{
@@ -260,7 +273,7 @@ func encodeOperation(buf []byte, id uint64, op uint8) ([]byte, error) {
 	case operationsQueueSplitOp, operationsQueueMergeOp:
 		// write the operation first
 		buf = append(buf, op)
-		buf = binary.BigEndian.AppendUint64(buf, id)
+		buf = binary.LittleEndian.AppendUint64(buf, id)
 		return buf, nil
 	default:
 		return nil, errors.Errorf("unrecognized operation: %d", op)
