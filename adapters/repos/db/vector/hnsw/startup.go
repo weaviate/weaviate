@@ -158,8 +158,7 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 						h.logger,
 						data.Encoders,
 						h.store,
-						h.MinMMapSize,
-						h.MaxWalReuseSize,
+						h.makeBucketOptions,
 						h.allocChecker,
 						h.getTargetVector(),
 					)
@@ -172,8 +171,7 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 						h.logger,
 						data.Encoders,
 						h.store,
-						h.MinMMapSize,
-						h.MaxWalReuseSize,
+						h.makeBucketOptions,
 						h.allocChecker,
 						h.getTargetVector(),
 					)
@@ -194,8 +192,7 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 					data.B,
 					data.Dimensions,
 					h.store,
-					h.MinMMapSize,
-					h.MaxWalReuseSize,
+					h.makeBucketOptions,
 					h.allocChecker,
 					h.getTargetVector(),
 				)
@@ -208,8 +205,7 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 					data.B,
 					data.Dimensions,
 					h.store,
-					h.MinMMapSize,
-					h.MaxWalReuseSize,
+					h.makeBucketOptions,
 					h.allocChecker,
 					h.getTargetVector(),
 				)
@@ -278,6 +274,7 @@ func (h *hnsw) restoreRotationalQuantization(data *compressionhelpers.RQData) er
 				nil,
 				h.store,
 				h.allocChecker,
+				h.makeBucketOptions,
 				h.getTargetVector(),
 			)
 		})
@@ -296,6 +293,7 @@ func (h *hnsw) restoreRotationalQuantization(data *compressionhelpers.RQData) er
 				nil,
 				h.store,
 				h.allocChecker,
+				h.makeBucketOptions,
 				h.getTargetVector(),
 			)
 		})
@@ -321,6 +319,7 @@ func (h *hnsw) restoreBinaryRotationalQuantization(data *compressionhelpers.BRQD
 				data.Rounding,
 				h.store,
 				h.allocChecker,
+				h.makeBucketOptions,
 				h.getTargetVector(),
 			)
 		})
@@ -339,6 +338,7 @@ func (h *hnsw) restoreBinaryRotationalQuantization(data *compressionhelpers.BRQD
 				data.Rounding,
 				h.store,
 				h.allocChecker,
+				h.makeBucketOptions,
 				h.getTargetVector(),
 			)
 		})

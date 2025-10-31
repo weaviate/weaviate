@@ -162,13 +162,7 @@ type VersionStore struct {
 func NewVersionStore(store *lsmkv.Store, bucketName string, cfg StoreConfig) (*VersionStore, error) {
 	err := store.CreateOrLoadBucket(context.Background(),
 		bucketName,
-		lsmkv.WithStrategy(lsmkv.StrategyReplace),
-		lsmkv.WithAllocChecker(cfg.AllocChecker),
-		lsmkv.WithMinMMapSize(cfg.MinMMapSize),
-		lsmkv.WithMinWalThreshold(cfg.MaxReuseWalSize),
-		lsmkv.WithLazySegmentLoading(cfg.LazyLoadSegments),
-		lsmkv.WithWriteSegmentInfoIntoFileName(cfg.WriteSegmentInfoIntoFileName),
-		lsmkv.WithWriteMetadata(cfg.WriteMetadataFilesEnabled),
+		cfg.MakeBucketOptions(lsmkv.StrategyReplace)...,
 	)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to create or load bucket %s", bucketName)

@@ -26,6 +26,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.etcd.io/bbolt"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
@@ -88,6 +89,7 @@ func TestDynamic(t *testing.T) {
 		TempVectorForIDThunk: TempVectorForIDThunk(vectors),
 		TombstoneCallbacks:   noopCallback,
 		SharedDB:             db,
+		MakeBucketOptions:    lsmkv.MakeNoopBucketOptions,
 	}, ent.UserConfig{
 		Threshold: uint64(vectors_size),
 		Distance:  distancer.Type(),
@@ -149,6 +151,7 @@ func TestDynamicReturnsErrorIfNoAsync(t *testing.T) {
 		TempVectorForIDThunk: TempVectorForIDThunk(nil),
 		TombstoneCallbacks:   noopCallback,
 		SharedDB:             db,
+		MakeBucketOptions:    lsmkv.MakeNoopBucketOptions,
 	}, ent.UserConfig{
 		Threshold: uint64(100),
 		Distance:  distancer.Type(),
@@ -217,6 +220,7 @@ func TestDynamicWithTargetVectors(t *testing.T) {
 			TempVectorForIDThunk: TempVectorForIDThunk(vectors),
 			TombstoneCallbacks:   noopCallback,
 			SharedDB:             db,
+			MakeBucketOptions:    lsmkv.MakeNoopBucketOptions,
 		}, ent.UserConfig{
 			Threshold: uint64(vectors_size),
 			Distance:  distancer.Type(),
@@ -301,6 +305,7 @@ func TestDynamicUpgradeCancelation(t *testing.T) {
 		TempVectorForIDThunk: TempVectorForIDThunk(vectors),
 		TombstoneCallbacks:   noopCallback,
 		SharedDB:             db,
+		MakeBucketOptions:    lsmkv.MakeNoopBucketOptions,
 	}, ent.UserConfig{
 		Threshold: uint64(vectors_size),
 		Distance:  distancer.Type(),
@@ -538,6 +543,7 @@ func TestDynamicUpgradeCompression(t *testing.T) {
 				TombstoneCallbacks:      noopCallback,
 				SharedDB:                db,
 				HNSWWaitForCachePrefill: true,
+				MakeBucketOptions:       lsmkv.MakeNoopBucketOptions,
 			}
 			uc := ent.UserConfig{
 				Threshold: uint64(threshold),
@@ -696,6 +702,7 @@ func TestDynamicAndStoreOperations(t *testing.T) {
 		TempVectorForIDThunk: TempVectorForIDThunk(vectors),
 		TombstoneCallbacks:   noopCallback,
 		SharedDB:             db,
+		MakeBucketOptions:    lsmkv.MakeNoopBucketOptions,
 	}, ent.UserConfig{
 		Threshold: uint64(vectors_size),
 		Distance:  distancer.Type(),
@@ -804,6 +811,7 @@ func TestDynamicStoreMigrationBug(t *testing.T) {
 			TempVectorForIDThunk: TempVectorForIDThunk(vectors),
 			TombstoneCallbacks:   noopCallback,
 			SharedDB:             db,
+			MakeBucketOptions:    lsmkv.MakeNoopBucketOptions,
 		}, ent.UserConfig{
 			Threshold: uint64(vectors_size),
 			Distance:  distancer.Type(),
@@ -879,6 +887,7 @@ func TestDynamicStoreMigrationBug(t *testing.T) {
 			TempVectorForIDThunk: TempVectorForIDThunk(vectors),
 			TombstoneCallbacks:   noopCallback,
 			SharedDB:             db,
+			MakeBucketOptions:    lsmkv.MakeNoopBucketOptions,
 		}, ent.UserConfig{
 			Threshold: uint64(vectors_size),
 			Distance:  distancer.Type(),
@@ -953,6 +962,7 @@ func TestDynamicStoreMigrationBug(t *testing.T) {
 			TempVectorForIDThunk: TempVectorForIDThunk(vectors),
 			TombstoneCallbacks:   noopCallback,
 			SharedDB:             db,
+			MakeBucketOptions:    lsmkv.MakeNoopBucketOptions,
 		}, ent.UserConfig{
 			Threshold: uint64(vectors_size),
 			Distance:  distancer.Type(),

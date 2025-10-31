@@ -15,6 +15,7 @@ import (
 	"context"
 
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
@@ -27,28 +28,23 @@ import (
 // Config.UserConfig
 type Config struct {
 	// internal
-	RootPath                     string
-	ID                           string
-	MakeCommitLoggerThunk        MakeCommitLogger
-	VectorForIDThunk             common.VectorForID[float32]
-	MultiVectorForIDThunk        common.VectorForID[[]float32]
-	TempVectorForIDThunk         common.TempVectorForID[float32]
-	TempMultiVectorForIDThunk    common.TempVectorForID[[]float32]
-	Logger                       logrus.FieldLogger
-	DistanceProvider             distancer.Provider
-	PrometheusMetrics            *monitoring.PrometheusMetrics
-	AllocChecker                 memwatch.AllocChecker
-	WaitForCachePrefill          bool
-	FlatSearchConcurrency        int
-	AcornFilterRatio             float64
-	DisableSnapshots             bool
-	SnapshotOnStartup            bool
-	LazyLoadSegments             bool
-	WriteSegmentInfoIntoFileName bool
-	WriteMetadataFilesEnabled    bool
-
-	MinMMapSize     int64
-	MaxWalReuseSize int64
+	RootPath                  string
+	ID                        string
+	MakeCommitLoggerThunk     MakeCommitLogger
+	VectorForIDThunk          common.VectorForID[float32]
+	MultiVectorForIDThunk     common.VectorForID[[]float32]
+	TempVectorForIDThunk      common.TempVectorForID[float32]
+	TempMultiVectorForIDThunk common.TempVectorForID[[]float32]
+	Logger                    logrus.FieldLogger
+	DistanceProvider          distancer.Provider
+	PrometheusMetrics         *monitoring.PrometheusMetrics
+	AllocChecker              memwatch.AllocChecker
+	WaitForCachePrefill       bool
+	FlatSearchConcurrency     int
+	AcornFilterRatio          float64
+	DisableSnapshots          bool
+	SnapshotOnStartup         bool
+	MakeBucketOptions         lsmkv.MakeBucketOptions
 
 	// metadata for monitoring
 	ShardName string
