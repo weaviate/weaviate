@@ -399,7 +399,7 @@ func (t *JsonShardMetaData) Close() error {
 }
 
 // Drop removes the tracker from disk
-func (t *JsonShardMetaData) Drop() error {
+func (t *JsonShardMetaData) Drop(keepFiles bool) error {
 	if t == nil {
 		return nil
 	}
@@ -410,8 +410,10 @@ func (t *JsonShardMetaData) Drop() error {
 
 	clear(t.data.BucketedData)
 
-	os.Remove(t.path)
-	os.Remove(t.path + ".bak")
+	if !keepFiles {
+		os.Remove(t.path)
+		os.Remove(t.path + ".bak")
+	}
 
 	return nil
 }

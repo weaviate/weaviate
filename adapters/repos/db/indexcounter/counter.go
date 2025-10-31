@@ -92,7 +92,7 @@ func (c *Counter) PreviewNext() uint64 {
 	return c.count
 }
 
-func (c *Counter) Drop() error {
+func (c *Counter) Drop(keepFiles bool) error {
 	c.Lock()
 	defer c.Unlock()
 	if c.f == nil {
@@ -100,9 +100,11 @@ func (c *Counter) Drop() error {
 	}
 	filename := c.FileName()
 	c.f.Close()
-	err := os.Remove(filename)
-	if err != nil {
-		return errors.Wrap(err, "drop counter file")
+	if !keepFiles {
+		err := os.Remove(filename)
+		if err != nil {
+			return errors.Wrap(err, "drop counter file")
+		}
 	}
 	return nil
 }
