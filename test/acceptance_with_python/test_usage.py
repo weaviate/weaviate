@@ -205,7 +205,7 @@ def test_usage_mt(
         wvc.config.Reconfigure.VectorIndex.Quantizer.bq(enabled=True),
         wvc.config.Reconfigure.VectorIndex.Quantizer.rq(enabled=True),
         wvc.config.Reconfigure.VectorIndex.Quantizer.sq(enabled=True, training_limit=50),
-        wvc.config.Reconfigure.VectorIndex.Quantizer.pq(enabled=True, training_limit=150),
+        wvc.config.Reconfigure.VectorIndex.Quantizer.pq(enabled=True, training_limit=300),
     ],
 )
 def test_usage_enabling_compression(
