@@ -373,16 +373,15 @@ func (o *nodeWideMetricsObserver) observeDimensionMetrics() {
 }
 
 func (o *nodeWideMetricsObserver) publishVectorMetrics(ctx context.Context) {
+	var indices map[string]*Index
 	// We're a low-priority process, copy the index map to avoid blocking others.
 	// No new indices can be added while we're holding the lock anyways.
-	o.db.indexLock.RLock()
-	indices := make(map[string]*Index, len(o.db.indices))
-	maps.Copy(indices, o.db.indices)
-	for _, index := range indices {
-		index.dropIndex.RLock()
-		defer index.dropIndex.RUnlock() // hold until we're done with all indices, eg end of function
-	}
-	o.db.indexLock.RUnlock()
+	func() {
+		o.db.indexLock.RLock()
+		defer o.db.indexLock.RUnlock()
+		indices = make(map[string]*Index, len(o.db.indices))
+		maps.Copy(indices, o.db.indices)
+	}()
 
 	var total DimensionMetrics
 
@@ -399,29 +398,32 @@ func (o *nodeWideMetricsObserver) publishVectorMetrics(ctx context.Context) {
 	}()
 
 	for _, index := range indices {
-		index.closeLock.RLock()
-		closed := index.closed
-		index.closeLock.RUnlock()
-		if closed {
-			continue
-		}
+		func() {
+			index.dropIndex.RLock()
+			defer index.dropIndex.RUnlock()
 
-		className := index.Config.ClassName.String()
+			index.closeLock.RLock()
+			closed := index.closed
+			index.closeLock.RUnlock()
+			if !closed {
+				className := index.Config.ClassName.String()
 
-		// Avoid loading cold shards, as it may create I/O spikes.
-		index.ForEachLoadedShard(func(shardName string, sl ShardLike) error {
-			index.shardCreateLocks.Lock(shardName)
-			defer index.shardCreateLocks.Unlock(shardName)
+				// Avoid loading cold shards, as it may create I/O spikes.
+				index.ForEachLoadedShard(func(shardName string, sl ShardLike) error {
+					index.shardCreateLocks.Lock(shardName)
+					defer index.shardCreateLocks.Unlock(shardName)
 
-			dim := calculateShardDimensionMetrics(ctx, sl)
-			total = total.Add(dim)
+					dim := calculateShardDimensionMetrics(ctx, sl)
+					total = total.Add(dim)
 
-			// Report metrics per-shard if grouping is disabled.
-			if !o.db.promMetrics.Group {
-				o.sendVectorDimensions(className, shardName, dim)
+					// Report metrics per-shard if grouping is disabled.
+					if !o.db.promMetrics.Group {
+						o.sendVectorDimensions(className, shardName, dim)
+					}
+					return nil
+				})
 			}
-			return nil
-		})
+		}()
 	}
 
 	// Report aggregate metrics for the node if grouping is enabled.
