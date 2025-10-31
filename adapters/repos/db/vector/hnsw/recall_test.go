@@ -10,7 +10,6 @@
 //
 
 //go:build benchmarkRecall
-// +build benchmarkRecall
 
 package hnsw
 

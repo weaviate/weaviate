@@ -41,6 +41,18 @@ linters:
       - legacy
       - std-error-handling
     rules:
+      - path: ^deprecations/gen\.go$
+        linters:
+          - staticcheck
+          - govet
+          - unused
+          - forbidigo
+          - misspell
+          - bodyclose
+          - errorlint
+          - exhaustive
+          - nolintlint
+          - errcheck
       - linters:
           - staticcheck
         text: S1034
