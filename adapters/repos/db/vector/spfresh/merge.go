@@ -132,98 +132,105 @@ func (s *SPFresh) doMerge(postingID uint64) error {
 			continue // Skip this candidate
 		}
 
-		// lock the candidate posting to ensure no concurrent modifications
-		// note: the candidate lock might be the same as the current posting lock
-		// so we need to ensure we don't deadlock
-		if s.postingLocks.Hash(postingID) != s.postingLocks.Hash(candidateID) {
-			// lock the candidate posting
-			s.postingLocks.Lock(candidateID)
-			defer func() {
-				if !markedAsDone {
-					s.postingLocks.Unlock(candidateID)
+		err = func() error {
+			// lock the candidate posting to ensure no concurrent modifications
+			// note: the candidate lock might be the same as the current posting lock
+			// so we need to ensure we don't deadlock
+			if s.postingLocks.Hash(postingID) != s.postingLocks.Hash(candidateID) {
+				// lock the candidate posting
+				s.postingLocks.Lock(candidateID)
+				defer func() {
+					if !markedAsDone {
+						s.postingLocks.Unlock(candidateID)
+					}
+				}()
+			}
+
+			// get the candidate posting
+			candidate, err := s.PostingStore.Get(s.ctx, candidateID)
+			if err != nil {
+				return errors.Wrapf(err, "failed to get candidate posting %d for merge operation on posting %d", candidateID, postingID)
+			}
+
+			var candidateLen int
+			for _, v := range candidate.Iter() {
+				version := s.VersionMap.Get(v.ID())
+				if version.Deleted() || version.Version() > v.Version().Version() {
+					continue
 				}
-			}()
-		}
-
-		// get the candidate posting
-		candidate, err := s.PostingStore.Get(s.ctx, candidateID)
-		if err != nil {
-			return errors.Wrapf(err, "failed to get candidate posting %d for merge operation on posting %d", candidateID, postingID)
-		}
-
-		var candidateLen int
-		for _, v := range candidate.Iter() {
-			version := s.VersionMap.Get(v.ID())
-			if version.Deleted() || version.Version() > v.Version().Version() {
-				continue
+				if _, exists := vectorSet[v.ID()]; exists {
+					continue // Skip duplicate vectors
+				}
+				newPosting.AddVector(v)
+				candidateLen++
 			}
-			if _, exists := vectorSet[v.ID()]; exists {
-				continue // Skip duplicate vectors
+
+			// delete the smallest posting and update the large posting
+			smallID, largeID := postingID, candidateID
+			smallPosting := p
+			if prevLen > candidateLen {
+				smallID, largeID = candidateID, postingID
+				smallPosting = candidate
 			}
-			newPosting.AddVector(v)
-			candidateLen++
-		}
 
-		// delete the smallest posting and update the large posting
-		smallID, largeID := postingID, candidateID
-		smallPosting := p
-		if prevLen > candidateLen {
-			smallID, largeID = candidateID, postingID
-			smallPosting = candidate
-		}
-
-		// mark the small posting as deleted in the SPTAG
-		err = s.Centroids.MarkAsDeleted(smallID)
-		if err != nil {
-			return errors.Wrapf(err, "failed to delete centroid for posting %d", smallID)
-		}
-
-		// persist the merged posting first
-		err = s.PostingStore.Put(s.ctx, largeID, newPosting)
-		if err != nil {
-			return errors.Wrapf(err, "failed to put merged posting %d after merge operation", postingID)
-		}
-
-		// set the small posting size to 0 and update the large posting size only after successful persist
-		err = s.PostingSizes.Set(context.TODO(), smallID, 0)
-		if err != nil {
-			return errors.Wrapf(err, "failed to set size of merged posting %d to 0", smallID)
-		}
-		err = s.PostingSizes.Set(context.TODO(), largeID, uint32(newPosting.Len()))
-		if err != nil {
-			return errors.Wrapf(err, "failed to set size of merged posting %d to %d", largeID, newPosting.Len())
-		}
-
-		// mark the operation as done and unlock everything
-		markedAsDone = true
-		if s.postingLocks.Hash(postingID) != s.postingLocks.Hash(candidateID) {
-			s.postingLocks.Unlock(candidateID)
-		}
-		s.postingLocks.Unlock(postingID)
-
-		// if merged vectors are closer to their old centroid than the new one
-		// there may be better centroids for them out there.
-		// we need to reassign them in the background.
-		smallCentroid := s.Centroids.Get(smallID)
-		largeCentroid := s.Centroids.Get(largeID)
-		for _, v := range smallPosting.Iter() {
-			prevDist, err := smallCentroid.Distance(s.distancer, v)
+			// mark the small posting as deleted in the SPTAG
+			err = s.Centroids.MarkAsDeleted(smallID)
 			if err != nil {
-				return errors.Wrapf(err, "failed to compute distance for vector %d in small posting %d", v.ID(), smallID)
+				return errors.Wrapf(err, "failed to delete centroid for posting %d", smallID)
 			}
 
-			newDist, err := largeCentroid.Distance(s.distancer, v)
+			// persist the merged posting first
+			err = s.PostingStore.Put(s.ctx, largeID, newPosting)
 			if err != nil {
-				return errors.Wrapf(err, "failed to compute distance for vector %d in large posting %d", v.ID(), largeID)
+				return errors.Wrapf(err, "failed to put merged posting %d after merge operation", postingID)
 			}
 
-			if prevDist < newDist {
-				// the vector is closer to the old centroid, we need to reassign it
-				err = s.taskQueue.EnqueueReassign(s.ctx, largeID, v.ID(), v.Version())
+			// set the small posting size to 0 and update the large posting size only after successful persist
+			err = s.PostingSizes.Set(context.TODO(), smallID, 0)
+			if err != nil {
+				return errors.Wrapf(err, "failed to set size of merged posting %d to 0", smallID)
+			}
+			err = s.PostingSizes.Set(context.TODO(), largeID, uint32(newPosting.Len()))
+			if err != nil {
+				return errors.Wrapf(err, "failed to set size of merged posting %d to %d", largeID, newPosting.Len())
+			}
+
+			// mark the operation as done and unlock everything
+			markedAsDone = true
+			if s.postingLocks.Hash(postingID) != s.postingLocks.Hash(candidateID) {
+				s.postingLocks.Unlock(candidateID)
+			}
+			s.postingLocks.Unlock(postingID)
+
+			// if merged vectors are closer to their old centroid than the new one
+			// there may be better centroids for them out there.
+			// we need to reassign them in the background.
+			smallCentroid := s.Centroids.Get(smallID)
+			largeCentroid := s.Centroids.Get(largeID)
+			for _, v := range smallPosting.Iter() {
+				prevDist, err := smallCentroid.Distance(s.distancer, v)
 				if err != nil {
-					return errors.Wrapf(err, "failed to enqueue reassign for vector %d after merge", v.ID())
+					return errors.Wrapf(err, "failed to compute distance for vector %d in small posting %d", v.ID(), smallID)
+				}
+
+				newDist, err := largeCentroid.Distance(s.distancer, v)
+				if err != nil {
+					return errors.Wrapf(err, "failed to compute distance for vector %d in large posting %d", v.ID(), largeID)
+				}
+
+				if prevDist < newDist {
+					// the vector is closer to the old centroid, we need to reassign it
+					err = s.taskQueue.EnqueueReassign(s.ctx, largeID, v.ID(), v.Version())
+					if err != nil {
+						return errors.Wrapf(err, "failed to enqueue reassign for vector %d after merge", v.ID())
+					}
 				}
 			}
+
+			return nil
+		}()
+		if err != nil {
+			return errors.Wrapf(err, "failed to merge posting %d with candidate %d", postingID, candidateID)
 		}
 
 		return nil

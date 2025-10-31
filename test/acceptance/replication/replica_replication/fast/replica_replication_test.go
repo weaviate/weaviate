@@ -72,6 +72,7 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementHappyPath() {
 		WithWeaviateCluster(3).
 		WithText2VecContextionary().
 		WithWeaviateEnv("REPLICA_MOVEMENT_MINIMUM_ASYNC_WAIT", "5s").
+		WithWeaviateEnv("REPLICA_MOVEMENT_ENABLED", "true").
 		Start(ctx)
 	require.Nil(t, err)
 	defer func() {
@@ -257,6 +258,7 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementTenantHappyPath()
 		WithWeaviateCluster(3).
 		WithText2VecContextionary().
 		WithWeaviateEnv("REPLICA_MOVEMENT_MINIMUM_ASYNC_WAIT", "5s").
+		WithWeaviateEnv("REPLICA_MOVEMENT_ENABLED", "true").
 		Start(ctx)
 	require.Nil(t, err)
 	defer func() {
