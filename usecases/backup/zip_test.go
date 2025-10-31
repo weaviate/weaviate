@@ -103,7 +103,7 @@ func TestZip(t *testing.T) {
 		t.Errorf("zip input size %d != unzip output size %d", uzOutputLen, zInputLen)
 	}
 	if zOutputLen != uzInputLen.Load() {
-		t.Errorf("zip output size %d != unzip input size %d", zOutputLen, uzInputLen)
+		t.Errorf("zip output size %d != unzip input size %d", zOutputLen, uzInputLen.Load())
 	}
 }
 
