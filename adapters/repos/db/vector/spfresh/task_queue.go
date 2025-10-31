@@ -204,24 +204,32 @@ func (v *TaskQueueDecoder) DecodeTask(data []byte) (queue.Task, error) {
 	data = data[1:]
 
 	switch op {
-	case taskQueueSplitOp, taskQueueMergeOp:
-		// decode id
-		id := binary.LittleEndian.Uint64(data)
+	case taskQueueSplitOp:
+		// decode posting ID
+		postingID := binary.LittleEndian.Uint64(data)
 
-		return &Task{
-			op:  op,
-			id:  id,
+		return &SplitTask{
+			id:  postingID,
+			idx: v.q.spfreshIndex,
+		}, nil
+	case taskQueueMergeOp:
+		// decode posting ID
+		postingID := binary.LittleEndian.Uint64(data)
+
+		return &MergeTask{
+			id:  postingID,
 			idx: v.q.spfreshIndex,
 		}, nil
 	case taskQueueReassignOp:
-		// decode id
+		// decode posting ID
 		postingID := binary.LittleEndian.Uint64(data)
 		data = data[8:]
+		// decode vector ID
 		vecID := binary.LittleEndian.Uint64(data)
 		data = data[8:]
+		// decode version
 		version := VectorVersion(data[0])
-		return &Task{
-			op:      op,
+		return &ReassignTask{
 			id:      postingID,
 			vecID:   vecID,
 			version: version,
@@ -232,7 +240,53 @@ func (v *TaskQueueDecoder) DecodeTask(data []byte) (queue.Task, error) {
 	return nil, errors.Errorf("unknown operation: %d", op)
 }
 
-type Task struct {
+type SplitTask struct {
+	id  uint64
+	idx *SPFresh
+}
+
+func (t *SplitTask) Op() uint8 {
+	return taskQueueSplitOp
+}
+
+func (t *SplitTask) Key() uint64 {
+	// TODO: find a better way to get the key
+	return t.id
+}
+
+func (t *SplitTask) Execute(ctx context.Context) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+
+	return t.idx.doSplit(t.id, true)
+}
+
+type MergeTask struct {
+	op  uint8
+	id  uint64
+	idx *SPFresh
+}
+
+func (t *MergeTask) Op() uint8 {
+	return taskQueueMergeOp
+}
+
+func (t *MergeTask) Key() uint64 {
+	// TODO: find a better way to get the key
+	return 1
+}
+
+func (t *MergeTask) Execute(ctx context.Context) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+
+	return t.idx.doMerge(t.id)
+
+}
+
+type ReassignTask struct {
 	op      uint8
 	id      uint64
 	vecID   uint64
@@ -240,30 +294,22 @@ type Task struct {
 	idx     *SPFresh
 }
 
-func (t *Task) Op() uint8 {
-	return t.op
+func (t *ReassignTask) Op() uint8 {
+	return taskQueueReassignOp
 }
 
-func (t *Task) Key() uint64 {
+func (t *ReassignTask) Key() uint64 {
 	// TODO: find a better way to get the key
 	return t.id
 }
 
-func (t *Task) Execute(ctx context.Context) error {
+func (t *ReassignTask) Execute(ctx context.Context) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
 
-	switch t.op {
-	case taskQueueSplitOp:
-		return t.idx.doSplit(t.id, true)
-	case taskQueueMergeOp:
-		return t.idx.doMerge(t.id)
-	case taskQueueReassignOp:
-		return t.idx.doReassign(reassignOperation{PostingID: t.id, Vector: &RawVector{id: t.vecID, version: t.version, data: nil}})
-	}
+	return t.idx.doReassign(reassignOperation{PostingID: t.id, Vector: &RawVector{id: t.vecID, version: t.version, data: nil}})
 
-	return errors.Errorf("unknown operation: %d", t.Op())
 }
 
 func encodeTask(buf []byte, id uint64, op uint8) ([]byte, error) {
