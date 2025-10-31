@@ -278,19 +278,7 @@ func GenerateUniqueString(length int) (string, error) {
 // Empty the dimensions bucket, quickly and efficiently
 func (s *Shard) resetDimensionsLSM() error {
 	// Load the current one, or an empty one if it doesn't exist
-	err := s.store.CreateOrLoadBucket(context.Background(),
-		helpers.DimensionsBucketLSM,
-		s.memtableDirtyConfig(),
-		lsmkv.WithStrategy(lsmkv.StrategyMapCollection),
-		lsmkv.WithPread(s.index.Config.AvoidMMap),
-		lsmkv.WithAllocChecker(s.index.allocChecker),
-		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
-		lsmkv.WithMinMMapSize(s.index.Config.MinMMapSize),
-		lsmkv.WithMinWalThreshold(s.index.Config.MaxReuseWalSize),
-		lsmkv.WithWriteSegmentInfoIntoFileName(s.index.Config.SegmentInfoIntoFileNameEnabled),
-		lsmkv.WithWriteMetadata(s.index.Config.WriteMetadataFilesEnabled),
-		s.segmentCleanupConfig(),
-	)
+	err := s.createDimensionsBucket(context.Background(), helpers.DimensionsBucketLSM)
 	if err != nil {
 		return fmt.Errorf("create dimensions bucket: %w", err)
 	}
