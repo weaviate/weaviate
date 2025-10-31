@@ -60,7 +60,7 @@ func SanitizeFilePathJoin(rootPath string, relativeFilePath string) (string, err
 	if err != nil {
 		return "", fmt.Errorf("make %q relative to %q: %w", finalPath, rootPath, err)
 	}
-	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+	if strings.HasPrefix(rel, "..") {
 		return "", fmt.Errorf("file path %q is outside shard root %q", finalPath, rootPath)
 	}
 	return finalPath, nil

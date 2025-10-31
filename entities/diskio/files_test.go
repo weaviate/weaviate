@@ -27,6 +27,7 @@ func TestSanitizeFilePathJoin(t *testing.T) {
 		{name: "valid relative", relative: "sub/file.txt", wantErr: false},
 		{name: "escape with dot-dot", relative: filepath.Join("..", "outside", "out.txt"), wantErr: true},
 		{name: "absolute path rejected", relative: filepath.Join(string(filepath.Separator), "etc", "passwd"), wantErr: true},
+		{name: "only escaping", relative: "..", wantErr: true},
 		{name: "normalized traversal inside root", relative: filepath.Join("sub", "..", "sub", "file.txt"), wantErr: false},
 	}
 
