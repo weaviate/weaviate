@@ -30,21 +30,21 @@ import (
 
 func TestZip(t *testing.T) {
 	var (
-		pathNode = "test_data/node1"
-		pathDest = "./test_data/node-unzipped"
+		pathNode = "./test_data/node1"
 		ctx      = context.Background()
 	)
+	pathDest := filepath.Join(t.TempDir(), "test_data", "node1")
+	require.NoError(t, copyDir(pathNode, pathDest))
 
-	defer os.RemoveAll(pathDest)
 	// setup
-	sd, err := getShard(pathNode, "cT9eTErXgmTX")
+	sd, err := getShard(pathDest, "cT9eTErXgmTX")
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	// compression writer
 	compressBuf := bytes.NewBuffer(make([]byte, 0, 1000_000))
-	z, rc := NewZip(pathNode, 0)
+	z, rc := NewZip(pathDest, 0)
 	var zInputLen int64
 	go func() {
 		zInputLen, err = z.WriteShard(ctx, &sd)
@@ -66,7 +66,11 @@ func TestZip(t *testing.T) {
 
 	f := float32(zInputLen) / float32(zOutputLen)
 	fmt.Printf("compression input_size=%d output_size=%d factor=%v\n", zInputLen, zOutputLen, f)
-	os.RemoveAll(pathDest)
+
+	// cleanup folder to restore test afterwards
+	require.NoError(t, os.RemoveAll(pathDest))
+	require.NoError(t, os.MkdirAll(pathDest, 0o755))
+
 	// decompression
 	uz, wc := NewUnzip(pathDest)
 
@@ -134,8 +138,8 @@ func TestUnzipPathEscape(t *testing.T) {
 	// now restore from the archive to destPath, all writes should be contained within destPath
 	uz, wc := NewUnzip(destPath)
 	go func() {
-		_, err = io.Copy(wc, &buf)
-		require.NoError(t, err)
+		_, err2 := io.Copy(wc, &buf)
+		require.NoError(t, err2)
 		require.NoError(t, wc.Close())
 	}()
 
@@ -233,4 +237,29 @@ func getShard(src, shardName string) (sd backup.ShardDescriptor, err error) {
 	})
 
 	return sd, err
+}
+
+func copyDir(src string, dest string) error {
+	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		relPath, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+
+		destPath := filepath.Join(dest, relPath)
+		if info.IsDir() {
+			return os.MkdirAll(destPath, info.Mode())
+		}
+
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+
+		return os.WriteFile(destPath, data, info.Mode())
+	})
 }
