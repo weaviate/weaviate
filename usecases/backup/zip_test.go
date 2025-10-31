@@ -138,7 +138,7 @@ func TestUnzipPathEscape(t *testing.T) {
 	}()
 
 	_, err = uz.ReadChunk()
-	require.NoError(t, err)
+	require.ErrorContains(t, err, "outside shard root")
 
 	entries, err := os.ReadDir(completelyUnrelatedDir)
 	require.NoError(t, err)

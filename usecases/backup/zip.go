@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/weaviate/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/entities/diskio"
 )
 
 // CompressionLevel represents supported compression level
@@ -101,7 +102,7 @@ func (z *zip) WriteShard(ctx context.Context, sd *backup.ShardDescriptor) (writt
 	n, err = z.WriteRegulars(ctx, sd.Files)
 	written += n
 
-	return
+	return written, err
 }
 
 func (z *zip) WriteRegulars(ctx context.Context, relPaths []string) (written int64, err error) {
@@ -170,7 +171,7 @@ func (z *zip) writeOne(ctx context.Context, info fs.FileInfo, relPath string, r 
 		}
 		return written, fmt.Errorf("copy: %s %w", relPath, err)
 	}
-	return
+	return written, err
 }
 
 // lastWritten number of bytes
@@ -239,7 +240,10 @@ func (u *unzip) ReadChunk() (written int64, err error) {
 		}
 
 		// target file
-		target := filepath.Join(u.destPath, header.Name)
+		target, err := diskio.SanitizeFilePathJoin(u.destPath, header.Name)
+		if err != nil {
+			return written, fmt.Errorf("sanitize file path %s: %w", header.Name, err)
+		}
 		switch header.Typeflag {
 		case tar.TypeDir:
 			if err := os.MkdirAll(target, 0o755); err != nil {
@@ -295,7 +299,7 @@ type readCloser struct {
 func (r *readCloser) Read(p []byte) (n int, err error) {
 	n, err = r.src.Read(p)
 	atomic.AddInt64(&r.n, int64(n))
-	return
+	return n, err
 }
 
 func (r *readCloser) Close() error { return r.src.Close() }
