@@ -263,7 +263,6 @@ func (t *SplitTask) Execute(ctx context.Context) error {
 }
 
 type MergeTask struct {
-	op  uint8
 	id  uint64
 	idx *SPFresh
 }
@@ -283,11 +282,9 @@ func (t *MergeTask) Execute(ctx context.Context) error {
 	}
 
 	return t.idx.doMerge(t.id)
-
 }
 
 type ReassignTask struct {
-	op      uint8
 	id      uint64
 	vecID   uint64
 	version uint8
@@ -309,7 +306,6 @@ func (t *ReassignTask) Execute(ctx context.Context) error {
 	}
 
 	return t.idx.doReassign(reassignOperation{PostingID: t.id, VectorID: t.vecID, Version: t.version})
-
 }
 
 func encodeTask(buf []byte, id uint64, op uint8) ([]byte, error) {
