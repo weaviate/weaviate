@@ -51,7 +51,7 @@ func TestBM25FJourneyBlock(t *testing.T) {
 	require.Nil(t, repo.WaitForStartup(context.Background()))
 	defer repo.Shutdown(context.Background())
 
-	props := SetupClass(t, repo, schemaGetter, logger, 1.2, 0.75)
+	props, _ := SetupClass(t, repo, schemaGetter, logger, 1.2, 0.75, "none")
 
 	idx := repo.GetIndex("MyClass")
 
@@ -314,7 +314,7 @@ func TestBM25FSinglePropBlock(t *testing.T) {
 	require.Nil(t, repo.WaitForStartup(context.TODO()))
 	defer repo.Shutdown(context.Background())
 
-	props := SetupClass(t, repo, schemaGetter, logger, 0.5, 1)
+	props, _ := SetupClass(t, repo, schemaGetter, logger, 0.5, 1, "none")
 
 	idx := repo.GetIndex("MyClass")
 	require.NotNil(t, idx)
@@ -369,7 +369,7 @@ func TestBM25FWithFiltersBlock(t *testing.T) {
 	require.Nil(t, repo.WaitForStartup(context.TODO()))
 	defer repo.Shutdown(context.Background())
 
-	props := SetupClass(t, repo, schemaGetter, logger, 0.5, 1)
+	props, _ := SetupClass(t, repo, schemaGetter, logger, 0.5, 1, "none")
 
 	idx := repo.GetIndex("MyClass")
 	require.NotNil(t, idx)
@@ -545,7 +545,7 @@ func TestBM25FDifferentParamsJourneyBlock(t *testing.T) {
 	require.Nil(t, repo.WaitForStartup(context.TODO()))
 	defer repo.Shutdown(context.Background())
 
-	props := SetupClass(t, repo, schemaGetter, logger, 0.5, 1)
+	props, _ := SetupClass(t, repo, schemaGetter, logger, 0.5, 1, "none")
 
 	idx := repo.GetIndex("MyClass")
 	require.NotNil(t, idx)
@@ -611,7 +611,7 @@ func TestBM25FCompareBlock(t *testing.T) {
 	require.Nil(t, repo.WaitForStartup(context.TODO()))
 	defer repo.Shutdown(context.Background())
 
-	props := SetupClass(t, repo, schemaGetter, logger, 0.5, 1)
+	props, _ := SetupClass(t, repo, schemaGetter, logger, 0.5, 1, "none")
 
 	idx := repo.GetIndex("MyClass")
 	require.NotNil(t, idx)
@@ -877,7 +877,7 @@ func TestBM25FWithFiltersMemtable(t *testing.T) {
 	require.Nil(t, repo.WaitForStartup(context.TODO()))
 	defer repo.Shutdown(context.Background())
 
-	props := SetupClass(t, repo, schemaGetter, logger, 0.5, 1)
+	props, _ := SetupClass(t, repo, schemaGetter, logger, 0.5, 1, "none")
 
 	idx := repo.GetIndex("MyClass")
 	require.NotNil(t, idx)
