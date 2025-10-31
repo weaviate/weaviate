@@ -125,7 +125,6 @@ func (opq *OperationsQueue) EnqueueSplit(ctx context.Context, postingID uint64) 
 }
 
 func (opq *OperationsQueue) EnqueueMerge(ctx context.Context, postingID uint64) error {
-
 	if opq.spfreshIndex.ctx == nil {
 		return nil // Not started yet
 	}

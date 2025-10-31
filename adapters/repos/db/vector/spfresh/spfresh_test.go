@@ -136,8 +136,8 @@ func TestSPFreshRecall(t *testing.T) {
 
 	fmt.Printf("indexing done, took: %s, waiting for background tasks...\n", time.Since(before))
 
-	for index.operationsQueue.DiskQueue.Size() > 0 {
-		fmt.Println("background tasks: ", index.operationsQueue.DiskQueue.Size())
+	for index.operationsQueue.Size() > 0 {
+		fmt.Println("background tasks: ", index.operationsQueue.Size())
 		time.Sleep(500 * time.Millisecond)
 	}
 
