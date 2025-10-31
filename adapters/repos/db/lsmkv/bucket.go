@@ -51,10 +51,11 @@ import (
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
-// since v1.34 StrategyRoaringSet will be default strategy for dimensions bucket
+// since v1.34 StrategyRoaringSet is default strategy for dimensions bucket,
+// StrategyMapCollection is left as backward compatibility for buckets created earlier
 var DimensionsBucketPrioritizedStrategies = []string{
-	StrategyMapCollection,
 	StrategyRoaringSet,
+	StrategyMapCollection,
 }
 
 const (
