@@ -19,7 +19,8 @@ import (
 
 type reassignOperation struct {
 	PostingID uint64
-	Vector    Vector
+	VectorID  uint64
+	Version   uint8
 }
 
 func (s *SPFresh) doReassign(op reassignOperation) error {
@@ -28,24 +29,16 @@ func (s *SPFresh) doReassign(op reassignOperation) error {
 	defer s.metrics.ReassignDuration(start)
 
 	// check if the vector is still valid
-	version := s.VersionMap.Get(op.Vector.ID())
-	if version.Deleted() || version.Version() > op.Vector.Version().Version() {
+	version := s.VersionMap.Get(op.VectorID)
+	if version.Deleted() || version.Version() > op.Version {
 		return nil
 	}
 
 	// perform a RNG selection to determine the postings where the vector should be
 	// reassigned to.
-	q, err := s.config.VectorForIDThunk(s.ctx, op.Vector.ID())
+	q, err := s.config.VectorForIDThunk(s.ctx, op.VectorID)
 	if err != nil {
 		return errors.Wrap(err, "failed to get vector by index ID")
-	}
-	if s.config.Compressed {
-		err = op.Vector.(*CompressedVector).SetData(s.quantizer.Encode(q))
-		if err != nil {
-			return errors.Wrap(err, "failed to set vector data")
-		}
-	} else {
-		op.Vector.(*RawVector).SetData(q)
 	}
 
 	replicas, needsReassign, err := s.RNGSelect(q, op.PostingID)
@@ -57,17 +50,17 @@ func (s *SPFresh) doReassign(op reassignOperation) error {
 	}
 
 	// check again if the version is still valid
-	version = s.VersionMap.Get(op.Vector.ID())
-	if version.Deleted() || version.Version() > op.Vector.Version().Version() {
+	version = s.VersionMap.Get(op.VectorID)
+	if version.Deleted() || version.Version() > op.Version {
 		return nil
 	}
 
 	// increment the vector version. this will invalidate all the existing copies
 	// of the vector in other postings.
-	version, ok := s.VersionMap.Increment(version, op.Vector.ID())
+	version, ok := s.VersionMap.Increment(version, op.VectorID)
 	if !ok {
 		// Increment fails if a concurrent Increment happened (similar to a CAS operation)
-		s.logger.WithField("vectorID", op.Vector.ID()).
+		s.logger.WithField("vectorID", op.VectorID).
 			Debug("vector version increment failed, skipping reassign operation")
 		return nil
 	}
@@ -75,16 +68,16 @@ func (s *SPFresh) doReassign(op reassignOperation) error {
 	// create a new vector with the updated version
 	var newVector Vector
 	if s.config.Compressed {
-		newVector = NewCompressedVector(op.Vector.ID(), version, op.Vector.(CompressedVector).Data())
+		newVector = NewCompressedVector(op.VectorID, version, s.quantizer.Encode(q))
 	} else {
-		newVector = NewRawVector(op.Vector.ID(), version, op.Vector.(*RawVector).Data())
+		newVector = NewRawVector(op.VectorID, version, q)
 	}
 
 	// append the vector to each replica
 	for id := range replicas.Iter() {
 		version = s.VersionMap.Get(newVector.ID())
 		if version.Deleted() || version.Version() > newVector.Version().Version() {
-			s.logger.WithField("vectorID", op.Vector.ID()).
+			s.logger.WithField("vectorID", op.VectorID).
 				Debug("vector is deleted or has a newer version, skipping reassign operation")
 			return nil
 		}

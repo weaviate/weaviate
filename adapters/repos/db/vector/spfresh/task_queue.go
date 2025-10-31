@@ -228,7 +228,7 @@ func (v *TaskQueueDecoder) DecodeTask(data []byte) (queue.Task, error) {
 		vecID := binary.LittleEndian.Uint64(data)
 		data = data[8:]
 		// decode version
-		version := VectorVersion(data[0])
+		version := uint8(data[0])
 		return &ReassignTask{
 			id:      postingID,
 			vecID:   vecID,
@@ -290,7 +290,7 @@ type ReassignTask struct {
 	op      uint8
 	id      uint64
 	vecID   uint64
-	version VectorVersion
+	version uint8
 	idx     *SPFresh
 }
 
@@ -308,7 +308,7 @@ func (t *ReassignTask) Execute(ctx context.Context) error {
 		return ctx.Err()
 	}
 
-	return t.idx.doReassign(reassignOperation{PostingID: t.id, Vector: &RawVector{id: t.vecID, version: t.version, data: nil}})
+	return t.idx.doReassign(reassignOperation{PostingID: t.id, VectorID: t.vecID, Version: t.version})
 
 }
 
