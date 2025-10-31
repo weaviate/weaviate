@@ -872,8 +872,8 @@ func FromEnv(config *Config) error {
 		config.DistributedTasks.Enabled = entcfg.Enabled(v)
 	}
 
-	if v := os.Getenv("REPLICA_MOVEMENT_DISABLED"); v != "" {
-		config.ReplicaMovementDisabled = entcfg.Enabled(v)
+	if v := os.Getenv("REPLICA_MOVEMENT_ENABLED"); v != "" {
+		config.ReplicaMovementEnabled = entcfg.Enabled(v)
 	}
 
 	if v := os.Getenv("REPLICA_MOVEMENT_MINIMUM_ASYNC_WAIT"); v != "" {

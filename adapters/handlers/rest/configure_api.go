@@ -581,7 +581,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		AuthNConfig:                     appState.ServerConfig.Config.Authentication,
 		ReplicationEngineMaxWorkers:     appState.ServerConfig.Config.ReplicationEngineMaxWorkers,
 		DistributedTasks:                appState.ServerConfig.Config.DistributedTasks,
-		ReplicaMovementDisabled:         appState.ServerConfig.Config.ReplicaMovementDisabled,
+		ReplicaMovementEnabled:          appState.ServerConfig.Config.ReplicaMovementEnabled,
 		ReplicaMovementMinimumAsyncWait: appState.ServerConfig.Config.ReplicaMovementMinimumAsyncWait,
 		DrainSleep:                      appState.ServerConfig.Config.Raft.DrainSleep.Get(),
 	}
@@ -887,7 +887,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.Authorizer,
 		appState.Logger)
 
-	replicationHandlers.SetupHandlers(!appState.ServerConfig.Config.ReplicaMovementDisabled, api, appState.ClusterService.Raft, appState.Metrics, appState.Authorizer, appState.Logger)
+	replicationHandlers.SetupHandlers(appState.ServerConfig.Config.ReplicaMovementEnabled, api, appState.ClusterService.Raft, appState.Metrics, appState.Authorizer, appState.Logger)
 
 	remoteDbUsers := clients.NewRemoteUser(appState.ClusterHttpClient, appState.Cluster)
 	db_users.SetupHandlers(api, appState.ClusterService.Raft, appState.Authorizer, appState.ServerConfig.Config.Authentication, appState.ServerConfig.Config.Authorization, remoteDbUsers, appState.SchemaManager, appState.Logger)
