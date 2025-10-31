@@ -164,33 +164,39 @@ func (fps *FileReplicationService) GetFile(stream pb.FileReplicationService_GetF
 			return status.Errorf(codes.Internal, "local index %q not found", indexName)
 		}
 
-		fileReader, err := index.IncomingGetFile(stream.Context(), shardName, fileName)
-		if err != nil {
-			return status.Errorf(codes.Internal, "failed to get file %q in shard %q: %v", fileName, shardName, err)
-		}
-		defer fileReader.Close()
+		if err := func() error {
+			fileReader, err := index.IncomingGetFile(stream.Context(), shardName, fileName)
+			if err != nil {
+				return status.Errorf(codes.Internal, "failed to get file %q in shard %q: %v", fileName, shardName, err)
+			}
+			defer fileReader.Close()
 
-		buf := make([]byte, fileChunkSize)
+			buf := make([]byte, fileChunkSize)
 
-		offset := 0
+			offset := 0
 
-		for {
-			n, err := fileReader.Read(buf)
-			eof := err != nil && errors.Is(err, io.EOF)
+			for {
+				n, err := fileReader.Read(buf)
+				eof := err != nil && errors.Is(err, io.EOF)
 
-			if err := stream.Send(&pb.FileChunk{
-				Offset: int64(offset),
-				Data:   buf[:n],
-				Eof:    eof,
-			}); err != nil {
-				return status.Errorf(codes.Internal, "failed to send file chunk: %v", err)
+				if err := stream.Send(&pb.FileChunk{
+					Offset: int64(offset),
+					Data:   buf[:n],
+					Eof:    eof,
+				}); err != nil {
+					return status.Errorf(codes.Internal, "failed to send file chunk: %v", err)
+				}
+
+				if eof {
+					break
+				}
+
+				offset += n
 			}
 
-			if eof {
-				break
-			}
-
-			offset += n
+			return nil
+		}(); err != nil {
+			return err
 		}
 	}
 }

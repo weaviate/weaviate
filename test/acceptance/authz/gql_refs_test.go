@@ -16,12 +16,12 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/client/graphql"
-
 	"github.com/go-openapi/strfmt"
+	"github.com/pkg/errors"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/client/authz"
+	"github.com/weaviate/weaviate/client/graphql"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
@@ -243,7 +243,6 @@ func TestAuthZGraphQLRefsGroupBy(t *testing.T) {
 			helper.DeleteRole(t, adminKey, *role.Name)
 			helper.CreateRole(t, adminKey, role)
 			helper.AssignRoleToUser(t, adminKey, roleName, customUser)
-			defer helper.DeleteRole(t, adminKey, *role.Name)
 			res, err := queryGQL(t, groupByQuery, customKey)
 			if err != nil {
 				require.Nil(t, res)
@@ -253,6 +252,8 @@ func TestAuthZGraphQLRefsGroupBy(t *testing.T) {
 				require.NotNil(t, res.Payload.Errors)
 				require.Contains(t, res.Payload.Errors[0].Message, "forbidden")
 			}
+			// cleanup
+			helper.DeleteRole(t, adminKey, *role.Name)
 		}
 	})
 }

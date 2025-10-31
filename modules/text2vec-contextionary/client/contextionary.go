@@ -19,15 +19,16 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
+
 	pb "github.com/weaviate/contextionary/contextionary"
 	"github.com/weaviate/weaviate/entities/models"
 	txt2vecmodels "github.com/weaviate/weaviate/modules/text2vec-contextionary/additional/models"
 	"github.com/weaviate/weaviate/modules/text2vec-contextionary/vectorizer"
 	"github.com/weaviate/weaviate/usecases/traverser"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/credentials/insecure"
-	"google.golang.org/grpc/status"
 )
 
 const ModelUncontactable = "module uncontactable"
@@ -322,9 +323,11 @@ func (c *Client) WaitForStartupAndValidateVersion(startupCtx context.Context,
 
 		time.Sleep(interval)
 
-		ctx, cancel := context.WithTimeout(startupCtx, 2*time.Second)
-		defer cancel()
-		v, err := c.version(ctx)
+		v, err := func() (string, error) {
+			ctx, cancel := context.WithTimeout(startupCtx, 2*time.Second)
+			defer cancel()
+			return c.version(ctx)
+		}()
 		if err != nil {
 			c.logger.WithField("action", "startup_check_contextionary").WithError(err).
 				Warnf("could not connect to contextionary at startup, trying again in 1 sec")

@@ -376,25 +376,27 @@ Ex: go test -v -run TestHnswStress . -download
 			}
 
 			ctx, cancel := context.WithTimeout(context.Background(), 100*time.Second)
-			defer cancel()
+			func() {
+				defer cancel()
 
-			g, ctx := enterrors.NewErrorGroupWithContextWrapper(logrus.New(), ctx)
+				g, ctx := enterrors.NewErrorGroupWithContextWrapper(logrus.New(), ctx)
 
-			// run parallelGoroutines goroutines
-			for i := 0; i < parallelGoroutines; i++ {
-				g.Go(func() error {
-					for {
-						select {
-						case <-ctx.Done():
-							return ctx.Err()
-						default:
-							ops[rand.Intn(len(ops))]()
+				// run parallelGoroutines goroutines
+				for i := 0; i < parallelGoroutines; i++ {
+					g.Go(func() error {
+						for {
+							select {
+							case <-ctx.Done():
+								return ctx.Err()
+							default:
+								ops[rand.Intn(len(ops))]()
+							}
 						}
-					}
-				})
-			}
+					})
+				}
 
-			g.Wait()
+				g.Wait()
+			}()
 		}
 	})
 }

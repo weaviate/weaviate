@@ -141,14 +141,17 @@ func (s *s3Client) AllBackups(ctx context.Context,
 			return nil, fmt.Errorf("get object %q: %w", info.Key, err)
 		}
 
-		// Ensure object is closed to prevent connection leaks
-		defer obj.Close()
-
 		// Use a buffer to limit memory usage
 		var buf bytes.Buffer
 		_, err = io.Copy(&buf, obj)
 		if err != nil {
+			obj.Close()
 			return nil, fmt.Errorf("read object %q: %w", info.Key, err)
+		}
+
+		// Ensure object is closed to prevent connection leaks
+		if err := obj.Close(); err != nil {
+			return nil, fmt.Errorf("close object %q: %w", info.Key, err)
 		}
 
 		// Unmarshal the backup metadata

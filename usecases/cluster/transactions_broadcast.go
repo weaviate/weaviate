@@ -16,10 +16,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/sirupsen/logrus"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
+
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 type TxBroadcaster struct {
@@ -154,19 +154,18 @@ func (t *TxBroadcaster) BroadcastCommitTransaction(rootCtx context.Context, tx *
 	}
 	eg := enterrors.NewErrorGroupWrapper(t.logger)
 	for _, host := range t.state.Hostnames() {
-		// make sure we don't block forever if the caller passes in an unlimited
-		// context. If another node does not respond within the timeout, consider
-		// the tx commit attempt failed.
-		ctx, cancel := context.WithTimeout(rootCtx, 30*time.Second)
-		defer cancel()
-
-		t.logger.WithFields(logrus.Fields{
-			"action":   "broadcast_commit_transaction",
-			"duration": 30 * time.Second,
-		}).Debug("context.WithTimeout")
-
-		host := host // https://golang.org/doc/faq#closures_and_goroutines
 		eg.Go(func() error {
+			// make sure we don't block forever if the caller passes in an unlimited
+			// context. If another node does not respond within the timeout, consider
+			// the tx commit attempt failed.
+			ctx, cancel := context.WithTimeout(rootCtx, 30*time.Second)
+			defer cancel()
+
+			t.logger.WithFields(logrus.Fields{
+				"action":   "broadcast_commit_transaction",
+				"duration": 30 * time.Second,
+			}).Debug("context.WithTimeout")
+
 			if err := t.client.CommitTransaction(ctx, host, tx); err != nil {
 				return errors.Wrapf(err, "host %q", host)
 			}
