@@ -12,6 +12,7 @@
 package spfresh
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
@@ -27,6 +28,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
@@ -82,6 +84,13 @@ func TestSPFreshRecall(t *testing.T) {
 	cfg.TombstoneCallbacks = cyclemanager.NewCallbackGroupNoop()
 	l := logrus.New()
 	cfg.Logger = l
+	scheduler := queue.NewScheduler(
+		queue.SchedulerOptions{
+			Logger: l,
+		},
+	)
+	scheduler.Start()
+	cfg.Scheduler = scheduler
 	cfg.PrometheusMetrics = monitoring.GetMetrics()
 	cfg.PrometheusMetrics.Registerer.MustRegister()
 
@@ -94,7 +103,9 @@ func TestSPFreshRecall(t *testing.T) {
 
 	before := time.Now()
 	vectors, queries := testinghelpers.RandomVecsFixedSeed(vectors_size, queries_size, dimensions)
-
+	cfg.VectorForIDThunk = hnsw.NewVectorForIDThunk(cfg.TargetVector, func(ctx context.Context, indexID uint64, targetVector string) ([]float32, error) {
+		return vectors[indexID], nil
+	})
 	var mu sync.Mutex
 
 	truths := make([][]uint64, queries_size)
@@ -117,7 +128,7 @@ func TestSPFreshRecall(t *testing.T) {
 		cur := count.Add(1)
 		if cur%1000 == 0 {
 			fmt.Printf("indexing vectors %d/%d\n", cur, vectors_size)
-			fmt.Println("background tasks: split", index.splitCh.Len(), "reassign", index.reassignCh.Len(), "merge", index.mergeCh.Len())
+			// fmt.Println("background tasks: split", index.splitCh.Len(), "reassign", index.reassignCh.Len(), "merge", index.mergeCh.Len())
 		}
 		err := index.Add(t.Context(), id, vectors[id])
 		require.NoError(t, err)
@@ -125,9 +136,8 @@ func TestSPFreshRecall(t *testing.T) {
 
 	fmt.Printf("indexing done, took: %s, waiting for background tasks...\n", time.Since(before))
 
-	for index.splitCh.Len() > 0 || index.reassignCh.Len() > 0 || index.mergeCh.Len() > 0 {
-		fmt.Println("background tasks: split", index.splitCh.Len(), "reassign", index.reassignCh.Len(), "merge", index.mergeCh.Len())
-
+	for index.taskQueue.Size() > 0 {
+		fmt.Println("background tasks: ", index.taskQueue.Size())
 		time.Sleep(500 * time.Millisecond)
 	}
 

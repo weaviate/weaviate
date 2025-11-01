@@ -14,13 +14,23 @@ package spfresh
 import (
 	"testing"
 
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/spfresh"
 )
 
 func TestSPFreshOptimizedPostingSize(t *testing.T) {
 	cfg := DefaultConfig()
+	scheduler := queue.NewScheduler(
+		queue.SchedulerOptions{
+			Logger: logrus.New(),
+		},
+	)
+	cfg.Scheduler = scheduler
+	scheduler.Start()
+	defer scheduler.Close()
 	uc := ent.NewDefaultUserConfig()
 	uc.CentroidsIndexType = "bruteforce"
 	store := testinghelpers.NewDummyStore(t)
