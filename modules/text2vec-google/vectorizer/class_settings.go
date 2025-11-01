@@ -151,7 +151,7 @@ func (ic *classSettings) ApiEndpoint() string {
 }
 
 func (ic *classSettings) ProjectID() string {
-	return ic.getStringProperty(projectIDProperty, os.Getenv(GoogleCloudProjectEnv, ""))
+	return ic.getStringProperty(projectIDProperty, os.Getenv(GoogleCloudProjectEnv))
 }
 
 func (ic *classSettings) Model() string {
