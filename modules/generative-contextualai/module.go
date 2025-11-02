@@ -37,7 +37,7 @@ type GenerativeContextualAIModule struct {
 
 type generativeClient interface {
 	modulecapabilities.GenerativeClient
-	MetaInfo() (map[string]interface{}, error)
+	MetaInfo() (map[string]any, error)
 }
 
 func (m *GenerativeContextualAIModule) Name() string {
@@ -61,7 +61,7 @@ func (m *GenerativeContextualAIModule) Init(ctx context.Context,
 func (m *GenerativeContextualAIModule) initAdditional(ctx context.Context, timeout time.Duration,
 	logger logrus.FieldLogger,
 ) error {
-	apiKey := os.Getenv("CONTEXTUAL_API_KEY")
+	apiKey := os.Getenv("CONTEXTUALAI_APIKEY")
 
 	client := clients.New(apiKey, timeout, logger)
 	m.generative = client
@@ -70,7 +70,7 @@ func (m *GenerativeContextualAIModule) initAdditional(ctx context.Context, timeo
 	return nil
 }
 
-func (m *GenerativeContextualAIModule) MetaInfo() (map[string]interface{}, error) {
+func (m *GenerativeContextualAIModule) MetaInfo() (map[string]any, error) {
 	return m.generative.MetaInfo()
 }
 

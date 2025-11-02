@@ -84,7 +84,7 @@ func TestGenerateAllResults(t *testing.T) {
 
 			timeout := getTestTimeout(tt.timeout)
 			c := New(testAPIKey, timeout, nullLogger())
-			cfg := fakeClassConfig{classConfig: map[string]interface{}{}}
+			cfg := fakeClassConfig{classConfig: map[string]any{}}
 			ctx := context.WithValue(context.Background(), baseURLKey, []string{server.URL})
 
 			res, err := c.GenerateAllResults(ctx, props, "What is my name?", nil, false, cfg)
@@ -110,7 +110,7 @@ func createTestServer(t *testing.T, statusCode int, timeout time.Duration, respo
 		if statusCode == 200 {
 			json.NewEncoder(w).Encode(response)
 		} else {
-			json.NewEncoder(w).Encode(map[string]interface{}{
+			json.NewEncoder(w).Encode(map[string]any{
 				"detail": "validation error",
 			})
 		}
@@ -154,7 +154,7 @@ func TestGenerateSingleResult(t *testing.T) {
 	defer server.Close()
 
 	c := New(testAPIKey, 30*time.Second, nullLogger())
-	cfg := fakeClassConfig{classConfig: map[string]interface{}{}}
+	cfg := fakeClassConfig{classConfig: map[string]any{}}
 
 	ctx := context.WithValue(context.Background(), baseURLKey, []string{server.URL})
 	res, err := c.GenerateSingleResult(ctx, prop, "test prompt", nil, false, cfg)
@@ -165,7 +165,7 @@ func TestGenerateSingleResult(t *testing.T) {
 
 func TestClientGetParameters(t *testing.T) {
 	fakeConfig := fakeClassConfig{
-		classConfig: map[string]interface{}{
+		classConfig: map[string]any{
 			"model":       "v1",
 			"temperature": 0.5,
 		},
@@ -197,13 +197,13 @@ func TestAPIErrorHandling(t *testing.T) {
 	tests := []struct {
 		name         string
 		statusCode   int
-		responseBody map[string]interface{}
+		responseBody map[string]any
 		expectedErr  string
 	}{
 		{
 			name:       "error with message field",
 			statusCode: 422,
-			responseBody: map[string]interface{}{
+			responseBody: map[string]any{
 				"message": "Invalid model specified",
 			},
 			expectedErr: "Invalid model specified",
@@ -211,8 +211,8 @@ func TestAPIErrorHandling(t *testing.T) {
 		{
 			name:       "error with detail field",
 			statusCode: 422,
-			responseBody: map[string]interface{}{
-				"detail": []map[string]interface{}{
+			responseBody: map[string]any{
+				"detail": []map[string]any{
 					{
 						"loc":  []string{"body", "model"},
 						"msg":  "Validation failed",
@@ -225,7 +225,7 @@ func TestAPIErrorHandling(t *testing.T) {
 		{
 			name:       "error without message",
 			statusCode: 500,
-			responseBody: map[string]interface{}{
+			responseBody: map[string]any{
 				"error": "Internal server error",
 			},
 			expectedErr: "500",
@@ -242,7 +242,7 @@ func TestAPIErrorHandling(t *testing.T) {
 			defer server.Close()
 
 			c := New(testAPIKey, 30*time.Second, nullLogger())
-			cfg := fakeClassConfig{classConfig: map[string]interface{}{}}
+			cfg := fakeClassConfig{classConfig: map[string]any{}}
 			ctx := context.WithValue(context.Background(), baseURLKey, []string{server.URL})
 
 			prop := &modulecapabilities.GenerateProperties{Text: map[string]string{"content": "test"}}

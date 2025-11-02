@@ -16,7 +16,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/modulecomponents/gqlparser"
 )
 
-const Name = "generative-contextualai"
+const Name = "contextualai"
 
 type Params struct {
 	Model           string
@@ -28,7 +28,7 @@ type Params struct {
 	Knowledge       []string
 }
 
-func extract(field *ast.ObjectField) interface{} {
+func extract(field *ast.ObjectField) any {
 	out := Params{}
 	fields, ok := field.Value.GetValue().([]*ast.ObjectField)
 	if ok {

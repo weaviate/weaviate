@@ -48,7 +48,7 @@ func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *conte
 	}
 }
 
-func (c *contextualai) GenerateSingleResult(ctx context.Context, properties *modulecapabilities.GenerateProperties, prompt string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
+func (c *contextualai) GenerateSingleResult(ctx context.Context, properties *modulecapabilities.GenerateProperties, prompt string, options any, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
 	forPrompt, err := generative.MakeSinglePrompt(generative.Text(properties), prompt)
 	if err != nil {
 		return nil, err
@@ -57,7 +57,7 @@ func (c *contextualai) GenerateSingleResult(ctx context.Context, properties *mod
 	return c.generate(ctx, cfg, forPrompt, knowledge, options, debug)
 }
 
-func (c *contextualai) GenerateAllResults(ctx context.Context, properties []*modulecapabilities.GenerateProperties, task string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
+func (c *contextualai) GenerateAllResults(ctx context.Context, properties []*modulecapabilities.GenerateProperties, task string, options any, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
 	texts := generative.Texts(properties)
 	forTask, err := generative.MakeTaskPrompt(texts, task)
 	if err != nil {
@@ -67,7 +67,7 @@ func (c *contextualai) GenerateAllResults(ctx context.Context, properties []*mod
 	return c.generate(ctx, cfg, forTask, knowledge, options, debug)
 }
 
-func (c *contextualai) generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string, knowledge []string, options interface{}, debug bool) (*modulecapabilities.GenerateResponse, error) {
+func (c *contextualai) generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string, knowledge []string, options any, debug bool) (*modulecapabilities.GenerateResponse, error) {
 	params := c.getParameters(cfg, options)
 	debugInformation := c.getDebugInformation(debug, prompt)
 
@@ -107,11 +107,10 @@ func (c *contextualai) generate(ctx context.Context, cfg moduletools.ClassConfig
 	return &modulecapabilities.GenerateResponse{
 		Result: &textResponse,
 		Debug:  debugInformation,
-		Params: c.getResponseParams(),
 	}, nil
 }
 
-func (c *contextualai) getParameters(cfg moduletools.ClassConfig, options interface{}) contextualaiparams.Params {
+func (c *contextualai) getParameters(cfg moduletools.ClassConfig, options any) contextualaiparams.Params {
 	settings := config.NewClassSettings(cfg)
 
 	var params contextualaiparams.Params
@@ -208,13 +207,13 @@ func (c *contextualai) handleAPIError(statusCode int, bodyBytes []byte) error {
 	var apiError contextualAIAPIError
 	if err := json.Unmarshal(bodyBytes, &apiError); err == nil {
 		if apiError.Message != "" {
-			return fmt.Errorf("contextual AI API error: %s", apiError.Message)
+			return fmt.Errorf("Contextual AI API error: %s", apiError.Message)
 		}
 		if len(apiError.Detail) > 0 && apiError.Detail[0].Msg != "" {
-			return fmt.Errorf("contextual AI API error: %s", apiError.Detail[0].Msg)
+			return fmt.Errorf("Contextual AI API error: %s", apiError.Detail[0].Msg)
 		}
 	}
-	return fmt.Errorf("contextual AI API request failed with status: %d", statusCode)
+	return fmt.Errorf("Contextual AI API request failed with status: %d", statusCode)
 }
 
 func (c *contextualai) parseResponse(bodyBytes []byte) (*generateResponse, error) {
@@ -234,11 +233,6 @@ func (c *contextualai) getDebugInformation(debug bool, prompt string) *modulecap
 	return nil
 }
 
-func (c *contextualai) getResponseParams() map[string]interface{} {
-	// Contextual AI doesn't provide usage statistics in the current API so we return an empty map
-	return map[string]interface{}{contextualaiparams.Name: map[string]interface{}{}}
-}
-
 func (c *contextualai) extractKnowledge(properties []*modulecapabilities.GenerateProperties) []string {
 	var knowledge []string
 	for _, property := range properties {
@@ -255,11 +249,11 @@ func (c *contextualai) extractKnowledge(properties []*modulecapabilities.Generat
 
 func (c *contextualai) getContextualAIURL(ctx context.Context) (string, error) {
 	baseURL := "https://api.contextual.ai"
-	if value := ctx.Value(contextKey("X-Contextual-Baseurl")); value != nil {
+	if value := ctx.Value(contextKey("X-ContextualAI-Baseurl")); value != nil {
 		if urls, ok := value.([]string); ok && len(urls) > 0 {
 			baseURL = urls[0]
 		}
-	} else if headerBaseURL := modulecomponents.GetValueFromContext(ctx, "X-Contextual-Baseurl"); headerBaseURL != "" {
+	} else if headerBaseURL := modulecomponents.GetValueFromContext(ctx, "X-ContextualAI-Baseurl"); headerBaseURL != "" {
 		baseURL = headerBaseURL
 	}
 	return url.JoinPath(baseURL, "/v1/generate")
@@ -268,15 +262,15 @@ func (c *contextualai) getContextualAIURL(ctx context.Context) (string, error) {
 type contextKey string
 
 func (c *contextualai) getAPIKey(ctx context.Context) (string, error) {
-	if apiKey := modulecomponents.GetValueFromContext(ctx, "X-Contextual-Api-Key"); apiKey != "" {
+	if apiKey := modulecomponents.GetValueFromContext(ctx, "X-ContextualAI-Api-Key"); apiKey != "" {
 		return apiKey, nil
 	}
 	if c.apiKey != "" {
 		return c.apiKey, nil
 	}
 	return "", errors.New("no api key found for Contextual AI " +
-		"neither in request header: X-Contextual-Api-Key " +
-		"nor in the environment variable under CONTEXTUAL_API_KEY")
+		"neither in request header: X-ContextualAI-Api-Key " +
+		"nor in the environment variable under CONTEXTUALAI_APIKEY")
 }
 
 type generateInput struct {

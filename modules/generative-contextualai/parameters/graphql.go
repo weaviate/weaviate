@@ -57,19 +57,3 @@ func requestParamsFunction(classname string) *graphql.InputObjectFieldConfig {
 		),
 	}
 }
-
-func responseParamsFunction(classname string) *graphql.Field {
-	return &graphql.Field{Type: graphql.NewObject(graphql.ObjectConfig{
-		Name: fmt.Sprintf("%sUsage", classname),
-		Fields: graphql.Fields{
-			"usage": &graphql.Field{Type: graphql.NewObject(graphql.ObjectConfig{
-				Name: fmt.Sprintf("%sUsageMetadata", classname),
-				Fields: graphql.Fields{
-					"inputTokens":  &graphql.Field{Type: graphql.Int},
-					"outputTokens": &graphql.Field{Type: graphql.Int},
-					"totalTokens":  &graphql.Field{Type: graphql.Int},
-				},
-			})},
-		},
-	})}
-}

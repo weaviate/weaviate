@@ -17,19 +17,19 @@ import (
 )
 
 type fakeClassConfig struct {
-	classConfig map[string]interface{}
+	classConfig map[string]any
 }
 
-func (f fakeClassConfig) Class() map[string]interface{} {
+func (f fakeClassConfig) Class() map[string]any {
 	return f.classConfig
 }
 
-func (f fakeClassConfig) ClassByModuleName(moduleName string) map[string]interface{} {
+func (f fakeClassConfig) ClassByModuleName(moduleName string) map[string]any {
 	return f.classConfig
 }
 
-func (f fakeClassConfig) Property(propName string) map[string]interface{} {
-	return map[string]interface{}{}
+func (f fakeClassConfig) Property(propName string) map[string]any {
+	return map[string]any{}
 }
 
 func (f fakeClassConfig) Tenant() string {

@@ -36,11 +36,6 @@ var (
 	DefaultContextualAIAvoidCommentary = false
 )
 
-var availableContextualAIModels = []string{
-	"v1",
-	"v2",
-}
-
 type classSettings struct {
 	cfg                  moduletools.ClassConfig
 	propertyValuesHelper basesettings.PropertyValuesHelper
@@ -55,10 +50,6 @@ func (ic *classSettings) Validate(class *models.Class) error {
 	if ic.cfg == nil {
 		// we would receive a nil-config on cross-class requests, such as Explore{}
 		return errors.New("empty config")
-	}
-	model := ic.getStringProperty(modelProperty, DefaultContextualAIModel)
-	if model == nil || !ic.validateModel(*model) {
-		return errors.Errorf("wrong Contextual AI model name, available model names are: %v", availableContextualAIModels)
 	}
 	return nil
 }
@@ -84,10 +75,6 @@ func (ic *classSettings) getBoolProperty(name string, defaultValue bool) *bool {
 	return &result
 }
 
-func (ic *classSettings) validateModel(model string) bool {
-	return contains(availableContextualAIModels, model)
-}
-
 func (ic *classSettings) Model() string {
 	return *ic.getStringProperty(modelProperty, DefaultContextualAIModel)
 }
@@ -110,13 +97,4 @@ func (ic *classSettings) SystemPrompt() string {
 
 func (ic *classSettings) AvoidCommentary() *bool {
 	return ic.getBoolProperty(avoidCommentaryProperty, DefaultContextualAIAvoidCommentary)
-}
-
-func contains[T comparable](s []T, e T) bool {
-	for _, v := range s {
-		if v == e {
-			return true
-		}
-	}
-	return false
 }

@@ -47,6 +47,7 @@ message GenerativeProvider {
     GenerativeFriendliAI friendliai = 12;
     GenerativeNvidia nvidia = 13;
     GenerativeXAI xai = 14;
+    GenerativeContextualAI contextualai = 15;
   }
 }
 
@@ -203,6 +204,16 @@ message GenerativeXAI{
   optional int64 max_tokens = 5;
   optional TextArray images = 6;
   optional TextArray image_properties = 7;
+}
+
+message GenerativeContextualAI{
+  optional string model = 1;
+  optional double temperature = 2;
+  optional double top_p = 3;
+  optional int64 max_new_tokens = 4;
+  optional string system_prompt = 5;
+  optional bool avoid_commentary = 6;
+  optional TextArray knowledge = 7;
 }
 
 message GenerativeAnthropicMetadata {

@@ -20,7 +20,6 @@ func AdditionalGenerativeParameters(generativeClient modulecapabilities.Generati
 		Name: {
 			Client:                       generativeClient,
 			RequestParamsFunction:        requestParamsFunction,
-			ResponseParamsFunction:       responseParamsFunction,
 			ExtractRequestParamsFunction: extract,
 		},
 	}
