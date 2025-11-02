@@ -23,7 +23,7 @@ import (
 	"github.com/go-openapi/swag"
 )
 
-// BM25Config tuning parameters for the BM25 algorithm
+// BM25Config Tuning parameters for the BM25 algorithm.
 //
 // swagger:model BM25Config
 type BM25Config struct {

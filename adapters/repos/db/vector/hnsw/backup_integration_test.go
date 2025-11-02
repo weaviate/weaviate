@@ -10,7 +10,6 @@
 //
 
 //go:build integrationTest
-// +build integrationTest
 
 package hnsw
 
@@ -68,7 +67,7 @@ func TestBackup_Integration(t *testing.T) {
 		},
 	}, enthnsw.NewDefaultUserConfig(), tombstoneCleanupCallbacks, nil)
 	require.Nil(t, err)
-	idx.PostStartup()
+	idx.PostStartup(context.Background())
 
 	t.Run("insert vector into index", func(t *testing.T) {
 		for i := 0; i < 10; i++ {

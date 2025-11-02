@@ -10,7 +10,6 @@
 //
 
 //go:build integrationTestBug
-// +build integrationTestBug
 
 package hnsw
 

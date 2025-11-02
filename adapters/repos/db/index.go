@@ -76,18 +76,14 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
-var (
-
-	// Use runtime.GOMAXPROCS instead of runtime.NumCPU because NumCPU returns
-	// the physical CPU cores. However, in a containerization context, that might
-	// not be what we want. The physical node could have 128 cores, but we could
-	// be cgroup-limited to 2 cores. In that case, we want 2 to be our limit, not
-	// 128. It isn't guaranteed that MAXPROCS reflects the cgroup limit, but at
-	// least there is a chance that it was set correctly. If not, it defaults to
-	// NumCPU anyway, so we're not any worse off.
-	_NUMCPU          = runtime.GOMAXPROCS(0)
-	ErrShardNotFound = errors.New("shard not found")
-)
+// Use runtime.GOMAXPROCS instead of runtime.NumCPU because NumCPU returns
+// the physical CPU cores. However, in a containerization context, that might
+// not be what we want. The physical node could have 128 cores, but we could
+// be cgroup-limited to 2 cores. In that case, we want 2 to be our limit, not
+// 128. It isn't guaranteed that MAXPROCS reflects the cgroup limit, but at
+// least there is a chance that it was set correctly. If not, it defaults to
+// NumCPU anyway, so we're not any worse off.
+var _NUMCPU = runtime.GOMAXPROCS(0)
 
 // shardMap is a sync.Map which specialized in storing shards
 type shardMap sync.Map
@@ -738,6 +734,11 @@ func (i *Index) updateInvertedIndexConfig(ctx context.Context,
 
 	i.invertedIndexConfig = updated
 
+	err := i.stopwords.ReplaceDetectorFromConfig(updated.Stopwords)
+	if err != nil {
+		return fmt.Errorf("update inverted index config: %w", err)
+	}
+
 	return nil
 }
 
@@ -1352,6 +1353,7 @@ func (i *Index) objectByID(ctx context.Context, id strfmt.UUID,
 	if err != nil {
 		return obj, err
 	}
+	defer release()
 
 	if shard != nil {
 		if obj, err = shard.ObjectByID(ctx, id, props, addl); err != nil {
@@ -1434,14 +1436,16 @@ func (i *Index) multiObjectByID(ctx context.Context,
 		var err error
 
 		shard, release, err := i.getShardForDirectLocalOperation(ctx, tenant, shardName, localShardOperationRead)
-		defer release()
 		if err != nil {
 			return nil, err
 		} else if shard != nil {
-			objects, err = shard.MultiObjectByID(ctx, group.ids)
-			if err != nil {
-				return nil, errors.Wrapf(err, "local shard %s", shardId(i.ID(), shardName))
-			}
+			func() {
+				defer release()
+				objects, err = shard.MultiObjectByID(ctx, group.ids)
+				if err != nil {
+					err = errors.Wrapf(err, "local shard %s", shardId(i.ID(), shardName))
+				}
+			}()
 		} else {
 			objects, err = i.remote.MultiGetObjects(ctx, shardName, extractIDsFromMulti(group.ids))
 			if err != nil {
@@ -2479,10 +2483,6 @@ func (i *Index) drop() error {
 	}
 
 	return os.RemoveAll(i.path())
-}
-
-func (i *Index) DropShard(name string) error {
-	return i.dropShards([]string{name})
 }
 
 func (i *Index) dropShards(names []string) error {

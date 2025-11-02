@@ -60,16 +60,16 @@ func (s *SPFresh) Add(ctx context.Context, id uint64, vector []float32) (err err
 		s.dims = int32(len(vector))
 		s.setMaxPostingSize()
 		if s.config.Compressed {
-			s.quantizer = compressionhelpers.NewRotationalQuantizer(int(s.dims), 42, 8, s.config.Distancer)
+			s.quantizer = compressionhelpers.NewRotationalQuantizer(int(s.dims), 42, 8, s.config.DistanceProvider)
 			s.vectorSize = int32(compressedVectorSize(int(s.dims)))
 		} else {
 			s.vectorSize = s.dims * 4
 		}
 		s.distancer = &Distancer{
 			quantizer: s.quantizer,
-			distancer: s.config.Distancer,
+			distancer: s.config.DistanceProvider,
 		}
-		s.Store.Init(s.vectorSize, s.config.Compressed)
+		s.PostingStore.Init(s.vectorSize, s.config.Compressed)
 	})
 
 	// add the vector to the version map.
@@ -116,7 +116,7 @@ func (s *SPFresh) Add(ctx context.Context, id uint64, vector []float32) (err err
 }
 
 func (s *SPFresh) normalizeVec(vec []float32) []float32 {
-	if s.config.Distancer.Type() == "cosine-dot" {
+	if s.config.DistanceProvider.Type() == "cosine-dot" {
 		// cosine-dot requires normalized vectors, as the dot product and cosine
 		// similarity are only identical if the vector is normalized
 		return distancer.Normalize(vec)
@@ -138,7 +138,6 @@ func (s *SPFresh) ensureInitialPosting(v []float32, compressed []byte) (*ResultS
 	// if no postings were found, create a new posting while holding the lock
 	if targets.Len() == 0 {
 		postingID := s.IDs.Next()
-		s.PostingSizes.AllocPageFor(postingID)
 		// use the vector as the centroid and register it in the SPTAG
 		err = s.Centroids.Insert(postingID, &Centroid{
 			Uncompressed: v,
@@ -167,7 +166,7 @@ func (s *SPFresh) append(ctx context.Context, vector Vector, centroidID uint64, 
 		// the posting might have been deleted concurrently,
 		// might happen if we are reassigning
 		if s.VersionMap.Get(vector.ID()) == vector.Version() {
-			err := s.enqueueReassign(ctx, centroidID, vector)
+			err := s.taskQueue.EnqueueReassign(ctx, centroidID, vector.ID(), vector.Version())
 			if err != nil {
 				s.postingLocks.Unlock(centroidID)
 				return false, err
@@ -179,26 +178,27 @@ func (s *SPFresh) append(ctx context.Context, vector Vector, centroidID uint64, 
 	}
 
 	// append the new vector to the existing posting
-	err := s.Store.Append(ctx, centroidID, vector)
+	err := s.PostingStore.Append(ctx, centroidID, vector)
 	if err != nil {
 		s.postingLocks.Unlock(centroidID)
 		return false, err
 	}
 
 	// increment the size of the posting
-	s.PostingSizes.Inc(centroidID, 1)
+	count, err := s.PostingSizes.Inc(ctx, centroidID, 1)
+	if err != nil {
+		s.postingLocks.Unlock(centroidID)
+		return false, err
+	}
 
 	s.postingLocks.Unlock(centroidID)
-
-	// ensure the posting size is within the configured limits
-	count := s.PostingSizes.Get(centroidID)
 
 	// If the posting is too big, we need to split it.
 	// During an insert, we want to split asynchronously
 	// however during a reassign, we want to split immediately.
 	// Also, reassign operations may cause the posting to grow beyond the max size
 	// temporarily. To avoid triggering unnecessary splits, we add a fine-tuned threshold.
-	max := s.config.MaxPostingSize
+	max := s.maxPostingSize
 	if reassigned {
 		max += reassignThreshold
 	}
@@ -206,7 +206,7 @@ func (s *SPFresh) append(ctx context.Context, vector Vector, centroidID uint64, 
 		if reassigned {
 			err = s.doSplit(centroidID, false)
 		} else {
-			err = s.enqueueSplit(ctx, centroidID)
+			err = s.taskQueue.EnqueueSplit(ctx, centroidID)
 		}
 		if err != nil {
 			return false, err

@@ -14,8 +14,11 @@ package batch
 import (
 	"context"
 	"fmt"
+	"math"
 	"strings"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/sirupsen/logrus"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -23,172 +26,251 @@ import (
 	"github.com/weaviate/weaviate/usecases/replica"
 )
 
-type Batcher interface {
+const PER_PROCESS_TIMEOUT = 60 * time.Second
+
+type batcher interface {
 	BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest) (*pb.BatchObjectsReply, error)
 	BatchReferences(ctx context.Context, req *pb.BatchReferencesRequest) (*pb.BatchReferencesReply, error)
 }
 
-type Worker struct {
-	batcher       Batcher
-	logger        logrus.FieldLogger
-	readQueues    *ReadQueues
-	internalQueue internalQueue
-	wgs           *sync.Map // map[string]*sync.WaitGroup; streamID -> wg
+type worker struct {
+	batcher                batcher
+	logger                 logrus.FieldLogger
+	reportingQueues        *reportingQueues
+	processingQueue        processingQueue
+	enqueuedObjectsCounter *atomic.Int32
+	metrics                *BatchStreamingMetrics
 }
 
-type SendObjects struct {
-	Values           []*pb.BatchObject
-	ConsistencyLevel *pb.ConsistencyLevel
-	Index            int32
+type processRequest struct {
+	streamId         string
+	consistencyLevel *pb.ConsistencyLevel
+	objects          []*pb.BatchObject
+	references       []*pb.BatchReference
+	// This waitgroup should be set by the method that creates the processRequest
+	// and is used by the workers to signal when the processing of this request is complete.
+	wg *sync.WaitGroup
+	// This context contains metadata relevant to the stream as a whole, e.g. auth info,
+	// that is required for downstream authZ checks by the workers, e.g. data-specific RBAC.
+	streamCtx context.Context
 }
 
-type SendReferences struct {
-	Values           []*pb.BatchReference
-	ConsistencyLevel *pb.ConsistencyLevel
-	Index            int32
-}
-
-type ProcessRequest struct {
-	StreamId   string
-	Objects    *SendObjects
-	References *SendReferences
-	Stop       bool
-}
-
-func (w *Worker) wgForStream(streamId string) *sync.WaitGroup {
-	actual, _ := w.wgs.LoadOrStore(streamId, &sync.WaitGroup{})
-	return actual.(*sync.WaitGroup)
-}
-
-func (w *Worker) isReplicationError(err string) bool {
-	return strings.Contains(err, replica.ErrReplicas.Error()) || // broadcast error to shutdown node
-		(strings.Contains(err, "connect: Post") && strings.Contains(err, ":commit")) || // failed to connect to shutdown node when committing
-		(strings.Contains(err, "status code: 404, error: request not found")) // failed to find request on shutdown node
-}
-
-func (w *Worker) sendObjects(ctx context.Context, wg *sync.WaitGroup, streamId string, req *SendObjects) error {
-	if req == nil {
-		return fmt.Errorf("received nil sendObjects request")
-	}
-	wg.Add(1)
-	defer wg.Done()
-	reply, err := w.batcher.BatchObjects(ctx, &pb.BatchObjectsRequest{
-		Objects:          req.Values,
-		ConsistencyLevel: req.ConsistencyLevel,
-	})
-	if err != nil {
-		return err
-	}
-	if len(reply.GetErrors()) > 0 {
-		errs := make([]*pb.BatchStreamMessage_Error, 0, len(reply.GetErrors()))
-		for _, err := range reply.GetErrors() {
-			if err == nil {
-				continue
-			}
-			errs = append(errs, &pb.BatchStreamMessage_Error{
-				Error:       err.Error,
-				IsObject:    true,
-				Index:       req.Index + int32(err.Index),
-				IsRetriable: w.isReplicationError(err.Error),
-			})
-		}
-		if ch, ok := w.readQueues.Get(streamId); ok {
-			ch <- &readObject{Errors: errs}
-		}
-	}
-	return nil
-}
-
-func (w *Worker) sendReferences(ctx context.Context, wg *sync.WaitGroup, streamId string, req *SendReferences) error {
-	if req == nil {
-		return fmt.Errorf("received nil sendReferences request")
-	}
-	wg.Add(1)
-	defer wg.Done()
-	reply, err := w.batcher.BatchReferences(ctx, &pb.BatchReferencesRequest{
-		References:       req.Values,
-		ConsistencyLevel: req.ConsistencyLevel,
-	})
-	if err != nil {
-		return err
-	}
-	if len(reply.GetErrors()) > 0 {
-		errs := make([]*pb.BatchStreamMessage_Error, 0, len(reply.GetErrors()))
-		for _, err := range reply.GetErrors() {
-			if err == nil {
-				continue
-			}
-			errs = append(errs, &pb.BatchStreamMessage_Error{
-				Error:       err.Error,
-				IsReference: true,
-				Index:       req.Index + int32(err.Index),
-				IsRetriable: w.isReplicationError(err.Error),
-			})
-		}
-		if ch, ok := w.readQueues.Get(streamId); ok {
-			ch <- &readObject{Errors: errs}
-		}
-	}
-	return nil
-}
-
-// Loop processes objects from the write queue, sending them to the batcher and handling shutdown signals.
-func (w *Worker) Loop(ctx context.Context) error {
-	for {
-		select {
-		case <-ctx.Done():
-			// Drain the write queue and process any remaining requests
-			for req := range w.internalQueue {
-				if err := w.process(ctx, req); err != nil {
-					return fmt.Errorf("failed to process batch request: %w", err)
-				}
-			}
-			return nil
-		case req, ok := <-w.internalQueue:
-			if req != nil {
-				if err := w.process(ctx, req); err != nil {
-					return fmt.Errorf("failed to process batch request: %w", err)
-				}
-			}
-			if !ok {
-				return nil // channel closed, exit loop
-			}
-		}
-	}
-}
-
-func (w *Worker) process(ctx context.Context, req *ProcessRequest) error {
-	wg := w.wgForStream(req.StreamId)
-	if req.Objects != nil {
-		if err := w.sendObjects(ctx, wg, req.StreamId, req.Objects); err != nil {
-			return err
-		}
-	}
-	if req.References != nil {
-		if err := w.sendReferences(ctx, wg, req.StreamId, req.References); err != nil {
-			return err
-		}
-	}
-	// This should only ever be received once so it’s okay to wait on the shared wait group here
-	// If the scheduler does send more than one stop per stream then deadlocks may occur
-	if req.Stop {
-		wg.Wait() // Wait for all processing requests to complete
-		// Signal to the reply handler that we are done
-		w.readQueues.Close(req.StreamId)
-		w.wgs.Delete(req.StreamId) // Clean up the wait group map
-	}
-	return nil
-}
-
-func StartBatchWorkers(ctx context.Context, wg *sync.WaitGroup, concurrency int, internalQueue internalQueue, readQueues *ReadQueues, batcher Batcher, logger logrus.FieldLogger) {
+// StartBatchWorkers launches a specified number of worker goroutines to process batch requests.
+//
+// Each worker listens on the provided processing queue for incoming batch requests, processes them
+// using the provided batcher, and results any errors or statistics to the resulting queues.
+//
+// The function takes a wait group to track the completion of all workers, the number of workers to start,
+// the processing queue from which to read batch requests, the resulting queues for sending back results,
+// the batcher interface for processing the requests, and a logger for logging purposes.
+//
+// This waitgroup is used by the drain shutdown logic to ensure that all workers have completed processing
+// before any open server-side streams can be fully closed since ongoing workers may produce errors that need
+// resulting to clients before the server shuts down completely.
+func StartBatchWorkers(
+	wg *sync.WaitGroup,
+	concurrency int,
+	processingQueue processingQueue,
+	reportingQueues *reportingQueues,
+	batcher batcher,
+	enqueuedObjectsCounter *atomic.Int32,
+	metrics *BatchStreamingMetrics,
+	logger logrus.FieldLogger,
+) {
 	eg := enterrors.NewErrorGroupWrapper(logger)
-	wgs := sync.Map{}
+	logger.WithField("action", "batch_workers_start").WithField("concurrency", concurrency).Debug("entering worker loop(s)")
 	for range concurrency {
 		wg.Add(1)
 		eg.Go(func() error {
 			defer wg.Done()
-			w := &Worker{batcher: batcher, logger: logger, readQueues: readQueues, internalQueue: internalQueue, wgs: &wgs}
-			return w.Loop(ctx)
+			w := &worker{
+				batcher:                batcher,
+				logger:                 logger,
+				reportingQueues:        reportingQueues,
+				processingQueue:        processingQueue,
+				enqueuedObjectsCounter: enqueuedObjectsCounter,
+				metrics:                metrics,
+			}
+			return w.Loop()
 		})
+	}
+}
+
+func (w *worker) isReplicationError(err string) bool {
+	return strings.Contains(err, replica.ErrReplicas.Error()) || // coordinator: any error due to replicating to shutdown node
+		strings.Contains(err, "connect: Post") || // rest: failed to connect to shutdown node
+		strings.Contains(err, "status code: 404, error: request not found") || // rest: failed to find request on shutdown node
+		(strings.Contains(err, "resolve node name") && strings.Contains(err, "to host")) || // memberlist: failed to resolve to other shutdown node in cluster
+		(strings.Contains(err, "the client connection is closing")) // grpc: connection to other shutdown node is closed
+}
+
+func (w *worker) sendObjects(ctx context.Context, streamId string, objs []*pb.BatchObject, cl *pb.ConsistencyLevel, retries int) ([]*pb.BatchStreamReply_Results_Success, []*pb.BatchStreamReply_Results_Error) {
+	reply, err := w.batcher.BatchObjects(ctx, &pb.BatchObjectsRequest{
+		Objects:          objs,
+		ConsistencyLevel: cl,
+	})
+	if err != nil {
+		errors := make([]*pb.BatchStreamReply_Results_Error, 0, len(objs))
+		w.logger.WithField("streamId", streamId).Errorf("failed to batch objects: %s", err)
+		for _, obj := range objs {
+			errors = append(errors, &pb.BatchStreamReply_Results_Error{
+				Error:  err.Error(),
+				Detail: &pb.BatchStreamReply_Results_Error_Uuid{Uuid: obj.Uuid},
+			})
+		}
+		return nil, errors
+	}
+	// Assumption is no errors, so don't preallocate error slice
+	errors := make([]*pb.BatchStreamReply_Results_Error, 0)
+	// Assumption is all successes, so preallocate success slice
+	successes := make([]*pb.BatchStreamReply_Results_Success, 0, len(objs))
+	// Handle errors
+	errored := make(map[int32]struct{})
+	if len(reply.GetErrors()) > 0 {
+		retriable := make([]*pb.BatchObject, 0)
+		for _, err := range reply.GetErrors() {
+			if err == nil {
+				continue
+			}
+			errored[err.Index] = struct{}{}
+			if w.isReplicationError(err.Error) && retries < 3 {
+				retriable = append(retriable, objs[err.Index])
+				continue
+			}
+			errors = append(errors, &pb.BatchStreamReply_Results_Error{
+				Error:  err.Error,
+				Detail: &pb.BatchStreamReply_Results_Error_Uuid{Uuid: objs[err.Index].Uuid},
+			})
+		}
+		if len(retriable) > 0 {
+			// exponential backoff with 2 ** n and 100ms base
+			<-time.After(time.Duration(math.Pow(2, float64(retries))) * 100 * time.Millisecond)
+			successesInner, errorsInner := w.sendObjects(ctx, streamId, retriable, cl, retries+1)
+			successes = append(successes, successesInner...)
+			errors = append(errors, errorsInner...)
+		}
+	}
+	// Handle successes
+	for i, obj := range objs {
+		if _, ok := errored[int32(i)]; ok {
+			continue
+		}
+		successes = append(successes, &pb.BatchStreamReply_Results_Success{
+			Detail: &pb.BatchStreamReply_Results_Success_Uuid{Uuid: obj.Uuid},
+		})
+	}
+	return successes, errors
+}
+
+func toBeacon(ref *pb.BatchReference) string {
+	return fmt.Sprintf("%s%s/%s/%s", BEACON_START, ref.FromCollection, ref.FromUuid, ref.Name)
+}
+
+func (w *worker) sendReferences(ctx context.Context, streamId string, refs []*pb.BatchReference, cl *pb.ConsistencyLevel, retries int) ([]*pb.BatchStreamReply_Results_Success, []*pb.BatchStreamReply_Results_Error) {
+	reply, err := w.batcher.BatchReferences(ctx, &pb.BatchReferencesRequest{
+		References:       refs,
+		ConsistencyLevel: cl,
+	})
+	if err != nil {
+		w.logger.WithField("streamId", streamId).Errorf("failed to batch references: %s", err)
+		errors := make([]*pb.BatchStreamReply_Results_Error, 0, len(refs))
+		for _, ref := range refs {
+			errors = append(errors, &pb.BatchStreamReply_Results_Error{
+				Error:  err.Error(),
+				Detail: &pb.BatchStreamReply_Results_Error_Beacon{Beacon: toBeacon(ref)},
+			})
+		}
+		return nil, errors
+	}
+	// Assumption is no errors, so don't preallocate error slice
+	errors := make([]*pb.BatchStreamReply_Results_Error, 0)
+	// Assumption is all successes, so preallocate success slice
+	successes := make([]*pb.BatchStreamReply_Results_Success, 0, len(refs))
+	// Handle errors
+	errored := make(map[int32]struct{})
+	if len(reply.GetErrors()) > 0 {
+		retriable := make([]*pb.BatchReference, 0)
+		for _, err := range reply.GetErrors() {
+			if err == nil {
+				continue
+			}
+			errored[err.Index] = struct{}{}
+			if w.isReplicationError(err.Error) && retries < 3 {
+				retriable = append(retriable, refs[err.Index])
+				continue
+			}
+			errors = append(errors, &pb.BatchStreamReply_Results_Error{
+				Error:  err.Error,
+				Detail: &pb.BatchStreamReply_Results_Error_Beacon{Beacon: toBeacon(refs[err.Index])},
+			})
+		}
+		if len(retriable) > 0 {
+			// exponential backoff with 2 ** n and 100ms base
+			<-time.After(time.Duration(math.Pow(2, float64(retries))) * 100 * time.Millisecond)
+			successesInner, errorsInner := w.sendReferences(ctx, streamId, retriable, cl, retries+1)
+			successes = append(successes, successesInner...)
+			errors = append(errors, errorsInner...)
+		}
+	}
+	// Handle successes
+	for i, ref := range refs {
+		if _, ok := errored[int32(i)]; ok {
+			continue
+		}
+		successes = append(successes, &pb.BatchStreamReply_Results_Success{
+			Detail: &pb.BatchStreamReply_Results_Success_Beacon{Beacon: toBeacon(ref)},
+		})
+	}
+	return successes, errors
+}
+
+// Loop is the entrypoint for the worker logic.
+//
+// It continuously listens for incoming process requests on the processing queue,
+// processes each request by sending the objects and references to the batcher,
+// and results any errors or statistics back to the resulting queues.
+//
+// The loop runs until the processing queue is closed, at which point the worker
+// logs its shutdown and exits gracefully.
+func (w *worker) Loop() error {
+	for req := range w.processingQueue {
+		if req == nil {
+			w.logger.WithField("action", "batch_worker_loop").Error("received nil process request")
+			continue
+		}
+		howMany := len(req.objects) + len(req.references)
+		if w.metrics != nil {
+			w.metrics.OnProcessingQueuePull(howMany)
+		}
+		w.enqueuedObjectsCounter.Add(-int32(howMany))
+		w.process(req)
+	}
+	w.logger.Debug("processing queue closed, shutting down worker")
+	return nil // channel closed, exit loop
+}
+
+func (w *worker) process(req *processRequest) {
+	start := time.Now()
+	defer req.wg.Done()
+
+	ctx, cancel := context.WithTimeout(req.streamCtx, PER_PROCESS_TIMEOUT)
+	defer cancel()
+
+	successes := make([]*pb.BatchStreamReply_Results_Success, 0, len(req.objects)+len(req.references))
+	errors := make([]*pb.BatchStreamReply_Results_Error, 0)
+	if len(req.objects) > 0 {
+		successesInner, errorsInner := w.sendObjects(ctx, req.streamId, req.objects, req.consistencyLevel, 0)
+		successes = append(successes, successesInner...)
+		errors = append(errors, errorsInner...)
+	}
+	if len(req.references) > 0 {
+		successesInner, errorsInner := w.sendReferences(ctx, req.streamId, req.references, req.consistencyLevel, 0)
+		successes = append(successes, successesInner...)
+		errors = append(errors, errorsInner...)
+	}
+
+	stats := newWorkersStats(time.Since(start))
+	if ok := w.reportingQueues.send(req.streamId, successes, errors, stats); !ok {
+		w.logger.WithField("streamId", req.streamId).Warn("timed out sending a worker report to the reporting queue, maybe the client disconnected?")
 	}
 }

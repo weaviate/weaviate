@@ -20,6 +20,7 @@ import (
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
@@ -242,7 +243,7 @@ func testBucketContent(t *testing.T, strategy string, b *Bucket, maxObject int) 
 			require.NoError(t, err)
 			require.Equal(t, val, get)
 
-			secondary, err := b.GetBySecondary(0, []byte(fmt.Sprintf("bonjour%d", i)))
+			secondary, err := b.GetBySecondary(ctx, 0, []byte(fmt.Sprintf("bonjour%d", i)))
 			require.NoError(t, err)
 			require.Equal(t, val, secondary)
 		case StrategySetCollection:
@@ -252,8 +253,10 @@ func testBucketContent(t *testing.T, strategy string, b *Bucket, maxObject int) 
 		case StrategyRoaringSet:
 			get, release, err := b.RoaringSetGet(key)
 			require.NoError(t, err)
-			defer release()
-			require.True(t, get.Contains(uint64(i)))
+			func() {
+				require.True(t, get.Contains(uint64(i)))
+				defer release()
+			}()
 		case StrategyRoaringSetRange:
 			//_, err :=  b.Rang
 			//require.NoError(t,err)
@@ -350,11 +353,11 @@ func TestBucketReloadAfterWalDamange(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, []byte(fmt.Sprintf("world%d", i)), val)
 
-		secondary0, err := b.GetBySecondary(0, []byte(fmt.Sprintf("bonjour%d", i)))
+		secondary0, err := b.GetBySecondary(ctx, 0, []byte(fmt.Sprintf("bonjour%d", i)))
 		require.NoError(t, err)
 		require.Equal(t, []byte(fmt.Sprintf("world%d", i)), secondary0)
 
-		secondary1, err := b.GetBySecondary(1, []byte(fmt.Sprintf("hallo%d", i)))
+		secondary1, err := b.GetBySecondary(ctx, 1, []byte(fmt.Sprintf("hallo%d", i)))
 		require.NoError(t, err)
 		require.Equal(t, []byte(fmt.Sprintf("world%d", i)), secondary1)
 	}

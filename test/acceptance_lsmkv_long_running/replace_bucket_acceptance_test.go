@@ -9,9 +9,6 @@
 //  CONTACT: hello@weaviate.io
 //
 
-//go:build manual
-// +build manual
-
 package main
 
 import (
@@ -25,17 +22,24 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
 func TestLSMKV_ReplaceBucket(t *testing.T) {
-	putThreshold := 1000 * time.Millisecond
-	getThreshold := 500 * time.Millisecond
+	putThreshold := 100 * time.Millisecond
+	getThreshold := 100 * time.Millisecond
 
+	testDuration := 10 * time.Minute
 	writeDuration := time.Minute
 	readDuration := time.Minute
+
+	// avoid perfect synchronization with the write/read mode switch, otherwise
+	// the cursor will only ever co-occur with one of the modes
+	cursorStartInterval := 180 * time.Second
+	cursorMaxDuration := 90 * time.Second
 
 	trackWorstQueries := 10
 	workers := 3
@@ -72,7 +76,7 @@ func TestLSMKV_ReplaceBucket(t *testing.T) {
 
 	defer bucket.Shutdown(ctx)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), testDuration)
 	defer cancel()
 
 	results := make([]result, workers)
@@ -84,6 +88,9 @@ func TestLSMKV_ReplaceBucket(t *testing.T) {
 		wg.Add(1)
 		go worker(ctx, t, mode, &wg, workerID, bucket, logger, putThreshold, getThreshold, trackWorstQueries, results)
 	}
+
+	wg.Add(1)
+	go cursorWorker(ctx, t, &wg, 0, bucket, logger, cursorStartInterval, cursorMaxDuration)
 
 	modeCtx, cancelMode := context.WithCancel(context.Background())
 	go mode.alternate(modeCtx)
@@ -103,15 +110,19 @@ func TestLSMKV_ReplaceBucket(t *testing.T) {
 		totalIngested += r.ingested
 		totalSpotChecks += r.getSpotChecks
 
+		t.Logf("Put")
 		for r.worstPutQueries.Len() > 0 {
 			tookMs := r.worstPutQueries.Pop().Dist * 1000
+			t.Logf("tookMs: %.2f", tookMs)
 			if tookMs > float32(putThreshold.Milliseconds()) {
 				putOutsideThreshold = append(putOutsideThreshold, tookMs)
 			}
 		}
 
+		t.Logf("Get")
 		for r.worstGetQueries.Len() > 0 {
 			tookMs := r.worstGetQueries.Pop().Dist * 1000
+			t.Logf("tookMs: %.2f", tookMs)
 			if tookMs > float32(getThreshold.Milliseconds()) {
 				getOutsideThreshold = append(getOutsideThreshold, tookMs)
 			}
@@ -217,11 +228,7 @@ func worker(ctx context.Context, t *testing.T, mode *mode, wg *sync.WaitGroup, w
 
 	i := 0
 	totalAsserted := 0
-	for {
-		if ctx.Err() != nil {
-			break
-		}
-
+	for ctx.Err() == nil {
 		if mode.isWrite() {
 			before := time.Now()
 			bucket.Put([]byte(fmt.Sprintf("worker-%d-key-%d", workerID, i)), []byte(fmt.Sprintf("value-%d", i)))
@@ -242,6 +249,10 @@ func worker(ctx context.Context, t *testing.T, mode *mode, wg *sync.WaitGroup, w
 		// read mode
 		j := 0
 		for j < i {
+			if mode.isWrite() || ctx.Err() != nil {
+				break
+			}
+
 			before := time.Now()
 			val, err := bucket.Get([]byte(fmt.Sprintf("worker-%d-key-%d", workerID, j)))
 			if err != nil {
@@ -282,5 +293,42 @@ func trackWorstQuery(heap *priorityqueue.Queue[float32], i int, took time.Durati
 	} else if heap.Top().Dist < float32(took.Seconds()) {
 		heap.Pop()
 		heap.Insert(uint64(i), float32(took.Seconds()))
+	}
+}
+
+func cursorWorker(ctx context.Context, t *testing.T, wg *sync.WaitGroup, workerID int,
+	bucket *lsmkv.Bucket, logger logrus.FieldLogger, startInterval, maxDuration time.Duration,
+) {
+	defer wg.Done()
+
+	ticker := time.NewTicker(startInterval)
+
+	for {
+		select {
+
+		case <-ctx.Done():
+			ticker.Stop()
+			return
+
+		case <-ticker.C:
+			func() {
+				cursorCtx, cancel := context.WithTimeout(ctx, maxDuration)
+				defer cancel()
+
+				c := bucket.Cursor()
+				keys := 0
+				bytesRead := 0
+				for k, v := c.First(); k != nil; k, v = c.Next() {
+					if cursorCtx.Err() != nil {
+						break
+					}
+
+					keys++
+					bytesRead += len(k) + len(v)
+				}
+				c.Close()
+				logger.WithField("cursor_worker_id", workerID).WithField("keys", keys).WithField("bytes_read", bytesRead).Infof("cursor completed")
+			}()
+		}
 	}
 }

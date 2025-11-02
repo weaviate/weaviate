@@ -14,6 +14,7 @@ package roaringsetrange
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -24,8 +25,10 @@ import (
 )
 
 func TestSegmentInMemory(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+
 	t.Run("bitmaps are initialized and empty", func(t *testing.T) {
-		s := NewSegmentInMemory()
+		s := NewSegmentInMemory(logger)
 
 		for i := range s.bitmaps {
 			assert.NotNil(t, s.bitmaps[i])
@@ -36,13 +39,11 @@ func TestSegmentInMemory(t *testing.T) {
 	t.Run("size is sum of bitmap sizes", func(t *testing.T) {
 		bmSize := sroar.NewBitmap().LenInBytes()
 
-		s := NewSegmentInMemory()
+		s := NewSegmentInMemory(logger)
 		assert.Equal(t, bmSize*65, s.Size())
 	})
 
 	t.Run("merging", func(t *testing.T) {
-		logger, _ := test.NewNullLogger()
-
 		mt1, mt2, mt3 := createTestMemtables(logger)
 		expectedElemsByBit := map[int][]uint64{
 			0: {10, 20, 14, 24, 15, 25, 113, 213, 117, 217, 119, 219},
@@ -58,33 +59,133 @@ func TestSegmentInMemory(t *testing.T) {
 			cur2 := newFakeSegmentCursor(mt2)
 			cur3 := newFakeSegmentCursor(mt3)
 
-			s := NewSegmentInMemory()
-			s.MergeSegmentByCursor(cur1)
-			s.MergeSegmentByCursor(cur2)
-			s.MergeSegmentByCursor(cur3)
+			seg := NewSegmentInMemory(logger)
+			seg.MergeSegmentByCursor(cur1)
+			seg.MergeSegmentByCursor(cur2)
+			seg.MergeSegmentByCursor(cur3)
 
-			assertElemsByBit(t, s, expectedElemsByBit)
+			assertElemsByBit(t, seg, expectedElemsByBit)
 		})
 
 		t.Run("memtables", func(t *testing.T) {
-			s := NewSegmentInMemory()
-			s.MergeMemtable(mt1)
-			s.MergeMemtable(mt2)
-			s.MergeMemtable(mt3)
+			seg := NewSegmentInMemory(logger)
+			seg.MergeMemtableEventually(mt1)
+			seg.MergeMemtableEventually(mt2)
+			seg.MergeMemtableEventually(mt3)
 
-			assertElemsByBit(t, s, expectedElemsByBit)
+			waitUntilMemtablesMerged(t, seg)
+			assertElemsByBit(t, seg, expectedElemsByBit)
 		})
 
 		t.Run("segments + memtable", func(t *testing.T) {
 			cur1 := newFakeSegmentCursor(mt1)
 			cur2 := newFakeSegmentCursor(mt2)
 
-			s := NewSegmentInMemory()
-			s.MergeSegmentByCursor(cur1)
-			s.MergeSegmentByCursor(cur2)
-			s.MergeMemtable(mt3)
+			seg := NewSegmentInMemory(logger)
+			seg.MergeSegmentByCursor(cur1)
+			seg.MergeSegmentByCursor(cur2)
+			seg.MergeMemtableEventually(mt3)
 
-			assertElemsByBit(t, s, expectedElemsByBit)
+			waitUntilMemtablesMerged(t, seg)
+			assertElemsByBit(t, seg, expectedElemsByBit)
+		})
+	})
+
+	t.Run("simultaneous read & write", func(t *testing.T) {
+		mt1, mt2, mt3 := createTestMemtables(logger)
+		bufPool := roaringset.NewBitmapBufPoolNoop()
+
+		createReader := func(s *SegmentInMemory) *CombinedReader {
+			readers, release := s.Readers(bufPool)
+			return NewCombinedReader(readers, release, 1, logger)
+		}
+
+		assertResult := func(t *testing.T, creader *CombinedReader, value uint64, operator filters.Operator, expected []uint64) {
+			t.Helper()
+
+			bm, release, err := creader.Read(context.Background(), value, operator)
+			require.NoError(t, err)
+
+			defer release()
+			assert.ElementsMatch(t, expected, bm.ToArray())
+		}
+
+		assertGreaterThanEqual13 := func(t *testing.T, creader *CombinedReader) {
+			assertResult(t, creader, 13, filters.OperatorGreaterThanEqual, []uint64{113, 213, 117, 217, 119, 219})
+		}
+
+		t.Run("multiple readers used", func(t *testing.T) {
+			seg := NewSegmentInMemory(logger)
+			seg.MergeMemtableEventually(mt1)
+			seg.MergeMemtableEventually(mt2)
+			seg.MergeMemtableEventually(mt3)
+
+			t.Run("same results before merge", func(t *testing.T) {
+				creader1 := createReader(seg)
+				creader2 := createReader(seg)
+				creader3 := createReader(seg)
+				defer creader1.Close()
+				defer creader2.Close()
+				defer creader3.Close()
+
+				assertGreaterThanEqual13(t, creader1)
+				assertGreaterThanEqual13(t, creader2)
+				assertGreaterThanEqual13(t, creader3)
+			})
+
+			waitUntilMemtablesMerged(t, seg)
+
+			t.Run("same results after merge", func(t *testing.T) {
+				creader1 := createReader(seg)
+				creader2 := createReader(seg)
+				creader3 := createReader(seg)
+				defer creader1.Close()
+				defer creader2.Close()
+				defer creader3.Close()
+
+				assertGreaterThanEqual13(t, creader1)
+				assertGreaterThanEqual13(t, creader2)
+				assertGreaterThanEqual13(t, creader3)
+			})
+		})
+
+		t.Run("write when readers in use", func(t *testing.T) {
+			assertGreaterThanEqual13_0 := func(t *testing.T, creader *CombinedReader) {
+				assertResult(t, creader, 13, filters.OperatorGreaterThanEqual, []uint64{})
+			}
+			assertGreaterThanEqual13_1 := func(t *testing.T, creader *CombinedReader) {
+				assertResult(t, creader, 13, filters.OperatorGreaterThanEqual, []uint64{119, 219, 113, 213})
+			}
+			assertGreaterThanEqual13_2 := func(t *testing.T, creader *CombinedReader) {
+				assertResult(t, creader, 13, filters.OperatorGreaterThanEqual, []uint64{117, 217, 119, 219, 113, 213, 15, 25})
+			}
+
+			seg := NewSegmentInMemory(logger)
+			creader0 := createReader(seg)
+			seg.MergeMemtableEventually(mt1)
+			creader1 := createReader(seg)
+			seg.MergeMemtableEventually(mt2)
+			creader2 := createReader(seg)
+			seg.MergeMemtableEventually(mt3)
+			creader3 := createReader(seg)
+
+			// before merge
+			assertGreaterThanEqual13_0(t, creader0)
+			assertGreaterThanEqual13_1(t, creader1)
+			assertGreaterThanEqual13_2(t, creader2)
+			assertGreaterThanEqual13(t, creader3)
+
+			// close readers to allow merge
+			creader0.Close()
+			creader1.Close()
+			creader2.Close()
+			creader3.Close()
+
+			waitUntilMemtablesMerged(t, seg)
+
+			// after merge
+			creader := createReader(seg)
+			assertGreaterThanEqual13(t, creader)
 		})
 	})
 }
@@ -93,14 +194,18 @@ func TestSegmentInMemoryReader(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	mt1, mt2, mt3 := createTestMemtables(logger)
 
-	s := NewSegmentInMemory()
-	s.MergeMemtable(mt1)
-	s.MergeMemtable(mt2)
-	s.MergeMemtable(mt3)
+	seg := NewSegmentInMemory(logger)
+	seg.MergeMemtableEventually(mt1)
+	seg.MergeMemtableEventually(mt2)
+	seg.MergeMemtableEventually(mt3)
 
-	bufPool := roaringset.NewBitmapBufPoolNoop()
-	reader, release := NewSegmentInMemoryReader(s, bufPool)
+	waitUntilMemtablesMerged(t, seg)
+
+	readers, release := seg.Readers(roaringset.NewBitmapBufPoolNoop())
 	defer release()
+
+	require.Len(t, readers, 1)
+	reader := readers[0]
 
 	t.Run("read valid operators", func(t *testing.T) {
 		testCases := []struct {
@@ -275,14 +380,19 @@ func TestSegmentInMemoryReaderBufPool(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	mt1, mt2, mt3 := createTestMemtables(logger)
 
-	s := NewSegmentInMemory()
-	s.MergeMemtable(mt1)
-	s.MergeMemtable(mt2)
-	s.MergeMemtable(mt3)
+	seg := NewSegmentInMemory(logger)
+	seg.MergeMemtableEventually(mt1)
+	seg.MergeMemtableEventually(mt2)
+	seg.MergeMemtableEventually(mt3)
+
+	waitUntilMemtablesMerged(t, seg)
 
 	bufPool := newBitmapBufPoolWithCounter()
-	reader, release := NewSegmentInMemoryReader(s, bufPool)
+	readers, release := seg.Readers(bufPool)
 	defer release()
+
+	require.Len(t, readers, 1)
+	reader := readers[0]
 
 	t.Run("all but one bufs are returned to the pull on read", func(t *testing.T) {
 		testCases := []struct {
@@ -376,6 +486,7 @@ func TestSegmentInMemoryReaderBufPool(t *testing.T) {
 }
 
 func assertElemsByBit(t *testing.T, s *SegmentInMemory, expectedElemsByBit map[int][]uint64) {
+	t.Helper()
 	for bit := 0; bit < 65; bit++ {
 		if elems, ok := expectedElemsByBit[bit]; ok {
 			assert.ElementsMatch(t, elems, s.bitmaps[bit].ToArray())
@@ -383,6 +494,11 @@ func assertElemsByBit(t *testing.T, s *SegmentInMemory, expectedElemsByBit map[i
 			assert.True(t, s.bitmaps[bit].IsEmpty())
 		}
 	}
+}
+
+func waitUntilMemtablesMerged(t *testing.T, s *SegmentInMemory) {
+	t.Helper()
+	require.Eventually(t, func() bool { return s.countPendingMemtables() == 0 }, time.Second, 10*time.Millisecond)
 }
 
 type bitmapBufPoolWithCounter struct {

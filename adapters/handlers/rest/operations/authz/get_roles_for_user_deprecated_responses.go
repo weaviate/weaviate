@@ -216,7 +216,7 @@ func (o *GetRolesForUserDeprecatedNotFound) WriteResponse(rw http.ResponseWriter
 const GetRolesForUserDeprecatedUnprocessableEntityCode int = 422
 
 /*
-GetRolesForUserDeprecatedUnprocessableEntity The request syntax is correct, but the server couldn't process it due to semantic issues.
+GetRolesForUserDeprecatedUnprocessableEntity The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.
 
 swagger:response getRolesForUserDeprecatedUnprocessableEntity
 */

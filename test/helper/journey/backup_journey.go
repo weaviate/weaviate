@@ -90,13 +90,22 @@ func backupJourney(t *testing.T, className, backend, basebackupID string,
 
 		assert.EventuallyWithT(t, func(t1 *assert.CollectT) {
 			resp, err := helper.CreateBackup(t, cfg, className, backend, backupID)
-			helper.AssertRequestOk(t, resp, err, nil)
+			if err != nil {
+				// If backup is still in progress from a previous operation, fail this iteration
+				// so EventuallyWithT will retry until the slot is released
+				if assert.Contains(t1, err.Error(), "already in progress") {
+					assert.Fail(t1, "backup still in progress, retrying", err.Error())
+				}
+				return
+			}
+			require.NotNil(t1, resp)
+			require.NotNil(t1, resp.Payload)
 			assert.Equal(t1, cfg.Bucket, resp.Payload.Bucket)
 			if cfg.Bucket != "" {
-				assert.Contains(t, resp.Payload.Path, cfg.Bucket)
+				assert.Contains(t1, resp.Payload.Path, cfg.Bucket)
 			}
 			if cfg.Path != "" {
-				assert.Contains(t, resp.Payload.Path, cfg.Path)
+				assert.Contains(t1, resp.Payload.Path, cfg.Path)
 			}
 			assert.Equal(t1, backupID, resp.Payload.ID)
 			assert.Equal(t1, className, resp.Payload.Classes[0])
@@ -106,7 +115,7 @@ func backupJourney(t *testing.T, className, backend, basebackupID string,
 
 		assert.EventuallyWithT(t, func(t1 *assert.CollectT) {
 			resp, err := helper.CreateBackupStatus(t, backend, backupID, overrideBucket, overridePath)
-			assert.Nil(t, err, "expected nil, got: %v", err)
+			assert.Nil(t1, err, "expected nil, got: %v", err)
 
 			assert.NotNil(t1, resp)
 			assert.NotNil(t1, resp.Payload)
@@ -121,16 +130,14 @@ func backupJourney(t *testing.T, className, backend, basebackupID string,
 
 		assert.EventuallyWithT(t, func(t1 *assert.CollectT) {
 			statusResp, err := helper.CreateBackupStatus(t, backend, backupID, overrideBucket, overridePath)
-
-			helper.AssertRequestOk(t, statusResp, err, func() {
-				assert.NotNil(t1, statusResp)
-				assert.NotNil(t1, statusResp.Payload)
-				assert.NotNil(t1, statusResp.Payload.Status)
-				assert.Equal(t1, backupID, statusResp.Payload.ID)
-				assert.Equal(t1, backend, statusResp.Payload.Backend)
-				assert.Contains(t1, statusResp.Payload.Path, overrideBucket)
-				assert.Contains(t1, statusResp.Payload.Path, overridePath)
-			})
+			require.NoError(t1, err)
+			require.NotNil(t1, statusResp)
+			require.NotNil(t1, statusResp.Payload)
+			require.NotNil(t1, statusResp.Payload.Status)
+			assert.Equal(t1, backupID, statusResp.Payload.ID)
+			assert.Equal(t1, backend, statusResp.Payload.Backend)
+			assert.Contains(t1, statusResp.Payload.Path, overrideBucket)
+			assert.Contains(t1, statusResp.Payload.Path, overridePath)
 
 			assert.Equal(t1, string(backup.Success), *statusResp.Payload.Status,
 				statusResp.Payload.Error)
@@ -332,6 +339,9 @@ wait:
 				found = true
 				assert.Equal(t, string(backup.Success), b.Status)
 				assert.Contains(t, b.Classes, className)
+
+				// Validate backup size is reported and greater than 0
+				assert.Greater(t, b.Size, float64(0), "Backup size should be greater than 0")
 
 				// Validate timestamp fields
 				require.NotNil(t, b.StartedAt, "StartedAt should not be nil")

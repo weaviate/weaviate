@@ -40,7 +40,7 @@ func (s *SPFresh) SearchByVector(ctx context.Context, vector []float32, k int, a
 
 	// If k is larger than the configured number of candidates, use k as the candidate number
 	// to enlarge the search space.
-	candidateNum := max(k, s.config.SearchProbe)
+	candidateNum := max(k, int(s.searchProbe))
 
 	centroids, err := s.Centroids.Search(vector, candidateNum)
 	if err != nil {
@@ -55,7 +55,14 @@ func (s *SPFresh) SearchByVector(ctx context.Context, vector []float32, k int, a
 	// filter out candidates that are too far away or have no vectors
 	selected = make([]uint64, 0, candidateNum)
 	for i := 0; i < len(centroids.data) && len(selected) < candidateNum; i++ {
-		if (maxDist > pruningMinMaxDistance && centroids.data[i].Distance > maxDist) || s.PostingSizes.Get(centroids.data[i].ID) == 0 {
+		if maxDist > pruningMinMaxDistance && centroids.data[i].Distance > maxDist {
+			continue
+		}
+		count, err := s.PostingSizes.Get(ctx, centroids.data[i].ID)
+		if err != nil {
+			return nil, nil, err
+		}
+		if count == 0 {
 			continue
 		}
 
@@ -63,7 +70,7 @@ func (s *SPFresh) SearchByVector(ctx context.Context, vector []float32, k int, a
 	}
 
 	// read all the selected postings
-	postings, err = s.Store.MultiGet(ctx, selected)
+	postings, err = s.PostingStore.MultiGet(ctx, selected)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -110,8 +117,8 @@ func (s *SPFresh) SearchByVector(ctx context.Context, vector []float32, k int, a
 
 		// if the posting size is lower than the configured minimum,
 		// enqueue a merge operation
-		if postingSize < int(s.config.MinPostingSize) {
-			err = s.enqueueMerge(ctx, selected[i])
+		if postingSize < int(s.minPostingSize) {
+			err = s.taskQueue.EnqueueMerge(ctx, selected[i])
 			if err != nil {
 				return nil, nil, errors.Wrapf(err, "failed to enqueue merge for posting %d", selected[i])
 			}

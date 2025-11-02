@@ -15,7 +15,6 @@ import (
 	"encoding/binary"
 	"iter"
 	"math"
-	"sync/atomic"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
@@ -373,44 +372,6 @@ func (v *VersionMap) IsDeleted(id uint64) bool {
 // AllocPageFor ensures that the version map has a page allocated for the given ID.
 func (v *VersionMap) AllocPageFor(id uint64) {
 	v.versions.EnsurePageFor(id)
-}
-
-// PostingSizes keeps track of the number of vectors in each posting.
-type PostingSizes struct {
-	sizes   *common.PagedArray[uint32]
-	metrics *Metrics
-}
-
-func NewPostingSizes(metrics *Metrics, pages, pageSize uint64) *PostingSizes {
-	return &PostingSizes{
-		sizes:   common.NewPagedArray[uint32](pages, pageSize),
-		metrics: metrics,
-	}
-}
-
-func (v *PostingSizes) Get(postingID uint64) uint32 {
-	page, slot := v.sizes.GetPageFor(postingID)
-	return atomic.LoadUint32(&page[slot])
-}
-
-func (v *PostingSizes) Set(postingID uint64, newSize uint32) {
-	page, slot := v.sizes.GetPageFor(postingID)
-	atomic.StoreUint32(&page[slot], newSize)
-	v.metrics.ObservePostingSize(float64(newSize))
-}
-
-func (v *PostingSizes) Inc(postingID uint64, delta uint32) uint32 {
-	page, slot := v.sizes.GetPageFor(postingID)
-	res := atomic.AddUint32(&page[slot], delta)
-	v.metrics.ObservePostingSize(float64(res))
-	return res
-}
-
-// AllocPageFor ensures the array has a page allocated for the given IDs.
-func (v *PostingSizes) AllocPageFor(id ...uint64) {
-	for _, id := range id {
-		v.sizes.EnsurePageFor(id)
-	}
 }
 
 type Distancer struct {

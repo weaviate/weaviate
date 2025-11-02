@@ -45,7 +45,7 @@ type ObjectsValidateParams struct {
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
-	/*
+	/*The object definition to validate.
 	  Required: true
 	  In: body
 	*/

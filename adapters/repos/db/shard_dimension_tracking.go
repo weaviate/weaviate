@@ -39,11 +39,10 @@ const (
 	DimensionCategoryRQ
 )
 
-// since v1.34 StrategyRoaringSet is default strategy for dimensions bucket,
-// StrategyMapCollection is left as backward compatibility for buckets created earlier
-var DimensionsBucketPrioritizedStrategies = []string{
-	lsmkv.StrategyRoaringSet,
-	lsmkv.StrategyMapCollection,
+type DimensionInfo struct {
+	category DimensionCategory
+	segments int
+	bits     int16
 }
 
 func (c DimensionCategory) String() string {
@@ -147,27 +146,27 @@ func clearDimensionMetrics(cfg IndexConfig, promMetrics *monitoring.PrometheusMe
 	}
 }
 
-func GetDimensionCategoryLegacy(cfg schemaConfig.VectorIndexConfig) (DimensionCategory, int) {
+func GetDimensionCategoryLegacy(cfg schemaConfig.VectorIndexConfig) DimensionInfo {
 	// We have special dimension tracking for BQ and PQ to represent reduced costs
 	// these are published under the separate vector_segments_dimensions metric
 	if hnswUserConfig, ok := cfg.(hnswent.UserConfig); ok {
 		if hnswUserConfig.PQ.Enabled {
-			return DimensionCategoryPQ, hnswUserConfig.PQ.Segments
+			return DimensionInfo{category: DimensionCategoryPQ, segments: hnswUserConfig.PQ.Segments}
 		}
 		if hnswUserConfig.BQ.Enabled {
-			return DimensionCategoryBQ, 0
+			return DimensionInfo{category: DimensionCategoryBQ}
 		}
 		if hnswUserConfig.SQ.Enabled {
-			return DimensionCategorySQ, 0
+			return DimensionInfo{category: DimensionCategorySQ}
 		}
 		if hnswUserConfig.RQ.Enabled {
-			return DimensionCategoryRQ, 0
+			return DimensionInfo{category: DimensionCategoryRQ, bits: hnswUserConfig.RQ.Bits}
 		}
 	}
-	return DimensionCategoryStandard, 0
+	return DimensionInfo{category: DimensionCategoryStandard}
 }
 
-func GetDimensionCategory(cfg schemaConfig.VectorIndexConfig, dynamicUpgraded bool) (DimensionCategory, int) {
+func GetDimensionCategory(cfg schemaConfig.VectorIndexConfig, dynamicUpgraded bool) DimensionInfo {
 	// We have special dimension tracking for BQ and PQ to represent reduced costs
 	// these are published under the separate vector_segments_dimensions metric
 	switch config := cfg.(type) {
@@ -178,40 +177,43 @@ func GetDimensionCategory(cfg schemaConfig.VectorIndexConfig, dynamicUpgraded bo
 	case dynamicent.UserConfig:
 		return getDynamicCompression(config, dynamicUpgraded)
 	default:
-		return DimensionCategoryStandard, 0
+		return DimensionInfo{category: DimensionCategoryStandard}
 	}
 }
 
 // getHNSWCompression extracts compression info from HNSW configuration
-func getHNSWCompression(config hnswent.UserConfig) (DimensionCategory, int) {
+func getHNSWCompression(config hnswent.UserConfig) DimensionInfo {
 	if config.PQ.Enabled {
-		return DimensionCategoryPQ, config.PQ.Segments
+		return DimensionInfo{category: DimensionCategoryPQ, segments: config.PQ.Segments}
 	}
 	if config.BQ.Enabled {
-		return DimensionCategoryBQ, 0
+		return DimensionInfo{category: DimensionCategoryBQ}
 	}
 	if config.SQ.Enabled {
-		return DimensionCategorySQ, 0
+		return DimensionInfo{category: DimensionCategorySQ}
 	}
 	if config.RQ.Enabled {
-		return DimensionCategoryRQ, 0
+		return DimensionInfo{category: DimensionCategoryRQ, bits: config.RQ.Bits}
 	}
-	return DimensionCategoryStandard, 0
+	return DimensionInfo{category: DimensionCategoryStandard}
 }
 
 // getFlatCompression extracts compression info from Flat configuration
-func getFlatCompression(config flatent.UserConfig) (DimensionCategory, int) {
+func getFlatCompression(config flatent.UserConfig) DimensionInfo {
 	if config.BQ.Enabled {
-		return DimensionCategoryBQ, 0
+		return DimensionInfo{category: DimensionCategoryBQ}
+	}
+	if config.RQ.Enabled {
+		return DimensionInfo{category: DimensionCategoryRQ, bits: int16(config.RQ.Bits)}
 	}
 	// Note: Flat indices only support BQ compression currently
-	return DimensionCategoryStandard, 0
+	return DimensionInfo{category: DimensionCategoryStandard}
 }
 
 // getDynamicCompression extracts compression info from Dynamic configuration
 // Dynamic indices can switch between HNSW and Flat based on data size.
 // For metrics purposes, we check both configurations and return the first enabled compression.
-func getDynamicCompression(config dynamicent.UserConfig, dynamicUpgraded bool) (DimensionCategory, int) {
+func getDynamicCompression(config dynamicent.UserConfig, dynamicUpgraded bool) DimensionInfo {
 	if dynamicUpgraded {
 		return getHNSWCompression(config.HnswUC)
 	} else {

@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
@@ -74,7 +75,10 @@ func TestReplicationTestSuite(t *testing.T) {
 
 func (suite *ReplicationTestSuite) TestImmediateReplicaCRUD() {
 	t := suite.T()
-	ctx := context.Background()
+	mainCtx := context.Background()
+
+	ctx, cancel := context.WithTimeout(mainCtx, 10*time.Minute)
+	defer cancel()
 
 	compose, err := docker.New().
 		With3NodeCluster().

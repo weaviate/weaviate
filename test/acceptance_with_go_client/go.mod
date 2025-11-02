@@ -1,6 +1,6 @@
 module acceptance_tests_with_client
 
-go 1.24
+go 1.24.0
 
 replace github.com/weaviate/weaviate => ../..
 
@@ -176,7 +176,7 @@ require (
 	github.com/vmihailenco/msgpack/v5 v5.4.1 // indirect
 	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
 	github.com/weaviate/s5cmd/v2 v2.0.1 // indirect
-	github.com/weaviate/sroar v0.0.12 // indirect
+	github.com/weaviate/sroar v0.0.13 // indirect
 	github.com/weaviate/tiktoken-go v0.0.3 // indirect
 	github.com/xrash/smetrics v0.0.0-20240521201337-686a1a2994c1 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
@@ -198,7 +198,7 @@ require (
 	golang.org/x/exp v0.0.0-20240808152545-0cdaa3abc0fa // indirect
 	golang.org/x/net v0.42.0 // indirect
 	golang.org/x/oauth2 v0.30.0 // indirect
-	golang.org/x/sys v0.34.0 // indirect
+	golang.org/x/sys v0.37.0 // indirect
 	golang.org/x/text v0.27.0 // indirect
 	golang.org/x/time v0.12.0 // indirect
 	gonum.org/v1/gonum v0.15.1 // indirect

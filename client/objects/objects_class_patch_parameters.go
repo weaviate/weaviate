@@ -76,25 +76,25 @@ type ObjectsClassPatchParams struct {
 
 	/* Body.
 
-	   RFC 7396-style patch, the body contains the object to merge into the existing object.
+	   RFC 7396-style JSON merge patch object containing the fields to update.
 	*/
 	Body *models.Object
 
 	/* ClassName.
 
-	   The class name as defined in the schema
+	   Name of the collection (class) the object belongs to.
 	*/
 	ClassName string
 
 	/* ConsistencyLevel.
 
-	   Determines how many replicas must acknowledge a request before it is considered successful
+	   Determines how many replicas must acknowledge a request before it is considered successful.
 	*/
 	ConsistencyLevel *string
 
 	/* ID.
 
-	   The uuid of the data object to update.
+	   Unique UUID of the object to be patched.
 
 	   Format: uuid
 	*/

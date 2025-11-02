@@ -28,7 +28,7 @@ import (
 const TenantExistsOKCode int = 200
 
 /*
-TenantExistsOK The tenant exists in the specified class
+TenantExistsOK The tenant exists in the specified collection.
 
 swagger:response tenantExistsOK
 */
@@ -123,7 +123,7 @@ func (o *TenantExistsForbidden) WriteResponse(rw http.ResponseWriter, producer r
 const TenantExistsNotFoundCode int = 404
 
 /*
-TenantExistsNotFound The tenant not found
+TenantExistsNotFound Tenant or collection not found.
 
 swagger:response tenantExistsNotFound
 */
@@ -148,7 +148,7 @@ func (o *TenantExistsNotFound) WriteResponse(rw http.ResponseWriter, producer ru
 const TenantExistsUnprocessableEntityCode int = 422
 
 /*
-TenantExistsUnprocessableEntity Invalid Tenant class
+TenantExistsUnprocessableEntity Invalid request.
 
 swagger:response tenantExistsUnprocessableEntity
 */
@@ -193,7 +193,7 @@ func (o *TenantExistsUnprocessableEntity) WriteResponse(rw http.ResponseWriter, 
 const TenantExistsInternalServerErrorCode int = 500
 
 /*
-TenantExistsInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+TenantExistsInternalServerError An error occurred during the check. Check the ErrorResponse for details.
 
 swagger:response tenantExistsInternalServerError
 */

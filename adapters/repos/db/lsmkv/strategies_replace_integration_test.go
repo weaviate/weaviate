@@ -10,7 +10,6 @@
 //
 
 //go:build integrationTest
-// +build integrationTest
 
 package lsmkv
 
@@ -412,13 +411,13 @@ func replaceInsertAndUpdate_WithSecondaryKeys(ctx context.Context, t *testing.T,
 			err = b.Put(key3, orig3, WithSecondaryKey(0, secondaryKey3))
 			require.Nil(t, err)
 
-			res, err := b.GetBySecondary(0, secondaryKey1)
+			res, err := b.GetBySecondary(ctx, 0, secondaryKey1)
 			require.Nil(t, err)
 			assert.Equal(t, res, orig1)
-			res, err = b.GetBySecondary(0, secondaryKey2)
+			res, err = b.GetBySecondary(ctx, 0, secondaryKey2)
 			require.Nil(t, err)
 			assert.Equal(t, res, orig2)
-			res, err = b.GetBySecondary(0, secondaryKey3)
+			res, err = b.GetBySecondary(ctx, 0, secondaryKey3)
 			require.Nil(t, err)
 			assert.Equal(t, res, orig3)
 		})
@@ -438,13 +437,13 @@ func replaceInsertAndUpdate_WithSecondaryKeys(ctx context.Context, t *testing.T,
 			err = b.Put(key3, replaced3, WithSecondaryKey(0, secondaryKey3))
 			require.Nil(t, err)
 
-			res, err := b.GetBySecondary(0, secondaryKey1)
+			res, err := b.GetBySecondary(ctx, 0, secondaryKey1)
 			require.Nil(t, err)
 			assert.Equal(t, res, orig1)
-			res, err = b.GetBySecondary(0, secondaryKey2)
+			res, err = b.GetBySecondary(ctx, 0, secondaryKey2)
 			require.Nil(t, err)
 			assert.Equal(t, res, replaced2)
-			res, err = b.GetBySecondary(0, secondaryKey3)
+			res, err = b.GetBySecondary(ctx, 0, secondaryKey3)
 			require.Nil(t, err)
 			assert.Equal(t, res, replaced3)
 		})
@@ -465,13 +464,13 @@ func replaceInsertAndUpdate_WithSecondaryKeys(ctx context.Context, t *testing.T,
 			require.Nil(t, err)
 
 			// verify you can find by updated secondary keys
-			res, err := b.GetBySecondary(0, secondaryKey1)
+			res, err := b.GetBySecondary(ctx, 0, secondaryKey1)
 			require.Nil(t, err)
 			assert.Equal(t, res, orig1)
-			res, err = b.GetBySecondary(0, secondaryKey2)
+			res, err = b.GetBySecondary(ctx, 0, secondaryKey2)
 			require.Nil(t, err)
 			assert.Equal(t, res, replaced2)
-			res, err = b.GetBySecondary(0, secondaryKey3)
+			res, err = b.GetBySecondary(ctx, 0, secondaryKey3)
 			require.Nil(t, err)
 			assert.Equal(t, res, replaced3)
 		})
@@ -526,13 +525,13 @@ func replaceInsertAndUpdate_WithSecondaryKeys(ctx context.Context, t *testing.T,
 			require.Nil(t, err)
 
 			// verify you can find by updated secondary keys
-			res, err := b.GetBySecondary(0, secondaryKey1)
+			res, err := b.GetBySecondary(ctx, 0, secondaryKey1)
 			require.Nil(t, err)
 			assert.Equal(t, res, orig1)
-			res, err = b.GetBySecondary(0, secondaryKey2)
+			res, err = b.GetBySecondary(ctx, 0, secondaryKey2)
 			require.Nil(t, err)
 			assert.Equal(t, res, replaced2)
-			res, err = b.GetBySecondary(0, secondaryKey3)
+			res, err = b.GetBySecondary(ctx, 0, secondaryKey3)
 			require.Nil(t, err)
 			assert.Equal(t, res, replaced3)
 		})
@@ -598,13 +597,13 @@ func replaceInsertAndUpdate_WithSecondaryKeys(ctx context.Context, t *testing.T,
 			replaced3 := []byte("twice updated value for key3")
 
 			// verify you can find by updated secondary keys
-			res, err := b.GetBySecondary(0, secondaryKey1)
+			res, err := b.GetBySecondary(ctx, 0, secondaryKey1)
 			require.Nil(t, err)
 			assert.Equal(t, res, orig1)
-			res, err = b.GetBySecondary(0, secondaryKey2)
+			res, err = b.GetBySecondary(ctx, 0, secondaryKey2)
 			require.Nil(t, err)
 			assert.Equal(t, res, replaced2)
-			res, err = b.GetBySecondary(0, secondaryKey3)
+			res, err = b.GetBySecondary(ctx, 0, secondaryKey3)
 			require.Nil(t, err)
 			assert.Equal(t, res, replaced3)
 		})
@@ -671,13 +670,13 @@ func replaceInsertAndUpdate_WithSecondaryKeys(ctx context.Context, t *testing.T,
 			replaced3 := []byte("twice updated value for key3")
 
 			// verify you can find by updated secondary keys
-			res, err := b2.GetBySecondary(0, secondaryKey1)
+			res, err := b2.GetBySecondary(ctx, 0, secondaryKey1)
 			require.Nil(t, err)
 			assert.Equal(t, res, orig1)
-			res, err = b2.GetBySecondary(0, secondaryKey2)
+			res, err = b2.GetBySecondary(ctx, 0, secondaryKey2)
 			require.Nil(t, err)
 			assert.Equal(t, res, replaced2)
-			res, err = b2.GetBySecondary(0, secondaryKey3)
+			res, err = b2.GetBySecondary(ctx, 0, secondaryKey3)
 			require.Nil(t, err)
 			assert.Equal(t, res, replaced3)
 		})

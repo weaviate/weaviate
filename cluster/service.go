@@ -67,8 +67,6 @@ type Service struct {
 // nodes.
 // Raft store will be initialized and ready to be started. To start the service call Open().
 func New(cfg Config, authZController authorization.Controller, snapshotter fsm.Snapshotter, svrMetrics *monitoring.GRPCServerMetrics) *Service {
-	rpcListenAddress := fmt.Sprintf("%s:%d", cfg.Host, cfg.RPCPort)
-	raftAdvertisedAddress := fmt.Sprintf("%s:%d", cfg.Host, cfg.RaftPort)
 	client := rpc.NewClient(resolver.NewRpc(cfg.IsLocalHost, cfg.RPCPort), cfg.RaftRPCMessageMaxSize, cfg.SentryEnabled, cfg.Logger)
 
 	fsm := NewFSM(cfg, authZController, snapshotter, prometheus.DefaultRegisterer)
@@ -102,12 +100,12 @@ func New(cfg Config, authZController authorization.Controller, snapshotter fsm.S
 		replicationEngineShutdownTimeout,
 		metrics.NewReplicationEngineCallbacks(prometheus.DefaultRegisterer),
 	)
-	svr := rpc.NewServer(&fsm, raft, rpcListenAddress, cfg.RaftRPCMessageMaxSize, cfg.SentryEnabled, svrMetrics, cfg.Logger)
+	svr := rpc.NewServer(&fsm, raft, fmt.Sprintf("%s:%d", cfg.BindAddr, cfg.RPCPort), cfg.RaftRPCMessageMaxSize, cfg.SentryEnabled, svrMetrics, cfg.Logger)
 
 	return &Service{
 		Raft:               raft,
 		replicationEngine:  replicationEngine,
-		raftAddr:           raftAdvertisedAddress,
+		raftAddr:           fmt.Sprintf("%s:%d", cfg.Host, cfg.RaftPort),
 		config:             &cfg,
 		rpcClient:          client,
 		rpcServer:          svr,
@@ -119,7 +117,7 @@ func New(cfg Config, authZController authorization.Controller, snapshotter fsm.S
 }
 
 func (c *Service) onFSMCaughtUp(ctx context.Context) {
-	if c.config.ReplicaMovementDisabled {
+	if !c.config.ReplicaMovementEnabled {
 		return
 	}
 
@@ -219,7 +217,7 @@ func (c *Service) Close(ctx context.Context) error {
 		c.closeOnFSMCaughtUp <- struct{}{}
 	}, c.logger)
 
-	if !c.config.ReplicaMovementDisabled {
+	if c.config.ReplicaMovementEnabled {
 		c.logger.Info("closing replication engine ...")
 		if c.cancelReplicationEngine != nil {
 			c.cancelReplicationEngine()

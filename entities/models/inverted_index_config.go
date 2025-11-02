@@ -24,7 +24,7 @@ import (
 	"github.com/go-openapi/swag"
 )
 
-// InvertedIndexConfig Configure the inverted index built into Weaviate (default: 60).
+// InvertedIndexConfig Configure the inverted index built into Weaviate. See [Reference: Inverted index](https://docs.weaviate.io/weaviate/config-refs/indexing/inverted-index#inverted-index-parameters) for details.
 //
 // swagger:model InvertedIndexConfig
 type InvertedIndexConfig struct {
@@ -32,22 +32,22 @@ type InvertedIndexConfig struct {
 	// bm25
 	Bm25 *BM25Config `json:"bm25,omitempty"`
 
-	// Asynchronous index clean up happens every n seconds
+	// Asynchronous index clean up happens every n seconds (default: 60).
 	CleanupIntervalSeconds int64 `json:"cleanupIntervalSeconds,omitempty"`
 
-	// Index each object with the null state (default: 'false').
+	// Index each object with the null state (default: `false`).
 	IndexNullState bool `json:"indexNullState,omitempty"`
 
-	// Index length of properties (default: 'false').
+	// Index length of properties (default: `false`).
 	IndexPropertyLength bool `json:"indexPropertyLength,omitempty"`
 
-	// Index each object by its internal timestamps (default: 'false').
+	// Index each object by its internal timestamps (default: `false`).
 	IndexTimestamps bool `json:"indexTimestamps,omitempty"`
 
 	// stopwords
 	Stopwords *StopwordConfig `json:"stopwords,omitempty"`
 
-	// Using BlockMax WAND for query execution (default: 'false', will be 'true' for new collections created after 1.30).
+	// Using BlockMax WAND for query execution (default: `false`, will be `true` for new collections created after 1.30).
 	UsingBlockMaxWAND bool `json:"usingBlockMaxWAND,omitempty"`
 }
 

@@ -16,6 +16,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/sroar"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/errors"
 )
 
@@ -72,6 +73,29 @@ func (m *Memtable) Clone() *Memtable {
 	return clone
 }
 
+func (m *Memtable) Additions() map[uint64]*sroar.Bitmap {
+	additions := map[uint64]*sroar.Bitmap{}
+	for v, k := range m.additions {
+		if bm, ok := additions[k]; ok {
+			bm.Set(v)
+		} else {
+			additions[k] = roaringset.NewBitmap(v)
+		}
+	}
+	return additions
+}
+
+func (m *Memtable) Deletions() *sroar.Bitmap {
+	deletions := sroar.NewBitmap()
+	for v := range m.deletions {
+		deletions.Set(v)
+	}
+	for v := range m.additions {
+		deletions.Set(v)
+	}
+	return deletions
+}
+
 func (m *Memtable) Nodes() []*MemtableNode {
 	if len(m.additions) == 0 && len(m.deletions) == 0 {
 		return []*MemtableNode{}
@@ -96,6 +120,7 @@ func (m *Memtable) Nodes() []*MemtableNode {
 	for i := 0; i < routines-1; i++ {
 		i := i
 		errors.GoWrapper(func() {
+			defer wg.Done()
 			for j := 0; j < 64; j += routines {
 				bit := i + j
 				for value, key := range m.additions {
@@ -107,7 +132,6 @@ func (m *Memtable) Nodes() []*MemtableNode {
 					}
 				}
 			}
-			wg.Done()
 		}, m.logger)
 	}
 

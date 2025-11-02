@@ -42,16 +42,23 @@ func (suite *ReplicationTestSuite) SetupSuite() {
 	t.Setenv("TEST_WEAVIATE_IMAGE", "weaviate/test-server")
 
 	mainCtx := context.Background()
+	ctx, cancel := context.WithTimeout(mainCtx, 10*time.Minute)
 
 	compose, err := docker.New().
 		WithWeaviateCluster(3).
 		WithWeaviateEnv("REPLICATION_ENGINE_MAX_WORKERS", "100").
 		WithWeaviateEnv("REPLICA_MOVEMENT_MINIMUM_ASYNC_WAIT", "5s").
-		Start(mainCtx)
+		WithWeaviateEnv("REPLICA_MOVEMENT_ENABLED", "true").
+		Start(ctx)
 	require.Nil(t, err)
+	if cancel != nil {
+		cancel()
+	}
 	suite.compose = compose
 	suite.down = func() {
-		if err := compose.Terminate(mainCtx); err != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+		defer cancel()
+		if err := compose.Terminate(ctx); err != nil {
 			t.Fatalf("failed to terminate test containers: %s", err.Error())
 		}
 	}
@@ -316,24 +323,31 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateEndpoints() {
 
 func getRequest(t *testing.T, className string) *models.ReplicationReplicateReplicaRequest {
 	verbose := verbosity.OutputVerbose
-	var ns *nodes.NodesGetClassOK
+	var nodesResp *nodes.NodesGetClassOK
 	var err error
+
+	// Wait for the class to be fully initialized and propagated across the cluster
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		ns, err = helper.Client(t).Nodes.NodesGetClass(nodes.NewNodesGetClassParams().WithOutput(&verbose).WithClassName(className), nil)
-		if err != nil {
-			ct.Errorf("failed to get nodes for class %s: %v", className, err)
-			return
+		nodesResp, err = helper.Client(t).Nodes.NodesGetClass(nodes.NewNodesGetClassParams().WithOutput(&verbose).WithClassName(className), nil)
+		assert.Nil(ct, err, "NodesGetClass should succeed")
+		if err == nil {
+			assert.NotNil(ct, nodesResp, "nodes response should not be nil")
+			if nodesResp != nil && nodesResp.Payload != nil && len(nodesResp.Payload.Nodes) >= 2 {
+				assert.GreaterOrEqual(ct, len(nodesResp.Payload.Nodes[0].Shards), 1, "first node should have at least one shard")
+			}
 		}
-		if len(ns.Payload.Nodes) != 3 {
-			ct.Errorf("expected at 3 nodes for class %s, got %d", className, len(ns.Payload.Nodes))
-			return
-		}
-	}, 10*time.Second, 1*time.Second, "nodes should have 3 nodes for class %s", className)
-	require.Nil(t, err)
+	}, 30*time.Second, 100*time.Millisecond, "class %s should be initialized and available on nodes", className)
+
+	require.NoError(t, err)
+	require.NotNil(t, nodesResp)
+	require.NotNil(t, nodesResp.Payload)
+	require.GreaterOrEqual(t, len(nodesResp.Payload.Nodes), 2, "should have at least 2 nodes")
+	require.GreaterOrEqual(t, len(nodesResp.Payload.Nodes[0].Shards), 1, "first node should have at least one shard")
+
 	return &models.ReplicationReplicateReplicaRequest{
 		Collection: &className,
-		SourceNode: &ns.Payload.Nodes[0].Name,
-		TargetNode: &ns.Payload.Nodes[1].Name,
-		Shard:      &ns.Payload.Nodes[0].Shards[0].Name,
+		SourceNode: &nodesResp.Payload.Nodes[0].Name,
+		TargetNode: &nodesResp.Payload.Nodes[1].Name,
+		Shard:      &nodesResp.Payload.Nodes[0].Shards[0].Name,
 	}
 }

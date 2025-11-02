@@ -28,7 +28,7 @@ import (
 const ObjectsClassGetOKCode int = 200
 
 /*
-ObjectsClassGetOK Successful response.
+ObjectsClassGetOK Successful response containing the object.
 
 swagger:response objectsClassGetOK
 */
@@ -188,7 +188,7 @@ func (o *ObjectsClassGetForbidden) WriteResponse(rw http.ResponseWriter, produce
 const ObjectsClassGetNotFoundCode int = 404
 
 /*
-ObjectsClassGetNotFound Successful query result but no resource was found.
+ObjectsClassGetNotFound Object not found.
 
 swagger:response objectsClassGetNotFound
 */
@@ -213,7 +213,7 @@ func (o *ObjectsClassGetNotFound) WriteResponse(rw http.ResponseWriter, producer
 const ObjectsClassGetUnprocessableEntityCode int = 422
 
 /*
-ObjectsClassGetUnprocessableEntity Request is well-formed (i.e., syntactically correct), but erroneous.
+ObjectsClassGetUnprocessableEntity The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.
 
 swagger:response objectsClassGetUnprocessableEntity
 */
@@ -258,7 +258,7 @@ func (o *ObjectsClassGetUnprocessableEntity) WriteResponse(rw http.ResponseWrite
 const ObjectsClassGetInternalServerErrorCode int = 500
 
 /*
-ObjectsClassGetInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+ObjectsClassGetInternalServerError An error occurred while trying to fulfill the request. Check the ErrorResponse for details.
 
 swagger:response objectsClassGetInternalServerError
 */

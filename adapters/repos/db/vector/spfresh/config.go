@@ -15,10 +15,11 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"runtime"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/queue"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
@@ -31,27 +32,22 @@ import (
 
 type Config struct {
 	Logger                    logrus.FieldLogger
-	Distancer                 distancer.Provider
+	Scheduler                 *queue.Scheduler
+	DistanceProvider          distancer.Provider
 	RootPath                  string
 	ID                        string
 	TargetVector              string
 	ShardName                 string
 	ClassName                 string
 	PrometheusMetrics         *monitoring.PrometheusMetrics
-	MaxPostingSize            uint32                          `json:"maxPostingSize,omitempty"`            // Maximum number of vectors in a posting
-	MinPostingSize            uint32                          `json:"minPostingSize,omitempty"`            // Minimum number of vectors in a posting
-	SplitWorkers              int                             `json:"splitWorkers,omitempty"`              // Number of concurrent workers for split operations
-	ReassignWorkers           int                             `json:"reassignWorkers,omitempty"`           // Number of concurrent workers for reassign operations
 	InternalPostingCandidates int                             `json:"internalPostingCandidates,omitempty"` // Number of candidates to consider when running a centroid search internally
 	ReassignNeighbors         int                             `json:"reassignNeighbors,omitempty"`         // Number of neighboring centroids to consider for reassigning vectors
-	Replicas                  int                             `json:"replicas,omitempty"`                  // Number of closure replicas to maintain
-	RNGFactor                 float32                         `json:"rngFactor,omitempty"`                 // Distance factor used by the RNG rule to determine how spread out replica selections are
 	MaxDistanceRatio          float32                         `json:"maxDistanceRatio,omitempty"`          // Maximum distance ratio for the search, used to filter out candidates that are too far away
-	SearchProbe               int                             `json:"searchProbe,omitempty"`               // Number of vectors to consider during search
 	Store                     StoreConfig                     `json:"store"`                               // Configuration for the underlying LSMKV store
 	Centroids                 CentroidConfig                  `json:"centroids"`                           // Configuration for the centroid index
 	TombstoneCallbacks        cyclemanager.CycleCallbackGroup // Callbacks for handling tombstones
-	Compressed                bool                            `json:"compressed,omitempty"` // Whether to store vectors in compressed format
+	Compressed                bool                            `json:"compressed,omitempty"`       // Whether to store vectors in compressed format
+	VectorForIDThunk          common.VectorForID[float32]     `json:"vectorForIDThunk,omitempty"` // Function to get a vector by index ID
 }
 
 type StoreConfig struct {
@@ -68,6 +64,12 @@ type CentroidConfig struct {
 	HNSWConfig *hnsw.Config `json:"hnswConfig,omitempty"`
 }
 
+const (
+	DefaultInternalPostingCandidates = 64
+	DefaultReassignNeighbors         = 8
+	DefaultMaxDistanceRatio          = 10_000
+)
+
 func (c *Config) Validate() error {
 	if c.Logger == nil {
 		logger := logrus.New()
@@ -75,24 +77,26 @@ func (c *Config) Validate() error {
 		c.Logger = logger
 	}
 
+	if c.InternalPostingCandidates <= 0 {
+		c.InternalPostingCandidates = DefaultInternalPostingCandidates
+	}
+	if c.ReassignNeighbors <= 0 {
+		c.ReassignNeighbors = DefaultReassignNeighbors
+	}
+	if c.MaxDistanceRatio <= 0 {
+		c.MaxDistanceRatio = DefaultMaxDistanceRatio
+	}
+
 	return nil
 }
 
 func DefaultConfig() *Config {
-	w := runtime.GOMAXPROCS(0)
-
 	return &Config{
 		Logger:                    logrus.New(),
-		Distancer:                 distancer.NewL2SquaredProvider(),
-		MinPostingSize:            10,
-		SplitWorkers:              w,
-		ReassignWorkers:           w,
-		InternalPostingCandidates: 64,
-		SearchProbe:               64,
-		ReassignNeighbors:         8,
-		Replicas:                  8,
-		RNGFactor:                 10.0,
-		MaxDistanceRatio:          10_000,
+		InternalPostingCandidates: DefaultInternalPostingCandidates,
+		ReassignNeighbors:         DefaultReassignNeighbors,
+		MaxDistanceRatio:          DefaultMaxDistanceRatio,
+		DistanceProvider:          distancer.NewL2SquaredProvider(),
 		Compressed:                false,
 	}
 }
@@ -142,12 +146,12 @@ func compressedVectorSize(size int) int {
 }
 
 func (s *SPFresh) setMaxPostingSize() {
-	if s.config.MaxPostingSize == 0 {
+	if s.maxPostingSize == 0 {
 		isCompressed := s.Compressed()
-		s.config.MaxPostingSize = computeMaxPostingSize(int(s.dims), isCompressed)
+		s.maxPostingSize = computeMaxPostingSize(int(s.dims), isCompressed)
 	}
 
-	if s.config.MaxPostingSize <= s.config.MinPostingSize {
-		s.config.MinPostingSize = s.config.MaxPostingSize / 2
+	if s.maxPostingSize <= s.minPostingSize {
+		s.minPostingSize = s.maxPostingSize / 2
 	}
 }
