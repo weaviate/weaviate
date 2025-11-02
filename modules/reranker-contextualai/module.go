@@ -39,7 +39,7 @@ type ReRankerContextualAIModule struct {
 
 type ReRankerContextualAIClient interface {
 	Rank(ctx context.Context, query string, documents []string, cfg moduletools.ClassConfig) (*ent.RankResult, error)
-	MetaInfo() (map[string]interface{}, error)
+	MetaInfo() (map[string]any, error)
 }
 
 func (m *ReRankerContextualAIModule) Name() string {
@@ -63,14 +63,14 @@ func (m *ReRankerContextualAIModule) Init(ctx context.Context,
 func (m *ReRankerContextualAIModule) initAdditional(_ context.Context, timeout time.Duration,
 	logger logrus.FieldLogger,
 ) error {
-	apiKey := os.Getenv("CONTEXTUAL_API_KEY")
+	apiKey := os.Getenv("CONTEXTUALAI_APIKEY")
 	client := clients.New(apiKey, timeout, logger)
 	m.reranker = client
 	m.additionalPropertiesProvider = rerankeradditional.NewRankerProvider(m.reranker)
 	return nil
 }
 
-func (m *ReRankerContextualAIModule) MetaInfo() (map[string]interface{}, error) {
+func (m *ReRankerContextualAIModule) MetaInfo() (map[string]any, error) {
 	return m.reranker.MetaInfo()
 }
 

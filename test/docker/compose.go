@@ -49,6 +49,7 @@ import (
 	modsloads3 "github.com/weaviate/weaviate/modules/offload-s3"
 	modqnaopenai "github.com/weaviate/weaviate/modules/qna-openai"
 	modrerankercohere "github.com/weaviate/weaviate/modules/reranker-cohere"
+	modrerankercontextualai "github.com/weaviate/weaviate/modules/reranker-contextualai"
 	modrerankernvidia "github.com/weaviate/weaviate/modules/reranker-nvidia"
 	modrerankervoyageai "github.com/weaviate/weaviate/modules/reranker-voyageai"
 	modtext2colbertjinaai "github.com/weaviate/weaviate/modules/text2multivec-jinaai"
@@ -473,6 +474,12 @@ func (d *Compose) WithGenerativeAnthropic(apiKey string) *Compose {
 func (d *Compose) WithGenerativeContextualAI(apiKey string) *Compose {
 	d.weaviateEnvs["CONTEXTUALAI_APIKEY"] = apiKey
 	d.enableModules = append(d.enableModules, modgenerativecontextualai.Name)
+	return d
+}
+
+func (d *Compose) WithRerankerContextualAI(apiKey string) *Compose {
+	d.weaviateEnvs["CONTEXTUALAI_APIKEY"] = apiKey
+	d.enableModules = append(d.enableModules, modrerankercontextualai.Name)
 	return d
 }
 

@@ -21,25 +21,18 @@ import (
 func TestClassSettingsValidate(t *testing.T) {
 	tests := []struct {
 		name        string
-		cfg         map[string]interface{}
+		cfg         map[string]any
 		expectError bool
 	}{
 		{
 			name: "valid default model",
-			cfg:  map[string]interface{}{},
+			cfg:  map[string]any{},
 		},
 		{
 			name: "valid specific model",
-			cfg: map[string]interface{}{
+			cfg: map[string]any{
 				"model": "ctxl-rerank-v2-instruct-multilingual-mini",
 			},
-		},
-		{
-			name: "invalid model",
-			cfg: map[string]interface{}{
-				"model": "invalid-model",
-			},
-			expectError: true,
 		},
 	}
 
@@ -62,17 +55,17 @@ func TestClassSettingsValidate(t *testing.T) {
 func TestClassSettingsModel(t *testing.T) {
 	tests := []struct {
 		name     string
-		cfg      map[string]interface{}
+		cfg      map[string]any
 		expected string
 	}{
 		{
 			name:     "default model",
-			cfg:      map[string]interface{}{},
+			cfg:      map[string]any{},
 			expected: DefaultContextualAIModel,
 		},
 		{
 			name: "specific model",
-			cfg: map[string]interface{}{
+			cfg: map[string]any{
 				"model": "ctxl-rerank-v1-instruct",
 			},
 			expected: "ctxl-rerank-v1-instruct",
@@ -93,17 +86,17 @@ func TestClassSettingsModel(t *testing.T) {
 func TestClassSettingsInstruction(t *testing.T) {
 	tests := []struct {
 		name     string
-		cfg      map[string]interface{}
+		cfg      map[string]any
 		expected string
 	}{
 		{
 			name:     "no instruction",
-			cfg:      map[string]interface{}{},
+			cfg:      map[string]any{},
 			expected: "",
 		},
 		{
 			name: "with instruction",
-			cfg: map[string]interface{}{
+			cfg: map[string]any{
 				"instruction": "Prioritize recent documents",
 			},
 			expected: "Prioritize recent documents",
@@ -124,17 +117,17 @@ func TestClassSettingsInstruction(t *testing.T) {
 func TestClassSettingsTopN(t *testing.T) {
 	tests := []struct {
 		name     string
-		cfg      map[string]interface{}
+		cfg      map[string]any
 		expected int
 	}{
 		{
 			name:     "no topN",
-			cfg:      map[string]interface{}{},
+			cfg:      map[string]any{},
 			expected: 0,
 		},
 		{
 			name: "with topN",
-			cfg: map[string]interface{}{
+			cfg: map[string]any{
 				"topN": 10,
 			},
 			expected: 10,

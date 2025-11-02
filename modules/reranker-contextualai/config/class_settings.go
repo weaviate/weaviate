@@ -28,12 +28,6 @@ const (
 	DefaultContextualAIModel = "ctxl-rerank-v2-instruct-multilingual"
 )
 
-var availableContextualAIModels = []string{
-	"ctxl-rerank-v2-instruct-multilingual",
-	"ctxl-rerank-v2-instruct-multilingual-mini",
-	"ctxl-rerank-v1-instruct",
-}
-
 type classSettings struct {
 	cfg                  moduletools.ClassConfig
 	propertyValuesHelper basesettings.PropertyValuesHelper
@@ -48,11 +42,6 @@ func (ic *classSettings) Validate(class *models.Class) error {
 		// we would receive a nil-config on cross-class requests, such as Explore{}
 		return errors.New("empty config")
 	}
-	model := ic.getStringProperty(modelProperty, DefaultContextualAIModel)
-	if model == nil || !ic.validateModel(*model) {
-		return errors.Errorf("wrong Contextual AI model name, available model names are: %v", availableContextualAIModels)
-	}
-
 	return nil
 }
 
@@ -64,10 +53,6 @@ func (ic *classSettings) getStringProperty(name string, defaultValue string) *st
 func (ic *classSettings) getIntProperty(name string, defaultValue *int) *int {
 	wrongVal := -1
 	return ic.propertyValuesHelper.GetPropertyAsIntWithNotExists(ic.cfg, name, &wrongVal, defaultValue)
-}
-
-func (ic *classSettings) validateModel(model string) bool {
-	return contains(availableContextualAIModels, model)
 }
 
 func (ic *classSettings) Model() string {
@@ -85,13 +70,4 @@ func (ic *classSettings) TopN() int {
 		return *result
 	}
 	return 0
-}
-
-func contains[T comparable](s []T, e T) bool {
-	for _, v := range s {
-		if v == e {
-			return true
-		}
-	}
-	return false
 }

@@ -11,8 +11,8 @@
 
 package clients
 
-func (s *client) MetaInfo() (map[string]interface{}, error) {
-	return map[string]interface{}{
+func (s *client) MetaInfo() (map[string]any, error) {
+	return map[string]any{
 		"name":              "Reranker - Contextual AI",
 		"documentationHref": "https://docs.contextual.ai/api-reference/rerank/rerank",
 	}, nil

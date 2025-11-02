@@ -72,7 +72,7 @@ func TestClientRank(t *testing.T) {
 	}
 
 	fakeConfig := fakeClassConfig{
-		classConfig: map[string]interface{}{
+		classConfig: map[string]any{
 			"model": testModel,
 		},
 	}
@@ -100,13 +100,13 @@ func TestRankErrorHandling(t *testing.T) {
 	tests := []struct {
 		name         string
 		statusCode   int
-		responseBody map[string]interface{}
+		responseBody map[string]any
 		expectedErr  string
 	}{
 		{
 			name:       "error with message field",
 			statusCode: 422,
-			responseBody: map[string]interface{}{
+			responseBody: map[string]any{
 				"message": "Invalid model specified",
 			},
 			expectedErr: "Invalid model specified",
@@ -114,8 +114,8 @@ func TestRankErrorHandling(t *testing.T) {
 		{
 			name:       "error with detail field",
 			statusCode: 422,
-			responseBody: map[string]interface{}{
-				"detail": []map[string]interface{}{
+			responseBody: map[string]any{
+				"detail": []map[string]any{
 					{
 						"loc":  []string{"body", "model"},
 						"msg":  "Validation failed",
@@ -128,7 +128,7 @@ func TestRankErrorHandling(t *testing.T) {
 		{
 			name:       "error without specific message",
 			statusCode: 500,
-			responseBody: map[string]interface{}{
+			responseBody: map[string]any{
 				"error": "Internal server error",
 			},
 			expectedErr: "500",
@@ -154,7 +154,7 @@ func TestRankErrorHandling(t *testing.T) {
 			}
 
 			fakeConfig := fakeClassConfig{
-				classConfig: map[string]interface{}{
+				classConfig: map[string]any{
 					"model": testModel,
 				},
 			}
@@ -170,21 +170,21 @@ func TestRankErrorHandling(t *testing.T) {
 func TestRankWithDifferentConfigs(t *testing.T) {
 	tests := []struct {
 		name          string
-		config        map[string]interface{}
+		config        map[string]any
 		expectedModel string
 		expectedTopN  *int
 		expectedInstr *string
 	}{
 		{
 			name: "with default config",
-			config: map[string]interface{}{
+			config: map[string]any{
 				"model": testModel,
 			},
 			expectedModel: testModel,
 		},
 		{
 			name: "with topN",
-			config: map[string]interface{}{
+			config: map[string]any{
 				"model": testModel,
 				"topN":  5,
 			},
@@ -193,7 +193,7 @@ func TestRankWithDifferentConfigs(t *testing.T) {
 		},
 		{
 			name: "with instruction",
-			config: map[string]interface{}{
+			config: map[string]any{
 				"model":       testModel,
 				"instruction": "Prioritize recent documents",
 			},

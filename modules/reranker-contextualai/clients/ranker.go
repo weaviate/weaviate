@@ -66,7 +66,6 @@ func (c *client) Rank(ctx context.Context, query string, documents []string,
 	chunkedDocuments := c.chunkDocuments(documents, c.maxDocuments)
 	documentScoreResponses := make([][]ent.DocumentScore, len(chunkedDocuments))
 	for i := range chunkedDocuments {
-		i := i // https://golang.org/doc/faq#closures_and_goroutines
 		eg.Go(func() error {
 			documentScoreResponse, err := c.performRank(ctx, query, chunkedDocuments[i], cfg)
 			if err != nil {
@@ -234,23 +233,15 @@ func (c *client) toRankResult(query string, results [][]ent.DocumentScore) *ent.
 }
 
 func (c *client) getApiKey(ctx context.Context) (string, error) {
-	if len(c.apiKey) > 0 {
+	if apiKey := modulecomponents.GetValueFromContext(ctx, "X-ContextualAI-Api-Key"); apiKey != "" {
+		return apiKey, nil
+	}
+	if c.apiKey != "" {
 		return c.apiKey, nil
 	}
-	key := "X-Contextual-Api-Key"
-
-	apiKey := ctx.Value(key)
-	// try getting header from GRPC if not successful
-	if apiKey == nil {
-		apiKey = modulecomponents.GetValueFromGRPC(ctx, key)
-	}
-	if apiKeyHeader, ok := apiKey.([]string); ok &&
-		len(apiKeyHeader) > 0 && len(apiKeyHeader[0]) > 0 {
-		return apiKeyHeader[0], nil
-	}
-	return "", errors.New("no api key found " +
-		"neither in request header: X-Contextual-Api-Key " +
-		"nor in environment variable under CONTEXTUAL_API_KEY")
+	return "", errors.New("no api key found for Contextual AI " +
+		"neither in request header: X-ContextualAI-Api-Key " +
+		"nor in the environment variable under CONTEXTUALAI_APIKEY")
 }
 
 type RankInput struct {

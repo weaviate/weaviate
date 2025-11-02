@@ -207,13 +207,13 @@ func (c *contextualai) handleAPIError(statusCode int, bodyBytes []byte) error {
 	var apiError contextualAIAPIError
 	if err := json.Unmarshal(bodyBytes, &apiError); err == nil {
 		if apiError.Message != "" {
-			return fmt.Errorf("Contextual AI API error: %s", apiError.Message)
+			return fmt.Errorf("connection to Contextual AI API failed with status %d: %s", statusCode, apiError.Message)
 		}
 		if len(apiError.Detail) > 0 && apiError.Detail[0].Msg != "" {
-			return fmt.Errorf("Contextual AI API error: %s", apiError.Detail[0].Msg)
+			return fmt.Errorf("connection to Contextual AI API failed with status %d: %s", statusCode, apiError.Detail[0].Msg)
 		}
 	}
-	return fmt.Errorf("Contextual AI API request failed with status: %d", statusCode)
+	return fmt.Errorf("connection to Contextual AI API request failed with status: %d", statusCode)
 }
 
 func (c *contextualai) parseResponse(bodyBytes []byte) (*generateResponse, error) {
