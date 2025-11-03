@@ -345,7 +345,6 @@ func (s *SPFresh) enqueueReassignAfterSplit(oldPostingID uint64, newPostingIDs [
 
 		for _, v := range p.Iter() {
 			vid := v.ID()
-			version := v.Version()
 			_, exists := reassignedVectors[vid]
 			version, err := s.VersionMap.Get(context.Background(), vid)
 			if err != nil {
