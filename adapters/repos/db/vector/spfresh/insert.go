@@ -75,10 +75,10 @@ func (s *SPFresh) Add(ctx context.Context, id uint64, vector []float32) (err err
 	// add the vector to the version map.
 	// TODO: if the vector already exists, invalidate all previous instances
 	// by incrementing the version
-	s.VersionMap.AllocPageFor(id)
-	version, ok := s.VersionMap.Increment(0, id)
-	if !ok {
-		panic("version map increment failed for new vector")
+	version := VectorVersion(1)
+	err = s.VersionMap.Set(context.Background(), id, version)
+	if err != nil {
+		return errors.Wrapf(err, "failed to set version map for vector %d", id)
 	}
 
 	var v Vector
@@ -165,7 +165,11 @@ func (s *SPFresh) append(ctx context.Context, vector Vector, centroidID uint64, 
 	if !s.Centroids.Exists(centroidID) {
 		// the posting might have been deleted concurrently,
 		// might happen if we are reassigning
-		if s.VersionMap.Get(vector.ID()) == vector.Version() {
+		version, err := s.VersionMap.Get(context.Background(), vector.ID())
+		if err != nil {
+			return false, err
+		}
+		if version == vector.Version() {
 			err := s.taskQueue.EnqueueReassign(ctx, centroidID, vector.ID(), vector.Version())
 			if err != nil {
 				s.postingLocks.Unlock(centroidID)

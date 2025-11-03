@@ -12,12 +12,12 @@
 package spfresh
 
 import (
+	"context"
 	"encoding/binary"
 	"iter"
 	"math"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 )
@@ -147,7 +147,7 @@ func (v CompressedVector) DistanceWithRaw(distancer *Distancer, other []byte) (f
 
 type Posting interface {
 	AddVector(v Vector)
-	GarbageCollect(versionMap *VersionMap) Posting
+	GarbageCollect(versionMap *VersionMap) (Posting, error)
 	Len() int
 	Iter() iter.Seq2[int, Vector]
 	GetAt(i int) Vector
@@ -171,12 +171,15 @@ func (p *EncodedPosting) AddVector(v Vector) {
 // GarbageCollect filters out vectors that are marked as deleted in the version map
 // and return the filtered posting.
 // This method doesn't allocate a new slice, the filtering is done in-place.
-func (p *EncodedPosting) GarbageCollect(versionMap *VersionMap) Posting {
+func (p *EncodedPosting) GarbageCollect(versionMap *VersionMap) (Posting, error) {
 	var i int
 	step := 8 + 1 + p.vectorSize
 	for i < len(p.data) {
 		id := binary.LittleEndian.Uint64(p.data[i : i+8])
-		version := versionMap.Get(id)
+		version, err := versionMap.Get(context.Background(), id)
+		if err != nil {
+			return nil, err
+		}
 		if !version.Deleted() && version.Version() <= p.data[i+8] {
 			i += step
 			continue
@@ -187,7 +190,7 @@ func (p *EncodedPosting) GarbageCollect(versionMap *VersionMap) Posting {
 		p.data = p.data[:len(p.data)-int(step)]
 	}
 
-	return p
+	return p, nil
 }
 
 func (p *EncodedPosting) Len() int {
@@ -257,121 +260,6 @@ func (p *EncodedPosting) Uncompress(quantizer *compressionhelpers.RotationalQuan
 	}
 
 	return data
-}
-
-// A VectorVersion is a 1-byte value structured as follows:
-// - 7 bits for the version number
-// - 1 bit for the tombstone flag (0 = alive, 1 = deleted)
-// TODO: versions can wrap around after 127 updates,
-// we need a mechanism to handle this in the future (e.g. during snapshots perhaps, etc.)
-type VectorVersion uint8
-
-func (ve VectorVersion) Version() uint8 {
-	return uint8(ve) & counterMask
-}
-
-func (ve VectorVersion) Deleted() bool {
-	return (uint8(ve) & tombstoneMask) != 0
-}
-
-// VersionMap maps vector IDs to their latest version number.
-// Because versions are stored as a single byte, we cannot use atomic operations
-// to update them. Instead, we use a sharded locks to ensure that updates
-// to the same ID are serialized.
-type VersionMap struct {
-	locks    *common.ShardedRWLocks
-	versions *common.PagedArray[VectorVersion]
-}
-
-func NewVersionMap(pages, pageSize uint64) *VersionMap {
-	// keep the number of mutexes reasonable by reducing it to the nearest
-	// power of two <= 512
-	locks := pages
-	for locks > 512 {
-		locks = locks >> 1
-	}
-
-	return &VersionMap{
-		locks:    common.NewShardedRWLocksWith(locks, pageSize),
-		versions: common.NewPagedArray[VectorVersion](pages, pageSize),
-	}
-}
-
-func (v *VersionMap) Get(id uint64) VectorVersion {
-	page, slot := v.versions.GetPageFor(id)
-
-	v.locks.RLock(id)
-	ve := page[slot]
-	v.locks.RUnlock(id)
-	return ve
-}
-
-// Delete removes the version entry for the given ID.
-// Used when an insert fails and the vector was not added anywhere.
-func (v *VersionMap) Delete(id uint64) {
-	page, slot := v.versions.GetPageFor(id)
-
-	v.locks.Lock(id)
-	page[slot] = 0
-	v.locks.Unlock(id)
-}
-
-func (v *VersionMap) Increment(previousVersion VectorVersion, id uint64) (VectorVersion, bool) {
-	v.locks.Lock(id)
-	defer v.locks.Unlock(id)
-
-	page, slot := v.versions.GetPageFor(id)
-	ve := page[slot]
-	if ve.Deleted() || ve != previousVersion {
-		return ve, false
-	}
-
-	delBit := uint8(ve) & tombstoneMask // 0x00 or 0x80
-	counter := uint8(ve) & counterMask  // 0-127
-
-	if counter < 127 {
-		counter++
-	} else {
-		counter = 0 // wraparound behavior
-	}
-
-	newVE := VectorVersion(delBit | counter)
-	page[slot] = newVE
-
-	return newVE, true
-}
-
-func (v *VersionMap) MarkDeleted(id uint64) VectorVersion {
-	v.locks.Lock(id)
-	defer v.locks.Unlock(id)
-
-	page, slot := v.versions.GetPageFor(id)
-	ve := page[slot]
-	if ve == 0 {
-		return 0
-	}
-	if ve.Deleted() {
-		return ve // already deleted
-	}
-
-	counter := uint8(ve) & counterMask // 0-127
-
-	newVE := VectorVersion(tombstoneMask | counter)
-	page[slot] = newVE
-	return newVE
-}
-
-func (v *VersionMap) IsDeleted(id uint64) bool {
-	page, slot := v.versions.GetPageFor(id)
-	v.locks.RLock(id)
-	ve := page[slot]
-	v.locks.RUnlock(id)
-	return ve.Deleted()
-}
-
-// AllocPageFor ensures that the version map has a page allocated for the given ID.
-func (v *VersionMap) AllocPageFor(id uint64) {
-	v.versions.EnsurePageFor(id)
 }
 
 type Distancer struct {

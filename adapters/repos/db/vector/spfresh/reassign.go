@@ -12,6 +12,7 @@
 package spfresh
 
 import (
+	"context"
 	"time"
 
 	"github.com/pkg/errors"
@@ -29,7 +30,10 @@ func (s *SPFresh) doReassign(op reassignOperation) error {
 	defer s.metrics.ReassignDuration(start)
 
 	// check if the vector is still valid
-	version := s.VersionMap.Get(op.VectorID)
+	version, err := s.VersionMap.Get(context.Background(), op.VectorID)
+	if err != nil {
+		return errors.Wrapf(err, "failed to get version for vector %d", op.VectorID)
+	}
 	if version.Deleted() || version.Version() > op.Version {
 		return nil
 	}
@@ -50,19 +54,19 @@ func (s *SPFresh) doReassign(op reassignOperation) error {
 	}
 
 	// check again if the version is still valid
-	version = s.VersionMap.Get(op.VectorID)
+	version, err = s.VersionMap.Get(context.Background(), op.VectorID)
+	if err != nil {
+		return errors.Wrapf(err, "failed to get version for vector %d", op.VectorID)
+	}
 	if version.Deleted() || version.Version() > op.Version {
 		return nil
 	}
 
 	// increment the vector version. this will invalidate all the existing copies
 	// of the vector in other postings.
-	version, ok := s.VersionMap.Increment(version, op.VectorID)
-	if !ok {
-		// Increment fails if a concurrent Increment happened (similar to a CAS operation)
-		s.logger.WithField("vectorID", op.VectorID).
-			Debug("vector version increment failed, skipping reassign operation")
-		return nil
+	version, err = s.VersionMap.Increment(context.Background(), op.VectorID, version)
+	if err != nil {
+		return errors.Wrapf(err, "failed to increment version for vector %d", op.VectorID)
 	}
 
 	// create a new vector with the updated version
@@ -75,7 +79,10 @@ func (s *SPFresh) doReassign(op reassignOperation) error {
 
 	// append the vector to each replica
 	for id := range replicas.Iter() {
-		version = s.VersionMap.Get(newVector.ID())
+		version, err = s.VersionMap.Get(context.Background(), newVector.ID())
+		if err != nil {
+			return errors.Wrapf(err, "failed to get version for vector %d", newVector.ID())
+		}
 		if version.Deleted() || version.Version() > newVector.Version().Version() {
 			s.logger.WithField("vectorID", op.VectorID).
 				Debug("vector is deleted or has a newer version, skipping reassign operation")

@@ -91,7 +91,11 @@ func (s *SPFresh) SearchByVector(ctx context.Context, vector []float32, k int, a
 		for _, v := range p.Iter() {
 			id := v.ID()
 			// skip deleted vectors
-			if s.VersionMap.IsDeleted(id) {
+			deleted, err := s.VersionMap.IsDeleted(context.Background(), id)
+			if err != nil {
+				return nil, nil, errors.Wrapf(err, "failed to check if vector %d is deleted", id)
+			}
+			if deleted {
 				postingSize--
 				continue
 			}
