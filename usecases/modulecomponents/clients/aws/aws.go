@@ -39,6 +39,32 @@ type bedrockEmbeddingsRequestConfig struct {
 	OutputEmbeddingLength *int64 `json:"outputEmbeddingLength,omitempty"`
 }
 
+type bedrockAmazonNovaEmbeddingsRequest struct {
+	TaskType              TaskType                                `json:"taskType"`
+	SingleEmbeddingParams bedrockAmazonNovaSingleEmbeddingsParams `json:"singleEmbeddingParams"`
+}
+
+type bedrockAmazonNovaSingleEmbeddingsParams struct {
+	EmbeddingPurpose   EmbeddingPurpose        `json:"embeddingPurpose,omitempty"`
+	EmbeddingDimension *int64                  `json:"embeddingDimension,omitempty"`
+	Text               *bedrockAmazonNovaText  `json:"text,omitempty"`
+	Image              *bedrockAmazonNovaImage `json:"image,omitempty"`
+}
+
+type bedrockAmazonNovaText struct {
+	TruncationMode *string `json:"truncationMode,omitempty"`
+	Value          string  `json:"value,omitempty"`
+}
+
+type bedrockAmazonNovaImage struct {
+	Format *string                      `json:"format,omitempty"`
+	Source bedrockAmazonNovaImageSource `json:"source"`
+}
+
+type bedrockAmazonNovaImageSource struct {
+	Bytes string `json:"bytes,omitempty"`
+}
+
 type bedrockCohereEmbeddingRequest struct {
 	Texts     []string `json:"texts,omitempty"`
 	Images    []string `json:"images,omitempty"`
@@ -56,6 +82,61 @@ type bedrockEmbeddingResponse struct {
 	Message             *string     `json:"message,omitempty"`
 }
 
+type bedrockNovaEmbedding struct {
+	EmbeddingType string    `json:"embeddingType,omitempty"`
+	Embedding     []float32 `json:"embedding,omitempty"`
+}
+
+// UnmarshalJSON implements custom unmarshaling for bedrockEmbeddingResponse.
+func (b *bedrockEmbeddingResponse) UnmarshalJSON(data []byte) error {
+	type tempResponse struct {
+		InputTextTokenCount int             `json:"inputTextTokenCount,omitempty"`
+		Embedding           []float32       `json:"embedding,omitempty"`
+		Embeddings          json.RawMessage `json:"embeddings,omitempty"`
+		Message             *string         `json:"message,omitempty"`
+	}
+
+	var t tempResponse
+	if err := json.Unmarshal(data, &t); err != nil {
+		return err
+	}
+
+	b.InputTextTokenCount = t.InputTextTokenCount
+	b.Embedding = t.Embedding
+	b.Message = t.Message
+
+	// Handle embeddings (if present): try [][]float32 first, then fall back to []NovaEmbeddings.
+	if len(t.Embeddings) > 0 {
+		var embeddings [][]float32
+		if err := json.Unmarshal(t.Embeddings, &embeddings); err == nil {
+			b.Embeddings = embeddings
+			return nil
+		}
+
+		var novaEmbeddings []bedrockNovaEmbedding
+		if err := json.Unmarshal(t.Embeddings, &novaEmbeddings); err != nil {
+			return err
+		}
+
+		b.Embeddings = make([][]float32, len(novaEmbeddings))
+		for i, e := range novaEmbeddings {
+			b.Embeddings[i] = e.Embedding
+		}
+	}
+
+	return nil
+}
+
+func (b *bedrockEmbeddingResponse) getEmbeddings() [][]float32 {
+	if len(b.Embedding) > 0 {
+		return [][]float32{b.Embedding}
+	}
+	if len(b.Embeddings) == 1 {
+		return b.Embeddings
+	}
+	return nil
+}
+
 type OperationType string
 
 const (
@@ -70,13 +151,27 @@ const (
 	Sagemaker Service = "sagemaker"
 )
 
+type TaskType string
+
+const (
+	SingleEmbedding TaskType = "SINGLE_EMBEDDING"
+)
+
+type EmbeddingPurpose string
+
+const (
+	GenericIndex     EmbeddingPurpose = "GENERIC_INDEX"
+	GenericRetrieval EmbeddingPurpose = "GENERIC_RETRIEVAL"
+)
+
 type Settings struct {
-	Model         string
-	Region        string
-	Endpoint      string
-	Service       Service
-	Dimensions    *int64
-	OperationType OperationType
+	Model            string
+	Region           string
+	Endpoint         string
+	Service          Service
+	Dimensions       *int64
+	OperationType    OperationType
+	EmbeddingPurpose EmbeddingPurpose
 }
 
 type Client struct {
@@ -227,7 +322,12 @@ func (c *Client) invokeAmazonModel(ctx context.Context,
 	maxRetries int,
 	settings Settings,
 ) ([]float32, error) {
-	req := c.createAmazonBody(text, image, settings)
+	var req any
+	if strings.Contains(settings.Model, "amazon.nova") {
+		req = c.createAmazonNovaBody(text, image, settings)
+	} else {
+		req = c.createAmazonTitanBody(text, image, settings)
+	}
 	result, err := c.invokeModel(ctx, req, awsKey, awsSecret, awsSessionToken, maxRetries, settings)
 	if err != nil {
 		return nil, fmt.Errorf("invoke model: %w", err)
@@ -253,7 +353,7 @@ func (c *Client) invokeCohereModel(ctx context.Context,
 	return c.parseBedrockCohereResponse(result.Body)
 }
 
-func (c *Client) createAmazonBody(text, image string, settings Settings) bedrockEmbeddingsRequest {
+func (c *Client) createAmazonTitanBody(text, image string, settings Settings) bedrockEmbeddingsRequest {
 	var embeddingConfig *bedrockEmbeddingsRequestConfig
 	if settings.Dimensions != nil {
 		embeddingConfig = &bedrockEmbeddingsRequestConfig{OutputEmbeddingLength: settings.Dimensions}
@@ -262,6 +362,32 @@ func (c *Client) createAmazonBody(text, image string, settings Settings) bedrock
 		InputText:       c.ptrString(text),
 		InputImage:      c.ptrString(image),
 		EmbeddingConfig: embeddingConfig,
+	}
+}
+
+func (c *Client) createAmazonNovaBody(text, image string, settings Settings) bedrockAmazonNovaEmbeddingsRequest {
+	var textRequest *bedrockAmazonNovaText
+	if text != "" {
+		textRequest = &bedrockAmazonNovaText{
+			TruncationMode: c.ptrString("END"),
+			Value:          text,
+		}
+	}
+	var imageRequest *bedrockAmazonNovaImage
+	if image != "" {
+		imageRequest = &bedrockAmazonNovaImage{
+			Format: c.ptrString("jpeg"),
+			Source: bedrockAmazonNovaImageSource{Bytes: image},
+		}
+	}
+	return bedrockAmazonNovaEmbeddingsRequest{
+		TaskType: SingleEmbedding,
+		SingleEmbeddingParams: bedrockAmazonNovaSingleEmbeddingsParams{
+			EmbeddingPurpose:   settings.EmbeddingPurpose,
+			EmbeddingDimension: settings.Dimensions,
+			Text:               textRequest,
+			Image:              imageRequest,
+		},
 	}
 }
 
@@ -341,10 +467,10 @@ func (c *Client) parseBedrockAmazonResponse(bodyBytes []byte) ([]float32, error)
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
 		return nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
 	}
-	if len(resBody.Embedding) == 0 {
+	if len(resBody.getEmbeddings()) == 0 {
 		return nil, fmt.Errorf("could not obtain vector from AWS Bedrock")
 	}
-	return resBody.Embedding, nil
+	return resBody.getEmbeddings()[0], nil
 }
 
 func (c *Client) sendSagemakerRequest(ctx context.Context,
