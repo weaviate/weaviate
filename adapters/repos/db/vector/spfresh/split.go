@@ -19,56 +19,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 )
 
-func (s *SPFresh) enqueueSplit(ctx context.Context, postingID uint64) error {
-	if s.ctx == nil {
-		return nil // Not started yet
-	}
-
-	if err := s.ctx.Err(); err != nil {
-		return err
-	}
-
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-
-	// Check if the operation is already in progress
-	if !s.splitList.tryAdd(postingID) {
-		return nil
-	}
-
-	// Enqueue the operation to the channel
-	s.splitCh.Push(postingID)
-
-	s.metrics.EnqueueSplitTask()
-
-	return nil
-}
-
-func (s *SPFresh) splitWorker() {
-	defer s.wg.Done()
-
-	for postingID := range s.splitCh.Out() {
-		if s.ctx.Err() != nil {
-			return
-		}
-
-		s.metrics.DequeueSplitTask()
-
-		err := s.doSplit(postingID, true)
-		if err != nil {
-			if errors.Is(err, context.Canceled) {
-				continue
-			}
-
-			s.logger.WithError(err).
-				WithField("postingID", postingID).
-				Error("Failed to process split operation")
-			continue // Log the error and continue processing other operations
-		}
-	}
-}
-
 func abs(a float32) float32 {
 	if a < 0 {
 		return -a
@@ -80,6 +30,7 @@ func abs(a float32) float32 {
 // If reassign is true, it will enqueue reassign operations for vectors that
 // may need to be moved to other postings after the split.
 func (s *SPFresh) doSplit(postingID uint64, reassign bool) error {
+	s.metrics.DequeueSplitTask()
 	start := time.Now()
 	defer s.metrics.SplitDuration(start)
 
@@ -89,7 +40,7 @@ func (s *SPFresh) doSplit(postingID uint64, reassign bool) error {
 	defer func() {
 		if !markedAsDone {
 			s.postingLocks.Unlock(postingID)
-			s.splitList.done(postingID)
+			s.taskQueue.SplitDone(postingID)
 		}
 	}()
 
@@ -236,7 +187,7 @@ func (s *SPFresh) doSplit(postingID uint64, reassign bool) error {
 	// Mark the split operation as done
 	markedAsDone = true
 	s.postingLocks.Unlock(postingID)
-	s.splitList.done(postingID)
+	s.taskQueue.SplitDone(postingID)
 
 	if !reassign {
 		return nil
@@ -340,7 +291,7 @@ func (s *SPFresh) enqueueReassignAfterSplit(oldPostingID uint64, newPostingIDs [
 				if newDist >= oldDist {
 					// the vector is closer to the old centroid, which means it may be also closer to a neighboring centroid,
 					// we need to reassign it
-					err = s.enqueueReassign(s.ctx, newPostingIDs[i], v)
+					err = s.taskQueue.EnqueueReassign(s.ctx, newPostingIDs[i], v.ID(), v.Version())
 					if err != nil {
 						return errors.Wrapf(err, "failed to enqueue reassign for vector %d after split", vid)
 					}
@@ -425,7 +376,7 @@ func (s *SPFresh) enqueueReassignAfterSplit(oldPostingID uint64, newPostingIDs [
 			}
 
 			// the vector is closer to one of the new centroids, it needs to be reassigned
-			err = s.enqueueReassign(s.ctx, neighborID, v)
+			err = s.taskQueue.EnqueueReassign(s.ctx, neighborID, v.ID(), v.Version())
 			if err != nil {
 				return errors.Wrapf(err, "failed to enqueue reassign for vector %d after split", vid)
 			}

@@ -25,10 +25,10 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/spfresh"
 )
@@ -51,11 +51,11 @@ var _ common.VectorIndex = (*SPFresh)(nil)
 // while exposing a synchronous API for searching and updating vectors.
 // Note: this is a work in progress and not all features are implemented yet.
 type SPFresh struct {
-	id      string
-	logger  logrus.FieldLogger
-	config  *Config // Config contains internal configuration settings.
-	metrics *Metrics
-
+	id                 string
+	logger             logrus.FieldLogger
+	config             *Config // Config contains internal configuration settings.
+	metrics            *Metrics
+	scheduler          *queue.Scheduler
 	maxPostingSize     uint32
 	minPostingSize     uint32
 	replicas           uint32
@@ -83,13 +83,7 @@ type SPFresh struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	splitCh    *common.UnboundedChannel[uint64]            // Channel for split operations
-	mergeCh    *common.UnboundedChannel[uint64]            // Channel for merge operations
-	reassignCh *common.UnboundedChannel[reassignOperation] // Channel for reassign operations
-	wg         sync.WaitGroup
-
-	splitList *deduplicator // Prevents duplicate split operations
-	mergeList *deduplicator // Prevents duplicate merge operations
+	taskQueue TaskQueue
 
 	visitedPool *visited.Pool
 
@@ -119,6 +113,7 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*SPFresh, error) {
 		id:           cfg.ID,
 		logger:       cfg.Logger.WithField("component", "SPFresh"),
 		config:       cfg,
+		scheduler:    cfg.Scheduler,
 		metrics:      metrics,
 		PostingStore: postingStore,
 		// Capacity of the version map: 8k pages, 1M vectors each -> 8B vectors
@@ -133,13 +128,6 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*SPFresh, error) {
 		PostingSizes: postingSizes,
 
 		postingLocks: common.NewDefaultShardedRWLocks(),
-		// TODO: Eventually, we'll create sharded workers between all instances of SPFresh
-		// to minimize the number of goroutines while still maximizing CPU usage and I/O throughput.
-		splitCh:    common.MakeUnboundedChannel[uint64](),
-		mergeCh:    common.MakeUnboundedChannel[uint64](),
-		reassignCh: common.MakeUnboundedChannel[reassignOperation](),
-		splitList:  newDeduplicator(),
-		mergeList:  newDeduplicator(),
 		// TODO: choose a better starting size since we can predict the max number of
 		// visited vectors based on cfg.InternalPostingCandidates.
 		visitedPool:        visited.NewPool(1, 512, -1),
@@ -162,21 +150,11 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*SPFresh, error) {
 
 	s.ctx, s.cancel = context.WithCancel(context.Background())
 
-	// start N workers to process split operations
-	for i := 0; i < s.config.SplitWorkers; i++ {
-		s.wg.Add(1)
-		enterrors.GoWrapper(s.splitWorker, s.logger)
+	taskQueue, err := NewTaskQueue(&s, cfg.TargetVector)
+	if err != nil {
+		return nil, err
 	}
-
-	// start M workers to process reassign operations
-	for i := 0; i < s.config.ReassignWorkers; i++ {
-		s.wg.Add(1)
-		enterrors.GoWrapper(s.reassignWorker, s.logger)
-	}
-
-	// start a single worker to process merge operations
-	s.wg.Add(1)
-	enterrors.GoWrapper(s.mergeWorker, s.logger)
+	s.taskQueue = *taskQueue
 
 	return &s, nil
 }
@@ -230,12 +208,8 @@ func (s *SPFresh) Shutdown(ctx context.Context) error {
 	// Cancel the context to prevent new operations from being enqueued
 	s.cancel()
 
-	// Close the split channel to signal workers to stop
-	s.splitCh.Close(ctx)
-	s.reassignCh.Close(ctx)
-	s.mergeCh.Close(ctx)
+	s.taskQueue.Close()
 
-	s.wg.Wait() // Wait for all workers to finish
 	return nil
 }
 

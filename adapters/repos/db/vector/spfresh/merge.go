@@ -18,61 +18,12 @@ import (
 	"github.com/pkg/errors"
 )
 
-func (s *SPFresh) enqueueMerge(ctx context.Context, postingID uint64) error {
-	if s.ctx == nil {
-		return nil // Not started yet
-	}
-
-	if err := s.ctx.Err(); err != nil {
-		return err
-	}
-
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-
-	// Check if the operation is already in progress
-	if !s.mergeList.tryAdd(postingID) {
-		return nil
-	}
-
-	// Enqueue the operation to the channel
-	s.mergeCh.Push(postingID)
-
-	s.metrics.EnqueueMergeTask()
-
-	return nil
-}
-
-func (s *SPFresh) mergeWorker() {
-	defer s.wg.Done()
-
-	for postingID := range s.mergeCh.Out() {
-		if s.ctx.Err() != nil {
-			return // Exit if the context is cancelled
-		}
-
-		s.metrics.DequeueMergeTask()
-
-		err := s.doMerge(postingID)
-		if err != nil {
-			if errors.Is(err, context.Canceled) {
-				continue
-			}
-
-			s.logger.WithError(err).
-				WithField("postingID", postingID).
-				Error("Failed to process merge operation")
-			continue // Log the error and continue processing other operations
-		}
-	}
-}
-
 func (s *SPFresh) doMerge(postingID uint64) error {
+	s.metrics.DequeueMergeTask()
 	start := time.Now()
 	defer s.metrics.MergeDuration(start)
 
-	defer s.mergeList.done(postingID)
+	defer s.taskQueue.MergeDone(postingID)
 
 	s.logger.WithField("postingID", postingID).Debug("Merging posting")
 
@@ -80,8 +31,8 @@ func (s *SPFresh) doMerge(postingID uint64) error {
 	if !s.postingLocks.TryLock(postingID) {
 		// another merge operation is in progress for this posting
 		// re-enqueue the operation to be processed later
-		s.mergeList.done(postingID) // remove from the in-progress list
-		return s.enqueueMerge(s.ctx, postingID)
+		s.taskQueue.MergeDone(postingID) // remove from the in-progress list
+		return s.taskQueue.EnqueueMerge(s.ctx, postingID)
 	}
 	defer func() {
 		if !markedAsDone {
@@ -177,11 +128,11 @@ func (s *SPFresh) doMerge(postingID uint64) error {
 		if err != nil {
 			return errors.Wrapf(err, "failed to get posting size for candidate %d", candidateID)
 		}
-		if int(count)+prevLen > int(s.maxPostingSize) || s.mergeList.contains(candidateID) {
+		if int(count)+prevLen > int(s.maxPostingSize) || s.taskQueue.MergeContains(candidateID) {
 			continue // Skip this candidate
 		}
 
-		func() error {
+		err = func() error {
 			// lock the candidate posting to ensure no concurrent modifications
 			// note: the candidate lock might be the same as the current posting lock
 			// so we need to ensure we don't deadlock
@@ -269,7 +220,7 @@ func (s *SPFresh) doMerge(postingID uint64) error {
 
 				if prevDist < newDist {
 					// the vector is closer to the old centroid, we need to reassign it
-					err = s.enqueueReassign(s.ctx, largeID, v)
+					err = s.taskQueue.EnqueueReassign(s.ctx, largeID, v.ID(), v.Version())
 					if err != nil {
 						return errors.Wrapf(err, "failed to enqueue reassign for vector %d after merge", v.ID())
 					}

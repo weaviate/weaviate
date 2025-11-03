@@ -240,6 +240,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 		spfreshConfigID := s.vectorIndexID(targetVector)
 		spfreshConfig := &spfresh.Config{
 			Logger:            s.index.logger,
+			Scheduler:         s.index.scheduler,
 			DistanceProvider:  distProv,
 			RootPath:          filepath.Join(s.path(), "spfresh"),
 			ID:                spfreshConfigID,
@@ -255,6 +256,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 				WriteSegmentInfoIntoFileName: s.index.Config.SegmentInfoIntoFileNameEnabled,
 				WriteMetadataFilesEnabled:    s.index.Config.WriteMetadataFilesEnabled,
 			},
+			VectorForIDThunk:   hnsw.NewVectorForIDThunk(targetVector, s.vectorByIndexID),
 			TombstoneCallbacks: s.cycleCallbacks.vectorTombstoneCleanupCallbacks,
 			Centroids: spfresh.CentroidConfig{
 				HNSWConfig: &hnsw.Config{
