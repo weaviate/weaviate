@@ -248,19 +248,21 @@ func (s *SchemaManager) UpdateClass(cmd *command.ApplyRequest, nodeID string, sc
 		}
 
 		// validate replication factor change
-		initialRF := meta.Class.ReplicationConfig.Factor
-		updatedRF := req.Class.ReplicationConfig.Factor
+		if meta.Class.ReplicationConfig != nil && u.ReplicationConfig != nil {
+			initialRF := meta.Class.ReplicationConfig.Factor
+			updatedRF := u.ReplicationConfig.Factor
 
-		if initialRF < updatedRF {
-			for _, physical := range meta.Sharding.Physical {
-				if int64(len(physical.BelongsToNodes)) < updatedRF {
-					return fmt.Errorf("not enough replicas in shard %q to increase replication factor to %d for class %q", physical.Name, updatedRF, meta.Class.Class)
+			if initialRF < updatedRF {
+				for _, physical := range meta.Sharding.Physical {
+					if int64(len(physical.BelongsToNodes)) < updatedRF {
+						return fmt.Errorf("not enough replicas in shard %q to increase replication factor to %d for class %q", physical.Name, updatedRF, meta.Class.Class)
+					}
 				}
 			}
-		}
 
-		// set the updated replication factor
-		meta.Sharding.ReplicationFactor = meta.Class.ReplicationConfig.Factor
+			// set the updated replication factor
+			meta.Sharding.ReplicationFactor = u.ReplicationConfig.Factor
+		}
 
 		return nil
 	}
