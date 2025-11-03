@@ -16,7 +16,7 @@ require (
 	github.com/bits-and-blooms/bloom/v3 v3.7.0
 	github.com/bmatcuk/doublestar v1.3.4
 	github.com/buger/jsonparser v1.1.1
-	github.com/casbin/casbin/v2 v2.103.0
+	github.com/casbin/casbin/v2 v2.128.0
 	github.com/cenkalti/backoff/v4 v4.3.0
 	github.com/cenkalti/backoff/v5 v5.0.2
 	github.com/coreos/go-oidc/v3 v3.12.0
