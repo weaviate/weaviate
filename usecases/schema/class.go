@@ -287,8 +287,14 @@ func UpdateClassInternal(h *Handler, ctx context.Context, className string, upda
 			return fmt.Errorf("replication factor must be at least 1, got %d", updatedRF)
 		}
 
-		if initialRF != updatedRF {
-			return fmt.Errorf("replication factor cannot be changed via schema update; use the replication API to update it")
+		if initialRF < updatedRF {
+			shardingState := h.schemaReader.CopyShardingState(className)
+
+			for _, physical := range shardingState.Physical {
+				if int64(len(physical.BelongsToNodes)) < updatedRF {
+					return fmt.Errorf("not enough replicas in shard %s to increase replication factor to %d for class %s", physical.Name, updatedRF, className)
+				}
+			}
 		}
 
 		if err := validateImmutableFields(initial, updated); err != nil {

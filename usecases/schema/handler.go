@@ -137,8 +137,7 @@ type Handler struct {
 	configParser            VectorConfigParser
 	invertedConfigValidator InvertedConfigValidator
 
-	scaleOut               scaleOut
-	replicaMovementEnabled bool
+	scaleOut scaleOut
 
 	parser      Parser
 	classGetter *ClassGetter
@@ -175,7 +174,6 @@ func NewHandler(
 		moduleConfig:            moduleConfig,
 		clusterState:            clusterState,
 		scaleOut:                scaleoutManager,
-		replicaMovementEnabled:  config.ReplicaMovementEnabled,
 		cloud:                   cloud,
 		classGetter:             classGetter,
 
