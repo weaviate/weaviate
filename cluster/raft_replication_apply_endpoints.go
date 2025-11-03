@@ -78,7 +78,7 @@ func (s *Raft) ApplyReplicationScalePlan(ctx context.Context, scalePlan api.Repl
 		for node := range shardActions.RemoveNodes {
 			_, err := s.DeleteReplicaFromShard(ctx, scalePlan.Collection, shardName, node)
 			if err != nil {
-				return opsUUIDs, fmt.Errorf("delete replica %s from shard %s: %w", node, shardName, err)
+				return opsUUIDs, fmt.Errorf("delete replica %q from shard %q: %w", node, shardName, err)
 			}
 		}
 
@@ -87,7 +87,7 @@ func (s *Raft) ApplyReplicationScalePlan(ctx context.Context, scalePlan api.Repl
 				// empty source node means create empty replica
 				_, err := s.AddReplicaToShard(ctx, scalePlan.Collection, shardName, newNode)
 				if err != nil {
-					return opsUUIDs, fmt.Errorf("add empty replica %q to shard %s: %w", newNode, shardName, err)
+					return opsUUIDs, fmt.Errorf("add empty replica %q to shard %q: %w", newNode, shardName, err)
 				}
 				continue
 			}

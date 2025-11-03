@@ -292,7 +292,7 @@ func UpdateClassInternal(h *Handler, ctx context.Context, className string, upda
 
 			for _, physical := range shardingState.Physical {
 				if int64(len(physical.BelongsToNodes)) < updatedRF {
-					return fmt.Errorf("not enough replicas in shard %s to increase replication factor to %d for class %s", physical.Name, updatedRF, className)
+					return fmt.Errorf("not enough replicas in shard %q to increase replication factor to %d for class %q", physical.Name, updatedRF, className)
 				}
 			}
 		}
