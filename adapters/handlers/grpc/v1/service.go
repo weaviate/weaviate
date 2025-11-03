@@ -311,11 +311,8 @@ func (s *Service) search(ctx context.Context, req *pb.SearchRequest) (*pb.Search
 	if err != nil {
 		return nil, fmt.Errorf("extract auth: %w", err)
 	}
-	spanCtx, span = otel.Tracer("weaviate-search").Start(ctx, "restctx.AddPrincipalToContext",
-		trace.WithSpanKind(trace.SpanKindInternal),
-	)
-	ctx = restCtx.AddPrincipalToContext(spanCtx, principal)
-	span.End()
+
+	ctx = restCtx.AddPrincipalToContext(ctx, principal)
 
 	spanCtx, span = otel.Tracer("weaviate-search").Start(ctx, "NewParser",
 		trace.WithSpanKind(trace.SpanKindInternal),
