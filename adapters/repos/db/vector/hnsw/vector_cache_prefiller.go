@@ -16,7 +16,6 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
-
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
 )
 
