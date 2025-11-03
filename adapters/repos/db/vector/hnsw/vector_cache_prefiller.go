@@ -85,10 +85,12 @@ func (pf *vectorCachePrefiller[T]) prefillLevel(ctx context.Context,
 			continue
 		}
 
-		// we are not really interested in the result, we just want to populate the cache
-		// cache.Get() is thread-safe and doesn't require the index lock
+		// we are not really interested in the result, we just want to populate the
+		// cache
+		pf.index.Lock()
 		pf.cache.Get(ctx, uint64(i))
 		layerCount++
+		pf.index.Unlock()
 	}
 
 	pf.logLevel(level, layerCount, before)
