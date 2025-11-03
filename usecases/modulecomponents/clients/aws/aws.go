@@ -105,9 +105,8 @@ func (b *bedrockEmbeddingResponse) UnmarshalJSON(data []byte) error {
 	b.Embedding = t.Embedding
 	b.Message = t.Message
 
-	// Handle embeddings (if present): try [][]float32 first, then fall back to []Emb.
+	// Handle embeddings (if present): try [][]float32 first, then fall back to []NovaEmbeddings.
 	if len(t.Embeddings) > 0 {
-		// Attempt to unmarshal directly as [][]float32.
 		var embeddings [][]float32
 		if err := json.Unmarshal(t.Embeddings, &embeddings); err == nil {
 			b.Embeddings = embeddings
@@ -116,7 +115,7 @@ func (b *bedrockEmbeddingResponse) UnmarshalJSON(data []byte) error {
 
 		var novaEmbeddings []bedrockNovaEmbedding
 		if err := json.Unmarshal(t.Embeddings, &novaEmbeddings); err != nil {
-			return err // Neither format matched; propagate the error.
+			return err
 		}
 
 		b.Embeddings = make([][]float32, len(novaEmbeddings))

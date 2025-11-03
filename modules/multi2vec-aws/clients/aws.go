@@ -42,9 +42,9 @@ func (v *vectorizer) Vectorize(ctx context.Context,
 }
 
 func (v *vectorizer) VectorizeQuery(ctx context.Context,
-	input []string, cfg moduletools.ClassConfig,
+	texts []string, cfg moduletools.ClassConfig,
 ) (*modulecomponents.VectorizationCLIPResult[[]float32], error) {
-	return v.vectorize(ctx, input, nil, cfg, aws.GenericRetrieval)
+	return v.vectorize(ctx, texts, nil, cfg, aws.GenericRetrieval)
 }
 
 func (v *vectorizer) VectorizeImage(ctx context.Context,
