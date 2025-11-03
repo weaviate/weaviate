@@ -68,7 +68,7 @@ func (v *VersionMap) Get(ctx context.Context, vectorID uint64) (VectorVersion, e
 	version, err := v.cache.Get(ctx, vectorID, otter.LoaderFunc[uint64, VectorVersion](func(ctx context.Context, key uint64) (VectorVersion, error) {
 		version, err := v.store.Get(ctx, vectorID)
 		if err != nil {
-			if errors.Is(err, ErrPostingNotFound) {
+			if errors.Is(err, ErrVectorNotFound) {
 				return 0, otter.ErrNotFound
 			}
 
@@ -78,14 +78,13 @@ func (v *VersionMap) Get(ctx context.Context, vectorID uint64) (VectorVersion, e
 		return version, nil
 	}))
 	if errors.Is(err, otter.ErrNotFound) {
-		return 0, ErrPostingNotFound
+		return 0, ErrVectorNotFound
 	}
 
 	return version, err
 }
 
-// Sets the size of the posting to newSize.
-// This method assumes the posting has been locked for writing by the caller.
+// Sets the version of the vector to newVersion.
 func (v *VersionMap) Set(ctx context.Context, vectorID uint64, newVersion VectorVersion) error {
 	err := v.store.Set(ctx, vectorID, newVersion)
 	if err != nil {
@@ -95,12 +94,11 @@ func (v *VersionMap) Set(ctx context.Context, vectorID uint64, newVersion Vector
 	return nil
 }
 
-// Incr increments the size of the posting by delta and returns the new size.
-// This method assumes the posting has been locked for writing by the caller.
+// Incr increments the version of the vector by delta and returns the new version.
 func (v *VersionMap) Increment(ctx context.Context, vectorID uint64, previousVersion VectorVersion) (VectorVersion, error) {
 	version, err := v.Get(ctx, vectorID)
 	if err != nil {
-		if !errors.Is(err, ErrPostingNotFound) {
+		if !errors.Is(err, ErrVectorNotFound) {
 			return 0, err
 		}
 	}
@@ -131,7 +129,7 @@ func (v *VersionMap) Increment(ctx context.Context, vectorID uint64, previousVer
 func (v *VersionMap) MarkDeleted(ctx context.Context, vectorID uint64) (VectorVersion, error) {
 	version, err := v.Get(ctx, vectorID)
 	if err != nil {
-		if !errors.Is(err, ErrPostingNotFound) {
+		if !errors.Is(err, ErrVectorNotFound) {
 			return 0, err
 		}
 	}
