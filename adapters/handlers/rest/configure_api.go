@@ -151,7 +151,7 @@ import (
 
 const (
 	MinimumRequiredContextionaryVersion = "1.0.2"
-	ReadinessProbeLeadTime              = 30 * time.Second
+	ReadinessProbeLeadTime              = 0 * time.Second
 	GrpcShutdownTimeout                 = 60 * time.Second
 	InternalServerTimeout               = 60 * time.Second
 	ClusterServiceTimeout               = 60 * time.Second
