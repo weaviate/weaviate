@@ -17,6 +17,8 @@ import (
 	"math"
 
 	"github.com/go-openapi/strfmt"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/trace"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
@@ -33,6 +35,11 @@ import (
 
 // Do a bm25 search.  The results will be used in the hybrid algorithm
 func sparseSearch(ctx context.Context, e *Explorer, params dto.GetParams) ([]*search.Result, string, error) {
+	ctx, span := otel.Tracer("weaviate-search").Start(ctx, "sparseSearch",
+		trace.WithSpanKind(trace.SpanKindInternal),
+	)
+	defer span.End()
+
 	params.KeywordRanking = &searchparams.KeywordRanking{
 		Query:      params.HybridSearch.Query,
 		Type:       "bm25",
@@ -82,6 +89,11 @@ func sparseSearch(ctx context.Context, e *Explorer, params dto.GetParams) ([]*se
 
 // Do a nearvector search.  The results will be used in the hybrid algorithm
 func denseSearch(ctx context.Context, e *Explorer, params dto.GetParams, searchname string, targetVectors []string, searchVector *searchparams.NearVector) ([]*search.Result, string, error) {
+	ctx, span := otel.Tracer("weaviate-search").Start(ctx, "denseSearch",
+		trace.WithSpanKind(trace.SpanKindInternal),
+	)
+	defer span.End()
+
 	params.Pagination.Offset = 0
 	if params.Pagination.Limit < int(e.config.QueryHybridMaximumResults) {
 		params.Pagination.Limit = int(e.config.QueryHybridMaximumResults)
@@ -189,6 +201,11 @@ func nearTextSubSearch(ctx context.Context, e *Explorer, params dto.GetParams, t
 
 // Hybrid search.  This is the main entry point to the hybrid search algorithm
 func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.Result, error) {
+	ctx, span := otel.Tracer("weaviate-search").Start(ctx, "explorer.Hybrid",
+		trace.WithSpanKind(trace.SpanKindInternal),
+	)
+	defer span.End()
+
 	var err error
 	var results [][]*search.Result
 	var weights []float64

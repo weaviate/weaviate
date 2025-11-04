@@ -164,6 +164,9 @@ func (s *Server) Open() error {
 		options = append(options, monitoring.InstrumentGrpc(s.metrics)...)
 	}
 
+	// Add OpenTelemetry tracing interceptors
+	options = monitoring.AddTracingToGRPCOptions(options, s.log)
+
 	s.grpcServer = grpc.NewServer(options...)
 	cmd.RegisterClusterServiceServer(s.grpcServer, s)
 	enterrors.GoWrapper(func() {
