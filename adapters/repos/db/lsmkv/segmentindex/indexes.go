@@ -74,14 +74,7 @@ func (s *Indexes) WriteTo(w io.Writer) (written int64, err error) {
 	if err := os.Mkdir(s.ScratchSpacePath, 0o777); err != nil {
 		return written, errors.Wrap(err, "create scratch space")
 	}
-	defer func() {
-		diskio.Fsync(s.ScratchSpacePath)
-
-		rerr := os.RemoveAll(s.ScratchSpacePath)
-		if err == nil {
-			err = rerr
-		}
-	}()
+	defer os.RemoveAll(s.ScratchSpacePath)
 
 	primaryFileName := filepath.Join(s.ScratchSpacePath, "primary")
 	primaryFD, err := os.Create(primaryFileName)
