@@ -20,6 +20,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/weaviate/weaviate/entities/diskio"
@@ -77,9 +78,12 @@ func (s *Indexes) WriteTo(w io.Writer) (written int64, err error) {
 	defer func() {
 		diskio.Fsync(s.ScratchSpacePath)
 
-		rerr := os.RemoveAll(s.ScratchSpacePath)
-		if err == nil {
-			err = rerr
+		for range 3 {
+			err := os.RemoveAll(s.ScratchSpacePath)
+			if err == nil {
+				break
+			}
+			time.Sleep(10 * time.Millisecond)
 		}
 	}()
 
