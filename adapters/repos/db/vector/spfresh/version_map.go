@@ -194,6 +194,10 @@ func (v *VersionStore) Get(ctx context.Context, vectorID uint64) (VectorVersion,
 		return 0, errors.Wrapf(err, "failed to get version for %d", vectorID)
 	}
 
+	if len(version) == 0 {
+		return 0, ErrVectorNotFound
+	}
+
 	return VectorVersion(version[0]), nil
 }
 
