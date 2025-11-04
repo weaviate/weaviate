@@ -35,6 +35,11 @@ import (
 
 // Do a bm25 search.  The results will be used in the hybrid algorithm
 func sparseSearch(ctx context.Context, e *Explorer, params dto.GetParams) ([]*search.Result, string, error) {
+	ctx, span := otel.Tracer("weaviate-search").Start(ctx, "denseSearch",
+		trace.WithSpanKind(trace.SpanKindInternal),
+	)
+	defer span.End()
+
 	params.KeywordRanking = &searchparams.KeywordRanking{
 		Query:      params.HybridSearch.Query,
 		Type:       "bm25",
@@ -84,6 +89,11 @@ func sparseSearch(ctx context.Context, e *Explorer, params dto.GetParams) ([]*se
 
 // Do a nearvector search.  The results will be used in the hybrid algorithm
 func denseSearch(ctx context.Context, e *Explorer, params dto.GetParams, searchname string, targetVectors []string, searchVector *searchparams.NearVector) ([]*search.Result, string, error) {
+	ctx, span := otel.Tracer("weaviate-search").Start(ctx, "denseSearch",
+		trace.WithSpanKind(trace.SpanKindInternal),
+	)
+	defer span.End()
+
 	params.Pagination.Offset = 0
 	if params.Pagination.Limit < int(e.config.QueryHybridMaximumResults) {
 		params.Pagination.Limit = int(e.config.QueryHybridMaximumResults)
