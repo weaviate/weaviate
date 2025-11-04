@@ -44,7 +44,7 @@ type Indexes struct {
 //
 // We first write the primary index to a scratch file to know the positions of the secondary indices. Only then we know
 // the offsets of the secondary indices.
-func (s *Indexes) WriteTo(w io.Writer) (int64, error) {
+func (s *Indexes) WriteTo(w io.Writer) (written int64, err error) {
 	if s.SecondaryIndexCount == 0 {
 		// In case there are no secondary indices present, we can write the primary index directly to the writer without
 		// all the extra steps
@@ -55,7 +55,6 @@ func (s *Indexes) WriteTo(w io.Writer) (int64, error) {
 	if len(s.Keys) > 0 {
 		currentOffset = uint64(s.Keys[len(s.Keys)-1].ValueEnd)
 	}
-	var written int64
 
 	if _, err := os.Stat(s.ScratchSpacePath); err == nil {
 		// exists, we need to delete
@@ -77,7 +76,11 @@ func (s *Indexes) WriteTo(w io.Writer) (int64, error) {
 	}
 	defer func() {
 		diskio.Fsync(s.ScratchSpacePath)
-		os.RemoveAll(s.ScratchSpacePath)
+
+		rerr := os.RemoveAll(s.ScratchSpacePath)
+		if err == nil {
+			err = rerr
+		}
 	}()
 
 	primaryFileName := filepath.Join(s.ScratchSpacePath, "primary")
