@@ -155,12 +155,11 @@ func (s *Indexes) buildPrimary(keys []Key) Tree {
 //
 // We first write the primary index to a scratch file to know the positions of the secondary indices. Only then we know
 // the offsets of the secondary indices.
-func (s *Indexes) writeToScratchFiles(w io.Writer) (int64, error) {
+func (s *Indexes) writeToScratchFiles(w io.Writer) (written int64, err error) {
 	var currentOffset uint64 = HeaderSize
 	if len(s.Keys) > 0 {
 		currentOffset = uint64(s.Keys[len(s.Keys)-1].ValueEnd)
 	}
-	var written int64
 
 	if _, err := os.Stat(s.ScratchSpacePath); err == nil {
 		// exists, we need to delete
@@ -180,12 +179,22 @@ func (s *Indexes) writeToScratchFiles(w io.Writer) (int64, error) {
 	if err := os.Mkdir(s.ScratchSpacePath, 0o777); err != nil {
 		return written, errors.Wrap(err, "create scratch space")
 	}
+	defer func() {
+		diskio.Fsync(s.ScratchSpacePath)
+
+		rerr := os.RemoveAll(s.ScratchSpacePath)
+		if err == nil {
+			err = rerr
+		}
+	}()
 
 	primaryFileName := filepath.Join(s.ScratchSpacePath, "primary")
 	primaryFD, err := os.Create(primaryFileName)
 	if err != nil {
 		return written, err
 	}
+	defer primaryFD.Close()
+
 	primaryFDBuffered := bufio.NewWriter(diskio.NewMeteredWriter(primaryFD, func(written int64) {
 		s.ObserveWrite.Observe(float64(written))
 	}))
@@ -213,6 +222,7 @@ func (s *Indexes) writeToScratchFiles(w io.Writer) (int64, error) {
 	if err != nil {
 		return written, err
 	}
+	defer secondaryFD.Close()
 
 	secondaryFDBuffered := bufio.NewWriter(diskio.NewMeteredWriter(secondaryFD, func(written int64) {
 		s.ObserveWrite.Observe(float64(written))
@@ -257,18 +267,6 @@ func (s *Indexes) writeToScratchFiles(w io.Writer) (int64, error) {
 		return written, err
 	} else {
 		written += int64(n)
-	}
-
-	if err := primaryFD.Close(); err != nil {
-		return written, err
-	}
-
-	if err := secondaryFD.Close(); err != nil {
-		return written, err
-	}
-
-	if err := os.RemoveAll(s.ScratchSpacePath); err != nil {
-		return written, err
 	}
 
 	return written, nil
