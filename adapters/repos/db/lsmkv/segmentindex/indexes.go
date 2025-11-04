@@ -75,12 +75,18 @@ func (s *Indexes) WriteTo(w io.Writer) (int64, error) {
 	if err := os.Mkdir(s.ScratchSpacePath, 0o777); err != nil {
 		return written, errors.Wrap(err, "create scratch space")
 	}
+	defer func() {
+		diskio.Fsync(s.ScratchSpacePath)
+		os.RemoveAll(s.ScratchSpacePath)
+	}()
 
 	primaryFileName := filepath.Join(s.ScratchSpacePath, "primary")
 	primaryFD, err := os.Create(primaryFileName)
 	if err != nil {
 		return written, err
 	}
+	defer primaryFD.Close()
+
 	primaryFDBuffered := bufio.NewWriter(diskio.NewMeteredWriter(primaryFD, func(written int64) {
 		s.ObserveWrite.Observe(float64(written))
 	}))
@@ -108,6 +114,7 @@ func (s *Indexes) WriteTo(w io.Writer) (int64, error) {
 	if err != nil {
 		return written, err
 	}
+	defer secondaryFD.Close()
 
 	secondaryFDBuffered := bufio.NewWriter(diskio.NewMeteredWriter(secondaryFD, func(written int64) {
 		s.ObserveWrite.Observe(float64(written))
@@ -152,18 +159,6 @@ func (s *Indexes) WriteTo(w io.Writer) (int64, error) {
 		return written, err
 	} else {
 		written += int64(n)
-	}
-
-	if err := primaryFD.Close(); err != nil {
-		return written, err
-	}
-
-	if err := secondaryFD.Close(); err != nil {
-		return written, err
-	}
-
-	if err := os.RemoveAll(s.ScratchSpacePath); err != nil {
-		return written, err
 	}
 
 	return written, nil
