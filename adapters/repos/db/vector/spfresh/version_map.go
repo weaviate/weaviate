@@ -51,7 +51,7 @@ func NewVersionMap(store *lsmkv.Store, id string, cfg StoreConfig) (*VersionMap,
 	}
 
 	cache, err := otter.New(&otter.Options[uint64, VectorVersion]{
-		MaximumSize: 1_000_000, // Todo: choose a better value for it
+		MaximumSize: 1_000_000,
 	})
 	if err != nil {
 		return nil, err
