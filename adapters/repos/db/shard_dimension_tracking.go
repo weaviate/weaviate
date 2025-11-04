@@ -39,13 +39,6 @@ const (
 	DimensionCategoryRQ
 )
 
-// since v1.34 StrategyRoaringSet is default strategy for dimensions bucket,
-// StrategyMapCollection is left as backward compatibility for buckets created earlier
-var DimensionsBucketPrioritizedStrategies = []string{
-	lsmkv.StrategyRoaringSet,
-	lsmkv.StrategyMapCollection,
-}
-
 type DimensionInfo struct {
 	category DimensionCategory
 	segments int
@@ -209,6 +202,9 @@ func getHNSWCompression(config hnswent.UserConfig) DimensionInfo {
 func getFlatCompression(config flatent.UserConfig) DimensionInfo {
 	if config.BQ.Enabled {
 		return DimensionInfo{category: DimensionCategoryBQ}
+	}
+	if config.RQ.Enabled {
+		return DimensionInfo{category: DimensionCategoryRQ, bits: int16(config.RQ.Bits)}
 	}
 	// Note: Flat indices only support BQ compression currently
 	return DimensionInfo{category: DimensionCategoryStandard}

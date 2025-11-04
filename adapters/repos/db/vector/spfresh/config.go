@@ -15,10 +15,11 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"runtime"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/queue"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
@@ -31,6 +32,7 @@ import (
 
 type Config struct {
 	Logger                    logrus.FieldLogger
+	Scheduler                 *queue.Scheduler
 	DistanceProvider          distancer.Provider
 	RootPath                  string
 	ID                        string
@@ -38,15 +40,14 @@ type Config struct {
 	ShardName                 string
 	ClassName                 string
 	PrometheusMetrics         *monitoring.PrometheusMetrics
-	SplitWorkers              int                             `json:"splitWorkers,omitempty"`              // Number of concurrent workers for split operations
-	ReassignWorkers           int                             `json:"reassignWorkers,omitempty"`           // Number of concurrent workers for reassign operations
 	InternalPostingCandidates int                             `json:"internalPostingCandidates,omitempty"` // Number of candidates to consider when running a centroid search internally
 	ReassignNeighbors         int                             `json:"reassignNeighbors,omitempty"`         // Number of neighboring centroids to consider for reassigning vectors
 	MaxDistanceRatio          float32                         `json:"maxDistanceRatio,omitempty"`          // Maximum distance ratio for the search, used to filter out candidates that are too far away
 	Store                     StoreConfig                     `json:"store"`                               // Configuration for the underlying LSMKV store
 	Centroids                 CentroidConfig                  `json:"centroids"`                           // Configuration for the centroid index
 	TombstoneCallbacks        cyclemanager.CycleCallbackGroup // Callbacks for handling tombstones
-	Compressed                bool                            `json:"compressed,omitempty"` // Whether to store vectors in compressed format
+	Compressed                bool                            `json:"compressed,omitempty"`       // Whether to store vectors in compressed format
+	VectorForIDThunk          common.VectorForID[float32]     `json:"vectorForIDThunk,omitempty"` // Function to get a vector by index ID
 }
 
 type StoreConfig struct {
@@ -76,13 +77,6 @@ func (c *Config) Validate() error {
 		c.Logger = logger
 	}
 
-	w := runtime.GOMAXPROCS(0)
-	if c.SplitWorkers <= 0 {
-		c.SplitWorkers = w
-	}
-	if c.ReassignWorkers <= 0 {
-		c.ReassignWorkers = w
-	}
 	if c.InternalPostingCandidates <= 0 {
 		c.InternalPostingCandidates = DefaultInternalPostingCandidates
 	}
@@ -97,12 +91,8 @@ func (c *Config) Validate() error {
 }
 
 func DefaultConfig() *Config {
-	w := runtime.GOMAXPROCS(0)
-
 	return &Config{
 		Logger:                    logrus.New(),
-		SplitWorkers:              w,
-		ReassignWorkers:           w,
 		InternalPostingCandidates: DefaultInternalPostingCandidates,
 		ReassignNeighbors:         DefaultReassignNeighbors,
 		MaxDistanceRatio:          DefaultMaxDistanceRatio,
