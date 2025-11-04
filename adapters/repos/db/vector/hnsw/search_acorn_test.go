@@ -28,7 +28,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	"github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
 func TestAcornSmartSeeding(t *testing.T) {
@@ -65,7 +64,7 @@ func TestAcornSmartSeeding(t *testing.T) {
 			MaxConnections:        16,
 			EFConstruction:        32,
 			VectorCacheMaxObjects: 100000,
-			FilterStrategy:        ent.FilterStrategyAcorn,
+			FilterStrategy:        ent.FilterStrategyAcornSmartSeed,
 		}, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
 		require.Nil(t, err)
 		vectorIndex = index
@@ -367,11 +366,11 @@ func TestSmartSeedingBFSFailureScenarios(t *testing.T) {
 				return vectors[int(id)], nil
 			},
 			AcornFilterRatio: 0.5,
-			AcornSmartSeed:   runtime.NewDynamicValue(true),
 		}, ent.UserConfig{
 			MaxConnections:        16,
 			EFConstruction:        32,
 			VectorCacheMaxObjects: 100000,
+			FilterStrategy:        ent.FilterStrategyAcornSmartSeed,
 		}, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
 		require.Nil(t, err)
 
@@ -588,6 +587,7 @@ func TestAcornConcurrentAccess(t *testing.T) {
 		MaxConnections:        16,
 		EFConstruction:        32,
 		VectorCacheMaxObjects: 100000,
+		FilterStrategy:        ent.FilterStrategyAcornSmartSeed,
 	}, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
 	require.Nil(t, err)
 
@@ -693,6 +693,7 @@ func TestAcornGraphEvolution(t *testing.T) {
 		MaxConnections:        16,
 		EFConstruction:        32,
 		VectorCacheMaxObjects: 100000,
+		FilterStrategy:        ent.FilterStrategyAcornSmartSeed,
 	}, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
 	require.Nil(t, err)
 
