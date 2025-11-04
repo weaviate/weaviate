@@ -263,11 +263,12 @@ func (h *hnsw) populateAcornCandidates(acornSlices *acornSlices,
 	index := 0
 
 	candidateNode.Lock()
-	if len(candidateNode.connections[level]) > h.maximumConnectionsLayerZero {
-		pendingNextRound = make([]uint64, len(candidateNode.connections[level]))
-		slicePendingNextRound.Slice = pendingNextRound
+
+	if candidateNode.connections.LenAtLayer(uint8(level)) > h.maximumConnectionsLayerZero {
+		pendingNextRound = make([]uint64, candidateNode.connections.LenAtLayer(uint8(level)))
+		acornSlices.slicePendingNextRound.Slice = pendingNextRound
 	} else {
-		pendingNextRound = pendingNextRound[:len(candidateNode.connections[level])]
+		pendingNextRound = pendingNextRound[:candidateNode.connections.LenAtLayer(uint8(level))]
 	}
 	pendingNextRound = candidateNode.connections.CopyLayer(pendingNextRound, uint8(level))
 	candidateNode.Unlock()
