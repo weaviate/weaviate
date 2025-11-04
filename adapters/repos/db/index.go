@@ -820,6 +820,7 @@ type IndexConfig struct {
 	HNSWWaitForCachePrefill                      bool
 	HNSWFlatSearchConcurrency                    int
 	HNSWAcornFilterRatio                         float64
+	HNSWGeoIndexEF                               int
 	VisitedListPoolMaxSize                       int
 
 	QuerySlowLogEnabled    *configRuntime.DynamicValue[bool]
