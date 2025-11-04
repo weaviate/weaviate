@@ -815,7 +815,7 @@ func (h *hnsw) plantSeeds(strategy FilterStrategy, allowList helpers.AllowList, 
 		return nil
 	}
 
-	if h.AcornSmartSeed.Get() {
+	if h.acornSmartSeed.Load() {
 		queue := h.pools.GetQueue()
 		connsSlice := h.pools.tempVectorsUint64.Get(h.maximumConnectionsLayerZero)
 
