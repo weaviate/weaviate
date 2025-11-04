@@ -1705,7 +1705,12 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 	resultObjects, resultScores := objectSearchPreallocate(limit, shards)
 
 	eg := enterrors.NewErrorGroupWrapper(i.logger, "filters:", filters)
-	eg.SetLimit(_NUMCPU * 2)
+	// When running in fractional CPU environments, _NUMCPU will be 1
+	// Most cloud deployments of Weaviate are in HA clusters with rf=3
+	// Therefore, we should set the maximum amount of concurrency to at least 3
+	// so that single-tenant rf=3 queries are not serialized. For any higher value of
+	// _NUMCPU, e.g. 8, the extra goroutine will not be a significant overhead (16 -> 17)
+	eg.SetLimit(_NUMCPU*2 + 1)
 	shardResultLock := sync.Mutex{}
 	for _, shardName := range shards {
 		shardName := shardName
@@ -1981,7 +1986,12 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 	}
 
 	eg := enterrors.NewErrorGroupWrapper(i.logger, "tenant:", tenant)
-	eg.SetLimit(_NUMCPU * 2)
+	// When running in fractional CPU environments, _NUMCPU will be 1
+	// Most cloud deployments of Weaviate are in HA clusters with rf=3
+	// Therefore, we should set the maximum amount of concurrency to at least 3
+	// so that single-tenant rf=3 queries are not serialized. For any higher value of
+	// _NUMCPU, e.g. 8, the extra goroutine will not be a significant overhead (16 -> 17)
+	eg.SetLimit(_NUMCPU*2 + 1)
 	m := &sync.Mutex{}
 
 	out := make([]*storobj.Object, 0, shardCap)
