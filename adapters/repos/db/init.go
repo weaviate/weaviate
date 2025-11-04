@@ -121,6 +121,7 @@ func (db *DB) init(ctx context.Context) error {
 				HNSWWaitForCachePrefill:                      db.config.HNSWWaitForCachePrefill,
 				HNSWFlatSearchConcurrency:                    db.config.HNSWFlatSearchConcurrency,
 				HNSWAcornFilterRatio:                         db.config.HNSWAcornFilterRatio,
+				HNSWGeoIndexEF:                               db.config.HNSWGeoIndexEF,
 				VisitedListPoolMaxSize:                       db.config.VisitedListPoolMaxSize,
 				QuerySlowLogEnabled:                          db.config.QuerySlowLogEnabled,
 				QuerySlowLogThreshold:                        db.config.QuerySlowLogThreshold,
