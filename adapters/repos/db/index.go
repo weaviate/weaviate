@@ -1705,11 +1705,12 @@ func (i *Index) localShardSearch(ctx context.Context, searchVectors []models.Vec
 	sort []filters.Sort, groupBy *searchparams.GroupBy, additionalProps additional.Properties,
 	targetCombination *dto.TargetCombination, properties []string, shardName string,
 ) ([]*storobj.Object, []float32, error) {
-	localCtx, span := otel.Tracer("weaviate-search").Start(ctx, "i.GetShard",
+	ctx, span := otel.Tracer("weaviate-search").Start(ctx, "index.localShardSearch",
 		trace.WithSpanKind(trace.SpanKindInternal),
 	)
-	shard, release, err := i.GetShard(localCtx, shardName)
-	span.End()
+	defer span.End()
+
+	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1719,12 +1720,8 @@ func (i *Index) localShardSearch(ctx context.Context, searchVectors []models.Vec
 
 	ctx = helpers.InitSlowQueryDetails(ctx)
 	helpers.AnnotateSlowQueryLog(ctx, "is_coordinator", true)
-	localCtx, span = otel.Tracer("weaviate-search").Start(ctx, "Shard.ObjectVectorSearch",
-		trace.WithSpanKind(trace.SpanKindInternal),
-	)
 	localShardResult, localShardScores, err := shard.ObjectVectorSearch(
-		localCtx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties)
-	span.End()
+		ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties)
 	if err != nil {
 		return nil, nil, errors.Wrapf(err, "shard %s", shard.ID())
 	}
@@ -1791,6 +1788,11 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 	groupBy *searchparams.GroupBy, additionalProps additional.Properties,
 	replProps *additional.ReplicationProperties, tenant string, targetCombination *dto.TargetCombination, properties []string,
 ) ([]*storobj.Object, []float32, error) {
+	ctx, span := otel.Tracer("weaviate-search").Start(ctx, "index.objectVectorSearch",
+		trace.WithSpanKind(trace.SpanKindInternal),
+	)
+	defer span.End()
+
 	if err := i.validateMultiTenancy(tenant); err != nil {
 		return nil, nil, err
 	}

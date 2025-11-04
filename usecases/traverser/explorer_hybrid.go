@@ -17,6 +17,8 @@ import (
 	"math"
 
 	"github.com/go-openapi/strfmt"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/trace"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
@@ -189,6 +191,11 @@ func nearTextSubSearch(ctx context.Context, e *Explorer, params dto.GetParams, t
 
 // Hybrid search.  This is the main entry point to the hybrid search algorithm
 func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.Result, error) {
+	ctx, span := otel.Tracer("weaviate-search").Start(ctx, "explorer.Hybrid",
+		trace.WithSpanKind(trace.SpanKindInternal),
+	)
+	defer span.End()
+
 	var err error
 	var results [][]*search.Result
 	var weights []float64

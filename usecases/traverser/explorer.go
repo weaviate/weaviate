@@ -177,6 +177,11 @@ func (e *Explorer) GetClass(ctx context.Context,
 }
 
 func (e *Explorer) getClassKeywordBased(ctx context.Context, params dto.GetParams) ([]search.Result, error) {
+	ctx, span := otel.Tracer("weaviate-search").Start(ctx, "explorer.getClassKeywordBased",
+		trace.WithSpanKind(trace.SpanKindInternal),
+	)
+	defer span.End()
+
 	if params.NearVector != nil || params.NearObject != nil || len(params.ModuleParams) > 0 {
 		return nil, errors.Errorf("conflict: both near<Media> and keyword-based (bm25) arguments present, choose one")
 	}
@@ -362,6 +367,11 @@ func (e *Explorer) CalculateTotalLimit(pagination *filters.Pagination) (int, err
 func (e *Explorer) getClassList(ctx context.Context,
 	params dto.GetParams,
 ) ([]search.Result, error) {
+	ctx, span := otel.Tracer("weaviate-search").Start(ctx, "explorer.getClassList",
+		trace.WithSpanKind(trace.SpanKindInternal),
+	)
+	defer span.End()
+
 	// we will modify the params because of the workaround outlined below,
 	// however, we only want to track what the user actually set for the usage
 	// metrics, not our own workaround, so here's a copy of the original user
@@ -423,6 +433,11 @@ func (e *Explorer) getClassList(ctx context.Context,
 }
 
 func (e *Explorer) searchResultsToGetResponse(ctx context.Context, input []search.Result, searchVector models.Vector, params dto.GetParams) ([]interface{}, error) {
+	ctx, span := otel.Tracer("weaviate-search").Start(ctx, "explorer.GetClass",
+		trace.WithSpanKind(trace.SpanKindInternal),
+	)
+	defer span.End()
+
 	output := make([]interface{}, 0, len(input))
 	results, err := e.searchResultsToGetResponseWithType(ctx, input, searchVector, params)
 	if err != nil {

@@ -145,6 +145,12 @@ func GRPCTracingInterceptor() grpc.UnaryServerInterceptor {
 			),
 		)
 
+		// Add debug trace context to outgoing metadata for debugging (optional)
+		outMD := metadata.New(map[string]string{"x-trace-id": span.SpanContext().TraceID().String()})
+		if err := grpc.SetTrailer(ctx, outMD); err != nil {
+			span.RecordError(err)
+		}
+
 		return resp, err
 	}
 }

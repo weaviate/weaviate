@@ -114,6 +114,11 @@ func (db *DB) SparseObjectSearch(ctx context.Context, params dto.GetParams) ([]*
 }
 
 func (db *DB) Search(ctx context.Context, params dto.GetParams) ([]search.Result, error) {
+	ctx, span := otel.Tracer("weaviate-search").Start(ctx, "db.Search",
+		trace.WithSpanKind(trace.SpanKindInternal),
+	)
+	defer span.End()
+
 	start := time.Now()
 	defer func() {
 		took := time.Since(start)
