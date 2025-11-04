@@ -24,15 +24,15 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/sirupsen/logrus"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-	entsentry "github.com/weaviate/weaviate/entities/sentry"
-
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+	entsentry "github.com/weaviate/weaviate/entities/sentry"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
@@ -79,16 +79,21 @@ func (h *hnsw) Delete(ids ...uint64) error {
 		}
 
 		if h.getEntrypoint() == id {
-			beforeDeleteEP := time.Now()
-			defer h.metrics.TrackDelete(beforeDeleteEP, "delete_entrypoint")
+			if err := func() error {
+				beforeDeleteEP := time.Now()
+				defer h.metrics.TrackDelete(beforeDeleteEP, "delete_entrypoint")
 
-			denyList := h.tombstonesAsDenyList()
-			if onlyNode, err := h.resetIfOnlyNode(node, denyList); err != nil {
-				return errors.Wrap(err, "reset index")
-			} else if !onlyNode {
-				if err := h.deleteEntrypoint(node, denyList); err != nil {
-					return errors.Wrap(err, "delete entrypoint")
+				denyList := h.tombstonesAsDenyList()
+				if onlyNode, err := h.resetIfOnlyNode(node, denyList); err != nil {
+					return errors.Wrap(err, "reset index")
+				} else if !onlyNode {
+					if err := h.deleteEntrypoint(node, denyList); err != nil {
+						return errors.Wrap(err, "delete entrypoint")
+					}
 				}
+				return nil
+			}(); err != nil {
+				return err
 			}
 		}
 	}

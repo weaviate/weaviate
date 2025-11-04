@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
@@ -310,22 +311,24 @@ func cursorWorker(ctx context.Context, t *testing.T, wg *sync.WaitGroup, workerI
 			return
 
 		case <-ticker.C:
-			cursorCtx, cancel := context.WithTimeout(ctx, maxDuration)
-			defer cancel()
+			func() {
+				cursorCtx, cancel := context.WithTimeout(ctx, maxDuration)
+				defer cancel()
 
-			c := bucket.Cursor()
-			keys := 0
-			bytesRead := 0
-			for k, v := c.First(); k != nil; k, v = c.Next() {
-				if cursorCtx.Err() != nil {
-					break
+				c := bucket.Cursor()
+				keys := 0
+				bytesRead := 0
+				for k, v := c.First(); k != nil; k, v = c.Next() {
+					if cursorCtx.Err() != nil {
+						break
+					}
+
+					keys++
+					bytesRead += len(k) + len(v)
 				}
-
-				keys++
-				bytesRead += len(k) + len(v)
-			}
-			c.Close()
-			logger.WithField("cursor_worker_id", workerID).WithField("keys", keys).WithField("bytes_read", bytesRead).Infof("cursor completed")
+				c.Close()
+				logger.WithField("cursor_worker_id", workerID).WithField("keys", keys).WithField("bytes_read", bytesRead).Infof("cursor completed")
+			}()
 		}
 	}
 }

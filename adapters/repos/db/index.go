@@ -630,6 +630,11 @@ func (i *Index) updateInvertedIndexConfig(ctx context.Context,
 
 	i.invertedIndexConfig = updated
 
+	err := i.stopwords.ReplaceDetectorFromConfig(updated.Stopwords)
+	if err != nil {
+		return fmt.Errorf("update inverted index config: %w", err)
+	}
+
 	return nil
 }
 
@@ -715,6 +720,7 @@ type IndexConfig struct {
 	HNSWWaitForCachePrefill                      bool
 	HNSWFlatSearchConcurrency                    int
 	HNSWAcornFilterRatio                         float64
+	HNSWGeoIndexEF                               int
 	VisitedListPoolMaxSize                       int
 
 	QuerySlowLogEnabled    *configRuntime.DynamicValue[bool]
@@ -1206,9 +1212,9 @@ func (i *Index) objectByID(ctx context.Context, id strfmt.UUID,
 	if err != nil {
 		return obj, err
 	}
+	defer release()
 
 	if shard != nil {
-		defer release()
 		if obj, err = shard.ObjectByID(ctx, id, props, addl); err != nil {
 			return obj, fmt.Errorf("get local object: shard=%s: %w", shardName, err)
 		}
@@ -1296,10 +1302,15 @@ func (i *Index) multiObjectByID(ctx context.Context,
 		if err != nil {
 			return nil, err
 		} else if shard != nil {
-			defer release()
-			objects, err = shard.MultiObjectByID(ctx, group.ids)
+			func() {
+				defer release()
+				objects, err = shard.MultiObjectByID(ctx, group.ids)
+				if err != nil {
+					err = errors.Wrapf(err, "local shard %s", shardId(i.ID(), shardName))
+				}
+			}()
 			if err != nil {
-				return nil, errors.Wrapf(err, "local shard %s", shardId(i.ID(), shardName))
+				return nil, err
 			}
 		} else {
 			objects, err = i.remote.MultiGetObjects(ctx, shardName, extractIDsFromMulti(group.ids))
@@ -1533,7 +1544,12 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 	resultObjects, resultScores := objectSearchPreallocate(limit, shards)
 
 	eg := enterrors.NewErrorGroupWrapper(i.logger, "filters:", filters)
-	eg.SetLimit(_NUMCPU * 2)
+	// When running in fractional CPU environments, _NUMCPU will be 1
+	// Most cloud deployments of Weaviate are in HA clusters with rf=3
+	// Therefore, we should set the maximum amount of concurrency to at least 3
+	// so that single-tenant rf=3 queries are not serialized. For any higher value of
+	// _NUMCPU, e.g. 8, the extra goroutine will not be a significant overhead (16 -> 17)
+	eg.SetLimit(_NUMCPU*2 + 1)
 	shardResultLock := sync.Mutex{}
 	for _, shardName := range shards {
 		shardName := shardName
@@ -1824,7 +1840,12 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 	}
 
 	eg := enterrors.NewErrorGroupWrapper(i.logger, "tenant:", tenant)
-	eg.SetLimit(_NUMCPU * 2)
+	// When running in fractional CPU environments, _NUMCPU will be 1
+	// Most cloud deployments of Weaviate are in HA clusters with rf=3
+	// Therefore, we should set the maximum amount of concurrency to at least 3
+	// so that single-tenant rf=3 queries are not serialized. For any higher value of
+	// _NUMCPU, e.g. 8, the extra goroutine will not be a significant overhead (16 -> 17)
+	eg.SetLimit(_NUMCPU*2 + 1)
 	m := &sync.Mutex{}
 
 	out := make([]*storobj.Object, 0, shardCap)
@@ -1834,23 +1855,16 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 	var remoteSearches int64
 	var remoteResponses atomic.Int64
 
-	for _, sn := range shardNames {
-		shardName := sn
-		localCtx, span := otel.Tracer("weaviate-search").Start(ctx, "i.GetShard",
-			trace.WithSpanKind(trace.SpanKindInternal),
-			trace.WithAttributes(attribute.String("shard.name", shardName)),
-			trace.WithAttributes(attribute.String("node.name", i.getSchema.NodeName())),
-		)
-		shard, release, err := i.GetShard(localCtx, shardName)
-		span.End()
+	for _, shardName := range shardNames {
+		shard, release, err := i.GetShard(ctx, shardName)
 		if err != nil {
 			return nil, nil, err
 		}
-		if shard != nil {
-			defer release()
-		}
 
-		if shard != nil {
+		release()
+		localShard := shard != nil
+
+		if localShard {
 			localSearches++
 			eg.Go(func() error {
 				localCtx, span := otel.Tracer("weaviate-search").Start(ctx, "i.localShardSearch",
@@ -1861,7 +1875,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 				span.End()
 				if err1 != nil {
 					return fmt.Errorf(
-						"local shard object search %s: %w", shard.ID(), err1)
+						"local shard object search %s: %w", shardName, err1)
 				}
 
 				_, span = otel.Tracer("weaviate-search").Start(ctx, "m.Lock",
@@ -1878,7 +1892,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 			})
 		}
 
-		if shard == nil || i.Config.ForceFullReplicasSearch {
+		if !localShard || i.Config.ForceFullReplicasSearch {
 			remoteSearches++
 			eg.Go(func() error {
 				// If we have no local shard or if we force the query to reach all replicas
@@ -2154,6 +2168,14 @@ func (i *Index) UnloadLocalShard(ctx context.Context, shardName string) error {
 func (i *Index) GetShard(ctx context.Context, shardName string) (
 	shard ShardLike, release func(), err error,
 ) {
+	ctx, span := otel.Tracer("weaviate-search").Start(ctx, "index.GetShard",
+		trace.WithSpanKind(trace.SpanKindInternal),
+		trace.WithAttributes(
+			attribute.String("weaviate.index.name", i.Config.ClassName.String()),
+			attribute.String("weaviate.shard.name", shardName),
+		),
+	)
+	defer span.End()
 	return i.getOptInitLocalShard(ctx, shardName, false)
 }
 

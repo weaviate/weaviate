@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/weaviate/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/entities/diskio"
 )
 
 // CompressionLevel represents supported compression level
@@ -229,7 +230,7 @@ func (u *unzip) ReadChunk() (written int64, err error) {
 	for {
 		header, err := u.r.Next()
 		if err != nil {
-			if err == io.EOF { // end of the loop
+			if errors.Is(err, io.EOF) { // end of the loop
 				return written, nil
 			}
 			return written, fmt.Errorf("fetch next: %w", err)
@@ -239,7 +240,10 @@ func (u *unzip) ReadChunk() (written int64, err error) {
 		}
 
 		// target file
-		target := filepath.Join(u.destPath, header.Name)
+		target, err := diskio.SanitizeFilePathJoin(u.destPath, header.Name)
+		if err != nil {
+			return written, fmt.Errorf("sanitize file path %s: %w", header.Name, err)
+		}
 		switch header.Typeflag {
 		case tar.TypeDir:
 			if err := os.MkdirAll(target, 0o755); err != nil {
