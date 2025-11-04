@@ -94,7 +94,7 @@ func (v *VersionMap) Set(ctx context.Context, vectorID uint64, newVersion Vector
 	return nil
 }
 
-// Incr increments the version of the vector by delta and returns the new version.
+// Incr increments the version of the vector and returns the new version.
 func (v *VersionMap) Increment(ctx context.Context, vectorID uint64, previousVersion VectorVersion) (VectorVersion, error) {
 	version, err := v.Get(ctx, vectorID)
 	if err != nil {
