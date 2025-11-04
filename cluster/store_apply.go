@@ -13,7 +13,6 @@ package cluster
 
 import (
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/hashicorp/raft"
@@ -279,14 +278,20 @@ func (st *Store) Apply(l *raft.Log) any {
 
 	// Wrap the function in a go routine to ensure panic recovery. This is necessary as this function is run in an
 	// unwrapped goroutine in the raft library
-	wg := sync.WaitGroup{}
-	wg.Add(1)
-	g := func() {
-		defer wg.Done()
+	eg := enterrors.NewErrorGroupWrapper(st.log, &cmd)
+	g := func() error {
 		f()
+		return nil
 	}
-	enterrors.GoWrapper(g, st.log)
-	wg.Wait()
+	eg.Go(g)
+	err := eg.Wait()
+	if err != nil {
+		if ret.Error == nil {
+			ret.Error = fmt.Errorf("apply error: %w", err)
+		} else {
+			ret.Error = fmt.Errorf("original RAFT error%w, error group error: %w", ret.Error, err)
+		}
+	}
 
 	return ret
 }
