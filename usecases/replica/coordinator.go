@@ -19,11 +19,11 @@ import (
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
+	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/cluster/utils"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
-
-	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -343,7 +343,7 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 				// this host failed op on the first try, put it on the retry queue
 				hostRetryQueue <- hostRetry{
 					hosts[hostIndex],
-					backoff.WithContext(utils.NewExponentialBackoff(c.pullBackOffPreInitialInterval, c.pullBackOffMaxElapsedTime), ctx),
+					backoff.WithContext(utils.NewExponentialBackoff(c.pullBackOffPreInitialInterval, c.pullBackOffMaxElapsedTime), workerCtx),
 				}
 
 				// let's fallback to the backups in the retry queue
