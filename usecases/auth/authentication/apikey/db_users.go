@@ -23,13 +23,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sirupsen/logrus"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/trace"
-
 	"github.com/alexedwards/argon2id"
 	"github.com/sirupsen/logrus"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/trace"
 	"golang.org/x/sync/singleflight"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
