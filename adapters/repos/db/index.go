@@ -740,12 +740,14 @@ func (i *Index) updateInvertedIndexConfig(ctx context.Context,
 
 	i.invertedIndexConfig = updated
 
-	err := tokenizer.AddCustomDict(i.Config.ClassName.String(), updated.TokenizerUserDict)
-	if err != nil {
-		return errors.Wrap(err, "updating inverted index config")
-	err = i.stopwords.ReplaceDetectorFromConfig(updated.Stopwords)
+	err := i.stopwords.ReplaceDetectorFromConfig(updated.Stopwords)
 	if err != nil {
 		return fmt.Errorf("update inverted index config: %w", err)
+	}
+
+	err = tokenizer.AddCustomDict(i.Config.ClassName.String(), updated.TokenizerUserDict)
+	if err != nil {
+		return errors.Wrap(err, "updating inverted index config")
 	}
 
 	return nil
