@@ -217,11 +217,13 @@ func (f *Finder) CheckConsistency(ctx context.Context,
 	}
 
 	if l == types.ConsistencyLevelOne { // already consistent
+		span.AddEvent("consistency_level=ONE")
 		for i := range xs {
 			xs[i].IsConsistent = true
 		}
 		return nil
 	}
+	span.AddEvent("consistency_level=" + string(l))
 	// check shard consistency concurrently
 	gr, ctx := enterrors.NewErrorGroupWithContextWrapper(f.logger, ctx)
 	for _, part := range cluster(createBatch(xs)) {
