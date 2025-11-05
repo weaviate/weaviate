@@ -465,7 +465,6 @@ func (c *segmentCleanerCommon) cleanupOnce(shouldAbort cyclemanager.ShouldAbortC
 	oldSegment := c.sg.segmentAtPos(candidateIdx)
 	segmentId := segmentID(oldSegment.path)
 	tmpSegmentPath := filepath.Join(c.sg.dir, "segment-"+segmentId+".db.tmp")
-	scratchSpacePath := oldSegment.path + "cleanup.scratch.d"
 
 	start := time.Now()
 	c.sg.logger.WithFields(logrus.Fields{
@@ -499,7 +498,7 @@ func (c *segmentCleanerCommon) cleanupOnce(shouldAbort cyclemanager.ShouldAbortC
 	case StrategyReplace:
 		c := newSegmentCleanerReplace(file, oldSegment.newCursor(),
 			c.sg.makeKeyExistsOnUpperSegments(startIdx, lastIdx), oldSegment.level,
-			oldSegment.secondaryIndexCount, scratchSpacePath, c.sg.enableChecksumValidation)
+			oldSegment.secondaryIndexCount, c.sg.enableChecksumValidation)
 		if err = c.do(shouldAbort); err != nil {
 			return false, err
 		}
