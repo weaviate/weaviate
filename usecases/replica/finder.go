@@ -307,7 +307,7 @@ func (f *Finder) checkShardConsistency(ctx context.Context,
 		data, ids = batch.Extract() // extract from current content
 	)
 	op := func(ctx context.Context, host string, fullRead bool) (BatchReply, error) {
-		ctx, span := otel.Tracer("weaviate-search").Start(ctx, "checkShardConsistencyOpClosure",
+		ctx, span := otel.Tracer("weaviate-search").Start(ctx, "Finder.checkShardConsistency.op",
 			trace.WithSpanKind(trace.SpanKindInternal),
 			trace.WithAttributes(
 				attribute.String("shard", batch.Shard),

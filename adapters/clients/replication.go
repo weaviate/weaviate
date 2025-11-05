@@ -66,6 +66,11 @@ func (c *replicationClient) FetchObject(ctx context.Context, host, index,
 func (c *replicationClient) DigestObjects(ctx context.Context,
 	host, index, shard string, ids []strfmt.UUID, numRetries int,
 ) (result []types.RepairResponse, err error) {
+	ctx, span := otel.Tracer("weaviate-search").Start(ctx, "replicationClient.DigestObjects",
+		trace.WithSpanKind(trace.SpanKindInternal),
+	)
+	defer span.End()
+
 	var resp []types.RepairResponse
 	body, err := json.Marshal(ids)
 	if err != nil {
@@ -379,23 +384,33 @@ func newHttpReplicaCMD(ctx context.Context, host, cmd, index, shard, requestId s
 func (c *replicationClient) do(timeout time.Duration, req *http.Request, body []byte, resp interface{}, numRetries int) (err error) {
 	ctx, cancel := context.WithTimeout(req.Context(), timeout)
 	defer cancel()
-	req = req.WithContext(ctx)
 	try := func(ctx context.Context) (bool, error) {
+		tryCtx, span := otel.Tracer("weaviate-search").Start(ctx, "replicationClient.do.try",
+			trace.WithSpanKind(trace.SpanKindInternal),
+		)
+		defer span.End()
+		req = req.WithContext(tryCtx)
+
 		if body != nil {
 			req.Body = io.NopCloser(bytes.NewReader(body))
 		}
 		res, err := c.client.Do(req)
 		if err != nil {
+			span.RecordError(err)
 			return false, fmt.Errorf("connect: %w", err)
 		}
 		defer res.Body.Close()
 
 		if code := res.StatusCode; code != http.StatusOK {
 			b, _ := io.ReadAll(res.Body)
-			return shouldRetry(code), fmt.Errorf("status code: %v, error: %s", code, b)
+			err := fmt.Errorf("status code: %v, error: %s", code, b)
+			span.RecordError(err)
+			return shouldRetry(code), err
 		}
 		if err := json.NewDecoder(res.Body).Decode(resp); err != nil {
-			return false, fmt.Errorf("decode response: %w", err)
+			err := fmt.Errorf("decode response: %w", err)
+			span.RecordError(err)
+			return false, err
 		}
 		return false, nil
 	}
