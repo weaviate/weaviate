@@ -336,259 +336,272 @@ func TestDynamicUpgradeCancelation(t *testing.T) {
 	}
 }
 
-func TestDynamicUpgradeBQ(t *testing.T) {
-	ctx := context.Background()
-	t.Setenv("ASYNC_INDEXING", "true")
-	dimensions := 20
-	vectors_size := 1_000
-	threshold := 600
-	queries_size := 10
-	k := 10
-
-	tempDir := t.TempDir()
-
-	db, err := bbolt.Open(filepath.Join(tempDir, "index.db"), 0o666, nil)
-	require.NoError(t, err)
-	t.Cleanup(func() {
-		db.Close()
-	})
-
-	vectors, queries := testinghelpers.RandomVecs(vectors_size, queries_size, dimensions)
-	rootPath := tempDir
-	distancer := distancer.NewL2SquaredProvider()
-	truths := make([][]uint64, queries_size)
-	compressionhelpers.Concurrently(logger, uint64(len(queries)), func(i uint64) {
-		truths[i], _ = testinghelpers.BruteForce(logger, vectors, queries[i], k, testinghelpers.DistanceWrapper(distancer))
-	})
-	noopCallback := cyclemanager.NewCallbackGroupNoop()
-	fuc := flatent.UserConfig{}
-	fuc.SetDefaults()
-	fuc.BQ = flatent.CompressionUserConfig{
-		Enabled: true,
-		Cache:   true,
-	}
-	hnswuc := hnswent.UserConfig{
-		MaxConnections:        30,
-		EFConstruction:        64,
-		EF:                    32,
-		VectorCacheMaxObjects: 1_000_000,
-		PQ: hnswent.PQConfig{
-			Enabled:        true,
-			BitCompression: false,
-			Segments:       5,
-			Centroids:      255,
-			TrainingLimit:  threshold - 1,
-			Encoder: hnswent.PQEncoder{
-				Type:         hnswent.PQEncoderTypeKMeans,
-				Distribution: hnswent.PQEncoderDistributionLogNormal,
-			},
-		},
-	}
-
-	config := Config{
-		TargetVector: "",
-		RootPath:     rootPath,
-		ID:           "vector-test_0",
-		MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
-			return hnsw.NewCommitLogger(tempDir, "vector-test_0", logger, noopCallback)
-		},
-		DistanceProvider: distancer,
-		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
-			vec := vectors[int(id)]
-			if vec == nil {
-				return nil, storobj.NewErrNotFoundf(id, "nil vec")
-			}
-			return vec, nil
-		},
-		TempVectorForIDThunk:    TempVectorForIDThunk(vectors),
-		TombstoneCallbacks:      noopCallback,
-		SharedDB:                db,
-		HNSWWaitForCachePrefill: true,
-	}
-	uc := ent.UserConfig{
-		Threshold: uint64(threshold),
-		Distance:  distancer.Type(),
-		HnswUC:    hnswuc,
-		FlatUC:    fuc,
-	}
-
-	dummyStore := testinghelpers.NewDummyStore(t)
-	dynamic, err := New(config, uc, dummyStore)
-	require.NoError(t, err)
-
-	compressionhelpers.Concurrently(logger, uint64(threshold), func(i uint64) {
-		err := dynamic.Add(ctx, i, vectors[i])
-		require.NoError(t, err)
-	})
-	shouldUpgrade, at := dynamic.ShouldUpgrade()
-	assert.True(t, shouldUpgrade)
-	assert.Equal(t, threshold, at)
-	assert.False(t, dynamic.Upgraded())
-	var wg sync.WaitGroup
-	wg.Add(1)
-
-	// flat -> hnsw
-	err = dynamic.Upgrade(func() {
-		wg.Done()
-	})
-	require.NoError(t, err)
-	wg.Wait()
-	wg.Add(1)
-
-	// PQ
-	err = dynamic.Upgrade(func() {
-		wg.Done()
-	})
-	require.NoError(t, err)
-	wg.Wait()
-	compressionhelpers.Concurrently(logger, uint64(vectors_size-threshold), func(i uint64) {
-		err := dynamic.Add(ctx, uint64(threshold)+i, vectors[threshold+int(i)])
-		require.NoError(t, err)
-	})
-
-	recall, latency := testinghelpers.RecallAndLatency(ctx, queries, k, dynamic, truths)
-	t.Logf("recall: %f, latency %f\n", recall, latency)
-
-	err = dynamic.Flush()
-	require.NoError(t, err)
-	err = dynamic.Shutdown(t.Context())
-	require.NoError(t, err)
-	dummyStore.FlushMemtables(t.Context())
-
-	dynamic, err = New(config, uc, dummyStore)
-	require.NoError(t, err)
-	dynamic.PostStartup(context.Background())
-	recall2, _ := testinghelpers.RecallAndLatency(ctx, queries, k, dynamic, truths)
-	assert.Equal(t, recall, recall2)
-}
-
-func TestDynamicUpgradeRQ(t *testing.T) {
+func TestDynamicUpgradeCompression(t *testing.T) {
 	// Similar to BQ we need to ensure we can upgrade to a little endian quantization like with PQ
 	// See this PR for details https://github.com/weaviate/weaviate/pull/8617
-	ctx := context.Background()
-	t.Setenv("ASYNC_INDEXING", "true")
-	dimensions := 20
-	vectors_size := 1_000
-	threshold := 600
-	queries_size := 10
-	k := 10
-
-	tempDir := t.TempDir()
-
-	db, err := bbolt.Open(filepath.Join(tempDir, "index.db"), 0o666, nil)
-	require.NoError(t, err)
-	t.Cleanup(func() {
-		db.Close()
-	})
-
-	vectors, queries := testinghelpers.RandomVecs(vectors_size, queries_size, dimensions)
-	rootPath := tempDir
-	distancer := distancer.NewL2SquaredProvider()
-	truths := make([][]uint64, queries_size)
-	compressionhelpers.Concurrently(logger, uint64(len(queries)), func(i uint64) {
-		truths[i], _ = testinghelpers.BruteForce(logger, vectors, queries[i], k, testinghelpers.DistanceWrapper(distancer))
-	})
-	noopCallback := cyclemanager.NewCallbackGroupNoop()
-	fuc := flatent.UserConfig{}
-	fuc.SetDefaults()
-	fuc.RQ = flatent.RQUserConfig{
-		Enabled: true,
-		Cache:   true,
-		Bits:    8,
-	}
-	hnswuc := hnswent.UserConfig{
-		MaxConnections:        30,
-		EFConstruction:        64,
-		EF:                    32,
-		VectorCacheMaxObjects: 1_000_000,
-		PQ: hnswent.PQConfig{
-			Enabled:        true,
-			BitCompression: false,
-			Segments:       5,
-			Centroids:      255,
-			TrainingLimit:  threshold - 1,
-			Encoder: hnswent.PQEncoder{
-				Type:         hnswent.PQEncoderTypeKMeans,
-				Distribution: hnswent.PQEncoderDistributionLogNormal,
+	tests := []struct {
+		name            string
+		setupFlatConfig func(*flatent.UserConfig)
+		setupHNSWConfig func(*hnswent.UserConfig, int)
+		compressed      bool
+	}{
+		{
+			name: "BQ->Uncompressed",
+			setupFlatConfig: func(fuc *flatent.UserConfig) {
+				fuc.BQ = flatent.CompressionUserConfig{
+					Enabled: true,
+					Cache:   true,
+				}
 			},
+			setupHNSWConfig: func(hnswuc *hnswent.UserConfig, threshold int) {
+			},
+			compressed: false,
+		},
+		{
+			name: "RQ->Uncompressed",
+			setupFlatConfig: func(fuc *flatent.UserConfig) {
+				fuc.RQ = flatent.RQUserConfig{
+					Enabled: true,
+					Bits:    1,
+				}
+			},
+			setupHNSWConfig: func(hnswuc *hnswent.UserConfig, threshold int) {
+			},
+			compressed: false,
+		},
+		{
+			name: "BQ->PQ",
+			setupFlatConfig: func(fuc *flatent.UserConfig) {
+				fuc.BQ = flatent.CompressionUserConfig{
+					Enabled: true,
+					Cache:   true,
+				}
+			},
+			setupHNSWConfig: func(hnswuc *hnswent.UserConfig, threshold int) {
+				hnswuc.PQ = hnswent.PQConfig{
+					Enabled:        true,
+					BitCompression: false,
+					Segments:       5,
+					Centroids:      255,
+					TrainingLimit:  threshold - 1,
+					Encoder: hnswent.PQEncoder{
+						Type:         hnswent.PQEncoderTypeKMeans,
+						Distribution: hnswent.PQEncoderDistributionLogNormal,
+					},
+				}
+			},
+			compressed: true,
+		},
+		{
+			name: "BQ->SQ",
+			setupFlatConfig: func(fuc *flatent.UserConfig) {
+				fuc.BQ = flatent.CompressionUserConfig{
+					Enabled: true,
+					Cache:   true,
+				}
+			},
+			setupHNSWConfig: func(hnswuc *hnswent.UserConfig, threshold int) {
+				hnswuc.SQ = hnswent.SQConfig{
+					Enabled: true,
+				}
+			},
+			compressed: true,
+		},
+		{
+			name: "RQ->PQ",
+			setupFlatConfig: func(fuc *flatent.UserConfig) {
+				fuc.RQ = flatent.RQUserConfig{
+					Enabled: true,
+					Cache:   true,
+					Bits:    8,
+				}
+			},
+			setupHNSWConfig: func(hnswuc *hnswent.UserConfig, threshold int) {
+				hnswuc.PQ = hnswent.PQConfig{
+					Enabled:        true,
+					BitCompression: false,
+					Segments:       5,
+					Centroids:      255,
+					TrainingLimit:  threshold - 1,
+					Encoder: hnswent.PQEncoder{
+						Type:         hnswent.PQEncoderTypeKMeans,
+						Distribution: hnswent.PQEncoderDistributionLogNormal,
+					},
+				}
+			},
+			compressed: true,
+		},
+		{
+			name: "BQ->RQ",
+			setupFlatConfig: func(fuc *flatent.UserConfig) {
+				fuc.BQ = flatent.CompressionUserConfig{
+					Enabled: true,
+					Cache:   true,
+				}
+			},
+			setupHNSWConfig: func(hnswuc *hnswent.UserConfig, threshold int) {
+				hnswuc.RQ = hnswent.RQConfig{
+					Enabled: true,
+					Bits:    1,
+				}
+			},
+			compressed: true,
+		},
+		{
+			name: "RQ->BQ",
+			setupFlatConfig: func(fuc *flatent.UserConfig) {
+				fuc.RQ = flatent.RQUserConfig{
+					Enabled: true,
+					Bits:    1,
+				}
+			},
+			setupHNSWConfig: func(hnswuc *hnswent.UserConfig, threshold int) {
+				hnswuc.BQ = hnswent.BQConfig{
+					Enabled: true,
+				}
+			},
+			compressed: true,
+		},
+		{
+			name: "RQ1->RQ8",
+			setupFlatConfig: func(fuc *flatent.UserConfig) {
+				fuc.RQ = flatent.RQUserConfig{
+					Enabled: true,
+					Cache:   true,
+					Bits:    1,
+				}
+			},
+			setupHNSWConfig: func(hnswuc *hnswent.UserConfig, threshold int) {
+				hnswuc.RQ = hnswent.RQConfig{
+					Enabled: true,
+					Bits:    8,
+				}
+			},
+			compressed: true,
 		},
 	}
 
-	config := Config{
-		TargetVector: "",
-		RootPath:     rootPath,
-		ID:           "vector-test_0",
-		MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
-			return hnsw.NewCommitLogger(tempDir, "vector-test_0", logger, noopCallback)
-		},
-		DistanceProvider: distancer,
-		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
-			vec := vectors[int(id)]
-			if vec == nil {
-				return nil, storobj.NewErrNotFoundf(id, "nil vec")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			t.Setenv("ASYNC_INDEXING", "true")
+			dimensions := 20
+			vectors_size := 1_000
+			threshold := 600
+			queries_size := 10
+			k := 10
+
+			tempDir := t.TempDir()
+
+			db, err := bbolt.Open(filepath.Join(tempDir, "index.db"), 0o666, nil)
+			require.NoError(t, err)
+			t.Cleanup(func() {
+				db.Close()
+			})
+
+			vectors, queries := testinghelpers.RandomVecs(vectors_size, queries_size, dimensions)
+			rootPath := tempDir
+			distancer := distancer.NewL2SquaredProvider()
+			truths := make([][]uint64, queries_size)
+			compressionhelpers.Concurrently(logger, uint64(len(queries)), func(i uint64) {
+				truths[i], _ = testinghelpers.BruteForce(logger, vectors, queries[i], k, testinghelpers.DistanceWrapper(distancer))
+			})
+			noopCallback := cyclemanager.NewCallbackGroupNoop()
+			fuc := flatent.UserConfig{}
+			fuc.SetDefaults()
+			tt.setupFlatConfig(&fuc)
+			hnswuc := hnswent.UserConfig{
+				MaxConnections:        30,
+				EFConstruction:        64,
+				EF:                    32,
+				VectorCacheMaxObjects: 1_000_000,
 			}
-			return vec, nil
-		},
-		TempVectorForIDThunk:    TempVectorForIDThunk(vectors),
-		TombstoneCallbacks:      noopCallback,
-		SharedDB:                db,
-		HNSWWaitForCachePrefill: true,
+			hnswuc.SetDefaults()
+			tt.setupHNSWConfig(&hnswuc, threshold)
+
+			config := Config{
+				TargetVector: "",
+				RootPath:     rootPath,
+				ID:           "vector-test_0",
+				MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
+					return hnsw.NewCommitLogger(tempDir, "vector-test_0", logger, noopCallback)
+				},
+				DistanceProvider: distancer,
+				VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+					vec := vectors[int(id)]
+					if vec == nil {
+						return nil, storobj.NewErrNotFoundf(id, "nil vec")
+					}
+					return vec, nil
+				},
+				TempVectorForIDThunk:    TempVectorForIDThunk(vectors),
+				TombstoneCallbacks:      noopCallback,
+				SharedDB:                db,
+				HNSWWaitForCachePrefill: true,
+			}
+			uc := ent.UserConfig{
+				Threshold: uint64(threshold),
+				Distance:  distancer.Type(),
+				HnswUC:    hnswuc,
+				FlatUC:    fuc,
+			}
+
+			dummyStore := testinghelpers.NewDummyStore(t)
+			dynamic, err := New(config, uc, dummyStore)
+			require.NoError(t, err)
+
+			compressionhelpers.Concurrently(logger, uint64(threshold), func(i uint64) {
+				err := dynamic.Add(ctx, i, vectors[i])
+				require.NoError(t, err)
+			})
+			shouldUpgrade, at := dynamic.ShouldUpgrade()
+			assert.True(t, shouldUpgrade)
+			assert.Equal(t, threshold, at)
+			assert.False(t, dynamic.Upgraded())
+			var wg sync.WaitGroup
+			wg.Add(1)
+
+			err = dynamic.Upgrade(func() {
+				wg.Done()
+			})
+			require.NoError(t, err)
+			wg.Wait()
+
+			// For PQ / SQ we trigger the Upgrade for manual compression
+			if hnswuc.PQ.Enabled || hnswuc.SQ.Enabled {
+				var wg sync.WaitGroup
+				wg.Add(1)
+
+				err = dynamic.Upgrade(func() {
+					wg.Done()
+				})
+				require.NoError(t, err)
+				wg.Wait()
+			}
+
+			compressionhelpers.Concurrently(logger, uint64(vectors_size-threshold), func(i uint64) {
+				err := dynamic.Add(ctx, uint64(threshold)+i, vectors[threshold+int(i)])
+				require.NoError(t, err)
+			})
+
+			recall, latency := testinghelpers.RecallAndLatency(ctx, queries, k, dynamic, truths)
+			require.Greater(t, recall, float32(0.55))
+			t.Logf("recall: %f, latency %f\n", recall, latency)
+
+			err = dynamic.Flush()
+			require.NoError(t, err)
+			err = dynamic.Shutdown(t.Context())
+			require.NoError(t, err)
+			dummyStore.FlushMemtables(t.Context())
+
+			dynamic, err = New(config, uc, dummyStore)
+			require.NoError(t, err)
+			dynamic.PostStartup(context.Background())
+			require.Equal(t, dynamic.Compressed(), tt.compressed)
+			recall2, _ := testinghelpers.RecallAndLatency(ctx, queries, k, dynamic, truths)
+			assert.Equal(t, recall, recall2)
+		})
 	}
-	uc := ent.UserConfig{
-		Threshold: uint64(threshold),
-		Distance:  distancer.Type(),
-		HnswUC:    hnswuc,
-		FlatUC:    fuc,
-	}
-
-	dummyStore := testinghelpers.NewDummyStore(t)
-	dynamic, err := New(config, uc, dummyStore)
-	require.NoError(t, err)
-
-	compressionhelpers.Concurrently(logger, uint64(threshold), func(i uint64) {
-		err := dynamic.Add(ctx, i, vectors[i])
-		require.NoError(t, err)
-	})
-	shouldUpgrade, at := dynamic.ShouldUpgrade()
-	assert.True(t, shouldUpgrade)
-	assert.Equal(t, threshold, at)
-	assert.False(t, dynamic.Upgraded())
-	var wg sync.WaitGroup
-	wg.Add(1)
-
-	// flat -> hnsw
-	err = dynamic.Upgrade(func() {
-		wg.Done()
-	})
-	require.NoError(t, err)
-	wg.Wait()
-	wg.Add(1)
-
-	// PQ
-	err = dynamic.Upgrade(func() {
-		wg.Done()
-	})
-	require.NoError(t, err)
-	wg.Wait()
-	compressionhelpers.Concurrently(logger, uint64(vectors_size-threshold), func(i uint64) {
-		err := dynamic.Add(ctx, uint64(threshold)+i, vectors[threshold+int(i)])
-		require.NoError(t, err)
-	})
-
-	recall, latency := testinghelpers.RecallAndLatency(ctx, queries, k, dynamic, truths)
-	t.Logf("recall: %f, latency %f\n", recall, latency)
-
-	err = dynamic.Flush()
-	require.NoError(t, err)
-	err = dynamic.Shutdown(t.Context())
-	require.NoError(t, err)
-	dummyStore.FlushMemtables(t.Context())
-
-	dynamic, err = New(config, uc, dummyStore)
-	require.NoError(t, err)
-	dynamic.PostStartup(context.Background())
-	recall2, _ := testinghelpers.RecallAndLatency(ctx, queries, k, dynamic, truths)
-	assert.Equal(t, recall, recall2)
 }
 
 func TestDynamicIndexUnderlyingIndexDetection(t *testing.T) {
