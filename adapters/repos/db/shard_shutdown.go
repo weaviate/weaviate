@@ -62,7 +62,6 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 	defer s.shutdownLock.Unlock()
 
 	if s.shut.Load() {
-		s.shutdownRequested.Store(false)
 		s.index.logger.
 			WithField("action", "shutdown").
 			Debugf("shard %q is already shut down", s.name)
@@ -77,6 +76,7 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 	}
 	s.shut.Store(true)
 	s.shutdownRequested.Store(false)
+	s.UpdateStatus(storagestate.StatusShutdown.String(), "shutdown")
 	s.shutCtxCancel(fmt.Errorf("shutdown %q", s.ID()))
 
 	start := time.Now()
@@ -139,8 +139,6 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 	})
 
 	if s.store != nil {
-		s.UpdateStatus(storagestate.StatusShutdown.String(), "shutdown")
-
 		// store would be nil if loading the objects bucket failed, as we would
 		// only return the store on success from s.initLSMStore()
 		err = s.store.Shutdown(ctx)
