@@ -396,7 +396,7 @@ func TestReplicatedIndicesRejectsRequestsDuringShutdown(t *testing.T) {
 	// Wait for the first request to start processing
 	select {
 	case <-fakeReplicator.WaitForStart():
-	case <-t.Context().Done():
+	case <-time.After(500 * time.Millisecond):
 		t.Fatalf("timed out waiting for first request to start")
 	}
 
