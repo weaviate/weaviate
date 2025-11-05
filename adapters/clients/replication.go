@@ -69,7 +69,12 @@ func (c *replicationClient) DigestObjects(ctx context.Context,
 	ctx, span := otel.Tracer("weaviate-search").Start(ctx, "replicationClient.DigestObjects",
 		trace.WithSpanKind(trace.SpanKindInternal),
 	)
-	defer span.End()
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+		}
+		span.End()
+	}()
 
 	var resp []types.RepairResponse
 	body, err := json.Marshal(ids)

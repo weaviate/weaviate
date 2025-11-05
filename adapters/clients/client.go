@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -111,10 +112,18 @@ func (r *retryer) retry(ctx context.Context, n int, work func(context.Context) (
 		trace.WithSpanKind(trace.SpanKindInternal),
 	)
 	defer span.End()
+
 	delay := r.minBackOff
 	for {
-		keepTrying, err := work(ctx)
+		loopCtx, span := otel.Tracer("weaviate-search").Start(ctx, "retryer.retry.loop",
+			trace.WithSpanKind(trace.SpanKindInternal),
+			trace.WithAttributes(
+				attribute.Float64("n", float64(n)),
+			),
+		)
+		keepTrying, err := work(loopCtx)
 		if !keepTrying || n < 1 || err == nil {
+			span.End()
 			return err
 		}
 
@@ -122,14 +131,19 @@ func (r *retryer) retry(ctx context.Context, n int, work func(context.Context) (
 		if delay = backOff(delay); delay > r.maxBackOff {
 			delay = r.maxBackOff
 		}
+		span.AddEvent("backoff-retry", trace.WithAttributes(
+			attribute.String("delay", delay.String()),
+		))
 		timer := time.NewTimer(delay)
 		select {
 		case <-ctx.Done():
 			timer.Stop()
+			span.End()
 			return fmt.Errorf("%w: %w", err, ctx.Err())
 		case <-timer.C:
 		}
 		timer.Stop()
+		span.End()
 	}
 }
 
