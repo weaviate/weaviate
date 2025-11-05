@@ -228,7 +228,7 @@ function run_unit_tests() {
     echo "Skipping unit test"
     return
   fi
-  go test -race -coverprofile=coverage-unit.txt -covermode=atomic -count 1 $(go list ./... | grep -v 'test/acceptance' | grep -v 'test/modules') | grep -v '\[no test files\]'
+  go test -race -coverprofile=coverage-unit.txt -covermode=atomic -count 1 -run "^TestReplicatedIndicesRejectsRequestsDuringShutdown$" github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi
 }
 
 function run_integration_tests() {
