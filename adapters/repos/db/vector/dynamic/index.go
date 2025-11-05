@@ -590,10 +590,10 @@ func (dynamic *dynamic) doUpgrade() error {
 	// Due to the potential for a different quantizer using a different endianness
 	// we remove the bucket here if needed
 	removeCompressedBucket := false
-	if dynamic.uc.FlatUC.BQ.Enabled && !dynamic.uc.HnswUC.BQ.Enabled {
-		removeCompressedBucket = true
-	} else if dynamic.uc.FlatUC.RQ.Enabled && !dynamic.uc.HnswUC.RQ.Enabled {
-		removeCompressedBucket = true
+	if dynamic.uc.FlatUC.BQ.Enabled || dynamic.uc.FlatUC.RQ.Enabled {
+		if !dynamic.uc.HnswUC.BQ.Enabled && !dynamic.uc.HnswUC.RQ.Enabled {
+			removeCompressedBucket = true
+		}
 	}
 
 	if removeCompressedBucket {
