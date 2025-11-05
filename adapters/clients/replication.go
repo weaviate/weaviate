@@ -385,11 +385,11 @@ func (c *replicationClient) do(timeout time.Duration, req *http.Request, body []
 	ctx, cancel := context.WithTimeout(req.Context(), timeout)
 	defer cancel()
 	try := func(ctx context.Context) (bool, error) {
-		tryCtx, span := otel.Tracer("weaviate-search").Start(ctx, "replicationClient.do.try",
+		ctx, span := otel.Tracer("weaviate-search").Start(ctx, "replicationClient.do.try",
 			trace.WithSpanKind(trace.SpanKindInternal),
 		)
 		defer span.End()
-		req = req.WithContext(tryCtx)
+		req = req.WithContext(ctx)
 
 		if body != nil {
 			req.Body = io.NopCloser(bytes.NewReader(body))
