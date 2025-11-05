@@ -129,8 +129,8 @@ jobs:
       - name: Archive code coverage results
         uses: actions/upload-artifact@v4
         with:
-          name: coverage-report-unit
-          path: coverage-unit.txt
+          name: coverage-report-unit-0
+          path: coverage-unit-0.txt
   Unit-Tests-1:
     name: unit-tests-1
     runs-on: ubuntu-latest
