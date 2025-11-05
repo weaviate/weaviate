@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -74,10 +74,16 @@ SchemaObjectsUpdateParams contains all the parameters to send to the API endpoin
 */
 type SchemaObjectsUpdateParams struct {
 
-	// ClassName.
+	/* ClassName.
+
+	   The name of the collection (class) to update.
+	*/
 	ClassName string
 
-	// ObjectClass.
+	/* ObjectClass.
+
+	   The updated collection definition containing the settings to modify.
+	*/
 	ObjectClass *models.Class
 
 	timeout    time.Duration

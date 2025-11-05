@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -77,7 +77,7 @@ func NewSchemaObjectsPropertiesAddOK() *SchemaObjectsPropertiesAddOK {
 /*
 SchemaObjectsPropertiesAddOK describes a response with status code 200, with default header values.
 
-Added the property.
+Property added successfully and its definition returned.
 */
 type SchemaObjectsPropertiesAddOK struct {
 	Payload *models.Property
@@ -269,7 +269,7 @@ func NewSchemaObjectsPropertiesAddUnprocessableEntity() *SchemaObjectsProperties
 /*
 SchemaObjectsPropertiesAddUnprocessableEntity describes a response with status code 422, with default header values.
 
-Invalid property.
+Invalid property definition provided.
 */
 type SchemaObjectsPropertiesAddUnprocessableEntity struct {
 	Payload *models.ErrorResponse
@@ -337,7 +337,7 @@ func NewSchemaObjectsPropertiesAddInternalServerError() *SchemaObjectsProperties
 /*
 SchemaObjectsPropertiesAddInternalServerError describes a response with status code 500, with default header values.
 
-An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+An error occurred while adding the property. Check the ErrorResponse for details.
 */
 type SchemaObjectsPropertiesAddInternalServerError struct {
 	Payload *models.ErrorResponse

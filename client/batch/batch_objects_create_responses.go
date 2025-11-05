@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -89,7 +89,7 @@ func NewBatchObjectsCreateOK() *BatchObjectsCreateOK {
 /*
 BatchObjectsCreateOK describes a response with status code 200, with default header values.
 
-Request succeeded, see response body to get detailed information about each batched item.
+Request processed successfully. Individual object statuses are provided in the response body.
 */
 type BatchObjectsCreateOK struct {
 	Payload []*models.ObjectsGetResponse
@@ -347,7 +347,7 @@ func NewBatchObjectsCreateUnprocessableEntity() *BatchObjectsCreateUnprocessable
 /*
 BatchObjectsCreateUnprocessableEntity describes a response with status code 422, with default header values.
 
-Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
+The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request. Ensure the collection exists and the object properties are valid.
 */
 type BatchObjectsCreateUnprocessableEntity struct {
 	Payload *models.ErrorResponse
@@ -415,7 +415,7 @@ func NewBatchObjectsCreateInternalServerError() *BatchObjectsCreateInternalServe
 /*
 BatchObjectsCreateInternalServerError describes a response with status code 500, with default header values.
 
-An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+An error occurred while trying to fulfill the request. Check the ErrorResponse for details.
 */
 type BatchObjectsCreateInternalServerError struct {
 	Payload *models.ErrorResponse
@@ -481,10 +481,10 @@ swagger:model BatchObjectsCreateBody
 */
 type BatchObjectsCreateBody struct {
 
-	// Define which fields need to be returned. Default value is ALL
+	// Controls which fields are returned in the response for each object. Default is `ALL`.
 	Fields []*string `json:"fields"`
 
-	// objects
+	// Array of objects to be created.
 	Objects []*models.Object `json:"objects"`
 }
 

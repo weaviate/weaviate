@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -28,10 +28,10 @@ import (
 // swagger:model GeoCoordinates
 type GeoCoordinates struct {
 
-	// The latitude of the point on earth in decimal form
+	// The latitude of the point on earth in decimal form.
 	Latitude *float32 `json:"latitude,omitempty"`
 
-	// The longitude of the point on earth in decimal form
+	// The longitude of the point on earth in decimal form.
 	Longitude *float32 `json:"longitude,omitempty"`
 }
 

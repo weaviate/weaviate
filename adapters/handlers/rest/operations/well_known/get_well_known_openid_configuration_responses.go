@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -28,7 +28,7 @@ import (
 const GetWellKnownOpenidConfigurationOKCode int = 200
 
 /*
-GetWellKnownOpenidConfigurationOK Successful response, inspect body
+GetWellKnownOpenidConfigurationOK OIDC configuration details returned successfully.
 
 swagger:response getWellKnownOpenidConfigurationOK
 */
@@ -73,7 +73,7 @@ func (o *GetWellKnownOpenidConfigurationOK) WriteResponse(rw http.ResponseWriter
 const GetWellKnownOpenidConfigurationNotFoundCode int = 404
 
 /*
-GetWellKnownOpenidConfigurationNotFound Not found, no oidc provider present
+GetWellKnownOpenidConfigurationNotFound OIDC provider is not configured for this Weaviate instance.
 
 swagger:response getWellKnownOpenidConfigurationNotFound
 */
@@ -98,7 +98,7 @@ func (o *GetWellKnownOpenidConfigurationNotFound) WriteResponse(rw http.Response
 const GetWellKnownOpenidConfigurationInternalServerErrorCode int = 500
 
 /*
-GetWellKnownOpenidConfigurationInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+GetWellKnownOpenidConfigurationInternalServerError An internal server error occurred while retrieving OIDC configuration. Check the ErrorResponse for details.
 
 swagger:response getWellKnownOpenidConfigurationInternalServerError
 */

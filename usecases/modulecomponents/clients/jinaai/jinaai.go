@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -54,12 +54,13 @@ type MultiModalInput struct {
 }
 
 type embeddingsRequest[T []string | []MultiModalInput] struct {
-	Input         T             `json:"input"`
-	Model         string        `json:"model,omitempty"`
-	Task          *Task         `json:"task,omitempty"`
-	Dimensions    *int64        `json:"dimensions,omitempty"`
-	EmbeddingType embeddingType `json:"embedding_type,omitempty"`
-	Normalized    *bool         `json:"normalized,omitempty"`
+	Input             T             `json:"input"`
+	Model             string        `json:"model,omitempty"`
+	EmbeddingType     embeddingType `json:"embedding_type,omitempty"`
+	Normalized        *bool         `json:"normalized,omitempty"`
+	Task              *Task         `json:"task,omitempty"`
+	Dimensions        *int64        `json:"dimensions,omitempty"`
+	ReturnMultivector *bool         `json:"return_multivector,omitempty"`
 }
 
 type jinaErrorDetail struct {
@@ -80,12 +81,20 @@ type embeddingData[T dto.Embedding] struct {
 	Embeddings T      `json:"embeddings"`
 }
 
+func (ed embeddingData[T]) getEmbedding() T {
+	if len(ed.Embedding) > 0 {
+		return ed.Embedding
+	}
+	return ed.Embeddings
+}
+
 type Settings struct {
-	Task       Task
-	Model      string
-	BaseURL    string
-	Dimensions *int64
-	Normalized bool
+	Task              Task
+	Model             string
+	BaseURL           string
+	Dimensions        *int64
+	Normalized        bool
+	ReturnMultivector bool
 }
 
 type Client[T dto.Embedding] struct {
@@ -169,9 +178,9 @@ func (c *Client[T]) VectorizeMultiModal(ctx context.Context, texts, images []str
 	var textVectors, imageVectors []T
 	for i := range resBody.Data {
 		if i < len(texts) {
-			textVectors = append(textVectors, resBody.Data[i].Embedding)
+			textVectors = append(textVectors, resBody.Data[i].getEmbedding())
 		} else {
-			imageVectors = append(imageVectors, resBody.Data[i].Embedding)
+			imageVectors = append(imageVectors, resBody.Data[i].getEmbedding())
 		}
 	}
 
@@ -251,6 +260,9 @@ func (c *Client[T]) getTextEmbeddingsRequest(input []string, settings Settings) 
 		req.Task = &settings.Task
 		req.Normalized = &settings.Normalized
 	}
+	if settings.ReturnMultivector {
+		req.ReturnMultivector = &settings.ReturnMultivector
+	}
 	return req
 }
 
@@ -263,12 +275,16 @@ func (c *Client[T]) getMultiModalEmbeddingsRequest(texts, images []string, setti
 	for i := range images {
 		input[offset+i] = MultiModalInput{Image: images[i]}
 	}
-	return embeddingsRequest[[]MultiModalInput]{
+	req := embeddingsRequest[[]MultiModalInput]{
 		Input:         input,
 		Model:         settings.Model,
 		EmbeddingType: embeddingTypeFloat,
 		Dimensions:    settings.Dimensions,
 	}
+	if settings.ReturnMultivector {
+		req.ReturnMultivector = &settings.ReturnMultivector
+	}
+	return req
 }
 
 func (c *Client[T]) getApiKeyHeaderAndValue(apiKey string) (string, string) {

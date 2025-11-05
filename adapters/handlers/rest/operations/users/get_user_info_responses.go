@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -28,7 +28,7 @@ import (
 const GetUserInfoOKCode int = 200
 
 /*
-GetUserInfoOK Info about the user
+GetUserInfoOK Info about the user.
 
 swagger:response getUserInfoOK
 */
@@ -143,7 +143,7 @@ func (o *GetUserInfoForbidden) WriteResponse(rw http.ResponseWriter, producer ru
 const GetUserInfoNotFoundCode int = 404
 
 /*
-GetUserInfoNotFound user not found
+GetUserInfoNotFound User not found.
 
 swagger:response getUserInfoNotFound
 */
@@ -168,7 +168,7 @@ func (o *GetUserInfoNotFound) WriteResponse(rw http.ResponseWriter, producer run
 const GetUserInfoUnprocessableEntityCode int = 422
 
 /*
-GetUserInfoUnprocessableEntity Request body is well-formed (i.e., syntactically correct), but semantically erroneous.
+GetUserInfoUnprocessableEntity The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.
 
 swagger:response getUserInfoUnprocessableEntity
 */

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -26,12 +26,12 @@ import (
 	"github.com/go-openapi/validate"
 )
 
-// BackupConfig Backup custom configuration
+// BackupConfig Backup custom configuration.
 //
 // swagger:model BackupConfig
 type BackupConfig struct {
 
-	// Name of the bucket, container, volume, etc
+	// Name of the bucket, container, volume, etc.
 	Bucket string `json:"Bucket,omitempty"`
 
 	// Desired CPU core utilization ranging from 1%-80%
@@ -48,10 +48,10 @@ type BackupConfig struct {
 	// Enum: [DefaultCompression BestSpeed BestCompression]
 	CompressionLevel string `json:"CompressionLevel,omitempty"`
 
-	// name of the endpoint, e.g. s3.amazonaws.com
+	// Name of the endpoint, e.g. s3.amazonaws.com.
 	Endpoint string `json:"Endpoint,omitempty"`
 
-	// Path or key within the bucket
+	// Path or key within the bucket.
 	Path string `json:"Path,omitempty"`
 }
 

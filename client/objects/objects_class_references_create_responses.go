@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -89,7 +89,7 @@ func NewObjectsClassReferencesCreateOK() *ObjectsClassReferencesCreateOK {
 /*
 ObjectsClassReferencesCreateOK describes a response with status code 200, with default header values.
 
-Successfully added the reference.
+Reference added successfully.
 */
 type ObjectsClassReferencesCreateOK struct {
 }
@@ -337,7 +337,7 @@ func NewObjectsClassReferencesCreateNotFound() *ObjectsClassReferencesCreateNotF
 /*
 ObjectsClassReferencesCreateNotFound describes a response with status code 404, with default header values.
 
-Source object doesn't exist.
+Source object not found.
 */
 type ObjectsClassReferencesCreateNotFound struct {
 }
@@ -393,7 +393,7 @@ func NewObjectsClassReferencesCreateUnprocessableEntity() *ObjectsClassReference
 /*
 ObjectsClassReferencesCreateUnprocessableEntity describes a response with status code 422, with default header values.
 
-Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?
+The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request. Ensure the property exists and is a reference type.
 */
 type ObjectsClassReferencesCreateUnprocessableEntity struct {
 	Payload *models.ErrorResponse
@@ -461,7 +461,7 @@ func NewObjectsClassReferencesCreateInternalServerError() *ObjectsClassReference
 /*
 ObjectsClassReferencesCreateInternalServerError describes a response with status code 500, with default header values.
 
-An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+An error occurred while trying to fulfill the request. Check the ErrorResponse for details.
 */
 type ObjectsClassReferencesCreateInternalServerError struct {
 	Payload *models.ErrorResponse

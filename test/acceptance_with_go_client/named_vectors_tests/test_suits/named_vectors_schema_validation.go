@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -174,6 +174,66 @@ func testSchemaValidation(host string) func(t *testing.T) {
 
 			resultVectors := getVectorsWithNearText(t, client, className, id1, nearTextWithoutTargetVector, oneTargetVector)
 			assert.Len(t, resultVectors, 1)
+		})
+
+		t.Run("generative module wrong configuration - legacy configuration", func(t *testing.T) {
+			class := &models.Class{
+				Class: "GenerativeOpenAIModuleLegacyValidation",
+				Properties: []*models.Property{
+					{
+						Name:     "text",
+						DataType: []string{schema.DataTypeText.String()},
+					},
+				},
+				ModuleConfig: map[string]interface{}{
+					"generative-openai": map[string]interface{}{
+						"temperature": 2.0,
+					},
+				},
+				Vectorizer:      text2vecModel2Vec,
+				VectorIndexType: "hnsw",
+			}
+			err := client.Schema().ClassCreator().WithClass(class).Do(ctx)
+			require.Error(t, err)
+			assert.ErrorContains(t, err, "Wrong temperature configuration")
+		})
+
+		t.Run("generative module wrong configuration - multiple vectors", func(t *testing.T) {
+			class := &models.Class{
+				Class: "GenerativeOpenAIModuleValidation",
+				Properties: []*models.Property{
+					{
+						Name:     "text",
+						DataType: []string{schema.DataTypeText.String()},
+					},
+				},
+				VectorConfig: map[string]models.VectorConfig{
+					m2vec: {
+						Vectorizer: map[string]interface{}{
+							text2vecModel2Vec: map[string]interface{}{
+								"vectorizeClassName": false,
+							},
+						},
+						VectorIndexType: "hnsw",
+					},
+					transformers_flat: {
+						Vectorizer: map[string]interface{}{
+							text2vecTransformers: map[string]interface{}{
+								"vectorizeClassName": false,
+							},
+						},
+						VectorIndexType: "flat",
+					},
+				},
+				ModuleConfig: map[string]interface{}{
+					"generative-openai": map[string]interface{}{
+						"temperature": 2.0,
+					},
+				},
+			}
+			err := client.Schema().ClassCreator().WithClass(class).Do(ctx)
+			require.Error(t, err)
+			assert.ErrorContains(t, err, "Wrong temperature configuration")
 		})
 
 		t.Run("generative module proper configuration - multiple vectors", func(t *testing.T) {

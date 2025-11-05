@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -108,6 +108,7 @@ type hnsw struct {
 	multiVectorForID          common.MultiVectorForID
 	trackDimensionsOnce       sync.Once
 	trackMuveraOnce           sync.Once
+	trackRQOnce               sync.Once
 	dims                      int32
 
 	cache               cache.Cache[float32]
@@ -174,6 +175,8 @@ type hnsw struct {
 	pqConfig   ent.PQConfig
 	bqConfig   ent.BQConfig
 	sqConfig   ent.SQConfig
+	rqConfig   ent.RQConfig
+	rqActive   bool
 	// rescoring compressed vectors is disk-bound. On cold starts, we cannot
 	// rescore sequentially, as that would take very long. This setting allows us
 	// to define the rescoring concurrency.
@@ -201,6 +204,8 @@ type hnsw struct {
 	maxDocID        uint64
 	MinMMapSize     int64
 	MaxWalReuseSize int64
+
+	fs common.FS
 }
 
 type CommitLogger interface {
@@ -223,6 +228,8 @@ type CommitLogger interface {
 	AddPQCompression(compressionhelpers.PQData) error
 	AddSQCompression(compressionhelpers.SQData) error
 	AddMuvera(multivector.MuveraData) error
+	AddRQCompression(compressionhelpers.RQData) error
+	AddBRQCompression(compressionhelpers.BRQData) error
 	InitMaintenance()
 
 	CreateSnapshot() (bool, int64, error)
@@ -238,6 +245,8 @@ type BufferedLinksLogger interface {
 
 type MakeCommitLogger func() (CommitLogger, error)
 
+type HNSW = hnsw
+
 // New creates a new HNSW index, the commit logger is provided through a thunk
 // (a function which can be deferred). This is because creating a commit logger
 // opens files for writing. However, checking whether a file is present, is a
@@ -246,7 +255,7 @@ type MakeCommitLogger func() (CommitLogger, error)
 // checks first and only then is the commit logger created
 func New(cfg Config, uc ent.UserConfig,
 	tombstoneCallbacks cyclemanager.CycleCallbackGroup, store *lsmkv.Store,
-) (*hnsw, error) {
+) (*HNSW, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, errors.Wrap(err, "invalid config")
 	}
@@ -344,6 +353,7 @@ func New(cfg Config, uc ent.UserConfig,
 		pqConfig:                  uc.PQ,
 		bqConfig:                  uc.BQ,
 		sqConfig:                  uc.SQ,
+		rqConfig:                  uc.RQ,
 		rescoreConcurrency:        2 * runtime.GOMAXPROCS(0), // our default for IO-bound activties
 		shardedNodeLocks:          common.NewDefaultShardedRWLocks(),
 
@@ -351,11 +361,11 @@ func New(cfg Config, uc ent.UserConfig,
 		allocChecker:           cfg.AllocChecker,
 		visitedListPoolMaxSize: cfg.VisitedListPoolMaxSize,
 
-		docIDVectors:  make(map[uint64][]uint64),
-		muveraEncoder: muveraEncoder,
-
+		docIDVectors:    make(map[uint64][]uint64),
+		muveraEncoder:   muveraEncoder,
 		MinMMapSize:     cfg.MinMMapSize,
 		MaxWalReuseSize: cfg.MaxWalReuseSize,
+		fs:              common.NewOSFS(),
 	}
 	index.acornSearch.Store(uc.FilterStrategy == ent.FilterStrategyAcorn)
 
@@ -379,6 +389,10 @@ func New(cfg Config, uc ent.UserConfig,
 		index.compressed.Store(true)
 		index.cache.Drop()
 		index.cache = nil
+	}
+
+	if uc.RQ.Enabled {
+		index.rqActive = true
 	}
 
 	if uc.Multivector.Enabled {
@@ -749,10 +763,6 @@ func (h *hnsw) Entrypoint() uint64 {
 	return h.entryPointID
 }
 
-func (h *hnsw) DistanceBetweenVectors(x, y []float32) (float32, error) {
-	return h.distancerProvider.SingleDist(x, y)
-}
-
 func (h *hnsw) ContainsDoc(docID uint64) bool {
 	if h.Multivector() && !h.muvera.Load() {
 		h.RLock()
@@ -835,10 +845,6 @@ func (h *hnsw) iterateMulti(fn func(docID uint64) bool) {
 	}
 }
 
-func (h *hnsw) DistancerProvider() distancer.Provider {
-	return h.distancerProvider
-}
-
 func (h *hnsw) ShouldUpgrade() (bool, int) {
 	h.compressActionLock.RLock()
 	defer h.compressActionLock.RUnlock()
@@ -846,9 +852,11 @@ func (h *hnsw) ShouldUpgrade() (bool, int) {
 	if !h.cachePrefilled.Load() {
 		return false, 0
 	}
-
 	if h.sqConfig.Enabled {
 		return h.sqConfig.Enabled, h.sqConfig.TrainingLimit
+	}
+	if h.rqConfig.Enabled {
+		return h.rqConfig.Enabled, 1
 	}
 	return h.pqConfig.Enabled, h.pqConfig.TrainingLimit
 }
@@ -857,6 +865,9 @@ func (h *hnsw) ShouldCompressFromConfig(config config.VectorIndexConfig) (bool, 
 	hnswConfig := config.(ent.UserConfig)
 	if hnswConfig.SQ.Enabled {
 		return hnswConfig.SQ.Enabled, hnswConfig.SQ.TrainingLimit
+	}
+	if hnswConfig.RQ.Enabled {
+		return hnswConfig.RQ.Enabled, 1
 	}
 	return hnswConfig.PQ.Enabled, hnswConfig.PQ.TrainingLimit
 }
@@ -875,11 +886,6 @@ func (h *hnsw) Upgraded() bool {
 
 func (h *hnsw) AlreadyIndexed() uint64 {
 	return uint64(h.cache.CountVectors())
-}
-
-func (h *hnsw) GetKeys(id uint64) (uint64, uint64, error) {
-	docID, relativeID := h.cache.GetKeys(id)
-	return docID, relativeID, nil
 }
 
 func (h *hnsw) normalizeVec(vec []float32) []float32 {
@@ -990,7 +996,7 @@ func (s *HnswStats) IndexType() common.IndexType {
 	return common.IndexTypeHNSW
 }
 
-func (h *hnsw) Stats() (common.IndexStats, error) {
+func (h *hnsw) Stats() (*HnswStats, error) {
 	h.RLock()
 	defer h.RUnlock()
 	distributionLayers := map[int]uint{}
@@ -1003,7 +1009,7 @@ func (h *hnsw) Stats() (common.IndexStats, error) {
 			node.Lock()
 			defer node.Unlock()
 			l := node.level
-			if l == 0 && len(node.connections) == 0 {
+			if l == 0 && node.connections.Layers() == 0 {
 				return
 			}
 			c, ok := distributionLayers[l]
@@ -1034,4 +1040,15 @@ func (h *hnsw) Stats() (common.IndexStats, error) {
 	stats.CompressionType = stats.CompressorStats.CompressionType()
 
 	return &stats, nil
+}
+
+func (h *hnsw) Type() common.IndexType {
+	return common.IndexTypeHNSW
+}
+
+func (h *hnsw) CompressionStats() compressionhelpers.CompressionStats {
+	if h.compressed.Load() {
+		return h.compressor.Stats()
+	}
+	return compressionhelpers.UncompressedStats{}
 }

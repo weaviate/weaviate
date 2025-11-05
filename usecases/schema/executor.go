@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -35,7 +35,7 @@ type executor struct {
 	migrator     Migrator
 
 	callbacksLock sync.RWMutex
-	callbacks     []func(updatedSchema schema.Schema)
+	callbacks     []func(updatedSchema schema.SchemaWithAliases)
 
 	logger          logrus.FieldLogger
 	restoreClassDir func(string) error
@@ -98,7 +98,7 @@ func (e *executor) Close(ctx context.Context) error {
 
 func (e *executor) AddClass(pl api.AddClassRequest) error {
 	ctx := context.Background()
-	if err := e.migrator.AddClass(ctx, pl.Class, pl.State); err != nil {
+	if err := e.migrator.AddClass(ctx, pl.Class); err != nil {
 		return fmt.Errorf("apply add class: %w", err)
 	}
 	return nil
@@ -339,16 +339,19 @@ func (e *executor) TriggerSchemaUpdateCallbacks() {
 	defer e.callbacksLock.RUnlock()
 
 	s := e.schemaReader.ReadOnlySchema()
-	schema := schema.Schema{Objects: &s}
+	body := schema.SchemaWithAliases{
+		Schema:  schema.Schema{Objects: &s},
+		Aliases: e.schemaReader.Aliases(),
+	}
 	for _, cb := range e.callbacks {
-		cb(schema)
+		cb(body)
 	}
 }
 
 // RegisterSchemaUpdateCallback allows other usecases to register a primitive
 // type update callback. The callbacks will be called any time we persist a
 // schema update
-func (e *executor) RegisterSchemaUpdateCallback(callback func(updatedSchema schema.Schema)) {
+func (e *executor) RegisterSchemaUpdateCallback(callback func(updatedSchema schema.SchemaWithAliases)) {
 	e.callbacksLock.Lock()
 	defer e.callbacksLock.Unlock()
 

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -21,6 +21,7 @@ import (
 	anyscale "github.com/weaviate/weaviate/modules/generative-anyscale/parameters"
 	aws "github.com/weaviate/weaviate/modules/generative-aws/parameters"
 	cohere "github.com/weaviate/weaviate/modules/generative-cohere/parameters"
+	contextualai "github.com/weaviate/weaviate/modules/generative-contextualai/parameters"
 	databricks "github.com/weaviate/weaviate/modules/generative-databricks/parameters"
 	friendliai "github.com/weaviate/weaviate/modules/generative-friendliai/parameters"
 	google "github.com/weaviate/weaviate/modules/generative-google/parameters"
@@ -1130,6 +1131,86 @@ func Test_RequestParser(t *testing.T) {
 						Temperature: makeFloat64Ptr(0.5),
 						TopP:        makeFloat64Ptr(0.5),
 						MaxTokens:   makeIntPtr(10),
+					},
+				},
+			},
+		},
+		{
+			name:       "generative search; single response; nil dynamic ContextualAI",
+			uses127Api: true,
+			in: &pb.GenerativeSearch{
+				Single: &pb.GenerativeSearch_Single{
+					Prompt: "prompt",
+					Queries: []*pb.GenerativeProvider{
+						{
+							Kind: &pb.GenerativeProvider_Contextualai{},
+						},
+					},
+				},
+			},
+			expected: &generate.Params{
+				Prompt:  makeStrPtr("prompt"),
+				Options: nil,
+			},
+		},
+		{
+			name:       "generative search; single response; empty dynamic ContextualAI",
+			uses127Api: true,
+			in: &pb.GenerativeSearch{
+				Single: &pb.GenerativeSearch_Single{
+					Prompt: "prompt",
+					Queries: []*pb.GenerativeProvider{
+						{
+							Kind: &pb.GenerativeProvider_Contextualai{
+								Contextualai: &pb.GenerativeContextualAI{},
+							},
+						},
+					},
+				},
+			},
+			expected: &generate.Params{
+				Prompt: makeStrPtr("prompt"),
+				Options: map[string]any{
+					"contextualai": contextualai.Params{},
+				},
+			},
+		},
+		{
+			name:       "generative search; single response; full dynamic ContextualAI",
+			uses127Api: true,
+			in: &pb.GenerativeSearch{
+				Single: &pb.GenerativeSearch_Single{
+					Prompt: "prompt",
+					Queries: []*pb.GenerativeProvider{
+						{
+							Kind: &pb.GenerativeProvider_Contextualai{
+								Contextualai: &pb.GenerativeContextualAI{
+									Model:           makeStrPtr("model"),
+									Temperature:     makeFloat64Ptr(0.5),
+									TopP:            makeFloat64Ptr(0.6),
+									MaxNewTokens:    makeInt64Ptr(10),
+									SystemPrompt:    makeStrPtr("system prompt value"),
+									AvoidCommentary: makeBoolPtr(true),
+									Knowledge: &pb.TextArray{
+										Values: []string{"knowledge"},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			expected: &generate.Params{
+				Prompt: makeStrPtr("prompt"),
+				Options: map[string]any{
+					"contextualai": contextualai.Params{
+						Model:           "model",
+						Temperature:     makeFloat64Ptr(0.5),
+						TopP:            makeFloat64Ptr(0.6),
+						MaxNewTokens:    makeIntPtr(10),
+						SystemPrompt:    "system prompt value",
+						AvoidCommentary: makeBoolPtr(true),
+						Knowledge:       []string{"knowledge"},
 					},
 				},
 			},

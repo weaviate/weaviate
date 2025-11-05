@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -26,7 +26,7 @@ import (
 	"github.com/go-openapi/validate"
 )
 
-// BackupRestoreResponse The definition of a backup restore response body
+// BackupRestoreResponse The definition of a backup restore response body.
 //
 // swagger:model BackupRestoreResponse
 type BackupRestoreResponse struct {
@@ -34,19 +34,19 @@ type BackupRestoreResponse struct {
 	// Backup backend name e.g. filesystem, gcs, s3.
 	Backend string `json:"backend,omitempty"`
 
-	// The list of classes for which the backup restoration process was started
+	// The list of collections (classes) for which the backup restoration process was started.
 	Classes []string `json:"classes"`
 
-	// error message if restoration failed
+	// Error message if backup restoration failed.
 	Error string `json:"error,omitempty"`
 
 	// The ID of the backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.
 	ID string `json:"id,omitempty"`
 
-	// destination path of backup files proper to selected backend
+	// Destination path of backup files valid for the selected backend.
 	Path string `json:"path,omitempty"`
 
-	// phase of backup restoration process
+	// Phase of backup restoration process.
 	// Enum: [STARTED TRANSFERRING TRANSFERRED SUCCESS FAILED CANCELED]
 	Status *string `json:"status,omitempty"`
 }

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -45,9 +45,9 @@ func NewClusterGetStatistics(ctx *middleware.Context, handler ClusterGetStatisti
 /*
 	ClusterGetStatistics swagger:route GET /cluster/statistics cluster clusterGetStatistics
 
-# See Raft cluster statistics
+# Get cluster statistics
 
-Returns Raft cluster statistics of Weaviate DB.
+Provides statistics about the internal Raft consensus protocol state for the Weaviate cluster.
 */
 type ClusterGetStatistics struct {
 	Context *middleware.Context

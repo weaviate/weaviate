@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -42,21 +42,21 @@ type BackupsCreateStatusParams struct {
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
-	/*Backup backend name e.g. filesystem, gcs, s3.
+	/*Specifies the backend storage system where the backup resides (e.g., `filesystem`, `gcs`, `s3`, `azure`).
 	  Required: true
 	  In: path
 	*/
 	Backend string
-	/*Name of the bucket, container, volume, etc
+	/*Optional: Specifies the bucket, container, or volume name if required by the backend.
 	  In: query
 	*/
 	Bucket *string
-	/*The ID of a backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.
+	/*The unique identifier of the backup. Must be URL-safe and compatible with filesystem paths (only lowercase, numbers, underscore, minus characters allowed).
 	  Required: true
 	  In: path
 	*/
 	ID string
-	/*The path within the bucket
+	/*Optional: Specifies the path within the bucket/container/volume if the backup is not at the root.
 	  In: query
 	*/
 	Path *string

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -253,7 +253,7 @@ func (m *ObjectsGetResponse) UnmarshalBinary(b []byte) error {
 	return nil
 }
 
-// ObjectsGetResponseAO2Result Results for this specific Object.
+// ObjectsGetResponseAO2Result Results for this specific object.
 //
 // swagger:model ObjectsGetResponseAO2Result
 type ObjectsGetResponseAO2Result struct {

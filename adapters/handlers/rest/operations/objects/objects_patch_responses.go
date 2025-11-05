@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -28,7 +28,7 @@ import (
 const ObjectsPatchNoContentCode int = 204
 
 /*
-ObjectsPatchNoContent Successfully applied. No content provided.
+ObjectsPatchNoContent Object patched successfully.
 
 swagger:response objectsPatchNoContent
 */
@@ -53,7 +53,7 @@ func (o *ObjectsPatchNoContent) WriteResponse(rw http.ResponseWriter, producer r
 const ObjectsPatchBadRequestCode int = 400
 
 /*
-ObjectsPatchBadRequest The patch-JSON is malformed.
+ObjectsPatchBadRequest Malformed patch request body.
 
 swagger:response objectsPatchBadRequest
 */
@@ -148,7 +148,7 @@ func (o *ObjectsPatchForbidden) WriteResponse(rw http.ResponseWriter, producer r
 const ObjectsPatchNotFoundCode int = 404
 
 /*
-ObjectsPatchNotFound Successful query result but no resource was found.
+ObjectsPatchNotFound Object not found.
 
 swagger:response objectsPatchNotFound
 */
@@ -173,7 +173,7 @@ func (o *ObjectsPatchNotFound) WriteResponse(rw http.ResponseWriter, producer ru
 const ObjectsPatchUnprocessableEntityCode int = 422
 
 /*
-ObjectsPatchUnprocessableEntity The patch-JSON is valid but unprocessable.
+ObjectsPatchUnprocessableEntity The patch object is valid JSON but is unprocessable for other reasons (e.g., invalid schema).
 
 swagger:response objectsPatchUnprocessableEntity
 */
@@ -218,7 +218,7 @@ func (o *ObjectsPatchUnprocessableEntity) WriteResponse(rw http.ResponseWriter, 
 const ObjectsPatchInternalServerErrorCode int = 500
 
 /*
-ObjectsPatchInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+ObjectsPatchInternalServerError An error occurred while trying to fulfill the request. Check the ErrorResponse for details.
 
 swagger:response objectsPatchInternalServerError
 */

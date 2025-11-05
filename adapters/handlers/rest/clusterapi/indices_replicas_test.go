@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -34,7 +34,7 @@ func TestMaintenanceModeReplicatedIndices(t *testing.T) {
 	noopAuth := clusterapi.NewNoopAuthHandler()
 	fakeReplicator := newFakeReplicator(false)
 	logger, _ := test.NewNullLogger()
-	indices := clusterapi.NewReplicatedIndices(fakeReplicator, nil, noopAuth, func() bool { return true }, cluster.RequestQueueConfig{}, logger)
+	indices := clusterapi.NewReplicatedIndices(fakeReplicator, noopAuth, func() bool { return true }, cluster.RequestQueueConfig{}, logger)
 	mux := http.NewServeMux()
 	mux.Handle("/replicas/indices/", indices.Indices())
 	server := httptest.NewServer(mux)
@@ -186,7 +186,7 @@ func TestReplicatedIndicesWorkQueue(t *testing.T) {
 			noopAuth := clusterapi.NewNoopAuthHandler()
 			fakeReplicator := newFakeReplicator(true)
 			logger, _ := test.NewNullLogger()
-			indices := clusterapi.NewReplicatedIndices(fakeReplicator, nil, noopAuth, func() bool { return false }, tc.requestQueueConfig, logger)
+			indices := clusterapi.NewReplicatedIndices(fakeReplicator, noopAuth, func() bool { return false }, tc.requestQueueConfig, logger)
 			mux := http.NewServeMux()
 			mux.Handle("/replicas/indices/", indices.Indices())
 			server := httptest.NewServer(mux)
@@ -288,7 +288,6 @@ func TestReplicatedIndicesShutdown(t *testing.T) {
 
 			indices := clusterapi.NewReplicatedIndices(
 				fakeReplicator,
-				nil,
 				noopAuth,
 				func() bool { return false },
 				tc.requestQueueConfig,
@@ -366,7 +365,6 @@ func TestReplicatedIndicesRejectsRequestsDuringShutdown(t *testing.T) {
 
 	indices := clusterapi.NewReplicatedIndices(
 		fakeReplicator,
-		nil,
 		noopAuth,
 		func() bool { return false },
 		cfg,
@@ -396,7 +394,7 @@ func TestReplicatedIndicesRejectsRequestsDuringShutdown(t *testing.T) {
 	// Wait for the first request to start processing
 	select {
 	case <-fakeReplicator.WaitForStart():
-	case <-time.After(1 * time.Second):
+	case <-t.Context().Done():
 		t.Fatalf("timed out waiting for first request to start")
 	}
 
@@ -453,7 +451,6 @@ func TestReplicatedIndicesShutdownMultipleCalls(t *testing.T) {
 
 	indices := clusterapi.NewReplicatedIndices(
 		fakeReplicator,
-		nil,
 		noopAuth,
 		func() bool { return false },
 		cluster.RequestQueueConfig{
@@ -488,7 +485,6 @@ func TestReplicatedIndicesShutdownWithStuckRequests(t *testing.T) {
 
 	indices := clusterapi.NewReplicatedIndices(
 		fakeReplicator,
-		nil,
 		noopAuth,
 		func() bool { return false },
 		cluster.RequestQueueConfig{

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -45,9 +45,9 @@ func NewSchemaDump(ctx *middleware.Context, handler SchemaDumpHandler) *SchemaDu
 /*
 	SchemaDump swagger:route GET /schema schema schemaDump
 
-Dump the current the database schema.
+# Get all collection definitions
 
-Fetch an array of all collection definitions from the schema.
+Retrieves the definitions of all collections (classes) currently in the database schema.
 */
 type SchemaDump struct {
 	Context *middleware.Context

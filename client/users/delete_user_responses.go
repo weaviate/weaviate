@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -337,7 +337,7 @@ func NewDeleteUserNotFound() *DeleteUserNotFound {
 /*
 DeleteUserNotFound describes a response with status code 404, with default header values.
 
-user not found
+User not found.
 */
 type DeleteUserNotFound struct {
 }
@@ -393,7 +393,7 @@ func NewDeleteUserUnprocessableEntity() *DeleteUserUnprocessableEntity {
 /*
 DeleteUserUnprocessableEntity describes a response with status code 422, with default header values.
 
-Request body is well-formed (i.e., syntactically correct), but semantically erroneous.
+The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.
 */
 type DeleteUserUnprocessableEntity struct {
 	Payload *models.ErrorResponse

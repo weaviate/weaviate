@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -17,7 +17,6 @@ import (
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 func newFakeTargetVectorParamHelper() *fakeTargetVectorParamHelper {
@@ -46,10 +45,6 @@ func (f *fakeSchemaManager) GetSchemaSkipAuth() schema.Schema {
 
 func (f *fakeSchemaManager) ReadOnlyClass(class string) *models.Class {
 	return f.schema.GetClass(class)
-}
-
-func (f *fakeSchemaManager) CopyShardingState(class string) *sharding.State {
-	return nil
 }
 
 func (f *fakeSchemaManager) ShardOwner(class, shard string) (string, error) {
@@ -101,4 +96,12 @@ func (f *fakeSchemaManager) OptimisticTenantStatus(_ context.Context, class stri
 	res := map[string]string{}
 	res[tenant] = models.TenantActivityStatusHOT
 	return res, nil
+}
+
+func (f *fakeSchemaManager) ResolveAlias(string) string {
+	return ""
+}
+
+func (f *fakeSchemaManager) GetAliasesForClass(string) []*models.Alias {
+	return nil
 }

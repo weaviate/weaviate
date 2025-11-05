@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -72,10 +72,16 @@ SchemaObjectsShardsGetParams contains all the parameters to send to the API endp
 */
 type SchemaObjectsShardsGetParams struct {
 
-	// ClassName.
+	/* ClassName.
+
+	   The name of the collection (class) whose shards to query.
+	*/
 	ClassName string
 
-	// Tenant.
+	/* Tenant.
+
+	   The name of the tenant for which to retrieve shard statuses (only applicable for multi-tenant collections).
+	*/
 	Tenant *string
 
 	timeout    time.Duration

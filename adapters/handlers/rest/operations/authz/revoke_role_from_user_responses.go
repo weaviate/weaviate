@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -28,7 +28,7 @@ import (
 const RevokeRoleFromUserOKCode int = 200
 
 /*
-RevokeRoleFromUserOK Role revoked successfully
+RevokeRoleFromUserOK Roles revoked successfully.
 
 swagger:response revokeRoleFromUserOK
 */
@@ -53,7 +53,7 @@ func (o *RevokeRoleFromUserOK) WriteResponse(rw http.ResponseWriter, producer ru
 const RevokeRoleFromUserBadRequestCode int = 400
 
 /*
-RevokeRoleFromUserBadRequest Bad request
+RevokeRoleFromUserBadRequest Malformed request.
 
 swagger:response revokeRoleFromUserBadRequest
 */
@@ -168,7 +168,7 @@ func (o *RevokeRoleFromUserForbidden) WriteResponse(rw http.ResponseWriter, prod
 const RevokeRoleFromUserNotFoundCode int = 404
 
 /*
-RevokeRoleFromUserNotFound role or user is not found.
+RevokeRoleFromUserNotFound Specified role or user not found.
 
 swagger:response revokeRoleFromUserNotFound
 */

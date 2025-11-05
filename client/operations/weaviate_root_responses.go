@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -57,7 +57,7 @@ func NewWeaviateRootOK() *WeaviateRootOK {
 /*
 WeaviateRootOK describes a response with status code 200, with default header values.
 
-Weaviate is alive and ready to serve content
+Weaviate is alive and ready.
 */
 type WeaviateRootOK struct {
 	Payload *WeaviateRootOKBody

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -83,7 +83,7 @@ func NewBatchObjectsDeleteOK() *BatchObjectsDeleteOK {
 /*
 BatchObjectsDeleteOK describes a response with status code 200, with default header values.
 
-Request succeeded, see response body to get detailed information about each batched item.
+Request processed successfully. See response body for matching objects and deletion results.
 */
 type BatchObjectsDeleteOK struct {
 	Payload *models.BatchDeleteResponse
@@ -343,7 +343,7 @@ func NewBatchObjectsDeleteUnprocessableEntity() *BatchObjectsDeleteUnprocessable
 /*
 BatchObjectsDeleteUnprocessableEntity describes a response with status code 422, with default header values.
 
-Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
+Invalid data provided. Please check the values in your request (e.g., invalid filter).
 */
 type BatchObjectsDeleteUnprocessableEntity struct {
 	Payload *models.ErrorResponse
@@ -411,7 +411,7 @@ func NewBatchObjectsDeleteInternalServerError() *BatchObjectsDeleteInternalServe
 /*
 BatchObjectsDeleteInternalServerError describes a response with status code 500, with default header values.
 
-An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+An error occurred while trying to fulfill the request. Check the ErrorResponse for details.
 */
 type BatchObjectsDeleteInternalServerError struct {
 	Payload *models.ErrorResponse

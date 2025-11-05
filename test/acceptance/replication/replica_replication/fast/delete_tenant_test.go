@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -185,9 +185,9 @@ func getMTRequest(t *testing.T, className, tenant string) *models.ReplicationRep
 	}
 
 	return &models.ReplicationReplicateReplicaRequest{
-		CollectionID:        &className,
-		SourceNodeName:      &sourceNode,
-		DestinationNodeName: &destinationNode,
-		ShardID:             &tenant,
+		Collection: &className,
+		SourceNode: &sourceNode,
+		TargetNode: &destinationNode,
+		Shard:      &tenant,
 	}
 }

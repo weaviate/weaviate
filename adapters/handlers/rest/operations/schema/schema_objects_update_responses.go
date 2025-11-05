@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -28,7 +28,7 @@ import (
 const SchemaObjectsUpdateOKCode int = 200
 
 /*
-SchemaObjectsUpdateOK Class was updated successfully
+SchemaObjectsUpdateOK Collection settings updated successfully.
 
 swagger:response schemaObjectsUpdateOK
 */
@@ -143,7 +143,7 @@ func (o *SchemaObjectsUpdateForbidden) WriteResponse(rw http.ResponseWriter, pro
 const SchemaObjectsUpdateNotFoundCode int = 404
 
 /*
-SchemaObjectsUpdateNotFound Class to be updated does not exist
+SchemaObjectsUpdateNotFound Collection not found.
 
 swagger:response schemaObjectsUpdateNotFound
 */
@@ -188,7 +188,7 @@ func (o *SchemaObjectsUpdateNotFound) WriteResponse(rw http.ResponseWriter, prod
 const SchemaObjectsUpdateUnprocessableEntityCode int = 422
 
 /*
-SchemaObjectsUpdateUnprocessableEntity Invalid update attempt
+SchemaObjectsUpdateUnprocessableEntity Invalid update attempt.
 
 swagger:response schemaObjectsUpdateUnprocessableEntity
 */
@@ -233,7 +233,7 @@ func (o *SchemaObjectsUpdateUnprocessableEntity) WriteResponse(rw http.ResponseW
 const SchemaObjectsUpdateInternalServerErrorCode int = 500
 
 /*
-SchemaObjectsUpdateInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+SchemaObjectsUpdateInternalServerError An error occurred while updating the collection. Check the ErrorResponse for details.
 
 swagger:response schemaObjectsUpdateInternalServerError
 */

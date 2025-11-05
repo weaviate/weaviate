@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -49,12 +49,12 @@ type NodesGetClassParams struct {
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
-	/*
+	/*The name of the collection (class) for which to retrieve node status.
 	  Required: true
 	  In: path
 	*/
 	ClassName string
-	/*Controls the verbosity of the output, possible values are: "minimal", "verbose". Defaults to "minimal".
+	/*Controls the verbosity of the output, possible values are: `minimal`, `verbose`. Defaults to `minimal`.
 	  In: query
 	  Default: "minimal"
 	*/

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -45,7 +45,9 @@ func NewActivateUser(ctx *middleware.Context, handler ActivateUserHandler) *Acti
 /*
 	ActivateUser swagger:route POST /users/db/{user_id}/activate users activateUser
 
-activate a deactivated user
+# Activate a user
+
+Activate a deactivated database user (`db` user type).
 */
 type ActivateUser struct {
 	Context *middleware.Context

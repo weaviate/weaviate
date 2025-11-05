@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -77,7 +77,7 @@ func NewTenantsGetOK() *TenantsGetOK {
 /*
 TenantsGetOK describes a response with status code 200, with default header values.
 
-tenants from specified class.
+Successfully retrieved tenants.
 */
 type TenantsGetOK struct {
 	Payload []*models.Tenant
@@ -267,7 +267,7 @@ func NewTenantsGetUnprocessableEntity() *TenantsGetUnprocessableEntity {
 /*
 TenantsGetUnprocessableEntity describes a response with status code 422, with default header values.
 
-Invalid Tenant class
+Invalid request.
 */
 type TenantsGetUnprocessableEntity struct {
 	Payload *models.ErrorResponse
@@ -335,7 +335,7 @@ func NewTenantsGetInternalServerError() *TenantsGetInternalServerError {
 /*
 TenantsGetInternalServerError describes a response with status code 500, with default header values.
 
-An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+An error occurred while listing tenants. Check the ErrorResponse for details.
 */
 type TenantsGetInternalServerError struct {
 	Payload *models.ErrorResponse

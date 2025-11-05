@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -28,7 +28,7 @@ import (
 const GraphqlBatchOKCode int = 200
 
 /*
-GraphqlBatchOK Successful query (with select).
+GraphqlBatchOK Batch request processed successfully. The response body contains an array of results corresponding to the input queries.
 
 swagger:response graphqlBatchOK
 */
@@ -146,7 +146,7 @@ func (o *GraphqlBatchForbidden) WriteResponse(rw http.ResponseWriter, producer r
 const GraphqlBatchUnprocessableEntityCode int = 422
 
 /*
-GraphqlBatchUnprocessableEntity Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
+GraphqlBatchUnprocessableEntity The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.
 
 swagger:response graphqlBatchUnprocessableEntity
 */
@@ -191,7 +191,7 @@ func (o *GraphqlBatchUnprocessableEntity) WriteResponse(rw http.ResponseWriter, 
 const GraphqlBatchInternalServerErrorCode int = 500
 
 /*
-GraphqlBatchInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+GraphqlBatchInternalServerError An internal server error occurred during batch query execution. Check the ErrorResponse for details.
 
 swagger:response graphqlBatchInternalServerError
 */

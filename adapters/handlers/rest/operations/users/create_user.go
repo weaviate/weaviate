@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -50,7 +50,9 @@ func NewCreateUser(ctx *middleware.Context, handler CreateUserHandler) *CreateUs
 /*
 	CreateUser swagger:route POST /users/db/{user_id} users createUser
 
-create new user
+# Create a new user
+
+Create a new database (`db` user type) user with the specified name. Returns an API key for the newly created user.
 */
 type CreateUser struct {
 	Context *middleware.Context

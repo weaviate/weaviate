@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -45,7 +45,9 @@ func NewHasPermission(ctx *middleware.Context, handler HasPermissionHandler) *Ha
 /*
 	HasPermission swagger:route POST /authz/roles/{id}/has-permission authz hasPermission
 
-Check whether role possesses this permission.
+# Check whether a role possesses a permission
+
+Check whether a role has the specified permissions.
 */
 type HasPermission struct {
 	Context *middleware.Context

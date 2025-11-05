@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -18,19 +18,23 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/weaviate/weaviate/entities/models"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	entschema "github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 const vectorIndexCommitLog = `hnsw.commitlog.d`
 
-func MigrateToHierarchicalFS(rootPath string, s schemaGetter) error {
+func MigrateToHierarchicalFS(rootPath string, s schemaReader) error {
 	root, err := os.ReadDir(rootPath)
 	if err != nil {
 		return fmt.Errorf("read source path %q: %w", rootPath, err)
 	}
-	fm := newFileMatcher(s, rootPath)
+	fm, err := newFileMatcher(s, rootPath)
+	if err != nil {
+		return fmt.Errorf("error while migrating to hierarchical fs: %w", err)
+	}
 	plan, err := assembleFSMigrationPlan(root, rootPath, fm)
 	if err != nil {
 		return err
@@ -151,20 +155,24 @@ type fileMatcher struct {
 	classes             map[string][]*classShard
 }
 
-type schemaGetter interface {
-	CopyShardingState(class string) *sharding.State
-	GetSchemaSkipAuth() entschema.Schema
+type schemaReader interface {
+	Shards(class string) ([]string, error)
+	ReadOnlySchema() models.Schema
 }
 
-func newFileMatcher(schemaGetter schemaGetter, rootPath string) *fileMatcher {
+func newFileMatcher(schemaReader schemaReader, rootPath string) (*fileMatcher, error) {
 	shardLsmDirs := make(map[string]*classShard)
 	shardFilePrefixes := make(map[string]*classShard)
 	shardGeoDirPrefixes := make(map[string]*classShardGeoProp)
 	classes := make(map[string][]*classShard)
 
-	sch := schemaGetter.GetSchemaSkipAuth()
-	for _, class := range sch.Objects.Classes {
-		shards := schemaGetter.CopyShardingState(class.Class).AllLocalPhysicalShards()
+	schema := schemaReader.ReadOnlySchema()
+	for _, class := range schema.Classes {
+		className := class.Class
+		shards, err := schemaReader.Shards(className)
+		if err != nil {
+			return nil, fmt.Errorf("unable to retrieve shards for class %s", className)
+		}
 		lowercasedClass := strings.ToLower(class.Class)
 
 		var geoProps []string
@@ -194,7 +202,7 @@ func newFileMatcher(schemaGetter schemaGetter, rootPath string) *fileMatcher {
 		shardFilePrefixes:   shardFilePrefixes,
 		shardGeoDirPrefixes: shardGeoDirPrefixes,
 		classes:             classes,
-	}
+	}, nil
 }
 
 // Checks if entry is directory with name (class is lowercased):

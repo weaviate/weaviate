@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -21,6 +21,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
@@ -39,12 +40,15 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	reindexer ShardReindexerV3, lazyLoadSegments bool, bitmapBufPool roaringset.BitmapBufPool,
 ) (_ *Shard, err error) {
 	start := time.Now()
-
 	index.logger.WithFields(logrus.Fields{
 		"action": "init_shard",
 		"shard":  shardName,
 		"index":  index.ID(),
 	}).Debugf("initializing shard %q", shardName)
+
+	if shardusage.RemoveComputedUsageDataForUnloadedShard(index.path(), shardName); err != nil {
+		return nil, fmt.Errorf("shard %q: remove computed usage file for unloaded shard: %w", shardName, err)
+	}
 
 	metrics, err := NewMetrics(index.logger, promMetrics, string(index.Config.ClassName), shardName)
 	if err != nil {
@@ -61,11 +65,10 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		metrics:     metrics,
 		slowQueryReporter: helpers.NewSlowQueryReporter(index.Config.QuerySlowLogEnabled,
 			index.Config.QuerySlowLogThreshold, index.logger),
-		stopDimensionTracking: make(chan struct{}),
-		replicationMap:        pendingReplicaTasks{Tasks: make(map[string]replicaTask, 32)},
-		centralJobQueue:       jobQueueCh,
-		scheduler:             scheduler,
-		indexCheckpoints:      indexCheckpoints,
+		replicationMap:   pendingReplicaTasks{Tasks: make(map[string]replicaTask, 32)},
+		centralJobQueue:  jobQueueCh,
+		scheduler:        scheduler,
+		indexCheckpoints: indexCheckpoints,
 
 		shutdownLock:  new(sync.RWMutex),
 		shutCtx:       shutCtx,
@@ -76,6 +79,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		reindexer:                       reindexer,
 		usingBlockMaxWAND:               index.invertedIndexConfig.UsingBlockMaxWAND,
 		bitmapBufPool:                   bitmapBufPool,
+		SPFreshEnabled:                  index.SPFreshEnabled,
 	}
 
 	index.metrics.UpdateShardStatus("", storagestate.StatusLoading.String())
@@ -146,8 +150,6 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	if err = s.initShardVectors(ctx, lazyLoadSegments); err != nil {
 		return nil, fmt.Errorf("init shard vectors: %w", err)
 	}
-
-	s.initDimensionTracking()
 
 	if asyncEnabled() {
 		f := func() {

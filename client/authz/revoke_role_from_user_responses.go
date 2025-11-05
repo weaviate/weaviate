@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -86,7 +86,7 @@ func NewRevokeRoleFromUserOK() *RevokeRoleFromUserOK {
 /*
 RevokeRoleFromUserOK describes a response with status code 200, with default header values.
 
-Role revoked successfully
+Roles revoked successfully.
 */
 type RevokeRoleFromUserOK struct {
 }
@@ -142,7 +142,7 @@ func NewRevokeRoleFromUserBadRequest() *RevokeRoleFromUserBadRequest {
 /*
 RevokeRoleFromUserBadRequest describes a response with status code 400, with default header values.
 
-Bad request
+Malformed request.
 */
 type RevokeRoleFromUserBadRequest struct {
 	Payload *models.ErrorResponse
@@ -334,7 +334,7 @@ func NewRevokeRoleFromUserNotFound() *RevokeRoleFromUserNotFound {
 /*
 RevokeRoleFromUserNotFound describes a response with status code 404, with default header values.
 
-role or user is not found.
+Specified role or user not found.
 */
 type RevokeRoleFromUserNotFound struct {
 	Payload *models.ErrorResponse
@@ -468,7 +468,7 @@ swagger:model RevokeRoleFromUserBody
 */
 type RevokeRoleFromUserBody struct {
 
-	// the roles that revoked from the key or user
+	// The roles to revoke from the specified user.
 	Roles []string `json:"roles"`
 
 	// user type

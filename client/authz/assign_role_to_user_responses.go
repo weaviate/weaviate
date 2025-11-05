@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -86,7 +86,7 @@ func NewAssignRoleToUserOK() *AssignRoleToUserOK {
 /*
 AssignRoleToUserOK describes a response with status code 200, with default header values.
 
-Role assigned successfully
+Role assigned successfully.
 */
 type AssignRoleToUserOK struct {
 }
@@ -142,7 +142,7 @@ func NewAssignRoleToUserBadRequest() *AssignRoleToUserBadRequest {
 /*
 AssignRoleToUserBadRequest describes a response with status code 400, with default header values.
 
-Bad request
+Malformed request.
 */
 type AssignRoleToUserBadRequest struct {
 	Payload *models.ErrorResponse
@@ -334,7 +334,7 @@ func NewAssignRoleToUserNotFound() *AssignRoleToUserNotFound {
 /*
 AssignRoleToUserNotFound describes a response with status code 404, with default header values.
 
-role or user is not found.
+Specified role or user not found.
 */
 type AssignRoleToUserNotFound struct {
 	Payload *models.ErrorResponse
@@ -468,7 +468,7 @@ swagger:model AssignRoleToUserBody
 */
 type AssignRoleToUserBody struct {
 
-	// the roles that assigned to user
+	// The roles that are assigned to the specified user.
 	Roles []string `json:"roles"`
 
 	// user type

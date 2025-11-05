@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -28,25 +28,25 @@ import (
 // swagger:model PhoneNumber
 type PhoneNumber struct {
 
-	// Read-only. The numerical country code (e.g. 49)
+	// Read-only. The numerical country code (e.g. `49`).
 	CountryCode uint64 `json:"countryCode,omitempty"`
 
-	// Optional. The ISO 3166-1 alpha-2 country code. This is used to figure out the correct countryCode and international format if only a national number (e.g. 0123 4567) is provided
+	// Optional. The ISO 3166-1 alpha-2 country code. This is used to figure out the correct `countryCode` and international format if only a national number (e.g. `0123 4567`) is provided.
 	DefaultCountry string `json:"defaultCountry,omitempty"`
 
 	// The raw input as the phone number is present in your raw data set. It will be parsed into the standardized formats if valid.
 	Input string `json:"input,omitempty"`
 
-	// Read-only. Parsed result in the international format (e.g. +49 123 ...)
+	// Read-only. Parsed result in the international format (e.g. `+49 123 456789`).
 	InternationalFormatted string `json:"internationalFormatted,omitempty"`
 
-	// Read-only. The numerical representation of the national part
+	// Read-only. The numerical representation of the national part.
 	National uint64 `json:"national,omitempty"`
 
-	// Read-only. Parsed result in the national format (e.g. 0123 456789)
+	// Read-only. Parsed result in the national format (e.g. `0123 456789`).
 	NationalFormatted string `json:"nationalFormatted,omitempty"`
 
-	// Read-only. Indicates whether the parsed number is a valid phone number
+	// Read-only. Indicates whether the parsed number is a valid phone number.
 	Valid bool `json:"valid,omitempty"`
 }
 

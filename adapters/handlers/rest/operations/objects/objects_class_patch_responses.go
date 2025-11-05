@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -28,7 +28,7 @@ import (
 const ObjectsClassPatchNoContentCode int = 204
 
 /*
-ObjectsClassPatchNoContent Successfully applied. No content provided.
+ObjectsClassPatchNoContent Object patched successfully.
 
 swagger:response objectsClassPatchNoContent
 */
@@ -53,7 +53,7 @@ func (o *ObjectsClassPatchNoContent) WriteResponse(rw http.ResponseWriter, produ
 const ObjectsClassPatchBadRequestCode int = 400
 
 /*
-ObjectsClassPatchBadRequest The patch-JSON is malformed.
+ObjectsClassPatchBadRequest Malformed patch request body.
 
 swagger:response objectsClassPatchBadRequest
 */
@@ -168,7 +168,7 @@ func (o *ObjectsClassPatchForbidden) WriteResponse(rw http.ResponseWriter, produ
 const ObjectsClassPatchNotFoundCode int = 404
 
 /*
-ObjectsClassPatchNotFound Successful query result but no resource was found.
+ObjectsClassPatchNotFound Object not found.
 
 swagger:response objectsClassPatchNotFound
 */
@@ -193,7 +193,7 @@ func (o *ObjectsClassPatchNotFound) WriteResponse(rw http.ResponseWriter, produc
 const ObjectsClassPatchUnprocessableEntityCode int = 422
 
 /*
-ObjectsClassPatchUnprocessableEntity The patch-JSON is valid but unprocessable.
+ObjectsClassPatchUnprocessableEntity The patch object is valid JSON but is unprocessable for other reasons (e.g., invalid schema).
 
 swagger:response objectsClassPatchUnprocessableEntity
 */
@@ -238,7 +238,7 @@ func (o *ObjectsClassPatchUnprocessableEntity) WriteResponse(rw http.ResponseWri
 const ObjectsClassPatchInternalServerErrorCode int = 500
 
 /*
-ObjectsClassPatchInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+ObjectsClassPatchInternalServerError An error occurred while trying to fulfill the request. Check the ErrorResponse for details.
 
 swagger:response objectsClassPatchInternalServerError
 */

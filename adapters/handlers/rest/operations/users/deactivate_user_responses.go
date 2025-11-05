@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -28,7 +28,7 @@ import (
 const DeactivateUserOKCode int = 200
 
 /*
-DeactivateUserOK users successfully deactivated
+DeactivateUserOK User successfully deactivated.
 
 swagger:response deactivateUserOK
 */
@@ -168,7 +168,7 @@ func (o *DeactivateUserForbidden) WriteResponse(rw http.ResponseWriter, producer
 const DeactivateUserNotFoundCode int = 404
 
 /*
-DeactivateUserNotFound user not found
+DeactivateUserNotFound User not found.
 
 swagger:response deactivateUserNotFound
 */
@@ -193,7 +193,7 @@ func (o *DeactivateUserNotFound) WriteResponse(rw http.ResponseWriter, producer 
 const DeactivateUserConflictCode int = 409
 
 /*
-DeactivateUserConflict user already deactivated
+DeactivateUserConflict User already deactivated.
 
 swagger:response deactivateUserConflict
 */
@@ -218,7 +218,7 @@ func (o *DeactivateUserConflict) WriteResponse(rw http.ResponseWriter, producer 
 const DeactivateUserUnprocessableEntityCode int = 422
 
 /*
-DeactivateUserUnprocessableEntity Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
+DeactivateUserUnprocessableEntity The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.
 
 swagger:response deactivateUserUnprocessableEntity
 */

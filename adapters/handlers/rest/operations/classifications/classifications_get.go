@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -45,9 +45,9 @@ func NewClassificationsGet(ctx *middleware.Context, handler ClassificationsGetHa
 /*
 	ClassificationsGet swagger:route GET /classifications/{id} classifications classificationsGet
 
-# View previously created classification
+# Get classification status
 
-Get status, results and metadata of a previously created classification
+Retrieves the status, metadata, and results (if completed) of a classification task identified by its unique ID.
 */
 type ClassificationsGet struct {
 	Context *middleware.Context

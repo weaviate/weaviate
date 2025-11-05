@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -28,7 +28,7 @@ import (
 const ClassificationsPostCreatedCode int = 201
 
 /*
-ClassificationsPostCreated Successfully started classification.
+ClassificationsPostCreated Classification task successfully initiated. The response body contains the classification details including its ID.
 
 swagger:response classificationsPostCreated
 */
@@ -73,7 +73,7 @@ func (o *ClassificationsPostCreated) WriteResponse(rw http.ResponseWriter, produ
 const ClassificationsPostBadRequestCode int = 400
 
 /*
-ClassificationsPostBadRequest Incorrect request
+ClassificationsPostBadRequest Invalid request body or parameters.
 
 swagger:response classificationsPostBadRequest
 */
@@ -188,7 +188,7 @@ func (o *ClassificationsPostForbidden) WriteResponse(rw http.ResponseWriter, pro
 const ClassificationsPostInternalServerErrorCode int = 500
 
 /*
-ClassificationsPostInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+ClassificationsPostInternalServerError An internal server error occurred while starting the classification task. Check the ErrorResponse for details.
 
 swagger:response classificationsPostInternalServerError
 */

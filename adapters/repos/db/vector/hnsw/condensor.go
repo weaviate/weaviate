@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -22,22 +22,25 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 )
 
 type MemoryCondensor struct {
-	newLogFile *os.File
+	newLogFile common.File
 	newLog     *bufWriter
 	logger     logrus.FieldLogger
+	fs         common.FS
+	bufferSize int
 }
 
 func (c *MemoryCondensor) Do(fileName string) error {
 	c.logger.WithField("action", "hnsw_condensing").Infof("start hnsw condensing")
 	defer c.logger.WithField("action", "hnsw_condensing_complete").Infof("completed hnsw condensing")
 
-	fd, err := os.Open(fileName)
+	fd, err := c.fs.Open(fileName)
 	if err != nil {
 		return errors.Wrap(err, "open commit log to be condensed")
 	}
@@ -49,7 +52,7 @@ func (c *MemoryCondensor) Do(fileName string) error {
 		return errors.Wrap(err, "read commit log to be condensed")
 	}
 
-	newLogFile, err := os.OpenFile(fmt.Sprintf("%s.condensed", fileName),
+	newLogFile, err := c.fs.OpenFile(fmt.Sprintf("%s.condensed", fileName),
 		os.O_WRONLY|os.O_TRUNC|os.O_CREATE, 0o666)
 	if err != nil {
 		return errors.Wrap(err, "open new commit log file for writing")
@@ -57,7 +60,7 @@ func (c *MemoryCondensor) Do(fileName string) error {
 
 	c.newLogFile = newLogFile
 
-	c.newLog = NewWriterSize(c.newLogFile, 1*1024*1024)
+	c.newLog = NewWriterSize(c.newLogFile, c.bufferSize)
 
 	if res.Compressed {
 		if res.CompressionPQData != nil {
@@ -67,6 +70,14 @@ func (c *MemoryCondensor) Do(fileName string) error {
 		} else if res.CompressionSQData != nil {
 			if err := c.AddSQCompression(*res.CompressionSQData); err != nil {
 				return fmt.Errorf("write sq data: %w", err)
+			}
+		} else if res.CompressionRQData != nil {
+			if err := c.AddRQCompression(*res.CompressionRQData); err != nil {
+				return fmt.Errorf("write rq data: %w", err)
+			}
+		} else if res.CompressionBRQData != nil {
+			if err := c.AddBRQCompression(*res.CompressionBRQData); err != nil {
+				return fmt.Errorf("write brq data: %w", err)
 			}
 		} else {
 			return errors.Wrap(err, "unavailable compression data")
@@ -78,7 +89,8 @@ func (c *MemoryCondensor) Do(fileName string) error {
 		}
 	}
 
-	for _, node := range res.Nodes {
+	for i := len(res.Nodes) - 1; i >= 0; i-- {
+		node := res.Nodes[i]
 		if node == nil {
 			// nil nodes occur when we've grown, but not inserted anything yet
 			continue
@@ -93,9 +105,11 @@ func (c *MemoryCondensor) Do(fileName string) error {
 			}
 		}
 
-		for level, links := range node.connections {
+		iter := node.connections.Iterator()
+		for iter.Next() {
+			level, links := iter.Current()
 			if res.ReplaceLinks(node.id, uint16(level)) {
-				if err := c.SetLinksAtLevel(node.id, level, links); err != nil {
+				if err := c.SetLinksAtLevel(node.id, int(level), links); err != nil {
 					return errors.Wrapf(err,
 						"write links for node %d at level %d to commit log", node.id, level)
 				}
@@ -158,7 +172,7 @@ func (c *MemoryCondensor) Do(fileName string) error {
 		return errors.Wrap(err, "close new commit log")
 	}
 
-	if err := os.Remove(fileName); err != nil {
+	if err := c.fs.Remove(fileName); err != nil {
 		return errors.Wrap(err, "cleanup old (uncondensed) commit log")
 	}
 
@@ -188,6 +202,15 @@ const writeUint16Size = 2
 func writeUint16(w io.Writer, in uint16) error {
 	var b [writeUint16Size]byte
 	binary.LittleEndian.PutUint16(b[:], in)
+	_, err := w.Write(b[:])
+	return err
+}
+
+const writeFloat32Size = 4
+
+func writeFloat32(w io.Writer, in float32) error {
+	var b [writeFloat32Size]byte
+	binary.LittleEndian.PutUint32(b[:], math.Float32bits(in))
 	_, err := w.Write(b[:])
 	return err
 }
@@ -347,6 +370,35 @@ func (c *MemoryCondensor) AddSQCompression(data compressionhelpers.SQData) error
 	return err
 }
 
+func (c *MemoryCondensor) AddRQCompression(data compressionhelpers.RQData) error {
+	swapSize := 2 * data.Rotation.Rounds * (data.Rotation.OutputDim / 2) * 2
+	signSize := 4 * data.Rotation.Rounds * data.Rotation.OutputDim
+	var buf bytes.Buffer
+	buf.Grow(17 + int(swapSize) + int(signSize))
+
+	buf.WriteByte(byte(AddRQ))                                       // 1
+	binary.Write(&buf, binary.LittleEndian, data.InputDim)           // 4 input dim
+	binary.Write(&buf, binary.LittleEndian, data.Bits)               // 4 bits
+	binary.Write(&buf, binary.LittleEndian, data.Rotation.OutputDim) // 4 rotation - output dim
+	binary.Write(&buf, binary.LittleEndian, data.Rotation.Rounds)    // 4 rotation - rounds
+
+	for _, swap := range data.Rotation.Swaps {
+		for _, dim := range swap {
+			binary.Write(&buf, binary.LittleEndian, dim.I)
+			binary.Write(&buf, binary.LittleEndian, dim.J)
+		}
+	}
+
+	for _, sign := range data.Rotation.Signs {
+		for _, dim := range sign {
+			binary.Write(&buf, binary.LittleEndian, dim)
+		}
+	}
+
+	_, err := c.newLog.Write(buf.Bytes())
+	return err
+}
+
 func (c *MemoryCondensor) AddMuvera(data multivector.MuveraData) error {
 	gSize := 4 * data.Repetitions * data.KSim * data.Dimensions
 	dSize := 4 * data.Repetitions * data.DProjections * data.Dimensions
@@ -384,6 +436,39 @@ func (c *MemoryCondensor) AddMuvera(data multivector.MuveraData) error {
 	return err
 }
 
+func (c *MemoryCondensor) AddBRQCompression(data compressionhelpers.BRQData) error {
+	swapSize := 2 * data.Rotation.Rounds * (data.Rotation.OutputDim / 2) * 2
+	signSize := 4 * data.Rotation.Rounds * data.Rotation.OutputDim
+	roundingSize := 4 * data.Rotation.OutputDim
+	var buf bytes.Buffer
+	buf.Grow(13 + int(swapSize) + int(signSize) + int(roundingSize))
+
+	buf.WriteByte(byte(AddBRQ))                                      // 1
+	binary.Write(&buf, binary.LittleEndian, data.InputDim)           // 4 input dim
+	binary.Write(&buf, binary.LittleEndian, data.Rotation.OutputDim) // 4 rotation - output dim
+	binary.Write(&buf, binary.LittleEndian, data.Rotation.Rounds)    // 4 rotation - rounds
+
+	for _, swap := range data.Rotation.Swaps {
+		for _, dim := range swap {
+			binary.Write(&buf, binary.LittleEndian, dim.I)
+			binary.Write(&buf, binary.LittleEndian, dim.J)
+		}
+	}
+
+	for _, sign := range data.Rotation.Signs {
+		for _, dim := range sign {
+			binary.Write(&buf, binary.LittleEndian, dim)
+		}
+	}
+
+	for _, rounding := range data.Rounding {
+		binary.Write(&buf, binary.LittleEndian, rounding)
+	}
+
+	_, err := c.newLog.Write(buf.Bytes())
+	return err
+}
+
 func NewMemoryCondensor(logger logrus.FieldLogger) *MemoryCondensor {
-	return &MemoryCondensor{logger: logger}
+	return &MemoryCondensor{logger: logger, fs: common.NewOSFS(), bufferSize: 1 * 1024 * 1024}
 }

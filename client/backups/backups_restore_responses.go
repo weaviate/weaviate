@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -83,7 +83,7 @@ func NewBackupsRestoreOK() *BackupsRestoreOK {
 /*
 BackupsRestoreOK describes a response with status code 200, with default header values.
 
-Backup restoration process successfully started.
+Backup restoration process initiated successfully. Check the status endpoint for progress.
 */
 type BackupsRestoreOK struct {
 	Payload *models.BackupRestoreResponse
@@ -275,7 +275,7 @@ func NewBackupsRestoreNotFound() *BackupsRestoreNotFound {
 /*
 BackupsRestoreNotFound describes a response with status code 404, with default header values.
 
-Not Found - Backup does not exist
+Backup not found on the specified backend with the given ID.
 */
 type BackupsRestoreNotFound struct {
 	Payload *models.ErrorResponse
@@ -343,7 +343,7 @@ func NewBackupsRestoreUnprocessableEntity() *BackupsRestoreUnprocessableEntity {
 /*
 BackupsRestoreUnprocessableEntity describes a response with status code 422, with default header values.
 
-Invalid backup restoration attempt.
+Invalid backup restoration request. Check requirements and request body.
 */
 type BackupsRestoreUnprocessableEntity struct {
 	Payload *models.ErrorResponse
@@ -411,7 +411,7 @@ func NewBackupsRestoreInternalServerError() *BackupsRestoreInternalServerError {
 /*
 BackupsRestoreInternalServerError describes a response with status code 500, with default header values.
 
-An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+An internal server error occurred during restore initiation. Check the ErrorResponse for details.
 */
 type BackupsRestoreInternalServerError struct {
 	Payload *models.ErrorResponse

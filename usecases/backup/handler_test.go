@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -25,7 +25,7 @@ type fakeSchemaManger struct {
 	nodeName        string
 }
 
-func (f *fakeSchemaManger) RestoreClass(context.Context, *backup.ClassDescriptor, map[string]string,
+func (f *fakeSchemaManger) RestoreClass(context.Context, *backup.ClassDescriptor, map[string]string, bool,
 ) error {
 	return f.errRestoreClass
 }

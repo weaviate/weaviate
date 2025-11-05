@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -328,7 +328,6 @@ func Test_Traverser_Aggregate(t *testing.T) {
 		res, err := traverser.Aggregate(context.Background(), principal, &params)
 		require.Nil(t, err)
 		assert.Equal(t, &agg, res)
-		t.Logf("res: %+v", res)
 	})
 }
 

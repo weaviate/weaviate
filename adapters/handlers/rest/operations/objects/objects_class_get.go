@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -45,9 +45,9 @@ func NewObjectsClassGet(ctx *middleware.Context, handler ObjectsClassGetHandler)
 /*
 	ObjectsClassGet swagger:route GET /objects/{className}/{id} objects objectsClassGet
 
-Get a specific Object based on its class and UUID. Also available as Websocket bus.
+# Get an object
 
-Get a data object based on its collection and UUID. Also available as Websocket bus.
+Get a data object based on its collection name (`className`) and UUID (`id`).
 */
 type ObjectsClassGet struct {
 	Context *middleware.Context

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -28,7 +28,7 @@ import (
 const DistributedTasksGetOKCode int = 200
 
 /*
-DistributedTasksGetOK Distributed tasks successfully returned
+DistributedTasksGetOK Distributed tasks successfully returned.
 
 swagger:response distributedTasksGetOK
 */
@@ -121,7 +121,7 @@ func (o *DistributedTasksGetForbidden) WriteResponse(rw http.ResponseWriter, pro
 const DistributedTasksGetInternalServerErrorCode int = 500
 
 /*
-DistributedTasksGetInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+DistributedTasksGetInternalServerError An internal server error occurred while retrieving distributed tasks. Check the ErrorResponse for details.
 
 swagger:response distributedTasksGetInternalServerError
 */

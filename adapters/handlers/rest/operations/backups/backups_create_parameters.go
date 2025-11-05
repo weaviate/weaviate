@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -46,12 +46,12 @@ type BackupsCreateParams struct {
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
-	/*Backup backend name e.g. `filesystem`, `gcs`, `s3`, `azure`.
+	/*Specifies the backend storage system where the backup will be stored (e.g., `filesystem`, `gcs`, `s3`, `azure`).
 	  Required: true
 	  In: path
 	*/
 	Backend string
-	/*
+	/*Details of the backup request, including the backup ID and collections to include or exclude.
 	  Required: true
 	  In: body
 	*/

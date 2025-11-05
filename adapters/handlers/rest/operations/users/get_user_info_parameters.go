@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -55,7 +55,7 @@ type GetUserInfoParams struct {
 	  Default: false
 	*/
 	IncludeLastUsedTime *bool
-	/*user id
+	/*The name of the user.
 	  Required: true
 	  In: path
 	*/

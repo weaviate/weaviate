@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -14,9 +14,6 @@ package tests
 import (
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/companies"
 )
@@ -26,8 +23,6 @@ func testText2VecJinaAI(rest, grpc string) func(t *testing.T) {
 		helper.SetupClient(rest)
 		// Data
 		className := "BooksGenerativeTest"
-		data := companies.Companies
-		class := companies.BaseClass(className)
 		tests := []struct {
 			name       string
 			model      string
@@ -49,46 +44,29 @@ func testText2VecJinaAI(rest, grpc string) func(t *testing.T) {
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
 				// Define module settings
-				settings := map[string]interface{}{
-					"properties":         []interface{}{"description"},
+				settings := map[string]any{
+					"properties":         []any{"description"},
+					"vectorizeClassName": false,
+				}
+				emptySettings := map[string]any{
+					"properties":         []any{"empty"},
 					"vectorizeClassName": false,
 				}
 				if tt.model != "" {
 					settings["model"] = tt.model
+					emptySettings["model"] = tt.model
 				}
 				if tt.dimensions > 0 {
 					settings["dimensions"] = tt.dimensions
+					emptySettings["dimensions"] = tt.dimensions
 				}
-				// Define class
-				class.VectorConfig = map[string]models.VectorConfig{
-					"description": {
-						Vectorizer: map[string]interface{}{
-							"text2vec-jinaai": settings,
-						},
-						VectorIndexType: "flat",
-					},
-				}
-				// create schema
-				helper.CreateClass(t, class)
-				defer helper.DeleteClass(t, class.Class)
-				// create objects
-				t.Run("create objects", func(t *testing.T) {
-					companies.InsertObjects(t, rest, class.Class)
+				descriptionVectorizer := map[string]any{"text2vec-jinaai": settings}
+				emptyVectorizer := map[string]any{"text2vec-jinaai": emptySettings}
+				t.Run("search", func(t *testing.T) {
+					companies.TestSuite(t, rest, grpc, className, descriptionVectorizer)
 				})
-				t.Run("check objects existence", func(t *testing.T) {
-					for _, company := range data {
-						t.Run(company.ID.String(), func(t *testing.T) {
-							obj, err := helper.GetObject(t, class.Class, company.ID, "vector")
-							require.NoError(t, err)
-							require.NotNil(t, obj)
-							require.Len(t, obj.Vectors, 1)
-							require.IsType(t, []float32{}, obj.Vectors["description"])
-							assert.True(t, len(obj.Vectors["description"].([]float32)) > 0)
-						})
-					}
-				})
-				t.Run("search tests", func(t *testing.T) {
-					companies.PerformAllSearchTests(t, rest, grpc, class.Class)
+				t.Run("empty values", func(t *testing.T) {
+					companies.TestSuiteWithEmptyValues(t, rest, grpc, className, descriptionVectorizer, emptyVectorizer)
 				})
 			})
 		}

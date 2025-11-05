@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -44,6 +44,8 @@ func NewDeleteAllReplications(ctx *middleware.Context, handler DeleteAllReplicat
 
 /*
 	DeleteAllReplications swagger:route DELETE /replication/replicate replication deleteAllReplications
+
+# Delete all replication operations
 
 Schedules all replication operations for deletion across all collections, shards, and nodes.
 */

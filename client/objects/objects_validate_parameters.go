@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -74,7 +74,10 @@ ObjectsValidateParams contains all the parameters to send to the API endpoint
 */
 type ObjectsValidateParams struct {
 
-	// Body.
+	/* Body.
+
+	   The object definition to validate.
+	*/
 	Body *models.Object
 
 	timeout    time.Duration

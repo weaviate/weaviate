@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -114,9 +114,9 @@ func TestBackup_Integration(t *testing.T) {
 		// of the backup. in this case, the only other file is the prev
 		// commitlog, so we should only have 1 result here.
 		//
-		// additionally snapshot was created which consist of 2 files,
-		// so total of 3 files are expected
-		assert.Len(t, files, 3)
+		// additionally snapshot was created which consist of 1 file,
+		// so total of 2 files are expected
+		assert.Len(t, files, 2)
 
 		filesUnique := make(map[string]struct{}, len(files))
 		for i := range files {

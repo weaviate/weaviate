@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -45,9 +45,9 @@ func NewObjectsClassReferencesDelete(ctx *middleware.Context, handler ObjectsCla
 /*
 	ObjectsClassReferencesDelete swagger:route DELETE /objects/{className}/{id}/references/{propertyName} objects objectsClassReferencesDelete
 
-Delete the single reference that is given in the body from the list of references that this property has.
+# Delete an object reference
 
-Delete the single reference that is given in the body from the list of references that this property has.
+Removes a specific reference from a reference property (`propertyName`) of a source data object. The source object is identified by its collection name (`className`) and UUID (`id`). The reference to remove is specified in the request body.
 */
 type ObjectsClassReferencesDelete struct {
 	Context *middleware.Context

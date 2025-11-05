@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -20,16 +20,25 @@ import (
 	"net/http"
 
 	"github.com/go-openapi/errors"
+	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/strfmt"
+	"github.com/go-openapi/validate"
 )
 
 // NewBackupsListParams creates a new BackupsListParams object
-//
-// There are no default values defined in the spec.
+// with the default values initialized.
 func NewBackupsListParams() BackupsListParams {
 
-	return BackupsListParams{}
+	var (
+		// initialize parameters with default values
+
+		orderDefault = string("desc")
+	)
+
+	return BackupsListParams{
+		Order: &orderDefault,
+	}
 }
 
 // BackupsListParams contains all the bound params for the backups list operation
@@ -41,11 +50,16 @@ type BackupsListParams struct {
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
-	/*Backup backend name e.g. filesystem, gcs, s3.
+	/*Specifies the backend storage system to list backups from (e.g., `filesystem`, `gcs`, `s3`, `azure`).
 	  Required: true
 	  In: path
 	*/
 	Backend string
+	/*Order of returned list of backups based on creation time. (asc or desc)
+	  In: query
+	  Default: "desc"
+	*/
+	Order *string
 }
 
 // BindRequest both binds and validates a request, it assumes that complex things implement a Validatable(strfmt.Registry) error interface
@@ -57,8 +71,15 @@ func (o *BackupsListParams) BindRequest(r *http.Request, route *middleware.Match
 
 	o.HTTPRequest = r
 
+	qs := runtime.Values(r.URL.Query())
+
 	rBackend, rhkBackend, _ := route.Params.GetOK("backend")
 	if err := o.bindBackend(rBackend, rhkBackend, route.Formats); err != nil {
+		res = append(res, err)
+	}
+
+	qOrder, qhkOrder, _ := qs.GetOK("order")
+	if err := o.bindOrder(qOrder, qhkOrder, route.Formats); err != nil {
 		res = append(res, err)
 	}
 	if len(res) > 0 {
@@ -77,6 +98,39 @@ func (o *BackupsListParams) bindBackend(rawData []string, hasKey bool, formats s
 	// Required: true
 	// Parameter is provided by construction from the route
 	o.Backend = raw
+
+	return nil
+}
+
+// bindOrder binds and validates parameter Order from query.
+func (o *BackupsListParams) bindOrder(rawData []string, hasKey bool, formats strfmt.Registry) error {
+	var raw string
+	if len(rawData) > 0 {
+		raw = rawData[len(rawData)-1]
+	}
+
+	// Required: false
+	// AllowEmptyValue: false
+
+	if raw == "" { // empty values pass all other validations
+		// Default values have been previously initialized by NewBackupsListParams()
+		return nil
+	}
+	o.Order = &raw
+
+	if err := o.validateOrder(formats); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// validateOrder carries on validations for parameter Order
+func (o *BackupsListParams) validateOrder(formats strfmt.Registry) error {
+
+	if err := validate.EnumCase("order", "query", *o.Order, []interface{}{"asc", "desc"}, true); err != nil {
+		return err
+	}
 
 	return nil
 }

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -28,9 +28,9 @@ import (
 
 	"github.com/weaviate/weaviate/entities/diskio"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
+	"github.com/weaviate/weaviate/usecases/config"
 
 	entcfg "github.com/weaviate/weaviate/entities/config"
-	"github.com/weaviate/weaviate/entities/models"
 
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
@@ -44,14 +44,23 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/interval"
 	"github.com/weaviate/weaviate/entities/lsmkv"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
+// since v1.34 StrategyRoaringSet is default strategy for dimensions bucket,
+// StrategyMapCollection is left as backward compatibility for buckets created earlier
+var DimensionsBucketPrioritizedStrategies = []string{
+	StrategyRoaringSet,
+	StrategyMapCollection,
+}
+
 const (
 	FlushAfterDirtyDefault = 60 * time.Second
+	unsetStrategy          = "UNSET"
 	contextCheckInterval   = 50 // check context every 50 iterations, every iteration adds too much overhead
 )
 
@@ -195,7 +204,9 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 	defaultMemTableThreshold := uint64(10 * 1024 * 1024)
 	defaultWalThreshold := uint64(1024 * 1024 * 1024)
 	defaultFlushAfterDirty := FlushAfterDirtyDefault
-	defaultStrategy := StrategyReplace
+	// this is not the nicest way of doing this check, but we will make strategy a required parameter in the future on
+	// main
+	defaultStrategy := unsetStrategy
 
 	b = &Bucket{
 		dir:                          dir,
@@ -211,12 +222,17 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 		calcCountNetAdditions:        false,
 		haltedFlushTimer:             interval.NewBackoffTimer(),
 		writeSegmentInfoIntoFileName: false,
+		minWalThreshold:              config.DefaultPersistenceMaxReuseWalSize,
 	}
 
 	for _, opt := range opts {
 		if err := opt(b); err != nil {
 			return nil, err
 		}
+	}
+
+	if b.strategy == unsetStrategy {
+		return nil, errors.New("strategy needs to be explicitly set for all buckets")
 	}
 
 	if b.memtableResizer != nil {
@@ -247,7 +263,7 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 		return nil, err
 	}
 
-	files, err := diskio.GetFileWithSizes(dir)
+	files, _, err := diskio.GetFileWithSizes(dir)
 	if err != nil {
 		return nil, err
 	}
@@ -460,7 +476,10 @@ func (b *Bucket) ApplyToObjectDigests(ctx context.Context,
 }
 
 func (b *Bucket) IterateMapObjects(ctx context.Context, f func([]byte, []byte, []byte, bool) error) error {
-	cursor := b.MapCursor()
+	cursor, err := b.MapCursor()
+	if err != nil {
+		return fmt.Errorf("create map cursor: %w", err)
+	}
 	defer cursor.Close()
 
 	for kList, vList := cursor.First(ctx); kList != nil; kList, vList = cursor.Next(ctx) {

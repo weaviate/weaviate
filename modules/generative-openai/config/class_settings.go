@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -141,16 +141,12 @@ func (ic *classSettings) Validate(class *models.Class) error {
 		return errors.New("empty config")
 	}
 
-	model := ic.getStringProperty(modelProperty, DefaultOpenAIModel)
-	if model == nil {
-		return errors.Errorf("no model provided")
-	}
-
 	temperature := ic.Temperature()
 	if temperature != nil && (*temperature < 0 || *temperature > 1) {
 		return errors.Errorf("Wrong temperature configuration, values are between 0.0 and 1.0")
 	}
 
+	model := ic.getStringProperty(modelProperty, DefaultOpenAIModel)
 	maxTokens := ic.MaxTokens()
 	maxTokensForModel := GetMaxTokensForModel(*model)
 	if maxTokens != nil && (*maxTokens < 0 || (maxTokensForModel != nil && *maxTokens > *maxTokensForModel)) {

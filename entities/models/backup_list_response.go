@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -27,7 +27,7 @@ import (
 	"github.com/go-openapi/validate"
 )
 
-// BackupListResponse The definition of a backup create response body
+// BackupListResponse The definition of a backup create response body.
 //
 // swagger:model BackupListResponse
 type BackupListResponse []*BackupListResponseItems0
@@ -90,7 +90,7 @@ func (m BackupListResponse) ContextValidate(ctx context.Context, formats strfmt.
 // swagger:model BackupListResponseItems0
 type BackupListResponseItems0 struct {
 
-	// The list of classes for which the existed backup process
+	// The list of collections (classes) for which the backup process was started.
 	Classes []string `json:"classes"`
 
 	// Timestamp when the backup process completed (successfully or with failure)
@@ -100,11 +100,14 @@ type BackupListResponseItems0 struct {
 	// The ID of the backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.
 	ID string `json:"id,omitempty"`
 
+	// Size of the backup in Gibs
+	Size float64 `json:"size,omitempty"`
+
 	// Timestamp when the backup process started
 	// Format: date-time
 	StartedAt strfmt.DateTime `json:"startedAt,omitempty"`
 
-	// status of backup process
+	// Status of backup process.
 	// Enum: [STARTED TRANSFERRING TRANSFERRED SUCCESS FAILED CANCELED]
 	Status string `json:"status,omitempty"`
 }

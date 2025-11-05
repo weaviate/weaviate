@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -30,39 +30,39 @@ import (
 // swagger:model Deprecation
 type Deprecation struct {
 
-	// Describes which API is effected, usually one of: REST, GraphQL
+	// Describes which API is affected, usually one of: REST, GraphQL and gRPC.
 	APIType string `json:"apiType,omitempty"`
 
-	// The id that uniquely identifies this particular deprecations (mostly used internally)
+	// The id that uniquely identifies this particular deprecation (mostly used internally).
 	ID string `json:"id,omitempty"`
 
-	// The locations within the specified API affected by this deprecation
+	// The locations within the specified API affected by this deprecation.
 	Locations []string `json:"locations"`
 
-	// User-required object to not be affected by the (planned) removal
+	// User-required object to not be affected by the (planned) removal.
 	Mitigation string `json:"mitigation,omitempty"`
 
-	// What this deprecation is about
+	// What this deprecation is about.
 	Msg string `json:"msg,omitempty"`
 
-	// A best-effort guess of which upcoming version will remove the feature entirely
+	// A best-effort guess of which upcoming version will remove the feature entirely.
 	PlannedRemovalVersion string `json:"plannedRemovalVersion,omitempty"`
 
-	// If the feature has already been removed, it was removed in this version
+	// If the feature has already been removed, it was removed in this version.
 	RemovedIn *string `json:"removedIn,omitempty"`
 
-	// If the feature has already been removed, it was removed at this timestamp
+	// If the feature has already been removed, it was removed at this timestamp.
 	// Format: date-time
 	RemovedTime *strfmt.DateTime `json:"removedTime,omitempty"`
 
-	// The deprecation was introduced in this version
+	// The deprecation was introduced at this timestamp.
 	// Format: date-time
 	SinceTime strfmt.DateTime `json:"sinceTime,omitempty"`
 
-	// The deprecation was introduced in this version
+	// The deprecation was introduced in this version.
 	SinceVersion string `json:"sinceVersion,omitempty"`
 
-	// Whether the problematic API functionality is deprecated (planned to be removed) or already removed
+	// Whether the problematic API functionality is deprecated (planned to be removed) or already removed.
 	Status string `json:"status,omitempty"`
 }
 

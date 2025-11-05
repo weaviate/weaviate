@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -46,7 +46,7 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateMOVEDeletesSourceRepl
 	req := getRequest(t, paragraphClass.Class)
 
 	move := "MOVE"
-	req.TransferType = &move
+	req.Type = &move
 	// Create MOVE replication operation and wait until the shard is in the sharding state (meaning it is uncancellable)
 	created, err := helper.Client(t).Replication.Replicate(replication.NewReplicateParams().WithBody(req), nil)
 	require.Nil(t, err)
@@ -66,16 +66,16 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateMOVEDeletesSourceRepl
 		foundSrc := false
 		foundDst := false
 		for _, node := range nodes.Payload.Nodes {
-			if *req.SourceNodeName == node.Name {
+			if *req.SourceNode == node.Name {
 				for _, shard := range node.Shards {
-					if shard.Name == *req.ShardID {
+					if shard.Name == *req.Shard {
 						foundSrc = true
 					}
 				}
 			}
-			if *req.DestinationNodeName == node.Name {
+			if *req.TargetNode == node.Name {
 				for _, shard := range node.Shards {
-					if shard.Name == *req.ShardID {
+					if shard.Name == *req.Shard {
 						foundDst = true
 					}
 				}

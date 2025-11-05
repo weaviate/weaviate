@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -42,12 +42,12 @@ type SchemaObjectsShardsGetParams struct {
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
-	/*
+	/*The name of the collection (class) whose shards to query.
 	  Required: true
 	  In: path
 	*/
 	ClassName string
-	/*
+	/*The name of the tenant for which to retrieve shard statuses (only applicable for multi-tenant collections).
 	  In: query
 	*/
 	Tenant *string

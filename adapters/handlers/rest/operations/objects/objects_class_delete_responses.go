@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -28,7 +28,7 @@ import (
 const ObjectsClassDeleteNoContentCode int = 204
 
 /*
-ObjectsClassDeleteNoContent Successfully deleted.
+ObjectsClassDeleteNoContent Object deleted successfully.
 
 swagger:response objectsClassDeleteNoContent
 */
@@ -168,7 +168,7 @@ func (o *ObjectsClassDeleteForbidden) WriteResponse(rw http.ResponseWriter, prod
 const ObjectsClassDeleteNotFoundCode int = 404
 
 /*
-ObjectsClassDeleteNotFound Successful query result but no resource was found.
+ObjectsClassDeleteNotFound Object not found.
 
 swagger:response objectsClassDeleteNotFound
 */
@@ -193,7 +193,7 @@ func (o *ObjectsClassDeleteNotFound) WriteResponse(rw http.ResponseWriter, produ
 const ObjectsClassDeleteUnprocessableEntityCode int = 422
 
 /*
-ObjectsClassDeleteUnprocessableEntity Request is well-formed (i.e., syntactically correct), but erroneous.
+ObjectsClassDeleteUnprocessableEntity The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.
 
 swagger:response objectsClassDeleteUnprocessableEntity
 */
@@ -238,7 +238,7 @@ func (o *ObjectsClassDeleteUnprocessableEntity) WriteResponse(rw http.ResponseWr
 const ObjectsClassDeleteInternalServerErrorCode int = 500
 
 /*
-ObjectsClassDeleteInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+ObjectsClassDeleteInternalServerError An error occurred while trying to fulfill the request. Check the ErrorResponse for details.
 
 swagger:response objectsClassDeleteInternalServerError
 */

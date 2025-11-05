@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -45,7 +45,9 @@ func NewGetOwnInfo(ctx *middleware.Context, handler GetOwnInfoHandler) *GetOwnIn
 /*
 	GetOwnInfo swagger:route GET /users/own-info users getOwnInfo
 
-get info relevant to own user, e.g. username, roles
+# Get current user info
+
+Get information about the currently authenticated user, including username and assigned roles.
 */
 type GetOwnInfo struct {
 	Context *middleware.Context

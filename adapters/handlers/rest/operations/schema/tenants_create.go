@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -47,7 +47,7 @@ func NewTenantsCreate(ctx *middleware.Context, handler TenantsCreateHandler) *Te
 
 # Create a new tenant
 
-Create a new tenant for a collection. Multi-tenancy must be enabled in the collection definition.
+Creates one or more new tenants for a specified collection (`className`). Multi-tenancy must be enabled for the collection via its definition.
 */
 type TenantsCreate struct {
 	Context *middleware.Context

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -28,7 +28,7 @@ import (
 const BackupsCreateOKCode int = 200
 
 /*
-BackupsCreateOK Backup create process successfully started.
+BackupsCreateOK Backup creation process initiated successfully. Check the status endpoint for progress.
 
 swagger:response backupsCreateOK
 */
@@ -143,7 +143,7 @@ func (o *BackupsCreateForbidden) WriteResponse(rw http.ResponseWriter, producer 
 const BackupsCreateUnprocessableEntityCode int = 422
 
 /*
-BackupsCreateUnprocessableEntity Invalid backup creation attempt.
+BackupsCreateUnprocessableEntity Invalid backup creation request. Check the request body and backend configuration.
 
 swagger:response backupsCreateUnprocessableEntity
 */
@@ -188,7 +188,7 @@ func (o *BackupsCreateUnprocessableEntity) WriteResponse(rw http.ResponseWriter,
 const BackupsCreateInternalServerErrorCode int = 500
 
 /*
-BackupsCreateInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+BackupsCreateInternalServerError An internal server error occurred during backup initiation. Check the ErrorResponse for details.
 
 swagger:response backupsCreateInternalServerError
 */

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -169,6 +169,22 @@ func BenchmarkBinaryQuantization(b *testing.B) {
 				// TODO: Use b.Loop() instead when we move to Go 1.24.
 				bq.Encode(x)
 			}
+		})
+	}
+}
+
+func BenchmarkBQDistance(b *testing.B) {
+	dimensions := []int{64, 128, 256, 512, 1024, 1536, 2048}
+	for _, dim := range dimensions {
+		quantizer := compressionhelpers.NewBinaryQuantizer(distancer.NewDotProductProvider())
+		q, x := correlatedVectors(dim, 0.5)
+		cx := quantizer.Encode(x)
+		distancer := quantizer.NewDistancer(q)
+		b.Run(fmt.Sprintf("d%d", dim), func(b *testing.B) {
+			for b.Loop() {
+				distancer.Distance(cx)
+			}
+			b.ReportMetric((float64(b.N)/1e6)/float64(b.Elapsed().Seconds()), "m.ops/sec")
 		})
 	}
 }

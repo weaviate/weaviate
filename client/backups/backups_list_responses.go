@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -77,7 +77,7 @@ func NewBackupsListOK() *BackupsListOK {
 /*
 BackupsListOK describes a response with status code 200, with default header values.
 
-Existed backups
+Successfully retrieved the list of backups in progress.
 */
 type BackupsListOK struct {
 	Payload models.BackupListResponse
@@ -267,7 +267,7 @@ func NewBackupsListUnprocessableEntity() *BackupsListUnprocessableEntity {
 /*
 BackupsListUnprocessableEntity describes a response with status code 422, with default header values.
 
-Invalid backup list.
+Invalid request to list backups.
 */
 type BackupsListUnprocessableEntity struct {
 	Payload *models.ErrorResponse
@@ -335,7 +335,7 @@ func NewBackupsListInternalServerError() *BackupsListInternalServerError {
 /*
 BackupsListInternalServerError describes a response with status code 500, with default header values.
 
-An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+An internal server error occurred while listing backups. Check the ErrorResponse for details.
 */
 type BackupsListInternalServerError struct {
 	Payload *models.ErrorResponse

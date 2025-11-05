@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -45,9 +45,9 @@ func NewTenantsUpdate(ctx *middleware.Context, handler TenantsUpdateHandler) *Te
 /*
 	TenantsUpdate swagger:route PUT /schema/{className}/tenants schema tenantsUpdate
 
-Update a tenant.
+# Update a tenant
 
-Update tenant of a specific class
+Updates the activity status (e.g., `ACTIVE`, `INACTIVE`, etc.) of one or more specified tenants within a collection (`className`).
 */
 type TenantsUpdate struct {
 	Context *middleware.Context

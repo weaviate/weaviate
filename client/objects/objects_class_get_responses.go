@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -89,7 +89,7 @@ func NewObjectsClassGetOK() *ObjectsClassGetOK {
 /*
 ObjectsClassGetOK describes a response with status code 200, with default header values.
 
-Successful response.
+Successful response containing the object.
 */
 type ObjectsClassGetOK struct {
 	Payload *models.Object
@@ -349,7 +349,7 @@ func NewObjectsClassGetNotFound() *ObjectsClassGetNotFound {
 /*
 ObjectsClassGetNotFound describes a response with status code 404, with default header values.
 
-Successful query result but no resource was found.
+Object not found.
 */
 type ObjectsClassGetNotFound struct {
 }
@@ -405,7 +405,7 @@ func NewObjectsClassGetUnprocessableEntity() *ObjectsClassGetUnprocessableEntity
 /*
 ObjectsClassGetUnprocessableEntity describes a response with status code 422, with default header values.
 
-Request is well-formed (i.e., syntactically correct), but erroneous.
+The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.
 */
 type ObjectsClassGetUnprocessableEntity struct {
 	Payload *models.ErrorResponse
@@ -473,7 +473,7 @@ func NewObjectsClassGetInternalServerError() *ObjectsClassGetInternalServerError
 /*
 ObjectsClassGetInternalServerError describes a response with status code 500, with default header values.
 
-An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+An error occurred while trying to fulfill the request. Check the ErrorResponse for details.
 */
 type ObjectsClassGetInternalServerError struct {
 	Payload *models.ErrorResponse

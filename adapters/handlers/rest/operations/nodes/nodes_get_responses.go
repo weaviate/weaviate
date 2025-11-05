@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -28,7 +28,7 @@ import (
 const NodesGetOKCode int = 200
 
 /*
-NodesGetOK Nodes status successfully returned
+NodesGetOK Successfully retrieved the status for all nodes.
 
 swagger:response nodesGetOK
 */
@@ -143,7 +143,7 @@ func (o *NodesGetForbidden) WriteResponse(rw http.ResponseWriter, producer runti
 const NodesGetNotFoundCode int = 404
 
 /*
-NodesGetNotFound Not Found - Backup does not exist
+NodesGetNotFound Not Found.
 
 swagger:response nodesGetNotFound
 */
@@ -188,7 +188,7 @@ func (o *NodesGetNotFound) WriteResponse(rw http.ResponseWriter, producer runtim
 const NodesGetUnprocessableEntityCode int = 422
 
 /*
-NodesGetUnprocessableEntity Invalid backup restoration status attempt.
+NodesGetUnprocessableEntity Invalid request for node status.
 
 swagger:response nodesGetUnprocessableEntity
 */
@@ -233,7 +233,7 @@ func (o *NodesGetUnprocessableEntity) WriteResponse(rw http.ResponseWriter, prod
 const NodesGetInternalServerErrorCode int = 500
 
 /*
-NodesGetInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+NodesGetInternalServerError An internal server error occurred while retrieving node status. Check the ErrorResponse for details.
 
 swagger:response nodesGetInternalServerError
 */

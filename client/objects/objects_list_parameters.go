@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -75,19 +75,19 @@ type ObjectsListParams struct {
 
 	/* After.
 
-	   A threshold UUID of the objects to retrieve after, using an UUID-based ordering. This object is not part of the set. <br/><br/>Must be used with `class`, typically in conjunction with `limit`. <br/><br/>Note `after` cannot be used with `offset` or `sort`. <br/><br/>For a null value similar to offset=0, set an empty string in the request, i.e. `after=` or `after`.
+	   A threshold UUID of the objects to retrieve after, using an UUID-based ordering. This object is not part of the set. <br/><br/>Must be used with collection name (`class`), typically in conjunction with `limit`. <br/><br/>Note `after` cannot be used with `offset` or `sort`. <br/><br/>For a null value similar to offset=0, set an empty string in the request, i.e. `after=` or `after`.
 	*/
 	After *string
 
 	/* Class.
 
-	   The collection from which to query objects.  <br/><br/>Note that if `class` is not provided, the response will not include any objects.
+	   The collection from which to query objects.  <br/><br/>Note that if the collection name (`class`) is not provided, the response will not include any objects.
 	*/
 	Class *string
 
 	/* Include.
 
-	   Include additional information, such as classification infos. Allowed values include: classification, vector, interpretation
+	   Include additional information, such as classification information. Allowed values include: `classification`, `vector` and `interpretation`.
 	*/
 	Include *string
 
@@ -121,7 +121,7 @@ type ObjectsListParams struct {
 
 	/* Tenant.
 
-	   Specifies the tenant in a request targeting a multi-tenant class
+	   Specifies the tenant in a request targeting a multi-tenant collection (class).
 	*/
 	Tenant *string
 

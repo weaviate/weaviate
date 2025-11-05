@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -28,7 +28,7 @@ import (
 const ActivateUserOKCode int = 200
 
 /*
-ActivateUserOK User successfully activated
+ActivateUserOK User successfully activated.
 
 swagger:response activateUserOK
 */
@@ -168,7 +168,7 @@ func (o *ActivateUserForbidden) WriteResponse(rw http.ResponseWriter, producer r
 const ActivateUserNotFoundCode int = 404
 
 /*
-ActivateUserNotFound user not found
+ActivateUserNotFound User not found.
 
 swagger:response activateUserNotFound
 */
@@ -193,7 +193,7 @@ func (o *ActivateUserNotFound) WriteResponse(rw http.ResponseWriter, producer ru
 const ActivateUserConflictCode int = 409
 
 /*
-ActivateUserConflict user already activated
+ActivateUserConflict User already activated.
 
 swagger:response activateUserConflict
 */
@@ -218,7 +218,7 @@ func (o *ActivateUserConflict) WriteResponse(rw http.ResponseWriter, producer ru
 const ActivateUserUnprocessableEntityCode int = 422
 
 /*
-ActivateUserUnprocessableEntity Request body is well-formed (i.e., syntactically correct), but semantically erroneous.
+ActivateUserUnprocessableEntity The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.
 
 swagger:response activateUserUnprocessableEntity
 */

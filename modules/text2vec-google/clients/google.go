@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -52,7 +52,7 @@ var (
 	semanticSimilarity taskType = "SEMANTIC_SIMILARITY"
 )
 
-func buildURL(useGenerativeAI bool, apiEndoint, projectID, modelID string) string {
+func buildURL(useGenerativeAI bool, apiEndpoint, projectID, modelID string) string {
 	if useGenerativeAI {
 		if isLegacyModel(modelID) {
 			// legacy PaLM API
@@ -61,7 +61,7 @@ func buildURL(useGenerativeAI bool, apiEndoint, projectID, modelID string) strin
 		return fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:batchEmbedContents", modelID)
 	}
 	urlTemplate := "https://%s/v1/projects/%s/locations/us-central1/publishers/google/models/%s:predict"
-	return fmt.Sprintf(urlTemplate, apiEndoint, projectID, modelID)
+	return fmt.Sprintf(urlTemplate, apiEndpoint, projectID, modelID)
 }
 
 type google struct {
@@ -69,7 +69,7 @@ type google struct {
 	googleApiKey  *apikey.GoogleApiKey
 	useGoogleAuth bool
 	httpClient    *http.Client
-	urlBuilderFn  func(useGenerativeAI bool, apiEndoint, projectID, modelID string) string
+	urlBuilderFn  func(useGenerativeAI bool, apiEndpoint, projectID, modelID string) string
 	logger        logrus.FieldLogger
 }
 

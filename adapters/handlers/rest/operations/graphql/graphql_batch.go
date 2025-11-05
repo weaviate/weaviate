@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -45,9 +45,9 @@ func NewGraphqlBatch(ctx *middleware.Context, handler GraphqlBatchHandler) *Grap
 /*
 	GraphqlBatch swagger:route POST /graphql/batch graphql graphqlBatch
 
-Get a response based on GraphQL.
+# Perform batched GraphQL queries
 
-Perform a batched GraphQL query
+Executes multiple GraphQL queries provided in the request body as an array. Allows performing several queries in a single network request for efficiency.
 */
 type GraphqlBatch struct {
 	Context *middleware.Context

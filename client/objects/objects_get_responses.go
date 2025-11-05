@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -83,7 +83,7 @@ func NewObjectsGetOK() *ObjectsGetOK {
 /*
 ObjectsGetOK describes a response with status code 200, with default header values.
 
-Successful response.
+Successful response containing the object.
 */
 type ObjectsGetOK struct {
 	Payload *models.Object
@@ -343,7 +343,7 @@ func NewObjectsGetNotFound() *ObjectsGetNotFound {
 /*
 ObjectsGetNotFound describes a response with status code 404, with default header values.
 
-Successful query result but no resource was found.
+Object not found.
 */
 type ObjectsGetNotFound struct {
 }
@@ -399,7 +399,7 @@ func NewObjectsGetInternalServerError() *ObjectsGetInternalServerError {
 /*
 ObjectsGetInternalServerError describes a response with status code 500, with default header values.
 
-An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+An error occurred while trying to fulfill the request. Check the ErrorResponse for details.
 */
 type ObjectsGetInternalServerError struct {
 	Payload *models.ErrorResponse

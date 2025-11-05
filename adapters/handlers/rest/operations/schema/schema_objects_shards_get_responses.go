@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -28,7 +28,7 @@ import (
 const SchemaObjectsShardsGetOKCode int = 200
 
 /*
-SchemaObjectsShardsGetOK Found the status of the shards, returned as body
+SchemaObjectsShardsGetOK Shard statuses retrieved successfully.
 
 swagger:response schemaObjectsShardsGetOK
 */
@@ -146,7 +146,7 @@ func (o *SchemaObjectsShardsGetForbidden) WriteResponse(rw http.ResponseWriter, 
 const SchemaObjectsShardsGetNotFoundCode int = 404
 
 /*
-SchemaObjectsShardsGetNotFound This class does not exist
+SchemaObjectsShardsGetNotFound Collection not found.
 
 swagger:response schemaObjectsShardsGetNotFound
 */
@@ -191,7 +191,7 @@ func (o *SchemaObjectsShardsGetNotFound) WriteResponse(rw http.ResponseWriter, p
 const SchemaObjectsShardsGetInternalServerErrorCode int = 500
 
 /*
-SchemaObjectsShardsGetInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+SchemaObjectsShardsGetInternalServerError An error occurred while retrieving shard statuses. Check the ErrorResponse for details.
 
 swagger:response schemaObjectsShardsGetInternalServerError
 */

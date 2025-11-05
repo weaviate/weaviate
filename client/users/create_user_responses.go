@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -99,7 +99,7 @@ func NewCreateUserCreated() *CreateUserCreated {
 /*
 CreateUserCreated describes a response with status code 201, with default header values.
 
-User created successfully
+User created successfully and API key returned.
 */
 type CreateUserCreated struct {
 	Payload *models.UserAPIKey
@@ -359,7 +359,7 @@ func NewCreateUserNotFound() *CreateUserNotFound {
 /*
 CreateUserNotFound describes a response with status code 404, with default header values.
 
-user not found
+User not found.
 */
 type CreateUserNotFound struct {
 	Payload *models.ErrorResponse
@@ -427,7 +427,7 @@ func NewCreateUserConflict() *CreateUserConflict {
 /*
 CreateUserConflict describes a response with status code 409, with default header values.
 
-User already exists
+A user with the specified name already exists.
 */
 type CreateUserConflict struct {
 	Payload *models.ErrorResponse
@@ -495,7 +495,7 @@ func NewCreateUserUnprocessableEntity() *CreateUserUnprocessableEntity {
 /*
 CreateUserUnprocessableEntity describes a response with status code 422, with default header values.
 
-Request body is well-formed (i.e., syntactically correct), but semantically erroneous.
+The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.
 */
 type CreateUserUnprocessableEntity struct {
 	Payload *models.ErrorResponse

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -26,16 +26,17 @@ func TestText2VecModel2Vec(t *testing.T) {
 	defer func() {
 		require.NoError(t, compose.Terminate(ctx))
 	}()
-	endpoint := compose.GetWeaviate().URI()
+	rest := compose.GetWeaviate().URI()
+	grpc := compose.GetWeaviate().GrpcURI()
 
-	t.Run("tests", testText2VecModel2Vec(endpoint))
+	t.Run("tests", testText2VecModel2Vec(rest, grpc))
 }
 
 func createSingleNodeEnvironment(ctx context.Context,
 ) (compose *docker.DockerCompose, err error) {
 	compose, err = docker.New().
 		WithText2VecModel2Vec().
-		WithWeaviate().
+		WithWeaviateWithGRPC().
 		Start(ctx)
 	return compose, err
 }

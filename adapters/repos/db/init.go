@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -19,10 +19,13 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
+	"github.com/weaviate/weaviate/usecases/multitenancy"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
+	"github.com/weaviate/weaviate/cluster/router"
 	"github.com/weaviate/weaviate/entities/diskio"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/tenantactivity"
@@ -79,6 +82,16 @@ func (db *DB) init(ctx context.Context) error {
 				return fmt.Errorf("replication config: %w", err)
 			}
 
+			collection := schema.ClassName(class.Class).String()
+			indexRouter := router.NewBuilder(
+				collection,
+				multitenancy.IsMultiTenant(class.MultiTenancyConfig),
+				db.nodeSelector,
+				db.schemaGetter,
+				db.schemaReader,
+				db.replicationFSM,
+			).Build()
+			shardResolver := resolver.NewShardResolver(collection, multitenancy.IsMultiTenant(class.MultiTenancyConfig), db.schemaGetter)
 			idx, err := NewIndex(ctx, IndexConfig{
 				ClassName:                                    schema.ClassName(class.Class),
 				RootPath:                                     db.config.RootPath,
@@ -103,6 +116,7 @@ func (db *DB) init(ctx context.Context) error {
 				MaxSegmentSize:                               db.config.MaxSegmentSize,
 				TrackVectorDimensions:                        db.config.TrackVectorDimensions,
 				TrackVectorDimensionsInterval:                db.config.TrackVectorDimensionsInterval,
+				UsageEnabled:                                 db.config.UsageEnabled,
 				AvoidMMap:                                    db.config.AvoidMMap,
 				DisableLazyLoadShards:                        db.config.DisableLazyLoadShards,
 				ForceFullReplicasSearch:                      db.config.ForceFullReplicasSearch,
@@ -127,13 +141,14 @@ func (db *DB) init(ctx context.Context) error {
 				QuerySlowLogThreshold:                        db.config.QuerySlowLogThreshold,
 				InvertedSorterDisabled:                       db.config.InvertedSorterDisabled,
 				MaintenanceModeEnabled:                       db.config.MaintenanceModeEnabled,
-			}, db.schemaGetter.CopyShardingState(class.Class),
+				SPFreshEnabled:                               db.config.SPFreshEnabled,
+			},
 				inverted.ConfigFromModel(invertedConfig),
 				convertToVectorIndexConfig(class.VectorIndexConfig),
 				convertToVectorIndexConfigs(class.VectorConfig),
-				db.router, db.schemaGetter, db, db.logger, db.nodeResolver, db.remoteIndex,
-				db.replicaClient, &db.config.Replication, db.promMetrics, class, db.jobQueueCh, db.scheduler,
-				db.indexCheckpoints, db.memMonitor, db.reindexer, db.bitmapBufPool)
+				indexRouter, shardResolver, db.schemaGetter, db.schemaReader, db, db.logger, db.nodeResolver, db.remoteIndex,
+				db.replicaClient, &db.config.Replication, db.promMetrics, class, db.jobQueueCh, db.scheduler, db.indexCheckpoints,
+				db.memMonitor, db.reindexer, db.bitmapBufPool)
 			if err != nil {
 				return errors.Wrap(err, "create index")
 			}
@@ -144,15 +159,19 @@ func (db *DB) init(ctx context.Context) error {
 		}
 	}
 
-	// If metrics aren't grouped, there is no need to observe node-wide metrics
-	// asynchronously. In that case, each shard could track its own metrics with
-	// a unique label. It is only when we conflate all collections/shards into
-	// "n/a" that we need to actively aggregate node-wide metrics.
+	// Collecting metrics that _can_ be aggregated on a node level,
+	// i.e. replacing className and shardName labels with "n/a",
+	// should be delegated to nodeWideMetricsObserver to centralize
+	// control over how these metrics are aggregated.
 	//
 	// See also https://github.com/weaviate/weaviate/issues/4396
-	if db.promMetrics != nil && db.promMetrics.Group {
+	//
+	// NB: nodeWideMetricsObserver only tracks object_count if
+	// node-level aggregation is enabled -- a decision made during
+	// its original implementation.
+	if db.promMetrics != nil {
 		db.metricsObserver = newNodeWideMetricsObserver(db)
-		enterrors.GoWrapper(func() { db.metricsObserver.Start() }, db.logger)
+		db.metricsObserver.Start()
 	}
 
 	return nil
@@ -182,7 +201,7 @@ func (db *DB) migrateFileStructureIfNecessary() error {
 func (db *DB) migrateToHierarchicalFS() error {
 	before := time.Now()
 
-	if err := migratefs.MigrateToHierarchicalFS(db.config.RootPath, db.schemaGetter); err != nil {
+	if err := migratefs.MigrateToHierarchicalFS(db.config.RootPath, db.schemaReader); err != nil {
 		return err
 	}
 	db.logger.WithField("action", "hierarchical_fs_migration").

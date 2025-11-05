@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -49,17 +49,17 @@ type TenantExistsParams struct {
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
-	/*
+	/*The name of the collection (class) to check within.
 	  Required: true
 	  In: path
 	*/
 	ClassName string
-	/*If consistency is true, the request will be proxied to the leader to ensure strong schema consistency
+	/*If true, the request is proxied to the cluster leader to ensure strong schema consistency. Default is true.
 	  In: header
 	  Default: true
 	*/
 	Consistency *bool
-	/*
+	/*The name of the tenant to check for.
 	  Required: true
 	  In: path
 	*/

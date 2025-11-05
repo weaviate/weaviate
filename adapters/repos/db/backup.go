@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,8 +13,13 @@ package db
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"sync"
 	"time"
+
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/sharding"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
@@ -180,34 +185,43 @@ func (db *DB) ClassExists(name string) bool {
 	return db.IndexExists(schema.ClassName(name))
 }
 
-// Returns the list of nodes where shards of class are contained.
+// Shards returns the list of nodes where shards of class are contained.
 // If there are no shards for the class, returns an empty list
 // If there are shards for the class but no nodes are found, return an error
 func (db *DB) Shards(ctx context.Context, class string) ([]string, error) {
-	unique := make(map[string]struct{})
+	var nodes []string
+	var shardCount int
 
-	ss := db.schemaGetter.CopyShardingState(class)
-	if len(ss.Physical) == 0 {
-		return []string{}, nil
-	}
-
-	for _, shard := range ss.Physical {
-		for _, node := range shard.BelongsToNodes {
-			unique[node] = struct{}{}
+	err := db.schemaReader.Read(class, true, func(_ *models.Class, state *sharding.State) error {
+		if state == nil {
+			return fmt.Errorf("unable to retrieve sharding state for class %s", class)
 		}
+		shardCount = len(state.Physical)
+		if shardCount == 0 {
+			nodes = []string{}
+			return nil
+		}
+
+		unique := make(map[string]struct{})
+		for _, shard := range state.Physical {
+			for _, node := range shard.BelongsToNodes {
+				unique[node] = struct{}{}
+			}
+		}
+
+		nodes = make([]string, 0, len(unique))
+		for node := range unique {
+			nodes = append(nodes, node)
+		}
+
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to read sharding state for class %s: %w", class, err)
 	}
 
-	var (
-		nodes   = make([]string, len(unique))
-		counter = 0
-	)
-
-	for node := range unique {
-		nodes[counter] = node
-		counter++
-	}
-	if len(nodes) == 0 {
-		return nil, fmt.Errorf("found %v shards, but has 0 nodes", len(ss.Physical))
+	if shardCount > 0 && len(nodes) == 0 {
+		return nil, fmt.Errorf("found %d shards but no nodes for class %s", shardCount, class)
 	}
 
 	return nodes, nil
@@ -260,6 +274,14 @@ func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.Cl
 	if desc.Schema, err = i.marshalSchema(); err != nil {
 		return fmt.Errorf("marshal schema %w", err)
 	}
+	if desc.Aliases, err = i.marshalAliases(); err != nil {
+		return fmt.Errorf("marshal aliases %w", err)
+	}
+	// this has to be set true, even if aliases list is empty.
+	// because eventhen JSON key `aliases` will be present in
+	// newer backups. To avoid failing to backup old backups that doesn't
+	// understand `aliases` key in the ClassDescriptor.
+	desc.AliasesIncluded = true
 	return ctx.Err()
 }
 
@@ -311,12 +333,24 @@ func (i *Index) resumeMaintenanceCycles(ctx context.Context) (lastErr error) {
 }
 
 func (i *Index) marshalShardingState() ([]byte, error) {
-	b, err := i.getSchema.CopyShardingState(i.Config.ClassName.String()).JSON()
+	var jsonBytes []byte
+	err := i.schemaReader.Read(i.Config.ClassName.String(), true, func(_ *models.Class, state *sharding.State) error {
+		if state == nil {
+			return fmt.Errorf("unable to retrieve sharding state for class %s", i.Config.ClassName.String())
+		}
+		bytes, jsonErr := state.JSON()
+		if jsonErr != nil {
+			return jsonErr
+		}
+
+		jsonBytes = bytes
+		return nil
+	})
 	if err != nil {
 		return nil, errors.Wrap(err, "marshal sharding state")
 	}
 
-	return b, nil
+	return jsonBytes, nil
 }
 
 func (i *Index) marshalSchema() ([]byte, error) {
@@ -326,4 +360,56 @@ func (i *Index) marshalSchema() ([]byte, error) {
 	}
 
 	return b, err
+}
+
+func (i *Index) marshalAliases() ([]byte, error) {
+	aliases := i.getSchema.GetAliasesForClass(i.Config.ClassName.String())
+	b, err := json.Marshal(aliases)
+	if err != nil {
+		return nil, errors.Wrap(err, "marshal aliases failed to get aliases for collection")
+	}
+	return b, err
+}
+
+// shardTransfer is an adapter built around rwmutex that facilitates cooperative blocking between write and read locks
+type shardTransfer struct {
+	sync.RWMutex
+	log            logrus.FieldLogger
+	retryDuration  time.Duration
+	notifyDuration time.Duration
+}
+
+// LockWithContext attempts to acquire a write lock while respecting the provided context.
+// It reports whether the lock acquisition was successful or if the context has been cancelled.
+func (m *shardTransfer) LockWithContext(ctx context.Context) error {
+	return m.lock(ctx, m.TryLock)
+}
+
+func (m *shardTransfer) lock(ctx context.Context, tryLock func() bool) error {
+	if tryLock() {
+		return nil
+	}
+	curTime := time.Now()
+	t := time.NewTicker(m.retryDuration)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-t.C:
+			if tryLock() {
+				return nil
+			}
+			if time.Since(curTime) > m.notifyDuration {
+				curTime = time.Now()
+				m.log.Info("backup process waiting for ongoing writes to finish")
+			}
+		}
+	}
+}
+
+func (s *shardTransfer) RLockGuard(reader func() error) error {
+	s.RLock()
+	defer s.RUnlock()
+	return reader()
 }

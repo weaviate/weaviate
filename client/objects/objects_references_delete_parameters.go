@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -74,12 +74,15 @@ ObjectsReferencesDeleteParams contains all the parameters to send to the API end
 */
 type ObjectsReferencesDeleteParams struct {
 
-	// Body.
+	/* Body.
+
+	   The reference to remove.
+	*/
 	Body *models.SingleRef
 
 	/* ID.
 
-	   Unique ID of the Object.
+	   Unique UUID of the source object.
 
 	   Format: uuid
 	*/
@@ -87,13 +90,13 @@ type ObjectsReferencesDeleteParams struct {
 
 	/* PropertyName.
 
-	   Unique name of the property related to the Object.
+	   Unique name of the reference property of the source object.
 	*/
 	PropertyName string
 
 	/* Tenant.
 
-	   Specifies the tenant in a request targeting a multi-tenant class
+	   Specifies the tenant in a request targeting a multi-tenant collection (class).
 	*/
 	Tenant *string
 

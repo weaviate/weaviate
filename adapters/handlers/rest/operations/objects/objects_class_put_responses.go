@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -28,7 +28,7 @@ import (
 const ObjectsClassPutOKCode int = 200
 
 /*
-ObjectsClassPutOK Successfully received.
+ObjectsClassPutOK Object replaced successfully.
 
 swagger:response objectsClassPutOK
 */
@@ -143,7 +143,7 @@ func (o *ObjectsClassPutForbidden) WriteResponse(rw http.ResponseWriter, produce
 const ObjectsClassPutNotFoundCode int = 404
 
 /*
-ObjectsClassPutNotFound Successful query result but no resource was found.
+ObjectsClassPutNotFound Object not found.
 
 swagger:response objectsClassPutNotFound
 */
@@ -168,7 +168,7 @@ func (o *ObjectsClassPutNotFound) WriteResponse(rw http.ResponseWriter, producer
 const ObjectsClassPutUnprocessableEntityCode int = 422
 
 /*
-ObjectsClassPutUnprocessableEntity Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
+ObjectsClassPutUnprocessableEntity The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request. Ensure the collection exists and the object properties are valid.
 
 swagger:response objectsClassPutUnprocessableEntity
 */
@@ -213,7 +213,7 @@ func (o *ObjectsClassPutUnprocessableEntity) WriteResponse(rw http.ResponseWrite
 const ObjectsClassPutInternalServerErrorCode int = 500
 
 /*
-ObjectsClassPutInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+ObjectsClassPutInternalServerError An error occurred while trying to fulfill the request. Check the ErrorResponse for details.
 
 swagger:response objectsClassPutInternalServerError
 */

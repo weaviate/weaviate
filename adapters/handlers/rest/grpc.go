@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,12 +13,13 @@ package rest
 
 import (
 	grpcHandler "github.com/weaviate/weaviate/adapters/handlers/grpc"
+	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/batch"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"google.golang.org/grpc"
 )
 
-func createGrpcServer(state *state.State, options ...grpc.ServerOption) *grpc.Server {
+func createGrpcServer(state *state.State, options ...grpc.ServerOption) (*grpc.Server, batch.Drain) {
 	return grpcHandler.CreateGRPCServer(state, options...)
 }
 

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -51,7 +51,9 @@ func NewRemovePermissions(ctx *middleware.Context, handler RemovePermissionsHand
 /*
 	RemovePermissions swagger:route POST /authz/roles/{id}/remove-permissions authz removePermissions
 
-Remove permissions from a role. If this results in an empty role, the role will be deleted.
+# Remove permissions from a role
+
+Permissions can be revoked from a specified role. Removing all permissions from a role will delete the role itself.
 */
 type RemovePermissions struct {
 	Context *middleware.Context
@@ -92,7 +94,7 @@ func (o *RemovePermissions) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 // swagger:model RemovePermissionsBody
 type RemovePermissionsBody struct {
 
-	// permissions to remove from the role
+	// Permissions to remove from the role.
 	// Required: true
 	Permissions []*models.Permission `json:"permissions" yaml:"permissions"`
 }

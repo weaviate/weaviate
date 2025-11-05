@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -19,6 +19,7 @@ package models
 import (
 	"context"
 	"encoding/json"
+	"strconv"
 
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
@@ -32,16 +33,23 @@ import (
 type ReplicationReplicateDetailsReplicaStatus struct {
 
 	// A list of error messages encountered by this replica during the replication operation, if any.
-	Errors []string `json:"errors"`
+	Errors []*ReplicationReplicateDetailsReplicaStatusError `json:"errors"`
 
 	// The current operational state of the replica during the replication process.
 	// Enum: [REGISTERED HYDRATING FINALIZING DEHYDRATING READY CANCELLED]
 	State string `json:"state,omitempty"`
+
+	// The UNIX timestamp in ms when this state was first entered. This is an approximate time and so should not be used for precise timing.
+	WhenStartedUnixMs int64 `json:"whenStartedUnixMs,omitempty"`
 }
 
 // Validate validates this replication replicate details replica status
 func (m *ReplicationReplicateDetailsReplicaStatus) Validate(formats strfmt.Registry) error {
 	var res []error
+
+	if err := m.validateErrors(formats); err != nil {
+		res = append(res, err)
+	}
 
 	if err := m.validateState(formats); err != nil {
 		res = append(res, err)
@@ -50,6 +58,32 @@ func (m *ReplicationReplicateDetailsReplicaStatus) Validate(formats strfmt.Regis
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+func (m *ReplicationReplicateDetailsReplicaStatus) validateErrors(formats strfmt.Registry) error {
+	if swag.IsZero(m.Errors) { // not required
+		return nil
+	}
+
+	for i := 0; i < len(m.Errors); i++ {
+		if swag.IsZero(m.Errors[i]) { // not required
+			continue
+		}
+
+		if m.Errors[i] != nil {
+			if err := m.Errors[i].Validate(formats); err != nil {
+				if ve, ok := err.(*errors.Validation); ok {
+					return ve.ValidateName("errors" + "." + strconv.Itoa(i))
+				} else if ce, ok := err.(*errors.CompositeError); ok {
+					return ce.ValidateName("errors" + "." + strconv.Itoa(i))
+				}
+				return err
+			}
+		}
+
+	}
+
 	return nil
 }
 
@@ -107,8 +141,37 @@ func (m *ReplicationReplicateDetailsReplicaStatus) validateState(formats strfmt.
 	return nil
 }
 
-// ContextValidate validates this replication replicate details replica status based on context it is used
+// ContextValidate validate this replication replicate details replica status based on the context it is used
 func (m *ReplicationReplicateDetailsReplicaStatus) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	var res []error
+
+	if err := m.contextValidateErrors(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+func (m *ReplicationReplicateDetailsReplicaStatus) contextValidateErrors(ctx context.Context, formats strfmt.Registry) error {
+
+	for i := 0; i < len(m.Errors); i++ {
+
+		if m.Errors[i] != nil {
+			if err := m.Errors[i].ContextValidate(ctx, formats); err != nil {
+				if ve, ok := err.(*errors.Validation); ok {
+					return ve.ValidateName("errors" + "." + strconv.Itoa(i))
+				} else if ce, ok := err.(*errors.CompositeError); ok {
+					return ce.ValidateName("errors" + "." + strconv.Itoa(i))
+				}
+				return err
+			}
+		}
+
+	}
+
 	return nil
 }
 

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -19,8 +19,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/weaviate/weaviate/cluster/router/types"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 
@@ -30,6 +28,8 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
+	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/backup"
@@ -165,6 +165,9 @@ func (l *LazyLoadShard) NotifyReady() {
 }
 
 func (l *LazyLoadShard) GetStatus() storagestate.Status {
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
+
 	if l.loaded {
 		return l.shard.GetStatus()
 	}
@@ -198,14 +201,19 @@ func (l *LazyLoadShard) ObjectCount(ctx context.Context) (int, error) {
 	return l.shard.ObjectCount(ctx)
 }
 
-func (l *LazyLoadShard) ObjectCountAsync() int {
+func (l *LazyLoadShard) ObjectCountAsync(ctx context.Context) (int64, error) {
 	l.mutex.Lock()
-	if !l.loaded {
+	if l.loaded {
 		l.mutex.Unlock()
-		return 0
+		return l.shard.ObjectCountAsync(ctx)
 	}
 	l.mutex.Unlock()
-	return l.shard.ObjectCountAsync()
+	idx := l.shardOpts.index
+	objectUsage, err := shardusage.CalculateUnloadedObjectsMetrics(idx.logger, idx.path(), l.shardOpts.name, true)
+	if err != nil {
+		return 0, fmt.Errorf("error while getting object count for shard %s: %w", l.shardOpts.name, err)
+	}
+	return objectUsage.Count, nil
 }
 
 func (l *LazyLoadShard) GetPropertyLengthTracker() *inverted.JsonShardMetaData {
@@ -374,10 +382,8 @@ func (l *LazyLoadShard) drop() error {
 
 		metrics.DeleteShardLabels(className, shardName)
 
-		// cleanup dimensions
-		if idx.Config.TrackVectorDimensions {
-			clearDimensionMetrics(l.shardOpts.promMetrics, className, shardName)
-		}
+		// cleanup dimensions: not deleted in s.metrics.DeleteShardLabels
+		clearDimensionMetrics(idx.Config, l.shardOpts.promMetrics, className, shardName)
 
 		// cleanup index checkpoints
 		if l.shardOpts.indexCheckpoints != nil {
@@ -454,24 +460,31 @@ func (l *LazyLoadShard) AnalyzeObject(object *storobj.Object) ([]inverted.Proper
 	return l.shard.AnalyzeObject(object)
 }
 
-func (l *LazyLoadShard) Dimensions(ctx context.Context, targetVector string) int {
-	l.mustLoad()
-	return l.shard.Dimensions(ctx, targetVector)
+func (l *LazyLoadShard) Dimensions(ctx context.Context, targetVector string) (int, error) {
+	l.mutex.Lock()
+	if l.loaded {
+		l.mutex.Unlock()
+		return l.shard.Dimensions(ctx, targetVector)
+	}
+	l.mutex.Unlock()
+
+	// For unloaded shards, get dimensions from unloaded shard/tenant calculation
+	idx := l.shardOpts.index
+	dimensionality, err := shardusage.CalculateUnloadedDimensionsUsage(ctx, idx.logger, idx.path(), l.shardOpts.name, targetVector)
+	if err != nil {
+		return 0, err
+	}
+	return dimensionality.Count * dimensionality.Dimensions, nil
 }
 
-func (l *LazyLoadShard) QuantizedDimensions(ctx context.Context, targetVector string, segments int) int {
+func (l *LazyLoadShard) QuantizedDimensions(ctx context.Context, targetVector string, segments int) (int, error) {
 	l.mustLoad()
 	return l.shard.QuantizedDimensions(ctx, targetVector, segments)
 }
 
-func (l *LazyLoadShard) publishDimensionMetrics(ctx context.Context) {
+func (l *LazyLoadShard) resetDimensionsLSM(ctx context.Context) error {
 	l.mustLoad()
-	l.shard.publishDimensionMetrics(ctx)
-}
-
-func (l *LazyLoadShard) resetDimensionsLSM() error {
-	l.mustLoad()
-	return l.shard.resetDimensionsLSM()
+	return l.shard.resetDimensionsLSM(ctx)
 }
 
 func (l *LazyLoadShard) Aggregate(ctx context.Context, params aggregation.Params, modules *modules.Provider) (*aggregation.Result, error) {
@@ -762,4 +775,12 @@ func (l *LazyLoadShard) Activity() (int32, int32) {
 
 func (l *LazyLoadShard) pathLSM() string {
 	return shardPathLSM(l.shardOpts.index.path(), l.shardOpts.name)
+}
+
+func (l *LazyLoadShard) blockLoading() func() {
+	l.mutex.Lock()
+
+	return func() {
+		l.mutex.Unlock()
+	}
 }

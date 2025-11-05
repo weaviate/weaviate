@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -343,7 +343,7 @@ func NewGetRoleNotFound() *GetRoleNotFound {
 /*
 GetRoleNotFound describes a response with status code 404, with default header values.
 
-no role found
+No role found.
 */
 type GetRoleNotFound struct {
 }

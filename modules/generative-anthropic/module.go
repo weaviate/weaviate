@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,7 +13,6 @@ package modgenerativeanthropic
 
 import (
 	"context"
-	"net/http"
 	"os"
 	"time"
 
@@ -78,11 +77,6 @@ func (m *GenerativeAnthropicModule) MetaInfo() (map[string]interface{}, error) {
 
 func (m *GenerativeAnthropicModule) AdditionalGenerativeProperties() map[string]modulecapabilities.GenerativeProperty {
 	return m.additionalPropertiesProvider
-}
-
-func (m *GenerativeAnthropicModule) RootHandler() http.Handler {
-	// TODO: remove once this is a capability interface
-	return nil
 }
 
 // verify we implement the modules.Module interface

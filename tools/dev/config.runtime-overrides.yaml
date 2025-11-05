@@ -4,8 +4,18 @@ async_replication_disabled: false
 tenant_activity_read_log_level: info
 tenant_activity_write_log_level: info
 query_slow_log_enabled: true
-query_slow_log_threshold: 1ms
+query_slow_log_threshold: 100ms
 inverted_sorter_disabled: false
+# for usage module if enabled make sure that usage-gcs or usage-s3 module is enabled
+# usage_scrape_interval: 1s
+# usage_shard_jitter_interval: 50ms
+
+# usage_gcs_bucket: weaviate-usage
+# usage_gcs_prefix: billing
+
+# usage_s3_bucket: weaviate-usage
+# usage_s3_prefix: billing
+###########################
 
 # exp_oidc_username_claim: "sub"
 # exp_oidc_client_id: "<client_id>"

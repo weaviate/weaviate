@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -14,7 +14,6 @@ package objects
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"strings"
 	"time"
 
@@ -51,6 +50,7 @@ type fakeSchemaManager struct {
 	GetSchemaResponse schema.Schema
 	GetschemaErr      error
 	tenantsEnabled    bool
+	resolveAliasTo    string
 	// test controls
 	AddTenantsSchemaVersion uint64
 	AutoSchemaVersion       uint64
@@ -209,6 +209,10 @@ func (f *fakeSchemaManager) WaitForUpdate(ctx context.Context, schemaVersion uin
 
 func (f *fakeSchemaManager) StorageCandidates() []string {
 	return []string{}
+}
+
+func (f *fakeSchemaManager) ResolveAlias(alias string) string {
+	return f.resolveAliasTo
 }
 
 type fakeVectorRepo struct {
@@ -535,10 +539,6 @@ func (m *nearCustomTextModule) Name() string {
 }
 
 func (m *nearCustomTextModule) Init(params moduletools.ModuleInitParams) error {
-	return nil
-}
-
-func (m *nearCustomTextModule) RootHandler() http.Handler {
 	return nil
 }
 

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -87,7 +87,7 @@ func NewGetUsersForRoleOK() *GetUsersForRoleOK {
 /*
 GetUsersForRoleOK describes a response with status code 200, with default header values.
 
-Users assigned to this role
+Users assigned to this role.
 */
 type GetUsersForRoleOK struct {
 	Payload []*GetUsersForRoleOKBodyItems0
@@ -153,7 +153,7 @@ func NewGetUsersForRoleBadRequest() *GetUsersForRoleBadRequest {
 /*
 GetUsersForRoleBadRequest describes a response with status code 400, with default header values.
 
-Bad request
+Malformed request.
 */
 type GetUsersForRoleBadRequest struct {
 	Payload *models.ErrorResponse
@@ -345,7 +345,7 @@ func NewGetUsersForRoleNotFound() *GetUsersForRoleNotFound {
 /*
 GetUsersForRoleNotFound describes a response with status code 404, with default header values.
 
-no role found
+No role found.
 */
 type GetUsersForRoleNotFound struct {
 }

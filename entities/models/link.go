@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -28,16 +28,16 @@ import (
 // swagger:model Link
 type Link struct {
 
-	// weaviate documentation about this resource group
+	// Weaviate documentation about this resource group.
 	DocumentationHref string `json:"documentationHref,omitempty"`
 
-	// target of the link
+	// Target of the link.
 	Href string `json:"href,omitempty"`
 
-	// human readable name of the resource group
+	// Human readable name of the resource group.
 	Name string `json:"name,omitempty"`
 
-	// relationship if both resources are related, e.g. 'next', 'previous', 'parent', etc.
+	// Relationship if both resources are related, e.g. 'next', 'previous', 'parent', etc.
 	Rel string `json:"rel,omitempty"`
 }
 

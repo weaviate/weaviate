@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -26,7 +26,7 @@ import (
 	"github.com/go-openapi/validate"
 )
 
-// C11yVectorBasedQuestion Receive question based on array of classes, properties and values.
+// C11yVectorBasedQuestion Receive question based on array of collection names (classes), properties and values.
 //
 // swagger:model C11yVectorBasedQuestion
 type C11yVectorBasedQuestion []*C11yVectorBasedQuestionItems0
@@ -94,7 +94,7 @@ type C11yVectorBasedQuestionItems0 struct {
 	// Min Items: 300
 	ClassProps []*C11yVectorBasedQuestionItems0ClassPropsItems0 `json:"classProps"`
 
-	// Vectorized classname.
+	// Vectorized collection (class) name.
 	// Max Items: 300
 	// Min Items: 300
 	ClassVectors []float32 `json:"classVectors"`

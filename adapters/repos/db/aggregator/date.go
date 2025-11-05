@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/pkg/errors"
@@ -78,6 +79,7 @@ type dateAggregator struct {
 	mode         timestamp
 	pairs        []timestampCountPair // for row-based median calculation
 	valueCounter map[timestamp]uint64 // for individual median calculation
+	sync.Mutex
 }
 
 func newDateAggregator() *dateAggregator {
@@ -138,6 +140,8 @@ func (a *dateAggregator) addRow(ts timestamp, count uint64) error {
 		return nil
 	}
 
+	a.Lock()
+	defer a.Unlock()
 	a.count += count
 	if ts.epochNano < a.min.epochNano {
 		a.min = ts

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -28,7 +28,7 @@ import (
 const AssignRoleToUserOKCode int = 200
 
 /*
-AssignRoleToUserOK Role assigned successfully
+AssignRoleToUserOK Role assigned successfully.
 
 swagger:response assignRoleToUserOK
 */
@@ -53,7 +53,7 @@ func (o *AssignRoleToUserOK) WriteResponse(rw http.ResponseWriter, producer runt
 const AssignRoleToUserBadRequestCode int = 400
 
 /*
-AssignRoleToUserBadRequest Bad request
+AssignRoleToUserBadRequest Malformed request.
 
 swagger:response assignRoleToUserBadRequest
 */
@@ -168,7 +168,7 @@ func (o *AssignRoleToUserForbidden) WriteResponse(rw http.ResponseWriter, produc
 const AssignRoleToUserNotFoundCode int = 404
 
 /*
-AssignRoleToUserNotFound role or user is not found.
+AssignRoleToUserNotFound Specified role or user not found.
 
 swagger:response assignRoleToUserNotFound
 */

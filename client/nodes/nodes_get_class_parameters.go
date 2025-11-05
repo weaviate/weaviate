@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -72,12 +72,15 @@ NodesGetClassParams contains all the parameters to send to the API endpoint
 */
 type NodesGetClassParams struct {
 
-	// ClassName.
+	/* ClassName.
+
+	   The name of the collection (class) for which to retrieve node status.
+	*/
 	ClassName string
 
 	/* Output.
 
-	   Controls the verbosity of the output, possible values are: "minimal", "verbose". Defaults to "minimal".
+	   Controls the verbosity of the output, possible values are: `minimal`, `verbose`. Defaults to `minimal`.
 
 	   Default: "minimal"
 	*/

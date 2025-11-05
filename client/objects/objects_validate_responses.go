@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -77,7 +77,7 @@ func NewObjectsValidateOK() *ObjectsValidateOK {
 /*
 ObjectsValidateOK describes a response with status code 200, with default header values.
 
-Successfully validated.
+Object is valid according to the schema.
 */
 type ObjectsValidateOK struct {
 }
@@ -257,7 +257,7 @@ func NewObjectsValidateUnprocessableEntity() *ObjectsValidateUnprocessableEntity
 /*
 ObjectsValidateUnprocessableEntity describes a response with status code 422, with default header values.
 
-Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
+Request body is well-formed but the object is invalid according to the schema.
 */
 type ObjectsValidateUnprocessableEntity struct {
 	Payload *models.ErrorResponse
@@ -325,7 +325,7 @@ func NewObjectsValidateInternalServerError() *ObjectsValidateInternalServerError
 /*
 ObjectsValidateInternalServerError describes a response with status code 500, with default header values.
 
-An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+An error occurred while trying to fulfill the request. Check the ErrorResponse for details.
 */
 type ObjectsValidateInternalServerError struct {
 	Payload *models.ErrorResponse

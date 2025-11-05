@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -28,7 +28,7 @@ import (
 const SchemaObjectsPropertiesAddOKCode int = 200
 
 /*
-SchemaObjectsPropertiesAddOK Added the property.
+SchemaObjectsPropertiesAddOK Property added successfully and its definition returned.
 
 swagger:response schemaObjectsPropertiesAddOK
 */
@@ -143,7 +143,7 @@ func (o *SchemaObjectsPropertiesAddForbidden) WriteResponse(rw http.ResponseWrit
 const SchemaObjectsPropertiesAddUnprocessableEntityCode int = 422
 
 /*
-SchemaObjectsPropertiesAddUnprocessableEntity Invalid property.
+SchemaObjectsPropertiesAddUnprocessableEntity Invalid property definition provided.
 
 swagger:response schemaObjectsPropertiesAddUnprocessableEntity
 */
@@ -188,7 +188,7 @@ func (o *SchemaObjectsPropertiesAddUnprocessableEntity) WriteResponse(rw http.Re
 const SchemaObjectsPropertiesAddInternalServerErrorCode int = 500
 
 /*
-SchemaObjectsPropertiesAddInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+SchemaObjectsPropertiesAddInternalServerError An error occurred while adding the property. Check the ErrorResponse for details.
 
 swagger:response schemaObjectsPropertiesAddInternalServerError
 */

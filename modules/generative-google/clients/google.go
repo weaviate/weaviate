@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -110,7 +110,7 @@ var (
 	FINISH_REASON_SPII               = "SPII"
 )
 
-func buildURL(useGenerativeAI bool, apiEndoint, projectID, modelID, region string) string {
+func buildURL(useGenerativeAI bool, apiEndpoint, projectID, modelID, region string) string {
 	if useGenerativeAI {
 		// Generative AI endpoints, for more context check out this link:
 		// https://developers.generativeai.google/models/language#model_variations
@@ -126,14 +126,14 @@ func buildURL(useGenerativeAI bool, apiEndoint, projectID, modelID, region strin
 		return fmt.Sprintf(urlTemplate, region, projectID, region, modelID)
 	}
 	urlTemplate := "https://%s/v1/projects/%s/locations/us-central1/publishers/google/models/%s:predict"
-	return fmt.Sprintf(urlTemplate, apiEndoint, projectID, modelID)
+	return fmt.Sprintf(urlTemplate, apiEndpoint, projectID, modelID)
 }
 
 type google struct {
 	apiKey        string
 	useGoogleAuth bool
 	googleApiKey  *apikey.GoogleApiKey
-	buildUrlFn    func(useGenerativeAI bool, apiEndoint, projectID, modelID, region string) string
+	buildUrlFn    func(useGenerativeAI bool, apiEndpoint, projectID, modelID, region string) string
 	httpClient    *http.Client
 	logger        logrus.FieldLogger
 }

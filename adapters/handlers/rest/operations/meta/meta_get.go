@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -45,9 +45,9 @@ func NewMetaGet(ctx *middleware.Context, handler MetaGetHandler) *MetaGet {
 /*
 	MetaGet swagger:route GET /meta meta metaGet
 
-Returns meta information of the current Weaviate instance.
+# Get instance metadata
 
-Returns meta information about the server. Can be used to provide information to another Weaviate instance that wants to interact with the current instance.
+Provides meta-information about the running Weaviate instance, including its version, loaded modules, and network hostname. This information can be useful for monitoring, compatibility checks, or inter-instance communication.
 */
 type MetaGet struct {
 	Context *middleware.Context

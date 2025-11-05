@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -74,7 +74,7 @@ type ObjectsGetParams struct {
 
 	/* ID.
 
-	   Unique ID of the Object.
+	   Unique UUID of the object to be retrieved.
 
 	   Format: uuid
 	*/
@@ -82,7 +82,7 @@ type ObjectsGetParams struct {
 
 	/* Include.
 
-	   Include additional information, such as classification infos. Allowed values include: classification, vector, interpretation
+	   Include additional information, such as classification information. Allowed values include: `classification`, `vector` and `interpretation`.
 	*/
 	Include *string
 
