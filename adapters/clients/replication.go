@@ -34,6 +34,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // ReplicationClient is to coordinate operations among replicas
@@ -142,6 +144,11 @@ func (c *replicationClient) OverwriteObjects(ctx context.Context,
 func (c *replicationClient) FetchObjects(ctx context.Context, host,
 	index, shard string, ids []strfmt.UUID,
 ) ([]replica.Replica, error) {
+	ctx, span := otel.Tracer("weaviate-search").Start(ctx, "replicationClient.FetchObjects",
+		trace.WithSpanKind(trace.SpanKindInternal),
+	)
+	defer span.End()
+
 	resp := make(replica.Replicas, len(ids))
 	idsBytes, err := json.Marshal(ids)
 	if err != nil {
