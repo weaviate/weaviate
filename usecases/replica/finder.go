@@ -309,6 +309,10 @@ func (f *Finder) checkShardConsistency(ctx context.Context,
 	op := func(ctx context.Context, host string, fullRead bool) (BatchReply, error) {
 		ctx, span := otel.Tracer("weaviate-search").Start(ctx, "checkShardConsistencyOpClosure",
 			trace.WithSpanKind(trace.SpanKindInternal),
+			trace.WithAttributes(
+				attribute.String("shard", batch.Shard),
+				attribute.String("node", batch.Node),
+			),
 		)
 		defer span.End()
 		if fullRead { // we already have the content
