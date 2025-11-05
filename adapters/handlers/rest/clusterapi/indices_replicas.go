@@ -88,6 +88,8 @@ type replicatedIndices struct {
 	// workerWg waits for all workers to finish
 	workerWg sync.WaitGroup
 	logger   logrus.FieldLogger
+	// clusterReady reports whether the cluster service is ready to accept requests
+	clusterReady func() bool
 }
 
 var (
@@ -125,6 +127,7 @@ func NewReplicatedIndices(
 	maintenanceModeEnabled func() bool,
 	requestQueueConfig cluster.RequestQueueConfig,
 	logger logrus.FieldLogger,
+	clusterReady func() bool,
 ) *replicatedIndices {
 	// validate the requestQueueConfig
 	if requestQueueConfig.QueueFullHttpStatus == 0 {
@@ -142,6 +145,7 @@ func NewReplicatedIndices(
 		requestQueue:           make(chan queuedRequest, requestQueueConfig.QueueSize),
 		requestQueueConfig:     requestQueueConfig,
 		logger:                 logger,
+		clusterReady:           clusterReady,
 	}
 	if requestQueueConfig.IsEnabled != nil && requestQueueConfig.IsEnabled.Get() {
 		i.startWorkersOnce.Do(i.startWorkers)
@@ -208,7 +212,17 @@ func (i *replicatedIndices) startWorkers() {
 }
 
 func (i *replicatedIndices) Indices() http.Handler {
-	return i.auth.handleFunc(i.indicesHandler())
+	return i.auth.handleFunc(i.clusterReadyMiddleware(i.indicesHandler()))
+}
+
+func (i *replicatedIndices) clusterReadyMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if i.clusterReady != nil && !i.clusterReady() {
+			http.Error(w, "503 Service Unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		next(w, r)
+	}
 }
 
 func (i *replicatedIndices) indicesHandler() http.HandlerFunc {
