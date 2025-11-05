@@ -146,8 +146,8 @@ jobs:
       - name: Archive code coverage results
         uses: actions/upload-artifact@v4
         with:
-          name: coverage-report-unit
-          path: coverage-unit.txt
+          name: coverage-report-unit-1
+          path: coverage-unit-1.txt
   Unit-Tests-2:
     name: unit-tests-2
     runs-on: ubuntu-latest
@@ -163,8 +163,8 @@ jobs:
       - name: Archive code coverage results
         uses: actions/upload-artifact@v4
         with:
-          name: coverage-report-unit
-          path: coverage-unit.txt
+          name: coverage-report-unit-2
+          path: coverage-unit-2.txt
   Unit-Tests-3:
     name: unit-tests-3
     runs-on: ubuntu-latest
@@ -180,8 +180,8 @@ jobs:
       - name: Archive code coverage results
         uses: actions/upload-artifact@v4
         with:
-          name: coverage-report-unit
-          path: coverage-unit.txt
+          name: coverage-report-unit-3
+          path: coverage-unit-3.txt
   Unit-Tests-4:
     name: unit-tests-4
     runs-on: ubuntu-latest
@@ -197,8 +197,8 @@ jobs:
       - name: Archive code coverage results
         uses: actions/upload-artifact@v4
         with:
-          name: coverage-report-unit
-          path: coverage-unit.txt
+          name: coverage-report-unit-4
+          path: coverage-unit-4.txt
   Unit-Tests-5:
     name: unit-tests-5
     runs-on: ubuntu-latest
@@ -214,8 +214,8 @@ jobs:
       - name: Archive code coverage results
         uses: actions/upload-artifact@v4
         with:
-          name: coverage-report-unit
-          path: coverage-unit.txt
+          name: coverage-report-unit-5
+          path: coverage-unit-5.txt
   Unit-Tests-6:
     name: unit-tests-6
     runs-on: ubuntu-latest
@@ -231,8 +231,8 @@ jobs:
       - name: Archive code coverage results
         uses: actions/upload-artifact@v4
         with:
-          name: coverage-report-unit
-          path: coverage-unit.txt
+          name: coverage-report-unit-6
+          path: coverage-unit-6.txt
   Unit-Tests-7:
     name: unit-tests-7
     runs-on: ubuntu-latest
@@ -248,8 +248,8 @@ jobs:
       - name: Archive code coverage results
         uses: actions/upload-artifact@v4
         with:
-          name: coverage-report-unit
-          path: coverage-unit.txt
+          name: coverage-report-unit-7
+          path: coverage-unit-7.txt
   Unit-Tests-8:
     name: unit-tests-8
     runs-on: ubuntu-latest
@@ -265,8 +265,8 @@ jobs:
       - name: Archive code coverage results
         uses: actions/upload-artifact@v4
         with:
-          name: coverage-report-unit
-          path: coverage-unit.txt
+          name: coverage-report-unit-8
+          path: coverage-unit-8.txt
   Unit-Tests-9:
     name: unit-tests-9
     runs-on: ubuntu-latest
@@ -282,8 +282,8 @@ jobs:
       - name: Archive code coverage results
         uses: actions/upload-artifact@v4
         with:
-          name: coverage-report-unit
-          path: coverage-unit.txt
+          name: coverage-report-unit-9
+          path: coverage-unit-9.txt
   Unit-Tests-10:
     name: unit-tests-10
     runs-on: ubuntu-latest
@@ -299,8 +299,8 @@ jobs:
       - name: Archive code coverage results
         uses: actions/upload-artifact@v4
         with:
-          name: coverage-report-unit
-          path: coverage-unit.txt
+          name: coverage-report-unit-10
+          path: coverage-unit-10.txt
   Unit-Tests-11:
     name: unit-tests-11
     runs-on: ubuntu-latest
@@ -316,8 +316,8 @@ jobs:
       - name: Archive code coverage results
         uses: actions/upload-artifact@v4
         with:
-          name: coverage-report-unit
-          path: coverage-unit.txt
+          name: coverage-report-unit-11
+          path: coverage-unit-11.txt
   Unit-Tests-12:
     name: unit-tests-12
     runs-on: ubuntu-latest
@@ -333,8 +333,8 @@ jobs:
       - name: Archive code coverage results
         uses: actions/upload-artifact@v4
         with:
-          name: coverage-report-unit
-          path: coverage-unit.txt
+          name: coverage-report-unit-12
+          path: coverage-unit-12.txt
   Unit-Tests-13:
     name: unit-tests-13
     runs-on: ubuntu-latest
@@ -350,8 +350,8 @@ jobs:
       - name: Archive code coverage results
         uses: actions/upload-artifact@v4
         with:
-          name: coverage-report-unit
-          path: coverage-unit.txt
+          name: coverage-report-unit-13
+          path: coverage-unit-13.txt
   Unit-Tests-14:
     name: unit-tests-14
     runs-on: ubuntu-latest
@@ -367,8 +367,8 @@ jobs:
       - name: Archive code coverage results
         uses: actions/upload-artifact@v4
         with:
-          name: coverage-report-unit
-          path: coverage-unit.txt
+          name: coverage-report-unit-14
+          path: coverage-unit-14.txt
   Unit-Tests-15:
     name: unit-tests-15
     runs-on: ubuntu-latest
@@ -384,8 +384,8 @@ jobs:
       - name: Archive code coverage results
         uses: actions/upload-artifact@v4
         with:
-          name: coverage-report-unit
-          path: coverage-unit.txt
+          name: coverage-report-unit-15
+          path: coverage-unit-15.txt
   # Integration-Tests:
   #   name: integration-tests
   #   runs-on: ubuntu-latest
