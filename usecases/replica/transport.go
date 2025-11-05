@@ -24,6 +24,8 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/trace"
 )
 
 const (
@@ -250,6 +252,10 @@ func (fc FinderClient) DigestReads(ctx context.Context,
 	host, index, shard string,
 	ids []strfmt.UUID, numRetries int,
 ) ([]types.RepairResponse, error) {
+	ctx, span := otel.Tracer("weaviate-search").Start(ctx, "FinderClient.DigestReads",
+		trace.WithSpanKind(trace.SpanKindInternal),
+	)
+	defer span.End()
 	n := len(ids)
 	rs, err := fc.cl.DigestObjects(ctx, host, index, shard, ids, numRetries)
 	if err == nil && len(rs) != n {

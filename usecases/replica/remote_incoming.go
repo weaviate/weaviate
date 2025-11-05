@@ -22,6 +22,8 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type RemoteIncomingRepo interface {
@@ -179,6 +181,10 @@ func (rri *RemoteReplicaIncoming) FetchObjects(ctx context.Context,
 func (rri *RemoteReplicaIncoming) DigestObjects(ctx context.Context,
 	indexName, shardName string, ids []strfmt.UUID,
 ) (result []types.RepairResponse, err error) {
+	ctx, span := otel.Tracer("weaviate-search").Start(ctx, "RemoteReplicaIncoming.DigestObjects",
+		trace.WithSpanKind(trace.SpanKindInternal),
+	)
+	defer span.End()
 	index, simpleResp := rri.indexForIncomingRead(ctx, indexName)
 	if simpleResp != nil {
 		return []types.RepairResponse{}, simpleResp.Errors[0].Err

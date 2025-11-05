@@ -24,6 +24,8 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -695,6 +697,11 @@ func (i *Index) IncomingOverwriteObjects(ctx context.Context,
 func (i *Index) DigestObjects(ctx context.Context,
 	shardName string, ids []strfmt.UUID,
 ) (result []types.RepairResponse, err error) {
+	ctx, span := otel.Tracer("weaviate-search").Start(ctx, "Index.DigestObjects",
+		trace.WithSpanKind(trace.SpanKindInternal),
+	)
+	defer span.End()
+
 	result = make([]types.RepairResponse, len(ids))
 
 	s, release, err := i.getOrInitShard(ctx, shardName)
@@ -753,6 +760,10 @@ func (i *Index) DigestObjects(ctx context.Context,
 func (i *Index) IncomingDigestObjects(ctx context.Context,
 	shardName string, ids []strfmt.UUID,
 ) (result []types.RepairResponse, err error) {
+	ctx, span := otel.Tracer("weaviate-search").Start(ctx, "Index.IncomingDigestObjects",
+		trace.WithSpanKind(trace.SpanKindInternal),
+	)
+	defer span.End()
 	return i.DigestObjects(ctx, shardName, ids)
 }
 
