@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -89,7 +89,7 @@ func NewObjectsClassDeleteNoContent() *ObjectsClassDeleteNoContent {
 /*
 ObjectsClassDeleteNoContent describes a response with status code 204, with default header values.
 
-Successfully deleted.
+Object deleted successfully.
 */
 type ObjectsClassDeleteNoContent struct {
 }
@@ -337,7 +337,7 @@ func NewObjectsClassDeleteNotFound() *ObjectsClassDeleteNotFound {
 /*
 ObjectsClassDeleteNotFound describes a response with status code 404, with default header values.
 
-Successful query result but no resource was found.
+Object not found.
 */
 type ObjectsClassDeleteNotFound struct {
 }
@@ -393,7 +393,7 @@ func NewObjectsClassDeleteUnprocessableEntity() *ObjectsClassDeleteUnprocessable
 /*
 ObjectsClassDeleteUnprocessableEntity describes a response with status code 422, with default header values.
 
-Request is well-formed (i.e., syntactically correct), but erroneous.
+The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.
 */
 type ObjectsClassDeleteUnprocessableEntity struct {
 	Payload *models.ErrorResponse
@@ -461,7 +461,7 @@ func NewObjectsClassDeleteInternalServerError() *ObjectsClassDeleteInternalServe
 /*
 ObjectsClassDeleteInternalServerError describes a response with status code 500, with default header values.
 
-An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+An error occurred while trying to fulfill the request. Check the ErrorResponse for details.
 */
 type ObjectsClassDeleteInternalServerError struct {
 	Payload *models.ErrorResponse

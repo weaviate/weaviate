@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -28,7 +28,7 @@ import (
 const RemovePermissionsOKCode int = 200
 
 /*
-RemovePermissionsOK Permissions removed successfully
+RemovePermissionsOK Permissions removed successfully.
 
 swagger:response removePermissionsOK
 */
@@ -168,7 +168,7 @@ func (o *RemovePermissionsForbidden) WriteResponse(rw http.ResponseWriter, produ
 const RemovePermissionsNotFoundCode int = 404
 
 /*
-RemovePermissionsNotFound no role found
+RemovePermissionsNotFound No role found.
 
 swagger:response removePermissionsNotFound
 */
@@ -193,7 +193,7 @@ func (o *RemovePermissionsNotFound) WriteResponse(rw http.ResponseWriter, produc
 const RemovePermissionsUnprocessableEntityCode int = 422
 
 /*
-RemovePermissionsUnprocessableEntity Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
+RemovePermissionsUnprocessableEntity The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.
 
 swagger:response removePermissionsUnprocessableEntity
 */

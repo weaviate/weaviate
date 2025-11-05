@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -45,9 +45,9 @@ func NewObjectsReferencesUpdate(ctx *middleware.Context, handler ObjectsReferenc
 /*
 	ObjectsReferencesUpdate swagger:route PUT /objects/{id}/references/{propertyName} objects objectsReferencesUpdate
 
-Replace all references to a class-property.
+# Replace object references
 
-Replace all references in cross-reference property of an object.
+Replace all references in cross-reference property of an object. <br/><br/>**Note**: This endpoint is deprecated and will be removed in a future version. Use the `/objects/{className}/{id}/references/{propertyName}` endpoint instead.
 */
 type ObjectsReferencesUpdate struct {
 	Context *middleware.Context

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,13 +13,16 @@ package helper
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/go-openapi/runtime"
+	httptransport "github.com/go-openapi/runtime/client"
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
+	"github.com/weaviate/weaviate/client"
 	"github.com/weaviate/weaviate/entities/modelsext"
 
 	"github.com/weaviate/weaviate/client/batch"
@@ -40,6 +43,70 @@ func SetupClient(uri string) {
 	}
 	ServerHost = host
 	ServerPort = port
+}
+
+// parseScheme extracts the scheme from a URI if present, defaulting to "http".
+//
+// If the URI contains "://", the part before it is extracted as the scheme.
+// If no scheme is found, "http" is used as the default.
+//
+// Returns the scheme and the remaining URI with the scheme prefix removed.
+//
+// Examples:
+//   - "http://localhost:8080" -> ("http", "localhost:8080")
+//   - "https://localhost:8443" -> ("https", "localhost:8443")
+//   - "localhost:8080" -> ("http", "localhost:8080")
+func parseScheme(uri string) (scheme, remaining string) {
+	scheme = "http"
+	remaining = uri
+
+	if strings.Contains(uri, "://") {
+		parts := strings.Split(uri, "://")
+		if len(parts) == 2 {
+			scheme = parts[0]
+			remaining = parts[1]
+		}
+	}
+
+	return scheme, remaining
+}
+
+// parseHostPort extracts the host and port from a URI by splitting on ":".
+//
+// The URI should include "host:port". If the format doesn't match
+// (no colon or more than one colon), empty strings are returned for both values.
+//
+// Returns the host and port as separate strings.
+//
+// Examples:
+//   - "localhost:8080" -> ("localhost", "8080")
+//   - "127.0.0.1:9090" -> ("127.0.0.1", "9090")
+//   - "example.com:443" -> ("example.com", "443")
+func parseHostPort(uri string) (host, port string) {
+	res := strings.Split(uri, ":")
+	if len(res) == 2 {
+		host, port = res[0], res[1]
+	}
+	return host, port
+}
+
+// NewClient creates a new immutable client configured for the given URI.
+// This function does not modify global state and is safe to use in concurrent tests.
+// The URI can optionally include a scheme (e.g., "http://localhost:8080" or "localhost:8080").
+// Use this instead of SetupClient() + Client() to avoid data races when tests use goroutines
+// that concurrently access the client.
+func NewClient(t *testing.T, uri string) *client.Weaviate {
+	scheme, remaining := parseScheme(uri)
+	host, port := parseHostPort(remaining)
+
+	transport := httptransport.New(fmt.Sprintf("%s:%s", host, port), "/v1", []string{scheme})
+
+	if t != nil && DebugHTTP {
+		transport.SetDebug(true)
+		transport.SetLogger(&testLogger{t: t})
+	}
+
+	return client.New(transport, strfmt.Default)
 }
 
 func SetupGRPCClient(t *testing.T, uri string) {
@@ -157,7 +224,7 @@ func CreateObjectCL(t *testing.T, object *models.Object, cl types.ConsistencyLev
 	return nil
 }
 
-func CreateObjectsBatch(t *testing.T, objects []*models.Object) {
+func CreateObjectsBatchWithResponse(t *testing.T, objects []*models.Object) []*models.ObjectsGetResponse {
 	t.Helper()
 	params := batch.NewBatchObjectsCreateParams().
 		WithBody(batch.BatchObjectsCreateBody{
@@ -166,6 +233,12 @@ func CreateObjectsBatch(t *testing.T, objects []*models.Object) {
 	resp, err := Client(t).Batch.BatchObjectsCreate(params, nil)
 	AssertRequestOk(t, resp, err, nil)
 	CheckObjectsBatchResponse(t, resp.Payload, err)
+	return resp.Payload
+}
+
+func CreateObjectsBatch(t *testing.T, objects []*models.Object) {
+	t.Helper()
+	CreateObjectsBatchWithResponse(t, objects)
 }
 
 func CreateObjectsBatchAuth(t *testing.T, objects []*models.Object, key string) {
@@ -201,11 +274,20 @@ func CheckObjectsBatchResponse(t *testing.T, resp []*models.ObjectsGetResponse, 
 	}
 }
 
-func UpdateObject(t *testing.T, object *models.Object) error {
+func UpdateObjectWithResponse(t *testing.T, object *models.Object) (*models.Object, error) {
 	t.Helper()
 	params := objects.NewObjectsUpdateParams().WithID(object.ID).WithBody(object)
 	resp, err := Client(t).Objects.ObjectsUpdate(params, nil)
 	AssertRequestOk(t, resp, err, nil)
+	if err != nil {
+		return nil, err
+	}
+	return resp.Payload, err
+}
+
+func UpdateObject(t *testing.T, object *models.Object) error {
+	t.Helper()
+	_, err := UpdateObjectWithResponse(t, object)
 	return err
 }
 
@@ -223,6 +305,22 @@ func PatchObject(t *testing.T, object *models.Object) error {
 	t.Helper()
 	params := objects.NewObjectsPatchParams().WithID(object.ID).WithBody(object)
 	resp, err := Client(t).Objects.ObjectsPatch(params, nil)
+	AssertRequestOk(t, resp, err, nil)
+	return err
+}
+
+func HeadObject(t *testing.T, id strfmt.UUID) error {
+	t.Helper()
+	params := objects.NewObjectsHeadParams().WithID(id)
+	resp, err := Client(t).Objects.ObjectsHead(params, nil)
+	AssertRequestOk(t, resp, err, nil)
+	return err
+}
+
+func ValidateObject(t *testing.T, object *models.Object) error {
+	t.Helper()
+	params := objects.NewObjectsValidateParams().WithBody(object)
+	resp, err := Client(t).Objects.ObjectsValidate(params, nil)
 	AssertRequestOk(t, resp, err, nil)
 	return err
 }
@@ -264,12 +362,18 @@ func DeleteObjectCL(t *testing.T, class string, id strfmt.UUID, cl types.Consist
 	AssertRequestOk(t, resp, err, nil)
 }
 
-func DeleteObjectsBatch(t *testing.T, body *models.BatchDelete, cl types.ConsistencyLevel) {
+func DeleteObjectsBatchWithResponse(t *testing.T, body *models.BatchDelete, cl types.ConsistencyLevel) *models.BatchDeleteResponse {
 	t.Helper()
 	cls := string(cl)
 	params := batch.NewBatchObjectsDeleteParams().WithBody(body).WithConsistencyLevel(&cls)
 	resp, err := Client(t).Batch.BatchObjectsDelete(params, nil)
 	AssertRequestOk(t, resp, err, nil)
+	return resp.GetPayload()
+}
+
+func DeleteObjectsBatch(t *testing.T, body *models.BatchDelete, cl types.ConsistencyLevel) {
+	t.Helper()
+	DeleteObjectsBatchWithResponse(t, body, cl)
 }
 
 func DeleteTenantObjectsBatch(t *testing.T, body *models.BatchDelete,
@@ -492,4 +596,99 @@ func ObjectContentsProp(contents string) map[string]interface{} {
 	props := map[string]interface{}{}
 	props["contents"] = contents
 	return props
+}
+
+func CreateAlias(t *testing.T, alias *models.Alias) {
+	CreateAliasWithAuthz(t, alias, nil)
+}
+
+func CreateAliasWithReturn(t *testing.T, alias *models.Alias) (*schema.AliasesCreateOK, error) {
+	t.Helper()
+	params := schema.NewAliasesCreateParams().WithBody(alias)
+	resp, err := Client(t).Schema.AliasesCreate(params, nil)
+	return resp, err
+}
+
+func CreateAliasWithAuthz(t *testing.T, alias *models.Alias, authInfo runtime.ClientAuthInfoWriter) {
+	t.Helper()
+	params := schema.NewAliasesCreateParams().WithBody(alias)
+	resp, err := Client(t).Schema.AliasesCreate(params, authInfo)
+	AssertRequestOk(t, resp, err, nil)
+}
+
+func CreateAliasAuth(t *testing.T, alias *models.Alias, key string) {
+	t.Helper()
+	CreateAliasWithAuthz(t, alias, CreateAuth(key))
+}
+
+func GetAliases(t *testing.T, className *string) *models.AliasResponse {
+	return GetAliasesWithAuthz(t, className, nil)
+}
+
+func GetAliasesWithAuthz(t *testing.T, className *string, authInfo runtime.ClientAuthInfoWriter) *models.AliasResponse {
+	t.Helper()
+	params := schema.NewAliasesGetParams().WithClass(className)
+	resp, err := Client(t).Schema.AliasesGet(params, authInfo)
+	AssertRequestOk(t, resp, err, nil)
+	return resp.GetPayload()
+}
+
+func GetAlias(t *testing.T, aliasName string) *models.Alias {
+	return GetAliasWithAuthz(t, aliasName, nil)
+}
+
+func GetAliasNotFound(t *testing.T, aliasName string) *models.Alias {
+	return GetAliasWithAuthzNotFound(t, aliasName, nil)
+}
+
+func GetAliasWithAuthz(t *testing.T, aliasName string, authInfo runtime.ClientAuthInfoWriter) *models.Alias {
+	t.Helper()
+	params := schema.NewAliasesGetAliasParams().WithAliasName(aliasName)
+	resp, err := Client(t).Schema.AliasesGetAlias(params, authInfo)
+	AssertRequestOk(t, resp, err, nil)
+	return resp.GetPayload()
+}
+
+func GetAliasWithAuthzNotFound(t *testing.T, aliasName string, authInfo runtime.ClientAuthInfoWriter) *models.Alias {
+	t.Helper()
+	params := schema.NewAliasesGetAliasParams().WithAliasName(aliasName)
+	resp, err := Client(t).Schema.AliasesGetAlias(params, authInfo)
+	AssertRequestFail(t, resp, err, nil)
+	return nil
+}
+
+func UpdateAlias(t *testing.T, aliasName, targetClassName string) {
+	UpdateAliasWithAuthz(t, aliasName, targetClassName, nil)
+}
+
+func UpdateAliasWithReturn(t *testing.T, aliasName, targetClassName string) (*schema.AliasesUpdateOK, error) {
+	t.Helper()
+	params := schema.NewAliasesUpdateParams().WithAliasName(aliasName).WithBody(schema.AliasesUpdateBody{Class: targetClassName})
+	resp, err := Client(t).Schema.AliasesUpdate(params, nil)
+	return resp, err
+}
+
+func UpdateAliasWithAuthz(t *testing.T, aliasName, targetClassName string, authInfo runtime.ClientAuthInfoWriter) {
+	t.Helper()
+	params := schema.NewAliasesUpdateParams().WithAliasName(aliasName).WithBody(schema.AliasesUpdateBody{Class: targetClassName})
+	resp, err := Client(t).Schema.AliasesUpdate(params, authInfo)
+	AssertRequestOk(t, resp, err, nil)
+}
+
+func DeleteAlias(t *testing.T, aliasName string) {
+	DeleteAliasWithAuthz(t, aliasName, nil)
+}
+
+func DeleteAliasWithReturn(t *testing.T, aliasName string) (*schema.AliasesDeleteNoContent, error) {
+	t.Helper()
+	params := schema.NewAliasesDeleteParams().WithAliasName(aliasName)
+	resp, err := Client(t).Schema.AliasesDelete(params, nil)
+	return resp, err
+}
+
+func DeleteAliasWithAuthz(t *testing.T, aliasName string, authInfo runtime.ClientAuthInfoWriter) {
+	t.Helper()
+	params := schema.NewAliasesDeleteParams().WithAliasName(aliasName)
+	resp, err := Client(t).Schema.AliasesDelete(params, authInfo)
+	AssertRequestOk(t, resp, err, nil)
 }

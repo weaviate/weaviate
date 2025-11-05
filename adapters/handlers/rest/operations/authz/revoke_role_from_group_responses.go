@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -28,7 +28,7 @@ import (
 const RevokeRoleFromGroupOKCode int = 200
 
 /*
-RevokeRoleFromGroupOK Role revoked successfully
+RevokeRoleFromGroupOK Roles revoked successfully.
 
 swagger:response revokeRoleFromGroupOK
 */
@@ -53,7 +53,7 @@ func (o *RevokeRoleFromGroupOK) WriteResponse(rw http.ResponseWriter, producer r
 const RevokeRoleFromGroupBadRequestCode int = 400
 
 /*
-RevokeRoleFromGroupBadRequest Bad request
+RevokeRoleFromGroupBadRequest Malformed request.
 
 swagger:response revokeRoleFromGroupBadRequest
 */
@@ -168,7 +168,7 @@ func (o *RevokeRoleFromGroupForbidden) WriteResponse(rw http.ResponseWriter, pro
 const RevokeRoleFromGroupNotFoundCode int = 404
 
 /*
-RevokeRoleFromGroupNotFound role or group is not found.
+RevokeRoleFromGroupNotFound Role or group not found.
 
 swagger:response revokeRoleFromGroupNotFound
 */

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -455,7 +455,8 @@ func TestConcurrentWriting_Map(t *testing.T) {
 			targets[string(keys[i])] = values[i]
 		}
 
-		c := bucket.MapCursor()
+		c, err := bucket.MapCursor()
+		require.NoError(t, err)
 		defer c.Close()
 
 		ctx := context.Background()

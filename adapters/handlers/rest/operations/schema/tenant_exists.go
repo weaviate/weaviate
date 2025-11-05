@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -45,9 +45,9 @@ func NewTenantExists(ctx *middleware.Context, handler TenantExistsHandler) *Tena
 /*
 	TenantExists swagger:route HEAD /schema/{className}/tenants/{tenantName} schema tenantExists
 
-# Check whether a tenant exists
+# Check if a tenant exists
 
-Check if a tenant exists for a specific class
+Checks for the existence of a specific tenant within the given collection (`className`).
 */
 type TenantExists struct {
 	Context *middleware.Context

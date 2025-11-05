@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -77,7 +77,7 @@ func NewBackupsCreateOK() *BackupsCreateOK {
 /*
 BackupsCreateOK describes a response with status code 200, with default header values.
 
-Backup create process successfully started.
+Backup creation process initiated successfully. Check the status endpoint for progress.
 */
 type BackupsCreateOK struct {
 	Payload *models.BackupCreateResponse
@@ -269,7 +269,7 @@ func NewBackupsCreateUnprocessableEntity() *BackupsCreateUnprocessableEntity {
 /*
 BackupsCreateUnprocessableEntity describes a response with status code 422, with default header values.
 
-Invalid backup creation attempt.
+Invalid backup creation request. Check the request body and backend configuration.
 */
 type BackupsCreateUnprocessableEntity struct {
 	Payload *models.ErrorResponse
@@ -337,7 +337,7 @@ func NewBackupsCreateInternalServerError() *BackupsCreateInternalServerError {
 /*
 BackupsCreateInternalServerError describes a response with status code 500, with default header values.
 
-An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+An internal server error occurred during backup initiation. Check the ErrorResponse for details.
 */
 type BackupsCreateInternalServerError struct {
 	Payload *models.ErrorResponse

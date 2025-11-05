@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -19,11 +19,11 @@ import (
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
+	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/cluster/utils"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
-
-	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -206,16 +206,13 @@ func (c *coordinator[T]) Push(ctx context.Context,
 	ask readyOp,
 	com commitOp[T],
 ) (<-chan _Result[T], int, error) {
-	routingPlan, err := c.Router.BuildWriteRoutingPlan(types.RoutingPlanBuildOptions{
-		Collection:       c.Class,
-		Shard:            c.Shard,
-		ConsistencyLevel: cl,
-	})
+	options := c.Router.BuildRoutingPlanOptions(c.Shard, c.Shard, cl, "")
+	writeRoutingPlan, err := c.Router.BuildWriteRoutingPlan(options)
 	if err != nil {
 		return nil, 0, fmt.Errorf("%w : class %q shard %q", err, c.Class, c.Shard)
 	}
 
-	level := routingPlan.IntConsistencyLevel
+	level := writeRoutingPlan.IntConsistencyLevel
 
 	//nolint:govet // we expressely don't want to cancel that context as the timeout will take care of it
 	ctxWithTimeout, _ := context.WithTimeout(context.Background(), 20*time.Second)
@@ -234,7 +231,7 @@ func (c *coordinator[T]) Push(ctx context.Context,
 		start := time.Now()
 
 		return func(successful int) {
-			numReplicas := len(routingPlan.Replicas)
+			numReplicas := len(writeRoutingPlan.Replicas())
 
 			if numReplicas == successful {
 				c.metrics.IncWritesSucceedAll()
@@ -248,15 +245,14 @@ func (c *coordinator[T]) Push(ctx context.Context,
 		}
 	}()
 
-	nodeCh := c.broadcast(ctxWithTimeout, routingPlan.ReplicasHostAddrs, ask, level)
-
+	nodeCh := c.broadcast(ctxWithTimeout, writeRoutingPlan.HostAddresses(), ask, level)
 	commitCh := c.commitAll(context.Background(), nodeCh, com, callback)
 
 	// if there are additional hosts, we do a "best effort" write to them
 	// where we don't wait for a response because they are not part of the
 	// replicas used to reach level consistency
-	if len(routingPlan.AdditionalHostAddrs) > 0 {
-		additionalHostsBroadcast := c.broadcast(ctxWithTimeout, routingPlan.AdditionalHostAddrs, ask, len(routingPlan.AdditionalHostAddrs))
+	if len(writeRoutingPlan.AdditionalHostAddresses()) > 0 {
+		additionalHostsBroadcast := c.broadcast(ctxWithTimeout, writeRoutingPlan.AdditionalHostAddresses(), ask, len(writeRoutingPlan.AdditionalHostAddresses()))
 		c.commitAll(context.Background(), additionalHostsBroadcast, com, nil)
 	}
 
@@ -279,17 +275,13 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 	op readOp[T], directCandidate string,
 	timeout time.Duration,
 ) (<-chan _Result[T], int, error) {
-	routingPlan, err := c.Router.BuildReadRoutingPlan(types.RoutingPlanBuildOptions{
-		Collection:             c.Class,
-		Shard:                  c.Shard,
-		ConsistencyLevel:       cl,
-		DirectCandidateReplica: directCandidate,
-	})
+	options := c.Router.BuildRoutingPlanOptions(c.Shard, c.Shard, cl, directCandidate)
+	readRoutingPlan, err := c.Router.BuildReadRoutingPlan(options)
 	if err != nil {
 		return nil, 0, fmt.Errorf("%w : class %q shard %q", err, c.Class, c.Shard)
 	}
-	level := routingPlan.IntConsistencyLevel
-	hosts := routingPlan.ReplicasHostAddrs
+	level := readRoutingPlan.IntConsistencyLevel
+	hosts := readRoutingPlan.HostAddresses()
 	replyCh := make(chan _Result[T], level)
 	f := func() {
 		start := time.Now()
@@ -343,7 +335,7 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 				// this host failed op on the first try, put it on the retry queue
 				hostRetryQueue <- hostRetry{
 					hosts[hostIndex],
-					backoff.WithContext(utils.NewExponentialBackoff(c.pullBackOffPreInitialInterval, c.pullBackOffMaxElapsedTime), ctx),
+					backoff.WithContext(utils.NewExponentialBackoff(c.pullBackOffPreInitialInterval, c.pullBackOffMaxElapsedTime), workerCtx),
 				}
 
 				// let's fallback to the backups in the retry queue

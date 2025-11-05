@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -24,7 +24,7 @@ import (
 	"github.com/go-openapi/swag"
 )
 
-// BackupCreateRequest Request body for creating a backup of a set of classes
+// BackupCreateRequest Request body for creating a backup for a set of collections.
 //
 // swagger:model BackupCreateRequest
 type BackupCreateRequest struct {

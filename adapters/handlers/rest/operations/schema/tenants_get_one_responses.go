@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -28,7 +28,7 @@ import (
 const TenantsGetOneOKCode int = 200
 
 /*
-TenantsGetOneOK load the tenant given the specified class
+TenantsGetOneOK Successfully retrieved tenant details.
 
 swagger:response tenantsGetOneOK
 */
@@ -143,7 +143,7 @@ func (o *TenantsGetOneForbidden) WriteResponse(rw http.ResponseWriter, producer 
 const TenantsGetOneNotFoundCode int = 404
 
 /*
-TenantsGetOneNotFound Tenant not found
+TenantsGetOneNotFound Tenant or collection not found.
 
 swagger:response tenantsGetOneNotFound
 */
@@ -168,7 +168,7 @@ func (o *TenantsGetOneNotFound) WriteResponse(rw http.ResponseWriter, producer r
 const TenantsGetOneUnprocessableEntityCode int = 422
 
 /*
-TenantsGetOneUnprocessableEntity Invalid tenant or class
+TenantsGetOneUnprocessableEntity Invalid request.
 
 swagger:response tenantsGetOneUnprocessableEntity
 */
@@ -213,7 +213,7 @@ func (o *TenantsGetOneUnprocessableEntity) WriteResponse(rw http.ResponseWriter,
 const TenantsGetOneInternalServerErrorCode int = 500
 
 /*
-TenantsGetOneInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+TenantsGetOneInternalServerError An error occurred while retrieving the tenant. Check the ErrorResponse for details.
 
 swagger:response tenantsGetOneInternalServerError
 */

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -47,7 +47,7 @@ func NewTenantsGetOne(ctx *middleware.Context, handler TenantsGetOneHandler) *Te
 
 # Get a specific tenant
 
-get a specific tenant for the given class
+Retrieves details about a specific tenant within the given collection (`className`), such as its current activity status.
 */
 type TenantsGetOne struct {
 	Context *middleware.Context

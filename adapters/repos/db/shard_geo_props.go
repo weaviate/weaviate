@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -32,12 +32,12 @@ func (s *Shard) initGeoProp(prop *models.Property) error {
 	s.index.cycleCallbacks.geoPropsTombstoneCleanupCycle.Start()
 
 	idx, err := geo.NewIndex(geo.Config{
-		ID:                 geoPropID(prop.Name),
-		RootPath:           s.path(),
-		CoordinatesForID:   s.makeCoordinatesForID(prop.Name),
-		DisablePersistence: false,
-		Logger:             s.index.logger,
-
+		ID:                                       geoPropID(prop.Name),
+		RootPath:                                 s.path(),
+		CoordinatesForID:                         s.makeCoordinatesForID(prop.Name),
+		DisablePersistence:                       false,
+		Logger:                                   s.index.logger,
+		HNSWEF:                                   s.index.Config.HNSWGeoIndexEF,
 		SnapshotDisabled:                         s.index.Config.HNSWDisableSnapshots,
 		SnapshotOnStartup:                        s.index.Config.HNSWSnapshotOnStartup,
 		SnapshotCreateInterval:                   time.Duration(s.index.Config.HNSWSnapshotIntervalSeconds) * time.Second,

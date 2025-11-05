@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -51,9 +51,15 @@ type ClientService interface {
 
 	DeleteRole(params *DeleteRoleParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*DeleteRoleNoContent, error)
 
+	GetGroups(params *GetGroupsParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetGroupsOK, error)
+
+	GetGroupsForRole(params *GetGroupsForRoleParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetGroupsForRoleOK, error)
+
 	GetRole(params *GetRoleParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetRoleOK, error)
 
 	GetRoles(params *GetRolesParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetRolesOK, error)
+
+	GetRolesForGroup(params *GetRolesForGroupParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetRolesForGroupOK, error)
 
 	GetRolesForUser(params *GetRolesForUserParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetRolesForUserOK, error)
 
@@ -75,7 +81,9 @@ type ClientService interface {
 }
 
 /*
-AddPermissions adds permission to a given role
+AddPermissions adds permissions to a role
+
+Add new permissions to an existing role without affecting current permissions.
 */
 func (a *Client) AddPermissions(params *AddPermissionsParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*AddPermissionsOK, error) {
 	// TODO: Validate the params before sending
@@ -115,6 +123,8 @@ func (a *Client) AddPermissions(params *AddPermissionsParams, authInfo runtime.C
 
 /*
 AssignRoleToGroup assigns a role to a group
+
+Assign roles to the specified group.
 */
 func (a *Client) AssignRoleToGroup(params *AssignRoleToGroupParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*AssignRoleToGroupOK, error) {
 	// TODO: Validate the params before sending
@@ -154,6 +164,8 @@ func (a *Client) AssignRoleToGroup(params *AssignRoleToGroupParams, authInfo run
 
 /*
 AssignRoleToUser assigns a role to a user
+
+Assign one or more roles to a user. Users can have multiple roles.
 */
 func (a *Client) AssignRoleToUser(params *AssignRoleToUserParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*AssignRoleToUserOK, error) {
 	// TODO: Validate the params before sending
@@ -193,6 +205,8 @@ func (a *Client) AssignRoleToUser(params *AssignRoleToUserParams, authInfo runti
 
 /*
 CreateRole creates new role
+
+Create a new role with the specified permissions.
 */
 func (a *Client) CreateRole(params *CreateRoleParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*CreateRoleCreated, error) {
 	// TODO: Validate the params before sending
@@ -231,7 +245,9 @@ func (a *Client) CreateRole(params *CreateRoleParams, authInfo runtime.ClientAut
 }
 
 /*
-DeleteRole deletes role
+DeleteRole deletes a role
+
+Deleting a role will remove it from the system, and revoke the associated permissions from all users who had this role.
 */
 func (a *Client) DeleteRole(params *DeleteRoleParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*DeleteRoleNoContent, error) {
 	// TODO: Validate the params before sending
@@ -270,7 +286,91 @@ func (a *Client) DeleteRole(params *DeleteRoleParams, authInfo runtime.ClientAut
 }
 
 /*
+GetGroups lists all groups of a specific type
+
+Retrieves a list of all available group names for a specified group type (`oidc` or `db`).
+*/
+func (a *Client) GetGroups(params *GetGroupsParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetGroupsOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewGetGroupsParams()
+	}
+	op := &runtime.ClientOperation{
+		ID:                 "getGroups",
+		Method:             "GET",
+		PathPattern:        "/authz/groups/{groupType}",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &GetGroupsReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
+	if err != nil {
+		return nil, err
+	}
+	success, ok := result.(*GetGroupsOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for getGroups: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
+}
+
+/*
+GetGroupsForRole gets groups that have a specific role assigned
+
+Retrieves a list of all groups that have been assigned a specific role, identified by its name.
+*/
+func (a *Client) GetGroupsForRole(params *GetGroupsForRoleParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetGroupsForRoleOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewGetGroupsForRoleParams()
+	}
+	op := &runtime.ClientOperation{
+		ID:                 "getGroupsForRole",
+		Method:             "GET",
+		PathPattern:        "/authz/roles/{id}/group-assignments",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &GetGroupsForRoleReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
+	if err != nil {
+		return nil, err
+	}
+	success, ok := result.(*GetGroupsForRoleOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for getGroupsForRole: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
+}
+
+/*
 GetRole gets a role
+
+Fetch a role by its name.
 */
 func (a *Client) GetRole(params *GetRoleParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetRoleOK, error) {
 	// TODO: Validate the params before sending
@@ -310,6 +410,8 @@ func (a *Client) GetRole(params *GetRoleParams, authInfo runtime.ClientAuthInfoW
 
 /*
 GetRoles gets all roles
+
+Get all roles and their assigned permissions.
 */
 func (a *Client) GetRoles(params *GetRolesParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetRolesOK, error) {
 	// TODO: Validate the params before sending
@@ -348,7 +450,50 @@ func (a *Client) GetRoles(params *GetRolesParams, authInfo runtime.ClientAuthInf
 }
 
 /*
-GetRolesForUser gets roles assigned to user
+GetRolesForGroup gets roles assigned to a specific group
+
+Retrieves a list of all roles assigned to a specific group. The group must be identified by both its name (`id`) and its type (`db` or `oidc`).
+*/
+func (a *Client) GetRolesForGroup(params *GetRolesForGroupParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetRolesForGroupOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewGetRolesForGroupParams()
+	}
+	op := &runtime.ClientOperation{
+		ID:                 "getRolesForGroup",
+		Method:             "GET",
+		PathPattern:        "/authz/groups/{id}/roles/{groupType}",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &GetRolesForGroupReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
+	if err != nil {
+		return nil, err
+	}
+	success, ok := result.(*GetRolesForGroupOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for getRolesForGroup: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
+}
+
+/*
+GetRolesForUser gets roles assigned to a user
+
+Get all the roles for a specific user (`db` or `oidc`).
 */
 func (a *Client) GetRolesForUser(params *GetRolesForUserParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetRolesForUserOK, error) {
 	// TODO: Validate the params before sending
@@ -387,7 +532,9 @@ func (a *Client) GetRolesForUser(params *GetRolesForUserParams, authInfo runtime
 }
 
 /*
-GetRolesForUserDeprecated gets roles assigned to user d b o ID c deprecated will be removed when 1 29 is not supported anymore
+GetRolesForUserDeprecated gets roles assigned to a user
+
+Retrieve the roles assigned to a specific user (`db` + `oidc`). Deprecated, will be removed when 1.29 is not supported anymore
 */
 func (a *Client) GetRolesForUserDeprecated(params *GetRolesForUserDeprecatedParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetRolesForUserDeprecatedOK, error) {
 	// TODO: Validate the params before sending
@@ -426,7 +573,9 @@ func (a *Client) GetRolesForUserDeprecated(params *GetRolesForUserDeprecatedPara
 }
 
 /*
-GetUsersForRole gets users assigned to role
+GetUsersForRole gets users assigned to a role
+
+Fetch a list of users which have the specified role.
 */
 func (a *Client) GetUsersForRole(params *GetUsersForRoleParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetUsersForRoleOK, error) {
 	// TODO: Validate the params before sending
@@ -465,7 +614,9 @@ func (a *Client) GetUsersForRole(params *GetUsersForRoleParams, authInfo runtime
 }
 
 /*
-GetUsersForRoleDeprecated gets users db o ID c assigned to role deprecated will be removed when 1 29 is not supported anymore
+GetUsersForRoleDeprecated gets users assigned to a role
+
+Get all the users (`db` + `oidc`) who have been assigned a specific role. Deprecated, will be removed when v1.29 is not supported anymore.
 */
 func (a *Client) GetUsersForRoleDeprecated(params *GetUsersForRoleDeprecatedParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetUsersForRoleDeprecatedOK, error) {
 	// TODO: Validate the params before sending
@@ -504,7 +655,9 @@ func (a *Client) GetUsersForRoleDeprecated(params *GetUsersForRoleDeprecatedPara
 }
 
 /*
-HasPermission checks whether role possesses this permission
+HasPermission checks whether a role possesses a permission
+
+Check whether a role has the specified permissions.
 */
 func (a *Client) HasPermission(params *HasPermissionParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*HasPermissionOK, error) {
 	// TODO: Validate the params before sending
@@ -543,7 +696,9 @@ func (a *Client) HasPermission(params *HasPermissionParams, authInfo runtime.Cli
 }
 
 /*
-RemovePermissions removes permissions from a role if this results in an empty role the role will be deleted
+RemovePermissions removes permissions from a role
+
+Permissions can be revoked from a specified role. Removing all permissions from a role will delete the role itself.
 */
 func (a *Client) RemovePermissions(params *RemovePermissionsParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*RemovePermissionsOK, error) {
 	// TODO: Validate the params before sending
@@ -583,6 +738,8 @@ func (a *Client) RemovePermissions(params *RemovePermissionsParams, authInfo run
 
 /*
 RevokeRoleFromGroup revokes a role from a group
+
+Revoke roles from the specified group.
 */
 func (a *Client) RevokeRoleFromGroup(params *RevokeRoleFromGroupParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*RevokeRoleFromGroupOK, error) {
 	// TODO: Validate the params before sending
@@ -622,6 +779,8 @@ func (a *Client) RevokeRoleFromGroup(params *RevokeRoleFromGroupParams, authInfo
 
 /*
 RevokeRoleFromUser revokes a role from a user
+
+Remove one or more roles from a user.
 */
 func (a *Client) RevokeRoleFromUser(params *RevokeRoleFromUserParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*RevokeRoleFromUserOK, error) {
 	// TODO: Validate the params before sending

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -48,8 +48,9 @@ const (
 	DefaultDistributedTasksSchedulerTickInterval = time.Minute
 	DefaultDistributedTasksCompletedTaskTTL      = 5 * 24 * time.Hour
 
-	DefaultReplicationEngineMaxWorkers     = 10
-	DefaultReplicaMovementMinimumAsyncWait = 60 * time.Second
+	DefaultReplicationEngineMaxWorkers      = 10
+	DefaultReplicaMovementMinimumAsyncWait  = 60 * time.Second
+	DefaultReplicationEngineFileCopyWorkers = 10
 
 	DefaultTransferInactivityTimeout = 5 * time.Minute
 
@@ -91,6 +92,18 @@ func FromEnv(config *Config) error {
 		config.TrackVectorDimensions = true
 	}
 
+	timeout := 30 * time.Second
+	opt := os.Getenv("MINIMUM_INTERNAL_TIMEOUT")
+	if opt != "" {
+		if parsed, err := time.ParseDuration(opt); err == nil {
+			timeout = parsed
+		} else {
+			return fmt.Errorf("parse MINIMUM_INTERNAL_TIMEOUT as duration: %w", err)
+		}
+	}
+
+	config.MinimumInternalTimeout = timeout
+
 	if v := os.Getenv("TRACK_VECTOR_DIMENSIONS_INTERVAL"); v != "" {
 		interval, err := time.ParseDuration(v)
 		if err != nil {
@@ -102,9 +115,7 @@ func FromEnv(config *Config) error {
 	}
 
 	if entcfg.Enabled(os.Getenv("REINDEX_VECTOR_DIMENSIONS_AT_STARTUP")) {
-		if config.TrackVectorDimensions {
-			config.ReindexVectorDimensionsAtStartup = true
-		}
+		config.ReindexVectorDimensionsAtStartup = true
 	}
 
 	if entcfg.Enabled(os.Getenv("DISABLE_LAZY_LOAD_SHARDS")) {
@@ -371,12 +382,16 @@ func FromEnv(config *Config) error {
 		config.Persistence.LazySegmentsDisabled = true
 	}
 
-	if entcfg.Enabled(os.Getenv("PERSISTENCE_SEGMENT_INFO_FROM_FILE_ENABLED")) {
+	if entcfg.Enabled(os.Getenv("PERSISTENCE_SEGMENT_INFO_FROM_FILE_DISABLED")) {
+		config.Persistence.SegmentInfoIntoFileNameEnabled = false
+	} else {
 		config.Persistence.SegmentInfoIntoFileNameEnabled = true
 	}
 
 	if entcfg.Enabled(os.Getenv("PERSISTENCE_WRITE_METADATA_FILES_ENABLED")) {
 		config.Persistence.WriteMetadataFilesEnabled = true
+	} else {
+		config.Persistence.WriteMetadataFilesEnabled = false
 	}
 
 	if v := os.Getenv("PERSISTENCE_MAX_REUSE_WAL_SIZE"); v != "" {
@@ -445,6 +460,16 @@ func FromEnv(config *Config) error {
 	}
 	// ---- HNSW snapshots ----
 
+	defaultQuantization := ""
+	if v := os.Getenv("DEFAULT_QUANTIZATION"); v != "" {
+		defaultQuantization = strings.ToLower(v)
+	}
+	config.DefaultQuantization = configRuntime.NewDynamicValue(defaultQuantization)
+
+	if entcfg.Enabled(os.Getenv("EXPERIMENTAL_SPFRESH_ENABLED")) {
+		config.SPFreshEnabled = true
+	}
+
 	if entcfg.Enabled(os.Getenv("INDEX_RANGEABLE_IN_MEMORY")) {
 		config.Persistence.IndexRangeableInMemory = true
 	}
@@ -469,6 +494,14 @@ func FromEnv(config *Config) error {
 		"HNSW_ACORN_FILTER_RATIO",
 		func(val float64) { config.HNSWAcornFilterRatio = val },
 		DefaultHNSWAcornFilterRatio,
+	); err != nil {
+		return err
+	}
+
+	if err := parseInt(
+		"HNSW_GEO_INDEX_EF",
+		func(val int) { config.HNSWGeoIndexEF = val },
+		0,
 	); err != nil {
 		return err
 	}
@@ -652,7 +685,9 @@ func FromEnv(config *Config) error {
 		config.EnableModules = v
 	}
 
-	if entcfg.Enabled(os.Getenv("ENABLE_API_BASED_MODULES")) {
+	if entcfg.Enabled(os.Getenv("API_BASED_MODULES_DISABLED")) {
+		config.EnableApiBasedModules = false
+	} else {
 		config.EnableApiBasedModules = true
 	}
 
@@ -1136,6 +1171,14 @@ func (c *Config) parseMemtableConfig() error {
 		return err
 	}
 
+	if err := parsePositiveInt(
+		"REPLICATION_ENGINE_FILE_COPY_WORKERS",
+		func(val int) { c.ReplicationEngineFileCopyWorkers = val },
+		DefaultReplicationEngineFileCopyWorkers,
+	); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -1408,11 +1451,6 @@ func parseClusterConfig() (cluster.Config, error) {
 		// it is convention in this server that the data bind point is
 		// equal to the data bind port + 1
 		cfg.DataBindPort = cfg.GossipBindPort + 1
-	}
-
-	if cfg.DataBindPort != cfg.GossipBindPort+1 {
-		return cfg, fmt.Errorf("CLUSTER_DATA_BIND_PORT must be one port " +
-			"number greater than CLUSTER_GOSSIP_BIND_PORT")
 	}
 
 	cfg.IgnoreStartupSchemaSync = entcfg.Enabled(

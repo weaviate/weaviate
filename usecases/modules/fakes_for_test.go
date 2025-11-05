@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,10 +13,10 @@ package modules
 
 import (
 	"context"
-	"net/http"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/mock"
+
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
@@ -54,11 +54,6 @@ func (m dummyText2VecModuleNoCapabilities) Name() string {
 func (m dummyText2VecModuleNoCapabilities) Init(ctx context.Context,
 	params moduletools.ModuleInitParams,
 ) error {
-	return nil
-}
-
-// TODO remove as this is a capability
-func (m dummyText2VecModuleNoCapabilities) RootHandler() http.Handler {
 	return nil
 }
 
@@ -104,11 +99,6 @@ func (m dummyText2ColBERTModuleNoCapabilities) Init(ctx context.Context,
 	return nil
 }
 
-// TODO remove as this is a capability
-func (m dummyText2ColBERTModuleNoCapabilities) RootHandler() http.Handler {
-	return nil
-}
-
 func (m dummyText2ColBERTModuleNoCapabilities) Type() modulecapabilities.ModuleType {
 	return modulecapabilities.Text2Multivec
 }
@@ -150,11 +140,6 @@ func (m dummyRef2VecModuleNoCapabilities) Init(ctx context.Context,
 	return nil
 }
 
-// TODO remove as this is a capability
-func (m dummyRef2VecModuleNoCapabilities) RootHandler() http.Handler {
-	return nil
-}
-
 func (m dummyRef2VecModuleNoCapabilities) Type() modulecapabilities.ModuleType {
 	return modulecapabilities.Ref2Vec
 }
@@ -181,11 +166,6 @@ func (m dummyNonVectorizerModule) Name() string {
 func (m dummyNonVectorizerModule) Init(ctx context.Context,
 	params moduletools.ModuleInitParams,
 ) error {
-	return nil
-}
-
-// TODO remove as this is a capability
-func (m dummyNonVectorizerModule) RootHandler() http.Handler {
 	return nil
 }
 

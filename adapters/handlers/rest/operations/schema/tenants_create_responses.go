@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -28,7 +28,7 @@ import (
 const TenantsCreateOKCode int = 200
 
 /*
-TenantsCreateOK Added new tenants to the specified class
+TenantsCreateOK Tenants created successfully.
 
 swagger:response tenantsCreateOK
 */
@@ -146,7 +146,7 @@ func (o *TenantsCreateForbidden) WriteResponse(rw http.ResponseWriter, producer 
 const TenantsCreateUnprocessableEntityCode int = 422
 
 /*
-TenantsCreateUnprocessableEntity Invalid Tenant class
+TenantsCreateUnprocessableEntity Invalid request.
 
 swagger:response tenantsCreateUnprocessableEntity
 */
@@ -191,7 +191,7 @@ func (o *TenantsCreateUnprocessableEntity) WriteResponse(rw http.ResponseWriter,
 const TenantsCreateInternalServerErrorCode int = 500
 
 /*
-TenantsCreateInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+TenantsCreateInternalServerError An error occurred while creating tenants. Check the ErrorResponse for details.
 
 swagger:response tenantsCreateInternalServerError
 */

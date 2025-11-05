@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -38,8 +38,15 @@ import (
 	"github.com/weaviate/weaviate/usecases/file"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
-	"github.com/weaviate/weaviate/usecases/scaler"
 )
+
+const (
+	asyncReplicationTargetNodeEndpointPattern = "/indices/%s/shards/%s/async-replication-target-node"
+)
+
+func AsyncReplicationTargetNodeEndpoint(indexName, shardName string) string {
+	return fmt.Sprintf(asyncReplicationTargetNodeEndpointPattern, indexName, shardName)
+}
 
 type RemoteIndex struct {
 	retryClient
@@ -734,36 +741,6 @@ func (c *RemoteIndex) ReInitShard(ctx context.Context,
 	return c.retry(ctx, 9, try)
 }
 
-func (c *RemoteIndex) IncreaseReplicationFactor(ctx context.Context,
-	hostName, indexName string, dist scaler.ShardDist,
-) error {
-	body, err := clusterapi.IndicesPayloads.IncreaseReplicationFactor.Marshall(dist)
-	if err != nil {
-		return err
-	}
-	try := func(ctx context.Context) (bool, error) {
-		req, err := setupRequest(ctx, http.MethodPut, hostName,
-			fmt.Sprintf("/replicas/indices/%s/replication-factor:increase", indexName),
-			"", bytes.NewReader(body))
-		if err != nil {
-			return false, fmt.Errorf("create http request: %w", err)
-		}
-
-		res, err := c.client.Do(req)
-		if err != nil {
-			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
-		}
-		defer res.Body.Close()
-
-		if code := res.StatusCode; code != http.StatusNoContent {
-			body, _ := io.ReadAll(res.Body)
-			return shouldRetry(code), fmt.Errorf("status code: %v body: (%s)", code, body)
-		}
-		return false, nil
-	}
-	return c.retry(ctx, 34, try)
-}
-
 // PauseFileActivity pauses the collection's shard replica background processes on the specified
 // host. You should explicitly resume the background processes once you're done with the
 // files.
@@ -954,7 +931,7 @@ func (c *RemoteIndex) AddAsyncReplicationTargetNode(
 	}
 	value := []string{strconv.FormatUint(schemaVersion, 10)}
 	req, err := setupRequest(ctx, http.MethodPost, hostName,
-		fmt.Sprintf("/indices/%s/shards/%s/async-replication-target-node", indexName, shardName),
+		AsyncReplicationTargetNodeEndpoint(indexName, shardName),
 		url.Values{replica.SchemaVersionKey: value}.Encode(),
 		bytes.NewReader(body),
 	)
@@ -991,7 +968,7 @@ func (c *RemoteIndex) RemoveAsyncReplicationTargetNode(
 	}
 
 	req, err := setupRequest(ctx, http.MethodDelete, hostName,
-		fmt.Sprintf("/indices/%s/shards/%s/async-replication-target-node", indexName, shardName),
+		AsyncReplicationTargetNodeEndpoint(indexName, shardName),
 		"", bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("create http request: %w", err)

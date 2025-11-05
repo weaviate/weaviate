@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -33,13 +33,13 @@ type Object struct {
 	// additional
 	Additional AdditionalProperties `json:"additional,omitempty"`
 
-	// Class of the Object, defined in the schema.
+	// Name of the collection (class) the object belongs to.
 	Class string `json:"class,omitempty"`
 
 	// (Response only) Timestamp of creation of this object in milliseconds since epoch UTC.
 	CreationTimeUnix int64 `json:"creationTimeUnix,omitempty"`
 
-	// ID of the Object.
+	// The UUID of the object.
 	// Format: uuid
 	ID strfmt.UUID `json:"id,omitempty"`
 
@@ -49,16 +49,16 @@ type Object struct {
 	// properties
 	Properties PropertySchema `json:"properties,omitempty"`
 
-	// Name of the Objects tenant.
+	// The name of the tenant the object belongs to.
 	Tenant string `json:"tenant,omitempty"`
 
-	// This field returns vectors associated with the Object. C11yVector, Vector or Vectors values are possible.
+	// This field returns vectors associated with the object. C11yVector, Vector or Vectors values are possible.
 	Vector C11yVector `json:"vector,omitempty"`
 
 	// vector weights
 	VectorWeights VectorWeights `json:"vectorWeights,omitempty"`
 
-	// This field returns vectors associated with the Object.
+	// This field returns vectors associated with the object.
 	Vectors Vectors `json:"vectors,omitempty"`
 }
 

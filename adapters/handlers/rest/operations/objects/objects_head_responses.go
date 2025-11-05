@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -123,7 +123,7 @@ func (o *ObjectsHeadForbidden) WriteResponse(rw http.ResponseWriter, producer ru
 const ObjectsHeadNotFoundCode int = 404
 
 /*
-ObjectsHeadNotFound Object doesn't exist.
+ObjectsHeadNotFound Object does not exist.
 
 swagger:response objectsHeadNotFound
 */
@@ -148,7 +148,7 @@ func (o *ObjectsHeadNotFound) WriteResponse(rw http.ResponseWriter, producer run
 const ObjectsHeadInternalServerErrorCode int = 500
 
 /*
-ObjectsHeadInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+ObjectsHeadInternalServerError An error occurred while trying to fulfill the request. Check the ErrorResponse for details.
 
 swagger:response objectsHeadInternalServerError
 */

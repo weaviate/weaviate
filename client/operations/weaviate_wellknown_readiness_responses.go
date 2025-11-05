@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -56,7 +56,7 @@ func NewWeaviateWellknownReadinessOK() *WeaviateWellknownReadinessOK {
 /*
 WeaviateWellknownReadinessOK describes a response with status code 200, with default header values.
 
-The application has completed its start-up routine and is ready to accept traffic.
+The application is ready to serve traffic.
 */
 type WeaviateWellknownReadinessOK struct {
 }
@@ -112,7 +112,7 @@ func NewWeaviateWellknownReadinessServiceUnavailable() *WeaviateWellknownReadine
 /*
 WeaviateWellknownReadinessServiceUnavailable describes a response with status code 503, with default header values.
 
-The application is currently not able to serve traffic. If other horizontal replicas of weaviate are available and they are capable of receiving traffic, all traffic should be redirected there instead.
+The application is not ready to serve traffic. Traffic should be directed to other available replicas if applicable.
 */
 type WeaviateWellknownReadinessServiceUnavailable struct {
 }

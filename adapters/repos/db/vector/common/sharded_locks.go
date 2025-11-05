@@ -4,14 +4,16 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
 
 package common
 
-import "sync"
+import (
+	"sync"
+)
 
 const (
 	DefaultShardedLocksCount = 512
@@ -69,6 +71,10 @@ func (sl *ShardedLocks) LockedAll(callback func()) {
 	callback()
 }
 
+func (sl *ShardedLocks) Hash(id uint64) uint64 {
+	return id % sl.count
+}
+
 func (sl *ShardedLocks) Lock(id uint64) {
 	sl.shards[(id/sl.PageSize)%sl.count].Lock()
 }
@@ -101,19 +107,19 @@ func NewShardedRWLocks(count uint64) *ShardedRWLocks {
 		count = 2
 	}
 
+	return NewShardedRWLocksWith(count, DefaultPageSize)
+}
+
+func NewShardedRWLocksWith(pages, pageSize uint64) *ShardedRWLocks {
 	return &ShardedRWLocks{
-		shards:   make([]sync.RWMutex, count),
-		count:    count,
-		PageSize: DefaultPageSize,
+		shards:   make([]sync.RWMutex, pages),
+		count:    pages,
+		PageSize: pageSize,
 	}
 }
 
 func NewShardedRWLocksWithPageSize(pageSize uint64) *ShardedRWLocks {
-	return &ShardedRWLocks{
-		shards:   make([]sync.RWMutex, DefaultShardedLocksCount),
-		count:    DefaultShardedLocksCount,
-		PageSize: pageSize,
-	}
+	return NewShardedRWLocksWith(DefaultShardedLocksCount, pageSize)
 }
 
 func (sl *ShardedRWLocks) LockAll() {
@@ -135,8 +141,16 @@ func (sl *ShardedRWLocks) LockedAll(callback func()) {
 	callback()
 }
 
+func (sl *ShardedRWLocks) Hash(id uint64) uint64 {
+	return id % sl.count
+}
+
 func (sl *ShardedRWLocks) Lock(id uint64) {
 	sl.shards[(id/sl.PageSize)%sl.count].Lock()
+}
+
+func (sl *ShardedRWLocks) TryLock(id uint64) bool {
+	return sl.shards[(id/sl.PageSize)%sl.count].TryLock()
 }
 
 func (sl *ShardedRWLocks) Unlock(id uint64) {

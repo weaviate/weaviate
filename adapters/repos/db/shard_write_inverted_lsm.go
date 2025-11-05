@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -276,7 +276,7 @@ func GenerateUniqueString(length int) (string, error) {
 }
 
 // Empty the dimensions bucket, quickly and efficiently
-func (s *Shard) resetDimensionsLSM() error {
+func (s *Shard) resetDimensionsLSM(ctx context.Context) error {
 	// Load the current one, or an empty one if it doesn't exist
 	err := s.createDimensionsBucket(context.Background(), helpers.DimensionsBucketLSM)
 	if err != nil {

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -28,7 +28,7 @@ import (
 const ObjectsListOKCode int = 200
 
 /*
-ObjectsListOK Successful response. <br/><br/>If `class` is not provided, the response will not include any objects.
+ObjectsListOK Successful response containing the list of objects. If the collection name (`class`) is not provided, the response will not include any objects.
 
 swagger:response objectsListOK
 */
@@ -188,7 +188,7 @@ func (o *ObjectsListForbidden) WriteResponse(rw http.ResponseWriter, producer ru
 const ObjectsListNotFoundCode int = 404
 
 /*
-ObjectsListNotFound Successful query result but no resource was found.
+ObjectsListNotFound Successful query result but no matching objects were found.
 
 swagger:response objectsListNotFound
 */
@@ -213,7 +213,7 @@ func (o *ObjectsListNotFound) WriteResponse(rw http.ResponseWriter, producer run
 const ObjectsListUnprocessableEntityCode int = 422
 
 /*
-ObjectsListUnprocessableEntity Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
+ObjectsListUnprocessableEntity The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request. Ensure the specified collection exists.
 
 swagger:response objectsListUnprocessableEntity
 */
@@ -258,7 +258,7 @@ func (o *ObjectsListUnprocessableEntity) WriteResponse(rw http.ResponseWriter, p
 const ObjectsListInternalServerErrorCode int = 500
 
 /*
-ObjectsListInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+ObjectsListInternalServerError An error occurred while trying to fulfill the request. Check the ErrorResponse for details.
 
 swagger:response objectsListInternalServerError
 */

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -15,7 +15,6 @@ import (
 	"context"
 
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 func (rs SchemaReader) WaitForUpdate(ctx context.Context, version uint64) error {
@@ -114,17 +113,4 @@ func (rs SchemaReader) TenantsShardsWithVersion(ctx context.Context, version uin
 	})
 
 	return tenantShards, err
-}
-
-func (rs SchemaReader) CopyShardingStateWithVersion(ctx context.Context, class string, version uint64) (ss *sharding.State, err error) {
-	if version > 0 {
-		return rs.versionedSchemaReader.CopyShardingState(ctx, class, version)
-	}
-	rs.retry(func(s *schema) error {
-		if ss, _ = s.CopyShardingState(class); ss == nil {
-			return ErrClassNotFound
-		}
-		return nil
-	})
-	return ss, err
 }

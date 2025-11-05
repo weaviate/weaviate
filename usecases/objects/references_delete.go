@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -47,6 +48,7 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 
 	ctx = classcache.ContextWithClassCache(ctx)
 	input.Class = schema.UppercaseClassName(input.Class)
+	input.Class, _ = m.resolveAlias(input.Class)
 
 	// We are fetching the existing object and get to know if the UUID exists
 	if err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.ShardsData(input.Class, tenant)...); err != nil {
@@ -165,7 +167,7 @@ func (req *DeleteReferenceInput) validateSchema(class *models.Class) error {
 
 // removeReference removes ref from object obj with property prop.
 // It returns ok (removal took place) and an error message
-func removeReference(obj *models.Object, prop string, ref *models.SingleRef) (ok bool, errmsg string) {
+func removeReference(obj *models.Object, prop string, remove *models.SingleRef) (ok bool, errmsg string) {
 	properties := obj.Properties.(map[string]interface{})
 	if properties == nil || properties[prop] == nil {
 		return false, ""
@@ -173,15 +175,16 @@ func removeReference(obj *models.Object, prop string, ref *models.SingleRef) (ok
 
 	refs, ok := properties[prop].(models.MultipleRef)
 	if !ok {
-		return false, "source list is not well formed"
+		return false, fmt.Sprintf("property %s of type %T is not a valid cross-reference", prop, refs)
 	}
 
-	newrefs := make(models.MultipleRef, 0, len(refs))
-	for _, r := range refs {
-		if r.Beacon != ref.Beacon {
-			newrefs = append(newrefs, r)
+	var removed bool
+	properties[prop] = slices.DeleteFunc(refs, func(ref *models.SingleRef) bool {
+		if ref.Beacon == remove.Beacon {
+			removed = removed || true
+			return true
 		}
-	}
-	properties[prop] = newrefs
-	return len(refs) != len(newrefs), ""
+		return false
+	})
+	return removed, ""
 }

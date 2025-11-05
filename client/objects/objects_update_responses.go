@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -83,7 +83,7 @@ func NewObjectsUpdateOK() *ObjectsUpdateOK {
 /*
 ObjectsUpdateOK describes a response with status code 200, with default header values.
 
-Successfully received.
+Object replaced successfully.
 */
 type ObjectsUpdateOK struct {
 	Payload *models.Object
@@ -275,7 +275,7 @@ func NewObjectsUpdateNotFound() *ObjectsUpdateNotFound {
 /*
 ObjectsUpdateNotFound describes a response with status code 404, with default header values.
 
-Successful query result but no resource was found.
+Object not found.
 */
 type ObjectsUpdateNotFound struct {
 }
@@ -331,7 +331,7 @@ func NewObjectsUpdateUnprocessableEntity() *ObjectsUpdateUnprocessableEntity {
 /*
 ObjectsUpdateUnprocessableEntity describes a response with status code 422, with default header values.
 
-Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
+The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request. Ensure the collection exists and the object properties are valid.
 */
 type ObjectsUpdateUnprocessableEntity struct {
 	Payload *models.ErrorResponse
@@ -399,7 +399,7 @@ func NewObjectsUpdateInternalServerError() *ObjectsUpdateInternalServerError {
 /*
 ObjectsUpdateInternalServerError describes a response with status code 500, with default header values.
 
-An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+An error occurred while trying to fulfill the request. Check the ErrorResponse for details.
 */
 type ObjectsUpdateInternalServerError struct {
 	Payload *models.ErrorResponse

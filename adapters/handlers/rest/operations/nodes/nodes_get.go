@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -45,9 +45,9 @@ func NewNodesGet(ctx *middleware.Context, handler NodesGetHandler) *NodesGet {
 /*
 	NodesGet swagger:route GET /nodes nodes nodesGet
 
-Node information for the database.
+# Get node status
 
-Returns node information for the entire database.
+Retrieves status information about all nodes in the cluster. Use the `output` query parameter to control the level of detail.
 */
 type NodesGet struct {
 	Context *middleware.Context

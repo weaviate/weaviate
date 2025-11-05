@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -123,7 +123,7 @@ func (o *ObjectsClassHeadForbidden) WriteResponse(rw http.ResponseWriter, produc
 const ObjectsClassHeadNotFoundCode int = 404
 
 /*
-ObjectsClassHeadNotFound Object doesn't exist.
+ObjectsClassHeadNotFound Object does not exist.
 
 swagger:response objectsClassHeadNotFound
 */
@@ -148,7 +148,7 @@ func (o *ObjectsClassHeadNotFound) WriteResponse(rw http.ResponseWriter, produce
 const ObjectsClassHeadUnprocessableEntityCode int = 422
 
 /*
-ObjectsClassHeadUnprocessableEntity Request is well-formed (i.e., syntactically correct), but erroneous.
+ObjectsClassHeadUnprocessableEntity Invalid data provided. Please check the values in your request (e.g., invalid UUID format).
 
 swagger:response objectsClassHeadUnprocessableEntity
 */
@@ -193,7 +193,7 @@ func (o *ObjectsClassHeadUnprocessableEntity) WriteResponse(rw http.ResponseWrit
 const ObjectsClassHeadInternalServerErrorCode int = 500
 
 /*
-ObjectsClassHeadInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+ObjectsClassHeadInternalServerError An error occurred while trying to fulfill the request. Check the ErrorResponse for details.
 
 swagger:response objectsClassHeadInternalServerError
 */

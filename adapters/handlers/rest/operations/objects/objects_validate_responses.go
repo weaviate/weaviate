@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -28,7 +28,7 @@ import (
 const ObjectsValidateOKCode int = 200
 
 /*
-ObjectsValidateOK Successfully validated.
+ObjectsValidateOK Object is valid according to the schema.
 
 swagger:response objectsValidateOK
 */
@@ -123,7 +123,7 @@ func (o *ObjectsValidateForbidden) WriteResponse(rw http.ResponseWriter, produce
 const ObjectsValidateUnprocessableEntityCode int = 422
 
 /*
-ObjectsValidateUnprocessableEntity Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
+ObjectsValidateUnprocessableEntity Request body is well-formed but the object is invalid according to the schema.
 
 swagger:response objectsValidateUnprocessableEntity
 */
@@ -168,7 +168,7 @@ func (o *ObjectsValidateUnprocessableEntity) WriteResponse(rw http.ResponseWrite
 const ObjectsValidateInternalServerErrorCode int = 500
 
 /*
-ObjectsValidateInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+ObjectsValidateInternalServerError An error occurred while trying to fulfill the request. Check the ErrorResponse for details.
 
 swagger:response objectsValidateInternalServerError
 */

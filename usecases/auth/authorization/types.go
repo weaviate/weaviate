@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -14,6 +14,8 @@ package authorization
 import (
 	"fmt"
 	"strings"
+
+	"github.com/weaviate/weaviate/usecases/auth/authentication"
 
 	"github.com/go-openapi/strfmt"
 
@@ -35,10 +37,11 @@ const (
 	ROLE_SCOPE_ALL   = "ALL"
 	ROLE_SCOPE_MATCH = "MATCH"
 
-	USER_ASSIGN_AND_REVOKE = "A"
+	USER_AND_GROUP_ASSIGN_AND_REVOKE = "A"
 )
 
 const (
+	GroupsDomain      = "groups"
 	UsersDomain       = "users"
 	RolesDomain       = "roles"
 	ClusterDomain     = "cluster"
@@ -49,6 +52,7 @@ const (
 	TenantsDomain     = "tenants"
 	DataDomain        = "data"
 	ReplicateDomain   = "replicate"
+	AliasesDomain     = "aliases"
 )
 
 var (
@@ -70,6 +74,10 @@ var (
 		Verbosity:  String(verbosity.OutputVerbose),
 		Collection: All,
 	}
+	AllOIDCGroups = &models.PermissionGroups{
+		Group:     All,
+		GroupType: models.GroupTypeOidc,
+	}
 	AllRoles = &models.PermissionRoles{
 		Role:  All,
 		Scope: String(models.PermissionRolesScopeAll),
@@ -84,6 +92,10 @@ var (
 		Collection: All,
 		Shard:      All,
 	}
+	AllAliases = &models.PermissionAliases{
+		Collection: All,
+		Alias:      All,
+	}
 
 	ComponentName = "RBAC"
 
@@ -97,6 +109,9 @@ var (
 
 	ReadCluster = "read_cluster"
 	ReadNodes   = "read_nodes"
+
+	AssignAndRevokeGroups = "assign_and_revoke_groups"
+	ReadGroups            = "read_groups"
 
 	AssignAndRevokeUsers = "assign_and_revoke_users"
 	CreateUsers          = "create_users"
@@ -126,6 +141,11 @@ var (
 	UpdateReplicate = "update_replicate"
 	DeleteReplicate = "delete_replicate"
 
+	CreateAliases = "create_aliases"
+	ReadAliases   = "read_aliases"
+	UpdateAliases = "update_aliases"
+	DeleteAliases = "delete_aliases"
+
 	availableWeaviateActions = []string{
 		// Roles domain
 		CreateRoles,
@@ -145,6 +165,10 @@ var (
 
 		// Cluster domain
 		ReadCluster,
+
+		// Groups domain
+		AssignAndRevokeGroups,
+		ReadGroups,
 
 		// Nodes domain
 		ReadNodes,
@@ -172,6 +196,12 @@ var (
 		ReadReplicate,
 		UpdateReplicate,
 		DeleteReplicate,
+
+		// Aliases domain
+		CreateAliases,
+		ReadAliases,
+		UpdateAliases,
+		DeleteAliases,
 	}
 )
 
@@ -233,6 +263,31 @@ func Nodes(verbosity string, classes ...string) []string {
 		} else {
 			resources[idx] = nodes(verbosity, classes[idx])
 		}
+	}
+
+	return resources
+}
+
+// Groups generates a list of user resource strings based on the provided group names.
+// If no group names are provided, it returns a default user resource string "groups/*".
+//
+// Parameters:
+//
+//	groups - A variadic parameter representing the group names.
+//
+// Returns:
+//
+//	A slice of strings where each string is a formatted user resource string.
+func Groups(groupType authentication.AuthType, groups ...string) []string {
+	if len(groups) == 0 || (len(groups) == 1 && (groups[0] == "" || groups[0] == "*")) {
+		return []string{
+			fmt.Sprintf("%s/%s/*", GroupsDomain, groupType),
+		}
+	}
+
+	resources := make([]string, len(groups))
+	for idx := range groups {
+		resources[idx] = fmt.Sprintf("%s/%s/%s", GroupsDomain, groupType, groups[idx])
 	}
 
 	return resources
@@ -312,6 +367,30 @@ func CollectionsMetadata(classes ...string) []string {
 			resources[idx] = fmt.Sprintf("%s/collections/*/shards/#", SchemaDomain)
 		} else {
 			resources[idx] = fmt.Sprintf("%s/collections/%s/shards/#", SchemaDomain, classes[idx])
+		}
+	}
+
+	return resources
+}
+
+func Aliases(class string, aliases ...string) []string {
+	class = schema.UppercaseClassName(class)
+	aliases = schema.UppercaseClassesNames(aliases...)
+
+	if class == "" {
+		class = "*"
+	}
+
+	if len(aliases) == 0 || (len(aliases) == 1 && (aliases[0] == "" || aliases[0] == "*")) {
+		return []string{fmt.Sprintf("%s/collections/%s/aliases/*", AliasesDomain, class)}
+	}
+
+	resources := make([]string, len(aliases))
+	for idx := range aliases {
+		if aliases[idx] == "" {
+			resources[idx] = fmt.Sprintf("%s/collections/%s/aliases/*", AliasesDomain, class)
+		} else {
+			resources[idx] = fmt.Sprintf("%s/collections/%s/aliases/%s", AliasesDomain, class, aliases[idx])
 		}
 	}
 
@@ -488,6 +567,8 @@ func viewerPermissions() []*models.Permission {
 			Collections: AllCollections,
 			Tenants:     AllTenants,
 			Users:       AllUsers,
+			Aliases:     AllAliases,
+			Groups:      AllOIDCGroups,
 		})
 	}
 
@@ -508,6 +589,8 @@ func adminPermissions() []*models.Permission {
 			Collections: AllCollections,
 			Tenants:     AllTenants,
 			Users:       AllUsers,
+			Aliases:     AllAliases,
+			Groups:      AllOIDCGroups,
 		})
 	}
 

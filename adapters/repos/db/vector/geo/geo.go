@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -27,6 +27,8 @@ import (
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
+const DefaultHNSWEF = 800
+
 // Index wraps another index to provide geo searches. This allows us to reuse
 // the hnsw vector index, without making geo searches dependent on
 // hnsw-specific features.
@@ -44,7 +46,6 @@ type vectorIndex interface {
 	KnnSearchByVectorMaxDist(ctx context.Context, query []float32, dist float32, ef int,
 		allowList helpers.AllowList) ([]uint64, error)
 	Delete(id ...uint64) error
-	Dump(...string)
 	Drop(ctx context.Context) error
 	PostStartup(ctx context.Context)
 }
@@ -57,11 +58,20 @@ type Config struct {
 	RootPath           string
 	Logger             logrus.FieldLogger
 
+	HNSWEF int
+
 	SnapshotDisabled                         bool
 	SnapshotOnStartup                        bool
 	SnapshotCreateInterval                   time.Duration
 	SnapshotMinDeltaCommitlogsNumer          int
 	SnapshotMinDeltaCommitlogsSizePercentage int
+}
+
+func (c Config) hnswEF() int {
+	if c.HNSWEF > 0 {
+		return c.HNSWEF
+	}
+	return DefaultHNSWEF
 }
 
 func NewIndex(config Config,
@@ -146,7 +156,7 @@ func (i *Index) WithinRange(ctx context.Context,
 		return nil, errors.Wrap(err, "invalid arguments")
 	}
 
-	return i.vectorIndex.KnnSearchByVectorMaxDist(ctx, query, geoRange.Distance, 800, nil)
+	return i.vectorIndex.KnnSearchByVectorMaxDist(ctx, query, geoRange.Distance, i.config.hnswEF(), nil)
 }
 
 func (i *Index) Delete(id uint64) error {

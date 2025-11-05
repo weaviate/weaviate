@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -76,7 +76,7 @@ type GraphqlPostParams struct {
 
 	/* Body.
 
-	   The GraphQL query request parameters.
+	   The GraphQL query to execute, including the query string and optional variables.
 	*/
 	Body *models.GraphQLQuery
 

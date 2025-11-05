@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
@@ -85,7 +86,7 @@ func NewAssignRoleToGroupOK() *AssignRoleToGroupOK {
 /*
 AssignRoleToGroupOK describes a response with status code 200, with default header values.
 
-Role assigned successfully
+Roles assigned successfully.
 */
 type AssignRoleToGroupOK struct {
 }
@@ -141,7 +142,7 @@ func NewAssignRoleToGroupBadRequest() *AssignRoleToGroupBadRequest {
 /*
 AssignRoleToGroupBadRequest describes a response with status code 400, with default header values.
 
-Bad request
+Malformed request.
 */
 type AssignRoleToGroupBadRequest struct {
 	Payload *models.ErrorResponse
@@ -333,7 +334,7 @@ func NewAssignRoleToGroupNotFound() *AssignRoleToGroupNotFound {
 /*
 AssignRoleToGroupNotFound describes a response with status code 404, with default header values.
 
-role or group is not found.
+Role or group not found.
 */
 type AssignRoleToGroupNotFound struct {
 }
@@ -455,17 +456,69 @@ swagger:model AssignRoleToGroupBody
 */
 type AssignRoleToGroupBody struct {
 
-	// the roles that assigned to group
+	// group type
+	GroupType models.GroupType `json:"groupType,omitempty"`
+
+	// The roles to assign to the specified group.
 	Roles []string `json:"roles"`
 }
 
 // Validate validates this assign role to group body
 func (o *AssignRoleToGroupBody) Validate(formats strfmt.Registry) error {
+	var res []error
+
+	if err := o.validateGroupType(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
 	return nil
 }
 
-// ContextValidate validates this assign role to group body based on context it is used
+func (o *AssignRoleToGroupBody) validateGroupType(formats strfmt.Registry) error {
+	if swag.IsZero(o.GroupType) { // not required
+		return nil
+	}
+
+	if err := o.GroupType.Validate(formats); err != nil {
+		if ve, ok := err.(*errors.Validation); ok {
+			return ve.ValidateName("body" + "." + "groupType")
+		} else if ce, ok := err.(*errors.CompositeError); ok {
+			return ce.ValidateName("body" + "." + "groupType")
+		}
+		return err
+	}
+
+	return nil
+}
+
+// ContextValidate validate this assign role to group body based on the context it is used
 func (o *AssignRoleToGroupBody) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	var res []error
+
+	if err := o.contextValidateGroupType(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+func (o *AssignRoleToGroupBody) contextValidateGroupType(ctx context.Context, formats strfmt.Registry) error {
+
+	if err := o.GroupType.ContextValidate(ctx, formats); err != nil {
+		if ve, ok := err.(*errors.Validation); ok {
+			return ve.ValidateName("body" + "." + "groupType")
+		} else if ce, ok := err.(*errors.CompositeError); ok {
+			return ce.ValidateName("body" + "." + "groupType")
+		}
+		return err
+	}
+
 	return nil
 }
 

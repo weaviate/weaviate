@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -21,6 +21,7 @@ import (
 	anyscaleParams "github.com/weaviate/weaviate/modules/generative-anyscale/parameters"
 	awsParams "github.com/weaviate/weaviate/modules/generative-aws/parameters"
 	cohereParams "github.com/weaviate/weaviate/modules/generative-cohere/parameters"
+	contextualaiParams "github.com/weaviate/weaviate/modules/generative-contextualai/parameters"
 	databricksParams "github.com/weaviate/weaviate/modules/generative-databricks/parameters"
 	friendliaiParams "github.com/weaviate/weaviate/modules/generative-friendliai/parameters"
 	googleParams "github.com/weaviate/weaviate/modules/generative-google/parameters"
@@ -169,6 +170,9 @@ func (p *Parser) extractFromQuery(generative *generate.Params, queries []*pb.Gen
 	case *pb.GenerativeProvider_Xai:
 		generative.Options = p.xai(query.GetXai())
 		p.providerName = xaiParams.Name
+	case *pb.GenerativeProvider_Contextualai:
+		generative.Options = p.contextualai(query.GetContextualai())
+		p.providerName = contextualaiParams.Name
 	default:
 		// do nothing
 	}
@@ -440,6 +444,27 @@ func (p *Parser) xai(in *pb.GenerativeXAI) map[string]any {
 			MaxTokens:       p.int64ToInt(in.MaxTokens),
 			Images:          p.getStringPtrs(in.Images),
 			ImageProperties: p.getStrings(in.ImageProperties),
+		},
+	}
+}
+
+func (p *Parser) contextualai(in *pb.GenerativeContextualAI) map[string]any {
+	if in == nil {
+		return nil
+	}
+	var knowledge []string
+	if in.GetKnowledge() != nil {
+		knowledge = in.GetKnowledge().GetValues()
+	}
+	return map[string]any{
+		contextualaiParams.Name: contextualaiParams.Params{
+			Model:           in.GetModel(),
+			Temperature:     in.Temperature,
+			TopP:            in.TopP,
+			MaxNewTokens:    p.int64ToInt(in.MaxNewTokens),
+			SystemPrompt:    in.GetSystemPrompt(),
+			AvoidCommentary: in.AvoidCommentary,
+			Knowledge:       knowledge,
 		},
 	}
 }

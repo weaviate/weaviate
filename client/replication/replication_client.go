@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -63,7 +63,7 @@ type ClientService interface {
 /*
 CancelReplication cancels a replication operation
 
-Requests the cancellation of an active replication operation identified by its ID. The operation will be stopped, but its record will remain in the 'CANCELLED' state (can't be resumed) and will not be automatically deleted.
+Requests the cancellation of an active replication operation identified by its ID. The operation will be stopped, but its record will remain in the `CANCELLED` state (can't be resumed) and will not be automatically deleted.
 */
 func (a *Client) CancelReplication(params *CancelReplicationParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*CancelReplicationNoContent, error) {
 	// TODO: Validate the params before sending
@@ -102,7 +102,9 @@ func (a *Client) CancelReplication(params *CancelReplicationParams, authInfo run
 }
 
 /*
-DeleteAllReplications schedules all replication operations for deletion across all collections shards and nodes
+DeleteAllReplications deletes all replication operations
+
+Schedules all replication operations for deletion across all collections, shards, and nodes.
 */
 func (a *Client) DeleteAllReplications(params *DeleteAllReplicationsParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*DeleteAllReplicationsNoContent, error) {
 	// TODO: Validate the params before sending

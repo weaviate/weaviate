@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/cluster/proto/api"
@@ -75,9 +76,10 @@ func (s *Raft) ReplicationUpdateReplicaOpStatus(ctx context.Context, id uint64, 
 
 func (s *Raft) ReplicationRegisterError(ctx context.Context, id uint64, errorToRegister string) error {
 	req := &api.ReplicationRegisterErrorRequest{
-		Version: api.ReplicationCommandVersionV0,
-		Id:      id,
-		Error:   errorToRegister,
+		Version:    api.ReplicationCommandVersionV0,
+		Id:         id,
+		Error:      errorToRegister,
+		TimeUnixMs: time.Now().UnixMilli(),
 	}
 
 	subCommand, err := json.Marshal(req)

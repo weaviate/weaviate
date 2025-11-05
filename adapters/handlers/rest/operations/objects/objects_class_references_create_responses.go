@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -28,7 +28,7 @@ import (
 const ObjectsClassReferencesCreateOKCode int = 200
 
 /*
-ObjectsClassReferencesCreateOK Successfully added the reference.
+ObjectsClassReferencesCreateOK Reference added successfully.
 
 swagger:response objectsClassReferencesCreateOK
 */
@@ -168,7 +168,7 @@ func (o *ObjectsClassReferencesCreateForbidden) WriteResponse(rw http.ResponseWr
 const ObjectsClassReferencesCreateNotFoundCode int = 404
 
 /*
-ObjectsClassReferencesCreateNotFound Source object doesn't exist.
+ObjectsClassReferencesCreateNotFound Source object not found.
 
 swagger:response objectsClassReferencesCreateNotFound
 */
@@ -193,7 +193,7 @@ func (o *ObjectsClassReferencesCreateNotFound) WriteResponse(rw http.ResponseWri
 const ObjectsClassReferencesCreateUnprocessableEntityCode int = 422
 
 /*
-ObjectsClassReferencesCreateUnprocessableEntity Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?
+ObjectsClassReferencesCreateUnprocessableEntity The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request. Ensure the property exists and is a reference type.
 
 swagger:response objectsClassReferencesCreateUnprocessableEntity
 */
@@ -238,7 +238,7 @@ func (o *ObjectsClassReferencesCreateUnprocessableEntity) WriteResponse(rw http.
 const ObjectsClassReferencesCreateInternalServerErrorCode int = 500
 
 /*
-ObjectsClassReferencesCreateInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+ObjectsClassReferencesCreateInternalServerError An error occurred while trying to fulfill the request. Check the ErrorResponse for details.
 
 swagger:response objectsClassReferencesCreateInternalServerError
 */

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -59,9 +59,9 @@ func (pf *vectorCachePrefiller[T]) prefillLevel(ctx context.Context,
 	before := time.Now()
 	layerCount := 0
 
-	pf.index.Lock()
+	pf.index.RLock()
 	nodesLen := len(pf.index.nodes)
-	pf.index.Unlock()
+	pf.index.RUnlock()
 
 	for i := 0; i < nodesLen; i++ {
 		if int(pf.cache.Len()) >= limit {
@@ -84,12 +84,10 @@ func (pf *vectorCachePrefiller[T]) prefillLevel(ctx context.Context,
 			continue
 		}
 
-		// we are not really interested in the result, we just want to populate the
-		// cache
-		pf.index.Lock()
+		// we are not really interested in the result, we just want to populate the cache,
+		// cache.Get() is thread-safe and doesn't require the index lock
 		pf.cache.Get(ctx, uint64(i))
 		layerCount++
-		pf.index.Unlock()
 	}
 
 	pf.logLevel(level, layerCount, before)
@@ -124,8 +122,8 @@ func levelOfNode(node *vertex) int {
 }
 
 func (pf *vectorCachePrefiller[T]) maxLevel() int {
-	pf.index.Lock()
-	defer pf.index.Unlock()
+	pf.index.RLock()
+	defer pf.index.RUnlock()
 
 	return pf.index.currentMaximumLayer
 }

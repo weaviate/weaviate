@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -52,13 +52,16 @@ func TestStoreApply(t *testing.T) {
 	}
 
 	cls := &models.Class{Class: "C1", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true}}
-	ss := &sharding.State{Physical: map[string]sharding.Physical{"T1": {
-		Name:           "T1",
-		BelongsToNodes: []string{"THIS"},
-	}, "T2": {
-		Name:           "T2",
-		BelongsToNodes: []string{"THIS"},
-	}}}
+	ss := &sharding.State{
+		Physical: map[string]sharding.Physical{"T1": {
+			Name:           "T1",
+			BelongsToNodes: []string{"THIS"},
+		}, "T2": {
+			Name:           "T2",
+			BelongsToNodes: []string{"THIS"},
+		}},
+		PartitioningEnabled: true, // multi-tenant collection
+	}
 
 	tests := []struct {
 		name     string
@@ -413,14 +416,15 @@ func TestStoreApply(t *testing.T) {
 				m.store.Apply(&raft.Log{
 					Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_CLASS, cmd.AddClassRequest{
 						Class: cls, State: &sharding.State{
-							Physical: map[string]sharding.Physical{"T1": {}},
+							Physical: map[string]sharding.Physical{"T1": {}}, PartitioningEnabled: true,
 						},
 					}, nil),
 				})
 				m.indexer.On("AddTenants", mock.Anything, mock.Anything).Return(nil)
 			},
 			doAfter: func(ms *MockStore) error {
-				shardingState := ms.store.SchemaReader().CopyShardingState("C1")
+				shardingState, err := readShardingState(ms.store.SchemaReader(), "C1")
+				require.Nil(t, err)
 				if shardingState == nil {
 					return fmt.Errorf("sharding state not found")
 				}
@@ -473,7 +477,7 @@ func TestStoreApply(t *testing.T) {
 					Name:           "T1",
 					BelongsToNodes: []string{"Node-1"},
 					Status:         models.TenantActivityStatusHOT,
-				}}}
+				}}, PartitioningEnabled: true}
 				m.store.Apply(&raft.Log{
 					Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_CLASS, cmd.AddClassRequest{Class: cls, State: ss}, nil),
 				})
@@ -487,7 +491,8 @@ func TestStoreApply(t *testing.T) {
 					Status:         models.TenantActivityStatusHOT,
 				}}
 
-				shardingState := ms.store.SchemaReader().CopyShardingState("C1")
+				shardingState, err := readShardingState(ms.store.SchemaReader(), "C1")
+				require.Nil(t, err)
 				if got := shardingState.Physical; !reflect.DeepEqual(got, want) {
 					return fmt.Errorf("physical state want: %v got: %v", want, got)
 				}
@@ -508,7 +513,7 @@ func TestStoreApply(t *testing.T) {
 					Name:           "T1",
 					BelongsToNodes: []string{"Node-1"},
 					Status:         models.TenantActivityStatusHOT,
-				}}}
+				}}, PartitioningEnabled: true}
 				m.store.Apply(&raft.Log{
 					Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_CLASS, cmd.AddClassRequest{Class: cls, State: ss}, nil),
 				})
@@ -522,7 +527,8 @@ func TestStoreApply(t *testing.T) {
 					Status:         models.TenantActivityStatusCOLD,
 				}}
 
-				shardingState := ms.store.SchemaReader().CopyShardingState("C1")
+				shardingState, err := readShardingState(ms.store.SchemaReader(), "C1")
+				require.Nil(t, err)
 				if got := shardingState.Physical; !reflect.DeepEqual(got, want) {
 					return fmt.Errorf("physical state want: %v got: %v", want, got)
 				}
@@ -552,7 +558,7 @@ func TestStoreApply(t *testing.T) {
 					Name:           "T3",
 					BelongsToNodes: []string{"NODE-2"},
 					Status:         models.TenantActivityStatusHOT,
-				}}}
+				}}, PartitioningEnabled: true}
 				m.indexer.On("AddClass", mock.Anything).Return(nil)
 				m.store.Apply(&raft.Log{
 					Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_CLASS, cmd.AddClassRequest{Class: cls, State: ss}, nil),
@@ -575,7 +581,8 @@ func TestStoreApply(t *testing.T) {
 					Status:         models.TenantActivityStatusCOLD,
 				}}
 
-				shardingState := ms.store.SchemaReader().CopyShardingState("C1")
+				shardingState, err := readShardingState(ms.store.SchemaReader(), "C1")
+				require.Nil(t, err)
 				if got := shardingState.Physical; !reflect.DeepEqual(got, want) {
 					return fmt.Errorf("physical state want: %v got: %v", want, got)
 				}
@@ -608,7 +615,7 @@ func TestStoreApply(t *testing.T) {
 				m.store.Apply(&raft.Log{
 					Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_CLASS, cmd.AddClassRequest{
 						Class: cls, State: &sharding.State{
-							Physical: map[string]sharding.Physical{"T1": {}},
+							Physical: map[string]sharding.Physical{"T1": {}}, PartitioningEnabled: true,
 						},
 					}, nil),
 				})
@@ -616,7 +623,8 @@ func TestStoreApply(t *testing.T) {
 				m.replicationFSM.On("DeleteReplicationsByTenants", mock.Anything, mock.Anything).Return(nil)
 			},
 			doAfter: func(ms *MockStore) error {
-				shardingState := ms.store.SchemaReader().CopyShardingState("C1")
+				shardingState, err := readShardingState(ms.store.SchemaReader(), "C1")
+				require.Nil(t, err)
 				if len(shardingState.Physical) != 0 {
 					return fmt.Errorf("sharding state mus be empty after deletion")
 				}
@@ -634,7 +642,7 @@ func TestStoreApply(t *testing.T) {
 				m.store.Apply(&raft.Log{
 					Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_CLASS, cmd.AddClassRequest{
 						Class: cls, State: &sharding.State{
-							Physical: map[string]sharding.Physical{"T1": {}},
+							Physical: map[string]sharding.Physical{"T1": {}}, PartitioningEnabled: true,
 						},
 					}, nil),
 				})
@@ -642,7 +650,8 @@ func TestStoreApply(t *testing.T) {
 				m.replicationFSM.On("DeleteReplicationsByTenants", mock.Anything, mock.Anything).Return(fmt.Errorf("any error"))
 			},
 			doAfter: func(ms *MockStore) error {
-				shardingState := ms.store.SchemaReader().CopyShardingState("C1")
+				shardingState, err := readShardingState(ms.store.SchemaReader(), "C1")
+				require.Nil(t, err)
 				if len(shardingState.Physical) != 0 {
 					return fmt.Errorf("sharding state mus be empty after deletion")
 				}
@@ -749,6 +758,7 @@ func TestStoreApply(t *testing.T) {
 						Name:           "T2",
 						BelongsToNodes: []string{"Node-1"},
 					}},
+					PartitioningEnabled: true,
 					// ReplicationFactor will be migrated to 1 as the default minimum
 				}
 				m.parser.On("ParseClass", mock.Anything).Return(nil)
@@ -767,7 +777,8 @@ func TestStoreApply(t *testing.T) {
 					return fmt.Errorf("sharding state should still have 1 replica for class C1, shard T2")
 				}
 
-				shardingState := ms.store.SchemaReader().CopyShardingState("C1")
+				shardingState, err := readShardingState(ms.store.SchemaReader(), "C1")
+				require.Nil(t, err)
 				if shardingState.ReplicationFactor != 1 {
 					return fmt.Errorf("replication factor should be 1, got %d", shardingState.ReplicationFactor)
 				}
@@ -785,6 +796,7 @@ func TestStoreApply(t *testing.T) {
 						Name:           "T2",
 						BelongsToNodes: []string{"Node-1", "Node-2", "Node-3"},
 					}},
+					PartitioningEnabled: true,
 					// ReplicationFactor will be migrated to 1 as the default minimum
 				}
 				m.parser.On("ParseClass", mock.Anything).Return(nil)
@@ -803,7 +815,8 @@ func TestStoreApply(t *testing.T) {
 					return fmt.Errorf("sharding state should have 2 replicas after deletion, got %d", len(replicas))
 				}
 
-				shardingState := ms.store.SchemaReader().CopyShardingState("C1")
+				shardingState, err := readShardingState(ms.store.SchemaReader(), "C1")
+				require.Nil(t, err)
 				if shardingState.ReplicationFactor != 1 {
 					return fmt.Errorf("replication factor should be 1, got %d", shardingState.ReplicationFactor)
 				}
@@ -821,7 +834,8 @@ func TestStoreApply(t *testing.T) {
 						Name:           "T2",
 						BelongsToNodes: []string{"Node-1", "Node-2"},
 					}},
-					ReplicationFactor: 2,
+					PartitioningEnabled: true,
+					ReplicationFactor:   2,
 				}
 				m.parser.On("ParseClass", mock.Anything).Return(nil)
 				m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
@@ -839,7 +853,8 @@ func TestStoreApply(t *testing.T) {
 					return fmt.Errorf("sharding state should still have 2 replicas for class C1, shard T2")
 				}
 
-				shardingState := ms.store.SchemaReader().CopyShardingState("C1")
+				shardingState, err := readShardingState(ms.store.SchemaReader(), "C1")
+				require.Nil(t, err)
 				if shardingState.ReplicationFactor != 2 {
 					return fmt.Errorf("replication factor should be 2, got %d", shardingState.ReplicationFactor)
 				}
@@ -857,7 +872,8 @@ func TestStoreApply(t *testing.T) {
 						Name:           "T2",
 						BelongsToNodes: []string{"Node-1", "Node-2", "Node-3", "Node-4"},
 					}},
-					ReplicationFactor: 3,
+					PartitioningEnabled: true,
+					ReplicationFactor:   3,
 				}
 				m.parser.On("ParseClass", mock.Anything).Return(nil)
 				m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
@@ -875,7 +891,8 @@ func TestStoreApply(t *testing.T) {
 					return fmt.Errorf("sharding state should have 3 replicas after deletion, got %d", len(replicas))
 				}
 
-				shardingState := ms.store.SchemaReader().CopyShardingState("C1")
+				shardingState, err := readShardingState(ms.store.SchemaReader(), "C1")
+				require.Nil(t, err)
 				if shardingState.ReplicationFactor != 3 {
 					return fmt.Errorf("replication factor should be 3, got %d", shardingState.ReplicationFactor)
 				}
@@ -984,6 +1001,7 @@ func TestStoreApply(t *testing.T) {
 								Status:         models.TenantActivityStatusHOT,
 							},
 						},
+						PartitioningEnabled: true,
 						// ReplicationFactor intentionally not set (uninitialized)
 					},
 				},
@@ -1000,7 +1018,8 @@ func TestStoreApply(t *testing.T) {
 					return fmt.Errorf("class is missing")
 				}
 
-				shardingState := ms.store.SchemaReader().CopyShardingState("C1")
+				shardingState, err := readShardingState(ms.store.SchemaReader(), "C1")
+				require.Nil(t, err)
 				if shardingState == nil {
 					return fmt.Errorf("sharding state is missing")
 				}
@@ -1035,7 +1054,8 @@ func TestStoreApply(t *testing.T) {
 								Status:         models.TenantActivityStatusHOT,
 							},
 						},
-						ReplicationFactor: 0,
+						PartitioningEnabled: true,
+						ReplicationFactor:   0,
 					},
 				},
 				nil)},
@@ -1051,7 +1071,8 @@ func TestStoreApply(t *testing.T) {
 					return fmt.Errorf("class is missing")
 				}
 
-				shardingState := ms.store.SchemaReader().CopyShardingState("C1")
+				shardingState, err := readShardingState(ms.store.SchemaReader(), "C1")
+				require.Nil(t, err)
 				if shardingState == nil {
 					return fmt.Errorf("sharding state is missing")
 				}
@@ -1097,7 +1118,8 @@ func TestStoreApply(t *testing.T) {
 					return fmt.Errorf("class is missing")
 				}
 
-				shardingState := ms.store.SchemaReader().CopyShardingState("C1")
+				shardingState, err := readShardingState(ms.store.SchemaReader(), "C1")
+				require.Nil(t, err)
 				if shardingState == nil {
 					return fmt.Errorf("sharding state is missing")
 				}
@@ -1129,7 +1151,8 @@ func TestStoreApply(t *testing.T) {
 								Status:         models.TenantActivityStatusHOT,
 							},
 						},
-						ReplicationFactor: 5,
+						PartitioningEnabled: true,
+						ReplicationFactor:   5,
 					},
 				},
 				nil)},
@@ -1145,7 +1168,8 @@ func TestStoreApply(t *testing.T) {
 					return fmt.Errorf("class is missing")
 				}
 
-				shardingState := ms.store.SchemaReader().CopyShardingState("C1")
+				shardingState, err := readShardingState(ms.store.SchemaReader(), "C1")
+				require.Nil(t, err)
 				if shardingState == nil {
 					return fmt.Errorf("sharding state is missing")
 				}
@@ -1173,6 +1197,7 @@ func TestStoreApply(t *testing.T) {
 								Status:         models.TenantActivityStatusHOT,
 							},
 						},
+						PartitioningEnabled: true,
 						// ReplicationFactor intentionally not set (uninitialized)
 					},
 				},
@@ -1190,7 +1215,8 @@ func TestStoreApply(t *testing.T) {
 					return fmt.Errorf("class is missing")
 				}
 
-				shardingState := ms.store.SchemaReader().CopyShardingState("C1")
+				shardingState, err := readShardingState(ms.store.SchemaReader(), "C1")
+				require.Nil(t, err)
 				if shardingState == nil {
 					return fmt.Errorf("sharding state is missing")
 				}

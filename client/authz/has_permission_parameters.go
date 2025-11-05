@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -74,12 +74,15 @@ HasPermissionParams contains all the parameters to send to the API endpoint
 */
 type HasPermissionParams struct {
 
-	// Body.
+	/* Body.
+
+	   The permissions to be checked.
+	*/
 	Body *models.Permission
 
 	/* ID.
 
-	   role name
+	   The name of the role.
 	*/
 	ID string
 

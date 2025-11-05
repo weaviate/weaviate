@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -83,7 +83,7 @@ func NewNodesGetOK() *NodesGetOK {
 /*
 NodesGetOK describes a response with status code 200, with default header values.
 
-Nodes status successfully returned
+Successfully retrieved the status for all nodes.
 */
 type NodesGetOK struct {
 	Payload *models.NodesStatusResponse
@@ -275,7 +275,7 @@ func NewNodesGetNotFound() *NodesGetNotFound {
 /*
 NodesGetNotFound describes a response with status code 404, with default header values.
 
-Not Found - Backup does not exist
+Not Found.
 */
 type NodesGetNotFound struct {
 	Payload *models.ErrorResponse
@@ -343,7 +343,7 @@ func NewNodesGetUnprocessableEntity() *NodesGetUnprocessableEntity {
 /*
 NodesGetUnprocessableEntity describes a response with status code 422, with default header values.
 
-Invalid backup restoration status attempt.
+Invalid request for node status.
 */
 type NodesGetUnprocessableEntity struct {
 	Payload *models.ErrorResponse
@@ -411,7 +411,7 @@ func NewNodesGetInternalServerError() *NodesGetInternalServerError {
 /*
 NodesGetInternalServerError describes a response with status code 500, with default header values.
 
-An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+An internal server error occurred while retrieving node status. Check the ErrorResponse for details.
 */
 type NodesGetInternalServerError struct {
 	Payload *models.ErrorResponse

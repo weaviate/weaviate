@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -31,13 +31,13 @@ import (
 // swagger:model UserOwnInfo
 type UserOwnInfo struct {
 
-	// The groups associated to the user
+	// The groups associated with the user.
 	Groups []string `json:"groups"`
 
 	// roles
 	Roles []*Role `json:"roles"`
 
-	// The username associated with the provided key
+	// The name (ID) of the user.
 	// Required: true
 	Username *string `json:"username"`
 }

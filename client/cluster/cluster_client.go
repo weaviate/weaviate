@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -47,9 +47,9 @@ type ClientService interface {
 }
 
 /*
-ClusterGetStatistics sees raft cluster statistics
+ClusterGetStatistics gets cluster statistics
 
-Returns Raft cluster statistics of Weaviate DB.
+Provides statistics about the internal Raft consensus protocol state for the Weaviate cluster.
 */
 func (a *Client) ClusterGetStatistics(params *ClusterGetStatisticsParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ClusterGetStatisticsOK, error) {
 	// TODO: Validate the params before sending

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -45,9 +45,9 @@ func NewSchemaObjectsShardsGet(ctx *middleware.Context, handler SchemaObjectsSha
 /*
 	SchemaObjectsShardsGet swagger:route GET /schema/{className}/shards schema schemaObjectsShardsGet
 
-# Get the shards status of an Object class
+# Get the shards status of a collection
 
-Get the status of every shard in the cluster.
+Retrieves the status of all shards associated with the specified collection (`className`). For multi-tenant collections, use the `tenant` query parameter to retrieve status for a specific tenant's shards.
 */
 type SchemaObjectsShardsGet struct {
 	Context *middleware.Context

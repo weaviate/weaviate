@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -28,7 +28,7 @@ import (
 const ClassificationsGetOKCode int = 200
 
 /*
-ClassificationsGetOK Found the classification, returned as body
+ClassificationsGetOK Successfully retrieved the classification details.
 
 swagger:response classificationsGetOK
 */
@@ -143,7 +143,7 @@ func (o *ClassificationsGetForbidden) WriteResponse(rw http.ResponseWriter, prod
 const ClassificationsGetNotFoundCode int = 404
 
 /*
-ClassificationsGetNotFound Not Found - Classification does not exist
+ClassificationsGetNotFound Classification with the given ID not found.
 
 swagger:response classificationsGetNotFound
 */
@@ -168,7 +168,7 @@ func (o *ClassificationsGetNotFound) WriteResponse(rw http.ResponseWriter, produ
 const ClassificationsGetInternalServerErrorCode int = 500
 
 /*
-ClassificationsGetInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+ClassificationsGetInternalServerError An internal server error occurred while retrieving the classification status. Check the ErrorResponse for details.
 
 swagger:response classificationsGetInternalServerError
 */

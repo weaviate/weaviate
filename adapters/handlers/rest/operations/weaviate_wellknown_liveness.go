@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -45,9 +45,9 @@ func NewWeaviateWellknownLiveness(ctx *middleware.Context, handler WeaviateWellk
 /*
 	WeaviateWellknownLiveness swagger:route GET /.well-known/live weaviateWellknownLiveness
 
-Get application liveness.
+# Check application liveness
 
-Determines whether the application is alive. Can be used for kubernetes liveness probe
+Indicates if the Weaviate instance is running and responsive to basic HTTP requests. Primarily used for health checks, such as Kubernetes liveness probes.
 */
 type WeaviateWellknownLiveness struct {
 	Context *middleware.Context

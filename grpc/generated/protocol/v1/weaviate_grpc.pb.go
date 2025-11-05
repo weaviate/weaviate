@@ -16,11 +16,13 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	Weaviate_Search_FullMethodName       = "/weaviate.v1.Weaviate/Search"
-	Weaviate_BatchObjects_FullMethodName = "/weaviate.v1.Weaviate/BatchObjects"
-	Weaviate_BatchDelete_FullMethodName  = "/weaviate.v1.Weaviate/BatchDelete"
-	Weaviate_TenantsGet_FullMethodName   = "/weaviate.v1.Weaviate/TenantsGet"
-	Weaviate_Aggregate_FullMethodName    = "/weaviate.v1.Weaviate/Aggregate"
+	Weaviate_Search_FullMethodName          = "/weaviate.v1.Weaviate/Search"
+	Weaviate_BatchObjects_FullMethodName    = "/weaviate.v1.Weaviate/BatchObjects"
+	Weaviate_BatchReferences_FullMethodName = "/weaviate.v1.Weaviate/BatchReferences"
+	Weaviate_BatchDelete_FullMethodName     = "/weaviate.v1.Weaviate/BatchDelete"
+	Weaviate_TenantsGet_FullMethodName      = "/weaviate.v1.Weaviate/TenantsGet"
+	Weaviate_Aggregate_FullMethodName       = "/weaviate.v1.Weaviate/Aggregate"
+	Weaviate_BatchStream_FullMethodName     = "/weaviate.v1.Weaviate/BatchStream"
 )
 
 // WeaviateClient is the client API for Weaviate service.
@@ -29,9 +31,11 @@ const (
 type WeaviateClient interface {
 	Search(ctx context.Context, in *SearchRequest, opts ...grpc.CallOption) (*SearchReply, error)
 	BatchObjects(ctx context.Context, in *BatchObjectsRequest, opts ...grpc.CallOption) (*BatchObjectsReply, error)
+	BatchReferences(ctx context.Context, in *BatchReferencesRequest, opts ...grpc.CallOption) (*BatchReferencesReply, error)
 	BatchDelete(ctx context.Context, in *BatchDeleteRequest, opts ...grpc.CallOption) (*BatchDeleteReply, error)
 	TenantsGet(ctx context.Context, in *TenantsGetRequest, opts ...grpc.CallOption) (*TenantsGetReply, error)
 	Aggregate(ctx context.Context, in *AggregateRequest, opts ...grpc.CallOption) (*AggregateReply, error)
+	BatchStream(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[BatchStreamRequest, BatchStreamReply], error)
 }
 
 type weaviateClient struct {
@@ -56,6 +60,16 @@ func (c *weaviateClient) BatchObjects(ctx context.Context, in *BatchObjectsReque
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(BatchObjectsReply)
 	err := c.cc.Invoke(ctx, Weaviate_BatchObjects_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *weaviateClient) BatchReferences(ctx context.Context, in *BatchReferencesRequest, opts ...grpc.CallOption) (*BatchReferencesReply, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(BatchReferencesReply)
+	err := c.cc.Invoke(ctx, Weaviate_BatchReferences_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -92,15 +106,30 @@ func (c *weaviateClient) Aggregate(ctx context.Context, in *AggregateRequest, op
 	return out, nil
 }
 
+func (c *weaviateClient) BatchStream(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[BatchStreamRequest, BatchStreamReply], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &Weaviate_ServiceDesc.Streams[0], Weaviate_BatchStream_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[BatchStreamRequest, BatchStreamReply]{ClientStream: stream}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type Weaviate_BatchStreamClient = grpc.BidiStreamingClient[BatchStreamRequest, BatchStreamReply]
+
 // WeaviateServer is the server API for Weaviate service.
 // All implementations must embed UnimplementedWeaviateServer
 // for forward compatibility.
 type WeaviateServer interface {
 	Search(context.Context, *SearchRequest) (*SearchReply, error)
 	BatchObjects(context.Context, *BatchObjectsRequest) (*BatchObjectsReply, error)
+	BatchReferences(context.Context, *BatchReferencesRequest) (*BatchReferencesReply, error)
 	BatchDelete(context.Context, *BatchDeleteRequest) (*BatchDeleteReply, error)
 	TenantsGet(context.Context, *TenantsGetRequest) (*TenantsGetReply, error)
 	Aggregate(context.Context, *AggregateRequest) (*AggregateReply, error)
+	BatchStream(grpc.BidiStreamingServer[BatchStreamRequest, BatchStreamReply]) error
 	mustEmbedUnimplementedWeaviateServer()
 }
 
@@ -117,6 +146,9 @@ func (UnimplementedWeaviateServer) Search(context.Context, *SearchRequest) (*Sea
 func (UnimplementedWeaviateServer) BatchObjects(context.Context, *BatchObjectsRequest) (*BatchObjectsReply, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method BatchObjects not implemented")
 }
+func (UnimplementedWeaviateServer) BatchReferences(context.Context, *BatchReferencesRequest) (*BatchReferencesReply, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method BatchReferences not implemented")
+}
 func (UnimplementedWeaviateServer) BatchDelete(context.Context, *BatchDeleteRequest) (*BatchDeleteReply, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method BatchDelete not implemented")
 }
@@ -125,6 +157,9 @@ func (UnimplementedWeaviateServer) TenantsGet(context.Context, *TenantsGetReques
 }
 func (UnimplementedWeaviateServer) Aggregate(context.Context, *AggregateRequest) (*AggregateReply, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Aggregate not implemented")
+}
+func (UnimplementedWeaviateServer) BatchStream(grpc.BidiStreamingServer[BatchStreamRequest, BatchStreamReply]) error {
+	return status.Errorf(codes.Unimplemented, "method BatchStream not implemented")
 }
 func (UnimplementedWeaviateServer) mustEmbedUnimplementedWeaviateServer() {}
 func (UnimplementedWeaviateServer) testEmbeddedByValue()                  {}
@@ -183,6 +218,24 @@ func _Weaviate_BatchObjects_Handler(srv interface{}, ctx context.Context, dec fu
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Weaviate_BatchReferences_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(BatchReferencesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WeaviateServer).BatchReferences(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Weaviate_BatchReferences_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WeaviateServer).BatchReferences(ctx, req.(*BatchReferencesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Weaviate_BatchDelete_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(BatchDeleteRequest)
 	if err := dec(in); err != nil {
@@ -237,6 +290,13 @@ func _Weaviate_Aggregate_Handler(srv interface{}, ctx context.Context, dec func(
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Weaviate_BatchStream_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(WeaviateServer).BatchStream(&grpc.GenericServerStream[BatchStreamRequest, BatchStreamReply]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type Weaviate_BatchStreamServer = grpc.BidiStreamingServer[BatchStreamRequest, BatchStreamReply]
+
 // Weaviate_ServiceDesc is the grpc.ServiceDesc for Weaviate service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -253,6 +313,10 @@ var Weaviate_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _Weaviate_BatchObjects_Handler,
 		},
 		{
+			MethodName: "BatchReferences",
+			Handler:    _Weaviate_BatchReferences_Handler,
+		},
+		{
 			MethodName: "BatchDelete",
 			Handler:    _Weaviate_BatchDelete_Handler,
 		},
@@ -265,6 +329,13 @@ var Weaviate_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _Weaviate_Aggregate_Handler,
 		},
 	},
-	Streams:  []grpc.StreamDesc{},
+	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "BatchStream",
+			Handler:       _Weaviate_BatchStream_Handler,
+			ServerStreams: true,
+			ClientStreams: true,
+		},
+	},
 	Metadata: "v1/weaviate.proto",
 }

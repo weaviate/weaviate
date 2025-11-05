@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -1663,6 +1663,10 @@ func (i *indices) deleteAsyncReplicationTargetNode() http.Handler {
 		if err != nil {
 			// There's no easy to have a re-usable error type via all our interfaces to reach the shard/index
 			if strings.Contains(err.Error(), "shard not found") {
+				http.Error(w, err.Error(), http.StatusNotFound)
+				return
+			}
+			if strings.Contains(err.Error(), fmt.Sprintf("local index %q not found", indexName)) {
 				http.Error(w, err.Error(), http.StatusNotFound)
 				return
 			}

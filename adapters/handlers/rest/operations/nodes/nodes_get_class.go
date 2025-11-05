@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -45,9 +45,9 @@ func NewNodesGetClass(ctx *middleware.Context, handler NodesGetClassHandler) *No
 /*
 	NodesGetClass swagger:route GET /nodes/{className} nodes nodesGetClass
 
-Node information for a collection.
+# Get node status by collection
 
-Returns node information for the nodes relevant to the collection.
+Retrieves status information only for the nodes that host shards for the specified collection (`className`). Use the `output` query parameter to control the level of detail.
 */
 type NodesGetClass struct {
 	Context *middleware.Context

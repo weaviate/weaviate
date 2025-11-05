@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -244,6 +244,19 @@ func ListObjects(t *testing.T, class string) (*models.ObjectsListResponse, error
 	}
 
 	resp, err := Client(t).Objects.ObjectsList(params, nil)
+	if err != nil {
+		return nil, err
+	}
+	return resp.Payload, nil
+}
+
+func ListObjectsAuth(t *testing.T, class string, key string) (*models.ObjectsListResponse, error) {
+	params := objects.NewObjectsListParams()
+	if class != "" {
+		params.WithClass(&class)
+	}
+
+	resp, err := Client(t).Objects.ObjectsList(params, CreateAuth(key))
 	if err != nil {
 		return nil, err
 	}

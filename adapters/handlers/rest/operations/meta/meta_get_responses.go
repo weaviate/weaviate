@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -28,7 +28,7 @@ import (
 const MetaGetOKCode int = 200
 
 /*
-MetaGetOK Successful response.
+MetaGetOK Successfully retrieved meta information.
 
 swagger:response metaGetOK
 */
@@ -143,7 +143,7 @@ func (o *MetaGetForbidden) WriteResponse(rw http.ResponseWriter, producer runtim
 const MetaGetInternalServerErrorCode int = 500
 
 /*
-MetaGetInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+MetaGetInternalServerError An internal server error occurred while retrieving meta information. Check the ErrorResponse for details.
 
 swagger:response metaGetInternalServerError
 */

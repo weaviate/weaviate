@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,16 +13,44 @@ package schema
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	"github.com/stretchr/testify/mock"
 
+	"github.com/stretchr/testify/require"
+	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/fakes"
+
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
+
+func TestResolveAlais(t *testing.T) {
+	parser := fakes.NewMockParser()
+	parser.On("ParseClass", mock.Anything).Return(nil)
+	sm := NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+	areq := cmd.QueryResolveAliasRequest{
+		Alias: "AliasNotExist",
+	}
+
+	subCommand, err := json.Marshal(&areq)
+	require.NoError(t, err)
+
+	req := &cmd.QueryRequest{
+		Type:       cmd.QueryRequest_TYPE_RESOLVE_ALIAS,
+		SubCommand: subCommand,
+	}
+	res, err := sm.ResolveAlias(req)
+	// Make sure ResolveAlias api returns ErrAliasNotFound in the error chain
+	// This is used to decide the final http status code on the http handlers
+	require.ErrorIs(t, err, ErrAliasNotFound)
+	require.Nil(t, res)
+}
 
 func TestVersionedSchemaReaderShardReplicas(t *testing.T) {
 	var (
@@ -66,9 +94,6 @@ func TestVersionedSchemaReaderClass(t *testing.T) {
 	// class not found
 	cls, err := sc.ReadOnlyClass(ctx, "C", 1)
 	assert.Nil(t, cls)
-	assert.Nil(t, err)
-	ss, err := sc.CopyShardingState(ctx, "C", 1)
-	assert.Nil(t, ss)
 	assert.Nil(t, err)
 	mt, err := sc.MultiTenancy(ctx, "C", 1)
 	assert.Equal(t, mt, models.MultiTenancyConfig{})
@@ -191,7 +216,6 @@ func TestSchemaReaderClass(t *testing.T) {
 	assert.Nil(t, sc.ReadOnlyClass("C"))
 	cl := sc.ReadOnlyVersionedClass("C")
 	assert.Nil(t, cl.Class)
-	assert.Nil(t, sc.CopyShardingState("C"))
 	assert.Equal(t, sc.ReadOnlySchema(), models.Schema{Classes: make([]*models.Class, 0)})
 	assert.Equal(t, sc.MultiTenancy("C"), models.MultiTenancyConfig{})
 
@@ -199,22 +223,38 @@ func TestSchemaReaderClass(t *testing.T) {
 	assert.ErrorIs(t, err, ErrClassNotFound)
 	_, err = sc.ShardOwner("C", "S")
 	assert.ErrorIs(t, err, ErrClassNotFound)
-	err = sc.Read("C", func(c *models.Class, s *sharding.State) error { return nil })
+	err = sc.Read("C", true, func(c *models.Class, s *sharding.State) error { return nil })
 	assert.ErrorIs(t, err, ErrClassNotFound)
 
-	// Add Simple class
+	// Add Single Tenant Class (PartitioningEnabled: false (default))
 	cls1 := &models.Class{Class: "C"}
-	ss1 := &sharding.State{Physical: map[string]sharding.Physical{
-		"S1": {Status: "A"},
-		"S2": {Status: "A", BelongsToNodes: nodes},
-	}}
+	ss1 := &sharding.State{
+		Physical: map[string]sharding.Physical{
+			"S1": {Status: "A"},
+			"S2": {Status: "A", BelongsToNodes: nodes},
+		},
+		Virtual: []sharding.Virtual{
+			{
+				Name:               "V1",
+				Upper:              1000,
+				OwnsPercentage:     1.0,
+				AssignedToPhysical: "S1",
+			},
+			{
+				Name:               "V2",
+				Upper:              2000,
+				OwnsPercentage:     1.0,
+				AssignedToPhysical: "S2",
+			},
+		},
+	}
 
 	sc.schema.addClass(cls1, ss1, 1)
 	assert.Equal(t, sc.ReadOnlyClass("C"), cls1)
 	versionedClass := sc.ReadOnlyVersionedClass("C")
 	assert.Equal(t, versionedClass.Class, cls1)
 	assert.Equal(t, sc.MultiTenancy("D"), models.MultiTenancyConfig{})
-	assert.Nil(t, sc.Read("C", func(c *models.Class, s *sharding.State) error { return nil }))
+	assert.Nil(t, sc.Read("C", true, func(c *models.Class, s *sharding.State) error { return nil }))
 
 	// Shards
 	_, err = sc.ShardOwner("C", "S1")
@@ -228,7 +268,7 @@ func TestSchemaReaderClass(t *testing.T) {
 	_, err = sc.GetShardsStatus("C", "")
 	assert.Nil(t, err)
 
-	// Add MT Class
+	// Add Multi Tenant Class (PartitioningEnabled: true)
 	cls2 := &models.Class{Class: "D", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true}}
 	ss2 := &sharding.State{
 		PartitioningEnabled: true,

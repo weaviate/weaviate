@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -62,7 +62,11 @@ func (v *Vectorizer) object(ctx context.Context, object *models.Object, cfg modu
 ) ([]float32, error) {
 	icheck := NewClassSettings(cfg)
 
-	corpi, titlePropertyValue := v.objectVectorizer.TextsWithTitleProperty(ctx, object, icheck, icheck.TitleProperty())
+	corpi, titlePropertyValue, isEmpty := v.objectVectorizer.TextsWithTitleProperty(ctx, object, icheck, icheck.TitleProperty())
+	if isEmpty {
+		// nothing to vectorize
+		return nil, nil
+	}
 	// vectorize text
 	res, err := v.client.Vectorize(ctx, []string{corpi}, ent.VectorizationConfig{
 		ApiEndpoint: icheck.ApiEndpoint(),

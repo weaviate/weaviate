@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -33,7 +33,7 @@ type NodeShardStatus struct {
 	// The status of the async replication.
 	AsyncReplicationStatus []*AsyncReplicationStatus `json:"asyncReplicationStatus"`
 
-	// The name of shard's class.
+	// The name of shard's collection (class).
 	Class string `json:"class"`
 
 	// The status of vector compression/quantization.

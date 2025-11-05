@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -28,7 +28,7 @@ import (
 const SchemaObjectsCreateOKCode int = 200
 
 /*
-SchemaObjectsCreateOK Added the new Object class to the schema.
+SchemaObjectsCreateOK Collection created successfully and its definition returned.
 
 swagger:response schemaObjectsCreateOK
 */
@@ -143,7 +143,7 @@ func (o *SchemaObjectsCreateForbidden) WriteResponse(rw http.ResponseWriter, pro
 const SchemaObjectsCreateUnprocessableEntityCode int = 422
 
 /*
-SchemaObjectsCreateUnprocessableEntity Invalid Object class
+SchemaObjectsCreateUnprocessableEntity Invalid collection definition provided. Check the definition structure and properties.
 
 swagger:response schemaObjectsCreateUnprocessableEntity
 */
@@ -188,7 +188,7 @@ func (o *SchemaObjectsCreateUnprocessableEntity) WriteResponse(rw http.ResponseW
 const SchemaObjectsCreateInternalServerErrorCode int = 500
 
 /*
-SchemaObjectsCreateInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+SchemaObjectsCreateInternalServerError An error occurred during collection creation. Check the ErrorResponse for details.
 
 swagger:response schemaObjectsCreateInternalServerError
 */

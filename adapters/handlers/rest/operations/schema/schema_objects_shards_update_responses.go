@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -28,7 +28,7 @@ import (
 const SchemaObjectsShardsUpdateOKCode int = 200
 
 /*
-SchemaObjectsShardsUpdateOK Shard status was updated successfully
+SchemaObjectsShardsUpdateOK Shard status updated successfully.
 
 swagger:response schemaObjectsShardsUpdateOK
 */
@@ -143,7 +143,7 @@ func (o *SchemaObjectsShardsUpdateForbidden) WriteResponse(rw http.ResponseWrite
 const SchemaObjectsShardsUpdateNotFoundCode int = 404
 
 /*
-SchemaObjectsShardsUpdateNotFound Shard to be updated does not exist
+SchemaObjectsShardsUpdateNotFound Collection or shard not found.
 
 swagger:response schemaObjectsShardsUpdateNotFound
 */
@@ -233,7 +233,7 @@ func (o *SchemaObjectsShardsUpdateUnprocessableEntity) WriteResponse(rw http.Res
 const SchemaObjectsShardsUpdateInternalServerErrorCode int = 500
 
 /*
-SchemaObjectsShardsUpdateInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+SchemaObjectsShardsUpdateInternalServerError An error occurred while updating the shard status. Check the ErrorResponse for details.
 
 swagger:response schemaObjectsShardsUpdateInternalServerError
 */

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -45,9 +45,9 @@ func NewObjectsList(ctx *middleware.Context, handler ObjectsListHandler) *Object
 /*
 	ObjectsList swagger:route GET /objects objects objectsList
 
-Get a list of Objects.
+# List objects
 
-Lists all Objects in reverse order of creation, owned by the user that belongs to the used token.
+Retrieves a list of data objects. By default, objects are returned in reverse order of creation. Requires a collection name (`class`) parameter to specify which collection's objects to list, otherwise, returns an empty list.
 */
 type ObjectsList struct {
 	Context *middleware.Context

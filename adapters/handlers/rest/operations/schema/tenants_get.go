@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -45,9 +45,9 @@ func NewTenantsGet(ctx *middleware.Context, handler TenantsGetHandler) *TenantsG
 /*
 	TenantsGet swagger:route GET /schema/{className}/tenants schema tenantsGet
 
-Get the list of tenants.
+# Get the list of tenants
 
-get all tenants from a specific class
+Retrieves a list of all tenants currently associated with the specified collection.
 */
 type TenantsGet struct {
 	Context *middleware.Context

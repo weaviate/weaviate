@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -45,7 +45,9 @@ func NewGetUserInfo(ctx *middleware.Context, handler GetUserInfoHandler) *GetUse
 /*
 	GetUserInfo swagger:route GET /users/db/{user_id} users getUserInfo
 
-get info relevant to user, e.g. username, roles
+# Get user info
+
+Retrieve detailed information about a specific database user (`db` user type), including their roles, status, and type.
 */
 type GetUserInfo struct {
 	Context *middleware.Context

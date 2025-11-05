@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -37,6 +37,7 @@ func TestSegment_StripTmpExtensions(t *testing.T) {
 	type createSegment func(t *testing.T, dir string) *segment
 	createSegmentBloomCna := func(segmentFilename string) createSegment {
 		bucketOptions := []BucketOption{
+			WithStrategy(StrategyReplace),
 			WithPread(true),
 			WithUseBloomFilter(true),
 			WithCalcCountNetAdditions(true),
@@ -66,6 +67,7 @@ func TestSegment_StripTmpExtensions(t *testing.T) {
 	}
 	createSegmentMetadata := func(segmentFilename string) createSegment {
 		bucketOptions := []BucketOption{
+			WithStrategy(StrategyReplace),
 			WithPread(true),
 			WithUseBloomFilter(true),
 			WithCalcCountNetAdditions(true),

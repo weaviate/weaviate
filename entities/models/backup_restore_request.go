@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -24,22 +24,25 @@ import (
 	"github.com/go-openapi/swag"
 )
 
-// BackupRestoreRequest Request body for restoring a backup for a set of classes
+// BackupRestoreRequest Request body for restoring a backup for a set of collections (classes).
 //
 // swagger:model BackupRestoreRequest
 type BackupRestoreRequest struct {
 
-	// Custom configuration for the backup restoration process
+	// Custom configuration for the backup restoration process.
 	Config *RestoreConfig `json:"config,omitempty"`
 
-	// List of classes to exclude from the backup restoration process
+	// List of collections (classes) to exclude from the backup restoration process.
 	Exclude []string `json:"exclude"`
 
-	// List of classes to include in the backup restoration process
+	// List of collections (classes) to include in the backup restoration process.
 	Include []string `json:"include"`
 
 	// Allows overriding the node names stored in the backup with different ones. Useful when restoring backups to a different environment.
 	NodeMapping map[string]string `json:"node_mapping,omitempty"`
+
+	// Allows ovewriting the collection alias if there is a conflict
+	OverwriteAlias bool `json:"overwriteAlias,omitempty"`
 }
 
 // Validate validates this backup restore request

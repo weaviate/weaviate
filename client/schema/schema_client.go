@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -41,6 +41,16 @@ type ClientOption func(*runtime.ClientOperation)
 
 // ClientService is the interface for Client methods
 type ClientService interface {
+	AliasesCreate(params *AliasesCreateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*AliasesCreateOK, error)
+
+	AliasesDelete(params *AliasesDeleteParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*AliasesDeleteNoContent, error)
+
+	AliasesGet(params *AliasesGetParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*AliasesGetOK, error)
+
+	AliasesGetAlias(params *AliasesGetAliasParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*AliasesGetAliasOK, error)
+
+	AliasesUpdate(params *AliasesUpdateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*AliasesUpdateOK, error)
+
 	SchemaDump(params *SchemaDumpParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SchemaDumpOK, error)
 
 	SchemaObjectsCreate(params *SchemaObjectsCreateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SchemaObjectsCreateOK, error)
@@ -73,9 +83,214 @@ type ClientService interface {
 }
 
 /*
-SchemaDump dumps the current the database schema
+AliasesCreate creates a new alias
 
-Fetch an array of all collection definitions from the schema.
+Create a new alias mapping between an alias name and a collection (class). The alias acts as an alternative name for accessing the collection.
+*/
+func (a *Client) AliasesCreate(params *AliasesCreateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*AliasesCreateOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewAliasesCreateParams()
+	}
+	op := &runtime.ClientOperation{
+		ID:                 "aliases.create",
+		Method:             "POST",
+		PathPattern:        "/aliases",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &AliasesCreateReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
+	if err != nil {
+		return nil, err
+	}
+	success, ok := result.(*AliasesCreateOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for aliases.create: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
+}
+
+/*
+AliasesDelete deletes an alias
+
+Remove an existing alias from the system. This will delete the alias mapping but will not affect the underlying collection (class).
+*/
+func (a *Client) AliasesDelete(params *AliasesDeleteParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*AliasesDeleteNoContent, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewAliasesDeleteParams()
+	}
+	op := &runtime.ClientOperation{
+		ID:                 "aliases.delete",
+		Method:             "DELETE",
+		PathPattern:        "/aliases/{aliasName}",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &AliasesDeleteReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
+	if err != nil {
+		return nil, err
+	}
+	success, ok := result.(*AliasesDeleteNoContent)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for aliases.delete: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
+}
+
+/*
+AliasesGet lists aliases
+
+Retrieve a list of all aliases in the system. Results can be filtered by specifying a collection (class) name to get aliases for a specific collection only.
+*/
+func (a *Client) AliasesGet(params *AliasesGetParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*AliasesGetOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewAliasesGetParams()
+	}
+	op := &runtime.ClientOperation{
+		ID:                 "aliases.get",
+		Method:             "GET",
+		PathPattern:        "/aliases",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &AliasesGetReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
+	if err != nil {
+		return nil, err
+	}
+	success, ok := result.(*AliasesGetOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for aliases.get: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
+}
+
+/*
+AliasesGetAlias gets an alias
+
+Retrieve details about a specific alias by its name, including which collection (class) it points to.
+*/
+func (a *Client) AliasesGetAlias(params *AliasesGetAliasParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*AliasesGetAliasOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewAliasesGetAliasParams()
+	}
+	op := &runtime.ClientOperation{
+		ID:                 "aliases.get.alias",
+		Method:             "GET",
+		PathPattern:        "/aliases/{aliasName}",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &AliasesGetAliasReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
+	if err != nil {
+		return nil, err
+	}
+	success, ok := result.(*AliasesGetAliasOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for aliases.get.alias: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
+}
+
+/*
+AliasesUpdate updates an alias
+
+Update an existing alias to point to a different collection (class). This allows you to redirect an alias from one collection to another without changing the alias name.
+*/
+func (a *Client) AliasesUpdate(params *AliasesUpdateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*AliasesUpdateOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewAliasesUpdateParams()
+	}
+	op := &runtime.ClientOperation{
+		ID:                 "aliases.update",
+		Method:             "PUT",
+		PathPattern:        "/aliases/{aliasName}",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &AliasesUpdateReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
+	if err != nil {
+		return nil, err
+	}
+	success, ok := result.(*AliasesUpdateOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for aliases.update: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
+}
+
+/*
+SchemaDump gets all collection definitions
+
+Retrieves the definitions of all collections (classes) currently in the database schema.
 */
 func (a *Client) SchemaDump(params *SchemaDumpParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SchemaDumpOK, error) {
 	// TODO: Validate the params before sending
@@ -114,9 +329,9 @@ func (a *Client) SchemaDump(params *SchemaDumpParams, authInfo runtime.ClientAut
 }
 
 /*
-SchemaObjectsCreate creates a new object class in the schema
+SchemaObjectsCreate creates a new collection
 
-Create a new data object collection. <br/><br/>If AutoSchema is enabled, Weaviate will attempt to infer the schema from the data at import time. However, manual schema definition is recommended for production environments.
+Defines and creates a new collection (class).<br/><br/>If [`AutoSchema`](https://docs.weaviate.io/weaviate/config-refs/collections#auto-schema) is enabled (not recommended for production), Weaviate might attempt to infer schema from data during import. Manual definition via this endpoint provides explicit control.
 */
 func (a *Client) SchemaObjectsCreate(params *SchemaObjectsCreateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SchemaObjectsCreateOK, error) {
 	// TODO: Validate the params before sending
@@ -155,9 +370,9 @@ func (a *Client) SchemaObjectsCreate(params *SchemaObjectsCreateParams, authInfo
 }
 
 /*
-SchemaObjectsDelete removes an object class and all data in the instances from the schema
+SchemaObjectsDelete deletes a collection and all associated data
 
-Remove a collection from the schema. This will also delete all the objects in the collection.
+Removes a collection definition from the schema. WARNING: This action permanently deletes all data objects stored within the collection.
 */
 func (a *Client) SchemaObjectsDelete(params *SchemaObjectsDeleteParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SchemaObjectsDeleteOK, error) {
 	// TODO: Validate the params before sending
@@ -196,7 +411,9 @@ func (a *Client) SchemaObjectsDelete(params *SchemaObjectsDeleteParams, authInfo
 }
 
 /*
-SchemaObjectsGet gets a single class from the schema
+SchemaObjectsGet gets a single collection
+
+Retrieve the definition of a specific collection (`className`), including its properties, configuration, and vectorizer settings.
 */
 func (a *Client) SchemaObjectsGet(params *SchemaObjectsGetParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SchemaObjectsGetOK, error) {
 	// TODO: Validate the params before sending
@@ -235,7 +452,9 @@ func (a *Client) SchemaObjectsGet(params *SchemaObjectsGetParams, authInfo runti
 }
 
 /*
-SchemaObjectsPropertiesAdd adds a property to an object class
+SchemaObjectsPropertiesAdd adds a property to a collection
+
+Adds a new property definition to an existing collection (`className`) definition.
 */
 func (a *Client) SchemaObjectsPropertiesAdd(params *SchemaObjectsPropertiesAddParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SchemaObjectsPropertiesAddOK, error) {
 	// TODO: Validate the params before sending
@@ -274,9 +493,9 @@ func (a *Client) SchemaObjectsPropertiesAdd(params *SchemaObjectsPropertiesAddPa
 }
 
 /*
-SchemaObjectsShardsGet gets the shards status of an object class
+SchemaObjectsShardsGet gets the shards status of a collection
 
-Get the status of every shard in the cluster.
+Retrieves the status of all shards associated with the specified collection (`className`). For multi-tenant collections, use the `tenant` query parameter to retrieve status for a specific tenant's shards.
 */
 func (a *Client) SchemaObjectsShardsGet(params *SchemaObjectsShardsGetParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SchemaObjectsShardsGetOK, error) {
 	// TODO: Validate the params before sending
@@ -317,7 +536,7 @@ func (a *Client) SchemaObjectsShardsGet(params *SchemaObjectsShardsGetParams, au
 /*
 SchemaObjectsShardsUpdate updates a shard status
 
-Update a shard status for a collection. For example, a shard may have been marked as `READONLY` because its disk was full. After providing more disk space, use this endpoint to set the shard status to `READY` again. There is also a convenience function in each client to set the status of all shards of a collection.
+Updates the status of a specific shard within a collection (e.g., sets it to `READY` or `READONLY`). This is typically used after resolving an underlying issue (like disk space) that caused a shard to become non-operational. There is also a convenience function in each client to set the status of all shards of a collection.
 */
 func (a *Client) SchemaObjectsShardsUpdate(params *SchemaObjectsShardsUpdateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SchemaObjectsShardsUpdateOK, error) {
 	// TODO: Validate the params before sending
@@ -356,9 +575,9 @@ func (a *Client) SchemaObjectsShardsUpdate(params *SchemaObjectsShardsUpdatePara
 }
 
 /*
-SchemaObjectsUpdate updates settings of an existing schema class
+SchemaObjectsUpdate updates collection definition
 
-Add a property to an existing collection.
+Updates the configuration settings of an existing collection (`className`) based on the provided definition. Note: This operation modifies mutable settings specified in the request body. It does not add properties (use `POST /schema/{className}/properties` for that) or change the collection name.
 */
 func (a *Client) SchemaObjectsUpdate(params *SchemaObjectsUpdateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SchemaObjectsUpdateOK, error) {
 	// TODO: Validate the params before sending
@@ -397,9 +616,9 @@ func (a *Client) SchemaObjectsUpdate(params *SchemaObjectsUpdateParams, authInfo
 }
 
 /*
-TenantExists checks whether a tenant exists
+TenantExists checks if a tenant exists
 
-Check if a tenant exists for a specific class
+Checks for the existence of a specific tenant within the given collection (`className`).
 */
 func (a *Client) TenantExists(params *TenantExistsParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*TenantExistsOK, error) {
 	// TODO: Validate the params before sending
@@ -440,7 +659,7 @@ func (a *Client) TenantExists(params *TenantExistsParams, authInfo runtime.Clien
 /*
 TenantsCreate creates a new tenant
 
-Create a new tenant for a collection. Multi-tenancy must be enabled in the collection definition.
+Creates one or more new tenants for a specified collection (`className`). Multi-tenancy must be enabled for the collection via its definition.
 */
 func (a *Client) TenantsCreate(params *TenantsCreateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*TenantsCreateOK, error) {
 	// TODO: Validate the params before sending
@@ -479,7 +698,9 @@ func (a *Client) TenantsCreate(params *TenantsCreateParams, authInfo runtime.Cli
 }
 
 /*
-TenantsDelete delete tenants from a specific class
+TenantsDelete deletes tenants
+
+Deletes one or more specified tenants from a collection (`className`). WARNING: This action permanently deletes all data associated with the specified tenants.
 */
 func (a *Client) TenantsDelete(params *TenantsDeleteParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*TenantsDeleteOK, error) {
 	// TODO: Validate the params before sending
@@ -520,7 +741,7 @@ func (a *Client) TenantsDelete(params *TenantsDeleteParams, authInfo runtime.Cli
 /*
 TenantsGet gets the list of tenants
 
-get all tenants from a specific class
+Retrieves a list of all tenants currently associated with the specified collection.
 */
 func (a *Client) TenantsGet(params *TenantsGetParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*TenantsGetOK, error) {
 	// TODO: Validate the params before sending
@@ -561,7 +782,7 @@ func (a *Client) TenantsGet(params *TenantsGetParams, authInfo runtime.ClientAut
 /*
 TenantsGetOne gets a specific tenant
 
-get a specific tenant for the given class
+Retrieves details about a specific tenant within the given collection (`className`), such as its current activity status.
 */
 func (a *Client) TenantsGetOne(params *TenantsGetOneParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*TenantsGetOneOK, error) {
 	// TODO: Validate the params before sending
@@ -602,7 +823,7 @@ func (a *Client) TenantsGetOne(params *TenantsGetOneParams, authInfo runtime.Cli
 /*
 TenantsUpdate updates a tenant
 
-Update tenant of a specific class
+Updates the activity status (e.g., `ACTIVE`, `INACTIVE`, etc.) of one or more specified tenants within a collection (`className`).
 */
 func (a *Client) TenantsUpdate(params *TenantsUpdateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*TenantsUpdateOK, error) {
 	// TODO: Validate the params before sending

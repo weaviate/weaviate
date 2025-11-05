@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -83,7 +83,7 @@ func NewTenantExistsOK() *TenantExistsOK {
 /*
 TenantExistsOK describes a response with status code 200, with default header values.
 
-The tenant exists in the specified class
+The tenant exists in the specified collection.
 */
 type TenantExistsOK struct {
 }
@@ -263,7 +263,7 @@ func NewTenantExistsNotFound() *TenantExistsNotFound {
 /*
 TenantExistsNotFound describes a response with status code 404, with default header values.
 
-The tenant not found
+Tenant or collection not found.
 */
 type TenantExistsNotFound struct {
 }
@@ -319,7 +319,7 @@ func NewTenantExistsUnprocessableEntity() *TenantExistsUnprocessableEntity {
 /*
 TenantExistsUnprocessableEntity describes a response with status code 422, with default header values.
 
-Invalid Tenant class
+Invalid request.
 */
 type TenantExistsUnprocessableEntity struct {
 	Payload *models.ErrorResponse
@@ -387,7 +387,7 @@ func NewTenantExistsInternalServerError() *TenantExistsInternalServerError {
 /*
 TenantExistsInternalServerError describes a response with status code 500, with default header values.
 
-An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+An error occurred during the check. Check the ErrorResponse for details.
 */
 type TenantExistsInternalServerError struct {
 	Payload *models.ErrorResponse

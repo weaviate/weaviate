@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -144,9 +144,10 @@ func (m *Memtable) flush() (segmentPath string, rerr error) {
 			return "", err
 		}
 	case StrategyInverted:
-		if keys, _, err = m.flushDataInverted(bufw, f); err != nil {
+		if keys, _, err = m.flushDataInverted(segmentFile, meteredF, bufw); err != nil {
 			return "", err
 		}
+		skipIndices = true
 	default:
 		return "", fmt.Errorf("cannot flush strategy %s", m.strategy)
 	}
@@ -163,31 +164,13 @@ func (m *Memtable) flush() (segmentPath string, rerr error) {
 			AllocChecker: m.allocChecker,
 		}
 
-		// TODO: Currently no checksum validation support for StrategyInverted.
-		//       This condition can be removed once support is added, and for
-		//       all strategies we can simply `segmentFile.WriteIndexes(indexes)`
-		if m.strategy == StrategyInverted {
-			if _, err := indexes.WriteTo(bufw, m.size); err != nil {
-				return "", err
-			}
-		} else {
-			if _, err := segmentFile.WriteIndexes(indexes, int64(m.size)); err != nil {
-				return "", err
-			}
+		if _, err := segmentFile.WriteIndexes(indexes, int64(m.size)); err != nil {
+			return "", err
 		}
 	}
 
-	// TODO: Currently no checksum validation support for StrategyInverted.
-	//       This condition can be removed once support is added, and for
-	//       all strategies we can simply `segmentFile.WriteChecksum()`
-	if m.strategy != StrategyInverted {
-		if _, err := segmentFile.WriteChecksum(); err != nil {
-			return "", err
-		}
-	} else {
-		if err := bufw.Flush(); err != nil {
-			return "", err
-		}
+	if _, err := segmentFile.WriteChecksum(); err != nil {
+		return "", err
 	}
 
 	if err := f.Sync(); err != nil {

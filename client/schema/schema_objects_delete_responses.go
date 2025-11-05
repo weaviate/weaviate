@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -77,7 +77,7 @@ func NewSchemaObjectsDeleteOK() *SchemaObjectsDeleteOK {
 /*
 SchemaObjectsDeleteOK describes a response with status code 200, with default header values.
 
-Removed the Object class from the schema.
+Collection deleted successfully.
 */
 type SchemaObjectsDeleteOK struct {
 }
@@ -133,7 +133,7 @@ func NewSchemaObjectsDeleteBadRequest() *SchemaObjectsDeleteBadRequest {
 /*
 SchemaObjectsDeleteBadRequest describes a response with status code 400, with default header values.
 
-Could not delete the Object class.
+Could not delete the collection. See the error response for details.
 */
 type SchemaObjectsDeleteBadRequest struct {
 	Payload *models.ErrorResponse
@@ -325,7 +325,7 @@ func NewSchemaObjectsDeleteInternalServerError() *SchemaObjectsDeleteInternalSer
 /*
 SchemaObjectsDeleteInternalServerError describes a response with status code 500, with default header values.
 
-An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+An error occurred during collection deletion. Check the ErrorResponse for details.
 */
 type SchemaObjectsDeleteInternalServerError struct {
 	Payload *models.ErrorResponse

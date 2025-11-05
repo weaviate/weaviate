@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -28,7 +28,7 @@ import (
 const BackupsCancelNoContentCode int = 204
 
 /*
-BackupsCancelNoContent Successfully deleted.
+BackupsCancelNoContent Backup deleted successfully.
 
 swagger:response backupsCancelNoContent
 */
@@ -123,7 +123,7 @@ func (o *BackupsCancelForbidden) WriteResponse(rw http.ResponseWriter, producer 
 const BackupsCancelUnprocessableEntityCode int = 422
 
 /*
-BackupsCancelUnprocessableEntity Invalid backup cancellation attempt.
+BackupsCancelUnprocessableEntity Invalid backup deletion request.
 
 swagger:response backupsCancelUnprocessableEntity
 */
@@ -168,7 +168,7 @@ func (o *BackupsCancelUnprocessableEntity) WriteResponse(rw http.ResponseWriter,
 const BackupsCancelInternalServerErrorCode int = 500
 
 /*
-BackupsCancelInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+BackupsCancelInternalServerError An internal server error occurred during backup deletion. Check the ErrorResponse for details.
 
 swagger:response backupsCancelInternalServerError
 */

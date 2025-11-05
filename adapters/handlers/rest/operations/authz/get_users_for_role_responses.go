@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -28,7 +28,7 @@ import (
 const GetUsersForRoleOKCode int = 200
 
 /*
-GetUsersForRoleOK Users assigned to this role
+GetUsersForRoleOK Users assigned to this role.
 
 swagger:response getUsersForRoleOK
 */
@@ -76,7 +76,7 @@ func (o *GetUsersForRoleOK) WriteResponse(rw http.ResponseWriter, producer runti
 const GetUsersForRoleBadRequestCode int = 400
 
 /*
-GetUsersForRoleBadRequest Bad request
+GetUsersForRoleBadRequest Malformed request.
 
 swagger:response getUsersForRoleBadRequest
 */
@@ -191,7 +191,7 @@ func (o *GetUsersForRoleForbidden) WriteResponse(rw http.ResponseWriter, produce
 const GetUsersForRoleNotFoundCode int = 404
 
 /*
-GetUsersForRoleNotFound no role found
+GetUsersForRoleNotFound No role found.
 
 swagger:response getUsersForRoleNotFound
 */

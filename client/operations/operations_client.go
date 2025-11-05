@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -53,7 +53,7 @@ type ClientService interface {
 /*
 WeaviateRoot lists available endpoints
 
-Get links to other endpoints to help discover the REST API
+Get links to other endpoints to help discover the REST API.
 */
 func (a *Client) WeaviateRoot(params *WeaviateRootParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*WeaviateRootOK, error) {
 	// TODO: Validate the params before sending
@@ -92,9 +92,9 @@ func (a *Client) WeaviateRoot(params *WeaviateRootParams, authInfo runtime.Clien
 }
 
 /*
-WeaviateWellknownLiveness gets application liveness
+WeaviateWellknownLiveness checks application liveness
 
-Determines whether the application is alive. Can be used for kubernetes liveness probe
+Indicates if the Weaviate instance is running and responsive to basic HTTP requests. Primarily used for health checks, such as Kubernetes liveness probes.
 */
 func (a *Client) WeaviateWellknownLiveness(params *WeaviateWellknownLivenessParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*WeaviateWellknownLivenessOK, error) {
 	// TODO: Validate the params before sending
@@ -133,9 +133,9 @@ func (a *Client) WeaviateWellknownLiveness(params *WeaviateWellknownLivenessPara
 }
 
 /*
-WeaviateWellknownReadiness gets application readiness
+WeaviateWellknownReadiness checks application readiness
 
-Determines whether the application is ready to receive traffic. Can be used for kubernetes readiness probe.
+Indicates if the Weaviate instance has completed its startup routines and is prepared to accept user traffic (data import, queries, etc.). Used for readiness checks, such as Kubernetes readiness probes.
 */
 func (a *Client) WeaviateWellknownReadiness(params *WeaviateWellknownReadinessParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*WeaviateWellknownReadinessOK, error) {
 	// TODO: Validate the params before sending

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -28,7 +28,7 @@ import (
 const GetRolesForUserDeprecatedOKCode int = 200
 
 /*
-GetRolesForUserDeprecatedOK Role assigned users
+GetRolesForUserDeprecatedOK Roles assigned to the user.
 
 swagger:response getRolesForUserDeprecatedOK
 */
@@ -76,7 +76,7 @@ func (o *GetRolesForUserDeprecatedOK) WriteResponse(rw http.ResponseWriter, prod
 const GetRolesForUserDeprecatedBadRequestCode int = 400
 
 /*
-GetRolesForUserDeprecatedBadRequest Bad request
+GetRolesForUserDeprecatedBadRequest Malformed request.
 
 swagger:response getRolesForUserDeprecatedBadRequest
 */
@@ -191,7 +191,7 @@ func (o *GetRolesForUserDeprecatedForbidden) WriteResponse(rw http.ResponseWrite
 const GetRolesForUserDeprecatedNotFoundCode int = 404
 
 /*
-GetRolesForUserDeprecatedNotFound no role found for user
+GetRolesForUserDeprecatedNotFound No roles found for specified user.
 
 swagger:response getRolesForUserDeprecatedNotFound
 */
@@ -216,7 +216,7 @@ func (o *GetRolesForUserDeprecatedNotFound) WriteResponse(rw http.ResponseWriter
 const GetRolesForUserDeprecatedUnprocessableEntityCode int = 422
 
 /*
-GetRolesForUserDeprecatedUnprocessableEntity Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
+GetRolesForUserDeprecatedUnprocessableEntity The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.
 
 swagger:response getRolesForUserDeprecatedUnprocessableEntity
 */

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -64,7 +64,6 @@ func createSingleNodeEnvironment(ctx context.Context) (compose *docker.DockerCom
 
 func createSingleNodeEnvironmentWithEnabledApiBasedModules(ctx context.Context) (compose *docker.DockerCompose, err error) {
 	compose, err = composeModules().
-		WithWeaviateEnv("ENABLE_API_BASED_MODULES", "true").
 		WithWeaviate().
 		Start(ctx)
 	return compose, err
@@ -79,6 +78,7 @@ func createClusterEnvironment(ctx context.Context) (compose *docker.DockerCompos
 
 func composeModules() (composeModules *docker.Compose) {
 	composeModules = docker.New().
+		WithWeaviateEnv("API_BASED_MODULES_DISABLED", "true").
 		WithText2VecContextionary().
 		WithText2VecTransformers().
 		WithText2VecOpenAI(os.Getenv("OPENAI_APIKEY"), os.Getenv("OPENAI_ORGANIZATION"), os.Getenv("AZURE_APIKEY")).

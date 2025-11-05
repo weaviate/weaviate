@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -37,7 +37,7 @@ type BackupCreateResponse struct {
 	// Name of the bucket, container, volume, etc
 	Bucket string `json:"bucket,omitempty"`
 
-	// The list of classes for which the backup creation process was started
+	// The list of collections (classes) for which the backup creation process was started.
 	Classes []string `json:"classes"`
 
 	// error message if creation failed

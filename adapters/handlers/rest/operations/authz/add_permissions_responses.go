@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -28,7 +28,7 @@ import (
 const AddPermissionsOKCode int = 200
 
 /*
-AddPermissionsOK Permissions added successfully
+AddPermissionsOK Permissions added successfully.
 
 swagger:response addPermissionsOK
 */
@@ -168,7 +168,7 @@ func (o *AddPermissionsForbidden) WriteResponse(rw http.ResponseWriter, producer
 const AddPermissionsNotFoundCode int = 404
 
 /*
-AddPermissionsNotFound no role found
+AddPermissionsNotFound No role found.
 
 swagger:response addPermissionsNotFound
 */
@@ -193,7 +193,7 @@ func (o *AddPermissionsNotFound) WriteResponse(rw http.ResponseWriter, producer 
 const AddPermissionsUnprocessableEntityCode int = 422
 
 /*
-AddPermissionsUnprocessableEntity Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
+AddPermissionsUnprocessableEntity The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.
 
 swagger:response addPermissionsUnprocessableEntity
 */

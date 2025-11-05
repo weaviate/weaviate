@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -28,7 +28,7 @@ import (
 const TenantsGetOKCode int = 200
 
 /*
-TenantsGetOK tenants from specified class.
+TenantsGetOK Successfully retrieved tenants.
 
 swagger:response tenantsGetOK
 */
@@ -146,7 +146,7 @@ func (o *TenantsGetForbidden) WriteResponse(rw http.ResponseWriter, producer run
 const TenantsGetUnprocessableEntityCode int = 422
 
 /*
-TenantsGetUnprocessableEntity Invalid Tenant class
+TenantsGetUnprocessableEntity Invalid request.
 
 swagger:response tenantsGetUnprocessableEntity
 */
@@ -191,7 +191,7 @@ func (o *TenantsGetUnprocessableEntity) WriteResponse(rw http.ResponseWriter, pr
 const TenantsGetInternalServerErrorCode int = 500
 
 /*
-TenantsGetInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+TenantsGetInternalServerError An error occurred while listing tenants. Check the ErrorResponse for details.
 
 swagger:response tenantsGetInternalServerError
 */

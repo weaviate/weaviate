@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -46,17 +46,17 @@ type SchemaObjectsShardsUpdateParams struct {
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
-	/*
+	/*The shard status object containing the desired new status.
 	  Required: true
 	  In: body
 	*/
 	Body *models.ShardStatus
-	/*
+	/*The name of the collection (class) containing the shard.
 	  Required: true
 	  In: path
 	*/
 	ClassName string
-	/*
+	/*The name of the shard to update.
 	  Required: true
 	  In: path
 	*/

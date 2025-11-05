@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -25,29 +25,29 @@ import (
 	"github.com/go-openapi/validate"
 )
 
-// ClassificationMeta Additional information to a specific classification
+// ClassificationMeta Additional information to a specific classification.
 //
 // swagger:model ClassificationMeta
 type ClassificationMeta struct {
 
-	// time when this classification finished
+	// Time when this classification finished.
 	// Example: 2017-07-21T17:32:28Z
 	// Format: date-time
 	Completed strfmt.DateTime `json:"completed,omitempty"`
 
-	// number of objects which were taken into consideration for classification
+	// Number of objects which were taken into consideration for classification.
 	// Example: 147
 	Count int64 `json:"count,omitempty"`
 
-	// number of objects which could not be classified - see error message for details
+	// Number of objects which could not be classified - see error message for details.
 	// Example: 7
 	CountFailed int64 `json:"countFailed,omitempty"`
 
-	// number of objects successfully classified
+	// Number of objects successfully classified.
 	// Example: 140
 	CountSucceeded int64 `json:"countSucceeded,omitempty"`
 
-	// time when this classification was started
+	// Time when this classification was started.
 	// Example: 2017-07-21T17:32:28Z
 	// Format: date-time
 	Started strfmt.DateTime `json:"started,omitempty"`

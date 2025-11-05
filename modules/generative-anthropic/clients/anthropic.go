@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -180,16 +180,13 @@ func (a *anthropic) getParameters(cfg moduletools.ClassConfig, options interface
 		params.Model = settings.Model()
 	}
 	if params.Temperature == nil {
-		temperature := settings.Temperature()
-		params.Temperature = &temperature
+		params.Temperature = settings.Temperature()
 	}
 	if params.TopK == nil {
-		topK := settings.TopK()
-		params.TopK = &topK
+		params.TopK = settings.TopK()
 	}
 	if params.TopP == nil {
-		topP := settings.TopP()
-		params.TopP = &topP
+		params.TopP = settings.TopP()
 	}
 	if len(params.StopSequences) == 0 {
 		params.StopSequences = settings.StopSequences()

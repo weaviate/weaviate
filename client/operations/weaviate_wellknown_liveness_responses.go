@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -50,7 +50,7 @@ func NewWeaviateWellknownLivenessOK() *WeaviateWellknownLivenessOK {
 /*
 WeaviateWellknownLivenessOK describes a response with status code 200, with default header values.
 
-The application is able to respond to HTTP requests
+The application is alive and responding to HTTP requests.
 */
 type WeaviateWellknownLivenessOK struct {
 }

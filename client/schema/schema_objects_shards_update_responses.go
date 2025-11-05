@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -83,7 +83,7 @@ func NewSchemaObjectsShardsUpdateOK() *SchemaObjectsShardsUpdateOK {
 /*
 SchemaObjectsShardsUpdateOK describes a response with status code 200, with default header values.
 
-Shard status was updated successfully
+Shard status updated successfully.
 */
 type SchemaObjectsShardsUpdateOK struct {
 	Payload *models.ShardStatus
@@ -275,7 +275,7 @@ func NewSchemaObjectsShardsUpdateNotFound() *SchemaObjectsShardsUpdateNotFound {
 /*
 SchemaObjectsShardsUpdateNotFound describes a response with status code 404, with default header values.
 
-Shard to be updated does not exist
+Collection or shard not found.
 */
 type SchemaObjectsShardsUpdateNotFound struct {
 	Payload *models.ErrorResponse
@@ -411,7 +411,7 @@ func NewSchemaObjectsShardsUpdateInternalServerError() *SchemaObjectsShardsUpdat
 /*
 SchemaObjectsShardsUpdateInternalServerError describes a response with status code 500, with default header values.
 
-An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+An error occurred while updating the shard status. Check the ErrorResponse for details.
 */
 type SchemaObjectsShardsUpdateInternalServerError struct {
 	Payload *models.ErrorResponse

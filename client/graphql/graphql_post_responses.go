@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -77,7 +77,7 @@ func NewGraphqlPostOK() *GraphqlPostOK {
 /*
 GraphqlPostOK describes a response with status code 200, with default header values.
 
-Successful query (with select).
+Query executed successfully. The response body contains the query result.
 */
 type GraphqlPostOK struct {
 	Payload *models.GraphQLResponse
@@ -269,7 +269,7 @@ func NewGraphqlPostUnprocessableEntity() *GraphqlPostUnprocessableEntity {
 /*
 GraphqlPostUnprocessableEntity describes a response with status code 422, with default header values.
 
-Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
+The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.
 */
 type GraphqlPostUnprocessableEntity struct {
 	Payload *models.ErrorResponse
@@ -337,7 +337,7 @@ func NewGraphqlPostInternalServerError() *GraphqlPostInternalServerError {
 /*
 GraphqlPostInternalServerError describes a response with status code 500, with default header values.
 
-An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+An internal server error occurred during query execution. Check the ErrorResponse for details.
 */
 type GraphqlPostInternalServerError struct {
 	Payload *models.ErrorResponse

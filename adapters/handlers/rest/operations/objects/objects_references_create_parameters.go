@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -46,22 +46,22 @@ type ObjectsReferencesCreateParams struct {
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
-	/*
+	/*The reference to add.
 	  Required: true
 	  In: body
 	*/
 	Body *models.SingleRef
-	/*Unique ID of the Object.
+	/*Unique UUID of the source object.
 	  Required: true
 	  In: path
 	*/
 	ID strfmt.UUID
-	/*Unique name of the property related to the Object.
+	/*Unique name of the reference property of the source object.
 	  Required: true
 	  In: path
 	*/
 	PropertyName string
-	/*Specifies the tenant in a request targeting a multi-tenant class
+	/*Specifies the tenant in a request targeting a multi-tenant collection (class).
 	  In: query
 	*/
 	Tenant *string

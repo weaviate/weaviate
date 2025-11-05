@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -28,7 +28,7 @@ import (
 const CreateRoleCreatedCode int = 201
 
 /*
-CreateRoleCreated Role created successfully
+CreateRoleCreated Role created successfully.
 
 swagger:response createRoleCreated
 */
@@ -168,7 +168,7 @@ func (o *CreateRoleForbidden) WriteResponse(rw http.ResponseWriter, producer run
 const CreateRoleConflictCode int = 409
 
 /*
-CreateRoleConflict Role already exists
+CreateRoleConflict Role already exists.
 
 swagger:response createRoleConflict
 */
@@ -213,7 +213,7 @@ func (o *CreateRoleConflict) WriteResponse(rw http.ResponseWriter, producer runt
 const CreateRoleUnprocessableEntityCode int = 422
 
 /*
-CreateRoleUnprocessableEntity Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
+CreateRoleUnprocessableEntity The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.
 
 swagger:response createRoleUnprocessableEntity
 */

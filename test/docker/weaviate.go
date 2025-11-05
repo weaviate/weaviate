@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -36,7 +36,8 @@ const (
 func startWeaviate(ctx context.Context,
 	enableModules []string, defaultVectorizerModule string,
 	extraEnvSettings map[string]string, networkName string,
-	weaviateImage, hostname string, exposeGRPCPort bool,
+	weaviateImage, hostname string,
+	exposeGRPCPort, exposeDebugPort bool,
 	wellKnownEndpoint string,
 ) (*DockerContainer, error) {
 	fromDockerFile := testcontainers.FromDockerfile{}
@@ -85,7 +86,7 @@ func startWeaviate(ctx context.Context,
 		"MEMBERLIST_FAST_FAILURE_DETECTION": "true",
 		"DISABLE_TELEMETRY":                 "true",
 		"RAFT_DRAIN_SLEEP":                  "1ms", // almost as no sleep, no 0 because will fail validation
-		"RAFT_TIMEOUTS_MULTIPLIER":          "3",
+		"RAFT_TIMEOUTS_MULTIPLIER":          "1",   // force raft timeouts to 1 to not affect tests which does do heavy restarts
 	}
 	if len(enableModules) > 0 {
 		env["ENABLE_MODULES"] = strings.Join(enableModules, ",")
@@ -107,6 +108,11 @@ func startWeaviate(ctx context.Context,
 	if exposeGRPCPort {
 		exposedPorts = append(exposedPorts, "50051/tcp")
 		waitStrategies = append(waitStrategies, wait.ForListeningPort(grpcPort))
+	}
+	debugPort := nat.Port("6060/tcp")
+	if exposeDebugPort {
+		exposedPorts = append(exposedPorts, "6060/tcp")
+		waitStrategies = append(waitStrategies, wait.ForListeningPort(debugPort))
 	}
 	req := testcontainers.ContainerRequest{
 		FromDockerfile: fromDockerFile,
@@ -165,6 +171,13 @@ func startWeaviate(ctx context.Context,
 			return nil, err
 		}
 		endpoints[GRPC] = endpoint{grpcPort, grpcUri}
+	}
+	if exposeDebugPort {
+		debugUri, err := c.PortEndpoint(ctx, debugPort, "")
+		if err != nil {
+			return nil, err
+		}
+		endpoints[DEBUG] = endpoint{debugPort, debugUri}
 	}
 	return &DockerContainer{
 		name:        containerName,

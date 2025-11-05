@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,15 +13,18 @@ package rpc
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 
 	grpc_sentry "github.com/johnbellone/grpc-middleware-sentry"
 	"github.com/sirupsen/logrus"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
-
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
 )
 
 // serviceConfig defines different retry policies for different RPC operation types:
@@ -207,7 +210,8 @@ func (cl *Client) Query(ctx context.Context, leaderRaftAddr string, req *cmd.Que
 		return nil, err
 	}
 
-	return cmd.NewClusterServiceClient(conn).Query(ctx, req)
+	resp, err := cmd.NewClusterServiceClient(conn).Query(ctx, req)
+	return resp, fromRPCError(err)
 }
 
 // Close the client and allocated resources
@@ -273,4 +277,16 @@ func (cl *Client) getConn(ctx context.Context, leaderRaftAddr string) (*grpc.Cli
 	cl.leaderRaftAddr = leaderRaftAddr
 
 	return cl.leaderRpcConn, nil
+}
+
+// fromRPCError parses the error sent by rpc server
+// to identify status and chain sentinal errors accordingly.
+// This is helpful on the client side to make decision based on
+// type-full errors rather than just string-based error
+func fromRPCError(err error) error {
+	st, ok := status.FromError(err)
+	if ok && (st.Code() == codes.NotFound) {
+		return errors.Join(err, schemaUC.ErrNotFound)
+	}
+	return err
 }

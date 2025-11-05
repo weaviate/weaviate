@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -45,9 +45,9 @@ func NewBackupsCancel(ctx *middleware.Context, handler BackupsCancelHandler) *Ba
 /*
 	BackupsCancel swagger:route DELETE /backups/{backend}/{id} backups backupsCancel
 
-# Cancel backup
+# Delete a backup
 
-Cancel created backup with specified ID
+Deletes a backup identified by its ID from the specified backend storage.
 */
 type BackupsCancel struct {
 	Context *middleware.Context

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -28,7 +28,7 @@ import (
 const ObjectsClassReferencesDeleteNoContentCode int = 204
 
 /*
-ObjectsClassReferencesDeleteNoContent Successfully deleted.
+ObjectsClassReferencesDeleteNoContent Reference deleted successfully.
 
 swagger:response objectsClassReferencesDeleteNoContent
 */
@@ -168,7 +168,7 @@ func (o *ObjectsClassReferencesDeleteForbidden) WriteResponse(rw http.ResponseWr
 const ObjectsClassReferencesDeleteNotFoundCode int = 404
 
 /*
-ObjectsClassReferencesDeleteNotFound Successful query result but no resource was found.
+ObjectsClassReferencesDeleteNotFound Object or reference not found.
 
 swagger:response objectsClassReferencesDeleteNotFound
 */
@@ -213,7 +213,7 @@ func (o *ObjectsClassReferencesDeleteNotFound) WriteResponse(rw http.ResponseWri
 const ObjectsClassReferencesDeleteUnprocessableEntityCode int = 422
 
 /*
-ObjectsClassReferencesDeleteUnprocessableEntity Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?
+ObjectsClassReferencesDeleteUnprocessableEntity The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request. Ensure the property exists and is a reference type.
 
 swagger:response objectsClassReferencesDeleteUnprocessableEntity
 */
@@ -258,7 +258,7 @@ func (o *ObjectsClassReferencesDeleteUnprocessableEntity) WriteResponse(rw http.
 const ObjectsClassReferencesDeleteInternalServerErrorCode int = 500
 
 /*
-ObjectsClassReferencesDeleteInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+ObjectsClassReferencesDeleteInternalServerError An error occurred while trying to fulfill the request. Check the ErrorResponse for details.
 
 swagger:response objectsClassReferencesDeleteInternalServerError
 */

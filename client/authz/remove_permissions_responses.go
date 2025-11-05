@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -94,7 +94,7 @@ func NewRemovePermissionsOK() *RemovePermissionsOK {
 /*
 RemovePermissionsOK describes a response with status code 200, with default header values.
 
-Permissions removed successfully
+Permissions removed successfully.
 */
 type RemovePermissionsOK struct {
 }
@@ -342,7 +342,7 @@ func NewRemovePermissionsNotFound() *RemovePermissionsNotFound {
 /*
 RemovePermissionsNotFound describes a response with status code 404, with default header values.
 
-no role found
+No role found.
 */
 type RemovePermissionsNotFound struct {
 }
@@ -398,7 +398,7 @@ func NewRemovePermissionsUnprocessableEntity() *RemovePermissionsUnprocessableEn
 /*
 RemovePermissionsUnprocessableEntity describes a response with status code 422, with default header values.
 
-Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
+The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.
 */
 type RemovePermissionsUnprocessableEntity struct {
 	Payload *models.ErrorResponse
@@ -532,7 +532,7 @@ swagger:model RemovePermissionsBody
 */
 type RemovePermissionsBody struct {
 
-	// permissions to remove from the role
+	// Permissions to remove from the role.
 	// Required: true
 	Permissions []*models.Permission `json:"permissions"`
 }

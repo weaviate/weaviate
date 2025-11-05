@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -42,6 +42,16 @@ func StopNodeAt(ctx context.Context, t *testing.T, compose *docker.DockerCompose
 		// try one more time after 1 second
 		<-time.After(1 * time.Second)
 		require.NoError(t, compose.StopAt(ctx, index, nil))
+	}
+	<-time.After(1 * time.Second) // give time for shutdown
+}
+
+func StopNodeAtWithTimeout(ctx context.Context, t *testing.T, compose *docker.DockerCompose, index int, timeout time.Duration) {
+	<-time.After(1 * time.Second)
+	if err := compose.StopAt(ctx, index, &timeout); err != nil {
+		// try one more time after 1 second
+		<-time.After(1 * time.Second)
+		require.NoError(t, compose.StopAt(ctx, index, &timeout))
 	}
 	<-time.After(1 * time.Second) // give time for shutdown
 }

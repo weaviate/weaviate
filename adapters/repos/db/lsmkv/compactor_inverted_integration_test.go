@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -557,7 +557,8 @@ func compactionInvertedStrategy(ctx context.Context, t *testing.T, opts []Bucket
 	t.Run("verify previous1 before flush", func(t *testing.T) {
 		var retrieved []kv
 
-		c := bucket.MapCursor()
+		c, err := bucket.MapCursor()
+		require.NoError(t, err)
 		defer c.Close()
 		for k, _ := c.First(ctx); k != nil; k, _ = c.Next(ctx) {
 
@@ -596,7 +597,8 @@ func compactionInvertedStrategy(ctx context.Context, t *testing.T, opts []Bucket
 	t.Run("verify previous2 before flush", func(t *testing.T) {
 		var retrieved []kv
 
-		c := bucket.MapCursor()
+		c, err := bucket.MapCursor()
+		require.NoError(t, err)
 		defer c.Close()
 		for k, _ := c.First(ctx); k != nil; k, _ = c.Next(ctx) {
 
@@ -635,7 +637,8 @@ func compactionInvertedStrategy(ctx context.Context, t *testing.T, opts []Bucket
 	t.Run("verify segment1 before flush", func(t *testing.T) {
 		var retrieved []kv
 
-		c := bucket.MapCursor()
+		c, err := bucket.MapCursor()
+		require.NoError(t, err)
 		defer c.Close()
 		i := 0
 		for k, _ := c.First(ctx); k != nil; k, _ = c.Next(ctx) {
@@ -666,7 +669,8 @@ func compactionInvertedStrategy(ctx context.Context, t *testing.T, opts []Bucket
 	t.Run("verify segment1 after flush", func(t *testing.T) {
 		var retrieved []kv
 
-		c := bucket.MapCursor()
+		c, err := bucket.MapCursor()
+		require.NoError(t, err)
 		defer c.Close()
 		i := 0
 		for k, _ := c.First(ctx); k != nil; k, _ = c.Next(ctx) {
@@ -702,7 +706,8 @@ func compactionInvertedStrategy(ctx context.Context, t *testing.T, opts []Bucket
 	t.Run("verify segment2 before flush", func(t *testing.T) {
 		var retrieved []kv
 
-		c := bucket.MapCursor()
+		c, err := bucket.MapCursor()
+		require.NoError(t, err)
 		defer c.Close()
 		i := 0
 		for k, _ := c.First(ctx); k != nil; k, _ = c.Next(ctx) {
@@ -734,7 +739,8 @@ func compactionInvertedStrategy(ctx context.Context, t *testing.T, opts []Bucket
 	t.Run("verify segment2 after flush", func(t *testing.T) {
 		var retrieved []kv
 
-		c := bucket.MapCursor()
+		c, err := bucket.MapCursor()
+		require.NoError(t, err)
 		defer c.Close()
 		i := 0
 		for k, _ := c.First(ctx); k != nil; k, _ = c.Next(ctx) {
@@ -770,7 +776,8 @@ func compactionInvertedStrategy(ctx context.Context, t *testing.T, opts []Bucket
 	t.Run("verify control before compaction", func(t *testing.T) {
 		var retrieved []kv
 
-		c := bucket.MapCursor()
+		c, err := bucket.MapCursor()
+		require.NoError(t, err)
 		defer c.Close()
 		for k, _ := c.First(ctx); k != nil; k, _ = c.Next(ctx) {
 
@@ -802,7 +809,8 @@ func compactionInvertedStrategy(ctx context.Context, t *testing.T, opts []Bucket
 			t.Run("verify control during compaction", func(t *testing.T) {
 				var retrieved []kv
 
-				c := bucket.MapCursor()
+				c, err := bucket.MapCursor()
+				require.NoError(t, err)
 				defer c.Close()
 
 				for k, _ := c.First(ctx); k != nil; k, _ = c.Next(ctx) {
@@ -830,7 +838,8 @@ func compactionInvertedStrategy(ctx context.Context, t *testing.T, opts []Bucket
 	t.Run("verify control after compaction using a cursor", func(t *testing.T) {
 		var retrieved []kv
 
-		c := bucket.MapCursor()
+		c, err := bucket.MapCursor()
+		require.NoError(t, err)
 		defer c.Close()
 
 		for k, _ := c.First(ctx); k != nil; k, _ = c.Next(ctx) {
@@ -935,7 +944,8 @@ func compactionInvertedStrategy_RemoveUnnecessary(ctx context.Context, t *testin
 	t.Run("verify control before compaction", func(t *testing.T) {
 		var retrieved []kv
 
-		c := bucket.MapCursor()
+		c, err := bucket.MapCursor()
+		require.NoError(t, err)
 		defer c.Close()
 
 		for k, _ := c.First(ctx); k != nil; k, _ = c.Next(ctx) {
@@ -964,7 +974,8 @@ func compactionInvertedStrategy_RemoveUnnecessary(ctx context.Context, t *testin
 			t.Run("verify control during compaction", func(t *testing.T) {
 				var retrieved []kv
 
-				c := bucket.MapCursor()
+				c, err := bucket.MapCursor()
+				require.NoError(t, err)
 				defer c.Close()
 
 				for k, _ := c.First(ctx); k != nil; k, _ = c.Next(ctx) {
@@ -992,7 +1003,8 @@ func compactionInvertedStrategy_RemoveUnnecessary(ctx context.Context, t *testin
 	t.Run("verify control after compaction", func(t *testing.T) {
 		var retrieved []kv
 
-		c := bucket.MapCursor()
+		c, err := bucket.MapCursor()
+		require.NoError(t, err)
 		defer c.Close()
 
 		for k, _ := c.First(ctx); k != nil; k, _ = c.Next(ctx) {

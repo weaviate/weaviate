@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -45,7 +45,9 @@ func NewCreateRole(ctx *middleware.Context, handler CreateRoleHandler) *CreateRo
 /*
 	CreateRole swagger:route POST /authz/roles authz createRole
 
-create new role
+# Create new role
+
+Create a new role with the specified permissions.
 */
 type CreateRole struct {
 	Context *middleware.Context

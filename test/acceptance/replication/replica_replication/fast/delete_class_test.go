@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -29,8 +29,8 @@ import (
 
 func (suite *ReplicationTestSuite) TestReplicationDeletingClassCleansUpOperations() {
 	t := suite.T()
-
 	helper.SetupClient(suite.compose.GetWeaviate().URI())
+
 	paragraphClass := articles.ParagraphsClass()
 
 	stateToDeleteIn := []api.ShardReplicationState{
@@ -69,7 +69,7 @@ func (suite *ReplicationTestSuite) TestReplicationDeletingClassCleansUpOperation
 					details, err := helper.Client(t).Replication.ReplicationDetails(replication.NewReplicationDetailsParams().WithID(id), nil)
 					require.Nil(ct, err)
 					require.Equal(ct, state.String(), details.Payload.Status.State)
-				}, 60*time.Second, 100*time.Millisecond, "replication operation should be in %s state", state)
+				}, 60*time.Second, 10*time.Millisecond, "replication operation should be in %s state", state)
 			})
 		}
 
@@ -82,7 +82,7 @@ func (suite *ReplicationTestSuite) TestReplicationDeletingClassCleansUpOperation
 				_, err := helper.Client(t).Replication.ReplicationDetails(replication.NewReplicationDetailsParams().WithID(id), nil)
 				require.NotNil(ct, err)
 				assert.IsType(ct, replication.NewReplicationDetailsNotFound(), err)
-			}, 30*time.Second, 1*time.Second, "replication operation should be deleted")
+			}, 120*time.Second, 1*time.Second, fmt.Sprintf("replication operation should be deleted: %s", id))
 		})
 
 		t.Run("assert that async replication is not running in any of the nodes", func(t *testing.T) {

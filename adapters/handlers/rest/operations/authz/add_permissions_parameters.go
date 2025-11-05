@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -49,7 +49,7 @@ type AddPermissionsParams struct {
 	  In: body
 	*/
 	Body AddPermissionsBody
-	/*role name
+	/*The name (ID) of the role being modified.
 	  Required: true
 	  In: path
 	*/

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -23,7 +23,7 @@ import (
 	"github.com/go-openapi/swag"
 )
 
-// StopwordConfig fine-grained control over stopword list usage
+// StopwordConfig Fine-grained control over stopword list usage.
 //
 // swagger:model StopwordConfig
 type StopwordConfig struct {
@@ -31,7 +31,7 @@ type StopwordConfig struct {
 	// Stopwords to be considered additionally (default: []). Can be any array of custom strings.
 	Additions []string `json:"additions"`
 
-	// Pre-existing list of common words by language (default: 'en'). Options: ['en', 'none'].
+	// Pre-existing list of common words by language (default: `en`). Options: [`en`, `none`].
 	Preset string `json:"preset,omitempty"`
 
 	// Stopwords to be removed from consideration (default: []). Can be any array of custom strings.

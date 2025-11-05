@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -26,9 +26,9 @@ func Test_classSettings_Validate(t *testing.T) {
 		cfg               moduletools.ClassConfig
 		wantModel         string
 		wantMaxTokens     *int
-		wantTemperature   float64
-		wantTopK          int
-		wantTopP          float64
+		wantTemperature   *float64
+		wantTopK          *int
+		wantTopP          *float64
 		wantStopSequences []string
 		wantBaseURL       string
 		wantErr           error
@@ -38,12 +38,12 @@ func Test_classSettings_Validate(t *testing.T) {
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{},
 			},
-			wantModel:         "claude-3-5-sonnet-20240620",
+			wantModel:         "claude-haiku-4-5",
 			wantMaxTokens:     nil,
-			wantTemperature:   1.0,
-			wantTopK:          0,
-			wantTopP:          0.0,
-			wantStopSequences: []string{},
+			wantTemperature:   nil,
+			wantTopK:          nil,
+			wantTopP:          nil,
+			wantStopSequences: nil,
 			wantBaseURL:       "https://api.anthropic.com",
 			wantErr:           nil,
 		},
@@ -61,10 +61,10 @@ func Test_classSettings_Validate(t *testing.T) {
 				},
 			},
 			wantModel:         "claude-3-opus-20240229",
-			wantMaxTokens:     ptrInt(3000),
-			wantTemperature:   0.7,
-			wantTopK:          5,
-			wantTopP:          0.9,
+			wantMaxTokens:     ptrNumber(3000),
+			wantTemperature:   ptrNumber(0.7),
+			wantTopK:          ptrNumber(5),
+			wantTopP:          ptrNumber(0.9),
 			wantStopSequences: []string{"stop1", "stop2"},
 			wantBaseURL:       "https://custom.anthropic.api",
 			wantErr:           nil,
@@ -78,10 +78,10 @@ func Test_classSettings_Validate(t *testing.T) {
 			},
 			wantModel:         "some-new-model-name",
 			wantMaxTokens:     nil,
-			wantTemperature:   1.0,
-			wantTopK:          0,
-			wantTopP:          0.0,
-			wantStopSequences: []string{},
+			wantTemperature:   nil,
+			wantTopK:          nil,
+			wantTopP:          nil,
+			wantStopSequences: nil,
 			wantBaseURL:       "https://api.anthropic.com",
 			wantErr:           nil,
 		},
@@ -94,10 +94,10 @@ func Test_classSettings_Validate(t *testing.T) {
 			},
 			wantModel:         "claude-3-haiku-20240307",
 			wantMaxTokens:     nil,
-			wantTemperature:   1.0,
-			wantTopK:          0,
-			wantTopP:          0.0,
-			wantStopSequences: []string{},
+			wantTemperature:   nil,
+			wantTopK:          nil,
+			wantTopP:          nil,
+			wantStopSequences: nil,
 			wantBaseURL:       "https://api.anthropic.com",
 			wantErr:           nil,
 		},
@@ -153,6 +153,6 @@ func (f fakeClassConfig) Config() *config.Config {
 	return nil
 }
 
-func ptrInt(in int) *int {
+func ptrNumber[T float64 | int](in T) *T {
 	return &in
 }

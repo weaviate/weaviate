@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -28,7 +28,7 @@ import (
 const SchemaDumpOKCode int = 200
 
 /*
-SchemaDumpOK Successfully dumped the database schema.
+SchemaDumpOK Successfully retrieved the database schema.
 
 swagger:response schemaDumpOK
 */
@@ -143,7 +143,7 @@ func (o *SchemaDumpForbidden) WriteResponse(rw http.ResponseWriter, producer run
 const SchemaDumpInternalServerErrorCode int = 500
 
 /*
-SchemaDumpInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+SchemaDumpInternalServerError An error occurred while retrieving the schema. Check the ErrorResponse for details.
 
 swagger:response schemaDumpInternalServerError
 */

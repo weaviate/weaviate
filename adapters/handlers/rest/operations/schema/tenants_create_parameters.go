@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -45,12 +45,12 @@ type TenantsCreateParams struct {
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
-	/*
+	/*An array of tenant objects to create.
 	  Required: true
 	  In: body
 	*/
 	Body []*models.Tenant
-	/*
+	/*The name of the multi-tenant enabled collection (class).
 	  Required: true
 	  In: path
 	*/

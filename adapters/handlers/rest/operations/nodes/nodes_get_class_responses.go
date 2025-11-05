@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -28,7 +28,7 @@ import (
 const NodesGetClassOKCode int = 200
 
 /*
-NodesGetClassOK Nodes status successfully returned
+NodesGetClassOK Successfully retrieved the status for nodes relevant to the specified collection.
 
 swagger:response nodesGetClassOK
 */
@@ -143,7 +143,7 @@ func (o *NodesGetClassForbidden) WriteResponse(rw http.ResponseWriter, producer 
 const NodesGetClassNotFoundCode int = 404
 
 /*
-NodesGetClassNotFound Not Found - Backup does not exist
+NodesGetClassNotFound Not Found.
 
 swagger:response nodesGetClassNotFound
 */
@@ -188,7 +188,7 @@ func (o *NodesGetClassNotFound) WriteResponse(rw http.ResponseWriter, producer r
 const NodesGetClassUnprocessableEntityCode int = 422
 
 /*
-NodesGetClassUnprocessableEntity Invalid backup restoration status attempt.
+NodesGetClassUnprocessableEntity Invalid request for node status.
 
 swagger:response nodesGetClassUnprocessableEntity
 */
@@ -233,7 +233,7 @@ func (o *NodesGetClassUnprocessableEntity) WriteResponse(rw http.ResponseWriter,
 const NodesGetClassInternalServerErrorCode int = 500
 
 /*
-NodesGetClassInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+NodesGetClassInternalServerError An internal server error occurred while retrieving node status for the collection. Check the ErrorResponse for details.
 
 swagger:response nodesGetClassInternalServerError
 */
