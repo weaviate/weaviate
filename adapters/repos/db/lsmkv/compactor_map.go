@@ -44,8 +44,6 @@ type compactorMap struct {
 	bufw compactor.Writer
 	mw   *compactor.MemoryWriter
 
-	scratchSpacePath string
-
 	// for backward-compatibility with states where the disk state for maps was
 	// not guaranteed to be sorted yet
 	requiresSorting bool
@@ -55,7 +53,7 @@ type compactorMap struct {
 
 func newCompactorMapCollection(w io.WriteSeeker,
 	c1, c2 *segmentCursorCollectionReusable, level, secondaryIndexCount uint16,
-	scratchSpacePath string, requiresSorting bool, cleanupTombstones bool,
+	requiresSorting bool, cleanupTombstones bool,
 	enableChecksumValidation bool, maxNewFileSize int64,
 ) *compactorMap {
 	observeWrite := monitoring.GetMetrics().FileIOWrites.With(prometheus.Labels{
@@ -77,7 +75,6 @@ func newCompactorMapCollection(w io.WriteSeeker,
 		currentLevel:             level,
 		cleanupTombstones:        cleanupTombstones,
 		secondaryIndexCount:      secondaryIndexCount,
-		scratchSpacePath:         scratchSpacePath,
 		requiresSorting:          requiresSorting,
 		enableChecksumValidation: enableChecksumValidation,
 	}
@@ -268,7 +265,6 @@ func (c *compactorMap) writeIndexes(f *segmentindex.SegmentFile,
 	indexes := &segmentindex.Indexes{
 		Keys:                keys,
 		SecondaryIndexCount: c.secondaryIndexCount,
-		ScratchSpacePath:    c.scratchSpacePath,
 		ObserveWrite: monitoring.GetMetrics().FileIOWrites.With(prometheus.Labels{
 			"strategy":  StrategyMapCollection,
 			"operation": "writeIndices",

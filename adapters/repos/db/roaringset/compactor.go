@@ -76,8 +76,6 @@ type Compactor struct {
 	bufw compactor.Writer
 	mw   *compactor.MemoryWriter
 
-	scratchSpacePath string
-
 	enableChecksumValidation bool
 }
 
@@ -116,7 +114,7 @@ type Compactor struct {
 // is no additional cost to using the fully-in-memory approach.
 func NewCompactor(w io.WriteSeeker,
 	left, right *SegmentCursor, level uint16,
-	scratchSpacePath string, cleanupDeletions bool,
+	cleanupDeletions bool,
 	enableChecksumValidation bool, maxNewFileSize int64,
 ) *Compactor {
 	observeWrite := monitoring.GetMetrics().FileIOWrites.With(prometheus.Labels{
@@ -137,7 +135,6 @@ func NewCompactor(w io.WriteSeeker,
 		mw:                       mw,
 		currentLevel:             level,
 		cleanupDeletions:         cleanupDeletions,
-		scratchSpacePath:         scratchSpacePath,
 		enableChecksumValidation: enableChecksumValidation,
 	}
 }
@@ -357,7 +354,6 @@ func (c *Compactor) writeIndexes(f *segmentindex.SegmentFile,
 	indexes := &segmentindex.Indexes{
 		Keys:                keys,
 		SecondaryIndexCount: 0,
-		ScratchSpacePath:    c.scratchSpacePath,
 		ObserveWrite: monitoring.GetMetrics().FileIOWrites.With(prometheus.Labels{
 			"strategy":  "roaringset",
 			"operation": "writeIndices",

@@ -137,7 +137,6 @@ func (m *Memtable) flush() (rerr error) {
 		indexes := &segmentindex.Indexes{
 			Keys:                keys,
 			SecondaryIndexCount: m.secondaryIndices,
-			ScratchSpacePath:    m.path + ".scratch.d",
 			ObserveWrite: monitoring.GetMetrics().FileIOWrites.With(prometheus.Labels{
 				"strategy":  m.strategy,
 				"operation": "writeIndices",

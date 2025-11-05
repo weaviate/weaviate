@@ -20,18 +20,14 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/weaviate/weaviate/entities/diskio"
-
-	"github.com/pkg/errors"
 )
 
 type Indexes struct {
 	Keys                []Key
 	SecondaryIndexCount uint16
-	ScratchSpacePath    string
 	ObserveWrite        prometheus.Observer
 }
 
@@ -57,37 +53,13 @@ func (s *Indexes) WriteTo(w io.Writer) (written int64, err error) {
 		currentOffset = uint64(s.Keys[len(s.Keys)-1].ValueEnd)
 	}
 
-	if _, err := os.Stat(s.ScratchSpacePath); err == nil {
-		// exists, we need to delete
-		// This could be the case if Weaviate shut down unexpectedly (i.e. crashed)
-		// while a compaction was running. We can safely discard the contents of
-		// the scratch space.
-
-		if err := os.RemoveAll(s.ScratchSpacePath); err != nil {
-			return written, errors.Wrap(err, "clean up previous scratch space")
-		}
-	} else if os.IsNotExist(err) {
-		// does not exist yet, nothing to - will be created in the next step
-	} else {
-		return written, errors.Wrap(err, "check for scratch space directory")
+	scratchSpacePath, err := os.MkdirTemp("", "scratch-*")
+	if err != nil {
+		return written, err
 	}
+	defer os.RemoveAll(scratchSpacePath)
 
-	if err := os.Mkdir(s.ScratchSpacePath, 0o777); err != nil {
-		return written, errors.Wrap(err, "create scratch space")
-	}
-	defer func() {
-		diskio.Fsync(s.ScratchSpacePath)
-
-		for range 3 {
-			err := os.RemoveAll(s.ScratchSpacePath)
-			if err == nil {
-				break
-			}
-			time.Sleep(10 * time.Millisecond)
-		}
-	}()
-
-	primaryFileName := filepath.Join(s.ScratchSpacePath, "primary")
+	primaryFileName := filepath.Join(scratchSpacePath, "primary")
 	primaryFD, err := os.Create(primaryFileName)
 	if err != nil {
 		return written, err
@@ -116,7 +88,7 @@ func (s *Indexes) WriteTo(w io.Writer) (written int64, err error) {
 	currentOffset = currentOffset + uint64(n) +
 		uint64(s.SecondaryIndexCount)*8
 
-	secondaryFileName := filepath.Join(s.ScratchSpacePath, "secondary")
+	secondaryFileName := filepath.Join(scratchSpacePath, "secondary")
 	secondaryFD, err := os.Create(secondaryFileName)
 	if err != nil {
 		return written, err
