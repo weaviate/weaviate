@@ -193,9 +193,15 @@ func (rri *RemoteReplicaIncoming) DigestObjects(ctx context.Context,
 }
 
 func (rri *RemoteReplicaIncoming) indexForIncomingRead(ctx context.Context, indexName string) (RemoteIndexIncomingRepo, *SimpleResponse) {
+	_, span := otel.Tracer("weaviate-search").Start(ctx, "RemoteReplicaIncoming.indexForIncomingRead",
+		trace.WithSpanKind(trace.SpanKindInternal),
+	)
+	defer span.End()
 	index := rri.repo.GetIndexForIncomingReplica(schema.ClassName(indexName))
 	if index == nil {
-		return nil, &SimpleResponse{Errors: []Error{{Err: fmt.Errorf("local index %q not found", indexName)}}}
+		err := fmt.Errorf("local index %q not found", indexName)
+		span.RecordError(err)
+		return nil, &SimpleResponse{Errors: []Error{{Err: err}}}
 	}
 	return index, nil
 }
