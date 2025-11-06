@@ -23,19 +23,19 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/entities/diskio"
-	vectorIndex "github.com/weaviate/weaviate/entities/vectorindex/common"
-	"github.com/weaviate/weaviate/entities/vectorindex/flat"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
+	"github.com/weaviate/weaviate/entities/diskio"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/storobj"
+	vectorIndex "github.com/weaviate/weaviate/entities/vectorindex/common"
+	"github.com/weaviate/weaviate/entities/vectorindex/flat"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
@@ -49,7 +49,6 @@ const (
 
 func TestIndex_CalculateUnloadedVectorsMetrics(t *testing.T) {
 	ctx := context.Background()
-	dirName := t.TempDir()
 	logger, _ := test.NewNullLogger()
 
 	tests := []struct {
@@ -198,7 +197,7 @@ func TestIndex_CalculateUnloadedVectorsMetrics(t *testing.T) {
 			}
 
 			index, err := NewIndex(ctx, IndexConfig{
-				RootPath:              dirName,
+				RootPath:              t.TempDir(),
 				ClassName:             schema.ClassName(tt.className),
 				ReplicationFactor:     1,
 				ShardLoadLimiter:      NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
@@ -325,6 +324,8 @@ func TestIndex_CalculateUnloadedVectorsMetrics(t *testing.T) {
 
 				// Unload the shard from memory to test inactive calculation methods
 				index.shards.LoadAndDelete(tt.shardName)
+
+				require.NoError(t, index.drop())
 			} else {
 				// Test empty shard
 				shard, release, err := index.GetShard(ctx, tt.shardName)
@@ -365,6 +366,8 @@ func TestIndex_CalculateUnloadedVectorsMetrics(t *testing.T) {
 
 				// Unload the shard from memory to test inactive calculation methods
 				index.shards.LoadAndDelete(tt.shardName)
+
+				require.NoError(t, index.drop())
 			}
 
 			// Verify all mock expectations were met
@@ -375,7 +378,6 @@ func TestIndex_CalculateUnloadedVectorsMetrics(t *testing.T) {
 
 func TestIndex_CalculateUnloadedDimensionsUsage(t *testing.T) {
 	ctx := context.Background()
-	dirName := t.TempDir()
 	logger, _ := test.NewNullLogger()
 
 	tests := []struct {
@@ -479,7 +481,7 @@ func TestIndex_CalculateUnloadedDimensionsUsage(t *testing.T) {
 				},
 			}
 			index, err := NewIndex(ctx, IndexConfig{
-				RootPath:              dirName,
+				RootPath:              t.TempDir(),
 				ClassName:             schema.ClassName(tt.className),
 				ReplicationFactor:     1,
 				ShardLoadLimiter:      NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
@@ -572,6 +574,8 @@ func TestIndex_CalculateUnloadedDimensionsUsage(t *testing.T) {
 
 				// Unload the shard from memory to test inactive calculation methods
 				index.shards.LoadAndDelete(tt.shardName)
+
+				require.NoError(t, index.drop())
 			} else {
 				// Test empty shard
 				shard, release, err := index.GetShard(ctx, tt.shardName)
@@ -603,6 +607,8 @@ func TestIndex_CalculateUnloadedDimensionsUsage(t *testing.T) {
 
 				// Unload the shard from memory to test inactive calculation methods
 				index.shards.LoadAndDelete(tt.shardName)
+
+				require.NoError(t, index.drop())
 			}
 
 			// Verify all mock expectations were met
