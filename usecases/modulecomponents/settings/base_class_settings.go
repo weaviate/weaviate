@@ -28,6 +28,9 @@ const (
 	DefaultVectorizePropertyName = false
 )
 
+// AvailableVoyageDimensions defines the supported output dimensions for VoyageAI models
+var AvailableVoyageDimensions = []int64{256, 512, 1024, 2048}
+
 var errInvalidProperties = fmt.Errorf("invalid properties: didn't find a single property which is " +
 	"vectorizable and is not excluded from indexing. " +
 	"To fix this add a vectorizable property which is not excluded from indexing")
@@ -220,6 +223,10 @@ func (s BaseClassSettings) GetPropertyAsBool(name string, defaultValue bool) boo
 	return s.propertyHelper.GetPropertyAsBool(s.cfg, name, defaultValue)
 }
 
+func (s BaseClassSettings) Dimensions() *int64 {
+	return s.GetPropertyAsInt64("dimensions", nil)
+}
+
 func (s BaseClassSettings) GetNumber(in interface{}) (float32, error) {
 	return s.propertyHelper.GetNumber(in)
 }
@@ -317,4 +324,21 @@ func (s BaseClassSettings) isPropertyDataTypeSupported(dt string) bool {
 
 func ValidateSetting[T string | int64](value T, availableValues []T) bool {
 	return slices.Contains(availableValues, value)
+}
+
+// ValidateDimensions validates if the given dimension value is supported and if the model supports dimensions configuration
+func ValidateDimensions(dimensions *int64, model string, availableDimensions []int64, supportedModels []string) error {
+	if dimensions == nil {
+		return nil
+	}
+
+	if !ValidateSetting(*dimensions, availableDimensions) {
+		return fmt.Errorf("invalid dimensions value %d: supported values are %v", *dimensions, availableDimensions)
+	}
+
+	if !ValidateSetting(model, supportedModels) {
+		return fmt.Errorf("model %s does not support output dimensions configuration", model)
+	}
+
+	return nil
 }
