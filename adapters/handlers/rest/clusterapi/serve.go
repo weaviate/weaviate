@@ -54,13 +54,6 @@ func NewServer(appState *state.State) *Server {
 		WithField("action", "cluster_api_startup").
 		Debugf("serving cluster api on port %d", port)
 
-	indices := NewIndices(appState.RemoteIndexIncoming, appState.DB, auth, appState.Cluster.MaintenanceModeEnabledForLocalhost, appState.Logger)
-	replicatedIndices := NewReplicatedIndices(
-		appState.RemoteReplicaIncoming,
-		auth,
-		appState.Cluster.MaintenanceModeEnabledForLocalhost,
-		appState.ServerConfig.Config.Cluster.RequestQueueConfig,
-		appState.Logger)
 	classifications := NewClassifications(appState.ClassificationRepo.TxManager(), auth)
 	nodes := NewNodes(appState.RemoteNodeIncoming, auth)
 	backups := NewBackups(appState.BackupManager, auth)
@@ -72,9 +65,20 @@ func NewServer(appState *state.State) *Server {
 			classifications.Transactions()))
 
 	mux.Handle("/cluster/users/db/", dbUsers.Users())
-	mux.Handle("/nodes/", monitoring.AddTracingToHTTPMiddleware(nodes.Nodes(), appState.Logger))
-	mux.Handle("/indices/", monitoring.AddTracingToHTTPMiddleware(indices.Indices(), appState.Logger))
-	mux.Handle("/replicas/indices/", monitoring.AddTracingToHTTPMiddleware(replicatedIndices.Indices(), appState.Logger))
+	mux.Handle("/nodes/", nodes.Nodes())
+
+	indices := NewIndices(appState.RemoteIndexIncoming, appState.DB, auth, appState.Cluster.MaintenanceModeEnabledForLocalhost, appState.Logger)
+	mux.Handle("/indices/", indices.Indices())
+
+	replicatedIndices := NewReplicatedIndices(
+		appState.RemoteReplicaIncoming,
+		auth,
+		appState.Cluster.MaintenanceModeEnabledForLocalhost,
+		appState.ServerConfig.Config.Cluster.RequestQueueConfig,
+		appState.Logger,
+		appState.ClusterService.Ready,
+	)
+	mux.Handle("/replicas/indices/", replicatedIndices.Indices())
 
 	mux.Handle("/backups/can-commit", backups.CanCommit())
 	mux.Handle("/backups/commit", backups.Commit())
