@@ -1550,7 +1550,7 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 	addlProps additional.Properties, replProps *additional.ReplicationProperties, tenant string, autoCut int,
 	properties []string,
 ) ([]*storobj.Object, []float32, error) {
-	cl := i.consistencyLevel(replProps)
+	cl := i.consistencyLevel(replProps, routerTypes.ConsistencyLevelOne)
 	readPlan, err := i.buildReadRoutingPlan(cl, tenant)
 	if err != nil {
 		return nil, nil, err
@@ -1914,7 +1914,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 	groupBy *searchparams.GroupBy, additionalProps additional.Properties,
 	replProps *additional.ReplicationProperties, tenant string, targetCombination *dto.TargetCombination, properties []string,
 ) ([]*storobj.Object, []float32, error) {
-	cl := i.consistencyLevel(replProps)
+	cl := i.consistencyLevel(replProps, routerTypes.ConsistencyLevelOne)
 	readPlan, err := i.buildReadRoutingPlan(cl, tenant)
 	if err != nil {
 		return nil, nil, err
@@ -2811,9 +2811,17 @@ func (i *Index) findUUIDs(ctx context.Context,
 	return results, nil
 }
 
-func (i *Index) consistencyLevel(repl *additional.ReplicationProperties) routerTypes.ConsistencyLevel {
+// consistencyLevel returns the consistency level for the given replication properties.
+// If repl is not nil, the consistency level is returned from repl.
+// If repl is nil and a default override is provided, the default override is returned.
+// If repl is nil and no default override is provided, the default consistency level
+// is returned (QUORUM).
+func (i *Index) consistencyLevel(
+	repl *additional.ReplicationProperties,
+	defaultOverride ...routerTypes.ConsistencyLevel,
+) routerTypes.ConsistencyLevel {
 	if repl == nil {
-		repl = defaultConsistency()
+		repl = defaultConsistency(defaultOverride...)
 	}
 	return routerTypes.ConsistencyLevel(repl.ConsistencyLevel)
 }
@@ -2914,10 +2922,10 @@ func (i *Index) IncomingDeleteObjectBatch(ctx context.Context, shardName string,
 	return shard.DeleteObjectBatch(ctx, uuids, deletionTime, dryRun)
 }
 
-func defaultConsistency(l ...routerTypes.ConsistencyLevel) *additional.ReplicationProperties {
+func defaultConsistency(defaultOverride ...routerTypes.ConsistencyLevel) *additional.ReplicationProperties {
 	rp := &additional.ReplicationProperties{}
-	if len(l) != 0 {
-		rp.ConsistencyLevel = string(l[0])
+	if len(defaultOverride) != 0 {
+		rp.ConsistencyLevel = string(defaultOverride[0])
 	} else {
 		rp.ConsistencyLevel = string(routerTypes.ConsistencyLevelQuorum)
 	}
