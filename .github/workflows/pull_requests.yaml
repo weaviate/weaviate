@@ -14,8 +14,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  Production-Docker-Build:
-    name: docker build (production)
+  Multi-Arch-Docker-Build:
+    name: docker build (multi-arch)
     runs-on: ubuntu-latest
     if: ${{ !github.event.pull_request.head.repo.fork && github.triggering_actor != 'dependabot[bot]' && github.event_name == 'push' }}
     timeout-minutes: 45
@@ -34,6 +34,8 @@ jobs:
       - name: Build and cache Docker image
         id: build
         uses: docker/build-push-action@v6
+        env:
+          DOCKER_BUILD_SUMMARY: false
         with:
           context: .
           push: false
@@ -117,12 +119,12 @@ jobs:
       - name: Upload outputs
         uses: actions/upload-artifact@v5
         with:
-          name: docker-outputs-production
+          name: docker-outputs-multi-arch
           path: /tmp/docker-outputs/
           retention-days: 1
 
   PR-Docker-Build:
-    name: docker build (pull request ${{ matrix.arch }})
+    name: docker build (${{ matrix.arch }})
     # ARM builds run on specific runners to avoid cross-compilation.
     runs-on: ${{ matrix.runner }}
     if: ${{ !github.event.pull_request.head.repo.fork && github.triggering_actor != 'dependabot[bot]' && github.event_name == 'pull_request' }}
@@ -148,6 +150,8 @@ jobs:
       - name: Build and cache Docker image
         id: build
         uses: docker/build-push-action@v6
+        env:
+          DOCKER_BUILD_SUMMARY: false
         with:
           context: .
           push: false
@@ -198,9 +202,9 @@ jobs:
     name: docker report
     runs-on: ubuntu-latest
     # Depends on both production and PR jobs, but only one will run based on the event type
-    needs: [Production-Docker-Build, PR-Docker-Build]
+    needs: [Multi-Arch-Docker-Build, PR-Docker-Build]
     # Always run if either dependency succeeded (pr or production build)
-    if: always() && (needs.Production-Docker-Build.result == 'success' || needs.PR-Docker-Build.result == 'success')
+    if: always() && (needs.Multi-Arch-Docker-Build.result == 'success' || needs.PR-Docker-Build.result == 'success')
     steps:
       - uses: actions/checkout@v5
 
@@ -212,21 +216,28 @@ jobs:
 
       - name: Combine all outputs into a single summary report
         run: |
+          PREVIEW_TAG=""
+          if [ -e "/tmp/all-outputs/preview-tag.txt" ]; then
+            PREVIEW_TAG=$(cat /tmp/all-outputs/preview-tag.txt)
+          else
+            PREVIEW_TAG=$(cat /tmp/all-outputs/docker-outputs-*/preview-tag.txt)
+          fi
           echo "PREVIEW_TAG<<EOF" >> $GITHUB_ENV
-          for file in /tmp/all-outputs/docker-outputs-*/preview-tag.txt; do
-            if [ -f "$file" ]; then
-              cat "$file" >> $GITHUB_ENV
-            fi
-          done
+          echo "$PREVIEW_TAG" >> $GITHUB_ENV
           echo "EOF" >> $GITHUB_ENV
 
+          PREVIEW_SEMVER_TAG=""
+          if [ -e "/tmp/all-outputs/preview-semver-tag.txt" ]; then
+            PREVIEW_SEMVER_TAG=$(cat /tmp/all-outputs/preview-semver-tag.txt)
+          else
+            PREVIEW_SEMVER_TAG=$(cat /tmp/all-outputs/docker-outputs-*/preview-semver-tag.txt)
+          fi
           echo "PREVIEW_SEMVER_TAG<<EOF" >> $GITHUB_ENV
-          for file in /tmp/all-outputs/docker-outputs-*/preview-semver-tag.txt; do
-            if [ -f "$file" ]; then
-              cat "$file" >> $GITHUB_ENV
-            fi
-          done
+          echo "$PREVIEW_SEMVER_TAG" >> $GITHUB_ENV
           echo "EOF" >> $GITHUB_ENV
+
+          echo "PREVIEW_TAG: $PREVIEW_TAG"
+          echo "PREVIEW_SEMVER_TAG: $PREVIEW_SEMVER_TAG"
 
       - name: Generate unified Docker report
         env:
