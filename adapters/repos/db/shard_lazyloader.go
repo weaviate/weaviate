@@ -22,6 +22,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
+	"golang.org/x/sync/singleflight"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcounter"
@@ -62,6 +63,7 @@ type LazyLoadShard struct {
 	memMonitor       memwatch.AllocChecker
 	shardLoadLimiter ShardLoadLimiter
 	lazyLoadSegments bool
+	singleFlight     singleflight.Group
 }
 
 func NewLazyLoadShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
@@ -115,33 +117,43 @@ func (l *LazyLoadShard) mustLoadCtx(ctx context.Context) {
 }
 
 func (l *LazyLoadShard) Load(ctx context.Context) error {
-	if l.loaded.Load() {
+	if l.isLoaded() {
 		return nil
 	}
 
-	if err := l.memMonitor.CheckMappingAndReserve(3, int(lsmkv.FlushAfterDirtyDefault.Seconds())); err != nil {
-		return errors.Wrap(err, "memory pressure: cannot load shard")
-	}
+	// Use singleflight to ensure only one load operation happens at a time
+	_, err, _ := l.singleFlight.Do(l.ID(), func() (any, error) {
+		// Double-check after acquiring the singleflight lock
+		if l.isLoaded() {
+			return nil, nil
+		}
 
-	if err := l.shardLoadLimiter.Acquire(ctx); err != nil {
-		return fmt.Errorf("acquiring permit to load shard: %w", err)
-	}
-	defer l.shardLoadLimiter.Release()
+		if err := l.memMonitor.CheckMappingAndReserve(3, int(lsmkv.FlushAfterDirtyDefault.Seconds())); err != nil {
+			return nil, errors.Wrap(err, "memory pressure: cannot load shard")
+		}
 
-	shard, err := NewShard(ctx, l.shardOpts.promMetrics, l.shardOpts.name, l.shardOpts.index,
-		l.shardOpts.class, l.shardOpts.jobQueueCh, l.shardOpts.scheduler,
-		l.shardOpts.indexCheckpoints, l.shardOpts.shardReindexer, l.lazyLoadSegments,
-		l.shardOpts.bitmapBufPool)
-	if err != nil {
-		msg := fmt.Sprintf("Unable to load shard %s: %v", l.shardOpts.name, err)
-		l.shardOpts.index.logger.WithField("error", "shard_load").WithError(err).Error(msg)
-		return errors.New(msg)
-	}
+		if err := l.shardLoadLimiter.Acquire(ctx); err != nil {
+			return nil, fmt.Errorf("acquiring permit to load shard: %w", err)
+		}
+		defer l.shardLoadLimiter.Release()
 
-	l.shard = shard
-	l.loaded.Store(true)
+		shard, err := NewShard(ctx, l.shardOpts.promMetrics, l.shardOpts.name, l.shardOpts.index,
+			l.shardOpts.class, l.shardOpts.jobQueueCh, l.shardOpts.scheduler,
+			l.shardOpts.indexCheckpoints, l.shardOpts.shardReindexer, l.lazyLoadSegments,
+			l.shardOpts.bitmapBufPool)
+		if err != nil {
+			msg := fmt.Sprintf("Unable to load shard %s: %v", l.shardOpts.name, err)
+			l.shardOpts.index.logger.WithField("error", "shard_load").WithError(err).Error(msg)
+			return nil, errors.New(msg)
+		}
 
-	return nil
+		l.shard = shard
+		l.loaded.Store(true)
+
+		return nil, nil
+	})
+
+	return err
 }
 
 func (l *LazyLoadShard) Index() *Index {
@@ -163,7 +175,7 @@ func (l *LazyLoadShard) NotifyReady() {
 }
 
 func (l *LazyLoadShard) GetStatus() storagestate.Status {
-	if l.loaded.Load() {
+	if l.isLoaded() {
 		return l.shard.GetStatus()
 	}
 	return storagestate.StatusLazyLoading
@@ -197,7 +209,7 @@ func (l *LazyLoadShard) ObjectCount(ctx context.Context) (int, error) {
 }
 
 func (l *LazyLoadShard) ObjectCountAsync(ctx context.Context) (int64, error) {
-	if l.loaded.Load() {
+	if l.isLoaded() {
 		return l.shard.ObjectCountAsync(ctx)
 	}
 	idx := l.shardOpts.index
@@ -342,7 +354,7 @@ func (l *LazyLoadShard) MultiObjectByID(ctx context.Context, query []multi.Ident
 func (l *LazyLoadShard) ObjectDigestsInRange(ctx context.Context,
 	initialUUID, finalUUID strfmt.UUID, limit int,
 ) (objs []types.RepairResponse, err error) {
-	if !l.loaded.Load() {
+	if !l.isLoaded() {
 		return nil, err
 	}
 
@@ -357,7 +369,7 @@ func (l *LazyLoadShard) drop() error {
 	// if not loaded, execute simplified drop without loading shard:
 	// - perform required actions
 	// - remove entire shard directory
-	if !l.loaded.Load() {
+	if !l.isLoaded() {
 		idx := l.shardOpts.index
 		className := idx.Config.ClassName.String()
 		shardName := l.shardOpts.name
@@ -449,7 +461,7 @@ func (l *LazyLoadShard) AnalyzeObject(object *storobj.Object) ([]inverted.Proper
 }
 
 func (l *LazyLoadShard) Dimensions(ctx context.Context, targetVector string) (int, error) {
-	if l.loaded.Load() {
+	if l.isLoaded() {
 		return l.shard.Dimensions(ctx, targetVector)
 	}
 
@@ -741,7 +753,7 @@ func (l *LazyLoadShard) isLoaded() bool {
 }
 
 func (l *LazyLoadShard) Activity() (int32, int32) {
-	if !l.loaded.Load() {
+	if !l.isLoaded() {
 		// don't force-load the shard, just report the same number every time, so
 		// the caller can figure out there was no activity
 		return 0, 0
