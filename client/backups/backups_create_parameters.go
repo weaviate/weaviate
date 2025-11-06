@@ -76,11 +76,14 @@ type BackupsCreateParams struct {
 
 	/* Backend.
 
-	   Backup backend name e.g. `filesystem`, `gcs`, `s3`, `azure`.
+	   Specifies the backend storage system where the backup will be stored (e.g., `filesystem`, `gcs`, `s3`, `azure`).
 	*/
 	Backend string
 
-	// Body.
+	/* Body.
+
+	   Details of the backup request, including the backup ID and collections to include or exclude.
+	*/
 	Body *models.BackupCreateRequest
 
 	timeout    time.Duration

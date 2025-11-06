@@ -22,11 +22,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sirupsen/logrus"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-
 	"github.com/alexedwards/argon2id"
+	"github.com/sirupsen/logrus"
+	"golang.org/x/sync/singleflight"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 )
 
@@ -61,7 +61,7 @@ type User struct {
 
 type DBUser struct {
 	lock           *sync.RWMutex
-	weakHashLock   *sync.RWMutex
+	singleFlight   singleflight.Group
 	data           dbUserdata
 	memoryOnlyData memoryOnlyData
 	path           string
@@ -83,7 +83,7 @@ type dbUserdata struct {
 }
 
 type memoryOnlyData struct {
-	weakKeyStorageById map[string][sha256.Size]byte
+	weakKeyStorageById *sync.Map // maps userId -> [sha256.Size]byte
 	// imported keys from static users should not work after key rotation, eg the following scenario
 	// - import user with "key"
 	// - login works when using "key" through dynamic users
@@ -113,33 +113,14 @@ func NewDBUser(path string, enabled bool, logger logrus.FieldLogger) (*DBUser, e
 		}
 	}
 
-	if snapshot.Data.SecureKeyStorageById == nil {
-		snapshot.Data.SecureKeyStorageById = make(map[string]string)
-	}
-	if snapshot.Data.IdentifierToId == nil {
-		snapshot.Data.IdentifierToId = make(map[string]string)
-	}
-	if snapshot.Data.IdToIdentifier == nil {
-		snapshot.Data.IdToIdentifier = make(map[string]string)
-	}
-	if snapshot.Data.Users == nil {
-		snapshot.Data.Users = make(map[string]*User)
-	}
-	if snapshot.Data.UserKeyRevoked == nil {
-		snapshot.Data.UserKeyRevoked = make(map[string]struct{})
-	}
-
-	if snapshot.Data.ImportedApiKeysWeakHash == nil {
-		snapshot.Data.ImportedApiKeysWeakHash = make(map[string][sha256.Size]byte)
-	}
+	data := restoreAllFields(snapshot.Data)
 
 	dbUsers := &DBUser{
-		path:         fullpath,
-		lock:         &sync.RWMutex{},
-		weakHashLock: &sync.RWMutex{},
-		data:         snapshot.Data,
+		path: fullpath,
+		lock: &sync.RWMutex{},
+		data: data,
 		memoryOnlyData: memoryOnlyData{
-			weakKeyStorageById:     make(map[string][sha256.Size]byte),
+			weakKeyStorageById:     &sync.Map{},
 			importedApiKeysBlocked: make([][sha256.Size]byte, 0),
 		},
 		enabled: enabled,
@@ -169,6 +150,30 @@ func NewDBUser(path string, enabled bool, logger logrus.FieldLogger) (*DBUser, e
 	}
 
 	return dbUsers, nil
+}
+
+// ensure all fields are non-nil after a restore to avoid nil map panics
+func restoreAllFields(data dbUserdata) dbUserdata {
+	if data.SecureKeyStorageById == nil {
+		data.SecureKeyStorageById = make(map[string]string)
+	}
+	if data.IdentifierToId == nil {
+		data.IdentifierToId = make(map[string]string)
+	}
+	if data.IdToIdentifier == nil {
+		data.IdToIdentifier = make(map[string]string)
+	}
+	if data.Users == nil {
+		data.Users = make(map[string]*User)
+	}
+	if data.UserKeyRevoked == nil {
+		data.UserKeyRevoked = make(map[string]struct{})
+	}
+
+	if data.ImportedApiKeysWeakHash == nil {
+		data.ImportedApiKeysWeakHash = make(map[string][sha256.Size]byte)
+	}
+	return data
 }
 
 func (c *DBUser) CreateUser(userId, secureHash, userIdentifier, apiKeyFirstLetters string, createdAt time.Time) error {
@@ -234,7 +239,7 @@ func (c *DBUser) RotateKey(userId, apiKeyFirstLetters, secureHash, oldIdentifier
 
 	c.data.Users[userId].ApiKeyFirstLetters = apiKeyFirstLetters
 	c.data.SecureKeyStorageById[userId] = secureHash
-	delete(c.memoryOnlyData.weakKeyStorageById, userId)
+	c.memoryOnlyData.weakKeyStorageById.Delete(userId)
 	delete(c.data.UserKeyRevoked, userId)
 	return c.storeToFile()
 }
@@ -247,7 +252,7 @@ func (c *DBUser) DeleteUser(userId string) error {
 	delete(c.data.IdentifierToId, c.data.IdToIdentifier[userId])
 	delete(c.data.IdToIdentifier, userId)
 	delete(c.data.Users, userId)
-	delete(c.memoryOnlyData.weakKeyStorageById, userId)
+	c.memoryOnlyData.weakKeyStorageById.Delete(userId)
 	delete(c.data.UserKeyRevoked, userId)
 	delete(c.data.ImportedApiKeysWeakHash, userId)
 	return c.storeToFile()
@@ -373,18 +378,20 @@ func (c *DBUser) ValidateAndExtract(key, userIdentifier string) (*models.Princip
 	if !ok {
 		return nil, fmt.Errorf("invalid token")
 	}
-	c.weakHashLock.RLock()
-	weakHash, ok := c.memoryOnlyData.weakKeyStorageById[userId]
-	c.weakHashLock.RUnlock()
-	if ok {
-		// use the secureHash as salt for the computation of the weaker in-memory
-		if err := c.validateWeakHash([]byte(key+secureHash), weakHash); err != nil {
+	weakHashValue, ok := c.memoryOnlyData.weakKeyStorageById.Load(userId)
+	if !ok {
+		// Ensure only one Argon2 verification runs for this user
+		if _, err, _ := c.singleFlight.Do("auth:"+userId, func() (any, error) {
+			return nil, c.validateStrongHash(key, secureHash, userId)
+		}); err != nil {
 			return nil, err
 		}
-	} else {
-		if err := c.validateStrongHash(key, secureHash, userId); err != nil {
-			return nil, err
-		}
+		weakHashValue, _ = c.memoryOnlyData.weakKeyStorageById.Load(userId)
+	}
+
+	weakHash := weakHashValue.([sha256.Size]byte)
+	if err := c.validateWeakHash([]byte(key+secureHash), weakHash); err != nil {
+		return nil, err
 	}
 
 	if c.data.Users[userId] != nil && !c.data.Users[userId].Active {
@@ -422,12 +429,8 @@ func (c *DBUser) validateStrongHash(key, secureHash, userId string) error {
 		return fmt.Errorf("invalid token")
 	}
 	token := []byte(key + secureHash)
-	// avoid concurrent writes to map
 	weakHash := sha256.Sum256(token)
-
-	c.weakHashLock.Lock()
-	c.memoryOnlyData.weakKeyStorageById[userId] = weakHash
-	c.weakHashLock.Unlock()
+	c.memoryOnlyData.weakKeyStorageById.Store(userId, weakHash)
 
 	return nil
 }
@@ -462,7 +465,7 @@ func (c *DBUser) Restore(snapshot []byte) error {
 	if snapshotRestore.Version != SnapshotVersion {
 		return fmt.Errorf("invalid snapshot version")
 	}
-	c.data = snapshotRestore.Data
+	c.data = restoreAllFields(snapshotRestore.Data)
 
 	return nil
 }

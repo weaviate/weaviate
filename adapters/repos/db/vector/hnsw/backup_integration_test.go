@@ -10,7 +10,6 @@
 //
 
 //go:build integrationTest
-// +build integrationTest
 
 package hnsw
 
@@ -68,7 +67,7 @@ func TestBackup_Integration(t *testing.T) {
 		},
 	}, enthnsw.NewDefaultUserConfig(), tombstoneCleanupCallbacks, nil)
 	require.Nil(t, err)
-	idx.PostStartup()
+	idx.PostStartup(context.Background())
 
 	t.Run("insert vector into index", func(t *testing.T) {
 		for i := 0; i < 10; i++ {
@@ -115,9 +114,9 @@ func TestBackup_Integration(t *testing.T) {
 		// of the backup. in this case, the only other file is the prev
 		// commitlog, so we should only have 1 result here.
 		//
-		// additionally snapshot was created which consist of 2 files,
-		// so total of 3 files are expected
-		assert.Len(t, files, 3)
+		// additionally snapshot was created which consist of 1 file,
+		// so total of 2 files are expected
+		assert.Len(t, files, 2)
 
 		filesUnique := make(map[string]struct{}, len(files))
 		for i := range files {

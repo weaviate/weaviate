@@ -96,3 +96,23 @@ func (c *fakeClient) Vectorize(ctx context.Context,
 	}
 	return result, nil
 }
+
+func (c *fakeClient) VectorizeQuery(ctx context.Context,
+	texts []string, cfg moduletools.ClassConfig,
+) (*modulecomponents.VectorizationCLIPResult[[]float32], error) {
+	result := &modulecomponents.VectorizationCLIPResult[[]float32]{
+		TextVectors:  [][]float32{{1.0, 2.0, 3.0, 4.0, 5.0}},
+		ImageVectors: [][]float32{{10.0, 20.0, 30.0, 40.0, 50.0}},
+	}
+	return result, nil
+}
+
+func (c *fakeClient) VectorizeImage(ctx context.Context,
+	images []string, cfg moduletools.ClassConfig,
+) (*modulecomponents.VectorizationCLIPResult[[]float32], error) {
+	result := &modulecomponents.VectorizationCLIPResult[[]float32]{
+		TextVectors:  [][]float32{{1.0, 2.0, 3.0, 4.0, 5.0}},
+		ImageVectors: [][]float32{{10.0, 20.0, 30.0, 40.0, 50.0}},
+	}
+	return result, nil
+}

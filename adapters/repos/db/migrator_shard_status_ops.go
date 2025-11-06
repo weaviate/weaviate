@@ -32,14 +32,14 @@ func (m *Migrator) frozen(ctx context.Context, idx *Index, frozen []string, ec *
 		return
 	}
 
-	idx.shardTransferMutex.RLock()
-	defer idx.shardTransferMutex.RUnlock()
-
 	eg := enterrors.NewErrorGroupWrapper(m.logger)
 	eg.SetLimit(_NUMCPU * 2)
 
 	for _, name := range frozen {
 		eg.Go(func() error {
+			idx.backupLock.RLock(name)
+			defer idx.backupLock.RUnlock(name)
+
 			idx.shardCreateLocks.Lock(name)
 			defer idx.shardCreateLocks.Unlock(name)
 
@@ -75,9 +75,6 @@ func (m *Migrator) freeze(ctx context.Context, idx *Index, class string, freeze 
 		return
 	}
 
-	idx.shardTransferMutex.RLock()
-	defer idx.shardTransferMutex.RUnlock()
-
 	eg := enterrors.NewErrorGroupWrapper(m.logger)
 	eg.SetLimit(_NUMCPU * 2)
 
@@ -88,9 +85,9 @@ func (m *Migrator) freeze(ctx context.Context, idx *Index, class string, freeze 
 	}
 
 	for uidx, name := range freeze {
-		name := name
-		uidx := uidx
 		eg.Go(func() error {
+			idx.backupLock.RLock(name)
+			defer idx.backupLock.RUnlock(name)
 			originalStatus := models.TenantActivityStatusHOT
 			shard, release, err := idx.getOrInitShard(ctx, name)
 			if err != nil {
@@ -206,9 +203,6 @@ func (m *Migrator) unfreeze(ctx context.Context, idx *Index, class string, unfre
 		return
 	}
 
-	idx.shardTransferMutex.RLock()
-	defer idx.shardTransferMutex.RUnlock()
-
 	eg := enterrors.NewErrorGroupWrapper(m.logger)
 	eg.SetLimit(_NUMCPU * 2)
 	tenantsToBeDeletedFromCloud := sync.Map{}
@@ -219,9 +213,10 @@ func (m *Migrator) unfreeze(ctx context.Context, idx *Index, class string, unfre
 	}
 
 	for uidx, name := range unfreeze {
-		name := name
-		uidx := uidx
 		eg.Go(func() error {
+			idx.backupLock.RLock(name)
+			defer idx.backupLock.RUnlock(name)
+
 			// # is a delineator shall come from RAFT and it's away e.g. tenant1#node1
 			// to identify which node path in the cloud shall we get the data from.
 			// it's made because nodeID could be changed on download based on new candidates

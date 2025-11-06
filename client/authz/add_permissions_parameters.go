@@ -77,7 +77,7 @@ type AddPermissionsParams struct {
 
 	/* ID.
 
-	   role name
+	   The name (ID) of the role being modified.
 	*/
 	ID string
 

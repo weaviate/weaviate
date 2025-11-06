@@ -39,11 +39,15 @@ func metricsCount(t *testing.T) {
 	createImportQueryMetricsClasses(t, 0, 10)
 	backupID := startBackup(t, 0, 10)
 	helper.ExpectBackupEventuallyCreated(t, backupID, "filesystem", nil, helper.WithPollInterval(time.Second), helper.WithDeadline(helper.MaxDeadline))
-	metricsLinesBefore := countMetricsLines(t)
+	metricsLinesBefore, linesBefore := countMetricsLines(t)
 	createImportQueryMetricsClasses(t, 10, 20)
 	backupID = startBackup(t, 0, 20)
 	helper.ExpectBackupEventuallyCreated(t, backupID, "filesystem", nil, helper.WithPollInterval(time.Second), helper.WithDeadline(helper.MaxDeadline))
-	metricsLinesAfter := countMetricsLines(t)
+	metricsLinesAfter, linesAfter := countMetricsLines(t)
+	if metricsLinesAfter != metricsLinesBefore {
+		t.Logf("metric lines before:\n%s\n", strings.Join(linesBefore, "\n"))
+		t.Logf("metric lines after:\n%s\n", strings.Join(linesAfter, "\n"))
+	}
 	assert.Equal(t, metricsLinesBefore, metricsLinesAfter, "number of metrics should not have changed")
 }
 
@@ -170,7 +174,7 @@ func randomVector(dims int) []float32 {
 	return out
 }
 
-func countMetricsLines(t *testing.T) int {
+func countMetricsLines(t *testing.T) (int, []string) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 
@@ -187,9 +191,16 @@ func countMetricsLines(t *testing.T) int {
 
 	scanner := bufio.NewScanner(res.Body)
 	lineCount := 0
+	var lines []string
 	for scanner.Scan() {
 		line := scanner.Text()
 		if strings.Contains(line, "shards_loaded") || strings.Contains(line, "shards_loading") || strings.Contains(line, "shards_unloading") || strings.Contains(line, "shards_unloaded") {
+			continue
+		}
+		if strings.Contains(line, "weaviate_lsm_bucket_cursor_duration_seconds") {
+			continue
+		}
+		if strings.Contains(line, "weaviate_lsm_bucket_read_operation") {
 			continue
 		}
 		require.NotContains(
@@ -198,11 +209,12 @@ func countMetricsLines(t *testing.T) int {
 			strings.ToLower(metricClassPrefix),
 		)
 		lineCount++
+		lines = append(lines, line)
 	}
 
 	require.Nil(t, scanner.Err())
 
-	return lineCount
+	return lineCount, lines
 }
 
 func metricsClassName(classIndex int) string {

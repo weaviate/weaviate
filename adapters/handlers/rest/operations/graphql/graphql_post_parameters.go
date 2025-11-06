@@ -45,7 +45,7 @@ type GraphqlPostParams struct {
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
-	/*The GraphQL query request parameters.
+	/*The GraphQL query to execute, including the query string and optional variables.
 	  Required: true
 	  In: body
 	*/

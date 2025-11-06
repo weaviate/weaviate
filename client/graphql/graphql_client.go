@@ -49,9 +49,9 @@ type ClientService interface {
 }
 
 /*
-GraphqlBatch gets a response based on graph q l
+GraphqlBatch performs batched graph q l queries
 
-Perform a batched GraphQL query
+Executes multiple GraphQL queries provided in the request body as an array. Allows performing several queries in a single network request for efficiency.
 */
 func (a *Client) GraphqlBatch(params *GraphqlBatchParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GraphqlBatchOK, error) {
 	// TODO: Validate the params before sending
@@ -90,9 +90,9 @@ func (a *Client) GraphqlBatch(params *GraphqlBatchParams, authInfo runtime.Clien
 }
 
 /*
-GraphqlPost gets a response based on graph q l
+GraphqlPost performs a graph q l query
 
-Get a response based on a GraphQL query
+Executes a single GraphQL query provided in the request body. Use this endpoint for all Weaviate data queries and exploration.
 */
 func (a *Client) GraphqlPost(params *GraphqlPostParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GraphqlPostOK, error) {
 	// TODO: Validate the params before sending

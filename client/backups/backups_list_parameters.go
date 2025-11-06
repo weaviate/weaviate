@@ -74,9 +74,17 @@ type BackupsListParams struct {
 
 	/* Backend.
 
-	   Backup backend name e.g. filesystem, gcs, s3.
+	   Specifies the backend storage system to list backups from (e.g., `filesystem`, `gcs`, `s3`, `azure`).
 	*/
 	Backend string
+
+	/* Order.
+
+	   Order of returned list of backups based on creation time. (asc or desc)
+
+	   Default: "desc"
+	*/
+	Order *string
 
 	timeout    time.Duration
 	Context    context.Context
@@ -95,7 +103,18 @@ func (o *BackupsListParams) WithDefaults() *BackupsListParams {
 //
 // All values with no default are reset to their zero value.
 func (o *BackupsListParams) SetDefaults() {
-	// no default values defined for this parameter
+	var (
+		orderDefault = string("desc")
+	)
+
+	val := BackupsListParams{
+		Order: &orderDefault,
+	}
+
+	val.timeout = o.timeout
+	val.Context = o.Context
+	val.HTTPClient = o.HTTPClient
+	*o = val
 }
 
 // WithTimeout adds the timeout to the backups list params
@@ -142,6 +161,17 @@ func (o *BackupsListParams) SetBackend(backend string) {
 	o.Backend = backend
 }
 
+// WithOrder adds the order to the backups list params
+func (o *BackupsListParams) WithOrder(order *string) *BackupsListParams {
+	o.SetOrder(order)
+	return o
+}
+
+// SetOrder adds the order to the backups list params
+func (o *BackupsListParams) SetOrder(order *string) {
+	o.Order = order
+}
+
 // WriteToRequest writes these params to a swagger request
 func (o *BackupsListParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
 
@@ -153,6 +183,23 @@ func (o *BackupsListParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.R
 	// path param backend
 	if err := r.SetPathParam("backend", o.Backend); err != nil {
 		return err
+	}
+
+	if o.Order != nil {
+
+		// query param order
+		var qrOrder string
+
+		if o.Order != nil {
+			qrOrder = *o.Order
+		}
+		qOrder := qrOrder
+		if qOrder != "" {
+
+			if err := r.SetQueryParam("order", qOrder); err != nil {
+				return err
+			}
+		}
 	}
 
 	if len(res) > 0 {

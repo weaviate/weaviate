@@ -12,7 +12,6 @@
 package config
 
 import (
-	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	basesettings "github.com/weaviate/weaviate/usecases/modulecomponents/settings"
@@ -25,14 +24,6 @@ const (
 const (
 	DefaultJinaaiModel = "jina-reranker-v2-base-multilingual"
 )
-
-var availableJinaaiModels = []string{
-	"jina-reranker-v2-base-multilingual",
-	"jina-reranker-v1-base-en",
-	"jina-reranker-v1-turbo-en",
-	"jina-reranker-v1-tiny-en",
-	"jina-colbert-v1-en",
-}
 
 type classSettings struct {
 	cfg                  moduletools.ClassConfig
@@ -48,10 +39,5 @@ func (ic *classSettings) Model() string {
 }
 
 func (ic *classSettings) Validate(class *models.Class) error {
-	model := ic.Model()
-	if !basesettings.ValidateSetting(model, availableJinaaiModels) {
-		return errors.Errorf("wrong Jinaai model name, available model names are: %v", availableJinaaiModels)
-	}
-
 	return nil
 }

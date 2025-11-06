@@ -72,10 +72,16 @@ TenantsDeleteParams contains all the parameters to send to the API endpoint
 */
 type TenantsDeleteParams struct {
 
-	// ClassName.
+	/* ClassName.
+
+	   The name of the collection (class) from which to delete tenants.
+	*/
 	ClassName string
 
-	// Tenants.
+	/* Tenants.
+
+	   An array of tenant names to delete.
+	*/
 	Tenants []string
 
 	timeout    time.Duration

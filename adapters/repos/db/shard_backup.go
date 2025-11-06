@@ -17,6 +17,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/weaviate/weaviate/entities/backup"
@@ -283,7 +284,10 @@ func (s *Shard) GetFileMetadata(ctx context.Context, relativeFilePath string) (f
 
 	s.mayResetInactivityTimer()
 
-	finalPath := filepath.Join(s.Index().Config.RootPath, relativeFilePath)
+	finalPath, err := s.sanitizeFilePath(relativeFilePath)
+	if err != nil {
+		return file.FileMetadata{}, fmt.Errorf("sanitize file path %q: %w", relativeFilePath, err)
+	}
 	return file.GetFileMetadata(finalPath)
 }
 
@@ -298,7 +302,10 @@ func (s *Shard) GetFile(ctx context.Context, relativeFilePath string) (io.ReadCl
 
 	s.mayResetInactivityTimer()
 
-	finalPath := filepath.Join(s.Index().Config.RootPath, relativeFilePath)
+	finalPath, err := s.sanitizeFilePath(relativeFilePath)
+	if err != nil {
+		return nil, fmt.Errorf("sanitize file path %q: %w", relativeFilePath, err)
+	}
 
 	reader, err := os.Open(finalPath)
 	if err != nil {
@@ -306,4 +313,33 @@ func (s *Shard) GetFile(ctx context.Context, relativeFilePath string) (io.ReadCl
 	}
 
 	return reader, nil
+}
+
+func (s *Shard) sanitizeFilePath(relativeFilePath string) (string, error) {
+	// clean the path to remove any ../ or ./ sequences
+	cleanFilePath := filepath.Clean(relativeFilePath)
+	if filepath.IsAbs(cleanFilePath) {
+		return "", fmt.Errorf("relative file path %q is an absolute path", relativeFilePath)
+	}
+	combinedPath := filepath.Join(s.index.Config.RootPath, cleanFilePath)
+	finalPath, err := filepath.EvalSymlinks(combinedPath)
+	if err != nil {
+		return "", fmt.Errorf("resolve symlinks for %q: %w", finalPath, err)
+	}
+	finalPath = filepath.Clean(finalPath)
+
+	// Resolve symlinks in root path - this is important for testing on MacOs where /var is a symlink
+	rootPath, err := filepath.EvalSymlinks(s.index.Config.RootPath)
+	if err != nil {
+		return "", fmt.Errorf("resolve symlinks for root path %q: %w", s.index.Config.RootPath, err)
+	}
+
+	rel, err := filepath.Rel(rootPath, finalPath)
+	if err != nil {
+		return "", fmt.Errorf("make %q relative to %q: %w", finalPath, rootPath, err)
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("file path %q is outside shard root %q", finalPath, rootPath)
+	}
+	return finalPath, nil
 }

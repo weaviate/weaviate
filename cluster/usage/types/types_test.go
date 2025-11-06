@@ -114,7 +114,7 @@ func TestCollectionUsage_OmitsEmptyFields(t *testing.T) {
 					{Name: "test-shard"},
 				},
 			},
-			expected: `{"name":"test-collection","replication_factor":3,"unique_shard_count":2,"shards":[{"name":"test-shard"}]}`,
+			expected: `{"name":"test-collection","replication_factor":3,"unique_shard_count":2,"shards":[{"name":"test-shard","objects_count":0,"objects_storage_bytes":0,"vector_storage_bytes":0,"index_storage_bytes":0,"full_shard_storage_bytes":0}]}`,
 		},
 	}
 
@@ -136,14 +136,14 @@ func TestShardUsage_OmitsEmptyFields(t *testing.T) {
 		{
 			name:     "completely empty shard usage",
 			usage:    ShardUsage{},
-			expected: "{}",
+			expected: `{"objects_count":0,"objects_storage_bytes":0,"vector_storage_bytes":0,"index_storage_bytes":0,"full_shard_storage_bytes":0}`,
 		},
 		{
 			name: "shard usage with only name",
 			usage: ShardUsage{
 				Name: "test-shard",
 			},
-			expected: `{"name":"test-shard"}`,
+			expected: `{"name":"test-shard","objects_count":0,"objects_storage_bytes":0,"vector_storage_bytes":0,"index_storage_bytes":0,"full_shard_storage_bytes":0}`,
 		},
 		{
 			name: "shard usage with empty named vectors slice",
@@ -151,21 +151,39 @@ func TestShardUsage_OmitsEmptyFields(t *testing.T) {
 				Name:         "test-shard",
 				NamedVectors: []*VectorUsage{},
 			},
-			expected: `{"name":"test-shard"}`,
+			expected: `{"name":"test-shard","objects_count":0,"objects_storage_bytes":0,"vector_storage_bytes":0,"index_storage_bytes":0,"full_shard_storage_bytes":0}`,
 		},
 		{
-			name: "complete shard usage",
+			name: "shard usage with empty index storage",
 			usage: ShardUsage{
-				Name:                "test-shard",
-				Status:              "active",
-				ObjectsCount:        1000,
-				ObjectsStorageBytes: 1024,
-				VectorStorageBytes:  2048,
+				Name:                  "test-shard",
+				Status:                "active",
+				ObjectsCount:          1000,
+				ObjectsStorageBytes:   1024,
+				VectorStorageBytes:    2048,
+				IndexStorageBytes:     0,
+				FullShardStorageBytes: 8192,
 				NamedVectors: []*VectorUsage{
 					{Name: "default"},
 				},
 			},
-			expected: `{"name":"test-shard","status":"active","objects_count":1000,"objects_storage_bytes":1024,"vector_storage_bytes":2048,"named_vectors":[{"name":"default"}]}`,
+			expected: `{"name":"test-shard","status":"active","objects_count":1000,"objects_storage_bytes":1024,"vector_storage_bytes":2048,"index_storage_bytes":0,"full_shard_storage_bytes":8192,"named_vectors":[{"name":"default"}]}`,
+		},
+		{
+			name: "complete shard usage",
+			usage: ShardUsage{
+				Name:                  "test-shard",
+				Status:                "active",
+				ObjectsCount:          1000,
+				ObjectsStorageBytes:   1024,
+				VectorStorageBytes:    2048,
+				IndexStorageBytes:     4096,
+				FullShardStorageBytes: 8192,
+				NamedVectors: []*VectorUsage{
+					{Name: "default"},
+				},
+			},
+			expected: `{"name":"test-shard","status":"active","objects_count":1000,"objects_storage_bytes":1024,"vector_storage_bytes":2048,"index_storage_bytes":4096,"full_shard_storage_bytes":8192,"named_vectors":[{"name":"default"}]}`,
 		},
 	}
 
@@ -187,7 +205,7 @@ func TestVectorUsage_OmitsEmptyFields(t *testing.T) {
 		{
 			name:     "completely empty vector usage",
 			usage:    VectorUsage{},
-			expected: "{}",
+			expected: `{"name":""}`,
 		},
 		{
 			name: "vector usage with only name",
@@ -203,6 +221,20 @@ func TestVectorUsage_OmitsEmptyFields(t *testing.T) {
 				Dimensionalities: []*Dimensionality{},
 			},
 			expected: `{"name":"default"}`,
+		},
+		{
+			name: "vector usage for legacy vector",
+			usage: VectorUsage{
+				Name:                   "",
+				VectorIndexType:        "flat",
+				IsDynamic:              false,
+				Compression:            "standard",
+				VectorCompressionRatio: 0.75,
+				Dimensionalities: []*Dimensionality{
+					{Dimensions: 1536, Count: 2000},
+				},
+			},
+			expected: `{"name":"","vector_index_type":"flat","compression":"standard","vector_compression_ratio":0.75,"dimensionalities":[{"dimensionality":1536,"count":2000}]}`,
 		},
 		{
 			name: "complete vector usage",

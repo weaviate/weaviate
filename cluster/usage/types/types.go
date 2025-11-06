@@ -11,7 +11,19 @@
 
 package types
 
-import "github.com/weaviate/weaviate/entities/models"
+import (
+	"github.com/weaviate/weaviate/entities/models"
+)
+
+const UsageDiskVersion int = 1
+
+// UsageDisk defines format of saved pre-computed shard usage data
+type UsageDisk struct {
+	// Version of the
+	Version int `json:"version"`
+	// ShardUsage
+	ShardUsage *ShardUsage `json:"shardUsage"`
+}
 
 // Report represents the usage metrics report from the metrics endpoint
 type Report struct {
@@ -23,7 +35,7 @@ type Report struct {
 	Node string `json:"node,omitempty"`
 
 	// List of collections and their metrics
-	Collections []*CollectionUsage `json:"collections,omitempty"`
+	Collections CollectionsUsage `json:"collections,omitempty"`
 
 	// List of backups and their metrics
 	Backups []*BackupUsage `json:"backups,omitempty"`
@@ -33,6 +45,8 @@ type Report struct {
 
 	// The local node's view of the schema
 	Schema *models.Schema `json:"schema,omitempty"`
+
+	GoMemLimit int64 `json:"go_mem_limit,omitempty"`
 }
 
 // CollectionUsage represents metrics for a single collection
@@ -47,7 +61,7 @@ type CollectionUsage struct {
 	UniqueShardCount int `json:"unique_shard_count,omitempty"`
 
 	// List of shards and their metrics
-	Shards []*ShardUsage `json:"shards,omitempty"`
+	Shards ShardsUsage `json:"shards,omitempty"`
 }
 
 // ShardUsage represents metrics for a single shard
@@ -59,22 +73,28 @@ type ShardUsage struct {
 	Status string `json:"status,omitempty"`
 
 	// The number of objects in the shard
-	ObjectsCount int64 `json:"objects_count,omitempty"`
+	ObjectsCount int64 `json:"objects_count"`
 
-	// The storage size in bytes
-	ObjectsStorageBytes uint64 `json:"objects_storage_bytes,omitempty"`
+	// The disk storage used by objects in bytes
+	ObjectsStorageBytes uint64 `json:"objects_storage_bytes"`
 
-	// The actual memory storage bytes used by vectors
-	VectorStorageBytes uint64 `json:"vector_storage_bytes,omitempty"`
+	// The disk storage used by vectors in bytes
+	VectorStorageBytes uint64 `json:"vector_storage_bytes"`
+
+	// The disk storage used by indices in bytes
+	IndexStorageBytes uint64 `json:"index_storage_bytes"`
+
+	// The disk storage used by the full shard in bytes (objects + vectors + indices + hnsw commitlogs)
+	FullShardStorageBytes uint64 `json:"full_shard_storage_bytes"`
 
 	// List of named vectors and their metrics
-	NamedVectors []*VectorUsage `json:"named_vectors,omitempty"`
+	NamedVectors VectorsUsage `json:"named_vectors,omitempty"`
 }
 
 // VectorUsage represents metrics for a single vector index
 type VectorUsage struct {
 	// The name of the vector
-	Name string `json:"name,omitempty"`
+	Name string `json:"name"`
 
 	// The type of vector index (for dynamic indexes, this shows the underlying type: flat/hnsw)
 	VectorIndexType string `json:"vector_index_type,omitempty"`
@@ -91,8 +111,23 @@ type VectorUsage struct {
 	// The bits parameter for RQ compression (only set when Compression="rq")
 	Bits int16 `json:"bits,omitempty"`
 
-	// List of dimensionalities and their metrics
+	// List of dimensionalities and their metrics. Note: List is not needed here, but we keep it like this for the consumer
 	Dimensionalities []*Dimensionality `json:"dimensionalities,omitempty"`
+
+	// Configuration for Multi-Vector
+	MultiVectorConfig *MultiVectorConfig `json:"multi_vector_config,omitempty"`
+}
+
+type MultiVectorConfig struct {
+	Enabled      bool          `json:"enabled"`
+	MuveraConfig *MuveraConfig `json:"muvera_config,omitempty"`
+}
+
+type MuveraConfig struct {
+	Enabled      bool `json:"enabled"`
+	KSim         int  `json:"ksim"`
+	DProjections int  `json:"dprojections"`
+	Repetitions  int  `json:"repetitions"`
 }
 
 // Dimensionality represents metrics for a specific dimensionality
@@ -125,4 +160,56 @@ type BackupUsage struct {
 type ObjectUsage struct {
 	Count        int64
 	StorageBytes int64
+}
+
+// ByCollectionName implements sort.Interface for []*CollectionUsage based on the Name field.
+type CollectionsUsage []*CollectionUsage
+
+func (a CollectionsUsage) Len() int      { return len(a) }
+func (a CollectionsUsage) Swap(i, j int) { a[i], a[j] = a[j], a[i] }
+func (a CollectionsUsage) Less(i, j int) bool {
+	if a[i] == nil && a[j] == nil {
+		return false
+	}
+	if a[i] == nil {
+		return true
+	}
+	if a[j] == nil {
+		return false
+	}
+	return a[i].Name < a[j].Name
+}
+
+type ShardsUsage []*ShardUsage
+
+func (a ShardsUsage) Len() int      { return len(a) }
+func (a ShardsUsage) Swap(i, j int) { a[i], a[j] = a[j], a[i] }
+func (a ShardsUsage) Less(i, j int) bool {
+	if a[i] == nil && a[j] == nil {
+		return false
+	}
+	if a[i] == nil {
+		return true
+	}
+	if a[j] == nil {
+		return false
+	}
+	return a[i].Name < a[j].Name
+}
+
+type VectorsUsage []*VectorUsage
+
+func (a VectorsUsage) Len() int      { return len(a) }
+func (a VectorsUsage) Swap(i, j int) { a[i], a[j] = a[j], a[i] }
+func (a VectorsUsage) Less(i, j int) bool {
+	if a[i] == nil && a[j] == nil {
+		return false
+	}
+	if a[i] == nil {
+		return true
+	}
+	if a[j] == nil {
+		return false
+	}
+	return a[i].Name < a[j].Name
 }

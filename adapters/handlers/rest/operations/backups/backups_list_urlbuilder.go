@@ -27,6 +27,8 @@ import (
 type BackupsListURL struct {
 	Backend string
 
+	Order *string
+
 	_basePath string
 	// avoid unkeyed usage
 	_ struct{}
@@ -65,6 +67,18 @@ func (o *BackupsListURL) Build() (*url.URL, error) {
 		_basePath = "/v1"
 	}
 	_result.Path = golangswaggerpaths.Join(_basePath, _path)
+
+	qs := make(url.Values)
+
+	var orderQ string
+	if o.Order != nil {
+		orderQ = *o.Order
+	}
+	if orderQ != "" {
+		qs.Set("order", orderQ)
+	}
+
+	_result.RawQuery = qs.Encode()
 
 	return &_result, nil
 }

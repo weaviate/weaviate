@@ -28,7 +28,7 @@ import (
 const TenantsUpdateOKCode int = 200
 
 /*
-TenantsUpdateOK Updated tenants of the specified class
+TenantsUpdateOK Tenant statuses updated successfully.
 
 swagger:response tenantsUpdateOK
 */
@@ -146,7 +146,7 @@ func (o *TenantsUpdateForbidden) WriteResponse(rw http.ResponseWriter, producer 
 const TenantsUpdateUnprocessableEntityCode int = 422
 
 /*
-TenantsUpdateUnprocessableEntity Invalid Tenant class
+TenantsUpdateUnprocessableEntity Invalid update request.
 
 swagger:response tenantsUpdateUnprocessableEntity
 */
@@ -191,7 +191,7 @@ func (o *TenantsUpdateUnprocessableEntity) WriteResponse(rw http.ResponseWriter,
 const TenantsUpdateInternalServerErrorCode int = 500
 
 /*
-TenantsUpdateInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+TenantsUpdateInternalServerError An error occurred while updating tenants. Check the ErrorResponse for details.
 
 swagger:response tenantsUpdateInternalServerError
 */

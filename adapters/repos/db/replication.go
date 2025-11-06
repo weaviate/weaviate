@@ -165,11 +165,11 @@ func (db *DB) replicatedIndex(name string) (idx *Index, resp *replica.SimpleResp
 	return idx, resp
 }
 
-func (i *Index) writableShard(name string) (ShardLike, func(), *replica.SimpleResponse) {
-	localShard, release, err := i.getOrInitShard(context.Background(), name)
+func (i *Index) writableShard(ctx context.Context, name string) (ShardLike, func(), *replica.SimpleResponse) {
+	localShard, release, err := i.getOrInitShard(ctx, name)
 	if err != nil {
 		return nil, func() {}, &replica.SimpleResponse{Errors: []replica.Error{
-			{Code: replica.StatusShardNotFound, Msg: name},
+			{Code: replica.StatusShardNotFound, Msg: name, Err: err},
 		}}
 	}
 	if localShard.isReadOnly() != nil {
@@ -183,7 +183,7 @@ func (i *Index) writableShard(name string) (ShardLike, func(), *replica.SimpleRe
 }
 
 func (i *Index) ReplicateObject(ctx context.Context, shard, requestID string, object *storobj.Object) replica.SimpleResponse {
-	localShard, release, pr := i.writableShard(shard)
+	localShard, release, pr := i.writableShard(ctx, shard)
 	if pr != nil {
 		return *pr
 	}
@@ -194,7 +194,7 @@ func (i *Index) ReplicateObject(ctx context.Context, shard, requestID string, ob
 }
 
 func (i *Index) ReplicateUpdate(ctx context.Context, shard, requestID string, doc *objects.MergeDocument) replica.SimpleResponse {
-	localShard, release, pr := i.writableShard(shard)
+	localShard, release, pr := i.writableShard(ctx, shard)
 	if pr != nil {
 		return *pr
 	}
@@ -205,7 +205,7 @@ func (i *Index) ReplicateUpdate(ctx context.Context, shard, requestID string, do
 }
 
 func (i *Index) ReplicateDeletion(ctx context.Context, shard, requestID string, uuid strfmt.UUID, deletionTime time.Time) replica.SimpleResponse {
-	localShard, release, pr := i.writableShard(shard)
+	localShard, release, pr := i.writableShard(ctx, shard)
 	if pr != nil {
 		return *pr
 	}
@@ -216,7 +216,7 @@ func (i *Index) ReplicateDeletion(ctx context.Context, shard, requestID string, 
 }
 
 func (i *Index) ReplicateObjects(ctx context.Context, shard, requestID string, objects []*storobj.Object, schemaVersion uint64) replica.SimpleResponse {
-	localShard, release, pr := i.writableShard(shard)
+	localShard, release, pr := i.writableShard(ctx, shard)
 	if pr != nil {
 		return *pr
 	}
@@ -229,7 +229,7 @@ func (i *Index) ReplicateObjects(ctx context.Context, shard, requestID string, o
 func (i *Index) ReplicateDeletions(ctx context.Context, shard, requestID string,
 	uuids []strfmt.UUID, deletionTime time.Time, dryRun bool, schemaVersion uint64,
 ) replica.SimpleResponse {
-	localShard, release, pr := i.writableShard(shard)
+	localShard, release, pr := i.writableShard(ctx, shard)
 	if pr != nil {
 		return *pr
 	}
@@ -240,7 +240,7 @@ func (i *Index) ReplicateDeletions(ctx context.Context, shard, requestID string,
 }
 
 func (i *Index) ReplicateReferences(ctx context.Context, shard, requestID string, refs []objects.BatchReference) replica.SimpleResponse {
-	localShard, release, pr := i.writableShard(shard)
+	localShard, release, pr := i.writableShard(ctx, shard)
 	if pr != nil {
 		return *pr
 	}
@@ -259,8 +259,10 @@ func (i *Index) CommitReplication(shard, requestID string) interface{} {
 	}
 
 	defer release()
+	i.backupLock.RLock(shard)
+	defer i.backupLock.RUnlock(shard)
 
-	return localShard.commitReplication(context.Background(), requestID, &i.shardTransferMutex)
+	return localShard.commitReplication(context.Background(), requestID)
 }
 
 func (i *Index) AbortReplication(shard, requestID string) interface{} {
@@ -391,8 +393,8 @@ func (i *Index) IncomingListFiles(ctx context.Context,
 	sd := backup.ShardDescriptor{Name: shardName}
 
 	// prevent writing into the index during collection of metadata
-	i.shardTransferMutex.Lock()
-	defer i.shardTransferMutex.Unlock()
+	i.backupLock.Lock(shardName)
+	defer i.backupLock.Unlock(shardName)
 
 	// flushing memtable before gathering the files to prevent the inclusion of a partially written file
 	if err = shard.Store().FlushMemtables(ctx); err != nil {

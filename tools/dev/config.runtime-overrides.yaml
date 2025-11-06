@@ -1,4 +1,4 @@
-maximum_allowed_collections_count: 7
+maximum_allowed_collections_count: 70
 autoschema_enabled: true
 async_replication_disabled: false
 tenant_activity_read_log_level: info

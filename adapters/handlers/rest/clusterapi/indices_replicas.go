@@ -21,13 +21,17 @@ import (
 	"net/http"
 	"regexp"
 	"strconv"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/cluster/router/types"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
@@ -70,7 +74,31 @@ type replicatedIndices struct {
 	// maintenanceModeEnabled is an experimental feature to allow the system to be
 	// put into a maintenance mode where all replicatedIndices requests just return a 418
 	maintenanceModeEnabled func() bool
+
+	requestQueueConfig cluster.RequestQueueConfig
+	// requestQueue buffers requests until they're picked up by a worker, goal is to avoid
+	// overwhelming the system with requests during spikes (also allows for backpressure)
+	requestQueue chan queuedRequest
+	// requestQueueMu guards access to the queue during shutdown
+	requestQueueMu sync.RWMutex
+	// startWorkersOnce ensures that the workers are started only once
+	startWorkersOnce sync.Once
+	// set to true when shutting down
+	isShutdown atomic.Bool
+	// workerWg waits for all workers to finish
+	workerWg sync.WaitGroup
+	logger   logrus.FieldLogger
 }
+
+var (
+	errReplicatedIndicesShutdown  = errors.New("replicated indices shutting down")
+	errReplicatedIndicesQueueFull = errors.New("replicated indices request queue full")
+)
+
+const (
+	responseShuttingDown = "503 Service Unavailable - shutting down"
+	responseQueueFull    = "too many buffered requests"
+)
 
 var (
 	regxObject = regexp.MustCompile(`\/replicas\/indices\/(` + cl + `)` +
@@ -91,11 +119,91 @@ var (
 		`\/shards\/(` + sh + `):(commit|abort)`)
 )
 
-func NewReplicatedIndices(shards replicator, auth auth, maintenanceModeEnabled func() bool) *replicatedIndices {
-	return &replicatedIndices{
+func NewReplicatedIndices(
+	shards replicator,
+	auth auth,
+	maintenanceModeEnabled func() bool,
+	requestQueueConfig cluster.RequestQueueConfig,
+	logger logrus.FieldLogger,
+) *replicatedIndices {
+	// validate the requestQueueConfig
+	if requestQueueConfig.QueueFullHttpStatus == 0 {
+		logger.WithField("default_status", cluster.DefaultRequestQueueFullHttpStatus).Debug("no replicated indices buffer full http status provided, using default")
+		requestQueueConfig.QueueFullHttpStatus = cluster.DefaultRequestQueueFullHttpStatus
+	}
+	if requestQueueConfig.QueueFullHttpStatus != http.StatusTooManyRequests && requestQueueConfig.QueueFullHttpStatus != http.StatusGatewayTimeout {
+		logger.WithField("status", requestQueueConfig.QueueFullHttpStatus).Warn("unexpected replicated indices buffer full http status")
+	}
+
+	i := &replicatedIndices{
 		shards:                 shards,
 		auth:                   auth,
 		maintenanceModeEnabled: maintenanceModeEnabled,
+		requestQueue:           make(chan queuedRequest, requestQueueConfig.QueueSize),
+		requestQueueConfig:     requestQueueConfig,
+		logger:                 logger,
+	}
+	if requestQueueConfig.IsEnabled != nil && requestQueueConfig.IsEnabled.Get() {
+		i.startWorkersOnce.Do(i.startWorkers)
+	}
+	return i
+}
+
+func (i *replicatedIndices) queueEnabled() bool {
+	return i.requestQueueConfig.IsEnabled != nil && i.requestQueueConfig.IsEnabled.Get()
+}
+
+func (i *replicatedIndices) writeResponse(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, errReplicatedIndicesShutdown):
+		http.Error(w, responseShuttingDown, http.StatusServiceUnavailable)
+	case errors.Is(err, errReplicatedIndicesQueueFull):
+		http.Error(w, responseQueueFull, i.requestQueueConfig.QueueFullHttpStatus)
+	default:
+		i.logger.WithError(err).Error("unhandled error in replicated indices handler")
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+	}
+}
+
+func (i *replicatedIndices) enqueueRequest(r *http.Request, w http.ResponseWriter, wg *sync.WaitGroup) error {
+	i.requestQueueMu.RLock()
+	defer i.requestQueueMu.RUnlock()
+
+	if i.isShutdown.Load() {
+		return errReplicatedIndicesShutdown
+	}
+
+	select {
+	case i.requestQueue <- queuedRequest{r: r, w: w, wg: wg}:
+		return nil
+	default:
+		return errReplicatedIndicesQueueFull
+	}
+}
+
+type queuedRequest struct {
+	r *http.Request
+	w http.ResponseWriter
+	// when the request is done being handled, the waitgroup is done
+	wg *sync.WaitGroup
+}
+
+func (i *replicatedIndices) startWorkers() {
+	for j := 0; j < max(1, i.requestQueueConfig.NumWorkers); j++ {
+		i.workerWg.Add(1)
+		enterrors.GoWrapper(func() {
+			defer i.workerWg.Done()
+			for rq := range i.requestQueue {
+				if rq.r.Context().Err() != nil {
+					if rq.wg != nil {
+						rq.wg.Done() //nolint:SA2000
+					}
+					rq.w.WriteHeader(http.StatusRequestTimeout)
+					continue
+				}
+				i.handleRequest(rq)
+			}
+		}, i.logger)
 	}
 }
 
@@ -105,104 +213,135 @@ func (i *replicatedIndices) Indices() http.Handler {
 
 func (i *replicatedIndices) indicesHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		path := r.URL.Path
 		if i.maintenanceModeEnabled() {
 			http.Error(w, "418 Maintenance mode", http.StatusTeapot)
 			return
 		}
-		// NOTE if you update any of these handler methods/paths, also update the indices_replicas_test.go
-		// TestMaintenanceModeReplicatedIndices test to include the new methods/paths.
-		switch {
-		case regxObjectsDigest.MatchString(path):
-			if r.Method == http.MethodGet {
-				i.getObjectsDigest().ServeHTTP(w, r)
-				return
-			}
 
-			http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
-			return
-		case regexObjectsDigestsInRange.MatchString(path):
-			if r.Method == http.MethodPost {
-				i.getObjectsDigestsInRange().ServeHTTP(w, r)
-				return
-			}
-
-			http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
-			return
-		case regxHashTreeLevel.MatchString(path):
-			if r.Method == http.MethodPost {
-				i.getHashTreeLevel().ServeHTTP(w, r)
-				return
-			}
-
-			http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
-			return
-		case regxOverwriteObjects.MatchString(path):
-			if r.Method == http.MethodPut {
-				i.putOverwriteObjects().ServeHTTP(w, r)
-				return
-			}
-
-			http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
-			return
-		case regxObject.MatchString(path):
-			if r.Method == http.MethodDelete {
-				i.deleteObject().ServeHTTP(w, r)
-				return
-			}
-
-			if r.Method == http.MethodPatch {
-				i.patchObject().ServeHTTP(w, r)
-				return
-			}
-
-			if r.Method == http.MethodGet {
-				i.getObject().ServeHTTP(w, r)
-				return
-			}
-
-			if regxReferences.MatchString(path) {
-				if r.Method == http.MethodPost {
-					i.postRefs().ServeHTTP(w, r)
-					return
-				}
-			}
-
-			http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
-			return
-
-		case regxObjects.MatchString(path):
-			if r.Method == http.MethodGet {
-				i.getObjectsMulti().ServeHTTP(w, r)
-				return
-			}
-
-			if r.Method == http.MethodPost {
-				i.postObject().ServeHTTP(w, r)
-				return
-			}
-
-			if r.Method == http.MethodDelete {
-				i.deleteObjects().ServeHTTP(w, r)
-				return
-			}
-
-			http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
-			return
-
-		case regxCommitPhase.MatchString(path):
-			if r.Method == http.MethodPost {
-				i.executeCommitPhase().ServeHTTP(w, r)
-				return
-			}
-
-			http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
-			return
-
-		default:
-			http.NotFound(w, r)
+		if i.isShutdown.Load() {
+			i.writeResponse(w, errReplicatedIndicesShutdown)
 			return
 		}
+
+		if i.queueEnabled() {
+			i.startWorkersOnce.Do(i.startWorkers)
+
+			wg := &sync.WaitGroup{}
+			wg.Add(1)
+			err := i.enqueueRequest(r, w, wg)
+			if err != nil {
+				wg.Done() //nolint:SA2000
+				i.writeResponse(w, err)
+				return
+			}
+			wg.Wait() // worker calls Done() after handling request
+			return
+		}
+
+		i.handleRequest(queuedRequest{r: r, w: w, wg: nil})
+	}
+}
+
+func (i *replicatedIndices) handleRequest(qr queuedRequest) {
+	if qr.wg != nil {
+		defer qr.wg.Done()
+	}
+	r := qr.r
+	w := qr.w
+	path := r.URL.Path
+
+	// NOTE if you update any of these handler methods/paths, also update the indices_replicas_test.go
+	// TestMaintenanceModeReplicatedIndices test to include the new methods/paths.
+	switch {
+	case regxObjectsDigest.MatchString(path):
+		if r.Method == http.MethodGet {
+			i.getObjectsDigest().ServeHTTP(w, r)
+			return
+		}
+
+		http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
+		return
+	case regexObjectsDigestsInRange.MatchString(path):
+		if r.Method == http.MethodPost {
+			i.getObjectsDigestsInRange().ServeHTTP(w, r)
+			return
+		}
+
+		http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
+		return
+	case regxHashTreeLevel.MatchString(path):
+		if r.Method == http.MethodPost {
+			i.getHashTreeLevel().ServeHTTP(w, r)
+			return
+		}
+
+		http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
+		return
+	case regxOverwriteObjects.MatchString(path):
+		if r.Method == http.MethodPut {
+			i.putOverwriteObjects().ServeHTTP(w, r)
+			return
+		}
+
+		http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
+		return
+	case regxObject.MatchString(path):
+		if r.Method == http.MethodDelete {
+			i.deleteObject().ServeHTTP(w, r)
+			return
+		}
+
+		if r.Method == http.MethodPatch {
+			i.patchObject().ServeHTTP(w, r)
+			return
+		}
+
+		if r.Method == http.MethodGet {
+			i.getObject().ServeHTTP(w, r)
+			return
+		}
+
+		if regxReferences.MatchString(path) {
+			if r.Method == http.MethodPost {
+				i.postRefs().ServeHTTP(w, r)
+				return
+			}
+		}
+
+		http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
+		return
+
+	case regxObjects.MatchString(path):
+		if r.Method == http.MethodGet {
+			i.getObjectsMulti().ServeHTTP(w, r)
+			return
+		}
+
+		if r.Method == http.MethodPost {
+			i.postObject().ServeHTTP(w, r)
+			return
+		}
+
+		if r.Method == http.MethodDelete {
+			i.deleteObjects().ServeHTTP(w, r)
+			return
+		}
+
+		http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
+		return
+
+	case regxCommitPhase.MatchString(path):
+		if r.Method == http.MethodPost {
+			i.executeCommitPhase().ServeHTTP(w, r)
+			return
+		}
+
+		http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
+		return
+
+	default:
+		http.NotFound(w, r)
+		return
 	}
 }
 
@@ -833,4 +972,59 @@ func localIndexNotReady(resp replica.SimpleResponse) bool {
 		}
 	}
 	return false
+}
+
+// Close gracefully shuts down the replicatedIndices by draining the queue and waiting for workers to finish
+func (i *replicatedIndices) Close(ctx context.Context) error {
+	i.logger.WithField("action", "close_replicated_indices").Debug("attempting to shut down replicated indices")
+	if i.isShutdown.CompareAndSwap(false, true) {
+		i.logger.WithField("action", "close_replicated_indices").Debug("shutting down replicated indices")
+		// Set a timeout for graceful shutdown
+		shutdownTimeoutSeconds := i.requestQueueConfig.QueueShutdownTimeoutSeconds
+		if shutdownTimeoutSeconds == 0 {
+			shutdownTimeoutSeconds = cluster.DefaultRequestQueueShutdownTimeoutSeconds
+		}
+
+		// Create a context with timeout for shutdown
+		shutdownCtx, cancel := context.WithTimeout(ctx, time.Duration(shutdownTimeoutSeconds)*time.Second)
+		defer cancel()
+
+		// Wait for workers to finish with timeout
+		done := make(chan struct{})
+		enterrors.GoWrapper(func() {
+			i.workerWg.Wait()
+			close(done)
+		}, i.logger)
+
+		i.requestQueueMu.Lock()
+		close(i.requestQueue)
+		i.requestQueueMu.Unlock()
+		select {
+		case <-done:
+			// Workers finished gracefully
+			i.logger.WithField("action", "close_replicated_indices").Debug("workers finished gracefully")
+		case <-shutdownCtx.Done():
+			// Timeout reached, workers are still running
+			err := fmt.Errorf("shutdown timeout reached, some workers may still be running")
+			i.logger.WithField("action", "close_replicated_indices").WithError(err).Warn("shutdown timeout reached, attempting to drain queue")
+			for {
+				select {
+				case rq, ok := <-i.requestQueue:
+					if !ok {
+						i.logger.WithField("action", "close_replicated_indices").Debug("queue closed")
+						return err
+					}
+					func() {
+						defer rq.wg.Done()
+						rq.w.WriteHeader(http.StatusRequestTimeout)
+					}()
+				default:
+					i.logger.WithField("action", "close_replicated_indices").Debug("no more requests to drain")
+					return err
+				}
+			}
+		}
+		i.logger.WithField("action", "close_replicated_indices").Debug("replicated indices shutdown complete")
+	}
+	return nil
 }

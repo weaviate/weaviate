@@ -22,6 +22,7 @@ export GPT4ALL_INFERENCE_API="http://localhost:8010"
 export DISABLE_TELEMETRY=true # disable telemetry for local development
 export PERSISTENCE_HNSW_DISABLE_SNAPSHOTS=${PERSISTENCE_HNSW_DISABLE_SNAPSHOTS:-"false"}
 export PERSISTENCE_HNSW_SNAPSHOT_INTERVAL_SECONDS=${PERSISTENCE_HNSW_SNAPSHOT_INTERVAL_SECONDS:-"300"}
+export EXPERIMENTAL_SPFRESH_ENABLED=true
 # inject build info into binaries.
 GIT_REVISION=$(git rev-parse --short HEAD)
 GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
@@ -1159,6 +1160,20 @@ local-usage-s3)
     echo "Grafana: http://localhost:3000 (admin/admin)"
     echo "Dashboards should be available at:"
     echo "- Overview: http://localhost:3000/d/weaviate-overview/weaviate-overview"
+    ;;
+  local-contextualai)
+    echo "Starting Weaviate with Contextual AI modules..."
+    echo "Make sure to set CONTEXTUAL_API_KEY environment variable"
+    
+    AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
+    ENABLE_API_BASED_MODULES=true \
+    RAFT_BOOTSTRAP_TIMEOUT=300 \
+    go_run ./cmd/weaviate-server \
+      --scheme http \
+      --host "127.0.0.1" \
+      --port 8080 \
+      --read-timeout=600s \
+      --write-timeout=600s
     ;;
   *)
     echo "Invalid config" 2>&1

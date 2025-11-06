@@ -9,312 +9,52 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package batch_test
+package batch
 
 import (
-	"context"
-	"sync"
 	"testing"
 	"time"
 
-	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/batch"
-	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/batch/mocks"
-	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 )
 
-func TestHandler(t *testing.T) {
-	ctx := context.Background()
-	logger := logrus.New()
-
-	t.Run("Send", func(t *testing.T) {
-		t.Run("send objects using the scheduler", func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-			defer cancel()
-
-			// Arrange
-			req := &pb.BatchSendRequest{
-				StreamId: "test-stream",
-				Message: &pb.BatchSendRequest_Objects_{
-					Objects: &pb.BatchSendRequest_Objects{
-						Values: []*pb.BatchObject{{Collection: "TestClass"}},
-					},
-				},
-			}
-
-			shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
-			defer shutdownCancel()
-
-			writeQueues := batch.NewBatchWriteQueues()
-			readQueues := batch.NewBatchReadQueues()
-			internalQueue := batch.NewBatchInternalQueue()
-			var sendWg sync.WaitGroup
-			var streamWg sync.WaitGroup
-			handler := batch.NewQueuesHandler(shutdownCtx, &sendWg, &streamWg, nil, writeQueues, readQueues, logger)
-			var sWg sync.WaitGroup
-			batch.StartScheduler(shutdownCtx, &sWg, writeQueues, internalQueue, logger)
-
-			writeQueues.Make(req.StreamId, nil, 0, 0)
-			res, err := handler.Send(ctx, req)
-			require.NoError(t, err, "Expected no error when sending objects")
-			require.Equal(t, int32(10), res.NextBatchSize, "Expected to be told to scale up by an order of magnitude")
-
-			// Verify that the internal queue has the object
-			obj := <-internalQueue
-			require.NotNil(t, obj, "Expected object to be sent to internal queue")
-
-			// Shutdown
-			shutdownCancel()
-
-			_, err = handler.Send(ctx, req)
-			require.Equal(t, "grpc shutdown in progress, no more requests are permitted on this node", err.Error(), "Expected error when sending after shutdown")
-		})
-
-		t.Run("dynamic batch size calulation", func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-			defer cancel()
-
-			writeQueues := batch.NewBatchWriteQueues()
-			readQueues := batch.NewBatchReadQueues()
-			var sendWg sync.WaitGroup
-			var streamWg sync.WaitGroup
-			handler := batch.NewQueuesHandler(ctx, &sendWg, &streamWg, nil, writeQueues, readQueues, logger)
-
-			writeQueues.Make(StreamId, nil, 0, 0)
-			// Send 8000 objects
-			req := &pb.BatchSendRequest{
-				StreamId: StreamId,
-				Message: &pb.BatchSendRequest_Objects_{
-					Objects: &pb.BatchSendRequest_Objects{},
-				},
-			}
-			for i := 0; i < 8000; i++ {
-				req.GetObjects().Values = append(req.GetObjects().Values, &pb.BatchObject{Collection: "TestClass"})
-			}
-			res, err := handler.Send(ctx, req)
-			require.NoError(t, err, "Expected no error when sending 8000 objects")
-			require.Equal(t, int32(799), res.NextBatchSize, "Expected to be told to send 799 objects next")
-			require.Equal(t, float32(1.2499998), res.BackoffSeconds, "Expected to be told to backoff by 1.2499998 seconds")
-
-			// Saturate the buffer
-			req = &pb.BatchSendRequest{
-				StreamId: StreamId,
-				Message: &pb.BatchSendRequest_Objects_{
-					Objects: &pb.BatchSendRequest_Objects{},
-				},
-			}
-			for i := 0; i < 2000; i++ {
-				req.GetObjects().Values = append(req.GetObjects().Values, &pb.BatchObject{Collection: "TestClass"})
-			}
-			res, err = handler.Send(ctx, req)
-			require.NoError(t, err, "Expected no error when sending 2000 objects")
-			require.Equal(t, int32(640), res.NextBatchSize, "Expected to be told to send 640 objects once buffer is saturated")
-			require.Equal(t, float32(2.1599982), res.BackoffSeconds, "Expected to be told to backoff by 2.1599982 seconds")
-		})
+func Test_statsUpdateBatchSize(t *testing.T) {
+	t.Run("calculate new batch size when processing time is ideal", func(t *testing.T) {
+		stats := newStats() // default batch size is 200
+		stats.updateBatchSize(time.Second)
+		require.Equal(t, 200, stats.getBatchSize())
+		// when it takes 1s to process, the batch size should remain the same
 	})
 
-	t.Run("Stream", func(t *testing.T) {
-		t.Run("start and stop due to cancellation", func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(ctx, 1*time.Second)
-			defer cancel()
+	t.Run("increase batch size when processing time is lesser in value than ideal", func(t *testing.T) {
+		stats := newStats() // default batch size is 200
+		stats.updateBatchSize(500 * time.Millisecond)
+		require.Greater(t, stats.getBatchSize(), 200)
+		// when it takes less than 1s to process, the batch size should increase
+	})
 
-			stream := mocks.NewMockWeaviate_BatchStreamServer[pb.BatchStreamMessage](t)
-			stream.EXPECT().Send(&pb.BatchStreamMessage{
-				StreamId: StreamId,
-				Message: &pb.BatchStreamMessage_Start_{
-					Start: &pb.BatchStreamMessage_Start{},
-				},
-			}).Return(nil).Once()
-			stream.EXPECT().Send(&pb.BatchStreamMessage{
-				StreamId: StreamId,
-				Message: &pb.BatchStreamMessage_Stop_{
-					Stop: &pb.BatchStreamMessage_Stop{},
-				},
-			}).Return(nil).Once()
+	t.Run("decrease batch size when processing time is greater in value than ideal", func(t *testing.T) {
+		stats := newStats() // default batch size is 200
+		stats.updateBatchSize(2 * time.Second)
+		require.Less(t, stats.getBatchSize(), 200)
+		// when it takes more than 1s to process, the batch size should decrease
+	})
 
-			writeQueues := batch.NewBatchWriteQueues()
-			readQueues := batch.NewBatchReadQueues()
-			var sendWg sync.WaitGroup
-			var streamWg sync.WaitGroup
-			handler := batch.NewQueuesHandler(context.Background(), &sendWg, &streamWg, nil, writeQueues, readQueues, logger)
+	t.Run("batch size should not go below 100", func(t *testing.T) {
+		stats := newStats() // default batch size is 200
+		for i := 0; i < 100; i++ {
+			stats.updateBatchSize(10 * time.Second)
+		}
+		require.Equal(t, 100, stats.getBatchSize())
+		// when it takes more than 1s to process, the batch size should decrease, but not below 100
+	})
 
-			writeQueues.Make(StreamId, nil, 0, 0)
-			readQueues.Make(StreamId)
-			err := handler.Stream(ctx, StreamId, stream)
-			require.Equal(t, ctx.Err(), err, "Expected context cancelled error")
-		})
-
-		t.Run("start and stop due to sentinel", func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(ctx, 1*time.Second)
-			defer cancel()
-
-			stream := mocks.NewMockWeaviate_BatchStreamServer[pb.BatchStreamMessage](t)
-			stream.EXPECT().Send(&pb.BatchStreamMessage{
-				StreamId: StreamId,
-				Message: &pb.BatchStreamMessage_Start_{
-					Start: &pb.BatchStreamMessage_Start{},
-				},
-			}).Return(nil).Once()
-			stream.EXPECT().Send(&pb.BatchStreamMessage{
-				StreamId: StreamId,
-				Message: &pb.BatchStreamMessage_Stop_{
-					Stop: &pb.BatchStreamMessage_Stop{},
-				},
-			}).Return(nil).Once()
-
-			writeQueues := batch.NewBatchWriteQueues()
-			readQueues := batch.NewBatchReadQueues()
-			var sendWg sync.WaitGroup
-			var streamWg sync.WaitGroup
-			handler := batch.NewQueuesHandler(context.Background(), &sendWg, &streamWg, nil, writeQueues, readQueues, logger)
-
-			writeQueues.Make(StreamId, nil, 0, 0)
-			readQueues.Make(StreamId)
-			ch, ok := readQueues.Get(StreamId)
-			require.True(t, ok, "Expected read queue to exist")
-			go func() {
-				close(ch)
-			}()
-
-			err := handler.Stream(ctx, StreamId, stream)
-			require.NoError(t, err, "Expected no error when streaming")
-		})
-
-		t.Run("start and stop due to shutdown", func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(ctx, 1*time.Second)
-			defer cancel()
-
-			shutdownHandlersCtx, shutdownHandlersCancel := context.WithCancel(context.Background())
-			shutdownFinished := make(chan struct{})
-			stream := mocks.NewMockWeaviate_BatchStreamServer[pb.BatchStreamMessage](t)
-			stream.EXPECT().Send(&pb.BatchStreamMessage{
-				StreamId: StreamId,
-				Message: &pb.BatchStreamMessage_Start_{
-					Start: &pb.BatchStreamMessage_Start{},
-				},
-			}).Return(nil).Once()
-			stream.EXPECT().Send(&pb.BatchStreamMessage{
-				StreamId: StreamId,
-				Message: &pb.BatchStreamMessage_ShuttingDown_{
-					ShuttingDown: &pb.BatchStreamMessage_ShuttingDown{},
-				},
-			}).RunAndReturn(func(*pb.BatchStreamMessage) error {
-				// Ensure handler cancel call comes after this message has been emitted to avoid races
-				close(shutdownFinished) // Trigger shutdown, which emits the shutdown message
-				return nil
-			}).Once()
-			stream.EXPECT().Send(&pb.BatchStreamMessage{
-				StreamId: StreamId,
-				Message: &pb.BatchStreamMessage_Shutdown_{
-					Shutdown: &pb.BatchStreamMessage_Shutdown{},
-				},
-			}).Return(nil).Once()
-
-			writeQueues := batch.NewBatchWriteQueues()
-			readQueues := batch.NewBatchReadQueues()
-			var sendWg sync.WaitGroup
-			var streamWg sync.WaitGroup
-			handler := batch.NewQueuesHandler(shutdownHandlersCtx, &sendWg, &streamWg, shutdownFinished, writeQueues, readQueues, logger)
-
-			writeQueues.Make(StreamId, nil, 0, 0)
-			readQueues.Make(StreamId)
-
-			shutdownHandlersCancel() // Trigger shutdown of handlers, which emits the shutting down message
-
-			err := handler.Stream(ctx, StreamId, stream)
-			require.NoError(t, err, "Expected no error when streaming")
-		})
-
-		t.Run("start process error and stop due to cancellation", func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(ctx, 1*time.Second)
-			defer cancel()
-
-			stream := mocks.NewMockWeaviate_BatchStreamServer[pb.BatchStreamMessage](t)
-			stream.EXPECT().Send(&pb.BatchStreamMessage{
-				StreamId: StreamId,
-				Message: &pb.BatchStreamMessage_Start_{
-					Start: &pb.BatchStreamMessage_Start{},
-				},
-			}).Return(nil).Once()
-			stream.EXPECT().Send(&pb.BatchStreamMessage{
-				StreamId: StreamId,
-				Message: &pb.BatchStreamMessage_Error_{
-					Error: &pb.BatchStreamMessage_Error{
-						Error: "processing error",
-					},
-				},
-			}).Return(nil).Once()
-			stream.EXPECT().Send(&pb.BatchStreamMessage{
-				StreamId: StreamId,
-				Message: &pb.BatchStreamMessage_Stop_{
-					Stop: &pb.BatchStreamMessage_Stop{},
-				},
-			}).Return(nil).Once()
-
-			writeQueues := batch.NewBatchWriteQueues()
-			readQueues := batch.NewBatchReadQueues()
-			var sendWg sync.WaitGroup
-			var streamWg sync.WaitGroup
-			handler := batch.NewQueuesHandler(context.Background(), &sendWg, &streamWg, nil, writeQueues, readQueues, logger)
-
-			writeQueues.Make(StreamId, nil, 0, 0)
-			readQueues.Make(StreamId)
-			ch, ok := readQueues.Get(StreamId)
-			require.True(t, ok, "Expected read queue to exist")
-			go func() {
-				ch <- batch.NewErrorsObject([]*pb.BatchStreamMessage_Error{{Error: "processing error"}})
-			}()
-
-			readQueues.Make(StreamId)
-			err := handler.Stream(ctx, StreamId, stream)
-			require.Equal(t, ctx.Err(), err, "Expected context cancelled error")
-		})
-
-		t.Run("start process error and stop due to sentinel", func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(ctx, 1*time.Second)
-			defer cancel()
-
-			stream := mocks.NewMockWeaviate_BatchStreamServer[pb.BatchStreamMessage](t)
-			stream.EXPECT().Send(&pb.BatchStreamMessage{
-				StreamId: StreamId,
-				Message: &pb.BatchStreamMessage_Start_{
-					Start: &pb.BatchStreamMessage_Start{},
-				},
-			}).Return(nil).Once()
-			stream.EXPECT().Send(&pb.BatchStreamMessage{
-				StreamId: StreamId,
-				Message: &pb.BatchStreamMessage_Error_{
-					Error: &pb.BatchStreamMessage_Error{
-						Error: "processing error",
-					},
-				},
-			}).Return(nil).Once()
-			stream.EXPECT().Send(&pb.BatchStreamMessage{
-				StreamId: StreamId,
-				Message: &pb.BatchStreamMessage_Stop_{
-					Stop: &pb.BatchStreamMessage_Stop{},
-				},
-			}).Return(nil).Once()
-
-			writeQueues := batch.NewBatchWriteQueues()
-			readQueues := batch.NewBatchReadQueues()
-			var sendWg sync.WaitGroup
-			var streamWg sync.WaitGroup
-			handler := batch.NewQueuesHandler(ctx, &sendWg, &streamWg, nil, writeQueues, readQueues, logger)
-
-			writeQueues.Make(StreamId, nil, 0, 0)
-			readQueues.Make(StreamId)
-			ch, ok := readQueues.Get(StreamId)
-			require.True(t, ok, "Expected read queue to exist")
-			go func() {
-				ch <- batch.NewErrorsObject([]*pb.BatchStreamMessage_Error{{Error: "processing error"}})
-				close(ch)
-			}()
-
-			readQueues.Make(StreamId)
-			err := handler.Stream(ctx, StreamId, stream)
-			require.NoError(t, err, "Expected error when processing")
-		})
+	t.Run("batch size should not go above 1000", func(t *testing.T) {
+		stats := newStats() // default batch size is 200
+		for i := 0; i < 100; i++ {
+			stats.updateBatchSize(10 * time.Millisecond)
+		}
+		require.Equal(t, 1000, stats.getBatchSize())
+		// when it takes less than 1s to process, the batch size should increase, but not above 1000
 	})
 }

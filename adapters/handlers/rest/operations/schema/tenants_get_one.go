@@ -47,7 +47,7 @@ func NewTenantsGetOne(ctx *middleware.Context, handler TenantsGetOneHandler) *Te
 
 # Get a specific tenant
 
-get a specific tenant for the given class
+Retrieves details about a specific tenant within the given collection (`className`), such as its current activity status.
 */
 type TenantsGetOne struct {
 	Context *middleware.Context

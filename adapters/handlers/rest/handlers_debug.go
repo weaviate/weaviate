@@ -19,15 +19,19 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/repos/db"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/cluster/usage"
 	"github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 func setupDebugHandlers(appState *state.State) {
@@ -535,9 +539,12 @@ func setupDebugHandlers(appState *state.State) {
 	}))
 
 	http.HandleFunc("/debug/usage", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		service := usage.NewService(appState.SchemaManager, appState.DB, appState.Modules, appState.Cluster.LocalName(), appState.Logger)
+		service := usage.NewService(appState.SchemaManager, appState.DB, appState.Modules, appState.Logger)
 
-		stats, err := service.Usage(r.Context())
+		exactCountParam := r.URL.Query().Get("exactObjectCount")
+		exactObjectCount := exactCountParam == "true" // false by default
+
+		stats, err := service.Usage(r.Context(), exactObjectCount)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
@@ -641,6 +648,46 @@ func setupDebugHandlers(appState *state.State) {
 		w.WriteHeader(http.StatusAccepted)
 	}))
 
+	http.HandleFunc("/debug/index/requantize/vector", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		colName := r.URL.Query().Get("collection")
+		shardName := r.URL.Query().Get("shard")
+		targetVector := r.URL.Query().Get("vector")
+
+		if colName == "" || shardName == "" {
+			http.Error(w, "collection and shard are required", http.StatusBadRequest)
+			return
+		}
+
+		idx := appState.DB.GetIndex(schema.ClassName(colName))
+		if idx == nil {
+			logger.WithField("collection", colName).Error("collection not found")
+			http.Error(w, "collection not found", http.StatusNotFound)
+			return
+		}
+
+		err := idx.DebugRequantizeIndex(context.Background(), shardName, targetVector)
+		if err != nil {
+			logger.
+				WithField("shard", shardName).
+				WithField("targetVector", targetVector).
+				WithError(err).
+				Error("failed to requantize vector index")
+			if errTxt := err.Error(); strings.Contains(errTxt, "not found") {
+				http.Error(w, "shard not found", http.StatusNotFound)
+			}
+
+			http.Error(w, "failed to requantize vector index", http.StatusInternalServerError)
+			return
+		}
+
+		logger.
+			WithField("shard", shardName).
+			WithField("targetVector", targetVector).
+			Info("requantize started")
+
+		w.WriteHeader(http.StatusAccepted)
+	}))
+
 	http.HandleFunc("/debug/stats/collection/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := strings.TrimSpace(strings.TrimPrefix(r.URL.Path, "/debug/stats/collection/"))
 		parts := strings.Split(path, "/")
@@ -733,6 +780,195 @@ func setupDebugHandlers(appState *state.State) {
 		if bytesToWrite != nil {
 			w.Write(bytesToWrite)
 		}
+	}))
+
+	http.HandleFunc("/debug/lsm/deadlock", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		startTime := time.Now()
+		colName := r.URL.Query().Get("collection")
+		w.Header().Set("Content-Type", "application/json")
+		anyLocked := false
+
+		if colName == "" {
+			response := map[string]interface{}{
+				"error": "collection name is required",
+			}
+			jsonBytes, _ := json.Marshal(response)
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write(jsonBytes)
+			return
+		}
+
+		shardsToLockStr := strings.TrimSpace(r.URL.Query().Get("shards"))
+
+		shardsToLock := []string{}
+		if shardsToLockStr != "" {
+			shardsToLock = strings.Split(shardsToLockStr, ",")
+		}
+
+		locksToTestStr := strings.TrimSpace(r.URL.Query().Get("locks"))
+
+		var locksToTest []string
+		if locksToTestStr != "" {
+			locksToTest = strings.Split(locksToTestStr, ",")
+		} else {
+			locksToTest = []string{helpers.ObjectsBucketLSM}
+		}
+
+		timeoutDurationString := strings.TrimSpace(r.URL.Query().Get("timeout"))
+		var timeout time.Duration
+		if timeoutDurationString != "" {
+			var err error
+			timeout, err = time.ParseDuration(timeoutDurationString)
+			if err != nil {
+				response := map[string]interface{}{
+					"error": "invalid timeout duration format",
+				}
+				jsonBytes, _ := json.Marshal(response)
+				w.WriteHeader(http.StatusBadRequest)
+				w.Write(jsonBytes)
+				return
+			}
+		} else {
+			timeout = 30 * time.Second
+		}
+
+		className := schema.ClassName(colName)
+		idx := appState.DB.GetIndex(className)
+
+		if idx == nil {
+			logger.WithField("collection", colName).Error("collection not found or not ready")
+			response := map[string]interface{}{
+				"error": "collection not found or not ready",
+			}
+			jsonBytes, _ := json.Marshal(response)
+			w.WriteHeader(http.StatusNotFound)
+			w.Write(jsonBytes)
+			return
+		}
+
+		var err error
+
+		output := make(map[string]map[string]map[string]interface{})
+		idx.ForEachLoadedShard(
+			func(shardName string, shard db.ShardLike) error {
+				output[shardName] = make(map[string]map[string]interface{})
+				return nil
+			},
+		)
+		outputLock := sync.Mutex{}
+		eg := enterrors.NewErrorGroupWrapper(logger)
+		eg.SetLimit(-1)
+
+		for _, lockName := range locksToTest {
+			eg.Go(func() (err error) {
+				// shards will not be force loaded, as we are only getting the name
+				err = idx.ForEachLoadedShardConcurrently(
+					func(shardName string, shard db.ShardLike) error {
+						timeoutAfter := time.After(timeout)
+						if len(shardsToLock) == 0 || slices.Contains(shardsToLock, shardName) {
+
+							var checkStatusOperation func() (bool, error)
+							if lockName == "docIds" {
+								checkStatusOperation = shard.DebugGetDocIdLockStatus
+							} else {
+								b := shard.Store().Bucket(lockName)
+								if b == nil {
+									output[shardName][lockName] = map[string]interface{}{
+										"error":   "error",
+										"locked":  false,
+										"took_ms": time.Since(startTime).Milliseconds(),
+										"message": fmt.Sprintf("bucket %s not found", lockName),
+									}
+									return nil
+								}
+
+								checkStatusOperation = b.DebugGetSegmentGroupLockStatus
+							}
+
+							running := true
+							tries := 0
+							statusString := "unknown"
+							isLocked := false
+							startTimeInternal := time.Now()
+							for running {
+								select {
+								case <-timeoutAfter:
+									statusString = fmt.Sprintf("locked after %d tries and %s", tries, time.Since(startTimeInternal))
+									running = false
+									isLocked = true
+									anyLocked = true
+								default:
+									tries++
+									locked, err := checkStatusOperation()
+									if err != nil {
+										statusString = "error: " + err.Error()
+										running = false
+										break
+									} else if !locked {
+										statusString = fmt.Sprintf("unlocked after %d tries and %s", tries, time.Since(startTimeInternal))
+										running = false
+										break
+									}
+									time.Sleep(10 * time.Millisecond)
+								}
+							}
+							took := time.Since(startTimeInternal).Milliseconds()
+							outputLock.Lock()
+							output[shardName][lockName] = map[string]interface{}{
+								"locked":  isLocked,
+								"tries":   tries,
+								"took_ms": took,
+								"message": fmt.Sprintf("shard %s %s", shardName, statusString),
+							}
+							outputLock.Unlock()
+
+						} else {
+							outputLock.Lock()
+							output[shardName][lockName] = map[string]interface{}{
+								"status":  "skipped",
+								"locked":  false,
+								"took_ms": time.Since(startTime).Milliseconds(),
+								"message": fmt.Sprintf("shard %s not selected", shardName),
+							}
+							outputLock.Unlock()
+						}
+						return nil
+					},
+				)
+				return err
+			})
+		}
+
+		err = eg.Wait()
+
+		response := map[string]interface{}{
+			"shards": output,
+			"response": map[string]interface{}{
+				"took_ms": time.Since(startTime).Milliseconds(),
+				"locked":  anyLocked,
+			},
+		}
+
+		if err != nil {
+			logger.WithField("collection", colName).Error("failed to get shard names")
+			http.Error(w, "failed to get shard names", http.StatusInternalServerError)
+			response["error"] = "failed to get shard names: " + err.Error()
+		}
+
+		jsonBytes, err := json.Marshal(response)
+		if err != nil {
+			response := map[string]interface{}{
+				"error": "marshal failed on stats: " + err.Error(),
+			}
+			jsonBytes, _ := json.Marshal(response)
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write(jsonBytes)
+			return
+		}
+		if anyLocked {
+			w.WriteHeader(http.StatusServiceUnavailable)
+		}
+		w.Write(jsonBytes)
 	}))
 }
 

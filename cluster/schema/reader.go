@@ -13,6 +13,7 @@ package schema
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/cenkalti/backoff/v4"
 	"github.com/prometheus/client_golang/prometheus"
@@ -79,19 +80,60 @@ func (rs SchemaReader) MultiTenancy(class string) models.MultiTenancyConfig {
 	return res
 }
 
+// checkShardingState validates that the given sharding.State is fully
+// initialized and safe to use. It returns an error if the state is nil
+// or missing required fields.
+//
+// For non-partitioned states, both Physical and Virtual shards must be
+// present. For partitioned states, Physical must be non-nil.
+//
+// This check is typically called before executing read operations via
+// SchemaReader to avoid panics on partially initialized state.
+func checkShardingState(s *sharding.State) error {
+	if s == nil {
+		return fmt.Errorf("invalid sharding state: state is nil")
+	}
+
+	if s.PartitioningEnabled {
+		// NOTE: Partitioned sharding (multi-tenancy) uses direct tenant-to-shard mapping where each
+		// tenant maps directly to a physical shard. Virtual sharding is not used in this mode and
+		// Virtual slice is intentionally left nil/empty in InitState. Only Physical map validation
+		// is required since sharding decisions are made directly against Physical shards.
+		if s.Physical == nil {
+			return fmt.Errorf("invalid sharding state: physical map is nil (partitioned)")
+		}
+		return nil
+	}
+
+	// Non-partitioned mode: both Physical and Virtual must be (non-nil and) non-empty;
+	if len(s.Physical) == 0 {
+		return fmt.Errorf("invalid sharding state: physical shards unavailable")
+	}
+	if len(s.Virtual) == 0 {
+		return fmt.Errorf("invalid sharding state: virtual shards unavailable")
+	}
+
+	return nil
+}
+
 // Read performs a read operation `reader` on the specified class and sharding state
-func (rs SchemaReader) Read(class string, reader func(*models.Class, *sharding.State) error) error {
+func (rs SchemaReader) Read(class string, retryIfClassNotFound bool, reader func(*models.Class, *sharding.State) error) error {
 	t := prometheus.NewTimer(monitoring.GetMetrics().SchemaReadsLocal.WithLabelValues("Read"))
 	defer t.ObserveDuration()
 
 	return rs.retry(func(s *schema) error {
-		return s.Read(class, reader)
+		return s.Read(class, retryIfClassNotFound, func(class *models.Class, state *sharding.State) error {
+			if err := checkShardingState(state); err != nil {
+				return err
+			}
+			return reader(class, state)
+		})
 	})
 }
 
 func (rs SchemaReader) Shards(class string) ([]string, error) {
 	var shards []string
-	err := rs.Read(class, func(class *models.Class, state *sharding.State) error {
+	err := rs.Read(class, true, func(class *models.Class, state *sharding.State) error {
 		shards = state.AllPhysicalShards()
 		return nil
 	})
@@ -101,7 +143,7 @@ func (rs SchemaReader) Shards(class string) ([]string, error) {
 
 func (rs SchemaReader) LocalShards(class string) ([]string, error) {
 	var shards []string
-	err := rs.Read(class, func(class *models.Class, state *sharding.State) error {
+	err := rs.Read(class, true, func(class *models.Class, state *sharding.State) error {
 		shards = state.AllLocalPhysicalShards()
 		return nil
 	})

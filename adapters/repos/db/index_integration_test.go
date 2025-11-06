@@ -10,7 +10,6 @@
 //
 
 //go:build integrationTest
-// +build integrationTest
 
 package db
 
@@ -24,11 +23,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/mock"
+	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
+	routerTypes "github.com/weaviate/weaviate/cluster/router/types"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
-
-	"github.com/stretchr/testify/mock"
-	routerTypes "github.com/weaviate/weaviate/cluster/router/types"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus/hooks/test"
@@ -139,8 +138,8 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 		break
 	}
 	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
-	mockSchemaReader.EXPECT().Read(class.Class, mock.Anything).
-		RunAndReturn(func(className string, readerFunc func(*models.Class, *sharding.State) error) error {
+	mockSchemaReader.EXPECT().Read(class.Class, mock.Anything, mock.Anything).
+		RunAndReturn(func(className string, retryIfClassNotFound bool, readerFunc func(*models.Class, *sharding.State) error) error {
 			return readerFunc(class, shardState)
 		}).Maybe()
 	router := routerTypes.NewMockRouter(t)
@@ -154,15 +153,17 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 			Replicas: []routerTypes.Replica{{NodeName: nodeName, ShardName: shardName, HostAddr: "10.12.135.43"}},
 		}, nil).Maybe()
 
+	schemaGetter := &fakeSchemaGetter{
+		schema: fakeSchema, shardState: shardState,
+	}
+	shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, schemaGetter)
 	index, err := NewIndex(testCtx(), IndexConfig{
 		RootPath:          dirName,
 		ClassName:         schema.ClassName(class.Class),
 		ReplicationFactor: 1,
 		ShardLoadLimiter:  NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
-		hnsw.NewDefaultUserConfig(), nil, router, &fakeSchemaGetter{
-			schema: fakeSchema, shardState: shardState,
-		}, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil,
+		hnsw.NewDefaultUserConfig(), nil, router, shardResolver, schemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil,
 		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop())
 	require.Nil(t, err)
 
@@ -219,10 +220,7 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 		ReplicationFactor: 1,
 		ShardLoadLimiter:  NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
-		hnsw.NewDefaultUserConfig(), nil, router, &fakeSchemaGetter{
-			schema:     fakeSchema,
-			shardState: shardState,
-		}, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil,
+		hnsw.NewDefaultUserConfig(), nil, router, shardResolver, schemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil,
 		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop())
 	require.Nil(t, err)
 
@@ -347,6 +345,7 @@ func TestIndex_DropReadOnlyIndexWithData(t *testing.T) {
 	ctx := testCtx()
 	dirName := t.TempDir()
 	logger, _ := test.NewNullLogger()
+	shardState := singleShardState()
 	class := &models.Class{
 		Class: "deletetest",
 		Properties: []*models.Property{
@@ -359,6 +358,9 @@ func TestIndex_DropReadOnlyIndexWithData(t *testing.T) {
 		InvertedIndexConfig: &models.InvertedIndexConfig{
 			UsingBlockMaxWAND: config.DefaultUsingBlockMaxWAND,
 		},
+		MultiTenancyConfig: &models.MultiTenancyConfig{
+			Enabled: shardState.PartitioningEnabled,
+		},
 	}
 	fakeSchema := schema.Schema{
 		Objects: &models.Schema{
@@ -368,7 +370,6 @@ func TestIndex_DropReadOnlyIndexWithData(t *testing.T) {
 		},
 	}
 
-	shardState := singleShardState()
 	scheduler := queue.NewScheduler(queue.SchedulerOptions{
 		Logger:  logger,
 		Workers: 1,
@@ -381,8 +382,8 @@ func TestIndex_DropReadOnlyIndexWithData(t *testing.T) {
 		break
 	}
 	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
-	mockSchemaReader.EXPECT().Read(class.Class, mock.Anything).
-		RunAndReturn(func(className string, readerFunc func(*models.Class, *sharding.State) error) error {
+	mockSchemaReader.EXPECT().Read(class.Class, mock.Anything, mock.Anything).
+		RunAndReturn(func(className string, retryIfClassNotFound bool, readerFunc func(*models.Class, *sharding.State) error) error {
 			return readerFunc(class, shardState)
 		}).Maybe()
 	router := routerTypes.NewMockRouter(t)
@@ -395,15 +396,17 @@ func TestIndex_DropReadOnlyIndexWithData(t *testing.T) {
 		routerTypes.ReadReplicaSet{
 			Replicas: []routerTypes.Replica{{NodeName: nodeName, ShardName: shardName, HostAddr: "10.12.135.43"}},
 		}, nil).Maybe()
+	schemaGetter := &fakeSchemaGetter{
+		schema: fakeSchema, shardState: shardState,
+	}
+	shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, schemaGetter)
 	index, err := NewIndex(ctx, IndexConfig{
 		RootPath:          dirName,
 		ClassName:         schema.ClassName(class.Class),
 		ReplicationFactor: 1,
 		ShardLoadLimiter:  NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
-		hnsw.NewDefaultUserConfig(), nil, router, &fakeSchemaGetter{
-			schema: fakeSchema, shardState: shardState,
-		}, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil,
+		hnsw.NewDefaultUserConfig(), nil, router, shardResolver, schemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil,
 		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop())
 	require.Nil(t, err)
 
@@ -488,18 +491,20 @@ func TestIndex_DropUnloadedShard(t *testing.T) {
 		Workers: 1,
 	})
 	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
-	mockSchemaReader.EXPECT().Read(class.Class, mock.Anything).
-		RunAndReturn(func(className string, readerFunc func(*models.Class, *sharding.State) error) error {
+	mockSchemaReader.EXPECT().Read(class.Class, mock.Anything, mock.Anything).
+		RunAndReturn(func(className string, retryIfClassNotFound bool, readerFunc func(*models.Class, *sharding.State) error) error {
 			return readerFunc(class, shardState)
 		}).Maybe()
 	router := routerTypes.NewMockRouter(t)
+	schemaGetter := &fakeSchemaGetter{
+		schema: fakeSchema, shardState: shardState,
+	}
+	shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, schemaGetter)
 	index, err := NewIndex(testCtx(), IndexConfig{
 		RootPath:  dirName,
 		ClassName: schema.ClassName(class.Class),
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
-		hnsw.NewDefaultUserConfig(), nil, router, &fakeSchemaGetter{
-			schema: fakeSchema, shardState: shardState,
-		}, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, cpFile, nil,
+		hnsw.NewDefaultUserConfig(), nil, router, shardResolver, schemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, cpFile, nil,
 		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop())
 	require.Nil(t, err)
 
@@ -577,8 +582,8 @@ func TestIndex_DropLoadedShard(t *testing.T) {
 		break
 	}
 	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
-	mockSchemaReader.EXPECT().Read(class.Class, mock.Anything).
-		RunAndReturn(func(className string, readerFunc func(*models.Class, *sharding.State) error) error {
+	mockSchemaReader.EXPECT().Read(class.Class, mock.Anything, mock.Anything).
+		RunAndReturn(func(className string, retryIfClassNotFound bool, readerFunc func(*models.Class, *sharding.State) error) error {
 			return readerFunc(class, shardState)
 		}).Maybe()
 	router := routerTypes.NewMockRouter(t)
@@ -591,15 +596,17 @@ func TestIndex_DropLoadedShard(t *testing.T) {
 		routerTypes.ReadReplicaSet{
 			Replicas: []routerTypes.Replica{{NodeName: nodeName, ShardName: shardName, HostAddr: "10.12.135.43"}},
 		}, nil).Maybe()
+	schemaGetter := &fakeSchemaGetter{
+		schema: fakeSchema, shardState: shardState,
+	}
+	shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, schemaGetter)
 	index, err := NewIndex(testCtx(), IndexConfig{
 		RootPath:          dirName,
 		ClassName:         schema.ClassName(class.Class),
 		ReplicationFactor: 1,
 		ShardLoadLimiter:  NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
-		hnsw.NewDefaultUserConfig(), nil, router, &fakeSchemaGetter{
-			schema: fakeSchema, shardState: shardState,
-		}, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, cpFile, nil,
+		hnsw.NewDefaultUserConfig(), nil, router, shardResolver, schemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, cpFile, nil,
 		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop())
 	require.Nil(t, err)
 
@@ -650,11 +657,15 @@ func emptyIdx(t *testing.T, rootDir string, class *models.Class, shardState *sha
 	})
 
 	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
-	mockSchemaReader.EXPECT().Read(class.Class, mock.Anything).
-		RunAndReturn(func(className string, readerFunc func(*models.Class, *sharding.State) error) error {
+	mockSchemaReader.EXPECT().Read(class.Class, mock.Anything, mock.Anything).
+		RunAndReturn(func(className string, retryIfClassNotFound bool, readerFunc func(*models.Class, *sharding.State) error) error {
 			return readerFunc(class, shardState)
 		}).Maybe()
 	router := routerTypes.NewMockRouter(t)
+	schemaGetter := &fakeSchemaGetter{
+		shardState: shardState,
+	}
+	shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, schemaGetter)
 	idx, err := NewIndex(testCtx(), IndexConfig{
 		RootPath:              rootDir,
 		ClassName:             schema.ClassName(class.Class),
@@ -662,9 +673,7 @@ func emptyIdx(t *testing.T, rootDir string, class *models.Class, shardState *sha
 		ReplicationFactor:     1,
 		ShardLoadLimiter:      NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
 	}, inverted.ConfigFromModel(invertedConfig()),
-		hnsw.NewDefaultUserConfig(), nil, router, &fakeSchemaGetter{
-			shardState: shardState,
-		}, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil,
+		hnsw.NewDefaultUserConfig(), nil, router, shardResolver, schemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil,
 		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop())
 	require.Nil(t, err)
 	return idx

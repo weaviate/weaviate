@@ -262,8 +262,8 @@ func (s *Shard) createDimensionsBucket(ctx context.Context, name string) error {
 		return err
 	}
 
-	bucketPath := filepath.Join(s.pathLSM(), helpers.DimensionsBucketLSM)
-	strategy, err := lsmkv.DetermineUnloadedBucketStrategyAmong(bucketPath, DimensionsBucketPrioritizedStrategies)
+	bucketPath := filepath.Join(s.pathLSM(), name)
+	strategy, err := lsmkv.DetermineUnloadedBucketStrategyAmong(bucketPath, lsmkv.DimensionsBucketPrioritizedStrategies)
 	if err != nil {
 		return fmt.Errorf("determine dimensions bucket strategy: %w", err)
 	}

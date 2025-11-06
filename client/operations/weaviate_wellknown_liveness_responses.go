@@ -50,7 +50,7 @@ func NewWeaviateWellknownLivenessOK() *WeaviateWellknownLivenessOK {
 /*
 WeaviateWellknownLivenessOK describes a response with status code 200, with default header values.
 
-The application is able to respond to HTTP requests
+The application is alive and responding to HTTP requests.
 */
 type WeaviateWellknownLivenessOK struct {
 }

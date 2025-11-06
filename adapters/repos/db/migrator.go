@@ -17,6 +17,7 @@ import (
 	"slices"
 	"time"
 
+	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
 	"github.com/weaviate/weaviate/usecases/multitenancy"
 
 	"github.com/pkg/errors"
@@ -27,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/flat"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/spfresh"
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/router"
 	"github.com/weaviate/weaviate/cluster/types"
@@ -117,6 +119,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 		m.db.schemaReader,
 		m.db.replicationFSM,
 	).Build()
+	shardResolver := resolver.NewShardResolver(collection, multitenancy.IsMultiTenant(class.MultiTenancyConfig), m.db.schemaGetter)
 	idx, err := NewIndex(ctx,
 		IndexConfig{
 			ClassName:                                    schema.ClassName(class.Class),
@@ -166,13 +169,14 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 			QuerySlowLogThreshold:                        m.db.config.QuerySlowLogThreshold,
 			InvertedSorterDisabled:                       m.db.config.InvertedSorterDisabled,
 			MaintenanceModeEnabled:                       m.db.config.MaintenanceModeEnabled,
+			SPFreshEnabled:                               m.db.config.SPFreshEnabled,
 		},
 		// no backward-compatibility check required, since newly added classes will
 		// always have the field set
 		inverted.ConfigFromModel(class.InvertedIndexConfig),
 		convertToVectorIndexConfig(class.VectorIndexConfig),
 		convertToVectorIndexConfigs(class.VectorConfig),
-		indexRouter, m.db.schemaGetter, m.db.schemaReader, m.db, m.logger, m.db.nodeResolver, m.db.remoteIndex,
+		indexRouter, shardResolver, m.db.schemaGetter, m.db.schemaReader, m.db, m.logger, m.db.nodeResolver, m.db.remoteIndex,
 		m.db.replicaClient, &m.db.config.Replication, m.db.promMetrics, class, m.db.jobQueueCh, m.db.scheduler, m.db.indexCheckpoints,
 		m.db.memMonitor, m.db.reindexer, m.db.bitmapBufPool)
 	if err != nil {
@@ -529,6 +533,12 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 	if idx == nil {
 		return fmt.Errorf("cannot find index for %q", class.Class)
 	}
+	idx.closeLock.RLock()
+	defer idx.closeLock.RUnlock()
+	if idx.closed {
+		m.logger.WithField("index", idx.ID()).Debug("index is already shut down or dropped")
+		return errAlreadyShutdown
+	}
 
 	hot := make([]string, 0, len(updates))
 	cold := make([]string, 0, len(updates))
@@ -555,20 +565,18 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 	ec := errorcompounder.NewSafe()
 	if len(hot) > 0 {
 		m.logger.WithField("action", "tenants_to_hot").Debug(hot)
-		idx.shardTransferMutex.RLock()
-		defer idx.shardTransferMutex.RUnlock()
 
 		eg := enterrors.NewErrorGroupWrapper(m.logger)
 		eg.SetLimit(_NUMCPU * 2)
 
 		for _, name := range hot {
-			name := name // prevent loop variable capture
-			// enterrors.GoWrapper(func() {
 			// The timeout is rather arbitrary. It's meant to be so high that it can
 			// never stop a valid tenant activation use case, but low enough to
 			// prevent a context-leak.
-
 			eg.Go(func() error {
+				idx.backupLock.RLock(name)
+				defer idx.backupLock.RUnlock(name)
+
 				ctx, cancel := context.WithTimeout(context.Background(), 1*time.Hour)
 				defer cancel()
 
@@ -582,30 +590,19 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 				return nil
 			})
 		}
-
 		eg.Wait()
 	}
 
 	if len(cold) > 0 {
 		m.logger.WithField("action", "tenants_to_cold").Debug(cold)
-		idx.shardTransferMutex.RLock()
-		defer idx.shardTransferMutex.RUnlock()
 
 		eg := enterrors.NewErrorGroupWrapper(m.logger)
 		eg.SetLimit(_NUMCPU * 2)
 
 		for _, name := range cold {
-			name := name
-
 			eg.Go(func() error {
-				idx.closeLock.RLock()
-				defer idx.closeLock.RUnlock()
-
-				if idx.closed {
-					m.logger.WithField("index", idx.ID()).Debug("index is already shut down or dropped")
-					ec.Add(errAlreadyShutdown)
-					return nil
-				}
+				idx.backupLock.RLock(name)
+				defer idx.backupLock.RUnlock(name)
 
 				idx.shardCreateLocks.Lock(name)
 				defer idx.shardCreateLocks.Unlock(name)
@@ -737,6 +734,11 @@ func (m *Migrator) ValidateVectorIndexConfigUpdate(
 		return flat.ValidateUserConfigUpdate(old, updated)
 	case vectorindex.VectorIndexTypeDYNAMIC:
 		return dynamic.ValidateUserConfigUpdate(old, updated)
+	case vectorindex.VectorIndexTypeSPFresh:
+		if !m.db.config.SPFreshEnabled {
+			return errors.New("spfresh index is available only in experimental mode")
+		}
+		return spfresh.ValidateUserConfigUpdate(old, updated)
 	}
 	return fmt.Errorf("invalid index type: %s", old.IndexType())
 }

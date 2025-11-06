@@ -337,54 +337,61 @@ func (c *Copier) downloadWorker(ctx context.Context, client FileReplicationServi
 			return fmt.Errorf("create parent folder for %s: %w", localFilePath, err)
 		}
 
-		f, err := os.Create(localFilePath + ".tmp")
-		if err != nil {
-			return fmt.Errorf("open file %q for writing: %w", localFilePath, err)
-		}
-		defer f.Close()
-
-		wbuf := bufio.NewWriter(f)
-
-		for {
-			chunk, err := stream.Recv()
+		if err := func() error {
+			f, err := os.Create(localFilePath + ".tmp")
 			if err != nil {
-				return fmt.Errorf("failed to receive file chunk for %s: %w", meta.FileName, err)
+				return fmt.Errorf("open file %q for writing: %w", localFilePath, err)
 			}
+			defer f.Close()
 
-			if len(chunk.Data) > 0 {
-				_, err = wbuf.Write(chunk.Data)
+			wbuf := bufio.NewWriter(f)
+
+			for {
+				chunk, err := stream.Recv()
 				if err != nil {
-					return fmt.Errorf("writing chunk to file %q: %w", localFilePath+".tmp", err)
+					return fmt.Errorf("failed to receive file chunk for %s: %w", meta.FileName, err)
+				}
+
+				if len(chunk.Data) > 0 {
+					_, err = wbuf.Write(chunk.Data)
+					if err != nil {
+						return fmt.Errorf("writing chunk to file %q: %w", localFilePath+".tmp", err)
+					}
+				}
+
+				if chunk.Eof {
+					break
 				}
 			}
 
-			if chunk.Eof {
-				break
+			err = wbuf.Flush()
+			if err != nil {
+				return fmt.Errorf("flushing buffer to file %q: %w", localFilePath+".tmp", err)
 			}
-		}
 
-		err = wbuf.Flush()
-		if err != nil {
-			return fmt.Errorf("flushing buffer to file %q: %w", localFilePath+".tmp", err)
-		}
+			err = f.Sync()
+			if err != nil {
+				return fmt.Errorf("fsyncing file %q for writing: %w", localFilePath+".tmp", err)
+			}
 
-		err = f.Sync()
-		if err != nil {
-			return fmt.Errorf("fsyncing file %q for writing: %w", localFilePath+".tmp", err)
-		}
+			_, checksum, err = integrity.CRC32(localFilePath + ".tmp")
+			if err != nil {
+				return fmt.Errorf("calculating checksum for file %q: %w", localFilePath+".tmp", err)
+			}
 
-		_, checksum, err = integrity.CRC32(localFilePath + ".tmp")
-		if err != nil {
-			return fmt.Errorf("calculating checksum for file %q: %w", localFilePath+".tmp", err)
-		}
-		if checksum != meta.Crc32 {
-			defer os.Remove(localFilePath + ".tmp")
-			return fmt.Errorf("checksum validation of file %q failed, expected %d, got %d", localFilePath+".tmp", meta.Crc32, checksum)
-		}
+			if checksum != meta.Crc32 {
+				defer os.Remove(localFilePath + ".tmp")
+				return fmt.Errorf("checksum validation of file %q failed, expected %d, got %d", localFilePath+".tmp", meta.Crc32, checksum)
+			}
 
-		err = os.Rename(localFilePath+".tmp", localFilePath)
-		if err != nil {
-			return fmt.Errorf("renaming temporary file %q to final path %q: %w", localFilePath+".tmp", localFilePath, err)
+			err = os.Rename(localFilePath+".tmp", localFilePath)
+			if err != nil {
+				return fmt.Errorf("renaming temporary file %q to final path %q: %w", localFilePath+".tmp", localFilePath, err)
+			}
+
+			return nil
+		}(); err != nil {
+			return err
 		}
 	}
 

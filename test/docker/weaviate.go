@@ -36,7 +36,8 @@ const (
 func startWeaviate(ctx context.Context,
 	enableModules []string, defaultVectorizerModule string,
 	extraEnvSettings map[string]string, networkName string,
-	weaviateImage, hostname string, exposeGRPCPort bool,
+	weaviateImage, hostname string,
+	exposeGRPCPort, exposeDebugPort bool,
 	wellKnownEndpoint string,
 ) (*DockerContainer, error) {
 	fromDockerFile := testcontainers.FromDockerfile{}
@@ -78,12 +79,14 @@ func startWeaviate(ctx context.Context,
 	}
 	env := map[string]string{
 		"AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED": "true",
-		"LOG_LEVEL":                 "debug",
-		"QUERY_DEFAULTS_LIMIT":      "20",
-		"PERSISTENCE_DATA_PATH":     "./data",
-		"DEFAULT_VECTORIZER_MODULE": "none",
-		"FAST_FAILURE_DETECTION":    "true",
-		"DISABLE_TELEMETRY":         "true",
+		"LOG_LEVEL":                         "debug",
+		"QUERY_DEFAULTS_LIMIT":              "20",
+		"PERSISTENCE_DATA_PATH":             "./data",
+		"DEFAULT_VECTORIZER_MODULE":         "none",
+		"MEMBERLIST_FAST_FAILURE_DETECTION": "true",
+		"DISABLE_TELEMETRY":                 "true",
+		"RAFT_DRAIN_SLEEP":                  "1ms", // almost as no sleep, no 0 because will fail validation
+		"RAFT_TIMEOUTS_MULTIPLIER":          "1",   // force raft timeouts to 1 to not affect tests which does do heavy restarts
 	}
 	if len(enableModules) > 0 {
 		env["ENABLE_MODULES"] = strings.Join(enableModules, ",")
@@ -106,6 +109,11 @@ func startWeaviate(ctx context.Context,
 		exposedPorts = append(exposedPorts, "50051/tcp")
 		waitStrategies = append(waitStrategies, wait.ForListeningPort(grpcPort))
 	}
+	debugPort := nat.Port("6060/tcp")
+	if exposeDebugPort {
+		exposedPorts = append(exposedPorts, "6060/tcp")
+		waitStrategies = append(waitStrategies, wait.ForListeningPort(debugPort))
+	}
 	req := testcontainers.ContainerRequest{
 		FromDockerfile: fromDockerFile,
 		Image:          weaviateImage,
@@ -125,10 +133,12 @@ func startWeaviate(ctx context.Context,
 				PostStarts: []testcontainers.ContainerHook{
 					func(ctx context.Context, container testcontainers.Container) error {
 						for _, waitStrategy := range waitStrategies {
-							ctx, cancel := context.WithTimeout(ctx, 180*time.Second)
-							defer cancel()
+							if err := func() error {
+								ctx, cancel := context.WithTimeout(ctx, 180*time.Second)
+								defer cancel()
 
-							if err := waitStrategy.WaitUntilReady(ctx, container); err != nil {
+								return waitStrategy.WaitUntilReady(ctx, container)
+							}(); err != nil {
 								return err
 							}
 						}
@@ -161,6 +171,13 @@ func startWeaviate(ctx context.Context,
 			return nil, err
 		}
 		endpoints[GRPC] = endpoint{grpcPort, grpcUri}
+	}
+	if exposeDebugPort {
+		debugUri, err := c.PortEndpoint(ctx, debugPort, "")
+		if err != nil {
+			return nil, err
+		}
+		endpoints[DEBUG] = endpoint{debugPort, debugUri}
 	}
 	return &DockerContainer{
 		name:        containerName,

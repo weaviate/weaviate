@@ -320,133 +320,145 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 			continue
 		}
 
-		if strategy != ACORN {
-			if candidateNode.connections.LenAtLayer(uint8(level)) > h.maximumConnectionsLayerZero {
-				// How is it possible that we could ever have more connections than the
-				// allowed maximum? It is not anymore, but there was a bug that allowed
-				// this to happen in versions prior to v1.12.0:
-				// https://github.com/weaviate/weaviate/issues/1868
-				//
-				// As a result the length of this slice is entirely unpredictable and we
-				// can no longer retrieve it from the pool. Instead we need to fallback
-				// to allocating a new slice.
-				//
-				// This was discovered as part of
-				// https://github.com/weaviate/weaviate/issues/1897
-				connectionsReusable = make([]uint64, candidateNode.connections.LenAtLayer(uint8(level)))
-			} else {
-				connectionsReusable = connectionsReusable[:candidateNode.connections.LenAtLayer(uint8(level))]
-			}
-			connectionsReusable = candidateNode.connections.CopyLayer(connectionsReusable, uint8(level))
-		} else {
-			connectionsReusable = sliceConnectionsReusable.Slice
-			pendingNextRound := slicePendingNextRound.Slice
-			pendingThisRound := slicePendingThisRound.Slice
+		func() {
+			// ensure we unlock the node even if we panic while
+			// accessing its connections
+			defer func() {
+				if err := recover(); err != nil {
+					candidateNode.Unlock()
+					panic(errors.Errorf("shard: %s, collection: %s, vectorIndex: %s, panic: %v", h.shardName, h.className, h.id, err))
+				}
+			}()
 
-			realLen := 0
-			index := 0
-
-			pendingNextRound = pendingNextRound[:candidateNode.connections.LenAtLayer(uint8(level))]
-			pendingNextRound = candidateNode.connections.CopyLayer(pendingNextRound, uint8(level))
-			hop := 1
-			maxHops := 2
-			for hop <= maxHops && realLen < 8*h.maximumConnectionsLayerZero && len(pendingNextRound) > 0 {
-				if cap(pendingThisRound) >= len(pendingNextRound) {
-					pendingThisRound = pendingThisRound[:len(pendingNextRound)]
+			if strategy != ACORN {
+				if candidateNode.connections.LenAtLayer(uint8(level)) > h.maximumConnectionsLayerZero {
+					// How is it possible that we could ever have more connections than the
+					// allowed maximum? It is not anymore, but there was a bug that allowed
+					// this to happen in versions prior to v1.12.0:
+					// https://github.com/weaviate/weaviate/issues/1868
+					//
+					// As a result the length of this slice is entirely unpredictable and we
+					// can no longer retrieve it from the pool. Instead we need to fallback
+					// to allocating a new slice.
+					//
+					// This was discovered as part of
+					// https://github.com/weaviate/weaviate/issues/1897
+					connectionsReusable = make([]uint64, candidateNode.connections.LenAtLayer(uint8(level)))
 				} else {
-					pendingThisRound = make([]uint64, len(pendingNextRound))
-					slicePendingThisRound.Slice = pendingThisRound
+					connectionsReusable = connectionsReusable[:candidateNode.connections.LenAtLayer(uint8(level))]
 				}
-				copy(pendingThisRound, pendingNextRound)
-				pendingNextRound = pendingNextRound[:0]
-				for index < len(pendingThisRound) && realLen < 8*h.maximumConnectionsLayerZero {
-					nodeId := pendingThisRound[index]
-					index++
-					if ok := visited.Visited(nodeId); ok {
-						// skip if we've already visited this neighbor
-						continue
-					}
-					if !visitedExp.Visited(nodeId) {
-						if !isMultivec {
-							if allowList.Contains(nodeId) {
-								connectionsReusable[realLen] = nodeId
-								realLen++
-								visitedExp.Visit(nodeId)
-								continue
-							}
-						} else {
-							var docID uint64
-							if h.compressed.Load() {
-								docID, _ = h.compressor.GetKeys(nodeId)
-							} else {
-								docID, _ = h.cache.GetKeys(nodeId)
-							}
-							if allowList.Contains(docID) {
-								connectionsReusable[realLen] = nodeId
-								realLen++
-								visitedExp.Visit(nodeId)
-								continue
-							}
-						}
+				connectionsReusable = candidateNode.connections.CopyLayer(connectionsReusable, uint8(level))
+			} else {
+				connectionsReusable = sliceConnectionsReusable.Slice
+				pendingNextRound := slicePendingNextRound.Slice
+				pendingThisRound := slicePendingThisRound.Slice
+
+				realLen := 0
+				index := 0
+
+				pendingNextRound = pendingNextRound[:candidateNode.connections.LenAtLayer(uint8(level))]
+				pendingNextRound = candidateNode.connections.CopyLayer(pendingNextRound, uint8(level))
+				hop := 1
+				maxHops := 2
+				for hop <= maxHops && realLen < 8*h.maximumConnectionsLayerZero && len(pendingNextRound) > 0 {
+					if cap(pendingThisRound) >= len(pendingNextRound) {
+						pendingThisRound = pendingThisRound[:len(pendingNextRound)]
 					} else {
-						continue
+						pendingThisRound = make([]uint64, len(pendingNextRound))
+						slicePendingThisRound.Slice = pendingThisRound
 					}
-					visitedExp.Visit(nodeId)
-
-					h.RLock()
-					h.shardedNodeLocks.RLock(nodeId)
-					node := h.nodes[nodeId]
-					h.shardedNodeLocks.RUnlock(nodeId)
-					h.RUnlock()
-					if node == nil {
-						continue
-					}
-					iterator := node.connections.ElementIterator(uint8(level))
-					for iterator.Next() {
-						_, expId := iterator.Current()
-						if visitedExp.Visited(expId) {
+					copy(pendingThisRound, pendingNextRound)
+					pendingNextRound = pendingNextRound[:0]
+					for index < len(pendingThisRound) && realLen < 8*h.maximumConnectionsLayerZero {
+						nodeId := pendingThisRound[index]
+						index++
+						if ok := visited.Visited(nodeId); ok {
+							// skip if we've already visited this neighbor
 							continue
 						}
-						if visited.Visited(expId) {
-							continue
-						}
-
-						if realLen >= 8*h.maximumConnectionsLayerZero {
-							break
-						}
-
-						if !isMultivec {
-							if allowList.Contains(expId) {
-								visitedExp.Visit(expId)
-								connectionsReusable[realLen] = expId
-								realLen++
-							} else if hop < maxHops {
-								visitedExp.Visit(expId)
-								pendingNextRound = append(pendingNextRound, expId)
+						if !visitedExp.Visited(nodeId) {
+							if !isMultivec {
+								if allowList.Contains(nodeId) {
+									connectionsReusable[realLen] = nodeId
+									realLen++
+									visitedExp.Visit(nodeId)
+									continue
+								}
+							} else {
+								var docID uint64
+								if h.compressed.Load() {
+									docID, _ = h.compressor.GetKeys(nodeId)
+								} else {
+									docID, _ = h.cache.GetKeys(nodeId)
+								}
+								if allowList.Contains(docID) {
+									connectionsReusable[realLen] = nodeId
+									realLen++
+									visitedExp.Visit(nodeId)
+									continue
+								}
 							}
 						} else {
-							var docID uint64
-							if h.compressed.Load() {
-								docID, _ = h.compressor.GetKeys(expId)
-							} else {
-								docID, _ = h.cache.GetKeys(expId)
+							continue
+						}
+						visitedExp.Visit(nodeId)
+
+						h.RLock()
+						h.shardedNodeLocks.RLock(nodeId)
+						node := h.nodes[nodeId]
+						h.shardedNodeLocks.RUnlock(nodeId)
+						h.RUnlock()
+						if node == nil {
+							continue
+						}
+						iterator := node.connections.ElementIterator(uint8(level))
+						for iterator.Next() {
+							_, expId := iterator.Current()
+							if visitedExp.Visited(expId) {
+								continue
 							}
-							if allowList.Contains(docID) {
-								visitedExp.Visit(expId)
-								connectionsReusable[realLen] = expId
-								realLen++
-							} else if hop < maxHops {
-								visitedExp.Visit(expId)
-								pendingNextRound = append(pendingNextRound, expId)
+							if visited.Visited(expId) {
+								continue
+							}
+
+							if realLen >= 8*h.maximumConnectionsLayerZero {
+								break
+							}
+
+							if !isMultivec {
+								if allowList.Contains(expId) {
+									visitedExp.Visit(expId)
+									connectionsReusable[realLen] = expId
+									realLen++
+								} else if hop < maxHops {
+									visitedExp.Visit(expId)
+									pendingNextRound = append(pendingNextRound, expId)
+								}
+							} else {
+								var docID uint64
+								if h.compressed.Load() {
+									docID, _ = h.compressor.GetKeys(expId)
+								} else {
+									docID, _ = h.cache.GetKeys(expId)
+								}
+								if allowList.Contains(docID) {
+									visitedExp.Visit(expId)
+									connectionsReusable[realLen] = expId
+									realLen++
+								} else if hop < maxHops {
+									visitedExp.Visit(expId)
+									pendingNextRound = append(pendingNextRound, expId)
+								}
 							}
 						}
 					}
+					hop++
 				}
-				hop++
+				slicePendingNextRound.Slice = pendingNextRound
+				connectionsReusable = connectionsReusable[:realLen]
 			}
-			slicePendingNextRound.Slice = pendingNextRound
-			connectionsReusable = connectionsReusable[:realLen]
-		}
+		}()
+
 		candidateNode.Unlock()
 
 		for _, neighborID := range connectionsReusable {
@@ -649,16 +661,16 @@ func (h *hnsw) currentWorstResultDistanceToByte(results *priorityqueue.Queue[any
 	}
 }
 
-func (h *hnsw) distanceFromBytesToFloatNode(concreteDistancer compressionhelpers.CompressorDistancer, nodeID uint64) (float32, error) {
+func (h *hnsw) distanceFromBytesToFloatNode(ctx context.Context, concreteDistancer compressionhelpers.CompressorDistancer, nodeID uint64) (float32, error) {
 	slice := h.pools.tempVectors.Get(int(h.dims))
 	defer h.pools.tempVectors.Put(slice)
 	var vec []float32
 	var err error
 	if h.muvera.Load() || !h.multivector.Load() {
-		vec, err = h.TempVectorForIDThunk(context.Background(), nodeID, slice)
+		vec, err = h.TempVectorForIDThunk(ctx, nodeID, slice)
 	} else {
 		docID, relativeID := h.cache.GetKeys(nodeID)
-		vecs, err := h.TempMultiVectorForIDThunk(context.Background(), docID, slice)
+		vecs, err := h.TempMultiVectorForIDThunk(ctx, docID, slice)
 		if err != nil {
 			return 0, err
 		} else if len(vecs) <= int(relativeID) {
@@ -1074,7 +1086,7 @@ func (h *hnsw) rescore(ctx context.Context, res *priorityqueue.Queue[any], k int
 				}
 
 				id := ids[idPos]
-				dist, err := h.distanceFromBytesToFloatNode(compressorDistancer, id)
+				dist, err := h.distanceFromBytesToFloatNode(ctx, compressorDistancer, id)
 				if err == nil {
 					addID(id, dist)
 				} else {

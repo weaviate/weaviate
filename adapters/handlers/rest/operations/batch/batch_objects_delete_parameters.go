@@ -46,16 +46,16 @@ type BatchObjectsDeleteParams struct {
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
-	/*
+	/*The request body containing the match filter and output configuration.
 	  Required: true
 	  In: body
 	*/
 	Body *models.BatchDelete
-	/*Determines how many replicas must acknowledge a request before it is considered successful
+	/*Determines how many replicas must acknowledge a request before it is considered successful.
 	  In: query
 	*/
 	ConsistencyLevel *string
-	/*Specifies the tenant in a request targeting a multi-tenant class
+	/*Specifies the tenant in a request targeting a multi-tenant collection (class).
 	  In: query
 	*/
 	Tenant *string

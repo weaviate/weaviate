@@ -15,12 +15,11 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
-	"strings"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/cluster/usage/types"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
@@ -40,10 +39,10 @@ const (
 	DimensionCategoryRQ
 )
 
-// since v1.34 StrategyRoaringSet will be default strategy for dimensions bucket
-var DimensionsBucketPrioritizedStrategies = []string{
-	lsmkv.StrategyMapCollection,
-	lsmkv.StrategyRoaringSet,
+type DimensionInfo struct {
+	category DimensionCategory
+	segments int
+	bits     int16
 }
 
 func (c DimensionCategory) String() string {
@@ -89,7 +88,7 @@ func (s *Shard) calcTargetVectorDimensions(ctx context.Context, targetVector str
 	if b == nil {
 		return types.Dimensionality{}, errors.Errorf("calcTargetVectorDimensions: no bucket dimensions")
 	}
-	return calcTargetVectorDimensionsFromBucket(ctx, b, targetVector)
+	return shardusage.CalculateTargetVectorDimensionsFromBucket(ctx, b, targetVector)
 }
 
 // DimensionMetrics represents the dimension tracking metrics for a vector.
@@ -147,27 +146,27 @@ func clearDimensionMetrics(cfg IndexConfig, promMetrics *monitoring.PrometheusMe
 	}
 }
 
-func GetDimensionCategoryLegacy(cfg schemaConfig.VectorIndexConfig) (DimensionCategory, int) {
+func GetDimensionCategoryLegacy(cfg schemaConfig.VectorIndexConfig) DimensionInfo {
 	// We have special dimension tracking for BQ and PQ to represent reduced costs
 	// these are published under the separate vector_segments_dimensions metric
 	if hnswUserConfig, ok := cfg.(hnswent.UserConfig); ok {
 		if hnswUserConfig.PQ.Enabled {
-			return DimensionCategoryPQ, hnswUserConfig.PQ.Segments
+			return DimensionInfo{category: DimensionCategoryPQ, segments: hnswUserConfig.PQ.Segments}
 		}
 		if hnswUserConfig.BQ.Enabled {
-			return DimensionCategoryBQ, 0
+			return DimensionInfo{category: DimensionCategoryBQ}
 		}
 		if hnswUserConfig.SQ.Enabled {
-			return DimensionCategorySQ, 0
+			return DimensionInfo{category: DimensionCategorySQ}
 		}
 		if hnswUserConfig.RQ.Enabled {
-			return DimensionCategoryRQ, 0
+			return DimensionInfo{category: DimensionCategoryRQ, bits: hnswUserConfig.RQ.Bits}
 		}
 	}
-	return DimensionCategoryStandard, 0
+	return DimensionInfo{category: DimensionCategoryStandard}
 }
 
-func GetDimensionCategory(cfg schemaConfig.VectorIndexConfig) (DimensionCategory, int) {
+func GetDimensionCategory(cfg schemaConfig.VectorIndexConfig, dynamicUpgraded bool) DimensionInfo {
 	// We have special dimension tracking for BQ and PQ to represent reduced costs
 	// these are published under the separate vector_segments_dimensions metric
 	switch config := cfg.(type) {
@@ -176,49 +175,50 @@ func GetDimensionCategory(cfg schemaConfig.VectorIndexConfig) (DimensionCategory
 	case flatent.UserConfig:
 		return getFlatCompression(config)
 	case dynamicent.UserConfig:
-		return getDynamicCompression(config)
+		return getDynamicCompression(config, dynamicUpgraded)
 	default:
-		return DimensionCategoryStandard, 0
+		return DimensionInfo{category: DimensionCategoryStandard}
 	}
 }
 
 // getHNSWCompression extracts compression info from HNSW configuration
-func getHNSWCompression(config hnswent.UserConfig) (DimensionCategory, int) {
+func getHNSWCompression(config hnswent.UserConfig) DimensionInfo {
 	if config.PQ.Enabled {
-		return DimensionCategoryPQ, config.PQ.Segments
+		return DimensionInfo{category: DimensionCategoryPQ, segments: config.PQ.Segments}
 	}
 	if config.BQ.Enabled {
-		return DimensionCategoryBQ, 0
+		return DimensionInfo{category: DimensionCategoryBQ}
 	}
 	if config.SQ.Enabled {
-		return DimensionCategorySQ, 0
+		return DimensionInfo{category: DimensionCategorySQ}
 	}
 	if config.RQ.Enabled {
-		return DimensionCategoryRQ, 0
+		return DimensionInfo{category: DimensionCategoryRQ, bits: config.RQ.Bits}
 	}
-	return DimensionCategoryStandard, 0
+	return DimensionInfo{category: DimensionCategoryStandard}
 }
 
 // getFlatCompression extracts compression info from Flat configuration
-func getFlatCompression(config flatent.UserConfig) (DimensionCategory, int) {
+func getFlatCompression(config flatent.UserConfig) DimensionInfo {
 	if config.BQ.Enabled {
-		return DimensionCategoryBQ, 0
+		return DimensionInfo{category: DimensionCategoryBQ}
+	}
+	if config.RQ.Enabled {
+		return DimensionInfo{category: DimensionCategoryRQ, bits: int16(config.RQ.Bits)}
 	}
 	// Note: Flat indices only support BQ compression currently
-	return DimensionCategoryStandard, 0
+	return DimensionInfo{category: DimensionCategoryStandard}
 }
 
 // getDynamicCompression extracts compression info from Dynamic configuration
 // Dynamic indices can switch between HNSW and Flat based on data size.
 // For metrics purposes, we check both configurations and return the first enabled compression.
-func getDynamicCompression(config dynamicent.UserConfig) (DimensionCategory, int) {
-	// Check HNSW configuration first (higher priority for dynamic indices)
-	if category, segments := getHNSWCompression(config.HnswUC); category != DimensionCategoryStandard {
-		return category, segments
+func getDynamicCompression(config dynamicent.UserConfig, dynamicUpgraded bool) DimensionInfo {
+	if dynamicUpgraded {
+		return getHNSWCompression(config.HnswUC)
+	} else {
+		return getFlatCompression(config.FlatUC)
 	}
-
-	// Fall back to Flat configuration
-	return getFlatCompression(config.FlatUC)
 }
 
 func correctEmptySegments(segments int, dimensions int) int {
@@ -228,72 +228,6 @@ func correctEmptySegments(segments int, dimensions int) int {
 		return segments
 	}
 	return common.CalculateOptimalSegments(dimensions)
-}
-
-// calcTargetVectorDimensionsFromBucket calculates dimensions and object count for a target vector from an LSMKV bucket
-func calcTargetVectorDimensionsFromBucket(ctx context.Context, b *lsmkv.Bucket, targetVector string,
-) (types.Dimensionality, error) {
-	dimensionality := types.Dimensionality{}
-
-	if err := lsmkv.CheckExpectedStrategy(b.Strategy(), lsmkv.StrategyMapCollection, lsmkv.StrategyRoaringSet); err != nil {
-		return dimensionality, fmt.Errorf("calcTargetVectorDimensionsFromBucket: %w", err)
-	}
-
-	nameLen := len(targetVector)
-	expectedKeyLen := nameLen + 4 // vector name + uint32
-	var k []byte
-
-	switch b.Strategy() {
-	case lsmkv.StrategyMapCollection:
-		// Since weaviate 1.34 default dimension bucket strategy is StrategyRoaringSet.
-		// For backward compatibility StrategyMapCollection is still supported.
-
-		c := b.MapCursor()
-		defer c.Close()
-
-		var v []lsmkv.MapPair
-		if nameLen == 0 {
-			k, v = c.First(ctx)
-		} else {
-			k, v = c.Seek(ctx, []byte(targetVector))
-		}
-		for ; k != nil; k, v = c.Next(ctx) {
-			// for named vectors we have to additionally check if the key is prefixed with the vector name
-			if len(k) != expectedKeyLen || !strings.HasPrefix(string(k), targetVector) {
-				break
-			}
-
-			dimLength := binary.LittleEndian.Uint32(k[nameLen:])
-			if dimLength > 0 && (dimensionality.Dimensions == 0 || dimensionality.Count == 0) {
-				dimensionality.Dimensions = int(dimLength)
-				dimensionality.Count = len(v)
-			}
-		}
-	default:
-		c := b.CursorRoaringSet()
-		defer c.Close()
-
-		var v *sroar.Bitmap
-		if nameLen == 0 {
-			k, v = c.First()
-		} else {
-			k, v = c.Seek([]byte(targetVector))
-		}
-		for ; k != nil; k, v = c.Next() {
-			// for named vectors we have to additionally check if the key is prefixed with the vector name
-			if len(k) != expectedKeyLen || !strings.HasPrefix(string(k), targetVector) {
-				break
-			}
-
-			dimLength := binary.LittleEndian.Uint32(k[nameLen:])
-			if dimLength > 0 && (dimensionality.Dimensions == 0 || dimensionality.Count == 0) {
-				dimensionality.Dimensions = int(dimLength)
-				dimensionality.Count = v.GetCardinality()
-			}
-		}
-	}
-
-	return dimensionality, nil
 }
 
 func (s *Shard) extendDimensionTrackerLSM(dimLength int, docID uint64, targetVector string) error {

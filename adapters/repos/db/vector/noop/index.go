@@ -132,11 +132,14 @@ func (i *Index) ValidateMultiBeforeInsert(vector [][]float32) error {
 	return nil
 }
 
-func (i *Index) PostStartup() {
+func (i *Index) PostStartup(ctx context.Context) {
 }
 
 func (i *Index) ContainsDoc(docID uint64) bool {
 	return false
+}
+
+func (i *Index) Preload(id uint64, vector []float32) {
 }
 
 func (i *Index) Iterate(fn func(id uint64) bool) {}

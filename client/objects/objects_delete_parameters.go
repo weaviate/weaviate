@@ -74,13 +74,13 @@ type ObjectsDeleteParams struct {
 
 	/* ConsistencyLevel.
 
-	   Determines how many replicas must acknowledge a request before it is considered successful
+	   Determines how many replicas must acknowledge a request before it is considered successful.
 	*/
 	ConsistencyLevel *string
 
 	/* ID.
 
-	   Unique ID of the Object.
+	   Unique UUID of the object to be deleted.
 
 	   Format: uuid
 	*/
@@ -88,7 +88,7 @@ type ObjectsDeleteParams struct {
 
 	/* Tenant.
 
-	   Specifies the tenant in a request targeting a multi-tenant class
+	   Specifies the tenant in a request targeting a multi-tenant collection (class).
 	*/
 	Tenant *string
 

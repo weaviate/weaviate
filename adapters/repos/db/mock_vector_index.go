@@ -560,9 +560,9 @@ func (_c *MockVectorIndex_Multivector_Call) RunAndReturn(run func() bool) *MockV
 	return _c
 }
 
-// PostStartup provides a mock function with no fields
-func (_m *MockVectorIndex) PostStartup() {
-	_m.Called()
+// PostStartup provides a mock function with given fields: ctx
+func (_m *MockVectorIndex) PostStartup(ctx context.Context) {
+	_m.Called(ctx)
 }
 
 // MockVectorIndex_PostStartup_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'PostStartup'
@@ -571,13 +571,14 @@ type MockVectorIndex_PostStartup_Call struct {
 }
 
 // PostStartup is a helper method to define mock.On call
-func (_e *MockVectorIndex_Expecter) PostStartup() *MockVectorIndex_PostStartup_Call {
-	return &MockVectorIndex_PostStartup_Call{Call: _e.mock.On("PostStartup")}
+//   - ctx context.Context
+func (_e *MockVectorIndex_Expecter) PostStartup(ctx interface{}) *MockVectorIndex_PostStartup_Call {
+	return &MockVectorIndex_PostStartup_Call{Call: _e.mock.On("PostStartup", ctx)}
 }
 
-func (_c *MockVectorIndex_PostStartup_Call) Run(run func()) *MockVectorIndex_PostStartup_Call {
+func (_c *MockVectorIndex_PostStartup_Call) Run(run func(ctx context.Context)) *MockVectorIndex_PostStartup_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run()
+		run(args[0].(context.Context))
 	})
 	return _c
 }
@@ -587,7 +588,41 @@ func (_c *MockVectorIndex_PostStartup_Call) Return() *MockVectorIndex_PostStartu
 	return _c
 }
 
-func (_c *MockVectorIndex_PostStartup_Call) RunAndReturn(run func()) *MockVectorIndex_PostStartup_Call {
+func (_c *MockVectorIndex_PostStartup_Call) RunAndReturn(run func(context.Context)) *MockVectorIndex_PostStartup_Call {
+	_c.Run(run)
+	return _c
+}
+
+// Preload provides a mock function with given fields: id, vector
+func (_m *MockVectorIndex) Preload(id uint64, vector []float32) {
+	_m.Called(id, vector)
+}
+
+// MockVectorIndex_Preload_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Preload'
+type MockVectorIndex_Preload_Call struct {
+	*mock.Call
+}
+
+// Preload is a helper method to define mock.On call
+//   - id uint64
+//   - vector []float32
+func (_e *MockVectorIndex_Expecter) Preload(id interface{}, vector interface{}) *MockVectorIndex_Preload_Call {
+	return &MockVectorIndex_Preload_Call{Call: _e.mock.On("Preload", id, vector)}
+}
+
+func (_c *MockVectorIndex_Preload_Call) Run(run func(id uint64, vector []float32)) *MockVectorIndex_Preload_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(uint64), args[1].([]float32))
+	})
+	return _c
+}
+
+func (_c *MockVectorIndex_Preload_Call) Return() *MockVectorIndex_Preload_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *MockVectorIndex_Preload_Call) RunAndReturn(run func(uint64, []float32)) *MockVectorIndex_Preload_Call {
 	_c.Run(run)
 	return _c
 }

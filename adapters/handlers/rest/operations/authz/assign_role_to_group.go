@@ -49,7 +49,9 @@ func NewAssignRoleToGroup(ctx *middleware.Context, handler AssignRoleToGroupHand
 /*
 	AssignRoleToGroup swagger:route POST /authz/groups/{id}/assign authz assignRoleToGroup
 
-Assign a role to a group
+# Assign a role to a group
+
+Assign roles to the specified group.
 */
 type AssignRoleToGroup struct {
 	Context *middleware.Context
@@ -93,7 +95,7 @@ type AssignRoleToGroupBody struct {
 	// group type
 	GroupType models.GroupType `json:"groupType,omitempty" yaml:"groupType,omitempty"`
 
-	// the roles that assigned to group
+	// The roles to assign to the specified group.
 	Roles []string `json:"roles" yaml:"roles"`
 }
 

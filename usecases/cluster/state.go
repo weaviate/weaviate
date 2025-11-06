@@ -15,13 +15,17 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"net/http"
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/hashicorp/memberlist"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
 // NodeSelector is an interface to select a portion of the available nodes in memberlist
@@ -44,6 +48,14 @@ type NodeSelector interface {
 	// NodeHostname return hosts address for a specific node name
 	NodeHostname(name string) (string, bool)
 	AllHostnames() []string
+	// AllOtherClusterMembers returns all cluster members discovered via memberlist with their raft addresses
+	// This is useful for bootstrap when the join config is incomplete
+	// TODO-RAFT: shall be removed once unifying with raft package
+	AllOtherClusterMembers(port int) map[string]string
+	// Leave marks the node as leaving the cluster (still visible but shutting down)
+	Leave() error
+	// Shutdown called when leaves the cluster gracefully and shuts down the memberlist instance
+	Shutdown() error
 }
 
 type State struct {
@@ -67,10 +79,11 @@ type Config struct {
 	SkipSchemaSyncRepair    bool       `json:"skipSchemaSyncRepair" yaml:"skipSchemaSyncRepair"`
 	AuthConfig              AuthConfig `json:"auth" yaml:"auth"`
 	AdvertiseAddr           string     `json:"advertiseAddr" yaml:"advertiseAddr"`
+	BindAddr                string     `json:"bindAddr" yaml:"bindAddr"`
 	AdvertisePort           int        `json:"advertisePort" yaml:"advertisePort"`
-	// FastFailureDetection mostly for testing purpose, it will make memberlist sensitive and detect
+	// MemberlistFastFailureDetection mostly for testing purpose, it will make memberlist sensitive and detect
 	// failures (down nodes) faster.
-	FastFailureDetection bool `json:"fastFailureDetection" yaml:"fastFailureDetection"`
+	MemberlistFastFailureDetection bool `json:"memberlistFastFailureDetection" yaml:"memberlistFastFailureDetection"`
 	// LocalHost flag enables running a multi-node setup with the same localhost and different ports
 	Localhost bool `json:"localhost" yaml:"localhost"`
 	// MaintenanceNodes is experimental. You should not use this directly, but should use the
@@ -83,6 +96,8 @@ type Config struct {
 	// RaftBootstrapExpect is used to detect split-brain scenarios and attempt to rejoin the cluster
 	// TODO-RAFT-DB-63 : shall be removed once NodeAddress() is moved under raft cluster package
 	RaftBootstrapExpect int
+	// RequestQueueConfig is used to configure the request queue buffer for the replicated indices
+	RequestQueueConfig RequestQueueConfig `json:"requestQueueConfig" yaml:"requestQueueConfig"`
 }
 
 type AuthConfig struct {
@@ -98,11 +113,57 @@ func (ba BasicAuth) Enabled() bool {
 	return ba.Username != "" || ba.Password != ""
 }
 
-func Init(userConfig Config, grpcPort, raftBootstrapExpect int, dataPath string, nonStorageNodes map[string]struct{}, logger logrus.FieldLogger) (_ *State, err error) {
-	userConfig.RaftBootstrapExpect = raftBootstrapExpect
-	cfg := memberlist.DefaultLANConfig()
+const (
+	DefaultRequestQueueSize                   = 2000
+	DefaultRequestQueueFullHttpStatus         = http.StatusTooManyRequests
+	DefaultRequestQueueShutdownTimeoutSeconds = 90
+)
+
+// RequestQueueConfig is used to configure the request queue buffer for the replicated indices
+type RequestQueueConfig struct {
+	// IsEnabled is used to enable/disable the request queue, can be modified at runtime
+	IsEnabled *configRuntime.DynamicValue[bool] `json:"isEnabled" yaml:"isEnabled"`
+	// NumWorkers is used to configure the number of workers that handle requests from the queue
+	NumWorkers int `json:"numWorkers" yaml:"numWorkers"`
+	// QueueSize is used to configure the size of the request queue buffer
+	QueueSize int `json:"queueSize" yaml:"queueSize"`
+	// QueueFullHttpStatus is used to configure the http status code that is returned when the request queue is full
+	// Should usually be set to 429 or 504 (429 will be retried by the coordinator, 504 will not)
+	QueueFullHttpStatus int `json:"queueFullHttpStatus" yaml:"queueFullHttpStatus"`
+	// QueueShutdownTimeoutSeconds is used to configure the timeout for the request queue shutdown.
+	// This is the timeout for the workers to finish processing the requests in the queue
+	// and for the request queue to be drained.
+	// Should usually be set to 90 seconds, based on coordinator's timeout
+	QueueShutdownTimeoutSeconds int `json:"queueShutdownTimeoutSeconds" yaml:"queueShutdownTimeoutSeconds"`
+}
+
+func Init(userConfig Config, grpcPort, raftTimeoutsMultiplier int, dataPath string, nonStorageNodes map[string]struct{}, logger logrus.FieldLogger) (_ *State, err error) {
+	// Validate configuration first
+	if err := validateClusterConfig(userConfig); err != nil {
+		logger.Errorf("invalid cluster configuration: %v", err)
+		return nil, errors.Wrap(err, "validate cluster config")
+	}
+
+	// Select appropriate memberlist configuration
+	cfg := selectMemberlistConfig(userConfig)
+
+	// Configure basic settings
 	cfg.LogOutput = newLogParser(logger)
 	cfg.Name = userConfig.Hostname
+
+	// Configure addresses
+	if err := configureMemberlistAddresses(cfg, userConfig); err != nil {
+		logger.Errorf("failed to configure memberlist addresses: %v", err)
+		return nil, errors.Wrap(err, "configure memberlist addresses")
+	}
+
+	// Configure ports
+	configureMemberlistPorts(cfg, userConfig)
+
+	// Configure additional settings
+	configureMemberlistSettings(cfg, userConfig, raftTimeoutsMultiplier)
+
+	// Create state
 	state := State{
 		config:          userConfig,
 		localGrpcPort:   grpcPort,
@@ -118,34 +179,40 @@ func Init(userConfig Config, grpcPort, raftBootstrapExpect int, dataPath string,
 		},
 	}
 
+	// Initialize delegate
 	if err := state.delegate.init(diskSpace); err != nil {
-		logger.WithField("action", "init_state.delegate_init").WithError(err).
-			Error("delegate init failed")
+		logger.WithField("action", "init_state.delegate_init").Errorf("delegate init failed: %v", err)
+		return nil, errors.Wrap(err, "delegate init")
 	}
+
+	// Set delegate and events
 	cfg.Delegate = &state.delegate
 	cfg.Events = events{&state.delegate}
-	if userConfig.GossipBindPort != 0 {
-		cfg.BindPort = userConfig.GossipBindPort
-	}
 
-	if userConfig.AdvertiseAddr != "" {
-		cfg.AdvertiseAddr = userConfig.AdvertiseAddr
-	}
+	// Log configuration details
+	logger.WithFields(logrus.Fields{
+		"action":          "memberlist_config",
+		"hostname":        userConfig.Hostname,
+		"bind_addr":       cfg.BindAddr,
+		"bind_port":       cfg.BindPort,
+		"advertise_addr":  cfg.AdvertiseAddr,
+		"advertise_port":  cfg.AdvertisePort,
+		"config_type":     getConfigType(userConfig),
+		"tcp_timeout":     cfg.TCPTimeout,
+		"raft_multiplier": raftTimeoutsMultiplier,
+	}).Info("memberlist configuration")
 
-	if userConfig.AdvertisePort != 0 {
-		cfg.AdvertisePort = userConfig.AdvertisePort
-	}
-
-	if userConfig.FastFailureDetection {
-		cfg.SuspicionMult = 1
-	}
-
+	// Create memberlist
 	if state.list, err = memberlist.Create(cfg); err != nil {
 		logger.WithFields(logrus.Fields{
-			"action":    "memberlist_init",
-			"hostname":  userConfig.Hostname,
-			"bind_port": userConfig.GossipBindPort,
-		}).WithError(err).Error("memberlist not created")
+			"action":         "memberlist_init",
+			"hostname":       userConfig.Hostname,
+			"bind_addr":      cfg.BindAddr,
+			"bind_port":      cfg.BindPort,
+			"advertise_addr": cfg.AdvertiseAddr,
+			"advertise_port": cfg.AdvertisePort,
+			"config_type":    getConfigType(userConfig),
+		}).Errorf("memberlist not created: %v", err)
 		return nil, errors.Wrap(err, "create memberlist")
 	}
 	var joinAddr []string
@@ -318,6 +385,22 @@ func (s *State) LocalName() string {
 	return s.list.LocalNode().Name
 }
 
+// LocalAddr() returns local address
+func (s *State) LocalAddr() string {
+	if s.config.AdvertiseAddr == "" {
+		return s.list.LocalNode().Addr.String()
+	}
+
+	return s.config.AdvertiseAddr
+}
+
+func (s *State) LocalBindAddr() string {
+	if s.config.BindAddr == "" {
+		return s.LocalAddr()
+	}
+	return s.config.BindAddr
+}
+
 func (s *State) ClusterHealthScore() int {
 	return s.list.GetHealthScore()
 }
@@ -335,38 +418,58 @@ func (s *State) NodeHostname(nodeName string) (string, bool) {
 // NodeAddress is used to resolve the node name into an ip address without the port
 // TODO-RAFT-DB-63 : shall be replaced by Members() which returns members in the list
 func (s *State) NodeAddress(id string) string {
-	// network interruption detection which can cause a single node to be isolated from the cluster (split brain)
-	nodeCount := s.list.NumMembers()
-	var joinAddr []string
-	if s.config.Join != "" {
-		joinAddr = strings.Split(s.config.Join, ",")
-	}
-	if nodeCount == 1 && len(joinAddr) > 0 && s.config.RaftBootstrapExpect > 1 {
-		s.delegate.log.WithFields(logrus.Fields{
-			"action":     "memberlist_rejoin",
-			"node_count": nodeCount,
-		}).Warn("detected single node split-brain, attempting to rejoin memberlist cluster")
-		// Only attempt rejoin if we're supposed to be part of a larger cluster
-		_, err := s.list.Join(joinAddr)
-		if err != nil {
-			s.delegate.log.WithFields(logrus.Fields{
-				"action":          "memberlist_rejoin",
-				"remote_hostname": joinAddr,
-			}).WithError(err).Error("memberlist rejoin not successful")
-		} else {
-			s.delegate.log.WithFields(logrus.Fields{
-				"action":     "memberlist_rejoin",
-				"node_count": s.list.NumMembers(),
-			}).Info("Successfully rejoined the memberlist cluster")
-		}
+	addr, ok := s.NodeHostname(id)
+	if !ok {
+		return ""
 	}
 
-	for _, mem := range s.list.Members() {
-		if mem.Name == id {
-			return mem.Addr.String()
-		}
+	return strings.Split(addr, ":")[0] // get address without port
+}
+
+// AllOtherClusterMembers returns all cluster members discovered via memberlist with their raft addresses
+// This is useful for bootstrap when the join config is incomplete
+func (s *State) AllOtherClusterMembers(port int) map[string]string {
+	if s.list == nil {
+		return map[string]string{}
 	}
-	return ""
+
+	members := s.list.Members()
+	result := make(map[string]string, len(members))
+
+	for _, m := range members {
+		if m.Name == s.list.LocalNode().Name {
+			// skip self
+			continue
+		}
+		result[m.Name] = fmt.Sprintf("%s:%d", m.Addr.String(), port)
+	}
+
+	return result
+}
+
+// Leave marks the node as leaving the cluster (still visible but shutting down)
+func (s *State) Leave() error {
+	if s.list == nil {
+		return fmt.Errorf("memberlist not initialized")
+	}
+
+	s.delegate.log.Info("marking node as gracefully leaving...")
+
+	if err := s.list.Leave(5 * time.Second); err != nil {
+		return fmt.Errorf("failed to leave memberlist: %w", err)
+	}
+
+	s.delegate.log.Info("successfully marked as leaving in memberlist")
+	return nil
+}
+
+// Shutdown called when leaves the cluster gracefully and shuts down the memberlist instance
+func (s *State) Shutdown() error {
+	if s.list == nil {
+		return fmt.Errorf("memberlist not initialized")
+	}
+
+	return s.list.Shutdown()
 }
 
 func (s *State) NodeGRPCPort(nodeID string) (int, error) {
@@ -430,4 +533,115 @@ func (s *State) nodeInMaintenanceMode(node string) bool {
 	defer s.maintenanceNodesLock.RUnlock()
 
 	return slices.Contains(s.config.MaintenanceNodes, node)
+}
+
+// validateClusterConfig validates the cluster configuration
+func validateClusterConfig(userConfig Config) error {
+	// Validate port ranges
+	if userConfig.GossipBindPort != 0 && (userConfig.GossipBindPort < 1024 || userConfig.GossipBindPort > 65535) {
+		return fmt.Errorf("invalid GossipBindPort: %d (must be between 1024-65535)", userConfig.GossipBindPort)
+	}
+
+	if userConfig.DataBindPort != 0 && (userConfig.DataBindPort < 1024 || userConfig.DataBindPort > 65535) {
+		return fmt.Errorf("invalid DataBindPort: %d (must be between 1024-65535)", userConfig.DataBindPort)
+	}
+
+	if userConfig.AdvertisePort != 0 && (userConfig.AdvertisePort < 1024 || userConfig.AdvertisePort > 65535) {
+		return fmt.Errorf("invalid AdvertisePort: %d (must be between 1024-65535)", userConfig.AdvertisePort)
+	}
+
+	// Validate IP addresses
+	if userConfig.AdvertiseAddr != "" && net.ParseIP(userConfig.AdvertiseAddr) == nil {
+		return fmt.Errorf("invalid AdvertiseAddr: %s (must be a valid IP address)", userConfig.AdvertiseAddr)
+	}
+
+	if userConfig.BindAddr != "" && net.ParseIP(userConfig.BindAddr) == nil {
+		return fmt.Errorf("invalid BindAddr: %s (must be a valid IP address)", userConfig.BindAddr)
+	}
+
+	// Validate hostname
+	if userConfig.Hostname == "" {
+		return fmt.Errorf("hostname cannot be empty")
+	}
+
+	return nil
+}
+
+// selectMemberlistConfig selects the appropriate memberlist configuration based on environment
+func selectMemberlistConfig(userConfig Config) *memberlist.Config {
+	var cfg *memberlist.Config
+
+	// Explicit selection based on environment
+	if userConfig.Localhost {
+		cfg = memberlist.DefaultLocalConfig()
+	} else if userConfig.AdvertiseAddr != "" {
+		cfg = memberlist.DefaultWANConfig()
+	} else {
+		cfg = memberlist.DefaultLANConfig()
+	}
+
+	return cfg
+}
+
+// configureMemberlistPorts handles port configuration with clear logic
+func configureMemberlistPorts(cfg *memberlist.Config, userConfig Config) {
+	// Set bind port first
+	if userConfig.GossipBindPort != 0 {
+		cfg.BindPort = userConfig.GossipBindPort
+	}
+
+	// Set advertise port
+	if userConfig.AdvertisePort != 0 {
+		cfg.AdvertisePort = userConfig.AdvertisePort
+	} else if userConfig.AdvertiseAddr != "" && userConfig.GossipBindPort != 0 {
+		// Only set to GossipBindPort if AdvertiseAddr is set but AdvertisePort is not
+		// to avoid defaulting to memberlist port 7946
+		cfg.AdvertisePort = userConfig.GossipBindPort
+	}
+}
+
+// configureMemberlistAddresses handles address configuration with validation
+func configureMemberlistAddresses(cfg *memberlist.Config, userConfig Config) error {
+	// Set bind address
+	if userConfig.BindAddr != "" {
+		cfg.BindAddr = userConfig.BindAddr
+	}
+
+	// Set advertise address
+	if userConfig.AdvertiseAddr != "" {
+		cfg.AdvertiseAddr = userConfig.AdvertiseAddr
+	}
+
+	return nil
+}
+
+// configureMemberlistSettings applies additional memberlist settings
+func configureMemberlistSettings(cfg *memberlist.Config, userConfig Config, raftTimeoutsMultiplier int) {
+	// Set dead node reclaim time to 60 seconds by default
+	cfg.DeadNodeReclaimTime = 60 * time.Second
+
+	// Configure timeouts and failure detection
+	if userConfig.MemberlistFastFailureDetection {
+		cfg.SuspicionMult = 1
+		cfg.DeadNodeReclaimTime = 5 * time.Second
+	}
+
+	// Set TCP timeout based on configuration type
+	if userConfig.AdvertiseAddr != "" {
+		// WAN config - use 30 seconds
+		cfg.TCPTimeout = 30 * time.Second * time.Duration(raftTimeoutsMultiplier)
+	} else {
+		// LAN/Local config - use 10 seconds
+		cfg.TCPTimeout = 10 * time.Second * time.Duration(raftTimeoutsMultiplier)
+	}
+}
+
+// getConfigType returns a string describing the configuration type
+func getConfigType(userConfig Config) string {
+	if userConfig.Localhost {
+		return "LOCAL"
+	} else if userConfig.AdvertiseAddr != "" {
+		return "WAN"
+	}
+	return "LAN"
 }
