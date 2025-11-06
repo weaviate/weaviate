@@ -1393,12 +1393,12 @@
           "type": "string"
         },
         "indexInverted": {
-          "description": "(Deprecated). Whether to include this property in the inverted index. If `false`, this property cannot be used in `where` filters, `bm25` or `hybrid` search. <br/><br/>Unrelated to vectorization behavior (deprecated as of v1.19; use indexFilterable or/and indexSearchable instead)",
+          "description": "(Deprecated). Whether to include this property in the inverted index. If `false`, this property cannot be used in `where` filters, `bm25` or `hybrid` search. \n\nUnrelated to vectorization behavior (deprecated as of v1.19; use indexFilterable or/and indexSearchable instead)",
           "type": "boolean",
           "x-nullable": true
         },
         "indexFilterable": {
-          "description": "Whether to include this property in the filterable, Roaring Bitmap index. If `false`, this property cannot be used in `where` filters. <br/><br/>Note: Unrelated to vectorization behavior.",
+          "description": "Whether to include this property in the filterable, Roaring Bitmap index. If `false`, this property cannot be used in `where` filters. \n\nNote: Unrelated to vectorization behavior.",
           "type": "boolean",
           "x-nullable": true
         },
@@ -1413,7 +1413,7 @@
           "x-nullable": true
         },
         "tokenization": {
-          "description": "Determines how a property is indexed. This setting applies to `text` and `text[]` data types. The following tokenization methods are available:<br/><br/>- `word` (default): Splits the text on any non-alphanumeric characters and lowercases the tokens.<br/>- `lowercase`: Splits the text on whitespace and lowercases the tokens.<br/>- `whitespace`: Splits the text on whitespace. This tokenization is case-sensitive.<br/>- `field`: Indexes the entire property value as a single token after trimming whitespace.<br/>- `trigram`: Splits the property into rolling trigrams (three-character sequences).<br/>- `gse`: Uses the `gse` tokenizer, suitable for Chinese language text. [See `gse` docs](https://pkg.go.dev/github.com/go-ego/gse#section-readme).<br/>- `kagome_ja`: Uses the `Kagome` tokenizer with a Japanese (IPA) dictionary. [See `kagome` docs](https://github.com/ikawaha/kagome).<br/>- `kagome_kr`: Uses the `Kagome` tokenizer with a Korean dictionary. [See `kagome` docs](https://github.com/ikawaha/kagome).<br/><br/>See [Reference: Tokenization](https://docs.weaviate.io/weaviate/config-refs/collections#tokenization) for details.",
+          "description": "Determines how a property is indexed. This setting applies to `text` and `text[]` data types. The following tokenization methods are available:\n\n- `word` (default): Splits the text on any non-alphanumeric characters and lowercases the tokens.\n- `lowercase`: Splits the text on whitespace and lowercases the tokens.\n- `whitespace`: Splits the text on whitespace. This tokenization is case-sensitive.\n- `field`: Indexes the entire property value as a single token after trimming whitespace.\n- `trigram`: Splits the property into rolling trigrams (three-character sequences).\n- `gse`: Uses the `gse` tokenizer, suitable for Chinese language text. [See `gse` docs](https://pkg.go.dev/github.com/go-ego/gse#section-readme).\n- `kagome_ja`: Uses the `Kagome` tokenizer with a Japanese (IPA) dictionary. [See `kagome` docs](https://github.com/ikawaha/kagome).\n- `kagome_kr`: Uses the `Kagome` tokenizer with a Korean dictionary. [See `kagome` docs](https://github.com/ikawaha/kagome).\n\nSee [Reference: Tokenization](https://docs.weaviate.io/weaviate/config-refs/collections#tokenization) for details.",
           "type": "string",
           "enum": [
             "word",
@@ -2574,7 +2574,7 @@
           "x-nullable": true
         },
         "dryRun": {
-          "description": "If true, the call will show which objects would be matched using the specified filter without deleting any objects. <br/><br/>Depending on the configured verbosity, you will either receive a count of affected objects, or a list of IDs.",
+          "description": "If true, the call will show which objects would be matched using the specified filter without deleting any objects. \n\nDepending on the configured verbosity, you will either receive a count of affected objects, or a list of IDs.",
           "type": "boolean",
           "default": false
         }
@@ -3007,7 +3007,7 @@
           "type": "string"
         },
         "activityStatus": {
-          "description": "The activity status of the tenant, which determines if it is queryable and where its data is stored.<br/><br/><b>Available Statuses:</b><br/>- `ACTIVE`: The tenant is fully operational and ready for queries. Data is stored on local, hot storage.<br/>- `INACTIVE`: The tenant is not queryable. Data is stored locally.<br/>- `OFFLOADED`: The tenant is inactive and its data is stored in a remote cloud backend.<br/><br/><b>Usage Rules:</b><br/>- <b>On Create:</b> This field is optional and defaults to `ACTIVE`. Allowed values are `ACTIVE` and `INACTIVE`.<br/>- <b>On Update:</b> This field is required. Allowed values are `ACTIVE`, `INACTIVE`, and `OFFLOADED`.<br/><br/><b>Read-Only Statuses:</b><br/>The following statuses are set by the server and indicate a tenant is transitioning between states:<br/>- `OFFLOADING`<br/>- `ONLOADING`<br/><br/><b>Note on Deprecated Names:</b><br/>For backward compatibility, deprecated names are still accepted and are mapped to their modern equivalents: `HOT` (now `ACTIVE`), `COLD` (now `INACTIVE`), `FROZEN` (now `OFFLOADED`), `FREEZING` (now `OFFLOADING`), `UNFREEZING` (now `ONLOADING`).",
+          "description": "The activity status of the tenant, which determines if it is queryable and where its data is stored.\n\n<b>Available Statuses:</b>\n- `ACTIVE`: The tenant is fully operational and ready for queries. Data is stored on local, hot storage.\n- `INACTIVE`: The tenant is not queryable. Data is stored locally.\n- `OFFLOADED`: The tenant is inactive and its data is stored in a remote cloud backend.\n\n<b>Usage Rules:</b>\n- <b>On Create:</b> This field is optional and defaults to `ACTIVE`. Allowed values are `ACTIVE` and `INACTIVE`.\n- <b>On Update:</b> This field is required. Allowed values are `ACTIVE`, `INACTIVE`, and `OFFLOADED`.\n\n<b>Read-Only Statuses:</b>\nThe following statuses are set by the server and indicate a tenant is transitioning between states:\n- `OFFLOADING`\n- `ONLOADING`\n\n<b>Note on Deprecated Names:</b>\nFor backward compatibility, deprecated names are still accepted and are mapped to their modern equivalents: `HOT` (now `ACTIVE`), `COLD` (now `INACTIVE`), `FROZEN` (now `OFFLOADED`), `FREEZING` (now `OFFLOADING`), `UNFREEZING` (now `ONLOADING`).",
           "type": "string",
           "enum": [
             "ACTIVE",
@@ -3061,20 +3061,20 @@
       "name": "Weaviate",
       "url": "https://github.com/weaviate"
     },
-    "description": "# Introduction<br/> Weaviate is an open source, AI-native vector database that helps developers create intuitive and reliable AI-powered applications. <br/> ### Base Path <br/>The base path for the Weaviate server is structured as `[YOUR-WEAVIATE-HOST]:[PORT]/v1`. As an example, if you wish to access the `schema` endpoint on a local instance, you would navigate to `http://localhost:8080/v1/schema`. Ensure you replace `[YOUR-WEAVIATE-HOST]` and `[PORT]` with your actual server host and port number respectively. <br/> ### Questions? <br/>If you have any comments or questions, please feel free to reach out to us at the community forum [https://forum.weaviate.io/](https://forum.weaviate.io/). <br/>### Issues? <br/>If you find a bug or want to file a feature request, please open an issue on our GitHub repository for [Weaviate](https://github.com/weaviate/weaviate). <br/>### Need more documentation? <br/>For a quickstart, code examples, concepts and more, please visit our [documentation page](https://docs.weaviate.io/weaviate).",
+    "description": "# Introduction\n Weaviate is an open source, AI-native vector database that helps developers create intuitive and reliable AI-powered applications. \n ### Base Path \nThe base path for the Weaviate server is structured as `[YOUR-WEAVIATE-HOST]:[PORT]/v1`. As an example, if you wish to access the `schema` endpoint on a local instance, you would navigate to `http://localhost:8080/v1/schema`. Ensure you replace `[YOUR-WEAVIATE-HOST]` and `[PORT]` with your actual server host and port number respectively. \n ### Questions? \nIf you have any comments or questions, please feel free to reach out to us at the community forum [https://forum.weaviate.io/](https://forum.weaviate.io/). \n### Issues? \nIf you find a bug or want to file a feature request, please open an issue on our GitHub repository for [Weaviate](https://github.com/weaviate/weaviate). \n### Need more documentation? \nFor a quickstart, code examples, concepts and more, please visit our [documentation page](https://docs.weaviate.io/weaviate).",
     "title": "Weaviate REST API",
     "version": "1.34.0"
   },
   "parameters": {
     "CommonAfterParameterQuery": {
-      "description": "A threshold UUID of the objects to retrieve after, using an UUID-based ordering. This object is not part of the set. <br/><br/>Must be used with collection name (`class`), typically in conjunction with `limit`. <br/><br/>Note `after` cannot be used with `offset` or `sort`. <br/><br/>For a null value similar to offset=0, set an empty string in the request, i.e. `after=` or `after`.",
+      "description": "A threshold UUID of the objects to retrieve after, using an UUID-based ordering. This object is not part of the set. \n\nMust be used with collection name (`class`), typically in conjunction with `limit`. \n\nNote `after` cannot be used with `offset` or `sort`. \n\nFor a null value similar to offset=0, set an empty string in the request, i.e. `after=` or `after`.",
       "in": "query",
       "name": "after",
       "required": false,
       "type": "string"
     },
     "CommonOffsetParameterQuery": {
-      "description": "The starting index of the result window. Note `offset` will retrieve `offset+limit` results and return `limit` results from the object with index `offset` onwards. Limited by the value of `QUERY_MAXIMUM_RESULTS`. <br/><br/>Should be used in conjunction with `limit`. <br/><br/>Cannot be used with `after`.",
+      "description": "The starting index of the result window. Note `offset` will retrieve `offset+limit` results and return `limit` results from the object with index `offset` onwards. Limited by the value of `QUERY_MAXIMUM_RESULTS`. \n\nShould be used in conjunction with `limit`. \n\nCannot be used with `after`.",
       "format": "int64",
       "in": "query",
       "name": "offset",
@@ -3133,7 +3133,7 @@
       "type": "string"
     },
     "CommonClassParameterQuery": {
-      "description": "The collection from which to query objects.  <br/><br/>Note that if the collection name (`class`) is not provided, the response will not include any objects.",
+      "description": "The collection from which to query objects.  \n\nNote that if the collection name (`class`) is not provided, the response will not include any objects.",
       "in": "query",
       "name": "class",
       "required": false,
@@ -5513,7 +5513,7 @@
         "x-available-in-websocket": false
       },
       "post": {
-        "description": "Creates a new data object. The object's metadata and schema values are validated before creation.<br/><br/>**Note (batch import)**:<br/>If you plan on importing a large number of objects, using the `/batch/objects` endpoint is significantly more efficient than sending multiple single requests.<br/><br/>**Note (idempotence)**:<br/>This operation (POST) fails if an object with the provided ID already exists. To update an existing object, use the PUT or PATCH methods.",
+        "description": "Creates a new data object. The object's metadata and schema values are validated before creation.\n\n**Note (batch import)**:\nIf you plan on importing a large number of objects, using the `/batch/objects` endpoint is significantly more efficient than sending multiple single requests.\n\n**Note (idempotence)**:\nThis operation (POST) fails if an object with the provided ID already exists. To update an existing object, use the PUT or PATCH methods.",
         "operationId": "objects.create",
         "x-serviceIds": [
           "weaviate.local.add"
@@ -5577,7 +5577,7 @@
     },
     "/objects/{id}": {
       "delete": {
-        "description": "Deletes an object from the database based on its UUID. <br/><br/>**Note**: This endpoint is deprecated and will be removed in a future version. Use the `/objects/{className}/{id}` endpoint instead.",
+        "description": "Deletes an object from the database based on its UUID. \n\n**Note**: This endpoint is deprecated and will be removed in a future version. Use the `/objects/{className}/{id}` endpoint instead.",
         "operationId": "objects.delete",
         "x-serviceIds": [
           "weaviate.local.manipulate"
@@ -5630,7 +5630,7 @@
         "deprecated": true
       },
       "get": {
-        "description": "Get a specific object based on its UUID. Also available as Websocket bus. <br/><br/>**Note**: This endpoint is deprecated and will be removed in a future version. Use the `/objects/{className}/{id}` endpoint instead.",
+        "description": "Get a specific object based on its UUID. Also available as Websocket bus. \n\n**Note**: This endpoint is deprecated and will be removed in a future version. Use the `/objects/{className}/{id}` endpoint instead.",
         "operationId": "objects.get",
         "x-serviceIds": [
           "weaviate.local.query"
@@ -5689,7 +5689,7 @@
         "deprecated": true
       },
       "patch": {
-        "description": "Update an object based on its UUID (using patch semantics). This method supports json-merge style patch semantics (RFC 7396). Provided meta-data and schema values are validated. `lastUpdateTimeUnix` is set to the time this function is called. <br/><br/>**Note**: This endpoint is deprecated and will be removed in a future version. Use the `/objects/{className}/{id}` endpoint instead.",
+        "description": "Update an object based on its UUID (using patch semantics). This method supports json-merge style patch semantics (RFC 7396). Provided meta-data and schema values are validated. `lastUpdateTimeUnix` is set to the time this function is called. \n\n**Note**: This endpoint is deprecated and will be removed in a future version. Use the `/objects/{className}/{id}` endpoint instead.",
         "operationId": "objects.patch",
         "x-serviceIds": [
           "weaviate.local.manipulate"
@@ -5757,7 +5757,7 @@
         "deprecated": true
       },
       "put": {
-        "description": "Updates an object based on its UUID. Given meta-data and schema values are validated. `lastUpdateTimeUnix` is set to the time this function is called. <br/><br/>**Note**: This endpoint is deprecated and will be removed in a future version. Use the `/objects/{className}/{id}` endpoint instead.",
+        "description": "Updates an object based on its UUID. Given meta-data and schema values are validated. `lastUpdateTimeUnix` is set to the time this function is called. \n\n**Note**: This endpoint is deprecated and will be removed in a future version. Use the `/objects/{className}/{id}` endpoint instead.",
         "operationId": "objects.update",
         "x-serviceIds": [
           "weaviate.local.manipulate"
@@ -5825,7 +5825,7 @@
         "deprecated": true
       },
       "head": {
-        "description": "Checks if an object exists in the system based on its UUID. <br/><br/>**Note**: This endpoint is deprecated and will be removed in a future version. Use the `/objects/{className}/{id}` endpoint instead.",
+        "description": "Checks if an object exists in the system based on its UUID. \n\n**Note**: This endpoint is deprecated and will be removed in a future version. Use the `/objects/{className}/{id}` endpoint instead.",
         "operationId": "objects.head",
         "x-serviceIds": [
           "weaviate.objects.check"
@@ -5954,7 +5954,7 @@
         "x-available-in-websocket": false
       },
       "delete": {
-        "description": "Removes a data object from a specific collection, identified by its collection name (`className`) and UUID (`id`).<br/><br/>**Note on deleting references (legacy format):**<br/>For backward compatibility with older beacon formats (lacking a collection name), deleting a reference requires the beacon in the request to exactly match the stored format. Beacons always use `localhost` as the host, indicating the target is within the same Weaviate instance.",
+        "description": "Removes a data object from a specific collection, identified by its collection name (`className`) and UUID (`id`).\n\n**Note on deleting references (legacy format):**\nFor backward compatibility with older beacon formats (lacking a collection name), deleting a reference requires the beacon in the request to exactly match the stored format. Beacons always use `localhost` as the host, indicating the target is within the same Weaviate instance.",
         "operationId": "objects.class.delete",
         "x-serviceIds": [
           "weaviate.local.manipulate"
@@ -6176,7 +6176,7 @@
         "x-available-in-websocket": false
       },
       "head": {
-        "description": "Verifies the existence of a specific data object within a collection (class), identified by its collection name (`className`) and UUID (`id`), without returning the object itself.<br/><br/>This is faster than a GET request as it avoids retrieving and processing object data. Existence is confirmed by a 204 No Content status code, while non-existence results in a 404 Not Found.",
+        "description": "Verifies the existence of a specific data object within a collection (class), identified by its collection name (`className`) and UUID (`id`), without returning the object itself.\n\nThis is faster than a GET request as it avoids retrieving and processing object data. Existence is confirmed by a 204 No Content status code, while non-existence results in a 404 Not Found.",
         "operationId": "objects.class.head",
         "x-serviceIds": [
           "weaviate.local.manipulate"
@@ -6243,7 +6243,7 @@
     },
     "/objects/{id}/references/{propertyName}": {
       "post": {
-        "description": "Add a reference to a specific property of a data object. <br/><br/>**Note**: This endpoint is deprecated and will be removed in a future version. Use the `/objects/{className}/{id}/references/{propertyName}` endpoint instead.",
+        "description": "Add a reference to a specific property of a data object. \n\n**Note**: This endpoint is deprecated and will be removed in a future version. Use the `/objects/{className}/{id}/references/{propertyName}` endpoint instead.",
         "operationId": "objects.references.create",
         "x-serviceIds": [
           "weaviate.local.manipulate"
@@ -6312,7 +6312,7 @@
         "deprecated": true
       },
       "put": {
-        "description": "Replace all references in cross-reference property of an object. <br/><br/>**Note**: This endpoint is deprecated and will be removed in a future version. Use the `/objects/{className}/{id}/references/{propertyName}` endpoint instead.",
+        "description": "Replace all references in cross-reference property of an object. \n\n**Note**: This endpoint is deprecated and will be removed in a future version. Use the `/objects/{className}/{id}/references/{propertyName}` endpoint instead.",
         "operationId": "objects.references.update",
         "x-serviceIds": [
           "weaviate.local.manipulate"
@@ -6381,7 +6381,7 @@
         "deprecated": true
       },
       "delete": {
-        "description": "Delete the single reference that is given in the body from the list of references that this property has. <br/><br/>**Note**: This endpoint is deprecated and will be removed in a future version. Use the `/objects/{className}/{id}/references/{propertyName}` endpoint instead.",
+        "description": "Delete the single reference that is given in the body from the list of references that this property has. \n\n**Note**: This endpoint is deprecated and will be removed in a future version. Use the `/objects/{className}/{id}/references/{propertyName}` endpoint instead.",
         "operationId": "objects.references.delete",
         "x-serviceIds": [
           "weaviate.local.manipulate"
@@ -6718,7 +6718,7 @@
     },
     "/objects/validate": {
       "post": {
-        "description": "Checks if a data object's structure conforms to the specified collection schema and metadata rules without actually storing the object.<br/><br/>A successful validation returns a 200 OK status code with no body. If validation fails, an error response with details is returned.",
+        "description": "Checks if a data object's structure conforms to the specified collection schema and metadata rules without actually storing the object.\n\nA successful validation returns a 200 OK status code with no body. If validation fails, an error response with details is returned.",
         "operationId": "objects.validate",
         "x-serviceIds": [
           "weaviate.local.query.meta"
@@ -6770,7 +6770,7 @@
     },
     "/batch/objects": {
       "post": {
-        "description": "Registers multiple data objects in a single request for efficiency. Metadata and schema values for each object are validated.<br/><br/>**Note (idempotence)**:<br/>This operation is idempotent based on the object UUIDs provided. If an object with a given UUID already exists, it will be overwritten (similar to a PUT operation for that specific object within the batch).",
+        "description": "Registers multiple data objects in a single request for efficiency. Metadata and schema values for each object are validated.\n\n**Note (idempotence)**:\nThis operation is idempotent based on the object UUIDs provided. If an object with a given UUID already exists, it will be overwritten (similar to a PUT operation for that specific object within the batch).",
         "operationId": "batch.objects.create",
         "x-serviceIds": [
           "weaviate.local.add"
@@ -6859,7 +6859,7 @@
         "x-available-in-websocket": false
       },
       "delete": {
-        "description": "Removes multiple data objects based on a filter specified in the request body.<br/><br/>Deletion occurs based on the filter criteria provided in the `where` clause. There is a configurable limit (default 10,000, set via `QUERY_MAXIMUM_RESULTS`) on how many objects can be deleted in a single batch request to prevent excessive resource usage. Objects are deleted in the order they match the filter. To delete more objects than the limit allows, repeat the request until no more matching objects are found.",
+        "description": "Removes multiple data objects based on a filter specified in the request body.\n\nDeletion occurs based on the filter criteria provided in the `where` clause. There is a configurable limit (default 10,000, set via `QUERY_MAXIMUM_RESULTS`) on how many objects can be deleted in a single batch request to prevent excessive resource usage. Objects are deleted in the order they match the filter. To delete more objects than the limit allows, repeat the request until no more matching objects are found.",
         "operationId": "batch.objects.delete",
         "x-serviceIds": [
           "weaviate.local.manipulate"
@@ -7195,7 +7195,7 @@
       },
       "post": {
         "summary": "Create a new collection",
-        "description": "Defines and creates a new collection (class).<br/><br/>If [`AutoSchema`](https://docs.weaviate.io/weaviate/config-refs/collections#auto-schema) is enabled (not recommended for production), Weaviate might attempt to infer schema from data during import. Manual definition via this endpoint provides explicit control.",
+        "description": "Defines and creates a new collection (class).\n\nIf [`AutoSchema`](https://docs.weaviate.io/weaviate/config-refs/collections#auto-schema) is enabled (not recommended for production), Weaviate might attempt to infer schema from data during import. Manual definition via this endpoint provides explicit control.",
         "operationId": "schema.objects.create",
         "x-serviceIds": [
           "weaviate.local.add.meta"
@@ -8229,7 +8229,7 @@
     "/backups/{backend}": {
       "post": {
         "summary": "Create a backup",
-        "description": "Initiates the creation of a backup for specified collections on a designated backend storage.<br/><br/>Notes:<br/>- Backups are compressed using gzip by default.<br/>- Weaviate remains operational during the backup process.",
+        "description": "Initiates the creation of a backup for specified collections on a designated backend storage.\n\nNotes:\n- Backups are compressed using gzip by default.\n- Weaviate remains operational during the backup process.",
         "operationId": "backups.create",
         "x-serviceIds": [
           "weaviate.local.backup"
@@ -8350,7 +8350,7 @@
     "/backups/{backend}/{id}": {
       "get": {
         "summary": "Get backup creation status",
-        "description": "Checks the status of a specific backup creation process identified by its ID on the specified backend.<br/><br/>Client libraries often provide a 'wait for completion' feature that polls this endpoint automatically. Use this endpoint for manual status checks or if 'wait for completion' is disabled.",
+        "description": "Checks the status of a specific backup creation process identified by its ID on the specified backend.\n\nClient libraries often provide a 'wait for completion' feature that polls this endpoint automatically. Use this endpoint for manual status checks or if 'wait for completion' is disabled.",
         "operationId": "backups.create.status",
         "x-serviceIds": [
           "weaviate.local.backup"
@@ -8495,7 +8495,7 @@
     "/backups/{backend}/{id}/restore": {
       "post": {
         "summary": "Restore from a backup",
-        "description": "Initiates the restoration of collections from a specified backup located on a designated backend.<br/><br/>Requirements:<br/>- Target cluster must have the same number of nodes as the source cluster where the backup was created.<br/>- Collections included in the restore must not already exist on the target cluster.<br/>- Node names must match between the backup and the target cluster.",
+        "description": "Initiates the restoration of collections from a specified backup located on a designated backend.\n\nRequirements:\n- Target cluster must have the same number of nodes as the source cluster where the backup was created.\n- Collections included in the restore must not already exist on the target cluster.\n- Node names must match between the backup and the target cluster.",
         "operationId": "backups.restore",
         "x-serviceIds": [
           "weaviate.local.backup"
@@ -8566,7 +8566,7 @@
       },
       "get": {
         "summary": "Get backup restoration status",
-        "description": "Checks the status of a specific backup restoration process identified by the backup ID on the specified backend.<br/><br/>Client libraries often provide a 'wait for completion' feature that polls this endpoint automatically. Use this endpoint for manual status checks or if 'wait for completion' is disabled.",
+        "description": "Checks the status of a specific backup restoration process identified by the backup ID on the specified backend.\n\nClient libraries often provide a 'wait for completion' feature that polls this endpoint automatically. Use this endpoint for manual status checks or if 'wait for completion' is disabled.",
         "operationId": "backups.restore.status",
         "x-serviceIds": [
           "weaviate.local.backup"
@@ -8994,11 +8994,11 @@
     },
     {
       "name": "authz",
-      "description": "Endpoints for managing Weaviate's Role-Based Access Control (RBAC) system. Access to Weaviate resources is granted through roles, which are collections of fine-grained permissions. <br/><br/>**Permissions:** Define allowed actions (e.g., `read_data`, `create_collections`, `delete_users`) on specific resources. Resources can be specified broadly (e.g., all collections: `*`) or narrowly (e.g., a specific collection name, tenant pattern, user name, or role name).<br/><br/>**Roles:** Are named sets of permissions. Managing roles involves creating roles with specific permissions, retrieving role definitions, deleting roles, and adding or removing permissions from existing roles.<br/><br/>**Role assignment:** Roles grant their contained permissions to users or groups. These endpoints allow assigning roles to:<br/>* `db` users: Users managed directly by Weaviate via API or environment variables, authenticating with API keys.<br/>* `oidc` users: Users authenticated via an external OpenID Connect provider, managed externally but assigned roles within Weaviate.<br/>* OIDC `groups`: Users authenticated via OIDC who belong to a group automatically inherit roles assigned to that group.<br/><br/>Operations also include revoking roles, checking if a role has a specific permission, listing roles assigned to a user, and listing users/groups assigned to a role. The authorization framework applies universally to both `db` and `oidc` users based on their assigned roles."
+      "description": "Endpoints for managing Weaviate's Role-Based Access Control (RBAC) system. Access to Weaviate resources is granted through roles, which are collections of fine-grained permissions. \n\n**Permissions:** Define allowed actions (e.g., `read_data`, `create_collections`, `delete_users`) on specific resources. Resources can be specified broadly (e.g., all collections: `*`) or narrowly (e.g., a specific collection name, tenant pattern, user name, or role name).\n\n**Roles:** Are named sets of permissions. Managing roles involves creating roles with specific permissions, retrieving role definitions, deleting roles, and adding or removing permissions from existing roles.\n\n**Role assignment:** Roles grant their contained permissions to users or groups. These endpoints allow assigning roles to:\n* `db` users: Users managed directly by Weaviate via API or environment variables, authenticating with API keys.\n* `oidc` users: Users authenticated via an external OpenID Connect provider, managed externally but assigned roles within Weaviate.\n* OIDC `groups`: Users authenticated via OIDC who belong to a group automatically inherit roles assigned to that group.\n\nOperations also include revoking roles, checking if a role has a specific permission, listing roles assigned to a user, and listing users/groups assigned to a role. The authorization framework applies universally to both `db` and `oidc` users based on their assigned roles."
     },
     {
       "name": "users",
-      "description": "Endpoints for user account management in Weaviate. This includes operations specific to Weaviate-managed database users (`db` users), such as creation (which generates an API key), listing, deletion, activation/deactivation, and API key rotation. It also provides operations applicable to any authenticated user (`db` or `oidc`), like retrieving their own information (username and assigned roles).<br/><br/>**User Types:**<br/>* **`db` users:** Managed entirely within Weaviate (creation, deletion, API keys). Use these endpoints for full lifecycle management.<br/>* **`oidc` users:** Authenticated via an external OpenID Connect provider. Their lifecycle (creation, credentials) is managed externally, but their role assignments *within Weaviate* are managed via the `authz` endpoints."
+      "description": "Endpoints for user account management in Weaviate. This includes operations specific to Weaviate-managed database users (`db` users), such as creation (which generates an API key), listing, deletion, activation/deactivation, and API key rotation. It also provides operations applicable to any authenticated user (`db` or `oidc`), like retrieving their own information (username and assigned roles).\n\n**User Types:**\n* **`db` users:** Managed entirely within Weaviate (creation, deletion, API keys). Use these endpoints for full lifecycle management.\n* **`oidc` users:** Authenticated via an external OpenID Connect provider. Their lifecycle (creation, credentials) is managed externally, but their role assignments *within Weaviate* are managed via the `authz` endpoints."
     },
     {
       "name": "classifications",
