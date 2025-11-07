@@ -13,7 +13,6 @@ package cluster
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
@@ -134,10 +133,8 @@ func (c *Service) onFSMCaughtUp(ctx context.Context) {
 				c.cancelReplicationEngine = engineCancel
 				enterrors.GoWrapper(func() {
 					// The context is cancelled by the engine itself when it is stopped
-					if err := c.replicationEngine.Start(engineCtx); err != nil {
-						if !errors.Is(err, context.Canceled) {
-							c.logger.WithError(err).Error("replication engine failed to start after FSM caught up")
-						}
+					if err := c.replicationEngine.Start(engineCtx); err != nil && err != context.Canceled {
+						c.logger.WithError(err).Error("replication engine failed to start after FSM caught up")
 					}
 				}, c.logger)
 				return
