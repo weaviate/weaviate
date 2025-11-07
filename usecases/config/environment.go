@@ -470,6 +470,12 @@ func FromEnv(config *Config) error {
 		config.SPFreshEnabled = true
 	}
 
+	acornSmartSeed := false
+	if v := os.Getenv("ACORN_SMART_SEED_ENABLED"); v != "" {
+		acornSmartSeed = entcfg.Enabled(v)
+	}
+	config.AcornSmartSeed = configRuntime.NewDynamicValue(acornSmartSeed)
+
 	if entcfg.Enabled(os.Getenv("INDEX_RANGEABLE_IN_MEMORY")) {
 		config.Persistence.IndexRangeableInMemory = true
 	}

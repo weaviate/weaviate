@@ -166,6 +166,7 @@ type hnsw struct {
 	compressed       atomic.Bool
 	doNotRescore     bool
 	acornSearch      atomic.Bool
+	acornSmartSeed   atomic.Bool
 	acornFilterRatio float64
 
 	disableSnapshots  bool
@@ -367,7 +368,8 @@ func New(cfg Config, uc ent.UserConfig,
 		MaxWalReuseSize: cfg.MaxWalReuseSize,
 		fs:              common.NewOSFS(),
 	}
-	index.acornSearch.Store(uc.FilterStrategy == ent.FilterStrategyAcorn)
+	index.acornSearch.Store(uc.FilterStrategy == ent.FilterStrategyAcorn || uc.FilterStrategy == ent.FilterStrategyAcornSmartSeed)
+	index.acornSmartSeed.Store(uc.FilterStrategy == ent.FilterStrategyAcornSmartSeed)
 
 	index.multivector.Store(uc.Multivector.Enabled)
 	index.muvera.Store(uc.Multivector.MuveraConfig.Enabled)

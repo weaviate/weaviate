@@ -233,6 +233,8 @@ type Index struct {
 	vectorIndexUserConfigs    map[string]schemaConfig.VectorIndexConfig
 	SPFreshEnabled            bool
 
+	AcornSmartSeed *configRuntime.DynamicValue[bool]
+
 	partitioningEnabled bool
 
 	invertedIndexConfig     schema.InvertedIndexConfig
@@ -375,6 +377,7 @@ func NewIndex(
 		shardResolver:           shardResolver,
 		bitmapBufPool:           bitmapBufPool,
 		SPFreshEnabled:          cfg.SPFreshEnabled,
+		AcornSmartSeed:          cfg.AcornSmartSeed,
 	}
 
 	getDeletionStrategy := func() string {
@@ -834,6 +837,7 @@ type IndexConfig struct {
 	MaintenanceModeEnabled func() bool
 
 	SPFreshEnabled bool
+	AcornSmartSeed *configRuntime.DynamicValue[bool]
 }
 
 func indexID(class schema.ClassName) string {
