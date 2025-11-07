@@ -22,7 +22,6 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
-	"golang.org/x/sync/singleflight"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcounter"
@@ -63,7 +62,6 @@ type LazyLoadShard struct {
 	memMonitor       memwatch.AllocChecker
 	shardLoadLimiter ShardLoadLimiter
 	lazyLoadSegments bool
-	singleFlight     singleflight.Group
 }
 
 func NewLazyLoadShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
@@ -117,43 +115,36 @@ func (l *LazyLoadShard) mustLoadCtx(ctx context.Context) {
 }
 
 func (l *LazyLoadShard) Load(ctx context.Context) error {
-	if l.isLoaded() {
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
+
+	if l.loaded.Load() {
 		return nil
 	}
 
-	// Use singleflight to ensure only one load operation happens at a time
-	_, err, _ := l.singleFlight.Do(l.ID(), func() (any, error) {
-		// Double-check after acquiring the singleflight lock
-		if l.isLoaded() {
-			return nil, nil
-		}
+	if err := l.memMonitor.CheckMappingAndReserve(3, int(lsmkv.FlushAfterDirtyDefault.Seconds())); err != nil {
+		return errors.Wrap(err, "memory pressure: cannot load shard")
+	}
 
-		if err := l.memMonitor.CheckMappingAndReserve(3, int(lsmkv.FlushAfterDirtyDefault.Seconds())); err != nil {
-			return nil, errors.Wrap(err, "memory pressure: cannot load shard")
-		}
+	if err := l.shardLoadLimiter.Acquire(ctx); err != nil {
+		return fmt.Errorf("acquiring permit to load shard: %w", err)
+	}
+	defer l.shardLoadLimiter.Release()
 
-		if err := l.shardLoadLimiter.Acquire(ctx); err != nil {
-			return nil, fmt.Errorf("acquiring permit to load shard: %w", err)
-		}
-		defer l.shardLoadLimiter.Release()
+	shard, err := NewShard(ctx, l.shardOpts.promMetrics, l.shardOpts.name, l.shardOpts.index,
+		l.shardOpts.class, l.shardOpts.jobQueueCh, l.shardOpts.scheduler,
+		l.shardOpts.indexCheckpoints, l.shardOpts.shardReindexer, l.lazyLoadSegments,
+		l.shardOpts.bitmapBufPool)
+	if err != nil {
+		msg := fmt.Sprintf("Unable to load shard %s: %v", l.shardOpts.name, err)
+		l.shardOpts.index.logger.WithField("error", "shard_load").WithError(err).Error(msg)
+		return errors.New(msg)
+	}
 
-		shard, err := NewShard(ctx, l.shardOpts.promMetrics, l.shardOpts.name, l.shardOpts.index,
-			l.shardOpts.class, l.shardOpts.jobQueueCh, l.shardOpts.scheduler,
-			l.shardOpts.indexCheckpoints, l.shardOpts.shardReindexer, l.lazyLoadSegments,
-			l.shardOpts.bitmapBufPool)
-		if err != nil {
-			msg := fmt.Sprintf("Unable to load shard %s: %v", l.shardOpts.name, err)
-			l.shardOpts.index.logger.WithField("error", "shard_load").WithError(err).Error(msg)
-			return nil, errors.New(msg)
-		}
+	l.shard = shard
+	l.loaded.Store(true)
 
-		l.shard = shard
-		l.loaded.Store(true)
-
-		return nil, nil
-	})
-
-	return err
+	return nil
 }
 
 func (l *LazyLoadShard) Index() *Index {

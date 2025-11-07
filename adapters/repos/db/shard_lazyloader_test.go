@@ -17,7 +17,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -32,9 +32,9 @@ import (
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
-func TestLazyLoadShard_Load_SingleFlight(t *testing.T) {
+func TestLazyLoadShard_Load(t *testing.T) {
 	ctx := context.Background()
-	logger := logrus.New()
+	logger, _ := test.NewNullLogger()
 
 	class := &models.Class{
 		Class:               "TestClass",
