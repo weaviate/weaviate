@@ -234,11 +234,13 @@ func (d *DockerCompose) DisconnectFromNetwork(ctx context.Context, nodeIndex int
 
 	// Get the network name
 	networkName := d.network.Name
+	// Get the container ID
+	containerID := container.container.GetContainerID()
 
 	// Execute docker network disconnect command
-	cmd := exec.CommandContext(ctx, "docker", "network", "disconnect", networkName, container.name)
+	cmd := exec.CommandContext(ctx, "docker", "network", "disconnect", networkName, containerID)
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("failed to disconnect container %s from network: %w", container.name, err)
+		return fmt.Errorf("failed to disconnect container %s (id: %s) from network: %w", container.name, containerID, err)
 	}
 	// sleep to make sure that the off node is detected by memberlist and marked failed
 	time.Sleep(3 * time.Second)
@@ -258,11 +260,13 @@ func (d *DockerCompose) ConnectToNetwork(ctx context.Context, nodeIndex int) err
 
 	// Get the network name
 	networkName := d.network.Name
+	// Get the container ID
+	containerID := container.container.GetContainerID()
 
 	// Execute docker network connect command
-	cmd := exec.CommandContext(ctx, "docker", "network", "connect", networkName, container.name)
+	cmd := exec.CommandContext(ctx, "docker", "network", "connect", networkName, containerID)
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("failed to connect container %s to network: %w", container.name, err)
+		return fmt.Errorf("failed to connect container %s (id: %s) to network: %w", container.name, containerID, err)
 	}
 
 	// sleep to make sure that the off node is detected by memberlist and connected to the network
