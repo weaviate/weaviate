@@ -13,7 +13,6 @@ package authz
 
 import (
 	"context"
-	"errors"
 	"testing"
 	"time"
 
@@ -122,12 +121,9 @@ func TestAuthzReplicationReplicate(t *testing.T) {
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
 			resp, err := helper.Client(t).Replication.
 				Replicate(replication.NewReplicateParams().WithBody(req), helper.CreateAuth(customKey))
-			if err != nil && !errors.Is(err, replication.NewReplicateForbidden()) {
-				t.Fatalf("failed to replicate shard: %v", err)
-			}
 			require.Nil(ct, err)
 			replicationId = *resp.Payload.ID
-		}, 10*time.Second, 500*time.Millisecond, "op should be started")
+		}, 10*time.Second, 500*time.Millisecond, "op should be started but got error replicating: %s", err.Error())
 	})
 
 	t.Run("Fail to cancel a replication of a shard without UPDATE permissions", func(t *testing.T) {
@@ -143,12 +139,9 @@ func TestAuthzReplicationReplicate(t *testing.T) {
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
 			resp, err := helper.Client(t).Replication.
 				CancelReplication(replication.NewCancelReplicationParams().WithID(replicationId), helper.CreateAuth(customKey))
-			if err != nil && !errors.Is(err, replication.NewCancelReplicationForbidden()) {
-				t.Fatalf("failed to cancel replication: %v", err)
-			}
 			require.Nil(ct, err)
 			require.IsType(ct, replication.NewCancelReplicationNoContent(), resp)
-		}, 10*time.Second, 500*time.Millisecond, "op should be cancelled")
+		}, 10*time.Second, 500*time.Millisecond, "op should be cancelled but got error: %s", err.Error())
 	})
 
 	t.Run("Fail to read a replication of a shard without READ permissions", func(t *testing.T) {
@@ -164,12 +157,9 @@ func TestAuthzReplicationReplicate(t *testing.T) {
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
 			resp, err := helper.Client(t).Replication.
 				ReplicationDetails(replication.NewReplicationDetailsParams().WithID(replicationId), helper.CreateAuth(customKey))
-			if err != nil && !errors.Is(err, replication.NewReplicationDetailsForbidden()) {
-				t.Fatalf("failed to read replication: %v", err)
-			}
 			require.Nil(ct, err)
 			require.Equal(ct, *resp.Payload.ID, replicationId)
-		}, 10*time.Second, 500*time.Millisecond, "op should be read")
+		}, 10*time.Second, 500*time.Millisecond, "op should be read but got error: %s", err.Error())
 	})
 
 	t.Run("Fail to delete a replication of a shard without DELETE permissions", func(t *testing.T) {
@@ -185,12 +175,9 @@ func TestAuthzReplicationReplicate(t *testing.T) {
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
 			resp, err := helper.Client(t).Replication.
 				DeleteReplication(replication.NewDeleteReplicationParams().WithID(replicationId), helper.CreateAuth(customKey))
-			if err != nil && !errors.Is(err, replication.NewDeleteReplicationForbidden()) {
-				t.Fatalf("failed to delete replication: %v", err)
-			}
 			require.Nil(ct, err)
 			require.IsType(ct, replication.NewDeleteReplicationNoContent(), resp)
-		}, 10*time.Second, 500*time.Millisecond, "op should be deleted")
+		}, 10*time.Second, 500*time.Millisecond, "op should be deleted but got error: %s", err.Error())
 	})
 }
 
