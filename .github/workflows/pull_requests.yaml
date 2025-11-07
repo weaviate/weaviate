@@ -661,9 +661,9 @@ jobs:
           max_attempts: ${{ env.retry_max_attempts }}
           command: ./test/run.sh ${{ matrix.test }}
           on_retry_command: ./test/run.sh --cleanup
-  Acceptance-Tests-8-cores:
+  Acceptance-Tests-github-4-cores:
     name: acceptance large (${{ matrix.name }})
-    runs-on: ubicloud-standard-8-ubuntu-2404
+    runs-on: DB-ubuntu-24.04-4-cores
     strategy:
       fail-fast: false
       matrix:
