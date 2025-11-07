@@ -23,6 +23,7 @@ type InvertedIndexConfig struct {
 	IndexNullState         bool
 	IndexPropertyLength    bool
 	UsingBlockMaxWAND      bool
+	TokenizerUserDict      []*models.TokenizerUserDictConfig
 }
 
 type BM25Config struct {
@@ -45,6 +46,7 @@ func InvertedIndexConfigFromModel(m models.InvertedIndexConfig) InvertedIndexCon
 	i.IndexNullState = m.IndexNullState
 	i.IndexPropertyLength = m.IndexPropertyLength
 	i.UsingBlockMaxWAND = m.UsingBlockMaxWAND
+	i.TokenizerUserDict = m.TokenizerUserDict
 
 	return i
 }
@@ -65,6 +67,11 @@ func InvertedIndexConfigToModel(i InvertedIndexConfig) models.InvertedIndexConfi
 	m.IndexNullState = i.IndexNullState
 	m.IndexPropertyLength = i.IndexPropertyLength
 	m.UsingBlockMaxWAND = i.UsingBlockMaxWAND
+
+	if i.TokenizerUserDict != nil {
+		m.TokenizerUserDict = make([]*models.TokenizerUserDictConfig, len(i.TokenizerUserDict))
+		copy(m.TokenizerUserDict, i.TokenizerUserDict)
+	}
 
 	return m
 }
