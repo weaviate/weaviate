@@ -360,6 +360,10 @@ func (l *LazyLoadShard) drop() error {
 	// if not loaded, execute simplified drop without loading shard:
 	// - perform required actions
 	// - remove entire shard directory
+	// use lock to prevent eventual concurrent droping and loading
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
+
 	if !l.isLoaded() {
 		idx := l.shardOpts.index
 		className := idx.Config.ClassName.String()
