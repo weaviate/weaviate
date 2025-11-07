@@ -123,7 +123,7 @@ func TestAuthzReplicationReplicate(t *testing.T) {
 				Replicate(replication.NewReplicateParams().WithBody(req), helper.CreateAuth(customKey))
 			require.Nil(ct, err)
 			replicationId = *resp.Payload.ID
-		}, 10*time.Second, 500*time.Millisecond, "op should be started but got error replicating: %s", err.Error())
+		}, 10*time.Second, 500*time.Millisecond, "op should be started but got error replicating: %v", err)
 	})
 
 	t.Run("Fail to cancel a replication of a shard without UPDATE permissions", func(t *testing.T) {
@@ -141,7 +141,7 @@ func TestAuthzReplicationReplicate(t *testing.T) {
 				CancelReplication(replication.NewCancelReplicationParams().WithID(replicationId), helper.CreateAuth(customKey))
 			require.Nil(ct, err)
 			require.IsType(ct, replication.NewCancelReplicationNoContent(), resp)
-		}, 10*time.Second, 500*time.Millisecond, "op should be cancelled but got error: %s", err.Error())
+		}, 10*time.Second, 500*time.Millisecond, "op should be cancelled but got error: %v", err)
 	})
 
 	t.Run("Fail to read a replication of a shard without READ permissions", func(t *testing.T) {
@@ -159,7 +159,7 @@ func TestAuthzReplicationReplicate(t *testing.T) {
 				ReplicationDetails(replication.NewReplicationDetailsParams().WithID(replicationId), helper.CreateAuth(customKey))
 			require.Nil(ct, err)
 			require.Equal(ct, *resp.Payload.ID, replicationId)
-		}, 10*time.Second, 500*time.Millisecond, "op should be read but got error: %s", err.Error())
+		}, 10*time.Second, 500*time.Millisecond, "op should be read but got error: %v", err)
 	})
 
 	t.Run("Fail to delete a replication of a shard without DELETE permissions", func(t *testing.T) {
@@ -177,7 +177,7 @@ func TestAuthzReplicationReplicate(t *testing.T) {
 				DeleteReplication(replication.NewDeleteReplicationParams().WithID(replicationId), helper.CreateAuth(customKey))
 			require.Nil(ct, err)
 			require.IsType(ct, replication.NewDeleteReplicationNoContent(), resp)
-		}, 10*time.Second, 500*time.Millisecond, "op should be deleted but got error: %s", err.Error())
+		}, 10*time.Second, 500*time.Millisecond, "op should be deleted but got error: %v", err)
 	})
 }
 
