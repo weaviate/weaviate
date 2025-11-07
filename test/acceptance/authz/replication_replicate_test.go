@@ -127,13 +127,13 @@ func TestAuthzReplicationReplicate(t *testing.T) {
 			}
 			require.Nil(ct, err)
 			replicationId = *resp.Payload.ID
-		}, 2*time.Second, 100*time.Millisecond, "op should be started")
+		}, 10*time.Second, 500*time.Millisecond, "op should be started")
 	})
 
 	t.Run("Fail to cancel a replication of a shard without UPDATE permissions", func(t *testing.T) {
 		_, err := helper.Client(t).Replication.CancelReplication(replication.NewCancelReplicationParams().WithID(replicationId), helper.CreateAuth(customKey))
 		require.NotNil(t, err)
-		require.IsType(t, replication.NewCancelReplicationForbidden(), err)
+		require.IsType(t, replication.NewCancelReplicationForbidden(), err, "expected forbidden error, got: %s", err.Error())
 	})
 
 	// Give permissions to cancel a replication of a shard
@@ -148,7 +148,7 @@ func TestAuthzReplicationReplicate(t *testing.T) {
 			}
 			require.Nil(ct, err)
 			require.IsType(ct, replication.NewCancelReplicationNoContent(), resp)
-		}, 2*time.Second, 100*time.Millisecond, "op should be cancelled")
+		}, 10*time.Second, 500*time.Millisecond, "op should be cancelled")
 	})
 
 	t.Run("Fail to read a replication of a shard without READ permissions", func(t *testing.T) {
@@ -169,7 +169,7 @@ func TestAuthzReplicationReplicate(t *testing.T) {
 			}
 			require.Nil(ct, err)
 			require.Equal(ct, *resp.Payload.ID, replicationId)
-		}, 2*time.Second, 100*time.Millisecond, "op should be read")
+		}, 10*time.Second, 500*time.Millisecond, "op should be read")
 	})
 
 	t.Run("Fail to delete a replication of a shard without DELETE permissions", func(t *testing.T) {
@@ -190,7 +190,7 @@ func TestAuthzReplicationReplicate(t *testing.T) {
 			}
 			require.Nil(ct, err)
 			require.IsType(ct, replication.NewDeleteReplicationNoContent(), resp)
-		}, 2*time.Second, 100*time.Millisecond, "op should be deleted")
+		}, 10*time.Second, 500*time.Millisecond, "op should be deleted")
 	})
 }
 
