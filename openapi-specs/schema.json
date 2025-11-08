@@ -1,7 +1,21 @@
 {
   "servers": [
     {
-      "url": "http(s)://{WEAVIATE_HOSTNAME}:{PORT}/v1"
+      "url": "{protocol}://{WEAVIATE_HOSTNAME}:{PORT}/v1",
+      "variables": {
+        "protocol": {
+          "default": "https",
+          "enum": ["http", "https"]
+        },
+        "WEAVIATE_HOSTNAME": {
+          "default": "localhost",
+          "description": "Weaviate server hostname"
+        },
+        "PORT": {
+          "default": "8080",
+          "description": "Weaviate server port"
+        }
+      }
     }
   ],
   "consumes": [
