@@ -20,13 +20,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/weaviate/weaviate/entities/models"
-
 	"github.com/sirupsen/logrus/hooks/test"
-
-	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey/keys"
-
 	"github.com/stretchr/testify/require"
+
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey/keys"
 )
 
 var log, _ = test.NewNullLogger()
@@ -114,7 +112,7 @@ func TestDynUserTestSlowAfterWeakHash(t *testing.T) {
 	randomKey, _, err := keys.DecodeApiKey(apiKey)
 	require.NoError(t, err)
 
-	_, ok := dynUsers.memoryOnlyData.weakKeyStorageById[userId]
+	_, ok := dynUsers.memoryOnlyData.weakKeyStorageById.Load(userId)
 	require.False(t, ok)
 
 	startSlow := time.Now()
@@ -122,7 +120,7 @@ func TestDynUserTestSlowAfterWeakHash(t *testing.T) {
 	require.NoError(t, err)
 	tookSlow := time.Since(startSlow)
 
-	_, ok = dynUsers.memoryOnlyData.weakKeyStorageById[userId]
+	_, ok = dynUsers.memoryOnlyData.weakKeyStorageById.Load(userId)
 	require.True(t, ok)
 
 	startFast := time.Now()
