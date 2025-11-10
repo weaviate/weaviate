@@ -11,6 +11,12 @@
 
 package filters
 
+import (
+	"fmt"
+
+	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/graphqlutil"
+)
+
 type Cursor struct {
 	After string `json:"after"`
 	Limit int    `json:"limit"`
@@ -22,7 +28,7 @@ func ExtractCursorFromArgs(args map[string]interface{}) (*Cursor, error) {
 	after, afterOk := args["after"]
 
 	limit, limitOk := args["limit"]
-	if !limitOk || limit.(int) < 0 {
+	if !limitOk {
 		limit = LimitFlagNotSet
 	}
 
@@ -30,8 +36,19 @@ func ExtractCursorFromArgs(args map[string]interface{}) (*Cursor, error) {
 		return nil, nil
 	}
 
+	// coerce limit safely
+	lim, err := graphqlutil.ToInt(limit)
+	if err != nil {
+		return nil, fmt.Errorf("invalid limit: %w", err)
+	}
+
+	afterStr := ""
+	if after != nil {
+		afterStr = after.(string)
+	}
+
 	return &Cursor{
-		After: after.(string),
-		Limit: limit.(int),
+		After: afterStr,
+		Limit: lim,
 	}, nil
 }

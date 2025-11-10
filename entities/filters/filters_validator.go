@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/graphqlutil"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 )
@@ -107,8 +108,12 @@ func validateClause(authorizedGetClass func(string) (*models.Class, error), cw *
 			return errors.Errorf("Filtering for property length supports operators (not) equal and greater/less than (equal), got %q instead",
 				op)
 		}
-		if val := cw.getValue(); val.(int) < 0 {
-			return errors.Errorf("Can only filter for positive property length got %v instead", val)
+		if val := cw.getValue(); val != nil {
+			if i, err := graphqlutil.ToInt(val); err != nil {
+				return errors.Errorf("Can only filter for positive property length got invalid value: %v (err: %v)", val, err)
+			} else if i < 0 {
+				return errors.Errorf("Can only filter for positive property length got %v instead", val)
+			}
 		}
 		return nil
 	}

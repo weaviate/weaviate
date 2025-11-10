@@ -12,7 +12,10 @@
 package nearText
 
 import (
+	"fmt"
+
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
+	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/graphqlutil"
 	"github.com/weaviate/weaviate/entities/dto"
 )
 
@@ -45,9 +48,11 @@ func (g *GraphQLArgumentsProvider) extractNearTextFn(source map[string]interface
 	// limit is an optional arg, so it could be nil
 	limit, ok := source["limit"]
 	if ok {
-		// the type is fixed through gql config, no need to catch incorrect type
-		// assumption
-		args.Limit = limit.(int)
+		if i, err := graphqlutil.ToInt(limit); err == nil {
+			args.Limit = i
+		} else {
+			return nil, nil, fmt.Errorf("invalid limit: %w", err)
+		}
 	}
 
 	certainty, ok := source["certainty"]
