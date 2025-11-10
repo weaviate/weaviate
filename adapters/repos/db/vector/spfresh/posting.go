@@ -250,7 +250,7 @@ func (p *EncodedPosting) Uncompress(quantizer *compressionhelpers.RotationalQuan
 
 	for _, v := range p.Iter() {
 		if p.compressed {
-			data = append(data, quantizer.Restore(v.(CompressedVector).Data()))
+			data = append(data, quantizer.UnRotate(quantizer.Restore(v.(CompressedVector).Data())))
 		} else {
 			data = append(data, v.(*RawVector).Data())
 		}
