@@ -179,6 +179,15 @@ case $CONFIG in
   ;;
 
   local-development)
+      OTEL_ENABLED=true \
+      OTEL_EXPORTER_OTLP_ENDPOINT=localhost:4317 \
+      OTEL_EXPORTER_OTLP_PROTOCOL=grpc \
+      OTEL_TRACES_SAMPLER_ARG=1.0 \
+      ASYNC_INDEXING=false \
+      PERSISTENCE_LSM_ACCESS_STRATEGY='mmap' \
+      DISABLE_TELEMETRY=true \
+      DISABLE_LAZY_LOAD_SHARDS=true \
+      HNSW_STARTUP_WAIT_FOR_VECTOR_CACHE=false \
       CONTEXTIONARY_URL=localhost:9999 \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
       PERSISTENCE_DATA_PATH="${PERSISTENCE_DATA_PATH}-weaviate-0" \
@@ -201,6 +210,15 @@ case $CONFIG in
         --write-timeout=600s
     ;;
   second-node)
+      OTEL_ENABLED=true \
+      OTEL_EXPORTER_OTLP_ENDPOINT=localhost:4317 \
+      OTEL_EXPORTER_OTLP_PROTOCOL=grpc \
+      OTEL_TRACES_SAMPLER_ARG=1.0 \
+      ASYNC_INDEXING=false \
+      PERSISTENCE_LSM_ACCESS_STRATEGY='mmap' \
+      DISABLE_TELEMETRY=true \
+      DISABLE_LAZY_LOAD_SHARDS=true \
+      HNSW_STARTUP_WAIT_FOR_VECTOR_CACHE=false \
       GRPC_PORT=50052 \
       CONTEXTIONARY_URL=localhost:9999 \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
@@ -229,6 +247,15 @@ case $CONFIG in
     ;;
 
     third-node)
+        OTEL_ENABLED=true \
+        OTEL_EXPORTER_OTLP_ENDPOINT=localhost:4317 \
+        OTEL_EXPORTER_OTLP_PROTOCOL=grpc \
+        OTEL_TRACES_SAMPLER_ARG=1.0 \
+        ASYNC_INDEXING=false \
+        PERSISTENCE_LSM_ACCESS_STRATEGY='mmap' \
+        DISABLE_TELEMETRY=true \
+        DISABLE_LAZY_LOAD_SHARDS=true \
+        HNSW_STARTUP_WAIT_FOR_VECTOR_CACHE=false \
         GRPC_PORT=50053 \
         CONTEXTIONARY_URL=localhost:9999 \
         AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
@@ -1007,8 +1034,8 @@ case $CONFIG in
 
     cleanup() {
       echo "Cleaning up existing containers and volumes..."
-      docker stop prometheus grafana 2>/dev/null || true
-      docker rm -f prometheus grafana 2>/dev/null || true
+      docker stop prometheus grafana tempo 2>/dev/null || true
+      docker rm -f prometheus grafana tempo 2>/dev/null || true
       docker volume rm grafana_data 2>/dev/null || true
       docker network rm monitoring 2>/dev/null || true
       echo "Cleanup complete."
@@ -1020,6 +1047,16 @@ case $CONFIG in
 
     docker network create monitoring 2>/dev/null || true
 
+    echo "Starting Tempo..."
+    docker run -d \
+      --name tempo \
+      --network monitoring \
+      -p 3200:3200 \
+      -p 4317:4317 \
+      -p 4318:4318 \
+      -v "$(pwd)/examples/tempo.yaml:/etc/tempo.yaml" \
+      grafana/tempo:latest \
+      -config.file=/etc/tempo.yaml
 
     echo "Starting Prometheus..."
     docker run -d \
@@ -1028,7 +1065,8 @@ case $CONFIG in
       -p 9090:9090 \
       --add-host=host.docker.internal:host-gateway \
       -v "$(pwd)/tools/dev/prometheus_config/prometheus.yml:/etc/prometheus/prometheus.yml" \
-      prom/prometheus
+      prom/prometheus \
+      --web.enable-remote-write-receiver
 
 
     echo "Starting Grafana..."
@@ -1044,7 +1082,14 @@ case $CONFIG in
       grafana/grafana
 
     echo "Waiting for services to start..."
-    sleep 5
+    sleep 10
+
+    if docker ps | grep -q tempo; then
+      echo "Tempo is running"
+    else
+      echo "Error: Tempo failed to start"
+      docker logs tempo
+    fi
 
     if docker ps | grep -q prometheus; then
       echo "Prometheus is running"
@@ -1065,6 +1110,7 @@ case $CONFIG in
     fi
 
     echo "Setup complete! Services are available at:"
+    echo "Tempo: http://localhost:3200"
     echo "Prometheus: http://localhost:9090"
     echo "Grafana: http://localhost:3000 (admin/admin)"
     echo "Dashboards should be available at:"

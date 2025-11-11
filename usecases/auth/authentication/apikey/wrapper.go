@@ -12,6 +12,7 @@
 package apikey
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/go-openapi/errors"
@@ -19,6 +20,8 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey/keys"
 	"github.com/weaviate/weaviate/usecases/config"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type ApiKey struct {
@@ -42,11 +45,15 @@ func New(cfg config.Config, logger logrus.FieldLogger) (*ApiKey, error) {
 	}, nil
 }
 
-func (a *ApiKey) ValidateAndExtract(token string, scopes []string) (*models.Principal, error) {
+func (a *ApiKey) ValidateAndExtract(ctx context.Context, token string, scopes []string) (*models.Principal, error) {
+	ctx, span := otel.Tracer("weaviate-search").Start(ctx, "ApiKey.ValidateAndExtract",
+		trace.WithSpanKind(trace.SpanKindInternal),
+	)
+	defer span.End()
 	validate := func(token string, scopes []string) (*models.Principal, error) {
 		if a.Dynamic.enabled {
 			if randomKey, userIdentifier, err := keys.DecodeApiKey(token); err == nil {
-				principal, err := a.Dynamic.ValidateAndExtract(randomKey, userIdentifier)
+				principal, err := a.Dynamic.ValidateAndExtract(ctx, randomKey, userIdentifier)
 				if err != nil {
 					return nil, fmt.Errorf("invalid api key: %w", err)
 				}

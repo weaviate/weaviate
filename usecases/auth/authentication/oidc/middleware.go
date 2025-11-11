@@ -131,12 +131,12 @@ func (c *Client) validateConfig() error {
 }
 
 // ValidateAndExtract can be used as a middleware for go-swagger
-func (c *Client) ValidateAndExtract(token string, scopes []string) (*models.Principal, error) {
+func (c *Client) ValidateAndExtract(ctx context.Context, token string, scopes []string) (*models.Principal, error) {
 	if !c.Config.Enabled {
 		return nil, errors.New(401, "oidc auth is not configured, please try another auth scheme or set up weaviate with OIDC configured")
 	}
 
-	parsed, err := c.verifier.Verify(context.Background(), token)
+	parsed, err := c.verifier.Verify(ctx, token)
 	if err != nil {
 		return nil, errors.New(401, "unauthorized: %v", err)
 	}

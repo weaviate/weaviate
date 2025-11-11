@@ -12,6 +12,7 @@
 package oidc
 
 import (
+	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -41,7 +42,7 @@ func Test_Middleware_NotConfigured(t *testing.T) {
 	client, err := New(cfg, logger)
 	require.Nil(t, err)
 
-	principal, err := client.ValidateAndExtract("token-doesnt-matter", []string{})
+	principal, err := client.ValidateAndExtract(context.Background(), "token-doesnt-matter", []string{})
 	assert.Nil(t, principal)
 	assert.Equal(t, expectedErr, err)
 }
@@ -91,7 +92,7 @@ func Test_Middleware_WithValidToken(t *testing.T) {
 		client, err := New(cfg, logger)
 		require.Nil(t, err)
 
-		principal, err := client.ValidateAndExtract(token, []string{})
+		principal, err := client.ValidateAndExtract(context.Background(), token, []string{})
 		require.Nil(t, err)
 		assert.Equal(t, "best-user", principal.Username)
 	})
@@ -118,7 +119,7 @@ func Test_Middleware_WithValidToken(t *testing.T) {
 		client, err := New(cfg, logger)
 		require.Nil(t, err)
 
-		principal, err := client.ValidateAndExtract(token, []string{})
+		principal, err := client.ValidateAndExtract(context.Background(), token, []string{})
 		require.Nil(t, err)
 		assert.Equal(t, "foo@bar.com", principal.Username)
 	})
@@ -145,7 +146,7 @@ func Test_Middleware_WithValidToken(t *testing.T) {
 		client, err := New(cfg, logger)
 		require.Nil(t, err)
 
-		principal, err := client.ValidateAndExtract(token, []string{})
+		principal, err := client.ValidateAndExtract(context.Background(), token, []string{})
 		require.Nil(t, err)
 		assert.Equal(t, "best-user", principal.Username)
 		assert.Equal(t, []string{"group1", "group2"}, principal.Groups)
@@ -173,7 +174,7 @@ func Test_Middleware_WithValidToken(t *testing.T) {
 		client, err := New(cfg, logger)
 		require.Nil(t, err)
 
-		principal, err := client.ValidateAndExtract(token, []string{})
+		principal, err := client.ValidateAndExtract(context.Background(), token, []string{})
 		require.Nil(t, err)
 		assert.Equal(t, "best-user", principal.Username)
 		assert.Equal(t, []string{"group1"}, principal.Groups)

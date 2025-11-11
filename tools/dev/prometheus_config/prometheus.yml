@@ -23,3 +23,7 @@ scrape_configs:
     static_configs:
       - targets:
         - host.docker.internal:9100
+  - job_name: 'tempo'
+    static_configs:
+      - targets: ['tempo:3200']
+    scrape_interval: 5s
