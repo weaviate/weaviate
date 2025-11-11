@@ -21,6 +21,7 @@ services:
       PERSISTENCE_DATA_PATH: "./data"
       DEFAULT_VECTORIZER_MODULE: text2vec-contextionary
       ENABLE_MODULES: text2vec-contextionary,backup-filesystem,generative-dummy,reranker-dummy
+      API_BASED_MODULES_DISABLED: "true"
       BACKUP_FILESYSTEM_PATH: "/var/lib/backups"
       PROMETHEUS_MONITORING_ENABLED: "true"
       PROMETHEUS_MONITORING_GROUP_CLASSES: "true"
@@ -32,6 +33,7 @@ services:
       ASYNC_INDEXING: ${ASYNC_INDEXING:-false}
       DISABLE_TELEMETRY: "true"
       DISABLE_RECOVERY_ON_PANIC: "true"
+      TRACK_VECTOR_DIMENSIONS: "true"
       QUERY_MAXIMUM_RESULTS: 10005
 
       # necessary for the metrics tests, some metrics only exist once segments

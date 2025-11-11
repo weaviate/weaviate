@@ -14,6 +14,7 @@ package inverted
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"strconv"
 	"time"
@@ -55,6 +56,9 @@ type Searcher struct {
 	nestedCrossRefLimit int64
 	bitmapFactory       *roaringset.BitmapFactory
 }
+
+var ErrOnlyStopwords = fmt.Errorf("invalid search term, only stopwords provided. " +
+	"Stopwords can be configured in class.invertedIndexConfig.stopwords")
 
 func NewSearcher(logger logrus.FieldLogger, store *lsmkv.Store,
 	getClass func(string) *models.Class, propIndices propertyspecific.Indices,
@@ -153,6 +157,23 @@ func (s *Searcher) objectsByDocID(ctx context.Context, it docIDsIterator,
 		PropertyPaths: propertyPaths,
 	}
 
+	deletedIds := sroar.NewBitmap()
+	deletedCount := 0
+	handleDeletedId := func(id uint64) {
+		if deletedIds.Set(id) {
+			if deletedCount++; deletedCount >= 1024 {
+				s.bitmapFactory.Remove(deletedIds)
+				deletedIds = sroar.NewBitmap().CloneToBuf(deletedIds.ToBuffer())
+				deletedCount = 0
+			}
+		}
+	}
+	defer func() {
+		if deletedCount > 0 {
+			s.bitmapFactory.Remove(deletedIds)
+		}
+	}()
+
 	i := 0
 	loop := 0
 	for docID, ok := it.Next(); ok; docID, ok = it.Next() {
@@ -162,12 +183,13 @@ func (s *Searcher) objectsByDocID(ctx context.Context, it docIDsIterator,
 		loop++
 
 		binary.LittleEndian.PutUint64(docIDBytes, docID)
-		res, err := bucket.GetBySecondary(0, docIDBytes)
+		res, err := bucket.GetBySecondary(ctx, 0, docIDBytes)
 		if err != nil {
 			return nil, err
 		}
 
 		if res == nil {
+			handleDeletedId(docID)
 			continue
 		}
 
@@ -241,7 +263,7 @@ func (s *Searcher) extractPropValuePair(
 	}
 	if filter.Operands != nil {
 		// nested filter
-		children, err := s.extractPropValuePairs(ctx, filter.Operands, className)
+		children, err := s.extractPropValuePairs(ctx, filter.Operands, filter.Operator, className)
 		if err != nil {
 			return nil, err
 		}
@@ -250,8 +272,11 @@ func (s *Searcher) extractPropValuePair(
 		return out, nil
 	}
 
-	if filter.Operator == filters.ContainsAny || filter.Operator == filters.ContainsAll {
+	switch filter.Operator {
+	case filters.ContainsAll, filters.ContainsAny, filters.ContainsNone:
 		return s.extractContains(ctx, filter.On, filter.Value.Type, filter.Value.Value, filter.Operator, class)
+	default:
+		// proceed
 	}
 
 	// on value or non-nested filter
@@ -310,7 +335,7 @@ func (s *Searcher) extractPropValuePair(
 }
 
 func (s *Searcher) extractPropValuePairs(ctx context.Context,
-	operands []filters.Clause, className schema.ClassName,
+	operands []filters.Clause, operator filters.Operator, className schema.ClassName,
 ) ([]*propValuePair, error) {
 	children := make([]*propValuePair, len(operands))
 	eg := enterrors.NewErrorGroupWrapper(s.logger)
@@ -324,16 +349,43 @@ func (s *Searcher) extractPropValuePairs(ctx context.Context,
 		eg.Go(func() error {
 			ctx := concurrency.ContextWithFractionalBudget(ctx, concurrencyReductionFactor, concurrency.NUMCPU)
 			child, err := s.extractPropValuePair(ctx, &clause, className)
+			// check for stopword errors on ContainsAny operator only at the end
+			if err != nil && errors.Is(err, ErrOnlyStopwords) && operator == filters.ContainsAny {
+				return nil
+			}
 			if err != nil {
 				return fmt.Errorf("nested clause at pos %d: %w", i, err)
 			}
 			children[i] = child
-
 			return nil
 		}, clause)
 	}
 	if err := eg.Wait(); err != nil {
 		return nil, fmt.Errorf("nested query: %w", err)
+	}
+	i := 0
+	for _, c := range children {
+		if c != nil {
+			children[i] = c
+			i++
+		}
+	}
+	children = children[:i]
+
+	// if all children were stopwords and the operator is ContainsAny,
+	// we return the stopword error anyway for consistency with other
+	// filter behaviors
+	// The logic is, if at least one of the provided terms is a valid
+	// search term (i.e., not a stopword), we proceed with the search,
+	// as we can still match on that term.
+	// However, if all provided terms are stopwords, we return an error
+	// for consistency with other filter behaviors.
+	//
+	// TODO(amourao): the stopword logic should be rethought globally,
+	// as returning errors for specific filter values may generate unexpected
+	// results for the end user
+	if len(children) == 0 && operator == filters.ContainsAny {
+		return nil, ErrOnlyStopwords
 	}
 	return children, nil
 }
@@ -597,7 +649,7 @@ func (s *Searcher) extractTokenizableProp(prop *models.Property, propType schema
 
 	propValuePairs := make([]*propValuePair, 0, len(terms))
 	for _, term := range terms {
-		if s.stopwords.IsStopword(term) {
+		if s.stopwords.IsStopword(term) && prop.Tokenization == models.PropertyTokenizationWord {
 			continue
 		}
 		propValuePairs = append(propValuePairs, &propValuePair{
@@ -617,8 +669,7 @@ func (s *Searcher) extractTokenizableProp(prop *models.Property, propType schema
 	if len(propValuePairs) == 1 {
 		return propValuePairs[0], nil
 	}
-	return nil, fmt.Errorf("invalid search term, only stopwords provided. " +
-		"Stopwords can be configured in class.invertedIndexConfig.stopwords")
+	return nil, ErrOnlyStopwords
 }
 
 func (s *Searcher) extractPropertyLength(prop *models.Property, propType schema.DataType,
@@ -715,7 +766,7 @@ func (s *Searcher) extractContains(ctx context.Context,
 		return nil, fmt.Errorf("unsupported type '%T' for '%v' operator", propType, operator)
 	}
 
-	children, err := s.extractPropValuePairs(ctx, operands, schema.ClassName(class.Class))
+	children, err := s.extractPropValuePairs(ctx, operands, operator, schema.ClassName(class.Class))
 	if err != nil {
 		return nil, err
 	}
@@ -723,13 +774,29 @@ func (s *Searcher) extractContains(ctx context.Context,
 	if err != nil {
 		return nil, fmt.Errorf("new prop value pair: %w", err)
 	}
+
 	out.children = children
-	// filters.ContainsAny
-	out.operator = filters.OperatorOr
-	if operator == filters.ContainsAll {
-		out.operator = filters.OperatorAnd
-	}
 	out.Class = class
+
+	switch operator {
+	case filters.ContainsAll:
+		out.operator = filters.OperatorAnd
+	case filters.ContainsAny:
+		out.operator = filters.OperatorOr
+	case filters.ContainsNone:
+		out.operator = filters.OperatorOr
+
+		parent, err := newPropValuePair(class)
+		if err != nil {
+			return nil, fmt.Errorf("new prop value pair: %w", err)
+		}
+		parent.operator = filters.OperatorNot
+		parent.children = []*propValuePair{out}
+		parent.Class = class
+		out = parent
+	default:
+		return nil, fmt.Errorf("unknown contains operator %v", operator)
+	}
 	return out, nil
 }
 

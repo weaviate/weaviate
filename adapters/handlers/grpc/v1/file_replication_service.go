@@ -20,7 +20,6 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/usecases/sharding"
-	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -106,7 +105,7 @@ func (fps *FileReplicationService) ListFiles(ctx context.Context, req *pb.ListFi
 	}, nil
 }
 
-func (fps *FileReplicationService) GetFileMetadata(stream grpc.BidiStreamingServer[pb.GetFileMetadataRequest, pb.FileMetadata]) error {
+func (fps *FileReplicationService) GetFileMetadata(stream pb.FileReplicationService_GetFileMetadataServer) error {
 	for {
 		req, err := stream.Recv()
 		if err != nil {
@@ -142,7 +141,7 @@ func (fps *FileReplicationService) GetFileMetadata(stream grpc.BidiStreamingServ
 	}
 }
 
-func (fps *FileReplicationService) GetFile(stream grpc.BidiStreamingServer[pb.GetFileRequest, pb.FileChunk]) error {
+func (fps *FileReplicationService) GetFile(stream pb.FileReplicationService_GetFileServer) error {
 	for {
 		req, err := stream.Recv()
 		if err != nil {
@@ -165,33 +164,39 @@ func (fps *FileReplicationService) GetFile(stream grpc.BidiStreamingServer[pb.Ge
 			return status.Errorf(codes.Internal, "local index %q not found", indexName)
 		}
 
-		fileReader, err := index.IncomingGetFile(stream.Context(), shardName, fileName)
-		if err != nil {
-			return status.Errorf(codes.Internal, "failed to get file %q in shard %q: %v", fileName, shardName, err)
-		}
-		defer fileReader.Close()
+		if err := func() error {
+			fileReader, err := index.IncomingGetFile(stream.Context(), shardName, fileName)
+			if err != nil {
+				return status.Errorf(codes.Internal, "failed to get file %q in shard %q: %v", fileName, shardName, err)
+			}
+			defer fileReader.Close()
 
-		buf := make([]byte, fileChunkSize)
+			buf := make([]byte, fileChunkSize)
 
-		offset := 0
+			offset := 0
 
-		for {
-			n, err := fileReader.Read(buf)
-			eof := err != nil && errors.Is(err, io.EOF)
+			for {
+				n, err := fileReader.Read(buf)
+				eof := err != nil && errors.Is(err, io.EOF)
 
-			if err := stream.Send(&pb.FileChunk{
-				Offset: int64(offset),
-				Data:   buf[:n],
-				Eof:    eof,
-			}); err != nil {
-				return status.Errorf(codes.Internal, "failed to send file chunk: %v", err)
+				if err := stream.Send(&pb.FileChunk{
+					Offset: int64(offset),
+					Data:   buf[:n],
+					Eof:    eof,
+				}); err != nil {
+					return status.Errorf(codes.Internal, "failed to send file chunk: %v", err)
+				}
+
+				if eof {
+					break
+				}
+
+				offset += n
 			}
 
-			if eof {
-				break
-			}
-
-			offset += n
+			return nil
+		}(); err != nil {
+			return err
 		}
 	}
 }

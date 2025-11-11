@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/cluster/fsm"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
@@ -46,7 +47,7 @@ type BackupBackendProvider interface {
 }
 
 type schemaManger interface {
-	RestoreClass(ctx context.Context, d *backup.ClassDescriptor, nodeMapping map[string]string) error
+	RestoreClass(ctx context.Context, d *backup.ClassDescriptor, nodeMapping map[string]string, overwriteAlias bool) error
 	NodeName() string
 }
 
@@ -242,6 +243,7 @@ func (m *Handler) OnStatus(ctx context.Context, req *StatusRequest) *StatusRespo
 	case OpCreate:
 		st, err := m.backupper.OnStatus(ctx, req)
 		ret.Status = st.Status
+		// mm
 		if err != nil {
 			ret.Status = backup.Failed
 			ret.Err = err.Error()

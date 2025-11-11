@@ -27,21 +27,21 @@ import (
 	"github.com/go-openapi/validate"
 )
 
-// WhereFilter Filter search results using a where filter
+// WhereFilter Filter search results using a where filter.
 //
 // swagger:model WhereFilter
 type WhereFilter struct {
 
-	// combine multiple where filters, requires 'And' or 'Or' operator
+	// Combine multiple where filters, requires 'And' or 'Or' operator.
 	Operands []*WhereFilter `json:"operands"`
 
-	// operator to use
+	// Operator to use.
 	// Example: GreaterThanEqual
-	// Enum: [And Or Equal Like NotEqual GreaterThan GreaterThanEqual LessThan LessThanEqual WithinGeoRange IsNull ContainsAny ContainsAll]
+	// Enum: [And Or Equal Like NotEqual GreaterThan GreaterThanEqual LessThan LessThanEqual WithinGeoRange IsNull ContainsAny ContainsAll ContainsNone Not]
 	Operator string `json:"operator,omitempty"`
 
-	// path to the property currently being filtered
-	// Example: ["inCity","City","name"]
+	// Path to the property currently being filtered.
+	// Example: ["inCity","city","name"]
 	Path []string `json:"path"`
 
 	// value as boolean
@@ -148,7 +148,7 @@ var whereFilterTypeOperatorPropEnum []interface{}
 
 func init() {
 	var res []string
-	if err := json.Unmarshal([]byte(`["And","Or","Equal","Like","NotEqual","GreaterThan","GreaterThanEqual","LessThan","LessThanEqual","WithinGeoRange","IsNull","ContainsAny","ContainsAll"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["And","Or","Equal","Like","NotEqual","GreaterThan","GreaterThanEqual","LessThan","LessThanEqual","WithinGeoRange","IsNull","ContainsAny","ContainsAll","ContainsNone","Not"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {
@@ -196,6 +196,12 @@ const (
 
 	// WhereFilterOperatorContainsAll captures enum value "ContainsAll"
 	WhereFilterOperatorContainsAll string = "ContainsAll"
+
+	// WhereFilterOperatorContainsNone captures enum value "ContainsNone"
+	WhereFilterOperatorContainsNone string = "ContainsNone"
+
+	// WhereFilterOperatorNot captures enum value "Not"
+	WhereFilterOperatorNot string = "Not"
 )
 
 // prop value enum

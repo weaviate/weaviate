@@ -25,6 +25,19 @@ type VectorIndexConfig interface {
 	IsMultiVector() bool
 }
 
+func ExtractVectorConfigs(class *models.Class) (map[string]models.VectorConfig, error) {
+	if len(class.VectorConfig) == 0 && modelsext.ClassHasLegacyVectorIndex(class) {
+		vectorIndexConfig, ok := class.VectorIndexConfig.(VectorIndexConfig)
+		if !ok {
+			return nil, fmt.Errorf("class '%s' vector index: config is not schema.VectorIndexConfig: %T",
+				class.Class, class.VectorIndexConfig)
+		}
+		return map[string]models.VectorConfig{"": {Vectorizer: class.Vectorizer, VectorIndexConfig: vectorIndexConfig, VectorIndexType: class.VectorIndexType}}, nil
+	}
+
+	return class.VectorConfig, nil
+}
+
 func TypeAssertVectorIndex(class *models.Class, targetVectors []string) ([]VectorIndexConfig, error) {
 	if len(class.VectorConfig) == 0 || (modelsext.ClassHasLegacyVectorIndex(class) && len(targetVectors) == 0) {
 		vectorIndexConfig, ok := class.VectorIndexConfig.(VectorIndexConfig)

@@ -15,6 +15,7 @@ import (
 	"errors"
 
 	"github.com/go-openapi/runtime/middleware"
+	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
@@ -161,11 +162,13 @@ func (s *backupHandlers) createBackupStatus(params backups.BackupsCreateStatusPa
 
 	strStatus := string(status.Status)
 	payload := models.BackupCreateStatusResponse{
-		Status:  &strStatus,
-		ID:      params.ID,
-		Path:    status.Path,
-		Backend: params.Backend,
-		Error:   status.Err,
+		Status:      &strStatus,
+		ID:          params.ID,
+		Path:        status.Path,
+		Backend:     params.Backend,
+		Error:       status.Err,
+		StartedAt:   strfmt.DateTime(status.StartedAt.UTC()),
+		CompletedAt: strfmt.DateTime(status.CompletedAt.UTC()),
 	}
 	s.metricRequestsTotal.logOk("")
 	return backups.NewBackupsCreateStatusOK().WithPayload(&payload)
@@ -199,7 +202,7 @@ func (s *backupHandlers) restoreBackup(params backups.BackupsRestoreParams,
 		Path:              path,
 		RbacRestoreOption: roleOption,
 		UserRestoreOption: userOption,
-	})
+	}, params.Body.OverwriteAlias)
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
 		s.logger.WithError(err).WithField("id", params.ID).
@@ -303,7 +306,8 @@ func (s *backupHandlers) list(params backups.BackupsListParams,
 	principal *models.Principal,
 ) middleware.Responder {
 	payload, err := s.manager.List(
-		params.HTTPRequest.Context(), principal, params.Backend)
+		params.HTTPRequest.Context(), principal, params.Backend, params.Order,
+	)
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
 		switch {

@@ -21,6 +21,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/weaviate/weaviate/usecases/auth/authentication"
+
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/weaviate/weaviate/adapters/clients"
@@ -59,7 +61,7 @@ type dynUserHandler struct {
 
 type DbUserAndRolesGetter interface {
 	apikey.DBUsers
-	GetRolesForUser(user string, userTypes models.UserTypeInput) (map[string][]authorization.Policy, error)
+	GetRolesForUserOrGroup(user string, authTyoes authentication.AuthType, isGroup bool) (map[string][]authorization.Policy, error)
 	RevokeRolesForUser(userName string, roles ...string) error
 }
 
@@ -162,7 +164,7 @@ func (h *dynUserHandler) listUsers(params users.ListAllUsersParams, principal *m
 }
 
 func (h *dynUserHandler) addToListAllResponse(response []*models.DBUserInfo, id, userType string, active bool, apiKeyFirstLetter string, createdAt *time.Time, lastusedAt *time.Time) ([]*models.DBUserInfo, error) {
-	roles, err := h.dbUsers.GetRolesForUser(id, models.UserTypeInputDb)
+	roles, err := h.dbUsers.GetRolesForUserOrGroup(id, authentication.AuthTypeDb, false)
 	if err != nil {
 		return response, err
 	}
@@ -232,7 +234,7 @@ func (h *dynUserHandler) getUser(params users.GetUserInfoParams, principal *mode
 	}
 	response.DbUserType = &userType
 
-	existingRoles, err := h.dbUsers.GetRolesForUser(params.UserID, models.UserTypeInputDb)
+	existingRoles, err := h.dbUsers.GetRolesForUserOrGroup(params.UserID, authentication.AuthTypeDb, false)
 	if err != nil {
 		return users.NewGetUserInfoInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("get roles: %w", err)))
 	}
@@ -267,11 +269,11 @@ func (h *dynUserHandler) getLastUsed(users []*apikey.User) map[string]time.Time 
 	for i, nodeName := range nodes {
 		i, nodeName := i, nodeName
 		enterrors.GoWrapper(func() {
+			defer wg.Done()
 			status, err := h.remoteUser.GetAndUpdateLastUsedTime(ctx, nodeName, usersWithTime, true)
 			if err == nil {
 				userStatuses[i] = status
 			}
-			wg.Done()
 		}, h.logger)
 	}
 	wg.Wait()
@@ -298,9 +300,9 @@ func (h *dynUserHandler) getLastUsed(users []*apikey.User) map[string]time.Time 
 		for _, nodeName := range nodes {
 			nodeName := nodeName
 			enterrors.GoWrapper(func() {
+				defer wg.Done()
 				// dont care about returns or errors
 				_, _ = h.remoteUser.GetAndUpdateLastUsedTime(ctx2, nodeName, usersWithTime, false)
-				wg.Done()
 			}, h.logger)
 		}
 		wg.Wait() // wait so cancelFunc2 is not executed too early
@@ -471,7 +473,7 @@ func (h *dynUserHandler) deleteUser(params users.DeleteUserParams, principal *mo
 		}
 		return users.NewDeleteUserNotFound()
 	}
-	roles, err := h.dbUsers.GetRolesForUser(params.UserID, models.UserTypeInputDb)
+	roles, err := h.dbUsers.GetRolesForUserOrGroup(params.UserID, authentication.AuthTypeDb, false)
 	if err != nil {
 		return users.NewDeleteUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
@@ -480,7 +482,7 @@ func (h *dynUserHandler) deleteUser(params users.DeleteUserParams, principal *mo
 		for name := range roles {
 			roleNames = append(roleNames, name)
 		}
-		if err := h.dbUsers.RevokeRolesForUser(conv.UserNameWithTypeFromId(params.UserID, models.UserTypeInputDb), roleNames...); err != nil {
+		if err := h.dbUsers.RevokeRolesForUser(conv.UserNameWithTypeFromId(params.UserID, authentication.AuthTypeDb), roleNames...); err != nil {
 			return users.NewDeleteUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 		}
 	}

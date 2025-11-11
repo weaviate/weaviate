@@ -42,10 +42,12 @@ import (
 
 	v0 "github.com/weaviate/weaviate/adapters/handlers/grpc/v0"
 	v1 "github.com/weaviate/weaviate/adapters/handlers/grpc/v1"
+	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/auth"
+	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/batch"
 )
 
 // CreateGRPCServer creates *grpc.Server with optional grpc.Serveroption passed.
-func CreateGRPCServer(state *state.State, options ...grpc.ServerOption) *grpc.Server {
+func CreateGRPCServer(state *state.State, options ...grpc.ServerOption) (*grpc.Server, batch.Drain) {
 	o := []grpc.ServerOption{
 		grpc.MaxRecvMsgSize(state.ServerConfig.Config.GRPC.MaxMsgSize),
 		grpc.MaxSendMsgSize(state.ServerConfig.Config.GRPC.MaxMsgSize),
@@ -95,9 +97,18 @@ func CreateGRPCServer(state *state.State, options ...grpc.ServerOption) *grpc.Se
 		o = append(o, grpc.ChainUnaryInterceptor(interceptors...))
 	}
 
+	allowAnonymous := state.ServerConfig.Config.Authentication.AnonymousAccess.Enabled
+	authComposer := composer.New(
+		state.ServerConfig.Config.Authentication,
+		state.APIKey,
+		state.OIDC,
+	)
+
+	o = append(o, grpc.ChainStreamInterceptor(makeAuthStreamInterceptor(auth.NewHandler(allowAnonymous, authComposer))))
+
 	s := grpc.NewServer(o...)
 	weaviateV0 := v0.NewService()
-	weaviateV1 := v1.NewService(
+	weaviateV1, drainBatch := v1.NewService(
 		state.Traverser,
 		composer.New(
 			state.ServerConfig.Config.Authentication,
@@ -112,12 +123,14 @@ func CreateGRPCServer(state *state.State, options ...grpc.ServerOption) *grpc.Se
 	pbv0.RegisterWeaviateServer(s, weaviateV0)
 	pbv1.RegisterWeaviateServer(s, weaviateV1)
 
-	weaviateV1FileReplicationService := v1.NewFileReplicationService(state.DB, state.ClusterService.SchemaReader())
-	pbv1.RegisterFileReplicationServiceServer(s, weaviateV1FileReplicationService)
+	if state.ServerConfig.Config.ReplicaMovementEnabled {
+		weaviateV1FileReplicationService := v1.NewFileReplicationService(state.DB, state.ClusterService.SchemaReader())
+		pbv1.RegisterFileReplicationServiceServer(s, weaviateV1FileReplicationService)
+	}
 
 	grpc_health_v1.RegisterHealthServer(s, weaviateV1)
 
-	return s
+	return s, drainBatch
 }
 
 func makeMetricsInterceptor(logger logrus.FieldLogger, metrics *monitoring.PrometheusMetrics) grpc.UnaryServerInterceptor {
@@ -167,6 +180,16 @@ func makeAuthInterceptor() grpc.UnaryServerInterceptor {
 		}
 
 		return resp, err
+	}
+}
+
+func makeAuthStreamInterceptor(auth *auth.Handler) grpc.StreamServerInterceptor {
+	return func(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+		_, err := auth.PrincipalFromContext(ss.Context())
+		if err != nil {
+			return status.Error(codes.Unauthenticated, err.Error())
+		}
+		return handler(srv, ss)
 	}
 }
 

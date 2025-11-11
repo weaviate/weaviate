@@ -41,7 +41,7 @@ type GetRoleParams struct {
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
-	/*role name
+	/*The name of the role.
 	  Required: true
 	  In: path
 	*/

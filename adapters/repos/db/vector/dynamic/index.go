@@ -39,17 +39,20 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	schemaconfig "github.com/weaviate/weaviate/entities/schema/config"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
-	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
-const composerUpgradedKey = "upgraded"
+const (
+	composerUpgradedKey = "upgraded"
+	batchSize           = 500
+)
 
 var dynamicBucket = []byte("dynamic")
 
 type Index interface {
 	// UnderlyingIndex returns the underlying index type (flat or hnsw)
 	UnderlyingIndex() common.IndexType
+	IsUpgraded() bool
 }
 
 type VectorIndex interface {
@@ -65,11 +68,12 @@ type VectorIndex interface {
 	Flush() error
 	SwitchCommitLogs(ctx context.Context) error
 	ListFiles(ctx context.Context, basePath string) ([]string, error)
-	PostStartup()
+	PostStartup(ctx context.Context)
 	Compressed() bool
 	Multivector() bool
 	ValidateBeforeInsert(vector []float32) error
 	ContainsDoc(docID uint64) bool
+	Preload(id uint64, vector []float32)
 	QueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer
 	// Iterate over all indexed document ids in the index.
 	// Consistency or order is not guaranteed, as the index may be concurrently modified.
@@ -104,7 +108,7 @@ type dynamic struct {
 	upgraded                     atomic.Bool
 	upgradeOnce                  sync.Once
 	tombstoneCallbacks           cyclemanager.CycleCallbackGroup
-	hnswUC                       hnswent.UserConfig
+	uc                           ent.UserConfig
 	db                           *bbolt.DB
 	ctx                          context.Context
 	cancel                       context.CancelFunc
@@ -112,7 +116,6 @@ type dynamic struct {
 	hnswSnapshotOnStartup        bool
 	hnswWaitForCachePrefill      bool
 	LazyLoadSegments             bool
-	flatBQ                       bool
 	WriteSegmentInfoIntoFileName bool
 	WriteMetadataFilesEnabled    bool
 }
@@ -163,7 +166,7 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 		store:                        store,
 		threshold:                    uc.Threshold,
 		tombstoneCallbacks:           cfg.TombstoneCallbacks,
-		hnswUC:                       uc.HnswUC,
+		uc:                           uc,
 		db:                           cfg.SharedDB,
 		ctx:                          ctx,
 		cancel:                       cancel,
@@ -171,34 +174,13 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 		hnswSnapshotOnStartup:        cfg.HNSWSnapshotOnStartup,
 		hnswWaitForCachePrefill:      cfg.HNSWWaitForCachePrefill,
 		LazyLoadSegments:             cfg.LazyLoadSegments,
-		flatBQ:                       uc.FlatUC.BQ.Enabled,
 		WriteSegmentInfoIntoFileName: cfg.WriteSegmentInfoIntoFileName,
 		WriteMetadataFilesEnabled:    cfg.WriteMetadataFilesEnabled,
 	}
 
-	err := cfg.SharedDB.Update(func(tx *bbolt.Tx) error {
-		_, err := tx.CreateBucketIfNotExists(dynamicBucket)
-		return err
-	})
+	upgraded, err := index.init(&cfg)
 	if err != nil {
-		return nil, errors.Wrap(err, "create dynamic bolt bucket")
-	}
-
-	upgraded := false
-
-	err = cfg.SharedDB.View(func(tx *bbolt.Tx) error {
-		b := tx.Bucket(dynamicBucket)
-
-		v := b.Get(index.dbKey())
-		if v == nil {
-			return nil
-		}
-
-		upgraded = v[0] != 0
-		return nil
-	})
-	if err != nil {
-		return nil, errors.Wrap(err, "get dynamic state")
+		return nil, err
 	}
 
 	if upgraded {
@@ -222,7 +204,7 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 				WriteSegmentInfoIntoFileName: cfg.WriteSegmentInfoIntoFileName,
 				WriteMetadataFilesEnabled:    cfg.WriteMetadataFilesEnabled,
 			},
-			index.hnswUC,
+			index.uc.HnswUC,
 			index.tombstoneCallbacks,
 			index.store,
 		)
@@ -247,7 +229,7 @@ func (dynamic *dynamic) Type() common.IndexType {
 
 func (dynamic *dynamic) dbKey() []byte {
 	var key []byte
-	if dynamic.targetVector == "fef" {
+	if dynamic.targetVector != "" {
 		key = make([]byte, 0, len(composerUpgradedKey)+len(dynamic.targetVector)+1)
 		key = append(key, composerUpgradedKey...)
 		key = append(key, '_')
@@ -267,11 +249,68 @@ func (dynamic *dynamic) getBucketName() string {
 	return helpers.VectorsBucketLSM
 }
 
-func (dynamic *dynamic) getCompressedBucketName() string {
-	if dynamic.targetVector != "" {
-		return fmt.Sprintf("%s_%s", helpers.VectorsCompressedBucketLSM, dynamic.targetVector)
+func (dynamic *dynamic) init(cfg *Config) (bool, error) {
+	upgraded := false
+
+	hnswDirExists := false
+	_, err := os.Stat(hnswCommitLogDirectory(cfg.RootPath, cfg.ID))
+	if err == nil {
+		hnswDirExists = true
 	}
-	return helpers.VectorsCompressedBucketLSM
+
+	dbKey := dynamic.dbKey()
+	err = cfg.SharedDB.Update(func(tx *bbolt.Tx) error {
+		b, err := tx.CreateBucketIfNotExists(dynamicBucket)
+		if err != nil {
+			return err
+		}
+
+		if cfg.TargetVector == "" {
+			v := b.Get(dbKey)
+			if v == nil {
+				return nil
+			}
+
+			upgraded = v[0] != 0
+			return nil
+		}
+
+		// a bug in earlier versions caused target vectors to all use the same key.
+		// this is a mitigation to preserve existing upgraded state and migrate to
+		// target-vector-specific keys going forward.
+
+		// first, check if there's an entry for this specific target vector
+		v := b.Get(dbKey)
+		if v != nil {
+			upgraded = v[0] != 0
+			return nil
+		}
+
+		// if not, let's create one by default
+		// and infer the upgraded state from the existence of the HNSW dir
+		if hnswDirExists {
+			err = b.Put(dbKey, []byte{1})
+		} else {
+			err = b.Put(dbKey, []byte{0})
+		}
+		if err != nil {
+			return errors.Wrap(err, "migrate dynamic state for target vector")
+		}
+
+		// if the HNSW dir exists, we assume it was upgraded
+		upgraded = hnswDirExists
+
+		return nil
+	})
+	if err != nil {
+		return false, errors.Wrap(err, "get dynamic state")
+	}
+
+	return upgraded, nil
+}
+
+func (dynamic *dynamic) getCompressedBucketName() string {
+	return helpers.GetCompressedBucketName(dynamic.targetVector)
 }
 
 func (dynamic *dynamic) Compressed() bool {
@@ -327,7 +366,7 @@ func (dynamic *dynamic) UpdateUserConfig(updated schemaconfig.VectorIndexConfig,
 		defer dynamic.RUnlock()
 		dynamic.index.UpdateUserConfig(parsed.HnswUC, callback)
 	} else {
-		dynamic.hnswUC = parsed.HnswUC
+		dynamic.uc = parsed
 		dynamic.RLock()
 		defer dynamic.RUnlock()
 		dynamic.index.UpdateUserConfig(parsed.FlatUC, callback)
@@ -373,9 +412,6 @@ func (dynamic *dynamic) Shutdown(ctx context.Context) error {
 	dynamic.Lock()
 	defer dynamic.Unlock()
 
-	if err := dynamic.db.Close(); err != nil {
-		return err
-	}
 	return dynamic.index.Shutdown(ctx)
 }
 
@@ -397,16 +433,22 @@ func (dynamic *dynamic) ValidateBeforeInsert(vector []float32) error {
 	return dynamic.index.ValidateBeforeInsert(vector)
 }
 
-func (dynamic *dynamic) PostStartup() {
+func (dynamic *dynamic) PostStartup(ctx context.Context) {
 	dynamic.Lock()
 	defer dynamic.Unlock()
-	dynamic.index.PostStartup()
+	dynamic.index.PostStartup(ctx)
 }
 
 func (dynamic *dynamic) ContainsDoc(docID uint64) bool {
 	dynamic.RLock()
 	defer dynamic.RUnlock()
 	return dynamic.index.ContainsDoc(docID)
+}
+
+func (dynamic *dynamic) Preload(id uint64, vector []float32) {
+	dynamic.RLock()
+	defer dynamic.RUnlock()
+	dynamic.index.Preload(id, vector)
 }
 
 func (dynamic *dynamic) AlreadyIndexed() uint64 {
@@ -456,12 +498,14 @@ func (dynamic *dynamic) Upgrade(callback func()) error {
 	dynamic.upgradeOnce.Do(func() {
 		enterrors.GoWrapper(func() {
 			defer callback()
+			dynamic.logger.WithField("shard", dynamic.shardName).WithField("class", dynamic.className).Debugf("upgrade to HNSW started")
 
 			err := dynamic.doUpgrade()
 			if err != nil {
 				dynamic.logger.WithError(err).Error("failed to upgrade index")
 				return
 			}
+			dynamic.logger.WithField("shard", dynamic.shardName).WithField("class", dynamic.className).Debugf("upgrade to HNSW completed")
 		}, dynamic.logger)
 	})
 
@@ -493,7 +537,7 @@ func (dynamic *dynamic) doUpgrade() error {
 			WriteSegmentInfoIntoFileName: dynamic.WriteSegmentInfoIntoFileName,
 			WriteMetadataFilesEnabled:    dynamic.WriteMetadataFilesEnabled,
 		},
-		dynamic.hnswUC,
+		dynamic.uc.HnswUC,
 		dynamic.tombstoneCallbacks,
 		dynamic.store,
 	)
@@ -502,30 +546,11 @@ func (dynamic *dynamic) doUpgrade() error {
 		return err
 	}
 
-	bucket := dynamic.store.Bucket(dynamic.getBucketName())
-
-	cursor := bucket.Cursor()
-
-	for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
-		if dynamic.ctx.Err() != nil {
-			cursor.Close()
-			// context was cancelled, stop processing
-			dynamic.RUnlock()
-			return dynamic.ctx.Err()
-		}
-
-		id := binary.BigEndian.Uint64(k)
-		vc := make([]float32, len(v)/4)
-		float32SliceFromByteSlice(v, vc)
-
-		err := index.Add(dynamic.ctx, id, vc)
-		if err != nil {
-			dynamic.logger.WithField("id", id).WithError(err).Error("failed to add vector")
-			continue
-		}
+	err = dynamic.copyToVectorIndex(index)
+	if err != nil {
+		dynamic.RUnlock()
+		return err
 	}
-
-	cursor.Close()
 
 	// end of read-only zone
 	dynamic.RUnlock()
@@ -562,7 +587,16 @@ func (dynamic *dynamic) doUpgrade() error {
 	if err != nil {
 		errs = append(errs, err)
 	}
-	if dynamic.flatBQ && !dynamic.hnswUC.BQ.Enabled {
+	// Due to the potential for a different quantizer using a different endianness
+	// we remove the bucket here if needed
+	removeCompressedBucket := false
+	if dynamic.uc.FlatUC.BQ.Enabled || dynamic.uc.FlatUC.RQ.Enabled {
+		if !dynamic.uc.HnswUC.BQ.Enabled && !dynamic.uc.HnswUC.RQ.Enabled {
+			removeCompressedBucket = true
+		}
+	}
+
+	if removeCompressedBucket {
 		bDir = dynamic.store.Bucket(dynamic.getCompressedBucketName()).GetDir()
 		err = dynamic.store.ShutdownBucket(dynamic.ctx, dynamic.getCompressedBucketName())
 		if err != nil {
@@ -575,6 +609,63 @@ func (dynamic *dynamic) doUpgrade() error {
 	}
 	if len(errs) > 0 {
 		dynamic.logger.Warn(simpleErrors.Join(errs...))
+	}
+
+	return nil
+}
+
+// Loop over the store and add each vector to the HNSW.
+// This can take a while, so we use short-lived cursors to not block
+// other operations on the KV store (e.g. flush)
+func (dynamic *dynamic) copyToVectorIndex(index VectorIndex) error {
+	bucket := dynamic.store.Bucket(dynamic.getBucketName())
+
+	var k, v []byte
+
+	var ids []uint64
+	var vectors [][]float32
+
+	for {
+		ids = ids[:0]
+		vectors = vectors[:0]
+
+		cursor := bucket.Cursor()
+
+		if len(k) == 0 {
+			k, v = cursor.First()
+		} else {
+			k, v = cursor.Seek(k)
+		}
+
+		var i int
+		for k != nil && i < batchSize {
+			if err := dynamic.ctx.Err(); err != nil {
+				cursor.Close()
+				// context was cancelled, stop processing
+				return err
+			}
+
+			id := binary.BigEndian.Uint64(k)
+			vc := make([]float32, len(v)/4)
+			float32SliceFromByteSlice(v, vc)
+
+			ids = append(ids, id)
+			vectors = append(vectors, vc)
+
+			k, v = cursor.Next()
+			i++
+		}
+
+		cursor.Close()
+
+		err := index.AddBatch(dynamic.ctx, ids, vectors)
+		if err != nil {
+			dynamic.logger.WithError(err).Error("failed to add vectors")
+		}
+
+		if k == nil {
+			break
+		}
 	}
 
 	return nil
@@ -618,6 +709,22 @@ func (dynamic *dynamic) UnderlyingIndex() common.IndexType {
 	dynamic.RLock()
 	defer dynamic.RUnlock()
 	return dynamic.index.Type()
+}
+
+func (dynamic *dynamic) IsUpgraded() bool {
+	dynamic.RLock()
+	defer dynamic.RUnlock()
+	return dynamic.upgraded.Load()
+}
+
+type DynamicStats struct{}
+
+func (s *DynamicStats) IndexType() common.IndexType {
+	return common.IndexTypeDynamic
+}
+
+func hnswCommitLogDirectory(rootPath, name string) string {
+	return fmt.Sprintf("%s/%s.hnsw.commitlog.d", rootPath, name)
 }
 
 // to make sure the dynamic index satisfies the Index interface

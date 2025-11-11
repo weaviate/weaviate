@@ -220,10 +220,10 @@ func (n *binarySearchNodeMulti) get(key []byte) ([]value, error) {
 func binarySearchNodeMultiFromRB(rbNode rbtree.Node) (bsNode *binarySearchNodeMulti) {
 	if rbNode == nil {
 		bsNode = nil
-		return
+		return bsNode
 	}
 	bsNode = rbNode.(*binarySearchNodeMulti)
-	return
+	return bsNode
 }
 
 // func (n *binarySearchNodeMulti) setTombstone(key []byte) {
@@ -271,6 +271,20 @@ func (n *binarySearchNodeMulti) flattenInOrder() []*binarySearchNodeMulti {
 		right = n.right.flattenInOrder()
 	}
 
-	right = append([]*binarySearchNodeMulti{n}, right...)
+	right = append([]*binarySearchNodeMulti{n.shallowCopy()}, right...)
 	return append(left, right...)
+}
+
+func (n *binarySearchNodeMulti) shallowCopy() *binarySearchNodeMulti {
+	var values []value
+	if ln := len(n.values); ln > 0 {
+		values = make([]value, ln)
+		copy(values, n.values)
+	}
+
+	return &binarySearchNodeMulti{
+		key:         n.key,
+		values:      values,
+		colourIsRed: n.colourIsRed,
+	}
 }

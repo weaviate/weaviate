@@ -170,6 +170,12 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		ReplicationGetCollectionShardingStateHandler: replication.GetCollectionShardingStateHandlerFunc(func(params replication.GetCollectionShardingStateParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation replication.GetCollectionShardingState has not yet been implemented")
 		}),
+		AuthzGetGroupsHandler: authz.GetGroupsHandlerFunc(func(params authz.GetGroupsParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation authz.GetGroups has not yet been implemented")
+		}),
+		AuthzGetGroupsForRoleHandler: authz.GetGroupsForRoleHandlerFunc(func(params authz.GetGroupsForRoleParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation authz.GetGroupsForRole has not yet been implemented")
+		}),
 		UsersGetOwnInfoHandler: users.GetOwnInfoHandlerFunc(func(params users.GetOwnInfoParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation users.GetOwnInfo has not yet been implemented")
 		}),
@@ -178,6 +184,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		}),
 		AuthzGetRolesHandler: authz.GetRolesHandlerFunc(func(params authz.GetRolesParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation authz.GetRoles has not yet been implemented")
+		}),
+		AuthzGetRolesForGroupHandler: authz.GetRolesForGroupHandlerFunc(func(params authz.GetRolesForGroupParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation authz.GetRolesForGroup has not yet been implemented")
 		}),
 		AuthzGetRolesForUserHandler: authz.GetRolesForUserHandlerFunc(func(params authz.GetRolesForUserParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation authz.GetRolesForUser has not yet been implemented")
@@ -353,22 +362,7 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 	}
 }
 
-/*
-WeaviateAPI # Introduction
-
-	Weaviate is an open source, AI-native vector database that helps developers create intuitive and reliable AI-powered applications.
-	### Base Path
-
-The base path for the Weaviate server is structured as `[YOUR-WEAVIATE-HOST]:[PORT]/v1`. As an example, if you wish to access the `schema` endpoint on a local instance, you would navigate to `http://localhost:8080/v1/schema`. Ensure you replace `[YOUR-WEAVIATE-HOST]` and `[PORT]` with your actual server host and port number respectively.
-
-	### Questions?
-
-If you have any comments or questions, please feel free to reach out to us at the community forum [https://forum.weaviate.io/](https://forum.weaviate.io/).
-### Issues?
-If you find a bug or want to file a feature request, please open an issue on our GitHub repository for [Weaviate](https://github.com/weaviate/weaviate).
-### Want more documentation?
-For a quickstart, code examples, concepts and more, please visit our [documentation page](https://weaviate.io/developers/weaviate).
-*/
+/*WeaviateAPI # Introduction<br/> Weaviate is an open source, AI-native vector database that helps developers create intuitive and reliable AI-powered applications. <br/> ### Base Path <br/>The base path for the Weaviate server is structured as `[YOUR-WEAVIATE-HOST]:[PORT]/v1`. As an example, if you wish to access the `schema` endpoint on a local instance, you would navigate to `http://localhost:8080/v1/schema`. Ensure you replace `[YOUR-WEAVIATE-HOST]` and `[PORT]` with your actual server host and port number respectively. <br/> ### Questions? <br/>If you have any comments or questions, please feel free to reach out to us at the community forum [https://forum.weaviate.io/](https://forum.weaviate.io/). <br/>### Issues? <br/>If you find a bug or want to file a feature request, please open an issue on our GitHub repository for [Weaviate](https://github.com/weaviate/weaviate). <br/>### Need more documentation? <br/>For a quickstart, code examples, concepts and more, please visit our [documentation page](https://docs.weaviate.io/weaviate). */
 type WeaviateAPI struct {
 	spec            *loads.Document
 	context         *middleware.Context
@@ -477,12 +471,18 @@ type WeaviateAPI struct {
 	ReplicationForceDeleteReplicationsHandler replication.ForceDeleteReplicationsHandler
 	// ReplicationGetCollectionShardingStateHandler sets the operation handler for the get collection sharding state operation
 	ReplicationGetCollectionShardingStateHandler replication.GetCollectionShardingStateHandler
+	// AuthzGetGroupsHandler sets the operation handler for the get groups operation
+	AuthzGetGroupsHandler authz.GetGroupsHandler
+	// AuthzGetGroupsForRoleHandler sets the operation handler for the get groups for role operation
+	AuthzGetGroupsForRoleHandler authz.GetGroupsForRoleHandler
 	// UsersGetOwnInfoHandler sets the operation handler for the get own info operation
 	UsersGetOwnInfoHandler users.GetOwnInfoHandler
 	// AuthzGetRoleHandler sets the operation handler for the get role operation
 	AuthzGetRoleHandler authz.GetRoleHandler
 	// AuthzGetRolesHandler sets the operation handler for the get roles operation
 	AuthzGetRolesHandler authz.GetRolesHandler
+	// AuthzGetRolesForGroupHandler sets the operation handler for the get roles for group operation
+	AuthzGetRolesForGroupHandler authz.GetRolesForGroupHandler
 	// AuthzGetRolesForUserHandler sets the operation handler for the get roles for user operation
 	AuthzGetRolesForUserHandler authz.GetRolesForUserHandler
 	// AuthzGetRolesForUserDeprecatedHandler sets the operation handler for the get roles for user deprecated operation
@@ -776,6 +776,12 @@ func (o *WeaviateAPI) Validate() error {
 	if o.ReplicationGetCollectionShardingStateHandler == nil {
 		unregistered = append(unregistered, "replication.GetCollectionShardingStateHandler")
 	}
+	if o.AuthzGetGroupsHandler == nil {
+		unregistered = append(unregistered, "authz.GetGroupsHandler")
+	}
+	if o.AuthzGetGroupsForRoleHandler == nil {
+		unregistered = append(unregistered, "authz.GetGroupsForRoleHandler")
+	}
 	if o.UsersGetOwnInfoHandler == nil {
 		unregistered = append(unregistered, "users.GetOwnInfoHandler")
 	}
@@ -784,6 +790,9 @@ func (o *WeaviateAPI) Validate() error {
 	}
 	if o.AuthzGetRolesHandler == nil {
 		unregistered = append(unregistered, "authz.GetRolesHandler")
+	}
+	if o.AuthzGetRolesForGroupHandler == nil {
+		unregistered = append(unregistered, "authz.GetRolesForGroupHandler")
 	}
 	if o.AuthzGetRolesForUserHandler == nil {
 		unregistered = append(unregistered, "authz.GetRolesForUserHandler")
@@ -1185,6 +1194,14 @@ func (o *WeaviateAPI) initHandlerCache() {
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
+	o.handlers["GET"]["/authz/groups/{groupType}"] = authz.NewGetGroups(o.context, o.AuthzGetGroupsHandler)
+	if o.handlers["GET"] == nil {
+		o.handlers["GET"] = make(map[string]http.Handler)
+	}
+	o.handlers["GET"]["/authz/roles/{id}/group-assignments"] = authz.NewGetGroupsForRole(o.context, o.AuthzGetGroupsForRoleHandler)
+	if o.handlers["GET"] == nil {
+		o.handlers["GET"] = make(map[string]http.Handler)
+	}
 	o.handlers["GET"]["/users/own-info"] = users.NewGetOwnInfo(o.context, o.UsersGetOwnInfoHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
@@ -1194,6 +1211,10 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
 	o.handlers["GET"]["/authz/roles"] = authz.NewGetRoles(o.context, o.AuthzGetRolesHandler)
+	if o.handlers["GET"] == nil {
+		o.handlers["GET"] = make(map[string]http.Handler)
+	}
+	o.handlers["GET"]["/authz/groups/{id}/roles/{groupType}"] = authz.NewGetRolesForGroup(o.context, o.AuthzGetRolesForGroupHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}

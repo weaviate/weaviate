@@ -45,9 +45,9 @@ func NewClassificationsPost(ctx *middleware.Context, handler ClassificationsPost
 /*
 	ClassificationsPost swagger:route POST /classifications/ classifications classificationsPost
 
-Starts a classification.
+# Start a classification
 
-Trigger a classification based on the specified params. Classifications will run in the background, use GET /classifications/<id> to retrieve the status of your classification.
+Initiates a background classification task based on the provided parameters. Use the GET /classifications/{id} endpoint to monitor the status and retrieve results.
 */
 type ClassificationsPost struct {
 	Context *middleware.Context

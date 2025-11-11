@@ -77,7 +77,7 @@ type AssignRoleToGroupParams struct {
 
 	/* ID.
 
-	   group name
+	   The name of the group.
 	*/
 	ID string
 

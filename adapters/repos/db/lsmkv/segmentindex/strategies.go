@@ -37,6 +37,8 @@ func (s Strategy) String() string {
 		return "roaringset"
 	case StrategyRoaringSetRange:
 		return "roaringsetrange"
+	case StrategyInverted:
+		return "inverted"
 	default:
 		return "n/a"
 	}
@@ -67,9 +69,9 @@ func CheckExpectedStrategy(strategy Strategy, expectedStrategies ...Strategy) er
 		return nil
 	}
 	if len(expectedStrategies) == 1 {
-		return fmt.Errorf("strategy %v expected, got %v", expectedStrategies[0], strategy)
+		return fmt.Errorf("strategy %s expected, got %s", expectedStrategies[0], strategy)
 	}
-	return fmt.Errorf("one of strategies %v expected, got %v", expectedStrategies, strategy)
+	return fmt.Errorf("one of strategies %s expected, got %s", expectedStrategies, strategy)
 }
 
 func MustBeExpectedStrategy(strategy Strategy, expectedStrategies ...Strategy) {

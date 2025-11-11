@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -31,12 +32,12 @@ func (s *Shard) initGeoProp(prop *models.Property) error {
 	s.index.cycleCallbacks.geoPropsTombstoneCleanupCycle.Start()
 
 	idx, err := geo.NewIndex(geo.Config{
-		ID:                 geoPropID(prop.Name),
-		RootPath:           s.path(),
-		CoordinatesForID:   s.makeCoordinatesForID(prop.Name),
-		DisablePersistence: false,
-		Logger:             s.index.logger,
-
+		ID:                                       geoPropID(prop.Name),
+		RootPath:                                 s.path(),
+		CoordinatesForID:                         s.makeCoordinatesForID(prop.Name),
+		DisablePersistence:                       false,
+		Logger:                                   s.index.logger,
+		HNSWEF:                                   s.index.Config.HNSWGeoIndexEF,
 		SnapshotDisabled:                         s.index.Config.HNSWDisableSnapshots,
 		SnapshotOnStartup:                        s.index.Config.HNSWSnapshotOnStartup,
 		SnapshotCreateInterval:                   time.Duration(s.index.Config.HNSWSnapshotIntervalSeconds) * time.Second,
@@ -58,7 +59,7 @@ func (s *Shard) initGeoProp(prop *models.Property) error {
 	}
 	s.propertyIndicesLock.Unlock()
 
-	idx.PostStartup()
+	idx.PostStartup(s.shutCtx)
 
 	return nil
 }
@@ -166,9 +167,22 @@ func (s *Shard) addToGeoIndex(ctx context.Context, propName string,
 		return nil
 	}
 
-	// geo coordinates is the only supported one at the moment
-	asGeo, ok := propValue.(*models.GeoCoordinates)
-	if !ok {
+	var asGeo *models.GeoCoordinates
+	switch val := propValue.(type) {
+	case map[string]any:
+		asGeoBytes, err := json.Marshal(val)
+		if err != nil {
+			return fmt.Errorf("adjust geo property type: marshal geo property map: %w", err)
+		}
+		var asGeoAdjusted models.GeoCoordinates
+		err = json.Unmarshal(asGeoBytes, &asGeoAdjusted)
+		if err != nil {
+			return fmt.Errorf("adjust geo property type: unmarshal geo property map: %w", err)
+		}
+		asGeo = &asGeoAdjusted
+	case *models.GeoCoordinates:
+		asGeo = val
+	default:
 		return fmt.Errorf("expected prop to be of type %T, but got: %T",
 			&models.GeoCoordinates{}, propValue)
 	}

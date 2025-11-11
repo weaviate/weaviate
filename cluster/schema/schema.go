@@ -19,6 +19,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/cenkalti/backoff/v4"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	command "github.com/weaviate/weaviate/cluster/proto/api"
@@ -33,6 +34,8 @@ var (
 	ErrClassExists   = errors.New("class already exists")
 	ErrClassNotFound = errors.New("class not found")
 	ErrShardNotFound = errors.New("shard not found")
+	ErrAliasExists   = errors.New("alias already exists")
+	ErrAliasNotFound = errors.New("alias not found")
 	ErrMTDisabled    = errors.New("multi-tenancy is not enabled")
 )
 
@@ -133,10 +136,14 @@ func (s *schema) MultiTenancy(class string) models.MultiTenancyConfig {
 }
 
 // Read performs a read operation `reader` on the specified class and sharding state
-func (s *schema) Read(class string, reader func(*models.Class, *sharding.State) error) error {
+func (s *schema) Read(class string, retryIfClassNotFound bool, reader func(*models.Class, *sharding.State) error) error {
 	meta := s.metaClass(class)
 	if meta == nil {
-		return ErrClassNotFound
+		if retryIfClassNotFound {
+			return ErrClassNotFound
+		} else {
+			return backoff.Permanent(ErrClassNotFound)
+		}
 	}
 	return meta.RLockGuard(reader)
 }
@@ -262,8 +269,9 @@ func (s *schema) CopyShardingState(class string) (*sharding.State, uint64) {
 	if meta == nil {
 		return nil, 0
 	}
+	shardingState := meta.Sharding.DeepCopy()
 
-	return meta.CopyShardingState()
+	return &shardingState, meta.version()
 }
 
 func (s *schema) GetShardsStatus(class, tenant string) (models.ShardStatusList, error) {
@@ -639,10 +647,10 @@ func (s *schema) createAlias(class, alias string) error {
 	defer s.mu.Unlock()
 
 	if s.unsafeAliasExists(alias) {
-		return fmt.Errorf("create alias: alias %s already exists", alias)
+		return fmt.Errorf("create alias: %s, %w", alias, ErrAliasExists)
 	}
 	if cls, _ := s.unsafeReadOnlyClass(class); cls == nil {
-		return fmt.Errorf("create alias: class %s does not exist", class)
+		return fmt.Errorf("create alias: %s, %w, %s", alias, ErrClassNotFound, class)
 	}
 	// trying to check if any class exists with passed 'alias' name
 	other, isAlias := s.unsafeClassEqual(alias)
@@ -692,6 +700,25 @@ func (s *schema) canonicalAlias(alias string) string {
 	}
 
 	return strings.ToUpper(string(alias[0])) + alias[1:]
+}
+
+func (s *schema) GetAliasesForClass(class string) []*models.Alias {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	res := make([]*models.Alias, 0)
+	if class == "" {
+		return res
+	}
+	for alias, className := range s.aliases {
+		if className == class {
+			res = append(res, &models.Alias{
+				Alias: alias,
+				Class: className,
+			})
+		}
+	}
+	return res
 }
 
 func (s *schema) getAliases(alias, class string) map[string]string {

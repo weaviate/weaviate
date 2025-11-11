@@ -74,10 +74,16 @@ TenantsUpdateParams contains all the parameters to send to the API endpoint
 */
 type TenantsUpdateParams struct {
 
-	// Body.
+	/* Body.
+
+	   An array of tenant objects specifying the tenants to update and their desired new status.
+	*/
 	Body []*models.Tenant
 
-	// ClassName.
+	/* ClassName.
+
+	   The name of the collection (class) containing the tenants.
+	*/
 	ClassName string
 
 	timeout    time.Duration

@@ -13,6 +13,7 @@ package storobj
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
@@ -304,8 +305,8 @@ func (pe *PropertyExtraction) Add(props ...string) *PropertyExtraction {
 }
 
 type bucket interface {
-	GetBySecondary(int, []byte) ([]byte, error)
-	GetBySecondaryWithBuffer(int, []byte, []byte) ([]byte, []byte, error)
+	GetBySecondary(context.Context, int, []byte) ([]byte, error)
+	GetBySecondaryWithBuffer(context.Context, int, []byte, []byte) ([]byte, []byte, error)
 }
 
 func ObjectsByDocID(bucket bucket, ids []uint64,
@@ -403,7 +404,7 @@ func objectsByDocIDSequential(bucket bucket, ids []uint64,
 
 	for _, id := range ids {
 		binary.LittleEndian.PutUint64(docIDBuf, id)
-		res, newBuf, err := bucket.GetBySecondaryWithBuffer(0, docIDBuf, lsmBuf)
+		res, newBuf, err := bucket.GetBySecondaryWithBuffer(context.TODO(), 0, docIDBuf, lsmBuf) // TODO: pass through context instead of spawning new one
 		if err != nil {
 			return nil, err
 		}

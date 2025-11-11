@@ -19,6 +19,8 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
+	"github.com/weaviate/weaviate/usecases/multitenancy"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
@@ -80,17 +82,16 @@ func (db *DB) init(ctx context.Context) error {
 				return fmt.Errorf("replication config: %w", err)
 			}
 
-			shardingState := db.schemaGetter.CopyShardingState(class.Class)
 			collection := schema.ClassName(class.Class).String()
-			multiTenancyEnabled := class.MultiTenancyConfig != nil && class.MultiTenancyConfig.Enabled
 			indexRouter := router.NewBuilder(
 				collection,
-				multiTenancyEnabled,
+				multitenancy.IsMultiTenant(class.MultiTenancyConfig),
 				db.nodeSelector,
 				db.schemaGetter,
 				db.schemaReader,
 				db.replicationFSM,
 			).Build()
+			shardResolver := resolver.NewShardResolver(collection, multitenancy.IsMultiTenant(class.MultiTenancyConfig), db.schemaGetter)
 			idx, err := NewIndex(ctx, IndexConfig{
 				ClassName:                                    schema.ClassName(class.Class),
 				RootPath:                                     db.config.RootPath,
@@ -134,16 +135,18 @@ func (db *DB) init(ctx context.Context) error {
 				HNSWWaitForCachePrefill:                      db.config.HNSWWaitForCachePrefill,
 				HNSWFlatSearchConcurrency:                    db.config.HNSWFlatSearchConcurrency,
 				HNSWAcornFilterRatio:                         db.config.HNSWAcornFilterRatio,
+				HNSWGeoIndexEF:                               db.config.HNSWGeoIndexEF,
 				VisitedListPoolMaxSize:                       db.config.VisitedListPoolMaxSize,
 				QuerySlowLogEnabled:                          db.config.QuerySlowLogEnabled,
 				QuerySlowLogThreshold:                        db.config.QuerySlowLogThreshold,
 				InvertedSorterDisabled:                       db.config.InvertedSorterDisabled,
 				MaintenanceModeEnabled:                       db.config.MaintenanceModeEnabled,
-			}, shardingState,
+				SPFreshEnabled:                               db.config.SPFreshEnabled,
+			},
 				inverted.ConfigFromModel(invertedConfig),
 				convertToVectorIndexConfig(class.VectorIndexConfig),
 				convertToVectorIndexConfigs(class.VectorConfig),
-				indexRouter, db.schemaGetter, db, db.logger, db.nodeResolver, db.remoteIndex,
+				indexRouter, shardResolver, db.schemaGetter, db.schemaReader, db, db.logger, db.nodeResolver, db.remoteIndex,
 				db.replicaClient, &db.config.Replication, db.promMetrics, class, db.jobQueueCh, db.scheduler, db.indexCheckpoints,
 				db.memMonitor, db.reindexer, db.bitmapBufPool)
 			if err != nil {
@@ -198,7 +201,7 @@ func (db *DB) migrateFileStructureIfNecessary() error {
 func (db *DB) migrateToHierarchicalFS() error {
 	before := time.Now()
 
-	if err := migratefs.MigrateToHierarchicalFS(db.config.RootPath, db.schemaGetter); err != nil {
+	if err := migratefs.MigrateToHierarchicalFS(db.config.RootPath, db.schemaReader); err != nil {
 		return err
 	}
 	db.logger.WithField("action", "hierarchical_fs_migration").

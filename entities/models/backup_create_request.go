@@ -24,7 +24,7 @@ import (
 	"github.com/go-openapi/swag"
 )
 
-// BackupCreateRequest Request body for creating a backup of a set of classes
+// BackupCreateRequest Request body for creating a backup for a set of collections.
 //
 // swagger:model BackupCreateRequest
 type BackupCreateRequest struct {

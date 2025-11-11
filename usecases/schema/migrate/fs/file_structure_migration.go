@@ -18,19 +18,23 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/weaviate/weaviate/entities/models"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	entschema "github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 const vectorIndexCommitLog = `hnsw.commitlog.d`
 
-func MigrateToHierarchicalFS(rootPath string, s schemaGetter) error {
+func MigrateToHierarchicalFS(rootPath string, s schemaReader) error {
 	root, err := os.ReadDir(rootPath)
 	if err != nil {
 		return fmt.Errorf("read source path %q: %w", rootPath, err)
 	}
-	fm := newFileMatcher(s, rootPath)
+	fm, err := newFileMatcher(s, rootPath)
+	if err != nil {
+		return fmt.Errorf("error while migrating to hierarchical fs: %w", err)
+	}
 	plan, err := assembleFSMigrationPlan(root, rootPath, fm)
 	if err != nil {
 		return err
@@ -107,20 +111,25 @@ func assembleFSMigrationPlan(entries []os.DirEntry, rootPath string, fm *fileMat
 				entry.Name(),
 				fmt.Sprintf("geo.%s.%s", csp.geoProp, vectorIndexCommitLog))
 		} else if ok, css := fm.isPqDir(entry); ok {
+			lowercaseClassName := strings.ToLower(entry.Name())
 			for _, cs := range css {
 				plan.append(cs.class, cs.shard,
-					path.Join(strings.ToLower(entry.Name()), cs.shard, "compressed_objects"),
-					path.Join("lsm", helpers.VectorsCompressedBucketLSM))
+					path.Join(lowercaseClassName, cs.shard, "compressed_objects"),
+					path.Join("lsm", helpers.GetCompressedBucketName(lowercaseClassName)))
 			}
 
 			// explicitly rename Class directory starting with uppercase to lowercase
 			// as MkdirAll will not create lowercased dir if uppercased one exists
 			oldClassRoot := path.Join(rootPath, entry.Name())
-			newClassRoot := path.Join(rootPath, strings.ToLower(entry.Name()))
+			newClassRoot := path.Join(rootPath, lowercaseClassName)
 			if err := os.Rename(oldClassRoot, newClassRoot); err != nil {
 				return nil, fmt.Errorf(
 					"rename pq index dir to avoid collision, old: %q, new: %q, err: %w",
 					oldClassRoot, newClassRoot, err)
+			}
+			if f, err := os.Open(filepath.Dir(newClassRoot)); err == nil {
+				f.Sync()
+				f.Close()
 			}
 		}
 	}
@@ -146,20 +155,24 @@ type fileMatcher struct {
 	classes             map[string][]*classShard
 }
 
-type schemaGetter interface {
-	CopyShardingState(class string) *sharding.State
-	GetSchemaSkipAuth() entschema.Schema
+type schemaReader interface {
+	Shards(class string) ([]string, error)
+	ReadOnlySchema() models.Schema
 }
 
-func newFileMatcher(schemaGetter schemaGetter, rootPath string) *fileMatcher {
+func newFileMatcher(schemaReader schemaReader, rootPath string) (*fileMatcher, error) {
 	shardLsmDirs := make(map[string]*classShard)
 	shardFilePrefixes := make(map[string]*classShard)
 	shardGeoDirPrefixes := make(map[string]*classShardGeoProp)
 	classes := make(map[string][]*classShard)
 
-	sch := schemaGetter.GetSchemaSkipAuth()
-	for _, class := range sch.Objects.Classes {
-		shards := schemaGetter.CopyShardingState(class.Class).AllLocalPhysicalShards()
+	schema := schemaReader.ReadOnlySchema()
+	for _, class := range schema.Classes {
+		className := class.Class
+		shards, err := schemaReader.Shards(className)
+		if err != nil {
+			return nil, fmt.Errorf("unable to retrieve shards for class %s", className)
+		}
 		lowercasedClass := strings.ToLower(class.Class)
 
 		var geoProps []string
@@ -189,7 +202,7 @@ func newFileMatcher(schemaGetter schemaGetter, rootPath string) *fileMatcher {
 		shardFilePrefixes:   shardFilePrefixes,
 		shardGeoDirPrefixes: shardGeoDirPrefixes,
 		classes:             classes,
-	}
+	}, nil
 }
 
 // Checks if entry is directory with name (class is lowercased):

@@ -168,7 +168,7 @@ func (o *DeleteUserForbidden) WriteResponse(rw http.ResponseWriter, producer run
 const DeleteUserNotFoundCode int = 404
 
 /*
-DeleteUserNotFound user not found
+DeleteUserNotFound User not found.
 
 swagger:response deleteUserNotFound
 */
@@ -193,7 +193,7 @@ func (o *DeleteUserNotFound) WriteResponse(rw http.ResponseWriter, producer runt
 const DeleteUserUnprocessableEntityCode int = 422
 
 /*
-DeleteUserUnprocessableEntity Request body is well-formed (i.e., syntactically correct), but semantically erroneous.
+DeleteUserUnprocessableEntity The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.
 
 swagger:response deleteUserUnprocessableEntity
 */

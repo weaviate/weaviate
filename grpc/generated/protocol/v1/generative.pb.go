@@ -5,6 +5,7 @@ package protocol
 import (
 	reflect "reflect"
 	sync "sync"
+	unsafe "unsafe"
 
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
@@ -17,11 +18,115 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-type GenerativeSearch struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
-	unknownFields protoimpl.UnknownFields
+type GenerativeOpenAI_ReasoningEffort int32
 
+const (
+	GenerativeOpenAI_REASONING_EFFORT_UNSPECIFIED GenerativeOpenAI_ReasoningEffort = 0
+	GenerativeOpenAI_REASONING_EFFORT_MINIMAL     GenerativeOpenAI_ReasoningEffort = 1
+	GenerativeOpenAI_REASONING_EFFORT_LOW         GenerativeOpenAI_ReasoningEffort = 2
+	GenerativeOpenAI_REASONING_EFFORT_MEDIUM      GenerativeOpenAI_ReasoningEffort = 3
+	GenerativeOpenAI_REASONING_EFFORT_HIGH        GenerativeOpenAI_ReasoningEffort = 4
+)
+
+// Enum value maps for GenerativeOpenAI_ReasoningEffort.
+var (
+	GenerativeOpenAI_ReasoningEffort_name = map[int32]string{
+		0: "REASONING_EFFORT_UNSPECIFIED",
+		1: "REASONING_EFFORT_MINIMAL",
+		2: "REASONING_EFFORT_LOW",
+		3: "REASONING_EFFORT_MEDIUM",
+		4: "REASONING_EFFORT_HIGH",
+	}
+	GenerativeOpenAI_ReasoningEffort_value = map[string]int32{
+		"REASONING_EFFORT_UNSPECIFIED": 0,
+		"REASONING_EFFORT_MINIMAL":     1,
+		"REASONING_EFFORT_LOW":         2,
+		"REASONING_EFFORT_MEDIUM":      3,
+		"REASONING_EFFORT_HIGH":        4,
+	}
+)
+
+func (x GenerativeOpenAI_ReasoningEffort) Enum() *GenerativeOpenAI_ReasoningEffort {
+	p := new(GenerativeOpenAI_ReasoningEffort)
+	*p = x
+	return p
+}
+
+func (x GenerativeOpenAI_ReasoningEffort) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (GenerativeOpenAI_ReasoningEffort) Descriptor() protoreflect.EnumDescriptor {
+	return file_v1_generative_proto_enumTypes[0].Descriptor()
+}
+
+func (GenerativeOpenAI_ReasoningEffort) Type() protoreflect.EnumType {
+	return &file_v1_generative_proto_enumTypes[0]
+}
+
+func (x GenerativeOpenAI_ReasoningEffort) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use GenerativeOpenAI_ReasoningEffort.Descriptor instead.
+func (GenerativeOpenAI_ReasoningEffort) EnumDescriptor() ([]byte, []int) {
+	return file_v1_generative_proto_rawDescGZIP(), []int{9, 0}
+}
+
+type GenerativeOpenAI_Verbosity int32
+
+const (
+	GenerativeOpenAI_VERBOSITY_UNSPECIFIED GenerativeOpenAI_Verbosity = 0
+	GenerativeOpenAI_VERBOSITY_LOW         GenerativeOpenAI_Verbosity = 1
+	GenerativeOpenAI_VERBOSITY_MEDIUM      GenerativeOpenAI_Verbosity = 2
+	GenerativeOpenAI_VERBOSITY_HIGH        GenerativeOpenAI_Verbosity = 3
+)
+
+// Enum value maps for GenerativeOpenAI_Verbosity.
+var (
+	GenerativeOpenAI_Verbosity_name = map[int32]string{
+		0: "VERBOSITY_UNSPECIFIED",
+		1: "VERBOSITY_LOW",
+		2: "VERBOSITY_MEDIUM",
+		3: "VERBOSITY_HIGH",
+	}
+	GenerativeOpenAI_Verbosity_value = map[string]int32{
+		"VERBOSITY_UNSPECIFIED": 0,
+		"VERBOSITY_LOW":         1,
+		"VERBOSITY_MEDIUM":      2,
+		"VERBOSITY_HIGH":        3,
+	}
+)
+
+func (x GenerativeOpenAI_Verbosity) Enum() *GenerativeOpenAI_Verbosity {
+	p := new(GenerativeOpenAI_Verbosity)
+	*p = x
+	return p
+}
+
+func (x GenerativeOpenAI_Verbosity) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (GenerativeOpenAI_Verbosity) Descriptor() protoreflect.EnumDescriptor {
+	return file_v1_generative_proto_enumTypes[1].Descriptor()
+}
+
+func (GenerativeOpenAI_Verbosity) Type() protoreflect.EnumType {
+	return &file_v1_generative_proto_enumTypes[1]
+}
+
+func (x GenerativeOpenAI_Verbosity) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use GenerativeOpenAI_Verbosity.Descriptor instead.
+func (GenerativeOpenAI_Verbosity) EnumDescriptor() ([]byte, []int) {
+	return file_v1_generative_proto_rawDescGZIP(), []int{9, 1}
+}
+
+type GenerativeSearch struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
 	// Deprecated: Marked as deprecated in v1/generative.proto.
 	SingleResponsePrompt string `protobuf:"bytes,1,opt,name=single_response_prompt,json=singleResponsePrompt,proto3" json:"single_response_prompt,omitempty"`
 	// Deprecated: Marked as deprecated in v1/generative.proto.
@@ -30,15 +135,15 @@ type GenerativeSearch struct {
 	GroupedProperties []string                  `protobuf:"bytes,3,rep,name=grouped_properties,json=groupedProperties,proto3" json:"grouped_properties,omitempty"`
 	Single            *GenerativeSearch_Single  `protobuf:"bytes,4,opt,name=single,proto3" json:"single,omitempty"`
 	Grouped           *GenerativeSearch_Grouped `protobuf:"bytes,5,opt,name=grouped,proto3" json:"grouped,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *GenerativeSearch) Reset() {
 	*x = GenerativeSearch{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_generative_proto_msgTypes[0]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_v1_generative_proto_msgTypes[0]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *GenerativeSearch) String() string {
@@ -49,7 +154,7 @@ func (*GenerativeSearch) ProtoMessage() {}
 
 func (x *GenerativeSearch) ProtoReflect() protoreflect.Message {
 	mi := &file_v1_generative_proto_msgTypes[0]
-	if protoimpl.UnsafeEnabled && x != nil {
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -103,12 +208,9 @@ func (x *GenerativeSearch) GetGrouped() *GenerativeSearch_Grouped {
 }
 
 type GenerativeProvider struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
-	unknownFields protoimpl.UnknownFields
-
-	ReturnMetadata bool `protobuf:"varint,1,opt,name=return_metadata,json=returnMetadata,proto3" json:"return_metadata,omitempty"`
-	// Types that are assignable to Kind:
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	ReturnMetadata bool                   `protobuf:"varint,1,opt,name=return_metadata,json=returnMetadata,proto3" json:"return_metadata,omitempty"`
+	// Types that are valid to be assigned to Kind:
 	//
 	//	*GenerativeProvider_Anthropic
 	//	*GenerativeProvider_Anyscale
@@ -123,16 +225,17 @@ type GenerativeProvider struct {
 	//	*GenerativeProvider_Friendliai
 	//	*GenerativeProvider_Nvidia
 	//	*GenerativeProvider_Xai
-	Kind isGenerativeProvider_Kind `protobuf_oneof:"kind"`
+	//	*GenerativeProvider_Contextualai
+	Kind          isGenerativeProvider_Kind `protobuf_oneof:"kind"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *GenerativeProvider) Reset() {
 	*x = GenerativeProvider{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_generative_proto_msgTypes[1]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_v1_generative_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *GenerativeProvider) String() string {
@@ -143,7 +246,7 @@ func (*GenerativeProvider) ProtoMessage() {}
 
 func (x *GenerativeProvider) ProtoReflect() protoreflect.Message {
 	mi := &file_v1_generative_proto_msgTypes[1]
-	if protoimpl.UnsafeEnabled && x != nil {
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -165,100 +268,135 @@ func (x *GenerativeProvider) GetReturnMetadata() bool {
 	return false
 }
 
-func (m *GenerativeProvider) GetKind() isGenerativeProvider_Kind {
-	if m != nil {
-		return m.Kind
+func (x *GenerativeProvider) GetKind() isGenerativeProvider_Kind {
+	if x != nil {
+		return x.Kind
 	}
 	return nil
 }
 
 func (x *GenerativeProvider) GetAnthropic() *GenerativeAnthropic {
-	if x, ok := x.GetKind().(*GenerativeProvider_Anthropic); ok {
-		return x.Anthropic
+	if x != nil {
+		if x, ok := x.Kind.(*GenerativeProvider_Anthropic); ok {
+			return x.Anthropic
+		}
 	}
 	return nil
 }
 
 func (x *GenerativeProvider) GetAnyscale() *GenerativeAnyscale {
-	if x, ok := x.GetKind().(*GenerativeProvider_Anyscale); ok {
-		return x.Anyscale
+	if x != nil {
+		if x, ok := x.Kind.(*GenerativeProvider_Anyscale); ok {
+			return x.Anyscale
+		}
 	}
 	return nil
 }
 
 func (x *GenerativeProvider) GetAws() *GenerativeAWS {
-	if x, ok := x.GetKind().(*GenerativeProvider_Aws); ok {
-		return x.Aws
+	if x != nil {
+		if x, ok := x.Kind.(*GenerativeProvider_Aws); ok {
+			return x.Aws
+		}
 	}
 	return nil
 }
 
 func (x *GenerativeProvider) GetCohere() *GenerativeCohere {
-	if x, ok := x.GetKind().(*GenerativeProvider_Cohere); ok {
-		return x.Cohere
+	if x != nil {
+		if x, ok := x.Kind.(*GenerativeProvider_Cohere); ok {
+			return x.Cohere
+		}
 	}
 	return nil
 }
 
 func (x *GenerativeProvider) GetDummy() *GenerativeDummy {
-	if x, ok := x.GetKind().(*GenerativeProvider_Dummy); ok {
-		return x.Dummy
+	if x != nil {
+		if x, ok := x.Kind.(*GenerativeProvider_Dummy); ok {
+			return x.Dummy
+		}
 	}
 	return nil
 }
 
 func (x *GenerativeProvider) GetMistral() *GenerativeMistral {
-	if x, ok := x.GetKind().(*GenerativeProvider_Mistral); ok {
-		return x.Mistral
+	if x != nil {
+		if x, ok := x.Kind.(*GenerativeProvider_Mistral); ok {
+			return x.Mistral
+		}
 	}
 	return nil
 }
 
 func (x *GenerativeProvider) GetOllama() *GenerativeOllama {
-	if x, ok := x.GetKind().(*GenerativeProvider_Ollama); ok {
-		return x.Ollama
+	if x != nil {
+		if x, ok := x.Kind.(*GenerativeProvider_Ollama); ok {
+			return x.Ollama
+		}
 	}
 	return nil
 }
 
 func (x *GenerativeProvider) GetOpenai() *GenerativeOpenAI {
-	if x, ok := x.GetKind().(*GenerativeProvider_Openai); ok {
-		return x.Openai
+	if x != nil {
+		if x, ok := x.Kind.(*GenerativeProvider_Openai); ok {
+			return x.Openai
+		}
 	}
 	return nil
 }
 
 func (x *GenerativeProvider) GetGoogle() *GenerativeGoogle {
-	if x, ok := x.GetKind().(*GenerativeProvider_Google); ok {
-		return x.Google
+	if x != nil {
+		if x, ok := x.Kind.(*GenerativeProvider_Google); ok {
+			return x.Google
+		}
 	}
 	return nil
 }
 
 func (x *GenerativeProvider) GetDatabricks() *GenerativeDatabricks {
-	if x, ok := x.GetKind().(*GenerativeProvider_Databricks); ok {
-		return x.Databricks
+	if x != nil {
+		if x, ok := x.Kind.(*GenerativeProvider_Databricks); ok {
+			return x.Databricks
+		}
 	}
 	return nil
 }
 
 func (x *GenerativeProvider) GetFriendliai() *GenerativeFriendliAI {
-	if x, ok := x.GetKind().(*GenerativeProvider_Friendliai); ok {
-		return x.Friendliai
+	if x != nil {
+		if x, ok := x.Kind.(*GenerativeProvider_Friendliai); ok {
+			return x.Friendliai
+		}
 	}
 	return nil
 }
 
 func (x *GenerativeProvider) GetNvidia() *GenerativeNvidia {
-	if x, ok := x.GetKind().(*GenerativeProvider_Nvidia); ok {
-		return x.Nvidia
+	if x != nil {
+		if x, ok := x.Kind.(*GenerativeProvider_Nvidia); ok {
+			return x.Nvidia
+		}
 	}
 	return nil
 }
 
 func (x *GenerativeProvider) GetXai() *GenerativeXAI {
-	if x, ok := x.GetKind().(*GenerativeProvider_Xai); ok {
-		return x.Xai
+	if x != nil {
+		if x, ok := x.Kind.(*GenerativeProvider_Xai); ok {
+			return x.Xai
+		}
+	}
+	return nil
+}
+
+func (x *GenerativeProvider) GetContextualai() *GenerativeContextualAI {
+	if x != nil {
+		if x, ok := x.Kind.(*GenerativeProvider_Contextualai); ok {
+			return x.Contextualai
+		}
 	}
 	return nil
 }
@@ -319,6 +457,10 @@ type GenerativeProvider_Xai struct {
 	Xai *GenerativeXAI `protobuf:"bytes,14,opt,name=xai,proto3,oneof"`
 }
 
+type GenerativeProvider_Contextualai struct {
+	Contextualai *GenerativeContextualAI `protobuf:"bytes,15,opt,name=contextualai,proto3,oneof"`
+}
+
 func (*GenerativeProvider_Anthropic) isGenerativeProvider_Kind() {}
 
 func (*GenerativeProvider_Anyscale) isGenerativeProvider_Kind() {}
@@ -345,29 +487,28 @@ func (*GenerativeProvider_Nvidia) isGenerativeProvider_Kind() {}
 
 func (*GenerativeProvider_Xai) isGenerativeProvider_Kind() {}
 
-type GenerativeAnthropic struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
-	unknownFields protoimpl.UnknownFields
+func (*GenerativeProvider_Contextualai) isGenerativeProvider_Kind() {}
 
-	BaseUrl         *string    `protobuf:"bytes,1,opt,name=base_url,json=baseUrl,proto3,oneof" json:"base_url,omitempty"`
-	MaxTokens       *int64     `protobuf:"varint,2,opt,name=max_tokens,json=maxTokens,proto3,oneof" json:"max_tokens,omitempty"`
-	Model           *string    `protobuf:"bytes,3,opt,name=model,proto3,oneof" json:"model,omitempty"`
-	Temperature     *float64   `protobuf:"fixed64,4,opt,name=temperature,proto3,oneof" json:"temperature,omitempty"`
-	TopK            *int64     `protobuf:"varint,5,opt,name=top_k,json=topK,proto3,oneof" json:"top_k,omitempty"`
-	TopP            *float64   `protobuf:"fixed64,6,opt,name=top_p,json=topP,proto3,oneof" json:"top_p,omitempty"`
-	StopSequences   *TextArray `protobuf:"bytes,7,opt,name=stop_sequences,json=stopSequences,proto3,oneof" json:"stop_sequences,omitempty"`
-	Images          *TextArray `protobuf:"bytes,8,opt,name=images,proto3,oneof" json:"images,omitempty"`
-	ImageProperties *TextArray `protobuf:"bytes,9,opt,name=image_properties,json=imageProperties,proto3,oneof" json:"image_properties,omitempty"`
+type GenerativeAnthropic struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	BaseUrl         *string                `protobuf:"bytes,1,opt,name=base_url,json=baseUrl,proto3,oneof" json:"base_url,omitempty"`
+	MaxTokens       *int64                 `protobuf:"varint,2,opt,name=max_tokens,json=maxTokens,proto3,oneof" json:"max_tokens,omitempty"`
+	Model           *string                `protobuf:"bytes,3,opt,name=model,proto3,oneof" json:"model,omitempty"`
+	Temperature     *float64               `protobuf:"fixed64,4,opt,name=temperature,proto3,oneof" json:"temperature,omitempty"`
+	TopK            *int64                 `protobuf:"varint,5,opt,name=top_k,json=topK,proto3,oneof" json:"top_k,omitempty"`
+	TopP            *float64               `protobuf:"fixed64,6,opt,name=top_p,json=topP,proto3,oneof" json:"top_p,omitempty"`
+	StopSequences   *TextArray             `protobuf:"bytes,7,opt,name=stop_sequences,json=stopSequences,proto3,oneof" json:"stop_sequences,omitempty"`
+	Images          *TextArray             `protobuf:"bytes,8,opt,name=images,proto3,oneof" json:"images,omitempty"`
+	ImageProperties *TextArray             `protobuf:"bytes,9,opt,name=image_properties,json=imageProperties,proto3,oneof" json:"image_properties,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *GenerativeAnthropic) Reset() {
 	*x = GenerativeAnthropic{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_generative_proto_msgTypes[2]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_v1_generative_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *GenerativeAnthropic) String() string {
@@ -378,7 +519,7 @@ func (*GenerativeAnthropic) ProtoMessage() {}
 
 func (x *GenerativeAnthropic) ProtoReflect() protoreflect.Message {
 	mi := &file_v1_generative_proto_msgTypes[2]
-	if protoimpl.UnsafeEnabled && x != nil {
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -457,22 +598,19 @@ func (x *GenerativeAnthropic) GetImageProperties() *TextArray {
 }
 
 type GenerativeAnyscale struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	BaseUrl       *string                `protobuf:"bytes,1,opt,name=base_url,json=baseUrl,proto3,oneof" json:"base_url,omitempty"`
+	Model         *string                `protobuf:"bytes,2,opt,name=model,proto3,oneof" json:"model,omitempty"`
+	Temperature   *float64               `protobuf:"fixed64,3,opt,name=temperature,proto3,oneof" json:"temperature,omitempty"`
 	unknownFields protoimpl.UnknownFields
-
-	BaseUrl     *string  `protobuf:"bytes,1,opt,name=base_url,json=baseUrl,proto3,oneof" json:"base_url,omitempty"`
-	Model       *string  `protobuf:"bytes,2,opt,name=model,proto3,oneof" json:"model,omitempty"`
-	Temperature *float64 `protobuf:"fixed64,3,opt,name=temperature,proto3,oneof" json:"temperature,omitempty"`
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *GenerativeAnyscale) Reset() {
 	*x = GenerativeAnyscale{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_generative_proto_msgTypes[3]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_v1_generative_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *GenerativeAnyscale) String() string {
@@ -483,7 +621,7 @@ func (*GenerativeAnyscale) ProtoMessage() {}
 
 func (x *GenerativeAnyscale) ProtoReflect() protoreflect.Message {
 	mi := &file_v1_generative_proto_msgTypes[3]
-	if protoimpl.UnsafeEnabled && x != nil {
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -520,28 +658,26 @@ func (x *GenerativeAnyscale) GetTemperature() float64 {
 }
 
 type GenerativeAWS struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
-	unknownFields protoimpl.UnknownFields
-
-	Model           *string    `protobuf:"bytes,3,opt,name=model,proto3,oneof" json:"model,omitempty"`
-	Temperature     *float64   `protobuf:"fixed64,8,opt,name=temperature,proto3,oneof" json:"temperature,omitempty"`
-	Service         *string    `protobuf:"bytes,9,opt,name=service,proto3,oneof" json:"service,omitempty"`
-	Region          *string    `protobuf:"bytes,10,opt,name=region,proto3,oneof" json:"region,omitempty"`
-	Endpoint        *string    `protobuf:"bytes,11,opt,name=endpoint,proto3,oneof" json:"endpoint,omitempty"`
-	TargetModel     *string    `protobuf:"bytes,12,opt,name=target_model,json=targetModel,proto3,oneof" json:"target_model,omitempty"`
-	TargetVariant   *string    `protobuf:"bytes,13,opt,name=target_variant,json=targetVariant,proto3,oneof" json:"target_variant,omitempty"`
-	Images          *TextArray `protobuf:"bytes,14,opt,name=images,proto3,oneof" json:"images,omitempty"`
-	ImageProperties *TextArray `protobuf:"bytes,15,opt,name=image_properties,json=imageProperties,proto3,oneof" json:"image_properties,omitempty"`
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Model           *string                `protobuf:"bytes,3,opt,name=model,proto3,oneof" json:"model,omitempty"`
+	Temperature     *float64               `protobuf:"fixed64,8,opt,name=temperature,proto3,oneof" json:"temperature,omitempty"`
+	Service         *string                `protobuf:"bytes,9,opt,name=service,proto3,oneof" json:"service,omitempty"`
+	Region          *string                `protobuf:"bytes,10,opt,name=region,proto3,oneof" json:"region,omitempty"`
+	Endpoint        *string                `protobuf:"bytes,11,opt,name=endpoint,proto3,oneof" json:"endpoint,omitempty"`
+	TargetModel     *string                `protobuf:"bytes,12,opt,name=target_model,json=targetModel,proto3,oneof" json:"target_model,omitempty"`
+	TargetVariant   *string                `protobuf:"bytes,13,opt,name=target_variant,json=targetVariant,proto3,oneof" json:"target_variant,omitempty"`
+	Images          *TextArray             `protobuf:"bytes,14,opt,name=images,proto3,oneof" json:"images,omitempty"`
+	ImageProperties *TextArray             `protobuf:"bytes,15,opt,name=image_properties,json=imageProperties,proto3,oneof" json:"image_properties,omitempty"`
+	MaxTokens       *int64                 `protobuf:"varint,16,opt,name=max_tokens,json=maxTokens,proto3,oneof" json:"max_tokens,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *GenerativeAWS) Reset() {
 	*x = GenerativeAWS{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_generative_proto_msgTypes[4]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_v1_generative_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *GenerativeAWS) String() string {
@@ -552,7 +688,7 @@ func (*GenerativeAWS) ProtoMessage() {}
 
 func (x *GenerativeAWS) ProtoReflect() protoreflect.Message {
 	mi := &file_v1_generative_proto_msgTypes[4]
-	if protoimpl.UnsafeEnabled && x != nil {
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -630,29 +766,35 @@ func (x *GenerativeAWS) GetImageProperties() *TextArray {
 	return nil
 }
 
-type GenerativeCohere struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
-	unknownFields protoimpl.UnknownFields
+func (x *GenerativeAWS) GetMaxTokens() int64 {
+	if x != nil && x.MaxTokens != nil {
+		return *x.MaxTokens
+	}
+	return 0
+}
 
-	BaseUrl          *string    `protobuf:"bytes,1,opt,name=base_url,json=baseUrl,proto3,oneof" json:"base_url,omitempty"`
-	FrequencyPenalty *float64   `protobuf:"fixed64,2,opt,name=frequency_penalty,json=frequencyPenalty,proto3,oneof" json:"frequency_penalty,omitempty"`
-	MaxTokens        *int64     `protobuf:"varint,3,opt,name=max_tokens,json=maxTokens,proto3,oneof" json:"max_tokens,omitempty"`
-	Model            *string    `protobuf:"bytes,4,opt,name=model,proto3,oneof" json:"model,omitempty"`
-	K                *int64     `protobuf:"varint,5,opt,name=k,proto3,oneof" json:"k,omitempty"`
-	P                *float64   `protobuf:"fixed64,6,opt,name=p,proto3,oneof" json:"p,omitempty"`
-	PresencePenalty  *float64   `protobuf:"fixed64,7,opt,name=presence_penalty,json=presencePenalty,proto3,oneof" json:"presence_penalty,omitempty"`
-	StopSequences    *TextArray `protobuf:"bytes,8,opt,name=stop_sequences,json=stopSequences,proto3,oneof" json:"stop_sequences,omitempty"`
-	Temperature      *float64   `protobuf:"fixed64,9,opt,name=temperature,proto3,oneof" json:"temperature,omitempty"`
+type GenerativeCohere struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	BaseUrl          *string                `protobuf:"bytes,1,opt,name=base_url,json=baseUrl,proto3,oneof" json:"base_url,omitempty"`
+	FrequencyPenalty *float64               `protobuf:"fixed64,2,opt,name=frequency_penalty,json=frequencyPenalty,proto3,oneof" json:"frequency_penalty,omitempty"`
+	MaxTokens        *int64                 `protobuf:"varint,3,opt,name=max_tokens,json=maxTokens,proto3,oneof" json:"max_tokens,omitempty"`
+	Model            *string                `protobuf:"bytes,4,opt,name=model,proto3,oneof" json:"model,omitempty"`
+	K                *int64                 `protobuf:"varint,5,opt,name=k,proto3,oneof" json:"k,omitempty"`
+	P                *float64               `protobuf:"fixed64,6,opt,name=p,proto3,oneof" json:"p,omitempty"`
+	PresencePenalty  *float64               `protobuf:"fixed64,7,opt,name=presence_penalty,json=presencePenalty,proto3,oneof" json:"presence_penalty,omitempty"`
+	StopSequences    *TextArray             `protobuf:"bytes,8,opt,name=stop_sequences,json=stopSequences,proto3,oneof" json:"stop_sequences,omitempty"`
+	Temperature      *float64               `protobuf:"fixed64,9,opt,name=temperature,proto3,oneof" json:"temperature,omitempty"`
+	Images           *TextArray             `protobuf:"bytes,10,opt,name=images,proto3,oneof" json:"images,omitempty"`
+	ImageProperties  *TextArray             `protobuf:"bytes,11,opt,name=image_properties,json=imageProperties,proto3,oneof" json:"image_properties,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *GenerativeCohere) Reset() {
 	*x = GenerativeCohere{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_generative_proto_msgTypes[5]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_v1_generative_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *GenerativeCohere) String() string {
@@ -663,7 +805,7 @@ func (*GenerativeCohere) ProtoMessage() {}
 
 func (x *GenerativeCohere) ProtoReflect() protoreflect.Message {
 	mi := &file_v1_generative_proto_msgTypes[5]
-	if protoimpl.UnsafeEnabled && x != nil {
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -741,19 +883,31 @@ func (x *GenerativeCohere) GetTemperature() float64 {
 	return 0
 }
 
+func (x *GenerativeCohere) GetImages() *TextArray {
+	if x != nil {
+		return x.Images
+	}
+	return nil
+}
+
+func (x *GenerativeCohere) GetImageProperties() *TextArray {
+	if x != nil {
+		return x.ImageProperties
+	}
+	return nil
+}
+
 type GenerativeDummy struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
+	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *GenerativeDummy) Reset() {
 	*x = GenerativeDummy{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_generative_proto_msgTypes[6]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_v1_generative_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *GenerativeDummy) String() string {
@@ -764,7 +918,7 @@ func (*GenerativeDummy) ProtoMessage() {}
 
 func (x *GenerativeDummy) ProtoReflect() protoreflect.Message {
 	mi := &file_v1_generative_proto_msgTypes[6]
-	if protoimpl.UnsafeEnabled && x != nil {
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -780,24 +934,21 @@ func (*GenerativeDummy) Descriptor() ([]byte, []int) {
 }
 
 type GenerativeMistral struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	BaseUrl       *string                `protobuf:"bytes,1,opt,name=base_url,json=baseUrl,proto3,oneof" json:"base_url,omitempty"`
+	MaxTokens     *int64                 `protobuf:"varint,2,opt,name=max_tokens,json=maxTokens,proto3,oneof" json:"max_tokens,omitempty"`
+	Model         *string                `protobuf:"bytes,3,opt,name=model,proto3,oneof" json:"model,omitempty"`
+	Temperature   *float64               `protobuf:"fixed64,4,opt,name=temperature,proto3,oneof" json:"temperature,omitempty"`
+	TopP          *float64               `protobuf:"fixed64,5,opt,name=top_p,json=topP,proto3,oneof" json:"top_p,omitempty"`
 	unknownFields protoimpl.UnknownFields
-
-	BaseUrl     *string  `protobuf:"bytes,1,opt,name=base_url,json=baseUrl,proto3,oneof" json:"base_url,omitempty"`
-	MaxTokens   *int64   `protobuf:"varint,2,opt,name=max_tokens,json=maxTokens,proto3,oneof" json:"max_tokens,omitempty"`
-	Model       *string  `protobuf:"bytes,3,opt,name=model,proto3,oneof" json:"model,omitempty"`
-	Temperature *float64 `protobuf:"fixed64,4,opt,name=temperature,proto3,oneof" json:"temperature,omitempty"`
-	TopP        *float64 `protobuf:"fixed64,5,opt,name=top_p,json=topP,proto3,oneof" json:"top_p,omitempty"`
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *GenerativeMistral) Reset() {
 	*x = GenerativeMistral{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_generative_proto_msgTypes[7]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_v1_generative_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *GenerativeMistral) String() string {
@@ -808,7 +959,7 @@ func (*GenerativeMistral) ProtoMessage() {}
 
 func (x *GenerativeMistral) ProtoReflect() protoreflect.Message {
 	mi := &file_v1_generative_proto_msgTypes[7]
-	if protoimpl.UnsafeEnabled && x != nil {
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -859,24 +1010,21 @@ func (x *GenerativeMistral) GetTopP() float64 {
 }
 
 type GenerativeOllama struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
-	unknownFields protoimpl.UnknownFields
-
-	ApiEndpoint     *string    `protobuf:"bytes,1,opt,name=api_endpoint,json=apiEndpoint,proto3,oneof" json:"api_endpoint,omitempty"`
-	Model           *string    `protobuf:"bytes,2,opt,name=model,proto3,oneof" json:"model,omitempty"`
-	Temperature     *float64   `protobuf:"fixed64,3,opt,name=temperature,proto3,oneof" json:"temperature,omitempty"`
-	Images          *TextArray `protobuf:"bytes,4,opt,name=images,proto3,oneof" json:"images,omitempty"`
-	ImageProperties *TextArray `protobuf:"bytes,5,opt,name=image_properties,json=imageProperties,proto3,oneof" json:"image_properties,omitempty"`
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	ApiEndpoint     *string                `protobuf:"bytes,1,opt,name=api_endpoint,json=apiEndpoint,proto3,oneof" json:"api_endpoint,omitempty"`
+	Model           *string                `protobuf:"bytes,2,opt,name=model,proto3,oneof" json:"model,omitempty"`
+	Temperature     *float64               `protobuf:"fixed64,3,opt,name=temperature,proto3,oneof" json:"temperature,omitempty"`
+	Images          *TextArray             `protobuf:"bytes,4,opt,name=images,proto3,oneof" json:"images,omitempty"`
+	ImageProperties *TextArray             `protobuf:"bytes,5,opt,name=image_properties,json=imageProperties,proto3,oneof" json:"image_properties,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *GenerativeOllama) Reset() {
 	*x = GenerativeOllama{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_generative_proto_msgTypes[8]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_v1_generative_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *GenerativeOllama) String() string {
@@ -887,7 +1035,7 @@ func (*GenerativeOllama) ProtoMessage() {}
 
 func (x *GenerativeOllama) ProtoReflect() protoreflect.Message {
 	mi := &file_v1_generative_proto_msgTypes[8]
-	if protoimpl.UnsafeEnabled && x != nil {
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -938,34 +1086,33 @@ func (x *GenerativeOllama) GetImageProperties() *TextArray {
 }
 
 type GenerativeOpenAI struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
-	unknownFields protoimpl.UnknownFields
-
-	FrequencyPenalty *float64   `protobuf:"fixed64,1,opt,name=frequency_penalty,json=frequencyPenalty,proto3,oneof" json:"frequency_penalty,omitempty"`
-	MaxTokens        *int64     `protobuf:"varint,2,opt,name=max_tokens,json=maxTokens,proto3,oneof" json:"max_tokens,omitempty"`
-	Model            *string    `protobuf:"bytes,3,opt,name=model,proto3,oneof" json:"model,omitempty"`
-	N                *int64     `protobuf:"varint,4,opt,name=n,proto3,oneof" json:"n,omitempty"`
-	PresencePenalty  *float64   `protobuf:"fixed64,5,opt,name=presence_penalty,json=presencePenalty,proto3,oneof" json:"presence_penalty,omitempty"`
-	Stop             *TextArray `protobuf:"bytes,6,opt,name=stop,proto3,oneof" json:"stop,omitempty"`
-	Temperature      *float64   `protobuf:"fixed64,7,opt,name=temperature,proto3,oneof" json:"temperature,omitempty"`
-	TopP             *float64   `protobuf:"fixed64,8,opt,name=top_p,json=topP,proto3,oneof" json:"top_p,omitempty"`
-	BaseUrl          *string    `protobuf:"bytes,9,opt,name=base_url,json=baseUrl,proto3,oneof" json:"base_url,omitempty"`
-	ApiVersion       *string    `protobuf:"bytes,10,opt,name=api_version,json=apiVersion,proto3,oneof" json:"api_version,omitempty"`
-	ResourceName     *string    `protobuf:"bytes,11,opt,name=resource_name,json=resourceName,proto3,oneof" json:"resource_name,omitempty"`
-	DeploymentId     *string    `protobuf:"bytes,12,opt,name=deployment_id,json=deploymentId,proto3,oneof" json:"deployment_id,omitempty"`
-	IsAzure          *bool      `protobuf:"varint,13,opt,name=is_azure,json=isAzure,proto3,oneof" json:"is_azure,omitempty"`
-	Images           *TextArray `protobuf:"bytes,14,opt,name=images,proto3,oneof" json:"images,omitempty"`
-	ImageProperties  *TextArray `protobuf:"bytes,15,opt,name=image_properties,json=imageProperties,proto3,oneof" json:"image_properties,omitempty"`
+	state            protoimpl.MessageState            `protogen:"open.v1"`
+	FrequencyPenalty *float64                          `protobuf:"fixed64,1,opt,name=frequency_penalty,json=frequencyPenalty,proto3,oneof" json:"frequency_penalty,omitempty"`
+	MaxTokens        *int64                            `protobuf:"varint,2,opt,name=max_tokens,json=maxTokens,proto3,oneof" json:"max_tokens,omitempty"`
+	Model            *string                           `protobuf:"bytes,3,opt,name=model,proto3,oneof" json:"model,omitempty"`
+	N                *int64                            `protobuf:"varint,4,opt,name=n,proto3,oneof" json:"n,omitempty"`
+	PresencePenalty  *float64                          `protobuf:"fixed64,5,opt,name=presence_penalty,json=presencePenalty,proto3,oneof" json:"presence_penalty,omitempty"`
+	Stop             *TextArray                        `protobuf:"bytes,6,opt,name=stop,proto3,oneof" json:"stop,omitempty"`
+	Temperature      *float64                          `protobuf:"fixed64,7,opt,name=temperature,proto3,oneof" json:"temperature,omitempty"`
+	TopP             *float64                          `protobuf:"fixed64,8,opt,name=top_p,json=topP,proto3,oneof" json:"top_p,omitempty"`
+	BaseUrl          *string                           `protobuf:"bytes,9,opt,name=base_url,json=baseUrl,proto3,oneof" json:"base_url,omitempty"`
+	ApiVersion       *string                           `protobuf:"bytes,10,opt,name=api_version,json=apiVersion,proto3,oneof" json:"api_version,omitempty"`
+	ResourceName     *string                           `protobuf:"bytes,11,opt,name=resource_name,json=resourceName,proto3,oneof" json:"resource_name,omitempty"`
+	DeploymentId     *string                           `protobuf:"bytes,12,opt,name=deployment_id,json=deploymentId,proto3,oneof" json:"deployment_id,omitempty"`
+	IsAzure          *bool                             `protobuf:"varint,13,opt,name=is_azure,json=isAzure,proto3,oneof" json:"is_azure,omitempty"`
+	Images           *TextArray                        `protobuf:"bytes,14,opt,name=images,proto3,oneof" json:"images,omitempty"`
+	ImageProperties  *TextArray                        `protobuf:"bytes,15,opt,name=image_properties,json=imageProperties,proto3,oneof" json:"image_properties,omitempty"`
+	ReasoningEffort  *GenerativeOpenAI_ReasoningEffort `protobuf:"varint,16,opt,name=reasoning_effort,json=reasoningEffort,proto3,enum=weaviate.v1.GenerativeOpenAI_ReasoningEffort,oneof" json:"reasoning_effort,omitempty"`
+	Verbosity        *GenerativeOpenAI_Verbosity       `protobuf:"varint,17,opt,name=verbosity,proto3,enum=weaviate.v1.GenerativeOpenAI_Verbosity,oneof" json:"verbosity,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *GenerativeOpenAI) Reset() {
 	*x = GenerativeOpenAI{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_generative_proto_msgTypes[9]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_v1_generative_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *GenerativeOpenAI) String() string {
@@ -976,7 +1123,7 @@ func (*GenerativeOpenAI) ProtoMessage() {}
 
 func (x *GenerativeOpenAI) ProtoReflect() protoreflect.Message {
 	mi := &file_v1_generative_proto_msgTypes[9]
-	if protoimpl.UnsafeEnabled && x != nil {
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -1096,34 +1243,45 @@ func (x *GenerativeOpenAI) GetImageProperties() *TextArray {
 	return nil
 }
 
-type GenerativeGoogle struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
-	unknownFields protoimpl.UnknownFields
+func (x *GenerativeOpenAI) GetReasoningEffort() GenerativeOpenAI_ReasoningEffort {
+	if x != nil && x.ReasoningEffort != nil {
+		return *x.ReasoningEffort
+	}
+	return GenerativeOpenAI_REASONING_EFFORT_UNSPECIFIED
+}
 
-	FrequencyPenalty *float64   `protobuf:"fixed64,1,opt,name=frequency_penalty,json=frequencyPenalty,proto3,oneof" json:"frequency_penalty,omitempty"`
-	MaxTokens        *int64     `protobuf:"varint,2,opt,name=max_tokens,json=maxTokens,proto3,oneof" json:"max_tokens,omitempty"`
-	Model            *string    `protobuf:"bytes,3,opt,name=model,proto3,oneof" json:"model,omitempty"`
-	PresencePenalty  *float64   `protobuf:"fixed64,4,opt,name=presence_penalty,json=presencePenalty,proto3,oneof" json:"presence_penalty,omitempty"`
-	Temperature      *float64   `protobuf:"fixed64,5,opt,name=temperature,proto3,oneof" json:"temperature,omitempty"`
-	TopK             *int64     `protobuf:"varint,6,opt,name=top_k,json=topK,proto3,oneof" json:"top_k,omitempty"`
-	TopP             *float64   `protobuf:"fixed64,7,opt,name=top_p,json=topP,proto3,oneof" json:"top_p,omitempty"`
-	StopSequences    *TextArray `protobuf:"bytes,8,opt,name=stop_sequences,json=stopSequences,proto3,oneof" json:"stop_sequences,omitempty"`
-	ApiEndpoint      *string    `protobuf:"bytes,9,opt,name=api_endpoint,json=apiEndpoint,proto3,oneof" json:"api_endpoint,omitempty"`
-	ProjectId        *string    `protobuf:"bytes,10,opt,name=project_id,json=projectId,proto3,oneof" json:"project_id,omitempty"`
-	EndpointId       *string    `protobuf:"bytes,11,opt,name=endpoint_id,json=endpointId,proto3,oneof" json:"endpoint_id,omitempty"`
-	Region           *string    `protobuf:"bytes,12,opt,name=region,proto3,oneof" json:"region,omitempty"`
-	Images           *TextArray `protobuf:"bytes,13,opt,name=images,proto3,oneof" json:"images,omitempty"`
-	ImageProperties  *TextArray `protobuf:"bytes,14,opt,name=image_properties,json=imageProperties,proto3,oneof" json:"image_properties,omitempty"`
+func (x *GenerativeOpenAI) GetVerbosity() GenerativeOpenAI_Verbosity {
+	if x != nil && x.Verbosity != nil {
+		return *x.Verbosity
+	}
+	return GenerativeOpenAI_VERBOSITY_UNSPECIFIED
+}
+
+type GenerativeGoogle struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	FrequencyPenalty *float64               `protobuf:"fixed64,1,opt,name=frequency_penalty,json=frequencyPenalty,proto3,oneof" json:"frequency_penalty,omitempty"`
+	MaxTokens        *int64                 `protobuf:"varint,2,opt,name=max_tokens,json=maxTokens,proto3,oneof" json:"max_tokens,omitempty"`
+	Model            *string                `protobuf:"bytes,3,opt,name=model,proto3,oneof" json:"model,omitempty"`
+	PresencePenalty  *float64               `protobuf:"fixed64,4,opt,name=presence_penalty,json=presencePenalty,proto3,oneof" json:"presence_penalty,omitempty"`
+	Temperature      *float64               `protobuf:"fixed64,5,opt,name=temperature,proto3,oneof" json:"temperature,omitempty"`
+	TopK             *int64                 `protobuf:"varint,6,opt,name=top_k,json=topK,proto3,oneof" json:"top_k,omitempty"`
+	TopP             *float64               `protobuf:"fixed64,7,opt,name=top_p,json=topP,proto3,oneof" json:"top_p,omitempty"`
+	StopSequences    *TextArray             `protobuf:"bytes,8,opt,name=stop_sequences,json=stopSequences,proto3,oneof" json:"stop_sequences,omitempty"`
+	ApiEndpoint      *string                `protobuf:"bytes,9,opt,name=api_endpoint,json=apiEndpoint,proto3,oneof" json:"api_endpoint,omitempty"`
+	ProjectId        *string                `protobuf:"bytes,10,opt,name=project_id,json=projectId,proto3,oneof" json:"project_id,omitempty"`
+	EndpointId       *string                `protobuf:"bytes,11,opt,name=endpoint_id,json=endpointId,proto3,oneof" json:"endpoint_id,omitempty"`
+	Region           *string                `protobuf:"bytes,12,opt,name=region,proto3,oneof" json:"region,omitempty"`
+	Images           *TextArray             `protobuf:"bytes,13,opt,name=images,proto3,oneof" json:"images,omitempty"`
+	ImageProperties  *TextArray             `protobuf:"bytes,14,opt,name=image_properties,json=imageProperties,proto3,oneof" json:"image_properties,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *GenerativeGoogle) Reset() {
 	*x = GenerativeGoogle{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_generative_proto_msgTypes[10]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_v1_generative_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *GenerativeGoogle) String() string {
@@ -1134,7 +1292,7 @@ func (*GenerativeGoogle) ProtoMessage() {}
 
 func (x *GenerativeGoogle) ProtoReflect() protoreflect.Message {
 	mi := &file_v1_generative_proto_msgTypes[10]
-	if protoimpl.UnsafeEnabled && x != nil {
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -1248,30 +1406,27 @@ func (x *GenerativeGoogle) GetImageProperties() *TextArray {
 }
 
 type GenerativeDatabricks struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
-	unknownFields protoimpl.UnknownFields
-
-	Endpoint         *string    `protobuf:"bytes,1,opt,name=endpoint,proto3,oneof" json:"endpoint,omitempty"`
-	Model            *string    `protobuf:"bytes,2,opt,name=model,proto3,oneof" json:"model,omitempty"`
-	FrequencyPenalty *float64   `protobuf:"fixed64,3,opt,name=frequency_penalty,json=frequencyPenalty,proto3,oneof" json:"frequency_penalty,omitempty"`
-	LogProbs         *bool      `protobuf:"varint,4,opt,name=log_probs,json=logProbs,proto3,oneof" json:"log_probs,omitempty"`
-	TopLogProbs      *int64     `protobuf:"varint,5,opt,name=top_log_probs,json=topLogProbs,proto3,oneof" json:"top_log_probs,omitempty"`
-	MaxTokens        *int64     `protobuf:"varint,6,opt,name=max_tokens,json=maxTokens,proto3,oneof" json:"max_tokens,omitempty"`
-	N                *int64     `protobuf:"varint,7,opt,name=n,proto3,oneof" json:"n,omitempty"`
-	PresencePenalty  *float64   `protobuf:"fixed64,8,opt,name=presence_penalty,json=presencePenalty,proto3,oneof" json:"presence_penalty,omitempty"`
-	Stop             *TextArray `protobuf:"bytes,9,opt,name=stop,proto3,oneof" json:"stop,omitempty"`
-	Temperature      *float64   `protobuf:"fixed64,10,opt,name=temperature,proto3,oneof" json:"temperature,omitempty"`
-	TopP             *float64   `protobuf:"fixed64,11,opt,name=top_p,json=topP,proto3,oneof" json:"top_p,omitempty"`
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	Endpoint         *string                `protobuf:"bytes,1,opt,name=endpoint,proto3,oneof" json:"endpoint,omitempty"`
+	Model            *string                `protobuf:"bytes,2,opt,name=model,proto3,oneof" json:"model,omitempty"`
+	FrequencyPenalty *float64               `protobuf:"fixed64,3,opt,name=frequency_penalty,json=frequencyPenalty,proto3,oneof" json:"frequency_penalty,omitempty"`
+	LogProbs         *bool                  `protobuf:"varint,4,opt,name=log_probs,json=logProbs,proto3,oneof" json:"log_probs,omitempty"`
+	TopLogProbs      *int64                 `protobuf:"varint,5,opt,name=top_log_probs,json=topLogProbs,proto3,oneof" json:"top_log_probs,omitempty"`
+	MaxTokens        *int64                 `protobuf:"varint,6,opt,name=max_tokens,json=maxTokens,proto3,oneof" json:"max_tokens,omitempty"`
+	N                *int64                 `protobuf:"varint,7,opt,name=n,proto3,oneof" json:"n,omitempty"`
+	PresencePenalty  *float64               `protobuf:"fixed64,8,opt,name=presence_penalty,json=presencePenalty,proto3,oneof" json:"presence_penalty,omitempty"`
+	Stop             *TextArray             `protobuf:"bytes,9,opt,name=stop,proto3,oneof" json:"stop,omitempty"`
+	Temperature      *float64               `protobuf:"fixed64,10,opt,name=temperature,proto3,oneof" json:"temperature,omitempty"`
+	TopP             *float64               `protobuf:"fixed64,11,opt,name=top_p,json=topP,proto3,oneof" json:"top_p,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *GenerativeDatabricks) Reset() {
 	*x = GenerativeDatabricks{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_generative_proto_msgTypes[11]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_v1_generative_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *GenerativeDatabricks) String() string {
@@ -1282,7 +1437,7 @@ func (*GenerativeDatabricks) ProtoMessage() {}
 
 func (x *GenerativeDatabricks) ProtoReflect() protoreflect.Message {
 	mi := &file_v1_generative_proto_msgTypes[11]
-	if protoimpl.UnsafeEnabled && x != nil {
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -1375,25 +1530,22 @@ func (x *GenerativeDatabricks) GetTopP() float64 {
 }
 
 type GenerativeFriendliAI struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	BaseUrl       *string                `protobuf:"bytes,1,opt,name=base_url,json=baseUrl,proto3,oneof" json:"base_url,omitempty"`
+	Model         *string                `protobuf:"bytes,2,opt,name=model,proto3,oneof" json:"model,omitempty"`
+	MaxTokens     *int64                 `protobuf:"varint,3,opt,name=max_tokens,json=maxTokens,proto3,oneof" json:"max_tokens,omitempty"`
+	Temperature   *float64               `protobuf:"fixed64,4,opt,name=temperature,proto3,oneof" json:"temperature,omitempty"`
+	N             *int64                 `protobuf:"varint,5,opt,name=n,proto3,oneof" json:"n,omitempty"`
+	TopP          *float64               `protobuf:"fixed64,6,opt,name=top_p,json=topP,proto3,oneof" json:"top_p,omitempty"`
 	unknownFields protoimpl.UnknownFields
-
-	BaseUrl     *string  `protobuf:"bytes,1,opt,name=base_url,json=baseUrl,proto3,oneof" json:"base_url,omitempty"`
-	Model       *string  `protobuf:"bytes,2,opt,name=model,proto3,oneof" json:"model,omitempty"`
-	MaxTokens   *int64   `protobuf:"varint,3,opt,name=max_tokens,json=maxTokens,proto3,oneof" json:"max_tokens,omitempty"`
-	Temperature *float64 `protobuf:"fixed64,4,opt,name=temperature,proto3,oneof" json:"temperature,omitempty"`
-	N           *int64   `protobuf:"varint,5,opt,name=n,proto3,oneof" json:"n,omitempty"`
-	TopP        *float64 `protobuf:"fixed64,6,opt,name=top_p,json=topP,proto3,oneof" json:"top_p,omitempty"`
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *GenerativeFriendliAI) Reset() {
 	*x = GenerativeFriendliAI{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_generative_proto_msgTypes[12]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_v1_generative_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *GenerativeFriendliAI) String() string {
@@ -1404,7 +1556,7 @@ func (*GenerativeFriendliAI) ProtoMessage() {}
 
 func (x *GenerativeFriendliAI) ProtoReflect() protoreflect.Message {
 	mi := &file_v1_generative_proto_msgTypes[12]
-	if protoimpl.UnsafeEnabled && x != nil {
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -1462,24 +1614,21 @@ func (x *GenerativeFriendliAI) GetTopP() float64 {
 }
 
 type GenerativeNvidia struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	BaseUrl       *string                `protobuf:"bytes,1,opt,name=base_url,json=baseUrl,proto3,oneof" json:"base_url,omitempty"`
+	Model         *string                `protobuf:"bytes,2,opt,name=model,proto3,oneof" json:"model,omitempty"`
+	Temperature   *float64               `protobuf:"fixed64,3,opt,name=temperature,proto3,oneof" json:"temperature,omitempty"`
+	TopP          *float64               `protobuf:"fixed64,4,opt,name=top_p,json=topP,proto3,oneof" json:"top_p,omitempty"`
+	MaxTokens     *int64                 `protobuf:"varint,5,opt,name=max_tokens,json=maxTokens,proto3,oneof" json:"max_tokens,omitempty"`
 	unknownFields protoimpl.UnknownFields
-
-	BaseUrl     *string  `protobuf:"bytes,1,opt,name=base_url,json=baseUrl,proto3,oneof" json:"base_url,omitempty"`
-	Model       *string  `protobuf:"bytes,2,opt,name=model,proto3,oneof" json:"model,omitempty"`
-	Temperature *float64 `protobuf:"fixed64,3,opt,name=temperature,proto3,oneof" json:"temperature,omitempty"`
-	TopP        *float64 `protobuf:"fixed64,4,opt,name=top_p,json=topP,proto3,oneof" json:"top_p,omitempty"`
-	MaxTokens   *int64   `protobuf:"varint,5,opt,name=max_tokens,json=maxTokens,proto3,oneof" json:"max_tokens,omitempty"`
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *GenerativeNvidia) Reset() {
 	*x = GenerativeNvidia{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_generative_proto_msgTypes[13]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_v1_generative_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *GenerativeNvidia) String() string {
@@ -1490,7 +1639,7 @@ func (*GenerativeNvidia) ProtoMessage() {}
 
 func (x *GenerativeNvidia) ProtoReflect() protoreflect.Message {
 	mi := &file_v1_generative_proto_msgTypes[13]
-	if protoimpl.UnsafeEnabled && x != nil {
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -1541,26 +1690,23 @@ func (x *GenerativeNvidia) GetMaxTokens() int64 {
 }
 
 type GenerativeXAI struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
-	unknownFields protoimpl.UnknownFields
-
-	BaseUrl         *string    `protobuf:"bytes,1,opt,name=base_url,json=baseUrl,proto3,oneof" json:"base_url,omitempty"`
-	Model           *string    `protobuf:"bytes,2,opt,name=model,proto3,oneof" json:"model,omitempty"`
-	Temperature     *float64   `protobuf:"fixed64,3,opt,name=temperature,proto3,oneof" json:"temperature,omitempty"`
-	TopP            *float64   `protobuf:"fixed64,4,opt,name=top_p,json=topP,proto3,oneof" json:"top_p,omitempty"`
-	MaxTokens       *int64     `protobuf:"varint,5,opt,name=max_tokens,json=maxTokens,proto3,oneof" json:"max_tokens,omitempty"`
-	Images          *TextArray `protobuf:"bytes,6,opt,name=images,proto3,oneof" json:"images,omitempty"`
-	ImageProperties *TextArray `protobuf:"bytes,7,opt,name=image_properties,json=imageProperties,proto3,oneof" json:"image_properties,omitempty"`
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	BaseUrl         *string                `protobuf:"bytes,1,opt,name=base_url,json=baseUrl,proto3,oneof" json:"base_url,omitempty"`
+	Model           *string                `protobuf:"bytes,2,opt,name=model,proto3,oneof" json:"model,omitempty"`
+	Temperature     *float64               `protobuf:"fixed64,3,opt,name=temperature,proto3,oneof" json:"temperature,omitempty"`
+	TopP            *float64               `protobuf:"fixed64,4,opt,name=top_p,json=topP,proto3,oneof" json:"top_p,omitempty"`
+	MaxTokens       *int64                 `protobuf:"varint,5,opt,name=max_tokens,json=maxTokens,proto3,oneof" json:"max_tokens,omitempty"`
+	Images          *TextArray             `protobuf:"bytes,6,opt,name=images,proto3,oneof" json:"images,omitempty"`
+	ImageProperties *TextArray             `protobuf:"bytes,7,opt,name=image_properties,json=imageProperties,proto3,oneof" json:"image_properties,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *GenerativeXAI) Reset() {
 	*x = GenerativeXAI{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_generative_proto_msgTypes[14]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_v1_generative_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *GenerativeXAI) String() string {
@@ -1571,7 +1717,7 @@ func (*GenerativeXAI) ProtoMessage() {}
 
 func (x *GenerativeXAI) ProtoReflect() protoreflect.Message {
 	mi := &file_v1_generative_proto_msgTypes[14]
-	if protoimpl.UnsafeEnabled && x != nil {
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -1635,21 +1781,110 @@ func (x *GenerativeXAI) GetImageProperties() *TextArray {
 	return nil
 }
 
-type GenerativeAnthropicMetadata struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
-	unknownFields protoimpl.UnknownFields
+type GenerativeContextualAI struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Model           *string                `protobuf:"bytes,1,opt,name=model,proto3,oneof" json:"model,omitempty"`
+	Temperature     *float64               `protobuf:"fixed64,2,opt,name=temperature,proto3,oneof" json:"temperature,omitempty"`
+	TopP            *float64               `protobuf:"fixed64,3,opt,name=top_p,json=topP,proto3,oneof" json:"top_p,omitempty"`
+	MaxNewTokens    *int64                 `protobuf:"varint,4,opt,name=max_new_tokens,json=maxNewTokens,proto3,oneof" json:"max_new_tokens,omitempty"`
+	SystemPrompt    *string                `protobuf:"bytes,5,opt,name=system_prompt,json=systemPrompt,proto3,oneof" json:"system_prompt,omitempty"`
+	AvoidCommentary *bool                  `protobuf:"varint,6,opt,name=avoid_commentary,json=avoidCommentary,proto3,oneof" json:"avoid_commentary,omitempty"`
+	Knowledge       *TextArray             `protobuf:"bytes,7,opt,name=knowledge,proto3,oneof" json:"knowledge,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
 
-	Usage *GenerativeAnthropicMetadata_Usage `protobuf:"bytes,1,opt,name=usage,proto3" json:"usage,omitempty"`
+func (x *GenerativeContextualAI) Reset() {
+	*x = GenerativeContextualAI{}
+	mi := &file_v1_generative_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GenerativeContextualAI) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GenerativeContextualAI) ProtoMessage() {}
+
+func (x *GenerativeContextualAI) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_generative_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GenerativeContextualAI.ProtoReflect.Descriptor instead.
+func (*GenerativeContextualAI) Descriptor() ([]byte, []int) {
+	return file_v1_generative_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *GenerativeContextualAI) GetModel() string {
+	if x != nil && x.Model != nil {
+		return *x.Model
+	}
+	return ""
+}
+
+func (x *GenerativeContextualAI) GetTemperature() float64 {
+	if x != nil && x.Temperature != nil {
+		return *x.Temperature
+	}
+	return 0
+}
+
+func (x *GenerativeContextualAI) GetTopP() float64 {
+	if x != nil && x.TopP != nil {
+		return *x.TopP
+	}
+	return 0
+}
+
+func (x *GenerativeContextualAI) GetMaxNewTokens() int64 {
+	if x != nil && x.MaxNewTokens != nil {
+		return *x.MaxNewTokens
+	}
+	return 0
+}
+
+func (x *GenerativeContextualAI) GetSystemPrompt() string {
+	if x != nil && x.SystemPrompt != nil {
+		return *x.SystemPrompt
+	}
+	return ""
+}
+
+func (x *GenerativeContextualAI) GetAvoidCommentary() bool {
+	if x != nil && x.AvoidCommentary != nil {
+		return *x.AvoidCommentary
+	}
+	return false
+}
+
+func (x *GenerativeContextualAI) GetKnowledge() *TextArray {
+	if x != nil {
+		return x.Knowledge
+	}
+	return nil
+}
+
+type GenerativeAnthropicMetadata struct {
+	state         protoimpl.MessageState             `protogen:"open.v1"`
+	Usage         *GenerativeAnthropicMetadata_Usage `protobuf:"bytes,1,opt,name=usage,proto3" json:"usage,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *GenerativeAnthropicMetadata) Reset() {
 	*x = GenerativeAnthropicMetadata{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_generative_proto_msgTypes[15]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_v1_generative_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *GenerativeAnthropicMetadata) String() string {
@@ -1659,8 +1894,8 @@ func (x *GenerativeAnthropicMetadata) String() string {
 func (*GenerativeAnthropicMetadata) ProtoMessage() {}
 
 func (x *GenerativeAnthropicMetadata) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_generative_proto_msgTypes[15]
-	if protoimpl.UnsafeEnabled && x != nil {
+	mi := &file_v1_generative_proto_msgTypes[16]
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -1672,7 +1907,7 @@ func (x *GenerativeAnthropicMetadata) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GenerativeAnthropicMetadata.ProtoReflect.Descriptor instead.
 func (*GenerativeAnthropicMetadata) Descriptor() ([]byte, []int) {
-	return file_v1_generative_proto_rawDescGZIP(), []int{15}
+	return file_v1_generative_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *GenerativeAnthropicMetadata) GetUsage() *GenerativeAnthropicMetadata_Usage {
@@ -1683,18 +1918,16 @@ func (x *GenerativeAnthropicMetadata) GetUsage() *GenerativeAnthropicMetadata_Us
 }
 
 type GenerativeAnyscaleMetadata struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
+	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *GenerativeAnyscaleMetadata) Reset() {
 	*x = GenerativeAnyscaleMetadata{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_generative_proto_msgTypes[16]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_v1_generative_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *GenerativeAnyscaleMetadata) String() string {
@@ -1704,8 +1937,8 @@ func (x *GenerativeAnyscaleMetadata) String() string {
 func (*GenerativeAnyscaleMetadata) ProtoMessage() {}
 
 func (x *GenerativeAnyscaleMetadata) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_generative_proto_msgTypes[16]
-	if protoimpl.UnsafeEnabled && x != nil {
+	mi := &file_v1_generative_proto_msgTypes[17]
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -1717,22 +1950,20 @@ func (x *GenerativeAnyscaleMetadata) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GenerativeAnyscaleMetadata.ProtoReflect.Descriptor instead.
 func (*GenerativeAnyscaleMetadata) Descriptor() ([]byte, []int) {
-	return file_v1_generative_proto_rawDescGZIP(), []int{16}
+	return file_v1_generative_proto_rawDescGZIP(), []int{17}
 }
 
 type GenerativeAWSMetadata struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
+	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *GenerativeAWSMetadata) Reset() {
 	*x = GenerativeAWSMetadata{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_generative_proto_msgTypes[17]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_v1_generative_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *GenerativeAWSMetadata) String() string {
@@ -1742,8 +1973,8 @@ func (x *GenerativeAWSMetadata) String() string {
 func (*GenerativeAWSMetadata) ProtoMessage() {}
 
 func (x *GenerativeAWSMetadata) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_generative_proto_msgTypes[17]
-	if protoimpl.UnsafeEnabled && x != nil {
+	mi := &file_v1_generative_proto_msgTypes[18]
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -1755,27 +1986,24 @@ func (x *GenerativeAWSMetadata) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GenerativeAWSMetadata.ProtoReflect.Descriptor instead.
 func (*GenerativeAWSMetadata) Descriptor() ([]byte, []int) {
-	return file_v1_generative_proto_rawDescGZIP(), []int{17}
+	return file_v1_generative_proto_rawDescGZIP(), []int{18}
 }
 
 type GenerativeCohereMetadata struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
+	state         protoimpl.MessageState                `protogen:"open.v1"`
+	ApiVersion    *GenerativeCohereMetadata_ApiVersion  `protobuf:"bytes,1,opt,name=api_version,json=apiVersion,proto3,oneof" json:"api_version,omitempty"`
+	BilledUnits   *GenerativeCohereMetadata_BilledUnits `protobuf:"bytes,2,opt,name=billed_units,json=billedUnits,proto3,oneof" json:"billed_units,omitempty"`
+	Tokens        *GenerativeCohereMetadata_Tokens      `protobuf:"bytes,3,opt,name=tokens,proto3,oneof" json:"tokens,omitempty"`
+	Warnings      *TextArray                            `protobuf:"bytes,4,opt,name=warnings,proto3,oneof" json:"warnings,omitempty"`
 	unknownFields protoimpl.UnknownFields
-
-	ApiVersion  *GenerativeCohereMetadata_ApiVersion  `protobuf:"bytes,1,opt,name=api_version,json=apiVersion,proto3,oneof" json:"api_version,omitempty"`
-	BilledUnits *GenerativeCohereMetadata_BilledUnits `protobuf:"bytes,2,opt,name=billed_units,json=billedUnits,proto3,oneof" json:"billed_units,omitempty"`
-	Tokens      *GenerativeCohereMetadata_Tokens      `protobuf:"bytes,3,opt,name=tokens,proto3,oneof" json:"tokens,omitempty"`
-	Warnings    *TextArray                            `protobuf:"bytes,4,opt,name=warnings,proto3,oneof" json:"warnings,omitempty"`
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *GenerativeCohereMetadata) Reset() {
 	*x = GenerativeCohereMetadata{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_generative_proto_msgTypes[18]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_v1_generative_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *GenerativeCohereMetadata) String() string {
@@ -1785,8 +2013,8 @@ func (x *GenerativeCohereMetadata) String() string {
 func (*GenerativeCohereMetadata) ProtoMessage() {}
 
 func (x *GenerativeCohereMetadata) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_generative_proto_msgTypes[18]
-	if protoimpl.UnsafeEnabled && x != nil {
+	mi := &file_v1_generative_proto_msgTypes[19]
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -1798,7 +2026,7 @@ func (x *GenerativeCohereMetadata) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GenerativeCohereMetadata.ProtoReflect.Descriptor instead.
 func (*GenerativeCohereMetadata) Descriptor() ([]byte, []int) {
-	return file_v1_generative_proto_rawDescGZIP(), []int{18}
+	return file_v1_generative_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *GenerativeCohereMetadata) GetApiVersion() *GenerativeCohereMetadata_ApiVersion {
@@ -1830,18 +2058,16 @@ func (x *GenerativeCohereMetadata) GetWarnings() *TextArray {
 }
 
 type GenerativeDummyMetadata struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
+	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *GenerativeDummyMetadata) Reset() {
 	*x = GenerativeDummyMetadata{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_generative_proto_msgTypes[19]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_v1_generative_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *GenerativeDummyMetadata) String() string {
@@ -1851,8 +2077,8 @@ func (x *GenerativeDummyMetadata) String() string {
 func (*GenerativeDummyMetadata) ProtoMessage() {}
 
 func (x *GenerativeDummyMetadata) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_generative_proto_msgTypes[19]
-	if protoimpl.UnsafeEnabled && x != nil {
+	mi := &file_v1_generative_proto_msgTypes[20]
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -1864,24 +2090,21 @@ func (x *GenerativeDummyMetadata) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GenerativeDummyMetadata.ProtoReflect.Descriptor instead.
 func (*GenerativeDummyMetadata) Descriptor() ([]byte, []int) {
-	return file_v1_generative_proto_rawDescGZIP(), []int{19}
+	return file_v1_generative_proto_rawDescGZIP(), []int{20}
 }
 
 type GenerativeMistralMetadata struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
+	state         protoimpl.MessageState           `protogen:"open.v1"`
+	Usage         *GenerativeMistralMetadata_Usage `protobuf:"bytes,1,opt,name=usage,proto3,oneof" json:"usage,omitempty"`
 	unknownFields protoimpl.UnknownFields
-
-	Usage *GenerativeMistralMetadata_Usage `protobuf:"bytes,1,opt,name=usage,proto3,oneof" json:"usage,omitempty"`
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *GenerativeMistralMetadata) Reset() {
 	*x = GenerativeMistralMetadata{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_generative_proto_msgTypes[20]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_v1_generative_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *GenerativeMistralMetadata) String() string {
@@ -1891,8 +2114,8 @@ func (x *GenerativeMistralMetadata) String() string {
 func (*GenerativeMistralMetadata) ProtoMessage() {}
 
 func (x *GenerativeMistralMetadata) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_generative_proto_msgTypes[20]
-	if protoimpl.UnsafeEnabled && x != nil {
+	mi := &file_v1_generative_proto_msgTypes[21]
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -1904,7 +2127,7 @@ func (x *GenerativeMistralMetadata) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GenerativeMistralMetadata.ProtoReflect.Descriptor instead.
 func (*GenerativeMistralMetadata) Descriptor() ([]byte, []int) {
-	return file_v1_generative_proto_rawDescGZIP(), []int{20}
+	return file_v1_generative_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *GenerativeMistralMetadata) GetUsage() *GenerativeMistralMetadata_Usage {
@@ -1915,18 +2138,16 @@ func (x *GenerativeMistralMetadata) GetUsage() *GenerativeMistralMetadata_Usage 
 }
 
 type GenerativeOllamaMetadata struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
+	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *GenerativeOllamaMetadata) Reset() {
 	*x = GenerativeOllamaMetadata{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_generative_proto_msgTypes[21]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_v1_generative_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *GenerativeOllamaMetadata) String() string {
@@ -1936,8 +2157,8 @@ func (x *GenerativeOllamaMetadata) String() string {
 func (*GenerativeOllamaMetadata) ProtoMessage() {}
 
 func (x *GenerativeOllamaMetadata) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_generative_proto_msgTypes[21]
-	if protoimpl.UnsafeEnabled && x != nil {
+	mi := &file_v1_generative_proto_msgTypes[22]
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -1949,24 +2170,21 @@ func (x *GenerativeOllamaMetadata) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GenerativeOllamaMetadata.ProtoReflect.Descriptor instead.
 func (*GenerativeOllamaMetadata) Descriptor() ([]byte, []int) {
-	return file_v1_generative_proto_rawDescGZIP(), []int{21}
+	return file_v1_generative_proto_rawDescGZIP(), []int{22}
 }
 
 type GenerativeOpenAIMetadata struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
+	state         protoimpl.MessageState          `protogen:"open.v1"`
+	Usage         *GenerativeOpenAIMetadata_Usage `protobuf:"bytes,1,opt,name=usage,proto3,oneof" json:"usage,omitempty"`
 	unknownFields protoimpl.UnknownFields
-
-	Usage *GenerativeOpenAIMetadata_Usage `protobuf:"bytes,1,opt,name=usage,proto3,oneof" json:"usage,omitempty"`
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *GenerativeOpenAIMetadata) Reset() {
 	*x = GenerativeOpenAIMetadata{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_generative_proto_msgTypes[22]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_v1_generative_proto_msgTypes[23]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *GenerativeOpenAIMetadata) String() string {
@@ -1976,8 +2194,8 @@ func (x *GenerativeOpenAIMetadata) String() string {
 func (*GenerativeOpenAIMetadata) ProtoMessage() {}
 
 func (x *GenerativeOpenAIMetadata) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_generative_proto_msgTypes[22]
-	if protoimpl.UnsafeEnabled && x != nil {
+	mi := &file_v1_generative_proto_msgTypes[23]
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -1989,7 +2207,7 @@ func (x *GenerativeOpenAIMetadata) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GenerativeOpenAIMetadata.ProtoReflect.Descriptor instead.
 func (*GenerativeOpenAIMetadata) Descriptor() ([]byte, []int) {
-	return file_v1_generative_proto_rawDescGZIP(), []int{22}
+	return file_v1_generative_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *GenerativeOpenAIMetadata) GetUsage() *GenerativeOpenAIMetadata_Usage {
@@ -2000,21 +2218,18 @@ func (x *GenerativeOpenAIMetadata) GetUsage() *GenerativeOpenAIMetadata_Usage {
 }
 
 type GenerativeGoogleMetadata struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
-	unknownFields protoimpl.UnknownFields
-
+	state         protoimpl.MessageState                  `protogen:"open.v1"`
 	Metadata      *GenerativeGoogleMetadata_Metadata      `protobuf:"bytes,1,opt,name=metadata,proto3,oneof" json:"metadata,omitempty"`
 	UsageMetadata *GenerativeGoogleMetadata_UsageMetadata `protobuf:"bytes,2,opt,name=usage_metadata,json=usageMetadata,proto3,oneof" json:"usage_metadata,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *GenerativeGoogleMetadata) Reset() {
 	*x = GenerativeGoogleMetadata{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_generative_proto_msgTypes[23]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_v1_generative_proto_msgTypes[24]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *GenerativeGoogleMetadata) String() string {
@@ -2024,8 +2239,8 @@ func (x *GenerativeGoogleMetadata) String() string {
 func (*GenerativeGoogleMetadata) ProtoMessage() {}
 
 func (x *GenerativeGoogleMetadata) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_generative_proto_msgTypes[23]
-	if protoimpl.UnsafeEnabled && x != nil {
+	mi := &file_v1_generative_proto_msgTypes[24]
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -2037,7 +2252,7 @@ func (x *GenerativeGoogleMetadata) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GenerativeGoogleMetadata.ProtoReflect.Descriptor instead.
 func (*GenerativeGoogleMetadata) Descriptor() ([]byte, []int) {
-	return file_v1_generative_proto_rawDescGZIP(), []int{23}
+	return file_v1_generative_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *GenerativeGoogleMetadata) GetMetadata() *GenerativeGoogleMetadata_Metadata {
@@ -2055,20 +2270,17 @@ func (x *GenerativeGoogleMetadata) GetUsageMetadata() *GenerativeGoogleMetadata_
 }
 
 type GenerativeDatabricksMetadata struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
+	state         protoimpl.MessageState              `protogen:"open.v1"`
+	Usage         *GenerativeDatabricksMetadata_Usage `protobuf:"bytes,1,opt,name=usage,proto3,oneof" json:"usage,omitempty"`
 	unknownFields protoimpl.UnknownFields
-
-	Usage *GenerativeDatabricksMetadata_Usage `protobuf:"bytes,1,opt,name=usage,proto3,oneof" json:"usage,omitempty"`
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *GenerativeDatabricksMetadata) Reset() {
 	*x = GenerativeDatabricksMetadata{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_generative_proto_msgTypes[24]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_v1_generative_proto_msgTypes[25]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *GenerativeDatabricksMetadata) String() string {
@@ -2078,8 +2290,8 @@ func (x *GenerativeDatabricksMetadata) String() string {
 func (*GenerativeDatabricksMetadata) ProtoMessage() {}
 
 func (x *GenerativeDatabricksMetadata) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_generative_proto_msgTypes[24]
-	if protoimpl.UnsafeEnabled && x != nil {
+	mi := &file_v1_generative_proto_msgTypes[25]
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -2091,7 +2303,7 @@ func (x *GenerativeDatabricksMetadata) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GenerativeDatabricksMetadata.ProtoReflect.Descriptor instead.
 func (*GenerativeDatabricksMetadata) Descriptor() ([]byte, []int) {
-	return file_v1_generative_proto_rawDescGZIP(), []int{24}
+	return file_v1_generative_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *GenerativeDatabricksMetadata) GetUsage() *GenerativeDatabricksMetadata_Usage {
@@ -2102,20 +2314,17 @@ func (x *GenerativeDatabricksMetadata) GetUsage() *GenerativeDatabricksMetadata_
 }
 
 type GenerativeFriendliAIMetadata struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
+	state         protoimpl.MessageState              `protogen:"open.v1"`
+	Usage         *GenerativeFriendliAIMetadata_Usage `protobuf:"bytes,1,opt,name=usage,proto3,oneof" json:"usage,omitempty"`
 	unknownFields protoimpl.UnknownFields
-
-	Usage *GenerativeFriendliAIMetadata_Usage `protobuf:"bytes,1,opt,name=usage,proto3,oneof" json:"usage,omitempty"`
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *GenerativeFriendliAIMetadata) Reset() {
 	*x = GenerativeFriendliAIMetadata{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_generative_proto_msgTypes[25]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_v1_generative_proto_msgTypes[26]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *GenerativeFriendliAIMetadata) String() string {
@@ -2125,8 +2334,8 @@ func (x *GenerativeFriendliAIMetadata) String() string {
 func (*GenerativeFriendliAIMetadata) ProtoMessage() {}
 
 func (x *GenerativeFriendliAIMetadata) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_generative_proto_msgTypes[25]
-	if protoimpl.UnsafeEnabled && x != nil {
+	mi := &file_v1_generative_proto_msgTypes[26]
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -2138,7 +2347,7 @@ func (x *GenerativeFriendliAIMetadata) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GenerativeFriendliAIMetadata.ProtoReflect.Descriptor instead.
 func (*GenerativeFriendliAIMetadata) Descriptor() ([]byte, []int) {
-	return file_v1_generative_proto_rawDescGZIP(), []int{25}
+	return file_v1_generative_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *GenerativeFriendliAIMetadata) GetUsage() *GenerativeFriendliAIMetadata_Usage {
@@ -2149,20 +2358,17 @@ func (x *GenerativeFriendliAIMetadata) GetUsage() *GenerativeFriendliAIMetadata_
 }
 
 type GenerativeNvidiaMetadata struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
+	state         protoimpl.MessageState          `protogen:"open.v1"`
+	Usage         *GenerativeNvidiaMetadata_Usage `protobuf:"bytes,1,opt,name=usage,proto3,oneof" json:"usage,omitempty"`
 	unknownFields protoimpl.UnknownFields
-
-	Usage *GenerativeNvidiaMetadata_Usage `protobuf:"bytes,1,opt,name=usage,proto3,oneof" json:"usage,omitempty"`
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *GenerativeNvidiaMetadata) Reset() {
 	*x = GenerativeNvidiaMetadata{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_generative_proto_msgTypes[26]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_v1_generative_proto_msgTypes[27]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *GenerativeNvidiaMetadata) String() string {
@@ -2172,8 +2378,8 @@ func (x *GenerativeNvidiaMetadata) String() string {
 func (*GenerativeNvidiaMetadata) ProtoMessage() {}
 
 func (x *GenerativeNvidiaMetadata) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_generative_proto_msgTypes[26]
-	if protoimpl.UnsafeEnabled && x != nil {
+	mi := &file_v1_generative_proto_msgTypes[27]
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -2185,7 +2391,7 @@ func (x *GenerativeNvidiaMetadata) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GenerativeNvidiaMetadata.ProtoReflect.Descriptor instead.
 func (*GenerativeNvidiaMetadata) Descriptor() ([]byte, []int) {
-	return file_v1_generative_proto_rawDescGZIP(), []int{26}
+	return file_v1_generative_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *GenerativeNvidiaMetadata) GetUsage() *GenerativeNvidiaMetadata_Usage {
@@ -2196,20 +2402,17 @@ func (x *GenerativeNvidiaMetadata) GetUsage() *GenerativeNvidiaMetadata_Usage {
 }
 
 type GenerativeXAIMetadata struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
+	state         protoimpl.MessageState       `protogen:"open.v1"`
+	Usage         *GenerativeXAIMetadata_Usage `protobuf:"bytes,1,opt,name=usage,proto3,oneof" json:"usage,omitempty"`
 	unknownFields protoimpl.UnknownFields
-
-	Usage *GenerativeXAIMetadata_Usage `protobuf:"bytes,1,opt,name=usage,proto3,oneof" json:"usage,omitempty"`
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *GenerativeXAIMetadata) Reset() {
 	*x = GenerativeXAIMetadata{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_generative_proto_msgTypes[27]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_v1_generative_proto_msgTypes[28]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *GenerativeXAIMetadata) String() string {
@@ -2219,8 +2422,8 @@ func (x *GenerativeXAIMetadata) String() string {
 func (*GenerativeXAIMetadata) ProtoMessage() {}
 
 func (x *GenerativeXAIMetadata) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_generative_proto_msgTypes[27]
-	if protoimpl.UnsafeEnabled && x != nil {
+	mi := &file_v1_generative_proto_msgTypes[28]
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -2232,7 +2435,7 @@ func (x *GenerativeXAIMetadata) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GenerativeXAIMetadata.ProtoReflect.Descriptor instead.
 func (*GenerativeXAIMetadata) Descriptor() ([]byte, []int) {
-	return file_v1_generative_proto_rawDescGZIP(), []int{27}
+	return file_v1_generative_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *GenerativeXAIMetadata) GetUsage() *GenerativeXAIMetadata_Usage {
@@ -2243,11 +2446,8 @@ func (x *GenerativeXAIMetadata) GetUsage() *GenerativeXAIMetadata_Usage {
 }
 
 type GenerativeMetadata struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
-	unknownFields protoimpl.UnknownFields
-
-	// Types that are assignable to Kind:
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Types that are valid to be assigned to Kind:
 	//
 	//	*GenerativeMetadata_Anthropic
 	//	*GenerativeMetadata_Anyscale
@@ -2262,16 +2462,16 @@ type GenerativeMetadata struct {
 	//	*GenerativeMetadata_Friendliai
 	//	*GenerativeMetadata_Nvidia
 	//	*GenerativeMetadata_Xai
-	Kind isGenerativeMetadata_Kind `protobuf_oneof:"kind"`
+	Kind          isGenerativeMetadata_Kind `protobuf_oneof:"kind"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *GenerativeMetadata) Reset() {
 	*x = GenerativeMetadata{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_generative_proto_msgTypes[28]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_v1_generative_proto_msgTypes[29]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *GenerativeMetadata) String() string {
@@ -2281,8 +2481,8 @@ func (x *GenerativeMetadata) String() string {
 func (*GenerativeMetadata) ProtoMessage() {}
 
 func (x *GenerativeMetadata) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_generative_proto_msgTypes[28]
-	if protoimpl.UnsafeEnabled && x != nil {
+	mi := &file_v1_generative_proto_msgTypes[29]
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -2294,103 +2494,129 @@ func (x *GenerativeMetadata) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GenerativeMetadata.ProtoReflect.Descriptor instead.
 func (*GenerativeMetadata) Descriptor() ([]byte, []int) {
-	return file_v1_generative_proto_rawDescGZIP(), []int{28}
+	return file_v1_generative_proto_rawDescGZIP(), []int{29}
 }
 
-func (m *GenerativeMetadata) GetKind() isGenerativeMetadata_Kind {
-	if m != nil {
-		return m.Kind
+func (x *GenerativeMetadata) GetKind() isGenerativeMetadata_Kind {
+	if x != nil {
+		return x.Kind
 	}
 	return nil
 }
 
 func (x *GenerativeMetadata) GetAnthropic() *GenerativeAnthropicMetadata {
-	if x, ok := x.GetKind().(*GenerativeMetadata_Anthropic); ok {
-		return x.Anthropic
+	if x != nil {
+		if x, ok := x.Kind.(*GenerativeMetadata_Anthropic); ok {
+			return x.Anthropic
+		}
 	}
 	return nil
 }
 
 func (x *GenerativeMetadata) GetAnyscale() *GenerativeAnyscaleMetadata {
-	if x, ok := x.GetKind().(*GenerativeMetadata_Anyscale); ok {
-		return x.Anyscale
+	if x != nil {
+		if x, ok := x.Kind.(*GenerativeMetadata_Anyscale); ok {
+			return x.Anyscale
+		}
 	}
 	return nil
 }
 
 func (x *GenerativeMetadata) GetAws() *GenerativeAWSMetadata {
-	if x, ok := x.GetKind().(*GenerativeMetadata_Aws); ok {
-		return x.Aws
+	if x != nil {
+		if x, ok := x.Kind.(*GenerativeMetadata_Aws); ok {
+			return x.Aws
+		}
 	}
 	return nil
 }
 
 func (x *GenerativeMetadata) GetCohere() *GenerativeCohereMetadata {
-	if x, ok := x.GetKind().(*GenerativeMetadata_Cohere); ok {
-		return x.Cohere
+	if x != nil {
+		if x, ok := x.Kind.(*GenerativeMetadata_Cohere); ok {
+			return x.Cohere
+		}
 	}
 	return nil
 }
 
 func (x *GenerativeMetadata) GetDummy() *GenerativeDummyMetadata {
-	if x, ok := x.GetKind().(*GenerativeMetadata_Dummy); ok {
-		return x.Dummy
+	if x != nil {
+		if x, ok := x.Kind.(*GenerativeMetadata_Dummy); ok {
+			return x.Dummy
+		}
 	}
 	return nil
 }
 
 func (x *GenerativeMetadata) GetMistral() *GenerativeMistralMetadata {
-	if x, ok := x.GetKind().(*GenerativeMetadata_Mistral); ok {
-		return x.Mistral
+	if x != nil {
+		if x, ok := x.Kind.(*GenerativeMetadata_Mistral); ok {
+			return x.Mistral
+		}
 	}
 	return nil
 }
 
 func (x *GenerativeMetadata) GetOllama() *GenerativeOllamaMetadata {
-	if x, ok := x.GetKind().(*GenerativeMetadata_Ollama); ok {
-		return x.Ollama
+	if x != nil {
+		if x, ok := x.Kind.(*GenerativeMetadata_Ollama); ok {
+			return x.Ollama
+		}
 	}
 	return nil
 }
 
 func (x *GenerativeMetadata) GetOpenai() *GenerativeOpenAIMetadata {
-	if x, ok := x.GetKind().(*GenerativeMetadata_Openai); ok {
-		return x.Openai
+	if x != nil {
+		if x, ok := x.Kind.(*GenerativeMetadata_Openai); ok {
+			return x.Openai
+		}
 	}
 	return nil
 }
 
 func (x *GenerativeMetadata) GetGoogle() *GenerativeGoogleMetadata {
-	if x, ok := x.GetKind().(*GenerativeMetadata_Google); ok {
-		return x.Google
+	if x != nil {
+		if x, ok := x.Kind.(*GenerativeMetadata_Google); ok {
+			return x.Google
+		}
 	}
 	return nil
 }
 
 func (x *GenerativeMetadata) GetDatabricks() *GenerativeDatabricksMetadata {
-	if x, ok := x.GetKind().(*GenerativeMetadata_Databricks); ok {
-		return x.Databricks
+	if x != nil {
+		if x, ok := x.Kind.(*GenerativeMetadata_Databricks); ok {
+			return x.Databricks
+		}
 	}
 	return nil
 }
 
 func (x *GenerativeMetadata) GetFriendliai() *GenerativeFriendliAIMetadata {
-	if x, ok := x.GetKind().(*GenerativeMetadata_Friendliai); ok {
-		return x.Friendliai
+	if x != nil {
+		if x, ok := x.Kind.(*GenerativeMetadata_Friendliai); ok {
+			return x.Friendliai
+		}
 	}
 	return nil
 }
 
 func (x *GenerativeMetadata) GetNvidia() *GenerativeNvidiaMetadata {
-	if x, ok := x.GetKind().(*GenerativeMetadata_Nvidia); ok {
-		return x.Nvidia
+	if x != nil {
+		if x, ok := x.Kind.(*GenerativeMetadata_Nvidia); ok {
+			return x.Nvidia
+		}
 	}
 	return nil
 }
 
 func (x *GenerativeMetadata) GetXai() *GenerativeXAIMetadata {
-	if x, ok := x.GetKind().(*GenerativeMetadata_Xai); ok {
-		return x.Xai
+	if x != nil {
+		if x, ok := x.Kind.(*GenerativeMetadata_Xai); ok {
+			return x.Xai
+		}
 	}
 	return nil
 }
@@ -2478,22 +2704,19 @@ func (*GenerativeMetadata_Nvidia) isGenerativeMetadata_Kind() {}
 func (*GenerativeMetadata_Xai) isGenerativeMetadata_Kind() {}
 
 type GenerativeReply struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Result        string                 `protobuf:"bytes,1,opt,name=result,proto3" json:"result,omitempty"`
+	Debug         *GenerativeDebug       `protobuf:"bytes,2,opt,name=debug,proto3,oneof" json:"debug,omitempty"`
+	Metadata      *GenerativeMetadata    `protobuf:"bytes,3,opt,name=metadata,proto3,oneof" json:"metadata,omitempty"`
 	unknownFields protoimpl.UnknownFields
-
-	Result   string              `protobuf:"bytes,1,opt,name=result,proto3" json:"result,omitempty"`
-	Debug    *GenerativeDebug    `protobuf:"bytes,2,opt,name=debug,proto3,oneof" json:"debug,omitempty"`
-	Metadata *GenerativeMetadata `protobuf:"bytes,3,opt,name=metadata,proto3,oneof" json:"metadata,omitempty"`
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *GenerativeReply) Reset() {
 	*x = GenerativeReply{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_generative_proto_msgTypes[29]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_v1_generative_proto_msgTypes[30]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *GenerativeReply) String() string {
@@ -2503,8 +2726,8 @@ func (x *GenerativeReply) String() string {
 func (*GenerativeReply) ProtoMessage() {}
 
 func (x *GenerativeReply) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_generative_proto_msgTypes[29]
-	if protoimpl.UnsafeEnabled && x != nil {
+	mi := &file_v1_generative_proto_msgTypes[30]
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -2516,7 +2739,7 @@ func (x *GenerativeReply) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GenerativeReply.ProtoReflect.Descriptor instead.
 func (*GenerativeReply) Descriptor() ([]byte, []int) {
-	return file_v1_generative_proto_rawDescGZIP(), []int{29}
+	return file_v1_generative_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *GenerativeReply) GetResult() string {
@@ -2541,20 +2764,17 @@ func (x *GenerativeReply) GetMetadata() *GenerativeMetadata {
 }
 
 type GenerativeResult struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Values        []*GenerativeReply     `protobuf:"bytes,1,rep,name=values,proto3" json:"values,omitempty"`
 	unknownFields protoimpl.UnknownFields
-
-	Values []*GenerativeReply `protobuf:"bytes,1,rep,name=values,proto3" json:"values,omitempty"`
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *GenerativeResult) Reset() {
 	*x = GenerativeResult{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_generative_proto_msgTypes[30]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_v1_generative_proto_msgTypes[31]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *GenerativeResult) String() string {
@@ -2564,8 +2784,8 @@ func (x *GenerativeResult) String() string {
 func (*GenerativeResult) ProtoMessage() {}
 
 func (x *GenerativeResult) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_generative_proto_msgTypes[30]
-	if protoimpl.UnsafeEnabled && x != nil {
+	mi := &file_v1_generative_proto_msgTypes[31]
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -2577,7 +2797,7 @@ func (x *GenerativeResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GenerativeResult.ProtoReflect.Descriptor instead.
 func (*GenerativeResult) Descriptor() ([]byte, []int) {
-	return file_v1_generative_proto_rawDescGZIP(), []int{30}
+	return file_v1_generative_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *GenerativeResult) GetValues() []*GenerativeReply {
@@ -2588,20 +2808,17 @@ func (x *GenerativeResult) GetValues() []*GenerativeReply {
 }
 
 type GenerativeDebug struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	FullPrompt    *string                `protobuf:"bytes,1,opt,name=full_prompt,json=fullPrompt,proto3,oneof" json:"full_prompt,omitempty"`
 	unknownFields protoimpl.UnknownFields
-
-	FullPrompt *string `protobuf:"bytes,1,opt,name=full_prompt,json=fullPrompt,proto3,oneof" json:"full_prompt,omitempty"`
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *GenerativeDebug) Reset() {
 	*x = GenerativeDebug{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_generative_proto_msgTypes[31]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_v1_generative_proto_msgTypes[32]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *GenerativeDebug) String() string {
@@ -2611,8 +2828,8 @@ func (x *GenerativeDebug) String() string {
 func (*GenerativeDebug) ProtoMessage() {}
 
 func (x *GenerativeDebug) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_generative_proto_msgTypes[31]
-	if protoimpl.UnsafeEnabled && x != nil {
+	mi := &file_v1_generative_proto_msgTypes[32]
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -2624,7 +2841,7 @@ func (x *GenerativeDebug) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GenerativeDebug.ProtoReflect.Descriptor instead.
 func (*GenerativeDebug) Descriptor() ([]byte, []int) {
-	return file_v1_generative_proto_rawDescGZIP(), []int{31}
+	return file_v1_generative_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *GenerativeDebug) GetFullPrompt() string {
@@ -2635,23 +2852,20 @@ func (x *GenerativeDebug) GetFullPrompt() string {
 }
 
 type GenerativeSearch_Single struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
-	unknownFields protoimpl.UnknownFields
-
-	Prompt string `protobuf:"bytes,1,opt,name=prompt,proto3" json:"prompt,omitempty"`
-	Debug  bool   `protobuf:"varint,2,opt,name=debug,proto3" json:"debug,omitempty"`
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	Prompt string                 `protobuf:"bytes,1,opt,name=prompt,proto3" json:"prompt,omitempty"`
+	Debug  bool                   `protobuf:"varint,2,opt,name=debug,proto3" json:"debug,omitempty"`
 	// only allow one at the beginning, but multiple in the future
-	Queries []*GenerativeProvider `protobuf:"bytes,3,rep,name=queries,proto3" json:"queries,omitempty"`
+	Queries       []*GenerativeProvider `protobuf:"bytes,3,rep,name=queries,proto3" json:"queries,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *GenerativeSearch_Single) Reset() {
 	*x = GenerativeSearch_Single{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_generative_proto_msgTypes[32]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_v1_generative_proto_msgTypes[33]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *GenerativeSearch_Single) String() string {
@@ -2661,8 +2875,8 @@ func (x *GenerativeSearch_Single) String() string {
 func (*GenerativeSearch_Single) ProtoMessage() {}
 
 func (x *GenerativeSearch_Single) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_generative_proto_msgTypes[32]
-	if protoimpl.UnsafeEnabled && x != nil {
+	mi := &file_v1_generative_proto_msgTypes[33]
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -2699,23 +2913,21 @@ func (x *GenerativeSearch_Single) GetQueries() []*GenerativeProvider {
 }
 
 type GenerativeSearch_Grouped struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
-	unknownFields protoimpl.UnknownFields
-
-	Task       string     `protobuf:"bytes,1,opt,name=task,proto3" json:"task,omitempty"`
-	Properties *TextArray `protobuf:"bytes,2,opt,name=properties,proto3,oneof" json:"properties,omitempty"`
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	Task       string                 `protobuf:"bytes,1,opt,name=task,proto3" json:"task,omitempty"`
+	Properties *TextArray             `protobuf:"bytes,2,opt,name=properties,proto3,oneof" json:"properties,omitempty"`
 	// only allow one at the beginning, but multiple in the future
-	Queries []*GenerativeProvider `protobuf:"bytes,3,rep,name=queries,proto3" json:"queries,omitempty"`
+	Queries       []*GenerativeProvider `protobuf:"bytes,3,rep,name=queries,proto3" json:"queries,omitempty"`
+	Debug         bool                  `protobuf:"varint,4,opt,name=debug,proto3" json:"debug,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *GenerativeSearch_Grouped) Reset() {
 	*x = GenerativeSearch_Grouped{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_generative_proto_msgTypes[33]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_v1_generative_proto_msgTypes[34]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *GenerativeSearch_Grouped) String() string {
@@ -2725,8 +2937,8 @@ func (x *GenerativeSearch_Grouped) String() string {
 func (*GenerativeSearch_Grouped) ProtoMessage() {}
 
 func (x *GenerativeSearch_Grouped) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_generative_proto_msgTypes[33]
-	if protoimpl.UnsafeEnabled && x != nil {
+	mi := &file_v1_generative_proto_msgTypes[34]
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -2762,22 +2974,26 @@ func (x *GenerativeSearch_Grouped) GetQueries() []*GenerativeProvider {
 	return nil
 }
 
-type GenerativeAnthropicMetadata_Usage struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
-	unknownFields protoimpl.UnknownFields
+func (x *GenerativeSearch_Grouped) GetDebug() bool {
+	if x != nil {
+		return x.Debug
+	}
+	return false
+}
 
-	InputTokens  int64 `protobuf:"varint,1,opt,name=input_tokens,json=inputTokens,proto3" json:"input_tokens,omitempty"`
-	OutputTokens int64 `protobuf:"varint,2,opt,name=output_tokens,json=outputTokens,proto3" json:"output_tokens,omitempty"`
+type GenerativeAnthropicMetadata_Usage struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	InputTokens   int64                  `protobuf:"varint,1,opt,name=input_tokens,json=inputTokens,proto3" json:"input_tokens,omitempty"`
+	OutputTokens  int64                  `protobuf:"varint,2,opt,name=output_tokens,json=outputTokens,proto3" json:"output_tokens,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *GenerativeAnthropicMetadata_Usage) Reset() {
 	*x = GenerativeAnthropicMetadata_Usage{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_generative_proto_msgTypes[34]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_v1_generative_proto_msgTypes[35]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *GenerativeAnthropicMetadata_Usage) String() string {
@@ -2787,8 +3003,8 @@ func (x *GenerativeAnthropicMetadata_Usage) String() string {
 func (*GenerativeAnthropicMetadata_Usage) ProtoMessage() {}
 
 func (x *GenerativeAnthropicMetadata_Usage) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_generative_proto_msgTypes[34]
-	if protoimpl.UnsafeEnabled && x != nil {
+	mi := &file_v1_generative_proto_msgTypes[35]
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -2800,7 +3016,7 @@ func (x *GenerativeAnthropicMetadata_Usage) ProtoReflect() protoreflect.Message 
 
 // Deprecated: Use GenerativeAnthropicMetadata_Usage.ProtoReflect.Descriptor instead.
 func (*GenerativeAnthropicMetadata_Usage) Descriptor() ([]byte, []int) {
-	return file_v1_generative_proto_rawDescGZIP(), []int{15, 0}
+	return file_v1_generative_proto_rawDescGZIP(), []int{16, 0}
 }
 
 func (x *GenerativeAnthropicMetadata_Usage) GetInputTokens() int64 {
@@ -2818,22 +3034,19 @@ func (x *GenerativeAnthropicMetadata_Usage) GetOutputTokens() int64 {
 }
 
 type GenerativeCohereMetadata_ApiVersion struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
-	unknownFields protoimpl.UnknownFields
-
-	Version        *string `protobuf:"bytes,1,opt,name=version,proto3,oneof" json:"version,omitempty"`
-	IsDeprecated   *bool   `protobuf:"varint,2,opt,name=is_deprecated,json=isDeprecated,proto3,oneof" json:"is_deprecated,omitempty"`
-	IsExperimental *bool   `protobuf:"varint,3,opt,name=is_experimental,json=isExperimental,proto3,oneof" json:"is_experimental,omitempty"`
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	Version        *string                `protobuf:"bytes,1,opt,name=version,proto3,oneof" json:"version,omitempty"`
+	IsDeprecated   *bool                  `protobuf:"varint,2,opt,name=is_deprecated,json=isDeprecated,proto3,oneof" json:"is_deprecated,omitempty"`
+	IsExperimental *bool                  `protobuf:"varint,3,opt,name=is_experimental,json=isExperimental,proto3,oneof" json:"is_experimental,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *GenerativeCohereMetadata_ApiVersion) Reset() {
 	*x = GenerativeCohereMetadata_ApiVersion{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_generative_proto_msgTypes[35]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_v1_generative_proto_msgTypes[36]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *GenerativeCohereMetadata_ApiVersion) String() string {
@@ -2843,8 +3056,8 @@ func (x *GenerativeCohereMetadata_ApiVersion) String() string {
 func (*GenerativeCohereMetadata_ApiVersion) ProtoMessage() {}
 
 func (x *GenerativeCohereMetadata_ApiVersion) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_generative_proto_msgTypes[35]
-	if protoimpl.UnsafeEnabled && x != nil {
+	mi := &file_v1_generative_proto_msgTypes[36]
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -2856,7 +3069,7 @@ func (x *GenerativeCohereMetadata_ApiVersion) ProtoReflect() protoreflect.Messag
 
 // Deprecated: Use GenerativeCohereMetadata_ApiVersion.ProtoReflect.Descriptor instead.
 func (*GenerativeCohereMetadata_ApiVersion) Descriptor() ([]byte, []int) {
-	return file_v1_generative_proto_rawDescGZIP(), []int{18, 0}
+	return file_v1_generative_proto_rawDescGZIP(), []int{19, 0}
 }
 
 func (x *GenerativeCohereMetadata_ApiVersion) GetVersion() string {
@@ -2881,23 +3094,20 @@ func (x *GenerativeCohereMetadata_ApiVersion) GetIsExperimental() bool {
 }
 
 type GenerativeCohereMetadata_BilledUnits struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
-	unknownFields protoimpl.UnknownFields
-
-	InputTokens     *float64 `protobuf:"fixed64,1,opt,name=input_tokens,json=inputTokens,proto3,oneof" json:"input_tokens,omitempty"`
-	OutputTokens    *float64 `protobuf:"fixed64,2,opt,name=output_tokens,json=outputTokens,proto3,oneof" json:"output_tokens,omitempty"`
-	SearchUnits     *float64 `protobuf:"fixed64,3,opt,name=search_units,json=searchUnits,proto3,oneof" json:"search_units,omitempty"`
-	Classifications *float64 `protobuf:"fixed64,4,opt,name=classifications,proto3,oneof" json:"classifications,omitempty"`
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	InputTokens     *float64               `protobuf:"fixed64,1,opt,name=input_tokens,json=inputTokens,proto3,oneof" json:"input_tokens,omitempty"`
+	OutputTokens    *float64               `protobuf:"fixed64,2,opt,name=output_tokens,json=outputTokens,proto3,oneof" json:"output_tokens,omitempty"`
+	SearchUnits     *float64               `protobuf:"fixed64,3,opt,name=search_units,json=searchUnits,proto3,oneof" json:"search_units,omitempty"`
+	Classifications *float64               `protobuf:"fixed64,4,opt,name=classifications,proto3,oneof" json:"classifications,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *GenerativeCohereMetadata_BilledUnits) Reset() {
 	*x = GenerativeCohereMetadata_BilledUnits{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_generative_proto_msgTypes[36]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_v1_generative_proto_msgTypes[37]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *GenerativeCohereMetadata_BilledUnits) String() string {
@@ -2907,8 +3117,8 @@ func (x *GenerativeCohereMetadata_BilledUnits) String() string {
 func (*GenerativeCohereMetadata_BilledUnits) ProtoMessage() {}
 
 func (x *GenerativeCohereMetadata_BilledUnits) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_generative_proto_msgTypes[36]
-	if protoimpl.UnsafeEnabled && x != nil {
+	mi := &file_v1_generative_proto_msgTypes[37]
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -2920,7 +3130,7 @@ func (x *GenerativeCohereMetadata_BilledUnits) ProtoReflect() protoreflect.Messa
 
 // Deprecated: Use GenerativeCohereMetadata_BilledUnits.ProtoReflect.Descriptor instead.
 func (*GenerativeCohereMetadata_BilledUnits) Descriptor() ([]byte, []int) {
-	return file_v1_generative_proto_rawDescGZIP(), []int{18, 1}
+	return file_v1_generative_proto_rawDescGZIP(), []int{19, 1}
 }
 
 func (x *GenerativeCohereMetadata_BilledUnits) GetInputTokens() float64 {
@@ -2952,21 +3162,18 @@ func (x *GenerativeCohereMetadata_BilledUnits) GetClassifications() float64 {
 }
 
 type GenerativeCohereMetadata_Tokens struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	InputTokens   *float64               `protobuf:"fixed64,1,opt,name=input_tokens,json=inputTokens,proto3,oneof" json:"input_tokens,omitempty"`
+	OutputTokens  *float64               `protobuf:"fixed64,2,opt,name=output_tokens,json=outputTokens,proto3,oneof" json:"output_tokens,omitempty"`
 	unknownFields protoimpl.UnknownFields
-
-	InputTokens  *float64 `protobuf:"fixed64,1,opt,name=input_tokens,json=inputTokens,proto3,oneof" json:"input_tokens,omitempty"`
-	OutputTokens *float64 `protobuf:"fixed64,2,opt,name=output_tokens,json=outputTokens,proto3,oneof" json:"output_tokens,omitempty"`
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *GenerativeCohereMetadata_Tokens) Reset() {
 	*x = GenerativeCohereMetadata_Tokens{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_generative_proto_msgTypes[37]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_v1_generative_proto_msgTypes[38]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *GenerativeCohereMetadata_Tokens) String() string {
@@ -2976,8 +3183,8 @@ func (x *GenerativeCohereMetadata_Tokens) String() string {
 func (*GenerativeCohereMetadata_Tokens) ProtoMessage() {}
 
 func (x *GenerativeCohereMetadata_Tokens) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_generative_proto_msgTypes[37]
-	if protoimpl.UnsafeEnabled && x != nil {
+	mi := &file_v1_generative_proto_msgTypes[38]
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -2989,7 +3196,7 @@ func (x *GenerativeCohereMetadata_Tokens) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GenerativeCohereMetadata_Tokens.ProtoReflect.Descriptor instead.
 func (*GenerativeCohereMetadata_Tokens) Descriptor() ([]byte, []int) {
-	return file_v1_generative_proto_rawDescGZIP(), []int{18, 2}
+	return file_v1_generative_proto_rawDescGZIP(), []int{19, 2}
 }
 
 func (x *GenerativeCohereMetadata_Tokens) GetInputTokens() float64 {
@@ -3007,22 +3214,19 @@ func (x *GenerativeCohereMetadata_Tokens) GetOutputTokens() float64 {
 }
 
 type GenerativeMistralMetadata_Usage struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
-	unknownFields protoimpl.UnknownFields
-
-	PromptTokens     *int64 `protobuf:"varint,1,opt,name=prompt_tokens,json=promptTokens,proto3,oneof" json:"prompt_tokens,omitempty"`
-	CompletionTokens *int64 `protobuf:"varint,2,opt,name=completion_tokens,json=completionTokens,proto3,oneof" json:"completion_tokens,omitempty"`
-	TotalTokens      *int64 `protobuf:"varint,3,opt,name=total_tokens,json=totalTokens,proto3,oneof" json:"total_tokens,omitempty"`
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	PromptTokens     *int64                 `protobuf:"varint,1,opt,name=prompt_tokens,json=promptTokens,proto3,oneof" json:"prompt_tokens,omitempty"`
+	CompletionTokens *int64                 `protobuf:"varint,2,opt,name=completion_tokens,json=completionTokens,proto3,oneof" json:"completion_tokens,omitempty"`
+	TotalTokens      *int64                 `protobuf:"varint,3,opt,name=total_tokens,json=totalTokens,proto3,oneof" json:"total_tokens,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *GenerativeMistralMetadata_Usage) Reset() {
 	*x = GenerativeMistralMetadata_Usage{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_generative_proto_msgTypes[38]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_v1_generative_proto_msgTypes[39]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *GenerativeMistralMetadata_Usage) String() string {
@@ -3032,8 +3236,8 @@ func (x *GenerativeMistralMetadata_Usage) String() string {
 func (*GenerativeMistralMetadata_Usage) ProtoMessage() {}
 
 func (x *GenerativeMistralMetadata_Usage) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_generative_proto_msgTypes[38]
-	if protoimpl.UnsafeEnabled && x != nil {
+	mi := &file_v1_generative_proto_msgTypes[39]
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -3045,7 +3249,7 @@ func (x *GenerativeMistralMetadata_Usage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GenerativeMistralMetadata_Usage.ProtoReflect.Descriptor instead.
 func (*GenerativeMistralMetadata_Usage) Descriptor() ([]byte, []int) {
-	return file_v1_generative_proto_rawDescGZIP(), []int{20, 0}
+	return file_v1_generative_proto_rawDescGZIP(), []int{21, 0}
 }
 
 func (x *GenerativeMistralMetadata_Usage) GetPromptTokens() int64 {
@@ -3070,22 +3274,19 @@ func (x *GenerativeMistralMetadata_Usage) GetTotalTokens() int64 {
 }
 
 type GenerativeOpenAIMetadata_Usage struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
-	unknownFields protoimpl.UnknownFields
-
-	PromptTokens     *int64 `protobuf:"varint,1,opt,name=prompt_tokens,json=promptTokens,proto3,oneof" json:"prompt_tokens,omitempty"`
-	CompletionTokens *int64 `protobuf:"varint,2,opt,name=completion_tokens,json=completionTokens,proto3,oneof" json:"completion_tokens,omitempty"`
-	TotalTokens      *int64 `protobuf:"varint,3,opt,name=total_tokens,json=totalTokens,proto3,oneof" json:"total_tokens,omitempty"`
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	PromptTokens     *int64                 `protobuf:"varint,1,opt,name=prompt_tokens,json=promptTokens,proto3,oneof" json:"prompt_tokens,omitempty"`
+	CompletionTokens *int64                 `protobuf:"varint,2,opt,name=completion_tokens,json=completionTokens,proto3,oneof" json:"completion_tokens,omitempty"`
+	TotalTokens      *int64                 `protobuf:"varint,3,opt,name=total_tokens,json=totalTokens,proto3,oneof" json:"total_tokens,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *GenerativeOpenAIMetadata_Usage) Reset() {
 	*x = GenerativeOpenAIMetadata_Usage{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_generative_proto_msgTypes[39]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_v1_generative_proto_msgTypes[40]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *GenerativeOpenAIMetadata_Usage) String() string {
@@ -3095,8 +3296,8 @@ func (x *GenerativeOpenAIMetadata_Usage) String() string {
 func (*GenerativeOpenAIMetadata_Usage) ProtoMessage() {}
 
 func (x *GenerativeOpenAIMetadata_Usage) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_generative_proto_msgTypes[39]
-	if protoimpl.UnsafeEnabled && x != nil {
+	mi := &file_v1_generative_proto_msgTypes[40]
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -3108,7 +3309,7 @@ func (x *GenerativeOpenAIMetadata_Usage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GenerativeOpenAIMetadata_Usage.ProtoReflect.Descriptor instead.
 func (*GenerativeOpenAIMetadata_Usage) Descriptor() ([]byte, []int) {
-	return file_v1_generative_proto_rawDescGZIP(), []int{22, 0}
+	return file_v1_generative_proto_rawDescGZIP(), []int{23, 0}
 }
 
 func (x *GenerativeOpenAIMetadata_Usage) GetPromptTokens() int64 {
@@ -3133,21 +3334,18 @@ func (x *GenerativeOpenAIMetadata_Usage) GetTotalTokens() int64 {
 }
 
 type GenerativeGoogleMetadata_TokenCount struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
-	unknownFields protoimpl.UnknownFields
-
-	TotalBillableCharacters *int64 `protobuf:"varint,1,opt,name=total_billable_characters,json=totalBillableCharacters,proto3,oneof" json:"total_billable_characters,omitempty"`
-	TotalTokens             *int64 `protobuf:"varint,2,opt,name=total_tokens,json=totalTokens,proto3,oneof" json:"total_tokens,omitempty"`
+	state                   protoimpl.MessageState `protogen:"open.v1"`
+	TotalBillableCharacters *int64                 `protobuf:"varint,1,opt,name=total_billable_characters,json=totalBillableCharacters,proto3,oneof" json:"total_billable_characters,omitempty"`
+	TotalTokens             *int64                 `protobuf:"varint,2,opt,name=total_tokens,json=totalTokens,proto3,oneof" json:"total_tokens,omitempty"`
+	unknownFields           protoimpl.UnknownFields
+	sizeCache               protoimpl.SizeCache
 }
 
 func (x *GenerativeGoogleMetadata_TokenCount) Reset() {
 	*x = GenerativeGoogleMetadata_TokenCount{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_generative_proto_msgTypes[40]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_v1_generative_proto_msgTypes[41]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *GenerativeGoogleMetadata_TokenCount) String() string {
@@ -3157,8 +3355,8 @@ func (x *GenerativeGoogleMetadata_TokenCount) String() string {
 func (*GenerativeGoogleMetadata_TokenCount) ProtoMessage() {}
 
 func (x *GenerativeGoogleMetadata_TokenCount) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_generative_proto_msgTypes[40]
-	if protoimpl.UnsafeEnabled && x != nil {
+	mi := &file_v1_generative_proto_msgTypes[41]
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -3170,7 +3368,7 @@ func (x *GenerativeGoogleMetadata_TokenCount) ProtoReflect() protoreflect.Messag
 
 // Deprecated: Use GenerativeGoogleMetadata_TokenCount.ProtoReflect.Descriptor instead.
 func (*GenerativeGoogleMetadata_TokenCount) Descriptor() ([]byte, []int) {
-	return file_v1_generative_proto_rawDescGZIP(), []int{23, 0}
+	return file_v1_generative_proto_rawDescGZIP(), []int{24, 0}
 }
 
 func (x *GenerativeGoogleMetadata_TokenCount) GetTotalBillableCharacters() int64 {
@@ -3188,21 +3386,18 @@ func (x *GenerativeGoogleMetadata_TokenCount) GetTotalTokens() int64 {
 }
 
 type GenerativeGoogleMetadata_TokenMetadata struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
-	unknownFields protoimpl.UnknownFields
-
+	state            protoimpl.MessageState               `protogen:"open.v1"`
 	InputTokenCount  *GenerativeGoogleMetadata_TokenCount `protobuf:"bytes,1,opt,name=input_token_count,json=inputTokenCount,proto3,oneof" json:"input_token_count,omitempty"`
 	OutputTokenCount *GenerativeGoogleMetadata_TokenCount `protobuf:"bytes,2,opt,name=output_token_count,json=outputTokenCount,proto3,oneof" json:"output_token_count,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *GenerativeGoogleMetadata_TokenMetadata) Reset() {
 	*x = GenerativeGoogleMetadata_TokenMetadata{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_generative_proto_msgTypes[41]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_v1_generative_proto_msgTypes[42]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *GenerativeGoogleMetadata_TokenMetadata) String() string {
@@ -3212,8 +3407,8 @@ func (x *GenerativeGoogleMetadata_TokenMetadata) String() string {
 func (*GenerativeGoogleMetadata_TokenMetadata) ProtoMessage() {}
 
 func (x *GenerativeGoogleMetadata_TokenMetadata) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_generative_proto_msgTypes[41]
-	if protoimpl.UnsafeEnabled && x != nil {
+	mi := &file_v1_generative_proto_msgTypes[42]
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -3225,7 +3420,7 @@ func (x *GenerativeGoogleMetadata_TokenMetadata) ProtoReflect() protoreflect.Mes
 
 // Deprecated: Use GenerativeGoogleMetadata_TokenMetadata.ProtoReflect.Descriptor instead.
 func (*GenerativeGoogleMetadata_TokenMetadata) Descriptor() ([]byte, []int) {
-	return file_v1_generative_proto_rawDescGZIP(), []int{23, 1}
+	return file_v1_generative_proto_rawDescGZIP(), []int{24, 1}
 }
 
 func (x *GenerativeGoogleMetadata_TokenMetadata) GetInputTokenCount() *GenerativeGoogleMetadata_TokenCount {
@@ -3243,20 +3438,17 @@ func (x *GenerativeGoogleMetadata_TokenMetadata) GetOutputTokenCount() *Generati
 }
 
 type GenerativeGoogleMetadata_Metadata struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
-	unknownFields protoimpl.UnknownFields
-
+	state         protoimpl.MessageState                  `protogen:"open.v1"`
 	TokenMetadata *GenerativeGoogleMetadata_TokenMetadata `protobuf:"bytes,1,opt,name=token_metadata,json=tokenMetadata,proto3,oneof" json:"token_metadata,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *GenerativeGoogleMetadata_Metadata) Reset() {
 	*x = GenerativeGoogleMetadata_Metadata{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_generative_proto_msgTypes[42]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_v1_generative_proto_msgTypes[43]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *GenerativeGoogleMetadata_Metadata) String() string {
@@ -3266,8 +3458,8 @@ func (x *GenerativeGoogleMetadata_Metadata) String() string {
 func (*GenerativeGoogleMetadata_Metadata) ProtoMessage() {}
 
 func (x *GenerativeGoogleMetadata_Metadata) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_generative_proto_msgTypes[42]
-	if protoimpl.UnsafeEnabled && x != nil {
+	mi := &file_v1_generative_proto_msgTypes[43]
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -3279,7 +3471,7 @@ func (x *GenerativeGoogleMetadata_Metadata) ProtoReflect() protoreflect.Message 
 
 // Deprecated: Use GenerativeGoogleMetadata_Metadata.ProtoReflect.Descriptor instead.
 func (*GenerativeGoogleMetadata_Metadata) Descriptor() ([]byte, []int) {
-	return file_v1_generative_proto_rawDescGZIP(), []int{23, 2}
+	return file_v1_generative_proto_rawDescGZIP(), []int{24, 2}
 }
 
 func (x *GenerativeGoogleMetadata_Metadata) GetTokenMetadata() *GenerativeGoogleMetadata_TokenMetadata {
@@ -3290,22 +3482,19 @@ func (x *GenerativeGoogleMetadata_Metadata) GetTokenMetadata() *GenerativeGoogle
 }
 
 type GenerativeGoogleMetadata_UsageMetadata struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
-	unknownFields protoimpl.UnknownFields
-
-	PromptTokenCount     *int64 `protobuf:"varint,1,opt,name=prompt_token_count,json=promptTokenCount,proto3,oneof" json:"prompt_token_count,omitempty"`
-	CandidatesTokenCount *int64 `protobuf:"varint,2,opt,name=candidates_token_count,json=candidatesTokenCount,proto3,oneof" json:"candidates_token_count,omitempty"`
-	TotalTokenCount      *int64 `protobuf:"varint,3,opt,name=total_token_count,json=totalTokenCount,proto3,oneof" json:"total_token_count,omitempty"`
+	state                protoimpl.MessageState `protogen:"open.v1"`
+	PromptTokenCount     *int64                 `protobuf:"varint,1,opt,name=prompt_token_count,json=promptTokenCount,proto3,oneof" json:"prompt_token_count,omitempty"`
+	CandidatesTokenCount *int64                 `protobuf:"varint,2,opt,name=candidates_token_count,json=candidatesTokenCount,proto3,oneof" json:"candidates_token_count,omitempty"`
+	TotalTokenCount      *int64                 `protobuf:"varint,3,opt,name=total_token_count,json=totalTokenCount,proto3,oneof" json:"total_token_count,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
 }
 
 func (x *GenerativeGoogleMetadata_UsageMetadata) Reset() {
 	*x = GenerativeGoogleMetadata_UsageMetadata{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_generative_proto_msgTypes[43]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_v1_generative_proto_msgTypes[44]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *GenerativeGoogleMetadata_UsageMetadata) String() string {
@@ -3315,8 +3504,8 @@ func (x *GenerativeGoogleMetadata_UsageMetadata) String() string {
 func (*GenerativeGoogleMetadata_UsageMetadata) ProtoMessage() {}
 
 func (x *GenerativeGoogleMetadata_UsageMetadata) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_generative_proto_msgTypes[43]
-	if protoimpl.UnsafeEnabled && x != nil {
+	mi := &file_v1_generative_proto_msgTypes[44]
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -3328,7 +3517,7 @@ func (x *GenerativeGoogleMetadata_UsageMetadata) ProtoReflect() protoreflect.Mes
 
 // Deprecated: Use GenerativeGoogleMetadata_UsageMetadata.ProtoReflect.Descriptor instead.
 func (*GenerativeGoogleMetadata_UsageMetadata) Descriptor() ([]byte, []int) {
-	return file_v1_generative_proto_rawDescGZIP(), []int{23, 3}
+	return file_v1_generative_proto_rawDescGZIP(), []int{24, 3}
 }
 
 func (x *GenerativeGoogleMetadata_UsageMetadata) GetPromptTokenCount() int64 {
@@ -3353,22 +3542,19 @@ func (x *GenerativeGoogleMetadata_UsageMetadata) GetTotalTokenCount() int64 {
 }
 
 type GenerativeDatabricksMetadata_Usage struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
-	unknownFields protoimpl.UnknownFields
-
-	PromptTokens     *int64 `protobuf:"varint,1,opt,name=prompt_tokens,json=promptTokens,proto3,oneof" json:"prompt_tokens,omitempty"`
-	CompletionTokens *int64 `protobuf:"varint,2,opt,name=completion_tokens,json=completionTokens,proto3,oneof" json:"completion_tokens,omitempty"`
-	TotalTokens      *int64 `protobuf:"varint,3,opt,name=total_tokens,json=totalTokens,proto3,oneof" json:"total_tokens,omitempty"`
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	PromptTokens     *int64                 `protobuf:"varint,1,opt,name=prompt_tokens,json=promptTokens,proto3,oneof" json:"prompt_tokens,omitempty"`
+	CompletionTokens *int64                 `protobuf:"varint,2,opt,name=completion_tokens,json=completionTokens,proto3,oneof" json:"completion_tokens,omitempty"`
+	TotalTokens      *int64                 `protobuf:"varint,3,opt,name=total_tokens,json=totalTokens,proto3,oneof" json:"total_tokens,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *GenerativeDatabricksMetadata_Usage) Reset() {
 	*x = GenerativeDatabricksMetadata_Usage{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_generative_proto_msgTypes[44]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_v1_generative_proto_msgTypes[45]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *GenerativeDatabricksMetadata_Usage) String() string {
@@ -3378,8 +3564,8 @@ func (x *GenerativeDatabricksMetadata_Usage) String() string {
 func (*GenerativeDatabricksMetadata_Usage) ProtoMessage() {}
 
 func (x *GenerativeDatabricksMetadata_Usage) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_generative_proto_msgTypes[44]
-	if protoimpl.UnsafeEnabled && x != nil {
+	mi := &file_v1_generative_proto_msgTypes[45]
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -3391,7 +3577,7 @@ func (x *GenerativeDatabricksMetadata_Usage) ProtoReflect() protoreflect.Message
 
 // Deprecated: Use GenerativeDatabricksMetadata_Usage.ProtoReflect.Descriptor instead.
 func (*GenerativeDatabricksMetadata_Usage) Descriptor() ([]byte, []int) {
-	return file_v1_generative_proto_rawDescGZIP(), []int{24, 0}
+	return file_v1_generative_proto_rawDescGZIP(), []int{25, 0}
 }
 
 func (x *GenerativeDatabricksMetadata_Usage) GetPromptTokens() int64 {
@@ -3416,22 +3602,19 @@ func (x *GenerativeDatabricksMetadata_Usage) GetTotalTokens() int64 {
 }
 
 type GenerativeFriendliAIMetadata_Usage struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
-	unknownFields protoimpl.UnknownFields
-
-	PromptTokens     *int64 `protobuf:"varint,1,opt,name=prompt_tokens,json=promptTokens,proto3,oneof" json:"prompt_tokens,omitempty"`
-	CompletionTokens *int64 `protobuf:"varint,2,opt,name=completion_tokens,json=completionTokens,proto3,oneof" json:"completion_tokens,omitempty"`
-	TotalTokens      *int64 `protobuf:"varint,3,opt,name=total_tokens,json=totalTokens,proto3,oneof" json:"total_tokens,omitempty"`
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	PromptTokens     *int64                 `protobuf:"varint,1,opt,name=prompt_tokens,json=promptTokens,proto3,oneof" json:"prompt_tokens,omitempty"`
+	CompletionTokens *int64                 `protobuf:"varint,2,opt,name=completion_tokens,json=completionTokens,proto3,oneof" json:"completion_tokens,omitempty"`
+	TotalTokens      *int64                 `protobuf:"varint,3,opt,name=total_tokens,json=totalTokens,proto3,oneof" json:"total_tokens,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *GenerativeFriendliAIMetadata_Usage) Reset() {
 	*x = GenerativeFriendliAIMetadata_Usage{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_generative_proto_msgTypes[45]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_v1_generative_proto_msgTypes[46]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *GenerativeFriendliAIMetadata_Usage) String() string {
@@ -3441,8 +3624,8 @@ func (x *GenerativeFriendliAIMetadata_Usage) String() string {
 func (*GenerativeFriendliAIMetadata_Usage) ProtoMessage() {}
 
 func (x *GenerativeFriendliAIMetadata_Usage) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_generative_proto_msgTypes[45]
-	if protoimpl.UnsafeEnabled && x != nil {
+	mi := &file_v1_generative_proto_msgTypes[46]
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -3454,7 +3637,7 @@ func (x *GenerativeFriendliAIMetadata_Usage) ProtoReflect() protoreflect.Message
 
 // Deprecated: Use GenerativeFriendliAIMetadata_Usage.ProtoReflect.Descriptor instead.
 func (*GenerativeFriendliAIMetadata_Usage) Descriptor() ([]byte, []int) {
-	return file_v1_generative_proto_rawDescGZIP(), []int{25, 0}
+	return file_v1_generative_proto_rawDescGZIP(), []int{26, 0}
 }
 
 func (x *GenerativeFriendliAIMetadata_Usage) GetPromptTokens() int64 {
@@ -3479,22 +3662,19 @@ func (x *GenerativeFriendliAIMetadata_Usage) GetTotalTokens() int64 {
 }
 
 type GenerativeNvidiaMetadata_Usage struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
-	unknownFields protoimpl.UnknownFields
-
-	PromptTokens     *int64 `protobuf:"varint,1,opt,name=prompt_tokens,json=promptTokens,proto3,oneof" json:"prompt_tokens,omitempty"`
-	CompletionTokens *int64 `protobuf:"varint,2,opt,name=completion_tokens,json=completionTokens,proto3,oneof" json:"completion_tokens,omitempty"`
-	TotalTokens      *int64 `protobuf:"varint,3,opt,name=total_tokens,json=totalTokens,proto3,oneof" json:"total_tokens,omitempty"`
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	PromptTokens     *int64                 `protobuf:"varint,1,opt,name=prompt_tokens,json=promptTokens,proto3,oneof" json:"prompt_tokens,omitempty"`
+	CompletionTokens *int64                 `protobuf:"varint,2,opt,name=completion_tokens,json=completionTokens,proto3,oneof" json:"completion_tokens,omitempty"`
+	TotalTokens      *int64                 `protobuf:"varint,3,opt,name=total_tokens,json=totalTokens,proto3,oneof" json:"total_tokens,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *GenerativeNvidiaMetadata_Usage) Reset() {
 	*x = GenerativeNvidiaMetadata_Usage{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_generative_proto_msgTypes[46]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_v1_generative_proto_msgTypes[47]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *GenerativeNvidiaMetadata_Usage) String() string {
@@ -3504,8 +3684,8 @@ func (x *GenerativeNvidiaMetadata_Usage) String() string {
 func (*GenerativeNvidiaMetadata_Usage) ProtoMessage() {}
 
 func (x *GenerativeNvidiaMetadata_Usage) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_generative_proto_msgTypes[46]
-	if protoimpl.UnsafeEnabled && x != nil {
+	mi := &file_v1_generative_proto_msgTypes[47]
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -3517,7 +3697,7 @@ func (x *GenerativeNvidiaMetadata_Usage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GenerativeNvidiaMetadata_Usage.ProtoReflect.Descriptor instead.
 func (*GenerativeNvidiaMetadata_Usage) Descriptor() ([]byte, []int) {
-	return file_v1_generative_proto_rawDescGZIP(), []int{26, 0}
+	return file_v1_generative_proto_rawDescGZIP(), []int{27, 0}
 }
 
 func (x *GenerativeNvidiaMetadata_Usage) GetPromptTokens() int64 {
@@ -3542,22 +3722,19 @@ func (x *GenerativeNvidiaMetadata_Usage) GetTotalTokens() int64 {
 }
 
 type GenerativeXAIMetadata_Usage struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
-	unknownFields protoimpl.UnknownFields
-
-	PromptTokens     *int64 `protobuf:"varint,1,opt,name=prompt_tokens,json=promptTokens,proto3,oneof" json:"prompt_tokens,omitempty"`
-	CompletionTokens *int64 `protobuf:"varint,2,opt,name=completion_tokens,json=completionTokens,proto3,oneof" json:"completion_tokens,omitempty"`
-	TotalTokens      *int64 `protobuf:"varint,3,opt,name=total_tokens,json=totalTokens,proto3,oneof" json:"total_tokens,omitempty"`
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	PromptTokens     *int64                 `protobuf:"varint,1,opt,name=prompt_tokens,json=promptTokens,proto3,oneof" json:"prompt_tokens,omitempty"`
+	CompletionTokens *int64                 `protobuf:"varint,2,opt,name=completion_tokens,json=completionTokens,proto3,oneof" json:"completion_tokens,omitempty"`
+	TotalTokens      *int64                 `protobuf:"varint,3,opt,name=total_tokens,json=totalTokens,proto3,oneof" json:"total_tokens,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *GenerativeXAIMetadata_Usage) Reset() {
 	*x = GenerativeXAIMetadata_Usage{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_generative_proto_msgTypes[47]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_v1_generative_proto_msgTypes[48]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *GenerativeXAIMetadata_Usage) String() string {
@@ -3567,8 +3744,8 @@ func (x *GenerativeXAIMetadata_Usage) String() string {
 func (*GenerativeXAIMetadata_Usage) ProtoMessage() {}
 
 func (x *GenerativeXAIMetadata_Usage) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_generative_proto_msgTypes[47]
-	if protoimpl.UnsafeEnabled && x != nil {
+	mi := &file_v1_generative_proto_msgTypes[48]
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -3580,7 +3757,7 @@ func (x *GenerativeXAIMetadata_Usage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GenerativeXAIMetadata_Usage.ProtoReflect.Descriptor instead.
 func (*GenerativeXAIMetadata_Usage) Descriptor() ([]byte, []int) {
-	return file_v1_generative_proto_rawDescGZIP(), []int{27, 0}
+	return file_v1_generative_proto_rawDescGZIP(), []int{28, 0}
 }
 
 func (x *GenerativeXAIMetadata_Usage) GetPromptTokens() int64 {
@@ -3606,925 +3783,630 @@ func (x *GenerativeXAIMetadata_Usage) GetTotalTokens() int64 {
 
 var File_v1_generative_proto protoreflect.FileDescriptor
 
-var file_v1_generative_proto_rawDesc = []byte{
-	0x0a, 0x13, 0x76, 0x31, 0x2f, 0x67, 0x65, 0x6e, 0x65, 0x72, 0x61, 0x74, 0x69, 0x76, 0x65, 0x2e,
-	0x70, 0x72, 0x6f, 0x74, 0x6f, 0x12, 0x0b, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e,
-	0x76, 0x31, 0x1a, 0x0d, 0x76, 0x31, 0x2f, 0x62, 0x61, 0x73, 0x65, 0x2e, 0x70, 0x72, 0x6f, 0x74,
-	0x6f, 0x22, 0xd0, 0x04, 0x0a, 0x10, 0x47, 0x65, 0x6e, 0x65, 0x72, 0x61, 0x74, 0x69, 0x76, 0x65,
-	0x53, 0x65, 0x61, 0x72, 0x63, 0x68, 0x12, 0x38, 0x0a, 0x16, 0x73, 0x69, 0x6e, 0x67, 0x6c, 0x65,
-	0x5f, 0x72, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x5f, 0x70, 0x72, 0x6f, 0x6d, 0x70, 0x74,
-	0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x42, 0x02, 0x18, 0x01, 0x52, 0x14, 0x73, 0x69, 0x6e, 0x67,
-	0x6c, 0x65, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x50, 0x72, 0x6f, 0x6d, 0x70, 0x74,
-	0x12, 0x36, 0x0a, 0x15, 0x67, 0x72, 0x6f, 0x75, 0x70, 0x65, 0x64, 0x5f, 0x72, 0x65, 0x73, 0x70,
-	0x6f, 0x6e, 0x73, 0x65, 0x5f, 0x74, 0x61, 0x73, 0x6b, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x42,
-	0x02, 0x18, 0x01, 0x52, 0x13, 0x67, 0x72, 0x6f, 0x75, 0x70, 0x65, 0x64, 0x52, 0x65, 0x73, 0x70,
-	0x6f, 0x6e, 0x73, 0x65, 0x54, 0x61, 0x73, 0x6b, 0x12, 0x31, 0x0a, 0x12, 0x67, 0x72, 0x6f, 0x75,
-	0x70, 0x65, 0x64, 0x5f, 0x70, 0x72, 0x6f, 0x70, 0x65, 0x72, 0x74, 0x69, 0x65, 0x73, 0x18, 0x03,
-	0x20, 0x03, 0x28, 0x09, 0x42, 0x02, 0x18, 0x01, 0x52, 0x11, 0x67, 0x72, 0x6f, 0x75, 0x70, 0x65,
-	0x64, 0x50, 0x72, 0x6f, 0x70, 0x65, 0x72, 0x74, 0x69, 0x65, 0x73, 0x12, 0x3c, 0x0a, 0x06, 0x73,
-	0x69, 0x6e, 0x67, 0x6c, 0x65, 0x18, 0x04, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x24, 0x2e, 0x77, 0x65,
-	0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e, 0x47, 0x65, 0x6e, 0x65, 0x72, 0x61,
-	0x74, 0x69, 0x76, 0x65, 0x53, 0x65, 0x61, 0x72, 0x63, 0x68, 0x2e, 0x53, 0x69, 0x6e, 0x67, 0x6c,
-	0x65, 0x52, 0x06, 0x73, 0x69, 0x6e, 0x67, 0x6c, 0x65, 0x12, 0x3f, 0x0a, 0x07, 0x67, 0x72, 0x6f,
-	0x75, 0x70, 0x65, 0x64, 0x18, 0x05, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x25, 0x2e, 0x77, 0x65, 0x61,
-	0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e, 0x47, 0x65, 0x6e, 0x65, 0x72, 0x61, 0x74,
-	0x69, 0x76, 0x65, 0x53, 0x65, 0x61, 0x72, 0x63, 0x68, 0x2e, 0x47, 0x72, 0x6f, 0x75, 0x70, 0x65,
-	0x64, 0x52, 0x07, 0x67, 0x72, 0x6f, 0x75, 0x70, 0x65, 0x64, 0x1a, 0x71, 0x0a, 0x06, 0x53, 0x69,
-	0x6e, 0x67, 0x6c, 0x65, 0x12, 0x16, 0x0a, 0x06, 0x70, 0x72, 0x6f, 0x6d, 0x70, 0x74, 0x18, 0x01,
-	0x20, 0x01, 0x28, 0x09, 0x52, 0x06, 0x70, 0x72, 0x6f, 0x6d, 0x70, 0x74, 0x12, 0x14, 0x0a, 0x05,
-	0x64, 0x65, 0x62, 0x75, 0x67, 0x18, 0x02, 0x20, 0x01, 0x28, 0x08, 0x52, 0x05, 0x64, 0x65, 0x62,
-	0x75, 0x67, 0x12, 0x39, 0x0a, 0x07, 0x71, 0x75, 0x65, 0x72, 0x69, 0x65, 0x73, 0x18, 0x03, 0x20,
-	0x03, 0x28, 0x0b, 0x32, 0x1f, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76,
-	0x31, 0x2e, 0x47, 0x65, 0x6e, 0x65, 0x72, 0x61, 0x74, 0x69, 0x76, 0x65, 0x50, 0x72, 0x6f, 0x76,
-	0x69, 0x64, 0x65, 0x72, 0x52, 0x07, 0x71, 0x75, 0x65, 0x72, 0x69, 0x65, 0x73, 0x1a, 0xa4, 0x01,
-	0x0a, 0x07, 0x47, 0x72, 0x6f, 0x75, 0x70, 0x65, 0x64, 0x12, 0x12, 0x0a, 0x04, 0x74, 0x61, 0x73,
-	0x6b, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x04, 0x74, 0x61, 0x73, 0x6b, 0x12, 0x3b, 0x0a,
-	0x0a, 0x70, 0x72, 0x6f, 0x70, 0x65, 0x72, 0x74, 0x69, 0x65, 0x73, 0x18, 0x02, 0x20, 0x01, 0x28,
-	0x0b, 0x32, 0x16, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e,
-	0x54, 0x65, 0x78, 0x74, 0x41, 0x72, 0x72, 0x61, 0x79, 0x48, 0x00, 0x52, 0x0a, 0x70, 0x72, 0x6f,
-	0x70, 0x65, 0x72, 0x74, 0x69, 0x65, 0x73, 0x88, 0x01, 0x01, 0x12, 0x39, 0x0a, 0x07, 0x71, 0x75,
-	0x65, 0x72, 0x69, 0x65, 0x73, 0x18, 0x03, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x1f, 0x2e, 0x77, 0x65,
-	0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e, 0x47, 0x65, 0x6e, 0x65, 0x72, 0x61,
-	0x74, 0x69, 0x76, 0x65, 0x50, 0x72, 0x6f, 0x76, 0x69, 0x64, 0x65, 0x72, 0x52, 0x07, 0x71, 0x75,
-	0x65, 0x72, 0x69, 0x65, 0x73, 0x42, 0x0d, 0x0a, 0x0b, 0x5f, 0x70, 0x72, 0x6f, 0x70, 0x65, 0x72,
-	0x74, 0x69, 0x65, 0x73, 0x22, 0xbf, 0x06, 0x0a, 0x12, 0x47, 0x65, 0x6e, 0x65, 0x72, 0x61, 0x74,
-	0x69, 0x76, 0x65, 0x50, 0x72, 0x6f, 0x76, 0x69, 0x64, 0x65, 0x72, 0x12, 0x27, 0x0a, 0x0f, 0x72,
-	0x65, 0x74, 0x75, 0x72, 0x6e, 0x5f, 0x6d, 0x65, 0x74, 0x61, 0x64, 0x61, 0x74, 0x61, 0x18, 0x01,
-	0x20, 0x01, 0x28, 0x08, 0x52, 0x0e, 0x72, 0x65, 0x74, 0x75, 0x72, 0x6e, 0x4d, 0x65, 0x74, 0x61,
-	0x64, 0x61, 0x74, 0x61, 0x12, 0x40, 0x0a, 0x09, 0x61, 0x6e, 0x74, 0x68, 0x72, 0x6f, 0x70, 0x69,
-	0x63, 0x18, 0x02, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x20, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61,
-	0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e, 0x47, 0x65, 0x6e, 0x65, 0x72, 0x61, 0x74, 0x69, 0x76, 0x65,
-	0x41, 0x6e, 0x74, 0x68, 0x72, 0x6f, 0x70, 0x69, 0x63, 0x48, 0x00, 0x52, 0x09, 0x61, 0x6e, 0x74,
-	0x68, 0x72, 0x6f, 0x70, 0x69, 0x63, 0x12, 0x3d, 0x0a, 0x08, 0x61, 0x6e, 0x79, 0x73, 0x63, 0x61,
-	0x6c, 0x65, 0x18, 0x03, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x1f, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69,
-	0x61, 0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e, 0x47, 0x65, 0x6e, 0x65, 0x72, 0x61, 0x74, 0x69, 0x76,
-	0x65, 0x41, 0x6e, 0x79, 0x73, 0x63, 0x61, 0x6c, 0x65, 0x48, 0x00, 0x52, 0x08, 0x61, 0x6e, 0x79,
-	0x73, 0x63, 0x61, 0x6c, 0x65, 0x12, 0x2e, 0x0a, 0x03, 0x61, 0x77, 0x73, 0x18, 0x04, 0x20, 0x01,
-	0x28, 0x0b, 0x32, 0x1a, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31,
-	0x2e, 0x47, 0x65, 0x6e, 0x65, 0x72, 0x61, 0x74, 0x69, 0x76, 0x65, 0x41, 0x57, 0x53, 0x48, 0x00,
-	0x52, 0x03, 0x61, 0x77, 0x73, 0x12, 0x37, 0x0a, 0x06, 0x63, 0x6f, 0x68, 0x65, 0x72, 0x65, 0x18,
-	0x05, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x1d, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65,
-	0x2e, 0x76, 0x31, 0x2e, 0x47, 0x65, 0x6e, 0x65, 0x72, 0x61, 0x74, 0x69, 0x76, 0x65, 0x43, 0x6f,
-	0x68, 0x65, 0x72, 0x65, 0x48, 0x00, 0x52, 0x06, 0x63, 0x6f, 0x68, 0x65, 0x72, 0x65, 0x12, 0x34,
-	0x0a, 0x05, 0x64, 0x75, 0x6d, 0x6d, 0x79, 0x18, 0x06, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x1c, 0x2e,
-	0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e, 0x47, 0x65, 0x6e, 0x65,
-	0x72, 0x61, 0x74, 0x69, 0x76, 0x65, 0x44, 0x75, 0x6d, 0x6d, 0x79, 0x48, 0x00, 0x52, 0x05, 0x64,
-	0x75, 0x6d, 0x6d, 0x79, 0x12, 0x3a, 0x0a, 0x07, 0x6d, 0x69, 0x73, 0x74, 0x72, 0x61, 0x6c, 0x18,
-	0x07, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x1e, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65,
-	0x2e, 0x76, 0x31, 0x2e, 0x47, 0x65, 0x6e, 0x65, 0x72, 0x61, 0x74, 0x69, 0x76, 0x65, 0x4d, 0x69,
-	0x73, 0x74, 0x72, 0x61, 0x6c, 0x48, 0x00, 0x52, 0x07, 0x6d, 0x69, 0x73, 0x74, 0x72, 0x61, 0x6c,
-	0x12, 0x37, 0x0a, 0x06, 0x6f, 0x6c, 0x6c, 0x61, 0x6d, 0x61, 0x18, 0x08, 0x20, 0x01, 0x28, 0x0b,
-	0x32, 0x1d, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e, 0x47,
-	0x65, 0x6e, 0x65, 0x72, 0x61, 0x74, 0x69, 0x76, 0x65, 0x4f, 0x6c, 0x6c, 0x61, 0x6d, 0x61, 0x48,
-	0x00, 0x52, 0x06, 0x6f, 0x6c, 0x6c, 0x61, 0x6d, 0x61, 0x12, 0x37, 0x0a, 0x06, 0x6f, 0x70, 0x65,
-	0x6e, 0x61, 0x69, 0x18, 0x09, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x1d, 0x2e, 0x77, 0x65, 0x61, 0x76,
-	0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e, 0x47, 0x65, 0x6e, 0x65, 0x72, 0x61, 0x74, 0x69,
-	0x76, 0x65, 0x4f, 0x70, 0x65, 0x6e, 0x41, 0x49, 0x48, 0x00, 0x52, 0x06, 0x6f, 0x70, 0x65, 0x6e,
-	0x61, 0x69, 0x12, 0x37, 0x0a, 0x06, 0x67, 0x6f, 0x6f, 0x67, 0x6c, 0x65, 0x18, 0x0a, 0x20, 0x01,
-	0x28, 0x0b, 0x32, 0x1d, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31,
-	0x2e, 0x47, 0x65, 0x6e, 0x65, 0x72, 0x61, 0x74, 0x69, 0x76, 0x65, 0x47, 0x6f, 0x6f, 0x67, 0x6c,
-	0x65, 0x48, 0x00, 0x52, 0x06, 0x67, 0x6f, 0x6f, 0x67, 0x6c, 0x65, 0x12, 0x43, 0x0a, 0x0a, 0x64,
-	0x61, 0x74, 0x61, 0x62, 0x72, 0x69, 0x63, 0x6b, 0x73, 0x18, 0x0b, 0x20, 0x01, 0x28, 0x0b, 0x32,
-	0x21, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e, 0x47, 0x65,
-	0x6e, 0x65, 0x72, 0x61, 0x74, 0x69, 0x76, 0x65, 0x44, 0x61, 0x74, 0x61, 0x62, 0x72, 0x69, 0x63,
-	0x6b, 0x73, 0x48, 0x00, 0x52, 0x0a, 0x64, 0x61, 0x74, 0x61, 0x62, 0x72, 0x69, 0x63, 0x6b, 0x73,
-	0x12, 0x43, 0x0a, 0x0a, 0x66, 0x72, 0x69, 0x65, 0x6e, 0x64, 0x6c, 0x69, 0x61, 0x69, 0x18, 0x0c,
-	0x20, 0x01, 0x28, 0x0b, 0x32, 0x21, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e,
-	0x76, 0x31, 0x2e, 0x47, 0x65, 0x6e, 0x65, 0x72, 0x61, 0x74, 0x69, 0x76, 0x65, 0x46, 0x72, 0x69,
-	0x65, 0x6e, 0x64, 0x6c, 0x69, 0x41, 0x49, 0x48, 0x00, 0x52, 0x0a, 0x66, 0x72, 0x69, 0x65, 0x6e,
-	0x64, 0x6c, 0x69, 0x61, 0x69, 0x12, 0x37, 0x0a, 0x06, 0x6e, 0x76, 0x69, 0x64, 0x69, 0x61, 0x18,
-	0x0d, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x1d, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65,
-	0x2e, 0x76, 0x31, 0x2e, 0x47, 0x65, 0x6e, 0x65, 0x72, 0x61, 0x74, 0x69, 0x76, 0x65, 0x4e, 0x76,
-	0x69, 0x64, 0x69, 0x61, 0x48, 0x00, 0x52, 0x06, 0x6e, 0x76, 0x69, 0x64, 0x69, 0x61, 0x12, 0x2e,
-	0x0a, 0x03, 0x78, 0x61, 0x69, 0x18, 0x0e, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x1a, 0x2e, 0x77, 0x65,
-	0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e, 0x47, 0x65, 0x6e, 0x65, 0x72, 0x61,
-	0x74, 0x69, 0x76, 0x65, 0x58, 0x41, 0x49, 0x48, 0x00, 0x52, 0x03, 0x78, 0x61, 0x69, 0x42, 0x06,
-	0x0a, 0x04, 0x6b, 0x69, 0x6e, 0x64, 0x22, 0x8d, 0x04, 0x0a, 0x13, 0x47, 0x65, 0x6e, 0x65, 0x72,
-	0x61, 0x74, 0x69, 0x76, 0x65, 0x41, 0x6e, 0x74, 0x68, 0x72, 0x6f, 0x70, 0x69, 0x63, 0x12, 0x1e,
-	0x0a, 0x08, 0x62, 0x61, 0x73, 0x65, 0x5f, 0x75, 0x72, 0x6c, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09,
-	0x48, 0x00, 0x52, 0x07, 0x62, 0x61, 0x73, 0x65, 0x55, 0x72, 0x6c, 0x88, 0x01, 0x01, 0x12, 0x22,
-	0x0a, 0x0a, 0x6d, 0x61, 0x78, 0x5f, 0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x73, 0x18, 0x02, 0x20, 0x01,
-	0x28, 0x03, 0x48, 0x01, 0x52, 0x09, 0x6d, 0x61, 0x78, 0x54, 0x6f, 0x6b, 0x65, 0x6e, 0x73, 0x88,
-	0x01, 0x01, 0x12, 0x19, 0x0a, 0x05, 0x6d, 0x6f, 0x64, 0x65, 0x6c, 0x18, 0x03, 0x20, 0x01, 0x28,
-	0x09, 0x48, 0x02, 0x52, 0x05, 0x6d, 0x6f, 0x64, 0x65, 0x6c, 0x88, 0x01, 0x01, 0x12, 0x25, 0x0a,
-	0x0b, 0x74, 0x65, 0x6d, 0x70, 0x65, 0x72, 0x61, 0x74, 0x75, 0x72, 0x65, 0x18, 0x04, 0x20, 0x01,
-	0x28, 0x01, 0x48, 0x03, 0x52, 0x0b, 0x74, 0x65, 0x6d, 0x70, 0x65, 0x72, 0x61, 0x74, 0x75, 0x72,
-	0x65, 0x88, 0x01, 0x01, 0x12, 0x18, 0x0a, 0x05, 0x74, 0x6f, 0x70, 0x5f, 0x6b, 0x18, 0x05, 0x20,
-	0x01, 0x28, 0x03, 0x48, 0x04, 0x52, 0x04, 0x74, 0x6f, 0x70, 0x4b, 0x88, 0x01, 0x01, 0x12, 0x18,
-	0x0a, 0x05, 0x74, 0x6f, 0x70, 0x5f, 0x70, 0x18, 0x06, 0x20, 0x01, 0x28, 0x01, 0x48, 0x05, 0x52,
-	0x04, 0x74, 0x6f, 0x70, 0x50, 0x88, 0x01, 0x01, 0x12, 0x42, 0x0a, 0x0e, 0x73, 0x74, 0x6f, 0x70,
-	0x5f, 0x73, 0x65, 0x71, 0x75, 0x65, 0x6e, 0x63, 0x65, 0x73, 0x18, 0x07, 0x20, 0x01, 0x28, 0x0b,
-	0x32, 0x16, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e, 0x54,
-	0x65, 0x78, 0x74, 0x41, 0x72, 0x72, 0x61, 0x79, 0x48, 0x06, 0x52, 0x0d, 0x73, 0x74, 0x6f, 0x70,
-	0x53, 0x65, 0x71, 0x75, 0x65, 0x6e, 0x63, 0x65, 0x73, 0x88, 0x01, 0x01, 0x12, 0x33, 0x0a, 0x06,
-	0x69, 0x6d, 0x61, 0x67, 0x65, 0x73, 0x18, 0x08, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x16, 0x2e, 0x77,
-	0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e, 0x54, 0x65, 0x78, 0x74, 0x41,
-	0x72, 0x72, 0x61, 0x79, 0x48, 0x07, 0x52, 0x06, 0x69, 0x6d, 0x61, 0x67, 0x65, 0x73, 0x88, 0x01,
-	0x01, 0x12, 0x46, 0x0a, 0x10, 0x69, 0x6d, 0x61, 0x67, 0x65, 0x5f, 0x70, 0x72, 0x6f, 0x70, 0x65,
-	0x72, 0x74, 0x69, 0x65, 0x73, 0x18, 0x09, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x16, 0x2e, 0x77, 0x65,
-	0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e, 0x54, 0x65, 0x78, 0x74, 0x41, 0x72,
-	0x72, 0x61, 0x79, 0x48, 0x08, 0x52, 0x0f, 0x69, 0x6d, 0x61, 0x67, 0x65, 0x50, 0x72, 0x6f, 0x70,
-	0x65, 0x72, 0x74, 0x69, 0x65, 0x73, 0x88, 0x01, 0x01, 0x42, 0x0b, 0x0a, 0x09, 0x5f, 0x62, 0x61,
-	0x73, 0x65, 0x5f, 0x75, 0x72, 0x6c, 0x42, 0x0d, 0x0a, 0x0b, 0x5f, 0x6d, 0x61, 0x78, 0x5f, 0x74,
-	0x6f, 0x6b, 0x65, 0x6e, 0x73, 0x42, 0x08, 0x0a, 0x06, 0x5f, 0x6d, 0x6f, 0x64, 0x65, 0x6c, 0x42,
-	0x0e, 0x0a, 0x0c, 0x5f, 0x74, 0x65, 0x6d, 0x70, 0x65, 0x72, 0x61, 0x74, 0x75, 0x72, 0x65, 0x42,
-	0x08, 0x0a, 0x06, 0x5f, 0x74, 0x6f, 0x70, 0x5f, 0x6b, 0x42, 0x08, 0x0a, 0x06, 0x5f, 0x74, 0x6f,
-	0x70, 0x5f, 0x70, 0x42, 0x11, 0x0a, 0x0f, 0x5f, 0x73, 0x74, 0x6f, 0x70, 0x5f, 0x73, 0x65, 0x71,
-	0x75, 0x65, 0x6e, 0x63, 0x65, 0x73, 0x42, 0x09, 0x0a, 0x07, 0x5f, 0x69, 0x6d, 0x61, 0x67, 0x65,
-	0x73, 0x42, 0x13, 0x0a, 0x11, 0x5f, 0x69, 0x6d, 0x61, 0x67, 0x65, 0x5f, 0x70, 0x72, 0x6f, 0x70,
-	0x65, 0x72, 0x74, 0x69, 0x65, 0x73, 0x22, 0x9d, 0x01, 0x0a, 0x12, 0x47, 0x65, 0x6e, 0x65, 0x72,
-	0x61, 0x74, 0x69, 0x76, 0x65, 0x41, 0x6e, 0x79, 0x73, 0x63, 0x61, 0x6c, 0x65, 0x12, 0x1e, 0x0a,
-	0x08, 0x62, 0x61, 0x73, 0x65, 0x5f, 0x75, 0x72, 0x6c, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x48,
-	0x00, 0x52, 0x07, 0x62, 0x61, 0x73, 0x65, 0x55, 0x72, 0x6c, 0x88, 0x01, 0x01, 0x12, 0x19, 0x0a,
-	0x05, 0x6d, 0x6f, 0x64, 0x65, 0x6c, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x48, 0x01, 0x52, 0x05,
-	0x6d, 0x6f, 0x64, 0x65, 0x6c, 0x88, 0x01, 0x01, 0x12, 0x25, 0x0a, 0x0b, 0x74, 0x65, 0x6d, 0x70,
-	0x65, 0x72, 0x61, 0x74, 0x75, 0x72, 0x65, 0x18, 0x03, 0x20, 0x01, 0x28, 0x01, 0x48, 0x02, 0x52,
-	0x0b, 0x74, 0x65, 0x6d, 0x70, 0x65, 0x72, 0x61, 0x74, 0x75, 0x72, 0x65, 0x88, 0x01, 0x01, 0x42,
-	0x0b, 0x0a, 0x09, 0x5f, 0x62, 0x61, 0x73, 0x65, 0x5f, 0x75, 0x72, 0x6c, 0x42, 0x08, 0x0a, 0x06,
-	0x5f, 0x6d, 0x6f, 0x64, 0x65, 0x6c, 0x42, 0x0e, 0x0a, 0x0c, 0x5f, 0x74, 0x65, 0x6d, 0x70, 0x65,
-	0x72, 0x61, 0x74, 0x75, 0x72, 0x65, 0x22, 0x81, 0x04, 0x0a, 0x0d, 0x47, 0x65, 0x6e, 0x65, 0x72,
-	0x61, 0x74, 0x69, 0x76, 0x65, 0x41, 0x57, 0x53, 0x12, 0x19, 0x0a, 0x05, 0x6d, 0x6f, 0x64, 0x65,
-	0x6c, 0x18, 0x03, 0x20, 0x01, 0x28, 0x09, 0x48, 0x00, 0x52, 0x05, 0x6d, 0x6f, 0x64, 0x65, 0x6c,
-	0x88, 0x01, 0x01, 0x12, 0x25, 0x0a, 0x0b, 0x74, 0x65, 0x6d, 0x70, 0x65, 0x72, 0x61, 0x74, 0x75,
-	0x72, 0x65, 0x18, 0x08, 0x20, 0x01, 0x28, 0x01, 0x48, 0x01, 0x52, 0x0b, 0x74, 0x65, 0x6d, 0x70,
-	0x65, 0x72, 0x61, 0x74, 0x75, 0x72, 0x65, 0x88, 0x01, 0x01, 0x12, 0x1d, 0x0a, 0x07, 0x73, 0x65,
-	0x72, 0x76, 0x69, 0x63, 0x65, 0x18, 0x09, 0x20, 0x01, 0x28, 0x09, 0x48, 0x02, 0x52, 0x07, 0x73,
-	0x65, 0x72, 0x76, 0x69, 0x63, 0x65, 0x88, 0x01, 0x01, 0x12, 0x1b, 0x0a, 0x06, 0x72, 0x65, 0x67,
-	0x69, 0x6f, 0x6e, 0x18, 0x0a, 0x20, 0x01, 0x28, 0x09, 0x48, 0x03, 0x52, 0x06, 0x72, 0x65, 0x67,
-	0x69, 0x6f, 0x6e, 0x88, 0x01, 0x01, 0x12, 0x1f, 0x0a, 0x08, 0x65, 0x6e, 0x64, 0x70, 0x6f, 0x69,
-	0x6e, 0x74, 0x18, 0x0b, 0x20, 0x01, 0x28, 0x09, 0x48, 0x04, 0x52, 0x08, 0x65, 0x6e, 0x64, 0x70,
-	0x6f, 0x69, 0x6e, 0x74, 0x88, 0x01, 0x01, 0x12, 0x26, 0x0a, 0x0c, 0x74, 0x61, 0x72, 0x67, 0x65,
-	0x74, 0x5f, 0x6d, 0x6f, 0x64, 0x65, 0x6c, 0x18, 0x0c, 0x20, 0x01, 0x28, 0x09, 0x48, 0x05, 0x52,
-	0x0b, 0x74, 0x61, 0x72, 0x67, 0x65, 0x74, 0x4d, 0x6f, 0x64, 0x65, 0x6c, 0x88, 0x01, 0x01, 0x12,
-	0x2a, 0x0a, 0x0e, 0x74, 0x61, 0x72, 0x67, 0x65, 0x74, 0x5f, 0x76, 0x61, 0x72, 0x69, 0x61, 0x6e,
-	0x74, 0x18, 0x0d, 0x20, 0x01, 0x28, 0x09, 0x48, 0x06, 0x52, 0x0d, 0x74, 0x61, 0x72, 0x67, 0x65,
-	0x74, 0x56, 0x61, 0x72, 0x69, 0x61, 0x6e, 0x74, 0x88, 0x01, 0x01, 0x12, 0x33, 0x0a, 0x06, 0x69,
-	0x6d, 0x61, 0x67, 0x65, 0x73, 0x18, 0x0e, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x16, 0x2e, 0x77, 0x65,
-	0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e, 0x54, 0x65, 0x78, 0x74, 0x41, 0x72,
-	0x72, 0x61, 0x79, 0x48, 0x07, 0x52, 0x06, 0x69, 0x6d, 0x61, 0x67, 0x65, 0x73, 0x88, 0x01, 0x01,
-	0x12, 0x46, 0x0a, 0x10, 0x69, 0x6d, 0x61, 0x67, 0x65, 0x5f, 0x70, 0x72, 0x6f, 0x70, 0x65, 0x72,
-	0x74, 0x69, 0x65, 0x73, 0x18, 0x0f, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x16, 0x2e, 0x77, 0x65, 0x61,
-	0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e, 0x54, 0x65, 0x78, 0x74, 0x41, 0x72, 0x72,
-	0x61, 0x79, 0x48, 0x08, 0x52, 0x0f, 0x69, 0x6d, 0x61, 0x67, 0x65, 0x50, 0x72, 0x6f, 0x70, 0x65,
-	0x72, 0x74, 0x69, 0x65, 0x73, 0x88, 0x01, 0x01, 0x42, 0x08, 0x0a, 0x06, 0x5f, 0x6d, 0x6f, 0x64,
-	0x65, 0x6c, 0x42, 0x0e, 0x0a, 0x0c, 0x5f, 0x74, 0x65, 0x6d, 0x70, 0x65, 0x72, 0x61, 0x74, 0x75,
-	0x72, 0x65, 0x42, 0x0a, 0x0a, 0x08, 0x5f, 0x73, 0x65, 0x72, 0x76, 0x69, 0x63, 0x65, 0x42, 0x09,
-	0x0a, 0x07, 0x5f, 0x72, 0x65, 0x67, 0x69, 0x6f, 0x6e, 0x42, 0x0b, 0x0a, 0x09, 0x5f, 0x65, 0x6e,
-	0x64, 0x70, 0x6f, 0x69, 0x6e, 0x74, 0x42, 0x0f, 0x0a, 0x0d, 0x5f, 0x74, 0x61, 0x72, 0x67, 0x65,
-	0x74, 0x5f, 0x6d, 0x6f, 0x64, 0x65, 0x6c, 0x42, 0x11, 0x0a, 0x0f, 0x5f, 0x74, 0x61, 0x72, 0x67,
-	0x65, 0x74, 0x5f, 0x76, 0x61, 0x72, 0x69, 0x61, 0x6e, 0x74, 0x42, 0x09, 0x0a, 0x07, 0x5f, 0x69,
-	0x6d, 0x61, 0x67, 0x65, 0x73, 0x42, 0x13, 0x0a, 0x11, 0x5f, 0x69, 0x6d, 0x61, 0x67, 0x65, 0x5f,
-	0x70, 0x72, 0x6f, 0x70, 0x65, 0x72, 0x74, 0x69, 0x65, 0x73, 0x22, 0xe4, 0x03, 0x0a, 0x10, 0x47,
-	0x65, 0x6e, 0x65, 0x72, 0x61, 0x74, 0x69, 0x76, 0x65, 0x43, 0x6f, 0x68, 0x65, 0x72, 0x65, 0x12,
-	0x1e, 0x0a, 0x08, 0x62, 0x61, 0x73, 0x65, 0x5f, 0x75, 0x72, 0x6c, 0x18, 0x01, 0x20, 0x01, 0x28,
-	0x09, 0x48, 0x00, 0x52, 0x07, 0x62, 0x61, 0x73, 0x65, 0x55, 0x72, 0x6c, 0x88, 0x01, 0x01, 0x12,
-	0x30, 0x0a, 0x11, 0x66, 0x72, 0x65, 0x71, 0x75, 0x65, 0x6e, 0x63, 0x79, 0x5f, 0x70, 0x65, 0x6e,
-	0x61, 0x6c, 0x74, 0x79, 0x18, 0x02, 0x20, 0x01, 0x28, 0x01, 0x48, 0x01, 0x52, 0x10, 0x66, 0x72,
-	0x65, 0x71, 0x75, 0x65, 0x6e, 0x63, 0x79, 0x50, 0x65, 0x6e, 0x61, 0x6c, 0x74, 0x79, 0x88, 0x01,
-	0x01, 0x12, 0x22, 0x0a, 0x0a, 0x6d, 0x61, 0x78, 0x5f, 0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x73, 0x18,
-	0x03, 0x20, 0x01, 0x28, 0x03, 0x48, 0x02, 0x52, 0x09, 0x6d, 0x61, 0x78, 0x54, 0x6f, 0x6b, 0x65,
-	0x6e, 0x73, 0x88, 0x01, 0x01, 0x12, 0x19, 0x0a, 0x05, 0x6d, 0x6f, 0x64, 0x65, 0x6c, 0x18, 0x04,
-	0x20, 0x01, 0x28, 0x09, 0x48, 0x03, 0x52, 0x05, 0x6d, 0x6f, 0x64, 0x65, 0x6c, 0x88, 0x01, 0x01,
-	0x12, 0x11, 0x0a, 0x01, 0x6b, 0x18, 0x05, 0x20, 0x01, 0x28, 0x03, 0x48, 0x04, 0x52, 0x01, 0x6b,
-	0x88, 0x01, 0x01, 0x12, 0x11, 0x0a, 0x01, 0x70, 0x18, 0x06, 0x20, 0x01, 0x28, 0x01, 0x48, 0x05,
-	0x52, 0x01, 0x70, 0x88, 0x01, 0x01, 0x12, 0x2e, 0x0a, 0x10, 0x70, 0x72, 0x65, 0x73, 0x65, 0x6e,
-	0x63, 0x65, 0x5f, 0x70, 0x65, 0x6e, 0x61, 0x6c, 0x74, 0x79, 0x18, 0x07, 0x20, 0x01, 0x28, 0x01,
-	0x48, 0x06, 0x52, 0x0f, 0x70, 0x72, 0x65, 0x73, 0x65, 0x6e, 0x63, 0x65, 0x50, 0x65, 0x6e, 0x61,
-	0x6c, 0x74, 0x79, 0x88, 0x01, 0x01, 0x12, 0x42, 0x0a, 0x0e, 0x73, 0x74, 0x6f, 0x70, 0x5f, 0x73,
-	0x65, 0x71, 0x75, 0x65, 0x6e, 0x63, 0x65, 0x73, 0x18, 0x08, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x16,
-	0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e, 0x54, 0x65, 0x78,
-	0x74, 0x41, 0x72, 0x72, 0x61, 0x79, 0x48, 0x07, 0x52, 0x0d, 0x73, 0x74, 0x6f, 0x70, 0x53, 0x65,
-	0x71, 0x75, 0x65, 0x6e, 0x63, 0x65, 0x73, 0x88, 0x01, 0x01, 0x12, 0x25, 0x0a, 0x0b, 0x74, 0x65,
-	0x6d, 0x70, 0x65, 0x72, 0x61, 0x74, 0x75, 0x72, 0x65, 0x18, 0x09, 0x20, 0x01, 0x28, 0x01, 0x48,
-	0x08, 0x52, 0x0b, 0x74, 0x65, 0x6d, 0x70, 0x65, 0x72, 0x61, 0x74, 0x75, 0x72, 0x65, 0x88, 0x01,
-	0x01, 0x42, 0x0b, 0x0a, 0x09, 0x5f, 0x62, 0x61, 0x73, 0x65, 0x5f, 0x75, 0x72, 0x6c, 0x42, 0x14,
-	0x0a, 0x12, 0x5f, 0x66, 0x72, 0x65, 0x71, 0x75, 0x65, 0x6e, 0x63, 0x79, 0x5f, 0x70, 0x65, 0x6e,
-	0x61, 0x6c, 0x74, 0x79, 0x42, 0x0d, 0x0a, 0x0b, 0x5f, 0x6d, 0x61, 0x78, 0x5f, 0x74, 0x6f, 0x6b,
-	0x65, 0x6e, 0x73, 0x42, 0x08, 0x0a, 0x06, 0x5f, 0x6d, 0x6f, 0x64, 0x65, 0x6c, 0x42, 0x04, 0x0a,
-	0x02, 0x5f, 0x6b, 0x42, 0x04, 0x0a, 0x02, 0x5f, 0x70, 0x42, 0x13, 0x0a, 0x11, 0x5f, 0x70, 0x72,
-	0x65, 0x73, 0x65, 0x6e, 0x63, 0x65, 0x5f, 0x70, 0x65, 0x6e, 0x61, 0x6c, 0x74, 0x79, 0x42, 0x11,
-	0x0a, 0x0f, 0x5f, 0x73, 0x74, 0x6f, 0x70, 0x5f, 0x73, 0x65, 0x71, 0x75, 0x65, 0x6e, 0x63, 0x65,
-	0x73, 0x42, 0x0e, 0x0a, 0x0c, 0x5f, 0x74, 0x65, 0x6d, 0x70, 0x65, 0x72, 0x61, 0x74, 0x75, 0x72,
-	0x65, 0x22, 0x11, 0x0a, 0x0f, 0x47, 0x65, 0x6e, 0x65, 0x72, 0x61, 0x74, 0x69, 0x76, 0x65, 0x44,
-	0x75, 0x6d, 0x6d, 0x79, 0x22, 0xf3, 0x01, 0x0a, 0x11, 0x47, 0x65, 0x6e, 0x65, 0x72, 0x61, 0x74,
-	0x69, 0x76, 0x65, 0x4d, 0x69, 0x73, 0x74, 0x72, 0x61, 0x6c, 0x12, 0x1e, 0x0a, 0x08, 0x62, 0x61,
-	0x73, 0x65, 0x5f, 0x75, 0x72, 0x6c, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x48, 0x00, 0x52, 0x07,
-	0x62, 0x61, 0x73, 0x65, 0x55, 0x72, 0x6c, 0x88, 0x01, 0x01, 0x12, 0x22, 0x0a, 0x0a, 0x6d, 0x61,
-	0x78, 0x5f, 0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x73, 0x18, 0x02, 0x20, 0x01, 0x28, 0x03, 0x48, 0x01,
-	0x52, 0x09, 0x6d, 0x61, 0x78, 0x54, 0x6f, 0x6b, 0x65, 0x6e, 0x73, 0x88, 0x01, 0x01, 0x12, 0x19,
-	0x0a, 0x05, 0x6d, 0x6f, 0x64, 0x65, 0x6c, 0x18, 0x03, 0x20, 0x01, 0x28, 0x09, 0x48, 0x02, 0x52,
-	0x05, 0x6d, 0x6f, 0x64, 0x65, 0x6c, 0x88, 0x01, 0x01, 0x12, 0x25, 0x0a, 0x0b, 0x74, 0x65, 0x6d,
-	0x70, 0x65, 0x72, 0x61, 0x74, 0x75, 0x72, 0x65, 0x18, 0x04, 0x20, 0x01, 0x28, 0x01, 0x48, 0x03,
-	0x52, 0x0b, 0x74, 0x65, 0x6d, 0x70, 0x65, 0x72, 0x61, 0x74, 0x75, 0x72, 0x65, 0x88, 0x01, 0x01,
-	0x12, 0x18, 0x0a, 0x05, 0x74, 0x6f, 0x70, 0x5f, 0x70, 0x18, 0x05, 0x20, 0x01, 0x28, 0x01, 0x48,
-	0x04, 0x52, 0x04, 0x74, 0x6f, 0x70, 0x50, 0x88, 0x01, 0x01, 0x42, 0x0b, 0x0a, 0x09, 0x5f, 0x62,
-	0x61, 0x73, 0x65, 0x5f, 0x75, 0x72, 0x6c, 0x42, 0x0d, 0x0a, 0x0b, 0x5f, 0x6d, 0x61, 0x78, 0x5f,
-	0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x73, 0x42, 0x08, 0x0a, 0x06, 0x5f, 0x6d, 0x6f, 0x64, 0x65, 0x6c,
-	0x42, 0x0e, 0x0a, 0x0c, 0x5f, 0x74, 0x65, 0x6d, 0x70, 0x65, 0x72, 0x61, 0x74, 0x75, 0x72, 0x65,
-	0x42, 0x08, 0x0a, 0x06, 0x5f, 0x74, 0x6f, 0x70, 0x5f, 0x70, 0x22, 0xc4, 0x02, 0x0a, 0x10, 0x47,
-	0x65, 0x6e, 0x65, 0x72, 0x61, 0x74, 0x69, 0x76, 0x65, 0x4f, 0x6c, 0x6c, 0x61, 0x6d, 0x61, 0x12,
-	0x26, 0x0a, 0x0c, 0x61, 0x70, 0x69, 0x5f, 0x65, 0x6e, 0x64, 0x70, 0x6f, 0x69, 0x6e, 0x74, 0x18,
-	0x01, 0x20, 0x01, 0x28, 0x09, 0x48, 0x00, 0x52, 0x0b, 0x61, 0x70, 0x69, 0x45, 0x6e, 0x64, 0x70,
-	0x6f, 0x69, 0x6e, 0x74, 0x88, 0x01, 0x01, 0x12, 0x19, 0x0a, 0x05, 0x6d, 0x6f, 0x64, 0x65, 0x6c,
-	0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x48, 0x01, 0x52, 0x05, 0x6d, 0x6f, 0x64, 0x65, 0x6c, 0x88,
-	0x01, 0x01, 0x12, 0x25, 0x0a, 0x0b, 0x74, 0x65, 0x6d, 0x70, 0x65, 0x72, 0x61, 0x74, 0x75, 0x72,
-	0x65, 0x18, 0x03, 0x20, 0x01, 0x28, 0x01, 0x48, 0x02, 0x52, 0x0b, 0x74, 0x65, 0x6d, 0x70, 0x65,
-	0x72, 0x61, 0x74, 0x75, 0x72, 0x65, 0x88, 0x01, 0x01, 0x12, 0x33, 0x0a, 0x06, 0x69, 0x6d, 0x61,
-	0x67, 0x65, 0x73, 0x18, 0x04, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x16, 0x2e, 0x77, 0x65, 0x61, 0x76,
-	0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e, 0x54, 0x65, 0x78, 0x74, 0x41, 0x72, 0x72, 0x61,
-	0x79, 0x48, 0x03, 0x52, 0x06, 0x69, 0x6d, 0x61, 0x67, 0x65, 0x73, 0x88, 0x01, 0x01, 0x12, 0x46,
-	0x0a, 0x10, 0x69, 0x6d, 0x61, 0x67, 0x65, 0x5f, 0x70, 0x72, 0x6f, 0x70, 0x65, 0x72, 0x74, 0x69,
-	0x65, 0x73, 0x18, 0x05, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x16, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69,
-	0x61, 0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e, 0x54, 0x65, 0x78, 0x74, 0x41, 0x72, 0x72, 0x61, 0x79,
-	0x48, 0x04, 0x52, 0x0f, 0x69, 0x6d, 0x61, 0x67, 0x65, 0x50, 0x72, 0x6f, 0x70, 0x65, 0x72, 0x74,
-	0x69, 0x65, 0x73, 0x88, 0x01, 0x01, 0x42, 0x0f, 0x0a, 0x0d, 0x5f, 0x61, 0x70, 0x69, 0x5f, 0x65,
-	0x6e, 0x64, 0x70, 0x6f, 0x69, 0x6e, 0x74, 0x42, 0x08, 0x0a, 0x06, 0x5f, 0x6d, 0x6f, 0x64, 0x65,
-	0x6c, 0x42, 0x0e, 0x0a, 0x0c, 0x5f, 0x74, 0x65, 0x6d, 0x70, 0x65, 0x72, 0x61, 0x74, 0x75, 0x72,
-	0x65, 0x42, 0x09, 0x0a, 0x07, 0x5f, 0x69, 0x6d, 0x61, 0x67, 0x65, 0x73, 0x42, 0x13, 0x0a, 0x11,
-	0x5f, 0x69, 0x6d, 0x61, 0x67, 0x65, 0x5f, 0x70, 0x72, 0x6f, 0x70, 0x65, 0x72, 0x74, 0x69, 0x65,
-	0x73, 0x22, 0xca, 0x06, 0x0a, 0x10, 0x47, 0x65, 0x6e, 0x65, 0x72, 0x61, 0x74, 0x69, 0x76, 0x65,
-	0x4f, 0x70, 0x65, 0x6e, 0x41, 0x49, 0x12, 0x30, 0x0a, 0x11, 0x66, 0x72, 0x65, 0x71, 0x75, 0x65,
-	0x6e, 0x63, 0x79, 0x5f, 0x70, 0x65, 0x6e, 0x61, 0x6c, 0x74, 0x79, 0x18, 0x01, 0x20, 0x01, 0x28,
-	0x01, 0x48, 0x00, 0x52, 0x10, 0x66, 0x72, 0x65, 0x71, 0x75, 0x65, 0x6e, 0x63, 0x79, 0x50, 0x65,
-	0x6e, 0x61, 0x6c, 0x74, 0x79, 0x88, 0x01, 0x01, 0x12, 0x22, 0x0a, 0x0a, 0x6d, 0x61, 0x78, 0x5f,
-	0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x73, 0x18, 0x02, 0x20, 0x01, 0x28, 0x03, 0x48, 0x01, 0x52, 0x09,
-	0x6d, 0x61, 0x78, 0x54, 0x6f, 0x6b, 0x65, 0x6e, 0x73, 0x88, 0x01, 0x01, 0x12, 0x19, 0x0a, 0x05,
-	0x6d, 0x6f, 0x64, 0x65, 0x6c, 0x18, 0x03, 0x20, 0x01, 0x28, 0x09, 0x48, 0x02, 0x52, 0x05, 0x6d,
-	0x6f, 0x64, 0x65, 0x6c, 0x88, 0x01, 0x01, 0x12, 0x11, 0x0a, 0x01, 0x6e, 0x18, 0x04, 0x20, 0x01,
-	0x28, 0x03, 0x48, 0x03, 0x52, 0x01, 0x6e, 0x88, 0x01, 0x01, 0x12, 0x2e, 0x0a, 0x10, 0x70, 0x72,
-	0x65, 0x73, 0x65, 0x6e, 0x63, 0x65, 0x5f, 0x70, 0x65, 0x6e, 0x61, 0x6c, 0x74, 0x79, 0x18, 0x05,
-	0x20, 0x01, 0x28, 0x01, 0x48, 0x04, 0x52, 0x0f, 0x70, 0x72, 0x65, 0x73, 0x65, 0x6e, 0x63, 0x65,
-	0x50, 0x65, 0x6e, 0x61, 0x6c, 0x74, 0x79, 0x88, 0x01, 0x01, 0x12, 0x2f, 0x0a, 0x04, 0x73, 0x74,
-	0x6f, 0x70, 0x18, 0x06, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x16, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69,
-	0x61, 0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e, 0x54, 0x65, 0x78, 0x74, 0x41, 0x72, 0x72, 0x61, 0x79,
-	0x48, 0x05, 0x52, 0x04, 0x73, 0x74, 0x6f, 0x70, 0x88, 0x01, 0x01, 0x12, 0x25, 0x0a, 0x0b, 0x74,
-	0x65, 0x6d, 0x70, 0x65, 0x72, 0x61, 0x74, 0x75, 0x72, 0x65, 0x18, 0x07, 0x20, 0x01, 0x28, 0x01,
-	0x48, 0x06, 0x52, 0x0b, 0x74, 0x65, 0x6d, 0x70, 0x65, 0x72, 0x61, 0x74, 0x75, 0x72, 0x65, 0x88,
-	0x01, 0x01, 0x12, 0x18, 0x0a, 0x05, 0x74, 0x6f, 0x70, 0x5f, 0x70, 0x18, 0x08, 0x20, 0x01, 0x28,
-	0x01, 0x48, 0x07, 0x52, 0x04, 0x74, 0x6f, 0x70, 0x50, 0x88, 0x01, 0x01, 0x12, 0x1e, 0x0a, 0x08,
-	0x62, 0x61, 0x73, 0x65, 0x5f, 0x75, 0x72, 0x6c, 0x18, 0x09, 0x20, 0x01, 0x28, 0x09, 0x48, 0x08,
-	0x52, 0x07, 0x62, 0x61, 0x73, 0x65, 0x55, 0x72, 0x6c, 0x88, 0x01, 0x01, 0x12, 0x24, 0x0a, 0x0b,
-	0x61, 0x70, 0x69, 0x5f, 0x76, 0x65, 0x72, 0x73, 0x69, 0x6f, 0x6e, 0x18, 0x0a, 0x20, 0x01, 0x28,
-	0x09, 0x48, 0x09, 0x52, 0x0a, 0x61, 0x70, 0x69, 0x56, 0x65, 0x72, 0x73, 0x69, 0x6f, 0x6e, 0x88,
-	0x01, 0x01, 0x12, 0x28, 0x0a, 0x0d, 0x72, 0x65, 0x73, 0x6f, 0x75, 0x72, 0x63, 0x65, 0x5f, 0x6e,
-	0x61, 0x6d, 0x65, 0x18, 0x0b, 0x20, 0x01, 0x28, 0x09, 0x48, 0x0a, 0x52, 0x0c, 0x72, 0x65, 0x73,
-	0x6f, 0x75, 0x72, 0x63, 0x65, 0x4e, 0x61, 0x6d, 0x65, 0x88, 0x01, 0x01, 0x12, 0x28, 0x0a, 0x0d,
-	0x64, 0x65, 0x70, 0x6c, 0x6f, 0x79, 0x6d, 0x65, 0x6e, 0x74, 0x5f, 0x69, 0x64, 0x18, 0x0c, 0x20,
-	0x01, 0x28, 0x09, 0x48, 0x0b, 0x52, 0x0c, 0x64, 0x65, 0x70, 0x6c, 0x6f, 0x79, 0x6d, 0x65, 0x6e,
-	0x74, 0x49, 0x64, 0x88, 0x01, 0x01, 0x12, 0x1e, 0x0a, 0x08, 0x69, 0x73, 0x5f, 0x61, 0x7a, 0x75,
-	0x72, 0x65, 0x18, 0x0d, 0x20, 0x01, 0x28, 0x08, 0x48, 0x0c, 0x52, 0x07, 0x69, 0x73, 0x41, 0x7a,
-	0x75, 0x72, 0x65, 0x88, 0x01, 0x01, 0x12, 0x33, 0x0a, 0x06, 0x69, 0x6d, 0x61, 0x67, 0x65, 0x73,
-	0x18, 0x0e, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x16, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74,
-	0x65, 0x2e, 0x76, 0x31, 0x2e, 0x54, 0x65, 0x78, 0x74, 0x41, 0x72, 0x72, 0x61, 0x79, 0x48, 0x0d,
-	0x52, 0x06, 0x69, 0x6d, 0x61, 0x67, 0x65, 0x73, 0x88, 0x01, 0x01, 0x12, 0x46, 0x0a, 0x10, 0x69,
-	0x6d, 0x61, 0x67, 0x65, 0x5f, 0x70, 0x72, 0x6f, 0x70, 0x65, 0x72, 0x74, 0x69, 0x65, 0x73, 0x18,
-	0x0f, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x16, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65,
-	0x2e, 0x76, 0x31, 0x2e, 0x54, 0x65, 0x78, 0x74, 0x41, 0x72, 0x72, 0x61, 0x79, 0x48, 0x0e, 0x52,
-	0x0f, 0x69, 0x6d, 0x61, 0x67, 0x65, 0x50, 0x72, 0x6f, 0x70, 0x65, 0x72, 0x74, 0x69, 0x65, 0x73,
-	0x88, 0x01, 0x01, 0x42, 0x14, 0x0a, 0x12, 0x5f, 0x66, 0x72, 0x65, 0x71, 0x75, 0x65, 0x6e, 0x63,
-	0x79, 0x5f, 0x70, 0x65, 0x6e, 0x61, 0x6c, 0x74, 0x79, 0x42, 0x0d, 0x0a, 0x0b, 0x5f, 0x6d, 0x61,
-	0x78, 0x5f, 0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x73, 0x42, 0x08, 0x0a, 0x06, 0x5f, 0x6d, 0x6f, 0x64,
-	0x65, 0x6c, 0x42, 0x04, 0x0a, 0x02, 0x5f, 0x6e, 0x42, 0x13, 0x0a, 0x11, 0x5f, 0x70, 0x72, 0x65,
-	0x73, 0x65, 0x6e, 0x63, 0x65, 0x5f, 0x70, 0x65, 0x6e, 0x61, 0x6c, 0x74, 0x79, 0x42, 0x07, 0x0a,
-	0x05, 0x5f, 0x73, 0x74, 0x6f, 0x70, 0x42, 0x0e, 0x0a, 0x0c, 0x5f, 0x74, 0x65, 0x6d, 0x70, 0x65,
-	0x72, 0x61, 0x74, 0x75, 0x72, 0x65, 0x42, 0x08, 0x0a, 0x06, 0x5f, 0x74, 0x6f, 0x70, 0x5f, 0x70,
-	0x42, 0x0b, 0x0a, 0x09, 0x5f, 0x62, 0x61, 0x73, 0x65, 0x5f, 0x75, 0x72, 0x6c, 0x42, 0x0e, 0x0a,
-	0x0c, 0x5f, 0x61, 0x70, 0x69, 0x5f, 0x76, 0x65, 0x72, 0x73, 0x69, 0x6f, 0x6e, 0x42, 0x10, 0x0a,
-	0x0e, 0x5f, 0x72, 0x65, 0x73, 0x6f, 0x75, 0x72, 0x63, 0x65, 0x5f, 0x6e, 0x61, 0x6d, 0x65, 0x42,
-	0x10, 0x0a, 0x0e, 0x5f, 0x64, 0x65, 0x70, 0x6c, 0x6f, 0x79, 0x6d, 0x65, 0x6e, 0x74, 0x5f, 0x69,
-	0x64, 0x42, 0x0b, 0x0a, 0x09, 0x5f, 0x69, 0x73, 0x5f, 0x61, 0x7a, 0x75, 0x72, 0x65, 0x42, 0x09,
-	0x0a, 0x07, 0x5f, 0x69, 0x6d, 0x61, 0x67, 0x65, 0x73, 0x42, 0x13, 0x0a, 0x11, 0x5f, 0x69, 0x6d,
-	0x61, 0x67, 0x65, 0x5f, 0x70, 0x72, 0x6f, 0x70, 0x65, 0x72, 0x74, 0x69, 0x65, 0x73, 0x22, 0xb4,
-	0x06, 0x0a, 0x10, 0x47, 0x65, 0x6e, 0x65, 0x72, 0x61, 0x74, 0x69, 0x76, 0x65, 0x47, 0x6f, 0x6f,
-	0x67, 0x6c, 0x65, 0x12, 0x30, 0x0a, 0x11, 0x66, 0x72, 0x65, 0x71, 0x75, 0x65, 0x6e, 0x63, 0x79,
-	0x5f, 0x70, 0x65, 0x6e, 0x61, 0x6c, 0x74, 0x79, 0x18, 0x01, 0x20, 0x01, 0x28, 0x01, 0x48, 0x00,
-	0x52, 0x10, 0x66, 0x72, 0x65, 0x71, 0x75, 0x65, 0x6e, 0x63, 0x79, 0x50, 0x65, 0x6e, 0x61, 0x6c,
-	0x74, 0x79, 0x88, 0x01, 0x01, 0x12, 0x22, 0x0a, 0x0a, 0x6d, 0x61, 0x78, 0x5f, 0x74, 0x6f, 0x6b,
-	0x65, 0x6e, 0x73, 0x18, 0x02, 0x20, 0x01, 0x28, 0x03, 0x48, 0x01, 0x52, 0x09, 0x6d, 0x61, 0x78,
-	0x54, 0x6f, 0x6b, 0x65, 0x6e, 0x73, 0x88, 0x01, 0x01, 0x12, 0x19, 0x0a, 0x05, 0x6d, 0x6f, 0x64,
-	0x65, 0x6c, 0x18, 0x03, 0x20, 0x01, 0x28, 0x09, 0x48, 0x02, 0x52, 0x05, 0x6d, 0x6f, 0x64, 0x65,
-	0x6c, 0x88, 0x01, 0x01, 0x12, 0x2e, 0x0a, 0x10, 0x70, 0x72, 0x65, 0x73, 0x65, 0x6e, 0x63, 0x65,
-	0x5f, 0x70, 0x65, 0x6e, 0x61, 0x6c, 0x74, 0x79, 0x18, 0x04, 0x20, 0x01, 0x28, 0x01, 0x48, 0x03,
-	0x52, 0x0f, 0x70, 0x72, 0x65, 0x73, 0x65, 0x6e, 0x63, 0x65, 0x50, 0x65, 0x6e, 0x61, 0x6c, 0x74,
-	0x79, 0x88, 0x01, 0x01, 0x12, 0x25, 0x0a, 0x0b, 0x74, 0x65, 0x6d, 0x70, 0x65, 0x72, 0x61, 0x74,
-	0x75, 0x72, 0x65, 0x18, 0x05, 0x20, 0x01, 0x28, 0x01, 0x48, 0x04, 0x52, 0x0b, 0x74, 0x65, 0x6d,
-	0x70, 0x65, 0x72, 0x61, 0x74, 0x75, 0x72, 0x65, 0x88, 0x01, 0x01, 0x12, 0x18, 0x0a, 0x05, 0x74,
-	0x6f, 0x70, 0x5f, 0x6b, 0x18, 0x06, 0x20, 0x01, 0x28, 0x03, 0x48, 0x05, 0x52, 0x04, 0x74, 0x6f,
-	0x70, 0x4b, 0x88, 0x01, 0x01, 0x12, 0x18, 0x0a, 0x05, 0x74, 0x6f, 0x70, 0x5f, 0x70, 0x18, 0x07,
-	0x20, 0x01, 0x28, 0x01, 0x48, 0x06, 0x52, 0x04, 0x74, 0x6f, 0x70, 0x50, 0x88, 0x01, 0x01, 0x12,
-	0x42, 0x0a, 0x0e, 0x73, 0x74, 0x6f, 0x70, 0x5f, 0x73, 0x65, 0x71, 0x75, 0x65, 0x6e, 0x63, 0x65,
-	0x73, 0x18, 0x08, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x16, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61,
-	0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e, 0x54, 0x65, 0x78, 0x74, 0x41, 0x72, 0x72, 0x61, 0x79, 0x48,
-	0x07, 0x52, 0x0d, 0x73, 0x74, 0x6f, 0x70, 0x53, 0x65, 0x71, 0x75, 0x65, 0x6e, 0x63, 0x65, 0x73,
-	0x88, 0x01, 0x01, 0x12, 0x26, 0x0a, 0x0c, 0x61, 0x70, 0x69, 0x5f, 0x65, 0x6e, 0x64, 0x70, 0x6f,
-	0x69, 0x6e, 0x74, 0x18, 0x09, 0x20, 0x01, 0x28, 0x09, 0x48, 0x08, 0x52, 0x0b, 0x61, 0x70, 0x69,
-	0x45, 0x6e, 0x64, 0x70, 0x6f, 0x69, 0x6e, 0x74, 0x88, 0x01, 0x01, 0x12, 0x22, 0x0a, 0x0a, 0x70,
-	0x72, 0x6f, 0x6a, 0x65, 0x63, 0x74, 0x5f, 0x69, 0x64, 0x18, 0x0a, 0x20, 0x01, 0x28, 0x09, 0x48,
-	0x09, 0x52, 0x09, 0x70, 0x72, 0x6f, 0x6a, 0x65, 0x63, 0x74, 0x49, 0x64, 0x88, 0x01, 0x01, 0x12,
-	0x24, 0x0a, 0x0b, 0x65, 0x6e, 0x64, 0x70, 0x6f, 0x69, 0x6e, 0x74, 0x5f, 0x69, 0x64, 0x18, 0x0b,
-	0x20, 0x01, 0x28, 0x09, 0x48, 0x0a, 0x52, 0x0a, 0x65, 0x6e, 0x64, 0x70, 0x6f, 0x69, 0x6e, 0x74,
-	0x49, 0x64, 0x88, 0x01, 0x01, 0x12, 0x1b, 0x0a, 0x06, 0x72, 0x65, 0x67, 0x69, 0x6f, 0x6e, 0x18,
-	0x0c, 0x20, 0x01, 0x28, 0x09, 0x48, 0x0b, 0x52, 0x06, 0x72, 0x65, 0x67, 0x69, 0x6f, 0x6e, 0x88,
-	0x01, 0x01, 0x12, 0x33, 0x0a, 0x06, 0x69, 0x6d, 0x61, 0x67, 0x65, 0x73, 0x18, 0x0d, 0x20, 0x01,
-	0x28, 0x0b, 0x32, 0x16, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31,
-	0x2e, 0x54, 0x65, 0x78, 0x74, 0x41, 0x72, 0x72, 0x61, 0x79, 0x48, 0x0c, 0x52, 0x06, 0x69, 0x6d,
-	0x61, 0x67, 0x65, 0x73, 0x88, 0x01, 0x01, 0x12, 0x46, 0x0a, 0x10, 0x69, 0x6d, 0x61, 0x67, 0x65,
-	0x5f, 0x70, 0x72, 0x6f, 0x70, 0x65, 0x72, 0x74, 0x69, 0x65, 0x73, 0x18, 0x0e, 0x20, 0x01, 0x28,
-	0x0b, 0x32, 0x16, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e,
-	0x54, 0x65, 0x78, 0x74, 0x41, 0x72, 0x72, 0x61, 0x79, 0x48, 0x0d, 0x52, 0x0f, 0x69, 0x6d, 0x61,
-	0x67, 0x65, 0x50, 0x72, 0x6f, 0x70, 0x65, 0x72, 0x74, 0x69, 0x65, 0x73, 0x88, 0x01, 0x01, 0x42,
-	0x14, 0x0a, 0x12, 0x5f, 0x66, 0x72, 0x65, 0x71, 0x75, 0x65, 0x6e, 0x63, 0x79, 0x5f, 0x70, 0x65,
-	0x6e, 0x61, 0x6c, 0x74, 0x79, 0x42, 0x0d, 0x0a, 0x0b, 0x5f, 0x6d, 0x61, 0x78, 0x5f, 0x74, 0x6f,
-	0x6b, 0x65, 0x6e, 0x73, 0x42, 0x08, 0x0a, 0x06, 0x5f, 0x6d, 0x6f, 0x64, 0x65, 0x6c, 0x42, 0x13,
-	0x0a, 0x11, 0x5f, 0x70, 0x72, 0x65, 0x73, 0x65, 0x6e, 0x63, 0x65, 0x5f, 0x70, 0x65, 0x6e, 0x61,
-	0x6c, 0x74, 0x79, 0x42, 0x0e, 0x0a, 0x0c, 0x5f, 0x74, 0x65, 0x6d, 0x70, 0x65, 0x72, 0x61, 0x74,
-	0x75, 0x72, 0x65, 0x42, 0x08, 0x0a, 0x06, 0x5f, 0x74, 0x6f, 0x70, 0x5f, 0x6b, 0x42, 0x08, 0x0a,
-	0x06, 0x5f, 0x74, 0x6f, 0x70, 0x5f, 0x70, 0x42, 0x11, 0x0a, 0x0f, 0x5f, 0x73, 0x74, 0x6f, 0x70,
-	0x5f, 0x73, 0x65, 0x71, 0x75, 0x65, 0x6e, 0x63, 0x65, 0x73, 0x42, 0x0f, 0x0a, 0x0d, 0x5f, 0x61,
-	0x70, 0x69, 0x5f, 0x65, 0x6e, 0x64, 0x70, 0x6f, 0x69, 0x6e, 0x74, 0x42, 0x0d, 0x0a, 0x0b, 0x5f,
-	0x70, 0x72, 0x6f, 0x6a, 0x65, 0x63, 0x74, 0x5f, 0x69, 0x64, 0x42, 0x0e, 0x0a, 0x0c, 0x5f, 0x65,
-	0x6e, 0x64, 0x70, 0x6f, 0x69, 0x6e, 0x74, 0x5f, 0x69, 0x64, 0x42, 0x09, 0x0a, 0x07, 0x5f, 0x72,
-	0x65, 0x67, 0x69, 0x6f, 0x6e, 0x42, 0x09, 0x0a, 0x07, 0x5f, 0x69, 0x6d, 0x61, 0x67, 0x65, 0x73,
-	0x42, 0x13, 0x0a, 0x11, 0x5f, 0x69, 0x6d, 0x61, 0x67, 0x65, 0x5f, 0x70, 0x72, 0x6f, 0x70, 0x65,
-	0x72, 0x74, 0x69, 0x65, 0x73, 0x22, 0xc2, 0x04, 0x0a, 0x14, 0x47, 0x65, 0x6e, 0x65, 0x72, 0x61,
-	0x74, 0x69, 0x76, 0x65, 0x44, 0x61, 0x74, 0x61, 0x62, 0x72, 0x69, 0x63, 0x6b, 0x73, 0x12, 0x1f,
-	0x0a, 0x08, 0x65, 0x6e, 0x64, 0x70, 0x6f, 0x69, 0x6e, 0x74, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09,
-	0x48, 0x00, 0x52, 0x08, 0x65, 0x6e, 0x64, 0x70, 0x6f, 0x69, 0x6e, 0x74, 0x88, 0x01, 0x01, 0x12,
-	0x19, 0x0a, 0x05, 0x6d, 0x6f, 0x64, 0x65, 0x6c, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x48, 0x01,
-	0x52, 0x05, 0x6d, 0x6f, 0x64, 0x65, 0x6c, 0x88, 0x01, 0x01, 0x12, 0x30, 0x0a, 0x11, 0x66, 0x72,
-	0x65, 0x71, 0x75, 0x65, 0x6e, 0x63, 0x79, 0x5f, 0x70, 0x65, 0x6e, 0x61, 0x6c, 0x74, 0x79, 0x18,
-	0x03, 0x20, 0x01, 0x28, 0x01, 0x48, 0x02, 0x52, 0x10, 0x66, 0x72, 0x65, 0x71, 0x75, 0x65, 0x6e,
-	0x63, 0x79, 0x50, 0x65, 0x6e, 0x61, 0x6c, 0x74, 0x79, 0x88, 0x01, 0x01, 0x12, 0x20, 0x0a, 0x09,
-	0x6c, 0x6f, 0x67, 0x5f, 0x70, 0x72, 0x6f, 0x62, 0x73, 0x18, 0x04, 0x20, 0x01, 0x28, 0x08, 0x48,
-	0x03, 0x52, 0x08, 0x6c, 0x6f, 0x67, 0x50, 0x72, 0x6f, 0x62, 0x73, 0x88, 0x01, 0x01, 0x12, 0x27,
-	0x0a, 0x0d, 0x74, 0x6f, 0x70, 0x5f, 0x6c, 0x6f, 0x67, 0x5f, 0x70, 0x72, 0x6f, 0x62, 0x73, 0x18,
-	0x05, 0x20, 0x01, 0x28, 0x03, 0x48, 0x04, 0x52, 0x0b, 0x74, 0x6f, 0x70, 0x4c, 0x6f, 0x67, 0x50,
-	0x72, 0x6f, 0x62, 0x73, 0x88, 0x01, 0x01, 0x12, 0x22, 0x0a, 0x0a, 0x6d, 0x61, 0x78, 0x5f, 0x74,
-	0x6f, 0x6b, 0x65, 0x6e, 0x73, 0x18, 0x06, 0x20, 0x01, 0x28, 0x03, 0x48, 0x05, 0x52, 0x09, 0x6d,
-	0x61, 0x78, 0x54, 0x6f, 0x6b, 0x65, 0x6e, 0x73, 0x88, 0x01, 0x01, 0x12, 0x11, 0x0a, 0x01, 0x6e,
-	0x18, 0x07, 0x20, 0x01, 0x28, 0x03, 0x48, 0x06, 0x52, 0x01, 0x6e, 0x88, 0x01, 0x01, 0x12, 0x2e,
-	0x0a, 0x10, 0x70, 0x72, 0x65, 0x73, 0x65, 0x6e, 0x63, 0x65, 0x5f, 0x70, 0x65, 0x6e, 0x61, 0x6c,
-	0x74, 0x79, 0x18, 0x08, 0x20, 0x01, 0x28, 0x01, 0x48, 0x07, 0x52, 0x0f, 0x70, 0x72, 0x65, 0x73,
-	0x65, 0x6e, 0x63, 0x65, 0x50, 0x65, 0x6e, 0x61, 0x6c, 0x74, 0x79, 0x88, 0x01, 0x01, 0x12, 0x2f,
-	0x0a, 0x04, 0x73, 0x74, 0x6f, 0x70, 0x18, 0x09, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x16, 0x2e, 0x77,
-	0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e, 0x54, 0x65, 0x78, 0x74, 0x41,
-	0x72, 0x72, 0x61, 0x79, 0x48, 0x08, 0x52, 0x04, 0x73, 0x74, 0x6f, 0x70, 0x88, 0x01, 0x01, 0x12,
-	0x25, 0x0a, 0x0b, 0x74, 0x65, 0x6d, 0x70, 0x65, 0x72, 0x61, 0x74, 0x75, 0x72, 0x65, 0x18, 0x0a,
-	0x20, 0x01, 0x28, 0x01, 0x48, 0x09, 0x52, 0x0b, 0x74, 0x65, 0x6d, 0x70, 0x65, 0x72, 0x61, 0x74,
-	0x75, 0x72, 0x65, 0x88, 0x01, 0x01, 0x12, 0x18, 0x0a, 0x05, 0x74, 0x6f, 0x70, 0x5f, 0x70, 0x18,
-	0x0b, 0x20, 0x01, 0x28, 0x01, 0x48, 0x0a, 0x52, 0x04, 0x74, 0x6f, 0x70, 0x50, 0x88, 0x01, 0x01,
-	0x42, 0x0b, 0x0a, 0x09, 0x5f, 0x65, 0x6e, 0x64, 0x70, 0x6f, 0x69, 0x6e, 0x74, 0x42, 0x08, 0x0a,
-	0x06, 0x5f, 0x6d, 0x6f, 0x64, 0x65, 0x6c, 0x42, 0x14, 0x0a, 0x12, 0x5f, 0x66, 0x72, 0x65, 0x71,
-	0x75, 0x65, 0x6e, 0x63, 0x79, 0x5f, 0x70, 0x65, 0x6e, 0x61, 0x6c, 0x74, 0x79, 0x42, 0x0c, 0x0a,
-	0x0a, 0x5f, 0x6c, 0x6f, 0x67, 0x5f, 0x70, 0x72, 0x6f, 0x62, 0x73, 0x42, 0x10, 0x0a, 0x0e, 0x5f,
-	0x74, 0x6f, 0x70, 0x5f, 0x6c, 0x6f, 0x67, 0x5f, 0x70, 0x72, 0x6f, 0x62, 0x73, 0x42, 0x0d, 0x0a,
-	0x0b, 0x5f, 0x6d, 0x61, 0x78, 0x5f, 0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x73, 0x42, 0x04, 0x0a, 0x02,
-	0x5f, 0x6e, 0x42, 0x13, 0x0a, 0x11, 0x5f, 0x70, 0x72, 0x65, 0x73, 0x65, 0x6e, 0x63, 0x65, 0x5f,
-	0x70, 0x65, 0x6e, 0x61, 0x6c, 0x74, 0x79, 0x42, 0x07, 0x0a, 0x05, 0x5f, 0x73, 0x74, 0x6f, 0x70,
-	0x42, 0x0e, 0x0a, 0x0c, 0x5f, 0x74, 0x65, 0x6d, 0x70, 0x65, 0x72, 0x61, 0x74, 0x75, 0x72, 0x65,
-	0x42, 0x08, 0x0a, 0x06, 0x5f, 0x74, 0x6f, 0x70, 0x5f, 0x70, 0x22, 0x8f, 0x02, 0x0a, 0x14, 0x47,
-	0x65, 0x6e, 0x65, 0x72, 0x61, 0x74, 0x69, 0x76, 0x65, 0x46, 0x72, 0x69, 0x65, 0x6e, 0x64, 0x6c,
-	0x69, 0x41, 0x49, 0x12, 0x1e, 0x0a, 0x08, 0x62, 0x61, 0x73, 0x65, 0x5f, 0x75, 0x72, 0x6c, 0x18,
-	0x01, 0x20, 0x01, 0x28, 0x09, 0x48, 0x00, 0x52, 0x07, 0x62, 0x61, 0x73, 0x65, 0x55, 0x72, 0x6c,
-	0x88, 0x01, 0x01, 0x12, 0x19, 0x0a, 0x05, 0x6d, 0x6f, 0x64, 0x65, 0x6c, 0x18, 0x02, 0x20, 0x01,
-	0x28, 0x09, 0x48, 0x01, 0x52, 0x05, 0x6d, 0x6f, 0x64, 0x65, 0x6c, 0x88, 0x01, 0x01, 0x12, 0x22,
-	0x0a, 0x0a, 0x6d, 0x61, 0x78, 0x5f, 0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x73, 0x18, 0x03, 0x20, 0x01,
-	0x28, 0x03, 0x48, 0x02, 0x52, 0x09, 0x6d, 0x61, 0x78, 0x54, 0x6f, 0x6b, 0x65, 0x6e, 0x73, 0x88,
-	0x01, 0x01, 0x12, 0x25, 0x0a, 0x0b, 0x74, 0x65, 0x6d, 0x70, 0x65, 0x72, 0x61, 0x74, 0x75, 0x72,
-	0x65, 0x18, 0x04, 0x20, 0x01, 0x28, 0x01, 0x48, 0x03, 0x52, 0x0b, 0x74, 0x65, 0x6d, 0x70, 0x65,
-	0x72, 0x61, 0x74, 0x75, 0x72, 0x65, 0x88, 0x01, 0x01, 0x12, 0x11, 0x0a, 0x01, 0x6e, 0x18, 0x05,
-	0x20, 0x01, 0x28, 0x03, 0x48, 0x04, 0x52, 0x01, 0x6e, 0x88, 0x01, 0x01, 0x12, 0x18, 0x0a, 0x05,
-	0x74, 0x6f, 0x70, 0x5f, 0x70, 0x18, 0x06, 0x20, 0x01, 0x28, 0x01, 0x48, 0x05, 0x52, 0x04, 0x74,
-	0x6f, 0x70, 0x50, 0x88, 0x01, 0x01, 0x42, 0x0b, 0x0a, 0x09, 0x5f, 0x62, 0x61, 0x73, 0x65, 0x5f,
-	0x75, 0x72, 0x6c, 0x42, 0x08, 0x0a, 0x06, 0x5f, 0x6d, 0x6f, 0x64, 0x65, 0x6c, 0x42, 0x0d, 0x0a,
-	0x0b, 0x5f, 0x6d, 0x61, 0x78, 0x5f, 0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x73, 0x42, 0x0e, 0x0a, 0x0c,
-	0x5f, 0x74, 0x65, 0x6d, 0x70, 0x65, 0x72, 0x61, 0x74, 0x75, 0x72, 0x65, 0x42, 0x04, 0x0a, 0x02,
-	0x5f, 0x6e, 0x42, 0x08, 0x0a, 0x06, 0x5f, 0x74, 0x6f, 0x70, 0x5f, 0x70, 0x22, 0xf2, 0x01, 0x0a,
-	0x10, 0x47, 0x65, 0x6e, 0x65, 0x72, 0x61, 0x74, 0x69, 0x76, 0x65, 0x4e, 0x76, 0x69, 0x64, 0x69,
-	0x61, 0x12, 0x1e, 0x0a, 0x08, 0x62, 0x61, 0x73, 0x65, 0x5f, 0x75, 0x72, 0x6c, 0x18, 0x01, 0x20,
-	0x01, 0x28, 0x09, 0x48, 0x00, 0x52, 0x07, 0x62, 0x61, 0x73, 0x65, 0x55, 0x72, 0x6c, 0x88, 0x01,
-	0x01, 0x12, 0x19, 0x0a, 0x05, 0x6d, 0x6f, 0x64, 0x65, 0x6c, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09,
-	0x48, 0x01, 0x52, 0x05, 0x6d, 0x6f, 0x64, 0x65, 0x6c, 0x88, 0x01, 0x01, 0x12, 0x25, 0x0a, 0x0b,
-	0x74, 0x65, 0x6d, 0x70, 0x65, 0x72, 0x61, 0x74, 0x75, 0x72, 0x65, 0x18, 0x03, 0x20, 0x01, 0x28,
-	0x01, 0x48, 0x02, 0x52, 0x0b, 0x74, 0x65, 0x6d, 0x70, 0x65, 0x72, 0x61, 0x74, 0x75, 0x72, 0x65,
-	0x88, 0x01, 0x01, 0x12, 0x18, 0x0a, 0x05, 0x74, 0x6f, 0x70, 0x5f, 0x70, 0x18, 0x04, 0x20, 0x01,
-	0x28, 0x01, 0x48, 0x03, 0x52, 0x04, 0x74, 0x6f, 0x70, 0x50, 0x88, 0x01, 0x01, 0x12, 0x22, 0x0a,
-	0x0a, 0x6d, 0x61, 0x78, 0x5f, 0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x73, 0x18, 0x05, 0x20, 0x01, 0x28,
-	0x03, 0x48, 0x04, 0x52, 0x09, 0x6d, 0x61, 0x78, 0x54, 0x6f, 0x6b, 0x65, 0x6e, 0x73, 0x88, 0x01,
-	0x01, 0x42, 0x0b, 0x0a, 0x09, 0x5f, 0x62, 0x61, 0x73, 0x65, 0x5f, 0x75, 0x72, 0x6c, 0x42, 0x08,
-	0x0a, 0x06, 0x5f, 0x6d, 0x6f, 0x64, 0x65, 0x6c, 0x42, 0x0e, 0x0a, 0x0c, 0x5f, 0x74, 0x65, 0x6d,
-	0x70, 0x65, 0x72, 0x61, 0x74, 0x75, 0x72, 0x65, 0x42, 0x08, 0x0a, 0x06, 0x5f, 0x74, 0x6f, 0x70,
-	0x5f, 0x70, 0x42, 0x0d, 0x0a, 0x0b, 0x5f, 0x6d, 0x61, 0x78, 0x5f, 0x74, 0x6f, 0x6b, 0x65, 0x6e,
-	0x73, 0x22, 0x8c, 0x03, 0x0a, 0x0d, 0x47, 0x65, 0x6e, 0x65, 0x72, 0x61, 0x74, 0x69, 0x76, 0x65,
-	0x58, 0x41, 0x49, 0x12, 0x1e, 0x0a, 0x08, 0x62, 0x61, 0x73, 0x65, 0x5f, 0x75, 0x72, 0x6c, 0x18,
-	0x01, 0x20, 0x01, 0x28, 0x09, 0x48, 0x00, 0x52, 0x07, 0x62, 0x61, 0x73, 0x65, 0x55, 0x72, 0x6c,
-	0x88, 0x01, 0x01, 0x12, 0x19, 0x0a, 0x05, 0x6d, 0x6f, 0x64, 0x65, 0x6c, 0x18, 0x02, 0x20, 0x01,
-	0x28, 0x09, 0x48, 0x01, 0x52, 0x05, 0x6d, 0x6f, 0x64, 0x65, 0x6c, 0x88, 0x01, 0x01, 0x12, 0x25,
-	0x0a, 0x0b, 0x74, 0x65, 0x6d, 0x70, 0x65, 0x72, 0x61, 0x74, 0x75, 0x72, 0x65, 0x18, 0x03, 0x20,
-	0x01, 0x28, 0x01, 0x48, 0x02, 0x52, 0x0b, 0x74, 0x65, 0x6d, 0x70, 0x65, 0x72, 0x61, 0x74, 0x75,
-	0x72, 0x65, 0x88, 0x01, 0x01, 0x12, 0x18, 0x0a, 0x05, 0x74, 0x6f, 0x70, 0x5f, 0x70, 0x18, 0x04,
-	0x20, 0x01, 0x28, 0x01, 0x48, 0x03, 0x52, 0x04, 0x74, 0x6f, 0x70, 0x50, 0x88, 0x01, 0x01, 0x12,
-	0x22, 0x0a, 0x0a, 0x6d, 0x61, 0x78, 0x5f, 0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x73, 0x18, 0x05, 0x20,
-	0x01, 0x28, 0x03, 0x48, 0x04, 0x52, 0x09, 0x6d, 0x61, 0x78, 0x54, 0x6f, 0x6b, 0x65, 0x6e, 0x73,
-	0x88, 0x01, 0x01, 0x12, 0x33, 0x0a, 0x06, 0x69, 0x6d, 0x61, 0x67, 0x65, 0x73, 0x18, 0x06, 0x20,
-	0x01, 0x28, 0x0b, 0x32, 0x16, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76,
-	0x31, 0x2e, 0x54, 0x65, 0x78, 0x74, 0x41, 0x72, 0x72, 0x61, 0x79, 0x48, 0x05, 0x52, 0x06, 0x69,
-	0x6d, 0x61, 0x67, 0x65, 0x73, 0x88, 0x01, 0x01, 0x12, 0x46, 0x0a, 0x10, 0x69, 0x6d, 0x61, 0x67,
-	0x65, 0x5f, 0x70, 0x72, 0x6f, 0x70, 0x65, 0x72, 0x74, 0x69, 0x65, 0x73, 0x18, 0x07, 0x20, 0x01,
-	0x28, 0x0b, 0x32, 0x16, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31,
-	0x2e, 0x54, 0x65, 0x78, 0x74, 0x41, 0x72, 0x72, 0x61, 0x79, 0x48, 0x06, 0x52, 0x0f, 0x69, 0x6d,
-	0x61, 0x67, 0x65, 0x50, 0x72, 0x6f, 0x70, 0x65, 0x72, 0x74, 0x69, 0x65, 0x73, 0x88, 0x01, 0x01,
-	0x42, 0x0b, 0x0a, 0x09, 0x5f, 0x62, 0x61, 0x73, 0x65, 0x5f, 0x75, 0x72, 0x6c, 0x42, 0x08, 0x0a,
-	0x06, 0x5f, 0x6d, 0x6f, 0x64, 0x65, 0x6c, 0x42, 0x0e, 0x0a, 0x0c, 0x5f, 0x74, 0x65, 0x6d, 0x70,
-	0x65, 0x72, 0x61, 0x74, 0x75, 0x72, 0x65, 0x42, 0x08, 0x0a, 0x06, 0x5f, 0x74, 0x6f, 0x70, 0x5f,
-	0x70, 0x42, 0x0d, 0x0a, 0x0b, 0x5f, 0x6d, 0x61, 0x78, 0x5f, 0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x73,
-	0x42, 0x09, 0x0a, 0x07, 0x5f, 0x69, 0x6d, 0x61, 0x67, 0x65, 0x73, 0x42, 0x13, 0x0a, 0x11, 0x5f,
-	0x69, 0x6d, 0x61, 0x67, 0x65, 0x5f, 0x70, 0x72, 0x6f, 0x70, 0x65, 0x72, 0x74, 0x69, 0x65, 0x73,
-	0x22, 0xb4, 0x01, 0x0a, 0x1b, 0x47, 0x65, 0x6e, 0x65, 0x72, 0x61, 0x74, 0x69, 0x76, 0x65, 0x41,
-	0x6e, 0x74, 0x68, 0x72, 0x6f, 0x70, 0x69, 0x63, 0x4d, 0x65, 0x74, 0x61, 0x64, 0x61, 0x74, 0x61,
-	0x12, 0x44, 0x0a, 0x05, 0x75, 0x73, 0x61, 0x67, 0x65, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0b, 0x32,
-	0x2e, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e, 0x47, 0x65,
-	0x6e, 0x65, 0x72, 0x61, 0x74, 0x69, 0x76, 0x65, 0x41, 0x6e, 0x74, 0x68, 0x72, 0x6f, 0x70, 0x69,
-	0x63, 0x4d, 0x65, 0x74, 0x61, 0x64, 0x61, 0x74, 0x61, 0x2e, 0x55, 0x73, 0x61, 0x67, 0x65, 0x52,
-	0x05, 0x75, 0x73, 0x61, 0x67, 0x65, 0x1a, 0x4f, 0x0a, 0x05, 0x55, 0x73, 0x61, 0x67, 0x65, 0x12,
-	0x21, 0x0a, 0x0c, 0x69, 0x6e, 0x70, 0x75, 0x74, 0x5f, 0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x73, 0x18,
-	0x01, 0x20, 0x01, 0x28, 0x03, 0x52, 0x0b, 0x69, 0x6e, 0x70, 0x75, 0x74, 0x54, 0x6f, 0x6b, 0x65,
-	0x6e, 0x73, 0x12, 0x23, 0x0a, 0x0d, 0x6f, 0x75, 0x74, 0x70, 0x75, 0x74, 0x5f, 0x74, 0x6f, 0x6b,
-	0x65, 0x6e, 0x73, 0x18, 0x02, 0x20, 0x01, 0x28, 0x03, 0x52, 0x0c, 0x6f, 0x75, 0x74, 0x70, 0x75,
-	0x74, 0x54, 0x6f, 0x6b, 0x65, 0x6e, 0x73, 0x22, 0x1c, 0x0a, 0x1a, 0x47, 0x65, 0x6e, 0x65, 0x72,
-	0x61, 0x74, 0x69, 0x76, 0x65, 0x41, 0x6e, 0x79, 0x73, 0x63, 0x61, 0x6c, 0x65, 0x4d, 0x65, 0x74,
-	0x61, 0x64, 0x61, 0x74, 0x61, 0x22, 0x17, 0x0a, 0x15, 0x47, 0x65, 0x6e, 0x65, 0x72, 0x61, 0x74,
-	0x69, 0x76, 0x65, 0x41, 0x57, 0x53, 0x4d, 0x65, 0x74, 0x61, 0x64, 0x61, 0x74, 0x61, 0x22, 0xc2,
-	0x07, 0x0a, 0x18, 0x47, 0x65, 0x6e, 0x65, 0x72, 0x61, 0x74, 0x69, 0x76, 0x65, 0x43, 0x6f, 0x68,
-	0x65, 0x72, 0x65, 0x4d, 0x65, 0x74, 0x61, 0x64, 0x61, 0x74, 0x61, 0x12, 0x56, 0x0a, 0x0b, 0x61,
-	0x70, 0x69, 0x5f, 0x76, 0x65, 0x72, 0x73, 0x69, 0x6f, 0x6e, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0b,
-	0x32, 0x30, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e, 0x47,
-	0x65, 0x6e, 0x65, 0x72, 0x61, 0x74, 0x69, 0x76, 0x65, 0x43, 0x6f, 0x68, 0x65, 0x72, 0x65, 0x4d,
-	0x65, 0x74, 0x61, 0x64, 0x61, 0x74, 0x61, 0x2e, 0x41, 0x70, 0x69, 0x56, 0x65, 0x72, 0x73, 0x69,
-	0x6f, 0x6e, 0x48, 0x00, 0x52, 0x0a, 0x61, 0x70, 0x69, 0x56, 0x65, 0x72, 0x73, 0x69, 0x6f, 0x6e,
-	0x88, 0x01, 0x01, 0x12, 0x59, 0x0a, 0x0c, 0x62, 0x69, 0x6c, 0x6c, 0x65, 0x64, 0x5f, 0x75, 0x6e,
-	0x69, 0x74, 0x73, 0x18, 0x02, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x31, 0x2e, 0x77, 0x65, 0x61, 0x76,
-	0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e, 0x47, 0x65, 0x6e, 0x65, 0x72, 0x61, 0x74, 0x69,
-	0x76, 0x65, 0x43, 0x6f, 0x68, 0x65, 0x72, 0x65, 0x4d, 0x65, 0x74, 0x61, 0x64, 0x61, 0x74, 0x61,
-	0x2e, 0x42, 0x69, 0x6c, 0x6c, 0x65, 0x64, 0x55, 0x6e, 0x69, 0x74, 0x73, 0x48, 0x01, 0x52, 0x0b,
-	0x62, 0x69, 0x6c, 0x6c, 0x65, 0x64, 0x55, 0x6e, 0x69, 0x74, 0x73, 0x88, 0x01, 0x01, 0x12, 0x49,
-	0x0a, 0x06, 0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x73, 0x18, 0x03, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x2c,
-	0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e, 0x47, 0x65, 0x6e,
-	0x65, 0x72, 0x61, 0x74, 0x69, 0x76, 0x65, 0x43, 0x6f, 0x68, 0x65, 0x72, 0x65, 0x4d, 0x65, 0x74,
-	0x61, 0x64, 0x61, 0x74, 0x61, 0x2e, 0x54, 0x6f, 0x6b, 0x65, 0x6e, 0x73, 0x48, 0x02, 0x52, 0x06,
-	0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x73, 0x88, 0x01, 0x01, 0x12, 0x37, 0x0a, 0x08, 0x77, 0x61, 0x72,
-	0x6e, 0x69, 0x6e, 0x67, 0x73, 0x18, 0x04, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x16, 0x2e, 0x77, 0x65,
-	0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e, 0x54, 0x65, 0x78, 0x74, 0x41, 0x72,
-	0x72, 0x61, 0x79, 0x48, 0x03, 0x52, 0x08, 0x77, 0x61, 0x72, 0x6e, 0x69, 0x6e, 0x67, 0x73, 0x88,
-	0x01, 0x01, 0x1a, 0xb5, 0x01, 0x0a, 0x0a, 0x41, 0x70, 0x69, 0x56, 0x65, 0x72, 0x73, 0x69, 0x6f,
-	0x6e, 0x12, 0x1d, 0x0a, 0x07, 0x76, 0x65, 0x72, 0x73, 0x69, 0x6f, 0x6e, 0x18, 0x01, 0x20, 0x01,
-	0x28, 0x09, 0x48, 0x00, 0x52, 0x07, 0x76, 0x65, 0x72, 0x73, 0x69, 0x6f, 0x6e, 0x88, 0x01, 0x01,
-	0x12, 0x28, 0x0a, 0x0d, 0x69, 0x73, 0x5f, 0x64, 0x65, 0x70, 0x72, 0x65, 0x63, 0x61, 0x74, 0x65,
-	0x64, 0x18, 0x02, 0x20, 0x01, 0x28, 0x08, 0x48, 0x01, 0x52, 0x0c, 0x69, 0x73, 0x44, 0x65, 0x70,
-	0x72, 0x65, 0x63, 0x61, 0x74, 0x65, 0x64, 0x88, 0x01, 0x01, 0x12, 0x2c, 0x0a, 0x0f, 0x69, 0x73,
-	0x5f, 0x65, 0x78, 0x70, 0x65, 0x72, 0x69, 0x6d, 0x65, 0x6e, 0x74, 0x61, 0x6c, 0x18, 0x03, 0x20,
-	0x01, 0x28, 0x08, 0x48, 0x02, 0x52, 0x0e, 0x69, 0x73, 0x45, 0x78, 0x70, 0x65, 0x72, 0x69, 0x6d,
-	0x65, 0x6e, 0x74, 0x61, 0x6c, 0x88, 0x01, 0x01, 0x42, 0x0a, 0x0a, 0x08, 0x5f, 0x76, 0x65, 0x72,
-	0x73, 0x69, 0x6f, 0x6e, 0x42, 0x10, 0x0a, 0x0e, 0x5f, 0x69, 0x73, 0x5f, 0x64, 0x65, 0x70, 0x72,
-	0x65, 0x63, 0x61, 0x74, 0x65, 0x64, 0x42, 0x12, 0x0a, 0x10, 0x5f, 0x69, 0x73, 0x5f, 0x65, 0x78,
-	0x70, 0x65, 0x72, 0x69, 0x6d, 0x65, 0x6e, 0x74, 0x61, 0x6c, 0x1a, 0xfe, 0x01, 0x0a, 0x0b, 0x42,
-	0x69, 0x6c, 0x6c, 0x65, 0x64, 0x55, 0x6e, 0x69, 0x74, 0x73, 0x12, 0x26, 0x0a, 0x0c, 0x69, 0x6e,
-	0x70, 0x75, 0x74, 0x5f, 0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x73, 0x18, 0x01, 0x20, 0x01, 0x28, 0x01,
-	0x48, 0x00, 0x52, 0x0b, 0x69, 0x6e, 0x70, 0x75, 0x74, 0x54, 0x6f, 0x6b, 0x65, 0x6e, 0x73, 0x88,
-	0x01, 0x01, 0x12, 0x28, 0x0a, 0x0d, 0x6f, 0x75, 0x74, 0x70, 0x75, 0x74, 0x5f, 0x74, 0x6f, 0x6b,
-	0x65, 0x6e, 0x73, 0x18, 0x02, 0x20, 0x01, 0x28, 0x01, 0x48, 0x01, 0x52, 0x0c, 0x6f, 0x75, 0x74,
-	0x70, 0x75, 0x74, 0x54, 0x6f, 0x6b, 0x65, 0x6e, 0x73, 0x88, 0x01, 0x01, 0x12, 0x26, 0x0a, 0x0c,
-	0x73, 0x65, 0x61, 0x72, 0x63, 0x68, 0x5f, 0x75, 0x6e, 0x69, 0x74, 0x73, 0x18, 0x03, 0x20, 0x01,
-	0x28, 0x01, 0x48, 0x02, 0x52, 0x0b, 0x73, 0x65, 0x61, 0x72, 0x63, 0x68, 0x55, 0x6e, 0x69, 0x74,
-	0x73, 0x88, 0x01, 0x01, 0x12, 0x2d, 0x0a, 0x0f, 0x63, 0x6c, 0x61, 0x73, 0x73, 0x69, 0x66, 0x69,
-	0x63, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x73, 0x18, 0x04, 0x20, 0x01, 0x28, 0x01, 0x48, 0x03, 0x52,
-	0x0f, 0x63, 0x6c, 0x61, 0x73, 0x73, 0x69, 0x66, 0x69, 0x63, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x73,
-	0x88, 0x01, 0x01, 0x42, 0x0f, 0x0a, 0x0d, 0x5f, 0x69, 0x6e, 0x70, 0x75, 0x74, 0x5f, 0x74, 0x6f,
-	0x6b, 0x65, 0x6e, 0x73, 0x42, 0x10, 0x0a, 0x0e, 0x5f, 0x6f, 0x75, 0x74, 0x70, 0x75, 0x74, 0x5f,
-	0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x73, 0x42, 0x0f, 0x0a, 0x0d, 0x5f, 0x73, 0x65, 0x61, 0x72, 0x63,
-	0x68, 0x5f, 0x75, 0x6e, 0x69, 0x74, 0x73, 0x42, 0x12, 0x0a, 0x10, 0x5f, 0x63, 0x6c, 0x61, 0x73,
-	0x73, 0x69, 0x66, 0x69, 0x63, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x73, 0x1a, 0x7d, 0x0a, 0x06, 0x54,
-	0x6f, 0x6b, 0x65, 0x6e, 0x73, 0x12, 0x26, 0x0a, 0x0c, 0x69, 0x6e, 0x70, 0x75, 0x74, 0x5f, 0x74,
-	0x6f, 0x6b, 0x65, 0x6e, 0x73, 0x18, 0x01, 0x20, 0x01, 0x28, 0x01, 0x48, 0x00, 0x52, 0x0b, 0x69,
-	0x6e, 0x70, 0x75, 0x74, 0x54, 0x6f, 0x6b, 0x65, 0x6e, 0x73, 0x88, 0x01, 0x01, 0x12, 0x28, 0x0a,
-	0x0d, 0x6f, 0x75, 0x74, 0x70, 0x75, 0x74, 0x5f, 0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x73, 0x18, 0x02,
-	0x20, 0x01, 0x28, 0x01, 0x48, 0x01, 0x52, 0x0c, 0x6f, 0x75, 0x74, 0x70, 0x75, 0x74, 0x54, 0x6f,
-	0x6b, 0x65, 0x6e, 0x73, 0x88, 0x01, 0x01, 0x42, 0x0f, 0x0a, 0x0d, 0x5f, 0x69, 0x6e, 0x70, 0x75,
-	0x74, 0x5f, 0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x73, 0x42, 0x10, 0x0a, 0x0e, 0x5f, 0x6f, 0x75, 0x74,
-	0x70, 0x75, 0x74, 0x5f, 0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x73, 0x42, 0x0e, 0x0a, 0x0c, 0x5f, 0x61,
-	0x70, 0x69, 0x5f, 0x76, 0x65, 0x72, 0x73, 0x69, 0x6f, 0x6e, 0x42, 0x0f, 0x0a, 0x0d, 0x5f, 0x62,
-	0x69, 0x6c, 0x6c, 0x65, 0x64, 0x5f, 0x75, 0x6e, 0x69, 0x74, 0x73, 0x42, 0x09, 0x0a, 0x07, 0x5f,
-	0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x73, 0x42, 0x0b, 0x0a, 0x09, 0x5f, 0x77, 0x61, 0x72, 0x6e, 0x69,
-	0x6e, 0x67, 0x73, 0x22, 0x19, 0x0a, 0x17, 0x47, 0x65, 0x6e, 0x65, 0x72, 0x61, 0x74, 0x69, 0x76,
-	0x65, 0x44, 0x75, 0x6d, 0x6d, 0x79, 0x4d, 0x65, 0x74, 0x61, 0x64, 0x61, 0x74, 0x61, 0x22, 0xb5,
-	0x02, 0x0a, 0x19, 0x47, 0x65, 0x6e, 0x65, 0x72, 0x61, 0x74, 0x69, 0x76, 0x65, 0x4d, 0x69, 0x73,
-	0x74, 0x72, 0x61, 0x6c, 0x4d, 0x65, 0x74, 0x61, 0x64, 0x61, 0x74, 0x61, 0x12, 0x47, 0x0a, 0x05,
-	0x75, 0x73, 0x61, 0x67, 0x65, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x2c, 0x2e, 0x77, 0x65,
-	0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e, 0x47, 0x65, 0x6e, 0x65, 0x72, 0x61,
-	0x74, 0x69, 0x76, 0x65, 0x4d, 0x69, 0x73, 0x74, 0x72, 0x61, 0x6c, 0x4d, 0x65, 0x74, 0x61, 0x64,
-	0x61, 0x74, 0x61, 0x2e, 0x55, 0x73, 0x61, 0x67, 0x65, 0x48, 0x00, 0x52, 0x05, 0x75, 0x73, 0x61,
-	0x67, 0x65, 0x88, 0x01, 0x01, 0x1a, 0xc4, 0x01, 0x0a, 0x05, 0x55, 0x73, 0x61, 0x67, 0x65, 0x12,
-	0x28, 0x0a, 0x0d, 0x70, 0x72, 0x6f, 0x6d, 0x70, 0x74, 0x5f, 0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x73,
-	0x18, 0x01, 0x20, 0x01, 0x28, 0x03, 0x48, 0x00, 0x52, 0x0c, 0x70, 0x72, 0x6f, 0x6d, 0x70, 0x74,
-	0x54, 0x6f, 0x6b, 0x65, 0x6e, 0x73, 0x88, 0x01, 0x01, 0x12, 0x30, 0x0a, 0x11, 0x63, 0x6f, 0x6d,
-	0x70, 0x6c, 0x65, 0x74, 0x69, 0x6f, 0x6e, 0x5f, 0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x73, 0x18, 0x02,
-	0x20, 0x01, 0x28, 0x03, 0x48, 0x01, 0x52, 0x10, 0x63, 0x6f, 0x6d, 0x70, 0x6c, 0x65, 0x74, 0x69,
-	0x6f, 0x6e, 0x54, 0x6f, 0x6b, 0x65, 0x6e, 0x73, 0x88, 0x01, 0x01, 0x12, 0x26, 0x0a, 0x0c, 0x74,
-	0x6f, 0x74, 0x61, 0x6c, 0x5f, 0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x73, 0x18, 0x03, 0x20, 0x01, 0x28,
-	0x03, 0x48, 0x02, 0x52, 0x0b, 0x74, 0x6f, 0x74, 0x61, 0x6c, 0x54, 0x6f, 0x6b, 0x65, 0x6e, 0x73,
-	0x88, 0x01, 0x01, 0x42, 0x10, 0x0a, 0x0e, 0x5f, 0x70, 0x72, 0x6f, 0x6d, 0x70, 0x74, 0x5f, 0x74,
-	0x6f, 0x6b, 0x65, 0x6e, 0x73, 0x42, 0x14, 0x0a, 0x12, 0x5f, 0x63, 0x6f, 0x6d, 0x70, 0x6c, 0x65,
-	0x74, 0x69, 0x6f, 0x6e, 0x5f, 0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x73, 0x42, 0x0f, 0x0a, 0x0d, 0x5f,
-	0x74, 0x6f, 0x74, 0x61, 0x6c, 0x5f, 0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x73, 0x42, 0x08, 0x0a, 0x06,
-	0x5f, 0x75, 0x73, 0x61, 0x67, 0x65, 0x22, 0x1a, 0x0a, 0x18, 0x47, 0x65, 0x6e, 0x65, 0x72, 0x61,
-	0x74, 0x69, 0x76, 0x65, 0x4f, 0x6c, 0x6c, 0x61, 0x6d, 0x61, 0x4d, 0x65, 0x74, 0x61, 0x64, 0x61,
-	0x74, 0x61, 0x22, 0xb3, 0x02, 0x0a, 0x18, 0x47, 0x65, 0x6e, 0x65, 0x72, 0x61, 0x74, 0x69, 0x76,
-	0x65, 0x4f, 0x70, 0x65, 0x6e, 0x41, 0x49, 0x4d, 0x65, 0x74, 0x61, 0x64, 0x61, 0x74, 0x61, 0x12,
-	0x46, 0x0a, 0x05, 0x75, 0x73, 0x61, 0x67, 0x65, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x2b,
-	0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e, 0x47, 0x65, 0x6e,
-	0x65, 0x72, 0x61, 0x74, 0x69, 0x76, 0x65, 0x4f, 0x70, 0x65, 0x6e, 0x41, 0x49, 0x4d, 0x65, 0x74,
-	0x61, 0x64, 0x61, 0x74, 0x61, 0x2e, 0x55, 0x73, 0x61, 0x67, 0x65, 0x48, 0x00, 0x52, 0x05, 0x75,
-	0x73, 0x61, 0x67, 0x65, 0x88, 0x01, 0x01, 0x1a, 0xc4, 0x01, 0x0a, 0x05, 0x55, 0x73, 0x61, 0x67,
-	0x65, 0x12, 0x28, 0x0a, 0x0d, 0x70, 0x72, 0x6f, 0x6d, 0x70, 0x74, 0x5f, 0x74, 0x6f, 0x6b, 0x65,
-	0x6e, 0x73, 0x18, 0x01, 0x20, 0x01, 0x28, 0x03, 0x48, 0x00, 0x52, 0x0c, 0x70, 0x72, 0x6f, 0x6d,
-	0x70, 0x74, 0x54, 0x6f, 0x6b, 0x65, 0x6e, 0x73, 0x88, 0x01, 0x01, 0x12, 0x30, 0x0a, 0x11, 0x63,
-	0x6f, 0x6d, 0x70, 0x6c, 0x65, 0x74, 0x69, 0x6f, 0x6e, 0x5f, 0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x73,
-	0x18, 0x02, 0x20, 0x01, 0x28, 0x03, 0x48, 0x01, 0x52, 0x10, 0x63, 0x6f, 0x6d, 0x70, 0x6c, 0x65,
-	0x74, 0x69, 0x6f, 0x6e, 0x54, 0x6f, 0x6b, 0x65, 0x6e, 0x73, 0x88, 0x01, 0x01, 0x12, 0x26, 0x0a,
-	0x0c, 0x74, 0x6f, 0x74, 0x61, 0x6c, 0x5f, 0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x73, 0x18, 0x03, 0x20,
-	0x01, 0x28, 0x03, 0x48, 0x02, 0x52, 0x0b, 0x74, 0x6f, 0x74, 0x61, 0x6c, 0x54, 0x6f, 0x6b, 0x65,
-	0x6e, 0x73, 0x88, 0x01, 0x01, 0x42, 0x10, 0x0a, 0x0e, 0x5f, 0x70, 0x72, 0x6f, 0x6d, 0x70, 0x74,
-	0x5f, 0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x73, 0x42, 0x14, 0x0a, 0x12, 0x5f, 0x63, 0x6f, 0x6d, 0x70,
-	0x6c, 0x65, 0x74, 0x69, 0x6f, 0x6e, 0x5f, 0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x73, 0x42, 0x0f, 0x0a,
-	0x0d, 0x5f, 0x74, 0x6f, 0x74, 0x61, 0x6c, 0x5f, 0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x73, 0x42, 0x08,
-	0x0a, 0x06, 0x5f, 0x75, 0x73, 0x61, 0x67, 0x65, 0x22, 0x93, 0x08, 0x0a, 0x18, 0x47, 0x65, 0x6e,
-	0x65, 0x72, 0x61, 0x74, 0x69, 0x76, 0x65, 0x47, 0x6f, 0x6f, 0x67, 0x6c, 0x65, 0x4d, 0x65, 0x74,
-	0x61, 0x64, 0x61, 0x74, 0x61, 0x12, 0x4f, 0x0a, 0x08, 0x6d, 0x65, 0x74, 0x61, 0x64, 0x61, 0x74,
-	0x61, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x2e, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61,
-	0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e, 0x47, 0x65, 0x6e, 0x65, 0x72, 0x61, 0x74, 0x69, 0x76, 0x65,
-	0x47, 0x6f, 0x6f, 0x67, 0x6c, 0x65, 0x4d, 0x65, 0x74, 0x61, 0x64, 0x61, 0x74, 0x61, 0x2e, 0x4d,
-	0x65, 0x74, 0x61, 0x64, 0x61, 0x74, 0x61, 0x48, 0x00, 0x52, 0x08, 0x6d, 0x65, 0x74, 0x61, 0x64,
-	0x61, 0x74, 0x61, 0x88, 0x01, 0x01, 0x12, 0x5f, 0x0a, 0x0e, 0x75, 0x73, 0x61, 0x67, 0x65, 0x5f,
-	0x6d, 0x65, 0x74, 0x61, 0x64, 0x61, 0x74, 0x61, 0x18, 0x02, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x33,
-	0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e, 0x47, 0x65, 0x6e,
-	0x65, 0x72, 0x61, 0x74, 0x69, 0x76, 0x65, 0x47, 0x6f, 0x6f, 0x67, 0x6c, 0x65, 0x4d, 0x65, 0x74,
-	0x61, 0x64, 0x61, 0x74, 0x61, 0x2e, 0x55, 0x73, 0x61, 0x67, 0x65, 0x4d, 0x65, 0x74, 0x61, 0x64,
-	0x61, 0x74, 0x61, 0x48, 0x01, 0x52, 0x0d, 0x75, 0x73, 0x61, 0x67, 0x65, 0x4d, 0x65, 0x74, 0x61,
-	0x64, 0x61, 0x74, 0x61, 0x88, 0x01, 0x01, 0x1a, 0xa4, 0x01, 0x0a, 0x0a, 0x54, 0x6f, 0x6b, 0x65,
-	0x6e, 0x43, 0x6f, 0x75, 0x6e, 0x74, 0x12, 0x3f, 0x0a, 0x19, 0x74, 0x6f, 0x74, 0x61, 0x6c, 0x5f,
-	0x62, 0x69, 0x6c, 0x6c, 0x61, 0x62, 0x6c, 0x65, 0x5f, 0x63, 0x68, 0x61, 0x72, 0x61, 0x63, 0x74,
-	0x65, 0x72, 0x73, 0x18, 0x01, 0x20, 0x01, 0x28, 0x03, 0x48, 0x00, 0x52, 0x17, 0x74, 0x6f, 0x74,
-	0x61, 0x6c, 0x42, 0x69, 0x6c, 0x6c, 0x61, 0x62, 0x6c, 0x65, 0x43, 0x68, 0x61, 0x72, 0x61, 0x63,
-	0x74, 0x65, 0x72, 0x73, 0x88, 0x01, 0x01, 0x12, 0x26, 0x0a, 0x0c, 0x74, 0x6f, 0x74, 0x61, 0x6c,
-	0x5f, 0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x73, 0x18, 0x02, 0x20, 0x01, 0x28, 0x03, 0x48, 0x01, 0x52,
-	0x0b, 0x74, 0x6f, 0x74, 0x61, 0x6c, 0x54, 0x6f, 0x6b, 0x65, 0x6e, 0x73, 0x88, 0x01, 0x01, 0x42,
-	0x1c, 0x0a, 0x1a, 0x5f, 0x74, 0x6f, 0x74, 0x61, 0x6c, 0x5f, 0x62, 0x69, 0x6c, 0x6c, 0x61, 0x62,
-	0x6c, 0x65, 0x5f, 0x63, 0x68, 0x61, 0x72, 0x61, 0x63, 0x74, 0x65, 0x72, 0x73, 0x42, 0x0f, 0x0a,
-	0x0d, 0x5f, 0x74, 0x6f, 0x74, 0x61, 0x6c, 0x5f, 0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x73, 0x1a, 0x84,
-	0x02, 0x0a, 0x0d, 0x54, 0x6f, 0x6b, 0x65, 0x6e, 0x4d, 0x65, 0x74, 0x61, 0x64, 0x61, 0x74, 0x61,
-	0x12, 0x61, 0x0a, 0x11, 0x69, 0x6e, 0x70, 0x75, 0x74, 0x5f, 0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x5f,
-	0x63, 0x6f, 0x75, 0x6e, 0x74, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x30, 0x2e, 0x77, 0x65,
-	0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e, 0x47, 0x65, 0x6e, 0x65, 0x72, 0x61,
-	0x74, 0x69, 0x76, 0x65, 0x47, 0x6f, 0x6f, 0x67, 0x6c, 0x65, 0x4d, 0x65, 0x74, 0x61, 0x64, 0x61,
-	0x74, 0x61, 0x2e, 0x54, 0x6f, 0x6b, 0x65, 0x6e, 0x43, 0x6f, 0x75, 0x6e, 0x74, 0x48, 0x00, 0x52,
-	0x0f, 0x69, 0x6e, 0x70, 0x75, 0x74, 0x54, 0x6f, 0x6b, 0x65, 0x6e, 0x43, 0x6f, 0x75, 0x6e, 0x74,
-	0x88, 0x01, 0x01, 0x12, 0x63, 0x0a, 0x12, 0x6f, 0x75, 0x74, 0x70, 0x75, 0x74, 0x5f, 0x74, 0x6f,
-	0x6b, 0x65, 0x6e, 0x5f, 0x63, 0x6f, 0x75, 0x6e, 0x74, 0x18, 0x02, 0x20, 0x01, 0x28, 0x0b, 0x32,
-	0x30, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e, 0x47, 0x65,
-	0x6e, 0x65, 0x72, 0x61, 0x74, 0x69, 0x76, 0x65, 0x47, 0x6f, 0x6f, 0x67, 0x6c, 0x65, 0x4d, 0x65,
-	0x74, 0x61, 0x64, 0x61, 0x74, 0x61, 0x2e, 0x54, 0x6f, 0x6b, 0x65, 0x6e, 0x43, 0x6f, 0x75, 0x6e,
-	0x74, 0x48, 0x01, 0x52, 0x10, 0x6f, 0x75, 0x74, 0x70, 0x75, 0x74, 0x54, 0x6f, 0x6b, 0x65, 0x6e,
-	0x43, 0x6f, 0x75, 0x6e, 0x74, 0x88, 0x01, 0x01, 0x42, 0x14, 0x0a, 0x12, 0x5f, 0x69, 0x6e, 0x70,
-	0x75, 0x74, 0x5f, 0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x5f, 0x63, 0x6f, 0x75, 0x6e, 0x74, 0x42, 0x15,
-	0x0a, 0x13, 0x5f, 0x6f, 0x75, 0x74, 0x70, 0x75, 0x74, 0x5f, 0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x5f,
-	0x63, 0x6f, 0x75, 0x6e, 0x74, 0x1a, 0x7e, 0x0a, 0x08, 0x4d, 0x65, 0x74, 0x61, 0x64, 0x61, 0x74,
-	0x61, 0x12, 0x5f, 0x0a, 0x0e, 0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x5f, 0x6d, 0x65, 0x74, 0x61, 0x64,
-	0x61, 0x74, 0x61, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x33, 0x2e, 0x77, 0x65, 0x61, 0x76,
-	0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e, 0x47, 0x65, 0x6e, 0x65, 0x72, 0x61, 0x74, 0x69,
-	0x76, 0x65, 0x47, 0x6f, 0x6f, 0x67, 0x6c, 0x65, 0x4d, 0x65, 0x74, 0x61, 0x64, 0x61, 0x74, 0x61,
-	0x2e, 0x54, 0x6f, 0x6b, 0x65, 0x6e, 0x4d, 0x65, 0x74, 0x61, 0x64, 0x61, 0x74, 0x61, 0x48, 0x00,
-	0x52, 0x0d, 0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x4d, 0x65, 0x74, 0x61, 0x64, 0x61, 0x74, 0x61, 0x88,
-	0x01, 0x01, 0x42, 0x11, 0x0a, 0x0f, 0x5f, 0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x5f, 0x6d, 0x65, 0x74,
-	0x61, 0x64, 0x61, 0x74, 0x61, 0x1a, 0xf6, 0x01, 0x0a, 0x0d, 0x55, 0x73, 0x61, 0x67, 0x65, 0x4d,
-	0x65, 0x74, 0x61, 0x64, 0x61, 0x74, 0x61, 0x12, 0x31, 0x0a, 0x12, 0x70, 0x72, 0x6f, 0x6d, 0x70,
-	0x74, 0x5f, 0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x5f, 0x63, 0x6f, 0x75, 0x6e, 0x74, 0x18, 0x01, 0x20,
-	0x01, 0x28, 0x03, 0x48, 0x00, 0x52, 0x10, 0x70, 0x72, 0x6f, 0x6d, 0x70, 0x74, 0x54, 0x6f, 0x6b,
-	0x65, 0x6e, 0x43, 0x6f, 0x75, 0x6e, 0x74, 0x88, 0x01, 0x01, 0x12, 0x39, 0x0a, 0x16, 0x63, 0x61,
-	0x6e, 0x64, 0x69, 0x64, 0x61, 0x74, 0x65, 0x73, 0x5f, 0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x5f, 0x63,
-	0x6f, 0x75, 0x6e, 0x74, 0x18, 0x02, 0x20, 0x01, 0x28, 0x03, 0x48, 0x01, 0x52, 0x14, 0x63, 0x61,
-	0x6e, 0x64, 0x69, 0x64, 0x61, 0x74, 0x65, 0x73, 0x54, 0x6f, 0x6b, 0x65, 0x6e, 0x43, 0x6f, 0x75,
-	0x6e, 0x74, 0x88, 0x01, 0x01, 0x12, 0x2f, 0x0a, 0x11, 0x74, 0x6f, 0x74, 0x61, 0x6c, 0x5f, 0x74,
-	0x6f, 0x6b, 0x65, 0x6e, 0x5f, 0x63, 0x6f, 0x75, 0x6e, 0x74, 0x18, 0x03, 0x20, 0x01, 0x28, 0x03,
-	0x48, 0x02, 0x52, 0x0f, 0x74, 0x6f, 0x74, 0x61, 0x6c, 0x54, 0x6f, 0x6b, 0x65, 0x6e, 0x43, 0x6f,
-	0x75, 0x6e, 0x74, 0x88, 0x01, 0x01, 0x42, 0x15, 0x0a, 0x13, 0x5f, 0x70, 0x72, 0x6f, 0x6d, 0x70,
-	0x74, 0x5f, 0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x5f, 0x63, 0x6f, 0x75, 0x6e, 0x74, 0x42, 0x19, 0x0a,
-	0x17, 0x5f, 0x63, 0x61, 0x6e, 0x64, 0x69, 0x64, 0x61, 0x74, 0x65, 0x73, 0x5f, 0x74, 0x6f, 0x6b,
-	0x65, 0x6e, 0x5f, 0x63, 0x6f, 0x75, 0x6e, 0x74, 0x42, 0x14, 0x0a, 0x12, 0x5f, 0x74, 0x6f, 0x74,
-	0x61, 0x6c, 0x5f, 0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x5f, 0x63, 0x6f, 0x75, 0x6e, 0x74, 0x42, 0x0b,
-	0x0a, 0x09, 0x5f, 0x6d, 0x65, 0x74, 0x61, 0x64, 0x61, 0x74, 0x61, 0x42, 0x11, 0x0a, 0x0f, 0x5f,
-	0x75, 0x73, 0x61, 0x67, 0x65, 0x5f, 0x6d, 0x65, 0x74, 0x61, 0x64, 0x61, 0x74, 0x61, 0x22, 0xbb,
-	0x02, 0x0a, 0x1c, 0x47, 0x65, 0x6e, 0x65, 0x72, 0x61, 0x74, 0x69, 0x76, 0x65, 0x44, 0x61, 0x74,
-	0x61, 0x62, 0x72, 0x69, 0x63, 0x6b, 0x73, 0x4d, 0x65, 0x74, 0x61, 0x64, 0x61, 0x74, 0x61, 0x12,
-	0x4a, 0x0a, 0x05, 0x75, 0x73, 0x61, 0x67, 0x65, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x2f,
-	0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e, 0x47, 0x65, 0x6e,
-	0x65, 0x72, 0x61, 0x74, 0x69, 0x76, 0x65, 0x44, 0x61, 0x74, 0x61, 0x62, 0x72, 0x69, 0x63, 0x6b,
-	0x73, 0x4d, 0x65, 0x74, 0x61, 0x64, 0x61, 0x74, 0x61, 0x2e, 0x55, 0x73, 0x61, 0x67, 0x65, 0x48,
-	0x00, 0x52, 0x05, 0x75, 0x73, 0x61, 0x67, 0x65, 0x88, 0x01, 0x01, 0x1a, 0xc4, 0x01, 0x0a, 0x05,
-	0x55, 0x73, 0x61, 0x67, 0x65, 0x12, 0x28, 0x0a, 0x0d, 0x70, 0x72, 0x6f, 0x6d, 0x70, 0x74, 0x5f,
-	0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x73, 0x18, 0x01, 0x20, 0x01, 0x28, 0x03, 0x48, 0x00, 0x52, 0x0c,
-	0x70, 0x72, 0x6f, 0x6d, 0x70, 0x74, 0x54, 0x6f, 0x6b, 0x65, 0x6e, 0x73, 0x88, 0x01, 0x01, 0x12,
-	0x30, 0x0a, 0x11, 0x63, 0x6f, 0x6d, 0x70, 0x6c, 0x65, 0x74, 0x69, 0x6f, 0x6e, 0x5f, 0x74, 0x6f,
-	0x6b, 0x65, 0x6e, 0x73, 0x18, 0x02, 0x20, 0x01, 0x28, 0x03, 0x48, 0x01, 0x52, 0x10, 0x63, 0x6f,
-	0x6d, 0x70, 0x6c, 0x65, 0x74, 0x69, 0x6f, 0x6e, 0x54, 0x6f, 0x6b, 0x65, 0x6e, 0x73, 0x88, 0x01,
-	0x01, 0x12, 0x26, 0x0a, 0x0c, 0x74, 0x6f, 0x74, 0x61, 0x6c, 0x5f, 0x74, 0x6f, 0x6b, 0x65, 0x6e,
-	0x73, 0x18, 0x03, 0x20, 0x01, 0x28, 0x03, 0x48, 0x02, 0x52, 0x0b, 0x74, 0x6f, 0x74, 0x61, 0x6c,
-	0x54, 0x6f, 0x6b, 0x65, 0x6e, 0x73, 0x88, 0x01, 0x01, 0x42, 0x10, 0x0a, 0x0e, 0x5f, 0x70, 0x72,
-	0x6f, 0x6d, 0x70, 0x74, 0x5f, 0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x73, 0x42, 0x14, 0x0a, 0x12, 0x5f,
-	0x63, 0x6f, 0x6d, 0x70, 0x6c, 0x65, 0x74, 0x69, 0x6f, 0x6e, 0x5f, 0x74, 0x6f, 0x6b, 0x65, 0x6e,
-	0x73, 0x42, 0x0f, 0x0a, 0x0d, 0x5f, 0x74, 0x6f, 0x74, 0x61, 0x6c, 0x5f, 0x74, 0x6f, 0x6b, 0x65,
-	0x6e, 0x73, 0x42, 0x08, 0x0a, 0x06, 0x5f, 0x75, 0x73, 0x61, 0x67, 0x65, 0x22, 0xbb, 0x02, 0x0a,
-	0x1c, 0x47, 0x65, 0x6e, 0x65, 0x72, 0x61, 0x74, 0x69, 0x76, 0x65, 0x46, 0x72, 0x69, 0x65, 0x6e,
-	0x64, 0x6c, 0x69, 0x41, 0x49, 0x4d, 0x65, 0x74, 0x61, 0x64, 0x61, 0x74, 0x61, 0x12, 0x4a, 0x0a,
-	0x05, 0x75, 0x73, 0x61, 0x67, 0x65, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x2f, 0x2e, 0x77,
-	0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e, 0x47, 0x65, 0x6e, 0x65, 0x72,
-	0x61, 0x74, 0x69, 0x76, 0x65, 0x46, 0x72, 0x69, 0x65, 0x6e, 0x64, 0x6c, 0x69, 0x41, 0x49, 0x4d,
-	0x65, 0x74, 0x61, 0x64, 0x61, 0x74, 0x61, 0x2e, 0x55, 0x73, 0x61, 0x67, 0x65, 0x48, 0x00, 0x52,
-	0x05, 0x75, 0x73, 0x61, 0x67, 0x65, 0x88, 0x01, 0x01, 0x1a, 0xc4, 0x01, 0x0a, 0x05, 0x55, 0x73,
-	0x61, 0x67, 0x65, 0x12, 0x28, 0x0a, 0x0d, 0x70, 0x72, 0x6f, 0x6d, 0x70, 0x74, 0x5f, 0x74, 0x6f,
-	0x6b, 0x65, 0x6e, 0x73, 0x18, 0x01, 0x20, 0x01, 0x28, 0x03, 0x48, 0x00, 0x52, 0x0c, 0x70, 0x72,
-	0x6f, 0x6d, 0x70, 0x74, 0x54, 0x6f, 0x6b, 0x65, 0x6e, 0x73, 0x88, 0x01, 0x01, 0x12, 0x30, 0x0a,
-	0x11, 0x63, 0x6f, 0x6d, 0x70, 0x6c, 0x65, 0x74, 0x69, 0x6f, 0x6e, 0x5f, 0x74, 0x6f, 0x6b, 0x65,
-	0x6e, 0x73, 0x18, 0x02, 0x20, 0x01, 0x28, 0x03, 0x48, 0x01, 0x52, 0x10, 0x63, 0x6f, 0x6d, 0x70,
-	0x6c, 0x65, 0x74, 0x69, 0x6f, 0x6e, 0x54, 0x6f, 0x6b, 0x65, 0x6e, 0x73, 0x88, 0x01, 0x01, 0x12,
-	0x26, 0x0a, 0x0c, 0x74, 0x6f, 0x74, 0x61, 0x6c, 0x5f, 0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x73, 0x18,
-	0x03, 0x20, 0x01, 0x28, 0x03, 0x48, 0x02, 0x52, 0x0b, 0x74, 0x6f, 0x74, 0x61, 0x6c, 0x54, 0x6f,
-	0x6b, 0x65, 0x6e, 0x73, 0x88, 0x01, 0x01, 0x42, 0x10, 0x0a, 0x0e, 0x5f, 0x70, 0x72, 0x6f, 0x6d,
-	0x70, 0x74, 0x5f, 0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x73, 0x42, 0x14, 0x0a, 0x12, 0x5f, 0x63, 0x6f,
-	0x6d, 0x70, 0x6c, 0x65, 0x74, 0x69, 0x6f, 0x6e, 0x5f, 0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x73, 0x42,
-	0x0f, 0x0a, 0x0d, 0x5f, 0x74, 0x6f, 0x74, 0x61, 0x6c, 0x5f, 0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x73,
-	0x42, 0x08, 0x0a, 0x06, 0x5f, 0x75, 0x73, 0x61, 0x67, 0x65, 0x22, 0xb3, 0x02, 0x0a, 0x18, 0x47,
-	0x65, 0x6e, 0x65, 0x72, 0x61, 0x74, 0x69, 0x76, 0x65, 0x4e, 0x76, 0x69, 0x64, 0x69, 0x61, 0x4d,
-	0x65, 0x74, 0x61, 0x64, 0x61, 0x74, 0x61, 0x12, 0x46, 0x0a, 0x05, 0x75, 0x73, 0x61, 0x67, 0x65,
-	0x18, 0x01, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x2b, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74,
-	0x65, 0x2e, 0x76, 0x31, 0x2e, 0x47, 0x65, 0x6e, 0x65, 0x72, 0x61, 0x74, 0x69, 0x76, 0x65, 0x4e,
-	0x76, 0x69, 0x64, 0x69, 0x61, 0x4d, 0x65, 0x74, 0x61, 0x64, 0x61, 0x74, 0x61, 0x2e, 0x55, 0x73,
-	0x61, 0x67, 0x65, 0x48, 0x00, 0x52, 0x05, 0x75, 0x73, 0x61, 0x67, 0x65, 0x88, 0x01, 0x01, 0x1a,
-	0xc4, 0x01, 0x0a, 0x05, 0x55, 0x73, 0x61, 0x67, 0x65, 0x12, 0x28, 0x0a, 0x0d, 0x70, 0x72, 0x6f,
-	0x6d, 0x70, 0x74, 0x5f, 0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x73, 0x18, 0x01, 0x20, 0x01, 0x28, 0x03,
-	0x48, 0x00, 0x52, 0x0c, 0x70, 0x72, 0x6f, 0x6d, 0x70, 0x74, 0x54, 0x6f, 0x6b, 0x65, 0x6e, 0x73,
-	0x88, 0x01, 0x01, 0x12, 0x30, 0x0a, 0x11, 0x63, 0x6f, 0x6d, 0x70, 0x6c, 0x65, 0x74, 0x69, 0x6f,
-	0x6e, 0x5f, 0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x73, 0x18, 0x02, 0x20, 0x01, 0x28, 0x03, 0x48, 0x01,
-	0x52, 0x10, 0x63, 0x6f, 0x6d, 0x70, 0x6c, 0x65, 0x74, 0x69, 0x6f, 0x6e, 0x54, 0x6f, 0x6b, 0x65,
-	0x6e, 0x73, 0x88, 0x01, 0x01, 0x12, 0x26, 0x0a, 0x0c, 0x74, 0x6f, 0x74, 0x61, 0x6c, 0x5f, 0x74,
-	0x6f, 0x6b, 0x65, 0x6e, 0x73, 0x18, 0x03, 0x20, 0x01, 0x28, 0x03, 0x48, 0x02, 0x52, 0x0b, 0x74,
-	0x6f, 0x74, 0x61, 0x6c, 0x54, 0x6f, 0x6b, 0x65, 0x6e, 0x73, 0x88, 0x01, 0x01, 0x42, 0x10, 0x0a,
-	0x0e, 0x5f, 0x70, 0x72, 0x6f, 0x6d, 0x70, 0x74, 0x5f, 0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x73, 0x42,
-	0x14, 0x0a, 0x12, 0x5f, 0x63, 0x6f, 0x6d, 0x70, 0x6c, 0x65, 0x74, 0x69, 0x6f, 0x6e, 0x5f, 0x74,
-	0x6f, 0x6b, 0x65, 0x6e, 0x73, 0x42, 0x0f, 0x0a, 0x0d, 0x5f, 0x74, 0x6f, 0x74, 0x61, 0x6c, 0x5f,
-	0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x73, 0x42, 0x08, 0x0a, 0x06, 0x5f, 0x75, 0x73, 0x61, 0x67, 0x65,
-	0x22, 0xad, 0x02, 0x0a, 0x15, 0x47, 0x65, 0x6e, 0x65, 0x72, 0x61, 0x74, 0x69, 0x76, 0x65, 0x58,
-	0x41, 0x49, 0x4d, 0x65, 0x74, 0x61, 0x64, 0x61, 0x74, 0x61, 0x12, 0x43, 0x0a, 0x05, 0x75, 0x73,
-	0x61, 0x67, 0x65, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x28, 0x2e, 0x77, 0x65, 0x61, 0x76,
-	0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e, 0x47, 0x65, 0x6e, 0x65, 0x72, 0x61, 0x74, 0x69,
-	0x76, 0x65, 0x58, 0x41, 0x49, 0x4d, 0x65, 0x74, 0x61, 0x64, 0x61, 0x74, 0x61, 0x2e, 0x55, 0x73,
-	0x61, 0x67, 0x65, 0x48, 0x00, 0x52, 0x05, 0x75, 0x73, 0x61, 0x67, 0x65, 0x88, 0x01, 0x01, 0x1a,
-	0xc4, 0x01, 0x0a, 0x05, 0x55, 0x73, 0x61, 0x67, 0x65, 0x12, 0x28, 0x0a, 0x0d, 0x70, 0x72, 0x6f,
-	0x6d, 0x70, 0x74, 0x5f, 0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x73, 0x18, 0x01, 0x20, 0x01, 0x28, 0x03,
-	0x48, 0x00, 0x52, 0x0c, 0x70, 0x72, 0x6f, 0x6d, 0x70, 0x74, 0x54, 0x6f, 0x6b, 0x65, 0x6e, 0x73,
-	0x88, 0x01, 0x01, 0x12, 0x30, 0x0a, 0x11, 0x63, 0x6f, 0x6d, 0x70, 0x6c, 0x65, 0x74, 0x69, 0x6f,
-	0x6e, 0x5f, 0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x73, 0x18, 0x02, 0x20, 0x01, 0x28, 0x03, 0x48, 0x01,
-	0x52, 0x10, 0x63, 0x6f, 0x6d, 0x70, 0x6c, 0x65, 0x74, 0x69, 0x6f, 0x6e, 0x54, 0x6f, 0x6b, 0x65,
-	0x6e, 0x73, 0x88, 0x01, 0x01, 0x12, 0x26, 0x0a, 0x0c, 0x74, 0x6f, 0x74, 0x61, 0x6c, 0x5f, 0x74,
-	0x6f, 0x6b, 0x65, 0x6e, 0x73, 0x18, 0x03, 0x20, 0x01, 0x28, 0x03, 0x48, 0x02, 0x52, 0x0b, 0x74,
-	0x6f, 0x74, 0x61, 0x6c, 0x54, 0x6f, 0x6b, 0x65, 0x6e, 0x73, 0x88, 0x01, 0x01, 0x42, 0x10, 0x0a,
-	0x0e, 0x5f, 0x70, 0x72, 0x6f, 0x6d, 0x70, 0x74, 0x5f, 0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x73, 0x42,
-	0x14, 0x0a, 0x12, 0x5f, 0x63, 0x6f, 0x6d, 0x70, 0x6c, 0x65, 0x74, 0x69, 0x6f, 0x6e, 0x5f, 0x74,
-	0x6f, 0x6b, 0x65, 0x6e, 0x73, 0x42, 0x0f, 0x0a, 0x0d, 0x5f, 0x74, 0x6f, 0x74, 0x61, 0x6c, 0x5f,
-	0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x73, 0x42, 0x08, 0x0a, 0x06, 0x5f, 0x75, 0x73, 0x61, 0x67, 0x65,
-	0x22, 0xfe, 0x06, 0x0a, 0x12, 0x47, 0x65, 0x6e, 0x65, 0x72, 0x61, 0x74, 0x69, 0x76, 0x65, 0x4d,
-	0x65, 0x74, 0x61, 0x64, 0x61, 0x74, 0x61, 0x12, 0x48, 0x0a, 0x09, 0x61, 0x6e, 0x74, 0x68, 0x72,
-	0x6f, 0x70, 0x69, 0x63, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x28, 0x2e, 0x77, 0x65, 0x61,
-	0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e, 0x47, 0x65, 0x6e, 0x65, 0x72, 0x61, 0x74,
-	0x69, 0x76, 0x65, 0x41, 0x6e, 0x74, 0x68, 0x72, 0x6f, 0x70, 0x69, 0x63, 0x4d, 0x65, 0x74, 0x61,
-	0x64, 0x61, 0x74, 0x61, 0x48, 0x00, 0x52, 0x09, 0x61, 0x6e, 0x74, 0x68, 0x72, 0x6f, 0x70, 0x69,
-	0x63, 0x12, 0x45, 0x0a, 0x08, 0x61, 0x6e, 0x79, 0x73, 0x63, 0x61, 0x6c, 0x65, 0x18, 0x02, 0x20,
-	0x01, 0x28, 0x0b, 0x32, 0x27, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76,
-	0x31, 0x2e, 0x47, 0x65, 0x6e, 0x65, 0x72, 0x61, 0x74, 0x69, 0x76, 0x65, 0x41, 0x6e, 0x79, 0x73,
-	0x63, 0x61, 0x6c, 0x65, 0x4d, 0x65, 0x74, 0x61, 0x64, 0x61, 0x74, 0x61, 0x48, 0x00, 0x52, 0x08,
-	0x61, 0x6e, 0x79, 0x73, 0x63, 0x61, 0x6c, 0x65, 0x12, 0x36, 0x0a, 0x03, 0x61, 0x77, 0x73, 0x18,
-	0x03, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x22, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65,
-	0x2e, 0x76, 0x31, 0x2e, 0x47, 0x65, 0x6e, 0x65, 0x72, 0x61, 0x74, 0x69, 0x76, 0x65, 0x41, 0x57,
-	0x53, 0x4d, 0x65, 0x74, 0x61, 0x64, 0x61, 0x74, 0x61, 0x48, 0x00, 0x52, 0x03, 0x61, 0x77, 0x73,
-	0x12, 0x3f, 0x0a, 0x06, 0x63, 0x6f, 0x68, 0x65, 0x72, 0x65, 0x18, 0x04, 0x20, 0x01, 0x28, 0x0b,
-	0x32, 0x25, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e, 0x47,
-	0x65, 0x6e, 0x65, 0x72, 0x61, 0x74, 0x69, 0x76, 0x65, 0x43, 0x6f, 0x68, 0x65, 0x72, 0x65, 0x4d,
-	0x65, 0x74, 0x61, 0x64, 0x61, 0x74, 0x61, 0x48, 0x00, 0x52, 0x06, 0x63, 0x6f, 0x68, 0x65, 0x72,
-	0x65, 0x12, 0x3c, 0x0a, 0x05, 0x64, 0x75, 0x6d, 0x6d, 0x79, 0x18, 0x05, 0x20, 0x01, 0x28, 0x0b,
-	0x32, 0x24, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e, 0x47,
-	0x65, 0x6e, 0x65, 0x72, 0x61, 0x74, 0x69, 0x76, 0x65, 0x44, 0x75, 0x6d, 0x6d, 0x79, 0x4d, 0x65,
-	0x74, 0x61, 0x64, 0x61, 0x74, 0x61, 0x48, 0x00, 0x52, 0x05, 0x64, 0x75, 0x6d, 0x6d, 0x79, 0x12,
-	0x42, 0x0a, 0x07, 0x6d, 0x69, 0x73, 0x74, 0x72, 0x61, 0x6c, 0x18, 0x06, 0x20, 0x01, 0x28, 0x0b,
-	0x32, 0x26, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e, 0x47,
-	0x65, 0x6e, 0x65, 0x72, 0x61, 0x74, 0x69, 0x76, 0x65, 0x4d, 0x69, 0x73, 0x74, 0x72, 0x61, 0x6c,
-	0x4d, 0x65, 0x74, 0x61, 0x64, 0x61, 0x74, 0x61, 0x48, 0x00, 0x52, 0x07, 0x6d, 0x69, 0x73, 0x74,
-	0x72, 0x61, 0x6c, 0x12, 0x3f, 0x0a, 0x06, 0x6f, 0x6c, 0x6c, 0x61, 0x6d, 0x61, 0x18, 0x07, 0x20,
-	0x01, 0x28, 0x0b, 0x32, 0x25, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76,
-	0x31, 0x2e, 0x47, 0x65, 0x6e, 0x65, 0x72, 0x61, 0x74, 0x69, 0x76, 0x65, 0x4f, 0x6c, 0x6c, 0x61,
-	0x6d, 0x61, 0x4d, 0x65, 0x74, 0x61, 0x64, 0x61, 0x74, 0x61, 0x48, 0x00, 0x52, 0x06, 0x6f, 0x6c,
-	0x6c, 0x61, 0x6d, 0x61, 0x12, 0x3f, 0x0a, 0x06, 0x6f, 0x70, 0x65, 0x6e, 0x61, 0x69, 0x18, 0x08,
-	0x20, 0x01, 0x28, 0x0b, 0x32, 0x25, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e,
-	0x76, 0x31, 0x2e, 0x47, 0x65, 0x6e, 0x65, 0x72, 0x61, 0x74, 0x69, 0x76, 0x65, 0x4f, 0x70, 0x65,
-	0x6e, 0x41, 0x49, 0x4d, 0x65, 0x74, 0x61, 0x64, 0x61, 0x74, 0x61, 0x48, 0x00, 0x52, 0x06, 0x6f,
-	0x70, 0x65, 0x6e, 0x61, 0x69, 0x12, 0x3f, 0x0a, 0x06, 0x67, 0x6f, 0x6f, 0x67, 0x6c, 0x65, 0x18,
-	0x09, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x25, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65,
-	0x2e, 0x76, 0x31, 0x2e, 0x47, 0x65, 0x6e, 0x65, 0x72, 0x61, 0x74, 0x69, 0x76, 0x65, 0x47, 0x6f,
-	0x6f, 0x67, 0x6c, 0x65, 0x4d, 0x65, 0x74, 0x61, 0x64, 0x61, 0x74, 0x61, 0x48, 0x00, 0x52, 0x06,
-	0x67, 0x6f, 0x6f, 0x67, 0x6c, 0x65, 0x12, 0x4b, 0x0a, 0x0a, 0x64, 0x61, 0x74, 0x61, 0x62, 0x72,
-	0x69, 0x63, 0x6b, 0x73, 0x18, 0x0a, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x29, 0x2e, 0x77, 0x65, 0x61,
-	0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e, 0x47, 0x65, 0x6e, 0x65, 0x72, 0x61, 0x74,
-	0x69, 0x76, 0x65, 0x44, 0x61, 0x74, 0x61, 0x62, 0x72, 0x69, 0x63, 0x6b, 0x73, 0x4d, 0x65, 0x74,
-	0x61, 0x64, 0x61, 0x74, 0x61, 0x48, 0x00, 0x52, 0x0a, 0x64, 0x61, 0x74, 0x61, 0x62, 0x72, 0x69,
-	0x63, 0x6b, 0x73, 0x12, 0x4b, 0x0a, 0x0a, 0x66, 0x72, 0x69, 0x65, 0x6e, 0x64, 0x6c, 0x69, 0x61,
-	0x69, 0x18, 0x0b, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x29, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61,
-	0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e, 0x47, 0x65, 0x6e, 0x65, 0x72, 0x61, 0x74, 0x69, 0x76, 0x65,
-	0x46, 0x72, 0x69, 0x65, 0x6e, 0x64, 0x6c, 0x69, 0x41, 0x49, 0x4d, 0x65, 0x74, 0x61, 0x64, 0x61,
-	0x74, 0x61, 0x48, 0x00, 0x52, 0x0a, 0x66, 0x72, 0x69, 0x65, 0x6e, 0x64, 0x6c, 0x69, 0x61, 0x69,
-	0x12, 0x3f, 0x0a, 0x06, 0x6e, 0x76, 0x69, 0x64, 0x69, 0x61, 0x18, 0x0c, 0x20, 0x01, 0x28, 0x0b,
-	0x32, 0x25, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e, 0x47,
-	0x65, 0x6e, 0x65, 0x72, 0x61, 0x74, 0x69, 0x76, 0x65, 0x4e, 0x76, 0x69, 0x64, 0x69, 0x61, 0x4d,
-	0x65, 0x74, 0x61, 0x64, 0x61, 0x74, 0x61, 0x48, 0x00, 0x52, 0x06, 0x6e, 0x76, 0x69, 0x64, 0x69,
-	0x61, 0x12, 0x36, 0x0a, 0x03, 0x78, 0x61, 0x69, 0x18, 0x0d, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x22,
-	0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e, 0x47, 0x65, 0x6e,
-	0x65, 0x72, 0x61, 0x74, 0x69, 0x76, 0x65, 0x58, 0x41, 0x49, 0x4d, 0x65, 0x74, 0x61, 0x64, 0x61,
-	0x74, 0x61, 0x48, 0x00, 0x52, 0x03, 0x78, 0x61, 0x69, 0x42, 0x06, 0x0a, 0x04, 0x6b, 0x69, 0x6e,
-	0x64, 0x22, 0xbb, 0x01, 0x0a, 0x0f, 0x47, 0x65, 0x6e, 0x65, 0x72, 0x61, 0x74, 0x69, 0x76, 0x65,
-	0x52, 0x65, 0x70, 0x6c, 0x79, 0x12, 0x16, 0x0a, 0x06, 0x72, 0x65, 0x73, 0x75, 0x6c, 0x74, 0x18,
-	0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x06, 0x72, 0x65, 0x73, 0x75, 0x6c, 0x74, 0x12, 0x37, 0x0a,
-	0x05, 0x64, 0x65, 0x62, 0x75, 0x67, 0x18, 0x02, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x1c, 0x2e, 0x77,
-	0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e, 0x47, 0x65, 0x6e, 0x65, 0x72,
-	0x61, 0x74, 0x69, 0x76, 0x65, 0x44, 0x65, 0x62, 0x75, 0x67, 0x48, 0x00, 0x52, 0x05, 0x64, 0x65,
-	0x62, 0x75, 0x67, 0x88, 0x01, 0x01, 0x12, 0x40, 0x0a, 0x08, 0x6d, 0x65, 0x74, 0x61, 0x64, 0x61,
-	0x74, 0x61, 0x18, 0x03, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x1f, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69,
-	0x61, 0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e, 0x47, 0x65, 0x6e, 0x65, 0x72, 0x61, 0x74, 0x69, 0x76,
-	0x65, 0x4d, 0x65, 0x74, 0x61, 0x64, 0x61, 0x74, 0x61, 0x48, 0x01, 0x52, 0x08, 0x6d, 0x65, 0x74,
-	0x61, 0x64, 0x61, 0x74, 0x61, 0x88, 0x01, 0x01, 0x42, 0x08, 0x0a, 0x06, 0x5f, 0x64, 0x65, 0x62,
-	0x75, 0x67, 0x42, 0x0b, 0x0a, 0x09, 0x5f, 0x6d, 0x65, 0x74, 0x61, 0x64, 0x61, 0x74, 0x61, 0x22,
-	0x48, 0x0a, 0x10, 0x47, 0x65, 0x6e, 0x65, 0x72, 0x61, 0x74, 0x69, 0x76, 0x65, 0x52, 0x65, 0x73,
-	0x75, 0x6c, 0x74, 0x12, 0x34, 0x0a, 0x06, 0x76, 0x61, 0x6c, 0x75, 0x65, 0x73, 0x18, 0x01, 0x20,
-	0x03, 0x28, 0x0b, 0x32, 0x1c, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76,
-	0x31, 0x2e, 0x47, 0x65, 0x6e, 0x65, 0x72, 0x61, 0x74, 0x69, 0x76, 0x65, 0x52, 0x65, 0x70, 0x6c,
-	0x79, 0x52, 0x06, 0x76, 0x61, 0x6c, 0x75, 0x65, 0x73, 0x22, 0x47, 0x0a, 0x0f, 0x47, 0x65, 0x6e,
-	0x65, 0x72, 0x61, 0x74, 0x69, 0x76, 0x65, 0x44, 0x65, 0x62, 0x75, 0x67, 0x12, 0x24, 0x0a, 0x0b,
-	0x66, 0x75, 0x6c, 0x6c, 0x5f, 0x70, 0x72, 0x6f, 0x6d, 0x70, 0x74, 0x18, 0x01, 0x20, 0x01, 0x28,
-	0x09, 0x48, 0x00, 0x52, 0x0a, 0x66, 0x75, 0x6c, 0x6c, 0x50, 0x72, 0x6f, 0x6d, 0x70, 0x74, 0x88,
-	0x01, 0x01, 0x42, 0x0e, 0x0a, 0x0c, 0x5f, 0x66, 0x75, 0x6c, 0x6c, 0x5f, 0x70, 0x72, 0x6f, 0x6d,
-	0x70, 0x74, 0x42, 0x74, 0x0a, 0x23, 0x69, 0x6f, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74,
-	0x65, 0x2e, 0x63, 0x6c, 0x69, 0x65, 0x6e, 0x74, 0x2e, 0x67, 0x72, 0x70, 0x63, 0x2e, 0x70, 0x72,
-	0x6f, 0x74, 0x6f, 0x63, 0x6f, 0x6c, 0x2e, 0x76, 0x31, 0x42, 0x17, 0x57, 0x65, 0x61, 0x76, 0x69,
-	0x61, 0x74, 0x65, 0x50, 0x72, 0x6f, 0x74, 0x6f, 0x47, 0x65, 0x6e, 0x65, 0x72, 0x61, 0x74, 0x69,
-	0x76, 0x65, 0x5a, 0x34, 0x67, 0x69, 0x74, 0x68, 0x75, 0x62, 0x2e, 0x63, 0x6f, 0x6d, 0x2f, 0x77,
-	0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2f, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65,
-	0x2f, 0x67, 0x72, 0x70, 0x63, 0x2f, 0x67, 0x65, 0x6e, 0x65, 0x72, 0x61, 0x74, 0x65, 0x64, 0x3b,
-	0x70, 0x72, 0x6f, 0x74, 0x6f, 0x63, 0x6f, 0x6c, 0x62, 0x06, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x33,
-}
+const file_v1_generative_proto_rawDesc = "" +
+	"\n" +
+	"\x13v1/generative.proto\x12\vweaviate.v1\x1a\rv1/base.proto\"\xe6\x04\n" +
+	"\x10GenerativeSearch\x128\n" +
+	"\x16single_response_prompt\x18\x01 \x01(\tB\x02\x18\x01R\x14singleResponsePrompt\x126\n" +
+	"\x15grouped_response_task\x18\x02 \x01(\tB\x02\x18\x01R\x13groupedResponseTask\x121\n" +
+	"\x12grouped_properties\x18\x03 \x03(\tB\x02\x18\x01R\x11groupedProperties\x12<\n" +
+	"\x06single\x18\x04 \x01(\v2$.weaviate.v1.GenerativeSearch.SingleR\x06single\x12?\n" +
+	"\agrouped\x18\x05 \x01(\v2%.weaviate.v1.GenerativeSearch.GroupedR\agrouped\x1aq\n" +
+	"\x06Single\x12\x16\n" +
+	"\x06prompt\x18\x01 \x01(\tR\x06prompt\x12\x14\n" +
+	"\x05debug\x18\x02 \x01(\bR\x05debug\x129\n" +
+	"\aqueries\x18\x03 \x03(\v2\x1f.weaviate.v1.GenerativeProviderR\aqueries\x1a\xba\x01\n" +
+	"\aGrouped\x12\x12\n" +
+	"\x04task\x18\x01 \x01(\tR\x04task\x12;\n" +
+	"\n" +
+	"properties\x18\x02 \x01(\v2\x16.weaviate.v1.TextArrayH\x00R\n" +
+	"properties\x88\x01\x01\x129\n" +
+	"\aqueries\x18\x03 \x03(\v2\x1f.weaviate.v1.GenerativeProviderR\aqueries\x12\x14\n" +
+	"\x05debug\x18\x04 \x01(\bR\x05debugB\r\n" +
+	"\v_properties\"\x8a\a\n" +
+	"\x12GenerativeProvider\x12'\n" +
+	"\x0freturn_metadata\x18\x01 \x01(\bR\x0ereturnMetadata\x12@\n" +
+	"\tanthropic\x18\x02 \x01(\v2 .weaviate.v1.GenerativeAnthropicH\x00R\tanthropic\x12=\n" +
+	"\banyscale\x18\x03 \x01(\v2\x1f.weaviate.v1.GenerativeAnyscaleH\x00R\banyscale\x12.\n" +
+	"\x03aws\x18\x04 \x01(\v2\x1a.weaviate.v1.GenerativeAWSH\x00R\x03aws\x127\n" +
+	"\x06cohere\x18\x05 \x01(\v2\x1d.weaviate.v1.GenerativeCohereH\x00R\x06cohere\x124\n" +
+	"\x05dummy\x18\x06 \x01(\v2\x1c.weaviate.v1.GenerativeDummyH\x00R\x05dummy\x12:\n" +
+	"\amistral\x18\a \x01(\v2\x1e.weaviate.v1.GenerativeMistralH\x00R\amistral\x127\n" +
+	"\x06ollama\x18\b \x01(\v2\x1d.weaviate.v1.GenerativeOllamaH\x00R\x06ollama\x127\n" +
+	"\x06openai\x18\t \x01(\v2\x1d.weaviate.v1.GenerativeOpenAIH\x00R\x06openai\x127\n" +
+	"\x06google\x18\n" +
+	" \x01(\v2\x1d.weaviate.v1.GenerativeGoogleH\x00R\x06google\x12C\n" +
+	"\n" +
+	"databricks\x18\v \x01(\v2!.weaviate.v1.GenerativeDatabricksH\x00R\n" +
+	"databricks\x12C\n" +
+	"\n" +
+	"friendliai\x18\f \x01(\v2!.weaviate.v1.GenerativeFriendliAIH\x00R\n" +
+	"friendliai\x127\n" +
+	"\x06nvidia\x18\r \x01(\v2\x1d.weaviate.v1.GenerativeNvidiaH\x00R\x06nvidia\x12.\n" +
+	"\x03xai\x18\x0e \x01(\v2\x1a.weaviate.v1.GenerativeXAIH\x00R\x03xai\x12I\n" +
+	"\fcontextualai\x18\x0f \x01(\v2#.weaviate.v1.GenerativeContextualAIH\x00R\fcontextualaiB\x06\n" +
+	"\x04kind\"\x8d\x04\n" +
+	"\x13GenerativeAnthropic\x12\x1e\n" +
+	"\bbase_url\x18\x01 \x01(\tH\x00R\abaseUrl\x88\x01\x01\x12\"\n" +
+	"\n" +
+	"max_tokens\x18\x02 \x01(\x03H\x01R\tmaxTokens\x88\x01\x01\x12\x19\n" +
+	"\x05model\x18\x03 \x01(\tH\x02R\x05model\x88\x01\x01\x12%\n" +
+	"\vtemperature\x18\x04 \x01(\x01H\x03R\vtemperature\x88\x01\x01\x12\x18\n" +
+	"\x05top_k\x18\x05 \x01(\x03H\x04R\x04topK\x88\x01\x01\x12\x18\n" +
+	"\x05top_p\x18\x06 \x01(\x01H\x05R\x04topP\x88\x01\x01\x12B\n" +
+	"\x0estop_sequences\x18\a \x01(\v2\x16.weaviate.v1.TextArrayH\x06R\rstopSequences\x88\x01\x01\x123\n" +
+	"\x06images\x18\b \x01(\v2\x16.weaviate.v1.TextArrayH\aR\x06images\x88\x01\x01\x12F\n" +
+	"\x10image_properties\x18\t \x01(\v2\x16.weaviate.v1.TextArrayH\bR\x0fimageProperties\x88\x01\x01B\v\n" +
+	"\t_base_urlB\r\n" +
+	"\v_max_tokensB\b\n" +
+	"\x06_modelB\x0e\n" +
+	"\f_temperatureB\b\n" +
+	"\x06_top_kB\b\n" +
+	"\x06_top_pB\x11\n" +
+	"\x0f_stop_sequencesB\t\n" +
+	"\a_imagesB\x13\n" +
+	"\x11_image_properties\"\x9d\x01\n" +
+	"\x12GenerativeAnyscale\x12\x1e\n" +
+	"\bbase_url\x18\x01 \x01(\tH\x00R\abaseUrl\x88\x01\x01\x12\x19\n" +
+	"\x05model\x18\x02 \x01(\tH\x01R\x05model\x88\x01\x01\x12%\n" +
+	"\vtemperature\x18\x03 \x01(\x01H\x02R\vtemperature\x88\x01\x01B\v\n" +
+	"\t_base_urlB\b\n" +
+	"\x06_modelB\x0e\n" +
+	"\f_temperature\"\xb4\x04\n" +
+	"\rGenerativeAWS\x12\x19\n" +
+	"\x05model\x18\x03 \x01(\tH\x00R\x05model\x88\x01\x01\x12%\n" +
+	"\vtemperature\x18\b \x01(\x01H\x01R\vtemperature\x88\x01\x01\x12\x1d\n" +
+	"\aservice\x18\t \x01(\tH\x02R\aservice\x88\x01\x01\x12\x1b\n" +
+	"\x06region\x18\n" +
+	" \x01(\tH\x03R\x06region\x88\x01\x01\x12\x1f\n" +
+	"\bendpoint\x18\v \x01(\tH\x04R\bendpoint\x88\x01\x01\x12&\n" +
+	"\ftarget_model\x18\f \x01(\tH\x05R\vtargetModel\x88\x01\x01\x12*\n" +
+	"\x0etarget_variant\x18\r \x01(\tH\x06R\rtargetVariant\x88\x01\x01\x123\n" +
+	"\x06images\x18\x0e \x01(\v2\x16.weaviate.v1.TextArrayH\aR\x06images\x88\x01\x01\x12F\n" +
+	"\x10image_properties\x18\x0f \x01(\v2\x16.weaviate.v1.TextArrayH\bR\x0fimageProperties\x88\x01\x01\x12\"\n" +
+	"\n" +
+	"max_tokens\x18\x10 \x01(\x03H\tR\tmaxTokens\x88\x01\x01B\b\n" +
+	"\x06_modelB\x0e\n" +
+	"\f_temperatureB\n" +
+	"\n" +
+	"\b_serviceB\t\n" +
+	"\a_regionB\v\n" +
+	"\t_endpointB\x0f\n" +
+	"\r_target_modelB\x11\n" +
+	"\x0f_target_variantB\t\n" +
+	"\a_imagesB\x13\n" +
+	"\x11_image_propertiesB\r\n" +
+	"\v_max_tokens\"\x81\x05\n" +
+	"\x10GenerativeCohere\x12\x1e\n" +
+	"\bbase_url\x18\x01 \x01(\tH\x00R\abaseUrl\x88\x01\x01\x120\n" +
+	"\x11frequency_penalty\x18\x02 \x01(\x01H\x01R\x10frequencyPenalty\x88\x01\x01\x12\"\n" +
+	"\n" +
+	"max_tokens\x18\x03 \x01(\x03H\x02R\tmaxTokens\x88\x01\x01\x12\x19\n" +
+	"\x05model\x18\x04 \x01(\tH\x03R\x05model\x88\x01\x01\x12\x11\n" +
+	"\x01k\x18\x05 \x01(\x03H\x04R\x01k\x88\x01\x01\x12\x11\n" +
+	"\x01p\x18\x06 \x01(\x01H\x05R\x01p\x88\x01\x01\x12.\n" +
+	"\x10presence_penalty\x18\a \x01(\x01H\x06R\x0fpresencePenalty\x88\x01\x01\x12B\n" +
+	"\x0estop_sequences\x18\b \x01(\v2\x16.weaviate.v1.TextArrayH\aR\rstopSequences\x88\x01\x01\x12%\n" +
+	"\vtemperature\x18\t \x01(\x01H\bR\vtemperature\x88\x01\x01\x123\n" +
+	"\x06images\x18\n" +
+	" \x01(\v2\x16.weaviate.v1.TextArrayH\tR\x06images\x88\x01\x01\x12F\n" +
+	"\x10image_properties\x18\v \x01(\v2\x16.weaviate.v1.TextArrayH\n" +
+	"R\x0fimageProperties\x88\x01\x01B\v\n" +
+	"\t_base_urlB\x14\n" +
+	"\x12_frequency_penaltyB\r\n" +
+	"\v_max_tokensB\b\n" +
+	"\x06_modelB\x04\n" +
+	"\x02_kB\x04\n" +
+	"\x02_pB\x13\n" +
+	"\x11_presence_penaltyB\x11\n" +
+	"\x0f_stop_sequencesB\x0e\n" +
+	"\f_temperatureB\t\n" +
+	"\a_imagesB\x13\n" +
+	"\x11_image_properties\"\x11\n" +
+	"\x0fGenerativeDummy\"\xf3\x01\n" +
+	"\x11GenerativeMistral\x12\x1e\n" +
+	"\bbase_url\x18\x01 \x01(\tH\x00R\abaseUrl\x88\x01\x01\x12\"\n" +
+	"\n" +
+	"max_tokens\x18\x02 \x01(\x03H\x01R\tmaxTokens\x88\x01\x01\x12\x19\n" +
+	"\x05model\x18\x03 \x01(\tH\x02R\x05model\x88\x01\x01\x12%\n" +
+	"\vtemperature\x18\x04 \x01(\x01H\x03R\vtemperature\x88\x01\x01\x12\x18\n" +
+	"\x05top_p\x18\x05 \x01(\x01H\x04R\x04topP\x88\x01\x01B\v\n" +
+	"\t_base_urlB\r\n" +
+	"\v_max_tokensB\b\n" +
+	"\x06_modelB\x0e\n" +
+	"\f_temperatureB\b\n" +
+	"\x06_top_p\"\xc4\x02\n" +
+	"\x10GenerativeOllama\x12&\n" +
+	"\fapi_endpoint\x18\x01 \x01(\tH\x00R\vapiEndpoint\x88\x01\x01\x12\x19\n" +
+	"\x05model\x18\x02 \x01(\tH\x01R\x05model\x88\x01\x01\x12%\n" +
+	"\vtemperature\x18\x03 \x01(\x01H\x02R\vtemperature\x88\x01\x01\x123\n" +
+	"\x06images\x18\x04 \x01(\v2\x16.weaviate.v1.TextArrayH\x03R\x06images\x88\x01\x01\x12F\n" +
+	"\x10image_properties\x18\x05 \x01(\v2\x16.weaviate.v1.TextArrayH\x04R\x0fimageProperties\x88\x01\x01B\x0f\n" +
+	"\r_api_endpointB\b\n" +
+	"\x06_modelB\x0e\n" +
+	"\f_temperatureB\t\n" +
+	"\a_imagesB\x13\n" +
+	"\x11_image_properties\"\xa3\n" +
+	"\n" +
+	"\x10GenerativeOpenAI\x120\n" +
+	"\x11frequency_penalty\x18\x01 \x01(\x01H\x00R\x10frequencyPenalty\x88\x01\x01\x12\"\n" +
+	"\n" +
+	"max_tokens\x18\x02 \x01(\x03H\x01R\tmaxTokens\x88\x01\x01\x12\x19\n" +
+	"\x05model\x18\x03 \x01(\tH\x02R\x05model\x88\x01\x01\x12\x11\n" +
+	"\x01n\x18\x04 \x01(\x03H\x03R\x01n\x88\x01\x01\x12.\n" +
+	"\x10presence_penalty\x18\x05 \x01(\x01H\x04R\x0fpresencePenalty\x88\x01\x01\x12/\n" +
+	"\x04stop\x18\x06 \x01(\v2\x16.weaviate.v1.TextArrayH\x05R\x04stop\x88\x01\x01\x12%\n" +
+	"\vtemperature\x18\a \x01(\x01H\x06R\vtemperature\x88\x01\x01\x12\x18\n" +
+	"\x05top_p\x18\b \x01(\x01H\aR\x04topP\x88\x01\x01\x12\x1e\n" +
+	"\bbase_url\x18\t \x01(\tH\bR\abaseUrl\x88\x01\x01\x12$\n" +
+	"\vapi_version\x18\n" +
+	" \x01(\tH\tR\n" +
+	"apiVersion\x88\x01\x01\x12(\n" +
+	"\rresource_name\x18\v \x01(\tH\n" +
+	"R\fresourceName\x88\x01\x01\x12(\n" +
+	"\rdeployment_id\x18\f \x01(\tH\vR\fdeploymentId\x88\x01\x01\x12\x1e\n" +
+	"\bis_azure\x18\r \x01(\bH\fR\aisAzure\x88\x01\x01\x123\n" +
+	"\x06images\x18\x0e \x01(\v2\x16.weaviate.v1.TextArrayH\rR\x06images\x88\x01\x01\x12F\n" +
+	"\x10image_properties\x18\x0f \x01(\v2\x16.weaviate.v1.TextArrayH\x0eR\x0fimageProperties\x88\x01\x01\x12]\n" +
+	"\x10reasoning_effort\x18\x10 \x01(\x0e2-.weaviate.v1.GenerativeOpenAI.ReasoningEffortH\x0fR\x0freasoningEffort\x88\x01\x01\x12J\n" +
+	"\tverbosity\x18\x11 \x01(\x0e2'.weaviate.v1.GenerativeOpenAI.VerbosityH\x10R\tverbosity\x88\x01\x01\"\xa3\x01\n" +
+	"\x0fReasoningEffort\x12 \n" +
+	"\x1cREASONING_EFFORT_UNSPECIFIED\x10\x00\x12\x1c\n" +
+	"\x18REASONING_EFFORT_MINIMAL\x10\x01\x12\x18\n" +
+	"\x14REASONING_EFFORT_LOW\x10\x02\x12\x1b\n" +
+	"\x17REASONING_EFFORT_MEDIUM\x10\x03\x12\x19\n" +
+	"\x15REASONING_EFFORT_HIGH\x10\x04\"c\n" +
+	"\tVerbosity\x12\x19\n" +
+	"\x15VERBOSITY_UNSPECIFIED\x10\x00\x12\x11\n" +
+	"\rVERBOSITY_LOW\x10\x01\x12\x14\n" +
+	"\x10VERBOSITY_MEDIUM\x10\x02\x12\x12\n" +
+	"\x0eVERBOSITY_HIGH\x10\x03B\x14\n" +
+	"\x12_frequency_penaltyB\r\n" +
+	"\v_max_tokensB\b\n" +
+	"\x06_modelB\x04\n" +
+	"\x02_nB\x13\n" +
+	"\x11_presence_penaltyB\a\n" +
+	"\x05_stopB\x0e\n" +
+	"\f_temperatureB\b\n" +
+	"\x06_top_pB\v\n" +
+	"\t_base_urlB\x0e\n" +
+	"\f_api_versionB\x10\n" +
+	"\x0e_resource_nameB\x10\n" +
+	"\x0e_deployment_idB\v\n" +
+	"\t_is_azureB\t\n" +
+	"\a_imagesB\x13\n" +
+	"\x11_image_propertiesB\x13\n" +
+	"\x11_reasoning_effortB\f\n" +
+	"\n" +
+	"_verbosity\"\xb4\x06\n" +
+	"\x10GenerativeGoogle\x120\n" +
+	"\x11frequency_penalty\x18\x01 \x01(\x01H\x00R\x10frequencyPenalty\x88\x01\x01\x12\"\n" +
+	"\n" +
+	"max_tokens\x18\x02 \x01(\x03H\x01R\tmaxTokens\x88\x01\x01\x12\x19\n" +
+	"\x05model\x18\x03 \x01(\tH\x02R\x05model\x88\x01\x01\x12.\n" +
+	"\x10presence_penalty\x18\x04 \x01(\x01H\x03R\x0fpresencePenalty\x88\x01\x01\x12%\n" +
+	"\vtemperature\x18\x05 \x01(\x01H\x04R\vtemperature\x88\x01\x01\x12\x18\n" +
+	"\x05top_k\x18\x06 \x01(\x03H\x05R\x04topK\x88\x01\x01\x12\x18\n" +
+	"\x05top_p\x18\a \x01(\x01H\x06R\x04topP\x88\x01\x01\x12B\n" +
+	"\x0estop_sequences\x18\b \x01(\v2\x16.weaviate.v1.TextArrayH\aR\rstopSequences\x88\x01\x01\x12&\n" +
+	"\fapi_endpoint\x18\t \x01(\tH\bR\vapiEndpoint\x88\x01\x01\x12\"\n" +
+	"\n" +
+	"project_id\x18\n" +
+	" \x01(\tH\tR\tprojectId\x88\x01\x01\x12$\n" +
+	"\vendpoint_id\x18\v \x01(\tH\n" +
+	"R\n" +
+	"endpointId\x88\x01\x01\x12\x1b\n" +
+	"\x06region\x18\f \x01(\tH\vR\x06region\x88\x01\x01\x123\n" +
+	"\x06images\x18\r \x01(\v2\x16.weaviate.v1.TextArrayH\fR\x06images\x88\x01\x01\x12F\n" +
+	"\x10image_properties\x18\x0e \x01(\v2\x16.weaviate.v1.TextArrayH\rR\x0fimageProperties\x88\x01\x01B\x14\n" +
+	"\x12_frequency_penaltyB\r\n" +
+	"\v_max_tokensB\b\n" +
+	"\x06_modelB\x13\n" +
+	"\x11_presence_penaltyB\x0e\n" +
+	"\f_temperatureB\b\n" +
+	"\x06_top_kB\b\n" +
+	"\x06_top_pB\x11\n" +
+	"\x0f_stop_sequencesB\x0f\n" +
+	"\r_api_endpointB\r\n" +
+	"\v_project_idB\x0e\n" +
+	"\f_endpoint_idB\t\n" +
+	"\a_regionB\t\n" +
+	"\a_imagesB\x13\n" +
+	"\x11_image_properties\"\xc2\x04\n" +
+	"\x14GenerativeDatabricks\x12\x1f\n" +
+	"\bendpoint\x18\x01 \x01(\tH\x00R\bendpoint\x88\x01\x01\x12\x19\n" +
+	"\x05model\x18\x02 \x01(\tH\x01R\x05model\x88\x01\x01\x120\n" +
+	"\x11frequency_penalty\x18\x03 \x01(\x01H\x02R\x10frequencyPenalty\x88\x01\x01\x12 \n" +
+	"\tlog_probs\x18\x04 \x01(\bH\x03R\blogProbs\x88\x01\x01\x12'\n" +
+	"\rtop_log_probs\x18\x05 \x01(\x03H\x04R\vtopLogProbs\x88\x01\x01\x12\"\n" +
+	"\n" +
+	"max_tokens\x18\x06 \x01(\x03H\x05R\tmaxTokens\x88\x01\x01\x12\x11\n" +
+	"\x01n\x18\a \x01(\x03H\x06R\x01n\x88\x01\x01\x12.\n" +
+	"\x10presence_penalty\x18\b \x01(\x01H\aR\x0fpresencePenalty\x88\x01\x01\x12/\n" +
+	"\x04stop\x18\t \x01(\v2\x16.weaviate.v1.TextArrayH\bR\x04stop\x88\x01\x01\x12%\n" +
+	"\vtemperature\x18\n" +
+	" \x01(\x01H\tR\vtemperature\x88\x01\x01\x12\x18\n" +
+	"\x05top_p\x18\v \x01(\x01H\n" +
+	"R\x04topP\x88\x01\x01B\v\n" +
+	"\t_endpointB\b\n" +
+	"\x06_modelB\x14\n" +
+	"\x12_frequency_penaltyB\f\n" +
+	"\n" +
+	"_log_probsB\x10\n" +
+	"\x0e_top_log_probsB\r\n" +
+	"\v_max_tokensB\x04\n" +
+	"\x02_nB\x13\n" +
+	"\x11_presence_penaltyB\a\n" +
+	"\x05_stopB\x0e\n" +
+	"\f_temperatureB\b\n" +
+	"\x06_top_p\"\x8f\x02\n" +
+	"\x14GenerativeFriendliAI\x12\x1e\n" +
+	"\bbase_url\x18\x01 \x01(\tH\x00R\abaseUrl\x88\x01\x01\x12\x19\n" +
+	"\x05model\x18\x02 \x01(\tH\x01R\x05model\x88\x01\x01\x12\"\n" +
+	"\n" +
+	"max_tokens\x18\x03 \x01(\x03H\x02R\tmaxTokens\x88\x01\x01\x12%\n" +
+	"\vtemperature\x18\x04 \x01(\x01H\x03R\vtemperature\x88\x01\x01\x12\x11\n" +
+	"\x01n\x18\x05 \x01(\x03H\x04R\x01n\x88\x01\x01\x12\x18\n" +
+	"\x05top_p\x18\x06 \x01(\x01H\x05R\x04topP\x88\x01\x01B\v\n" +
+	"\t_base_urlB\b\n" +
+	"\x06_modelB\r\n" +
+	"\v_max_tokensB\x0e\n" +
+	"\f_temperatureB\x04\n" +
+	"\x02_nB\b\n" +
+	"\x06_top_p\"\xf2\x01\n" +
+	"\x10GenerativeNvidia\x12\x1e\n" +
+	"\bbase_url\x18\x01 \x01(\tH\x00R\abaseUrl\x88\x01\x01\x12\x19\n" +
+	"\x05model\x18\x02 \x01(\tH\x01R\x05model\x88\x01\x01\x12%\n" +
+	"\vtemperature\x18\x03 \x01(\x01H\x02R\vtemperature\x88\x01\x01\x12\x18\n" +
+	"\x05top_p\x18\x04 \x01(\x01H\x03R\x04topP\x88\x01\x01\x12\"\n" +
+	"\n" +
+	"max_tokens\x18\x05 \x01(\x03H\x04R\tmaxTokens\x88\x01\x01B\v\n" +
+	"\t_base_urlB\b\n" +
+	"\x06_modelB\x0e\n" +
+	"\f_temperatureB\b\n" +
+	"\x06_top_pB\r\n" +
+	"\v_max_tokens\"\x8c\x03\n" +
+	"\rGenerativeXAI\x12\x1e\n" +
+	"\bbase_url\x18\x01 \x01(\tH\x00R\abaseUrl\x88\x01\x01\x12\x19\n" +
+	"\x05model\x18\x02 \x01(\tH\x01R\x05model\x88\x01\x01\x12%\n" +
+	"\vtemperature\x18\x03 \x01(\x01H\x02R\vtemperature\x88\x01\x01\x12\x18\n" +
+	"\x05top_p\x18\x04 \x01(\x01H\x03R\x04topP\x88\x01\x01\x12\"\n" +
+	"\n" +
+	"max_tokens\x18\x05 \x01(\x03H\x04R\tmaxTokens\x88\x01\x01\x123\n" +
+	"\x06images\x18\x06 \x01(\v2\x16.weaviate.v1.TextArrayH\x05R\x06images\x88\x01\x01\x12F\n" +
+	"\x10image_properties\x18\a \x01(\v2\x16.weaviate.v1.TextArrayH\x06R\x0fimageProperties\x88\x01\x01B\v\n" +
+	"\t_base_urlB\b\n" +
+	"\x06_modelB\x0e\n" +
+	"\f_temperatureB\b\n" +
+	"\x06_top_pB\r\n" +
+	"\v_max_tokensB\t\n" +
+	"\a_imagesB\x13\n" +
+	"\x11_image_properties\"\xa0\x03\n" +
+	"\x16GenerativeContextualAI\x12\x19\n" +
+	"\x05model\x18\x01 \x01(\tH\x00R\x05model\x88\x01\x01\x12%\n" +
+	"\vtemperature\x18\x02 \x01(\x01H\x01R\vtemperature\x88\x01\x01\x12\x18\n" +
+	"\x05top_p\x18\x03 \x01(\x01H\x02R\x04topP\x88\x01\x01\x12)\n" +
+	"\x0emax_new_tokens\x18\x04 \x01(\x03H\x03R\fmaxNewTokens\x88\x01\x01\x12(\n" +
+	"\rsystem_prompt\x18\x05 \x01(\tH\x04R\fsystemPrompt\x88\x01\x01\x12.\n" +
+	"\x10avoid_commentary\x18\x06 \x01(\bH\x05R\x0favoidCommentary\x88\x01\x01\x129\n" +
+	"\tknowledge\x18\a \x01(\v2\x16.weaviate.v1.TextArrayH\x06R\tknowledge\x88\x01\x01B\b\n" +
+	"\x06_modelB\x0e\n" +
+	"\f_temperatureB\b\n" +
+	"\x06_top_pB\x11\n" +
+	"\x0f_max_new_tokensB\x10\n" +
+	"\x0e_system_promptB\x13\n" +
+	"\x11_avoid_commentaryB\f\n" +
+	"\n" +
+	"_knowledge\"\xb4\x01\n" +
+	"\x1bGenerativeAnthropicMetadata\x12D\n" +
+	"\x05usage\x18\x01 \x01(\v2..weaviate.v1.GenerativeAnthropicMetadata.UsageR\x05usage\x1aO\n" +
+	"\x05Usage\x12!\n" +
+	"\finput_tokens\x18\x01 \x01(\x03R\vinputTokens\x12#\n" +
+	"\routput_tokens\x18\x02 \x01(\x03R\foutputTokens\"\x1c\n" +
+	"\x1aGenerativeAnyscaleMetadata\"\x17\n" +
+	"\x15GenerativeAWSMetadata\"\xc2\a\n" +
+	"\x18GenerativeCohereMetadata\x12V\n" +
+	"\vapi_version\x18\x01 \x01(\v20.weaviate.v1.GenerativeCohereMetadata.ApiVersionH\x00R\n" +
+	"apiVersion\x88\x01\x01\x12Y\n" +
+	"\fbilled_units\x18\x02 \x01(\v21.weaviate.v1.GenerativeCohereMetadata.BilledUnitsH\x01R\vbilledUnits\x88\x01\x01\x12I\n" +
+	"\x06tokens\x18\x03 \x01(\v2,.weaviate.v1.GenerativeCohereMetadata.TokensH\x02R\x06tokens\x88\x01\x01\x127\n" +
+	"\bwarnings\x18\x04 \x01(\v2\x16.weaviate.v1.TextArrayH\x03R\bwarnings\x88\x01\x01\x1a\xb5\x01\n" +
+	"\n" +
+	"ApiVersion\x12\x1d\n" +
+	"\aversion\x18\x01 \x01(\tH\x00R\aversion\x88\x01\x01\x12(\n" +
+	"\ris_deprecated\x18\x02 \x01(\bH\x01R\fisDeprecated\x88\x01\x01\x12,\n" +
+	"\x0fis_experimental\x18\x03 \x01(\bH\x02R\x0eisExperimental\x88\x01\x01B\n" +
+	"\n" +
+	"\b_versionB\x10\n" +
+	"\x0e_is_deprecatedB\x12\n" +
+	"\x10_is_experimental\x1a\xfe\x01\n" +
+	"\vBilledUnits\x12&\n" +
+	"\finput_tokens\x18\x01 \x01(\x01H\x00R\vinputTokens\x88\x01\x01\x12(\n" +
+	"\routput_tokens\x18\x02 \x01(\x01H\x01R\foutputTokens\x88\x01\x01\x12&\n" +
+	"\fsearch_units\x18\x03 \x01(\x01H\x02R\vsearchUnits\x88\x01\x01\x12-\n" +
+	"\x0fclassifications\x18\x04 \x01(\x01H\x03R\x0fclassifications\x88\x01\x01B\x0f\n" +
+	"\r_input_tokensB\x10\n" +
+	"\x0e_output_tokensB\x0f\n" +
+	"\r_search_unitsB\x12\n" +
+	"\x10_classifications\x1a}\n" +
+	"\x06Tokens\x12&\n" +
+	"\finput_tokens\x18\x01 \x01(\x01H\x00R\vinputTokens\x88\x01\x01\x12(\n" +
+	"\routput_tokens\x18\x02 \x01(\x01H\x01R\foutputTokens\x88\x01\x01B\x0f\n" +
+	"\r_input_tokensB\x10\n" +
+	"\x0e_output_tokensB\x0e\n" +
+	"\f_api_versionB\x0f\n" +
+	"\r_billed_unitsB\t\n" +
+	"\a_tokensB\v\n" +
+	"\t_warnings\"\x19\n" +
+	"\x17GenerativeDummyMetadata\"\xb5\x02\n" +
+	"\x19GenerativeMistralMetadata\x12G\n" +
+	"\x05usage\x18\x01 \x01(\v2,.weaviate.v1.GenerativeMistralMetadata.UsageH\x00R\x05usage\x88\x01\x01\x1a\xc4\x01\n" +
+	"\x05Usage\x12(\n" +
+	"\rprompt_tokens\x18\x01 \x01(\x03H\x00R\fpromptTokens\x88\x01\x01\x120\n" +
+	"\x11completion_tokens\x18\x02 \x01(\x03H\x01R\x10completionTokens\x88\x01\x01\x12&\n" +
+	"\ftotal_tokens\x18\x03 \x01(\x03H\x02R\vtotalTokens\x88\x01\x01B\x10\n" +
+	"\x0e_prompt_tokensB\x14\n" +
+	"\x12_completion_tokensB\x0f\n" +
+	"\r_total_tokensB\b\n" +
+	"\x06_usage\"\x1a\n" +
+	"\x18GenerativeOllamaMetadata\"\xb3\x02\n" +
+	"\x18GenerativeOpenAIMetadata\x12F\n" +
+	"\x05usage\x18\x01 \x01(\v2+.weaviate.v1.GenerativeOpenAIMetadata.UsageH\x00R\x05usage\x88\x01\x01\x1a\xc4\x01\n" +
+	"\x05Usage\x12(\n" +
+	"\rprompt_tokens\x18\x01 \x01(\x03H\x00R\fpromptTokens\x88\x01\x01\x120\n" +
+	"\x11completion_tokens\x18\x02 \x01(\x03H\x01R\x10completionTokens\x88\x01\x01\x12&\n" +
+	"\ftotal_tokens\x18\x03 \x01(\x03H\x02R\vtotalTokens\x88\x01\x01B\x10\n" +
+	"\x0e_prompt_tokensB\x14\n" +
+	"\x12_completion_tokensB\x0f\n" +
+	"\r_total_tokensB\b\n" +
+	"\x06_usage\"\x93\b\n" +
+	"\x18GenerativeGoogleMetadata\x12O\n" +
+	"\bmetadata\x18\x01 \x01(\v2..weaviate.v1.GenerativeGoogleMetadata.MetadataH\x00R\bmetadata\x88\x01\x01\x12_\n" +
+	"\x0eusage_metadata\x18\x02 \x01(\v23.weaviate.v1.GenerativeGoogleMetadata.UsageMetadataH\x01R\rusageMetadata\x88\x01\x01\x1a\xa4\x01\n" +
+	"\n" +
+	"TokenCount\x12?\n" +
+	"\x19total_billable_characters\x18\x01 \x01(\x03H\x00R\x17totalBillableCharacters\x88\x01\x01\x12&\n" +
+	"\ftotal_tokens\x18\x02 \x01(\x03H\x01R\vtotalTokens\x88\x01\x01B\x1c\n" +
+	"\x1a_total_billable_charactersB\x0f\n" +
+	"\r_total_tokens\x1a\x84\x02\n" +
+	"\rTokenMetadata\x12a\n" +
+	"\x11input_token_count\x18\x01 \x01(\v20.weaviate.v1.GenerativeGoogleMetadata.TokenCountH\x00R\x0finputTokenCount\x88\x01\x01\x12c\n" +
+	"\x12output_token_count\x18\x02 \x01(\v20.weaviate.v1.GenerativeGoogleMetadata.TokenCountH\x01R\x10outputTokenCount\x88\x01\x01B\x14\n" +
+	"\x12_input_token_countB\x15\n" +
+	"\x13_output_token_count\x1a~\n" +
+	"\bMetadata\x12_\n" +
+	"\x0etoken_metadata\x18\x01 \x01(\v23.weaviate.v1.GenerativeGoogleMetadata.TokenMetadataH\x00R\rtokenMetadata\x88\x01\x01B\x11\n" +
+	"\x0f_token_metadata\x1a\xf6\x01\n" +
+	"\rUsageMetadata\x121\n" +
+	"\x12prompt_token_count\x18\x01 \x01(\x03H\x00R\x10promptTokenCount\x88\x01\x01\x129\n" +
+	"\x16candidates_token_count\x18\x02 \x01(\x03H\x01R\x14candidatesTokenCount\x88\x01\x01\x12/\n" +
+	"\x11total_token_count\x18\x03 \x01(\x03H\x02R\x0ftotalTokenCount\x88\x01\x01B\x15\n" +
+	"\x13_prompt_token_countB\x19\n" +
+	"\x17_candidates_token_countB\x14\n" +
+	"\x12_total_token_countB\v\n" +
+	"\t_metadataB\x11\n" +
+	"\x0f_usage_metadata\"\xbb\x02\n" +
+	"\x1cGenerativeDatabricksMetadata\x12J\n" +
+	"\x05usage\x18\x01 \x01(\v2/.weaviate.v1.GenerativeDatabricksMetadata.UsageH\x00R\x05usage\x88\x01\x01\x1a\xc4\x01\n" +
+	"\x05Usage\x12(\n" +
+	"\rprompt_tokens\x18\x01 \x01(\x03H\x00R\fpromptTokens\x88\x01\x01\x120\n" +
+	"\x11completion_tokens\x18\x02 \x01(\x03H\x01R\x10completionTokens\x88\x01\x01\x12&\n" +
+	"\ftotal_tokens\x18\x03 \x01(\x03H\x02R\vtotalTokens\x88\x01\x01B\x10\n" +
+	"\x0e_prompt_tokensB\x14\n" +
+	"\x12_completion_tokensB\x0f\n" +
+	"\r_total_tokensB\b\n" +
+	"\x06_usage\"\xbb\x02\n" +
+	"\x1cGenerativeFriendliAIMetadata\x12J\n" +
+	"\x05usage\x18\x01 \x01(\v2/.weaviate.v1.GenerativeFriendliAIMetadata.UsageH\x00R\x05usage\x88\x01\x01\x1a\xc4\x01\n" +
+	"\x05Usage\x12(\n" +
+	"\rprompt_tokens\x18\x01 \x01(\x03H\x00R\fpromptTokens\x88\x01\x01\x120\n" +
+	"\x11completion_tokens\x18\x02 \x01(\x03H\x01R\x10completionTokens\x88\x01\x01\x12&\n" +
+	"\ftotal_tokens\x18\x03 \x01(\x03H\x02R\vtotalTokens\x88\x01\x01B\x10\n" +
+	"\x0e_prompt_tokensB\x14\n" +
+	"\x12_completion_tokensB\x0f\n" +
+	"\r_total_tokensB\b\n" +
+	"\x06_usage\"\xb3\x02\n" +
+	"\x18GenerativeNvidiaMetadata\x12F\n" +
+	"\x05usage\x18\x01 \x01(\v2+.weaviate.v1.GenerativeNvidiaMetadata.UsageH\x00R\x05usage\x88\x01\x01\x1a\xc4\x01\n" +
+	"\x05Usage\x12(\n" +
+	"\rprompt_tokens\x18\x01 \x01(\x03H\x00R\fpromptTokens\x88\x01\x01\x120\n" +
+	"\x11completion_tokens\x18\x02 \x01(\x03H\x01R\x10completionTokens\x88\x01\x01\x12&\n" +
+	"\ftotal_tokens\x18\x03 \x01(\x03H\x02R\vtotalTokens\x88\x01\x01B\x10\n" +
+	"\x0e_prompt_tokensB\x14\n" +
+	"\x12_completion_tokensB\x0f\n" +
+	"\r_total_tokensB\b\n" +
+	"\x06_usage\"\xad\x02\n" +
+	"\x15GenerativeXAIMetadata\x12C\n" +
+	"\x05usage\x18\x01 \x01(\v2(.weaviate.v1.GenerativeXAIMetadata.UsageH\x00R\x05usage\x88\x01\x01\x1a\xc4\x01\n" +
+	"\x05Usage\x12(\n" +
+	"\rprompt_tokens\x18\x01 \x01(\x03H\x00R\fpromptTokens\x88\x01\x01\x120\n" +
+	"\x11completion_tokens\x18\x02 \x01(\x03H\x01R\x10completionTokens\x88\x01\x01\x12&\n" +
+	"\ftotal_tokens\x18\x03 \x01(\x03H\x02R\vtotalTokens\x88\x01\x01B\x10\n" +
+	"\x0e_prompt_tokensB\x14\n" +
+	"\x12_completion_tokensB\x0f\n" +
+	"\r_total_tokensB\b\n" +
+	"\x06_usage\"\xfe\x06\n" +
+	"\x12GenerativeMetadata\x12H\n" +
+	"\tanthropic\x18\x01 \x01(\v2(.weaviate.v1.GenerativeAnthropicMetadataH\x00R\tanthropic\x12E\n" +
+	"\banyscale\x18\x02 \x01(\v2'.weaviate.v1.GenerativeAnyscaleMetadataH\x00R\banyscale\x126\n" +
+	"\x03aws\x18\x03 \x01(\v2\".weaviate.v1.GenerativeAWSMetadataH\x00R\x03aws\x12?\n" +
+	"\x06cohere\x18\x04 \x01(\v2%.weaviate.v1.GenerativeCohereMetadataH\x00R\x06cohere\x12<\n" +
+	"\x05dummy\x18\x05 \x01(\v2$.weaviate.v1.GenerativeDummyMetadataH\x00R\x05dummy\x12B\n" +
+	"\amistral\x18\x06 \x01(\v2&.weaviate.v1.GenerativeMistralMetadataH\x00R\amistral\x12?\n" +
+	"\x06ollama\x18\a \x01(\v2%.weaviate.v1.GenerativeOllamaMetadataH\x00R\x06ollama\x12?\n" +
+	"\x06openai\x18\b \x01(\v2%.weaviate.v1.GenerativeOpenAIMetadataH\x00R\x06openai\x12?\n" +
+	"\x06google\x18\t \x01(\v2%.weaviate.v1.GenerativeGoogleMetadataH\x00R\x06google\x12K\n" +
+	"\n" +
+	"databricks\x18\n" +
+	" \x01(\v2).weaviate.v1.GenerativeDatabricksMetadataH\x00R\n" +
+	"databricks\x12K\n" +
+	"\n" +
+	"friendliai\x18\v \x01(\v2).weaviate.v1.GenerativeFriendliAIMetadataH\x00R\n" +
+	"friendliai\x12?\n" +
+	"\x06nvidia\x18\f \x01(\v2%.weaviate.v1.GenerativeNvidiaMetadataH\x00R\x06nvidia\x126\n" +
+	"\x03xai\x18\r \x01(\v2\".weaviate.v1.GenerativeXAIMetadataH\x00R\x03xaiB\x06\n" +
+	"\x04kind\"\xbb\x01\n" +
+	"\x0fGenerativeReply\x12\x16\n" +
+	"\x06result\x18\x01 \x01(\tR\x06result\x127\n" +
+	"\x05debug\x18\x02 \x01(\v2\x1c.weaviate.v1.GenerativeDebugH\x00R\x05debug\x88\x01\x01\x12@\n" +
+	"\bmetadata\x18\x03 \x01(\v2\x1f.weaviate.v1.GenerativeMetadataH\x01R\bmetadata\x88\x01\x01B\b\n" +
+	"\x06_debugB\v\n" +
+	"\t_metadata\"H\n" +
+	"\x10GenerativeResult\x124\n" +
+	"\x06values\x18\x01 \x03(\v2\x1c.weaviate.v1.GenerativeReplyR\x06values\"G\n" +
+	"\x0fGenerativeDebug\x12$\n" +
+	"\vfull_prompt\x18\x01 \x01(\tH\x00R\n" +
+	"fullPrompt\x88\x01\x01B\x0e\n" +
+	"\f_full_promptBt\n" +
+	"#io.weaviate.client.grpc.protocol.v1B\x17WeaviateProtoGenerativeZ4github.com/weaviate/weaviate/grpc/generated;protocolb\x06proto3"
 
 var (
 	file_v1_generative_proto_rawDescOnce sync.Once
-	file_v1_generative_proto_rawDescData = file_v1_generative_proto_rawDesc
+	file_v1_generative_proto_rawDescData []byte
 )
 
 func file_v1_generative_proto_rawDescGZIP() []byte {
 	file_v1_generative_proto_rawDescOnce.Do(func() {
-		file_v1_generative_proto_rawDescData = protoimpl.X.CompressGZIP(file_v1_generative_proto_rawDescData)
+		file_v1_generative_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_v1_generative_proto_rawDesc), len(file_v1_generative_proto_rawDesc)))
 	})
 	return file_v1_generative_proto_rawDescData
 }
 
-var file_v1_generative_proto_msgTypes = make([]protoimpl.MessageInfo, 48)
+var file_v1_generative_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
+var file_v1_generative_proto_msgTypes = make([]protoimpl.MessageInfo, 49)
 var file_v1_generative_proto_goTypes = []any{
-	(*GenerativeSearch)(nil),                       // 0: weaviate.v1.GenerativeSearch
-	(*GenerativeProvider)(nil),                     // 1: weaviate.v1.GenerativeProvider
-	(*GenerativeAnthropic)(nil),                    // 2: weaviate.v1.GenerativeAnthropic
-	(*GenerativeAnyscale)(nil),                     // 3: weaviate.v1.GenerativeAnyscale
-	(*GenerativeAWS)(nil),                          // 4: weaviate.v1.GenerativeAWS
-	(*GenerativeCohere)(nil),                       // 5: weaviate.v1.GenerativeCohere
-	(*GenerativeDummy)(nil),                        // 6: weaviate.v1.GenerativeDummy
-	(*GenerativeMistral)(nil),                      // 7: weaviate.v1.GenerativeMistral
-	(*GenerativeOllama)(nil),                       // 8: weaviate.v1.GenerativeOllama
-	(*GenerativeOpenAI)(nil),                       // 9: weaviate.v1.GenerativeOpenAI
-	(*GenerativeGoogle)(nil),                       // 10: weaviate.v1.GenerativeGoogle
-	(*GenerativeDatabricks)(nil),                   // 11: weaviate.v1.GenerativeDatabricks
-	(*GenerativeFriendliAI)(nil),                   // 12: weaviate.v1.GenerativeFriendliAI
-	(*GenerativeNvidia)(nil),                       // 13: weaviate.v1.GenerativeNvidia
-	(*GenerativeXAI)(nil),                          // 14: weaviate.v1.GenerativeXAI
-	(*GenerativeAnthropicMetadata)(nil),            // 15: weaviate.v1.GenerativeAnthropicMetadata
-	(*GenerativeAnyscaleMetadata)(nil),             // 16: weaviate.v1.GenerativeAnyscaleMetadata
-	(*GenerativeAWSMetadata)(nil),                  // 17: weaviate.v1.GenerativeAWSMetadata
-	(*GenerativeCohereMetadata)(nil),               // 18: weaviate.v1.GenerativeCohereMetadata
-	(*GenerativeDummyMetadata)(nil),                // 19: weaviate.v1.GenerativeDummyMetadata
-	(*GenerativeMistralMetadata)(nil),              // 20: weaviate.v1.GenerativeMistralMetadata
-	(*GenerativeOllamaMetadata)(nil),               // 21: weaviate.v1.GenerativeOllamaMetadata
-	(*GenerativeOpenAIMetadata)(nil),               // 22: weaviate.v1.GenerativeOpenAIMetadata
-	(*GenerativeGoogleMetadata)(nil),               // 23: weaviate.v1.GenerativeGoogleMetadata
-	(*GenerativeDatabricksMetadata)(nil),           // 24: weaviate.v1.GenerativeDatabricksMetadata
-	(*GenerativeFriendliAIMetadata)(nil),           // 25: weaviate.v1.GenerativeFriendliAIMetadata
-	(*GenerativeNvidiaMetadata)(nil),               // 26: weaviate.v1.GenerativeNvidiaMetadata
-	(*GenerativeXAIMetadata)(nil),                  // 27: weaviate.v1.GenerativeXAIMetadata
-	(*GenerativeMetadata)(nil),                     // 28: weaviate.v1.GenerativeMetadata
-	(*GenerativeReply)(nil),                        // 29: weaviate.v1.GenerativeReply
-	(*GenerativeResult)(nil),                       // 30: weaviate.v1.GenerativeResult
-	(*GenerativeDebug)(nil),                        // 31: weaviate.v1.GenerativeDebug
-	(*GenerativeSearch_Single)(nil),                // 32: weaviate.v1.GenerativeSearch.Single
-	(*GenerativeSearch_Grouped)(nil),               // 33: weaviate.v1.GenerativeSearch.Grouped
-	(*GenerativeAnthropicMetadata_Usage)(nil),      // 34: weaviate.v1.GenerativeAnthropicMetadata.Usage
-	(*GenerativeCohereMetadata_ApiVersion)(nil),    // 35: weaviate.v1.GenerativeCohereMetadata.ApiVersion
-	(*GenerativeCohereMetadata_BilledUnits)(nil),   // 36: weaviate.v1.GenerativeCohereMetadata.BilledUnits
-	(*GenerativeCohereMetadata_Tokens)(nil),        // 37: weaviate.v1.GenerativeCohereMetadata.Tokens
-	(*GenerativeMistralMetadata_Usage)(nil),        // 38: weaviate.v1.GenerativeMistralMetadata.Usage
-	(*GenerativeOpenAIMetadata_Usage)(nil),         // 39: weaviate.v1.GenerativeOpenAIMetadata.Usage
-	(*GenerativeGoogleMetadata_TokenCount)(nil),    // 40: weaviate.v1.GenerativeGoogleMetadata.TokenCount
-	(*GenerativeGoogleMetadata_TokenMetadata)(nil), // 41: weaviate.v1.GenerativeGoogleMetadata.TokenMetadata
-	(*GenerativeGoogleMetadata_Metadata)(nil),      // 42: weaviate.v1.GenerativeGoogleMetadata.Metadata
-	(*GenerativeGoogleMetadata_UsageMetadata)(nil), // 43: weaviate.v1.GenerativeGoogleMetadata.UsageMetadata
-	(*GenerativeDatabricksMetadata_Usage)(nil),     // 44: weaviate.v1.GenerativeDatabricksMetadata.Usage
-	(*GenerativeFriendliAIMetadata_Usage)(nil),     // 45: weaviate.v1.GenerativeFriendliAIMetadata.Usage
-	(*GenerativeNvidiaMetadata_Usage)(nil),         // 46: weaviate.v1.GenerativeNvidiaMetadata.Usage
-	(*GenerativeXAIMetadata_Usage)(nil),            // 47: weaviate.v1.GenerativeXAIMetadata.Usage
-	(*TextArray)(nil),                              // 48: weaviate.v1.TextArray
+	(GenerativeOpenAI_ReasoningEffort)(0),          // 0: weaviate.v1.GenerativeOpenAI.ReasoningEffort
+	(GenerativeOpenAI_Verbosity)(0),                // 1: weaviate.v1.GenerativeOpenAI.Verbosity
+	(*GenerativeSearch)(nil),                       // 2: weaviate.v1.GenerativeSearch
+	(*GenerativeProvider)(nil),                     // 3: weaviate.v1.GenerativeProvider
+	(*GenerativeAnthropic)(nil),                    // 4: weaviate.v1.GenerativeAnthropic
+	(*GenerativeAnyscale)(nil),                     // 5: weaviate.v1.GenerativeAnyscale
+	(*GenerativeAWS)(nil),                          // 6: weaviate.v1.GenerativeAWS
+	(*GenerativeCohere)(nil),                       // 7: weaviate.v1.GenerativeCohere
+	(*GenerativeDummy)(nil),                        // 8: weaviate.v1.GenerativeDummy
+	(*GenerativeMistral)(nil),                      // 9: weaviate.v1.GenerativeMistral
+	(*GenerativeOllama)(nil),                       // 10: weaviate.v1.GenerativeOllama
+	(*GenerativeOpenAI)(nil),                       // 11: weaviate.v1.GenerativeOpenAI
+	(*GenerativeGoogle)(nil),                       // 12: weaviate.v1.GenerativeGoogle
+	(*GenerativeDatabricks)(nil),                   // 13: weaviate.v1.GenerativeDatabricks
+	(*GenerativeFriendliAI)(nil),                   // 14: weaviate.v1.GenerativeFriendliAI
+	(*GenerativeNvidia)(nil),                       // 15: weaviate.v1.GenerativeNvidia
+	(*GenerativeXAI)(nil),                          // 16: weaviate.v1.GenerativeXAI
+	(*GenerativeContextualAI)(nil),                 // 17: weaviate.v1.GenerativeContextualAI
+	(*GenerativeAnthropicMetadata)(nil),            // 18: weaviate.v1.GenerativeAnthropicMetadata
+	(*GenerativeAnyscaleMetadata)(nil),             // 19: weaviate.v1.GenerativeAnyscaleMetadata
+	(*GenerativeAWSMetadata)(nil),                  // 20: weaviate.v1.GenerativeAWSMetadata
+	(*GenerativeCohereMetadata)(nil),               // 21: weaviate.v1.GenerativeCohereMetadata
+	(*GenerativeDummyMetadata)(nil),                // 22: weaviate.v1.GenerativeDummyMetadata
+	(*GenerativeMistralMetadata)(nil),              // 23: weaviate.v1.GenerativeMistralMetadata
+	(*GenerativeOllamaMetadata)(nil),               // 24: weaviate.v1.GenerativeOllamaMetadata
+	(*GenerativeOpenAIMetadata)(nil),               // 25: weaviate.v1.GenerativeOpenAIMetadata
+	(*GenerativeGoogleMetadata)(nil),               // 26: weaviate.v1.GenerativeGoogleMetadata
+	(*GenerativeDatabricksMetadata)(nil),           // 27: weaviate.v1.GenerativeDatabricksMetadata
+	(*GenerativeFriendliAIMetadata)(nil),           // 28: weaviate.v1.GenerativeFriendliAIMetadata
+	(*GenerativeNvidiaMetadata)(nil),               // 29: weaviate.v1.GenerativeNvidiaMetadata
+	(*GenerativeXAIMetadata)(nil),                  // 30: weaviate.v1.GenerativeXAIMetadata
+	(*GenerativeMetadata)(nil),                     // 31: weaviate.v1.GenerativeMetadata
+	(*GenerativeReply)(nil),                        // 32: weaviate.v1.GenerativeReply
+	(*GenerativeResult)(nil),                       // 33: weaviate.v1.GenerativeResult
+	(*GenerativeDebug)(nil),                        // 34: weaviate.v1.GenerativeDebug
+	(*GenerativeSearch_Single)(nil),                // 35: weaviate.v1.GenerativeSearch.Single
+	(*GenerativeSearch_Grouped)(nil),               // 36: weaviate.v1.GenerativeSearch.Grouped
+	(*GenerativeAnthropicMetadata_Usage)(nil),      // 37: weaviate.v1.GenerativeAnthropicMetadata.Usage
+	(*GenerativeCohereMetadata_ApiVersion)(nil),    // 38: weaviate.v1.GenerativeCohereMetadata.ApiVersion
+	(*GenerativeCohereMetadata_BilledUnits)(nil),   // 39: weaviate.v1.GenerativeCohereMetadata.BilledUnits
+	(*GenerativeCohereMetadata_Tokens)(nil),        // 40: weaviate.v1.GenerativeCohereMetadata.Tokens
+	(*GenerativeMistralMetadata_Usage)(nil),        // 41: weaviate.v1.GenerativeMistralMetadata.Usage
+	(*GenerativeOpenAIMetadata_Usage)(nil),         // 42: weaviate.v1.GenerativeOpenAIMetadata.Usage
+	(*GenerativeGoogleMetadata_TokenCount)(nil),    // 43: weaviate.v1.GenerativeGoogleMetadata.TokenCount
+	(*GenerativeGoogleMetadata_TokenMetadata)(nil), // 44: weaviate.v1.GenerativeGoogleMetadata.TokenMetadata
+	(*GenerativeGoogleMetadata_Metadata)(nil),      // 45: weaviate.v1.GenerativeGoogleMetadata.Metadata
+	(*GenerativeGoogleMetadata_UsageMetadata)(nil), // 46: weaviate.v1.GenerativeGoogleMetadata.UsageMetadata
+	(*GenerativeDatabricksMetadata_Usage)(nil),     // 47: weaviate.v1.GenerativeDatabricksMetadata.Usage
+	(*GenerativeFriendliAIMetadata_Usage)(nil),     // 48: weaviate.v1.GenerativeFriendliAIMetadata.Usage
+	(*GenerativeNvidiaMetadata_Usage)(nil),         // 49: weaviate.v1.GenerativeNvidiaMetadata.Usage
+	(*GenerativeXAIMetadata_Usage)(nil),            // 50: weaviate.v1.GenerativeXAIMetadata.Usage
+	(*TextArray)(nil),                              // 51: weaviate.v1.TextArray
 }
 var file_v1_generative_proto_depIdxs = []int32{
-	32, // 0: weaviate.v1.GenerativeSearch.single:type_name -> weaviate.v1.GenerativeSearch.Single
-	33, // 1: weaviate.v1.GenerativeSearch.grouped:type_name -> weaviate.v1.GenerativeSearch.Grouped
-	2,  // 2: weaviate.v1.GenerativeProvider.anthropic:type_name -> weaviate.v1.GenerativeAnthropic
-	3,  // 3: weaviate.v1.GenerativeProvider.anyscale:type_name -> weaviate.v1.GenerativeAnyscale
-	4,  // 4: weaviate.v1.GenerativeProvider.aws:type_name -> weaviate.v1.GenerativeAWS
-	5,  // 5: weaviate.v1.GenerativeProvider.cohere:type_name -> weaviate.v1.GenerativeCohere
-	6,  // 6: weaviate.v1.GenerativeProvider.dummy:type_name -> weaviate.v1.GenerativeDummy
-	7,  // 7: weaviate.v1.GenerativeProvider.mistral:type_name -> weaviate.v1.GenerativeMistral
-	8,  // 8: weaviate.v1.GenerativeProvider.ollama:type_name -> weaviate.v1.GenerativeOllama
-	9,  // 9: weaviate.v1.GenerativeProvider.openai:type_name -> weaviate.v1.GenerativeOpenAI
-	10, // 10: weaviate.v1.GenerativeProvider.google:type_name -> weaviate.v1.GenerativeGoogle
-	11, // 11: weaviate.v1.GenerativeProvider.databricks:type_name -> weaviate.v1.GenerativeDatabricks
-	12, // 12: weaviate.v1.GenerativeProvider.friendliai:type_name -> weaviate.v1.GenerativeFriendliAI
-	13, // 13: weaviate.v1.GenerativeProvider.nvidia:type_name -> weaviate.v1.GenerativeNvidia
-	14, // 14: weaviate.v1.GenerativeProvider.xai:type_name -> weaviate.v1.GenerativeXAI
-	48, // 15: weaviate.v1.GenerativeAnthropic.stop_sequences:type_name -> weaviate.v1.TextArray
-	48, // 16: weaviate.v1.GenerativeAnthropic.images:type_name -> weaviate.v1.TextArray
-	48, // 17: weaviate.v1.GenerativeAnthropic.image_properties:type_name -> weaviate.v1.TextArray
-	48, // 18: weaviate.v1.GenerativeAWS.images:type_name -> weaviate.v1.TextArray
-	48, // 19: weaviate.v1.GenerativeAWS.image_properties:type_name -> weaviate.v1.TextArray
-	48, // 20: weaviate.v1.GenerativeCohere.stop_sequences:type_name -> weaviate.v1.TextArray
-	48, // 21: weaviate.v1.GenerativeOllama.images:type_name -> weaviate.v1.TextArray
-	48, // 22: weaviate.v1.GenerativeOllama.image_properties:type_name -> weaviate.v1.TextArray
-	48, // 23: weaviate.v1.GenerativeOpenAI.stop:type_name -> weaviate.v1.TextArray
-	48, // 24: weaviate.v1.GenerativeOpenAI.images:type_name -> weaviate.v1.TextArray
-	48, // 25: weaviate.v1.GenerativeOpenAI.image_properties:type_name -> weaviate.v1.TextArray
-	48, // 26: weaviate.v1.GenerativeGoogle.stop_sequences:type_name -> weaviate.v1.TextArray
-	48, // 27: weaviate.v1.GenerativeGoogle.images:type_name -> weaviate.v1.TextArray
-	48, // 28: weaviate.v1.GenerativeGoogle.image_properties:type_name -> weaviate.v1.TextArray
-	48, // 29: weaviate.v1.GenerativeDatabricks.stop:type_name -> weaviate.v1.TextArray
-	48, // 30: weaviate.v1.GenerativeXAI.images:type_name -> weaviate.v1.TextArray
-	48, // 31: weaviate.v1.GenerativeXAI.image_properties:type_name -> weaviate.v1.TextArray
-	34, // 32: weaviate.v1.GenerativeAnthropicMetadata.usage:type_name -> weaviate.v1.GenerativeAnthropicMetadata.Usage
-	35, // 33: weaviate.v1.GenerativeCohereMetadata.api_version:type_name -> weaviate.v1.GenerativeCohereMetadata.ApiVersion
-	36, // 34: weaviate.v1.GenerativeCohereMetadata.billed_units:type_name -> weaviate.v1.GenerativeCohereMetadata.BilledUnits
-	37, // 35: weaviate.v1.GenerativeCohereMetadata.tokens:type_name -> weaviate.v1.GenerativeCohereMetadata.Tokens
-	48, // 36: weaviate.v1.GenerativeCohereMetadata.warnings:type_name -> weaviate.v1.TextArray
-	38, // 37: weaviate.v1.GenerativeMistralMetadata.usage:type_name -> weaviate.v1.GenerativeMistralMetadata.Usage
-	39, // 38: weaviate.v1.GenerativeOpenAIMetadata.usage:type_name -> weaviate.v1.GenerativeOpenAIMetadata.Usage
-	42, // 39: weaviate.v1.GenerativeGoogleMetadata.metadata:type_name -> weaviate.v1.GenerativeGoogleMetadata.Metadata
-	43, // 40: weaviate.v1.GenerativeGoogleMetadata.usage_metadata:type_name -> weaviate.v1.GenerativeGoogleMetadata.UsageMetadata
-	44, // 41: weaviate.v1.GenerativeDatabricksMetadata.usage:type_name -> weaviate.v1.GenerativeDatabricksMetadata.Usage
-	45, // 42: weaviate.v1.GenerativeFriendliAIMetadata.usage:type_name -> weaviate.v1.GenerativeFriendliAIMetadata.Usage
-	46, // 43: weaviate.v1.GenerativeNvidiaMetadata.usage:type_name -> weaviate.v1.GenerativeNvidiaMetadata.Usage
-	47, // 44: weaviate.v1.GenerativeXAIMetadata.usage:type_name -> weaviate.v1.GenerativeXAIMetadata.Usage
-	15, // 45: weaviate.v1.GenerativeMetadata.anthropic:type_name -> weaviate.v1.GenerativeAnthropicMetadata
-	16, // 46: weaviate.v1.GenerativeMetadata.anyscale:type_name -> weaviate.v1.GenerativeAnyscaleMetadata
-	17, // 47: weaviate.v1.GenerativeMetadata.aws:type_name -> weaviate.v1.GenerativeAWSMetadata
-	18, // 48: weaviate.v1.GenerativeMetadata.cohere:type_name -> weaviate.v1.GenerativeCohereMetadata
-	19, // 49: weaviate.v1.GenerativeMetadata.dummy:type_name -> weaviate.v1.GenerativeDummyMetadata
-	20, // 50: weaviate.v1.GenerativeMetadata.mistral:type_name -> weaviate.v1.GenerativeMistralMetadata
-	21, // 51: weaviate.v1.GenerativeMetadata.ollama:type_name -> weaviate.v1.GenerativeOllamaMetadata
-	22, // 52: weaviate.v1.GenerativeMetadata.openai:type_name -> weaviate.v1.GenerativeOpenAIMetadata
-	23, // 53: weaviate.v1.GenerativeMetadata.google:type_name -> weaviate.v1.GenerativeGoogleMetadata
-	24, // 54: weaviate.v1.GenerativeMetadata.databricks:type_name -> weaviate.v1.GenerativeDatabricksMetadata
-	25, // 55: weaviate.v1.GenerativeMetadata.friendliai:type_name -> weaviate.v1.GenerativeFriendliAIMetadata
-	26, // 56: weaviate.v1.GenerativeMetadata.nvidia:type_name -> weaviate.v1.GenerativeNvidiaMetadata
-	27, // 57: weaviate.v1.GenerativeMetadata.xai:type_name -> weaviate.v1.GenerativeXAIMetadata
-	31, // 58: weaviate.v1.GenerativeReply.debug:type_name -> weaviate.v1.GenerativeDebug
-	28, // 59: weaviate.v1.GenerativeReply.metadata:type_name -> weaviate.v1.GenerativeMetadata
-	29, // 60: weaviate.v1.GenerativeResult.values:type_name -> weaviate.v1.GenerativeReply
-	1,  // 61: weaviate.v1.GenerativeSearch.Single.queries:type_name -> weaviate.v1.GenerativeProvider
-	48, // 62: weaviate.v1.GenerativeSearch.Grouped.properties:type_name -> weaviate.v1.TextArray
-	1,  // 63: weaviate.v1.GenerativeSearch.Grouped.queries:type_name -> weaviate.v1.GenerativeProvider
-	40, // 64: weaviate.v1.GenerativeGoogleMetadata.TokenMetadata.input_token_count:type_name -> weaviate.v1.GenerativeGoogleMetadata.TokenCount
-	40, // 65: weaviate.v1.GenerativeGoogleMetadata.TokenMetadata.output_token_count:type_name -> weaviate.v1.GenerativeGoogleMetadata.TokenCount
-	41, // 66: weaviate.v1.GenerativeGoogleMetadata.Metadata.token_metadata:type_name -> weaviate.v1.GenerativeGoogleMetadata.TokenMetadata
-	67, // [67:67] is the sub-list for method output_type
-	67, // [67:67] is the sub-list for method input_type
-	67, // [67:67] is the sub-list for extension type_name
-	67, // [67:67] is the sub-list for extension extendee
-	0,  // [0:67] is the sub-list for field type_name
+	35, // 0: weaviate.v1.GenerativeSearch.single:type_name -> weaviate.v1.GenerativeSearch.Single
+	36, // 1: weaviate.v1.GenerativeSearch.grouped:type_name -> weaviate.v1.GenerativeSearch.Grouped
+	4,  // 2: weaviate.v1.GenerativeProvider.anthropic:type_name -> weaviate.v1.GenerativeAnthropic
+	5,  // 3: weaviate.v1.GenerativeProvider.anyscale:type_name -> weaviate.v1.GenerativeAnyscale
+	6,  // 4: weaviate.v1.GenerativeProvider.aws:type_name -> weaviate.v1.GenerativeAWS
+	7,  // 5: weaviate.v1.GenerativeProvider.cohere:type_name -> weaviate.v1.GenerativeCohere
+	8,  // 6: weaviate.v1.GenerativeProvider.dummy:type_name -> weaviate.v1.GenerativeDummy
+	9,  // 7: weaviate.v1.GenerativeProvider.mistral:type_name -> weaviate.v1.GenerativeMistral
+	10, // 8: weaviate.v1.GenerativeProvider.ollama:type_name -> weaviate.v1.GenerativeOllama
+	11, // 9: weaviate.v1.GenerativeProvider.openai:type_name -> weaviate.v1.GenerativeOpenAI
+	12, // 10: weaviate.v1.GenerativeProvider.google:type_name -> weaviate.v1.GenerativeGoogle
+	13, // 11: weaviate.v1.GenerativeProvider.databricks:type_name -> weaviate.v1.GenerativeDatabricks
+	14, // 12: weaviate.v1.GenerativeProvider.friendliai:type_name -> weaviate.v1.GenerativeFriendliAI
+	15, // 13: weaviate.v1.GenerativeProvider.nvidia:type_name -> weaviate.v1.GenerativeNvidia
+	16, // 14: weaviate.v1.GenerativeProvider.xai:type_name -> weaviate.v1.GenerativeXAI
+	17, // 15: weaviate.v1.GenerativeProvider.contextualai:type_name -> weaviate.v1.GenerativeContextualAI
+	51, // 16: weaviate.v1.GenerativeAnthropic.stop_sequences:type_name -> weaviate.v1.TextArray
+	51, // 17: weaviate.v1.GenerativeAnthropic.images:type_name -> weaviate.v1.TextArray
+	51, // 18: weaviate.v1.GenerativeAnthropic.image_properties:type_name -> weaviate.v1.TextArray
+	51, // 19: weaviate.v1.GenerativeAWS.images:type_name -> weaviate.v1.TextArray
+	51, // 20: weaviate.v1.GenerativeAWS.image_properties:type_name -> weaviate.v1.TextArray
+	51, // 21: weaviate.v1.GenerativeCohere.stop_sequences:type_name -> weaviate.v1.TextArray
+	51, // 22: weaviate.v1.GenerativeCohere.images:type_name -> weaviate.v1.TextArray
+	51, // 23: weaviate.v1.GenerativeCohere.image_properties:type_name -> weaviate.v1.TextArray
+	51, // 24: weaviate.v1.GenerativeOllama.images:type_name -> weaviate.v1.TextArray
+	51, // 25: weaviate.v1.GenerativeOllama.image_properties:type_name -> weaviate.v1.TextArray
+	51, // 26: weaviate.v1.GenerativeOpenAI.stop:type_name -> weaviate.v1.TextArray
+	51, // 27: weaviate.v1.GenerativeOpenAI.images:type_name -> weaviate.v1.TextArray
+	51, // 28: weaviate.v1.GenerativeOpenAI.image_properties:type_name -> weaviate.v1.TextArray
+	0,  // 29: weaviate.v1.GenerativeOpenAI.reasoning_effort:type_name -> weaviate.v1.GenerativeOpenAI.ReasoningEffort
+	1,  // 30: weaviate.v1.GenerativeOpenAI.verbosity:type_name -> weaviate.v1.GenerativeOpenAI.Verbosity
+	51, // 31: weaviate.v1.GenerativeGoogle.stop_sequences:type_name -> weaviate.v1.TextArray
+	51, // 32: weaviate.v1.GenerativeGoogle.images:type_name -> weaviate.v1.TextArray
+	51, // 33: weaviate.v1.GenerativeGoogle.image_properties:type_name -> weaviate.v1.TextArray
+	51, // 34: weaviate.v1.GenerativeDatabricks.stop:type_name -> weaviate.v1.TextArray
+	51, // 35: weaviate.v1.GenerativeXAI.images:type_name -> weaviate.v1.TextArray
+	51, // 36: weaviate.v1.GenerativeXAI.image_properties:type_name -> weaviate.v1.TextArray
+	51, // 37: weaviate.v1.GenerativeContextualAI.knowledge:type_name -> weaviate.v1.TextArray
+	37, // 38: weaviate.v1.GenerativeAnthropicMetadata.usage:type_name -> weaviate.v1.GenerativeAnthropicMetadata.Usage
+	38, // 39: weaviate.v1.GenerativeCohereMetadata.api_version:type_name -> weaviate.v1.GenerativeCohereMetadata.ApiVersion
+	39, // 40: weaviate.v1.GenerativeCohereMetadata.billed_units:type_name -> weaviate.v1.GenerativeCohereMetadata.BilledUnits
+	40, // 41: weaviate.v1.GenerativeCohereMetadata.tokens:type_name -> weaviate.v1.GenerativeCohereMetadata.Tokens
+	51, // 42: weaviate.v1.GenerativeCohereMetadata.warnings:type_name -> weaviate.v1.TextArray
+	41, // 43: weaviate.v1.GenerativeMistralMetadata.usage:type_name -> weaviate.v1.GenerativeMistralMetadata.Usage
+	42, // 44: weaviate.v1.GenerativeOpenAIMetadata.usage:type_name -> weaviate.v1.GenerativeOpenAIMetadata.Usage
+	45, // 45: weaviate.v1.GenerativeGoogleMetadata.metadata:type_name -> weaviate.v1.GenerativeGoogleMetadata.Metadata
+	46, // 46: weaviate.v1.GenerativeGoogleMetadata.usage_metadata:type_name -> weaviate.v1.GenerativeGoogleMetadata.UsageMetadata
+	47, // 47: weaviate.v1.GenerativeDatabricksMetadata.usage:type_name -> weaviate.v1.GenerativeDatabricksMetadata.Usage
+	48, // 48: weaviate.v1.GenerativeFriendliAIMetadata.usage:type_name -> weaviate.v1.GenerativeFriendliAIMetadata.Usage
+	49, // 49: weaviate.v1.GenerativeNvidiaMetadata.usage:type_name -> weaviate.v1.GenerativeNvidiaMetadata.Usage
+	50, // 50: weaviate.v1.GenerativeXAIMetadata.usage:type_name -> weaviate.v1.GenerativeXAIMetadata.Usage
+	18, // 51: weaviate.v1.GenerativeMetadata.anthropic:type_name -> weaviate.v1.GenerativeAnthropicMetadata
+	19, // 52: weaviate.v1.GenerativeMetadata.anyscale:type_name -> weaviate.v1.GenerativeAnyscaleMetadata
+	20, // 53: weaviate.v1.GenerativeMetadata.aws:type_name -> weaviate.v1.GenerativeAWSMetadata
+	21, // 54: weaviate.v1.GenerativeMetadata.cohere:type_name -> weaviate.v1.GenerativeCohereMetadata
+	22, // 55: weaviate.v1.GenerativeMetadata.dummy:type_name -> weaviate.v1.GenerativeDummyMetadata
+	23, // 56: weaviate.v1.GenerativeMetadata.mistral:type_name -> weaviate.v1.GenerativeMistralMetadata
+	24, // 57: weaviate.v1.GenerativeMetadata.ollama:type_name -> weaviate.v1.GenerativeOllamaMetadata
+	25, // 58: weaviate.v1.GenerativeMetadata.openai:type_name -> weaviate.v1.GenerativeOpenAIMetadata
+	26, // 59: weaviate.v1.GenerativeMetadata.google:type_name -> weaviate.v1.GenerativeGoogleMetadata
+	27, // 60: weaviate.v1.GenerativeMetadata.databricks:type_name -> weaviate.v1.GenerativeDatabricksMetadata
+	28, // 61: weaviate.v1.GenerativeMetadata.friendliai:type_name -> weaviate.v1.GenerativeFriendliAIMetadata
+	29, // 62: weaviate.v1.GenerativeMetadata.nvidia:type_name -> weaviate.v1.GenerativeNvidiaMetadata
+	30, // 63: weaviate.v1.GenerativeMetadata.xai:type_name -> weaviate.v1.GenerativeXAIMetadata
+	34, // 64: weaviate.v1.GenerativeReply.debug:type_name -> weaviate.v1.GenerativeDebug
+	31, // 65: weaviate.v1.GenerativeReply.metadata:type_name -> weaviate.v1.GenerativeMetadata
+	32, // 66: weaviate.v1.GenerativeResult.values:type_name -> weaviate.v1.GenerativeReply
+	3,  // 67: weaviate.v1.GenerativeSearch.Single.queries:type_name -> weaviate.v1.GenerativeProvider
+	51, // 68: weaviate.v1.GenerativeSearch.Grouped.properties:type_name -> weaviate.v1.TextArray
+	3,  // 69: weaviate.v1.GenerativeSearch.Grouped.queries:type_name -> weaviate.v1.GenerativeProvider
+	43, // 70: weaviate.v1.GenerativeGoogleMetadata.TokenMetadata.input_token_count:type_name -> weaviate.v1.GenerativeGoogleMetadata.TokenCount
+	43, // 71: weaviate.v1.GenerativeGoogleMetadata.TokenMetadata.output_token_count:type_name -> weaviate.v1.GenerativeGoogleMetadata.TokenCount
+	44, // 72: weaviate.v1.GenerativeGoogleMetadata.Metadata.token_metadata:type_name -> weaviate.v1.GenerativeGoogleMetadata.TokenMetadata
+	73, // [73:73] is the sub-list for method output_type
+	73, // [73:73] is the sub-list for method input_type
+	73, // [73:73] is the sub-list for extension type_name
+	73, // [73:73] is the sub-list for extension extendee
+	0,  // [0:73] is the sub-list for field type_name
 }
 
 func init() { file_v1_generative_proto_init() }
@@ -4533,584 +4415,6 @@ func file_v1_generative_proto_init() {
 		return
 	}
 	file_v1_base_proto_init()
-	if !protoimpl.UnsafeEnabled {
-		file_v1_generative_proto_msgTypes[0].Exporter = func(v any, i int) any {
-			switch v := v.(*GenerativeSearch); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_v1_generative_proto_msgTypes[1].Exporter = func(v any, i int) any {
-			switch v := v.(*GenerativeProvider); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_v1_generative_proto_msgTypes[2].Exporter = func(v any, i int) any {
-			switch v := v.(*GenerativeAnthropic); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_v1_generative_proto_msgTypes[3].Exporter = func(v any, i int) any {
-			switch v := v.(*GenerativeAnyscale); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_v1_generative_proto_msgTypes[4].Exporter = func(v any, i int) any {
-			switch v := v.(*GenerativeAWS); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_v1_generative_proto_msgTypes[5].Exporter = func(v any, i int) any {
-			switch v := v.(*GenerativeCohere); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_v1_generative_proto_msgTypes[6].Exporter = func(v any, i int) any {
-			switch v := v.(*GenerativeDummy); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_v1_generative_proto_msgTypes[7].Exporter = func(v any, i int) any {
-			switch v := v.(*GenerativeMistral); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_v1_generative_proto_msgTypes[8].Exporter = func(v any, i int) any {
-			switch v := v.(*GenerativeOllama); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_v1_generative_proto_msgTypes[9].Exporter = func(v any, i int) any {
-			switch v := v.(*GenerativeOpenAI); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_v1_generative_proto_msgTypes[10].Exporter = func(v any, i int) any {
-			switch v := v.(*GenerativeGoogle); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_v1_generative_proto_msgTypes[11].Exporter = func(v any, i int) any {
-			switch v := v.(*GenerativeDatabricks); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_v1_generative_proto_msgTypes[12].Exporter = func(v any, i int) any {
-			switch v := v.(*GenerativeFriendliAI); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_v1_generative_proto_msgTypes[13].Exporter = func(v any, i int) any {
-			switch v := v.(*GenerativeNvidia); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_v1_generative_proto_msgTypes[14].Exporter = func(v any, i int) any {
-			switch v := v.(*GenerativeXAI); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_v1_generative_proto_msgTypes[15].Exporter = func(v any, i int) any {
-			switch v := v.(*GenerativeAnthropicMetadata); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_v1_generative_proto_msgTypes[16].Exporter = func(v any, i int) any {
-			switch v := v.(*GenerativeAnyscaleMetadata); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_v1_generative_proto_msgTypes[17].Exporter = func(v any, i int) any {
-			switch v := v.(*GenerativeAWSMetadata); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_v1_generative_proto_msgTypes[18].Exporter = func(v any, i int) any {
-			switch v := v.(*GenerativeCohereMetadata); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_v1_generative_proto_msgTypes[19].Exporter = func(v any, i int) any {
-			switch v := v.(*GenerativeDummyMetadata); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_v1_generative_proto_msgTypes[20].Exporter = func(v any, i int) any {
-			switch v := v.(*GenerativeMistralMetadata); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_v1_generative_proto_msgTypes[21].Exporter = func(v any, i int) any {
-			switch v := v.(*GenerativeOllamaMetadata); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_v1_generative_proto_msgTypes[22].Exporter = func(v any, i int) any {
-			switch v := v.(*GenerativeOpenAIMetadata); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_v1_generative_proto_msgTypes[23].Exporter = func(v any, i int) any {
-			switch v := v.(*GenerativeGoogleMetadata); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_v1_generative_proto_msgTypes[24].Exporter = func(v any, i int) any {
-			switch v := v.(*GenerativeDatabricksMetadata); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_v1_generative_proto_msgTypes[25].Exporter = func(v any, i int) any {
-			switch v := v.(*GenerativeFriendliAIMetadata); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_v1_generative_proto_msgTypes[26].Exporter = func(v any, i int) any {
-			switch v := v.(*GenerativeNvidiaMetadata); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_v1_generative_proto_msgTypes[27].Exporter = func(v any, i int) any {
-			switch v := v.(*GenerativeXAIMetadata); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_v1_generative_proto_msgTypes[28].Exporter = func(v any, i int) any {
-			switch v := v.(*GenerativeMetadata); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_v1_generative_proto_msgTypes[29].Exporter = func(v any, i int) any {
-			switch v := v.(*GenerativeReply); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_v1_generative_proto_msgTypes[30].Exporter = func(v any, i int) any {
-			switch v := v.(*GenerativeResult); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_v1_generative_proto_msgTypes[31].Exporter = func(v any, i int) any {
-			switch v := v.(*GenerativeDebug); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_v1_generative_proto_msgTypes[32].Exporter = func(v any, i int) any {
-			switch v := v.(*GenerativeSearch_Single); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_v1_generative_proto_msgTypes[33].Exporter = func(v any, i int) any {
-			switch v := v.(*GenerativeSearch_Grouped); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_v1_generative_proto_msgTypes[34].Exporter = func(v any, i int) any {
-			switch v := v.(*GenerativeAnthropicMetadata_Usage); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_v1_generative_proto_msgTypes[35].Exporter = func(v any, i int) any {
-			switch v := v.(*GenerativeCohereMetadata_ApiVersion); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_v1_generative_proto_msgTypes[36].Exporter = func(v any, i int) any {
-			switch v := v.(*GenerativeCohereMetadata_BilledUnits); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_v1_generative_proto_msgTypes[37].Exporter = func(v any, i int) any {
-			switch v := v.(*GenerativeCohereMetadata_Tokens); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_v1_generative_proto_msgTypes[38].Exporter = func(v any, i int) any {
-			switch v := v.(*GenerativeMistralMetadata_Usage); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_v1_generative_proto_msgTypes[39].Exporter = func(v any, i int) any {
-			switch v := v.(*GenerativeOpenAIMetadata_Usage); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_v1_generative_proto_msgTypes[40].Exporter = func(v any, i int) any {
-			switch v := v.(*GenerativeGoogleMetadata_TokenCount); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_v1_generative_proto_msgTypes[41].Exporter = func(v any, i int) any {
-			switch v := v.(*GenerativeGoogleMetadata_TokenMetadata); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_v1_generative_proto_msgTypes[42].Exporter = func(v any, i int) any {
-			switch v := v.(*GenerativeGoogleMetadata_Metadata); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_v1_generative_proto_msgTypes[43].Exporter = func(v any, i int) any {
-			switch v := v.(*GenerativeGoogleMetadata_UsageMetadata); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_v1_generative_proto_msgTypes[44].Exporter = func(v any, i int) any {
-			switch v := v.(*GenerativeDatabricksMetadata_Usage); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_v1_generative_proto_msgTypes[45].Exporter = func(v any, i int) any {
-			switch v := v.(*GenerativeFriendliAIMetadata_Usage); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_v1_generative_proto_msgTypes[46].Exporter = func(v any, i int) any {
-			switch v := v.(*GenerativeNvidiaMetadata_Usage); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_v1_generative_proto_msgTypes[47].Exporter = func(v any, i int) any {
-			switch v := v.(*GenerativeXAIMetadata_Usage); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-	}
 	file_v1_generative_proto_msgTypes[1].OneofWrappers = []any{
 		(*GenerativeProvider_Anthropic)(nil),
 		(*GenerativeProvider_Anyscale)(nil),
@@ -5125,6 +4429,7 @@ func file_v1_generative_proto_init() {
 		(*GenerativeProvider_Friendliai)(nil),
 		(*GenerativeProvider_Nvidia)(nil),
 		(*GenerativeProvider_Xai)(nil),
+		(*GenerativeProvider_Contextualai)(nil),
 	}
 	file_v1_generative_proto_msgTypes[2].OneofWrappers = []any{}
 	file_v1_generative_proto_msgTypes[3].OneofWrappers = []any{}
@@ -5138,15 +4443,16 @@ func file_v1_generative_proto_init() {
 	file_v1_generative_proto_msgTypes[12].OneofWrappers = []any{}
 	file_v1_generative_proto_msgTypes[13].OneofWrappers = []any{}
 	file_v1_generative_proto_msgTypes[14].OneofWrappers = []any{}
-	file_v1_generative_proto_msgTypes[18].OneofWrappers = []any{}
-	file_v1_generative_proto_msgTypes[20].OneofWrappers = []any{}
-	file_v1_generative_proto_msgTypes[22].OneofWrappers = []any{}
+	file_v1_generative_proto_msgTypes[15].OneofWrappers = []any{}
+	file_v1_generative_proto_msgTypes[19].OneofWrappers = []any{}
+	file_v1_generative_proto_msgTypes[21].OneofWrappers = []any{}
 	file_v1_generative_proto_msgTypes[23].OneofWrappers = []any{}
 	file_v1_generative_proto_msgTypes[24].OneofWrappers = []any{}
 	file_v1_generative_proto_msgTypes[25].OneofWrappers = []any{}
 	file_v1_generative_proto_msgTypes[26].OneofWrappers = []any{}
 	file_v1_generative_proto_msgTypes[27].OneofWrappers = []any{}
-	file_v1_generative_proto_msgTypes[28].OneofWrappers = []any{
+	file_v1_generative_proto_msgTypes[28].OneofWrappers = []any{}
+	file_v1_generative_proto_msgTypes[29].OneofWrappers = []any{
 		(*GenerativeMetadata_Anthropic)(nil),
 		(*GenerativeMetadata_Anyscale)(nil),
 		(*GenerativeMetadata_Aws)(nil),
@@ -5161,10 +4467,9 @@ func file_v1_generative_proto_init() {
 		(*GenerativeMetadata_Nvidia)(nil),
 		(*GenerativeMetadata_Xai)(nil),
 	}
-	file_v1_generative_proto_msgTypes[29].OneofWrappers = []any{}
-	file_v1_generative_proto_msgTypes[31].OneofWrappers = []any{}
-	file_v1_generative_proto_msgTypes[33].OneofWrappers = []any{}
-	file_v1_generative_proto_msgTypes[35].OneofWrappers = []any{}
+	file_v1_generative_proto_msgTypes[30].OneofWrappers = []any{}
+	file_v1_generative_proto_msgTypes[32].OneofWrappers = []any{}
+	file_v1_generative_proto_msgTypes[34].OneofWrappers = []any{}
 	file_v1_generative_proto_msgTypes[36].OneofWrappers = []any{}
 	file_v1_generative_proto_msgTypes[37].OneofWrappers = []any{}
 	file_v1_generative_proto_msgTypes[38].OneofWrappers = []any{}
@@ -5177,22 +4482,23 @@ func file_v1_generative_proto_init() {
 	file_v1_generative_proto_msgTypes[45].OneofWrappers = []any{}
 	file_v1_generative_proto_msgTypes[46].OneofWrappers = []any{}
 	file_v1_generative_proto_msgTypes[47].OneofWrappers = []any{}
+	file_v1_generative_proto_msgTypes[48].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: file_v1_generative_proto_rawDesc,
-			NumEnums:      0,
-			NumMessages:   48,
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_v1_generative_proto_rawDesc), len(file_v1_generative_proto_rawDesc)),
+			NumEnums:      2,
+			NumMessages:   49,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
 		GoTypes:           file_v1_generative_proto_goTypes,
 		DependencyIndexes: file_v1_generative_proto_depIdxs,
+		EnumInfos:         file_v1_generative_proto_enumTypes,
 		MessageInfos:      file_v1_generative_proto_msgTypes,
 	}.Build()
 	File_v1_generative_proto = out.File
-	file_v1_generative_proto_rawDesc = nil
 	file_v1_generative_proto_goTypes = nil
 	file_v1_generative_proto_depIdxs = nil
 }

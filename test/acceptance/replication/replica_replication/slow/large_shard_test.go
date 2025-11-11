@@ -31,6 +31,7 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateOfLargeShard() {
 
 	compose, err := docker.New().
 		WithWeaviateCluster(3).
+		WithWeaviateEnv("REPLICA_MOVEMENT_ENABLED", "true").
 		Start(mainCtx)
 	require.Nil(t, err)
 	defer func() {
@@ -59,14 +60,14 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateOfLargeShard() {
 	// Load data
 	t.Log("Loading data into tenant...")
 	tenantName := "tenant"
-	batch := make([]*models.Object, 0, 100000)
+	batch := make([]*models.Object, 0, 1000)
 	start := time.Now()
 	for j := 0; j < 1000000; j++ {
 		batch = append(batch, (*models.Object)(articles.NewParagraph().
 			WithContents(fmt.Sprintf("paragraph#%d", j)).
 			WithTenant(tenantName).
 			Object()))
-		if len(batch) == 50000 {
+		if len(batch) == 1000 {
 			helper.CreateObjectsBatch(t, batch)
 			t.Logf("Loaded %d objects", len(batch))
 			batch = batch[:0]

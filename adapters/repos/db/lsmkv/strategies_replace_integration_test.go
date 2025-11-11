@@ -10,7 +10,6 @@
 //
 
 //go:build integrationTest
-// +build integrationTest
 
 package lsmkv
 
@@ -33,6 +32,7 @@ func TestReplaceStrategy(t *testing.T) {
 			opts: []BucketOption{
 				WithStrategy(StrategyReplace),
 				WithCalcCountNetAdditions(true),
+				WithMinWalThreshold(0),
 			},
 		},
 		{
@@ -90,7 +90,10 @@ func replaceInsertAndUpdate(ctx context.Context, t *testing.T, opts []BucketOpti
 			err = b.Put(key3, orig3)
 			require.Nil(t, err)
 
-			assert.Equal(t, 3, b.Count())
+			count, err := b.Count(ctx)
+			require.NoError(t, err)
+
+			assert.Equal(t, 3, count)
 			assert.Equal(t, 0, b.CountAsync())
 
 			res, err := b.Get(key1)
@@ -117,7 +120,10 @@ func replaceInsertAndUpdate(ctx context.Context, t *testing.T, opts []BucketOpti
 			err = b.Put(key3, replaced3)
 			require.Nil(t, err)
 
-			assert.Equal(t, 3, b.Count())
+			count, err := b.Count(ctx)
+			require.NoError(t, err)
+
+			assert.Equal(t, 3, count)
 			assert.Equal(t, 0, b.CountAsync())
 
 			res, err := b.Get(key1)
@@ -173,7 +179,10 @@ func replaceInsertAndUpdate(ctx context.Context, t *testing.T, opts []BucketOpti
 		})
 
 		t.Run("count only objects on disk segment", func(t *testing.T) {
-			assert.Equal(t, 3, b.Count())
+			count, err := b.Count(ctx)
+			require.NoError(t, err)
+
+			assert.Equal(t, 3, count)
 			assert.Equal(t, 3, b.CountAsync())
 		})
 
@@ -191,7 +200,9 @@ func replaceInsertAndUpdate(ctx context.Context, t *testing.T, opts []BucketOpti
 			require.Nil(t, err)
 
 			// make sure that the updates aren't counted as additions
-			assert.Equal(t, 3, b.Count())
+			count, err := b.Count(ctx)
+			require.NoError(t, err)
+			assert.Equal(t, 3, count)
 
 			// happens to be the same value, but that's just a coincidence, async
 			// ignores the memtable
@@ -277,7 +288,10 @@ func replaceInsertAndUpdate(ctx context.Context, t *testing.T, opts []BucketOpti
 		})
 
 		t.Run("count objects over several segments", func(t *testing.T) {
-			assert.Equal(t, 3, b.Count())
+			count, err := b.Count(ctx)
+			require.NoError(t, err)
+
+			assert.Equal(t, 3, count)
 			assert.Equal(t, 3, b.CountAsync())
 		})
 	})
@@ -360,7 +374,9 @@ func replaceInsertAndUpdate(ctx context.Context, t *testing.T, opts []BucketOpti
 			assert.Equal(t, res, replaced3)
 
 			// count objects over several segments after disk read
-			assert.Equal(t, 3, b2.Count())
+			count, err := b2.Count(ctx)
+			require.NoError(t, err)
+			assert.Equal(t, 3, count)
 			assert.Equal(t, 3, b2.CountAsync())
 		})
 	})
@@ -395,13 +411,13 @@ func replaceInsertAndUpdate_WithSecondaryKeys(ctx context.Context, t *testing.T,
 			err = b.Put(key3, orig3, WithSecondaryKey(0, secondaryKey3))
 			require.Nil(t, err)
 
-			res, err := b.GetBySecondary(0, secondaryKey1)
+			res, err := b.GetBySecondary(ctx, 0, secondaryKey1)
 			require.Nil(t, err)
 			assert.Equal(t, res, orig1)
-			res, err = b.GetBySecondary(0, secondaryKey2)
+			res, err = b.GetBySecondary(ctx, 0, secondaryKey2)
 			require.Nil(t, err)
 			assert.Equal(t, res, orig2)
-			res, err = b.GetBySecondary(0, secondaryKey3)
+			res, err = b.GetBySecondary(ctx, 0, secondaryKey3)
 			require.Nil(t, err)
 			assert.Equal(t, res, orig3)
 		})
@@ -421,13 +437,13 @@ func replaceInsertAndUpdate_WithSecondaryKeys(ctx context.Context, t *testing.T,
 			err = b.Put(key3, replaced3, WithSecondaryKey(0, secondaryKey3))
 			require.Nil(t, err)
 
-			res, err := b.GetBySecondary(0, secondaryKey1)
+			res, err := b.GetBySecondary(ctx, 0, secondaryKey1)
 			require.Nil(t, err)
 			assert.Equal(t, res, orig1)
-			res, err = b.GetBySecondary(0, secondaryKey2)
+			res, err = b.GetBySecondary(ctx, 0, secondaryKey2)
 			require.Nil(t, err)
 			assert.Equal(t, res, replaced2)
-			res, err = b.GetBySecondary(0, secondaryKey3)
+			res, err = b.GetBySecondary(ctx, 0, secondaryKey3)
 			require.Nil(t, err)
 			assert.Equal(t, res, replaced3)
 		})
@@ -448,13 +464,13 @@ func replaceInsertAndUpdate_WithSecondaryKeys(ctx context.Context, t *testing.T,
 			require.Nil(t, err)
 
 			// verify you can find by updated secondary keys
-			res, err := b.GetBySecondary(0, secondaryKey1)
+			res, err := b.GetBySecondary(ctx, 0, secondaryKey1)
 			require.Nil(t, err)
 			assert.Equal(t, res, orig1)
-			res, err = b.GetBySecondary(0, secondaryKey2)
+			res, err = b.GetBySecondary(ctx, 0, secondaryKey2)
 			require.Nil(t, err)
 			assert.Equal(t, res, replaced2)
-			res, err = b.GetBySecondary(0, secondaryKey3)
+			res, err = b.GetBySecondary(ctx, 0, secondaryKey3)
 			require.Nil(t, err)
 			assert.Equal(t, res, replaced3)
 		})
@@ -509,13 +525,13 @@ func replaceInsertAndUpdate_WithSecondaryKeys(ctx context.Context, t *testing.T,
 			require.Nil(t, err)
 
 			// verify you can find by updated secondary keys
-			res, err := b.GetBySecondary(0, secondaryKey1)
+			res, err := b.GetBySecondary(ctx, 0, secondaryKey1)
 			require.Nil(t, err)
 			assert.Equal(t, res, orig1)
-			res, err = b.GetBySecondary(0, secondaryKey2)
+			res, err = b.GetBySecondary(ctx, 0, secondaryKey2)
 			require.Nil(t, err)
 			assert.Equal(t, res, replaced2)
-			res, err = b.GetBySecondary(0, secondaryKey3)
+			res, err = b.GetBySecondary(ctx, 0, secondaryKey3)
 			require.Nil(t, err)
 			assert.Equal(t, res, replaced3)
 		})
@@ -581,13 +597,13 @@ func replaceInsertAndUpdate_WithSecondaryKeys(ctx context.Context, t *testing.T,
 			replaced3 := []byte("twice updated value for key3")
 
 			// verify you can find by updated secondary keys
-			res, err := b.GetBySecondary(0, secondaryKey1)
+			res, err := b.GetBySecondary(ctx, 0, secondaryKey1)
 			require.Nil(t, err)
 			assert.Equal(t, res, orig1)
-			res, err = b.GetBySecondary(0, secondaryKey2)
+			res, err = b.GetBySecondary(ctx, 0, secondaryKey2)
 			require.Nil(t, err)
 			assert.Equal(t, res, replaced2)
-			res, err = b.GetBySecondary(0, secondaryKey3)
+			res, err = b.GetBySecondary(ctx, 0, secondaryKey3)
 			require.Nil(t, err)
 			assert.Equal(t, res, replaced3)
 		})
@@ -654,13 +670,13 @@ func replaceInsertAndUpdate_WithSecondaryKeys(ctx context.Context, t *testing.T,
 			replaced3 := []byte("twice updated value for key3")
 
 			// verify you can find by updated secondary keys
-			res, err := b2.GetBySecondary(0, secondaryKey1)
+			res, err := b2.GetBySecondary(ctx, 0, secondaryKey1)
 			require.Nil(t, err)
 			assert.Equal(t, res, orig1)
-			res, err = b2.GetBySecondary(0, secondaryKey2)
+			res, err = b2.GetBySecondary(ctx, 0, secondaryKey2)
 			require.Nil(t, err)
 			assert.Equal(t, res, replaced2)
-			res, err = b2.GetBySecondary(0, secondaryKey3)
+			res, err = b2.GetBySecondary(ctx, 0, secondaryKey3)
 			require.Nil(t, err)
 			assert.Equal(t, res, replaced3)
 		})
@@ -717,7 +733,10 @@ func replaceInsertAndDelete(ctx context.Context, t *testing.T, opts []BucketOpti
 		})
 
 		t.Run("count objects", func(t *testing.T) {
-			assert.Equal(t, 1, b.Count())
+			count, err := b.Count(ctx)
+			require.NoError(t, err)
+
+			assert.Equal(t, 1, count)
 			// all happenin in the memtable so far, async does not know of any
 			// objects yet
 			assert.Equal(t, 0, b.CountAsync())
@@ -777,7 +796,10 @@ func replaceInsertAndDelete(ctx context.Context, t *testing.T, opts []BucketOpti
 		})
 
 		t.Run("count objects", func(t *testing.T) {
-			assert.Equal(t, 1, b.Count())
+			count, err := b.Count(ctx)
+			require.NoError(t, err)
+
+			assert.Equal(t, 1, count)
 			// async still looks at the objects in the segment, ignores deletes in
 			// the memtable
 			assert.Equal(t, 3, b.CountAsync())
@@ -840,7 +862,10 @@ func replaceInsertAndDelete(ctx context.Context, t *testing.T, opts []BucketOpti
 		})
 
 		t.Run("count objects", func(t *testing.T) {
-			assert.Equal(t, 1, b.Count())
+			count, err := b.Count(ctx)
+			require.NoError(t, err)
+
+			assert.Equal(t, 1, count)
 			assert.Equal(t, 1, b.CountAsync())
 		})
 	})

@@ -10,7 +10,6 @@
 //
 
 //go:build integrationTest
-// +build integrationTest
 
 package lsmkv
 
@@ -389,7 +388,10 @@ func cleanupReplaceStrategy(ctx context.Context, t *testing.T, opts []BucketOpti
 		})
 
 		t.Run("net count", func(t *testing.T) {
-			assert.Equal(t, len(expectedExising), bucket.Count())
+			count, err := bucket.Count(context.Background())
+			require.NoError(t, err)
+
+			assert.Equal(t, len(expectedExising), count)
 		})
 	})
 }
@@ -782,7 +784,7 @@ func cleanupReplaceStrategy_WithSecondaryKeys(ctx context.Context, t *testing.T,
 
 		t.Run("get by secondary 1", func(t *testing.T) {
 			for i := range expected {
-				val, err := bucket.GetBySecondary(0, []byte(secondaryKey0(expected[i].pkey)))
+				val, err := bucket.GetBySecondary(ctx, 0, []byte(secondaryKey0(expected[i].pkey)))
 
 				assert.NoError(t, err)
 				if expected[i].tomb {
@@ -795,7 +797,7 @@ func cleanupReplaceStrategy_WithSecondaryKeys(ctx context.Context, t *testing.T,
 
 		t.Run("get by secondary 2", func(t *testing.T) {
 			for i := range expected {
-				val, err := bucket.GetBySecondary(1, []byte(secondaryKey1(expected[i].pkey)))
+				val, err := bucket.GetBySecondary(ctx, 1, []byte(secondaryKey1(expected[i].pkey)))
 
 				assert.NoError(t, err)
 				if expected[i].tomb {
@@ -807,7 +809,10 @@ func cleanupReplaceStrategy_WithSecondaryKeys(ctx context.Context, t *testing.T,
 		})
 
 		t.Run("net count", func(t *testing.T) {
-			assert.Equal(t, len(expectedExising), bucket.Count())
+			count, err := bucket.Count(context.Background())
+			require.NoError(t, err)
+
+			assert.Equal(t, len(expectedExising), count)
 		})
 	})
 }

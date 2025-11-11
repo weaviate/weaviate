@@ -24,7 +24,6 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/tenantactivity"
-	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
@@ -116,9 +115,27 @@ func (o *nodeWideMetricsObserver) observeObjectCount() {
 	totalObjectCount := int64(0)
 	for _, index := range o.db.indices {
 		index.ForEachShard(func(name string, shard ShardLike) error {
+			index.shardCreateLocks.Lock(name)
+			defer index.shardCreateLocks.Unlock(name)
+			exists, err := index.tenantDirExists(name)
+			if err != nil {
+				o.db.logger.
+					WithField("action", "observe_node_wide_metrics").
+					WithField("shard", name).
+					WithField("class", index.Config.ClassName).
+					Warnf("error while checking if shard exists: %v", err)
+				return nil
+			}
+			if !exists {
+				// shard was deleted in the meantime or is newly created and hasn't been written to disk, skip
+				return nil
+			}
 			objectCount, err := shard.ObjectCountAsync(context.Background())
 			if err != nil {
-				o.db.logger.Warnf("error while getting object count for shard %s: %w", shard.Name(), err)
+				o.db.logger.WithField("action", "observe_node_wide_metrics").
+					WithField("shard", name).
+					WithField("class", index.Config.ClassName).
+					Warnf("error while getting object count for shard: %v", err)
 			}
 			totalObjectCount += objectCount
 			return nil
@@ -283,6 +300,9 @@ func (o *nodeWideMetricsObserver) getCurrentActivity() activityByCollection {
 		cn := index.Config.ClassName.String()
 		current[cn] = make(activityByTenant)
 		index.ForEachShard(func(name string, shard ShardLike) error {
+			index.shardCreateLocks.Lock(name)
+			defer index.shardCreateLocks.Unlock(name)
+
 			act := activity{}
 			act.read, act.write = shard.Activity()
 			current[cn][name] = act
@@ -353,12 +373,15 @@ func (o *nodeWideMetricsObserver) observeDimensionMetrics() {
 }
 
 func (o *nodeWideMetricsObserver) publishVectorMetrics(ctx context.Context) {
+	var indices map[string]*Index
 	// We're a low-priority process, copy the index map to avoid blocking others.
 	// No new indices can be added while we're holding the lock anyways.
-	o.db.indexLock.RLock()
-	indices := make(map[string]*Index, len(o.db.indices))
-	maps.Copy(indices, o.db.indices)
-	o.db.indexLock.RUnlock()
+	func() {
+		o.db.indexLock.RLock()
+		defer o.db.indexLock.RUnlock()
+		indices = make(map[string]*Index, len(o.db.indices))
+		maps.Copy(indices, o.db.indices)
+	}()
 
 	var total DimensionMetrics
 
@@ -375,26 +398,32 @@ func (o *nodeWideMetricsObserver) publishVectorMetrics(ctx context.Context) {
 	}()
 
 	for _, index := range indices {
-		index.closeLock.RLock()
-		closed := index.closed
-		index.closeLock.RUnlock()
-		if closed {
-			continue
-		}
+		func() {
+			index.dropIndex.RLock()
+			defer index.dropIndex.RUnlock()
 
-		className := index.Config.ClassName.String()
+			index.closeLock.RLock()
+			closed := index.closed
+			index.closeLock.RUnlock()
+			if !closed {
+				className := index.Config.ClassName.String()
 
-		// Avoid loading cold shards, as it may create I/O spikes.
-		index.ForEachLoadedShard(func(shardName string, sl ShardLike) error {
-			dim := calculateShardDimensionMetrics(ctx, sl)
-			total = total.Add(dim)
+				// Avoid loading cold shards, as it may create I/O spikes.
+				index.ForEachLoadedShard(func(shardName string, sl ShardLike) error {
+					index.shardCreateLocks.Lock(shardName)
+					defer index.shardCreateLocks.Unlock(shardName)
 
-			// Report metrics per-shard if grouping is disabled.
-			if !o.db.promMetrics.Group {
-				o.sendVectorDimensions(className, shardName, dim)
+					dim := calculateShardDimensionMetrics(ctx, sl)
+					total = total.Add(dim)
+
+					// Report metrics per-shard if grouping is disabled.
+					if !o.db.promMetrics.Group {
+						o.sendVectorDimensions(className, shardName, dim)
+					}
+					return nil
+				})
 			}
-			return nil
-		})
+		}()
 	}
 
 	// Report aggregate metrics for the node if grouping is enabled.
@@ -426,9 +455,10 @@ func calculateShardDimensionMetrics(ctx context.Context, sl ShardLike) Dimension
 
 // Calculate vector dimensions for a vector index in a shard.
 func calcVectorDimensionMetrics(ctx context.Context, sl ShardLike, vecName string, vecCfg schemaConfig.VectorIndexConfig) DimensionMetrics {
-	switch category, segments := GetDimensionCategory(vecCfg); category {
+	switch dimInfo := GetDimensionCategoryLegacy(vecCfg); dimInfo.category {
 	case DimensionCategoryPQ:
-		return DimensionMetrics{Uncompressed: 0, Compressed: sl.QuantizedDimensions(ctx, vecName, segments)}
+		count, _ := sl.QuantizedDimensions(ctx, vecName, dimInfo.segments)
+		return DimensionMetrics{Uncompressed: 0, Compressed: count}
 	case DimensionCategoryBQ:
 		// BQ: 1 bit per dimension, packed into uint64 blocks (8 bytes per 64 dimensions)
 		// [1..64] dimensions -> 8 bytes, [65..128] dimensions -> 16 bytes, etc.
@@ -442,16 +472,17 @@ func calcVectorDimensionMetrics(ctx context.Context, sl ShardLike, vecName strin
 		// For bits=1: equivalent to BQ (1 bit per dimension, packed in uint64 blocks)
 		// For bits=8: 8 bits per dimension (1 byte per dimension)
 		count, _ := sl.Dimensions(ctx, vecName)
-		bits := enthnsw.GetRQBits(vecCfg)
-		var bytes int
+		bits := dimInfo.bits
+		// RQ 8 Bit : DimensionMetrics{Uncompressed: bytes, Compressed: 0}
+		// RQ 1 Bit : DimensionMetrics{Uncompressed: 0, Compressed: bytes}
+		// this because of legacy vector_dimensions_sum is uncompressed and vector_segments_sum is compressed
 		if bits == 1 {
 			// bits=1: same as BQ - 1 bit per dimension, packed in uint64 blocks
-			bytes = (count + 63) / 64 * 8
-		} else {
-			// bits=8: 8 bits per dimension (1 byte per dimension)
-			bytes = count
+			return DimensionMetrics{Uncompressed: 0, Compressed: (count + 63) / 64 * 8}
 		}
-		return DimensionMetrics{Uncompressed: bytes, Compressed: 0}
+
+		// bits=8: 8 bits per dimension (1 byte per dimension)
+		return DimensionMetrics{Uncompressed: count, Compressed: 0}
 	default:
 		count, _ := sl.Dimensions(ctx, vecName)
 		return DimensionMetrics{Uncompressed: count, Compressed: 0}

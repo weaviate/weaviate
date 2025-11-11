@@ -20,6 +20,8 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/weaviate/weaviate/usecases/auth/authentication"
+
 	"github.com/casbin/casbin/v2"
 	"github.com/sirupsen/logrus"
 
@@ -67,11 +69,54 @@ func (m *Manager) CreateRolesPermissions(roles map[string][]authorization.Policy
 	return m.upsertRolesPermissions(roles)
 }
 
+func (m *Manager) GetUsersOrGroupsWithRoles(isGroup bool, authType authentication.AuthType) ([]string, error) {
+	roles, err := m.casbin.GetAllSubjects()
+	if err != nil {
+		return nil, err
+	}
+	usersOrGroups := map[string]struct{}{}
+	for _, role := range roles {
+		users, err := m.casbin.GetUsersForRole(role)
+		if err != nil {
+			return nil, err
+		}
+		for _, userOrGroup := range users {
+			name, _, err := conv.GetUserAndPrefix(userOrGroup)
+			if err != nil {
+				return nil, fmt.Errorf("GetUserAndPrefix: %w", err)
+			}
+			if isGroup {
+				// groups are only supported for OIDC
+				if authType == authentication.AuthTypeOIDC && strings.HasPrefix(userOrGroup, conv.OIDC_GROUP_NAME_PREFIX) {
+					usersOrGroups[name] = struct{}{}
+				}
+			} else {
+				// groups are only supported for OIDC
+				if authType == authentication.AuthTypeOIDC && strings.HasPrefix(userOrGroup, string(authentication.AuthTypeOIDC)) {
+					usersOrGroups[name] = struct{}{}
+				}
+
+				if authType == authentication.AuthTypeDb && strings.HasPrefix(userOrGroup, string(authentication.AuthTypeDb)) {
+					usersOrGroups[name] = struct{}{}
+				}
+
+			}
+		}
+	}
+
+	usersOrGroupsList := make([]string, 0, len(usersOrGroups))
+	for user := range usersOrGroups {
+		usersOrGroupsList = append(usersOrGroupsList, user)
+	}
+
+	return usersOrGroupsList, nil
+}
+
 func (m *Manager) upsertRolesPermissions(roles map[string][]authorization.Policy) error {
 	for roleName, policies := range roles {
 		// assign role to internal user to make sure to catch empty roles
 		// e.g. : g, user:wv_internal_empty, role:roleName
-		if _, err := m.casbin.AddRoleForUser(conv.UserNameWithTypeFromId(conv.InternalPlaceHolder, models.UserTypeInputDb), conv.PrefixRoleName(roleName)); err != nil {
+		if _, err := m.casbin.AddRoleForUser(conv.UserNameWithTypeFromId(conv.InternalPlaceHolder, authentication.AuthTypeDb), conv.PrefixRoleName(roleName)); err != nil {
 			return fmt.Errorf("AddRoleForUser: %w", err)
 		}
 		for _, policy := range policies {
@@ -229,13 +274,22 @@ func (m *Manager) AddRolesForUser(user string, roles []string) error {
 	return nil
 }
 
-func (m *Manager) GetRolesForUser(userName string, userType models.UserTypeInput) (map[string][]authorization.Policy, error) {
+func (m *Manager) GetRolesForUserOrGroup(userName string, authType authentication.AuthType, isGroup bool) (map[string][]authorization.Policy, error) {
 	m.backupLock.RLock()
 	defer m.backupLock.RUnlock()
 
-	rolesNames, err := m.casbin.GetRolesForUser(conv.UserNameWithTypeFromId(userName, userType))
-	if err != nil {
-		return nil, fmt.Errorf("GetRolesForUser: %w", err)
+	var rolesNames []string
+	var err error
+	if isGroup {
+		rolesNames, err = m.casbin.GetRolesForUser(conv.PrefixGroupName(userName))
+		if err != nil {
+			return nil, fmt.Errorf("GetRolesForUserOrGroup: %w", err)
+		}
+	} else {
+		rolesNames, err = m.casbin.GetRolesForUser(conv.UserNameWithTypeFromId(userName, authType))
+		if err != nil {
+			return nil, fmt.Errorf("GetRolesForUserOrGroup: %w", err)
+		}
 	}
 	if len(rolesNames) == 0 {
 		return map[string][]authorization.Policy{}, err
@@ -247,24 +301,32 @@ func (m *Manager) GetRolesForUser(userName string, userType models.UserTypeInput
 	return roles, err
 }
 
-func (m *Manager) GetUsersForRole(roleName string, userType models.UserTypeInput) ([]string, error) {
+func (m *Manager) GetUsersOrGroupForRole(roleName string, authType authentication.AuthType, isGroup bool) ([]string, error) {
 	m.backupLock.RLock()
 	defer m.backupLock.RUnlock()
 
 	pusers, err := m.casbin.GetUsersForRole(conv.PrefixRoleName(roleName))
 	if err != nil {
-		return nil, fmt.Errorf("GetUsersForRole: %w", err)
+		return nil, fmt.Errorf("GetUsersOrGroupForRole: %w", err)
 	}
 	users := make([]string, 0, len(pusers))
 	for idx := range pusers {
-		user, prefix := conv.GetUserAndPrefix(pusers[idx])
-		if user == conv.InternalPlaceHolder {
+		userOrGroup, prefix, err := conv.GetUserAndPrefix(pusers[idx])
+		if err != nil {
+			return nil, fmt.Errorf("GetUserAndPrefix: %w", err)
+		}
+		if userOrGroup == conv.InternalPlaceHolder {
 			continue
 		}
-		if prefix != string(userType) {
-			continue
+		if isGroup {
+			if authType == authentication.AuthTypeOIDC && strings.HasPrefix(conv.OIDC_GROUP_NAME_PREFIX, prefix) {
+				users = append(users, userOrGroup)
+			}
+		} else {
+			if prefix == string(authType) {
+				users = append(users, userOrGroup)
+			}
 		}
-		users = append(users, user)
 	}
 	return users, nil
 }

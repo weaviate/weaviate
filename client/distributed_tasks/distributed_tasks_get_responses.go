@@ -65,7 +65,7 @@ func NewDistributedTasksGetOK() *DistributedTasksGetOK {
 /*
 DistributedTasksGetOK describes a response with status code 200, with default header values.
 
-Distributed tasks successfully returned
+Distributed tasks successfully returned.
 */
 type DistributedTasksGetOK struct {
 	Payload models.DistributedTasks
@@ -199,7 +199,7 @@ func NewDistributedTasksGetInternalServerError() *DistributedTasksGetInternalSer
 /*
 DistributedTasksGetInternalServerError describes a response with status code 500, with default header values.
 
-An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+An internal server error occurred while retrieving distributed tasks. Check the ErrorResponse for details.
 */
 type DistributedTasksGetInternalServerError struct {
 	Payload *models.ErrorResponse

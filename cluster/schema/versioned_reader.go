@@ -66,7 +66,7 @@ func (s VersionedSchemaReader) Read(ctx context.Context,
 		return err
 	}
 
-	return s.schema.Read(class, reader)
+	return s.schema.Read(class, true, reader)
 }
 
 // ReadOnlyClass returns a shallow copy of a class.
@@ -137,17 +137,6 @@ func (s VersionedSchemaReader) TenantsShards(ctx context.Context,
 	err := s.WaitForUpdate(ctx, v)
 	status, version := s.schema.TenantsShards(class, tenants...)
 	return status, version, err
-}
-
-func (s VersionedSchemaReader) CopyShardingState(ctx context.Context,
-	class string, v uint64,
-) (*sharding.State, error) {
-	t := prometheus.NewTimer(monitoring.GetMetrics().SchemaWaitForVersion.WithLabelValues("CopyShardingState"))
-	defer t.ObserveDuration()
-
-	err := s.WaitForUpdate(ctx, v)
-	ss, _ := s.schema.CopyShardingState(class)
-	return ss, err
 }
 
 func (s VersionedSchemaReader) Len() int { return s.schema.len() }

@@ -28,8 +28,8 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
 	"github.com/weaviate/weaviate/cluster/router/types"
-	usagetypes "github.com/weaviate/weaviate/cluster/usage/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/backup"
@@ -164,21 +164,19 @@ func (l *LazyLoadShard) NotifyReady() {
 	l.shard.NotifyReady()
 }
 
-func (l *LazyLoadShard) GetStatusNoLoad() storagestate.Status {
+func (l *LazyLoadShard) GetStatus() storagestate.Status {
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
+
 	if l.loaded {
 		return l.shard.GetStatus()
 	}
-	return storagestate.StatusLoading
+	return storagestate.StatusLazyLoading
 }
 
-func (l *LazyLoadShard) GetStatus() storagestate.Status {
+func (l *LazyLoadShard) UpdateStatus(status, reason string) error {
 	l.mustLoad()
-	return l.shard.GetStatus()
-}
-
-func (l *LazyLoadShard) UpdateStatus(status string) error {
-	l.mustLoad()
-	return l.shard.UpdateStatus(status)
+	return l.shard.UpdateStatus(status, reason)
 }
 
 func (l *LazyLoadShard) SetStatusReadonly(reason string) error {
@@ -198,9 +196,9 @@ func (l *LazyLoadShard) Counter() *indexcounter.Counter {
 	return l.shard.Counter()
 }
 
-func (l *LazyLoadShard) ObjectCount() int {
+func (l *LazyLoadShard) ObjectCount(ctx context.Context) (int, error) {
 	l.mustLoad()
-	return l.shard.ObjectCount()
+	return l.shard.ObjectCount(ctx)
 }
 
 func (l *LazyLoadShard) ObjectCountAsync(ctx context.Context) (int64, error) {
@@ -210,25 +208,12 @@ func (l *LazyLoadShard) ObjectCountAsync(ctx context.Context) (int64, error) {
 		return l.shard.ObjectCountAsync(ctx)
 	}
 	l.mutex.Unlock()
-	objectUsage, err := l.shardOpts.index.CalculateUnloadedObjectsMetrics(ctx, l.shardOpts.name)
+	idx := l.shardOpts.index
+	objectUsage, err := shardusage.CalculateUnloadedObjectsMetrics(idx.logger, idx.path(), l.shardOpts.name, true)
 	if err != nil {
 		return 0, fmt.Errorf("error while getting object count for shard %s: %w", l.shardOpts.name, err)
 	}
 	return objectUsage.Count, nil
-}
-
-func (l *LazyLoadShard) ObjectStorageSize(ctx context.Context) (int64, error) {
-	l.mutex.Lock()
-	if l.loaded {
-		l.mutex.Unlock()
-		return l.shard.ObjectStorageSize(ctx)
-	}
-	l.mutex.Unlock()
-
-	// For unloaded shards, calculate storage size by walking the file system
-	// This avoids loading the shard into memory entirely
-	objectUsage, err := l.shardOpts.index.CalculateUnloadedObjectsMetrics(ctx, l.shardOpts.name)
-	return objectUsage.StorageBytes, err
 }
 
 func (l *LazyLoadShard) GetPropertyLengthTracker() *inverted.JsonShardMetaData {
@@ -390,8 +375,12 @@ func (l *LazyLoadShard) drop() error {
 		shardName := l.shardOpts.name
 
 		// cleanup metrics
-		NewMetrics(idx.logger, l.shardOpts.promMetrics, className, shardName).
-			DeleteShardLabels(className, shardName)
+		metrics, err := NewMetrics(idx.logger, l.shardOpts.promMetrics, className, shardName)
+		if err != nil {
+			return fmt.Errorf("shard metrics: %w", err)
+		}
+
+		metrics.DeleteShardLabels(className, shardName)
 
 		// cleanup dimensions: not deleted in s.metrics.DeleteShardLabels
 		clearDimensionMetrics(idx.Config, l.shardOpts.promMetrics, className, shardName)
@@ -471,19 +460,6 @@ func (l *LazyLoadShard) AnalyzeObject(object *storobj.Object) ([]inverted.Proper
 	return l.shard.AnalyzeObject(object)
 }
 
-func (l *LazyLoadShard) DimensionsUsage(ctx context.Context, targetVector string) (usagetypes.Dimensionality, error) {
-	l.mutex.Lock()
-	if l.loaded {
-		l.mutex.Unlock()
-		return l.shard.DimensionsUsage(ctx, targetVector)
-	}
-	l.mutex.Unlock()
-
-	// For unloaded shards, use the unloaded shard/tenant calculation method
-	// This avoids loading the shard into memory
-	return l.shardOpts.index.CalculateUnloadedDimensionsUsage(ctx, l.shardOpts.name, targetVector)
-}
-
 func (l *LazyLoadShard) Dimensions(ctx context.Context, targetVector string) (int, error) {
 	l.mutex.Lock()
 	if l.loaded {
@@ -493,11 +469,15 @@ func (l *LazyLoadShard) Dimensions(ctx context.Context, targetVector string) (in
 	l.mutex.Unlock()
 
 	// For unloaded shards, get dimensions from unloaded shard/tenant calculation
-	dimensionality, err := l.shardOpts.index.CalculateUnloadedDimensionsUsage(ctx, l.shardOpts.name, targetVector)
-	return dimensionality.Count, err
+	idx := l.shardOpts.index
+	dimensionality, err := shardusage.CalculateUnloadedDimensionsUsage(ctx, idx.logger, idx.path(), l.shardOpts.name, targetVector)
+	if err != nil {
+		return 0, err
+	}
+	return dimensionality.Count * dimensionality.Dimensions, nil
 }
 
-func (l *LazyLoadShard) QuantizedDimensions(ctx context.Context, targetVector string, segments int) int {
+func (l *LazyLoadShard) QuantizedDimensions(ctx context.Context, targetVector string, segments int) (int, error) {
 	l.mustLoad()
 	return l.shard.QuantizedDimensions(ctx, targetVector, segments)
 }
@@ -561,6 +541,11 @@ func (l *LazyLoadShard) FillQueue(targetVector string, from uint64) error {
 func (l *LazyLoadShard) RepairIndex(ctx context.Context, targetVector string) error {
 	l.mustLoad()
 	return l.shard.RepairIndex(ctx, targetVector)
+}
+
+func (l *LazyLoadShard) RequantizeIndex(ctx context.Context, targetVector string) error {
+	l.mustLoad()
+	return l.shard.RequantizeIndex(ctx, targetVector)
 }
 
 func (l *LazyLoadShard) Shutdown(ctx context.Context) error {
@@ -640,9 +625,9 @@ func (l *LazyLoadShard) prepareAddReferences(ctx context.Context, shardID string
 	return l.shard.prepareAddReferences(ctx, shardID, refs)
 }
 
-func (l *LazyLoadShard) commitReplication(ctx context.Context, shardID string, mutex *shardTransfer) interface{} {
+func (l *LazyLoadShard) commitReplication(ctx context.Context, shardID string) interface{} {
 	l.mustLoad()
-	return l.shard.commitReplication(ctx, shardID, mutex)
+	return l.shard.commitReplication(ctx, shardID)
 }
 
 func (l *LazyLoadShard) abortReplication(ctx context.Context, shardID string) replica.SimpleResponse {
@@ -792,15 +777,10 @@ func (l *LazyLoadShard) pathLSM() string {
 	return shardPathLSM(l.shardOpts.index.path(), l.shardOpts.name)
 }
 
-func (l *LazyLoadShard) VectorStorageSize(ctx context.Context) (int64, error) {
+func (l *LazyLoadShard) blockLoading() func() {
 	l.mutex.Lock()
-	if l.loaded {
-		l.mutex.Unlock()
-		return l.shard.VectorStorageSize(ctx)
-	}
-	l.mutex.Unlock()
 
-	// For unloaded shards, use the existing cold tenant calculation method
-	// This avoids complex disk file calculations and uses the same logic as the index
-	return l.shardOpts.index.CalculateUnloadedVectorsMetrics(ctx, l.shardOpts.name)
+	return func() {
+		l.mutex.Unlock()
+	}
 }

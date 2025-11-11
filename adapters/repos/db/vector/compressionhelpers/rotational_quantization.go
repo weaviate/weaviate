@@ -34,6 +34,10 @@ type RotationalQuantizer struct {
 	l2  float32 // Indicator for the l2-squared distancer.
 }
 
+const (
+	RQMetadataSize = 16
+)
+
 func distancerIndicatorsAndError(distancer distancer.Provider) (float32, float32, error) {
 	supportedDistances := []string{"cosine-dot", "l2-squared", "dot"}
 	if !slices.Contains(supportedDistances, distancer.Type()) {
@@ -204,6 +208,10 @@ func (rq *RotationalQuantizer) encode(x []float32, bits uint32) []byte {
 	return code
 }
 
+func (rq *RotationalQuantizer) UnRotate(x []float32) []float32 {
+	return rq.rotation.UnRotate(x)
+}
+
 func (rq *RotationalQuantizer) Rotate(x []float32) []float32 {
 	return rq.rotation.Rotate(x)
 }
@@ -261,6 +269,10 @@ func (rq *RotationalQuantizer) NewDistancer(q []float32) *RQDistancer {
 // Optimized distance computation that precomputes as much as possible and
 // avoids conditional statements by using indicator variables.
 func (d *RQDistancer) Distance(x []byte) (float32, error) {
+	if len(x) != (len(d.bytes) + RQMetadataSize) {
+		return 0, errors.Errorf("vector lengths don't match: %d vs %d",
+			len(x), len(d.bytes))
+	}
 	cx := RQCode(x)
 	dotEstimate := cx.Lower()*d.a + cx.CodeSum()*d.lower + cx.Step()*d.step*float32(dotByteImpl(cx.Bytes(), d.bytes))
 	return d.l2*(cx.Norm2()+d.norm2) + d.cos - (1.0+d.l2)*dotEstimate, d.err
@@ -276,6 +288,10 @@ func (d *RQDistancer) DistanceToFloat(x []float32) (float32, error) {
 
 // We duplicate the distance computation from the RQDistancer here for performance reasons.
 func (rq RotationalQuantizer) DistanceBetweenCompressedVectors(x, y []byte) (float32, error) {
+	if len(x) != len(y) {
+		return 0, errors.Errorf("vector lengths don't match: %d vs %d",
+			len(x), len(y))
+	}
 	cx, cy := RQCode(x), RQCode(y)
 	a := float32(rq.rotation.OutputDim) * cx.Lower() * cy.Lower()
 	b := cx.Lower() * cy.CodeSum()

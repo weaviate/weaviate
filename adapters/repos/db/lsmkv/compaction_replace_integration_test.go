@@ -190,7 +190,10 @@ func compactionReplaceStrategy(ctx context.Context, t *testing.T, opts []BucketO
 	})
 
 	t.Run("verify count control before compaction", func(*testing.T) {
-		assert.Equal(t, len(expected), bucket.Count())
+		count, err := bucket.Count(context.Background())
+		require.NoError(t, err)
+
+		assert.Equal(t, len(expected), count)
 	})
 
 	t.Run("compact until no longer eligible", func(t *testing.T) {
@@ -231,7 +234,10 @@ func compactionReplaceStrategy(ctx context.Context, t *testing.T, opts []BucketO
 		})
 
 	t.Run("verify count after compaction", func(*testing.T) {
-		assert.Equal(t, len(expected), bucket.Count())
+		count, err := bucket.Count(context.Background())
+		require.NoError(t, err)
+
+		assert.Equal(t, len(expected), count)
 	})
 }
 
@@ -398,7 +404,7 @@ func compactionReplaceStrategy_WithSecondaryKeys(ctx context.Context, t *testing
 	t.Run("verify control before compaction", func(t *testing.T) {
 		t.Run("verify the ones that should exist", func(t *testing.T) {
 			for _, pair := range expected {
-				res, err := bucket.GetBySecondary(0, pair.key)
+				res, err := bucket.GetBySecondary(ctx, 0, pair.key)
 				require.Nil(t, err)
 
 				assert.Equal(t, pair.value, res)
@@ -407,7 +413,7 @@ func compactionReplaceStrategy_WithSecondaryKeys(ctx context.Context, t *testing
 
 		t.Run("verify the ones that should NOT exist", func(t *testing.T) {
 			for _, pair := range expectedNotPresent {
-				res, err := bucket.GetBySecondary(0, pair.key)
+				res, err := bucket.GetBySecondary(ctx, 0, pair.key)
 				require.Nil(t, err)
 				assert.Nil(t, res)
 			}
@@ -425,7 +431,7 @@ func compactionReplaceStrategy_WithSecondaryKeys(ctx context.Context, t *testing
 	t.Run("verify control after compaction", func(t *testing.T) {
 		t.Run("verify the ones that should exist", func(t *testing.T) {
 			for _, pair := range expected {
-				res, err := bucket.GetBySecondary(0, pair.key)
+				res, err := bucket.GetBySecondary(ctx, 0, pair.key)
 				require.Nil(t, err)
 
 				assert.Equal(t, pair.value, res)
@@ -434,7 +440,7 @@ func compactionReplaceStrategy_WithSecondaryKeys(ctx context.Context, t *testing
 
 		t.Run("verify the ones that should NOT exist", func(t *testing.T) {
 			for _, pair := range expectedNotPresent {
-				res, err := bucket.GetBySecondary(0, pair.key)
+				res, err := bucket.GetBySecondary(ctx, 0, pair.key)
 				require.Nil(t, err)
 				assert.Nil(t, res)
 			}
@@ -727,7 +733,7 @@ func compactionReplaceStrategy_FrequentPutDeleteOperations_WithSecondaryKeys(ctx
 			})
 
 			t.Run("verify that the object exists before compaction", func(t *testing.T) {
-				res, err := bucket.GetBySecondary(0, keySecondary)
+				res, err := bucket.GetBySecondary(ctx, 0, keySecondary)
 				assert.Nil(t, err)
 				assert.NotNil(t, res)
 				res, err = bucket.Get(key)
@@ -744,7 +750,7 @@ func compactionReplaceStrategy_FrequentPutDeleteOperations_WithSecondaryKeys(ctx
 			})
 
 			t.Run("verify that the object still exists after compaction", func(t *testing.T) {
-				res, err := bucket.GetBySecondary(0, keySecondary)
+				res, err := bucket.GetBySecondary(ctx, 0, keySecondary)
 				assert.Nil(t, err)
 				assert.NotNil(t, res)
 				res, err = bucket.Get(key)

@@ -15,7 +15,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/entities/lsmkv"
@@ -26,30 +25,18 @@ func (s *segment) get(key []byte) ([]byte, error) {
 		return nil, fmt.Errorf("get only possible for strategy %q", StrategyReplace)
 	}
 
-	before := time.Now()
-
 	if s.useBloomFilter && !s.bloomFilter.Test(key) {
-		s.bloomFilterMetrics.trueNegative(before)
 		return nil, lsmkv.NotFound
 	}
 
 	node, err := s.index.Get(key)
 	if err != nil {
 		if errors.Is(err, lsmkv.NotFound) {
-			if s.useBloomFilter {
-				s.bloomFilterMetrics.falsePositive(before)
-			}
 			return nil, lsmkv.NotFound
 		} else {
 			return nil, err
 		}
 	}
-
-	defer func() {
-		if s.useBloomFilter {
-			s.bloomFilterMetrics.truePositive(before)
-		}
-	}()
 
 	// We need to copy the data we read from the segment exactly once in this
 	// place. This means that future processing can share this memory as much as
@@ -75,7 +62,7 @@ func (s *segment) get(key []byte) ([]byte, error) {
 	return v, nil
 }
 
-func (s *segment) getBySecondaryIntoMemory(pos int, key []byte, buffer []byte) ([]byte, []byte, []byte, error) {
+func (s *segment) getBySecondary(pos int, key []byte, buffer []byte) ([]byte, []byte, []byte, error) {
 	if s.strategy != segmentindex.StrategyReplace {
 		return nil, nil, nil, fmt.Errorf("get only possible for strategy %q", StrategyReplace)
 	}
@@ -150,30 +137,21 @@ func (s *segment) replaceStratParseData(in []byte) ([]byte, []byte, error) {
 	return in[9+valueLength+4 : 9+valueLength+4+uint64(pkLength)], in[9 : 9+valueLength], nil
 }
 
-func (s *segment) exists(key []byte) (bool, error) {
-	if s.strategy != segmentindex.StrategyReplace {
-		return false, fmt.Errorf("exists only possible for strategy %q", StrategyReplace)
+func (s *segment) existsKey(key []byte) (bool, error) {
+	if err := segmentindex.CheckExpectedStrategy(s.strategy, segmentindex.StrategyReplace); err != nil {
+		return false, fmt.Errorf("segment::existsKey: %w", err)
 	}
 
-	before := time.Now()
-
 	if s.useBloomFilter && !s.bloomFilter.Test(key) {
-		s.bloomFilterMetrics.trueNegative(before)
 		return false, nil
 	}
 
 	_, err := s.index.Get(key)
 
 	if err == nil {
-		if s.useBloomFilter {
-			s.bloomFilterMetrics.truePositive(before)
-		}
 		return true, nil
 	}
 	if errors.Is(err, lsmkv.NotFound) {
-		if s.useBloomFilter {
-			s.bloomFilterMetrics.falsePositive(before)
-		}
 		return false, nil
 	}
 	return false, err

@@ -31,6 +31,51 @@ func (_m *MockIndex) EXPECT() *MockIndex_Expecter {
 	return &MockIndex_Expecter{mock: &_m.Mock}
 }
 
+// IsUpgraded provides a mock function with no fields
+func (_m *MockIndex) IsUpgraded() bool {
+	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for IsUpgraded")
+	}
+
+	var r0 bool
+	if rf, ok := ret.Get(0).(func() bool); ok {
+		r0 = rf()
+	} else {
+		r0 = ret.Get(0).(bool)
+	}
+
+	return r0
+}
+
+// MockIndex_IsUpgraded_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'IsUpgraded'
+type MockIndex_IsUpgraded_Call struct {
+	*mock.Call
+}
+
+// IsUpgraded is a helper method to define mock.On call
+func (_e *MockIndex_Expecter) IsUpgraded() *MockIndex_IsUpgraded_Call {
+	return &MockIndex_IsUpgraded_Call{Call: _e.mock.On("IsUpgraded")}
+}
+
+func (_c *MockIndex_IsUpgraded_Call) Run(run func()) *MockIndex_IsUpgraded_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run()
+	})
+	return _c
+}
+
+func (_c *MockIndex_IsUpgraded_Call) Return(_a0 bool) *MockIndex_IsUpgraded_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockIndex_IsUpgraded_Call) RunAndReturn(run func() bool) *MockIndex_IsUpgraded_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // UnderlyingIndex provides a mock function with no fields
 func (_m *MockIndex) UnderlyingIndex() common.IndexType {
 	ret := _m.Called()
@@ -81,8 +126,7 @@ func (_c *MockIndex_UnderlyingIndex_Call) RunAndReturn(run func() common.IndexTy
 func NewMockIndex(t interface {
 	mock.TestingT
 	Cleanup(func())
-},
-) *MockIndex {
+}) *MockIndex {
 	mock := &MockIndex{}
 	mock.Mock.Test(t)
 

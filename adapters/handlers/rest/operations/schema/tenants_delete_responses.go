@@ -28,7 +28,7 @@ import (
 const TenantsDeleteOKCode int = 200
 
 /*
-TenantsDeleteOK Deleted tenants from specified class.
+TenantsDeleteOK Tenants deleted successfully.
 
 swagger:response tenantsDeleteOK
 */
@@ -123,7 +123,7 @@ func (o *TenantsDeleteForbidden) WriteResponse(rw http.ResponseWriter, producer 
 const TenantsDeleteUnprocessableEntityCode int = 422
 
 /*
-TenantsDeleteUnprocessableEntity Invalid Tenant class
+TenantsDeleteUnprocessableEntity Invalid request.
 
 swagger:response tenantsDeleteUnprocessableEntity
 */
@@ -168,7 +168,7 @@ func (o *TenantsDeleteUnprocessableEntity) WriteResponse(rw http.ResponseWriter,
 const TenantsDeleteInternalServerErrorCode int = 500
 
 /*
-TenantsDeleteInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+TenantsDeleteInternalServerError An error occurred while deleting tenants. Check the ErrorResponse for details.
 
 swagger:response tenantsDeleteInternalServerError
 */

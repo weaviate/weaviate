@@ -103,17 +103,9 @@ func (s *Store) UpdateBucketsStatus(targetStatus storagestate.Status) error {
 	defer s.bucketAccessLock.RUnlock()
 
 	for _, b := range s.bucketsByName {
-		if b == nil {
-			continue
+		if b != nil {
+			b.UpdateStatus(targetStatus)
 		}
-
-		b.UpdateStatus(targetStatus)
-	}
-
-	if targetStatus == storagestate.StatusReadOnly {
-		s.logger.WithField("action", "lsm_compaction").
-			WithField("path", s.dir).
-			Warn("compaction halted due to shard READONLY status")
 	}
 
 	return nil
@@ -128,6 +120,10 @@ func (s *Store) init() error {
 
 func (s *Store) bucketDir(bucketName string) string {
 	return path.Join(s.dir, bucketName)
+}
+
+func (s *Store) GetDir() string {
+	return s.dir
 }
 
 // CreateOrLoadBucket registers a bucket with the given name. If state on disk
@@ -364,12 +360,12 @@ func (s *Store) runJobOnBuckets(ctx context.Context,
 		wg.Add(1)
 		b := bucket
 		f := func() {
+			defer wg.Done()
 			status.Lock()
 			defer status.Unlock()
 			res, err := jobFunc(ctx, b)
 			resultQueue <- res
 			status.buckets[b] = err
-			wg.Done()
 		}
 		enterrors.GoWrapper(f, s.logger)
 	}
@@ -535,10 +531,11 @@ func (s *Store) ReplaceBuckets(ctx context.Context, bucketName, replacementBucke
 
 	replacementBucket.dir = newReplacementBucketDir
 
-	err = replacementBucket.setNewActiveMemtable()
+	mt, err := replacementBucket.createNewActiveMemtable()
 	if err != nil {
 		return fmt.Errorf("switch active memtable: %w", err)
 	}
+	replacementBucket.active = mt
 
 	s.updateBucketDir(bucket, currBucketDir, newBucketDir)
 	s.updateBucketDir(replacementBucket, currReplacementBucketDir, newReplacementBucketDir)
@@ -586,10 +583,11 @@ func (s *Store) RenameBucket(ctx context.Context, bucketName, newBucketName stri
 
 	currBucket.dir = newBucketDir
 
-	err := currBucket.setNewActiveMemtable()
+	mt, err := currBucket.createNewActiveMemtable()
 	if err != nil {
 		return fmt.Errorf("switch active memtable: %w", err)
 	}
+	currBucket.active = mt
 
 	s.bucketsByName[newBucketName] = currBucket
 	delete(s.bucketsByName, bucketName)
@@ -608,7 +606,7 @@ func (s *Store) updateBucketDir(bucket *Bucket, bucketDir, newBucketDir string) 
 		return strings.Replace(src, bucketDir, newBucketDir, 1)
 	}
 
-	segments, release := bucket.disk.getAndLockSegments()
+	segments, release := bucket.disk.getConsistentViewOfSegments()
 	defer release()
 
 	bucket.disk.dir = newBucketDir

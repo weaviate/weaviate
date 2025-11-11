@@ -41,7 +41,7 @@ type ClassificationsGetParams struct {
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
-	/*classification id
+	/*The unique identifier (UUID) of the classification task.
 	  Required: true
 	  In: path
 	*/

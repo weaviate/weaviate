@@ -20,7 +20,9 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
@@ -62,11 +64,14 @@ func TestUpdateIndexTenants(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mockSchemaGetter := schemaUC.NewMockSchemaGetter(t)
-			mockSchemaGetter.On("NodeName").Return("node1")
+			mockSchemaGetter.On("NodeName").Return("node1").Maybe()
 
 			class := &models.Class{
 				Class:               "TestClass",
 				InvertedIndexConfig: &models.InvertedIndexConfig{},
+				MultiTenancyConfig: &models.MultiTenancyConfig{
+					Enabled: true,
+				},
 			}
 			if tt.getClass {
 				mockSchemaGetter.On("ReadOnlyClass", "TestClass").Return(class)
@@ -89,13 +94,18 @@ func TestUpdateIndexTenants(t *testing.T) {
 				PartitioningEnabled: true,
 			}
 
+			mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+			mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
+				return readFunc(class, originalSS)
+			}).Maybe()
+			shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, mockSchemaGetter)
 			index, err := NewIndex(context.Background(), IndexConfig{
 				ClassName:         schema.ClassName("TestClass"),
 				RootPath:          t.TempDir(),
 				ReplicationFactor: 1,
 				ShardLoadLimiter:  NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
-			}, originalSS, inverted.ConfigFromModel(class.InvertedIndexConfig),
-				hnsw.NewDefaultUserConfig(), nil, nil, mockSchemaGetter, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil, nil, NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop())
+			}, inverted.ConfigFromModel(class.InvertedIndexConfig),
+				hnsw.NewDefaultUserConfig(), nil, nil, shardResolver, mockSchemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil, nil, NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop())
 			require.NoError(t, err)
 
 			shard, err := NewShard(context.Background(), nil, "shard1", index, class, nil, scheduler, nil,
@@ -141,6 +151,7 @@ func TestUpdateIndexShards(t *testing.T) {
 		newShards      []string
 		expectedShards []string
 		mustLoad       bool
+		lazyLoading    bool
 	}{
 		{
 			name:           "add new shard with lazy loading",
@@ -148,6 +159,7 @@ func TestUpdateIndexShards(t *testing.T) {
 			newShards:      []string{"shard1", "shard2", "shard3"},
 			expectedShards: []string{"shard1", "shard2", "shard3"},
 			mustLoad:       false,
+			lazyLoading:    false,
 		},
 		{
 			name:           "remove shard with lazy loading",
@@ -155,6 +167,7 @@ func TestUpdateIndexShards(t *testing.T) {
 			newShards:      []string{"shard1", "shard3"},
 			expectedShards: []string{"shard1", "shard3"},
 			mustLoad:       false,
+			lazyLoading:    false,
 		},
 		{
 			name:           "keep existing shards with lazy loading",
@@ -162,6 +175,7 @@ func TestUpdateIndexShards(t *testing.T) {
 			newShards:      []string{"shard1", "shard3"},
 			expectedShards: []string{"shard1", "shard3"},
 			mustLoad:       false,
+			lazyLoading:    false,
 		},
 		{
 			name:           "add new shard with immediate loading",
@@ -169,6 +183,7 @@ func TestUpdateIndexShards(t *testing.T) {
 			newShards:      []string{"shard1", "shard2", "shard3"},
 			expectedShards: []string{"shard1", "shard2", "shard3"},
 			mustLoad:       true,
+			lazyLoading:    false,
 		},
 		{
 			name:           "remove shard with immediate loading",
@@ -176,6 +191,7 @@ func TestUpdateIndexShards(t *testing.T) {
 			newShards:      []string{"shard1", "shard3"},
 			expectedShards: []string{"shard1", "shard3"},
 			mustLoad:       true,
+			lazyLoading:    false,
 		},
 		{
 			name:           "keep existing shards with immediate loading",
@@ -183,6 +199,31 @@ func TestUpdateIndexShards(t *testing.T) {
 			newShards:      []string{"shard1", "shard3"},
 			expectedShards: []string{"shard1", "shard3"},
 			mustLoad:       true,
+			lazyLoading:    false,
+		},
+		{
+			name:           "add new shard with lazy loading enabled",
+			initialShards:  []string{"shard1", "shard2"},
+			newShards:      []string{"shard1", "shard2", "shard3"},
+			expectedShards: []string{"shard1", "shard2", "shard3"},
+			mustLoad:       false,
+			lazyLoading:    true,
+		},
+		{
+			name:           "remove shard with lazy loading enabled",
+			initialShards:  []string{"shard1", "shard2", "shard3"},
+			newShards:      []string{"shard1", "shard3"},
+			expectedShards: []string{"shard1", "shard3"},
+			mustLoad:       false,
+			lazyLoading:    true,
+		},
+		{
+			name:           "keep existing shards with lazy loading enabled",
+			initialShards:  []string{"shard1", "shard3"},
+			newShards:      []string{"shard1", "shard3"},
+			expectedShards: []string{"shard1", "shard3"},
+			mustLoad:       false,
+			lazyLoading:    true,
 		},
 	}
 
@@ -192,12 +233,15 @@ func TestUpdateIndexShards(t *testing.T) {
 			logger := logrus.New()
 
 			mockSchemaGetter := schemaUC.NewMockSchemaGetter(t)
-			mockSchemaGetter.On("NodeName").Return("node1")
+			mockSchemaGetter.On("NodeName").Return("node1").Maybe()
 
 			// Create a test class
 			class := &models.Class{
 				Class:               "TestClass",
 				InvertedIndexConfig: &models.InvertedIndexConfig{},
+				MultiTenancyConfig: &models.MultiTenancyConfig{
+					Enabled: true,
+				},
 			}
 			mockSchemaGetter.On("ReadOnlyClass", "TestClass").Return(class).Maybe()
 
@@ -217,14 +261,20 @@ func TestUpdateIndexShards(t *testing.T) {
 				Logger:  logger,
 				Workers: 1,
 			})
+			mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+			mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
+				return readFunc(class, initialState)
+			}).Maybe()
+			shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, mockSchemaGetter)
 			// Create index with proper configuration
 			index, err := NewIndex(ctx, IndexConfig{
-				ClassName:         schema.ClassName("TestClass"),
-				RootPath:          t.TempDir(),
-				ReplicationFactor: 1,
-				ShardLoadLimiter:  NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
-			}, initialState, inverted.ConfigFromModel(class.InvertedIndexConfig),
-				hnsw.NewDefaultUserConfig(), nil, nil, mockSchemaGetter, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil, memwatch.NewDummyMonitor(), NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop())
+				ClassName:             schema.ClassName("TestClass"),
+				RootPath:              t.TempDir(),
+				ReplicationFactor:     1,
+				ShardLoadLimiter:      NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
+				DisableLazyLoadShards: !tt.lazyLoading, // Enable lazy loading when lazyLoading is true
+			}, inverted.ConfigFromModel(class.InvertedIndexConfig),
+				hnsw.NewDefaultUserConfig(), nil, nil, shardResolver, mockSchemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil, memwatch.NewDummyMonitor(), NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop())
 			require.NoError(t, err)
 
 			// Initialize shards
@@ -257,11 +307,21 @@ func TestUpdateIndexShards(t *testing.T) {
 			err = migrator.updateIndexShards(ctx, index, newState)
 			require.NoError(t, err)
 
-			// Verify expected shards exist and are ready
+			// Verify expected shards exist and are of the correct type and status
 			for _, expectedShard := range tt.expectedShards {
 				shard := index.shards.Load(expectedShard)
 				require.NotNil(t, shard, "shard %s should exist", expectedShard)
-				require.Equal(t, storagestate.StatusReady, shard.GetStatus(), "shard %s should be ready", expectedShard)
+
+				_, isLazy := shard.(*LazyLoadShard)
+				if tt.lazyLoading {
+					// If lazyLoading is true, shard should be a LazyLoadShard
+					require.True(t, isLazy, "shard %s should be a LazyLoadShard when lazyLoading=true", expectedShard)
+					status := shard.GetStatus()
+					require.True(t, status == storagestate.StatusLazyLoading, "shard %s should be in lazy loading state", expectedShard)
+				} else {
+					require.False(t, isLazy, "shard %s should be a regular Shard when lazyLoading=false", expectedShard)
+					require.Equal(t, storagestate.StatusReady, shard.GetStatus(), "shard %s should be ready", expectedShard)
+				}
 			}
 
 			// Verify removed shards are dropped
@@ -284,6 +344,9 @@ func TestListAndGetFilesWithIntegrityChecking(t *testing.T) {
 	class := &models.Class{
 		Class:               "TestClass",
 		InvertedIndexConfig: &models.InvertedIndexConfig{},
+		MultiTenancyConfig: &models.MultiTenancyConfig{
+			Enabled: true,
+		},
 	}
 	mockSchemaGetter.On("ReadOnlyClass", "TestClass").Return(class).Maybe()
 
@@ -307,13 +370,18 @@ func TestListAndGetFilesWithIntegrityChecking(t *testing.T) {
 		PartitioningEnabled: true,
 	}
 
+	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
+		return readFunc(class, originalSS)
+	}).Maybe()
+	shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, mockSchemaGetter)
 	index, err := NewIndex(context.Background(), IndexConfig{
 		ClassName:         schema.ClassName("TestClass"),
 		RootPath:          t.TempDir(),
 		ReplicationFactor: 1,
 		ShardLoadLimiter:  NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
-	}, originalSS, inverted.ConfigFromModel(class.InvertedIndexConfig),
-		hnsw.NewDefaultUserConfig(), nil, nil, mockSchemaGetter, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil, nil, NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop())
+	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
+		hnsw.NewDefaultUserConfig(), nil, nil, shardResolver, mockSchemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil, nil, NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop())
 	require.NoError(t, err)
 
 	shard, err := NewShard(context.Background(), nil, "shard1", index, class, nil, scheduler, nil,

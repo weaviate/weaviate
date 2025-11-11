@@ -42,6 +42,7 @@ func TestGraphQL_AsyncIndexing(t *testing.T) {
 		WithWeaviateEnv("ASYNC_INDEXING", "true").
 		WithWeaviateEnv("ASYNC_INDEXING_STALE_TIMEOUT", "100ms").
 		WithWeaviateEnv("QUEUE_SCHEDULER_INTERVAL", "100ms").
+		WithWeaviateEnv("API_BASED_MODULES_DISABLED", "true").
 		Start(ctx)
 	require.NoError(t, err)
 	defer func() {
@@ -185,6 +186,7 @@ func TestGroupBy(t *testing.T) {
 
 	t.Run("groupBy objects with bm25", groupByBm25)
 	t.Run("groupBy objects with hybrid nearvector", groupByHybridNearVector)
+	t.Run("hybrid search group by array properties", hybridSearchGroupByArrayTests)
 
 	t.Run("conflicting subsearches", conflictingSubSearches)
 	t.Run("vector and nearText", vectorNearText)

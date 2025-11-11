@@ -21,6 +21,7 @@ import (
 	anyscale "github.com/weaviate/weaviate/modules/generative-anyscale/parameters"
 	aws "github.com/weaviate/weaviate/modules/generative-aws/parameters"
 	cohere "github.com/weaviate/weaviate/modules/generative-cohere/parameters"
+	contextualai "github.com/weaviate/weaviate/modules/generative-contextualai/parameters"
 	databricks "github.com/weaviate/weaviate/modules/generative-databricks/parameters"
 	friendliai "github.com/weaviate/weaviate/modules/generative-friendliai/parameters"
 	google "github.com/weaviate/weaviate/modules/generative-google/parameters"
@@ -51,6 +52,14 @@ func makeFloat64Ptr(f float64) *float64 {
 
 func makeBoolPtr(b bool) *bool {
 	return &b
+}
+
+func makeStrPtrArray(values ...string) []*string {
+	arr := make([]*string, len(values))
+	for i := range values {
+		arr[i] = &values[i]
+	}
+	return arr
 }
 
 func getPropNames(props []*models.Property) []string {
@@ -376,6 +385,7 @@ func Test_RequestParser(t *testing.T) {
 									TargetVariant: makeStrPtr("targetVariant"),
 									Model:         makeStrPtr("model"),
 									Temperature:   makeFloat64Ptr(0.5),
+									MaxTokens:     makeInt64Ptr(500),
 								},
 							},
 						},
@@ -393,6 +403,7 @@ func Test_RequestParser(t *testing.T) {
 						TargetVariant: "targetVariant",
 						Model:         "model",
 						Temperature:   makeFloat64Ptr(0.5),
+						MaxTokens:     makeIntPtr(500),
 					},
 				},
 			},
@@ -458,6 +469,12 @@ func Test_RequestParser(t *testing.T) {
 									StopSequences: &pb.TextArray{
 										Values: []string{"stop"},
 									},
+									Images: &pb.TextArray{
+										Values: []string{"base64_encoded_image"},
+									},
+									ImageProperties: &pb.TextArray{
+										Values: []string{"image_property"},
+									},
 								},
 							},
 						},
@@ -465,7 +482,8 @@ func Test_RequestParser(t *testing.T) {
 				},
 			},
 			expected: &generate.Params{
-				Prompt: makeStrPtr("prompt"),
+				Prompt:     makeStrPtr("prompt"),
+				Properties: []string{"image_property"},
 				Options: map[string]any{
 					"cohere": cohere.Params{
 						BaseURL:          "url",
@@ -477,6 +495,8 @@ func Test_RequestParser(t *testing.T) {
 						FrequencyPenalty: makeFloat64Ptr(0.5),
 						PresencePenalty:  makeFloat64Ptr(0.5),
 						StopSequences:    []string{"stop"},
+						Images:           makeStrPtrArray("base64_encoded_image"),
+						ImageProperties:  []string{"image_property"},
 					},
 				},
 			},
@@ -687,6 +707,8 @@ func Test_RequestParser(t *testing.T) {
 									TopP:             makeFloat64Ptr(0.5),
 									FrequencyPenalty: makeFloat64Ptr(0.5),
 									PresencePenalty:  makeFloat64Ptr(0.5),
+									ReasoningEffort:  pb.GenerativeOpenAI_REASONING_EFFORT_HIGH.Enum(),
+									Verbosity:        pb.GenerativeOpenAI_VERBOSITY_LOW.Enum(),
 									Stop: &pb.TextArray{
 										Values: []string{"stop"},
 									},
@@ -712,6 +734,8 @@ func Test_RequestParser(t *testing.T) {
 						TopP:             makeFloat64Ptr(0.5),
 						FrequencyPenalty: makeFloat64Ptr(0.5),
 						PresencePenalty:  makeFloat64Ptr(0.5),
+						ReasoningEffort:  makeStrPtr("high"),
+						Verbosity:        makeStrPtr("low"),
 						Stop:             []string{"stop"},
 					},
 				},
@@ -1107,6 +1131,86 @@ func Test_RequestParser(t *testing.T) {
 						Temperature: makeFloat64Ptr(0.5),
 						TopP:        makeFloat64Ptr(0.5),
 						MaxTokens:   makeIntPtr(10),
+					},
+				},
+			},
+		},
+		{
+			name:       "generative search; single response; nil dynamic ContextualAI",
+			uses127Api: true,
+			in: &pb.GenerativeSearch{
+				Single: &pb.GenerativeSearch_Single{
+					Prompt: "prompt",
+					Queries: []*pb.GenerativeProvider{
+						{
+							Kind: &pb.GenerativeProvider_Contextualai{},
+						},
+					},
+				},
+			},
+			expected: &generate.Params{
+				Prompt:  makeStrPtr("prompt"),
+				Options: nil,
+			},
+		},
+		{
+			name:       "generative search; single response; empty dynamic ContextualAI",
+			uses127Api: true,
+			in: &pb.GenerativeSearch{
+				Single: &pb.GenerativeSearch_Single{
+					Prompt: "prompt",
+					Queries: []*pb.GenerativeProvider{
+						{
+							Kind: &pb.GenerativeProvider_Contextualai{
+								Contextualai: &pb.GenerativeContextualAI{},
+							},
+						},
+					},
+				},
+			},
+			expected: &generate.Params{
+				Prompt: makeStrPtr("prompt"),
+				Options: map[string]any{
+					"contextualai": contextualai.Params{},
+				},
+			},
+		},
+		{
+			name:       "generative search; single response; full dynamic ContextualAI",
+			uses127Api: true,
+			in: &pb.GenerativeSearch{
+				Single: &pb.GenerativeSearch_Single{
+					Prompt: "prompt",
+					Queries: []*pb.GenerativeProvider{
+						{
+							Kind: &pb.GenerativeProvider_Contextualai{
+								Contextualai: &pb.GenerativeContextualAI{
+									Model:           makeStrPtr("model"),
+									Temperature:     makeFloat64Ptr(0.5),
+									TopP:            makeFloat64Ptr(0.6),
+									MaxNewTokens:    makeInt64Ptr(10),
+									SystemPrompt:    makeStrPtr("system prompt value"),
+									AvoidCommentary: makeBoolPtr(true),
+									Knowledge: &pb.TextArray{
+										Values: []string{"knowledge"},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			expected: &generate.Params{
+				Prompt: makeStrPtr("prompt"),
+				Options: map[string]any{
+					"contextualai": contextualai.Params{
+						Model:           "model",
+						Temperature:     makeFloat64Ptr(0.5),
+						TopP:            makeFloat64Ptr(0.6),
+						MaxNewTokens:    makeIntPtr(10),
+						SystemPrompt:    "system prompt value",
+						AvoidCommentary: makeBoolPtr(true),
+						Knowledge:       []string{"knowledge"},
 					},
 				},
 			},

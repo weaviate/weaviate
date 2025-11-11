@@ -13,24 +13,38 @@ package lsmkv
 
 import (
 	"fmt"
+	"os"
 	"regexp"
 	"strconv"
 	"sync"
+	"sync/atomic"
 
 	"github.com/weaviate/sroar"
 
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
+	"github.com/weaviate/weaviate/entities/schema"
+)
+
+var (
+	levelRegEx    = regexp.MustCompile(`\.l(\d+)\.`)
+	strategyRegEx = regexp.MustCompile(`\.s(\d+)\.`)
 )
 
 type lazySegment struct {
-	path        string
+	path string
+	size int64
+
 	logger      logrus.FieldLogger
 	metrics     *Metrics
 	existsLower existsOnLowerSegmentsFn
 	cfg         segmentConfig
+
+	level    atomic.Pointer[uint16]
+	strategy atomic.Pointer[segmentindex.Strategy]
 
 	segment *segment
 	mux     sync.Mutex
@@ -43,8 +57,23 @@ func newLazySegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		metrics.LazySegmentInit.Inc()
 	}
 
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("open file: %w", err)
+	}
+
+	defer func() {
+		file.Close()
+	}()
+
+	fileInfo, err := file.Stat()
+	if err != nil {
+		return nil, fmt.Errorf("stat file: %w", err)
+	}
+
 	return &lazySegment{
 		path:        path,
+		size:        fileInfo.Size(),
 		logger:      logger,
 		metrics:     metrics,
 		existsLower: existsLower,
@@ -71,8 +100,7 @@ func (s *lazySegment) load() error {
 }
 
 func (s *lazySegment) mustLoad() {
-	err := s.load()
-	if err != nil {
+	if err := s.load(); err != nil {
 		panic(fmt.Errorf("error loading segment %q: %w", s.path, err))
 	}
 }
@@ -87,9 +115,16 @@ func (s *lazySegment) setPath(path string) {
 }
 
 func (s *lazySegment) getStrategy() segmentindex.Strategy {
-	strategy, found := s.numberFromPath("s")
+	ptr := s.strategy.Load()
+	if ptr != nil {
+		return *ptr
+	}
+
+	strategy, found := s.numberFromPath(strategyRegEx)
 	if found {
-		return segmentindex.Strategy(strategy)
+		strtg := segmentindex.Strategy(strategy)
+		s.strategy.Store(&strtg)
+		return strtg
 	}
 	s.mustLoad()
 	return s.segment.getStrategy()
@@ -101,18 +136,20 @@ func (s *lazySegment) getSecondaryIndexCount() uint16 {
 }
 
 func (s *lazySegment) getLevel() uint16 {
-	level, found := s.numberFromPath("l")
+	ptr := s.level.Load()
+	if ptr != nil {
+		return *ptr
+	}
+
+	level, found := s.numberFromPath(levelRegEx)
 	if found {
-		return uint16(level)
+		lvl := uint16(level)
+		s.level.Store(&lvl)
+		return lvl
 	}
 
 	s.mustLoad()
 	return s.segment.getLevel()
-}
-
-func (s *lazySegment) getSize() int64 {
-	s.mustLoad()
-	return s.segment.getSize()
 }
 
 func (s *lazySegment) setSize(size int64) {
@@ -120,14 +157,18 @@ func (s *lazySegment) setSize(size int64) {
 	s.segment.setSize(size)
 }
 
-func (s *lazySegment) PayloadSize() int {
+func (s *lazySegment) indexSize() int {
 	s.mustLoad()
-	return s.segment.PayloadSize()
+	return s.segment.indexSize()
 }
 
-func (s *lazySegment) Size() int {
+func (s *lazySegment) payloadSize() int {
 	s.mustLoad()
-	return s.segment.Size()
+	return s.segment.payloadSize()
+}
+
+func (s *lazySegment) Size() int64 {
+	return s.size
 }
 
 func (s *lazySegment) close() error {
@@ -146,14 +187,19 @@ func (s *lazySegment) close() error {
 	return s.segment.close()
 }
 
+func (s *lazySegment) dropMarked() error {
+	s.mustLoad()
+	return s.segment.dropMarked()
+}
+
 func (s *lazySegment) get(key []byte) ([]byte, error) {
 	s.mustLoad()
 	return s.segment.get(key)
 }
 
-func (s *lazySegment) getBySecondaryIntoMemory(pos int, key []byte, buffer []byte) ([]byte, []byte, []byte, error) {
+func (s *lazySegment) getBySecondary(pos int, key []byte, buffer []byte) ([]byte, []byte, []byte, error) {
 	s.mustLoad()
-	return s.segment.getBySecondaryIntoMemory(pos, key, buffer)
+	return s.segment.getBySecondary(pos, key, buffer)
 }
 
 func (s *lazySegment) getCollection(key []byte) ([]value, error) {
@@ -164,11 +210,6 @@ func (s *lazySegment) getCollection(key []byte) ([]value, error) {
 func (s *lazySegment) getInvertedData() *segmentInvertedData {
 	s.mustLoad()
 	return s.segment.getInvertedData()
-}
-
-func (s *lazySegment) getSegment() *segment {
-	s.mustLoad()
-	return s.segment
 }
 
 func (s *lazySegment) isLoaded() bool {
@@ -188,7 +229,7 @@ func (s *lazySegment) MergeTombstones(other *sroar.Bitmap) (*sroar.Bitmap, error
 	return s.segment.MergeTombstones(other)
 }
 
-func (s *lazySegment) newCollectionCursor() *segmentCursorCollection {
+func (s *lazySegment) newCollectionCursor() innerCursorCollection {
 	s.mustLoad()
 	return s.segment.newCollectionCursor()
 }
@@ -198,7 +239,7 @@ func (s *lazySegment) newCollectionCursorReusable() *segmentCursorCollectionReus
 	return s.segment.newCollectionCursorReusable()
 }
 
-func (s *lazySegment) newCursor() *segmentCursorReplace {
+func (s *lazySegment) newCursor() innerCursorReplaceAllKeys {
 	s.mustLoad()
 	return s.segment.newCursor()
 }
@@ -208,7 +249,7 @@ func (s *lazySegment) newCursorWithSecondaryIndex(pos int) *segmentCursorReplace
 	return s.segment.newCursorWithSecondaryIndex(pos)
 }
 
-func (s *lazySegment) newMapCursor() *segmentCursorMap {
+func (s *lazySegment) newMapCursor() innerCursorMap {
 	s.mustLoad()
 	return s.segment.newMapCursor()
 }
@@ -218,7 +259,7 @@ func (s *lazySegment) newNodeReader(offset nodeOffset, operation string) (*nodeR
 	return s.segment.newNodeReader(offset, operation)
 }
 
-func (s *lazySegment) newRoaringSetCursor() *roaringset.SegmentCursor {
+func (s *lazySegment) newRoaringSetCursor() roaringset.SegmentCursor {
 	s.mustLoad()
 	return s.segment.newRoaringSetCursor()
 }
@@ -228,7 +269,7 @@ func (s *lazySegment) newRoaringSetRangeCursor() roaringsetrange.SegmentCursor {
 	return s.segment.newRoaringSetRangeCursor()
 }
 
-func (s *lazySegment) newRoaringSetRangeReader() *roaringsetrange.SegmentReader {
+func (s *lazySegment) newRoaringSetRangeReader() roaringsetrange.InnerReader {
 	s.mustLoad()
 	return s.segment.newRoaringSetRangeReader()
 }
@@ -260,9 +301,7 @@ func (s *lazySegment) roaringSetMergeWith(key []byte, input roaringset.BitmapLay
 	return s.segment.roaringSetMergeWith(key, input, bitmapBufPool)
 }
 
-func (s *lazySegment) numberFromPath(str string) (int, bool) {
-	template := fmt.Sprintf(`\.%s(\d+)\.`, str)
-	re := regexp.MustCompile(template)
+func (s *lazySegment) numberFromPath(re *regexp.Regexp) (int, bool) {
 	match := re.FindStringSubmatch(s.path)
 	if len(match) > 1 {
 		num, err := strconv.Atoi(match[1])
@@ -271,4 +310,68 @@ func (s *lazySegment) numberFromPath(str string) (int, bool) {
 		}
 	}
 	return 0, false
+}
+
+func (s *lazySegment) incRef() {
+	s.mustLoad()
+	s.segment.incRef()
+}
+
+func (s *lazySegment) decRef() {
+	s.mustLoad()
+	s.segment.decRef()
+}
+
+func (s *lazySegment) getRefs() int {
+	s.mustLoad()
+	return s.segment.getRefs()
+}
+
+func (s *lazySegment) hasKey(key []byte) bool {
+	s.mustLoad()
+	return s.segment.hasKey(key)
+}
+
+func (s *lazySegment) getPropertyLengths() (map[uint64]uint32, error) {
+	if err := s.load(); err != nil {
+		return nil, fmt.Errorf("lazySegment::getPropertyLengths: %w", err)
+	}
+	return s.segment.getPropertyLengths()
+}
+
+func (s *lazySegment) newInvertedCursorReusable() *segmentCursorInvertedReusable {
+	s.mustLoad()
+	return s.segment.newInvertedCursorReusable()
+}
+
+func (s *lazySegment) newSegmentBlockMax(key []byte, queryTermIndex int, idf float64,
+	propertyBoost float32, tombstones *sroar.Bitmap, filterDocIds helpers.AllowList,
+	averagePropLength float64, config schema.BM25Config,
+) *SegmentBlockMax {
+	s.mustLoad()
+	return s.segment.newSegmentBlockMax(key, queryTermIndex, idf, propertyBoost, tombstones, filterDocIds, averagePropLength, config)
+}
+
+func (s *lazySegment) getDocCount(key []byte) uint64 {
+	s.mustLoad()
+	return s.segment.getDocCount(key)
+}
+
+func (s *lazySegment) getCountNetAdditions() int {
+	s.mustLoad()
+	return s.segment.getCountNetAdditions()
+}
+
+func (s *lazySegment) existsKey(key []byte) (bool, error) {
+	if err := s.load(); err != nil {
+		return false, fmt.Errorf("lazySegment::existsKey: %w", err)
+	}
+	return s.segment.existsKey(key)
+}
+
+func (s *lazySegment) stripTmpExtensions(leftSegmentID, rightSegmentID string) error {
+	if err := s.load(); err != nil {
+		return fmt.Errorf("lazySegment::stripTmpExtensions: %w", err)
+	}
+	return s.segment.stripTmpExtensions(leftSegmentID, rightSegmentID)
 }

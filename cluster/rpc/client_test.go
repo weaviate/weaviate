@@ -15,12 +15,19 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"testing"
 
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/usecases/fakes"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
+	"google.golang.org/grpc/test/bufconn"
 )
 
 var ErrAny = errors.New("any error")
@@ -73,4 +80,52 @@ func TestClient(t *testing.T) {
 		_, err = c.Query(ctx, badAddr, &cmd.QueryRequest{Type: cmd.QueryRequest_TYPE_GET_CLASSES})
 		require.ErrorContains(t, err, "dial")
 	})
+}
+
+type mockClusterService struct {
+	cmd.UnimplementedClusterServiceServer
+}
+
+func (m *mockClusterService) Query(ctx context.Context, req *cmd.QueryRequest) (*cmd.QueryResponse, error) {
+	return nil, status.Error(codes.NotFound, "resource not found")
+}
+
+func TestClient_Query_ParseError(t *testing.T) {
+	ctx := context.Background()
+
+	lis := bufconn.Listen(1024 * 1024)
+	s := grpc.NewServer()
+	cmd.RegisterClusterServiceServer(s, &mockClusterService{})
+
+	go func() {
+		if err := s.Serve(lis); err != nil {
+			t.Logf("Server exited with error: %v", err)
+		}
+	}()
+	defer s.Stop()
+
+	// https://pkg.go.dev/google.golang.org/grpc#WithContextDialer
+	// to know what "passthrough" means.
+	// tldr; prefix tells gRPC to use the passthrough resolver which directly uses the target as the address
+	conn, err := grpc.NewClient("passthrough:bufnet",
+		grpc.WithContextDialer(func(ctx context.Context, address string) (net.Conn, error) {
+			return lis.Dial()
+		}),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	require.NoError(t, err)
+	defer conn.Close()
+
+	client := cmd.NewClusterServiceClient(conn)
+
+	_, err = client.Query(ctx, &cmd.QueryRequest{Type: cmd.QueryRequest_TYPE_RESOLVE_ALIAS})
+	require.Error(t, err)
+
+	parsedErr := fromRPCError(err)
+	require.Error(t, parsedErr)
+	require.ErrorIs(t, parsedErr, schemaUC.ErrNotFound)
+
+	st, ok := status.FromError(err)
+	require.True(t, ok)
+	require.Equal(t, codes.NotFound, st.Code())
 }

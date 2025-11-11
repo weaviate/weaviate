@@ -41,25 +41,25 @@ func init() {
   ],
   "swagger": "2.0",
   "info": {
-    "description": "# Introduction\n Weaviate is an open source, AI-native vector database that helps developers create intuitive and reliable AI-powered applications. \n ### Base Path \nThe base path for the Weaviate server is structured as ` + "`" + `[YOUR-WEAVIATE-HOST]:[PORT]/v1` + "`" + `. As an example, if you wish to access the ` + "`" + `schema` + "`" + ` endpoint on a local instance, you would navigate to ` + "`" + `http://localhost:8080/v1/schema` + "`" + `. Ensure you replace ` + "`" + `[YOUR-WEAVIATE-HOST]` + "`" + ` and ` + "`" + `[PORT]` + "`" + ` with your actual server host and port number respectively. \n ### Questions? \nIf you have any comments or questions, please feel free to reach out to us at the community forum [https://forum.weaviate.io/](https://forum.weaviate.io/). \n### Issues? \nIf you find a bug or want to file a feature request, please open an issue on our GitHub repository for [Weaviate](https://github.com/weaviate/weaviate). \n### Want more documentation? \nFor a quickstart, code examples, concepts and more, please visit our [documentation page](https://weaviate.io/developers/weaviate).",
-    "title": "Weaviate",
+    "description": "# Introduction\u003cbr/\u003e Weaviate is an open source, AI-native vector database that helps developers create intuitive and reliable AI-powered applications. \u003cbr/\u003e ### Base Path \u003cbr/\u003eThe base path for the Weaviate server is structured as ` + "`" + `[YOUR-WEAVIATE-HOST]:[PORT]/v1` + "`" + `. As an example, if you wish to access the ` + "`" + `schema` + "`" + ` endpoint on a local instance, you would navigate to ` + "`" + `http://localhost:8080/v1/schema` + "`" + `. Ensure you replace ` + "`" + `[YOUR-WEAVIATE-HOST]` + "`" + ` and ` + "`" + `[PORT]` + "`" + ` with your actual server host and port number respectively. \u003cbr/\u003e ### Questions? \u003cbr/\u003eIf you have any comments or questions, please feel free to reach out to us at the community forum [https://forum.weaviate.io/](https://forum.weaviate.io/). \u003cbr/\u003e### Issues? \u003cbr/\u003eIf you find a bug or want to file a feature request, please open an issue on our GitHub repository for [Weaviate](https://github.com/weaviate/weaviate). \u003cbr/\u003e### Need more documentation? \u003cbr/\u003eFor a quickstart, code examples, concepts and more, please visit our [documentation page](https://docs.weaviate.io/weaviate).",
+    "title": "Weaviate REST API",
     "contact": {
       "name": "Weaviate",
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.33.0-dev"
+    "version": "1.35.0-dev"
   },
   "basePath": "/v1",
   "paths": {
     "/": {
       "get": {
-        "description": "Get links to other endpoints to help discover the REST API",
+        "description": "Get links to other endpoints to help discover the REST API.",
         "summary": "List available endpoints",
         "operationId": "weaviate.root",
         "responses": {
           "200": {
-            "description": "Weaviate is alive and ready to serve content",
+            "description": "Weaviate is alive and ready.",
             "schema": {
               "type": "object",
               "properties": {
@@ -77,41 +77,41 @@ func init() {
     },
     "/.well-known/live": {
       "get": {
-        "description": "Determines whether the application is alive. Can be used for kubernetes liveness probe",
-        "summary": "Get application liveness.",
+        "description": "Indicates if the Weaviate instance is running and responsive to basic HTTP requests. Primarily used for health checks, such as Kubernetes liveness probes.",
+        "summary": "Check application liveness",
         "operationId": "weaviate.wellknown.liveness",
         "responses": {
           "200": {
-            "description": "The application is able to respond to HTTP requests"
+            "description": "The application is alive and responding to HTTP requests."
           }
         }
       }
     },
     "/.well-known/openid-configuration": {
       "get": {
-        "description": "OIDC Discovery page, redirects to the token issuer if one is configured",
+        "description": "Provides OpenID Connect (OIDC) discovery information if OIDC authentication is configured for Weaviate. Returns details like the token issuer URL, client ID, and required scopes.",
         "tags": [
           "well-known",
           "oidc",
           "discovery"
         ],
-        "summary": "OIDC discovery information if OIDC auth is enabled",
+        "summary": "Get OIDC configuration",
         "responses": {
           "200": {
-            "description": "Successful response, inspect body",
+            "description": "OIDC configuration details returned successfully.",
             "schema": {
               "type": "object",
               "properties": {
                 "clientId": {
-                  "description": "OAuth Client ID",
+                  "description": "The OAuth Client ID configured for Weaviate.",
                   "type": "string"
                 },
                 "href": {
-                  "description": "The Location to redirect to",
+                  "description": "The OIDC issuer URL to redirect to for authentication.",
                   "type": "string"
                 },
                 "scopes": {
-                  "description": "OAuth Scopes",
+                  "description": "The required OAuth scopes for authentication.",
                   "type": "array",
                   "items": {
                     "type": "string"
@@ -122,10 +122,10 @@ func init() {
             }
           },
           "404": {
-            "description": "Not found, no oidc provider present"
+            "description": "OIDC provider is not configured for this Weaviate instance."
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An internal server error occurred while retrieving OIDC configuration. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -137,15 +137,15 @@ func init() {
     },
     "/.well-known/ready": {
       "get": {
-        "description": "Determines whether the application is ready to receive traffic. Can be used for kubernetes readiness probe.",
-        "summary": "Get application readiness.",
+        "description": "Indicates if the Weaviate instance has completed its startup routines and is prepared to accept user traffic (data import, queries, etc.). Used for readiness checks, such as Kubernetes readiness probes.",
+        "summary": "Check application readiness",
         "operationId": "weaviate.wellknown.readiness",
         "responses": {
           "200": {
-            "description": "The application has completed its start-up routine and is ready to accept traffic."
+            "description": "The application is ready to serve traffic."
           },
           "503": {
-            "description": "The application is currently not able to serve traffic. If other horizontal replicas of weaviate are available and they are capable of receiving traffic, all traffic should be redirected there instead."
+            "description": "The application is not ready to serve traffic. Traffic should be directed to other available replicas if applicable."
           }
         }
       }
@@ -410,42 +410,35 @@ func init() {
         }
       }
     },
-    "/authz/groups/{id}/assign": {
-      "post": {
+    "/authz/groups/{groupType}": {
+      "get": {
+        "description": "Retrieves a list of all available group names for a specified group type (` + "`" + `oidc` + "`" + ` or ` + "`" + `db` + "`" + `).",
         "tags": [
           "authz"
         ],
-        "summary": "Assign a role to a group",
-        "operationId": "assignRoleToGroup",
+        "summary": "List all groups of a specific type",
+        "operationId": "getGroups",
         "parameters": [
           {
+            "enum": [
+              "oidc"
+            ],
             "type": "string",
-            "description": "group name",
-            "name": "id",
+            "description": "The type of group to retrieve.",
+            "name": "groupType",
             "in": "path",
             "required": true
-          },
-          {
-            "name": "body",
-            "in": "body",
-            "required": true,
-            "schema": {
-              "type": "object",
-              "properties": {
-                "roles": {
-                  "description": "the roles that assigned to group",
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  }
-                }
-              }
-            }
           }
         ],
         "responses": {
           "200": {
-            "description": "Role assigned successfully"
+            "description": "A list of group names for the specified type.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
           },
           "400": {
             "description": "Bad request",
@@ -462,8 +455,82 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "422": {
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.authz.get.groups"
+        ]
+      }
+    },
+    "/authz/groups/{id}/assign": {
+      "post": {
+        "description": "Assign roles to the specified group.",
+        "tags": [
+          "authz"
+        ],
+        "summary": "Assign a role to a group",
+        "operationId": "assignRoleToGroup",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name of the group.",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "groupType": {
+                  "$ref": "#/definitions/GroupType"
+                },
+                "roles": {
+                  "description": "The roles to assign to the specified group.",
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Roles assigned successfully."
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "404": {
-            "description": "role or group is not found."
+            "description": "Role or group not found."
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
@@ -479,6 +546,7 @@ func init() {
     },
     "/authz/groups/{id}/revoke": {
       "post": {
+        "description": "Revoke roles from the specified group.",
         "tags": [
           "authz"
         ],
@@ -487,7 +555,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "group name",
+            "description": "The name of the group.",
             "name": "id",
             "in": "path",
             "required": true
@@ -499,8 +567,11 @@ func init() {
             "schema": {
               "type": "object",
               "properties": {
+                "groupType": {
+                  "$ref": "#/definitions/GroupType"
+                },
                 "roles": {
-                  "description": "the roles that revoked from group",
+                  "description": "The roles to revoke from the specified group.",
                   "type": "array",
                   "items": {
                     "type": "string"
@@ -512,7 +583,78 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Role revoked successfully"
+            "description": "Roles revoked successfully."
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Role or group not found."
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.authz.revoke.role.group"
+        ]
+      }
+    },
+    "/authz/groups/{id}/roles/{groupType}": {
+      "get": {
+        "description": "Retrieves a list of all roles assigned to a specific group. The group must be identified by both its name (` + "`" + `id` + "`" + `) and its type (` + "`" + `db` + "`" + ` or ` + "`" + `oidc` + "`" + `).",
+        "tags": [
+          "authz"
+        ],
+        "summary": "Get roles assigned to a specific group",
+        "operationId": "getRolesForGroup",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The unique name of the group.",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "enum": [
+              "oidc"
+            ],
+            "type": "string",
+            "description": "The type of the group.",
+            "name": "groupType",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "boolean",
+            "default": false,
+            "description": "If true, the response will include the full role definitions with all associated permissions. If false, only role names are returned.",
+            "name": "includeFullRoles",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A list of roles assigned to the specified group.",
+            "schema": {
+              "$ref": "#/definitions/RolesListResponse"
+            }
           },
           "400": {
             "description": "Bad request",
@@ -530,7 +672,13 @@ func init() {
             }
           },
           "404": {
-            "description": "role or group is not found."
+            "description": "The specified group was not found."
+          },
+          "422": {
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
@@ -540,12 +688,13 @@ func init() {
           }
         },
         "x-serviceIds": [
-          "weaviate.authz.revoke.role.group"
+          "weaviate.authz.get.groups.roles"
         ]
       }
     },
     "/authz/roles": {
       "get": {
+        "description": "Get all roles and their assigned permissions.",
         "tags": [
           "authz"
         ],
@@ -585,10 +734,11 @@ func init() {
         ]
       },
       "post": {
+        "description": "Create a new role with the specified permissions.",
         "tags": [
           "authz"
         ],
-        "summary": "create new role",
+        "summary": "Create new role",
         "operationId": "createRole",
         "parameters": [
           {
@@ -602,7 +752,7 @@ func init() {
         ],
         "responses": {
           "201": {
-            "description": "Role created successfully"
+            "description": "Role created successfully."
           },
           "400": {
             "description": "Malformed request.",
@@ -620,13 +770,13 @@ func init() {
             }
           },
           "409": {
-            "description": "Role already exists",
+            "description": "Role already exists.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -645,6 +795,7 @@ func init() {
     },
     "/authz/roles/{id}": {
       "get": {
+        "description": "Fetch a role by its name.",
         "tags": [
           "authz"
         ],
@@ -653,7 +804,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "role name",
+            "description": "The name of the role.",
             "name": "id",
             "in": "path",
             "required": true
@@ -682,7 +833,7 @@ func init() {
             }
           },
           "404": {
-            "description": "no role found"
+            "description": "No role found."
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
@@ -696,15 +847,16 @@ func init() {
         ]
       },
       "delete": {
+        "description": "Deleting a role will remove it from the system, and revoke the associated permissions from all users who had this role.",
         "tags": [
           "authz"
         ],
-        "summary": "Delete role",
+        "summary": "Delete a role",
         "operationId": "deleteRole",
         "parameters": [
           {
             "type": "string",
-            "description": "role name",
+            "description": "The name of the role.",
             "name": "id",
             "in": "path",
             "required": true
@@ -715,7 +867,7 @@ func init() {
             "description": "Successfully deleted."
           },
           "400": {
-            "description": "Bad request",
+            "description": "Malformed request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -743,15 +895,16 @@ func init() {
     },
     "/authz/roles/{id}/add-permissions": {
       "post": {
+        "description": "Add new permissions to an existing role without affecting current permissions.",
         "tags": [
           "authz"
         ],
-        "summary": "Add permission to a given role.",
+        "summary": "Add permissions to a role",
         "operationId": "addPermissions",
         "parameters": [
           {
             "type": "string",
-            "description": "role name",
+            "description": "The name (ID) of the role being modified.",
             "name": "id",
             "in": "path",
             "required": true
@@ -768,7 +921,7 @@ func init() {
               ],
               "properties": {
                 "permissions": {
-                  "description": "permissions to be added to the role",
+                  "description": "Permissions to be added to the role.",
                   "type": "array",
                   "items": {
                     "$ref": "#/definitions/Permission"
@@ -780,7 +933,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Permissions added successfully"
+            "description": "Permissions added successfully."
           },
           "400": {
             "description": "Malformed request.",
@@ -798,10 +951,10 @@ func init() {
             }
           },
           "404": {
-            "description": "no role found"
+            "description": "No role found."
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -818,22 +971,93 @@ func init() {
         ]
       }
     },
-    "/authz/roles/{id}/has-permission": {
-      "post": {
+    "/authz/roles/{id}/group-assignments": {
+      "get": {
+        "description": "Retrieves a list of all groups that have been assigned a specific role, identified by its name.",
         "tags": [
           "authz"
         ],
-        "summary": "Check whether role possesses this permission.",
+        "summary": "Get groups that have a specific role assigned",
+        "operationId": "getGroupsForRole",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The unique name of the role.",
+            "name": "id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successfully retrieved the list of groups that have the role assigned.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "name",
+                  "groupType"
+                ],
+                "properties": {
+                  "groupId": {
+                    "type": "string"
+                  },
+                  "groupType": {
+                    "$ref": "#/definitions/GroupType"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "The specified role was not found."
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.authz.get.roles.groups"
+        ]
+      }
+    },
+    "/authz/roles/{id}/has-permission": {
+      "post": {
+        "description": "Check whether a role has the specified permissions.",
+        "tags": [
+          "authz"
+        ],
+        "summary": "Check whether a role possesses a permission",
         "operationId": "hasPermission",
         "parameters": [
           {
             "type": "string",
-            "description": "role name",
+            "description": "The name of the role.",
             "name": "id",
             "in": "path",
             "required": true
           },
           {
+            "description": "The permissions to be checked.",
             "name": "body",
             "in": "body",
             "required": true,
@@ -844,7 +1068,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Permission check was successful",
+            "description": "Permission check was successful.",
             "schema": {
               "type": "boolean"
             }
@@ -865,7 +1089,7 @@ func init() {
             }
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -884,15 +1108,16 @@ func init() {
     },
     "/authz/roles/{id}/remove-permissions": {
       "post": {
+        "description": "Permissions can be revoked from a specified role. Removing all permissions from a role will delete the role itself.",
         "tags": [
           "authz"
         ],
-        "summary": "Remove permissions from a role. If this results in an empty role, the role will be deleted.",
+        "summary": "Remove permissions from a role",
         "operationId": "removePermissions",
         "parameters": [
           {
             "type": "string",
-            "description": "role name",
+            "description": "The name of the role being modified.",
             "name": "id",
             "in": "path",
             "required": true
@@ -908,7 +1133,7 @@ func init() {
               ],
               "properties": {
                 "permissions": {
-                  "description": "permissions to remove from the role",
+                  "description": "Permissions to remove from the role.",
                   "type": "array",
                   "items": {
                     "$ref": "#/definitions/Permission"
@@ -920,7 +1145,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Permissions removed successfully"
+            "description": "Permissions removed successfully."
           },
           "400": {
             "description": "Malformed request.",
@@ -938,10 +1163,10 @@ func init() {
             }
           },
           "404": {
-            "description": "no role found"
+            "description": "No role found."
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -960,15 +1185,16 @@ func init() {
     },
     "/authz/roles/{id}/user-assignments": {
       "get": {
+        "description": "Fetch a list of users which have the specified role.",
         "tags": [
           "authz"
         ],
-        "summary": "get users assigned to role",
+        "summary": "Get users assigned to a role",
         "operationId": "getUsersForRole",
         "parameters": [
           {
             "type": "string",
-            "description": "role name",
+            "description": "The name (ID) of the role.",
             "name": "id",
             "in": "path",
             "required": true
@@ -976,7 +1202,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Users assigned to this role",
+            "description": "Users assigned to this role.",
             "schema": {
               "type": "array",
               "items": {
@@ -997,7 +1223,7 @@ func init() {
             }
           },
           "400": {
-            "description": "Bad request",
+            "description": "Malformed request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -1012,7 +1238,7 @@ func init() {
             }
           },
           "404": {
-            "description": "no role found"
+            "description": "No role found."
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
@@ -1028,16 +1254,17 @@ func init() {
     },
     "/authz/roles/{id}/users": {
       "get": {
+        "description": "Get all the users (` + "`" + `db` + "`" + ` + ` + "`" + `oidc` + "`" + `) who have been assigned a specific role. Deprecated, will be removed when v1.29 is not supported anymore.",
         "tags": [
           "authz"
         ],
-        "summary": "get users (db + OIDC) assigned to role. Deprecated, will be removed when 1.29 is not supported anymore",
+        "summary": "Get users assigned to a role",
         "operationId": "getUsersForRoleDeprecated",
         "deprecated": true,
         "parameters": [
           {
             "type": "string",
-            "description": "role name",
+            "description": "The name of the role.",
             "name": "id",
             "in": "path",
             "required": true
@@ -1045,7 +1272,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Users assigned to this role",
+            "description": "Users assigned to this role.",
             "schema": {
               "type": "array",
               "items": {
@@ -1054,7 +1281,7 @@ func init() {
             }
           },
           "400": {
-            "description": "Bad request",
+            "description": "Malformed request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -1069,7 +1296,7 @@ func init() {
             }
           },
           "404": {
-            "description": "no role found"
+            "description": "No role found."
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
@@ -1085,6 +1312,7 @@ func init() {
     },
     "/authz/users/{id}/assign": {
       "post": {
+        "description": "Assign one or more roles to a user. Users can have multiple roles.",
         "tags": [
           "authz"
         ],
@@ -1093,7 +1321,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "user name",
+            "description": "The name of the user.",
             "name": "id",
             "in": "path",
             "required": true
@@ -1106,7 +1334,7 @@ func init() {
               "type": "object",
               "properties": {
                 "roles": {
-                  "description": "the roles that assigned to user",
+                  "description": "The roles that are assigned to the specified user.",
                   "type": "array",
                   "items": {
                     "type": "string"
@@ -1121,10 +1349,10 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Role assigned successfully"
+            "description": "Role assigned successfully."
           },
           "400": {
-            "description": "Bad request",
+            "description": "Malformed request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -1139,7 +1367,7 @@ func init() {
             }
           },
           "404": {
-            "description": "role or user is not found.",
+            "description": "Specified role or user not found.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -1158,6 +1386,7 @@ func init() {
     },
     "/authz/users/{id}/revoke": {
       "post": {
+        "description": "Remove one or more roles from a user.",
         "tags": [
           "authz"
         ],
@@ -1166,7 +1395,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "user name",
+            "description": "The name of the user.",
             "name": "id",
             "in": "path",
             "required": true
@@ -1179,7 +1408,7 @@ func init() {
               "type": "object",
               "properties": {
                 "roles": {
-                  "description": "the roles that revoked from the key or user",
+                  "description": "The roles to revoke from the specified user.",
                   "type": "array",
                   "items": {
                     "type": "string"
@@ -1194,10 +1423,10 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Role revoked successfully"
+            "description": "Roles revoked successfully."
           },
           "400": {
-            "description": "Bad request",
+            "description": "Malformed request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -1212,7 +1441,7 @@ func init() {
             }
           },
           "404": {
-            "description": "role or user is not found.",
+            "description": "Specified role or user not found.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -1231,16 +1460,17 @@ func init() {
     },
     "/authz/users/{id}/roles": {
       "get": {
+        "description": "Retrieve the roles assigned to a specific user (` + "`" + `db` + "`" + ` + ` + "`" + `oidc` + "`" + `). Deprecated, will be removed when 1.29 is not supported anymore",
         "tags": [
           "authz"
         ],
-        "summary": "get roles assigned to user (DB + OIDC). Deprecated, will be removed when 1.29 is not supported anymore",
+        "summary": "Get roles assigned to a user",
         "operationId": "getRolesForUserDeprecated",
         "deprecated": true,
         "parameters": [
           {
             "type": "string",
-            "description": "user name",
+            "description": "The name of the user.",
             "name": "id",
             "in": "path",
             "required": true
@@ -1248,13 +1478,13 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Role assigned users",
+            "description": "Roles assigned to the user.",
             "schema": {
               "$ref": "#/definitions/RolesListResponse"
             }
           },
           "400": {
-            "description": "Bad request",
+            "description": "Malformed request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -1269,10 +1499,10 @@ func init() {
             }
           },
           "404": {
-            "description": "no role found for user"
+            "description": "No roles found for specified user."
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -1291,15 +1521,16 @@ func init() {
     },
     "/authz/users/{id}/roles/{userType}": {
       "get": {
+        "description": "Get all the roles for a specific user (` + "`" + `db` + "`" + ` or ` + "`" + `oidc` + "`" + `).",
         "tags": [
           "authz"
         ],
-        "summary": "get roles assigned to user",
+        "summary": "Get roles assigned to a user",
         "operationId": "getRolesForUser",
         "parameters": [
           {
             "type": "string",
-            "description": "user name",
+            "description": "The name of the user.",
             "name": "id",
             "in": "path",
             "required": true
@@ -1310,7 +1541,7 @@ func init() {
               "db"
             ],
             "type": "string",
-            "description": "The type of user",
+            "description": "The type of the user.",
             "name": "userType",
             "in": "path",
             "required": true
@@ -1318,20 +1549,20 @@ func init() {
           {
             "type": "boolean",
             "default": false,
-            "description": "Whether to include detailed role information needed the roles permission",
+            "description": "Whether to include detailed role information like its assigned permissions.",
             "name": "includeFullRoles",
             "in": "query"
           }
         ],
         "responses": {
           "200": {
-            "description": "Role assigned users",
+            "description": "Roles assigned to the user.",
             "schema": {
               "$ref": "#/definitions/RolesListResponse"
             }
           },
           "400": {
-            "description": "Bad request",
+            "description": "Malformed request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -1346,10 +1577,10 @@ func init() {
             }
           },
           "404": {
-            "description": "no role found for user"
+            "description": "No roles found for specified user."
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -1368,24 +1599,35 @@ func init() {
     },
     "/backups/{backend}": {
       "get": {
-        "description": "[Coming soon] List all backups in progress not implemented yet.",
+        "description": "List all created backups IDs, Status",
         "tags": [
           "backups"
         ],
-        "summary": "List backups in progress",
+        "summary": "List all created backups",
         "operationId": "backups.list",
         "parameters": [
           {
             "type": "string",
-            "description": "Backup backend name e.g. filesystem, gcs, s3.",
+            "description": "Specifies the backend storage system to list backups from (e.g., ` + "`" + `filesystem` + "`" + `, ` + "`" + `gcs` + "`" + `, ` + "`" + `s3` + "`" + `, ` + "`" + `azure` + "`" + `).",
             "name": "backend",
             "in": "path",
             "required": true
+          },
+          {
+            "enum": [
+              "asc",
+              "desc"
+            ],
+            "type": "string",
+            "default": "desc",
+            "description": "Order of returned list of backups based on creation time. (asc or desc)",
+            "name": "order",
+            "in": "query"
           }
         ],
         "responses": {
           "200": {
-            "description": "Existed backups",
+            "description": "Successfully retrieved the list of backups in progress.",
             "schema": {
               "$ref": "#/definitions/BackupListResponse"
             }
@@ -1400,13 +1642,13 @@ func init() {
             }
           },
           "422": {
-            "description": "Invalid backup list.",
+            "description": "Invalid request to list backups.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An internal server error occurred while listing backups. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -1417,21 +1659,22 @@ func init() {
         ]
       },
       "post": {
-        "description": "Start creating a backup for a set of collections. \u003cbr/\u003e\u003cbr/\u003eNotes: \u003cbr/\u003e- Weaviate uses gzip compression by default. \u003cbr/\u003e- Weaviate stays usable while a backup process is ongoing.",
+        "description": "Initiates the creation of a backup for specified collections on a designated backend storage.\u003cbr/\u003e\u003cbr/\u003eNotes:\u003cbr/\u003e- Backups are compressed using gzip by default.\u003cbr/\u003e- Weaviate remains operational during the backup process.",
         "tags": [
           "backups"
         ],
-        "summary": "Start a backup process",
+        "summary": "Create a backup",
         "operationId": "backups.create",
         "parameters": [
           {
             "type": "string",
-            "description": "Backup backend name e.g. ` + "`" + `filesystem` + "`" + `, ` + "`" + `gcs` + "`" + `, ` + "`" + `s3` + "`" + `, ` + "`" + `azure` + "`" + `.",
+            "description": "Specifies the backend storage system where the backup will be stored (e.g., ` + "`" + `filesystem` + "`" + `, ` + "`" + `gcs` + "`" + `, ` + "`" + `s3` + "`" + `, ` + "`" + `azure` + "`" + `).",
             "name": "backend",
             "in": "path",
             "required": true
           },
           {
+            "description": "Details of the backup request, including the backup ID and collections to include or exclude.",
             "name": "body",
             "in": "body",
             "required": true,
@@ -1442,7 +1685,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Backup create process successfully started.",
+            "description": "Backup creation process initiated successfully. Check the status endpoint for progress.",
             "schema": {
               "$ref": "#/definitions/BackupCreateResponse"
             }
@@ -1457,13 +1700,13 @@ func init() {
             }
           },
           "422": {
-            "description": "Invalid backup creation attempt.",
+            "description": "Invalid backup creation request. Check the request body and backend configuration.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An internal server error occurred during backup initiation. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -1476,43 +1719,43 @@ func init() {
     },
     "/backups/{backend}/{id}": {
       "get": {
-        "description": "Returns status of backup creation attempt for a set of collections. \u003cbr/\u003e\u003cbr/\u003eAll client implementations have a ` + "`" + `wait for completion` + "`" + ` option which will poll the backup status in the background and only return once the backup has completed (successfully or unsuccessfully). If you set the ` + "`" + `wait for completion` + "`" + ` option to false, you can also check the status yourself using this endpoint.",
+        "description": "Checks the status of a specific backup creation process identified by its ID on the specified backend.\u003cbr/\u003e\u003cbr/\u003eClient libraries often provide a 'wait for completion' feature that polls this endpoint automatically. Use this endpoint for manual status checks or if 'wait for completion' is disabled.",
         "tags": [
           "backups"
         ],
-        "summary": "Get backup process status",
+        "summary": "Get backup creation status",
         "operationId": "backups.create.status",
         "parameters": [
           {
             "type": "string",
-            "description": "Backup backend name e.g. filesystem, gcs, s3.",
+            "description": "Specifies the backend storage system where the backup resides (e.g., ` + "`" + `filesystem` + "`" + `, ` + "`" + `gcs` + "`" + `, ` + "`" + `s3` + "`" + `, ` + "`" + `azure` + "`" + `).",
             "name": "backend",
             "in": "path",
             "required": true
           },
           {
             "type": "string",
-            "description": "The ID of a backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
+            "description": "The unique identifier of the backup. Must be URL-safe and compatible with filesystem paths (only lowercase, numbers, underscore, minus characters allowed).",
             "name": "id",
             "in": "path",
             "required": true
           },
           {
             "type": "string",
-            "description": "Name of the bucket, container, volume, etc",
+            "description": "Optional: Specifies the bucket, container, or volume name if required by the backend.",
             "name": "bucket",
             "in": "query"
           },
           {
             "type": "string",
-            "description": "The path within the bucket",
+            "description": "Optional: Specifies the path within the bucket/container/volume if the backup is not at the root.",
             "name": "path",
             "in": "query"
           }
         ],
         "responses": {
           "200": {
-            "description": "Backup creation status successfully returned",
+            "description": "Successfully retrieved the status of the backup creation process.",
             "schema": {
               "$ref": "#/definitions/BackupCreateStatusResponse"
             }
@@ -1527,19 +1770,19 @@ func init() {
             }
           },
           "404": {
-            "description": "Not Found - Backup does not exist",
+            "description": "Backup not found on the specified backend with the given ID.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "422": {
-            "description": "Invalid backup restoration status attempt.",
+            "description": "Invalid request to check backup creation status.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An internal server error occurred while checking backup status. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -1550,43 +1793,43 @@ func init() {
         ]
       },
       "delete": {
-        "description": "Cancel created backup with specified ID",
+        "description": "Deletes a backup identified by its ID from the specified backend storage.",
         "tags": [
           "backups"
         ],
-        "summary": "Cancel backup",
+        "summary": "Delete a backup",
         "operationId": "backups.cancel",
         "parameters": [
           {
             "type": "string",
-            "description": "Backup backend name e.g. filesystem, gcs, s3.",
+            "description": "Specifies the backend storage system where the backup resides (e.g., ` + "`" + `filesystem` + "`" + `, ` + "`" + `gcs` + "`" + `, ` + "`" + `s3` + "`" + `, ` + "`" + `azure` + "`" + `).",
             "name": "backend",
             "in": "path",
             "required": true
           },
           {
             "type": "string",
-            "description": "The ID of a backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
+            "description": "The unique identifier of the backup to delete. Must be URL-safe and compatible with filesystem paths (only lowercase, numbers, underscore, minus characters allowed).",
             "name": "id",
             "in": "path",
             "required": true
           },
           {
             "type": "string",
-            "description": "Name of the bucket, container, volume, etc",
+            "description": "Optional: Specifies the bucket, container, or volume name if required by the backend.",
             "name": "bucket",
             "in": "query"
           },
           {
             "type": "string",
-            "description": "The path within the bucket",
+            "description": "Optional: Specifies the path within the bucket/container/volume if the backup is not at the root.",
             "name": "path",
             "in": "query"
           }
         ],
         "responses": {
           "204": {
-            "description": "Successfully deleted."
+            "description": "Backup deleted successfully."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -1598,13 +1841,13 @@ func init() {
             }
           },
           "422": {
-            "description": "Invalid backup cancellation attempt.",
+            "description": "Invalid backup deletion request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An internal server error occurred during backup deletion. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -1617,43 +1860,43 @@ func init() {
     },
     "/backups/{backend}/{id}/restore": {
       "get": {
-        "description": "Returns status of a backup restoration attempt for a set of classes. \u003cbr/\u003e\u003cbr/\u003eAll client implementations have a ` + "`" + `wait for completion` + "`" + ` option which will poll the backup status in the background and only return once the backup has completed (successfully or unsuccessfully). If you set the ` + "`" + `wait for completion` + "`" + ` option to false, you can also check the status yourself using the this endpoint.",
+        "description": "Checks the status of a specific backup restoration process identified by the backup ID on the specified backend.\u003cbr/\u003e\u003cbr/\u003eClient libraries often provide a 'wait for completion' feature that polls this endpoint automatically. Use this endpoint for manual status checks or if 'wait for completion' is disabled.",
         "tags": [
           "backups"
         ],
-        "summary": "Get restore process status",
+        "summary": "Get backup restoration status",
         "operationId": "backups.restore.status",
         "parameters": [
           {
             "type": "string",
-            "description": "Backup backend name e.g. ` + "`" + `filesystem` + "`" + `, ` + "`" + `gcs` + "`" + `, ` + "`" + `s3` + "`" + `, ` + "`" + `azure` + "`" + `.",
+            "description": "Specifies the backend storage system where the backup resides (e.g., ` + "`" + `filesystem` + "`" + `, ` + "`" + `gcs` + "`" + `, ` + "`" + `s3` + "`" + `, ` + "`" + `azure` + "`" + `).",
             "name": "backend",
             "in": "path",
             "required": true
           },
           {
             "type": "string",
-            "description": "The ID of a backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
+            "description": "The unique identifier of the backup being restored. Must be URL-safe and compatible with filesystem paths (only lowercase, numbers, underscore, minus characters allowed).",
             "name": "id",
             "in": "path",
             "required": true
           },
           {
             "type": "string",
-            "description": "Name of the bucket, container, volume, etc",
+            "description": "Optional: Specifies the bucket, container, or volume name if required by the backend.",
             "name": "bucket",
             "in": "query"
           },
           {
             "type": "string",
-            "description": "The path within the bucket",
+            "description": "Optional: Specifies the path within the bucket.",
             "name": "path",
             "in": "query"
           }
         ],
         "responses": {
           "200": {
-            "description": "Backup restoration status successfully returned",
+            "description": "Successfully retrieved the status of the backup restoration process.",
             "schema": {
               "$ref": "#/definitions/BackupRestoreStatusResponse"
             }
@@ -1668,13 +1911,13 @@ func init() {
             }
           },
           "404": {
-            "description": "Not Found - Backup does not exist",
+            "description": "Backup not found on the specified backend with the given ID.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An internal server error occurred while checking restore status. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -1685,28 +1928,29 @@ func init() {
         ]
       },
       "post": {
-        "description": "Starts a process of restoring a backup for a set of collections. \u003cbr/\u003e\u003cbr/\u003eAny backup can be restored to any machine, as long as the number of nodes between source and target are identical.\u003cbr/\u003e\u003cbr/\u003eRequrements:\u003cbr/\u003e\u003cbr/\u003e- None of the collections to be restored already exist on the target restoration node(s).\u003cbr/\u003e- The node names of the backed-up collections' must match those of the target restoration node(s).",
+        "description": "Initiates the restoration of collections from a specified backup located on a designated backend.\u003cbr/\u003e\u003cbr/\u003eRequirements:\u003cbr/\u003e- Target cluster must have the same number of nodes as the source cluster where the backup was created.\u003cbr/\u003e- Collections included in the restore must not already exist on the target cluster.\u003cbr/\u003e- Node names must match between the backup and the target cluster.",
         "tags": [
           "backups"
         ],
-        "summary": "Start a restoration process",
+        "summary": "Restore from a backup",
         "operationId": "backups.restore",
         "parameters": [
           {
             "type": "string",
-            "description": "Backup backend name e.g. ` + "`" + `filesystem` + "`" + `, ` + "`" + `gcs` + "`" + `, ` + "`" + `s3` + "`" + `, ` + "`" + `azure` + "`" + `.",
+            "description": "Specifies the backend storage system where the backup resides (e.g., ` + "`" + `filesystem` + "`" + `, ` + "`" + `gcs` + "`" + `, ` + "`" + `s3` + "`" + `, ` + "`" + `azure` + "`" + `).",
             "name": "backend",
             "in": "path",
             "required": true
           },
           {
             "type": "string",
-            "description": "The ID of a backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
+            "description": "The unique identifier of the backup to restore from. Must be URL-safe and compatible with filesystem paths (only lowercase, numbers, underscore, minus characters allowed).",
             "name": "id",
             "in": "path",
             "required": true
           },
           {
+            "description": "Details of the restore request, including collections to include or exclude and node mapping if necessary.",
             "name": "body",
             "in": "body",
             "required": true,
@@ -1717,7 +1961,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Backup restoration process successfully started.",
+            "description": "Backup restoration process initiated successfully. Check the status endpoint for progress.",
             "schema": {
               "$ref": "#/definitions/BackupRestoreResponse"
             }
@@ -1732,19 +1976,19 @@ func init() {
             }
           },
           "404": {
-            "description": "Not Found - Backup does not exist",
+            "description": "Backup not found on the specified backend with the given ID.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "422": {
-            "description": "Invalid backup restoration attempt.",
+            "description": "Invalid backup restoration request. Check requirements and request body.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An internal server error occurred during restore initiation. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -1757,15 +2001,16 @@ func init() {
     },
     "/batch/objects": {
       "post": {
-        "description": "Create new objects in bulk. \u003cbr/\u003e\u003cbr/\u003eMeta-data and schema values are validated. \u003cbr/\u003e\u003cbr/\u003e**Note: idempotence of ` + "`" + `/batch/objects` + "`" + `**: \u003cbr/\u003e` + "`" + `POST /batch/objects` + "`" + ` is idempotent, and will overwrite any existing object given the same id.",
+        "description": "Registers multiple data objects in a single request for efficiency. Metadata and schema values for each object are validated.\u003cbr/\u003e\u003cbr/\u003e**Note (idempotence)**:\u003cbr/\u003eThis operation is idempotent based on the object UUIDs provided. If an object with a given UUID already exists, it will be overwritten (similar to a PUT operation for that specific object within the batch).",
         "tags": [
           "batch",
           "objects"
         ],
-        "summary": "Creates new Objects based on a Object template as a batch.",
+        "summary": "Create objects in batch",
         "operationId": "batch.objects.create",
         "parameters": [
           {
+            "description": "The request body containing the objects to be created.",
             "name": "body",
             "in": "body",
             "required": true,
@@ -1773,7 +2018,7 @@ func init() {
               "type": "object",
               "properties": {
                 "fields": {
-                  "description": "Define which fields need to be returned. Default value is ALL",
+                  "description": "Controls which fields are returned in the response for each object. Default is ` + "`" + `ALL` + "`" + `.",
                   "type": "array",
                   "items": {
                     "type": "string",
@@ -1788,6 +2033,7 @@ func init() {
                   }
                 },
                 "objects": {
+                  "description": "Array of objects to be created.",
                   "type": "array",
                   "items": {
                     "$ref": "#/definitions/Object"
@@ -1802,7 +2048,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Request succeeded, see response body to get detailed information about each batched item.",
+            "description": "Request processed successfully. Individual object statuses are provided in the response body.",
             "schema": {
               "type": "array",
               "items": {
@@ -1826,13 +2072,13 @@ func init() {
             }
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request. Ensure the collection exists and the object properties are valid.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -1845,15 +2091,16 @@ func init() {
         ]
       },
       "delete": {
-        "description": "Batch delete objects that match a particular filter. \u003cbr/\u003e\u003cbr/\u003eThe request body takes a single ` + "`" + `where` + "`" + ` filter and will delete all objects matched. \u003cbr/\u003e\u003cbr/\u003eNote that there is a limit to the number of objects to be deleted at once using this filter, in order to protect against unexpected memory surges and very-long-running requests. The default limit is 10,000 and may be configured by setting the ` + "`" + `QUERY_MAXIMUM_RESULTS` + "`" + ` environment variable. \u003cbr/\u003e\u003cbr/\u003eObjects are deleted in the same order that they would be returned in an equivalent Get query. To delete more objects than the limit, run the same query multiple times.",
+        "description": "Removes multiple data objects based on a filter specified in the request body.\u003cbr/\u003e\u003cbr/\u003eDeletion occurs based on the filter criteria provided in the ` + "`" + `where` + "`" + ` clause. There is a configurable limit (default 10,000, set via ` + "`" + `QUERY_MAXIMUM_RESULTS` + "`" + `) on how many objects can be deleted in a single batch request to prevent excessive resource usage. Objects are deleted in the order they match the filter. To delete more objects than the limit allows, repeat the request until no more matching objects are found.",
         "tags": [
           "batch",
           "objects"
         ],
-        "summary": "Deletes Objects based on a match filter as a batch.",
+        "summary": "Delete objects in batch",
         "operationId": "batch.objects.delete",
         "parameters": [
           {
+            "description": "The request body containing the match filter and output configuration.",
             "name": "body",
             "in": "body",
             "required": true,
@@ -1870,7 +2117,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Request succeeded, see response body to get detailed information about each batched item.",
+            "description": "Request processed successfully. See response body for matching objects and deletion results.",
             "schema": {
               "$ref": "#/definitions/BatchDeleteResponse"
             }
@@ -1891,13 +2138,13 @@ func init() {
             }
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "Invalid data provided. Please check the values in your request (e.g., invalid filter).",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -1912,16 +2159,16 @@ func init() {
     },
     "/batch/references": {
       "post": {
-        "description": "Batch create cross-references between collections items (objects or objects) in bulk.",
+        "description": "Batch create cross-references between collection items in bulk.",
         "tags": [
           "batch",
           "references"
         ],
-        "summary": "Creates new Cross-References between arbitrary classes in bulk.",
+        "summary": "Create cross-references in bulk",
         "operationId": "batch.references.create",
         "parameters": [
           {
-            "description": "A list of references to be batched. The ideal size depends on the used database connector. Please see the documentation of the used connector for help",
+            "description": "A list of references to be batched. The ideal size depends on the used database connector. Please see the documentation of the used connector for help.",
             "name": "body",
             "in": "body",
             "required": true,
@@ -1962,7 +2209,7 @@ func init() {
             }
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request. Ensure the collection exists and the object properties are valid.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -1983,15 +2230,15 @@ func init() {
     },
     "/classifications/": {
       "post": {
-        "description": "Trigger a classification based on the specified params. Classifications will run in the background, use GET /classifications/\u003cid\u003e to retrieve the status of your classification.",
+        "description": "Initiates a background classification task based on the provided parameters. Use the GET /classifications/{id} endpoint to monitor the status and retrieve results.",
         "tags": [
           "classifications"
         ],
-        "summary": "Starts a classification.",
+        "summary": "Start a classification",
         "operationId": "classifications.post",
         "parameters": [
           {
-            "description": "parameters to start a classification",
+            "description": "Configuration parameters for the classification task, including type, target properties, and training data references.",
             "name": "params",
             "in": "body",
             "required": true,
@@ -2002,13 +2249,13 @@ func init() {
         ],
         "responses": {
           "201": {
-            "description": "Successfully started classification.",
+            "description": "Classification task successfully initiated. The response body contains the classification details including its ID.",
             "schema": {
               "$ref": "#/definitions/Classification"
             }
           },
           "400": {
-            "description": "Incorrect request",
+            "description": "Invalid request body or parameters.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -2023,7 +2270,7 @@ func init() {
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An internal server error occurred while starting the classification task. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -2036,16 +2283,16 @@ func init() {
     },
     "/classifications/{id}": {
       "get": {
-        "description": "Get status, results and metadata of a previously created classification",
+        "description": "Retrieves the status, metadata, and results (if completed) of a classification task identified by its unique ID.",
         "tags": [
           "classifications"
         ],
-        "summary": "View previously created classification",
+        "summary": "Get classification status",
         "operationId": "classifications.get",
         "parameters": [
           {
             "type": "string",
-            "description": "classification id",
+            "description": "The unique identifier (UUID) of the classification task.",
             "name": "id",
             "in": "path",
             "required": true
@@ -2053,7 +2300,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Found the classification, returned as body",
+            "description": "Successfully retrieved the classification details.",
             "schema": {
               "$ref": "#/definitions/Classification"
             }
@@ -2068,10 +2315,10 @@ func init() {
             }
           },
           "404": {
-            "description": "Not Found - Classification does not exist"
+            "description": "Classification with the given ID not found."
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An internal server error occurred while retrieving the classification status. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -2084,15 +2331,15 @@ func init() {
     },
     "/cluster/statistics": {
       "get": {
-        "description": "Returns Raft cluster statistics of Weaviate DB.",
+        "description": "Provides statistics about the internal Raft consensus protocol state for the Weaviate cluster.",
         "tags": [
           "cluster"
         ],
-        "summary": "See Raft cluster statistics",
+        "summary": "Get cluster statistics",
         "operationId": "cluster.get.statistics",
         "responses": {
           "200": {
-            "description": "Cluster statistics successfully returned",
+            "description": "Successfully retrieved Raft cluster statistics.",
             "schema": {
               "$ref": "#/definitions/ClusterStatisticsResponse"
             }
@@ -2107,13 +2354,13 @@ func init() {
             }
           },
           "422": {
-            "description": "Invalid backup restoration status attempt.",
+            "description": "Invalid request for cluster statistics.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An internal server error occurred while retrieving cluster statistics. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -2126,15 +2373,15 @@ func init() {
     },
     "/graphql": {
       "post": {
-        "description": "Get a response based on a GraphQL query",
+        "description": "Executes a single GraphQL query provided in the request body. Use this endpoint for all Weaviate data queries and exploration.",
         "tags": [
           "graphql"
         ],
-        "summary": "Get a response based on GraphQL",
+        "summary": "Perform a GraphQL query",
         "operationId": "graphql.post",
         "parameters": [
           {
-            "description": "The GraphQL query request parameters.",
+            "description": "The GraphQL query to execute, including the query string and optional variables.",
             "name": "body",
             "in": "body",
             "required": true,
@@ -2145,7 +2392,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Successful query (with select).",
+            "description": "Query executed successfully. The response body contains the query result.",
             "schema": {
               "$ref": "#/definitions/GraphQLResponse"
             }
@@ -2160,13 +2407,13 @@ func init() {
             }
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An internal server error occurred during query execution. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -2184,15 +2431,15 @@ func init() {
     },
     "/graphql/batch": {
       "post": {
-        "description": "Perform a batched GraphQL query",
+        "description": "Executes multiple GraphQL queries provided in the request body as an array. Allows performing several queries in a single network request for efficiency.",
         "tags": [
           "graphql"
         ],
-        "summary": "Get a response based on GraphQL.",
+        "summary": "Perform batched GraphQL queries",
         "operationId": "graphql.batch",
         "parameters": [
           {
-            "description": "The GraphQL queries.",
+            "description": "An array containing multiple GraphQL query objects to execute in batch.",
             "name": "body",
             "in": "body",
             "required": true,
@@ -2203,7 +2450,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Successful query (with select).",
+            "description": "Batch request processed successfully. The response body contains an array of results corresponding to the input queries.",
             "schema": {
               "$ref": "#/definitions/GraphQLResponses"
             }
@@ -2218,13 +2465,13 @@ func init() {
             }
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An internal server error occurred during batch query execution. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -2242,15 +2489,15 @@ func init() {
     },
     "/meta": {
       "get": {
-        "description": "Returns meta information about the server. Can be used to provide information to another Weaviate instance that wants to interact with the current instance.",
+        "description": "Provides meta-information about the running Weaviate instance, including its version, loaded modules, and network hostname. This information can be useful for monitoring, compatibility checks, or inter-instance communication.",
         "tags": [
           "meta"
         ],
-        "summary": "Returns meta information of the current Weaviate instance.",
+        "summary": "Get instance metadata",
         "operationId": "meta.get",
         "responses": {
           "200": {
-            "description": "Successful response.",
+            "description": "Successfully retrieved meta information.",
             "schema": {
               "$ref": "#/definitions/Meta"
             }
@@ -2265,7 +2512,7 @@ func init() {
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An internal server error occurred while retrieving meta information. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -2280,11 +2527,11 @@ func init() {
     },
     "/nodes": {
       "get": {
-        "description": "Returns node information for the entire database.",
+        "description": "Retrieves status information about all nodes in the cluster. Use the ` + "`" + `output` + "`" + ` query parameter to control the level of detail.",
         "tags": [
           "nodes"
         ],
-        "summary": "Node information for the database.",
+        "summary": "Get node status",
         "operationId": "nodes.get",
         "parameters": [
           {
@@ -2293,7 +2540,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Nodes status successfully returned",
+            "description": "Successfully retrieved the status for all nodes.",
             "schema": {
               "$ref": "#/definitions/NodesStatusResponse"
             }
@@ -2308,19 +2555,19 @@ func init() {
             }
           },
           "404": {
-            "description": "Not Found - Backup does not exist",
+            "description": "Not Found.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "422": {
-            "description": "Invalid backup restoration status attempt.",
+            "description": "Invalid request for node status.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An internal server error occurred while retrieving node status. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -2333,15 +2580,16 @@ func init() {
     },
     "/nodes/{className}": {
       "get": {
-        "description": "Returns node information for the nodes relevant to the collection.",
+        "description": "Retrieves status information only for the nodes that host shards for the specified collection (` + "`" + `className` + "`" + `). Use the ` + "`" + `output` + "`" + ` query parameter to control the level of detail.",
         "tags": [
           "nodes"
         ],
-        "summary": "Node information for a collection.",
+        "summary": "Get node status by collection",
         "operationId": "nodes.get.class",
         "parameters": [
           {
             "type": "string",
+            "description": "The name of the collection (class) for which to retrieve node status.",
             "name": "className",
             "in": "path",
             "required": true
@@ -2357,7 +2605,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Nodes status successfully returned",
+            "description": "Successfully retrieved the status for nodes relevant to the specified collection.",
             "schema": {
               "$ref": "#/definitions/NodesStatusResponse"
             }
@@ -2372,19 +2620,19 @@ func init() {
             }
           },
           "404": {
-            "description": "Not Found - Backup does not exist",
+            "description": "Not Found.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "422": {
-            "description": "Invalid backup restoration status attempt.",
+            "description": "Invalid request for node status.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An internal server error occurred while retrieving node status for the collection. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -2397,11 +2645,11 @@ func init() {
     },
     "/objects": {
       "get": {
-        "description": "Lists all Objects in reverse order of creation, owned by the user that belongs to the used token.",
+        "description": "Retrieves a list of data objects. By default, objects are returned in reverse order of creation. Requires a collection name (` + "`" + `class` + "`" + `) parameter to specify which collection's objects to list, otherwise, returns an empty list.",
         "tags": [
           "objects"
         ],
-        "summary": "Get a list of Objects.",
+        "summary": "List objects",
         "operationId": "objects.list",
         "parameters": [
           {
@@ -2431,7 +2679,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Successful response. \u003cbr/\u003e\u003cbr/\u003eIf ` + "`" + `class` + "`" + ` is not provided, the response will not include any objects.",
+            "description": "Successful response containing the list of objects. If the collection name (` + "`" + `class` + "`" + `) is not provided, the response will not include any objects.",
             "schema": {
               "$ref": "#/definitions/ObjectsListResponse"
             }
@@ -2452,16 +2700,16 @@ func init() {
             }
           },
           "404": {
-            "description": "Successful query result but no resource was found."
+            "description": "Successful query result but no matching objects were found."
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request. Ensure the specified collection exists.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -2474,14 +2722,15 @@ func init() {
         ]
       },
       "post": {
-        "description": "Create a new object. \u003cbr/\u003e\u003cbr/\u003eMeta-data and schema values are validated. \u003cbr/\u003e\u003cbr/\u003e**Note: Use ` + "`" + `/batch` + "`" + ` for importing many objects**: \u003cbr/\u003eIf you plan on importing a large number of objects, it's much more efficient to use the ` + "`" + `/batch` + "`" + ` endpoint. Otherwise, sending multiple single requests sequentially would incur a large performance penalty. \u003cbr/\u003e\u003cbr/\u003e**Note: idempotence of ` + "`" + `/objects` + "`" + `**: \u003cbr/\u003ePOST /objects will fail if an id is provided which already exists in the class. To update an existing object with the objects endpoint, use the PUT or PATCH method.",
+        "description": "Creates a new data object. The object's metadata and schema values are validated before creation.\u003cbr/\u003e\u003cbr/\u003e**Note (batch import)**:\u003cbr/\u003eIf you plan on importing a large number of objects, using the ` + "`" + `/batch/objects` + "`" + ` endpoint is significantly more efficient than sending multiple single requests.\u003cbr/\u003e\u003cbr/\u003e**Note (idempotence)**:\u003cbr/\u003eThis operation (POST) fails if an object with the provided ID already exists. To update an existing object, use the PUT or PATCH methods.",
         "tags": [
           "objects"
         ],
-        "summary": "Create a new object.",
+        "summary": "Create an object",
         "operationId": "objects.create",
         "parameters": [
           {
+            "description": "The object to be created.",
             "name": "body",
             "in": "body",
             "required": true,
@@ -2495,7 +2744,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Object created.",
+            "description": "Object created successfully.",
             "schema": {
               "$ref": "#/definitions/Object"
             }
@@ -2516,13 +2765,13 @@ func init() {
             }
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request. Ensure the collection exists and the object properties are valid.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -2537,14 +2786,15 @@ func init() {
     },
     "/objects/validate": {
       "post": {
-        "description": "Validate an object's schema and meta-data without creating it. \u003cbr/\u003e\u003cbr/\u003eIf the schema of the object is valid, the request should return nothing with a plain RESTful request. Otherwise, an error object will be returned.",
+        "description": "Checks if a data object's structure conforms to the specified collection schema and metadata rules without actually storing the object.\u003cbr/\u003e\u003cbr/\u003eA successful validation returns a 200 OK status code with no body. If validation fails, an error response with details is returned.",
         "tags": [
           "objects"
         ],
-        "summary": "Validate an Object based on a schema.",
+        "summary": "Validate an object",
         "operationId": "objects.validate",
         "parameters": [
           {
+            "description": "The object definition to validate.",
             "name": "body",
             "in": "body",
             "required": true,
@@ -2555,7 +2805,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Successfully validated."
+            "description": "Object is valid according to the schema."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -2567,13 +2817,13 @@ func init() {
             }
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "Request body is well-formed but the object is invalid according to the schema.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -2588,15 +2838,16 @@ func init() {
     },
     "/objects/{className}/{id}": {
       "get": {
-        "description": "Get a data object based on its collection and UUID.",
+        "description": "Get a data object based on its collection name (` + "`" + `className` + "`" + `) and UUID (` + "`" + `id` + "`" + `).",
         "tags": [
           "objects"
         ],
-        "summary": "Get a specific Object based on its class and UUID. Also available as Websocket bus.",
+        "summary": "Get an object",
         "operationId": "objects.class.get",
         "parameters": [
           {
             "type": "string",
+            "description": "Name of the collection (class) the object belongs to.",
             "name": "className",
             "in": "path",
             "required": true
@@ -2604,7 +2855,7 @@ func init() {
           {
             "type": "string",
             "format": "uuid",
-            "description": "Unique ID of the Object.",
+            "description": "Unique UUID of the object to be retrieved.",
             "name": "id",
             "in": "path",
             "required": true
@@ -2624,7 +2875,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Successful response.",
+            "description": "Successful response containing the object.",
             "schema": {
               "$ref": "#/definitions/Object"
             }
@@ -2645,16 +2896,16 @@ func init() {
             }
           },
           "404": {
-            "description": "Successful query result but no resource was found."
+            "description": "Object not found."
           },
           "422": {
-            "description": "Request is well-formed (i.e., syntactically correct), but erroneous.",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -2667,15 +2918,16 @@ func init() {
         ]
       },
       "put": {
-        "description": "Update an object based on its uuid and collection. This (` + "`" + `put` + "`" + `) method replaces the object with the provided object.",
+        "description": "Replaces properties of an existing data object. The object is identified by its collection name (` + "`" + `className` + "`" + `) and UUID (` + "`" + `id` + "`" + `). The request body must contain the complete object definition with the new property values.",
         "tags": [
           "objects"
         ],
-        "summary": "Update a class object based on its uuid",
+        "summary": "Replace an object",
         "operationId": "objects.class.put",
         "parameters": [
           {
             "type": "string",
+            "description": "Name of the collection (class) the object belongs to.",
             "name": "className",
             "in": "path",
             "required": true
@@ -2683,12 +2935,13 @@ func init() {
           {
             "type": "string",
             "format": "uuid",
-            "description": "The uuid of the data object to update.",
+            "description": "Unique UUID of the object to be replaced.",
             "name": "id",
             "in": "path",
             "required": true
           },
           {
+            "description": "The object definition to replace the existing object with.",
             "name": "body",
             "in": "body",
             "required": true,
@@ -2702,7 +2955,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Successfully received.",
+            "description": "Object replaced successfully.",
             "schema": {
               "$ref": "#/definitions/Object"
             }
@@ -2717,16 +2970,16 @@ func init() {
             }
           },
           "404": {
-            "description": "Successful query result but no resource was found."
+            "description": "Object not found."
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request. Ensure the collection exists and the object properties are valid.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -2739,15 +2992,16 @@ func init() {
         ]
       },
       "delete": {
-        "description": "Delete an object based on its collection and UUID. \u003cbr/\u003e\u003cbr/\u003eNote: For backward compatibility, beacons also support an older, deprecated format without the collection name. As a result, when deleting a reference, the beacon specified has to match the beacon to be deleted exactly. In other words, if a beacon is present using the old format (without collection name) you also need to specify it the same way. \u003cbr/\u003e\u003cbr/\u003eIn the beacon format, you need to always use ` + "`" + `localhost` + "`" + ` as the host, rather than the actual hostname. ` + "`" + `localhost` + "`" + ` here refers to the fact that the beacon's target is on the same Weaviate instance, as opposed to a foreign instance.",
+        "description": "Removes a data object from a specific collection, identified by its collection name (` + "`" + `className` + "`" + `) and UUID (` + "`" + `id` + "`" + `).\u003cbr/\u003e\u003cbr/\u003e**Note on deleting references (legacy format):**\u003cbr/\u003eFor backward compatibility with older beacon formats (lacking a collection name), deleting a reference requires the beacon in the request to exactly match the stored format. Beacons always use ` + "`" + `localhost` + "`" + ` as the host, indicating the target is within the same Weaviate instance.",
         "tags": [
           "objects"
         ],
-        "summary": "Delete object based on its class and UUID.",
+        "summary": "Delete an object",
         "operationId": "objects.class.delete",
         "parameters": [
           {
             "type": "string",
+            "description": "Name of the collection (class) the object belongs to.",
             "name": "className",
             "in": "path",
             "required": true
@@ -2755,7 +3009,7 @@ func init() {
           {
             "type": "string",
             "format": "uuid",
-            "description": "Unique ID of the Object.",
+            "description": "Unique UUID of the object to be deleted.",
             "name": "id",
             "in": "path",
             "required": true
@@ -2769,7 +3023,7 @@ func init() {
         ],
         "responses": {
           "204": {
-            "description": "Successfully deleted."
+            "description": "Object deleted successfully."
           },
           "400": {
             "description": "Malformed request.",
@@ -2787,16 +3041,16 @@ func init() {
             }
           },
           "404": {
-            "description": "Successful query result but no resource was found."
+            "description": "Object not found."
           },
           "422": {
-            "description": "Request is well-formed (i.e., syntactically correct), but erroneous.",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -2809,16 +3063,16 @@ func init() {
         ]
       },
       "head": {
-        "description": "Checks if a data object exists based on its collection and uuid without retrieving it. \u003cbr/\u003e\u003cbr/\u003eInternally it skips reading the object from disk other than checking if it is present. Thus it does not use resources on marshalling, parsing, etc., and is faster. Note the resulting HTTP request has no body; the existence of an object is indicated solely by the status code.",
+        "description": "Verifies the existence of a specific data object within a collection (class), identified by its collection name (` + "`" + `className` + "`" + `) and UUID (` + "`" + `id` + "`" + `), without returning the object itself.\u003cbr/\u003e\u003cbr/\u003eThis is faster than a GET request as it avoids retrieving and processing object data. Existence is confirmed by a 204 No Content status code, while non-existence results in a 404 Not Found.",
         "tags": [
           "objects"
         ],
-        "summary": "Checks object's existence based on its class and uuid.",
+        "summary": "Check if an object exists",
         "operationId": "objects.class.head",
         "parameters": [
           {
             "type": "string",
-            "description": "The class name as defined in the schema",
+            "description": "Name of the collection (class) the object belongs to.",
             "name": "className",
             "in": "path",
             "required": true
@@ -2826,7 +3080,7 @@ func init() {
           {
             "type": "string",
             "format": "uuid",
-            "description": "The uuid of the data object",
+            "description": "Unique UUID of the object to check.",
             "name": "id",
             "in": "path",
             "required": true
@@ -2852,16 +3106,16 @@ func init() {
             }
           },
           "404": {
-            "description": "Object doesn't exist."
+            "description": "Object does not exist."
           },
           "422": {
-            "description": "Request is well-formed (i.e., syntactically correct), but erroneous.",
+            "description": "Invalid data provided. Please check the values in your request (e.g., invalid UUID format).",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -2874,16 +3128,16 @@ func init() {
         ]
       },
       "patch": {
-        "description": "Update an individual data object based on its class and uuid. This method supports json-merge style patch semantics (RFC 7396). Provided meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
+        "description": "Updates specific properties of an existing data object using JSON merge patch semantics (RFC 7396). The object is identified by its collection name (` + "`" + `className` + "`" + `) and UUID (` + "`" + `id` + "`" + `). Only the fields provided in the request body are modified. Metadata and schema values are validated, and the object's ` + "`" + `lastUpdateTimeUnix` + "`" + ` is updated.",
         "tags": [
           "objects"
         ],
-        "summary": "Update an Object based on its UUID (using patch semantics).",
+        "summary": "Patch an object",
         "operationId": "objects.class.patch",
         "parameters": [
           {
             "type": "string",
-            "description": "The class name as defined in the schema",
+            "description": "Name of the collection (class) the object belongs to.",
             "name": "className",
             "in": "path",
             "required": true
@@ -2891,13 +3145,13 @@ func init() {
           {
             "type": "string",
             "format": "uuid",
-            "description": "The uuid of the data object to update.",
+            "description": "Unique UUID of the object to be patched.",
             "name": "id",
             "in": "path",
             "required": true
           },
           {
-            "description": "RFC 7396-style patch, the body contains the object to merge into the existing object.",
+            "description": "RFC 7396-style JSON merge patch object containing the fields to update.",
             "name": "body",
             "in": "body",
             "schema": {
@@ -2910,10 +3164,10 @@ func init() {
         ],
         "responses": {
           "204": {
-            "description": "Successfully applied. No content provided."
+            "description": "Object patched successfully."
           },
           "400": {
-            "description": "The patch-JSON is malformed.",
+            "description": "Malformed patch request body.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -2928,16 +3182,16 @@ func init() {
             }
           },
           "404": {
-            "description": "Successful query result but no resource was found."
+            "description": "Object not found."
           },
           "422": {
-            "description": "The patch-JSON is valid but unprocessable.",
+            "description": "The patch object is valid JSON but is unprocessable for other reasons (e.g., invalid schema).",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -2952,16 +3206,16 @@ func init() {
     },
     "/objects/{className}/{id}/references/{propertyName}": {
       "put": {
-        "description": "Replace **all** references in cross-reference property of an object.",
+        "description": "Replaces all existing references for a specific reference property (` + "`" + `propertyName` + "`" + `) on a source data object. The source object is identified by its collection name (` + "`" + `className` + "`" + `) and UUID (` + "`" + `id` + "`" + `). The new set of references is provided in the request body.",
         "tags": [
           "objects"
         ],
-        "summary": "Replace all references to a class-property.",
+        "summary": "Replace object references",
         "operationId": "objects.class.references.put",
         "parameters": [
           {
             "type": "string",
-            "description": "The class name as defined in the schema",
+            "description": "Name of the collection (class) the source object belongs to.",
             "name": "className",
             "in": "path",
             "required": true
@@ -2969,19 +3223,20 @@ func init() {
           {
             "type": "string",
             "format": "uuid",
-            "description": "Unique ID of the Object.",
+            "description": "Unique UUID of the source object.",
             "name": "id",
             "in": "path",
             "required": true
           },
           {
             "type": "string",
-            "description": "Unique name of the property related to the Object.",
+            "description": "Unique name of the reference property of the source object.",
             "name": "propertyName",
             "in": "path",
             "required": true
           },
           {
+            "description": "The new list of references.",
             "name": "body",
             "in": "body",
             "required": true,
@@ -2998,7 +3253,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Successfully replaced all the references."
+            "description": "References replaced successfully."
           },
           "400": {
             "description": "Malformed request.",
@@ -3016,16 +3271,16 @@ func init() {
             }
           },
           "404": {
-            "description": "Source object doesn't exist."
+            "description": "Source object not found."
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request. Ensure the property exists and is a reference type.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3038,16 +3293,16 @@ func init() {
         ]
       },
       "post": {
-        "description": "Add a single reference to an object. This adds a reference to the array of cross-references of the given property in the source object specified by its collection name and id",
+        "description": "Adds a new reference to a reference property (` + "`" + `propertyName` + "`" + `) on a source data object. The source object is identified by its collection name (` + "`" + `className` + "`" + `) and UUID (` + "`" + `id` + "`" + `). The reference to add is specified in the request body.",
         "tags": [
           "objects"
         ],
-        "summary": "Add a single reference to a class-property.",
+        "summary": "Add an object reference",
         "operationId": "objects.class.references.create",
         "parameters": [
           {
             "type": "string",
-            "description": "The class name as defined in the schema",
+            "description": "Name of the collection (class) the source object belongs to.",
             "name": "className",
             "in": "path",
             "required": true
@@ -3055,19 +3310,20 @@ func init() {
           {
             "type": "string",
             "format": "uuid",
-            "description": "Unique ID of the Object.",
+            "description": "Unique UUID of the source object.",
             "name": "id",
             "in": "path",
             "required": true
           },
           {
             "type": "string",
-            "description": "Unique name of the property related to the Object.",
+            "description": "Unique name of the reference property of the source object.",
             "name": "propertyName",
             "in": "path",
             "required": true
           },
           {
+            "description": "The reference to add.",
             "name": "body",
             "in": "body",
             "required": true,
@@ -3084,7 +3340,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Successfully added the reference."
+            "description": "Reference added successfully."
           },
           "400": {
             "description": "Malformed request.",
@@ -3102,16 +3358,16 @@ func init() {
             }
           },
           "404": {
-            "description": "Source object doesn't exist."
+            "description": "Source object not found."
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request. Ensure the property exists and is a reference type.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3124,16 +3380,16 @@ func init() {
         ]
       },
       "delete": {
-        "description": "Delete the single reference that is given in the body from the list of references that this property has.",
+        "description": "Removes a specific reference from a reference property (` + "`" + `propertyName` + "`" + `) of a source data object. The source object is identified by its collection name (` + "`" + `className` + "`" + `) and UUID (` + "`" + `id` + "`" + `). The reference to remove is specified in the request body.",
         "tags": [
           "objects"
         ],
-        "summary": "Delete a single reference from the list of references.",
+        "summary": "Delete an object reference",
         "operationId": "objects.class.references.delete",
         "parameters": [
           {
             "type": "string",
-            "description": "The class name as defined in the schema",
+            "description": "Name of the collection (class) the source object belongs to.",
             "name": "className",
             "in": "path",
             "required": true
@@ -3141,19 +3397,20 @@ func init() {
           {
             "type": "string",
             "format": "uuid",
-            "description": "Unique ID of the Object.",
+            "description": "Unique UUID of the source object.",
             "name": "id",
             "in": "path",
             "required": true
           },
           {
             "type": "string",
-            "description": "Unique name of the property related to the Object.",
+            "description": "Unique name of the reference property of the source object.",
             "name": "propertyName",
             "in": "path",
             "required": true
           },
           {
+            "description": "The reference to remove.",
             "name": "body",
             "in": "body",
             "required": true,
@@ -3170,7 +3427,7 @@ func init() {
         ],
         "responses": {
           "204": {
-            "description": "Successfully deleted."
+            "description": "Reference deleted successfully."
           },
           "400": {
             "description": "Malformed request.",
@@ -3188,19 +3445,19 @@ func init() {
             }
           },
           "404": {
-            "description": "Successful query result but no resource was found.",
+            "description": "Object or reference not found.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request. Ensure the property exists and is a reference type.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3219,14 +3476,14 @@ func init() {
         "tags": [
           "objects"
         ],
-        "summary": "Get a specific Object based on its UUID.",
+        "summary": "Get an object",
         "operationId": "objects.get",
         "deprecated": true,
         "parameters": [
           {
             "type": "string",
             "format": "uuid",
-            "description": "Unique ID of the Object.",
+            "description": "Unique UUID of the object to be retrieved.",
             "name": "id",
             "in": "path",
             "required": true
@@ -3237,7 +3494,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Successful response.",
+            "description": "Successful response containing the object.",
             "schema": {
               "$ref": "#/definitions/Object"
             }
@@ -3258,10 +3515,10 @@ func init() {
             }
           },
           "404": {
-            "description": "Successful query result but no resource was found."
+            "description": "Object not found."
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3274,23 +3531,24 @@ func init() {
         ]
       },
       "put": {
-        "description": "Updates an object based on its UUID. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called. \u003cbr/\u003e\u003cbr/\u003e**Note**: This endpoint is deprecated and will be removed in a future version. Use the ` + "`" + `/objects/{className}/{id}` + "`" + ` endpoint instead.",
+        "description": "Updates an object based on its UUID. Given meta-data and schema values are validated. ` + "`" + `lastUpdateTimeUnix` + "`" + ` is set to the time this function is called. \u003cbr/\u003e\u003cbr/\u003e**Note**: This endpoint is deprecated and will be removed in a future version. Use the ` + "`" + `/objects/{className}/{id}` + "`" + ` endpoint instead.",
         "tags": [
           "objects"
         ],
-        "summary": "Update an Object based on its UUID.",
+        "summary": "Update an object",
         "operationId": "objects.update",
         "deprecated": true,
         "parameters": [
           {
             "type": "string",
             "format": "uuid",
-            "description": "Unique ID of the Object.",
+            "description": "Unique UUID of the object to be replaced.",
             "name": "id",
             "in": "path",
             "required": true
           },
           {
+            "description": "The object definition to replace the existing object with.",
             "name": "body",
             "in": "body",
             "required": true,
@@ -3304,7 +3562,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Successfully received.",
+            "description": "Object replaced successfully.",
             "schema": {
               "$ref": "#/definitions/Object"
             }
@@ -3319,16 +3577,16 @@ func init() {
             }
           },
           "404": {
-            "description": "Successful query result but no resource was found."
+            "description": "Object not found."
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request. Ensure the collection exists and the object properties are valid.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3345,14 +3603,14 @@ func init() {
         "tags": [
           "objects"
         ],
-        "summary": "Delete an Object based on its UUID.",
+        "summary": "Delete an object",
         "operationId": "objects.delete",
         "deprecated": true,
         "parameters": [
           {
             "type": "string",
             "format": "uuid",
-            "description": "Unique ID of the Object.",
+            "description": "Unique UUID of the object to be deleted.",
             "name": "id",
             "in": "path",
             "required": true
@@ -3366,7 +3624,7 @@ func init() {
         ],
         "responses": {
           "204": {
-            "description": "Successfully deleted."
+            "description": "Object deleted successfully."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -3378,10 +3636,10 @@ func init() {
             }
           },
           "404": {
-            "description": "Successful query result but no resource was found."
+            "description": "Object not found."
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3398,14 +3656,14 @@ func init() {
         "tags": [
           "objects"
         ],
-        "summary": "Checks Object's existence based on its UUID.",
+        "summary": "Check if an object exists",
         "operationId": "objects.head",
         "deprecated": true,
         "parameters": [
           {
             "type": "string",
             "format": "uuid",
-            "description": "Unique ID of the Object.",
+            "description": "Unique UUID of the object to check.",
             "name": "id",
             "in": "path",
             "required": true
@@ -3425,10 +3683,10 @@ func init() {
             }
           },
           "404": {
-            "description": "Object doesn't exist."
+            "description": "Object does not exist."
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3441,24 +3699,24 @@ func init() {
         ]
       },
       "patch": {
-        "description": "Update an object based on its UUID (using patch semantics). This method supports json-merge style patch semantics (RFC 7396). Provided meta-data and schema values are validated. LastUpdateTime is set to the time this function is called. \u003cbr/\u003e\u003cbr/\u003e**Note**: This endpoint is deprecated and will be removed in a future version. Use the ` + "`" + `/objects/{className}/{id}` + "`" + ` endpoint instead.",
+        "description": "Update an object based on its UUID (using patch semantics). This method supports json-merge style patch semantics (RFC 7396). Provided meta-data and schema values are validated. ` + "`" + `lastUpdateTimeUnix` + "`" + ` is set to the time this function is called. \u003cbr/\u003e\u003cbr/\u003e**Note**: This endpoint is deprecated and will be removed in a future version. Use the ` + "`" + `/objects/{className}/{id}` + "`" + ` endpoint instead.",
         "tags": [
           "objects"
         ],
-        "summary": "Update an Object based on its UUID (using patch semantics).",
+        "summary": "Patch an object",
         "operationId": "objects.patch",
         "deprecated": true,
         "parameters": [
           {
             "type": "string",
             "format": "uuid",
-            "description": "Unique ID of the Object.",
+            "description": "Unique UUID of the object to be patched.",
             "name": "id",
             "in": "path",
             "required": true
           },
           {
-            "description": "RFC 7396-style patch, the body contains the object to merge into the existing object.",
+            "description": "RFC 7396-style JSON merge patch object containing the fields to update.",
             "name": "body",
             "in": "body",
             "schema": {
@@ -3471,10 +3729,10 @@ func init() {
         ],
         "responses": {
           "204": {
-            "description": "Successfully applied. No content provided."
+            "description": "Object patched successfully."
           },
           "400": {
-            "description": "The patch-JSON is malformed."
+            "description": "Malformed patch request body."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -3486,16 +3744,16 @@ func init() {
             }
           },
           "404": {
-            "description": "Successful query result but no resource was found."
+            "description": "Object not found."
           },
           "422": {
-            "description": "The patch-JSON is valid but unprocessable.",
+            "description": "The patch object is valid JSON but is unprocessable for other reasons (e.g., invalid schema).",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3514,26 +3772,27 @@ func init() {
         "tags": [
           "objects"
         ],
-        "summary": "Replace all references to a class-property.",
+        "summary": "Replace object references",
         "operationId": "objects.references.update",
         "deprecated": true,
         "parameters": [
           {
             "type": "string",
             "format": "uuid",
-            "description": "Unique ID of the Object.",
+            "description": "Unique UUID of the source object.",
             "name": "id",
             "in": "path",
             "required": true
           },
           {
             "type": "string",
-            "description": "Unique name of the property related to the Object.",
+            "description": "Unique name of the reference property of the source object.",
             "name": "propertyName",
             "in": "path",
             "required": true
           },
           {
+            "description": "The new list of references.",
             "name": "body",
             "in": "body",
             "required": true,
@@ -3547,7 +3806,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Successfully replaced all the references."
+            "description": "References replaced successfully."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -3559,13 +3818,13 @@ func init() {
             }
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request. Ensure the property exists and is a reference type.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3578,30 +3837,31 @@ func init() {
         ]
       },
       "post": {
-        "description": "Add a cross-reference. \u003cbr/\u003e\u003cbr/\u003e**Note**: This endpoint is deprecated and will be removed in a future version. Use the ` + "`" + `/objects/{className}/{id}/references/{propertyName}` + "`" + ` endpoint instead.",
+        "description": "Add a reference to a specific property of a data object. \u003cbr/\u003e\u003cbr/\u003e**Note**: This endpoint is deprecated and will be removed in a future version. Use the ` + "`" + `/objects/{className}/{id}/references/{propertyName}` + "`" + ` endpoint instead.",
         "tags": [
           "objects"
         ],
-        "summary": "Add a single reference to a class-property.",
+        "summary": "Add an object reference",
         "operationId": "objects.references.create",
         "deprecated": true,
         "parameters": [
           {
             "type": "string",
             "format": "uuid",
-            "description": "Unique ID of the Object.",
+            "description": "Unique UUID of the source object.",
             "name": "id",
             "in": "path",
             "required": true
           },
           {
             "type": "string",
-            "description": "Unique name of the property related to the Object.",
+            "description": "Unique name of the reference property of the source object.",
             "name": "propertyName",
             "in": "path",
             "required": true
           },
           {
+            "description": "The reference to add.",
             "name": "body",
             "in": "body",
             "required": true,
@@ -3615,7 +3875,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Successfully added the reference."
+            "description": "Reference added successfully."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -3627,13 +3887,13 @@ func init() {
             }
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request. Ensure the property exists and is a reference type.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3650,26 +3910,27 @@ func init() {
         "tags": [
           "objects"
         ],
-        "summary": "Delete a single reference from the list of references.",
+        "summary": "Delete an object reference",
         "operationId": "objects.references.delete",
         "deprecated": true,
         "parameters": [
           {
             "type": "string",
             "format": "uuid",
-            "description": "Unique ID of the Object.",
+            "description": "Unique UUID of the source object.",
             "name": "id",
             "in": "path",
             "required": true
           },
           {
             "type": "string",
-            "description": "Unique name of the property related to the Object.",
+            "description": "Unique name of the reference property of the source object.",
             "name": "propertyName",
             "in": "path",
             "required": true
           },
           {
+            "description": "The reference to remove.",
             "name": "body",
             "in": "body",
             "required": true,
@@ -3683,7 +3944,7 @@ func init() {
         ],
         "responses": {
           "204": {
-            "description": "Successfully deleted."
+            "description": "Reference deleted successfully."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -3695,13 +3956,13 @@ func init() {
             }
           },
           "404": {
-            "description": "Successful query result but no resource was found.",
+            "description": "Object or reference not found.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3755,7 +4016,7 @@ func init() {
             }
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3778,10 +4039,11 @@ func init() {
         ]
       },
       "delete": {
+        "description": "Schedules all replication operations for deletion across all collections, shards, and nodes.",
         "tags": [
           "replication"
         ],
-        "summary": "Schedules all replication operations for deletion across all collections, shards, and nodes.",
+        "summary": "Delete all replication operations",
         "operationId": "deleteAllReplications",
         "responses": {
           "204": {
@@ -3803,7 +4065,7 @@ func init() {
             }
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3866,7 +4128,7 @@ func init() {
             }
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -4005,7 +4267,7 @@ func init() {
             "description": "Shard replica operation not found."
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -4067,7 +4329,7 @@ func init() {
             }
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -4092,7 +4354,7 @@ func init() {
     },
     "/replication/replicate/{id}/cancel": {
       "post": {
-        "description": "Requests the cancellation of an active replication operation identified by its ID. The operation will be stopped, but its record will remain in the 'CANCELLED' state (can't be resumed) and will not be automatically deleted.",
+        "description": "Requests the cancellation of an active replication operation identified by its ID. The operation will be stopped, but its record will remain in the ` + "`" + `CANCELLED` + "`" + ` state (can't be resumed) and will not be automatically deleted.",
         "tags": [
           "replication"
         ],
@@ -4131,7 +4393,7 @@ func init() {
             }
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -4224,24 +4486,24 @@ func init() {
     },
     "/schema": {
       "get": {
-        "description": "Fetch an array of all collection definitions from the schema.",
+        "description": "Retrieves the definitions of all collections (classes) currently in the database schema.",
         "tags": [
           "schema"
         ],
-        "summary": "Dump the current the database schema.",
+        "summary": "Get all collection definitions",
         "operationId": "schema.dump",
         "parameters": [
           {
             "type": "boolean",
             "default": true,
-            "description": "If consistency is true, the request will be proxied to the leader to ensure strong schema consistency",
+            "description": "If true, the request is proxied to the cluster leader to ensure strong schema consistency. Default is true.",
             "name": "consistency",
             "in": "header"
           }
         ],
         "responses": {
           "200": {
-            "description": "Successfully dumped the database schema.",
+            "description": "Successfully retrieved the database schema.",
             "schema": {
               "$ref": "#/definitions/Schema"
             }
@@ -4256,7 +4518,7 @@ func init() {
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An error occurred while retrieving the schema. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -4267,14 +4529,15 @@ func init() {
         ]
       },
       "post": {
-        "description": "Create a new data object collection. \u003cbr/\u003e\u003cbr/\u003eIf AutoSchema is enabled, Weaviate will attempt to infer the schema from the data at import time. However, manual schema definition is recommended for production environments.",
+        "description": "Defines and creates a new collection (class).\u003cbr/\u003e\u003cbr/\u003eIf [` + "`" + `AutoSchema` + "`" + `](https://docs.weaviate.io/weaviate/config-refs/collections#auto-schema) is enabled (not recommended for production), Weaviate might attempt to infer schema from data during import. Manual definition via this endpoint provides explicit control.",
         "tags": [
           "schema"
         ],
-        "summary": "Create a new Object class in the schema.",
+        "summary": "Create a new collection",
         "operationId": "schema.objects.create",
         "parameters": [
           {
+            "description": "The definition of the collection (class) to create.",
             "name": "objectClass",
             "in": "body",
             "required": true,
@@ -4285,7 +4548,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Added the new Object class to the schema.",
+            "description": "Collection created successfully and its definition returned.",
             "schema": {
               "$ref": "#/definitions/Class"
             }
@@ -4300,13 +4563,13 @@ func init() {
             }
           },
           "422": {
-            "description": "Invalid Object class",
+            "description": "Invalid collection definition provided. Check the definition structure and properties.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An error occurred during collection creation. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -4319,14 +4582,16 @@ func init() {
     },
     "/schema/{className}": {
       "get": {
+        "description": "Retrieve the definition of a specific collection (` + "`" + `className` + "`" + `), including its properties, configuration, and vectorizer settings.",
         "tags": [
           "schema"
         ],
-        "summary": "Get a single class from the schema",
+        "summary": "Get a single collection",
         "operationId": "schema.objects.get",
         "parameters": [
           {
             "type": "string",
+            "description": "The name of the collection (class) to retrieve.",
             "name": "className",
             "in": "path",
             "required": true
@@ -4334,14 +4599,14 @@ func init() {
           {
             "type": "boolean",
             "default": true,
-            "description": "If consistency is true, the request will be proxied to the leader to ensure strong schema consistency",
+            "description": "If true, the request is proxied to the cluster leader to ensure strong schema consistency. Default is true.",
             "name": "consistency",
             "in": "header"
           }
         ],
         "responses": {
           "200": {
-            "description": "Found the Class, returned as body",
+            "description": "Successfully retrieved the collection definition.",
             "schema": {
               "$ref": "#/definitions/Class"
             }
@@ -4356,10 +4621,10 @@ func init() {
             }
           },
           "404": {
-            "description": "This class does not exist"
+            "description": "Collection not found."
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An error occurred while retrieving the collection definition. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -4370,20 +4635,22 @@ func init() {
         ]
       },
       "put": {
-        "description": "Add a property to an existing collection.",
+        "description": "Updates the configuration settings of an existing collection (` + "`" + `className` + "`" + `) based on the provided definition. Note: This operation modifies mutable settings specified in the request body. It does not add properties (use ` + "`" + `POST /schema/{className}/properties` + "`" + ` for that) or change the collection name.",
         "tags": [
           "schema"
         ],
-        "summary": "Update settings of an existing schema class",
+        "summary": "Update collection definition",
         "operationId": "schema.objects.update",
         "parameters": [
           {
             "type": "string",
+            "description": "The name of the collection (class) to update.",
             "name": "className",
             "in": "path",
             "required": true
           },
           {
+            "description": "The updated collection definition containing the settings to modify.",
             "name": "objectClass",
             "in": "body",
             "required": true,
@@ -4394,7 +4661,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Class was updated successfully",
+            "description": "Collection settings updated successfully.",
             "schema": {
               "$ref": "#/definitions/Class"
             }
@@ -4409,19 +4676,19 @@ func init() {
             }
           },
           "404": {
-            "description": "Class to be updated does not exist",
+            "description": "Collection not found.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "422": {
-            "description": "Invalid update attempt",
+            "description": "Invalid update attempt.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An error occurred while updating the collection. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -4432,15 +4699,16 @@ func init() {
         ]
       },
       "delete": {
-        "description": "Remove a collection from the schema. This will also delete all the objects in the collection.",
+        "description": "Removes a collection definition from the schema. WARNING: This action permanently deletes all data objects stored within the collection.",
         "tags": [
           "schema"
         ],
-        "summary": "Remove an Object class (and all data in the instances) from the schema.",
+        "summary": "Delete a collection (and all associated data)",
         "operationId": "schema.objects.delete",
         "parameters": [
           {
             "type": "string",
+            "description": "The name of the collection (class) to delete.",
             "name": "className",
             "in": "path",
             "required": true
@@ -4448,10 +4716,10 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Removed the Object class from the schema."
+            "description": "Collection deleted successfully."
           },
           "400": {
-            "description": "Could not delete the Object class.",
+            "description": "Could not delete the collection. See the error response for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -4466,7 +4734,7 @@ func init() {
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An error occurred during collection deletion. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -4479,19 +4747,22 @@ func init() {
     },
     "/schema/{className}/properties": {
       "post": {
+        "description": "Adds a new property definition to an existing collection (` + "`" + `className` + "`" + `) definition.",
         "tags": [
           "schema"
         ],
-        "summary": "Add a property to an Object class.",
+        "summary": "Add a property to a collection",
         "operationId": "schema.objects.properties.add",
         "parameters": [
           {
             "type": "string",
+            "description": "The name of the collection (class) to add the property to.",
             "name": "className",
             "in": "path",
             "required": true
           },
           {
+            "description": "The definition of the property to add.",
             "name": "body",
             "in": "body",
             "required": true,
@@ -4502,7 +4773,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Added the property.",
+            "description": "Property added successfully and its definition returned.",
             "schema": {
               "$ref": "#/definitions/Property"
             }
@@ -4517,13 +4788,13 @@ func init() {
             }
           },
           "422": {
-            "description": "Invalid property.",
+            "description": "Invalid property definition provided.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An error occurred while adding the property. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -4536,28 +4807,30 @@ func init() {
     },
     "/schema/{className}/shards": {
       "get": {
-        "description": "Get the status of every shard in the cluster.",
+        "description": "Retrieves the status of all shards associated with the specified collection (` + "`" + `className` + "`" + `). For multi-tenant collections, use the ` + "`" + `tenant` + "`" + ` query parameter to retrieve status for a specific tenant's shards.",
         "tags": [
           "schema"
         ],
-        "summary": "Get the shards status of an Object class",
+        "summary": "Get the shards status of a collection",
         "operationId": "schema.objects.shards.get",
         "parameters": [
           {
             "type": "string",
+            "description": "The name of the collection (class) whose shards to query.",
             "name": "className",
             "in": "path",
             "required": true
           },
           {
             "type": "string",
+            "description": "The name of the tenant for which to retrieve shard statuses (only applicable for multi-tenant collections).",
             "name": "tenant",
             "in": "query"
           }
         ],
         "responses": {
           "200": {
-            "description": "Found the status of the shards, returned as body",
+            "description": "Shard statuses retrieved successfully.",
             "schema": {
               "$ref": "#/definitions/ShardStatusList"
             }
@@ -4572,13 +4845,13 @@ func init() {
             }
           },
           "404": {
-            "description": "This class does not exist",
+            "description": "Collection not found.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An error occurred while retrieving shard statuses. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -4591,26 +4864,29 @@ func init() {
     },
     "/schema/{className}/shards/{shardName}": {
       "put": {
-        "description": "Update a shard status for a collection. For example, a shard may have been marked as ` + "`" + `READONLY` + "`" + ` because its disk was full. After providing more disk space, use this endpoint to set the shard status to ` + "`" + `READY` + "`" + ` again. There is also a convenience function in each client to set the status of all shards of a collection.",
+        "description": "Updates the status of a specific shard within a collection (e.g., sets it to ` + "`" + `READY` + "`" + ` or ` + "`" + `READONLY` + "`" + `). This is typically used after resolving an underlying issue (like disk space) that caused a shard to become non-operational. There is also a convenience function in each client to set the status of all shards of a collection.",
         "tags": [
           "schema"
         ],
-        "summary": "Update a shard status.",
+        "summary": "Update a shard status",
         "operationId": "schema.objects.shards.update",
         "parameters": [
           {
             "type": "string",
+            "description": "The name of the collection (class) containing the shard.",
             "name": "className",
             "in": "path",
             "required": true
           },
           {
             "type": "string",
+            "description": "The name of the shard to update.",
             "name": "shardName",
             "in": "path",
             "required": true
           },
           {
+            "description": "The shard status object containing the desired new status.",
             "name": "body",
             "in": "body",
             "required": true,
@@ -4621,7 +4897,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Shard status was updated successfully",
+            "description": "Shard status updated successfully.",
             "schema": {
               "$ref": "#/definitions/ShardStatus"
             }
@@ -4636,7 +4912,7 @@ func init() {
             }
           },
           "404": {
-            "description": "Shard to be updated does not exist",
+            "description": "Collection or shard not found.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -4648,7 +4924,7 @@ func init() {
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An error occurred while updating the shard status. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -4661,15 +4937,16 @@ func init() {
     },
     "/schema/{className}/tenants": {
       "get": {
-        "description": "get all tenants from a specific class",
+        "description": "Retrieves a list of all tenants currently associated with the specified collection.",
         "tags": [
           "schema"
         ],
-        "summary": "Get the list of tenants.",
+        "summary": "Get the list of tenants",
         "operationId": "tenants.get",
         "parameters": [
           {
             "type": "string",
+            "description": "The name of the collection (class) whose tenants to list.",
             "name": "className",
             "in": "path",
             "required": true
@@ -4677,14 +4954,14 @@ func init() {
           {
             "type": "boolean",
             "default": true,
-            "description": "If consistency is true, the request will be proxied to the leader to ensure strong schema consistency",
+            "description": "If true, the request is proxied to the cluster leader to ensure strong schema consistency. Default is true.",
             "name": "consistency",
             "in": "header"
           }
         ],
         "responses": {
           "200": {
-            "description": "tenants from specified class.",
+            "description": "Successfully retrieved tenants.",
             "schema": {
               "type": "array",
               "items": {
@@ -4702,13 +4979,13 @@ func init() {
             }
           },
           "422": {
-            "description": "Invalid Tenant class",
+            "description": "Invalid request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An error occurred while listing tenants. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -4716,20 +4993,22 @@ func init() {
         }
       },
       "put": {
-        "description": "Update tenant of a specific class",
+        "description": "Updates the activity status (e.g., ` + "`" + `ACTIVE` + "`" + `, ` + "`" + `INACTIVE` + "`" + `, etc.) of one or more specified tenants within a collection (` + "`" + `className` + "`" + `).",
         "tags": [
           "schema"
         ],
-        "summary": "Update a tenant.",
+        "summary": "Update a tenant",
         "operationId": "tenants.update",
         "parameters": [
           {
             "type": "string",
+            "description": "The name of the collection (class) containing the tenants.",
             "name": "className",
             "in": "path",
             "required": true
           },
           {
+            "description": "An array of tenant objects specifying the tenants to update and their desired new status.",
             "name": "body",
             "in": "body",
             "required": true,
@@ -4743,7 +5022,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Updated tenants of the specified class",
+            "description": "Tenant statuses updated successfully.",
             "schema": {
               "type": "array",
               "items": {
@@ -4761,13 +5040,13 @@ func init() {
             }
           },
           "422": {
-            "description": "Invalid Tenant class",
+            "description": "Invalid update request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An error occurred while updating tenants. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -4775,7 +5054,7 @@ func init() {
         }
       },
       "post": {
-        "description": "Create a new tenant for a collection. Multi-tenancy must be enabled in the collection definition.",
+        "description": "Creates one or more new tenants for a specified collection (` + "`" + `className` + "`" + `). Multi-tenancy must be enabled for the collection via its definition.",
         "tags": [
           "schema"
         ],
@@ -4784,11 +5063,13 @@ func init() {
         "parameters": [
           {
             "type": "string",
+            "description": "The name of the multi-tenant enabled collection (class).",
             "name": "className",
             "in": "path",
             "required": true
           },
           {
+            "description": "An array of tenant objects to create.",
             "name": "body",
             "in": "body",
             "required": true,
@@ -4802,7 +5083,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Added new tenants to the specified class",
+            "description": "Tenants created successfully.",
             "schema": {
               "type": "array",
               "items": {
@@ -4820,13 +5101,13 @@ func init() {
             }
           },
           "422": {
-            "description": "Invalid Tenant class",
+            "description": "Invalid request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An error occurred while creating tenants. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -4834,25 +5115,29 @@ func init() {
         }
       },
       "delete": {
-        "description": "delete tenants from a specific class",
+        "description": "Deletes one or more specified tenants from a collection (` + "`" + `className` + "`" + `). WARNING: This action permanently deletes all data associated with the specified tenants.",
         "tags": [
           "schema"
         ],
+        "summary": "Delete tenants",
         "operationId": "tenants.delete",
         "parameters": [
           {
             "type": "string",
+            "description": "The name of the collection (class) from which to delete tenants.",
             "name": "className",
             "in": "path",
             "required": true
           },
           {
+            "description": "An array of tenant names to delete.",
             "name": "tenants",
             "in": "body",
             "required": true,
             "schema": {
               "type": "array",
               "items": {
+                "description": "Name of a tenant to delete.",
                 "type": "string"
               }
             }
@@ -4860,7 +5145,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Deleted tenants from specified class."
+            "description": "Tenants deleted successfully."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -4872,13 +5157,13 @@ func init() {
             }
           },
           "422": {
-            "description": "Invalid Tenant class",
+            "description": "Invalid request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An error occurred while deleting tenants. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -4888,7 +5173,7 @@ func init() {
     },
     "/schema/{className}/tenants/{tenantName}": {
       "get": {
-        "description": "get a specific tenant for the given class",
+        "description": "Retrieves details about a specific tenant within the given collection (` + "`" + `className` + "`" + `), such as its current activity status.",
         "tags": [
           "schema"
         ],
@@ -4897,12 +5182,14 @@ func init() {
         "parameters": [
           {
             "type": "string",
+            "description": "The name of the collection (class) containing the tenant.",
             "name": "className",
             "in": "path",
             "required": true
           },
           {
             "type": "string",
+            "description": "The name of the tenant to retrieve.",
             "name": "tenantName",
             "in": "path",
             "required": true
@@ -4910,14 +5197,14 @@ func init() {
           {
             "type": "boolean",
             "default": true,
-            "description": "If consistency is true, the request will be proxied to the leader to ensure strong schema consistency",
+            "description": "If true, the request is proxied to the cluster leader to ensure strong schema consistency. Default is true.",
             "name": "consistency",
             "in": "header"
           }
         ],
         "responses": {
           "200": {
-            "description": "load the tenant given the specified class",
+            "description": "Successfully retrieved tenant details.",
             "schema": {
               "$ref": "#/definitions/Tenant"
             }
@@ -4932,16 +5219,16 @@ func init() {
             }
           },
           "404": {
-            "description": "Tenant not found"
+            "description": "Tenant or collection not found."
           },
           "422": {
-            "description": "Invalid tenant or class",
+            "description": "Invalid request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An error occurred while retrieving the tenant. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -4949,21 +5236,23 @@ func init() {
         }
       },
       "head": {
-        "description": "Check if a tenant exists for a specific class",
+        "description": "Checks for the existence of a specific tenant within the given collection (` + "`" + `className` + "`" + `).",
         "tags": [
           "schema"
         ],
-        "summary": "Check whether a tenant exists",
+        "summary": "Check if a tenant exists",
         "operationId": "tenant.exists",
         "parameters": [
           {
             "type": "string",
+            "description": "The name of the collection (class) to check within.",
             "name": "className",
             "in": "path",
             "required": true
           },
           {
             "type": "string",
+            "description": "The name of the tenant to check for.",
             "name": "tenantName",
             "in": "path",
             "required": true
@@ -4971,14 +5260,14 @@ func init() {
           {
             "type": "boolean",
             "default": true,
-            "description": "If consistency is true, the request will be proxied to the leader to ensure strong schema consistency",
+            "description": "If true, the request is proxied to the cluster leader to ensure strong schema consistency. Default is true.",
             "name": "consistency",
             "in": "header"
           }
         ],
         "responses": {
           "200": {
-            "description": "The tenant exists in the specified class"
+            "description": "The tenant exists in the specified collection."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -4990,16 +5279,16 @@ func init() {
             }
           },
           "404": {
-            "description": "The tenant not found"
+            "description": "Tenant or collection not found."
           },
           "422": {
-            "description": "Invalid Tenant class",
+            "description": "Invalid request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An error occurred during the check. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -5012,11 +5301,11 @@ func init() {
         "tags": [
           "distributedTasks"
         ],
-        "summary": "Lists all distributed tasks in the cluster.",
+        "summary": "Lists all distributed tasks in the cluster",
         "operationId": "distributedTasks.get",
         "responses": {
           "200": {
-            "description": "Distributed tasks successfully returned",
+            "description": "Distributed tasks successfully returned.",
             "schema": {
               "$ref": "#/definitions/DistributedTasks"
             }
@@ -5028,7 +5317,7 @@ func init() {
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An internal server error occurred while retrieving distributed tasks. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -5041,23 +5330,24 @@ func init() {
     },
     "/users/db": {
       "get": {
+        "description": "Retrieves a list of all database (` + "`" + `db` + "`" + ` user type) users with their roles and status information.",
         "tags": [
           "users"
         ],
-        "summary": "list all db users",
+        "summary": "List all users",
         "operationId": "listAllUsers",
         "parameters": [
           {
             "type": "boolean",
             "default": false,
-            "description": "Whether to include the last used time of the users",
+            "description": "Whether to include the last time the users were utilized.",
             "name": "includeLastUsedTime",
             "in": "query"
           }
         ],
         "responses": {
           "200": {
-            "description": "Info about the users",
+            "description": "Info about the users.",
             "schema": {
               "type": "array",
               "items": {
@@ -5088,15 +5378,16 @@ func init() {
     },
     "/users/db/{user_id}": {
       "get": {
+        "description": "Retrieve detailed information about a specific database user (` + "`" + `db` + "`" + ` user type), including their roles, status, and type.",
         "tags": [
           "users"
         ],
-        "summary": "get info relevant to user, e.g. username, roles",
+        "summary": "Get user info",
         "operationId": "getUserInfo",
         "parameters": [
           {
             "type": "string",
-            "description": "user id",
+            "description": "The name of the user.",
             "name": "user_id",
             "in": "path",
             "required": true
@@ -5111,7 +5402,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Info about the user",
+            "description": "Info about the user.",
             "schema": {
               "$ref": "#/definitions/DBUserInfo"
             }
@@ -5126,10 +5417,10 @@ func init() {
             }
           },
           "404": {
-            "description": "user not found"
+            "description": "User not found."
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -5146,15 +5437,16 @@ func init() {
         ]
       },
       "post": {
+        "description": "Create a new database (` + "`" + `db` + "`" + ` user type) user with the specified name. Returns an API key for the newly created user.",
         "tags": [
           "users"
         ],
-        "summary": "create new user",
+        "summary": "Create a new user",
         "operationId": "createUser",
         "parameters": [
           {
             "type": "string",
-            "description": "user id",
+            "description": "The name of the user.",
             "name": "user_id",
             "in": "path",
             "required": true
@@ -5181,7 +5473,7 @@ func init() {
         ],
         "responses": {
           "201": {
-            "description": "User created successfully",
+            "description": "User created successfully and API key returned.",
             "schema": {
               "$ref": "#/definitions/UserApiKey"
             }
@@ -5202,19 +5494,19 @@ func init() {
             }
           },
           "404": {
-            "description": "user not found",
+            "description": "User not found.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "409": {
-            "description": "User already exists",
+            "description": "A user with the specified name already exists.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -5231,15 +5523,16 @@ func init() {
         ]
       },
       "delete": {
+        "description": "Delete a database user. You can't delete your current user.",
         "tags": [
           "users"
         ],
-        "summary": "Delete User",
+        "summary": "Delete a user",
         "operationId": "deleteUser",
         "parameters": [
           {
             "type": "string",
-            "description": "user name",
+            "description": "The name of the user.",
             "name": "user_id",
             "in": "path",
             "required": true
@@ -5265,10 +5558,10 @@ func init() {
             }
           },
           "404": {
-            "description": "user not found"
+            "description": "User not found."
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -5287,15 +5580,16 @@ func init() {
     },
     "/users/db/{user_id}/activate": {
       "post": {
+        "description": "Activate a deactivated database user (` + "`" + `db` + "`" + ` user type).",
         "tags": [
           "users"
         ],
-        "summary": "activate a deactivated user",
+        "summary": "Activate a user",
         "operationId": "activateUser",
         "parameters": [
           {
             "type": "string",
-            "description": "user id",
+            "description": "The name of the user.",
             "name": "user_id",
             "in": "path",
             "required": true
@@ -5303,7 +5597,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "User successfully activated"
+            "description": "User successfully activated."
           },
           "400": {
             "description": "Malformed request.",
@@ -5321,13 +5615,13 @@ func init() {
             }
           },
           "404": {
-            "description": "user not found"
+            "description": "User not found."
           },
           "409": {
-            "description": "user already activated"
+            "description": "User already activated."
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -5346,15 +5640,16 @@ func init() {
     },
     "/users/db/{user_id}/deactivate": {
       "post": {
+        "description": "Deactivate a database user (` + "`" + `db` + "`" + ` user type).",
         "tags": [
           "users"
         ],
-        "summary": "deactivate a user",
+        "summary": "Deactivate a user",
         "operationId": "deactivateUser",
         "parameters": [
           {
             "type": "string",
-            "description": "user id",
+            "description": "The name of the user.",
             "name": "user_id",
             "in": "path",
             "required": true
@@ -5366,7 +5661,7 @@ func init() {
               "type": "object",
               "properties": {
                 "revoke_key": {
-                  "description": "if the key should be revoked when deactivating the user",
+                  "description": "Whether the API key should be revoked when deactivating the user.",
                   "type": "boolean",
                   "default": false
                 }
@@ -5376,7 +5671,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "users successfully deactivated"
+            "description": "User successfully deactivated."
           },
           "400": {
             "description": "Malformed request.",
@@ -5394,13 +5689,13 @@ func init() {
             }
           },
           "404": {
-            "description": "user not found"
+            "description": "User not found."
           },
           "409": {
-            "description": "user already deactivated"
+            "description": "User already deactivated."
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -5419,15 +5714,16 @@ func init() {
     },
     "/users/db/{user_id}/rotate-key": {
       "post": {
+        "description": "Revoke the current API key for the specified database user (` + "`" + `db` + "`" + ` user type) and generate a new one.",
         "tags": [
           "users"
         ],
-        "summary": "rotate user api key",
+        "summary": "Rotate API key of a user",
         "operationId": "rotateUserApiKey",
         "parameters": [
           {
             "type": "string",
-            "description": "user id",
+            "description": "The name of the user.",
             "name": "user_id",
             "in": "path",
             "required": true
@@ -5435,7 +5731,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "ApiKey successfully changed",
+            "description": "API key successfully updated.",
             "schema": {
               "$ref": "#/definitions/UserApiKey"
             }
@@ -5456,10 +5752,10 @@ func init() {
             }
           },
           "404": {
-            "description": "user not found"
+            "description": "User not found."
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -5478,14 +5774,15 @@ func init() {
     },
     "/users/own-info": {
       "get": {
+        "description": "Get information about the currently authenticated user, including username and assigned roles.",
         "tags": [
           "users"
         ],
-        "summary": "get info relevant to own user, e.g. username, roles",
+        "summary": "Get current user info",
         "operationId": "getOwnInfo",
         "responses": {
           "200": {
-            "description": "Info about the user",
+            "description": "Info about the user.",
             "schema": {
               "$ref": "#/definitions/UserOwnInfo"
             }
@@ -5567,7 +5864,7 @@ func init() {
       }
     },
     "BM25Config": {
-      "description": "tuning parameters for the BM25 algorithm",
+      "description": "Tuning parameters for the BM25 algorithm.",
       "type": "object",
       "properties": {
         "b": {
@@ -5583,11 +5880,11 @@ func init() {
       }
     },
     "BackupConfig": {
-      "description": "Backup custom configuration",
+      "description": "Backup custom configuration.",
       "type": "object",
       "properties": {
         "Bucket": {
-          "description": "Name of the bucket, container, volume, etc",
+          "description": "Name of the bucket, container, volume, etc.",
           "type": "string"
         },
         "CPUPercentage": {
@@ -5618,17 +5915,17 @@ func init() {
           "x-nullable": false
         },
         "Endpoint": {
-          "description": "name of the endpoint, e.g. s3.amazonaws.com",
+          "description": "Name of the endpoint, e.g. s3.amazonaws.com.",
           "type": "string"
         },
         "Path": {
-          "description": "Path or key within the bucket",
+          "description": "Path or key within the bucket.",
           "type": "string"
         }
       }
     },
     "BackupCreateRequest": {
-      "description": "Request body for creating a backup of a set of classes",
+      "description": "Request body for creating a backup for a set of collections.",
       "properties": {
         "config": {
           "description": "Custom configuration for the backup creation process",
@@ -5667,7 +5964,7 @@ func init() {
           "type": "string"
         },
         "classes": {
-          "description": "The list of classes for which the backup creation process was started",
+          "description": "The list of collections (classes) for which the backup creation process was started.",
           "type": "array",
           "items": {
             "type": "string"
@@ -5707,6 +6004,11 @@ func init() {
           "description": "Backup backend name e.g. filesystem, gcs, s3.",
           "type": "string"
         },
+        "completedAt": {
+          "description": "Timestamp when the backup process completed (successfully or with failure)",
+          "type": "string",
+          "format": "date-time"
+        },
         "error": {
           "description": "error message if creation failed",
           "type": "string"
@@ -5716,8 +6018,13 @@ func init() {
           "type": "string"
         },
         "path": {
-          "description": "destination path of backup files proper to selected backend",
+          "description": "Destination path of backup files valid for the selected backend.",
           "type": "string"
+        },
+        "startedAt": {
+          "description": "Timestamp when the backup process started",
+          "type": "string",
+          "format": "date-time"
         },
         "status": {
           "description": "phase of backup creation process",
@@ -5735,28 +6042,39 @@ func init() {
       }
     },
     "BackupListResponse": {
-      "description": "The definition of a backup create response body",
+      "description": "The definition of a backup create response body.",
       "type": "array",
       "items": {
         "type": "object",
         "properties": {
           "classes": {
-            "description": "The list of classes for which the existed backup process",
+            "description": "The list of collections (classes) for which the backup process was started.",
             "type": "array",
             "items": {
               "type": "string"
             }
           },
+          "completedAt": {
+            "description": "Timestamp when the backup process completed (successfully or with failure)",
+            "type": "string",
+            "format": "date-time"
+          },
           "id": {
             "description": "The ID of the backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
             "type": "string"
           },
-          "path": {
-            "description": "destination path of backup files proper to selected backend",
-            "type": "string"
+          "size": {
+            "description": "Size of the backup in Gibs",
+            "type": "number",
+            "format": "float64"
+          },
+          "startedAt": {
+            "description": "Timestamp when the backup process started",
+            "type": "string",
+            "format": "date-time"
           },
           "status": {
-            "description": "status of backup process",
+            "description": "Status of backup process.",
             "type": "string",
             "enum": [
               "STARTED",
@@ -5771,22 +6089,22 @@ func init() {
       }
     },
     "BackupRestoreRequest": {
-      "description": "Request body for restoring a backup for a set of classes",
+      "description": "Request body for restoring a backup for a set of collections (classes).",
       "properties": {
         "config": {
-          "description": "Custom configuration for the backup restoration process",
+          "description": "Custom configuration for the backup restoration process.",
           "type": "object",
           "$ref": "#/definitions/RestoreConfig"
         },
         "exclude": {
-          "description": "List of classes to exclude from the backup restoration process",
+          "description": "List of collections (classes) to exclude from the backup restoration process.",
           "type": "array",
           "items": {
             "type": "string"
           }
         },
         "include": {
-          "description": "List of classes to include in the backup restoration process",
+          "description": "List of collections (classes) to include in the backup restoration process.",
           "type": "array",
           "items": {
             "type": "string"
@@ -5798,25 +6116,29 @@ func init() {
           "additionalProperties": {
             "type": "string"
           }
+        },
+        "overwriteAlias": {
+          "description": "Allows ovewriting the collection alias if there is a conflict",
+          "type": "boolean"
         }
       }
     },
     "BackupRestoreResponse": {
-      "description": "The definition of a backup restore response body",
+      "description": "The definition of a backup restore response body.",
       "properties": {
         "backend": {
           "description": "Backup backend name e.g. filesystem, gcs, s3.",
           "type": "string"
         },
         "classes": {
-          "description": "The list of classes for which the backup restoration process was started",
+          "description": "The list of collections (classes) for which the backup restoration process was started.",
           "type": "array",
           "items": {
             "type": "string"
           }
         },
         "error": {
-          "description": "error message if restoration failed",
+          "description": "Error message if backup restoration failed.",
           "type": "string"
         },
         "id": {
@@ -5824,11 +6146,11 @@ func init() {
           "type": "string"
         },
         "path": {
-          "description": "destination path of backup files proper to selected backend",
+          "description": "Destination path of backup files valid for the selected backend.",
           "type": "string"
         },
         "status": {
-          "description": "phase of backup restoration process",
+          "description": "Phase of backup restoration process.",
           "type": "string",
           "default": "STARTED",
           "enum": [
@@ -5843,14 +6165,14 @@ func init() {
       }
     },
     "BackupRestoreStatusResponse": {
-      "description": "The definition of a backup restore metadata",
+      "description": "The definition of a backup restore metadata.",
       "properties": {
         "backend": {
           "description": "Backup backend name e.g. filesystem, gcs, s3.",
           "type": "string"
         },
         "error": {
-          "description": "error message if restoration failed",
+          "description": "Error message if backup restoration failed.",
           "type": "string"
         },
         "id": {
@@ -5858,11 +6180,11 @@ func init() {
           "type": "string"
         },
         "path": {
-          "description": "destination path of backup files proper to selected backup backend, contains bucket and path",
+          "description": "Destination path of backup files valid for the selected backup backend, contains bucket and path.",
           "type": "string"
         },
         "status": {
-          "description": "phase of backup restoration process",
+          "description": "Phase of backup restoration process.",
           "type": "string",
           "default": "STARTED",
           "enum": [
@@ -5895,7 +6217,7 @@ func init() {
           "type": "object",
           "properties": {
             "class": {
-              "description": "Class (name) which objects will be deleted.",
+              "description": "The name of the collection (class) from which to delete objects.",
               "type": "string",
               "example": "City"
             },
@@ -5907,7 +6229,7 @@ func init() {
           }
         },
         "output": {
-          "description": "Controls the verbosity of the output, possible values are: \"minimal\", \"verbose\". Defaults to \"minimal\".",
+          "description": "Controls the verbosity of the output, possible values are: ` + "`" + `minimal` + "`" + `, ` + "`" + `verbose` + "`" + `. Defaults to ` + "`" + `minimal` + "`" + `.",
           "type": "string",
           "default": "minimal"
         }
@@ -5933,7 +6255,7 @@ func init() {
           "type": "object",
           "properties": {
             "class": {
-              "description": "Class (name) which objects will be deleted.",
+              "description": "The name of the collection (class) from which to delete objects.",
               "type": "string",
               "example": "City"
             },
@@ -5945,7 +6267,7 @@ func init() {
           }
         },
         "output": {
-          "description": "Controls the verbosity of the output, possible values are: \"minimal\", \"verbose\". Defaults to \"minimal\".",
+          "description": "Controls the verbosity of the output, possible values are: ` + "`" + `minimal` + "`" + `, ` + "`" + `verbose` + "`" + `. Defaults to ` + "`" + `minimal` + "`" + `.",
           "type": "string",
           "default": "minimal"
         },
@@ -5959,7 +6281,7 @@ func init() {
               "x-omitempty": false
             },
             "limit": {
-              "description": "The most amount of objects that can be deleted in a single query, equals QUERY_MAXIMUM_RESULTS.",
+              "description": "The most amount of objects that can be deleted in a single query, equals [` + "`" + `QUERY_MAXIMUM_RESULTS` + "`" + `](https://docs.weaviate.io/deploy/configuration/env-vars#QUERY_MAXIMUM_RESULTS).",
               "type": "number",
               "format": "int64",
               "x-omitempty": false
@@ -5971,7 +6293,7 @@ func init() {
               "x-omitempty": false
             },
             "objects": {
-              "description": "With output set to \"minimal\" only objects with error occurred will the be described. Successfully deleted objects would be omitted. Output set to \"verbose\" will list all of the objets with their respective statuses.",
+              "description": "With output set to ` + "`" + `minimal` + "`" + ` only objects with error occurred will the be described. Successfully deleted objects would be omitted. Output set to ` + "`" + `verbose` + "`" + ` will list all of the objects with their respective statuses.",
               "type": "array",
               "items": {
                 "description": "Results for this specific Object.",
@@ -5981,7 +6303,7 @@ func init() {
                     "$ref": "#/definitions/ErrorResponse"
                   },
                   "id": {
-                    "description": "ID of the Object.",
+                    "description": "The UUID of the object.",
                     "type": "string",
                     "format": "uuid"
                   },
@@ -6010,7 +6332,7 @@ func init() {
     "BatchReference": {
       "properties": {
         "from": {
-          "description": "Long-form beacon-style URI to identify the source of the cross-ref including the property name. Should be in the form of weaviate://localhost/\u003ckinds\u003e/\u003cuuid\u003e/\u003cclassName\u003e/\u003cpropertyName\u003e, where \u003ckinds\u003e must be one of 'objects', 'objects' and \u003cclassName\u003e and \u003cpropertyName\u003e must represent the cross-ref property of source class to be used.",
+          "description": "Long-form beacon-style URI to identify the source of the cross-reference, including the property name. Should be in the form of ` + "`" + `weaviate://localhost/objects/\u003cuuid\u003e/\u003cclassName\u003e/\u003cpropertyName\u003e` + "`" + `, where ` + "`" + `\u003cclassName\u003e` + "`" + ` and ` + "`" + `\u003cpropertyName\u003e` + "`" + ` must represent the cross-reference property of the source class to be used.",
           "type": "string",
           "format": "uri",
           "example": "weaviate://localhost/Zoo/a5d09582-4239-4702-81c9-92a6e0122bb4/hasAnimals"
@@ -6020,7 +6342,7 @@ func init() {
           "type": "string"
         },
         "to": {
-          "description": "Short-form URI to point to the cross-ref. Should be in the form of weaviate://localhost/\u003cuuid\u003e for the example of a local cross-ref to an object",
+          "description": "Short-form URI to point to the cross-reference. Should be in the form of ` + "`" + `weaviate://localhost/\u003cuuid\u003e` + "`" + ` for the example of a local cross-reference to an object.",
           "type": "string",
           "format": "uri",
           "example": "weaviate://localhost/97525810-a9a5-4eb0-858a-71449aeb007f"
@@ -6118,7 +6440,7 @@ func init() {
       }
     },
     "C11yVectorBasedQuestion": {
-      "description": "Receive question based on array of classes, properties and values.",
+      "description": "Receive question based on array of collection names (classes), properties and values.",
       "type": "array",
       "items": {
         "type": "object",
@@ -6146,7 +6468,7 @@ func init() {
             }
           },
           "classVectors": {
-            "description": "Vectorized classname.",
+            "description": "Vectorized collection (class) name.",
             "type": "array",
             "maxItems": 300,
             "minItems": 300,
@@ -6214,7 +6536,7 @@ func init() {
       "type": "object",
       "properties": {
         "class": {
-          "description": "Name of the class (a.k.a. 'collection') (required). Multiple words should be concatenated in CamelCase, e.g. ` + "`" + `ArticleAuthor` + "`" + `.",
+          "description": "Name of the collection (formerly 'class') (required). Multiple words should be concatenated in CamelCase, e.g. ` + "`" + `ArticleAuthor` + "`" + `.",
           "type": "string"
         },
         "description": {
@@ -6257,11 +6579,11 @@ func init() {
           "type": "object"
         },
         "vectorIndexType": {
-          "description": "Name of the vector index to use, eg. (HNSW)",
+          "description": "Name of the vector index type to use for the collection (e.g. ` + "`" + `hnsw` + "`" + ` or ` + "`" + `flat` + "`" + `).",
           "type": "string"
         },
         "vectorizer": {
-          "description": "Specify how the vectors for this class should be determined. The options are either 'none' - this means you have to import a vector with each object yourself - or the name of a module that provides vectorization capabilities, such as 'text2vec-contextionary'. If left empty, it will use the globally configured default which can itself either be 'none' or a specific module.",
+          "description": "Specify how the vectors for this collection should be determined. The options are either ` + "`" + `none` + "`" + ` - this means you have to import a vector with each object yourself - or the name of a module that provides vectorization capabilities, such as ` + "`" + `text2vec-weaviate` + "`" + `. If left empty, it will use the globally configured default ([` + "`" + `DEFAULT_VECTORIZER_MODULE` + "`" + `](https://docs.weaviate.io/deploy/configuration/env-vars)) which can itself either be ` + "`" + `none` + "`" + ` or a specific module.",
           "type": "string"
         }
       }
@@ -6271,7 +6593,7 @@ func init() {
       "type": "object",
       "properties": {
         "basedOnProperties": {
-          "description": "base the text-based classification on these fields (of type text)",
+          "description": "Base the text-based classification on these fields (of type text).",
           "type": "array",
           "items": {
             "type": "string"
@@ -6281,12 +6603,12 @@ func init() {
           ]
         },
         "class": {
-          "description": "class (name) which is used in this classification",
+          "description": "The name of the collection (class) which is used in this classification.",
           "type": "string",
           "example": "City"
         },
         "classifyProperties": {
-          "description": "which ref-property to set as part of the classification",
+          "description": "Which ref-property to set as part of the classification.",
           "type": "array",
           "items": {
             "type": "string"
@@ -6296,7 +6618,7 @@ func init() {
           ]
         },
         "error": {
-          "description": "error message if status == failed",
+          "description": "Error message if status == failed.",
           "type": "string",
           "default": "",
           "example": "classify xzy: something went wrong"
@@ -6305,39 +6627,39 @@ func init() {
           "type": "object",
           "properties": {
             "sourceWhere": {
-              "description": "limit the objects to be classified",
+              "description": "Limit the objects to be classified.",
               "type": "object",
               "$ref": "#/definitions/WhereFilter"
             },
             "targetWhere": {
-              "description": "Limit the possible sources when using an algorithm which doesn't really on training data, e.g. 'contextual'. When using an algorithm with a training set, such as 'knn', limit the training set instead",
+              "description": "Limit the possible sources when using an algorithm which doesn't really on training data, e.g. 'contextual'. When using an algorithm with a training set, such as 'knn', limit the training set instead.",
               "type": "object",
               "$ref": "#/definitions/WhereFilter"
             },
             "trainingSetWhere": {
-              "description": "Limit the training objects to be considered during the classification. Can only be used on types with explicit training sets, such as 'knn'",
+              "description": "Limit the training objects to be considered during the classification. Can only be used on types with explicit training sets, such as 'knn'.",
               "type": "object",
               "$ref": "#/definitions/WhereFilter"
             }
           }
         },
         "id": {
-          "description": "ID to uniquely identify this classification run",
+          "description": "ID to uniquely identify this classification run.",
           "type": "string",
           "format": "uuid",
           "example": "ee722219-b8ec-4db1-8f8d-5150bb1a9e0c"
         },
         "meta": {
-          "description": "additional meta information about the classification",
+          "description": "Additional meta information about the classification.",
           "type": "object",
           "$ref": "#/definitions/ClassificationMeta"
         },
         "settings": {
-          "description": "classification-type specific settings",
+          "description": "Classification-type specific settings.",
           "type": "object"
         },
         "status": {
-          "description": "status of this classification",
+          "description": "Status of this classification.",
           "type": "string",
           "enum": [
             "running",
@@ -6347,38 +6669,38 @@ func init() {
           "example": "running"
         },
         "type": {
-          "description": "which algorithm to use for classifications",
+          "description": "Which algorithm to use for classifications.",
           "type": "string"
         }
       }
     },
     "ClassificationMeta": {
-      "description": "Additional information to a specific classification",
+      "description": "Additional information to a specific classification.",
       "type": "object",
       "properties": {
         "completed": {
-          "description": "time when this classification finished",
+          "description": "Time when this classification finished.",
           "type": "string",
           "format": "date-time",
           "example": "2017-07-21T17:32:28Z"
         },
         "count": {
-          "description": "number of objects which were taken into consideration for classification",
+          "description": "Number of objects which were taken into consideration for classification.",
           "type": "integer",
           "example": 147
         },
         "countFailed": {
-          "description": "number of objects which could not be classified - see error message for details",
+          "description": "Number of objects which could not be classified - see error message for details.",
           "type": "integer",
           "example": 7
         },
         "countSucceeded": {
-          "description": "number of objects successfully classified",
+          "description": "Number of objects successfully classified.",
           "type": "integer",
           "example": 140
         },
         "started": {
-          "description": "time when this classification was started",
+          "description": "Time when this classification was started.",
           "type": "string",
           "format": "date-time",
           "example": "2017-07-21T17:32:28Z"
@@ -6411,11 +6733,11 @@ func init() {
       ],
       "properties": {
         "active": {
-          "description": "activity status of the returned user",
+          "description": "Activity status of the returned user.",
           "type": "boolean"
         },
         "apiKeyFirstLetters": {
-          "description": "First 3 letters of the associated API-key",
+          "description": "First 3 letters of the associated API key.",
           "type": [
             "string",
             "null"
@@ -6423,7 +6745,7 @@ func init() {
           "maxLength": 3
         },
         "createdAt": {
-          "description": "Date and time in ISO 8601 format (YYYY-MM-DDTHH:MM:SSZ)",
+          "description": "Date and time in ISO 8601 format: YYYY-MM-DDTHH:MM:SSZ.",
           "type": [
             "string",
             "null"
@@ -6431,7 +6753,7 @@ func init() {
           "format": "date-time"
         },
         "dbUserType": {
-          "description": "type of the returned user",
+          "description": "Type of the returned user.",
           "type": "string",
           "enum": [
             "db_user",
@@ -6439,7 +6761,7 @@ func init() {
           ]
         },
         "lastUsedAt": {
-          "description": "Date and time in ISO 8601 format (YYYY-MM-DDTHH:MM:SSZ)",
+          "description": "Date and time in ISO 8601 format: YYYY-MM-DDTHH:MM:SSZ.",
           "type": [
             "string",
             "null"
@@ -6447,14 +6769,14 @@ func init() {
           "format": "date-time"
         },
         "roles": {
-          "description": "The role names associated to the user",
+          "description": "The roles associated with the user.",
           "type": "array",
           "items": {
             "type": "string"
           }
         },
         "userId": {
-          "description": "The user id of the given user",
+          "description": "The name (ID) of the user.",
           "type": "string"
         }
       }
@@ -6463,54 +6785,54 @@ func init() {
       "type": "object",
       "properties": {
         "apiType": {
-          "description": "Describes which API is effected, usually one of: REST, GraphQL",
+          "description": "Describes which API is affected, usually one of: REST, GraphQL and gRPC.",
           "type": "string"
         },
         "id": {
-          "description": "The id that uniquely identifies this particular deprecations (mostly used internally)",
+          "description": "The id that uniquely identifies this particular deprecation (mostly used internally).",
           "type": "string"
         },
         "locations": {
-          "description": "The locations within the specified API affected by this deprecation",
+          "description": "The locations within the specified API affected by this deprecation.",
           "type": "array",
           "items": {
             "type": "string"
           }
         },
         "mitigation": {
-          "description": "User-required object to not be affected by the (planned) removal",
+          "description": "User-required object to not be affected by the (planned) removal.",
           "type": "string"
         },
         "msg": {
-          "description": "What this deprecation is about",
+          "description": "What this deprecation is about.",
           "type": "string"
         },
         "plannedRemovalVersion": {
-          "description": "A best-effort guess of which upcoming version will remove the feature entirely",
+          "description": "A best-effort guess of which upcoming version will remove the feature entirely.",
           "type": "string"
         },
         "removedIn": {
-          "description": "If the feature has already been removed, it was removed in this version",
+          "description": "If the feature has already been removed, it was removed in this version.",
           "type": "string",
           "x-nullable": true
         },
         "removedTime": {
-          "description": "If the feature has already been removed, it was removed at this timestamp",
+          "description": "If the feature has already been removed, it was removed at this timestamp.",
           "type": "string",
           "format": "date-time",
           "x-nullable": true
         },
         "sinceTime": {
-          "description": "The deprecation was introduced in this version",
+          "description": "The deprecation was introduced at this timestamp.",
           "type": "string",
           "format": "date-time"
         },
         "sinceVersion": {
-          "description": "The deprecation was introduced in this version",
+          "description": "The deprecation was introduced in this version.",
           "type": "string"
         },
         "status": {
-          "description": "Whether the problematic API functionality is deprecated (planned to be removed) or already removed",
+          "description": "Whether the problematic API functionality is deprecated (planned to be removed) or already removed.",
           "type": "string"
         }
       }
@@ -6570,7 +6892,7 @@ func init() {
       }
     },
     "ErrorResponse": {
-      "description": "An error response given by Weaviate end-points.",
+      "description": "An error response returned by Weaviate endpoints.",
       "type": "object",
       "properties": {
         "error": {
@@ -6589,13 +6911,13 @@ func init() {
     "GeoCoordinates": {
       "properties": {
         "latitude": {
-          "description": "The latitude of the point on earth in decimal form",
+          "description": "The latitude of the point on earth in decimal form.",
           "type": "number",
           "format": "float",
           "x-nullable": true
         },
         "longitude": {
-          "description": "The longitude of the point on earth in decimal form",
+          "description": "The longitude of the point on earth in decimal form.",
           "type": "number",
           "format": "float",
           "x-nullable": true
@@ -6684,35 +7006,42 @@ func init() {
         "$ref": "#/definitions/GraphQLResponse"
       }
     },
+    "GroupType": {
+      "description": "If the group contains OIDC or database users.",
+      "type": "string",
+      "enum": [
+        "oidc"
+      ]
+    },
     "InvertedIndexConfig": {
-      "description": "Configure the inverted index built into Weaviate (default: 60).",
+      "description": "Configure the inverted index built into Weaviate. See [Reference: Inverted index](https://docs.weaviate.io/weaviate/config-refs/indexing/inverted-index#inverted-index-parameters) for details.",
       "type": "object",
       "properties": {
         "bm25": {
           "$ref": "#/definitions/BM25Config"
         },
         "cleanupIntervalSeconds": {
-          "description": "Asynchronous index clean up happens every n seconds",
+          "description": "Asynchronous index clean up happens every n seconds (default: 60).",
           "type": "number",
           "format": "int"
         },
         "indexNullState": {
-          "description": "Index each object with the null state (default: 'false').",
+          "description": "Index each object with the null state (default: ` + "`" + `false` + "`" + `).",
           "type": "boolean"
         },
         "indexPropertyLength": {
-          "description": "Index length of properties (default: 'false').",
+          "description": "Index length of properties (default: ` + "`" + `false` + "`" + `).",
           "type": "boolean"
         },
         "indexTimestamps": {
-          "description": "Index each object by its internal timestamps (default: 'false').",
+          "description": "Index each object by its internal timestamps (default: ` + "`" + `false` + "`" + `).",
           "type": "boolean"
         },
         "stopwords": {
           "$ref": "#/definitions/StopwordConfig"
         },
         "usingBlockMaxWAND": {
-          "description": "Using BlockMax WAND for query execution (default: 'false', will be 'true' for new collections created after 1.30).",
+          "description": "Using BlockMax WAND for query execution (default: ` + "`" + `false` + "`" + `, will be ` + "`" + `true` + "`" + ` for new collections created after 1.30).",
           "type": "boolean"
         }
       }
@@ -6725,19 +7054,19 @@ func init() {
       "type": "object",
       "properties": {
         "documentationHref": {
-          "description": "weaviate documentation about this resource group",
+          "description": "Weaviate documentation about this resource group.",
           "type": "string"
         },
         "href": {
-          "description": "target of the link",
+          "description": "Target of the link.",
           "type": "string"
         },
         "name": {
-          "description": "human readable name of the resource group",
+          "description": "Human readable name of the resource group.",
           "type": "string"
         },
         "rel": {
-          "description": "relationship if both resources are related, e.g. 'next', 'previous', 'parent', etc.",
+          "description": "Relationship if both resources are related, e.g. 'next', 'previous', 'parent', etc.",
           "type": "string"
         }
       }
@@ -6766,20 +7095,20 @@ func init() {
       }
     },
     "MultiTenancyConfig": {
-      "description": "Configuration related to multi-tenancy within a class",
+      "description": "Configuration related to multi-tenancy within a collection (class)",
       "properties": {
         "autoTenantActivation": {
-          "description": "Existing tenants should (not) be turned HOT implicitly when they are accessed and in another activity status (default: false).",
+          "description": "Existing tenants should (not) be turned HOT implicitly when they are accessed and in another activity status (default: ` + "`" + `false` + "`" + `).",
           "type": "boolean",
           "x-omitempty": false
         },
         "autoTenantCreation": {
-          "description": "Nonexistent tenants should (not) be created implicitly (default: false).",
+          "description": "Nonexistent tenants should (not) be created implicitly (default: ` + "`" + `false` + "`" + `).",
           "type": "boolean",
           "x-omitempty": false
         },
         "enabled": {
-          "description": "Whether or not multi-tenancy is enabled for this class (default: false).",
+          "description": "Whether or not multi-tenancy is enabled for this collection (class) (default: ` + "`" + `false` + "`" + `).",
           "type": "boolean",
           "x-omitempty": false
         }
@@ -6854,7 +7183,7 @@ func init() {
           }
         },
         "class": {
-          "description": "The name of shard's class.",
+          "description": "The name of shard's collection (class).",
           "type": "string",
           "x-omitempty": false
         },
@@ -6991,7 +7320,7 @@ func init() {
           "$ref": "#/definitions/AdditionalProperties"
         },
         "class": {
-          "description": "Class of the Object, defined in the schema.",
+          "description": "Name of the collection (class) the object belongs to.",
           "type": "string"
         },
         "creationTimeUnix": {
@@ -7000,7 +7329,7 @@ func init() {
           "format": "int64"
         },
         "id": {
-          "description": "ID of the Object.",
+          "description": "The UUID of the object.",
           "type": "string",
           "format": "uuid"
         },
@@ -7013,18 +7342,18 @@ func init() {
           "$ref": "#/definitions/PropertySchema"
         },
         "tenant": {
-          "description": "Name of the Objects tenant.",
+          "description": "The name of the tenant the object belongs to.",
           "type": "string"
         },
         "vector": {
-          "description": "This field returns vectors associated with the Object. C11yVector, Vector or Vectors values are possible.",
+          "description": "This field returns vectors associated with the object. C11yVector, Vector or Vectors values are possible.",
           "$ref": "#/definitions/C11yVector"
         },
         "vectorWeights": {
           "$ref": "#/definitions/VectorWeights"
         },
         "vectors": {
-          "description": "This field returns vectors associated with the Object.",
+          "description": "This field returns vectors associated with the object.",
           "$ref": "#/definitions/Vectors"
         }
       }
@@ -7048,7 +7377,7 @@ func init() {
         {
           "properties": {
             "result": {
-              "description": "Results for this specific Object.",
+              "description": "Results for this specific object.",
               "format": "object",
               "properties": {
                 "errors": {
@@ -7069,7 +7398,7 @@ func init() {
       ]
     },
     "ObjectsListResponse": {
-      "description": "List of Objects.",
+      "description": "List of objects.",
       "type": "object",
       "properties": {
         "deprecations": {
@@ -7079,14 +7408,14 @@ func init() {
           }
         },
         "objects": {
-          "description": "The actual list of Objects.",
+          "description": "The actual list of objects.",
           "type": "array",
           "items": {
             "$ref": "#/definitions/Object"
           }
         },
         "totalResults": {
-          "description": "The total number of Objects for the query. The number of items in a response may be smaller due to paging.",
+          "description": "The total number of objects for the query. The number of items in a response may be smaller due to paging.",
           "type": "integer",
           "format": "int64"
         }
@@ -7195,14 +7524,14 @@ func init() {
       }
     },
     "Permission": {
-      "description": "permissions attached to a role.",
+      "description": "Permissions attached to a role.",
       "type": "object",
       "required": [
         "action"
       ],
       "properties": {
         "action": {
-          "description": "allowed actions in weaviate.",
+          "description": "Allowed actions in weaviate.",
           "type": "string",
           "enum": [
             "manage_backups",
@@ -7237,6 +7566,8 @@ func init() {
             "read_aliases",
             "update_aliases",
             "delete_aliases",
+            "assign_and_revoke_groups",
+            "read_groups",
             "manage_mcp"
           ]
         },
@@ -7257,45 +7588,59 @@ func init() {
           }
         },
         "backups": {
-          "description": "resources applicable for backup actions",
+          "description": "Resources applicable for backup actions.",
           "type": "object",
           "properties": {
             "collection": {
-              "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+              "description": "A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all collections.",
               "type": "string",
               "default": "*"
             }
           }
         },
         "collections": {
-          "description": "resources applicable for collection and/or tenant actions",
+          "description": "Resources applicable for collection and/or tenant actions.",
           "type": "object",
           "properties": {
             "collection": {
-              "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+              "description": "A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all collections.",
               "type": "string",
               "default": "*"
             }
           }
         },
         "data": {
-          "description": "resources applicable for data actions",
+          "description": "Resources applicable for data actions.",
           "type": "object",
           "properties": {
             "collection": {
-              "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+              "description": "A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all collections.",
               "type": "string",
               "default": "*"
             },
             "object": {
-              "description": "string or regex. if a specific object ID, if left empty it will be ALL or *",
+              "description": "A string that specifies which objects this permission applies to. Can be an exact object ID or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all objects.",
               "type": "string",
               "default": "*"
             },
             "tenant": {
-              "description": "string or regex. if a specific tenant name, if left empty it will be ALL or *",
+              "description": "A string that specifies which tenants this permission applies to. Can be an exact tenant name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all tenants.",
               "type": "string",
               "default": "*"
+            }
+          }
+        },
+        "groups": {
+          "description": "Resources applicable for group actions.",
+          "type": "object",
+          "properties": {
+            "group": {
+              "description": "A string that specifies which groups this permission applies to. Can be an exact group name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all groups.",
+              "type": "string",
+              "default": "*"
+            },
+            "groupType": {
+              "$ref": "#/definitions/GroupType"
             }
           }
         },
@@ -7304,16 +7649,16 @@ func init() {
           "type": "object"
         },
         "nodes": {
-          "description": "resources applicable for cluster actions",
+          "description": "Resources applicable for cluster actions.",
           "type": "object",
           "properties": {
             "collection": {
-              "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+              "description": "A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all collections.",
               "type": "string",
               "default": "*"
             },
             "verbosity": {
-              "description": "whether to allow (verbose) returning shards and stats data in the response",
+              "description": "Whether to allow (verbose) returning shards and stats data in the response.",
               "type": "string",
               "default": "minimal",
               "enum": [
@@ -7340,16 +7685,16 @@ func init() {
           }
         },
         "roles": {
-          "description": "resources applicable for role actions",
+          "description": "Resources applicable for role actions.",
           "type": "object",
           "properties": {
             "role": {
-              "description": "string or regex. if a specific role name, if left empty it will be ALL or *",
+              "description": "A string that specifies which roles this permission applies to. Can be an exact role name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all roles.",
               "type": "string",
               "default": "*"
             },
             "scope": {
-              "description": "set the scope for the manage role permission",
+              "description": "Set the scope for the manage role permission.",
               "type": "string",
               "default": "match",
               "enum": [
@@ -7360,27 +7705,27 @@ func init() {
           }
         },
         "tenants": {
-          "description": "resources applicable for tenant actions",
+          "description": "Resources applicable for tenant actions.",
           "type": "object",
           "properties": {
             "collection": {
-              "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+              "description": "A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all collections.",
               "type": "string",
               "default": "*"
             },
             "tenant": {
-              "description": "string or regex. if a specific tenant name, if left empty it will be ALL or *",
+              "description": "A string that specifies which tenants this permission applies to. Can be an exact tenant name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all tenants.",
               "type": "string",
               "default": "*"
             }
           }
         },
         "users": {
-          "description": "resources applicable for user actions",
+          "description": "Resources applicable for user actions.",
           "type": "object",
           "properties": {
             "users": {
-              "description": "string or regex. if a specific name, if left empty it will be ALL or *",
+              "description": "A string that specifies which users this permission applies to. Can be an exact user name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all users.",
               "type": "string",
               "default": "*"
             }
@@ -7391,12 +7736,12 @@ func init() {
     "PhoneNumber": {
       "properties": {
         "countryCode": {
-          "description": "Read-only. The numerical country code (e.g. 49)",
+          "description": "Read-only. The numerical country code (e.g. ` + "`" + `49` + "`" + `).",
           "type": "number",
           "format": "uint64"
         },
         "defaultCountry": {
-          "description": "Optional. The ISO 3166-1 alpha-2 country code. This is used to figure out the correct countryCode and international format if only a national number (e.g. 0123 4567) is provided",
+          "description": "Optional. The ISO 3166-1 alpha-2 country code. This is used to figure out the correct ` + "`" + `countryCode` + "`" + ` and international format if only a national number (e.g. ` + "`" + `0123 4567` + "`" + `) is provided.",
           "type": "string"
         },
         "input": {
@@ -7404,20 +7749,20 @@ func init() {
           "type": "string"
         },
         "internationalFormatted": {
-          "description": "Read-only. Parsed result in the international format (e.g. +49 123 ...)",
+          "description": "Read-only. Parsed result in the international format (e.g. ` + "`" + `+49 123 456789` + "`" + `).",
           "type": "string"
         },
         "national": {
-          "description": "Read-only. The numerical representation of the national part",
+          "description": "Read-only. The numerical representation of the national part.",
           "type": "number",
           "format": "uint64"
         },
         "nationalFormatted": {
-          "description": "Read-only. Parsed result in the national format (e.g. 0123 456789)",
+          "description": "Read-only. Parsed result in the national format (e.g. ` + "`" + `0123 456789` + "`" + `).",
           "type": "string"
         },
         "valid": {
-          "description": "Read-only. Indicates whether the parsed number is a valid phone number",
+          "description": "Read-only. Indicates whether the parsed number is a valid phone number.",
           "type": "boolean"
         }
       }
@@ -7475,7 +7820,7 @@ func init() {
           "x-nullable": true
         },
         "moduleConfig": {
-          "description": "Configuration specific to modules this Weaviate instance has installed",
+          "description": "Configuration specific to modules in a collection context.",
           "type": "object"
         },
         "name": {
@@ -7491,7 +7836,7 @@ func init() {
           "x-omitempty": true
         },
         "tokenization": {
-          "description": "Determines tokenization of the property as separate words or whole field. Optional. Applies to text and text[] data types. Allowed values are ` + "`" + `word` + "`" + ` (default; splits on any non-alphanumerical, lowercases), ` + "`" + `lowercase` + "`" + ` (splits on white spaces, lowercases), ` + "`" + `whitespace` + "`" + ` (splits on white spaces), ` + "`" + `field` + "`" + ` (trims). Not supported for remaining data types",
+          "description": "Determines how a property is indexed. This setting applies to ` + "`" + `text` + "`" + ` and ` + "`" + `text[]` + "`" + ` data types. The following tokenization methods are available:\u003cbr/\u003e\u003cbr/\u003e- ` + "`" + `word` + "`" + ` (default): Splits the text on any non-alphanumeric characters and lowercases the tokens.\u003cbr/\u003e- ` + "`" + `lowercase` + "`" + `: Splits the text on whitespace and lowercases the tokens.\u003cbr/\u003e- ` + "`" + `whitespace` + "`" + `: Splits the text on whitespace. This tokenization is case-sensitive.\u003cbr/\u003e- ` + "`" + `field` + "`" + `: Indexes the entire property value as a single token after trimming whitespace.\u003cbr/\u003e- ` + "`" + `trigram` + "`" + `: Splits the property into rolling trigrams (three-character sequences).\u003cbr/\u003e- ` + "`" + `gse` + "`" + `: Uses the ` + "`" + `gse` + "`" + ` tokenizer, suitable for Chinese language text. [See ` + "`" + `gse` + "`" + ` docs](https://pkg.go.dev/github.com/go-ego/gse#section-readme).\u003cbr/\u003e- ` + "`" + `kagome_ja` + "`" + `: Uses the ` + "`" + `Kagome` + "`" + ` tokenizer with a Japanese (IPA) dictionary. [See ` + "`" + `kagome` + "`" + ` docs](https://github.com/ikawaha/kagome).\u003cbr/\u003e- ` + "`" + `kagome_kr` + "`" + `: Uses the ` + "`" + `Kagome` + "`" + ` tokenizer with a Korean dictionary. [See ` + "`" + `kagome` + "`" + ` docs](https://github.com/ikawaha/kagome).\u003cbr/\u003e\u003cbr/\u003eSee [Reference: Tokenization](https://docs.weaviate.io/weaviate/config-refs/collections#tokenization) for details.",
           "type": "string",
           "enum": [
             "word",
@@ -7634,7 +7979,7 @@ func init() {
       "type": "object",
       "properties": {
         "asyncEnabled": {
-          "description": "Enable asynchronous replication (default: false).",
+          "description": "Enable asynchronous replication (default: ` + "`" + `false` + "`" + `).",
           "type": "boolean",
           "x-omitempty": false
         },
@@ -7649,7 +7994,7 @@ func init() {
           "x-omitempty": true
         },
         "factor": {
-          "description": "Number of times a class is replicated (default: 1).",
+          "description": "Number of times a collection (class) is replicated (default: 1).",
           "type": "integer"
         }
       }
@@ -7754,7 +8099,7 @@ func init() {
           "type": "string"
         },
         "type": {
-          "description": "Indicates whether the operation is a 'COPY' (source replica remains) or a 'MOVE' (source replica is removed after successful transfer).",
+          "description": "Indicates whether the operation is a ` + "`" + `COPY` + "`" + ` (source replica remains) or a ` + "`" + `MOVE` + "`" + ` (source replica is removed after successful transfer).",
           "type": "string",
           "enum": [
             "COPY",
@@ -7762,7 +8107,7 @@ func init() {
           ]
         },
         "uncancelable": {
-          "description": "Whether the replica operation is uncancelable.",
+          "description": "Whether the replica operation can't be cancelled.",
           "type": "boolean"
         },
         "whenStartedUnixMs": {
@@ -7890,7 +8235,7 @@ func init() {
           "type": "string"
         },
         "type": {
-          "description": "Specifies the type of replication operation to perform. 'COPY' creates a new replica on the target node while keeping the source replica. 'MOVE' creates a new replica on the target node and then removes the source replica upon successful completion. Defaults to 'COPY' if omitted.",
+          "description": "Specifies the type of replication operation to perform. ` + "`" + `COPY` + "`" + ` creates a new replica on the target node while keeping the source replica. ` + "`" + `MOVE` + "`" + ` creates a new replica on the target node and then removes the source replica upon successful completion. Defaults to ` + "`" + `COPY` + "`" + ` if omitted.",
           "type": "string",
           "default": "COPY",
           "enum": [
@@ -8007,13 +8352,13 @@ func init() {
       ],
       "properties": {
         "name": {
-          "description": "role name",
+          "description": "The name (ID) of the role.",
           "type": "string"
         },
         "permissions": {
           "type": "array",
           "items": {
-            "description": "list of permissions (level, action, resource)",
+            "description": "The list of permissions assigned to this role (level, action, resource).",
             "type": "object",
             "$ref": "#/definitions/Permission"
           }
@@ -8021,7 +8366,7 @@ func init() {
       }
     },
     "RolesListResponse": {
-      "description": "list of roles",
+      "description": "List of roles.",
       "type": "array",
       "items": {
         "$ref": "#/definitions/Role"
@@ -8118,15 +8463,15 @@ func init() {
       }
     },
     "SingleRef": {
-      "description": "Either set beacon (direct reference) or set class and schema (concept reference)",
+      "description": "Either set beacon (direct reference) or set collection (class) and schema (concept reference)",
       "properties": {
         "beacon": {
-          "description": "If using a direct reference, specify the URI to point to the cross-ref here. Should be in the form of weaviate://localhost/\u003cuuid\u003e for the example of a local cross-ref to an object",
+          "description": "If using a direct reference, specify the URI to point to the cross-reference here. Should be in the form of weaviate://localhost/\u003cuuid\u003e for the example of a local cross-reference to an object",
           "type": "string",
           "format": "uri"
         },
         "class": {
-          "description": "If using a concept reference (rather than a direct reference), specify the desired class name here",
+          "description": "If using a concept reference (rather than a direct reference), specify the desired collection (class) name here.",
           "type": "string",
           "format": "uri"
         },
@@ -8202,7 +8547,7 @@ func init() {
       }
     },
     "StopwordConfig": {
-      "description": "fine-grained control over stopword list usage",
+      "description": "Fine-grained control over stopword list usage.",
       "type": "object",
       "properties": {
         "additions": {
@@ -8213,7 +8558,7 @@ func init() {
           }
         },
         "preset": {
-          "description": "Pre-existing list of common words by language (default: 'en'). Options: ['en', 'none'].",
+          "description": "Pre-existing list of common words by language (default: ` + "`" + `en` + "`" + `). Options: [` + "`" + `en` + "`" + `, ` + "`" + `none` + "`" + `].",
           "type": "string"
         },
         "removals": {
@@ -8226,11 +8571,11 @@ func init() {
       }
     },
     "Tenant": {
-      "description": "attributes representing a single tenant within weaviate",
+      "description": "Attributes representing a single tenant within Weaviate.",
       "type": "object",
       "properties": {
         "activityStatus": {
-          "description": "activity status of the tenant's shard. Optional for creating tenant (implicit ` + "`" + `ACTIVE` + "`" + `) and required for updating tenant. For creation, allowed values are ` + "`" + `ACTIVE` + "`" + ` - tenant is fully active and ` + "`" + `INACTIVE` + "`" + ` - tenant is inactive; no actions can be performed on tenant, tenant's files are stored locally. For updating, ` + "`" + `ACTIVE` + "`" + `, ` + "`" + `INACTIVE` + "`" + ` and also ` + "`" + `OFFLOADED` + "`" + ` - as INACTIVE, but files are stored on cloud storage. The following values are read-only and are set by the server for internal use: ` + "`" + `OFFLOADING` + "`" + ` - tenant is transitioning from ACTIVE/INACTIVE to OFFLOADED, ` + "`" + `ONLOADING` + "`" + ` - tenant is transitioning from OFFLOADED to ACTIVE/INACTIVE. We still accept deprecated names ` + "`" + `HOT` + "`" + ` (now ` + "`" + `ACTIVE` + "`" + `), ` + "`" + `COLD` + "`" + ` (now ` + "`" + `INACTIVE` + "`" + `), ` + "`" + `FROZEN` + "`" + ` (now ` + "`" + `OFFLOADED` + "`" + `), ` + "`" + `FREEZING` + "`" + ` (now ` + "`" + `OFFLOADING` + "`" + `), ` + "`" + `UNFREEZING` + "`" + ` (now ` + "`" + `ONLOADING` + "`" + `).",
+          "description": "The activity status of the tenant, which determines if it is queryable and where its data is stored.\u003cbr/\u003e\u003cbr/\u003e\u003cb\u003eAvailable Statuses:\u003c/b\u003e\u003cbr/\u003e- ` + "`" + `ACTIVE` + "`" + `: The tenant is fully operational and ready for queries. Data is stored on local, hot storage.\u003cbr/\u003e- ` + "`" + `INACTIVE` + "`" + `: The tenant is not queryable. Data is stored locally.\u003cbr/\u003e- ` + "`" + `OFFLOADED` + "`" + `: The tenant is inactive and its data is stored in a remote cloud backend.\u003cbr/\u003e\u003cbr/\u003e\u003cb\u003eUsage Rules:\u003c/b\u003e\u003cbr/\u003e- \u003cb\u003eOn Create:\u003c/b\u003e This field is optional and defaults to ` + "`" + `ACTIVE` + "`" + `. Allowed values are ` + "`" + `ACTIVE` + "`" + ` and ` + "`" + `INACTIVE` + "`" + `.\u003cbr/\u003e- \u003cb\u003eOn Update:\u003c/b\u003e This field is required. Allowed values are ` + "`" + `ACTIVE` + "`" + `, ` + "`" + `INACTIVE` + "`" + `, and ` + "`" + `OFFLOADED` + "`" + `.\u003cbr/\u003e\u003cbr/\u003e\u003cb\u003eRead-Only Statuses:\u003c/b\u003e\u003cbr/\u003eThe following statuses are set by the server and indicate a tenant is transitioning between states:\u003cbr/\u003e- ` + "`" + `OFFLOADING` + "`" + `\u003cbr/\u003e- ` + "`" + `ONLOADING` + "`" + `\u003cbr/\u003e\u003cbr/\u003e\u003cb\u003eNote on Deprecated Names:\u003c/b\u003e\u003cbr/\u003eFor backward compatibility, deprecated names are still accepted and are mapped to their modern equivalents: ` + "`" + `HOT` + "`" + ` (now ` + "`" + `ACTIVE` + "`" + `), ` + "`" + `COLD` + "`" + ` (now ` + "`" + `INACTIVE` + "`" + `), ` + "`" + `FROZEN` + "`" + ` (now ` + "`" + `OFFLOADED` + "`" + `), ` + "`" + `FREEZING` + "`" + ` (now ` + "`" + `OFFLOADING` + "`" + `), ` + "`" + `UNFREEZING` + "`" + ` (now ` + "`" + `ONLOADING` + "`" + `).",
           "type": "string",
           "enum": [
             "ACTIVE",
@@ -8258,7 +8603,7 @@ func init() {
       ],
       "properties": {
         "apikey": {
-          "description": "The apikey",
+          "description": "The API key associated with the user.",
           "type": "string"
         }
       }
@@ -8270,7 +8615,7 @@ func init() {
       ],
       "properties": {
         "groups": {
-          "description": "The groups associated to the user",
+          "description": "The groups associated with the user.",
           "type": "array",
           "items": {
             "type": "string"
@@ -8279,19 +8624,19 @@ func init() {
         "roles": {
           "type": "array",
           "items": {
-            "description": "The roles assigned to own user",
+            "description": "The roles assigned to the user.",
             "type": "object",
             "$ref": "#/definitions/Role"
           }
         },
         "username": {
-          "description": "The username associated with the provided key",
+          "description": "The name (ID) of the user.",
           "type": "string"
         }
       }
     },
     "UserTypeInput": {
-      "description": "the type of user",
+      "description": "The type of the user. ` + "`" + `db` + "`" + ` users are managed by Weaviate, ` + "`" + `oidc` + "`" + ` users are managed by an external OIDC provider.",
       "type": "string",
       "enum": [
         "db",
@@ -8299,7 +8644,7 @@ func init() {
       ]
     },
     "UserTypeOutput": {
-      "description": "the type of user",
+      "description": "The type of the user. ` + "`" + `db_user` + "`" + ` users are created through the ` + "`" + `users` + "`" + ` API, ` + "`" + `db_env_user` + "`" + ` users are created through environment variables, and ` + "`" + `oidc` + "`" + ` users are managed by an external OIDC provider.",
       "type": "string",
       "enum": [
         "db_user",
@@ -8329,7 +8674,7 @@ func init() {
       }
     },
     "VectorWeights": {
-      "description": "Allow custom overrides of vector weights as math expressions. E.g. \"pancake\": \"7\" will set the weight for the word pancake to 7 in the vectorization, whereas \"w * 3\" would triple the originally calculated word. This is an open object, with OpenAPI Specification 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value (string/string) object.",
+      "description": "Allow custom overrides of vector weights as math expressions. E.g. ` + "`" + `pancake` + "`" + `: ` + "`" + `7` + "`" + ` will set the weight for the word pancake to 7 in the vectorization, whereas ` + "`" + `w * 3` + "`" + ` would triple the originally calculated word. This is an open object, with OpenAPI Specification 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value (string/string) object.",
       "type": "object"
     },
     "Vectors": {
@@ -8340,18 +8685,18 @@ func init() {
       }
     },
     "WhereFilter": {
-      "description": "Filter search results using a where filter",
+      "description": "Filter search results using a where filter.",
       "type": "object",
       "properties": {
         "operands": {
-          "description": "combine multiple where filters, requires 'And' or 'Or' operator",
+          "description": "Combine multiple where filters, requires 'And' or 'Or' operator.",
           "type": "array",
           "items": {
             "$ref": "#/definitions/WhereFilter"
           }
         },
         "operator": {
-          "description": "operator to use",
+          "description": "Operator to use.",
           "type": "string",
           "enum": [
             "And",
@@ -8366,19 +8711,21 @@ func init() {
             "WithinGeoRange",
             "IsNull",
             "ContainsAny",
-            "ContainsAll"
+            "ContainsAll",
+            "ContainsNone",
+            "Not"
           ],
           "example": "GreaterThanEqual"
         },
         "path": {
-          "description": "path to the property currently being filtered",
+          "description": "Path to the property currently being filtered.",
           "type": "array",
           "items": {
             "type": "string"
           },
           "example": [
             "inCity",
-            "City",
+            "city",
             "name"
           ]
         },
@@ -8500,7 +8847,7 @@ func init() {
       }
     },
     "WhereFilterGeoRange": {
-      "description": "filter within a distance of a georange",
+      "description": "Filter within a distance of a georange.",
       "type": "object",
       "properties": {
         "distance": {
@@ -8522,25 +8869,25 @@ func init() {
   "parameters": {
     "CommonAfterParameterQuery": {
       "type": "string",
-      "description": "A threshold UUID of the objects to retrieve after, using an UUID-based ordering. This object is not part of the set. \u003cbr/\u003e\u003cbr/\u003eMust be used with ` + "`" + `class` + "`" + `, typically in conjunction with ` + "`" + `limit` + "`" + `. \u003cbr/\u003e\u003cbr/\u003eNote ` + "`" + `after` + "`" + ` cannot be used with ` + "`" + `offset` + "`" + ` or ` + "`" + `sort` + "`" + `. \u003cbr/\u003e\u003cbr/\u003eFor a null value similar to offset=0, set an empty string in the request, i.e. ` + "`" + `after=` + "`" + ` or ` + "`" + `after` + "`" + `.",
+      "description": "A threshold UUID of the objects to retrieve after, using an UUID-based ordering. This object is not part of the set. \u003cbr/\u003e\u003cbr/\u003eMust be used with collection name (` + "`" + `class` + "`" + `), typically in conjunction with ` + "`" + `limit` + "`" + `. \u003cbr/\u003e\u003cbr/\u003eNote ` + "`" + `after` + "`" + ` cannot be used with ` + "`" + `offset` + "`" + ` or ` + "`" + `sort` + "`" + `. \u003cbr/\u003e\u003cbr/\u003eFor a null value similar to offset=0, set an empty string in the request, i.e. ` + "`" + `after=` + "`" + ` or ` + "`" + `after` + "`" + `.",
       "name": "after",
       "in": "query"
     },
     "CommonClassParameterQuery": {
       "type": "string",
-      "description": "The collection from which to query objects.  \u003cbr/\u003e\u003cbr/\u003eNote that if ` + "`" + `class` + "`" + ` is not provided, the response will not include any objects.",
+      "description": "The collection from which to query objects.  \u003cbr/\u003e\u003cbr/\u003eNote that if the collection name (` + "`" + `class` + "`" + `) is not provided, the response will not include any objects.",
       "name": "class",
       "in": "query"
     },
     "CommonConsistencyLevelParameterQuery": {
       "type": "string",
-      "description": "Determines how many replicas must acknowledge a request before it is considered successful",
+      "description": "Determines how many replicas must acknowledge a request before it is considered successful.",
       "name": "consistency_level",
       "in": "query"
     },
     "CommonIncludeParameterQuery": {
       "type": "string",
-      "description": "Include additional information, such as classification infos. Allowed values include: classification, vector, interpretation",
+      "description": "Include additional information, such as classification information. Allowed values include: ` + "`" + `classification` + "`" + `, ` + "`" + `vector` + "`" + ` and ` + "`" + `interpretation` + "`" + `.",
       "name": "include",
       "in": "query"
     },
@@ -8553,7 +8900,7 @@ func init() {
     },
     "CommonNodeNameParameterQuery": {
       "type": "string",
-      "description": "The target node which should fulfill the request",
+      "description": "The target node which should fulfill the request.",
       "name": "node_name",
       "in": "query"
     },
@@ -8574,7 +8921,7 @@ func init() {
     "CommonOutputVerbosityParameterQuery": {
       "type": "string",
       "default": "minimal",
-      "description": "Controls the verbosity of the output, possible values are: \"minimal\", \"verbose\". Defaults to \"minimal\".",
+      "description": "Controls the verbosity of the output, possible values are: ` + "`" + `minimal` + "`" + `, ` + "`" + `verbose` + "`" + `. Defaults to ` + "`" + `minimal` + "`" + `.",
       "name": "output",
       "in": "query"
     },
@@ -8586,7 +8933,7 @@ func init() {
     },
     "CommonTenantParameterQuery": {
       "type": "string",
-      "description": "Specifies the tenant in a request targeting a multi-tenant class",
+      "description": "Specifies the tenant in a request targeting a multi-tenant collection (class).",
       "name": "tenant",
       "in": "query"
     }
@@ -8607,10 +8954,11 @@ func init() {
   ],
   "tags": [
     {
+      "description": "Operations for managing individual data objects. Objects are the primary units of data stored within Weaviate collections. Each object conforms to the data schema definition of its parent collection, containing specific properties (data fields). Objects have one or multiple associated vector embeddings and can link to other objects via cross-references. These endpoints allow you to perform CRUD (Create, Read, Update, Delete) operations on individual data objects.",
       "name": "objects"
     },
     {
-      "description": "These operations allow to execute batch requests for Objects and Objects. Mostly used for importing large datasets.",
+      "description": "Operations for performing actions on multiple data items (objects or references) in a single API request. Batch operations significantly improve performance and efficiency, especially for bulk data imports or large-scale deletions, by reducing network overhead compared to sending individual requests. These endpoints allow for creating multiple objects or deleting objects based on filters.",
       "name": "batch"
     },
     {
@@ -8620,15 +8968,20 @@ func init() {
       "name": "meta"
     },
     {
-      "name": "P2P"
-    },
-    {
-      "description": "All functions related to the Contextionary.",
-      "name": "contextionary-API"
-    },
-    {
-      "description": "These operations enable manipulation of the schema in Weaviate schema.",
+      "description": "Operations related to managing collections. In Weaviate, 'collections' (formerly called 'classes') store your data objects. Each collection has a definition that specifies its data structure (properties and their data types), vectorizer settings (how vectors are generated or managed), and indexing configuration (how data is indexed for efficient search). These endpoints allow you to create, retrieve, update, and delete collection definitions. For detailed usage and code examples on interacting with collections, see the documentation: [https://weaviate.io/developers/weaviate/manage-data/collections](https://weaviate.io/developers/weaviate/manage-data/collections).",
       "name": "schema"
+    },
+    {
+      "description": "Operations related to creating and managing backups of Weaviate data. This feature allows you to create snapshots of your collections and store them on external storage backends such as cloud object storage (S3, GCS, Azure) or a shared filesystem. These endpoints enable you to initiate backup and restore processes, monitor their status, list available backups on a backend, and delete unwanted backups. Backups are essential for disaster recovery, data migration, and maintaining point-in-time copies of your vector database.",
+      "name": "backups"
+    },
+    {
+      "description": "Endpoints for user account management in Weaviate. This includes operations specific to Weaviate-managed database users (` + "`" + `db` + "`" + ` users), such as creation (which generates an API key), listing, deletion, activation/deactivation, and API key rotation. It also provides operations applicable to any authenticated user (` + "`" + `db` + "`" + ` or ` + "`" + `oidc` + "`" + `), like retrieving their own information (username and assigned roles).\u003cbr/\u003e\u003cbr/\u003e**User Types:**\u003cbr/\u003e* **` + "`" + `db` + "`" + ` users:** Managed entirely within Weaviate (creation, deletion, API keys). Use these endpoints for full lifecycle management.\u003cbr/\u003e* **` + "`" + `oidc` + "`" + ` users:** Authenticated via an external OpenID Connect provider. Their lifecycle (creation, credentials) is managed externally, but their role assignments *within Weaviate* are managed via the ` + "`" + `authz` + "`" + ` endpoints.",
+      "name": "users"
+    },
+    {
+      "description": "Endpoints for managing Weaviate's Role-Based Access Control (RBAC) system. Access to Weaviate resources is granted through roles, which are collections of fine-grained permissions. \u003cbr/\u003e\u003cbr/\u003e**Permissions:** Define allowed actions (e.g., ` + "`" + `read_data` + "`" + `, ` + "`" + `create_collections` + "`" + `, ` + "`" + `delete_users` + "`" + `) on specific resources. Resources can be specified broadly (e.g., all collections: ` + "`" + `*` + "`" + `) or narrowly (e.g., a specific collection name, tenant pattern, user name, or role name).\u003cbr/\u003e\u003cbr/\u003e**Roles:** Are named sets of permissions. Managing roles involves creating roles with specific permissions, retrieving role definitions, deleting roles, and adding or removing permissions from existing roles.\u003cbr/\u003e\u003cbr/\u003e**Role assignment:** Roles grant their contained permissions to users or groups. These endpoints allow assigning roles to:\u003cbr/\u003e* ` + "`" + `db` + "`" + ` users: Users managed directly by Weaviate via API or environment variables, authenticating with API keys.\u003cbr/\u003e* ` + "`" + `oidc` + "`" + ` users: Users authenticated via an external OpenID Connect provider, managed externally but assigned roles within Weaviate.\u003cbr/\u003e* OIDC ` + "`" + `groups` + "`" + `: Users authenticated via OIDC who belong to a group automatically inherit roles assigned to that group.\u003cbr/\u003e\u003cbr/\u003eOperations also include revoking roles, checking if a role has a specific permission, listing roles assigned to a user, and listing users/groups assigned to a role. The authorization framework applies universally to both ` + "`" + `db` + "`" + ` and ` + "`" + `oidc` + "`" + ` users based on their assigned roles.",
+      "name": "authz"
     },
     {
       "description": "Operations related to managing data replication, including initiating and monitoring shard replica movements between nodes, querying current sharding states, and managing the lifecycle of replication tasks.",
@@ -8652,25 +9005,25 @@ func init() {
   ],
   "swagger": "2.0",
   "info": {
-    "description": "# Introduction\n Weaviate is an open source, AI-native vector database that helps developers create intuitive and reliable AI-powered applications. \n ### Base Path \nThe base path for the Weaviate server is structured as ` + "`" + `[YOUR-WEAVIATE-HOST]:[PORT]/v1` + "`" + `. As an example, if you wish to access the ` + "`" + `schema` + "`" + ` endpoint on a local instance, you would navigate to ` + "`" + `http://localhost:8080/v1/schema` + "`" + `. Ensure you replace ` + "`" + `[YOUR-WEAVIATE-HOST]` + "`" + ` and ` + "`" + `[PORT]` + "`" + ` with your actual server host and port number respectively. \n ### Questions? \nIf you have any comments or questions, please feel free to reach out to us at the community forum [https://forum.weaviate.io/](https://forum.weaviate.io/). \n### Issues? \nIf you find a bug or want to file a feature request, please open an issue on our GitHub repository for [Weaviate](https://github.com/weaviate/weaviate). \n### Want more documentation? \nFor a quickstart, code examples, concepts and more, please visit our [documentation page](https://weaviate.io/developers/weaviate).",
-    "title": "Weaviate",
+    "description": "# Introduction\u003cbr/\u003e Weaviate is an open source, AI-native vector database that helps developers create intuitive and reliable AI-powered applications. \u003cbr/\u003e ### Base Path \u003cbr/\u003eThe base path for the Weaviate server is structured as ` + "`" + `[YOUR-WEAVIATE-HOST]:[PORT]/v1` + "`" + `. As an example, if you wish to access the ` + "`" + `schema` + "`" + ` endpoint on a local instance, you would navigate to ` + "`" + `http://localhost:8080/v1/schema` + "`" + `. Ensure you replace ` + "`" + `[YOUR-WEAVIATE-HOST]` + "`" + ` and ` + "`" + `[PORT]` + "`" + ` with your actual server host and port number respectively. \u003cbr/\u003e ### Questions? \u003cbr/\u003eIf you have any comments or questions, please feel free to reach out to us at the community forum [https://forum.weaviate.io/](https://forum.weaviate.io/). \u003cbr/\u003e### Issues? \u003cbr/\u003eIf you find a bug or want to file a feature request, please open an issue on our GitHub repository for [Weaviate](https://github.com/weaviate/weaviate). \u003cbr/\u003e### Need more documentation? \u003cbr/\u003eFor a quickstart, code examples, concepts and more, please visit our [documentation page](https://docs.weaviate.io/weaviate).",
+    "title": "Weaviate REST API",
     "contact": {
       "name": "Weaviate",
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.33.0-dev"
+    "version": "1.35.0-dev"
   },
   "basePath": "/v1",
   "paths": {
     "/": {
       "get": {
-        "description": "Get links to other endpoints to help discover the REST API",
+        "description": "Get links to other endpoints to help discover the REST API.",
         "summary": "List available endpoints",
         "operationId": "weaviate.root",
         "responses": {
           "200": {
-            "description": "Weaviate is alive and ready to serve content",
+            "description": "Weaviate is alive and ready.",
             "schema": {
               "type": "object",
               "properties": {
@@ -8688,41 +9041,41 @@ func init() {
     },
     "/.well-known/live": {
       "get": {
-        "description": "Determines whether the application is alive. Can be used for kubernetes liveness probe",
-        "summary": "Get application liveness.",
+        "description": "Indicates if the Weaviate instance is running and responsive to basic HTTP requests. Primarily used for health checks, such as Kubernetes liveness probes.",
+        "summary": "Check application liveness",
         "operationId": "weaviate.wellknown.liveness",
         "responses": {
           "200": {
-            "description": "The application is able to respond to HTTP requests"
+            "description": "The application is alive and responding to HTTP requests."
           }
         }
       }
     },
     "/.well-known/openid-configuration": {
       "get": {
-        "description": "OIDC Discovery page, redirects to the token issuer if one is configured",
+        "description": "Provides OpenID Connect (OIDC) discovery information if OIDC authentication is configured for Weaviate. Returns details like the token issuer URL, client ID, and required scopes.",
         "tags": [
           "well-known",
           "oidc",
           "discovery"
         ],
-        "summary": "OIDC discovery information if OIDC auth is enabled",
+        "summary": "Get OIDC configuration",
         "responses": {
           "200": {
-            "description": "Successful response, inspect body",
+            "description": "OIDC configuration details returned successfully.",
             "schema": {
               "type": "object",
               "properties": {
                 "clientId": {
-                  "description": "OAuth Client ID",
+                  "description": "The OAuth Client ID configured for Weaviate.",
                   "type": "string"
                 },
                 "href": {
-                  "description": "The Location to redirect to",
+                  "description": "The OIDC issuer URL to redirect to for authentication.",
                   "type": "string"
                 },
                 "scopes": {
-                  "description": "OAuth Scopes",
+                  "description": "The required OAuth scopes for authentication.",
                   "type": "array",
                   "items": {
                     "type": "string"
@@ -8733,10 +9086,10 @@ func init() {
             }
           },
           "404": {
-            "description": "Not found, no oidc provider present"
+            "description": "OIDC provider is not configured for this Weaviate instance."
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An internal server error occurred while retrieving OIDC configuration. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -8748,15 +9101,15 @@ func init() {
     },
     "/.well-known/ready": {
       "get": {
-        "description": "Determines whether the application is ready to receive traffic. Can be used for kubernetes readiness probe.",
-        "summary": "Get application readiness.",
+        "description": "Indicates if the Weaviate instance has completed its startup routines and is prepared to accept user traffic (data import, queries, etc.). Used for readiness checks, such as Kubernetes readiness probes.",
+        "summary": "Check application readiness",
         "operationId": "weaviate.wellknown.readiness",
         "responses": {
           "200": {
-            "description": "The application has completed its start-up routine and is ready to accept traffic."
+            "description": "The application is ready to serve traffic."
           },
           "503": {
-            "description": "The application is currently not able to serve traffic. If other horizontal replicas of weaviate are available and they are capable of receiving traffic, all traffic should be redirected there instead."
+            "description": "The application is not ready to serve traffic. Traffic should be directed to other available replicas if applicable."
           }
         }
       }
@@ -9021,42 +9374,35 @@ func init() {
         }
       }
     },
-    "/authz/groups/{id}/assign": {
-      "post": {
+    "/authz/groups/{groupType}": {
+      "get": {
+        "description": "Retrieves a list of all available group names for a specified group type (` + "`" + `oidc` + "`" + ` or ` + "`" + `db` + "`" + `).",
         "tags": [
           "authz"
         ],
-        "summary": "Assign a role to a group",
-        "operationId": "assignRoleToGroup",
+        "summary": "List all groups of a specific type",
+        "operationId": "getGroups",
         "parameters": [
           {
+            "enum": [
+              "oidc"
+            ],
             "type": "string",
-            "description": "group name",
-            "name": "id",
+            "description": "The type of group to retrieve.",
+            "name": "groupType",
             "in": "path",
             "required": true
-          },
-          {
-            "name": "body",
-            "in": "body",
-            "required": true,
-            "schema": {
-              "type": "object",
-              "properties": {
-                "roles": {
-                  "description": "the roles that assigned to group",
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  }
-                }
-              }
-            }
           }
         ],
         "responses": {
           "200": {
-            "description": "Role assigned successfully"
+            "description": "A list of group names for the specified type.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
           },
           "400": {
             "description": "Bad request",
@@ -9073,8 +9419,82 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "422": {
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.authz.get.groups"
+        ]
+      }
+    },
+    "/authz/groups/{id}/assign": {
+      "post": {
+        "description": "Assign roles to the specified group.",
+        "tags": [
+          "authz"
+        ],
+        "summary": "Assign a role to a group",
+        "operationId": "assignRoleToGroup",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name of the group.",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "groupType": {
+                  "$ref": "#/definitions/GroupType"
+                },
+                "roles": {
+                  "description": "The roles to assign to the specified group.",
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Roles assigned successfully."
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "404": {
-            "description": "role or group is not found."
+            "description": "Role or group not found."
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
@@ -9090,6 +9510,7 @@ func init() {
     },
     "/authz/groups/{id}/revoke": {
       "post": {
+        "description": "Revoke roles from the specified group.",
         "tags": [
           "authz"
         ],
@@ -9098,7 +9519,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "group name",
+            "description": "The name of the group.",
             "name": "id",
             "in": "path",
             "required": true
@@ -9110,8 +9531,11 @@ func init() {
             "schema": {
               "type": "object",
               "properties": {
+                "groupType": {
+                  "$ref": "#/definitions/GroupType"
+                },
                 "roles": {
-                  "description": "the roles that revoked from group",
+                  "description": "The roles to revoke from the specified group.",
                   "type": "array",
                   "items": {
                     "type": "string"
@@ -9123,7 +9547,78 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Role revoked successfully"
+            "description": "Roles revoked successfully."
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Role or group not found."
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.authz.revoke.role.group"
+        ]
+      }
+    },
+    "/authz/groups/{id}/roles/{groupType}": {
+      "get": {
+        "description": "Retrieves a list of all roles assigned to a specific group. The group must be identified by both its name (` + "`" + `id` + "`" + `) and its type (` + "`" + `db` + "`" + ` or ` + "`" + `oidc` + "`" + `).",
+        "tags": [
+          "authz"
+        ],
+        "summary": "Get roles assigned to a specific group",
+        "operationId": "getRolesForGroup",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The unique name of the group.",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "enum": [
+              "oidc"
+            ],
+            "type": "string",
+            "description": "The type of the group.",
+            "name": "groupType",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "boolean",
+            "default": false,
+            "description": "If true, the response will include the full role definitions with all associated permissions. If false, only role names are returned.",
+            "name": "includeFullRoles",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A list of roles assigned to the specified group.",
+            "schema": {
+              "$ref": "#/definitions/RolesListResponse"
+            }
           },
           "400": {
             "description": "Bad request",
@@ -9141,7 +9636,13 @@ func init() {
             }
           },
           "404": {
-            "description": "role or group is not found."
+            "description": "The specified group was not found."
+          },
+          "422": {
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
@@ -9151,12 +9652,13 @@ func init() {
           }
         },
         "x-serviceIds": [
-          "weaviate.authz.revoke.role.group"
+          "weaviate.authz.get.groups.roles"
         ]
       }
     },
     "/authz/roles": {
       "get": {
+        "description": "Get all roles and their assigned permissions.",
         "tags": [
           "authz"
         ],
@@ -9196,10 +9698,11 @@ func init() {
         ]
       },
       "post": {
+        "description": "Create a new role with the specified permissions.",
         "tags": [
           "authz"
         ],
-        "summary": "create new role",
+        "summary": "Create new role",
         "operationId": "createRole",
         "parameters": [
           {
@@ -9213,7 +9716,7 @@ func init() {
         ],
         "responses": {
           "201": {
-            "description": "Role created successfully"
+            "description": "Role created successfully."
           },
           "400": {
             "description": "Malformed request.",
@@ -9231,13 +9734,13 @@ func init() {
             }
           },
           "409": {
-            "description": "Role already exists",
+            "description": "Role already exists.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -9256,6 +9759,7 @@ func init() {
     },
     "/authz/roles/{id}": {
       "get": {
+        "description": "Fetch a role by its name.",
         "tags": [
           "authz"
         ],
@@ -9264,7 +9768,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "role name",
+            "description": "The name of the role.",
             "name": "id",
             "in": "path",
             "required": true
@@ -9293,7 +9797,7 @@ func init() {
             }
           },
           "404": {
-            "description": "no role found"
+            "description": "No role found."
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
@@ -9307,15 +9811,16 @@ func init() {
         ]
       },
       "delete": {
+        "description": "Deleting a role will remove it from the system, and revoke the associated permissions from all users who had this role.",
         "tags": [
           "authz"
         ],
-        "summary": "Delete role",
+        "summary": "Delete a role",
         "operationId": "deleteRole",
         "parameters": [
           {
             "type": "string",
-            "description": "role name",
+            "description": "The name of the role.",
             "name": "id",
             "in": "path",
             "required": true
@@ -9326,7 +9831,7 @@ func init() {
             "description": "Successfully deleted."
           },
           "400": {
-            "description": "Bad request",
+            "description": "Malformed request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -9354,15 +9859,16 @@ func init() {
     },
     "/authz/roles/{id}/add-permissions": {
       "post": {
+        "description": "Add new permissions to an existing role without affecting current permissions.",
         "tags": [
           "authz"
         ],
-        "summary": "Add permission to a given role.",
+        "summary": "Add permissions to a role",
         "operationId": "addPermissions",
         "parameters": [
           {
             "type": "string",
-            "description": "role name",
+            "description": "The name (ID) of the role being modified.",
             "name": "id",
             "in": "path",
             "required": true
@@ -9379,7 +9885,7 @@ func init() {
               ],
               "properties": {
                 "permissions": {
-                  "description": "permissions to be added to the role",
+                  "description": "Permissions to be added to the role.",
                   "type": "array",
                   "items": {
                     "$ref": "#/definitions/Permission"
@@ -9391,7 +9897,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Permissions added successfully"
+            "description": "Permissions added successfully."
           },
           "400": {
             "description": "Malformed request.",
@@ -9409,10 +9915,10 @@ func init() {
             }
           },
           "404": {
-            "description": "no role found"
+            "description": "No role found."
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -9429,22 +9935,81 @@ func init() {
         ]
       }
     },
-    "/authz/roles/{id}/has-permission": {
-      "post": {
+    "/authz/roles/{id}/group-assignments": {
+      "get": {
+        "description": "Retrieves a list of all groups that have been assigned a specific role, identified by its name.",
         "tags": [
           "authz"
         ],
-        "summary": "Check whether role possesses this permission.",
+        "summary": "Get groups that have a specific role assigned",
+        "operationId": "getGroupsForRole",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The unique name of the role.",
+            "name": "id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successfully retrieved the list of groups that have the role assigned.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/GetGroupsForRoleOKBodyItems0"
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "The specified role was not found."
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.authz.get.roles.groups"
+        ]
+      }
+    },
+    "/authz/roles/{id}/has-permission": {
+      "post": {
+        "description": "Check whether a role has the specified permissions.",
+        "tags": [
+          "authz"
+        ],
+        "summary": "Check whether a role possesses a permission",
         "operationId": "hasPermission",
         "parameters": [
           {
             "type": "string",
-            "description": "role name",
+            "description": "The name of the role.",
             "name": "id",
             "in": "path",
             "required": true
           },
           {
+            "description": "The permissions to be checked.",
             "name": "body",
             "in": "body",
             "required": true,
@@ -9455,7 +10020,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Permission check was successful",
+            "description": "Permission check was successful.",
             "schema": {
               "type": "boolean"
             }
@@ -9476,7 +10041,7 @@ func init() {
             }
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -9495,15 +10060,16 @@ func init() {
     },
     "/authz/roles/{id}/remove-permissions": {
       "post": {
+        "description": "Permissions can be revoked from a specified role. Removing all permissions from a role will delete the role itself.",
         "tags": [
           "authz"
         ],
-        "summary": "Remove permissions from a role. If this results in an empty role, the role will be deleted.",
+        "summary": "Remove permissions from a role",
         "operationId": "removePermissions",
         "parameters": [
           {
             "type": "string",
-            "description": "role name",
+            "description": "The name of the role being modified.",
             "name": "id",
             "in": "path",
             "required": true
@@ -9519,7 +10085,7 @@ func init() {
               ],
               "properties": {
                 "permissions": {
-                  "description": "permissions to remove from the role",
+                  "description": "Permissions to remove from the role.",
                   "type": "array",
                   "items": {
                     "$ref": "#/definitions/Permission"
@@ -9531,7 +10097,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Permissions removed successfully"
+            "description": "Permissions removed successfully."
           },
           "400": {
             "description": "Malformed request.",
@@ -9549,10 +10115,10 @@ func init() {
             }
           },
           "404": {
-            "description": "no role found"
+            "description": "No role found."
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -9571,15 +10137,16 @@ func init() {
     },
     "/authz/roles/{id}/user-assignments": {
       "get": {
+        "description": "Fetch a list of users which have the specified role.",
         "tags": [
           "authz"
         ],
-        "summary": "get users assigned to role",
+        "summary": "Get users assigned to a role",
         "operationId": "getUsersForRole",
         "parameters": [
           {
             "type": "string",
-            "description": "role name",
+            "description": "The name (ID) of the role.",
             "name": "id",
             "in": "path",
             "required": true
@@ -9587,7 +10154,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Users assigned to this role",
+            "description": "Users assigned to this role.",
             "schema": {
               "type": "array",
               "items": {
@@ -9596,7 +10163,7 @@ func init() {
             }
           },
           "400": {
-            "description": "Bad request",
+            "description": "Malformed request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -9611,7 +10178,7 @@ func init() {
             }
           },
           "404": {
-            "description": "no role found"
+            "description": "No role found."
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
@@ -9627,16 +10194,17 @@ func init() {
     },
     "/authz/roles/{id}/users": {
       "get": {
+        "description": "Get all the users (` + "`" + `db` + "`" + ` + ` + "`" + `oidc` + "`" + `) who have been assigned a specific role. Deprecated, will be removed when v1.29 is not supported anymore.",
         "tags": [
           "authz"
         ],
-        "summary": "get users (db + OIDC) assigned to role. Deprecated, will be removed when 1.29 is not supported anymore",
+        "summary": "Get users assigned to a role",
         "operationId": "getUsersForRoleDeprecated",
         "deprecated": true,
         "parameters": [
           {
             "type": "string",
-            "description": "role name",
+            "description": "The name of the role.",
             "name": "id",
             "in": "path",
             "required": true
@@ -9644,7 +10212,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Users assigned to this role",
+            "description": "Users assigned to this role.",
             "schema": {
               "type": "array",
               "items": {
@@ -9653,7 +10221,7 @@ func init() {
             }
           },
           "400": {
-            "description": "Bad request",
+            "description": "Malformed request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -9668,7 +10236,7 @@ func init() {
             }
           },
           "404": {
-            "description": "no role found"
+            "description": "No role found."
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
@@ -9684,6 +10252,7 @@ func init() {
     },
     "/authz/users/{id}/assign": {
       "post": {
+        "description": "Assign one or more roles to a user. Users can have multiple roles.",
         "tags": [
           "authz"
         ],
@@ -9692,7 +10261,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "user name",
+            "description": "The name of the user.",
             "name": "id",
             "in": "path",
             "required": true
@@ -9705,7 +10274,7 @@ func init() {
               "type": "object",
               "properties": {
                 "roles": {
-                  "description": "the roles that assigned to user",
+                  "description": "The roles that are assigned to the specified user.",
                   "type": "array",
                   "items": {
                     "type": "string"
@@ -9720,10 +10289,10 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Role assigned successfully"
+            "description": "Role assigned successfully."
           },
           "400": {
-            "description": "Bad request",
+            "description": "Malformed request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -9738,7 +10307,7 @@ func init() {
             }
           },
           "404": {
-            "description": "role or user is not found.",
+            "description": "Specified role or user not found.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -9757,6 +10326,7 @@ func init() {
     },
     "/authz/users/{id}/revoke": {
       "post": {
+        "description": "Remove one or more roles from a user.",
         "tags": [
           "authz"
         ],
@@ -9765,7 +10335,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "user name",
+            "description": "The name of the user.",
             "name": "id",
             "in": "path",
             "required": true
@@ -9778,7 +10348,7 @@ func init() {
               "type": "object",
               "properties": {
                 "roles": {
-                  "description": "the roles that revoked from the key or user",
+                  "description": "The roles to revoke from the specified user.",
                   "type": "array",
                   "items": {
                     "type": "string"
@@ -9793,10 +10363,10 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Role revoked successfully"
+            "description": "Roles revoked successfully."
           },
           "400": {
-            "description": "Bad request",
+            "description": "Malformed request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -9811,7 +10381,7 @@ func init() {
             }
           },
           "404": {
-            "description": "role or user is not found.",
+            "description": "Specified role or user not found.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -9830,16 +10400,17 @@ func init() {
     },
     "/authz/users/{id}/roles": {
       "get": {
+        "description": "Retrieve the roles assigned to a specific user (` + "`" + `db` + "`" + ` + ` + "`" + `oidc` + "`" + `). Deprecated, will be removed when 1.29 is not supported anymore",
         "tags": [
           "authz"
         ],
-        "summary": "get roles assigned to user (DB + OIDC). Deprecated, will be removed when 1.29 is not supported anymore",
+        "summary": "Get roles assigned to a user",
         "operationId": "getRolesForUserDeprecated",
         "deprecated": true,
         "parameters": [
           {
             "type": "string",
-            "description": "user name",
+            "description": "The name of the user.",
             "name": "id",
             "in": "path",
             "required": true
@@ -9847,13 +10418,13 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Role assigned users",
+            "description": "Roles assigned to the user.",
             "schema": {
               "$ref": "#/definitions/RolesListResponse"
             }
           },
           "400": {
-            "description": "Bad request",
+            "description": "Malformed request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -9868,10 +10439,10 @@ func init() {
             }
           },
           "404": {
-            "description": "no role found for user"
+            "description": "No roles found for specified user."
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -9890,15 +10461,16 @@ func init() {
     },
     "/authz/users/{id}/roles/{userType}": {
       "get": {
+        "description": "Get all the roles for a specific user (` + "`" + `db` + "`" + ` or ` + "`" + `oidc` + "`" + `).",
         "tags": [
           "authz"
         ],
-        "summary": "get roles assigned to user",
+        "summary": "Get roles assigned to a user",
         "operationId": "getRolesForUser",
         "parameters": [
           {
             "type": "string",
-            "description": "user name",
+            "description": "The name of the user.",
             "name": "id",
             "in": "path",
             "required": true
@@ -9909,7 +10481,7 @@ func init() {
               "db"
             ],
             "type": "string",
-            "description": "The type of user",
+            "description": "The type of the user.",
             "name": "userType",
             "in": "path",
             "required": true
@@ -9917,20 +10489,20 @@ func init() {
           {
             "type": "boolean",
             "default": false,
-            "description": "Whether to include detailed role information needed the roles permission",
+            "description": "Whether to include detailed role information like its assigned permissions.",
             "name": "includeFullRoles",
             "in": "query"
           }
         ],
         "responses": {
           "200": {
-            "description": "Role assigned users",
+            "description": "Roles assigned to the user.",
             "schema": {
               "$ref": "#/definitions/RolesListResponse"
             }
           },
           "400": {
-            "description": "Bad request",
+            "description": "Malformed request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -9945,10 +10517,10 @@ func init() {
             }
           },
           "404": {
-            "description": "no role found for user"
+            "description": "No roles found for specified user."
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -9967,24 +10539,35 @@ func init() {
     },
     "/backups/{backend}": {
       "get": {
-        "description": "[Coming soon] List all backups in progress not implemented yet.",
+        "description": "List all created backups IDs, Status",
         "tags": [
           "backups"
         ],
-        "summary": "List backups in progress",
+        "summary": "List all created backups",
         "operationId": "backups.list",
         "parameters": [
           {
             "type": "string",
-            "description": "Backup backend name e.g. filesystem, gcs, s3.",
+            "description": "Specifies the backend storage system to list backups from (e.g., ` + "`" + `filesystem` + "`" + `, ` + "`" + `gcs` + "`" + `, ` + "`" + `s3` + "`" + `, ` + "`" + `azure` + "`" + `).",
             "name": "backend",
             "in": "path",
             "required": true
+          },
+          {
+            "enum": [
+              "asc",
+              "desc"
+            ],
+            "type": "string",
+            "default": "desc",
+            "description": "Order of returned list of backups based on creation time. (asc or desc)",
+            "name": "order",
+            "in": "query"
           }
         ],
         "responses": {
           "200": {
-            "description": "Existed backups",
+            "description": "Successfully retrieved the list of backups in progress.",
             "schema": {
               "$ref": "#/definitions/BackupListResponse"
             }
@@ -9999,13 +10582,13 @@ func init() {
             }
           },
           "422": {
-            "description": "Invalid backup list.",
+            "description": "Invalid request to list backups.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An internal server error occurred while listing backups. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -10016,21 +10599,22 @@ func init() {
         ]
       },
       "post": {
-        "description": "Start creating a backup for a set of collections. \u003cbr/\u003e\u003cbr/\u003eNotes: \u003cbr/\u003e- Weaviate uses gzip compression by default. \u003cbr/\u003e- Weaviate stays usable while a backup process is ongoing.",
+        "description": "Initiates the creation of a backup for specified collections on a designated backend storage.\u003cbr/\u003e\u003cbr/\u003eNotes:\u003cbr/\u003e- Backups are compressed using gzip by default.\u003cbr/\u003e- Weaviate remains operational during the backup process.",
         "tags": [
           "backups"
         ],
-        "summary": "Start a backup process",
+        "summary": "Create a backup",
         "operationId": "backups.create",
         "parameters": [
           {
             "type": "string",
-            "description": "Backup backend name e.g. ` + "`" + `filesystem` + "`" + `, ` + "`" + `gcs` + "`" + `, ` + "`" + `s3` + "`" + `, ` + "`" + `azure` + "`" + `.",
+            "description": "Specifies the backend storage system where the backup will be stored (e.g., ` + "`" + `filesystem` + "`" + `, ` + "`" + `gcs` + "`" + `, ` + "`" + `s3` + "`" + `, ` + "`" + `azure` + "`" + `).",
             "name": "backend",
             "in": "path",
             "required": true
           },
           {
+            "description": "Details of the backup request, including the backup ID and collections to include or exclude.",
             "name": "body",
             "in": "body",
             "required": true,
@@ -10041,7 +10625,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Backup create process successfully started.",
+            "description": "Backup creation process initiated successfully. Check the status endpoint for progress.",
             "schema": {
               "$ref": "#/definitions/BackupCreateResponse"
             }
@@ -10056,13 +10640,13 @@ func init() {
             }
           },
           "422": {
-            "description": "Invalid backup creation attempt.",
+            "description": "Invalid backup creation request. Check the request body and backend configuration.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An internal server error occurred during backup initiation. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -10075,43 +10659,43 @@ func init() {
     },
     "/backups/{backend}/{id}": {
       "get": {
-        "description": "Returns status of backup creation attempt for a set of collections. \u003cbr/\u003e\u003cbr/\u003eAll client implementations have a ` + "`" + `wait for completion` + "`" + ` option which will poll the backup status in the background and only return once the backup has completed (successfully or unsuccessfully). If you set the ` + "`" + `wait for completion` + "`" + ` option to false, you can also check the status yourself using this endpoint.",
+        "description": "Checks the status of a specific backup creation process identified by its ID on the specified backend.\u003cbr/\u003e\u003cbr/\u003eClient libraries often provide a 'wait for completion' feature that polls this endpoint automatically. Use this endpoint for manual status checks or if 'wait for completion' is disabled.",
         "tags": [
           "backups"
         ],
-        "summary": "Get backup process status",
+        "summary": "Get backup creation status",
         "operationId": "backups.create.status",
         "parameters": [
           {
             "type": "string",
-            "description": "Backup backend name e.g. filesystem, gcs, s3.",
+            "description": "Specifies the backend storage system where the backup resides (e.g., ` + "`" + `filesystem` + "`" + `, ` + "`" + `gcs` + "`" + `, ` + "`" + `s3` + "`" + `, ` + "`" + `azure` + "`" + `).",
             "name": "backend",
             "in": "path",
             "required": true
           },
           {
             "type": "string",
-            "description": "The ID of a backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
+            "description": "The unique identifier of the backup. Must be URL-safe and compatible with filesystem paths (only lowercase, numbers, underscore, minus characters allowed).",
             "name": "id",
             "in": "path",
             "required": true
           },
           {
             "type": "string",
-            "description": "Name of the bucket, container, volume, etc",
+            "description": "Optional: Specifies the bucket, container, or volume name if required by the backend.",
             "name": "bucket",
             "in": "query"
           },
           {
             "type": "string",
-            "description": "The path within the bucket",
+            "description": "Optional: Specifies the path within the bucket/container/volume if the backup is not at the root.",
             "name": "path",
             "in": "query"
           }
         ],
         "responses": {
           "200": {
-            "description": "Backup creation status successfully returned",
+            "description": "Successfully retrieved the status of the backup creation process.",
             "schema": {
               "$ref": "#/definitions/BackupCreateStatusResponse"
             }
@@ -10126,19 +10710,19 @@ func init() {
             }
           },
           "404": {
-            "description": "Not Found - Backup does not exist",
+            "description": "Backup not found on the specified backend with the given ID.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "422": {
-            "description": "Invalid backup restoration status attempt.",
+            "description": "Invalid request to check backup creation status.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An internal server error occurred while checking backup status. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -10149,43 +10733,43 @@ func init() {
         ]
       },
       "delete": {
-        "description": "Cancel created backup with specified ID",
+        "description": "Deletes a backup identified by its ID from the specified backend storage.",
         "tags": [
           "backups"
         ],
-        "summary": "Cancel backup",
+        "summary": "Delete a backup",
         "operationId": "backups.cancel",
         "parameters": [
           {
             "type": "string",
-            "description": "Backup backend name e.g. filesystem, gcs, s3.",
+            "description": "Specifies the backend storage system where the backup resides (e.g., ` + "`" + `filesystem` + "`" + `, ` + "`" + `gcs` + "`" + `, ` + "`" + `s3` + "`" + `, ` + "`" + `azure` + "`" + `).",
             "name": "backend",
             "in": "path",
             "required": true
           },
           {
             "type": "string",
-            "description": "The ID of a backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
+            "description": "The unique identifier of the backup to delete. Must be URL-safe and compatible with filesystem paths (only lowercase, numbers, underscore, minus characters allowed).",
             "name": "id",
             "in": "path",
             "required": true
           },
           {
             "type": "string",
-            "description": "Name of the bucket, container, volume, etc",
+            "description": "Optional: Specifies the bucket, container, or volume name if required by the backend.",
             "name": "bucket",
             "in": "query"
           },
           {
             "type": "string",
-            "description": "The path within the bucket",
+            "description": "Optional: Specifies the path within the bucket/container/volume if the backup is not at the root.",
             "name": "path",
             "in": "query"
           }
         ],
         "responses": {
           "204": {
-            "description": "Successfully deleted."
+            "description": "Backup deleted successfully."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -10197,13 +10781,13 @@ func init() {
             }
           },
           "422": {
-            "description": "Invalid backup cancellation attempt.",
+            "description": "Invalid backup deletion request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An internal server error occurred during backup deletion. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -10216,43 +10800,43 @@ func init() {
     },
     "/backups/{backend}/{id}/restore": {
       "get": {
-        "description": "Returns status of a backup restoration attempt for a set of classes. \u003cbr/\u003e\u003cbr/\u003eAll client implementations have a ` + "`" + `wait for completion` + "`" + ` option which will poll the backup status in the background and only return once the backup has completed (successfully or unsuccessfully). If you set the ` + "`" + `wait for completion` + "`" + ` option to false, you can also check the status yourself using the this endpoint.",
+        "description": "Checks the status of a specific backup restoration process identified by the backup ID on the specified backend.\u003cbr/\u003e\u003cbr/\u003eClient libraries often provide a 'wait for completion' feature that polls this endpoint automatically. Use this endpoint for manual status checks or if 'wait for completion' is disabled.",
         "tags": [
           "backups"
         ],
-        "summary": "Get restore process status",
+        "summary": "Get backup restoration status",
         "operationId": "backups.restore.status",
         "parameters": [
           {
             "type": "string",
-            "description": "Backup backend name e.g. ` + "`" + `filesystem` + "`" + `, ` + "`" + `gcs` + "`" + `, ` + "`" + `s3` + "`" + `, ` + "`" + `azure` + "`" + `.",
+            "description": "Specifies the backend storage system where the backup resides (e.g., ` + "`" + `filesystem` + "`" + `, ` + "`" + `gcs` + "`" + `, ` + "`" + `s3` + "`" + `, ` + "`" + `azure` + "`" + `).",
             "name": "backend",
             "in": "path",
             "required": true
           },
           {
             "type": "string",
-            "description": "The ID of a backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
+            "description": "The unique identifier of the backup being restored. Must be URL-safe and compatible with filesystem paths (only lowercase, numbers, underscore, minus characters allowed).",
             "name": "id",
             "in": "path",
             "required": true
           },
           {
             "type": "string",
-            "description": "Name of the bucket, container, volume, etc",
+            "description": "Optional: Specifies the bucket, container, or volume name if required by the backend.",
             "name": "bucket",
             "in": "query"
           },
           {
             "type": "string",
-            "description": "The path within the bucket",
+            "description": "Optional: Specifies the path within the bucket.",
             "name": "path",
             "in": "query"
           }
         ],
         "responses": {
           "200": {
-            "description": "Backup restoration status successfully returned",
+            "description": "Successfully retrieved the status of the backup restoration process.",
             "schema": {
               "$ref": "#/definitions/BackupRestoreStatusResponse"
             }
@@ -10267,13 +10851,13 @@ func init() {
             }
           },
           "404": {
-            "description": "Not Found - Backup does not exist",
+            "description": "Backup not found on the specified backend with the given ID.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An internal server error occurred while checking restore status. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -10284,28 +10868,29 @@ func init() {
         ]
       },
       "post": {
-        "description": "Starts a process of restoring a backup for a set of collections. \u003cbr/\u003e\u003cbr/\u003eAny backup can be restored to any machine, as long as the number of nodes between source and target are identical.\u003cbr/\u003e\u003cbr/\u003eRequrements:\u003cbr/\u003e\u003cbr/\u003e- None of the collections to be restored already exist on the target restoration node(s).\u003cbr/\u003e- The node names of the backed-up collections' must match those of the target restoration node(s).",
+        "description": "Initiates the restoration of collections from a specified backup located on a designated backend.\u003cbr/\u003e\u003cbr/\u003eRequirements:\u003cbr/\u003e- Target cluster must have the same number of nodes as the source cluster where the backup was created.\u003cbr/\u003e- Collections included in the restore must not already exist on the target cluster.\u003cbr/\u003e- Node names must match between the backup and the target cluster.",
         "tags": [
           "backups"
         ],
-        "summary": "Start a restoration process",
+        "summary": "Restore from a backup",
         "operationId": "backups.restore",
         "parameters": [
           {
             "type": "string",
-            "description": "Backup backend name e.g. ` + "`" + `filesystem` + "`" + `, ` + "`" + `gcs` + "`" + `, ` + "`" + `s3` + "`" + `, ` + "`" + `azure` + "`" + `.",
+            "description": "Specifies the backend storage system where the backup resides (e.g., ` + "`" + `filesystem` + "`" + `, ` + "`" + `gcs` + "`" + `, ` + "`" + `s3` + "`" + `, ` + "`" + `azure` + "`" + `).",
             "name": "backend",
             "in": "path",
             "required": true
           },
           {
             "type": "string",
-            "description": "The ID of a backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
+            "description": "The unique identifier of the backup to restore from. Must be URL-safe and compatible with filesystem paths (only lowercase, numbers, underscore, minus characters allowed).",
             "name": "id",
             "in": "path",
             "required": true
           },
           {
+            "description": "Details of the restore request, including collections to include or exclude and node mapping if necessary.",
             "name": "body",
             "in": "body",
             "required": true,
@@ -10316,7 +10901,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Backup restoration process successfully started.",
+            "description": "Backup restoration process initiated successfully. Check the status endpoint for progress.",
             "schema": {
               "$ref": "#/definitions/BackupRestoreResponse"
             }
@@ -10331,19 +10916,19 @@ func init() {
             }
           },
           "404": {
-            "description": "Not Found - Backup does not exist",
+            "description": "Backup not found on the specified backend with the given ID.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "422": {
-            "description": "Invalid backup restoration attempt.",
+            "description": "Invalid backup restoration request. Check requirements and request body.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An internal server error occurred during restore initiation. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -10356,15 +10941,16 @@ func init() {
     },
     "/batch/objects": {
       "post": {
-        "description": "Create new objects in bulk. \u003cbr/\u003e\u003cbr/\u003eMeta-data and schema values are validated. \u003cbr/\u003e\u003cbr/\u003e**Note: idempotence of ` + "`" + `/batch/objects` + "`" + `**: \u003cbr/\u003e` + "`" + `POST /batch/objects` + "`" + ` is idempotent, and will overwrite any existing object given the same id.",
+        "description": "Registers multiple data objects in a single request for efficiency. Metadata and schema values for each object are validated.\u003cbr/\u003e\u003cbr/\u003e**Note (idempotence)**:\u003cbr/\u003eThis operation is idempotent based on the object UUIDs provided. If an object with a given UUID already exists, it will be overwritten (similar to a PUT operation for that specific object within the batch).",
         "tags": [
           "batch",
           "objects"
         ],
-        "summary": "Creates new Objects based on a Object template as a batch.",
+        "summary": "Create objects in batch",
         "operationId": "batch.objects.create",
         "parameters": [
           {
+            "description": "The request body containing the objects to be created.",
             "name": "body",
             "in": "body",
             "required": true,
@@ -10372,7 +10958,7 @@ func init() {
               "type": "object",
               "properties": {
                 "fields": {
-                  "description": "Define which fields need to be returned. Default value is ALL",
+                  "description": "Controls which fields are returned in the response for each object. Default is ` + "`" + `ALL` + "`" + `.",
                   "type": "array",
                   "items": {
                     "type": "string",
@@ -10387,6 +10973,7 @@ func init() {
                   }
                 },
                 "objects": {
+                  "description": "Array of objects to be created.",
                   "type": "array",
                   "items": {
                     "$ref": "#/definitions/Object"
@@ -10397,14 +10984,14 @@ func init() {
           },
           {
             "type": "string",
-            "description": "Determines how many replicas must acknowledge a request before it is considered successful",
+            "description": "Determines how many replicas must acknowledge a request before it is considered successful.",
             "name": "consistency_level",
             "in": "query"
           }
         ],
         "responses": {
           "200": {
-            "description": "Request succeeded, see response body to get detailed information about each batched item.",
+            "description": "Request processed successfully. Individual object statuses are provided in the response body.",
             "schema": {
               "type": "array",
               "items": {
@@ -10428,13 +11015,13 @@ func init() {
             }
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request. Ensure the collection exists and the object properties are valid.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -10447,15 +11034,16 @@ func init() {
         ]
       },
       "delete": {
-        "description": "Batch delete objects that match a particular filter. \u003cbr/\u003e\u003cbr/\u003eThe request body takes a single ` + "`" + `where` + "`" + ` filter and will delete all objects matched. \u003cbr/\u003e\u003cbr/\u003eNote that there is a limit to the number of objects to be deleted at once using this filter, in order to protect against unexpected memory surges and very-long-running requests. The default limit is 10,000 and may be configured by setting the ` + "`" + `QUERY_MAXIMUM_RESULTS` + "`" + ` environment variable. \u003cbr/\u003e\u003cbr/\u003eObjects are deleted in the same order that they would be returned in an equivalent Get query. To delete more objects than the limit, run the same query multiple times.",
+        "description": "Removes multiple data objects based on a filter specified in the request body.\u003cbr/\u003e\u003cbr/\u003eDeletion occurs based on the filter criteria provided in the ` + "`" + `where` + "`" + ` clause. There is a configurable limit (default 10,000, set via ` + "`" + `QUERY_MAXIMUM_RESULTS` + "`" + `) on how many objects can be deleted in a single batch request to prevent excessive resource usage. Objects are deleted in the order they match the filter. To delete more objects than the limit allows, repeat the request until no more matching objects are found.",
         "tags": [
           "batch",
           "objects"
         ],
-        "summary": "Deletes Objects based on a match filter as a batch.",
+        "summary": "Delete objects in batch",
         "operationId": "batch.objects.delete",
         "parameters": [
           {
+            "description": "The request body containing the match filter and output configuration.",
             "name": "body",
             "in": "body",
             "required": true,
@@ -10465,20 +11053,20 @@ func init() {
           },
           {
             "type": "string",
-            "description": "Determines how many replicas must acknowledge a request before it is considered successful",
+            "description": "Determines how many replicas must acknowledge a request before it is considered successful.",
             "name": "consistency_level",
             "in": "query"
           },
           {
             "type": "string",
-            "description": "Specifies the tenant in a request targeting a multi-tenant class",
+            "description": "Specifies the tenant in a request targeting a multi-tenant collection (class).",
             "name": "tenant",
             "in": "query"
           }
         ],
         "responses": {
           "200": {
-            "description": "Request succeeded, see response body to get detailed information about each batched item.",
+            "description": "Request processed successfully. See response body for matching objects and deletion results.",
             "schema": {
               "$ref": "#/definitions/BatchDeleteResponse"
             }
@@ -10499,13 +11087,13 @@ func init() {
             }
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "Invalid data provided. Please check the values in your request (e.g., invalid filter).",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -10520,16 +11108,16 @@ func init() {
     },
     "/batch/references": {
       "post": {
-        "description": "Batch create cross-references between collections items (objects or objects) in bulk.",
+        "description": "Batch create cross-references between collection items in bulk.",
         "tags": [
           "batch",
           "references"
         ],
-        "summary": "Creates new Cross-References between arbitrary classes in bulk.",
+        "summary": "Create cross-references in bulk",
         "operationId": "batch.references.create",
         "parameters": [
           {
-            "description": "A list of references to be batched. The ideal size depends on the used database connector. Please see the documentation of the used connector for help",
+            "description": "A list of references to be batched. The ideal size depends on the used database connector. Please see the documentation of the used connector for help.",
             "name": "body",
             "in": "body",
             "required": true,
@@ -10542,7 +11130,7 @@ func init() {
           },
           {
             "type": "string",
-            "description": "Determines how many replicas must acknowledge a request before it is considered successful",
+            "description": "Determines how many replicas must acknowledge a request before it is considered successful.",
             "name": "consistency_level",
             "in": "query"
           }
@@ -10573,7 +11161,7 @@ func init() {
             }
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request. Ensure the collection exists and the object properties are valid.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -10594,15 +11182,15 @@ func init() {
     },
     "/classifications/": {
       "post": {
-        "description": "Trigger a classification based on the specified params. Classifications will run in the background, use GET /classifications/\u003cid\u003e to retrieve the status of your classification.",
+        "description": "Initiates a background classification task based on the provided parameters. Use the GET /classifications/{id} endpoint to monitor the status and retrieve results.",
         "tags": [
           "classifications"
         ],
-        "summary": "Starts a classification.",
+        "summary": "Start a classification",
         "operationId": "classifications.post",
         "parameters": [
           {
-            "description": "parameters to start a classification",
+            "description": "Configuration parameters for the classification task, including type, target properties, and training data references.",
             "name": "params",
             "in": "body",
             "required": true,
@@ -10613,13 +11201,13 @@ func init() {
         ],
         "responses": {
           "201": {
-            "description": "Successfully started classification.",
+            "description": "Classification task successfully initiated. The response body contains the classification details including its ID.",
             "schema": {
               "$ref": "#/definitions/Classification"
             }
           },
           "400": {
-            "description": "Incorrect request",
+            "description": "Invalid request body or parameters.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -10634,7 +11222,7 @@ func init() {
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An internal server error occurred while starting the classification task. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -10647,16 +11235,16 @@ func init() {
     },
     "/classifications/{id}": {
       "get": {
-        "description": "Get status, results and metadata of a previously created classification",
+        "description": "Retrieves the status, metadata, and results (if completed) of a classification task identified by its unique ID.",
         "tags": [
           "classifications"
         ],
-        "summary": "View previously created classification",
+        "summary": "Get classification status",
         "operationId": "classifications.get",
         "parameters": [
           {
             "type": "string",
-            "description": "classification id",
+            "description": "The unique identifier (UUID) of the classification task.",
             "name": "id",
             "in": "path",
             "required": true
@@ -10664,7 +11252,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Found the classification, returned as body",
+            "description": "Successfully retrieved the classification details.",
             "schema": {
               "$ref": "#/definitions/Classification"
             }
@@ -10679,10 +11267,10 @@ func init() {
             }
           },
           "404": {
-            "description": "Not Found - Classification does not exist"
+            "description": "Classification with the given ID not found."
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An internal server error occurred while retrieving the classification status. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -10695,15 +11283,15 @@ func init() {
     },
     "/cluster/statistics": {
       "get": {
-        "description": "Returns Raft cluster statistics of Weaviate DB.",
+        "description": "Provides statistics about the internal Raft consensus protocol state for the Weaviate cluster.",
         "tags": [
           "cluster"
         ],
-        "summary": "See Raft cluster statistics",
+        "summary": "Get cluster statistics",
         "operationId": "cluster.get.statistics",
         "responses": {
           "200": {
-            "description": "Cluster statistics successfully returned",
+            "description": "Successfully retrieved Raft cluster statistics.",
             "schema": {
               "$ref": "#/definitions/ClusterStatisticsResponse"
             }
@@ -10718,13 +11306,13 @@ func init() {
             }
           },
           "422": {
-            "description": "Invalid backup restoration status attempt.",
+            "description": "Invalid request for cluster statistics.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An internal server error occurred while retrieving cluster statistics. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -10737,15 +11325,15 @@ func init() {
     },
     "/graphql": {
       "post": {
-        "description": "Get a response based on a GraphQL query",
+        "description": "Executes a single GraphQL query provided in the request body. Use this endpoint for all Weaviate data queries and exploration.",
         "tags": [
           "graphql"
         ],
-        "summary": "Get a response based on GraphQL",
+        "summary": "Perform a GraphQL query",
         "operationId": "graphql.post",
         "parameters": [
           {
-            "description": "The GraphQL query request parameters.",
+            "description": "The GraphQL query to execute, including the query string and optional variables.",
             "name": "body",
             "in": "body",
             "required": true,
@@ -10756,7 +11344,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Successful query (with select).",
+            "description": "Query executed successfully. The response body contains the query result.",
             "schema": {
               "$ref": "#/definitions/GraphQLResponse"
             }
@@ -10771,13 +11359,13 @@ func init() {
             }
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An internal server error occurred during query execution. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -10795,15 +11383,15 @@ func init() {
     },
     "/graphql/batch": {
       "post": {
-        "description": "Perform a batched GraphQL query",
+        "description": "Executes multiple GraphQL queries provided in the request body as an array. Allows performing several queries in a single network request for efficiency.",
         "tags": [
           "graphql"
         ],
-        "summary": "Get a response based on GraphQL.",
+        "summary": "Perform batched GraphQL queries",
         "operationId": "graphql.batch",
         "parameters": [
           {
-            "description": "The GraphQL queries.",
+            "description": "An array containing multiple GraphQL query objects to execute in batch.",
             "name": "body",
             "in": "body",
             "required": true,
@@ -10814,7 +11402,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Successful query (with select).",
+            "description": "Batch request processed successfully. The response body contains an array of results corresponding to the input queries.",
             "schema": {
               "$ref": "#/definitions/GraphQLResponses"
             }
@@ -10829,13 +11417,13 @@ func init() {
             }
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An internal server error occurred during batch query execution. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -10853,15 +11441,15 @@ func init() {
     },
     "/meta": {
       "get": {
-        "description": "Returns meta information about the server. Can be used to provide information to another Weaviate instance that wants to interact with the current instance.",
+        "description": "Provides meta-information about the running Weaviate instance, including its version, loaded modules, and network hostname. This information can be useful for monitoring, compatibility checks, or inter-instance communication.",
         "tags": [
           "meta"
         ],
-        "summary": "Returns meta information of the current Weaviate instance.",
+        "summary": "Get instance metadata",
         "operationId": "meta.get",
         "responses": {
           "200": {
-            "description": "Successful response.",
+            "description": "Successfully retrieved meta information.",
             "schema": {
               "$ref": "#/definitions/Meta"
             }
@@ -10876,7 +11464,7 @@ func init() {
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An internal server error occurred while retrieving meta information. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -10891,24 +11479,24 @@ func init() {
     },
     "/nodes": {
       "get": {
-        "description": "Returns node information for the entire database.",
+        "description": "Retrieves status information about all nodes in the cluster. Use the ` + "`" + `output` + "`" + ` query parameter to control the level of detail.",
         "tags": [
           "nodes"
         ],
-        "summary": "Node information for the database.",
+        "summary": "Get node status",
         "operationId": "nodes.get",
         "parameters": [
           {
             "type": "string",
             "default": "minimal",
-            "description": "Controls the verbosity of the output, possible values are: \"minimal\", \"verbose\". Defaults to \"minimal\".",
+            "description": "Controls the verbosity of the output, possible values are: ` + "`" + `minimal` + "`" + `, ` + "`" + `verbose` + "`" + `. Defaults to ` + "`" + `minimal` + "`" + `.",
             "name": "output",
             "in": "query"
           }
         ],
         "responses": {
           "200": {
-            "description": "Nodes status successfully returned",
+            "description": "Successfully retrieved the status for all nodes.",
             "schema": {
               "$ref": "#/definitions/NodesStatusResponse"
             }
@@ -10923,19 +11511,19 @@ func init() {
             }
           },
           "404": {
-            "description": "Not Found - Backup does not exist",
+            "description": "Not Found.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "422": {
-            "description": "Invalid backup restoration status attempt.",
+            "description": "Invalid request for node status.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An internal server error occurred while retrieving node status. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -10948,15 +11536,16 @@ func init() {
     },
     "/nodes/{className}": {
       "get": {
-        "description": "Returns node information for the nodes relevant to the collection.",
+        "description": "Retrieves status information only for the nodes that host shards for the specified collection (` + "`" + `className` + "`" + `). Use the ` + "`" + `output` + "`" + ` query parameter to control the level of detail.",
         "tags": [
           "nodes"
         ],
-        "summary": "Node information for a collection.",
+        "summary": "Get node status by collection",
         "operationId": "nodes.get.class",
         "parameters": [
           {
             "type": "string",
+            "description": "The name of the collection (class) for which to retrieve node status.",
             "name": "className",
             "in": "path",
             "required": true
@@ -10969,14 +11558,14 @@ func init() {
           {
             "type": "string",
             "default": "minimal",
-            "description": "Controls the verbosity of the output, possible values are: \"minimal\", \"verbose\". Defaults to \"minimal\".",
+            "description": "Controls the verbosity of the output, possible values are: ` + "`" + `minimal` + "`" + `, ` + "`" + `verbose` + "`" + `. Defaults to ` + "`" + `minimal` + "`" + `.",
             "name": "output",
             "in": "query"
           }
         ],
         "responses": {
           "200": {
-            "description": "Nodes status successfully returned",
+            "description": "Successfully retrieved the status for nodes relevant to the specified collection.",
             "schema": {
               "$ref": "#/definitions/NodesStatusResponse"
             }
@@ -10991,19 +11580,19 @@ func init() {
             }
           },
           "404": {
-            "description": "Not Found - Backup does not exist",
+            "description": "Not Found.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "422": {
-            "description": "Invalid backup restoration status attempt.",
+            "description": "Invalid request for node status.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An internal server error occurred while retrieving node status for the collection. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -11016,16 +11605,16 @@ func init() {
     },
     "/objects": {
       "get": {
-        "description": "Lists all Objects in reverse order of creation, owned by the user that belongs to the used token.",
+        "description": "Retrieves a list of data objects. By default, objects are returned in reverse order of creation. Requires a collection name (` + "`" + `class` + "`" + `) parameter to specify which collection's objects to list, otherwise, returns an empty list.",
         "tags": [
           "objects"
         ],
-        "summary": "Get a list of Objects.",
+        "summary": "List objects",
         "operationId": "objects.list",
         "parameters": [
           {
             "type": "string",
-            "description": "A threshold UUID of the objects to retrieve after, using an UUID-based ordering. This object is not part of the set. \u003cbr/\u003e\u003cbr/\u003eMust be used with ` + "`" + `class` + "`" + `, typically in conjunction with ` + "`" + `limit` + "`" + `. \u003cbr/\u003e\u003cbr/\u003eNote ` + "`" + `after` + "`" + ` cannot be used with ` + "`" + `offset` + "`" + ` or ` + "`" + `sort` + "`" + `. \u003cbr/\u003e\u003cbr/\u003eFor a null value similar to offset=0, set an empty string in the request, i.e. ` + "`" + `after=` + "`" + ` or ` + "`" + `after` + "`" + `.",
+            "description": "A threshold UUID of the objects to retrieve after, using an UUID-based ordering. This object is not part of the set. \u003cbr/\u003e\u003cbr/\u003eMust be used with collection name (` + "`" + `class` + "`" + `), typically in conjunction with ` + "`" + `limit` + "`" + `. \u003cbr/\u003e\u003cbr/\u003eNote ` + "`" + `after` + "`" + ` cannot be used with ` + "`" + `offset` + "`" + ` or ` + "`" + `sort` + "`" + `. \u003cbr/\u003e\u003cbr/\u003eFor a null value similar to offset=0, set an empty string in the request, i.e. ` + "`" + `after=` + "`" + ` or ` + "`" + `after` + "`" + `.",
             "name": "after",
             "in": "query"
           },
@@ -11046,7 +11635,7 @@ func init() {
           },
           {
             "type": "string",
-            "description": "Include additional information, such as classification infos. Allowed values include: classification, vector, interpretation",
+            "description": "Include additional information, such as classification information. Allowed values include: ` + "`" + `classification` + "`" + `, ` + "`" + `vector` + "`" + ` and ` + "`" + `interpretation` + "`" + `.",
             "name": "include",
             "in": "query"
           },
@@ -11064,20 +11653,20 @@ func init() {
           },
           {
             "type": "string",
-            "description": "The collection from which to query objects.  \u003cbr/\u003e\u003cbr/\u003eNote that if ` + "`" + `class` + "`" + ` is not provided, the response will not include any objects.",
+            "description": "The collection from which to query objects.  \u003cbr/\u003e\u003cbr/\u003eNote that if the collection name (` + "`" + `class` + "`" + `) is not provided, the response will not include any objects.",
             "name": "class",
             "in": "query"
           },
           {
             "type": "string",
-            "description": "Specifies the tenant in a request targeting a multi-tenant class",
+            "description": "Specifies the tenant in a request targeting a multi-tenant collection (class).",
             "name": "tenant",
             "in": "query"
           }
         ],
         "responses": {
           "200": {
-            "description": "Successful response. \u003cbr/\u003e\u003cbr/\u003eIf ` + "`" + `class` + "`" + ` is not provided, the response will not include any objects.",
+            "description": "Successful response containing the list of objects. If the collection name (` + "`" + `class` + "`" + `) is not provided, the response will not include any objects.",
             "schema": {
               "$ref": "#/definitions/ObjectsListResponse"
             }
@@ -11098,16 +11687,16 @@ func init() {
             }
           },
           "404": {
-            "description": "Successful query result but no resource was found."
+            "description": "Successful query result but no matching objects were found."
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request. Ensure the specified collection exists.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -11120,14 +11709,15 @@ func init() {
         ]
       },
       "post": {
-        "description": "Create a new object. \u003cbr/\u003e\u003cbr/\u003eMeta-data and schema values are validated. \u003cbr/\u003e\u003cbr/\u003e**Note: Use ` + "`" + `/batch` + "`" + ` for importing many objects**: \u003cbr/\u003eIf you plan on importing a large number of objects, it's much more efficient to use the ` + "`" + `/batch` + "`" + ` endpoint. Otherwise, sending multiple single requests sequentially would incur a large performance penalty. \u003cbr/\u003e\u003cbr/\u003e**Note: idempotence of ` + "`" + `/objects` + "`" + `**: \u003cbr/\u003ePOST /objects will fail if an id is provided which already exists in the class. To update an existing object with the objects endpoint, use the PUT or PATCH method.",
+        "description": "Creates a new data object. The object's metadata and schema values are validated before creation.\u003cbr/\u003e\u003cbr/\u003e**Note (batch import)**:\u003cbr/\u003eIf you plan on importing a large number of objects, using the ` + "`" + `/batch/objects` + "`" + ` endpoint is significantly more efficient than sending multiple single requests.\u003cbr/\u003e\u003cbr/\u003e**Note (idempotence)**:\u003cbr/\u003eThis operation (POST) fails if an object with the provided ID already exists. To update an existing object, use the PUT or PATCH methods.",
         "tags": [
           "objects"
         ],
-        "summary": "Create a new object.",
+        "summary": "Create an object",
         "operationId": "objects.create",
         "parameters": [
           {
+            "description": "The object to be created.",
             "name": "body",
             "in": "body",
             "required": true,
@@ -11137,14 +11727,14 @@ func init() {
           },
           {
             "type": "string",
-            "description": "Determines how many replicas must acknowledge a request before it is considered successful",
+            "description": "Determines how many replicas must acknowledge a request before it is considered successful.",
             "name": "consistency_level",
             "in": "query"
           }
         ],
         "responses": {
           "200": {
-            "description": "Object created.",
+            "description": "Object created successfully.",
             "schema": {
               "$ref": "#/definitions/Object"
             }
@@ -11165,13 +11755,13 @@ func init() {
             }
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request. Ensure the collection exists and the object properties are valid.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -11186,14 +11776,15 @@ func init() {
     },
     "/objects/validate": {
       "post": {
-        "description": "Validate an object's schema and meta-data without creating it. \u003cbr/\u003e\u003cbr/\u003eIf the schema of the object is valid, the request should return nothing with a plain RESTful request. Otherwise, an error object will be returned.",
+        "description": "Checks if a data object's structure conforms to the specified collection schema and metadata rules without actually storing the object.\u003cbr/\u003e\u003cbr/\u003eA successful validation returns a 200 OK status code with no body. If validation fails, an error response with details is returned.",
         "tags": [
           "objects"
         ],
-        "summary": "Validate an Object based on a schema.",
+        "summary": "Validate an object",
         "operationId": "objects.validate",
         "parameters": [
           {
+            "description": "The object definition to validate.",
             "name": "body",
             "in": "body",
             "required": true,
@@ -11204,7 +11795,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Successfully validated."
+            "description": "Object is valid according to the schema."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -11216,13 +11807,13 @@ func init() {
             }
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "Request body is well-formed but the object is invalid according to the schema.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -11237,15 +11828,16 @@ func init() {
     },
     "/objects/{className}/{id}": {
       "get": {
-        "description": "Get a data object based on its collection and UUID.",
+        "description": "Get a data object based on its collection name (` + "`" + `className` + "`" + `) and UUID (` + "`" + `id` + "`" + `).",
         "tags": [
           "objects"
         ],
-        "summary": "Get a specific Object based on its class and UUID. Also available as Websocket bus.",
+        "summary": "Get an object",
         "operationId": "objects.class.get",
         "parameters": [
           {
             "type": "string",
+            "description": "Name of the collection (class) the object belongs to.",
             "name": "className",
             "in": "path",
             "required": true
@@ -11253,39 +11845,39 @@ func init() {
           {
             "type": "string",
             "format": "uuid",
-            "description": "Unique ID of the Object.",
+            "description": "Unique UUID of the object to be retrieved.",
             "name": "id",
             "in": "path",
             "required": true
           },
           {
             "type": "string",
-            "description": "Include additional information, such as classification infos. Allowed values include: classification, vector, interpretation",
+            "description": "Include additional information, such as classification information. Allowed values include: ` + "`" + `classification` + "`" + `, ` + "`" + `vector` + "`" + ` and ` + "`" + `interpretation` + "`" + `.",
             "name": "include",
             "in": "query"
           },
           {
             "type": "string",
-            "description": "Determines how many replicas must acknowledge a request before it is considered successful",
+            "description": "Determines how many replicas must acknowledge a request before it is considered successful.",
             "name": "consistency_level",
             "in": "query"
           },
           {
             "type": "string",
-            "description": "The target node which should fulfill the request",
+            "description": "The target node which should fulfill the request.",
             "name": "node_name",
             "in": "query"
           },
           {
             "type": "string",
-            "description": "Specifies the tenant in a request targeting a multi-tenant class",
+            "description": "Specifies the tenant in a request targeting a multi-tenant collection (class).",
             "name": "tenant",
             "in": "query"
           }
         ],
         "responses": {
           "200": {
-            "description": "Successful response.",
+            "description": "Successful response containing the object.",
             "schema": {
               "$ref": "#/definitions/Object"
             }
@@ -11306,16 +11898,16 @@ func init() {
             }
           },
           "404": {
-            "description": "Successful query result but no resource was found."
+            "description": "Object not found."
           },
           "422": {
-            "description": "Request is well-formed (i.e., syntactically correct), but erroneous.",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -11328,15 +11920,16 @@ func init() {
         ]
       },
       "put": {
-        "description": "Update an object based on its uuid and collection. This (` + "`" + `put` + "`" + `) method replaces the object with the provided object.",
+        "description": "Replaces properties of an existing data object. The object is identified by its collection name (` + "`" + `className` + "`" + `) and UUID (` + "`" + `id` + "`" + `). The request body must contain the complete object definition with the new property values.",
         "tags": [
           "objects"
         ],
-        "summary": "Update a class object based on its uuid",
+        "summary": "Replace an object",
         "operationId": "objects.class.put",
         "parameters": [
           {
             "type": "string",
+            "description": "Name of the collection (class) the object belongs to.",
             "name": "className",
             "in": "path",
             "required": true
@@ -11344,12 +11937,13 @@ func init() {
           {
             "type": "string",
             "format": "uuid",
-            "description": "The uuid of the data object to update.",
+            "description": "Unique UUID of the object to be replaced.",
             "name": "id",
             "in": "path",
             "required": true
           },
           {
+            "description": "The object definition to replace the existing object with.",
             "name": "body",
             "in": "body",
             "required": true,
@@ -11359,14 +11953,14 @@ func init() {
           },
           {
             "type": "string",
-            "description": "Determines how many replicas must acknowledge a request before it is considered successful",
+            "description": "Determines how many replicas must acknowledge a request before it is considered successful.",
             "name": "consistency_level",
             "in": "query"
           }
         ],
         "responses": {
           "200": {
-            "description": "Successfully received.",
+            "description": "Object replaced successfully.",
             "schema": {
               "$ref": "#/definitions/Object"
             }
@@ -11381,16 +11975,16 @@ func init() {
             }
           },
           "404": {
-            "description": "Successful query result but no resource was found."
+            "description": "Object not found."
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request. Ensure the collection exists and the object properties are valid.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -11403,15 +11997,16 @@ func init() {
         ]
       },
       "delete": {
-        "description": "Delete an object based on its collection and UUID. \u003cbr/\u003e\u003cbr/\u003eNote: For backward compatibility, beacons also support an older, deprecated format without the collection name. As a result, when deleting a reference, the beacon specified has to match the beacon to be deleted exactly. In other words, if a beacon is present using the old format (without collection name) you also need to specify it the same way. \u003cbr/\u003e\u003cbr/\u003eIn the beacon format, you need to always use ` + "`" + `localhost` + "`" + ` as the host, rather than the actual hostname. ` + "`" + `localhost` + "`" + ` here refers to the fact that the beacon's target is on the same Weaviate instance, as opposed to a foreign instance.",
+        "description": "Removes a data object from a specific collection, identified by its collection name (` + "`" + `className` + "`" + `) and UUID (` + "`" + `id` + "`" + `).\u003cbr/\u003e\u003cbr/\u003e**Note on deleting references (legacy format):**\u003cbr/\u003eFor backward compatibility with older beacon formats (lacking a collection name), deleting a reference requires the beacon in the request to exactly match the stored format. Beacons always use ` + "`" + `localhost` + "`" + ` as the host, indicating the target is within the same Weaviate instance.",
         "tags": [
           "objects"
         ],
-        "summary": "Delete object based on its class and UUID.",
+        "summary": "Delete an object",
         "operationId": "objects.class.delete",
         "parameters": [
           {
             "type": "string",
+            "description": "Name of the collection (class) the object belongs to.",
             "name": "className",
             "in": "path",
             "required": true
@@ -11419,27 +12014,27 @@ func init() {
           {
             "type": "string",
             "format": "uuid",
-            "description": "Unique ID of the Object.",
+            "description": "Unique UUID of the object to be deleted.",
             "name": "id",
             "in": "path",
             "required": true
           },
           {
             "type": "string",
-            "description": "Determines how many replicas must acknowledge a request before it is considered successful",
+            "description": "Determines how many replicas must acknowledge a request before it is considered successful.",
             "name": "consistency_level",
             "in": "query"
           },
           {
             "type": "string",
-            "description": "Specifies the tenant in a request targeting a multi-tenant class",
+            "description": "Specifies the tenant in a request targeting a multi-tenant collection (class).",
             "name": "tenant",
             "in": "query"
           }
         ],
         "responses": {
           "204": {
-            "description": "Successfully deleted."
+            "description": "Object deleted successfully."
           },
           "400": {
             "description": "Malformed request.",
@@ -11457,16 +12052,16 @@ func init() {
             }
           },
           "404": {
-            "description": "Successful query result but no resource was found."
+            "description": "Object not found."
           },
           "422": {
-            "description": "Request is well-formed (i.e., syntactically correct), but erroneous.",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -11479,16 +12074,16 @@ func init() {
         ]
       },
       "head": {
-        "description": "Checks if a data object exists based on its collection and uuid without retrieving it. \u003cbr/\u003e\u003cbr/\u003eInternally it skips reading the object from disk other than checking if it is present. Thus it does not use resources on marshalling, parsing, etc., and is faster. Note the resulting HTTP request has no body; the existence of an object is indicated solely by the status code.",
+        "description": "Verifies the existence of a specific data object within a collection (class), identified by its collection name (` + "`" + `className` + "`" + `) and UUID (` + "`" + `id` + "`" + `), without returning the object itself.\u003cbr/\u003e\u003cbr/\u003eThis is faster than a GET request as it avoids retrieving and processing object data. Existence is confirmed by a 204 No Content status code, while non-existence results in a 404 Not Found.",
         "tags": [
           "objects"
         ],
-        "summary": "Checks object's existence based on its class and uuid.",
+        "summary": "Check if an object exists",
         "operationId": "objects.class.head",
         "parameters": [
           {
             "type": "string",
-            "description": "The class name as defined in the schema",
+            "description": "Name of the collection (class) the object belongs to.",
             "name": "className",
             "in": "path",
             "required": true
@@ -11496,20 +12091,20 @@ func init() {
           {
             "type": "string",
             "format": "uuid",
-            "description": "The uuid of the data object",
+            "description": "Unique UUID of the object to check.",
             "name": "id",
             "in": "path",
             "required": true
           },
           {
             "type": "string",
-            "description": "Determines how many replicas must acknowledge a request before it is considered successful",
+            "description": "Determines how many replicas must acknowledge a request before it is considered successful.",
             "name": "consistency_level",
             "in": "query"
           },
           {
             "type": "string",
-            "description": "Specifies the tenant in a request targeting a multi-tenant class",
+            "description": "Specifies the tenant in a request targeting a multi-tenant collection (class).",
             "name": "tenant",
             "in": "query"
           }
@@ -11528,16 +12123,16 @@ func init() {
             }
           },
           "404": {
-            "description": "Object doesn't exist."
+            "description": "Object does not exist."
           },
           "422": {
-            "description": "Request is well-formed (i.e., syntactically correct), but erroneous.",
+            "description": "Invalid data provided. Please check the values in your request (e.g., invalid UUID format).",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -11550,16 +12145,16 @@ func init() {
         ]
       },
       "patch": {
-        "description": "Update an individual data object based on its class and uuid. This method supports json-merge style patch semantics (RFC 7396). Provided meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
+        "description": "Updates specific properties of an existing data object using JSON merge patch semantics (RFC 7396). The object is identified by its collection name (` + "`" + `className` + "`" + `) and UUID (` + "`" + `id` + "`" + `). Only the fields provided in the request body are modified. Metadata and schema values are validated, and the object's ` + "`" + `lastUpdateTimeUnix` + "`" + ` is updated.",
         "tags": [
           "objects"
         ],
-        "summary": "Update an Object based on its UUID (using patch semantics).",
+        "summary": "Patch an object",
         "operationId": "objects.class.patch",
         "parameters": [
           {
             "type": "string",
-            "description": "The class name as defined in the schema",
+            "description": "Name of the collection (class) the object belongs to.",
             "name": "className",
             "in": "path",
             "required": true
@@ -11567,13 +12162,13 @@ func init() {
           {
             "type": "string",
             "format": "uuid",
-            "description": "The uuid of the data object to update.",
+            "description": "Unique UUID of the object to be patched.",
             "name": "id",
             "in": "path",
             "required": true
           },
           {
-            "description": "RFC 7396-style patch, the body contains the object to merge into the existing object.",
+            "description": "RFC 7396-style JSON merge patch object containing the fields to update.",
             "name": "body",
             "in": "body",
             "schema": {
@@ -11582,17 +12177,17 @@ func init() {
           },
           {
             "type": "string",
-            "description": "Determines how many replicas must acknowledge a request before it is considered successful",
+            "description": "Determines how many replicas must acknowledge a request before it is considered successful.",
             "name": "consistency_level",
             "in": "query"
           }
         ],
         "responses": {
           "204": {
-            "description": "Successfully applied. No content provided."
+            "description": "Object patched successfully."
           },
           "400": {
-            "description": "The patch-JSON is malformed.",
+            "description": "Malformed patch request body.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -11607,16 +12202,16 @@ func init() {
             }
           },
           "404": {
-            "description": "Successful query result but no resource was found."
+            "description": "Object not found."
           },
           "422": {
-            "description": "The patch-JSON is valid but unprocessable.",
+            "description": "The patch object is valid JSON but is unprocessable for other reasons (e.g., invalid schema).",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -11631,16 +12226,16 @@ func init() {
     },
     "/objects/{className}/{id}/references/{propertyName}": {
       "put": {
-        "description": "Replace **all** references in cross-reference property of an object.",
+        "description": "Replaces all existing references for a specific reference property (` + "`" + `propertyName` + "`" + `) on a source data object. The source object is identified by its collection name (` + "`" + `className` + "`" + `) and UUID (` + "`" + `id` + "`" + `). The new set of references is provided in the request body.",
         "tags": [
           "objects"
         ],
-        "summary": "Replace all references to a class-property.",
+        "summary": "Replace object references",
         "operationId": "objects.class.references.put",
         "parameters": [
           {
             "type": "string",
-            "description": "The class name as defined in the schema",
+            "description": "Name of the collection (class) the source object belongs to.",
             "name": "className",
             "in": "path",
             "required": true
@@ -11648,19 +12243,20 @@ func init() {
           {
             "type": "string",
             "format": "uuid",
-            "description": "Unique ID of the Object.",
+            "description": "Unique UUID of the source object.",
             "name": "id",
             "in": "path",
             "required": true
           },
           {
             "type": "string",
-            "description": "Unique name of the property related to the Object.",
+            "description": "Unique name of the reference property of the source object.",
             "name": "propertyName",
             "in": "path",
             "required": true
           },
           {
+            "description": "The new list of references.",
             "name": "body",
             "in": "body",
             "required": true,
@@ -11670,20 +12266,20 @@ func init() {
           },
           {
             "type": "string",
-            "description": "Determines how many replicas must acknowledge a request before it is considered successful",
+            "description": "Determines how many replicas must acknowledge a request before it is considered successful.",
             "name": "consistency_level",
             "in": "query"
           },
           {
             "type": "string",
-            "description": "Specifies the tenant in a request targeting a multi-tenant class",
+            "description": "Specifies the tenant in a request targeting a multi-tenant collection (class).",
             "name": "tenant",
             "in": "query"
           }
         ],
         "responses": {
           "200": {
-            "description": "Successfully replaced all the references."
+            "description": "References replaced successfully."
           },
           "400": {
             "description": "Malformed request.",
@@ -11701,16 +12297,16 @@ func init() {
             }
           },
           "404": {
-            "description": "Source object doesn't exist."
+            "description": "Source object not found."
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request. Ensure the property exists and is a reference type.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -11723,16 +12319,16 @@ func init() {
         ]
       },
       "post": {
-        "description": "Add a single reference to an object. This adds a reference to the array of cross-references of the given property in the source object specified by its collection name and id",
+        "description": "Adds a new reference to a reference property (` + "`" + `propertyName` + "`" + `) on a source data object. The source object is identified by its collection name (` + "`" + `className` + "`" + `) and UUID (` + "`" + `id` + "`" + `). The reference to add is specified in the request body.",
         "tags": [
           "objects"
         ],
-        "summary": "Add a single reference to a class-property.",
+        "summary": "Add an object reference",
         "operationId": "objects.class.references.create",
         "parameters": [
           {
             "type": "string",
-            "description": "The class name as defined in the schema",
+            "description": "Name of the collection (class) the source object belongs to.",
             "name": "className",
             "in": "path",
             "required": true
@@ -11740,19 +12336,20 @@ func init() {
           {
             "type": "string",
             "format": "uuid",
-            "description": "Unique ID of the Object.",
+            "description": "Unique UUID of the source object.",
             "name": "id",
             "in": "path",
             "required": true
           },
           {
             "type": "string",
-            "description": "Unique name of the property related to the Object.",
+            "description": "Unique name of the reference property of the source object.",
             "name": "propertyName",
             "in": "path",
             "required": true
           },
           {
+            "description": "The reference to add.",
             "name": "body",
             "in": "body",
             "required": true,
@@ -11762,20 +12359,20 @@ func init() {
           },
           {
             "type": "string",
-            "description": "Determines how many replicas must acknowledge a request before it is considered successful",
+            "description": "Determines how many replicas must acknowledge a request before it is considered successful.",
             "name": "consistency_level",
             "in": "query"
           },
           {
             "type": "string",
-            "description": "Specifies the tenant in a request targeting a multi-tenant class",
+            "description": "Specifies the tenant in a request targeting a multi-tenant collection (class).",
             "name": "tenant",
             "in": "query"
           }
         ],
         "responses": {
           "200": {
-            "description": "Successfully added the reference."
+            "description": "Reference added successfully."
           },
           "400": {
             "description": "Malformed request.",
@@ -11793,16 +12390,16 @@ func init() {
             }
           },
           "404": {
-            "description": "Source object doesn't exist."
+            "description": "Source object not found."
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request. Ensure the property exists and is a reference type.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -11815,16 +12412,16 @@ func init() {
         ]
       },
       "delete": {
-        "description": "Delete the single reference that is given in the body from the list of references that this property has.",
+        "description": "Removes a specific reference from a reference property (` + "`" + `propertyName` + "`" + `) of a source data object. The source object is identified by its collection name (` + "`" + `className` + "`" + `) and UUID (` + "`" + `id` + "`" + `). The reference to remove is specified in the request body.",
         "tags": [
           "objects"
         ],
-        "summary": "Delete a single reference from the list of references.",
+        "summary": "Delete an object reference",
         "operationId": "objects.class.references.delete",
         "parameters": [
           {
             "type": "string",
-            "description": "The class name as defined in the schema",
+            "description": "Name of the collection (class) the source object belongs to.",
             "name": "className",
             "in": "path",
             "required": true
@@ -11832,19 +12429,20 @@ func init() {
           {
             "type": "string",
             "format": "uuid",
-            "description": "Unique ID of the Object.",
+            "description": "Unique UUID of the source object.",
             "name": "id",
             "in": "path",
             "required": true
           },
           {
             "type": "string",
-            "description": "Unique name of the property related to the Object.",
+            "description": "Unique name of the reference property of the source object.",
             "name": "propertyName",
             "in": "path",
             "required": true
           },
           {
+            "description": "The reference to remove.",
             "name": "body",
             "in": "body",
             "required": true,
@@ -11854,20 +12452,20 @@ func init() {
           },
           {
             "type": "string",
-            "description": "Determines how many replicas must acknowledge a request before it is considered successful",
+            "description": "Determines how many replicas must acknowledge a request before it is considered successful.",
             "name": "consistency_level",
             "in": "query"
           },
           {
             "type": "string",
-            "description": "Specifies the tenant in a request targeting a multi-tenant class",
+            "description": "Specifies the tenant in a request targeting a multi-tenant collection (class).",
             "name": "tenant",
             "in": "query"
           }
         ],
         "responses": {
           "204": {
-            "description": "Successfully deleted."
+            "description": "Reference deleted successfully."
           },
           "400": {
             "description": "Malformed request.",
@@ -11885,19 +12483,19 @@ func init() {
             }
           },
           "404": {
-            "description": "Successful query result but no resource was found.",
+            "description": "Object or reference not found.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request. Ensure the property exists and is a reference type.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -11916,28 +12514,28 @@ func init() {
         "tags": [
           "objects"
         ],
-        "summary": "Get a specific Object based on its UUID.",
+        "summary": "Get an object",
         "operationId": "objects.get",
         "deprecated": true,
         "parameters": [
           {
             "type": "string",
             "format": "uuid",
-            "description": "Unique ID of the Object.",
+            "description": "Unique UUID of the object to be retrieved.",
             "name": "id",
             "in": "path",
             "required": true
           },
           {
             "type": "string",
-            "description": "Include additional information, such as classification infos. Allowed values include: classification, vector, interpretation",
+            "description": "Include additional information, such as classification information. Allowed values include: ` + "`" + `classification` + "`" + `, ` + "`" + `vector` + "`" + ` and ` + "`" + `interpretation` + "`" + `.",
             "name": "include",
             "in": "query"
           }
         ],
         "responses": {
           "200": {
-            "description": "Successful response.",
+            "description": "Successful response containing the object.",
             "schema": {
               "$ref": "#/definitions/Object"
             }
@@ -11958,10 +12556,10 @@ func init() {
             }
           },
           "404": {
-            "description": "Successful query result but no resource was found."
+            "description": "Object not found."
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -11974,23 +12572,24 @@ func init() {
         ]
       },
       "put": {
-        "description": "Updates an object based on its UUID. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called. \u003cbr/\u003e\u003cbr/\u003e**Note**: This endpoint is deprecated and will be removed in a future version. Use the ` + "`" + `/objects/{className}/{id}` + "`" + ` endpoint instead.",
+        "description": "Updates an object based on its UUID. Given meta-data and schema values are validated. ` + "`" + `lastUpdateTimeUnix` + "`" + ` is set to the time this function is called. \u003cbr/\u003e\u003cbr/\u003e**Note**: This endpoint is deprecated and will be removed in a future version. Use the ` + "`" + `/objects/{className}/{id}` + "`" + ` endpoint instead.",
         "tags": [
           "objects"
         ],
-        "summary": "Update an Object based on its UUID.",
+        "summary": "Update an object",
         "operationId": "objects.update",
         "deprecated": true,
         "parameters": [
           {
             "type": "string",
             "format": "uuid",
-            "description": "Unique ID of the Object.",
+            "description": "Unique UUID of the object to be replaced.",
             "name": "id",
             "in": "path",
             "required": true
           },
           {
+            "description": "The object definition to replace the existing object with.",
             "name": "body",
             "in": "body",
             "required": true,
@@ -12000,14 +12599,14 @@ func init() {
           },
           {
             "type": "string",
-            "description": "Determines how many replicas must acknowledge a request before it is considered successful",
+            "description": "Determines how many replicas must acknowledge a request before it is considered successful.",
             "name": "consistency_level",
             "in": "query"
           }
         ],
         "responses": {
           "200": {
-            "description": "Successfully received.",
+            "description": "Object replaced successfully.",
             "schema": {
               "$ref": "#/definitions/Object"
             }
@@ -12022,16 +12621,16 @@ func init() {
             }
           },
           "404": {
-            "description": "Successful query result but no resource was found."
+            "description": "Object not found."
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request. Ensure the collection exists and the object properties are valid.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -12048,34 +12647,34 @@ func init() {
         "tags": [
           "objects"
         ],
-        "summary": "Delete an Object based on its UUID.",
+        "summary": "Delete an object",
         "operationId": "objects.delete",
         "deprecated": true,
         "parameters": [
           {
             "type": "string",
             "format": "uuid",
-            "description": "Unique ID of the Object.",
+            "description": "Unique UUID of the object to be deleted.",
             "name": "id",
             "in": "path",
             "required": true
           },
           {
             "type": "string",
-            "description": "Determines how many replicas must acknowledge a request before it is considered successful",
+            "description": "Determines how many replicas must acknowledge a request before it is considered successful.",
             "name": "consistency_level",
             "in": "query"
           },
           {
             "type": "string",
-            "description": "Specifies the tenant in a request targeting a multi-tenant class",
+            "description": "Specifies the tenant in a request targeting a multi-tenant collection (class).",
             "name": "tenant",
             "in": "query"
           }
         ],
         "responses": {
           "204": {
-            "description": "Successfully deleted."
+            "description": "Object deleted successfully."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -12087,10 +12686,10 @@ func init() {
             }
           },
           "404": {
-            "description": "Successful query result but no resource was found."
+            "description": "Object not found."
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -12107,14 +12706,14 @@ func init() {
         "tags": [
           "objects"
         ],
-        "summary": "Checks Object's existence based on its UUID.",
+        "summary": "Check if an object exists",
         "operationId": "objects.head",
         "deprecated": true,
         "parameters": [
           {
             "type": "string",
             "format": "uuid",
-            "description": "Unique ID of the Object.",
+            "description": "Unique UUID of the object to check.",
             "name": "id",
             "in": "path",
             "required": true
@@ -12134,10 +12733,10 @@ func init() {
             }
           },
           "404": {
-            "description": "Object doesn't exist."
+            "description": "Object does not exist."
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -12150,24 +12749,24 @@ func init() {
         ]
       },
       "patch": {
-        "description": "Update an object based on its UUID (using patch semantics). This method supports json-merge style patch semantics (RFC 7396). Provided meta-data and schema values are validated. LastUpdateTime is set to the time this function is called. \u003cbr/\u003e\u003cbr/\u003e**Note**: This endpoint is deprecated and will be removed in a future version. Use the ` + "`" + `/objects/{className}/{id}` + "`" + ` endpoint instead.",
+        "description": "Update an object based on its UUID (using patch semantics). This method supports json-merge style patch semantics (RFC 7396). Provided meta-data and schema values are validated. ` + "`" + `lastUpdateTimeUnix` + "`" + ` is set to the time this function is called. \u003cbr/\u003e\u003cbr/\u003e**Note**: This endpoint is deprecated and will be removed in a future version. Use the ` + "`" + `/objects/{className}/{id}` + "`" + ` endpoint instead.",
         "tags": [
           "objects"
         ],
-        "summary": "Update an Object based on its UUID (using patch semantics).",
+        "summary": "Patch an object",
         "operationId": "objects.patch",
         "deprecated": true,
         "parameters": [
           {
             "type": "string",
             "format": "uuid",
-            "description": "Unique ID of the Object.",
+            "description": "Unique UUID of the object to be patched.",
             "name": "id",
             "in": "path",
             "required": true
           },
           {
-            "description": "RFC 7396-style patch, the body contains the object to merge into the existing object.",
+            "description": "RFC 7396-style JSON merge patch object containing the fields to update.",
             "name": "body",
             "in": "body",
             "schema": {
@@ -12176,17 +12775,17 @@ func init() {
           },
           {
             "type": "string",
-            "description": "Determines how many replicas must acknowledge a request before it is considered successful",
+            "description": "Determines how many replicas must acknowledge a request before it is considered successful.",
             "name": "consistency_level",
             "in": "query"
           }
         ],
         "responses": {
           "204": {
-            "description": "Successfully applied. No content provided."
+            "description": "Object patched successfully."
           },
           "400": {
-            "description": "The patch-JSON is malformed."
+            "description": "Malformed patch request body."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -12198,16 +12797,16 @@ func init() {
             }
           },
           "404": {
-            "description": "Successful query result but no resource was found."
+            "description": "Object not found."
           },
           "422": {
-            "description": "The patch-JSON is valid but unprocessable.",
+            "description": "The patch object is valid JSON but is unprocessable for other reasons (e.g., invalid schema).",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -12226,26 +12825,27 @@ func init() {
         "tags": [
           "objects"
         ],
-        "summary": "Replace all references to a class-property.",
+        "summary": "Replace object references",
         "operationId": "objects.references.update",
         "deprecated": true,
         "parameters": [
           {
             "type": "string",
             "format": "uuid",
-            "description": "Unique ID of the Object.",
+            "description": "Unique UUID of the source object.",
             "name": "id",
             "in": "path",
             "required": true
           },
           {
             "type": "string",
-            "description": "Unique name of the property related to the Object.",
+            "description": "Unique name of the reference property of the source object.",
             "name": "propertyName",
             "in": "path",
             "required": true
           },
           {
+            "description": "The new list of references.",
             "name": "body",
             "in": "body",
             "required": true,
@@ -12255,14 +12855,14 @@ func init() {
           },
           {
             "type": "string",
-            "description": "Specifies the tenant in a request targeting a multi-tenant class",
+            "description": "Specifies the tenant in a request targeting a multi-tenant collection (class).",
             "name": "tenant",
             "in": "query"
           }
         ],
         "responses": {
           "200": {
-            "description": "Successfully replaced all the references."
+            "description": "References replaced successfully."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -12274,13 +12874,13 @@ func init() {
             }
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request. Ensure the property exists and is a reference type.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -12293,30 +12893,31 @@ func init() {
         ]
       },
       "post": {
-        "description": "Add a cross-reference. \u003cbr/\u003e\u003cbr/\u003e**Note**: This endpoint is deprecated and will be removed in a future version. Use the ` + "`" + `/objects/{className}/{id}/references/{propertyName}` + "`" + ` endpoint instead.",
+        "description": "Add a reference to a specific property of a data object. \u003cbr/\u003e\u003cbr/\u003e**Note**: This endpoint is deprecated and will be removed in a future version. Use the ` + "`" + `/objects/{className}/{id}/references/{propertyName}` + "`" + ` endpoint instead.",
         "tags": [
           "objects"
         ],
-        "summary": "Add a single reference to a class-property.",
+        "summary": "Add an object reference",
         "operationId": "objects.references.create",
         "deprecated": true,
         "parameters": [
           {
             "type": "string",
             "format": "uuid",
-            "description": "Unique ID of the Object.",
+            "description": "Unique UUID of the source object.",
             "name": "id",
             "in": "path",
             "required": true
           },
           {
             "type": "string",
-            "description": "Unique name of the property related to the Object.",
+            "description": "Unique name of the reference property of the source object.",
             "name": "propertyName",
             "in": "path",
             "required": true
           },
           {
+            "description": "The reference to add.",
             "name": "body",
             "in": "body",
             "required": true,
@@ -12326,14 +12927,14 @@ func init() {
           },
           {
             "type": "string",
-            "description": "Specifies the tenant in a request targeting a multi-tenant class",
+            "description": "Specifies the tenant in a request targeting a multi-tenant collection (class).",
             "name": "tenant",
             "in": "query"
           }
         ],
         "responses": {
           "200": {
-            "description": "Successfully added the reference."
+            "description": "Reference added successfully."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -12345,13 +12946,13 @@ func init() {
             }
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request. Ensure the property exists and is a reference type.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -12368,26 +12969,27 @@ func init() {
         "tags": [
           "objects"
         ],
-        "summary": "Delete a single reference from the list of references.",
+        "summary": "Delete an object reference",
         "operationId": "objects.references.delete",
         "deprecated": true,
         "parameters": [
           {
             "type": "string",
             "format": "uuid",
-            "description": "Unique ID of the Object.",
+            "description": "Unique UUID of the source object.",
             "name": "id",
             "in": "path",
             "required": true
           },
           {
             "type": "string",
-            "description": "Unique name of the property related to the Object.",
+            "description": "Unique name of the reference property of the source object.",
             "name": "propertyName",
             "in": "path",
             "required": true
           },
           {
+            "description": "The reference to remove.",
             "name": "body",
             "in": "body",
             "required": true,
@@ -12397,14 +12999,14 @@ func init() {
           },
           {
             "type": "string",
-            "description": "Specifies the tenant in a request targeting a multi-tenant class",
+            "description": "Specifies the tenant in a request targeting a multi-tenant collection (class).",
             "name": "tenant",
             "in": "query"
           }
         ],
         "responses": {
           "204": {
-            "description": "Successfully deleted."
+            "description": "Reference deleted successfully."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -12416,13 +13018,13 @@ func init() {
             }
           },
           "404": {
-            "description": "Successful query result but no resource was found.",
+            "description": "Object or reference not found.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -12476,7 +13078,7 @@ func init() {
             }
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -12499,10 +13101,11 @@ func init() {
         ]
       },
       "delete": {
+        "description": "Schedules all replication operations for deletion across all collections, shards, and nodes.",
         "tags": [
           "replication"
         ],
-        "summary": "Schedules all replication operations for deletion across all collections, shards, and nodes.",
+        "summary": "Delete all replication operations",
         "operationId": "deleteAllReplications",
         "responses": {
           "204": {
@@ -12524,7 +13127,7 @@ func init() {
             }
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -12587,7 +13190,7 @@ func init() {
             }
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -12726,7 +13329,7 @@ func init() {
             "description": "Shard replica operation not found."
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -12788,7 +13391,7 @@ func init() {
             }
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -12813,7 +13416,7 @@ func init() {
     },
     "/replication/replicate/{id}/cancel": {
       "post": {
-        "description": "Requests the cancellation of an active replication operation identified by its ID. The operation will be stopped, but its record will remain in the 'CANCELLED' state (can't be resumed) and will not be automatically deleted.",
+        "description": "Requests the cancellation of an active replication operation identified by its ID. The operation will be stopped, but its record will remain in the ` + "`" + `CANCELLED` + "`" + ` state (can't be resumed) and will not be automatically deleted.",
         "tags": [
           "replication"
         ],
@@ -12852,7 +13455,7 @@ func init() {
             }
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -12945,24 +13548,24 @@ func init() {
     },
     "/schema": {
       "get": {
-        "description": "Fetch an array of all collection definitions from the schema.",
+        "description": "Retrieves the definitions of all collections (classes) currently in the database schema.",
         "tags": [
           "schema"
         ],
-        "summary": "Dump the current the database schema.",
+        "summary": "Get all collection definitions",
         "operationId": "schema.dump",
         "parameters": [
           {
             "type": "boolean",
             "default": true,
-            "description": "If consistency is true, the request will be proxied to the leader to ensure strong schema consistency",
+            "description": "If true, the request is proxied to the cluster leader to ensure strong schema consistency. Default is true.",
             "name": "consistency",
             "in": "header"
           }
         ],
         "responses": {
           "200": {
-            "description": "Successfully dumped the database schema.",
+            "description": "Successfully retrieved the database schema.",
             "schema": {
               "$ref": "#/definitions/Schema"
             }
@@ -12977,7 +13580,7 @@ func init() {
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An error occurred while retrieving the schema. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -12988,14 +13591,15 @@ func init() {
         ]
       },
       "post": {
-        "description": "Create a new data object collection. \u003cbr/\u003e\u003cbr/\u003eIf AutoSchema is enabled, Weaviate will attempt to infer the schema from the data at import time. However, manual schema definition is recommended for production environments.",
+        "description": "Defines and creates a new collection (class).\u003cbr/\u003e\u003cbr/\u003eIf [` + "`" + `AutoSchema` + "`" + `](https://docs.weaviate.io/weaviate/config-refs/collections#auto-schema) is enabled (not recommended for production), Weaviate might attempt to infer schema from data during import. Manual definition via this endpoint provides explicit control.",
         "tags": [
           "schema"
         ],
-        "summary": "Create a new Object class in the schema.",
+        "summary": "Create a new collection",
         "operationId": "schema.objects.create",
         "parameters": [
           {
+            "description": "The definition of the collection (class) to create.",
             "name": "objectClass",
             "in": "body",
             "required": true,
@@ -13006,7 +13610,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Added the new Object class to the schema.",
+            "description": "Collection created successfully and its definition returned.",
             "schema": {
               "$ref": "#/definitions/Class"
             }
@@ -13021,13 +13625,13 @@ func init() {
             }
           },
           "422": {
-            "description": "Invalid Object class",
+            "description": "Invalid collection definition provided. Check the definition structure and properties.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An error occurred during collection creation. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -13040,14 +13644,16 @@ func init() {
     },
     "/schema/{className}": {
       "get": {
+        "description": "Retrieve the definition of a specific collection (` + "`" + `className` + "`" + `), including its properties, configuration, and vectorizer settings.",
         "tags": [
           "schema"
         ],
-        "summary": "Get a single class from the schema",
+        "summary": "Get a single collection",
         "operationId": "schema.objects.get",
         "parameters": [
           {
             "type": "string",
+            "description": "The name of the collection (class) to retrieve.",
             "name": "className",
             "in": "path",
             "required": true
@@ -13055,14 +13661,14 @@ func init() {
           {
             "type": "boolean",
             "default": true,
-            "description": "If consistency is true, the request will be proxied to the leader to ensure strong schema consistency",
+            "description": "If true, the request is proxied to the cluster leader to ensure strong schema consistency. Default is true.",
             "name": "consistency",
             "in": "header"
           }
         ],
         "responses": {
           "200": {
-            "description": "Found the Class, returned as body",
+            "description": "Successfully retrieved the collection definition.",
             "schema": {
               "$ref": "#/definitions/Class"
             }
@@ -13077,10 +13683,10 @@ func init() {
             }
           },
           "404": {
-            "description": "This class does not exist"
+            "description": "Collection not found."
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An error occurred while retrieving the collection definition. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -13091,20 +13697,22 @@ func init() {
         ]
       },
       "put": {
-        "description": "Add a property to an existing collection.",
+        "description": "Updates the configuration settings of an existing collection (` + "`" + `className` + "`" + `) based on the provided definition. Note: This operation modifies mutable settings specified in the request body. It does not add properties (use ` + "`" + `POST /schema/{className}/properties` + "`" + ` for that) or change the collection name.",
         "tags": [
           "schema"
         ],
-        "summary": "Update settings of an existing schema class",
+        "summary": "Update collection definition",
         "operationId": "schema.objects.update",
         "parameters": [
           {
             "type": "string",
+            "description": "The name of the collection (class) to update.",
             "name": "className",
             "in": "path",
             "required": true
           },
           {
+            "description": "The updated collection definition containing the settings to modify.",
             "name": "objectClass",
             "in": "body",
             "required": true,
@@ -13115,7 +13723,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Class was updated successfully",
+            "description": "Collection settings updated successfully.",
             "schema": {
               "$ref": "#/definitions/Class"
             }
@@ -13130,19 +13738,19 @@ func init() {
             }
           },
           "404": {
-            "description": "Class to be updated does not exist",
+            "description": "Collection not found.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "422": {
-            "description": "Invalid update attempt",
+            "description": "Invalid update attempt.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An error occurred while updating the collection. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -13153,15 +13761,16 @@ func init() {
         ]
       },
       "delete": {
-        "description": "Remove a collection from the schema. This will also delete all the objects in the collection.",
+        "description": "Removes a collection definition from the schema. WARNING: This action permanently deletes all data objects stored within the collection.",
         "tags": [
           "schema"
         ],
-        "summary": "Remove an Object class (and all data in the instances) from the schema.",
+        "summary": "Delete a collection (and all associated data)",
         "operationId": "schema.objects.delete",
         "parameters": [
           {
             "type": "string",
+            "description": "The name of the collection (class) to delete.",
             "name": "className",
             "in": "path",
             "required": true
@@ -13169,10 +13778,10 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Removed the Object class from the schema."
+            "description": "Collection deleted successfully."
           },
           "400": {
-            "description": "Could not delete the Object class.",
+            "description": "Could not delete the collection. See the error response for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -13187,7 +13796,7 @@ func init() {
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An error occurred during collection deletion. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -13200,19 +13809,22 @@ func init() {
     },
     "/schema/{className}/properties": {
       "post": {
+        "description": "Adds a new property definition to an existing collection (` + "`" + `className` + "`" + `) definition.",
         "tags": [
           "schema"
         ],
-        "summary": "Add a property to an Object class.",
+        "summary": "Add a property to a collection",
         "operationId": "schema.objects.properties.add",
         "parameters": [
           {
             "type": "string",
+            "description": "The name of the collection (class) to add the property to.",
             "name": "className",
             "in": "path",
             "required": true
           },
           {
+            "description": "The definition of the property to add.",
             "name": "body",
             "in": "body",
             "required": true,
@@ -13223,7 +13835,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Added the property.",
+            "description": "Property added successfully and its definition returned.",
             "schema": {
               "$ref": "#/definitions/Property"
             }
@@ -13238,13 +13850,13 @@ func init() {
             }
           },
           "422": {
-            "description": "Invalid property.",
+            "description": "Invalid property definition provided.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An error occurred while adding the property. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -13257,28 +13869,30 @@ func init() {
     },
     "/schema/{className}/shards": {
       "get": {
-        "description": "Get the status of every shard in the cluster.",
+        "description": "Retrieves the status of all shards associated with the specified collection (` + "`" + `className` + "`" + `). For multi-tenant collections, use the ` + "`" + `tenant` + "`" + ` query parameter to retrieve status for a specific tenant's shards.",
         "tags": [
           "schema"
         ],
-        "summary": "Get the shards status of an Object class",
+        "summary": "Get the shards status of a collection",
         "operationId": "schema.objects.shards.get",
         "parameters": [
           {
             "type": "string",
+            "description": "The name of the collection (class) whose shards to query.",
             "name": "className",
             "in": "path",
             "required": true
           },
           {
             "type": "string",
+            "description": "The name of the tenant for which to retrieve shard statuses (only applicable for multi-tenant collections).",
             "name": "tenant",
             "in": "query"
           }
         ],
         "responses": {
           "200": {
-            "description": "Found the status of the shards, returned as body",
+            "description": "Shard statuses retrieved successfully.",
             "schema": {
               "$ref": "#/definitions/ShardStatusList"
             }
@@ -13293,13 +13907,13 @@ func init() {
             }
           },
           "404": {
-            "description": "This class does not exist",
+            "description": "Collection not found.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An error occurred while retrieving shard statuses. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -13312,26 +13926,29 @@ func init() {
     },
     "/schema/{className}/shards/{shardName}": {
       "put": {
-        "description": "Update a shard status for a collection. For example, a shard may have been marked as ` + "`" + `READONLY` + "`" + ` because its disk was full. After providing more disk space, use this endpoint to set the shard status to ` + "`" + `READY` + "`" + ` again. There is also a convenience function in each client to set the status of all shards of a collection.",
+        "description": "Updates the status of a specific shard within a collection (e.g., sets it to ` + "`" + `READY` + "`" + ` or ` + "`" + `READONLY` + "`" + `). This is typically used after resolving an underlying issue (like disk space) that caused a shard to become non-operational. There is also a convenience function in each client to set the status of all shards of a collection.",
         "tags": [
           "schema"
         ],
-        "summary": "Update a shard status.",
+        "summary": "Update a shard status",
         "operationId": "schema.objects.shards.update",
         "parameters": [
           {
             "type": "string",
+            "description": "The name of the collection (class) containing the shard.",
             "name": "className",
             "in": "path",
             "required": true
           },
           {
             "type": "string",
+            "description": "The name of the shard to update.",
             "name": "shardName",
             "in": "path",
             "required": true
           },
           {
+            "description": "The shard status object containing the desired new status.",
             "name": "body",
             "in": "body",
             "required": true,
@@ -13342,7 +13959,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Shard status was updated successfully",
+            "description": "Shard status updated successfully.",
             "schema": {
               "$ref": "#/definitions/ShardStatus"
             }
@@ -13357,7 +13974,7 @@ func init() {
             }
           },
           "404": {
-            "description": "Shard to be updated does not exist",
+            "description": "Collection or shard not found.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -13369,7 +13986,7 @@ func init() {
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An error occurred while updating the shard status. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -13382,15 +13999,16 @@ func init() {
     },
     "/schema/{className}/tenants": {
       "get": {
-        "description": "get all tenants from a specific class",
+        "description": "Retrieves a list of all tenants currently associated with the specified collection.",
         "tags": [
           "schema"
         ],
-        "summary": "Get the list of tenants.",
+        "summary": "Get the list of tenants",
         "operationId": "tenants.get",
         "parameters": [
           {
             "type": "string",
+            "description": "The name of the collection (class) whose tenants to list.",
             "name": "className",
             "in": "path",
             "required": true
@@ -13398,14 +14016,14 @@ func init() {
           {
             "type": "boolean",
             "default": true,
-            "description": "If consistency is true, the request will be proxied to the leader to ensure strong schema consistency",
+            "description": "If true, the request is proxied to the cluster leader to ensure strong schema consistency. Default is true.",
             "name": "consistency",
             "in": "header"
           }
         ],
         "responses": {
           "200": {
-            "description": "tenants from specified class.",
+            "description": "Successfully retrieved tenants.",
             "schema": {
               "type": "array",
               "items": {
@@ -13423,13 +14041,13 @@ func init() {
             }
           },
           "422": {
-            "description": "Invalid Tenant class",
+            "description": "Invalid request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An error occurred while listing tenants. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -13437,20 +14055,22 @@ func init() {
         }
       },
       "put": {
-        "description": "Update tenant of a specific class",
+        "description": "Updates the activity status (e.g., ` + "`" + `ACTIVE` + "`" + `, ` + "`" + `INACTIVE` + "`" + `, etc.) of one or more specified tenants within a collection (` + "`" + `className` + "`" + `).",
         "tags": [
           "schema"
         ],
-        "summary": "Update a tenant.",
+        "summary": "Update a tenant",
         "operationId": "tenants.update",
         "parameters": [
           {
             "type": "string",
+            "description": "The name of the collection (class) containing the tenants.",
             "name": "className",
             "in": "path",
             "required": true
           },
           {
+            "description": "An array of tenant objects specifying the tenants to update and their desired new status.",
             "name": "body",
             "in": "body",
             "required": true,
@@ -13464,7 +14084,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Updated tenants of the specified class",
+            "description": "Tenant statuses updated successfully.",
             "schema": {
               "type": "array",
               "items": {
@@ -13482,13 +14102,13 @@ func init() {
             }
           },
           "422": {
-            "description": "Invalid Tenant class",
+            "description": "Invalid update request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An error occurred while updating tenants. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -13496,7 +14116,7 @@ func init() {
         }
       },
       "post": {
-        "description": "Create a new tenant for a collection. Multi-tenancy must be enabled in the collection definition.",
+        "description": "Creates one or more new tenants for a specified collection (` + "`" + `className` + "`" + `). Multi-tenancy must be enabled for the collection via its definition.",
         "tags": [
           "schema"
         ],
@@ -13505,11 +14125,13 @@ func init() {
         "parameters": [
           {
             "type": "string",
+            "description": "The name of the multi-tenant enabled collection (class).",
             "name": "className",
             "in": "path",
             "required": true
           },
           {
+            "description": "An array of tenant objects to create.",
             "name": "body",
             "in": "body",
             "required": true,
@@ -13523,7 +14145,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Added new tenants to the specified class",
+            "description": "Tenants created successfully.",
             "schema": {
               "type": "array",
               "items": {
@@ -13541,13 +14163,13 @@ func init() {
             }
           },
           "422": {
-            "description": "Invalid Tenant class",
+            "description": "Invalid request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An error occurred while creating tenants. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -13555,25 +14177,29 @@ func init() {
         }
       },
       "delete": {
-        "description": "delete tenants from a specific class",
+        "description": "Deletes one or more specified tenants from a collection (` + "`" + `className` + "`" + `). WARNING: This action permanently deletes all data associated with the specified tenants.",
         "tags": [
           "schema"
         ],
+        "summary": "Delete tenants",
         "operationId": "tenants.delete",
         "parameters": [
           {
             "type": "string",
+            "description": "The name of the collection (class) from which to delete tenants.",
             "name": "className",
             "in": "path",
             "required": true
           },
           {
+            "description": "An array of tenant names to delete.",
             "name": "tenants",
             "in": "body",
             "required": true,
             "schema": {
               "type": "array",
               "items": {
+                "description": "Name of a tenant to delete.",
                 "type": "string"
               }
             }
@@ -13581,7 +14207,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Deleted tenants from specified class."
+            "description": "Tenants deleted successfully."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -13593,13 +14219,13 @@ func init() {
             }
           },
           "422": {
-            "description": "Invalid Tenant class",
+            "description": "Invalid request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An error occurred while deleting tenants. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -13609,7 +14235,7 @@ func init() {
     },
     "/schema/{className}/tenants/{tenantName}": {
       "get": {
-        "description": "get a specific tenant for the given class",
+        "description": "Retrieves details about a specific tenant within the given collection (` + "`" + `className` + "`" + `), such as its current activity status.",
         "tags": [
           "schema"
         ],
@@ -13618,12 +14244,14 @@ func init() {
         "parameters": [
           {
             "type": "string",
+            "description": "The name of the collection (class) containing the tenant.",
             "name": "className",
             "in": "path",
             "required": true
           },
           {
             "type": "string",
+            "description": "The name of the tenant to retrieve.",
             "name": "tenantName",
             "in": "path",
             "required": true
@@ -13631,14 +14259,14 @@ func init() {
           {
             "type": "boolean",
             "default": true,
-            "description": "If consistency is true, the request will be proxied to the leader to ensure strong schema consistency",
+            "description": "If true, the request is proxied to the cluster leader to ensure strong schema consistency. Default is true.",
             "name": "consistency",
             "in": "header"
           }
         ],
         "responses": {
           "200": {
-            "description": "load the tenant given the specified class",
+            "description": "Successfully retrieved tenant details.",
             "schema": {
               "$ref": "#/definitions/Tenant"
             }
@@ -13653,16 +14281,16 @@ func init() {
             }
           },
           "404": {
-            "description": "Tenant not found"
+            "description": "Tenant or collection not found."
           },
           "422": {
-            "description": "Invalid tenant or class",
+            "description": "Invalid request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An error occurred while retrieving the tenant. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -13670,21 +14298,23 @@ func init() {
         }
       },
       "head": {
-        "description": "Check if a tenant exists for a specific class",
+        "description": "Checks for the existence of a specific tenant within the given collection (` + "`" + `className` + "`" + `).",
         "tags": [
           "schema"
         ],
-        "summary": "Check whether a tenant exists",
+        "summary": "Check if a tenant exists",
         "operationId": "tenant.exists",
         "parameters": [
           {
             "type": "string",
+            "description": "The name of the collection (class) to check within.",
             "name": "className",
             "in": "path",
             "required": true
           },
           {
             "type": "string",
+            "description": "The name of the tenant to check for.",
             "name": "tenantName",
             "in": "path",
             "required": true
@@ -13692,14 +14322,14 @@ func init() {
           {
             "type": "boolean",
             "default": true,
-            "description": "If consistency is true, the request will be proxied to the leader to ensure strong schema consistency",
+            "description": "If true, the request is proxied to the cluster leader to ensure strong schema consistency. Default is true.",
             "name": "consistency",
             "in": "header"
           }
         ],
         "responses": {
           "200": {
-            "description": "The tenant exists in the specified class"
+            "description": "The tenant exists in the specified collection."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -13711,16 +14341,16 @@ func init() {
             }
           },
           "404": {
-            "description": "The tenant not found"
+            "description": "Tenant or collection not found."
           },
           "422": {
-            "description": "Invalid Tenant class",
+            "description": "Invalid request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An error occurred during the check. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -13733,11 +14363,11 @@ func init() {
         "tags": [
           "distributedTasks"
         ],
-        "summary": "Lists all distributed tasks in the cluster.",
+        "summary": "Lists all distributed tasks in the cluster",
         "operationId": "distributedTasks.get",
         "responses": {
           "200": {
-            "description": "Distributed tasks successfully returned",
+            "description": "Distributed tasks successfully returned.",
             "schema": {
               "$ref": "#/definitions/DistributedTasks"
             }
@@ -13749,7 +14379,7 @@ func init() {
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An internal server error occurred while retrieving distributed tasks. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -13762,23 +14392,24 @@ func init() {
     },
     "/users/db": {
       "get": {
+        "description": "Retrieves a list of all database (` + "`" + `db` + "`" + ` user type) users with their roles and status information.",
         "tags": [
           "users"
         ],
-        "summary": "list all db users",
+        "summary": "List all users",
         "operationId": "listAllUsers",
         "parameters": [
           {
             "type": "boolean",
             "default": false,
-            "description": "Whether to include the last used time of the users",
+            "description": "Whether to include the last time the users were utilized.",
             "name": "includeLastUsedTime",
             "in": "query"
           }
         ],
         "responses": {
           "200": {
-            "description": "Info about the users",
+            "description": "Info about the users.",
             "schema": {
               "type": "array",
               "items": {
@@ -13809,15 +14440,16 @@ func init() {
     },
     "/users/db/{user_id}": {
       "get": {
+        "description": "Retrieve detailed information about a specific database user (` + "`" + `db` + "`" + ` user type), including their roles, status, and type.",
         "tags": [
           "users"
         ],
-        "summary": "get info relevant to user, e.g. username, roles",
+        "summary": "Get user info",
         "operationId": "getUserInfo",
         "parameters": [
           {
             "type": "string",
-            "description": "user id",
+            "description": "The name of the user.",
             "name": "user_id",
             "in": "path",
             "required": true
@@ -13832,7 +14464,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Info about the user",
+            "description": "Info about the user.",
             "schema": {
               "$ref": "#/definitions/DBUserInfo"
             }
@@ -13847,10 +14479,10 @@ func init() {
             }
           },
           "404": {
-            "description": "user not found"
+            "description": "User not found."
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -13867,15 +14499,16 @@ func init() {
         ]
       },
       "post": {
+        "description": "Create a new database (` + "`" + `db` + "`" + ` user type) user with the specified name. Returns an API key for the newly created user.",
         "tags": [
           "users"
         ],
-        "summary": "create new user",
+        "summary": "Create a new user",
         "operationId": "createUser",
         "parameters": [
           {
             "type": "string",
-            "description": "user id",
+            "description": "The name of the user.",
             "name": "user_id",
             "in": "path",
             "required": true
@@ -13902,7 +14535,7 @@ func init() {
         ],
         "responses": {
           "201": {
-            "description": "User created successfully",
+            "description": "User created successfully and API key returned.",
             "schema": {
               "$ref": "#/definitions/UserApiKey"
             }
@@ -13923,19 +14556,19 @@ func init() {
             }
           },
           "404": {
-            "description": "user not found",
+            "description": "User not found.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "409": {
-            "description": "User already exists",
+            "description": "A user with the specified name already exists.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -13952,15 +14585,16 @@ func init() {
         ]
       },
       "delete": {
+        "description": "Delete a database user. You can't delete your current user.",
         "tags": [
           "users"
         ],
-        "summary": "Delete User",
+        "summary": "Delete a user",
         "operationId": "deleteUser",
         "parameters": [
           {
             "type": "string",
-            "description": "user name",
+            "description": "The name of the user.",
             "name": "user_id",
             "in": "path",
             "required": true
@@ -13986,10 +14620,10 @@ func init() {
             }
           },
           "404": {
-            "description": "user not found"
+            "description": "User not found."
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -14008,15 +14642,16 @@ func init() {
     },
     "/users/db/{user_id}/activate": {
       "post": {
+        "description": "Activate a deactivated database user (` + "`" + `db` + "`" + ` user type).",
         "tags": [
           "users"
         ],
-        "summary": "activate a deactivated user",
+        "summary": "Activate a user",
         "operationId": "activateUser",
         "parameters": [
           {
             "type": "string",
-            "description": "user id",
+            "description": "The name of the user.",
             "name": "user_id",
             "in": "path",
             "required": true
@@ -14024,7 +14659,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "User successfully activated"
+            "description": "User successfully activated."
           },
           "400": {
             "description": "Malformed request.",
@@ -14042,13 +14677,13 @@ func init() {
             }
           },
           "404": {
-            "description": "user not found"
+            "description": "User not found."
           },
           "409": {
-            "description": "user already activated"
+            "description": "User already activated."
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -14067,15 +14702,16 @@ func init() {
     },
     "/users/db/{user_id}/deactivate": {
       "post": {
+        "description": "Deactivate a database user (` + "`" + `db` + "`" + ` user type).",
         "tags": [
           "users"
         ],
-        "summary": "deactivate a user",
+        "summary": "Deactivate a user",
         "operationId": "deactivateUser",
         "parameters": [
           {
             "type": "string",
-            "description": "user id",
+            "description": "The name of the user.",
             "name": "user_id",
             "in": "path",
             "required": true
@@ -14087,7 +14723,7 @@ func init() {
               "type": "object",
               "properties": {
                 "revoke_key": {
-                  "description": "if the key should be revoked when deactivating the user",
+                  "description": "Whether the API key should be revoked when deactivating the user.",
                   "type": "boolean",
                   "default": false
                 }
@@ -14097,7 +14733,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "users successfully deactivated"
+            "description": "User successfully deactivated."
           },
           "400": {
             "description": "Malformed request.",
@@ -14115,13 +14751,13 @@ func init() {
             }
           },
           "404": {
-            "description": "user not found"
+            "description": "User not found."
           },
           "409": {
-            "description": "user already deactivated"
+            "description": "User already deactivated."
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -14140,15 +14776,16 @@ func init() {
     },
     "/users/db/{user_id}/rotate-key": {
       "post": {
+        "description": "Revoke the current API key for the specified database user (` + "`" + `db` + "`" + ` user type) and generate a new one.",
         "tags": [
           "users"
         ],
-        "summary": "rotate user api key",
+        "summary": "Rotate API key of a user",
         "operationId": "rotateUserApiKey",
         "parameters": [
           {
             "type": "string",
-            "description": "user id",
+            "description": "The name of the user.",
             "name": "user_id",
             "in": "path",
             "required": true
@@ -14156,7 +14793,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "ApiKey successfully changed",
+            "description": "API key successfully updated.",
             "schema": {
               "$ref": "#/definitions/UserApiKey"
             }
@@ -14177,10 +14814,10 @@ func init() {
             }
           },
           "404": {
-            "description": "user not found"
+            "description": "User not found."
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -14199,14 +14836,15 @@ func init() {
     },
     "/users/own-info": {
       "get": {
+        "description": "Get information about the currently authenticated user, including username and assigned roles.",
         "tags": [
           "users"
         ],
-        "summary": "get info relevant to own user, e.g. username, roles",
+        "summary": "Get current user info",
         "operationId": "getOwnInfo",
         "responses": {
           "200": {
-            "description": "Info about the user",
+            "description": "Info about the user.",
             "schema": {
               "$ref": "#/definitions/UserOwnInfo"
             }
@@ -14288,7 +14926,7 @@ func init() {
       }
     },
     "BM25Config": {
-      "description": "tuning parameters for the BM25 algorithm",
+      "description": "Tuning parameters for the BM25 algorithm.",
       "type": "object",
       "properties": {
         "b": {
@@ -14304,11 +14942,11 @@ func init() {
       }
     },
     "BackupConfig": {
-      "description": "Backup custom configuration",
+      "description": "Backup custom configuration.",
       "type": "object",
       "properties": {
         "Bucket": {
-          "description": "Name of the bucket, container, volume, etc",
+          "description": "Name of the bucket, container, volume, etc.",
           "type": "string"
         },
         "CPUPercentage": {
@@ -14339,17 +14977,17 @@ func init() {
           "x-nullable": false
         },
         "Endpoint": {
-          "description": "name of the endpoint, e.g. s3.amazonaws.com",
+          "description": "Name of the endpoint, e.g. s3.amazonaws.com.",
           "type": "string"
         },
         "Path": {
-          "description": "Path or key within the bucket",
+          "description": "Path or key within the bucket.",
           "type": "string"
         }
       }
     },
     "BackupCreateRequest": {
-      "description": "Request body for creating a backup of a set of classes",
+      "description": "Request body for creating a backup for a set of collections.",
       "properties": {
         "config": {
           "description": "Custom configuration for the backup creation process",
@@ -14388,7 +15026,7 @@ func init() {
           "type": "string"
         },
         "classes": {
-          "description": "The list of classes for which the backup creation process was started",
+          "description": "The list of collections (classes) for which the backup creation process was started.",
           "type": "array",
           "items": {
             "type": "string"
@@ -14428,6 +15066,11 @@ func init() {
           "description": "Backup backend name e.g. filesystem, gcs, s3.",
           "type": "string"
         },
+        "completedAt": {
+          "description": "Timestamp when the backup process completed (successfully or with failure)",
+          "type": "string",
+          "format": "date-time"
+        },
         "error": {
           "description": "error message if creation failed",
           "type": "string"
@@ -14437,8 +15080,13 @@ func init() {
           "type": "string"
         },
         "path": {
-          "description": "destination path of backup files proper to selected backend",
+          "description": "Destination path of backup files valid for the selected backend.",
           "type": "string"
+        },
+        "startedAt": {
+          "description": "Timestamp when the backup process started",
+          "type": "string",
+          "format": "date-time"
         },
         "status": {
           "description": "phase of backup creation process",
@@ -14456,7 +15104,7 @@ func init() {
       }
     },
     "BackupListResponse": {
-      "description": "The definition of a backup create response body",
+      "description": "The definition of a backup create response body.",
       "type": "array",
       "items": {
         "$ref": "#/definitions/BackupListResponseItems0"
@@ -14466,22 +15114,33 @@ func init() {
       "type": "object",
       "properties": {
         "classes": {
-          "description": "The list of classes for which the existed backup process",
+          "description": "The list of collections (classes) for which the backup process was started.",
           "type": "array",
           "items": {
             "type": "string"
           }
         },
+        "completedAt": {
+          "description": "Timestamp when the backup process completed (successfully or with failure)",
+          "type": "string",
+          "format": "date-time"
+        },
         "id": {
           "description": "The ID of the backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
           "type": "string"
         },
-        "path": {
-          "description": "destination path of backup files proper to selected backend",
-          "type": "string"
+        "size": {
+          "description": "Size of the backup in Gibs",
+          "type": "number",
+          "format": "float64"
+        },
+        "startedAt": {
+          "description": "Timestamp when the backup process started",
+          "type": "string",
+          "format": "date-time"
         },
         "status": {
-          "description": "status of backup process",
+          "description": "Status of backup process.",
           "type": "string",
           "enum": [
             "STARTED",
@@ -14495,22 +15154,22 @@ func init() {
       }
     },
     "BackupRestoreRequest": {
-      "description": "Request body for restoring a backup for a set of classes",
+      "description": "Request body for restoring a backup for a set of collections (classes).",
       "properties": {
         "config": {
-          "description": "Custom configuration for the backup restoration process",
+          "description": "Custom configuration for the backup restoration process.",
           "type": "object",
           "$ref": "#/definitions/RestoreConfig"
         },
         "exclude": {
-          "description": "List of classes to exclude from the backup restoration process",
+          "description": "List of collections (classes) to exclude from the backup restoration process.",
           "type": "array",
           "items": {
             "type": "string"
           }
         },
         "include": {
-          "description": "List of classes to include in the backup restoration process",
+          "description": "List of collections (classes) to include in the backup restoration process.",
           "type": "array",
           "items": {
             "type": "string"
@@ -14522,25 +15181,29 @@ func init() {
           "additionalProperties": {
             "type": "string"
           }
+        },
+        "overwriteAlias": {
+          "description": "Allows ovewriting the collection alias if there is a conflict",
+          "type": "boolean"
         }
       }
     },
     "BackupRestoreResponse": {
-      "description": "The definition of a backup restore response body",
+      "description": "The definition of a backup restore response body.",
       "properties": {
         "backend": {
           "description": "Backup backend name e.g. filesystem, gcs, s3.",
           "type": "string"
         },
         "classes": {
-          "description": "The list of classes for which the backup restoration process was started",
+          "description": "The list of collections (classes) for which the backup restoration process was started.",
           "type": "array",
           "items": {
             "type": "string"
           }
         },
         "error": {
-          "description": "error message if restoration failed",
+          "description": "Error message if backup restoration failed.",
           "type": "string"
         },
         "id": {
@@ -14548,11 +15211,11 @@ func init() {
           "type": "string"
         },
         "path": {
-          "description": "destination path of backup files proper to selected backend",
+          "description": "Destination path of backup files valid for the selected backend.",
           "type": "string"
         },
         "status": {
-          "description": "phase of backup restoration process",
+          "description": "Phase of backup restoration process.",
           "type": "string",
           "default": "STARTED",
           "enum": [
@@ -14567,14 +15230,14 @@ func init() {
       }
     },
     "BackupRestoreStatusResponse": {
-      "description": "The definition of a backup restore metadata",
+      "description": "The definition of a backup restore metadata.",
       "properties": {
         "backend": {
           "description": "Backup backend name e.g. filesystem, gcs, s3.",
           "type": "string"
         },
         "error": {
-          "description": "error message if restoration failed",
+          "description": "Error message if backup restoration failed.",
           "type": "string"
         },
         "id": {
@@ -14582,11 +15245,11 @@ func init() {
           "type": "string"
         },
         "path": {
-          "description": "destination path of backup files proper to selected backup backend, contains bucket and path",
+          "description": "Destination path of backup files valid for the selected backup backend, contains bucket and path.",
           "type": "string"
         },
         "status": {
-          "description": "phase of backup restoration process",
+          "description": "Phase of backup restoration process.",
           "type": "string",
           "default": "STARTED",
           "enum": [
@@ -14619,7 +15282,7 @@ func init() {
           "type": "object",
           "properties": {
             "class": {
-              "description": "Class (name) which objects will be deleted.",
+              "description": "The name of the collection (class) from which to delete objects.",
               "type": "string",
               "example": "City"
             },
@@ -14631,7 +15294,7 @@ func init() {
           }
         },
         "output": {
-          "description": "Controls the verbosity of the output, possible values are: \"minimal\", \"verbose\". Defaults to \"minimal\".",
+          "description": "Controls the verbosity of the output, possible values are: ` + "`" + `minimal` + "`" + `, ` + "`" + `verbose` + "`" + `. Defaults to ` + "`" + `minimal` + "`" + `.",
           "type": "string",
           "default": "minimal"
         }
@@ -14642,7 +15305,7 @@ func init() {
       "type": "object",
       "properties": {
         "class": {
-          "description": "Class (name) which objects will be deleted.",
+          "description": "The name of the collection (class) from which to delete objects.",
           "type": "string",
           "example": "City"
         },
@@ -14673,7 +15336,7 @@ func init() {
           "type": "object",
           "properties": {
             "class": {
-              "description": "Class (name) which objects will be deleted.",
+              "description": "The name of the collection (class) from which to delete objects.",
               "type": "string",
               "example": "City"
             },
@@ -14685,7 +15348,7 @@ func init() {
           }
         },
         "output": {
-          "description": "Controls the verbosity of the output, possible values are: \"minimal\", \"verbose\". Defaults to \"minimal\".",
+          "description": "Controls the verbosity of the output, possible values are: ` + "`" + `minimal` + "`" + `, ` + "`" + `verbose` + "`" + `. Defaults to ` + "`" + `minimal` + "`" + `.",
           "type": "string",
           "default": "minimal"
         },
@@ -14699,7 +15362,7 @@ func init() {
               "x-omitempty": false
             },
             "limit": {
-              "description": "The most amount of objects that can be deleted in a single query, equals QUERY_MAXIMUM_RESULTS.",
+              "description": "The most amount of objects that can be deleted in a single query, equals [` + "`" + `QUERY_MAXIMUM_RESULTS` + "`" + `](https://docs.weaviate.io/deploy/configuration/env-vars#QUERY_MAXIMUM_RESULTS).",
               "type": "number",
               "format": "int64",
               "x-omitempty": false
@@ -14711,7 +15374,7 @@ func init() {
               "x-omitempty": false
             },
             "objects": {
-              "description": "With output set to \"minimal\" only objects with error occurred will the be described. Successfully deleted objects would be omitted. Output set to \"verbose\" will list all of the objets with their respective statuses.",
+              "description": "With output set to ` + "`" + `minimal` + "`" + ` only objects with error occurred will the be described. Successfully deleted objects would be omitted. Output set to ` + "`" + `verbose` + "`" + ` will list all of the objects with their respective statuses.",
               "type": "array",
               "items": {
                 "$ref": "#/definitions/BatchDeleteResponseResultsObjectsItems0"
@@ -14732,7 +15395,7 @@ func init() {
       "type": "object",
       "properties": {
         "class": {
-          "description": "Class (name) which objects will be deleted.",
+          "description": "The name of the collection (class) from which to delete objects.",
           "type": "string",
           "example": "City"
         },
@@ -14753,7 +15416,7 @@ func init() {
           "x-omitempty": false
         },
         "limit": {
-          "description": "The most amount of objects that can be deleted in a single query, equals QUERY_MAXIMUM_RESULTS.",
+          "description": "The most amount of objects that can be deleted in a single query, equals [` + "`" + `QUERY_MAXIMUM_RESULTS` + "`" + `](https://docs.weaviate.io/deploy/configuration/env-vars#QUERY_MAXIMUM_RESULTS).",
           "type": "number",
           "format": "int64",
           "x-omitempty": false
@@ -14765,7 +15428,7 @@ func init() {
           "x-omitempty": false
         },
         "objects": {
-          "description": "With output set to \"minimal\" only objects with error occurred will the be described. Successfully deleted objects would be omitted. Output set to \"verbose\" will list all of the objets with their respective statuses.",
+          "description": "With output set to ` + "`" + `minimal` + "`" + ` only objects with error occurred will the be described. Successfully deleted objects would be omitted. Output set to ` + "`" + `verbose` + "`" + ` will list all of the objects with their respective statuses.",
           "type": "array",
           "items": {
             "$ref": "#/definitions/BatchDeleteResponseResultsObjectsItems0"
@@ -14787,7 +15450,7 @@ func init() {
           "$ref": "#/definitions/ErrorResponse"
         },
         "id": {
-          "description": "ID of the Object.",
+          "description": "The UUID of the object.",
           "type": "string",
           "format": "uuid"
         },
@@ -14805,7 +15468,7 @@ func init() {
     "BatchReference": {
       "properties": {
         "from": {
-          "description": "Long-form beacon-style URI to identify the source of the cross-ref including the property name. Should be in the form of weaviate://localhost/\u003ckinds\u003e/\u003cuuid\u003e/\u003cclassName\u003e/\u003cpropertyName\u003e, where \u003ckinds\u003e must be one of 'objects', 'objects' and \u003cclassName\u003e and \u003cpropertyName\u003e must represent the cross-ref property of source class to be used.",
+          "description": "Long-form beacon-style URI to identify the source of the cross-reference, including the property name. Should be in the form of ` + "`" + `weaviate://localhost/objects/\u003cuuid\u003e/\u003cclassName\u003e/\u003cpropertyName\u003e` + "`" + `, where ` + "`" + `\u003cclassName\u003e` + "`" + ` and ` + "`" + `\u003cpropertyName\u003e` + "`" + ` must represent the cross-reference property of the source class to be used.",
           "type": "string",
           "format": "uri",
           "example": "weaviate://localhost/Zoo/a5d09582-4239-4702-81c9-92a6e0122bb4/hasAnimals"
@@ -14815,7 +15478,7 @@ func init() {
           "type": "string"
         },
         "to": {
-          "description": "Short-form URI to point to the cross-ref. Should be in the form of weaviate://localhost/\u003cuuid\u003e for the example of a local cross-ref to an object",
+          "description": "Short-form URI to point to the cross-reference. Should be in the form of ` + "`" + `weaviate://localhost/\u003cuuid\u003e` + "`" + ` for the example of a local cross-reference to an object.",
           "type": "string",
           "format": "uri",
           "example": "weaviate://localhost/97525810-a9a5-4eb0-858a-71449aeb007f"
@@ -14933,7 +15596,7 @@ func init() {
       }
     },
     "C11yVectorBasedQuestion": {
-      "description": "Receive question based on array of classes, properties and values.",
+      "description": "Receive question based on array of collection names (classes), properties and values.",
       "type": "array",
       "items": {
         "$ref": "#/definitions/C11yVectorBasedQuestionItems0"
@@ -14952,7 +15615,7 @@ func init() {
           }
         },
         "classVectors": {
-          "description": "Vectorized classname.",
+          "description": "Vectorized collection (class) name.",
           "type": "array",
           "maxItems": 300,
           "minItems": 300,
@@ -15070,7 +15733,7 @@ func init() {
       "type": "object",
       "properties": {
         "class": {
-          "description": "Name of the class (a.k.a. 'collection') (required). Multiple words should be concatenated in CamelCase, e.g. ` + "`" + `ArticleAuthor` + "`" + `.",
+          "description": "Name of the collection (formerly 'class') (required). Multiple words should be concatenated in CamelCase, e.g. ` + "`" + `ArticleAuthor` + "`" + `.",
           "type": "string"
         },
         "description": {
@@ -15113,11 +15776,11 @@ func init() {
           "type": "object"
         },
         "vectorIndexType": {
-          "description": "Name of the vector index to use, eg. (HNSW)",
+          "description": "Name of the vector index type to use for the collection (e.g. ` + "`" + `hnsw` + "`" + ` or ` + "`" + `flat` + "`" + `).",
           "type": "string"
         },
         "vectorizer": {
-          "description": "Specify how the vectors for this class should be determined. The options are either 'none' - this means you have to import a vector with each object yourself - or the name of a module that provides vectorization capabilities, such as 'text2vec-contextionary'. If left empty, it will use the globally configured default which can itself either be 'none' or a specific module.",
+          "description": "Specify how the vectors for this collection should be determined. The options are either ` + "`" + `none` + "`" + ` - this means you have to import a vector with each object yourself - or the name of a module that provides vectorization capabilities, such as ` + "`" + `text2vec-weaviate` + "`" + `. If left empty, it will use the globally configured default ([` + "`" + `DEFAULT_VECTORIZER_MODULE` + "`" + `](https://docs.weaviate.io/deploy/configuration/env-vars)) which can itself either be ` + "`" + `none` + "`" + ` or a specific module.",
           "type": "string"
         }
       }
@@ -15127,7 +15790,7 @@ func init() {
       "type": "object",
       "properties": {
         "basedOnProperties": {
-          "description": "base the text-based classification on these fields (of type text)",
+          "description": "Base the text-based classification on these fields (of type text).",
           "type": "array",
           "items": {
             "type": "string"
@@ -15137,12 +15800,12 @@ func init() {
           ]
         },
         "class": {
-          "description": "class (name) which is used in this classification",
+          "description": "The name of the collection (class) which is used in this classification.",
           "type": "string",
           "example": "City"
         },
         "classifyProperties": {
-          "description": "which ref-property to set as part of the classification",
+          "description": "Which ref-property to set as part of the classification.",
           "type": "array",
           "items": {
             "type": "string"
@@ -15152,7 +15815,7 @@ func init() {
           ]
         },
         "error": {
-          "description": "error message if status == failed",
+          "description": "Error message if status == failed.",
           "type": "string",
           "default": "",
           "example": "classify xzy: something went wrong"
@@ -15161,39 +15824,39 @@ func init() {
           "type": "object",
           "properties": {
             "sourceWhere": {
-              "description": "limit the objects to be classified",
+              "description": "Limit the objects to be classified.",
               "type": "object",
               "$ref": "#/definitions/WhereFilter"
             },
             "targetWhere": {
-              "description": "Limit the possible sources when using an algorithm which doesn't really on training data, e.g. 'contextual'. When using an algorithm with a training set, such as 'knn', limit the training set instead",
+              "description": "Limit the possible sources when using an algorithm which doesn't really on training data, e.g. 'contextual'. When using an algorithm with a training set, such as 'knn', limit the training set instead.",
               "type": "object",
               "$ref": "#/definitions/WhereFilter"
             },
             "trainingSetWhere": {
-              "description": "Limit the training objects to be considered during the classification. Can only be used on types with explicit training sets, such as 'knn'",
+              "description": "Limit the training objects to be considered during the classification. Can only be used on types with explicit training sets, such as 'knn'.",
               "type": "object",
               "$ref": "#/definitions/WhereFilter"
             }
           }
         },
         "id": {
-          "description": "ID to uniquely identify this classification run",
+          "description": "ID to uniquely identify this classification run.",
           "type": "string",
           "format": "uuid",
           "example": "ee722219-b8ec-4db1-8f8d-5150bb1a9e0c"
         },
         "meta": {
-          "description": "additional meta information about the classification",
+          "description": "Additional meta information about the classification.",
           "type": "object",
           "$ref": "#/definitions/ClassificationMeta"
         },
         "settings": {
-          "description": "classification-type specific settings",
+          "description": "Classification-type specific settings.",
           "type": "object"
         },
         "status": {
-          "description": "status of this classification",
+          "description": "Status of this classification.",
           "type": "string",
           "enum": [
             "running",
@@ -15203,7 +15866,7 @@ func init() {
           "example": "running"
         },
         "type": {
-          "description": "which algorithm to use for classifications",
+          "description": "Which algorithm to use for classifications.",
           "type": "string"
         }
       }
@@ -15212,49 +15875,49 @@ func init() {
       "type": "object",
       "properties": {
         "sourceWhere": {
-          "description": "limit the objects to be classified",
+          "description": "Limit the objects to be classified.",
           "type": "object",
           "$ref": "#/definitions/WhereFilter"
         },
         "targetWhere": {
-          "description": "Limit the possible sources when using an algorithm which doesn't really on training data, e.g. 'contextual'. When using an algorithm with a training set, such as 'knn', limit the training set instead",
+          "description": "Limit the possible sources when using an algorithm which doesn't really on training data, e.g. 'contextual'. When using an algorithm with a training set, such as 'knn', limit the training set instead.",
           "type": "object",
           "$ref": "#/definitions/WhereFilter"
         },
         "trainingSetWhere": {
-          "description": "Limit the training objects to be considered during the classification. Can only be used on types with explicit training sets, such as 'knn'",
+          "description": "Limit the training objects to be considered during the classification. Can only be used on types with explicit training sets, such as 'knn'.",
           "type": "object",
           "$ref": "#/definitions/WhereFilter"
         }
       }
     },
     "ClassificationMeta": {
-      "description": "Additional information to a specific classification",
+      "description": "Additional information to a specific classification.",
       "type": "object",
       "properties": {
         "completed": {
-          "description": "time when this classification finished",
+          "description": "Time when this classification finished.",
           "type": "string",
           "format": "date-time",
           "example": "2017-07-21T17:32:28Z"
         },
         "count": {
-          "description": "number of objects which were taken into consideration for classification",
+          "description": "Number of objects which were taken into consideration for classification.",
           "type": "integer",
           "example": 147
         },
         "countFailed": {
-          "description": "number of objects which could not be classified - see error message for details",
+          "description": "Number of objects which could not be classified - see error message for details.",
           "type": "integer",
           "example": 7
         },
         "countSucceeded": {
-          "description": "number of objects successfully classified",
+          "description": "Number of objects successfully classified.",
           "type": "integer",
           "example": 140
         },
         "started": {
-          "description": "time when this classification was started",
+          "description": "Time when this classification was started.",
           "type": "string",
           "format": "date-time",
           "example": "2017-07-21T17:32:28Z"
@@ -15287,11 +15950,11 @@ func init() {
       ],
       "properties": {
         "active": {
-          "description": "activity status of the returned user",
+          "description": "Activity status of the returned user.",
           "type": "boolean"
         },
         "apiKeyFirstLetters": {
-          "description": "First 3 letters of the associated API-key",
+          "description": "First 3 letters of the associated API key.",
           "type": [
             "string",
             "null"
@@ -15299,7 +15962,7 @@ func init() {
           "maxLength": 3
         },
         "createdAt": {
-          "description": "Date and time in ISO 8601 format (YYYY-MM-DDTHH:MM:SSZ)",
+          "description": "Date and time in ISO 8601 format: YYYY-MM-DDTHH:MM:SSZ.",
           "type": [
             "string",
             "null"
@@ -15307,7 +15970,7 @@ func init() {
           "format": "date-time"
         },
         "dbUserType": {
-          "description": "type of the returned user",
+          "description": "Type of the returned user.",
           "type": "string",
           "enum": [
             "db_user",
@@ -15315,7 +15978,7 @@ func init() {
           ]
         },
         "lastUsedAt": {
-          "description": "Date and time in ISO 8601 format (YYYY-MM-DDTHH:MM:SSZ)",
+          "description": "Date and time in ISO 8601 format: YYYY-MM-DDTHH:MM:SSZ.",
           "type": [
             "string",
             "null"
@@ -15323,14 +15986,14 @@ func init() {
           "format": "date-time"
         },
         "roles": {
-          "description": "The role names associated to the user",
+          "description": "The roles associated with the user.",
           "type": "array",
           "items": {
             "type": "string"
           }
         },
         "userId": {
-          "description": "The user id of the given user",
+          "description": "The name (ID) of the user.",
           "type": "string"
         }
       }
@@ -15339,54 +16002,54 @@ func init() {
       "type": "object",
       "properties": {
         "apiType": {
-          "description": "Describes which API is effected, usually one of: REST, GraphQL",
+          "description": "Describes which API is affected, usually one of: REST, GraphQL and gRPC.",
           "type": "string"
         },
         "id": {
-          "description": "The id that uniquely identifies this particular deprecations (mostly used internally)",
+          "description": "The id that uniquely identifies this particular deprecation (mostly used internally).",
           "type": "string"
         },
         "locations": {
-          "description": "The locations within the specified API affected by this deprecation",
+          "description": "The locations within the specified API affected by this deprecation.",
           "type": "array",
           "items": {
             "type": "string"
           }
         },
         "mitigation": {
-          "description": "User-required object to not be affected by the (planned) removal",
+          "description": "User-required object to not be affected by the (planned) removal.",
           "type": "string"
         },
         "msg": {
-          "description": "What this deprecation is about",
+          "description": "What this deprecation is about.",
           "type": "string"
         },
         "plannedRemovalVersion": {
-          "description": "A best-effort guess of which upcoming version will remove the feature entirely",
+          "description": "A best-effort guess of which upcoming version will remove the feature entirely.",
           "type": "string"
         },
         "removedIn": {
-          "description": "If the feature has already been removed, it was removed in this version",
+          "description": "If the feature has already been removed, it was removed in this version.",
           "type": "string",
           "x-nullable": true
         },
         "removedTime": {
-          "description": "If the feature has already been removed, it was removed at this timestamp",
+          "description": "If the feature has already been removed, it was removed at this timestamp.",
           "type": "string",
           "format": "date-time",
           "x-nullable": true
         },
         "sinceTime": {
-          "description": "The deprecation was introduced in this version",
+          "description": "The deprecation was introduced at this timestamp.",
           "type": "string",
           "format": "date-time"
         },
         "sinceVersion": {
-          "description": "The deprecation was introduced in this version",
+          "description": "The deprecation was introduced in this version.",
           "type": "string"
         },
         "status": {
-          "description": "Whether the problematic API functionality is deprecated (planned to be removed) or already removed",
+          "description": "Whether the problematic API functionality is deprecated (planned to be removed) or already removed.",
           "type": "string"
         }
       }
@@ -15446,7 +16109,7 @@ func init() {
       }
     },
     "ErrorResponse": {
-      "description": "An error response given by Weaviate end-points.",
+      "description": "An error response returned by Weaviate endpoints.",
       "type": "object",
       "properties": {
         "error": {
@@ -15468,16 +16131,31 @@ func init() {
     "GeoCoordinates": {
       "properties": {
         "latitude": {
-          "description": "The latitude of the point on earth in decimal form",
+          "description": "The latitude of the point on earth in decimal form.",
           "type": "number",
           "format": "float",
           "x-nullable": true
         },
         "longitude": {
-          "description": "The longitude of the point on earth in decimal form",
+          "description": "The longitude of the point on earth in decimal form.",
           "type": "number",
           "format": "float",
           "x-nullable": true
+        }
+      }
+    },
+    "GetGroupsForRoleOKBodyItems0": {
+      "type": "object",
+      "required": [
+        "name",
+        "groupType"
+      ],
+      "properties": {
+        "groupId": {
+          "type": "string"
+        },
+        "groupType": {
+          "$ref": "#/definitions/GroupType"
         }
       }
     },
@@ -15581,35 +16259,42 @@ func init() {
         "$ref": "#/definitions/GraphQLResponse"
       }
     },
+    "GroupType": {
+      "description": "If the group contains OIDC or database users.",
+      "type": "string",
+      "enum": [
+        "oidc"
+      ]
+    },
     "InvertedIndexConfig": {
-      "description": "Configure the inverted index built into Weaviate (default: 60).",
+      "description": "Configure the inverted index built into Weaviate. See [Reference: Inverted index](https://docs.weaviate.io/weaviate/config-refs/indexing/inverted-index#inverted-index-parameters) for details.",
       "type": "object",
       "properties": {
         "bm25": {
           "$ref": "#/definitions/BM25Config"
         },
         "cleanupIntervalSeconds": {
-          "description": "Asynchronous index clean up happens every n seconds",
+          "description": "Asynchronous index clean up happens every n seconds (default: 60).",
           "type": "number",
           "format": "int"
         },
         "indexNullState": {
-          "description": "Index each object with the null state (default: 'false').",
+          "description": "Index each object with the null state (default: ` + "`" + `false` + "`" + `).",
           "type": "boolean"
         },
         "indexPropertyLength": {
-          "description": "Index length of properties (default: 'false').",
+          "description": "Index length of properties (default: ` + "`" + `false` + "`" + `).",
           "type": "boolean"
         },
         "indexTimestamps": {
-          "description": "Index each object by its internal timestamps (default: 'false').",
+          "description": "Index each object by its internal timestamps (default: ` + "`" + `false` + "`" + `).",
           "type": "boolean"
         },
         "stopwords": {
           "$ref": "#/definitions/StopwordConfig"
         },
         "usingBlockMaxWAND": {
-          "description": "Using BlockMax WAND for query execution (default: 'false', will be 'true' for new collections created after 1.30).",
+          "description": "Using BlockMax WAND for query execution (default: ` + "`" + `false` + "`" + `, will be ` + "`" + `true` + "`" + ` for new collections created after 1.30).",
           "type": "boolean"
         }
       }
@@ -15622,19 +16307,19 @@ func init() {
       "type": "object",
       "properties": {
         "documentationHref": {
-          "description": "weaviate documentation about this resource group",
+          "description": "Weaviate documentation about this resource group.",
           "type": "string"
         },
         "href": {
-          "description": "target of the link",
+          "description": "Target of the link.",
           "type": "string"
         },
         "name": {
-          "description": "human readable name of the resource group",
+          "description": "Human readable name of the resource group.",
           "type": "string"
         },
         "rel": {
-          "description": "relationship if both resources are related, e.g. 'next', 'previous', 'parent', etc.",
+          "description": "Relationship if both resources are related, e.g. 'next', 'previous', 'parent', etc.",
           "type": "string"
         }
       }
@@ -15663,20 +16348,20 @@ func init() {
       }
     },
     "MultiTenancyConfig": {
-      "description": "Configuration related to multi-tenancy within a class",
+      "description": "Configuration related to multi-tenancy within a collection (class)",
       "properties": {
         "autoTenantActivation": {
-          "description": "Existing tenants should (not) be turned HOT implicitly when they are accessed and in another activity status (default: false).",
+          "description": "Existing tenants should (not) be turned HOT implicitly when they are accessed and in another activity status (default: ` + "`" + `false` + "`" + `).",
           "type": "boolean",
           "x-omitempty": false
         },
         "autoTenantCreation": {
-          "description": "Nonexistent tenants should (not) be created implicitly (default: false).",
+          "description": "Nonexistent tenants should (not) be created implicitly (default: ` + "`" + `false` + "`" + `).",
           "type": "boolean",
           "x-omitempty": false
         },
         "enabled": {
-          "description": "Whether or not multi-tenancy is enabled for this class (default: false).",
+          "description": "Whether or not multi-tenancy is enabled for this collection (class) (default: ` + "`" + `false` + "`" + `).",
           "type": "boolean",
           "x-omitempty": false
         }
@@ -15751,7 +16436,7 @@ func init() {
           }
         },
         "class": {
-          "description": "The name of shard's class.",
+          "description": "The name of shard's collection (class).",
           "type": "string",
           "x-omitempty": false
         },
@@ -15888,7 +16573,7 @@ func init() {
           "$ref": "#/definitions/AdditionalProperties"
         },
         "class": {
-          "description": "Class of the Object, defined in the schema.",
+          "description": "Name of the collection (class) the object belongs to.",
           "type": "string"
         },
         "creationTimeUnix": {
@@ -15897,7 +16582,7 @@ func init() {
           "format": "int64"
         },
         "id": {
-          "description": "ID of the Object.",
+          "description": "The UUID of the object.",
           "type": "string",
           "format": "uuid"
         },
@@ -15910,18 +16595,18 @@ func init() {
           "$ref": "#/definitions/PropertySchema"
         },
         "tenant": {
-          "description": "Name of the Objects tenant.",
+          "description": "The name of the tenant the object belongs to.",
           "type": "string"
         },
         "vector": {
-          "description": "This field returns vectors associated with the Object. C11yVector, Vector or Vectors values are possible.",
+          "description": "This field returns vectors associated with the object. C11yVector, Vector or Vectors values are possible.",
           "$ref": "#/definitions/C11yVector"
         },
         "vectorWeights": {
           "$ref": "#/definitions/VectorWeights"
         },
         "vectors": {
-          "description": "This field returns vectors associated with the Object.",
+          "description": "This field returns vectors associated with the object.",
           "$ref": "#/definitions/Vectors"
         }
       }
@@ -15945,7 +16630,7 @@ func init() {
         {
           "properties": {
             "result": {
-              "description": "Results for this specific Object.",
+              "description": "Results for this specific object.",
               "format": "object",
               "properties": {
                 "errors": {
@@ -15966,7 +16651,7 @@ func init() {
       ]
     },
     "ObjectsGetResponseAO2Result": {
-      "description": "Results for this specific Object.",
+      "description": "Results for this specific object.",
       "format": "object",
       "properties": {
         "errors": {
@@ -15983,7 +16668,7 @@ func init() {
       }
     },
     "ObjectsListResponse": {
-      "description": "List of Objects.",
+      "description": "List of objects.",
       "type": "object",
       "properties": {
         "deprecations": {
@@ -15993,14 +16678,14 @@ func init() {
           }
         },
         "objects": {
-          "description": "The actual list of Objects.",
+          "description": "The actual list of objects.",
           "type": "array",
           "items": {
             "$ref": "#/definitions/Object"
           }
         },
         "totalResults": {
-          "description": "The total number of Objects for the query. The number of items in a response may be smaller due to paging.",
+          "description": "The total number of objects for the query. The number of items in a response may be smaller due to paging.",
           "type": "integer",
           "format": "int64"
         }
@@ -16109,14 +16794,14 @@ func init() {
       }
     },
     "Permission": {
-      "description": "permissions attached to a role.",
+      "description": "Permissions attached to a role.",
       "type": "object",
       "required": [
         "action"
       ],
       "properties": {
         "action": {
-          "description": "allowed actions in weaviate.",
+          "description": "Allowed actions in weaviate.",
           "type": "string",
           "enum": [
             "manage_backups",
@@ -16151,6 +16836,8 @@ func init() {
             "read_aliases",
             "update_aliases",
             "delete_aliases",
+            "assign_and_revoke_groups",
+            "read_groups",
             "manage_mcp"
           ]
         },
@@ -16171,45 +16858,59 @@ func init() {
           }
         },
         "backups": {
-          "description": "resources applicable for backup actions",
+          "description": "Resources applicable for backup actions.",
           "type": "object",
           "properties": {
             "collection": {
-              "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+              "description": "A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all collections.",
               "type": "string",
               "default": "*"
             }
           }
         },
         "collections": {
-          "description": "resources applicable for collection and/or tenant actions",
+          "description": "Resources applicable for collection and/or tenant actions.",
           "type": "object",
           "properties": {
             "collection": {
-              "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+              "description": "A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all collections.",
               "type": "string",
               "default": "*"
             }
           }
         },
         "data": {
-          "description": "resources applicable for data actions",
+          "description": "Resources applicable for data actions.",
           "type": "object",
           "properties": {
             "collection": {
-              "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+              "description": "A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all collections.",
               "type": "string",
               "default": "*"
             },
             "object": {
-              "description": "string or regex. if a specific object ID, if left empty it will be ALL or *",
+              "description": "A string that specifies which objects this permission applies to. Can be an exact object ID or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all objects.",
               "type": "string",
               "default": "*"
             },
             "tenant": {
-              "description": "string or regex. if a specific tenant name, if left empty it will be ALL or *",
+              "description": "A string that specifies which tenants this permission applies to. Can be an exact tenant name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all tenants.",
               "type": "string",
               "default": "*"
+            }
+          }
+        },
+        "groups": {
+          "description": "Resources applicable for group actions.",
+          "type": "object",
+          "properties": {
+            "group": {
+              "description": "A string that specifies which groups this permission applies to. Can be an exact group name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all groups.",
+              "type": "string",
+              "default": "*"
+            },
+            "groupType": {
+              "$ref": "#/definitions/GroupType"
             }
           }
         },
@@ -16218,16 +16919,16 @@ func init() {
           "type": "object"
         },
         "nodes": {
-          "description": "resources applicable for cluster actions",
+          "description": "Resources applicable for cluster actions.",
           "type": "object",
           "properties": {
             "collection": {
-              "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+              "description": "A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all collections.",
               "type": "string",
               "default": "*"
             },
             "verbosity": {
-              "description": "whether to allow (verbose) returning shards and stats data in the response",
+              "description": "Whether to allow (verbose) returning shards and stats data in the response.",
               "type": "string",
               "default": "minimal",
               "enum": [
@@ -16254,16 +16955,16 @@ func init() {
           }
         },
         "roles": {
-          "description": "resources applicable for role actions",
+          "description": "Resources applicable for role actions.",
           "type": "object",
           "properties": {
             "role": {
-              "description": "string or regex. if a specific role name, if left empty it will be ALL or *",
+              "description": "A string that specifies which roles this permission applies to. Can be an exact role name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all roles.",
               "type": "string",
               "default": "*"
             },
             "scope": {
-              "description": "set the scope for the manage role permission",
+              "description": "Set the scope for the manage role permission.",
               "type": "string",
               "default": "match",
               "enum": [
@@ -16274,27 +16975,27 @@ func init() {
           }
         },
         "tenants": {
-          "description": "resources applicable for tenant actions",
+          "description": "Resources applicable for tenant actions.",
           "type": "object",
           "properties": {
             "collection": {
-              "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+              "description": "A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all collections.",
               "type": "string",
               "default": "*"
             },
             "tenant": {
-              "description": "string or regex. if a specific tenant name, if left empty it will be ALL or *",
+              "description": "A string that specifies which tenants this permission applies to. Can be an exact tenant name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all tenants.",
               "type": "string",
               "default": "*"
             }
           }
         },
         "users": {
-          "description": "resources applicable for user actions",
+          "description": "Resources applicable for user actions.",
           "type": "object",
           "properties": {
             "users": {
-              "description": "string or regex. if a specific name, if left empty it will be ALL or *",
+              "description": "A string that specifies which users this permission applies to. Can be an exact user name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all users.",
               "type": "string",
               "default": "*"
             }
@@ -16319,59 +17020,73 @@ func init() {
       }
     },
     "PermissionBackups": {
-      "description": "resources applicable for backup actions",
+      "description": "Resources applicable for backup actions.",
       "type": "object",
       "properties": {
         "collection": {
-          "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+          "description": "A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all collections.",
           "type": "string",
           "default": "*"
         }
       }
     },
     "PermissionCollections": {
-      "description": "resources applicable for collection and/or tenant actions",
+      "description": "Resources applicable for collection and/or tenant actions.",
       "type": "object",
       "properties": {
         "collection": {
-          "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+          "description": "A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all collections.",
           "type": "string",
           "default": "*"
         }
       }
     },
     "PermissionData": {
-      "description": "resources applicable for data actions",
+      "description": "Resources applicable for data actions.",
       "type": "object",
       "properties": {
         "collection": {
-          "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+          "description": "A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all collections.",
           "type": "string",
           "default": "*"
         },
         "object": {
-          "description": "string or regex. if a specific object ID, if left empty it will be ALL or *",
+          "description": "A string that specifies which objects this permission applies to. Can be an exact object ID or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all objects.",
           "type": "string",
           "default": "*"
         },
         "tenant": {
-          "description": "string or regex. if a specific tenant name, if left empty it will be ALL or *",
+          "description": "A string that specifies which tenants this permission applies to. Can be an exact tenant name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all tenants.",
           "type": "string",
           "default": "*"
         }
       }
     },
+    "PermissionGroups": {
+      "description": "Resources applicable for group actions.",
+      "type": "object",
+      "properties": {
+        "group": {
+          "description": "A string that specifies which groups this permission applies to. Can be an exact group name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all groups.",
+          "type": "string",
+          "default": "*"
+        },
+        "groupType": {
+          "$ref": "#/definitions/GroupType"
+        }
+      }
+    },
     "PermissionNodes": {
-      "description": "resources applicable for cluster actions",
+      "description": "Resources applicable for cluster actions.",
       "type": "object",
       "properties": {
         "collection": {
-          "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+          "description": "A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all collections.",
           "type": "string",
           "default": "*"
         },
         "verbosity": {
-          "description": "whether to allow (verbose) returning shards and stats data in the response",
+          "description": "Whether to allow (verbose) returning shards and stats data in the response.",
           "type": "string",
           "default": "minimal",
           "enum": [
@@ -16398,16 +17113,16 @@ func init() {
       }
     },
     "PermissionRoles": {
-      "description": "resources applicable for role actions",
+      "description": "Resources applicable for role actions.",
       "type": "object",
       "properties": {
         "role": {
-          "description": "string or regex. if a specific role name, if left empty it will be ALL or *",
+          "description": "A string that specifies which roles this permission applies to. Can be an exact role name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all roles.",
           "type": "string",
           "default": "*"
         },
         "scope": {
-          "description": "set the scope for the manage role permission",
+          "description": "Set the scope for the manage role permission.",
           "type": "string",
           "default": "match",
           "enum": [
@@ -16418,27 +17133,27 @@ func init() {
       }
     },
     "PermissionTenants": {
-      "description": "resources applicable for tenant actions",
+      "description": "Resources applicable for tenant actions.",
       "type": "object",
       "properties": {
         "collection": {
-          "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+          "description": "A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all collections.",
           "type": "string",
           "default": "*"
         },
         "tenant": {
-          "description": "string or regex. if a specific tenant name, if left empty it will be ALL or *",
+          "description": "A string that specifies which tenants this permission applies to. Can be an exact tenant name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all tenants.",
           "type": "string",
           "default": "*"
         }
       }
     },
     "PermissionUsers": {
-      "description": "resources applicable for user actions",
+      "description": "Resources applicable for user actions.",
       "type": "object",
       "properties": {
         "users": {
-          "description": "string or regex. if a specific name, if left empty it will be ALL or *",
+          "description": "A string that specifies which users this permission applies to. Can be an exact user name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all users.",
           "type": "string",
           "default": "*"
         }
@@ -16447,12 +17162,12 @@ func init() {
     "PhoneNumber": {
       "properties": {
         "countryCode": {
-          "description": "Read-only. The numerical country code (e.g. 49)",
+          "description": "Read-only. The numerical country code (e.g. ` + "`" + `49` + "`" + `).",
           "type": "number",
           "format": "uint64"
         },
         "defaultCountry": {
-          "description": "Optional. The ISO 3166-1 alpha-2 country code. This is used to figure out the correct countryCode and international format if only a national number (e.g. 0123 4567) is provided",
+          "description": "Optional. The ISO 3166-1 alpha-2 country code. This is used to figure out the correct ` + "`" + `countryCode` + "`" + ` and international format if only a national number (e.g. ` + "`" + `0123 4567` + "`" + `) is provided.",
           "type": "string"
         },
         "input": {
@@ -16460,20 +17175,20 @@ func init() {
           "type": "string"
         },
         "internationalFormatted": {
-          "description": "Read-only. Parsed result in the international format (e.g. +49 123 ...)",
+          "description": "Read-only. Parsed result in the international format (e.g. ` + "`" + `+49 123 456789` + "`" + `).",
           "type": "string"
         },
         "national": {
-          "description": "Read-only. The numerical representation of the national part",
+          "description": "Read-only. The numerical representation of the national part.",
           "type": "number",
           "format": "uint64"
         },
         "nationalFormatted": {
-          "description": "Read-only. Parsed result in the national format (e.g. 0123 456789)",
+          "description": "Read-only. Parsed result in the national format (e.g. ` + "`" + `0123 456789` + "`" + `).",
           "type": "string"
         },
         "valid": {
-          "description": "Read-only. Indicates whether the parsed number is a valid phone number",
+          "description": "Read-only. Indicates whether the parsed number is a valid phone number.",
           "type": "boolean"
         }
       }
@@ -16531,7 +17246,7 @@ func init() {
           "x-nullable": true
         },
         "moduleConfig": {
-          "description": "Configuration specific to modules this Weaviate instance has installed",
+          "description": "Configuration specific to modules in a collection context.",
           "type": "object"
         },
         "name": {
@@ -16547,7 +17262,7 @@ func init() {
           "x-omitempty": true
         },
         "tokenization": {
-          "description": "Determines tokenization of the property as separate words or whole field. Optional. Applies to text and text[] data types. Allowed values are ` + "`" + `word` + "`" + ` (default; splits on any non-alphanumerical, lowercases), ` + "`" + `lowercase` + "`" + ` (splits on white spaces, lowercases), ` + "`" + `whitespace` + "`" + ` (splits on white spaces), ` + "`" + `field` + "`" + ` (trims). Not supported for remaining data types",
+          "description": "Determines how a property is indexed. This setting applies to ` + "`" + `text` + "`" + ` and ` + "`" + `text[]` + "`" + ` data types. The following tokenization methods are available:\u003cbr/\u003e\u003cbr/\u003e- ` + "`" + `word` + "`" + ` (default): Splits the text on any non-alphanumeric characters and lowercases the tokens.\u003cbr/\u003e- ` + "`" + `lowercase` + "`" + `: Splits the text on whitespace and lowercases the tokens.\u003cbr/\u003e- ` + "`" + `whitespace` + "`" + `: Splits the text on whitespace. This tokenization is case-sensitive.\u003cbr/\u003e- ` + "`" + `field` + "`" + `: Indexes the entire property value as a single token after trimming whitespace.\u003cbr/\u003e- ` + "`" + `trigram` + "`" + `: Splits the property into rolling trigrams (three-character sequences).\u003cbr/\u003e- ` + "`" + `gse` + "`" + `: Uses the ` + "`" + `gse` + "`" + ` tokenizer, suitable for Chinese language text. [See ` + "`" + `gse` + "`" + ` docs](https://pkg.go.dev/github.com/go-ego/gse#section-readme).\u003cbr/\u003e- ` + "`" + `kagome_ja` + "`" + `: Uses the ` + "`" + `Kagome` + "`" + ` tokenizer with a Japanese (IPA) dictionary. [See ` + "`" + `kagome` + "`" + ` docs](https://github.com/ikawaha/kagome).\u003cbr/\u003e- ` + "`" + `kagome_kr` + "`" + `: Uses the ` + "`" + `Kagome` + "`" + ` tokenizer with a Korean dictionary. [See ` + "`" + `kagome` + "`" + ` docs](https://github.com/ikawaha/kagome).\u003cbr/\u003e\u003cbr/\u003eSee [Reference: Tokenization](https://docs.weaviate.io/weaviate/config-refs/collections#tokenization) for details.",
           "type": "string",
           "enum": [
             "word",
@@ -16690,7 +17405,7 @@ func init() {
       "type": "object",
       "properties": {
         "asyncEnabled": {
-          "description": "Enable asynchronous replication (default: false).",
+          "description": "Enable asynchronous replication (default: ` + "`" + `false` + "`" + `).",
           "type": "boolean",
           "x-omitempty": false
         },
@@ -16705,7 +17420,7 @@ func init() {
           "x-omitempty": true
         },
         "factor": {
-          "description": "Number of times a class is replicated (default: 1).",
+          "description": "Number of times a collection (class) is replicated (default: 1).",
           "type": "integer"
         }
       }
@@ -16810,7 +17525,7 @@ func init() {
           "type": "string"
         },
         "type": {
-          "description": "Indicates whether the operation is a 'COPY' (source replica remains) or a 'MOVE' (source replica is removed after successful transfer).",
+          "description": "Indicates whether the operation is a ` + "`" + `COPY` + "`" + ` (source replica remains) or a ` + "`" + `MOVE` + "`" + ` (source replica is removed after successful transfer).",
           "type": "string",
           "enum": [
             "COPY",
@@ -16818,7 +17533,7 @@ func init() {
           ]
         },
         "uncancelable": {
-          "description": "Whether the replica operation is uncancelable.",
+          "description": "Whether the replica operation can't be cancelled.",
           "type": "boolean"
         },
         "whenStartedUnixMs": {
@@ -16946,7 +17661,7 @@ func init() {
           "type": "string"
         },
         "type": {
-          "description": "Specifies the type of replication operation to perform. 'COPY' creates a new replica on the target node while keeping the source replica. 'MOVE' creates a new replica on the target node and then removes the source replica upon successful completion. Defaults to 'COPY' if omitted.",
+          "description": "Specifies the type of replication operation to perform. ` + "`" + `COPY` + "`" + ` creates a new replica on the target node while keeping the source replica. ` + "`" + `MOVE` + "`" + ` creates a new replica on the target node and then removes the source replica upon successful completion. Defaults to ` + "`" + `COPY` + "`" + ` if omitted.",
           "type": "string",
           "default": "COPY",
           "enum": [
@@ -17063,13 +17778,13 @@ func init() {
       ],
       "properties": {
         "name": {
-          "description": "role name",
+          "description": "The name (ID) of the role.",
           "type": "string"
         },
         "permissions": {
           "type": "array",
           "items": {
-            "description": "list of permissions (level, action, resource)",
+            "description": "The list of permissions assigned to this role (level, action, resource).",
             "type": "object",
             "$ref": "#/definitions/Permission"
           }
@@ -17077,7 +17792,7 @@ func init() {
       }
     },
     "RolesListResponse": {
-      "description": "list of roles",
+      "description": "List of roles.",
       "type": "array",
       "items": {
         "$ref": "#/definitions/Role"
@@ -17174,15 +17889,15 @@ func init() {
       }
     },
     "SingleRef": {
-      "description": "Either set beacon (direct reference) or set class and schema (concept reference)",
+      "description": "Either set beacon (direct reference) or set collection (class) and schema (concept reference)",
       "properties": {
         "beacon": {
-          "description": "If using a direct reference, specify the URI to point to the cross-ref here. Should be in the form of weaviate://localhost/\u003cuuid\u003e for the example of a local cross-ref to an object",
+          "description": "If using a direct reference, specify the URI to point to the cross-reference here. Should be in the form of weaviate://localhost/\u003cuuid\u003e for the example of a local cross-reference to an object",
           "type": "string",
           "format": "uri"
         },
         "class": {
-          "description": "If using a concept reference (rather than a direct reference), specify the desired class name here",
+          "description": "If using a concept reference (rather than a direct reference), specify the desired collection (class) name here.",
           "type": "string",
           "format": "uri"
         },
@@ -17258,7 +17973,7 @@ func init() {
       }
     },
     "StopwordConfig": {
-      "description": "fine-grained control over stopword list usage",
+      "description": "Fine-grained control over stopword list usage.",
       "type": "object",
       "properties": {
         "additions": {
@@ -17269,7 +17984,7 @@ func init() {
           }
         },
         "preset": {
-          "description": "Pre-existing list of common words by language (default: 'en'). Options: ['en', 'none'].",
+          "description": "Pre-existing list of common words by language (default: ` + "`" + `en` + "`" + `). Options: [` + "`" + `en` + "`" + `, ` + "`" + `none` + "`" + `].",
           "type": "string"
         },
         "removals": {
@@ -17282,11 +17997,11 @@ func init() {
       }
     },
     "Tenant": {
-      "description": "attributes representing a single tenant within weaviate",
+      "description": "Attributes representing a single tenant within Weaviate.",
       "type": "object",
       "properties": {
         "activityStatus": {
-          "description": "activity status of the tenant's shard. Optional for creating tenant (implicit ` + "`" + `ACTIVE` + "`" + `) and required for updating tenant. For creation, allowed values are ` + "`" + `ACTIVE` + "`" + ` - tenant is fully active and ` + "`" + `INACTIVE` + "`" + ` - tenant is inactive; no actions can be performed on tenant, tenant's files are stored locally. For updating, ` + "`" + `ACTIVE` + "`" + `, ` + "`" + `INACTIVE` + "`" + ` and also ` + "`" + `OFFLOADED` + "`" + ` - as INACTIVE, but files are stored on cloud storage. The following values are read-only and are set by the server for internal use: ` + "`" + `OFFLOADING` + "`" + ` - tenant is transitioning from ACTIVE/INACTIVE to OFFLOADED, ` + "`" + `ONLOADING` + "`" + ` - tenant is transitioning from OFFLOADED to ACTIVE/INACTIVE. We still accept deprecated names ` + "`" + `HOT` + "`" + ` (now ` + "`" + `ACTIVE` + "`" + `), ` + "`" + `COLD` + "`" + ` (now ` + "`" + `INACTIVE` + "`" + `), ` + "`" + `FROZEN` + "`" + ` (now ` + "`" + `OFFLOADED` + "`" + `), ` + "`" + `FREEZING` + "`" + ` (now ` + "`" + `OFFLOADING` + "`" + `), ` + "`" + `UNFREEZING` + "`" + ` (now ` + "`" + `ONLOADING` + "`" + `).",
+          "description": "The activity status of the tenant, which determines if it is queryable and where its data is stored.\u003cbr/\u003e\u003cbr/\u003e\u003cb\u003eAvailable Statuses:\u003c/b\u003e\u003cbr/\u003e- ` + "`" + `ACTIVE` + "`" + `: The tenant is fully operational and ready for queries. Data is stored on local, hot storage.\u003cbr/\u003e- ` + "`" + `INACTIVE` + "`" + `: The tenant is not queryable. Data is stored locally.\u003cbr/\u003e- ` + "`" + `OFFLOADED` + "`" + `: The tenant is inactive and its data is stored in a remote cloud backend.\u003cbr/\u003e\u003cbr/\u003e\u003cb\u003eUsage Rules:\u003c/b\u003e\u003cbr/\u003e- \u003cb\u003eOn Create:\u003c/b\u003e This field is optional and defaults to ` + "`" + `ACTIVE` + "`" + `. Allowed values are ` + "`" + `ACTIVE` + "`" + ` and ` + "`" + `INACTIVE` + "`" + `.\u003cbr/\u003e- \u003cb\u003eOn Update:\u003c/b\u003e This field is required. Allowed values are ` + "`" + `ACTIVE` + "`" + `, ` + "`" + `INACTIVE` + "`" + `, and ` + "`" + `OFFLOADED` + "`" + `.\u003cbr/\u003e\u003cbr/\u003e\u003cb\u003eRead-Only Statuses:\u003c/b\u003e\u003cbr/\u003eThe following statuses are set by the server and indicate a tenant is transitioning between states:\u003cbr/\u003e- ` + "`" + `OFFLOADING` + "`" + `\u003cbr/\u003e- ` + "`" + `ONLOADING` + "`" + `\u003cbr/\u003e\u003cbr/\u003e\u003cb\u003eNote on Deprecated Names:\u003c/b\u003e\u003cbr/\u003eFor backward compatibility, deprecated names are still accepted and are mapped to their modern equivalents: ` + "`" + `HOT` + "`" + ` (now ` + "`" + `ACTIVE` + "`" + `), ` + "`" + `COLD` + "`" + ` (now ` + "`" + `INACTIVE` + "`" + `), ` + "`" + `FROZEN` + "`" + ` (now ` + "`" + `OFFLOADED` + "`" + `), ` + "`" + `FREEZING` + "`" + ` (now ` + "`" + `OFFLOADING` + "`" + `), ` + "`" + `UNFREEZING` + "`" + ` (now ` + "`" + `ONLOADING` + "`" + `).",
           "type": "string",
           "enum": [
             "ACTIVE",
@@ -17314,7 +18029,7 @@ func init() {
       ],
       "properties": {
         "apikey": {
-          "description": "The apikey",
+          "description": "The API key associated with the user.",
           "type": "string"
         }
       }
@@ -17326,7 +18041,7 @@ func init() {
       ],
       "properties": {
         "groups": {
-          "description": "The groups associated to the user",
+          "description": "The groups associated with the user.",
           "type": "array",
           "items": {
             "type": "string"
@@ -17335,19 +18050,19 @@ func init() {
         "roles": {
           "type": "array",
           "items": {
-            "description": "The roles assigned to own user",
+            "description": "The roles assigned to the user.",
             "type": "object",
             "$ref": "#/definitions/Role"
           }
         },
         "username": {
-          "description": "The username associated with the provided key",
+          "description": "The name (ID) of the user.",
           "type": "string"
         }
       }
     },
     "UserTypeInput": {
-      "description": "the type of user",
+      "description": "The type of the user. ` + "`" + `db` + "`" + ` users are managed by Weaviate, ` + "`" + `oidc` + "`" + ` users are managed by an external OIDC provider.",
       "type": "string",
       "enum": [
         "db",
@@ -17355,7 +18070,7 @@ func init() {
       ]
     },
     "UserTypeOutput": {
-      "description": "the type of user",
+      "description": "The type of the user. ` + "`" + `db_user` + "`" + ` users are created through the ` + "`" + `users` + "`" + ` API, ` + "`" + `db_env_user` + "`" + ` users are created through environment variables, and ` + "`" + `oidc` + "`" + ` users are managed by an external OIDC provider.",
       "type": "string",
       "enum": [
         "db_user",
@@ -17385,7 +18100,7 @@ func init() {
       }
     },
     "VectorWeights": {
-      "description": "Allow custom overrides of vector weights as math expressions. E.g. \"pancake\": \"7\" will set the weight for the word pancake to 7 in the vectorization, whereas \"w * 3\" would triple the originally calculated word. This is an open object, with OpenAPI Specification 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value (string/string) object.",
+      "description": "Allow custom overrides of vector weights as math expressions. E.g. ` + "`" + `pancake` + "`" + `: ` + "`" + `7` + "`" + ` will set the weight for the word pancake to 7 in the vectorization, whereas ` + "`" + `w * 3` + "`" + ` would triple the originally calculated word. This is an open object, with OpenAPI Specification 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value (string/string) object.",
       "type": "object"
     },
     "Vectors": {
@@ -17396,18 +18111,18 @@ func init() {
       }
     },
     "WhereFilter": {
-      "description": "Filter search results using a where filter",
+      "description": "Filter search results using a where filter.",
       "type": "object",
       "properties": {
         "operands": {
-          "description": "combine multiple where filters, requires 'And' or 'Or' operator",
+          "description": "Combine multiple where filters, requires 'And' or 'Or' operator.",
           "type": "array",
           "items": {
             "$ref": "#/definitions/WhereFilter"
           }
         },
         "operator": {
-          "description": "operator to use",
+          "description": "Operator to use.",
           "type": "string",
           "enum": [
             "And",
@@ -17422,19 +18137,21 @@ func init() {
             "WithinGeoRange",
             "IsNull",
             "ContainsAny",
-            "ContainsAll"
+            "ContainsAll",
+            "ContainsNone",
+            "Not"
           ],
           "example": "GreaterThanEqual"
         },
         "path": {
-          "description": "path to the property currently being filtered",
+          "description": "Path to the property currently being filtered.",
           "type": "array",
           "items": {
             "type": "string"
           },
           "example": [
             "inCity",
-            "City",
+            "city",
             "name"
           ]
         },
@@ -17556,7 +18273,7 @@ func init() {
       }
     },
     "WhereFilterGeoRange": {
-      "description": "filter within a distance of a georange",
+      "description": "Filter within a distance of a georange.",
       "type": "object",
       "properties": {
         "distance": {
@@ -17587,25 +18304,25 @@ func init() {
   "parameters": {
     "CommonAfterParameterQuery": {
       "type": "string",
-      "description": "A threshold UUID of the objects to retrieve after, using an UUID-based ordering. This object is not part of the set. \u003cbr/\u003e\u003cbr/\u003eMust be used with ` + "`" + `class` + "`" + `, typically in conjunction with ` + "`" + `limit` + "`" + `. \u003cbr/\u003e\u003cbr/\u003eNote ` + "`" + `after` + "`" + ` cannot be used with ` + "`" + `offset` + "`" + ` or ` + "`" + `sort` + "`" + `. \u003cbr/\u003e\u003cbr/\u003eFor a null value similar to offset=0, set an empty string in the request, i.e. ` + "`" + `after=` + "`" + ` or ` + "`" + `after` + "`" + `.",
+      "description": "A threshold UUID of the objects to retrieve after, using an UUID-based ordering. This object is not part of the set. \u003cbr/\u003e\u003cbr/\u003eMust be used with collection name (` + "`" + `class` + "`" + `), typically in conjunction with ` + "`" + `limit` + "`" + `. \u003cbr/\u003e\u003cbr/\u003eNote ` + "`" + `after` + "`" + ` cannot be used with ` + "`" + `offset` + "`" + ` or ` + "`" + `sort` + "`" + `. \u003cbr/\u003e\u003cbr/\u003eFor a null value similar to offset=0, set an empty string in the request, i.e. ` + "`" + `after=` + "`" + ` or ` + "`" + `after` + "`" + `.",
       "name": "after",
       "in": "query"
     },
     "CommonClassParameterQuery": {
       "type": "string",
-      "description": "The collection from which to query objects.  \u003cbr/\u003e\u003cbr/\u003eNote that if ` + "`" + `class` + "`" + ` is not provided, the response will not include any objects.",
+      "description": "The collection from which to query objects.  \u003cbr/\u003e\u003cbr/\u003eNote that if the collection name (` + "`" + `class` + "`" + `) is not provided, the response will not include any objects.",
       "name": "class",
       "in": "query"
     },
     "CommonConsistencyLevelParameterQuery": {
       "type": "string",
-      "description": "Determines how many replicas must acknowledge a request before it is considered successful",
+      "description": "Determines how many replicas must acknowledge a request before it is considered successful.",
       "name": "consistency_level",
       "in": "query"
     },
     "CommonIncludeParameterQuery": {
       "type": "string",
-      "description": "Include additional information, such as classification infos. Allowed values include: classification, vector, interpretation",
+      "description": "Include additional information, such as classification information. Allowed values include: ` + "`" + `classification` + "`" + `, ` + "`" + `vector` + "`" + ` and ` + "`" + `interpretation` + "`" + `.",
       "name": "include",
       "in": "query"
     },
@@ -17618,7 +18335,7 @@ func init() {
     },
     "CommonNodeNameParameterQuery": {
       "type": "string",
-      "description": "The target node which should fulfill the request",
+      "description": "The target node which should fulfill the request.",
       "name": "node_name",
       "in": "query"
     },
@@ -17639,7 +18356,7 @@ func init() {
     "CommonOutputVerbosityParameterQuery": {
       "type": "string",
       "default": "minimal",
-      "description": "Controls the verbosity of the output, possible values are: \"minimal\", \"verbose\". Defaults to \"minimal\".",
+      "description": "Controls the verbosity of the output, possible values are: ` + "`" + `minimal` + "`" + `, ` + "`" + `verbose` + "`" + `. Defaults to ` + "`" + `minimal` + "`" + `.",
       "name": "output",
       "in": "query"
     },
@@ -17651,7 +18368,7 @@ func init() {
     },
     "CommonTenantParameterQuery": {
       "type": "string",
-      "description": "Specifies the tenant in a request targeting a multi-tenant class",
+      "description": "Specifies the tenant in a request targeting a multi-tenant collection (class).",
       "name": "tenant",
       "in": "query"
     }
@@ -17672,10 +18389,11 @@ func init() {
   ],
   "tags": [
     {
+      "description": "Operations for managing individual data objects. Objects are the primary units of data stored within Weaviate collections. Each object conforms to the data schema definition of its parent collection, containing specific properties (data fields). Objects have one or multiple associated vector embeddings and can link to other objects via cross-references. These endpoints allow you to perform CRUD (Create, Read, Update, Delete) operations on individual data objects.",
       "name": "objects"
     },
     {
-      "description": "These operations allow to execute batch requests for Objects and Objects. Mostly used for importing large datasets.",
+      "description": "Operations for performing actions on multiple data items (objects or references) in a single API request. Batch operations significantly improve performance and efficiency, especially for bulk data imports or large-scale deletions, by reducing network overhead compared to sending individual requests. These endpoints allow for creating multiple objects or deleting objects based on filters.",
       "name": "batch"
     },
     {
@@ -17685,15 +18403,20 @@ func init() {
       "name": "meta"
     },
     {
-      "name": "P2P"
-    },
-    {
-      "description": "All functions related to the Contextionary.",
-      "name": "contextionary-API"
-    },
-    {
-      "description": "These operations enable manipulation of the schema in Weaviate schema.",
+      "description": "Operations related to managing collections. In Weaviate, 'collections' (formerly called 'classes') store your data objects. Each collection has a definition that specifies its data structure (properties and their data types), vectorizer settings (how vectors are generated or managed), and indexing configuration (how data is indexed for efficient search). These endpoints allow you to create, retrieve, update, and delete collection definitions. For detailed usage and code examples on interacting with collections, see the documentation: [https://weaviate.io/developers/weaviate/manage-data/collections](https://weaviate.io/developers/weaviate/manage-data/collections).",
       "name": "schema"
+    },
+    {
+      "description": "Operations related to creating and managing backups of Weaviate data. This feature allows you to create snapshots of your collections and store them on external storage backends such as cloud object storage (S3, GCS, Azure) or a shared filesystem. These endpoints enable you to initiate backup and restore processes, monitor their status, list available backups on a backend, and delete unwanted backups. Backups are essential for disaster recovery, data migration, and maintaining point-in-time copies of your vector database.",
+      "name": "backups"
+    },
+    {
+      "description": "Endpoints for user account management in Weaviate. This includes operations specific to Weaviate-managed database users (` + "`" + `db` + "`" + ` users), such as creation (which generates an API key), listing, deletion, activation/deactivation, and API key rotation. It also provides operations applicable to any authenticated user (` + "`" + `db` + "`" + ` or ` + "`" + `oidc` + "`" + `), like retrieving their own information (username and assigned roles).\u003cbr/\u003e\u003cbr/\u003e**User Types:**\u003cbr/\u003e* **` + "`" + `db` + "`" + ` users:** Managed entirely within Weaviate (creation, deletion, API keys). Use these endpoints for full lifecycle management.\u003cbr/\u003e* **` + "`" + `oidc` + "`" + ` users:** Authenticated via an external OpenID Connect provider. Their lifecycle (creation, credentials) is managed externally, but their role assignments *within Weaviate* are managed via the ` + "`" + `authz` + "`" + ` endpoints.",
+      "name": "users"
+    },
+    {
+      "description": "Endpoints for managing Weaviate's Role-Based Access Control (RBAC) system. Access to Weaviate resources is granted through roles, which are collections of fine-grained permissions. \u003cbr/\u003e\u003cbr/\u003e**Permissions:** Define allowed actions (e.g., ` + "`" + `read_data` + "`" + `, ` + "`" + `create_collections` + "`" + `, ` + "`" + `delete_users` + "`" + `) on specific resources. Resources can be specified broadly (e.g., all collections: ` + "`" + `*` + "`" + `) or narrowly (e.g., a specific collection name, tenant pattern, user name, or role name).\u003cbr/\u003e\u003cbr/\u003e**Roles:** Are named sets of permissions. Managing roles involves creating roles with specific permissions, retrieving role definitions, deleting roles, and adding or removing permissions from existing roles.\u003cbr/\u003e\u003cbr/\u003e**Role assignment:** Roles grant their contained permissions to users or groups. These endpoints allow assigning roles to:\u003cbr/\u003e* ` + "`" + `db` + "`" + ` users: Users managed directly by Weaviate via API or environment variables, authenticating with API keys.\u003cbr/\u003e* ` + "`" + `oidc` + "`" + ` users: Users authenticated via an external OpenID Connect provider, managed externally but assigned roles within Weaviate.\u003cbr/\u003e* OIDC ` + "`" + `groups` + "`" + `: Users authenticated via OIDC who belong to a group automatically inherit roles assigned to that group.\u003cbr/\u003e\u003cbr/\u003eOperations also include revoking roles, checking if a role has a specific permission, listing roles assigned to a user, and listing users/groups assigned to a role. The authorization framework applies universally to both ` + "`" + `db` + "`" + ` and ` + "`" + `oidc` + "`" + ` users based on their assigned roles.",
+      "name": "authz"
     },
     {
       "description": "Operations related to managing data replication, including initiating and monitoring shard replica movements between nodes, querying current sharding states, and managing the lifecycle of replication tasks.",

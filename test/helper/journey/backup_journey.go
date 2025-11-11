@@ -68,7 +68,7 @@ func backupJourney(t *testing.T, className, backend, basebackupID string,
 			assert.Nil(t, backupResp)
 			assert.Error(t, err)
 
-			restoreResp, err := helper.RestoreBackup(t, helper.DefaultRestoreConfig(), className, backend, backupID, map[string]string{})
+			restoreResp, err := helper.RestoreBackup(t, helper.DefaultRestoreConfig(), className, backend, backupID, map[string]string{}, false)
 			assert.Nil(t, restoreResp)
 			assert.Error(t, err)
 		})
@@ -90,13 +90,22 @@ func backupJourney(t *testing.T, className, backend, basebackupID string,
 
 		assert.EventuallyWithT(t, func(t1 *assert.CollectT) {
 			resp, err := helper.CreateBackup(t, cfg, className, backend, backupID)
-			helper.AssertRequestOk(t, resp, err, nil)
+			if err != nil {
+				// If backup is still in progress from a previous operation, fail this iteration
+				// so EventuallyWithT will retry until the slot is released
+				if assert.Contains(t1, err.Error(), "already in progress") {
+					assert.Fail(t1, "backup still in progress, retrying", err.Error())
+				}
+				return
+			}
+			require.NotNil(t1, resp)
+			require.NotNil(t1, resp.Payload)
 			assert.Equal(t1, cfg.Bucket, resp.Payload.Bucket)
 			if cfg.Bucket != "" {
-				assert.Contains(t, resp.Payload.Path, cfg.Bucket)
+				assert.Contains(t1, resp.Payload.Path, cfg.Bucket)
 			}
 			if cfg.Path != "" {
-				assert.Contains(t, resp.Payload.Path, cfg.Path)
+				assert.Contains(t1, resp.Payload.Path, cfg.Path)
 			}
 			assert.Equal(t1, backupID, resp.Payload.ID)
 			assert.Equal(t1, className, resp.Payload.Classes[0])
@@ -106,7 +115,7 @@ func backupJourney(t *testing.T, className, backend, basebackupID string,
 
 		assert.EventuallyWithT(t, func(t1 *assert.CollectT) {
 			resp, err := helper.CreateBackupStatus(t, backend, backupID, overrideBucket, overridePath)
-			assert.Nil(t, err, "expected nil, got: %v", err)
+			assert.Nil(t1, err, "expected nil, got: %v", err)
 
 			assert.NotNil(t1, resp)
 			assert.NotNil(t1, resp.Payload)
@@ -121,16 +130,14 @@ func backupJourney(t *testing.T, className, backend, basebackupID string,
 
 		assert.EventuallyWithT(t, func(t1 *assert.CollectT) {
 			statusResp, err := helper.CreateBackupStatus(t, backend, backupID, overrideBucket, overridePath)
-
-			helper.AssertRequestOk(t, statusResp, err, func() {
-				assert.NotNil(t1, statusResp)
-				assert.NotNil(t1, statusResp.Payload)
-				assert.NotNil(t1, statusResp.Payload.Status)
-				assert.Equal(t1, backupID, statusResp.Payload.ID)
-				assert.Equal(t1, backend, statusResp.Payload.Backend)
-				assert.Contains(t1, statusResp.Payload.Path, overrideBucket)
-				assert.Contains(t1, statusResp.Payload.Path, overridePath)
-			})
+			require.NoError(t1, err)
+			require.NotNil(t1, statusResp)
+			require.NotNil(t1, statusResp.Payload)
+			require.NotNil(t1, statusResp.Payload.Status)
+			assert.Equal(t1, backupID, statusResp.Payload.ID)
+			assert.Equal(t1, backend, statusResp.Payload.Backend)
+			assert.Contains(t1, statusResp.Payload.Path, overrideBucket)
+			assert.Contains(t1, statusResp.Payload.Path, overridePath)
 
 			assert.Equal(t1, string(backup.Success), *statusResp.Payload.Status,
 				statusResp.Payload.Error)
@@ -151,7 +158,7 @@ func backupJourney(t *testing.T, className, backend, basebackupID string,
 		}
 
 		t.Logf("cfg: %+v, className: %s, backend: %s, backupID: %s, nodeMapping: %+v\n", cfg, className, backend, backupID, nodeMapping)
-		resp, err := helper.RestoreBackup(t, cfg, className, backend, backupID, nodeMapping)
+		resp, err := helper.RestoreBackup(t, cfg, className, backend, backupID, nodeMapping, false)
 		require.Nil(t, err, "expected nil, got: %v", err)
 		assert.Equal(t, backupID, resp.Payload.ID)
 		assert.Equal(t, backend, resp.Payload.Backend)
@@ -232,7 +239,7 @@ func backupJourneyWithCancellation(t *testing.T, className, backend, basebackupI
 			assert.Nil(t, backupResp)
 			assert.Error(t, err)
 
-			restoreResp, err := helper.RestoreBackup(t, helper.DefaultRestoreConfig(), className, backend, backupID, map[string]string{})
+			restoreResp, err := helper.RestoreBackup(t, helper.DefaultRestoreConfig(), className, backend, backupID, map[string]string{}, false)
 			assert.Nil(t, restoreResp)
 			assert.Error(t, err)
 		})
@@ -332,6 +339,29 @@ wait:
 				found = true
 				assert.Equal(t, string(backup.Success), b.Status)
 				assert.Contains(t, b.Classes, className)
+
+				// Validate backup size is reported and greater than 0
+				assert.Greater(t, b.Size, float64(0), "Backup size should be greater than 0")
+
+				// Validate timestamp fields
+				require.NotNil(t, b.StartedAt, "StartedAt should not be nil")
+				require.NotNil(t, b.CompletedAt, "CompletedAt should not be nil")
+
+				startTime := time.Time(b.StartedAt)
+				completedTime := time.Time(b.CompletedAt)
+
+				// Verify timestamps are reasonable
+				assert.False(t, startTime.IsZero(), "Start time should not be zero")
+				assert.False(t, completedTime.IsZero(), "Completed time should not be zero")
+				assert.True(t, completedTime.After(startTime), "Completed time should be after start time")
+
+				// Verify timestamps are recent (within last hour)
+				now := time.Now()
+				assert.True(t, startTime.After(now.Add(-1*time.Hour)), "Start time should be within the last hour")
+				assert.True(t, completedTime.After(now.Add(-1*time.Hour)), "Completed time should be within the last hour")
+
+				t.Logf("Backup %s: started at %v, completed at %v, duration: %v",
+					b.ID, startTime, completedTime, completedTime.Sub(startTime))
 				break
 			}
 		}

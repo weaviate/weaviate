@@ -98,7 +98,7 @@ func (e *executor) Close(ctx context.Context) error {
 
 func (e *executor) AddClass(pl api.AddClassRequest) error {
 	ctx := context.Background()
-	if err := e.migrator.AddClass(ctx, pl.Class, pl.State); err != nil {
+	if err := e.migrator.AddClass(ctx, pl.Class); err != nil {
 		return fmt.Errorf("apply add class: %w", err)
 	}
 	return nil
@@ -140,17 +140,6 @@ func (e *executor) ShutdownShard(class string, shard string) {
 	if err := e.migrator.ShutdownShard(ctx, class, shard); err != nil {
 		e.logger.WithFields(logrus.Fields{
 			"action": "shutdown_shard",
-			"class":  class,
-			"shard":  shard,
-		}).WithError(err).Warn("migrator")
-	}
-}
-
-func (e *executor) DropShard(class string, shard string) {
-	ctx := context.Background()
-	if err := e.migrator.DropShard(ctx, class, shard); err != nil {
-		e.logger.WithFields(logrus.Fields{
-			"action": "drop_shard",
 			"class":  class,
 			"shard":  shard,
 		}).WithError(err).Warn("migrator")

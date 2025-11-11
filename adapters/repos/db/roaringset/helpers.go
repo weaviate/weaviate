@@ -53,22 +53,21 @@ type MaxIdGetterFunc func() uint64
 // BitmapFactory exists to provide prefilled bitmaps using pool (reducing allocation of memory)
 // and favor cloning (faster) over prefilling bitmap from scratch each time bitmap is requested
 type BitmapFactory struct {
-	lock           *sync.RWMutex
-	prefilled      *sroar.Bitmap
 	bufPool        BitmapBufPool
 	maxIdGetter    MaxIdGetterFunc
+	lock           *sync.RWMutex
+	prefilled      *sroar.Bitmap
 	prefilledMaxId uint64
 }
 
 func NewBitmapFactory(bufPool BitmapBufPool, maxIdGetter MaxIdGetterFunc) *BitmapFactory {
 	prefilledMaxId := maxIdGetter() + defaultIdIncrement
-	prefilled := sroar.Prefill(prefilledMaxId)
 
 	return &BitmapFactory{
-		lock:           new(sync.RWMutex),
-		prefilled:      prefilled,
 		bufPool:        bufPool,
 		maxIdGetter:    maxIdGetter,
+		lock:           new(sync.RWMutex),
+		prefilled:      sroar.Prefill(prefilledMaxId),
 		prefilledMaxId: prefilledMaxId,
 	}
 }
@@ -116,5 +115,12 @@ func (bmf *BitmapFactory) GetBitmap() (cloned *sroar.Bitmap, release func()) {
 		}()
 	}
 	cloned.RemoveRange(maxId+1, prefilledMaxId+1)
-	return
+	return cloned, release
+}
+
+func (bmf *BitmapFactory) Remove(ids *sroar.Bitmap) {
+	bmf.lock.Lock()
+	defer bmf.lock.Unlock()
+
+	bmf.prefilled.AndNot(ids)
 }

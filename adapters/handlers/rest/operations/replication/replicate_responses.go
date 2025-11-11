@@ -188,7 +188,7 @@ func (o *ReplicateForbidden) WriteResponse(rw http.ResponseWriter, producer runt
 const ReplicateUnprocessableEntityCode int = 422
 
 /*
-ReplicateUnprocessableEntity Request body is well-formed (i.e., syntactically correct), but semantically erroneous.
+ReplicateUnprocessableEntity The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.
 
 swagger:response replicateUnprocessableEntity
 */

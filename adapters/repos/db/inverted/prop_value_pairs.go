@@ -55,32 +55,47 @@ func newPropValuePair(class *models.Class) (*propValuePair, error) {
 }
 
 func (pv *propValuePair) resolveDocIDs(ctx context.Context, s *Searcher, limit int) (*docBitmap, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
 	if pv.operator.OnValue() {
 		return pv.fetchDocIDs(ctx, s, limit)
 	}
 
+	ln := len(pv.children)
 	switch pv.operator {
-	case filters.OperatorAnd:
-	case filters.OperatorOr:
-		// ok
+	case filters.OperatorAnd, filters.OperatorOr:
+		switch ln {
+		case 0:
+			return nil, fmt.Errorf("no children for operator %q", pv.operator.Name())
+		case 1:
+			return pv.children[0].resolveDocIDs(ctx, s, limit)
+		default:
+			return pv.resolveDocIDsAndOr(ctx, s)
+		}
+
+	case filters.OperatorNot:
+		switch ln {
+		case 0:
+			return nil, fmt.Errorf("no children for operator %q", pv.operator.Name())
+		case 1:
+			return pv.resolveDocIDsNot(ctx, s)
+		default:
+			return nil, fmt.Errorf("too many children for operator %q. Expected 1, given %q", pv.operator.Name(), ln)
+		}
+
 	default:
 		return nil, fmt.Errorf("unsupported operator: %s", pv.operator.Name())
 	}
+}
 
-	switch len(pv.children) {
-	case 0:
-		return nil, fmt.Errorf("no children for operator: %s", pv.operator.Name())
-	case 1:
-		return pv.children[0].resolveDocIDs(ctx, s, limit)
-	default:
-		// proceed
-	}
-
+func (pv *propValuePair) resolveDocIDsAndOr(ctx context.Context, s *Searcher) (*docBitmap, error) {
 	// Explicitly set the limit to 0 (=unlimited) as this is a nested filter,
 	// otherwise we run into situations where each subfilter on their own
 	// runs into the limit, possibly yielding in "less than limit" results
 	// after merging.
-	limit = 0
+	limit := 0
 
 	maxN := 32                           // number of children to be fetched before merging them
 	dbmCh := make(chan *docBitmap, maxN) // subresults to merge
@@ -123,11 +138,11 @@ func (pv *propValuePair) resolveDocIDs(ctx context.Context, s *Searcher, limit i
 				}
 
 				ctx := concurrency.ContextWithFractionalBudget(ctx, concurrencyReductionFactor, concurrency.NUMCPU)
-				dbm, err2 := child.resolveDocIDs(ctx, s, limit)
-				if err2 != nil {
-					err2 = errors.Wrapf(err2, "nested child %d", i)
-					ec.Add(err2)
-					return err2
+				dbm, err := child.resolveDocIDs(ctx, s, limit)
+				if err != nil {
+					err = errors.Wrapf(err, "nested child %d", i)
+					ec.Add(err)
+					return err
 				}
 				dbmCh <- dbm
 				return nil
@@ -137,8 +152,13 @@ func (pv *propValuePair) resolveDocIDs(ctx context.Context, s *Searcher, limit i
 				break
 			}
 		}
-		eg.Wait()
+		errWait := eg.Wait()
 		err = ec.ToError()
+		if err == nil {
+			// if parent context gets expired/cancelled groupcontext might prevent execution of any goroutine,
+			// making error compounder empty. in that case take potencial error (context related) from wait
+			err = errWait
+		}
 	}
 
 	close(dbmCh)
@@ -146,9 +166,28 @@ func (pv *propValuePair) resolveDocIDs(ctx context.Context, s *Searcher, limit i
 
 	if err != nil {
 		result.release()
-		return nil, fmt.Errorf("nested query: %w", err)
+		return nil, fmt.Errorf("nested AND/OR query: %w", err)
 	}
 	return result, nil
+}
+
+func (pv *propValuePair) resolveDocIDsNot(ctx context.Context, s *Searcher) (*docBitmap, error) {
+	// Explicitly set the limit to 0 (=unlimited) as this is a nested filter,
+	// otherwise we run into situations where each subfilter on their own
+	// runs into the limit, possibly yielding in "less than limit" results
+	// after merging.
+	limit := 0
+
+	dbm, err := pv.children[0].resolveDocIDs(ctx, s, limit)
+	if err != nil {
+		return nil, fmt.Errorf("nested NOT query: %w", err)
+	}
+	bm := dbm.docIDs
+	defer dbm.release()
+
+	dbm.docIDs, dbm.release = s.bitmapFactory.GetBitmap()
+	dbm.docIDs.AndNotConc(bm, concurrency.SROAR_MERGE)
+	return dbm, nil
 }
 
 // processDocIDs merges received from dbmCh channel docBitmaps and sends result to resultCh channel.

@@ -27,7 +27,7 @@ type segmentCursorReplace struct {
 	reusableBORW  byteops.ReadWriter
 }
 
-func (s *segment) newCursor() *segmentCursorReplace {
+func (s *segment) newCursor() innerCursorReplaceAllKeys {
 	cursor := &segmentCursorReplace{
 		segment: s,
 		index:   s.index,
@@ -87,10 +87,9 @@ func (s *segment) newCursorWithSecondaryIndex(pos int) *segmentCursorReplace {
 }
 
 func (sg *SegmentGroup) newCursors() ([]innerCursorReplace, func()) {
-	segments, release := sg.getAndLockSegments()
+	segments, release := sg.getConsistentViewOfSegments()
 
 	out := make([]innerCursorReplace, len(segments))
-
 	for i, segment := range segments {
 		out[i] = segment.newCursor()
 	}
@@ -98,59 +97,14 @@ func (sg *SegmentGroup) newCursors() ([]innerCursorReplace, func()) {
 	return out, release
 }
 
-func (sg *SegmentGroup) newCursorsWithFlushingSupport() ([]innerCursorReplace, func()) {
-	sg.cursorsLock.Lock()
-	defer sg.cursorsLock.Unlock()
-
-	sg.activeCursors++
-
-	sg.maintenanceLock.RLock()
-
-	var segments []Segment
-
-	if len(sg.enqueuedSegments) == 0 {
-		segments = sg.segments
-	} else {
-		segments = make([]Segment, 0, len(sg.segments)+len(sg.enqueuedSegments))
-		segments = append(segments, sg.segments...)
-		segments = append(segments, sg.enqueuedSegments...)
-	}
-
-	out := make([]innerCursorReplace, 0, len(segments))
-
-	for _, segment := range segments {
-		out = append(out, segment.newCursor())
-	}
-
-	release := func() {
-		sg.maintenanceLock.RUnlock()
-
-		sg.cursorsLock.Lock()
-		defer sg.cursorsLock.Unlock()
-
-		sg.activeCursors--
-
-		if sg.activeCursors == 0 && len(sg.enqueuedSegments) > 0 {
-			sg.maintenanceLock.Lock()
-			defer sg.maintenanceLock.Unlock()
-
-			sg.segments = append(sg.segments, sg.enqueuedSegments...)
-			sg.enqueuedSegments = nil
-		}
-	}
-
-	return out, release
-}
-
 func (sg *SegmentGroup) newCursorsWithSecondaryIndex(pos int) ([]innerCursorReplace, func()) {
-	segments, release := sg.getAndLockSegments()
-	out := make([]innerCursorReplace, 0, len(segments))
+	segments, release := sg.getConsistentViewOfSegments()
 
+	out := make([]innerCursorReplace, 0, len(segments))
 	for _, segment := range segments {
-		if int(segment.getSecondaryIndexCount()) <= pos {
-			continue
+		if uint16(pos) < segment.getSecondaryIndexCount() {
+			out = append(out, segment.newCursorWithSecondaryIndex(pos))
 		}
-		out = append(out, segment.newCursorWithSecondaryIndex(pos))
 	}
 
 	return out, release
@@ -251,6 +205,7 @@ func (s *segmentCursorReplace) parseReplaceNode(offset nodeOffset) (segmentRepla
 		return segmentReplaceNode{}, err
 	}
 	defer r.Release()
+
 	out, err := ParseReplaceNode(r, s.segment.secondaryIndexCount)
 	if out.tombstone {
 		return out, lsmkv.Deleted
@@ -264,10 +219,10 @@ func (s *segmentCursorReplace) parseReplaceNodeInto(offset nodeOffset, buf []byt
 	}
 
 	r, err := s.segment.newNodeReader(offset, "segmentCursorReplace")
-	defer r.Release()
 	if err != nil {
 		return err
 	}
+	defer r.Release()
 
 	err = ParseReplaceNodeIntoPread(r, s.segment.secondaryIndexCount, s.reusableNode)
 	if err != nil {

@@ -16,11 +16,10 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/weaviate/weaviate/entities/models"
-
-	"github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"github.com/weaviate/weaviate/usecases/sharding/config"
+
+	"github.com/weaviate/weaviate/entities/models"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/mock"
@@ -29,8 +28,8 @@ import (
 	"github.com/weaviate/weaviate/cluster/replication"
 	"github.com/weaviate/weaviate/cluster/router"
 	"github.com/weaviate/weaviate/cluster/router/types"
-	schemaTypes "github.com/weaviate/weaviate/cluster/schema/types"
 	clusterMocks "github.com/weaviate/weaviate/usecases/cluster/mocks"
+	"github.com/weaviate/weaviate/usecases/schema"
 )
 
 func TestReadRoutingWithFSM(t *testing.T) {
@@ -129,13 +128,13 @@ func TestReadRoutingWithFSM(t *testing.T) {
 			reg := prometheus.NewRegistry()
 			shardReplicationFSM := replication.NewShardReplicationFSM(reg)
 			clusterState := clusterMocks.NewMockNodeSelector(testCase.allShardNodes...)
-			schemaReaderMock := schemaTypes.NewMockSchemaReader(t)
+			schemaReaderMock := schema.NewMockSchemaReader(t)
 			schemaGetterMock := schema.NewMockSchemaGetter(t)
 			schemaGetterMock.EXPECT().OptimisticTenantStatus(mock.Anything, "collection1", "shard1").Return(
 				map[string]string{
 					"shard1": models.TenantActivityStatusHOT,
 				}, nil).Maybe()
-			schemaReaderMock.EXPECT().CopyShardingState("collection1").Return(&sharding.State{
+			state := &sharding.State{
 				IndexID: "index-001",
 				Config: config.Config{
 					VirtualPerPhysical:  0,
@@ -160,6 +159,11 @@ func TestReadRoutingWithFSM(t *testing.T) {
 				Virtual:             []sharding.Virtual{},
 				PartitioningEnabled: false,
 				ReplicationFactor:   1,
+			}
+			schemaReaderMock.EXPECT().Shards(mock.Anything).Return(state.AllPhysicalShards(), nil).Maybe()
+			schemaReaderMock.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
+				class := &models.Class{Class: className}
+				return readFunc(class, state)
 			}).Maybe()
 			schemaReaderMock.On("ShardReplicas", mock.Anything, mock.Anything).Return(func(class string, shard string) ([]string, error) {
 				return testCase.allShardNodes, nil
@@ -301,13 +305,13 @@ func TestWriteRoutingWithFSM(t *testing.T) {
 			reg := prometheus.NewRegistry()
 			shardReplicationFSM := replication.NewShardReplicationFSM(reg)
 			clusterState := clusterMocks.NewMockNodeSelector(testCase.allShardNodes...)
-			schemaReaderMock := schemaTypes.NewMockSchemaReader(t)
+			schemaReaderMock := schema.NewMockSchemaReader(t)
 			schemaGetterMock := schema.NewMockSchemaGetter(t)
 			schemaGetterMock.EXPECT().OptimisticTenantStatus(mock.Anything, "collection1", "shard1").Return(
 				map[string]string{
 					"shard1": models.TenantActivityStatusHOT,
 				}, nil).Maybe()
-			schemaReaderMock.EXPECT().CopyShardingState("collection1").Return(&sharding.State{
+			state := &sharding.State{
 				IndexID: "index-001",
 				Config:  config.Config{},
 				Physical: map[string]sharding.Physical{
@@ -323,6 +327,11 @@ func TestWriteRoutingWithFSM(t *testing.T) {
 				Virtual:             []sharding.Virtual{},
 				PartitioningEnabled: false,
 				ReplicationFactor:   1,
+			}
+			schemaReaderMock.EXPECT().Shards(mock.Anything).Return(state.AllPhysicalShards(), nil).Maybe()
+			schemaReaderMock.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
+				class := &models.Class{Class: className}
+				return readFunc(class, state)
 			}).Maybe()
 			schemaReaderMock.On("ShardReplicas", mock.Anything, mock.Anything).Return(func(class string, shard string) ([]string, error) {
 				return testCase.allShardNodes, nil

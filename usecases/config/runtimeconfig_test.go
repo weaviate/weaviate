@@ -28,19 +28,23 @@ import (
 )
 
 func TestParseRuntimeConfig(t *testing.T) {
-	// parser should fail if any unknown fields exist in the file
-	t.Run("parser should fail if any unknown fields exist in the file", func(t *testing.T) {
-		// rationale: Catch and fail early if any typo on the config file.
+	// parser should not fail if any unknown fields exist in the file
+	t.Run("parser should not fail if any unknown fields exist in the file", func(t *testing.T) {
+		// rationale: in case of downgrade, the config file might contain
+		// fields that are not known to the current version. We should ignore
+		// them, not fail.
 
-		buf := []byte(`autoschema_enabled: true`)
+		// note: typo and unknown field should be ignored and known fields should be parsed correctly
+		buf := []byte(`unknown_field: true
+autoschema_enbaled: true
+maximum_allowed_collections_count: 13
+`)
 		cfg, err := ParseRuntimeConfig(buf)
 		require.NoError(t, err)
-		assert.Equal(t, true, cfg.AutoschemaEnabled.Get())
-
-		buf = []byte(`autoschema_enbaled: false`) // note: typo.
-		cfg, err = ParseRuntimeConfig(buf)
-		require.ErrorContains(t, err, "autoschema_enbaled") // should contain misspelled field
-		assert.Nil(t, cfg)
+		// typo should be ignored, default value should be returned
+		assert.Equal(t, false, cfg.AutoschemaEnabled.Get())
+		// valid field should be parsed correctly
+		assert.Equal(t, 13, cfg.MaximumAllowedCollectionsCount.Get())
 	})
 
 	t.Run("YAML tag should be lower_snake_case", func(t *testing.T) {
@@ -87,6 +91,8 @@ func TestUpdateRuntimeConfig(t *testing.T) {
 			writeLogLevel            runtime.DynamicValue[string]
 			revectorizeCheckDisabled runtime.DynamicValue[bool]
 			minFinWait               runtime.DynamicValue[time.Duration]
+			raftDrainSleep           runtime.DynamicValue[time.Duration]
+			raftTimeoutsMultiplier   runtime.DynamicValue[int]
 		)
 
 		reg := &WeaviateRuntimeConfig{
@@ -97,6 +103,8 @@ func TestUpdateRuntimeConfig(t *testing.T) {
 			TenantActivityWriteLogLevel:     &writeLogLevel,
 			RevectorizeCheckDisabled:        &revectorizeCheckDisabled,
 			ReplicaMovementMinimumAsyncWait: &minFinWait,
+			RaftDrainSleep:                  &raftDrainSleep,
+			RaftTimoutsMultiplier:           &raftTimeoutsMultiplier,
 		}
 
 		// parsed from yaml configs for example
@@ -330,6 +338,70 @@ replica_movement_minimum_async_wait: 10s`)
 		assert.Equal(t, false, autoSchema.Get())
 		assert.Equal(t, 0, colCount.Get())     // this should still return `default` value. not old value
 		assert.Equal(t, false, asyncRep.Get()) // this field doesn't exist in original config file, should return default value.
+	})
+
+	t.Run("updating raft_drain_sleep", func(t *testing.T) {
+		var raftDrainSleep runtime.DynamicValue[time.Duration]
+
+		reg := &WeaviateRuntimeConfig{
+			RaftDrainSleep: &raftDrainSleep,
+		}
+
+		// initial default
+		assert.Equal(t, 0*time.Second, raftDrainSleep.Get())
+
+		// set to 5s
+		buf := []byte(`raft_drain_sleep: 5s`)
+		parsed, err := ParseRuntimeConfig(buf)
+		require.NoError(t, err)
+		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+		assert.Equal(t, 5*time.Second, raftDrainSleep.Get())
+
+		// update to 10s
+		buf = []byte(`raft_drain_sleep: 10s`)
+		parsed, err = ParseRuntimeConfig(buf)
+		require.NoError(t, err)
+		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+		assert.Equal(t, 10*time.Second, raftDrainSleep.Get())
+
+		// remove -> back to default
+		buf = []byte(``)
+		parsed, err = ParseRuntimeConfig(buf)
+		require.NoError(t, err)
+		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+		assert.Equal(t, 0*time.Second, raftDrainSleep.Get())
+	})
+
+	t.Run("updating raft_timeouts_multiplier", func(t *testing.T) {
+		var raftTimeoutsMultiplier runtime.DynamicValue[int]
+
+		reg := &WeaviateRuntimeConfig{
+			RaftTimoutsMultiplier: &raftTimeoutsMultiplier,
+		}
+
+		// initial default
+		assert.Equal(t, 0, raftTimeoutsMultiplier.Get())
+
+		// set to 2
+		buf := []byte(`raft_timeouts_multiplier: 2`)
+		parsed, err := ParseRuntimeConfig(buf)
+		require.NoError(t, err)
+		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+		assert.Equal(t, 2, raftTimeoutsMultiplier.Get())
+
+		// update to 3
+		buf = []byte(`raft_timeouts_multiplier: 3`)
+		parsed, err = ParseRuntimeConfig(buf)
+		require.NoError(t, err)
+		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+		assert.Equal(t, 3, raftTimeoutsMultiplier.Get())
+
+		// remove -> back to default
+		buf = []byte(``)
+		parsed, err = ParseRuntimeConfig(buf)
+		require.NoError(t, err)
+		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+		assert.Equal(t, 0, raftTimeoutsMultiplier.Get())
 	})
 }
 

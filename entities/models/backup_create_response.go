@@ -37,7 +37,7 @@ type BackupCreateResponse struct {
 	// Name of the bucket, container, volume, etc
 	Bucket string `json:"bucket,omitempty"`
 
-	// The list of classes for which the backup creation process was started
+	// The list of collections (classes) for which the backup creation process was started.
 	Classes []string `json:"classes"`
 
 	// error message if creation failed

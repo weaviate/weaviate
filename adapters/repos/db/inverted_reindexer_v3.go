@@ -20,6 +20,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -208,7 +209,7 @@ func (r *shardReindexerV3) RunBeforeLsmInit(_ context.Context, shard *Shard) (er
 		ec.Add(r.tasks[i].OnBeforeLsmInit(mergedCtx, shard))
 	}
 	err = ec.ToError()
-	return
+	return err
 }
 
 func (r *shardReindexerV3) RunAfterLsmInit(_ context.Context, shard *Shard) (err error) {
@@ -240,7 +241,7 @@ func (r *shardReindexerV3) RunAfterLsmInit(_ context.Context, shard *Shard) (err
 		ec.Add(r.tasks[i].OnAfterLsmInit(mergedCtx, shard))
 	}
 	err = ec.ToError()
-	return
+	return err
 }
 
 func (r *shardReindexerV3) RunAfterLsmInitAsync(_ context.Context, shard *Shard) (err error) {
@@ -307,7 +308,7 @@ func (r *shardReindexerV3) runScheduledTask(ctx context.Context, key string, tas
 
 	if err = ctx.Err(); err != nil {
 		err = fmt.Errorf("context check (1): %w / %w", ctx.Err(), context.Cause(ctx))
-		return
+		return err
 	}
 
 	index := r.getIndex(schema.ClassName(collectionName))
@@ -320,7 +321,7 @@ func (r *shardReindexerV3) runScheduledTask(ctx context.Context, key string, tas
 			}
 		})
 		err = fmt.Errorf("index for shard '%s' of collection '%s' not found", shardName, collectionName)
-		return
+		return err
 	}
 	shard, release, err := index.GetShard(ctx, shardName)
 	if err != nil {
@@ -330,7 +331,7 @@ func (r *shardReindexerV3) runScheduledTask(ctx context.Context, key string, tas
 			}
 		})
 		err = fmt.Errorf("not loaded '%s' of collection '%s': %w", shardName, collectionName, err)
-		return
+		return err
 	}
 
 	rerunAt, reloadShard, err := func() (time.Time, bool, error) {
@@ -372,13 +373,13 @@ func (r *shardReindexerV3) runScheduledTask(ctx context.Context, key string, tas
 			r.scheduleTasks(key, tasks, rerunAt)
 			logger.WithField("task", tasks[0].Name()).Debug("task executed partially, rerun scheduled")
 		})
-		return
+		return err
 	}
 
 	// do not reload if error occurred. schedule tasks using shard's individual context
 	if !reloadShard || err != nil || ctx.Err() != nil {
 		err = scheduleNextTasks(ctx, err)
-		return
+		return err
 	}
 
 	// reload uninterrupted by context. shard's context will be cancelled by shutdown anyway
@@ -387,7 +388,7 @@ func (r *shardReindexerV3) runScheduledTask(ctx context.Context, key string, tas
 	}
 	// schedule tasks using global context
 	err = scheduleNextTasks(r.ctx, err)
-	return
+	return err
 }
 
 func (r *shardReindexerV3) scheduleTasks(key string, tasks []ShardReindexTaskV3, runAt time.Time) error {
@@ -503,31 +504,41 @@ func (q *shardsQueue) getWhenReady(ctx context.Context) (key string, tasks []Sha
 			return "", nil, fmt.Errorf("context check (shardsQueue): %w / %w", ctx.Err(), context.Cause(ctx))
 
 		case <-timerCtx.Done():
-			q.lock.Lock()
-			// check if this is latest ctx and deadline exceeded. if so then top key is to be returned
-			if q.timerCtx == timerCtx && errors.Is(timerCtx.Err(), context.DeadlineExceeded) {
+			var (
+				retKey   string
+				retTasks []ShardReindexTaskV3
+				retErr   error
+			)
+			func() {
+				q.lock.Lock()
 				defer q.lock.Unlock()
-
-				if q.runShardQueue.Len() > 0 {
-					key := q.runShardQueue.Pop().Value
+				// check if this is latest ctx and deadline exceeded. if so then top key is to be returned
+				if q.timerCtx == timerCtx && errors.Is(timerCtx.Err(), context.DeadlineExceeded) {
 					if q.runShardQueue.Len() > 0 {
-						// set timer to next/top shard
-						tm := q.idToTime(q.runShardQueue.Top().ID)
-						q.timerCtx, q.timerCtxCancel = q.deadlineCtx(tm)
-					} else {
-						// set timer to "infinity"
-						q.timerCtx, q.timerCtxCancel = q.infiniteDeadlineCtx()
+						retKey = q.runShardQueue.Pop().Value
+						if q.runShardQueue.Len() > 0 {
+							// set timer to next/top shard
+							tm := q.idToTime(q.runShardQueue.Top().ID)
+							q.timerCtx, q.timerCtxCancel = q.deadlineCtx(tm)
+						} else {
+							// set timer to "infinity"
+							q.timerCtx, q.timerCtxCancel = q.infiniteDeadlineCtx()
+						}
+						retTasks = q.tasksPerShard[retKey]
+						delete(q.tasksPerShard, retKey)
+						return
 					}
-					tasks := q.tasksPerShard[key]
-					delete(q.tasksPerShard, key)
-					return key, tasks, nil
+					// should not happen
+					retErr = fmt.Errorf("shards queue empty")
+					return
 				}
-				// should not happen
-				return "", nil, fmt.Errorf("shards queue empty")
-			}
 
-			timerCtx, timerCtxCancel = q.timerCtx, q.timerCtxCancel
-			q.lock.Unlock()
+				// refresh local timer copies from shared state
+				timerCtx, timerCtxCancel = q.timerCtx, q.timerCtxCancel
+			}()
+			if retErr != nil || retKey != "" {
+				return retKey, retTasks, retErr
+			}
 		}
 	}
 }

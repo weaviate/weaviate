@@ -47,7 +47,7 @@ func newTestHandler(t *testing.T, db clusterSchema.Indexer) (*Handler, *fakeSche
 	}
 	fakeClusterState := fakes.NewFakeClusterState()
 	fakeValidator := &fakeValidator{}
-	schemaParser := NewParser(fakeClusterState, dummyParseVectorConfig, fakeValidator, fakeModulesProvider{})
+	schemaParser := NewParser(fakeClusterState, dummyParseVectorConfig, fakeValidator, fakeModulesProvider{}, nil)
 	handler, err := NewHandler(
 		schemaManager, schemaManager, fakeValidator, logger, mocks.NewMockAuthorizer(),
 		&cfg.SchemaHandlerConfig, cfg, dummyParseVectorConfig, vectorizerValidator, dummyValidateInvertedConfig,
@@ -68,7 +68,7 @@ func newTestHandlerWithCustomAuthorizer(t *testing.T, db clusterSchema.Indexer, 
 	}
 	fakeClusterState := fakes.NewFakeClusterState()
 	fakeValidator := &fakeValidator{}
-	schemaParser := NewParser(fakeClusterState, dummyParseVectorConfig, fakeValidator, nil)
+	schemaParser := NewParser(fakeClusterState, dummyParseVectorConfig, fakeValidator, nil, nil)
 	handler, err := NewHandler(
 		metaHandler, metaHandler, fakeValidator, logger, authorizer,
 		&cfg.SchemaHandlerConfig, cfg, dummyParseVectorConfig, vectorizerValidator, dummyValidateInvertedConfig,
@@ -106,9 +106,6 @@ func (f *fakeDB) DeleteReplicaFromShard(class string, shard string, targetNode s
 }
 
 func (f *fakeDB) LoadShard(class string, shard string) {
-}
-
-func (f *fakeDB) DropShard(class string, shard string) {
 }
 
 func (f *fakeDB) ShutdownShard(class string, shard string) {
@@ -287,8 +284,8 @@ func (f *fakeMigrator) GetShardsQueueSize(ctx context.Context, className, tenant
 	return nil, nil
 }
 
-func (f *fakeMigrator) AddClass(ctx context.Context, cls *models.Class, ss *sharding.State) error {
-	args := f.Called(ctx, cls, ss)
+func (f *fakeMigrator) AddClass(ctx context.Context, cls *models.Class) error {
+	args := f.Called(ctx, cls)
 	return args.Error(0)
 }
 

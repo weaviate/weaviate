@@ -10,7 +10,6 @@
 //
 
 //go:build integrationTest
-// +build integrationTest
 
 package clusterintegrationtest
 
@@ -88,11 +87,9 @@ func testDistributed(t *testing.T, dirName string, rnd *rand.Rand, batch bool) {
 
 	t.Run("apply schema", func(t *testing.T) {
 		for i := range nodes {
-			err := nodes[i].migrator.AddClass(context.Background(), class(),
-				nodes[i].schemaManager.shardState)
+			err := nodes[i].migrator.AddClass(context.Background(), class())
 			require.Nil(t, err)
-			err = nodes[i].migrator.AddClass(context.Background(), secondClassWithRef(),
-				nodes[i].schemaManager.shardState)
+			err = nodes[i].migrator.AddClass(context.Background(), secondClassWithRef())
 			require.Nil(t, err)
 			nodes[i].schemaManager.schema.Objects.Classes = append(nodes[i].schemaManager.schema.Objects.Classes,
 				class(), secondClassWithRef())
@@ -715,8 +712,7 @@ func TestDistributedVectorDistance(t *testing.T) {
 			}
 
 			for i := range nodes {
-				require.Nil(t, nodes[i].migrator.AddClass(context.Background(), collection,
-					nodes[i].schemaManager.shardState))
+				require.Nil(t, nodes[i].migrator.AddClass(context.Background(), collection))
 				nodes[i].schemaManager.schema.Objects.Classes = append(nodes[i].schemaManager.schema.Objects.Classes,
 					collection)
 			}

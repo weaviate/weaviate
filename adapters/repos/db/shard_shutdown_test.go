@@ -18,6 +18,9 @@ import (
 	"fmt"
 	"testing"
 
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/sharding"
+
 	"github.com/stretchr/testify/mock"
 	"github.com/weaviate/weaviate/usecases/cluster"
 
@@ -26,7 +29,6 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
-	schemaTypes "github.com/weaviate/weaviate/cluster/schema/types"
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -140,8 +142,13 @@ func initIndexAndPopulate(t *testing.T, dirName string) (index *Index, cleanup f
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: shardState,
 	}
-	mockSchemaReader := schemaTypes.NewMockSchemaReader(t)
-	mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState).Maybe()
+	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
+		class := &models.Class{Class: className}
+		return readFunc(class, shardState)
+	}).Maybe()
+	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
@@ -155,8 +162,8 @@ func initIndexAndPopulate(t *testing.T, dirName string) (index *Index, cleanup f
 		MaxImportGoroutinesFactor: 1,
 		TrackVectorDimensions:     true,
 	},
-		&fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{},
-		&fakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
+		&FakeRemoteClient{}, &FakeNodeResolver{}, &FakeRemoteNodeClient{},
+		&FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader,
 	)
 	require.NoError(t, err)
@@ -186,7 +193,7 @@ func initIndexAndPopulate(t *testing.T, dirName string) (index *Index, cleanup f
 	}
 
 	migrator := NewMigrator(repo, logger, "node1")
-	err = migrator.AddClass(context.Background(), class, schemaGetter.shardState)
+	err = migrator.AddClass(context.Background(), class)
 	require.NoError(t, err)
 	schemaGetter.schema = sch
 

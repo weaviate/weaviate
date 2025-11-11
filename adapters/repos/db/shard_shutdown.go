@@ -77,15 +77,11 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 	}
 	s.shut.Store(true)
 	s.shutdownRequested.Store(false)
+	s.shutCtxCancel(fmt.Errorf("shutdown %q", s.ID()))
+
 	start := time.Now()
 	defer func() {
 		s.index.metrics.ObserveUpdateShardStatus(storagestate.StatusShutdown.String(), time.Since(start))
-
-		if err != nil {
-			return
-		}
-
-		s.UpdateStatus(storagestate.StatusShutdown.String())
 	}()
 
 	s.reindexer.Stop(s, fmt.Errorf("shard shutdown"))
@@ -143,6 +139,8 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 	})
 
 	if s.store != nil {
+		s.UpdateStatus(storagestate.StatusShutdown.String(), "shutdown")
+
 		// store would be nil if loading the objects bucket failed, as we would
 		// only return the store on success from s.initLSMStore()
 		err = s.store.Shutdown(ctx)

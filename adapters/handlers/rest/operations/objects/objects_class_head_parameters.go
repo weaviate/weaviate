@@ -43,21 +43,21 @@ type ObjectsClassHeadParams struct {
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
-	/*The class name as defined in the schema
+	/*Name of the collection (class) the object belongs to.
 	  Required: true
 	  In: path
 	*/
 	ClassName string
-	/*Determines how many replicas must acknowledge a request before it is considered successful
+	/*Determines how many replicas must acknowledge a request before it is considered successful.
 	  In: query
 	*/
 	ConsistencyLevel *string
-	/*The uuid of the data object
+	/*Unique UUID of the object to check.
 	  Required: true
 	  In: path
 	*/
 	ID strfmt.UUID
-	/*Specifies the tenant in a request targeting a multi-tenant class
+	/*Specifies the tenant in a request targeting a multi-tenant collection (class).
 	  In: query
 	*/
 	Tenant *string

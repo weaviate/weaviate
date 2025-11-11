@@ -10,7 +10,6 @@
 //
 
 //go:build integrationTest
-// +build integrationTest
 
 package lsmkv
 
@@ -456,7 +455,8 @@ func TestConcurrentWriting_Map(t *testing.T) {
 			targets[string(keys[i])] = values[i]
 		}
 
-		c := bucket.MapCursor()
+		c, err := bucket.MapCursor()
+		require.NoError(t, err)
 		defer c.Close()
 
 		ctx := context.Background()

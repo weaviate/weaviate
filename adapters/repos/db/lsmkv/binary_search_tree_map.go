@@ -211,11 +211,7 @@ func (n *binarySearchNodeMap) flattenInOrder() []*binarySearchNodeMap {
 	// the values are sorted on read for performance reasons, the assumption is
 	// that while a memtable is open writes a much more common, thus we write map
 	// KVs unsorted and only sort/dedup them on read.
-	right = append([]*binarySearchNodeMap{{
-		key:         n.key,
-		values:      sortAndDedupValues(n.values),
-		colourIsRed: n.colourIsRed,
-	}}, right...)
+	right = append([]*binarySearchNodeMap{n.shallowCopy()}, right...)
 	return append(left, right...)
 }
 
@@ -253,8 +249,16 @@ func sortAndDedupValues(in []MapPair) []MapPair {
 func binarySearchNodeMapFromRB(rbNode rbtree.Node) (bsNode *binarySearchNodeMap) {
 	if rbNode == nil {
 		bsNode = nil
-		return
+		return bsNode
 	}
 	bsNode = rbNode.(*binarySearchNodeMap)
-	return
+	return bsNode
+}
+
+func (n *binarySearchNodeMap) shallowCopy() *binarySearchNodeMap {
+	return &binarySearchNodeMap{
+		key:         n.key,
+		values:      sortAndDedupValues(n.values),
+		colourIsRed: n.colourIsRed,
+	}
 }

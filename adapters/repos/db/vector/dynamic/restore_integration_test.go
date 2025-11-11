@@ -102,7 +102,7 @@ func TestBackup_Integration(t *testing.T) {
 
 	idx, err := New(config, uc, store)
 	require.Nil(t, err)
-	idx.PostStartup()
+	idx.PostStartup(context.Background())
 
 	compressionhelpers.Concurrently(logger, uint64(vectors_size), func(i uint64) {
 		idx.Add(ctx, i, vectors[i])
@@ -120,14 +120,9 @@ func TestBackup_Integration(t *testing.T) {
 	assert.Nil(t, idx.Flush())
 	assert.Nil(t, idx.Shutdown(context.Background()))
 
-	// open the db again
-	db, err = bbolt.Open(dbPath, 0o666, nil)
-	require.NoError(t, err)
-	config.SharedDB = db
-
 	idx, err = New(config, uc, store)
 	require.Nil(t, err)
-	idx.PostStartup()
+	idx.PostStartup(context.Background())
 	recall2, _ := testinghelpers.RecallAndLatency(ctx, queries, k, idx, truths)
 	assert.Equal(t, recall1, recall2)
 }

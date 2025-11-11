@@ -14,6 +14,8 @@ package usage
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -23,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/usage/types"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	"github.com/weaviate/weaviate/usecases/build"
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
@@ -31,7 +34,6 @@ const (
 	// DefaultShardJitterInterval short for shard-level operations and can be configurable later on
 	DefaultShardJitterInterval = 100 * time.Millisecond
 	DefaultRuntimeLoadInterval = 2 * time.Minute
-	DefaultPolicyVersion       = "2025-06-01"
 )
 
 // BaseModule contains the common logic for usage collection modules
@@ -46,7 +48,11 @@ type BaseModule struct {
 	stopChan      chan struct{}
 	metrics       *Metrics
 	usageService  clusterusage.Service
-	logger        logrus.FieldLogger
+	// support for resuming push after a restart
+	initialIntervalDefined bool
+	initialInterval        time.Duration
+	lastPushDateFilePath   string
+	logger                 logrus.FieldLogger
 	// mu mutex to protect shared fields to run concurrently the collection and upload
 	// to avoid interval overlap for the tickers
 	mu sync.RWMutex
@@ -93,8 +99,9 @@ func (b *BaseModule) InitializeCommon(ctx context.Context, config *config.Config
 	if b.config.Usage.PolicyVersion != nil {
 		b.policyVersion = b.config.Usage.PolicyVersion.Get()
 	}
+
 	if b.policyVersion == "" {
-		b.policyVersion = DefaultPolicyVersion
+		b.policyVersion = build.Version
 	}
 
 	if b.config.Usage.ScrapeInterval != nil {
@@ -125,6 +132,11 @@ func (b *BaseModule) InitializeCommon(ctx context.Context, config *config.Config
 		b.logger.Info("storage permission verification skipped (disabled by configuration)")
 	}
 
+	// try to adjust the initial interval, to avoid push gaps after Weaviate's restarts
+	if err := b.adjustInitialInterval(config); err != nil {
+		b.logger.Errorf("cannot adjust initial interval, falling back to: %v: %v", b.interval, err)
+	}
+
 	// Start periodic collection and upload
 	enterrors.GoWrapper(func() {
 		b.collectAndUploadPeriodically(context.Background())
@@ -141,6 +153,11 @@ func (b *BaseModule) collectAndUploadPeriodically(ctx context.Context) {
 		b.interval = DefaultCollectionInterval
 	}
 
+	if b.initialInterval <= 0 {
+		b.logger.Warn("Invalid collection initialInterval (<= 0), using collection's interval as initial interval")
+		b.initialInterval = b.interval
+	}
+
 	loadInterval := b.config.RuntimeOverrides.LoadInterval
 	if loadInterval <= 0 {
 		b.logger.Warn("Invalid runtime overrides load interval (<= 0), using default of 2 minutes")
@@ -155,7 +172,7 @@ func (b *BaseModule) collectAndUploadPeriodically(ctx context.Context) {
 	}).Debug("starting periodic collection with ticker")
 
 	// Create ticker with base interval
-	ticker := time.NewTicker(b.interval)
+	ticker := time.NewTicker(b.initialInterval)
 	defer ticker.Stop()
 
 	loadTicker := time.NewTicker(loadInterval)
@@ -185,6 +202,8 @@ func (b *BaseModule) collectAndUploadPeriodically(ctx context.Context) {
 				}
 			}, b.logger)
 
+			// save last push date
+			b.storeLastPushDate()
 			// ticker is used to reset the interval
 			b.reloadConfig(ticker)
 
@@ -241,7 +260,7 @@ func (b *BaseModule) collectUsageData(ctx context.Context) (*types.Report, error
 		return nil, fmt.Errorf("usage service not initialized")
 	}
 
-	usage, err := b.usageService.Usage(ctx)
+	usage, err := b.usageService.Usage(ctx, false)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get usage data: %w", err)
 	}
@@ -275,12 +294,18 @@ func (b *BaseModule) reloadConfig(ticker *time.Ticker) {
 			"new_interval": interval.String(),
 		}).Info("collection interval updated")
 		b.interval = interval
+		b.initialInterval = b.interval
 		// Reset ticker with new interval
 		ticker.Reset(b.interval)
 	} else if interval <= 0 && b.interval <= 0 {
 		// If both old and new intervals are invalid, set a default
 		b.logger.Warn("Invalid interval detected during reload, using default of 1 hour")
 		b.interval = DefaultCollectionInterval
+		b.initialInterval = b.interval
+		ticker.Reset(b.interval)
+	} else if !b.initialIntervalDefined && b.interval != b.initialInterval {
+		// initial interval was defined, now we need to adjust the ticker to a proper interval
+		b.initialInterval = b.interval
 		ticker.Reset(b.interval)
 	}
 
@@ -334,6 +359,44 @@ func (b *BaseModule) buildStorageConfig() StorageConfig {
 	}
 
 	return config
+}
+
+func (b *BaseModule) adjustInitialInterval(config *config.Config) error {
+	b.lastPushDateFilePath = filepath.Join(config.Persistence.DataPath, "usage.module.last.push")
+	b.initialInterval = b.interval
+	b.initialIntervalDefined = false
+	if _, err := os.Stat(b.lastPushDateFilePath); !os.IsNotExist(err) {
+		lastPushPathData, err := os.ReadFile(b.lastPushDateFilePath)
+		if err != nil {
+			return fmt.Errorf("cannot read usage module last push file: %s: %w", b.lastPushDateFilePath, err)
+		}
+		lastPushDate := string(lastPushPathData)
+		parsedLastPushDate, err := time.Parse(time.RFC3339, lastPushDate)
+		if err != nil {
+			return fmt.Errorf("cannot parse usage module last push date: %s: %w", lastPushDate, err)
+		}
+
+		adjustedInterval := b.interval - time.Since(parsedLastPushDate)
+		if adjustedInterval > 0 {
+			b.logger.Infof("based on last push date adjusted usage module initial interval from: %v to: %v", b.interval, adjustedInterval)
+			b.initialInterval = adjustedInterval
+		} else {
+			b.initialInterval = time.Duration(1 * time.Second)
+			b.logger.Infof("based on last push date adjusted usage module initial interval to an immediate one: %v", b.initialInterval)
+		}
+		b.initialIntervalDefined = true
+	}
+	return nil
+}
+
+func (b *BaseModule) storeLastPushDate() error {
+	func() {
+		b.mu.Lock()
+		defer b.mu.Unlock()
+		b.initialIntervalDefined = false
+	}()
+	timeStr := time.Now().Format(time.RFC3339)
+	return os.WriteFile(b.lastPushDateFilePath, []byte(timeStr), os.FileMode(0o644))
 }
 
 func (b *BaseModule) Close() error {

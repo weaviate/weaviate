@@ -20,14 +20,14 @@ type segmentCursorCollection struct {
 	nextOffset uint64
 }
 
-func (s *segment) newCollectionCursor() *segmentCursorCollection {
+func (s *segment) newCollectionCursor() innerCursorCollection {
 	return &segmentCursorCollection{
 		segment: s,
 	}
 }
 
 func (sg *SegmentGroup) newCollectionCursors() ([]innerCursorCollection, func()) {
-	segments, release := sg.getAndLockSegments()
+	segments, release := sg.getConsistentViewOfSegments()
 
 	out := make([]innerCursorCollection, len(segments))
 
@@ -92,7 +92,6 @@ func (s *segmentCursorCollection) parseCollectionNode(offset nodeOffset) (segmen
 	if err != nil {
 		return segmentCollectionNode{}, err
 	}
-
 	defer r.Release()
 
 	return ParseCollectionNode(r)

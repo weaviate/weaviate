@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"runtime"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -178,6 +179,7 @@ func (c *cycleCallbackGroup) cycleCallbackParallel(shouldAbort ShouldAbortCallba
 	i := 0
 	for r := 0; r < routinesLimit; r++ {
 		f := func() {
+			defer wg.Done()
 			for callbackId := range ch {
 				if shouldAbort() {
 					// keep reading from channel until it is closed
@@ -231,7 +233,6 @@ func (c *cycleCallbackGroup) cycleCallbackParallel(shouldAbort ShouldAbortCallba
 					}
 				}()
 			}
-			wg.Done()
 		}
 		enterrors.GoWrapper(f, c.logger)
 	}
@@ -271,6 +272,7 @@ func (c *cycleCallbackGroup) cycleCallbackParallel(shouldAbort ShouldAbortCallba
 func (c *cycleCallbackGroup) recover(callbackCustomId string, cancel context.CancelFunc) {
 	if r := recover(); r != nil {
 		entsentry.Recover(r)
+		debug.PrintStack()
 		c.logger.WithFields(logrus.Fields{
 			"action":       "cyclemanager",
 			"callback_id":  callbackCustomId,

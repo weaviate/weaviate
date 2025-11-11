@@ -40,6 +40,7 @@ func BuildNew(path string) graphql.InputObjectConfigFieldMap {
 					"IsNull":           &graphql.EnumValueConfig{},
 					"ContainsAny":      &graphql.EnumValueConfig{},
 					"ContainsAll":      &graphql.EnumValueConfig{},
+					"ContainsNone":     &graphql.EnumValueConfig{},
 				},
 				Description: descriptions.WhereOperatorEnum,
 			}),
