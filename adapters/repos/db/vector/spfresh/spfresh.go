@@ -89,6 +89,9 @@ type SPFresh struct {
 
 	postingLocks       *common.ShardedRWLocks // Locks to prevent concurrent modifications to the same posting.
 	initialPostingLock sync.Mutex
+
+	store       *lsmkv.Store
+	vectorForId common.VectorForID[float32]
 }
 
 func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*SPFresh, error) {
@@ -96,6 +99,7 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*SPFresh, error) {
 	if err != nil {
 		return nil, err
 	}
+	cfg.Compressed = true
 
 	metrics := NewMetrics(cfg.PrometheusMetrics, cfg.ClassName, cfg.ShardName)
 
@@ -121,6 +125,8 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*SPFresh, error) {
 		scheduler:    cfg.Scheduler,
 		metrics:      metrics,
 		PostingStore: postingStore,
+		store:        store,
+		vectorForId:  cfg.VectorForIDThunk,
 		// Capacity of the version map: 8k pages, 1M vectors each -> 8B vectors
 		// - An empty version map consumes 240KB of memory
 		// - Each allocated page consumes 1MB of memory
