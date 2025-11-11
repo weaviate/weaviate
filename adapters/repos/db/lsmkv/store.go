@@ -360,12 +360,12 @@ func (s *Store) runJobOnBuckets(ctx context.Context,
 		wg.Add(1)
 		b := bucket
 		f := func() {
+			defer wg.Done()
 			status.Lock()
 			defer status.Unlock()
 			res, err := jobFunc(ctx, b)
 			resultQueue <- res
 			status.buckets[b] = err
-			wg.Done()
 		}
 		enterrors.GoWrapper(f, s.logger)
 	}
@@ -531,10 +531,11 @@ func (s *Store) ReplaceBuckets(ctx context.Context, bucketName, replacementBucke
 
 	replacementBucket.dir = newReplacementBucketDir
 
-	err = replacementBucket.setNewActiveMemtable()
+	mt, err := replacementBucket.createNewActiveMemtable()
 	if err != nil {
 		return fmt.Errorf("switch active memtable: %w", err)
 	}
+	replacementBucket.active = mt
 
 	s.updateBucketDir(bucket, currBucketDir, newBucketDir)
 	s.updateBucketDir(replacementBucket, currReplacementBucketDir, newReplacementBucketDir)
@@ -582,10 +583,11 @@ func (s *Store) RenameBucket(ctx context.Context, bucketName, newBucketName stri
 
 	currBucket.dir = newBucketDir
 
-	err := currBucket.setNewActiveMemtable()
+	mt, err := currBucket.createNewActiveMemtable()
 	if err != nil {
 		return fmt.Errorf("switch active memtable: %w", err)
 	}
+	currBucket.active = mt
 
 	s.bucketsByName[newBucketName] = currBucket
 	delete(s.bucketsByName, bucketName)
@@ -604,7 +606,7 @@ func (s *Store) updateBucketDir(bucket *Bucket, bucketDir, newBucketDir string) 
 		return strings.Replace(src, bucketDir, newBucketDir, 1)
 	}
 
-	segments, release := bucket.disk.getAndLockSegments()
+	segments, release := bucket.disk.getConsistentViewOfSegments()
 	defer release()
 
 	bucket.disk.dir = newBucketDir

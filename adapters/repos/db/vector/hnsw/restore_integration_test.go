@@ -89,7 +89,7 @@ func TestRestorBQ_Integration(t *testing.T) {
 
 	idx, err := hnsw.New(config, uc, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
 	require.Nil(t, err)
-	idx.PostStartup()
+	idx.PostStartup(context.Background())
 
 	compressionhelpers.Concurrently(logger, uint64(vectors_size), func(i uint64) {
 		idx.Add(ctx, i, vectors[i])
@@ -100,7 +100,7 @@ func TestRestorBQ_Integration(t *testing.T) {
 
 	idx, err = hnsw.New(config, uc, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
 	require.Nil(t, err)
-	idx.PostStartup()
+	idx.PostStartup(context.Background())
 
 	for i := range queries {
 		idx.SearchByVector(ctx, queries[i], k, nil)

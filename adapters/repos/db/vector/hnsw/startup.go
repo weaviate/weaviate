@@ -469,12 +469,12 @@ func (h *hnsw) resetTombstoneMetric() {
 // the shard creation. Some post-startup routines, such as prefilling the
 // vector cache, however, depend on the shard being ready as they will call
 // getVectorForID.
-func (h *hnsw) PostStartup() {
+func (h *hnsw) PostStartup(ctx context.Context) {
 	h.commitLog.InitMaintenance()
-	h.prefillCache()
+	h.prefillCache(ctx)
 }
 
-func (h *hnsw) prefillCache() {
+func (h *hnsw) prefillCache(ctx context.Context) {
 	limit := 0
 	if h.compressed.Load() {
 		limit = int(h.compressor.GetCacheMaxSize())
@@ -491,9 +491,9 @@ func (h *hnsw) prefillCache() {
 		var err error
 		if h.compressed.Load() {
 			if !h.multivector.Load() || h.muvera.Load() {
-				h.compressor.PrefillCache()
+				h.compressor.PrefillCache(ctx)
 			} else {
-				h.compressor.PrefillMultiCache(h.docIDVectors)
+				h.compressor.PrefillMultiCache(ctx, h.docIDVectors)
 			}
 		} else {
 			err = newVectorCachePrefiller(h.cache, h, h.logger).Prefill(context.Background(), limit)

@@ -13,6 +13,7 @@ package compressionhelpers
 
 import (
 	"bytes"
+	"context"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -55,10 +56,20 @@ func NewParallelIterator[T byte | uint64](bucket *lsmkv.Bucket, parallel int, lo
 	}
 }
 
-func (cpi *parallelIterator[T]) IterateAll() chan []VecAndID[T] {
+func (cpi *parallelIterator[T]) IterateAll(ctx context.Context) (out chan []VecAndID[T], aborted chan bool) {
+	out = make(chan []VecAndID[T])
+	aborted = make(chan bool, 1)
+
+	if ctx.Err() != nil {
+		aborted <- true
+		close(aborted)
+		close(out)
+		return out, aborted
+	}
+
 	if cpi.parallel <= 1 {
 		// caller explicitly wants no parallelism, fallback to regular cursor
-		return cpi.iterateAllNoConcurrency()
+		return cpi.iterateAllNoConcurrency(ctx)
 	}
 
 	stopTracking := cpi.startTracking()
@@ -73,11 +84,15 @@ func (cpi *parallelIterator[T]) IterateAll() chan []VecAndID[T] {
 		// no seeds likely means an empty index. If we exit early, we also need to
 		// stop the progress tracking.
 		stopTracking()
-		return nil
+		aborted <- false
+		close(aborted)
+		close(out)
+		return out, aborted
 	}
 
 	wg := sync.WaitGroup{}
-	out := make(chan []VecAndID[T])
+	checkEveryN := 10
+	abort := &atomic.Bool{}
 
 	// There are three scenarios:
 	// 1. Read from beginning to first checkpoint
@@ -93,17 +108,25 @@ func (cpi *parallelIterator[T]) IterateAll() chan []VecAndID[T] {
 	// S1: Read from beginning to first checkpoint:
 	wg.Add(1)
 	enterrors.GoWrapper(func() {
-		c := cpi.bucket.Cursor()
-		localResults := make([]VecAndID[T], 0, 10_000)
-		defer c.Close()
 		defer wg.Done()
+
+		c := cpi.bucket.Cursor()
+		defer c.Close()
 
 		// The first call of cpi.fromCompressedBytes will allocate a buffer into localBuf
 		// which can then be used for the rest of the calls. Once the buffer runs
 		// out, the next call will allocate a new buffer.
 		var localBuf []T
+		localResults := make([]VecAndID[T], 0, 10_000)
 
+		n := 1
 		for k, v := c.First(); k != nil && bytes.Compare(k, seeds[0]) < 0; k, v = c.Next() {
+			if n%checkEveryN == 0 && ctx.Err() != nil {
+				abort.Store(true)
+				break
+			}
+			n++
+
 			if len(k) == 0 {
 				cpi.logger.WithFields(logrus.Fields{
 					"action": "hnsw_compressed_vector_cache_prefill",
@@ -137,7 +160,7 @@ func (cpi *parallelIterator[T]) IterateAll() chan []VecAndID[T] {
 
 		enterrors.GoWrapper(func() {
 			defer wg.Done()
-			localResults := make([]VecAndID[T], 0, 10_000)
+
 			c := cpi.bucket.Cursor()
 			defer c.Close()
 
@@ -145,7 +168,16 @@ func (cpi *parallelIterator[T]) IterateAll() chan []VecAndID[T] {
 			// which can then be used for the rest of the calls. Once the buffer runs
 			// out, the next call will allocate a new buffer.
 			var localBuf []T
+			localResults := make([]VecAndID[T], 0, 10_000)
+
+			n := 1
 			for k, v := c.Seek(start); k != nil && bytes.Compare(k, end) < 0; k, v = c.Next() {
+				if n%checkEveryN == 0 && ctx.Err() != nil {
+					abort.Store(true)
+					break
+				}
+				n++
+
 				if len(k) == 0 {
 					cpi.logger.WithFields(logrus.Fields{
 						"action": "hnsw_compressed_vector_cache_prefill",
@@ -175,16 +207,25 @@ func (cpi *parallelIterator[T]) IterateAll() chan []VecAndID[T] {
 	// S3: Read from last checkpoint to end:
 	wg.Add(1)
 	enterrors.GoWrapper(func() {
+		defer wg.Done()
+
 		c := cpi.bucket.Cursor()
 		defer c.Close()
-		defer wg.Done()
-		localResults := make([]VecAndID[T], 0, 10_000)
 
 		// The first call of cpi.fromCompressedBytes will allocate a buffer into localBuf
 		// which can then be used for the rest of the calls. Once the buffer runs
 		// out, the next call will allocate a new buffer.
 		var localBuf []T
+		localResults := make([]VecAndID[T], 0, 10_000)
+
+		n := 1
 		for k, v := c.Seek(seeds[len(seeds)-1]); k != nil; k, v = c.Next() {
+			if n%checkEveryN == 0 && ctx.Err() != nil {
+				abort.Store(true)
+				break
+			}
+			n++
+
 			if len(k) == 0 {
 				cpi.logger.WithFields(logrus.Fields{
 					"action": "hnsw_compressed_vector_cache_prefill",
@@ -212,28 +253,44 @@ func (cpi *parallelIterator[T]) IterateAll() chan []VecAndID[T] {
 
 	enterrors.GoWrapper(func() {
 		wg.Wait()
-		close(out)
 		stopTracking()
+		aborted <- abort.Load()
+		close(aborted)
+		close(out)
 	}, cpi.logger)
 
-	return out
+	return out, aborted
 }
 
-func (cpi *parallelIterator[T]) iterateAllNoConcurrency() chan []VecAndID[T] {
-	out := make(chan []VecAndID[T])
+func (cpi *parallelIterator[T]) iterateAllNoConcurrency(ctx context.Context) (out chan []VecAndID[T], aborted chan bool) {
+	out = make(chan []VecAndID[T])
+	aborted = make(chan bool, 1)
 	stopTracking := cpi.startTracking()
+
 	enterrors.GoWrapper(func() {
 		defer close(out)
+		defer close(aborted)
+		defer stopTracking()
+
 		c := cpi.bucket.Cursor()
 		defer c.Close()
-		defer stopTracking()
 
 		// The first call of cpi.fromCompressedBytes will allocate a buffer into localBuf
 		// which can then be used for the rest of the calls. Once the buffer runs
 		// out, the next call will allocate a new buffer.
 		var localBuf []T
 		localResults := make([]VecAndID[T], 0, 10_000)
+
+		checkEveryN := 10
+		n := 1
+		abort := false
 		for k, v := c.First(); k != nil; k, v = c.Next() {
+			if n%checkEveryN == 0 && ctx.Err() != nil {
+				abort = true
+				break
+			}
+			n++
+
 			if len(k) == 0 {
 				cpi.logger.WithFields(logrus.Fields{
 					"action": "hnsw_compressed_vector_cache_prefill",
@@ -249,9 +306,10 @@ func (cpi *parallelIterator[T]) iterateAllNoConcurrency() chan []VecAndID[T] {
 		}
 
 		out <- localResults
+		aborted <- abort
 	}, cpi.logger)
 
-	return out
+	return out, aborted
 }
 
 func (cpi *parallelIterator[T]) startTracking() func() {

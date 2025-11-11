@@ -10,7 +10,6 @@
 //
 
 //go:build integrationTest && !race
-// +build integrationTest,!race
 
 package hnsw
 
@@ -105,7 +104,7 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 			VectorCacheMaxObjects: 2 * n,
 		}, tombstoneCleanupCallbacks, testinghelpers.NewDummyStore(t))
 		require.Nil(t, err)
-		idx.PostStartup()
+		idx.PostStartup(context.Background())
 		index = idx
 	})
 
@@ -239,7 +238,7 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 			VectorCacheMaxObjects: 2 * n,
 		}, tombstoneCleanupCallbacks, testinghelpers.NewDummyStore(t))
 		require.Nil(t, err)
-		idx.PostStartup()
+		idx.PostStartup(context.Background())
 		index = idx
 	})
 

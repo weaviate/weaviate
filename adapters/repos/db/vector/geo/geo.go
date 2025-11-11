@@ -27,6 +27,8 @@ import (
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
+const DefaultHNSWEF = 800
+
 // Index wraps another index to provide geo searches. This allows us to reuse
 // the hnsw vector index, without making geo searches dependent on
 // hnsw-specific features.
@@ -45,7 +47,7 @@ type vectorIndex interface {
 		allowList helpers.AllowList) ([]uint64, error)
 	Delete(id ...uint64) error
 	Drop(ctx context.Context) error
-	PostStartup()
+	PostStartup(ctx context.Context)
 }
 
 // Config is passed to the GeoIndex when its created
@@ -56,11 +58,20 @@ type Config struct {
 	RootPath           string
 	Logger             logrus.FieldLogger
 
+	HNSWEF int
+
 	SnapshotDisabled                         bool
 	SnapshotOnStartup                        bool
 	SnapshotCreateInterval                   time.Duration
 	SnapshotMinDeltaCommitlogsNumer          int
 	SnapshotMinDeltaCommitlogsSizePercentage int
+}
+
+func (c Config) hnswEF() int {
+	if c.HNSWEF > 0 {
+		return c.HNSWEF
+	}
+	return DefaultHNSWEF
 }
 
 func NewIndex(config Config,
@@ -100,8 +111,8 @@ func (i *Index) Drop(ctx context.Context) error {
 	return nil
 }
 
-func (i *Index) PostStartup() {
-	i.vectorIndex.PostStartup()
+func (i *Index) PostStartup(ctx context.Context) {
+	i.vectorIndex.PostStartup(ctx)
 }
 
 func makeCommitLoggerFromConfig(config Config, maintenanceCallbacks cyclemanager.CycleCallbackGroup,
@@ -145,7 +156,7 @@ func (i *Index) WithinRange(ctx context.Context,
 		return nil, errors.Wrap(err, "invalid arguments")
 	}
 
-	return i.vectorIndex.KnnSearchByVectorMaxDist(ctx, query, geoRange.Distance, 800, nil)
+	return i.vectorIndex.KnnSearchByVectorMaxDist(ctx, query, geoRange.Distance, i.config.hnswEF(), nil)
 }
 
 func (i *Index) Delete(id uint64) error {

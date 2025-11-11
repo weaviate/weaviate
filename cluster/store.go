@@ -72,6 +72,8 @@ type Config struct {
 	NodeID string
 	// Host is this node host name
 	Host string
+	// BindAddr is the address to bind to
+	BindAddr string
 	// RaftPort is used by internal RAFT communication
 	RaftPort int
 	// RPCPort is used by weaviate internal gRPC communication
@@ -177,7 +179,7 @@ type Config struct {
 	// DistributedTasks is the configuration for the distributed task manager.
 	DistributedTasks config.DistributedTasksConfig
 
-	ReplicaMovementDisabled bool
+	ReplicaMovementEnabled bool
 
 	// ReplicaMovementMinimumAsyncWait is the minimum time bound that replica movement operations will wait before
 	// async replication can complete.
@@ -441,21 +443,24 @@ func (st *Store) init() error {
 	}
 
 	// tcp transport
-	address := fmt.Sprintf("%s:%d", st.cfg.Host, st.cfg.RaftPort)
-	tcpAddr, err := net.ResolveTCPAddr("tcp", address)
+	advertiseAddress := fmt.Sprintf("%s:%d", st.cfg.Host, st.cfg.RaftPort)
+	tcpAddr, err := net.ResolveTCPAddr("tcp", advertiseAddress)
 	if err != nil {
-		return fmt.Errorf("net.resolve tcp address=%v: %w", address, err)
+		return fmt.Errorf("net.resolve tcp address=%v: %w", advertiseAddress, err)
 	}
 
-	st.raftTransport, err = st.raftResolver.NewTCPTransport(address, tcpAddr, tcpMaxPool, tcpTimeout, st.log)
+	bindAddress := fmt.Sprintf("%s:%d", st.cfg.BindAddr, st.cfg.RaftPort)
+	st.raftTransport, err = st.raftResolver.NewTCPTransport(bindAddress, tcpAddr, tcpMaxPool, tcpTimeout, st.log)
 	if err != nil {
-		return fmt.Errorf("raft transport address=%v tcpAddress=%v maxPool=%v timeOut=%v: %w", address, tcpAddr, tcpMaxPool, tcpTimeout, err)
+		return fmt.Errorf("raft transport address=%v tcpAddress=%v maxPool=%v timeOut=%v: %w", bindAddress, tcpAddr, tcpMaxPool, tcpTimeout, err)
 	}
 	st.log.WithFields(logrus.Fields{
-		"address":    address,
-		"tcpMaxPool": tcpMaxPool,
-		"tcpTimeout": tcpTimeout,
-	}).Info("tcp transport")
+		"action":                 "raft_tcp_transport",
+		"raft_bind_address":      bindAddress,
+		"raft_advertise_address": advertiseAddress,
+		"raft_tcp_max_pool":      tcpMaxPool,
+		"raft_tcp_timeout":       tcpTimeout,
+	}).Info("TCP transport")
 
 	return err
 }

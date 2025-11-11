@@ -76,18 +76,14 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
-var (
-
-	// Use runtime.GOMAXPROCS instead of runtime.NumCPU because NumCPU returns
-	// the physical CPU cores. However, in a containerization context, that might
-	// not be what we want. The physical node could have 128 cores, but we could
-	// be cgroup-limited to 2 cores. In that case, we want 2 to be our limit, not
-	// 128. It isn't guaranteed that MAXPROCS reflects the cgroup limit, but at
-	// least there is a chance that it was set correctly. If not, it defaults to
-	// NumCPU anyway, so we're not any worse off.
-	_NUMCPU          = runtime.GOMAXPROCS(0)
-	ErrShardNotFound = errors.New("shard not found")
-)
+// Use runtime.GOMAXPROCS instead of runtime.NumCPU because NumCPU returns
+// the physical CPU cores. However, in a containerization context, that might
+// not be what we want. The physical node could have 128 cores, but we could
+// be cgroup-limited to 2 cores. In that case, we want 2 to be our limit, not
+// 128. It isn't guaranteed that MAXPROCS reflects the cgroup limit, but at
+// least there is a chance that it was set correctly. If not, it defaults to
+// NumCPU anyway, so we're not any worse off.
+var _NUMCPU = runtime.GOMAXPROCS(0)
 
 // shardMap is a sync.Map which specialized in storing shards
 type shardMap sync.Map
@@ -738,6 +734,11 @@ func (i *Index) updateInvertedIndexConfig(ctx context.Context,
 
 	i.invertedIndexConfig = updated
 
+	err := i.stopwords.ReplaceDetectorFromConfig(updated.Stopwords)
+	if err != nil {
+		return fmt.Errorf("update inverted index config: %w", err)
+	}
+
 	return nil
 }
 
@@ -824,6 +825,7 @@ type IndexConfig struct {
 	HNSWWaitForCachePrefill                      bool
 	HNSWFlatSearchConcurrency                    int
 	HNSWAcornFilterRatio                         float64
+	HNSWGeoIndexEF                               int
 	VisitedListPoolMaxSize                       int
 
 	QuerySlowLogEnabled    *configRuntime.DynamicValue[bool]
@@ -1352,6 +1354,7 @@ func (i *Index) objectByID(ctx context.Context, id strfmt.UUID,
 	if err != nil {
 		return obj, err
 	}
+	defer release()
 
 	if shard != nil {
 		if obj, err = shard.ObjectByID(ctx, id, props, addl); err != nil {
@@ -1434,14 +1437,16 @@ func (i *Index) multiObjectByID(ctx context.Context,
 		var err error
 
 		shard, release, err := i.getShardForDirectLocalOperation(ctx, tenant, shardName, localShardOperationRead)
-		defer release()
 		if err != nil {
 			return nil, err
 		} else if shard != nil {
-			objects, err = shard.MultiObjectByID(ctx, group.ids)
-			if err != nil {
-				return nil, errors.Wrapf(err, "local shard %s", shardId(i.ID(), shardName))
-			}
+			func() {
+				defer release()
+				objects, err = shard.MultiObjectByID(ctx, group.ids)
+				if err != nil {
+					err = errors.Wrapf(err, "local shard %s", shardId(i.ID(), shardName))
+				}
+			}()
 		} else {
 			objects, err = i.remote.MultiGetObjects(ctx, shardName, extractIDsFromMulti(group.ids))
 			if err != nil {
@@ -1662,7 +1667,12 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 	resultObjects, resultScores := objectSearchPreallocate(limit, readPlan.Shards())
 
 	eg := enterrors.NewErrorGroupWrapper(i.logger, "filters:", filters)
-	eg.SetLimit(_NUMCPU * 2)
+	// When running in fractional CPU environments, _NUMCPU will be 1
+	// Most cloud deployments of Weaviate are in HA clusters with rf=3
+	// Therefore, we should set the maximum amount of concurrency to at least 3
+	// so that single-tenant rf=3 queries are not serialized. For any higher value of
+	// _NUMCPU, e.g. 8, the extra goroutine will not be a significant overhead (16 -> 17)
+	eg.SetLimit(_NUMCPU*2 + 1)
 	shardResultLock := sync.Mutex{}
 
 	remoteSearch := func(shardName string) error {
@@ -1932,7 +1942,12 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 	}
 
 	eg := enterrors.NewErrorGroupWrapper(i.logger, "tenant:", tenant)
-	eg.SetLimit(_NUMCPU * 2)
+	// When running in fractional CPU environments, _NUMCPU will be 1
+	// Most cloud deployments of Weaviate are in HA clusters with rf=3
+	// Therefore, we should set the maximum amount of concurrency to at least 3
+	// so that single-tenant rf=3 queries are not serialized. For any higher value of
+	// _NUMCPU, e.g. 8, the extra goroutine will not be a significant overhead (16 -> 17)
+	eg.SetLimit(_NUMCPU*2 + 1)
 	m := &sync.Mutex{}
 
 	out := make([]*storobj.Object, 0, shardCap)
@@ -2479,10 +2494,6 @@ func (i *Index) drop() error {
 	}
 
 	return os.RemoveAll(i.path())
-}
-
-func (i *Index) DropShard(name string) error {
-	return i.dropShards([]string{name})
 }
 
 func (i *Index) dropShards(names []string) error {

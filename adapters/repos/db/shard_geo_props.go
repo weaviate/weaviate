@@ -32,12 +32,12 @@ func (s *Shard) initGeoProp(prop *models.Property) error {
 	s.index.cycleCallbacks.geoPropsTombstoneCleanupCycle.Start()
 
 	idx, err := geo.NewIndex(geo.Config{
-		ID:                 geoPropID(prop.Name),
-		RootPath:           s.path(),
-		CoordinatesForID:   s.makeCoordinatesForID(prop.Name),
-		DisablePersistence: false,
-		Logger:             s.index.logger,
-
+		ID:                                       geoPropID(prop.Name),
+		RootPath:                                 s.path(),
+		CoordinatesForID:                         s.makeCoordinatesForID(prop.Name),
+		DisablePersistence:                       false,
+		Logger:                                   s.index.logger,
+		HNSWEF:                                   s.index.Config.HNSWGeoIndexEF,
 		SnapshotDisabled:                         s.index.Config.HNSWDisableSnapshots,
 		SnapshotOnStartup:                        s.index.Config.HNSWSnapshotOnStartup,
 		SnapshotCreateInterval:                   time.Duration(s.index.Config.HNSWSnapshotIntervalSeconds) * time.Second,
@@ -59,7 +59,7 @@ func (s *Shard) initGeoProp(prop *models.Property) error {
 	}
 	s.propertyIndicesLock.Unlock()
 
-	idx.PostStartup()
+	idx.PostStartup(s.shutCtx)
 
 	return nil
 }

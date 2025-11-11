@@ -240,6 +240,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 		spfreshConfigID := s.vectorIndexID(targetVector)
 		spfreshConfig := &spfresh.Config{
 			Logger:            s.index.logger,
+			Scheduler:         s.index.scheduler,
 			DistanceProvider:  distProv,
 			RootPath:          filepath.Join(s.path(), "spfresh"),
 			ID:                spfreshConfigID,
@@ -255,6 +256,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 				WriteSegmentInfoIntoFileName: s.index.Config.SegmentInfoIntoFileNameEnabled,
 				WriteMetadataFilesEnabled:    s.index.Config.WriteMetadataFilesEnabled,
 			},
+			VectorForIDThunk:   hnsw.NewVectorForIDThunk(targetVector, s.vectorByIndexID),
 			TombstoneCallbacks: s.cycleCallbacks.vectorTombstoneCleanupCallbacks,
 			Centroids: spfresh.CentroidConfig{
 				HNSWConfig: &hnsw.Config{
@@ -305,7 +307,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 		return nil, fmt.Errorf("unknown vector index type: %q. Choose one from [\"%s\", \"%s\", \"%s\", \"%s\"]",
 			vectorIndexUserConfig.IndexType(), vectorindex.VectorIndexTypeHNSW, vectorindex.VectorIndexTypeFLAT, vectorindex.VectorIndexTypeDYNAMIC, vectorindex.VectorIndexTypeSPFresh)
 	}
-	defer vectorIndex.PostStartup()
+	defer vectorIndex.PostStartup(s.shutCtx)
 	return vectorIndex, nil
 }
 

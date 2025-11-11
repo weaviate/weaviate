@@ -14,8 +14,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  Production-Docker-Build:
-    name: docker build (production)
+  Multi-Arch-Docker-Build:
+    name: docker build (multi-arch)
     runs-on: ubuntu-latest
     if: ${{ !github.event.pull_request.head.repo.fork && github.triggering_actor != 'dependabot[bot]' && github.event_name == 'push' }}
     timeout-minutes: 45
@@ -34,6 +34,8 @@ jobs:
       - name: Build and cache Docker image
         id: build
         uses: docker/build-push-action@v6
+        env:
+          DOCKER_BUILD_SUMMARY: false
         with:
           context: .
           push: false
@@ -115,14 +117,14 @@ jobs:
           echo "${{ steps.push.outputs.PREVIEW_SEMVER_TAG }}" > /tmp/docker-outputs/preview-semver-tag.txt
 
       - name: Upload outputs
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
-          name: docker-outputs-production
+          name: docker-outputs-multi-arch
           path: /tmp/docker-outputs/
           retention-days: 1
 
   PR-Docker-Build:
-    name: docker build (pull request ${{ matrix.arch }})
+    name: docker build (${{ matrix.arch }})
     # ARM builds run on specific runners to avoid cross-compilation.
     runs-on: ${{ matrix.runner }}
     if: ${{ !github.event.pull_request.head.repo.fork && github.triggering_actor != 'dependabot[bot]' && github.event_name == 'pull_request' }}
@@ -148,6 +150,8 @@ jobs:
       - name: Build and cache Docker image
         id: build
         uses: docker/build-push-action@v6
+        env:
+          DOCKER_BUILD_SUMMARY: false
         with:
           context: .
           push: false
@@ -188,7 +192,7 @@ jobs:
           echo "${{ steps.push.outputs.PREVIEW_SEMVER_TAG }}" > /tmp/docker-outputs/preview-semver-tag.txt
 
       - name: Upload outputs
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: docker-outputs-pr-${{ matrix.arch }}
           path: /tmp/docker-outputs/
@@ -198,35 +202,42 @@ jobs:
     name: docker report
     runs-on: ubuntu-latest
     # Depends on both production and PR jobs, but only one will run based on the event type
-    needs: [Production-Docker-Build, PR-Docker-Build]
+    needs: [Multi-Arch-Docker-Build, PR-Docker-Build]
     # Always run if either dependency succeeded (pr or production build)
-    if: always() && (needs.Production-Docker-Build.result == 'success' || needs.PR-Docker-Build.result == 'success')
+    if: always() && (needs.Multi-Arch-Docker-Build.result == 'success' || needs.PR-Docker-Build.result == 'success')
     steps:
       - uses: actions/checkout@v5
 
       - name: Download all build outputs
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           pattern: docker-outputs-*
           path: /tmp/all-outputs/
 
       - name: Combine all outputs into a single summary report
         run: |
+          PREVIEW_TAG=""
+          if [ -e "/tmp/all-outputs/preview-tag.txt" ]; then
+            PREVIEW_TAG=$(cat /tmp/all-outputs/preview-tag.txt)
+          else
+            PREVIEW_TAG=$(cat /tmp/all-outputs/docker-outputs-*/preview-tag.txt)
+          fi
           echo "PREVIEW_TAG<<EOF" >> $GITHUB_ENV
-          for file in /tmp/all-outputs/docker-outputs-*/preview-tag.txt; do
-            if [ -f "$file" ]; then
-              cat "$file" >> $GITHUB_ENV
-            fi
-          done
+          echo "$PREVIEW_TAG" >> $GITHUB_ENV
           echo "EOF" >> $GITHUB_ENV
 
+          PREVIEW_SEMVER_TAG=""
+          if [ -e "/tmp/all-outputs/preview-semver-tag.txt" ]; then
+            PREVIEW_SEMVER_TAG=$(cat /tmp/all-outputs/preview-semver-tag.txt)
+          else
+            PREVIEW_SEMVER_TAG=$(cat /tmp/all-outputs/docker-outputs-*/preview-semver-tag.txt)
+          fi
           echo "PREVIEW_SEMVER_TAG<<EOF" >> $GITHUB_ENV
-          for file in /tmp/all-outputs/docker-outputs-*/preview-semver-tag.txt; do
-            if [ -f "$file" ]; then
-              cat "$file" >> $GITHUB_ENV
-            fi
-          done
+          echo "$PREVIEW_SEMVER_TAG" >> $GITHUB_ENV
           echo "EOF" >> $GITHUB_ENV
+
+          echo "PREVIEW_TAG: $PREVIEW_TAG"
+          echo "PREVIEW_SEMVER_TAG: $PREVIEW_SEMVER_TAG"
 
       - name: Generate unified Docker report
         env:
@@ -286,7 +297,7 @@ jobs:
       - name: Unit test
         run: ./test/run.sh --unit-only
       - name: Archive code coverage results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: coverage-report-unit
           path: coverage-unit.txt
@@ -311,7 +322,7 @@ jobs:
       - name: Integration test
         run: ./test/run.sh ${{ matrix.test }}
       - name: Archive code coverage results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: coverage-report-integration${{ matrix.test }}
           path: coverage-integration.txt
@@ -609,7 +620,7 @@ jobs:
           WCS_DUMMY_CI_PW: ${{ secrets.WCS_DUMMY_CI_PW }}
           WCS_DUMMY_CI_PW_2: ${{ secrets.WCS_DUMMY_CI_PW_2 }}
         run: ./test/run.sh ${{ matrix.test }}
-  Acceptance-Tests-large:
+  Acceptance-Tests-4-cores:
     name: acceptance large (${{ matrix.name }})
     runs-on: ubicloud-standard-4-ubuntu-2404
     strategy:
@@ -620,6 +631,43 @@ jobs:
             test: "--acceptance-go-client-named-vectors-single-node"
           - name: "vector-cluster"
             test: "--acceptance-go-client-named-vectors-cluster"
+    steps:
+      - uses: actions/checkout@v5
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.24'
+          cache: true
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        if: ${{ !github.event.pull_request.head.repo.fork && github.triggering_actor != 'dependabot[bot]' }}
+        with:
+          username: ${{secrets.DOCKER_USERNAME}}
+          password: ${{secrets.DOCKER_PASSWORD}}
+      - name: Determine retry max_attempts value
+        env:
+          MATRIX_TEST: ${{ matrix.name }}
+        run: |
+          if [[ "$MATRIX_TEST" == *"lsmkv"* ]]; then
+            echo "retry_max_attempts=2" >> $GITHUB_ENV
+          else
+            echo "retry_max_attempts=1" >> $GITHUB_ENV
+          fi
+      - name: Acceptance tests Large
+        uses: nick-fields/retry@v3
+        with:
+          # 15 Minute is a large enough timeout for most of our tests
+          timeout_minutes: 15
+          max_attempts: ${{ env.retry_max_attempts }}
+          command: ./test/run.sh ${{ matrix.test }}
+          on_retry_command: ./test/run.sh --cleanup
+  Acceptance-Tests-github-4-cores:
+    name: acceptance large (${{ matrix.name }})
+    runs-on: DB-ubuntu-24.04-4-cores
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
           - name: "lsmkv"
             test: "--acceptance-lsmkv"
     steps:
@@ -660,16 +708,16 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - name: Download coverage artifacts integration
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           name: coverage-report-unit
       - name: Download coverage integration without vector package
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           name: coverage-report-integration--integration-without-vector-package
           path: coverage-integration-without-vector-package.txt
       - name: Download coverage integration vector package only
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           name: coverage-report-integration--integration-vector-package-only
           path: coverage-integration-vector-package-only.txt
@@ -697,27 +745,27 @@ jobs:
         run: |
           GIT_REVISION=$(git rev-parse --short HEAD) GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD) BUILD_USER=ci BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ") goreleaser build  --clean --snapshot
       - name: Upload macos
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: binaries-macos-unsigned
           path: dist/weaviate_darwin_all
       - name: Upload windows
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: binaries-windows-amd64
           path: dist/weaviate_windows_amd64_v1
       - name: Upload windows
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: binaries-windows-arm64
           path: dist/weaviate_windows_arm64
       - name: Upload linux amd64
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: binaries-linux-amd64
           path: dist/weaviate_linux_amd64_v1
       - name: Upload linux arm64
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: binaries-linux-arm64
           path: dist/weaviate_linux_arm64
@@ -736,7 +784,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - name: Download binaries
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           name: binaries-windows-amd64
       - name: Set up Go
