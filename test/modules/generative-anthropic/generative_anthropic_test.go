@@ -52,29 +52,25 @@ func testGenerativeAnthropic(rest, grpc string) func(t *testing.T) {
 			withImages         bool
 		}{
 			{
-				name:            "claude-3-5-sonnet-20240620",
-				generativeModel: "claude-3-5-sonnet-20240620",
+				name:            "claude-haiku-4-5",
+				generativeModel: "claude-haiku-4-5",
 			},
 			{
-				name:            "claude-3-opus-20240229",
-				generativeModel: "claude-3-opus-20240229",
+				name:            "claude-sonnet-4-5",
+				generativeModel: "claude-sonnet-4-5",
 			},
 			{
-				name:            "claude-3-sonnet-20240229",
-				generativeModel: "claude-3-sonnet-20240229",
-			},
-			{
-				name:            "claude-3-haiku-20240307",
-				generativeModel: "claude-3-haiku-20240307",
+				name:            "claude-opus-4-1-20250805",
+				generativeModel: "claude-opus-4-1-20250805",
 			},
 			{
 				name:               "absent module config",
-				generativeModel:    "claude-3-5-sonnet-20240620",
+				generativeModel:    "claude-haiku-4-5",
 				absentModuleConfig: true,
 			},
 			{
-				name:            "claude-3-5-sonnet-20241022",
-				generativeModel: "claude-3-5-sonnet-20241022",
+				name:            "claude-sonnet-4-5",
+				generativeModel: "claude-sonnet-4-5",
 				withImages:      true,
 			},
 		}
@@ -133,7 +129,6 @@ func testGenerativeAnthropic(rest, grpc string) func(t *testing.T) {
 						Model:         grpchelper.ToPtr(tt.generativeModel),
 						Temperature:   grpchelper.ToPtr(0.9),
 						TopK:          grpchelper.ToPtr(int64(90)),
-						TopP:          grpchelper.ToPtr(0.9),
 						StopSequences: &pb.TextArray{Values: []string{"stop"}},
 					}
 					if tt.absentModuleConfig {

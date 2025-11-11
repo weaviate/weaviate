@@ -42,14 +42,10 @@ var defaultMaxTokens = map[string]int{
 }
 
 var (
-	DefaultBaseURL              = "https://api.anthropic.com"
-	DefaultAnthropicModel       = "claude-3-5-sonnet-20240620"
-	DefaultAnthropicTemperature = 1.0
+	DefaultBaseURL        = "https://api.anthropic.com"
+	DefaultAnthropicModel = "claude-haiku-4-5"
 	// DefaultAnthropicMaxTokens - 4096 is the max output tokens, input tokens are typically much larger
-	DefaultAnthropicMaxTokens     = 4096
-	DefaultAnthropicTopK          = 0
-	DefaultAnthropicTopP          = 0.0
-	DefaultAnthropicStopSequences = []string{}
+	DefaultAnthropicMaxTokens = 4096
 )
 
 type classSettings struct {
@@ -76,31 +72,28 @@ func (ic *classSettings) getStringProperty(property string, defaultValue string)
 }
 
 func (ic *classSettings) getIntProperty(name string, defaultValue *int) *int {
-	wrongVal := -1
-	return ic.propertyValuesHelper.GetPropertyAsIntWithNotExists(ic.cfg, name, &wrongVal, defaultValue)
+	return ic.propertyValuesHelper.GetPropertyAsInt(ic.cfg, name, defaultValue)
 }
 
 func (ic *classSettings) getFloatProperty(name string, defaultValue *float64) *float64 {
-	wrongVal := float64(-1.0)
-	return ic.propertyValuesHelper.GetPropertyAsFloat64WithNotExists(ic.cfg, name, &wrongVal, defaultValue)
+	return ic.propertyValuesHelper.GetPropertyAsFloat64(ic.cfg, name, defaultValue)
 }
 
-func (ic *classSettings) getListOfStringsProperty(name string, defaultValue []string) *[]string {
+func (ic *classSettings) getListOfStringsProperty(name string, defaultValue []string) []string {
 	if ic.cfg == nil {
 		// we would receive a nil-config on cross-class requests, such as Explore{}
-		return &defaultValue
+		return nil
 	}
 
 	model, ok := ic.cfg.ClassByModuleName("generative-anthropic")[name]
 	if ok {
 		asStringList, ok := model.([]string)
 		if ok {
-			return &asStringList
+			return asStringList
 		}
-		var empty []string
-		return &empty
+		return nil
 	}
-	return &defaultValue
+	return nil
 }
 
 func (ic *classSettings) GetMaxTokensForModel(model string) *int {
@@ -122,18 +115,18 @@ func (ic *classSettings) MaxTokens() *int {
 	return ic.getIntProperty(maxTokensProperty, nil)
 }
 
-func (ic *classSettings) Temperature() float64 {
-	return *ic.getFloatProperty(temperatureProperty, &DefaultAnthropicTemperature)
+func (ic *classSettings) Temperature() *float64 {
+	return ic.getFloatProperty(temperatureProperty, nil)
 }
 
-func (ic *classSettings) TopK() int {
-	return *ic.getIntProperty(topKProperty, &DefaultAnthropicTopK)
+func (ic *classSettings) TopK() *int {
+	return ic.getIntProperty(topKProperty, nil)
 }
 
-func (ic *classSettings) TopP() float64 {
-	return *ic.getFloatProperty(topPProperty, &DefaultAnthropicTopP)
+func (ic *classSettings) TopP() *float64 {
+	return ic.getFloatProperty(topPProperty, nil)
 }
 
 func (ic *classSettings) StopSequences() []string {
-	return *ic.getListOfStringsProperty(stopSequencesProperty, DefaultAnthropicStopSequences)
+	return ic.getListOfStringsProperty(stopSequencesProperty, nil)
 }

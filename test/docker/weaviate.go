@@ -112,7 +112,6 @@ func startWeaviate(ctx context.Context,
 		FromDockerfile: fromDockerFile,
 		Image:          weaviateImage,
 		Hostname:       containerName,
-		Name:           containerName,
 		Networks:       []string{networkName},
 		NetworkAliases: map[string][]string{
 			networkName: {containerName},

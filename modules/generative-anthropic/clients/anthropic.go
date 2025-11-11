@@ -180,16 +180,13 @@ func (a *anthropic) getParameters(cfg moduletools.ClassConfig, options interface
 		params.Model = settings.Model()
 	}
 	if params.Temperature == nil {
-		temperature := settings.Temperature()
-		params.Temperature = &temperature
+		params.Temperature = settings.Temperature()
 	}
 	if params.TopK == nil {
-		topK := settings.TopK()
-		params.TopK = &topK
+		params.TopK = settings.TopK()
 	}
 	if params.TopP == nil {
-		topP := settings.TopP()
-		params.TopP = &topP
+		params.TopP = settings.TopP()
 	}
 	if len(params.StopSequences) == 0 {
 		params.StopSequences = settings.StopSequences()
