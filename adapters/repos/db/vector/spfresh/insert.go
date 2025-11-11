@@ -76,7 +76,7 @@ func (s *SPFresh) Add(ctx context.Context, id uint64, vector []float32) (err err
 	// TODO: if the vector already exists, invalidate all previous instances
 	// by incrementing the version
 	version := VectorVersion(1)
-	err = s.VersionMap.Set(context.Background(), id, version)
+	err = s.VersionMap.Set(s.ctx, id, version)
 	if err != nil {
 		return errors.Wrapf(err, "failed to set version map for vector %d", id)
 	}
@@ -165,7 +165,7 @@ func (s *SPFresh) append(ctx context.Context, vector Vector, centroidID uint64, 
 	if !s.Centroids.Exists(centroidID) {
 		// the posting might have been deleted concurrently,
 		// might happen if we are reassigning
-		version, err := s.VersionMap.Get(context.Background(), vector.ID())
+		version, err := s.VersionMap.Get(s.ctx, vector.ID())
 		if err != nil {
 			return false, err
 		}

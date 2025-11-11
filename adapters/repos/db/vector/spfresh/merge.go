@@ -157,7 +157,7 @@ func (s *SPFresh) doMerge(postingID uint64) error {
 
 			var candidateLen int
 			for _, v := range candidate.Iter() {
-				version, err := s.VersionMap.Get(context.Background(), v.ID())
+				version, err := s.VersionMap.Get(s.ctx, v.ID())
 				if err != nil {
 					return errors.Wrapf(err, "failed to get version for vector %d", v.ID())
 				}
