@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/handlers/grpc/clusterapi/proto/protocol"
 	"github.com/weaviate/weaviate/cluster/replication/copier/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/diskio"
@@ -33,8 +34,6 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/integrity"
-
-	pbv1 "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
@@ -93,7 +92,7 @@ func (c *Copier) CopyReplicaFiles(ctx context.Context, srcNodeId, collectionName
 	}
 	defer client.Close()
 
-	_, err = client.PauseFileActivity(ctx, &pbv1.PauseFileActivityRequest{
+	_, err = client.PauseFileActivity(ctx, &protocol.PauseFileActivityRequest{
 		IndexName:     collectionName,
 		ShardName:     shardName,
 		SchemaVersion: schemaVersion,
@@ -101,12 +100,12 @@ func (c *Copier) CopyReplicaFiles(ctx context.Context, srcNodeId, collectionName
 	if err != nil {
 		return fmt.Errorf("failed to pause file activity: %w", err)
 	}
-	defer client.ResumeFileActivity(ctx, &pbv1.ResumeFileActivityRequest{
+	defer client.ResumeFileActivity(ctx, &protocol.ResumeFileActivityRequest{
 		IndexName: collectionName,
 		ShardName: shardName,
 	})
 
-	fileListResp, err := client.ListFiles(ctx, &pbv1.ListFilesRequest{
+	fileListResp, err := client.ListFiles(ctx, &protocol.ListFilesRequest{
 		IndexName: collectionName,
 		ShardName: shardName,
 	})
@@ -141,7 +140,7 @@ func (c *Copier) CopyReplicaFiles(ctx context.Context, srcNodeId, collectionName
 		return fmt.Errorf("failed to prepare local folder: %w", err)
 	}
 
-	metadataChan := make(chan *pbv1.FileMetadata, 1000)
+	metadataChan := make(chan *protocol.FileMetadata, 1000)
 	var metaWG sync.WaitGroup
 
 	for range c.concurrentWorkers {
@@ -253,7 +252,7 @@ func (c *Copier) prepareLocalFolder(collectionName, shardName string, fileNames 
 }
 
 func (c *Copier) metadataWorker(ctx context.Context, client FileReplicationServiceClient,
-	collectionName, shardName string, fileNameChan <-chan string, metadataChan chan<- *pbv1.FileMetadata,
+	collectionName, shardName string, fileNameChan <-chan string, metadataChan chan<- *protocol.FileMetadata,
 	wg *sync.WaitGroup,
 ) error {
 	defer wg.Done()
@@ -272,7 +271,7 @@ func (c *Copier) metadataWorker(ctx context.Context, client FileReplicationServi
 	}()
 
 	for fileName := range fileNameChan {
-		err := stream.Send(&pbv1.GetFileMetadataRequest{
+		err := stream.Send(&protocol.GetFileMetadataRequest{
 			IndexName: collectionName,
 			ShardName: shardName,
 			FileName:  fileName,
@@ -293,7 +292,7 @@ func (c *Copier) metadataWorker(ctx context.Context, client FileReplicationServi
 }
 
 func (c *Copier) downloadWorker(ctx context.Context, client FileReplicationServiceClient,
-	metadataChan <-chan *pbv1.FileMetadata, wg *sync.WaitGroup,
+	metadataChan <-chan *protocol.FileMetadata, wg *sync.WaitGroup,
 ) error {
 	defer wg.Done()
 
@@ -323,7 +322,7 @@ func (c *Copier) downloadWorker(ctx context.Context, client FileReplicationServi
 			return nil
 		}
 
-		err = stream.Send(&pbv1.GetFileRequest{
+		err = stream.Send(&protocol.GetFileRequest{
 			IndexName: meta.IndexName,
 			ShardName: meta.ShardName,
 			FileName:  meta.FileName,
