@@ -461,7 +461,7 @@ func TestContextMutexMixedOperations(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel() // Cancel immediately
 	err = m.LockWithContext(ctx)
-	require.Nil(t, err)
+	require.NotNil(t, err)
 
 	// this should panic since we did not acquire the lock above
 	require.Panics(t, func() {
