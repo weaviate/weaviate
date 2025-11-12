@@ -259,8 +259,13 @@ func (t *SplitTask) Execute(ctx context.Context) error {
 		return ctx.Err()
 	}
 
+	err := t.idx.doSplit(t.id, true)
+	if err != nil {
+		return err
+	}
+
 	t.idx.metrics.DequeueSplitTask()
-	return t.idx.doSplit(t.id, true)
+	return nil
 }
 
 type MergeTask struct {
@@ -282,8 +287,13 @@ func (t *MergeTask) Execute(ctx context.Context) error {
 		return ctx.Err()
 	}
 
+	err := t.idx.doMerge(t.id)
+	if err != nil {
+		return err
+	}
+
 	t.idx.metrics.DequeueMergeTask()
-	return t.idx.doMerge(t.id)
+	return nil
 }
 
 type ReassignTask struct {
@@ -307,8 +317,13 @@ func (t *ReassignTask) Execute(ctx context.Context) error {
 		return ctx.Err()
 	}
 
+	err := t.idx.doReassign(reassignOperation{PostingID: t.id, VectorID: t.vecID, Version: t.version})
+	if err != nil {
+		return err
+	}
+
 	t.idx.metrics.DequeueReassignTask()
-	return t.idx.doReassign(reassignOperation{PostingID: t.id, VectorID: t.vecID, Version: t.version})
+	return nil
 }
 
 func encodeTask(buf []byte, id uint64, op uint8) ([]byte, error) {
