@@ -51,26 +51,26 @@ func FromEnvironment() *Config {
 	cfg := DefaultConfig()
 
 	// Basic configuration
-	cfg.Enabled = config.Enabled(os.Getenv("OTEL_ENABLED"))
+	cfg.Enabled = config.Enabled(os.Getenv("EXPERIMENTAL_OTEL_ENABLED"))
 	if !cfg.Enabled {
 		return cfg
 	}
 
 	// Service configuration
-	if serviceName := os.Getenv("OTEL_SERVICE_NAME"); serviceName != "" {
+	if serviceName := os.Getenv("EXPERIMENTAL_OTEL_SERVICE_NAME"); serviceName != "" {
 		cfg.ServiceName = serviceName
 	}
 
-	if environment := os.Getenv("OTEL_ENVIRONMENT"); environment != "" {
+	if environment := os.Getenv("EXPERIMENTAL_OTEL_ENVIRONMENT"); environment != "" {
 		cfg.Environment = environment
 	}
 
 	// Exporter configuration
-	if endpoint := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"); endpoint != "" {
+	if endpoint := os.Getenv("EXPERIMENTAL_OTEL_EXPORTER_OTLP_ENDPOINT"); endpoint != "" {
 		cfg.ExporterEndpoint = endpoint
 	}
 
-	if protocol := os.Getenv("OTEL_EXPORTER_OTLP_PROTOCOL"); protocol != "" {
+	if protocol := os.Getenv("EXPERIMENTAL_OTEL_EXPORTER_OTLP_PROTOCOL"); protocol != "" {
 		cfg.ExporterProtocol = protocol
 	}
 
@@ -88,20 +88,20 @@ func FromEnvironment() *Config {
 	}
 
 	// Sampling configuration
-	if samplerArg := os.Getenv("OTEL_TRACES_SAMPLER_ARG"); samplerArg != "" {
+	if samplerArg := os.Getenv("EXPERIMENTAL_OTEL_TRACES_SAMPLER_ARG"); samplerArg != "" {
 		if rate, err := strconv.ParseFloat(samplerArg, 64); err == nil && rate >= 0.0 && rate <= 1.0 {
 			cfg.SamplingRate = rate
 		}
 	}
 
 	// Batch configuration
-	if batchTimeout := os.Getenv("OTEL_BSP_EXPORT_TIMEOUT"); batchTimeout != "" {
+	if batchTimeout := os.Getenv("EXPERIMENTAL_OTEL_BSP_EXPORT_TIMEOUT"); batchTimeout != "" {
 		if timeout, err := time.ParseDuration(batchTimeout); err == nil {
 			cfg.BatchTimeout = timeout
 		}
 	}
 
-	if batchSize := os.Getenv("OTEL_BSP_MAX_EXPORT_BATCH_SIZE"); batchSize != "" {
+	if batchSize := os.Getenv("EXPERIMENTAL_OTEL_BSP_MAX_EXPORT_BATCH_SIZE"); batchSize != "" {
 		if size, err := strconv.Atoi(batchSize); err == nil && size > 0 {
 			cfg.MaxExportBatchSize = size
 		}

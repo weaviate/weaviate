@@ -1827,7 +1827,6 @@ func reasonableHttpClient(authConfig cluster.AuthConfig, minimumInternalTimeout 
 		ExpectContinueTimeout: 1 * time.Second,
 	}
 
-	// TODO only if enabled
 	// Wrap with OpenTelemetry tracing
 	transport := monitoring.NewTracingTransport(t)
 

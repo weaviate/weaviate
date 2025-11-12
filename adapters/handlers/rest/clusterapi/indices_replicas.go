@@ -27,8 +27,6 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
-	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/trace"
 
 	"github.com/weaviate/weaviate/cluster/router/types"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -481,12 +479,6 @@ func (i *replicatedIndices) patchObject() http.Handler {
 
 func (i *replicatedIndices) getObjectsDigest() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ctx := r.Context()
-		ctx, span := otel.Tracer("weaviate-search").Start(ctx, "replicatedIndices.getObjectsDigest",
-			trace.WithSpanKind(trace.SpanKindInternal),
-		)
-		defer span.End()
-
 		args := regxObjectsDigest.FindStringSubmatch(r.URL.Path)
 		if len(args) != 3 {
 			http.Error(w, "invalid URI", http.StatusBadRequest)
@@ -509,7 +501,7 @@ func (i *replicatedIndices) getObjectsDigest() http.Handler {
 			return
 		}
 
-		results, err := i.shards.DigestObjects(ctx, index, shard, ids)
+		results, err := i.shards.DigestObjects(r.Context(), index, shard, ids)
 		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
 			http.Error(w, "digest objects: "+err.Error(),
 				http.StatusUnprocessableEntity)

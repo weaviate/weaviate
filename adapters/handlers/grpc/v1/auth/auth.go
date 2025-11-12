@@ -17,8 +17,6 @@ import (
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/composer"
-	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc/metadata"
 )
 
@@ -40,11 +38,6 @@ func NewHandler(allowAnonymousAccess bool, authComposer composer.TokenFunc) *Han
 // should be called from a central place. This way we can make sure it's
 // impossible to forget to add it to a new endpoint.
 func (h *Handler) PrincipalFromContext(ctx context.Context) (*models.Principal, error) {
-	ctx, span := otel.Tracer("weaviate-search").Start(ctx, "handler.PrincipalFromContext",
-		trace.WithSpanKind(trace.SpanKindInternal),
-	)
-	defer span.End()
-
 	md, ok := metadata.FromIncomingContext(ctx)
 	if !ok {
 		return h.tryAnonymous()
