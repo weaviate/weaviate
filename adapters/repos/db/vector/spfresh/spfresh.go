@@ -283,6 +283,8 @@ func (s *SPFresh) Multivector() bool {
 func (s *SPFresh) ContainsDoc(id uint64) bool {
 	v, err := s.VersionMap.Get(context.Background(), id)
 	if err != nil {
+		s.logger.WithField("vectorID", id).
+			Debug("vector version get failed, returning false")
 		return false
 	}
 	return !v.Deleted() && v.Version() > 0
