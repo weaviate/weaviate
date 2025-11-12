@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/usecases/build"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
@@ -55,7 +56,7 @@ func NewProvider(cfg *Config, logger logrus.FieldLogger) (*Provider, error) {
 	res, err := resource.New(context.Background(),
 		resource.WithAttributes(
 			semconv.ServiceName(cfg.ServiceName),
-			semconv.ServiceVersion("1.0.0"), // TODO: get from build info
+			semconv.ServiceVersion(build.Version), // TODO: get from build info
 			semconv.DeploymentEnvironment(cfg.Environment),
 		),
 	)
