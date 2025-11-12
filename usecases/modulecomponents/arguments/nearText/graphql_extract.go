@@ -22,67 +22,29 @@ import (
 // ExtractNearText arguments, such as "concepts", "moveTo", "moveAwayFrom",
 // "limit", etc.
 func (g *GraphQLArgumentsProvider) extractNearTextFn(source map[string]interface{}) (interface{}, *dto.TargetCombination, error) {
-	var args NearTextParams
-
-	// keywords is a required argument, so we don't need to check for its existing
-	keywords := source["concepts"].([]interface{})
-	args.Values = make([]string, len(keywords))
-	for i, value := range keywords {
-		args.Values[i] = value.(string)
+	args := NearTextParams{
+		Values: extractConceptStrings(source),
 	}
 
-	// autocorrect is an optional arg, so it could be nil
-	autocorrect, ok := source["autocorrect"]
-	if ok {
-		args.Autocorrect = autocorrect.(bool)
+	args.Autocorrect = optionalBool(source, "autocorrect")
+	applyAutocorrect(&args, g)
+
+	if err := assignOptionalLimit(&args, source["limit"]); err != nil {
+		return nil, nil, err
 	}
 
-	// if there's text transformer present and autocorrect set to true
-	// perform text transformation operation
-	if args.Autocorrect && g.nearTextTransformer != nil {
-		if transformedValues, err := g.nearTextTransformer.Transform(args.Values); err == nil {
-			args.Values = transformedValues
-		}
+	if certainty, ok := optionalFloat(source, "certainty"); ok {
+		args.Certainty = certainty
 	}
 
-	// limit is an optional arg, so it could be nil
-	limit, ok := source["limit"]
-	if ok {
-		if i, err := graphqlutil.ToInt(limit); err == nil {
-			args.Limit = i
-		} else {
-			return nil, nil, fmt.Errorf("invalid limit: %w", err)
-		}
-	}
-
-	certainty, ok := source["certainty"]
-	if ok {
-		args.Certainty = certainty.(float64)
-	}
-
-	distance, ok := source["distance"]
-	if ok {
-		args.Distance = distance.(float64)
+	if distance, ok := optionalFloat(source, "distance"); ok {
+		args.Distance = distance
 		args.WithDistance = true
 	}
 
-	// moveTo is an optional arg, so it could be nil
-	moveTo, ok := source["moveTo"]
-	if ok {
-		args.MoveTo = extractMovement(moveTo)
-	}
-
-	// network is an optional arg, so it could be nil
-	network, ok := source["network"]
-	if ok {
-		args.Network = network.(bool)
-	}
-
-	// moveAwayFrom is an optional arg, so it could be nil
-	moveAwayFrom, ok := source["moveAwayFrom"]
-	if ok {
-		args.MoveAwayFrom = extractMovement(moveAwayFrom)
-	}
+	assignOptionalMovement(&args.MoveTo, source, "moveTo")
+	assignOptionalMovement(&args.MoveAwayFrom, source, "moveAwayFrom")
+	args.Network = optionalBool(source, "network")
 
 	targetVectors, combination, err := common_filters.ExtractTargets(source)
 	if err != nil {
@@ -91,6 +53,62 @@ func (g *GraphQLArgumentsProvider) extractNearTextFn(source map[string]interface
 	args.TargetVectors = targetVectors
 
 	return &args, combination, nil
+}
+
+func extractConceptStrings(source map[string]interface{}) []string {
+	keywords := source["concepts"].([]interface{})
+	values := make([]string, len(keywords))
+	for i, value := range keywords {
+		values[i] = value.(string)
+	}
+	return values
+}
+
+func applyAutocorrect(args *NearTextParams, provider *GraphQLArgumentsProvider) {
+	if !args.Autocorrect || provider.nearTextTransformer == nil {
+		return
+	}
+	if transformedValues, err := provider.nearTextTransformer.Transform(args.Values); err == nil {
+		args.Values = transformedValues
+	}
+}
+
+func assignOptionalLimit(args *NearTextParams, raw interface{}) error {
+	if raw == nil {
+		return nil
+	}
+	limit, err := graphqlutil.ToInt(raw)
+	if err != nil {
+		return fmt.Errorf("invalid limit: %w", err)
+	}
+	args.Limit = limit
+	return nil
+}
+
+func optionalFloat(source map[string]interface{}, key string) (float64, bool) {
+	raw, ok := source[key]
+	if !ok {
+		return 0, false
+	}
+	value, ok := raw.(float64)
+	return value, ok
+}
+
+func optionalBool(source map[string]interface{}, key string) bool {
+	raw, ok := source[key]
+	if !ok {
+		return false
+	}
+	value, _ := raw.(bool)
+	return value
+}
+
+func assignOptionalMovement(target *ExploreMove, source map[string]interface{}, key string) {
+	raw, ok := source[key]
+	if !ok {
+		return
+	}
+	*target = extractMovement(raw)
 }
 
 func extractMovement(input interface{}) ExploreMove {
