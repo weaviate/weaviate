@@ -29,9 +29,6 @@ var (
 	// ErrInvalidBatchSize is returned when the batch size is invalid
 	ErrInvalidBatchSize = errors.New("opentelemetry: batch size must be greater than 0")
 
-	// ErrProviderNotInitialized is returned when the provider is not initialized
-	ErrProviderNotInitialized = errors.New("opentelemetry: provider not initialized")
-
 	// ErrExporterNotSupported is returned when the exporter protocol is not supported
 	ErrExporterNotSupported = errors.New("opentelemetry: exporter protocol not supported")
 )

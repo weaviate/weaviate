@@ -293,12 +293,8 @@ func (c propagationMetadataCarrier) Keys() []string {
 
 // AddTracingToHTTPMiddleware adds tracing to the existing HTTP middleware chain
 func AddTracingToHTTPMiddleware(next http.Handler, logger logrus.FieldLogger) http.Handler {
-	if !opentelemetry.IsEnabled() {
-		logger.Debug("OpenTelemetry tracing disabled, skipping HTTP tracing middleware")
-		return next
-	}
-
-	logger.Info("Adding OpenTelemetry HTTP tracing middleware")
+	logger.Debug("Adding OpenTelemetry HTTP tracing middleware")
+	// only has an effect if tracing is enabled
 	return HTTPTracingMiddleware(next)
 }
 
@@ -316,19 +312,6 @@ func (t *tracingTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 		return t.base.RoundTrip(req)
 	}
 
-	// TODO do we want to track client vs server on these? add if we want both send/receive side
-	// Start client span
-	// ctx, span := otel.Tracer("weaviate-http-client").Start(req.Context(), req.Method+" "+req.URL.Path,
-	// 	trace.WithSpanKind(trace.SpanKindClient),
-	// 	trace.WithAttributes(
-	// 		attribute.String("http.method", req.Method),
-	// 		attribute.String("http.url", req.URL.String()),
-	// 		attribute.String("net.peer.name", req.URL.Hostname()),
-	// 		attribute.String("http.target", req.URL.Path),
-	// 	),
-	// )
-	// defer span.End()
-
 	// Inject trace context into headers
 	ctx := req.Context()
 	propagator := otel.GetTextMapPropagator()
@@ -338,17 +321,8 @@ func (t *tracingTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	// Execute the request
 	resp, err := t.base.RoundTrip(req.WithContext(ctx))
 	if err != nil {
-		// span.SetStatus(codes.Error, err.Error())
 		return resp, err
 	}
-
-	// Set span attributes based on response
-	// span.SetAttributes(attribute.Int("http.status_code", resp.StatusCode))
-	// if resp.StatusCode >= 400 {
-	// 	span.SetStatus(codes.Error, fmt.Sprintf("HTTP %d", resp.StatusCode))
-	// } else {
-	// 	span.SetStatus(codes.Ok, "")
-	// }
 
 	return resp, err
 }

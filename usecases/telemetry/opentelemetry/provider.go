@@ -145,6 +145,7 @@ func createGRPCExporter(cfg *Config) (sdktrace.SpanExporter, error) {
 // Tracer returns the OpenTelemetry tracer
 func (p *Provider) Tracer() trace.Tracer {
 	if p.tracer == nil {
+		// TODO
 		// return trace.NewNoopTracerProvider().Tracer("noop")
 		return noop.NewTracerProvider().Tracer("noop")
 	}

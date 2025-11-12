@@ -259,7 +259,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	if err := opentelemetry.Init(appState.Logger); err != nil {
 		appState.Logger.
 			WithField("action", "startup").WithError(err).
-			Fatal("failed to initialize OpenTelemetry")
+			Error("failed to initialize OpenTelemetry")
 	}
 
 	if appState.ServerConfig.Config.Monitoring.Enabled {
