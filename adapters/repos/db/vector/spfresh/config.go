@@ -97,7 +97,7 @@ func DefaultConfig() *Config {
 		ReassignNeighbors:         DefaultReassignNeighbors,
 		MaxDistanceRatio:          DefaultMaxDistanceRatio,
 		DistanceProvider:          distancer.NewL2SquaredProvider(),
-		Compressed:                false,
+		Compressed:                true,
 	}
 }
 

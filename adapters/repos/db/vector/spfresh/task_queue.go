@@ -259,6 +259,7 @@ func (t *SplitTask) Execute(ctx context.Context) error {
 		return ctx.Err()
 	}
 
+	t.idx.metrics.DequeueSplitTask()
 	return t.idx.doSplit(t.id, true)
 }
 
@@ -281,6 +282,7 @@ func (t *MergeTask) Execute(ctx context.Context) error {
 		return ctx.Err()
 	}
 
+	t.idx.metrics.DequeueMergeTask()
 	return t.idx.doMerge(t.id)
 }
 
@@ -305,6 +307,7 @@ func (t *ReassignTask) Execute(ctx context.Context) error {
 		return ctx.Err()
 	}
 
+	t.idx.metrics.DequeueReassignTask()
 	return t.idx.doReassign(reassignOperation{PostingID: t.id, VectorID: t.vecID, Version: t.version})
 }
 
