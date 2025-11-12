@@ -31,20 +31,23 @@ func TestVersionMapPersistence(t *testing.T) {
 	})
 
 	t.Run("increment unknown vector", func(t *testing.T) {
-		version, ok := versionMap.Increment(context.Background(), 1, VectorVersion(0))
+		version, ok, err := versionMap.Increment(context.Background(), 1, VectorVersion(0))
+		require.NoError(t, err)
 		require.True(t, ok)
 		require.Equal(t, VectorVersion(1), version)
 	})
 
 	t.Run("increment existing vector", func(t *testing.T) {
-		version, ok := versionMap.Increment(context.Background(), 1, VectorVersion(1))
+		version, ok, err := versionMap.Increment(context.Background(), 1, VectorVersion(1))
+		require.NoError(t, err)
 		require.True(t, ok)
 		require.Equal(t, VectorVersion(2), version)
 	})
 
 	t.Run("mark deleted vector and check if it is deleted", func(t *testing.T) {
-		_, ok := versionMap.MarkDeleted(context.Background(), 1)
+		_, ok, err := versionMap.MarkDeleted(context.Background(), 1)
 		require.True(t, ok)
+		require.NoError(t, err)
 		deleted, err := versionMap.IsDeleted(context.Background(), 1)
 		require.NoError(t, err)
 		require.True(t, deleted)

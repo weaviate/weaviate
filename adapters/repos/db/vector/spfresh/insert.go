@@ -75,9 +75,9 @@ func (s *SPFresh) Add(ctx context.Context, id uint64, vector []float32) (err err
 	// add the vector to the version map.
 	// TODO: if the vector already exists, invalidate all previous instances
 	// by incrementing the version
-	version, ok := s.VersionMap.Increment(s.ctx, id, VectorVersion(0))
-	if !ok {
-		return errors.Errorf("failed to increment version map for vector %d", id)
+	version, _, err := s.VersionMap.Increment(s.ctx, id, VectorVersion(0))
+	if err != nil {
+		return errors.Wrapf(err, "failed to increment version map for vector %d", id)
 	}
 
 	var v Vector

@@ -85,10 +85,14 @@ func (v *VersionMap) Get(ctx context.Context, vectorID uint64) (VectorVersion, e
 }
 
 // Incr increments the version of the vector and returns the new version.
-func (v *VersionMap) Increment(ctx context.Context, vectorID uint64, previousVersion VectorVersion) (VectorVersion, bool) {
-	return v.cache.Compute(vectorID, func(oldVersion VectorVersion, found bool) (newValue VectorVersion, op otter.ComputeOp) {
+func (v *VersionMap) Increment(ctx context.Context, vectorID uint64, previousVersion VectorVersion) (VectorVersion, bool, error) {
+	var err error
+	version, ok := v.cache.Compute(vectorID, func(oldVersion VectorVersion, found bool) (newValue VectorVersion, op otter.ComputeOp) {
 		if !found {
-			return VectorVersion(1), otter.WriteOp
+			err = v.store.Set(ctx, vectorID, VectorVersion(1))
+			if err != nil {
+				return 0, otter.CancelOp
+			}
 		}
 		if oldVersion.Deleted() || oldVersion != previousVersion {
 			return oldVersion, otter.CancelOp
@@ -104,19 +108,24 @@ func (v *VersionMap) Increment(ctx context.Context, vectorID uint64, previousVer
 		}
 
 		newVersion := VectorVersion(delBit | counter)
-		err := v.store.Set(ctx, vectorID, newVersion)
+		err = v.store.Set(ctx, vectorID, newVersion)
 		if err != nil {
 			return oldVersion, otter.CancelOp
 		}
 
 		return newVersion, otter.WriteOp
 	})
+	return version, ok, err
 }
 
-func (v *VersionMap) MarkDeleted(ctx context.Context, vectorID uint64) (VectorVersion, bool) {
-	return v.cache.Compute(vectorID, func(oldVersion VectorVersion, found bool) (newValue VectorVersion, op otter.ComputeOp) {
-		if oldVersion == 0 {
-			return 0, otter.CancelOp
+func (v *VersionMap) MarkDeleted(ctx context.Context, vectorID uint64) (VectorVersion, bool, error) {
+	var err error
+	version, ok := v.cache.Compute(vectorID, func(oldVersion VectorVersion, found bool) (newValue VectorVersion, op otter.ComputeOp) {
+		if !found {
+			oldVersion, err = v.store.Get(ctx, vectorID)
+			if err != nil {
+				return 0, otter.CancelOp
+			}
 		}
 
 		if oldVersion.Deleted() {
@@ -125,13 +134,14 @@ func (v *VersionMap) MarkDeleted(ctx context.Context, vectorID uint64) (VectorVe
 
 		counter := uint8(oldVersion) & counterMask // 0-127
 		newVersion := VectorVersion(tombstoneMask | counter)
-		err := v.store.Set(ctx, vectorID, newVersion)
+		err = v.store.Set(ctx, vectorID, newVersion)
 		if err != nil {
 			return oldVersion, otter.CancelOp
 		}
 
 		return VectorVersion(newVersion), otter.WriteOp
 	})
+	return version, ok, err
 }
 
 func (v *VersionMap) IsDeleted(ctx context.Context, vectorID uint64) (bool, error) {
