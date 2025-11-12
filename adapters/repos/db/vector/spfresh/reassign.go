@@ -24,7 +24,6 @@ type reassignOperation struct {
 }
 
 func (s *SPFresh) doReassign(op reassignOperation) error {
-	s.metrics.DequeueReassignTask()
 	start := time.Now()
 	defer s.metrics.ReassignDuration(start)
 
