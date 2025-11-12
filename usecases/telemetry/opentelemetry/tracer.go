@@ -19,6 +19,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
+	"go.opentelemetry.io/otel/trace/noop"
 )
 
 // Global provider instance
@@ -62,7 +63,7 @@ func Shutdown(ctx context.Context) error {
 // GetTracer returns the global tracer
 func GetTracer() trace.Tracer {
 	if globalProvider == nil {
-		return trace.NewNoopTracerProvider().Tracer("noop")
+		return noop.NewTracerProvider().Tracer("noop")
 	}
 	return globalProvider.Tracer()
 }
