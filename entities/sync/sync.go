@@ -156,7 +156,7 @@ func (s *KeyLockerContext) TryLockWithContext(ID string, ctx context.Context) bo
 }
 
 // Unlock unlocks a specific item by it's ID.
-// It panics if the item exists but is not locked.
+// It panics if the item does not exist or exists but is not locked.
 func (s *KeyLockerContext) Unlock(ID string) {
 	iLocks, _ := s.m.Load(ID)
 	if iLocks == nil {
