@@ -40,7 +40,7 @@ func DefaultConfig() *Config {
 		Environment:        "development",
 		ExporterEndpoint:   "localhost:4317",
 		ExporterProtocol:   "grpc",
-		SamplingRate:       0.1, // 10% sampling by default
+		SamplingRate:       0.01, // 1% sampling by default
 		BatchTimeout:       5 * time.Second,
 		MaxExportBatchSize: 512,
 	}

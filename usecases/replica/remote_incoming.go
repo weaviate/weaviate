@@ -169,10 +169,6 @@ func (rri *RemoteReplicaIncoming) FetchObject(ctx context.Context,
 func (rri *RemoteReplicaIncoming) FetchObjects(ctx context.Context,
 	indexName, shardName string, ids []strfmt.UUID,
 ) ([]Replica, error) {
-	ctx, span := otel.Tracer("weaviate-search").Start(ctx, "RemoteReplicaIncoming.FetchObjects",
-		trace.WithSpanKind(trace.SpanKindInternal),
-	)
-	defer span.End()
 	index, simpleResp := rri.indexForIncomingRead(ctx, indexName)
 	if simpleResp != nil {
 		return []Replica{}, simpleResp.Errors[0].Err

@@ -270,11 +270,6 @@ func (fc FinderClient) FullReads(ctx context.Context,
 	host, index, shard string,
 	ids []strfmt.UUID,
 ) ([]Replica, error) {
-	ctx, span := otel.Tracer("weaviate-search").Start(ctx, "FinderClient.FullReads",
-		trace.WithSpanKind(trace.SpanKindInternal),
-	)
-	defer span.End()
-
 	n := len(ids)
 	rs, err := fc.cl.FetchObjects(ctx, host, index, shard, ids)
 	if m := len(rs); err == nil && n != m {

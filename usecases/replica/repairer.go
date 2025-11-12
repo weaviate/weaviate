@@ -19,8 +19,6 @@ import (
 	"time"
 
 	"github.com/weaviate/weaviate/entities/models"
-	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/trace"
 
 	"github.com/sirupsen/logrus"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -353,11 +351,6 @@ func (r *repairer) repairBatchPart(ctx context.Context,
 	votes []Vote,
 	contentIdx int,
 ) (_ []*storobj.Object, err error) {
-	ctx, span := otel.Tracer("weaviate-search").Start(ctx, "repairer.repairBatchPart",
-		trace.WithSpanKind(trace.SpanKindInternal),
-	)
-	defer span.End()
-
 	r.metrics.IncReadRepairCount()
 
 	defer func(start time.Time) {

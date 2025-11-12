@@ -34,8 +34,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
-	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/trace"
 )
 
 // ReplicationClient is to coordinate operations among replicas
@@ -66,16 +64,6 @@ func (c *replicationClient) FetchObject(ctx context.Context, host, index,
 func (c *replicationClient) DigestObjects(ctx context.Context,
 	host, index, shard string, ids []strfmt.UUID, numRetries int,
 ) (result []types.RepairResponse, err error) {
-	ctx, span := otel.Tracer("weaviate-search").Start(ctx, "replicationClient.DigestObjects",
-		trace.WithSpanKind(trace.SpanKindInternal),
-	)
-	defer func() {
-		if err != nil {
-			span.RecordError(err)
-		}
-		span.End()
-	}()
-
 	var resp []types.RepairResponse
 	body, err := json.Marshal(ids)
 	if err != nil {
@@ -154,11 +142,6 @@ func (c *replicationClient) OverwriteObjects(ctx context.Context,
 func (c *replicationClient) FetchObjects(ctx context.Context, host,
 	index, shard string, ids []strfmt.UUID,
 ) ([]replica.Replica, error) {
-	ctx, span := otel.Tracer("weaviate-search").Start(ctx, "replicationClient.FetchObjects",
-		trace.WithSpanKind(trace.SpanKindInternal),
-	)
-	defer span.End()
-
 	resp := make(replica.Replicas, len(ids))
 	idsBytes, err := json.Marshal(ids)
 	if err != nil {
@@ -379,43 +362,29 @@ func newHttpReplicaCMD(ctx context.Context, host, cmd, index, shard, requestId s
 	path := fmt.Sprintf("/replicas/indices/%s/shards/%s:%s", index, shard, cmd)
 	q := url.Values{replica.RequestKey: []string{requestId}}.Encode()
 	url := url.URL{Scheme: "http", Host: host, Path: path, RawQuery: q}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url.String(), body)
-	if err != nil {
-		return nil, fmt.Errorf("create http request: %w", err)
-	}
-	return req, nil
+	return http.NewRequest(http.MethodPost, url.String(), body)
 }
 
 func (c *replicationClient) do(timeout time.Duration, req *http.Request, body []byte, resp interface{}, numRetries int) (err error) {
 	ctx, cancel := context.WithTimeout(req.Context(), timeout)
 	defer cancel()
+	req = req.WithContext(ctx)
 	try := func(ctx context.Context) (bool, error) {
-		ctx, span := otel.Tracer("weaviate-search").Start(ctx, "replicationClient.do.try",
-			trace.WithSpanKind(trace.SpanKindInternal),
-		)
-		defer span.End()
-		req = req.WithContext(ctx)
-
 		if body != nil {
 			req.Body = io.NopCloser(bytes.NewReader(body))
 		}
 		res, err := c.client.Do(req)
 		if err != nil {
-			span.RecordError(err)
 			return false, fmt.Errorf("connect: %w", err)
 		}
 		defer res.Body.Close()
 
 		if code := res.StatusCode; code != http.StatusOK {
 			b, _ := io.ReadAll(res.Body)
-			err := fmt.Errorf("status code: %v, error: %s", code, b)
-			span.RecordError(err)
-			return shouldRetry(code), err
+			return shouldRetry(code), fmt.Errorf("status code: %v, error: %s", code, b)
 		}
 		if err := json.NewDecoder(res.Body).Decode(resp); err != nil {
-			err := fmt.Errorf("decode response: %w", err)
-			span.RecordError(err)
-			return false, err
+			return false, fmt.Errorf("decode response: %w", err)
 		}
 		return false, nil
 	}
