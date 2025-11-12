@@ -84,9 +84,10 @@ type State struct {
 	ReindexCtxCancel   context.CancelCauseFunc
 	MemWatch           *memwatch.Monitor
 
-	ClusterService *rCluster.Service
-	TenantActivity *tenantactivity.Handler
-	InternalServer types.ClusterServer
+	ClusterService     *rCluster.Service
+	TenantActivity     *tenantactivity.Handler
+	InternalServer     types.ClusterServer
+	InternalGrpcServer types.ClusterServer
 
 	DistributedTaskScheduler *distributedtask.Scheduler
 	Migrator                 *db.Migrator

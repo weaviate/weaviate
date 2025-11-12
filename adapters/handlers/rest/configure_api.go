@@ -47,9 +47,10 @@ import (
 
 	"github.com/weaviate/fgprof"
 	"github.com/weaviate/weaviate/adapters/clients"
+	grpcClusterApi "github.com/weaviate/weaviate/adapters/handlers/grpc/clusterapi"
 	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/batch"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/authz"
-	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
+	restClusterApi "github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/db_users"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	replicationHandlers "github.com/weaviate/weaviate/adapters/handlers/rest/replication"
@@ -645,9 +646,11 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		schemaManager, repo, appState.Modules, appState.RBAC, appState.APIKey.Dynamic)
 	appState.BackupManager = backupManager
 
-	internalServer := clusterapi.NewServer(appState)
-	appState.InternalServer = internalServer
+	appState.InternalServer = restClusterApi.NewServer(appState)
 	enterrors.GoWrapper(func() { appState.InternalServer.Serve() }, appState.Logger)
+
+	appState.InternalGrpcServer = grpcClusterApi.NewServer(appState)
+	enterrors.GoWrapper(func() { appState.InternalGrpcServer.Serve() }, appState.Logger)
 
 	vectorRepo.SetSchemaGetter(schemaManager)
 	explorer.SetSchemaGetter(schemaManager)
@@ -981,14 +984,21 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		if err := appState.InternalServer.Close(ctx); err != nil {
 			appState.Logger.
 				WithError(err).
-				WithField("action", "shutdown").
+				WithField("action", "shutdown internal server").
+				Errorf("failed to gracefully shutdown")
+		}
+
+		if err := appState.InternalGrpcServer.Close(ctx); err != nil {
+			appState.Logger.
+				WithError(err).
+				WithField("action", "shutdown internal grpc server").
 				Errorf("failed to gracefully shutdown")
 		}
 
 		if err := appState.ClusterService.Close(ctx); err != nil {
 			appState.Logger.
 				WithError(err).
-				WithField("action", "shutdown").
+				WithField("action", "shutdown cluster service").
 				Errorf("failed to gracefully shutdown")
 		}
 

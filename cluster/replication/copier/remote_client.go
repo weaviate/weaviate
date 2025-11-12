@@ -15,24 +15,23 @@ import (
 	"context"
 	"encoding/base64"
 
+	"github.com/weaviate/weaviate/adapters/handlers/grpc/clusterapi/proto/protocol"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
-
-	pbv1 "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 )
 
 type FileReplicationServiceClientFactory = func(ctx context.Context, address string) (FileReplicationServiceClient, error)
 
 type FileReplicationServiceClient interface {
-	pbv1.FileReplicationServiceClient
+	protocol.FileReplicationServiceClient
 	Close() error
 }
 
 type grpcFileReplicationServiceClient struct {
 	clientConn   *grpc.ClientConn
 	authMetadata metadata.MD
-	client       pbv1.FileReplicationServiceClient
+	client       protocol.FileReplicationServiceClient
 }
 
 func NewFileReplicationServiceClient(clientConn *grpc.ClientConn, authConfig cluster.AuthConfig) FileReplicationServiceClient {
@@ -48,7 +47,7 @@ func NewFileReplicationServiceClient(clientConn *grpc.ClientConn, authConfig clu
 	return &grpcFileReplicationServiceClient{
 		clientConn:   clientConn,
 		authMetadata: authMetadata,
-		client:       pbv1.NewFileReplicationServiceClient(clientConn),
+		client:       protocol.NewFileReplicationServiceClient(clientConn),
 	}
 }
 
@@ -60,22 +59,22 @@ func (g *grpcFileReplicationServiceClient) addAuthMetadataToContext(ctx context.
 	return metadata.NewOutgoingContext(ctx, g.authMetadata)
 }
 
-func (g *grpcFileReplicationServiceClient) GetFile(ctx context.Context, opts ...grpc.CallOption) (pbv1.FileReplicationService_GetFileClient, error) {
+func (g *grpcFileReplicationServiceClient) GetFile(ctx context.Context, opts ...grpc.CallOption) (protocol.FileReplicationService_GetFileClient, error) {
 	return g.client.GetFile(g.addAuthMetadataToContext(ctx), opts...)
 }
 
-func (g *grpcFileReplicationServiceClient) GetFileMetadata(ctx context.Context, opts ...grpc.CallOption) (pbv1.FileReplicationService_GetFileMetadataClient, error) {
+func (g *grpcFileReplicationServiceClient) GetFileMetadata(ctx context.Context, opts ...grpc.CallOption) (protocol.FileReplicationService_GetFileMetadataClient, error) {
 	return g.client.GetFileMetadata(g.addAuthMetadataToContext(ctx), opts...)
 }
 
-func (g *grpcFileReplicationServiceClient) ListFiles(ctx context.Context, in *pbv1.ListFilesRequest, opts ...grpc.CallOption) (*pbv1.ListFilesResponse, error) {
+func (g *grpcFileReplicationServiceClient) ListFiles(ctx context.Context, in *protocol.ListFilesRequest, opts ...grpc.CallOption) (*protocol.ListFilesResponse, error) {
 	return g.client.ListFiles(g.addAuthMetadataToContext(ctx), in, opts...)
 }
 
-func (g *grpcFileReplicationServiceClient) PauseFileActivity(ctx context.Context, in *pbv1.PauseFileActivityRequest, opts ...grpc.CallOption) (*pbv1.PauseFileActivityResponse, error) {
+func (g *grpcFileReplicationServiceClient) PauseFileActivity(ctx context.Context, in *protocol.PauseFileActivityRequest, opts ...grpc.CallOption) (*protocol.PauseFileActivityResponse, error) {
 	return g.client.PauseFileActivity(g.addAuthMetadataToContext(ctx), in, opts...)
 }
 
-func (g *grpcFileReplicationServiceClient) ResumeFileActivity(ctx context.Context, in *pbv1.ResumeFileActivityRequest, opts ...grpc.CallOption) (*pbv1.ResumeFileActivityResponse, error) {
+func (g *grpcFileReplicationServiceClient) ResumeFileActivity(ctx context.Context, in *protocol.ResumeFileActivityRequest, opts ...grpc.CallOption) (*protocol.ResumeFileActivityResponse, error) {
 	return g.client.ResumeFileActivity(g.addAuthMetadataToContext(ctx), in, opts...)
 }
