@@ -66,7 +66,10 @@ func (s *SPFresh) doReassign(op reassignOperation) error {
 	// of the vector in other postings.
 	version, err = s.VersionMap.Increment(context.Background(), op.VectorID, version)
 	if err != nil {
-		return errors.Wrapf(err, "failed to increment version map for vector %d", op.VectorID)
+		s.logger.WithField("vectorID", op.VectorID).
+			WithError(err).
+			Error("failed to increment version map for vector, skipping reassign operation")
+		return nil
 	}
 
 	// create a new vector with the updated version
