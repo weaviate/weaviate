@@ -87,7 +87,7 @@ func TestDefaultConfig(t *testing.T) {
 	assert.Equal(t, "development", cfg.Environment)
 	assert.Equal(t, "localhost:4317", cfg.ExporterEndpoint)
 	assert.Equal(t, "grpc", cfg.ExporterProtocol)
-	assert.Equal(t, 0.1, cfg.SamplingRate)
+	assert.Equal(t, 0.01, cfg.SamplingRate)
 }
 
 func TestConfigValidation(t *testing.T) {
