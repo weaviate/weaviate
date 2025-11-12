@@ -15,9 +15,12 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
+	"time"
 
 	"github.com/sirupsen/logrus"
+	logrusTest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/trace"
@@ -28,11 +31,8 @@ import (
 )
 
 func TestHTTPTracingMiddleware(t *testing.T) {
-	// Initialize OpenTelemetry for testing
-	logger := logrus.New()
-	err := opentelemetry.Init(logger)
-	require.NoError(t, err)
-	defer opentelemetry.Shutdown(context.Background())
+	_, cleanup := setupOpenTelemetryForTest(t, true)
+	defer cleanup()
 
 	// Create a test handler
 	testHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -63,11 +63,8 @@ func TestHTTPTracingMiddleware(t *testing.T) {
 }
 
 func TestHTTPTracingMiddlewareWithTraceContext(t *testing.T) {
-	// Initialize OpenTelemetry for testing
-	logger := logrus.New()
-	err := opentelemetry.Init(logger)
-	require.NoError(t, err)
-	defer opentelemetry.Shutdown(context.Background())
+	_, cleanup := setupOpenTelemetryForTest(t, true)
+	defer cleanup()
 
 	// Create a test handler
 	testHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -95,7 +92,9 @@ func TestHTTPTracingMiddlewareWithTraceContext(t *testing.T) {
 }
 
 func TestHTTPTracingMiddlewareDisabled(t *testing.T) {
-	// Test when OpenTelemetry is disabled
+	_, cleanup := setupOpenTelemetryForTest(t, false)
+	defer cleanup()
+
 	// Create a test handler
 	testHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -115,14 +114,12 @@ func TestHTTPTracingMiddlewareDisabled(t *testing.T) {
 	// Verify response (should work normally when tracing is disabled)
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.Equal(t, "test response", w.Body.String())
+	assert.Empty(t, w.Header().Get("traceparent"))
 }
 
 func TestGRPCTracingInterceptor(t *testing.T) {
-	// Initialize OpenTelemetry for testing
-	logger := logrus.New()
-	err := opentelemetry.Init(logger)
-	require.NoError(t, err)
-	defer opentelemetry.Shutdown(context.Background())
+	_, cleanup := setupOpenTelemetryForTest(t, true)
+	defer cleanup()
 
 	// Create interceptor
 	interceptor := GRPCTracingInterceptor()
@@ -156,7 +153,9 @@ func TestGRPCTracingInterceptor(t *testing.T) {
 }
 
 func TestGRPCTracingInterceptorDisabled(t *testing.T) {
-	// Test when OpenTelemetry is disabled
+	_, cleanup := setupOpenTelemetryForTest(t, false)
+	defer cleanup()
+
 	// Create interceptor
 	interceptor := GRPCTracingInterceptor()
 
@@ -180,7 +179,8 @@ func TestGRPCTracingInterceptorDisabled(t *testing.T) {
 }
 
 func TestAddTracingToHTTPMiddleware(t *testing.T) {
-	logger := logrus.New()
+	logger, cleanup := setupOpenTelemetryForTest(t, false)
+	defer cleanup()
 
 	// Test when OpenTelemetry is disabled
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -195,10 +195,12 @@ func TestAddTracingToHTTPMiddleware(t *testing.T) {
 	middleware.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Empty(t, w.Header().Get("traceparent"))
 }
 
 func TestAddTracingToGRPCOptions(t *testing.T) {
-	logger := logrus.New()
+	logger, cleanup := setupOpenTelemetryForTest(t, false)
+	defer cleanup()
 
 	// Test when OpenTelemetry is disabled
 	options := []grpc.ServerOption{}
@@ -207,4 +209,26 @@ func TestAddTracingToGRPCOptions(t *testing.T) {
 
 	// Should return original options when tracing is disabled
 	assert.Equal(t, options, newOptions)
+}
+
+// setupOpenTelemetryForTest enables/inits OpenTelemetry and returns
+// a logger and a cleanup function to be called after the test.
+func setupOpenTelemetryForTest(t *testing.T, enableOpenTelemetry bool) (logrus.FieldLogger, func()) {
+	logger, _ := logrusTest.NewNullLogger()
+	if enableOpenTelemetry {
+		os.Setenv("EXPERIMENTAL_OTEL_ENABLED", "true")
+	}
+	err := opentelemetry.Init(logger)
+	require.NoError(t, err)
+	return logger, func() {
+		if enableOpenTelemetry {
+			os.Unsetenv("EXPERIMENTAL_OTEL_ENABLED")
+		}
+		// Use a context with timeout to prevent hanging on shutdown
+		// The provider's Shutdown has a 30s timeout, but we use a shorter timeout
+		// to fail fast since there's not exporter in this test
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+		defer cancel()
+		opentelemetry.Shutdown(shutdownCtx)
+	}
 }
