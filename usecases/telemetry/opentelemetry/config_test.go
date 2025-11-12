@@ -60,9 +60,9 @@ func TestEndpointParsing(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Set environment variables
-			os.Setenv("OTEL_ENABLED", "true")
-			os.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", tt.endpoint)
-			os.Setenv("OTEL_EXPORTER_OTLP_PROTOCOL", tt.protocol)
+			os.Setenv("EXPERIMENTAL_OTEL_ENABLED", "true")
+			os.Setenv("EXPERIMENTAL_OTEL_EXPORTER_OTLP_ENDPOINT", tt.endpoint)
+			os.Setenv("EXPERIMENTAL_OTEL_EXPORTER_OTLP_PROTOCOL", tt.protocol)
 
 			// Create config from environment
 			cfg := FromEnvironment()
@@ -72,9 +72,9 @@ func TestEndpointParsing(t *testing.T) {
 			assert.Equal(t, tt.protocol, cfg.ExporterProtocol)
 
 			// Clean up
-			os.Unsetenv("OTEL_ENABLED")
-			os.Unsetenv("OTEL_EXPORTER_OTLP_ENDPOINT")
-			os.Unsetenv("OTEL_EXPORTER_OTLP_PROTOCOL")
+			os.Unsetenv("EXPERIMENTAL_OTEL_ENABLED")
+			os.Unsetenv("EXPERIMENTAL_OTEL_EXPORTER_OTLP_ENDPOINT")
+			os.Unsetenv("EXPERIMENTAL_OTEL_EXPORTER_OTLP_PROTOCOL")
 		})
 	}
 }

@@ -22,8 +22,6 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
-	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/trace"
 )
 
 type RemoteIncomingRepo interface {
@@ -185,10 +183,6 @@ func (rri *RemoteReplicaIncoming) FetchObjects(ctx context.Context,
 func (rri *RemoteReplicaIncoming) DigestObjects(ctx context.Context,
 	indexName, shardName string, ids []strfmt.UUID,
 ) (result []types.RepairResponse, err error) {
-	ctx, span := otel.Tracer("weaviate-search").Start(ctx, "RemoteReplicaIncoming.DigestObjects",
-		trace.WithSpanKind(trace.SpanKindInternal),
-	)
-	defer span.End()
 	index, simpleResp := rri.indexForIncomingRead(ctx, indexName)
 	if simpleResp != nil {
 		return []types.RepairResponse{}, simpleResp.Errors[0].Err
@@ -197,15 +191,9 @@ func (rri *RemoteReplicaIncoming) DigestObjects(ctx context.Context,
 }
 
 func (rri *RemoteReplicaIncoming) indexForIncomingRead(ctx context.Context, indexName string) (RemoteIndexIncomingRepo, *SimpleResponse) {
-	_, span := otel.Tracer("weaviate-search").Start(ctx, "RemoteReplicaIncoming.indexForIncomingRead",
-		trace.WithSpanKind(trace.SpanKindInternal),
-	)
-	defer span.End()
 	index := rri.repo.GetIndexForIncomingReplica(schema.ClassName(indexName))
 	if index == nil {
-		err := fmt.Errorf("local index %q not found", indexName)
-		span.RecordError(err)
-		return nil, &SimpleResponse{Errors: []Error{{Err: err}}}
+		return nil, &SimpleResponse{Errors: []Error{{Err: fmt.Errorf("local index %q not found", indexName)}}}
 	}
 	return index, nil
 }
