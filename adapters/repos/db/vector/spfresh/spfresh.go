@@ -174,7 +174,7 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*SPFresh, error) {
 func (s *SPFresh) Delete(ids ...uint64) error {
 	for _, id := range ids {
 		start := time.Now()
-		version, _, err := s.VersionMap.MarkDeleted(context.Background(), id)
+		version, err := s.VersionMap.MarkDeleted(context.Background(), id)
 		if err != nil {
 			return errors.Wrapf(err, "failed to mark vector %d as deleted", id)
 		}
