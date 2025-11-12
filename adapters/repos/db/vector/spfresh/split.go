@@ -61,7 +61,10 @@ func (s *SPFresh) doSplit(postingID uint64, reassign bool) error {
 
 	// garbage collect the deleted vectors
 	lp := p.Len()
-	filtered := p.GarbageCollect(s.VersionMap)
+	filtered, err := p.GarbageCollect(s.VersionMap)
+	if err != nil {
+		return errors.Wrapf(err, "failed to garbage collect posting %d", postingID)
+	}
 
 	// skip if the filtered posting is now too small
 	if lf := filtered.Len(); lf < int(s.maxPostingSize) {
@@ -274,7 +277,11 @@ func (s *SPFresh) enqueueReassignAfterSplit(oldPostingID uint64, newPostingIDs [
 		for _, v := range newPostings[i].Posting.Iter() {
 			vid := v.ID()
 			_, exists := reassignedVectors[vid]
-			if !exists && !v.Version().Deleted() && s.VersionMap.Get(vid) == v.Version() {
+			version, err := s.VersionMap.Get(context.Background(), vid)
+			if err != nil {
+				return errors.Wrapf(err, "failed to get version for vector %d", vid)
+			}
+			if !exists && !v.Version().Deleted() && version == v.Version() {
 				// compute distance from v to its new centroid
 				newDist, err := s.Centroids.Get(newPostingIDs[i]).Distance(s.distancer, v)
 				if err != nil {
@@ -337,9 +344,12 @@ func (s *SPFresh) enqueueReassignAfterSplit(oldPostingID uint64, newPostingIDs [
 
 		for _, v := range p.Iter() {
 			vid := v.ID()
-			version := v.Version()
 			_, exists := reassignedVectors[vid]
-			if exists || version.Deleted() || s.VersionMap.Get(vid) != version {
+			version, err := s.VersionMap.Get(context.Background(), vid)
+			if err != nil {
+				return errors.Wrapf(err, "failed to get version for vector %d", vid)
+			}
+			if exists || version.Deleted() || version != v.Version() {
 				continue
 			}
 

@@ -61,7 +61,10 @@ func (s *SPFresh) doMerge(postingID uint64) error {
 	initialLen := p.Len()
 
 	// garbage collect the deleted vectors
-	newPosting := p.GarbageCollect(s.VersionMap)
+	newPosting, err := p.GarbageCollect(s.VersionMap)
+	if err != nil {
+		return errors.Wrapf(err, "failed to garbage collect posting %d", postingID)
+	}
 	prevLen := newPosting.Len()
 
 	// skip if the posting is big enough
@@ -154,7 +157,10 @@ func (s *SPFresh) doMerge(postingID uint64) error {
 
 			var candidateLen int
 			for _, v := range candidate.Iter() {
-				version := s.VersionMap.Get(v.ID())
+				version, err := s.VersionMap.Get(s.ctx, v.ID())
+				if err != nil {
+					return errors.Wrapf(err, "failed to get version for vector %d", v.ID())
+				}
 				if version.Deleted() || version.Version() > v.Version().Version() {
 					continue
 				}
