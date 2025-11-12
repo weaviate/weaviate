@@ -362,7 +362,11 @@ func newHttpReplicaCMD(ctx context.Context, host, cmd, index, shard, requestId s
 	path := fmt.Sprintf("/replicas/indices/%s/shards/%s:%s", index, shard, cmd)
 	q := url.Values{replica.RequestKey: []string{requestId}}.Encode()
 	url := url.URL{Scheme: "http", Host: host, Path: path, RawQuery: q}
-	return http.NewRequestWithContext(ctx, http.MethodPost, url.String(), body)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url.String(), body)
+	if err != nil {
+		return nil, fmt.Errorf("create http request: %w", err)
+	}
+	return req, nil
 }
 
 func (c *replicationClient) do(timeout time.Duration, req *http.Request, body []byte, resp interface{}, numRetries int) (err error) {

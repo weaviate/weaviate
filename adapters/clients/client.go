@@ -19,10 +19,6 @@ import (
 	"io"
 	"net/http"
 	"time"
-
-	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/trace"
 )
 
 type retryClient struct {
@@ -108,22 +104,10 @@ func newRetryer() *retryer {
 
 // n is the number of retries, work will always be called at least once.
 func (r *retryer) retry(ctx context.Context, n int, work func(context.Context) (bool, error)) error {
-	ctx, span := otel.Tracer("weaviate-search").Start(ctx, "retryer.retry",
-		trace.WithSpanKind(trace.SpanKindInternal),
-	)
-	defer span.End()
-
 	delay := r.minBackOff
 	for {
-		workCtx, workSpan := otel.Tracer("weaviate-search").Start(ctx, "retryer.retry.loop",
-			trace.WithSpanKind(trace.SpanKindInternal),
-			trace.WithAttributes(
-				attribute.Float64("n", float64(n)),
-			),
-		)
-		keepTrying, err := work(workCtx)
+		keepTrying, err := work(ctx)
 		if !keepTrying || n < 1 || err == nil {
-			workSpan.End()
 			return err
 		}
 
@@ -131,21 +115,14 @@ func (r *retryer) retry(ctx context.Context, n int, work func(context.Context) (
 		if delay = backOff(delay); delay > r.maxBackOff {
 			delay = r.maxBackOff
 		}
-		_, delaySpan := otel.Tracer("weaviate-search").Start(ctx, "retryer.retry.delay",
-			trace.WithSpanKind(trace.SpanKindInternal),
-		)
 		timer := time.NewTimer(delay)
 		select {
 		case <-ctx.Done():
 			timer.Stop()
-			workSpan.End()
-			delaySpan.End()
 			return fmt.Errorf("%w: %w", err, ctx.Err())
 		case <-timer.C:
 		}
 		timer.Stop()
-		workSpan.End()
-		delaySpan.End()
 	}
 }
 
