@@ -148,7 +148,7 @@ func (s *Shard) initLSMStore() error {
 func (s *Shard) initObjectBucket(ctx context.Context) error {
 	opts := []lsmkv.BucketOption{
 		lsmkv.WithStrategy(lsmkv.StrategyReplace),
-		lsmkv.WithSecondaryIndices(2),
+		lsmkv.WithSecondaryIndices(1),
 		lsmkv.WithPread(s.index.Config.AvoidMMap),
 		lsmkv.WithKeepTombstones(true),
 		s.dynamicMemtableSizing(),
