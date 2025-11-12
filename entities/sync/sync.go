@@ -146,13 +146,22 @@ func (s *KeyLockerContext) Lock(ID string) {
 	iLock.Lock()
 }
 
-// TryLockWithContext tries to lock the mutex with a context.
+// LockWithContext tries to lock the mutex with a context.
 // If the context is canceled while waiting for the lock, the lock attempt is aborted.
-func (s *KeyLockerContext) TryLockWithContext(ID string, ctx context.Context) bool {
+// If the context is done before the lock is acquired, the lock
+// is not acquired and an error is returned.
+// Importantly, LockWithContext does not immediately return an error if the
+// lock is not currently available, rather it will block until the lock is
+// available or the context is done. This behavior "differs" from
+// sync.Mutex.TryLock and sync.Mutex.Lock due to the context/error return value.
+// You must call Unlock if the returned error is nil to release the lock.
+// Do not call Unlock if the returned error is not nil.
+func (s *KeyLockerContext) LockWithContext(ID string, ctx context.Context) error {
 	iLock := newContextMutex()
 	iLocks, _ := s.m.LoadOrStore(ID, iLock)
 	iLock = iLocks.(*contextMutex)
-	return iLock.TryLockWithContext(ctx)
+	err := iLock.LockWithContext(ctx)
+	return err
 }
 
 // Unlock unlocks a specific item by it's ID.
@@ -195,21 +204,24 @@ func (m *contextMutex) Unlock() {
 	}
 }
 
-// TryLockWithContext locks the mutex. If the lock is already in use, the
-// calling goroutine blocks until the mutex is available or the context is done.
-// If the context is done before the lock acquisition is attempted,  the lock
-// is not acquired.
-// Importantly, TryLockWithContext does not immediately return false if the
+// LockWithContext locks the mutex. This call blocks until the mutex is available
+// or the context is done.
+// If the context is done before the lock is acquired, the lock
+// is not acquired and an error is returned.
+// Importantly, LockWithContext does not immediately return an error if the
 // lock is not currently available, rather it will block until the lock is
-// available or the context is done. This behavior differs from sync.Mutex.TryLock.
-func (m *contextMutex) TryLockWithContext(ctx context.Context) bool {
+// available or the context is done. This behavior "differs" from
+// sync.Mutex.TryLock and sync.Mutex.Lock due to the context/error return value.
+// You must call Unlock if the returned error is nil to release the lock.
+// Do not call Unlock if the returned error is not nil.
+func (m *contextMutex) LockWithContext(ctx context.Context) error {
 	if ctx.Err() != nil {
-		return false
+		return ctx.Err()
 	}
 	select {
 	case <-ctx.Done():
-		return false
+		return ctx.Err()
 	case m.ch <- struct{}{}:
-		return true
+		return nil
 	}
 }

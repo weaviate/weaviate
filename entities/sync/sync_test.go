@@ -89,7 +89,8 @@ func TestKeyLockerContextMutexLockUnlock(t *testing.T) {
 	lock, _ = s.m.Load("t1")
 	r.False(contextMutexLocked(lock.(*contextMutex)))
 
-	s.TryLockWithContext("t2", t.Context())
+	err := s.LockWithContext("t2", t.Context())
+	require.Nil(t, err)
 	lock, _ = s.m.Load("t2")
 	r.True(contextMutexLocked(lock.(*contextMutex)))
 
@@ -113,8 +114,7 @@ func TestKeyLockerContextMutexLockConcurrentCancel(t *testing.T) {
 	// try to lock concurrently, should all wait
 	for i := 0; i < numGoroutines; i++ {
 		go func() {
-			done := s.TryLockWithContext("t1", ctx)
-			if !done {
+			if err := s.LockWithContext("t1", ctx); err != nil {
 				counter.Add(1)
 			}
 			wg.Done()
@@ -138,8 +138,7 @@ func TestKeyLockerContextMutexLockConcurrentUnlock(t *testing.T) {
 	// try to lock concurrently, should all wait
 	for i := 0; i < numGoroutines; i++ {
 		go func() {
-			done := s.TryLockWithContext("t1", t.Context())
-			if !done {
+			if err := s.LockWithContext("t1", t.Context()); err != nil {
 				counter.Add(1)
 			} else {
 				counter.Add(-1)
@@ -179,8 +178,7 @@ func TestKeyLockerContextMultipleContext(t *testing.T) {
 	// try to lock concurrently, should all wait
 	for i := 0; i < numGoroutines; i++ {
 		go func() {
-			done := s.TryLockWithContext("t1", contexts[i].context)
-			if !done {
+			if err := s.LockWithContext("t1", contexts[i].context); err != nil {
 				counterCancelled.Add(1)
 				wgCancel.Done()
 			} else {
@@ -222,8 +220,7 @@ func TestKeyLockerContextWithNormalLock(t *testing.T) {
 	// try to lock concurrently, should all wait
 	for i := 0; i < numGoroutines; i++ {
 		go func() {
-			done := s.TryLockWithContext("t1", t.Context())
-			if !done {
+			if err := s.LockWithContext("t1", t.Context()); err != nil {
 				counterCtx.Add(1)
 			} else {
 				counterCtx.Add(-1)
@@ -322,7 +319,8 @@ func TestContextMutex(t *testing.T) {
 	require.True(t, contextMutexLocked(m))
 	m.Unlock()
 	require.False(t, contextMutexLocked(m))
-	m.TryLockWithContext(t.Context())
+	err := m.LockWithContext(t.Context())
+	require.Nil(t, err)
 	require.True(t, contextMutexLocked(m))
 	m.Unlock()
 	require.False(t, contextMutexLocked(m))
@@ -359,14 +357,14 @@ func TestContextMutexCriticalSection(t *testing.T) {
 				m.Unlock()
 				atomicCounter.Add(1)
 
-				if m.TryLockWithContext(workerContext) {
+				if err := m.LockWithContext(workerContext); err == nil {
 					counter++
 					raceDetector[workerNum]++
 					m.Unlock()
 					atomicCounter.Add(1)
 				}
 
-				if m.TryLockWithContext(t.Context()) {
+				if err := m.LockWithContext(t.Context()); err == nil {
 					counter++
 					raceDetector[workerNum]++
 					m.Unlock()
@@ -425,10 +423,10 @@ func TestContextMutexTryLockWithContextTimeout(t *testing.T) {
 		cancel()
 	}()
 
-	success := m.TryLockWithContext(ctx)
+	err := m.LockWithContext(ctx)
 	duration := time.Since(start)
 
-	require.False(t, success)
+	require.NotNil(t, err)
 	require.GreaterOrEqual(t, duration, slept)
 }
 
@@ -439,8 +437,8 @@ func TestContextMutexTryLockWithContextAlreadyCanceled(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 
-	success := m.TryLockWithContext(ctx)
-	require.False(t, success)
+	err := m.LockWithContext(ctx)
+	require.NotNil(t, err)
 }
 
 // TestContextMutexMixedOperations tests mixing different lock types
@@ -452,18 +450,18 @@ func TestContextMutexMixedOperations(t *testing.T) {
 	require.True(t, contextMutexLocked(m))
 	m.Unlock()
 
-	success := m.TryLockWithContext(t.Context())
-	require.True(t, success)
+	err := m.LockWithContext(t.Context())
+	require.Nil(t, err)
 	m.Unlock()
 
-	success = m.TryLockWithContext(t.Context())
-	require.True(t, success)
+	err = m.LockWithContext(t.Context())
+	require.Nil(t, err)
 	m.Unlock()
 
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel() // Cancel immediately
-	success = m.TryLockWithContext(ctx)
-	require.False(t, success)
+	err = m.LockWithContext(ctx)
+	require.Nil(t, err)
 
 	// this should panic since we did not acquire the lock above
 	require.Panics(t, func() {
@@ -484,7 +482,7 @@ func TestContextMutexNotify(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for j := 0; j < numIterations; j++ {
-				if m.TryLockWithContext(t.Context()) {
+				if err := m.LockWithContext(t.Context()); err == nil {
 					m.Unlock()
 				}
 			}
