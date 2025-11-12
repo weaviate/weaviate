@@ -20,9 +20,6 @@ import (
 
 	"github.com/cenkalti/backoff/v4"
 	"github.com/sirupsen/logrus"
-	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/trace"
 
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/cluster/utils"
@@ -278,11 +275,6 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 	op readOp[T], directCandidate string,
 	timeout time.Duration,
 ) (<-chan _Result[T], int, error) {
-	ctx, span := otel.Tracer("weaviate-search").Start(ctx, "coordinator.Pull",
-		trace.WithSpanKind(trace.SpanKindInternal),
-	)
-	defer span.End()
-
 	options := c.Router.BuildRoutingPlanOptions(c.Shard, c.Shard, cl, directCandidate)
 	readRoutingPlan, err := c.Router.BuildReadRoutingPlan(options)
 	if err != nil {
@@ -292,11 +284,6 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 	hosts := readRoutingPlan.HostAddresses()
 	replyCh := make(chan _Result[T], level)
 	f := func() {
-		ctx, span := otel.Tracer("weaviate-search").Start(ctx, "coordinator.Pull.f",
-			trace.WithSpanKind(trace.SpanKindInternal),
-		)
-		defer span.End()
-
 		start := time.Now()
 		var successful atomic.Int32
 
@@ -352,20 +339,10 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 				}
 
 				// let's fallback to the backups in the retry queue
-				count := 0
 				for hr := range hostRetryQueue {
-					loopCtx, loopSpan := otel.Tracer("weaviate-search").Start(workerCtx, "coordinator.Pull.f.retryLoop",
-						trace.WithSpanKind(trace.SpanKindInternal),
-						trace.WithAttributes(
-							attribute.String("host", hr.host),
-							attribute.Int("attempt", count),
-						),
-					)
-					count++
-					resp, err := op(loopCtx, hr.host, isFullReadWorker)
+					resp, err := op(workerCtx, hr.host, isFullReadWorker)
 					if err == nil {
 						replyCh <- _Result[T]{resp, err}
-						loopSpan.End()
 						return
 					}
 					nextBackOff := hr.currentBackOff.NextBackOff()
@@ -375,31 +352,19 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 						// this many failures for this host, we've tried all other hosts enough
 						// that we're not going to reach level successes
 						replyCh <- _Result[T]{resp, err}
-						loopSpan.End()
 						return
 					}
 
 					timer := time.NewTimer(nextBackOff)
-					_, backoffSpan := otel.Tracer("weaviate-search").Start(workerCtx, "coordinator.Pull.f.retryLoop.backoff",
-						trace.WithSpanKind(trace.SpanKindInternal),
-						trace.WithAttributes(
-							attribute.String("host", hr.host),
-							attribute.Int("attempt", count),
-						),
-					)
 					select {
 					case <-workerCtx.Done():
 						timer.Stop()
 						replyCh <- _Result[T]{resp, err}
-						loopSpan.End()
-						backoffSpan.End()
 						return
 					case <-timer.C:
 						hostRetryQueue <- hostRetry{hr.host, hr.currentBackOff}
 					}
 					timer.Stop()
-					backoffSpan.End()
-					loopSpan.End()
 				}
 			}
 			enterrors.GoWrapper(workerFunc, c.log)

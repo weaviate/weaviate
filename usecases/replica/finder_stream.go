@@ -19,8 +19,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
-	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/trace"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
@@ -210,11 +208,6 @@ func (f *finderStream) readBatchPart(ctx context.Context,
 	ch <-chan _Result[BatchReply],
 	level int,
 ) <-chan batchResult {
-	ctx, span := otel.Tracer("weaviate-search").Start(ctx, "finderStream.readBatchPart",
-		trace.WithSpanKind(trace.SpanKindInternal),
-	)
-	defer span.End()
-
 	resultCh := make(chan batchResult, 1)
 
 	g := func() {
