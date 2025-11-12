@@ -21,9 +21,6 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
-	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/trace"
 
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -199,11 +196,6 @@ type ShardDesc struct {
 func (f *Finder) CheckConsistency(ctx context.Context,
 	l types.ConsistencyLevel, xs []*storobj.Object,
 ) error {
-	ctx, span := otel.Tracer("weaviate-search").Start(ctx, "finder.CheckConsistency",
-		trace.WithSpanKind(trace.SpanKindInternal),
-	)
-	defer span.End()
-
 	if len(xs) == 0 {
 		return nil
 	}
@@ -291,15 +283,6 @@ func (f *Finder) checkShardConsistency(ctx context.Context,
 	l types.ConsistencyLevel,
 	batch ShardPart,
 ) ([]*storobj.Object, error) {
-	ctx, span := otel.Tracer("weaviate-search").Start(ctx, "finder.checkShardConsistency",
-		trace.WithSpanKind(trace.SpanKindInternal),
-		trace.WithAttributes(
-			attribute.String("shard", batch.Shard),
-			attribute.String("node", batch.Node),
-		),
-	)
-	defer span.End()
-
 	var (
 		c = newReadCoordinator[BatchReply](f, batch.Shard,
 			f.coordinatorPullBackoffInitialInterval, f.coordinatorPullBackoffMaxElapsedTime, f.getDeletionStrategy())
@@ -307,14 +290,6 @@ func (f *Finder) checkShardConsistency(ctx context.Context,
 		data, ids = batch.Extract() // extract from current content
 	)
 	op := func(ctx context.Context, host string, fullRead bool) (BatchReply, error) {
-		ctx, span := otel.Tracer("weaviate-search").Start(ctx, "Finder.checkShardConsistency.op",
-			trace.WithSpanKind(trace.SpanKindInternal),
-			trace.WithAttributes(
-				attribute.String("shard", batch.Shard),
-				attribute.String("node", batch.Node),
-			),
-		)
-		defer span.End()
 		if fullRead { // we already have the content
 			return BatchReply{Sender: host, IsDigest: false, FullData: data}, nil
 		} else {

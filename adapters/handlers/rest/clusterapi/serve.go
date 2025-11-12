@@ -66,7 +66,6 @@ func NewServer(appState *state.State) *Server {
 		appState.Cluster.MaintenanceModeEnabledForLocalhost,
 		appState.ServerConfig.Config.Cluster.RequestQueueConfig,
 		appState.Logger,
-		appState.ClusterService.Ready,
 	)
 	mux.Handle("/replicas/indices/", monitoring.AddTracingToHTTPMiddleware(replicatedIndices.Indices(), appState.Logger))
 

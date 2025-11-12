@@ -21,8 +21,6 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/models"
-	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/trace"
 
 	"github.com/pkg/errors"
 
@@ -115,11 +113,6 @@ func (db *DB) SparseObjectSearch(ctx context.Context, params dto.GetParams) ([]*
 }
 
 func (db *DB) Search(ctx context.Context, params dto.GetParams) ([]search.Result, error) {
-	ctx, span := otel.Tracer("weaviate-search").Start(ctx, "db.Search",
-		trace.WithSpanKind(trace.SpanKindInternal),
-	)
-	defer span.End()
-
 	start := time.Now()
 	defer func() {
 		took := time.Since(start)
@@ -148,11 +141,6 @@ func (db *DB) Search(ctx context.Context, params dto.GetParams) ([]search.Result
 func (db *DB) VectorSearch(ctx context.Context,
 	params dto.GetParams, targetVectors []string, searchVectors []models.Vector,
 ) ([]search.Result, error) {
-	ctx, span := otel.Tracer("weaviate-search").Start(ctx, "db.VectorSearch",
-		trace.WithSpanKind(trace.SpanKindInternal),
-	)
-	defer span.End()
-
 	start := time.Now()
 	defer func() {
 		took := time.Since(start)

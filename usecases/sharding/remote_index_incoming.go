@@ -18,8 +18,6 @@ import (
 	"time"
 
 	"github.com/weaviate/weaviate/entities/dto"
-	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/trace"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
@@ -401,11 +399,6 @@ func (rii *RemoteIndexIncoming) OverwriteObjects(ctx context.Context,
 func (rii *RemoteIndexIncoming) DigestObjects(ctx context.Context,
 	indexName, shardName string, ids []strfmt.UUID,
 ) ([]types.RepairResponse, error) {
-	ctx, span := otel.Tracer("weaviate-search").Start(ctx, "RemoteIndexIncoming.DigestObjects",
-		trace.WithSpanKind(trace.SpanKindInternal),
-	)
-	defer span.End()
-
 	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
 	if index == nil {
 		return nil, enterrors.NewErrUnprocessable(fmt.Errorf("local index %q not found", indexName))

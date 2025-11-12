@@ -22,8 +22,6 @@ import (
 	"github.com/weaviate/weaviate/entities/dto"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
-	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/trace"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -374,11 +372,6 @@ func (s *Shard) VectorDistanceForQuery(ctx context.Context, docId uint64, search
 }
 
 func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.Vector, targetVectors []string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination, properties []string) ([]*storobj.Object, []float32, error) {
-	ctx, span := otel.Tracer("weaviate-search").Start(ctx, "shard.ObjectVectorSearch",
-		trace.WithSpanKind(trace.SpanKindInternal),
-	)
-	defer span.End()
-
 	startTime := time.Now()
 
 	defer func() {
@@ -443,12 +436,8 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 			if limit < 0 {
 				switch searchVector := searchVectors[i].(type) {
 				case []float32:
-					spanCtx, span := otel.Tracer("weaviate-search").Start(ctx, "vidx.SearchByVectorDistance",
-						trace.WithSpanKind(trace.SpanKindInternal),
-					)
 					ids, dists, err = vidx.SearchByVectorDistance(
-						spanCtx, searchVector, targetDist, s.index.Config.QueryMaximumResults, allowList)
-					span.End()
+						ctx, searchVector, targetDist, s.index.Config.QueryMaximumResults, allowList)
 					if err != nil {
 						// This should normally not fail. A failure here could indicate that more
 						// attention is required, for example because data is corrupted. That's
@@ -458,12 +447,8 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 						return err
 					}
 				case [][]float32:
-					spanCtx, span := otel.Tracer("weaviate-search").Start(ctx, "vidx.SearchByMultiVectorDistance",
-						trace.WithSpanKind(trace.SpanKindInternal),
-					)
 					ids, dists, err = vidx.(VectorIndexMulti).SearchByMultiVectorDistance(
-						spanCtx, searchVector, targetDist, s.index.Config.QueryMaximumResults, allowList)
-					span.End()
+						ctx, searchVector, targetDist, s.index.Config.QueryMaximumResults, allowList)
 					if err != nil {
 						// This should normally not fail. A failure here could indicate that more
 						// attention is required, for example because data is corrupted. That's
@@ -478,11 +463,7 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 			} else {
 				switch searchVector := searchVectors[i].(type) {
 				case []float32:
-					spanCtx, span := otel.Tracer("weaviate-search").Start(ctx, "vidx.SearchByVector",
-						trace.WithSpanKind(trace.SpanKindInternal),
-					)
-					ids, dists, err = vidx.SearchByVector(spanCtx, searchVector, limit, allowList)
-					span.End()
+					ids, dists, err = vidx.SearchByVector(ctx, searchVector, limit, allowList)
 					if err != nil {
 						// This should normally not fail. A failure here could indicate that more
 						// attention is required, for example because data is corrupted. That's
@@ -494,11 +475,7 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 						return err
 					}
 				case [][]float32:
-					spanCtx, span := otel.Tracer("weaviate-search").Start(ctx, "vidx.SearchByMultiVector",
-						trace.WithSpanKind(trace.SpanKindInternal),
-					)
-					ids, dists, err = vidx.(VectorIndexMulti).SearchByMultiVector(spanCtx, searchVector, limit, allowList)
-					span.End()
+					ids, dists, err = vidx.(VectorIndexMulti).SearchByMultiVector(ctx, searchVector, limit, allowList)
 					if err != nil {
 						// This should normally not fail. A failure here could indicate that more
 						// attention is required, for example because data is corrupted. That's
@@ -566,11 +543,7 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 	beforeObjects := time.Now()
 
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
-	_, span = otel.Tracer("weaviate-search").Start(ctx, "storobj.ObjectsByDocID",
-		trace.WithSpanKind(trace.SpanKindInternal),
-	)
 	objs, err := storobj.ObjectsByDocID(bucket, idsCombined, additional, properties, s.index.logger)
-	span.End()
 	if err != nil {
 		return nil, nil, err
 	}

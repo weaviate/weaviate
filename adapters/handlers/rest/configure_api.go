@@ -655,7 +655,6 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		schemaManager, repo, appState.Modules, appState.RBAC, appState.APIKey.Dynamic)
 	appState.BackupManager = backupManager
 
-	// server has to be configured after cluster service is init
 	internalServer := clusterapi.NewServer(appState)
 	appState.InternalServer = internalServer
 	enterrors.GoWrapper(func() { appState.InternalServer.Serve() }, appState.Logger)
@@ -1828,7 +1827,6 @@ func reasonableHttpClient(authConfig cluster.AuthConfig, minimumInternalTimeout 
 		ExpectContinueTimeout: 1 * time.Second,
 	}
 
-	// TODO only if enabled
 	// Wrap with OpenTelemetry tracing
 	transport := monitoring.NewTracingTransport(t)
 

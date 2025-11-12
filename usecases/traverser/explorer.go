@@ -18,8 +18,6 @@ import (
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema/configvalidation"
-	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/trace"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
@@ -133,11 +131,6 @@ func (e *Explorer) SetSchemaGetter(sg uc.SchemaGetter) {
 func (e *Explorer) GetClass(ctx context.Context,
 	params dto.GetParams,
 ) ([]interface{}, error) {
-	ctx, span := otel.Tracer("weaviate-search").Start(ctx, "explorer.GetClass",
-		trace.WithSpanKind(trace.SpanKindInternal),
-	)
-	defer span.End()
-
 	if params.Pagination == nil {
 		params.Pagination = &filters.Pagination{
 			Offset: 0,
@@ -177,11 +170,6 @@ func (e *Explorer) GetClass(ctx context.Context,
 }
 
 func (e *Explorer) getClassKeywordBased(ctx context.Context, params dto.GetParams) ([]search.Result, error) {
-	ctx, span := otel.Tracer("weaviate-search").Start(ctx, "explorer.getClassKeywordBased",
-		trace.WithSpanKind(trace.SpanKindInternal),
-	)
-	defer span.End()
-
 	if params.NearVector != nil || params.NearObject != nil || len(params.ModuleParams) > 0 {
 		return nil, errors.Errorf("conflict: both near<Media> and keyword-based (bm25) arguments present, choose one")
 	}
@@ -226,11 +214,6 @@ func (e *Explorer) getClassKeywordBased(ctx context.Context, params dto.GetParam
 func (e *Explorer) getClassVectorSearch(ctx context.Context,
 	params dto.GetParams,
 ) ([]search.Result, models.Vector, error) {
-	ctx, span := otel.Tracer("weaviate-search").Start(ctx, "explorer.getClassVectorSearch",
-		trace.WithSpanKind(trace.SpanKindInternal),
-	)
-	defer span.End()
-
 	targetVectors, err := e.targetFromParams(ctx, params)
 	if err != nil {
 		return nil, nil, errors.Errorf("explorer: get class: vectorize params: %v", err)
@@ -254,11 +237,6 @@ func (e *Explorer) getClassVectorSearch(ctx context.Context,
 }
 
 func (e *Explorer) searchForTargets(ctx context.Context, params dto.GetParams, targetVectors []string, searchVectorParams *searchparams.NearVector) ([]search.Result, []models.Vector, error) {
-	ctx, span := otel.Tracer("weaviate-search").Start(ctx, "explorer.searchForTargets",
-		trace.WithSpanKind(trace.SpanKindInternal),
-	)
-	defer span.End()
-
 	var err error
 	searchVectors := make([]models.Vector, len(targetVectors))
 	eg := enterrors.NewErrorGroupWrapper(e.logger)
@@ -368,11 +346,6 @@ func (e *Explorer) CalculateTotalLimit(pagination *filters.Pagination) (int, err
 func (e *Explorer) getClassList(ctx context.Context,
 	params dto.GetParams,
 ) ([]search.Result, error) {
-	ctx, span := otel.Tracer("weaviate-search").Start(ctx, "explorer.getClassList",
-		trace.WithSpanKind(trace.SpanKindInternal),
-	)
-	defer span.End()
-
 	// we will modify the params because of the workaround outlined below,
 	// however, we only want to track what the user actually set for the usage
 	// metrics, not our own workaround, so here's a copy of the original user
@@ -434,11 +407,6 @@ func (e *Explorer) getClassList(ctx context.Context,
 }
 
 func (e *Explorer) searchResultsToGetResponse(ctx context.Context, input []search.Result, searchVector models.Vector, params dto.GetParams) ([]interface{}, error) {
-	ctx, span := otel.Tracer("weaviate-search").Start(ctx, "explorer.GetClass",
-		trace.WithSpanKind(trace.SpanKindInternal),
-	)
-	defer span.End()
-
 	output := make([]interface{}, 0, len(input))
 	results, err := e.searchResultsToGetResponseWithType(ctx, input, searchVector, params)
 	if err != nil {
