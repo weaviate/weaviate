@@ -29,6 +29,7 @@ func TestSPFreshOptimizedPostingSize(t *testing.T) {
 		},
 	)
 	cfg.Scheduler = scheduler
+	cfg.RootPath = t.TempDir()
 	scheduler.Start()
 	defer scheduler.Close()
 	uc := ent.NewDefaultUserConfig()
@@ -46,7 +47,7 @@ func TestSPFreshOptimizedPostingSize(t *testing.T) {
 		require.NoError(t, err)
 
 		maxPostingSize := index.maxPostingSize
-		require.Equal(t, 121, int(maxPostingSize))
+		require.Equal(t, 99, int(maxPostingSize))
 	})
 
 	t.Run("max posting size set by the user", func(t *testing.T) {

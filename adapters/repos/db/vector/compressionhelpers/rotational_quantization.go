@@ -208,6 +208,10 @@ func (rq *RotationalQuantizer) encode(x []float32, bits uint32) []byte {
 	return code
 }
 
+func (rq *RotationalQuantizer) UnRotate(x []float32) []float32 {
+	return rq.rotation.UnRotate(x)
+}
+
 func (rq *RotationalQuantizer) Rotate(x []float32) []float32 {
 	return rq.rotation.Rotate(x)
 }
