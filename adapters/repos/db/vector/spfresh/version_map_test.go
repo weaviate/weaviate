@@ -30,23 +30,21 @@ func TestVersionMapPersistence(t *testing.T) {
 		require.True(t, errors.Is(err, ErrVectorNotFound))
 	})
 
-	t.Run("set and get vector", func(t *testing.T) {
-		err = versionMap.Set(context.Background(), 1, VectorVersion(5))
-		require.NoError(t, err)
-		version, err := versionMap.Get(context.Background(), 1)
-		require.NoError(t, err)
-		require.Equal(t, VectorVersion(5), version)
+	t.Run("increment unknown vector", func(t *testing.T) {
+		version, ok := versionMap.Increment(context.Background(), 1, VectorVersion(0))
+		require.True(t, ok)
+		require.Equal(t, VectorVersion(1), version)
 	})
 
-	t.Run("increment vector", func(t *testing.T) {
-		version, err := versionMap.Increment(context.Background(), 1, VectorVersion(5))
-		require.NoError(t, err)
-		require.Equal(t, VectorVersion(6), version)
+	t.Run("increment existing vector", func(t *testing.T) {
+		version, ok := versionMap.Increment(context.Background(), 1, VectorVersion(1))
+		require.True(t, ok)
+		require.Equal(t, VectorVersion(2), version)
 	})
 
 	t.Run("mark deleted vector and check if it is deleted", func(t *testing.T) {
-		_, err = versionMap.MarkDeleted(context.Background(), 1)
-		require.NoError(t, err)
+		_, ok := versionMap.MarkDeleted(context.Background(), 1)
+		require.True(t, ok)
 		deleted, err := versionMap.IsDeleted(context.Background(), 1)
 		require.NoError(t, err)
 		require.True(t, deleted)

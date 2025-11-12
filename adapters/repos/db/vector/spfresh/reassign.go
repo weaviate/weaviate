@@ -64,9 +64,11 @@ func (s *SPFresh) doReassign(op reassignOperation) error {
 
 	// increment the vector version. this will invalidate all the existing copies
 	// of the vector in other postings.
-	version, err = s.VersionMap.Increment(context.Background(), op.VectorID, version)
-	if err != nil {
-		return errors.Wrapf(err, "failed to increment version for vector %d", op.VectorID)
+	version, ok := s.VersionMap.Increment(context.Background(), op.VectorID, version)
+	if !ok {
+		s.logger.WithField("vectorID", op.VectorID).
+			Debug("vector version increment failed, skipping reassign operation")
+		return nil
 	}
 
 	// create a new vector with the updated version

@@ -174,9 +174,11 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*SPFresh, error) {
 func (s *SPFresh) Delete(ids ...uint64) error {
 	for _, id := range ids {
 		start := time.Now()
-		version, err := s.VersionMap.MarkDeleted(context.Background(), id)
-		if err != nil {
-			return err
+		version, ok := s.VersionMap.MarkDeleted(context.Background(), id)
+		if !ok {
+			s.logger.WithField("vectorID", id).
+				Debug("vector version mark deleted failed, skipping delete operation")
+			continue
 		}
 		if version == 0 {
 			return ErrVectorNotFound

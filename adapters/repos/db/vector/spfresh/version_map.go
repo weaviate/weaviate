@@ -84,70 +84,54 @@ func (v *VersionMap) Get(ctx context.Context, vectorID uint64) (VectorVersion, e
 	return version, err
 }
 
-// Sets the version of the vector to newVersion.
-func (v *VersionMap) Set(ctx context.Context, vectorID uint64, newVersion VectorVersion) error {
-	err := v.store.Set(ctx, vectorID, newVersion)
-	if err != nil {
-		return err
-	}
-	v.cache.Set(vectorID, newVersion)
-	return nil
-}
-
 // Incr increments the version of the vector and returns the new version.
-func (v *VersionMap) Increment(ctx context.Context, vectorID uint64, previousVersion VectorVersion) (VectorVersion, error) {
-	version, err := v.Get(ctx, vectorID)
-	if err != nil {
-		if !errors.Is(err, ErrVectorNotFound) {
-			return 0, err
+func (v *VersionMap) Increment(ctx context.Context, vectorID uint64, previousVersion VectorVersion) (VectorVersion, bool) {
+	return v.cache.Compute(vectorID, func(oldVersion VectorVersion, found bool) (newValue VectorVersion, op otter.ComputeOp) {
+		if !found {
+			return VectorVersion(1), otter.WriteOp
 		}
-	}
+		if oldVersion.Deleted() || oldVersion != previousVersion {
+			return oldVersion, otter.CancelOp
+		}
 
-	if version.Deleted() || version != previousVersion {
-		return version, nil
-	}
+		delBit := uint8(oldVersion) & tombstoneMask // 0x00 or 0x80
+		counter := uint8(oldVersion) & counterMask  // 0-127
 
-	delBit := uint8(version) & tombstoneMask // 0x00 or 0x80
-	counter := uint8(version) & counterMask  // 0-127
+		if counter < 127 {
+			counter++
+		} else {
+			counter = 0 // wraparound behavior
+		}
 
-	if counter < 127 {
-		counter++
-	} else {
-		counter = 0 // wraparound behavior
-	}
+		newVersion := VectorVersion(delBit | counter)
+		err := v.store.Set(ctx, vectorID, newVersion)
+		if err != nil {
+			return oldVersion, otter.CancelOp
+		}
 
-	newVersion := VectorVersion(delBit | counter)
-	err = v.store.Set(ctx, vectorID, newVersion)
-	if err != nil {
-		return 0, err
-	}
-	v.cache.Set(vectorID, newVersion)
-
-	return newVersion, nil
+		return newVersion, otter.WriteOp
+	})
 }
 
-func (v *VersionMap) MarkDeleted(ctx context.Context, vectorID uint64) (VectorVersion, error) {
-	version, err := v.Get(ctx, vectorID)
-	if err != nil {
-		if !errors.Is(err, ErrVectorNotFound) {
-			return 0, err
+func (v *VersionMap) MarkDeleted(ctx context.Context, vectorID uint64) (VectorVersion, bool) {
+	return v.cache.Compute(vectorID, func(oldVersion VectorVersion, found bool) (newValue VectorVersion, op otter.ComputeOp) {
+		if oldVersion == 0 {
+			return 0, otter.CancelOp
 		}
-	}
-	if version == 0 {
-		return 0, nil
-	}
 
-	if version.Deleted() {
-		return version, nil
-	}
+		if oldVersion.Deleted() {
+			return oldVersion, otter.CancelOp
+		}
 
-	counter := uint8(version) & counterMask // 0-127
-	newVersion := VectorVersion(tombstoneMask | counter)
-	err = v.Set(ctx, vectorID, newVersion)
-	if err != nil {
-		return 0, err
-	}
-	return newVersion, nil
+		counter := uint8(oldVersion) & counterMask // 0-127
+		newVersion := VectorVersion(tombstoneMask | counter)
+		err := v.store.Set(ctx, vectorID, newVersion)
+		if err != nil {
+			return oldVersion, otter.CancelOp
+		}
+
+		return VectorVersion(newVersion), otter.WriteOp
+	})
 }
 
 func (v *VersionMap) IsDeleted(ctx context.Context, vectorID uint64) (bool, error) {
