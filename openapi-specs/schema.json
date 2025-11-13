@@ -1961,7 +1961,7 @@
         },
         "compressed": {
           "description": "The status of vector compression/quantization.",
-          "format": "boolean",
+          "type": "boolean",
           "x-omitempty": false
         },
         "vectorQueueLength": {
