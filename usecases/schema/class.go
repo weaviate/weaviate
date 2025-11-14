@@ -23,6 +23,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/weaviate/weaviate/entities/modelsext"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
+	"github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
@@ -221,6 +222,32 @@ func setDefaultQuantization(vectorIndexType string, vectorIndexConfig schemaConf
 		}
 		hnswConfig.TrackDefaultQuantization = true
 		return hnswConfig
+	} else if vectorIndexType == vectorindex.VectorIndexTypeFLAT && vectorIndexConfig.IndexType() == vectorindex.VectorIndexTypeFLAT {
+		flatConfig := vectorIndexConfig.(flat.UserConfig)
+		rqEnabled := flatConfig.RQ.Enabled
+		bqEnabled := flatConfig.BQ.Enabled
+		skipDefaultQuantization := flatConfig.SkipDefaultQuantization
+		flatConfig.TrackDefaultQuantization = false
+		if rqEnabled || bqEnabled || skipDefaultQuantization {
+			return flatConfig
+		}
+		switch compression {
+		case "rq-1":
+			flatConfig.RQ.Enabled = true
+			flatConfig.RQ.Bits = 1
+			flatConfig.RQ.RescoreLimit = flat.DefaultCompressionRescore
+		case "rq-8":
+			flatConfig.RQ.Enabled = true
+			flatConfig.RQ.Bits = 8
+			flatConfig.RQ.RescoreLimit = flat.DefaultCompressionRescore
+		case "bq":
+			flatConfig.BQ.Enabled = true
+			flatConfig.BQ.RescoreLimit = flat.DefaultCompressionRescore
+		default:
+			return flatConfig
+		}
+		flatConfig.TrackDefaultQuantization = true
+		return flatConfig
 	}
 	return vectorIndexConfig
 }

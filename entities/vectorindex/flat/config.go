@@ -41,12 +41,14 @@ type RQUserConfig struct {
 }
 
 type UserConfig struct {
-	Distance              string                `json:"distance"`
-	VectorCacheMaxObjects int                   `json:"vectorCacheMaxObjects"`
-	PQ                    CompressionUserConfig `json:"pq"`
-	BQ                    CompressionUserConfig `json:"bq"`
-	SQ                    CompressionUserConfig `json:"sq"`
-	RQ                    RQUserConfig          `json:"rq"`
+	Distance                 string                `json:"distance"`
+	VectorCacheMaxObjects    int                   `json:"vectorCacheMaxObjects"`
+	PQ                       CompressionUserConfig `json:"pq"`
+	BQ                       CompressionUserConfig `json:"bq"`
+	SQ                       CompressionUserConfig `json:"sq"`
+	RQ                       RQUserConfig          `json:"rq"`
+	SkipDefaultQuantization  bool                  `json:"skipDefaultQuantization"`
+	TrackDefaultQuantization bool                  `json:"trackDefaultQuantization"`
 }
 
 // IndexType returns the type of the underlying vector index, thus making sure
