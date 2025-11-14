@@ -789,6 +789,10 @@ func FromEnv(config *Config) error {
 		config.HNSWStartupWaitForVectorCache = true
 	}
 
+	if entcfg.Enabled(os.Getenv("ASYNC_INDEXING")) {
+		config.AsyncIndexingEnabled = true
+	}
+
 	if err := parseInt(
 		"MAXIMUM_ALLOWED_COLLECTIONS_COUNT",
 		func(val int) {

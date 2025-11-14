@@ -47,7 +47,7 @@ func (db *DB) init(ctx context.Context) error {
 		return err
 	}
 
-	if asyncEnabled() {
+	if db.AsyncIndexingEnabled {
 		// init the index checkpoint file
 		var err error
 		db.indexCheckpoints, err = indexcheckpoint.New(db.config.RootPath, db.logger)
@@ -133,7 +133,7 @@ func (db *DB) init(ctx context.Context) error {
 				convertToVectorIndexConfigs(class.VectorConfig),
 				db.router, db.schemaGetter, db, db.logger, db.nodeResolver, db.remoteIndex,
 				db.replicaClient, &db.config.Replication, db.promMetrics, class, db.jobQueueCh, db.scheduler,
-				db.indexCheckpoints, db.memMonitor, db.reindexer, db.bitmapBufPool)
+				db.indexCheckpoints, db.memMonitor, db.reindexer, db.bitmapBufPool, db.AsyncIndexingEnabled)
 			if err != nil {
 				return errors.Wrap(err, "create index")
 			}

@@ -40,6 +40,7 @@ type Metrics struct {
 	tombstoneStart                prometheus.Gauge
 	tombstoneEnd                  prometheus.Gauge
 	tombstoneProgress             prometheus.Gauge
+	memoryAllocationRejected      prometheus.Counter
 }
 
 func NewMetrics(prom *monitoring.PrometheusMetrics,
@@ -160,6 +161,8 @@ func NewMetrics(prom *monitoring.PrometheusMetrics,
 		"shard_name": shardName,
 	})
 
+	memoryAllocationRejected := prom.VectorIndexMemoryAllocationRejected
+
 	return &Metrics{
 		enabled:                       true,
 		tombstones:                    tombstones,
@@ -182,6 +185,7 @@ func NewMetrics(prom *monitoring.PrometheusMetrics,
 		tombstoneStart:                tombstoneStart,
 		tombstoneEnd:                  tombstoneEnd,
 		tombstoneProgress:             tombstoneProgress,
+		memoryAllocationRejected:      memoryAllocationRejected,
 	}
 }
 
@@ -394,4 +398,12 @@ func (m *Metrics) TrackStartupReadCommitlogDiskIO(read int64, nanoseconds int64)
 	seconds := float64(nanoseconds) / float64(time.Second)
 	throughput := float64(read) / float64(seconds)
 	m.startupDiskIO.With(prometheus.Labels{"operation": "hnsw_read_commitlog"}).Observe(throughput)
+}
+
+func (m *Metrics) MemoryAllocationRejected() {
+	if !m.enabled {
+		return
+	}
+
+	m.memoryAllocationRejected.Inc()
 }

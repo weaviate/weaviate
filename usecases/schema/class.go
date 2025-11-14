@@ -837,7 +837,7 @@ func (h *Handler) validateVectorIndexType(vectorIndexType string) error {
 		return nil
 	case vectorindex.VectorIndexTypeDYNAMIC:
 		if !h.asyncIndexingEnabled {
-			return fmt.Errorf("the dynamic index can only be created under async indexing environment (ASYNC_INDEXING=true)")
+			return fmt.Errorf("the dynamic index can only be created when async indexing is enabled")
 		}
 		return nil
 	default:
