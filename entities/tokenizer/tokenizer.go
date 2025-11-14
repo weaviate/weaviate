@@ -317,7 +317,6 @@ func initializeKagomeTokenizerKr(userDict *models.TokenizerUserDictConfig) (*kag
 func initializeKagomeTokenizerJa(userDict *models.TokenizerUserDictConfig) (*kagomeTokenizer.Tokenizer, error) {
 	startTime := time.Now()
 
-	var err error
 	dictInstance := ipa.Dict()
 	tokenizer, err := initializeKagomeTokenizer(dictInstance, userDict)
 	if err != nil {
