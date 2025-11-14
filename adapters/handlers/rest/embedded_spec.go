@@ -7189,7 +7189,7 @@ func init() {
         },
         "compressed": {
           "description": "The status of vector compression/quantization.",
-          "format": "boolean",
+          "type": "boolean",
           "x-omitempty": false
         },
         "loaded": {
@@ -7228,7 +7228,7 @@ func init() {
         },
         "vectorIndexingStatus": {
           "description": "The status of the vector indexing process.",
-          "format": "string",
+          "type": "string",
           "x-omitempty": false
         },
         "vectorQueueLength": {
@@ -16437,7 +16437,7 @@ func init() {
         },
         "compressed": {
           "description": "The status of vector compression/quantization.",
-          "format": "boolean",
+          "type": "boolean",
           "x-omitempty": false
         },
         "loaded": {
@@ -16476,7 +16476,7 @@ func init() {
         },
         "vectorIndexingStatus": {
           "description": "The status of the vector indexing process.",
-          "format": "string",
+          "type": "string",
           "x-omitempty": false
         },
         "vectorQueueLength": {
