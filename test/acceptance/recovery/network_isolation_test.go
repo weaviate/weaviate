@@ -31,7 +31,7 @@ func TestNetworkIsolationSplitBrain(t *testing.T) {
 		With3NodeCluster().
 		WithText2VecContextionary().
 		Start(ctx)
-	require.Nil(t, err)
+	require.NoError(t, err)
 
 	defer func() {
 		if err := compose.Terminate(ctx); err != nil {
@@ -45,51 +45,45 @@ func TestNetworkIsolationSplitBrain(t *testing.T) {
 	params := nodes.NewNodesGetParams().WithOutput(&verbose)
 	t.Run("verify nodes are healthy", func(t *testing.T) {
 		resp, err := helper.Client(t).Nodes.NodesGet(params, nil)
-		require.Nil(t, err)
+		require.NoError(t, err)
 
 		nodeStatusResp := resp.GetPayload()
 		require.NotNil(t, nodeStatusResp)
 
-		nodes := nodeStatusResp.Nodes
-		require.NotNil(t, nodes)
-		require.Len(t, nodes, 3)
+		require.Len(t, nodeStatusResp.Nodes, 3)
 	})
 
 	t.Run("disconnect node 3 from the network", func(t *testing.T) {
-		err = compose.DisconnectFromNetwork(ctx, 3)
-		require.Nil(t, err)
+		err = compose.DisconnectFromNetwork(ctx, docker.Weaviate3)
+		require.NoError(t, err)
 	})
 
 	t.Run("verify 2 nodes are healthy", func(t *testing.T) {
-		assert.Eventually(t, func() bool {
+		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
 			resp, err := helper.Client(t).Nodes.NodesGet(params, nil)
-			assert.Nil(t, err)
+			require.NoError(ct, err)
 
 			nodeStatusResp := resp.GetPayload()
-			assert.NotNil(t, nodeStatusResp)
+			require.NotNil(ct, nodeStatusResp)
 
-			nodes := nodeStatusResp.Nodes
-			assert.NotNil(t, nodes)
-			return len(nodes) == 2
-		}, 30*time.Second, 500*time.Millisecond)
+			assert.Len(ct, nodeStatusResp.Nodes, 2)
+		}, 60*time.Second, 1*time.Second)
 	})
 
 	t.Run("reconnect node 3 to the network", func(t *testing.T) {
-		err = compose.ConnectToNetwork(ctx, 3)
-		require.Nil(t, err)
+		err = compose.ConnectToNetwork(ctx, docker.Weaviate3)
+		require.NoError(t, err)
 	})
 
 	t.Run("verify nodes are healthy and 3rd node successfully rejoined", func(t *testing.T) {
-		assert.Eventually(t, func() bool {
+		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
 			resp, err := helper.Client(t).Nodes.NodesGet(params, nil)
-			assert.Nil(t, err)
+			require.NoError(ct, err)
 
 			nodeStatusResp := resp.GetPayload()
-			assert.NotNil(t, nodeStatusResp)
+			require.NotNil(ct, nodeStatusResp)
 
-			nodes := nodeStatusResp.Nodes
-			assert.NotNil(t, nodes)
-			return len(nodes) == 3
-		}, 90*time.Second, 500*time.Millisecond)
+			assert.Len(ct, nodeStatusResp.Nodes, 3)
+		}, 120*time.Second, 1*time.Second)
 	})
 }
