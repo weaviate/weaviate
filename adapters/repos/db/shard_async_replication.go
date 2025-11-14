@@ -62,19 +62,19 @@ const (
 	defaultPropagationBatchSize        = 100
 
 	minHashtreeHeight = 0
-	maxHashtreeHeight = 20
+	maxHashtreeHeight = 24
 
 	minInitShieldCPUEveryN = 0
 	maxInitShieldCPUEveryN = math.MaxInt
 
 	minDiffBatchSize = 1
-	maxDiffBatchSize = 10_000
+	maxDiffBatchSize = 100_000
 
 	minPropagationLimit = 1
 	maxPropagationLimit = 1_000_000
 
 	minPropgationConcurrency  = 1
-	maxPropagationConcurrency = 20
+	maxPropagationConcurrency = 30
 
 	minPropagationBatchSize = 1
 	maxPropagationBatchSize = 1_000
