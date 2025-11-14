@@ -14,14 +14,110 @@ package cluster
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/google/uuid"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/replication"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 )
+
+func (s *Raft) ApplyReplicationScalePlan(ctx context.Context, scalePlan api.ReplicationScalePlan) (opsUUIDs []strfmt.UUID, err error) {
+	// while not strictly necessary, scaling while there are ongoing replications is disallowed
+	ops, err := s.GetReplicationDetailsByCollection(ctx, scalePlan.Collection)
+	if err != nil && !errors.Is(err, replicationTypes.ErrReplicationOperationNotFound) {
+		return nil, fmt.Errorf("get replication details for %q: %w", scalePlan.Collection, err)
+	}
+	for _, op := range ops {
+		if api.ShardReplicationState(op.Status.State) != api.CANCELLED && api.ShardReplicationState(op.Status.State) != api.READY {
+			return nil, fmt.Errorf("cannot scale while there are ongoing replications for collection %q", scalePlan.Collection)
+		}
+	}
+
+	// validate scale plan
+	for shardName, shardActions := range scalePlan.ShardReplicationScaleActions {
+		sourceNodeUsage := make(map[string]int)
+
+		for newNode, sourceNode := range shardActions.AddNodes {
+			if newNode == sourceNode {
+				return nil, fmt.Errorf("node %q in shard %q cannot be added as replica from itself", newNode, shardName)
+			}
+
+			if _, isBeingRemoved := shardActions.RemoveNodes[newNode]; isBeingRemoved {
+				return nil, fmt.Errorf("node %q in shard %q cannot be both removed and added", newNode, shardName)
+			}
+
+			if sourceNode != "" {
+				sourceNodeUsage[sourceNode]++
+				if sourceNodeUsage[sourceNode] > 1 {
+					if _, isBeingRemoved := shardActions.RemoveNodes[sourceNode]; isBeingRemoved {
+						return nil, fmt.Errorf("invalid scale plan: source node %q for shard %q is marked for removal and used multiple times as source for additions", sourceNode, shardName)
+					}
+				}
+			}
+		}
+	}
+
+	defer func() {
+		if err != nil {
+			for _, opsUUID := range opsUUIDs {
+				err := s.ForceDeleteReplicationByUuid(ctx, opsUUID)
+				if err != nil {
+					// Log the error but don't stop the cleanup process
+					s.log.Warnf("failed to force delete replication %q: %v", opsUUID, err)
+				}
+			}
+			opsUUIDs = nil
+		}
+	}()
+
+	for shardName, shardActions := range scalePlan.ShardReplicationScaleActions {
+		for node := range shardActions.RemoveNodes {
+			_, err := s.DeleteReplicaFromShard(ctx, scalePlan.Collection, shardName, node)
+			if err != nil {
+				return opsUUIDs, fmt.Errorf("delete replica %q from shard %q: %w", node, shardName, err)
+			}
+		}
+
+		for newNode, sourceNode := range shardActions.AddNodes {
+			if sourceNode == "" {
+				// empty source node means create empty replica
+				_, err := s.AddReplicaToShard(ctx, scalePlan.Collection, shardName, newNode)
+				if err != nil {
+					return opsUUIDs, fmt.Errorf("add empty replica %q to shard %q: %w", newNode, shardName, err)
+				}
+				continue
+			}
+
+			var transferType api.ShardReplicationTransferType
+
+			_, isBeingRemoved := shardActions.RemoveNodes[sourceNode]
+			if isBeingRemoved {
+				transferType = api.MOVE
+			} else {
+				transferType = api.COPY
+			}
+
+			id, err := uuid.NewRandom()
+			if err != nil {
+				return opsUUIDs, fmt.Errorf("create uuid for new replica: %w", err)
+			}
+			uuid := strfmt.UUID(id.String())
+
+			err = s.ReplicationReplicateReplica(ctx, uuid, sourceNode, scalePlan.Collection, shardName, newNode, transferType.String())
+			if err != nil {
+				return opsUUIDs, fmt.Errorf("replication add replica to shard for %q: %w", scalePlan.Collection, err)
+			}
+
+			opsUUIDs = append(opsUUIDs, uuid)
+		}
+	}
+
+	return opsUUIDs, nil
+}
 
 func (s *Raft) ReplicationReplicateReplica(ctx context.Context, uuid strfmt.UUID, sourceNode string, sourceCollection string, sourceShard string, targetNode string, transferType string) error {
 	req := &api.ReplicationReplicateShardRequest{

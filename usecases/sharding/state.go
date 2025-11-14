@@ -226,6 +226,11 @@ func (p *Physical) AdjustReplicas(count int, nodes cluster.NodeSelector) error {
 	if count < 0 {
 		return fmt.Errorf("negative replication factor: %d", count)
 	}
+
+	if count == len(p.BelongsToNodes) {
+		return nil // nothing to do
+	}
+
 	// let's be defensive here and make sure available replicas are unique.
 	available := make(map[string]bool)
 	for _, n := range p.BelongsToNodes {

@@ -25,6 +25,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/schema"
@@ -99,7 +100,7 @@ func TestRaftEndpoints(t *testing.T) {
 		Class:              "C",
 		MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
 	}
-	ss := &sharding.State{PartitioningEnabled: true, Physical: map[string]sharding.Physical{"T0": {Name: "T0"}}}
+	ss := &sharding.State{PartitioningEnabled: true, Physical: map[string]sharding.Physical{"T0": {Name: "T0", BelongsToNodes: []string{"N0"}}}}
 	version0, err := srv.AddClass(ctx, cls, ss)
 	assert.Nil(t, err)
 	assert.Equal(t, schemaReader.ClassEqual("C"), "C")
@@ -162,19 +163,16 @@ func TestRaftEndpoints(t *testing.T) {
 		assert.Equal(t, models.TenantActivityStatusHOT, status)
 	}
 
-	// QueryShardOwner - Err
-	_, _, err = srv.QueryShardOwner(cls.Class, "T0")
-	assert.NotNil(t, err)
-
 	// QueryShardOwner
-	srv.UpdateClass(ctx, cls, &sharding.State{Physical: map[string]sharding.Physical{"T0": {BelongsToNodes: []string{"N0"}}}})
+	srv.UpdateClass(ctx, cls, &sharding.State{PartitioningEnabled: true, Physical: map[string]sharding.Physical{"T0": {Name: "T0", BelongsToNodes: []string{"N0"}}}})
 	getShardOwner, _, err := srv.QueryShardOwner(cls.Class, "T0")
 	assert.Nil(t, err)
 	assert.Equal(t, "N0", getShardOwner)
 
 	// QueryShardingState
-	shardingState := &sharding.State{Physical: map[string]sharding.Physical{"T0": {BelongsToNodes: []string{"N0"}}}, ReplicationFactor: 2}
+	shardingState := &sharding.State{PartitioningEnabled: true, Physical: map[string]sharding.Physical{"T0": {Name: "T0", BelongsToNodes: []string{"N0"}}}, ReplicationFactor: 1}
 	srv.UpdateClass(ctx, cls, shardingState)
+
 	getShardingState, _, err := srv.QueryShardingState(cls.Class)
 	assert.Nil(t, err)
 	assert.Equal(t, shardingState, getShardingState)
@@ -452,4 +450,112 @@ func TestRaftPanics(t *testing.T) {
 	// Cannot Open File Store
 	m.indexer.On("Open", mock.Anything).Return(errAny)
 	assert.Panics(t, func() { m.store.openDatabase(context.TODO()) })
+}
+
+func TestApplyReplicationScalePlan(t *testing.T) {
+	ctx := context.Background()
+
+	m := NewMockStore(t, "Node-1", utils.MustGetFreeTCPPort())
+	m.parser.On("ParseClass", mock.Anything).Return(nil)
+	m.parser.On("ParseClassUpdate", mock.Anything, mock.Anything).Return(mock.Anything, nil)
+
+	m.indexer.On("Open", mock.Anything).Return(nil)
+	// Relax expectations for lifecycle-invoked methods with correct signatures
+	m.indexer.On("Close", mock.Anything).Return(nil).Maybe()
+	m.indexer.On("UpdateClass", mock.Anything, mock.Anything).Return(nil).Maybe()
+	m.indexer.On("DeleteClass", mock.Anything).Return(nil).Maybe()
+	m.indexer.On("AddReplicaToShard", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+	m.indexer.On("DeleteReplicaFromShard", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+	m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+	m.indexer.On("AddClass", mock.Anything).Return(nil)
+
+	// Relax expectations for lifecycle-invoked methods
+	m.indexer.On("Close", mock.Anything).Return(nil).Maybe()
+	m.indexer.On("UpdateClass", mock.Anything).Return(nil).Maybe()
+	m.indexer.On("DeleteClass", mock.Anything).Return(nil).Maybe()
+	m.indexer.On("AddReplicaToShard", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+	m.indexer.On("DeleteReplicaFromShard", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+
+	r := NewRaft(mocks.NewMockNodeSelector(), m.store, nil)
+	require.NoError(t, r.Open(ctx, m.indexer))
+	addr := fmt.Sprintf("%s:%d", m.cfg.Host, m.cfg.RaftPort)
+	require.NoError(t, r.store.Notify(m.cfg.NodeID, addr))
+	require.True(t, tryNTimesWithWait(40, 200*time.Millisecond, r.store.IsLeader))
+	require.True(t, r.store.IsLeader())
+
+	defer m.indexer.AssertExpectations(t)
+
+	class := "TestCollection"
+	shard := "ShardA"
+	sourceNode := "Node-1"
+	destNode := "Node-2"
+	removeNode := "Node-3"
+
+	cls := &models.Class{Class: class}
+	shardingState := &sharding.State{
+		PartitioningEnabled: true,
+		Physical: map[string]sharding.Physical{
+			shard: {Name: shard, BelongsToNodes: []string{sourceNode, removeNode}},
+		},
+	}
+	_, err := r.AddClass(ctx, cls, shardingState)
+	require.NoError(t, err)
+
+	t.Run("Node adds itself", func(t *testing.T) {
+		plan := command.ReplicationScalePlan{
+			Collection: class,
+			ShardReplicationScaleActions: map[string]command.ShardReplicationScaleActions{
+				shard: {AddNodes: map[string]string{sourceNode: sourceNode}},
+			},
+		}
+
+		_, err := r.ApplyReplicationScalePlan(ctx, plan)
+		require.ErrorContains(t, err, "cannot be added as replica from itself")
+	})
+
+	t.Run("Node both added and removed", func(t *testing.T) {
+		plan := command.ReplicationScalePlan{
+			Collection: class,
+			ShardReplicationScaleActions: map[string]command.ShardReplicationScaleActions{
+				shard: {
+					AddNodes:    map[string]string{destNode: sourceNode},
+					RemoveNodes: map[string]struct{}{destNode: {}},
+				},
+			},
+		}
+
+		_, err := r.ApplyReplicationScalePlan(ctx, plan)
+		require.ErrorContains(t, err, "cannot be both removed and added")
+	})
+
+	t.Run("Empty source node should create empty replica", func(t *testing.T) {
+		plan := command.ReplicationScalePlan{
+			Collection: class,
+			ShardReplicationScaleActions: map[string]command.ShardReplicationScaleActions{
+				shard: {
+					AddNodes: map[string]string{"Node-4": ""},
+				},
+			},
+		}
+		uuids, err := r.ApplyReplicationScalePlan(ctx, plan)
+		require.NoError(t, err)
+		require.Empty(t, uuids)
+	})
+
+	t.Run("Invalid multiple source node usage", func(t *testing.T) {
+		plan := command.ReplicationScalePlan{
+			Collection: class,
+			ShardReplicationScaleActions: map[string]command.ShardReplicationScaleActions{
+				shard: {
+					AddNodes: map[string]string{
+						"Node-5": sourceNode,
+						"Node-6": sourceNode,
+					},
+					RemoveNodes: map[string]struct{}{sourceNode: {}},
+				},
+			},
+		}
+		_, err := r.ApplyReplicationScalePlan(ctx, plan)
+		require.ErrorContains(t, err, "invalid scale plan: source node")
+	})
 }

@@ -519,3 +519,232 @@ func randomTransferType() string {
 	}
 	return api.MOVE.String()
 }
+
+func TestGetReplicationScalePlan(t *testing.T) {
+	t.Run("missing collection name", func(t *testing.T) {
+		handler, _, _ := createReplicationHandlerWithMocks(t, createNullLogger(t))
+		params := replication.GetReplicationScalePlanParams{
+			HTTPRequest:       &http.Request{},
+			Collection:        "",
+			ReplicationFactor: 1,
+		}
+		response := handler.getReplicationScalePlan(params, &models.Principal{})
+		assert.IsType(t, &replication.GetReplicationScalePlanBadRequest{}, response)
+	})
+
+	t.Run("invalid replication factor", func(t *testing.T) {
+		handler, _, _ := createReplicationHandlerWithMocks(t, createNullLogger(t))
+		params := replication.GetReplicationScalePlanParams{
+			HTTPRequest:       &http.Request{},
+			Collection:        "TestCollection",
+			ReplicationFactor: int64(-1),
+		}
+		response := handler.getReplicationScalePlan(params, &models.Principal{})
+		assert.IsType(t, &replication.GetReplicationScalePlanBadRequest{}, response)
+	})
+
+	t.Run("authorization error", func(t *testing.T) {
+		handler, mockAuthorizer, _ := createReplicationHandlerWithMocks(t, createNullLogger(t))
+		params := replication.GetReplicationScalePlanParams{
+			HTTPRequest:       &http.Request{},
+			Collection:        "TestCollection",
+			ReplicationFactor: int64(3),
+		}
+		mockAuthorizer.EXPECT().Authorize(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(errors.New("forbidden"))
+		response := handler.getReplicationScalePlan(params, &models.Principal{})
+		assert.IsType(t, &replication.GetReplicationScalePlanForbidden{}, response)
+		mockAuthorizer.AssertExpectations(t)
+	})
+
+	t.Run("not found error", func(t *testing.T) {
+		handler, mockAuthorizer, mockReplicationManager := createReplicationHandlerWithMocks(t, createNullLogger(t))
+		params := replication.GetReplicationScalePlanParams{
+			HTTPRequest:       &http.Request{},
+			Collection:        "MissingCollection",
+			ReplicationFactor: int64(3),
+		}
+		mockAuthorizer.EXPECT().Authorize(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+		mockReplicationManager.EXPECT().GetReplicationScalePlan(mock.Anything, "MissingCollection", int(3)).Return(api.ReplicationScalePlan{}, types.ErrNotFound)
+		response := handler.getReplicationScalePlan(params, &models.Principal{})
+		assert.IsType(t, &replication.GetReplicationScalePlanNotFound{}, response)
+		mockAuthorizer.AssertExpectations(t)
+		mockReplicationManager.AssertExpectations(t)
+	})
+
+	t.Run("internal error", func(t *testing.T) {
+		handler, mockAuthorizer, mockReplicationManager := createReplicationHandlerWithMocks(t, createNullLogger(t))
+		replicationFactor := int64(5)
+		params := replication.GetReplicationScalePlanParams{
+			HTTPRequest:       &http.Request{},
+			Collection:        "TestCollection",
+			ReplicationFactor: replicationFactor,
+		}
+		mockAuthorizer.EXPECT().Authorize(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+		mockReplicationManager.EXPECT().GetReplicationScalePlan(mock.Anything, "TestCollection", int(replicationFactor)).Return(api.ReplicationScalePlan{}, errors.New("internal error"))
+		response := handler.getReplicationScalePlan(params, &models.Principal{})
+		assert.IsType(t, &replication.GetReplicationScalePlanInternalServerError{}, response)
+		mockAuthorizer.AssertExpectations(t)
+		mockReplicationManager.AssertExpectations(t)
+	})
+
+	t.Run("successful response", func(t *testing.T) {
+		handler, mockAuthorizer, mockReplicationManager := createReplicationHandlerWithMocks(t, createNullLogger(t))
+		replicationFactor := int64(3)
+		params := replication.GetReplicationScalePlanParams{
+			HTTPRequest:       &http.Request{},
+			Collection:        "TestCollection",
+			ReplicationFactor: replicationFactor,
+		}
+		scalePlan := api.ReplicationScalePlan{
+			PlanID:     "plan-123",
+			Collection: "TestCollection",
+			ShardReplicationScaleActions: map[string]api.ShardReplicationScaleActions{
+				"shard-1": {
+					RemoveNodes: map[string]struct{}{
+						"node-2": {},
+					},
+					AddNodes: map[string]string{
+						"node-3": "node-1",
+					},
+				},
+				"shard-2": {
+					RemoveNodes: map[string]struct{}{
+						"node-4": {},
+					},
+					AddNodes: map[string]string{
+						"node-5": "node-2",
+					},
+				},
+			},
+		}
+		mockAuthorizer.EXPECT().Authorize(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+		mockReplicationManager.EXPECT().GetReplicationScalePlan(mock.Anything, "TestCollection", int(replicationFactor)).Return(scalePlan, nil)
+		response := handler.getReplicationScalePlan(params, &models.Principal{})
+		assert.IsType(t, &replication.GetReplicationScalePlanOK{}, response)
+		ok := response.(*replication.GetReplicationScalePlanOK)
+		assert.Equal(t, scalePlan.PlanID, ok.Payload.PlanID)
+		assert.Equal(t, scalePlan.Collection, ok.Payload.Collection)
+		assert.Len(t, ok.Payload.ShardScaleActions, len(scalePlan.ShardReplicationScaleActions))
+		for shard, actions := range scalePlan.ShardReplicationScaleActions {
+			// Find the payload actions for this shard
+			payloadActions, found := ok.Payload.ShardScaleActions[shard]
+			assert.True(t, found, "expected shard %s in payload", shard)
+			// Check RemoveNodes
+			expectedRemoves := map[string]struct{}{}
+			for n := range actions.RemoveNodes {
+				expectedRemoves[n] = struct{}{}
+			}
+			actualRemoves := map[string]struct{}{}
+			for _, n := range payloadActions.RemoveNodes {
+				actualRemoves[n] = struct{}{}
+			}
+			assert.Equal(t, expectedRemoves, actualRemoves, "RemoveNodes for shard %s", shard)
+			// Check AddNodes
+			assert.Equal(t, actions.AddNodes, payloadActions.AddNodes, "AddNodes for shard %s", shard)
+		}
+		mockAuthorizer.AssertExpectations(t)
+		mockReplicationManager.AssertExpectations(t)
+	})
+}
+
+func TestApplyReplicationScalePlan(t *testing.T) {
+	t.Run("missing plan or collection", func(t *testing.T) {
+		handler, _, _ := createReplicationHandlerWithMocks(t, createNullLogger(t))
+		params := replication.ApplyReplicationScalePlanParams{
+			HTTPRequest: &http.Request{},
+			Body:        &models.ReplicationScalePlan{},
+		}
+		response := handler.applyReplicationScalePlan(params, &models.Principal{})
+		assert.IsType(t, &replication.ApplyReplicationScalePlanBadRequest{}, response)
+	})
+
+	t.Run("authorization error", func(t *testing.T) {
+		handler, mockAuthorizer, _ := createReplicationHandlerWithMocks(t, createNullLogger(t))
+		body := &models.ReplicationScalePlan{
+			PlanID:     "plan-123",
+			Collection: "TestCollection",
+		}
+		params := replication.ApplyReplicationScalePlanParams{
+			HTTPRequest: &http.Request{},
+			Body:        body,
+		}
+		mockAuthorizer.EXPECT().Authorize(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(errors.New("forbidden"))
+		response := handler.applyReplicationScalePlan(params, &models.Principal{})
+		assert.IsType(t, &replication.ApplyReplicationScalePlanForbidden{}, response)
+		mockAuthorizer.AssertExpectations(t)
+	})
+
+	t.Run("not found error", func(t *testing.T) {
+		handler, mockAuthorizer, mockReplicationManager := createReplicationHandlerWithMocks(t, createNullLogger(t))
+		body := &models.ReplicationScalePlan{
+			PlanID:     "plan-123",
+			Collection: "MissingCollection",
+		}
+		params := replication.ApplyReplicationScalePlanParams{
+			HTTPRequest: &http.Request{},
+			Body:        body,
+		}
+		mockAuthorizer.EXPECT().Authorize(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+		mockReplicationManager.EXPECT().ApplyReplicationScalePlan(
+			mock.Anything,
+			mock.MatchedBy(func(plan api.ReplicationScalePlan) bool {
+				return plan.PlanID == "plan-123" && plan.Collection == "MissingCollection"
+			}),
+		).Return([]strfmt.UUID{}, types.ErrNotFound)
+		response := handler.applyReplicationScalePlan(params, &models.Principal{})
+		assert.IsType(t, &replication.ApplyReplicationScalePlanNotFound{}, response)
+		mockAuthorizer.AssertExpectations(t)
+		mockReplicationManager.AssertExpectations(t)
+	})
+
+	t.Run("internal error", func(t *testing.T) {
+		handler, mockAuthorizer, mockReplicationManager := createReplicationHandlerWithMocks(t, createNullLogger(t))
+		body := &models.ReplicationScalePlan{
+			PlanID:     "plan-123",
+			Collection: "TestCollection",
+		}
+		params := replication.ApplyReplicationScalePlanParams{
+			HTTPRequest: &http.Request{},
+			Body:        body,
+		}
+		mockAuthorizer.EXPECT().Authorize(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+		mockReplicationManager.EXPECT().ApplyReplicationScalePlan(
+			mock.Anything,
+			mock.MatchedBy(func(plan api.ReplicationScalePlan) bool {
+				return plan.PlanID == "plan-123" && plan.Collection == "TestCollection"
+			}),
+		).Return([]strfmt.UUID{}, errors.New("internal error"))
+		response := handler.applyReplicationScalePlan(params, &models.Principal{})
+		assert.IsType(t, &replication.ApplyReplicationScalePlanInternalServerError{}, response)
+		mockAuthorizer.AssertExpectations(t)
+		mockReplicationManager.AssertExpectations(t)
+	})
+
+	t.Run("successful application", func(t *testing.T) {
+		handler, mockAuthorizer, mockReplicationManager := createReplicationHandlerWithMocks(t, createNullLogger(t))
+		body := &models.ReplicationScalePlan{
+			PlanID:     "plan-123",
+			Collection: "TestCollection",
+		}
+		params := replication.ApplyReplicationScalePlanParams{
+			HTTPRequest: &http.Request{},
+			Body:        body,
+		}
+		opIDs := []strfmt.UUID{"op-1", "op-2"}
+		mockAuthorizer.EXPECT().Authorize(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+		mockReplicationManager.EXPECT().ApplyReplicationScalePlan(
+			mock.Anything,
+			mock.MatchedBy(func(plan api.ReplicationScalePlan) bool {
+				return plan.PlanID == "plan-123" && plan.Collection == "TestCollection"
+			}),
+		).Return(opIDs, nil)
+		response := handler.applyReplicationScalePlan(params, &models.Principal{})
+		assert.IsType(t, &replication.ApplyReplicationScalePlanOK{}, response)
+		ok := response.(*replication.ApplyReplicationScalePlanOK)
+		assert.Equal(t, strfmt.UUID("plan-123"), ok.Payload.PlanID)
+		assert.Equal(t, "TestCollection", ok.Payload.Collection)
+		assert.Equal(t, opIDs, ok.Payload.OperationIds)
+		mockAuthorizer.AssertExpectations(t)
+		mockReplicationManager.AssertExpectations(t)
+	})
+}
