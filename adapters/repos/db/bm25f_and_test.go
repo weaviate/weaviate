@@ -96,7 +96,7 @@ func TestBM25FJourneyBlockAnd(t *testing.T) {
 		})
 
 		t.Run("bm25f text with AND == minimum should match with len(queryTerms) "+location, func(t *testing.T) {
-			q := "This is how we get to BM25F"
+			q := "This is how we get to BM25F right?"
 			kwr1 := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description"}, Query: q, SearchOperator: common_filters.SearchOperatorAnd}
 			res1, scores1, err := idx.objectSearch(context.TODO(), 1000, nil, kwr1, nil, nil, addit, nil, "", 0, props)
 
@@ -210,7 +210,7 @@ func TestBM25FJourneyAnd(t *testing.T) {
 		})
 
 		t.Run("bm25f text with AND == minimum should match with len(queryTerms) "+location, func(t *testing.T) {
-			q := "This is how we get to BM25F"
+			q := "This is how we get to BM25F right?"
 			kwr1 := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description"}, Query: q, SearchOperator: common_filters.SearchOperatorAnd}
 			res1, scores1, err := idx.objectSearch(context.TODO(), 1000, nil, kwr1, nil, nil, addit, nil, "", 0, props)
 
