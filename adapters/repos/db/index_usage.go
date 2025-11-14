@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+
 	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
@@ -140,7 +141,7 @@ func (i *Index) usageForCollection(ctx context.Context, jitterInterval time.Dura
 						release := lazyShard.blockLoading()
 						defer release()
 
-						if lazyShard.loaded {
+						if lazyShard.isLoaded() {
 							shardUsage, err2 = i.calculateLoadedShardUsage(ctx, lazyShard.shard, exactObjectCount)
 							if err2 != nil {
 								err2 = fmt.Errorf("loaded lazy shard %s: %w", shardName, err2)
