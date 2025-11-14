@@ -9,11 +9,11 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package ent
+package clients
 
-type VectorizationConfig struct {
-	Model      string
-	Truncate   string
-	BaseURL    string
-	Dimensions *int64
+func (v *vectorizer) MetaInfo() (map[string]interface{}, error) {
+	return map[string]interface{}{
+		"name":              "JinaAI CLIP Multivec Module",
+		"documentationHref": "https://jina.ai/embeddings/",
+	}, nil
 }
