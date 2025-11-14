@@ -48,17 +48,19 @@ type multimodalContent struct {
 }
 
 type embeddingsRequest struct {
-	Input      []string          `json:"input,omitempty"`
-	Inputs     []multimodalInput `json:"inputs,omitempty"`
-	Model      string            `json:"model"`
-	Truncation bool              `json:"truncation,omitempty"`
-	InputType  InputType         `json:"input_type,omitempty"`
+	Input           []string          `json:"input,omitempty"`
+	Inputs          []multimodalInput `json:"inputs,omitempty"`
+	Model           string            `json:"model"`
+	Truncation      bool              `json:"truncation,omitempty"`
+	InputType       InputType         `json:"input_type,omitempty"`
+	OutputDimension *int64            `json:"output_dimension,omitempty"`
 }
 
 type contextualEmbeddingsRequest struct {
-	Inputs     [][]string `json:"inputs"`
-	InputType  InputType  `json:"input_type"`
-	Model      string     `json:"model"`
+	Inputs          [][]string `json:"inputs"`
+	InputType       InputType  `json:"input_type"`
+	Model           string     `json:"model"`
+	OutputDimension *int64     `json:"output_dimension,omitempty"`
 }
 
 type embeddingsDataResponse struct {
@@ -79,27 +81,21 @@ type contextualEmbeddingsDataResponse struct {
 }
 
 type contextualEmbeddingsInnerResponse struct {
-	Object string                              `json:"object"`
+	Object string                             `json:"object"`
 	Data   []contextualEmbeddingsDataResponse `json:"data"`
-	Index  int                                 `json:"index,omitempty"`
+	Index  int                                `json:"index,omitempty"`
 }
 
 type contextualEmbeddingsResponse struct {
 	Object string                              `json:"object"`
 	Data   []contextualEmbeddingsInnerResponse `json:"data"`
-	Model  string                                `json:"model,omitempty"`
-	Detail string                                `json:"detail,omitempty"`
-	Usage  *modulecomponents.Usage               `json:"usage,omitempty"`
+	Model  string                              `json:"model,omitempty"`
+	Detail string                              `json:"detail,omitempty"`
+	Usage  *modulecomponents.Usage             `json:"usage,omitempty"`
 }
 
 type UrlBuilder interface {
 	URL(baseURL, model string) string
-}
-
-type contextualUrlBuilder struct {
-	origin        string
-	pathMask      string
-	useContextual bool
 }
 
 // IsContextualModel checks if the model is a contextual model
@@ -123,10 +119,11 @@ const (
 )
 
 type Settings struct {
-	BaseURL   string
-	Model     string
-	Truncate  bool
-	InputType InputType
+	BaseURL    string
+	Model      string
+	Truncate   bool
+	InputType  InputType
+	Dimensions *int64
 }
 
 type VoyageRLModel struct {
@@ -157,17 +154,19 @@ func (c *Client) Vectorize(ctx context.Context, input []string, settings Setting
 			inputs2D[i] = []string{v}
 		}
 		resBody, err = c.vectorize(ctx, settings.BaseURL, settings.Model, contextualEmbeddingsRequest{
-			Inputs:    inputs2D,
-			InputType: Document,
-			Model:     settings.Model,
+			Inputs:          inputs2D,
+			InputType:       Document,
+			Model:           settings.Model,
+			OutputDimension: settings.Dimensions,
 		})
 	} else {
 		// Use regular embeddings API format
 		resBody, err = c.vectorize(ctx, settings.BaseURL, settings.Model, embeddingsRequest{
-			Input:      input,
-			Model:      settings.Model,
-			Truncation: settings.Truncate,
-			InputType:  Document,
+			Input:           input,
+			Model:           settings.Model,
+			Truncation:      settings.Truncate,
+			InputType:       Document,
+			OutputDimension: settings.Dimensions,
 		})
 	}
 
@@ -190,17 +189,19 @@ func (c *Client) VectorizeQuery(ctx context.Context, input []string, settings Se
 			inputs2D[i] = []string{v}
 		}
 		resBody, err = c.vectorize(ctx, settings.BaseURL, settings.Model, contextualEmbeddingsRequest{
-			Inputs:    inputs2D,
-			InputType: Query,
-			Model:     settings.Model,
+			Inputs:          inputs2D,
+			InputType:       Query,
+			Model:           settings.Model,
+			OutputDimension: settings.Dimensions,
 		})
 	} else {
 		// Use regular embeddings API format
 		resBody, err = c.vectorize(ctx, settings.BaseURL, settings.Model, embeddingsRequest{
-			Input:      input,
-			Model:      settings.Model,
-			Truncation: settings.Truncate,
-			InputType:  Query,
+			Input:           input,
+			Model:           settings.Model,
+			Truncation:      settings.Truncate,
+			InputType:       Query,
+			OutputDimension: settings.Dimensions,
 		})
 	}
 

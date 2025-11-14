@@ -29,12 +29,18 @@ func testText2VecVoyageAI(rest, grpc string) func(t *testing.T) {
 		data := companies.Companies
 		class := companies.BaseClass(className)
 		tests := []struct {
-			name  string
-			model string
+			name       string
+			model      string
+			dimensions int
 		}{
 			{
 				name:  "voyage-3.5",
 				model: "voyage-3.5",
+			},
+			{
+				name:       "voyage-3.5-lite 512 dimensions",
+				model:      "voyage-3.5-lite",
+				dimensions: 512,
 			},
 			{
 				name:  "voyage-3.5-lite",
@@ -52,19 +58,28 @@ func testText2VecVoyageAI(rest, grpc string) func(t *testing.T) {
 				name:  "voyage-context-3",
 				model: "voyage-context-3",
 			},
+			{
+				name:       "voyage-context-3 256 dimensions",
+				model:      "voyage-context-3",
+				dimensions: 256,
+			},
 		}
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
+				// Define settings
+				text2vecVoyageaiSettings := map[string]any{
+					"properties":         []any{"description"},
+					"vectorizeClassName": false,
+					"model":              tt.model,
+				}
+				if tt.dimensions != 0 {
+					text2vecVoyageaiSettings["dimensions"] = tt.dimensions
+				}
 				// Define class
 				class.VectorConfig = map[string]models.VectorConfig{
 					"description": {
-						Vectorizer: map[string]interface{}{
-							"text2vec-voyageai": map[string]interface{}{
-								"properties":         []interface{}{"description"},
-								"vectorizeClassName": false,
-								"model":              tt.model,
-								"dimensions":         64,
-							},
+						Vectorizer: map[string]any{
+							"text2vec-voyageai": text2vecVoyageaiSettings,
 						},
 						VectorIndexType: "flat",
 					},
