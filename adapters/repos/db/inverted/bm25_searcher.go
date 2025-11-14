@@ -344,7 +344,7 @@ func (b *BM25Searcher) wand(
 	termSearchTime := time.Since(start)
 	helpers.AnnotateSlowQueryLog(ctx, "kwd_3_term_time", termSearchTime)
 	start = time.Now()
-	topKHeap := lsmkv.DoWand(ctx, limit, combinedTerms, averagePropLength, params.AdditionalExplanations, minimumOrTokensMatch)
+	topKHeap := lsmkv.DoWand(ctx, limit, combinedTerms, averagePropLength, params.AdditionalExplanations, minimumOrTokensMatch, b.logger)
 
 	wandTime := time.Since(start)
 	helpers.AnnotateSlowQueryLog(ctx, "kwd_4_wand_time", wandTime)
