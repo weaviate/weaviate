@@ -17,12 +17,13 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 )
 
 func TestVersionMapPersistence(t *testing.T) {
 	store := testinghelpers.NewDummyStore(t)
-	versionMap, err := NewVersionMap(store, "test", StoreConfig{})
+	versionMap, err := NewVersionMap(store, "test", StoreConfig{MakeBucketOptions: lsmkv.MakeNoopBucketOptions})
 	require.NoError(t, err)
 
 	t.Run("get unknown vector", func(t *testing.T) {

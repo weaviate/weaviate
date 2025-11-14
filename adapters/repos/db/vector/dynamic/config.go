@@ -14,6 +14,7 @@ package dynamic
 import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/flat"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
@@ -28,28 +29,24 @@ import (
 )
 
 type Config struct {
-	ID                           string
-	TargetVector                 string
-	Logger                       logrus.FieldLogger
-	RootPath                     string
-	ShardName                    string
-	ClassName                    string
-	PrometheusMetrics            *monitoring.PrometheusMetrics
-	VectorForIDThunk             common.VectorForID[float32]
-	TempVectorForIDThunk         common.TempVectorForID[float32]
-	DistanceProvider             distancer.Provider
-	MakeCommitLoggerThunk        hnsw.MakeCommitLogger
-	TombstoneCallbacks           cyclemanager.CycleCallbackGroup
-	SharedDB                     *bolt.DB
-	HNSWDisableSnapshots         bool
-	HNSWSnapshotOnStartup        bool
-	HNSWWaitForCachePrefill      bool
-	MinMMapSize                  int64
-	MaxWalReuseSize              int64
-	LazyLoadSegments             bool
-	AllocChecker                 memwatch.AllocChecker
-	WriteSegmentInfoIntoFileName bool
-	WriteMetadataFilesEnabled    bool
+	ID                      string
+	TargetVector            string
+	Logger                  logrus.FieldLogger
+	RootPath                string
+	ShardName               string
+	ClassName               string
+	PrometheusMetrics       *monitoring.PrometheusMetrics
+	VectorForIDThunk        common.VectorForID[float32]
+	TempVectorForIDThunk    common.TempVectorForID[float32]
+	DistanceProvider        distancer.Provider
+	MakeCommitLoggerThunk   hnsw.MakeCommitLogger
+	TombstoneCallbacks      cyclemanager.CycleCallbackGroup
+	SharedDB                *bolt.DB
+	HNSWDisableSnapshots    bool
+	HNSWSnapshotOnStartup   bool
+	HNSWWaitForCachePrefill bool
+	AllocChecker            memwatch.AllocChecker
+	MakeBucketOptions       lsmkv.MakeBucketOptions
 }
 
 func (c Config) Validate() error {
