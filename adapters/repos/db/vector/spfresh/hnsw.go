@@ -53,6 +53,9 @@ func NewHNSWIndex(metrics *Metrics, store *lsmkv.Store, cfg *Config, pages, page
 	userConfig.SetDefaults()
 	userConfig.EF = 64
 	userConfig.EFConstruction = 64
+	userConfig.RQ.Enabled = true
+	userConfig.RQ.Bits = 8
+	userConfig.RQ.RescoreLimit = 0
 
 	h, err := hnsw.New(*cfg.Centroids.HNSWConfig, userConfig, cfg.TombstoneCallbacks, store)
 	if err != nil {
