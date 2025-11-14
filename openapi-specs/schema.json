@@ -1956,7 +1956,7 @@
         },
         "vectorIndexingStatus": {
           "description": "The status of the vector indexing process.",
-          "format": "string",
+          "type": "string",
           "x-omitempty": false
         },
         "compressed": {
