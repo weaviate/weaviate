@@ -48,7 +48,7 @@ func TestService_Usage_SingleTenant(t *testing.T) {
 	replication := 1
 	uniqueShards := 1
 	shardName := "abcd"
-	ObjectStorageSize := int64(437)
+	ObjectStorageSize := int64(353)
 	vectorName := "abcd"
 	vectorType := "hnsw"
 	compression := "standard"
@@ -247,7 +247,7 @@ func TestService_Usage_MultiTenant_HotAndCold(t *testing.T) {
 
 	require.NotNil(t, hotShard)
 	assert.Equal(t, int64(2), hotShard.ObjectsCount)
-	assert.Equal(t, uint64(736), hotShard.ObjectsStorageBytes)
+	assert.Equal(t, uint64(612), hotShard.ObjectsStorageBytes)
 	assert.Equal(t, strings.ToLower(models.TenantActivityStatusACTIVE), hotShard.Status)
 	assert.Len(t, hotShard.NamedVectors, 1)
 
