@@ -381,8 +381,12 @@ func NewIndex(
 		return index.DeletionStrategy()
 	}
 
+	getAsyncReplicationEnabled := func() bool {
+		return index.asyncReplicationEnabled()
+	}
+
 	// TODO: Fix replica router instantiation to be at the top level
-	index.replicator, err = replica.NewReplicator(cfg.ClassName.String(), router, sg.NodeName(), getDeletionStrategy, replicaClient, promMetrics, logger)
+	index.replicator, err = replica.NewReplicator(cfg.ClassName.String(), router, sg.NodeName(), getDeletionStrategy, getAsyncReplicationEnabled, replicaClient, promMetrics, logger)
 	if err != nil {
 		return nil, fmt.Errorf("create replicator for index %q: %w", index.ID(), err)
 	}

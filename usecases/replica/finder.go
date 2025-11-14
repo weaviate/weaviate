@@ -80,6 +80,7 @@ func NewFinder(className string,
 	coordinatorPullBackoffInitialInterval time.Duration,
 	coordinatorPullBackoffMaxElapsedTime time.Duration,
 	getDeletionStrategy func() string,
+	getAsyncReplicationEnabled func() bool,
 ) *Finder {
 	cl := FinderClient{client}
 	return &Finder{
@@ -87,11 +88,12 @@ func NewFinder(className string,
 		nodeName: nodeName,
 		finderStream: finderStream{
 			repairer: repairer{
-				class:               className,
-				getDeletionStrategy: getDeletionStrategy,
-				client:              cl,
-				metrics:             metrics,
-				logger:              l,
+				class:                      className,
+				getDeletionStrategy:        getDeletionStrategy,
+				getAsyncReplicationEnabled: getAsyncReplicationEnabled,
+				client:                     cl,
+				metrics:                    metrics,
+				logger:                     l,
 			},
 			log: l,
 		},

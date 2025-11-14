@@ -18,11 +18,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/cenkalti/backoff/v4"
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/cluster/router/types"
-	"github.com/weaviate/weaviate/cluster/utils"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
@@ -81,6 +79,7 @@ func newReadCoordinator[T any](f *Finder, shard string,
 ) *coordinator[T] {
 	return &coordinator[T]{
 		Router:                        f.router,
+		log:                           f.log,
 		Class:                         f.class,
 		Shard:                         shard,
 		metrics:                       f.metrics,
@@ -284,6 +283,8 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 	hosts := readRoutingPlan.HostAddresses()
 	replyCh := make(chan _Result[T], level)
 	f := func() {
+		defer close(replyCh)
+
 		start := time.Now()
 		var successful atomic.Int32
 
@@ -299,26 +300,34 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 			c.metrics.ObserveReadDuration(time.Since(start))
 		}()
 
-		hostRetryQueue := make(chan hostRetry, len(hosts))
-
-		// put the "backups/fallbacks" on the retry queue
-		for i := level; i < len(hosts); i++ {
-			hostRetryQueue <- hostRetry{
-				hosts[i],
-				backoff.WithContext(utils.NewExponentialBackoff(c.pullBackOffPreInitialInterval, c.pullBackOffMaxElapsedTime), ctx),
-			}
-		}
-
-		// kick off only level workers so that we avoid querying nodes unnecessarily
 		wg := sync.WaitGroup{}
-		wg.Add(level)
-		for i := 0; i < level; i++ {
+		wg.Add(len(hosts))
+		workerCh := make(chan _Result[T], len(hosts))
+		// wait for all workers to finish and then close the workerCh
+		enterrors.GoWrapper(func() {
+			wg.Wait()
+			close(workerCh)
+		}, c.log)
+
+		sem := make(chan struct{}, level)
+		ctx, cancel := context.WithCancel(ctx)
+		defer cancel()
+		for i := 0; i < len(hosts); i++ {
 			hostIndex := i
 			isFullReadWorker := hostIndex == 0 // first worker will perform the fullRead
 			workerFunc := func() {
 				defer wg.Done()
 				workerCtx, workerCancel := context.WithTimeout(ctx, timeout)
 				defer workerCancel()
+				select {
+				case <-ctx.Done():
+					// if the parent context was cancelled before we acquired a semaphore,
+					// i.e. this worker is no longer needed, then return early
+					return
+				case sem <- struct{}{}:
+					// otherwise, one of the previous workers has errored so we need to try our host
+					// in an effort to reach the required level
+				}
 				// each worker will first try its corresponding host (eg worker0 tries hosts[0],
 				// worker1 tries hosts[1], etc). We want the fullRead to be tried on hosts[0]
 				// because that will be the direct candidate (if a direct candidate was provided),
@@ -329,57 +338,51 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 				// TODO have increasing timeout passed into each op (eg 1s, 2s, 4s, 8s, 16s, 32s, with some max) similar to backoff? future PR? or should we just set timeout once per worker in Pull?
 				if err == nil {
 					successful.Add(1)
-					replyCh <- _Result[T]{resp, err}
-					return
+				} else {
+					// only give the semaphore back if there was an error so that another host can be tried
+					<-sem
 				}
-				// this host failed op on the first try, put it on the retry queue
-				hostRetryQueue <- hostRetry{
-					hosts[hostIndex],
-					backoff.WithContext(utils.NewExponentialBackoff(c.pullBackOffPreInitialInterval, c.pullBackOffMaxElapsedTime), workerCtx),
-				}
-
-				// let's fallback to the backups in the retry queue
-				for hr := range hostRetryQueue {
-					resp, err := op(workerCtx, hr.host, isFullReadWorker)
-					if err == nil {
-						replyCh <- _Result[T]{resp, err}
-						return
-					}
-					nextBackOff := hr.currentBackOff.NextBackOff()
-					if nextBackOff == backoff.Stop {
-						// this host has run out of retries, send the result and note that
-						// we have the worker exit here with the assumption that once we've reached
-						// this many failures for this host, we've tried all other hosts enough
-						// that we're not going to reach level successes
-						replyCh <- _Result[T]{resp, err}
-						return
-					}
-
-					timer := time.NewTimer(nextBackOff)
-					select {
-					case <-workerCtx.Done():
-						timer.Stop()
-						replyCh <- _Result[T]{resp, err}
-						return
-					case <-timer.C:
-						hostRetryQueue <- hostRetry{hr.host, hr.currentBackOff}
-					}
-					timer.Stop()
-				}
+				workerCh <- _Result[T]{resp, err}
 			}
 			enterrors.GoWrapper(workerFunc, c.log)
 		}
-		wg.Wait()
-		// callers of this function rely on replyCh being closed
-		close(replyCh)
+
+		// if consistency level is ALL, wait for all results and then return early
+		if level == cl.ToInt(len(hosts)) {
+			for res := range workerCh {
+				replyCh <- res
+			}
+			return
+		}
+
+		// otherwise, collect results until we reach level if ONE or QUORUM
+		// make sure to log any errors returned while reaching level
+		count := 0
+		for count < level {
+			res := <-workerCh
+			if res.Err != nil {
+				c.log.WithField("op", "pull").WithField("class", c.Class).
+					WithField("shard", c.Shard).WithField("host", hosts[count]).
+					Error(res.Err)
+				continue
+			}
+			replyCh <- res
+			count++
+		}
+
+		// spawn a goroutine to drain the workerCh
+		// this logs any errors from late responses
+		enterrors.GoWrapper(func() {
+			for res := range workerCh {
+				if res.Err != nil {
+					c.log.WithField("op", "pull").WithField("class", c.Class).
+						WithField("shard", c.Shard).
+						Error(res.Err)
+				}
+			}
+		}, c.log)
 	}
 	enterrors.GoWrapper(f, c.log)
 
 	return replyCh, level, nil
-}
-
-// hostRetry tracks how long we should wait to retry this host again
-type hostRetry struct {
-	host           string
-	currentBackOff backoff.BackOff
 }

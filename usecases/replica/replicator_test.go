@@ -908,6 +908,9 @@ func (f *fakeFactory) newReplicatorWithSourceNode(thisNode string) *replica.Repl
 	getDeletionStrategy := func() string {
 		return models.ReplicationConfigDeletionStrategyNoAutomatedResolution
 	}
+	getAsyncReplicationEnabled := func() bool {
+		return false
+	}
 
 	metrics := monitoring.GetMetrics()
 
@@ -916,6 +919,7 @@ func (f *fakeFactory) newReplicatorWithSourceNode(thisNode string) *replica.Repl
 		router,
 		"A",
 		getDeletionStrategy,
+		getAsyncReplicationEnabled,
 		&struct {
 			replica.RClient
 			replica.WClient
@@ -935,6 +939,9 @@ func (f *fakeFactory) newReplicator() *replica.Replicator {
 	getDeletionStrategy := func() string {
 		return models.ReplicationConfigDeletionStrategyNoAutomatedResolution
 	}
+	getAsyncReplicationEnabled := func() bool {
+		return false
+	}
 
 	metrics := monitoring.GetMetrics()
 
@@ -943,6 +950,7 @@ func (f *fakeFactory) newReplicator() *replica.Replicator {
 		router,
 		"A",
 		getDeletionStrategy,
+		getAsyncReplicationEnabled,
 		&struct {
 			replica.RClient
 			replica.WClient
@@ -962,13 +970,16 @@ func (f *fakeFactory) newFinderWithTimings(thisNode string, tInitial time.Durati
 	getDeletionStrategy := func() string {
 		return models.ReplicationConfigDeletionStrategyNoAutomatedResolution
 	}
+	getAsyncReplicationEnabled := func() bool {
+		return false
+	}
 
 	metrics, err := replica.NewMetrics(monitoring.GetMetrics())
 	if err != nil {
 		f.t.Fatalf("could not create metrics: %v", err)
 	}
 
-	return replica.NewFinder(f.CLS, router, thisNode, f.RClient, metrics, f.log, tInitial, tMax, getDeletionStrategy)
+	return replica.NewFinder(f.CLS, router, thisNode, f.RClient, metrics, f.log, tInitial, tMax, getDeletionStrategy, getAsyncReplicationEnabled)
 }
 
 func (f *fakeFactory) newFinder(thisNode string) *replica.Finder {

@@ -100,6 +100,14 @@ func (f *finderStream) readOne(ctx context.Context,
 			}
 		}
 
+		// if we have async replication then we don't need to so urgently perform read repair
+		// async replication will take care of it eventually so we can return fast here to improve read latency
+		// the objects in the return may have `isConsistent=false` set, however
+		if f.getAsyncReplicationEnabled() {
+			resultCh <- ObjResult{votes[contentIdx].O.Object, nil}
+			return
+		}
+
 		obj, err := f.repairOne(ctx, shard, id, votes, contentIdx)
 		if err == nil {
 			resultCh <- ObjResult{obj, nil}
@@ -260,6 +268,15 @@ func (f *finderStream) readBatchPart(ctx context.Context,
 				return
 			}
 		}
+
+		// if we have async replication then we don't need to so urgently perform read repair
+		// async replication will take care of it eventually so we can return fast here to improve read latency
+		// the objects in the return may have `isConsistent=false` set, however
+		if f.getAsyncReplicationEnabled() {
+			resultCh <- batchResult{fromReplicas(votes[contentIdx].FullData), nil}
+			return
+		}
+
 		res, err := f.repairBatchPart(ctx, batch.Shard, ids, votes, contentIdx)
 		if err != nil {
 			resultCh <- batchResult{nil, ErrRepair}

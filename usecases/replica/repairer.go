@@ -45,11 +45,12 @@ var (
 
 // repairer tries to detect inconsistencies and repair objects when reading them from replicas
 type repairer struct {
-	class               string
-	getDeletionStrategy func() string
-	client              FinderClient // needed to commit and abort operation
-	metrics             *Metrics
-	logger              logrus.FieldLogger
+	class                      string
+	getDeletionStrategy        func() string
+	getAsyncReplicationEnabled func() bool
+	client                     FinderClient // needed to commit and abort operation
+	metrics                    *Metrics
+	logger                     logrus.FieldLogger
 }
 
 // repairOne repairs a single object (used by Finder::GetOne)
