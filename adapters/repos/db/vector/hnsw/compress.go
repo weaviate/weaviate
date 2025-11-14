@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -34,6 +35,7 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 		if h.isEmpty() {
 			return errors.New("compress command cannot be executed before inserting some data")
 		}
+		vectorDimension := int(h.dims)
 		cleanData := make([][]float32, 0, len(data))
 		sampler := common.NewSparseFisherYatesIterator(len(data))
 		for !sampler.IsDone() {
@@ -59,6 +61,21 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 
 			if p == nil {
 				// already deleted, ignore
+				continue
+			}
+
+			if singleVector && len(p) != vectorDimension {
+				// With rolling restarts and concurrent inserts and queries it
+				// appears that we sometimes get non-nil vectors with
+				// length/capacity zero. Filter these out and log a warning to
+				// help narrow down the issue.
+				// https://github.com/weaviate/weaviate/issues/9470
+				h.logger.WithFields(logrus.Fields{
+					"action":       "compress",
+					"shard":        h.shardName,
+					"collection":   h.className,
+					"targetVector": h.getTargetVector(),
+				}).Warningf("vector cache returned vector of length %d, expected %d", len(p), vectorDimension)
 				continue
 			}
 
