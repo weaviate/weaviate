@@ -48,6 +48,10 @@ func testText2VecVoyageAI(rest, grpc string) func(t *testing.T) {
 				name:  "voyage-3-lite",
 				model: "voyage-3-lite",
 			},
+			{
+				name:  "voyage-context-3",
+				model: "voyage-context-3",
+			},
 		}
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {

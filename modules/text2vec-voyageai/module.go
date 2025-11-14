@@ -45,6 +45,9 @@ var batchSettings = batch.Settings{
 			return 320000
 		} else if model == "voyage-large-2" || model == "voyage-code-2" {
 			return 120000
+		} else if model == "voyage-3" || model == "voyage-3-lite" || model == "voyage-3.5" || model == "voyage-3.5-lite" ||
+			model == "voyage-context-3" {
+			return 160000
 		}
 		return 120000 // unknown model, use the smallest limit
 	},

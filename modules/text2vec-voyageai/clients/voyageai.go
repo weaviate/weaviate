@@ -30,6 +30,7 @@ var rateLimitPerModel = map[string]voyageai.VoyageRLModel{
 	"voyage-3.5-lite": {TokenLimit: 16_000_000, RequestLimit: 2000},
 	"voyage-3":        {TokenLimit: 2_000_000, RequestLimit: 1000},
 	"voyage-3-lite":   {TokenLimit: 4_000_000, RequestLimit: 1000},
+	"voyage-context-3": {TokenLimit: 2_000_000, RequestLimit: 1000},
 	"default":         {TokenLimit: 1_000_000, RequestLimit: 1000},
 }
 
@@ -52,11 +53,17 @@ func newVoyageAIUrlBuilder() *voyageaiUrlBuilder {
 	}
 }
 
-func (c *voyageaiUrlBuilder) URL(baseURL string) string {
-	if baseURL != "" {
-		return fmt.Sprintf("%s%s", baseURL, c.pathMask)
+func (c *voyageaiUrlBuilder) URL(baseURL, model string) string {
+	pathMask := c.pathMask
+	// Use contextual embeddings endpoint for contextual models
+	if voyageai.IsContextualModel(model) {
+		pathMask = "/contextualizedembeddings"
 	}
-	return fmt.Sprintf("%s%s", c.origin, c.pathMask)
+
+	if baseURL != "" {
+		return fmt.Sprintf("%s%s", baseURL, pathMask)
+	}
+	return fmt.Sprintf("%s%s", c.origin, pathMask)
 }
 
 type vectorizer struct {
