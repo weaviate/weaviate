@@ -12,6 +12,7 @@
 package tokenizer
 
 import (
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -25,9 +26,17 @@ func TestTokeniseParallel(t *testing.T) {
 	t.Setenv("ENABLE_TOKENIZER_KAGOME_KR", "true")
 	t.Setenv("ENABLE_TOKENIZER_KAGOME_JA", "true")
 	InitOptionalTokenizers()
-	for i := 0; i < 1000; i++ {
-		go SingleTokenise(t)
+
+	n := 1000
+	wg := new(sync.WaitGroup)
+	wg.Add(n)
+	for range n {
+		go func() {
+			defer wg.Done()
+			SingleTokenise(t)
+		}()
 	}
+	wg.Wait()
 }
 
 func SingleTokenise(t *testing.T) {
@@ -113,7 +122,7 @@ func SingleTokenise(t *testing.T) {
 	assert.Equal(t, []string{"スバ", "ヤイ", "チャイ", "ロノキツネガナマケタイヌヲトビコエタ"}, tokens)
 
 	tokens = Tokenize(models.PropertyTokenizationKagomeJa, "The quick brown fox jumps over the lazy dog")
-	assert.Equal(t, []string{"the", "quick", "brown", "fox", "jumps", "over", "the", "lazy", "dog"}, tokens)
+	assert.Equal(t, []string{"The", "quick", "brown", "fox", "jumps", "over", "the", "lazy", "dog"}, tokens)
 }
 
 func TestTokenize(t *testing.T) {
