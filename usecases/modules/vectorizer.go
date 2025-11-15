@@ -92,6 +92,9 @@ func (p *Provider) BatchUpdateVector(ctx context.Context, class *models.Class, o
 	findObjectFn modulecapabilities.FindObjectFn,
 	logger logrus.FieldLogger,
 ) (map[int]error, error) {
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
 	modConfigs, err := p.getModuleConfigs(class)
 	if err != nil {
 		return nil, err
@@ -115,6 +118,9 @@ func (p *Provider) BatchUpdateVector(ctx context.Context, class *models.Class, o
 	eg := enterrors.NewErrorGroupWrapper(logger)
 	eg.SetLimit(_NUMCPU)
 	for targetVector, modConfig := range modConfigs {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 		shouldVectorizeClass, err := p.shouldVectorizeClass(class, targetVector, logger)
 		if err != nil {
 			errorList[counter] = err
@@ -135,6 +141,9 @@ func (p *Provider) BatchUpdateVector(ctx context.Context, class *models.Class, o
 		}
 
 		counter += 1
+	}
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
 	}
 	if err := eg.Wait(); err != nil {
 		return nil, err
@@ -194,6 +203,9 @@ func (p *Provider) batchUpdateVector(ctx context.Context, objects []*models.Obje
 				skipRevectorization[i] = true
 				continue
 			}
+			if ctx.Err() != nil {
+				return nil, fmt.Errorf("context is done: %w", ctx.Err())
+			}
 			reVectorize, addProps, vector, err := reVectorize(ctx, cfg, vectorizer, obj,
 				class, nil, targetVector, findObjectFn, p.cfg.RevectorizeCheckDisabled.Get())
 			if err != nil {
@@ -205,6 +217,9 @@ func (p *Provider) batchUpdateVector(ctx context.Context, objects []*models.Obje
 					p.addVectorToObject(obj, vector, nil, addProps, cfg)
 				})
 			}
+		}
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
 		}
 		vectors, addProps, vecErrors := vectorizer.VectorizeBatch(ctx, objects, skipRevectorization, cfg)
 		for i := range objects {
@@ -268,6 +283,9 @@ func (p *Provider) batchUpdateVector(ctx context.Context, objects []*models.Obje
 		refVectorizer := found.(modulecapabilities.ReferenceVectorizer[[]float32])
 		errs := make(map[int]error, 0)
 		for i, obj := range objects {
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
 			vector, err := refVectorizer.VectorizeObject(ctx, obj, cfg, findObjectFn)
 			if err != nil {
 				errs[i] = fmt.Errorf("update reference vector: %w", err)
@@ -298,6 +316,9 @@ func (p *Provider) UpdateVector(ctx context.Context, object *models.Object, clas
 		eg.Go(func() error {
 			return p.vectorizeOne(ctx, object, class, findObjectFn, targetVector, modConfig, logger)
 		}, targetVector)
+	}
+	if ctx.Err() != nil {
+		return ctx.Err()
 	}
 	if err = eg.Wait(); err != nil {
 		return err
@@ -343,6 +364,9 @@ func (p *Provider) vectorizeOne(ctx context.Context, object *models.Object, clas
 	targetVector string, modConfig map[string]interface{},
 	logger logrus.FieldLogger,
 ) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
 	vectorize, err := p.shouldVectorize(object, class, targetVector, logger)
 	if err != nil {
 		return fmt.Errorf("vectorize check for target vector %s: %w", targetVector, err)
@@ -359,6 +383,9 @@ func (p *Provider) vectorize(ctx context.Context, object *models.Object, class *
 	findObjectFn modulecapabilities.FindObjectFn,
 	targetVector string, modConfig map[string]interface{},
 ) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
 	found := p.getModule(modConfig)
 	if found == nil {
 		return fmt.Errorf(
