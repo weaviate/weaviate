@@ -120,10 +120,19 @@ func (s *SPFresh) restoreMetadata() error {
 		s.logger.Warnf("SPFresh index unable to restore vector size: %v", err)
 	}
 
+	s.initDimensions()
+
 	return nil
 }
 
 func (s *SPFresh) initDimensions() {
+	err := s.openMetadata()
+	if err != nil {
+		s.logger.Warnf("SPFresh index unable to open metadata: %v", err)
+		return
+	}
+	defer s.closeMetadata()
+
 	dims, err := s.fetchDimensions()
 	if err != nil {
 		s.logger.Warnf("SPFresh index unable to fetch dimensions: %v", err)
