@@ -213,6 +213,7 @@ jobs:
           "--only-module-generative-ollama",
           "--only-module-img2vec-neural",
           "--only-module-text2vec-transformers",
+          "--only-module-many-modules",
         ]
     steps:
       - uses: actions/checkout@v4
@@ -246,7 +247,6 @@ jobs:
         test: [
           "--only-module-text2vec-contextionary",
           "--only-module-ref2vec-centroid",
-          "--only-module-many-modules",
           "--only-module-many-generative"
         ]
     steps:
