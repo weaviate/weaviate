@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package tests
+package test
 
 import (
 	"context"
@@ -20,10 +20,10 @@ import (
 	"github.com/weaviate/weaviate/test/docker"
 )
 
-func TestGenerativeCohere_SingleNode(t *testing.T) {
-	apiKey := os.Getenv("COHERE_APIKEY")
+func TestRerankerNvidia(t *testing.T) {
+	apiKey := os.Getenv("JINAAI_APIKEY")
 	if apiKey == "" {
-		t.Skip("skipping, COHERE_APIKEY environment variable not present")
+		t.Skip("skipping, JINAAI_APIKEY environment variable not present")
 	}
 	ctx := context.Background()
 	compose, err := createSingleNodeEnvironment(ctx, apiKey)
@@ -31,16 +31,15 @@ func TestGenerativeCohere_SingleNode(t *testing.T) {
 	defer func() {
 		require.NoError(t, compose.Terminate(ctx))
 	}()
-	endpointREST := compose.GetWeaviate().URI()
-	endpointGRPC := compose.GetWeaviate().GrpcURI()
+	endpoint := compose.GetWeaviate().URI()
 
-	t.Run("tests", testGenerativeCohere(endpointREST, endpointGRPC))
+	t.Run("reranker-jinaai", testRerankerJinaAI(endpoint))
 }
 
 func createSingleNodeEnvironment(ctx context.Context, apiKey string,
 ) (compose *docker.DockerCompose, err error) {
 	compose, err = composeModules(apiKey).
-		WithWeaviateWithGRPC().
+		WithWeaviate().
 		Start(ctx)
 	return compose, err
 }
@@ -48,6 +47,6 @@ func createSingleNodeEnvironment(ctx context.Context, apiKey string,
 func composeModules(apiKey string) (composeModules *docker.Compose) {
 	composeModules = docker.New().
 		WithText2VecModel2Vec().
-		WithGenerativeCohere(apiKey)
+		WithRerankerJinaAI(apiKey)
 	return composeModules
 }
