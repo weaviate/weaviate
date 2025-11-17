@@ -119,7 +119,9 @@ func (db *DB) ShardsBackup(
 
 	defer func() {
 		if err != nil {
-			enterrors.GoWrapper(func() { idx.ReleaseBackup(ctx, bakID) }, db.logger)
+			enterrors.GoWrapper(func() {
+				idx.ReleaseBackup(ctx, bakID) // closelock is still hold from above
+			}, db.logger)
 		}
 	}()
 
@@ -176,6 +178,8 @@ func (db *DB) ReleaseBackup(ctx context.Context, bakID, class string) (err error
 
 	idx := db.GetIndex(schema.ClassName(class))
 	if idx != nil {
+		idx.closeLock.RLock()
+		defer idx.closeLock.RUnlock()
 		return idx.ReleaseBackup(ctx, bakID)
 	} else {
 		// index has been deleted in the meantime. Cleanup files that were kept to complete backup
@@ -246,6 +250,7 @@ func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.Cl
 	}
 	defer func() {
 		if err != nil {
+			// closelock is hold by the caller
 			enterrors.GoWrapper(func() { i.ReleaseBackup(ctx, backupID) }, i.logger)
 		}
 	}()
