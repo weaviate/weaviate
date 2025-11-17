@@ -122,3 +122,14 @@ func ParseAndValidateConfig(input interface{}, isMultiVector bool) (schemaConfig
 
 	return uc, nil
 }
+
+func ParseDefaultQuantization(vectorIndexConfig schemaConfig.VectorIndexConfig, compression string) schemaConfig.VectorIndexConfig {
+	config := vectorIndexConfig.(UserConfig)
+	hnswConfig := hnsw.ParseDefaultQuantization(config.HnswUC, compression)
+	flatConfig := flat.ParseDefaultQuantization(config.FlatUC, compression)
+
+	config.HnswUC = hnswConfig.(hnsw.UserConfig)
+	config.FlatUC = flatConfig.(flat.UserConfig)
+
+	return config
+}

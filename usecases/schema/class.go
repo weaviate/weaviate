@@ -23,6 +23,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/weaviate/weaviate/entities/modelsext"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
+	"github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 
@@ -192,6 +193,8 @@ func setDefaultQuantization(vectorIndexType string, vectorIndexConfig schemaConf
 		return hnsw.ParseDefaultQuantization(vectorIndexConfig, compression)
 	} else if vectorIndexType == vectorindex.VectorIndexTypeFLAT && vectorIndexConfig.IndexType() == vectorindex.VectorIndexTypeFLAT {
 		return flat.ParseDefaultQuantization(vectorIndexConfig, compression)
+	} else if vectorIndexType == vectorindex.VectorIndexTypeDYNAMIC && vectorIndexConfig.IndexType() == vectorindex.VectorIndexTypeDYNAMIC {
+		return dynamic.ParseDefaultQuantization(vectorIndexConfig, compression)
 	}
 	return vectorIndexConfig
 }
