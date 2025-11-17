@@ -27,6 +27,7 @@ const (
 )
 
 func (s *SPFresh) SearchByVector(ctx context.Context, vector []float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
+	rescoreLimit := k + 5
 	vector = s.normalizeVec(vector)
 	var queryVector Vector
 	if s.config.Compressed {
@@ -40,14 +41,14 @@ func (s *SPFresh) SearchByVector(ctx context.Context, vector []float32, k int, a
 
 	// If k is larger than the configured number of candidates, use k as the candidate number
 	// to enlarge the search space.
-	candidateNum := max(k, int(s.searchProbe))
+	candidateNum := max(rescoreLimit, int(s.searchProbe))
 
 	centroids, err := s.Centroids.Search(vector, candidateNum)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	q := NewResultSet(k)
+	q := NewResultSet(rescoreLimit)
 
 	// compute the max distance to filter out candidates that are too far away
 	maxDist := centroids.data[0].Distance * s.config.MaxDistanceRatio
@@ -91,7 +92,11 @@ func (s *SPFresh) SearchByVector(ctx context.Context, vector []float32, k int, a
 		for _, v := range p.Iter() {
 			id := v.ID()
 			// skip deleted vectors
-			if s.VersionMap.IsDeleted(id) {
+			deleted, err := s.VersionMap.IsDeleted(context.Background(), id)
+			if err != nil {
+				return nil, nil, errors.Wrapf(err, "failed to check if vector %d is deleted", id)
+			}
+			if deleted {
 				postingSize--
 				continue
 			}
@@ -125,10 +130,23 @@ func (s *SPFresh) SearchByVector(ctx context.Context, vector []float32, k int, a
 		}
 	}
 
-	ids := make([]uint64, q.Len())
-	dists := make([]float32, q.Len())
+	rescored := NewResultSet(k)
+	for id := range q.Iter() {
+		vec, err := s.vectorForId(ctx, id)
+		if err != nil {
+			return nil, nil, err
+		}
+		dist, err := s.distancer.distancer.SingleDist(vector, vec)
+		if err != nil {
+			return nil, nil, err
+		}
+		rescored.Insert(id, dist)
+	}
+
+	ids := make([]uint64, rescored.Len())
+	dists := make([]float32, rescored.Len())
 	i := 0
-	for id, dist := range q.Iter() {
+	for id, dist := range rescored.Iter() {
 		ids[i] = id
 		dists[i] = dist
 		i++

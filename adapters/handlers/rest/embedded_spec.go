@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.34.0-rc.1"
+    "version": "1.35.0-dev"
   },
   "basePath": "/v1",
   "paths": {
@@ -7189,7 +7189,7 @@ func init() {
         },
         "compressed": {
           "description": "The status of vector compression/quantization.",
-          "format": "boolean",
+          "type": "boolean",
           "x-omitempty": false
         },
         "loaded": {
@@ -7228,7 +7228,7 @@ func init() {
         },
         "vectorIndexingStatus": {
           "description": "The status of the vector indexing process.",
-          "format": "string",
+          "type": "string",
           "x-omitempty": false
         },
         "vectorQueueLength": {
@@ -9007,7 +9007,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.34.0-rc.1"
+    "version": "1.35.0-dev"
   },
   "basePath": "/v1",
   "paths": {
@@ -16437,7 +16437,7 @@ func init() {
         },
         "compressed": {
           "description": "The status of vector compression/quantization.",
-          "format": "boolean",
+          "type": "boolean",
           "x-omitempty": false
         },
         "loaded": {
@@ -16476,7 +16476,7 @@ func init() {
         },
         "vectorIndexingStatus": {
           "description": "The status of the vector indexing process.",
-          "format": "string",
+          "type": "string",
           "x-omitempty": false
         },
         "vectorQueueLength": {
