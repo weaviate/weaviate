@@ -236,13 +236,16 @@ func setDefaultQuantization(vectorIndexType string, vectorIndexConfig schemaConf
 			flatConfig.RQ.Enabled = true
 			flatConfig.RQ.Bits = 1
 			flatConfig.RQ.RescoreLimit = flat.DefaultCompressionRescore
+			flatConfig.RQ.Cache = flat.DefaultVectorCache
 		case "rq-8":
 			flatConfig.RQ.Enabled = true
 			flatConfig.RQ.Bits = 8
 			flatConfig.RQ.RescoreLimit = flat.DefaultCompressionRescore
+			flatConfig.RQ.Cache = flat.DefaultVectorCache
 		case "bq":
 			flatConfig.BQ.Enabled = true
 			flatConfig.BQ.RescoreLimit = flat.DefaultCompressionRescore
+			flatConfig.BQ.Cache = flat.DefaultVectorCache
 		default:
 			return flatConfig
 		}
