@@ -57,12 +57,22 @@ func (s *SPFresh) Add(ctx context.Context, id uint64, vector []float32) (err err
 	// init components that require knowing the vector dimensions
 	// and compressed size
 	s.initDimensionsOnce.Do(func() {
-		s.dims = int32(len(vector))
+		size := int32(len(vector))
+		s.dims = size
 		s.setMaxPostingSize()
+		if err := s.setDimensions(size); err != nil {
+			s.logger.WithError(err).Error("could not set dimensions")
+			return // Fail the entire initialization
+		}
 		if s.config.Compressed {
 			s.quantizer = compressionhelpers.NewRotationalQuantizer(int(s.dims), 42, 8, s.config.DistanceProvider)
 			s.vectorSize = int32(compressedVectorSize(int(s.dims)))
 			s.Centroids.SetQuantizer(s.quantizer)
+
+			if err := s.persistRQData(); err != nil {
+				s.logger.WithError(err).Error("could not persist RQ data")
+				return // Fail the entire initialization
+			}
 		} else {
 			s.vectorSize = s.dims * 4
 		}
