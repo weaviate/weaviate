@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/spfresh"
+	bolt "go.etcd.io/bbolt"
 )
 
 const (
@@ -90,8 +91,10 @@ type SPFresh struct {
 	postingLocks       *common.ShardedRWLocks // Locks to prevent concurrent modifications to the same posting.
 	initialPostingLock sync.Mutex
 
-	store       *lsmkv.Store
-	vectorForId common.VectorForID[float32]
+	store        *lsmkv.Store
+	vectorForId  common.VectorForID[float32]
+	metadata     *bolt.DB
+	metadataLock *sync.RWMutex
 }
 
 func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*SPFresh, error) {
@@ -148,6 +151,7 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*SPFresh, error) {
 		rngFactor:          uc.RNGFactor,
 		searchProbe:        uc.SearchProbe,
 		centroidsIndexType: uc.CentroidsIndexType,
+		metadataLock:       &sync.RWMutex{},
 	}
 
 	if s.centroidsIndexType == "hnsw" {
@@ -166,6 +170,8 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*SPFresh, error) {
 		return nil, err
 	}
 	s.taskQueue = *taskQueue
+
+	s.restoreMetadata()
 
 	return &s, nil
 }
