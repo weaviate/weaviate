@@ -68,6 +68,10 @@ func (s *SPFresh) Add(ctx context.Context, id uint64, vector []float32) (err err
 			s.quantizer = compressionhelpers.NewRotationalQuantizer(int(s.dims), 42, 8, s.config.DistanceProvider)
 			s.vectorSize = int32(compressedVectorSize(int(s.dims)))
 			s.Centroids.SetQuantizer(s.quantizer)
+			if err := s.setVectorSize(s.vectorSize); err != nil {
+				s.logger.WithError(err).Error("could not set vector size")
+				return // Fails because we don't know the vector size
+			}
 
 			if err := s.persistRQData(); err != nil {
 				s.logger.WithError(err).Error("could not persist RQ data")

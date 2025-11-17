@@ -115,6 +115,11 @@ func (s *SPFresh) restoreMetadata() error {
 		s.logger.Warnf("SPFresh index unable to restore RQ data: %v", err)
 	}
 
+	// Restore vector size if available
+	if err := s.restoreVectorSize(); err != nil {
+		s.logger.Warnf("SPFresh index unable to restore vector size: %v", err)
+	}
+
 	return nil
 }
 
@@ -172,6 +177,61 @@ func (s *SPFresh) setDimensions(dimensions int32) error {
 	})
 	if err != nil {
 		return errors.Wrap(err, "set dimensions")
+	}
+
+	return nil
+}
+
+func (s *SPFresh) setVectorSize(vectorSize int32) error {
+	err := s.openMetadata()
+	if err != nil {
+		return err
+	}
+	defer s.closeMetadata()
+
+	err = s.metadata.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte(vectorMetadataBucket))
+		if b == nil {
+			return errors.New("failed to get bucket")
+		}
+		buf := make([]byte, 4)
+		binary.LittleEndian.PutUint32(buf, uint32(vectorSize))
+		return b.Put([]byte("vector_size"), buf)
+	})
+	if err != nil {
+		return errors.Wrap(err, "set vector size")
+	}
+
+	return nil
+}
+
+func (s *SPFresh) restoreVectorSize() error {
+	err := s.openMetadata()
+	if err != nil {
+		return err
+	}
+	defer s.closeMetadata()
+
+	var vectorSize int32
+	err = s.metadata.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte(vectorMetadataBucket))
+		if b == nil {
+			return nil
+		}
+		v := b.Get([]byte("vector_size"))
+		if v == nil {
+			return nil
+		}
+		vectorSize = int32(binary.LittleEndian.Uint32(v))
+		return nil
+	})
+	if err != nil {
+		return errors.Wrap(err, "restore vector size")
+	}
+
+	if vectorSize > 0 {
+		atomic.StoreInt32(&s.vectorSize, vectorSize)
+		s.PostingStore.vectorSize.Store(vectorSize)
 	}
 
 	return nil
