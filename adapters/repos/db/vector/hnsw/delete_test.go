@@ -127,7 +127,7 @@ func TestDelete_WithoutCleaningUpTombstones(t *testing.T) {
 	})
 
 	t.Run("destroy the index", func(t *testing.T) {
-		require.Nil(t, vectorIndex.Drop(context.Background()))
+		require.Nil(t, vectorIndex.Drop(context.Background(), false))
 	})
 
 	t.Run("vector cache holds no vectors", func(t *testing.T) {
@@ -249,7 +249,7 @@ func TestDelete_WithCleaningUpTombstonesOnce(t *testing.T) {
 	})
 
 	t.Run("destroy the index", func(t *testing.T) {
-		require.Nil(t, vectorIndex.Drop(context.Background()))
+		require.Nil(t, vectorIndex.Drop(context.Background(), false))
 	})
 }
 
@@ -347,7 +347,7 @@ func TestDelete_WithCleaningUpTombstonesTwiceConcurrently(t *testing.T) {
 	})
 
 	t.Run("destroy the index", func(t *testing.T) {
-		require.Nil(t, vectorIndex.Drop(context.Background()))
+		require.Nil(t, vectorIndex.Drop(context.Background(), false))
 	})
 }
 
@@ -448,7 +448,7 @@ func TestDelete_WithConcurrentEntrypointDeletionAndTombstoneCleanup(t *testing.T
 	})
 
 	t.Run("destroy the index", func(t *testing.T) {
-		require.Nil(t, vectorIndex.Drop(context.Background()))
+		require.Nil(t, vectorIndex.Drop(context.Background(), false))
 	})
 }
 
@@ -575,7 +575,7 @@ func TestDelete_WithCleaningUpTombstonesInBetween(t *testing.T) {
 	})
 
 	t.Run("destroy the index", func(t *testing.T) {
-		require.Nil(t, vectorIndex.Drop(context.Background()))
+		require.Nil(t, vectorIndex.Drop(context.Background(), false))
 	})
 
 	store.Shutdown(context.Background())
@@ -704,7 +704,7 @@ func TestDelete_WithCleaningUpTombstonesStopped(t *testing.T) {
 	})
 
 	t.Run("destroy the control index", func(t *testing.T) {
-		require.Nil(t, index.Drop(context.Background()))
+		require.Nil(t, index.Drop(context.Background(), false))
 	})
 
 	for i := 0; i < possibleStopsCount; i++ {
@@ -733,7 +733,7 @@ func TestDelete_WithCleaningUpTombstonesStopped(t *testing.T) {
 		})
 
 		t.Run("destroy the index", func(t *testing.T) {
-			require.Nil(t, index.Drop(context.Background()))
+			require.Nil(t, index.Drop(context.Background(), false))
 		})
 	}
 }
@@ -775,7 +775,7 @@ func TestDelete_WithCleaningUpTombstonesStoppedShouldNotRemoveTombstoneMarks(t *
 	})
 
 	t.Run("destroy the index", func(t *testing.T) {
-		require.Nil(t, index.Drop(context.Background()))
+		require.Nil(t, index.Drop(context.Background(), false))
 	})
 }
 
@@ -925,7 +925,7 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce(t *testing.T) {
 	})
 
 	t.Run("destroy the index", func(t *testing.T) {
-		require.Nil(t, vectorIndex.Drop(context.Background()))
+		require.Nil(t, vectorIndex.Drop(context.Background(), false))
 	})
 }
 
@@ -1019,7 +1019,7 @@ func TestDelete_ResetLockDoesNotLockForever(t *testing.T) {
 	})
 
 	t.Run("destroy the index", func(t *testing.T) {
-		require.Nil(t, vectorIndex.Drop(context.Background()))
+		require.Nil(t, vectorIndex.Drop(context.Background(), false))
 	})
 }
 
@@ -1111,7 +1111,7 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce_DoesNotCrash(t *t
 	})
 
 	t.Run("destroy the index", func(t *testing.T) {
-		require.Nil(t, vectorIndex.Drop(context.Background()))
+		require.Nil(t, vectorIndex.Drop(context.Background(), false))
 	})
 }
 
@@ -1369,7 +1369,7 @@ func TestDelete_EntrypointIssues(t *testing.T) {
 
 	// t.Fail()
 	t.Run("destroy the index", func(t *testing.T) {
-		require.Nil(t, index.Drop(context.Background()))
+		require.Nil(t, index.Drop(context.Background(), false))
 	})
 }
 
@@ -1471,7 +1471,7 @@ func TestDelete_MoreEntrypointIssues(t *testing.T) {
 	})
 
 	t.Run("destroy the index", func(t *testing.T) {
-		require.Nil(t, index.Drop(context.Background()))
+		require.Nil(t, index.Drop(context.Background(), false))
 	})
 }
 
@@ -1513,7 +1513,7 @@ func TestDelete_TombstonedEntrypoint(t *testing.T) {
 	assert.Equal(t, []uint64{1}, res, "should contain the only result")
 
 	t.Run("destroy the index", func(t *testing.T) {
-		require.Nil(t, index.Drop(context.Background()))
+		require.Nil(t, index.Drop(context.Background(), false))
 	})
 }
 
@@ -1594,7 +1594,7 @@ func TestDelete_Flakyness_gh_1369(t *testing.T) {
 	})
 
 	t.Run("destroy the index", func(t *testing.T) {
-		require.Nil(t, index.Drop(context.Background()))
+		require.Nil(t, index.Drop(context.Background(), false))
 	})
 }
 
@@ -1776,7 +1776,7 @@ func TestDelete_WithCleaningUpTombstonesOncePreservesMaxConnections(t *testing.T
 	require.True(t, some)
 
 	t.Run("destroy the index", func(t *testing.T) {
-		require.Nil(t, vectorIndex.Drop(context.Background()))
+		require.Nil(t, vectorIndex.Drop(context.Background(), false))
 	})
 }
 
@@ -1842,7 +1842,7 @@ func TestDelete_WithCleaningUpTombstonesOnceRemovesAllRelatedConnections(t *test
 		}
 	}
 
-	require.Nil(t, vectorIndex.Drop(context.Background()))
+	require.Nil(t, vectorIndex.Drop(context.Background(), false))
 	store.Shutdown(context.Background())
 }
 
@@ -1909,7 +1909,7 @@ func TestDelete_WithCleaningUpTombstonesWithHighConcurrency(t *testing.T) {
 	})
 
 	t.Run("destroy the index", func(t *testing.T) {
-		require.Nil(t, vectorIndex.Drop(context.Background()))
+		require.Nil(t, vectorIndex.Drop(context.Background(), false))
 	})
 }
 
@@ -2081,6 +2081,6 @@ func Test_DeleteTombstoneMetrics(t *testing.T) {
 	})
 
 	t.Run("destroy the index", func(t *testing.T) {
-		require.Nil(t, vectorIndex.Drop(context.Background()))
+		require.Nil(t, vectorIndex.Drop(context.Background(), false))
 	})
 }

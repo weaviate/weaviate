@@ -39,7 +39,7 @@ type VectorIndex interface {
 		maxLimit int64, allow helpers.AllowList) ([]uint64, []float32, error)
 	UpdateUserConfig(updated schemaConfig.VectorIndexConfig, callback func()) error
 	GetKeys(id uint64) (uint64, uint64, error)
-	Drop(ctx context.Context) error
+	Drop(ctx context.Context, keepFiles bool) error
 	Shutdown(ctx context.Context) error
 	Flush() error
 	SwitchCommitLogs(ctx context.Context) error

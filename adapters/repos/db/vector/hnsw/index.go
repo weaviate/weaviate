@@ -218,7 +218,7 @@ type CommitLogger interface {
 	ClearLinks(nodeid uint64) error
 	ClearLinksAtLevel(nodeid uint64, level uint16) error
 	Reset() error
-	Drop(ctx context.Context) error
+	Drop(ctx context.Context, keepFiles bool) error
 	Flush() error
 	Shutdown(ctx context.Context) error
 	RootPath() string
@@ -698,7 +698,7 @@ func (h *hnsw) nodeByID(id uint64) *vertex {
 	return h.nodes[id]
 }
 
-func (h *hnsw) Drop(ctx context.Context) error {
+func (h *hnsw) Drop(ctx context.Context, keepFiles bool) error {
 	// cancel tombstone cleanup goroutine
 	if err := h.tombstoneCleanupCallbackCtrl.Unregister(ctx); err != nil {
 		return errors.Wrap(err, "hnsw drop")
@@ -716,7 +716,7 @@ func (h *hnsw) Drop(ctx context.Context) error {
 
 	// cancel commit logger last, as the tombstone cleanup cycle might still
 	// write while it's still running
-	err := h.commitLog.Drop(ctx)
+	err := h.commitLog.Drop(ctx, keepFiles)
 	if err != nil {
 		return errors.Wrap(err, "commit log drop")
 	}

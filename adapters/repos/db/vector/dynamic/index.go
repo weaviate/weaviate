@@ -77,7 +77,7 @@ type VectorIndex interface {
 	SearchByVectorDistance(ctx context.Context, vector []float32, dist float32,
 		maxLimit int64, allow helpers.AllowList) ([]uint64, []float32, error)
 	UpdateUserConfig(updated schemaconfig.VectorIndexConfig, callback func()) error
-	Drop(ctx context.Context) error
+	Drop(ctx context.Context, keepFiles bool) error
 	Shutdown(ctx context.Context) error
 	Flush() error
 	SwitchCommitLogs(ctx context.Context) error
@@ -426,7 +426,7 @@ func (dynamic *dynamic) GetKeys(id uint64) (uint64, uint64, error) {
 	return dynamic.index.GetKeys(id)
 }
 
-func (dynamic *dynamic) Drop(ctx context.Context) error {
+func (dynamic *dynamic) Drop(ctx context.Context, keepFiles bool) error {
 	if dynamic.ctx.Err() != nil {
 		// already dropped
 		return nil
@@ -441,8 +441,11 @@ func (dynamic *dynamic) Drop(ctx context.Context) error {
 	if err := dynamic.db.Close(); err != nil {
 		return err
 	}
-	os.Remove(filepath.Join(dynamic.rootPath, "index.db"))
-	return dynamic.index.Drop(ctx)
+	if !keepFiles {
+		os.Remove(filepath.Join(dynamic.rootPath, "index.db"))
+	}
+
+	return dynamic.index.Drop(ctx, keepFiles)
 }
 
 func (dynamic *dynamic) Flush() error {
@@ -649,7 +652,7 @@ func (dynamic *dynamic) doUpgrade() error {
 		return errors.Wrap(err, "update dynamic")
 	}
 
-	dynamic.index.Drop(dynamic.ctx)
+	dynamic.index.Drop(dynamic.ctx, false)
 	dynamic.index = index
 	dynamic.upgraded.Store(true)
 
