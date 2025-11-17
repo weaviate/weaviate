@@ -2545,7 +2545,7 @@ func (i *Index) drop() error {
 	if !keepFiles {
 		return os.RemoveAll(i.path())
 	} else {
-		return os.Rename(i.path(), filepath.Join(i.Config.RootPath, backup.DeleteMarker+i.ID()))
+		return os.Rename(i.path(), filepath.Join(i.Config.RootPath, backup.DeleteMarkerAdd(i.ID())))
 	}
 }
 

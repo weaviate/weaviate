@@ -131,7 +131,7 @@ func (z *zip) WriteRegular(ctx context.Context, relPath string) (written int64, 
 	info, err := os.Stat(absPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			absPath = filepath.Join(z.sourcePath, entBackup.DeleteMarker+relPath)
+			absPath = filepath.Join(z.sourcePath, entBackup.DeleteMarkerAdd(relPath))
 			info, err = os.Stat(absPath)
 			if err != nil {
 				return written, fmt.Errorf("stat for deleted files: %w", err)

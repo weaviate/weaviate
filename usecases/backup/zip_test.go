@@ -25,8 +25,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync/atomic"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -334,7 +334,7 @@ func TestRenamingDuringBackup(t *testing.T) {
 	// create files with random data and one important byte at the end to make sure that the complete file is read
 	// There will be concurrent renaming and reading of the files
 	writeDir := filepath.Join(dir, "collection")
-	writeDirRename := filepath.Join(dir, backup.DeleteMarker+"collection")
+	writeDirRename := filepath.Join(dir, backup.DeleteMarkerAdd("collection"))
 
 	require.NoError(t, os.MkdirAll(writeDir, os.ModePerm))
 	counter := 0
