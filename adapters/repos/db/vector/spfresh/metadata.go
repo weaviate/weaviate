@@ -115,11 +115,6 @@ func (s *SPFresh) restoreMetadata() error {
 		s.logger.Warnf("SPFresh index unable to restore RQ data: %v", err)
 	}
 
-	// Restore vector size if available
-	if err := s.restoreVectorSize(); err != nil {
-		s.logger.Warnf("SPFresh index unable to restore vector size: %v", err)
-	}
-
 	s.initDimensions()
 
 	return nil
@@ -421,6 +416,12 @@ func (s *SPFresh) restoreRQ8FromMsgpack(rq8Data *RQ8Data) error {
 		quantizer: rq,
 		distancer: s.config.DistanceProvider,
 	}
+
+	// Restore vector size if available
+	if err := s.restoreVectorSize(); err != nil {
+		s.logger.Warnf("SPFresh index unable to restore vector size: %v", err)
+	}
+
 	s.PostingStore.Init(s.vectorSize, s.config.Compressed)
 	return nil
 }
