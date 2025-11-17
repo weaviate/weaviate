@@ -389,7 +389,7 @@ func (s *SPFresh) handleDeserializedData(container *RQDataContainer) error {
 		return errors.Wrap(err, "unmarshal RQ8Data")
 	}
 
-	s.logger.Warnf("Successfully deserialized RQ8Data: InputDim=%d, Bits=%d",
+	s.logger.Warnf("Successfully deserialized RQ8Data: InputDim=%d",
 		rq8Data.InputDim)
 	return s.restoreRQ8FromMsgpack(&rq8Data)
 }
