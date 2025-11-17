@@ -786,8 +786,3 @@ func (l *LazyLoadShard) blockLoading() func() {
 		l.mutex.Unlock()
 	}
 }
-
-func (l *LazyLoadShard) makeDefaultBucketOptions(strategy string, customOptions ...lsmkv.BucketOption) []lsmkv.BucketOption {
-	l.mustLoad()
-	return l.shard.makeDefaultBucketOptions(strategy, customOptions...)
-}

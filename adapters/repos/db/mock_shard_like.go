@@ -3874,69 +3874,6 @@ func (_c *MockShardLike_isReadOnly_Call) RunAndReturn(run func() error) *MockSha
 	return _c
 }
 
-// makeDefaultBucketOptions provides a mock function with given fields: strategy, customOptions
-func (_m *MockShardLike) makeDefaultBucketOptions(strategy string, customOptions ...lsmkv.BucketOption) []lsmkv.BucketOption {
-	_va := make([]interface{}, len(customOptions))
-	for _i := range customOptions {
-		_va[_i] = customOptions[_i]
-	}
-	var _ca []interface{}
-	_ca = append(_ca, strategy)
-	_ca = append(_ca, _va...)
-	ret := _m.Called(_ca...)
-
-	if len(ret) == 0 {
-		panic("no return value specified for makeDefaultBucketOptions")
-	}
-
-	var r0 []lsmkv.BucketOption
-	if rf, ok := ret.Get(0).(func(string, ...lsmkv.BucketOption) []lsmkv.BucketOption); ok {
-		r0 = rf(strategy, customOptions...)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]lsmkv.BucketOption)
-		}
-	}
-
-	return r0
-}
-
-// MockShardLike_makeDefaultBucketOptions_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'makeDefaultBucketOptions'
-type MockShardLike_makeDefaultBucketOptions_Call struct {
-	*mock.Call
-}
-
-// makeDefaultBucketOptions is a helper method to define mock.On call
-//   - strategy string
-//   - customOptions ...lsmkv.BucketOption
-func (_e *MockShardLike_Expecter) makeDefaultBucketOptions(strategy interface{}, customOptions ...interface{}) *MockShardLike_makeDefaultBucketOptions_Call {
-	return &MockShardLike_makeDefaultBucketOptions_Call{Call: _e.mock.On("makeDefaultBucketOptions",
-		append([]interface{}{strategy}, customOptions...)...)}
-}
-
-func (_c *MockShardLike_makeDefaultBucketOptions_Call) Run(run func(strategy string, customOptions ...lsmkv.BucketOption)) *MockShardLike_makeDefaultBucketOptions_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		variadicArgs := make([]lsmkv.BucketOption, len(args)-1)
-		for i, a := range args[1:] {
-			if a != nil {
-				variadicArgs[i] = a.(lsmkv.BucketOption)
-			}
-		}
-		run(args[0].(string), variadicArgs...)
-	})
-	return _c
-}
-
-func (_c *MockShardLike_makeDefaultBucketOptions_Call) Return(_a0 []lsmkv.BucketOption) *MockShardLike_makeDefaultBucketOptions_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockShardLike_makeDefaultBucketOptions_Call) RunAndReturn(run func(string, ...lsmkv.BucketOption) []lsmkv.BucketOption) *MockShardLike_makeDefaultBucketOptions_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // mayUpsertObjectHashTree provides a mock function with given fields: object, idBytes, status
 func (_m *MockShardLike) mayUpsertObjectHashTree(object *storobj.Object, idBytes []byte, status objectInsertStatus) error {
 	ret := _m.Called(object, idBytes, status)
