@@ -348,5 +348,9 @@ func (s *SPFresh) restoreRQ8FromMsgpack(rq8Data *RQ8Data) error {
 
 	s.quantizer = rq
 	s.Centroids.SetQuantizer(rq)
+	s.distancer = &Distancer{
+		quantizer: rq,
+		distancer: s.config.DistanceProvider,
+	}
 	return nil
 }
