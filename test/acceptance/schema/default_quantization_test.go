@@ -35,7 +35,7 @@ func TestAssignDynamic(t *testing.T) {
 	require.Equal(t, "rq", d.Get())
 }
 
-func TestDefaultCompressionRQ8(t *testing.T) {
+func TestDefaultQuantizationHNSWRQ8(t *testing.T) {
 	mainCtx := context.Background()
 
 	compose, err := docker.New().
@@ -105,6 +105,8 @@ func TestDefaultCompressionRQ8(t *testing.T) {
 	require.NotNil(t, schema)
 	payload := schema.GetPayload()
 	require.NotNil(t, payload)
+	vitype := payload.Classes[0].VectorIndexType
+	require.Equal(t, "hnsw", vitype)
 	viconfig := payload.Classes[0].VectorIndexConfig
 	require.NotNil(t, viconfig)
 	rq := viconfig.(map[string]interface{})["rq"]
@@ -125,7 +127,7 @@ func TestDefaultCompressionRQ8(t *testing.T) {
 	require.Equal(t, true, trackDefaultQuantization)
 }
 
-func TestDefaultCompressionRQ1(t *testing.T) {
+func TestDefaultQuantizationHNSWRQ1(t *testing.T) {
 	mainCtx := context.Background()
 
 	compose, err := docker.New().
@@ -195,6 +197,8 @@ func TestDefaultCompressionRQ1(t *testing.T) {
 	require.NotNil(t, schema)
 	payload := schema.GetPayload()
 	require.NotNil(t, payload)
+	vitype := payload.Classes[0].VectorIndexType
+	require.Equal(t, "hnsw", vitype)
 	viconfig := payload.Classes[0].VectorIndexConfig
 	require.NotNil(t, viconfig)
 	rq := viconfig.(map[string]interface{})["rq"]
@@ -215,7 +219,7 @@ func TestDefaultCompressionRQ1(t *testing.T) {
 	require.Equal(t, true, trackDefaultQuantization)
 }
 
-func TestDefaultCompressionWithSkipDefaultQuantization(t *testing.T) {
+func TestDefaultQuantizationHNSWWithSkipDefaultQuantization(t *testing.T) {
 	mainCtx := context.Background()
 
 	compose, err := docker.New().
@@ -288,6 +292,8 @@ func TestDefaultCompressionWithSkipDefaultQuantization(t *testing.T) {
 	require.NotNil(t, schema)
 	payload := schema.GetPayload()
 	require.NotNil(t, payload)
+	vitype := payload.Classes[0].VectorIndexType
+	require.Equal(t, "hnsw", vitype)
 	viconfig := payload.Classes[0].VectorIndexConfig
 	require.NotNil(t, viconfig)
 	rq := viconfig.(map[string]interface{})["rq"]
@@ -300,7 +306,7 @@ func TestDefaultCompressionWithSkipDefaultQuantization(t *testing.T) {
 	require.Equal(t, false, trackDefaultQuantization)
 }
 
-func TestDefaultCompressionOverride(t *testing.T) {
+func TestDefaultQuantizationHNSWOverride(t *testing.T) {
 	mainCtx := context.Background()
 
 	compose, err := docker.New().
@@ -374,6 +380,8 @@ func TestDefaultCompressionOverride(t *testing.T) {
 	require.NotNil(t, schema)
 	payload := schema.GetPayload()
 	require.NotNil(t, payload)
+	vitype := payload.Classes[0].VectorIndexType
+	require.Equal(t, "hnsw", vitype)
 	viconfig := payload.Classes[0].VectorIndexConfig
 	require.NotNil(t, viconfig)
 	rq := viconfig.(map[string]interface{})["rq"]
