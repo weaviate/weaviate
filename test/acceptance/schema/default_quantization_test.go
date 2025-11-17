@@ -31,8 +31,8 @@ import (
 )
 
 func TestAssignDynamic(t *testing.T) {
-	d := runtime.NewDynamicValue("rq")
-	require.Equal(t, "rq", d.Get())
+	d := runtime.NewDynamicValue("rq-8")
+	require.Equal(t, "rq-8", d.Get())
 }
 
 func TestDefaultQuantizationHNSWRQ8(t *testing.T) {
