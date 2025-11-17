@@ -329,3 +329,39 @@ func NewDefaultMultiVectorUserConfig() UserConfig {
 	uc.Multivector = MultivectorConfig{Enabled: true}
 	return uc
 }
+
+func ParseDefaultQuantization(vectorIndexConfig config.VectorIndexConfig, compression string) config.VectorIndexConfig {
+	hnswConfig := vectorIndexConfig.(UserConfig)
+	pqEnabled := hnswConfig.PQ.Enabled
+	sqEnabled := hnswConfig.SQ.Enabled
+	rqEnabled := hnswConfig.RQ.Enabled
+	bqEnabled := hnswConfig.BQ.Enabled
+	skipDefaultQuantization := hnswConfig.SkipDefaultQuantization
+	hnswConfig.TrackDefaultQuantization = false
+	if pqEnabled || sqEnabled || rqEnabled || bqEnabled {
+		return hnswConfig
+	}
+	if skipDefaultQuantization {
+		return hnswConfig
+	}
+	switch compression {
+	case "pq":
+		hnswConfig.PQ.Enabled = true
+	case "sq":
+		hnswConfig.SQ.Enabled = true
+	case "rq-1":
+		hnswConfig.RQ.Enabled = true
+		hnswConfig.RQ.Bits = 1
+		hnswConfig.RQ.RescoreLimit = DefaultBRQRescoreLimit
+	case "rq-8":
+		hnswConfig.RQ.Enabled = true
+		hnswConfig.RQ.Bits = 8
+		hnswConfig.RQ.RescoreLimit = DefaultRQRescoreLimit
+	case "bq":
+		hnswConfig.BQ.Enabled = true
+	default:
+		return hnswConfig
+	}
+	hnswConfig.TrackDefaultQuantization = true
+	return hnswConfig
+}

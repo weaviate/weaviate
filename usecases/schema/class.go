@@ -189,68 +189,9 @@ func setDefaultQuantization(vectorIndexType string, vectorIndexConfig schemaConf
 		vectorIndexType = vectorindex.DefaultVectorIndexType
 	}
 	if vectorIndexType == vectorindex.VectorIndexTypeHNSW && vectorIndexConfig.IndexType() == vectorindex.VectorIndexTypeHNSW {
-		hnswConfig := vectorIndexConfig.(hnsw.UserConfig)
-		pqEnabled := hnswConfig.PQ.Enabled
-		sqEnabled := hnswConfig.SQ.Enabled
-		rqEnabled := hnswConfig.RQ.Enabled
-		bqEnabled := hnswConfig.BQ.Enabled
-		skipDefaultQuantization := hnswConfig.SkipDefaultQuantization
-		hnswConfig.TrackDefaultQuantization = false
-		if pqEnabled || sqEnabled || rqEnabled || bqEnabled {
-			return hnswConfig
-		}
-		if skipDefaultQuantization {
-			return hnswConfig
-		}
-		switch compression {
-		case "pq":
-			hnswConfig.PQ.Enabled = true
-		case "sq":
-			hnswConfig.SQ.Enabled = true
-		case "rq-1":
-			hnswConfig.RQ.Enabled = true
-			hnswConfig.RQ.Bits = 1
-			hnswConfig.RQ.RescoreLimit = hnsw.DefaultBRQRescoreLimit
-		case "rq-8":
-			hnswConfig.RQ.Enabled = true
-			hnswConfig.RQ.Bits = 8
-			hnswConfig.RQ.RescoreLimit = hnsw.DefaultRQRescoreLimit
-		case "bq":
-			hnswConfig.BQ.Enabled = true
-		default:
-			return hnswConfig
-		}
-		hnswConfig.TrackDefaultQuantization = true
-		return hnswConfig
+		return hnsw.ParseDefaultQuantization(vectorIndexConfig, compression)
 	} else if vectorIndexType == vectorindex.VectorIndexTypeFLAT && vectorIndexConfig.IndexType() == vectorindex.VectorIndexTypeFLAT {
-		flatConfig := vectorIndexConfig.(flat.UserConfig)
-		rqEnabled := flatConfig.RQ.Enabled
-		bqEnabled := flatConfig.BQ.Enabled
-		skipDefaultQuantization := flatConfig.SkipDefaultQuantization
-		flatConfig.TrackDefaultQuantization = false
-		if rqEnabled || bqEnabled || skipDefaultQuantization {
-			return flatConfig
-		}
-		switch compression {
-		case "rq-1":
-			flatConfig.RQ.Enabled = true
-			flatConfig.RQ.Bits = 1
-			flatConfig.RQ.RescoreLimit = flat.DefaultCompressionRescore
-			flatConfig.RQ.Cache = flat.DefaultVectorCache
-		case "rq-8":
-			flatConfig.RQ.Enabled = true
-			flatConfig.RQ.Bits = 8
-			flatConfig.RQ.RescoreLimit = flat.DefaultCompressionRescore
-			flatConfig.RQ.Cache = flat.DefaultVectorCache
-		case "bq":
-			flatConfig.BQ.Enabled = true
-			flatConfig.BQ.RescoreLimit = flat.DefaultCompressionRescore
-			flatConfig.BQ.Cache = flat.DefaultVectorCache
-		default:
-			return flatConfig
-		}
-		flatConfig.TrackDefaultQuantization = true
-		return flatConfig
+		return flat.ParseDefaultQuantization(vectorIndexConfig, compression)
 	}
 	return vectorIndexConfig
 }

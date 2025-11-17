@@ -253,3 +253,34 @@ func NewDefaultUserConfig() UserConfig {
 	uc.SetDefaults()
 	return uc
 }
+
+func ParseDefaultQuantization(vectorIndexConfig schemaConfig.VectorIndexConfig, compression string) schemaConfig.VectorIndexConfig {
+	flatConfig := vectorIndexConfig.(UserConfig)
+	rqEnabled := flatConfig.RQ.Enabled
+	bqEnabled := flatConfig.BQ.Enabled
+	skipDefaultQuantization := flatConfig.SkipDefaultQuantization
+	flatConfig.TrackDefaultQuantization = false
+	if rqEnabled || bqEnabled || skipDefaultQuantization {
+		return flatConfig
+	}
+	switch compression {
+	case "rq-1":
+		flatConfig.RQ.Enabled = true
+		flatConfig.RQ.Bits = 1
+		flatConfig.RQ.RescoreLimit = DefaultCompressionRescore
+		flatConfig.RQ.Cache = DefaultVectorCache
+	case "rq-8":
+		flatConfig.RQ.Enabled = true
+		flatConfig.RQ.Bits = 8
+		flatConfig.RQ.RescoreLimit = DefaultCompressionRescore
+		flatConfig.RQ.Cache = DefaultVectorCache
+	case "bq":
+		flatConfig.BQ.Enabled = true
+		flatConfig.BQ.RescoreLimit = DefaultCompressionRescore
+		flatConfig.BQ.Cache = DefaultVectorCache
+	default:
+		return flatConfig
+	}
+	flatConfig.TrackDefaultQuantization = true
+	return flatConfig
+}
