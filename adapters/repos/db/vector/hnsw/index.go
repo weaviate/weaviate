@@ -208,6 +208,13 @@ type hnsw struct {
 	fs common.FS
 }
 
+func (h *hnsw) Get(id uint64) ([]float32, error) {
+	if !h.compressed.Load() {
+		return h.cache.Get(context.Background(), id)
+	}
+	return h.compressor.Get(id)
+}
+
 type CommitLogger interface {
 	ID() string
 	AddNode(node *vertex) error

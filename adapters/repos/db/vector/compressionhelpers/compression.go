@@ -79,6 +79,7 @@ type VectorCompressor interface {
 
 	PersistCompression(CommitLogger)
 	Stats() CompressionStats
+	Get(id uint64) ([]float32, error)
 }
 
 type quantizedVectorsCompressor[T byte | uint64] struct {
@@ -92,6 +93,14 @@ type quantizedVectorsCompressor[T byte | uint64] struct {
 	minMMapSize     int64
 	maxWalReuseSize int64
 	allocChecker    memwatch.AllocChecker
+}
+
+func (compressor *quantizedVectorsCompressor[T]) Get(id uint64) ([]float32, error) {
+	compressed, err := compressor.cache.Get(context.Background(), id)
+	if err != nil {
+		return nil, err
+	}
+	return compressor.quantizer.Decode(compressed), nil
 }
 
 func (compressor *quantizedVectorsCompressor[T]) Drop() error {

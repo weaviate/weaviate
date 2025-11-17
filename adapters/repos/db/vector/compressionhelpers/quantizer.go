@@ -23,6 +23,7 @@ type quantizerDistancer[T byte | uint64] interface {
 type quantizer[T byte | uint64] interface {
 	DistanceBetweenCompressedVectors(x, y []T) (float32, error)
 	Encode(vec []float32) []T
+	Decode(compressed []T) []float32
 	NewQuantizerDistancer(a []float32) quantizerDistancer[T]
 	NewCompressedQuantizerDistancer(a []T) quantizerDistancer[T]
 	ReturnQuantizerDistancer(distancer quantizerDistancer[T])

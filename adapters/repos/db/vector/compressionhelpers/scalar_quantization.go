@@ -138,6 +138,10 @@ func (sq *ScalarQuantizer) Encode(vec []float32) []byte {
 	return code
 }
 
+func (sq *ScalarQuantizer) Decode(compressed []byte) []float32 {
+	panic("unimplemented")
+}
+
 type SQDistancer struct {
 	x          []float32
 	sq         *ScalarQuantizer

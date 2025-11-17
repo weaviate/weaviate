@@ -17,9 +17,8 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	"github.com/puzpuzpuz/xsync/v4"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
@@ -29,24 +28,17 @@ var _ CentroidIndex = (*HNSWIndex)(nil)
 type HNSWIndex struct {
 	metrics   *Metrics
 	hnsw      *hnsw.HNSW
-	centroids *common.PagedArray[atomic.Pointer[Centroid]]
 	counter   atomic.Int32
-	ids       *xsync.Map[uint64, struct{}]
+	quantizer *compressionhelpers.RotationalQuantizer
 }
 
 func NewHNSWIndex(metrics *Metrics, store *lsmkv.Store, cfg *Config, pages, pageSize uint64) (*HNSWIndex, error) {
 	index := HNSWIndex{
-		metrics:   metrics,
-		centroids: common.NewPagedArray[atomic.Pointer[Centroid]](pages, pageSize),
-		ids:       xsync.NewMap[uint64, struct{}](),
+		metrics: metrics,
 	}
 
 	cfg.Centroids.HNSWConfig.VectorForIDThunk = func(ctx context.Context, id uint64) ([]float32, error) {
-		centroid := index.Get(id)
-		if centroid == nil {
-			return nil, errors.New("not found")
-		}
-		return centroid.Uncompressed, nil
+		return nil, nil
 	}
 
 	var userConfig ent.UserConfig
@@ -67,74 +59,46 @@ func NewHNSWIndex(metrics *Metrics, store *lsmkv.Store, cfg *Config, pages, page
 	return &index, nil
 }
 
+func (i *HNSWIndex) SetQuantizer(quantizer *compressionhelpers.RotationalQuantizer) {
+	i.quantizer = quantizer
+}
+
 func (i *HNSWIndex) Get(id uint64) *Centroid {
-	page, slot := i.centroids.GetPageFor(id)
-	if page == nil {
+	vec, err := i.hnsw.Get(id)
+	if err != nil {
 		return nil
 	}
-
-	return page[slot].Load()
+	return &Centroid{
+		Uncompressed: vec,
+		Compressed:   i.quantizer.Encode(vec),
+		Deleted:      false,
+	}
 }
 
 func (i *HNSWIndex) Insert(id uint64, centroid *Centroid) error {
-	i.ids.Store(id, struct{}{})
-
-	page, slot := i.centroids.EnsurePageFor(id)
-	if page == nil {
-		return errors.New("failed to allocate page")
+	if i.Exists(id) {
+		return nil
 	}
-
-	page[slot].Store(centroid)
 
 	err := i.hnsw.Add(context.Background(), id, centroid.Uncompressed)
 	if err != nil {
 		return errors.Wrap(err, "add to hnsw")
 	}
-
 	i.metrics.SetPostings(int(i.counter.Add(1)))
 
 	return nil
 }
 
 func (i *HNSWIndex) MarkAsDeleted(id uint64) error {
-	for {
-		page, slot := i.centroids.GetPageFor(id)
-		if page == nil {
-			return nil
-		}
-		centroid := page[slot].Load()
-		if centroid == nil {
-			return errors.New("centroid not found")
-		}
-
-		if centroid.Deleted {
-			return errors.New("centroid already marked as deleted")
-		}
-
-		newCentroid := Centroid{
-			Uncompressed: centroid.Uncompressed,
-			Compressed:   centroid.Compressed,
-			Deleted:      true,
-		}
-
-		if page[slot].CompareAndSwap(centroid, &newCentroid) {
-			i.metrics.SetPostings(int(i.counter.Add(-1)))
-			break
-		}
+	if i.Exists(id) {
+		i.metrics.SetPostings(int(i.counter.Add(-1)))
+		return i.hnsw.Delete(id)
 	}
-
-	i.ids.Delete(id)
-
-	return i.hnsw.Delete(id)
+	return nil
 }
 
 func (i *HNSWIndex) Exists(id uint64) bool {
-	centroid := i.Get(id)
-	if centroid == nil {
-		return false
-	}
-
-	return !centroid.Deleted
+	return i.hnsw.ContainsDoc(id)
 }
 
 func (i *HNSWIndex) Search(query []float32, k int) (*ResultSet, error) {

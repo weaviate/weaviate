@@ -18,6 +18,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 )
 
@@ -44,6 +45,7 @@ type CentroidIndex interface {
 	MarkAsDeleted(id uint64) error
 	Exists(id uint64) bool
 	Search(query []float32, k int) (*ResultSet, error)
+	SetQuantizer(quantizer *compressionhelpers.RotationalQuantizer)
 }
 
 var _ CentroidIndex = (*BruteForceIndex)(nil)
@@ -73,6 +75,9 @@ func (s *BruteForceIndex) Get(id uint64) *Centroid {
 	}
 
 	return page[slot].Load()
+}
+
+func (i *BruteForceIndex) SetQuantizer(quantizer *compressionhelpers.RotationalQuantizer) {
 }
 
 func (s *BruteForceIndex) Insert(id uint64, centroid *Centroid) error {
