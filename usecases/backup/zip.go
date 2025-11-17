@@ -128,6 +128,7 @@ func (z *zip) WriteRegular(ctx context.Context, relPath string) (written int64, 
 	}
 	// open file for read
 	absPath := filepath.Join(z.sourcePath, relPath)
+	// check if file exists, if not check if the collection has been deleted and is now available with the delete marker
 	info, err := os.Stat(absPath)
 	if err != nil {
 		if os.IsNotExist(err) {
