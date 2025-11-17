@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"runtime/debug"
 	"slices"
 	"strings"
 	"sync"
@@ -28,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/usage"
 	"github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/resourcelimits"
 	"github.com/weaviate/weaviate/entities/schema"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -823,6 +825,43 @@ func setupDebugHandlers(appState *state.State) {
 		w.WriteHeader(http.StatusOK)
 		if bytesToWrite != nil {
 			w.Write(bytesToWrite)
+		}
+	}))
+
+	// Call via something like:
+	// - current limit: curl -X GET localhost:6060/debug/config/gomemlimit
+	// - set limit: curl -X POST localhost:6060/debug/config/gomemlimit?limit=XXXMiB - can also be bytes or GiB
+	// The port is Weaviate's configured Go profiling port (defaults to 6060)
+	http.HandleFunc("/debug/config/gomemlimit", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var prevLimit int64
+		switch r.Method {
+		case http.MethodGet:
+			prevLimit = debug.SetMemoryLimit(-1)
+		case http.MethodPost:
+			limitStr := r.URL.Query().Get("limit")
+			if limitStr == "" {
+				http.Error(w, "limit is required", http.StatusBadRequest)
+				return
+			}
+			limitBytes, err := resourcelimits.ParseMemLimit(limitStr)
+			if err != nil {
+				http.Error(w, "invalid limit: "+err.Error(), http.StatusBadRequest)
+				return
+			}
+			prevLimit = debug.SetMemoryLimit(limitBytes)
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+		w.WriteHeader(http.StatusOK)
+		jsonBytes, err := json.Marshal(prevLimit)
+		if err != nil {
+			logger.WithError(err).Error("marshal failed on stats")
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		if jsonBytes != nil {
+			w.Write(jsonBytes)
 		}
 	}))
 
