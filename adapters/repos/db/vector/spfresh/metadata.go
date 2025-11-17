@@ -412,5 +412,6 @@ func (s *SPFresh) restoreRQ8FromMsgpack(rq8Data *RQ8Data) error {
 		quantizer: rq,
 		distancer: s.config.DistanceProvider,
 	}
+	s.PostingStore.Init(s.vectorSize, s.config.Compressed)
 	return nil
 }
