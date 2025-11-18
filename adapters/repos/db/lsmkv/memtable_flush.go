@@ -13,6 +13,7 @@ package lsmkv
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -298,7 +299,19 @@ func (m *Memtable) flushDataCollection(f *segmentindex.SegmentFile,
 	keys := make([]segmentindex.Key, len(flat))
 
 	totalWritten := headerSize
-	for i, node := range flat {
+	i := 0
+	for _, node := range flat {
+		skip := false
+		for _, v := range node.values {
+			if v.tombstone && bytes.Equal(v.value, []byte{255}) {
+				skip = true
+				break
+			}
+		}
+		if skip {
+			continue
+		}
+
 		ki, err := (&segmentCollectionNode{
 			values:     node.values,
 			primaryKey: node.key,
@@ -309,6 +322,7 @@ func (m *Memtable) flushDataCollection(f *segmentindex.SegmentFile,
 		}
 
 		keys[i] = ki
+		i++
 		totalWritten = ki.ValueEnd
 	}
 
