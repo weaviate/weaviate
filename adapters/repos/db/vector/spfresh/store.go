@@ -67,6 +67,11 @@ func (p *PostingStore) Init(size int32, compressed bool) {
 }
 
 func (p *PostingStore) AddPostingId(ctx context.Context, postingID uint64) {
+	p.locks.Lock(postingID)
+	defer p.locks.Unlock(postingID)
+	if _, ok := p.replaceCounters[postingID]; ok {
+		return
+	}
 	p.replaceCounters[postingID] = 0
 }
 
