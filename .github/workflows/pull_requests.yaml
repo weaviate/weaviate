@@ -594,8 +594,6 @@ jobs:
             test: "--acceptance-only-async-replication"
           - name: "replica-fast"
             test: "--acceptance-only-replica-replication-fast"
-          - name: "replica-slow"
-            test: "--acceptance-only-replica-replication-slow"
           - name: "go-client-group-1"
             test: "--acceptance-go-client-only-fast-group-1"
           - name: "go-client-group-2"
@@ -627,6 +625,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - name: "replica-slow"
+            test: "--acceptance-only-replica-replication-slow"
           - name: "vector-single"
             test: "--acceptance-go-client-named-vectors-single-node"
           - name: "vector-cluster"
