@@ -55,7 +55,6 @@ func TestDefaultQuantizationRQ8(t *testing.T) {
 	helper.SetupClient(compose.GetWeaviate().URI())
 
 	t.Run("RQ-8 with Hnsw index", func(t *testing.T) {
-
 		createClassDefaultQuantization(t, "hnsw", false, false)
 		// Get the schema
 
@@ -199,7 +198,6 @@ func TestDefaultQuantizationRQ1(t *testing.T) {
 	helper.SetupClient(compose.GetWeaviate().URI())
 
 	t.Run("RQ-1 with Hnsw index", func(t *testing.T) {
-
 		createClassDefaultQuantization(t, "hnsw", false, false)
 		// Get the schema
 
@@ -343,7 +341,6 @@ func TestDefaultQuantizationWithSkipDefaultQuantization(t *testing.T) {
 	helper.SetupClient(compose.GetWeaviate().URI())
 
 	t.Run("Skip RQ-8 with Hnsw index", func(t *testing.T) {
-
 		createClassDefaultQuantization(t, "hnsw", true, false)
 
 		// Get the schema
@@ -369,7 +366,6 @@ func TestDefaultQuantizationWithSkipDefaultQuantization(t *testing.T) {
 	})
 
 	t.Run("Skip RQ-8 with Flat index", func(t *testing.T) {
-
 		createClassDefaultQuantization(t, "flat", true, false)
 
 		// Get the schema
