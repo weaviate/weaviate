@@ -153,7 +153,6 @@ func (s *SPFresh) doSplit(postingID uint64, reassign bool) error {
 		// otherwise, we need to create a new posting for the new centroid
 		newPostingID := s.IDs.Next()
 		newPostingIDs[i] = newPostingID
-		s.PostingStore.AddPostingId(s.ctx, newPostingID)
 		err = s.PostingStore.Put(s.ctx, newPostingID, result[i].Posting)
 		if err != nil {
 			return errors.Wrapf(err, "failed to put new posting %d after split operation", newPostingID)
