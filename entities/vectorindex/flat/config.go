@@ -110,6 +110,12 @@ func ParseAndValidateConfig(input interface{}) (schemaConfig.VectorIndexConfig, 
 		return uc, err
 	}
 
+	if err := vectorindexcommon.OptionalBoolFromMap(asMap, "trackDefaultQuantization", func(v bool) {
+		uc.TrackDefaultQuantization = v
+	}); err != nil {
+		return uc, err
+	}
+
 	if err := parseCompression(asMap, &uc); err != nil {
 		return uc, err
 	}
