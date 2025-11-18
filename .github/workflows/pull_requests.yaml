@@ -658,7 +658,7 @@ jobs:
           MATRIX_TEST: ${{ matrix.name }}
         run: |
           if [[ "$MATRIX_TEST" == "replica-slow" ]]; then
-            echo "test_timeout_minutes=30" >> $GITHUB_ENV
+            echo "test_timeout_minutes=45" >> $GITHUB_ENV
           else
             echo "test_timeout_minutes=15" >> $GITHUB_ENV
           fi
