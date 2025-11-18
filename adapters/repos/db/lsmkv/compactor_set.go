@@ -240,6 +240,12 @@ func (c *compactorSet) cleanupValues(values []value) (vals []value, skip bool) {
 		// It is used by higher level logic (like SPFresh) to indicate that the whole posting
 		// can be removed. We keep it to remove from older segments in further compactions.
 		if values[i].tombstone && bytes.Equal(values[i].value, []byte{255}) {
+			// TODO: check if this special tombstone can be removed entirely
+			// Right now, we do this at the last segment, which means that
+			// tombstones will not accumulate indefinitely.
+			if c.cleanupTombstones {
+				return nil, true
+			}
 			return values[i : i+1], false
 		}
 		// Keep non-tombstoned values
