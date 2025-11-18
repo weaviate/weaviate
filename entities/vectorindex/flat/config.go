@@ -110,6 +110,12 @@ func ParseAndValidateConfig(input interface{}) (schemaConfig.VectorIndexConfig, 
 		return uc, err
 	}
 
+	if err := vectorindexcommon.OptionalBoolFromMap(asMap, "skipDefaultQuantization", func(v bool) {
+		uc.SkipDefaultQuantization = v
+	}); err != nil {
+		return uc, err
+	}
+
 	if err := vectorindexcommon.OptionalBoolFromMap(asMap, "trackDefaultQuantization", func(v bool) {
 		uc.TrackDefaultQuantization = v
 	}); err != nil {
