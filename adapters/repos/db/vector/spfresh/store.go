@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -24,13 +25,14 @@ import (
 )
 
 type PostingStore struct {
-	store           *lsmkv.Store
-	bucket          *lsmkv.Bucket
-	vectorSize      atomic.Int32
-	locks           *common.ShardedRWLocks
-	metrics         *Metrics
-	compressed      bool
-	replaceCounters map[uint64]uint32
+	store              *lsmkv.Store
+	bucket             *lsmkv.Bucket
+	vectorSize         atomic.Int32
+	locks              *common.ShardedRWLocks
+	metrics            *Metrics
+	compressed         bool
+	replaceCounterLock *sync.Mutex
+	replaceCounters    map[uint64]uint32
 }
 
 func NewPostingStore(store *lsmkv.Store, metrics *Metrics, bucketName string, cfg StoreConfig) (*PostingStore, error) {
@@ -50,11 +52,12 @@ func NewPostingStore(store *lsmkv.Store, metrics *Metrics, bucketName string, cf
 	}
 
 	return &PostingStore{
-		store:           store,
-		bucket:          store.Bucket(bucketName),
-		locks:           common.NewDefaultShardedRWLocks(),
-		metrics:         metrics,
-		replaceCounters: make(map[uint64]uint32),
+		store:              store,
+		bucket:             store.Bucket(bucketName),
+		locks:              common.NewDefaultShardedRWLocks(),
+		metrics:            metrics,
+		replaceCounters:    make(map[uint64]uint32),
+		replaceCounterLock: &sync.Mutex{},
 	}, nil
 }
 
@@ -67,6 +70,8 @@ func (p *PostingStore) Init(size int32, compressed bool) {
 }
 
 func (p *PostingStore) AddPostingId(ctx context.Context, postingID uint64) {
+	p.replaceCounterLock.Lock()
+	defer p.replaceCounterLock.Unlock()
 	p.locks.Lock(postingID)
 	defer p.locks.Unlock(postingID)
 	if _, ok := p.replaceCounters[postingID]; ok {
