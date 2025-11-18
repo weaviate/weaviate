@@ -302,14 +302,17 @@ func (m *Memtable) flushDataCollection(f *segmentindex.SegmentFile,
 	i := 0
 	for _, node := range flat {
 		skip := false
+		j := 0
 		for _, v := range node.values {
 			if v.tombstone && bytes.Equal(v.value, []byte{255}) {
 				skip = true
 				break
 			}
+			j++
 		}
 		if skip {
-			continue
+			node.values[0] = node.values[j]
+			node.values = node.values[:1]
 		}
 
 		ki, err := (&segmentCollectionNode{
@@ -346,12 +349,21 @@ func totalValueSizeCollection(in []*binarySearchNodeMulti) int {
 	var sum int
 	for _, n := range in {
 		sum += 8 // uint64 to indicate array length
+		innerSum := 0
 		for _, v := range n.values {
-			sum += 1 // bool to indicate value tombstone
-			sum += 8 // uint64 to indicate value length
-			sum += len(v.value)
+			if v.tombstone && bytes.Equal(v.value, []byte{255}) {
+				innerSum = 0
+				// skip the rest, we only write a single tombstone value
+				innerSum += 1 // bool to indicate value tombstone
+				innerSum += 8 // uint64 to indicate value length
+				innerSum += len(v.value)
+				break
+			}
+			innerSum += 1 // bool to indicate value tombstone
+			innerSum += 8 // uint64 to indicate value length
+			innerSum += len(v.value)
 		}
-
+		sum += innerSum
 		sum += 4 // uint32 to indicate key size
 		sum += len(n.key)
 	}
