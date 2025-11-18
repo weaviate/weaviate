@@ -37,7 +37,7 @@ func (s *Shard) GetStatus() storagestate.Status {
 		return s.status.Status
 	}
 
-	status := storagestate.StatusReady
+	status := s.status.Status
 	_ = s.ForEachVectorQueue(func(_ string, queue *VectorIndexQueue) error {
 		if queue.Size() > 0 {
 			status = storagestate.StatusIndexing
