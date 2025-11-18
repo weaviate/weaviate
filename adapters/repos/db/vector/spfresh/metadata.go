@@ -370,8 +370,6 @@ func (s *SPFresh) restoreRQData() error {
 		return errors.New("failed to deserialize RQ data - unknown format")
 	}
 
-	s.logger.Debugf("Deserialized RQ container: Version=%d, CompressionType=%s, Data type=%T", container.Data)
-
 	// Handle the Data field manually since msgpack deserializes interface{} as map[string]interface{}
 	return s.handleDeserializedData(container)
 }
