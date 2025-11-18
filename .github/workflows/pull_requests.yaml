@@ -594,8 +594,6 @@ jobs:
             test: "--acceptance-only-async-replication"
           - name: "replica-fast"
             test: "--acceptance-only-replica-replication-fast"
-          - name: "replica-slow"
-            test: "--acceptance-only-replica-replication-slow"
           - name: "go-client-group-1"
             test: "--acceptance-go-client-only-fast-group-1"
           - name: "go-client-group-2"
@@ -627,6 +625,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - name: "replica-slow"
+            test: "--acceptance-only-replica-replication-slow"
           - name: "vector-single"
             test: "--acceptance-go-client-named-vectors-single-node"
           - name: "vector-cluster"
@@ -653,11 +653,19 @@ jobs:
           else
             echo "retry_max_attempts=1" >> $GITHUB_ENV
           fi
+      - name: Determine timeout for test
+        env:
+          MATRIX_TEST: ${{ matrix.name }}
+        run: |
+          if [[ "$MATRIX_TEST" == "replica-slow" ]]; then
+            echo "test_timeout_minutes=45" >> $GITHUB_ENV
+          else
+            echo "test_timeout_minutes=15" >> $GITHUB_ENV
+          fi
       - name: Acceptance tests Large
         uses: nick-fields/retry@v3
         with:
-          # 15 Minute is a large enough timeout for most of our tests
-          timeout_minutes: 15
+          timeout_minutes: ${{ env.test_timeout_minutes }}
           max_attempts: ${{ env.retry_max_attempts }}
           command: ./test/run.sh ${{ matrix.test }}
           on_retry_command: ./test/run.sh --cleanup
