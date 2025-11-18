@@ -24,12 +24,13 @@ import (
 )
 
 type PostingStore struct {
-	store      *lsmkv.Store
-	bucket     *lsmkv.Bucket
-	vectorSize atomic.Int32
-	locks      *common.ShardedRWLocks
-	metrics    *Metrics
-	compressed bool
+	store           *lsmkv.Store
+	bucket          *lsmkv.Bucket
+	vectorSize      atomic.Int32
+	locks           *common.ShardedRWLocks
+	metrics         *Metrics
+	compressed      bool
+	replaceCounters map[uint64]uint32
 }
 
 func NewPostingStore(store *lsmkv.Store, metrics *Metrics, bucketName string, cfg StoreConfig) (*PostingStore, error) {
@@ -49,10 +50,11 @@ func NewPostingStore(store *lsmkv.Store, metrics *Metrics, bucketName string, cf
 	}
 
 	return &PostingStore{
-		store:   store,
-		bucket:  store.Bucket(bucketName),
-		locks:   common.NewDefaultShardedRWLocks(),
-		metrics: metrics,
+		store:           store,
+		bucket:          store.Bucket(bucketName),
+		locks:           common.NewDefaultShardedRWLocks(),
+		metrics:         metrics,
+		replaceCounters: make(map[uint64]uint32),
 	}, nil
 }
 
@@ -62,6 +64,10 @@ func NewPostingStore(store *lsmkv.Store, metrics *Metrics, bucketName string, cf
 func (p *PostingStore) Init(size int32, compressed bool) {
 	p.vectorSize.Store(size)
 	p.compressed = compressed
+}
+
+func (p *PostingStore) AddPostingId(ctx context.Context, postingID uint64) {
+	p.replaceCounters[postingID] = 0
 }
 
 func (p *PostingStore) Get(ctx context.Context, postingID uint64) (Posting, error) {
@@ -74,9 +80,10 @@ func (p *PostingStore) Get(ctx context.Context, postingID uint64) (Posting, erro
 		return nil, errors.WithStack(ErrPostingNotFound)
 	}
 
-	var buf [8]byte
+	var buf [12]byte
 	binary.LittleEndian.PutUint64(buf[:], postingID)
 	p.locks.RLock(postingID)
+	binary.LittleEndian.PutUint32(buf[8:], p.replaceCounters[postingID])
 	list, err := p.bucket.SetList(buf[:])
 	p.locks.RUnlock(postingID)
 	if err != nil {
@@ -124,8 +131,9 @@ func (p *PostingStore) Put(ctx context.Context, postingID uint64, posting Postin
 		return errors.New("posting cannot be nil")
 	}
 
-	var buf [8]byte
+	var buf [12]byte
 	binary.LittleEndian.PutUint64(buf[:], postingID)
+	binary.LittleEndian.PutUint32(buf[8:], p.replaceCounters[postingID])
 
 	set := make([][]byte, posting.Len())
 	for i, v := range posting.Iter() {
@@ -135,28 +143,26 @@ func (p *PostingStore) Put(ctx context.Context, postingID uint64, posting Postin
 	p.locks.Lock(postingID)
 	defer p.locks.Unlock(postingID)
 
-	list, err := p.bucket.SetList(buf[:])
+	err := p.bucket.SetDeleteKey(buf[:])
 	if err != nil {
 		return errors.Wrapf(err, "failed to get posting %d", postingID)
 	}
-	for _, v := range list {
-		err = p.bucket.SetDeleteSingle(buf[:], v)
-		if err != nil {
-			return errors.Wrapf(err, "failed to delete old vector from posting %d", postingID)
-		}
-	}
 
-	return p.bucket.SetAdd(buf[:], set)
+	p.replaceCounters[postingID]++
+	binary.LittleEndian.PutUint32(buf[8:], p.replaceCounters[postingID])
+	err = p.bucket.SetAdd(buf[:], set)
+
+	return err
 }
 
 func (p *PostingStore) Append(ctx context.Context, postingID uint64, vector Vector) error {
 	start := time.Now()
 	defer p.metrics.StoreAppendDuration(start)
 
-	var buf [8]byte
-	binary.LittleEndian.PutUint64(buf[:], postingID)
-
+	var buf [12]byte
 	p.locks.Lock(postingID)
+	binary.LittleEndian.PutUint64(buf[:], postingID)
+	binary.LittleEndian.PutUint32(buf[8:], p.replaceCounters[postingID])
 	defer p.locks.Unlock(postingID)
 
 	return p.bucket.SetAdd(buf[:], [][]byte{vector.Encode()})

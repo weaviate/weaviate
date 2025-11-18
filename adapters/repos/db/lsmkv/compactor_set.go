@@ -231,16 +231,21 @@ func (c *compactorSet) writeIndexes(f *segmentindex.SegmentFile,
 // Returned skip of true means there are no values left (key can be omitted in segment)
 // WARN: method can alter input slice by swapping its elements and reducing length (not capacity)
 func (c *compactorSet) cleanupValues(values []value) (vals []value, skip bool) {
-	if !c.cleanupTombstones {
-		return values, false
-	}
-
 	// Reuse input slice not to allocate new memory
 	// Rearrange slice in a way that tombstoned values are moved to the end
 	// and reduce slice's length.
 	last := 0
 	for i := 0; i < len(values); i++ {
-		if !values[i].tombstone {
+		// This is a special tombstone that indicates that the whole key can be removed.
+		// It is used by higher level logic (like SPFresh) to indicate that the whole posting
+		// can be removed. We keep it to remove from older segments in further compactions.
+		if values[i].tombstone && bytes.Equal(values[i].value, []byte{255}) {
+			return values[i : i+1], false
+		}
+		// Keep non-tombstoned values
+		if !c.cleanupTombstones {
+			last++
+		} else if !values[i].tombstone {
 			// Swap both elements instead overwritting `last` by `i`.
 			// Overwrite would result in `values[last].value` pointing to the same slice
 			// as `values[i].value`.
