@@ -150,7 +150,6 @@ jobs:
           "--only-module-backup-gcs",
           "--only-module-backup-s3",
           "--only-module-offload-s3",
-          "--only-module-text2vec-ollama",
           "--only-module-text2vec-model2vec"
         ]
     steps:
@@ -214,6 +213,7 @@ jobs:
           "--only-module-img2vec-neural",
           "--only-module-text2vec-transformers",
           "--only-module-many-modules",
+          "--only-module-text2vec-ollama",
         ]
     steps:
       - uses: actions/checkout@v4
