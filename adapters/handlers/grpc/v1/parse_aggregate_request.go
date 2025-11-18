@@ -93,9 +93,7 @@ func (p *AggregateParser) Aggregate(req *pb.AggregateRequest) (*aggregation.Para
 		return nil, fmt.Errorf("extract target vectors: %w", err)
 	}
 
-	if len(targetVectors) == 1 {
-		params.TargetVector = targetVectors[0]
-	} else if len(targetVectors) > 1 {
+	if len(targetVectors) > 1 {
 		return nil, fmt.Errorf("found more than one target vector for aggregation")
 	}
 
