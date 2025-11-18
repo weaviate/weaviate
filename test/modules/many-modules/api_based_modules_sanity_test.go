@@ -29,12 +29,12 @@ func apiBasedModulesTests(endpoint string) func(t *testing.T) {
 
 			expectedModuleNames := []string{
 				"generative-cohere", "generative-google", "generative-openai", "generative-aws", "generative-anyscale", "generative-friendliai",
-				"text2vec-cohere", "text2vec-contextionary", "text2vec-openai", "text2vec-huggingface",
-				"text2vec-google", "text2vec-aws", "text2vec-transformers", "qna-openai", "reranker-cohere",
+				"text2vec-cohere", "text2vec-openai", "text2vec-huggingface",
+				"text2vec-google", "text2vec-aws", "text2vec-model2vec", "qna-openai", "reranker-cohere",
 				"text2vec-voyageai", "reranker-voyageai",
 			}
 
-			modules, ok := meta.Modules.(map[string]interface{})
+			modules, ok := meta.Modules.(map[string]any)
 			require.True(t, ok)
 			assert.True(t, len(modules) >= len(expectedModuleNames))
 
