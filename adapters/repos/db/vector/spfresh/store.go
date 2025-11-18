@@ -110,16 +110,40 @@ func (p *PostingStore) MultiGet(ctx context.Context, postingIDs []uint64) ([]Pos
 		return nil, errors.WithStack(ErrPostingNotFound)
 	}
 
+	keys := make([][]byte, len(postingIDs))
 	postings := make([]Posting, 0, len(postingIDs))
 
-	for _, id := range postingIDs {
-		posting, err := p.Get(ctx, id)
-		if err != nil {
-			return nil, errors.Wrapf(err, "failed to get posting %d", id)
-		}
-		postings = append(postings, posting)
+	for i, postingID := range postingIDs {
+		p.locks.RLock(postingID)
+		keys[i] = make([]byte, 12)
+		binary.LittleEndian.PutUint64(keys[i][:], postingID)
+		binary.LittleEndian.PutUint32(keys[i][8:], p.replaceCounters[postingID])
+		p.locks.RUnlock(postingID)
 	}
 
+	lists, err := p.bucket.SetLists(keys)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to multi-get postings")
+	}
+
+	for _, list := range lists {
+		if list == nil {
+			postings = append(postings, nil)
+			continue
+		}
+
+		posting := EncodedPosting{
+			vectorSize: int(vectorSize),
+			data:       make([]byte, 0, len(list)*(8+1+int(vectorSize))),
+			compressed: p.compressed,
+		}
+
+		for _, v := range list {
+			posting.data = append(posting.data, v...)
+		}
+
+		postings = append(postings, &posting)
+	}
 	return postings, nil
 }
 

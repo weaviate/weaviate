@@ -778,6 +778,27 @@ func (b *Bucket) getBySecondaryFromSegmentGroup(pos int, seckey []byte, buffer [
 	return b.disk.getBySecondaryWithSegmentList(pos, seckey, buffer, segments)
 }
 
+// SetList returns all Set entries for a given set of keys.
+//
+// SetList is specific to the Set Strategy, for Map use [Bucket.MapList], and
+// for Replace use [Bucket.Get].
+func (b *Bucket) SetLists(keys [][]byte) ([][][]byte, error) {
+	view := b.getConsistentView()
+	defer view.Release()
+
+	out := make([][][]byte, len(keys))
+
+	for i, key := range keys {
+
+		l, err := b.setListFromConsistentView(view, key)
+		if err != nil {
+			return nil, err
+		}
+		out[i] = l
+	}
+	return out, nil
+}
+
 // SetList returns all Set entries for a given key.
 //
 // SetList is specific to the Set Strategy, for Map use [Bucket.MapList], and
