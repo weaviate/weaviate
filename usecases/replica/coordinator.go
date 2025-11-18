@@ -83,6 +83,7 @@ func newReadCoordinator[T any](f *Finder, shard string,
 		Router:                        f.router,
 		Class:                         f.class,
 		Shard:                         shard,
+		log:                           f.log,
 		metrics:                       f.metrics,
 		pullBackOffPreInitialInterval: pullBackOffInitivalInterval / 2,
 		pullBackOffMaxElapsedTime:     pullBackOffMaxElapsedTime,
@@ -299,87 +300,138 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 			c.metrics.ObserveReadDuration(time.Since(start))
 		}()
 
-		hostRetryQueue := make(chan hostRetry, len(hosts))
-
-		// put the "backups/fallbacks" on the retry queue
-		for i := level; i < len(hosts); i++ {
-			hostRetryQueue <- hostRetry{
-				hosts[i],
-				backoff.WithContext(utils.NewExponentialBackoff(c.pullBackOffPreInitialInterval, c.pullBackOffMaxElapsedTime), ctx),
+		hostCh := make(chan host, len(hosts))
+		for i := 0; i < len(hosts); i++ {
+			hostCh <- host{
+				i,
+				nil,
 			}
 		}
 
-		// kick off only level workers so that we avoid querying nodes unnecessarily
-		wg := sync.WaitGroup{}
-		wg.Add(level)
-		for i := 0; i < level; i++ {
-			hostIndex := i
+		workerFunc := func(hostIndex int) (_Result[T], bool) {
+			workerCtx, workerCancel := context.WithTimeout(ctx, timeout)
+			defer workerCancel()
+
+			hostName := hosts[hostIndex]
 			isFullReadWorker := hostIndex == 0 // first worker will perform the fullRead
-			workerFunc := func() {
-				defer wg.Done()
-				workerCtx, workerCancel := context.WithTimeout(ctx, timeout)
-				defer workerCancel()
-				// each worker will first try its corresponding host (eg worker0 tries hosts[0],
-				// worker1 tries hosts[1], etc). We want the fullRead to be tried on hosts[0]
-				// because that will be the direct candidate (if a direct candidate was provided),
-				// if we only used the retry queue then we would not have the guarantee that the
-				// fullRead will be tried on hosts[0] first.
-				resp, err := op(workerCtx, hosts[hostIndex], isFullReadWorker)
-				// TODO return retryable info here, for now should be fine since most errors are considered retryable
-				// TODO have increasing timeout passed into each op (eg 1s, 2s, 4s, 8s, 16s, 32s, with some max) similar to backoff? future PR? or should we just set timeout once per worker in Pull?
-				if err == nil {
-					successful.Add(1)
-					replyCh <- _Result[T]{resp, err}
-					return
-				}
-				// this host failed op on the first try, put it on the retry queue
-				hostRetryQueue <- hostRetry{
-					hosts[hostIndex],
-					backoff.WithContext(utils.NewExponentialBackoff(c.pullBackOffPreInitialInterval, c.pullBackOffMaxElapsedTime), workerCtx),
-				}
+			// each worker will first try its corresponding host (eg worker0 tries hosts[0],
+			// worker1 tries hosts[1], etc). We want the fullRead to be tried on hosts[0]
+			// because that will be the direct candidate (if a direct candidate was provided),
+			// if we only used the retry queue then we would not have the guarantee that the
+			// fullRead will be tried on hosts[0] first.
+			resp, err := op(workerCtx, hostName, isFullReadWorker)
+			// TODO return retryable info here, for now should be fine since most errors are considered retryable
+			// TODO have increasing timeout passed into each op (eg 1s, 2s, 4s, 8s, 16s, 32s, with some max) similar to backoff? future PR? or should we just set timeout once per worker in Pull?
+			if err == nil {
+				successful.Add(1)
+			}
+			return _Result[T]{resp, err}, err == nil
+		}
 
-				// let's fallback to the backups in the retry queue
-				for hr := range hostRetryQueue {
-					resp, err := op(workerCtx, hr.host, isFullReadWorker)
-					if err == nil {
-						replyCh <- _Result[T]{resp, err}
-						return
-					}
-					nextBackOff := hr.currentBackOff.NextBackOff()
-					if nextBackOff == backoff.Stop {
-						// this host has run out of retries, send the result and note that
-						// we have the worker exit here with the assumption that once we've reached
-						// this many failures for this host, we've tried all other hosts enough
-						// that we're not going to reach level successes
-						replyCh <- _Result[T]{resp, err}
-						return
-					}
+		workerCh := make(chan _Result[T])
+		var wg sync.WaitGroup
+		wg.Add(len(hosts))
+		eg := enterrors.NewErrorGroupWrapper(c.log)
+		eg.SetLimit(level)
 
-					timer := time.NewTimer(nextBackOff)
-					select {
-					case <-workerCtx.Done():
-						timer.Stop()
-						replyCh <- _Result[T]{resp, err}
-						return
-					case <-timer.C:
-						hostRetryQueue <- hostRetry{hr.host, hr.currentBackOff}
-					}
-					timer.Stop()
+		// once all workers are done, close the hostCh to stop any further processing
+		enterrors.GoWrapper(func() {
+			wg.Wait()
+			close(hostCh)
+			close(workerCh)
+		}, c.log)
+
+		stop := make(chan struct{})
+		// listen to the workerCh in a separate goroutine and pass results to replyCh
+		// so that looping through the hosts does not block the hot-path of sending results to replyCh
+		// once level is reached in this goroutine, callers of this method can continue without blocking
+		// on hosts beyond the level, that nonetheless may still be running in the background
+		enterrors.GoWrapper(func() {
+			// pull done results from workerCh up to level
+			// and pass them onwards to replyCh
+			count := 0
+			for count < level {
+				res := <-workerCh
+				replyCh <- res
+				// fmt.Println("pulled val", res.Value, "err", res.Err)
+				count++
+			}
+			// stop hostCh looping
+			close(stop)
+			// callers of this function rely on replyCh being closed
+			close(replyCh)
+		}, c.log)
+
+		// loop through all hosts in the queue in a blocking fashion
+		// this ensures that all hosts are tried until we reach level successes
+		// each time there is an error within the workerFunc, the host is re-added to the queue with a backoff, until the backoff expires
+		// the hostCh is only closed once all workers are done ensuring no sends on closed channels
+		for {
+			var hr host
+			var open bool
+			select {
+			case <-stop:
+				return
+			case hr, open = <-hostCh:
+				// avoids race between closing stop and hostCh
+				if !open {
+					continue
 				}
 			}
-			enterrors.GoWrapper(workerFunc, c.log)
+			g := func() error {
+				// fmt.Println("trying host:", hosts[hr.hostIndex])
+				if hr.currentBackOff != nil {
+					nextBackOff := hr.currentBackOff.NextBackOff()
+					select {
+					case <-ctx.Done():
+						// context has been cancelled, exit
+						wg.Done()
+						return nil
+					case <-time.After(nextBackOff):
+					}
+				} else if ctx.Err() != nil {
+					// context has been cancelled, exit
+					wg.Done()
+					return nil
+				}
+				// try the host
+				reply, ok := workerFunc(hr.hostIndex)
+				if ok {
+					// fmt.Println("host succeeded:", hosts[hr.hostIndex], "val", reply.Value, "err", reply.Err)
+					workerCh <- reply
+					wg.Done()
+					return nil
+				}
+				// if this is the first failure on this host then add it back to the queue with a backoff
+				if hr.currentBackOff == nil {
+					hr.currentBackOff = backoff.WithContext(utils.NewExponentialBackoff(c.pullBackOffPreInitialInterval, c.pullBackOffMaxElapsedTime), ctx)
+				} else if hr.currentBackOff.NextBackOff() == backoff.Stop {
+					// this host has run out of retries, send the result and note that
+					// we have the worker exit here with the assumption that once we've reached
+					// this many failures for this host, we've tried all other hosts enough
+					// that we're not going to reach level successes
+					// fmt.Println("host ran out of retries:", hosts[hr.hostIndex], "val", reply.Value, "err", reply.Err)
+					workerCh <- reply
+					wg.Done()
+					return nil
+				}
+				// fmt.Println("retrying host:", hosts[hr.hostIndex])
+				hostCh <- host{
+					hr.hostIndex,
+					hr.currentBackOff,
+				}
+				return nil
+			}
+			eg.Go(g)
 		}
-		wg.Wait()
-		// callers of this function rely on replyCh being closed
-		close(replyCh)
 	}
 	enterrors.GoWrapper(f, c.log)
 
 	return replyCh, level, nil
 }
 
-// hostRetry tracks how long we should wait to retry this host again
-type hostRetry struct {
-	host           string
+// host tracks how long we should wait to retry this host again
+type host struct {
+	hostIndex      int
 	currentBackOff backoff.BackOff
 }

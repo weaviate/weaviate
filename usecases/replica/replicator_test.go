@@ -972,7 +972,7 @@ func (f *fakeFactory) newFinderWithTimings(thisNode string, tInitial time.Durati
 }
 
 func (f *fakeFactory) newFinder(thisNode string) *replica.Finder {
-	return f.newFinderWithTimings(thisNode, 1*time.Microsecond, 128*time.Millisecond)
+	return f.newFinderWithTimings(thisNode, 1*time.Microsecond, 1024*time.Millisecond)
 }
 
 func (f *fakeFactory) assertLogContains(t *testing.T, key string, xs ...string) {

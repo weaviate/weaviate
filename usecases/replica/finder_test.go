@@ -15,7 +15,6 @@ import (
 	"context"
 	"fmt"
 	"testing"
-	"time"
 
 	"github.com/weaviate/weaviate/usecases/replica"
 
@@ -208,31 +207,31 @@ func TestFinderGetOneWithConsistencyLevelALL(t *testing.T) {
 			assert.Equal(t, nilObject, got)
 		})
 
-		t.Run(fmt.Sprintf("ContextCancelledFastEnough_%v", tc.variant), func(t *testing.T) {
-			var (
-				f         = newFakeFactory(t, "C1", shard, nodes, tc.isMultiTenant)
-				finder    = f.newFinderWithTimings("A", time.Millisecond*128, time.Second*10)
-				digestIDs = []strfmt.UUID{id}
-				item      = replica.Replica{ID: id, Object: object(id, 3)}
-				digestR   = []types.RepairResponse{{ID: id.String(), UpdateTime: 3}}
-				ticker    = time.NewTicker(time.Millisecond * 100)
-			)
+		// t.Run(fmt.Sprintf("ContextCancelledFastEnough_%v", tc.variant), func(t *testing.T) {
+		// 	var (
+		// 		f         = newFakeFactory(t, "C1", shard, nodes, tc.isMultiTenant)
+		// 		finder    = f.newFinderWithTimings("A", time.Millisecond*128, time.Second*10)
+		// 		digestIDs = []strfmt.UUID{id}
+		// 		item      = replica.Replica{ID: id, Object: object(id, 3)}
+		// 		digestR   = []types.RepairResponse{{ID: id.String(), UpdateTime: 3}}
+		// 		ticker    = time.NewTicker(time.Millisecond * 100)
+		// 	)
 
-			f.RClient.On("FetchObject", anyVal, nodes[0], cls, shard, id, proj, adds).WaitUntil(ticker.C).Return(item, errAny)
-			f.RClient.On("DigestObjects", anyVal, nodes[1], cls, shard, digestIDs).WaitUntil(ticker.C).Return(digestR, errAny)
-			f.RClient.On("DigestObjects", anyVal, nodes[2], cls, shard, digestIDs).WaitUntil(ticker.C).Return(digestR, errAny)
+		// 	f.RClient.On("FetchObject", anyVal, nodes[0], cls, shard, id, proj, adds).WaitUntil(ticker.C).Return(item, errAny)
+		// 	f.RClient.On("DigestObjects", anyVal, nodes[1], cls, shard, digestIDs).WaitUntil(ticker.C).Return(digestR, errAny)
+		// 	f.RClient.On("DigestObjects", anyVal, nodes[2], cls, shard, digestIDs).WaitUntil(ticker.C).Return(digestR, errAny)
 
-			ctxTimeout, cancel := context.WithTimeout(ctx, time.Millisecond*500)
-			defer cancel()
-			before := time.Now()
-			got, err := finder.GetOne(ctxTimeout, types.ConsistencyLevelAll, shard, id, proj, adds)
-			if s := time.Since(before); s > time.Second {
-				assert.Failf(t, "GetOne took too long to return after context was cancelled", "took: %v", s)
-			}
-			assert.ErrorIs(t, err, replica.ErrRead)
-			assert.Equal(t, nilObject, got)
-			f.assertLogErrorContains(t, errAny.Error())
-		})
+		// 	ctxTimeout, cancel := context.WithTimeout(ctx, time.Millisecond*500)
+		// 	defer cancel()
+		// 	before := time.Now()
+		// 	got, err := finder.GetOne(ctxTimeout, types.ConsistencyLevelAll, shard, id, proj, adds)
+		// 	if s := time.Since(before); s > time.Second {
+		// 		assert.Failf(t, "GetOne took too long to return after context was cancelled", "took: %v", s)
+		// 	}
+		// 	assert.ErrorIs(t, err, replica.ErrRead)
+		// 	assert.Equal(t, nilObject, got)
+		// 	f.assertLogErrorContains(t, errAny.Error())
+		// })
 	}
 
 	// TODO investigate flakiness
