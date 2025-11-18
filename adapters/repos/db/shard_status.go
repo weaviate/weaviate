@@ -26,7 +26,7 @@ type ShardStatus struct {
 }
 
 func (s *Shard) GetStatus() storagestate.Status {
-	s.statusLock.Lock()
+	s.statusLock.RLock()
 	defer s.statusLock.Unlock()
 
 	if s.status.Status != storagestate.StatusReady && s.status.Status != storagestate.StatusIndexing {
@@ -44,7 +44,6 @@ func (s *Shard) GetStatus() storagestate.Status {
 		}
 		return nil
 	})
-	s.status.Status = status
 	return status
 }
 
