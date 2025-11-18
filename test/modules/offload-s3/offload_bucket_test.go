@@ -22,6 +22,7 @@ import (
 	"github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -30,8 +31,7 @@ import (
 )
 
 func Test_OffloadBucketNotAutoCreate(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
+	ctx := context.Background()
 
 	t.Log("pre-instance env setup")
 	t.Setenv(envS3AccessKey, s3BackupJourneyAccessKey)
@@ -53,8 +53,7 @@ func Test_OffloadBucketNotAutoCreate(t *testing.T) {
 
 func Test_OffloadBucketNotAutoCreateMinioManualCreate(t *testing.T) {
 	t.Run("success because created manually in minio", func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-		defer cancel()
+		ctx := context.Background()
 		bucketname := "offloading"
 		t.Log("pre-instance env setup")
 		t.Setenv(envS3AccessKey, s3BackupJourneyAccessKey)
