@@ -12,6 +12,7 @@
 package dynamic
 
 import (
+	"errors"
 	"fmt"
 
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
@@ -123,13 +124,26 @@ func ParseAndValidateConfig(input interface{}, isMultiVector bool) (schemaConfig
 	return uc, nil
 }
 
-func ParseDefaultQuantization(vectorIndexConfig schemaConfig.VectorIndexConfig, compression string) schemaConfig.VectorIndexConfig {
+func ParseDefaultQuantization(vectorIndexConfig schemaConfig.VectorIndexConfig, compression string) (schemaConfig.VectorIndexConfig, error) {
 	config := vectorIndexConfig.(UserConfig)
-	hnswConfig := hnsw.ParseDefaultQuantization(config.HnswUC, compression)
-	flatConfig := flat.ParseDefaultQuantization(config.FlatUC, compression)
+	hnswConfig, errHnsw := hnsw.ParseDefaultQuantization(config.HnswUC, compression)
+	flatConfig, errFlat := flat.ParseDefaultQuantization(config.FlatUC, compression)
 
 	config.HnswUC = hnswConfig.(hnsw.UserConfig)
 	config.FlatUC = flatConfig.(flat.UserConfig)
 
-	return config
+	var errs []error
+
+	if errHnsw != nil {
+		errs = append(errs, fmt.Errorf("error dynamic index: %w", errHnsw))
+	}
+	if errFlat != nil {
+		errs = append(errs, fmt.Errorf("error dynamic index: %w", errFlat))
+	}
+
+	if len(errs) == 0 {
+		return config, nil
+	}
+
+	return config, errors.Join(errs...)
 }

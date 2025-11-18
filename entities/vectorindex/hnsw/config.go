@@ -12,6 +12,7 @@
 package hnsw
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -330,7 +331,7 @@ func NewDefaultMultiVectorUserConfig() UserConfig {
 	return uc
 }
 
-func ParseDefaultQuantization(vectorIndexConfig config.VectorIndexConfig, compression string) config.VectorIndexConfig {
+func ParseDefaultQuantization(vectorIndexConfig config.VectorIndexConfig, compression string) (config.VectorIndexConfig, error) {
 	hnswConfig := vectorIndexConfig.(UserConfig)
 	pqEnabled := hnswConfig.PQ.Enabled
 	sqEnabled := hnswConfig.SQ.Enabled
@@ -338,11 +339,8 @@ func ParseDefaultQuantization(vectorIndexConfig config.VectorIndexConfig, compre
 	bqEnabled := hnswConfig.BQ.Enabled
 	skipDefaultQuantization := hnswConfig.SkipDefaultQuantization
 	hnswConfig.TrackDefaultQuantization = false
-	if pqEnabled || sqEnabled || rqEnabled || bqEnabled {
-		return hnswConfig
-	}
-	if skipDefaultQuantization {
-		return hnswConfig
+	if pqEnabled || sqEnabled || rqEnabled || bqEnabled || skipDefaultQuantization {
+		return hnswConfig, nil
 	}
 	switch compression {
 	case "pq":
@@ -360,8 +358,8 @@ func ParseDefaultQuantization(vectorIndexConfig config.VectorIndexConfig, compre
 	case "bq":
 		hnswConfig.BQ.Enabled = true
 	default:
-		return hnswConfig
+		return hnswConfig, errors.New("invalid default quantization for hnsw index: " + compression)
 	}
 	hnswConfig.TrackDefaultQuantization = true
-	return hnswConfig
+	return hnswConfig, nil
 }

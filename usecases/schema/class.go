@@ -175,17 +175,24 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 
 func (h *Handler) enableQuantization(class *models.Class, defaultQuantization *configRuntime.DynamicValue[string]) {
 	compression := defaultQuantization.Get()
+	var err error
 	if !hasTargetVectors(class) || class.VectorIndexType != "" {
-		class.VectorIndexConfig = setDefaultQuantization(class.VectorIndexType, class.VectorIndexConfig.(schemaConfig.VectorIndexConfig), compression)
+		class.VectorIndexConfig, err = setDefaultQuantization(class.VectorIndexType, class.VectorIndexConfig.(schemaConfig.VectorIndexConfig), compression)
+		if err != nil {
+			h.logger.WithField("error", err).Error("error while setting default quantization")
+		}
 	}
 
 	for k, vectorConfig := range class.VectorConfig {
-		vectorConfig.VectorIndexConfig = setDefaultQuantization(class.VectorIndexType, vectorConfig.VectorIndexConfig.(schemaConfig.VectorIndexConfig), compression)
+		vectorConfig.VectorIndexConfig, err = setDefaultQuantization(class.VectorIndexType, vectorConfig.VectorIndexConfig.(schemaConfig.VectorIndexConfig), compression)
 		class.VectorConfig[k] = vectorConfig
+		if err != nil {
+			h.logger.WithField("error", err).Error("error while setting default quantization")
+		}
 	}
 }
 
-func setDefaultQuantization(vectorIndexType string, vectorIndexConfig schemaConfig.VectorIndexConfig, compression string) schemaConfig.VectorIndexConfig {
+func setDefaultQuantization(vectorIndexType string, vectorIndexConfig schemaConfig.VectorIndexConfig, compression string) (schemaConfig.VectorIndexConfig, error) {
 	if len(vectorIndexType) == 0 {
 		vectorIndexType = vectorindex.DefaultVectorIndexType
 	}
@@ -196,7 +203,7 @@ func setDefaultQuantization(vectorIndexType string, vectorIndexConfig schemaConf
 	} else if vectorIndexType == vectorindex.VectorIndexTypeDYNAMIC && vectorIndexConfig.IndexType() == vectorindex.VectorIndexTypeDYNAMIC {
 		return dynamic.ParseDefaultQuantization(vectorIndexConfig, compression)
 	}
-	return vectorIndexConfig
+	return vectorIndexConfig, nil
 }
 
 func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m map[string]string, overwriteAlias bool) error {
