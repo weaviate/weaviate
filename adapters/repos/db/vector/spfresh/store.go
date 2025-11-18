@@ -31,7 +31,7 @@ type PostingStore struct {
 	locks              *common.ShardedRWLocks
 	metrics            *Metrics
 	compressed         bool
-	replaceCounterLock *sync.Mutex
+	replaceCounterLock *sync.RWMutex
 	replaceCounters    map[uint64]uint32
 }
 
@@ -57,7 +57,7 @@ func NewPostingStore(store *lsmkv.Store, metrics *Metrics, bucketName string, cf
 		locks:              common.NewDefaultShardedRWLocks(),
 		metrics:            metrics,
 		replaceCounters:    make(map[uint64]uint32),
-		replaceCounterLock: &sync.Mutex{},
+		replaceCounterLock: &sync.RWMutex{},
 	}, nil
 }
 
@@ -93,9 +93,11 @@ func (p *PostingStore) Get(ctx context.Context, postingID uint64) (Posting, erro
 	var buf [12]byte
 	binary.LittleEndian.PutUint64(buf[:], postingID)
 	p.locks.RLock(postingID)
+	p.replaceCounterLock.RLock()
 	binary.LittleEndian.PutUint32(buf[8:], p.replaceCounters[postingID])
 	list, err := p.bucket.SetList(buf[:])
 	p.locks.RUnlock(postingID)
+	p.replaceCounterLock.RUnlock()
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get posting %d", postingID)
 	}
@@ -123,6 +125,7 @@ func (p *PostingStore) MultiGet(ctx context.Context, postingIDs []uint64) ([]Pos
 	keys := make([][]byte, len(postingIDs))
 	postings := make([]Posting, 0, len(postingIDs))
 
+	p.replaceCounterLock.RLock()
 	for i, postingID := range postingIDs {
 		p.locks.RLock(postingID)
 		keys[i] = make([]byte, 12)
@@ -130,6 +133,7 @@ func (p *PostingStore) MultiGet(ctx context.Context, postingIDs []uint64) ([]Pos
 		binary.LittleEndian.PutUint32(keys[i][8:], p.replaceCounters[postingID])
 		p.locks.RUnlock(postingID)
 	}
+	p.replaceCounterLock.RUnlock()
 
 	lists, err := p.bucket.SetLists(keys)
 	if err != nil {
@@ -168,10 +172,12 @@ func (p *PostingStore) Put(ctx context.Context, postingID uint64, posting Postin
 	var buf [12]byte
 	binary.LittleEndian.PutUint64(buf[:], postingID)
 
+	p.replaceCounterLock.RLock()
 	p.locks.Lock(postingID)
 	defer p.locks.Unlock(postingID)
 
 	binary.LittleEndian.PutUint32(buf[8:], p.replaceCounters[postingID])
+	p.replaceCounterLock.RUnlock()
 
 	set := make([][]byte, posting.Len())
 	for i, v := range posting.Iter() {
@@ -182,9 +188,10 @@ func (p *PostingStore) Put(ctx context.Context, postingID uint64, posting Postin
 	if err != nil {
 		return errors.Wrapf(err, "failed to get posting %d", postingID)
 	}
-
+	p.replaceCounterLock.Lock()
 	p.replaceCounters[postingID]++
 	binary.LittleEndian.PutUint32(buf[8:], p.replaceCounters[postingID])
+	p.replaceCounterLock.Unlock()
 	err = p.bucket.SetAdd(buf[:], set)
 
 	return err
@@ -196,9 +203,11 @@ func (p *PostingStore) Append(ctx context.Context, postingID uint64, vector Vect
 
 	var buf [12]byte
 	p.locks.Lock(postingID)
+	p.replaceCounterLock.RLock()
 	binary.LittleEndian.PutUint64(buf[:], postingID)
 	binary.LittleEndian.PutUint32(buf[8:], p.replaceCounters[postingID])
 	defer p.locks.Unlock(postingID)
+	p.replaceCounterLock.RUnlock()
 
 	return p.bucket.SetAdd(buf[:], [][]byte{vector.Encode()})
 }
