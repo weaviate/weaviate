@@ -162,15 +162,16 @@ func (p *PostingStore) Put(ctx context.Context, postingID uint64, posting Postin
 
 	var buf [12]byte
 	binary.LittleEndian.PutUint64(buf[:], postingID)
+
+	p.locks.Lock(postingID)
+	defer p.locks.Unlock(postingID)
+
 	binary.LittleEndian.PutUint32(buf[8:], p.replaceCounters[postingID])
 
 	set := make([][]byte, posting.Len())
 	for i, v := range posting.Iter() {
 		set[i] = v.Encode()
 	}
-
-	p.locks.Lock(postingID)
-	defer p.locks.Unlock(postingID)
 
 	err := p.bucket.SetDeleteKey(buf[:])
 	if err != nil {
