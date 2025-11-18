@@ -41,6 +41,7 @@ func (s *Shard) GetStatus() storagestate.Status {
 	_ = s.ForEachVectorQueue(func(_ string, queue *VectorIndexQueue) error {
 		if queue.Size() > 0 {
 			status = storagestate.StatusIndexing
+			return errors.New("found queue with items") // stop iteration early
 		}
 		return nil
 	})
