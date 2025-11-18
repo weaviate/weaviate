@@ -77,7 +77,7 @@ func (t *Traverser) Aggregate(ctx context.Context, principal *models.Principal,
 		params.Certainty = certainty
 	}
 
-	if params.Hybrid != nil && params.Hybrid.Alpha > 0 {
+	if params.Hybrid != nil {
 		var targetVectors []string
 		if len(params.Hybrid.TargetVectors) == 1 {
 			targetVectors = params.Hybrid.TargetVectors[:1]
@@ -92,14 +92,16 @@ func (t *Traverser) Aggregate(ctx context.Context, principal *models.Principal,
 			params.TargetVector = targetVectors[0]
 		}
 
-		certainty := t.nearParamsVector.extractCertaintyFromParams(params.NearVector,
-			params.NearObject, params.ModuleParams, params.Hybrid)
+		if params.Hybrid.Vector == nil {
+			certainty := t.nearParamsVector.extractCertaintyFromParams(params.NearVector,
+				params.NearObject, params.ModuleParams, params.Hybrid)
 
-		if certainty == 0 && params.ObjectLimit == nil {
-			return nil, fmt.Errorf("must provide certainty or objectLimit with vector search")
+			if certainty == 0 && params.ObjectLimit == nil {
+				return nil, fmt.Errorf("must provide certainty or objectLimit with vector search")
+			}
+
+			params.Certainty = certainty
 		}
-
-		params.Certainty = certainty
 	}
 
 	var mp *modules.Provider

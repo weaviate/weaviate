@@ -105,8 +105,7 @@ func TestGRPCAggregateRequest(t *testing.T) {
 				},
 			},
 			out: &aggregation.Params{
-				ClassName:    schema.ClassName(mixedVectorsClass),
-				TargetVector: "first_vec",
+				ClassName: schema.ClassName(mixedVectorsClass),
 				Properties: []aggregation.ParamProperty{
 					{
 						Name: "first",
