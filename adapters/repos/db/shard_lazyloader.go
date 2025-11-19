@@ -754,10 +754,7 @@ func (l *LazyLoadShard) isLoaded() bool {
 }
 
 func (l *LazyLoadShard) Activity() (int32, int32) {
-	var loaded bool
-	loaded = l.loaded.Load()
-
-	if !loaded {
+	if !l.loaded.Load() {
 		// don't force-load the shard, just report the same number every time, so
 		// the caller can figure out there was no activity
 		return 0, 0
