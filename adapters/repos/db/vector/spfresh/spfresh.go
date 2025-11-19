@@ -172,6 +172,7 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*SPFresh, error) {
 	s.taskQueue = *taskQueue
 
 	s.restoreMetadata()
+	s.IDs = *common.NewMonotonicCounter(s.Centroids.GetMaxID())
 
 	return &s, nil
 }

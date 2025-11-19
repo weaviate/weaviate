@@ -46,6 +46,7 @@ type CentroidIndex interface {
 	Exists(id uint64) bool
 	Search(query []float32, k int) (*ResultSet, error)
 	SetQuantizer(quantizer *compressionhelpers.RotationalQuantizer)
+	GetMaxID() uint64
 }
 
 var _ CentroidIndex = (*BruteForceIndex)(nil)
@@ -178,4 +179,8 @@ func (s *BruteForceIndex) Search(query []float32, k int) (*ResultSet, error) {
 	}
 
 	return q, nil
+}
+
+func (s *BruteForceIndex) GetMaxID() uint64 {
+	return 0
 }

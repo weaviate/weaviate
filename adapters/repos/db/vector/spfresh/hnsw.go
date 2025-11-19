@@ -53,6 +53,7 @@ func NewHNSWIndex(metrics *Metrics, store *lsmkv.Store, cfg *Config, pages, page
 	if err != nil {
 		return nil, err
 	}
+	h.PostStartup(context.Background())
 
 	index.hnsw = h
 
@@ -116,4 +117,8 @@ func (i *HNSWIndex) Search(query []float32, k int) (*ResultSet, error) {
 	}
 
 	return &ResultSet{data: results}, nil
+}
+
+func (i *HNSWIndex) GetMaxID() uint64 {
+	return i.hnsw.CurrentVectorsLen()
 }
