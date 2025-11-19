@@ -73,7 +73,7 @@ func NewServer(state *state.State, options ...grpc.ServerOption) *Server {
 
 func (s *Server) Serve() error {
 	lis, err := net.Listen("tcp", fmt.Sprintf(":%d",
-		s.state.ServerConfig.Config.GRPC.Port))
+		s.state.ServerConfig.Config.Cluster.DataBindGrpcPort))
 	if err != nil {
 		return err
 	}
