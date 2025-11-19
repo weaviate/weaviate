@@ -25,6 +25,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
+
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -373,19 +374,35 @@ func (c *replicationClient) do(timeout time.Duration, req *http.Request, body []
 		if body != nil {
 			req.Body = io.NopCloser(bytes.NewReader(body))
 		}
+
+		// Log outgoing request
+		startTime := time.Now()
+		fmt.Printf("[COORDINATOR-OUTGOING] target=%s phase=request_start  method=%s path=%s\n",
+			req.URL.Host, req.Method, req.URL.Path)
+
 		res, err := c.client.Do(req)
+		duration := time.Since(startTime)
+
 		if err != nil {
+			fmt.Printf("[COORDINATOR-OUTGOING] target=%s phase=request_error duration=%s error=%v path=%s\n",
+				req.URL.Host, duration.String(), err, req.URL.Path)
 			return false, fmt.Errorf("connect: %w", err)
 		}
 		defer res.Body.Close()
 
 		if code := res.StatusCode; code != http.StatusOK {
 			b, _ := io.ReadAll(res.Body)
+			fmt.Printf("[COORDINATOR-OUTGOING] target=%s phase=request_error duration=%s status=%d error=%s path=%s\n",
+				req.URL.Host, duration.String(), code, string(b), req.URL.Path)
 			return shouldRetry(code), fmt.Errorf("status code: %v, error: %s", code, b)
 		}
 		if err := json.NewDecoder(res.Body).Decode(resp); err != nil {
+			fmt.Printf("[COORDINATOR-OUTGOING] target=%s phase=request_error duration=%s error=decode:%v path=%s\n",
+				req.URL.Host, duration.String(), err, req.URL.Path)
 			return false, fmt.Errorf("decode response: %w", err)
 		}
+		fmt.Printf("[COORDINATOR-OUTGOING] target=%s phase=request_success  duration=%s path=%s\n",
+			req.URL.Host, duration.String(), req.URL.Path)
 		return false, nil
 	}
 	return c.retry(ctx, numRetries, try)
