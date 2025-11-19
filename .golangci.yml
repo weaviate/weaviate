@@ -41,7 +41,7 @@ linters:
       - legacy
       - std-error-handling
     rules:
-      - path: ^deprecations/gen\.go$
+      - path: ^deprecations/gen\.go$  # generated file
         linters:
           - staticcheck
           - govet
