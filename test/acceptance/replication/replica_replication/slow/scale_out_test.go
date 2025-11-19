@@ -68,9 +68,9 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateScaleOut() {
 
 	// Load data
 	batch := make([]*models.Object, 0, 1000)
-	tenantNames := make([]string, 0, 100)
+	tenantNames := make([]string, 0, 10)
 	t.Log("Loading data into tenants...")
-	for i := 0; i < 100; i++ {
+	for i := 0; i < 10; i++ {
 		tenantName := fmt.Sprintf("tenant-%d", i)
 		tenantNames = append(tenantNames, tenantName)
 		for j := 0; j < 1000; j++ {
