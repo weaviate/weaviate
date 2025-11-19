@@ -42,8 +42,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
-	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/weaviate/fgprof"
 	"github.com/weaviate/weaviate/adapters/clients"
@@ -519,23 +517,9 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	schemaParser := schema.NewParser(appState.Cluster, vectorIndex.ParseAndValidateConfig, migrator, appState.Modules, appState.ServerConfig.Config.DefaultQuantization)
 
 	remoteClientFactory := func(ctx context.Context, address string) (copier.FileReplicationServiceClient, error) {
-		grpcConfig := appState.ServerConfig.Config.GRPC
 		authConfig := appState.ServerConfig.Config.Cluster.AuthConfig
 
-		var creds credentials.TransportCredentials
-
-		useTLS := len(grpcConfig.CertFile) > 0
-
-		if useTLS {
-			creds = credentials.NewClientTLSFromCert(nil, "")
-		} else {
-			creds = insecure.NewCredentials() // use insecure credentials for testing
-		}
-
-		clientConn, err := grpc.NewClient(
-			address,
-			grpc.WithTransportCredentials(creds),
-		)
+		clientConn, err := grpc.NewClient(address)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create gRPC client connection: %w", err)
 		}
@@ -1109,7 +1093,7 @@ func startupRoutine(ctx context.Context, options *swag.CommandLineOptionsGroup) 
 		nonStorageNodes = parseVotersNames(cfg)
 	}
 
-	clusterState, err := cluster.Init(serverConfig.Config.Cluster, serverConfig.Config.GRPC.Port, serverConfig.Config.Raft.TimeoutsMultiplier.Get(), dataPath, nonStorageNodes, logger)
+	clusterState, err := cluster.Init(serverConfig.Config.Cluster, serverConfig.Config.Raft.TimeoutsMultiplier.Get(), dataPath, nonStorageNodes, logger)
 	if err != nil {
 		logger.WithField("action", "startup").WithError(err).
 			Error("could not init cluster state")
