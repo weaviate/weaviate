@@ -29,6 +29,8 @@ import (
 // If there is any action that needs to be performed beside files/dirs being removed
 // from shard directory, it needs to be reflected as well in LazyLoadShard::drop()
 // method to keep drop behaviour consistent.
+// If keepFiles==true, all files on disk are kept, only in-memory structures are removed. This is used to allow backups
+// to complete before the files are deleted.
 func (s *Shard) drop(keepFiles bool) (err error) {
 	s.shutCtxCancel(fmt.Errorf("drop %q", s.ID()))
 	s.reindexer.Stop(s, fmt.Errorf("shard drop"))
