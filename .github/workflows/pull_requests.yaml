@@ -343,12 +343,6 @@ jobs:
             test: "--only-module-backup-s3"
           - name: "offload-s3"
             test: "--only-module-offload-s3"
-          - name: "text2vec-transformers"
-            test: "--only-module-text2vec-transformers"
-          - name: "text2vec-ollama"
-            test: "--only-module-text2vec-ollama"
-          - name: "generative-ollama"
-            test: "--only-module-generative-ollama"
           - name: "text2vec-model2vec"
             test: "--only-module-text2vec-model2vec"
     steps:
@@ -404,14 +398,24 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: "qna-trans"
+          - name: "qna-transformers"
             test: "--only-module-qna-transformers"
-          - name: "sum-trans"
+          - name: "sum-transformers"
             test: "--only-module-sum-transformers"
           - name: "multi2vec-clip"
             test: "--only-module-multi2vec-clip"
-          - name: "reranker-trans"
+          - name: "reranker-transformers"
             test: "--only-module-reranker-transformers"
+          - name: "text2vec-transformers"
+            test: "--only-module-text2vec-transformers"
+          - name: "text2vec-ollama"
+            test: "--only-module-text2vec-ollama"
+          - name: "generative-ollama"
+            test: "--only-module-generative-ollama"
+          - name: "many-modules"
+            test: "--only-module-many-modules"
+          - name: "img2vec-neural"
+            test: "--only-module-img2vec-neural"
     steps:
       - uses: actions/checkout@v5
       - name: Set up Go
@@ -444,12 +448,8 @@ jobs:
         include:
           - name: "text2vec-contextionary"
             test: "--only-module-text2vec-contextionary"
-          - name: "img2vec-neural"
-            test: "--only-module-img2vec-neural"
           - name: "ref2vec-centroid"
             test: "--only-module-ref2vec-centroid"
-          - name: "many-modules"
-            test: "--only-module-many-modules"
           - name: "many-generative"
             test: "--only-module-many-generative"
     steps:
@@ -506,6 +506,8 @@ jobs:
             test: "--only-module-text2multivec-jinaai"
           - name: "multi2multivec-jinaai"
             test: "--only-module-multi2multivec-jinaai"
+          - name: "reranker-jinaai"
+            test: "--only-module-reranker-jinaai"
           - name: "multi2vec-aws"
             test: "--only-module-multi2vec-aws"
           - name: "text2vec-openai"
@@ -594,8 +596,6 @@ jobs:
             test: "--acceptance-only-async-replication"
           - name: "replica-fast"
             test: "--acceptance-only-replica-replication-fast"
-          - name: "replica-slow"
-            test: "--acceptance-only-replica-replication-slow"
           - name: "go-client-group-1"
             test: "--acceptance-go-client-only-fast-group-1"
           - name: "go-client-group-2"
@@ -627,6 +627,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - name: "replica-slow"
+            test: "--acceptance-only-replica-replication-slow"
           - name: "vector-single"
             test: "--acceptance-go-client-named-vectors-single-node"
           - name: "vector-cluster"
@@ -653,11 +655,19 @@ jobs:
           else
             echo "retry_max_attempts=1" >> $GITHUB_ENV
           fi
+      - name: Determine timeout for test
+        env:
+          MATRIX_TEST: ${{ matrix.name }}
+        run: |
+          if [[ "$MATRIX_TEST" == "replica-slow" ]]; then
+            echo "test_timeout_minutes=45" >> $GITHUB_ENV
+          else
+            echo "test_timeout_minutes=15" >> $GITHUB_ENV
+          fi
       - name: Acceptance tests Large
         uses: nick-fields/retry@v3
         with:
-          # 15 Minute is a large enough timeout for most of our tests
-          timeout_minutes: 15
+          timeout_minutes: ${{ env.test_timeout_minutes }}
           max_attempts: ${{ env.retry_max_attempts }}
           command: ./test/run.sh ${{ matrix.test }}
           on_retry_command: ./test/run.sh --cleanup

@@ -18,6 +18,7 @@ package models
 
 import (
 	"context"
+	"strconv"
 
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
@@ -47,6 +48,9 @@ type InvertedIndexConfig struct {
 	// stopwords
 	Stopwords *StopwordConfig `json:"stopwords,omitempty"`
 
+	// User-defined dictionary for tokenization.
+	TokenizerUserDict []*TokenizerUserDictConfig `json:"tokenizerUserDict,omitempty"`
+
 	// Using BlockMax WAND for query execution (default: `false`, will be `true` for new collections created after 1.30).
 	UsingBlockMaxWAND bool `json:"usingBlockMaxWAND,omitempty"`
 }
@@ -60,6 +64,10 @@ func (m *InvertedIndexConfig) Validate(formats strfmt.Registry) error {
 	}
 
 	if err := m.validateStopwords(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateTokenizerUserDict(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -107,6 +115,32 @@ func (m *InvertedIndexConfig) validateStopwords(formats strfmt.Registry) error {
 	return nil
 }
 
+func (m *InvertedIndexConfig) validateTokenizerUserDict(formats strfmt.Registry) error {
+	if swag.IsZero(m.TokenizerUserDict) { // not required
+		return nil
+	}
+
+	for i := 0; i < len(m.TokenizerUserDict); i++ {
+		if swag.IsZero(m.TokenizerUserDict[i]) { // not required
+			continue
+		}
+
+		if m.TokenizerUserDict[i] != nil {
+			if err := m.TokenizerUserDict[i].Validate(formats); err != nil {
+				if ve, ok := err.(*errors.Validation); ok {
+					return ve.ValidateName("tokenizerUserDict" + "." + strconv.Itoa(i))
+				} else if ce, ok := err.(*errors.CompositeError); ok {
+					return ce.ValidateName("tokenizerUserDict" + "." + strconv.Itoa(i))
+				}
+				return err
+			}
+		}
+
+	}
+
+	return nil
+}
+
 // ContextValidate validate this inverted index config based on the context it is used
 func (m *InvertedIndexConfig) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
 	var res []error
@@ -116,6 +150,10 @@ func (m *InvertedIndexConfig) ContextValidate(ctx context.Context, formats strfm
 	}
 
 	if err := m.contextValidateStopwords(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.contextValidateTokenizerUserDict(ctx, formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -152,6 +190,26 @@ func (m *InvertedIndexConfig) contextValidateStopwords(ctx context.Context, form
 			}
 			return err
 		}
+	}
+
+	return nil
+}
+
+func (m *InvertedIndexConfig) contextValidateTokenizerUserDict(ctx context.Context, formats strfmt.Registry) error {
+
+	for i := 0; i < len(m.TokenizerUserDict); i++ {
+
+		if m.TokenizerUserDict[i] != nil {
+			if err := m.TokenizerUserDict[i].ContextValidate(ctx, formats); err != nil {
+				if ve, ok := err.(*errors.Validation); ok {
+					return ve.ValidateName("tokenizerUserDict" + "." + strconv.Itoa(i))
+				} else if ce, ok := err.(*errors.CompositeError); ok {
+					return ce.ValidateName("tokenizerUserDict" + "." + strconv.Itoa(i))
+				}
+				return err
+			}
+		}
+
 	}
 
 	return nil

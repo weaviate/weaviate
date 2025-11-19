@@ -37,9 +37,9 @@ func testGenerativeCohere(rest, grpc string) func(t *testing.T) {
 		class := planets.BaseClass("PlanetsGenerativeTest")
 		class.VectorConfig = map[string]models.VectorConfig{
 			"description": {
-				Vectorizer: map[string]interface{}{
-					"text2vec-transformers": map[string]interface{}{
-						"properties":         []interface{}{"description"},
+				Vectorizer: map[string]any{
+					"text2vec-model2vec": map[string]any{
+						"properties":         []any{"description"},
 						"vectorizeClassName": false,
 					},
 				},
@@ -72,8 +72,8 @@ func testGenerativeCohere(rest, grpc string) func(t *testing.T) {
 				if tt.absentModuleConfig {
 					t.Log("skipping adding module config configuration to class")
 				} else {
-					class.ModuleConfig = map[string]interface{}{
-						"generative-cohere": map[string]interface{}{
+					class.ModuleConfig = map[string]any{
+						"generative-cohere": map[string]any{
 							"model": tt.generativeModel,
 						},
 					}

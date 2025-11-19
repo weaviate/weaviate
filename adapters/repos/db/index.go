@@ -64,6 +64,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 	esync "github.com/weaviate/weaviate/entities/sync"
+	"github.com/weaviate/weaviate/entities/tokenizer"
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/config"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
@@ -331,6 +332,11 @@ func NewIndex(
 	shardReindexer ShardReindexerV3,
 	bitmapBufPool roaringset.BitmapBufPool,
 ) (*Index, error) {
+	err := tokenizer.AddCustomDict(class.Class, invertedIndexConfig.TokenizerUserDict)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to create new index")
+	}
+
 	sd, err := stopwords.NewDetectorFromConfig(invertedIndexConfig.Stopwords)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create new index")
@@ -737,6 +743,11 @@ func (i *Index) updateInvertedIndexConfig(ctx context.Context,
 	err := i.stopwords.ReplaceDetectorFromConfig(updated.Stopwords)
 	if err != nil {
 		return fmt.Errorf("update inverted index config: %w", err)
+	}
+
+	err = tokenizer.AddCustomDict(i.Config.ClassName.String(), updated.TokenizerUserDict)
+	if err != nil {
+		return errors.Wrap(err, "updating inverted index config")
 	}
 
 	return nil
@@ -1550,7 +1561,7 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 	addlProps additional.Properties, replProps *additional.ReplicationProperties, tenant string, autoCut int,
 	properties []string,
 ) ([]*storobj.Object, []float32, error) {
-	cl := i.consistencyLevel(replProps)
+	cl := i.consistencyLevel(replProps, routerTypes.ConsistencyLevelOne)
 	readPlan, err := i.buildReadRoutingPlan(cl, tenant)
 	if err != nil {
 		return nil, nil, err
@@ -1914,7 +1925,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 	groupBy *searchparams.GroupBy, additionalProps additional.Properties,
 	replProps *additional.ReplicationProperties, tenant string, targetCombination *dto.TargetCombination, properties []string,
 ) ([]*storobj.Object, []float32, error) {
-	cl := i.consistencyLevel(replProps)
+	cl := i.consistencyLevel(replProps, routerTypes.ConsistencyLevelOne)
 	readPlan, err := i.buildReadRoutingPlan(cl, tenant)
 	if err != nil {
 		return nil, nil, err
@@ -2285,8 +2296,8 @@ func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensu
 	}
 
 	// make sure same shard is not inited in parallel
-	if !i.shardCreateLocks.TryLockWithContext(shardName, ctx) {
-		return nil, func() {}, fmt.Errorf("unable to acquire shardCreateLocks lock: %w", ctx.Err())
+	if err = i.shardCreateLocks.LockWithContext(shardName, ctx); err != nil {
+		return nil, func() {}, fmt.Errorf("unable to acquire shardCreateLocks lock: %w", err)
 	}
 	defer i.shardCreateLocks.Unlock(shardName)
 
@@ -2811,9 +2822,17 @@ func (i *Index) findUUIDs(ctx context.Context,
 	return results, nil
 }
 
-func (i *Index) consistencyLevel(repl *additional.ReplicationProperties) routerTypes.ConsistencyLevel {
+// consistencyLevel returns the consistency level for the given replication properties.
+// If repl is not nil, the consistency level is returned from repl.
+// If repl is nil and a default override is provided, the default override is returned.
+// If repl is nil and no default override is provided, the default consistency level
+// is returned (QUORUM).
+func (i *Index) consistencyLevel(
+	repl *additional.ReplicationProperties,
+	defaultOverride ...routerTypes.ConsistencyLevel,
+) routerTypes.ConsistencyLevel {
 	if repl == nil {
-		repl = defaultConsistency()
+		repl = defaultConsistency(defaultOverride...)
 	}
 	return routerTypes.ConsistencyLevel(repl.ConsistencyLevel)
 }
@@ -2914,10 +2933,10 @@ func (i *Index) IncomingDeleteObjectBatch(ctx context.Context, shardName string,
 	return shard.DeleteObjectBatch(ctx, uuids, deletionTime, dryRun)
 }
 
-func defaultConsistency(l ...routerTypes.ConsistencyLevel) *additional.ReplicationProperties {
+func defaultConsistency(defaultOverride ...routerTypes.ConsistencyLevel) *additional.ReplicationProperties {
 	rp := &additional.ReplicationProperties{}
-	if len(l) != 0 {
-		rp.ConsistencyLevel = string(l[0])
+	if len(defaultOverride) != 0 {
+		rp.ConsistencyLevel = string(defaultOverride[0])
 	} else {
 		rp.ConsistencyLevel = string(routerTypes.ConsistencyLevelQuorum)
 	}
