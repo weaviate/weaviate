@@ -80,6 +80,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		AuthzAddPermissionsHandler: authz.AddPermissionsHandlerFunc(func(params authz.AddPermissionsParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation authz.AddPermissions has not yet been implemented")
 		}),
+		ReplicationApplyReplicationScalePlanHandler: replication.ApplyReplicationScalePlanHandlerFunc(func(params replication.ApplyReplicationScalePlanParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation replication.ApplyReplicationScalePlan has not yet been implemented")
+		}),
 		AuthzAssignRoleToGroupHandler: authz.AssignRoleToGroupHandlerFunc(func(params authz.AssignRoleToGroupParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation authz.AssignRoleToGroup has not yet been implemented")
 		}),
@@ -157,6 +160,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		}),
 		UsersGetOwnInfoHandler: users.GetOwnInfoHandlerFunc(func(params users.GetOwnInfoParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation users.GetOwnInfo has not yet been implemented")
+		}),
+		ReplicationGetReplicationScalePlanHandler: replication.GetReplicationScalePlanHandlerFunc(func(params replication.GetReplicationScalePlanParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation replication.GetReplicationScalePlan has not yet been implemented")
 		}),
 		AuthzGetRoleHandler: authz.GetRoleHandlerFunc(func(params authz.GetRoleParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation authz.GetRole has not yet been implemented")
@@ -402,6 +408,8 @@ type WeaviateAPI struct {
 	UsersActivateUserHandler users.ActivateUserHandler
 	// AuthzAddPermissionsHandler sets the operation handler for the add permissions operation
 	AuthzAddPermissionsHandler authz.AddPermissionsHandler
+	// ReplicationApplyReplicationScalePlanHandler sets the operation handler for the apply replication scale plan operation
+	ReplicationApplyReplicationScalePlanHandler replication.ApplyReplicationScalePlanHandler
 	// AuthzAssignRoleToGroupHandler sets the operation handler for the assign role to group operation
 	AuthzAssignRoleToGroupHandler authz.AssignRoleToGroupHandler
 	// AuthzAssignRoleToUserHandler sets the operation handler for the assign role to user operation
@@ -454,6 +462,8 @@ type WeaviateAPI struct {
 	ReplicationGetCollectionShardingStateHandler replication.GetCollectionShardingStateHandler
 	// UsersGetOwnInfoHandler sets the operation handler for the get own info operation
 	UsersGetOwnInfoHandler users.GetOwnInfoHandler
+	// ReplicationGetReplicationScalePlanHandler sets the operation handler for the get replication scale plan operation
+	ReplicationGetReplicationScalePlanHandler replication.GetReplicationScalePlanHandler
 	// AuthzGetRoleHandler sets the operation handler for the get role operation
 	AuthzGetRoleHandler authz.GetRoleHandler
 	// AuthzGetRolesHandler sets the operation handler for the get roles operation
@@ -661,6 +671,9 @@ func (o *WeaviateAPI) Validate() error {
 	if o.AuthzAddPermissionsHandler == nil {
 		unregistered = append(unregistered, "authz.AddPermissionsHandler")
 	}
+	if o.ReplicationApplyReplicationScalePlanHandler == nil {
+		unregistered = append(unregistered, "replication.ApplyReplicationScalePlanHandler")
+	}
 	if o.AuthzAssignRoleToGroupHandler == nil {
 		unregistered = append(unregistered, "authz.AssignRoleToGroupHandler")
 	}
@@ -738,6 +751,9 @@ func (o *WeaviateAPI) Validate() error {
 	}
 	if o.UsersGetOwnInfoHandler == nil {
 		unregistered = append(unregistered, "users.GetOwnInfoHandler")
+	}
+	if o.ReplicationGetReplicationScalePlanHandler == nil {
+		unregistered = append(unregistered, "replication.GetReplicationScalePlanHandler")
 	}
 	if o.AuthzGetRoleHandler == nil {
 		unregistered = append(unregistered, "authz.GetRoleHandler")
@@ -1025,6 +1041,10 @@ func (o *WeaviateAPI) initHandlerCache() {
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
+	o.handlers["POST"]["/replication/scale"] = replication.NewApplyReplicationScalePlan(o.context, o.ReplicationApplyReplicationScalePlanHandler)
+	if o.handlers["POST"] == nil {
+		o.handlers["POST"] = make(map[string]http.Handler)
+	}
 	o.handlers["POST"]["/authz/groups/{id}/assign"] = authz.NewAssignRoleToGroup(o.context, o.AuthzAssignRoleToGroupHandler)
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
@@ -1126,6 +1146,10 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
 	o.handlers["GET"]["/users/own-info"] = users.NewGetOwnInfo(o.context, o.UsersGetOwnInfoHandler)
+	if o.handlers["GET"] == nil {
+		o.handlers["GET"] = make(map[string]http.Handler)
+	}
+	o.handlers["GET"]["/replication/scale"] = replication.NewGetReplicationScalePlan(o.context, o.ReplicationGetReplicationScalePlanHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}

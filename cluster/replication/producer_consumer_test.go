@@ -32,6 +32,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/cluster/mocks"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/fakes"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -369,7 +370,7 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 			parser.On("ParseClass", mock.Anything).Return(nil)
 			schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
 			schemaReader := schemaManager.NewSchemaReader()
-			manager := replication.NewManager(schemaReader, reg)
+			manager := replication.NewManager(schemaReader, mocks.NewMockNodeSelector("localhost"), reg)
 
 			ctx := t.Context()
 			replicateRequest := &api.ReplicationReplicateShardRequest{

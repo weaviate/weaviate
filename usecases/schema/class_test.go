@@ -1923,7 +1923,7 @@ func Test_UpdateClass(t *testing.T) {
 				fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
 				fakeSchemaManager.On("UpdateClass", mock.Anything, mock.Anything).Return(nil)
 				fakeSchemaManager.On("ReadOnlyClass", test.initial.Class, mock.Anything).Return(test.initial)
-				fakeSchemaManager.On("QueryShardingState", mock.Anything).Return(nil, nil)
+				fakeSchemaManager.On("CopyShardingState", mock.Anything).Return(&sharding.State{}, nil)
 				if len(test.initial.Properties) > 0 {
 					fakeSchemaManager.On("ReadOnlyClass", test.initial.Class, mock.Anything).Return(test.initial)
 				}

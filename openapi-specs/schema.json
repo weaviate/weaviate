@@ -903,7 +903,10 @@
         "transferType": {
           "description": "Specifies the type of replication operation to perform. 'COPY' creates a new replica on the destination node while keeping the source replica. 'MOVE' creates a new replica on the destination node and then removes the source replica upon successful completion. Defaults to 'COPY' if omitted.",
           "type": "string",
-          "enum": ["COPY", "MOVE"],
+          "enum": [
+            "COPY",
+            "MOVE"
+          ],
           "default": "COPY"
         }
       },
@@ -937,6 +940,86 @@
         }
       },
       "type": "object"
+    },
+    "ReplicationScalePlan": {
+      "type": "object",
+      "description": "Defines a complete plan for scaling replication within a collection. Each shard entry specifies nodes to remove and nodes to add. Added nodes may either be initialized empty (null) or created by replicating data from a source node specified as a string. If a source node is also marked for removal in the same shard, it represents a move operation and can only be used once as a source for that shard. If a source node is not marked for removal, it represents a copy operation and can be used as the source for multiple additions in that shard. Nodes listed in 'removeNodes' cannot also appear as targets in 'addNodes' for the same shard, and the same node cannot be specified for both addition and removal in a single shard.",
+      "properties": {
+        "planId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "A unique identifier for this replication scaling plan, useful for tracking and auditing purposes.",
+          "x-nullable": false
+        },
+        "collection": {
+          "type": "string",
+          "description": "The name of the collection to which this replication scaling plan applies.",
+          "x-nullable": false
+        },
+        "shardScaleActions": {
+          "type": "object",
+          "description": "A mapping of shard names to their corresponding scaling actions. Each key corresponds to a shard name, and its value defines which nodes should be removed and which should be added for that shard. If a source node listed for an addition is also in 'removeNodes' for the same shard, that addition is treated as a move operation. Such a node can appear only once as a source in that shard. Otherwise, if the source node is not being removed, it represents a copy operation and can be referenced multiple times as a source for additions.",
+          "additionalProperties": {
+            "type": "object",
+            "description": "Scaling actions for a single shard, including which nodes to remove and which to add. Nodes listed in 'removeNodes' cannot appear as targets in 'addNodes' for the same shard. If a source node is also marked for removal, it is treated as a move operation and can only appear once as a source node in that shard. A source node that is not being removed can appear multiple times as a source node for additions in that shard (copy operations).",
+            "properties": {
+              "removeNodes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "List of node identifiers from which replicas of this shard should be removed. Nodes listed here must not appear in 'addNodes' for the same shard, and cannot be used as a source node for any addition in this shard except in the implicit move case, where they appear as both a source and a node to remove."
+              },
+              "addNodes": {
+                "type": "object",
+                "description": "A mapping of target node identifiers to their addition configuration. Each key represents a target node where a new replica will be added. The value may be null, which means an empty replica will be created, or a string specifying the source node from which shard data will be copied. If the source node is also marked for removal in the same shard, this addition is treated as a move operation, and that source node can only appear once as a source node for that shard. If the source node is not being removed, it can be used as the source for multiple additions (copy operations).",
+                "additionalProperties": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Defines how the new replica should be created. If null, an empty shard is created. If a string, it specifies the source node from which data for this shard should be replicated."
+                }
+              }
+            }
+          }
+        }
+      },
+      "required": [
+        "planId",
+        "collection",
+        "shardScaleActions"
+      ]
+    },
+    "ReplicationScaleApplyResponse": {
+      "type": "object",
+      "description": "Response for the POST /replication/scale endpoint containing the list of initiated shard copy operation IDs.",
+      "properties": {
+        "operationIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "description": "List of shard copy operation IDs created during scaling."
+        },
+        "planId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "The unique identifier of the replication scaling plan that generated these operations.",
+          "x-nullable": false
+        },
+        "collection": {
+          "type": "string",
+          "description": "The name of the collection associated with this replication scaling plan.",
+          "x-nullable": false
+        }
+      },
+      "required": [
+        "operationIds",
+        "planId",
+        "collection"
+      ]
     },
     "ReplicationDisableReplicaRequest": {
       "description": "Specifies the parameters required to mark a specific shard replica as inactive (soft-delete) on a particular node. This action typically prevents the replica from serving requests but does not immediately remove its data.",
@@ -1098,7 +1181,15 @@
           }
         }
       },
-      "required": ["id", "shardId", "sourceNodeId", "targetNodeId", "collection", "status", "transferType"]
+      "required": [
+        "id",
+        "shardId",
+        "sourceNodeId",
+        "targetNodeId",
+        "collection",
+        "status",
+        "transferType"
+      ]
     },
     "ReplicationReplicateForceDeleteRequest": {
       "description": "Specifies the parameters available when force deleting replication operations.",
@@ -1612,7 +1703,7 @@
           "maximum": 80,
           "x-nullable": false
         },
-        "rolesOptions" : {
+        "rolesOptions": {
           "description": "How roles should be restored",
           "type": "string",
           "enum": [
@@ -1621,7 +1712,7 @@
           ],
           "default": "noRestore"
         },
-        "usersOptions" : {
+        "usersOptions": {
           "description": "How users should be restored",
           "type": "string",
           "enum": [
@@ -1903,13 +1994,19 @@
         },
         "numberOfReplicas": {
           "description": "Number of replicas for the shard.",
-          "type": ["integer", "null"],
+          "type": [
+            "integer",
+            "null"
+          ],
           "format": "int64",
           "x-omitempty": true
         },
         "replicationFactor": {
           "description": "Minimum number of replicas for the shard.",
-          "type": ["integer", "null"],
+          "type": [
+            "integer",
+            "null"
+          ],
           "format": "int64",
           "x-omitempty": true
         }
@@ -2018,11 +2115,11 @@
           "format": "date-time"
         },
         "finishedNodes": {
-            "description": "The nodes that finished the task.",
-            "type": "array",
-            "items": {
-                "type": "string"
-            }
+          "description": "The nodes that finished the task.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         },
         "error": {
           "description": "The high level reason why the task failed.",
@@ -2030,8 +2127,8 @@
           "x-omitempty": true
         },
         "payload": {
-            "description": "The payload of the task.",
-            "type": "object"
+          "description": "The payload of the task.",
+          "type": "object"
         }
       }
     },
@@ -3433,7 +3530,7 @@
         "description": "Retrieves a list of currently registered replication operations, optionally filtered by collection, shard, or node ID.",
         "operationId": "listReplication",
         "x-serviceIds": [
-          "weaviate.replication.replicate.details" 
+          "weaviate.replication.replicate.details"
         ],
         "tags": [
           "replication"
@@ -3629,7 +3726,150 @@
             }
           },
           "404": {
-            "description": "Collection or shard not found.", 
+            "description": "Collection or shard not found.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "501": {
+            "description": "Replica movement operations are disabled.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/replication/scale": {
+      "get": {
+        "summary": "Get replication scale plan",
+        "description": "Computes and returns a replication scale plan for a given collection and desired replication factor. The plan includes, for each shard, a list of nodes to be added and a list of nodes to be removed.",
+        "operationId": "getReplicationScalePlan",
+        "x-serviceIds": [
+          "weaviate.replication.scale.get"
+        ],
+        "tags": [
+          "replication"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "name": "collection",
+            "in": "query",
+            "description": "The collection name to get the scaling plan for.",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "replicationFactor",
+            "in": "query",
+            "description": "The desired replication factor to scale to. Must be a positive integer greater than zero.",
+            "required": true,
+            "type": "integer",
+            "minimum": 1
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Replication scale plan showing node additions and removals per shard.",
+            "schema": {
+              "$ref": "#/definitions/ReplicationScalePlan"
+            }
+          },
+          "400": {
+            "description": "Bad request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Collection not found.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "501": {
+            "description": "Replica movement operations are disabled.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Apply replication scaling plan",
+        "description": "Apply a replication scaling plan that specifies nodes to add or remove per shard for a given collection.",
+        "operationId": "applyReplicationScalePlan",
+        "x-serviceIds": [
+          "weaviate.replication.scale.post"
+        ],
+        "tags": [
+          "replication"
+        ],
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "in": "body",
+            "name": "body",
+            "description": "The replication scaling plan specifying the collection and its shard-level replica adjustments.",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/ReplicationScalePlan"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of replication shard copy operation IDs initiated for the scale operation",
+            "schema": {
+              "$ref": "#/definitions/ReplicationScaleApplyResponse"
+            }
+          },
+          "400": {
+            "description": "Bad request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Collection not found.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3817,12 +4057,12 @@
               "type": "object",
               "properties": {
                 "import": {
-                  "type":"boolean",
+                  "type": "boolean",
                   "description": "EXPERIMENTAL, DONT USE. THIS WILL BE REMOVED AGAIN. - import api key from static user",
                   "default": false
                 },
                 "createTime": {
-                  "type":"string",
+                  "type": "string",
                   "format": "date-time",
                   "description": "EXPERIMENTAL, DONT USE. THIS WILL BE REMOVED AGAIN. - set the given time as creation time"
                 }

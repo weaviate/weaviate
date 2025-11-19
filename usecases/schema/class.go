@@ -273,7 +273,6 @@ func UpdateClassInternal(h *Handler, ctx context.Context, className string, upda
 	}
 
 	initial := h.schemaReader.ReadOnlyClass(className)
-	var shardingState *sharding.State
 
 	if initial != nil {
 		_, err := validateUpdatingMT(initial, updated)
@@ -284,16 +283,17 @@ func UpdateClassInternal(h *Handler, ctx context.Context, className string, upda
 		initialRF := initial.ReplicationConfig.Factor
 		updatedRF := updated.ReplicationConfig.Factor
 
-		if initialRF != updatedRF {
-			ss, _, err := h.schemaManager.QueryShardingState(className)
-			if err != nil {
-				return fmt.Errorf("query sharding state for %q: %w", className, err)
-			}
-			shardingState, err = h.scaleOut.Scale(ctx, className, ss.Config, initialRF, updatedRF)
-			if err != nil {
-				return fmt.Errorf(
-					"scale %q from %d replicas to %d: %w",
-					className, initialRF, updatedRF, err)
+		if updatedRF <= 0 {
+			return fmt.Errorf("replication factor must be at least 1, got %d", updatedRF)
+		}
+
+		if initialRF < updatedRF {
+			shardingState := h.schemaReader.CopyShardingState(className)
+
+			for _, physical := range shardingState.Physical {
+				if int64(len(physical.BelongsToNodes)) < updatedRF {
+					return fmt.Errorf("not enough replicas in shard %q to increase replication factor to %d for class %q", physical.Name, updatedRF, className)
+				}
 			}
 		}
 
@@ -302,7 +302,7 @@ func UpdateClassInternal(h *Handler, ctx context.Context, className string, upda
 		}
 	}
 
-	_, err := h.schemaManager.UpdateClass(ctx, updated, shardingState)
+	_, err := h.schemaManager.UpdateClass(ctx, updated, nil)
 	return err
 }
 

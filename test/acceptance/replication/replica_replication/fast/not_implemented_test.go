@@ -114,6 +114,27 @@ func (suite *ReplicationNotImplementedTestSuite) TestReplicationNotImplemented()
 		_, err := helper.Client(t).Replication.GetCollectionShardingState(replication.NewGetCollectionShardingStateParams(), nil)
 		require.IsType(t, &replication.GetCollectionShardingStateNotImplemented{}, err, fmt.Sprintf("Expected NotImplemented error for get collection sharding state but got %v", err))
 	})
+
+	t.Run("GET /replication/scale", func(t *testing.T) {
+		_, err := helper.Client(t).Replication.GetReplicationScalePlan(
+			replication.NewGetReplicationScalePlanParams().
+				WithCollection("test-collection").
+				WithReplicationFactor(3),
+			nil)
+		require.IsType(t, &replication.GetReplicationScalePlanNotImplemented{}, err, fmt.Sprintf("Expected NotImplemented error for get replication scale plan but got %v", err))
+	})
+
+	t.Run("POST /replication/scale", func(t *testing.T) {
+		_, err := helper.Client(t).Replication.ApplyReplicationScalePlan(
+			replication.NewApplyReplicationScalePlanParams().
+				WithBody(&models.ReplicationScalePlan{
+					Collection:        "test-collection",
+					PlanID:            strfmt.UUID("123e4567-e89b-12d3-a456-426614174000"),
+					ShardScaleActions: map[string]models.ReplicationScalePlanShardScaleActionsAnon{},
+				}),
+			nil)
+		require.IsType(t, &replication.ApplyReplicationScalePlanNotImplemented{}, err, fmt.Sprintf("Expected NotImplemented error for replication scale apply but got %v", err))
+	})
 }
 
 func string_(s string) *string {
