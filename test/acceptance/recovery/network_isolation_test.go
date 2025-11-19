@@ -30,7 +30,6 @@ func TestNetworkIsolationSplitBrain(t *testing.T) {
 	compose, err := docker.New().
 		With3NodeCluster().
 		WithText2VecContextionary().
-		WithWeaviateEnv("RAFT_TIMEOUTS_MULTIPLIER", "3").
 		Start(ctx)
 	require.NoError(t, err)
 
