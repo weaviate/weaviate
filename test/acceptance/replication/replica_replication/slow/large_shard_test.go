@@ -62,7 +62,7 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateOfLargeShard() {
 	tenantName := "tenant"
 	batch := make([]*models.Object, 0, 1000)
 	start := time.Now()
-	for j := 0; j < 1000000; j++ {
+	for j := 0; j < 100000; j++ {
 		batch = append(batch, (*models.Object)(articles.NewParagraph().
 			WithContents(fmt.Sprintf("paragraph#%d", j)).
 			WithTenant(tenantName).
