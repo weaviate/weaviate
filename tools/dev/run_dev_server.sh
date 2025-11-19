@@ -61,6 +61,7 @@ case $CONFIG in
       CLUSTER_IN_LOCALHOST=true \
       CLUSTER_GOSSIP_BIND_PORT="7100" \
       CLUSTER_DATA_BIND_PORT="7101" \
+      CLUSTER_DATA_BIND_GRPC_PORT="7102" \
       RAFT_BOOTSTRAP_EXPECT=1 \
       RUNTIME_OVERRIDES_ENABLED=true \
       RUNTIME_OVERRIDES_PATH="${PWD}/tools/dev/config.runtime-overrides.yaml" \
@@ -85,6 +86,7 @@ case $CONFIG in
     CLUSTER_IN_LOCALHOST=true \
     CLUSTER_GOSSIP_BIND_PORT="7100" \
     CLUSTER_DATA_BIND_PORT="7101" \
+    CLUSTER_DATA_BIND_GRPC_PORT="7102" \
     RAFT_BOOTSTRAP_EXPECT=1 \
     go_run ./cmd/weaviate-server \
       --scheme http \
@@ -109,6 +111,7 @@ case $CONFIG in
     CLUSTER_IN_LOCALHOST=true \
     CLUSTER_GOSSIP_BIND_PORT="7100" \
     CLUSTER_DATA_BIND_PORT="7101" \
+    CLUSTER_DATA_BIND_GRPC_PORT="7102" \
     RAFT_JOIN="weaviate-0:8300,weaviate-1:8302,weaviate-2:8304" \
     RAFT_BOOTSTRAP_EXPECT=3 \
     go_run ./cmd/weaviate-server \
@@ -133,6 +136,7 @@ case $CONFIG in
     CLUSTER_IN_LOCALHOST=true \
     CLUSTER_GOSSIP_BIND_PORT="7102" \
     CLUSTER_DATA_BIND_PORT="7103" \
+    CLUSTER_DATA_BIND_GRPC_PORT="7104" \
     CLUSTER_JOIN="localhost:7100" \
     PROMETHEUS_MONITORING_PORT="2113" \
     RAFT_PORT="8302" \
@@ -163,6 +167,7 @@ case $CONFIG in
     CLUSTER_IN_LOCALHOST=true \
     CLUSTER_GOSSIP_BIND_PORT="7104" \
     CLUSTER_DATA_BIND_PORT="7105" \
+    CLUSTER_DATA_BIND_GRPC_PORT="7106" \
     CLUSTER_JOIN="localhost:7100" \
     PROMETHEUS_MONITORING_PORT="2114" \
     RAFT_PORT="8304" \
@@ -190,6 +195,7 @@ case $CONFIG in
       CLUSTER_IN_LOCALHOST=true \
       CLUSTER_GOSSIP_BIND_PORT="7100" \
       CLUSTER_DATA_BIND_PORT="7101" \
+      CLUSTER_DATA_BIND_GRPC_PORT="7102" \
       PROMETHEUS_MONITORING_ENABLED=true \
       PROMETHEUS_MONITORING_PORT="${PROMETHEUS_MONITORING_PORT}" \
       RAFT_JOIN="weaviate-0:8300,weaviate-1:8302,weaviate-2:8304" \
@@ -209,8 +215,9 @@ case $CONFIG in
       BACKUP_FILESYSTEM_PATH="${PWD}/backups-weaviate-1" \
       CLUSTER_HOSTNAME="weaviate-1" \
       CLUSTER_IN_LOCALHOST=true \
-      CLUSTER_GOSSIP_BIND_PORT="7102" \
-      CLUSTER_DATA_BIND_PORT="7103" \
+      CLUSTER_GOSSIP_BIND_PORT="7103" \
+      CLUSTER_DATA_BIND_PORT="7104" \
+      CLUSTER_DATA_BIND_GRPC_PORT="7105" \
       CLUSTER_JOIN="localhost:7100" \
       PROMETHEUS_MONITORING_METRIC_NAMESPACE="weaviate" \
       PROMETHEUS_MONITORING_PORT="$((PROMETHEUS_MONITORING_PORT + 1))" \
@@ -237,8 +244,9 @@ case $CONFIG in
         PERSISTENCE_DATA_PATH="${PERSISTENCE_DATA_PATH}-weaviate-2" \
         CLUSTER_HOSTNAME="weaviate-2" \
         CLUSTER_IN_LOCALHOST=true \
-        CLUSTER_GOSSIP_BIND_PORT="7104" \
-        CLUSTER_DATA_BIND_PORT="7105" \
+        CLUSTER_GOSSIP_BIND_PORT="7106" \
+        CLUSTER_DATA_BIND_PORT="7107" \
+        CLUSTER_DATA_BIND_GRPC_PORT="7108" \
         CLUSTER_JOIN="localhost:7100" \
         PROMETHEUS_MONITORING_METRIC_NAMESPACE="weaviate" \
         PROMETHEUS_MONITORING_PORT="$((PROMETHEUS_MONITORING_PORT + 2))" \
@@ -264,8 +272,9 @@ case $CONFIG in
         PERSISTENCE_DATA_PATH="./data-weaviate-4" \
         CLUSTER_HOSTNAME="weaviate-4" \
         CLUSTER_IN_LOCALHOST=true \
-        CLUSTER_GOSSIP_BIND_PORT="7106" \
-        CLUSTER_DATA_BIND_PORT="7107" \
+        CLUSTER_GOSSIP_BIND_PORT="7109" \
+        CLUSTER_DATA_BIND_PORT="7110" \
+        CLUSTER_DATA_BIND_GRPC_PORT="7111" \
         CLUSTER_JOIN="localhost:7100" \
         PROMETHEUS_MONITORING_PORT="2115" \
         PROMETHEUS_MONITORING_METRIC_NAMESPACE="weaviate" \
@@ -602,6 +611,7 @@ case $CONFIG in
   local-no-modules)
       CLUSTER_GOSSIP_BIND_PORT="7100" \
       CLUSTER_DATA_BIND_PORT="7101" \
+      CLUSTER_DATA_BIND_GRPC_PORT="7102" \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
       CLUSTER_IN_LOCALHOST=true \
       DEFAULT_VECTORIZER_MODULE=none \
@@ -641,6 +651,7 @@ case $CONFIG in
       CLUSTER_IN_LOCALHOST=true \
       CLUSTER_GOSSIP_BIND_PORT="7100" \
       CLUSTER_DATA_BIND_PORT="7101" \
+      CLUSTER_DATA_BIND_GRPC_PORT="7102" \
       go_run ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \
@@ -677,6 +688,7 @@ case $CONFIG in
       CLUSTER_IN_LOCALHOST=true \
       CLUSTER_GOSSIP_BIND_PORT="7100" \
       CLUSTER_DATA_BIND_PORT="7101" \
+      CLUSTER_DATA_BIND_GRPC_PORT="7102" \
       RAFT_BOOTSTRAP_EXPECT=1 \
       OFFLOAD_S3_BUCKET_AUTO_CREATE=true \
       OFFLOAD_S3_ENDPOINT="http://localhost:9000"\
@@ -704,6 +716,7 @@ case $CONFIG in
       CLUSTER_IN_LOCALHOST=true \
       CLUSTER_GOSSIP_BIND_PORT="7100" \
       CLUSTER_DATA_BIND_PORT="7101" \
+      CLUSTER_DATA_BIND_GRPC_PORT="7102" \
       RAFT_BOOTSTRAP_EXPECT=1 \
       OFFLOAD_S3_ENDPOINT="http://localhost:9000"\
       OFFLOAD_S3_BUCKET_AUTO_CREATE=true \
@@ -729,6 +742,7 @@ case $CONFIG in
       CLUSTER_IN_LOCALHOST=true \
       CLUSTER_GOSSIP_BIND_PORT="7100" \
       CLUSTER_DATA_BIND_PORT="7101" \
+      CLUSTER_DATA_BIND_GRPC_PORT="7102" \
       RAFT_JOIN="weaviate-0:8300,weaviate-1:8302,weaviate-2:8304" \
       RAFT_BOOTSTRAP_EXPECT=3 \
       OFFLOAD_S3_BUCKET_AUTO_CREATE=true \
@@ -755,6 +769,7 @@ case $CONFIG in
       CLUSTER_IN_LOCALHOST=true \
       CLUSTER_GOSSIP_BIND_PORT="7102" \
       CLUSTER_DATA_BIND_PORT="7103" \
+      CLUSTER_DATA_BIND_GRPC_PORT="7104" \
       CLUSTER_JOIN="localhost:7100" \
       PROMETHEUS_MONITORING_PORT="2113" \
       PROMETHEUS_MONITORING_METRIC_NAMESPACE="weaviate" \
@@ -788,6 +803,7 @@ case $CONFIG in
         CLUSTER_IN_LOCALHOST=true \
         CLUSTER_GOSSIP_BIND_PORT="7104" \
         CLUSTER_DATA_BIND_PORT="7105" \
+        CLUSTER_DATA_BIND_GRPC_PORT="7106" \
         CLUSTER_JOIN="localhost:7100" \
         PROMETHEUS_MONITORING_PORT="2114" \
 	PROMETHEUS_MONITORING_METRIC_NAMESPACE="weaviate" \
@@ -820,6 +836,7 @@ case $CONFIG in
       CLUSTER_IN_LOCALHOST=true \
       CLUSTER_GOSSIP_BIND_PORT="7100" \
       CLUSTER_DATA_BIND_PORT="7101" \
+      CLUSTER_DATA_BIND_GRPC_PORT="7102" \
       go_run ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \
@@ -842,6 +859,7 @@ case $CONFIG in
         CLUSTER_HOSTNAME="weaviate-1" \
         CLUSTER_GOSSIP_BIND_PORT="7102" \
         CLUSTER_DATA_BIND_PORT="7103" \
+        CLUSTER_DATA_BIND_GRPC_PORT="7104" \
         CLUSTER_JOIN="localhost:7100" \
         GRPC_PORT=50052 \
         go_run ./cmd/weaviate-server \
@@ -866,6 +884,7 @@ case $CONFIG in
         CLUSTER_HOSTNAME="weaviate-2" \
         CLUSTER_GOSSIP_BIND_PORT="7104" \
         CLUSTER_DATA_BIND_PORT="7105" \
+        CLUSTER_DATA_BIND_GRPC_PORT="7106" \
         CLUSTER_JOIN="localhost:7100" \
         GRPC_PORT=50053 \
         go_run ./cmd/weaviate-server \
@@ -886,6 +905,7 @@ case $CONFIG in
       CLUSTER_IN_LOCALHOST=true \
       CLUSTER_GOSSIP_BIND_PORT="7100" \
       CLUSTER_DATA_BIND_PORT="7101" \
+      CLUSTER_DATA_BIND_GRPC_PORT="7102" \
       go_run ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \
@@ -921,6 +941,7 @@ local-usage-gcs)
       CLUSTER_IN_LOCALHOST=true \
       CLUSTER_GOSSIP_BIND_PORT="7100" \
       CLUSTER_DATA_BIND_PORT="7101" \
+      CLUSTER_DATA_BIND_GRPC_PORT="7102" \
       RUNTIME_OVERRIDES_ENABLED=true \
       RUNTIME_OVERRIDES_PATH="${PWD}/tools/dev/config.runtime-overrides.yaml" \
       RUNTIME_OVERRIDES_LOAD_INTERVAL=30s \
@@ -964,6 +985,7 @@ local-usage-s3)
       CLUSTER_IN_LOCALHOST=true \
       CLUSTER_GOSSIP_BIND_PORT="7100" \
       CLUSTER_DATA_BIND_PORT="7101" \
+      CLUSTER_DATA_BIND_GRPC_PORT="7102" \
       RUNTIME_OVERRIDES_ENABLED=true \
       RUNTIME_OVERRIDES_PATH="${PWD}/tools/dev/config.runtime-overrides.yaml" \
       RUNTIME_OVERRIDES_LOAD_INTERVAL=30s \
@@ -1071,6 +1093,7 @@ local-usage-s3)
       CLUSTER_IN_LOCALHOST=true \
       CLUSTER_GOSSIP_BIND_PORT="7100" \
       CLUSTER_DATA_BIND_PORT="7101" \
+      CLUSTER_DATA_BIND_GRPC_PORT="7102" \
       RAFT_BOOTSTRAP_EXPECT=1 \
       go_run ./cmd/weaviate-server \
         --scheme http \

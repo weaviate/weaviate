@@ -892,6 +892,7 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 		delete(secondWeaviateSettings, "CLUSTER_HOSTNAME")
 		delete(secondWeaviateSettings, "CLUSTER_GOSSIP_BIND_PORT")
 		delete(secondWeaviateSettings, "CLUSTER_DATA_BIND_PORT")
+		delete(secondWeaviateSettings, "CLUSTER_DATA_BIND_GRPC_PORT")
 		delete(secondWeaviateSettings, "CLUSTER_JOIN")
 		for k, v := range d.weaviateEnvs {
 			envSettings[k] = v
@@ -1024,6 +1025,7 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 	config1["CLUSTER_HOSTNAME"] = "node1"
 	config1["CLUSTER_GOSSIP_BIND_PORT"] = "7100"
 	config1["CLUSTER_DATA_BIND_PORT"] = "7101"
+	config1["CLUSTER_DATA_BIND_GRPC_PORT"] = "7102"
 	eg := errgroup.Group{}
 	wellKnownEndpointFunc := func(hostname string) string {
 		if slices.Contains(strings.Split(settings["MAINTENANCE_NODES"], ","), hostname) {
@@ -1043,8 +1045,9 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 	if size > 1 {
 		config2 := copySettings(settings)
 		config2["CLUSTER_HOSTNAME"] = "node2"
-		config2["CLUSTER_GOSSIP_BIND_PORT"] = "7102"
-		config2["CLUSTER_DATA_BIND_PORT"] = "7103"
+		config2["CLUSTER_GOSSIP_BIND_PORT"] = "7103"
+		config2["CLUSTER_DATA_BIND_PORT"] = "7104"
+		config2["CLUSTER_DATA_BIND_GRPC_PORT"] = "7105"
 		config2["CLUSTER_JOIN"] = fmt.Sprintf("%s:7100", Weaviate1)
 		eg.Go(func() (err error) {
 			time.Sleep(time.Second * 10) // node1 needs to be up before we can start this node
@@ -1060,8 +1063,9 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 	if size > 2 {
 		config3 := copySettings(settings)
 		config3["CLUSTER_HOSTNAME"] = "node3"
-		config3["CLUSTER_GOSSIP_BIND_PORT"] = "7104"
-		config3["CLUSTER_DATA_BIND_PORT"] = "7105"
+		config3["CLUSTER_GOSSIP_BIND_PORT"] = "7106"
+		config3["CLUSTER_DATA_BIND_PORT"] = "7107"
+		config3["CLUSTER_DATA_BIND_GRPC_PORT"] = "7108"
 		config3["CLUSTER_JOIN"] = fmt.Sprintf("%s:7100", Weaviate1)
 		eg.Go(func() (err error) {
 			time.Sleep(time.Second * 10) // node1 needs to be up before we can start this node

@@ -21,6 +21,7 @@ services:
       BACKUP_FILESYSTEM_PATH: "/var/lib/backups"
       CLUSTER_GOSSIP_BIND_PORT: "7102"
       CLUSTER_DATA_BIND_PORT: "7103"
+      CLUSTER_DATA_BIND_GRPC_PORT: "7104"
       CLUSTER_HOSTNAME: "weaviate-auth-test"
       RAFT_JOIN: "weaviate-auth-test"
       RAFT_BOOTSTRAP_EXPECT: "1"

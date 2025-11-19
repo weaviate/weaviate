@@ -18,20 +18,16 @@ import (
 	"fmt"
 	"net"
 	"strings"
-	"time"
 
-	"github.com/sirupsen/logrus"
 	pb "github.com/weaviate/weaviate/adapters/handlers/grpc/clusterapi/proto/protocol"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	authErrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
-	"github.com/weaviate/weaviate/usecases/monitoring"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	_ "google.golang.org/grpc/encoding/gzip" // Install the gzip compressor
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/proto"
 )
 
 type Server struct {
@@ -54,10 +50,6 @@ func NewServer(state *state.State, options ...grpc.ServerOption) *Server {
 		o = append(o, grpc.StreamInterceptor(
 			basicAuthStreamInterceptor("/weaviate.v1.FileReplicationService", basicAuth.Username, basicAuth.Password),
 		))
-	}
-
-	if state.Metrics != nil {
-		interceptors = append(interceptors, makeMetricsInterceptor(state.Logger, state.Metrics))
 	}
 
 	if len(interceptors) > 0 {
@@ -95,38 +87,6 @@ func (s *Server) Close(ctx context.Context) error {
 		return ctx.Err()
 	case <-stopped:
 		return nil
-	}
-}
-
-func makeMetricsInterceptor(logger logrus.FieldLogger, metrics *monitoring.PrometheusMetrics) grpc.UnaryServerInterceptor {
-	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
-		if info.FullMethod != "/weaviate.v1.Weaviate/BatchObjects" {
-			return handler(ctx, req)
-		}
-
-		// For now only Batch has specific metrics (in line with http API)
-		startTime := time.Now()
-		reqSizeBytes := float64(proto.Size(req.(proto.Message)))
-		reqSizeMB := float64(reqSizeBytes) / (1024 * 1024)
-		// Invoke the handler to process the request
-		resp, err := handler(ctx, req)
-
-		// Measure duration
-		duration := time.Since(startTime)
-
-		logger.WithFields(logrus.Fields{
-			"action":             "grpc_batch_objects",
-			"method":             info.FullMethod,
-			"request_size_bytes": reqSizeBytes,
-			"duration":           duration,
-		}).Debugf("grpc BatchObjects request (%fMB) took %s", reqSizeMB, duration)
-
-		// Metric uses non-standard base unit ms, use ms for backwards compatibility
-		metrics.BatchTime.WithLabelValues("total_api_level_grpc", "n/a", "n/a").
-			Observe(float64(duration.Milliseconds()))
-		metrics.BatchSizeBytes.WithLabelValues("grpc").Observe(reqSizeBytes)
-
-		return resp, err
 	}
 }
 
@@ -214,19 +174,4 @@ func basicAuthStreamInterceptor(servicePrefix, expectedUsername, expectedPasswor
 
 		return handler(srv, ss)
 	}
-}
-
-func StartAndListen(s *grpc.Server, state *state.State) error {
-	lis, err := net.Listen("tcp", fmt.Sprintf(":%d",
-		state.ServerConfig.Config.Cluster.DataBindGrpcPort))
-	if err != nil {
-		return err
-	}
-	state.Logger.WithField("action", "grpc_startup").
-		Infof("grpc server listening at %v", lis.Addr())
-	if err := s.Serve(lis); err != nil {
-		return fmt.Errorf("failed to serve: %w", err)
-	}
-
-	return nil
 }
