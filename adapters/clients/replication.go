@@ -136,7 +136,7 @@ func (c *replicationClient) OverwriteObjects(ctx context.Context,
 		return resp, fmt.Errorf("create http request: %w", err)
 	}
 
-	err = c.tryOnce(req, body, &resp)
+	err = c.doRetry(req, body, &resp, 3)
 
 	return resp, err
 }
@@ -367,33 +367,14 @@ func newHttpReplicaCMD(host, cmd, index, shard, requestId string, body io.Reader
 	return http.NewRequest(http.MethodPost, url.String(), body)
 }
 
-func (c *replicationClient) tryOnce(req *http.Request, body []byte, resp interface{}) (err error) {
-	if body != nil {
-		req.Body = io.NopCloser(bytes.NewReader(body))
-	}
-
-	res, err := c.client.Do(req)
-	if err != nil {
-		return fmt.Errorf("connect: %w", err)
-	}
-	defer res.Body.Close()
-
-	if code := res.StatusCode; code != http.StatusOK {
-		b, _ := io.ReadAll(res.Body)
-		return fmt.Errorf("status code: %v, error: %s", code, b)
-	}
-
-	if err := json.NewDecoder(res.Body).Decode(resp); err != nil {
-		return fmt.Errorf("decode response: %w", err)
-	}
-
-	return nil
-}
-
 func (c *replicationClient) do(timeout time.Duration, req *http.Request, body []byte, resp interface{}, numRetries int) (err error) {
 	ctx, cancel := context.WithTimeout(req.Context(), timeout)
 	defer cancel()
-	req = req.WithContext(ctx)
+
+	return c.doRetry(req.WithContext(ctx), body, resp, numRetries)
+}
+
+func (c *replicationClient) doRetry(req *http.Request, body []byte, resp interface{}, numRetries int) (err error) {
 	try := func(ctx context.Context) (bool, error) {
 		if body != nil {
 			req.Body = io.NopCloser(bytes.NewReader(body))
@@ -413,7 +394,7 @@ func (c *replicationClient) do(timeout time.Duration, req *http.Request, body []
 		}
 		return false, nil
 	}
-	return c.retry(ctx, numRetries, try)
+	return c.retry(req.Context(), numRetries, try)
 }
 
 func (c *replicationClient) doCustomUnmarshal(timeout time.Duration,
