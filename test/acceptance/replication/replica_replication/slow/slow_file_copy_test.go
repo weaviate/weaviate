@@ -27,6 +27,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
+
 	"github.com/weaviate/weaviate/client/nodes"
 	"github.com/weaviate/weaviate/client/replication"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -52,11 +53,8 @@ func TestReplicationTestSuite(t *testing.T) {
 
 func (suite *ReplicationTestSuite) TestReplicaMovementOneWriteExtraSlowFileCopy() {
 	t := suite.T()
-	mainCtx := context.Background()
+	ctx := context.Background()
 	logger, _ := logrustest.NewNullLogger()
-
-	ctx, cancel := context.WithTimeout(mainCtx, 10*time.Minute)
-	defer cancel()
 
 	compose, err := docker.New().
 		WithWeaviateCluster(3).

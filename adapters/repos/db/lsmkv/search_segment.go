@@ -323,7 +323,7 @@ func DoBlockMaxAnd(ctx context.Context, limit int, resultsByTerm Terms, averageP
 }
 
 func DoWand(ctx context.Context, limit int, results *terms.Terms, averagePropLength float64, additionalExplanations bool,
-	minimumOrTokensMatch int,
+	minimumOrTokensMatch int, logger logrus.FieldLogger,
 ) *priorityqueue.Queue[[]*terms.DocPointerWithScore] {
 	topKHeap := priorityqueue.NewMinWithId[[]*terms.DocPointerWithScore](limit)
 	worstDist := float64(-10000) // tf score can be negative
@@ -341,6 +341,15 @@ func DoWand(ctx context.Context, limit int, results *terms.Terms, averagePropLen
 		results.SortFull()
 		if topKHeap.ShouldEnqueue(float32(score), limit) && ok {
 			topKHeap.InsertAndPop(id, score, limit, &worstDist, additional)
+		}
+
+		if iterations%100000 == 0 && ctx != nil && ctx.Err() != nil {
+			logger.WithFields(logrus.Fields{
+				"iterations": iterations,
+				"limit":      limit,
+			}).Warnf("DoWand: search timed out, returning partial results")
+			helpers.AnnotateSlowQueryLog(ctx, "kwd_4_iters", iterations)
+			return topKHeap
 		}
 	}
 }
