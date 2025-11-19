@@ -20,7 +20,6 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/vmihailenco/msgpack/v5"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	bolt "go.etcd.io/bbolt"
 )
@@ -116,12 +115,12 @@ func (s *SPFresh) restoreMetadata() error {
 		s.logger.Warnf("SPFresh index unable to restore RQ data: %v", err)
 	}
 
-	s.initDimensionsIDs()
+	s.initDimensions()
 
 	return nil
 }
 
-func (s *SPFresh) initDimensionsIDs() {
+func (s *SPFresh) initDimensions() {
 	err := s.openMetadata()
 	if err != nil {
 		s.logger.Warnf("SPFresh index unable to open metadata: %v", err)
@@ -129,7 +128,7 @@ func (s *SPFresh) initDimensionsIDs() {
 	}
 	defer s.closeMetadata()
 
-	dims, ids, err := s.fetchDimensionsIDs()
+	dims, err := s.fetchDimensions()
 	if err != nil {
 		s.logger.Warnf("SPFresh index unable to fetch dimensions: %v", err)
 	}
@@ -137,19 +136,14 @@ func (s *SPFresh) initDimensionsIDs() {
 	if dims > 0 {
 		atomic.StoreInt32(&s.dims, dims)
 	}
-
-	if ids > 0 {
-		s.IDs = *common.NewMonotonicCounter(ids)
-	}
 }
 
-func (s *SPFresh) fetchDimensionsIDs() (int32, uint64, error) {
+func (s *SPFresh) fetchDimensions() (int32, error) {
 	if s.metadata == nil {
-		return 0, 0, nil
+		return 0, nil
 	}
 
 	var dimensions int32 = 0
-	var ids uint64 = 0
 	err := s.metadata.View(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte(vectorMetadataBucket))
 		if b == nil {
@@ -160,19 +154,13 @@ func (s *SPFresh) fetchDimensionsIDs() (int32, uint64, error) {
 			return nil
 		}
 		dimensions = int32(binary.LittleEndian.Uint32(v))
-
-		v = b.Get([]byte("ids"))
-		if v == nil {
-			return nil
-		}
-		ids = uint64(binary.LittleEndian.Uint64(v))
 		return nil
 	})
 	if err != nil {
-		return 0, 0, errors.Wrap(err, "fetch dimensions and IDs")
+		return 0, errors.Wrap(err, "fetch dimensions")
 	}
 
-	return dimensions, ids, nil
+	return dimensions, nil
 }
 
 func (s *SPFresh) setDimensions(dimensions int32) error {
@@ -193,29 +181,6 @@ func (s *SPFresh) setDimensions(dimensions int32) error {
 	})
 	if err != nil {
 		return errors.Wrap(err, "set dimensions")
-	}
-
-	return nil
-}
-
-func (s *SPFresh) setIDs(ids uint64) error {
-	err := s.openMetadata()
-	if err != nil {
-		return err
-	}
-	defer s.closeMetadata()
-
-	err = s.metadata.Update(func(tx *bolt.Tx) error {
-		b := tx.Bucket([]byte(vectorMetadataBucket))
-		if b == nil {
-			return errors.New("failed to get bucket")
-		}
-		buf := make([]byte, 8)
-		binary.LittleEndian.PutUint64(buf, ids)
-		return b.Put([]byte("ids"), buf)
-	})
-	if err != nil {
-		return errors.Wrap(err, "set ids")
 	}
 
 	return nil

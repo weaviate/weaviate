@@ -164,7 +164,6 @@ func (s *SPFresh) ensureInitialPosting(v []float32, compressed []byte) (*ResultS
 		// return the new posting ID
 		targets = NewResultSet(1)
 		targets.data = append(targets.data, Result{ID: postingID, Distance: 0})
-		s.setIDs(postingID)
 	}
 
 	return targets, nil

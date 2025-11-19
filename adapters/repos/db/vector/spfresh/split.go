@@ -172,7 +172,6 @@ func (s *SPFresh) doSplit(postingID uint64, reassign bool) error {
 		if err != nil {
 			return errors.Wrapf(err, "failed to upsert new centroid %d after split operation", newPostingID)
 		}
-		s.setIDs(newPostingID)
 	}
 
 	if !postingReused {
