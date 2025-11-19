@@ -896,6 +896,9 @@ func (h *hnsw) AlreadyIndexed() uint64 {
 }
 
 func (h *hnsw) CurrentVectorsLen() uint64 {
+	if h.compressed.Load() {
+		return h.compressor.MaxVectorID()
+	}
 	return uint64(h.cache.Len())
 }
 

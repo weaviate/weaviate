@@ -69,6 +69,7 @@ type VectorCompressor interface {
 	SetKeys(id uint64, docID uint64, relativeID uint64)
 	Prefetch(id uint64)
 	CountVectors() int64
+	MaxVectorID() uint64
 	PrefillCache(ctx context.Context)
 	PrefillMultiCache(ctx context.Context, docIDVectors map[uint64][]uint64)
 
@@ -118,6 +119,10 @@ func (compressor *quantizedVectorsCompressor[T]) SetCacheMaxSize(size int64) {
 
 func (compressor *quantizedVectorsCompressor[T]) CountVectors() int64 {
 	return compressor.cache.CountVectors()
+}
+
+func (compressor *quantizedVectorsCompressor[T]) MaxVectorID() uint64 {
+	return uint64(compressor.cache.Len())
 }
 
 func (compressor *quantizedVectorsCompressor[T]) GetCacheMaxSize() int64 {

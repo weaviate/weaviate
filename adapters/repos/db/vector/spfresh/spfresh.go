@@ -159,6 +159,7 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*SPFresh, error) {
 		if err != nil {
 			return nil, err
 		}
+		s.IDs = *common.NewMonotonicCounter(s.Centroids.GetMaxID())
 	} else {
 		s.Centroids = NewBruteForceSPTAG(metrics, cfg.DistanceProvider, 1024*1024, 1024)
 	}
@@ -172,7 +173,6 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*SPFresh, error) {
 	s.taskQueue = *taskQueue
 
 	s.restoreMetadata()
-	s.IDs = *common.NewMonotonicCounter(s.Centroids.GetMaxID())
 
 	return &s, nil
 }
