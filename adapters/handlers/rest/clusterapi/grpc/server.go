@@ -14,7 +14,6 @@ package grpc
 import (
 	"context"
 	"encoding/base64"
-	"errors"
 	"fmt"
 	"net"
 	"strings"
@@ -22,7 +21,6 @@ import (
 	pb "github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc/proto/protocol"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
-	authErrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	_ "google.golang.org/grpc/encoding/gzip" // Install the gzip compressor
@@ -39,8 +37,6 @@ type Server struct {
 func NewServer(state *state.State, options ...grpc.ServerOption) *Server {
 	o := []grpc.ServerOption{}
 	var interceptors []grpc.UnaryServerInterceptor
-
-	interceptors = append(interceptors, makeAuthInterceptor())
 
 	basicAuth := state.ServerConfig.Config.Cluster.AuthConfig.BasicAuth
 	if basicAuth.Enabled() {
@@ -87,24 +83,6 @@ func (s *Server) Close(ctx context.Context) error {
 		return ctx.Err()
 	case <-stopped:
 		return nil
-	}
-}
-
-func makeAuthInterceptor() grpc.UnaryServerInterceptor {
-	return func(
-		ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler,
-	) (any, error) {
-		resp, err := handler(ctx, req)
-
-		if errors.As(err, &authErrs.Unauthenticated{}) {
-			return nil, status.Error(codes.Unauthenticated, err.Error())
-		}
-
-		if errors.As(err, &authErrs.Forbidden{}) {
-			return nil, status.Error(codes.PermissionDenied, err.Error())
-		}
-
-		return resp, err
 	}
 }
 
