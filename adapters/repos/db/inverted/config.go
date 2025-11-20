@@ -81,7 +81,7 @@ func validateBM25Config(conf *models.BM25Config) error {
 		return errors.Errorf("BM25.k1 must be >= 0")
 	}
 	if conf.B < 0 || conf.B > 1 {
-		return errors.Errorf("BM25.b must be <= 0 and <= 1")
+		return errors.Errorf("BM25.b must be >= 0 and <= 1")
 	}
 
 	return nil
