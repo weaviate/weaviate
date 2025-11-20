@@ -387,7 +387,6 @@ func UpdateClassInternal(h *Handler, ctx context.Context, className string, upda
 		}
 
 		if initialRF < updatedRF {
-
 			var shardingState *sharding.State
 			h.schemaReader.Read(className, true, func(c *models.Class, s *sharding.State) error {
 				stateCopy := s.DeepCopy()
@@ -396,7 +395,7 @@ func UpdateClassInternal(h *Handler, ctx context.Context, className string, upda
 			})
 
 			if shardingState == nil {
-				return fmt.Errorf("sharding state for class %q was not found", className)
+				return fmt.Errorf("sharding state not found for class %q", className)
 			}
 
 			for _, physical := range shardingState.Physical {
