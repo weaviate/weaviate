@@ -973,6 +973,8 @@ func (t *ShardReindexTask_MapToBlockmax) recoverReindexBucket(ctx context.Contex
 ) error {
 	store := shard.Store()
 	bucketOpts := t.bucketOptions(shard, lsmkv.StrategyInverted, true, false, t.config.memtableOptBlockmaxFactor)
+	bucketOpts = append(bucketOpts, lsmkv.WithWalThreshold(0))
+	bucketOpts = append(bucketOpts, lsmkv.WithMinWalThreshold(0))
 
 	logger.WithField("bucket", bucketName).Debug("recover wals, loading bucket")
 	if err := store.CreateOrLoadBucket(ctx, bucketName, bucketOpts...); err != nil {
