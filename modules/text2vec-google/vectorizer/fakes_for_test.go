@@ -46,6 +46,17 @@ func (c *fakeClient) VectorizeQuery(ctx context.Context,
 	}, nil
 }
 
+func (c *fakeClient) Vectorize(ctx context.Context,
+	input []string, cfg moduletools.ClassConfig,
+) (*modulecomponents.VectorizationResult[[]float32], *modulecomponents.RateLimits, int, error) {
+	c.lastInput = input
+	return &modulecomponents.VectorizationResult[[]float32]{
+		Vector:     [][]float32{{0.1, 1.1, 2.1, 3.1}},
+		Dimensions: 4,
+		Text:       input,
+	}, nil, 0, nil
+}
+
 type fakeClassConfig struct {
 	classConfig           map[string]interface{}
 	vectorizeClassName    bool
