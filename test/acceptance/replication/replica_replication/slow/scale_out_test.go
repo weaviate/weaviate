@@ -12,9 +12,9 @@
 package slow
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
-	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -23,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/client/nodes"
 	"github.com/weaviate/weaviate/client/replication"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 )
@@ -33,25 +34,23 @@ type movement struct {
 	shard  string
 }
 
-// func (suite *ReplicationTestSuite) TestReplicationReplicateScaleOut() {
-func TestReplicationReplicateScaleOut(t *testing.T) {
-	// t := suite.T()
-	// mainCtx := context.Background()
+func (suite *ReplicationTestSuite) TestReplicationReplicateScaleOut() {
+	t := suite.T()
+	mainCtx := context.Background()
 
-	// compose, err := docker.New().
-	// 	WithWeaviateCluster(3).
-	// 	WithWeaviateEnv("REPLICATION_ENGINE_MAX_WORKERS", "10").
-	// 	WithWeaviateEnv("REPLICA_MOVEMENT_ENABLED", "true").
-	// 	Start(mainCtx)
-	// require.Nil(t, err)
-	// defer func() {
-	// 	if err := compose.Terminate(mainCtx); err != nil {
-	// 		t.Fatalf("failed to terminate test containers: %s", err.Error())
-	// 	}
-	// }()
+	compose, err := docker.New().
+		WithWeaviateCluster(3).
+		WithWeaviateEnv("REPLICATION_ENGINE_MAX_WORKERS", "10").
+		WithWeaviateEnv("REPLICA_MOVEMENT_ENABLED", "true").
+		Start(mainCtx)
+	require.Nil(t, err)
+	defer func() {
+		if err := compose.Terminate(mainCtx); err != nil {
+			t.Fatalf("failed to terminate test containers: %s", err.Error())
+		}
+	}()
 
-	// helper.SetupClient(compose.GetWeaviate().URI())
-	helper.SetupClient("localhost:8080")
+	helper.SetupClient(compose.GetWeaviate().URI())
 
 	cls := articles.ParagraphsClass()
 	cls.MultiTenancyConfig = &models.MultiTenancyConfig{
@@ -153,8 +152,7 @@ func TestReplicationReplicateScaleOut(t *testing.T) {
 	// Assert that data is the same on each node
 	nodeToAddress := map[string]string{}
 	for idx, node := range ns.Payload.Nodes {
-		// nodeToAddress[node.Name] = compose.GetWeaviateNode(idx + 1).URI()
-		nodeToAddress[node.Name] = fmt.Sprintf("localhost:%d", 8080+idx)
+		nodeToAddress[node.Name] = compose.GetWeaviateNode(idx + 1).URI()
 	}
 
 	objectCountByReplica := map[string]map[string]int64{}
