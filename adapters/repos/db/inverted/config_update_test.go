@@ -93,7 +93,7 @@ func TestValidateUserConfigUpdate(t *testing.T) {
 		}
 
 		err := ValidateUserConfigUpdate(validInitial, updated)
-		require.EqualError(t, err, "BM25.b must be <= 0 and <= 1")
+		require.EqualError(t, err, "BM25.b must be >= 0 and <= 1")
 	})
 
 	t.Run("with invalid updated Stopwords preset config", func(t *testing.T) {
