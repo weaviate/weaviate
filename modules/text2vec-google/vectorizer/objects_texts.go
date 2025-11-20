@@ -17,7 +17,7 @@ import (
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/modules/text2vec-google/ent"
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
 	objectsvectorizer "github.com/weaviate/weaviate/usecases/modulecomponents/vectorizer"
 	libvectorizer "github.com/weaviate/weaviate/usecases/vectorizer"
 )
@@ -35,21 +35,12 @@ func New(client Client) *Vectorizer {
 }
 
 type Client interface {
-	Vectorize(ctx context.Context, input []string,
-		config ent.VectorizationConfig, titlePropertyValue string) (*ent.VectorizationResult, error)
-	VectorizeQuery(ctx context.Context, input []string,
-		config ent.VectorizationConfig) (*ent.VectorizationResult, error)
-}
-
-// IndexCheck returns whether a property of a class should be indexed
-type ClassSettings interface {
-	PropertyIndexed(property string) bool
-	VectorizePropertyName(propertyName string) bool
-	VectorizeClassName() bool
-	ApiEndpoint() string
-	ProjectID() string
-	ModelID() string
-	TitleProperty() string
+	VectorizeWithTitleProperty(ctx context.Context,
+		input []string, titlePropertyValue string, cfg moduletools.ClassConfig,
+	) (*modulecomponents.VectorizationResult[[]float32], error)
+	VectorizeQuery(ctx context.Context,
+		input []string, cfg moduletools.ClassConfig,
+	) (*modulecomponents.VectorizationResult[[]float32], error)
 }
 
 func (v *Vectorizer) Object(ctx context.Context, object *models.Object, cfg moduletools.ClassConfig,
@@ -61,25 +52,28 @@ func (v *Vectorizer) Object(ctx context.Context, object *models.Object, cfg modu
 func (v *Vectorizer) object(ctx context.Context, object *models.Object, cfg moduletools.ClassConfig,
 ) ([]float32, error) {
 	icheck := NewClassSettings(cfg)
-
 	corpi, titlePropertyValue := v.objectVectorizer.TextsWithTitleProperty(ctx, object, icheck, icheck.TitleProperty())
 	// vectorize text
-	res, err := v.client.Vectorize(ctx, []string{corpi}, ent.VectorizationConfig{
-		ApiEndpoint: icheck.ApiEndpoint(),
-		ProjectID:   icheck.ProjectID(),
-		Model:       icheck.Model(),
-		Dimensions:  icheck.Dimensions(),
-		TaskType:    icheck.TaskType(),
-	}, titlePropertyValue)
+	res, err := v.client.VectorizeWithTitleProperty(ctx, []string{corpi}, titlePropertyValue, cfg)
 	if err != nil {
 		return nil, err
 	}
-	if len(res.Vectors) == 0 {
+	if len(res.Vector) == 0 {
 		return nil, fmt.Errorf("no vectors generated")
 	}
 
-	if len(res.Vectors) > 1 {
-		return libvectorizer.CombineVectors(res.Vectors), nil
+	if len(res.Vector) > 1 {
+		return libvectorizer.CombineVectors(res.Vector), nil
 	}
-	return res.Vectors[0], nil
+	return res.Vector[0], nil
+}
+
+func (v *Vectorizer) Texts(ctx context.Context, inputs []string,
+	cfg moduletools.ClassConfig,
+) ([]float32, error) {
+	res, err := v.client.VectorizeQuery(ctx, inputs, cfg)
+	if err != nil {
+		return nil, fmt.Errorf("remote client vectorize: %w", err)
+	}
+	return libvectorizer.CombineVectors(res.Vector), nil
 }
