@@ -583,9 +583,7 @@ jobs:
           - name: "fast-group-2"
             test: "--acceptance-only-fast-group-2"
           - name: "fast-group-3"
-            test: "--acceptance-only-fast-group-3"
-          - name: "fast-group-4"
-            test: "--acceptance-only-fast-group-4"
+            test: "--acceptance-only-fast-group-3"          
           - name: "graphql"
             test: "--acceptance-only-graphql"
           - name: "authz"
@@ -633,6 +631,8 @@ jobs:
             test: "--acceptance-go-client-named-vectors-single-node"
           - name: "vector-cluster"
             test: "--acceptance-go-client-named-vectors-cluster"
+          - name: "fast-group-4"
+            test: "--acceptance-only-fast-group-4"
     steps:
       - uses: actions/checkout@v5
       - name: Set up Go
