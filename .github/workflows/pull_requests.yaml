@@ -294,6 +294,7 @@ jobs:
           "--only-module-multi2vec-aws",
           "--only-module-text2vec-openai",
           "--only-module-reranker-jinaai",
+          "--only-module-text2vec-cohere",
         ]
     steps:
       - uses: actions/checkout@v4
