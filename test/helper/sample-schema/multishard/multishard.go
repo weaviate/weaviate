@@ -31,6 +31,10 @@ func ClassTransformersVectorizer() *models.Class {
 	return class("text2vec-transformers")
 }
 
+func ClassModel2VecVectorizer() *models.Class {
+	return class("text2vec-model2vec")
+}
+
 func class(vectorizer string) *models.Class {
 	return &models.Class{
 		Class: "MultiShard",

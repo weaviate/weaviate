@@ -130,6 +130,24 @@ func TestGRPCAggregateRequest(t *testing.T) {
 			},
 			error: false,
 		},
+		{
+			name: "multiple target vectors",
+			req: &pb.AggregateRequest{
+				Collection:   mixedVectorsClass,
+				ObjectsCount: true,
+				Search: &pb.AggregateRequest_Hybrid{
+					Hybrid: &pb.Hybrid{
+						Alpha: 0.5,
+						NearText: &pb.NearTextSearch{
+							Query:     []string{"hello"},
+							Certainty: ptr(0.6),
+						},
+						Targets: &pb.Targets{TargetVectors: []string{"first_vec", "second_vec"}},
+					},
+				},
+			},
+			error: true,
+		},
 	}
 
 	parser := NewAggregateParser(getClass)

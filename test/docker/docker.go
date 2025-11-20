@@ -222,12 +222,12 @@ func (d *DockerCompose) getContainerByName(name string) *DockerContainer {
 }
 
 // DisconnectFromNetwork disconnects a container from the network by its index
-func (d *DockerCompose) DisconnectFromNetwork(ctx context.Context, nodeIndex int) error {
-	if nodeIndex >= len(d.containers) {
-		return fmt.Errorf("node index: %v is greater than available nodes: %v", nodeIndex, len(d.containers))
+func (d *DockerCompose) DisconnectFromNetwork(ctx context.Context, containerName string) error {
+	container := d.getContainerByName(containerName)
+	if container == nil {
+		return fmt.Errorf("container with name %s was not found", containerName)
 	}
 
-	container := d.containers[nodeIndex]
 	if d.network == nil {
 		return fmt.Errorf("network is nil")
 	}
@@ -248,12 +248,12 @@ func (d *DockerCompose) DisconnectFromNetwork(ctx context.Context, nodeIndex int
 }
 
 // ConnectToNetwork connects a container to the network by its index
-func (d *DockerCompose) ConnectToNetwork(ctx context.Context, nodeIndex int) error {
-	if nodeIndex >= len(d.containers) {
-		return fmt.Errorf("node index: %v is greater than available nodes: %v", nodeIndex, len(d.containers))
+func (d *DockerCompose) ConnectToNetwork(ctx context.Context, containerName string) error {
+	container := d.getContainerByName(containerName)
+	if container == nil {
+		return fmt.Errorf("container with name %s was not found", containerName)
 	}
 
-	container := d.containers[nodeIndex]
 	if d.network == nil {
 		return fmt.Errorf("network is nil")
 	}

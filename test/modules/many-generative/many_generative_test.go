@@ -30,26 +30,26 @@ func testGenerativeManyModules(host, ollamaApiEndpoint, region, gcpProject strin
 		class := planets.BaseClass("PlanetsGenerativeTest")
 		class.VectorConfig = map[string]models.VectorConfig{
 			"description": {
-				Vectorizer: map[string]interface{}{
-					"text2vec-transformers": map[string]interface{}{
-						"properties":         []interface{}{"description"},
+				Vectorizer: map[string]any{
+					"text2vec-model2vec": map[string]any{
+						"properties":         []any{"description"},
 						"vectorizeClassName": false,
 					},
 				},
 				VectorIndexType: "flat",
 			},
 		}
-		class.ModuleConfig = map[string]interface{}{
-			"generative-aws": map[string]interface{}{
+		class.ModuleConfig = map[string]any{
+			"generative-aws": map[string]any{
 				"service": "bedrock",
 				"region":  region,
 				"model":   "amazon.titan-text-lite-v1",
 			},
-			"generative-google": map[string]interface{}{
+			"generative-google": map[string]any{
 				"projectId": gcpProject,
 				"modelId":   "gemini-1.0-pro",
 			},
-			"generative-ollama": map[string]interface{}{
+			"generative-ollama": map[string]any{
 				"apiEndpoint": ollamaApiEndpoint,
 			},
 		}

@@ -21,11 +21,11 @@ import (
 	"github.com/weaviate/weaviate/test/helper/sample-schema/books"
 )
 
-func testRerankerNvidia(host string) func(t *testing.T) {
+func testRerankerJinaAI(host string) func(t *testing.T) {
 	return func(t *testing.T) {
 		helper.SetupClient(host)
 		booksClass := books.ClassModel2VecVectorizer()
-		booksClass.ModuleConfig.(map[string]interface{})["reranker-nvidia"] = map[string]interface{}{}
+		booksClass.ModuleConfig.(map[string]any)["reranker-jinaai"] = map[string]any{}
 		helper.CreateClass(t, booksClass)
 		defer helper.DeleteClass(t, booksClass.Class)
 
@@ -54,17 +54,17 @@ func testRerankerNvidia(host string) func(t *testing.T) {
 			result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
 			booksResponse := result.Get("Get", "Books").AsSlice()
 			require.True(t, len(booksResponse) > 0)
-			results, ok := booksResponse[0].(map[string]interface{})
+			results, ok := booksResponse[0].(map[string]any)
 			require.True(t, ok)
 			assert.True(t, results["title"] != nil)
 			assert.NotNil(t, results["_additional"])
-			additional, ok := results["_additional"].(map[string]interface{})
+			additional, ok := results["_additional"].(map[string]any)
 			require.True(t, ok)
 			assert.Equal(t, books.Dune.String(), additional["id"])
 			assert.NotNil(t, additional["rerank"])
-			rerank, ok := additional["rerank"].([]interface{})
+			rerank, ok := additional["rerank"].([]any)
 			require.True(t, ok)
-			score, ok := rerank[0].(map[string]interface{})
+			score, ok := rerank[0].(map[string]any)
 			require.True(t, ok)
 			require.NotNil(t, score)
 			assert.NotNil(t, score["score"])
