@@ -71,6 +71,8 @@ import (
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/replication"
 	vectorIndex "github.com/weaviate/weaviate/entities/vectorindex"
+	grpcconn "github.com/weaviate/weaviate/grpc/conn"
+	pbv1 "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	modstgazure "github.com/weaviate/weaviate/modules/backup-azure"
 	modstgfs "github.com/weaviate/weaviate/modules/backup-filesystem"
 	modstggcs "github.com/weaviate/weaviate/modules/backup-gcs"
@@ -519,32 +521,46 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 
 	schemaParser := schema.NewParser(appState.Cluster, vectorIndex.ParseAndValidateConfig, migrator, appState.Modules, appState.ServerConfig.Config.DefaultQuantization)
 
-	remoteClientFactory := func(ctx context.Context, address string) (copier.FileReplicationServiceClient, error) {
-		grpcConfig := appState.ServerConfig.Config.GRPC
-		authConfig := appState.ServerConfig.Config.Cluster.AuthConfig
+	grpcConfig := appState.ServerConfig.Config.GRPC
+	authConfig := appState.ServerConfig.Config.Cluster.AuthConfig
 
-		var creds credentials.TransportCredentials
+	var creds credentials.TransportCredentials
 
-		useTLS := len(grpcConfig.CertFile) > 0
+	useTLS := len(grpcConfig.CertFile) > 0
 
-		if useTLS {
-			creds = credentials.NewClientTLSFromCert(nil, "")
-		} else {
-			creds = insecure.NewCredentials() // use insecure credentials for testing
-		}
-
-		clientConn, err := grpc.NewClient(
-			address,
-			grpc.WithTransportCredentials(creds),
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create gRPC client connection: %w", err)
-		}
-
-		return copier.NewFileReplicationServiceClient(clientConn, authConfig), nil
+	if useTLS {
+		creds = credentials.NewClientTLSFromCert(nil, "")
+	} else {
+		creds = insecure.NewCredentials() // use insecure credentials for testing
 	}
 
-	replicaCopier := copier.New(remoteClientFactory, remoteIndexClient, appState.Cluster,
+	opts := []grpc.DialOption{grpc.WithTransportCredentials(creds)}
+
+	if authConfig.BasicAuth.Enabled() {
+		authHeader := grpcconn.BasicAuthHeader(authConfig.BasicAuth.Username, authConfig.BasicAuth.Password)
+		opts = append(opts,
+			grpc.WithUnaryInterceptor(grpcconn.BasicAuthUnaryInterceptor(authHeader)),
+			grpc.WithStreamInterceptor(grpcconn.BasicAuthStreamInterceptor(authHeader)),
+		)
+	}
+
+	grpcMaxOpenConns := appState.ServerConfig.Config.GRPC.MaxOpenConns
+	grpcIddleConnTimeout := appState.ServerConfig.Config.GRPC.IdleConnTimeout
+
+	appState.GRPCConnManager = grpcconn.NewConnManager(grpcMaxOpenConns, grpcIddleConnTimeout,
+		metricsRegisterer, appState.Logger, opts...)
+
+	remoteClientFactory := func(ctx context.Context, address string) (copier.FileReplicationServiceClient, error) {
+		clientConn, err := appState.GRPCConnManager.GetConn(address)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get gRPC connection: %w", err)
+		}
+		return pbv1.NewFileReplicationServiceClient(clientConn), nil
+	}
+
+	var nodeSelector cluster.NodeSelector = appState.Cluster
+
+	replicaCopier := copier.New(remoteClientFactory, remoteIndexClient, nodeSelector,
 		appState.ServerConfig.Config.ReplicationEngineFileCopyWorkers, dataPath, appState.DB, nodeName, appState.Logger)
 
 	rConfig := rCluster.Config{
@@ -968,6 +984,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		if appState.DistributedTaskScheduler != nil {
 			appState.DistributedTaskScheduler.Close()
 		}
+
+		// close grpc client connections
+		appState.GRPCConnManager.Close()
 
 		// gracefully stop gRPC server
 		grpcServer.GracefulStop()

@@ -237,6 +237,9 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 				vectorIndexUserConfig)
 		}
 
+		s.index.cycleCallbacks.vectorCommitLoggerCycle.Start()
+		s.index.cycleCallbacks.vectorTombstoneCleanupCycle.Start()
+
 		spfreshConfigID := s.vectorIndexID(targetVector)
 		spfreshConfig := &spfresh.Config{
 			Logger:            s.index.logger,

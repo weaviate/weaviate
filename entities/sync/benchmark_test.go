@@ -41,7 +41,7 @@ func BenchmarkKeyLockerContext(b *testing.B) {
 	kl := NewKeyLockerContext()
 
 	for i := 0; i < b.N; i++ {
-		if kl.TryLockWithContext(id, b.Context()) {
+		if err := kl.LockWithContext(id, b.Context()); err == nil {
 			kl.Unlock(id)
 		}
 	}
@@ -63,7 +63,7 @@ func BenchmarkConcurrentKeyLockerContext(b *testing.B) {
 
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			if kl.TryLockWithContext(id, b.Context()) {
+			if err := kl.LockWithContext(id, b.Context()); err == nil {
 				kl.Unlock(id)
 			}
 		}
@@ -99,7 +99,7 @@ func BenchmarkKeyLockerContextUnlockAll(b *testing.B) {
 	locksAcquired := make(chan interface{}, numToUnlock)
 	for j := 0; j < numToUnlock; j++ {
 		go func() {
-			if kl.TryLockWithContext(id, ctx) {
+			if err := kl.LockWithContext(id, ctx); err == nil {
 				locksAcquired <- struct{}{}
 			}
 		}()

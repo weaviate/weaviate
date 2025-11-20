@@ -39,12 +39,12 @@ func createSchemaOpenAISanityChecks(endpoint string) func(t *testing.T) {
 		}
 		tests := []struct {
 			name                  string
-			text2vecOpenAI        map[string]interface{}
+			text2vecOpenAI        map[string]any
 			expectDefaultSettings bool
 		}{
 			{
 				name: "model: text-embedding-3-large, dimensions: 256, vectorizeClassName: false",
-				text2vecOpenAI: map[string]interface{}{
+				text2vecOpenAI: map[string]any{
 					"vectorizeClassName": false,
 					"model":              "text-embedding-3-large",
 					"dimensions":         256,
@@ -52,7 +52,7 @@ func createSchemaOpenAISanityChecks(endpoint string) func(t *testing.T) {
 			},
 			{
 				name: "model: text-embedding-3-large, dimensions: 1024, vectorizeClassName: false",
-				text2vecOpenAI: map[string]interface{}{
+				text2vecOpenAI: map[string]any{
 					"vectorizeClassName": false,
 					"model":              "text-embedding-3-large",
 					"dimensions":         1024,
@@ -60,7 +60,7 @@ func createSchemaOpenAISanityChecks(endpoint string) func(t *testing.T) {
 			},
 			{
 				name: "model: text-embedding-3-large, dimensions: 3072, vectorizeClassName: false",
-				text2vecOpenAI: map[string]interface{}{
+				text2vecOpenAI: map[string]any{
 					"vectorizeClassName": false,
 					"model":              "text-embedding-3-large",
 					"dimensions":         3072,
@@ -68,7 +68,7 @@ func createSchemaOpenAISanityChecks(endpoint string) func(t *testing.T) {
 			},
 			{
 				name: "model: text-embedding-3-small, dimensions: 512, vectorizeClassName: true",
-				text2vecOpenAI: map[string]interface{}{
+				text2vecOpenAI: map[string]any{
 					"vectorizeClassName": true,
 					"model":              "text-embedding-3-small",
 					"dimensions":         512,
@@ -76,7 +76,7 @@ func createSchemaOpenAISanityChecks(endpoint string) func(t *testing.T) {
 			},
 			{
 				name: "model: text-embedding-3-small, dimensions: 1536, vectorizeClassName: false",
-				text2vecOpenAI: map[string]interface{}{
+				text2vecOpenAI: map[string]any{
 					"vectorizeClassName": false,
 					"model":              "text-embedding-3-small",
 					"dimensions":         1536,
@@ -84,7 +84,7 @@ func createSchemaOpenAISanityChecks(endpoint string) func(t *testing.T) {
 			},
 			{
 				name: "model: text-embedding-3-small, dimensions: 1536, vectorizeClassName: true",
-				text2vecOpenAI: map[string]interface{}{
+				text2vecOpenAI: map[string]any{
 					"vectorizeClassName": true,
 					"model":              "text-embedding-3-small",
 					"dimensions":         1536,
@@ -92,7 +92,7 @@ func createSchemaOpenAISanityChecks(endpoint string) func(t *testing.T) {
 			},
 			{
 				name: "model: ada, vectorizeClassName: false",
-				text2vecOpenAI: map[string]interface{}{
+				text2vecOpenAI: map[string]any{
 					"vectorizeClassName": false,
 					"model":              "ada",
 				},
@@ -104,22 +104,22 @@ func createSchemaOpenAISanityChecks(endpoint string) func(t *testing.T) {
 			},
 			{
 				name:                  "empty settings",
-				text2vecOpenAI:        map[string]interface{}{},
+				text2vecOpenAI:        map[string]any{},
 				expectDefaultSettings: true,
 			},
 		}
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
-				class.ModuleConfig = map[string]interface{}{
+				class.ModuleConfig = map[string]any{
 					vectorizer: tt.text2vecOpenAI,
 				}
 				helper.CreateClass(t, class)
 				defer helper.DeleteClass(t, class.Class)
 				verifyClass := helper.GetClass(t, class.Class)
-				moduleConfig, ok := verifyClass.ModuleConfig.(map[string]interface{})
+				moduleConfig, ok := verifyClass.ModuleConfig.(map[string]any)
 				require.True(t, ok)
 				require.NotEmpty(t, moduleConfig)
-				text2vecOpenAI, ok := moduleConfig[vectorizer].(map[string]interface{})
+				text2vecOpenAI, ok := moduleConfig[vectorizer].(map[string]any)
 				require.True(t, ok)
 				require.NotEmpty(t, text2vecOpenAI)
 				if tt.expectDefaultSettings {
