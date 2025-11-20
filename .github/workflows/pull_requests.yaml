@@ -150,9 +150,6 @@ jobs:
           "--only-module-backup-gcs",
           "--only-module-backup-s3",
           "--only-module-offload-s3",
-          "--only-module-text2vec-transformers",
-          "--only-module-text2vec-ollama",
-          "--only-module-generative-ollama",
           "--only-module-text2vec-model2vec"
         ]
     steps:
@@ -211,7 +208,12 @@ jobs:
           "--only-module-qna-transformers",
           "--only-module-sum-transformers",
           "--only-module-multi2vec-clip",
-          "--only-module-reranker-transformers"
+          "--only-module-reranker-transformers",
+          "--only-module-generative-ollama",
+          "--only-module-img2vec-neural",
+          "--only-module-many-modules",
+          "--only-module-text2vec-transformers",
+          "--only-module-text2vec-ollama",
         ]
     steps:
       - uses: actions/checkout@v4
@@ -244,9 +246,7 @@ jobs:
       matrix:
         test: [
           "--only-module-text2vec-contextionary",
-          "--only-module-img2vec-neural",
           "--only-module-ref2vec-centroid",
-          "--only-module-many-modules",
           "--only-module-many-generative"
         ]
     steps:

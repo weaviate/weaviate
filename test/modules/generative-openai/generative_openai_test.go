@@ -38,7 +38,7 @@ func testGenerativeOpenAI(rest, grpc string) func(t *testing.T) {
 		class.VectorConfig = map[string]models.VectorConfig{
 			"description": {
 				Vectorizer: map[string]any{
-					"text2vec-transformers": map[string]any{
+					"text2vec-model2vec": map[string]any{
 						"properties":         []any{"description"},
 						"vectorizeClassName": false,
 					},
