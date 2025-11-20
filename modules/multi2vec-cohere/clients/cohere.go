@@ -13,6 +13,7 @@ package clients
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -47,6 +48,12 @@ func (v *vectorizer) VectorizeQuery(ctx context.Context,
 	return v.vectorize(ctx, input, nil, cfg)
 }
 
+func (v *vectorizer) VectorizeImages(ctx context.Context,
+	images []string, cfg moduletools.ClassConfig,
+) (*modulecomponents.VectorizationCLIPResult[[]float32], error) {
+	return v.vectorize(ctx, nil, images, cfg)
+}
+
 func (v *vectorizer) vectorize(ctx context.Context,
 	texts, images []string, cfg moduletools.ClassConfig,
 ) (*modulecomponents.VectorizationCLIPResult[[]float32], error) {
@@ -67,16 +74,24 @@ func (v *vectorizer) vectorize(ctx context.Context,
 		textVectors = textEmbeddings.Vector
 	}
 	if len(images) > 0 {
-		imageEmbeddings, err := v.client.Vectorize(ctx, images, cohere.Settings{
-			Model:      settings.Model(),
-			BaseURL:    settings.BaseURL(),
-			InputType:  cohere.Image,
-			Dimensions: settings.Dimensions(),
-		})
-		if err != nil {
-			return nil, err
+		// Cohere API allows to send only 1 image per request, we need to loop over images
+		// one by one in order to perform the request.
+		// https://docs.cohere.com/reference/embed#request.body.images
+		for i := range images {
+			imageEmbeddings, err := v.client.Vectorize(ctx, []string{images[i]}, cohere.Settings{
+				Model:      settings.Model(),
+				BaseURL:    settings.BaseURL(),
+				InputType:  cohere.Image,
+				Dimensions: settings.Dimensions(),
+			})
+			if err != nil {
+				return nil, err
+			}
+			if len(imageEmbeddings.Vector) != 1 {
+				return nil, fmt.Errorf("generated more than one embedding for image, got: %v", len(imageEmbeddings.Vector))
+			}
+			imageVectors = append(imageVectors, imageEmbeddings.Vector[0])
 		}
-		imageVectors = imageEmbeddings.Vector
 	}
 	return &modulecomponents.VectorizationCLIPResult[[]float32]{
 		TextVectors:  textVectors,

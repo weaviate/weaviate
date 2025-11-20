@@ -25,18 +25,18 @@ type builder struct {
 
 func newConfigBuilder() *builder {
 	return &builder{
-		fakeClassConfig: &fakeClassConfig{config: map[string]interface{}{}},
+		fakeClassConfig: &fakeClassConfig{config: map[string]any{}},
 	}
 }
 
-func (b *builder) addSetting(name string, value interface{}) *builder {
+func (b *builder) addSetting(name string, value any) *builder {
 	b.fakeClassConfig.config[name] = value
 	return b
 }
 
-func (b *builder) addWeights(textWeights, imageWeights []interface{}) *builder {
+func (b *builder) addWeights(textWeights, imageWeights []any) *builder {
 	if textWeights != nil || imageWeights != nil {
-		weightSettings := map[string]interface{}{}
+		weightSettings := map[string]any{}
 		if textWeights != nil {
 			weightSettings["textFields"] = textWeights
 		}
@@ -53,18 +53,18 @@ func (b *builder) build() *fakeClassConfig {
 }
 
 type fakeClassConfig struct {
-	config map[string]interface{}
+	config map[string]any
 }
 
-func (c fakeClassConfig) Class() map[string]interface{} {
+func (c fakeClassConfig) Class() map[string]any {
 	return c.config
 }
 
-func (c fakeClassConfig) ClassByModuleName(moduleName string) map[string]interface{} {
+func (c fakeClassConfig) ClassByModuleName(moduleName string) map[string]any {
 	return c.config
 }
 
-func (c fakeClassConfig) Property(propName string) map[string]interface{} {
+func (c fakeClassConfig) Property(propName string) map[string]any {
 	return c.config
 }
 

@@ -33,7 +33,7 @@ func CombineVectorsWithWeights(vectors [][]float32, weights []float32) []float32
 	sums := make([]float32, maxVectorLength)
 	dividers := make([]int32, maxVectorLength)
 	for indx, vector := range vectors {
-		for i := 0; i < len(vector); i++ {
+		for i := range vector {
 			if weights != nil {
 				// apply weight to vector value
 				sums[i] += vector[i] * weights[indx]
@@ -43,7 +43,7 @@ func CombineVectorsWithWeights(vectors [][]float32, weights []float32) []float32
 			dividers[i]++
 		}
 	}
-	for i := 0; i < len(sums); i++ {
+	for i := range sums {
 		sums[i] /= float32(dividers[i])
 	}
 
