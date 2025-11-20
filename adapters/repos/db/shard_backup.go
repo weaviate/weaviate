@@ -235,10 +235,7 @@ func (s *Shard) mayForceResumeMaintenanceCycles(ctx context.Context, forced bool
 func (s *Shard) readBackupMetadata(d *backup.ShardDescriptor) (err error) {
 	d.Name = s.name
 
-	d.Node, err = s.nodeName()
-	if err != nil {
-		return fmt.Errorf("node name: %w", err)
-	}
+	d.Node = s.index.getSchema.NodeName()
 
 	fpath := s.counter.FileName()
 	if d.DocIDCounter, err = os.ReadFile(fpath); err != nil {
@@ -265,12 +262,6 @@ func (s *Shard) readBackupMetadata(d *backup.ShardDescriptor) (err error) {
 		return fmt.Errorf("shard version path: %w", err)
 	}
 	return nil
-}
-
-func (s *Shard) nodeName() (string, error) {
-	node, err := s.index.getSchema.ShardOwner(
-		s.index.Config.ClassName.String(), s.name)
-	return node, err
 }
 
 func (s *Shard) GetFileMetadata(ctx context.Context, relativeFilePath string) (file.FileMetadata, error) {
