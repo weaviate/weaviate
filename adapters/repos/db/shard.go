@@ -50,6 +50,7 @@ import (
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/file"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -297,6 +298,7 @@ type Shard struct {
 	shutdownRequested atomic.Bool
 
 	SPFreshEnabled bool
+	AcornSmartSeed *configRuntime.DynamicValue[bool]
 }
 
 func (s *Shard) ID() string {

@@ -35,6 +35,12 @@ import (
 
 type FilterStrategy int
 
+type acornSlices struct {
+	sliceConnectionsReusable *common.VectorUint64Slice
+	slicePendingNextRound    *common.VectorUint64Slice
+	slicePendingThisRound    *common.VectorUint64Slice
+}
+
 const (
 	SWEEPING FilterStrategy = iota
 	ACORN
@@ -224,6 +230,163 @@ func (h *hnsw) searchLayerByVectorWithDistancer(ctx context.Context,
 	return h.searchLayerByVectorWithDistancerWithStrategy(ctx, queryVector, entrypoints, ef, level, allowList, compressorDistancer, SWEEPING)
 }
 
+func (h *hnsw) allocateAcornSlices(acornSlices *acornSlices) {
+	acornSlices.sliceConnectionsReusable = h.pools.tempVectorsUint64.Get(8 * h.maximumConnectionsLayerZero)
+	acornSlices.slicePendingNextRound = h.pools.tempVectorsUint64.Get(h.maximumConnectionsLayerZero)
+	acornSlices.slicePendingThisRound = h.pools.tempVectorsUint64.Get(h.maximumConnectionsLayerZero)
+}
+
+func (h *hnsw) releaseAcornSlices(acornSlices *acornSlices) {
+	h.pools.tempVectorsUint64.Put(acornSlices.sliceConnectionsReusable)
+	h.pools.tempVectorsUint64.Put(acornSlices.slicePendingNextRound)
+	h.pools.tempVectorsUint64.Put(acornSlices.slicePendingThisRound)
+}
+
+func (h *hnsw) populateAcornCandidates(acornSlices *acornSlices,
+	candidateNode *vertex, level int, isMultivec bool,
+	allowList helpers.AllowList, visited visited.ListSet,
+) []uint64 {
+	h.pools.visitedListsLock.RLock()
+	visitedExp := h.pools.visitedLists.Borrow()
+	h.pools.visitedListsLock.RUnlock()
+
+	defer func() {
+		h.pools.visitedListsLock.RLock()
+		h.pools.visitedLists.Return(visitedExp)
+		h.pools.visitedListsLock.RUnlock()
+	}()
+	connectionsReusable := acornSlices.sliceConnectionsReusable.Slice
+	pendingNextRound := acornSlices.slicePendingNextRound.Slice
+	pendingThisRound := acornSlices.slicePendingThisRound.Slice
+
+	realLen := 0
+	index := 0
+
+	candidateNode.Lock()
+
+	if candidateNode.connections.LenAtLayer(uint8(level)) > h.maximumConnectionsLayerZero {
+		pendingNextRound = make([]uint64, candidateNode.connections.LenAtLayer(uint8(level)))
+		acornSlices.slicePendingNextRound.Slice = pendingNextRound
+	} else {
+		pendingNextRound = pendingNextRound[:candidateNode.connections.LenAtLayer(uint8(level))]
+	}
+	pendingNextRound = candidateNode.connections.CopyLayer(pendingNextRound, uint8(level))
+	candidateNode.Unlock()
+	hop := 1
+	maxHops := 2
+	for hop <= maxHops && realLen < 8*h.maximumConnectionsLayerZero && len(pendingNextRound) > 0 {
+		if cap(pendingThisRound) >= len(pendingNextRound) {
+			pendingThisRound = pendingThisRound[:len(pendingNextRound)]
+		} else {
+			pendingThisRound = make([]uint64, len(pendingNextRound))
+			acornSlices.slicePendingThisRound.Slice = pendingThisRound
+		}
+		copy(pendingThisRound, pendingNextRound)
+		pendingNextRound = pendingNextRound[:0]
+		for index < len(pendingThisRound) && realLen < 8*h.maximumConnectionsLayerZero {
+			nodeId := pendingThisRound[index]
+			index++
+			if ok := visited.Visited(nodeId); ok {
+				// skip if we've already visited this neighbor
+				continue
+			}
+			if !visitedExp.Visited(nodeId) {
+				if !isMultivec {
+					if allowList.Contains(nodeId) {
+						connectionsReusable[realLen] = nodeId
+						realLen++
+						visitedExp.Visit(nodeId)
+						continue
+					}
+				} else {
+					var docID uint64
+					if h.compressed.Load() {
+						docID, _ = h.compressor.GetKeys(nodeId)
+					} else {
+						docID, _ = h.cache.GetKeys(nodeId)
+					}
+					if allowList.Contains(docID) {
+						connectionsReusable[realLen] = nodeId
+						realLen++
+						visitedExp.Visit(nodeId)
+						continue
+					}
+				}
+			} else {
+				continue
+			}
+			visitedExp.Visit(nodeId)
+
+			h.RLock()
+			h.shardedNodeLocks.RLock(nodeId)
+			node := h.nodes[nodeId]
+			h.shardedNodeLocks.RUnlock(nodeId)
+			h.RUnlock()
+			if node == nil {
+				continue
+			}
+			node.Lock()
+			iterator := node.connections.ElementIterator(uint8(level))
+			node.Unlock()
+			for iterator.Next() {
+				_, expId := iterator.Current()
+				if visitedExp.Visited(expId) {
+					continue
+				}
+				if visited.Visited(expId) {
+					continue
+				}
+
+				if realLen >= 8*h.maximumConnectionsLayerZero {
+					break
+				}
+
+				if !isMultivec {
+					if allowList.Contains(expId) {
+						visitedExp.Visit(expId)
+						connectionsReusable[realLen] = expId
+						realLen++
+					} else if hop < maxHops {
+						visitedExp.Visit(expId)
+						pendingNextRound = append(pendingNextRound, expId)
+					}
+				} else {
+					var docID uint64
+					if h.compressed.Load() {
+						docID, _ = h.compressor.GetKeys(expId)
+					} else {
+						docID, _ = h.cache.GetKeys(expId)
+					}
+					if allowList.Contains(docID) {
+						visitedExp.Visit(expId)
+						connectionsReusable[realLen] = expId
+						realLen++
+					} else if hop < maxHops {
+						visitedExp.Visit(expId)
+						pendingNextRound = append(pendingNextRound, expId)
+					}
+				}
+			}
+		}
+		hop++
+	}
+	acornSlices.slicePendingNextRound.Slice = pendingNextRound
+	return connectionsReusable[:realLen]
+}
+
+func (h *hnsw) checkAllowed(id uint64, isMultivec bool, allowList helpers.AllowList) bool {
+	if isMultivec {
+		var docID uint64
+		if h.compressed.Load() {
+			docID, _ = h.compressor.GetKeys(id)
+		} else {
+			docID, _ = h.cache.GetKeys(id)
+		}
+		return allowList.Contains(docID)
+	}
+	return allowList.Contains(id)
+}
+
 func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 	queryVector []float32,
 	entrypoints *priorityqueue.Queue[any], ef int, level int,
@@ -237,8 +400,13 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 	}()
 	h.pools.visitedListsLock.RLock()
 	visited := h.pools.visitedLists.Borrow()
-	visitedExp := h.pools.visitedLists.Borrow()
 	h.pools.visitedListsLock.RUnlock()
+
+	defer func() {
+		h.pools.visitedListsLock.RLock()
+		h.pools.visitedLists.Return(visited)
+		h.pools.visitedListsLock.RUnlock()
+	}()
 
 	candidates := h.pools.pqCandidates.GetMin(ef)
 	results := h.pools.pqResults.GetMax(ef)
@@ -268,27 +436,20 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 		return nil, errors.Wrapf(err, "calculate distance of current last result")
 	}
 	var connectionsReusable []uint64
-	var sliceConnectionsReusable *common.VectorUint64Slice
-	var slicePendingNextRound *common.VectorUint64Slice
-	var slicePendingThisRound *common.VectorUint64Slice
+	var acornSlices acornSlices
 
 	if allowList == nil {
 		strategy = SWEEPING
 	}
+
 	if strategy == ACORN {
-		sliceConnectionsReusable = h.pools.tempVectorsUint64.Get(8 * h.maximumConnectionsLayerZero)
-		slicePendingNextRound = h.pools.tempVectorsUint64.Get(h.maximumConnectionsLayerZero)
-		slicePendingThisRound = h.pools.tempVectorsUint64.Get(h.maximumConnectionsLayerZero)
+		h.allocateAcornSlices(&acornSlices)
 	} else {
 		connectionsReusable = make([]uint64, h.maximumConnectionsLayerZero)
 	}
 
 	for candidates.Len() > 0 {
 		if err := ctx.Err(); err != nil {
-			h.pools.visitedListsLock.RLock()
-			h.pools.visitedLists.Return(visited)
-			h.pools.visitedListsLock.RUnlock()
-
 			helpers.AnnotateSlowQueryLog(ctx, "context_error", "knn_search_layer")
 			return nil, err
 		}
@@ -320,146 +481,29 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 			continue
 		}
 
-		func() {
-			// ensure we unlock the node even if we panic while
-			// accessing its connections
-			defer func() {
-				if err := recover(); err != nil {
-					candidateNode.Unlock()
-					panic(errors.Errorf("shard: %s, collection: %s, vectorIndex: %s, panic: %v", h.shardName, h.className, h.id, err))
-				}
-			}()
-
-			if strategy != ACORN {
-				if candidateNode.connections.LenAtLayer(uint8(level)) > h.maximumConnectionsLayerZero {
-					// How is it possible that we could ever have more connections than the
-					// allowed maximum? It is not anymore, but there was a bug that allowed
-					// this to happen in versions prior to v1.12.0:
-					// https://github.com/weaviate/weaviate/issues/1868
-					//
-					// As a result the length of this slice is entirely unpredictable and we
-					// can no longer retrieve it from the pool. Instead we need to fallback
-					// to allocating a new slice.
-					//
-					// This was discovered as part of
-					// https://github.com/weaviate/weaviate/issues/1897
-					connectionsReusable = make([]uint64, candidateNode.connections.LenAtLayer(uint8(level)))
-				} else {
-					connectionsReusable = connectionsReusable[:candidateNode.connections.LenAtLayer(uint8(level))]
-				}
-				connectionsReusable = candidateNode.connections.CopyLayer(connectionsReusable, uint8(level))
+		if strategy != ACORN {
+			if candidateNode.connections.LenAtLayer(uint8(level)) > h.maximumConnectionsLayerZero {
+				// How is it possible that we could ever have more connections than the
+				// allowed maximum? It is not anymore, but there was a bug that allowed
+				// this to happen in versions prior to v1.12.0:
+				// https://github.com/weaviate/weaviate/issues/1868
+				//
+				// As a result the length of this slice is entirely unpredictable and we
+				// can no longer retrieve it from the pool. Instead we need to fallback
+				// to allocating a new slice.
+				//
+				// This was discovered as part of
+				// https://github.com/weaviate/weaviate/issues/1897
+				connectionsReusable = make([]uint64, candidateNode.connections.LenAtLayer(uint8(level)))
 			} else {
-				connectionsReusable = sliceConnectionsReusable.Slice
-				pendingNextRound := slicePendingNextRound.Slice
-				pendingThisRound := slicePendingThisRound.Slice
-
-				realLen := 0
-				index := 0
-
-				pendingNextRound = pendingNextRound[:candidateNode.connections.LenAtLayer(uint8(level))]
-				pendingNextRound = candidateNode.connections.CopyLayer(pendingNextRound, uint8(level))
-				hop := 1
-				maxHops := 2
-				for hop <= maxHops && realLen < 8*h.maximumConnectionsLayerZero && len(pendingNextRound) > 0 {
-					if cap(pendingThisRound) >= len(pendingNextRound) {
-						pendingThisRound = pendingThisRound[:len(pendingNextRound)]
-					} else {
-						pendingThisRound = make([]uint64, len(pendingNextRound))
-						slicePendingThisRound.Slice = pendingThisRound
-					}
-					copy(pendingThisRound, pendingNextRound)
-					pendingNextRound = pendingNextRound[:0]
-					for index < len(pendingThisRound) && realLen < 8*h.maximumConnectionsLayerZero {
-						nodeId := pendingThisRound[index]
-						index++
-						if ok := visited.Visited(nodeId); ok {
-							// skip if we've already visited this neighbor
-							continue
-						}
-						if !visitedExp.Visited(nodeId) {
-							if !isMultivec {
-								if allowList.Contains(nodeId) {
-									connectionsReusable[realLen] = nodeId
-									realLen++
-									visitedExp.Visit(nodeId)
-									continue
-								}
-							} else {
-								var docID uint64
-								if h.compressed.Load() {
-									docID, _ = h.compressor.GetKeys(nodeId)
-								} else {
-									docID, _ = h.cache.GetKeys(nodeId)
-								}
-								if allowList.Contains(docID) {
-									connectionsReusable[realLen] = nodeId
-									realLen++
-									visitedExp.Visit(nodeId)
-									continue
-								}
-							}
-						} else {
-							continue
-						}
-						visitedExp.Visit(nodeId)
-
-						h.RLock()
-						h.shardedNodeLocks.RLock(nodeId)
-						node := h.nodes[nodeId]
-						h.shardedNodeLocks.RUnlock(nodeId)
-						h.RUnlock()
-						if node == nil {
-							continue
-						}
-						iterator := node.connections.ElementIterator(uint8(level))
-						for iterator.Next() {
-							_, expId := iterator.Current()
-							if visitedExp.Visited(expId) {
-								continue
-							}
-							if visited.Visited(expId) {
-								continue
-							}
-
-							if realLen >= 8*h.maximumConnectionsLayerZero {
-								break
-							}
-
-							if !isMultivec {
-								if allowList.Contains(expId) {
-									visitedExp.Visit(expId)
-									connectionsReusable[realLen] = expId
-									realLen++
-								} else if hop < maxHops {
-									visitedExp.Visit(expId)
-									pendingNextRound = append(pendingNextRound, expId)
-								}
-							} else {
-								var docID uint64
-								if h.compressed.Load() {
-									docID, _ = h.compressor.GetKeys(expId)
-								} else {
-									docID, _ = h.cache.GetKeys(expId)
-								}
-								if allowList.Contains(docID) {
-									visitedExp.Visit(expId)
-									connectionsReusable[realLen] = expId
-									realLen++
-								} else if hop < maxHops {
-									visitedExp.Visit(expId)
-									pendingNextRound = append(pendingNextRound, expId)
-								}
-							}
-						}
-					}
-					hop++
-				}
-				slicePendingNextRound.Slice = pendingNextRound
-				connectionsReusable = connectionsReusable[:realLen]
+				connectionsReusable = connectionsReusable[:candidateNode.connections.LenAtLayer(uint8(level))]
 			}
-		}()
-
-		candidateNode.Unlock()
+			connectionsReusable = candidateNode.connections.CopyLayer(connectionsReusable, uint8(level))
+			candidateNode.Unlock()
+		} else {
+			candidateNode.Unlock()
+			connectionsReusable = h.populateAcornCandidates(&acornSlices, candidateNode, level, isMultivec, allowList, visited)
+		}
 
 		for _, neighborID := range connectionsReusable {
 			if ok := visited.Visited(neighborID); ok {
@@ -471,17 +515,7 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 			visited.Visit(neighborID)
 
 			if strategy == RRE && level == 0 {
-				if isMultivec {
-					var docID uint64
-					if h.compressed.Load() {
-						docID, _ = h.compressor.GetKeys(neighborID)
-					} else {
-						docID, _ = h.cache.GetKeys(neighborID)
-					}
-					if !allowList.Contains(docID) {
-						continue
-					}
-				} else if !allowList.Contains(neighborID) {
+				if !h.checkAllowed(neighborID, isMultivec, allowList) {
 					continue
 				}
 			}
@@ -498,10 +532,6 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 					h.handleDeletedNode(e.DocID, "searchLayerByVectorWithDistancer")
 					continue
 				} else {
-					h.pools.visitedListsLock.RLock()
-					h.pools.visitedLists.Return(visited)
-					h.pools.visitedLists.Return(visitedExp)
-					h.pools.visitedListsLock.RUnlock()
 					return nil, errors.Wrap(err, "calculate distance between candidate and query")
 				}
 			}
@@ -509,21 +539,7 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 			if distance < worstResultDistance || results.Len() < ef {
 				candidates.Insert(neighborID, distance)
 				if strategy == SWEEPING && level == 0 && allowList != nil {
-					// we are on the lowest level containing the actual candidates and we
-					// have an allow list (i.e. the user has probably set some sort of a
-					// filter restricting this search further. As a result we have to
-					// ignore items not on the list
-					if isMultivec {
-						var docID uint64
-						if h.compressed.Load() {
-							docID, _ = h.compressor.GetKeys(neighborID)
-						} else {
-							docID, _ = h.cache.GetKeys(neighborID)
-						}
-						if !allowList.Contains(docID) {
-							continue
-						}
-					} else if !allowList.Contains(neighborID) {
+					if !h.checkAllowed(neighborID, isMultivec, allowList) {
 						continue
 					}
 				}
@@ -553,18 +569,10 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 	}
 
 	if strategy == ACORN {
-		h.pools.tempVectorsUint64.Put(sliceConnectionsReusable)
-		h.pools.tempVectorsUint64.Put(slicePendingNextRound)
-		h.pools.tempVectorsUint64.Put(slicePendingThisRound)
+		h.releaseAcornSlices(&acornSlices)
 	}
 
 	h.pools.pqCandidates.Put(candidates)
-
-	h.pools.visitedListsLock.RLock()
-	h.pools.visitedLists.Return(visited)
-	h.pools.visitedLists.Return(visitedExp)
-	h.pools.visitedListsLock.RUnlock()
-
 	return results, nil
 }
 
@@ -582,17 +590,7 @@ func (h *hnsw) insertViableEntrypointsAsCandidatesAndResults(
 			// have an allow list (i.e. the user has probably set some sort of a
 			// filter restricting this search further. As a result we have to
 			// ignore items not on the list
-			if isMultivec {
-				var docID uint64
-				if h.compressed.Load() {
-					docID, _ = h.compressor.GetKeys(ep.ID)
-				} else {
-					docID, _ = h.cache.GetKeys(ep.ID)
-				}
-				if !allowList.Contains(docID) {
-					continue
-				}
-			} else if !allowList.Contains(ep.ID) {
+			if !h.checkAllowed(ep.ID, isMultivec, allowList) {
 				continue
 			}
 		}
@@ -723,6 +721,177 @@ func (h *hnsw) handleDeletedNode(docID uint64, operation string) {
 			"tombstone was added", docID)
 }
 
+func (h *hnsw) traverseHierarchyToGetEntryPoint(ctx context.Context, entryPointDistance float32,
+	entryPointID uint64, compressorDistancer compressionhelpers.CompressorDistancer,
+	searchVec []float32, maxLayer int,
+) (float32, uint64, error) {
+	for level := maxLayer; level >= 0; level-- {
+		eps := priorityqueue.NewMin[any](10)
+		eps.Insert(entryPointID, entryPointDistance)
+
+		res, err := h.searchLayerByVectorWithDistancer(ctx, searchVec, eps, 1, level, nil, compressorDistancer)
+		if err != nil {
+			return 0, 0, errors.Wrapf(err, "knn search: search layer at level %d", level)
+		}
+
+		// There might be situations where we did not find a better entrypoint at
+		// that particular level, so instead we're keeping whatever entrypoint we
+		// had before (i.e. either from a previous level or even the main
+		// entrypoint)
+		//
+		// If we do, however, have results, any candidate that's not nil (not
+		// deleted), and not under maintenance is a viable candidate
+		for res.Len() > 0 {
+			cand := res.Pop()
+			n := h.nodeByID(cand.ID)
+			if n == nil {
+				// we have found a node in results that is nil. This means it was
+				// deleted, but not cleaned up properly. Make sure to add a tombstone to
+				// this node, so it can be cleaned up in the next cycle.
+				if err := h.addTombstone(cand.ID); err != nil {
+					return 0, 0, err
+				}
+
+				// skip the nil node, as it does not make a valid entrypoint
+				continue
+			}
+
+			if !n.isUnderMaintenance() {
+				entryPointID = cand.ID
+				entryPointDistance = cand.Dist
+				break
+			}
+
+			// if we managed to go through the loop without finding a single
+			// suitable node, we simply stick with the original, i.e. the global
+			// entrypoint
+		}
+
+		h.pools.pqResults.Put(res)
+	}
+	return entryPointDistance, entryPointID, nil
+}
+
+func (h *hnsw) setStrategy(entryPointID uint64, allowList helpers.AllowList, isMultivec bool) FilterStrategy {
+	var strategy FilterStrategy
+	useAcorn := h.acornEnabled(allowList)
+	if useAcorn {
+		h.shardedNodeLocks.RLock(entryPointID)
+		entryPointNode := h.nodes[entryPointID]
+		h.shardedNodeLocks.RUnlock(entryPointID)
+		if entryPointNode == nil {
+			strategy = RRE
+		} else {
+			counter := float32(0)
+			entryPointNode.Lock()
+			if entryPointNode.connections.Layers() < 1 {
+				strategy = ACORN
+			} else {
+				iterator := entryPointNode.connections.ElementIterator(0)
+				for iterator.Next() {
+					_, value := iterator.Current()
+					if h.checkAllowed(value, isMultivec, allowList) {
+						counter++
+					}
+				}
+				if counter/float32(entryPointNode.connections.LenAtLayer(0)) > float32(h.acornFilterRatio) {
+					strategy = RRE
+				} else {
+					strategy = ACORN
+				}
+				entryPointNode.Unlock()
+			}
+		}
+	} else {
+		strategy = SWEEPING
+	}
+	return strategy
+}
+
+func (h *hnsw) plantSeeds(strategy FilterStrategy, allowList helpers.AllowList, isMultivec bool, ef int,
+	entryPointID uint64, compressorDistancer compressionhelpers.CompressorDistancer, searchVec []float32, eps *priorityqueue.Queue[any],
+) error {
+	if allowList == nil || strategy != ACORN {
+		return nil
+	}
+
+	if h.acornSmartSeed.Load() {
+		queue := h.pools.GetQueue()
+		connsSlice := h.pools.tempVectorsUint64.Get(h.maximumConnectionsLayerZero)
+
+		seeds := ef
+		found := 0
+
+		queue.Enqueue(entryPointID)
+		h.pools.visitedListsLock.RLock()
+		visited := h.pools.visitedLists.Borrow()
+		h.pools.visitedListsLock.RUnlock()
+
+		for found < seeds && !queue.IsEmpty() {
+			candidate, err := queue.Dequeue()
+			if err != nil {
+				return errors.Wrap(err, "knn search: smart seeeding")
+			}
+
+			h.shardedNodeLocks.RLock(candidate)
+			h.nodes[candidate].Lock()
+			h.nodes[candidate].connections.CopyLayer(connsSlice.Slice, 0)
+			h.nodes[candidate].Unlock()
+			h.shardedNodeLocks.RUnlock(candidate)
+			for _, nn := range connsSlice.Slice {
+				if visited.Visited(nn) {
+					continue
+				}
+				visited.Visit(nn)
+				var allowed bool
+				if !isMultivec {
+					allowed = allowList.Contains(nn)
+				} else {
+					var docID uint64
+					if h.compressed.Load() {
+						docID, _ = h.compressor.GetKeys(nn)
+					} else {
+						docID, _ = h.cache.GetKeys(nn)
+					}
+					allowed = allowList.Contains(docID)
+				}
+				if allowed {
+					found++
+					nnDistance, _ := h.distToNode(compressorDistancer, nn, searchVec)
+					eps.Insert(nn, nnDistance)
+				}
+				queue.Enqueue(nn)
+			}
+		}
+		h.pools.PutQueue(queue)
+		h.pools.tempVectorsUint64.Put(connsSlice)
+
+		h.pools.visitedListsLock.RLock()
+		h.pools.visitedLists.Return(visited)
+		h.pools.visitedListsLock.RUnlock()
+		return nil
+	} else {
+		it := allowList.Iterator()
+		idx, ok := it.Next()
+		h.shardedNodeLocks.RLockAll()
+		if !isMultivec {
+			for ok && h.nodes[idx] == nil && h.hasTombstone(idx) {
+				idx, ok = it.Next()
+			}
+		} else {
+			_, exists := h.docIDVectors[idx]
+			for ok && !exists {
+				idx, ok = it.Next()
+				_, exists = h.docIDVectors[idx]
+			}
+		}
+		h.shardedNodeLocks.RUnlockAll()
+		entryPointDistance, _ := h.distToNode(compressorDistancer, idx, searchVec)
+		eps.Insert(idx, entryPointDistance)
+		return nil
+	}
+}
+
 func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int,
 	ef int, allowList helpers.AllowList,
 ) ([]uint64, []float32, error) {
@@ -755,116 +924,22 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "knn search: distance between entrypoint and query node")
 	}
-
-	// stop at layer 1, not 0!
-	for level := maxLayer; level >= 1; level-- {
-		eps := priorityqueue.NewMin[any](10)
-		eps.Insert(entryPointID, entryPointDistance)
-
-		res, err := h.searchLayerByVectorWithDistancer(ctx, searchVec, eps, 1, level, nil, compressorDistancer)
-		if err != nil {
-			return nil, nil, errors.Wrapf(err, "knn search: search layer at level %d", level)
-		}
-
-		// There might be situations where we did not find a better entrypoint at
-		// that particular level, so instead we're keeping whatever entrypoint we
-		// had before (i.e. either from a previous level or even the main
-		// entrypoint)
-		//
-		// If we do, however, have results, any candidate that's not nil (not
-		// deleted), and not under maintenance is a viable candidate
-		for res.Len() > 0 {
-			cand := res.Pop()
-			n := h.nodeByID(cand.ID)
-			if n == nil {
-				// we have found a node in results that is nil. This means it was
-				// deleted, but not cleaned up properly. Make sure to add a tombstone to
-				// this node, so it can be cleaned up in the next cycle.
-				if err := h.addTombstone(cand.ID); err != nil {
-					return nil, nil, err
-				}
-
-				// skip the nil node, as it does not make a valid entrypoint
-				continue
-			}
-
-			if !n.isUnderMaintenance() {
-				entryPointID = cand.ID
-				entryPointDistance = cand.Dist
-				break
-			}
-
-			// if we managed to go through the loop without finding a single
-			// suitable node, we simply stick with the original, i.e. the global
-			// entrypoint
-		}
-
-		h.pools.pqResults.Put(res)
+	entryPointDistance, entryPointID, err = h.traverseHierarchyToGetEntryPoint(ctx, entryPointDistance, entryPointID, compressorDistancer, searchVec, maxLayer)
+	if err != nil {
+		return nil, nil, err
 	}
 
 	eps := priorityqueue.NewMin[any](10)
 	eps.Insert(entryPointID, entryPointDistance)
-	var strategy FilterStrategy
-	h.shardedNodeLocks.RLock(entryPointID)
-	entryPointNode := h.nodes[entryPointID]
-	h.shardedNodeLocks.RUnlock(entryPointID)
-	useAcorn := h.acornEnabled(allowList)
+
 	isMultivec := h.multivector.Load() && !h.muvera.Load()
-	if useAcorn {
-		if entryPointNode == nil {
-			strategy = RRE
-		} else {
-			counter := float32(0)
-			entryPointNode.Lock()
-			if entryPointNode.connections.Layers() < 1 {
-				strategy = ACORN
-			} else {
-				iterator := entryPointNode.connections.ElementIterator(0)
-				for iterator.Next() {
-					_, value := iterator.Current()
-					if isMultivec {
-						if h.compressed.Load() {
-							value, _ = h.compressor.GetKeys(value)
-						} else {
-							value, _ = h.cache.GetKeys(value)
-						}
-					}
-					if allowList.Contains(value) {
-						counter++
-					}
-				}
-				entryPointNode.Unlock()
-				if counter/float32(h.nodes[entryPointID].connections.LenAtLayer(0)) > float32(h.acornFilterRatio) {
-					strategy = RRE
-				} else {
-					strategy = ACORN
-				}
-			}
-		}
-	} else {
-		strategy = SWEEPING
+	strategy := h.setStrategy(entryPointID, allowList, isMultivec)
+
+	if err := h.plantSeeds(strategy, allowList, isMultivec, ef, entryPointID, compressorDistancer, searchVec, eps); err != nil {
+		return nil, nil, err
 	}
 
-	if allowList != nil && useAcorn {
-		it := allowList.Iterator()
-		idx, ok := it.Next()
-		h.shardedNodeLocks.RLockAll()
-		if !isMultivec {
-			for ok && h.nodes[idx] == nil && h.hasTombstone(idx) {
-				idx, ok = it.Next()
-			}
-		} else {
-			_, exists := h.docIDVectors[idx]
-			for ok && !exists {
-				idx, ok = it.Next()
-				_, exists = h.docIDVectors[idx]
-			}
-		}
-		h.shardedNodeLocks.RUnlockAll()
-
-		entryPointDistance, _ := h.distToNode(compressorDistancer, idx, searchVec)
-		eps.Insert(idx, entryPointDistance)
-	}
+	// search level zero
 	res, err := h.searchLayerByVectorWithDistancerWithStrategy(ctx, searchVec, eps, ef, 0, allowList, compressorDistancer, strategy)
 	if err != nil {
 		return nil, nil, errors.Wrapf(err, "knn search: search layer at level %d", 0)

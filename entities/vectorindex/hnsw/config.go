@@ -32,8 +32,9 @@ const (
 	DefaultSkip                   = false
 	DefaultFlatSearchCutoff       = 40000
 
-	FilterStrategySweeping = "sweeping"
-	FilterStrategyAcorn    = "acorn"
+	FilterStrategySweeping       = "sweeping"
+	FilterStrategyAcorn          = "acorn"
+	FilterStrategyAcornSmartSeed = "acorn_smart_seed"
 
 	DefaultFilterStrategy = FilterStrategyAcorn
 
@@ -279,8 +280,8 @@ func (u *UserConfig) validate() error {
 		))
 	}
 
-	if u.FilterStrategy != FilterStrategySweeping && u.FilterStrategy != FilterStrategyAcorn {
-		errMsgs = append(errMsgs, "filterStrategy must be either 'sweeping' or 'acorn'")
+	if u.FilterStrategy != FilterStrategySweeping && u.FilterStrategy != FilterStrategyAcorn && u.FilterStrategy != FilterStrategyAcornSmartSeed {
+		errMsgs = append(errMsgs, "filterStrategy must be either 'sweeping', 'acorn' or 'acorn_smart_seed'")
 	}
 
 	if len(errMsgs) > 0 {

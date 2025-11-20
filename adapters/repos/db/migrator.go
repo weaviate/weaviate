@@ -170,6 +170,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 			InvertedSorterDisabled:                       m.db.config.InvertedSorterDisabled,
 			MaintenanceModeEnabled:                       m.db.config.MaintenanceModeEnabled,
 			SPFreshEnabled:                               m.db.config.SPFreshEnabled,
+			AcornSmartSeed:                               m.db.config.AcornSmartSeed,
 		},
 		// no backward-compatibility check required, since newly added classes will
 		// always have the field set

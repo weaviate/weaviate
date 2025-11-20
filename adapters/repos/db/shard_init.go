@@ -80,6 +80,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		usingBlockMaxWAND:               index.invertedIndexConfig.UsingBlockMaxWAND,
 		bitmapBufPool:                   bitmapBufPool,
 		SPFreshEnabled:                  index.SPFreshEnabled,
+		AcornSmartSeed:                  index.AcornSmartSeed,
 	}
 
 	index.metrics.UpdateShardStatus("", storagestate.StatusLoading.String())
