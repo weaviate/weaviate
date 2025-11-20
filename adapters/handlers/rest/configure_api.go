@@ -969,13 +969,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 				Errorf("failed to gracefully shutdown")
 		}
 
-		if err := appState.InternalGrpcServer.Close(ctx); err != nil {
-			appState.Logger.
-				WithError(err).
-				WithField("action", "shutdown internal grpc server").
-				Errorf("failed to gracefully shutdown")
-		}
-
 		if err := appState.ClusterService.Close(ctx); err != nil {
 			appState.Logger.
 				WithError(err).
