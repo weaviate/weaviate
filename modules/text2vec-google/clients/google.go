@@ -120,14 +120,28 @@ func (v *google) VectorizeQuery(ctx context.Context,
 }
 
 func (v *google) GetVectorizerRateLimit(ctx context.Context, config moduletools.ClassConfig) *modulecomponents.RateLimits {
-	return &modulecomponents.RateLimits{
-		LimitRequests:     30000,
-		LimitTokens:       1000000,
-		RemainingRequests: 30000,
-		RemainingTokens:   1000000,
-		ResetRequests:     time.Now().Add(time.Duration(61) * time.Second),
-		ResetTokens:       time.Now().Add(time.Duration(61) * time.Second),
+	execAfterRequestFunction := func(limits *modulecomponents.RateLimits, tokensUsed int, deductRequest bool) {
+		// refresh is after 60 seconds but leave a bit of room for errors. Otherwise, we only deduct the request that just happened
+		if limits.LastOverwrite.Add(61 * time.Second).After(time.Now()) {
+			if deductRequest {
+				limits.RemainingRequests -= 1
+			}
+			limits.RemainingTokens -= tokensUsed
+			return
+		}
+
+		limits.LimitRequests = 30000
+		limits.LimitTokens = 1000000
+		limits.RemainingRequests = 30000
+		limits.RemainingTokens = 1000000
+		limits.ResetRequests = time.Now().Add(time.Duration(61) * time.Second)
+		limits.ResetTokens = time.Now().Add(time.Duration(61) * time.Second)
 	}
+
+	initialRL := &modulecomponents.RateLimits{AfterRequestFunction: execAfterRequestFunction, LastOverwrite: time.Now().Add(-61 * time.Minute)}
+	initialRL.ResetAfterRequestFunction(0) // set initial values
+
+	return initialRL
 }
 
 func (v *google) GetApiKeyHash(ctx context.Context, config moduletools.ClassConfig) [32]byte {
