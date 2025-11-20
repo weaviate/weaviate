@@ -126,6 +126,9 @@ func (v *BatchTextVectorizer[T]) objects(ctx context.Context, objects []*models.
 			return nil, fmt.Errorf("failed to vectorize all %v texts got only %v embeddings", len(inputs), len(res.Vector))
 		}
 	}
+	if len(inputs) != len(res.Vector) {
+		return nil, fmt.Errorf("number of generated embeddings: %v doesn't match number of inputs: %v", len(res.Vector), len(inputs))
+	}
 
 	results := make([]T, len(batchObjects))
 	for i := range batchObjects {
