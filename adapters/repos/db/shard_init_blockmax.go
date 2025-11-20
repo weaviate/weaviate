@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/usecases/schema"
@@ -32,7 +33,10 @@ func (s *Shard) areAllSearchableBucketsBlockMax() bool {
 	return true
 }
 
-func structToMap(obj interface{}) (newMap map[string]interface{}) {
+func structToMap(obj interface{}) (newMap interface{}) {
+	if obj == nil {
+		return nil
+	}
 	data, _ := json.Marshal(obj)  // Convert to a json string
 	json.Unmarshal(data, &newMap) // Convert to a map
 	return newMap
@@ -43,10 +47,12 @@ func updateToBlockMaxInvertedIndexConfig(ctx context.Context, sc *schema.Manager
 	if class == nil {
 		return fmt.Errorf("class %q not found", className)
 	}
+	_, isSet := os.LookupEnv("REINDEX_MAP_TO_BLOCKMAX_FORCE_RETRY")
 	// nothing to update
-	if class.InvertedIndexConfig.UsingBlockMaxWAND {
+	if class.InvertedIndexConfig.UsingBlockMaxWAND && !isSet {
 		return nil
 	}
+
 	class.ModuleConfig = structToMap(class.ModuleConfig)
 	class.VectorIndexConfig = structToMap(class.VectorIndexConfig)
 	class.ShardingConfig = structToMap(class.ShardingConfig)
