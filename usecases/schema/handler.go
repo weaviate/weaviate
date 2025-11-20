@@ -146,8 +146,11 @@ type Handler struct {
 	clusterState            clusterState
 	configParser            VectorConfigParser
 	invertedConfigValidator InvertedConfigValidator
-	parser                  Parser
-	classGetter             *ClassGetter
+
+	// scaleOut scaleOut
+
+	parser      Parser
+	classGetter *ClassGetter
 
 	asyncIndexingEnabled bool
 }
