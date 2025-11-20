@@ -118,9 +118,11 @@ func (g *GCSStorage) UploadUsageData(ctx context.Context, usage *types.Report) e
 	}, func(err error) bool {
 		var gerr *googleapi.Error
 		if errors.As(err, &gerr) {
+			g.Logger.WithField("gcs_upload", "retry").Infof("retrying due to: %s code: %v", gerr.Message, gerr.Code)
 			// retry only on those given error codes
 			return gerr.Code == 401 || gerr.Code == 429 || (gerr.Code >= 500 && gerr.Code < 600)
 		}
+		g.Logger.WithField("gcs_upload", "retry").Infof("no need to retry error: %v", err)
 		return false
 	}).Media(bytes.NewReader(data)).Context(ctx).Do()
 	if err != nil {
