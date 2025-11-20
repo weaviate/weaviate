@@ -30,9 +30,9 @@ func testGenerativeFriendliAI(host string) func(t *testing.T) {
 		class := planets.BaseClass("PlanetsGenerativeTest")
 		class.VectorConfig = map[string]models.VectorConfig{
 			"description": {
-				Vectorizer: map[string]interface{}{
-					"text2vec-transformers": map[string]interface{}{
-						"properties":         []interface{}{"description"},
+				Vectorizer: map[string]any{
+					"text2vec-model2vec": map[string]any{
+						"properties":         []any{"description"},
 						"vectorizeClassName": false,
 					},
 				},
@@ -59,8 +59,8 @@ func testGenerativeFriendliAI(host string) func(t *testing.T) {
 		}
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
-				class.ModuleConfig = map[string]interface{}{
-					"generative-friendliai": map[string]interface{}{
+				class.ModuleConfig = map[string]any{
+					"generative-friendliai": map[string]any{
 						"model":              tt.generativeModel,
 						"X-Friendli-Baseurl": tt.headerURL,
 					},

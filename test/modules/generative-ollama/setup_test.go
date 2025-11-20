@@ -44,7 +44,7 @@ func createSingleNodeEnvironment(ctx context.Context,
 
 func composeModules() (composeModules *docker.Compose) {
 	composeModules = docker.New().
-		WithText2VecTransformers().
+		WithText2VecModel2Vec().
 		WithGenerativeOllama()
 	return composeModules
 }
