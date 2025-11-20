@@ -512,6 +512,8 @@ jobs:
             test: "--only-module-multi2vec-aws"
           - name: "text2vec-openai"
             test: "--only-module-text2vec-openai"
+          - name: "text2vec-cohere"
+            test: "--only-module-text2vec-cohere"
     steps:
       - uses: actions/checkout@v5
         with:

@@ -190,7 +190,7 @@ func (s *SPFresh) UpdateUserConfig(updated schemaConfig.VectorIndexConfig, callb
 	return nil
 }
 
-func (s *SPFresh) Drop(ctx context.Context) error {
+func (s *SPFresh) Drop(ctx context.Context, keepFiles bool) error {
 	_ = s.Shutdown(ctx)
 	// Shard::drop will take care of handling store buckets
 	return nil
