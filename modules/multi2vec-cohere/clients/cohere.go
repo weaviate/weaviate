@@ -55,10 +55,11 @@ func (v *vectorizer) vectorize(ctx context.Context,
 	settings := ent.NewClassSettings(cfg)
 	if len(texts) > 0 {
 		textEmbeddings, err := v.client.Vectorize(ctx, texts, cohere.Settings{
-			Model:     settings.Model(),
-			Truncate:  settings.Truncate(),
-			BaseURL:   settings.BaseURL(),
-			InputType: cohere.SearchDocument,
+			Model:      settings.Model(),
+			Truncate:   settings.Truncate(),
+			BaseURL:    settings.BaseURL(),
+			InputType:  cohere.SearchDocument,
+			Dimensions: settings.Dimensions(),
 		})
 		if err != nil {
 			return nil, err
@@ -67,9 +68,10 @@ func (v *vectorizer) vectorize(ctx context.Context,
 	}
 	if len(images) > 0 {
 		imageEmbeddings, err := v.client.Vectorize(ctx, images, cohere.Settings{
-			Model:     settings.Model(),
-			BaseURL:   settings.BaseURL(),
-			InputType: cohere.Image,
+			Model:      settings.Model(),
+			BaseURL:    settings.BaseURL(),
+			InputType:  cohere.Image,
+			Dimensions: settings.Dimensions(),
 		})
 		if err != nil {
 			return nil, err

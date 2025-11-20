@@ -36,12 +36,13 @@ const (
 )
 
 type embeddingsRequest struct {
-	Texts          []string        `json:"texts,omitempty"`
-	Images         []string        `json:"images,omitempty"`
-	Model          string          `json:"model,omitempty"`
-	InputType      InputType       `json:"input_type,omitempty"`
-	EmbeddingTypes []embeddingType `json:"embedding_types,omitempty"`
-	Truncate       string          `json:"truncate,omitempty"`
+	Texts           []string        `json:"texts,omitempty"`
+	Images          []string        `json:"images,omitempty"`
+	Model           string          `json:"model,omitempty"`
+	InputType       InputType       `json:"input_type,omitempty"`
+	EmbeddingTypes  []embeddingType `json:"embedding_types,omitempty"`
+	Truncate        string          `json:"truncate,omitempty"`
+	OutputDimension *int64          `json:"output_dimension,omitempty"`
 }
 
 type billedUnits struct {
@@ -88,10 +89,11 @@ type embeddingType string
 const float embeddingType = "float"
 
 type Settings struct {
-	Model     string
-	Truncate  string
-	BaseURL   string
-	InputType InputType
+	Model      string
+	Truncate   string
+	BaseURL    string
+	InputType  InputType
+	Dimensions *int64
 }
 
 func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *Client {
@@ -170,18 +172,20 @@ func (c *Client) getEmbeddingRequest(inputs []string, settings Settings) embeddi
 			}
 		}
 		return embeddingsRequest{
-			Images:         images,
-			Model:          settings.Model,
-			InputType:      settings.InputType,
-			EmbeddingTypes: []embeddingType{float},
+			Images:          images,
+			Model:           settings.Model,
+			InputType:       settings.InputType,
+			EmbeddingTypes:  []embeddingType{float},
+			OutputDimension: settings.Dimensions,
 		}
 	default:
 		return embeddingsRequest{
-			Texts:          inputs,
-			Model:          settings.Model,
-			Truncate:       settings.Truncate,
-			InputType:      settings.InputType,
-			EmbeddingTypes: []embeddingType{float},
+			Texts:           inputs,
+			Model:           settings.Model,
+			Truncate:        settings.Truncate,
+			InputType:       settings.InputType,
+			EmbeddingTypes:  []embeddingType{float},
+			OutputDimension: settings.Dimensions,
 		}
 	}
 }
