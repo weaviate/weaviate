@@ -90,9 +90,6 @@ type quantizedVectorsCompressor[T byte | uint64] struct {
 	logger            logrus.FieldLogger
 	targetVector      string
 	makeBucketOptions lsmkv.MakeBucketOptions
-	// minMMapSize       int64
-	// maxWalReuseSize   int64
-	// allocChecker      memwatch.AllocChecker
 }
 
 func (compressor *quantizedVectorsCompressor[T]) Drop() error {
@@ -422,8 +419,6 @@ func NewHNSWPQCompressor(
 	data [][]float32,
 	store *lsmkv.Store,
 	makeBucketOptions lsmkv.MakeBucketOptions,
-	// minMMapSize int64,
-	// maxWalReuseSize int64,
 	allocChecker memwatch.AllocChecker,
 	targetVector string,
 ) (VectorCompressor, error) {
@@ -439,9 +434,6 @@ func NewHNSWPQCompressor(
 		logger:            logger,
 		targetVector:      targetVector,
 		makeBucketOptions: makeBucketOptions,
-		// minMMapSize:       minMMapSize,
-		// maxWalReuseSize:   maxWalReuseSize,
-		// allocChecker:      allocChecker,
 	}
 	if err := pqVectorsCompressor.initCompressedStore(); err != nil {
 		return nil, err
@@ -466,8 +458,6 @@ func RestoreHNSWPQCompressor(
 	encoders []PQEncoder,
 	store *lsmkv.Store,
 	makeBucketOptions lsmkv.MakeBucketOptions,
-	// minMMapSize int64,
-	// maxWalReuseSize int64,
 	allocChecker memwatch.AllocChecker,
 	targetVector string,
 ) (VectorCompressor, error) {
@@ -483,9 +473,6 @@ func RestoreHNSWPQCompressor(
 		logger:            logger,
 		targetVector:      targetVector,
 		makeBucketOptions: makeBucketOptions,
-		// minMMapSize:       minMMapSize,
-		// maxWalReuseSize:   maxWalReuseSize,
-		// allocChecker:      allocChecker,
 	}
 	if err := pqVectorsCompressor.initCompressedStore(); err != nil {
 		return nil, err
@@ -505,8 +492,6 @@ func NewHNSWPQMultiCompressor(
 	data [][]float32,
 	store *lsmkv.Store,
 	makeBucketOptions lsmkv.MakeBucketOptions,
-	// minMMapSize int64,
-	// maxWalReuseSize int64,
 	allocChecker memwatch.AllocChecker,
 	targetVector string,
 ) (VectorCompressor, error) {
@@ -522,9 +507,6 @@ func NewHNSWPQMultiCompressor(
 		logger:            logger,
 		targetVector:      targetVector,
 		makeBucketOptions: makeBucketOptions,
-		// minMMapSize:       minMMapSize,
-		// maxWalReuseSize:   maxWalReuseSize,
-		// allocChecker:      allocChecker,
 	}
 	if err := pqVectorsCompressor.initCompressedStore(); err != nil {
 		return nil, err
@@ -549,8 +531,6 @@ func RestoreHNSWPQMultiCompressor(
 	encoders []PQEncoder,
 	store *lsmkv.Store,
 	makeBucketOptions lsmkv.MakeBucketOptions,
-	// minMMapSize int64,
-	// maxWalReuseSize int64,
 	allocChecker memwatch.AllocChecker,
 	targetVector string,
 ) (VectorCompressor, error) {
@@ -566,9 +546,6 @@ func RestoreHNSWPQMultiCompressor(
 		logger:            logger,
 		targetVector:      targetVector,
 		makeBucketOptions: makeBucketOptions,
-		// minMMapSize:       minMMapSize,
-		// maxWalReuseSize:   maxWalReuseSize,
-		// allocChecker:      allocChecker,
 	}
 	if err := pqVectorsCompressor.initCompressedStore(); err != nil {
 		return nil, err
@@ -585,8 +562,6 @@ func NewBQCompressor(
 	logger logrus.FieldLogger,
 	store *lsmkv.Store,
 	makeBucketOptions lsmkv.MakeBucketOptions,
-	// minMMapSize int64,
-	// maxWalReuseSize int64,
 	allocChecker memwatch.AllocChecker,
 	targetVector string,
 ) (VectorCompressor, error) {
@@ -599,9 +574,6 @@ func NewBQCompressor(
 		logger:            logger,
 		targetVector:      targetVector,
 		makeBucketOptions: makeBucketOptions,
-		// minMMapSize:       minMMapSize,
-		// maxWalReuseSize:   maxWalReuseSize,
-		// allocChecker:      allocChecker,
 	}
 	if err := bqVectorsCompressor.initCompressedStore(); err != nil {
 		return nil, err
@@ -618,8 +590,6 @@ func NewBQMultiCompressor(
 	logger logrus.FieldLogger,
 	store *lsmkv.Store,
 	makeBucketOptions lsmkv.MakeBucketOptions,
-	// minMMapSize int64,
-	// maxWalReuseSize int64,
 	allocChecker memwatch.AllocChecker,
 	targetVector string,
 ) (VectorCompressor, error) {
@@ -632,9 +602,6 @@ func NewBQMultiCompressor(
 		logger:            logger,
 		targetVector:      targetVector,
 		makeBucketOptions: makeBucketOptions,
-		// minMMapSize:       minMMapSize,
-		// maxWalReuseSize:   maxWalReuseSize,
-		// allocChecker:      allocChecker,
 	}
 	if err := bqVectorsCompressor.initCompressedStore(); err != nil {
 		return nil, err
@@ -652,8 +619,6 @@ func NewHNSWSQCompressor(
 	data [][]float32,
 	store *lsmkv.Store,
 	makeBucketOptions lsmkv.MakeBucketOptions,
-	// minMMapSize int64,
-	// maxWalReuseSize int64,
 	allocChecker memwatch.AllocChecker,
 	targetVector string,
 ) (VectorCompressor, error) {
@@ -666,9 +631,6 @@ func NewHNSWSQCompressor(
 		logger:            logger,
 		targetVector:      targetVector,
 		makeBucketOptions: makeBucketOptions,
-		// minMMapSize:       minMMapSize,
-		// maxWalReuseSize:   maxWalReuseSize,
-		// allocChecker:      allocChecker,
 	}
 	if err := sqVectorsCompressor.initCompressedStore(); err != nil {
 		return nil, err
@@ -688,8 +650,6 @@ func RestoreHNSWSQCompressor(
 	dimensions uint16,
 	store *lsmkv.Store,
 	makeBucketOptions lsmkv.MakeBucketOptions,
-	// minMMapSize int64,
-	// maxWalReuseSize int64,
 	allocChecker memwatch.AllocChecker,
 	targetVector string,
 ) (VectorCompressor, error) {
@@ -705,9 +665,6 @@ func RestoreHNSWSQCompressor(
 		logger:            logger,
 		targetVector:      targetVector,
 		makeBucketOptions: makeBucketOptions,
-		// minMMapSize:       minMMapSize,
-		// maxWalReuseSize:   maxWalReuseSize,
-		// allocChecker:      allocChecker,
 	}
 	if err := sqVectorsCompressor.initCompressedStore(); err != nil {
 		return nil, err
@@ -725,8 +682,6 @@ func NewHNSWSQMultiCompressor(
 	data [][]float32,
 	store *lsmkv.Store,
 	makeBucketOptions lsmkv.MakeBucketOptions,
-	// minMMapSize int64,
-	// maxWalReuseSize int64,
 	allocChecker memwatch.AllocChecker,
 	targetVector string,
 ) (VectorCompressor, error) {
@@ -739,9 +694,6 @@ func NewHNSWSQMultiCompressor(
 		logger:            logger,
 		targetVector:      targetVector,
 		makeBucketOptions: makeBucketOptions,
-		// minMMapSize:       minMMapSize,
-		// maxWalReuseSize:   maxWalReuseSize,
-		// allocChecker:      allocChecker,
 	}
 	if err := sqVectorsCompressor.initCompressedStore(); err != nil {
 		return nil, err
@@ -761,8 +713,6 @@ func RestoreHNSWSQMultiCompressor(
 	dimensions uint16,
 	store *lsmkv.Store,
 	makeBucketOptions lsmkv.MakeBucketOptions,
-	// minMMapSize int64,
-	// maxWalReuseSize int64,
 	allocChecker memwatch.AllocChecker,
 	targetVector string,
 ) (VectorCompressor, error) {
@@ -778,9 +728,6 @@ func RestoreHNSWSQMultiCompressor(
 		logger:            logger,
 		targetVector:      targetVector,
 		makeBucketOptions: makeBucketOptions,
-		// minMMapSize:       minMMapSize,
-		// maxWalReuseSize:   maxWalReuseSize,
-		// allocChecker:      allocChecker,
 	}
 	if err := sqVectorsCompressor.initCompressedStore(); err != nil {
 		return nil, err

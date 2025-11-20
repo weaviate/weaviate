@@ -196,14 +196,12 @@ type hnsw struct {
 	visitedListPoolMaxSize int
 
 	// only used for multivector mode
-	multivector   atomic.Bool
-	muvera        atomic.Bool
-	muveraEncoder *multivector.MuveraEncoder
-	docIDVectors  map[uint64][]uint64
-	vecIDcounter  uint64
-	maxDocID      uint64
-	// MinMMapSize       int64
-	// MaxWalReuseSize   int64
+	multivector       atomic.Bool
+	muvera            atomic.Bool
+	muveraEncoder     *multivector.MuveraEncoder
+	docIDVectors      map[uint64][]uint64
+	vecIDcounter      uint64
+	maxDocID          uint64
 	makeBucketOptions lsmkv.MakeBucketOptions
 
 	fs common.FS
@@ -360,10 +358,8 @@ func New(cfg Config, uc ent.UserConfig,
 		allocChecker:           cfg.AllocChecker,
 		visitedListPoolMaxSize: cfg.VisitedListPoolMaxSize,
 
-		docIDVectors:  make(map[uint64][]uint64),
-		muveraEncoder: muveraEncoder,
-		// MinMMapSize:       cfg.MinMMapSize,
-		// MaxWalReuseSize:   cfg.MaxWalReuseSize,
+		docIDVectors:      make(map[uint64][]uint64),
+		muveraEncoder:     muveraEncoder,
 		makeBucketOptions: cfg.MakeBucketOptions,
 		fs:                common.NewOSFS(),
 	}
@@ -377,11 +373,11 @@ func New(cfg Config, uc ent.UserConfig,
 		if uc.Multivector.Enabled && !uc.Multivector.MuveraConfig.Enabled {
 			index.compressor, err = compressionhelpers.NewBQMultiCompressor(
 				index.distancerProvider, uc.VectorCacheMaxObjects, cfg.Logger, store,
-				/*cfg.MinMMapSize, cfg.MaxWalReuseSize,*/ cfg.MakeBucketOptions, cfg.AllocChecker, index.getTargetVector())
+				cfg.MakeBucketOptions, cfg.AllocChecker, index.getTargetVector())
 		} else {
 			index.compressor, err = compressionhelpers.NewBQCompressor(
 				index.distancerProvider, uc.VectorCacheMaxObjects, cfg.Logger, store,
-				/*cfg.MinMMapSize, cfg.MaxWalReuseSize,*/ cfg.MakeBucketOptions, cfg.AllocChecker, index.getTargetVector())
+				cfg.MakeBucketOptions, cfg.AllocChecker, index.getTargetVector())
 		}
 		if err != nil {
 			return nil, err
