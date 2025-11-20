@@ -1426,7 +1426,6 @@ func parseClusterConfig() (cluster.Config, error) {
 	cfg.Localhost = entcfg.Enabled(os.Getenv("CLUSTER_IN_LOCALHOST"))
 	gossipBind, gossipBindSet := os.LookupEnv("CLUSTER_GOSSIP_BIND_PORT")
 	dataBind, dataBindSet := os.LookupEnv("CLUSTER_DATA_BIND_PORT")
-	dataBindGrpc, dataBindGrpcSet := os.LookupEnv("CLUSTER_DATA_BIND_GRPC_PORT")
 
 	if gossipBindSet {
 		asInt, err := strconv.Atoi(gossipBind)
@@ -1448,18 +1447,6 @@ func parseClusterConfig() (cluster.Config, error) {
 		// it is convention in this server that the data bind point is
 		// equal to the gossip bind port + 1
 		cfg.DataBindPort = cfg.GossipBindPort + 1
-	}
-
-	if dataBindGrpcSet {
-		asInt, err := strconv.Atoi(dataBindGrpc)
-		if err != nil {
-			return cfg, fmt.Errorf("parse CLUSTER_DATA_BIND_GRPC_PORT as int: %w", err)
-		}
-		cfg.DataBindGrpcPort = asInt
-	} else {
-		// it is convention in this server that the data gRPC bind point is
-		// equal to the data bind port + 1
-		cfg.DataBindGrpcPort = cfg.DataBindPort + 1
 	}
 
 	cfg.IgnoreStartupSchemaSync = entcfg.Enabled(

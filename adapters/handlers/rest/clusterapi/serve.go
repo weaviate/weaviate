@@ -17,9 +17,13 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	sentryhttp "github.com/getsentry/sentry-go/http"
+	"golang.org/x/net/http2"
+	"golang.org/x/net/http2/h2c"
 
+	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/types"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -30,6 +34,7 @@ type Server struct {
 	server            *http.Server
 	appState          *state.State
 	replicatedIndices *replicatedIndices
+	grpc              *grpc.Server
 }
 
 // Ensure Server implements interfaces.ClusterServer
@@ -73,8 +78,17 @@ func NewServer(appState *state.State) *Server {
 
 	mux.Handle("/", index())
 
+	grpcServer := grpc.NewServer(appState)
+
 	var handler http.Handler
-	handler = mux
+	// Multiplexing handler: Routes gRPC vs. REST (HTTP)
+	handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.ProtoMajor == 2 && strings.HasPrefix(r.Header.Get("content-type"), "application/grpc") {
+			grpcServer.ServeHTTP(w, r) // Route to gRPC
+			return
+		}
+		mux.ServeHTTP(w, r) // Route to REST mux (handles HTTP/1.1 or plain HTTP/2)
+	})
 	if appState.ServerConfig.Config.Sentry.Enabled {
 		// Wrap the default mux with Sentry to capture panics, report errors and
 		// measure performance.
@@ -95,13 +109,20 @@ func NewServer(appState *state.State) *Server {
 		)
 	}
 
+	// Configure HTTP/2 server
+	h2s := &http2.Server{
+		MaxConcurrentStreams: 250,
+		MaxReadFrameSize:     1048576,
+	}
+
 	return &Server{
 		server: &http.Server{
 			Addr:    fmt.Sprintf(":%d", port),
-			Handler: handler,
+			Handler: h2c.NewHandler(handler, h2s),
 		},
 		appState:          appState,
 		replicatedIndices: replicatedIndices,
+		grpc:              grpcServer,
 	}
 }
 
@@ -136,6 +157,8 @@ func (s *Server) Close(ctx context.Context) error {
 			Error("could not stop server gracefully")
 		return s.server.Close()
 	}
+	// Finally, stop the gRPC server
+	s.grpc.GracefulStop()
 	return nil
 }
 

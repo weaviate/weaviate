@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package clusterapi
+package grpc
 
 import (
 	"context"
@@ -19,7 +19,7 @@ import (
 	"net"
 	"strings"
 
-	pb "github.com/weaviate/weaviate/adapters/handlers/grpc/clusterapi/proto/protocol"
+	pb "github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc/proto/protocol"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	authErrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
@@ -65,7 +65,7 @@ func NewServer(state *state.State, options ...grpc.ServerOption) *Server {
 
 func (s *Server) Serve() error {
 	lis, err := net.Listen("tcp", fmt.Sprintf(":%d",
-		s.state.ServerConfig.Config.Cluster.DataBindGrpcPort))
+		s.state.ServerConfig.Config.Cluster.DataBindPort))
 	if err != nil {
 		return err
 	}

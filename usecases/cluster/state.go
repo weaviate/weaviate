@@ -73,7 +73,6 @@ type Config struct {
 	Hostname                string     `json:"hostname" yaml:"hostname"`
 	GossipBindPort          int        `json:"gossipBindPort" yaml:"gossipBindPort"`
 	DataBindPort            int        `json:"dataBindPort" yaml:"dataBindPort"`
-	DataBindGrpcPort        int        `json:"dataBindGrpcPort" yaml:"dataBindGrpcPort"`
 	Join                    string     `json:"join" yaml:"join"`
 	IgnoreStartupSchemaSync bool       `json:"ignoreStartupSchemaSync" yaml:"ignoreStartupSchemaSync"`
 	SkipSchemaSyncRepair    bool       `json:"skipSchemaSyncRepair" yaml:"skipSchemaSyncRepair"`
@@ -172,8 +171,7 @@ func Init(userConfig Config, raftTimeoutsMultiplier int, dataPath string, nonSto
 			dataPath: dataPath,
 			log:      logger,
 			metadata: NodeMetadata{
-				RestPort: userConfig.DataBindPort,
-				GrpcPort: userConfig.DataBindGrpcPort,
+				DataPort: userConfig.DataBindPort,
 			},
 		},
 	}
@@ -286,21 +284,7 @@ func (s *State) dataPort(m *memberlist.Node) int {
 		return int(m.Port) + 1 // the convention that it's 1 higher than the gossip port
 	}
 
-	return meta.RestPort
-}
-
-func (s *State) grpcPort(m *memberlist.Node) int {
-	meta, err := nodeMetadata(m)
-	if err != nil {
-		s.delegate.log.WithFields(logrus.Fields{
-			"action": "grpc_port_fallback",
-			"node":   m.Name,
-		}).WithError(err).Debug("unable to get node metadata, falling back to default gRPC port")
-
-		return int(m.Port) + 2 // the convention that it's 2 higher than the gossip port
-	}
-
-	return meta.GrpcPort
+	return meta.DataPort
 }
 
 // AllHostnames for live members, including self.
@@ -474,7 +458,7 @@ func (s *State) Shutdown() error {
 func (s *State) NodeGRPCPort(nodeID string) (int, error) {
 	for _, mem := range s.list.Members() {
 		if mem.Name == nodeID {
-			return s.grpcPort(mem), nil
+			return s.dataPort(mem), nil
 		}
 	}
 	return 0, fmt.Errorf("node not found: %s", nodeID)

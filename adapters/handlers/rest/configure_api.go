@@ -46,7 +46,6 @@ import (
 
 	"github.com/weaviate/fgprof"
 	"github.com/weaviate/weaviate/adapters/clients"
-	grpcClusterApi "github.com/weaviate/weaviate/adapters/handlers/grpc/clusterapi"
 	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/batch"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/authz"
 	restClusterApi "github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
@@ -633,9 +632,6 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 
 	appState.InternalServer = restClusterApi.NewServer(appState)
 	enterrors.GoWrapper(func() { appState.InternalServer.Serve() }, appState.Logger)
-
-	appState.InternalGrpcServer = grpcClusterApi.NewServer(appState)
-	enterrors.GoWrapper(func() { appState.InternalGrpcServer.Serve() }, appState.Logger)
 
 	vectorRepo.SetSchemaGetter(schemaManager)
 	explorer.SetSchemaGetter(schemaManager)
