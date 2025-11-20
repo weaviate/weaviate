@@ -37,12 +37,22 @@ const (
 	LegacyName = "text2vec-palm"
 )
 
+var batchSettings = batch.Settings{
+	TokenMultiplier:    1.3,
+	MaxObjectsPerBatch: 150,
+	MaxTimePerBatch:    float64(10),
+	MaxTokensPerBatch:  func(cfg moduletools.ClassConfig) int { return 20000 },
+	HasTokenLimit:      true,
+	ReturnsRateLimit:   false,
+}
+
 func New() *GoogleModule {
 	return &GoogleModule{}
 }
 
 type GoogleModule struct {
-	vectorizer                   text2vecbase.TextVectorizer[[]float32]
+	vectorizer                   text2vecbase.TextVectorizerBatch[[]float32]
+	vectorizerWithTitleProperty  text2vecbase.TextVectorizer[[]float32]
 	metaProvider                 text2vecbase.MetaProvider
 	graphqlProvider              modulecapabilities.GraphQLArguments
 	searcher                     modulecapabilities.Searcher[[]float32]
@@ -108,7 +118,13 @@ func (m *GoogleModule) initVectorizer(ctx context.Context, timeout time.Duration
 	useGoogleAuth := entcfg.Enabled(os.Getenv("USE_GOOGLE_AUTH"))
 	client := clients.New(apiKey, useGoogleAuth, timeout, logger)
 
-	m.vectorizer = vectorizer.New(client)
+	m.vectorizerWithTitleProperty = vectorizer.New(client)
+
+	m.vectorizer = text2vecbase.New(client,
+		batch.NewBatchVectorizer(client, 50*time.Second, batchSettings, logger, m.Name()),
+		batch.ReturnBatchTokenizerWithAltNames(batchSettings.TokenMultiplier, m.Name(), m.AltNames(), vectorizer.LowerCaseInput),
+	)
+
 	m.metaProvider = client
 
 	return nil
@@ -127,11 +143,17 @@ func (m *GoogleModule) RootHandler() http.Handler {
 func (m *GoogleModule) VectorizeObject(ctx context.Context,
 	obj *models.Object, cfg moduletools.ClassConfig,
 ) ([]float32, models.AdditionalProperties, error) {
-	return m.vectorizer.Object(ctx, obj, cfg)
+	icheck := vectorizer.NewClassSettings(cfg)
+	return m.vectorizer.Object(ctx, obj, cfg, icheck)
 }
 
 func (m *GoogleModule) VectorizeBatch(ctx context.Context, objs []*models.Object, skipObject []bool, cfg moduletools.ClassConfig) ([][]float32, []models.AdditionalProperties, map[int]error) {
-	return batch.VectorizeBatch(ctx, objs, skipObject, cfg, m.logger, m.vectorizer.Object)
+	icheck := vectorizer.NewClassSettings(cfg)
+	if icheck.TitleProperty() == "" {
+		vecs, errs := m.vectorizer.ObjectBatch(ctx, objs, skipObject, cfg)
+		return vecs, nil, errs
+	}
+	return batch.VectorizeBatch(ctx, objs, skipObject, cfg, m.logger, m.vectorizerWithTitleProperty.Object)
 }
 
 func (m *GoogleModule) MetaInfo() (map[string]interface{}, error) {
