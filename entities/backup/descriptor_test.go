@@ -12,6 +12,7 @@
 package backup
 
 import (
+	"encoding/json"
 	"sort"
 	"testing"
 	"time"
@@ -472,4 +473,29 @@ func TestShardDescriptorClear(t *testing.T) {
 	}
 	s.ClearTemporary()
 	assert.Equal(t, want, s)
+}
+
+func TestCompressionType(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected CompressionType
+		hasError bool
+	}{
+		{`""`, CompressionGZIP, false}, // empty defaults to gzip
+		{`"zstd"`, CompressionZSTD, false},
+		{`"gzip"`, CompressionGZIP, false},
+		{`"none"`, CompressionNone, false},
+		{`"invalid"`, CompressionType(""), true},
+	}
+
+	for _, tc := range tests {
+		var ct CompressionType
+		err := json.Unmarshal([]byte(tc.input), &ct)
+		if tc.hasError {
+			assert.Error(t, err)
+		} else {
+			assert.NoError(t, err)
+			assert.Equal(t, tc.expected, ct)
+		}
+	}
 }
