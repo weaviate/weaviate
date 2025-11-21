@@ -326,7 +326,10 @@ func (s *SPFresh) QueryVectorDistancer(queryVector []float32) common.QueryVector
 }
 
 func (s *SPFresh) CompressionStats() compressionhelpers.CompressionStats {
-	return s.quantizer.Stats()
+	if s.Compressed() {
+		return s.quantizer.Stats()
+	}
+	return compressionhelpers.UncompressedStats{}
 }
 
 func (s *SPFresh) Preload(id uint64, vector []float32) {
