@@ -1742,7 +1742,11 @@
           "enum": [
             "DefaultCompression",
             "BestSpeed",
-            "BestCompression"
+            "BestCompression",
+            "ZstdDefaultCompression",
+            "ZstdBestSpeed",
+            "ZstdBestCompression",
+            "NoCompression"
           ]
         }
       }

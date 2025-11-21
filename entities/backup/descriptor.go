@@ -12,6 +12,7 @@
 package backup
 
 import (
+	"encoding/json"
 	"fmt"
 	"time"
 )
@@ -46,6 +47,7 @@ type DistributedBackupDescriptor struct {
 	Leader                  string                     `json:"leader"`
 	Error                   string                     `json:"error"`
 	PreCompressionSizeBytes int64                      `json:"preCompressionSizeBytes"` // Size of this node's backup in bytes before compression
+	CompressionType         CompressionType            `json:"compressionType"`
 }
 
 // Len returns how many nodes exist in d
@@ -267,6 +269,46 @@ type ClassDescriptor struct {
 	PreCompressionSizeBytes int64              `json:"preCompressionSizeBytes"` // Size of this class's backup in bytes before compression
 }
 
+type CompressionType string
+
+const (
+	CompressionZSTD CompressionType = "zstd"
+	CompressionGZIP CompressionType = "gzip"
+	CompressionNone CompressionType = "none"
+)
+
+func (c *CompressionType) String() string { return string(*c) }
+
+func (c *CompressionType) IsValid() bool {
+	switch *c {
+	case CompressionZSTD, CompressionGZIP, CompressionNone:
+		return true
+	default:
+		return false
+	}
+}
+
+func (c *CompressionType) MarshalJSON() ([]byte, error) {
+	if !c.IsValid() {
+		return nil, fmt.Errorf("invalid compression type: %q", c)
+	}
+	return json.Marshal(string(*c))
+}
+
+// UnmarshalJSON validates incoming JSON.
+func (c *CompressionType) UnmarshalJSON(b []byte) error {
+	var s string
+	if err := json.Unmarshal(b, &s); err != nil {
+		return err
+	}
+	ct := CompressionType(s)
+	if !ct.IsValid() {
+		return fmt.Errorf("invalid compression type: %q", s)
+	}
+	*c = ct
+	return nil
+}
+
 // BackupDescriptor contains everything needed to completely restore a list of classes
 type BackupDescriptor struct {
 	StartedAt               time.Time         `json:"startedAt"`
@@ -280,6 +322,7 @@ type BackupDescriptor struct {
 	ServerVersion           string            `json:"serverVersion"`
 	Error                   string            `json:"error"`
 	PreCompressionSizeBytes int64             `json:"preCompressionSizeBytes"` // Size of this node's backup in bytes before compression
+	CompressionType         CompressionType   `json:"compressionType"`
 }
 
 // List all existing classes in d

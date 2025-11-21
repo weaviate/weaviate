@@ -24,6 +24,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/klauspost/compress/zstd"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 
@@ -198,7 +199,7 @@ func newUploader(sourcer Sourcer, rbacSourcer fsm.Snapshotter, dynUserSourcer fs
 		sourcer, rbacSourcer, dynUserSourcer, backend,
 		backupID,
 		newZipConfig(Compression{
-			Level:         DefaultCompression,
+			Level:         GzipDefaultCompression,
 			CPUPercentage: DefaultCPUPercentage,
 			ChunkSize:     DefaultChunkSize,
 		}),
@@ -486,7 +487,9 @@ func (u *uploader) compress(ctx context.Context,
 			shard.Chunk = chunk
 			shards = append(shards, shard.Name)
 			shard.ClearTemporary()
-			zip.gzw.Flush() // flush new shard
+			if zip.gzw != nil {
+				zip.gzw.Flush() // flush new shard
+			}
 			lastShardSize = zip.lastWritten() - lastShardSize
 			if zip.lastWritten()+lastShardSize > maxSize {
 				break
@@ -497,7 +500,45 @@ func (u *uploader) compress(ctx context.Context,
 
 	// consumer
 	eg.Go(func() error {
-		if _, err := u.backend.Write(ctx, chunkKey, overrideBucket, overridePath, reader); err != nil {
+		var reader2 io.ReadCloser
+		switch CompressionLevel(u.Level) {
+		case ZstdBestSpeed, ZstdDefaultCompression, ZstdBestCompression:
+			var zstdLevel zstd.EncoderLevel
+			switch CompressionLevel(u.Level) {
+			case ZstdBestSpeed:
+				zstdLevel = zstd.SpeedFastest
+			case ZstdDefaultCompression:
+				zstdLevel = zstd.SpeedDefault
+			case ZstdBestCompression:
+				zstdLevel = zstd.SpeedBetterCompression
+			default:
+				return fmt.Errorf("unknown compression level for zstd %d", u.Level)
+			}
+
+			pr, pw := io.Pipe()
+			reader2 = pr
+			// Start compressor goroutine: reads from original `reader`, writes zstd-compressed bytes to pipe writer.
+			enterrors.GoWrapper(func() {
+				enc, err := zstd.NewWriter(pw, zstd.WithEncoderLevel(zstdLevel))
+				if err != nil {
+					_ = pw.CloseWithError(err)
+					return
+				}
+				defer func() {
+					_ = enc.Close()
+					_ = pw.Close()
+				}()
+
+				if _, err := io.Copy(enc, reader); err != nil {
+					_ = pw.CloseWithError(err)
+				}
+				_ = reader.Close()
+			}, u.log)
+		default:
+			reader2 = reader
+		}
+
+		if _, err := u.backend.Write(ctx, chunkKey, overrideBucket, overridePath, reader2); err != nil {
 			return err
 		}
 		return nil
@@ -571,13 +612,13 @@ func (fw *fileWriter) WithPoolPercentage(p int) *fileWriter {
 func (fw *fileWriter) setMigrator(m func(classPath string) error) { fw.migrator = m }
 
 // Write downloads files and put them in the destination directory
-func (fw *fileWriter) Write(ctx context.Context, desc *backup.ClassDescriptor, overrideBucket, overridePath string) (err error) {
+func (fw *fileWriter) Write(ctx context.Context, desc *backup.ClassDescriptor, overrideBucket, overridePath string, compressionType backup.CompressionType) (err error) {
 	if len(desc.Shards) == 0 { // nothing to copy
 		return nil
 	}
 	classTempDir := path.Join(fw.tempDir, desc.Name)
 
-	if err := fw.writeTempFiles(ctx, classTempDir, overrideBucket, overridePath, desc); err != nil {
+	if err := fw.writeTempFiles(ctx, classTempDir, overrideBucket, overridePath, desc, compressionType); err != nil {
 		return fmt.Errorf("get files: %w", err)
 	}
 
@@ -593,7 +634,7 @@ func (fw *fileWriter) Write(ctx context.Context, desc *backup.ClassDescriptor, o
 // writeTempFiles writes class files into a temporary directory
 // temporary directory path = d.tempDir/className
 // Function makes sure that created files will be removed in case of an error
-func (fw *fileWriter) writeTempFiles(ctx context.Context, classTempDir, overrideBucket, overridePath string, desc *backup.ClassDescriptor) (err error) {
+func (fw *fileWriter) writeTempFiles(ctx context.Context, classTempDir, overrideBucket, overridePath string, desc *backup.ClassDescriptor, compressionType backup.CompressionType) (err error) {
 	if err := os.RemoveAll(classTempDir); err != nil {
 		return fmt.Errorf("remove %s: %w", classTempDir, err)
 	}
@@ -620,9 +661,21 @@ func (fw *fileWriter) writeTempFiles(ctx context.Context, classTempDir, override
 	for k := range desc.Chunks {
 		chunk := chunkKey(desc.Name, k)
 		eg.Go(func() error {
+			var ww io.WriteCloser
 			uz, w := NewUnzip(classTempDir)
+
+			// decompress zstd on the fly if needed
+			switch compressionType {
+			case backup.CompressionGZIP, backup.CompressionNone:
+				ww = w
+			case backup.CompressionZSTD:
+				pr, pw := io.Pipe()
+				dec, _ := zstd.NewReader(pr)
+				io.Copy(w, dec)
+				ww = pw
+			}
 			enterrors.GoWrapper(func() {
-				fw.backend.Read(ctx, chunk, overrideBucket, overridePath, w)
+				fw.backend.Read(ctx, chunk, overrideBucket, overridePath, ww)
 			}, fw.logger)
 			_, err := uz.ReadChunk()
 			return err

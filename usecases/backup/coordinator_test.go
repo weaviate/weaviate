@@ -135,7 +135,7 @@ func Test_CoordinatedBackup(t *testing.T) {
 			Classes:  []string{classes[1]},
 			Duration: _BookingPeriod,
 			Compression: Compression{
-				Level:         DefaultCompression,
+				Level:         GzipDefaultCompression,
 				ChunkSize:     DefaultChunkSize,
 				CPUPercentage: DefaultCPUPercentage,
 			},
@@ -148,7 +148,7 @@ func Test_CoordinatedBackup(t *testing.T) {
 			Classes:  classes[:],
 			Duration: _BookingPeriod,
 			Compression: Compression{
-				Level:         DefaultCompression,
+				Level:         GzipDefaultCompression,
 				ChunkSize:     DefaultChunkSize,
 				CPUPercentage: DefaultCPUPercentage,
 			},
@@ -376,7 +376,7 @@ func TestCoordinatedRestore(t *testing.T) {
 			Classes:  classes,
 			Duration: _BookingPeriod,
 			Compression: Compression{
-				Level:         DefaultCompression,
+				Level:         GzipDefaultCompression,
 				ChunkSize:     DefaultChunkSize,
 				CPUPercentage: DefaultCPUPercentage,
 			},
@@ -489,7 +489,7 @@ func TestCoordinatedRestoreWithNodeMapping(t *testing.T) {
 			NodeMapping: nodeMapping,
 			Duration:    _BookingPeriod,
 			Compression: Compression{
-				Level:         DefaultCompression,
+				Level:         GzipDefaultCompression,
 				ChunkSize:     DefaultChunkSize,
 				CPUPercentage: DefaultCPUPercentage,
 			},
@@ -656,7 +656,7 @@ func newReq(classes []string, backendName, backupID string) Request {
 		Backend: backendName,
 		Classes: classes,
 		Compression: Compression{
-			Level:         DefaultCompression,
+			Level:         GzipDefaultCompression,
 			ChunkSize:     DefaultChunkSize,
 			CPUPercentage: DefaultCPUPercentage,
 		},

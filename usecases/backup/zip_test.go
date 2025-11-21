@@ -165,8 +165,8 @@ func TestZipLevel(t *testing.T) {
 		{-1, gzip.DefaultCompression},
 		{4, gzip.DefaultCompression},
 		{0, gzip.DefaultCompression},
-		{int(BestCompression), gzip.BestCompression},
-		{int(BestSpeed), gzip.BestSpeed},
+		{int(GzipBestCompression), gzip.BestCompression},
+		{int(GzipBestSpeed), gzip.BestSpeed},
 	}
 
 	for _, test := range tests {
@@ -196,7 +196,7 @@ func TestZipConfig(t *testing.T) {
 
 	for i, test := range tests {
 		got := newZipConfig(Compression{
-			Level:         BestSpeed,
+			Level:         GzipBestSpeed,
 			CPUPercentage: test.percentage,
 			ChunkSize:     test.chunkSize,
 		})
