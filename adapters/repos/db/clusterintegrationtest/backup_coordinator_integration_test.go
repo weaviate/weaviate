@@ -16,6 +16,8 @@ package clusterintegrationtest
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -50,6 +52,7 @@ func TestDistributedBackups(t *testing.T) {
 			node := &node{
 				name: fmt.Sprintf("node-%d", i),
 			}
+			os.MkdirAll(filepath.Join(dirName, node.name), os.ModePerm)
 
 			nodes = append(nodes, node)
 		}

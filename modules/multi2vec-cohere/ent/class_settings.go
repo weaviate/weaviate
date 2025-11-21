@@ -61,6 +61,10 @@ func (cs *classSettings) Truncate() string {
 	return cs.base.GetPropertyAsString(truncateProperty, DefaultTruncate)
 }
 
+func (cs *classSettings) Dimensions() *int64 {
+	return cs.base.GetPropertyAsInt64("dimensions", nil)
+}
+
 // CLIP module specific settings
 func (ic *classSettings) ImageField(property string) bool {
 	return ic.field("imageFields", property)

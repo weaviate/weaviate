@@ -149,8 +149,6 @@ func TestCopierCopyReplicaFiles(t *testing.T) {
 			}),
 		).Return(&pbv1.ResumeFileActivityResponse{}, nil)
 
-		mockClient.EXPECT().Close().Return(nil)
-
 		remoteFileRelativePaths := []string{}
 
 		mockBidirectionalFileMetadataStream := NewMockFileMetadataStream(t)

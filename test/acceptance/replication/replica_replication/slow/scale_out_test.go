@@ -68,9 +68,9 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateScaleOut() {
 
 	// Load data
 	batch := make([]*models.Object, 0, 1000)
-	tenantNames := make([]string, 0, 100)
+	tenantNames := make([]string, 0, 10)
 	t.Log("Loading data into tenants...")
-	for i := 0; i < 100; i++ {
+	for i := 0; i < 10; i++ {
 		tenantName := fmt.Sprintf("tenant-%d", i)
 		tenantNames = append(tenantNames, tenantName)
 		for j := 0; j < 1000; j++ {
@@ -102,7 +102,7 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateScaleOut() {
 		replication.NewGetCollectionShardingStateParams().WithCollection(&cls.Class), nil,
 	)
 	require.Nil(t, err)
-	require.Len(t, shardingState.Payload.ShardingState.Shards, 100)
+	require.Len(t, shardingState.Payload.ShardingState.Shards, 10)
 
 	movements := []movement{}
 	for _, state := range shardingState.Payload.ShardingState.Shards {

@@ -573,6 +573,8 @@ func (idx *Index) OverwriteObjects(ctx context.Context,
 
 	var result []types.RepairResponse
 
+	updateBatch := make([]*storobj.Object, 0, len(updates))
+
 	for i, u := range updates {
 		incomingObj := u.LatestObject
 
@@ -672,14 +674,23 @@ func (idx *Index) OverwriteObjects(ctx context.Context,
 			continue
 		}
 
-		err = s.PutObject(ctx, storobj.FromObject(incomingObj, u.Vector, u.Vectors, u.MultiVectors))
-		if err != nil {
-			r := types.RepairResponse{
-				ID:  id.String(),
-				Err: fmt.Sprintf("overwrite stale object: %v", err),
+		updateBatch = append(updateBatch, storobj.FromObject(incomingObj, u.Vector, u.Vectors, u.MultiVectors))
+	}
+
+	if len(updateBatch) > 0 {
+		errs := s.PutObjectBatch(ctx, updateBatch)
+		if len(errs) != 0 {
+			for i := range errs {
+				id := updateBatch[i].ID()
+				err := errs[i]
+				if err != nil {
+					r := types.RepairResponse{
+						ID:  id.String(),
+						Err: fmt.Sprintf("overwrite stale object: %v", err),
+					}
+					result = append(result, r)
+				}
 			}
-			result = append(result, r)
-			continue
 		}
 	}
 
