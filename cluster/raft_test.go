@@ -275,6 +275,7 @@ func TestRaftEndpoints(t *testing.T) {
 	// SyncShard with active tenant
 	_, err = srv.SyncShard(ctx, "", "", "")
 	assert.ErrorIs(t, err, schema.ErrBadRequest)
+	m.indexer.On("DropShard", mock.Anything, mock.Anything).Return(nil).Times(0)
 	m.indexer.On("ShutdownShard", mock.Anything, mock.Anything).Return(nil).Times(0)
 	m.indexer.On("LoadShard", "C", "A").Return(nil).Times(1)
 	_, err = srv.SyncShard(ctx, "C", "A", "Node-1")
@@ -286,6 +287,7 @@ func TestRaftEndpoints(t *testing.T) {
 
 	_, err = srv.SyncShard(ctx, "", "", "")
 	assert.ErrorIs(t, err, schema.ErrBadRequest)
+	m.indexer.On("DropShard", mock.Anything, mock.Anything).Return(nil).Times(0)
 	m.indexer.On("ShutdownShard", "C", "A").Return(nil).Times(1)
 	m.indexer.On("LoadShard", mock.Anything, mock.Anything).Return(nil).Times(0)
 	_, err = srv.SyncShard(ctx, "C", "A", "Node-1")
@@ -297,7 +299,8 @@ func TestRaftEndpoints(t *testing.T) {
 	// SyncShard with absent tenant
 	_, err = srv.SyncShard(ctx, "", "", "")
 	assert.ErrorIs(t, err, schema.ErrBadRequest)
-	m.indexer.On("ShutdownShard", "C", "T0").Return(nil).Times(1)
+	m.indexer.On("DropShard", "C", "T0").Return(nil).Times(1)
+	m.indexer.On("ShutdownShard", mock.Anything, mock.Anything).Return(nil).Times(0)
 	m.indexer.On("LoadShard", mock.Anything, mock.Anything).Return(nil).Times(0)
 	_, err = srv.SyncShard(ctx, "C", "T0", "Node-1")
 	assert.Nil(t, err)
@@ -312,15 +315,17 @@ func TestRaftEndpoints(t *testing.T) {
 	assert.Equal(t, schemaReader.ClassEqual("D"), "D")
 
 	// SyncShard with ST collection and present shard
+	m.indexer.On("DropShard", mock.Anything, mock.Anything).Return(nil).Times(0)
 	m.indexer.On("ShutdownShard", mock.Anything, mock.Anything).Return(nil).Times(0)
 	m.indexer.On("LoadShard", "D", "S0").Return(nil).Times(1)
 	_, err = srv.SyncShard(ctx, "D", "S0", "Node-1")
 	assert.Nil(t, err)
 
 	// SyncShard with ST collection and absent shard
-	m.indexer.On("ShutdownShard", "D", "S0").Return(nil).Times(1)
+	m.indexer.On("DropShard", "D", "S1").Return(nil).Times(1)
+	m.indexer.On("ShutdownShard", mock.Anything, mock.Anything).Return(nil).Times(0)
 	m.indexer.On("LoadShard", mock.Anything, mock.Anything).Return(nil).Times(0)
-	_, err = srv.SyncShard(ctx, "D", "S0", "Node-1")
+	_, err = srv.SyncShard(ctx, "D", "S1", "Node-1")
 	assert.Nil(t, err)
 
 	// UpdateTenants

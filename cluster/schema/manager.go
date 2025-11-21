@@ -516,17 +516,15 @@ func (s *SchemaManager) SyncShard(cmd *command.ApplyRequest, schemaOnly bool) er
 					physical, ok := state.Physical[req.Shard]
 					// shard does not exist in the sharding state
 					if !ok {
-						// TODO: can we guarantee that the shard is not in use?
-						// If so we should call s.db.DropShard(cmd.Class, req.Shard) here instead
-						// For now, to be safe and avoid data loss, we just shut it down
-						s.db.ShutdownShard(cmd.Class, req.Shard)
+						// drop it
+						s.db.DropShard(cmd.Class, req.Shard)
 						// return early
 						return nil
 					}
 					// if shard doesn't belong to this node
 					if !slices.Contains(physical.BelongsToNodes, req.NodeId) {
-						// shut it down
-						s.db.ShutdownShard(cmd.Class, req.Shard)
+						// drop it
+						s.db.DropShard(cmd.Class, req.Shard)
 						// return early
 						return nil
 					}
