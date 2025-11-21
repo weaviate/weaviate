@@ -90,6 +90,7 @@ func TestZip(t *testing.T) {
 			uz, wc := NewUnzip(pathDest, useGzip)
 
 			// decompression reader
+			done := make(chan struct{})
 			var uzInputLen atomic.Int64
 			go func() {
 				uzInputLen2, err := io.Copy(wc, compressBuf)
@@ -100,6 +101,8 @@ func TestZip(t *testing.T) {
 				if err := wc.Close(); err != nil {
 					t.Errorf("close writer: %v", err)
 				}
+				done <- struct{}{}
+				close(done)
 			}()
 
 			// decompression writer
@@ -117,6 +120,8 @@ func TestZip(t *testing.T) {
 			if err != nil {
 				t.Fatalf("cannot find decompressed folder: %v", err)
 			}
+
+			<-done // wait for writer to finish
 
 			if zInputLen != uzOutputLen {
 				t.Errorf("zip input size %d != unzip output size %d", uzOutputLen, zInputLen)
