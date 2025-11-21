@@ -297,7 +297,7 @@ func CalculateTargetVectorDimensionsFromBucket(ctx context.Context, b *lsmkv.Buc
 		}
 
 		// Sleep to simulate slow I/O during file reading
-		time.Sleep(5 * time.Minute)
+		time.Sleep(1 * time.Minute)
 
 		for ; k != nil; k, v = c.Next(ctx) {
 			// for named vectors we have to additionally check if the key is prefixed with the vector name
