@@ -184,7 +184,7 @@ func (h *Handler) enableQuantization(class *models.Class, defaultQuantization *c
 	}
 
 	for k, vectorConfig := range class.VectorConfig {
-		vectorConfig.VectorIndexConfig, err = setDefaultQuantization(class.VectorIndexType, vectorConfig.VectorIndexConfig.(schemaConfig.VectorIndexConfig), compression)
+		vectorConfig.VectorIndexConfig, err = setDefaultQuantization(vectorConfig.VectorIndexType, vectorConfig.VectorIndexConfig.(schemaConfig.VectorIndexConfig), compression)
 		class.VectorConfig[k] = vectorConfig
 		if err != nil {
 			h.logger.WithField("error", err).Error("error while setting default quantization")
