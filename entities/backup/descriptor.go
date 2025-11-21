@@ -16,6 +16,15 @@ import (
 	"time"
 )
 
+// DeleteMarkerAdd marks folders of indices that have been deleted during an ongoing backup and are already removed from
+// store and schema. However, we want to keep them on disk to ensure that the backup can complete. The folders are
+// removed after backup completion. In case of a crash they are deleted at the next startup.
+const DeleteMarker = "__DELETE_ME_AFTER_BACKUP__"
+
+func DeleteMarkerAdd(filename string) string {
+	return fmt.Sprintf("%s%s", DeleteMarker, filename)
+}
+
 // NodeDescriptor contains data related to one participant in DBRO
 type NodeDescriptor struct {
 	Classes                 []string `json:"classes"`

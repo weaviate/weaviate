@@ -35,12 +35,12 @@ func manyModulesTests(endpoint string) func(t *testing.T) {
 
 			expectedModuleNames := []string{
 				"generative-cohere", "generative-google", "generative-openai", "generative-aws", "generative-anyscale", "generative-friendliai",
-				"generative-anthropic", "text2vec-cohere", "text2vec-contextionary", "text2vec-openai", "text2vec-huggingface",
-				"text2vec-google", "text2vec-aws", "text2vec-transformers", "qna-openai", "reranker-cohere",
+				"generative-anthropic", "text2vec-cohere", "text2vec-openai", "text2vec-huggingface",
+				"text2vec-google", "text2vec-aws", "text2vec-model2vec", "qna-openai", "reranker-cohere",
 				"text2vec-voyageai", "reranker-voyageai",
 			}
 
-			modules, ok := meta.Modules.(map[string]interface{})
+			modules, ok := meta.Modules.(map[string]any)
 			require.True(t, ok)
 			assert.Len(t, modules, len(expectedModuleNames))
 
@@ -51,8 +51,8 @@ func manyModulesTests(endpoint string) func(t *testing.T) {
 			assert.ElementsMatch(t, expectedModuleNames, moduleNames)
 		})
 
-		booksClass := books.ClassContextionaryVectorizer()
-		multiShardClass := multishard.ClassContextionaryVectorizer()
+		booksClass := books.ClassModel2VecVectorizer()
+		multiShardClass := multishard.ClassModel2VecVectorizer()
 		helper.CreateClass(t, booksClass)
 		helper.CreateClass(t, multiShardClass)
 		defer helper.DeleteClass(t, booksClass.Class)
@@ -79,7 +79,7 @@ func manyModulesTests(endpoint string) func(t *testing.T) {
 				result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
 				books := result.Get("Get", "Books").AsSlice()
 				require.True(t, len(books) > 0)
-				results, ok := books[0].(map[string]interface{})
+				results, ok := books[0].(map[string]any)
 				require.True(t, ok)
 				assert.True(t, results["title"] != nil)
 			}
@@ -132,9 +132,9 @@ func manyModulesTests(endpoint string) func(t *testing.T) {
 					require.True(t, len(books) == 3)
 					vectors := make([]string, 3)
 					for i := 0; i < 3; i++ {
-						results, ok := books[i].(map[string]interface{})
+						results, ok := books[i].(map[string]any)
 						require.True(t, ok)
-						vector, ok := results["_additional"].(map[string]interface{})["vector"].([]interface{})
+						vector, ok := results["_additional"].(map[string]any)["vector"].([]any)
 						require.True(t, ok)
 						vec, err := json.Marshal(vector)
 						require.Nil(t, err)

@@ -35,7 +35,7 @@ func newVoyageAIUrlBuilder() *voyageaiUrlBuilder {
 	}
 }
 
-func (c *voyageaiUrlBuilder) URL(baseURL string) string {
+func (c *voyageaiUrlBuilder) URL(baseURL, model string) string {
 	if baseURL != "" {
 		return fmt.Sprintf("%s%s", baseURL, c.pathMask)
 	}
