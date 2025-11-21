@@ -153,7 +153,7 @@ func TestUnzipPathEscape(t *testing.T) {
 	require.NoError(t, gzw.Close())
 
 	// now restore from the archive to destPath, all writes should be contained within destPath
-	uz, wc := NewUnzip(destPath, false)
+	uz, wc := NewUnzip(destPath, true)
 	go func() {
 		_, err2 := io.Copy(wc, &buf)
 		require.NoError(t, err2)
@@ -329,112 +329,122 @@ func TestRenaming(t *testing.T) {
 
 // TestRenamingDuringBackup tests that the backup process can handle files being renamed concurrently
 func TestRenamingDuringBackup(t *testing.T) {
-	dir := filepath.Join(t.TempDir(), "source")
-	dir2 := filepath.Join(t.TempDir(), "dest")
-	ctx := context.Background()
-	require.NoError(t, os.MkdirAll(dir, os.ModePerm))
-	require.NoError(t, os.MkdirAll(dir2, os.ModePerm))
+	for _, useGzip := range []bool{true, false} {
+		t.Run(fmt.Sprintf("useGzip=%v", useGzip), func(t *testing.T) {
+			var compressionLevel CompressionLevel
+			if useGzip {
+				compressionLevel = GzipBestCompression
+			} else {
+				compressionLevel = NoCompression
+			}
 
-	sd := backup.ShardDescriptor{
-		Name: "shard1",
-		Node: "node1",
+			dir := filepath.Join(t.TempDir(), "source")
+			dir2 := filepath.Join(t.TempDir(), "dest")
+			ctx := context.Background()
+			require.NoError(t, os.MkdirAll(dir, os.ModePerm))
+			require.NoError(t, os.MkdirAll(dir2, os.ModePerm))
+
+			sd := backup.ShardDescriptor{
+				Name: "shard1",
+				Node: "node1",
+			}
+
+			rng := mathrand.New(mathrand.NewSource(time.Now().UnixNano()))
+
+			// create files with random data and one important byte at the end to make sure that the complete file is read
+			// There will be concurrent renaming and reading of the files
+			writeDir := filepath.Join(dir, "collection")
+			writeDirRename := filepath.Join(dir, backup.DeleteMarkerAdd("collection"))
+
+			require.NoError(t, os.MkdirAll(writeDir, os.ModePerm))
+			counter := 0
+			for i := range 100 {
+				f, err := os.Create(filepath.Join(writeDir, strconv.Itoa(i)+".tmp"))
+				require.NoError(t, err)
+				size := rng.Intn(4096)
+				buf := make([]byte, size)
+				n, err := rng.Read(buf)
+				require.NoError(t, err)
+				require.Equal(t, size, n)
+				_, err = f.Write(buf)
+				require.NoError(t, err)
+				_, err = f.Write([]byte{byte(i)})
+				require.NoError(t, err)
+				counter += size + i
+
+				require.NoError(t, f.Close())
+				sd.Files = append(sd.Files, filepath.Join("collection", strconv.Itoa(i)+".tmp"))
+			}
+
+			f, err := os.Create(filepath.Join(writeDir, "indexcount.tmp"))
+			require.NoError(t, err)
+			_, err = f.Write([]byte("12345"))
+			require.NoError(t, err)
+			require.NoError(t, f.Close())
+			sd.DocIDCounterPath = filepath.Join("collection", "indexcount.tmp")
+			sd.DocIDCounter = []byte("12345")
+
+			f, err = os.Create(filepath.Join(writeDir, "version.tmp"))
+			require.NoError(t, err)
+			_, err = f.Write([]byte("12345"))
+			require.NoError(t, err)
+			require.NoError(t, f.Close())
+			sd.ShardVersionPath = filepath.Join("collection", "version.tmp")
+			sd.Version = []byte("12345")
+
+			f, err = os.Create(filepath.Join(writeDir, "propLength.tmp"))
+			require.NoError(t, err)
+			_, err = f.Write([]byte("12345"))
+			require.NoError(t, err)
+			require.NoError(t, f.Close())
+			sd.PropLengthTrackerPath = filepath.Join("collection", "propLength.tmp")
+			sd.PropLengthTracker = []byte("12345")
+
+			// start backup process
+			z, rc := NewZip(dir, int(compressionLevel))
+			go func() {
+				_, err := z.WriteShard(ctx, &sd)
+				require.NoError(t, err)
+				require.NoError(t, z.Close())
+			}()
+
+			// rename files concurrently
+			wg := sync.WaitGroup{}
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				require.NoError(t, os.Rename(writeDir, writeDirRename))
+			}()
+
+			compressBuf := bytes.NewBuffer(make([]byte, 0, 1000_000))
+			_, err = io.Copy(compressBuf, rc)
+			require.NoError(t, err)
+			require.NoError(t, rc.Close())
+
+			require.NoError(t, os.RemoveAll(dir))
+
+			uz, wc := NewUnzip(dir2, useGzip)
+			go func() {
+				_, err := io.Copy(wc, compressBuf)
+				require.NoError(t, err)
+				require.NoError(t, wc.Close())
+			}()
+			_, err = uz.ReadChunk()
+			require.NoError(t, err)
+			require.NoError(t, uz.Close())
+
+			wg.Wait()
+
+			// check restored backup
+			readDir := filepath.Join(dir2, "collection")
+			counter2 := 0
+			for i := range 100 {
+				buf, err := os.ReadFile(filepath.Join(readDir, strconv.Itoa(i)+".tmp"))
+				require.NoError(t, err)
+				// files have a random length AND their last byte is the index
+				counter2 += len(buf) - 1 + int(buf[len(buf)-1])
+			}
+			require.Equal(t, counter, counter2)
+		})
 	}
-
-	rng := mathrand.New(mathrand.NewSource(time.Now().UnixNano()))
-
-	// create files with random data and one important byte at the end to make sure that the complete file is read
-	// There will be concurrent renaming and reading of the files
-	writeDir := filepath.Join(dir, "collection")
-	writeDirRename := filepath.Join(dir, backup.DeleteMarkerAdd("collection"))
-
-	require.NoError(t, os.MkdirAll(writeDir, os.ModePerm))
-	counter := 0
-	for i := range 100 {
-		f, err := os.Create(filepath.Join(writeDir, strconv.Itoa(i)+".tmp"))
-		require.NoError(t, err)
-		size := rng.Intn(4096)
-		buf := make([]byte, size)
-		n, err := rng.Read(buf)
-		require.NoError(t, err)
-		require.Equal(t, size, n)
-		_, err = f.Write(buf)
-		require.NoError(t, err)
-		_, err = f.Write([]byte{byte(i)})
-		require.NoError(t, err)
-		counter += size + i
-
-		require.NoError(t, f.Close())
-		sd.Files = append(sd.Files, filepath.Join("collection", strconv.Itoa(i)+".tmp"))
-	}
-
-	f, err := os.Create(filepath.Join(writeDir, "indexcount.tmp"))
-	require.NoError(t, err)
-	_, err = f.Write([]byte("12345"))
-	require.NoError(t, err)
-	require.NoError(t, f.Close())
-	sd.DocIDCounterPath = filepath.Join("collection", "indexcount.tmp")
-	sd.DocIDCounter = []byte("12345")
-
-	f, err = os.Create(filepath.Join(writeDir, "version.tmp"))
-	require.NoError(t, err)
-	_, err = f.Write([]byte("12345"))
-	require.NoError(t, err)
-	require.NoError(t, f.Close())
-	sd.ShardVersionPath = filepath.Join("collection", "version.tmp")
-	sd.Version = []byte("12345")
-
-	f, err = os.Create(filepath.Join(writeDir, "propLength.tmp"))
-	require.NoError(t, err)
-	_, err = f.Write([]byte("12345"))
-	require.NoError(t, err)
-	require.NoError(t, f.Close())
-	sd.PropLengthTrackerPath = filepath.Join("collection", "propLength.tmp")
-	sd.PropLengthTracker = []byte("12345")
-
-	// start backup process
-	z, rc := NewZip(dir, 0)
-	go func() {
-		_, err = z.WriteShard(ctx, &sd)
-		require.NoError(t, err)
-
-		require.NoError(t, z.Close())
-	}()
-
-	// rename files concurrently
-	wg := sync.WaitGroup{}
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		require.NoError(t, os.Rename(writeDir, writeDirRename))
-	}()
-
-	compressBuf := bytes.NewBuffer(make([]byte, 0, 1000_000))
-	_, err = io.Copy(compressBuf, rc)
-	require.NoError(t, err)
-	require.NoError(t, rc.Close())
-
-	require.NoError(t, os.RemoveAll(dir))
-
-	uz, wc := NewUnzip(dir2, false)
-	go func() {
-		_, err := io.Copy(wc, compressBuf)
-		require.NoError(t, err)
-		require.NoError(t, wc.Close())
-	}()
-	_, err = uz.ReadChunk()
-	require.NoError(t, err)
-	require.NoError(t, uz.Close())
-
-	wg.Wait()
-
-	// check restored backup
-	readDir := filepath.Join(dir2, "collection")
-	counter2 := 0
-	for i := range 100 {
-		buf, err := os.ReadFile(filepath.Join(readDir, strconv.Itoa(i)+".tmp"))
-		require.NoError(t, err)
-		// files have a random length AND their last byte is the index
-		counter2 += len(buf) - 1 + int(buf[len(buf)-1])
-	}
-	require.Equal(t, counter, counter2)
 }
