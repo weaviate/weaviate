@@ -12,7 +12,6 @@
 package backup
 
 import (
-	"encoding/json"
 	"fmt"
 	"time"
 )
@@ -277,44 +276,6 @@ const (
 	CompressionNone CompressionType = "none"
 )
 
-func (c *CompressionType) String() string { return string(*c) }
-
-func (c *CompressionType) IsValid() bool {
-	switch *c {
-	case CompressionZSTD, CompressionGZIP, CompressionNone:
-		return true
-	default:
-		return false
-	}
-}
-
-func (c *CompressionType) MarshalJSON() ([]byte, error) {
-	if !c.IsValid() {
-		return nil, fmt.Errorf("invalid compression type: %q", c)
-	}
-	return json.Marshal(string(*c))
-}
-
-// UnmarshalJSON validates incoming JSON.
-func (c *CompressionType) UnmarshalJSON(b []byte) error {
-	var s string
-	if err := json.Unmarshal(b, &s); err != nil {
-		return err
-	}
-
-	// default to GZIP if empty for backward compatibility
-	if s == "" {
-		*c = CompressionGZIP
-		return nil
-	}
-	ct := CompressionType(s)
-	if !ct.IsValid() {
-		return fmt.Errorf("invalid compression type: %q", s)
-	}
-	*c = ct
-	return nil
-}
-
 // BackupDescriptor contains everything needed to completely restore a list of classes
 type BackupDescriptor struct {
 	StartedAt               time.Time         `json:"startedAt"`
@@ -328,7 +289,16 @@ type BackupDescriptor struct {
 	ServerVersion           string            `json:"serverVersion"`
 	Error                   string            `json:"error"`
 	PreCompressionSizeBytes int64             `json:"preCompressionSizeBytes"` // Size of this node's backup in bytes before compression
-	CompressionType         CompressionType   `json:"compressionType"`
+	CompressionType         *CompressionType  `json:"compressionType,omitempty"`
+}
+
+// List all existing classes in d
+func (d *BackupDescriptor) GetCompressionType() CompressionType {
+	if d.CompressionType == nil {
+		// backward compatibility with old backups that don't have this field and default to gzip
+		return CompressionGZIP
+	}
+	return *d.CompressionType
 }
 
 // List all existing classes in d

@@ -147,7 +147,7 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 			Classes:         make([]backup.ClassDescriptor, 0, len(req.Classes)),
 			Version:         Version,
 			ServerVersion:   config.ServerVersion,
-			CompressionType: compressionType,
+			CompressionType: &compressionType,
 		}
 
 		// the coordinator might want to abort the backup

@@ -116,7 +116,8 @@ func Test_CoordinatedBackup(t *testing.T) {
 					Status:  backup.Success,
 				},
 			},
-			Leader: nodes[0],
+			Leader:          nodes[0],
+			CompressionType: backup.CompressionGZIP,
 		}
 		assert.Equal(t, want, got)
 	})
@@ -195,7 +196,8 @@ func Test_CoordinatedBackup(t *testing.T) {
 					Status:  backup.Success,
 				},
 			},
-			Leader: nodes[0],
+			Leader:          nodes[0],
+			CompressionType: backup.CompressionGZIP,
 		}
 		assert.Equal(t, want, got)
 	})
@@ -276,7 +278,8 @@ func Test_CoordinatedBackup(t *testing.T) {
 					Error:   got.Nodes[nodes[1]].Error,
 				},
 			},
-			Leader: nodes[0],
+			Leader:          nodes[0],
+			CompressionType: backup.CompressionGZIP,
 		}
 		assert.Equal(t, want, got)
 	})
@@ -331,7 +334,8 @@ func Test_CoordinatedBackup(t *testing.T) {
 					Error:   got.Nodes[nodes[0]].Error,
 				},
 			},
-			Leader: nodes[0],
+			Leader:          nodes[0],
+			CompressionType: backup.CompressionGZIP,
 		}
 		assert.Equal(t, want, got)
 	})
@@ -478,7 +482,8 @@ func TestCoordinatedRestoreWithNodeMapping(t *testing.T) {
 						Status:  backup.Success,
 					},
 				},
-				NodeMapping: nodeMapping,
+				NodeMapping:     nodeMapping,
+				CompressionType: backup.CompressionGZIP,
 			}
 		}
 		creq = &Request{
