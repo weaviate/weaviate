@@ -371,12 +371,46 @@ func UpdateClassInternal(h *Handler, ctx context.Context, className string, upda
 		return err
 	}
 
-	if initial := h.schemaReader.ReadOnlyClass(className); initial != nil {
+	initial := h.schemaReader.ReadOnlyClass(className)
+
+	if initial != nil {
+		_, err := validateUpdatingMT(initial, updated)
+		if err != nil {
+			return err
+		}
+
+		initialRF := initial.ReplicationConfig.Factor
+		updatedRF := updated.ReplicationConfig.Factor
+
+		if updatedRF <= 0 {
+			return fmt.Errorf("replication factor must be at least 1, got %d", updatedRF)
+		}
+
+		if initialRF < updatedRF {
+			var shardingState *sharding.State
+			h.schemaReader.Read(className, true, func(c *models.Class, s *sharding.State) error {
+				stateCopy := s.DeepCopy()
+				shardingState = &stateCopy
+				return nil
+			})
+
+			if shardingState == nil {
+				return fmt.Errorf("sharding state not found for class %q", className)
+			}
+
+			for _, physical := range shardingState.Physical {
+				if int64(len(physical.BelongsToNodes)) < updatedRF {
+					return fmt.Errorf("not enough replicas in shard %q to increase replication factor to %d for class %q", physical.Name, updatedRF, className)
+				}
+			}
+		}
+
 		if err := validateImmutableFields(initial, updated); err != nil {
 			return err
 		}
 	}
 	// A nil sharding state means that the sharding state will not be updated.
+
 	_, err := h.schemaManager.UpdateClass(ctx, updated, nil)
 	return err
 }
