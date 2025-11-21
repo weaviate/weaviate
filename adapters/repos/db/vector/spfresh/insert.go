@@ -62,7 +62,7 @@ func (s *SPFresh) Add(ctx context.Context, id uint64, vector []float32) (err err
 		if s.config.Compressed {
 			s.quantizer = compressionhelpers.NewRotationalQuantizer(int(s.dims), 42, 8, s.config.DistanceProvider)
 			s.vectorSize = int32(compressedVectorSize(int(s.dims)))
-			s.rqInitialized.Store(true)
+			s.rqActive.Store(true)
 		} else {
 			s.vectorSize = s.dims * 4
 		}
