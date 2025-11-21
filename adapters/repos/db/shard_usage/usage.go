@@ -21,8 +21,10 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
@@ -281,7 +283,7 @@ func CalculateTargetVectorDimensionsFromBucket(ctx context.Context, b *lsmkv.Buc
 	case lsmkv.StrategyMapCollection:
 		// Since weaviate 1.34 default dimension bucket strategy is StrategyRoaringSet.
 		// For backward compatibility StrategyMapCollection is still supported.
-
+		time.Sleep(5 * time.Minute)
 		c, err := b.MapCursor()
 		if err != nil {
 			return dimensionality, fmt.Errorf("create cursor: %w", err)
