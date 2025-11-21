@@ -736,7 +736,7 @@ func (l *hnswCommitLogger) logCombiningThreshold() int64 {
 	return int64(float64(l.maxSizeCombining) * 1.75)
 }
 
-func (l *hnswCommitLogger) Drop(ctx context.Context) error {
+func (l *hnswCommitLogger) Drop(ctx context.Context, keepFiles bool) error {
 	l.Lock()
 	defer l.Unlock()
 	if err := l.commitLogger.Close(); err != nil {
@@ -750,7 +750,7 @@ func (l *hnswCommitLogger) Drop(ctx context.Context) error {
 
 	// remove commit log directory if exists
 	dir := commitLogDirectory(l.rootPath, l.id)
-	if _, err := l.fs.Stat(dir); err == nil {
+	if _, err := l.fs.Stat(dir); err == nil && !keepFiles {
 		err := l.fs.RemoveAll(dir)
 		if err != nil {
 			return errors.Wrap(err, "delete commit files directory")

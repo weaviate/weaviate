@@ -135,7 +135,9 @@ func (c *replicationClient) OverwriteObjects(ctx context.Context,
 	if err != nil {
 		return resp, fmt.Errorf("create http request: %w", err)
 	}
-	err = c.do(c.timeoutUnit*90, req, body, &resp, 9)
+
+	err = c.doRetry(req, body, &resp, 3)
+
 	return resp, err
 }
 
@@ -317,7 +319,7 @@ func (c *replicationClient) FindUUIDs(ctx context.Context, hostName, indexName,
 
 // Commit asks a host to commit and stores the response in the value pointed to by resp
 func (c *replicationClient) Commit(ctx context.Context, host, index, shard string, requestID string, resp interface{}) error {
-	req, err := newHttpReplicaCMD(host, "commit", index, shard, requestID, nil)
+	req, err := newHttpReplicaCMD(ctx, host, "commit", index, shard, requestID, nil)
 	if err != nil {
 		return fmt.Errorf("create http request: %w", err)
 	}
@@ -328,7 +330,7 @@ func (c *replicationClient) Commit(ctx context.Context, host, index, shard strin
 func (c *replicationClient) Abort(ctx context.Context, host, index, shard, requestID string) (
 	resp replica.SimpleResponse, err error,
 ) {
-	req, err := newHttpReplicaCMD(host, "abort", index, shard, requestID, nil)
+	req, err := newHttpReplicaCMD(ctx, host, "abort", index, shard, requestID, nil)
 	if err != nil {
 		return resp, fmt.Errorf("create http request: %w", err)
 	}
@@ -358,7 +360,7 @@ func newHttpReplicaRequest(ctx context.Context, method, host, index, shard, requ
 	return http.NewRequestWithContext(ctx, method, u.String(), body)
 }
 
-func newHttpReplicaCMD(host, cmd, index, shard, requestId string, body io.Reader) (*http.Request, error) {
+func newHttpReplicaCMD(ctx context.Context, host, cmd, index, shard, requestId string, body io.Reader) (*http.Request, error) {
 	path := fmt.Sprintf("/replicas/indices/%s/shards/%s:%s", index, shard, cmd)
 	q := url.Values{replica.RequestKey: []string{requestId}}.Encode()
 	url := url.URL{Scheme: "http", Host: host, Path: path, RawQuery: q}
@@ -368,7 +370,11 @@ func newHttpReplicaCMD(host, cmd, index, shard, requestId string, body io.Reader
 func (c *replicationClient) do(timeout time.Duration, req *http.Request, body []byte, resp interface{}, numRetries int) (err error) {
 	ctx, cancel := context.WithTimeout(req.Context(), timeout)
 	defer cancel()
-	req = req.WithContext(ctx)
+
+	return c.doRetry(req.WithContext(ctx), body, resp, numRetries)
+}
+
+func (c *replicationClient) doRetry(req *http.Request, body []byte, resp interface{}, numRetries int) (err error) {
 	try := func(ctx context.Context) (bool, error) {
 		if body != nil {
 			req.Body = io.NopCloser(bytes.NewReader(body))
@@ -388,7 +394,7 @@ func (c *replicationClient) do(timeout time.Duration, req *http.Request, body []
 		}
 		return false, nil
 	}
-	return c.retry(ctx, numRetries, try)
+	return c.retry(req.Context(), numRetries, try)
 }
 
 func (c *replicationClient) doCustomUnmarshal(timeout time.Duration,

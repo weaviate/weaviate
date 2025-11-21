@@ -79,8 +79,7 @@ func createClusterEnvironment(ctx context.Context) (compose *docker.DockerCompos
 func composeModules() (composeModules *docker.Compose) {
 	composeModules = docker.New().
 		WithWeaviateEnv("API_BASED_MODULES_DISABLED", "true").
-		WithText2VecContextionary().
-		WithText2VecTransformers().
+		WithText2VecModel2Vec().
 		WithText2VecOpenAI(os.Getenv("OPENAI_APIKEY"), os.Getenv("OPENAI_ORGANIZATION"), os.Getenv("AZURE_APIKEY")).
 		WithText2VecCohere(os.Getenv("COHERE_APIKEY")).
 		WithText2VecVoyageAI(os.Getenv("VOYAGEAI_APIKEY")).

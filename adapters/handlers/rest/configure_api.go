@@ -154,6 +154,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"github.com/weaviate/weaviate/usecases/telemetry"
+	"github.com/weaviate/weaviate/usecases/telemetry/opentelemetry"
 	"github.com/weaviate/weaviate/usecases/traverser"
 )
 
@@ -255,6 +256,13 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 
 	// initializing at the top to reflect the config changes before we pass on to different components.
 	initRuntimeOverrides(appState)
+
+	// Initialize OpenTelemetry tracing
+	if err := opentelemetry.Init(appState.Logger); err != nil {
+		appState.Logger.
+			WithField("action", "startup").WithError(err).
+			Error("failed to initialize OpenTelemetry")
+	}
 
 	if appState.ServerConfig.Config.Monitoring.Enabled {
 		appState.HTTPServerMetrics = monitoring.NewHTTPServerMetrics(monitoring.DefaultMetricsNamespace, prometheus.DefaultRegisterer)
@@ -976,6 +984,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 				appState.Logger.WithField("action", "stop_telemetry").
 					Errorf("failed to stop telemetry: %s", err.Error())
 			}
+		}
+
+		// Shutdown OTEL tracing
+		if err := opentelemetry.Shutdown(ctx); err != nil {
+			appState.Logger.WithField("action", "stop_opentelemetry").
+				Errorf("failed to stop opentelemetry: %s", err.Error())
 		}
 
 		// stop reindexing on server shutdown
@@ -1838,10 +1852,13 @@ func reasonableHttpClient(authConfig cluster.AuthConfig, minimumInternalTimeout 
 		ExpectContinueTimeout: 1 * time.Second,
 	}
 
+	// Wrap with OpenTelemetry tracing (only has an effect if tracing is enabled)
+	transport := monitoring.NewTracingTransport(t)
+
 	if authConfig.BasicAuth.Enabled() {
-		return &http.Client{Transport: clientWithAuth{r: t, basicAuth: authConfig.BasicAuth}}
+		return &http.Client{Transport: clientWithAuth{r: transport, basicAuth: authConfig.BasicAuth}}
 	}
-	return &http.Client{Transport: t}
+	return &http.Client{Transport: transport}
 }
 
 func setupGoProfiling(config config.Config, logger logrus.FieldLogger) {

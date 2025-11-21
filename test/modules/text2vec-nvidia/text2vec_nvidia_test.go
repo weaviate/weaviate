@@ -36,10 +36,6 @@ func testText2VecNvidia(host string) func(t *testing.T) {
 				model: "nvidia/nv-embed-v1",
 			},
 			{
-				name:  "baai/bge-m3",
-				model: "baai/bge-m3",
-			},
-			{
 				name:  "snowflake/arctic-embed-l",
 				model: "snowflake/arctic-embed-l",
 			},
@@ -49,9 +45,9 @@ func testText2VecNvidia(host string) func(t *testing.T) {
 				// Define class
 				class.VectorConfig = map[string]models.VectorConfig{
 					"description": {
-						Vectorizer: map[string]interface{}{
-							"text2vec-nvidia": map[string]interface{}{
-								"properties":         []interface{}{"description"},
+						Vectorizer: map[string]any{
+							"text2vec-nvidia": map[string]any{
+								"properties":         []any{"description"},
 								"vectorizeClassName": false,
 								"model":              tt.model,
 							},

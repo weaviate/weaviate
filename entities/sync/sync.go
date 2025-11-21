@@ -146,16 +146,26 @@ func (s *KeyLockerContext) Lock(ID string) {
 	iLock.Lock()
 }
 
-// TryLockWithContext tries to lock the mutex with a context.
+// LockWithContext tries to lock the mutex with a context.
 // If the context is canceled while waiting for the lock, the lock attempt is aborted.
-func (s *KeyLockerContext) TryLockWithContext(ID string, ctx context.Context) bool {
+// If the context is done before the lock is acquired, the lock
+// is not acquired and an error is returned.
+// Importantly, LockWithContext does not immediately return an error if the
+// lock is not currently available, rather it will block until the lock is
+// available or the context is done. This behavior "differs" from
+// sync.Mutex.TryLock and sync.Mutex.Lock due to the context/error return value.
+// You must call Unlock if the returned error is nil to release the lock.
+// Do not call Unlock if the returned error is not nil.
+func (s *KeyLockerContext) LockWithContext(ID string, ctx context.Context) error {
 	iLock := newContextMutex()
 	iLocks, _ := s.m.LoadOrStore(ID, iLock)
 	iLock = iLocks.(*contextMutex)
-	return iLock.TryLockWithContext(ctx)
+	err := iLock.LockWithContext(ctx)
+	return err
 }
 
-// Unlock unlocks a specific item by it's ID
+// Unlock unlocks a specific item by it's ID.
+// It panics if the item does not exist or exists but is not locked.
 func (s *KeyLockerContext) Unlock(ID string) {
 	iLocks, _ := s.m.Load(ID)
 	if iLocks == nil {
@@ -168,24 +178,13 @@ func (s *KeyLockerContext) Unlock(ID string) {
 // contextMutex is a mutex that can be locked with a context.
 // If the context is canceled while waiting for the lock, the lock attempt is aborted.
 type contextMutex struct {
-	// The underlying mutex.
-	mu sync.Mutex
-	// A channel to signal that the mutex has been released.
-	// The channel is buffered with a capacity of 1, so that the sender (Unlock)
-	// does not block if the receiver is not ready.
+	// ch has a message on it when the mutex is locked, empty when unlocked.
 	ch chan struct{}
 }
 
 // newContextMutex creates a new contextMutex.
 func newContextMutex() *contextMutex {
 	return &contextMutex{
-		// Initialize the channel with a buffer size of 1.
-		// This is important for the Unlock method to not block.
-		// When a goroutine unlocks the mutex, it sends a value to this channel.
-		// If another goroutine is waiting in LockContext, it will receive the value
-		// and acquire the lock. If no goroutine is waiting, the value is stored
-		// in the buffer and the next goroutine that calls LockContext will
-		// immediately acquire the lock.
 		ch: make(chan struct{}, 1),
 	}
 }
@@ -193,59 +192,36 @@ func newContextMutex() *contextMutex {
 // Lock locks the mutex. If the lock is already in use, the calling goroutine
 // blocks until the mutex is available.
 func (m *contextMutex) Lock() {
-	m.mu.Lock()
+	m.ch <- struct{}{}
 }
 
-// Unlock unlocks the mutex. It is a run-time error if m is not locked on entry to Unlock.
-// A locked Mutex is not associated with a particular goroutine. It is allowed for
-// one goroutine to lock a Mutex and then arrange for another goroutine to unlock it.
+// Unlock unlocks the mutex. It panics if m is not locked on entry to Unlock.
 func (m *contextMutex) Unlock() {
-	// To unlock the mutex, we first need to acquire the underlying mutex.
-	// This ensures that we don't have a race condition where two goroutines
-	// try to unlock the mutex at the same time.
-	m.mu.Unlock()
-
-	// After unlocking the mutex, we need to signal to any waiting goroutines
-	// that the mutex is now available. We do this by sending a value to the
-	// channel. We use a select statement with a default case to prevent
-	// the Unlock method from blocking if the channel buffer is full. This can
-	// happen if the mutex is unlocked multiple times without being locked.
 	select {
-	case m.ch <- struct{}{}:
+	case <-m.ch:
 	default:
-		// Do nothing if the channel is already full.
-		// This can happen if Unlock is called multiple times without a corresponding Lock.
+		panic("unlock of unlocked contextMutex")
 	}
 }
 
-func (m *contextMutex) TryLock() bool {
-	return m.mu.TryLock()
-}
-
-// LockContext locks the mutex. If the lock is already in use, the calling
-// goroutine blocks until the mutex is available or the context is canceled.
-// If the context is Done/Err before the lock acquisition is attempted,
-// the lock is not acquired.
-func (m *contextMutex) TryLockWithContext(ctx context.Context) bool {
-	// First, try to acquire the lock immediately.
-	// This is a fast path that avoids the overhead of the select statement.
-	if ctx.Err() == nil && m.mu.TryLock() {
-		return true
+// LockWithContext locks the mutex. This call blocks until the mutex is available
+// or the context is done.
+// If the context is done before the lock is acquired, the lock
+// is not acquired and an error is returned.
+// Importantly, LockWithContext does not immediately return an error if the
+// lock is not currently available, rather it will block until the lock is
+// available or the context is done. This behavior "differs" from
+// sync.Mutex.TryLock and sync.Mutex.Lock due to the context/error return value.
+// You must call Unlock if the returned error is nil to release the lock.
+// Do not call Unlock if the returned error is not nil.
+func (m *contextMutex) LockWithContext(ctx context.Context) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
 	}
-
-	// If the lock is not available, we wait for either the context to be
-	// canceled or the mutex to be released.
-	for {
-		select {
-		case <-ctx.Done():
-			// The context was canceled, so we return an error.
-			return false
-		case <-m.ch:
-			// make sure the lock is still available, don't block if someone else
-			// took it already
-			if m.mu.TryLock() {
-				return true
-			}
-		}
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case m.ch <- struct{}{}:
+		return nil
 	}
 }

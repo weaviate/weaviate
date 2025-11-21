@@ -157,7 +157,7 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 	propertyBoosts := make(map[string]float32, len(params.Properties))
 
 	for _, tokenization := range tokenizer.Tokenizations {
-		queryTerms, dupBoosts := tokenizer.TokenizeAndCountDuplicates(tokenization, params.Query)
+		queryTerms, dupBoosts := tokenizer.TokenizeAndCountDuplicatesForClass(tokenization, params.Query, class.Class)
 		queryTermsByTokenization[tokenization] = queryTerms
 		duplicateBoostsByTokenization[tokenization] = dupBoosts
 
@@ -345,7 +345,7 @@ func (b *BM25Searcher) wand(
 	termSearchTime := time.Since(start)
 	helpers.AnnotateSlowQueryLog(ctx, "kwd_3_term_time", termSearchTime)
 	start = time.Now()
-	topKHeap := lsmkv.DoWand(ctx, limit, combinedTerms, averagePropLength, params.AdditionalExplanations, minimumOrTokensMatch)
+	topKHeap := lsmkv.DoWand(ctx, limit, combinedTerms, averagePropLength, params.AdditionalExplanations, minimumOrTokensMatch, b.logger)
 
 	wandTime := time.Since(start)
 	helpers.AnnotateSlowQueryLog(ctx, "kwd_4_wand_time", wandTime)

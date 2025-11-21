@@ -19,6 +19,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
@@ -85,6 +86,7 @@ func TestRestorBQ_Integration(t *testing.T) {
 			return vec, nil
 		},
 		TempVectorForIDThunk: TempVectorForIDThunk(vectors),
+		MakeBucketOptions:    lsmkv.MakeNoopBucketOptions,
 	}
 
 	idx, err := hnsw.New(config, uc, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))

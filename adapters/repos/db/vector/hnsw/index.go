@@ -196,14 +196,13 @@ type hnsw struct {
 	visitedListPoolMaxSize int
 
 	// only used for multivector mode
-	multivector     atomic.Bool
-	muvera          atomic.Bool
-	muveraEncoder   *multivector.MuveraEncoder
-	docIDVectors    map[uint64][]uint64
-	vecIDcounter    uint64
-	maxDocID        uint64
-	MinMMapSize     int64
-	MaxWalReuseSize int64
+	multivector       atomic.Bool
+	muvera            atomic.Bool
+	muveraEncoder     *multivector.MuveraEncoder
+	docIDVectors      map[uint64][]uint64
+	vecIDcounter      uint64
+	maxDocID          uint64
+	makeBucketOptions lsmkv.MakeBucketOptions
 
 	fs common.FS
 }
@@ -220,7 +219,7 @@ type CommitLogger interface {
 	ClearLinks(nodeid uint64) error
 	ClearLinksAtLevel(nodeid uint64, level uint16) error
 	Reset() error
-	Drop(ctx context.Context) error
+	Drop(ctx context.Context, keepFiles bool) error
 	Flush() error
 	Shutdown(ctx context.Context) error
 	RootPath() string
@@ -280,9 +279,7 @@ func New(cfg Config, uc ent.UserConfig,
 			err := store.CreateOrLoadBucket(
 				context.Background(),
 				cfg.ID+"_muvera_vectors",
-				lsmkv.WithStrategy(lsmkv.StrategyReplace),
-				lsmkv.WithWriteSegmentInfoIntoFileName(cfg.WriteSegmentInfoIntoFileName),
-				lsmkv.WithWriteMetadata(cfg.WriteMetadataFilesEnabled),
+				cfg.MakeBucketOptions(lsmkv.StrategyReplace)...,
 			)
 			if err != nil {
 				return nil, errors.Wrapf(err, "Create or load bucket (muvera store)")
@@ -361,11 +358,10 @@ func New(cfg Config, uc ent.UserConfig,
 		allocChecker:           cfg.AllocChecker,
 		visitedListPoolMaxSize: cfg.VisitedListPoolMaxSize,
 
-		docIDVectors:    make(map[uint64][]uint64),
-		muveraEncoder:   muveraEncoder,
-		MinMMapSize:     cfg.MinMMapSize,
-		MaxWalReuseSize: cfg.MaxWalReuseSize,
-		fs:              common.NewOSFS(),
+		docIDVectors:      make(map[uint64][]uint64),
+		muveraEncoder:     muveraEncoder,
+		makeBucketOptions: cfg.MakeBucketOptions,
+		fs:                common.NewOSFS(),
 	}
 	index.acornSearch.Store(uc.FilterStrategy == ent.FilterStrategyAcorn)
 
@@ -377,11 +373,11 @@ func New(cfg Config, uc ent.UserConfig,
 		if uc.Multivector.Enabled && !uc.Multivector.MuveraConfig.Enabled {
 			index.compressor, err = compressionhelpers.NewBQMultiCompressor(
 				index.distancerProvider, uc.VectorCacheMaxObjects, cfg.Logger, store,
-				cfg.MinMMapSize, cfg.MaxWalReuseSize, cfg.AllocChecker, index.getTargetVector())
+				cfg.MakeBucketOptions, cfg.AllocChecker, index.getTargetVector())
 		} else {
 			index.compressor, err = compressionhelpers.NewBQCompressor(
 				index.distancerProvider, uc.VectorCacheMaxObjects, cfg.Logger, store,
-				cfg.MinMMapSize, cfg.MaxWalReuseSize, cfg.AllocChecker, index.getTargetVector())
+				cfg.MakeBucketOptions, cfg.AllocChecker, index.getTargetVector())
 		}
 		if err != nil {
 			return nil, err
@@ -401,13 +397,7 @@ func New(cfg Config, uc ent.UserConfig,
 			err := index.store.CreateOrLoadBucket(
 				context.Background(),
 				cfg.ID+"_mv_mappings",
-				lsmkv.WithStrategy(lsmkv.StrategyReplace),
-				lsmkv.WithLazySegmentLoading(cfg.LazyLoadSegments),
-				lsmkv.WithWriteSegmentInfoIntoFileName(cfg.WriteSegmentInfoIntoFileName),
-				lsmkv.WithWriteMetadata(cfg.WriteMetadataFilesEnabled),
-				lsmkv.WithAllocChecker(cfg.AllocChecker),
-				lsmkv.WithMinMMapSize(cfg.MinMMapSize),
-				lsmkv.WithMinWalThreshold(cfg.MaxWalReuseSize),
+				cfg.MakeBucketOptions(lsmkv.StrategyReplace)...,
 			)
 			if err != nil {
 				return nil, errors.Wrapf(err, "Create or load bucket (multivector store)")
@@ -703,7 +693,7 @@ func (h *hnsw) nodeByID(id uint64) *vertex {
 	return h.nodes[id]
 }
 
-func (h *hnsw) Drop(ctx context.Context) error {
+func (h *hnsw) Drop(ctx context.Context, keepFiles bool) error {
 	// cancel tombstone cleanup goroutine
 	if err := h.tombstoneCleanupCallbackCtrl.Unregister(ctx); err != nil {
 		return errors.Wrap(err, "hnsw drop")
@@ -721,7 +711,7 @@ func (h *hnsw) Drop(ctx context.Context) error {
 
 	// cancel commit logger last, as the tombstone cleanup cycle might still
 	// write while it's still running
-	err := h.commitLog.Drop(ctx)
+	err := h.commitLog.Drop(ctx, keepFiles)
 	if err != nil {
 		return errors.Wrap(err, "commit log drop")
 	}

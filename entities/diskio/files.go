@@ -31,6 +31,17 @@ func FileExists(file string) (bool, error) {
 	return true, nil
 }
 
+func DirExists(path string) (bool, error) {
+	fi, err := os.Stat(path)
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return fi.IsDir(), nil
+}
+
 func IsDirEmpty(dir string) (bool, error) {
 	f, err := os.Open(dir)
 	if err != nil {
