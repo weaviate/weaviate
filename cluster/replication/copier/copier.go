@@ -26,7 +26,7 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc/proto/protocol"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc/generated/protocol"
 	"github.com/weaviate/weaviate/cluster/replication/copier/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/diskio"

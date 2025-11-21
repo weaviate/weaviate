@@ -18,7 +18,7 @@ import (
 	"net"
 	"strings"
 
-	pb "github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc/proto/protocol"
+	pb "github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc/generated/protocol"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"google.golang.org/grpc"

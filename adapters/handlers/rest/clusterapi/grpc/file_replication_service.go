@@ -17,7 +17,7 @@ import (
 	"io"
 
 	"github.com/pkg/errors"
-	pb "github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc/proto/protocol"
+	pb "github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc/generated/protocol"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"google.golang.org/grpc/codes"

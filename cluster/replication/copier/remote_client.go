@@ -15,7 +15,7 @@ import (
 	"context"
 	"encoding/base64"
 
-	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc/proto/protocol"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc/generated/protocol"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
