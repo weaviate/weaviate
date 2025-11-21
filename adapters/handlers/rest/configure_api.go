@@ -27,20 +27,19 @@ import (
 	"strings"
 	"time"
 
-	"github.com/KimMachineGun/automemlimit/memlimit"
 	armonmetrics "github.com/armon/go-metrics"
 	armonprometheus "github.com/armon/go-metrics/prometheus"
 	"github.com/getsentry/sentry-go"
 	openapierrors "github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/swag"
-	"github.com/pbnjay/memory"
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/collectors/version"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/resources"
 	"google.golang.org/grpc"
 
 	"github.com/weaviate/fgprof"
@@ -159,47 +158,6 @@ type vectorRepo interface {
 	SetSchemaGetter(schemaUC.SchemaGetter)
 	WaitForStartup(ctx context.Context) error
 	Shutdown(ctx context.Context) error
-}
-
-func getCores() (int, error) {
-	cpuset, err := os.ReadFile("/sys/fs/cgroup/cpuset/cpuset.cpus")
-	if err != nil {
-		return 0, errors.Wrap(err, "read cpuset")
-	}
-	return calcCPUs(strings.TrimSpace(string(cpuset)))
-}
-
-func calcCPUs(cpuString string) (int, error) {
-	cores := 0
-	if cpuString == "" {
-		return 0, nil
-	}
-
-	// Split by comma to handle multiple ranges
-	ranges := strings.Split(cpuString, ",")
-	for _, r := range ranges {
-		// Check if it's a range (contains a hyphen)
-		if strings.Contains(r, "-") {
-			parts := strings.Split(r, "-")
-			if len(parts) != 2 {
-				return 0, fmt.Errorf("invalid CPU range format: %s", r)
-			}
-			start, err := strconv.Atoi(parts[0])
-			if err != nil {
-				return 0, fmt.Errorf("invalid start of CPU range: %s", parts[0])
-			}
-			end, err := strconv.Atoi(parts[1])
-			if err != nil {
-				return 0, fmt.Errorf("invalid end of CPU range: %s", parts[1])
-			}
-			cores += end - start + 1
-		} else {
-			// Single CPU
-			cores++
-		}
-	}
-
-	return cores, nil
 }
 
 func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *state.State {
@@ -334,8 +292,6 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 			}
 		})
 	}
-
-	limitResources(appState)
 
 	err := registerModules(appState)
 	if err != nil {
@@ -847,6 +803,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			}
 		}
 
+		appState.ResourceLimit.Shutdown()
+
 		// stop reindexing on server shutdown
 		appState.ReindexCtxCancel(fmt.Errorf("server shutdown"))
 
@@ -981,6 +939,7 @@ func startupRoutine(ctx context.Context, options *swag.CommandLineOptionsGroup) 
 	}
 
 	appState.Cluster = clusterState
+	appState.ResourceLimit = resources.NewLimit(appState.ServerConfig.Config.ResourceLimits, appState.Logger)
 	appState.Logger.
 		WithField("action", "startup").
 		Debug("startup routine complete")
@@ -1662,43 +1621,6 @@ func ParseVersionFromSwaggerSpec() string {
 	return spec.Info.Version
 }
 
-func limitResources(appState *state.State) {
-	if os.Getenv("LIMIT_RESOURCES") == "true" {
-		appState.Logger.Info("Limiting resources:  memory: 80%, cores: all but one")
-		if os.Getenv("GOMAXPROCS") == "" {
-			// Fetch the number of cores from the cgroups cpuset
-			// and parse it into an int
-			cores, err := getCores()
-			if err == nil {
-				appState.Logger.WithField("cores", cores).
-					Warn("GOMAXPROCS not set, and unable to read from cgroups, setting to number of cores")
-				goruntime.GOMAXPROCS(cores)
-			} else {
-				cores = goruntime.NumCPU() - 1
-				if cores > 0 {
-					appState.Logger.WithField("cores", cores).
-						Warnf("Unable to read from cgroups: %v, setting to max cores to: %v", err, cores)
-					goruntime.GOMAXPROCS(cores)
-				}
-			}
-		}
-
-		limit, err := memlimit.SetGoMemLimit(0.8)
-		if err != nil {
-			appState.Logger.WithError(err).Warnf("Unable to set memory limit from cgroups: %v", err)
-			// Set memory limit to 90% of the available memory
-			limit := int64(float64(memory.TotalMemory()) * 0.8)
-			debug.SetMemoryLimit(limit)
-			appState.Logger.WithField("limit", limit).Info("Set memory limit based on available memory")
-		} else {
-			appState.Logger.WithField("limit", limit).Info("Set memory limit")
-		}
-	} else {
-		appState.Logger.Info("No resource limits set, weaviate will use all available memory and CPU. " +
-			"To limit resources, set LIMIT_RESOURCES=true")
-	}
-}
-
 func telemetryEnabled(state *state.State) bool {
 	return !state.ServerConfig.Config.DisableTelemetry
 }
@@ -1716,60 +1638,67 @@ func (m membership) LeaderID() string {
 // initRuntimeOverrides assumes, Configs from envs are loaded before
 // initializing runtime overrides.
 func initRuntimeOverrides(appState *state.State) {
-	// Enable runtime config manager
-	if appState.ServerConfig.Config.RuntimeOverrides.Enabled {
-
-		// Runtimeconfig manager takes of keeping the `registered` config values upto date
-		registered := &config.WeaviateRuntimeConfig{}
-		registered.MaximumAllowedCollectionsCount = appState.ServerConfig.Config.SchemaHandlerConfig.MaximumAllowedCollectionsCount
-		registered.AsyncReplicationDisabled = appState.ServerConfig.Config.Replication.AsyncReplicationDisabled
-		registered.AutoschemaEnabled = appState.ServerConfig.Config.AutoSchema.Enabled
-		registered.TenantActivityReadLogLevel = appState.ServerConfig.Config.TenantActivityReadLogLevel
-		registered.TenantActivityWriteLogLevel = appState.ServerConfig.Config.TenantActivityWriteLogLevel
-		registered.RevectorizeCheckDisabled = appState.ServerConfig.Config.RevectorizeCheckDisabled
-		registered.QuerySlowLogEnabled = appState.ServerConfig.Config.QuerySlowLogEnabled
-		registered.QuerySlowLogThreshold = appState.ServerConfig.Config.QuerySlowLogThreshold
-		registered.InvertedSorterDisabled = appState.ServerConfig.Config.InvertedSorterDisabled
-		registered.ReplicatedIndicesRequestQueueEnabled = appState.ServerConfig.Config.Cluster.RequestQueueConfig.IsEnabled
-
-		hooks := make(map[string]func() error)
-
-		if appState.OIDC.Config.Enabled {
-			registered.OIDCIssuer = appState.OIDC.Config.Issuer
-			registered.OIDCClientID = appState.OIDC.Config.ClientID
-			registered.OIDCSkipClientIDCheck = appState.OIDC.Config.SkipClientIDCheck
-			registered.OIDCUsernameClaim = appState.OIDC.Config.UsernameClaim
-			registered.OIDCGroupsClaim = appState.OIDC.Config.GroupsClaim
-			registered.OIDCScopes = appState.OIDC.Config.Scopes
-			registered.OIDCCertificate = appState.OIDC.Config.Certificate
-
-			hooks["OIDC"] = appState.OIDC.Init
-			appState.Logger.Log(logrus.InfoLevel, "registereing OIDC runtime overrides hooks")
-		}
-
-		cm, err := configRuntime.NewConfigManager(
-			appState.ServerConfig.Config.RuntimeOverrides.Path,
-			config.ParseRuntimeConfig,
-			config.UpdateRuntimeConfig,
-			registered,
-			appState.ServerConfig.Config.RuntimeOverrides.LoadInterval,
-			appState.Logger,
-			hooks,
-			prometheus.DefaultRegisterer)
-		if err != nil {
-			appState.Logger.WithField("action", "startup").WithError(err).Fatal("could not create runtime config manager")
-			os.Exit(1)
-		}
-
-		enterrors.GoWrapper(func() {
-			// NOTE: Not using parent `ctx` because that is getting cancelled in the caller even during startup.
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
-
-			if err := cm.Run(ctx); err != nil {
-				appState.Logger.WithField("action", "runtime config manager startup ").WithError(err).
-					Fatal("runtime config manager stopped")
-			}
-		}, appState.Logger)
+	if !appState.ServerConfig.Config.RuntimeOverrides.Enabled {
+		return
 	}
+
+	// Runtimeconfig manager takes of keeping the `registered` config values upto date
+	registered := &config.WeaviateRuntimeConfig{}
+	registered.MaximumAllowedCollectionsCount = appState.ServerConfig.Config.SchemaHandlerConfig.MaximumAllowedCollectionsCount
+	registered.AsyncReplicationDisabled = appState.ServerConfig.Config.Replication.AsyncReplicationDisabled
+	registered.AutoschemaEnabled = appState.ServerConfig.Config.AutoSchema.Enabled
+	registered.TenantActivityReadLogLevel = appState.ServerConfig.Config.TenantActivityReadLogLevel
+	registered.TenantActivityWriteLogLevel = appState.ServerConfig.Config.TenantActivityWriteLogLevel
+	registered.RevectorizeCheckDisabled = appState.ServerConfig.Config.RevectorizeCheckDisabled
+	registered.QuerySlowLogEnabled = appState.ServerConfig.Config.QuerySlowLogEnabled
+	registered.QuerySlowLogThreshold = appState.ServerConfig.Config.QuerySlowLogThreshold
+	registered.InvertedSorterDisabled = appState.ServerConfig.Config.InvertedSorterDisabled
+	registered.ReplicatedIndicesRequestQueueEnabled = appState.ServerConfig.Config.Cluster.RequestQueueConfig.IsEnabled
+
+	hooks := make(map[string]func() error)
+	if appState.OIDC.Config.Enabled {
+		registered.OIDCIssuer = appState.OIDC.Config.Issuer
+		registered.OIDCClientID = appState.OIDC.Config.ClientID
+		registered.OIDCSkipClientIDCheck = appState.OIDC.Config.SkipClientIDCheck
+		registered.OIDCUsernameClaim = appState.OIDC.Config.UsernameClaim
+		registered.OIDCGroupsClaim = appState.OIDC.Config.GroupsClaim
+		registered.OIDCScopes = appState.OIDC.Config.Scopes
+		registered.OIDCCertificate = appState.OIDC.Config.Certificate
+
+		hooks["OIDC"] = appState.OIDC.Init
+		appState.Logger.Log(logrus.InfoLevel, "registereing OIDC runtime overrides hooks")
+	}
+
+	if appState.ServerConfig.Config.ResourceLimits.Enabled {
+		registered.ResourceLimitGoMaxProcs = appState.ServerConfig.Config.ResourceLimits.GoMaxProcs
+		registered.ResourceLimitGoMemLimit = appState.ServerConfig.Config.ResourceLimits.GoMemLimit
+		registered.ResourceLimitGoMemLimitFromCgroups = appState.ServerConfig.Config.ResourceLimits.GoMemLimitFromCgroupsRatio
+
+		hooks["ResourceLimit"] = appState.ResourceLimit.ApplyResourceLimits(appState.ServerConfig.Config.ResourceLimits)
+	}
+
+	cm, err := configRuntime.NewConfigManager(
+		appState.ServerConfig.Config.RuntimeOverrides.Path,
+		config.ParseRuntimeConfig,
+		config.UpdateRuntimeConfig,
+		registered,
+		appState.ServerConfig.Config.RuntimeOverrides.LoadInterval,
+		appState.Logger,
+		hooks,
+		prometheus.DefaultRegisterer)
+	if err != nil {
+		appState.Logger.WithField("action", "startup").WithError(err).Fatal("could not create runtime config manager")
+		os.Exit(1)
+	}
+
+	enterrors.GoWrapper(func() {
+		// NOTE: Not using parent `ctx` because that is getting cancelled in the caller even during startup.
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		if err := cm.Run(ctx); err != nil {
+			appState.Logger.WithField("action", "runtime config manager startup ").WithError(err).
+				Fatal("runtime config manager stopped")
+		}
+	}, appState.Logger)
 }
