@@ -56,7 +56,7 @@ func NewProvider(cfg *Config, logger logrus.FieldLogger) (*Provider, error) {
 	res, err := resource.New(context.Background(),
 		resource.WithAttributes(
 			semconv.ServiceName(cfg.ServiceName),
-			semconv.ServiceVersion(build.Version), // TODO: get from build info
+			semconv.ServiceVersion(build.Version),
 			semconv.DeploymentEnvironment(cfg.Environment),
 		),
 	)
@@ -146,8 +146,6 @@ func createGRPCExporter(cfg *Config) (sdktrace.SpanExporter, error) {
 // Tracer returns the OpenTelemetry tracer
 func (p *Provider) Tracer() trace.Tracer {
 	if p.tracer == nil {
-		// TODO
-		// return trace.NewNoopTracerProvider().Tracer("noop")
 		return noop.NewTracerProvider().Tracer("noop")
 	}
 	return p.tracer

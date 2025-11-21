@@ -970,6 +970,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			}
 		}
 
+		// Shutdown OTEL tracing
+		if err := opentelemetry.Shutdown(ctx); err != nil {
+			appState.Logger.WithField("action", "stop_opentelemetry").
+				Errorf("failed to stop opentelemetry: %s", err.Error())
+		}
+
 		// stop reindexing on server shutdown
 		appState.ReindexCtxCancel(fmt.Errorf("server shutdown"))
 

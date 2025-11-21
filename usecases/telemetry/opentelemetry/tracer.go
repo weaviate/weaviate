@@ -20,6 +20,7 @@ import (
 )
 
 // Global provider instance
+// TODO: find a way to avoid global state of the provider
 var globalProvider *Provider
 
 // Init initializes the global OpenTelemetry provider
