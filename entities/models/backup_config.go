@@ -45,7 +45,7 @@ type BackupConfig struct {
 	ChunkSize int64 `json:"ChunkSize,omitempty"`
 
 	// compression level used by compression algorithm
-	// Enum: [DefaultCompression BestSpeed BestCompression]
+	// Enum: [DefaultCompression BestSpeed BestCompression ZstdDefaultCompression ZstdBestSpeed ZstdBestCompression NoCompression]
 	CompressionLevel string `json:"CompressionLevel,omitempty"`
 
 	// Name of the endpoint, e.g. s3.amazonaws.com.
@@ -113,7 +113,7 @@ var backupConfigTypeCompressionLevelPropEnum []interface{}
 
 func init() {
 	var res []string
-	if err := json.Unmarshal([]byte(`["DefaultCompression","BestSpeed","BestCompression"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["DefaultCompression","BestSpeed","BestCompression","ZstdDefaultCompression","ZstdBestSpeed","ZstdBestCompression","NoCompression"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {
@@ -131,6 +131,18 @@ const (
 
 	// BackupConfigCompressionLevelBestCompression captures enum value "BestCompression"
 	BackupConfigCompressionLevelBestCompression string = "BestCompression"
+
+	// BackupConfigCompressionLevelZstdDefaultCompression captures enum value "ZstdDefaultCompression"
+	BackupConfigCompressionLevelZstdDefaultCompression string = "ZstdDefaultCompression"
+
+	// BackupConfigCompressionLevelZstdBestSpeed captures enum value "ZstdBestSpeed"
+	BackupConfigCompressionLevelZstdBestSpeed string = "ZstdBestSpeed"
+
+	// BackupConfigCompressionLevelZstdBestCompression captures enum value "ZstdBestCompression"
+	BackupConfigCompressionLevelZstdBestCompression string = "ZstdBestCompression"
+
+	// BackupConfigCompressionLevelNoCompression captures enum value "NoCompression"
+	BackupConfigCompressionLevelNoCompression string = "NoCompression"
 )
 
 // prop value enum

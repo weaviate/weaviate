@@ -33,9 +33,13 @@ import (
 type CompressionLevel int
 
 const (
-	DefaultCompression CompressionLevel = iota
-	BestSpeed
-	BestCompression
+	GzipDefaultCompression CompressionLevel = iota
+	GzipBestSpeed
+	GzipBestCompression
+	ZstdBestSpeed
+	ZstdDefaultCompression
+	ZstdBestCompression
+	NoCompression
 )
 
 type zip struct {
@@ -48,13 +52,24 @@ type zip struct {
 
 func NewZip(sourcePath string, level int) (zip, io.ReadCloser) {
 	pr, pw := io.Pipe()
-	gzw, _ := gzip.NewWriterLevel(pw, zipLevel(level))
 	reader := &readCloser{src: pr, n: 0}
+
+	var gzw *gzip.Writer
+	var tarW *tar.Writer
+
+	switch CompressionLevel(level) {
+	case ZstdBestSpeed, ZstdDefaultCompression, ZstdBestCompression, NoCompression:
+		// produce raw tar stream; higher-level code will zstd-compress it
+		tarW = tar.NewWriter(pw)
+	default:
+		gzw, _ = gzip.NewWriterLevel(pw, zipLevel(level))
+		tarW = tar.NewWriter(gzw)
+	}
 
 	return zip{
 		sourcePath: sourcePath,
 		gzw:        gzw,
-		w:          tar.NewWriter(gzw),
+		w:          tarW,
 		pipeWriter: pw,
 		counter:    reader.counter(),
 	}, reader
@@ -63,7 +78,9 @@ func NewZip(sourcePath string, level int) (zip, io.ReadCloser) {
 func (z *zip) Close() error {
 	var err1, err2, err3 error
 	err1 = z.w.Close()
-	err2 = z.gzw.Close()
+	if z.gzw != nil {
+		err2 = z.gzw.Close()
+	}
 	if err := z.pipeWriter.Close(); err != nil && !errors.Is(err, io.ErrClosedPipe) {
 		err3 = err
 	}
@@ -324,9 +341,9 @@ func zipLevel(level int) int {
 		return gzip.DefaultCompression
 	}
 	switch CompressionLevel(level) {
-	case BestSpeed:
+	case GzipBestSpeed:
 		return gzip.BestSpeed
-	case BestCompression:
+	case GzipBestCompression:
 		return gzip.BestCompression
 	default:
 		return gzip.DefaultCompression
