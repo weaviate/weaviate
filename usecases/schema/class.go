@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
+	"github.com/weaviate/weaviate/adapters/repos/db/ttl"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/classcache"
 	entcfg "github.com/weaviate/weaviate/entities/config"
@@ -135,6 +136,13 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 	err = h.invertedConfigValidator(cls.InvertedIndexConfig)
 	if err != nil {
 		return nil, 0, err
+	}
+
+	ttlConfig, err := ttl.ValidateObjectTTLConfig(cls)
+	if err != nil {
+		return nil, 0, fmt.Errorf("ObjectTTLConfig: %w", err)
+	} else {
+		cls.ObjectTTLConfig = ttlConfig
 	}
 
 	existingCollectionsCount, err := h.schemaManager.QueryCollectionsCount()
