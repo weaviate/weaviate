@@ -218,14 +218,10 @@ type RankInput struct {
 	TopN      int      `json:"top_n,omitempty"`
 }
 
-type Document struct {
-	Text string `json:"text"`
-}
-
 type Result struct {
-	Index          int      `json:"index"`
-	RelevanceScore float64  `json:"relevance_score"`
-	Document       Document `json:"document"`
+	Index          int     `json:"index"`
+	RelevanceScore float64 `json:"relevance_score"`
+	Document       string  `json:"document"`
 }
 
 type APIVersion struct {

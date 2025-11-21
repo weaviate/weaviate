@@ -54,6 +54,9 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	if err != nil {
 		return nil, fmt.Errorf("init shard %q metrics: %w", shardName, err)
 	}
+	if index.Config.LazySegmentsDisabled {
+		lazyLoadSegments = false // disabled globally
+	}
 
 	shutCtx, shutCtxCancel := context.WithCancelCause(context.Background())
 
@@ -80,6 +83,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		usingBlockMaxWAND:               index.invertedIndexConfig.UsingBlockMaxWAND,
 		bitmapBufPool:                   bitmapBufPool,
 		SPFreshEnabled:                  index.SPFreshEnabled,
+		lazySegmentLoadingEnabled:       lazyLoadSegments,
 	}
 
 	index.metrics.UpdateShardStatus("", storagestate.StatusLoading.String())
@@ -140,14 +144,11 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 
 	_ = s.reindexer.RunBeforeLsmInit(ctx, s)
 
-	if s.index.Config.LazySegmentsDisabled {
-		lazyLoadSegments = false // disable globally
-	}
-	if err := s.initNonVector(ctx, class, lazyLoadSegments); err != nil {
+	if err := s.initNonVector(ctx, class); err != nil {
 		return nil, errors.Wrapf(err, "init shard %q", s.ID())
 	}
 
-	if err = s.initShardVectors(ctx, lazyLoadSegments); err != nil {
+	if err = s.initShardVectors(ctx); err != nil {
 		return nil, fmt.Errorf("init shard vectors: %w", err)
 	}
 

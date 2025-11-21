@@ -39,6 +39,11 @@ func ValidateConfig(conf *models.InvertedIndexConfig) error {
 		return err
 	}
 
+	err = validateTokenizerUserDictConfig(conf.TokenizerUserDict)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -65,6 +70,16 @@ func ConfigFromModel(iicm *models.InvertedIndexConfig) schema.InvertedIndexConfi
 		conf.Stopwords.Preset = iicm.Stopwords.Preset
 		conf.Stopwords.Additions = iicm.Stopwords.Additions
 		conf.Stopwords.Removals = iicm.Stopwords.Removals
+	}
+
+	if iicm.TokenizerUserDict != nil {
+		conf.TokenizerUserDict = make([]*models.TokenizerUserDictConfig, len(iicm.TokenizerUserDict))
+		for i, tudc := range iicm.TokenizerUserDict {
+			conf.TokenizerUserDict[i] = &models.TokenizerUserDictConfig{
+				Replacements: tudc.Replacements,
+				Tokenizer:    tudc.Tokenizer,
+			}
+		}
 	}
 
 	conf.UsingBlockMaxWAND = iicm.UsingBlockMaxWAND
@@ -165,4 +180,39 @@ func removeStopwordAdditionsIfInPreset(conf *models.StopwordConfig, foundAdditio
 		}
 	}
 	conf.Additions = trimmedAdditions
+}
+
+func validateTokenizerUserDictConfig(conf []*models.TokenizerUserDictConfig) error {
+	if conf == nil {
+		return nil
+	}
+	// find duplicate from and to entries
+	seenTokenizers := make(map[string]struct{})
+	for _, c := range conf {
+		seen := make(map[string]struct{})
+		if c.Tokenizer != models.PropertyTokenizationKagomeKr && c.Tokenizer != models.PropertyTokenizationKagomeJa {
+			return errors.Errorf("tokenizer '%s' in tokenizer user dict config is not supported", c.Tokenizer)
+		}
+		if _, ok := seenTokenizers[c.Tokenizer]; !ok {
+			seenTokenizers[c.Tokenizer] = struct{}{}
+		} else {
+			return errors.Errorf("found duplicate tokenizer '%s' in tokenizer user dict config", c.Tokenizer)
+		}
+		for _, repl := range c.Replacements {
+			if repl.Source == nil || repl.Target == nil {
+				return errors.Errorf("both source and target must be set")
+			}
+			if strings.TrimSpace(*repl.Source) == "" {
+				return errors.Errorf("source cannot be empty or whitespace")
+			}
+			if _, ok := seen[*repl.Source]; !ok {
+				seen[*repl.Source] = struct{}{}
+			} else {
+				return errors.Errorf("found duplicate replacement source '%s'", *repl.Source)
+			}
+
+			seen[*repl.Source] = struct{}{}
+		}
+	}
+	return nil
 }

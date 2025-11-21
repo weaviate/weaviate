@@ -787,6 +787,22 @@ func FromEnv(config *Config) error {
 		config.GRPC.KeyFile = v
 	}
 
+	if err := parseNonNegativeInt(
+		"GRPC_MAX_OPEN_CONNS",
+		func(val int) { config.GRPC.MaxOpenConns = val },
+		DefaultGRPCMaxOpenConns,
+	); err != nil {
+		return err
+	}
+
+	if err := parseDuration(
+		"GRPC_IDLE_CONN_TIMEOUT",
+		func(val time.Duration) { config.GRPC.IdleConnTimeout = val },
+		DefaultGRPCIdleConnTimeout,
+	); err != nil {
+		return err
+	}
+
 	config.DisableGraphQL = entcfg.Enabled(os.Getenv("DISABLE_GRAPHQL"))
 
 	if config.Raft, err = parseRAFTConfig(config.Cluster.Hostname); err != nil {
@@ -1307,6 +1323,21 @@ func parseFloatVerify(envName string, defaultValue float64, cb func(val float64)
 	return nil
 }
 
+func parseDuration(envName string, cb func(val time.Duration), defaultValue time.Duration) error {
+	var err error
+	asDuration := defaultValue
+
+	if v := os.Getenv(envName); v != "" {
+		asDuration, err = time.ParseDuration(v)
+		if err != nil {
+			return fmt.Errorf("parse %s as time.Duration: %w", envName, err)
+		}
+	}
+
+	cb(asDuration)
+	return nil
+}
+
 const (
 	DefaultQueryMaximumResults       = int64(10000)
 	DefaultQueryHybridMaximumResults = int64(100)
@@ -1328,6 +1359,8 @@ const (
 	DefaultMaxConcurrentShardLoads             = 500
 	DefaultGRPCPort                            = 50051
 	DefaultGRPCMaxMsgSize                      = 104858000 // 100 * 1024 * 1024 + 400
+	DefaultGRPCMaxOpenConns                    = 100
+	DefaultGRPCIdleConnTimeout                 = 5 * time.Minute
 	DefaultMinimumReplicationFactor            = 1
 	DefaultMaximumAllowedCollectionsCount      = -1 // unlimited
 )
