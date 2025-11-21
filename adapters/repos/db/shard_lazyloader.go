@@ -412,7 +412,9 @@ func (l *LazyLoadShard) DebugResetVectorIndex(ctx context.Context, targetVector 
 	return l.shard.DebugResetVectorIndex(ctx, targetVector)
 }
 
-func (l *LazyLoadShard) initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper, lazyLoadSegments bool, props ...*models.Property) {
+func (l *LazyLoadShard) initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper,
+	lazyLoadSegments bool, props ...*models.Property,
+) {
 	l.mustLoad()
 	l.shard.initPropertyBuckets(ctx, eg, lazyLoadSegments, props...)
 }
