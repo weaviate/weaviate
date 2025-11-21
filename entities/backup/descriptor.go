@@ -301,6 +301,12 @@ func (c *CompressionType) UnmarshalJSON(b []byte) error {
 	if err := json.Unmarshal(b, &s); err != nil {
 		return err
 	}
+
+	// default to GZIP if empty for backward compatibility
+	if s == "" {
+		*c = CompressionGZIP
+		return nil
+	}
 	ct := CompressionType(s)
 	if !ct.IsValid() {
 		return fmt.Errorf("invalid compression type: %q", s)
