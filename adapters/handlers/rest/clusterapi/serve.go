@@ -75,8 +75,6 @@ func NewServer(appState *state.State) *Server {
 
 	var handler http.Handler
 	handler = mux
-	// Add replication diagnostic middleware to log incoming replication requests
-	handler = replicationDiagnosticMiddleware(handler)
 	if appState.ServerConfig.Config.Sentry.Enabled {
 		// Wrap the default mux with Sentry to capture panics, report errors and
 		// measure performance.
