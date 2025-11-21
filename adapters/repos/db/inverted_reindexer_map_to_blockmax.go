@@ -721,15 +721,15 @@ func (t *ShardReindexTask_MapToBlockmax) getSegmentPathsToMove(bucketPathSrc, bu
 		}
 		if t.isSegmentDb(d.Name()) || t.isSegmentBloom(d.Name()) {
 			ext := filepath.Ext(d.Name())
-			id := strings.TrimSuffix(strings.TrimPrefix(d.Name(), "segment-"), ext)
-			timestamp, err := strconv.ParseInt(id, 10, 64)
+			idAndData := strings.Split(strings.TrimSuffix(strings.TrimPrefix(d.Name(), "segment-"), ext), ".")
+			timestamp, err := strconv.ParseInt(idAndData[0], 10, 64)
 			if err != nil {
 				return err
 			}
 			timestampPast := time.Unix(0, timestamp).AddDate(-23, 0, 0).UnixNano()
-
+			idAndData[0] = strconv.FormatInt(timestampPast, 10)
 			segmentPaths = append(segmentPaths, [2]string{
-				path, filepath.Join(bucketPathDst, fmt.Sprintf("segment-%d%s", timestampPast, ext)),
+				path, filepath.Join(bucketPathDst, fmt.Sprintf("segment-%s%s", strings.Join(idAndData, "."), ext)),
 			})
 		} else if t.isSegmentWal(d.Name()) {
 			if info, err := d.Info(); err != nil {
@@ -973,6 +973,8 @@ func (t *ShardReindexTask_MapToBlockmax) recoverReindexBucket(ctx context.Contex
 ) error {
 	store := shard.Store()
 	bucketOpts := t.bucketOptions(shard, lsmkv.StrategyInverted, true, false, t.config.memtableOptBlockmaxFactor)
+	bucketOpts = append(bucketOpts, lsmkv.WithWalThreshold(0))
+	bucketOpts = append(bucketOpts, lsmkv.WithMinWalThreshold(0))
 
 	logger.WithField("bucket", bucketName).Debug("recover wals, loading bucket")
 	if err := store.CreateOrLoadBucket(ctx, bucketName, bucketOpts...); err != nil {
