@@ -1336,6 +1336,9 @@ func TestManager_QueryReplicationScalePlan(t *testing.T) {
 							Physical: map[string]sharding.Physical{
 								"shard1": {BelongsToNodes: []string{"node1"}},
 							},
+							Virtual: []sharding.Virtual{
+								{Name: "v1", AssignedToPhysical: "shard1"},
+							},
 						},
 					}),
 					"node1", true, false,
@@ -1374,6 +1377,10 @@ func TestManager_QueryReplicationScalePlan(t *testing.T) {
 								"shard1": {BelongsToNodes: []string{"node1"}},
 								"shard2": {BelongsToNodes: []string{"node1"}},
 							},
+							Virtual: []sharding.Virtual{
+								{Name: "v1", AssignedToPhysical: "shard1"},
+								{Name: "v2", AssignedToPhysical: "shard2"},
+							},
 						},
 					}),
 					"node1", true, false,
@@ -1409,6 +1416,9 @@ func TestManager_QueryReplicationScalePlan(t *testing.T) {
 							Physical: map[string]sharding.Physical{
 								"shard1": {BelongsToNodes: []string{"node1", "node2"}},
 							},
+							Virtual: []sharding.Virtual{
+								{Name: "v1", AssignedToPhysical: "shard1"},
+							},
 						},
 					}),
 					"node1", true, false,
@@ -1440,6 +1450,9 @@ func TestManager_QueryReplicationScalePlan(t *testing.T) {
 						State: &sharding.State{
 							Physical: map[string]sharding.Physical{
 								"shard1": {BelongsToNodes: []string{"node1", "node2", "node3"}},
+							},
+							Virtual: []sharding.Virtual{
+								{Name: "v1", AssignedToPhysical: "shard1"},
 							},
 						},
 					}),
@@ -1475,6 +1488,9 @@ func TestManager_QueryReplicationScalePlan(t *testing.T) {
 							Physical: map[string]sharding.Physical{
 								"shard1": {BelongsToNodes: []string{}},
 							},
+							Virtual: []sharding.Virtual{
+								{Name: "v1", AssignedToPhysical: "shard1"},
+							},
 						},
 					}),
 					"node1", true, false,
@@ -1504,6 +1520,10 @@ func TestManager_QueryReplicationScalePlan(t *testing.T) {
 							Physical: map[string]sharding.Physical{
 								"shard1": {BelongsToNodes: []string{"node1"}},
 								"shard2": {BelongsToNodes: []string{"node2"}},
+							},
+							Virtual: []sharding.Virtual{
+								{Name: "v1", AssignedToPhysical: "shard1"},
+								{Name: "v2", AssignedToPhysical: "shard2"},
 							},
 						},
 					}),
@@ -1541,6 +1561,10 @@ func TestManager_QueryReplicationScalePlan(t *testing.T) {
 								"shard1": {BelongsToNodes: []string{"node1", "node2", "node3"}},
 								"shard2": {BelongsToNodes: []string{"node1", "node2", "node3"}},
 							},
+							Virtual: []sharding.Virtual{
+								{Name: "v1", AssignedToPhysical: "shard1"},
+								{Name: "v2", AssignedToPhysical: "shard2"},
+							},
 						},
 					}),
 					"node1", true, false,
@@ -1576,6 +1600,10 @@ func TestManager_QueryReplicationScalePlan(t *testing.T) {
 							Physical: map[string]sharding.Physical{
 								"shard1": {BelongsToNodes: []string{"node1"}},                   // needs to add
 								"shard2": {BelongsToNodes: []string{"node1", "node2", "node3"}}, // needs to remove
+							},
+							Virtual: []sharding.Virtual{
+								{Name: "v1", AssignedToPhysical: "shard1"},
+								{Name: "v2", AssignedToPhysical: "shard2"},
 							},
 						},
 					}),
