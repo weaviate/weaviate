@@ -135,7 +135,7 @@ func (r *restorer) restoreAll(ctx context.Context,
 	desc *backup.BackupDescriptor, cpuPercentage int,
 	store nodeStore, overrideBucket, overridePath, rbacRestoreOption, usersRestoreOption string,
 ) error {
-	compressionType := desc.CompressionType
+	compressionType := desc.GetCompressionType()
 	compressed := desc.Version > version1
 	r.lastOp.set(backup.Transferring)
 
