@@ -849,6 +849,7 @@ func setupDebugHandlers(appState *state.State) {
 				return
 			}
 			prevLimit = debug.SetMemoryLimit(limitBytes)
+			appState.Logger.WithField("memory_limit_in_bytes", prevLimit).Info("updating go-runtime memory limit")
 		default:
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		}
