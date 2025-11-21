@@ -283,7 +283,6 @@ func CalculateTargetVectorDimensionsFromBucket(ctx context.Context, b *lsmkv.Buc
 	case lsmkv.StrategyMapCollection:
 		// Since weaviate 1.34 default dimension bucket strategy is StrategyRoaringSet.
 		// For backward compatibility StrategyMapCollection is still supported.
-		time.Sleep(5 * time.Minute)
 		c, err := b.MapCursor()
 		if err != nil {
 			return dimensionality, fmt.Errorf("create cursor: %w", err)
@@ -296,6 +295,10 @@ func CalculateTargetVectorDimensionsFromBucket(ctx context.Context, b *lsmkv.Buc
 		} else {
 			k, v = c.Seek(ctx, []byte(targetVector))
 		}
+
+		// Sleep to simulate slow I/O during file reading
+		time.Sleep(5 * time.Minute)
+
 		for ; k != nil; k, v = c.Next(ctx) {
 			// for named vectors we have to additionally check if the key is prefixed with the vector name
 			if len(k) != expectedKeyLen || !strings.HasPrefix(string(k), targetVector) {
