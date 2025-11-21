@@ -171,15 +171,20 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 	if prevID := c.lastOp.renew(req.ID, cstore.HomeDir(req.Bucket, req.Path), req.Bucket, req.Path); prevID != "" {
 		return fmt.Errorf("backup %s already in progress", prevID)
 	}
+	compressionType, err := CompressionTypeFromLevel(req.Level)
+	if err != nil {
+		return err
+	}
 
 	c.descriptor = &backup.DistributedBackupDescriptor{
-		StartedAt:     time.Now().UTC(),
-		Status:        backup.Started,
-		ID:            req.ID,
-		Nodes:         groups,
-		Version:       Version,
-		ServerVersion: config.ServerVersion,
-		Leader:        leader,
+		StartedAt:       time.Now().UTC(),
+		Status:          backup.Started,
+		ID:              req.ID,
+		Nodes:           groups,
+		Version:         Version,
+		ServerVersion:   config.ServerVersion,
+		Leader:          leader,
+		CompressionType: compressionType,
 	}
 
 	for key := range c.Participants {
@@ -664,4 +669,17 @@ type partialStatus struct {
 	node string
 	*StatusResponse
 	err error
+}
+
+func CompressionTypeFromLevel(c CompressionLevel) (backup.CompressionType, error) {
+	switch c {
+	case GzipBestCompression, GzipBestSpeed, GzipDefaultCompression:
+		return backup.CompressionGZIP, nil
+	case ZstdBestCompression, ZstdBestSpeed, ZstdDefaultCompression:
+		return backup.CompressionZSTD, nil
+	case NoCompression:
+		return backup.CompressionNone, nil
+	default:
+		return "", fmt.Errorf("invalid compression level: %q", c)
+	}
 }

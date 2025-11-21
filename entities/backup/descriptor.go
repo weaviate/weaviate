@@ -46,6 +46,7 @@ type DistributedBackupDescriptor struct {
 	Leader                  string                     `json:"leader"`
 	Error                   string                     `json:"error"`
 	PreCompressionSizeBytes int64                      `json:"preCompressionSizeBytes"` // Size of this node's backup in bytes before compression
+	CompressionType         CompressionType            `json:"compressionType"`
 }
 
 // Len returns how many nodes exist in d
@@ -267,6 +268,14 @@ type ClassDescriptor struct {
 	PreCompressionSizeBytes int64              `json:"preCompressionSizeBytes"` // Size of this class's backup in bytes before compression
 }
 
+type CompressionType string
+
+const (
+	CompressionZSTD CompressionType = "zstd"
+	CompressionGZIP CompressionType = "gzip"
+	CompressionNone CompressionType = "none"
+)
+
 // BackupDescriptor contains everything needed to completely restore a list of classes
 type BackupDescriptor struct {
 	StartedAt               time.Time         `json:"startedAt"`
@@ -280,6 +289,16 @@ type BackupDescriptor struct {
 	ServerVersion           string            `json:"serverVersion"`
 	Error                   string            `json:"error"`
 	PreCompressionSizeBytes int64             `json:"preCompressionSizeBytes"` // Size of this node's backup in bytes before compression
+	CompressionType         *CompressionType  `json:"compressionType,omitempty"`
+}
+
+// List all existing classes in d
+func (d *BackupDescriptor) GetCompressionType() CompressionType {
+	if d.CompressionType == nil {
+		// backward compatibility with old backups that don't have this field and default to gzip
+		return CompressionGZIP
+	}
+	return *d.CompressionType
 }
 
 // List all existing classes in d

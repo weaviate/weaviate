@@ -107,7 +107,7 @@ func NewHandler(
 
 // Compression is the compression configuration.
 type Compression struct {
-	// Level is one of DefaultCompression, BestSpeed, BestCompression
+	// Level is one of GzipDefaultCompression, GzipBestSpeed, GzipBestCompression
 	Level CompressionLevel
 
 	// ChunkSize represents the desired size for chunks between 1 - 512  MB
