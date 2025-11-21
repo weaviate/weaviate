@@ -135,7 +135,9 @@ func (c *replicationClient) OverwriteObjects(ctx context.Context,
 	if err != nil {
 		return resp, fmt.Errorf("create http request: %w", err)
 	}
-	err = c.do(c.timeoutUnit*90, req, body, &resp, 9)
+
+	err = c.doRetry(req, body, &resp, 3)
+
 	return resp, err
 }
 
@@ -368,7 +370,11 @@ func newHttpReplicaCMD(host, cmd, index, shard, requestId string, body io.Reader
 func (c *replicationClient) do(timeout time.Duration, req *http.Request, body []byte, resp interface{}, numRetries int) (err error) {
 	ctx, cancel := context.WithTimeout(req.Context(), timeout)
 	defer cancel()
-	req = req.WithContext(ctx)
+
+	return c.doRetry(req.WithContext(ctx), body, resp, numRetries)
+}
+
+func (c *replicationClient) doRetry(req *http.Request, body []byte, resp interface{}, numRetries int) (err error) {
 	try := func(ctx context.Context) (bool, error) {
 		if body != nil {
 			req.Body = io.NopCloser(bytes.NewReader(body))
@@ -388,7 +394,7 @@ func (c *replicationClient) do(timeout time.Duration, req *http.Request, body []
 		}
 		return false, nil
 	}
-	return c.retry(ctx, numRetries, try)
+	return c.retry(req.Context(), numRetries, try)
 }
 
 func (c *replicationClient) doCustomUnmarshal(timeout time.Duration,

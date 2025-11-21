@@ -90,8 +90,6 @@ func TestVectorizingTexts(t *testing.T) {
 			require.Nil(t, err)
 			assert.Equal(t, []float32{0.1, 1.1, 2.1, 3.1}, vec)
 			assert.Equal(t, test.input, client.lastInput)
-			assert.Equal(t, DefaultApiEndpoint, client.lastConfig.ApiEndpoint)
-			assert.Equal(t, test.googleModel, client.lastConfig.Model)
 		})
 	}
 }

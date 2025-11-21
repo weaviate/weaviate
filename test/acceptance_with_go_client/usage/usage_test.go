@@ -76,7 +76,7 @@ func TestTenantStatusChanges(t *testing.T) {
 				return
 			}
 
-			usage, err := getDebugUsageForCollection(className)
+			usage, err := GetDebugUsageForCollection(className)
 			require.NoError(t, err)
 			require.NotNil(t, usage)
 			require.Equal(t, len(usage.Shards), len(tenants))
@@ -160,7 +160,7 @@ func TestUsageTenantDelete(t *testing.T) {
 				return
 			}
 			deletedTenantsBeforeCall := deletedTenants.Load()
-			usage, err := getDebugUsageForCollection(className)
+			usage, err := GetDebugUsageForCollection(className)
 			require.NoError(t, err)
 			require.NotNil(t, usage)
 			deletedTenantsAfterCall := deletedTenants.Load()
