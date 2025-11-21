@@ -208,6 +208,13 @@ type hnsw struct {
 	fs common.FS
 }
 
+func (h *hnsw) Get(id uint64) ([]float32, error) {
+	if !h.compressed.Load() {
+		return h.cache.Get(context.Background(), id)
+	}
+	return h.compressor.Get(id)
+}
+
 type CommitLogger interface {
 	ID() string
 	AddNode(node *vertex) error
@@ -886,6 +893,13 @@ func (h *hnsw) Upgraded() bool {
 
 func (h *hnsw) AlreadyIndexed() uint64 {
 	return uint64(h.cache.CountVectors())
+}
+
+func (h *hnsw) CurrentVectorsLen() uint64 {
+	if h.compressed.Load() {
+		return h.compressor.MaxVectorID()
+	}
+	return uint64(h.cache.Len())
 }
 
 func (h *hnsw) normalizeVec(vec []float32) []float32 {
