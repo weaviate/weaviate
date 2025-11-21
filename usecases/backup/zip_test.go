@@ -39,81 +39,92 @@ func TestZip(t *testing.T) {
 		pathNode = "./test_data/node1"
 		ctx      = context.Background()
 	)
-	pathDest := filepath.Join(t.TempDir(), "test_data", "node1")
-	require.NoError(t, copyDir(pathNode, pathDest))
+	for _, useGzip := range []bool{true, false} {
+		t.Run(fmt.Sprintf("useGzip=%v", useGzip), func(t *testing.T) {
+			pathDest := filepath.Join(t.TempDir(), "test_data", "node1")
+			require.NoError(t, copyDir(pathNode, pathDest))
 
-	// setup
-	sd, err := getShard(pathDest, "cT9eTErXgmTX")
-	if err != nil {
-		t.Fatal(err)
-	}
+			// setup
+			sd, err := getShard(pathDest, "cT9eTErXgmTX")
+			if err != nil {
+				t.Fatal(err)
+			}
 
-	// compression writer
-	compressBuf := bytes.NewBuffer(make([]byte, 0, 1000_000))
-	z, rc := NewZip(pathDest, 0)
-	var zInputLen int64
-	go func() {
-		zInputLen, err = z.WriteShard(ctx, &sd)
-		if err != nil {
-			t.Errorf("compress: %v", err)
-		}
-		z.Close()
-	}()
+			var compressionLevel CompressionLevel
+			if useGzip {
+				compressionLevel = GzipBestCompression
+			} else {
+				compressionLevel = NoCompression
+			}
 
-	// compression reader
-	zOutputLen, err := io.Copy(compressBuf, rc)
-	if err != nil {
-		t.Fatal("copy to buffer", err)
-	}
+			// compression writer
+			compressBuf := bytes.NewBuffer(make([]byte, 0, 1000_000))
+			z, rc := NewZip(pathDest, int(compressionLevel))
+			var zInputLen int64
+			go func() {
+				zInputLen, err = z.WriteShard(ctx, &sd)
+				if err != nil {
+					t.Errorf("compress: %v", err)
+				}
+				z.Close()
+			}()
 
-	if err := rc.Close(); err != nil {
-		t.Errorf("compress:close %v", err)
-	}
+			// compression reader
+			zOutputLen, err := io.Copy(compressBuf, rc)
+			if err != nil {
+				t.Fatal("copy to buffer", err)
+			}
 
-	f := float32(zInputLen) / float32(zOutputLen)
-	fmt.Printf("compression input_size=%d output_size=%d factor=%v\n", zInputLen, zOutputLen, f)
+			if err := rc.Close(); err != nil {
+				t.Errorf("compress:close %v", err)
+			}
 
-	// cleanup folder to restore test afterwards
-	require.NoError(t, os.RemoveAll(pathDest))
-	require.NoError(t, os.MkdirAll(pathDest, 0o755))
+			f := float32(zInputLen) / float32(zOutputLen)
+			fmt.Printf("compression input_size=%d output_size=%d factor=%v\n", zInputLen, zOutputLen, f)
 
-	// decompression
-	uz, wc := NewUnzip(pathDest)
+			// cleanup folder to restore test afterwards
+			require.NoError(t, os.RemoveAll(pathDest))
+			require.NoError(t, os.MkdirAll(pathDest, 0o755))
 
-	// decompression reader
-	var uzInputLen atomic.Int64
-	go func() {
-		uzInputLen2, err := io.Copy(wc, compressBuf)
-		if err != nil {
-			t.Errorf("writer: %v", err)
-		}
-		uzInputLen.Store(uzInputLen2)
-		if err := wc.Close(); err != nil {
-			t.Errorf("close writer: %v", err)
-		}
-	}()
+			// decompression
+			uz, wc := NewUnzip(pathDest, useGzip)
 
-	// decompression writer
-	uzOutputLen, err := uz.ReadChunk()
-	if err != nil {
-		t.Fatalf("unzip: %v", err)
-	}
-	if err := uz.Close(); err != nil {
-		t.Errorf("close reader: %v", err)
-	}
+			// decompression reader
+			var uzInputLen atomic.Int64
+			go func() {
+				uzInputLen2, err := io.Copy(wc, compressBuf)
+				if err != nil {
+					t.Errorf("writer: %v", err)
+				}
+				uzInputLen.Store(uzInputLen2)
+				if err := wc.Close(); err != nil {
+					t.Errorf("close writer: %v", err)
+				}
+			}()
 
-	fmt.Printf("unzip input_size=%d output_size=%d\n", uzInputLen.Load(), uzOutputLen)
+			// decompression writer
+			uzOutputLen, err := uz.ReadChunk()
+			if err != nil {
+				t.Fatalf("unzip: %v", err)
+			}
+			if err := uz.Close(); err != nil {
+				t.Errorf("close reader: %v", err)
+			}
 
-	_, err = os.Stat(pathDest)
-	if err != nil {
-		t.Fatalf("cannot find decompressed folder: %v", err)
-	}
+			fmt.Printf("unzip input_size=%d output_size=%d\n", uzInputLen.Load(), uzOutputLen)
 
-	if zInputLen != uzOutputLen {
-		t.Errorf("zip input size %d != unzip output size %d", uzOutputLen, zInputLen)
-	}
-	if zOutputLen != uzInputLen.Load() {
-		t.Errorf("zip output size %d != unzip input size %d", zOutputLen, uzInputLen.Load())
+			_, err = os.Stat(pathDest)
+			if err != nil {
+				t.Fatalf("cannot find decompressed folder: %v", err)
+			}
+
+			if zInputLen != uzOutputLen {
+				t.Errorf("zip input size %d != unzip output size %d", uzOutputLen, zInputLen)
+			}
+			if zOutputLen != uzInputLen.Load() {
+				t.Errorf("zip output size %d != unzip input size %d", zOutputLen, uzInputLen.Load())
+			}
+		})
 	}
 }
 
@@ -142,7 +153,7 @@ func TestUnzipPathEscape(t *testing.T) {
 	require.NoError(t, gzw.Close())
 
 	// now restore from the archive to destPath, all writes should be contained within destPath
-	uz, wc := NewUnzip(destPath)
+	uz, wc := NewUnzip(destPath, false)
 	go func() {
 		_, err2 := io.Copy(wc, &buf)
 		require.NoError(t, err2)
@@ -404,7 +415,7 @@ func TestRenamingDuringBackup(t *testing.T) {
 
 	require.NoError(t, os.RemoveAll(dir))
 
-	uz, wc := NewUnzip(dir2)
+	uz, wc := NewUnzip(dir2, false)
 	go func() {
 		_, err := io.Copy(wc, compressBuf)
 		require.NoError(t, err)

@@ -662,7 +662,9 @@ func (fw *fileWriter) writeTempFiles(ctx context.Context, classTempDir, override
 		chunk := chunkKey(desc.Name, k)
 		eg.Go(func() error {
 			var ww io.WriteCloser
-			uz, w := NewUnzip(classTempDir)
+
+			gzipCompressed := compressionType == backup.CompressionGZIP
+			uz, w := NewUnzip(classTempDir, gzipCompressed)
 
 			// decompress zstd on the fly if needed
 			switch compressionType {
@@ -670,9 +672,21 @@ func (fw *fileWriter) writeTempFiles(ctx context.Context, classTempDir, override
 				ww = w
 			case backup.CompressionZSTD:
 				pr, pw := io.Pipe()
-				dec, _ := zstd.NewReader(pr)
-				io.Copy(w, dec)
 				ww = pw
+				enterrors.GoWrapper(func() {
+					dec, _ := zstd.NewReader(pr)
+					if err != nil {
+						_ = pw.CloseWithError(err)
+						return
+					}
+					defer dec.Close()
+
+					if _, err := io.Copy(w, dec); err != nil {
+						_ = pw.CloseWithError(err)
+						return
+					}
+					_ = w.Close()
+				}, fw.logger)
 			}
 			enterrors.GoWrapper(func() {
 				fw.backend.Read(ctx, chunk, overrideBucket, overridePath, ww)

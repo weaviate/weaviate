@@ -16,6 +16,7 @@ pytestmark = pytest.mark.xdist_group(name="backup")
     [
         wvc.backup.BackupCompressionLevel.BEST_SPEED,
         wvc.backup.BackupCompressionLevel.ZSTD_BEST_SPEED,
+        wvc.backup.BackupCompressionLevel.NO_COMPRESSION,
     ],
 )
 def test_backup_and_restore(request: SubRequest, compression: wvc.backup.BackupCompressionLevel):

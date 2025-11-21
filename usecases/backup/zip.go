@@ -210,18 +210,24 @@ type unzip struct {
 	gzr        *gzip.Reader
 	r          *tar.Reader
 	pipeReader *io.PipeReader
+	useGzip    bool
 }
 
-func NewUnzip(dst string) (unzip, io.WriteCloser) {
+func NewUnzip(dst string, useGzip bool) (unzip, io.WriteCloser) {
 	pr, pw := io.Pipe()
 	return unzip{
 		destPath:   dst,
 		pipeReader: pr,
+		useGzip:    useGzip,
 	}, pw
 }
 
 func (u *unzip) init() error {
 	if u.gzr != nil {
+		return nil
+	}
+	if !u.useGzip {
+		u.r = tar.NewReader(u.pipeReader)
 		return nil
 	}
 	gz, err := gzip.NewReader(u.pipeReader)
