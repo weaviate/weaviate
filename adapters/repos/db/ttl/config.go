@@ -27,23 +27,20 @@ func ValidateObjectTTLConfig(collection *models.Class) (*models.ObjectTTLConfig,
 	ttlConfig := collection.ObjectTTLConfig
 
 	if !IsTtlEnabled(ttlConfig) {
-		return &models.ObjectTTLConfig{Enabled: false}, nil
+		return ttlConfig, nil
 	}
 
 	deleteOn := strings.TrimSpace(ttlConfig.DeleteOn)
 	switch deleteOn {
 	case "":
-		return nil, newErrorEmptyDeleteOn("missing value for \"deleteOn\". Set %q, %q or custom property of \"date\" type",
-			filters.InternalPropCreationTimeUnix, filters.InternalPropLastUpdateTimeUnix)
+		return nil, newErrorEmptyDeleteOn()
 
 	case filters.InternalPropCreationTimeUnix, filters.InternalPropLastUpdateTimeUnix:
 		if collection.InvertedIndexConfig == nil || !collection.InvertedIndexConfig.IndexTimestamps {
-			return nil, newErrorTimestampsNotIndexed("\"deleteOn\"=%q requires indexed timestamps. Enable \"invertedIndexConfig.indexTimestamps\"",
-				deleteOn)
+			return nil, newErrorTimestampsNotIndexed(deleteOn)
 		}
 		if defaultTtl := time.Duration(ttlConfig.DefaultTTL) * time.Second; defaultTtl < minDefaultTtl {
-			return nil, newErrorInvalidDefaultTtl("defaultTtl value too small for \"deleteOn\"=%q. Required minimum \"%d\" seconds, given \"%d\" seconds",
-				deleteOn, int64(minDefaultTtl/time.Second), ttlConfig.DefaultTTL)
+			return nil, newErrorInvalidDefaultTtl(deleteOn, ttlConfig.DefaultTTL)
 		}
 
 	default:
@@ -55,19 +52,16 @@ func ValidateObjectTTLConfig(collection *models.Class) (*models.ObjectTTLConfig,
 			}
 		}
 		if deleteOnProp == nil {
-			return nil, newErrorMissingDeleteOnProp("property %q set as \"deleteOn\" not found among collection properties",
-				deleteOn)
+			return nil, newErrorMissingDeleteOnProp(deleteOn)
 		}
 		if dt, _ := schema.AsPrimitive(deleteOnProp.DataType); dt != schema.DataTypeDate {
-			return nil, newErrorInvalidDeleteOnPropDatatype("property %q set as \"deleteOn\" should have %q data type, %q given",
-				deleteOn, schema.DataTypeDate, dt)
+			return nil, newErrorInvalidDeleteOnPropDatatype(deleteOn, dt)
 		}
+		// TODO aliszka:ttl allow rangeable?
 		if deleteOnProp.IndexFilterable == nil || !*deleteOnProp.IndexFilterable {
-			return nil, newErrorMissingDeleteOnPropIndex("property %q set as \"deleteOn\" should have filterable index enabled",
-				deleteOn)
+			return nil, newErrorMissingDeleteOnPropIndex(deleteOn)
 		}
 	}
-
 	ttlConfig.DeleteOn = deleteOn
 	return ttlConfig, nil
 }
@@ -76,57 +70,62 @@ func IsTtlEnabled(config *models.ObjectTTLConfig) bool {
 	return config != nil && config.Enabled
 }
 
-type errorEmptyDeleteOn struct{ err error }
-type errorTimestampsNotIndexed struct{ err error }
-type errorInvalidDefaultTtl struct{ err error }
-type errorMissingDeleteOnProp struct{ err error }
-type errorInvalidDeleteOnPropDatatype struct{ err error }
-type errorMissingDeleteOnPropIndex struct{ err error }
+type errorTtl struct{ error }
+type errorEmptyDeleteOn struct{ errorTtl }
+type errorTimestampsNotIndexed struct{ errorTtl }
+type errorInvalidDefaultTtl struct{ errorTtl }
+type errorMissingDeleteOnProp struct{ errorTtl }
+type errorInvalidDeleteOnPropDatatype struct{ errorTtl }
+type errorMissingDeleteOnPropIndex struct{ errorTtl }
 
-func newErrorEmptyDeleteOn(format string, args ...any) *errorEmptyDeleteOn {
-	return &errorEmptyDeleteOn{fmt.Errorf(format, args...)}
+func (e errorTtl) Error() string {
+	return e.error.Error()
 }
 
-func (e *errorEmptyDeleteOn) Error() string {
-	return e.err.Error()
+func newErrorEmptyDeleteOn() errorEmptyDeleteOn {
+	return errorEmptyDeleteOn{errorTtl{fmt.Errorf("missing value for \"deleteOn\". Set %q, %q or custom property of \"date\" type",
+		filters.InternalPropCreationTimeUnix, filters.InternalPropLastUpdateTimeUnix)}}
+}
+func (e errorEmptyDeleteOn) Unwrap() error {
+	return e.errorTtl
 }
 
-func newErrorTimestampsNotIndexed(format string, args ...any) *errorTimestampsNotIndexed {
-	return &errorTimestampsNotIndexed{fmt.Errorf(format, args...)}
+func newErrorTimestampsNotIndexed(deleteOn string) errorTimestampsNotIndexed {
+	return errorTimestampsNotIndexed{errorTtl{fmt.Errorf("\"deleteOn\"=%q requires indexed timestamps. Enable \"invertedIndexConfig.indexTimestamps\"",
+		deleteOn)}}
+}
+func (e errorTimestampsNotIndexed) Unwrap() error {
+	return e.errorTtl
 }
 
-func (e *errorTimestampsNotIndexed) Error() string {
-	return e.err.Error()
+func newErrorInvalidDefaultTtl(deleteOn string, defaultTtl int64) errorInvalidDefaultTtl {
+	return errorInvalidDefaultTtl{errorTtl{fmt.Errorf("defaultTtl value too small for \"deleteOn\"=%q. Required minimum \"%d\" seconds, given \"%d\" seconds",
+		deleteOn, int64(minDefaultTtl/time.Second), defaultTtl)}}
+}
+func (e errorInvalidDefaultTtl) Unwrap() error {
+	return e.errorTtl
 }
 
-func newErrorInvalidDefaultTtl(format string, args ...any) *errorInvalidDefaultTtl {
-	return &errorInvalidDefaultTtl{fmt.Errorf(format, args...)}
+func newErrorMissingDeleteOnProp(deleteOn string) errorMissingDeleteOnProp {
+	return errorMissingDeleteOnProp{errorTtl{fmt.Errorf("property %q set as \"deleteOn\" not found among collection properties",
+		deleteOn)}}
+}
+func (e errorMissingDeleteOnProp) Unwrap() error {
+	return e.errorTtl
 }
 
-func (e *errorInvalidDefaultTtl) Error() string {
-	return e.err.Error()
+func newErrorInvalidDeleteOnPropDatatype(deleteOn string, dt schema.DataType) errorInvalidDeleteOnPropDatatype {
+	return errorInvalidDeleteOnPropDatatype{errorTtl{fmt.Errorf("property %q set as \"deleteOn\" should have %q data type, %q given",
+		deleteOn, schema.DataTypeDate, dt)}}
+}
+func (e errorInvalidDeleteOnPropDatatype) Unwrap() error {
+	return e.errorTtl
 }
 
-func newErrorMissingDeleteOnProp(format string, args ...any) *errorMissingDeleteOnProp {
-	return &errorMissingDeleteOnProp{fmt.Errorf(format, args...)}
+func newErrorMissingDeleteOnPropIndex(deleteOn string) errorMissingDeleteOnPropIndex {
+	return errorMissingDeleteOnPropIndex{errorTtl{fmt.Errorf("property %q set as \"deleteOn\" should have filterable index enabled",
+		deleteOn)}}
 }
-
-func (e *errorMissingDeleteOnProp) Error() string {
-	return e.err.Error()
-}
-
-func newErrorInvalidDeleteOnPropDatatype(format string, args ...any) *errorInvalidDeleteOnPropDatatype {
-	return &errorInvalidDeleteOnPropDatatype{fmt.Errorf(format, args...)}
-}
-
-func (e *errorInvalidDeleteOnPropDatatype) Error() string {
-	return e.err.Error()
-}
-
-func newErrorMissingDeleteOnPropIndex(format string, args ...any) *errorMissingDeleteOnPropIndex {
-	return &errorMissingDeleteOnPropIndex{fmt.Errorf(format, args...)}
-}
-
-func (e *errorMissingDeleteOnPropIndex) Error() string {
-	return e.err.Error()
+func (e errorMissingDeleteOnPropIndex) Unwrap() error {
+	return e.errorTtl
 }
