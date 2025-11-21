@@ -22,6 +22,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/modelsext"
 	"github.com/weaviate/weaviate/entities/tokenizer"
 
@@ -852,6 +853,124 @@ func Test_AddClass_DefaultsAndMigration(t *testing.T) {
 			}
 			fakeSchemaManager.AssertExpectations(t)
 		})
+	})
+}
+
+func Test_AddClass_ObjectTTLConfig(t *testing.T) {
+	vFalse := false
+
+	createCollection := func() *models.Class {
+		return &models.Class{
+			Class: "CollectionWithTTL",
+			ObjectTTLConfig: &models.ObjectTTLConfig{
+				Enabled:    true,
+				DeleteOn:   filters.InternalPropCreationTimeUnix,
+				DefaultTTL: 3600,
+			},
+			InvertedIndexConfig: &models.InvertedIndexConfig{
+				IndexTimestamps: true,
+			},
+			Properties: []*models.Property{
+				{
+					Name:     "customPropertyDate",
+					DataType: schema.DataTypeDate.PropString(),
+				},
+				{
+					Name:            "customPropertyDateNoIndex",
+					DataType:        schema.DataTypeDate.PropString(),
+					IndexFilterable: &vFalse,
+				},
+				{
+					Name:     "customPropertyInt",
+					DataType: schema.DataTypeInt.PropString(),
+				},
+			},
+			Vectorizer:        "none",
+			ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+		}
+	}
+
+	t.Run("valid config", func(t *testing.T) {
+		testCases := []struct {
+			name        string
+			reconfigure func(c *models.Class)
+		}{
+			{
+				name:        "deleteOn creation time",
+				reconfigure: func(c *models.Class) { c.ObjectTTLConfig.DeleteOn = filters.InternalPropCreationTimeUnix },
+			},
+			{
+				name:        "deleteOn update time",
+				reconfigure: func(c *models.Class) { c.ObjectTTLConfig.DeleteOn = filters.InternalPropLastUpdateTimeUnix },
+			},
+			{
+				name:        "deleteOn custom property",
+				reconfigure: func(c *models.Class) { c.ObjectTTLConfig.DeleteOn = "customPropertyDate" },
+			},
+			{
+				name:        "no ttl config",
+				reconfigure: func(c *models.Class) { c.ObjectTTLConfig = nil },
+			},
+			{
+				name:        "ttl disabled",
+				reconfigure: func(c *models.Class) { c.ObjectTTLConfig.Enabled = false },
+			},
+		}
+
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				collection := createCollection()
+				tc.reconfigure(collection)
+				handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+				fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
+				fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+
+				_, _, err := handler.AddClass(context.Background(), nil, collection)
+
+				assert.NoError(t, err)
+				fakeSchemaManager.AssertExpectations(t)
+			})
+		}
+	})
+
+	t.Run("invalid config returns error", func(t *testing.T) {
+		testCases := []struct {
+			name        string
+			reconfigure func(c *models.Class)
+		}{
+			{
+				name:        "non existing property",
+				reconfigure: func(c *models.Class) { c.ObjectTTLConfig.DeleteOn = "customPropertyNotExistent" },
+			},
+			{
+				name:        "property without index",
+				reconfigure: func(c *models.Class) { c.ObjectTTLConfig.DeleteOn = "customPropertyNoIndex" },
+			},
+			{
+				name:        "property invalid datatype",
+				reconfigure: func(c *models.Class) { c.ObjectTTLConfig.DeleteOn = "customPropertyInt" },
+			},
+			{
+				name:        "timestamps not indexed",
+				reconfigure: func(c *models.Class) { c.InvertedIndexConfig.IndexTimestamps = false },
+			},
+			{
+				name:        "ttl too small",
+				reconfigure: func(c *models.Class) { c.ObjectTTLConfig.DefaultTTL = 42 },
+			},
+		}
+
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				collection := createCollection()
+				tc.reconfigure(collection)
+				handler, _ := newTestHandler(t, &fakeDB{})
+
+				_, _, err := handler.AddClass(context.Background(), nil, collection)
+
+				assert.ErrorContains(t, err, "ObjectTTLConfig")
+			})
+		}
 	})
 }
 
