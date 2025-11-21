@@ -550,6 +550,72 @@ func VectorizeBatch[T []float32](ctx context.Context, objs []*models.Object, ski
 	return vecs, nil, errs
 }
 
+type batchObjectVectorizer func(context.Context, []*models.Object, moduletools.ClassConfig) ([][]float32, models.AdditionalProperties, error)
+
+type batchOfObjects struct {
+	indexes []int
+	objs    []*models.Object
+}
+
+func VectorizeBatchObjects[T []float32](ctx context.Context,
+	objs []*models.Object,
+	skipObject []bool,
+	cfg moduletools.ClassConfig,
+	logger logrus.FieldLogger,
+	batchObjectVectorizer batchObjectVectorizer,
+	batchSize int,
+) ([]T, []models.AdditionalProperties, map[int]error) {
+	vecs := make([]T, len(objs))
+	// error should be the exception so dont preallocate
+	errs := make(map[int]error, 0)
+	errorLock := sync.Mutex{}
+	// create batches
+	batchOfObjects := make([]batchOfObjects, int(len(objs)/batchSize)+1)
+	j := 0
+	for i := range objs {
+		if skipObject[i] {
+			continue
+		}
+		batchOfObjects[j].indexes = append(batchOfObjects[j].indexes, i)
+		batchOfObjects[j].objs = append(batchOfObjects[j].objs, objs[i])
+		if (i+1)%batchSize == 0 {
+			j++
+		}
+	}
+	// batchOfObjects = batchOfObjects[:j]
+	// error group is used to limit concurrency
+	eg := enterrors.NewErrorGroupWrapper(logger)
+	eg.SetLimit(_NUMCPU * 2)
+	for i := range batchOfObjects {
+		eg.Go(func() error {
+			res, _, err := batchObjectVectorizer(ctx, batchOfObjects[i].objs, cfg)
+			if err != nil {
+				errorLock.Lock()
+				defer errorLock.Unlock()
+				for _, index := range batchOfObjects[i].indexes {
+					errs[index] = err
+				}
+			} else {
+				for i, index := range batchOfObjects[i].indexes {
+					vecs[index] = res[i]
+				}
+			}
+			return nil
+		})
+	}
+	err := eg.Wait()
+	if err != nil {
+		for i := range objs {
+			if skipObject[i] {
+				continue
+			}
+			errs[i] = err
+		}
+		return nil, nil, errs
+	}
+	return vecs, nil, errs
+}
+
 func dummyRateLimit() *modulecomponents.RateLimits {
 	return &modulecomponents.RateLimits{
 		LimitRequests:        1000000,

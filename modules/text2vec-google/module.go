@@ -53,6 +53,7 @@ func New() *GoogleModule {
 type GoogleModule struct {
 	vectorizer                   text2vecbase.TextVectorizerBatch[[]float32]
 	vectorizerWithTitleProperty  text2vecbase.TextVectorizer[[]float32]
+	batchVectorizer              *vectorizer.Vectorizer
 	metaProvider                 text2vecbase.MetaProvider
 	graphqlProvider              modulecapabilities.GraphQLArguments
 	searcher                     modulecapabilities.Searcher[[]float32]
@@ -119,6 +120,7 @@ func (m *GoogleModule) initVectorizer(ctx context.Context, timeout time.Duration
 	client := clients.New(apiKey, useGoogleAuth, timeout, logger)
 
 	m.vectorizerWithTitleProperty = vectorizer.New(client)
+	m.batchVectorizer = vectorizer.New(client)
 
 	m.vectorizer = text2vecbase.New(client,
 		batch.NewBatchVectorizer(client, 50*time.Second, batchSettings, logger, m.Name()),
@@ -149,11 +151,11 @@ func (m *GoogleModule) VectorizeObject(ctx context.Context,
 
 func (m *GoogleModule) VectorizeBatch(ctx context.Context, objs []*models.Object, skipObject []bool, cfg moduletools.ClassConfig) ([][]float32, []models.AdditionalProperties, map[int]error) {
 	icheck := vectorizer.NewClassSettings(cfg)
-	if icheck.TitleProperty() == "" {
+	if icheck.TitleProperty() != "" {
 		vecs, errs := m.vectorizer.ObjectBatch(ctx, objs, skipObject, cfg)
 		return vecs, nil, errs
 	}
-	return batch.VectorizeBatch(ctx, objs, skipObject, cfg, m.logger, m.vectorizerWithTitleProperty.Object)
+	return batch.VectorizeBatchObjects(ctx, objs, skipObject, cfg, m.logger, m.batchVectorizer.Objects, 50)
 }
 
 func (m *GoogleModule) MetaInfo() (map[string]interface{}, error) {

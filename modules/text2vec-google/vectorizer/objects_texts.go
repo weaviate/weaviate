@@ -41,6 +41,15 @@ type Client interface {
 	VectorizeQuery(ctx context.Context,
 		input []string, cfg moduletools.ClassConfig,
 	) (*modulecomponents.VectorizationResult[[]float32], error)
+	Vectorize(ctx context.Context,
+		input []string, cfg moduletools.ClassConfig,
+	) (*modulecomponents.VectorizationResult[[]float32], *modulecomponents.RateLimits, int, error)
+}
+
+func (v *Vectorizer) Objects(ctx context.Context, objects []*models.Object, cfg moduletools.ClassConfig,
+) ([][]float32, models.AdditionalProperties, error) {
+	vecs, err := v.objects(ctx, objects, cfg)
+	return vecs, nil, err
 }
 
 func (v *Vectorizer) Object(ctx context.Context, object *models.Object, cfg moduletools.ClassConfig,
@@ -66,6 +75,23 @@ func (v *Vectorizer) object(ctx context.Context, object *models.Object, cfg modu
 		return libvectorizer.CombineVectors(res.Vector), nil
 	}
 	return res.Vector[0], nil
+}
+
+func (v *Vectorizer) objects(ctx context.Context, objects []*models.Object, cfg moduletools.ClassConfig,
+) ([][]float32, error) {
+	icheck := NewClassSettings(cfg)
+	inputs := make([]string, len(objects))
+	for i := range objects {
+		corpi, _ := v.objectVectorizer.TextsWithTitleProperty(ctx, objects[i], icheck, icheck.TitleProperty())
+		inputs[i] = corpi
+	}
+
+	res, _, _, err := v.client.Vectorize(ctx, inputs, cfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to vectorize batch of objects: %w", err)
+	}
+
+	return res.Vector, nil
 }
 
 func (v *Vectorizer) Texts(ctx context.Context, inputs []string,
