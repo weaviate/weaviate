@@ -452,7 +452,7 @@ func (h *hnsw) prefillCache(ctx context.Context) {
 		h.cachePrefilled.Store(true)
 	}
 
-	if h.waitForCachePrefill {
+	if h.waitForCachePrefill || h.multivector.Load() {
 		h.logger.WithFields(logrus.Fields{
 			"action":                 "hnsw_prefill_cache_sync",
 			"wait_for_cache_prefill": true,
