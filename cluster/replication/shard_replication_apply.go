@@ -14,7 +14,6 @@ package replication
 import (
 	"errors"
 	"fmt"
-	"slices"
 	"time"
 
 	"github.com/go-openapi/strfmt"
@@ -64,7 +63,12 @@ func (s *ShardReplicationFSM) RegisterError(c *api.ReplicationRegisterErrorReque
 // is held
 func (s *ShardReplicationFSM) writeOpIntoFSM(op ShardReplicationOp, status ShardReplicationOpStatus) error {
 	if _, ok := s.opsByTargetFQDN[op.TargetShard]; ok {
-		return fmt.Errorf("op %s in targetFQDN: %w", op.UUID, ErrShardAlreadyReplicating)
+		// First check the status of the existing op. If it's READY or CANCELLED we can accept a new op
+		if existingOpStatus, ok := s.statusById[op.ID]; ok {
+			if existingOpStatus.GetCurrentState() != api.READY && existingOpStatus.GetCurrentState() != api.CANCELLED {
+				return fmt.Errorf("op %s in targetFQDN: %w", op.UUID, ErrShardAlreadyReplicating)
+			}
+		}
 	}
 
 	if existingOps, ok := s.opsBySourceFQDN[op.SourceShard]; ok {
@@ -540,7 +544,7 @@ func findAndDeleteOp(id uint64, ops []ShardReplicationOp) ([]ShardReplicationOp,
 		}
 	}
 	if ok {
-		ops = slices.Delete(ops, indexToDelete, indexToDelete+1)
+		ops = append(ops[:indexToDelete], ops[indexToDelete+1:]...)
 	}
 	return ops, ok
 }
