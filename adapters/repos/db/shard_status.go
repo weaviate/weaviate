@@ -26,8 +26,8 @@ type ShardStatus struct {
 }
 
 func (s *Shard) GetStatus() storagestate.Status {
-	s.statusLock.Lock()
-	defer s.statusLock.Unlock()
+	s.statusLock.RLock()
+	defer s.statusLock.RUnlock()
 
 	if s.status.Status != storagestate.StatusReady && s.status.Status != storagestate.StatusIndexing {
 		return s.status.Status
@@ -37,21 +37,21 @@ func (s *Shard) GetStatus() storagestate.Status {
 		return s.status.Status
 	}
 
-	status := storagestate.StatusReady
+	status := s.status.Status
 	_ = s.ForEachVectorQueue(func(_ string, queue *VectorIndexQueue) error {
 		if queue.Size() > 0 {
 			status = storagestate.StatusIndexing
+			return errors.New("found queue with items") // stop iteration early
 		}
 		return nil
 	})
-	s.status.Status = status
 	return status
 }
 
 // isReadOnly returns an error if shard is readOnly and nil otherwise
 func (s *Shard) isReadOnly() error {
-	s.statusLock.Lock()
-	defer s.statusLock.Unlock()
+	s.statusLock.RLock()
+	defer s.statusLock.RUnlock()
 
 	if s.status.Status == storagestate.StatusReadOnly {
 		return storagestate.ErrStatusReadOnlyWithReason(s.status.Reason)
