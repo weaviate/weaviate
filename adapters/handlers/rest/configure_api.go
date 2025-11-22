@@ -365,8 +365,8 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	}
 
 	// TODO: configure http transport for efficient intra-cluster comm
-	remoteIndexClient := clients.NewRemoteIndex(appState.ClusterHttpClient)
-	remoteNodesClient := clients.NewRemoteNode(appState.ClusterHttpClient)
+	remoteIndexClient := clients.NewRemoteIndex(appState.ClusterHttpClient, appState.Cluster)
+	remoteNodesClient := clients.NewRemoteNode(appState.ClusterHttpClient, appState.Cluster)
 	replicationClient := clients.NewReplicationClient(appState.ClusterHttpClient)
 	repo, err := db.New(appState.Logger, db.Config{
 		ServerVersion:                       config.ServerVersion,
@@ -1588,17 +1588,22 @@ func (c clientWithAuth) RoundTrip(r *http.Request) (*http.Response, error) {
 }
 
 func reasonableHttpClient(authConfig cluster.AuthConfig) *http.Client {
+	// TODO: the client config should be configurable based on the cluster size
 	t := &http.Transport{
 		Proxy: http.ProxyFromEnvironment,
 		DialContext: (&net.Dialer{
 			Timeout:   30 * time.Second,
-			KeepAlive: 120 * time.Second,
+			KeepAlive: 15 * time.Second, // keep at 15s for pod termination detection
 		}).DialContext,
 		MaxIdleConnsPerHost:   100,
 		MaxIdleConns:          100,
-		IdleConnTimeout:       90 * time.Second,
+		IdleConnTimeout:       60 * time.Second,
 		TLSHandshakeTimeout:   10 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
+		ForceAttemptHTTP2:     true,
+		DisableKeepAlives:     false,
+		MaxConnsPerHost:       100,
+		ResponseHeaderTimeout: 15 * time.Second,
 	}
 
 	if authConfig.BasicAuth.Enabled() {
