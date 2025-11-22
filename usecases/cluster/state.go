@@ -18,12 +18,32 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
+	"github.com/cenkalti/backoff/v4"
 	"github.com/hashicorp/memberlist"
+	"github.com/hashicorp/serf/serf"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 )
+
+// retryWithBackoff executes a function with exponential backoff retry logic
+func retryWithBackoff(operation func() error, initialInterval, maxElapsedTime time.Duration, logFields logrus.Fields, logger logrus.FieldLogger) error {
+	bf := backoff.NewExponentialBackOff()
+	bf.InitialInterval = initialInterval
+	bf.RandomizationFactor = 0.5
+	bf.Multiplier = 2.0
+	bf.MaxElapsedTime = maxElapsedTime
+
+	return backoff.Retry(func() error {
+		err := operation()
+		if err != nil {
+			logger.WithFields(logFields).WithError(err).Debug("operation failed, will retry")
+		}
+		return err
+	}, bf)
+}
 
 // NodeSelector is an interface to select a portion of the available nodes in memberlist
 type NodeSelector interface {
@@ -46,7 +66,7 @@ type State struct {
 	config Config
 	// that lock to serialize access to memberlist
 	listLock             sync.RWMutex
-	list                 *memberlist.Memberlist
+	list                 *serf.Serf
 	nonStorageNodes      map[string]struct{}
 	delegate             delegate
 	maintenanceNodesLock sync.RWMutex
@@ -154,13 +174,26 @@ func Init(userConfig Config, raftBootstrapExpect int, dataPath string, nonStorag
 		cfg.SuspicionMult = 1
 	}
 
-	if state.list, err = memberlist.Create(cfg); err != nil {
+	serfconfig := serf.DefaultConfig()
+	serfconfig.NodeName = cfg.Name
+	serfconfig.LogOutput = newLogParser(logger)
+
+	// Configure memberlist settings properly
+	serfconfig.MemberlistConfig = cfg
+
+	// Configure Serf-specific settings
+	serfconfig.EventCh = make(chan serf.Event, 2048)
+	serfconfig.EnableNameConflictResolution = true
+	serfconfig.RejoinAfterLeave = true
+
+	state.list, err = serf.Create(serfconfig)
+	if err != nil {
 		logger.WithFields(logrus.Fields{
-			"action":    "memberlist_init",
+			"action":    "serf_init",
 			"hostname":  userConfig.Hostname,
 			"bind_port": userConfig.GossipBindPort,
-		}).WithError(err).Error("memberlist not created")
-		return nil, errors.Wrap(err, "create member list")
+		}).WithError(err).Error("serf not created")
+		return nil, errors.Wrap(err, "create serf")
 	}
 	var joinAddr []string
 	if userConfig.Join != "" {
@@ -168,21 +201,43 @@ func Init(userConfig Config, raftBootstrapExpect int, dataPath string, nonStorag
 	}
 
 	if len(joinAddr) > 0 {
-		_, err := net.LookupIP(strings.Split(joinAddr[0], ":")[0])
+		// Retry DNS resolution with exponential backoff
+		err = retryWithBackoff(
+			func() error {
+				_, dnsErr := net.LookupIP(strings.Split(joinAddr[0], ":")[0])
+				return dnsErr
+			},
+			100*time.Millisecond,
+			15*time.Second,
+			logrus.Fields{"action": "dns_lookup_retry", "remote_hostname": joinAddr[0]},
+			logger,
+		)
+
 		if err != nil {
 			logger.WithFields(logrus.Fields{
 				"action":          "cluster_attempt_join",
 				"remote_hostname": joinAddr[0],
 			}).WithError(err).Warn(
-				"specified hostname to join cluster cannot be resolved. This is fine" +
+				"specified hostname to join cluster cannot be resolved after retries. This is fine" +
 					"if this is the first node of a new cluster, but problematic otherwise.")
 		} else {
-			_, err := state.list.Join(joinAddr)
+			// Retry Serf join with exponential backoff
+			err = retryWithBackoff(
+				func() error {
+					_, joinErr := state.list.Join(joinAddr, true)
+					return joinErr
+				},
+				100*time.Millisecond,
+				30*time.Second,
+				logrus.Fields{"action": "serf_join_retry", "remote_hostname": joinAddr},
+				logger,
+			)
+
 			if err != nil {
 				logger.WithFields(logrus.Fields{
-					"action":          "memberlist_init",
+					"action":          "serf_init",
 					"remote_hostname": joinAddr,
-				}).WithError(err).Error("memberlist join not successful")
+				}).WithError(err).Error("memberlist join not successful after retries")
 				return nil, errors.Wrap(err, "join cluster")
 			}
 		}
@@ -202,7 +257,7 @@ func (s *State) Hostnames() []string {
 
 	i := 0
 	for _, m := range mem {
-		if m.Name == s.list.LocalNode().Name {
+		if m.Name == s.list.LocalMember().Name {
 			continue
 		}
 		// TODO: how can we find out the actual data port as opposed to relying on
@@ -301,7 +356,7 @@ func (s *State) NodeCount() int {
 	s.listLock.RLock()
 	defer s.listLock.RUnlock()
 
-	return s.list.NumMembers()
+	return len(s.list.Members())
 }
 
 // LocalName() return local node name
@@ -309,14 +364,14 @@ func (s *State) LocalName() string {
 	s.listLock.RLock()
 	defer s.listLock.RUnlock()
 
-	return s.list.LocalNode().Name
+	return s.list.LocalMember().Name
 }
 
 func (s *State) ClusterHealthScore() int {
 	s.listLock.RLock()
 	defer s.listLock.RUnlock()
 
-	return s.list.GetHealthScore()
+	return s.list.Memberlist().GetHealthScore()
 }
 
 func (s *State) NodeHostname(nodeName string) (string, bool) {
@@ -338,10 +393,16 @@ func (s *State) NodeHostname(nodeName string) (string, bool) {
 // TODO-RAFT-DB-63 : shall be replaced by Members() which returns members in the list
 func (s *State) NodeAddress(id string) string {
 	s.listLock.RLock()
-	defer s.listLock.RUnlock()
+	members := s.list.Members()
+	s.listLock.RUnlock()
 
+	for _, mem := range members {
+		if mem.Name == id {
+			return mem.Addr.String()
+		}
+	}
 	// network interruption detection which can cause a single node to be isolated from the cluster (split brain)
-	nodeCount := s.list.NumMembers()
+	nodeCount := len(members)
 	var joinAddr []string
 	if s.config.Join != "" {
 		joinAddr = strings.Split(s.config.Join, ",")
@@ -352,7 +413,7 @@ func (s *State) NodeAddress(id string) string {
 			"node_count": nodeCount,
 		}).Warn("detected single node split-brain, attempting to rejoin memberlist cluster")
 		// Only attempt rejoin if we're supposed to be part of a larger cluster
-		_, err := s.list.Join(joinAddr)
+		_, err := s.list.Join(joinAddr, true)
 		if err != nil {
 			s.delegate.log.WithFields(logrus.Fields{
 				"action":          "memberlist_rejoin",
@@ -361,16 +422,11 @@ func (s *State) NodeAddress(id string) string {
 		} else {
 			s.delegate.log.WithFields(logrus.Fields{
 				"action":     "memberlist_rejoin",
-				"node_count": s.list.NumMembers(),
+				"node_count": len(s.list.Members()),
 			}).Info("Successfully rejoined the memberlist cluster")
 		}
 	}
 
-	for _, mem := range s.list.Members() {
-		if mem.Name == id {
-			return mem.Addr.String()
-		}
-	}
 	return ""
 }
 
