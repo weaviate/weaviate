@@ -12,11 +12,9 @@
 package hnsw
 
 import (
-	"os"
 	"sync/atomic"
 
 	"github.com/sirupsen/logrus"
-	entcfg "github.com/weaviate/weaviate/entities/config"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/pkg/errors"
@@ -121,7 +119,7 @@ func (h *hnsw) UpdateUserConfig(updated config.VectorIndexConfig, callback func(
 	h.sqConfig = parsed.SQ
 	h.bqConfig = parsed.BQ
 	h.compressActionLock.Unlock()
-	if asyncEnabled() {
+	if h.asyncIndexingEnabled {
 		callback()
 		return nil
 	}
@@ -134,10 +132,6 @@ func (h *hnsw) UpdateUserConfig(updated config.VectorIndexConfig, callback func(
 		callback()
 		return nil
 	}
-}
-
-func asyncEnabled() bool {
-	return entcfg.Enabled(os.Getenv("ASYNC_INDEXING"))
 }
 
 func (h *hnsw) Upgrade(callback func()) error {

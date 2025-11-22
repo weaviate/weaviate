@@ -90,19 +90,20 @@ type PrometheusMetrics struct {
 	VectorIndexQueueInsertCount *prometheus.CounterVec
 	VectorIndexQueueDeleteCount *prometheus.CounterVec
 
-	VectorIndexTombstones              *prometheus.GaugeVec
-	VectorIndexTombstoneCleanupThreads *prometheus.GaugeVec
-	VectorIndexTombstoneCleanedCount   *prometheus.CounterVec
-	VectorIndexTombstoneUnexpected     *prometheus.CounterVec
-	VectorIndexTombstoneCycleStart     *prometheus.GaugeVec
-	VectorIndexTombstoneCycleEnd       *prometheus.GaugeVec
-	VectorIndexTombstoneCycleProgress  *prometheus.GaugeVec
-	VectorIndexOperations              *prometheus.GaugeVec
-	VectorIndexDurations               *prometheus.SummaryVec
-	VectorIndexSize                    *prometheus.GaugeVec
-	VectorIndexMaintenanceDurations    *prometheus.SummaryVec
-	VectorDimensionsSum                *prometheus.GaugeVec
-	VectorSegmentsSum                  *prometheus.GaugeVec
+	VectorIndexTombstones               *prometheus.GaugeVec
+	VectorIndexTombstoneCleanupThreads  *prometheus.GaugeVec
+	VectorIndexTombstoneCleanedCount    *prometheus.CounterVec
+	VectorIndexTombstoneUnexpected      *prometheus.CounterVec
+	VectorIndexTombstoneCycleStart      *prometheus.GaugeVec
+	VectorIndexTombstoneCycleEnd        *prometheus.GaugeVec
+	VectorIndexTombstoneCycleProgress   *prometheus.GaugeVec
+	VectorIndexOperations               *prometheus.GaugeVec
+	VectorIndexDurations                *prometheus.SummaryVec
+	VectorIndexSize                     *prometheus.GaugeVec
+	VectorIndexMaintenanceDurations     *prometheus.SummaryVec
+	VectorDimensionsSum                 *prometheus.GaugeVec
+	VectorSegmentsSum                   *prometheus.GaugeVec
+	VectorIndexMemoryAllocationRejected prometheus.Counter
 
 	StartupProgress  *prometheus.GaugeVec
 	StartupDurations *prometheus.SummaryVec
@@ -630,6 +631,10 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "vector_segments_sum",
 			Help: "Total segments in a shard if quantization enabled",
 		}, []string{"class_name", "shard_name"}),
+		VectorIndexMemoryAllocationRejected: promauto.NewCounter(prometheus.CounterOpts{
+			Name: "weaviate_vector_index_memory_allocation_rejected_total",
+			Help: "Total number of batch operations rejected per node due to insufficient memory",
+		}),
 
 		// Startup metrics
 		StartupProgress: promauto.NewGaugeVec(prometheus.GaugeOpts{
