@@ -24,7 +24,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/klauspost/compress/zstd"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 
@@ -465,7 +464,10 @@ func (u *uploader) compress(ctx context.Context,
 		preCompressionSize atomic.Int64
 		eg                 = enterrors.NewErrorGroupWrapper(u.log)
 	)
-	zip, reader := NewZip(u.backend.SourceDataPath(), u.Level)
+	zip, reader, err := NewZip(u.backend.SourceDataPath(), u.Level)
+	if err != nil {
+		return shards, preCompressionSize.Load(), err
+	}
 	producer := func() error {
 		defer zip.Close()
 		lastShardSize := int64(0)
@@ -487,8 +489,8 @@ func (u *uploader) compress(ctx context.Context,
 			shard.Chunk = chunk
 			shards = append(shards, shard.Name)
 			shard.ClearTemporary()
-			if zip.gzw != nil {
-				zip.gzw.Flush() // flush new shard
+			if zip.compressorWriter != nil {
+				zip.compressorWriter.Flush() // flush new shard
 			}
 			lastShardSize = zip.lastWritten() - lastShardSize
 			if zip.lastWritten()+lastShardSize > maxSize {
@@ -500,45 +502,7 @@ func (u *uploader) compress(ctx context.Context,
 
 	// consumer
 	eg.Go(func() error {
-		var reader2 io.ReadCloser
-		switch CompressionLevel(u.Level) {
-		case ZstdBestSpeed, ZstdDefaultCompression, ZstdBestCompression:
-			var zstdLevel zstd.EncoderLevel
-			switch CompressionLevel(u.Level) {
-			case ZstdBestSpeed:
-				zstdLevel = zstd.SpeedFastest
-			case ZstdDefaultCompression:
-				zstdLevel = zstd.SpeedDefault
-			case ZstdBestCompression:
-				zstdLevel = zstd.SpeedBetterCompression
-			default:
-				return fmt.Errorf("unknown compression level for zstd %d", u.Level)
-			}
-
-			pr, pw := io.Pipe()
-			reader2 = pr
-			// Start compressor goroutine: reads from original `reader`, writes zstd-compressed bytes to pipe writer.
-			enterrors.GoWrapper(func() {
-				enc, err := zstd.NewWriter(pw, zstd.WithEncoderLevel(zstdLevel))
-				if err != nil {
-					_ = pw.CloseWithError(err)
-					return
-				}
-				defer func() {
-					_ = enc.Close()
-					_ = pw.Close()
-				}()
-
-				if _, err := io.Copy(enc, reader); err != nil {
-					_ = pw.CloseWithError(err)
-				}
-				_ = reader.Close()
-			}, u.log)
-		default:
-			reader2 = reader
-		}
-
-		if _, err := u.backend.Write(ctx, chunkKey, overrideBucket, overridePath, reader2); err != nil {
+		if _, err := u.backend.Write(ctx, chunkKey, overrideBucket, overridePath, reader); err != nil {
 			return err
 		}
 		return nil
@@ -656,40 +620,14 @@ func (fw *fileWriter) writeTempFiles(ctx context.Context, classTempDir, override
 	}
 
 	// source files are compressed
-
 	eg.SetLimit(fw.GoPoolSize)
 	for k := range desc.Chunks {
 		chunk := chunkKey(desc.Name, k)
 		eg.Go(func() error {
-			var ww io.WriteCloser
+			uz, w := NewUnzip(classTempDir, compressionType)
 
-			gzipCompressed := compressionType == backup.CompressionGZIP
-			uz, w := NewUnzip(classTempDir, gzipCompressed)
-
-			// decompress zstd on the fly if needed
-			switch compressionType {
-			case backup.CompressionGZIP, backup.CompressionNone:
-				ww = w
-			case backup.CompressionZSTD:
-				pr, pw := io.Pipe()
-				ww = pw
-				enterrors.GoWrapper(func() {
-					dec, _ := zstd.NewReader(pr)
-					if err != nil {
-						_ = pw.CloseWithError(err)
-						return
-					}
-					defer dec.Close()
-
-					if _, err := io.Copy(w, dec); err != nil {
-						_ = pw.CloseWithError(err)
-						return
-					}
-					_ = w.Close()
-				}, fw.logger)
-			}
 			enterrors.GoWrapper(func() {
-				fw.backend.Read(ctx, chunk, overrideBucket, overridePath, ww)
+				fw.backend.Read(ctx, chunk, overrideBucket, overridePath, w)
 			}, fw.logger)
 			_, err := uz.ReadChunk()
 			return err
