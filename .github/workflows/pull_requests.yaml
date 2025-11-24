@@ -22,7 +22,7 @@ jobs:
     env:
       PROJECT_KEY: ${{ secrets.ORCA_PROJECT_KEY }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -142,7 +142,7 @@ jobs:
             platforms: "linux/arm64"
             push-args: "--arm64-only"
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -206,7 +206,7 @@ jobs:
     # Always run if either dependency succeeded (pr or production build)
     if: always() && (needs.Multi-Arch-Docker-Build.result == 'success' || needs.PR-Docker-Build.result == 'success')
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - name: Download all build outputs
         uses: actions/download-artifact@v6
@@ -249,7 +249,7 @@ jobs:
     name: buf checks
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - uses: bufbuild/buf-setup-action@v1
         with:
           github_token: ${{ github.token }}
@@ -265,7 +265,7 @@ jobs:
     name: swagger
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
@@ -288,7 +288,7 @@ jobs:
     name: unit tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
@@ -313,7 +313,7 @@ jobs:
           - name: "without vector"
             test: "--integration-without-vector-package"
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
@@ -346,7 +346,7 @@ jobs:
           - name: "text2vec-model2vec"
             test: "--only-module-text2vec-model2vec"
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
@@ -373,7 +373,7 @@ jobs:
     outputs:
       run_pipeline: ${{ steps.check.outputs.run_pipeline }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 2
       - id: check
@@ -417,7 +417,7 @@ jobs:
           - name: "img2vec-neural"
             test: "--only-module-img2vec-neural"
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
@@ -453,7 +453,7 @@ jobs:
           - name: "many-generative"
             test: "--only-module-many-generative"
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
@@ -512,8 +512,10 @@ jobs:
             test: "--only-module-multi2vec-aws"
           - name: "text2vec-openai"
             test: "--only-module-text2vec-openai"
+          - name: "text2vec-cohere"
+            test: "--only-module-text2vec-cohere"
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 2
       - name: Set up Go
@@ -583,9 +585,7 @@ jobs:
           - name: "fast-group-2"
             test: "--acceptance-only-fast-group-2"
           - name: "fast-group-3"
-            test: "--acceptance-only-fast-group-3"
-          - name: "fast-group-4"
-            test: "--acceptance-only-fast-group-4"
+            test: "--acceptance-only-fast-group-3"          
           - name: "graphql"
             test: "--acceptance-only-graphql"
           - name: "authz"
@@ -603,7 +603,7 @@ jobs:
           - name: "python"
             test: "--acceptance-only-python"
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
@@ -633,8 +633,10 @@ jobs:
             test: "--acceptance-go-client-named-vectors-single-node"
           - name: "vector-cluster"
             test: "--acceptance-go-client-named-vectors-cluster"
+          - name: "fast-group-4"
+            test: "--acceptance-only-fast-group-4"
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
@@ -681,7 +683,7 @@ jobs:
           - name: "lsmkv"
             test: "--acceptance-lsmkv"
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
@@ -716,7 +718,7 @@ jobs:
     runs-on: ubuntu-latest
     if: ${{ (github.ref_type == 'branch') && (github.ref_name != 'main') }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - name: Download coverage artifacts integration
         uses: actions/download-artifact@v6
         with:
@@ -741,7 +743,7 @@ jobs:
     name: compile and upload binaries
     runs-on: ubicloud-standard-4-ubuntu-2404
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
@@ -792,7 +794,7 @@ jobs:
       RAFT_JOIN: node1
       GRPC_PORT: 50052
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - name: Download binaries
         uses: actions/download-artifact@v6
         with:

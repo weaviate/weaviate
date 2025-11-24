@@ -46,7 +46,8 @@ type vectorIndex interface {
 	KnnSearchByVectorMaxDist(ctx context.Context, query []float32, dist float32, ef int,
 		allowList helpers.AllowList) ([]uint64, error)
 	Delete(id ...uint64) error
-	Drop(ctx context.Context) error
+	Dump(...string)
+	Drop(ctx context.Context, keepFiles bool) error
 	PostStartup(ctx context.Context)
 }
 
@@ -102,8 +103,8 @@ func NewIndex(config Config,
 	return i, nil
 }
 
-func (i *Index) Drop(ctx context.Context) error {
-	if err := i.vectorIndex.Drop(ctx); err != nil {
+func (i *Index) Drop(ctx context.Context, keepFiles bool) error {
+	if err := i.vectorIndex.Drop(ctx, keepFiles); err != nil {
 		return err
 	}
 
