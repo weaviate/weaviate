@@ -31,7 +31,7 @@ const (
 // - N bytes for the compressed vector data
 type Vector []byte
 
-func NewCompressedVector(id uint64, version VectorVersion, data []byte) Vector {
+func NewVector(id uint64, version VectorVersion, data []byte) Vector {
 	v := make(Vector, 8+1+len(data))
 	binary.LittleEndian.PutUint64(v[:8], id)
 	v[8] = byte(version)
@@ -41,7 +41,7 @@ func NewCompressedVector(id uint64, version VectorVersion, data []byte) Vector {
 }
 
 // Used for creating a vector without an ID and version, e.g. for queries
-func NewAnonymousCompressedVector(data []byte) Vector {
+func NewAnonymousVector(data []byte) Vector {
 	v := make(Vector, 8+1+len(data))
 	// id and version are zero
 	copy(v[9:], data)

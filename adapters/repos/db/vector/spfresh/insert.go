@@ -94,7 +94,7 @@ func (s *SPFresh) Add(ctx context.Context, id uint64, vector []float32) (err err
 	var v Vector
 
 	compressed := s.quantizer.Encode(vector)
-	v = NewCompressedVector(id, version, compressed)
+	v = NewVector(id, version, compressed)
 
 	targets, _, err := s.RNGSelect(vector, 0)
 	if err != nil {
