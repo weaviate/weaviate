@@ -532,7 +532,7 @@ func (sg *SegmentGroup) getConsistentViewOfSegmentsForKeys(keys [][]byte) (segme
 	segments = make([]Segment, 0, len(sg.segments))
 
 	sg.segmentRefCounterLock.Lock()
-	for _, seg := range segments {
+	for _, seg := range sg.segments {
 		for _, key := range keys {
 			if seg.hasKey(key) {
 				seg.incRef()
@@ -548,14 +548,9 @@ func (sg *SegmentGroup) getConsistentViewOfSegmentsForKeys(keys [][]byte) (segme
 	return segments, func() {
 		sg.segmentRefCounterLock.Lock()
 		for _, seg := range segments {
-			for _, key := range keys {
-				if seg.hasKey(key) {
-					seg.decRef()
-					if seg.getRefs() == 0 {
-						delete(sg.segmentsWithRefs, seg.getPath())
-					}
-					break
-				}
+			seg.decRef()
+			if seg.getRefs() == 0 {
+				delete(sg.segmentsWithRefs, seg.getPath())
 			}
 		}
 		sg.segmentRefCounterLock.Unlock()
