@@ -23,8 +23,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
 
-	"github.com/sirupsen/logrus"
-	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -154,9 +152,4 @@ func (f *fakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	require.Nil(f.t, err)
 
 	w.Write(outBytes)
-}
-
-func nullLogger() logrus.FieldLogger {
-	l, _ := test.NewNullLogger()
-	return l
 }
