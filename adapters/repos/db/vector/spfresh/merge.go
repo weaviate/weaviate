@@ -196,6 +196,15 @@ func (s *SPFresh) doMerge(postingID uint64) error {
 			if err != nil {
 				return errors.Wrapf(err, "failed to set size of merged posting %d to 0", smallID)
 			}
+
+			err = s.PostingStore.Put(s.ctx, smallID, &EncodedPosting{
+				vectorSize: int(s.vectorSize),
+				compressed: s.config.Compressed,
+			})
+			if err != nil {
+				return errors.Wrapf(err, "failed to put empty posting %d after merge operation", smallID)
+			}
+
 			err = s.PostingSizes.Set(context.TODO(), largeID, uint32(newPosting.Len()))
 			if err != nil {
 				return errors.Wrapf(err, "failed to set size of merged posting %d to %d", largeID, newPosting.Len())

@@ -184,6 +184,13 @@ func (s *SPFresh) doSplit(postingID uint64, reassign bool) error {
 		if err != nil {
 			return errors.Wrapf(err, "failed to set posting size for posting %d after split operation", postingID)
 		}
+		err = s.PostingStore.Put(s.ctx, postingID, &EncodedPosting{
+			vectorSize: int(s.vectorSize),
+			compressed: s.config.Compressed,
+		})
+		if err != nil {
+			return errors.Wrapf(err, "failed to put empty posting %d after split operation", postingID)
+		}
 	}
 
 	// Mark the split operation as done
