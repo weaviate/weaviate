@@ -93,6 +93,8 @@ type SegmentGroup struct {
 	bm25config                     *schema.BM25Config
 	writeSegmentInfoIntoFileName   bool
 	writeMetadata                  bool
+
+	PostingVersions *Bucket
 }
 
 type sgConfig struct {

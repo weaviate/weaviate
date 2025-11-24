@@ -185,6 +185,8 @@ type Bucket struct {
 	writeSegmentInfoIntoFileName bool
 
 	bm25Config *models.BM25Config
+
+	PostingVersions *Bucket
 }
 
 func NewBucketCreator() *Bucket { return &Bucket{} }
@@ -292,6 +294,7 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 	if err != nil {
 		return nil, fmt.Errorf("init disk segments: %w", err)
 	}
+	sg.PostingVersions = b.PostingVersions
 
 	b.disk = sg
 

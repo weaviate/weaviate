@@ -272,3 +272,10 @@ func WithBM25Config(bm25Config *models.BM25Config) BucketOption {
 		return nil
 	}
 }
+
+func WithPostingVersionsBucket(postingVersions *Bucket) BucketOption {
+	return func(b *Bucket) error {
+		b.PostingVersions = postingVersions
+		return nil
+	}
+}

@@ -301,7 +301,7 @@ func (sg *SegmentGroup) compactOnce() (compacted bool, err error) {
 		c := newCompactorSetCollection(f, left.newCollectionCursor(), right.newCollectionCursor(),
 			level, secondaryIndices, scratchSpacePath, cleanupTombstones,
 			sg.enableChecksumValidation, maxNewFileSize, sg.allocChecker)
-
+		c.PostingVersions = sg.PostingVersions
 		if err := c.do(); err != nil {
 			return false, err
 		}

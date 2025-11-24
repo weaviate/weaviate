@@ -36,7 +36,12 @@ type PostingStore struct {
 func NewPostingStore(store *lsmkv.Store, metrics *Metrics, bucketName string, postingVersions *PostingSizes, cfg StoreConfig) (*PostingStore, error) {
 	err := store.CreateOrLoadBucket(context.Background(),
 		bucketName,
-		cfg.MakeBucketOptions(lsmkv.StrategySetCollection, lsmkv.WithForceCompaction(true))...,
+		cfg.MakeBucketOptions(lsmkv.StrategySetCollection,
+			lsmkv.WithForceCompaction(true),
+			lsmkv.WithMemtableThreshold(uint64(50*1024*1024)),
+			lsmkv.WithWalThreshold(uint64(5*1024*1024*1024)),
+			lsmkv.WithPostingVersionsBucket(postingVersions.store.bucket),
+		)...,
 	)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to create or load bucket %s", bucketName)
