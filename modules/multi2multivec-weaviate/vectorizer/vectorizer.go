@@ -42,9 +42,6 @@ type Client interface {
 
 type ClassSettings interface {
 	ImageField(property string) bool
-	ImageFieldsWeights() ([]float32, error)
-	TextField(property string) bool
-	TextFieldsWeights() ([]float32, error)
 }
 
 func (v *Vectorizer) Object(ctx context.Context, object *models.Object,

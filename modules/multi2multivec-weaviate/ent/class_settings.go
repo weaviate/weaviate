@@ -147,10 +147,6 @@ func (ic *classSettings) validateField(name string, fields interface{}) []string
 	if fieldsCount > 1 {
 		errorMessages = append(errorMessages, fmt.Sprintf("only one %s property is allowed to define", name))
 	}
-	_, ok := ic.getWeights(name)
-	if ok {
-		errorMessages = append(errorMessages, "%s weights settigs are not allowed to define", name)
-	}
 	return errorMessages
 }
 
@@ -175,22 +171,4 @@ func (ic *classSettings) validateFields(name string, fields interface{}) (int, e
 	}
 
 	return len(fieldsArray), nil
-}
-
-func (ic *classSettings) getWeights(name string) ([]interface{}, bool) {
-	weights, ok := ic.base.GetSettings()["weights"]
-	if ok {
-		weightsObject, ok := weights.(map[string]interface{})
-		if ok {
-			fieldWeights, ok := weightsObject[fmt.Sprintf("%sFields", name)]
-			if ok {
-				fieldWeightsArray, ok := fieldWeights.([]interface{})
-				if ok {
-					return fieldWeightsArray, ok
-				}
-			}
-		}
-	}
-
-	return nil, false
 }

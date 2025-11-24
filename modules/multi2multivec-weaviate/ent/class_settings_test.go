@@ -12,7 +12,6 @@
 package ent
 
 import (
-	"encoding/json"
 	"testing"
 
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -37,6 +36,13 @@ func Test_classSettings_Validate(t *testing.T) {
 			name: "should not pass with nil config",
 			fields: fields{
 				cfg: nil,
+			},
+			wantErr: true,
+		},
+		{
+			name: "should pass imageFields",
+			fields: fields{
+				cfg: newConfigBuilder().build(),
 			},
 			wantErr: true,
 		},
@@ -81,89 +87,13 @@ func Test_classSettings_Validate(t *testing.T) {
 			fields: fields{
 				cfg: newConfigBuilder().addSetting("imageFields", []interface{}{"field"}).build(),
 			},
+			wantErr: false,
 		},
 		{
-			name: "should not pass with both values in imageFields and textFields defined",
+			name: "should not pass with 2 imageFields",
 			fields: fields{
 				cfg: newConfigBuilder().
-					addSetting("imageFields", []interface{}{"imageField"}).
-					addSetting("textFields", []interface{}{"textField"}).
-					build(),
-			},
-			wantErr: true,
-		},
-		{
-			name: "should not pass with 2 imageFields and 2 textFields",
-			fields: fields{
-				cfg: newConfigBuilder().
-					addSetting("textFields", []interface{}{"textField1", "textField2"}).
 					addSetting("imageFields", []interface{}{"imageField1", "imageField2"}).
-					build(),
-			},
-			wantErr: true,
-		},
-		{
-			name: "should not pass with values in 2 imageFields and 2 textFields and weights",
-			fields: fields{
-				cfg: newConfigBuilder().
-					addSetting("textFields", []interface{}{"textField1", "textField2"}).
-					addSetting("imageFields", []interface{}{"imageField1", "imageField2"}).
-					addWeights([]interface{}{1, 2}, []interface{}{1, 2}).
-					build(),
-			},
-			wantErr: true,
-		},
-		{
-			name: "should not pass with values in 1 imageFields and 2 textFields and weights",
-			fields: fields{
-				cfg: newConfigBuilder().
-					addSetting("textFields", []interface{}{"textField1", "textField2"}).
-					addSetting("imageFields", []interface{}{"imageField1"}).
-					addWeights([]interface{}{1, 2}, []interface{}{1}).
-					build(),
-			},
-			wantErr: true,
-		},
-		{
-			name: "should not pass with values in 2 imageFields and 2 textFields and weights",
-			fields: fields{
-				cfg: newConfigBuilder().
-					addSetting("textFields", []interface{}{"textField1", "textField2"}).
-					addSetting("imageFields", []interface{}{"imageField1"}).
-					addWeights([]interface{}{1, 2}, []interface{}{1}).
-					build(),
-			},
-			wantErr: true,
-		},
-		{
-			name: "should not pass with proper value in 1 imageFields and 2 textFields and weights",
-			fields: fields{
-				cfg: newConfigBuilder().
-					addSetting("textFields", []interface{}{"textField1", "textField2"}).
-					addSetting("imageFields", []interface{}{"imageField1"}).
-					addWeights([]interface{}{1}, []interface{}{1}).
-					build(),
-			},
-			wantErr: true,
-		},
-		{
-			name: "should not pass with not proper weight value in 2 imageFields and 2 textFields and weights",
-			fields: fields{
-				cfg: newConfigBuilder().
-					addSetting("textFields", []interface{}{"textField1", "textField2"}).
-					addSetting("imageFields", []interface{}{"imageField1"}).
-					addWeights([]interface{}{1, "aaaa"}, []interface{}{1}).
-					build(),
-			},
-			wantErr: true,
-		},
-		{
-			name: "should not pass with not proper weight value in 2 imageFields and 2 textFields and weights",
-			fields: fields{
-				cfg: newConfigBuilder().
-					addSetting("textFields", []interface{}{"textField1", "textField2"}).
-					addSetting("imageFields", []interface{}{"imageField1"}).
-					addWeights([]interface{}{json.Number("1"), json.Number("2")}, []interface{}{json.Number("3")}).
 					build(),
 			},
 			wantErr: true,
@@ -173,15 +103,6 @@ func Test_classSettings_Validate(t *testing.T) {
 			fields: fields{
 				cfg: newConfigBuilder().
 					addSetting("imageFields", []interface{}{"image1"}).
-					build(),
-			},
-			wantErr: false,
-		},
-		{
-			name: "should pass with 1 textFields defined",
-			fields: fields{
-				cfg: newConfigBuilder().
-					addSetting("textFields", []interface{}{"text1"}).
 					build(),
 			},
 			wantErr: false,
@@ -209,20 +130,6 @@ func newConfigBuilder() *builder {
 
 func (b *builder) addSetting(name string, value interface{}) *builder {
 	b.fakeClassConfig.config[name] = value
-	return b
-}
-
-func (b *builder) addWeights(textWeights, imageWeights []interface{}) *builder {
-	if textWeights != nil || imageWeights != nil {
-		weightSettings := map[string]interface{}{}
-		if textWeights != nil {
-			weightSettings["textFields"] = textWeights
-		}
-		if imageWeights != nil {
-			weightSettings["imageFields"] = imageWeights
-		}
-		b.fakeClassConfig.config["weights"] = weightSettings
-	}
 	return b
 }
 

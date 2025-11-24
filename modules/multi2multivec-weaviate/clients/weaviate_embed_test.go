@@ -18,7 +18,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
 
@@ -31,50 +30,40 @@ import (
 
 func TestClient(t *testing.T) {
 	defaultSettings := func(url string) fakeClassConfig {
-		return fakeClassConfig{classConfig: map[string]interface{}{"Model": "jina-embeddings-v4", "baseURL": url}}
+		return fakeClassConfig{classConfig: map[string]interface{}{"Model": "test-model", "baseURL": url}}
 	}
-	t.Run("when all is fine and we send text only", func(t *testing.T) {
+
+	t.Run("when all is fine and we send image", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
 
-		c := New("apiKey", 0, nullLogger())
+		c := New(0)
+		ctx := context.WithValue(context.Background(), "Authorization", []string{"token"})
+		ctx = context.WithValue(ctx, "X-Weaviate-Cluster-Url", []string{"cluster-url"})
 
-		expected := &modulecomponents.VectorizationCLIPResult[[][]float32]{
-			TextVectors: [][][]float32{{{0.1, 0.2, 0.3}, {0.11, 0.22, 0.33}}},
-		}
-		res, err := c.Vectorize(context.Background(), []string{"This is my text"}, nil, defaultSettings(server.URL))
+		expected := [][][]float32{{{0.1, 0.2, 0.3}, {0.11, 0.22, 0.33}}}
+		res, err := c.Vectorize(ctx, []string{"base64"}, defaultSettings(server.URL))
 
 		assert.Nil(t, err)
 		assert.Equal(t, expected, res)
 	})
 
-	t.Run("when all is fine and we send image only", func(t *testing.T) {
+	t.Run("when all is fine and we send text query", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
 
-		c := New("apiKey", 0, nullLogger())
+		c := New(0)
+		ctx := context.WithValue(context.Background(), "Authorization", []string{"token"})
+		ctx = context.WithValue(ctx, "X-Weaviate-Cluster-Url", []string{"cluster-url"})
 
-		expected := &modulecomponents.VectorizationCLIPResult[[][]float32]{
-			ImageVectors: [][][]float32{{{0.1, 0.2, 0.3}, {0.11, 0.22, 0.33}}},
+		expected := &modulecomponents.VectorizationResult[[][]float32]{
+			Text:   []string{"text query"},
+			Vector: [][][]float32{{{0.1, 0.2, 0.3}, {0.11, 0.22, 0.33}}},
 		}
-		res, err := c.Vectorize(context.Background(), nil, []string{"base64"}, defaultSettings(server.URL))
+		res, err := c.VectorizeQuery(ctx, []string{"text query"}, defaultSettings(server.URL))
 
 		assert.Nil(t, err)
 		assert.Equal(t, expected, res)
-	})
-
-	t.Run("when the context is expired", func(t *testing.T) {
-		server := httptest.NewServer(&fakeHandler{t: t})
-		defer server.Close()
-		c := New("apiKey", 0, nullLogger())
-
-		ctx, cancel := context.WithDeadline(context.Background(), time.Now())
-		defer cancel()
-
-		_, err := c.Vectorize(ctx, []string{"This is my text"}, nil, fakeClassConfig{classConfig: map[string]interface{}{}})
-
-		require.NotNil(t, err)
-		assert.Contains(t, err.Error(), "context deadline exceeded")
 	})
 
 	t.Run("when the server returns an error", func(t *testing.T) {
@@ -83,61 +72,14 @@ func TestClient(t *testing.T) {
 			serverError: errors.Errorf("nope, not gonna happen"),
 		})
 		defer server.Close()
-		c := New("apiKey", 0, nullLogger())
+		c := New(0)
+		ctx := context.WithValue(context.Background(), "Authorization", []string{"token"})
+		ctx = context.WithValue(ctx, "X-Weaviate-Cluster-Url", []string{"cluster-url"})
 
-		_, err := c.Vectorize(context.Background(), []string{"This is my text"}, nil, fakeClassConfig{classConfig: map[string]interface{}{"baseURL": server.URL}})
-
-		require.NotNil(t, err)
-		assert.EqualError(t, err, "connection to: JinaAI API failed with status: 500 error: nope, not gonna happen")
-	})
-
-	t.Run("when JinaAI key is passed using X-Jinaai-Api-Key header", func(t *testing.T) {
-		server := httptest.NewServer(&fakeHandler{t: t})
-		defer server.Close()
-		c := New("", 0, nullLogger())
-
-		ctxWithValue := context.WithValue(context.Background(),
-			"X-Jinaai-Api-Key", []string{"some-key"})
-
-		expected := &modulecomponents.VectorizationCLIPResult[[][]float32]{
-			TextVectors: [][][]float32{{{0.1, 0.2, 0.3}, {0.11, 0.22, 0.33}}},
-		}
-		res, err := c.Vectorize(ctxWithValue, []string{"This is my text"}, nil, defaultSettings(server.URL))
-
-		require.Nil(t, err)
-		assert.Equal(t, expected, res)
-	})
-
-	t.Run("when JinaAI key is empty", func(t *testing.T) {
-		server := httptest.NewServer(&fakeHandler{t: t})
-		defer server.Close()
-		c := New("", 0, nullLogger())
-
-		ctx, cancel := context.WithDeadline(context.Background(), time.Now())
-		defer cancel()
-
-		_, err := c.Vectorize(ctx, []string{"This is my text"}, nil, fakeClassConfig{classConfig: map[string]interface{}{}})
+		_, err := c.Vectorize(ctx, []string{"base64"}, fakeClassConfig{classConfig: map[string]interface{}{"baseURL": server.URL}})
 
 		require.NotNil(t, err)
-		assert.EqualError(t, err, "API Key: no api key found "+
-			"neither in request header: X-Jinaai-Api-Key "+
-			"nor in environment variable under JINAAI_APIKEY")
-	})
-
-	t.Run("when X-Jinaai-Api-Key header is passed but empty", func(t *testing.T) {
-		server := httptest.NewServer(&fakeHandler{t: t})
-		defer server.Close()
-		c := New("", 0, nullLogger())
-
-		ctxWithValue := context.WithValue(context.Background(),
-			"X-Jinaai-Api-Key", []string{""})
-
-		_, err := c.Vectorize(ctxWithValue, []string{"This is my text"}, nil, fakeClassConfig{classConfig: map[string]interface{}{"Model": "jina-embedding-v2"}})
-
-		require.NotNil(t, err)
-		assert.EqualError(t, err, "API Key: no api key found "+
-			"neither in request header: X-Jinaai-Api-Key "+
-			"nor in environment variable under JINAAI_APIKEY")
+		assert.EqualError(t, err, "multi2multivec-weaviate module: Weaviate embed API error: 500 nope, not gonna happen")
 	})
 }
 
@@ -168,26 +110,10 @@ func (f *fakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	var b map[string]interface{}
 	require.Nil(f.t, json.Unmarshal(bodyBytes, &b))
 
-	textInputArray := b["input"].([]interface{})
-	textInput := textInputArray[0].(map[string]interface{})
-	assert.Greater(f.t, len(textInput), 0)
-	obj := textInput["text"]
-	if textInput["image"] != nil {
-		obj = textInput["image"]
+	embeddingResponse := map[string]interface{}{
+		"embeddings": [][][]float32{{{0.1, 0.2, 0.3}, {0.11, 0.22, 0.33}}},
 	}
-
-	embeddingTextData := map[string]interface{}{
-		"object":     obj,
-		"index":      0,
-		"embeddings": [][]float32{{0.1, 0.2, 0.3}, {0.11, 0.22, 0.33}},
-	}
-
-	embedding := map[string]interface{}{
-		"object": "list",
-		"data":   []interface{}{embeddingTextData},
-	}
-
-	outBytes, err := json.Marshal(embedding)
+	outBytes, err := json.Marshal(embeddingResponse)
 	require.Nil(f.t, err)
 
 	w.Write(outBytes)

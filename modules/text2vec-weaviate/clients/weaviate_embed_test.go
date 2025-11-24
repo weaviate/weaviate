@@ -41,6 +41,7 @@ func TestClient(t *testing.T) {
 		}
 		ctx := context.WithValue(context.Background(), "Authorization", []string{"token"})
 		ctx = context.WithValue(ctx, "X-Weaviate-Cluster-Url", []string{server.URL})
+
 		res, _, _, err := c.Vectorize(ctx, []string{"This is my text"}, fakeClassConfig{classConfig: map[string]interface{}{"Model": "large", "baseURL": server.URL}})
 
 		assert.Nil(t, err)
@@ -75,25 +76,30 @@ func TestClient(t *testing.T) {
 		_, _, _, err := c.Vectorize(ctx, []string{"This is my text"}, fakeClassConfig{classConfig: map[string]interface{}{"baseURL": server.URL}})
 
 		require.NotNil(t, err)
-		assert.Contains(t, err.Error(), "Weaviate embed API error: 500")
+		assert.Equal(t, err.Error(), "text2vec-weaviate module: Weaviate embed API error: 500 ")
 	})
 
-	t.Run("TestVectorizeRequestBodyWithCustomDimensions", func(t *testing.T) {
-		c := New(0)
+	t.Run("when using custom dimensions", func(t *testing.T) {
+		server := httptest.NewServer(&fakeHandler{t: t})
 
-		dims := int64(256)
+		defer server.Close()
+		c := New(0)
+		ctx := context.WithValue(context.Background(), "Authorization", []string{"token"})
+		ctx = context.WithValue(ctx, "X-Weaviate-Cluster-Url", []string{server.URL})
+
+		dims := int64(16)
 		cfg := &fakeClassConfig{
 			classConfig: map[string]interface{}{
+				"baseURL":    server.URL,
 				"dimensions": dims,
 			},
 		}
 
-		config := c.getVectorizationConfig(cfg)
-		reqBody := c.getEmbeddingsRequest([]string{"test text"}, false, config.Dimensions)
+		result, _, _, _ := c.Vectorize(ctx, []string{"This is my text"}, cfg)
 
-		require.NotNil(t, reqBody.Dimensions)
-		require.Equal(t, int64(256), *reqBody.Dimensions)
-		require.Equal(t, []string{"test text"}, reqBody.Texts)
+		require.NotNil(t, result.Dimensions)
+		require.Equal(t, int(16), result.Dimensions)
+		require.Equal(t, []string{"This is my text"}, result.Text)
 	})
 }
 
@@ -128,11 +134,21 @@ func (f *fakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	var b map[string]interface{}
 	require.Nil(f.t, json.Unmarshal(bodyBytes, &b))
 
-	textInput := b["texts"].([]interface{})
+	textInput := b["input"].([]interface{})
 	assert.Greater(f.t, len(textInput), 0)
 
+	embeddingLen := 3 // default dimension
+	if dims, ok := b["dimensions"].(float64); ok {
+		embeddingLen = int(dims)
+	}
+
+	embeddings := make([]float32, embeddingLen)
+	for i := 0; i < embeddingLen; i++ {
+		embeddings[i] = float32(0.1 * float32(i+1))
+	}
+
 	embeddingResponse := map[string]interface{}{
-		"embeddings": [][]float32{{0.1, 0.2, 0.3}},
+		"embeddings": [][]float32{embeddings},
 	}
 	outBytes, err := json.Marshal(embeddingResponse)
 	require.Nil(f.t, err)

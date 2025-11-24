@@ -73,20 +73,15 @@ func (f fakeClassConfig) Config() *config.Config {
 
 type fakeClient struct{}
 
-func (c *fakeClient) Vectorize(ctx context.Context,
-	texts, images []string, cfg moduletools.ClassConfig,
-) (*modulecomponents.VectorizationCLIPResult[[][]float32], error) {
-	result := &modulecomponents.VectorizationCLIPResult[[][]float32]{
-		ImageVectors: [][][]float32{{{10.0, 20.0, 30.0, 40.0, 50.0}}},
-	}
-	return result, nil
+func (c *fakeClient) Vectorize(ctx context.Context, images []string, cfg moduletools.ClassConfig) ([][][]float32, error) {
+	return [][][]float32{{{10.0, 20.0, 30.0, 40.0, 50.0}}}, nil
 }
 
 func (c *fakeClient) VectorizeQuery(ctx context.Context, texts []string,
 	cfg moduletools.ClassConfig,
 ) (*modulecomponents.VectorizationResult[[][]float32], error) {
-	result := &modulecomponents.VectorizationResult[[][]float32]{
+	return &modulecomponents.VectorizationResult[[][]float32]{
+		Text:   texts,
 		Vector: [][][]float32{{{1.0, 2.0, 3.0, 4.0, 5.0}}},
-	}
-	return result, nil
+	}, nil
 }

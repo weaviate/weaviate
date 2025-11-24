@@ -50,14 +50,11 @@ func TestClient(t *testing.T) {
 		}
 		ctx := context.WithValue(context.Background(), "Authorization", []string{"token"})
 		ctx = context.WithValue(ctx, "X-Weaviate-Cluster-Url", []string{server.URL})
-		var embeddingRequest interface{}
-		res, err := c.Vectorize(ctx, embeddingRequest, "model", server.URL)
+		res, err := c.Vectorize(ctx, []string{"input"}, false, nil, "model", server.URL)
 
 		assert.Nil(t, err)
 		assert.Equal(t, expected, res)
 	})
-
-	// TODO: add colBERT variant
 
 	t.Run("when the context is expired", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
@@ -69,8 +66,7 @@ func TestClient(t *testing.T) {
 		ctx = context.WithValue(ctx, "X-Weaviate-Cluster-Url", []string{server.URL})
 		defer cancel()
 
-		var embeddingRequest interface{}
-		_, err := c.Vectorize(ctx, embeddingRequest, "model", server.URL)
+		_, err := c.Vectorize(ctx, []string{"input"}, false, nil, "model", server.URL)
 
 		require.NotNil(t, err)
 		assert.Contains(t, err.Error(), "context deadline exceeded")
@@ -86,8 +82,7 @@ func TestClient(t *testing.T) {
 
 		ctx := context.WithValue(context.Background(), "Authorization", []string{"token"})
 		ctx = context.WithValue(ctx, "X-Weaviate-Cluster-Url", []string{server.URL})
-		var embeddingRequest interface{}
-		_, err := c.Vectorize(ctx, embeddingRequest, "model", server.URL)
+		_, err := c.Vectorize(ctx, []string{"input"}, false, nil, "model", server.URL)
 
 		require.NotNil(t, err)
 		assert.Equal(t, err.Error(), "Weaviate embed API error: 500 ")
@@ -99,23 +94,22 @@ func TestClient(t *testing.T) {
 		c := New[[]float32](0, 0, 0)
 		ctx := context.WithValue(context.Background(), "Authorization", []string{""})
 
-		var embeddingRequest interface{}
-		_, err := c.Vectorize(ctx, embeddingRequest, "model", server.URL)
+		_, err := c.Vectorize(ctx, []string{"input"}, false, nil, "model", server.URL)
 
 		require.NotNil(t, err)
 		assert.Equal(t, "authentication token: no authentication token found in request header: Authorization", err.Error())
 	})
 
-	t.Run("baseURL", func(t *testing.T) {
+	t.Run("get embed URL", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
 		c := New[[]float32](0, 0, 0)
 
-		buildURL := c.getWeaviateEmbedURL(context.Background(), "")
-		assert.Equal(t, "https://api.embedding.weaviate.io/v1/embeddings/embed", buildURL)
+		url, _ := c.getWeaviateEmbedURL(context.Background(), "")
+		assert.Equal(t, "https://api.embedding.weaviate.io/v1/embeddings/embed", url)
 
-		buildURL = c.getWeaviateEmbedURL(context.Background(), "http://override-url.com")
-		assert.Equal(t, "http://override-url.com/v1/embeddings/embed", buildURL)
+		url, _ = c.getWeaviateEmbedURL(context.Background(), "http://override-url.com")
+		assert.Equal(t, "http://override-url.com/v1/embeddings/embed", url)
 	})
 
 	t.Run("pass rate limit headers requests", func(t *testing.T) {
@@ -138,8 +132,7 @@ func TestClient(t *testing.T) {
 		c := New[[]float32](0, 0, 0)
 		ctx := context.WithValue(context.Background(), "Authorization", []string{"token"})
 
-		var embeddingRequest interface{}
-		_, err := c.Vectorize(ctx, embeddingRequest, "model", server.URL)
+		_, err := c.Vectorize(ctx, []string{"input"}, false, nil, "model", server.URL)
 
 		require.NotNil(t, err)
 		assert.Equal(t, "cluster URL: no cluster URL found in request header: X-Weaviate-Cluster-Url", err.Error())
