@@ -178,8 +178,8 @@ func Test_BaseClassSettings_Validate(t *testing.T) {
 			Class: "MyClass",
 			VectorConfig: map[string]models.VectorConfig{
 				"targetVector": {
-					Vectorizer: map[string]interface{}{
-						"my-module": map[string]interface{}{
+					Vectorizer: map[string]any{
+						"my-module": map[string]any{
 							"vectorizeClassName": false,
 						},
 					},
@@ -192,8 +192,8 @@ func Test_BaseClassSettings_Validate(t *testing.T) {
 			Class: "MyClass",
 			VectorConfig: map[string]models.VectorConfig{
 				"targetVector": {
-					Vectorizer: map[string]interface{}{
-						"my-module": map[string]interface{}{
+					Vectorizer: map[string]any{
+						"my-module": map[string]any{
 							"vectorizeClassName": false,
 							"properties":         []string{"property_should_be_created_autoschema"},
 						},
@@ -207,8 +207,8 @@ func Test_BaseClassSettings_Validate(t *testing.T) {
 			Class: "MyClass",
 			VectorConfig: map[string]models.VectorConfig{
 				"targetVector": {
-					Vectorizer: map[string]interface{}{
-						"my-module": map[string]interface{}{
+					Vectorizer: map[string]any{
+						"my-module": map[string]any{
 							"vectorizeClassName": false,
 							"properties":         []string{"predefined_property"},
 						},
@@ -232,8 +232,8 @@ func Test_BaseClassSettings_Validate(t *testing.T) {
 			Class: "MyClass",
 			VectorConfig: map[string]models.VectorConfig{
 				"targetVector": {
-					Vectorizer: map[string]interface{}{
-						"my-module": map[string]interface{}{
+					Vectorizer: map[string]any{
+						"my-module": map[string]any{
 							"vectorizeClassName": false,
 							"properties":         []string{"nonexistent_property"},
 						},
