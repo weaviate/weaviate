@@ -2067,6 +2067,160 @@ func Test_UpdateClass(t *testing.T) {
 	})
 }
 
+func Test_UpdateClass_ObjectTTLConfig(t *testing.T) {
+	vFalse := false
+
+	createCollection := func() *models.Class {
+		return &models.Class{
+			Class: "CollectionWithTTL",
+			ObjectTTLConfig: &models.ObjectTTLConfig{
+				Enabled:    true,
+				DeleteOn:   filters.InternalPropCreationTimeUnix,
+				DefaultTTL: 3600,
+			},
+			InvertedIndexConfig: &models.InvertedIndexConfig{
+				IndexTimestamps: true,
+			},
+			Properties: []*models.Property{
+				{
+					Name:     "customPropertyDate",
+					DataType: schema.DataTypeDate.PropString(),
+				},
+				{
+					Name:            "customPropertyDateNoIndex",
+					DataType:        schema.DataTypeDate.PropString(),
+					IndexFilterable: &vFalse,
+				},
+				{
+					Name:     "customPropertyInt",
+					DataType: schema.DataTypeInt.PropString(),
+				},
+			},
+			Vectorizer:        "none",
+			ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+		}
+	}
+
+	t.Run("valid config", func(t *testing.T) {
+		testCases := []struct {
+			name        string
+			reconfigure func(c *models.Class)
+		}{
+			{
+				name:        "deleteOn creation time",
+				reconfigure: func(c *models.Class) { c.ObjectTTLConfig.DeleteOn = filters.InternalPropCreationTimeUnix },
+			},
+			{
+				name:        "deleteOn update time",
+				reconfigure: func(c *models.Class) { c.ObjectTTLConfig.DeleteOn = filters.InternalPropLastUpdateTimeUnix },
+			},
+			{
+				name:        "deleteOn custom property",
+				reconfigure: func(c *models.Class) { c.ObjectTTLConfig.DeleteOn = "customPropertyDate" },
+			},
+			{
+				name:        "no ttl config",
+				reconfigure: func(c *models.Class) { c.ObjectTTLConfig = nil },
+			},
+			{
+				name:        "ttl disabled",
+				reconfigure: func(c *models.Class) { c.ObjectTTLConfig.Enabled = false },
+			},
+		}
+
+		run := func(t *testing.T, initial, updated *models.Class) {
+			t.Helper()
+
+			handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+			store := NewFakeStore()
+			store.parser = handler.parser
+
+			fakeSchemaManager.On("AddClass", initial, mock.Anything).Return(nil)
+			fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+			fakeSchemaManager.On("UpdateClass", mock.Anything, mock.Anything).Return(nil)
+			fakeSchemaManager.On("ReadOnlyClass", initial.Class, mock.Anything).Return(initial)
+
+			handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(-1)
+			_, _, err := handler.AddClass(context.Background(), nil, initial)
+			assert.NoError(t, err)
+			store.AddClass(initial)
+
+			err = handler.UpdateClass(context.Background(), nil, initial.Class, updated)
+
+			assert.NoError(t, err)
+			fakeSchemaManager.AssertExpectations(t)
+		}
+
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				t.Run("reconfigured initial", func(t *testing.T) {
+					initial := createCollection()
+					tc.reconfigure(initial)
+					updated := createCollection()
+
+					run(t, initial, updated)
+				})
+				t.Run("reconfigured updated", func(t *testing.T) {
+					initial := createCollection()
+					updated := createCollection()
+					tc.reconfigure(updated)
+
+					run(t, initial, updated)
+				})
+			})
+		}
+	})
+
+	t.Run("invalid config returns error", func(t *testing.T) {
+		testCases := []struct {
+			name        string
+			reconfigure func(c *models.Class)
+		}{
+			{
+				name:        "non existing property",
+				reconfigure: func(c *models.Class) { c.ObjectTTLConfig.DeleteOn = "customPropertyNotExistent" },
+			},
+			{
+				name:        "property without index",
+				reconfigure: func(c *models.Class) { c.ObjectTTLConfig.DeleteOn = "customPropertyNoIndex" },
+			},
+			{
+				name:        "property invalid datatype",
+				reconfigure: func(c *models.Class) { c.ObjectTTLConfig.DeleteOn = "customPropertyInt" },
+			},
+			{
+				name:        "ttl too small",
+				reconfigure: func(c *models.Class) { c.ObjectTTLConfig.DefaultTTL = 42 },
+			},
+		}
+
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				initial := createCollection()
+				updated := createCollection()
+				tc.reconfigure(updated)
+
+				handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+				store := NewFakeStore()
+				store.parser = handler.parser
+
+				fakeSchemaManager.On("AddClass", initial, mock.Anything).Return(nil)
+				fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+
+				handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(-1)
+				_, _, err := handler.AddClass(context.Background(), nil, initial)
+				assert.NoError(t, err)
+				store.AddClass(initial)
+
+				err = handler.UpdateClass(context.Background(), nil, initial.Class, updated)
+
+				assert.ErrorContains(t, err, "ObjectTTLConfig")
+				fakeSchemaManager.AssertExpectations(t)
+			})
+		}
+	})
+}
+
 func TestRestoreClass_WithCircularRefs(t *testing.T) {
 	// When restoring a class, there could be circular refs between the classes,
 	// thus any validation that checks if linked classes exist would fail on the
