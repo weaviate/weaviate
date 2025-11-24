@@ -28,7 +28,6 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/dto"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
-	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
 )
 
@@ -507,47 +506,6 @@ func (b *Batch[T]) SubmitBatchAndWait(ctx context.Context, cfg moduletools.Class
 	monitoring.GetMetrics().T2VBatchQueueDuration.WithLabelValues(b.Label, "total").
 		Observe(time.Since(beforeEnqueue).Seconds())
 	return vecs, errs
-}
-
-type objectVectorizer[T []float32 | [][]float32] func(context.Context, *models.Object, moduletools.ClassConfig) (T, models.AdditionalProperties, error)
-
-func VectorizeBatch[T []float32 | [][]float32](ctx context.Context, objs []*models.Object, skipObject []bool, cfg moduletools.ClassConfig, logger logrus.FieldLogger, objectVectorizer objectVectorizer[T]) ([]T, []models.AdditionalProperties, map[int]error) {
-	vecs := make([]T, len(objs))
-	// error should be the exception so dont preallocate
-	errs := make(map[int]error, 0)
-	errorLock := sync.Mutex{}
-
-	// error group is used to limit concurrency
-	eg := enterrors.NewErrorGroupWrapper(logger)
-	eg.SetLimit(_NUMCPU * 2)
-	for i := range objs {
-		i := i
-
-		if skipObject[i] {
-			continue
-		}
-		eg.Go(func() error {
-			vec, _, err := objectVectorizer(ctx, objs[i], cfg)
-			if err != nil {
-				errorLock.Lock()
-				defer errorLock.Unlock()
-				errs[i] = err
-			}
-			vecs[i] = vec
-			return nil
-		})
-	}
-	err := eg.Wait()
-	if err != nil {
-		for i := range objs {
-			if skipObject[i] {
-				continue
-			}
-			errs[i] = err
-		}
-		return nil, nil, errs
-	}
-	return vecs, nil, errs
 }
 
 func dummyRateLimit() *modulecomponents.RateLimits {

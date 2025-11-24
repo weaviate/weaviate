@@ -58,36 +58,36 @@ func Test_classSettings_Validate(t *testing.T) {
 		{
 			name: "should not pass with empty imageFields",
 			fields: fields{
-				cfg: newConfigBuilder().addSetting("imageFields", []interface{}{}).build(),
+				cfg: newConfigBuilder().addSetting("imageFields", []any{}).build(),
 			},
 			wantErr: true,
 		},
 		{
 			name: "should not pass with empty string in imageFields",
 			fields: fields{
-				cfg: newConfigBuilder().addSetting("imageFields", []interface{}{""}).build(),
+				cfg: newConfigBuilder().addSetting("imageFields", []any{""}).build(),
 			},
 			wantErr: true,
 		},
 		{
 			name: "should not pass with int value in imageFields",
 			fields: fields{
-				cfg: newConfigBuilder().addSetting("imageFields", []interface{}{1.0}).build(),
+				cfg: newConfigBuilder().addSetting("imageFields", []any{1.0}).build(),
 			},
 			wantErr: true,
 		},
 		{
 			name: "should pass with proper value in imageFields",
 			fields: fields{
-				cfg: newConfigBuilder().addSetting("imageFields", []interface{}{"field"}).build(),
+				cfg: newConfigBuilder().addSetting("imageFields", []any{"field"}).build(),
 			},
 		},
 		{
 			name: "should pass with proper value in imageFields and textFields",
 			fields: fields{
 				cfg: newConfigBuilder().
-					addSetting("imageFields", []interface{}{"imageField"}).
-					addSetting("textFields", []interface{}{"textField"}).
+					addSetting("imageFields", []any{"imageField"}).
+					addSetting("textFields", []any{"textField"}).
 					build(),
 			},
 		},
@@ -95,8 +95,8 @@ func Test_classSettings_Validate(t *testing.T) {
 			name: "should pass with proper value in 2 imageFields and 2 textFields",
 			fields: fields{
 				cfg: newConfigBuilder().
-					addSetting("textFields", []interface{}{"textField1", "textField2"}).
-					addSetting("imageFields", []interface{}{"imageField1", "imageField2"}).
+					addSetting("textFields", []any{"textField1", "textField2"}).
+					addSetting("imageFields", []any{"imageField1", "imageField2"}).
 					build(),
 			},
 		},
@@ -104,9 +104,9 @@ func Test_classSettings_Validate(t *testing.T) {
 			name: "should pass with proper value in 2 imageFields and 2 textFields and weights",
 			fields: fields{
 				cfg: newConfigBuilder().
-					addSetting("textFields", []interface{}{"textField1", "textField2"}).
-					addSetting("imageFields", []interface{}{"imageField1", "imageField2"}).
-					addWeights([]interface{}{1, 2}, []interface{}{1, 2}).
+					addSetting("textFields", []any{"textField1", "textField2"}).
+					addSetting("imageFields", []any{"imageField1", "imageField2"}).
+					addWeights([]any{1, 2}, []any{1, 2}).
 					build(),
 			},
 		},
@@ -114,9 +114,9 @@ func Test_classSettings_Validate(t *testing.T) {
 			name: "should pass with proper value in 1 imageFields and 2 textFields and weights",
 			fields: fields{
 				cfg: newConfigBuilder().
-					addSetting("textFields", []interface{}{"textField1", "textField2"}).
-					addSetting("imageFields", []interface{}{"imageField1"}).
-					addWeights([]interface{}{1, 2}, []interface{}{1}).
+					addSetting("textFields", []any{"textField1", "textField2"}).
+					addSetting("imageFields", []any{"imageField1"}).
+					addWeights([]any{1, 2}, []any{1}).
 					build(),
 			},
 		},
@@ -124,9 +124,9 @@ func Test_classSettings_Validate(t *testing.T) {
 			name: "should pass with proper value in 2 imageFields and 2 textFields and weights",
 			fields: fields{
 				cfg: newConfigBuilder().
-					addSetting("textFields", []interface{}{"textField1", "textField2"}).
-					addSetting("imageFields", []interface{}{"imageField1"}).
-					addWeights([]interface{}{1, 2}, []interface{}{1}).
+					addSetting("textFields", []any{"textField1", "textField2"}).
+					addSetting("imageFields", []any{"imageField1"}).
+					addWeights([]any{1, 2}, []any{1}).
 					build(),
 			},
 		},
@@ -134,9 +134,9 @@ func Test_classSettings_Validate(t *testing.T) {
 			name: "should not pass with proper value in 1 imageFields and 2 textFields and weights",
 			fields: fields{
 				cfg: newConfigBuilder().
-					addSetting("textFields", []interface{}{"textField1", "textField2"}).
-					addSetting("imageFields", []interface{}{"imageField1"}).
-					addWeights([]interface{}{1}, []interface{}{1}).
+					addSetting("textFields", []any{"textField1", "textField2"}).
+					addSetting("imageFields", []any{"imageField1"}).
+					addWeights([]any{1}, []any{1}).
 					build(),
 			},
 			wantErr: true,
@@ -145,9 +145,9 @@ func Test_classSettings_Validate(t *testing.T) {
 			name: "should not pass with not proper weight value in 2 imageFields and 2 textFields and weights",
 			fields: fields{
 				cfg: newConfigBuilder().
-					addSetting("textFields", []interface{}{"textField1", "textField2"}).
-					addSetting("imageFields", []interface{}{"imageField1"}).
-					addWeights([]interface{}{1, "aaaa"}, []interface{}{1}).
+					addSetting("textFields", []any{"textField1", "textField2"}).
+					addSetting("imageFields", []any{"imageField1"}).
+					addWeights([]any{1, "aaaa"}, []any{1}).
 					build(),
 			},
 			wantErr: true,
@@ -156,9 +156,9 @@ func Test_classSettings_Validate(t *testing.T) {
 			name: "should pass with not proper weight value in 2 imageFields and 2 textFields and weights",
 			fields: fields{
 				cfg: newConfigBuilder().
-					addSetting("textFields", []interface{}{"textField1", "textField2"}).
-					addSetting("imageFields", []interface{}{"imageField1"}).
-					addWeights([]interface{}{json.Number("1"), json.Number("2")}, []interface{}{json.Number("3")}).
+					addSetting("textFields", []any{"textField1", "textField2"}).
+					addSetting("imageFields", []any{"imageField1"}).
+					addWeights([]any{json.Number("1"), json.Number("2")}, []any{json.Number("3")}).
 					build(),
 			},
 		},
@@ -166,8 +166,8 @@ func Test_classSettings_Validate(t *testing.T) {
 			name: "should pass with proper dimensions setting in videoFields together with image fields",
 			fields: fields{
 				cfg: newConfigBuilder().
-					addSetting("videoFields", []interface{}{"video1"}).
-					addSetting("imageFields", []interface{}{"image1"}).
+					addSetting("videoFields", []any{"video1"}).
+					addSetting("imageFields", []any{"image1"}).
 					build(),
 			},
 			wantErr: false,
@@ -178,7 +178,7 @@ func Test_classSettings_Validate(t *testing.T) {
 				cfg: newConfigBuilder().
 					addSetting("model", "jina-clip-v2").
 					addSetting("dimensions", int64(63)).
-					addSetting("imageFields", []interface{}{"imageField"}).build(),
+					addSetting("imageFields", []any{"imageField"}).build(),
 			},
 			wantErr: true,
 		},
@@ -188,7 +188,7 @@ func Test_classSettings_Validate(t *testing.T) {
 				cfg: newConfigBuilder().
 					addSetting("model", "jina-clip-v1").
 					addSetting("dimensions", int64(769)).
-					addSetting("imageFields", []interface{}{"imageField"}).build(),
+					addSetting("imageFields", []any{"imageField"}).build(),
 			},
 			wantErr: true,
 		},
@@ -209,18 +209,18 @@ type builder struct {
 
 func newConfigBuilder() *builder {
 	return &builder{
-		fakeClassConfig: &fakeClassConfig{config: map[string]interface{}{}},
+		fakeClassConfig: &fakeClassConfig{config: map[string]any{}},
 	}
 }
 
-func (b *builder) addSetting(name string, value interface{}) *builder {
+func (b *builder) addSetting(name string, value any) *builder {
 	b.fakeClassConfig.config[name] = value
 	return b
 }
 
-func (b *builder) addWeights(textWeights, imageWeights []interface{}) *builder {
+func (b *builder) addWeights(textWeights, imageWeights []any) *builder {
 	if textWeights != nil || imageWeights != nil {
-		weightSettings := map[string]interface{}{}
+		weightSettings := map[string]any{}
 		if textWeights != nil {
 			weightSettings["textFields"] = textWeights
 		}
@@ -237,18 +237,18 @@ func (b *builder) build() *fakeClassConfig {
 }
 
 type fakeClassConfig struct {
-	config map[string]interface{}
+	config map[string]any
 }
 
-func (c fakeClassConfig) Class() map[string]interface{} {
+func (c fakeClassConfig) Class() map[string]any {
 	return c.config
 }
 
-func (c fakeClassConfig) ClassByModuleName(moduleName string) map[string]interface{} {
+func (c fakeClassConfig) ClassByModuleName(moduleName string) map[string]any {
 	return c.config
 }
 
-func (c fakeClassConfig) Property(propName string) map[string]interface{} {
+func (c fakeClassConfig) Property(propName string) map[string]any {
 	return c.config
 }
 
