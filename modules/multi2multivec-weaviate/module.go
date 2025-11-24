@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package modm2mvjinaai
+package modm2mvweaviate
 
 import (
 	"context"
@@ -34,14 +34,12 @@ func New() *Module {
 }
 
 type Module struct {
-	vectorizer               *vectorizer.Vectorizer
-	nearImageGraphqlProvider modulecapabilities.GraphQLArguments
-	nearImageSearcher        modulecapabilities.Searcher[[][]float32]
-	nearTextGraphqlProvider  modulecapabilities.GraphQLArguments
-	nearTextSearcher         modulecapabilities.Searcher[[][]float32]
-	nearTextTransformer      modulecapabilities.TextTransform
-	metaClient               metaClient
-	logger                   logrus.FieldLogger
+	vectorizer              *vectorizer.Vectorizer
+	nearTextGraphqlProvider modulecapabilities.GraphQLArguments
+	nearTextSearcher        modulecapabilities.Searcher[[][]float32]
+	nearTextTransformer     modulecapabilities.TextTransform
+	metaClient              metaClient
+	logger                  logrus.FieldLogger
 }
 
 type metaClient interface {
@@ -62,10 +60,6 @@ func (m *Module) Init(ctx context.Context,
 	m.logger = params.GetLogger()
 	if err := m.initVectorizer(ctx, params.GetConfig().ModuleHttpClientTimeout); err != nil {
 		return errors.Wrap(err, "init vectorizer")
-	}
-
-	if err := m.initNearImage(); err != nil {
-		return errors.Wrap(err, "init near image")
 	}
 
 	return nil

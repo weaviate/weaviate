@@ -18,7 +18,7 @@ import (
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/modules/multi2multivec-jinaai/ent"
+	"github.com/weaviate/weaviate/modules/multi2multivec-weaviate/ent"
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
 	objectsvectorizer "github.com/weaviate/weaviate/usecases/modulecomponents/vectorizer"
 )
@@ -36,11 +36,8 @@ func New(client Client) *Vectorizer {
 }
 
 type Client interface {
-	Vectorize(ctx context.Context,
-		texts, images []string, cfg moduletools.ClassConfig,
-	) (*modulecomponents.VectorizationCLIPResult[[][]float32], error)
-	VectorizeQuery(ctx context.Context, texts []string,
-		cfg moduletools.ClassConfig) (*modulecomponents.VectorizationResult[[][]float32], error)
+	Vectorize(ctx context.Context, images []string, cfg moduletools.ClassConfig) ([][][]float32, error)
+	VectorizeQuery(ctx context.Context, texts []string, cfg moduletools.ClassConfig) (*modulecomponents.VectorizationResult[[][]float32], error)
 }
 
 type ClassSettings interface {
@@ -57,52 +54,29 @@ func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
 	return vec, nil, err
 }
 
-func (v *Vectorizer) VectorizeImage(ctx context.Context, id, image string, cfg moduletools.ClassConfig) ([][]float32, error) {
-	res, err := v.client.Vectorize(ctx, nil, []string{image}, cfg)
-	if err != nil {
-		return nil, err
-	}
-	if len(res.ImageVectors) != 1 {
-		return nil, errors.New("empty vector")
-	}
-
-	return res.ImageVectors[0], nil
-}
-
 func (v *Vectorizer) object(ctx context.Context, object *models.Object,
 	cfg moduletools.ClassConfig,
 ) ([][]float32, error) {
 	ichek := ent.NewClassSettings(cfg)
 
-	// vectorize image and text
-	texts := []string{}
 	images := []string{}
 
 	if object.Properties != nil {
 		schemamap := object.Properties.(map[string]interface{})
 		for _, propName := range moduletools.SortStringKeys(schemamap) {
-			switch val := schemamap[propName].(type) {
-			case string:
+			if val, ok := schemamap[propName].(string); ok {
 				if ichek.ImageField(propName) {
 					images = append(images, val)
 				}
-				if ichek.TextField(propName) {
-					texts = append(texts, val)
-				}
-			default:
-				// properties that are not part of the object
 			}
 		}
 	}
 
-	vectors := [][][]float32{}
-	if len(texts) > 0 || len(images) > 0 {
-		res, err := v.client.Vectorize(ctx, texts, images, cfg)
+	if len(images) > 0 {
+		vectors, err := v.client.Vectorize(ctx, images, cfg)
 		if err != nil {
 			return nil, err
 		}
-		vectors = append(vectors, res.TextVectors...)
-		vectors = append(vectors, res.ImageVectors...)
 
 		if len(vectors) > 1 {
 			return nil, errors.Errorf("got more than 1 embedding back: %v", len(vectors))
@@ -111,5 +85,5 @@ func (v *Vectorizer) object(ctx context.Context, object *models.Object,
 		return vectors[0], nil
 	}
 
-	return nil, errors.New("configured properties don't exist or are not of text or blob type")
+	return nil, errors.New("configured properties don't exist or are not of blob type")
 }

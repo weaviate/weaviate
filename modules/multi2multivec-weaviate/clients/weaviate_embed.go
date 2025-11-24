@@ -24,7 +24,7 @@ import (
 )
 
 const (
-	defaultRPM = 500 // from https://jina.ai/embeddings/
+	defaultRPM = 500
 	defaultTPM = 1_000_000
 )
 
@@ -38,14 +38,9 @@ func New(timeout time.Duration) *vectorizer {
 	}
 }
 
-func (v *vectorizer) Vectorize(ctx context.Context,
-	texts, images []string, cfg moduletools.ClassConfig,
-) (*modulecomponents.VectorizationCLIPResult[[][]float32], error) {
+func (v *vectorizer) Vectorize(ctx context.Context, images []string, cfg moduletools.ClassConfig) ([][][]float32, error) {
 	vectors, err := v.vectorize(ctx, images, false, cfg)
-	return &modulecomponents.VectorizationCLIPResult[[][]float32]{
-		TextVectors:  nil,
-		ImageVectors: vectors,
-	}, err
+	return vectors, err
 }
 
 func (v *vectorizer) VectorizeQuery(ctx context.Context, input []string,

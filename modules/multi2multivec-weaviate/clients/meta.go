@@ -13,7 +13,7 @@ package clients
 
 func (v *vectorizer) MetaInfo() (map[string]interface{}, error) {
 	return map[string]interface{}{
-		"name":              "JinaAI CLIP Multivec Module",
-		"documentationHref": "https://jina.ai/embeddings/",
+		"name":              "Weaviate Multivec Embedding Module",
+		"documentationHref": "https://docs.weaviate.io/cloud/embeddings",
 	}, nil
 }

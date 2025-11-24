@@ -28,7 +28,7 @@ const (
 
 const (
 	DefaultBaseURL            = ""
-	DefaultWeaviateModel      = "colpali"
+	DefaultWeaviateModel      = "ModernVBERT/colmodernvbert"
 	DefaultVectorizeClassName = false
 )
 
@@ -40,11 +40,10 @@ type classSettings struct {
 func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
 	return &classSettings{
 		cfg:  cfg,
-		base: basesettings.NewBaseClassSettingsWithAltNames(cfg, false, "multi2multivec-jinaai", nil, nil),
+		base: basesettings.NewBaseClassSettingsWithAltNames(cfg, false, "multi2multivec-weaviate", nil, nil),
 	}
 }
 
-// JinaAI settings
 func (cs *classSettings) Model() string {
 	return cs.base.GetPropertyAsString(ModelProperty, DefaultWeaviateModel)
 }
@@ -53,13 +52,8 @@ func (cs *classSettings) BaseURL() string {
 	return cs.base.GetPropertyAsString(BaseURLProperty, DefaultBaseURL)
 }
 
-// CLIP module specific settings
 func (ic *classSettings) ImageField(property string) bool {
 	return ic.field("imageFields", property)
-}
-
-func (ic *classSettings) TextField(property string) bool {
-	return ic.field("textFields", property)
 }
 
 func (ic *classSettings) Properties() ([]string, error) {
@@ -69,7 +63,7 @@ func (ic *classSettings) Properties() ([]string, error) {
 	}
 	props := make([]string, 0)
 
-	fields := []string{"textFields", "imageFields"}
+	fields := []string{"imageFields"}
 
 	for _, field := range fields {
 		fields, ok := ic.base.GetSettings()[field]
@@ -127,23 +121,12 @@ func (ic *classSettings) Validate() error {
 	var errorMessages []string
 
 	imageFields, imageFieldsOk := ic.cfg.Class()["imageFields"]
-	textFields, textFieldsOk := ic.cfg.Class()["textFields"]
-	if !imageFieldsOk && !textFieldsOk {
-		errorMessages = append(errorMessages, "textFields or imageFields setting needs to be present")
-	}
-
-	if imageFieldsOk && textFieldsOk {
-		errorMessages = append(errorMessages, "only one textFields or imageFields setting needs to be present, not both")
+	if !imageFieldsOk {
+		errorMessages = append(errorMessages, "imageFields setting needs to be present")
 	}
 
 	if imageFieldsOk {
 		if errorMsgs := ic.validateField("image", imageFields); len(errorMsgs) > 0 {
-			errorMessages = append(errorMessages, errorMsgs...)
-		}
-	}
-
-	if textFieldsOk {
-		if errorMsgs := ic.validateField("text", textFields); len(errorMsgs) > 0 {
 			errorMessages = append(errorMessages, errorMsgs...)
 		}
 	}
