@@ -86,6 +86,44 @@ func (p *PostingStore) Init(size int32, compressed bool) {
 	p.compressed = compressed
 }
 
+func (p *PostingStore) GetInner(ctx context.Context, postingID uint64, view lsmkv.BucketConsistentView) (Posting, error) {
+	start := time.Now()
+	defer p.metrics.StoreGetDuration(start)
+
+	vectorSize := p.vectorSize.Load()
+	if vectorSize == 0 {
+		// the store is empty
+		return nil, errors.WithStack(ErrPostingNotFound)
+	}
+
+	var buf [12]byte
+	version, err := p.getVersion(ctx, postingID)
+	if err != nil {
+		return nil, err
+	}
+	binary.LittleEndian.PutUint64(buf[:], postingID)
+	binary.LittleEndian.PutUint32(buf[8:], version)
+
+	p.locks.RLock(postingID)
+	defer p.locks.RUnlock(postingID)
+	list, err := p.bucket.SetList(buf[:])
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to get posting %d", postingID)
+	}
+
+	posting := EncodedPosting{
+		vectorSize: int(vectorSize),
+		data:       make([]byte, 0, len(list)*(8+1+int(vectorSize))),
+		compressed: p.compressed,
+	}
+
+	for _, v := range list {
+		posting.data = append(posting.data, v...)
+	}
+
+	return &posting, nil
+}
+
 func (p *PostingStore) Get(ctx context.Context, postingID uint64) (Posting, error) {
 	start := time.Now()
 	defer p.metrics.StoreGetDuration(start)
@@ -104,22 +142,7 @@ func (p *PostingStore) Get(ctx context.Context, postingID uint64) (Posting, erro
 	binary.LittleEndian.PutUint64(buf[:], postingID)
 	binary.LittleEndian.PutUint32(buf[8:], version)
 
-	list, err := p.bucket.SetList(buf[:])
-	if err != nil {
-		return nil, errors.Wrapf(err, "failed to get posting %d", postingID)
-	}
-
-	posting := EncodedPosting{
-		vectorSize: int(vectorSize),
-		data:       make([]byte, 0, len(list)*(8+1+int(vectorSize))),
-		compressed: p.compressed,
-	}
-
-	for _, v := range list {
-		posting.data = append(posting.data, v...)
-	}
-
-	return &posting, nil
+	return p.GetInner(ctx, postingID, p.bucket.GetConsistentViewOfSegmentsForKeys([][]byte{buf[:]}))
 }
 
 func (p *PostingStore) MultiGet(ctx context.Context, postingIDs []uint64) ([]Posting, error) {
@@ -141,30 +164,16 @@ func (p *PostingStore) MultiGet(ctx context.Context, postingIDs []uint64) ([]Pos
 		binary.LittleEndian.PutUint64(keys[i][:], postingID)
 		binary.LittleEndian.PutUint32(keys[i][8:], version)
 	}
+	view := p.bucket.GetConsistentViewOfSegmentsForKeys(keys)
 
-	lists, err := p.bucket.SetLists(keys)
-	if err != nil {
-		return nil, errors.Wrapf(err, "failed to multi-get postings")
+	for _, id := range postingIDs {
+		posting, err := p.GetInner(ctx, id, view)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to get posting %d", id)
+		}
+		postings = append(postings, posting)
 	}
 
-	for _, list := range lists {
-		if list == nil {
-			postings = append(postings, nil)
-			continue
-		}
-
-		posting := EncodedPosting{
-			vectorSize: int(vectorSize),
-			data:       make([]byte, 0, len(list)*(8+1+int(vectorSize))),
-			compressed: p.compressed,
-		}
-
-		for _, v := range list {
-			posting.data = append(posting.data, v...)
-		}
-
-		postings = append(postings, &posting)
-	}
 	return postings, nil
 }
 
