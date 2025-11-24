@@ -55,28 +55,28 @@ func Test_classSettings_Validate(t *testing.T) {
 		{
 			name: "should not pass with empty imageFields",
 			fields: fields{
-				cfg: newConfigBuilder().addSetting("imageFields", []interface{}{}).build(),
+				cfg: newConfigBuilder().addSetting("imageFields", []any{}).build(),
 			},
 			wantErr: true,
 		},
 		{
 			name: "should not pass with empty string in imageFields",
 			fields: fields{
-				cfg: newConfigBuilder().addSetting("imageFields", []interface{}{""}).build(),
+				cfg: newConfigBuilder().addSetting("imageFields", []any{""}).build(),
 			},
 			wantErr: true,
 		},
 		{
 			name: "should not pass with int value in imageFields",
 			fields: fields{
-				cfg: newConfigBuilder().addSetting("imageFields", []interface{}{1.0}).build(),
+				cfg: newConfigBuilder().addSetting("imageFields", []any{1.0}).build(),
 			},
 			wantErr: true,
 		},
 		{
 			name: "should pass with proper value in imageFields",
 			fields: fields{
-				cfg: newConfigBuilder().addSetting("imageFields", []interface{}{"field"}).build(),
+				cfg: newConfigBuilder().addSetting("imageFields", []any{"field"}).build(),
 			},
 		},
 		{
@@ -84,15 +84,15 @@ func Test_classSettings_Validate(t *testing.T) {
 			fields: fields{
 				cfg: newConfigBuilder().
 					addSetting("inferenceUrl", "http://inference.url").
-					addSetting("imageFields", []interface{}{"field"}).build(),
+					addSetting("imageFields", []any{"field"}).build(),
 			},
 		},
 		{
 			name: "should pass with proper value in imageFields and textFields",
 			fields: fields{
 				cfg: newConfigBuilder().
-					addSetting("imageFields", []interface{}{"imageField"}).
-					addSetting("textFields", []interface{}{"textField"}).
+					addSetting("imageFields", []any{"imageField"}).
+					addSetting("textFields", []any{"textField"}).
 					build(),
 			},
 		},
@@ -100,8 +100,8 @@ func Test_classSettings_Validate(t *testing.T) {
 			name: "should pass with proper value in 2 imageFields and 2 textFields",
 			fields: fields{
 				cfg: newConfigBuilder().
-					addSetting("textFields", []interface{}{"textField1", "textField2"}).
-					addSetting("imageFields", []interface{}{"imageField1", "imageField2"}).
+					addSetting("textFields", []any{"textField1", "textField2"}).
+					addSetting("imageFields", []any{"imageField1", "imageField2"}).
 					build(),
 			},
 		},
@@ -109,9 +109,9 @@ func Test_classSettings_Validate(t *testing.T) {
 			name: "should pass with proper value in 2 imageFields and 2 textFields and weights",
 			fields: fields{
 				cfg: newConfigBuilder().
-					addSetting("textFields", []interface{}{"textField1", "textField2"}).
-					addSetting("imageFields", []interface{}{"imageField1", "imageField2"}).
-					addWeights([]interface{}{1, 2}, []interface{}{1, 2}).
+					addSetting("textFields", []any{"textField1", "textField2"}).
+					addSetting("imageFields", []any{"imageField1", "imageField2"}).
+					addWeights([]any{1, 2}, []any{1, 2}).
 					build(),
 			},
 		},
@@ -119,9 +119,9 @@ func Test_classSettings_Validate(t *testing.T) {
 			name: "should pass with proper value in 1 imageFields and 2 textFields and weights",
 			fields: fields{
 				cfg: newConfigBuilder().
-					addSetting("textFields", []interface{}{"textField1", "textField2"}).
-					addSetting("imageFields", []interface{}{"imageField1"}).
-					addWeights([]interface{}{1, 2}, []interface{}{1}).
+					addSetting("textFields", []any{"textField1", "textField2"}).
+					addSetting("imageFields", []any{"imageField1"}).
+					addWeights([]any{1, 2}, []any{1}).
 					build(),
 			},
 		},
@@ -129,9 +129,9 @@ func Test_classSettings_Validate(t *testing.T) {
 			name: "should pass with proper value in 2 imageFields and 2 textFields and weights",
 			fields: fields{
 				cfg: newConfigBuilder().
-					addSetting("textFields", []interface{}{"textField1", "textField2"}).
-					addSetting("imageFields", []interface{}{"imageField1"}).
-					addWeights([]interface{}{1, 2}, []interface{}{1}).
+					addSetting("textFields", []any{"textField1", "textField2"}).
+					addSetting("imageFields", []any{"imageField1"}).
+					addWeights([]any{1, 2}, []any{1}).
 					build(),
 			},
 		},
@@ -139,9 +139,9 @@ func Test_classSettings_Validate(t *testing.T) {
 			name: "should not pass with proper value in 1 imageFields and 2 textFields and weights",
 			fields: fields{
 				cfg: newConfigBuilder().
-					addSetting("textFields", []interface{}{"textField1", "textField2"}).
-					addSetting("imageFields", []interface{}{"imageField1"}).
-					addWeights([]interface{}{1}, []interface{}{1}).
+					addSetting("textFields", []any{"textField1", "textField2"}).
+					addSetting("imageFields", []any{"imageField1"}).
+					addWeights([]any{1}, []any{1}).
 					build(),
 			},
 			wantErr: true,
@@ -150,9 +150,9 @@ func Test_classSettings_Validate(t *testing.T) {
 			name: "should not pass with not proper weight value in 2 imageFields and 2 textFields and weights",
 			fields: fields{
 				cfg: newConfigBuilder().
-					addSetting("textFields", []interface{}{"textField1", "textField2"}).
-					addSetting("imageFields", []interface{}{"imageField1"}).
-					addWeights([]interface{}{1, "aaaa"}, []interface{}{1}).
+					addSetting("textFields", []any{"textField1", "textField2"}).
+					addSetting("imageFields", []any{"imageField1"}).
+					addWeights([]any{1, "aaaa"}, []any{1}).
 					build(),
 			},
 			wantErr: true,
@@ -161,9 +161,9 @@ func Test_classSettings_Validate(t *testing.T) {
 			name: "should not pass with not proper weight value in 2 imageFields and 2 textFields and weights",
 			fields: fields{
 				cfg: newConfigBuilder().
-					addSetting("textFields", []interface{}{"textField1", "textField2"}).
-					addSetting("imageFields", []interface{}{"imageField1"}).
-					addWeights([]interface{}{json.Number("1"), json.Number("2")}, []interface{}{json.Number("3")}).
+					addSetting("textFields", []any{"textField1", "textField2"}).
+					addSetting("imageFields", []any{"imageField1"}).
+					addWeights([]any{json.Number("1"), json.Number("2")}, []any{json.Number("3")}).
 					build(),
 			},
 		},

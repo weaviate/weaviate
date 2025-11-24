@@ -12,287 +12,93 @@
 package vectorizer
 
 import (
-	"fmt"
-
-	"github.com/pkg/errors"
-
 	"github.com/weaviate/weaviate/entities/moduletools"
 	basesettings "github.com/weaviate/weaviate/usecases/modulecomponents/settings"
 )
 
+var fields = []string{
+	basesettings.ImageFieldsProperty,
+	basesettings.TextFieldsProperty,
+	basesettings.AudioFieldsProperty,
+	basesettings.VideoFieldsProperty,
+	basesettings.ImuFieldsProperty,
+	basesettings.ThermalFieldsProperty,
+	basesettings.DepthFieldsProperty,
+}
+
 type classSettings struct {
 	cfg  moduletools.ClassConfig
-	base *basesettings.BaseClassSettings
+	base *basesettings.BaseClassMultiModalSettings
 }
 
 func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
-	return &classSettings{cfg: cfg, base: basesettings.NewBaseClassSettings(cfg, false)}
+	return &classSettings{
+		cfg:  cfg,
+		base: basesettings.NewBaseClassMultiModalSettingsWithAltNames(cfg, false, "multi2vec-bind", nil, nil),
+	}
 }
 
+// BIND module specific settings
 func (ic *classSettings) ImageField(property string) bool {
-	return ic.field("imageFields", property)
+	return ic.base.ImageField(property)
 }
 
 func (ic *classSettings) ImageFieldsWeights() ([]float32, error) {
-	return ic.getFieldsWeights("image")
+	return ic.base.ImageFieldsWeights()
 }
 
 func (ic *classSettings) TextField(property string) bool {
-	return ic.field("textFields", property)
+	return ic.base.TextField(property)
 }
 
 func (ic *classSettings) TextFieldsWeights() ([]float32, error) {
-	return ic.getFieldsWeights("text")
+	return ic.base.TextFieldsWeights()
 }
 
 func (ic *classSettings) AudioField(property string) bool {
-	return ic.field("audioFields", property)
+	return ic.base.AudioField(property)
 }
 
 func (ic *classSettings) AudioFieldsWeights() ([]float32, error) {
-	return ic.getFieldsWeights("audio")
+	return ic.base.AudioFieldsWeights()
 }
 
 func (ic *classSettings) VideoField(property string) bool {
-	return ic.field("videoFields", property)
+	return ic.base.VideoField(property)
 }
 
 func (ic *classSettings) VideoFieldsWeights() ([]float32, error) {
-	return ic.getFieldsWeights("video")
+	return ic.base.VideoFieldsWeights()
 }
 
 func (ic *classSettings) IMUField(property string) bool {
-	return ic.field("imuFields", property)
+	return ic.base.IMUField(property)
 }
 
 func (ic *classSettings) IMUFieldsWeights() ([]float32, error) {
-	return ic.getFieldsWeights("imu")
+	return ic.base.IMUFieldsWeights()
 }
 
 func (ic *classSettings) ThermalField(property string) bool {
-	return ic.field("thermalFields", property)
+	return ic.base.ThermalField(property)
 }
 
 func (ic *classSettings) ThermalFieldsWeights() ([]float32, error) {
-	return ic.getFieldsWeights("thermal")
+	return ic.base.ThermalFieldsWeights()
 }
 
 func (ic *classSettings) DepthField(property string) bool {
-	return ic.field("depthFields", property)
+	return ic.base.DepthField(property)
 }
 
 func (ic *classSettings) DepthFieldsWeights() ([]float32, error) {
-	return ic.getFieldsWeights("depth")
+	return ic.base.DepthFieldsWeights()
 }
 
 func (ic *classSettings) Properties() ([]string, error) {
-	if ic.cfg == nil {
-		// we would receive a nil-config on cross-class requests, such as Explore{}
-		return nil, errors.New("empty config")
-	}
-	props := make([]string, 0)
-
-	fields := []string{"imageFields", "textFields", "audioFields", "videoFields", "imuFields", "thermalFields", "depthFields"}
-
-	for _, field := range fields {
-		fields, ok := ic.cfg.Class()[field]
-		if !ok {
-			continue
-		}
-
-		fieldsArray, ok := fields.([]interface{})
-		if !ok {
-			return nil, errors.Errorf("%s must be an array", field)
-		}
-
-		for _, value := range fieldsArray {
-			v, ok := value.(string)
-			if !ok {
-				return nil, errors.Errorf("%s must be a string", field)
-			}
-			props = append(props, v)
-		}
-	}
-	return props, nil
-}
-
-func (ic *classSettings) field(name, property string) bool {
-	if ic.cfg == nil {
-		// we would receive a nil-config on cross-class requests, such as Explore{}
-		return false
-	}
-
-	fields, ok := ic.cfg.Class()[name]
-	if !ok {
-		return false
-	}
-
-	fieldsArray, ok := fields.([]interface{})
-	if !ok {
-		return false
-	}
-
-	fieldNames := make([]string, len(fieldsArray))
-	for i, value := range fieldsArray {
-		fieldNames[i] = value.(string)
-	}
-
-	for i := range fieldNames {
-		if fieldNames[i] == property {
-			return true
-		}
-	}
-
-	return false
+	return ic.base.VectorizableProperties(fields)
 }
 
 func (ic *classSettings) Validate() error {
-	if ic.cfg == nil {
-		// we would receive a nil-config on cross-class requests, such as Explore{}
-		return errors.New("empty config")
-	}
-
-	imageFields, imageFieldsOk := ic.cfg.Class()["imageFields"]
-	textFields, textFieldsOk := ic.cfg.Class()["textFields"]
-	audioFields, audioFieldsOk := ic.cfg.Class()["audioFields"]
-	videoFields, videoFieldsOk := ic.cfg.Class()["videoFields"]
-	imuFields, imuFieldsOk := ic.cfg.Class()["imuFields"]
-	thermalFields, thermalFieldsOk := ic.cfg.Class()["thermalFields"]
-	depthFields, depthFieldsOk := ic.cfg.Class()["depthFields"]
-
-	if !imageFieldsOk && !textFieldsOk && !audioFieldsOk && !videoFieldsOk &&
-		!imuFieldsOk && !thermalFieldsOk && !depthFieldsOk {
-		return errors.New("textFields or imageFields or audioFields or videoFields " +
-			"or imuFields or thermalFields or depthFields setting needs to be present")
-	}
-
-	if imageFieldsOk {
-		if err := ic.validateWeightFieldCount("image", imageFields); err != nil {
-			return err
-		}
-	}
-	if textFieldsOk {
-		if err := ic.validateWeightFieldCount("text", textFields); err != nil {
-			return err
-		}
-	}
-	if audioFieldsOk {
-		if err := ic.validateWeightFieldCount("audio", audioFields); err != nil {
-			return err
-		}
-	}
-	if videoFieldsOk {
-		if err := ic.validateWeightFieldCount("video", videoFields); err != nil {
-			return err
-		}
-	}
-	if imuFieldsOk {
-		if err := ic.validateWeightFieldCount("imu", imuFields); err != nil {
-			return err
-		}
-	}
-	if thermalFieldsOk {
-		if err := ic.validateWeightFieldCount("thermal", thermalFields); err != nil {
-			return err
-		}
-	}
-	if depthFieldsOk {
-		if err := ic.validateWeightFieldCount("depth", depthFields); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-func (ic *classSettings) validateWeightFieldCount(name string, fields interface{}) error {
-	imageFieldsCount, err := ic.validateFields(name, fields)
-	if err != nil {
-		return err
-	}
-	err = ic.validateWeights(name, imageFieldsCount)
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-func (ic *classSettings) validateFields(name string, fields interface{}) (int, error) {
-	fieldsArray, ok := fields.([]interface{})
-	if !ok {
-		return 0, errors.Errorf("%sFields must be an array", name)
-	}
-
-	if len(fieldsArray) == 0 {
-		return 0, errors.Errorf("must contain at least one %s field name in %sFields", name, name)
-	}
-
-	for _, value := range fieldsArray {
-		v, ok := value.(string)
-		if !ok {
-			return 0, errors.Errorf("%sField must be a string", name)
-		}
-		if len(v) == 0 {
-			return 0, errors.Errorf("%sField values cannot be empty", name)
-		}
-	}
-
-	return len(fieldsArray), nil
-}
-
-func (ic *classSettings) validateWeights(name string, count int) error {
-	weights, ok := ic.getWeights(name)
-	if ok {
-		if len(weights) != count {
-			return errors.Errorf("weights.%sFields does not equal number of %sFields", name, name)
-		}
-		_, err := ic.getWeightsArray(weights)
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-func (ic *classSettings) getWeights(name string) ([]interface{}, bool) {
-	weights, ok := ic.cfg.Class()["weights"]
-	if ok {
-		weightsObject, ok := weights.(map[string]interface{})
-		if ok {
-			fieldWeights, ok := weightsObject[fmt.Sprintf("%sFields", name)]
-			if ok {
-				fieldWeightsArray, ok := fieldWeights.([]interface{})
-				if ok {
-					return fieldWeightsArray, ok
-				}
-			}
-		}
-	}
-
-	return nil, false
-}
-
-func (ic *classSettings) getWeightsArray(weights []interface{}) ([]float32, error) {
-	weightsArray := make([]float32, len(weights))
-	for i := range weights {
-		weight, err := ic.getNumber(weights[i])
-		if err != nil {
-			return nil, err
-		}
-		weightsArray[i] = weight
-	}
-	return weightsArray, nil
-}
-
-func (ic *classSettings) getFieldsWeights(name string) ([]float32, error) {
-	weights, ok := ic.getWeights(name)
-	if ok {
-		return ic.getWeightsArray(weights)
-	}
-	return nil, nil
-}
-
-func (ic *classSettings) getNumber(in interface{}) (float32, error) {
-	return ic.base.GetNumber(in)
+	return ic.base.ValidateMultiModal(fields)
 }

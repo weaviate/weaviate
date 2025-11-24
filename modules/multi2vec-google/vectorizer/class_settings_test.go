@@ -61,7 +61,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			fields: fields{
 				cfg: newConfigBuilder().
 					addSetting("location", "location").
-					addSetting("projectId", "projectId").addSetting("imageFields", []interface{}{}).build(),
+					addSetting("projectId", "projectId").addSetting("imageFields", []any{}).build(),
 			},
 			wantErr: true,
 		},
@@ -70,7 +70,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			fields: fields{
 				cfg: newConfigBuilder().
 					addSetting("location", "location").
-					addSetting("projectId", "projectId").addSetting("imageFields", []interface{}{""}).build(),
+					addSetting("projectId", "projectId").addSetting("imageFields", []any{""}).build(),
 			},
 			wantErr: true,
 		},
@@ -79,7 +79,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			fields: fields{
 				cfg: newConfigBuilder().
 					addSetting("location", "location").
-					addSetting("projectId", "projectId").addSetting("imageFields", []interface{}{1.0}).build(),
+					addSetting("projectId", "projectId").addSetting("imageFields", []any{1.0}).build(),
 			},
 			wantErr: true,
 		},
@@ -88,7 +88,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			fields: fields{
 				cfg: newConfigBuilder().
 					addSetting("location", "location").
-					addSetting("projectId", "projectId").addSetting("imageFields", []interface{}{"field"}).build(),
+					addSetting("projectId", "projectId").addSetting("imageFields", []any{"field"}).build(),
 			},
 		},
 		{
@@ -97,8 +97,8 @@ func Test_classSettings_Validate(t *testing.T) {
 				cfg: newConfigBuilder().
 					addSetting("location", "location").
 					addSetting("projectId", "projectId").
-					addSetting("imageFields", []interface{}{"imageField"}).
-					addSetting("textFields", []interface{}{"textField"}).
+					addSetting("imageFields", []any{"imageField"}).
+					addSetting("textFields", []any{"textField"}).
 					build(),
 			},
 		},
@@ -108,8 +108,8 @@ func Test_classSettings_Validate(t *testing.T) {
 				cfg: newConfigBuilder().
 					addSetting("location", "location").
 					addSetting("projectId", "projectId").
-					addSetting("textFields", []interface{}{"textField1", "textField2"}).
-					addSetting("imageFields", []interface{}{"imageField1", "imageField2"}).
+					addSetting("textFields", []any{"textField1", "textField2"}).
+					addSetting("imageFields", []any{"imageField1", "imageField2"}).
 					build(),
 			},
 		},
@@ -119,9 +119,9 @@ func Test_classSettings_Validate(t *testing.T) {
 				cfg: newConfigBuilder().
 					addSetting("location", "location").
 					addSetting("projectId", "projectId").
-					addSetting("textFields", []interface{}{"textField1", "textField2"}).
-					addSetting("imageFields", []interface{}{"imageField1", "imageField2"}).
-					addWeights([]interface{}{1, 2}, []interface{}{1, 2}).
+					addSetting("textFields", []any{"textField1", "textField2"}).
+					addSetting("imageFields", []any{"imageField1", "imageField2"}).
+					addWeights([]any{1, 2}, []any{1, 2}).
 					build(),
 			},
 		},
@@ -131,9 +131,9 @@ func Test_classSettings_Validate(t *testing.T) {
 				cfg: newConfigBuilder().
 					addSetting("location", "location").
 					addSetting("projectId", "projectId").
-					addSetting("textFields", []interface{}{"textField1", "textField2"}).
-					addSetting("imageFields", []interface{}{"imageField1"}).
-					addWeights([]interface{}{1, 2}, []interface{}{1}).
+					addSetting("textFields", []any{"textField1", "textField2"}).
+					addSetting("imageFields", []any{"imageField1"}).
+					addWeights([]any{1, 2}, []any{1}).
 					build(),
 			},
 		},
@@ -143,9 +143,9 @@ func Test_classSettings_Validate(t *testing.T) {
 				cfg: newConfigBuilder().
 					addSetting("location", "location").
 					addSetting("projectId", "projectId").
-					addSetting("textFields", []interface{}{"textField1", "textField2"}).
-					addSetting("imageFields", []interface{}{"imageField1"}).
-					addWeights([]interface{}{1, 2}, []interface{}{1}).
+					addSetting("textFields", []any{"textField1", "textField2"}).
+					addSetting("imageFields", []any{"imageField1"}).
+					addWeights([]any{1, 2}, []any{1}).
 					build(),
 			},
 		},
@@ -155,9 +155,9 @@ func Test_classSettings_Validate(t *testing.T) {
 				cfg: newConfigBuilder().
 					addSetting("location", "location").
 					addSetting("projectId", "projectId").
-					addSetting("textFields", []interface{}{"textField1", "textField2"}).
-					addSetting("imageFields", []interface{}{"imageField1"}).
-					addWeights([]interface{}{1}, []interface{}{1}).
+					addSetting("textFields", []any{"textField1", "textField2"}).
+					addSetting("imageFields", []any{"imageField1"}).
+					addWeights([]any{1}, []any{1}).
 					build(),
 			},
 			wantErr: true,
@@ -168,9 +168,9 @@ func Test_classSettings_Validate(t *testing.T) {
 				cfg: newConfigBuilder().
 					addSetting("location", "location").
 					addSetting("projectId", "projectId").
-					addSetting("textFields", []interface{}{"textField1", "textField2"}).
-					addSetting("imageFields", []interface{}{"imageField1"}).
-					addWeights([]interface{}{1, "aaaa"}, []interface{}{1}).
+					addSetting("textFields", []any{"textField1", "textField2"}).
+					addSetting("imageFields", []any{"imageField1"}).
+					addWeights([]any{1, "aaaa"}, []any{1}).
 					build(),
 			},
 			wantErr: true,
@@ -181,9 +181,9 @@ func Test_classSettings_Validate(t *testing.T) {
 				cfg: newConfigBuilder().
 					addSetting("location", "location").
 					addSetting("projectId", "projectId").
-					addSetting("textFields", []interface{}{"textField1", "textField2"}).
-					addSetting("imageFields", []interface{}{"imageField1"}).
-					addWeights([]interface{}{json.Number("1"), json.Number("2")}, []interface{}{json.Number("3")}).
+					addSetting("textFields", []any{"textField1", "textField2"}).
+					addSetting("imageFields", []any{"imageField1"}).
+					addWeights([]any{json.Number("1"), json.Number("2")}, []any{json.Number("3")}).
 					build(),
 			},
 		},
@@ -193,7 +193,7 @@ func Test_classSettings_Validate(t *testing.T) {
 				cfg: newConfigBuilder().
 					addSetting("location", "location").
 					addSetting("projectId", "projectId").
-					addSetting("videoFields", []interface{}{"video1"}).
+					addSetting("videoFields", []any{"video1"}).
 					addSetting("dimensions", 256).
 					build(),
 			},
@@ -205,8 +205,8 @@ func Test_classSettings_Validate(t *testing.T) {
 				cfg: newConfigBuilder().
 					addSetting("location", "location").
 					addSetting("projectId", "projectId").
-					addSetting("videoFields", []interface{}{"video1"}).
-					addSetting("imageFields", []interface{}{"image1"}).
+					addSetting("videoFields", []any{"video1"}).
+					addSetting("imageFields", []any{"image1"}).
 					addSetting("dimensions", 512).
 					build(),
 			},
@@ -218,8 +218,8 @@ func Test_classSettings_Validate(t *testing.T) {
 				cfg: newConfigBuilder().
 					addSetting("location", "location").
 					addSetting("projectId", "projectId").
-					addSetting("videoFields", []interface{}{"video1"}).
-					addSetting("imageFields", []interface{}{"image1"}).
+					addSetting("videoFields", []any{"video1"}).
+					addSetting("imageFields", []any{"image1"}).
 					addSetting("dimensions", defaultDimensions1408).
 					build(),
 			},
@@ -231,8 +231,8 @@ func Test_classSettings_Validate(t *testing.T) {
 				cfg: newConfigBuilder().
 					addSetting("location", "location").
 					addSetting("projectId", "projectId").
-					addSetting("videoFields", []interface{}{"video1"}).
-					addSetting("imageFields", []interface{}{"image1"}).
+					addSetting("videoFields", []any{"video1"}).
+					addSetting("imageFields", []any{"image1"}).
 					addSetting("videoIntervalSeconds", 7).
 					build(),
 			},
