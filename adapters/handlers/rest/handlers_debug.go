@@ -23,13 +23,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/dustin/go-humanize"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/cluster/usage"
 	"github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/resourcelimits"
 	"github.com/weaviate/weaviate/entities/schema"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -843,12 +843,12 @@ func setupDebugHandlers(appState *state.State) {
 				http.Error(w, "limit is required", http.StatusBadRequest)
 				return
 			}
-			limitBytes, err := resourcelimits.ParseMemLimit(limitStr)
+			limitBytes, err := humanize.ParseBytes(limitStr)
 			if err != nil {
 				http.Error(w, "invalid limit: "+err.Error(), http.StatusBadRequest)
 				return
 			}
-			prevLimit = debug.SetMemoryLimit(limitBytes)
+			prevLimit = debug.SetMemoryLimit(int64(limitBytes))
 			appState.Logger.
 				WithField("new_memory_limit_in_bytes", limitBytes).
 				WithField("previous_memory_limit_in_bytes", prevLimit).
