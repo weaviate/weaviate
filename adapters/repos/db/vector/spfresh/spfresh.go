@@ -71,6 +71,7 @@ type SPFresh struct {
 	vectorSize         int32 // Size of the compressed vectors in bytes
 	distancer          *Distancer
 	quantizer          *compressionhelpers.RotationalQuantizer
+	rqActive           atomic.Bool
 
 	// Internal components
 	Centroids    CentroidIndex           // Provides access to the centroids.
@@ -326,7 +327,10 @@ func (s *SPFresh) QueryVectorDistancer(queryVector []float32) common.QueryVector
 }
 
 func (s *SPFresh) CompressionStats() compressionhelpers.CompressionStats {
-	return s.quantizer.Stats()
+	if s.rqActive.Load() {
+		return s.quantizer.Stats()
+	}
+	return compressionhelpers.UncompressedStats{}
 }
 
 func (s *SPFresh) Preload(id uint64, vector []float32) {
