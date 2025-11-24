@@ -177,16 +177,17 @@ func (p *PostingStore) Put(ctx context.Context, postingID uint64, posting Postin
 	}
 
 	var buf [12]byte
-	binary.LittleEndian.PutUint64(buf[:], postingID)
-
+	var newBuf [12]byte
 	version, err := p.getVersion(ctx, postingID)
 	if err != nil {
 		return err
 	}
-	binary.LittleEndian.PutUint32(buf[8:], version)
 
 	p.locks.Lock(postingID)
 	defer p.locks.Unlock(postingID)
+
+	binary.LittleEndian.PutUint64(buf[:], postingID)
+	binary.LittleEndian.PutUint32(buf[8:], version)
 
 	set := make([][]byte, posting.Len())
 	for i, v := range posting.Iter() {
@@ -197,13 +198,14 @@ func (p *PostingStore) Put(ctx context.Context, postingID uint64, posting Postin
 	if err != nil {
 		return errors.Wrapf(err, "failed to get posting %d", postingID)
 	}
-	version, err = p.postingVersions.Inc(ctx, postingID, 1)
+	version += 1
+	err = p.postingVersions.Set(ctx, postingID, uint32(version))
 	if err != nil {
-		return errors.Wrapf(err, "failed to increment version for posting %d", postingID)
+		return errors.Wrapf(err, "failed to set version for posting %d", postingID)
 	}
-	binary.LittleEndian.PutUint32(buf[8:], version)
-	err = p.bucket.SetAdd(buf[:], set)
-
+	binary.LittleEndian.PutUint64(newBuf[:], postingID)
+	binary.LittleEndian.PutUint32(newBuf[8:], version)
+	err = p.bucket.SetAdd(newBuf[:], set)
 	return err
 }
 
@@ -216,11 +218,11 @@ func (p *PostingStore) Append(ctx context.Context, postingID uint64, vector Vect
 		return err
 	}
 	var buf [12]byte
-	p.locks.Lock(postingID)
 
+	p.locks.Lock(postingID)
+	defer p.locks.Unlock(postingID)
 	binary.LittleEndian.PutUint64(buf[:], postingID)
 	binary.LittleEndian.PutUint32(buf[8:], version)
-	defer p.locks.Unlock(postingID)
 
 	return p.bucket.SetAdd(buf[:], [][]byte{vector.Encode()})
 }
