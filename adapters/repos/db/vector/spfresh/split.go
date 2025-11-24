@@ -102,7 +102,6 @@ func (s *SPFresh) doSplit(postingID uint64, reassign bool) error {
 
 		pp := &EncodedPosting{
 			vectorSize: int(s.vectorSize),
-			compressed: true,
 		}
 		pp.AddVector(filtered.GetAt(0))
 		err = s.PostingStore.Put(s.ctx, postingID, pp)
@@ -225,7 +224,6 @@ func (s *SPFresh) splitPosting(posting Posting) ([]SplitResult, error) {
 			Uncompressed: enc.Centroid(byte(i)),
 			Posting: &EncodedPosting{
 				vectorSize: int(s.vectorSize),
-				compressed: true,
 			},
 		}
 

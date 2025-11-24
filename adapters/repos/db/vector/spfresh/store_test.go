@@ -34,7 +34,6 @@ func TestStore(t *testing.T) {
 		// create a posting
 		posting := EncodedPosting{
 			vectorSize: 10,
-			compressed: true,
 		}
 		posting.AddVector(NewCompressedVector(1, 1, []byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}))
 		err = s.Put(ctx, 1, &posting)
@@ -74,7 +73,6 @@ func TestStore(t *testing.T) {
 		for i := range 5 {
 			posting := EncodedPosting{
 				vectorSize: 10,
-				compressed: true,
 			}
 			posting.AddVector(NewCompressedVector(uint64(i), 1, []byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}))
 			postings = append(postings, &posting)

@@ -84,7 +84,6 @@ func (p *PostingStore) Get(ctx context.Context, postingID uint64) (Posting, erro
 	posting := EncodedPosting{
 		vectorSize: int(vectorSize),
 		data:       make([]byte, 0, len(list)*(8+1+int(vectorSize))),
-		compressed: true,
 	}
 
 	for _, v := range list {

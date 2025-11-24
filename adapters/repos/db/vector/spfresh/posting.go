@@ -160,7 +160,6 @@ var _ Posting = (*EncodedPosting)(nil)
 type EncodedPosting struct {
 	// total size in bytes of each vector
 	vectorSize int
-	compressed bool
 	data       []byte
 }
 
@@ -204,22 +203,7 @@ func (p *EncodedPosting) Len() int {
 }
 
 func (p *EncodedPosting) decode(buf []byte) Vector {
-	if p.compressed {
-		return CompressedVector(buf)
-	}
-
-	id := binary.LittleEndian.Uint64(buf[:8])
-	version := VectorVersion(buf[8])
-	data := make([]float32, (len(buf)-9)/4)
-	for i := range data {
-		data[i] = math.Float32frombits(binary.LittleEndian.Uint32(buf[9+i*4:]))
-	}
-
-	return &RawVector{
-		id:      id,
-		version: version,
-		data:    data,
-	}
+	return CompressedVector(buf)
 }
 
 func (p *EncodedPosting) Iter() iter.Seq2[int, Vector] {
@@ -252,11 +236,7 @@ func (p *EncodedPosting) Uncompress(quantizer *compressionhelpers.RotationalQuan
 	data := make([][]float32, 0, p.Len())
 
 	for _, v := range p.Iter() {
-		if p.compressed {
-			data = append(data, quantizer.Decode(v.(CompressedVector).Data()))
-		} else {
-			data = append(data, v.(*RawVector).Data())
-		}
+		data = append(data, quantizer.Decode(v.(CompressedVector).Data()))
 	}
 
 	return data
