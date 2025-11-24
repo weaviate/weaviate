@@ -29,7 +29,6 @@ type PostingStore struct {
 	vectorSize atomic.Int32
 	locks      *common.ShardedRWLocks
 	metrics    *Metrics
-	compressed bool
 }
 
 func NewPostingStore(store *lsmkv.Store, metrics *Metrics, bucketName string, cfg StoreConfig) (*PostingStore, error) {
@@ -59,9 +58,8 @@ func NewPostingStore(store *lsmkv.Store, metrics *Metrics, bucketName string, cf
 // Init is called by the index upon receiving the first vector and
 // determining the vector size.
 // Prior to calling this method, the store will assume the index is empty.
-func (p *PostingStore) Init(size int32, compressed bool) {
+func (p *PostingStore) Init(size int32) {
 	p.vectorSize.Store(size)
-	p.compressed = compressed
 }
 
 func (p *PostingStore) Get(ctx context.Context, postingID uint64) (Posting, error) {
@@ -86,7 +84,7 @@ func (p *PostingStore) Get(ctx context.Context, postingID uint64) (Posting, erro
 	posting := EncodedPosting{
 		vectorSize: int(vectorSize),
 		data:       make([]byte, 0, len(list)*(8+1+int(vectorSize))),
-		compressed: p.compressed,
+		compressed: true,
 	}
 
 	for _, v := range list {

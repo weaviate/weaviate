@@ -80,7 +80,7 @@ func (s *SPFresh) Add(ctx context.Context, id uint64, vector []float32) (err err
 			quantizer: s.quantizer,
 			distancer: s.config.DistanceProvider,
 		}
-		s.PostingStore.Init(s.vectorSize, true)
+		s.PostingStore.Init(s.vectorSize)
 	})
 
 	// add the vector to the version map.
