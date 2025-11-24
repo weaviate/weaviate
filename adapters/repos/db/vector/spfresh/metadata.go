@@ -420,6 +420,6 @@ func (s *SPFresh) restoreRQ8FromMsgpack(rq8Data *RQ8Data) error {
 		s.logger.Warnf("SPFresh index unable to restore vector size: %v", err)
 	}
 
-	s.PostingStore.Init(s.vectorSize, s.config.Compressed)
+	s.PostingStore.Init(s.vectorSize, true)
 	return nil
 }

@@ -46,7 +46,6 @@ type Config struct {
 	Store                     StoreConfig                     `json:"store"`                               // Configuration for the underlying LSMKV store
 	Centroids                 CentroidConfig                  `json:"centroids"`                           // Configuration for the centroid index
 	TombstoneCallbacks        cyclemanager.CycleCallbackGroup // Callbacks for handling tombstones
-	Compressed                bool                            `json:"compressed,omitempty"`       // Whether to store vectors in compressed format
 	VectorForIDThunk          common.VectorForID[float32]     `json:"vectorForIDThunk,omitempty"` // Function to get a vector by index ID
 }
 
@@ -97,7 +96,6 @@ func DefaultConfig() *Config {
 		ReassignNeighbors:         DefaultReassignNeighbors,
 		MaxDistanceRatio:          DefaultMaxDistanceRatio,
 		DistanceProvider:          distancer.NewL2SquaredProvider(),
-		Compressed:                true,
 	}
 }
 
