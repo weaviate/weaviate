@@ -13,6 +13,7 @@ package spfresh
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"github.com/pkg/errors"
@@ -207,7 +208,8 @@ func (s *SPFresh) doSplit(postingID uint64, reassign bool) error {
 // If the clustering fails because of the content of the posting,
 // it returns ErrIdenticalVectors.
 func (s *SPFresh) splitPosting(posting Posting) ([]SplitResult, error) {
-	enc := compressionhelpers.NewKMeansEncoder(2, int(s.dims), 0)
+	enc := s.kmeansPool.Get()
+	defer s.kmeansPool.Put(enc)
 
 	var data [][]float32
 	if cp, ok := posting.(*EncodedPosting); ok {
@@ -394,4 +396,26 @@ func (s *SPFresh) enqueueReassignAfterSplit(oldPostingID uint64, newPostingIDs [
 	}
 
 	return nil
+}
+
+type kmeansPool struct {
+	pool sync.Pool
+}
+
+func newKMeansPool(k int, dimensions int, segment int) *kmeansPool {
+	return &kmeansPool{
+		pool: sync.Pool{
+			New: func() any {
+				return compressionhelpers.NewKMeansEncoder(k, dimensions, segment)
+			},
+		},
+	}
+}
+
+func (p *kmeansPool) Get() *compressionhelpers.KMeansEncoder {
+	return p.pool.Get().(*compressionhelpers.KMeansEncoder)
+}
+
+func (p *kmeansPool) Put(enc *compressionhelpers.KMeansEncoder) {
+	p.pool.Put(enc)
 }
