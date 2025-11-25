@@ -19,6 +19,17 @@ import (
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 )
 
+func newBatchAcksMessage(uuids, beacons []string) *pb.BatchStreamReply {
+	return &pb.BatchStreamReply{
+		Message: &pb.BatchStreamReply_Acks_{
+			Acks: &pb.BatchStreamReply_Acks{
+				Uuids:   uuids,
+				Beacons: beacons,
+			},
+		},
+	}
+}
+
 func newBatchResultsMessage(successes []*pb.BatchStreamReply_Results_Success, errors []*pb.BatchStreamReply_Results_Error) *pb.BatchStreamReply {
 	return &pb.BatchStreamReply{
 		Message: &pb.BatchStreamReply_Results_{
