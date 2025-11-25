@@ -59,14 +59,62 @@ func (ic *classSettings) getStringProperty(name, defaultValue string) *string {
 	return &asString
 }
 
+func (ic *classSettings) getIntPropertyWithLegacy(name string, defaultValue *int) *int {
+	if ic.cfg == nil {
+		return defaultValue
+	}
+
+	// Check for correct property name
+	config := ic.cfg.ClassByModuleName("generative-cohere")
+	if _, ok := config[name]; ok {
+		return ic.getIntProperty(name, defaultValue)
+	}
+
+	// Fallback for legacy property names
+	legacyName := name + "Property"
+	return ic.getIntProperty(legacyName, defaultValue)
+}
+
 func (ic *classSettings) getIntProperty(name string, defaultValue *int) *int {
 	wrongVal := -1
 	return ic.propertyValuesHelper.GetPropertyAsIntWithNotExists(ic.cfg, name, &wrongVal, defaultValue)
 }
 
+func (ic *classSettings) getFloat64PropertyWithLegacy(name string, defaultValue *float64) *float64 {
+	if ic.cfg == nil {
+		return defaultValue
+	}
+
+	// Check for correct property name
+	config := ic.cfg.ClassByModuleName("generative-cohere")
+	if _, ok := config[name]; ok {
+		return ic.getFloat64Property(name, defaultValue)
+	}
+
+	// Fallback for legacy property names
+	legacyName := name + "Property"
+	return ic.getFloat64Property(legacyName, defaultValue)
+}
+
 func (ic *classSettings) getFloat64Property(name string, defaultValue *float64) *float64 {
 	wrongVal := float64(-1)
 	return ic.propertyValuesHelper.GetPropertyAsFloat64WithNotExists(ic.cfg, name, &wrongVal, defaultValue)
+}
+
+func (ic *classSettings) getListOfStringsPropertyWithLegacy(name string, defaultValue []string) *[]string {
+	if ic.cfg == nil {
+		return &defaultValue
+	}
+
+	// Check for correct property name
+	config := ic.cfg.ClassByModuleName("generative-cohere")
+	if _, ok := config[name]; ok {
+		return ic.getListOfStringsProperty(name, defaultValue)
+	}
+
+	// Fallback for legacy property names
+	legacyName := name + "Property"
+	return ic.getListOfStringsProperty(legacyName, defaultValue)
 }
 
 func (ic *classSettings) getListOfStringsProperty(name string, defaultValue []string) *[]string {
@@ -100,17 +148,17 @@ func (ic *classSettings) Model() string {
 }
 
 func (ic *classSettings) MaxTokens() int {
-	return *ic.getIntProperty(maxTokensProperty, &DefaultCohereMaxTokens)
+	return *ic.getIntPropertyWithLegacy(maxTokensProperty, &DefaultCohereMaxTokens)
 }
 
 func (ic *classSettings) Temperature() float64 {
-	return *ic.getFloat64Property(temperatureProperty, &DefaultCohereTemperature)
+	return *ic.getFloat64PropertyWithLegacy(temperatureProperty, &DefaultCohereTemperature)
 }
 
 func (ic *classSettings) K() int {
-	return *ic.getIntProperty(kProperty, &DefaultCohereK)
+	return *ic.getIntPropertyWithLegacy(kProperty, &DefaultCohereK)
 }
 
 func (ic *classSettings) StopSequences() []string {
-	return *ic.getListOfStringsProperty(stopSequencesProperty, DefaultCohereStopSequences)
+	return *ic.getListOfStringsPropertyWithLegacy(stopSequencesProperty, DefaultCohereStopSequences)
 }
