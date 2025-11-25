@@ -1449,7 +1449,7 @@ func parseClusterConfig() (cluster.Config, error) {
 		cfg.DataBindPort = asInt
 	} else {
 		// it is convention in this server that the data bind point is
-		// equal to the data bind port + 1
+		// equal to the gossip bind port + 1
 		cfg.DataBindPort = cfg.GossipBindPort + 1
 	}
 
