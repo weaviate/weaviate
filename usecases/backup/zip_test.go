@@ -406,7 +406,7 @@ func TestRenamingDuringBackup(t *testing.T) {
 
 	uz, wc := NewUnzip(dir2)
 	go func() {
-		_, err = io.Copy(wc, compressBuf)
+		_, err := io.Copy(wc, compressBuf)
 		require.NoError(t, err)
 		require.NoError(t, wc.Close())
 	}()
