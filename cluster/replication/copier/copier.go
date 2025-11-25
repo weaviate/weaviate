@@ -286,7 +286,7 @@ func (c *Copier) metadataWorker(ctx context.Context, client FileReplicationServi
 
 		meta, err := stream.Recv()
 		if err != nil {
-			return fmt.Errorf("failed to receive file metadata for %q: %w", meta.FileName, err)
+			return fmt.Errorf("failed to receive file metadata for %q: %w", fileName, err)
 		}
 
 		metadataChan <- meta

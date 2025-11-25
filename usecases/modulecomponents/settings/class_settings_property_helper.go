@@ -30,7 +30,7 @@ type PropertyValuesHelper interface {
 	GetPropertyAsStringWithNotExists(cfg moduletools.ClassConfig, name, defaultValue, notExistsValue string) string
 	GetPropertyAsBool(cfg moduletools.ClassConfig, name string, defaultValue bool) bool
 	GetPropertyAsBoolWithNotExists(cfg moduletools.ClassConfig, name string, defaultValue, notExistsValue bool) bool
-	GetNumber(in interface{}) (float32, error)
+	GetNumber(in any) (float32, error)
 }
 
 type classPropertyValuesHelper struct {
@@ -150,7 +150,7 @@ func (h *classPropertyValuesHelper) GetPropertyAsBoolWithNotExists(cfg moduletoo
 	}
 }
 
-func (h *classPropertyValuesHelper) GetNumber(in interface{}) (float32, error) {
+func (h *classPropertyValuesHelper) GetNumber(in any) (float32, error) {
 	switch i := in.(type) {
 	case float64:
 		return float32(i), nil
@@ -175,7 +175,7 @@ func (h *classPropertyValuesHelper) GetNumber(in interface{}) (float32, error) {
 	}
 }
 
-func (h *classPropertyValuesHelper) GetSettings(cfg moduletools.ClassConfig) map[string]interface{} {
+func (h *classPropertyValuesHelper) GetSettings(cfg moduletools.ClassConfig) map[string]any {
 	if h.moduleName != "" {
 		if settings := cfg.ClassByModuleName(h.moduleName); len(settings) > 0 {
 			return settings
@@ -189,7 +189,7 @@ func (h *classPropertyValuesHelper) GetSettings(cfg moduletools.ClassConfig) map
 	return cfg.Class()
 }
 
-func getNumberValue[T int | int64 | float64](settings map[string]interface{},
+func getNumberValue[T int | int64 | float64](settings map[string]any,
 	name string, defaultValue, notExistsValue *T,
 ) *T {
 	value := settings[name]
