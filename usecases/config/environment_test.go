@@ -276,11 +276,10 @@ func TestEnvironmentParseClusterConfig(t *testing.T) {
 		{
 			name: "valid cluster config - ports and advertiseaddr provided",
 			envVars: map[string]string{
-				"CLUSTER_GOSSIP_BIND_PORT":    "7100",
-				"CLUSTER_DATA_BIND_PORT":      "7101",
-				"CLUSTER_DATA_BIND_GRPC_PORT": "7102",
-				"CLUSTER_ADVERTISE_ADDR":      "193.0.0.1",
-				"CLUSTER_ADVERTISE_PORT":      "9999",
+				"CLUSTER_GOSSIP_BIND_PORT": "7100",
+				"CLUSTER_DATA_BIND_PORT":   "7101",
+				"CLUSTER_ADVERTISE_ADDR":   "193.0.0.1",
+				"CLUSTER_ADVERTISE_PORT":   "9999",
 			},
 			expectedResult: cluster.Config{
 				Hostname:           hostname,
@@ -319,9 +318,8 @@ func TestEnvironmentParseClusterConfig(t *testing.T) {
 		{
 			name: "valid cluster config - all ports provided",
 			envVars: map[string]string{
-				"CLUSTER_GOSSIP_BIND_PORT":    "7100",
-				"CLUSTER_DATA_BIND_PORT":      "7111",
-				"CLUSTER_DATA_BIND_GRPC_PORT": "7122",
+				"CLUSTER_GOSSIP_BIND_PORT": "7100",
+				"CLUSTER_DATA_BIND_PORT":   "7111",
 			},
 			expectedResult: cluster.Config{
 				Hostname:           hostname,
