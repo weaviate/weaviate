@@ -94,7 +94,7 @@ type SPFresh struct {
 	store        *lsmkv.Store
 	vectorForId  common.VectorForID[float32]
 	metadata     *bolt.DB
-	metadataLock *sync.RWMutex
+	metadataLock sync.RWMutex
 }
 
 func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*SPFresh, error) {
@@ -151,7 +151,6 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*SPFresh, error) {
 		rngFactor:          uc.RNGFactor,
 		searchProbe:        uc.SearchProbe,
 		centroidsIndexType: uc.CentroidsIndexType,
-		metadataLock:       &sync.RWMutex{},
 	}
 
 	if s.centroidsIndexType == "hnsw" {
@@ -172,7 +171,9 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*SPFresh, error) {
 	}
 	s.taskQueue = *taskQueue
 
-	s.restoreMetadata()
+	if err = s.restoreMetadata(); err != nil {
+		s.logger.Warnf("unable to restore metadata from previous run with error: %v", err)
+	}
 
 	return &s, nil
 }

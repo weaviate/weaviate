@@ -115,27 +115,23 @@ func (s *SPFresh) restoreMetadata() error {
 		s.logger.Warnf("SPFresh index unable to restore RQ data: %v", err)
 	}
 
-	s.initDimensions()
+	if err := s.initDimensions(); err != nil {
+		s.logger.Warnf("SPFresh index unable to restore RQ data: %v", err)
+	}
 
 	return nil
 }
 
-func (s *SPFresh) initDimensions() {
-	err := s.openMetadata()
-	if err != nil {
-		s.logger.Warnf("SPFresh index unable to open metadata: %v", err)
-		return
-	}
-	defer s.closeMetadata()
-
+func (s *SPFresh) initDimensions() error {
 	dims, err := s.fetchDimensions()
 	if err != nil {
-		s.logger.Warnf("SPFresh index unable to fetch dimensions: %v", err)
+		return errors.Wrap(err, "SPFresh index unable to fetch dimensions")
 	}
 
 	if dims > 0 {
 		atomic.StoreInt32(&s.dims, dims)
 	}
+	return nil
 }
 
 func (s *SPFresh) fetchDimensions() (int32, error) {
@@ -337,16 +333,10 @@ func (d *dataCaptureLogger) AddSQCompression(data compressionhelpers.SQData) err
 }
 
 func (s *SPFresh) restoreRQData() error {
-	err := s.openMetadata()
-	if err != nil {
-		return err
-	}
-	defer s.closeMetadata()
-
 	var container *RQDataContainer
 	var data []byte
 
-	err = s.metadata.View(func(tx *bolt.Tx) error {
+	err := s.metadata.View(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte(vectorMetadataBucket))
 		if b == nil {
 			return nil // No metadata yet
