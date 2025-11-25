@@ -26,14 +26,17 @@ type KMeansEncoder struct {
 	s        int                // Segment where it operates.
 	centers  [][]float32        // k-means centroids used for encoding data.
 	distance distancer.Provider // Distance measure used to encode to nearest center.
+	km       *kmeans.KMeans     // Underlying k-means model used for training.
 }
 
 func NewKMeansEncoder(k int, dimensions int, segment int) *KMeansEncoder {
+	km := kmeans.New(k, dimensions, segment)
 	encoder := &KMeansEncoder{
 		k:        k,
 		d:        dimensions,
 		s:        segment,
 		distance: distancer.NewL2SquaredProvider(),
+		km:       km,
 	}
 	return encoder
 }
@@ -46,21 +49,20 @@ func NewKMeansEncoderWithCenters(k int, dimensions int, segment int, centers [][
 
 // Assumes that data contains only non-nil vectors.
 func (m *KMeansEncoder) Fit(data [][]float32) error {
-	km := kmeans.New(m.k, m.d, m.s)
-	km.DeltaThreshold = 0.01
-	km.IterationThreshold = 10
+	m.km.DeltaThreshold = 0.01
+	m.km.IterationThreshold = 10
 	// Experiments on ANN datasets reveal that random initialization is ~20%
 	// faster than k-means++ initialization when used for PQ and gives the same
 	// or slightly better recall.
-	km.Initialization = kmeans.RandomInitialization
+	m.km.Initialization = kmeans.RandomInitialization
 	// Experiments show that GraphPruning is always faster for short segments,
 	// typically giving a 2x speedup for d = 8. On some datasets such as SIFT
 	// and GIST it is faster also up to 32 dimensions, and it will never be much
 	// slower than brute force assignment since the additional overhead is
 	// ~k^2 distance computations and k << n. We therefore always enable it.
-	km.Assignment = kmeans.GraphPruning
-	err := km.Fit(data)
-	m.centers = km.Centers
+	m.km.Assignment = kmeans.GraphPruning
+	err := m.km.Fit(data)
+	m.centers = m.km.Centers
 	return err
 }
 
