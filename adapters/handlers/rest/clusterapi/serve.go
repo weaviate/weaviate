@@ -29,6 +29,11 @@ import (
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
+const (
+	MAX_CONCURRENT_STREAMS = 250
+	MAX_READ_FRAME_SIZE    = (16 * 1024 * 1024) // 16 MB
+)
+
 // Server represents the cluster API server
 type Server struct {
 	server            *http.Server
@@ -111,8 +116,8 @@ func NewServer(appState *state.State) *Server {
 
 	// Configure HTTP/2 server
 	h2s := &http2.Server{
-		MaxConcurrentStreams: 250,
-		MaxReadFrameSize:     1048576,
+		MaxConcurrentStreams: MAX_CONCURRENT_STREAMS,
+		MaxReadFrameSize:     MAX_READ_FRAME_SIZE,
 	}
 
 	return &Server{
