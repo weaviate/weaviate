@@ -154,7 +154,7 @@ func TestGraphPruningAssignment(t *testing.T) {
 		prune.Fit(data)
 
 		for i := range k {
-			assert.True(t, slices.Equal(bf.Centers[i], prune.Centers[i]))
+			assert.Equal(t, bf.Centers[i], prune.Centers[i])
 		}
 	}
 }

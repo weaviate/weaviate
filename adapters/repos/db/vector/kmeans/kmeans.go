@@ -35,27 +35,33 @@ type temporaryData struct {
 }
 
 func (tmp *temporaryData) init(n int, d int, k int, seed uint64, strategy AssignmentStrategy) {
-	tmp.centroids = make([][]float64, 0, k)
-	for range k {
-		tmp.centroids = append(tmp.centroids, make([]float64, d))
+	tmp.centroids = makeOrReset(tmp.centroids, k)
+	for i := range k {
+		tmp.centroids[i] = makeOrReset(tmp.centroids[i], d)
 	}
-	tmp.sizes = make([]uint32, k)
-	tmp.assignment = make([]uint32, n)
+	tmp.sizes = makeOrReset(tmp.sizes, k)
+	tmp.assignment = makeOrReset(tmp.assignment, n)
 	if strategy == GraphPruning {
-		tmp.centerNeighbors = make([][]IndexAndDistance, k)
+		tmp.centerNeighbors = makeOrReset(tmp.centerNeighbors, k)
 		for c := range k {
-			tmp.centerNeighbors[c] = make([]IndexAndDistance, 0, k-1)
+			tmp.centerNeighbors[c] = makeOrReset(tmp.centerNeighbors[c], 0, k-1)
 		}
 	}
 	tmp.rng = rand.New(rand.NewPCG(seed, 0x385ab5285169b1ac))
 }
 
-func (tmp *temporaryData) free() {
-	tmp.centroids = nil
-	tmp.sizes = nil
-	tmp.assignment = nil
-	tmp.centerNeighbors = nil
-	tmp.rng = nil
+func makeOrReset[T any](s []T, length int, capacity ...int) []T {
+	c := length
+	if len(capacity) > 0 {
+		c = capacity[0]
+	}
+	if cap(s) >= c {
+		ss := s[:length]
+		clear(ss)
+		return ss
+	}
+
+	return make([]T, length, c)
 }
 
 type TerminationCondition string
@@ -424,9 +430,9 @@ type IterationMetrics struct {
 
 func (m *KMeans) initMemory(n int) {
 	m.tmp.init(n, m.dimensions, m.K, m.Seed, m.Assignment)
-	m.Centers = make([][]float32, m.K)
+	m.Centers = makeOrReset(m.Centers, m.K)
 	for c := range m.K {
-		m.Centers[c] = make([]float32, m.dimensions)
+		m.Centers[c] = makeOrReset(m.Centers[c], m.dimensions)
 	}
 	m.Metrics = Metrics{}
 }
@@ -440,17 +446,6 @@ func (m *KMeans) initializeCenters(data [][]float32) {
 	}
 }
 
-func (m *KMeans) cleanupMemory() {
-	m.tmp.free()
-}
-
-func (m *KMeans) computeCentroid(data [][]float32) {
-	// We can skip Lloyd's algorithm and return the centroid directly.
-	// We leverage existing methods to compute it.
-	m.initMemory(len(data)) // Every data point is assigned to the first center.
-	m.updateCenters(data)   // Compute the centroid according to the zero-assignment.
-}
-
 // Fit runs k-means clustering on the data according to the settings on the
 // KMeans struct. After running Fit() the resulting cluster centers can be
 // accessed through Centers().
@@ -460,13 +455,16 @@ func (m *KMeans) Fit(data [][]float32) error {
 		return errors.New("not enough data to fit k-means")
 	}
 
+	n := len(data)
+	m.initMemory(n)
+
 	if m.K == 1 {
-		m.computeCentroid(data)
+		// We can skip Lloyd's algorithm and return the centroid directly.
+		// We leverage existing methods to compute it.
+		m.updateCenters(data) // Compute the centroid according to the zero-assignment.
 		return nil
 	}
 
-	n := len(data)
-	m.initMemory(n)
 	m.initializeCenters(data)
 	m.Metrics.Termination = MaxIterations
 	for m.Metrics.Iterations < m.IterationThreshold {
@@ -492,7 +490,6 @@ func (m *KMeans) Fit(data [][]float32) error {
 			break
 		}
 	}
-	m.cleanupMemory()
 	return nil
 }
 
