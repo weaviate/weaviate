@@ -132,7 +132,7 @@ func (db *DB) ObjectsByID(ctx context.Context, id strfmt.UUID,
 	props search.SelectProperties, additional additional.Properties,
 	tenant string,
 ) (search.Results, error) {
-	var result []*storobj.Object
+	var found search.Results
 	// TODO: Search in parallel, rather than sequentially or this will be
 	// painfully slow on large schemas
 	db.indexLock.RLock()
@@ -150,18 +150,16 @@ func (db *DB) ObjectsByID(ctx context.Context, id strfmt.UUID,
 		}
 
 		if res != nil {
-			res.Object.Class = string(index.Config.ClassName)
-			result = append(result, res)
+			found = append(found, storobj.SearchResults([]*storobj.Object{res}, additional, string(index.Config.ClassName), tenant)...)
 		}
 	}
 	db.indexLock.RUnlock()
 
-	if result == nil {
+	if len(found) == 0 {
 		return nil, nil
 	}
 
-	return db.ResolveReferences(ctx,
-		storobj.SearchResults(result, additional, "", tenant), props, nil, additional, tenant)
+	return db.ResolveReferences(ctx, found, props, nil, additional, tenant)
 }
 
 // Object gets object with id from index of specified class.

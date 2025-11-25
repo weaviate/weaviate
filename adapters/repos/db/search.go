@@ -334,7 +334,7 @@ func (db *DB) objectSearch(ctx context.Context, offset, limit int,
 	filters *filters.LocalFilter, sort []filters.Sort,
 	additional additional.Properties, tenant string,
 ) (search.Results, error) {
-	var found []*storobj.Object
+	var found search.Results
 
 	if err := db.validateSort(sort); err != nil {
 		return nil, errors.Wrap(err, "search")
@@ -382,10 +382,9 @@ func (db *DB) objectSearch(ctx context.Context, offset, limit int,
 				if obj == nil {
 					continue
 				}
-				obj.Object.Class = string(index.Config.ClassName)
 			}
 
-			found = append(found, res...)
+			found = append(found, storobj.SearchResults(res, additional, string(index.Config.ClassName), tenant)...)
 			if len(found) >= totalLimit {
 				// we are done
 				break
@@ -396,7 +395,7 @@ func (db *DB) objectSearch(ctx context.Context, offset, limit int,
 		return nil, err
 	}
 
-	return db.getSearchResults(storobj.SearchResults(found, additional, "", tenant), offset, limit), nil
+	return db.getSearchResults(found, offset, limit), nil
 }
 
 // ResolveReferences takes a list of search results and enriches them

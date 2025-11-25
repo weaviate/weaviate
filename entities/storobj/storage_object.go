@@ -549,10 +549,6 @@ func (ko *Object) SearchResult(additional additional.Properties, className, tena
 		additionalProperties["explainScore"] = ko.ExplainScore()
 	}
 
-	if className == "" {
-		className = ko.Class().String()
-	}
-
 	return &search.Result{
 		ID:        ko.ID(),
 		DocID:     &ko.DocID,
