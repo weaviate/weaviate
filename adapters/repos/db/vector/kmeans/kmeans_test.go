@@ -99,6 +99,29 @@ func TestIterationThreshold(t *testing.T) {
 	}
 }
 
+func TestMemoryReuse(t *testing.T) {
+	n := 100
+	d := 4
+	k := 8
+	data := generateData(n, d, normal, seed)
+
+	km := New(k, d, 0)
+	bf := New(k, d, 0)
+	for _, variant := range kMeansVariants {
+		bf.Initialization = variant.Initialization
+		bf.Assignment = BruteForce
+		bf.Fit(data)
+
+		km.Initialization = variant.Initialization
+		km.Assignment = variant.Assignment
+		km.Fit(data)
+
+		for i := range k {
+			assert.Equal(t, bf.Centers[i], bf.Centers[i])
+		}
+	}
+}
+
 func TestDeltaThreshold(t *testing.T) {
 	n := 100
 	d := 4
