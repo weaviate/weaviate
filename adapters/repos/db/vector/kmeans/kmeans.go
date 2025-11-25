@@ -55,7 +55,7 @@ func makeOrReset[T any](s []T, length int, capacity ...int) []T {
 	if len(capacity) > 0 {
 		c = capacity[0]
 	}
-	if cap(s) >= c {
+	if cap(s) >= length {
 		ss := s[:length]
 		clear(ss)
 		return ss
