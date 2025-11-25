@@ -66,33 +66,36 @@ func CreateGRPCServer(state *state.State, options ...grpc.ServerOption) (*grpc.S
 		o = append(o, grpc.Creds(c))
 	}
 
-	var unaryInterceptors []grpc.UnaryServerInterceptor
-	var streamInterceptors []grpc.StreamServerInterceptor
+	var interceptors []grpc.UnaryServerInterceptor
 
-	unaryInterceptors = append(unaryInterceptors, makeAuthInterceptor())
+	interceptors = append(interceptors, makeAuthInterceptor())
 
 	basicAuth := state.ServerConfig.Config.Cluster.AuthConfig.BasicAuth
 	if basicAuth.Enabled() {
-		unaryInterceptors = append(unaryInterceptors,
+		interceptors = append(interceptors,
 			basicAuthUnaryInterceptor("/weaviate.v1.FileReplicationService", basicAuth.Username, basicAuth.Password))
 
-		streamInterceptors = append(streamInterceptors,
+		o = append(o, grpc.StreamInterceptor(
 			basicAuthStreamInterceptor("/weaviate.v1.FileReplicationService", basicAuth.Username, basicAuth.Password),
-		)
+		))
 	}
 
 	// If sentry is enabled add automatic spans on gRPC requests
 	if state.ServerConfig.Config.Sentry.Enabled {
-		unaryInterceptors = append(unaryInterceptors, grpc_middleware.ChainUnaryServer(
+		interceptors = append(interceptors, grpc_middleware.ChainUnaryServer(
 			grpc_sentry.UnaryServerInterceptor(),
 		))
 	}
 
 	if state.Metrics != nil {
-		unaryInterceptors = append(unaryInterceptors, makeMetricsInterceptor(state.Logger, state.Metrics))
+		interceptors = append(interceptors, makeMetricsInterceptor(state.Logger, state.Metrics))
 	}
 
-	unaryInterceptors = append(unaryInterceptors, makeIPInterceptor())
+	interceptors = append(interceptors, makeIPInterceptor())
+
+	if len(interceptors) > 0 {
+		o = append(o, grpc.ChainUnaryInterceptor(interceptors...))
+	}
 
 	allowAnonymous := state.ServerConfig.Config.Authentication.AnonymousAccess.Enabled
 	authComposer := composer.New(
@@ -101,12 +104,7 @@ func CreateGRPCServer(state *state.State, options ...grpc.ServerOption) (*grpc.S
 		state.OIDC,
 	)
 
-	streamInterceptors = append(streamInterceptors, makeAuthStreamInterceptor(auth.NewHandler(allowAnonymous, authComposer)))
-
-	o = append(o,
-		grpc.ChainUnaryInterceptor(unaryInterceptors...),
-		grpc.ChainStreamInterceptor(streamInterceptors...),
-	)
+	o = append(o, grpc.ChainStreamInterceptor(makeAuthStreamInterceptor(auth.NewHandler(allowAnonymous, authComposer))))
 
 	s := grpc.NewServer(o...)
 	weaviateV0 := v0.NewService()
@@ -124,11 +122,6 @@ func CreateGRPCServer(state *state.State, options ...grpc.ServerOption) (*grpc.S
 	)
 	pbv0.RegisterWeaviateServer(s, weaviateV0)
 	pbv1.RegisterWeaviateServer(s, weaviateV1)
-
-	if state.ServerConfig.Config.ReplicaMovementEnabled {
-		weaviateV1FileReplicationService := v1.NewFileReplicationService(state.DB, state.ClusterService.SchemaReader())
-		pbv1.RegisterFileReplicationServiceServer(s, weaviateV1FileReplicationService)
-	}
 
 	grpc_health_v1.RegisterHealthServer(s, weaviateV1)
 
@@ -187,13 +180,6 @@ func makeAuthInterceptor() grpc.UnaryServerInterceptor {
 
 func makeAuthStreamInterceptor(auth *auth.Handler) grpc.StreamServerInterceptor {
 	return func(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
-		// FileReplicationService uses *inter-cluster* communication and authenticates
-		// via the cluster's internal mechanism (Basic Auth), not standard user auth.
-		// Therefore, skip the global auth handler for these methods.
-		if strings.HasPrefix(info.FullMethod, "/weaviate.v1.FileReplicationService") {
-			return handler(srv, ss)
-		}
-
 		_, err := auth.PrincipalFromContext(ss.Context())
 		if err != nil {
 			return status.Error(codes.Unauthenticated, err.Error())
