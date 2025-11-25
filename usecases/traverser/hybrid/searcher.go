@@ -83,7 +83,8 @@ func Search(ctx context.Context, params *Params, logger logrus.FieldLogger, spar
 	var belowCutoffSet map[strfmt.UUID]struct{}
 	if alpha < 1 {
 		if params.Query != "" {
-			res, err := processSparseSearch(sparseSearch())
+			ress, w, err := sparseSearch()
+			res, err := processSparseSearch(ress, w, err, params.Class)
 			if err != nil {
 				return nil, err
 			}
@@ -193,14 +194,14 @@ func HybridCombiner(ctx context.Context,
 	return extendHybridResults(ctx, fused, params.ModuleParams, params.AdditionalProperties, modulesProvider)
 }
 
-func processSparseSearch(results []*storobj.Object, scores []float32, err error) ([]*search.Result, error) {
+func processSparseSearch(results []*storobj.Object, scores []float32, err error, className string) ([]*search.Result, error) {
 	if err != nil {
 		return nil, fmt.Errorf("sparse search: %w", err)
 	}
 
 	out := make([]*search.Result, len(results))
 	for i, obj := range results {
-		sr := obj.SearchResultWithScore(additional.Properties{}, scores[i])
+		sr := obj.SearchResultWithScore(additional.Properties{}, scores[i], className)
 		sr.SecondarySortValue = sr.Score
 		out[i] = &sr
 	}
@@ -235,7 +236,7 @@ func processDenseSearch(ctx context.Context,
 
 	out := make([]*search.Result, len(res))
 	for i, obj := range res {
-		sr := obj.SearchResultWithDist(additional.Properties{}, dists[i])
+		sr := obj.SearchResultWithDist(additional.Properties{}, dists[i], params.Class)
 		sr.SecondarySortValue = 1 - sr.Dist
 		out[i] = &sr
 	}

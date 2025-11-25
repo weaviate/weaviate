@@ -134,7 +134,7 @@ func (db *DB) Search(ctx context.Context, params dto.GetParams) ([]search.Result
 
 	res, scores = db.getStoreObjectsWithScores(res, scores, params.Pagination)
 	return db.ResolveReferences(ctx,
-		storobj.SearchResultsWithScore(res, scores, params.AdditionalProperties, params.Tenant),
+		storobj.SearchResultsWithScore(res, scores, params.AdditionalProperties, params.ClassName, params.Tenant),
 		params.Properties, params.GroupBy, params.AdditionalProperties, params.Tenant)
 }
 
@@ -180,7 +180,7 @@ func (db *DB) VectorSearch(ctx context.Context,
 
 	return db.ResolveReferences(ctx,
 		storobj.SearchResultsWithDists(db.getStoreObjects(res, params.Pagination),
-			params.AdditionalProperties, db.getDists(dists, params.Pagination)),
+			params.AdditionalProperties, db.getDists(dists, params.Pagination), params.ClassName),
 		params.Properties, params.GroupBy, params.AdditionalProperties, params.Tenant)
 }
 
@@ -237,7 +237,7 @@ func (db *DB) CrossClassVectorSearch(ctx context.Context, vector models.Vector, 
 			}
 
 			mutex.Lock()
-			found = append(found, storobj.SearchResultsWithDists(objs, additional.Properties{}, dist)...)
+			found = append(found, storobj.SearchResultsWithDists(objs, additional.Properties{}, dist, string(index.Config.ClassName))...)
 			mutex.Unlock()
 		}
 		enterrors.GoWrapper(f, index.logger)
@@ -306,7 +306,7 @@ func (db *DB) Query(ctx context.Context, q *objects.QueryInput) (search.Results,
 			return nil, &objects.Error{Msg: "search index " + idx.ID(), Code: objects.StatusInternalServerError, Err: err}
 		}
 	}
-	return db.getSearchResults(storobj.SearchResults(res, q.Additional, ""), q.Offset, q.Limit), nil
+	return db.getSearchResults(storobj.SearchResults(res, q.Additional, string(idx.Config.ClassName), ""), q.Offset, q.Limit), nil
 }
 
 // ObjectSearch search each index.
@@ -378,6 +378,12 @@ func (db *DB) objectSearch(ctx context.Context, offset, limit int,
 				}
 				return errors.Wrapf(err, "search index %s", index.ID())
 			}
+			for _, obj := range res {
+				if obj == nil {
+					continue
+				}
+				obj.Object.Class = string(index.Config.ClassName)
+			}
 
 			found = append(found, res...)
 			if len(found) >= totalLimit {
@@ -390,7 +396,7 @@ func (db *DB) objectSearch(ctx context.Context, offset, limit int,
 		return nil, err
 	}
 
-	return db.getSearchResults(storobj.SearchResults(found, additional, tenant), offset, limit), nil
+	return db.getSearchResults(storobj.SearchResults(found, additional, "", tenant), offset, limit), nil
 }
 
 // ResolveReferences takes a list of search results and enriches them

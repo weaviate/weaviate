@@ -141,8 +141,7 @@ func FromBinaryUUIDOnly(data []byte) (*Object, error) {
 	vecLen := rw.ReadUint16()
 	rw.MoveBufferPositionForward(uint64(vecLen * 4))
 	classNameLen := rw.ReadUint16()
-
-	ko.Object.Class = string(rw.ReadBytesFromBuffer(uint64(classNameLen)))
+	rw.MoveBufferPositionForward(uint64(classNameLen))
 
 	return ko, nil
 }
@@ -184,7 +183,7 @@ func FromBinaryOptional(data []byte,
 	ko.Vector = ko.Object.Vector
 
 	classNameLen := rw.ReadUint16()
-	className := string(rw.ReadBytesFromBuffer(uint64(classNameLen)))
+	rw.MoveBufferPositionForward(uint64(classNameLen))
 
 	propLength := rw.ReadUint32()
 	var props []byte
@@ -268,7 +267,6 @@ func FromBinaryOptional(data []byte,
 			uuidParsed,
 			createTime,
 			updateTime,
-			className,
 			props,
 			meta,
 			vectorWeights,
@@ -281,7 +279,6 @@ func FromBinaryOptional(data []byte,
 		ko.Object.ID = uuidParsed
 		ko.Object.CreationTimeUnix = createTime
 		ko.Object.LastUpdateTimeUnix = updateTime
-		ko.Object.Class = className
 	}
 
 	return ko, nil
@@ -526,7 +523,7 @@ func (ko *Object) VectorWeights() models.VectorWeights {
 	return ko.Object.VectorWeights
 }
 
-func (ko *Object) SearchResult(additional additional.Properties, tenant string) *search.Result {
+func (ko *Object) SearchResult(additional additional.Properties, className, tenant string) *search.Result {
 	propertiesMap, ok := ko.PropertiesWithAdditional(additional).(map[string]interface{})
 	if !ok || propertiesMap == nil {
 		propertiesMap = map[string]interface{}{}
@@ -552,10 +549,14 @@ func (ko *Object) SearchResult(additional additional.Properties, tenant string) 
 		additionalProperties["explainScore"] = ko.ExplainScore()
 	}
 
+	if className == "" {
+		className = ko.Class().String()
+	}
+
 	return &search.Result{
 		ID:        ko.ID(),
 		DocID:     &ko.DocID,
-		ClassName: ko.Class().String(),
+		ClassName: className,
 		Schema:    ko.Properties(),
 		Vector:    ko.Vector,
 		Vectors:   ko.asVectors(ko.Vectors, ko.MultiVectors),
@@ -590,21 +591,21 @@ func (ko *Object) GetVectors() models.Vectors {
 	return ko.asVectors(ko.Vectors, ko.MultiVectors)
 }
 
-func (ko *Object) SearchResultWithDist(addl additional.Properties, dist float32) search.Result {
-	res := ko.SearchResult(addl, "")
+func (ko *Object) SearchResultWithDist(addl additional.Properties, dist float32, className string) search.Result {
+	res := ko.SearchResult(addl, className, "")
 	res.Dist = dist
 	res.Certainty = float32(additional.DistToCertainty(float64(dist)))
 	return *res
 }
 
-func (ko *Object) SearchResultWithScore(addl additional.Properties, score float32) search.Result {
-	res := ko.SearchResult(addl, "")
+func (ko *Object) SearchResultWithScore(addl additional.Properties, score float32, className string) search.Result {
+	res := ko.SearchResult(addl, className, "")
 	res.Score = score
 	return *res
 }
 
-func (ko *Object) SearchResultWithScoreAndTenant(addl additional.Properties, score float32, tenant string) search.Result {
-	res := ko.SearchResult(addl, tenant)
+func (ko *Object) SearchResultWithScoreAndTenant(addl additional.Properties, score float32, className, tenant string) search.Result {
+	res := ko.SearchResult(addl, className, tenant)
 	res.Score = score
 	return *res
 }
@@ -641,17 +642,17 @@ func (ko *Object) IterateThroughVectorDimensions(f func(targetVector string, dim
 	return nil
 }
 
-func SearchResults(in []*Object, additional additional.Properties, tenant string) search.Results {
+func SearchResults(in []*Object, additional additional.Properties, className, tenant string) search.Results {
 	out := make(search.Results, len(in))
 
 	for i, elem := range in {
-		out[i] = *(elem.SearchResult(additional, tenant))
+		out[i] = *(elem.SearchResult(additional, className, tenant))
 	}
 
 	return out
 }
 
-func SearchResultsWithScore(in []*Object, scores []float32, additional additional.Properties, tenant string) search.Results {
+func SearchResultsWithScore(in []*Object, scores []float32, additional additional.Properties, className, tenant string) search.Results {
 	out := make(search.Results, len(in))
 
 	for i, elem := range in {
@@ -659,19 +660,19 @@ func SearchResultsWithScore(in []*Object, scores []float32, additional additiona
 		if len(scores) > i {
 			score = scores[i]
 		}
-		out[i] = elem.SearchResultWithScoreAndTenant(additional, score, tenant)
+		out[i] = elem.SearchResultWithScoreAndTenant(additional, score, className, tenant)
 	}
 
 	return out
 }
 
 func SearchResultsWithDists(in []*Object, addl additional.Properties,
-	dists []float32,
+	dists []float32, className string,
 ) search.Results {
 	out := make(search.Results, len(in))
 
 	for i, elem := range in {
-		out[i] = elem.SearchResultWithDist(addl, dists[i])
+		out[i] = elem.SearchResultWithDist(addl, dists[i], className)
 	}
 
 	return out
@@ -1142,10 +1143,7 @@ func (ko *Object) UnmarshalBinary(data []byte) error {
 	}
 
 	classNameLength := uint64(rw.ReadUint16())
-	className, err := rw.CopyBytesFromBuffer(classNameLength, nil)
-	if err != nil {
-		return errors.Wrap(err, "Could not copy class name")
-	}
+	rw.MoveBufferPositionForward(classNameLength)
 
 	schemaLength := uint64(rw.ReadUint32())
 	schema, err := rw.CopyBytesFromBuffer(schemaLength, nil)
@@ -1181,7 +1179,6 @@ func (ko *Object) UnmarshalBinary(data []byte) error {
 		strfmt.UUID(uuidParsed.String()),
 		createTime,
 		updateTime,
-		string(className),
 		schema,
 		meta,
 		vectorWeights, nil, 0,
@@ -1414,7 +1411,7 @@ func MultiVectorFromBinary(in []byte, buffer []float32, targetVector string) ([]
 	return mvout, nil
 }
 
-func (ko *Object) parseObject(uuid strfmt.UUID, create, update int64, className string,
+func (ko *Object) parseObject(uuid strfmt.UUID, create, update int64,
 	propsB []byte, additionalB []byte, vectorWeightsB []byte, properties *PropertyExtraction, propLength uint32,
 ) error {
 	var returnProps map[string]interface{}
@@ -1493,7 +1490,6 @@ func (ko *Object) parseObject(uuid strfmt.UUID, create, update int64, className 
 	}
 
 	ko.Object = models.Object{
-		Class:              className,
 		CreationTimeUnix:   create,
 		LastUpdateTimeUnix: update,
 		ID:                 uuid,

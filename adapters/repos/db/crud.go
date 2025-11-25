@@ -89,16 +89,18 @@ func (db *DB) MultiGet(ctx context.Context, query []multi.Identifier,
 
 	out := make(search.Results, len(query))
 	for indexID, queries := range byIndex {
-		indexRes, err := db.indices[indexID].multiObjectByID(ctx, queries, tenant)
+		idx := db.indices[indexID]
+		indexRes, err := idx.multiObjectByID(ctx, queries, tenant)
 		if err != nil {
 			return nil, fmt.Errorf("index %q: %w", indexID, err)
 		}
+		className := string(idx.Config.ClassName)
 
 		for i, obj := range indexRes {
 			if obj == nil {
 				continue
 			}
-			res := obj.SearchResult(additional, tenant)
+			res := obj.SearchResult(additional, className, tenant)
 			out[queries[i].OriginalPosition] = *res
 		}
 	}
@@ -148,6 +150,7 @@ func (db *DB) ObjectsByID(ctx context.Context, id strfmt.UUID,
 		}
 
 		if res != nil {
+			res.Object.Class = string(index.Config.ClassName)
 			result = append(result, res)
 		}
 	}
@@ -158,7 +161,7 @@ func (db *DB) ObjectsByID(ctx context.Context, id strfmt.UUID,
 	}
 
 	return db.ResolveReferences(ctx,
-		storobj.SearchResults(result, additional, tenant), props, nil, additional, tenant)
+		storobj.SearchResults(result, additional, "", tenant), props, nil, additional, tenant)
 }
 
 // Object gets object with id from index of specified class.
@@ -183,7 +186,7 @@ func (db *DB) Object(ctx context.Context, class string, id strfmt.UUID,
 	}
 	var r *search.Result
 	if obj != nil {
-		r = obj.SearchResult(addl, tenant)
+		r = obj.SearchResult(addl, class, tenant)
 	}
 	if r == nil {
 		return nil, nil
