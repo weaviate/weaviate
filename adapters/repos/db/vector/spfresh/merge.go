@@ -19,7 +19,6 @@ import (
 )
 
 func (s *SPFresh) doMerge(postingID uint64) error {
-	s.metrics.DequeueMergeTask()
 	start := time.Now()
 	defer s.metrics.MergeDuration(start)
 
