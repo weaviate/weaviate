@@ -30,13 +30,11 @@ type KMeansEncoder struct {
 }
 
 func NewKMeansEncoder(k int, dimensions int, segment int) *KMeansEncoder {
-	km := kmeans.New(k, dimensions, segment)
 	encoder := &KMeansEncoder{
 		k:        k,
 		d:        dimensions,
 		s:        segment,
 		distance: distancer.NewL2SquaredProvider(),
-		km:       km,
 	}
 	return encoder
 }
@@ -49,6 +47,10 @@ func NewKMeansEncoderWithCenters(k int, dimensions int, segment int, centers [][
 
 // Assumes that data contains only non-nil vectors.
 func (m *KMeansEncoder) Fit(data [][]float32) error {
+	if m.km == nil {
+		m.km = kmeans.New(m.k, m.d, m.s)
+	}
+
 	m.km.DeltaThreshold = 0.01
 	m.km.IterationThreshold = 10
 	// Experiments on ANN datasets reveal that random initialization is ~20%
