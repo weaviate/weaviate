@@ -153,17 +153,17 @@ func (ic *classSettings) Validate(class *models.Class) error {
 		return errors.Errorf("Wrong maxTokens configuration, values are should have a minimal value of 1 and max is dependant on the model used")
 	}
 
-	frequencyPenalty := ic.getFloatProperty(frequencyPenaltyProperty, &DefaultOpenAIFrequencyPenalty)
+	frequencyPenalty := ic.getFloatPropertyWithLegacy(frequencyPenaltyProperty, &DefaultOpenAIFrequencyPenalty)
 	if frequencyPenalty == nil || (*frequencyPenalty < 0 || *frequencyPenalty > 1) {
 		return errors.Errorf("Wrong frequencyPenalty configuration, values are between 0.0 and 1.0")
 	}
 
-	presencePenalty := ic.getFloatProperty(presencePenaltyProperty, &DefaultOpenAIPresencePenalty)
+	presencePenalty := ic.getFloatPropertyWithLegacy(presencePenaltyProperty, &DefaultOpenAIPresencePenalty)
 	if presencePenalty == nil || (*presencePenalty < 0 || *presencePenalty > 1) {
 		return errors.Errorf("Wrong presencePenalty configuration, values are between 0.0 and 1.0")
 	}
 
-	topP := ic.getFloatProperty(topPProperty, &DefaultOpenAITopP)
+	topP := ic.getFloatPropertyWithLegacy(topPProperty, &DefaultOpenAITopP)
 	if topP == nil || (*topP < 0 || *topP > 5) {
 		return errors.Errorf("Wrong topP configuration, values are should have a minimal value of 1 and max of 5")
 	}
@@ -210,6 +210,22 @@ func (ic *classSettings) getBoolProperty(name string, defaultValue bool) *bool {
 	return &asBool
 }
 
+func (ic *classSettings) getFloatPropertyWithLegacy(name string, defaultValue *float64) *float64 {
+	if ic.cfg == nil {
+		return defaultValue
+	}
+
+	// Check for correct property name
+	config := ic.cfg.ClassByModuleName("generative-openai")
+	if _, ok := config[name]; ok {
+		return ic.getFloatProperty(name, defaultValue)
+	}
+
+	// Fallback for legacy property names
+	legacyName := name + "Property"
+	return ic.getFloatProperty(legacyName, defaultValue)
+}
+
 func (ic *classSettings) getFloatProperty(name string, defaultValue *float64) *float64 {
 	wrongVal := float64(-1.0)
 	return ic.propertyValuesHelper.GetPropertyAsFloat64WithNotExists(ic.cfg, name, &wrongVal, defaultValue)
@@ -224,7 +240,7 @@ func (ic *classSettings) Model() string {
 }
 
 func (ic *classSettings) MaxTokens() *float64 {
-	return ic.getFloatProperty(maxTokensProperty, nil)
+	return ic.getFloatPropertyWithLegacy(maxTokensProperty, nil)
 }
 
 func (ic *classSettings) BaseURL() string {
@@ -236,19 +252,19 @@ func (ic *classSettings) ApiVersion() string {
 }
 
 func (ic *classSettings) Temperature() *float64 {
-	return ic.getFloatProperty(temperatureProperty, nil)
+	return ic.getFloatPropertyWithLegacy(temperatureProperty, nil)
 }
 
 func (ic *classSettings) FrequencyPenalty() float64 {
-	return *ic.getFloatProperty(frequencyPenaltyProperty, &DefaultOpenAIFrequencyPenalty)
+	return *ic.getFloatPropertyWithLegacy(frequencyPenaltyProperty, &DefaultOpenAIFrequencyPenalty)
 }
 
 func (ic *classSettings) PresencePenalty() float64 {
-	return *ic.getFloatProperty(presencePenaltyProperty, &DefaultOpenAIPresencePenalty)
+	return *ic.getFloatPropertyWithLegacy(presencePenaltyProperty, &DefaultOpenAIPresencePenalty)
 }
 
 func (ic *classSettings) TopP() float64 {
-	return *ic.getFloatProperty(topPProperty, &DefaultOpenAITopP)
+	return *ic.getFloatPropertyWithLegacy(topPProperty, &DefaultOpenAITopP)
 }
 
 func (ic *classSettings) ResourceName() string {
