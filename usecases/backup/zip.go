@@ -43,7 +43,6 @@ type zip struct {
 	w          *tar.Writer
 	gzw        *gzip.Writer
 	pipeWriter *io.PipeWriter
-	counter    func() int64
 }
 
 func NewZip(sourcePath string, level int) (zip, io.ReadCloser) {
@@ -56,7 +55,6 @@ func NewZip(sourcePath string, level int) (zip, io.ReadCloser) {
 		gzw:        gzw,
 		w:          tar.NewWriter(gzw),
 		pipeWriter: pw,
-		counter:    reader.counter(),
 	}, reader
 }
 
@@ -181,11 +179,6 @@ func (z *zip) writeOne(ctx context.Context, info fs.FileInfo, relPath string, r 
 		return written, fmt.Errorf("copy: %s %w", relPath, err)
 	}
 	return written, err
-}
-
-// lastWritten number of bytes
-func (z *zip) lastWritten() int64 {
-	return z.counter()
 }
 
 type unzip struct {
