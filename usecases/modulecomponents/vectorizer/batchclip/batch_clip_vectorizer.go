@@ -107,7 +107,7 @@ func (v *BatchCLIPVectorizer[T]) Object(ctx context.Context,
 func (v *BatchCLIPVectorizer[T]) Texts(ctx context.Context,
 	inputs []string, cfg moduletools.ClassConfig,
 ) (T, error) {
-	res, err := v.client.Vectorize(ctx, inputs, nil, cfg)
+	res, err := v.client.VectorizeQuery(ctx, inputs, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("remote client vectorize: %w", err)
 	}
