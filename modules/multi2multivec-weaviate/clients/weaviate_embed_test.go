@@ -40,7 +40,6 @@ func TestClient(t *testing.T) {
 		ctx = context.WithValue(ctx, "X-Weaviate-Cluster-Url", []string{"cluster-url"})
 
 		expected := &modulecomponents.VectorizationCLIPResult[[][]float32]{
-			TextVectors:  [][][]float32{},
 			ImageVectors: [][][]float32{{{0.1, 0.2, 0.3}, {0.11, 0.22, 0.33}}},
 		}
 		res, err := c.Vectorize(ctx, []string{}, []string{"base64"}, defaultSettings(server.URL))
@@ -58,8 +57,7 @@ func TestClient(t *testing.T) {
 		ctx = context.WithValue(ctx, "X-Weaviate-Cluster-Url", []string{"cluster-url"})
 
 		expected := &modulecomponents.VectorizationCLIPResult[[][]float32]{
-			TextVectors:  [][][]float32{{{0.1, 0.2, 0.3}, {0.11, 0.22, 0.33}}},
-			ImageVectors: [][][]float32{},
+			TextVectors: [][][]float32{{{0.1, 0.2, 0.3}, {0.11, 0.22, 0.33}}},
 		}
 		res, err := c.VectorizeQuery(ctx, []string{"text query"}, defaultSettings(server.URL))
 

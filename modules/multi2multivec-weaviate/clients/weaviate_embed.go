@@ -46,7 +46,6 @@ func (v *vectorizer) Vectorize(ctx context.Context,
 	}
 	vectors, err := v.vectorize(ctx, images, false, cfg)
 	return &modulecomponents.VectorizationCLIPResult[[][]float32]{
-		TextVectors:  [][][]float32{},
 		ImageVectors: vectors,
 	}, err
 }
@@ -56,8 +55,7 @@ func (v *vectorizer) VectorizeQuery(ctx context.Context,
 ) (*modulecomponents.VectorizationCLIPResult[[][]float32], error) {
 	vectors, err := v.vectorize(ctx, input, true, cfg)
 	return &modulecomponents.VectorizationCLIPResult[[][]float32]{
-		TextVectors:  vectors,
-		ImageVectors: [][][]float32{},
+		TextVectors: vectors,
 	}, err
 }
 
