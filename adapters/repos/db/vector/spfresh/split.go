@@ -82,31 +82,13 @@ func (s *SPFresh) doSplit(postingID uint64, reassign bool) error {
 
 	// split the vectors into two clusters
 	result, err := s.splitPosting(filtered)
-	if err != nil || len(result) < 2 {
-		if !errors.Is(err, ErrIdenticalVectors) {
-			return errors.Wrapf(err, "failed to split vectors for posting %d", postingID)
-		}
-
-		// If the split fails because the posting contains identical vectors,
-		// we override the posting with a single vector
+	if err != nil {
+		return errors.Wrapf(err, "failed to split vectors for posting %d", postingID)
+	}
+	// if one of the postings is empty, ignore the split
+	if result[0].Posting.Len() == 0 || result[1].Posting.Len() == 0 {
 		s.logger.WithField("postingID", postingID).
-			WithError(err).
-			Debug("cannot split posting: contains identical vectors, keeping only one vector")
-
-		pp := &Posting{
-			vectorSize: int(s.vectorSize),
-		}
-		pp.AddVector(filtered.GetAt(0))
-		err = s.PostingStore.Put(s.ctx, postingID, pp)
-		if err != nil {
-			return errors.Wrapf(err, "failed to put single vector posting %d after split operation", postingID)
-		}
-		// update posting size after successful persist
-		err = s.PostingSizes.Set(context.TODO(), postingID, 1)
-		if err != nil {
-			return errors.Wrapf(err, "failed to set posting size for posting %d after split operation", postingID)
-		}
-
+			Debug("Split resulted in empty posting, skipping split operation")
 		return nil
 	}
 
@@ -164,8 +146,6 @@ func (s *SPFresh) doSplit(postingID uint64, reassign bool) error {
 }
 
 // splitPosting takes a posting and returns two groups.
-// If the clustering fails because of the content of the posting,
-// it returns ErrIdenticalVectors.
 func (s *SPFresh) splitPosting(posting *Posting) ([]SplitResult, error) {
 	enc := compressionhelpers.NewKMeansEncoder(2, int(s.dims), 0)
 
@@ -203,11 +183,6 @@ func (s *SPFresh) splitPosting(posting *Posting) ([]SplitResult, error) {
 		} else {
 			results[1].Posting.AddVector(posting.GetAt(i))
 		}
-	}
-
-	// check if the clustering failed because the vectors are identical
-	if results[0].Posting.Len() == 0 || results[1].Posting.Len() == 0 {
-		return nil, ErrIdenticalVectors
 	}
 
 	return results, nil
