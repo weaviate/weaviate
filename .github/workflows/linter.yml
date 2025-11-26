@@ -14,20 +14,20 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version: '1.25'
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v8
+        uses: golangci/golangci-lint-action@v9
   protolint:
     name: protolint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - uses: yoheimuta/action-protolint@v1
   python:
     name: python checks
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - uses: psf/black@stable
         with:
           version: "24.2.0"
@@ -35,7 +35,7 @@ jobs:
     name: custom checks
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - name: Error groups checks
         run: ./tools/linter_error_groups.sh
       - name: goroutine checks
