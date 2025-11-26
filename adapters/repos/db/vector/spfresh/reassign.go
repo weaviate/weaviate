@@ -72,12 +72,7 @@ func (s *SPFresh) doReassign(op reassignOperation) error {
 	}
 
 	// create a new vector with the updated version
-	var newVector Vector
-	if s.config.Compressed {
-		newVector = NewCompressedVector(op.VectorID, version, s.quantizer.Encode(q))
-	} else {
-		newVector = NewRawVector(op.VectorID, version, q)
-	}
+	newVector := NewVector(op.VectorID, version, s.quantizer.Encode(q))
 
 	// append the vector to each replica
 	for id := range replicas.Iter() {

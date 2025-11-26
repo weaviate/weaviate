@@ -29,14 +29,7 @@ type Centroid struct {
 }
 
 func (c *Centroid) Distance(distancer *Distancer, v Vector) (float32, error) {
-	switch v := v.(type) {
-	case *RawVector:
-		return distancer.DistanceBetweenVectors(c.Uncompressed, v.Data())
-	case CompressedVector:
-		return v.DistanceWithRaw(distancer, c.Compressed)
-	default:
-		return 0, errors.Errorf("unknown vector type: %T", v)
-	}
+	return v.DistanceWithRaw(distancer, c.Compressed)
 }
 
 type CentroidIndex interface {
