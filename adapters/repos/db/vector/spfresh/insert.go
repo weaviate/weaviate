@@ -77,7 +77,6 @@ func (s *SPFresh) Add(ctx context.Context, id uint64, vector []float32) (err err
 				s.logger.WithError(err).Error("could not persist RQ data")
 				return // Fail the entire initialization
 			}
-			s.rqActive.Store(true)
 		} else {
 			s.vectorSize = s.dims * 4
 		}
