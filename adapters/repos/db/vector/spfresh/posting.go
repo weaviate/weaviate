@@ -61,10 +61,6 @@ func (v Vector) Data() []byte {
 	return v[8+1:]
 }
 
-func (v Vector) Encode() []byte {
-	return v
-}
-
 func (v Vector) Distance(distancer *Distancer, other Vector) (float32, error) {
 	return distancer.DistanceBetweenCompressedVectors(v.Data(), other.Data())
 }

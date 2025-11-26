@@ -126,7 +126,7 @@ func (p *PostingStore) Put(ctx context.Context, postingID uint64, posting *Posti
 
 	set := make([][]byte, posting.Len())
 	for i, v := range posting.Iter() {
-		set[i] = v.Encode()
+		set[i] = v
 	}
 
 	p.locks.Lock(postingID)
@@ -156,7 +156,7 @@ func (p *PostingStore) Append(ctx context.Context, postingID uint64, vector Vect
 	p.locks.Lock(postingID)
 	defer p.locks.Unlock(postingID)
 
-	return p.bucket.SetAdd(buf[:], [][]byte{vector.Encode()})
+	return p.bucket.SetAdd(buf[:], [][]byte{vector})
 }
 
 func postingBucketName(id string) string {
