@@ -83,11 +83,11 @@ func (p *PostingStore) Get(ctx context.Context, postingID uint64) (*Posting, err
 
 	posting := Posting{
 		vectorSize: int(vectorSize),
-		data:       make([]byte, 0, len(list)*(8+1+int(vectorSize))),
+		vectors:    make([]Vector, len(list)),
 	}
 
-	for _, v := range list {
-		posting.data = append(posting.data, v...)
+	for i, v := range list {
+		posting.vectors[i] = Vector(v)
 	}
 
 	return &posting, nil
