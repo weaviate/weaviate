@@ -43,8 +43,9 @@ type SegmentGroup struct {
 	// when they are released and number of refs is 0.
 	// It may contains segments that are no longer present in sg.segments, but still being read from
 	// (segments that were cleaned or compacted and replaced by new ones)
-	segmentsWithRefs      map[string]Segment // segment.path => segment
-	segmentRefCounterLock sync.Mutex
+	segmentsWithRefs         map[string]Segment // segment.path => segment
+	segmentRefCounterLock    sync.Mutex
+	segmentsToDeleteFromDisk []Segment
 
 	// Lock() for changing the currently active segments, RLock() for normal
 	// operation
@@ -759,6 +760,7 @@ func (sg *SegmentGroup) shutdown(ctx context.Context) error {
 	}
 	sg.segmentRefCounterLock.Unlock()
 	sg.waitForReferenceCountToReachZero(segmentsWithRefs...)
+	sg.closeAndDeleteUnusedSegmentsFromDisk()
 
 	// Lock acquirement placed after compaction cycle stop request, due to occasional deadlock,
 	// because compaction logic used in cycle also requires maintenance lock.
@@ -853,6 +855,15 @@ func (sg *SegmentGroup) compactOrCleanup(shouldAbort cyclemanager.ShouldAbortCal
 		}
 		return cleaned
 	}
+
+	defer func() {
+		if err := sg.closeAndDeleteUnusedSegmentsFromDisk(); err != nil {
+			sg.logger.WithField("action", "lsm_delete_segments_from_disk").
+				WithField("path", sg.dir).
+				WithError(err).
+				Errorf("deletion of segments failed")
+		}
+	}()
 
 	// alternatively run compaction or cleanup first
 	// if 1st one called succeeds, 2nd one is skipped, otherwise 2nd one is called as well
