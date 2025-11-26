@@ -18,13 +18,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"math/rand"
 	"net/http"
 	"net/url"
 	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
+
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -323,7 +323,7 @@ func (c *replicationClient) Commit(ctx context.Context, host, index, shard strin
 	if err != nil {
 		return fmt.Errorf("create http request: %w", err)
 	}
-
+	// attach the provided context so upstream cancellations/timeouts are honored
 	return c.do(c.timeoutUnit*90, req, nil, resp, 9)
 }
 
@@ -334,7 +334,7 @@ func (c *replicationClient) Abort(ctx context.Context, host, index, shard, reque
 	if err != nil {
 		return resp, fmt.Errorf("create http request: %w", err)
 	}
-
+	// attach the provided context so upstream cancellations/timeouts are honored
 	err = c.do(c.timeoutUnit*5, req, nil, &resp, 9)
 	return resp, err
 }
@@ -401,12 +401,6 @@ func (c *replicationClient) doCustomUnmarshal(timeout time.Duration,
 	req *http.Request, body []byte, decode func([]byte) error, numRetries int,
 ) (err error) {
 	return (*retryClient)(c).doWithCustomMarshaller(timeout, req, body, decode, successCode, numRetries)
-}
-
-// backOff return a new random duration in the interval [d, 3d].
-// It implements truncated exponential back-off with introduced jitter.
-func backOff(d time.Duration) time.Duration {
-	return time.Duration(float64(d.Nanoseconds()*2) * (0.5 + rand.Float64()))
 }
 
 func shouldRetry(code int) bool {
