@@ -49,6 +49,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/clients"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/authz"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc/generated/protocol"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/db_users"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	replicationHandlers "github.com/weaviate/weaviate/adapters/handlers/rest/replication"
@@ -72,7 +73,6 @@ import (
 	"github.com/weaviate/weaviate/entities/replication"
 	vectorIndex "github.com/weaviate/weaviate/entities/vectorindex"
 	grpcconn "github.com/weaviate/weaviate/grpc/conn"
-	pbv1 "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	modstgazure "github.com/weaviate/weaviate/modules/backup-azure"
 	modstgfs "github.com/weaviate/weaviate/modules/backup-filesystem"
 	modstggcs "github.com/weaviate/weaviate/modules/backup-gcs"
@@ -563,7 +563,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		if err != nil {
 			return nil, fmt.Errorf("failed to get gRPC connection: %w", err)
 		}
-		return pbv1.NewFileReplicationServiceClient(clientConn), nil
+		return protocol.NewFileReplicationServiceClient(clientConn), nil
 	}
 
 	var nodeSelector cluster.NodeSelector = appState.Cluster
@@ -671,8 +671,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		schemaManager, repo, appState.Modules, appState.RBAC, appState.APIKey.Dynamic)
 	appState.BackupManager = backupManager
 
-	internalServer := clusterapi.NewServer(appState)
-	appState.InternalServer = internalServer
+	appState.InternalServer = clusterapi.NewServer(appState)
 	enterrors.GoWrapper(func() { appState.InternalServer.Serve() }, appState.Logger)
 
 	vectorRepo.SetSchemaGetter(schemaManager)
@@ -1015,14 +1014,14 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		if err := appState.InternalServer.Close(ctx); err != nil {
 			appState.Logger.
 				WithError(err).
-				WithField("action", "shutdown").
+				WithField("action", "shutdown internal server").
 				Errorf("failed to gracefully shutdown")
 		}
 
 		if err := appState.ClusterService.Close(ctx); err != nil {
 			appState.Logger.
 				WithError(err).
-				WithField("action", "shutdown").
+				WithField("action", "shutdown cluster service").
 				Errorf("failed to gracefully shutdown")
 		}
 
@@ -1133,7 +1132,7 @@ func startupRoutine(ctx context.Context, options *swag.CommandLineOptionsGroup) 
 		nonStorageNodes = parseVotersNames(cfg)
 	}
 
-	clusterState, err := cluster.Init(serverConfig.Config.Cluster, serverConfig.Config.GRPC.Port, serverConfig.Config.Raft.TimeoutsMultiplier.Get(), dataPath, nonStorageNodes, logger)
+	clusterState, err := cluster.Init(serverConfig.Config.Cluster, serverConfig.Config.Raft.TimeoutsMultiplier.Get(), dataPath, nonStorageNodes, logger)
 	if err != nil {
 		logger.WithField("action", "startup").WithError(err).
 			Error("could not init cluster state")
