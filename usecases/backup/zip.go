@@ -336,24 +336,11 @@ func zipLevel(level int) int {
 type zipConfig struct {
 	Level      int
 	GoPoolSize int
-	ChunkSize  int
 }
 
 func newZipConfig(c Compression) zipConfig {
-	// convert from MB to byte because input already
-	// in MB and validated against min:2 max:512
-	switch c.ChunkSize = c.ChunkSize * 1024 * 1024; {
-	case c.ChunkSize == 0:
-		c.ChunkSize = DefaultChunkSize
-	case c.ChunkSize > maxChunkSize:
-		c.ChunkSize = maxChunkSize
-	case c.ChunkSize < minChunkSize:
-		c.ChunkSize = minChunkSize
-	}
-
 	return zipConfig{
 		Level:      int(c.Level),
 		GoPoolSize: routinePoolSize(c.CPUPercentage),
-		ChunkSize:  c.ChunkSize,
 	}
 }

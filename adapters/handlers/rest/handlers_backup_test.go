@@ -24,7 +24,6 @@ func TestCompressionBackupCfg(t *testing.T) {
 		cfg                 *models.BackupConfig
 		expectedCompression ubak.CompressionLevel
 		expectedCPU         int
-		expectedChunkSize   int
 		expectedBucket      string
 		expectedPath        string
 	}{
@@ -32,7 +31,6 @@ func TestCompressionBackupCfg(t *testing.T) {
 			cfg:                 nil,
 			expectedCompression: ubak.DefaultCompression,
 			expectedCPU:         ubak.DefaultCPUPercentage,
-			expectedChunkSize:   ubak.DefaultChunkSize,
 		},
 		"with config": {
 			cfg: &models.BackupConfig{
@@ -42,7 +40,6 @@ func TestCompressionBackupCfg(t *testing.T) {
 			},
 			expectedCompression: ubak.BestSpeed,
 			expectedCPU:         25,
-			expectedChunkSize:   512,
 		},
 		"with partial config [CPU]": {
 			cfg: &models.BackupConfig{
@@ -50,15 +47,6 @@ func TestCompressionBackupCfg(t *testing.T) {
 			},
 			expectedCompression: ubak.DefaultCompression,
 			expectedCPU:         25,
-			expectedChunkSize:   ubak.DefaultChunkSize,
-		},
-		"with partial config [ChunkSize]": {
-			cfg: &models.BackupConfig{
-				ChunkSize: 125,
-			},
-			expectedCompression: ubak.DefaultCompression,
-			expectedCPU:         ubak.DefaultCPUPercentage,
-			expectedChunkSize:   125,
 		},
 		"with partial config [Compression]": {
 			cfg: &models.BackupConfig{
@@ -66,7 +54,6 @@ func TestCompressionBackupCfg(t *testing.T) {
 			},
 			expectedCompression: ubak.BestSpeed,
 			expectedCPU:         ubak.DefaultCPUPercentage,
-			expectedChunkSize:   ubak.DefaultChunkSize,
 		},
 		"with partial config [Bucket]": {
 			cfg: &models.BackupConfig{
@@ -74,7 +61,6 @@ func TestCompressionBackupCfg(t *testing.T) {
 			},
 			expectedCompression: ubak.DefaultCompression,
 			expectedCPU:         ubak.DefaultCPUPercentage,
-			expectedChunkSize:   ubak.DefaultChunkSize,
 			expectedBucket:      "a bucket name",
 		},
 		"with partial config [Path]": {
@@ -83,7 +69,6 @@ func TestCompressionBackupCfg(t *testing.T) {
 			},
 			expectedCompression: ubak.DefaultCompression,
 			expectedCPU:         ubak.DefaultCPUPercentage,
-			expectedChunkSize:   ubak.DefaultChunkSize,
 			expectedPath:        "a path",
 		},
 	}
@@ -93,7 +78,6 @@ func TestCompressionBackupCfg(t *testing.T) {
 			ccfg := compressionFromBCfg(tc.cfg)
 			assert.Equal(t, tc.expectedCompression, ccfg.Level)
 			assert.Equal(t, tc.expectedCPU, ccfg.CPUPercentage)
-			assert.Equal(t, tc.expectedChunkSize, ccfg.ChunkSize)
 		})
 	}
 }
@@ -103,13 +87,11 @@ func TestCompressionRestoreCfg(t *testing.T) {
 		cfg                 *models.RestoreConfig
 		expectedCompression ubak.CompressionLevel
 		expectedCPU         int
-		expectedChunkSize   int
 	}{
 		"without config": {
 			cfg:                 nil,
 			expectedCompression: ubak.DefaultCompression,
 			expectedCPU:         ubak.DefaultCPUPercentage,
-			expectedChunkSize:   ubak.DefaultChunkSize,
 		},
 		"with config": {
 			cfg: &models.RestoreConfig{

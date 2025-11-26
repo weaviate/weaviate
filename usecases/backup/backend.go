@@ -39,15 +39,6 @@ const (
 	storeTimeout = 24 * time.Hour
 	metaTimeout  = 20 * time.Minute
 
-	// DefaultChunkSize if size is not specified
-	DefaultChunkSize = 1 << 27 // 128MB
-
-	// maxChunkSize is the upper bound on the chunk size
-	maxChunkSize = 1 << 29 // 512MB
-
-	// minChunkSize is the lower bound on the chunk size
-	minChunkSize = 1 << 21 // 2MB
-
 	// maxCPUPercentage max CPU percentage can be consumed by the file writer
 	maxCPUPercentage = 80
 
@@ -200,7 +191,6 @@ func newUploader(sourcer Sourcer, rbacSourcer fsm.Snapshotter, dynUserSourcer fs
 		newZipConfig(Compression{
 			Level:         DefaultCompression,
 			CPUPercentage: DefaultCPUPercentage,
-			ChunkSize:     DefaultChunkSize,
 		}),
 		setstatus,
 		l,
@@ -460,14 +450,12 @@ func (u *uploader) compress(ctx context.Context,
 		chunkKey = chunkKey(class, chunk)
 		shards   = make([]string, 0, 10)
 		// add tolerance to enable better optimization of the chunk size
-		maxSize            = int64(u.ChunkSize + u.ChunkSize/20) // size + 5%
 		preCompressionSize atomic.Int64
 		eg                 = enterrors.NewErrorGroupWrapper(u.log)
 	)
 	zip, reader := NewZip(u.backend.SourceDataPath(), u.Level)
 	producer := func() error {
 		defer zip.Close()
-		lastShardSize := int64(0)
 		for shard := range ch {
 			if err := ctx.Err(); err != nil {
 				return err
@@ -487,10 +475,6 @@ func (u *uploader) compress(ctx context.Context,
 			shards = append(shards, shard.Name)
 			shard.ClearTemporary()
 			zip.gzw.Flush() // flush new shard
-			lastShardSize = zip.lastWritten() - lastShardSize
-			if zip.lastWritten()+lastShardSize > maxSize {
-				break
-			}
 		}
 		return nil
 	}
