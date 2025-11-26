@@ -13,6 +13,7 @@ package opentelemetry
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel/trace"
@@ -25,7 +26,10 @@ var globalProvider *Provider
 
 // Init initializes the global OpenTelemetry provider
 func Init(logger logrus.FieldLogger) error {
-	cfg := FromEnvironment()
+	cfg, err := FromEnvironment()
+	if err != nil {
+		return fmt.Errorf("opentelemetry: failed to get config from environment: %w", err)
+	}
 
 	provider, err := NewProvider(cfg, logger)
 	if err != nil {
