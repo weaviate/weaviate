@@ -14,6 +14,7 @@ package spfresh
 import (
 	"context"
 	"encoding/binary"
+	stderrors "errors"
 	"fmt"
 	"path/filepath"
 
@@ -93,6 +94,19 @@ func NewTaskQueue(index *SPFresh) (*TaskQueue, error) {
 	index.scheduler.RegisterQueue(tq.qMerge)
 
 	return &tq, nil
+}
+
+func (tq *TaskQueue) Close() error {
+	var errs []error
+	if err := tq.q.Close(); err != nil {
+		errs = append(errs, errors.Wrap(err, "failed to close main queue"))
+	}
+
+	if err := tq.qMerge.Close(); err != nil {
+		errs = append(errs, errors.Wrap(err, "failed to close merge queue"))
+	}
+
+	return stderrors.Join(errs...)
 }
 
 func (tq *TaskQueue) SplitDone(postingID uint64) {
