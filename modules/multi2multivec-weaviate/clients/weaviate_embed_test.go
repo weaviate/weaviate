@@ -39,8 +39,11 @@ func TestClient(t *testing.T) {
 		ctx := context.WithValue(context.Background(), "Authorization", []string{"token"})
 		ctx = context.WithValue(ctx, "X-Weaviate-Cluster-Url", []string{"cluster-url"})
 
-		expected := [][][]float32{{{0.1, 0.2, 0.3}, {0.11, 0.22, 0.33}}}
-		res, err := c.Vectorize(ctx, []string{"base64"}, defaultSettings(server.URL))
+		expected := &modulecomponents.VectorizationCLIPResult[[][]float32]{
+			TextVectors:  [][][]float32{},
+			ImageVectors: [][][]float32{{{0.1, 0.2, 0.3}, {0.11, 0.22, 0.33}}},
+		}
+		res, err := c.Vectorize(ctx, []string{}, []string{"base64"}, defaultSettings(server.URL))
 
 		assert.Nil(t, err)
 		assert.Equal(t, expected, res)
@@ -54,9 +57,9 @@ func TestClient(t *testing.T) {
 		ctx := context.WithValue(context.Background(), "Authorization", []string{"token"})
 		ctx = context.WithValue(ctx, "X-Weaviate-Cluster-Url", []string{"cluster-url"})
 
-		expected := &modulecomponents.VectorizationResult[[][]float32]{
-			Text:   []string{"text query"},
-			Vector: [][][]float32{{{0.1, 0.2, 0.3}, {0.11, 0.22, 0.33}}},
+		expected := &modulecomponents.VectorizationCLIPResult[[][]float32]{
+			TextVectors:  [][][]float32{{{0.1, 0.2, 0.3}, {0.11, 0.22, 0.33}}},
+			ImageVectors: [][][]float32{},
 		}
 		res, err := c.VectorizeQuery(ctx, []string{"text query"}, defaultSettings(server.URL))
 
@@ -74,10 +77,30 @@ func TestClient(t *testing.T) {
 		ctx := context.WithValue(context.Background(), "Authorization", []string{"token"})
 		ctx = context.WithValue(ctx, "X-Weaviate-Cluster-Url", []string{"cluster-url"})
 
-		_, err := c.Vectorize(ctx, []string{"base64"}, fakeClassConfig{classConfig: map[string]interface{}{"baseURL": server.URL}})
+		_, err := c.Vectorize(ctx, []string{}, []string{"base64"}, fakeClassConfig{classConfig: map[string]interface{}{"baseURL": server.URL}})
 
 		require.NotNil(t, err)
 		assert.EqualError(t, err, "multi2multivec-weaviate module: Weaviate embed API error: 500 nope, not gonna happen")
+	})
+
+	t.Run("fails when vectorizing text data", func(t *testing.T) {
+		server := httptest.NewServer(&fakeHandler{t: t})
+		defer server.Close()
+		c := New(0)
+
+		_, err := c.Vectorize(context.Background(), []string{"text data"}, []string{"base64"}, defaultSettings(server.URL))
+
+		assert.EqualError(t, err, "vectorizing text data is not supported for multi2multivec-weaviate module")
+	})
+
+	t.Run("fails when vectorizing image queries", func(t *testing.T) {
+		server := httptest.NewServer(&fakeHandler{t: t})
+		defer server.Close()
+		c := New(0)
+
+		_, err := c.VectorizeImages(context.Background(), []string{"base64"}, defaultSettings(server.URL))
+
+		assert.EqualError(t, err, "vectorizing image queries is not supported for multi2multivec-weaviate module")
 	})
 }
 

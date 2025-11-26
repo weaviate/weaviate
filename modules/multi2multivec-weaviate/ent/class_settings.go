@@ -12,11 +12,6 @@
 package ent
 
 import (
-	"fmt"
-	"strings"
-
-	"github.com/pkg/errors"
-
 	"github.com/weaviate/weaviate/entities/moduletools"
 	basesettings "github.com/weaviate/weaviate/usecases/modulecomponents/settings"
 )
@@ -32,15 +27,17 @@ const (
 	DefaultVectorizeClassName = false
 )
 
+var fields = []string{basesettings.ImageFieldsProperty}
+
 type classSettings struct {
-	base *basesettings.BaseClassSettings
+	base *basesettings.BaseClassMultiModalSettings
 	cfg  moduletools.ClassConfig
 }
 
 func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
 	return &classSettings{
 		cfg:  cfg,
-		base: basesettings.NewBaseClassSettingsWithAltNames(cfg, false, "multi2multivec-weaviate", nil, nil),
+		base: basesettings.NewBaseClassMultiModalSettingsWithAltNames(cfg, false, "multi2multivec-weaviate", nil, nil),
 	}
 }
 
@@ -53,122 +50,13 @@ func (cs *classSettings) BaseURL() string {
 }
 
 func (ic *classSettings) ImageField(property string) bool {
-	return ic.field("imageFields", property)
+	return ic.base.ImageField(property)
 }
 
 func (ic *classSettings) Properties() ([]string, error) {
-	if ic.cfg == nil {
-		// we would receive a nil-config on cross-class requests, such as Explore{}
-		return nil, errors.New("empty config")
-	}
-	props := make([]string, 0)
-
-	fields := []string{"imageFields"}
-
-	for _, field := range fields {
-		fields, ok := ic.base.GetSettings()[field]
-		if !ok {
-			continue
-		}
-
-		fieldsArray, ok := fields.([]interface{})
-		if !ok {
-			return nil, errors.Errorf("%s must be an array", field)
-		}
-
-		for _, value := range fieldsArray {
-			v, ok := value.(string)
-			if !ok {
-				return nil, errors.Errorf("%s must be a string", field)
-			}
-			props = append(props, v)
-		}
-	}
-	return props, nil
-}
-
-func (ic *classSettings) field(name, property string) bool {
-	if ic.cfg == nil {
-		// we would receive a nil-config on cross-class requests, such as Explore{}
-		return false
-	}
-
-	fields, ok := ic.base.GetSettings()[name]
-	if !ok {
-		return false
-	}
-
-	fieldsArray, ok := fields.([]interface{})
-	if !ok {
-		return false
-	}
-
-	for _, field := range fieldsArray {
-		if property == field.(string) {
-			return true
-		}
-	}
-
-	return false
+	return ic.base.VectorizableProperties(fields)
 }
 
 func (ic *classSettings) Validate() error {
-	if ic.cfg == nil {
-		// we would receive a nil-config on cross-class requests, such as Explore{}
-		return errors.New("empty config")
-	}
-
-	var errorMessages []string
-
-	imageFields, imageFieldsOk := ic.cfg.Class()["imageFields"]
-	if !imageFieldsOk {
-		errorMessages = append(errorMessages, "imageFields setting needs to be present")
-	}
-
-	if imageFieldsOk {
-		if errorMsgs := ic.validateField("image", imageFields); len(errorMsgs) > 0 {
-			errorMessages = append(errorMessages, errorMsgs...)
-		}
-	}
-
-	if len(errorMessages) > 0 {
-		return fmt.Errorf("%s", strings.Join(errorMessages, ", "))
-	}
-
-	return nil
-}
-
-func (ic *classSettings) validateField(name string, fields interface{}) []string {
-	var errorMessages []string
-	fieldsCount, err := ic.validateFields(name, fields)
-	if err != nil {
-		errorMessages = append(errorMessages, err.Error())
-	}
-	if fieldsCount > 1 {
-		errorMessages = append(errorMessages, fmt.Sprintf("only one %s property is allowed to define", name))
-	}
-	return errorMessages
-}
-
-func (ic *classSettings) validateFields(name string, fields interface{}) (int, error) {
-	fieldsArray, ok := fields.([]interface{})
-	if !ok {
-		return 0, errors.Errorf("%sFields must be an array", name)
-	}
-
-	if len(fieldsArray) == 0 {
-		return 0, errors.Errorf("must contain at least one %s field name in %sFields", name, name)
-	}
-
-	for _, value := range fieldsArray {
-		v, ok := value.(string)
-		if !ok {
-			return 0, errors.Errorf("%sField must be a string", name)
-		}
-		if len(v) == 0 {
-			return 0, errors.Errorf("%sField values cannot be empty", name)
-		}
-	}
-
-	return len(fieldsArray), nil
+	return ic.base.ValidateMultiModal(fields)
 }

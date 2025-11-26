@@ -40,13 +40,6 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "should pass imageFields",
-			fields: fields{
-				cfg: newConfigBuilder().build(),
-			},
-			wantErr: true,
-		},
-		{
 			name: "should not pass with nil imageFields",
 			fields: fields{
 				cfg: newConfigBuilder().
@@ -88,15 +81,6 @@ func Test_classSettings_Validate(t *testing.T) {
 				cfg: newConfigBuilder().addSetting("imageFields", []interface{}{"field"}).build(),
 			},
 			wantErr: false,
-		},
-		{
-			name: "should not pass with 2 imageFields",
-			fields: fields{
-				cfg: newConfigBuilder().
-					addSetting("imageFields", []interface{}{"imageField1", "imageField2"}).
-					build(),
-			},
-			wantErr: true,
 		},
 		{
 			name: "should pass with 1 imageFields defined",

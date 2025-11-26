@@ -38,19 +38,33 @@ func New(timeout time.Duration) *vectorizer {
 	}
 }
 
-func (v *vectorizer) Vectorize(ctx context.Context, images []string, cfg moduletools.ClassConfig) ([][][]float32, error) {
+func (v *vectorizer) Vectorize(ctx context.Context,
+	texts, images []string, cfg moduletools.ClassConfig,
+) (*modulecomponents.VectorizationCLIPResult[[][]float32], error) {
+	if len(texts) > 0 {
+		return nil, errors.New("vectorizing text data is not supported for multi2multivec-weaviate module")
+	}
 	vectors, err := v.vectorize(ctx, images, false, cfg)
-	return vectors, err
+	return &modulecomponents.VectorizationCLIPResult[[][]float32]{
+		TextVectors:  [][][]float32{},
+		ImageVectors: vectors,
+	}, err
 }
 
-func (v *vectorizer) VectorizeQuery(ctx context.Context, input []string,
-	cfg moduletools.ClassConfig,
-) (*modulecomponents.VectorizationResult[[][]float32], error) {
+func (v *vectorizer) VectorizeQuery(ctx context.Context,
+	input []string, cfg moduletools.ClassConfig,
+) (*modulecomponents.VectorizationCLIPResult[[][]float32], error) {
 	vectors, err := v.vectorize(ctx, input, true, cfg)
-	return &modulecomponents.VectorizationResult[[][]float32]{
-		Text:   input,
-		Vector: vectors,
+	return &modulecomponents.VectorizationCLIPResult[[][]float32]{
+		TextVectors:  vectors,
+		ImageVectors: [][][]float32{},
 	}, err
+}
+
+func (v *vectorizer) VectorizeImages(ctx context.Context,
+	images []string, cfg moduletools.ClassConfig,
+) (*modulecomponents.VectorizationCLIPResult[[][]float32], error) {
+	return nil, errors.New("vectorizing image queries is not supported for multi2multivec-weaviate module")
 }
 
 func (v *vectorizer) vectorize(ctx context.Context, input []string, query bool, cfg moduletools.ClassConfig) ([][][]float32, error) {
