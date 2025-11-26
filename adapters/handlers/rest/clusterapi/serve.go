@@ -65,10 +65,10 @@ func NewServer(appState *state.State) *Server {
 			classifications.Transactions()))
 
 	mux.Handle("/cluster/users/db/", dbUsers.Users())
-	mux.Handle("/nodes/", nodes.Nodes())
+	mux.Handle("/nodes/", monitoring.AddTracingToHTTPMiddleware(nodes.Nodes(), appState.Logger))
 
 	indices := NewIndices(appState.RemoteIndexIncoming, appState.DB, auth, appState.Cluster.MaintenanceModeEnabledForLocalhost, appState.Logger)
-	mux.Handle("/indices/", indices.Indices())
+	mux.Handle("/indices/", monitoring.AddTracingToHTTPMiddleware(indices.Indices(), appState.Logger))
 
 	replicatedIndices := NewReplicatedIndices(
 		appState.RemoteReplicaIncoming,
@@ -78,7 +78,7 @@ func NewServer(appState *state.State) *Server {
 		appState.Logger,
 		appState.ClusterService.Ready,
 	)
-	mux.Handle("/replicas/indices/", replicatedIndices.Indices())
+	mux.Handle("/replicas/indices/", monitoring.AddTracingToHTTPMiddleware(replicatedIndices.Indices(), appState.Logger))
 
 	mux.Handle("/backups/can-commit", backups.CanCommit())
 	mux.Handle("/backups/commit", backups.Commit())
