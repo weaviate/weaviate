@@ -489,6 +489,10 @@ func (u *uploader) compress(ctx context.Context,
 	// consumer
 	eg.Go(func() error {
 		if _, err := u.backend.Write(ctx, chunkKey, overrideBucket, overridePath, reader); err != nil {
+			u.log.WithFields(logrus.Fields{
+				"chunkKey": chunkKey,
+				"error":    err.Error(),
+			}).Error("failed to write chunk to object store")
 			return err
 		}
 		return nil
