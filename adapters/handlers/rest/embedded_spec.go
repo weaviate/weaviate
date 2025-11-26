@@ -5980,7 +5980,11 @@ func init() {
           "enum": [
             "DefaultCompression",
             "BestSpeed",
-            "BestCompression"
+            "BestCompression",
+            "ZstdDefaultCompression",
+            "ZstdBestSpeed",
+            "ZstdBestCompression",
+            "NoCompression"
           ],
           "x-nullable": false
         },
@@ -15179,7 +15183,11 @@ func init() {
           "enum": [
             "DefaultCompression",
             "BestSpeed",
-            "BestCompression"
+            "BestCompression",
+            "ZstdDefaultCompression",
+            "ZstdBestSpeed",
+            "ZstdBestCompression",
+            "NoCompression"
           ],
           "x-nullable": false
         },

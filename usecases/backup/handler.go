@@ -107,7 +107,7 @@ func NewHandler(
 
 // Compression is the compression configuration.
 type Compression struct {
-	// Level is one of DefaultCompression, BestSpeed, BestCompression
+	// Level is one of GzipDefaultCompression, GzipBestSpeed, GzipBestCompression
 	Level CompressionLevel
 
 	// CPUPercentage desired CPU core utilization (1%-80%), default: 50%

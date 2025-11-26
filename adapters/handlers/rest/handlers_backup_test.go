@@ -29,7 +29,7 @@ func TestCompressionBackupCfg(t *testing.T) {
 	}{
 		"without config": {
 			cfg:                 nil,
-			expectedCompression: ubak.DefaultCompression,
+			expectedCompression: ubak.GzipDefaultCompression,
 			expectedCPU:         ubak.DefaultCPUPercentage,
 		},
 		"with config": {
@@ -37,28 +37,28 @@ func TestCompressionBackupCfg(t *testing.T) {
 				CPUPercentage:    25,
 				CompressionLevel: models.BackupConfigCompressionLevelBestSpeed,
 			},
-			expectedCompression: ubak.BestSpeed,
+			expectedCompression: ubak.GzipBestSpeed,
 			expectedCPU:         25,
 		},
 		"with partial config [CPU]": {
 			cfg: &models.BackupConfig{
 				CPUPercentage: 25,
 			},
-			expectedCompression: ubak.DefaultCompression,
+			expectedCompression: ubak.GzipDefaultCompression,
 			expectedCPU:         25,
 		},
 		"with partial config [Compression]": {
 			cfg: &models.BackupConfig{
 				CompressionLevel: models.BackupConfigCompressionLevelBestSpeed,
 			},
-			expectedCompression: ubak.BestSpeed,
+			expectedCompression: ubak.GzipBestSpeed,
 			expectedCPU:         ubak.DefaultCPUPercentage,
 		},
 		"with partial config [Bucket]": {
 			cfg: &models.BackupConfig{
 				Bucket: "a bucket name",
 			},
-			expectedCompression: ubak.DefaultCompression,
+			expectedCompression: ubak.GzipDefaultCompression,
 			expectedCPU:         ubak.DefaultCPUPercentage,
 			expectedBucket:      "a bucket name",
 		},
@@ -66,7 +66,7 @@ func TestCompressionBackupCfg(t *testing.T) {
 			cfg: &models.BackupConfig{
 				Path: "a path",
 			},
-			expectedCompression: ubak.DefaultCompression,
+			expectedCompression: ubak.GzipDefaultCompression,
 			expectedCPU:         ubak.DefaultCPUPercentage,
 			expectedPath:        "a path",
 		},
@@ -89,7 +89,7 @@ func TestCompressionRestoreCfg(t *testing.T) {
 	}{
 		"without config": {
 			cfg:                 nil,
-			expectedCompression: ubak.DefaultCompression,
+			expectedCompression: ubak.GzipDefaultCompression,
 			expectedCPU:         ubak.DefaultCPUPercentage,
 		},
 		"with config": {

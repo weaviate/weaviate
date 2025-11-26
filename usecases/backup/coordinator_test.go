@@ -116,7 +116,8 @@ func Test_CoordinatedBackup(t *testing.T) {
 					Status:  backup.Success,
 				},
 			},
-			Leader: nodes[0],
+			Leader:          nodes[0],
+			CompressionType: backup.CompressionGZIP,
 		}
 		assert.Equal(t, want, got)
 	})
@@ -135,7 +136,7 @@ func Test_CoordinatedBackup(t *testing.T) {
 			Classes:  []string{classes[1]},
 			Duration: _BookingPeriod,
 			Compression: Compression{
-				Level:         DefaultCompression,
+				Level:         GzipDefaultCompression,
 				CPUPercentage: DefaultCPUPercentage,
 			},
 		}
@@ -147,7 +148,7 @@ func Test_CoordinatedBackup(t *testing.T) {
 			Classes:  classes[:],
 			Duration: _BookingPeriod,
 			Compression: Compression{
-				Level:         DefaultCompression,
+				Level:         GzipDefaultCompression,
 				CPUPercentage: DefaultCPUPercentage,
 			},
 		}
@@ -193,7 +194,8 @@ func Test_CoordinatedBackup(t *testing.T) {
 					Status:  backup.Success,
 				},
 			},
-			Leader: nodes[0],
+			Leader:          nodes[0],
+			CompressionType: backup.CompressionGZIP,
 		}
 		assert.Equal(t, want, got)
 	})
@@ -274,7 +276,8 @@ func Test_CoordinatedBackup(t *testing.T) {
 					Error:   got.Nodes[nodes[1]].Error,
 				},
 			},
-			Leader: nodes[0],
+			Leader:          nodes[0],
+			CompressionType: backup.CompressionGZIP,
 		}
 		assert.Equal(t, want, got)
 	})
@@ -329,7 +332,8 @@ func Test_CoordinatedBackup(t *testing.T) {
 					Error:   got.Nodes[nodes[0]].Error,
 				},
 			},
-			Leader: nodes[0],
+			Leader:          nodes[0],
+			CompressionType: backup.CompressionGZIP,
 		}
 		assert.Equal(t, want, got)
 	})
@@ -374,7 +378,7 @@ func TestCoordinatedRestore(t *testing.T) {
 			Classes:  classes,
 			Duration: _BookingPeriod,
 			Compression: Compression{
-				Level:         DefaultCompression,
+				Level:         GzipDefaultCompression,
 				CPUPercentage: DefaultCPUPercentage,
 			},
 		}
@@ -475,7 +479,8 @@ func TestCoordinatedRestoreWithNodeMapping(t *testing.T) {
 						Status:  backup.Success,
 					},
 				},
-				NodeMapping: nodeMapping,
+				NodeMapping:     nodeMapping,
+				CompressionType: backup.CompressionGZIP,
 			}
 		}
 		creq = &Request{
@@ -486,7 +491,7 @@ func TestCoordinatedRestoreWithNodeMapping(t *testing.T) {
 			NodeMapping: nodeMapping,
 			Duration:    _BookingPeriod,
 			Compression: Compression{
-				Level:         DefaultCompression,
+				Level:         GzipDefaultCompression,
 				CPUPercentage: DefaultCPUPercentage,
 			},
 		}
@@ -652,7 +657,7 @@ func newReq(classes []string, backendName, backupID string) Request {
 		Backend: backendName,
 		Classes: classes,
 		Compression: Compression{
-			Level:         DefaultCompression,
+			Level:         GzipDefaultCompression,
 			CPUPercentage: DefaultCPUPercentage,
 		},
 	}
