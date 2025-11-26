@@ -50,6 +50,8 @@ type compactorSet struct {
 	scratchSpacePath string
 
 	enableChecksumValidation bool
+
+	PostingVersions *Bucket
 }
 
 func newCompactorSetCollection(w io.WriteSeeker,
@@ -153,6 +155,11 @@ func (c *compactorSet) writeKeys(f *segmentindex.SegmentFile) ([]segmentindex.Ke
 			break
 		}
 		if bytes.Equal(key1, key2) {
+			if !c.isValidKey(key1) {
+				key1, value1, _ = c.c1.next()
+				key2, value2, _ = c.c2.next()
+				continue
+			}
 			values := append(value1, value2...)
 			valuesMerged := newSetDecoder().DoPartial(values)
 			if values, skip := c.cleanupValues(valuesMerged); !skip {
@@ -172,6 +179,10 @@ func (c *compactorSet) writeKeys(f *segmentindex.SegmentFile) ([]segmentindex.Ke
 
 		if (key1 != nil && bytes.Compare(key1, key2) == -1) || key2 == nil {
 			// key 1 is smaller
+			if !c.isValidKey(key1) {
+				key1, value1, _ = c.c1.next()
+				continue
+			}
 			if values, skip := c.cleanupValues(value1); !skip {
 				ki, err := c.writeIndividualNode(f, offset, key1, values)
 				if err != nil {
@@ -184,6 +195,10 @@ func (c *compactorSet) writeKeys(f *segmentindex.SegmentFile) ([]segmentindex.Ke
 			key1, value1, _ = c.c1.next()
 		} else {
 			// key 2 is smaller
+			if !c.isValidKey(key2) {
+				key2, value2, _ = c.c2.next()
+				continue
+			}
 			if values, skip := c.cleanupValues(value2); !skip {
 				ki, err := c.writeIndividualNode(f, offset, key2, values)
 				if err != nil {
@@ -231,16 +246,27 @@ func (c *compactorSet) writeIndexes(f *segmentindex.SegmentFile,
 // Returned skip of true means there are no values left (key can be omitted in segment)
 // WARN: method can alter input slice by swapping its elements and reducing length (not capacity)
 func (c *compactorSet) cleanupValues(values []value) (vals []value, skip bool) {
-	if !c.cleanupTombstones {
-		return values, false
-	}
-
 	// Reuse input slice not to allocate new memory
 	// Rearrange slice in a way that tombstoned values are moved to the end
 	// and reduce slice's length.
 	last := 0
 	for i := 0; i < len(values); i++ {
-		if !values[i].tombstone {
+		// This is a special tombstone that indicates that the whole key can be removed.
+		// It is used by higher level logic (like SPFresh) to indicate that the whole posting
+		// can be removed. We keep it to remove from older segments in further compactions.
+		if values[i].tombstone && bytes.Equal(values[i].value, []byte{255}) {
+			// TODO: check if this special tombstone can be removed entirely
+			// Right now, we do this at the last segment, which means that
+			// tombstones will not accumulate indefinitely.
+			if c.cleanupTombstones {
+				return nil, true
+			}
+			return values[i : i+1], false
+		}
+		// Keep non-tombstoned values
+		if !c.cleanupTombstones {
+			last++
+		} else if !values[i].tombstone {
 			// Swap both elements instead overwritting `last` by `i`.
 			// Overwrite would result in `values[last].value` pointing to the same slice
 			// as `values[i].value`.
@@ -257,4 +283,16 @@ func (c *compactorSet) cleanupValues(values []value) (vals []value, skip bool) {
 		return nil, true
 	}
 	return values[:last], false
+}
+
+func (c *compactorSet) isValidKey(key []byte) bool {
+	if c.PostingVersions == nil {
+		return true
+	}
+	v, err := c.PostingVersions.Get(key[:8])
+	if err != nil {
+		// assume valid if we cannot check
+		return true
+	}
+	return bytes.Equal(v, key[8:12])
 }

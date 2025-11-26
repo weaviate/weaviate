@@ -185,6 +185,8 @@ type Bucket struct {
 	writeSegmentInfoIntoFileName bool
 
 	bm25Config *models.BM25Config
+
+	PostingVersions *Bucket
 }
 
 func NewBucketCreator() *Bucket { return &Bucket{} }
@@ -292,6 +294,7 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 	if err != nil {
 		return nil, fmt.Errorf("init disk segments: %w", err)
 	}
+	sg.PostingVersions = b.PostingVersions
 
 	b.disk = sg
 
@@ -506,6 +509,27 @@ type BucketConsistentView struct {
 
 func (cv *BucketConsistentView) Release() {
 	cv.release()
+}
+
+func (b *Bucket) GetConsistentViewOfSegmentsForKeys(keys [][]byte) BucketConsistentView {
+	beforeFlushLock := time.Now()
+	b.flushLock.RLock()
+	defer b.flushLock.RUnlock()
+
+	if duration := time.Since(beforeFlushLock); duration > 100*time.Millisecond {
+		b.logger.WithFields(logrus.Fields{
+			"duration": duration,
+			"action":   "lsm_bucket_get_acquire_flush_lock",
+		}).Debug("Waited more than 100ms to obtain a flush lock during get")
+	}
+
+	diskSegments, releaseDiskSegments := b.disk.getConsistentViewOfSegmentsForKeys(keys)
+	return BucketConsistentView{
+		Active:   b.active,
+		Flushing: b.flushing,
+		Disk:     diskSegments,
+		release:  releaseDiskSegments,
+	}
 }
 
 func (b *Bucket) getConsistentView() BucketConsistentView {
@@ -778,6 +802,27 @@ func (b *Bucket) getBySecondaryFromSegmentGroup(pos int, seckey []byte, buffer [
 	return b.disk.getBySecondaryWithSegmentList(pos, seckey, buffer, segments)
 }
 
+// SetList returns all Set entries for a given set of keys.
+//
+// SetList is specific to the Set Strategy, for Map use [Bucket.MapList], and
+// for Replace use [Bucket.Get].
+func (b *Bucket) SetLists(keys [][]byte) ([][][]byte, error) {
+	view := b.GetConsistentViewOfSegmentsForKeys(keys)
+	defer view.Release()
+
+	out := make([][][]byte, len(keys))
+
+	for i, key := range keys {
+
+		l, err := b.SetListFromConsistentView(view, key)
+		if err != nil {
+			return nil, err
+		}
+		out[i] = l
+	}
+	return out, nil
+}
+
 // SetList returns all Set entries for a given key.
 //
 // SetList is specific to the Set Strategy, for Map use [Bucket.MapList], and
@@ -786,10 +831,10 @@ func (b *Bucket) SetList(key []byte) ([][]byte, error) {
 	view := b.getConsistentView()
 	defer view.Release()
 
-	return b.setListFromConsistentView(view, key)
+	return b.SetListFromConsistentView(view, key)
 }
 
-func (b *Bucket) setListFromConsistentView(view BucketConsistentView, key []byte) ([][]byte, error) {
+func (b *Bucket) SetListFromConsistentView(view BucketConsistentView, key []byte) ([][]byte, error) {
 	var out []value
 
 	v, err := b.disk.getCollection(key, view.Disk)
@@ -919,6 +964,20 @@ func (b *Bucket) SetDeleteSingle(key []byte, valueToDelete []byte) error {
 	return active.append(key, []value{
 		{
 			value:     valueToDelete,
+			tombstone: true,
+		},
+	})
+}
+
+func (b *Bucket) SetDeleteKey(key []byte) error {
+	active, release := b.getActiveMemtableForWrite()
+	defer release()
+
+	// This is a special tombstone that indicates that the whole key can be removed.
+	// On compaction, it will remove all entries for this key, except for itself.
+	return active.append(key, []value{
+		{
+			value:     []byte{255},
 			tombstone: true,
 		},
 	})

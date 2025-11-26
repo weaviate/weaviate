@@ -93,6 +93,8 @@ type SegmentGroup struct {
 	bm25config                     *schema.BM25Config
 	writeSegmentInfoIntoFileName   bool
 	writeMetadata                  bool
+
+	PostingVersions *Bucket
 }
 
 type sgConfig struct {
@@ -523,6 +525,36 @@ func (sg *SegmentGroup) add(path string) error {
 	sg.metrics.ObserveSegmentSize(sg.strategy, segment.Size())
 
 	return nil
+}
+
+func (sg *SegmentGroup) getConsistentViewOfSegmentsForKeys(keys [][]byte) (segments []Segment, release func()) {
+	sg.maintenanceLock.RLock()
+	segments = make([]Segment, 0, len(sg.segments))
+
+	sg.segmentRefCounterLock.Lock()
+	for _, seg := range sg.segments {
+		for _, key := range keys {
+			if seg.hasKey(key) {
+				seg.incRef()
+				sg.segmentsWithRefs[seg.getPath()] = seg
+				segments = append(segments, seg)
+				break
+			}
+		}
+	}
+	sg.segmentRefCounterLock.Unlock()
+	sg.maintenanceLock.RUnlock()
+
+	return segments, func() {
+		sg.segmentRefCounterLock.Lock()
+		for _, seg := range segments {
+			seg.decRef()
+			if seg.getRefs() == 0 {
+				delete(sg.segmentsWithRefs, seg.getPath())
+			}
+		}
+		sg.segmentRefCounterLock.Unlock()
+	}
 }
 
 func (sg *SegmentGroup) getConsistentViewOfSegments() (segments []Segment, release func()) {
