@@ -14,7 +14,6 @@ package spfresh
 import (
 	"encoding/binary"
 	"fmt"
-	"os"
 	"path/filepath"
 	"sync/atomic"
 
@@ -59,16 +58,6 @@ func (s *SPFresh) closeMetadata() {
 		s.metadata.Close()
 		s.metadata = nil
 	}
-}
-
-func (s *SPFresh) removeMetadataFile() error {
-	path := filepath.Join(s.config.RootPath, s.getMetadataFile())
-	s.closeMetadata()
-	err := os.Remove(path)
-	if err != nil {
-		return errors.Wrapf(err, "remove metadata file %q", path)
-	}
-	return nil
 }
 
 func (s *SPFresh) openMetadata() error {
