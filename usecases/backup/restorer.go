@@ -108,7 +108,7 @@ func (r *restorer) restore(
 		}()
 
 		if err = r.waitForCoordinator(expiration, req.ID); err != nil {
-			r.logger.WithField("action", "create_backup").
+			r.logger.WithField("action", "restore_backup").
 				Error(err)
 			r.lastAsyncError = err
 			return
