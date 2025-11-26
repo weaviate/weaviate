@@ -32,7 +32,7 @@ func (s *SPFresh) SearchByVector(ctx context.Context, vector []float32, k int, a
 	queryVector := NewAnonymousVector(s.quantizer.Encode(vector))
 
 	var selected []uint64
-	var postings []Posting
+	var postings []*Posting
 
 	// If k is larger than the configured number of candidates, use k as the candidate number
 	// to enlarge the search space.

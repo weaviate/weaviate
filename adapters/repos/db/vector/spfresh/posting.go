@@ -73,32 +73,21 @@ func (v Vector) DistanceWithRaw(distancer *Distancer, other []byte) (float32, er
 	return distancer.DistanceBetweenCompressedVectors(v.Data(), other)
 }
 
-type Posting interface {
-	AddVector(v Vector)
-	GarbageCollect(versionMap *VersionMap) (Posting, error)
-	Len() int
-	Iter() iter.Seq2[int, Vector]
-	GetAt(i int) Vector
-	Clone() Posting
-}
-
-var _ Posting = (*EncodedPosting)(nil)
-
 // A Posting is a collection of vectors associated with the same centroid.
-type EncodedPosting struct {
+type Posting struct {
 	// total size in bytes of each vector
 	vectorSize int
 	data       []byte
 }
 
-func (p *EncodedPosting) AddVector(v Vector) {
+func (p *Posting) AddVector(v Vector) {
 	p.data = append(p.data, v.Encode()...)
 }
 
 // GarbageCollect filters out vectors that are marked as deleted in the version map
 // and return the filtered posting.
 // This method doesn't allocate a new slice, the filtering is done in-place.
-func (p *EncodedPosting) GarbageCollect(versionMap *VersionMap) (Posting, error) {
+func (p *Posting) GarbageCollect(versionMap *VersionMap) (*Posting, error) {
 	var i int
 	step := 8 + 1 + p.vectorSize
 	for i < len(p.data) {
@@ -120,7 +109,7 @@ func (p *EncodedPosting) GarbageCollect(versionMap *VersionMap) (Posting, error)
 	return p, nil
 }
 
-func (p *EncodedPosting) Len() int {
+func (p *Posting) Len() int {
 	step := int(8 + 1 + p.vectorSize)
 	var j int
 	for i := 0; i < len(p.data); i += step {
@@ -130,11 +119,11 @@ func (p *EncodedPosting) Len() int {
 	return j
 }
 
-func (p *EncodedPosting) decode(buf []byte) Vector {
+func (p *Posting) decode(buf []byte) Vector {
 	return Vector(buf)
 }
 
-func (p *EncodedPosting) Iter() iter.Seq2[int, Vector] {
+func (p *Posting) Iter() iter.Seq2[int, Vector] {
 	step := 8 + 1 + p.vectorSize
 	return func(yield func(int, Vector) bool) {
 		var j int
@@ -147,20 +136,20 @@ func (p *EncodedPosting) Iter() iter.Seq2[int, Vector] {
 	}
 }
 
-func (p *EncodedPosting) GetAt(i int) Vector {
+func (p *Posting) GetAt(i int) Vector {
 	step := int(8 + 1 + p.vectorSize)
 	idx := i * step
 	return p.decode(p.data[idx : idx+step])
 }
 
-func (p *EncodedPosting) Clone() Posting {
-	return &EncodedPosting{
+func (p *Posting) Clone() *Posting {
+	return &Posting{
 		vectorSize: p.vectorSize,
 		data:       append([]byte(nil), p.data...),
 	}
 }
 
-func (p *EncodedPosting) Uncompress(quantizer *compressionhelpers.RotationalQuantizer) [][]float32 {
+func (p *Posting) Uncompress(quantizer *compressionhelpers.RotationalQuantizer) [][]float32 {
 	data := make([][]float32, 0, p.Len())
 
 	for _, v := range p.Iter() {

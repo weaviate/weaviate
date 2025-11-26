@@ -62,7 +62,7 @@ func (p *PostingStore) Init(size int32) {
 	p.vectorSize.Store(size)
 }
 
-func (p *PostingStore) Get(ctx context.Context, postingID uint64) (Posting, error) {
+func (p *PostingStore) Get(ctx context.Context, postingID uint64) (*Posting, error) {
 	start := time.Now()
 	defer p.metrics.StoreGetDuration(start)
 
@@ -81,7 +81,7 @@ func (p *PostingStore) Get(ctx context.Context, postingID uint64) (Posting, erro
 		return nil, errors.Wrapf(err, "failed to get posting %d", postingID)
 	}
 
-	posting := EncodedPosting{
+	posting := Posting{
 		vectorSize: int(vectorSize),
 		data:       make([]byte, 0, len(list)*(8+1+int(vectorSize))),
 	}
@@ -93,14 +93,14 @@ func (p *PostingStore) Get(ctx context.Context, postingID uint64) (Posting, erro
 	return &posting, nil
 }
 
-func (p *PostingStore) MultiGet(ctx context.Context, postingIDs []uint64) ([]Posting, error) {
+func (p *PostingStore) MultiGet(ctx context.Context, postingIDs []uint64) ([]*Posting, error) {
 	vectorSize := p.vectorSize.Load()
 	if vectorSize == 0 {
 		// the store is empty
 		return nil, errors.WithStack(ErrPostingNotFound)
 	}
 
-	postings := make([]Posting, 0, len(postingIDs))
+	postings := make([]*Posting, 0, len(postingIDs))
 
 	for _, id := range postingIDs {
 		posting, err := p.Get(ctx, id)
@@ -113,7 +113,7 @@ func (p *PostingStore) MultiGet(ctx context.Context, postingIDs []uint64) ([]Pos
 	return postings, nil
 }
 
-func (p *PostingStore) Put(ctx context.Context, postingID uint64, posting Posting) error {
+func (p *PostingStore) Put(ctx context.Context, postingID uint64, posting *Posting) error {
 	start := time.Now()
 	defer p.metrics.StorePutDuration(start)
 
