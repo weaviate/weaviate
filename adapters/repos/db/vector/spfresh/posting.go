@@ -142,13 +142,6 @@ func (p *Posting) GetAt(i int) Vector {
 	return p.decode(p.data[idx : idx+step])
 }
 
-func (p *Posting) Clone() *Posting {
-	return &Posting{
-		vectorSize: p.vectorSize,
-		data:       append([]byte(nil), p.data...),
-	}
-}
-
 func (p *Posting) Uncompress(quantizer *compressionhelpers.RotationalQuantizer) [][]float32 {
 	data := make([][]float32, 0, p.Len())
 
