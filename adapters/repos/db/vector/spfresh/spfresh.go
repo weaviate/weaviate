@@ -102,7 +102,6 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*SPFresh, error) {
 	if err != nil {
 		return nil, err
 	}
-	cfg.Compressed = true
 
 	metrics := NewMetrics(cfg.PrometheusMetrics, cfg.ClassName, cfg.ShardName)
 
@@ -279,7 +278,7 @@ func (s *SPFresh) PostStartup(ctx context.Context) {
 }
 
 func (s *SPFresh) Compressed() bool {
-	return s.config.Compressed
+	return true
 }
 
 func (s *SPFresh) Multivector() bool {
