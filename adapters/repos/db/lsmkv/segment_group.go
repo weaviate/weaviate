@@ -45,7 +45,8 @@ type SegmentGroup struct {
 	// (segments that were cleaned or compacted and replaced by new ones)
 	segmentsWithRefs         map[string]Segment // segment.path => segment
 	segmentRefCounterLock    sync.Mutex
-	segmentsToDeleteFromDisk []Segment
+	segmentsToDeleteFromDisk []segmentToDelete
+	segmentsToDeleteLastWarn time.Time
 
 	// Lock() for changing the currently active segments, RLock() for normal
 	// operation
@@ -858,7 +859,7 @@ func (sg *SegmentGroup) compactOrCleanup(shouldAbort cyclemanager.ShouldAbortCal
 
 	defer func() {
 		if err := sg.closeAndDeleteUnusedSegmentsFromDisk(); err != nil {
-			sg.logger.WithField("action", "lsm_delete_segments_from_disk").
+			sg.logger.WithField("action", "lsm_compaction_delete_segments").
 				WithField("path", sg.dir).
 				WithError(err).
 				Errorf("deletion of segments failed")

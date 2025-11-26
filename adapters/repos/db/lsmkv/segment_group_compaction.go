@@ -30,6 +30,11 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
+type segmentToDelete struct {
+	time    time.Time
+	segment Segment
+}
+
 // findCompactionCandidates looks for pair of segments eligible for compaction
 // into single segment.
 // Segments use level property to mark how many times they were compacted.
@@ -490,13 +495,14 @@ func (sg *SegmentGroup) waitForReferenceCountToReachZero(segments ...Segment) {
 func (sg *SegmentGroup) tryCloseAndDeleteSegmentsFromDisk(segments ...Segment) error {
 	var segmentsNoRefs []Segment
 
+	now := time.Now()
 	sg.segmentRefCounterLock.Lock()
 	for _, seg := range segments {
 		if seg.getRefs() == 0 {
 			segmentsNoRefs = append(segmentsNoRefs, seg)
-		} else {
-			sg.segmentsToDeleteFromDisk = append(sg.segmentsToDeleteFromDisk, seg)
+			continue
 		}
+		sg.segmentsToDeleteFromDisk = append(sg.segmentsToDeleteFromDisk, segmentToDelete{time: now, segment: seg})
 	}
 	sg.segmentRefCounterLock.Unlock()
 
@@ -511,19 +517,57 @@ func (sg *SegmentGroup) tryCloseAndDeleteSegmentsFromDisk(segments ...Segment) e
 func (sg *SegmentGroup) closeAndDeleteUnusedSegmentsFromDisk() error {
 	var segmentsNoRefs []Segment
 
-	// leave in segmentsToDeleteFromDisk only segments with refs > 0
+	now := time.Now()
+	sec, nsec := now.Unix(), int64(now.Nanosecond())
+	var segmentsWaitingLong []segmentToDelete
+	var waitingRefCounts []int
+	warnInterval := 10 * time.Second
+	warnCheckTime := time.Unix(sec, nsec).Add(-warnInterval)
+	doWarn := now.Sub(sg.segmentsToDeleteLastWarn) >= warnInterval
+
 	sg.segmentRefCounterLock.Lock()
 	i := 0
-	for _, seg := range sg.segmentsToDeleteFromDisk {
-		if seg.getRefs() == 0 {
-			segmentsNoRefs = append(segmentsNoRefs, seg)
-		} else {
-			sg.segmentsToDeleteFromDisk[i] = seg
-			i++
+	for _, entry := range sg.segmentsToDeleteFromDisk {
+		refs := entry.segment.getRefs()
+		if refs == 0 {
+			segmentsNoRefs = append(segmentsNoRefs, entry.segment)
+			continue
+		}
+
+		// leave only segments with refs > 0 on [segmentsToDeleteFromDisk] list
+		sg.segmentsToDeleteFromDisk[i] = entry
+		i++
+
+		// now - entry.time >= warnInterval
+		if doWarn && !warnCheckTime.Before(entry.time) {
+			segmentsWaitingLong = append(segmentsWaitingLong, entry)
+			waitingRefCounts = append(waitingRefCounts, refs)
 		}
 	}
 	sg.segmentsToDeleteFromDisk = sg.segmentsToDeleteFromDisk[:i]
 	sg.segmentRefCounterLock.Unlock()
+
+	if ln := len(segmentsWaitingLong); ln > 0 {
+		sg.segmentsToDeleteLastWarn = now
+
+		segments := make([]string, ln)
+		refcounts := make([]string, ln)
+		waits := make([]string, ln)
+		for i := range segmentsWaitingLong {
+			segments[i] = filepath.Base(segmentsWaitingLong[i].segment.getPath())
+			refcounts[i] = fmt.Sprintf("%d", waitingRefCounts[i])
+			waits[i] = now.Sub(segmentsWaitingLong[i].time).String()
+		}
+
+		sg.logger.WithFields(logrus.Fields{
+			"action":         "lsm_compaction_delete_segments",
+			"path":           sg.dir,
+			"segments":       strings.Join(segments, ","),
+			"refcounts":      strings.Join(refcounts, ","),
+			"waits":          strings.Join(waits, ","),
+			"segments_count": ln,
+		}).Warnf("waiting for segments to reach refcount=0 (longest wait is %s)", waits[0])
+	}
 
 	return closeAndDeleteSegmentsFromDisk(segmentsNoRefs)
 }
