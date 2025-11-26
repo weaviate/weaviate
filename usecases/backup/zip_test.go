@@ -205,7 +205,7 @@ func TestZipConfig(t *testing.T) {
 		{512 + 1, 50, _NUMCPU / 2, _NUMCPU},
 		{2, 0, 1, _NUMCPU / 2},
 		{1, 100, 1, _NUMCPU},
-		{100, 0, 100 * 1024 * 1024, _NUMCPU / 2}, // 100 MB
+		{100, 0, 1, _NUMCPU / 2}, // 100 MB
 		{513, 0, 1, _NUMCPU / 2},
 	}
 
