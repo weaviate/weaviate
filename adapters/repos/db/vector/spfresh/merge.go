@@ -31,7 +31,7 @@ func (s *SPFresh) doMerge(postingID uint64) error {
 		// another merge operation is in progress for this posting
 		// re-enqueue the operation to be processed later
 		s.taskQueue.MergeDone(postingID) // remove from the in-progress list
-		return s.taskQueue.EnqueueMerge(s.ctx, postingID)
+		return s.taskQueue.EnqueueMerge(postingID)
 	}
 	defer func() {
 		if !markedAsDone {
@@ -225,7 +225,7 @@ func (s *SPFresh) doMerge(postingID uint64) error {
 
 				if prevDist < newDist {
 					// the vector is closer to the old centroid, we need to reassign it
-					err = s.taskQueue.EnqueueReassign(s.ctx, largeID, v.ID(), v.Version())
+					err = s.taskQueue.EnqueueReassign(largeID, v.ID(), v.Version())
 					if err != nil {
 						return errors.Wrapf(err, "failed to enqueue reassign for vector %d after merge", v.ID())
 					}
