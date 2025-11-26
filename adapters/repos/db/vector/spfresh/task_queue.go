@@ -195,7 +195,7 @@ func (t *SplitTask) Execute(ctx context.Context) error {
 		return ctx.Err()
 	}
 
-	err := t.idx.doSplit(t.id, true)
+	err := t.idx.doSplit(ctx, t.id, true)
 	if err != nil {
 		return err
 	}

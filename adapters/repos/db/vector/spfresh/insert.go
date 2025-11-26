@@ -208,7 +208,7 @@ func (s *SPFresh) append(ctx context.Context, vector Vector, centroidID uint64, 
 	}
 	if count > max {
 		if reassigned {
-			err = s.doSplit(centroidID, false)
+			err = s.doSplit(ctx, centroidID, false)
 		} else {
 			err = s.taskQueue.EnqueueSplit(centroidID)
 		}
