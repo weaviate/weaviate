@@ -94,7 +94,7 @@ type SPFresh struct {
 	store        *lsmkv.Store
 	vectorForId  common.VectorForID[float32]
 	metadata     *bolt.DB
-	metadataLock *sync.RWMutex
+	metadataLock sync.RWMutex
 }
 
 func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*SPFresh, error) {
@@ -150,7 +150,6 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*SPFresh, error) {
 		rngFactor:          uc.RNGFactor,
 		searchProbe:        uc.SearchProbe,
 		centroidsIndexType: uc.CentroidsIndexType,
-		metadataLock:       &sync.RWMutex{},
 	}
 
 	if s.centroidsIndexType == "hnsw" {
@@ -171,7 +170,9 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*SPFresh, error) {
 	}
 	s.taskQueue = *taskQueue
 
-	s.restoreMetadata()
+	if err = s.restoreMetadata(); err != nil {
+		s.logger.Warnf("unable to restore metadata from previous run with error: %v", err)
+	}
 
 	return &s, nil
 }
@@ -210,7 +211,7 @@ func (s *SPFresh) UpdateUserConfig(updated schemaConfig.VectorIndexConfig, callb
 	return nil
 }
 
-func (s *SPFresh) Drop(ctx context.Context) error {
+func (s *SPFresh) Drop(ctx context.Context, keepFiles bool) error {
 	_ = s.Shutdown(ctx)
 	// Shard::drop will take care of handling store buckets
 	return nil
@@ -332,7 +333,10 @@ func (s *SPFresh) QueryVectorDistancer(queryVector []float32) common.QueryVector
 }
 
 func (s *SPFresh) CompressionStats() compressionhelpers.CompressionStats {
-	return s.quantizer.Stats()
+	if s.quantizer != nil {
+		return s.quantizer.Stats()
+	}
+	return compressionhelpers.UncompressedStats{}
 }
 
 func (s *SPFresh) Preload(id uint64, vector []float32) {

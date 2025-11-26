@@ -17,11 +17,15 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"runtime"
+	"runtime/debug"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/dustin/go-humanize"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -779,6 +783,88 @@ func setupDebugHandlers(appState *state.State) {
 		w.WriteHeader(http.StatusOK)
 		if bytesToWrite != nil {
 			w.Write(bytesToWrite)
+		}
+	}))
+
+	// Call via something like:
+	// - current limit: curl -X GET localhost:6060/debug/config/gomemlimit
+	// - set limit: curl -X POST localhost:6060/debug/config/gomemlimit?limit=XXXMiB - can also be bytes or GiB
+	// The port is Weaviate's configured Go profiling port (defaults to 6060)
+	http.HandleFunc("/debug/config/gomemlimit", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var prevLimit int64
+		switch r.Method {
+		case http.MethodGet:
+			prevLimit = debug.SetMemoryLimit(-1)
+		case http.MethodPost:
+			limitStr := r.URL.Query().Get("limit")
+			if limitStr == "" {
+				http.Error(w, "limit is required", http.StatusBadRequest)
+				return
+			}
+			limitBytes, err := humanize.ParseBytes(limitStr)
+			if err != nil {
+				http.Error(w, "invalid limit: "+err.Error(), http.StatusBadRequest)
+				return
+			}
+			prevLimit = debug.SetMemoryLimit(int64(limitBytes))
+			appState.Logger.
+				WithField("new_memory_limit_in_bytes", limitBytes).
+				WithField("previous_memory_limit_in_bytes", prevLimit).
+				Info("updating go-runtime memory limit")
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+		w.WriteHeader(http.StatusOK)
+		jsonBytes, err := json.Marshal(prevLimit)
+		if err != nil {
+			logger.WithError(err).Error("marshal failed on stats")
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		if jsonBytes != nil {
+			w.Write(jsonBytes)
+		}
+	}))
+
+	// Call via something like:
+	// - current limit: curl -X GET localhost:6060/debug/config/gomemlimit
+	// - set limit: curl -X POST localhost:6060/debug/config/gomemlimit?limit=XXXMiB - can also be bytes or GiB
+	// The port is Weaviate's configured Go profiling port (defaults to 6060)
+	http.HandleFunc("/debug/config/gomaxprocs", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var prevMaxProcs int
+		switch r.Method {
+		case http.MethodGet:
+			prevMaxProcs = runtime.GOMAXPROCS(-1)
+		case http.MethodPost:
+			procsStr := r.URL.Query().Get("procs")
+			if procsStr == "" {
+				http.Error(w, "procs is required", http.StatusBadRequest)
+				return
+			}
+			procsInt, err := strconv.Atoi(procsStr)
+			if err != nil {
+				http.Error(w, "invalid procs value: "+err.Error(), http.StatusBadRequest)
+				return
+			}
+			prevMaxProcs = runtime.GOMAXPROCS(procsInt)
+			appState.Logger.
+				WithField("new_cpu_limit", procsInt).
+				WithField("previous_cpu_limit", prevMaxProcs).
+				Info("updating go-runtime CPU limit")
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+		w.WriteHeader(http.StatusOK)
+		jsonBytes, err := json.Marshal(prevMaxProcs)
+		if err != nil {
+			logger.WithError(err).Error("marshal failed on stats")
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		if jsonBytes != nil {
+			w.Write(jsonBytes)
 		}
 	}))
 
