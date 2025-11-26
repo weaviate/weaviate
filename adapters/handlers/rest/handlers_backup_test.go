@@ -35,7 +35,6 @@ func TestCompressionBackupCfg(t *testing.T) {
 		"with config": {
 			cfg: &models.BackupConfig{
 				CPUPercentage:    25,
-				ChunkSize:        512,
 				CompressionLevel: models.BackupConfigCompressionLevelBestSpeed,
 			},
 			expectedCompression: ubak.BestSpeed,
