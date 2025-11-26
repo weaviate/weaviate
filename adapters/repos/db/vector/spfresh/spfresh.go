@@ -71,6 +71,7 @@ type SPFresh struct {
 	vectorSize         int32 // Size of the compressed vectors in bytes
 	distancer          *Distancer
 	quantizer          *compressionhelpers.RotationalQuantizer
+	kmeansPool         *kmeansPool
 	rqActive           atomic.Bool
 
 	// Internal components
