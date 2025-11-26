@@ -306,12 +306,6 @@ func (r *readCloser) Read(p []byte) (n int, err error) {
 
 func (r *readCloser) Close() error { return r.src.Close() }
 
-func (r *readCloser) counter() func() int64 {
-	return func() int64 {
-		return atomic.LoadInt64(&r.n)
-	}
-}
-
 func zipLevel(level int) int {
 	if level < 0 || level > 3 {
 		return gzip.DefaultCompression
