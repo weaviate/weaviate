@@ -18,7 +18,7 @@ import (
 	"github.com/pkg/errors"
 )
 
-func (s *SPFresh) doMerge(postingID uint64) error {
+func (s *SPFresh) doMerge(ctx context.Context, postingID uint64) error {
 	start := time.Now()
 	defer s.metrics.MergeDuration(start)
 
@@ -46,7 +46,7 @@ func (s *SPFresh) doMerge(postingID uint64) error {
 		return nil // Nothing to merge
 	}
 
-	p, err := s.PostingStore.Get(s.ctx, postingID)
+	p, err := s.PostingStore.Get(ctx, postingID)
 	if err != nil {
 		if errors.Is(err, ErrPostingNotFound) {
 			s.logger.WithField("postingID", postingID).
@@ -80,12 +80,12 @@ func (s *SPFresh) doMerge(postingID uint64) error {
 		}
 
 		// persist the gc'ed posting
-		err = s.PostingStore.Put(s.ctx, postingID, newPosting)
+		err = s.PostingStore.Put(ctx, postingID, newPosting)
 		if err != nil {
 			return errors.Wrapf(err, "failed to put filtered posting %d", postingID)
 		}
 		// update the size of the posting after successful Persist
-		return s.PostingSizes.Set(context.TODO(), postingID, uint32(prevLen))
+		return s.PostingSizes.Set(ctx, postingID, uint32(prevLen))
 	}
 
 	vectorSet := make(map[uint64]struct{})
@@ -110,12 +110,12 @@ func (s *SPFresh) doMerge(postingID uint64) error {
 			Debug("No candidates found for merge operation, skipping")
 
 		// persist the gc'ed posting
-		err = s.PostingStore.Put(s.ctx, postingID, newPosting)
+		err = s.PostingStore.Put(ctx, postingID, newPosting)
 		if err != nil {
 			return errors.Wrapf(err, "failed to put filtered posting %d", postingID)
 		}
 		// update the size of the posting after successful Persist
-		err = s.PostingSizes.Set(context.TODO(), postingID, uint32(prevLen))
+		err = s.PostingSizes.Set(ctx, postingID, uint32(prevLen))
 		if err != nil {
 			return errors.Wrapf(err, "failed to set size of posting %d to %d", postingID, prevLen)
 		}
@@ -126,7 +126,7 @@ func (s *SPFresh) doMerge(postingID uint64) error {
 	// first centroid is the query centroid, the rest are candidates for merging
 	for candidateID := range nearest.Iter() {
 		// check if the combined size of the postings is within limits
-		count, err := s.PostingSizes.Get(context.TODO(), candidateID)
+		count, err := s.PostingSizes.Get(ctx, candidateID)
 		if err != nil {
 			return errors.Wrapf(err, "failed to get posting size for candidate %d", candidateID)
 		}
@@ -149,14 +149,14 @@ func (s *SPFresh) doMerge(postingID uint64) error {
 			}
 
 			// get the candidate posting
-			candidate, err := s.PostingStore.Get(s.ctx, candidateID)
+			candidate, err := s.PostingStore.Get(ctx, candidateID)
 			if err != nil {
 				return errors.Wrapf(err, "failed to get candidate posting %d for merge operation on posting %d", candidateID, postingID)
 			}
 
 			var candidateLen int
 			for _, v := range candidate.Iter() {
-				version, err := s.VersionMap.Get(s.ctx, v.ID())
+				version, err := s.VersionMap.Get(ctx, v.ID())
 				if err != nil {
 					return errors.Wrapf(err, "failed to get version for vector %d", v.ID())
 				}
@@ -185,17 +185,17 @@ func (s *SPFresh) doMerge(postingID uint64) error {
 			}
 
 			// persist the merged posting first
-			err = s.PostingStore.Put(s.ctx, largeID, newPosting)
+			err = s.PostingStore.Put(ctx, largeID, newPosting)
 			if err != nil {
 				return errors.Wrapf(err, "failed to put merged posting %d after merge operation", postingID)
 			}
 
 			// set the small posting size to 0 and update the large posting size only after successful persist
-			err = s.PostingSizes.Set(context.TODO(), smallID, 0)
+			err = s.PostingSizes.Set(ctx, smallID, 0)
 			if err != nil {
 				return errors.Wrapf(err, "failed to set size of merged posting %d to 0", smallID)
 			}
-			err = s.PostingSizes.Set(context.TODO(), largeID, uint32(newPosting.Len()))
+			err = s.PostingSizes.Set(ctx, largeID, uint32(newPosting.Len()))
 			if err != nil {
 				return errors.Wrapf(err, "failed to set size of merged posting %d to %d", largeID, newPosting.Len())
 			}
@@ -242,8 +242,8 @@ func (s *SPFresh) doMerge(postingID uint64) error {
 	}
 
 	// if no candidates were found, just persist the gc'ed posting
-	s.PostingSizes.Set(context.TODO(), postingID, uint32(newPosting.Len()))
-	err = s.PostingStore.Put(s.ctx, postingID, newPosting)
+	s.PostingSizes.Set(ctx, postingID, uint32(newPosting.Len()))
+	err = s.PostingStore.Put(ctx, postingID, newPosting)
 	if err != nil {
 		return errors.Wrapf(err, "failed to put filtered posting %d", postingID)
 	}

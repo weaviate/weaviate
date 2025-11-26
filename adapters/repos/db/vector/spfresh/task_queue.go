@@ -223,7 +223,7 @@ func (t *MergeTask) Execute(ctx context.Context) error {
 		return ctx.Err()
 	}
 
-	err := t.idx.doMerge(t.id)
+	err := t.idx.doMerge(ctx, t.id)
 	if err != nil {
 		return err
 	}
