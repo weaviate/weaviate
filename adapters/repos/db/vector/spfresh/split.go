@@ -45,7 +45,7 @@ func (s *SPFresh) doSplit(postingID uint64, reassign bool) error {
 	if err != nil {
 		if errors.Is(err, ErrPostingNotFound) {
 			s.logger.WithField("postingID", postingID).
-				Debug("Posting not found, skipping split operation")
+				Debug("posting not found, skipping split operation")
 			return nil
 		}
 
@@ -88,7 +88,7 @@ func (s *SPFresh) doSplit(postingID uint64, reassign bool) error {
 	// if one of the postings is empty, ignore the split
 	if result[0].Posting.Len() == 0 || result[1].Posting.Len() == 0 {
 		s.logger.WithField("postingID", postingID).
-			Debug("Split resulted in empty posting, skipping split operation")
+			Debug("split resulted in empty posting, skipping split operation")
 		return nil
 	}
 
@@ -264,7 +264,7 @@ func (s *SPFresh) enqueueReassignAfterSplit(oldPostingID uint64, newPostingIDs [
 		if err != nil {
 			if errors.Is(err, ErrPostingNotFound) {
 				s.logger.WithField("postingID", neighborID).
-					Debug("Posting not found, skipping reassign after split")
+					Debug("posting not found, skipping reassign after split")
 				continue // Skip if the posting is not found
 			}
 
