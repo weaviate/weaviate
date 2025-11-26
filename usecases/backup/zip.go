@@ -25,6 +25,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/klauspost/compress/zstd"
 	entBackup "github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/diskio"
 )
@@ -33,37 +34,76 @@ import (
 type CompressionLevel int
 
 const (
-	DefaultCompression CompressionLevel = iota
-	BestSpeed
-	BestCompression
+	GzipDefaultCompression CompressionLevel = iota
+	GzipBestSpeed
+	GzipBestCompression
+	ZstdBestSpeed
+	ZstdDefaultCompression
+	ZstdBestCompression
+	NoCompression
 )
 
-type zip struct {
-	sourcePath string
-	w          *tar.Writer
-	gzw        *gzip.Writer
-	pipeWriter *io.PipeWriter
-	counter    func() int64
+type compressor interface {
+	Flush() error
+	Write(p []byte) (n int, err error)
+	Close() error
 }
 
-func NewZip(sourcePath string, level int) (zip, io.ReadCloser) {
+type zip struct {
+	sourcePath       string
+	w                *tar.Writer
+	compressorWriter compressor
+	pipeWriter       *io.PipeWriter
+	counter          func() int64
+}
+
+func NewZip(sourcePath string, level int) (zip, io.ReadCloser, error) {
 	pr, pw := io.Pipe()
-	gzw, _ := gzip.NewWriterLevel(pw, zipLevel(level))
 	reader := &readCloser{src: pr, n: 0}
 
+	var gzw compressor
+	var tarW *tar.Writer
+
+	switch CompressionLevel(level) {
+	case NoCompression:
+		// produce raw tar stream without compression
+		tarW = tar.NewWriter(pw)
+	case ZstdBestSpeed, ZstdDefaultCompression, ZstdBestCompression:
+		var zstdLevel zstd.EncoderLevel
+		switch CompressionLevel(level) {
+		case ZstdBestSpeed:
+			zstdLevel = zstd.SpeedFastest
+		case ZstdDefaultCompression:
+			zstdLevel = zstd.SpeedDefault
+		case ZstdBestCompression:
+			zstdLevel = zstd.SpeedBetterCompression
+		default: // makes linter happy
+			return zip{}, nil, fmt.Errorf("unknown zstd compression level %v", level)
+		}
+		gzw, _ = zstd.NewWriter(pw, zstd.WithEncoderLevel(zstdLevel))
+		tarW = tar.NewWriter(gzw)
+	case GzipDefaultCompression, GzipBestSpeed, GzipBestCompression:
+		gzw, _ = gzip.NewWriterLevel(pw, zipLevel(level))
+		tarW = tar.NewWriter(gzw)
+	default:
+		return zip{}, nil, fmt.Errorf("unknown compression level %v", level)
+	}
+
 	return zip{
-		sourcePath: sourcePath,
-		gzw:        gzw,
-		w:          tar.NewWriter(gzw),
-		pipeWriter: pw,
-		counter:    reader.counter(),
-	}, reader
+		sourcePath:       sourcePath,
+		compressorWriter: gzw,
+		w:                tarW,
+		pipeWriter:       pw,
+		counter:          reader.counter(),
+	}, reader, nil
 }
 
 func (z *zip) Close() error {
 	var err1, err2, err3 error
 	err1 = z.w.Close()
-	err2 = z.gzw.Close()
+	if z.compressorWriter != nil {
+		err2 = z.compressorWriter.Close()
+	}
 	if err := z.pipeWriter.Close(); err != nil && !errors.Is(err, io.ErrClosedPipe) {
 		err3 = err
 	}
@@ -188,18 +228,33 @@ func (z *zip) lastWritten() int64 {
 	return z.counter()
 }
 
-type unzip struct {
-	destPath   string
-	gzr        *gzip.Reader
-	r          *tar.Reader
-	pipeReader *io.PipeReader
+type zstdWrapper struct {
+	z *zstd.Decoder
 }
 
-func NewUnzip(dst string) (unzip, io.WriteCloser) {
+func (z zstdWrapper) Read(p []byte) (n int, err error) {
+	return z.z.Read(p)
+}
+
+func (z zstdWrapper) Close() error {
+	z.z.Close()
+	return nil
+}
+
+type unzip struct {
+	destPath        string
+	gzr             io.ReadCloser
+	r               *tar.Reader
+	pipeReader      *io.PipeReader
+	compressionType entBackup.CompressionType
+}
+
+func NewUnzip(dst string, compressionType entBackup.CompressionType) (unzip, io.WriteCloser) {
 	pr, pw := io.Pipe()
 	return unzip{
-		destPath:   dst,
-		pipeReader: pr,
+		destPath:        dst,
+		pipeReader:      pr,
+		compressionType: compressionType,
 	}, pw
 }
 
@@ -207,12 +262,26 @@ func (u *unzip) init() error {
 	if u.gzr != nil {
 		return nil
 	}
-	gz, err := gzip.NewReader(u.pipeReader)
-	if err != nil {
-		return fmt.Errorf("gzip.NewReader: %w", err)
+	var dec io.ReadCloser
+	var err error
+	switch u.compressionType {
+	case entBackup.CompressionNone:
+		u.r = tar.NewReader(u.pipeReader)
+		return nil
+	case entBackup.CompressionZSTD:
+		zstdDec, err := zstd.NewReader(u.pipeReader)
+		if err != nil {
+			return fmt.Errorf("zstd.NewReader: %w", err)
+		}
+		dec = zstdWrapper{z: zstdDec}
+	case entBackup.CompressionGZIP:
+		dec, err = gzip.NewReader(u.pipeReader)
+		if err != nil {
+			return fmt.Errorf("gzip.NewReader: %w", err)
+		}
 	}
-	u.gzr = gz
-	u.r = tar.NewReader(gz)
+	u.gzr = dec
+	u.r = tar.NewReader(dec)
 	return nil
 }
 
@@ -324,9 +393,9 @@ func zipLevel(level int) int {
 		return gzip.DefaultCompression
 	}
 	switch CompressionLevel(level) {
-	case BestSpeed:
+	case GzipBestSpeed:
 		return gzip.BestSpeed
-	case BestCompression:
+	case GzipBestCompression:
 		return gzip.BestCompression
 	default:
 		return gzip.DefaultCompression

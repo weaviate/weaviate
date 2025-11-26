@@ -198,7 +198,7 @@ func newUploader(sourcer Sourcer, rbacSourcer fsm.Snapshotter, dynUserSourcer fs
 		sourcer, rbacSourcer, dynUserSourcer, backend,
 		backupID,
 		newZipConfig(Compression{
-			Level:         DefaultCompression,
+			Level:         GzipDefaultCompression,
 			CPUPercentage: DefaultCPUPercentage,
 			ChunkSize:     DefaultChunkSize,
 		}),
@@ -464,7 +464,10 @@ func (u *uploader) compress(ctx context.Context,
 		preCompressionSize atomic.Int64
 		eg                 = enterrors.NewErrorGroupWrapper(u.log)
 	)
-	zip, reader := NewZip(u.backend.SourceDataPath(), u.Level)
+	zip, reader, err := NewZip(u.backend.SourceDataPath(), u.Level)
+	if err != nil {
+		return shards, preCompressionSize.Load(), err
+	}
 	producer := func() error {
 		defer zip.Close()
 		lastShardSize := int64(0)
@@ -486,7 +489,9 @@ func (u *uploader) compress(ctx context.Context,
 			shard.Chunk = chunk
 			shards = append(shards, shard.Name)
 			shard.ClearTemporary()
-			zip.gzw.Flush() // flush new shard
+			if zip.compressorWriter != nil {
+				zip.compressorWriter.Flush() // flush new shard
+			}
 			lastShardSize = zip.lastWritten() - lastShardSize
 			if zip.lastWritten()+lastShardSize > maxSize {
 				break
@@ -571,13 +576,13 @@ func (fw *fileWriter) WithPoolPercentage(p int) *fileWriter {
 func (fw *fileWriter) setMigrator(m func(classPath string) error) { fw.migrator = m }
 
 // Write downloads files and put them in the destination directory
-func (fw *fileWriter) Write(ctx context.Context, desc *backup.ClassDescriptor, overrideBucket, overridePath string) (err error) {
+func (fw *fileWriter) Write(ctx context.Context, desc *backup.ClassDescriptor, overrideBucket, overridePath string, compressionType backup.CompressionType) (err error) {
 	if len(desc.Shards) == 0 { // nothing to copy
 		return nil
 	}
 	classTempDir := path.Join(fw.tempDir, desc.Name)
 
-	if err := fw.writeTempFiles(ctx, classTempDir, overrideBucket, overridePath, desc); err != nil {
+	if err := fw.writeTempFiles(ctx, classTempDir, overrideBucket, overridePath, desc, compressionType); err != nil {
 		return fmt.Errorf("get files: %w", err)
 	}
 
@@ -593,7 +598,7 @@ func (fw *fileWriter) Write(ctx context.Context, desc *backup.ClassDescriptor, o
 // writeTempFiles writes class files into a temporary directory
 // temporary directory path = d.tempDir/className
 // Function makes sure that created files will be removed in case of an error
-func (fw *fileWriter) writeTempFiles(ctx context.Context, classTempDir, overrideBucket, overridePath string, desc *backup.ClassDescriptor) (err error) {
+func (fw *fileWriter) writeTempFiles(ctx context.Context, classTempDir, overrideBucket, overridePath string, desc *backup.ClassDescriptor, compressionType backup.CompressionType) (err error) {
 	if err := os.RemoveAll(classTempDir); err != nil {
 		return fmt.Errorf("remove %s: %w", classTempDir, err)
 	}
@@ -615,12 +620,12 @@ func (fw *fileWriter) writeTempFiles(ctx context.Context, classTempDir, override
 	}
 
 	// source files are compressed
-
 	eg.SetLimit(fw.GoPoolSize)
 	for k := range desc.Chunks {
 		chunk := chunkKey(desc.Name, k)
 		eg.Go(func() error {
-			uz, w := NewUnzip(classTempDir)
+			uz, w := NewUnzip(classTempDir, compressionType)
+
 			enterrors.GoWrapper(func() {
 				fw.backend.Read(ctx, chunk, overrideBucket, overridePath, w)
 			}, fw.logger)
