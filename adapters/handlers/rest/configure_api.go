@@ -49,6 +49,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/clients"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/authz"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc/generated/protocol"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/db_users"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	replicationHandlers "github.com/weaviate/weaviate/adapters/handlers/rest/replication"
@@ -72,7 +73,6 @@ import (
 	"github.com/weaviate/weaviate/entities/replication"
 	vectorIndex "github.com/weaviate/weaviate/entities/vectorindex"
 	grpcconn "github.com/weaviate/weaviate/grpc/conn"
-	pbv1 "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	modstgazure "github.com/weaviate/weaviate/modules/backup-azure"
 	modstgfs "github.com/weaviate/weaviate/modules/backup-filesystem"
 	modstggcs "github.com/weaviate/weaviate/modules/backup-gcs"
@@ -154,6 +154,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"github.com/weaviate/weaviate/usecases/telemetry"
+	"github.com/weaviate/weaviate/usecases/telemetry/opentelemetry"
 	"github.com/weaviate/weaviate/usecases/traverser"
 )
 
@@ -255,6 +256,13 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 
 	// initializing at the top to reflect the config changes before we pass on to different components.
 	initRuntimeOverrides(appState)
+
+	// Initialize OpenTelemetry tracing
+	if err := opentelemetry.Init(appState.Logger); err != nil {
+		appState.Logger.
+			WithField("action", "startup").WithError(err).
+			Error("failed to initialize OpenTelemetry")
+	}
 
 	if appState.ServerConfig.Config.Monitoring.Enabled {
 		appState.HTTPServerMetrics = monitoring.NewHTTPServerMetrics(monitoring.DefaultMetricsNamespace, prometheus.DefaultRegisterer)
@@ -555,7 +563,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		if err != nil {
 			return nil, fmt.Errorf("failed to get gRPC connection: %w", err)
 		}
-		return pbv1.NewFileReplicationServiceClient(clientConn), nil
+		return protocol.NewFileReplicationServiceClient(clientConn), nil
 	}
 
 	var nodeSelector cluster.NodeSelector = appState.Cluster
@@ -663,8 +671,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		schemaManager, repo, appState.Modules, appState.RBAC, appState.APIKey.Dynamic)
 	appState.BackupManager = backupManager
 
-	internalServer := clusterapi.NewServer(appState)
-	appState.InternalServer = internalServer
+	appState.InternalServer = clusterapi.NewServer(appState)
 	enterrors.GoWrapper(func() { appState.InternalServer.Serve() }, appState.Logger)
 
 	vectorRepo.SetSchemaGetter(schemaManager)
@@ -978,6 +985,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			}
 		}
 
+		// Shutdown OTEL tracing
+		if err := opentelemetry.Shutdown(ctx); err != nil {
+			appState.Logger.WithField("action", "stop_opentelemetry").
+				Errorf("failed to stop opentelemetry: %s", err.Error())
+		}
+
 		// stop reindexing on server shutdown
 		appState.ReindexCtxCancel(fmt.Errorf("server shutdown"))
 
@@ -1001,14 +1014,14 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		if err := appState.InternalServer.Close(ctx); err != nil {
 			appState.Logger.
 				WithError(err).
-				WithField("action", "shutdown").
+				WithField("action", "shutdown internal server").
 				Errorf("failed to gracefully shutdown")
 		}
 
 		if err := appState.ClusterService.Close(ctx); err != nil {
 			appState.Logger.
 				WithError(err).
-				WithField("action", "shutdown").
+				WithField("action", "shutdown cluster service").
 				Errorf("failed to gracefully shutdown")
 		}
 
@@ -1119,7 +1132,7 @@ func startupRoutine(ctx context.Context, options *swag.CommandLineOptionsGroup) 
 		nonStorageNodes = parseVotersNames(cfg)
 	}
 
-	clusterState, err := cluster.Init(serverConfig.Config.Cluster, serverConfig.Config.GRPC.Port, serverConfig.Config.Raft.TimeoutsMultiplier.Get(), dataPath, nonStorageNodes, logger)
+	clusterState, err := cluster.Init(serverConfig.Config.Cluster, serverConfig.Config.Raft.TimeoutsMultiplier.Get(), dataPath, nonStorageNodes, logger)
 	if err != nil {
 		logger.WithField("action", "startup").WithError(err).
 			Error("could not init cluster state")
@@ -1838,10 +1851,13 @@ func reasonableHttpClient(authConfig cluster.AuthConfig, minimumInternalTimeout 
 		ExpectContinueTimeout: 1 * time.Second,
 	}
 
+	// Wrap with OpenTelemetry tracing (only has an effect if tracing is enabled)
+	transport := monitoring.NewTracingTransport(t)
+
 	if authConfig.BasicAuth.Enabled() {
-		return &http.Client{Transport: clientWithAuth{r: t, basicAuth: authConfig.BasicAuth}}
+		return &http.Client{Transport: clientWithAuth{r: transport, basicAuth: authConfig.BasicAuth}}
 	}
-	return &http.Client{Transport: t}
+	return &http.Client{Transport: transport}
 }
 
 func setupGoProfiling(config config.Config, logger logrus.FieldLogger) {

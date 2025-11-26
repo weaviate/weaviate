@@ -635,7 +635,7 @@ func (t *ShardReindexTask_MapToBlockmax) OnAfterLsmInitAsync(ctx context.Context
 }
 
 func (t *ShardReindexTask_MapToBlockmax) mergeReindexAndIngestBuckets(ctx context.Context,
-	logger logrus.FieldLogger, shard ShardLike, rt mapToBlockmaxReindexTracker, props []string,
+	logger logrus.FieldLogger, shard *Shard, rt mapToBlockmaxReindexTracker, props []string,
 ) error {
 	lsmPath := shard.pathLSM()
 	segmentPathsToMove := [][2]string{}
@@ -880,14 +880,14 @@ func (t *ShardReindexTask_MapToBlockmax) tidyMapBuckets(ctx context.Context,
 }
 
 func (t *ShardReindexTask_MapToBlockmax) loadReindexSearchBuckets(ctx context.Context,
-	logger logrus.FieldLogger, shard ShardLike, props []string,
+	logger logrus.FieldLogger, shard *Shard, props []string,
 ) error {
 	bucketOpts := t.bucketOptions(shard, lsmkv.StrategyInverted, false, false, t.config.memtableOptBlockmaxFactor)
 	return t.loadBuckets(ctx, logger, shard, props, t.reindexBucketName, bucketOpts)
 }
 
 func (t *ShardReindexTask_MapToBlockmax) loadIngestSearchBuckets(ctx context.Context,
-	logger logrus.FieldLogger, shard ShardLike, props []string,
+	logger logrus.FieldLogger, shard *Shard, props []string,
 	keepLevelCompaction, keepTombstones bool,
 ) error {
 	bucketOpts := t.bucketOptions(shard, lsmkv.StrategyInverted, keepLevelCompaction, keepTombstones, t.config.memtableOptBlockmaxFactor)
@@ -895,7 +895,7 @@ func (t *ShardReindexTask_MapToBlockmax) loadIngestSearchBuckets(ctx context.Con
 }
 
 func (t *ShardReindexTask_MapToBlockmax) loadMapSearchBuckets(ctx context.Context,
-	logger logrus.FieldLogger, shard ShardLike, props []string,
+	logger logrus.FieldLogger, shard *Shard, props []string,
 ) error {
 	bucketOpts := t.bucketOptions(shard, lsmkv.StrategyMapCollection, false, false, 1)
 	return t.loadBuckets(ctx, logger, shard, props, t.mapBucketName, bucketOpts)
@@ -969,7 +969,7 @@ func (t *ShardReindexTask_MapToBlockmax) unloadBuckets(ctx context.Context,
 }
 
 func (t *ShardReindexTask_MapToBlockmax) recoverReindexBucket(ctx context.Context,
-	logger logrus.FieldLogger, shard ShardLike, bucketName string,
+	logger logrus.FieldLogger, shard *Shard, bucketName string,
 ) error {
 	store := shard.Store()
 	bucketOpts := t.bucketOptions(shard, lsmkv.StrategyInverted, true, false, t.config.memtableOptBlockmaxFactor)
@@ -1102,35 +1102,22 @@ func (t *ShardReindexTask_MapToBlockmax) calcPropLenInverted(items []inverted.Co
 	return propLen
 }
 
-func (t *ShardReindexTask_MapToBlockmax) bucketOptions(shard ShardLike, strategy string,
+func (t *ShardReindexTask_MapToBlockmax) bucketOptions(shard *Shard, strategy string,
 	keepLevelCompaction, keepTombstones bool, memtableOptFactor int,
 ) []lsmkv.BucketOption {
-	index := shard.Index()
+	cfg := shard.Index().Config
 
-	opts := []lsmkv.BucketOption{
-		lsmkv.WithDirtyThreshold(time.Duration(index.Config.MemtablesFlushDirtyAfter) * time.Second),
-		lsmkv.WithDynamicMemtableSizing(
-			index.Config.MemtablesInitialSizeMB*memtableOptFactor,
-			index.Config.MemtablesMaxSizeMB*memtableOptFactor,
-			index.Config.MemtablesMinActiveSeconds*memtableOptFactor,
-			index.Config.MemtablesMaxActiveSeconds*memtableOptFactor,
-		),
-		lsmkv.WithPread(index.Config.AvoidMMap),
-		lsmkv.WithAllocChecker(index.allocChecker),
-		lsmkv.WithMaxSegmentSize(index.Config.MaxSegmentSize),
-		lsmkv.WithSegmentsChecksumValidationEnabled(index.Config.LSMEnableSegmentsChecksumValidation),
-		lsmkv.WithStrategy(strategy),
+	return shard.makeDefaultBucketOptions(strategy,
 		lsmkv.WithKeepLevelCompaction(keepLevelCompaction),
 		lsmkv.WithKeepTombstones(keepTombstones),
-		lsmkv.WithWriteSegmentInfoIntoFileName(index.Config.SegmentInfoIntoFileNameEnabled),
-		lsmkv.WithWriteMetadata(index.Config.WriteMetadataFilesEnabled),
-	}
-
-	if strategy == lsmkv.StrategyMapCollection && shard.Versioner().Version() < 2 {
-		opts = append(opts, lsmkv.WithLegacyMapSorting())
-	}
-
-	return opts
+		// overwrite DynamicMemtableSizing
+		lsmkv.WithDynamicMemtableSizing(
+			memtableOptFactor*cfg.MemtablesInitialSizeMB,
+			memtableOptFactor*cfg.MemtablesMaxSizeMB,
+			memtableOptFactor*cfg.MemtablesMinActiveSeconds,
+			memtableOptFactor*cfg.MemtablesMaxActiveSeconds,
+		),
+	)
 }
 
 func (t *ShardReindexTask_MapToBlockmax) reindexBucketName(propName string) string {

@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents/batch"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/vectorizer/batchclip"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -25,7 +26,6 @@ import (
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/modules/multi2vec-cohere/clients"
 	"github.com/weaviate/weaviate/modules/multi2vec-cohere/ent"
-	"github.com/weaviate/weaviate/modules/multi2vec-cohere/vectorizer"
 )
 
 const Name = "multi2vec-cohere"
@@ -35,7 +35,7 @@ func New() *Module {
 }
 
 type Module struct {
-	vectorizer               *vectorizer.Vectorizer
+	vectorizer               batchclip.Vectorizer[[]float32]
 	nearImageGraphqlProvider modulecapabilities.GraphQLArguments
 	nearImageSearcher        modulecapabilities.Searcher[[]float32]
 	nearTextGraphqlProvider  modulecapabilities.GraphQLArguments
@@ -46,7 +46,7 @@ type Module struct {
 }
 
 type metaClient interface {
-	MetaInfo() (map[string]interface{}, error)
+	MetaInfo() (map[string]any, error)
 }
 
 func (m *Module) Name() string {
@@ -97,7 +97,7 @@ func (m *Module) initVectorizer(ctx context.Context, timeout time.Duration,
 	apiKey := os.Getenv("COHERE_APIKEY")
 	client := clients.New(apiKey, timeout, logger)
 
-	m.vectorizer = vectorizer.New(client)
+	m.vectorizer = batchclip.New(Name, client)
 	m.metaClient = client
 
 	return nil
@@ -110,7 +110,7 @@ func (m *Module) VectorizeObject(ctx context.Context,
 }
 
 func (m *Module) VectorizeBatch(ctx context.Context, objs []*models.Object, skipObject []bool, cfg moduletools.ClassConfig) ([][]float32, []models.AdditionalProperties, map[int]error) {
-	return batch.VectorizeBatch(ctx, objs, skipObject, cfg, m.logger, m.vectorizer.Object)
+	return batch.VectorizeBatchObjects(ctx, objs, skipObject, cfg, m.logger, m.vectorizer.Objects, 10)
 }
 
 func (m *Module) VectorizableProperties(cfg moduletools.ClassConfig) (bool, []string, error) {
@@ -119,7 +119,7 @@ func (m *Module) VectorizableProperties(cfg moduletools.ClassConfig) (bool, []st
 	return false, mediaProps, err
 }
 
-func (m *Module) MetaInfo() (map[string]interface{}, error) {
+func (m *Module) MetaInfo() (map[string]any, error) {
 	return m.metaClient.MetaInfo()
 }
 
