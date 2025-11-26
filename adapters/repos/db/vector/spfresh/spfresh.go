@@ -35,8 +35,7 @@ import (
 )
 
 const (
-	reassignThreshold = 3        // Fine-tuned threshold to avoid unnecessary splits during reassign operations
-	splitReuseEpsilon = 0.000001 // Epsilon to determine if a split can reuse the existing posting
+	reassignThreshold = 3 // Fine-tuned threshold to avoid unnecessary splits during reassign operations
 )
 
 var (

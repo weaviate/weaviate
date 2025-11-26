@@ -19,13 +19,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 )
 
-func abs(a float32) float32 {
-	if a < 0 {
-		return -a
-	}
-	return a
-}
-
 // doSplit performs the actual split operation for a given postingID.
 // If reassign is true, it will enqueue reassign operations for vectors that
 // may need to be moved to other postings after the split.
@@ -118,37 +111,7 @@ func (s *SPFresh) doSplit(postingID uint64, reassign bool) error {
 	}
 
 	newPostingIDs := make([]uint64, 2)
-	var postingReused bool
 	for i := range 2 {
-		// if the centroid of the existing posting is close enough to one of the new centroids
-		// we can reuse the existing posting
-		if !postingReused {
-			existingCentroid := s.Centroids.Get(postingID)
-			dist, err := s.distancer.DistanceBetweenVectors(existingCentroid.Uncompressed, result[i].Uncompressed)
-			if err != nil {
-				return errors.Wrapf(err, "failed to compute distance for split operation on posting %d", postingID)
-			}
-
-			if abs(dist) < splitReuseEpsilon {
-				s.logger.WithField("postingID", postingID).
-					WithField("distance", dist).
-					Debug("reusing existing posting for split operation")
-				postingReused = true
-				newPostingIDs[i] = postingID
-				err = s.PostingStore.Put(s.ctx, postingID, result[i].Posting)
-				if err != nil {
-					return errors.Wrapf(err, "failed to put reused posting %d after split operation", postingID)
-				}
-				// update posting size after successful persist
-				err = s.PostingSizes.Set(context.TODO(), postingID, uint32(result[i].Posting.Len()))
-				if err != nil {
-					return errors.Wrapf(err, "failed to set posting size for reused posting %d after split operation", postingID)
-				}
-
-				continue
-			}
-		}
-
 		// otherwise, we need to create a new posting for the new centroid
 		newPostingID := s.IDs.Next()
 		newPostingIDs[i] = newPostingID
@@ -173,16 +136,14 @@ func (s *SPFresh) doSplit(postingID uint64, reassign bool) error {
 		}
 	}
 
-	if !postingReused {
-		// delete the old centroid if it wasn't reused
-		err = s.Centroids.MarkAsDeleted(postingID)
-		if err != nil {
-			return errors.Wrapf(err, "failed to delete old centroid %d after split operation", postingID)
-		}
-		err = s.PostingSizes.Set(context.TODO(), postingID, 0)
-		if err != nil {
-			return errors.Wrapf(err, "failed to set posting size for posting %d after split operation", postingID)
-		}
+	// delete the old centroid
+	err = s.Centroids.MarkAsDeleted(postingID)
+	if err != nil {
+		return errors.Wrapf(err, "failed to delete old centroid %d after split operation", postingID)
+	}
+	err = s.PostingSizes.Set(context.TODO(), postingID, 0)
+	if err != nil {
+		return errors.Wrapf(err, "failed to set posting size for posting %d after split operation", postingID)
 	}
 
 	// Mark the split operation as done
