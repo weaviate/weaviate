@@ -96,7 +96,9 @@ func (s *SPFresh) doMerge(ctx context.Context, postingID uint64) error {
 	// get posting centroid
 	oldCentroid := s.Centroids.Get(postingID)
 	if oldCentroid == nil {
-		return errors.Errorf("centroid not found for posting %d", postingID)
+		s.logger.WithField("postingID", postingID).
+			Debug("posting centroid not found, skipping merge operation")
+		return nil
 	}
 
 	// search for the closest centroids
