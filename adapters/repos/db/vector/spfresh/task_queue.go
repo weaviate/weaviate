@@ -109,6 +109,10 @@ func (tq *TaskQueue) Close() error {
 	return stderrors.Join(errs...)
 }
 
+func (tq *TaskQueue) Size() int64 {
+	return tq.q.Size() + tq.qMerge.Size()
+}
+
 func (tq *TaskQueue) SplitDone(postingID uint64) {
 	tq.splitList.done(postingID)
 }
