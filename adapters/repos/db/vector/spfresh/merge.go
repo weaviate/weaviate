@@ -24,7 +24,7 @@ func (s *SPFresh) doMerge(ctx context.Context, postingID uint64) error {
 
 	defer s.taskQueue.MergeDone(postingID)
 
-	s.logger.WithField("postingID", postingID).Debug("Merging posting")
+	s.logger.WithField("postingID", postingID).Debug("merging posting")
 
 	var markedAsDone bool
 	if !s.postingLocks.TryLock(postingID) {
@@ -42,7 +42,7 @@ func (s *SPFresh) doMerge(ctx context.Context, postingID uint64) error {
 	// Ensure the posting exists in the index
 	if !s.Centroids.Exists(postingID) {
 		s.logger.WithField("postingID", postingID).
-			Debug("Posting not found, skipping merge operation")
+			Debug("posting not found, skipping merge operation")
 		return nil // Nothing to merge
 	}
 
@@ -50,7 +50,7 @@ func (s *SPFresh) doMerge(ctx context.Context, postingID uint64) error {
 	if err != nil {
 		if errors.Is(err, ErrPostingNotFound) {
 			s.logger.WithField("postingID", postingID).
-				Debug("Posting not found, skipping merge operation")
+				Debug("posting not found, skipping merge operation")
 			return nil
 		}
 
@@ -72,7 +72,7 @@ func (s *SPFresh) doMerge(ctx context.Context, postingID uint64) error {
 			WithField("postingID", postingID).
 			WithField("size", prevLen).
 			WithField("min", s.minPostingSize).
-			Debug("Posting is big enough, skipping merge operation")
+			Debug("posting is big enough, skipping merge operation")
 
 		if prevLen == initialLen {
 			// no changes, just return
@@ -107,7 +107,7 @@ func (s *SPFresh) doMerge(ctx context.Context, postingID uint64) error {
 
 	if nearest.Len() <= 1 {
 		s.logger.WithField("postingID", postingID).
-			Debug("No candidates found for merge operation, skipping")
+			Debug("no candidates found for merge operation, skipping")
 
 		// persist the gc'ed posting
 		err = s.PostingStore.Put(ctx, postingID, newPosting)
