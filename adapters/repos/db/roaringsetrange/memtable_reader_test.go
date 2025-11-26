@@ -12,12 +12,12 @@
 package roaringsetrange
 
 import (
+	"context"
 	"testing"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/entities/filters"
-	"golang.org/x/net/context"
 )
 
 func TestMemtableReader(t *testing.T) {
