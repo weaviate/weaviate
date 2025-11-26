@@ -37,10 +37,7 @@ type TaskQueue struct {
 	mergeList    *deduplicator // Prevents duplicate merge operations
 }
 
-func NewTaskQueue(
-	spfreshIndex *SPFresh,
-	targetVector string,
-) (*TaskQueue, error) {
+func NewTaskQueue(spfreshIndex *SPFresh) (*TaskQueue, error) {
 	opq := TaskQueue{
 		spfreshIndex: spfreshIndex,
 		scheduler:    spfreshIndex.scheduler,
