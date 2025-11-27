@@ -10,8 +10,8 @@ import (
 // and it's designed to ensure the following properties:
 // 1. Monotonicity: Each generated id is guaranteed to be greater than
 // the previously generated id.
-// 2. High Throughput: The generator is optimized for high performance
-// 3. Persistence: The state of the generator is persisted to disk.
+// 2. Persistence: The state of the generator is persisted to disk.
+// 3. High Throughput: The generator is optimized for high performance
 // 4. Concurrency: The generator is safe for concurrent access.
 // However because of its design, it does not guarantee gapless ids.
 //
@@ -25,4 +25,11 @@ import (
 type Sequence struct {
 	counter    MonotonicCounter
 	upperBound atomic.Uint64
+}
+
+// SequenceStore defines the interface for persisting the state of a Sequence.
+// Implementations don't need to be thread-safe.
+type SequenceStore interface {
+	Store(current uint64) error
+	Load() (uint64, error)
 }
