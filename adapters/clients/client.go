@@ -104,7 +104,10 @@ func newRetryer() *retryer {
 	}
 }
 
-// n is the number of retries, work will always be called at least once.
+// n is the maximum number of retries (work will always be called at least once, so total attempts = n).
+//
+//	The retry uses exponential backoff with a maximum attempt limit. A safety MaxElapsedTime is also set
+//	to prevent retries from running indefinitely if operations take a very long time.
 func (r *retryer) retry(ctx context.Context, n int, work func(context.Context) (bool, error)) error {
 	exp := backoff.NewExponentialBackOff()
 	exp.InitialInterval = r.minBackOff
@@ -117,7 +120,7 @@ func (r *retryer) retry(ctx context.Context, n int, work func(context.Context) (
 			return backoff.Permanent(err)
 		}
 		return err
-	}, backoff.WithContext(exp, ctx))
+	}, backoff.WithContext(backoff.WithMaxRetries(exp, uint64(n)), ctx))
 }
 
 func successCode(code int) bool {

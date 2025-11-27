@@ -103,3 +103,21 @@ func TestRetry_ExhaustsAndReturnsLastError(t *testing.T) {
 	// Should complete quickly given tiny backoff
 	require.Less(t, elapsed, time.Second)
 }
+
+func TestRetry_ContextCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	r := createRetryerWithTinyBackoff()
+	var calls int32
+
+	work := func(ctx context.Context) (bool, error) {
+		c := atomic.AddInt32(&calls, 1)
+		if c == 2 {
+			cancel() // cancel after second call
+		}
+		return true, errors.New("keep retrying")
+	}
+
+	err := r.retry(ctx, 10, work)
+	require.Error(t, err)
+	require.ErrorIs(t, err, context.Canceled)
+}
