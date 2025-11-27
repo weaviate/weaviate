@@ -100,7 +100,7 @@ func (s *SPFresh) doSplit(ctx context.Context, postingID uint64, reassign bool) 
 			WithError(err).
 			Debug("cannot split posting: contains identical vectors, keeping only one vector")
 
-		pp := &EncodedPosting{
+		pp := &Posting{
 			vectorSize: int(s.vectorSize),
 		}
 		pp.AddVector(filtered.GetAt(0))
@@ -205,13 +205,10 @@ func (s *SPFresh) doSplit(ctx context.Context, postingID uint64, reassign bool) 
 // splitPosting takes a posting and returns two groups.
 // If the clustering fails because of the content of the posting,
 // it returns ErrIdenticalVectors.
-func (s *SPFresh) splitPosting(posting Posting) ([]SplitResult, error) {
+func (s *SPFresh) splitPosting(posting *Posting) ([]SplitResult, error) {
 	enc := compressionhelpers.NewKMeansEncoder(2, int(s.dims), 0)
 
-	var data [][]float32
-	if cp, ok := posting.(*EncodedPosting); ok {
-		data = cp.Uncompress(s.quantizer)
-	}
+	data := posting.Uncompress(s.quantizer)
 
 	err := enc.Fit(data)
 	if err != nil {
@@ -222,7 +219,7 @@ func (s *SPFresh) splitPosting(posting Posting) ([]SplitResult, error) {
 	for i := range results {
 		results[i] = SplitResult{
 			Uncompressed: enc.Centroid(byte(i)),
-			Posting: &EncodedPosting{
+			Posting: &Posting{
 				vectorSize: int(s.vectorSize),
 			},
 		}
@@ -258,7 +255,7 @@ func (s *SPFresh) splitPosting(posting Posting) ([]SplitResult, error) {
 type SplitResult struct {
 	Centroid     []byte
 	Uncompressed []float32
-	Posting      Posting
+	Posting      *Posting
 }
 
 func (s *SPFresh) enqueueReassignAfterSplit(ctx context.Context, oldPostingID uint64, newPostingIDs []uint64, newPostings []SplitResult) error {
