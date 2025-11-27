@@ -133,6 +133,12 @@ type PostingIDStore struct {
 	idx *SPFresh
 }
 
+func (s *SPFresh) NewPostingIDStore() *PostingIDStore {
+	return &PostingIDStore{
+		idx: s,
+	}
+}
+
 func (s *PostingIDStore) Store(upperBound uint64) error {
 	err := s.idx.openMetadata()
 	if err != nil {
