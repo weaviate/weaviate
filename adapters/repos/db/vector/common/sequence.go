@@ -144,9 +144,9 @@ func (s *BoltStore) Store(upperBound uint64) error {
 				return err
 			}
 		}
-		buf := make([]byte, 8)
-		binary.LittleEndian.PutUint64(buf, upperBound)
-		return b.Put(s.key, buf)
+		var buf [8]byte
+		binary.LittleEndian.PutUint64(buf[:], upperBound)
+		return b.Put(s.key, buf[:])
 	})
 }
 
