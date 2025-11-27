@@ -224,7 +224,7 @@ func (s *s3Client) PutObject(ctx context.Context, backupID, key, overrideBucket,
 	opt := minio.PutObjectOptions{
 		ContentType:    "application/octet-stream",
 		PartSize:       MINIO_MIN_PART_SIZE,
-		SendContentMd5: true,
+		SendContentMd5: false, // allow streaming multipart without buffering entire object
 	}
 	reader := bytes.NewReader(byes)
 	objectSize := int64(len(byes))
@@ -313,7 +313,7 @@ func (s *s3Client) Write(ctx context.Context, backupID, key, overrideBucket, ove
 		ContentType:      "application/octet-stream",
 		DisableMultipart: false,
 		PartSize:         MINIO_MIN_PART_SIZE,
-		SendContentMd5:   true,
+		SendContentMd5:   false, // allow streaming multipart without buffering entire object
 	}
 
 	if overridePath != "" {
