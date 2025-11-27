@@ -44,6 +44,11 @@ type Client[T dto.Embedding] interface {
 	) (*modulecomponents.VectorizationResult[T], error)
 }
 
+type batchObject struct {
+	index   int
+	isEmpty bool
+}
+
 type BatchTextVectorizer[T dto.Embedding] struct {
 	moduleName       string
 	altNames         []string
@@ -96,18 +101,42 @@ func (v *BatchTextVectorizer[T]) objects(ctx context.Context, objects []*models.
 ) ([]T, error) {
 	icheck := settings.NewBaseClassSettingsWithAltNames(cfg, v.lowerCaseInput, v.moduleName, v.altNames, nil)
 	titleProperty := icheck.GetPropertyAsString("titleProperty", "")
-	inputs := make([]string, len(objects))
+	batchObjects := make([]*batchObject, len(objects))
+	inputs := make([]string, 0)
+	inputIndex := 0
 	for i := range objects {
 		corpi, _ := v.objectVectorizer.TextsWithTitleProperty(ctx, objects[i], icheck, titleProperty)
-		inputs[i] = corpi
+		if corpi == "" {
+			batchObjects[i] = &batchObject{isEmpty: true}
+		} else {
+			inputs = append(inputs, corpi)
+			batchObjects[i] = &batchObject{index: inputIndex}
+			inputIndex++
+		}
 	}
 
-	res, _, _, err := v.client.Vectorize(ctx, inputs, cfg)
-	if err != nil {
-		return nil, fmt.Errorf("failed to vectorize batch of objects: %w", err)
+	var res *modulecomponents.VectorizationResult[T]
+	var err error
+	if len(inputs) > 0 {
+		res, _, _, err = v.client.Vectorize(ctx, inputs, cfg)
+		if err != nil {
+			return nil, fmt.Errorf("failed to vectorize batch of objects: %w", err)
+		}
+		if len(res.Vector) != len(inputs) {
+			return nil, fmt.Errorf("failed to vectorize all %v texts got only %v embeddings", len(inputs), len(res.Vector))
+		}
 	}
 
-	return res.Vector, nil
+	results := make([]T, len(batchObjects))
+	for i := range batchObjects {
+		if batchObjects[i].isEmpty {
+			results[i] = nil
+		} else {
+			results[i] = res.Vector[batchObjects[i].index]
+		}
+	}
+
+	return results, nil
 }
 
 func (v *BatchTextVectorizer[T]) texts(ctx context.Context, input []string, cfg moduletools.ClassConfig,
