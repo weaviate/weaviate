@@ -1,6 +1,7 @@
 package common
 
 import (
+	"sync"
 	"sync/atomic"
 )
 
@@ -24,7 +25,9 @@ import (
 type Sequence struct {
 	counter    *MonotonicCounter
 	upperBound atomic.Uint64
+	rangeSize  uint64
 	store      SequenceStore
+	mu         sync.Mutex
 }
 
 // SequenceStore defines the interface for persisting the state of a Sequence.
@@ -42,10 +45,44 @@ func NewSequence(store SequenceStore, rangeSize uint64) (*Sequence, error) {
 	}
 
 	seq := Sequence{
-		counter: NewMonotonicCounter(upperBound),
-		store:   store,
+		counter:   NewMonotonicCounter(upperBound),
+		rangeSize: rangeSize,
+		store:     store,
 	}
 	seq.upperBound.Store(upperBound)
 
 	return &seq, nil
+}
+
+// Next returns the next value in the sequence.
+// Most of the time it will be served from memory without
+// touching the disk.
+func (s *Sequence) Next() (uint64, error) {
+	next := s.counter.Next()
+	// fast path
+	if next < s.upperBound.Load() {
+		return next, nil
+	}
+
+	for next >= s.upperBound.Load() {
+		s.mu.Lock()
+		// re-check after acquiring the lock
+		if next < s.upperBound.Load() {
+			s.mu.Unlock()
+			break
+		}
+
+		// allocate a new range
+		newUpperBound := s.upperBound.Load() + s.rangeSize
+		err := s.store.Store(newUpperBound)
+		if err != nil {
+			s.mu.Unlock()
+			return 0, err
+		}
+
+		s.upperBound.Store(newUpperBound)
+		s.mu.Unlock()
+	}
+
+	return next, nil
 }
