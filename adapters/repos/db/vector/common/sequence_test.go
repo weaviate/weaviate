@@ -148,3 +148,47 @@ func TestSequence_Flush(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, uint64(5), store.upperBound)
 }
+
+func TestSequence_Restart(t *testing.T) {
+	var store dummyStore
+
+	seq, err := NewSequence(&store, 4)
+	require.NoError(t, err)
+
+	for i := 1; i <= 7; i++ {
+		v, err := seq.Next()
+		require.NoError(t, err)
+		require.Equal(t, uint64(i), v)
+	}
+
+	require.Equal(t, uint64(8), store.upperBound)
+
+	err = seq.Flush()
+	require.NoError(t, err)
+	require.Equal(t, uint64(7), store.upperBound)
+
+	// create a new sequence to simulate a restart
+	seq, err = NewSequence(&store, 4)
+	require.NoError(t, err)
+
+	require.Equal(t, uint64(7), seq.upperBound.Load())
+
+	for i := 8; i <= 10; i++ {
+		v, err := seq.Next()
+		require.NoError(t, err)
+		require.Equal(t, uint64(i), v)
+	}
+
+	require.Equal(t, uint64(11), store.upperBound)
+
+	// restart again, but this time without flushing
+	seq, err = NewSequence(&store, 4)
+	require.NoError(t, err)
+
+	require.Equal(t, uint64(11), seq.upperBound.Load())
+
+	v, err := seq.Next()
+	require.NoError(t, err)
+	require.Equal(t, uint64(12), v)
+	require.Equal(t, uint64(15), store.upperBound)
+}
