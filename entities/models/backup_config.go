@@ -39,9 +39,7 @@ type BackupConfig struct {
 	// Minimum: 1
 	CPUPercentage int64 `json:"CPUPercentage,omitempty"`
 
-	// Aimed chunk size, with a minimum of 2MB, default of 128MB, and a maximum of 512MB. The actual chunk size may vary.
-	// Maximum: 512
-	// Minimum: 2
+	// Deprecated, has no effect.
 	ChunkSize int64 `json:"ChunkSize,omitempty"`
 
 	// compression level used by compression algorithm
@@ -60,10 +58,6 @@ func (m *BackupConfig) Validate(formats strfmt.Registry) error {
 	var res []error
 
 	if err := m.validateCPUPercentage(formats); err != nil {
-		res = append(res, err)
-	}
-
-	if err := m.validateChunkSize(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -87,22 +81,6 @@ func (m *BackupConfig) validateCPUPercentage(formats strfmt.Registry) error {
 	}
 
 	if err := validate.MaximumInt("CPUPercentage", "body", m.CPUPercentage, 80, false); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (m *BackupConfig) validateChunkSize(formats strfmt.Registry) error {
-	if swag.IsZero(m.ChunkSize) { // not required
-		return nil
-	}
-
-	if err := validate.MinimumInt("ChunkSize", "body", m.ChunkSize, 2, false); err != nil {
-		return err
-	}
-
-	if err := validate.MaximumInt("ChunkSize", "body", m.ChunkSize, 512, false); err != nil {
 		return err
 	}
 

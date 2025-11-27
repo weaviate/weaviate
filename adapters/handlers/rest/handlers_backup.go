@@ -40,17 +40,12 @@ func compressionFromBCfg(cfg *models.BackupConfig) ubak.Compression {
 			cfg.CPUPercentage = ubak.DefaultCPUPercentage
 		}
 
-		if cfg.ChunkSize == 0 {
-			cfg.ChunkSize = ubak.DefaultChunkSize
-		}
-
 		if cfg.CompressionLevel == "" {
 			cfg.CompressionLevel = models.BackupConfigCompressionLevelDefaultCompression
 		}
 
 		return ubak.Compression{
 			CPUPercentage: int(cfg.CPUPercentage),
-			ChunkSize:     int(cfg.ChunkSize),
 			Level:         parseCompressionLevel(cfg.CompressionLevel),
 		}
 	}
@@ -58,7 +53,6 @@ func compressionFromBCfg(cfg *models.BackupConfig) ubak.Compression {
 	return ubak.Compression{
 		Level:         ubak.GzipDefaultCompression,
 		CPUPercentage: ubak.DefaultCPUPercentage,
-		ChunkSize:     ubak.DefaultChunkSize,
 	}
 }
 
@@ -71,14 +65,12 @@ func compressionFromRCfg(cfg *models.RestoreConfig) ubak.Compression {
 		return ubak.Compression{
 			CPUPercentage: int(cfg.CPUPercentage),
 			Level:         ubak.GzipDefaultCompression,
-			ChunkSize:     ubak.DefaultChunkSize,
 		}
 	}
 
 	return ubak.Compression{
 		Level:         ubak.GzipDefaultCompression,
 		CPUPercentage: ubak.DefaultCPUPercentage,
-		ChunkSize:     ubak.DefaultChunkSize,
 	}
 }
 

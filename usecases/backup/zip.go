@@ -54,7 +54,6 @@ type zip struct {
 	w                *tar.Writer
 	compressorWriter compressor
 	pipeWriter       *io.PipeWriter
-	counter          func() int64
 }
 
 func NewZip(sourcePath string, level int) (zip, io.ReadCloser, error) {
@@ -94,7 +93,6 @@ func NewZip(sourcePath string, level int) (zip, io.ReadCloser, error) {
 		compressorWriter: gzw,
 		w:                tarW,
 		pipeWriter:       pw,
-		counter:          reader.counter(),
 	}, reader, nil
 }
 
@@ -221,11 +219,6 @@ func (z *zip) writeOne(ctx context.Context, info fs.FileInfo, relPath string, r 
 		return written, fmt.Errorf("copy: %s %w", relPath, err)
 	}
 	return written, err
-}
-
-// lastWritten number of bytes
-func (z *zip) lastWritten() int64 {
-	return z.counter()
 }
 
 type zstdWrapper struct {
@@ -382,12 +375,6 @@ func (r *readCloser) Read(p []byte) (n int, err error) {
 
 func (r *readCloser) Close() error { return r.src.Close() }
 
-func (r *readCloser) counter() func() int64 {
-	return func() int64 {
-		return atomic.LoadInt64(&r.n)
-	}
-}
-
 func zipLevel(level int) int {
 	if level < 0 || level > 3 {
 		return gzip.DefaultCompression
@@ -405,24 +392,11 @@ func zipLevel(level int) int {
 type zipConfig struct {
 	Level      int
 	GoPoolSize int
-	ChunkSize  int
 }
 
 func newZipConfig(c Compression) zipConfig {
-	// convert from MB to byte because input already
-	// in MB and validated against min:2 max:512
-	switch c.ChunkSize = c.ChunkSize * 1024 * 1024; {
-	case c.ChunkSize == 0:
-		c.ChunkSize = DefaultChunkSize
-	case c.ChunkSize > maxChunkSize:
-		c.ChunkSize = maxChunkSize
-	case c.ChunkSize < minChunkSize:
-		c.ChunkSize = minChunkSize
-	}
-
 	return zipConfig{
 		Level:      int(c.Level),
 		GoPoolSize: routinePoolSize(c.CPUPercentage),
-		ChunkSize:  c.ChunkSize,
 	}
 }

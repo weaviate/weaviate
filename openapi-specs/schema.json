@@ -1727,12 +1727,10 @@
           "x-nullable": false
         },
         "ChunkSize": {
-          "description": "Aimed chunk size, with a minimum of 2MB, default of 128MB, and a maximum of 512MB. The actual chunk size may vary.",
+          "description": "Deprecated, has no effect.",
           "type": "integer",
-          "default": 128,
-          "minimum": 2,
-          "maximum": 512,
-          "x-nullable": false
+          "x-nullable": false,
+          "x-deprecated": true
         },
         "CompressionLevel": {
           "description": "compression level used by compression algorithm",

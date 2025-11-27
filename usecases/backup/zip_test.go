@@ -197,28 +197,23 @@ func TestZipConfig(t *testing.T) {
 		chunkSize  int
 		percentage int
 
-		expectedChunkSize int
-		minPoolSize       int
-		maxPoolSize       int
+		minPoolSize int
+		maxPoolSize int
 	}{
-		{0, 0, DefaultChunkSize, 1, _NUMCPU / 2},
-		{2 - 1, 50, minChunkSize, _NUMCPU / 2, _NUMCPU},
-		{512 + 1, 50, maxChunkSize, _NUMCPU / 2, _NUMCPU},
-		{2, 0, minChunkSize, 1, _NUMCPU / 2},
-		{1, 100, minChunkSize, 1, _NUMCPU},
-		{100, 0, 100 * 1024 * 1024, 1, _NUMCPU / 2}, // 100 MB
-		{513, 0, maxChunkSize, 1, _NUMCPU / 2},
+		{0, 0, 1, _NUMCPU / 2},
+		{2 - 1, 50, _NUMCPU / 2, _NUMCPU},
+		{512 + 1, 50, _NUMCPU / 2, _NUMCPU},
+		{2, 0, 1, _NUMCPU / 2},
+		{1, 100, 1, _NUMCPU},
+		{100, 0, 1, _NUMCPU / 2}, // 100 MB
+		{513, 0, 1, _NUMCPU / 2},
 	}
 
 	for i, test := range tests {
 		got := newZipConfig(Compression{
 			Level:         GzipBestSpeed,
 			CPUPercentage: test.percentage,
-			ChunkSize:     test.chunkSize,
 		})
-		if got.ChunkSize != test.expectedChunkSize {
-			t.Errorf("%d. chunk size got=%v want=%v", i, got.ChunkSize, test.expectedChunkSize)
-		}
 		if n := test.minPoolSize; got.GoPoolSize < n {
 			t.Errorf("%d. min pool size got=%d  want>=%d", i, got.GoPoolSize, n)
 		}
