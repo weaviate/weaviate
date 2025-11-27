@@ -2,9 +2,11 @@ package common
 
 import (
 	"fmt"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	bolt "go.etcd.io/bbolt"
 )
 
 var _ SequenceStore = (*dummyStore)(nil)
@@ -149,6 +151,33 @@ func TestSequence_Flush(t *testing.T) {
 	require.Equal(t, uint64(5), store.upperBound)
 }
 
+func TestSequence_BoltStore(t *testing.T) {
+	db, err := bolt.Open(filepath.Join(t.TempDir(), "bolt.db"), 0600, nil)
+	require.NoError(t, err)
+	defer db.Close()
+
+	store := NewBoltStore(db, []byte("bucket"), []byte("key"))
+	seq, err := NewSequence(store, 4)
+	require.NoError(t, err)
+
+	for i := 1; i <= 7; i++ {
+		v, err := seq.Next()
+		require.NoError(t, err)
+		require.Equal(t, uint64(i), v)
+	}
+
+	upperBound, err := store.Load()
+	require.NoError(t, err)
+	require.Equal(t, uint64(8), upperBound)
+
+	err = seq.Flush()
+	require.NoError(t, err)
+
+	upperBound, err = store.Load()
+	require.NoError(t, err)
+	require.Equal(t, uint64(7), upperBound)
+}
+
 func TestSequence_Restart(t *testing.T) {
 	var store dummyStore
 
@@ -194,12 +223,16 @@ func TestSequence_Restart(t *testing.T) {
 }
 
 func BenchmarkSequence_Next(b *testing.B) {
-	rngs := []uint64{1, 10, 100, 1000}
+	rngs := []uint64{1, 64, 128, 512, 1024, 4096}
 	for _, r := range rngs {
 		b.Run(fmt.Sprintf("sequence=%d", r), func(b *testing.B) {
-			var store dummyStore
+			db, err := bolt.Open(filepath.Join(b.TempDir(), "bolt.db"), 0600, nil)
+			require.NoError(b, err)
+			defer db.Close()
 
-			seq, err := NewSequence(&store, r)
+			store := NewBoltStore(db, []byte("bucket"), []byte("key"))
+
+			seq, err := NewSequence(store, r)
 			require.NoError(b, err)
 
 			for b.Loop() {

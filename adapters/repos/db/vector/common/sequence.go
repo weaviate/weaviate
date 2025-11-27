@@ -108,20 +108,20 @@ type SequenceStore interface {
 	Load() (uint64, error)
 }
 
-const (
-	DefaultSequenceKey = "sequence_upper_bound"
-)
+var _ SequenceStore = (*BoltStore)(nil)
 
 // BoltStore is a SequenceStore implementation that uses BoltDB as the backend.
 type BoltStore struct {
 	db     *bolt.DB
 	bucket []byte
+	key    []byte
 }
 
-func NewBoltStore(db *bolt.DB, bucket []byte) *BoltStore {
+func NewBoltStore(db *bolt.DB, bucket, key []byte) *BoltStore {
 	return &BoltStore{
 		db:     db,
 		bucket: bucket,
+		key:    key,
 	}
 }
 
@@ -137,7 +137,7 @@ func (s *BoltStore) Store(upperBound uint64) error {
 		}
 		buf := make([]byte, 8)
 		binary.LittleEndian.PutUint64(buf, upperBound)
-		return b.Put([]byte(DefaultSequenceKey), buf)
+		return b.Put(s.key, buf)
 	})
 }
 
@@ -149,7 +149,7 @@ func (s *BoltStore) Load() (uint64, error) {
 			upperBound = 0
 			return nil
 		}
-		data := b.Get([]byte(DefaultSequenceKey))
+		data := b.Get(s.key)
 		if data == nil {
 			upperBound = 0
 			return nil
