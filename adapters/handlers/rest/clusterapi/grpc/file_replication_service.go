@@ -24,22 +24,20 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// fileChunkSize defines the size of each file chunk sent over gRPC.
-// Currently set to 64 KB, which is a reasonable size for network transmission.
-// It can be made configurable in the future if needed.
-const fileChunkSize = 64 * 1024 // 64 KB
-
 type FileReplicationService struct {
 	pb.UnimplementedFileReplicationServiceServer
 
 	repo   sharding.RemoteIncomingRepo
 	schema sharding.RemoteIncomingSchema
+
+	fileChunkSize int
 }
 
-func NewFileReplicationService(repo sharding.RemoteIncomingRepo, schema sharding.RemoteIncomingSchema) *FileReplicationService {
+func NewFileReplicationService(repo sharding.RemoteIncomingRepo, schema sharding.RemoteIncomingSchema, fileChunkSize int) *FileReplicationService {
 	return &FileReplicationService{
-		repo:   repo,
-		schema: schema,
+		repo:          repo,
+		schema:        schema,
+		fileChunkSize: fileChunkSize,
 	}
 }
 
@@ -171,7 +169,7 @@ func (fps *FileReplicationService) GetFile(stream pb.FileReplicationService_GetF
 			}
 			defer fileReader.Close()
 
-			buf := make([]byte, fileChunkSize)
+			buf := make([]byte, fps.fileChunkSize)
 
 			offset := 0
 
