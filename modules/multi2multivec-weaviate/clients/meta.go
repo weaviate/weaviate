@@ -9,11 +9,11 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package ent
+package clients
 
-type VectorizationConfig struct {
-	Model      string
-	Truncate   string
-	BaseURL    string
-	Dimensions *int64
+func (v *vectorizer) MetaInfo() (map[string]interface{}, error) {
+	return map[string]interface{}{
+		"name":              "Weaviate Multivec Embedding Module",
+		"documentationHref": "https://docs.weaviate.io/cloud/embeddings",
+	}, nil
 }

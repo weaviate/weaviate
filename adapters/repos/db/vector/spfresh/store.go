@@ -29,7 +29,6 @@ type PostingStore struct {
 	vectorSize atomic.Int32
 	locks      *common.ShardedRWLocks
 	metrics    *Metrics
-	compressed bool
 }
 
 func NewPostingStore(store *lsmkv.Store, metrics *Metrics, bucketName string, cfg StoreConfig) (*PostingStore, error) {
@@ -52,12 +51,11 @@ func NewPostingStore(store *lsmkv.Store, metrics *Metrics, bucketName string, cf
 // Init is called by the index upon receiving the first vector and
 // determining the vector size.
 // Prior to calling this method, the store will assume the index is empty.
-func (p *PostingStore) Init(size int32, compressed bool) {
+func (p *PostingStore) Init(size int32) {
 	p.vectorSize.Store(size)
-	p.compressed = compressed
 }
 
-func (p *PostingStore) Get(ctx context.Context, postingID uint64) (Posting, error) {
+func (p *PostingStore) Get(ctx context.Context, postingID uint64) (*Posting, error) {
 	start := time.Now()
 	defer p.metrics.StoreGetDuration(start)
 
@@ -76,27 +74,26 @@ func (p *PostingStore) Get(ctx context.Context, postingID uint64) (Posting, erro
 		return nil, errors.Wrapf(err, "failed to get posting %d", postingID)
 	}
 
-	posting := EncodedPosting{
+	posting := Posting{
 		vectorSize: int(vectorSize),
-		data:       make([]byte, 0, len(list)*(8+1+int(vectorSize))),
-		compressed: p.compressed,
+		vectors:    make([]Vector, len(list)),
 	}
 
-	for _, v := range list {
-		posting.data = append(posting.data, v...)
+	for i, v := range list {
+		posting.vectors[i] = Vector(v)
 	}
 
 	return &posting, nil
 }
 
-func (p *PostingStore) MultiGet(ctx context.Context, postingIDs []uint64) ([]Posting, error) {
+func (p *PostingStore) MultiGet(ctx context.Context, postingIDs []uint64) ([]*Posting, error) {
 	vectorSize := p.vectorSize.Load()
 	if vectorSize == 0 {
 		// the store is empty
 		return nil, errors.WithStack(ErrPostingNotFound)
 	}
 
-	postings := make([]Posting, 0, len(postingIDs))
+	postings := make([]*Posting, 0, len(postingIDs))
 
 	for _, id := range postingIDs {
 		posting, err := p.Get(ctx, id)
@@ -109,7 +106,7 @@ func (p *PostingStore) MultiGet(ctx context.Context, postingIDs []uint64) ([]Pos
 	return postings, nil
 }
 
-func (p *PostingStore) Put(ctx context.Context, postingID uint64, posting Posting) error {
+func (p *PostingStore) Put(ctx context.Context, postingID uint64, posting *Posting) error {
 	start := time.Now()
 	defer p.metrics.StorePutDuration(start)
 
@@ -122,7 +119,7 @@ func (p *PostingStore) Put(ctx context.Context, postingID uint64, posting Postin
 
 	set := make([][]byte, posting.Len())
 	for i, v := range posting.Iter() {
-		set[i] = v.Encode()
+		set[i] = v
 	}
 
 	p.locks.Lock(postingID)
@@ -152,7 +149,7 @@ func (p *PostingStore) Append(ctx context.Context, postingID uint64, vector Vect
 	p.locks.Lock(postingID)
 	defer p.locks.Unlock(postingID)
 
-	return p.bucket.SetAdd(buf[:], [][]byte{vector.Encode()})
+	return p.bucket.SetAdd(buf[:], [][]byte{vector})
 }
 
 func postingBucketName(id string) string {
