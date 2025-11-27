@@ -32,7 +32,7 @@ func (s *SPFresh) SearchByVector(ctx context.Context, vector []float32, k int, a
 	queryVector := NewAnonymousVector(s.quantizer.Encode(vector))
 
 	var selected []uint64
-	var postings []Posting
+	var postings []*Posting
 
 	// If k is larger than the configured number of candidates, use k as the candidate number
 	// to enlarge the search space.
@@ -118,7 +118,7 @@ func (s *SPFresh) SearchByVector(ctx context.Context, vector []float32, k int, a
 		// if the posting size is lower than the configured minimum,
 		// enqueue a merge operation
 		if postingSize < int(s.minPostingSize) {
-			err = s.taskQueue.EnqueueMerge(ctx, selected[i])
+			err = s.taskQueue.EnqueueMerge(selected[i])
 			if err != nil {
 				return nil, nil, errors.Wrapf(err, "failed to enqueue merge for posting %d", selected[i])
 			}

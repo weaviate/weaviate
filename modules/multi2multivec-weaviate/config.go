@@ -9,41 +9,37 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package modweaviateembed
+package modm2mvweaviate
 
 import (
 	"context"
-
-	"github.com/weaviate/weaviate/modules/text2vec-weaviate/ent"
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/modules/multi2multivec-weaviate/ent"
 )
 
-func (m *WeaviateEmbedModule) ClassConfigDefaults() map[string]interface{} {
+func (m *Module) ClassConfigDefaults() map[string]interface{} {
 	return map[string]interface{}{
-		"model":              ent.DefaultWeaviateModel,
-		"baseURL":            ent.DefaultBaseURL,
+		ent.BaseURLProperty:  ent.DefaultBaseURL,
+		ent.ModelProperty:    ent.DefaultWeaviateModel,
 		"vectorizeClassName": ent.DefaultVectorizeClassName,
 	}
 }
 
-func (m *WeaviateEmbedModule) PropertyConfigDefaults(
+func (m *Module) PropertyConfigDefaults(
 	dt *schema.DataType,
 ) map[string]interface{} {
-	return map[string]interface{}{
-		"skip":                  !ent.DefaultPropertyIndexed,
-		"vectorizePropertyName": ent.DefaultVectorizePropertyName,
-	}
+	return map[string]interface{}{}
 }
 
-func (m *WeaviateEmbedModule) ValidateClass(ctx context.Context,
+func (m *Module) ValidateClass(ctx context.Context,
 	class *models.Class, cfg moduletools.ClassConfig,
 ) error {
-	settings := ent.NewClassSettings(cfg)
-	return settings.Validate(class)
+	icheck := ent.NewClassSettings(cfg)
+	return icheck.Validate()
 }
 
 var _ = modulecapabilities.ClassConfigurator(New())

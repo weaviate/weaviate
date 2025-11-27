@@ -174,7 +174,7 @@ func (s *SPFresh) append(ctx context.Context, vector Vector, centroidID uint64, 
 			return false, err
 		}
 		if version == vector.Version() {
-			err := s.taskQueue.EnqueueReassign(ctx, centroidID, vector.ID(), vector.Version())
+			err := s.taskQueue.EnqueueReassign(centroidID, vector.ID(), vector.Version())
 			if err != nil {
 				s.postingLocks.Unlock(centroidID)
 				return false, err
@@ -212,9 +212,9 @@ func (s *SPFresh) append(ctx context.Context, vector Vector, centroidID uint64, 
 	}
 	if count > max {
 		if reassigned {
-			err = s.doSplit(centroidID, false)
+			err = s.doSplit(ctx, centroidID, false)
 		} else {
-			err = s.taskQueue.EnqueueSplit(ctx, centroidID)
+			err = s.taskQueue.EnqueueSplit(centroidID)
 		}
 		if err != nil {
 			return false, err
