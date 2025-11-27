@@ -1,9 +1,12 @@
 package common
 
 import (
+	"encoding/binary"
 	"errors"
 	"sync"
 	"sync/atomic"
+
+	bolt "go.etcd.io/bbolt"
 )
 
 // Sequence represents a monotonic uint64 generator that can be used to
@@ -29,13 +32,6 @@ type Sequence struct {
 	rangeSize  uint64
 	store      SequenceStore
 	mu         sync.Mutex
-}
-
-// SequenceStore defines the interface for persisting the state of a Sequence.
-// Implementations don't need to be thread-safe.
-type SequenceStore interface {
-	Store(upperBound uint64) error
-	Load() (uint64, error)
 }
 
 // NewSequence loads the upper bound from the store and returns a ready to use Sequence.
@@ -103,4 +99,66 @@ func (s *Sequence) Flush() error {
 	defer s.mu.Unlock()
 	lastUsed := s.counter.value.Load()
 	return s.store.Store(lastUsed)
+}
+
+// SequenceStore defines the interface for persisting the state of a Sequence.
+// Implementations don't need to be thread-safe.
+type SequenceStore interface {
+	Store(upperBound uint64) error
+	Load() (uint64, error)
+}
+
+const (
+	DefaultSequenceKey = "sequence_upper_bound"
+)
+
+// BoltStore is a SequenceStore implementation that uses BoltDB as the backend.
+type BoltStore struct {
+	db     *bolt.DB
+	bucket []byte
+}
+
+func NewBoltStore(db *bolt.DB, bucket []byte) *BoltStore {
+	return &BoltStore{
+		db:     db,
+		bucket: bucket,
+	}
+}
+
+func (s *BoltStore) Store(upperBound uint64) error {
+	return s.db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket(s.bucket)
+		if b == nil {
+			var err error
+			b, err = tx.CreateBucketIfNotExists(s.bucket)
+			if err != nil {
+				return err
+			}
+		}
+		buf := make([]byte, 8)
+		binary.LittleEndian.PutUint64(buf, upperBound)
+		return b.Put([]byte(DefaultSequenceKey), buf)
+	})
+}
+
+func (s *BoltStore) Load() (uint64, error) {
+	var upperBound uint64
+	err := s.db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket(s.bucket)
+		if b == nil {
+			upperBound = 0
+			return nil
+		}
+		data := b.Get([]byte(DefaultSequenceKey))
+		if data == nil {
+			upperBound = 0
+			return nil
+		}
+		upperBound = binary.LittleEndian.Uint64(data)
+		return nil
+	})
+	if err != nil {
+		return 0, err
+	}
+	return upperBound, nil
 }
