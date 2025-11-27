@@ -6039,11 +6039,9 @@ func init() {
           "x-nullable": false
         },
         "ChunkSize": {
-          "description": "Aimed chunk size, with a minimum of 2MB, default of 128MB, and a maximum of 512MB. The actual chunk size may vary.",
+          "description": "Deprecated, has no effect.",
           "type": "integer",
-          "default": 128,
-          "maximum": 512,
-          "minimum": 2,
+          "x-deprecated": true,
           "x-nullable": false
         },
         "CompressionLevel": {
@@ -6053,7 +6051,11 @@ func init() {
           "enum": [
             "DefaultCompression",
             "BestSpeed",
-            "BestCompression"
+            "BestCompression",
+            "ZstdDefaultCompression",
+            "ZstdBestSpeed",
+            "ZstdBestCompression",
+            "NoCompression"
           ],
           "x-nullable": false
         },
@@ -15357,11 +15359,9 @@ func init() {
           "x-nullable": false
         },
         "ChunkSize": {
-          "description": "Aimed chunk size, with a minimum of 2MB, default of 128MB, and a maximum of 512MB. The actual chunk size may vary.",
+          "description": "Deprecated, has no effect.",
           "type": "integer",
-          "default": 128,
-          "maximum": 512,
-          "minimum": 2,
+          "x-deprecated": true,
           "x-nullable": false
         },
         "CompressionLevel": {
@@ -15371,7 +15371,11 @@ func init() {
           "enum": [
             "DefaultCompression",
             "BestSpeed",
-            "BestCompression"
+            "BestCompression",
+            "ZstdDefaultCompression",
+            "ZstdBestSpeed",
+            "ZstdBestCompression",
+            "NoCompression"
           ],
           "x-nullable": false
         },
