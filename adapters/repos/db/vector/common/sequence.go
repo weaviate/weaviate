@@ -60,14 +60,14 @@ func NewSequence(store SequenceStore, rangeSize uint64) (*Sequence, error) {
 func (s *Sequence) Next() (uint64, error) {
 	next := s.counter.Next()
 	// fast path
-	if next < s.upperBound.Load() {
+	if next <= s.upperBound.Load() {
 		return next, nil
 	}
 
-	for next >= s.upperBound.Load() {
+	for next > s.upperBound.Load() {
 		s.mu.Lock()
 		// re-check after acquiring the lock
-		if next < s.upperBound.Load() {
+		if next <= s.upperBound.Load() {
 			s.mu.Unlock()
 			break
 		}
