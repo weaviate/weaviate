@@ -1,6 +1,7 @@
 package common
 
 import (
+	"errors"
 	"sync"
 	"sync/atomic"
 )
@@ -39,6 +40,10 @@ type SequenceStore interface {
 
 // NewSequence loads the upper bound from the store and returns a ready to use Sequence.
 func NewSequence(store SequenceStore, rangeSize uint64) (*Sequence, error) {
+	if rangeSize == 0 {
+		return nil, errors.New("rangeSize must be greater than zero")
+	}
+
 	upperBound, err := store.Load()
 	if err != nil {
 		return nil, err

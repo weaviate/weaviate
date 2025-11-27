@@ -111,3 +111,17 @@ func TestSequence_StoreError(t *testing.T) {
 	_, err = seq.Next()
 	require.Error(t, err)
 }
+
+func TestSequence_1RangeSize(t *testing.T) {
+	var store dummyStore
+
+	seq, err := NewSequence(&store, 1)
+	require.NoError(t, err)
+
+	for i := 1; i <= 5; i++ {
+		v, err := seq.Next()
+		require.NoError(t, err)
+		require.Equal(t, uint64(i), v)
+		require.Equal(t, uint64(i), store.upperBound)
+	}
+}
