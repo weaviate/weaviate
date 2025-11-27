@@ -192,3 +192,20 @@ func TestSequence_Restart(t *testing.T) {
 	require.Equal(t, uint64(12), v)
 	require.Equal(t, uint64(15), store.upperBound)
 }
+
+func BenchmarkSequence_Next(b *testing.B) {
+	rngs := []uint64{1, 10, 100, 1000}
+	for _, r := range rngs {
+		b.Run(fmt.Sprintf("sequence=%d", r), func(b *testing.B) {
+			var store dummyStore
+
+			seq, err := NewSequence(&store, r)
+			require.NoError(b, err)
+
+			for b.Loop() {
+				_, err := seq.Next()
+				require.NoError(b, err)
+			}
+		})
+	}
+}
