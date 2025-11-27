@@ -91,3 +91,16 @@ func (s *Sequence) Next() (uint64, error) {
 
 	return next, nil
 }
+
+// Flush persists the last used id to the store, to be used
+// as the next starting point when the sequence is re-opened.
+// This must be called to gracefully close the sequence and
+// avoid gaps after a restart.
+// Callers need to ensure no concurrent calls to Next() are
+// happening while Flush() is in progress.
+func (s *Sequence) Flush() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	lastUsed := s.counter.value.Load()
+	return s.store.Store(lastUsed)
+}

@@ -115,6 +115,10 @@ func TestSequence_StoreError(t *testing.T) {
 func TestSequence_1RangeSize(t *testing.T) {
 	var store dummyStore
 
+	// zero range size should return an error
+	_, err := NewSequence(&store, 0)
+	require.Error(t, err)
+
 	seq, err := NewSequence(&store, 1)
 	require.NoError(t, err)
 
