@@ -16,7 +16,10 @@ import (
 // 1. Monotonicity: Each generated id is guaranteed to be greater than
 // the previously generated id.
 // 2. Persistence: The state of the generator is persisted to disk.
-// 3. High Throughput: The generator is optimized for high performance
+// 3. Low disk I/O: The generator is designed to minimize
+// the number of disk writes by allocating ranges of ids in memory.
+// This allows it to serve most requests from memory without touching
+// the disk.
 // 4. Concurrency: The generator is safe for concurrent access.
 // However because of its design, it does not guarantee gapless ids.
 // A Sequence first allocates a range of ids and reserves them in the
@@ -65,16 +68,16 @@ func (s *Sequence) Next() (uint64, error) {
 		return next, nil
 	}
 
-	for next > s.upperBound.Load() {
-		s.mu.Lock()
-		// re-check after acquiring the lock
-		if next <= s.upperBound.Load() {
-			s.mu.Unlock()
-			break
+	s.mu.Lock()
+	upperBound := s.upperBound.Load()
+	// re-check after acquiring the lock
+	if next > upperBound {
+		// allocate a new range, higher than the current value
+		newUpperBound := upperBound
+		for next > newUpperBound {
+			newUpperBound += s.rangeSize
 		}
 
-		// allocate a new range
-		newUpperBound := s.upperBound.Load() + s.rangeSize
 		err := s.store.Store(newUpperBound)
 		if err != nil {
 			s.mu.Unlock()
@@ -82,8 +85,8 @@ func (s *Sequence) Next() (uint64, error) {
 		}
 
 		s.upperBound.Store(newUpperBound)
-		s.mu.Unlock()
 	}
+	s.mu.Unlock()
 
 	return next, nil
 }
@@ -98,7 +101,13 @@ func (s *Sequence) Flush() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	lastUsed := s.counter.value.Load()
-	return s.store.Store(lastUsed)
+	err := s.store.Store(lastUsed)
+	if err != nil {
+		return err
+	}
+
+	s.upperBound.Store(lastUsed)
+	return nil
 }
 
 // SequenceStore defines the interface for persisting the state of a Sequence.

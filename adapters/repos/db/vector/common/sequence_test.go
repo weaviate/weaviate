@@ -223,7 +223,7 @@ func TestSequence_Restart(t *testing.T) {
 }
 
 func BenchmarkSequence_Next(b *testing.B) {
-	rngs := []uint64{1, 64, 128, 512, 1024, 4096}
+	rngs := []uint64{1, 10, 100, 1000, 10000}
 	for _, r := range rngs {
 		b.Run(fmt.Sprintf("sequence=%d", r), func(b *testing.B) {
 			db, err := bolt.Open(filepath.Join(b.TempDir(), "bolt.db"), 0600, nil)
@@ -239,6 +239,29 @@ func BenchmarkSequence_Next(b *testing.B) {
 				_, err := seq.Next()
 				require.NoError(b, err)
 			}
+		})
+	}
+}
+
+func BenchmarkSequence_ConcurrentNext(b *testing.B) {
+	rngs := []uint64{1, 10, 100, 1000, 10000}
+	for _, r := range rngs {
+		b.Run(fmt.Sprintf("sequence=%d", r), func(b *testing.B) {
+			db, err := bolt.Open(filepath.Join(b.TempDir(), "bolt.db"), 0600, nil)
+			require.NoError(b, err)
+			defer db.Close()
+
+			store := NewBoltStore(db, []byte("bucket"), []byte("key"))
+
+			seq, err := NewSequence(store, r)
+			require.NoError(b, err)
+
+			b.RunParallel(func(pb *testing.PB) {
+				for pb.Next() {
+					_, err := seq.Next()
+					require.NoError(b, err)
+				}
+			})
 		})
 	}
 }
