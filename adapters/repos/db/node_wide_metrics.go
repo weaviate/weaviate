@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 
@@ -115,8 +116,44 @@ func (o *nodeWideMetricsObserver) observeObjectCount() {
 	totalObjectCount := int64(0)
 	for _, index := range o.db.indices {
 		index.ForEachShard(func(name string, shard ShardLike) error {
-			index.shardCreateLocks.Lock(name)
-			defer index.shardCreateLocks.Unlock(name)
+			// we want to prevent shutdown while we are reading metrics. There are two cases
+			// 1. shard is already loaded -> we prevent shutdown for the duration of the read
+			// 2. shard is lazy loaded -> we block the lazy shard from loading while we read the metrics
+
+			var releaseShard func()
+			defer func() {
+				if releaseShard != nil {
+					releaseShard()
+				}
+			}()
+
+			err := func() error {
+				index.shardCreateLocks.Lock(name)
+				defer index.shardCreateLocks.Unlock(name)
+				lazyShard, isLazyShard := shard.(*LazyLoadShard)
+				if isLazyShard {
+					releaseShard = lazyShard.blockLoading()
+				} else {
+					release, err := shard.preventShutdown()
+					if err != nil {
+						return err
+					}
+					releaseShard = release
+				}
+				return nil
+			}()
+			if err != nil && errors.Is(err, errAlreadyShutdown) {
+				return nil // shard is already shutdown, skip it and treat like an inactive shard that is not included
+			} else if err != nil {
+				o.db.logger.
+					WithField("action", "observe_node_wide_metrics").
+					WithField("shard", name).
+					WithField("class", index.Config.ClassName).
+					Warnf("error while preventing shard shutdown: %v", err)
+
+				return err
+			}
+
 			exists, err := index.tenantDirExists(name)
 			if err != nil {
 				o.db.logger.
@@ -137,6 +174,7 @@ func (o *nodeWideMetricsObserver) observeObjectCount() {
 					WithField("class", index.Config.ClassName).
 					Warnf("error while getting object count for shard: %v", err)
 			}
+
 			totalObjectCount += objectCount
 			return nil
 		})
@@ -409,11 +447,46 @@ func (o *nodeWideMetricsObserver) publishVectorMetrics(ctx context.Context) {
 				className := index.Config.ClassName.String()
 
 				// Avoid loading cold shards, as it may create I/O spikes.
-				index.ForEachLoadedShard(func(shardName string, sl ShardLike) error {
-					index.shardCreateLocks.Lock(shardName)
-					defer index.shardCreateLocks.Unlock(shardName)
+				index.ForEachLoadedShard(func(shardName string, shard ShardLike) error {
+					// we want to prevent shutdown while we are reading metrics. There are two cases
+					// 1. shard is already loaded -> we prevent shutdown for the duration of the read
+					// 2. shard is lazy loaded -> we block the lazy shard from loading while we read the metrics
 
-					dim := calculateShardDimensionMetrics(ctx, sl)
+					var releaseShard func()
+					defer func() {
+						if releaseShard != nil {
+							releaseShard()
+						}
+					}()
+
+					err := func() error {
+						index.shardCreateLocks.Lock(shardName)
+						defer index.shardCreateLocks.Unlock(shardName)
+						lazyShard, isLazyShard := shard.(*LazyLoadShard)
+						if isLazyShard {
+							releaseShard = lazyShard.blockLoading()
+						} else {
+							release, err := shard.preventShutdown()
+							if err != nil {
+								return err
+							}
+							releaseShard = release
+						}
+						return nil
+					}()
+					if err != nil && errors.Is(err, errAlreadyShutdown) {
+						return nil // shard is already shutdown, skip it and treat like an inactive shard that is not included
+					} else if err != nil {
+						o.db.logger.
+							WithField("action", "observe_node_wide_metrics").
+							WithField("shard", shardName).
+							WithField("class", index.Config.ClassName).
+							Warnf("error while preventing shard shutdown: %v", err)
+
+						return err
+					}
+
+					dim := calculateShardDimensionMetrics(ctx, shard)
 					total = total.Add(dim)
 
 					// Report metrics per-shard if grouping is disabled.
