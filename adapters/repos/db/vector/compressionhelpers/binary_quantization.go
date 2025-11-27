@@ -46,6 +46,10 @@ func (bq BinaryQuantizer) Encode(vec []float32) []uint64 {
 	return code
 }
 
+func (bq BinaryQuantizer) Decode(compressed []uint64) []float32 {
+	panic("unimplemented")
+}
+
 func (bq BinaryQuantizer) DistanceBetweenCompressedVectors(x, y []uint64) (float32, error) {
 	return distancer.HammingBitwise(x, y)
 }

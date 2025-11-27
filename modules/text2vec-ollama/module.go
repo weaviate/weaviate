@@ -15,6 +15,8 @@ import (
 	"context"
 	"time"
 
+	"github.com/weaviate/weaviate/usecases/modulecomponents/vectorizer/batchtext"
+
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
@@ -30,21 +32,12 @@ import (
 
 const Name = "text2vec-ollama"
 
-var batchSettings = batch.Settings{
-	TokenMultiplier:    0,
-	MaxObjectsPerBatch: 10,
-	MaxTokensPerBatch:  func(cfg moduletools.ClassConfig) int { return 2500 },
-	MaxTimePerBatch:    float64(10),
-	HasTokenLimit:      false,
-	ReturnsRateLimit:   false,
-}
-
 func New() *OllamaModule {
 	return &OllamaModule{}
 }
 
 type OllamaModule struct {
-	vectorizer                   text2vecbase.TextVectorizerBatch[[]float32]
+	vectorizer                   batchtext.Vectorizer[[]float32]
 	metaProvider                 text2vecbase.MetaProvider
 	graphqlProvider              modulecapabilities.GraphQLArguments
 	searcher                     modulecapabilities.Searcher[[]float32]
@@ -99,13 +92,8 @@ func (m *OllamaModule) initVectorizer(ctx context.Context, timeout time.Duration
 	logger logrus.FieldLogger,
 ) error {
 	client := clients.New(timeout, logger)
-
-	m.vectorizer = text2vecbase.New(client,
-		batch.NewBatchVectorizer(client, 50*time.Second, batchSettings, logger, m.Name()),
-		batch.ReturnBatchTokenizer(batchSettings.TokenMultiplier, m.Name(), ent.LowerCaseInput),
-	)
 	m.metaProvider = client
-
+	m.vectorizer = batchtext.New(Name, ent.LowerCaseInput, client)
 	return nil
 }
 
@@ -117,15 +105,14 @@ func (m *OllamaModule) initAdditionalPropertiesProvider() error {
 func (m *OllamaModule) VectorizeObject(ctx context.Context,
 	obj *models.Object, cfg moduletools.ClassConfig,
 ) ([]float32, models.AdditionalProperties, error) {
-	return m.vectorizer.Object(ctx, obj, cfg, ent.NewClassSettings(cfg))
+	return m.vectorizer.Object(ctx, obj, cfg)
 }
 
 func (m *OllamaModule) VectorizeBatch(ctx context.Context, objs []*models.Object, skipObject []bool, cfg moduletools.ClassConfig) ([][]float32, []models.AdditionalProperties, map[int]error) {
-	vecs, errs := m.vectorizer.ObjectBatch(ctx, objs, skipObject, cfg)
-	return vecs, nil, errs
+	return batch.VectorizeBatchObjects(ctx, objs, skipObject, cfg, m.logger, m.vectorizer.Objects, 10)
 }
 
-func (m *OllamaModule) MetaInfo() (map[string]interface{}, error) {
+func (m *OllamaModule) MetaInfo() (map[string]any, error) {
 	return m.metaProvider.MetaInfo()
 }
 

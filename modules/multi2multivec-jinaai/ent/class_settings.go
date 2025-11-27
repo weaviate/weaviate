@@ -33,14 +33,16 @@ const (
 )
 
 type classSettings struct {
-	base *basesettings.BaseClassSettings
+	base *basesettings.BaseClassMultiModalSettings
 	cfg  moduletools.ClassConfig
 }
+
+var fields = []string{basesettings.TextFieldsProperty, basesettings.ImageFieldsProperty}
 
 func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
 	return &classSettings{
 		cfg:  cfg,
-		base: basesettings.NewBaseClassSettingsWithAltNames(cfg, false, "multi2multivec-jinaai", nil, nil),
+		base: basesettings.NewBaseClassMultiModalSettingsWithAltNames(cfg, false, "multi2multivec-jinaai", nil, nil),
 	}
 }
 
@@ -55,67 +57,15 @@ func (cs *classSettings) BaseURL() string {
 
 // CLIP module specific settings
 func (ic *classSettings) ImageField(property string) bool {
-	return ic.field("imageFields", property)
+	return ic.base.ImageField(property)
 }
 
 func (ic *classSettings) TextField(property string) bool {
-	return ic.field("textFields", property)
+	return ic.base.TextField(property)
 }
 
 func (ic *classSettings) Properties() ([]string, error) {
-	if ic.cfg == nil {
-		// we would receive a nil-config on cross-class requests, such as Explore{}
-		return nil, errors.New("empty config")
-	}
-	props := make([]string, 0)
-
-	fields := []string{"textFields", "imageFields"}
-
-	for _, field := range fields {
-		fields, ok := ic.base.GetSettings()[field]
-		if !ok {
-			continue
-		}
-
-		fieldsArray, ok := fields.([]interface{})
-		if !ok {
-			return nil, errors.Errorf("%s must be an array", field)
-		}
-
-		for _, value := range fieldsArray {
-			v, ok := value.(string)
-			if !ok {
-				return nil, errors.Errorf("%s must be a string", field)
-			}
-			props = append(props, v)
-		}
-	}
-	return props, nil
-}
-
-func (ic *classSettings) field(name, property string) bool {
-	if ic.cfg == nil {
-		// we would receive a nil-config on cross-class requests, such as Explore{}
-		return false
-	}
-
-	fields, ok := ic.base.GetSettings()[name]
-	if !ok {
-		return false
-	}
-
-	fieldsArray, ok := fields.([]interface{})
-	if !ok {
-		return false
-	}
-
-	for _, field := range fieldsArray {
-		if property == field.(string) {
-			return true
-		}
-	}
-
-	return false
+	return ic.base.VectorizableProperties(fields)
 }
 
 func (ic *classSettings) Validate() error {
@@ -126,8 +76,8 @@ func (ic *classSettings) Validate() error {
 
 	var errorMessages []string
 
-	imageFields, imageFieldsOk := ic.cfg.Class()["imageFields"]
-	textFields, textFieldsOk := ic.cfg.Class()["textFields"]
+	imageFields, imageFieldsOk := ic.base.GetSettings()[basesettings.ImageFieldsProperty]
+	textFields, textFieldsOk := ic.base.GetSettings()[basesettings.TextFieldsProperty]
 	if !imageFieldsOk && !textFieldsOk {
 		errorMessages = append(errorMessages, "textFields or imageFields setting needs to be present")
 	}
