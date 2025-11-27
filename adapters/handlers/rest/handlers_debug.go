@@ -26,15 +26,16 @@ import (
 	"time"
 
 	"github.com/dustin/go-humanize"
+
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/cluster/usage"
 	"github.com/weaviate/weaviate/entities/config"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-
-	enterrors "github.com/weaviate/weaviate/entities/errors"
+	ucfg "github.com/weaviate/weaviate/usecases/config"
 )
 
 func setupDebugHandlers(appState *state.State) {
@@ -1100,6 +1101,45 @@ func setupDebugHandlers(appState *state.State) {
 		}
 		w.Write(jsonBytes)
 	}))
+
+	// This endpoint dumps all server configuration from environment.go
+	// e.g. curl -X GET localhost:6060/debug/config
+	// Note: Authentication and Authorization sections are skipped for security
+	http.HandleFunc("/debug/config", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		jsonBytes, err := json.MarshalIndent(skipSensitiveConfig(appState.ServerConfig.Config), "", "  ")
+		if err != nil {
+			logger.WithError(err).Error("marshal failed on config")
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write(jsonBytes)
+	}))
+}
+
+// skipSensitiveConfig creates a copy of the config with Authentication and Authorization
+// sections skipped (set to zero values) for security purposes
+func skipSensitiveConfig(cfg ucfg.Config) ucfg.Config {
+	safe := cfg
+
+	// Skip Authentication section entirely
+	safe.Authentication = ucfg.Authentication{}
+
+	// Skip Authorization section entirely
+	safe.Authorization = ucfg.Authorization{}
+
+	// Skip Cluster BasicAuth credentials
+	safe.Cluster.AuthConfig.BasicAuth.Username = ""
+	safe.Cluster.AuthConfig.BasicAuth.Password = ""
+
+	return safe
 }
 
 type MaintenanceMode struct {
