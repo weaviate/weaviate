@@ -107,7 +107,7 @@ func (r *restorer) restore(
 		}()
 
 		if err = r.waitForCoordinator(expiration, req.ID); err != nil {
-			r.logger.WithField("action", "create_backup").
+			r.logger.WithField("action", "restore_backup").
 				Error(err)
 			r.lastAsyncError = err
 			return
@@ -135,6 +135,7 @@ func (r *restorer) restoreAll(ctx context.Context,
 	desc *backup.BackupDescriptor, cpuPercentage int,
 	store nodeStore, overrideBucket, overridePath, rbacRestoreOption, usersRestoreOption string,
 ) error {
+	compressionType := desc.GetCompressionType()
 	compressed := desc.Version > version1
 	r.lastOp.set(backup.Transferring)
 
@@ -151,7 +152,7 @@ func (r *restorer) restoreAll(ctx context.Context,
 	}
 
 	for _, cdesc := range desc.Classes {
-		if err := r.restoreOne(ctx, &cdesc, desc.ServerVersion, compressed, cpuPercentage, store, overrideBucket, overridePath); err != nil {
+		if err := r.restoreOne(ctx, &cdesc, desc.ServerVersion, compressionType, compressed, cpuPercentage, store, overrideBucket, overridePath); err != nil {
 			return fmt.Errorf("restore class %s: %w", cdesc.Name, err)
 		}
 		r.logger.WithField("action", "restore").
@@ -170,7 +171,7 @@ func getType(myvar interface{}) string {
 }
 
 func (r *restorer) restoreOne(ctx context.Context,
-	desc *backup.ClassDescriptor, serverVersion string,
+	desc *backup.ClassDescriptor, serverVersion string, compressionType backup.CompressionType,
 	compressed bool, cpuPercentage int, store nodeStore,
 	overrideBucket, overridePath string,
 ) (err error) {
@@ -196,7 +197,7 @@ func (r *restorer) restoreOne(ctx context.Context,
 		fw.setMigrator(f)
 	}
 
-	if err := fw.Write(ctx, desc, overrideBucket, overridePath); err != nil {
+	if err := fw.Write(ctx, desc, overrideBucket, overridePath, compressionType); err != nil {
 		return fmt.Errorf("write files: %w", err)
 	}
 

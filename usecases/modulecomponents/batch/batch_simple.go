@@ -72,7 +72,7 @@ func VectorizeBatch[T dto.Embedding](
 
 type batchObjectsVectorizer[T dto.Embedding] func(context.Context, []*models.Object, moduletools.ClassConfig) ([]T, models.AdditionalProperties, error)
 
-type batchOfObjects struct {
+type batchObjects struct {
 	indexes []int
 	objs    []*models.Object
 }
@@ -91,32 +91,33 @@ func VectorizeBatchObjects[T dto.Embedding](
 	errs := make(map[int]error, 0)
 	errorLock := sync.Mutex{}
 	// create batches
-	batchOfObjects := make([]batchOfObjects, int(len(objs)/batchSize)+1)
+	batchOfObjects := make([]batchObjects, 1)
 	j := 0
 	for i := range objs {
 		if skipObject[i] {
 			continue
 		}
-		batchOfObjects[j].indexes = append(batchOfObjects[j].indexes, i)
-		batchOfObjects[j].objs = append(batchOfObjects[j].objs, objs[i])
-		if (i+1)%batchSize == 0 {
+		if len(batchOfObjects[j].objs) >= batchSize {
+			batchOfObjects = append(batchOfObjects, batchObjects{})
 			j++
 		}
+		batchOfObjects[j].indexes = append(batchOfObjects[j].indexes, i)
+		batchOfObjects[j].objs = append(batchOfObjects[j].objs, objs[i])
 	}
 	// error group is used to limit concurrency
 	eg := enterrors.NewErrorGroupWrapper(logger)
 	eg.SetLimit(_NUMCPU * 2)
-	for i := range batchOfObjects {
+	for batchIndex := range batchOfObjects {
 		eg.Go(func() error {
-			res, _, err := batchObjectVectorizer(ctx, batchOfObjects[i].objs, cfg)
+			res, _, err := batchObjectVectorizer(ctx, batchOfObjects[batchIndex].objs, cfg)
 			if err != nil {
 				errorLock.Lock()
 				defer errorLock.Unlock()
-				for _, index := range batchOfObjects[i].indexes {
+				for _, index := range batchOfObjects[batchIndex].indexes {
 					errs[index] = err
 				}
 			} else {
-				for i, index := range batchOfObjects[i].indexes {
+				for i, index := range batchOfObjects[batchIndex].indexes {
 					vecs[index] = res[i]
 				}
 			}
