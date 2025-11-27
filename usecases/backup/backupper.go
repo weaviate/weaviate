@@ -131,17 +131,23 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 				Error(err)
 			b.lastAsyncError = err
 			return
-
 		}
 		provider := newUploader(b.sourcer, b.rbacSourcer, b.dynUserSourcer, store, req.ID, b.lastOp.set, b.logger).
 			withCompression(newZipConfig(req.Compression))
 
+		compressionType, err := CompressionTypeFromLevel(req.Level)
+		if err != nil {
+			b.logger.WithField("action", "create_backup").Error(err)
+			b.lastAsyncError = err
+			return
+		}
 		result := backup.BackupDescriptor{
-			StartedAt:     time.Now().UTC(),
-			ID:            id,
-			Classes:       make([]backup.ClassDescriptor, 0, len(req.Classes)),
-			Version:       Version,
-			ServerVersion: config.ServerVersion,
+			StartedAt:       time.Now().UTC(),
+			ID:              id,
+			Classes:         make([]backup.ClassDescriptor, 0, len(req.Classes)),
+			Version:         Version,
+			ServerVersion:   config.ServerVersion,
+			CompressionType: &compressionType,
 		}
 
 		// the coordinator might want to abort the backup
