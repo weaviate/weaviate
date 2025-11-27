@@ -39,15 +39,6 @@ const (
 	storeTimeout = 24 * time.Hour
 	metaTimeout  = 20 * time.Minute
 
-	// DefaultChunkSize if size is not specified
-	DefaultChunkSize = 1 << 27 // 128MB
-
-	// maxChunkSize is the upper bound on the chunk size
-	maxChunkSize = 1 << 29 // 512MB
-
-	// minChunkSize is the lower bound on the chunk size
-	minChunkSize = 1 << 21 // 2MB
-
 	// maxCPUPercentage max CPU percentage can be consumed by the file writer
 	maxCPUPercentage = 80
 
@@ -198,9 +189,8 @@ func newUploader(sourcer Sourcer, rbacSourcer fsm.Snapshotter, dynUserSourcer fs
 		sourcer, rbacSourcer, dynUserSourcer, backend,
 		backupID,
 		newZipConfig(Compression{
-			Level:         DefaultCompression,
+			Level:         GzipDefaultCompression,
 			CPUPercentage: DefaultCPUPercentage,
-			ChunkSize:     DefaultChunkSize,
 		}),
 		setstatus,
 		l,
@@ -318,14 +308,14 @@ Loop:
 	return nil
 }
 
-func (u *uploader) releaseIndexes(classes []string, ID string) {
+func (u *uploader) releaseIndexes(classes []string, bakID string) {
 	for _, class := range classes {
 		className := class
 		enterrors.GoWrapper(func() {
-			if err := u.sourcer.ReleaseBackup(context.Background(), ID, className); err != nil {
+			if err := u.sourcer.ReleaseBackup(context.Background(), bakID, className); err != nil {
 				u.log.WithFields(logrus.Fields{
 					"class":    className,
-					"backupID": ID,
+					"backupID": bakID,
 				}).Error("failed to release backup")
 			}
 		}, u.log)
@@ -460,14 +450,15 @@ func (u *uploader) compress(ctx context.Context,
 		chunkKey = chunkKey(class, chunk)
 		shards   = make([]string, 0, 10)
 		// add tolerance to enable better optimization of the chunk size
-		maxSize            = int64(u.ChunkSize + u.ChunkSize/20) // size + 5%
 		preCompressionSize atomic.Int64
 		eg                 = enterrors.NewErrorGroupWrapper(u.log)
 	)
-	zip, reader := NewZip(u.backend.SourceDataPath(), u.Level)
+	zip, reader, err := NewZip(u.backend.SourceDataPath(), u.Level)
+	if err != nil {
+		return shards, preCompressionSize.Load(), err
+	}
 	producer := func() error {
 		defer zip.Close()
-		lastShardSize := int64(0)
 		for shard := range ch {
 			if err := ctx.Err(); err != nil {
 				return err
@@ -486,11 +477,11 @@ func (u *uploader) compress(ctx context.Context,
 			shard.Chunk = chunk
 			shards = append(shards, shard.Name)
 			shard.ClearTemporary()
-			zip.gzw.Flush() // flush new shard
-			lastShardSize = zip.lastWritten() - lastShardSize
-			if zip.lastWritten()+lastShardSize > maxSize {
-				break
+
+			if zip.compressorWriter != nil {
+				zip.compressorWriter.Flush() // flush new shard
 			}
+
 		}
 		return nil
 	}
@@ -498,6 +489,10 @@ func (u *uploader) compress(ctx context.Context,
 	// consumer
 	eg.Go(func() error {
 		if _, err := u.backend.Write(ctx, chunkKey, overrideBucket, overridePath, reader); err != nil {
+			// if the producer has an error, the error from the consumer is not returned and lost
+			u.log.WithFields(logrus.Fields{
+				"chunkKey": chunkKey,
+			}).Errorf("failed to write chunk to backend: %v", err)
 			return err
 		}
 		return nil
@@ -571,13 +566,13 @@ func (fw *fileWriter) WithPoolPercentage(p int) *fileWriter {
 func (fw *fileWriter) setMigrator(m func(classPath string) error) { fw.migrator = m }
 
 // Write downloads files and put them in the destination directory
-func (fw *fileWriter) Write(ctx context.Context, desc *backup.ClassDescriptor, overrideBucket, overridePath string) (err error) {
+func (fw *fileWriter) Write(ctx context.Context, desc *backup.ClassDescriptor, overrideBucket, overridePath string, compressionType backup.CompressionType) (err error) {
 	if len(desc.Shards) == 0 { // nothing to copy
 		return nil
 	}
 	classTempDir := path.Join(fw.tempDir, desc.Name)
 
-	if err := fw.writeTempFiles(ctx, classTempDir, overrideBucket, overridePath, desc); err != nil {
+	if err := fw.writeTempFiles(ctx, classTempDir, overrideBucket, overridePath, desc, compressionType); err != nil {
 		return fmt.Errorf("get files: %w", err)
 	}
 
@@ -593,7 +588,7 @@ func (fw *fileWriter) Write(ctx context.Context, desc *backup.ClassDescriptor, o
 // writeTempFiles writes class files into a temporary directory
 // temporary directory path = d.tempDir/className
 // Function makes sure that created files will be removed in case of an error
-func (fw *fileWriter) writeTempFiles(ctx context.Context, classTempDir, overrideBucket, overridePath string, desc *backup.ClassDescriptor) (err error) {
+func (fw *fileWriter) writeTempFiles(ctx context.Context, classTempDir, overrideBucket, overridePath string, desc *backup.ClassDescriptor, compressionType backup.CompressionType) (err error) {
 	if err := os.RemoveAll(classTempDir); err != nil {
 		return fmt.Errorf("remove %s: %w", classTempDir, err)
 	}
@@ -615,12 +610,12 @@ func (fw *fileWriter) writeTempFiles(ctx context.Context, classTempDir, override
 	}
 
 	// source files are compressed
-
 	eg.SetLimit(fw.GoPoolSize)
 	for k := range desc.Chunks {
 		chunk := chunkKey(desc.Name, k)
 		eg.Go(func() error {
-			uz, w := NewUnzip(classTempDir)
+			uz, w := NewUnzip(classTempDir, compressionType)
+
 			enterrors.GoWrapper(func() {
 				fw.backend.Read(ctx, chunk, overrideBucket, overridePath, w)
 			}, fw.logger)

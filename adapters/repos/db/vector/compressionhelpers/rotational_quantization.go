@@ -169,6 +169,10 @@ func (rq *RotationalQuantizer) Encode(x []float32) []byte {
 	return rq.encode(x, rq.bits)
 }
 
+func (rq *RotationalQuantizer) Decode(compressed []byte) []float32 {
+	return rq.UnRotate(rq.Restore(compressed))
+}
+
 func dotProduct(x, y []float32) float32 {
 	distancer := distancer.NewDotProductProvider()
 	negativeDot, _ := distancer.SingleDist(x, y)
@@ -206,6 +210,10 @@ func (rq *RotationalQuantizer) encode(x []float32, bits uint32) []byte {
 	code.setCodeSum(step * codeSum)
 	code.setNorm2(dotProduct(x, x))
 	return code
+}
+
+func (rq *RotationalQuantizer) UnRotate(x []float32) []float32 {
+	return rq.rotation.UnRotate(x)
 }
 
 func (rq *RotationalQuantizer) Rotate(x []float32) []float32 {

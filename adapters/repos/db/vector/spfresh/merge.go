@@ -18,21 +18,20 @@ import (
 	"github.com/pkg/errors"
 )
 
-func (s *SPFresh) doMerge(postingID uint64) error {
-	s.metrics.DequeueMergeTask()
+func (s *SPFresh) doMerge(ctx context.Context, postingID uint64) error {
 	start := time.Now()
 	defer s.metrics.MergeDuration(start)
 
 	defer s.taskQueue.MergeDone(postingID)
 
-	s.logger.WithField("postingID", postingID).Debug("Merging posting")
+	s.logger.WithField("postingID", postingID).Debug("merging posting")
 
 	var markedAsDone bool
 	if !s.postingLocks.TryLock(postingID) {
 		// another merge operation is in progress for this posting
 		// re-enqueue the operation to be processed later
 		s.taskQueue.MergeDone(postingID) // remove from the in-progress list
-		return s.taskQueue.EnqueueMerge(s.ctx, postingID)
+		return s.taskQueue.EnqueueMerge(postingID)
 	}
 	defer func() {
 		if !markedAsDone {
@@ -43,15 +42,15 @@ func (s *SPFresh) doMerge(postingID uint64) error {
 	// Ensure the posting exists in the index
 	if !s.Centroids.Exists(postingID) {
 		s.logger.WithField("postingID", postingID).
-			Debug("Posting not found, skipping merge operation")
+			Debug("posting not found, skipping merge operation")
 		return nil // Nothing to merge
 	}
 
-	p, err := s.PostingStore.Get(s.ctx, postingID)
+	p, err := s.PostingStore.Get(ctx, postingID)
 	if err != nil {
 		if errors.Is(err, ErrPostingNotFound) {
 			s.logger.WithField("postingID", postingID).
-				Debug("Posting not found, skipping merge operation")
+				Debug("posting not found, skipping merge operation")
 			return nil
 		}
 
@@ -61,7 +60,10 @@ func (s *SPFresh) doMerge(postingID uint64) error {
 	initialLen := p.Len()
 
 	// garbage collect the deleted vectors
-	newPosting := p.GarbageCollect(s.VersionMap)
+	newPosting, err := p.GarbageCollect(s.VersionMap)
+	if err != nil {
+		return errors.Wrapf(err, "failed to garbage collect posting %d", postingID)
+	}
 	prevLen := newPosting.Len()
 
 	// skip if the posting is big enough
@@ -70,7 +72,7 @@ func (s *SPFresh) doMerge(postingID uint64) error {
 			WithField("postingID", postingID).
 			WithField("size", prevLen).
 			WithField("min", s.minPostingSize).
-			Debug("Posting is big enough, skipping merge operation")
+			Debug("posting is big enough, skipping merge operation")
 
 		if prevLen == initialLen {
 			// no changes, just return
@@ -78,12 +80,12 @@ func (s *SPFresh) doMerge(postingID uint64) error {
 		}
 
 		// persist the gc'ed posting
-		err = s.PostingStore.Put(s.ctx, postingID, newPosting)
+		err = s.PostingStore.Put(ctx, postingID, newPosting)
 		if err != nil {
 			return errors.Wrapf(err, "failed to put filtered posting %d", postingID)
 		}
 		// update the size of the posting after successful Persist
-		return s.PostingSizes.Set(context.TODO(), postingID, uint32(prevLen))
+		return s.PostingSizes.Set(ctx, postingID, uint32(prevLen))
 	}
 
 	vectorSet := make(map[uint64]struct{})
@@ -94,7 +96,9 @@ func (s *SPFresh) doMerge(postingID uint64) error {
 	// get posting centroid
 	oldCentroid := s.Centroids.Get(postingID)
 	if oldCentroid == nil {
-		return errors.Errorf("centroid not found for posting %d", postingID)
+		s.logger.WithField("postingID", postingID).
+			Debug("posting centroid not found, skipping merge operation")
+		return nil
 	}
 
 	// search for the closest centroids
@@ -105,15 +109,15 @@ func (s *SPFresh) doMerge(postingID uint64) error {
 
 	if nearest.Len() <= 1 {
 		s.logger.WithField("postingID", postingID).
-			Debug("No candidates found for merge operation, skipping")
+			Debug("no candidates found for merge operation, skipping")
 
 		// persist the gc'ed posting
-		err = s.PostingStore.Put(s.ctx, postingID, newPosting)
+		err = s.PostingStore.Put(ctx, postingID, newPosting)
 		if err != nil {
 			return errors.Wrapf(err, "failed to put filtered posting %d", postingID)
 		}
 		// update the size of the posting after successful Persist
-		err = s.PostingSizes.Set(context.TODO(), postingID, uint32(prevLen))
+		err = s.PostingSizes.Set(ctx, postingID, uint32(prevLen))
 		if err != nil {
 			return errors.Wrapf(err, "failed to set size of posting %d to %d", postingID, prevLen)
 		}
@@ -124,7 +128,7 @@ func (s *SPFresh) doMerge(postingID uint64) error {
 	// first centroid is the query centroid, the rest are candidates for merging
 	for candidateID := range nearest.Iter() {
 		// check if the combined size of the postings is within limits
-		count, err := s.PostingSizes.Get(context.TODO(), candidateID)
+		count, err := s.PostingSizes.Get(ctx, candidateID)
 		if err != nil {
 			return errors.Wrapf(err, "failed to get posting size for candidate %d", candidateID)
 		}
@@ -147,14 +151,17 @@ func (s *SPFresh) doMerge(postingID uint64) error {
 			}
 
 			// get the candidate posting
-			candidate, err := s.PostingStore.Get(s.ctx, candidateID)
+			candidate, err := s.PostingStore.Get(ctx, candidateID)
 			if err != nil {
 				return errors.Wrapf(err, "failed to get candidate posting %d for merge operation on posting %d", candidateID, postingID)
 			}
 
 			var candidateLen int
 			for _, v := range candidate.Iter() {
-				version := s.VersionMap.Get(v.ID())
+				version, err := s.VersionMap.Get(ctx, v.ID())
+				if err != nil {
+					return errors.Wrapf(err, "failed to get version for vector %d", v.ID())
+				}
 				if version.Deleted() || version.Version() > v.Version().Version() {
 					continue
 				}
@@ -180,17 +187,17 @@ func (s *SPFresh) doMerge(postingID uint64) error {
 			}
 
 			// persist the merged posting first
-			err = s.PostingStore.Put(s.ctx, largeID, newPosting)
+			err = s.PostingStore.Put(ctx, largeID, newPosting)
 			if err != nil {
 				return errors.Wrapf(err, "failed to put merged posting %d after merge operation", postingID)
 			}
 
 			// set the small posting size to 0 and update the large posting size only after successful persist
-			err = s.PostingSizes.Set(context.TODO(), smallID, 0)
+			err = s.PostingSizes.Set(ctx, smallID, 0)
 			if err != nil {
 				return errors.Wrapf(err, "failed to set size of merged posting %d to 0", smallID)
 			}
-			err = s.PostingSizes.Set(context.TODO(), largeID, uint32(newPosting.Len()))
+			err = s.PostingSizes.Set(ctx, largeID, uint32(newPosting.Len()))
 			if err != nil {
 				return errors.Wrapf(err, "failed to set size of merged posting %d to %d", largeID, newPosting.Len())
 			}
@@ -220,7 +227,7 @@ func (s *SPFresh) doMerge(postingID uint64) error {
 
 				if prevDist < newDist {
 					// the vector is closer to the old centroid, we need to reassign it
-					err = s.taskQueue.EnqueueReassign(s.ctx, largeID, v.ID(), v.Version())
+					err = s.taskQueue.EnqueueReassign(largeID, v.ID(), v.Version())
 					if err != nil {
 						return errors.Wrapf(err, "failed to enqueue reassign for vector %d after merge", v.ID())
 					}
@@ -237,8 +244,8 @@ func (s *SPFresh) doMerge(postingID uint64) error {
 	}
 
 	// if no candidates were found, just persist the gc'ed posting
-	s.PostingSizes.Set(context.TODO(), postingID, uint32(newPosting.Len()))
-	err = s.PostingStore.Put(s.ctx, postingID, newPosting)
+	s.PostingSizes.Set(ctx, postingID, uint32(newPosting.Len()))
+	err = s.PostingStore.Put(ctx, postingID, newPosting)
 	if err != nil {
 		return errors.Wrapf(err, "failed to put filtered posting %d", postingID)
 	}

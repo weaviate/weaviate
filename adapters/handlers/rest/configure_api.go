@@ -49,6 +49,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/clients"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/authz"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc/generated/protocol"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/db_users"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	replicationHandlers "github.com/weaviate/weaviate/adapters/handlers/rest/replication"
@@ -71,6 +72,7 @@ import (
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/replication"
 	vectorIndex "github.com/weaviate/weaviate/entities/vectorindex"
+	grpcconn "github.com/weaviate/weaviate/grpc/conn"
 	modstgazure "github.com/weaviate/weaviate/modules/backup-azure"
 	modstgfs "github.com/weaviate/weaviate/modules/backup-filesystem"
 	modstggcs "github.com/weaviate/weaviate/modules/backup-gcs"
@@ -92,6 +94,7 @@ import (
 	modgenerativexai "github.com/weaviate/weaviate/modules/generative-xai"
 	modimage "github.com/weaviate/weaviate/modules/img2vec-neural"
 	modmulti2multivecjinaai "github.com/weaviate/weaviate/modules/multi2multivec-jinaai"
+	modmulti2multivecweaviate "github.com/weaviate/weaviate/modules/multi2multivec-weaviate"
 	modmulti2vecaws "github.com/weaviate/weaviate/modules/multi2vec-aws"
 	modbind "github.com/weaviate/weaviate/modules/multi2vec-bind"
 	modclip "github.com/weaviate/weaviate/modules/multi2vec-clip"
@@ -152,6 +155,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"github.com/weaviate/weaviate/usecases/telemetry"
+	"github.com/weaviate/weaviate/usecases/telemetry/opentelemetry"
 	"github.com/weaviate/weaviate/usecases/traverser"
 )
 
@@ -253,6 +257,13 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 
 	// initializing at the top to reflect the config changes before we pass on to different components.
 	initRuntimeOverrides(appState)
+
+	// Initialize OpenTelemetry tracing
+	if err := opentelemetry.Init(appState.Logger); err != nil {
+		appState.Logger.
+			WithField("action", "startup").WithError(err).
+			Error("failed to initialize OpenTelemetry")
+	}
 
 	if appState.ServerConfig.Config.Monitoring.Enabled {
 		appState.HTTPServerMetrics = monitoring.NewHTTPServerMetrics(monitoring.DefaultMetricsNamespace, prometheus.DefaultRegisterer)
@@ -519,32 +530,46 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 
 	schemaParser := schema.NewParser(appState.Cluster, vectorIndex.ParseAndValidateConfig, migrator, appState.Modules, appState.ServerConfig.Config.DefaultQuantization)
 
-	remoteClientFactory := func(ctx context.Context, address string) (copier.FileReplicationServiceClient, error) {
-		grpcConfig := appState.ServerConfig.Config.GRPC
-		authConfig := appState.ServerConfig.Config.Cluster.AuthConfig
+	grpcConfig := appState.ServerConfig.Config.GRPC
+	authConfig := appState.ServerConfig.Config.Cluster.AuthConfig
 
-		var creds credentials.TransportCredentials
+	var creds credentials.TransportCredentials
 
-		useTLS := len(grpcConfig.CertFile) > 0
+	useTLS := len(grpcConfig.CertFile) > 0
 
-		if useTLS {
-			creds = credentials.NewClientTLSFromCert(nil, "")
-		} else {
-			creds = insecure.NewCredentials() // use insecure credentials for testing
-		}
-
-		clientConn, err := grpc.NewClient(
-			address,
-			grpc.WithTransportCredentials(creds),
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create gRPC client connection: %w", err)
-		}
-
-		return copier.NewFileReplicationServiceClient(clientConn, authConfig), nil
+	if useTLS {
+		creds = credentials.NewClientTLSFromCert(nil, "")
+	} else {
+		creds = insecure.NewCredentials() // use insecure credentials for testing
 	}
 
-	replicaCopier := copier.New(remoteClientFactory, remoteIndexClient, appState.Cluster,
+	opts := []grpc.DialOption{grpc.WithTransportCredentials(creds)}
+
+	if authConfig.BasicAuth.Enabled() {
+		authHeader := grpcconn.BasicAuthHeader(authConfig.BasicAuth.Username, authConfig.BasicAuth.Password)
+		opts = append(opts,
+			grpc.WithUnaryInterceptor(grpcconn.BasicAuthUnaryInterceptor(authHeader)),
+			grpc.WithStreamInterceptor(grpcconn.BasicAuthStreamInterceptor(authHeader)),
+		)
+	}
+
+	grpcMaxOpenConns := appState.ServerConfig.Config.GRPC.MaxOpenConns
+	grpcIddleConnTimeout := appState.ServerConfig.Config.GRPC.IdleConnTimeout
+
+	appState.GRPCConnManager = grpcconn.NewConnManager(grpcMaxOpenConns, grpcIddleConnTimeout,
+		metricsRegisterer, appState.Logger, opts...)
+
+	remoteClientFactory := func(ctx context.Context, address string) (copier.FileReplicationServiceClient, error) {
+		clientConn, err := appState.GRPCConnManager.GetConn(address)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get gRPC connection: %w", err)
+		}
+		return protocol.NewFileReplicationServiceClient(clientConn), nil
+	}
+
+	var nodeSelector cluster.NodeSelector = appState.Cluster
+
+	replicaCopier := copier.New(remoteClientFactory, remoteIndexClient, nodeSelector,
 		appState.ServerConfig.Config.ReplicationEngineFileCopyWorkers, dataPath, appState.DB, nodeName, appState.Logger)
 
 	rConfig := rCluster.Config{
@@ -647,8 +672,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		schemaManager, repo, appState.Modules, appState.RBAC, appState.APIKey.Dynamic)
 	appState.BackupManager = backupManager
 
-	internalServer := clusterapi.NewServer(appState)
-	appState.InternalServer = internalServer
+	appState.InternalServer = clusterapi.NewServer(appState)
 	enterrors.GoWrapper(func() { appState.InternalServer.Serve() }, appState.Logger)
 
 	vectorRepo.SetSchemaGetter(schemaManager)
@@ -962,12 +986,21 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			}
 		}
 
+		// Shutdown OTEL tracing
+		if err := opentelemetry.Shutdown(ctx); err != nil {
+			appState.Logger.WithField("action", "stop_opentelemetry").
+				Errorf("failed to stop opentelemetry: %s", err.Error())
+		}
+
 		// stop reindexing on server shutdown
 		appState.ReindexCtxCancel(fmt.Errorf("server shutdown"))
 
 		if appState.DistributedTaskScheduler != nil {
 			appState.DistributedTaskScheduler.Close()
 		}
+
+		// close grpc client connections
+		appState.GRPCConnManager.Close()
 
 		// gracefully stop gRPC server
 		grpcServer.GracefulStop()
@@ -982,14 +1015,14 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		if err := appState.InternalServer.Close(ctx); err != nil {
 			appState.Logger.
 				WithError(err).
-				WithField("action", "shutdown").
+				WithField("action", "shutdown internal server").
 				Errorf("failed to gracefully shutdown")
 		}
 
 		if err := appState.ClusterService.Close(ctx); err != nil {
 			appState.Logger.
 				WithError(err).
-				WithField("action", "shutdown").
+				WithField("action", "shutdown cluster service").
 				Errorf("failed to gracefully shutdown")
 		}
 
@@ -1100,7 +1133,7 @@ func startupRoutine(ctx context.Context, options *swag.CommandLineOptionsGroup) 
 		nonStorageNodes = parseVotersNames(cfg)
 	}
 
-	clusterState, err := cluster.Init(serverConfig.Config.Cluster, serverConfig.Config.GRPC.Port, serverConfig.Config.Raft.TimeoutsMultiplier.Get(), dataPath, nonStorageNodes, logger)
+	clusterState, err := cluster.Init(serverConfig.Config.Cluster, serverConfig.Config.Raft.TimeoutsMultiplier.Get(), dataPath, nonStorageNodes, logger)
 	if err != nil {
 		logger.WithField("action", "startup").WithError(err).
 			Error("could not init cluster state")
@@ -1168,6 +1201,7 @@ func registerModules(appState *state.State) error {
 		modnvidia.Name,
 		modmulti2vecnvidia.Name,
 		modmulti2multivecjinaai.Name,
+		modmulti2multivecweaviate.Name,
 		modmulti2vecaws.Name,
 	}
 	defaultGenerative := []string{
@@ -1387,6 +1421,14 @@ func registerModules(appState *state.State) error {
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", modmulti2multivecjinaai.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modmulti2multivecweaviate.Name]; ok {
+		appState.Modules.Register(modmulti2multivecweaviate.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modmulti2multivecweaviate.Name).
 			Debug("enabled module")
 	}
 
@@ -1819,10 +1861,13 @@ func reasonableHttpClient(authConfig cluster.AuthConfig, minimumInternalTimeout 
 		ExpectContinueTimeout: 1 * time.Second,
 	}
 
+	// Wrap with OpenTelemetry tracing (only has an effect if tracing is enabled)
+	transport := monitoring.NewTracingTransport(t)
+
 	if authConfig.BasicAuth.Enabled() {
-		return &http.Client{Transport: clientWithAuth{r: t, basicAuth: authConfig.BasicAuth}}
+		return &http.Client{Transport: clientWithAuth{r: transport, basicAuth: authConfig.BasicAuth}}
 	}
-	return &http.Client{Transport: t}
+	return &http.Client{Transport: transport}
 }
 
 func setupGoProfiling(config config.Config, logger logrus.FieldLogger) {

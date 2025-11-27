@@ -14,9 +14,11 @@ package spfresh
 import (
 	"context"
 	"encoding/binary"
+	stderrors "errors"
 	"fmt"
 	"path/filepath"
 
+	"github.com/cespare/xxhash/v2"
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 )
@@ -28,178 +30,155 @@ const (
 )
 
 type TaskQueue struct {
-	*queue.DiskQueue
+	// queue for split and reassign operations
+	q *queue.DiskQueue
+	// queue for merge operations, as these need to be run sequentially
+	qMerge *queue.DiskQueue
 
 	scheduler *queue.Scheduler
 
-	spfreshIndex *SPFresh
-	splitList    *deduplicator // Prevents duplicate split operations
-	mergeList    *deduplicator // Prevents duplicate merge operations
+	index     *SPFresh
+	splitList *deduplicator // Prevents duplicate split operations
+	mergeList *deduplicator // Prevents duplicate merge operations
 }
 
-func NewTaskQueue(
-	spfreshIndex *SPFresh,
-	targetVector string,
-) (*TaskQueue, error) {
-	opq := TaskQueue{
-		spfreshIndex: spfreshIndex,
-		scheduler:    spfreshIndex.scheduler,
-		splitList:    newDeduplicator(),
-		mergeList:    newDeduplicator(),
+func NewTaskQueue(index *SPFresh) (*TaskQueue, error) {
+	var err error
+
+	tq := TaskQueue{
+		index:     index,
+		scheduler: index.scheduler,
+		splitList: newDeduplicator(),
+		mergeList: newDeduplicator(),
 	}
 
-	q, err := queue.NewDiskQueue(
+	// create main queue for split and reassign operations
+	tq.q, err = queue.NewDiskQueue(
 		queue.DiskQueueOptions{
-			ID:        fmt.Sprintf("spfresh_ops_queue_%s_%s", spfreshIndex.config.ShardName, spfreshIndex.config.ID),
-			Logger:    spfreshIndex.logger,
-			Scheduler: spfreshIndex.scheduler,
-			Dir:       filepath.Join(spfreshIndex.config.RootPath, fmt.Sprintf("%s.queue.d", spfreshIndex.config.ID)),
-			TaskDecoder: &TaskQueueDecoder{
-				q: &opq,
-			},
-			OnBatchProcessed: opq.OnBatchProcessed,
+			ID:               fmt.Sprintf("spfresh_ops_queue_%s_%s", index.config.ShardName, index.config.ID),
+			Logger:           index.logger,
+			Scheduler:        index.scheduler,
+			Dir:              filepath.Join(index.config.RootPath, fmt.Sprintf("%s.queue.d", index.config.ID)),
+			TaskDecoder:      &tq,
+			OnBatchProcessed: tq.OnBatchProcessed,
 		},
 	)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to create vector index queue")
+		return nil, errors.Wrap(err, "failed to create spfresh main queue")
 	}
-	opq.DiskQueue = q
-
-	err = q.Init()
+	err = tq.q.Init()
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to initialize vector index queue")
+		return nil, errors.Wrap(err, "failed to initialize spfresh main queue")
 	}
 
-	spfreshIndex.scheduler.RegisterQueue(&opq)
-
-	return &opq, nil
-}
-
-func (opq *TaskQueue) SplitDone(postingID uint64) {
-	opq.splitList.done(postingID)
-}
-
-func (opq *TaskQueue) MergeDone(postingID uint64) {
-	opq.mergeList.done(postingID)
-}
-
-func (opq *TaskQueue) MergeContains(postingID uint64) bool {
-	return opq.mergeList.contains(postingID)
-}
-
-func (opq *TaskQueue) EnqueueSplit(ctx context.Context, postingID uint64) error {
-	if opq.spfreshIndex.ctx == nil {
-		return nil // Not started yet
+	// create separate queue for merge operations
+	tq.qMerge, err = queue.NewDiskQueue(
+		queue.DiskQueueOptions{
+			ID:               fmt.Sprintf("spfresh_merge_queue_%s_%s", index.config.ShardName, index.config.ID),
+			Logger:           index.logger,
+			Scheduler:        index.scheduler,
+			Dir:              filepath.Join(index.config.RootPath, fmt.Sprintf("%s.merge.queue.d", index.config.ID)),
+			TaskDecoder:      &tq,
+			OnBatchProcessed: tq.OnBatchProcessed,
+		},
+	)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to create spfresh merge queue")
+	}
+	err = tq.qMerge.Init()
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to initialize spfresh merge queue")
 	}
 
-	if err := opq.spfreshIndex.ctx.Err(); err != nil {
-		return err
+	index.scheduler.RegisterQueue(tq.q)
+	index.scheduler.RegisterQueue(tq.qMerge)
+
+	return &tq, nil
+}
+
+func (tq *TaskQueue) Close() error {
+	var errs []error
+	if err := tq.q.Close(); err != nil {
+		errs = append(errs, errors.Wrap(err, "failed to close main queue"))
 	}
 
-	if err := ctx.Err(); err != nil {
-		return err
+	if err := tq.qMerge.Close(); err != nil {
+		errs = append(errs, errors.Wrap(err, "failed to close merge queue"))
 	}
 
+	return stderrors.Join(errs...)
+}
+
+func (tq *TaskQueue) Size() int64 {
+	return tq.q.Size() + tq.qMerge.Size()
+}
+
+func (tq *TaskQueue) SplitDone(postingID uint64) {
+	tq.splitList.done(postingID)
+}
+
+func (tq *TaskQueue) MergeDone(postingID uint64) {
+	tq.mergeList.done(postingID)
+}
+
+func (tq *TaskQueue) MergeContains(postingID uint64) bool {
+	return tq.mergeList.contains(postingID)
+}
+
+func (tq *TaskQueue) EnqueueSplit(postingID uint64) error {
 	// Check if the task is already in progress
-	if !opq.splitList.tryAdd(postingID) {
+	if !tq.splitList.tryAdd(postingID) {
 		return nil
 	}
-	var buf []byte
-	var err error
 
-	// encode split
-	buf = buf[:0]
-	buf, err = encodeTask(buf, postingID, taskQueueSplitOp)
-	if err != nil {
-		return errors.Wrap(err, "failed to encode record")
-	}
-
-	if err := opq.Push(buf); err != nil {
+	if err := tq.q.Push(encodeTask(postingID, taskQueueSplitOp)); err != nil {
 		return errors.Wrap(err, "failed to push split operation to queue")
 	}
 
-	opq.spfreshIndex.metrics.EnqueueSplitTask()
+	tq.index.metrics.EnqueueSplitTask()
 
 	return nil
 }
 
-func (opq *TaskQueue) EnqueueMerge(ctx context.Context, postingID uint64) error {
-	if opq.spfreshIndex.ctx == nil {
-		return nil // Not started yet
-	}
-
-	if err := opq.spfreshIndex.ctx.Err(); err != nil {
-		return err
-	}
-
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-
+func (tq *TaskQueue) EnqueueMerge(postingID uint64) error {
 	// Check if the operation is already in progress
-	if !opq.mergeList.tryAdd(postingID) {
+	if !tq.mergeList.tryAdd(postingID) {
 		return nil
 	}
 
-	var buf []byte
-	var err error
-
-	// encode split
-	buf = buf[:0]
-	buf, err = encodeTask(buf, postingID, taskQueueMergeOp)
-	if err != nil {
-		return errors.Wrap(err, "failed to encode record")
-	}
-
-	if err := opq.Push(buf); err != nil {
+	if err := tq.qMerge.Push(encodeTask(postingID, taskQueueMergeOp)); err != nil {
 		return errors.Wrap(err, "failed to push merge operation to queue")
 	}
 
-	opq.spfreshIndex.metrics.EnqueueMergeTask()
+	tq.index.metrics.EnqueueMergeTask()
 
 	return nil
 }
 
-func (opq *TaskQueue) EnqueueReassign(ctx context.Context, postingID uint64, vecID uint64, version VectorVersion) error {
-	if opq.spfreshIndex.ctx == nil {
-		return nil // Not started yet
-	}
-
-	if err := opq.spfreshIndex.ctx.Err(); err != nil {
-		return err
-	}
-
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-
+func (tq *TaskQueue) EnqueueReassign(postingID uint64, vecID uint64, version VectorVersion) error {
 	buf := make([]byte, 18)
 	buf[0] = taskQueueReassignOp
 	binary.LittleEndian.PutUint64(buf[1:9], postingID)
 	binary.LittleEndian.PutUint64(buf[9:17], vecID)
 	buf[17] = byte(version)
 
-	if err := opq.Push(buf); err != nil {
+	if err := tq.q.Push(buf); err != nil {
 		return errors.Wrap(err, "failed to push reassign operation to queue")
 	}
 
-	opq.spfreshIndex.metrics.EnqueueReassignTask()
+	tq.index.metrics.EnqueueReassignTask()
 
 	return nil
 }
 
 // Flush the vector index after a batch is processed.
-func (opq *TaskQueue) OnBatchProcessed() {
-	if err := opq.spfreshIndex.Flush(); err != nil {
-		opq.Logger.WithError(err).Error("failed to flush vector index")
+func (tq *TaskQueue) OnBatchProcessed() {
+	if err := tq.index.Flush(); err != nil {
+		tq.index.logger.WithError(err).Error("failed to flush vector index")
 	}
 }
 
-type TaskQueueDecoder struct {
-	q *TaskQueue
-}
-
-func (v *TaskQueueDecoder) DecodeTask(data []byte) (queue.Task, error) {
+func (tq *TaskQueue) DecodeTask(data []byte) (queue.Task, error) {
 	op := data[0]
 	data = data[1:]
 
@@ -210,7 +189,7 @@ func (v *TaskQueueDecoder) DecodeTask(data []byte) (queue.Task, error) {
 
 		return &SplitTask{
 			id:  postingID,
-			idx: v.q.spfreshIndex,
+			idx: tq.index,
 		}, nil
 	case taskQueueMergeOp:
 		// decode posting ID
@@ -218,7 +197,7 @@ func (v *TaskQueueDecoder) DecodeTask(data []byte) (queue.Task, error) {
 
 		return &MergeTask{
 			id:  postingID,
-			idx: v.q.spfreshIndex,
+			idx: tq.index,
 		}, nil
 	case taskQueueReassignOp:
 		// decode posting ID
@@ -233,7 +212,7 @@ func (v *TaskQueueDecoder) DecodeTask(data []byte) (queue.Task, error) {
 			id:      postingID,
 			vecID:   vecID,
 			version: version,
-			idx:     v.q.spfreshIndex,
+			idx:     tq.index,
 		}, nil
 	}
 
@@ -259,7 +238,13 @@ func (t *SplitTask) Execute(ctx context.Context) error {
 		return ctx.Err()
 	}
 
-	return t.idx.doSplit(t.id, true)
+	err := t.idx.doSplit(ctx, t.id, true)
+	if err != nil {
+		return err
+	}
+
+	t.idx.metrics.DequeueSplitTask()
+	return nil
 }
 
 type MergeTask struct {
@@ -273,7 +258,8 @@ func (t *MergeTask) Op() uint8 {
 
 func (t *MergeTask) Key() uint64 {
 	// merge must be run sequentially, so we use a fixed key
-	return uint64(taskQueueMergeOp)
+	// by hashing the index ID
+	return xxhash.Sum64String(t.idx.id)
 }
 
 func (t *MergeTask) Execute(ctx context.Context) error {
@@ -281,7 +267,13 @@ func (t *MergeTask) Execute(ctx context.Context) error {
 		return ctx.Err()
 	}
 
-	return t.idx.doMerge(t.id)
+	err := t.idx.doMerge(ctx, t.id)
+	if err != nil {
+		return err
+	}
+
+	t.idx.metrics.DequeueMergeTask()
+	return nil
 }
 
 type ReassignTask struct {
@@ -305,17 +297,18 @@ func (t *ReassignTask) Execute(ctx context.Context) error {
 		return ctx.Err()
 	}
 
-	return t.idx.doReassign(reassignOperation{PostingID: t.id, VectorID: t.vecID, Version: t.version})
+	err := t.idx.doReassign(ctx, reassignOperation{PostingID: t.id, VectorID: t.vecID, Version: t.version})
+	if err != nil {
+		return err
+	}
+
+	t.idx.metrics.DequeueReassignTask()
+	return nil
 }
 
-func encodeTask(buf []byte, id uint64, op uint8) ([]byte, error) {
-	switch op {
-	case taskQueueSplitOp, taskQueueMergeOp:
-		// write the operation first
-		buf = append(buf, op)
-		buf = binary.LittleEndian.AppendUint64(buf, id)
-		return buf, nil
-	default:
-		return nil, errors.Errorf("unrecognized operation: %d", op)
-	}
+func encodeTask(id uint64, op uint8) []byte {
+	buf := make([]byte, 9)
+	buf[0] = op
+	binary.LittleEndian.PutUint64(buf[1:9], id)
+	return buf
 }

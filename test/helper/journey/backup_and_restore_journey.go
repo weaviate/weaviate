@@ -112,15 +112,6 @@ func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, backend string,
 			var customErr *backups.BackupsCreateUnprocessableEntity
 			require.True(t, errors.As(err, &customErr), "not backups.BackupsCreateUnprocessableEntity")
 		})
-
-		// out of band chunkSize
-		resp, err = helper.CreateBackup(t, &models.BackupConfig{
-			ChunkSize: 1024,
-		}, booksClass.Class, backend, backupID)
-		helper.AssertRequestFail(t, resp, err, func() {
-			var customErr *backups.BackupsCreateUnprocessableEntity
-			require.True(t, errors.As(err, &customErr), "not backups.BackupsCreateUnprocessableEntity")
-		})
 	})
 
 	t.Run("start backup process", func(t *testing.T) {
@@ -131,7 +122,6 @@ func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, backend string,
 				Include: []string{booksClass.Class},
 				Config: &models.BackupConfig{
 					CPUPercentage:    80,
-					ChunkSize:        512,
 					CompressionLevel: models.BackupConfigCompressionLevelDefaultCompression,
 					Bucket:           overrideName,
 					Path:             overridePath,

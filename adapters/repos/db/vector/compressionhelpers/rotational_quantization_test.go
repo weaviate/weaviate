@@ -388,3 +388,285 @@ func BenchmarkSQDistancer(b *testing.B) {
 		}
 	}
 }
+
+func TestUnRotate_BasicInverse(t *testing.T) {
+	rotation := compressionhelpers.NewFastRotation(128, 3, 42)
+
+	original := make([]float32, 128)
+	for i := range original {
+		original[i] = float32(i) * 0.1
+	}
+
+	rotated := rotation.Rotate(original)
+	unrotated := rotation.UnRotate(rotated)
+
+	// Check if unrotated ≈ original (within numerical precision)
+	for i := range original {
+		diff := math.Abs(float64(unrotated[i] - original[i]))
+		if diff > 1e-4 {
+			t.Errorf("Inverse failed at index %d: got %f, want %f, diff=%e",
+				i, unrotated[i], original[i], diff)
+		}
+	}
+}
+
+func TestUnRotate_DoubleInverse(t *testing.T) {
+	// Test that Rotate(UnRotate(x)) = x
+	rotation := compressionhelpers.NewFastRotation(128, 3, 42)
+
+	original := make([]float32, 128)
+	for i := range original {
+		original[i] = float32(i)*0.5 - 32.0
+	}
+
+	unrotated := rotation.UnRotate(original)
+	rotatedBack := rotation.Rotate(unrotated)
+
+	for i := range original {
+		diff := math.Abs(float64(rotatedBack[i] - original[i]))
+		if diff > 1e-4 {
+			t.Errorf("Double inverse failed at index %d: got %f, want %f, diff=%e",
+				i, rotatedBack[i], original[i], diff)
+		}
+	}
+}
+
+func TestUnRotate_ZeroVector(t *testing.T) {
+	rotation := compressionhelpers.NewFastRotation(128, 3, 42)
+
+	zero := make([]float32, 128)
+
+	rotated := rotation.Rotate(zero)
+	unrotated := rotation.UnRotate(rotated)
+
+	// Zero vector should remain zero after rotation and unrotation
+	for i := range unrotated {
+		if math.Abs(float64(unrotated[i])) > 1e-6 {
+			t.Errorf("Zero vector test failed at index %d: got %f, want 0",
+				i, unrotated[i])
+		}
+	}
+}
+
+func TestUnRotate_DifferentDimensions(t *testing.T) {
+	testCases := []struct {
+		name string
+		dim  int
+	}{
+		{"64 dimensions", 64},
+		{"128 dimensions", 128},
+		{"256 dimensions", 256},
+		{"384 dimensions", 384},
+		{"512 dimensions", 512},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			rotation := compressionhelpers.NewFastRotation(tc.dim, 3, 42)
+
+			original := make([]float32, tc.dim)
+			for i := range original {
+				original[i] = float32(i%100) * 0.01
+			}
+
+			rotated := rotation.Rotate(original)
+			unrotated := rotation.UnRotate(rotated)
+
+			for i := range original {
+				diff := math.Abs(float64(unrotated[i] - original[i]))
+				if diff > 1e-4 {
+					t.Errorf("Dimension %d failed at index %d: diff=%e",
+						tc.dim, i, diff)
+				}
+			}
+		})
+	}
+}
+
+func TestUnRotate_DifferentRounds(t *testing.T) {
+	testCases := []struct {
+		name   string
+		rounds int
+	}{
+		{"1 round", 1},
+		{"2 rounds", 2},
+		{"3 rounds", 3},
+		{"5 rounds", 5},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			rotation := compressionhelpers.NewFastRotation(128, tc.rounds, 42)
+
+			original := make([]float32, 128)
+			for i := range original {
+				original[i] = float32(i) * 0.1
+			}
+
+			rotated := rotation.Rotate(original)
+			unrotated := rotation.UnRotate(rotated)
+
+			for i := range original {
+				diff := math.Abs(float64(unrotated[i] - original[i]))
+				if diff > 1e-4 {
+					t.Errorf("Rounds=%d failed at index %d: diff=%e",
+						tc.rounds, i, diff)
+				}
+			}
+		})
+	}
+}
+
+func TestUnRotate_DifferentSeeds(t *testing.T) {
+	seeds := []uint64{42, 12345, 999999, 0}
+
+	for _, seed := range seeds {
+		t.Run(string(rune(seed)), func(t *testing.T) {
+			rotation := compressionhelpers.NewFastRotation(128, 3, seed)
+
+			original := make([]float32, 128)
+			for i := range original {
+				original[i] = float32(i) * 0.1
+			}
+
+			rotated := rotation.Rotate(original)
+			unrotated := rotation.UnRotate(rotated)
+
+			for i := range original {
+				diff := math.Abs(float64(unrotated[i] - original[i]))
+				if diff > 1e-4 {
+					t.Errorf("Seed=%d failed at index %d: diff=%e",
+						seed, i, diff)
+				}
+			}
+		})
+	}
+}
+
+func TestUnRotate_NormalizedVectors(t *testing.T) {
+	// Test with normalized vectors (common in vector search)
+	rotation := compressionhelpers.NewFastRotation(128, 3, 42)
+
+	original := make([]float32, 128)
+	var sum float32
+	for i := range original {
+		original[i] = float32(i) * 0.1
+		sum += original[i] * original[i]
+	}
+	// Normalize
+	norm := float32(math.Sqrt(float64(sum)))
+	for i := range original {
+		original[i] /= norm
+	}
+
+	rotated := rotation.Rotate(original)
+	unrotated := rotation.UnRotate(rotated)
+
+	for i := range original {
+		diff := math.Abs(float64(unrotated[i] - original[i]))
+		if diff > 1e-4 {
+			t.Errorf("Normalized vector test failed at index %d: diff=%e", i, diff)
+		}
+	}
+}
+
+func TestUnRotate_RandomVectors(t *testing.T) {
+	// Test with random-like vectors
+	rotation := compressionhelpers.NewFastRotation(128, 3, 42)
+
+	original := make([]float32, 128)
+	for i := range original {
+		// Pseudo-random pattern
+		original[i] = float32(math.Sin(float64(i) * 0.1))
+	}
+
+	rotated := rotation.Rotate(original)
+	unrotated := rotation.UnRotate(rotated)
+
+	for i := range original {
+		diff := math.Abs(float64(unrotated[i] - original[i]))
+		if diff > 1e-4 {
+			t.Errorf("Random vector test failed at index %d: diff=%e", i, diff)
+		}
+	}
+}
+
+func TestUnRotate_PreservesNorm(t *testing.T) {
+	// FWHT preserves the L2 norm (up to scaling)
+	rotation := compressionhelpers.NewFastRotation(128, 3, 42)
+
+	original := make([]float32, 128)
+	for i := range original {
+		original[i] = float32(i) * 0.1
+	}
+
+	// Calculate original norm
+	var originalNorm float32
+	for _, v := range original {
+		originalNorm += v * v
+	}
+	originalNorm = float32(math.Sqrt(float64(originalNorm)))
+
+	rotated := rotation.Rotate(original)
+	unrotated := rotation.UnRotate(rotated)
+
+	// Calculate unrotated norm
+	var unrotatedNorm float32
+	for _, v := range unrotated {
+		unrotatedNorm += v * v
+	}
+	unrotatedNorm = float32(math.Sqrt(float64(unrotatedNorm)))
+
+	// Norms should be very close
+	normDiff := math.Abs(float64(originalNorm - unrotatedNorm))
+	if normDiff > 1e-3 {
+		t.Errorf("Norm not preserved: original=%f, unrotated=%f, diff=%e",
+			originalNorm, unrotatedNorm, normDiff)
+	}
+}
+
+func TestUnRotate_ConsecutiveApplications(t *testing.T) {
+	// Test that multiple consecutive rotations and unrotations work
+	rotation := compressionhelpers.NewFastRotation(128, 3, 42)
+
+	original := make([]float32, 128)
+	for i := range original {
+		original[i] = float32(i) * 0.1
+	}
+
+	current := original
+	for iter := 0; iter < 5; iter++ {
+		rotated := rotation.Rotate(current)
+		current = rotation.UnRotate(rotated)
+	}
+
+	// After 5 round-trips, should still match original
+	for i := range original {
+		diff := math.Abs(float64(current[i] - original[i]))
+		if diff > 1e-3 { // Slightly larger tolerance due to accumulated error
+			t.Errorf("Consecutive applications failed at index %d after 5 iterations: diff=%e",
+				i, diff)
+		}
+	}
+}
+
+func TestUnRotate_PaddedDimensions(t *testing.T) {
+	// Test that padding to 64-byte boundaries doesn't affect the result
+	rotation := compressionhelpers.NewFastRotation(100, 3, 42) // Will be padded to 128
+
+	original := make([]float32, 100)
+	for i := range original {
+		original[i] = float32(i) * 0.1
+	}
+
+	rotated := rotation.Rotate(original)
+	unrotated := rotation.UnRotate(rotated)
+
+	// Check only the first 100 dimensions (the actual data)
+	for i := range original {
+		diff := math.Abs(float64(unrotated[i] - original[i]))
+		if diff > 1e-4 {
+			t.Errorf("Padded dimensions test failed at index %d: diff=%e", i, diff)
+		}
+	}
+}

@@ -121,6 +121,36 @@ func (r *FastRotation) Rotate(x []float32) []float32 {
 	return rx
 }
 
+func (r *FastRotation) UnRotate(rx []float32) []float32 {
+	x := make([]float32, len(rx))
+	copy(x, rx)
+
+	// Apply rounds in REVERSE order
+	for i := int(r.Rounds) - 1; i >= 0; i-- {
+		// First: Inverse Walsh-Hadamard transforms (FWHT is self-inverse)
+		pos := 0
+		for pos < len(x) {
+			if len(x)-pos >= 256 {
+				fastWalshHadamardTransform256(x[pos:(pos + 256)])
+				pos += 256
+				continue
+			}
+			fastWalshHadamardTransform64(x[pos:(pos + 64)])
+			pos += 64
+		}
+
+		// Then: Inverse swaps with signs (apply in REVERSE order)
+		for j := len(r.Swaps[i]) - 1; j >= 0; j-- {
+			s := r.Swaps[i][j]
+			// Inverse of: rx[s.I], rx[s.J] = Signs[s.I]*rx[s.J], Signs[s.J]*rx[s.I]
+			// Is: rx[s.I], rx[s.J] = Signs[s.J]*rx[s.J], Signs[s.I]*rx[s.I]
+			x[s.I], x[s.J] = r.Signs[i][s.J]*x[s.J], r.Signs[i][s.I]*x[s.I]
+		}
+	}
+
+	return x[:r.OutputDim] // Return only the original dimensions
+}
+
 func fastWalshHadamardTransform16(x []float32, normalize float32) {
 	x0 := normalize * x[0]
 	x1 := normalize * x[1]

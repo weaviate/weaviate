@@ -18,6 +18,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
@@ -26,7 +27,6 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/schema/config"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/spfresh"
-	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -46,17 +46,11 @@ type Config struct {
 	Store                     StoreConfig                     `json:"store"`                               // Configuration for the underlying LSMKV store
 	Centroids                 CentroidConfig                  `json:"centroids"`                           // Configuration for the centroid index
 	TombstoneCallbacks        cyclemanager.CycleCallbackGroup // Callbacks for handling tombstones
-	Compressed                bool                            `json:"compressed,omitempty"`       // Whether to store vectors in compressed format
 	VectorForIDThunk          common.VectorForID[float32]     `json:"vectorForIDThunk,omitempty"` // Function to get a vector by index ID
 }
 
 type StoreConfig struct {
-	MinMMapSize                  int64                 `json:"minMMapSize,omitempty"`                  // Minimum size of the mmap for the store
-	MaxReuseWalSize              int64                 `json:"maxReuseWalSize,omitempty"`              // Maximum size of the reuse wal for the store
-	AllocChecker                 memwatch.AllocChecker `json:"allocChecker,omitempty"`                 // Alloc checker for the store
-	LazyLoadSegments             bool                  `json:"lazyLoadSegments,omitempty"`             // Lazy load segments for the store
-	WriteSegmentInfoIntoFileName bool                  `json:"writeSegmentInfoIntoFileName,omitempty"` // Write segment info into file name for the store
-	WriteMetadataFilesEnabled    bool                  `json:"writeMetadataFilesEnabled,omitempty"`    // Write metadata files for the store
+	MakeBucketOptions lsmkv.MakeBucketOptions `json:"makeBucketOptions,omitempty"` // Make bucket options for the store
 }
 
 type CentroidConfig struct {
@@ -97,7 +91,7 @@ func DefaultConfig() *Config {
 		ReassignNeighbors:         DefaultReassignNeighbors,
 		MaxDistanceRatio:          DefaultMaxDistanceRatio,
 		DistanceProvider:          distancer.NewL2SquaredProvider(),
-		Compressed:                false,
+		Store:                     StoreConfig{MakeBucketOptions: lsmkv.MakeNoopBucketOptions},
 	}
 }
 
