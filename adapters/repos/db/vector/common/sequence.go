@@ -14,8 +14,7 @@ import (
 // 3. High Throughput: The generator is optimized for high performance
 // 4. Concurrency: The generator is safe for concurrent access.
 // However because of its design, it does not guarantee gapless ids.
-//
-// Design: A Sequence first allocates a range of ids and reserves them in the
+// A Sequence first allocates a range of ids and reserves them in the
 // persistent storage. It then serves those ids from memory without
 // touching the disk.
 // If the sequence is closed gracefully, if persists the last used id, however
@@ -23,13 +22,30 @@ import (
 // potentially leaving gaps.
 // The range is configurable and can be tuned based on the expected throughput requirements.
 type Sequence struct {
-	counter    MonotonicCounter
+	counter    *MonotonicCounter
 	upperBound atomic.Uint64
+	store      SequenceStore
 }
 
 // SequenceStore defines the interface for persisting the state of a Sequence.
 // Implementations don't need to be thread-safe.
 type SequenceStore interface {
-	Store(current uint64) error
+	Store(upperBound uint64) error
 	Load() (uint64, error)
+}
+
+// NewSequence loads the upper bound from the store and returns a ready to use Sequence.
+func NewSequence(store SequenceStore, rangeSize uint64) (*Sequence, error) {
+	upperBound, err := store.Load()
+	if err != nil {
+		return nil, err
+	}
+
+	seq := Sequence{
+		counter: NewMonotonicCounter(upperBound),
+		store:   store,
+	}
+	seq.upperBound.Store(upperBound)
+
+	return &seq, nil
 }
