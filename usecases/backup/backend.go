@@ -489,10 +489,6 @@ func (u *uploader) compress(ctx context.Context,
 	// consumer
 	eg.Go(func() error {
 		if _, err := u.backend.Write(ctx, chunkKey, overrideBucket, overridePath, reader); err != nil {
-			// if the producer has an error, the error from the consumer is not returned and lost
-			u.log.WithFields(logrus.Fields{
-				"chunkKey": chunkKey,
-			}).Errorf("failed to write chunk to backend: %v", err)
 			return err
 		}
 		return nil
