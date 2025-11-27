@@ -22,7 +22,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -141,40 +140,44 @@ func (c *Copier) CopyReplicaFiles(ctx context.Context, srcNodeId, collectionName
 	}
 
 	metadataChan := make(chan *protocol.FileMetadata, 1000)
-	var metaWG sync.WaitGroup
+
+	metadataWG := enterrors.NewErrorGroupWrapper(c.logger)
 
 	for range c.concurrentWorkers {
-		metaWG.Add(1)
-
-		enterrors.GoWrapper(func() {
-			err := c.metadataWorker(ctx, client, collectionName, shardName, fileNameChan, metadataChan, &metaWG)
+		metadataWG.Go(func() error {
+			err := c.metadataWorker(ctx, client, collectionName, shardName, fileNameChan, metadataChan)
 			if err != nil {
 				c.logger.WithError(err).Error("failed to get files metadata")
-				return
 			}
-		}, c.logger)
+			return err
+		})
 	}
 
-	var dlWG sync.WaitGroup
+	dlWG := enterrors.NewErrorGroupWrapper(c.logger)
 
 	for range c.concurrentWorkers {
-		dlWG.Add(1)
-
-		enterrors.GoWrapper(func() {
-			err := c.downloadWorker(ctx, client, metadataChan, &dlWG)
+		dlWG.Go(func() error {
+			err := c.downloadWorker(ctx, client, metadataChan)
 			if err != nil {
 				c.logger.WithError(err).Error("failed to download files")
-				return
 			}
-		}, c.logger)
+			return err
+		})
 	}
 
 	// wait for all metadata workers to finish
-	metaWG.Wait()
+	err = metadataWG.Wait()
+	if err != nil {
+		return fmt.Errorf("failed to get file metadata: %w", err)
+	}
+
 	close(metadataChan)
 
 	// wait for all download workers to finish
-	dlWG.Wait()
+	err = dlWG.Wait()
+	if err != nil {
+		return fmt.Errorf("failed to download files: %w", err)
+	}
 
 	err = c.validateLocalFolder(collectionName, shardName, fileListResp.FileNames)
 	if err != nil {
@@ -253,10 +256,7 @@ func (c *Copier) prepareLocalFolder(collectionName, shardName string, fileNames 
 
 func (c *Copier) metadataWorker(ctx context.Context, client FileReplicationServiceClient,
 	collectionName, shardName string, fileNameChan <-chan string, metadataChan chan<- *protocol.FileMetadata,
-	wg *sync.WaitGroup,
 ) error {
-	defer wg.Done()
-
 	stream, err := client.GetFileMetadata(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to create GetFileMetadata stream: %w", err)
@@ -292,10 +292,8 @@ func (c *Copier) metadataWorker(ctx context.Context, client FileReplicationServi
 }
 
 func (c *Copier) downloadWorker(ctx context.Context, client FileReplicationServiceClient,
-	metadataChan <-chan *protocol.FileMetadata, wg *sync.WaitGroup,
+	metadataChan <-chan *protocol.FileMetadata,
 ) error {
-	defer wg.Done()
-
 	stream, err := client.GetFile(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to create GetFile stream: %w", err)
