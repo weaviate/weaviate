@@ -328,10 +328,13 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 				// TODO return retryable info here, for now should be fine since most errors are considered retryable
 				// TODO have increasing timeout passed into each op (eg 1s, 2s, 4s, 8s, 16s, 32s, with some max) similar to backoff? future PR? or should we just set timeout once per worker in Pull?
 				if err == nil {
+					fmt.Println(time.Now(), "NATEE coordinator.pull success", hosts[hostIndex])
 					successful.Add(1)
 					replyCh <- _Result[T]{resp, err}
 					return
 				}
+
+				fmt.Println(time.Now(), "NATEE coordinator.pull errored, putting on retry queue", hosts[hostIndex])
 				// this host failed op on the first try, put it on the retry queue
 				hostRetryQueue <- hostRetry{
 					hosts[hostIndex],
@@ -339,29 +342,37 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 				}
 
 				// let's fallback to the backups in the retry queue
+				fmt.Println(time.Now(), "NATEE coordinator.pull falling back to retry queue")
 				for hr := range hostRetryQueue {
+					fmt.Println(time.Now(), "NATEE coordinator.pull trying retry queue host", hr.host)
 					resp, err := op(workerCtx, hr.host, isFullReadWorker)
 					if err == nil {
+						fmt.Println(time.Now(), "NATEE coordinator.pull retry queue host success", hr.host)
 						replyCh <- _Result[T]{resp, err}
 						return
 					}
+					fmt.Println(time.Now(), "NATEE coordinator.pull retry queue host errored, getting next backoff", hr.host)
 					nextBackOff := hr.currentBackOff.NextBackOff()
 					if nextBackOff == backoff.Stop {
 						// this host has run out of retries, send the result and note that
 						// we have the worker exit here with the assumption that once we've reached
 						// this many failures for this host, we've tried all other hosts enough
 						// that we're not going to reach level successes
+						fmt.Println(time.Now(), "NATEE coordinator.pull retry queue host out of retries", hr.host)
 						replyCh <- _Result[T]{resp, err}
 						return
 					}
 
+					fmt.Println(time.Now(), "NATEE SLEEP coordinator.pull retry queue host getting next backoff", hr.host, nextBackOff)
 					timer := time.NewTimer(nextBackOff)
 					select {
 					case <-workerCtx.Done():
+						fmt.Println(time.Now(), "NATEE SLEEP coordinator.pull retry queue host context done", hr.host)
 						timer.Stop()
 						replyCh <- _Result[T]{resp, err}
 						return
 					case <-timer.C:
+						fmt.Println(time.Now(), "NATEE SLEEP coordinator.pull retry queue host timer fired", hr.host)
 						hostRetryQueue <- hostRetry{hr.host, hr.currentBackOff}
 					}
 					timer.Stop()
