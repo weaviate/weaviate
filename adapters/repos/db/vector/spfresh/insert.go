@@ -57,20 +57,30 @@ func (s *SPFresh) Add(ctx context.Context, id uint64, vector []float32) (err err
 	// init components that require knowing the vector dimensions
 	// and compressed size
 	s.initDimensionsOnce.Do(func() {
-		s.dims = int32(len(vector))
+		size := int32(len(vector))
+		s.dims = size
 		s.setMaxPostingSize()
-		if s.config.Compressed {
-			s.quantizer = compressionhelpers.NewRotationalQuantizer(int(s.dims), 42, 8, s.config.DistanceProvider)
-			s.vectorSize = int32(compressedVectorSize(int(s.dims)))
-			s.rqActive.Store(true)
-		} else {
-			s.vectorSize = s.dims * 4
+		if err := s.setDimensions(size); err != nil {
+			s.logger.WithError(err).Error("could not set dimensions")
+			return // Fail the entire initialization
+		}
+		s.quantizer = compressionhelpers.NewRotationalQuantizer(int(s.dims), 42, 8, s.config.DistanceProvider)
+		s.vectorSize = int32(compressedVectorSize(int(s.dims)))
+		s.Centroids.SetQuantizer(s.quantizer)
+		if err := s.setVectorSize(s.vectorSize); err != nil {
+			s.logger.WithError(err).Error("could not set vector size")
+			return // Fails because we don't know the vector size
+		}
+
+		if err := s.persistRQData(); err != nil {
+			s.logger.WithError(err).Error("could not persist RQ data")
+			return // Fail the entire initialization
 		}
 		s.distancer = &Distancer{
 			quantizer: s.quantizer,
 			distancer: s.config.DistanceProvider,
 		}
-		s.PostingStore.Init(s.vectorSize, s.config.Compressed)
+		s.PostingStore.Init(s.vectorSize)
 	})
 
 	// add the vector to the version map.
@@ -83,14 +93,8 @@ func (s *SPFresh) Add(ctx context.Context, id uint64, vector []float32) (err err
 
 	var v Vector
 
-	var compressed []byte
-
-	if s.config.Compressed {
-		compressed = s.quantizer.Encode(vector)
-		v = NewCompressedVector(id, version, compressed)
-	} else {
-		v = NewRawVector(id, version, vector)
-	}
+	compressed := s.quantizer.Encode(vector)
+	v = NewVector(id, version, compressed)
 
 	targets, _, err := s.RNGSelect(vector, 0)
 	if err != nil {
@@ -170,7 +174,7 @@ func (s *SPFresh) append(ctx context.Context, vector Vector, centroidID uint64, 
 			return false, err
 		}
 		if version == vector.Version() {
-			err := s.taskQueue.EnqueueReassign(ctx, centroidID, vector.ID(), vector.Version())
+			err := s.taskQueue.EnqueueReassign(centroidID, vector.ID(), vector.Version())
 			if err != nil {
 				s.postingLocks.Unlock(centroidID)
 				return false, err
@@ -208,9 +212,9 @@ func (s *SPFresh) append(ctx context.Context, vector Vector, centroidID uint64, 
 	}
 	if count > max {
 		if reassigned {
-			err = s.doSplit(centroidID, false)
+			err = s.doSplit(ctx, centroidID, false)
 		} else {
-			err = s.taskQueue.EnqueueSplit(ctx, centroidID)
+			err = s.taskQueue.EnqueueSplit(centroidID)
 		}
 		if err != nil {
 			return false, err

@@ -124,6 +124,10 @@ func TestGRPC_Batching(t *testing.T) {
 		stop(stream)
 		stream.CloseSend()
 
+		// Read the acks message
+		_, err = stream.Recv()
+		require.NoError(t, err, "BatchStream should return a response")
+
 		// Read the results message
 		msg, err := stream.Recv()
 		require.NoError(t, err, "BatchStream should return a response")
@@ -166,6 +170,10 @@ func TestGRPC_Batching(t *testing.T) {
 		stop(stream)
 		stream.CloseSend()
 
+		// Read the acks message
+		_, err = stream.Recv()
+		require.NoError(t, err, "BatchStream should return a response")
+
 		// Read the results message
 		msg, err := stream.Recv()
 		require.NoError(t, err, "BatchStream should return a response")
@@ -191,21 +199,8 @@ func TestGRPC_Batching(t *testing.T) {
 
 		// Open up a stream to read messages from
 		stream := start(ctx, t, grpcClient, "")
-		// Send 50000 articles
-		objects := make([]*pb.BatchObject, 0, 1000)
-		for i := 0; i < 50000; i++ {
-			objects = append(objects, &pb.BatchObject{Collection: clsA.Class, Uuid: uuid.NewString()})
-			if len(objects) == 1000 {
-				err := send(stream, objects, nil)
-				require.NoError(t, err, "sending Objects over the stream should not return an error")
-				objects = objects[:0] // reset slice but keep capacity
-				t.Logf("Sent %d objects", i+1)
-			}
-		}
-		t.Log("Done adding objects to stream")
-		stop(stream)
-		stream.CloseSend()
 
+		// Start a goroutine to read messages from the stream
 		go func() {
 			// Verify no errors returned from the stream
 			for {
@@ -228,6 +223,21 @@ func TestGRPC_Batching(t *testing.T) {
 			}
 		}()
 
+		// Send 50000 articles
+		objects := make([]*pb.BatchObject, 0, 1000)
+		for i := 0; i < 50000; i++ {
+			objects = append(objects, &pb.BatchObject{Collection: clsA.Class, Uuid: uuid.NewString()})
+			if len(objects) == 1000 {
+				err := send(stream, objects, nil)
+				require.NoError(t, err, "sending Objects over the stream should not return an error")
+				objects = objects[:0] // reset slice but keep capacity
+				t.Logf("Sent %d objects", i+1)
+			}
+		}
+		t.Log("Done adding objects to stream")
+		stop(stream)
+		stream.CloseSend()
+
 		// Verify that all objects are present after shutdown and restart
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
 			res, err := grpcClient.Aggregate(ctx, &pb.AggregateRequest{
@@ -244,21 +254,6 @@ func TestGRPC_Batching(t *testing.T) {
 
 		// Open up a stream to read messages from
 		stream := start(ctx, t, grpcClient, "")
-
-		// Send 50000 articles
-		objects := make([]*pb.BatchObject, 0, 1000)
-		for i := 0; i < 50000; i++ {
-			objects = append(objects, &pb.BatchObject{Collection: clsA.Class, Uuid: uuid.NewString()})
-			if len(objects) == 1000 {
-				err := send(stream, objects, nil)
-				require.NoError(t, err, "sending Objects over the stream should not return an error")
-				objects = objects[:0] // reset slice but keep capacity
-				t.Logf("Sent %d objects", i+1)
-			}
-		}
-		stop(stream)
-		stream.CloseSend()
-		t.Log("Done adding objects to stream")
 
 		var wg sync.WaitGroup
 		wg.Add(1)
@@ -284,6 +279,21 @@ func TestGRPC_Batching(t *testing.T) {
 				}
 			}
 		}()
+
+		// Send 50000 articles
+		objects := make([]*pb.BatchObject, 0, 1000)
+		for i := 0; i < 50000; i++ {
+			objects = append(objects, &pb.BatchObject{Collection: clsA.Class, Uuid: uuid.NewString()})
+			if len(objects) == 1000 {
+				err := send(stream, objects, nil)
+				require.NoError(t, err, "sending Objects over the stream should not return an error")
+				objects = objects[:0] // reset slice but keep capacity
+				t.Logf("Sent %d objects", i+1)
+			}
+		}
+		stop(stream)
+		stream.CloseSend()
+		t.Log("Done adding objects to stream")
 
 		// Stop the node
 		t.Log("Stopping node...")
@@ -666,6 +676,10 @@ func TestGRPC_AuthzBatching(t *testing.T) {
 		require.NoError(t, err, "sending Objects over the stream should not return an error")
 		stop(stream)
 		stream.CloseSend()
+
+		// Read the acks message
+		_, err = stream.Recv()
+		require.NoError(t, err, "BatchStream should return a response")
 
 		// Read the error message
 		msg, err := stream.Recv()

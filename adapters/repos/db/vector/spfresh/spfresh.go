@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/spfresh"
+	bolt "go.etcd.io/bbolt"
 )
 
 const (
@@ -71,7 +72,6 @@ type SPFresh struct {
 	vectorSize         int32 // Size of the compressed vectors in bytes
 	distancer          *Distancer
 	quantizer          *compressionhelpers.RotationalQuantizer
-	rqActive           atomic.Bool
 
 	// Internal components
 	Centroids    CentroidIndex           // Provides access to the centroids.
@@ -91,8 +91,10 @@ type SPFresh struct {
 	postingLocks       *common.ShardedRWLocks // Locks to prevent concurrent modifications to the same posting.
 	initialPostingLock sync.Mutex
 
-	store       *lsmkv.Store
-	vectorForId common.VectorForID[float32]
+	store        *lsmkv.Store
+	vectorForId  common.VectorForID[float32]
+	metadata     *bolt.DB
+	metadataLock sync.RWMutex
 }
 
 func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*SPFresh, error) {
@@ -100,7 +102,6 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*SPFresh, error) {
 	if err != nil {
 		return nil, err
 	}
-	cfg.Compressed = true
 
 	metrics := NewMetrics(cfg.PrometheusMetrics, cfg.ClassName, cfg.ShardName)
 
@@ -156,17 +157,22 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*SPFresh, error) {
 		if err != nil {
 			return nil, err
 		}
+		s.IDs = *common.NewMonotonicCounter(s.Centroids.GetMaxID())
 	} else {
 		s.Centroids = NewBruteForceSPTAG(metrics, cfg.DistanceProvider, 1024*1024, 1024)
 	}
 
 	s.ctx, s.cancel = context.WithCancel(context.Background())
 
-	taskQueue, err := NewTaskQueue(&s, cfg.TargetVector)
+	taskQueue, err := NewTaskQueue(&s)
 	if err != nil {
 		return nil, err
 	}
 	s.taskQueue = *taskQueue
+
+	if err = s.restoreMetadata(); err != nil {
+		s.logger.Warnf("unable to restore metadata from previous run with error: %v", err)
+	}
 
 	return &s, nil
 }
@@ -272,7 +278,7 @@ func (s *SPFresh) PostStartup(ctx context.Context) {
 }
 
 func (s *SPFresh) Compressed() bool {
-	return s.config.Compressed
+	return true
 }
 
 func (s *SPFresh) Multivector() bool {
@@ -327,7 +333,7 @@ func (s *SPFresh) QueryVectorDistancer(queryVector []float32) common.QueryVector
 }
 
 func (s *SPFresh) CompressionStats() compressionhelpers.CompressionStats {
-	if s.rqActive.Load() {
+	if s.quantizer != nil {
 		return s.quantizer.Stats()
 	}
 	return compressionhelpers.UncompressedStats{}
