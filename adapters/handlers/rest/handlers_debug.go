@@ -1111,9 +1111,25 @@ func setupDebugHandlers(appState *state.State) {
 			return
 		}
 
-		jsonBytes, err := json.MarshalIndent(skipSensitiveConfig(appState.ServerConfig.Config), "", "  ")
+		jsonBytes, err := json.Marshal(skipSensitiveConfig(appState.ServerConfig.Config))
 		if err != nil {
 			logger.WithError(err).Error("marshal failed on config")
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		// Unmarshal to map to clean up empty values
+		var configMap map[string]any
+		if err := json.Unmarshal(jsonBytes, &configMap); err != nil {
+			logger.WithError(err).Error("unmarshal failed on config")
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		// for human readability
+		jsonBytes, err = json.MarshalIndent(cleanEmptyValues(configMap), "", "  ")
+		if err != nil {
+			logger.WithError(err).Error("marshal failed on cleaned config")
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -1125,14 +1141,14 @@ func setupDebugHandlers(appState *state.State) {
 }
 
 // skipSensitiveConfig creates a copy of the config with Authentication and Authorization
-// sections skipped (set to zero values) for security purposes
+// sections set to zero values for security purposes
 func skipSensitiveConfig(cfg ucfg.Config) ucfg.Config {
 	safe := cfg
 
-	// Skip Authentication section entirely
+	// Skip Authentication section entirely by setting to zero value
 	safe.Authentication = ucfg.Authentication{}
 
-	// Skip Authorization section entirely
+	// Skip Authorization section entirely by setting to zero value
 	safe.Authorization = ucfg.Authorization{}
 
 	// Skip Cluster BasicAuth credentials
@@ -1140,6 +1156,69 @@ func skipSensitiveConfig(cfg ucfg.Config) ucfg.Config {
 	safe.Cluster.AuthConfig.BasicAuth.Password = ""
 
 	return safe
+}
+
+// cleanEmptyValues recursively removes empty values from a JSON map.
+//
+// TODO: This is a workaround because:
+//   - The config struct doesn't use omitempty tags for all fields
+//   - Composed structs are not defined as pointers, so empty structs still marshal as {}
+//
+// See: https://github.com/weaviate/weaviate/blob/main/usecases/config/config_handler.go#L106
+func cleanEmptyValues(m map[string]any) map[string]any {
+	result := make(map[string]any)
+	for k, v := range m {
+		cleaned := cleanValue(v)
+		if cleaned != nil {
+			result[k] = cleaned
+		}
+	}
+	return result
+}
+
+// cleanValue recursively cleans a JSON value, removing empty nested structures
+func cleanValue(v any) any {
+	if v == nil {
+		return nil
+	}
+
+	switch val := v.(type) {
+	case map[string]any:
+		cleaned := cleanEmptyValues(val)
+		if len(cleaned) == 0 {
+			return nil
+		}
+		return cleaned
+	case []any:
+		cleaned := make([]any, 0, len(val))
+		for _, item := range val {
+			if cleanedItem := cleanValue(item); cleanedItem != nil {
+				cleaned = append(cleaned, cleanedItem)
+			}
+		}
+		if len(cleaned) == 0 {
+			return nil
+		}
+		return cleaned
+	case string:
+		if val == "" {
+			return nil
+		}
+		return val
+	case bool:
+		// Keep bool values (false is a valid value, but we can omit it if desired)
+		// For now, keep all bools to preserve configuration state
+		return val
+	case float64:
+		// JSON numbers are unmarshaled as float64
+		if val == 0 {
+			return nil
+		}
+		return val
+	default:
+		// For any other type, preserve the value
+		return v
+	}
 }
 
 type MaintenanceMode struct {
