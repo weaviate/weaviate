@@ -143,7 +143,7 @@ func (c *Copier) CopyReplicaFiles(ctx context.Context, srcNodeId, collectionName
 
 	metadataWG := enterrors.NewErrorGroupWrapper(c.logger)
 
-	for range c.concurrentWorkers {
+	for i := 0; i < c.concurrentWorkers; i++ {
 		metadataWG.Go(func() error {
 			err := c.metadataWorker(ctx, client, collectionName, shardName, fileNameChan, metadataChan)
 			if err != nil {
@@ -155,7 +155,7 @@ func (c *Copier) CopyReplicaFiles(ctx context.Context, srcNodeId, collectionName
 
 	dlWG := enterrors.NewErrorGroupWrapper(c.logger)
 
-	for range c.concurrentWorkers {
+	for i := 0; i < c.concurrentWorkers; i++ {
 		dlWG.Go(func() error {
 			err := c.downloadWorker(ctx, client, metadataChan)
 			if err != nil {
