@@ -207,22 +207,20 @@ func (v *google) getPayload(useGenerativeAI bool, input []string,
 		if v.isLegacy(config) {
 			return batchEmbedTextRequestLegacy{Texts: input}
 		}
-		parts := make([]part, len(input))
+		requests := make([]embedContentRequest, len(input))
 		for i := range input {
-			parts[i] = part{Text: input[i]}
+			requests[i] = embedContentRequest{
+				Model: fmt.Sprintf("models/%s", config.Model),
+				Content: content{
+					Parts: []part{{Text: input[i]}},
+				},
+				TaskType:             taskType,
+				Title:                title,
+				OutputDimensionality: config.Dimensions,
+			}
 		}
 		req := batchEmbedContents{
-			Requests: []embedContentRequest{
-				{
-					Model: fmt.Sprintf("models/%s", config.Model),
-					Content: content{
-						Parts: parts,
-					},
-					TaskType:             taskType,
-					Title:                title,
-					OutputDimensionality: config.Dimensions,
-				},
-			},
+			Requests: requests,
 		}
 		return req
 	}
