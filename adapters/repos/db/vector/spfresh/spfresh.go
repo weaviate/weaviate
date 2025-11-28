@@ -72,7 +72,7 @@ type SPFresh struct {
 	quantizer          *compressionhelpers.RotationalQuantizer
 
 	// Internal components
-	Centroids    CentroidIndex           // Provides access to the centroids.
+	Centroids    *HNSWIndex              // Provides access to the centroids.
 	PostingStore *PostingStore           // Used for managing persistence of postings.
 	IDs          common.MonotonicCounter // Shared monotonic counter for generating unique IDs for new postings.
 	VersionMap   *VersionMap             // Stores vector versions in-memory.
@@ -150,15 +150,11 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*SPFresh, error) {
 		centroidsIndexType: uc.CentroidsIndexType,
 	}
 
-	if s.centroidsIndexType == "hnsw" {
-		s.Centroids, err = NewHNSWIndex(metrics, store, cfg, 1024*1024, 1024)
-		if err != nil {
-			return nil, err
-		}
-		s.IDs = *common.NewMonotonicCounter(s.Centroids.GetMaxID())
-	} else {
-		s.Centroids = NewBruteForceSPTAG(metrics, cfg.DistanceProvider, 1024*1024, 1024)
+	s.Centroids, err = NewHNSWIndex(metrics, store, cfg, 1024*1024, 1024)
+	if err != nil {
+		return nil, err
 	}
+	s.IDs = *common.NewMonotonicCounter(s.Centroids.GetMaxID())
 
 	s.ctx, s.cancel = context.WithCancel(context.Background())
 
@@ -233,29 +229,11 @@ func (s *SPFresh) Shutdown(ctx context.Context) error {
 }
 
 func (s *SPFresh) Flush() error {
-	if s.config.Centroids.IndexType == "hnsw" {
-		hnswIndex, ok := s.Centroids.(*HNSWIndex)
-		if !ok {
-			return errors.Errorf("centroid index is not HNSW, but %T", s.Centroids)
-		}
-
-		return hnswIndex.hnsw.Flush()
-	}
-
-	return nil
+	return s.Centroids.hnsw.Flush()
 }
 
 func (s *SPFresh) SwitchCommitLogs(ctx context.Context) error {
-	if s.config.Centroids.IndexType == "hnsw" {
-		hnswIndex, ok := s.Centroids.(*HNSWIndex)
-		if !ok {
-			return errors.Errorf("centroid index is not HNSW, but %T", s.Centroids)
-		}
-
-		return hnswIndex.hnsw.SwitchCommitLogs(ctx)
-	}
-
-	return nil
+	return s.Centroids.hnsw.SwitchCommitLogs(ctx)
 }
 
 func (s *SPFresh) ListFiles(ctx context.Context, basePath string) ([]string, error) {
@@ -263,16 +241,7 @@ func (s *SPFresh) ListFiles(ctx context.Context, basePath string) ([]string, err
 }
 
 func (s *SPFresh) PostStartup(ctx context.Context) {
-	// This method can be used to perform any post-startup initialization
-	// For now, it does nothing
-	if s.config.Centroids.IndexType == "hnsw" {
-		hnswIndex, ok := s.Centroids.(*HNSWIndex)
-		if !ok {
-			return
-		}
-
-		hnswIndex.hnsw.PostStartup(ctx)
-	}
+	s.Centroids.hnsw.PostStartup(ctx)
 }
 
 func (s *SPFresh) Compressed() bool {
