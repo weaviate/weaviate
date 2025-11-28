@@ -31,6 +31,17 @@ const (
 	DefaultBaseURL               = "https://api.openai.com"
 	DefaultApiVersion            = "2024-02-01"
 	LowerCaseInput               = false
+
+	// Parameter keys for accessing the Parameters map
+	ParamModel        = "Model"
+	ParamType         = "Type"
+	ParamModelVersion = "ModelVersion"
+	ParamResourceName = "ResourceName"
+	ParamBaseURL      = "BaseURL"
+	ParamDeploymentID = "DeploymentID"
+	ParamApiVersion   = "ApiVersion"
+	ParamIsAzure      = "IsAzure"
+	ParamDimensions   = "Dimensions"
 )
 
 const (
@@ -77,6 +88,66 @@ var availableApiVersions = []string{
 	"2024-02-01",
 }
 
+// Parameters defines all configuration parameters for text2vec-openai
+var Parameters = map[string]basesettings.ParameterDef{
+	ParamModel: {
+		JSONKey:      "model",
+		DefaultValue: DefaultOpenAIModel,
+		Description:  "OpenAI model name (e.g., ada, text-embedding-3-small, text-embedding-3-large)",
+		Required:     false,
+	},
+	ParamType: {
+		JSONKey:       "type",
+		DefaultValue:  DefaultOpenAIDocumentType,
+		Description:   "Document type (text or code)",
+		Required:      false,
+		AllowedValues: availableOpenAITypes,
+	},
+	ParamModelVersion: {
+		JSONKey:      "modelVersion",
+		DefaultValue: "",
+		Description:  "Model version (001, 002, 003); defaults are determined dynamically based on model and type",
+		Required:     false,
+	},
+	ParamResourceName: {
+		JSONKey:      "resourceName",
+		DefaultValue: "",
+		Description:  "Azure OpenAI resource name (required for Azure deployments)",
+		Required:     false,
+	},
+	ParamBaseURL: {
+		JSONKey:      "baseURL",
+		DefaultValue: DefaultBaseURL,
+		Description:  "Base URL for OpenAI API or third-party provider",
+		Required:     false,
+	},
+	ParamDeploymentID: {
+		JSONKey:      "deploymentId",
+		DefaultValue: "",
+		Description:  "Azure OpenAI deployment ID (required for Azure deployments)",
+		Required:     false,
+	},
+	ParamApiVersion: {
+		JSONKey:       "apiVersion",
+		DefaultValue:  DefaultApiVersion,
+		Description:   "Azure OpenAI API version",
+		Required:      false,
+		AllowedValues: availableApiVersions,
+	},
+	ParamIsAzure: {
+		JSONKey:      "isAzure",
+		DefaultValue: false,
+		Description:  "Explicitly indicate Azure OpenAI usage",
+		Required:     false,
+	},
+	ParamDimensions: {
+		JSONKey:      "dimensions",
+		DefaultValue: nil,
+		Description:  "Number of dimensions for V3 embedding models (512 or 1536 for 3-small, 256/1024/3072 for 3-large)",
+		Required:     false,
+	},
+}
+
 type classSettings struct {
 	basesettings.BaseClassSettings
 	cfg moduletools.ClassConfig
@@ -87,16 +158,16 @@ func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
 }
 
 func (cs *classSettings) Model() string {
-	return cs.BaseClassSettings.GetPropertyAsString("model", DefaultOpenAIModel)
+	return cs.BaseClassSettings.GetPropertyAsString(Parameters[ParamModel].JSONKey, DefaultOpenAIModel)
 }
 
 func (cs *classSettings) Type() string {
-	return cs.BaseClassSettings.GetPropertyAsString("type", DefaultOpenAIDocumentType)
+	return cs.BaseClassSettings.GetPropertyAsString(Parameters[ParamType].JSONKey, DefaultOpenAIDocumentType)
 }
 
 func (cs *classSettings) ModelVersion() string {
 	defaultVersion := PickDefaultModelVersion(cs.Model(), cs.Type())
-	return cs.BaseClassSettings.GetPropertyAsString("modelVersion", defaultVersion)
+	return cs.BaseClassSettings.GetPropertyAsString(Parameters[ParamModelVersion].JSONKey, defaultVersion)
 }
 
 func (cs *classSettings) ModelStringForAction(action string) string {
@@ -132,19 +203,19 @@ func (v *classSettings) getModel002String(model string) string {
 }
 
 func (cs *classSettings) ResourceName() string {
-	return cs.BaseClassSettings.GetPropertyAsString("resourceName", "")
+	return cs.BaseClassSettings.GetPropertyAsString(Parameters[ParamResourceName].JSONKey, "")
 }
 
 func (cs *classSettings) BaseURL() string {
-	return cs.BaseClassSettings.GetPropertyAsString("baseURL", DefaultBaseURL)
+	return cs.BaseClassSettings.GetPropertyAsString(Parameters[ParamBaseURL].JSONKey, DefaultBaseURL)
 }
 
 func (cs *classSettings) DeploymentID() string {
-	return cs.BaseClassSettings.GetPropertyAsString("deploymentId", "")
+	return cs.BaseClassSettings.GetPropertyAsString(Parameters[ParamDeploymentID].JSONKey, "")
 }
 
 func (cs *classSettings) ApiVersion() string {
-	return cs.BaseClassSettings.GetPropertyAsString("apiVersion", DefaultApiVersion)
+	return cs.BaseClassSettings.GetPropertyAsString(Parameters[ParamApiVersion].JSONKey, DefaultApiVersion)
 }
 
 func (cs *classSettings) IsThirdPartyProvider() bool {
@@ -152,7 +223,7 @@ func (cs *classSettings) IsThirdPartyProvider() bool {
 }
 
 func (cs *classSettings) IsAzure() bool {
-	return cs.BaseClassSettings.GetPropertyAsBool("isAzure", false) || (cs.ResourceName() != "" && cs.DeploymentID() != "")
+	return cs.BaseClassSettings.GetPropertyAsBool(Parameters[ParamIsAzure].JSONKey, false) || (cs.ResourceName() != "" && cs.DeploymentID() != "")
 }
 
 func (cs *classSettings) Dimensions() *int64 {
@@ -160,7 +231,7 @@ func (cs *classSettings) Dimensions() *int64 {
 	if cs.IsAzure() {
 		defaultValue = nil
 	}
-	return cs.BaseClassSettings.GetPropertyAsInt64("dimensions", defaultValue)
+	return cs.BaseClassSettings.GetPropertyAsInt64(Parameters[ParamDimensions].JSONKey, defaultValue)
 }
 
 func (cs *classSettings) Validate(class *models.Class) error {
@@ -169,8 +240,8 @@ func (cs *classSettings) Validate(class *models.Class) error {
 	}
 
 	docType := cs.Type()
-	if !basesettings.ValidateSetting(docType, availableOpenAITypes) {
-		return errors.Errorf("wrong OpenAI type name, available model names are: %v", availableOpenAITypes)
+	if err := basesettings.ValidateAllowedValues(ParamType, Parameters[ParamType], docType); err != nil {
+		return err
 	}
 
 	model := cs.Model()
@@ -248,8 +319,8 @@ func (cs *classSettings) validateAzureConfig(resourceName, deploymentId, apiVers
 	if (resourceName == "" && deploymentId != "") || (resourceName != "" && deploymentId == "") {
 		return fmt.Errorf("both resourceName and deploymentId must be provided")
 	}
-	if !basesettings.ValidateSetting(apiVersion, availableApiVersions) {
-		return errors.Errorf("wrong Azure OpenAI apiVersion setting, available api versions are: %v", availableApiVersions)
+	if err := basesettings.ValidateAllowedValues(ParamApiVersion, Parameters[ParamApiVersion], apiVersion); err != nil {
+		return err
 	}
 	return nil
 }
