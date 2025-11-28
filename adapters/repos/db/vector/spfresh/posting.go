@@ -84,7 +84,8 @@ func (p *Posting) AddVector(v Vector) {
 // and return the filtered posting.
 // This method doesn't allocate a new slice, the filtering is done in-place.
 func (p *Posting) GarbageCollect(versionMap *VersionMap) (*Posting, error) {
-	for i, v := range p.vectors {
+	for i := len(p.vectors) - 1; i >= 0; i-- {
+		v := p.vectors[i]
 		id := v.ID()
 		version, err := versionMap.Get(context.Background(), id)
 		if err != nil {
