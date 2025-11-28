@@ -212,13 +212,8 @@ func TestAPIErrorHandling(t *testing.T) {
 			name:       "error with detail field",
 			statusCode: 422,
 			responseBody: map[string]any{
-				"detail": []map[string]any{
-					{
-						"loc":  []string{"body", "model"},
-						"msg":  "Validation failed",
-						"type": "value_error",
-					},
-				},
+				"detail":     "Validation failed",
+				"error_code": "value_error",
 			},
 			expectedErr: "Validation failed",
 		},
