@@ -175,7 +175,17 @@ func (fps *FileReplicationService) GetFile(stream pb.FileReplicationService_GetF
 
 			for {
 				n, err := fileReader.Read(buf)
-				eof := err != nil && errors.Is(err, io.EOF)
+				if err != nil && !errors.Is(err, io.EOF) {
+					return status.Errorf(codes.Internal,
+						"failed to read file %q in shard %q: %v", fileName, shardName, err)
+				}
+				eof := errors.Is(err, io.EOF)
+
+				if n == 0 && !eof {
+					// Prevent infinite loops
+					return status.Errorf(codes.Internal,
+						"unexpected zero-byte read without EOF for file %q in shard %q", fileName, shardName)
+				}
 
 				if err := stream.Send(&pb.FileChunk{
 					Offset: int64(offset),
