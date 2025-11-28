@@ -125,7 +125,7 @@ type delegate struct {
 }
 
 type NodeMetadata struct {
-	DataPort int `json:"data_port"`
+	RestPort int `json:"rest_port"`
 }
 
 func (d *delegate) setOwnSpace(x DiskUsage) {
