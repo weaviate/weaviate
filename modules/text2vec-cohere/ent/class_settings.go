@@ -38,16 +38,8 @@ const (
 
 var availableTruncates = []string{"NONE", "START", "END", "LEFT", "RIGHT"}
 
-// ParameterDef defines metadata for a configuration parameter
-type ParameterDef struct {
-	JSONKey      string
-	DefaultValue interface{}
-	Description  string
-	Required     bool
-}
-
 // Parameters defines all configuration parameters for text2vec-cohere
-var Parameters = map[string]ParameterDef{
+var Parameters = map[string]basesettings.ParameterDef{
 	ParamModel: {
 		JSONKey:      "model",
 		DefaultValue: DefaultCohereModel,
@@ -106,7 +98,7 @@ func (cs *classSettings) Validate(class *models.Class) error {
 
 	truncate := cs.Truncate()
 	if !basesettings.ValidateSetting(truncate, availableTruncates) {
-		return errors.Errorf("wrong truncate type, available types are: %v", availableTruncates)
+		return errors.Errorf("wrong %v parameter, available types are: %v", Parameters[ParamTruncate].JSONKey, availableTruncates)
 	}
 
 	return nil
