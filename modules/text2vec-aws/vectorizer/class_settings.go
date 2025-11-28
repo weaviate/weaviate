@@ -20,15 +20,6 @@ import (
 	basesettings "github.com/weaviate/weaviate/usecases/modulecomponents/settings"
 )
 
-const (
-	ServiceProperty       = "service"
-	regionProperty        = "region"
-	modelProperty         = "model"
-	endpointProperty      = "endpoint"
-	targetModelProperty   = "targetModel"
-	targetVariantProperty = "targetVariant"
-)
-
 // Default values for service cannot be changed before we solve how old classes
 // that have the defaults NOT set will handle the change
 const (
@@ -36,11 +27,60 @@ const (
 	DefaultPropertyIndexed       = true
 	DefaultVectorizePropertyName = false
 	DefaultService               = "bedrock"
+
+	// Parameter keys for accessing the Parameters map
+	ParamService       = "Service"
+	ParamRegion        = "Region"
+	ParamModel         = "Model"
+	ParamEndpoint      = "Endpoint"
+	ParamTargetModel   = "TargetModel"
+	ParamTargetVariant = "TargetVariant"
 )
 
 var availableAWSServices = []string{
 	"bedrock",
 	"sagemaker",
+}
+
+// Parameters defines all configuration parameters for text2vec-aws
+var Parameters = map[string]basesettings.ParameterDef{
+	ParamService: {
+		JSONKey:       "service",
+		DefaultValue:  DefaultService,
+		Description:   "AWS service to use (bedrock or sagemaker)",
+		Required:      false,
+		AllowedValues: availableAWSServices,
+	},
+	ParamRegion: {
+		JSONKey:      "region",
+		DefaultValue: "",
+		Description:  "AWS region",
+		Required:     true,
+	},
+	ParamModel: {
+		JSONKey:      "model",
+		DefaultValue: "",
+		Description:  "Model identifier (required for bedrock, not allowed for sagemaker)",
+		Required:     false, // Conditionally required based on service
+	},
+	ParamEndpoint: {
+		JSONKey:      "endpoint",
+		DefaultValue: "",
+		Description:  "Sagemaker endpoint name (required for sagemaker, not allowed for bedrock)",
+		Required:     false, // Conditionally required based on service
+	},
+	ParamTargetModel: {
+		JSONKey:      "targetModel",
+		DefaultValue: "",
+		Description:  "Target model for Sagemaker inference",
+		Required:     false,
+	},
+	ParamTargetVariant: {
+		JSONKey:      "targetVariant",
+		DefaultValue: "",
+		Description:  "Target variant for Sagemaker inference",
+		Required:     false,
+	},
 }
 
 type classSettings struct {
@@ -59,18 +99,18 @@ func (ic *classSettings) Validate(class *models.Class) error {
 	}
 
 	service := ic.Service()
-	if service == "" || !ic.validatAvailableAWSSetting(service, availableAWSServices) {
-		errorMessages = append(errorMessages, fmt.Sprintf("wrong %s, available services are: %v", ServiceProperty, availableAWSServices))
+	if err := basesettings.ValidateAllowedValues(ParamService, Parameters[ParamService], service); err != nil {
+		errorMessages = append(errorMessages, err.Error())
 	}
 	region := ic.Region()
 	if region == "" {
-		errorMessages = append(errorMessages, fmt.Sprintf("%s cannot be empty", regionProperty))
+		errorMessages = append(errorMessages, fmt.Sprintf("%s cannot be empty", Parameters[ParamRegion].JSONKey))
 	}
 
 	if isBedrock(service) {
 		model := ic.Model()
 		if model == "" {
-			errorMessages = append(errorMessages, fmt.Sprintf("%s has to be defined", modelProperty))
+			errorMessages = append(errorMessages, fmt.Sprintf("%s has to be defined", Parameters[ParamModel].JSONKey))
 		}
 		endpoint := ic.Endpoint()
 		if endpoint != "" {
@@ -81,11 +121,11 @@ func (ic *classSettings) Validate(class *models.Class) error {
 	if isSagemaker(service) {
 		endpoint := ic.Endpoint()
 		if endpoint == "" {
-			errorMessages = append(errorMessages, fmt.Sprintf("%s cannot be empty", endpointProperty))
+			errorMessages = append(errorMessages, fmt.Sprintf("%s cannot be empty", Parameters[ParamEndpoint].JSONKey))
 		}
 		model := ic.Model()
 		if model != "" {
-			errorMessages = append(errorMessages, fmt.Sprintf("wrong configuration: %s, not applicable to %s. did you mean %s", modelProperty, service, targetModelProperty))
+			errorMessages = append(errorMessages, fmt.Sprintf("wrong configuration: %s, not applicable to %s. did you mean %s", Parameters[ParamModel].JSONKey, service, Parameters[ParamTargetModel].JSONKey))
 		}
 	}
 
@@ -96,42 +136,33 @@ func (ic *classSettings) Validate(class *models.Class) error {
 	return nil
 }
 
-func (ic *classSettings) validatAvailableAWSSetting(value string, availableValues []string) bool {
-	for i := range availableValues {
-		if value == availableValues[i] {
-			return true
-		}
-	}
-	return false
-}
-
 func (ic *classSettings) getStringProperty(name, defaultValue string) string {
 	return ic.BaseClassSettings.GetPropertyAsString(name, defaultValue)
 }
 
 // Aws params
 func (ic *classSettings) Service() string {
-	return ic.getStringProperty(ServiceProperty, DefaultService)
+	return ic.getStringProperty(Parameters[ParamService].JSONKey, DefaultService)
 }
 
 func (ic *classSettings) Region() string {
-	return ic.getStringProperty(regionProperty, "")
+	return ic.getStringProperty(Parameters[ParamRegion].JSONKey, "")
 }
 
 func (ic *classSettings) Model() string {
-	return ic.getStringProperty(modelProperty, "")
+	return ic.getStringProperty(Parameters[ParamModel].JSONKey, "")
 }
 
 func (ic *classSettings) Endpoint() string {
-	return ic.getStringProperty(endpointProperty, "")
+	return ic.getStringProperty(Parameters[ParamEndpoint].JSONKey, "")
 }
 
 func (ic *classSettings) TargetModel() string {
-	return ic.getStringProperty(targetModelProperty, "")
+	return ic.getStringProperty(Parameters[ParamTargetModel].JSONKey, "")
 }
 
 func (ic *classSettings) TargetVariant() string {
-	return ic.getStringProperty(targetVariantProperty, "")
+	return ic.getStringProperty(Parameters[ParamTargetVariant].JSONKey, "")
 }
 
 func isSagemaker(service string) bool {
