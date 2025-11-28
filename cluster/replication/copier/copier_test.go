@@ -22,8 +22,8 @@ import (
 	logrusTest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc/generated/protocol"
 	"github.com/weaviate/weaviate/cluster/replication/copier/types"
+	pbv1 "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/usecases/fakes"
 	"github.com/weaviate/weaviate/usecases/file"
 	"github.com/weaviate/weaviate/usecases/integrity"
@@ -135,19 +135,19 @@ func TestCopierCopyReplicaFiles(t *testing.T) {
 
 		mockClient.EXPECT().PauseFileActivity(
 			mock.Anything,
-			mock.MatchedBy(func(req *protocol.PauseFileActivityRequest) bool {
+			mock.MatchedBy(func(req *pbv1.PauseFileActivityRequest) bool {
 				return req.IndexName == "collection" &&
 					req.ShardName == "shard" &&
 					req.SchemaVersion == uint64(0)
 			}),
-		).Return(&protocol.PauseFileActivityResponse{}, nil)
+		).Return(&pbv1.PauseFileActivityResponse{}, nil)
 
 		mockClient.EXPECT().ResumeFileActivity(
 			mock.Anything,
-			mock.MatchedBy(func(req *protocol.ResumeFileActivityRequest) bool {
+			mock.MatchedBy(func(req *pbv1.ResumeFileActivityRequest) bool {
 				return req.IndexName == "collection" && req.ShardName == "shard"
 			}),
-		).Return(&protocol.ResumeFileActivityResponse{}, nil)
+		).Return(&pbv1.ResumeFileActivityResponse{}, nil)
 
 		mockClient.EXPECT().Close().Return(nil)
 
@@ -179,7 +179,7 @@ func TestCopierCopyReplicaFiles(t *testing.T) {
 			}
 
 			mockBidirectionalFileMetadataStream.EXPECT().
-				Send(&protocol.GetFileMetadataRequest{
+				Send(&pbv1.GetFileMetadataRequest{
 					IndexName: "collection",
 					ShardName: "shard",
 					FileName:  remoteFilePath.relativeFilePath,
@@ -187,7 +187,7 @@ func TestCopierCopyReplicaFiles(t *testing.T) {
 
 			mockBidirectionalFileMetadataStream.EXPECT().
 				Recv().
-				Return(&protocol.FileMetadata{
+				Return(&pbv1.FileMetadata{
 					IndexName: "collection",
 					ShardName: "shard",
 					FileName:  fileMetadata.Name,
@@ -197,14 +197,14 @@ func TestCopierCopyReplicaFiles(t *testing.T) {
 
 			mockBidirectionalFileChunkStream.EXPECT().
 				Recv().
-				Return(&protocol.FileChunk{
+				Return(&pbv1.FileChunk{
 					Offset: 0,
 					Data:   remoteFilePath.fileContent,
 					Eof:    true,
 				}, nil).Times(1)
 
 			mockBidirectionalFileChunkStream.EXPECT().
-				Send(&protocol.GetFileRequest{
+				Send(&pbv1.GetFileRequest{
 					IndexName: "collection",
 					ShardName: "shard",
 					FileName:  remoteFilePath.relativeFilePath,
@@ -231,10 +231,10 @@ func TestCopierCopyReplicaFiles(t *testing.T) {
 
 		mockClient.EXPECT().ListFiles(
 			mock.Anything,
-			mock.MatchedBy(func(req *protocol.ListFilesRequest) bool {
+			mock.MatchedBy(func(req *pbv1.ListFilesRequest) bool {
 				return req.IndexName == "collection" && req.ShardName == "shard"
 			}),
-		).Return(&protocol.ListFilesResponse{
+		).Return(&pbv1.ListFilesResponse{
 			FileNames: remoteFileRelativePaths,
 		}, nil)
 

@@ -1,6 +1,10 @@
 syntax = "proto3";
 
-package clusterapi;
+package weaviate.v1;
+
+option go_package = "github.com/weaviate/weaviate/grpc/generated;protocol";
+option java_package = "io.weaviate.client.grpc.protocol.v1";
+option java_outer_classname = "WeaviateProto";
 
 enum CompressionType {
   COMPRESSION_TYPE_UNSPECIFIED = 0;     // No compression

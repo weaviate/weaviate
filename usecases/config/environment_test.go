@@ -316,7 +316,7 @@ func TestEnvironmentParseClusterConfig(t *testing.T) {
 			},
 		},
 		{
-			name: "valid cluster config - all ports provided",
+			name: "valid cluster config - both ports provided",
 			envVars: map[string]string{
 				"CLUSTER_GOSSIP_BIND_PORT": "7100",
 				"CLUSTER_DATA_BIND_PORT":   "7111",
