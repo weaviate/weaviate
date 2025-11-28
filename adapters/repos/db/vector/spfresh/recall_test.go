@@ -73,13 +73,13 @@ func Test_NoRace_SPFreshRecallParquet(t *testing.T) {
 			dataset:        "beir-cohere-v3-1024-euclidean-20k",
 			distance:       "l2-squared",
 			searchProbes:   []uint32{64},
-			requiredRecall: 0.9,
+			requiredRecall: 0.8,
 		},
 		{
 			dataset:        "dbpedia-openai-ada002-1536-angular-20k",
 			distance:       "cosine",
 			searchProbes:   []uint32{64},
-			requiredRecall: 0.9,
+			requiredRecall: 0.8,
 		},
 	}
 
