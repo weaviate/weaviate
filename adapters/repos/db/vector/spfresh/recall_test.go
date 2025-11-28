@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-//go:build !race
+//go:build integrationTest && !race
 
 package spfresh
 
