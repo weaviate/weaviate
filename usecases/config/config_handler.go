@@ -161,6 +161,7 @@ type Config struct {
 	ReplicationEngineMaxWorkers         int                      `json:"replication_engine_max_workers" yaml:"replication_engine_max_workers"`
 	ReplicationEngineFileCopyWorkers    int                      `json:"replication_engine_file_copy_workers" yaml:"replication_engine_file_copy_workers"`
 	HFreshEnabled                       bool                     `json:"hfresh_enabled" yaml:"hfresh_enabled"`
+	ReplicationEngineFileCopyChunkSize  int                      `json:"replication_engine_file_copy_chunk_size" yaml:"replication_engine_file_copy_chunk_size"`
 	// Raft Specific configuration
 	// TODO-RAFT: Do we want to be able to specify these with config file as well ?
 	Raft Raft

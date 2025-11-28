@@ -36,14 +36,14 @@ func (_m *MockFileReplicationServiceClient) EXPECT() *MockFileReplicationService
 	return &MockFileReplicationServiceClient_Expecter{mock: &_m.Mock}
 }
 
-// GetFile provides a mock function with given fields: ctx, opts
-func (_m *MockFileReplicationServiceClient) GetFile(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[protocol.GetFileRequest, protocol.FileChunk], error) {
+// GetFile provides a mock function with given fields: ctx, in, opts
+func (_m *MockFileReplicationServiceClient) GetFile(ctx context.Context, in *protocol.GetFileRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[protocol.FileChunk], error) {
 	_va := make([]interface{}, len(opts))
 	for _i := range opts {
 		_va[_i] = opts[_i]
 	}
 	var _ca []interface{}
-	_ca = append(_ca, ctx)
+	_ca = append(_ca, ctx, in)
 	_ca = append(_ca, _va...)
 	ret := _m.Called(_ca...)
 
@@ -51,21 +51,21 @@ func (_m *MockFileReplicationServiceClient) GetFile(ctx context.Context, opts ..
 		panic("no return value specified for GetFile")
 	}
 
-	var r0 grpc.BidiStreamingClient[protocol.GetFileRequest, protocol.FileChunk]
+	var r0 grpc.ServerStreamingClient[protocol.FileChunk]
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, ...grpc.CallOption) (grpc.BidiStreamingClient[protocol.GetFileRequest, protocol.FileChunk], error)); ok {
-		return rf(ctx, opts...)
+	if rf, ok := ret.Get(0).(func(context.Context, *protocol.GetFileRequest, ...grpc.CallOption) (grpc.ServerStreamingClient[protocol.FileChunk], error)); ok {
+		return rf(ctx, in, opts...)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, ...grpc.CallOption) grpc.BidiStreamingClient[protocol.GetFileRequest, protocol.FileChunk]); ok {
-		r0 = rf(ctx, opts...)
+	if rf, ok := ret.Get(0).(func(context.Context, *protocol.GetFileRequest, ...grpc.CallOption) grpc.ServerStreamingClient[protocol.FileChunk]); ok {
+		r0 = rf(ctx, in, opts...)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(grpc.BidiStreamingClient[protocol.GetFileRequest, protocol.FileChunk])
+			r0 = ret.Get(0).(grpc.ServerStreamingClient[protocol.FileChunk])
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, ...grpc.CallOption) error); ok {
-		r1 = rf(ctx, opts...)
+	if rf, ok := ret.Get(1).(func(context.Context, *protocol.GetFileRequest, ...grpc.CallOption) error); ok {
+		r1 = rf(ctx, in, opts...)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -80,43 +80,44 @@ type MockFileReplicationServiceClient_GetFile_Call struct {
 
 // GetFile is a helper method to define mock.On call
 //   - ctx context.Context
+//   - in *protocol.GetFileRequest
 //   - opts ...grpc.CallOption
-func (_e *MockFileReplicationServiceClient_Expecter) GetFile(ctx interface{}, opts ...interface{}) *MockFileReplicationServiceClient_GetFile_Call {
+func (_e *MockFileReplicationServiceClient_Expecter) GetFile(ctx interface{}, in interface{}, opts ...interface{}) *MockFileReplicationServiceClient_GetFile_Call {
 	return &MockFileReplicationServiceClient_GetFile_Call{Call: _e.mock.On("GetFile",
-		append([]interface{}{ctx}, opts...)...)}
+		append([]interface{}{ctx, in}, opts...)...)}
 }
 
-func (_c *MockFileReplicationServiceClient_GetFile_Call) Run(run func(ctx context.Context, opts ...grpc.CallOption)) *MockFileReplicationServiceClient_GetFile_Call {
+func (_c *MockFileReplicationServiceClient_GetFile_Call) Run(run func(ctx context.Context, in *protocol.GetFileRequest, opts ...grpc.CallOption)) *MockFileReplicationServiceClient_GetFile_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		variadicArgs := make([]grpc.CallOption, len(args)-1)
-		for i, a := range args[1:] {
+		variadicArgs := make([]grpc.CallOption, len(args)-2)
+		for i, a := range args[2:] {
 			if a != nil {
 				variadicArgs[i] = a.(grpc.CallOption)
 			}
 		}
-		run(args[0].(context.Context), variadicArgs...)
+		run(args[0].(context.Context), args[1].(*protocol.GetFileRequest), variadicArgs...)
 	})
 	return _c
 }
 
-func (_c *MockFileReplicationServiceClient_GetFile_Call) Return(_a0 grpc.BidiStreamingClient[protocol.GetFileRequest, protocol.FileChunk], _a1 error) *MockFileReplicationServiceClient_GetFile_Call {
+func (_c *MockFileReplicationServiceClient_GetFile_Call) Return(_a0 grpc.ServerStreamingClient[protocol.FileChunk], _a1 error) *MockFileReplicationServiceClient_GetFile_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockFileReplicationServiceClient_GetFile_Call) RunAndReturn(run func(context.Context, ...grpc.CallOption) (grpc.BidiStreamingClient[protocol.GetFileRequest, protocol.FileChunk], error)) *MockFileReplicationServiceClient_GetFile_Call {
+func (_c *MockFileReplicationServiceClient_GetFile_Call) RunAndReturn(run func(context.Context, *protocol.GetFileRequest, ...grpc.CallOption) (grpc.ServerStreamingClient[protocol.FileChunk], error)) *MockFileReplicationServiceClient_GetFile_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// GetFileMetadata provides a mock function with given fields: ctx, opts
-func (_m *MockFileReplicationServiceClient) GetFileMetadata(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[protocol.GetFileMetadataRequest, protocol.FileMetadata], error) {
+// GetFileMetadata provides a mock function with given fields: ctx, in, opts
+func (_m *MockFileReplicationServiceClient) GetFileMetadata(ctx context.Context, in *protocol.GetFileMetadataRequest, opts ...grpc.CallOption) (*protocol.FileMetadata, error) {
 	_va := make([]interface{}, len(opts))
 	for _i := range opts {
 		_va[_i] = opts[_i]
 	}
 	var _ca []interface{}
-	_ca = append(_ca, ctx)
+	_ca = append(_ca, ctx, in)
 	_ca = append(_ca, _va...)
 	ret := _m.Called(_ca...)
 
@@ -124,21 +125,21 @@ func (_m *MockFileReplicationServiceClient) GetFileMetadata(ctx context.Context,
 		panic("no return value specified for GetFileMetadata")
 	}
 
-	var r0 grpc.BidiStreamingClient[protocol.GetFileMetadataRequest, protocol.FileMetadata]
+	var r0 *protocol.FileMetadata
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, ...grpc.CallOption) (grpc.BidiStreamingClient[protocol.GetFileMetadataRequest, protocol.FileMetadata], error)); ok {
-		return rf(ctx, opts...)
+	if rf, ok := ret.Get(0).(func(context.Context, *protocol.GetFileMetadataRequest, ...grpc.CallOption) (*protocol.FileMetadata, error)); ok {
+		return rf(ctx, in, opts...)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, ...grpc.CallOption) grpc.BidiStreamingClient[protocol.GetFileMetadataRequest, protocol.FileMetadata]); ok {
-		r0 = rf(ctx, opts...)
+	if rf, ok := ret.Get(0).(func(context.Context, *protocol.GetFileMetadataRequest, ...grpc.CallOption) *protocol.FileMetadata); ok {
+		r0 = rf(ctx, in, opts...)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(grpc.BidiStreamingClient[protocol.GetFileMetadataRequest, protocol.FileMetadata])
+			r0 = ret.Get(0).(*protocol.FileMetadata)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, ...grpc.CallOption) error); ok {
-		r1 = rf(ctx, opts...)
+	if rf, ok := ret.Get(1).(func(context.Context, *protocol.GetFileMetadataRequest, ...grpc.CallOption) error); ok {
+		r1 = rf(ctx, in, opts...)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -153,31 +154,32 @@ type MockFileReplicationServiceClient_GetFileMetadata_Call struct {
 
 // GetFileMetadata is a helper method to define mock.On call
 //   - ctx context.Context
+//   - in *protocol.GetFileMetadataRequest
 //   - opts ...grpc.CallOption
-func (_e *MockFileReplicationServiceClient_Expecter) GetFileMetadata(ctx interface{}, opts ...interface{}) *MockFileReplicationServiceClient_GetFileMetadata_Call {
+func (_e *MockFileReplicationServiceClient_Expecter) GetFileMetadata(ctx interface{}, in interface{}, opts ...interface{}) *MockFileReplicationServiceClient_GetFileMetadata_Call {
 	return &MockFileReplicationServiceClient_GetFileMetadata_Call{Call: _e.mock.On("GetFileMetadata",
-		append([]interface{}{ctx}, opts...)...)}
+		append([]interface{}{ctx, in}, opts...)...)}
 }
 
-func (_c *MockFileReplicationServiceClient_GetFileMetadata_Call) Run(run func(ctx context.Context, opts ...grpc.CallOption)) *MockFileReplicationServiceClient_GetFileMetadata_Call {
+func (_c *MockFileReplicationServiceClient_GetFileMetadata_Call) Run(run func(ctx context.Context, in *protocol.GetFileMetadataRequest, opts ...grpc.CallOption)) *MockFileReplicationServiceClient_GetFileMetadata_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		variadicArgs := make([]grpc.CallOption, len(args)-1)
-		for i, a := range args[1:] {
+		variadicArgs := make([]grpc.CallOption, len(args)-2)
+		for i, a := range args[2:] {
 			if a != nil {
 				variadicArgs[i] = a.(grpc.CallOption)
 			}
 		}
-		run(args[0].(context.Context), variadicArgs...)
+		run(args[0].(context.Context), args[1].(*protocol.GetFileMetadataRequest), variadicArgs...)
 	})
 	return _c
 }
 
-func (_c *MockFileReplicationServiceClient_GetFileMetadata_Call) Return(_a0 grpc.BidiStreamingClient[protocol.GetFileMetadataRequest, protocol.FileMetadata], _a1 error) *MockFileReplicationServiceClient_GetFileMetadata_Call {
+func (_c *MockFileReplicationServiceClient_GetFileMetadata_Call) Return(_a0 *protocol.FileMetadata, _a1 error) *MockFileReplicationServiceClient_GetFileMetadata_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockFileReplicationServiceClient_GetFileMetadata_Call) RunAndReturn(run func(context.Context, ...grpc.CallOption) (grpc.BidiStreamingClient[protocol.GetFileMetadataRequest, protocol.FileMetadata], error)) *MockFileReplicationServiceClient_GetFileMetadata_Call {
+func (_c *MockFileReplicationServiceClient_GetFileMetadata_Call) RunAndReturn(run func(context.Context, *protocol.GetFileMetadataRequest, ...grpc.CallOption) (*protocol.FileMetadata, error)) *MockFileReplicationServiceClient_GetFileMetadata_Call {
 	_c.Call.Return(run)
 	return _c
 }

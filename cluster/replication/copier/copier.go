@@ -260,32 +260,14 @@ func (c *Copier) prepareLocalFolder(collectionName, shardName string, fileNames 
 func (c *Copier) metadataWorker(ctx context.Context, client FileReplicationServiceClient,
 	collectionName, shardName string, fileNameChan <-chan string, metadataChan chan<- *protocol.FileMetadata,
 ) error {
-	stream, err := client.GetFileMetadata(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to create GetFileMetadata stream: %w", err)
-	}
-	defer func() {
-		err := stream.CloseSend()
-
-		// drain stream
-		for err == nil {
-			_, err = stream.Recv()
-		}
-	}()
-
 	for fileName := range fileNameChan {
-		err := stream.Send(&protocol.GetFileMetadataRequest{
+		meta, err := client.GetFileMetadata(ctx, &protocol.GetFileMetadataRequest{
 			IndexName: collectionName,
 			ShardName: shardName,
 			FileName:  fileName,
 		})
 		if err != nil {
 			return fmt.Errorf("failed to send GetFileMetadata request for %q: %w", fileName, err)
-		}
-
-		meta, err := stream.Recv()
-		if err != nil {
-			return fmt.Errorf("failed to receive file metadata for %q: %w", fileName, err)
 		}
 
 		metadataChan <- meta
@@ -297,19 +279,6 @@ func (c *Copier) metadataWorker(ctx context.Context, client FileReplicationServi
 func (c *Copier) downloadWorker(ctx context.Context, client FileReplicationServiceClient,
 	metadataChan <-chan *protocol.FileMetadata,
 ) error {
-	stream, err := client.GetFile(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to create GetFile stream: %w", err)
-	}
-	defer func() {
-		err := stream.CloseSend()
-
-		// drain stream
-		for err == nil {
-			_, err = stream.Recv()
-		}
-	}()
-
 	for meta := range metadataChan {
 		localFilePath := filepath.Join(c.rootDataPath, meta.FileName)
 
@@ -323,7 +292,7 @@ func (c *Copier) downloadWorker(ctx context.Context, client FileReplicationServi
 			continue
 		}
 
-		err = stream.Send(&protocol.GetFileRequest{
+		stream, err := client.GetFile(ctx, &protocol.GetFileRequest{
 			IndexName: meta.IndexName,
 			ShardName: meta.ShardName,
 			FileName:  meta.FileName,

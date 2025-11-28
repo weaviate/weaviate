@@ -53,7 +53,10 @@ func NewServer(state *state.State, options ...grpc.ServerOption) *Server {
 	}
 
 	s := grpc.NewServer(o...)
-	weaviateV1FileReplicationService := NewFileReplicationService(state.DB, state.ClusterService.SchemaReader())
+
+	fileCopyChunkSize := state.ServerConfig.Config.ReplicationEngineFileCopyChunkSize
+
+	weaviateV1FileReplicationService := NewFileReplicationService(state.DB, state.ClusterService.SchemaReader(), fileCopyChunkSize)
 	pb.RegisterFileReplicationServiceServer(s, weaviateV1FileReplicationService)
 
 	return &Server{Server: s, state: state}
