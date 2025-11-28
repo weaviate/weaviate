@@ -1067,9 +1067,15 @@ func (t *ShardReindexTask_MapToBlockmax) duplicateToBuckets(shard *Shard, props 
 
 		bucketName := bucketNamer(property.Name)
 		bucket := s.store.Bucket(bucketName)
-		for _, item := range property.Items {
-			if err := s.deleteInvertedIndexItemWithFrequencyLSM(bucket, item, docID); err != nil {
-				return fmt.Errorf("deleting prop '%s' from bucket '%s': %w", item.Data, bucketName, err)
+		if bucket.GetStrategy() == lsmkv.StrategyInverted {
+			bucket.InvertedDeleteDocs([]uint64{docID})
+		} else {
+			for _, item := range property.Items {
+				if err := s.deleteInvertedIndexItemWithFrequencyLSM(bucket, item,
+					docID); err != nil {
+					return errors.Wrapf(err, "delete item '%s' from index",
+						string(item.Data))
+				}
 			}
 		}
 		return nil

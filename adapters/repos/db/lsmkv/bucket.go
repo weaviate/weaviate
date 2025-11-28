@@ -1590,13 +1590,6 @@ func (b *Bucket) FlushAndSwitch() error {
 		return fmt.Errorf("flush: %w", err)
 	}
 
-	var tombstones *sroar.Bitmap
-	if b.strategy == StrategyInverted {
-		if tombstones, err = b.flushing.ReadOnlyTombstones(); err != nil {
-			return fmt.Errorf("get tombstones: %w", err)
-		}
-	}
-
 	segment, err := b.disk.initAndPrecomputeNewSegment(segmentPath)
 	if err != nil {
 		return fmt.Errorf("precompute metadata: %w", err)
@@ -1604,51 +1597,6 @@ func (b *Bucket) FlushAndSwitch() error {
 
 	if err := b.atomicallyAddDiskSegmentAndRemoveFlushing(segment); err != nil {
 		return fmt.Errorf("add segment and remove flushing: %w", err)
-	}
-
-	switch b.strategy {
-	case StrategyInverted:
-		if !tombstones.IsEmpty() {
-			if err = func() error {
-				// As part of the discussions for
-				// https://github.com/weaviate/weaviate/pull/9104 we disocvered that
-				// there is a potential, non-critical bug in this logic. There can
-				// essentially be a race:
-				//
-				//   1. Imagine two segments A+B.
-				//   2. A compaction is started which merges A+B into AB
-				//   3. A flush happens while the compaction is ongoing, we extend A+B
-				//      with tombstones
-				//   4. The compaction finishes, A+B are replaced with AB, which does
-				//      not have the tombstones
-				//
-				// However, we deem the situation non-critical because any deleted
-				// object would be filtered out at the end of the search, so we're
-				// "only" wasting some CPU cycles on scoring objects that are already
-				// deleted. In addition, on the next restart the tombstones would be
-				// applied in a consistent fashion again, so this does not lead to
-				// permanent data loss; only a temporary non-critical divergence of
-				// in-memory vs on-disk state.
-				//
-				// As part of #9104, we have accepted this bug (as it is independent of
-				// the work done in 9104) and may revisit this logic at a a later
-				// point. #9104 simply changes from a maintenance RLock to a segment
-				// view which does not alter the behavior, but does help reduce lock
-				// contention.
-				segments, release := b.disk.getConsistentViewOfSegments()
-				defer release()
-
-				// add flushing memtable tombstones to all segments
-				for _, seg := range segments {
-					if _, err := seg.MergeTombstones(tombstones); err != nil {
-						return fmt.Errorf("merge tombstones: %w", err)
-					}
-				}
-				return nil
-			}(); err != nil {
-				return fmt.Errorf("add tombstones: %w", err)
-			}
-		}
 	}
 
 	took := time.Since(before)
@@ -1991,27 +1939,27 @@ func (b *Bucket) createDiskTermFromCV(ctx context.Context, view BucketConsistent
 		idfCounts[queryTerm] = n
 	}
 
-	if ctx.Err() != nil {
-		view.Release()
-		return nil, nil, func() {}, fmt.Errorf("after memtable terms: %w", ctx.Err())
-	}
-
-	for j := len(view.Disk) - 1; j >= 0; j-- {
+	for j := 0; j < len(view.Disk); j++ {
+		if ctx.Err() != nil {
+			view.Release()
+			return nil, nil, func() {}, fmt.Errorf("before segment %d: %w", j, ctx.Err())
+		}
 		segment := view.Disk[j]
 		output[j] = make([]*SegmentBlockMax, 0, len(query))
-
-		allTombstones := memTombstones.Clone()
-		if j != len(view.Disk)-1 {
-			segTombstones, err := view.Disk[j+1].ReadOnlyTombstones()
-			if err != nil {
-				view.Release()
-				return nil, nil, func() {}, fmt.Errorf("read tombstones: %w", err)
-			}
-			allTombstones.Or(segTombstones)
+		var tombstones *sroar.Bitmap
+		var err error
+		if j < len(view.Disk)-1 {
+			tombstones, err = view.Disk[j+1].ReadOnlyTombstones()
+		} else {
+			tombstones = memTombstones
+		}
+		if err != nil {
+			view.Release()
+			return nil, nil, func() {}, fmt.Errorf("segment tombstones: %w", err)
 		}
 
 		for i, key := range query {
-			term := segment.newSegmentBlockMax([]byte(key), i, idfs[i], propertyBoost, allTombstones, filterDocIds, averagePropLength, config)
+			term := segment.newSegmentBlockMax([]byte(key), i, idfs[i], propertyBoost, tombstones, filterDocIds, averagePropLength, config)
 			if term != nil {
 				output[j] = append(output[j], term)
 			}
@@ -2223,4 +2171,28 @@ func DetermineUnloadedBucketStrategyAmong(bucketPath string, prioritizedStrategi
 		return "", err
 	}
 	return defaultStrategy, nil
+}
+
+func (b *Bucket) InvertedDeleteDocs(docIDs []uint64) error {
+	if err := b.active.SetTombstones(docIDs); err != nil {
+		return err
+	}
+
+	// TODO: confirm if needed
+	// consistent view
+	view := b.getConsistentView()
+	defer view.Release()
+
+	// add flushing memtable tombstones to all segments
+	for _, seg := range view.Disk {
+		seg.getInvertedData().tombstones.SetMany(docIDs)
+	}
+
+	if view.Flushing != nil {
+		if err := view.Flushing.SetTombstones(docIDs); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }

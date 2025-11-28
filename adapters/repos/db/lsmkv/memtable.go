@@ -64,6 +64,7 @@ type memtable interface {
 
 	ReadOnlyTombstones() (*sroar.Bitmap, error)
 	SetTombstone(docId uint64) error
+	SetTombstones(docIds []uint64) error
 	GetPropLengths() (uint64, uint64)
 
 	newCursor() innerCursorReplace
@@ -488,6 +489,8 @@ func (m *Memtable) appendMapSorted(key []byte, pair MapPair) error {
 	m.updateDirtyAt()
 
 	if m.strategy == StrategyInverted && !pair.Tombstone {
+		docID := binary.LittleEndian.Uint64(pair.Key)
+		m.tombstones.Remove(docID)
 		fieldLength := math.Float32frombits(binary.LittleEndian.Uint32(pair.Value[4:]))
 		m.currPropLengthSum += uint64(fieldLength)
 		m.currPropLengthCount++
@@ -578,6 +581,19 @@ func (m *Memtable) SetTombstone(docId uint64) error {
 	defer m.Unlock()
 
 	m.tombstones.Set(docId)
+
+	return nil
+}
+
+func (m *Memtable) SetTombstones(docIds []uint64) error {
+	if m.strategy != StrategyInverted {
+		return errors.Errorf("tombstones only supported for strategy %q", StrategyInverted)
+	}
+
+	m.Lock()
+	defer m.Unlock()
+
+	m.tombstones.SetMany(docIds)
 
 	return nil
 }
