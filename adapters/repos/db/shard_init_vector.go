@@ -222,26 +222,26 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 			return nil, errors.Wrapf(err, "init shard %q: dynamic index", s.ID())
 		}
 		vectorIndex = vi
-	case vectorindex.VectorIndexTypeSPFresh:
-		if !s.index.SPFreshEnabled {
-			return nil, errors.New("spfresh index is available only in experimental mode")
+	case vectorindex.VectorIndexTypeHFresh:
+		if !s.index.HFreshEnabled {
+			return nil, errors.New("hfresh index is available only in experimental mode")
 		}
 		userConfig, ok := vectorIndexUserConfig.(spfreshent.UserConfig)
 		if !ok {
-			return nil, errors.Errorf("spfresh vector index: config is not hfresh.UserConfig: %T",
+			return nil, errors.Errorf("hfresh vector index: config is not hfresh.UserConfig: %T",
 				vectorIndexUserConfig)
 		}
 
 		s.index.cycleCallbacks.vectorCommitLoggerCycle.Start()
 		s.index.cycleCallbacks.vectorTombstoneCleanupCycle.Start()
 
-		spfreshConfigID := s.vectorIndexID(targetVector)
-		spfreshConfig := &hfresh.Config{
+		hfreshConfigID := s.vectorIndexID(targetVector)
+		hfreshConfig := &hfresh.Config{
 			Logger:            s.index.logger,
 			Scheduler:         s.index.scheduler,
 			DistanceProvider:  distProv,
-			RootPath:          filepath.Join(s.path(), "spfresh"),
-			ID:                spfreshConfigID,
+			RootPath:          filepath.Join(s.path(), "hfresh"),
+			ID:                hfreshConfigID,
 			TargetVector:      targetVector,
 			ShardName:         s.name,
 			ClassName:         s.index.Config.ClassName.String(),
@@ -255,7 +255,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 				HNSWConfig: &hnsw.Config{
 					Logger:                    s.index.logger,
 					RootPath:                  s.path(),
-					ID:                        spfreshConfigID + "_centroids",
+					ID:                        hfreshConfigID + "_centroids",
 					ShardName:                 s.name,
 					ClassName:                 s.index.Config.ClassName.String(),
 					PrometheusMetrics:         s.promMetrics,
@@ -263,7 +263,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 					TempMultiVectorForIDThunk: hnsw.NewTempMultiVectorForIDThunk(targetVector, s.readMultiVectorByIndexIDIntoSlice),
 					DistanceProvider:          distProv,
 					MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
-						return hnsw.NewCommitLogger(s.path(), spfreshConfigID+"_centroids",
+						return hnsw.NewCommitLogger(s.path(), hfreshConfigID+"_centroids",
 							s.index.logger, s.cycleCallbacks.vectorCommitLoggerCallbacks,
 							hnsw.WithAllocChecker(s.index.allocChecker),
 							hnsw.WithCommitlogThresholdForCombining(s.index.Config.HNSWMaxLogSize),
@@ -287,14 +287,14 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 			},
 		}
 
-		vi, err := hfresh.New(spfreshConfig, userConfig, s.store)
+		vi, err := hfresh.New(hfreshConfig, userConfig, s.store)
 		if err != nil {
-			return nil, errors.Wrapf(err, "init shard %q: spfresh index", s.ID())
+			return nil, errors.Wrapf(err, "init shard %q: hfresh index", s.ID())
 		}
 		vectorIndex = vi
 	default:
 		return nil, fmt.Errorf("unknown vector index type: %q. Choose one from [\"%s\", \"%s\", \"%s\", \"%s\"]",
-			vectorIndexUserConfig.IndexType(), vectorindex.VectorIndexTypeHNSW, vectorindex.VectorIndexTypeFLAT, vectorindex.VectorIndexTypeDYNAMIC, vectorindex.VectorIndexTypeSPFresh)
+			vectorIndexUserConfig.IndexType(), vectorindex.VectorIndexTypeHNSW, vectorindex.VectorIndexTypeFLAT, vectorindex.VectorIndexTypeDYNAMIC, vectorindex.VectorIndexTypeHFresh)
 	}
 	defer vectorIndex.PostStartup(s.shutCtx)
 	return vectorIndex, nil

@@ -27,7 +27,7 @@ const (
 	DefaultCentroidsIndexType = "hnsw"
 )
 
-// UserConfig defines the configuration options for the SPFresh index.
+// UserConfig defines the configuration options for the HFresh index.
 // Will be populated once we decide what should be exposed.
 type UserConfig struct {
 	MaxPostingSize     uint32  `json:"maxPostingSize"`
@@ -43,7 +43,7 @@ type UserConfig struct {
 // IndexType returns the type of the underlying vector index, thus making sure
 // the schema.VectorIndexConfig interface is implemented
 func (u UserConfig) IndexType() string {
-	return "spfresh"
+	return "hfresh"
 }
 
 func (u UserConfig) DistanceName() string {

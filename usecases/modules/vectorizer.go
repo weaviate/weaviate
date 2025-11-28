@@ -518,8 +518,8 @@ func (p *Provider) getVectorIndexConfig(class *models.Class, targetVector string
 	hnswConfig, okHnsw := vectorIndexConfig.(hnsw.UserConfig)
 	_, okFlat := vectorIndexConfig.(flat.UserConfig)
 	_, okDynamic := vectorIndexConfig.(dynamic.UserConfig)
-	_, okSpfresh := vectorIndexConfig.(hfresh.UserConfig)
-	if !(okHnsw || okFlat || okDynamic || okSpfresh) {
+	_, okHFresh := vectorIndexConfig.(hfresh.UserConfig)
+	if !(okHnsw || okFlat || okDynamic || okHFresh) {
 		return hnsw.UserConfig{}, fmt.Errorf(errorVectorIndexType, vectorIndexConfig)
 	}
 	return hnswConfig, nil

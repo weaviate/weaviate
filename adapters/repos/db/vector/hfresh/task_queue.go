@@ -55,7 +55,7 @@ func NewTaskQueue(index *HFresh) (*TaskQueue, error) {
 	// create main queue for split and reassign operations
 	tq.q, err = queue.NewDiskQueue(
 		queue.DiskQueueOptions{
-			ID:               fmt.Sprintf("spfresh_ops_queue_%s_%s", index.config.ShardName, index.config.ID),
+			ID:               fmt.Sprintf("hfresh_ops_queue_%s_%s", index.config.ShardName, index.config.ID),
 			Logger:           index.logger,
 			Scheduler:        index.scheduler,
 			Dir:              filepath.Join(index.config.RootPath, fmt.Sprintf("%s.queue.d", index.config.ID)),
@@ -64,17 +64,17 @@ func NewTaskQueue(index *HFresh) (*TaskQueue, error) {
 		},
 	)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to create spfresh main queue")
+		return nil, errors.Wrap(err, "failed to create hfresh main queue")
 	}
 	err = tq.q.Init()
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to initialize spfresh main queue")
+		return nil, errors.Wrap(err, "failed to initialize hfresh main queue")
 	}
 
 	// create separate queue for merge operations
 	tq.qMerge, err = queue.NewDiskQueue(
 		queue.DiskQueueOptions{
-			ID:               fmt.Sprintf("spfresh_merge_queue_%s_%s", index.config.ShardName, index.config.ID),
+			ID:               fmt.Sprintf("hfresh_merge_queue_%s_%s", index.config.ShardName, index.config.ID),
 			Logger:           index.logger,
 			Scheduler:        index.scheduler,
 			Dir:              filepath.Join(index.config.RootPath, fmt.Sprintf("%s.merge.queue.d", index.config.ID)),
@@ -83,11 +83,11 @@ func NewTaskQueue(index *HFresh) (*TaskQueue, error) {
 		},
 	)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to create spfresh merge queue")
+		return nil, errors.Wrap(err, "failed to create hfresh merge queue")
 	}
 	err = tq.qMerge.Init()
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to initialize spfresh merge queue")
+		return nil, errors.Wrap(err, "failed to initialize hfresh merge queue")
 	}
 
 	index.scheduler.RegisterQueue(tq.q)

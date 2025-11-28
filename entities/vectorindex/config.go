@@ -26,7 +26,7 @@ const (
 	VectorIndexTypeHNSW    = "hnsw"
 	VectorIndexTypeFLAT    = "flat"
 	VectorIndexTypeDYNAMIC = "dynamic"
-	VectorIndexTypeSPFresh = "spfresh"
+	VectorIndexTypeHFresh  = "hfresh"
 )
 
 // ParseAndValidateConfig from an unknown input value, as this is not further
@@ -43,7 +43,7 @@ func ParseAndValidateConfig(input interface{}, vectorIndexType string, isMultiVe
 		return flat.ParseAndValidateConfig(input)
 	case VectorIndexTypeDYNAMIC:
 		return dynamic.ParseAndValidateConfig(input, isMultiVector)
-	case VectorIndexTypeSPFresh:
+	case VectorIndexTypeHFresh:
 		return hfresh.ParseAndValidateConfig(input, isMultiVector)
 	default:
 		return nil, fmt.Errorf("invalid vector index %q. Supported types are hnsw and flat", vectorIndexType)

@@ -21,7 +21,7 @@ import (
 	ent "github.com/weaviate/weaviate/entities/vectorindex/spfresh"
 )
 
-func TestSPFreshOptimizedPostingSize(t *testing.T) {
+func TestHFreshOptimizedPostingSize(t *testing.T) {
 	cfg := DefaultConfig()
 	scheduler := queue.NewScheduler(
 		queue.SchedulerOptions{

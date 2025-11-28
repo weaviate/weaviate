@@ -197,5 +197,5 @@ func (v *VersionStore) Set(ctx context.Context, vectorID uint64, version VectorV
 }
 
 func versionBucketName(id string) string {
-	return fmt.Sprintf("spfresh_versions_%s", id)
+	return fmt.Sprintf("hfresh_versions_%s", id)
 }

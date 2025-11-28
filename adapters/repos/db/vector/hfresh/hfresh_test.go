@@ -72,12 +72,12 @@ func makeNoopCommitLogger() (hnsw.CommitLogger, error) {
 	return &hnsw.NoopCommitLogger{}, nil
 }
 
-func TestSPFreshRecall(t *testing.T) {
+func TestHFreshRecall(t *testing.T) {
 	store := testinghelpers.NewDummyStore(t)
 	cfg := DefaultConfig()
 	cfg.Centroids.HNSWConfig = &hnsw.Config{
 		RootPath:              t.TempDir(),
-		ID:                    "spfresh",
+		ID:                    "hfresh",
 		MakeCommitLoggerThunk: makeNoopCommitLogger,
 		DistanceProvider:      distancer.NewCosineDistanceProvider(),
 		MakeBucketOptions:     lsmkv.MakeNoopBucketOptions,

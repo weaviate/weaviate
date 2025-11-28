@@ -52,7 +52,7 @@ func getDistanceProvider() distancer.Provider {
 	}
 }
 
-func TestSPFreshRecallParquet(t *testing.T) {
+func TestHFreshRecallParquet(t *testing.T) {
 	store := testinghelpers.NewDummyStore(t)
 	cfg := DefaultConfig()
 	cfg.Centroids.IndexType = "hnsw"
@@ -61,7 +61,7 @@ func TestSPFreshRecallParquet(t *testing.T) {
 	cfg.DistanceProvider = distanceProvider
 	cfg.Centroids.HNSWConfig = &hnsw.Config{
 		RootPath:              t.TempDir(),
-		ID:                    "spfresh",
+		ID:                    "hfresh",
 		MakeCommitLoggerThunk: makeNoopCommitLogger,
 		DistanceProvider:      distanceProvider,
 	}

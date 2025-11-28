@@ -121,7 +121,7 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 
 	h := HFresh{
 		id:           cfg.ID,
-		logger:       cfg.Logger.WithField("component", "SPFresh"),
+		logger:       cfg.Logger.WithField("component", "HFresh"),
 		config:       cfg,
 		scheduler:    cfg.Scheduler,
 		metrics:      metrics,
@@ -190,7 +190,7 @@ func (h *HFresh) Delete(ids ...uint64) error {
 }
 
 func (h *HFresh) Type() common.IndexType {
-	return common.IndexTypeSPFresh
+	return common.IndexTypeHFresh
 }
 
 func (h *HFresh) UpdateUserConfig(updated schemaConfig.VectorIndexConfig, callback func()) error {
@@ -279,7 +279,7 @@ func (h *HFresh) ContainsDoc(id uint64) bool {
 }
 
 func (h *HFresh) Iterate(fn func(id uint64) bool) {
-	h.logger.Warn("Iterate is not implemented for SPFresh index")
+	h.logger.Warn("Iterate is not implemented for HFresh index")
 }
 
 func float32SliceFromByteSlice(vector []byte, slice []float32) []float32 {

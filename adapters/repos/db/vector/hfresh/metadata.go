@@ -101,11 +101,11 @@ func (h *HFresh) restoreMetadata() error {
 
 	// Restore RQ data if available
 	if err := h.restoreRQData(); err != nil {
-		h.logger.Warnf("SPFresh index unable to restore RQ data: %v", err)
+		h.logger.Warnf("HFresh index unable to restore RQ data: %v", err)
 	}
 
 	if err := h.initDimensions(); err != nil {
-		h.logger.Warnf("SPFresh index unable to restore RQ data: %v", err)
+		h.logger.Warnf("HFresh index unable to restore RQ data: %v", err)
 	}
 
 	return nil
@@ -114,7 +114,7 @@ func (h *HFresh) restoreMetadata() error {
 func (h *HFresh) initDimensions() error {
 	dims, err := h.fetchDimensions()
 	if err != nil {
-		return errors.Wrap(err, "SPFresh index unable to fetch dimensions")
+		return errors.Wrap(err, "HFresh index unable to fetch dimensions")
 	}
 
 	if dims > 0 {
@@ -396,7 +396,7 @@ func (h *HFresh) restoreRQ8FromMsgpack(rq8Data *RQ8Data) error {
 
 	// Restore vector size if available
 	if err := h.restoreVectorSize(); err != nil {
-		h.logger.Warnf("SPFresh index unable to restore vector size: %v", err)
+		h.logger.Warnf("HFresh index unable to restore vector size: %v", err)
 	}
 
 	h.PostingStore.Init(h.vectorSize)

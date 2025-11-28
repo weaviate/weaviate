@@ -67,21 +67,21 @@ const (
 	VectorIndexTypeEmpty VectorIndexType = iota
 	VectorIndexTypeHNSW
 	VectorIndexTypeFlat
-	VectorIndexTypeSPFresh
+	VectorIndexTypeHFresh
 )
 
 var (
 	vectorIndexTypeToString = map[VectorIndexType]string{
-		VectorIndexTypeHNSW:    vIndex.VectorIndexTypeHNSW,
-		VectorIndexTypeFlat:    vIndex.VectorIndexTypeFLAT,
-		VectorIndexTypeSPFresh: vIndex.VectorIndexTypeSPFresh,
-		VectorIndexTypeEmpty:   "",
+		VectorIndexTypeHNSW:   vIndex.VectorIndexTypeHNSW,
+		VectorIndexTypeFlat:   vIndex.VectorIndexTypeFLAT,
+		VectorIndexTypeHFresh: vIndex.VectorIndexTypeHFresh,
+		VectorIndexTypeEmpty:  "",
 	}
 	stringToVectorIndexType = map[string]VectorIndexType{
-		vIndex.VectorIndexTypeHNSW:    VectorIndexTypeHNSW,
-		vIndex.VectorIndexTypeFLAT:    VectorIndexTypeFlat,
-		vIndex.VectorIndexTypeSPFresh: VectorIndexTypeSPFresh,
-		"":                            VectorIndexTypeEmpty,
+		vIndex.VectorIndexTypeHNSW:   VectorIndexTypeHNSW,
+		vIndex.VectorIndexTypeFLAT:   VectorIndexTypeFlat,
+		vIndex.VectorIndexTypeHFresh: VectorIndexTypeHFresh,
+		"":                           VectorIndexTypeEmpty,
 	}
 )
 
@@ -376,7 +376,7 @@ func CollectionFromClass(m models.Class) (Collection, error) {
 		c.VectorIndexConfig = m.VectorIndexConfig.(hnsw.UserConfig)
 	case VectorIndexTypeFlat:
 		c.VectorIndexConfig = m.VectorIndexConfig.(flat.UserConfig)
-	case VectorIndexTypeSPFresh:
+	case VectorIndexTypeHFresh:
 		c.VectorIndexConfig = m.VectorIndexConfig.(hfresh.UserConfig)
 	default:
 	}
