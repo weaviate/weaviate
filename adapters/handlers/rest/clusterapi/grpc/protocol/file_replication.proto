@@ -16,9 +16,9 @@ service FileReplicationService {
 
   rpc ListFiles (ListFilesRequest) returns (ListFilesResponse);
 
-  rpc GetFileMetadata (stream GetFileMetadataRequest) returns (stream FileMetadata);
+  rpc GetFileMetadata (GetFileMetadataRequest) returns (FileMetadata);
 
-  rpc GetFile (stream GetFileRequest) returns (stream FileChunk);
+  rpc GetFile (GetFileRequest) returns (stream FileChunk);
 }
 
 message PauseFileActivityRequest {
