@@ -319,6 +319,14 @@ jobs:
         with:
           go-version: '1.25'
           cache: true
+      - name: Cache vector datasets
+        if: matrix.name == 'with vectors'
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface/hub
+          key: huggingface-cache-${{ runner.os }}-${{ hashFiles('adapters/repos/db/vector/spfresh/recall_test.go') }}
+          restore-keys: |
+            huggingface-cache-${{ runner.os }}-
       - name: Integration test
         run: ./test/run.sh ${{ matrix.test }}
       - name: Archive code coverage results
