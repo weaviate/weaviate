@@ -59,22 +59,22 @@ func (g *grpcFileReplicationServiceClient) addAuthMetadataToContext(ctx context.
 	return metadata.NewOutgoingContext(ctx, g.authMetadata)
 }
 
-func (g *grpcFileReplicationServiceClient) GetFile(ctx context.Context, opts ...grpc.CallOption) (protocol.FileReplicationService_GetFileClient, error) {
-	return g.client.GetFile(g.addAuthMetadataToContext(ctx), opts...)
-}
-
-func (g *grpcFileReplicationServiceClient) GetFileMetadata(ctx context.Context, opts ...grpc.CallOption) (protocol.FileReplicationService_GetFileMetadataClient, error) {
-	return g.client.GetFileMetadata(g.addAuthMetadataToContext(ctx), opts...)
-}
-
-func (g *grpcFileReplicationServiceClient) ListFiles(ctx context.Context, in *protocol.ListFilesRequest, opts ...grpc.CallOption) (*protocol.ListFilesResponse, error) {
-	return g.client.ListFiles(g.addAuthMetadataToContext(ctx), in, opts...)
-}
-
 func (g *grpcFileReplicationServiceClient) PauseFileActivity(ctx context.Context, in *protocol.PauseFileActivityRequest, opts ...grpc.CallOption) (*protocol.PauseFileActivityResponse, error) {
 	return g.client.PauseFileActivity(g.addAuthMetadataToContext(ctx), in, opts...)
 }
 
 func (g *grpcFileReplicationServiceClient) ResumeFileActivity(ctx context.Context, in *protocol.ResumeFileActivityRequest, opts ...grpc.CallOption) (*protocol.ResumeFileActivityResponse, error) {
 	return g.client.ResumeFileActivity(g.addAuthMetadataToContext(ctx), in, opts...)
+}
+
+func (g *grpcFileReplicationServiceClient) ListFiles(ctx context.Context, in *protocol.ListFilesRequest, opts ...grpc.CallOption) (*protocol.ListFilesResponse, error) {
+	return g.client.ListFiles(g.addAuthMetadataToContext(ctx), in, opts...)
+}
+
+func (g *grpcFileReplicationServiceClient) GetFileMetadata(ctx context.Context, in *protocol.GetFileMetadataRequest, opts ...grpc.CallOption) (*protocol.FileMetadata, error) {
+	return g.client.GetFileMetadata(g.addAuthMetadataToContext(ctx), in, opts...)
+}
+
+func (g *grpcFileReplicationServiceClient) GetFile(ctx context.Context, in *protocol.GetFileRequest, opts ...grpc.CallOption) (protocol.FileReplicationService_GetFileClient, error) {
+	return g.client.GetFile(g.addAuthMetadataToContext(ctx), in, opts...)
 }
