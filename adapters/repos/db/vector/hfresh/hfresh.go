@@ -51,17 +51,16 @@ var _ common.VectorIndex = (*HFresh)(nil)
 // while exposing a synchronous API for searching and updating vectors.
 // Note: this is a work in progress and not all features are implemented yet.
 type HFresh struct {
-	id                 string
-	logger             logrus.FieldLogger
-	config             *Config // Config contains internal configuration settings.
-	metrics            *Metrics
-	scheduler          *queue.Scheduler
-	maxPostingSize     uint32
-	minPostingSize     uint32
-	replicas           uint32
-	rngFactor          float32
-	searchProbe        uint32
-	centroidsIndexType string
+	id             string
+	logger         logrus.FieldLogger
+	config         *Config // Config contains internal configuration settings.
+	metrics        *Metrics
+	scheduler      *queue.Scheduler
+	maxPostingSize uint32
+	minPostingSize uint32
+	replicas       uint32
+	rngFactor      float32
+	searchProbe    uint32
 
 	// some components require knowing the vector size beforehand
 	// and can only be initialized once the first vector has been
@@ -142,13 +141,12 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 		postingLocks: common.NewDefaultShardedRWLocks(),
 		// TODO: choose a better starting size since we can predict the max number of
 		// visited vectors based on cfg.InternalPostingCandidates.
-		visitedPool:        visited.NewPool(1, 512, -1),
-		maxPostingSize:     uc.MaxPostingSize,
-		minPostingSize:     uc.MinPostingSize,
-		replicas:           uc.Replicas,
-		rngFactor:          uc.RNGFactor,
-		searchProbe:        uc.SearchProbe,
-		centroidsIndexType: uc.CentroidsIndexType,
+		visitedPool:    visited.NewPool(1, 512, -1),
+		maxPostingSize: uc.MaxPostingSize,
+		minPostingSize: uc.MinPostingSize,
+		replicas:       uc.Replicas,
+		rngFactor:      uc.RNGFactor,
+		searchProbe:    uc.SearchProbe,
 	}
 
 	h.Centroids, err = NewHNSWIndex(metrics, store, cfg, 1024*1024, 1024)

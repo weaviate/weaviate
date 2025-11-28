@@ -16,8 +16,12 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
 )
 
@@ -30,10 +34,18 @@ func TestHFreshOptimizedPostingSize(t *testing.T) {
 	)
 	cfg.Scheduler = scheduler
 	cfg.RootPath = t.TempDir()
+	cfg.Centroids.HNSWConfig = &hnsw.Config{
+		RootPath:              t.TempDir(),
+		ID:                    "spfresh",
+		MakeCommitLoggerThunk: makeNoopCommitLogger,
+		DistanceProvider:      distancer.NewCosineDistanceProvider(),
+		MakeBucketOptions:     lsmkv.MakeNoopBucketOptions,
+	}
+	cfg.TombstoneCallbacks = cyclemanager.NewCallbackGroupNoop()
+
 	scheduler.Start()
 	defer scheduler.Close()
 	uc := ent.NewDefaultUserConfig()
-	uc.CentroidsIndexType = "bruteforce"
 	store := testinghelpers.NewDummyStore(t)
 
 	vector := make([]float32, 100)
