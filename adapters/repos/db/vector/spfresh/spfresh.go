@@ -14,6 +14,7 @@ package spfresh
 import (
 	"context"
 	"encoding/binary"
+	stderrors "errors"
 	"fmt"
 	"math"
 	"sync"
@@ -50,17 +51,16 @@ var _ common.VectorIndex = (*SPFresh)(nil)
 // while exposing a synchronous API for searching and updating vectors.
 // Note: this is a work in progress and not all features are implemented yet.
 type SPFresh struct {
-	id                 string
-	logger             logrus.FieldLogger
-	config             *Config // Config contains internal configuration settings.
-	metrics            *Metrics
-	scheduler          *queue.Scheduler
-	maxPostingSize     uint32
-	minPostingSize     uint32
-	replicas           uint32
-	rngFactor          float32
-	searchProbe        uint32
-	centroidsIndexType string
+	id             string
+	logger         logrus.FieldLogger
+	config         *Config // Config contains internal configuration settings.
+	metrics        *Metrics
+	scheduler      *queue.Scheduler
+	maxPostingSize uint32
+	minPostingSize uint32
+	replicas       uint32
+	rngFactor      float32
+	searchProbe    uint32
 
 	// some components require knowing the vector size beforehand
 	// and can only be initialized once the first vector has been
@@ -72,7 +72,7 @@ type SPFresh struct {
 	quantizer          *compressionhelpers.RotationalQuantizer
 
 	// Internal components
-	Centroids    CentroidIndex           // Provides access to the centroids.
+	Centroids    *HNSWIndex              // Provides access to the centroids.
 	PostingStore *PostingStore           // Used for managing persistence of postings.
 	IDs          common.MonotonicCounter // Shared monotonic counter for generating unique IDs for new postings.
 	VersionMap   *VersionMap             // Stores vector versions in-memory.
@@ -141,24 +141,19 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*SPFresh, error) {
 		postingLocks: common.NewDefaultShardedRWLocks(),
 		// TODO: choose a better starting size since we can predict the max number of
 		// visited vectors based on cfg.InternalPostingCandidates.
-		visitedPool:        visited.NewPool(1, 512, -1),
-		maxPostingSize:     uc.MaxPostingSize,
-		minPostingSize:     uc.MinPostingSize,
-		replicas:           uc.Replicas,
-		rngFactor:          uc.RNGFactor,
-		searchProbe:        uc.SearchProbe,
-		centroidsIndexType: uc.CentroidsIndexType,
+		visitedPool:    visited.NewPool(1, 512, -1),
+		maxPostingSize: uc.MaxPostingSize,
+		minPostingSize: uc.MinPostingSize,
+		replicas:       uc.Replicas,
+		rngFactor:      uc.RNGFactor,
+		searchProbe:    uc.SearchProbe,
 	}
 
-	if s.centroidsIndexType == "hnsw" {
-		s.Centroids, err = NewHNSWIndex(metrics, store, cfg, 1024*1024, 1024)
-		if err != nil {
-			return nil, err
-		}
-		s.IDs = *common.NewMonotonicCounter(s.Centroids.GetMaxID())
-	} else {
-		s.Centroids = NewBruteForceSPTAG(metrics, cfg.DistanceProvider, 1024*1024, 1024)
+	s.Centroids, err = NewHNSWIndex(metrics, store, cfg, 1024*1024, 1024)
+	if err != nil {
+		return nil, err
 	}
+	s.IDs = *common.NewMonotonicCounter(s.Centroids.GetMaxID())
 
 	s.ctx, s.cancel = context.WithCancel(context.Background())
 
@@ -227,35 +222,32 @@ func (s *SPFresh) Shutdown(ctx context.Context) error {
 	// Cancel the context to prevent new operations from being enqueued
 	s.cancel()
 
-	s.taskQueue.Close()
+	var errs []error
 
-	return nil
+	err := s.taskQueue.Close()
+	if err != nil {
+		errs = append(errs, err)
+	}
+
+	err = s.Flush()
+	if err != nil {
+		errs = append(errs, err)
+	}
+
+	err = s.Centroids.hnsw.Shutdown(ctx)
+	if err != nil {
+		errs = append(errs, err)
+	}
+
+	return stderrors.Join(errs...)
 }
 
 func (s *SPFresh) Flush() error {
-	if s.config.Centroids.IndexType == "hnsw" {
-		hnswIndex, ok := s.Centroids.(*HNSWIndex)
-		if !ok {
-			return errors.Errorf("centroid index is not HNSW, but %T", s.Centroids)
-		}
-
-		return hnswIndex.hnsw.Flush()
-	}
-
-	return nil
+	return s.Centroids.hnsw.Flush()
 }
 
 func (s *SPFresh) SwitchCommitLogs(ctx context.Context) error {
-	if s.config.Centroids.IndexType == "hnsw" {
-		hnswIndex, ok := s.Centroids.(*HNSWIndex)
-		if !ok {
-			return errors.Errorf("centroid index is not HNSW, but %T", s.Centroids)
-		}
-
-		return hnswIndex.hnsw.SwitchCommitLogs(ctx)
-	}
-
-	return nil
+	return s.Centroids.hnsw.SwitchCommitLogs(ctx)
 }
 
 func (s *SPFresh) ListFiles(ctx context.Context, basePath string) ([]string, error) {
@@ -263,16 +255,7 @@ func (s *SPFresh) ListFiles(ctx context.Context, basePath string) ([]string, err
 }
 
 func (s *SPFresh) PostStartup(ctx context.Context) {
-	// This method can be used to perform any post-startup initialization
-	// For now, it does nothing
-	if s.config.Centroids.IndexType == "hnsw" {
-		hnswIndex, ok := s.Centroids.(*HNSWIndex)
-		if !ok {
-			return
-		}
-
-		hnswIndex.hnsw.PostStartup(ctx)
-	}
+	s.Centroids.hnsw.PostStartup(ctx)
 }
 
 func (s *SPFresh) Compressed() bool {

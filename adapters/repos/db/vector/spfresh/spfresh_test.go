@@ -78,7 +78,6 @@ func TestSPFreshRecall(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.RootPath = tmpDir
 	cfg.ID = "spfresh"
-	cfg.Centroids.IndexType = "hnsw"
 	cfg.Centroids.HNSWConfig = &hnsw.Config{
 		RootPath:              t.TempDir(),
 		ID:                    "spfresh",
