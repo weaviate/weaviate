@@ -9,4 +9,4 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package spfresh
+package hfresh

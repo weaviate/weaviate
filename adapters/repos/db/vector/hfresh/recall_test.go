@@ -11,7 +11,7 @@
 
 //go:build benchmark
 
-package spfresh
+package hfresh
 
 import (
 	"context"
