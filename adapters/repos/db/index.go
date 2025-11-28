@@ -26,15 +26,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
-	"github.com/weaviate/weaviate/usecases/multitenancy"
-
-	"github.com/weaviate/weaviate/cluster/router/executor"
-	routerTypes "github.com/weaviate/weaviate/cluster/router/types"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/aggregator"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
@@ -43,8 +38,11 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
 	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
+	"github.com/weaviate/weaviate/cluster/router/executor"
+	routerTypes "github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/autocut"
@@ -72,6 +70,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/usecases/multitenancy"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
@@ -1364,7 +1363,6 @@ func (i *Index) objectByID(ctx context.Context, id strfmt.UUID,
 	}
 
 	shard, release, err := i.getShardForDirectLocalOperation(ctx, tenant, shardName, localShardOperationRead)
-	defer release()
 	if err != nil {
 		return obj, err
 	}
@@ -2773,10 +2771,11 @@ func (i *Index) IncomingGetShardStatus(ctx context.Context, shardName string) (s
 	}
 	defer release()
 
-	if shard.GetStatus() == storagestate.StatusLoading {
+	shardStatus := shard.GetStatus()
+	if shardStatus == storagestate.StatusLoading {
 		return "", enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
 	}
-	return shard.GetStatus().String(), nil
+	return shardStatus.String(), nil
 }
 
 func (i *Index) updateShardStatus(ctx context.Context, tenantName, shardName, targetStatus string, schemaVersion uint64) error {
