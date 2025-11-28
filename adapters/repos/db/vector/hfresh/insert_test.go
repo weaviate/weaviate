@@ -23,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 func TestHFreshOptimizedPostingSize(t *testing.T) {
@@ -40,6 +41,7 @@ func TestHFreshOptimizedPostingSize(t *testing.T) {
 		MakeCommitLoggerThunk: makeNoopCommitLogger,
 		DistanceProvider:      distancer.NewCosineDistanceProvider(),
 		MakeBucketOptions:     lsmkv.MakeNoopBucketOptions,
+		AllocChecker:          memwatch.NewDummyMonitor(),
 	}
 	cfg.TombstoneCallbacks = cyclemanager.NewCallbackGroupNoop()
 
