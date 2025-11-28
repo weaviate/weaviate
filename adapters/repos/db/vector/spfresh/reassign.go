@@ -24,12 +24,12 @@ type reassignOperation struct {
 	Version   uint8
 }
 
-func (s *SPFresh) doReassign(op reassignOperation) error {
+func (s *SPFresh) doReassign(ctx context.Context, op reassignOperation) error {
 	start := time.Now()
 	defer s.metrics.ReassignDuration(start)
 
 	// check if the vector is still valid
-	version, err := s.VersionMap.Get(context.Background(), op.VectorID)
+	version, err := s.VersionMap.Get(ctx, op.VectorID)
 	if err != nil {
 		return errors.Wrapf(err, "failed to get version for vector %d", op.VectorID)
 	}
@@ -39,7 +39,7 @@ func (s *SPFresh) doReassign(op reassignOperation) error {
 
 	// perform a RNG selection to determine the postings where the vector should be
 	// reassigned to.
-	q, err := s.config.VectorForIDThunk(s.ctx, op.VectorID)
+	q, err := s.config.VectorForIDThunk(ctx, op.VectorID)
 	if err != nil {
 		return errors.Wrap(err, "failed to get vector by index ID")
 	}
@@ -53,7 +53,7 @@ func (s *SPFresh) doReassign(op reassignOperation) error {
 	}
 
 	// check again if the version is still valid
-	version, err = s.VersionMap.Get(context.Background(), op.VectorID)
+	version, err = s.VersionMap.Get(ctx, op.VectorID)
 	if err != nil {
 		return errors.Wrapf(err, "failed to get version for vector %d", op.VectorID)
 	}
@@ -63,7 +63,7 @@ func (s *SPFresh) doReassign(op reassignOperation) error {
 
 	// increment the vector version. this will invalidate all the existing copies
 	// of the vector in other postings.
-	version, err = s.VersionMap.Increment(context.Background(), op.VectorID, version)
+	version, err = s.VersionMap.Increment(ctx, op.VectorID, version)
 	if err != nil {
 		s.logger.WithField("vectorID", op.VectorID).
 			WithError(err).
@@ -76,7 +76,7 @@ func (s *SPFresh) doReassign(op reassignOperation) error {
 
 	// append the vector to each replica
 	for id := range replicas.Iter() {
-		version, err = s.VersionMap.Get(context.Background(), newVector.ID())
+		version, err = s.VersionMap.Get(ctx, newVector.ID())
 		if err != nil {
 			return errors.Wrapf(err, "failed to get version for vector %d", newVector.ID())
 		}
@@ -86,7 +86,7 @@ func (s *SPFresh) doReassign(op reassignOperation) error {
 			return nil
 		}
 
-		added, err := s.append(s.ctx, newVector, id, true)
+		added, err := s.append(ctx, newVector, id, true)
 		if err != nil {
 			return err
 		}
