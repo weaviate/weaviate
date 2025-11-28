@@ -19,7 +19,7 @@ import (
 	vIndex "github.com/weaviate/weaviate/entities/vectorindex"
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	"github.com/weaviate/weaviate/entities/vectorindex/spfresh"
+	hfresh "github.com/weaviate/weaviate/entities/vectorindex/spfresh"
 	sharding "github.com/weaviate/weaviate/usecases/sharding/config"
 )
 
@@ -377,7 +377,7 @@ func CollectionFromClass(m models.Class) (Collection, error) {
 	case VectorIndexTypeFlat:
 		c.VectorIndexConfig = m.VectorIndexConfig.(flat.UserConfig)
 	case VectorIndexTypeSPFresh:
-		c.VectorIndexConfig = m.VectorIndexConfig.(spfresh.UserConfig)
+		c.VectorIndexConfig = m.VectorIndexConfig.(hfresh.UserConfig)
 	default:
 	}
 

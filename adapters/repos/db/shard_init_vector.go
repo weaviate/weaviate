@@ -21,10 +21,10 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/flat"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hfresh"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/noop"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/spfresh"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/vectorindex"
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
@@ -228,7 +228,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 		}
 		userConfig, ok := vectorIndexUserConfig.(spfreshent.UserConfig)
 		if !ok {
-			return nil, errors.Errorf("spfresh vector index: config is not spfresh.UserConfig: %T",
+			return nil, errors.Errorf("spfresh vector index: config is not hfresh.UserConfig: %T",
 				vectorIndexUserConfig)
 		}
 
@@ -236,7 +236,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 		s.index.cycleCallbacks.vectorTombstoneCleanupCycle.Start()
 
 		spfreshConfigID := s.vectorIndexID(targetVector)
-		spfreshConfig := &spfresh.Config{
+		spfreshConfig := &hfresh.Config{
 			Logger:            s.index.logger,
 			Scheduler:         s.index.scheduler,
 			DistanceProvider:  distProv,
@@ -246,12 +246,12 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 			ShardName:         s.name,
 			ClassName:         s.index.Config.ClassName.String(),
 			PrometheusMetrics: s.promMetrics,
-			Store: spfresh.StoreConfig{
+			Store: hfresh.StoreConfig{
 				MakeBucketOptions: makeBucketOptions,
 			},
 			VectorForIDThunk:   hnsw.NewVectorForIDThunk(targetVector, s.vectorByIndexID),
 			TombstoneCallbacks: s.cycleCallbacks.vectorTombstoneCleanupCallbacks,
-			Centroids: spfresh.CentroidConfig{
+			Centroids: hfresh.CentroidConfig{
 				HNSWConfig: &hnsw.Config{
 					Logger:                    s.index.logger,
 					RootPath:                  s.path(),
@@ -287,7 +287,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 			},
 		}
 
-		vi, err := spfresh.New(spfreshConfig, userConfig, s.store)
+		vi, err := hfresh.New(spfreshConfig, userConfig, s.store)
 		if err != nil {
 			return nil, errors.Wrapf(err, "init shard %q: spfresh index", s.ID())
 		}

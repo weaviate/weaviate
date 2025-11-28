@@ -18,7 +18,7 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	"github.com/weaviate/weaviate/entities/vectorindex/spfresh"
+	hfresh "github.com/weaviate/weaviate/entities/vectorindex/spfresh"
 )
 
 const (
@@ -44,7 +44,7 @@ func ParseAndValidateConfig(input interface{}, vectorIndexType string, isMultiVe
 	case VectorIndexTypeDYNAMIC:
 		return dynamic.ParseAndValidateConfig(input, isMultiVector)
 	case VectorIndexTypeSPFresh:
-		return spfresh.ParseAndValidateConfig(input, isMultiVector)
+		return hfresh.ParseAndValidateConfig(input, isMultiVector)
 	default:
 		return nil, fmt.Errorf("invalid vector index %q. Supported types are hnsw and flat", vectorIndexType)
 	}

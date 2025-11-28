@@ -27,8 +27,8 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/flat"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hfresh"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/spfresh"
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/router"
 	"github.com/weaviate/weaviate/cluster/types"
@@ -738,7 +738,7 @@ func (m *Migrator) ValidateVectorIndexConfigUpdate(
 		if !m.db.config.SPFreshEnabled {
 			return errors.New("spfresh index is available only in experimental mode")
 		}
-		return spfresh.ValidateUserConfigUpdate(old, updated)
+		return hfresh.ValidateUserConfigUpdate(old, updated)
 	}
 	return fmt.Errorf("invalid index type: %s", old.IndexType())
 }
