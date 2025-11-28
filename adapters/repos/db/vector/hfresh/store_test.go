@@ -27,7 +27,6 @@ func TestStore(t *testing.T) {
 			MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
 		})
 		require.NoError(t, err)
-		s.Init(10)
 
 		// unknown posting
 		p, err := s.Get(ctx, 1)
@@ -57,7 +56,6 @@ func TestStore(t *testing.T) {
 			MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
 		})
 		require.NoError(t, err)
-		s.Init(10)
 
 		// nil
 		ps, err := s.MultiGet(ctx, nil)
@@ -96,7 +94,6 @@ func TestStore(t *testing.T) {
 			MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
 		})
 		require.NoError(t, err)
-		s.Init(10)
 
 		// nil posting
 		err = s.Put(ctx, 1, nil)

@@ -15,7 +15,6 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
-	"sync/atomic"
 	"time"
 
 	"github.com/pkg/errors"
@@ -37,11 +36,10 @@ func NewBucket(store *lsmkv.Store, indexID string, cfg StoreConfig) (*lsmkv.Buck
 }
 
 type PostingStore struct {
-	store      *lsmkv.Store
-	bucket     *lsmkv.Bucket
-	vectorSize atomic.Int32
-	locks      *common.ShardedRWLocks
-	metrics    *Metrics
+	store   *lsmkv.Store
+	bucket  *lsmkv.Bucket
+	locks   *common.ShardedRWLocks
+	metrics *Metrics
 }
 
 func NewPostingStore(store *lsmkv.Store, metrics *Metrics, bucketName string, cfg StoreConfig) (*PostingStore, error) {
@@ -61,22 +59,9 @@ func NewPostingStore(store *lsmkv.Store, metrics *Metrics, bucketName string, cf
 	}, nil
 }
 
-// Init is called by the index upon receiving the first vector and
-// determining the vector size.
-// Prior to calling this method, the store will assume the index is empty.
-func (p *PostingStore) Init(size int32) {
-	p.vectorSize.Store(size)
-}
-
 func (p *PostingStore) Get(ctx context.Context, postingID uint64) (Posting, error) {
 	start := time.Now()
 	defer p.metrics.StoreGetDuration(start)
-
-	vectorSize := p.vectorSize.Load()
-	if vectorSize == 0 {
-		// the store is empty
-		return nil, errors.WithStack(ErrPostingNotFound)
-	}
 
 	var buf [8]byte
 	binary.LittleEndian.PutUint64(buf[:], postingID)
@@ -97,12 +82,6 @@ func (p *PostingStore) Get(ctx context.Context, postingID uint64) (Posting, erro
 }
 
 func (p *PostingStore) MultiGet(ctx context.Context, postingIDs []uint64) ([]Posting, error) {
-	vectorSize := p.vectorSize.Load()
-	if vectorSize == 0 {
-		// the store is empty
-		return nil, errors.WithStack(ErrPostingNotFound)
-	}
-
 	postings := make([]Posting, 0, len(postingIDs))
 
 	for _, id := range postingIDs {
