@@ -583,14 +583,55 @@ func (i *Index) ForEachShard(f func(name string, shard ShardLike) error) error {
 	return i.shards.Range(f)
 }
 
-func (i *Index) ForEachShardWithBlocking(f func(name string, shard ShardLike) error) error {
-	// Check if the index is being dropped or shut down to avoid panics when the index is being deleted
-	if i.closingCtx.Err() != nil {
-		i.logger.WithField("action", "for_each_shard").Debug("index is being dropped or shut down")
-		return nil
-	}
+// ForEachShardWithBlocking applies func f on each shard in the index and blocks them from being shutdown.
+// If includeUnloaded is false, lazy loaded shards which are not yet loaded are skipped.
+// The provided releaseFunc must be called once the shard is no longer needed to allow shutdowns again.
+//
+// The shards will be locked while we get block them from being shutdown, but the lock is released immediately after.
+// This keeps the time we hold the lock to a minimum, allowing other operations to proceed in parallel.
+func (i *Index) ForEachShardWithBlocking(includeUnloaded bool, f func(name string, shard ShardLike, releaseFunc func()) error) error {
+	return i.shards.Range(func(name string, shard ShardLike) error {
+		var releaseShard func()
 
-	return i.shards.Range(f)
+		useShard, err := func() (bool, error) {
+			i.shardCreateLocks.Lock(name)
+			defer i.shardCreateLocks.Unlock(name)
+
+			lazyShard, isLazyShard := shard.(*LazyLoadShard)
+			if isLazyShard && !lazyShard.isLoaded() && !includeUnloaded {
+				return false, nil
+			}
+
+			if isLazyShard && !lazyShard.isLoaded() {
+				releaseShard = lazyShard.blockLoading()
+				// check again if still not loaded in case it was loaded in the meantime
+				if isLazyShard && !lazyShard.isLoaded() {
+					return true, nil
+				}
+				// was loaded in the meantime, release the block and continue as an active shard
+				releaseShard()
+			}
+
+			release, err := shard.preventShutdown()
+			if err != nil && errors.Is(err, errAlreadyShutdown) {
+				// shard is already shutdown, skip it and treat like an inactive shard that is not included
+				return false, nil
+			} else if err != nil {
+				return false, err
+			}
+			releaseShard = release
+
+			return true, nil
+		}()
+		if err != nil {
+			return err
+		}
+		if !useShard {
+			return nil
+		}
+
+		return f(name, shard, releaseShard)
+	})
 }
 
 func (i *Index) ForEachLoadedShard(f func(name string, shard ShardLike) error) error {
