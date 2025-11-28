@@ -467,7 +467,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		QuerySlowLogThreshold:                        appState.ServerConfig.Config.QuerySlowLogThreshold,
 		InvertedSorterDisabled:                       appState.ServerConfig.Config.InvertedSorterDisabled,
 		MaintenanceModeEnabled:                       appState.Cluster.MaintenanceModeEnabledForLocalhost,
-		SPFreshEnabled:                               appState.ServerConfig.Config.SPFreshEnabled,
+		HFreshEnabled:                                appState.ServerConfig.Config.HFreshEnabled,
 	}, remoteIndexClient, appState.Cluster, remoteNodesClient, replicationClient, appState.Metrics, appState.MemWatch, nil, nil, nil) // TODO client
 	if err != nil {
 		appState.Logger.
@@ -1859,6 +1859,7 @@ func reasonableHttpClient(authConfig cluster.AuthConfig, minimumInternalTimeout 
 		IdleConnTimeout:       90 * time.Second,
 		TLSHandshakeTimeout:   10 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
+		ResponseHeaderTimeout: 10 * time.Second,
 	}
 
 	// Wrap with OpenTelemetry tracing (only has an effect if tracing is enabled)

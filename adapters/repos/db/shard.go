@@ -296,7 +296,7 @@ type Shard struct {
 	// shutdownRequested marks shard as requested for shutdown
 	shutdownRequested atomic.Bool
 
-	SPFreshEnabled bool
+	HFreshEnabled bool
 
 	lazySegmentLoadingEnabled bool
 }

@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package spfresh
+package hfresh
 
 import (
 	"encoding/binary"
@@ -41,51 +41,51 @@ type RQ8Data struct {
 	Signs     [][]float32                 `msgpack:"signs"`
 }
 
-func (s *SPFresh) getMetadataFile() string {
-	if s.config.TargetVector != "" {
-		cleanTarget := filepath.Clean(s.config.TargetVector)
+func (h *HFresh) getMetadataFile() string {
+	if h.config.TargetVector != "" {
+		cleanTarget := filepath.Clean(h.config.TargetVector)
 		cleanTarget = filepath.Base(cleanTarget)
 		return fmt.Sprintf("%s_%s.db", metadataPrefix, cleanTarget)
 	}
 	return fmt.Sprintf("%s.db", metadataPrefix)
 }
 
-func (s *SPFresh) closeMetadata() {
-	s.metadataLock.Lock()
-	defer s.metadataLock.Unlock()
+func (h *HFresh) closeMetadata() {
+	h.metadataLock.Lock()
+	defer h.metadataLock.Unlock()
 
-	if s.metadata != nil {
-		s.metadata.Close()
-		s.metadata = nil
+	if h.metadata != nil {
+		h.metadata.Close()
+		h.metadata = nil
 	}
 }
 
-func (s *SPFresh) openMetadata() error {
-	s.metadataLock.Lock()
-	defer s.metadataLock.Unlock()
+func (h *HFresh) openMetadata() error {
+	h.metadataLock.Lock()
+	defer h.metadataLock.Unlock()
 
-	if s.metadata != nil {
+	if h.metadata != nil {
 		return nil // Already open
 	}
 
-	path := filepath.Join(filepath.Dir(s.config.RootPath), s.getMetadataFile())
+	path := filepath.Join(filepath.Dir(h.config.RootPath), h.getMetadataFile())
 	db, err := bolt.Open(path, 0o600, nil)
 	if err != nil {
 		return errors.Wrapf(err, "open %q", path)
 	}
 
-	s.metadata = db
+	h.metadata = db
 	return nil
 }
 
-func (s *SPFresh) restoreMetadata() error {
-	err := s.openMetadata()
+func (h *HFresh) restoreMetadata() error {
+	err := h.openMetadata()
 	if err != nil {
 		return err
 	}
-	defer s.closeMetadata()
+	defer h.closeMetadata()
 
-	err = s.metadata.Update(func(tx *bolt.Tx) error {
+	err = h.metadata.Update(func(tx *bolt.Tx) error {
 		b, err := tx.CreateBucketIfNotExists([]byte(vectorMetadataBucket))
 		if err != nil {
 			return errors.Wrap(err, "create bucket")
@@ -100,36 +100,36 @@ func (s *SPFresh) restoreMetadata() error {
 	}
 
 	// Restore RQ data if available
-	if err := s.restoreRQData(); err != nil {
-		s.logger.Warnf("SPFresh index unable to restore RQ data: %v", err)
+	if err := h.restoreRQData(); err != nil {
+		h.logger.Warnf("HFresh index unable to restore RQ data: %v", err)
 	}
 
-	if err := s.initDimensions(); err != nil {
-		s.logger.Warnf("SPFresh index unable to restore RQ data: %v", err)
+	if err := h.initDimensions(); err != nil {
+		h.logger.Warnf("HFresh index unable to restore RQ data: %v", err)
 	}
 
 	return nil
 }
 
-func (s *SPFresh) initDimensions() error {
-	dims, err := s.fetchDimensions()
+func (h *HFresh) initDimensions() error {
+	dims, err := h.fetchDimensions()
 	if err != nil {
-		return errors.Wrap(err, "SPFresh index unable to fetch dimensions")
+		return errors.Wrap(err, "HFresh index unable to fetch dimensions")
 	}
 
 	if dims > 0 {
-		atomic.StoreInt32(&s.dims, dims)
+		atomic.StoreInt32(&h.dims, dims)
 	}
 	return nil
 }
 
-func (s *SPFresh) fetchDimensions() (int32, error) {
-	if s.metadata == nil {
+func (h *HFresh) fetchDimensions() (int32, error) {
+	if h.metadata == nil {
 		return 0, nil
 	}
 
 	var dimensions int32 = 0
-	err := s.metadata.View(func(tx *bolt.Tx) error {
+	err := h.metadata.View(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte(vectorMetadataBucket))
 		if b == nil {
 			return nil
@@ -148,14 +148,14 @@ func (s *SPFresh) fetchDimensions() (int32, error) {
 	return dimensions, nil
 }
 
-func (s *SPFresh) setDimensions(dimensions int32) error {
-	err := s.openMetadata()
+func (h *HFresh) setDimensions(dimensions int32) error {
+	err := h.openMetadata()
 	if err != nil {
 		return err
 	}
-	defer s.closeMetadata()
+	defer h.closeMetadata()
 
-	err = s.metadata.Update(func(tx *bolt.Tx) error {
+	err = h.metadata.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte(vectorMetadataBucket))
 		if b == nil {
 			return errors.New("failed to get bucket")
@@ -171,14 +171,14 @@ func (s *SPFresh) setDimensions(dimensions int32) error {
 	return nil
 }
 
-func (s *SPFresh) setVectorSize(vectorSize int32) error {
-	err := s.openMetadata()
+func (h *HFresh) setVectorSize(vectorSize int32) error {
+	err := h.openMetadata()
 	if err != nil {
 		return err
 	}
-	defer s.closeMetadata()
+	defer h.closeMetadata()
 
-	err = s.metadata.Update(func(tx *bolt.Tx) error {
+	err = h.metadata.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte(vectorMetadataBucket))
 		if b == nil {
 			return errors.New("failed to get bucket")
@@ -194,15 +194,15 @@ func (s *SPFresh) setVectorSize(vectorSize int32) error {
 	return nil
 }
 
-func (s *SPFresh) restoreVectorSize() error {
-	err := s.openMetadata()
+func (h *HFresh) restoreVectorSize() error {
+	err := h.openMetadata()
 	if err != nil {
 		return err
 	}
-	defer s.closeMetadata()
+	defer h.closeMetadata()
 
 	var vectorSize int32
-	err = s.metadata.View(func(tx *bolt.Tx) error {
+	err = h.metadata.View(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte(vectorMetadataBucket))
 		if b == nil {
 			return nil
@@ -219,8 +219,8 @@ func (s *SPFresh) restoreVectorSize() error {
 	}
 
 	if vectorSize > 0 {
-		atomic.StoreInt32(&s.vectorSize, vectorSize)
-		s.PostingStore.vectorSize.Store(vectorSize)
+		atomic.StoreInt32(&h.vectorSize, vectorSize)
+		h.PostingStore.vectorSize.Store(vectorSize)
 	}
 
 	return nil
@@ -228,18 +228,18 @@ func (s *SPFresh) restoreVectorSize() error {
 
 // RQ data persistence and restoration functions
 
-func (s *SPFresh) persistRQData() error {
-	if s.quantizer == nil {
+func (h *HFresh) persistRQData() error {
+	if h.quantizer == nil {
 		return nil
 	}
 
-	err := s.openMetadata()
+	err := h.openMetadata()
 	if err != nil {
 		return err
 	}
-	defer s.closeMetadata()
+	defer h.closeMetadata()
 
-	err = s.metadata.Update(func(tx *bolt.Tx) error {
+	err = h.metadata.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte(vectorMetadataBucket))
 		if b == nil {
 			return errors.New("failed to get bucket")
@@ -248,7 +248,7 @@ func (s *SPFresh) persistRQData() error {
 		// Create RQ data container with metadata
 		container := &RQDataContainer{}
 
-		rq8Data, err := s.serializeRQ8Data()
+		rq8Data, err := h.serializeRQ8Data()
 		if err != nil {
 			return errors.Wrap(err, "serialize RQ8 data")
 		}
@@ -271,16 +271,16 @@ func (s *SPFresh) persistRQData() error {
 }
 
 // serializeRQ8Data extracts RQ8 data from the quantizer and converts it to msgpack format
-func (s *SPFresh) serializeRQ8Data() (*RQ8Data, error) {
+func (h *HFresh) serializeRQ8Data() (*RQ8Data, error) {
 	// Use a custom commit logger to capture the RQ data
 	captureLogger := &dataCaptureLogger{}
-	s.quantizer.PersistCompression(captureLogger)
+	h.quantizer.PersistCompression(captureLogger)
 
 	if captureLogger.rqData == nil {
 		return nil, errors.New("no RQ data captured from quantizer")
 	}
 
-	s.logger.Debugf("Captured RQ data: InputDim=%d, Bits=%d, OutputDim=%d, Rounds=%d, Swaps=%d, Signs=%d",
+	h.logger.Debugf("Captured RQ data: InputDim=%d, Bits=%d, OutputDim=%d, Rounds=%d, Swaps=%d, Signs=%d",
 		captureLogger.rqData.InputDim,
 		captureLogger.rqData.Bits,
 		captureLogger.rqData.Rotation.OutputDim,
@@ -321,11 +321,11 @@ func (d *dataCaptureLogger) AddSQCompression(data compressionhelpers.SQData) err
 	return nil // Not used for flat index
 }
 
-func (s *SPFresh) restoreRQData() error {
+func (h *HFresh) restoreRQData() error {
 	var container *RQDataContainer
 	var data []byte
 
-	err := s.metadata.View(func(tx *bolt.Tx) error {
+	err := h.metadata.View(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte(vectorMetadataBucket))
 		if b == nil {
 			return nil // No metadata yet
@@ -350,11 +350,11 @@ func (s *SPFresh) restoreRQData() error {
 	}
 
 	// Handle the Data field manually since msgpack deserializes interface{} as map[string]interface{}
-	return s.handleDeserializedData(container)
+	return h.handleDeserializedData(container)
 }
 
 // handleDeserializedData manually handles the Data field deserialization
-func (s *SPFresh) handleDeserializedData(container *RQDataContainer) error {
+func (h *HFresh) handleDeserializedData(container *RQDataContainer) error {
 	// Deserialize the Data field as RQ8Data
 	dataBytes, err := msgpack.Marshal(container.Data)
 	if err != nil {
@@ -366,13 +366,13 @@ func (s *SPFresh) handleDeserializedData(container *RQDataContainer) error {
 		return errors.Wrap(err, "unmarshal RQ8Data")
 	}
 
-	s.logger.Warnf("Successfully deserialized RQ8Data: InputDim=%d",
+	h.logger.Warnf("Successfully deserialized RQ8Data: InputDim=%d",
 		rq8Data.InputDim)
-	return s.restoreRQ8FromMsgpack(&rq8Data)
+	return h.restoreRQ8FromMsgpack(&rq8Data)
 }
 
 // restoreRQ8FromMsgpack restores RQ8 quantizer from msgpack data
-func (s *SPFresh) restoreRQ8FromMsgpack(rq8Data *RQ8Data) error {
+func (h *HFresh) restoreRQ8FromMsgpack(rq8Data *RQ8Data) error {
 	// Restore the RQ8 quantizer
 	rq, err := compressionhelpers.RestoreBinaryRotationalQuantizer(
 		int(rq8Data.InputDim),
@@ -381,24 +381,24 @@ func (s *SPFresh) restoreRQ8FromMsgpack(rq8Data *RQ8Data) error {
 		rq8Data.Swaps,
 		rq8Data.Signs,
 		nil,
-		s.config.DistanceProvider,
+		h.config.DistanceProvider,
 	)
 	if err != nil {
 		return errors.Wrap(err, "restore rotational quantizer from msgpack")
 	}
 
-	s.quantizer = rq
-	s.Centroids.SetQuantizer(rq)
-	s.distancer = &Distancer{
+	h.quantizer = rq
+	h.Centroids.SetQuantizer(rq)
+	h.distancer = &Distancer{
 		quantizer: rq,
-		distancer: s.config.DistanceProvider,
+		distancer: h.config.DistanceProvider,
 	}
 
 	// Restore vector size if available
-	if err := s.restoreVectorSize(); err != nil {
-		s.logger.Warnf("SPFresh index unable to restore vector size: %v", err)
+	if err := h.restoreVectorSize(); err != nil {
+		h.logger.Warnf("HFresh index unable to restore vector size: %v", err)
 	}
 
-	s.PostingStore.Init(s.vectorSize)
+	h.PostingStore.Init(h.vectorSize)
 	return nil
 }

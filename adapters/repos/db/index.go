@@ -233,7 +233,7 @@ type Index struct {
 	vectorIndexUserConfigLock sync.Mutex
 	vectorIndexUserConfig     schemaConfig.VectorIndexConfig
 	vectorIndexUserConfigs    map[string]schemaConfig.VectorIndexConfig
-	SPFreshEnabled            bool
+	HFreshEnabled             bool
 
 	partitioningEnabled bool
 
@@ -381,7 +381,7 @@ func NewIndex(
 		router:                  router,
 		shardResolver:           shardResolver,
 		bitmapBufPool:           bitmapBufPool,
-		SPFreshEnabled:          cfg.SPFreshEnabled,
+		HFreshEnabled:           cfg.HFreshEnabled,
 	}
 
 	getDeletionStrategy := func() string {
@@ -845,7 +845,7 @@ type IndexConfig struct {
 	InvertedSorterDisabled *configRuntime.DynamicValue[bool]
 	MaintenanceModeEnabled func() bool
 
-	SPFreshEnabled bool
+	HFreshEnabled bool
 }
 
 func indexID(class schema.ClassName) string {

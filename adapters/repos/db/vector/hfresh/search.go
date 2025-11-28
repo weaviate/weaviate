@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package spfresh
+package hfresh
 
 import (
 	"context"
@@ -26,19 +26,19 @@ const (
 	pruningMinMaxDistance = 0.1
 )
 
-func (s *SPFresh) SearchByVector(ctx context.Context, vector []float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
+func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
 	rescoreLimit := k + 5
-	vector = s.normalizeVec(vector)
-	queryVector := NewAnonymousVector(s.quantizer.CompressedBytes(s.quantizer.Encode(vector)))
+	vector = h.normalizeVec(vector)
+	queryVector := NewAnonymousVector(h.quantizer.CompressedBytes(h.quantizer.Encode(vector)))
 
 	var selected []uint64
 	var postings []*Posting
 
 	// If k is larger than the configured number of candidates, use k as the candidate number
 	// to enlarge the search space.
-	candidateNum := max(rescoreLimit, int(s.searchProbe))
+	candidateNum := max(rescoreLimit, int(h.searchProbe))
 
-	centroids, err := s.Centroids.Search(vector, candidateNum)
+	centroids, err := h.Centroids.Search(vector, candidateNum)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -46,7 +46,7 @@ func (s *SPFresh) SearchByVector(ctx context.Context, vector []float32, k int, a
 	q := NewResultSet(rescoreLimit)
 
 	// compute the max distance to filter out candidates that are too far away
-	maxDist := centroids.data[0].Distance * s.config.MaxDistanceRatio
+	maxDist := centroids.data[0].Distance * h.config.MaxDistanceRatio
 
 	// filter out candidates that are too far away or have no vectors
 	selected = make([]uint64, 0, candidateNum)
@@ -54,7 +54,7 @@ func (s *SPFresh) SearchByVector(ctx context.Context, vector []float32, k int, a
 		if maxDist > pruningMinMaxDistance && centroids.data[i].Distance > maxDist {
 			continue
 		}
-		count, err := s.PostingSizes.Get(ctx, centroids.data[i].ID)
+		count, err := h.PostingSizes.Get(ctx, centroids.data[i].ID)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -66,13 +66,13 @@ func (s *SPFresh) SearchByVector(ctx context.Context, vector []float32, k int, a
 	}
 
 	// read all the selected postings
-	postings, err = s.PostingStore.MultiGet(ctx, selected)
+	postings, err = h.PostingStore.MultiGet(ctx, selected)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	visited := s.visitedPool.Borrow()
-	defer s.visitedPool.Return(visited)
+	visited := h.visitedPool.Borrow()
+	defer h.visitedPool.Return(visited)
 
 	totalVectors := 0
 	for i, p := range postings {
@@ -87,7 +87,7 @@ func (s *SPFresh) SearchByVector(ctx context.Context, vector []float32, k int, a
 		for _, v := range p.Iter() {
 			id := v.ID()
 			// skip deleted vectors
-			deleted, err := s.VersionMap.IsDeleted(context.Background(), id)
+			deleted, err := h.VersionMap.IsDeleted(context.Background(), id)
 			if err != nil {
 				return nil, nil, errors.Wrapf(err, "failed to check if vector %d is deleted", id)
 			}
@@ -106,7 +106,7 @@ func (s *SPFresh) SearchByVector(ctx context.Context, vector []float32, k int, a
 				continue
 			}
 
-			dist, err := v.Distance(s.distancer, queryVector)
+			dist, err := v.Distance(h.distancer, queryVector)
 			if err != nil {
 				return nil, nil, errors.Wrapf(err, "failed to compute distance for vector %d", id)
 			}
@@ -117,8 +117,8 @@ func (s *SPFresh) SearchByVector(ctx context.Context, vector []float32, k int, a
 
 		// if the posting size is lower than the configured minimum,
 		// enqueue a merge operation
-		if postingSize < int(s.minPostingSize) {
-			err = s.taskQueue.EnqueueMerge(selected[i])
+		if postingSize < int(h.minPostingSize) {
+			err = h.taskQueue.EnqueueMerge(selected[i])
 			if err != nil {
 				return nil, nil, errors.Wrapf(err, "failed to enqueue merge for posting %d", selected[i])
 			}
@@ -127,11 +127,11 @@ func (s *SPFresh) SearchByVector(ctx context.Context, vector []float32, k int, a
 
 	rescored := NewResultSet(k)
 	for id := range q.Iter() {
-		vec, err := s.vectorForId(ctx, id)
+		vec, err := h.vectorForId(ctx, id)
 		if err != nil {
 			return nil, nil, err
 		}
-		dist, err := s.distancer.distancer.SingleDist(vector, vec)
+		dist, err := h.distancer.distancer.SingleDist(vector, vec)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -150,7 +150,7 @@ func (s *SPFresh) SearchByVector(ctx context.Context, vector []float32, k int, a
 	return ids, dists, nil
 }
 
-func (s *SPFresh) SearchByVectorDistance(
+func (h *HFresh) SearchByVectorDistance(
 	ctx context.Context,
 	vector []float32,
 	targetDistance float32,
@@ -163,7 +163,7 @@ func (s *SPFresh) SearchByVectorDistance(
 
 	recursiveSearch := func() (bool, error) {
 		totalLimit := searchParams.TotalLimit()
-		ids, dist, err := s.SearchByVector(ctx, vector, totalLimit, allow)
+		ids, dist, err := h.SearchByVector(ctx, vector, totalLimit, allow)
 		if err != nil {
 			return false, errors.Wrap(err, "vector search")
 		}
@@ -201,7 +201,7 @@ func (s *SPFresh) SearchByVectorDistance(
 	for shouldContinue, err = recursiveSearch(); shouldContinue && err == nil; {
 		searchParams.Iterate()
 		if searchParams.MaxLimitReached() {
-			s.logger.
+			h.logger.
 				WithField("action", "unlimited_vector_search").
 				Warnf("maximum search limit of %d results has been reached",
 					searchParams.MaximumSearchLimit())

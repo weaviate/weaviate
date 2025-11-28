@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package spfresh
+package hfresh
 
 import (
 	"context"
@@ -148,5 +148,5 @@ func (p *PostingSizeStore) Set(ctx context.Context, postingID uint64, size uint3
 }
 
 func postingSizeBucketName(id string) string {
-	return fmt.Sprintf("spfresh_posting_sizes_%s", id)
+	return fmt.Sprintf("hfresh_posting_sizes_%s", id)
 }

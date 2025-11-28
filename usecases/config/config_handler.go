@@ -159,7 +159,7 @@ type Config struct {
 	DistributedTasks                    DistributedTasksConfig   `json:"distributed_tasks" yaml:"distributed_tasks"`
 	ReplicationEngineMaxWorkers         int                      `json:"replication_engine_max_workers" yaml:"replication_engine_max_workers"`
 	ReplicationEngineFileCopyWorkers    int                      `json:"replication_engine_file_copy_workers" yaml:"replication_engine_file_copy_workers"`
-	SPFreshEnabled                      bool                     `json:"spfresh_enabled" yaml:"spfresh_enabled"`
+	HFreshEnabled                       bool                     `json:"hfresh_enabled" yaml:"hfresh_enabled"`
 	// Raft Specific configuration
 	// TODO-RAFT: Do we want to be able to specify these with config file as well ?
 	Raft Raft

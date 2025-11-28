@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package spfresh
+package hfresh
 
 import (
 	"fmt"
@@ -19,31 +19,29 @@ import (
 )
 
 const (
-	DefaultMaxPostingSize     = 0 // it means that it will be computed dynamically by the index
-	DefaultMinPostingSize     = 10
-	DefaultReplicas           = 8
-	DefaultRNGFactor          = 10.0
-	DefaultSearchProbe        = 64
-	DefaultCentroidsIndexType = "hnsw"
+	DefaultMaxPostingSize = 0 // it means that it will be computed dynamically by the index
+	DefaultMinPostingSize = 10
+	DefaultReplicas       = 8
+	DefaultRNGFactor      = 10.0
+	DefaultSearchProbe    = 64
 )
 
-// UserConfig defines the configuration options for the SPFresh index.
+// UserConfig defines the configuration options for the HFresh index.
 // Will be populated once we decide what should be exposed.
 type UserConfig struct {
-	MaxPostingSize     uint32  `json:"maxPostingSize"`
-	MinPostingSize     uint32  `json:"minPostingSize"`
-	Replicas           uint32  `json:"replicas"`
-	RNGFactor          float32 `json:"rngFactor"`
-	SearchProbe        uint32  `json:"searchProbe"`
-	CentroidsIndexType string  `json:"centroidsIndexType"`
-	Distance           string  `json:"distance"`
+	MaxPostingSize uint32  `json:"maxPostingSize"`
+	MinPostingSize uint32  `json:"minPostingSize"`
+	Replicas       uint32  `json:"replicas"`
+	RNGFactor      float32 `json:"rngFactor"`
+	SearchProbe    uint32  `json:"searchProbe"`
+	Distance       string  `json:"distance"`
 	// TODO: add quantization config
 }
 
 // IndexType returns the type of the underlying vector index, thus making sure
 // the schema.VectorIndexConfig interface is implemented
 func (u UserConfig) IndexType() string {
-	return "spfresh"
+	return "hfresh"
 }
 
 func (u UserConfig) DistanceName() string {
@@ -61,7 +59,6 @@ func (u *UserConfig) SetDefaults() {
 	u.Replicas = DefaultReplicas
 	u.RNGFactor = DefaultRNGFactor
 	u.SearchProbe = DefaultSearchProbe
-	u.CentroidsIndexType = DefaultCentroidsIndexType
 	u.Distance = vectorIndexCommon.DefaultDistanceMetric
 
 	// TODO: add quantization config
@@ -114,12 +111,6 @@ func ParseAndValidateConfig(input interface{}, isMultiVector bool) (schemaConfig
 
 	if err := vectorIndexCommon.OptionalIntFromMap(asMap, "searchProbe", func(v int) {
 		uc.SearchProbe = uint32(v)
-	}); err != nil {
-		return uc, err
-	}
-
-	if err := vectorIndexCommon.OptionalStringFromMap(asMap, "centroidsIndexType", func(v string) {
-		uc.CentroidsIndexType = v
 	}); err != nil {
 		return uc, err
 	}

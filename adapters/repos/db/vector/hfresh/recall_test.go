@@ -9,9 +9,9 @@
 //  CONTACT: hello@weaviate.io
 //
 
-//go:build benchmark
+//go:build integrationTest && !race
 
-package spfresh
+package hfresh
 
 import (
 	"context"
@@ -23,6 +23,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/datasets"
@@ -30,17 +31,24 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
-	ent "github.com/weaviate/weaviate/entities/vectorindex/spfresh"
+	ent "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 var (
 	distanceMethod = flag.String("distance", "l2-squared", "distance method: l2-squared, cosine, or dot")
-	dataset        = flag.String("dataset", "fiqa-st-minilm-384-dot-12k", "ann dataset i.e. fiqa-st-minilm-384-dot-12k")
+	dataset        = flag.String("dataset", "", "ann dataset i.e. fiqa-st-minilm-384-dot-12k")
 )
 
-func getDistanceProvider() distancer.Provider {
-	switch *distanceMethod {
+type testConfig struct {
+	dataset        string
+	distance       string
+	searchProbes   []uint32
+	requiredRecall float32
+}
+
+func getDistanceProvider(distance string) distancer.Provider {
+	switch distance {
 	case "cosine":
 		return distancer.NewCosineDistanceProvider()
 	case "dot":
@@ -52,18 +60,66 @@ func getDistanceProvider() distancer.Provider {
 	}
 }
 
-func TestSPFreshRecallParquet(t *testing.T) {
-	store := testinghelpers.NewDummyStore(t)
-	cfg := DefaultConfig()
-	cfg.Centroids.IndexType = "hnsw"
+func Test_NoRace_HFreshRecallParquet(t *testing.T) {
+	// Define test configurations
+	testConfigs := []testConfig{
+		{
+			dataset:        "fiqa-st-minilm-384-dot-12k",
+			distance:       "dot",
+			searchProbes:   []uint32{128},
+			requiredRecall: 0.6,
+		},
+		{
+			dataset:        "beir-cohere-v3-1024-euclidean-20k",
+			distance:       "l2-squared",
+			searchProbes:   []uint32{64},
+			requiredRecall: 0.8,
+		},
+		{
+			dataset:        "dbpedia-openai-ada002-1536-angular-20k",
+			distance:       "cosine",
+			searchProbes:   []uint32{64},
+			requiredRecall: 0.8,
+		},
+	}
 
-	distanceProvider := getDistanceProvider()
+	var testsToRun []testConfig
+	if *dataset != "" {
+		// If dataset flag is provided, run that specific test
+		testsToRun = []testConfig{
+			{
+				dataset:        *dataset,
+				distance:       *distanceMethod,
+				searchProbes:   []uint32{64, 128, 256, 512},
+				requiredRecall: 0.5,
+			},
+		}
+	} else {
+		testsToRun = testConfigs
+	}
+
+	for _, testCfg := range testsToRun {
+		t.Run(fmt.Sprintf("%s_%s", testCfg.dataset, testCfg.distance), func(t *testing.T) {
+			runRecallTest(t, testCfg)
+		})
+	}
+}
+
+func runRecallTest(t *testing.T, testCfg testConfig) {
+	store := testinghelpers.NewDummyStore(t)
+	tmpDir := t.TempDir()
+	cfg := DefaultConfig()
+	cfg.RootPath = tmpDir
+	cfg.ID = "hfresh"
+
+	distanceProvider := getDistanceProvider(testCfg.distance)
 	cfg.DistanceProvider = distanceProvider
 	cfg.Centroids.HNSWConfig = &hnsw.Config{
 		RootPath:              t.TempDir(),
-		ID:                    "spfresh",
+		ID:                    "hfresh",
 		MakeCommitLoggerThunk: makeNoopCommitLogger,
 		DistanceProvider:      distanceProvider,
+		MakeBucketOptions:     lsmkv.MakeNoopBucketOptions,
 	}
 	cfg.TombstoneCallbacks = cyclemanager.NewCallbackGroupNoop()
 	l := logrus.New()
@@ -81,9 +137,9 @@ func TestSPFreshRecallParquet(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 
 	// Load dataset using parquet reader
-	hf := datasets.NewHubDataset("weaviate/ann-datasets", *dataset)
+	hf := datasets.NewHubDataset("weaviate/ann-datasets", testCfg.dataset)
 
-	t.Logf("Using dataset %s, distance metric %s", *dataset, *distanceMethod)
+	t.Logf("Using dataset %s, distance metric %s", testCfg.dataset, testCfg.distance)
 
 	before := time.Now()
 	t.Log("Loading training data...")
@@ -130,19 +186,19 @@ func TestSPFreshRecallParquet(t *testing.T) {
 
 	t.Logf("All background tasks done, took: %s", time.Since(before))
 
-	index.searchProbe = 64
-	recall, latency := testinghelpers.RecallAndLatency(t.Context(), queries, k, index, neighbors)
-	t.Logf("searchProbe=%d, recall=%.4f, latency=%.2f", index.searchProbe, recall, latency)
+	var maxRecall float32
+	for _, probe := range testCfg.searchProbes {
+		index.searchProbe = probe
+		recall, latency := testinghelpers.RecallAndLatency(t.Context(), queries, k, index, neighbors)
+		t.Logf("searchProbe=%d, recall=%.4f, latency=%.2f", index.searchProbe, recall, latency)
+		if recall > maxRecall {
+			maxRecall = recall
+		}
+	}
 
-	index.searchProbe = 128
-	recall, latency = testinghelpers.RecallAndLatency(t.Context(), queries, k, index, neighbors)
-	t.Logf("searchProbe=%d, recall=%.4f, latency=%.2f", index.searchProbe, recall, latency)
-
-	index.searchProbe = 256
-	recall, latency = testinghelpers.RecallAndLatency(t.Context(), queries, k, index, neighbors)
-	t.Logf("searchProbe=%d, recall=%.4f, latency=%.2f", index.searchProbe, recall, latency)
-
-	index.searchProbe = 512
-	recall, latency = testinghelpers.RecallAndLatency(t.Context(), queries, k, index, neighbors)
-	t.Logf("searchProbe=%d, recall=%.4f, latency=%.2f", index.searchProbe, recall, latency)
+	// Check if recall meets the required threshold
+	if testCfg.requiredRecall > 0 {
+		require.GreaterOrEqual(t, maxRecall, testCfg.requiredRecall,
+			"Maximum recall %.4f did not meet required recall %.4f", maxRecall, testCfg.requiredRecall)
+	}
 }

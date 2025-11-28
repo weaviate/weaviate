@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package spfresh
+package hfresh
 
 import (
 	"context"
@@ -23,7 +23,15 @@ import (
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-var _ CentroidIndex = (*HNSWIndex)(nil)
+type Centroid struct {
+	Uncompressed []float32
+	Compressed   []byte
+	Deleted      bool
+}
+
+func (c *Centroid) Distance(distancer *Distancer, v Vector) (float32, error) {
+	return v.DistanceWithRaw(distancer, c.Compressed)
+}
 
 type HNSWIndex struct {
 	metrics   *Metrics
