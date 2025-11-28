@@ -566,7 +566,7 @@ func setupDebugHandlers(appState *state.State) {
 	}))
 
 	http.HandleFunc("/debug/index/rebuild/vector", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !config.Enabled(os.Getenv("ASYNC_INDEXING")) {
+		if !appState.DB.AsyncIndexingEnabled {
 			http.Error(w, "async indexing is not enabled", http.StatusNotImplemented)
 			return
 		}
@@ -608,7 +608,7 @@ func setupDebugHandlers(appState *state.State) {
 	}))
 
 	http.HandleFunc("/debug/index/repair/vector", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !config.Enabled(os.Getenv("ASYNC_INDEXING")) {
+		if !appState.DB.AsyncIndexingEnabled {
 			http.Error(w, "async indexing is not enabled", http.StatusNotImplemented)
 			return
 		}

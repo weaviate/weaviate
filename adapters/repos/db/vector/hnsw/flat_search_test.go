@@ -32,6 +32,7 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/storobj"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 func Test_NoRaceCompressionRecall(t *testing.T) {
@@ -70,6 +71,7 @@ func Test_NoRaceCompressionRecall(t *testing.T) {
 				}
 				rescored := false
 				index, _ := New(Config{
+					AllocChecker:          memwatch.NewDummyMonitor(),
 					RootPath:              path,
 					ID:                    "recallbenchmark",
 					MakeCommitLoggerThunk: MakeNoopCommitLogger,

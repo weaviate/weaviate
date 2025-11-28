@@ -26,7 +26,6 @@ import (
 	"github.com/cenkalti/backoff/v4"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/entities/backup"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
@@ -35,6 +34,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/replication/types"
 	usagetypes "github.com/weaviate/weaviate/cluster/usage/types"
 	"github.com/weaviate/weaviate/cluster/utils"
+	"github.com/weaviate/weaviate/entities/backup"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -109,6 +109,8 @@ type DB struct {
 
 	bitmapBufPool      roaringset.BitmapBufPool
 	bitmapBufPoolClose func()
+
+	AsyncIndexingEnabled bool
 }
 
 func (db *DB) GetSchemaGetter() schemaUC.SchemaGetter {
@@ -201,26 +203,27 @@ func New(logger logrus.FieldLogger, localNodeName string, config Config,
 	}
 
 	db := &DB{
-		logger:              logger,
-		localNodeName:       localNodeName,
-		config:              config,
-		indices:             map[string]*Index{},
-		remoteIndex:         remoteIndex,
-		nodeResolver:        nodeResolver,
-		remoteNode:          sharding.NewRemoteNode(nodeResolver, remoteNodesClient),
-		replicaClient:       replicaClient,
-		promMetrics:         promMetrics,
-		shutdown:            make(chan struct{}),
-		maxNumberGoroutines: int(math.Round(config.MaxImportGoroutinesFactor * float64(runtime.GOMAXPROCS(0)))),
-		resourceScanState:   newResourceScanState(),
-		memMonitor:          memMonitor,
-		shardLoadLimiter:    NewShardLoadLimiter(metricsRegisterer, config.MaximumConcurrentShardLoads),
-		reindexer:           NewShardReindexerV3Noop(),
-		nodeSelector:        nodeSelector,
-		schemaReader:        schemaReader,
-		replicationFSM:      replicationFSM,
-		bitmapBufPool:       roaringset.NewBitmapBufPoolNoop(),
-		bitmapBufPoolClose:  func() {},
+		logger:               logger,
+		localNodeName:        localNodeName,
+		config:               config,
+		indices:              map[string]*Index{},
+		remoteIndex:          remoteIndex,
+		nodeResolver:         nodeResolver,
+		remoteNode:           sharding.NewRemoteNode(nodeResolver, remoteNodesClient),
+		replicaClient:        replicaClient,
+		promMetrics:          promMetrics,
+		shutdown:             make(chan struct{}),
+		maxNumberGoroutines:  int(math.Round(config.MaxImportGoroutinesFactor * float64(runtime.GOMAXPROCS(0)))),
+		resourceScanState:    newResourceScanState(),
+		memMonitor:           memMonitor,
+		shardLoadLimiter:     NewShardLoadLimiter(metricsRegisterer, config.MaximumConcurrentShardLoads),
+		reindexer:            NewShardReindexerV3Noop(),
+		nodeSelector:         nodeSelector,
+		schemaReader:         schemaReader,
+		replicationFSM:       replicationFSM,
+		bitmapBufPool:        roaringset.NewBitmapBufPoolNoop(),
+		bitmapBufPoolClose:   func() {},
+		AsyncIndexingEnabled: config.AsyncIndexingEnabled,
 	}
 
 	if db.maxNumberGoroutines == 0 {
@@ -235,7 +238,7 @@ func New(logger logrus.FieldLogger, localNodeName string, config Config,
 	})
 	db.scheduler.Start()
 
-	if !asyncEnabled() {
+	if !db.AsyncIndexingEnabled {
 		db.jobQueueCh = make(chan job, 100000)
 		db.shutDownWg.Add(db.maxNumberGoroutines)
 		for i := 0; i < db.maxNumberGoroutines; i++ {
@@ -302,7 +305,8 @@ type Config struct {
 	InvertedSorterDisabled      *configRuntime.DynamicValue[bool]
 	MaintenanceModeEnabled      func() bool
 
-	SPFreshEnabled bool
+	SPFreshEnabled       bool
+	AsyncIndexingEnabled bool
 }
 
 // GetIndex returns the index if it exists or nil if it doesn't
@@ -390,7 +394,7 @@ func (db *DB) Shutdown(ctx context.Context) error {
 	db.shutdown <- struct{}{}
 	db.bitmapBufPoolClose()
 
-	if !asyncEnabled() {
+	if !db.AsyncIndexingEnabled {
 		// shut down the workers that add objects to
 		for i := 0; i < db.maxNumberGoroutines; i++ {
 			db.jobQueueCh <- job{
@@ -399,10 +403,12 @@ func (db *DB) Shutdown(ctx context.Context) error {
 		}
 	}
 
-	// shut down the async workers
-	err := db.scheduler.Close()
-	if err != nil {
-		return errors.Wrap(err, "close scheduler")
+	if db.AsyncIndexingEnabled {
+		// shut down the async workers
+		err := db.scheduler.Close()
+		if err != nil {
+			return errors.Wrap(err, "close scheduler")
+		}
 	}
 
 	if db.metricsObserver != nil {
@@ -419,7 +425,7 @@ func (db *DB) Shutdown(ctx context.Context) error {
 
 	db.shutDownWg.Wait() // wait until job queue shutdown is completed
 
-	if asyncEnabled() {
+	if db.AsyncIndexingEnabled {
 		db.indexCheckpoints.Close()
 	}
 

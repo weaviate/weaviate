@@ -21,6 +21,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/entities/models"
 	modstgfs "github.com/weaviate/weaviate/modules/backup-filesystem"
 	"github.com/weaviate/weaviate/usecases/backup"
@@ -50,6 +51,8 @@ func TestDistributedBackupsOverride(t *testing.T) {
 			node := &node{
 				name: fmt.Sprintf("node-%d", i),
 			}
+
+			node.init(dirName, shardStateSerialized, &nodes, false)
 			nodes = append(nodes, node)
 		}
 		for _, node := range nodes {
