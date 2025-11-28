@@ -22,7 +22,7 @@ import (
 // doSplit performs the actual split operation for a given postingID.
 // If reassign is true, it will enqueue reassign operations for vectors that
 // may need to be moved to other postings after the split.
-func (s *SPFresh) doSplit(ctx context.Context, postingID uint64, reassign bool) error {
+func (s *HFresh) doSplit(ctx context.Context, postingID uint64, reassign bool) error {
 	start := time.Now()
 	defer s.metrics.SplitDuration(start)
 
@@ -145,7 +145,7 @@ func (s *SPFresh) doSplit(ctx context.Context, postingID uint64, reassign bool) 
 }
 
 // splitPosting takes a posting and returns two groups.
-func (s *SPFresh) splitPosting(posting *Posting) ([]SplitResult, error) {
+func (s *HFresh) splitPosting(posting *Posting) ([]SplitResult, error) {
 	enc := compressionhelpers.NewKMeansEncoder(2, int(s.dims), 0)
 
 	data := posting.Uncompress(s.quantizer)
@@ -193,7 +193,7 @@ type SplitResult struct {
 	Posting      *Posting
 }
 
-func (s *SPFresh) enqueueReassignAfterSplit(ctx context.Context, oldPostingID uint64, newPostingIDs []uint64, newPostings []SplitResult) error {
+func (s *HFresh) enqueueReassignAfterSplit(ctx context.Context, oldPostingID uint64, newPostingIDs []uint64, newPostings []SplitResult) error {
 	oldCentroid := s.Centroids.Get(oldPostingID)
 
 	reassignedVectors := make(map[uint64]struct{})

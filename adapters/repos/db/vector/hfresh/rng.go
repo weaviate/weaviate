@@ -21,7 +21,7 @@ import (
 // postings that are not too close to already selected ones based on the RNGFactor.
 // If `reassignedFromID` is non-zero, the function will abort and return false
 // if one of the selected postings is equal to `reassignedFromID`.
-func (s *SPFresh) RNGSelect(query []float32, reassignedFromID uint64) (*ResultSet, bool, error) {
+func (s *HFresh) RNGSelect(query []float32, reassignedFromID uint64) (*ResultSet, bool, error) {
 	replicas := NewResultSet(int(s.replicas))
 	candidates, err := s.Centroids.Search(query, s.config.InternalPostingCandidates)
 	if err != nil {

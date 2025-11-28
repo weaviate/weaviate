@@ -41,7 +41,7 @@ type RQ8Data struct {
 	Signs     [][]float32                 `msgpack:"signs"`
 }
 
-func (s *SPFresh) getMetadataFile() string {
+func (s *HFresh) getMetadataFile() string {
 	if s.config.TargetVector != "" {
 		cleanTarget := filepath.Clean(s.config.TargetVector)
 		cleanTarget = filepath.Base(cleanTarget)
@@ -50,7 +50,7 @@ func (s *SPFresh) getMetadataFile() string {
 	return fmt.Sprintf("%s.db", metadataPrefix)
 }
 
-func (s *SPFresh) closeMetadata() {
+func (s *HFresh) closeMetadata() {
 	s.metadataLock.Lock()
 	defer s.metadataLock.Unlock()
 
@@ -60,7 +60,7 @@ func (s *SPFresh) closeMetadata() {
 	}
 }
 
-func (s *SPFresh) openMetadata() error {
+func (s *HFresh) openMetadata() error {
 	s.metadataLock.Lock()
 	defer s.metadataLock.Unlock()
 
@@ -78,7 +78,7 @@ func (s *SPFresh) openMetadata() error {
 	return nil
 }
 
-func (s *SPFresh) restoreMetadata() error {
+func (s *HFresh) restoreMetadata() error {
 	err := s.openMetadata()
 	if err != nil {
 		return err
@@ -111,7 +111,7 @@ func (s *SPFresh) restoreMetadata() error {
 	return nil
 }
 
-func (s *SPFresh) initDimensions() error {
+func (s *HFresh) initDimensions() error {
 	dims, err := s.fetchDimensions()
 	if err != nil {
 		return errors.Wrap(err, "SPFresh index unable to fetch dimensions")
@@ -123,7 +123,7 @@ func (s *SPFresh) initDimensions() error {
 	return nil
 }
 
-func (s *SPFresh) fetchDimensions() (int32, error) {
+func (s *HFresh) fetchDimensions() (int32, error) {
 	if s.metadata == nil {
 		return 0, nil
 	}
@@ -148,7 +148,7 @@ func (s *SPFresh) fetchDimensions() (int32, error) {
 	return dimensions, nil
 }
 
-func (s *SPFresh) setDimensions(dimensions int32) error {
+func (s *HFresh) setDimensions(dimensions int32) error {
 	err := s.openMetadata()
 	if err != nil {
 		return err
@@ -171,7 +171,7 @@ func (s *SPFresh) setDimensions(dimensions int32) error {
 	return nil
 }
 
-func (s *SPFresh) setVectorSize(vectorSize int32) error {
+func (s *HFresh) setVectorSize(vectorSize int32) error {
 	err := s.openMetadata()
 	if err != nil {
 		return err
@@ -194,7 +194,7 @@ func (s *SPFresh) setVectorSize(vectorSize int32) error {
 	return nil
 }
 
-func (s *SPFresh) restoreVectorSize() error {
+func (s *HFresh) restoreVectorSize() error {
 	err := s.openMetadata()
 	if err != nil {
 		return err
@@ -228,7 +228,7 @@ func (s *SPFresh) restoreVectorSize() error {
 
 // RQ data persistence and restoration functions
 
-func (s *SPFresh) persistRQData() error {
+func (s *HFresh) persistRQData() error {
 	if s.quantizer == nil {
 		return nil
 	}
@@ -271,7 +271,7 @@ func (s *SPFresh) persistRQData() error {
 }
 
 // serializeRQ8Data extracts RQ8 data from the quantizer and converts it to msgpack format
-func (s *SPFresh) serializeRQ8Data() (*RQ8Data, error) {
+func (s *HFresh) serializeRQ8Data() (*RQ8Data, error) {
 	// Use a custom commit logger to capture the RQ data
 	captureLogger := &dataCaptureLogger{}
 	s.quantizer.PersistCompression(captureLogger)
@@ -321,7 +321,7 @@ func (d *dataCaptureLogger) AddSQCompression(data compressionhelpers.SQData) err
 	return nil // Not used for flat index
 }
 
-func (s *SPFresh) restoreRQData() error {
+func (s *HFresh) restoreRQData() error {
 	var container *RQDataContainer
 	var data []byte
 
@@ -354,7 +354,7 @@ func (s *SPFresh) restoreRQData() error {
 }
 
 // handleDeserializedData manually handles the Data field deserialization
-func (s *SPFresh) handleDeserializedData(container *RQDataContainer) error {
+func (s *HFresh) handleDeserializedData(container *RQDataContainer) error {
 	// Deserialize the Data field as RQ8Data
 	dataBytes, err := msgpack.Marshal(container.Data)
 	if err != nil {
@@ -372,7 +372,7 @@ func (s *SPFresh) handleDeserializedData(container *RQDataContainer) error {
 }
 
 // restoreRQ8FromMsgpack restores RQ8 quantizer from msgpack data
-func (s *SPFresh) restoreRQ8FromMsgpack(rq8Data *RQ8Data) error {
+func (s *HFresh) restoreRQ8FromMsgpack(rq8Data *RQ8Data) error {
 	// Restore the RQ8 quantizer
 	rq, err := compressionhelpers.RestoreRotationalQuantizer(
 		int(rq8Data.InputDim),

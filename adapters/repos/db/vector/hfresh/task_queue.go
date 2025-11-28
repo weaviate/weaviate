@@ -37,12 +37,12 @@ type TaskQueue struct {
 
 	scheduler *queue.Scheduler
 
-	index     *SPFresh
+	index     *HFresh
 	splitList *deduplicator // Prevents duplicate split operations
 	mergeList *deduplicator // Prevents duplicate merge operations
 }
 
-func NewTaskQueue(index *SPFresh) (*TaskQueue, error) {
+func NewTaskQueue(index *HFresh) (*TaskQueue, error) {
 	var err error
 
 	tq := TaskQueue{
@@ -221,7 +221,7 @@ func (tq *TaskQueue) DecodeTask(data []byte) (queue.Task, error) {
 
 type SplitTask struct {
 	id  uint64
-	idx *SPFresh
+	idx *HFresh
 }
 
 func (t *SplitTask) Op() uint8 {
@@ -249,7 +249,7 @@ func (t *SplitTask) Execute(ctx context.Context) error {
 
 type MergeTask struct {
 	id  uint64
-	idx *SPFresh
+	idx *HFresh
 }
 
 func (t *MergeTask) Op() uint8 {
@@ -280,7 +280,7 @@ type ReassignTask struct {
 	id      uint64
 	vecID   uint64
 	version uint8
-	idx     *SPFresh
+	idx     *HFresh
 }
 
 func (t *ReassignTask) Op() uint8 {

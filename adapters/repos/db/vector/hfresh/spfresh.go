@@ -44,13 +44,13 @@ var (
 	ErrVectorNotFound  = errors.New("vector not found")
 )
 
-var _ common.VectorIndex = (*SPFresh)(nil)
+var _ common.VectorIndex = (*HFresh)(nil)
 
-// SPFresh is an implementation of a vector index using the SPFresh algorithm.
+// HFresh is an implementation of a vector index using the SPFresh algorithm.
 // It spawns background workers to handle split, merge, and reassign operations,
 // while exposing a synchronous API for searching and updating vectors.
 // Note: this is a work in progress and not all features are implemented yet.
-type SPFresh struct {
+type HFresh struct {
 	id                 string
 	logger             logrus.FieldLogger
 	config             *Config // Config contains internal configuration settings.
@@ -96,7 +96,7 @@ type SPFresh struct {
 	metadataLock sync.RWMutex
 }
 
-func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*SPFresh, error) {
+func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 	err := cfg.Validate()
 	if err != nil {
 		return nil, err
@@ -119,7 +119,7 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*SPFresh, error) {
 		return nil, err
 	}
 
-	s := SPFresh{
+	s := HFresh{
 		id:           cfg.ID,
 		logger:       cfg.Logger.WithField("component", "SPFresh"),
 		config:       cfg,
@@ -173,7 +173,7 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*SPFresh, error) {
 }
 
 // Delete marks a vector as deleted in the version map.
-func (s *SPFresh) Delete(ids ...uint64) error {
+func (s *HFresh) Delete(ids ...uint64) error {
 	for _, id := range ids {
 		start := time.Now()
 		version, err := s.VersionMap.MarkDeleted(context.Background(), id)
@@ -189,11 +189,11 @@ func (s *SPFresh) Delete(ids ...uint64) error {
 	return nil
 }
 
-func (s *SPFresh) Type() common.IndexType {
+func (s *HFresh) Type() common.IndexType {
 	return common.IndexTypeSPFresh
 }
 
-func (s *SPFresh) UpdateUserConfig(updated schemaConfig.VectorIndexConfig, callback func()) error {
+func (s *HFresh) UpdateUserConfig(updated schemaConfig.VectorIndexConfig, callback func()) error {
 	parsed, ok := updated.(ent.UserConfig)
 	if !ok {
 		callback()
@@ -206,13 +206,13 @@ func (s *SPFresh) UpdateUserConfig(updated schemaConfig.VectorIndexConfig, callb
 	return nil
 }
 
-func (s *SPFresh) Drop(ctx context.Context, keepFiles bool) error {
+func (s *HFresh) Drop(ctx context.Context, keepFiles bool) error {
 	_ = s.Shutdown(ctx)
 	// Shard::drop will take care of handling store buckets
 	return nil
 }
 
-func (s *SPFresh) Shutdown(ctx context.Context) error {
+func (s *HFresh) Shutdown(ctx context.Context) error {
 	if s.ctx == nil {
 		return nil // Already closed or not started
 	}
@@ -244,31 +244,31 @@ func (s *SPFresh) Shutdown(ctx context.Context) error {
 	return stderrors.Join(errs...)
 }
 
-func (s *SPFresh) Flush() error {
+func (s *HFresh) Flush() error {
 	return s.Centroids.hnsw.Flush()
 }
 
-func (s *SPFresh) SwitchCommitLogs(ctx context.Context) error {
+func (s *HFresh) SwitchCommitLogs(ctx context.Context) error {
 	return s.Centroids.hnsw.SwitchCommitLogs(ctx)
 }
 
-func (s *SPFresh) ListFiles(ctx context.Context, basePath string) ([]string, error) {
+func (s *HFresh) ListFiles(ctx context.Context, basePath string) ([]string, error) {
 	return nil, nil
 }
 
-func (s *SPFresh) PostStartup(ctx context.Context) {
+func (s *HFresh) PostStartup(ctx context.Context) {
 	s.Centroids.hnsw.PostStartup(ctx)
 }
 
-func (s *SPFresh) Compressed() bool {
+func (s *HFresh) Compressed() bool {
 	return true
 }
 
-func (s *SPFresh) Multivector() bool {
+func (s *HFresh) Multivector() bool {
 	return false
 }
 
-func (s *SPFresh) ContainsDoc(id uint64) bool {
+func (s *HFresh) ContainsDoc(id uint64) bool {
 	v, err := s.VersionMap.Get(context.Background(), id)
 	if err != nil {
 		s.logger.WithField("vectorID", id).
@@ -278,7 +278,7 @@ func (s *SPFresh) ContainsDoc(id uint64) bool {
 	return !v.Deleted() && v.Version() > 0
 }
 
-func (s *SPFresh) Iterate(fn func(id uint64) bool) {
+func (s *HFresh) Iterate(fn func(id uint64) bool) {
 	s.logger.Warn("Iterate is not implemented for SPFresh index")
 }
 
@@ -289,7 +289,7 @@ func float32SliceFromByteSlice(vector []byte, slice []float32) []float32 {
 	return slice
 }
 
-func (s *SPFresh) QueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer {
+func (s *HFresh) QueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer {
 	var bucketName string
 	if s.config.TargetVector != "" {
 		bucketName = fmt.Sprintf("%s_%s", helpers.VectorsBucketLSM, s.config.TargetVector)
@@ -315,14 +315,14 @@ func (s *SPFresh) QueryVectorDistancer(queryVector []float32) common.QueryVector
 	return common.QueryVectorDistancer{DistanceFunc: distFunc}
 }
 
-func (s *SPFresh) CompressionStats() compressionhelpers.CompressionStats {
+func (s *HFresh) CompressionStats() compressionhelpers.CompressionStats {
 	if s.quantizer != nil {
 		return s.quantizer.Stats()
 	}
 	return compressionhelpers.UncompressedStats{}
 }
 
-func (s *SPFresh) Preload(id uint64, vector []float32) {
+func (s *HFresh) Preload(id uint64, vector []float32) {
 	// for now, nothing to do here
 }
 

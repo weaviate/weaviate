@@ -24,7 +24,7 @@ type reassignOperation struct {
 	Version   uint8
 }
 
-func (s *SPFresh) doReassign(ctx context.Context, op reassignOperation) error {
+func (s *HFresh) doReassign(ctx context.Context, op reassignOperation) error {
 	start := time.Now()
 	defer s.metrics.ReassignDuration(start)
 

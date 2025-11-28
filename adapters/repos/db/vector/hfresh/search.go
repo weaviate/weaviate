@@ -26,7 +26,7 @@ const (
 	pruningMinMaxDistance = 0.1
 )
 
-func (s *SPFresh) SearchByVector(ctx context.Context, vector []float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
+func (s *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
 	rescoreLimit := k + 5
 	vector = s.normalizeVec(vector)
 	queryVector := NewAnonymousVector(s.quantizer.Encode(vector))
@@ -150,7 +150,7 @@ func (s *SPFresh) SearchByVector(ctx context.Context, vector []float32, k int, a
 	return ids, dists, nil
 }
 
-func (s *SPFresh) SearchByVectorDistance(
+func (s *HFresh) SearchByVectorDistance(
 	ctx context.Context,
 	vector []float32,
 	targetDistance float32,

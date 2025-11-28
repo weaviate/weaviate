@@ -18,7 +18,7 @@ import (
 	"github.com/pkg/errors"
 )
 
-func (s *SPFresh) doMerge(ctx context.Context, postingID uint64) error {
+func (s *HFresh) doMerge(ctx context.Context, postingID uint64) error {
 	start := time.Now()
 	defer s.metrics.MergeDuration(start)
 

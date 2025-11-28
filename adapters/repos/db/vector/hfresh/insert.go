@@ -21,7 +21,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 )
 
-func (s *SPFresh) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) error {
+func (s *HFresh) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) error {
 	if len(ids) != len(vectors) {
 		return errors.Errorf("ids and vectors sizes does not match")
 	}
@@ -44,7 +44,7 @@ func (s *SPFresh) AddBatch(ctx context.Context, ids []uint64, vectors [][]float3
 	return nil
 }
 
-func (s *SPFresh) Add(ctx context.Context, id uint64, vector []float32) (err error) {
+func (s *HFresh) Add(ctx context.Context, id uint64, vector []float32) (err error) {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -119,7 +119,7 @@ func (s *SPFresh) Add(ctx context.Context, id uint64, vector []float32) (err err
 	return nil
 }
 
-func (s *SPFresh) normalizeVec(vec []float32) []float32 {
+func (s *HFresh) normalizeVec(vec []float32) []float32 {
 	if s.config.DistanceProvider.Type() == "cosine-dot" {
 		// cosine-dot requires normalized vectors, as the dot product and cosine
 		// similarity are only identical if the vector is normalized
@@ -129,7 +129,7 @@ func (s *SPFresh) normalizeVec(vec []float32) []float32 {
 }
 
 // ensureInitialPosting creates a new posting for vector v if the index is empty
-func (s *SPFresh) ensureInitialPosting(v []float32, compressed []byte) (*ResultSet, error) {
+func (s *HFresh) ensureInitialPosting(v []float32, compressed []byte) (*ResultSet, error) {
 	s.initialPostingLock.Lock()
 	defer s.initialPostingLock.Unlock()
 
@@ -162,7 +162,7 @@ func (s *SPFresh) ensureInitialPosting(v []float32, compressed []byte) (*ResultS
 // Append adds a vector to the specified posting.
 // It returns true if the vector was successfully added, false if the posting no longer exists.
 // It is called synchronously during imports but also asynchronously by reassign operations.
-func (s *SPFresh) append(ctx context.Context, vector Vector, centroidID uint64, reassigned bool) (bool, error) {
+func (s *HFresh) append(ctx context.Context, vector Vector, centroidID uint64, reassigned bool) (bool, error) {
 	s.postingLocks.Lock(centroidID)
 
 	// check if the posting still exists
@@ -224,7 +224,7 @@ func (s *SPFresh) append(ctx context.Context, vector Vector, centroidID uint64, 
 	return true, nil
 }
 
-func (s *SPFresh) ValidateBeforeInsert(vector []float32) error {
+func (s *HFresh) ValidateBeforeInsert(vector []float32) error {
 	if s.dims == 0 {
 		return nil
 	}
