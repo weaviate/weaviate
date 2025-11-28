@@ -14,6 +14,7 @@ package spfresh
 import (
 	"context"
 	"encoding/binary"
+	stderrors "errors"
 	"fmt"
 	"math"
 	"sync"
@@ -223,9 +224,24 @@ func (s *SPFresh) Shutdown(ctx context.Context) error {
 	// Cancel the context to prevent new operations from being enqueued
 	s.cancel()
 
-	s.taskQueue.Close()
+	var errs []error
 
-	return nil
+	err := s.taskQueue.Close()
+	if err != nil {
+		errs = append(errs, err)
+	}
+
+	err = s.Flush()
+	if err != nil {
+		errs = append(errs, err)
+	}
+
+	err = s.Centroids.hnsw.Shutdown(ctx)
+	if err != nil {
+		errs = append(errs, err)
+	}
+
+	return stderrors.Join(errs...)
 }
 
 func (s *SPFresh) Flush() error {
