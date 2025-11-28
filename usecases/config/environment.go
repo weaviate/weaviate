@@ -48,9 +48,10 @@ const (
 	DefaultDistributedTasksSchedulerTickInterval = time.Minute
 	DefaultDistributedTasksCompletedTaskTTL      = 5 * 24 * time.Hour
 
-	DefaultReplicationEngineMaxWorkers      = 10
-	DefaultReplicaMovementMinimumAsyncWait  = 60 * time.Second
-	DefaultReplicationEngineFileCopyWorkers = 10
+	DefaultReplicationEngineMaxWorkers        = 10
+	DefaultReplicaMovementMinimumAsyncWait    = 60 * time.Second
+	DefaultReplicationEngineFileCopyWorkers   = 10
+	DefaultReplicationEngineFileCopyChunkSize = 64 * 1024 // 64 KB
 
 	DefaultTransferInactivityTimeout = 5 * time.Minute
 
@@ -1175,6 +1176,14 @@ func (c *Config) parseMemtableConfig() error {
 		"REPLICATION_ENGINE_FILE_COPY_WORKERS",
 		func(val int) { c.ReplicationEngineFileCopyWorkers = val },
 		DefaultReplicationEngineFileCopyWorkers,
+	); err != nil {
+		return err
+	}
+
+	if err := parsePositiveInt(
+		"REPLICATION_ENGINE_FILE_COPY_CHUNK_SIZE",
+		func(val int) { c.ReplicationEngineFileCopyChunkSize = val },
+		DefaultReplicationEngineFileCopyChunkSize,
 	); err != nil {
 		return err
 	}
