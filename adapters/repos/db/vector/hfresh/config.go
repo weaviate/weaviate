@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package spfresh
+package hfresh
 
 import (
 	"fmt"
@@ -26,7 +26,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/schema/config"
-	ent "github.com/weaviate/weaviate/entities/vectorindex/spfresh"
+	ent "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -138,13 +138,13 @@ func compressedVectorSize(size int) int {
 	return size + compressionhelpers.RQMetadataSize
 }
 
-func (s *SPFresh) setMaxPostingSize() {
-	if s.maxPostingSize == 0 {
-		isCompressed := s.Compressed()
-		s.maxPostingSize = computeMaxPostingSize(int(s.dims), isCompressed)
+func (h *HFresh) setMaxPostingSize() {
+	if h.maxPostingSize == 0 {
+		isCompressed := h.Compressed()
+		h.maxPostingSize = computeMaxPostingSize(int(h.dims), isCompressed)
 	}
 
-	if s.maxPostingSize <= s.minPostingSize {
-		s.minPostingSize = s.maxPostingSize / 2
+	if h.maxPostingSize <= h.minPostingSize {
+		h.minPostingSize = h.maxPostingSize / 2
 	}
 }

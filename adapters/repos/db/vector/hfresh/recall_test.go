@@ -11,7 +11,7 @@
 
 //go:build integrationTest && !race
 
-package spfresh
+package hfresh
 
 import (
 	"context"
@@ -31,7 +31,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
-	ent "github.com/weaviate/weaviate/entities/vectorindex/spfresh"
+	ent "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -60,7 +60,7 @@ func getDistanceProvider(distance string) distancer.Provider {
 	}
 }
 
-func Test_NoRace_SPFreshRecallParquet(t *testing.T) {
+func Test_NoRace_HFreshRecallParquet(t *testing.T) {
 	// Define test configurations
 	testConfigs := []testConfig{
 		{
@@ -110,13 +110,13 @@ func runRecallTest(t *testing.T, testCfg testConfig) {
 	tmpDir := t.TempDir()
 	cfg := DefaultConfig()
 	cfg.RootPath = tmpDir
-	cfg.ID = "spfresh"
+	cfg.ID = "hfresh"
 
 	distanceProvider := getDistanceProvider(testCfg.distance)
 	cfg.DistanceProvider = distanceProvider
 	cfg.Centroids.HNSWConfig = &hnsw.Config{
 		RootPath:              t.TempDir(),
-		ID:                    "spfresh",
+		ID:                    "hfresh",
 		MakeCommitLoggerThunk: makeNoopCommitLogger,
 		DistanceProvider:      distanceProvider,
 		MakeBucketOptions:     lsmkv.MakeNoopBucketOptions,

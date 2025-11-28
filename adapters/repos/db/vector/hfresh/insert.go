@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package spfresh
+package hfresh
 
 import (
 	"context"
@@ -21,7 +21,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 )
 
-func (s *SPFresh) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) error {
+func (h *HFresh) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) error {
 	if len(ids) != len(vectors) {
 		return errors.Errorf("ids and vectors sizes does not match")
 	}
@@ -35,7 +35,7 @@ func (s *SPFresh) AddBatch(ctx context.Context, ids []uint64, vectors [][]float3
 			return err
 		}
 
-		err = s.Add(ctx, id, vectors[i])
+		err = h.Add(ctx, id, vectors[i])
 		if err != nil {
 			return err
 		}
@@ -44,73 +44,73 @@ func (s *SPFresh) AddBatch(ctx context.Context, ids []uint64, vectors [][]float3
 	return nil
 }
 
-func (s *SPFresh) Add(ctx context.Context, id uint64, vector []float32) (err error) {
+func (h *HFresh) Add(ctx context.Context, id uint64, vector []float32) (err error) {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 
 	start := time.Now()
-	defer s.metrics.InsertVector(start)
+	defer h.metrics.InsertVector(start)
 
-	vector = s.normalizeVec(vector)
+	vector = h.normalizeVec(vector)
 
 	// init components that require knowing the vector dimensions
 	// and compressed size
-	s.initDimensionsOnce.Do(func() {
+	h.initDimensionsOnce.Do(func() {
 		size := int32(len(vector))
-		s.dims = size
-		s.setMaxPostingSize()
-		if err := s.setDimensions(size); err != nil {
-			s.logger.WithError(err).Error("could not set dimensions")
+		h.dims = size
+		h.setMaxPostingSize()
+		if err := h.setDimensions(size); err != nil {
+			h.logger.WithError(err).Error("could not set dimensions")
 			return // Fail the entire initialization
 		}
-		s.quantizer = compressionhelpers.NewRotationalQuantizer(int(s.dims), 42, 8, s.config.DistanceProvider)
-		s.vectorSize = int32(compressedVectorSize(int(s.dims)))
-		s.Centroids.SetQuantizer(s.quantizer)
-		if err := s.setVectorSize(s.vectorSize); err != nil {
-			s.logger.WithError(err).Error("could not set vector size")
+		h.quantizer = compressionhelpers.NewRotationalQuantizer(int(h.dims), 42, 8, h.config.DistanceProvider)
+		h.vectorSize = int32(compressedVectorSize(int(h.dims)))
+		h.Centroids.SetQuantizer(h.quantizer)
+		if err := h.setVectorSize(h.vectorSize); err != nil {
+			h.logger.WithError(err).Error("could not set vector size")
 			return // Fails because we don't know the vector size
 		}
 
-		if err := s.persistRQData(); err != nil {
-			s.logger.WithError(err).Error("could not persist RQ data")
+		if err := h.persistRQData(); err != nil {
+			h.logger.WithError(err).Error("could not persist RQ data")
 			return // Fail the entire initialization
 		}
-		s.distancer = &Distancer{
-			quantizer: s.quantizer,
-			distancer: s.config.DistanceProvider,
+		h.distancer = &Distancer{
+			quantizer: h.quantizer,
+			distancer: h.config.DistanceProvider,
 		}
-		s.PostingStore.Init(s.vectorSize)
+		h.PostingStore.Init(h.vectorSize)
 	})
 
 	// add the vector to the version map.
 	// TODO: if the vector already exists, invalidate all previous instances
 	// by incrementing the version
-	version, err := s.VersionMap.Increment(s.ctx, id, VectorVersion(0))
+	version, err := h.VersionMap.Increment(h.ctx, id, VectorVersion(0))
 	if err != nil {
 		return errors.Wrapf(err, "failed to increment version map for vector %d", id)
 	}
 
 	var v Vector
 
-	compressed := s.quantizer.Encode(vector)
+	compressed := h.quantizer.Encode(vector)
 	v = NewVector(id, version, compressed)
 
-	targets, _, err := s.RNGSelect(vector, 0)
+	targets, _, err := h.RNGSelect(vector, 0)
 	if err != nil {
 		return err
 	}
 
 	// if there are no postings found, ensure an initial posting is created
 	if targets.Len() == 0 {
-		targets, err = s.ensureInitialPosting(vector, compressed)
+		targets, err = h.ensureInitialPosting(vector, compressed)
 		if err != nil {
 			return err
 		}
 	}
 
 	for id := range targets.Iter() {
-		_, err = s.append(ctx, v, id, false)
+		_, err = h.append(ctx, v, id, false)
 		if err != nil {
 			return errors.Wrapf(err, "failed to append vector %d to posting %d", id, id)
 		}
@@ -119,8 +119,8 @@ func (s *SPFresh) Add(ctx context.Context, id uint64, vector []float32) (err err
 	return nil
 }
 
-func (s *SPFresh) normalizeVec(vec []float32) []float32 {
-	if s.config.DistanceProvider.Type() == "cosine-dot" {
+func (h *HFresh) normalizeVec(vec []float32) []float32 {
+	if h.config.DistanceProvider.Type() == "cosine-dot" {
 		// cosine-dot requires normalized vectors, as the dot product and cosine
 		// similarity are only identical if the vector is normalized
 		return distancer.Normalize(vec)
@@ -129,21 +129,21 @@ func (s *SPFresh) normalizeVec(vec []float32) []float32 {
 }
 
 // ensureInitialPosting creates a new posting for vector v if the index is empty
-func (s *SPFresh) ensureInitialPosting(v []float32, compressed []byte) (*ResultSet, error) {
-	s.initialPostingLock.Lock()
-	defer s.initialPostingLock.Unlock()
+func (h *HFresh) ensureInitialPosting(v []float32, compressed []byte) (*ResultSet, error) {
+	h.initialPostingLock.Lock()
+	defer h.initialPostingLock.Unlock()
 
 	// check if a posting was created concurrently
-	targets, _, err := s.RNGSelect(v, 0)
+	targets, _, err := h.RNGSelect(v, 0)
 	if err != nil {
 		return nil, err
 	}
 
 	// if no postings were found, create a new posting while holding the lock
 	if targets.Len() == 0 {
-		postingID := s.IDs.Next()
+		postingID := h.IDs.Next()
 		// use the vector as the centroid and register it in the SPTAG
-		err = s.Centroids.Insert(postingID, &Centroid{
+		err = h.Centroids.Insert(postingID, &Centroid{
 			Uncompressed: v,
 			Compressed:   compressed,
 			Deleted:      false,
@@ -162,59 +162,59 @@ func (s *SPFresh) ensureInitialPosting(v []float32, compressed []byte) (*ResultS
 // Append adds a vector to the specified posting.
 // It returns true if the vector was successfully added, false if the posting no longer exists.
 // It is called synchronously during imports but also asynchronously by reassign operations.
-func (s *SPFresh) append(ctx context.Context, vector Vector, centroidID uint64, reassigned bool) (bool, error) {
-	s.postingLocks.Lock(centroidID)
+func (h *HFresh) append(ctx context.Context, vector Vector, centroidID uint64, reassigned bool) (bool, error) {
+	h.postingLocks.Lock(centroidID)
 
 	// check if the posting still exists
-	if !s.Centroids.Exists(centroidID) {
+	if !h.Centroids.Exists(centroidID) {
 		// the posting might have been deleted concurrently,
 		// might happen if we are reassigning
-		version, err := s.VersionMap.Get(s.ctx, vector.ID())
+		version, err := h.VersionMap.Get(h.ctx, vector.ID())
 		if err != nil {
 			return false, err
 		}
 		if version == vector.Version() {
-			err := s.taskQueue.EnqueueReassign(centroidID, vector.ID(), vector.Version())
+			err := h.taskQueue.EnqueueReassign(centroidID, vector.ID(), vector.Version())
 			if err != nil {
-				s.postingLocks.Unlock(centroidID)
+				h.postingLocks.Unlock(centroidID)
 				return false, err
 			}
 		}
 
-		s.postingLocks.Unlock(centroidID)
+		h.postingLocks.Unlock(centroidID)
 		return false, nil
 	}
 
 	// append the new vector to the existing posting
-	err := s.PostingStore.Append(ctx, centroidID, vector)
+	err := h.PostingStore.Append(ctx, centroidID, vector)
 	if err != nil {
-		s.postingLocks.Unlock(centroidID)
+		h.postingLocks.Unlock(centroidID)
 		return false, err
 	}
 
 	// increment the size of the posting
-	count, err := s.PostingSizes.Inc(ctx, centroidID, 1)
+	count, err := h.PostingSizes.Inc(ctx, centroidID, 1)
 	if err != nil {
-		s.postingLocks.Unlock(centroidID)
+		h.postingLocks.Unlock(centroidID)
 		return false, err
 	}
 
-	s.postingLocks.Unlock(centroidID)
+	h.postingLocks.Unlock(centroidID)
 
 	// If the posting is too big, we need to split it.
 	// During an insert, we want to split asynchronously
 	// however during a reassign, we want to split immediately.
 	// Also, reassign operations may cause the posting to grow beyond the max size
 	// temporarily. To avoid triggering unnecessary splits, we add a fine-tuned threshold.
-	max := s.maxPostingSize
+	max := h.maxPostingSize
 	if reassigned {
 		max += reassignThreshold
 	}
 	if count > max {
 		if reassigned {
-			err = s.doSplit(ctx, centroidID, false)
+			err = h.doSplit(ctx, centroidID, false)
 		} else {
-			err = s.taskQueue.EnqueueSplit(centroidID)
+			err = h.taskQueue.EnqueueSplit(centroidID)
 		}
 		if err != nil {
 			return false, err
@@ -224,12 +224,12 @@ func (s *SPFresh) append(ctx context.Context, vector Vector, centroidID uint64, 
 	return true, nil
 }
 
-func (s *SPFresh) ValidateBeforeInsert(vector []float32) error {
-	if s.dims == 0 {
+func (h *HFresh) ValidateBeforeInsert(vector []float32) error {
+	if h.dims == 0 {
 		return nil
 	}
 
-	if dims := int(s.dims); len(vector) != dims {
+	if dims := int(h.dims); len(vector) != dims {
 		return fmt.Errorf("new node has a vector with length %v. "+
 			"Existing nodes have vectors with length %v", len(vector), dims)
 	}
