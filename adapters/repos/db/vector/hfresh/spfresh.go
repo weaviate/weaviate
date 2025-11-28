@@ -119,7 +119,7 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 		return nil, err
 	}
 
-	s := HFresh{
+	h := HFresh{
 		id:           cfg.ID,
 		logger:       cfg.Logger.WithField("component", "SPFresh"),
 		config:       cfg,
@@ -151,92 +151,92 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 		centroidsIndexType: uc.CentroidsIndexType,
 	}
 
-	s.Centroids, err = NewHNSWIndex(metrics, store, cfg, 1024*1024, 1024)
+	h.Centroids, err = NewHNSWIndex(metrics, store, cfg, 1024*1024, 1024)
 	if err != nil {
 		return nil, err
 	}
-	s.IDs = *common.NewMonotonicCounter(s.Centroids.GetMaxID())
+	h.IDs = *common.NewMonotonicCounter(h.Centroids.GetMaxID())
 
-	s.ctx, s.cancel = context.WithCancel(context.Background())
+	h.ctx, h.cancel = context.WithCancel(context.Background())
 
-	taskQueue, err := NewTaskQueue(&s)
+	taskQueue, err := NewTaskQueue(&h)
 	if err != nil {
 		return nil, err
 	}
-	s.taskQueue = *taskQueue
+	h.taskQueue = *taskQueue
 
-	if err = s.restoreMetadata(); err != nil {
-		s.logger.Warnf("unable to restore metadata from previous run with error: %v", err)
+	if err = h.restoreMetadata(); err != nil {
+		h.logger.Warnf("unable to restore metadata from previous run with error: %v", err)
 	}
 
-	return &s, nil
+	return &h, nil
 }
 
 // Delete marks a vector as deleted in the version map.
-func (s *HFresh) Delete(ids ...uint64) error {
+func (h *HFresh) Delete(ids ...uint64) error {
 	for _, id := range ids {
 		start := time.Now()
-		version, err := s.VersionMap.MarkDeleted(context.Background(), id)
+		version, err := h.VersionMap.MarkDeleted(context.Background(), id)
 		if err != nil {
 			return errors.Wrapf(err, "failed to mark vector %d as deleted", id)
 		}
 		if version == 0 {
 			return ErrVectorNotFound
 		}
-		s.metrics.DeleteVector(start)
+		h.metrics.DeleteVector(start)
 	}
 
 	return nil
 }
 
-func (s *HFresh) Type() common.IndexType {
+func (h *HFresh) Type() common.IndexType {
 	return common.IndexTypeSPFresh
 }
 
-func (s *HFresh) UpdateUserConfig(updated schemaConfig.VectorIndexConfig, callback func()) error {
+func (h *HFresh) UpdateUserConfig(updated schemaConfig.VectorIndexConfig, callback func()) error {
 	parsed, ok := updated.(ent.UserConfig)
 	if !ok {
 		callback()
 		return errors.Errorf("config is not UserConfig, but %T", updated)
 	}
 
-	atomic.StoreUint32(&s.searchProbe, parsed.SearchProbe)
+	atomic.StoreUint32(&h.searchProbe, parsed.SearchProbe)
 
 	callback()
 	return nil
 }
 
-func (s *HFresh) Drop(ctx context.Context, keepFiles bool) error {
-	_ = s.Shutdown(ctx)
+func (h *HFresh) Drop(ctx context.Context, keepFiles bool) error {
+	_ = h.Shutdown(ctx)
 	// Shard::drop will take care of handling store buckets
 	return nil
 }
 
-func (s *HFresh) Shutdown(ctx context.Context) error {
-	if s.ctx == nil {
+func (h *HFresh) Shutdown(ctx context.Context) error {
+	if h.ctx == nil {
 		return nil // Already closed or not started
 	}
 
-	if s.ctx.Err() != nil {
-		return s.ctx.Err() // Context already cancelled
+	if h.ctx.Err() != nil {
+		return h.ctx.Err() // Context already cancelled
 	}
 
 	// Cancel the context to prevent new operations from being enqueued
-	s.cancel()
+	h.cancel()
 
 	var errs []error
 
-	err := s.taskQueue.Close()
+	err := h.taskQueue.Close()
 	if err != nil {
 		errs = append(errs, err)
 	}
 
-	err = s.Flush()
+	err = h.Flush()
 	if err != nil {
 		errs = append(errs, err)
 	}
 
-	err = s.Centroids.hnsw.Shutdown(ctx)
+	err = h.Centroids.hnsw.Shutdown(ctx)
 	if err != nil {
 		errs = append(errs, err)
 	}
@@ -244,42 +244,42 @@ func (s *HFresh) Shutdown(ctx context.Context) error {
 	return stderrors.Join(errs...)
 }
 
-func (s *HFresh) Flush() error {
-	return s.Centroids.hnsw.Flush()
+func (h *HFresh) Flush() error {
+	return h.Centroids.hnsw.Flush()
 }
 
-func (s *HFresh) SwitchCommitLogs(ctx context.Context) error {
-	return s.Centroids.hnsw.SwitchCommitLogs(ctx)
+func (h *HFresh) SwitchCommitLogs(ctx context.Context) error {
+	return h.Centroids.hnsw.SwitchCommitLogs(ctx)
 }
 
-func (s *HFresh) ListFiles(ctx context.Context, basePath string) ([]string, error) {
+func (h *HFresh) ListFiles(ctx context.Context, basePath string) ([]string, error) {
 	return nil, nil
 }
 
-func (s *HFresh) PostStartup(ctx context.Context) {
-	s.Centroids.hnsw.PostStartup(ctx)
+func (h *HFresh) PostStartup(ctx context.Context) {
+	h.Centroids.hnsw.PostStartup(ctx)
 }
 
-func (s *HFresh) Compressed() bool {
+func (h *HFresh) Compressed() bool {
 	return true
 }
 
-func (s *HFresh) Multivector() bool {
+func (h *HFresh) Multivector() bool {
 	return false
 }
 
-func (s *HFresh) ContainsDoc(id uint64) bool {
-	v, err := s.VersionMap.Get(context.Background(), id)
+func (h *HFresh) ContainsDoc(id uint64) bool {
+	v, err := h.VersionMap.Get(context.Background(), id)
 	if err != nil {
-		s.logger.WithField("vectorID", id).
+		h.logger.WithField("vectorID", id).
 			Debug("vector version get failed, returning false")
 		return false
 	}
 	return !v.Deleted() && v.Version() > 0
 }
 
-func (s *HFresh) Iterate(fn func(id uint64) bool) {
-	s.logger.Warn("Iterate is not implemented for SPFresh index")
+func (h *HFresh) Iterate(fn func(id uint64) bool) {
+	h.logger.Warn("Iterate is not implemented for SPFresh index")
 }
 
 func float32SliceFromByteSlice(vector []byte, slice []float32) []float32 {
@@ -289,10 +289,10 @@ func float32SliceFromByteSlice(vector []byte, slice []float32) []float32 {
 	return slice
 }
 
-func (s *HFresh) QueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer {
+func (h *HFresh) QueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer {
 	var bucketName string
-	if s.config.TargetVector != "" {
-		bucketName = fmt.Sprintf("%s_%s", helpers.VectorsBucketLSM, s.config.TargetVector)
+	if h.config.TargetVector != "" {
+		bucketName = fmt.Sprintf("%s_%s", helpers.VectorsBucketLSM, h.config.TargetVector)
 	} else {
 		bucketName = helpers.VectorsBucketLSM
 	}
@@ -300,12 +300,12 @@ func (s *HFresh) QueryVectorDistancer(queryVector []float32) common.QueryVectorD
 	distFunc := func(id uint64) (float32, error) {
 		var buf [8]byte
 		binary.BigEndian.PutUint64(buf[:], id)
-		vec, err := s.PostingStore.store.Bucket(bucketName).Get(buf[:])
+		vec, err := h.PostingStore.store.Bucket(bucketName).Get(buf[:])
 		if err != nil {
 			return 0, err
 		}
 
-		dist, err := s.config.DistanceProvider.SingleDist(queryVector, float32SliceFromByteSlice(vec, make([]float32, len(vec)/4)))
+		dist, err := h.config.DistanceProvider.SingleDist(queryVector, float32SliceFromByteSlice(vec, make([]float32, len(vec)/4)))
 		if err != nil {
 			return 0, err
 		}
@@ -315,14 +315,14 @@ func (s *HFresh) QueryVectorDistancer(queryVector []float32) common.QueryVectorD
 	return common.QueryVectorDistancer{DistanceFunc: distFunc}
 }
 
-func (s *HFresh) CompressionStats() compressionhelpers.CompressionStats {
-	if s.quantizer != nil {
-		return s.quantizer.Stats()
+func (h *HFresh) CompressionStats() compressionhelpers.CompressionStats {
+	if h.quantizer != nil {
+		return h.quantizer.Stats()
 	}
 	return compressionhelpers.UncompressedStats{}
 }
 
-func (s *HFresh) Preload(id uint64, vector []float32) {
+func (h *HFresh) Preload(id uint64, vector []float32) {
 	// for now, nothing to do here
 }
 

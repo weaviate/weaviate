@@ -24,12 +24,12 @@ type reassignOperation struct {
 	Version   uint8
 }
 
-func (s *HFresh) doReassign(ctx context.Context, op reassignOperation) error {
+func (h *HFresh) doReassign(ctx context.Context, op reassignOperation) error {
 	start := time.Now()
-	defer s.metrics.ReassignDuration(start)
+	defer h.metrics.ReassignDuration(start)
 
 	// check if the vector is still valid
-	version, err := s.VersionMap.Get(ctx, op.VectorID)
+	version, err := h.VersionMap.Get(ctx, op.VectorID)
 	if err != nil {
 		return errors.Wrapf(err, "failed to get version for vector %d", op.VectorID)
 	}
@@ -39,12 +39,12 @@ func (s *HFresh) doReassign(ctx context.Context, op reassignOperation) error {
 
 	// perform a RNG selection to determine the postings where the vector should be
 	// reassigned to.
-	q, err := s.config.VectorForIDThunk(ctx, op.VectorID)
+	q, err := h.config.VectorForIDThunk(ctx, op.VectorID)
 	if err != nil {
 		return errors.Wrap(err, "failed to get vector by index ID")
 	}
 
-	replicas, needsReassign, err := s.RNGSelect(q, op.PostingID)
+	replicas, needsReassign, err := h.RNGSelect(q, op.PostingID)
 	if err != nil {
 		return errors.Wrap(err, "failed to select replicas")
 	}
@@ -53,7 +53,7 @@ func (s *HFresh) doReassign(ctx context.Context, op reassignOperation) error {
 	}
 
 	// check again if the version is still valid
-	version, err = s.VersionMap.Get(ctx, op.VectorID)
+	version, err = h.VersionMap.Get(ctx, op.VectorID)
 	if err != nil {
 		return errors.Wrapf(err, "failed to get version for vector %d", op.VectorID)
 	}
@@ -63,30 +63,30 @@ func (s *HFresh) doReassign(ctx context.Context, op reassignOperation) error {
 
 	// increment the vector version. this will invalidate all the existing copies
 	// of the vector in other postings.
-	version, err = s.VersionMap.Increment(ctx, op.VectorID, version)
+	version, err = h.VersionMap.Increment(ctx, op.VectorID, version)
 	if err != nil {
-		s.logger.WithField("vectorID", op.VectorID).
+		h.logger.WithField("vectorID", op.VectorID).
 			WithError(err).
 			Error("failed to increment version map for vector, skipping reassign operation")
 		return nil
 	}
 
 	// create a new vector with the updated version
-	newVector := NewVector(op.VectorID, version, s.quantizer.Encode(q))
+	newVector := NewVector(op.VectorID, version, h.quantizer.Encode(q))
 
 	// append the vector to each replica
 	for id := range replicas.Iter() {
-		version, err = s.VersionMap.Get(ctx, newVector.ID())
+		version, err = h.VersionMap.Get(ctx, newVector.ID())
 		if err != nil {
 			return errors.Wrapf(err, "failed to get version for vector %d", newVector.ID())
 		}
 		if version.Deleted() || version.Version() > newVector.Version().Version() {
-			s.logger.WithField("vectorID", op.VectorID).
+			h.logger.WithField("vectorID", op.VectorID).
 				Debug("vector is deleted or has a newer version, skipping reassign operation")
 			return nil
 		}
 
-		added, err := s.append(ctx, newVector, id, true)
+		added, err := h.append(ctx, newVector, id, true)
 		if err != nil {
 			return err
 		}

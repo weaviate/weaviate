@@ -138,13 +138,13 @@ func compressedVectorSize(size int) int {
 	return size + compressionhelpers.RQMetadataSize
 }
 
-func (s *HFresh) setMaxPostingSize() {
-	if s.maxPostingSize == 0 {
-		isCompressed := s.Compressed()
-		s.maxPostingSize = computeMaxPostingSize(int(s.dims), isCompressed)
+func (h *HFresh) setMaxPostingSize() {
+	if h.maxPostingSize == 0 {
+		isCompressed := h.Compressed()
+		h.maxPostingSize = computeMaxPostingSize(int(h.dims), isCompressed)
 	}
 
-	if s.maxPostingSize <= s.minPostingSize {
-		s.minPostingSize = s.maxPostingSize / 2
+	if h.maxPostingSize <= h.minPostingSize {
+		h.minPostingSize = h.maxPostingSize / 2
 	}
 }
