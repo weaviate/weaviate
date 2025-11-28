@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 const DefaultHNSWEF = 800
@@ -66,6 +67,7 @@ type Config struct {
 	SnapshotCreateInterval                   time.Duration
 	SnapshotMinDeltaCommitlogsNumer          int
 	SnapshotMinDeltaCommitlogsSizePercentage int
+	AllocChecker                             memwatch.AllocChecker
 }
 
 func (c Config) hnswEF() int {
@@ -86,6 +88,7 @@ func NewIndex(config Config,
 		DistanceProvider:      distancer.NewGeoProvider(),
 		DisableSnapshots:      config.SnapshotDisabled,
 		SnapshotOnStartup:     config.SnapshotOnStartup,
+		AllocChecker:          config.AllocChecker,
 	}, hnswent.UserConfig{
 		MaxConnections:         64,
 		EFConstruction:         128,

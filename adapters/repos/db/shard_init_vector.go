@@ -18,6 +18,8 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"go.etcd.io/bbolt"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/flat"
@@ -32,7 +34,6 @@ import (
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 	hfreshent "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	"go.etcd.io/bbolt"
 )
 
 func (s *Shard) initShardVectors(ctx context.Context) error {
@@ -133,6 +134,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 				DisableSnapshots:       s.index.Config.HNSWDisableSnapshots,
 				SnapshotOnStartup:      s.index.Config.HNSWSnapshotOnStartup,
 				MakeBucketOptions:      makeBucketOptions,
+				AsyncIndexingEnabled:   s.index.AsyncIndexingEnabled,
 			}, hnswUserConfig, s.cycleCallbacks.vectorTombstoneCleanupCallbacks, s.store)
 			if err != nil {
 				return nil, errors.Wrapf(err, "init shard %q: hnsw index", s.ID())
@@ -217,6 +219,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 			HNSWSnapshotOnStartup: s.index.Config.HNSWSnapshotOnStartup,
 			AllocChecker:          s.index.allocChecker,
 			MakeBucketOptions:     makeBucketOptions,
+			AsyncIndexingEnabled:  s.index.AsyncIndexingEnabled,
 		}, dynamicUserConfig, s.store)
 		if err != nil {
 			return nil, errors.Wrapf(err, "init shard %q: dynamic index", s.ID())

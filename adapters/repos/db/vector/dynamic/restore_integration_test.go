@@ -13,7 +13,6 @@ package dynamic
 
 import (
 	"context"
-	"os"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -21,6 +20,8 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.etcd.io/bbolt"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
@@ -31,14 +32,11 @@ import (
 	ent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	"go.etcd.io/bbolt"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 func TestBackup_Integration(t *testing.T) {
 	ctx := context.Background()
-	currentIndexing := os.Getenv("ASYNC_INDEXING")
-	os.Setenv("ASYNC_INDEXING", "true")
-	defer os.Setenv("ASYNC_INDEXING", currentIndexing)
 	dimensions := 20
 	vectors_size := 1_000
 	queries_size := 10
@@ -73,6 +71,7 @@ func TestBackup_Integration(t *testing.T) {
 	})
 
 	config := Config{
+		AllocChecker:     memwatch.NewDummyMonitor(),
 		RootPath:         dirName,
 		ID:               indexID,
 		Logger:           logger,
@@ -91,6 +90,7 @@ func TestBackup_Integration(t *testing.T) {
 		TombstoneCallbacks:   noopCallback,
 		SharedDB:             db,
 		MakeBucketOptions:    lsmkv.MakeNoopBucketOptions,
+		AsyncIndexingEnabled: true,
 	}
 
 	uc := ent.UserConfig{
