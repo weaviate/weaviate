@@ -26,6 +26,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/ttl"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -47,6 +49,7 @@ import (
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/autocut"
 	"github.com/weaviate/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -2177,6 +2180,64 @@ func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID,
 		return fmt.Errorf("delete local object: shard=%q: %w", shardName, err)
 	}
 	return nil
+}
+
+func (i *Index) deleteObjectsExpired(ctx context.Context, expirationTime time.Time) error {
+	eg := enterrors.NewErrorGroupWrapper(i.logger)
+	eg.SetLimit(concurrency.NUMCPU)
+	return <-i.deleteObjectsExpiredAsync(ctx, eg, expirationTime)
+}
+
+func (i *Index) deleteObjectsExpiredAsync(ctx context.Context, eg *enterrors.ErrorGroupWrapper, expirationTime time.Time) <-chan error {
+	chErr := make(chan error)
+
+	class := i.getClass()
+	if !ttl.IsTtlEnabled(class.ObjectTTLConfig) {
+		chErr <- nil
+		close(chErr)
+		return chErr
+	}
+
+	expirationThreshold := expirationTime.Add(-time.Second * time.Duration(class.ObjectTTLConfig.DefaultTTL))
+	deleteOnPropName := class.ObjectTTLConfig.DeleteOn
+
+	ec := errorcompounder.NewSafe()
+	wg := new(sync.WaitGroup)
+	i.ForEachLoadedShard(func(name string, shard ShardLike) error {
+		if err := ctx.Err(); err != nil {
+			// TODO aliszka:ttl add to ec?
+			return err
+		}
+
+		wg.Add(1)
+		eg.Go(func() error {
+			defer wg.Done()
+
+			if ctx.Err() != nil {
+				// TODO aliszka:ttl add to ec?
+				return nil
+			}
+
+			err := shard.DeleteObjectsExpired(ctx, expirationThreshold, deleteOnPropName)
+			ec.Add(err)
+
+			return nil
+		})
+		return nil
+	})
+
+	enterrors.GoWrapper(func() {
+		wg.Wait()
+
+		err := ec.ToError()
+		if err != nil {
+			err = fmt.Errorf("%s: %w", class.Class, err)
+		}
+		chErr <- err
+		close(chErr)
+	}, i.logger)
+
+	return chErr
 }
 
 func (i *Index) IncomingDeleteObject(ctx context.Context, shardName string,

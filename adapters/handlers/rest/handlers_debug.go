@@ -1143,6 +1143,31 @@ func setupDebugHandlers(appState *state.State) {
 
 		w.WriteHeader(http.StatusAccepted)
 	}))
+
+	http.HandleFunc("/debug/ttl/deleteall", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		expiration := r.URL.Query().Get("expiration")
+
+		var err error
+		var expirationTime time.Time
+
+		if expiration != "" {
+			expirationTime, err = time.Parse(time.RFC3339, expiration)
+			if err != nil {
+				http.Error(w, fmt.Errorf("invalid expiration: %w", err).Error(), http.StatusBadRequest)
+				return
+			}
+		} else {
+			expirationTime = time.Now()
+		}
+
+		err = appState.DB.DeleteObjectsExpired(context.Background(), expirationTime)
+		if err != nil {
+			http.Error(w, "failed to delete expired objects", http.StatusInternalServerError)
+			return
+		}
+
+		w.WriteHeader(http.StatusAccepted)
+	}))
 }
 
 // skipSensitiveConfig creates a copy of the config with Authentication and Authorization

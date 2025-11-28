@@ -21,6 +21,9 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/refcache"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/concurrency"
+	"github.com/weaviate/weaviate/entities/errorcompounder"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/multi"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -63,6 +66,42 @@ func (db *DB) DeleteObject(ctx context.Context, class string, id strfmt.UUID,
 	}
 
 	return nil
+}
+
+func (db *DB) DeleteObjectsExpired(ctx context.Context, expirationTime time.Time) error {
+	fmt.Printf("  ==> expirationTime %s\n\n", expirationTime)
+
+	db.indexLock.RLock()
+	colNames := make([]string, len(db.indices))
+	i := 0
+	for colName := range db.indices {
+		colNames[i] = colName
+		i++
+	}
+	db.indexLock.RUnlock()
+
+	chErrs := make([]<-chan error, 0, len(colNames))
+	ec := errorcompounder.New()
+
+	eg := enterrors.NewErrorGroupWrapper(db.logger)
+	eg.SetLimit(concurrency.NUMCPU)
+	for _, colName := range colNames {
+		db.indexLock.RLock()
+		idx := db.indices[colName]
+		db.indexLock.RUnlock()
+
+		if idx != nil {
+			// TODO aliszka:ttl prevent index from being removed while processed?
+			chErr := idx.deleteObjectsExpiredAsync(ctx, eg, expirationTime)
+			chErrs = append(chErrs, chErr)
+		}
+	}
+	eg.Wait()
+
+	for _, chErr := range chErrs {
+		ec.Add(<-chErr)
+	}
+	return ec.ToError()
 }
 
 func (db *DB) MultiGet(ctx context.Context, query []multi.Identifier,

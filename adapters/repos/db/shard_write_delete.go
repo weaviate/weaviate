@@ -208,7 +208,8 @@ func (s *Shard) DeleteObjectsExpired(ctx context.Context, expirationThreshold ti
 		return fmt.Errorf("filter expired objects: %w", err)
 	}
 
-	fmt.Printf("  ==> allowlist %v\n\n", allowlist.Slice())
+	fmt.Printf("  ==> allowlist %v\n", allowlist.Slice())
+	fmt.Printf("  ==> threshold %s\n\n", expirationThreshold)
 
 	if allowlist.IsEmpty() {
 		return nil

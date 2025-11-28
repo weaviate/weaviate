@@ -219,7 +219,7 @@ func calcCPUs(cpuString string) (int, error) {
 	return cores, nil
 }
 
-func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *state.State {
+func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandLineOptionsGroup) *state.State {
 	build.Version = ParseVersionFromSwaggerSpec() // Version is always static and loaded from swagger spec.
 
 	// config.ServerVersion is deprecated: It's there to be backward compatible
@@ -760,6 +760,17 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		}, appState.Logger)
 	}
 
+	enterrors.GoWrapper(func() {
+		// wait until meta store is ready
+		<-storeReadyCtx.Done()
+		if errors.Is(context.Cause(storeReadyCtx), metaStoreReadyErr) {
+			appState.Logger.
+				WithField("action", "startup").
+				Info("Configuring crons")
+			configureCrons(appState, serverShutdownCtx)
+		}
+	}, appState.Logger)
+
 	configureServer = makeConfigureServer(appState)
 
 	// Add dimensions to all the objects in the database, if requested by the user
@@ -847,6 +858,14 @@ func configureReindexer(appState *state.State, reindexCtx context.Context) db.Sh
 	return reindexer
 }
 
+func configureCrons(appState *state.State, serverShutdownCtx context.Context) {
+
+	// appState.DB.DeleteObjectsExpired(serverShutdownCtx, time.Now())
+
+	<-serverShutdownCtx.Done()
+	fmt.Printf("configureCrons %s\n\n", context.Cause(serverShutdownCtx))
+}
+
 func parseNode2Port(appState *state.State) (m map[string]int, err error) {
 	m = make(map[string]int, len(appState.ServerConfig.Config.Raft.Join))
 	for _, raftNamePort := range appState.ServerConfig.Config.Raft.Join {
@@ -878,7 +897,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	ctx, cancel := context.WithTimeout(ctx, 60*time.Minute)
 	defer cancel()
 
-	appState := MakeAppState(ctx, connectorOptionGroup)
+	serverShutdownCtx, serverShutdownCancel := context.WithCancelCause(context.Background())
+	appState := MakeAppState(ctx, serverShutdownCtx, connectorOptionGroup)
 
 	appState.Logger.WithFields(logrus.Fields{
 		"server_version": config.ServerVersion,
@@ -995,6 +1015,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// stop reindexing on server shutdown
 		appState.ReindexCtxCancel(fmt.Errorf("server shutdown"))
+		serverShutdownCancel(fmt.Errorf("server shutdown"))
 
 		if appState.DistributedTaskScheduler != nil {
 			appState.DistributedTaskScheduler.Close()
