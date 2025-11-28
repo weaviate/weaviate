@@ -23,6 +23,16 @@ import (
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
+type Centroid struct {
+	Uncompressed []float32
+	Compressed   []byte
+	Deleted      bool
+}
+
+func (c *Centroid) Distance(distancer *Distancer, v Vector) (float32, error) {
+	return v.DistanceWithRaw(distancer, c.Compressed)
+}
+
 type HNSWIndex struct {
 	metrics   *Metrics
 	hnsw      *hnsw.HNSW
