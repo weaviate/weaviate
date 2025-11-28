@@ -130,9 +130,14 @@ type dynamic struct {
 	WriteSegmentInfoIntoFileName bool
 	WriteMetadataFilesEnabled    bool
 	allocChecker                 memwatch.AllocChecker
+	AsyncIndexingEnabled         bool
 }
 
 func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
+	if !cfg.AsyncIndexingEnabled {
+		return nil, errors.New("the dynamic index can only be created under async indexing environment")
+	}
+
 	if err := cfg.Validate(); err != nil {
 		return nil, errors.Wrap(err, "invalid config")
 	}
@@ -187,6 +192,7 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 		flatBQ:                       uc.FlatUC.BQ.Enabled,
 		WriteSegmentInfoIntoFileName: cfg.WriteSegmentInfoIntoFileName,
 		WriteMetadataFilesEnabled:    cfg.WriteMetadataFilesEnabled,
+		AsyncIndexingEnabled:         cfg.AsyncIndexingEnabled,
 	}
 
 	upgraded, err := index.init(&cfg)
@@ -215,6 +221,7 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 				WaitForCachePrefill:          index.hnswWaitForCachePrefill,
 				WriteSegmentInfoIntoFileName: cfg.WriteSegmentInfoIntoFileName,
 				WriteMetadataFilesEnabled:    cfg.WriteMetadataFilesEnabled,
+				AsyncIndexingEnabled:         cfg.AsyncIndexingEnabled,
 			},
 			index.hnswUC,
 			index.tombstoneCallbacks,
