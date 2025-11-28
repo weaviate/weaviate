@@ -109,7 +109,7 @@ func NewServer(appState *state.State) *Server {
 
 	protocols := &http.Protocols{}
 	protocols.SetHTTP1(true)
-	protocols.SetHTTP2(true)
+	protocols.SetUnencryptedHTTP2(true)
 
 	return &Server{
 		server: &http.Server{
