@@ -33,4 +33,8 @@ type ParameterDef struct {
 
 	// Required indicates whether this parameter must be provided by the user
 	Required bool
+
+	// AllowedValues specifies valid values for this parameter (enum-like validation).
+	// Can be []string, []int64, or other slice types. If nil, any value is allowed.
+	AllowedValues interface{}
 }

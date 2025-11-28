@@ -36,8 +36,6 @@ const (
 	ParamDimensions = "Dimensions"
 )
 
-var availableTruncates = []string{"NONE", "START", "END", "LEFT", "RIGHT"}
-
 // Parameters defines all configuration parameters for text2vec-cohere
 var Parameters = map[string]basesettings.ParameterDef{
 	ParamModel: {
@@ -53,10 +51,11 @@ var Parameters = map[string]basesettings.ParameterDef{
 		Required:     false,
 	},
 	ParamTruncate: {
-		JSONKey:      "truncate",
-		DefaultValue: DefaultTruncate,
-		Description:  "Truncation strategy (NONE, START, END, LEFT, RIGHT)",
-		Required:     false,
+		JSONKey:       "truncate",
+		DefaultValue:  DefaultTruncate,
+		Description:   "Truncation strategy (NONE, START, END, LEFT, RIGHT)",
+		Required:      false,
+		AllowedValues: []string{"NONE", "START", "END", "LEFT", "RIGHT"},
 	},
 	ParamDimensions: {
 		JSONKey:      "dimensions",
@@ -96,10 +95,13 @@ func (cs *classSettings) Validate(class *models.Class) error {
 		return err
 	}
 
+	// Validate parameters with AllowedValues
 	truncate := cs.Truncate()
-	if !basesettings.ValidateSetting(truncate, availableTruncates) {
-		return errors.Errorf("wrong %v parameter, available types are: %v", Parameters[ParamTruncate].JSONKey, availableTruncates)
+	if err := basesettings.ValidateAllowedValues(ParamTruncate, Parameters[ParamTruncate], truncate); err != nil {
+		return errors.Wrap(err, "invalid truncate parameter")
 	}
+
+	// Additional custom validation can be added here
 
 	return nil
 }

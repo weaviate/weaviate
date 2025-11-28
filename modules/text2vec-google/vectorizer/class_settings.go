@@ -116,10 +116,11 @@ var Parameters = map[string]basesettings.ParameterDef{
 		Required:     false,
 	},
 	ParamTaskType: {
-		JSONKey:      "taskType",
-		DefaultValue: DefaultTaskType,
-		Description:  "Task type for the embedding",
-		Required:     false,
+		JSONKey:       "taskType",
+		DefaultValue:  DefaultTaskType,
+		Description:   "Task type for the embedding",
+		Required:      false,
+		AllowedValues: availableTaskTypes,
 	},
 }
 
@@ -141,6 +142,12 @@ func (ic *classSettings) Validate(class *models.Class) error {
 		errorMessages = append(errorMessages, err.Error())
 	}
 
+	// Validate taskType using AllowedValues
+	if err := basesettings.ValidateAllowedValues(ParamTaskType, Parameters[ParamTaskType], ic.TaskType()); err != nil {
+		errorMessages = append(errorMessages, err.Error())
+	}
+
+	// Custom validation: endpoint-specific logic
 	apiEndpoint := ic.ApiEndpoint()
 	model := ic.Model()
 	if apiEndpoint == DefaultAIStudioEndpoint {
@@ -155,10 +162,6 @@ func (ic *classSettings) Validate(class *models.Class) error {
 		if model != "" && !ic.validateGoogleSetting(model, availableGoogleModels) {
 			errorMessages = append(errorMessages, fmt.Sprintf("wrong %v parameter, available model names are: %v", Parameters[ParamModel].JSONKey, availableGoogleModels))
 		}
-	}
-
-	if !slices.Contains(availableTaskTypes, ic.TaskType()) {
-		errorMessages = append(errorMessages, fmt.Sprintf("wrong %v parameter, supported task types are: %v", Parameters[ParamTaskType].JSONKey, availableTaskTypes))
 	}
 
 	if len(errorMessages) > 0 {
