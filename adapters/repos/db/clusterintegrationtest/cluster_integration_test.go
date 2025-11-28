@@ -76,12 +76,11 @@ func testDistributed(t *testing.T, dirName string, rnd *rand.Rand, batch bool) {
 				name: fmt.Sprintf("node-%d", i),
 			}
 
-			node.init(dirName, shardStateSerialized, &nodes, false)
 			nodes = append(nodes, node)
 		}
 
 		for _, node := range nodes {
-			node.init(t, dirName, &nodes, overallShardState)
+			node.init(t, dirName, &nodes, overallShardState, false)
 		}
 	})
 
@@ -706,12 +705,11 @@ func TestDistributedVectorDistance(t *testing.T) {
 					name: fmt.Sprintf("node-%d", i),
 				}
 
-				node.init(dirName, shardStateSerialized, &nodes, tt.asyncIndexingEnabled)
 				nodes = append(nodes, node)
 			}
 
 			for _, node := range nodes {
-				node.init(t, dirName, &nodes, overallShardState)
+				node.init(t, dirName, &nodes, overallShardState, tt.asyncIndexingEnabled)
 			}
 
 			for i := range nodes {

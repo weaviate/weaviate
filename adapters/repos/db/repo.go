@@ -304,9 +304,9 @@ type Config struct {
 	QuerySlowLogThreshold       *configRuntime.DynamicValue[time.Duration]
 	InvertedSorterDisabled      *configRuntime.DynamicValue[bool]
 	MaintenanceModeEnabled      func() bool
+	AsyncIndexingEnabled        bool
 
-	SPFreshEnabled       bool
-	AsyncIndexingEnabled bool
+	SPFreshEnabled bool
 }
 
 // GetIndex returns the index if it exists or nil if it doesn't
@@ -403,12 +403,10 @@ func (db *DB) Shutdown(ctx context.Context) error {
 		}
 	}
 
-	if db.AsyncIndexingEnabled {
-		// shut down the async workers
-		err := db.scheduler.Close()
-		if err != nil {
-			return errors.Wrap(err, "close scheduler")
-		}
+	// shut down the async workers
+	err := db.scheduler.Close()
+	if err != nil {
+		return errors.Wrap(err, "close scheduler")
 	}
 
 	if db.metricsObserver != nil {

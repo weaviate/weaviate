@@ -52,11 +52,10 @@ func TestDistributedBackupsOverride(t *testing.T) {
 				name: fmt.Sprintf("node-%d", i),
 			}
 
-			node.init(dirName, shardStateSerialized, &nodes, false)
 			nodes = append(nodes, node)
 		}
 		for _, node := range nodes {
-			node.init(t, dirName, &nodes, overallShardState)
+			node.init(t, dirName, &nodes, overallShardState, false)
 		}
 	})
 
