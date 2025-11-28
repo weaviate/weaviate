@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/spfresh"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -64,6 +65,7 @@ func TestSPFreshRecallParquet(t *testing.T) {
 		ID:                    "spfresh",
 		MakeCommitLoggerThunk: makeNoopCommitLogger,
 		DistanceProvider:      distanceProvider,
+		AllocChecker:          memwatch.NewDummyMonitor(),
 	}
 	cfg.TombstoneCallbacks = cyclemanager.NewCallbackGroupNoop()
 	l := logrus.New()

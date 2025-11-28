@@ -39,6 +39,7 @@ import (
 	vectorIndex "github.com/weaviate/weaviate/entities/vectorindex/common"
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -223,7 +224,7 @@ func TestIndex_CalculateUnloadedVectorsMetrics(t *testing.T) {
 				ShardLoadLimiter:      NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
 				TrackVectorDimensions: true,
 			}, inverted.ConfigFromModel(class.InvertedIndexConfig),
-				defaultVectorConfig, vectorConfigs, mockRouter, shardResolver, mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil, NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false)
+				defaultVectorConfig, vectorConfigs, mockRouter, shardResolver, mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, memwatch.NewDummyMonitor(), NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false)
 			require.NoError(t, err)
 			defer index.Shutdown(ctx)
 
