@@ -33,7 +33,6 @@ func TestSPFreshOptimizedPostingSize(t *testing.T) {
 	scheduler.Start()
 	defer scheduler.Close()
 	uc := ent.NewDefaultUserConfig()
-	uc.CentroidsIndexType = "bruteforce"
 	store := testinghelpers.NewDummyStore(t)
 
 	vector := make([]float32, 100)

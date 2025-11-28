@@ -111,7 +111,6 @@ func runRecallTest(t *testing.T, testCfg testConfig) {
 	cfg := DefaultConfig()
 	cfg.RootPath = tmpDir
 	cfg.ID = "spfresh"
-	cfg.Centroids.IndexType = "hnsw"
 
 	distanceProvider := getDistanceProvider(testCfg.distance)
 	cfg.DistanceProvider = distanceProvider
