@@ -37,6 +37,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/objects"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 type testRepo struct {
@@ -48,14 +49,30 @@ func setupTestRepo(t *testing.T, className string, properties []*models.Property
 	t.Helper()
 
 	logger := logrus.New()
+	shardState := singleShardState()
+
+	class := &models.Class{
+		Class:               className,
+		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+		InvertedIndexConfig: invertedConfig(),
+		Properties:          properties,
+	}
+
 	schemaGetter := &fakeSchemaGetter{
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
-		shardState: singleShardState(),
+		shardState: shardState,
 	}
 
 	asyncEnabled := rand.Int()%2 == 0
 
 	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
+		if className == class.Class {
+			return readFunc(class, shardState)
+		}
+		return nil
+	}).Maybe()
 	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
@@ -82,13 +99,6 @@ func setupTestRepo(t *testing.T, className string, properties []*models.Property
 	t.Cleanup(func() {
 		require.NoError(t, repo.Shutdown(context.Background()))
 	})
-
-	class := &models.Class{
-		Class:               className,
-		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
-		InvertedIndexConfig: invertedConfig(),
-		Properties:          properties,
-	}
 
 	migrator := NewMigrator(repo, logger, "node0")
 	require.NoError(t, migrator.AddClass(context.Background(), class))
