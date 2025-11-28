@@ -31,7 +31,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
-	ent "github.com/weaviate/weaviate/entities/vectorindex/spfresh"
+	ent "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
 	bolt "go.etcd.io/bbolt"
 )
 

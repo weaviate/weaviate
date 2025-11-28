@@ -30,8 +30,8 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
 	dynamicent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
+	hfreshent "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	spfreshent "github.com/weaviate/weaviate/entities/vectorindex/spfresh"
 	"go.etcd.io/bbolt"
 )
 
@@ -226,7 +226,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 		if !s.index.HFreshEnabled {
 			return nil, errors.New("hfresh index is available only in experimental mode")
 		}
-		userConfig, ok := vectorIndexUserConfig.(spfreshent.UserConfig)
+		userConfig, ok := vectorIndexUserConfig.(hfreshent.UserConfig)
 		if !ok {
 			return nil, errors.Errorf("hfresh vector index: config is not hfresh.UserConfig: %T",
 				vectorIndexUserConfig)

@@ -18,8 +18,8 @@ import (
 	"github.com/weaviate/weaviate/entities/schema/config"
 	vIndex "github.com/weaviate/weaviate/entities/vectorindex"
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
+	hfresh "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	hfresh "github.com/weaviate/weaviate/entities/vectorindex/spfresh"
 	sharding "github.com/weaviate/weaviate/usecases/sharding/config"
 )
 

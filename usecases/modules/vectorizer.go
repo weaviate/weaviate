@@ -27,8 +27,8 @@ import (
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
+	hfresh "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	hfresh "github.com/weaviate/weaviate/entities/vectorindex/spfresh"
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
