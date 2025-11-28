@@ -1859,6 +1859,7 @@ func reasonableHttpClient(authConfig cluster.AuthConfig, minimumInternalTimeout 
 		IdleConnTimeout:       90 * time.Second,
 		TLSHandshakeTimeout:   10 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
+		ResponseHeaderTimeout: 10 * time.Second,
 	}
 
 	// Wrap with OpenTelemetry tracing (only has an effect if tracing is enabled)
