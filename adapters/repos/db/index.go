@@ -1028,6 +1028,14 @@ func (i *Index) getShardForDirectLocalOperation(ctx context.Context, tenantName 
 		if !slices.Contains(ws.NodeNames(), i.replicator.LocalNodeName()) {
 			return nil, release, nil
 		}
+		// If the router says we should have the shard locally but it's not initialized yet, try to initialize it
+		if shard == nil {
+			release() // release the previous nil shard's release function
+			shard, release, err = i.getOrInitShard(ctx, shardName)
+			if err != nil {
+				return nil, release, err
+			}
+		}
 	case localShardOperationRead:
 		rs, err = i.router.GetReadReplicasLocation(i.Config.ClassName.String(), tenantName, shardName)
 		if err != nil {
@@ -1037,6 +1045,14 @@ func (i *Index) getShardForDirectLocalOperation(ctx context.Context, tenantName 
 		// we should not read/write from the local shard if the local node is not in the list of replicas (eg we should use the remote)
 		if !slices.Contains(rs.NodeNames(), i.replicator.LocalNodeName()) {
 			return nil, release, nil
+		}
+		// If the router says we should have the shard locally but it's not initialized yet, try to initialize it
+		if shard == nil {
+			release() // release the previous nil shard's release function
+			shard, release, err = i.getOrInitShard(ctx, shardName)
+			if err != nil {
+				return nil, release, err
+			}
 		}
 	default:
 		return nil, func() {}, fmt.Errorf("invalid local shard operation: %s", operation)
