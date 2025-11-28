@@ -23,8 +23,6 @@ import (
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-var _ CentroidIndex = (*HNSWIndex)(nil)
-
 type HNSWIndex struct {
 	metrics   *Metrics
 	hnsw      *hnsw.HNSW
