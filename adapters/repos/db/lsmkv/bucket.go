@@ -176,6 +176,9 @@ type Bucket struct {
 	writeSegmentInfoIntoFileName bool
 
 	bm25Config *models.BM25Config
+
+	segmentAveragePropLength float64
+	segmentPropCount         uint64
 }
 
 func NewBucketCreator() *Bucket { return &Bucket{} }
@@ -278,6 +281,10 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 	}
 
 	b.disk = sg
+
+	if b.strategy == StrategyInverted {
+		b.segmentAveragePropLength, b.segmentPropCount = sg.GetAveragePropertyLength()
+	}
 
 	if b.active == nil {
 		b.active, err = b.createNewActiveMemtable()
@@ -1372,8 +1379,13 @@ func (b *Bucket) Shutdown(ctx context.Context) (err error) {
 
 	b.flushLock.Lock()
 	if b.active.getStrategy() == StrategyInverted {
-		avgPropLength, propLengthCount := b.disk.GetAveragePropertyLength()
+		var err error
+		avgPropLength, propLengthCount, err := b.GetAveragePropertyLength()
 		b.active.setAveragePropertyLength(avgPropLength, propLengthCount)
+		if err != nil {
+			b.flushLock.Unlock()
+			return err
+		}
 	}
 	if b.shouldReuseWAL() {
 		if err := b.active.flushWAL(); err != nil {
@@ -1881,7 +1893,7 @@ func (b *Bucket) createDiskTermFromCV(ctx context.Context, view BucketConsistent
 		}
 	}()
 
-	averagePropLength, err := b.GetAveragePropertyLength()
+	averagePropLength, _, err := b.GetAveragePropertyLength()
 	if err != nil {
 		view.Release()
 		return nil, nil, func() {}, err
@@ -2070,26 +2082,19 @@ func addDataToTerm(mem []MapPair, filterDocIds helpers.AllowList, term *SegmentB
 	return n, nil
 }
 
-func (b *Bucket) GetAveragePropertyLength() (float64, error) {
+func (b *Bucket) GetAveragePropertyLength() (float64, uint64, error) {
 	if b.strategy != StrategyInverted {
-		return 0, fmt.Errorf("active memtable is not inverted")
+		return 0, 0, fmt.Errorf("active memtable is not inverted")
 	}
 
-	var err error
 	propLengthCount := uint64(0)
 	propLengthSum := uint64(0)
 	if b.flushing != nil {
-		propLengthSum, propLengthCount, err = b.flushing.GetPropLengths()
-		if err != nil {
-			return 0, err
-		}
+		propLengthSum, propLengthCount = b.flushing.GetPropLengths()
 	}
 	// if the active memtable is inverted, we need to get the average property
 	if b.active != nil {
-		propLengthSum2, propLengthCount2, err := b.active.GetPropLengths()
-		if err != nil {
-			return 0, err
-		}
+		propLengthSum2, propLengthCount2 := b.active.GetPropLengths()
 		propLengthCount += propLengthCount2
 		propLengthSum += propLengthSum2
 	}
@@ -2103,9 +2108,9 @@ func (b *Bucket) GetAveragePropertyLength() (float64, error) {
 		propLengthCount += segmentPropCount
 	}
 	if propLengthCount == 0 {
-		return 0, nil
+		return 0, 0, nil
 	}
-	return float64(propLengthSum) / float64(propLengthCount), nil
+	return float64(propLengthSum) / float64(propLengthCount), propLengthCount, nil
 }
 
 func DetermineUnloadedBucketStrategy(bucketPath string) (string, error) {
