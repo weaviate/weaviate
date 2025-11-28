@@ -114,9 +114,7 @@ func (o *nodeWideMetricsObserver) observeObjectCount() {
 
 	totalObjectCount := int64(0)
 	for _, index := range o.db.indices {
-		index.ForEachShard(func(name string, shard ShardLike) error {
-			index.shardCreateLocks.Lock(name)
-			defer index.shardCreateLocks.Unlock(name)
+		index.ForEachShardWithBlocking(true, func(name string, shard ShardLike, release func()) error {
 			exists, err := index.tenantDirExists(name)
 			if err != nil {
 				o.db.logger.
@@ -137,6 +135,7 @@ func (o *nodeWideMetricsObserver) observeObjectCount() {
 					WithField("class", index.Config.ClassName).
 					Warnf("error while getting object count for shard: %v", err)
 			}
+
 			totalObjectCount += objectCount
 			return nil
 		})
@@ -409,11 +408,9 @@ func (o *nodeWideMetricsObserver) publishVectorMetrics(ctx context.Context) {
 				className := index.Config.ClassName.String()
 
 				// Avoid loading cold shards, as it may create I/O spikes.
-				index.ForEachLoadedShard(func(shardName string, sl ShardLike) error {
-					index.shardCreateLocks.Lock(shardName)
-					defer index.shardCreateLocks.Unlock(shardName)
-
-					dim := calculateShardDimensionMetrics(ctx, sl)
+				index.ForEachShardWithBlocking(false, func(shardName string, shard ShardLike, release func()) error {
+					defer release()
+					dim := calculateShardDimensionMetrics(ctx, shard)
 					total = total.Add(dim)
 
 					// Report metrics per-shard if grouping is disabled.
