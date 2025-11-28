@@ -20,6 +20,7 @@ import (
 
 	cohere "github.com/weaviate/weaviate/modules/text2vec-cohere/ent"
 	google "github.com/weaviate/weaviate/modules/text2vec-google/vectorizer"
+	transformers "github.com/weaviate/weaviate/modules/text2vec-transformers/vectorizer"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/settings"
 )
 
@@ -52,6 +53,11 @@ func main() {
 			Name:        "text2vec-google",
 			Description: "Google (Vertex AI & AI Studio) vectorizer module for text embeddings",
 			Parameters:  convertParameters(google.Parameters),
+		},
+		{
+			Name:        "text2vec-transformers",
+			Description: "Transformers vectorizer module for text embeddings using sentence-transformers",
+			Parameters:  convertParameters(transformers.Parameters),
 		},
 		// Add more modules here as they're refactored
 	}
