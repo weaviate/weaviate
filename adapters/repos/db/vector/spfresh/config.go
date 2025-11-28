@@ -54,7 +54,6 @@ type StoreConfig struct {
 }
 
 type CentroidConfig struct {
-	IndexType  string       `json:"indexType,omitempty"` // Type of centroid index to use, e.g. "bruteforce" or "hnsw"
 	HNSWConfig *hnsw.Config `json:"hnswConfig,omitempty"`
 }
 

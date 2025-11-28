@@ -75,7 +75,6 @@ func makeNoopCommitLogger() (hnsw.CommitLogger, error) {
 func TestSPFreshRecall(t *testing.T) {
 	store := testinghelpers.NewDummyStore(t)
 	cfg := DefaultConfig()
-	cfg.Centroids.IndexType = "hnsw"
 	cfg.Centroids.HNSWConfig = &hnsw.Config{
 		RootPath:              t.TempDir(),
 		ID:                    "spfresh",
