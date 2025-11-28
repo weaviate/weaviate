@@ -57,14 +57,14 @@ func (h *HFresh) doMerge(ctx context.Context, postingID uint64) error {
 		return errors.Wrapf(err, "failed to get posting %d for merge operation", postingID)
 	}
 
-	initialLen := p.Len()
+	initialLen := len(p)
 
 	// garbage collect the deleted vectors
 	newPosting, err := p.GarbageCollect(h.VersionMap)
 	if err != nil {
 		return errors.Wrapf(err, "failed to garbage collect posting %d", postingID)
 	}
-	prevLen := newPosting.Len()
+	prevLen := len(newPosting)
 
 	// skip if the posting is big enough
 	if prevLen >= int(h.minPostingSize) {
@@ -89,7 +89,7 @@ func (h *HFresh) doMerge(ctx context.Context, postingID uint64) error {
 	}
 
 	vectorSet := make(map[uint64]struct{})
-	for _, v := range p.Iter() {
+	for _, v := range p {
 		vectorSet[v.ID()] = struct{}{}
 	}
 
@@ -157,7 +157,7 @@ func (h *HFresh) doMerge(ctx context.Context, postingID uint64) error {
 			}
 
 			var candidateLen int
-			for _, v := range candidate.Iter() {
+			for _, v := range candidate {
 				version, err := h.VersionMap.Get(ctx, v.ID())
 				if err != nil {
 					return errors.Wrapf(err, "failed to get version for vector %d", v.ID())
@@ -197,9 +197,9 @@ func (h *HFresh) doMerge(ctx context.Context, postingID uint64) error {
 			if err != nil {
 				return errors.Wrapf(err, "failed to set size of merged posting %d to 0", smallID)
 			}
-			err = h.PostingSizes.Set(ctx, largeID, uint32(newPosting.Len()))
+			err = h.PostingSizes.Set(ctx, largeID, uint32(len(newPosting)))
 			if err != nil {
-				return errors.Wrapf(err, "failed to set size of merged posting %d to %d", largeID, newPosting.Len())
+				return errors.Wrapf(err, "failed to set size of merged posting %d to %d", largeID, len(newPosting))
 			}
 
 			// mark the operation as done and unlock everything
@@ -214,7 +214,7 @@ func (h *HFresh) doMerge(ctx context.Context, postingID uint64) error {
 			// we need to reassign them in the background.
 			smallCentroid := h.Centroids.Get(smallID)
 			largeCentroid := h.Centroids.Get(largeID)
-			for _, v := range smallPosting.Iter() {
+			for _, v := range smallPosting {
 				prevDist, err := smallCentroid.Distance(h.distancer, v)
 				if err != nil {
 					return errors.Wrapf(err, "failed to compute distance for vector %d in small posting %d", v.ID(), smallID)
@@ -244,7 +244,7 @@ func (h *HFresh) doMerge(ctx context.Context, postingID uint64) error {
 	}
 
 	// if no candidates were found, just persist the gc'ed posting
-	h.PostingSizes.Set(ctx, postingID, uint32(newPosting.Len()))
+	h.PostingSizes.Set(ctx, postingID, uint32(len(newPosting)))
 	err = h.PostingStore.Put(ctx, postingID, newPosting)
 	if err != nil {
 		return errors.Wrapf(err, "failed to put filtered posting %d", postingID)

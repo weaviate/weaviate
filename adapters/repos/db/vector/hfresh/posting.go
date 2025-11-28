@@ -14,7 +14,6 @@ package hfresh
 import (
 	"context"
 	"encoding/binary"
-	"iter"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
@@ -70,22 +69,18 @@ func (v Vector) DistanceWithRaw(distancer *Distancer, other []byte) (float32, er
 }
 
 // A Posting is a collection of vectors associated with the same centroid.
-type Posting struct {
-	// total size in bytes of each vector
-	vectorSize int
-	vectors    []Vector
-}
+type Posting []Vector
 
 func (p *Posting) AddVector(v Vector) {
-	p.vectors = append(p.vectors, v)
+	*p = append(*p, v)
 }
 
 // GarbageCollect filters out vectors that are marked as deleted in the version map
 // and return the filtered posting.
 // This method doesn't allocate a new slice, the filtering is done in-place.
-func (p *Posting) GarbageCollect(versionMap *VersionMap) (*Posting, error) {
-	for i := len(p.vectors) - 1; i >= 0; i-- {
-		v := p.vectors[i]
+func (p Posting) GarbageCollect(versionMap *VersionMap) (Posting, error) {
+	for i := len(p) - 1; i >= 0; i-- {
+		v := p[i]
 		id := v.ID()
 		version, err := versionMap.Get(context.Background(), id)
 		if err != nil {
@@ -96,35 +91,17 @@ func (p *Posting) GarbageCollect(versionMap *VersionMap) (*Posting, error) {
 		}
 
 		// shift the data to the left
-		copy(p.vectors[i:], p.vectors[i+1:])
-		p.vectors = p.vectors[:len(p.vectors)-1]
+		copy(p[i:], p[i+1:])
+		p = p[:len(p)-1]
 	}
 
 	return p, nil
 }
 
-func (p *Posting) Len() int {
-	return len(p.vectors)
-}
-
-func (p *Posting) Iter() iter.Seq2[int, Vector] {
-	return func(yield func(int, Vector) bool) {
-		for i, v := range p.vectors {
-			if !yield(i, v) {
-				break
-			}
-		}
-	}
-}
-
-func (p *Posting) GetAt(i int) Vector {
-	return p.vectors[i]
-}
-
 func (p *Posting) Uncompress(quantizer *compressionhelpers.RotationalQuantizer) [][]float32 {
-	data := make([][]float32, 0, p.Len())
+	data := make([][]float32, 0, len(*p))
 
-	for _, v := range p.Iter() {
+	for _, v := range *p {
 		data = append(data, quantizer.Decode(v.Data()))
 	}
 

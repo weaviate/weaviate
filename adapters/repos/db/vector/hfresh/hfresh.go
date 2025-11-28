@@ -168,8 +168,9 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 	}
 	h.taskQueue = *taskQueue
 
-	if err = h.restoreMetadata(); err != nil {
-		h.logger.Warnf("unable to restore metadata from previous run with error: %v", err)
+	err = h.Init(context.Background())
+	if err != nil {
+		return nil, err
 	}
 
 	return &h, nil
