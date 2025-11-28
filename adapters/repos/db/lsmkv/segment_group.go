@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"math"
 	"os"
 	"path/filepath"
 	"slices"
@@ -897,6 +898,9 @@ func (sg *SegmentGroup) GetAveragePropertyLength() (float64, uint64) {
 	weightedAverage := 0.0
 	for _, segment := range segments {
 		invertedData := segment.getInvertedData()
+		if invertedData.avgPropertyLengthsCount == 0 || math.IsNaN(invertedData.avgPropertyLengthsAvg) {
+			continue
+		}
 		weightedAverage += float64(invertedData.avgPropertyLengthsCount) / float64(totalDocCount) * invertedData.avgPropertyLengthsAvg
 	}
 

@@ -234,6 +234,9 @@ func (c *compactorInverted) combinePropertyLengths() (uint64, float64) {
 	average := c.c1.segment.invertedData.avgPropertyLengthsAvg * (float64(c.c1.segment.invertedData.avgPropertyLengthsCount) / float64(count))
 	average += c.c2.segment.invertedData.avgPropertyLengthsAvg * (float64(c.c2.segment.invertedData.avgPropertyLengthsCount) / float64(count))
 
+	if math.IsNaN(average) {
+		average = 0
+	}
 	return count, average
 }
 
