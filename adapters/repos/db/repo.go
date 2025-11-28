@@ -230,7 +230,7 @@ func New(logger logrus.FieldLogger, localNodeName string, config Config,
 		return db, errors.New("no workers to add batch-jobs configured.")
 	}
 
-	// scheduler used by async indexing and spfresh background queues
+	// scheduler used by async indexing and hfresh background queues
 	db.shutDownWg.Add(1)
 	db.scheduler = queue.NewScheduler(queue.SchedulerOptions{
 		Logger:  logger,
@@ -306,7 +306,7 @@ type Config struct {
 	MaintenanceModeEnabled      func() bool
 	AsyncIndexingEnabled        bool
 
-	SPFreshEnabled bool
+	HFreshEnabled bool
 }
 
 // GetIndex returns the index if it exists or nil if it doesn't

@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package spfresh
+package hfresh
 
 import (
 	"context"
@@ -36,7 +36,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
-	ent "github.com/weaviate/weaviate/entities/vectorindex/spfresh"
+	ent "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
@@ -74,16 +74,15 @@ func makeNoopCommitLogger() (hnsw.CommitLogger, error) {
 	return &hnsw.NoopCommitLogger{}, nil
 }
 
-func TestSPFreshRecall(t *testing.T) {
+func TestHFreshRecall(t *testing.T) {
 	store := testinghelpers.NewDummyStore(t)
 	tmpDir := t.TempDir()
 	cfg := DefaultConfig()
 	cfg.RootPath = tmpDir
 	cfg.ID = "spfresh"
-	cfg.Centroids.IndexType = "hnsw"
 	cfg.Centroids.HNSWConfig = &hnsw.Config{
 		RootPath:              t.TempDir(),
-		ID:                    "spfresh",
+		ID:                    "hfresh",
 		MakeCommitLoggerThunk: makeNoopCommitLogger,
 		DistanceProvider:      distancer.NewCosineDistanceProvider(),
 		MakeBucketOptions:     lsmkv.MakeNoopBucketOptions,

@@ -25,8 +25,8 @@ import (
 	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/flat"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hfresh"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/spfresh"
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/router"
 	"github.com/weaviate/weaviate/cluster/types"
@@ -168,7 +168,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 			QuerySlowLogThreshold:                        m.db.config.QuerySlowLogThreshold,
 			InvertedSorterDisabled:                       m.db.config.InvertedSorterDisabled,
 			MaintenanceModeEnabled:                       m.db.config.MaintenanceModeEnabled,
-			SPFreshEnabled:                               m.db.config.SPFreshEnabled,
+			HFreshEnabled:                                m.db.config.HFreshEnabled,
 		},
 		// no backward-compatibility check required, since newly added classes will
 		// always have the field set
@@ -733,11 +733,11 @@ func (m *Migrator) ValidateVectorIndexConfigUpdate(
 		return flat.ValidateUserConfigUpdate(old, updated)
 	case vectorindex.VectorIndexTypeDYNAMIC:
 		return dynamic.ValidateUserConfigUpdate(old, updated)
-	case vectorindex.VectorIndexTypeSPFresh:
-		if !m.db.config.SPFreshEnabled {
-			return errors.New("spfresh index is available only in experimental mode")
+	case vectorindex.VectorIndexTypeHFresh:
+		if !m.db.config.HFreshEnabled {
+			return errors.New("hfresh index is available only in experimental mode")
 		}
-		return spfresh.ValidateUserConfigUpdate(old, updated)
+		return hfresh.ValidateUserConfigUpdate(old, updated)
 	}
 	return fmt.Errorf("invalid index type: %s", old.IndexType())
 }

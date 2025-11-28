@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package spfresh
+package hfresh
 
 import (
 	"context"
@@ -153,5 +153,5 @@ func (p *PostingStore) Append(ctx context.Context, postingID uint64, vector Vect
 }
 
 func postingBucketName(id string) string {
-	return fmt.Sprintf("spfresh_postings_%s", id)
+	return fmt.Sprintf("hfresh_postings_%s", id)
 }
