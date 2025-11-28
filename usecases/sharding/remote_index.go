@@ -453,7 +453,6 @@ func (ri *RemoteIndex) queryAllReplicas(
 
 	queryAll := func(replicas []string) (resp []ReplicasSearchResult, err error) {
 		var mu sync.Mutex // protect resp + errlist
-		var searchResult ReplicasSearchResult
 		var errList error
 
 		wg := sync.WaitGroup{}
@@ -467,6 +466,7 @@ func (ri *RemoteIndex) queryAllReplicas(
 			wg.Add(1)
 			enterrors.GoWrapper(func() {
 				defer wg.Done()
+				var searchResult ReplicasSearchResult
 
 				if errC := ctx.Err(); errC != nil {
 					mu.Lock()
@@ -499,7 +499,7 @@ func (ri *RemoteIndex) queryAllReplicas(
 			return nil, errList
 		}
 		if len(resp) != int(queriesSent.Load()) {
-			log.Warnf("full replicas search response does not match replica count: response=%d replicas=%d", len(resp), len(replicas))
+			log.Warnf("full replicas search response does not match amount of queries sent: response=%d replicas=%d", len(resp), queriesSent.Load())
 		}
 		return resp, nil
 	}
