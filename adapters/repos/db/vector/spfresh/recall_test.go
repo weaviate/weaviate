@@ -60,7 +60,7 @@ func getDistanceProvider(distance string) distancer.Provider {
 	}
 }
 
-func TestSPFreshRecallParquet(t *testing.T) {
+func Test_NoRace_SPFreshRecallParquet(t *testing.T) {
 	// Define test configurations
 	testConfigs := []testConfig{
 		{

@@ -323,7 +323,7 @@ jobs:
         if: matrix.name == 'with vectors'
         uses: actions/cache@v4
         with:
-          path: ~/.cache/huggingface
+          path: ~/.cache/huggingface/hub
           key: huggingface-cache-${{ runner.os }}-${{ hashFiles('adapters/repos/db/vector/spfresh/recall_test.go') }}
           restore-keys: |
             huggingface-cache-${{ runner.os }}-
