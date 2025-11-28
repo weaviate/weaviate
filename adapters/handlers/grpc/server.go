@@ -114,6 +114,11 @@ func CreateGRPCServer(state *state.State, shutdown *batch.Shutdown, options ...g
 	pbv0.RegisterWeaviateServer(s, weaviateV0)
 	pbv1.RegisterWeaviateServer(s, weaviateV1)
 
+	if state.ServerConfig.Config.ReplicaMovementEnabled {
+		weaviateV1FileReplicationService := v1.NewFileReplicationService(state.DB, state.ClusterService.SchemaReader())
+		pbv1.RegisterFileReplicationServiceServer(s, weaviateV1FileReplicationService)
+	}
+
 	grpc_health_v1.RegisterHealthServer(s, weaviateV1)
 
 	return s

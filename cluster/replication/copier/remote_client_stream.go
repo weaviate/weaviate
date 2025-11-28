@@ -14,7 +14,7 @@ package copier
 import (
 	"context"
 
-	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc/generated/protocol"
+	protocol "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"google.golang.org/grpc/metadata"
 )
 
