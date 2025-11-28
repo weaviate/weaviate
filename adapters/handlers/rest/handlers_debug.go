@@ -1094,6 +1094,55 @@ func setupDebugHandlers(appState *state.State) {
 		w.WriteHeader(http.StatusOK)
 		w.Write(jsonBytes)
 	}))
+
+	http.HandleFunc("/debug/ttl/delete", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		colName := r.URL.Query().Get("collection")
+		propName := r.URL.Query().Get("property")
+		shardName := r.URL.Query().Get("shard")
+		expiration := r.URL.Query().Get("expiration")
+
+		var err error
+		var expirationThreshold time.Time
+
+		if colName == "" {
+			http.Error(w, "collection is required", http.StatusBadRequest)
+			return
+		}
+		if propName == "" {
+			http.Error(w, "property is required", http.StatusBadRequest)
+			return
+		}
+		if expiration != "" {
+			expirationThreshold, err = time.Parse(time.RFC3339, expiration)
+			if err != nil {
+				http.Error(w, fmt.Errorf("invalid expiration: %w", err).Error(), http.StatusBadRequest)
+				return
+			}
+		} else {
+			expirationThreshold = time.Now()
+		}
+
+		idx := appState.DB.GetIndex(schema.ClassName(colName))
+		if idx == nil {
+			http.Error(w, "collection not found", http.StatusNotFound)
+			return
+		}
+
+		ctx := context.Background()
+
+		err = idx.ForEachShard(func(name string, shard db.ShardLike) error {
+			if shardName == "" || shardName == name {
+				return shard.DeleteObjectsExpired(ctx, expirationThreshold, propName)
+			}
+			return nil
+		})
+		if err != nil {
+			http.Error(w, "failed to delete expired objects", http.StatusInternalServerError)
+			return
+		}
+
+		w.WriteHeader(http.StatusAccepted)
+	}))
 }
 
 // skipSensitiveConfig creates a copy of the config with Authentication and Authorization

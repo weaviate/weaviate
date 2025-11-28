@@ -588,19 +588,27 @@ func (s *Searcher) extractTimestampProp(propName string, propType schema.DataTyp
 		}
 		byteValue = []byte(v)
 	case schema.DataTypeDate:
-		v, ok := value.(string)
-		if !ok {
-			return nil, fmt.Errorf("expected value to be string, got '%T'", value)
-		}
-		t, err := time.Parse(time.RFC3339, v)
-		if err != nil {
-			return nil, fmt.Errorf("trying parse time as RFC3339 string: %w", err)
+		var asInt64 int64
+
+		switch t := value.(type) {
+		case string:
+			parsed, err := time.Parse(time.RFC3339, t)
+			if err != nil {
+				return nil, fmt.Errorf("trying parse time as RFC3339 string: %w", err)
+			}
+			asInt64 = parsed.UnixMilli()
+
+		case time.Time:
+			asInt64 = t.UnixMilli()
+
+		default:
+			return nil, fmt.Errorf("expected value to be string or time.Time, got '%T'", value)
 		}
 
 		// if propType is a `valueDate`, we need to convert
 		// it to ms before fetching. this is the format by
 		// which our timestamps are indexed
-		byteValue = []byte(strconv.FormatInt(t.UnixMilli(), 10))
+		byteValue = []byte(strconv.FormatInt(asInt64, 10))
 	default:
 		return nil, fmt.Errorf(
 			"failed to extract timestamp prop, unsupported type '%T' for prop '%s'", propType, propName)
