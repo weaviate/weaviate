@@ -64,7 +64,7 @@ func (s *SPFresh) Add(ctx context.Context, id uint64, vector []float32) (err err
 			s.logger.WithError(err).Error("could not set dimensions")
 			return // Fail the entire initialization
 		}
-		s.quantizer = compressionhelpers.NewRotationalQuantizer(int(s.dims), 42, 8, s.config.DistanceProvider)
+		s.quantizer = compressionhelpers.NewBinaryRotationalQuantizer(int(s.dims), 42, s.config.DistanceProvider)
 		s.vectorSize = int32(compressedVectorSize(int(s.dims)))
 		s.Centroids.SetQuantizer(s.quantizer)
 		if err := s.setVectorSize(s.vectorSize); err != nil {
@@ -93,7 +93,7 @@ func (s *SPFresh) Add(ctx context.Context, id uint64, vector []float32) (err err
 
 	var v Vector
 
-	compressed := s.quantizer.Encode(vector)
+	compressed := s.quantizer.CompressedBytes(s.quantizer.Encode(vector))
 	v = NewVector(id, version, compressed)
 
 	targets, _, err := s.RNGSelect(vector, 0)

@@ -374,13 +374,13 @@ func (s *SPFresh) handleDeserializedData(container *RQDataContainer) error {
 // restoreRQ8FromMsgpack restores RQ8 quantizer from msgpack data
 func (s *SPFresh) restoreRQ8FromMsgpack(rq8Data *RQ8Data) error {
 	// Restore the RQ8 quantizer
-	rq, err := compressionhelpers.RestoreRotationalQuantizer(
+	rq, err := compressionhelpers.RestoreBinaryRotationalQuantizer(
 		int(rq8Data.InputDim),
-		int(8),
 		int(rq8Data.OutputDim),
 		int(rq8Data.Rounds),
 		rq8Data.Swaps,
 		rq8Data.Signs,
+		nil,
 		s.config.DistanceProvider,
 	)
 	if err != nil {

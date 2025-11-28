@@ -29,7 +29,7 @@ type HNSWIndex struct {
 	metrics   *Metrics
 	hnsw      *hnsw.HNSW
 	counter   atomic.Int32
-	quantizer *compressionhelpers.RotationalQuantizer
+	quantizer *compressionhelpers.BinaryRotationalQuantizer
 }
 
 func NewHNSWIndex(metrics *Metrics, store *lsmkv.Store, cfg *Config, pages, pageSize uint64) (*HNSWIndex, error) {
@@ -61,7 +61,7 @@ func NewHNSWIndex(metrics *Metrics, store *lsmkv.Store, cfg *Config, pages, page
 	return &index, nil
 }
 
-func (i *HNSWIndex) SetQuantizer(quantizer *compressionhelpers.RotationalQuantizer) {
+func (i *HNSWIndex) SetQuantizer(quantizer *compressionhelpers.BinaryRotationalQuantizer) {
 	i.quantizer = quantizer
 }
 
@@ -72,7 +72,7 @@ func (i *HNSWIndex) Get(id uint64) *Centroid {
 	}
 	return &Centroid{
 		Uncompressed: vec,
-		Compressed:   i.quantizer.Encode(vec),
+		Compressed:   i.quantizer.CompressedBytes(i.quantizer.Encode(vec)),
 		Deleted:      false,
 	}
 }

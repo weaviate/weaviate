@@ -187,7 +187,8 @@ func (rq *BinaryRotationalQuantizer) Encode(x []float32) []uint64 {
 }
 
 func (rq *BinaryRotationalQuantizer) Decode(compressed []uint64) []float32 {
-	panic("unimplemented")
+	restored := rq.Restore(compressed)
+	return rq.rotation.UnRotate(restored)
 }
 
 // Restore -> NewCompressedQuantizerDistancer -> NewDistancerFromID -> reassignNeighbor in when deleting

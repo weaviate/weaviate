@@ -29,7 +29,7 @@ const (
 func (s *SPFresh) SearchByVector(ctx context.Context, vector []float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
 	rescoreLimit := k + 5
 	vector = s.normalizeVec(vector)
-	queryVector := NewAnonymousVector(s.quantizer.Encode(vector))
+	queryVector := NewAnonymousVector(s.quantizer.CompressedBytes(s.quantizer.Encode(vector)))
 
 	var selected []uint64
 	var postings []*Posting

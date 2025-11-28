@@ -71,7 +71,7 @@ type SPFresh struct {
 	dims               int32 // Number of dimensions of expected vectors
 	vectorSize         int32 // Size of the compressed vectors in bytes
 	distancer          *Distancer
-	quantizer          *compressionhelpers.RotationalQuantizer
+	quantizer          *compressionhelpers.BinaryRotationalQuantizer
 
 	// Internal components
 	Centroids    CentroidIndex           // Provides access to the centroids.

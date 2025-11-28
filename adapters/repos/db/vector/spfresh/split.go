@@ -224,7 +224,7 @@ func (s *SPFresh) splitPosting(posting *Posting) ([]SplitResult, error) {
 			},
 		}
 
-		results[i].Centroid = s.quantizer.Encode(enc.Centroid(byte(i)))
+		results[i].Centroid = s.quantizer.CompressedBytes(s.quantizer.Encode(enc.Centroid(byte(i))))
 	}
 
 	for i, v := range data {

@@ -72,7 +72,7 @@ func (s *SPFresh) doReassign(ctx context.Context, op reassignOperation) error {
 	}
 
 	// create a new vector with the updated version
-	newVector := NewVector(op.VectorID, version, s.quantizer.Encode(q))
+	newVector := NewVector(op.VectorID, version, s.quantizer.CompressedBytes(s.quantizer.Encode(q)))
 
 	// append the vector to each replica
 	for id := range replicas.Iter() {

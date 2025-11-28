@@ -38,7 +38,7 @@ type CentroidIndex interface {
 	MarkAsDeleted(id uint64) error
 	Exists(id uint64) bool
 	Search(query []float32, k int) (*ResultSet, error)
-	SetQuantizer(quantizer *compressionhelpers.RotationalQuantizer)
+	SetQuantizer(quantizer *compressionhelpers.BinaryRotationalQuantizer)
 	GetMaxID() uint64
 }
 
@@ -71,7 +71,7 @@ func (s *BruteForceIndex) Get(id uint64) *Centroid {
 	return page[slot].Load()
 }
 
-func (i *BruteForceIndex) SetQuantizer(quantizer *compressionhelpers.RotationalQuantizer) {
+func (i *BruteForceIndex) SetQuantizer(quantizer *compressionhelpers.BinaryRotationalQuantizer) {
 }
 
 func (s *BruteForceIndex) Insert(id uint64, centroid *Centroid) error {
