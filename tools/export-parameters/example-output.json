@@ -1,0 +1,95 @@
+{
+  "generatedBy": "tools/export-parameters",
+  "modules": [
+    {
+      "name": "text2vec-cohere",
+      "description": "Cohere vectorizer module for text embeddings",
+      "parameters": {
+        "BaseURL": {
+          "jsonKey": "baseURL",
+          "defaultValue": "https://api.cohere.ai",
+          "description": "Cohere API base URL",
+          "required": false
+        },
+        "Dimensions": {
+          "jsonKey": "dimensions",
+          "description": "Number of dimensions for the embedding",
+          "required": false
+        },
+        "Model": {
+          "jsonKey": "model",
+          "defaultValue": "embed-multilingual-v3.0",
+          "description": "Cohere model name",
+          "required": false
+        },
+        "Truncate": {
+          "jsonKey": "truncate",
+          "defaultValue": "END",
+          "description": "Truncation strategy (NONE, START, END, LEFT, RIGHT)",
+          "required": false,
+          "allowedValues": [
+            "NONE",
+            "START",
+            "END",
+            "LEFT",
+            "RIGHT"
+          ]
+        }
+      }
+    },
+    {
+      "name": "text2vec-google",
+      "description": "Google (Vertex AI \u0026 AI Studio) vectorizer module for text embeddings",
+      "parameters": {
+        "ApiEndpoint": {
+          "jsonKey": "apiEndpoint",
+          "defaultValue": "us-central1-aiplatform.googleapis.com",
+          "description": "Google API endpoint",
+          "required": false
+        },
+        "Dimensions": {
+          "jsonKey": "dimensions",
+          "description": "Number of dimensions for the embedding",
+          "required": false
+        },
+        "Model": {
+          "jsonKey": "model",
+          "alternateKeys": [
+            "modelId"
+          ],
+          "defaultValue": "gemini-embedding-001",
+          "description": "Google embedding model name; modelId is an alternate key for backward compatibility",
+          "required": false
+        },
+        "ProjectID": {
+          "jsonKey": "projectId",
+          "defaultValue": "",
+          "description": "Google Cloud project ID; only required for non-AI Studio endpoints",
+          "required": false
+        },
+        "TaskType": {
+          "jsonKey": "taskType",
+          "defaultValue": "RETRIEVAL_QUERY",
+          "description": "Task type for the embedding",
+          "required": false,
+          "allowedValues": [
+            "RETRIEVAL_QUERY",
+            "QUESTION_ANSWERING",
+            "FACT_VERIFICATION",
+            "CODE_RETRIEVAL_QUERY",
+            "CLASSIFICATION",
+            "CLUSTERING",
+            "SEMANTIC_SIMILARITY"
+          ]
+        },
+        "TitleProperty": {
+          "jsonKey": "titleProperty",
+          "defaultValue": "",
+          "description": "Title property for document embedding",
+          "required": false
+        }
+      }
+    }
+  ],
+  "version": "1.0.0"
+}
