@@ -19,13 +19,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 )
 
-func abs(a float32) float32 {
-	if a < 0 {
-		return -a
-	}
-	return a
-}
-
 // doSplit performs the actual split operation for a given postingID.
 // If reassign is true, it will enqueue reassign operations for vectors that
 // may need to be moved to other postings after the split.
@@ -52,7 +45,7 @@ func (s *SPFresh) doSplit(ctx context.Context, postingID uint64, reassign bool) 
 	if err != nil {
 		if errors.Is(err, ErrPostingNotFound) {
 			s.logger.WithField("postingID", postingID).
-				Debug("Posting not found, skipping split operation")
+				Debug("posting not found, skipping split operation")
 			return nil
 		}
 
@@ -89,67 +82,18 @@ func (s *SPFresh) doSplit(ctx context.Context, postingID uint64, reassign bool) 
 
 	// split the vectors into two clusters
 	result, err := s.splitPosting(filtered)
-	if err != nil || len(result) < 2 {
-		if !errors.Is(err, ErrIdenticalVectors) {
-			return errors.Wrapf(err, "failed to split vectors for posting %d", postingID)
-		}
-
-		// If the split fails because the posting contains identical vectors,
-		// we override the posting with a single vector
+	if err != nil {
+		return errors.Wrapf(err, "failed to split vectors for posting %d", postingID)
+	}
+	// if one of the postings is empty, ignore the split
+	if result[0].Posting.Len() == 0 || result[1].Posting.Len() == 0 {
 		s.logger.WithField("postingID", postingID).
-			WithError(err).
-			Debug("cannot split posting: contains identical vectors, keeping only one vector")
-
-		pp := &Posting{
-			vectorSize: int(s.vectorSize),
-		}
-		pp.AddVector(filtered.GetAt(0))
-		err = s.PostingStore.Put(ctx, postingID, pp)
-		if err != nil {
-			return errors.Wrapf(err, "failed to put single vector posting %d after split operation", postingID)
-		}
-		// update posting size after successful persist
-		err = s.PostingSizes.Set(ctx, postingID, 1)
-		if err != nil {
-			return errors.Wrapf(err, "failed to set posting size for posting %d after split operation", postingID)
-		}
-
+			Debug("split resulted in empty posting, skipping split operation")
 		return nil
 	}
 
 	newPostingIDs := make([]uint64, 2)
-	var postingReused bool
 	for i := range 2 {
-		// if the centroid of the existing posting is close enough to one of the new centroids
-		// we can reuse the existing posting
-		if !postingReused {
-			existingCentroid := s.Centroids.Get(postingID)
-			dist, err := s.distancer.DistanceBetweenVectors(existingCentroid.Uncompressed, result[i].Uncompressed)
-			if err != nil {
-				return errors.Wrapf(err, "failed to compute distance for split operation on posting %d", postingID)
-			}
-
-			if abs(dist) < splitReuseEpsilon {
-				s.logger.WithField("postingID", postingID).
-					WithField("distance", dist).
-					Debug("reusing existing posting for split operation")
-				postingReused = true
-				newPostingIDs[i] = postingID
-				err = s.PostingStore.Put(ctx, postingID, result[i].Posting)
-				if err != nil {
-					return errors.Wrapf(err, "failed to put reused posting %d after split operation", postingID)
-				}
-				// update posting size after successful persist
-				err = s.PostingSizes.Set(ctx, postingID, uint32(result[i].Posting.Len()))
-				if err != nil {
-					return errors.Wrapf(err, "failed to set posting size for reused posting %d after split operation", postingID)
-				}
-
-				continue
-			}
-		}
-
-		// otherwise, we need to create a new posting for the new centroid
 		newPostingID := s.IDs.Next()
 		newPostingIDs[i] = newPostingID
 		err = s.PostingStore.Put(ctx, newPostingID, result[i].Posting)
@@ -173,16 +117,14 @@ func (s *SPFresh) doSplit(ctx context.Context, postingID uint64, reassign bool) 
 		}
 	}
 
-	if !postingReused {
-		// delete the old centroid if it wasn't reused
-		err = s.Centroids.MarkAsDeleted(postingID)
-		if err != nil {
-			return errors.Wrapf(err, "failed to delete old centroid %d after split operation", postingID)
-		}
-		err = s.PostingSizes.Set(ctx, postingID, 0)
-		if err != nil {
-			return errors.Wrapf(err, "failed to set posting size for posting %d after split operation", postingID)
-		}
+	// delete the old centroid
+	err = s.Centroids.MarkAsDeleted(postingID)
+	if err != nil {
+		return errors.Wrapf(err, "failed to delete old centroid %d after split operation", postingID)
+	}
+	err = s.PostingSizes.Set(ctx, postingID, 0)
+	if err != nil {
+		return errors.Wrapf(err, "failed to set posting size for posting %d after split operation", postingID)
 	}
 
 	// Mark the split operation as done
@@ -203,8 +145,6 @@ func (s *SPFresh) doSplit(ctx context.Context, postingID uint64, reassign bool) 
 }
 
 // splitPosting takes a posting and returns two groups.
-// If the clustering fails because of the content of the posting,
-// it returns ErrIdenticalVectors.
 func (s *SPFresh) splitPosting(posting *Posting) ([]SplitResult, error) {
 	enc := compressionhelpers.NewKMeansEncoder(2, int(s.dims), 0)
 
@@ -242,11 +182,6 @@ func (s *SPFresh) splitPosting(posting *Posting) ([]SplitResult, error) {
 		} else {
 			results[1].Posting.AddVector(posting.GetAt(i))
 		}
-	}
-
-	// check if the clustering failed because the vectors are identical
-	if results[0].Posting.Len() == 0 || results[1].Posting.Len() == 0 {
-		return nil, ErrIdenticalVectors
 	}
 
 	return results, nil
@@ -328,7 +263,7 @@ func (s *SPFresh) enqueueReassignAfterSplit(ctx context.Context, oldPostingID ui
 		if err != nil {
 			if errors.Is(err, ErrPostingNotFound) {
 				s.logger.WithField("postingID", neighborID).
-					Debug("Posting not found, skipping reassign after split")
+					Debug("posting not found, skipping reassign after split")
 				continue // Skip if the posting is not found
 			}
 

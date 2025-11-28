@@ -35,14 +35,12 @@ import (
 )
 
 const (
-	reassignThreshold = 3        // Fine-tuned threshold to avoid unnecessary splits during reassign operations
-	splitReuseEpsilon = 0.000001 // Epsilon to determine if a split can reuse the existing posting
+	reassignThreshold = 3 // Fine-tuned threshold to avoid unnecessary splits during reassign operations
 )
 
 var (
-	ErrPostingNotFound  = errors.New("posting not found")
-	ErrVectorNotFound   = errors.New("vector not found")
-	ErrIdenticalVectors = errors.New("posting list contains identical or near-identical vectors")
+	ErrPostingNotFound = errors.New("posting not found")
+	ErrVectorNotFound  = errors.New("vector not found")
 )
 
 var _ common.VectorIndex = (*SPFresh)(nil)
