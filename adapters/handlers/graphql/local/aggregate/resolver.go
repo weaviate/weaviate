@@ -21,6 +21,7 @@ import (
 	"github.com/tailor-inc/graphql"
 	"github.com/tailor-inc/graphql/language/ast"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
+	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/graphqlutil"
 	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -283,13 +284,11 @@ func extractLimit(args map[string]interface{}) (*int, error) {
 		// not set means the user is not interested and the UC should use a reasonable default
 		return nil, nil
 	}
-
-	limitInt, ok := limit.(int)
-	if !ok {
-		return nil, fmt.Errorf("limit must be an int, instead got: %#v", limit)
+	i, err := graphqlutil.ToInt(limit)
+	if err != nil {
+		return nil, fmt.Errorf("limit must be an int, instead got: %#v: %w", limit, err)
 	}
-
-	return &limitInt, nil
+	return &i, nil
 }
 
 func extractObjectLimit(args map[string]interface{}) (*int, error) {
@@ -297,13 +296,11 @@ func extractObjectLimit(args map[string]interface{}) (*int, error) {
 	if !ok {
 		return nil, nil
 	}
-
-	objectLimitInt, ok := objectLimit.(int)
-	if !ok {
-		return nil, fmt.Errorf("objectLimit must be an int, instead got: %#v", objectLimit)
+	i, err := graphqlutil.ToInt(objectLimit)
+	if err != nil {
+		return nil, fmt.Errorf("objectLimit must be an int, instead got: %#v: %w", objectLimit, err)
 	}
-
-	return &objectLimitInt, nil
+	return &i, nil
 }
 
 func extractLimitFromArgs(args []*ast.Argument) *int {

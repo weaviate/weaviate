@@ -11,6 +11,12 @@
 
 package filters
 
+import (
+	"fmt"
+
+	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/graphqlutil"
+)
+
 const (
 	// LimitFlagSearchByDist indicates that the
 	// vector search should be conducted by
@@ -37,7 +43,7 @@ func ExtractPaginationFromArgs(args map[string]interface{}) (*Pagination, error)
 	}
 
 	limit, limitOk := args["limit"]
-	if !limitOk || limit.(int) < 0 {
+	if !limitOk {
 		limit = LimitFlagNotSet
 	}
 
@@ -50,9 +56,23 @@ func ExtractPaginationFromArgs(args map[string]interface{}) (*Pagination, error)
 		return nil, nil
 	}
 
+	// coerce values to int using helper to avoid panics when variables come as int64/json.Number
+	off, err := graphqlutil.ToInt(offset)
+	if err != nil {
+		return nil, fmt.Errorf("invalid offset: %w", err)
+	}
+	lim, err := graphqlutil.ToInt(limit)
+	if err != nil {
+		return nil, fmt.Errorf("invalid limit: %w", err)
+	}
+	ac, err := graphqlutil.ToInt(autocut)
+	if err != nil {
+		return nil, fmt.Errorf("invalid autocut: %w", err)
+	}
+
 	return &Pagination{
-		Offset:  offset.(int),
-		Limit:   limit.(int),
-		Autocut: autocut.(int),
+		Offset:  off,
+		Limit:   lim,
+		Autocut: ac,
 	}, nil
 }
