@@ -2765,7 +2765,7 @@ func (p *fakeModulesProvider) VectorFromSearchParam(ctx context.Context, classNa
 ) ([]float32, error) {
 	txt2vec := p.getFakeT2Vec()
 	vectorForParams := txt2vec.VectorSearches()["nearCustomText"]
-	vec, err := vectorForParams.VectorForParams(ctx, params, "", findVectorFn, nil)
+	vec, err := vectorForParams(ctx, params, "", findVectorFn, nil)
 	return vec, err
 }
 
@@ -2787,7 +2787,7 @@ func (p *fakeModulesProvider) CrossClassVectorFromSearchParam(ctx context.Contex
 	txt2vec := p.getFakeT2Vec()
 	vectorForParams := txt2vec.VectorSearches()["nearCustomText"]
 	targetVector := ""
-	vec, err := vectorForParams.VectorForParams(ctx, params, "", findVectorFn, nil)
+	vec, err := vectorForParams(ctx, params, "", findVectorFn, nil)
 	return vec, targetVector, err
 }
 

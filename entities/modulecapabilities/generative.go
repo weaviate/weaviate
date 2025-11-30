@@ -23,7 +23,7 @@ import (
 type GraphQLInputFieldFn = func(classname string) *graphql.InputObjectFieldConfig
 
 // ExtractRequestParamsFn extracts specific generative API parameters from graphql queries
-type ExtractRequestParamsFn = func(field *ast.ObjectField) interface{}
+type ExtractRequestParamsFn = func(field *ast.ObjectField) any
 
 // GenerateDebugInformation exposes debug information
 type GenerateDebugInformation struct {
@@ -34,7 +34,7 @@ type GenerateDebugInformation struct {
 // response parameters
 type GenerateResponse struct {
 	Result *string
-	Params map[string]interface{}
+	Params map[string]any
 	Debug  *GenerateDebugInformation
 }
 
@@ -48,10 +48,10 @@ type GenerateProperties struct {
 // GenerativeClient defines generative client
 type GenerativeClient interface {
 	GenerateSingleResult(ctx context.Context,
-		properties *GenerateProperties, prompt string, requestParams interface{}, debug bool, cfg moduletools.ClassConfig,
+		properties *GenerateProperties, prompt string, requestParams any, debug bool, cfg moduletools.ClassConfig,
 	) (*GenerateResponse, error)
 	GenerateAllResults(ctx context.Context,
-		properties []*GenerateProperties, task string, requestParams interface{}, debug bool, cfg moduletools.ClassConfig,
+		properties []*GenerateProperties, task string, requestParams any, debug bool, cfg moduletools.ClassConfig,
 	) (*GenerateResponse, error)
 }
 

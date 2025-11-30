@@ -21,11 +21,20 @@ import (
 )
 
 type Searcher[T dto.Embedding] struct {
-	vectorizer bindVectorizer[T]
+	vectorForParams modulecapabilities.VectorForParams[T]
 }
 
 func NewSearcher[T dto.Embedding](vectorizer bindVectorizer[T]) *Searcher[T] {
-	return &Searcher[T]{vectorizer}
+	return &Searcher[T]{func(ctx context.Context, params any, className string,
+		findVectorFn modulecapabilities.FindVectorFn[T],
+		cfg moduletools.ClassConfig,
+	) (T, error) {
+		vector, err := vectorizer.VectorizeDepth(ctx, params.(*NearDepthParams).Depth, cfg)
+		if err != nil {
+			return nil, errors.Errorf("vectorize thermal: %v", err)
+		}
+		return vector, nil
+	}}
 }
 
 type bindVectorizer[T dto.Embedding] interface {
@@ -34,21 +43,6 @@ type bindVectorizer[T dto.Embedding] interface {
 
 func (s *Searcher[T]) VectorSearches() map[string]modulecapabilities.VectorForParams[T] {
 	vectorSearches := map[string]modulecapabilities.VectorForParams[T]{}
-	vectorSearches["nearDepth"] = &vectorForParams[T]{s.vectorizer}
+	vectorSearches["nearDepth"] = s.vectorForParams
 	return vectorSearches
-}
-
-type vectorForParams[T dto.Embedding] struct {
-	vectorizer bindVectorizer[T]
-}
-
-func (v *vectorForParams[T]) VectorForParams(ctx context.Context, params interface{}, className string,
-	findVectorFn modulecapabilities.FindVectorFn[T],
-	cfg moduletools.ClassConfig,
-) (T, error) {
-	vector, err := v.vectorizer.VectorizeDepth(ctx, params.(*NearDepthParams).Depth, cfg)
-	if err != nil {
-		return nil, errors.Errorf("vectorize thermal: %v", err)
-	}
-	return vector, nil
 }

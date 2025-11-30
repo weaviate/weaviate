@@ -26,7 +26,7 @@ type ClassConfigurator interface {
 	// ClassDefaults provides the defaults for a per-class module config. The
 	// module provider will merge the props into the user-specified config with
 	// the user-provided values taking precedence
-	ClassConfigDefaults() map[string]interface{}
+	ClassConfigDefaults() map[string]any
 
 	// PropertyConfigDefaults provides the defaults for a per-property module
 	// config. The module provider will merge the props into the user-specified
@@ -35,7 +35,7 @@ type ClassConfigurator interface {
 	// dataType is not guaranteed to be non-nil, it might be nil in the case a
 	// user specified an invalid dataType, as some validation only occurs after
 	// defaults are set.
-	PropertyConfigDefaults(dataType *schema.DataType) map[string]interface{}
+	PropertyConfigDefaults(dataType *schema.DataType) map[string]any
 
 	// ValidateClass MAY validate anything about the class, except the config of
 	// another module. The specified ClassConfig can be used to easily retrieve
