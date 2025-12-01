@@ -160,28 +160,28 @@ type WeaviateServer interface {
 type UnimplementedWeaviateServer struct{}
 
 func (UnimplementedWeaviateServer) Search(context.Context, *SearchRequest) (*SearchReply, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method Search not implemented")
+	return nil, status.Error(codes.Unimplemented, "method Search not implemented")
 }
 func (UnimplementedWeaviateServer) BatchObjects(context.Context, *BatchObjectsRequest) (*BatchObjectsReply, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method BatchObjects not implemented")
+	return nil, status.Error(codes.Unimplemented, "method BatchObjects not implemented")
 }
 func (UnimplementedWeaviateServer) BatchReferences(context.Context, *BatchReferencesRequest) (*BatchReferencesReply, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method BatchReferences not implemented")
+	return nil, status.Error(codes.Unimplemented, "method BatchReferences not implemented")
 }
 func (UnimplementedWeaviateServer) BatchDelete(context.Context, *BatchDeleteRequest) (*BatchDeleteReply, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method BatchDelete not implemented")
+	return nil, status.Error(codes.Unimplemented, "method BatchDelete not implemented")
 }
 func (UnimplementedWeaviateServer) TenantsGet(context.Context, *TenantsGetRequest) (*TenantsGetReply, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method TenantsGet not implemented")
+	return nil, status.Error(codes.Unimplemented, "method TenantsGet not implemented")
 }
 func (UnimplementedWeaviateServer) Aggregate(context.Context, *AggregateRequest) (*AggregateReply, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method Aggregate not implemented")
+	return nil, status.Error(codes.Unimplemented, "method Aggregate not implemented")
 }
 func (UnimplementedWeaviateServer) BatchSend(context.Context, *BatchSendRequest) (*BatchSendReply, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method BatchSend not implemented")
+	return nil, status.Error(codes.Unimplemented, "method BatchSend not implemented")
 }
 func (UnimplementedWeaviateServer) BatchStream(*BatchStreamRequest, grpc.ServerStreamingServer[BatchStreamMessage]) error {
-	return status.Errorf(codes.Unimplemented, "method BatchStream not implemented")
+	return status.Error(codes.Unimplemented, "method BatchStream not implemented")
 }
 func (UnimplementedWeaviateServer) mustEmbedUnimplementedWeaviateServer() {}
 func (UnimplementedWeaviateServer) testEmbeddedByValue()                  {}
@@ -194,7 +194,7 @@ type UnsafeWeaviateServer interface {
 }
 
 func RegisterWeaviateServer(s grpc.ServiceRegistrar, srv WeaviateServer) {
-	// If the following call pancis, it indicates UnimplementedWeaviateServer was
+	// If the following call panics, it indicates UnimplementedWeaviateServer was
 	// embedded by pointer and is nil.  This will cause panics if an
 	// unimplemented method is ever invoked, so we test this at initialization
 	// time to prevent it from happening at runtime later due to I/O.
