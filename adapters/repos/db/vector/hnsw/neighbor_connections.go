@@ -213,7 +213,9 @@ func (n *neighborFinderConnector) processRecursively(from uint64, results *prior
 				"max_depth":           stats.recursionDepht,
 				"distance_kept_nodes": stats.positiveDistanceCalculations,
 				"distance_del_nodes":  stats.negativeDistanceCalculations,
-			})
+				"shard":               n.graph.shardName,
+				"class":               n.graph.className,
+			}).Warn("high recursion depth or distance calculatinos during tombstone cleanup")
 		}
 		err := n.processRecursively(id, results, visited, level, top, stats)
 		stats.recursionDepht--
