@@ -37,7 +37,7 @@ func TestHFreshOptimizedPostingSize(t *testing.T) {
 	cfg.RootPath = t.TempDir()
 	cfg.Centroids.HNSWConfig = &hnsw.Config{
 		RootPath:              t.TempDir(),
-		ID:                    "spfresh",
+		ID:                    "hfresh",
 		MakeCommitLoggerThunk: makeNoopCommitLogger,
 		DistanceProvider:      distancer.NewCosineDistanceProvider(),
 		MakeBucketOptions:     lsmkv.MakeNoopBucketOptions,
