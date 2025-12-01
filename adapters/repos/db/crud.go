@@ -80,9 +80,11 @@ func (db *DB) DeleteObjectsExpired(ctx context.Context, expirationTime time.Time
 	}
 	db.indexLock.RUnlock()
 
-	chErrs := make([]<-chan error, 0, len(colNames))
-	ec := errorcompounder.New()
+	if len(colNames) == 0 {
+		return nil
+	}
 
+	chErrs := make([]<-chan error, 0, len(colNames))
 	eg := enterrors.NewErrorGroupWrapper(db.logger)
 	eg.SetLimit(concurrency.NUMCPU)
 	for _, colName := range colNames {
@@ -98,6 +100,7 @@ func (db *DB) DeleteObjectsExpired(ctx context.Context, expirationTime time.Time
 	}
 	eg.Wait()
 
+	ec := errorcompounder.New()
 	for _, chErr := range chErrs {
 		ec.Add(<-chErr)
 	}

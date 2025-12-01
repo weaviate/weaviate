@@ -34,6 +34,7 @@ import (
 	openapierrors "github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/swag"
+	cron "github.com/netresearch/go-cron"
 	"github.com/pbnjay/memory"
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
@@ -41,10 +42,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus/collectors/version"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
-	"google.golang.org/grpc/credentials/insecure"
-
 	"github.com/weaviate/fgprof"
 	"github.com/weaviate/weaviate/adapters/clients"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/authz"
@@ -157,6 +154,9 @@ import (
 	"github.com/weaviate/weaviate/usecases/telemetry"
 	"github.com/weaviate/weaviate/usecases/telemetry/opentelemetry"
 	"github.com/weaviate/weaviate/usecases/traverser"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
 const MinimumRequiredContextionaryVersion = "1.0.2"
@@ -858,12 +858,104 @@ func configureReindexer(appState *state.State, reindexCtx context.Context) db.Sh
 	return reindexer
 }
 
+type cronLoggerWrapper struct {
+	logger logrus.FieldLogger
+}
+
+func (w *cronLoggerWrapper) Info(msg string, keysAndValues ...any) {
+	w.logger.WithFields(w.toFields(keysAndValues)).Debug(msg)
+}
+
+func (w *cronLoggerWrapper) Error(err error, msg string, keysAndValues ...any) {
+	w.logger.WithError(err).WithFields(w.toFields(keysAndValues)).Error(msg)
+}
+
+func (w *cronLoggerWrapper) toFields(keysAndValues []any) logrus.Fields {
+	fields := logrus.Fields{
+		"action": "cron",
+	}
+	if ln := len(keysAndValues); ln > 0 {
+		for i := 0; i < ln; i += 2 {
+			fields[fmt.Sprintf("c_%s", keysAndValues[i])] = keysAndValues[i+1]
+		}
+	}
+	return fields
+}
+
+type cronJob struct {
+	callback func()
+}
+
+func (w *cronJob) Run() {
+	w.callback()
+}
+
 func configureCrons(appState *state.State, serverShutdownCtx context.Context) {
+	type jobSpec struct {
+		schedule string
+		job      cron.Job
+	}
 
-	// appState.DB.DeleteObjectsExpired(serverShutdownCtx, time.Now())
+	logger := &cronLoggerWrapper{logger: appState.Logger}
+	specs := []jobSpec{}
 
-	<-serverShutdownCtx.Done()
-	fmt.Printf("configureCrons %s\n\n", context.Cause(serverShutdownCtx))
+	if schedule := appState.ServerConfig.Config.ObjectsTTLDeleteSchedule; schedule != "" {
+		deleteObjectsExpiredJob := cron.NewChain(cron.SkipIfStillRunning(logger)).Then(&cronJob{callback: func() {
+			var err error
+			now := time.Now()
+
+			ctx, cancel := context.WithCancel(serverShutdownCtx)
+			defer cancel()
+
+			// TODO aliszka:ttl change log level to debug?
+			appState.Logger.WithFields(logrus.Fields{
+				"action": "cron_delete_objects_expired",
+			}).Info("started deletion of expired objects")
+			defer func() {
+				l := appState.Logger.WithFields(logrus.Fields{
+					"action": "cron_delete_objects_expired",
+					"took":   time.Since(now).String(),
+				})
+
+				if err != nil {
+					l.WithError(err).Error("error deleting expired objects")
+				} else {
+					l.Info("finished deleting expired objects")
+				}
+			}()
+
+			err = appState.DB.DeleteObjectsExpired(ctx, now)
+		}})
+
+		specs = append(specs, jobSpec{
+			schedule: schedule,
+			job:      deleteObjectsExpiredJob,
+		})
+	}
+
+	// specs = append(specs, jobSpec{
+	// 	schedule: "@every 1m",
+	// 	job: cron.NewChain(cron.SkipIfStillRunning(logger)).Then(&cronJob{callback: func() {
+	// 		fmt.Printf("  ==> dummy job started [%s]\n\n", time.Now())
+	// 		time.Sleep((60 + 45) * time.Second)
+	// 		fmt.Printf("  ==> dummy job finished [%s]\n\n", time.Now())
+	// 	}}),
+	// })
+
+	if len(specs) > 0 {
+		fmt.Printf("  ==> configuring crons len=%d\n\n", len(specs))
+
+		// standard parser
+		c := cron.New(cron.WithLogger(logger), cron.WithChain(cron.Recover(logger)))
+		for i := range specs {
+			c.AddJob(specs[i].schedule, specs[i].job)
+		}
+		c.Start()
+
+		<-serverShutdownCtx.Done()
+		fmt.Printf("  ==> server shutdown [%s]\n\n", context.Cause(serverShutdownCtx))
+		c.Stop()
+	}
 }
 
 func parseNode2Port(appState *state.State) (m map[string]int, err error) {
