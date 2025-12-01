@@ -20,6 +20,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
@@ -356,14 +357,12 @@ func (s *Shard) deleteObjectExpiredByDocId(ctx context.Context, docID uint64, de
 	}
 
 	binary.LittleEndian.PutUint64(docIDBytes, curDocID)
-	// secKey := lsmkv.WithSecondaryKey(helpers.ObjectsBucketLSMDocIDSecondaryIndex, docIDBytes)
+	secKey := lsmkv.WithSecondaryKey(helpers.ObjectsBucketLSMDocIDSecondaryIndex, docIDBytes)
 
 	if deletionTime.IsZero() {
-		// err = bucket.Delete(uuidBytes, secKey)
-		err = bucket.Delete(uuidBytes)
+		err = bucket.Delete(uuidBytes, secKey)
 	} else {
-		// err = bucket.DeleteWith(uuidBytes, deletionTime, secKey)
-		err = bucket.DeleteWith(uuidBytes, deletionTime)
+		err = bucket.DeleteWith(uuidBytes, deletionTime, secKey)
 	}
 	if err != nil {
 		return fmt.Errorf("delete object from bucket: %w", err)
