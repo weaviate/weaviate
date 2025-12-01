@@ -131,6 +131,7 @@ func makeSetupGlobalMiddleware(appState *state.State, context *middleware.Contex
 		handler = addInjectHeadersIntoContext(handler)
 		handler = makeCatchPanics(appState.Logger, newPanicsRequestsTotal(appState.Metrics, appState.Logger))(handler)
 		handler = addSourceIpToContext(handler)
+		handler = addReadOnlyMode(appState, handler)
 		if appState.ServerConfig.Config.Monitoring.Enabled {
 			handler = monitoring.InstrumentHTTP(
 				handler,
@@ -270,6 +271,19 @@ func addLiveAndReadyness(state *state.State, next http.Handler) http.Handler {
 			return
 		}
 
+		next.ServeHTTP(w, r)
+	})
+}
+
+func addReadOnlyMode(state *state.State, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if state.ServerConfig.Config.ReadOnlyMode.Get() {
+			// Allow only read operations
+			if r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions {
+				http.Error(w, config.ErrReadOnlyModeEnabled.Error(), http.StatusServiceUnavailable)
+				return
+			}
+		}
 		next.ServeHTTP(w, r)
 	})
 }

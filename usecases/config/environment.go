@@ -941,6 +941,12 @@ func FromEnv(config *Config) error {
 	}
 	config.InvertedSorterDisabled = configRuntime.NewDynamicValue(invertedSorterDisabled)
 
+	readOnlyMode := false
+	if v := os.Getenv("READ_ONLY_MODE"); v != "" {
+		readOnlyMode = entcfg.Enabled(v)
+	}
+	config.ReadOnlyMode = configRuntime.NewDynamicValue(readOnlyMode)
+
 	return nil
 }
 
