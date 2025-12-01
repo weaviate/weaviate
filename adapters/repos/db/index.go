@@ -253,9 +253,11 @@ type Index struct {
 	// 1. closeLock
 	// 2. backupLock (for a specific shard)
 	// 3. shardCreateLocks (for a specific shard)
-	closeLock        sync.RWMutex       // protects against closing while doing operations
-	backupLock       *esync.KeyRWLocker // prevents writes while a backup is running
-	shardCreateLocks *esync.KeyRWLocker // prevents concurrent shard status changes
+	closeLock  sync.RWMutex       // protects against closing while doing operations
+	backupLock *esync.KeyRWLocker // prevents writes while a backup is running
+	// prevents concurrent shard status changes. Use .Rlock to secure against status changes and .Lock to change status
+	// Minimize holding the RW lock as it will block other operations on the same shard such as searches or writes.
+	shardCreateLocks *esync.KeyRWLocker
 
 	metrics          *Metrics
 	centralJobQueue  chan job
