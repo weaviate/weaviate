@@ -692,7 +692,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	repo.WithBitmapBufPool(bitmapBufPool, bitmapBufPoolClose)
 
 	var reindexCtx context.Context
-	reindexCtx, appState.ReindexCtxCancel = context.WithCancelCause(context.Background())
+	reindexCtx, appState.ReindexCtxCancel = context.WithCancelCause(serverShutdownCtx)
 	reindexer := configureReindexer(appState, reindexCtx)
 	repo.WithReindexer(reindexer)
 
@@ -867,7 +867,7 @@ func (w *cronLoggerWrapper) Info(msg string, keysAndValues ...any) {
 }
 
 func (w *cronLoggerWrapper) Error(err error, msg string, keysAndValues ...any) {
-	w.logger.WithError(err).WithFields(w.toFields(keysAndValues)).Error(msg)
+	w.logger.WithFields(w.toFields(keysAndValues)).WithError(err).Error(msg)
 }
 
 func (w *cronLoggerWrapper) toFields(keysAndValues []any) logrus.Fields {
@@ -910,7 +910,7 @@ func configureCrons(appState *state.State, serverShutdownCtx context.Context) {
 			// TODO aliszka:ttl change log level to debug?
 			appState.Logger.WithFields(logrus.Fields{
 				"action": "cron_delete_objects_expired",
-			}).Info("started deletion of expired objects")
+			}).Info("started deleting expired objects")
 			defer func() {
 				l := appState.Logger.WithFields(logrus.Fields{
 					"action": "cron_delete_objects_expired",
@@ -944,6 +944,10 @@ func configureCrons(appState *state.State, serverShutdownCtx context.Context) {
 
 	if len(specs) > 0 {
 		fmt.Printf("  ==> configuring crons len=%d\n\n", len(specs))
+
+		if serverShutdownCtx.Err() != nil {
+			return
+		}
 
 		// standard parser
 		c := cron.New(cron.WithLogger(logger), cron.WithChain(cron.Recover(logger)))
@@ -1105,8 +1109,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 				Errorf("failed to stop opentelemetry: %s", err.Error())
 		}
 
-		// stop reindexing on server shutdown
-		appState.ReindexCtxCancel(fmt.Errorf("server shutdown"))
 		serverShutdownCancel(fmt.Errorf("server shutdown"))
 
 		if appState.DistributedTaskScheduler != nil {
