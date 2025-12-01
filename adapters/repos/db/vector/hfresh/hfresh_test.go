@@ -79,7 +79,7 @@ func TestHFreshRecall(t *testing.T) {
 	tmpDir := t.TempDir()
 	cfg := DefaultConfig()
 	cfg.RootPath = tmpDir
-	cfg.ID = "spfresh"
+	cfg.ID = "hpfresh"
 	cfg.Centroids.HNSWConfig = &hnsw.Config{
 		RootPath:              t.TempDir(),
 		ID:                    "hfresh",
