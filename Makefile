@@ -106,3 +106,7 @@ banner: ## Add Weaviate banner with license details
 mocks: ## Regenerate test mocks
 	docker run --rm -v $(PWD):/src -w /src vektra/mockery:v2.53.2
 	$(MAKE) banner
+
+.PHONY: grpc
+grpc:
+	./tools/dev/grpc_regenerate.sh
