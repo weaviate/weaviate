@@ -858,6 +858,7 @@ func Test_AddClass_DefaultsAndMigration(t *testing.T) {
 
 func Test_AddClass_ObjectTTLConfig(t *testing.T) {
 	vFalse := false
+	vTrue := true
 
 	createCollection := func() *models.Class {
 		return &models.Class{
@@ -874,6 +875,12 @@ func Test_AddClass_ObjectTTLConfig(t *testing.T) {
 				{
 					Name:     "customPropertyDate",
 					DataType: schema.DataTypeDate.PropString(),
+				},
+				{
+					Name:              "customPropertyDateRangeable",
+					DataType:          schema.DataTypeDate.PropString(),
+					IndexFilterable:   &vFalse,
+					IndexRangeFilters: &vTrue,
 				},
 				{
 					Name:            "customPropertyDateNoIndex",
@@ -904,8 +911,12 @@ func Test_AddClass_ObjectTTLConfig(t *testing.T) {
 				reconfigure: func(c *models.Class) { c.ObjectTTLConfig.DeleteOn = filters.InternalPropLastUpdateTimeUnix },
 			},
 			{
-				name:        "deleteOn custom property",
+				name:        "deleteOn custom property (implicit filterable)",
 				reconfigure: func(c *models.Class) { c.ObjectTTLConfig.DeleteOn = "customPropertyDate" },
+			},
+			{
+				name:        "deleteOn custom property (explicit rangeable)",
+				reconfigure: func(c *models.Class) { c.ObjectTTLConfig.DeleteOn = "customPropertyDateRangeable" },
 			},
 			{
 				name:        "no ttl config",
@@ -944,7 +955,7 @@ func Test_AddClass_ObjectTTLConfig(t *testing.T) {
 			},
 			{
 				name:        "property without index",
-				reconfigure: func(c *models.Class) { c.ObjectTTLConfig.DeleteOn = "customPropertyNoIndex" },
+				reconfigure: func(c *models.Class) { c.ObjectTTLConfig.DeleteOn = "customPropertyDateNoIndex" },
 			},
 			{
 				name:        "property invalid datatype",

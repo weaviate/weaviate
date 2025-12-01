@@ -924,7 +924,7 @@ func configureCrons(appState *state.State, serverShutdownCtx context.Context) {
 				}
 			}()
 
-			err = appState.DB.DeleteObjectsExpired(ctx, now)
+			err = appState.DB.DeleteObjectsExpired(ctx, now, concurrency.NUMCPU)
 		}})
 
 		specs = append(specs, jobSpec{

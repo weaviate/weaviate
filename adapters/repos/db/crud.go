@@ -21,7 +21,6 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/refcache"
 	"github.com/weaviate/weaviate/entities/additional"
-	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
@@ -68,7 +67,7 @@ func (db *DB) DeleteObject(ctx context.Context, class string, id strfmt.UUID,
 	return nil
 }
 
-func (db *DB) DeleteObjectsExpired(ctx context.Context, expirationTime time.Time) error {
+func (db *DB) DeleteObjectsExpired(ctx context.Context, expirationTime time.Time, concurrency int) error {
 	fmt.Printf("  ==> expirationTime %s\n\n", expirationTime)
 
 	db.indexLock.RLock()
@@ -86,7 +85,7 @@ func (db *DB) DeleteObjectsExpired(ctx context.Context, expirationTime time.Time
 
 	chErrs := make([]<-chan error, 0, len(colNames))
 	eg := enterrors.NewErrorGroupWrapper(db.logger)
-	eg.SetLimit(concurrency.NUMCPU)
+	eg.SetLimit(concurrency)
 	for _, colName := range colNames {
 		db.indexLock.RLock()
 		idx := db.indices[colName]

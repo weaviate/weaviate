@@ -57,8 +57,9 @@ func ValidateObjectTTLConfig(collection *models.Class) (*models.ObjectTTLConfig,
 		if dt, _ := schema.AsPrimitive(deleteOnProp.DataType); dt != schema.DataTypeDate {
 			return nil, newErrorInvalidDeleteOnPropDatatype(deleteOn, dt)
 		}
-		// TODO aliszka:ttl allow rangeable?
-		if deleteOnProp.IndexFilterable == nil || !*deleteOnProp.IndexFilterable {
+		hasFilterable := deleteOnProp.IndexFilterable != nil && *deleteOnProp.IndexFilterable
+		hasRangeable := deleteOnProp.IndexRangeFilters != nil && *deleteOnProp.IndexRangeFilters
+		if !hasFilterable && !hasRangeable {
 			return nil, newErrorMissingDeleteOnPropIndex(deleteOn)
 		}
 	}
@@ -123,7 +124,7 @@ func (e errorInvalidDeleteOnPropDatatype) Unwrap() error {
 }
 
 func newErrorMissingDeleteOnPropIndex(deleteOn string) errorMissingDeleteOnPropIndex {
-	return errorMissingDeleteOnPropIndex{errorTtl{fmt.Errorf("property %q set as \"deleteOn\" should have filterable index enabled",
+	return errorMissingDeleteOnPropIndex{errorTtl{fmt.Errorf("property %q set as \"deleteOn\" should have filterable or rangeable index enabled",
 		deleteOn)}}
 }
 func (e errorMissingDeleteOnPropIndex) Unwrap() error {

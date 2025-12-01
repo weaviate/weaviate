@@ -37,18 +37,30 @@ func TestValidateObjectTTConfig(t *testing.T) {
 			},
 			Properties: []*models.Property{
 				{
-					Name:            "customPropertyDate",
+					Name:              "customPropertyDate",
+					DataType:          schema.DataTypeDate.PropString(),
+					IndexFilterable:   &vTrue,
+					IndexRangeFilters: &vTrue,
+				},
+				{
+					Name:            "customPropertyDateFilterable",
 					DataType:        schema.DataTypeDate.PropString(),
 					IndexFilterable: &vTrue,
 				},
 				{
-					Name:     "customPropertyDateNotFilterableImplicit",
+					Name:              "customPropertyDateRangeable",
+					DataType:          schema.DataTypeDate.PropString(),
+					IndexRangeFilters: &vTrue,
+				},
+				{
+					Name:     "customPropertyDateNoIndexesImplicit",
 					DataType: schema.DataTypeDate.PropString(),
 				},
 				{
-					Name:            "customPropertyDateNotFilterableExplicit",
-					DataType:        schema.DataTypeDate.PropString(),
-					IndexFilterable: &vFalse,
+					Name:              "customPropertyDateNoIndexesExplicit",
+					DataType:          schema.DataTypeDate.PropString(),
+					IndexFilterable:   &vFalse,
+					IndexRangeFilters: &vFalse,
 				},
 				{
 					Name:            "customPropertyDates",
@@ -112,12 +124,12 @@ func TestValidateObjectTTConfig(t *testing.T) {
 			},
 			{
 				name:        "deleteOn custom property not indexed (explicit)",
-				reconfigure: func(c *models.Class) { c.ObjectTTLConfig.DeleteOn = "customPropertyDateNotFilterableExplicit" },
+				reconfigure: func(c *models.Class) { c.ObjectTTLConfig.DeleteOn = "customPropertyDateNoIndexesExplicit" },
 				expErr:      &errorMissingDeleteOnPropIndex{},
 			},
 			{
 				name:        "deleteOn custom property not indexed (implicit)",
-				reconfigure: func(c *models.Class) { c.ObjectTTLConfig.DeleteOn = "customPropertyDateNotFilterableImplicit" },
+				reconfigure: func(c *models.Class) { c.ObjectTTLConfig.DeleteOn = "customPropertyDateNoIndexesImplicit" },
 				expErr:      &errorMissingDeleteOnPropIndex{},
 			},
 		}
@@ -141,7 +153,7 @@ func TestValidateObjectTTConfig(t *testing.T) {
 		}{
 			{
 				name:        "deleteOn creation time",
-				reconfigure: func(c *models.Class) { /* c.ObjectTTLConfig.DeleteOn = filters.InternalPropCreationTimeUnix */ },
+				reconfigure: func(c *models.Class) { c.ObjectTTLConfig.DeleteOn = filters.InternalPropCreationTimeUnix },
 			},
 			{
 				name:        "deleteOn update time",
@@ -150,6 +162,14 @@ func TestValidateObjectTTConfig(t *testing.T) {
 			{
 				name:        "deleteOn custom property",
 				reconfigure: func(c *models.Class) { c.ObjectTTLConfig.DeleteOn = "customPropertyDate" },
+			},
+			{
+				name:        "deleteOn custom property filterable",
+				reconfigure: func(c *models.Class) { c.ObjectTTLConfig.DeleteOn = "customPropertyDateFilterable" },
+			},
+			{
+				name:        "deleteOn custom property rangeable",
+				reconfigure: func(c *models.Class) { c.ObjectTTLConfig.DeleteOn = "customPropertyDateRangeable" },
 			},
 			{
 				name: "deleteOn custom property 0 default ttl",
