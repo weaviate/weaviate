@@ -255,7 +255,7 @@ type Index struct {
 	// 3. shardCreateLocks (for a specific shard)
 	closeLock        sync.RWMutex       // protects against closing while doing operations
 	backupLock       *esync.KeyRWLocker // prevents writes while a backup is running
-	shardCreateLocks *esync.KeyLocker   // prevents concurrent shard status changes
+	shardCreateLocks *esync.KeyRWLocker // prevents concurrent shard status changes
 
 	metrics          *Metrics
 	centralJobQueue  chan job
@@ -356,7 +356,7 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 		scheduler:               scheduler,
 		indexCheckpoints:        indexCheckpoints,
 		allocChecker:            allocChecker,
-		shardCreateLocks:        esync.NewKeyLocker(),
+		shardCreateLocks:        esync.NewKeyRWLocker(),
 		shardLoadLimiter:        cfg.ShardLoadLimiter,
 		shardReindexer:          shardReindexer,
 		router:                  router,
@@ -2323,13 +2323,14 @@ func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensu
 		return nil, func() {}, errAlreadyShutdown
 	}
 
-	// make sure same shard is not inited in parallel
-	i.shardCreateLocks.Lock(shardName)
-	defer i.shardCreateLocks.Unlock(shardName)
+	// make sure same shard is not inited in parallel. In case it is not loaded yet, switch to a RW lock and initialize
+	// the shard
+	i.shardCreateLocks.RLock(shardName)
 
 	// check if created in the meantime by concurrent call
 	shard = i.shards.Load(shardName)
 	if shard == nil {
+		i.shardCreateLocks.RUnlock(shardName)
 		if !ensureInit {
 			return nil, func() {}, nil
 		}
@@ -2340,12 +2341,23 @@ func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensu
 			return nil, func() {}, fmt.Errorf("class %s not found in schema", className)
 		}
 
+		i.shardCreateLocks.Lock(shardName)
+		defer i.shardCreateLocks.Unlock(shardName)
+
+		// double check if created in the meantime by concurrent call
+		shard = i.shards.Load(shardName)
+		if shard != nil {
+			return
+		}
 		shard, err = i.initShard(ctx, shardName, class, i.metrics.baseMetrics, true, false)
 		if err != nil {
 			return nil, func() {}, err
 		}
 
 		i.shards.Store(shardName, shard)
+	} else {
+		// shard already loaded, so we can defer the Runlock
+		defer i.shardCreateLocks.RUnlock(shardName)
 	}
 
 	release, err = shard.preventShutdown()
