@@ -46,7 +46,7 @@ var batchSettings = batch.Settings{
 			return 320000
 		case "voyage-large-2", "voyage-code-2":
 			return 120000
-		case "voyage-3", "voyage-3-lite", "voyage-3.5", "voyage-3.5-lite", "voyage-context-3":
+		case "voyage-3", "voyage-3-lite", "voyage-3-large", "voyage-3.5", "voyage-3.5-lite", "voyage-context-3":
 			return 160000
 		default:
 			return 120000 // unknown model, use the smallest limit
