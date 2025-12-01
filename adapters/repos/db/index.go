@@ -2346,17 +2346,16 @@ func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensu
 		i.shardCreateLocks.Lock(shardName)
 		defer i.shardCreateLocks.Unlock(shardName)
 
-		// double check if created in the meantime by concurrent call
+		// double check if loaded in the meantime by concurrent call, if not load it
 		shard = i.shards.Load(shardName)
-		if shard != nil {
-			return
-		}
-		shard, err = i.initShard(ctx, shardName, class, i.metrics.baseMetrics, true, false)
-		if err != nil {
-			return nil, func() {}, err
-		}
+		if shard == nil {
+			shard, err = i.initShard(ctx, shardName, class, i.metrics.baseMetrics, true, false)
+			if err != nil {
+				return nil, func() {}, err
+			}
 
-		i.shards.Store(shardName, shard)
+			i.shards.Store(shardName, shard)
+		}
 	} else {
 		// shard already loaded, so we can defer the Runlock
 		defer i.shardCreateLocks.RUnlock(shardName)
