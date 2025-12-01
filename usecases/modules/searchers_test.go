@@ -25,7 +25,6 @@ import (
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/config"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/generictypes"
 )
 
 func TestModulesWithSearchers(t *testing.T) {
@@ -53,7 +52,7 @@ func TestModulesWithSearchers(t *testing.T) {
 		})
 		p.Register(newSearcherModule[[]float32]("mod").
 			withArg("nearGrape").
-			withSearcher("nearGrape", generictypes.VectorForParams(func(ctx context.Context, params interface{},
+			withSearcher("nearGrape", func(ctx context.Context, params interface{},
 				className string,
 				findVectorFn modulecapabilities.FindVectorFn[[]float32],
 				cfg moduletools.ClassConfig,
@@ -65,14 +64,14 @@ func TestModulesWithSearchers(t *testing.T) {
 				// take the findVectorFn and append one dimension. This doesn't make too
 				// much sense, but helps verify that the modules method was used in the
 				// decisions
-				initial, _, _ := findVectorFn.FindVector(ctx, "class", "123", "", "")
+				initial, _, _ := findVectorFn(ctx, "class", "123", "", "")
 				return append(initial, 4), nil
-			})),
+			}),
 		)
 		p.Init(context.Background(), nil, logger)
 
 		res, err := p.VectorFromSearchParam(context.Background(), "MyClass", "", "",
-			"nearGrape", nil, generictypes.FindVectorFn(fakeFindVector))
+			"nearGrape", nil, fakeFindVector)
 
 		require.Nil(t, err)
 		assert.Equal(t, []float32{1, 2, 3, 4}, res)
@@ -85,7 +84,7 @@ func TestModulesWithSearchers(t *testing.T) {
 		})
 		p.Register(newSearcherModule[[]float32]("mod").
 			withArg("nearGrape").
-			withSearcher("nearGrape", generictypes.VectorForParams(func(ctx context.Context, params interface{},
+			withSearcher("nearGrape", func(ctx context.Context, params interface{},
 				className string,
 				findVectorFn modulecapabilities.FindVectorFn[[]float32],
 				cfg moduletools.ClassConfig,
@@ -97,14 +96,14 @@ func TestModulesWithSearchers(t *testing.T) {
 				// take the findVectorFn and append one dimension. This doesn't make too
 				// much sense, but helps verify that the modules method was used in the
 				// decisions
-				initial, _, _ := findVectorFn.FindVector(ctx, "class", "123", "", "")
+				initial, _, _ := findVectorFn(ctx, "class", "123", "", "")
 				return append(initial, 4), nil
-			})),
+			}),
 		)
 		p.Init(context.Background(), nil, logger)
 
 		_, err := p.VectorFromSearchParam(context.Background(), "MyClass", "", "",
-			"nearDoesNotExist", nil, generictypes.FindVectorFn(fakeFindVector))
+			"nearDoesNotExist", nil, fakeFindVector)
 
 		require.NotNil(t, err)
 		assert.Contains(t, err.Error(), "could not vectorize input for collection")
@@ -117,7 +116,7 @@ func TestModulesWithSearchers(t *testing.T) {
 		})
 		p.Register(newSearcherModule[[]float32]("mod").
 			withArg("nearGrape").
-			withSearcher("nearGrape", generictypes.VectorForParams(func(ctx context.Context, params interface{},
+			withSearcher("nearGrape", func(ctx context.Context, params interface{},
 				className string,
 				findVectorFn modulecapabilities.FindVectorFn[[]float32],
 				cfg moduletools.ClassConfig,
@@ -133,14 +132,14 @@ func TestModulesWithSearchers(t *testing.T) {
 				// take the findVectorFn and append one dimension. This doesn't make too
 				// much sense, but helps verify that the modules method was used in the
 				// decisions
-				initial, _, _ := findVectorFn.FindVector(ctx, "class", "123", "", "")
+				initial, _, _ := findVectorFn(ctx, "class", "123", "", "")
 				return append(initial, 4), nil
-			})),
+			}),
 		)
 		p.Init(context.Background(), nil, logger)
 
 		res, targetVector, err := p.CrossClassVectorFromSearchParam(context.Background(),
-			"nearGrape", nil, generictypes.FindVectorFn(fakeFindVector))
+			"nearGrape", nil, fakeFindVector)
 
 		require.Nil(t, err)
 		assert.Equal(t, []float32{1, 2, 3, 4}, res)
@@ -154,7 +153,7 @@ func TestModulesWithSearchers(t *testing.T) {
 		})
 		p.Register(newSearcherModule[[]float32]("mod").
 			withArg("nearGrape").
-			withSearcher("nearGrape", generictypes.VectorForParams(func(ctx context.Context, params interface{},
+			withSearcher("nearGrape", func(ctx context.Context, params interface{},
 				className string,
 				findVectorFn modulecapabilities.FindVectorFn[[]float32],
 				cfg moduletools.ClassConfig,
@@ -170,14 +169,14 @@ func TestModulesWithSearchers(t *testing.T) {
 				// take the findVectorFn and append one dimension. This doesn't make too
 				// much sense, but helps verify that the modules method was used in the
 				// decisions
-				initial, _, _ := findVectorFn.FindVector(ctx, "class", "123", "", "")
+				initial, _, _ := findVectorFn(ctx, "class", "123", "", "")
 				return append(initial, 4), nil
-			})),
+			}),
 		)
 		p.Init(context.Background(), nil, logger)
 
 		_, _, err := p.CrossClassVectorFromSearchParam(context.Background(),
-			"nearDoesNotExist", nil, generictypes.FindVectorFn(fakeFindVector))
+			"nearDoesNotExist", nil, fakeFindVector)
 
 		require.NotNil(t, err)
 	})
@@ -189,7 +188,7 @@ func TestModulesWithSearchers(t *testing.T) {
 		})
 		p.Register(newSearcherModule[[][]float32]("mod").
 			withArg("nearGrape").
-			withSearcher("nearGrape", generictypes.MultiVectorForParams(func(ctx context.Context, params interface{},
+			withSearcher("nearGrape", func(ctx context.Context, params interface{},
 				className string,
 				findVectorFn modulecapabilities.FindVectorFn[[][]float32],
 				cfg moduletools.ClassConfig,
@@ -201,14 +200,14 @@ func TestModulesWithSearchers(t *testing.T) {
 				// take the findVectorFn and append one dimension. This doesn't make too
 				// much sense, but helps verify that the modules method was used in the
 				// decisions
-				initial, _, _ := findVectorFn.FindVector(ctx, "class", "123", "", "")
+				initial, _, _ := findVectorFn(ctx, "class", "123", "", "")
 				return initial, nil
-			})),
+			}),
 		)
 		p.Init(context.Background(), nil, logger)
 
 		res, err := p.MultiVectorFromSearchParam(context.Background(), "MyClass", "", "",
-			"nearGrape", nil, generictypes.MultiFindVectorFn(multiFakeFindVector))
+			"nearGrape", nil, multiFakeFindVector)
 
 		require.Nil(t, err)
 		assert.Equal(t, [][]float32{{0.1, 0.2, 0.3}, {0.11, 0.22, 0.33}}, res)
@@ -221,7 +220,7 @@ func TestModulesWithSearchers(t *testing.T) {
 		})
 		p.Register(newSearcherModule[[][]float32]("mod").
 			withArg("nearGrape").
-			withSearcher("nearGrape", generictypes.MultiVectorForParams(func(ctx context.Context, params interface{},
+			withSearcher("nearGrape", func(ctx context.Context, params interface{},
 				className string,
 				findVectorFn modulecapabilities.FindVectorFn[[][]float32],
 				cfg moduletools.ClassConfig,
@@ -237,14 +236,14 @@ func TestModulesWithSearchers(t *testing.T) {
 				// take the findVectorFn and append one dimension. This doesn't make too
 				// much sense, but helps verify that the modules method was used in the
 				// decisions
-				initial, _, _ := findVectorFn.FindVector(ctx, "class", "123", "", "")
+				initial, _, _ := findVectorFn(ctx, "class", "123", "", "")
 				return initial, nil
-			})),
+			}),
 		)
 		p.Init(context.Background(), nil, logger)
 
 		res, targetVector, err := p.MultiCrossClassVectorFromSearchParam(context.Background(),
-			"nearGrape", nil, generictypes.MultiFindVectorFn(multiFakeFindVector))
+			"nearGrape", nil, multiFakeFindVector)
 
 		require.Nil(t, err)
 		assert.Equal(t, [][]float32{{0.1, 0.2, 0.3}, {0.11, 0.22, 0.33}}, res)
