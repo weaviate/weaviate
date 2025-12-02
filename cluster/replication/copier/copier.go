@@ -113,7 +113,6 @@ func (c *Copier) CopyReplicaFiles(ctx context.Context, srcNodeId, collectionName
 	}
 
 	fileNameChan := make(chan string, 1000)
-
 	enterrors.GoWrapper(func() {
 		defer close(fileNameChan)
 
@@ -140,43 +139,18 @@ func (c *Copier) CopyReplicaFiles(ctx context.Context, srcNodeId, collectionName
 	}
 
 	metadataChan := make(chan *protocol.FileMetadata, 1000)
+	enterrors.NewErrorGroupWrapper(c.logger).Go(func() error {
+		defer close(metadataChan)
+		err := c.metadataWorker(ctx, client, collectionName, shardName, fileNameChan, metadataChan)
+		if err != nil {
+			c.logger.WithError(err).Error("failed to get files metadata")
+		}
+		return err
+	})
 
-	metadataWG := enterrors.NewErrorGroupWrapper(c.logger)
-
-	for range c.concurrentWorkers {
-		metadataWG.Go(func() error {
-			err := c.metadataWorker(ctx, client, collectionName, shardName, fileNameChan, metadataChan)
-			if err != nil {
-				c.logger.WithError(err).Error("failed to get files metadata")
-			}
-			return err
-		})
-	}
-
-	dlWG := enterrors.NewErrorGroupWrapper(c.logger)
-
-	for range c.concurrentWorkers {
-		dlWG.Go(func() error {
-			err := c.downloadWorker(ctx, client, metadataChan)
-			if err != nil {
-				c.logger.WithError(err).Error("failed to download files")
-			}
-			return err
-		})
-	}
-
-	// wait for all metadata workers to finish
-	err = metadataWG.Wait()
-	if err != nil {
-		return fmt.Errorf("failed to get file metadata: %w", err)
-	}
-
-	close(metadataChan)
-
-	// wait for all download workers to finish
-	err = dlWG.Wait()
-	if err != nil {
-		return fmt.Errorf("failed to download files: %w", err)
+	if err = c.downloadWorker(ctx, client, metadataChan); err != nil {
+		c.logger.WithError(err).Error("failed to download files")
+		return err
 	}
 
 	err = c.validateLocalFolder(collectionName, shardName, fileListResp.FileNames)
@@ -318,22 +292,31 @@ func (c *Copier) downloadWorker(ctx context.Context, client FileReplicationServi
 
 			wbuf := bufio.NewWriter(f)
 
+			eg := enterrors.NewErrorGroupWrapper(c.logger)
+			semaphore := make(chan struct{}, c.concurrentWorkers)
 			for {
 				chunk, err := stream.Recv()
 				if err != nil {
 					return fmt.Errorf("failed to receive file chunk for %s: %w", meta.FileName, err)
 				}
-
-				if len(chunk.Data) > 0 {
-					_, err = wbuf.Write(chunk.Data)
-					if err != nil {
-						return fmt.Errorf("writing chunk to file %q: %w", tmpPath, err)
-					}
-				}
-
 				if chunk.Eof {
 					break
 				}
+				eg.Go(func() error {
+					semaphore <- struct{}{}
+					defer func() { <-semaphore }()
+					if len(chunk.Data) > 0 {
+						_, err = wbuf.Write(chunk.Data)
+						if err != nil {
+							return fmt.Errorf("writing chunk to file %q: %w", tmpPath, err)
+						}
+					}
+					return nil
+				})
+			}
+
+			if err = eg.Wait(); err != nil {
+				return fmt.Errorf("writing chunks to file %q: %w", tmpPath, err)
 			}
 
 			err = wbuf.Flush()
