@@ -65,7 +65,7 @@ func TestLSMKV_ReplaceBucket(t *testing.T) {
 
 	logger.Info("loading bucket")
 	bucket, err := c.NewBucket(ctx, filepath.Join(dir, "my-bucket"), "", logger, nil,
-		compactionCallbacks, flushCallbacks,
+		compactionCallbacks, flushCallbacks, "class",
 		lsmkv.WithPread(true),
 	)
 	if err != nil {

@@ -189,7 +189,7 @@ func TestQueryPlanner(t *testing.T) {
 			store, err := lsmkv.New(dirName, dirName, logger, nil,
 				cyclemanager.NewCallbackGroupNoop(),
 				cyclemanager.NewCallbackGroupNoop(),
-				cyclemanager.NewCallbackGroupNoop())
+				cyclemanager.NewCallbackGroupNoop(), "class")
 			require.Nil(t, err)
 			defer store.Shutdown(ctx)
 

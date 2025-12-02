@@ -48,7 +48,7 @@ func TestWriteAheadLogThreshold_Replace(t *testing.T) {
 	flushCycle.Start()
 
 	bucket, err := NewBucketCreator().NewBucket(testCtx(), dirName, "", nullLogger(), nil,
-		cyclemanager.NewCallbackGroupNoop(), flushCallbacks,
+		cyclemanager.NewCallbackGroupNoop(), flushCallbacks, "class",
 		WithStrategy(StrategyReplace),
 		WithMemtableThreshold(1024*1024*1024),
 		WithWalThreshold(walThreshold),
@@ -152,7 +152,7 @@ func TestMemtableThreshold_Replace(t *testing.T) {
 	flushCycle.Start()
 
 	bucket, err := NewBucketCreator().NewBucket(testCtx(), dirName, "", nullLogger(), nil,
-		cyclemanager.NewCallbackGroupNoop(), flushCallbacks,
+		cyclemanager.NewCallbackGroupNoop(), flushCallbacks, "class",
 		WithStrategy(StrategyReplace),
 		WithMemtableThreshold(memtableThreshold),
 		WithMinWalThreshold(0),
@@ -247,7 +247,7 @@ func TestMemtableFlushesIfDirty(t *testing.T) {
 		flushCycle.Start()
 
 		bucket, err := NewBucketCreator().NewBucket(testCtx(), dirName, "", nullLogger(), nil,
-			cyclemanager.NewCallbackGroupNoop(), flushCallbacks,
+			cyclemanager.NewCallbackGroupNoop(), flushCallbacks, "class",
 			WithStrategy(StrategyReplace),
 			WithMemtableThreshold(1e12), // large enough to not affect this test
 			WithWalThreshold(1e12),      // large enough to not affect this test
@@ -292,7 +292,7 @@ func TestMemtableFlushesIfDirty(t *testing.T) {
 		flushCycle.Start()
 
 		bucket, err := NewBucketCreator().NewBucket(testCtx(), dirName, "", nullLogger(), nil,
-			cyclemanager.NewCallbackGroupNoop(), flushCallbacks,
+			cyclemanager.NewCallbackGroupNoop(), flushCallbacks, "class",
 			WithStrategy(StrategyReplace),
 			WithMemtableThreshold(1e12), // large enough to not affect this test
 			WithWalThreshold(1e12),      // large enough to not affect this test
@@ -341,7 +341,7 @@ func TestMemtableFlushesIfDirty(t *testing.T) {
 		flushCycle.Start()
 
 		bucket, err := NewBucketCreator().NewBucket(testCtx(), dirName, "", nullLogger(), nil,
-			cyclemanager.NewCallbackGroupNoop(), flushCallbacks,
+			cyclemanager.NewCallbackGroupNoop(), flushCallbacks, "class",
 			WithStrategy(StrategyReplace),
 			WithMemtableThreshold(1e12), // large enough to not affect this test
 			WithWalThreshold(1e12),      // large enough to not affect this test

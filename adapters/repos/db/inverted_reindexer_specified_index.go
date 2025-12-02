@@ -135,13 +135,13 @@ func (t *ShardInvertedReindexTask_SpecifiedIndex) ObjectsIterator(shard ShardLik
 	}
 
 	objectsBucket := shard.Store().Bucket(helpers.ObjectsBucketLSM)
-	return func(ctx context.Context, fn func(object *storobj.Object) error) error {
+	return func(ctx context.Context, fn func(object *storobj.Object) error, class string) error {
 		cursor := objectsBucket.Cursor()
 		defer cursor.Close()
 
 		i := 0
 		for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
-			obj, err := storobj.FromBinaryOptional(v, additional.Properties{}, propsExtraction)
+			obj, err := storobj.FromDiskBinaryOptional(v, additional.Properties{}, propsExtraction)
 			if err != nil {
 				return fmt.Errorf("cannot unmarshal object %d, %w", i, err)
 			}

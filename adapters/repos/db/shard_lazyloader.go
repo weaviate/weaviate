@@ -474,7 +474,7 @@ func (l *LazyLoadShard) Dimensions(ctx context.Context, targetVector string) (in
 
 	// For unloaded shards, get dimensions from unloaded shard/tenant calculation
 	idx := l.shardOpts.index
-	dimensionality, err := shardusage.CalculateUnloadedDimensionsUsage(ctx, idx.logger, idx.path(), l.shardOpts.name, targetVector)
+	dimensionality, err := shardusage.CalculateUnloadedDimensionsUsage(ctx, idx.logger, idx.path(), string(idx.Config.ClassName), l.shardOpts.name, targetVector)
 	if err != nil {
 		return 0, err
 	}

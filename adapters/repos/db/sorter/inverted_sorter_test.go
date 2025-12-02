@@ -203,7 +203,7 @@ func createStoreAndInitWithObjects(t *testing.T, ctx context.Context, objectCoun
 	store, err := lsmkv.New(dirName, dirName, logger, nil,
 		cyclemanager.NewCallbackGroupNoop(),
 		cyclemanager.NewCallbackGroupNoop(),
-		cyclemanager.NewCallbackGroupNoop())
+		cyclemanager.NewCallbackGroupNoop(), "class")
 	require.Nil(t, err)
 
 	err = store.CreateOrLoadBucket(ctx, helpers.ObjectsBucketLSM, lsmkv.WithStrategy(lsmkv.StrategyReplace))

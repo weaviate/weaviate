@@ -187,7 +187,7 @@ func (p singleObjectPayload) Marshal(in *storobj.Object) ([]byte, error) {
 }
 
 func (p singleObjectPayload) Unmarshal(in []byte) (*storobj.Object, error) {
-	return storobj.FromBinary(in)
+	return storobj.FromNetworkBinary(in)
 }
 
 type objectListPayload struct{}
@@ -254,7 +254,7 @@ func (p objectListPayload) Unmarshal(in []byte) ([]*storobj.Object, error) {
 			return nil, err
 		}
 
-		obj, err := storobj.FromBinary(payloadBytes)
+		obj, err := storobj.FromNetworkBinary(payloadBytes)
 		if err != nil {
 			return nil, err
 		}

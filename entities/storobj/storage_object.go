@@ -107,16 +107,26 @@ func FromObject(object *models.Object, vector []float32, vectors map[string][]fl
 	}
 }
 
-func FromBinary(data []byte) (*Object, error) {
+func FromDiskBinary(data []byte, className string) (*Object, error) {
 	ko := &Object{}
-	if err := ko.UnmarshalBinary(data); err != nil {
+	if err := ko.UnmarshalBinaryDisk(data); err != nil {
+		return nil, err
+	}
+	ko.Object.Class = className
+
+	return ko, nil
+}
+
+func FromNetworkBinary(data []byte) (*Object, error) {
+	ko := &Object{}
+	if err := ko.UnmarshalBinaryNetwork(data); err != nil {
 		return nil, err
 	}
 
 	return ko, nil
 }
 
-func FromBinaryUUIDOnly(data []byte) (*Object, error) {
+func FromDiskBinaryUUIDOnly(data []byte, className string) (*Object, error) {
 	ko := &Object{}
 
 	rw := byteops.NewReadWriter(data)
@@ -140,13 +150,12 @@ func FromBinaryUUIDOnly(data []byte) (*Object, error) {
 
 	vecLen := rw.ReadUint16()
 	rw.MoveBufferPositionForward(uint64(vecLen * 4))
-	classNameLen := rw.ReadUint16()
-	rw.MoveBufferPositionForward(uint64(classNameLen))
+	ko.Object.Class = className
 
 	return ko, nil
 }
 
-func FromBinaryOptional(data []byte,
+func FromDiskBinaryOptional(data []byte,
 	addProp additional.Properties, properties *PropertyExtraction,
 ) (*Object, error) {
 	ko := &Object{}
@@ -267,6 +276,7 @@ func FromBinaryOptional(data []byte,
 			uuidParsed,
 			createTime,
 			updateTime,
+			"",
 			props,
 			meta,
 			vectorWeights,
@@ -418,7 +428,7 @@ func objectsByDocIDSequential(bucket bucket, ids []uint64,
 			continue
 		}
 
-		unmarshalled, err := FromBinaryOptional(res, additional, props)
+		unmarshalled, err := FromDiskBinaryOptional(res, additional, props)
 		if err != nil {
 			return nil, errors.Wrapf(err, "unmarshal data object at position %d", i)
 		}
@@ -1109,9 +1119,9 @@ func parseValues(dt jsonparser.ValueType, value []byte) (interface{}, error) {
 	}
 }
 
-// UnmarshalBinary is the versioned way to unmarshal a kind object from binary,
+// UnmarshalBinaryNetwork is the versioned way to unmarshal a kind object from binary,
 // see MarshalBinary for the exact contents of each version
-func (ko *Object) UnmarshalBinary(data []byte) error {
+func (ko *Object) UnmarshalBinaryDisk(data []byte) error {
 	version := data[0]
 	if version != 1 {
 		return errors.Errorf("unsupported binary marshaller version %d", version)
@@ -1175,6 +1185,83 @@ func (ko *Object) UnmarshalBinary(data []byte) error {
 		strfmt.UUID(uuidParsed.String()),
 		createTime,
 		updateTime,
+		"", // className not needed when reading from disk, set above
+		schema,
+		meta,
+		vectorWeights, nil, 0,
+	)
+}
+
+// UnmarshalBinaryNetwork is the versioned way to unmarshal a kind object from binary,
+// see MarshalBinary for the exact contents of each version
+func (ko *Object) UnmarshalBinaryNetwork(data []byte) error {
+	version := data[0]
+	if version != 1 {
+		return errors.Errorf("unsupported binary marshaller version %d", version)
+	}
+	ko.MarshallerVersion = version
+
+	rw := byteops.NewReadWriterWithOps(data, byteops.WithPosition(1))
+	ko.DocID = rw.ReadUint64()
+	rw.MoveBufferPositionForward(1) // kind-byte
+
+	uuidParsed, err := uuid.FromBytes(data[rw.Position : rw.Position+16])
+	if err != nil {
+		return err
+	}
+	rw.MoveBufferPositionForward(16)
+
+	createTime := int64(rw.ReadUint64())
+	updateTime := int64(rw.ReadUint64())
+
+	vectorLength := rw.ReadUint16()
+	ko.VectorLen = int(vectorLength)
+	ko.Vector = make([]float32, vectorLength)
+	for j := 0; j < int(vectorLength); j++ {
+		ko.Vector[j] = math.Float32frombits(rw.ReadUint32())
+	}
+
+	classNameLength := uint64(rw.ReadUint16())
+	className, err := rw.CopyBytesFromBuffer(classNameLength, nil)
+	if err != nil {
+		return errors.Wrap(err, "Could not copy classname")
+	}
+
+	schemaLength := uint64(rw.ReadUint32())
+	schema, err := rw.CopyBytesFromBuffer(schemaLength, nil)
+	if err != nil {
+		return errors.Wrap(err, "Could not copy schema")
+	}
+
+	metaLength := uint64(rw.ReadUint32())
+	meta, err := rw.CopyBytesFromBuffer(metaLength, nil)
+	if err != nil {
+		return errors.Wrap(err, "Could not copy meta")
+	}
+
+	vectorWeightsLength := uint64(rw.ReadUint32())
+	vectorWeights, err := rw.CopyBytesFromBuffer(vectorWeightsLength, nil)
+	if err != nil {
+		return errors.Wrap(err, "Could not copy vectorWeights")
+	}
+
+	vectors, err := unmarshalTargetVectors(&rw)
+	if err != nil {
+		return err
+	}
+	ko.Vectors = vectors
+
+	multiVectors, err := unmarshalMultiVectors(&rw, nil)
+	if err != nil {
+		return err
+	}
+	ko.MultiVectors = multiVectors
+
+	return ko.parseObject(
+		strfmt.UUID(uuidParsed.String()),
+		createTime,
+		updateTime,
+		string(className),
 		schema,
 		meta,
 		vectorWeights, nil, 0,
@@ -1407,7 +1494,7 @@ func MultiVectorFromBinary(in []byte, buffer []float32, targetVector string) ([]
 	return mvout, nil
 }
 
-func (ko *Object) parseObject(uuid strfmt.UUID, create, update int64,
+func (ko *Object) parseObject(uuid strfmt.UUID, create, update int64, className string,
 	propsB []byte, additionalB []byte, vectorWeightsB []byte, properties *PropertyExtraction, propLength uint32,
 ) error {
 	var returnProps map[string]interface{}
@@ -1489,6 +1576,7 @@ func (ko *Object) parseObject(uuid strfmt.UUID, create, update int64,
 		CreationTimeUnix:   create,
 		LastUpdateTimeUnix: update,
 		ID:                 uuid,
+		Class:              className,
 		Properties:         returnProps,
 		VectorWeights:      vectorWeights,
 		Additional:         additionalProperties,

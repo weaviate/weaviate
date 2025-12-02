@@ -70,7 +70,7 @@ func TestStorageObjectMarshalling(t *testing.T) {
 	asBinary, err := before.MarshalBinary()
 	require.Nil(t, err)
 
-	after, err := FromBinary(asBinary)
+	after, err := FromDiskBinary(asBinary, before.Object.Class)
 	require.Nil(t, err)
 
 	t.Run("compare", func(t *testing.T) {
@@ -142,7 +142,7 @@ func TestStorageObjectMarshallingMultiVector(t *testing.T) {
 	asBinary, err := before.MarshalBinary()
 	require.Nil(t, err)
 
-	after, err := FromBinary(asBinary)
+	after, err := FromDiskBinary(asBinary, before.Object.Class)
 	require.Nil(t, err)
 
 	t.Run("compare", func(t *testing.T) {
@@ -216,7 +216,7 @@ func TestStorageObjectUnMarshallingMultiVector(t *testing.T) {
 		require.Nil(t, err)
 
 		after := &Object{}
-		after.UnmarshalBinary(asBinary)
+		after.UnmarshalBinaryNetwork(asBinary)
 		require.Nil(t, err)
 
 		t.Run("compare", func(t *testing.T) {
@@ -242,14 +242,14 @@ func TestStorageObjectUnMarshallingMultiVector(t *testing.T) {
 		})
 
 		t.Run("check multi vectors optional", func(t *testing.T) {
-			t.Run("FromBinaryOptional: empty additional", func(t *testing.T) {
-				afterMultiVectorsOptional, err := FromBinaryOptional(asBinary, additional.Properties{}, nil)
+			t.Run("FromDiskBinaryOptional: empty additional", func(t *testing.T) {
+				afterMultiVectorsOptional, err := FromDiskBinaryOptional(asBinary, additional.Properties{}, nil)
 				require.Nil(t, err)
 				require.Nil(t, afterMultiVectorsOptional.MultiVectors)
 			})
 
-			t.Run("FromBinaryOptional: multi vector in additional", func(t *testing.T) {
-				afterMultiVectorsOptional, err := FromBinaryOptional(asBinary, additional.Properties{
+			t.Run("FromDiskBinaryOptional: multi vector in additional", func(t *testing.T) {
+				afterMultiVectorsOptional, err := FromDiskBinaryOptional(asBinary, additional.Properties{
 					Vectors: []string{"vector4"},
 				}, nil)
 				require.Nil(t, err)
@@ -258,8 +258,8 @@ func TestStorageObjectUnMarshallingMultiVector(t *testing.T) {
 				require.Equal(t, before.MultiVectors["vector4"], afterMultiVectorsOptional.MultiVectors["vector4"])
 			})
 
-			t.Run("FromBinaryOptional: named vector and multi vector in additional", func(t *testing.T) {
-				afterMultiVectorsOptional, err := FromBinaryOptional(asBinary, additional.Properties{
+			t.Run("FromDiskBinaryOptional: named vector and multi vector in additional", func(t *testing.T) {
+				afterMultiVectorsOptional, err := FromDiskBinaryOptional(asBinary, additional.Properties{
 					Vectors: []string{"vector2", "vector4"},
 				}, nil)
 				require.Nil(t, err)
@@ -317,7 +317,7 @@ func TestStorageObjectUnMarshallingMultiVector(t *testing.T) {
 		require.Nil(t, err)
 
 		after := &Object{}
-		after.UnmarshalBinary(asBinary)
+		after.UnmarshalBinaryNetwork(asBinary)
 		require.Nil(t, err)
 
 		t.Run("check vector", func(t *testing.T) {
@@ -378,7 +378,7 @@ func TestStorageObjectUnMarshallingMultiVector(t *testing.T) {
 		require.Nil(t, err)
 
 		after := &Object{}
-		after.UnmarshalBinary(asBinary)
+		after.UnmarshalBinaryNetwork(asBinary)
 		require.Nil(t, err)
 
 		t.Run("check vector", func(t *testing.T) {
@@ -462,7 +462,7 @@ func TestStorageObjectUnmarshallingSpecificProps(t *testing.T) {
 	require.Nil(t, err)
 
 	t.Run("without any optional", func(t *testing.T) {
-		after, err := FromBinaryOptional(asBinary, additional.Properties{}, nil)
+		after, err := FromDiskBinaryOptional(asBinary, additional.Properties{}, nil)
 		require.Nil(t, err)
 
 		t.Run("compare", func(t *testing.T) {
@@ -632,7 +632,7 @@ func TestStorageArrayObjectMarshalling(t *testing.T) {
 	asBinary, err := before.MarshalBinary()
 	require.Nil(t, err)
 
-	after, err := FromBinary(asBinary)
+	after, err := FromDiskBinary(asBinary, before.Object.Class)
 	require.Nil(t, err)
 
 	t.Run("compare", func(t *testing.T) {
@@ -792,7 +792,7 @@ func TestStorageObjectMarshallingWithGroup(t *testing.T) {
 	asBinary, err := before.MarshalBinary()
 	require.Nil(t, err)
 
-	after, err := FromBinary(asBinary)
+	after, err := FromDiskBinary(asBinary, before.Object.Class)
 	require.Nil(t, err)
 
 	t.Run("compare", func(t *testing.T) {
@@ -877,7 +877,7 @@ func TestStorageMaxVectorDimensionsObjectMarshalling(t *testing.T) {
 				asBinary, err := before.MarshalBinary()
 				require.Nil(t, err)
 
-				after, err := FromBinary(asBinary)
+				after, err := FromDiskBinary(asBinary, before.Object.Class)
 				require.Nil(t, err)
 
 				t.Run("compare", func(t *testing.T) {
@@ -914,7 +914,7 @@ func TestStorageMaxVectorDimensionsObjectMarshalling(t *testing.T) {
 				require.Nil(t, err)
 
 				t.Run("get without additional properties", func(t *testing.T) {
-					after, err := FromBinaryOptional(asBinary, additional.Properties{}, nil)
+					after, err := FromDiskBinaryOptional(asBinary, additional.Properties{}, nil)
 					require.Nil(t, err)
 					// modify before to match expectations of after
 					before.Object.Additional = nil
@@ -930,7 +930,7 @@ func TestStorageMaxVectorDimensionsObjectMarshalling(t *testing.T) {
 				})
 
 				t.Run("get with additional property vector", func(t *testing.T) {
-					after, err := FromBinaryOptional(asBinary, additional.Properties{Vector: true}, nil)
+					after, err := FromDiskBinaryOptional(asBinary, additional.Properties{Vector: true}, nil)
 					require.Nil(t, err)
 					// modify before to match expectations of after
 					before.Object.Additional = nil
@@ -948,7 +948,7 @@ func TestStorageMaxVectorDimensionsObjectMarshalling(t *testing.T) {
 				})
 
 				t.Run("with explicit properties", func(t *testing.T) {
-					after, err := FromBinaryOptional(asBinary, additional.Properties{},
+					after, err := FromDiskBinaryOptional(asBinary, additional.Properties{},
 						&PropertyExtraction{PropertyPaths: [][]string{{"name"}}},
 					)
 					require.Nil(t, err)
@@ -959,7 +959,7 @@ func TestStorageMaxVectorDimensionsObjectMarshalling(t *testing.T) {
 				})
 
 				t.Run("test no props and moduleparams", func(t *testing.T) {
-					after, err := FromBinaryOptional(asBinary, additional.Properties{
+					after, err := FromDiskBinaryOptional(asBinary, additional.Properties{
 						NoProps:      true,
 						ModuleParams: map[string]interface{}{"foo": "bar"}, // this causes the property extraction code to run
 					},
@@ -1323,7 +1323,7 @@ func benchmarkExtraction(b *testing.B, propStrings []string) {
 	b.ResetTimer()
 
 	for n := 0; n < b.N; n++ {
-		after, err := FromBinaryOptional(asBinary, additional.Properties{}, props)
+		after, err := FromDiskBinaryOptional(asBinary, additional.Properties{}, props)
 		require.Nil(b, err)
 		require.NotNil(b, after)
 	}

@@ -185,7 +185,7 @@ func (s *Shard) updateMultiVectorIndex(ctx context.Context, vector [][]float32,
 	return updateVectorInVectorIndex(ctx, s, targetVector, vector, status)
 }
 
-func fetchObject(bucket *lsmkv.Bucket, idBytes []byte) (*storobj.Object, error) {
+func fetchObject(bucket *lsmkv.Bucket, idBytes []byte, className string) (*storobj.Object, error) {
 	objBytes, err := bucket.Get(idBytes)
 	if err != nil {
 		return nil, err
@@ -194,7 +194,7 @@ func fetchObject(bucket *lsmkv.Bucket, idBytes []byte) (*storobj.Object, error) 
 		return nil, nil
 	}
 
-	obj, err := storobj.FromBinary(objBytes)
+	obj, err := storobj.FromDiskBinary(objBytes, className)
 	if err != nil {
 		return nil, err
 	}
@@ -254,7 +254,7 @@ func (s *Shard) putObjectLSM(obj *storobj.Object, idBytes []byte,
 		defer lock.Unlock()
 
 		before = time.Now()
-		prevObj, err = fetchObject(bucket, idBytes)
+		prevObj, err = fetchObject(bucket, idBytes, s.class.Class)
 		if err != nil {
 			return err
 		}

@@ -49,7 +49,7 @@ func bucketBackup_FlushMemtable(ctx context.Context, t *testing.T, opts []Bucket
 		dirName := t.TempDir()
 
 		b, err := NewBucketCreator().NewBucket(ctx, dirName, dirName, logrus.New(), nil,
-			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), "class", opts...)
 		require.Nil(t, err)
 		b.UpdateStatus(storagestate.StatusReadOnly)
 
@@ -67,7 +67,7 @@ func bucketBackup_ListFiles(ctx context.Context, t *testing.T, opts []BucketOpti
 	dirName := t.TempDir()
 
 	b, err := NewBucketCreator().NewBucket(ctx, dirName, dirName, logrus.New(), nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), "class", opts...)
 	require.NoError(t, err)
 
 	for i := 0; i < 10; i++ {

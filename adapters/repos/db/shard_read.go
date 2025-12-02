@@ -57,7 +57,7 @@ func (s *Shard) ObjectByIDErrDeleted(ctx context.Context, id strfmt.UUID, props 
 		return nil, nil
 	}
 
-	obj, err := storobj.FromBinary(bytes)
+	obj, err := storobj.FromDiskBinary(bytes, s.class.Class)
 	if err != nil {
 		return nil, errors.Wrap(err, "unmarshal object")
 	}
@@ -81,7 +81,7 @@ func (s *Shard) ObjectByID(ctx context.Context, id strfmt.UUID, props search.Sel
 		return nil, nil
 	}
 
-	obj, err := storobj.FromBinary(bytes)
+	obj, err := storobj.FromDiskBinary(bytes, s.class.Class)
 	if err != nil {
 		return nil, errors.Wrap(err, "unmarshal object")
 	}
@@ -114,7 +114,7 @@ func (s *Shard) MultiObjectByID(ctx context.Context, query []multi.Identifier) (
 			continue
 		}
 
-		obj, err := storobj.FromBinary(bytes)
+		obj, err := storobj.FromDiskBinary(bytes, s.class.Class)
 		if err != nil {
 			return nil, errors.Wrap(err, "unmarshal kind object")
 		}
@@ -150,7 +150,7 @@ func (s *Shard) ObjectDigestsInRange(ctx context.Context,
 			return objs, ctx.Err()
 		}
 
-		obj, err := storobj.FromBinaryUUIDOnly(v)
+		obj, err := storobj.FromDiskBinaryUUIDOnly(v, s.class.Class)
 		if err != nil {
 			return objs, fmt.Errorf("cannot unmarshal object: %w", err)
 		}
@@ -209,7 +209,7 @@ func (s *Shard) objectByIndexID(ctx context.Context, indexID uint64, acceptDelet
 			"uuid found for docID, but object is nil")
 	}
 
-	obj, err := storobj.FromBinary(bytes)
+	obj, err := storobj.FromDiskBinary(bytes, s.class.Class)
 	if err != nil {
 		return nil, errors.Wrap(err, "unmarshal kind object")
 	}
@@ -608,7 +608,7 @@ func (s *Shard) cursorObjectList(ctx context.Context, c *filters.Cursor,
 	out := make([]*storobj.Object, c.Limit)
 
 	for ; key != nil && i < c.Limit; key, val = cursor.Next() {
-		obj, err := storobj.FromBinary(val)
+		obj, err := storobj.FromDiskBinary(val, s.class.Class)
 		if err != nil {
 			return nil, errors.Wrapf(err, "unmarhsal item %d", i)
 		}
