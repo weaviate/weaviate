@@ -31,7 +31,7 @@ type PostingSizes struct {
 }
 
 func NewPostingSizes(store *lsmkv.Store, metrics *Metrics, id string, cfg StoreConfig) (*PostingSizes, error) {
-	pStore, err := NewPostingSizeStore(store, metrics, postingSizeBucketName(id), cfg)
+	pStore, err := NewPostingSizeStore(store, metrics, id, cfg)
 	if err != nil {
 		return nil, err
 	}

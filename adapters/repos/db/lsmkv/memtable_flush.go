@@ -326,7 +326,7 @@ func (m *Memtable) flushDataCollection(f *segmentindex.SegmentFile,
 		totalWritten = ki.ValueEnd
 	}
 
-	return keys, nil
+	return keys[:i], nil
 }
 
 func totalKeyAndValueSize(in []*binarySearchNode) int {

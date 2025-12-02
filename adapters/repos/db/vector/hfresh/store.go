@@ -50,7 +50,7 @@ func NewPostingStore(store *lsmkv.Store, metrics *Metrics, bucketName string, cf
 					// assume valid if we cannot check
 					return true, nil
 				}
-				return v == binary.LittleEndian.Uint32(key[8:12]), nil
+				return v != binary.LittleEndian.Uint32(key[8:12]), nil
 			},
 		))...,
 	)
@@ -60,7 +60,7 @@ func NewPostingStore(store *lsmkv.Store, metrics *Metrics, bucketName string, cf
 
 	return &PostingStore{
 		store:           store,
-		bucket:          store.Bucket(bucketName),
+		bucket:          store.Bucket(postingBucketName(bucketName)),
 		locks:           common.NewDefaultShardedRWLocks(),
 		metrics:         metrics,
 		postingVersions: postingVersions,
@@ -182,7 +182,7 @@ func (p *PostingStore) Put(ctx context.Context, postingID uint64, posting *Posti
 	}
 
 	var buf [12]byte
-	binary.LittleEndian.PutUint64(buf[:], postingID)
+	binary.LittleEndian.PutUint64(buf[:8], postingID)
 	version, err := p.getVersion(ctx, postingID)
 	if err != nil {
 		return errors.Wrapf(err, "failed to get version for posting %d", postingID)
@@ -197,8 +197,7 @@ func (p *PostingStore) Put(ctx context.Context, postingID uint64, posting *Posti
 		return errors.Wrapf(err, "failed to clear existing posting %d", postingID)
 	}
 
-	version += 1
-	err = p.postingVersions.Set(ctx, postingID, uint32(version))
+	version, err = p.postingVersions.Inc(ctx, postingID, 1)
 	if err != nil {
 		return errors.Wrapf(err, "failed to get posting %d", postingID)
 	}
@@ -208,7 +207,10 @@ func (p *PostingStore) Put(ctx context.Context, postingID uint64, posting *Posti
 		set[i] = []byte(v)
 	}
 
-	return p.bucket.SetAdd(buf[:], set)
+	newKey := make([]byte, 12)
+	binary.LittleEndian.PutUint64(newKey[:8], postingID)
+	binary.LittleEndian.PutUint32(newKey[8:12], version)
+	return p.bucket.SetAdd(newKey, set)
 }
 
 func (p *PostingStore) Append(ctx context.Context, postingID uint64, vector Vector) error {

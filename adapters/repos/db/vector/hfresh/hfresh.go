@@ -108,7 +108,7 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 		return nil, err
 	}
 
-	postingSizes, err := NewPostingSizes(store, metrics, cfg.ID, cfg.Store)
+	postingSizes, err := NewPostingSizes(store, metrics, postingSizeBucketName(cfg.ID), cfg.Store)
 	if err != nil {
 		return nil, err
 	}
