@@ -30,6 +30,7 @@ import (
 	pbv1 "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/composer"
 	authErrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -92,6 +93,10 @@ func CreateGRPCServer(state *state.State, options ...grpc.ServerOption) (*grpc.S
 	}
 
 	interceptors = append(interceptors, makeIPInterceptor())
+
+	if state.ServerConfig.Config.ReadOnlyMode.Get() {
+		interceptors = append(interceptors, makeReadOnlyModeInterceptor())
+	}
 
 	if len(interceptors) > 0 {
 		o = append(o, grpc.ChainUnaryInterceptor(interceptors...))
@@ -194,6 +199,24 @@ func makeIPInterceptor() grpc.UnaryServerInterceptor {
 
 		// Add IP to context
 		ctx = context.WithValue(ctx, "sourceIp", clientIP)
+		return handler(ctx, req)
+	}
+}
+
+func makeReadOnlyModeInterceptor() grpc.UnaryServerInterceptor {
+	return func(
+		ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler,
+	) (any, error) {
+		// List of write methods that should be blocked in read-only mode
+		writeMethods := map[string]struct{}{
+			"/weaviate.v1.Weaviate/BatchObjects": {},
+			"/weaviate.v1.Weaviate/BatchDelete":  {},
+		}
+		if _, isWriteMethod := writeMethods[info.FullMethod]; isWriteMethod {
+			st := status.New(codes.Unavailable, config.ErrReadOnlyModeEnabled.Error())
+			return nil, st.Err()
+		}
+
 		return handler(ctx, req)
 	}
 }
