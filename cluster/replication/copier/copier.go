@@ -12,7 +12,6 @@
 package copier
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -289,8 +288,9 @@ func (c *Copier) downloadWorker(ctx context.Context, client FileReplicationServi
 					f.Close()
 				}
 			}()
-
-			wbuf := bufio.NewWriter(f)
+			if err := f.Truncate(meta.Size); err != nil {
+				return fmt.Errorf("failed to preallocate file: %w", err)
+			}
 
 			eg := enterrors.NewErrorGroupWrapper(c.logger)
 			semaphore := make(chan struct{}, c.concurrentWorkers)
@@ -299,29 +299,24 @@ func (c *Copier) downloadWorker(ctx context.Context, client FileReplicationServi
 				if err != nil {
 					return fmt.Errorf("failed to receive file chunk for %s: %w", meta.FileName, err)
 				}
-				if chunk.Eof {
-					break
-				}
 				eg.Go(func() error {
 					semaphore <- struct{}{}
 					defer func() { <-semaphore }()
 					if len(chunk.Data) > 0 {
-						_, err = wbuf.Write(chunk.Data)
+						_, err = f.WriteAt(chunk.Data, chunk.Offset)
 						if err != nil {
 							return fmt.Errorf("writing chunk to file %q: %w", tmpPath, err)
 						}
 					}
 					return nil
 				})
+				if chunk.Eof {
+					break
+				}
 			}
 
 			if err = eg.Wait(); err != nil {
 				return fmt.Errorf("writing chunks to file %q: %w", tmpPath, err)
-			}
-
-			err = wbuf.Flush()
-			if err != nil {
-				return fmt.Errorf("flushing buffer to file %q: %w", tmpPath, err)
 			}
 
 			err = f.Sync()
