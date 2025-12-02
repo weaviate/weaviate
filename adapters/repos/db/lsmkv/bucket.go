@@ -188,7 +188,7 @@ type Bucket struct {
 
 	// function to decide whether a key should be ignored
 	// during compaction for the SetCollection strategy
-	shouldIgnoreKey func(key []byte) (bool, error)
+	shouldIgnoreKey func(key []byte, ctx context.Context) (bool, error)
 }
 
 func NewBucketCreator() *Bucket { return &Bucket{} }

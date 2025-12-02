@@ -94,7 +94,7 @@ type SegmentGroup struct {
 	writeSegmentInfoIntoFileName   bool
 	writeMetadata                  bool
 
-	shouldIgnoreKey func(key []byte) (bool, error)
+	shouldIgnoreKey func(key []byte, ctx context.Context) (bool, error)
 }
 
 type sgConfig struct {
@@ -116,7 +116,7 @@ type sgConfig struct {
 	bm25config                   *models.BM25Config
 	writeSegmentInfoIntoFileName bool
 	writeMetadata                bool
-	shouldIgnoreKey              func(key []byte) (bool, error)
+	shouldIgnoreKey              func(key []byte, ctx context.Context) (bool, error)
 }
 
 func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Metrics, cfg sgConfig,

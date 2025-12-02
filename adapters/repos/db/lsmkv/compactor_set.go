@@ -13,6 +13,7 @@ package lsmkv
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 
@@ -51,14 +52,14 @@ type compactorSet struct {
 
 	enableChecksumValidation bool
 
-	shouldIgnoreKey func(key []byte) (bool, error)
+	shouldIgnoreKey func(key []byte, ctx context.Context) (bool, error)
 }
 
 func newCompactorSetCollection(w io.WriteSeeker,
 	c1, c2 innerCursorCollection, level, secondaryIndexCount uint16,
 	scratchSpacePath string, cleanupTombstones bool,
 	enableChecksumValidation bool, maxNewFileSize int64, allocChecker memwatch.AllocChecker,
-	shouldIgnoreKey func(key []byte) (bool, error),
+	shouldIgnoreKey func(key []byte, ctx context.Context) (bool, error),
 ) *compactorSet {
 	observeWrite := monitoring.GetMetrics().FileIOWrites.With(prometheus.Labels{
 		"operation": "compaction",
@@ -158,7 +159,7 @@ func (c *compactorSet) writeKeys(f *segmentindex.SegmentFile) ([]segmentindex.Ke
 		}
 		if bytes.Equal(key1, key2) {
 			if c.shouldIgnoreKey != nil {
-				ignore, err := c.shouldIgnoreKey(key1)
+				ignore, err := c.shouldIgnoreKey(key1, context.Background())
 				if err != nil {
 					return nil, errors.Wrap(err, "should ignore key")
 				}
@@ -189,7 +190,7 @@ func (c *compactorSet) writeKeys(f *segmentindex.SegmentFile) ([]segmentindex.Ke
 		if (key1 != nil && bytes.Compare(key1, key2) == -1) || key2 == nil {
 			// key 1 is smaller
 			if c.shouldIgnoreKey != nil {
-				ignore, err := c.shouldIgnoreKey(key1)
+				ignore, err := c.shouldIgnoreKey(key1, context.Background())
 				if err != nil {
 					return nil, errors.Wrap(err, "should ignore key")
 				}
@@ -212,7 +213,7 @@ func (c *compactorSet) writeKeys(f *segmentindex.SegmentFile) ([]segmentindex.Ke
 		} else {
 			// key 2 is smaller
 			if c.shouldIgnoreKey != nil {
-				ignore, err := c.shouldIgnoreKey(key2)
+				ignore, err := c.shouldIgnoreKey(key2, context.Background())
 				if err != nil {
 					return nil, errors.Wrap(err, "should ignore key")
 				}

@@ -12,6 +12,7 @@
 package lsmkv
 
 import (
+	"context"
 	"time"
 
 	"github.com/pkg/errors"
@@ -273,7 +274,7 @@ func WithBM25Config(bm25Config *models.BM25Config) BucketOption {
 	}
 }
 
-func WithShouldIgnoreKeyFunction(shouldIgnoreKey func(key []byte) (bool, error)) BucketOption {
+func WithShouldIgnoreKeyFunction(shouldIgnoreKey func(key []byte, ctx context.Context) (bool, error)) BucketOption {
 	return func(b *Bucket) error {
 		b.shouldIgnoreKey = shouldIgnoreKey
 		return nil
