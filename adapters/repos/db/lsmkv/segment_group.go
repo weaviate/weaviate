@@ -554,6 +554,36 @@ func (sg *SegmentGroup) getConsistentViewOfSegments() (segments []Segment, relea
 	}
 }
 
+func (sg *SegmentGroup) getConsistentViewOfSegmentsForKeys(keys [][]byte) (segments []Segment, release func()) {
+	sg.maintenanceLock.RLock()
+	segments = make([]Segment, 0, len(sg.segments))
+
+	sg.segmentRefCounterLock.Lock()
+	for _, seg := range sg.segments {
+		for _, key := range keys {
+			if seg.hasKey(key) {
+				seg.incRef()
+				sg.segmentsWithRefs[seg.getPath()] = seg
+				segments = append(segments, seg)
+				break
+			}
+		}
+	}
+	sg.segmentRefCounterLock.Unlock()
+	sg.maintenanceLock.RUnlock()
+
+	return segments, func() {
+		sg.segmentRefCounterLock.Lock()
+		for _, seg := range segments {
+			seg.decRef()
+			if seg.getRefs() == 0 {
+				delete(sg.segmentsWithRefs, seg.getPath())
+			}
+		}
+		sg.segmentRefCounterLock.Unlock()
+	}
+}
+
 func (sg *SegmentGroup) addInitializedSegment(segment Segment) (err error) {
 	defer func() {
 		if err != nil {

@@ -1271,7 +1271,7 @@ func TestBucketSetStrategyConsistentView(t *testing.T) {
 		}
 
 		for k, expectedV := range expected {
-			value, err := b.setListFromConsistentView(v, []byte(k))
+			value, err := b.SetListFromConsistentView(v, []byte(k))
 			require.NoError(t, err)
 			require.ElementsMatch(t, expectedV, value)
 		}
@@ -1302,7 +1302,7 @@ func TestBucketSetStrategyConsistentView(t *testing.T) {
 		}
 
 		for k, expectedV := range expected {
-			value, err := b.setListFromConsistentView(v, []byte(k))
+			value, err := b.SetListFromConsistentView(v, []byte(k))
 			require.NoError(t, err)
 			require.ElementsMatch(t, expectedV, value)
 		}
@@ -1320,7 +1320,7 @@ func TestBucketSetStrategyConsistentView(t *testing.T) {
 	defer view3.Release()
 
 	// active: key3 -> {"a3"}
-	a3, err := b.setListFromConsistentView(view3, []byte("key3"))
+	a3, err := b.SetListFromConsistentView(view3, []byte("key3"))
 	require.NoError(t, err)
 	require.ElementsMatch(t, [][]byte{[]byte("a3")}, a3)
 
