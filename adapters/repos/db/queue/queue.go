@@ -562,6 +562,10 @@ func (q *DiskQueue) ListFiles(ctx context.Context, basePath string) ([]string, e
 
 	entries, err := os.ReadDir(q.dir)
 	if err != nil {
+		if stderrors.Is(err, fs.ErrNotExist) {
+			return []string{}, nil
+		}
+
 		return nil, errors.Wrap(err, "failed to read directory")
 	}
 
