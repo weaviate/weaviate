@@ -42,13 +42,10 @@ func NewPostingStore(store *lsmkv.Store, metrics *Metrics, bucketName string, cf
 		postingBucketName(bucketName),
 		cfg.MakeBucketOptions(lsmkv.StrategySetCollection, lsmkv.WithForceCompaction(true), lsmkv.WithShouldIgnoreKeyFunction(
 			func(key []byte, ctx context.Context) (bool, error) {
-				if postingVersions == nil {
-					return true, nil
-				}
 				v, err := postingVersions.Get(ctx, binary.LittleEndian.Uint64(key[:8]))
 				if err != nil {
 					// assume valid if we cannot check
-					return true, nil
+					return false, err
 				}
 				return v != binary.LittleEndian.Uint32(key[8:12]), nil
 			},
@@ -71,15 +68,35 @@ func (p *PostingStore) getVersion(ctx context.Context, postingID uint64) (uint32
 	p.locks.RLock(postingID)
 	val, err := p.postingVersions.Get(ctx, postingID)
 	p.locks.RUnlock(postingID)
-	if err != nil {
-		if errors.Is(err, ErrPostingNotFound) {
-			p.locks.Lock(postingID)
-			defer p.locks.Unlock(postingID)
-			err = p.postingVersions.Set(ctx, postingID, 0)
-		}
+
+	if err == nil {
+		return val, nil
+	}
+
+	if !errors.Is(err, ErrPostingNotFound) {
 		return 0, err
 	}
-	return val, nil
+
+	// Not found - need to initialize
+	p.locks.Lock(postingID)
+	defer p.locks.Unlock(postingID)
+
+	// Check again after acquiring write lock (another goroutine may have initialized it)
+	val, err = p.postingVersions.Get(ctx, postingID)
+	if err == nil {
+		return val, nil
+	}
+
+	if !errors.Is(err, ErrPostingNotFound) {
+		return 0, err
+	}
+
+	// Still not found, initialize it
+	if err = p.postingVersions.Set(ctx, postingID, 0); err != nil {
+		return 0, err
+	}
+
+	return 0, nil
 }
 
 // Init is called by the index upon receiving the first vector and
@@ -90,7 +107,7 @@ func (p *PostingStore) Init(size int32) {
 }
 
 func (p *PostingStore) Get(ctx context.Context, postingID uint64) (*Posting, error) {
-	return p.GetInner(ctx, postingID, p.bucket.GetConsistentViewOfSegmentsForKeys([][]byte{
+	view := p.bucket.GetConsistentViewOfSegmentsForKeys([][]byte{
 		func() []byte {
 			var buf [12]byte
 			binary.LittleEndian.PutUint64(buf[:], postingID)
@@ -101,7 +118,9 @@ func (p *PostingStore) Get(ctx context.Context, postingID uint64) (*Posting, err
 			binary.LittleEndian.PutUint32(buf[8:12], version)
 			return buf[:]
 		}(),
-	}))
+	})
+	defer view.Release()
+	return p.GetInner(ctx, postingID, view)
 }
 
 func (p *PostingStore) GetInner(ctx context.Context, postingID uint64, view lsmkv.BucketConsistentView) (*Posting, error) {
@@ -116,15 +135,16 @@ func (p *PostingStore) GetInner(ctx context.Context, postingID uint64, view lsmk
 
 	var buf [12]byte
 	binary.LittleEndian.PutUint64(buf[:], postingID)
-	p.locks.RLock(postingID)
+
 	version, err := p.getVersion(ctx, postingID)
 	if err != nil {
-		p.locks.RUnlock(postingID)
 		return nil, errors.Wrapf(err, "failed to get version for posting %d", postingID)
 	}
+	p.locks.RLock(postingID)
+	defer p.locks.RUnlock(postingID)
+
 	binary.LittleEndian.PutUint32(buf[8:12], version)
 	list, err := p.bucket.SetListFromConsistentView(view, buf[:])
-	p.locks.RUnlock(postingID)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get posting %d", postingID)
 	}
@@ -161,6 +181,7 @@ func (p *PostingStore) MultiGet(ctx context.Context, postingIDs []uint64) ([]*Po
 		binary.LittleEndian.PutUint32(keys[i][8:], version)
 	}
 	view := p.bucket.GetConsistentViewOfSegmentsForKeys(keys)
+	defer view.Release()
 
 	for _, id := range postingIDs {
 		posting, err := p.GetInner(ctx, id, view)
@@ -187,10 +208,10 @@ func (p *PostingStore) Put(ctx context.Context, postingID uint64, posting *Posti
 	if err != nil {
 		return errors.Wrapf(err, "failed to get version for posting %d", postingID)
 	}
-	binary.LittleEndian.PutUint32(buf[8:12], version)
 
 	p.locks.Lock(postingID)
 	defer p.locks.Unlock(postingID)
+	binary.LittleEndian.PutUint32(buf[8:12], version)
 
 	err = p.bucket.SetDeleteKey(buf[:])
 	if err != nil {
