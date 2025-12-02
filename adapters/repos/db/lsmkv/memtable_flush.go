@@ -13,6 +13,7 @@ package lsmkv
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -298,7 +299,19 @@ func (m *Memtable) flushDataCollection(f *segmentindex.SegmentFile,
 	keys := make([]segmentindex.Key, len(flat))
 
 	totalWritten := headerSize
-	for i, node := range flat {
+	i := 0
+	for _, node := range flat {
+		skip := false
+		for _, v := range node.values {
+			if v.tombstone && bytes.Equal(v.value, []byte{255}) {
+				skip = true
+				break
+			}
+		}
+		if skip {
+			continue
+		}
+
 		ki, err := (&segmentCollectionNode{
 			values:     node.values,
 			primaryKey: node.key,
@@ -309,6 +322,7 @@ func (m *Memtable) flushDataCollection(f *segmentindex.SegmentFile,
 		}
 
 		keys[i] = ki
+		i++
 		totalWritten = ki.ValueEnd
 	}
 
@@ -331,13 +345,24 @@ func totalKeyAndValueSize(in []*binarySearchNode) int {
 func totalValueSizeCollection(in []*binarySearchNodeMulti) int {
 	var sum int
 	for _, n := range in {
-		sum += 8 // uint64 to indicate array length
+		skip := false
+		// uint64 to indicate array length
+		innerSum := 8
 		for _, v := range n.values {
-			sum += 1 // bool to indicate value tombstone
-			sum += 8 // uint64 to indicate value length
-			sum += len(v.value)
+			if v.tombstone && bytes.Equal(v.value, []byte{255}) {
+				// skip this entire entry
+				innerSum = 0
+				skip = true
+				break
+			}
+			innerSum += 1 // bool to indicate value tombstone
+			innerSum += 8 // uint64 to indicate value length
+			innerSum += len(v.value)
 		}
-
+		if skip {
+			continue
+		}
+		sum += innerSum
 		sum += 4 // uint32 to indicate key size
 		sum += len(n.key)
 	}
