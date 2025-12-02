@@ -78,10 +78,22 @@ func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool, inactivity
 	// pause indexing
 	_ = s.ForEachVectorQueue(func(_ string, q *VectorIndexQueue) error {
 		q.Pause()
+		return nil
+	})
+	// wait for ongoing indexing to finish
+	_ = s.ForEachVectorQueue(func(_ string, q *VectorIndexQueue) error {
 		q.Wait()
 		return nil
 	})
+	// flush all the queue
+	err = s.ForEachVectorQueue(func(_ string, q *VectorIndexQueue) error {
+		return q.Flush()
+	})
+	if err != nil {
+		return fmt.Errorf("flush vector index queues: %w", err)
+	}
 
+	// switch commit logs to ensure all data is flushed to disk
 	err = s.ForEachVectorIndex(func(targetVector string, index VectorIndex) error {
 		if err = index.SwitchCommitLogs(ctx); err != nil {
 			return fmt.Errorf("switch commit logs of vector %q: %w", targetVector, err)
