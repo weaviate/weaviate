@@ -78,6 +78,7 @@ func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool, inactivity
 	// pause indexing
 	_ = s.ForEachVectorQueue(func(_ string, q *VectorIndexQueue) error {
 		q.Pause()
+		q.Wait()
 		return nil
 	})
 
