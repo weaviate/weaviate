@@ -325,9 +325,11 @@ func (n *neighborFinderConnector) doAtLevel(ctx context.Context, level int) erro
 		return errors.Wrapf(err, "ReplaceLinksAtLevel node %d at level %d", n.node.id, level)
 	}
 
-	for _, neighborID := range neighborsCpy {
-		if err := n.connectNeighborAtLevel(neighborID, level); err != nil {
-			return errors.Wrapf(err, "connect neighbor %d", neighborID)
+	if !n.tombstoneCleanupNodes {
+		for _, neighborID := range neighborsCpy {
+			if err := n.connectNeighborAtLevel(neighborID, level); err != nil {
+				return errors.Wrapf(err, "connect neighbor %d", neighborID)
+			}
 		}
 	}
 
