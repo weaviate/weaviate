@@ -35,30 +35,27 @@ type Server struct {
 
 // NewServer creates *grpc.Server with optional grpc.Serveroption passed.
 func NewServer(state *state.State, options ...grpc.ServerOption) *Server {
-	o := []grpc.ServerOption{}
-	var interceptors []grpc.UnaryServerInterceptor
+	fileCopyChunkSize := state.ServerConfig.Config.ReplicationEngineFileCopyChunkSize
+
+	pbOverhead := 16 * 1024           // 16kB for any extra overhead
+	defaultMsgSize := 4 * 1024 * 1024 // 4MB default from grpc
+	maxSize := max(defaultMsgSize, fileCopyChunkSize+pbOverhead)
+
+	o := []grpc.ServerOption{
+		grpc.MaxRecvMsgSize(maxSize),
+		grpc.MaxSendMsgSize(maxSize),
+	}
 
 	basicAuth := state.ServerConfig.Config.Cluster.AuthConfig.BasicAuth
 	if basicAuth.Enabled() {
-		interceptors = append(interceptors,
-			basicAuthUnaryInterceptor("/weaviate.v1.FileReplicationService", basicAuth.Username, basicAuth.Password))
+		o = append(o, grpc.UnaryInterceptor(
+			basicAuthUnaryInterceptor("/weaviate.v1.FileReplicationService", basicAuth.Username, basicAuth.Password),
+		))
 
 		o = append(o, grpc.StreamInterceptor(
 			basicAuthStreamInterceptor("/weaviate.v1.FileReplicationService", basicAuth.Username, basicAuth.Password),
 		))
 	}
-
-	if len(interceptors) > 0 {
-		o = append(o, grpc.ChainUnaryInterceptor(interceptors...))
-	}
-
-	fileCopyChunkSize := state.ServerConfig.Config.ReplicationEngineFileCopyChunkSize
-	pbOverhead := 16 * 1024           // 16kB for any extra overhead
-	defaultMsgSize := 4 * 1024 * 1024 // 4MB default from grpc
-	maxSize := max(defaultMsgSize, fileCopyChunkSize+pbOverhead)
-
-	o = append(o, grpc.MaxRecvMsgSize(maxSize))
-	o = append(o, grpc.MaxSendMsgSize(maxSize))
 
 	s := grpc.NewServer(o...)
 
