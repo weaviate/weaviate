@@ -94,9 +94,7 @@ func CreateGRPCServer(state *state.State, options ...grpc.ServerOption) (*grpc.S
 
 	interceptors = append(interceptors, makeIPInterceptor())
 
-	if state.ServerConfig.Config.ReadOnlyMode.Get() {
-		interceptors = append(interceptors, makeReadOnlyModeInterceptor())
-	}
+	interceptors = append(interceptors, makeReadOnlyModeInterceptor(state))
 
 	if len(interceptors) > 0 {
 		o = append(o, grpc.ChainUnaryInterceptor(interceptors...))
@@ -203,14 +201,20 @@ func makeIPInterceptor() grpc.UnaryServerInterceptor {
 	}
 }
 
-func makeReadOnlyModeInterceptor() grpc.UnaryServerInterceptor {
+func makeReadOnlyModeInterceptor(state *state.State) grpc.UnaryServerInterceptor {
 	return func(
 		ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler,
 	) (any, error) {
+		if !state.ServerConfig.Config.ReadOnlyMode.Get() {
+			return handler(ctx, req)
+		}
+
 		// List of write methods that should be blocked in read-only mode
 		writeMethods := map[string]struct{}{
-			"/weaviate.v1.Weaviate/BatchObjects": {},
-			"/weaviate.v1.Weaviate/BatchDelete":  {},
+			"/weaviate.v1.Weaviate/BatchDelete":     {},
+			"/weaviate.v1.Weaviate/BatchObjects":    {},
+			"/weaviate.v1.Weaviate/BatchReferences": {},
+			"/weaviate.v1.Weaviate/BatchStream":     {},
 		}
 		if _, isWriteMethod := writeMethods[info.FullMethod]; isWriteMethod {
 			st := status.New(codes.Unavailable, config.ErrReadOnlyModeEnabled.Error())

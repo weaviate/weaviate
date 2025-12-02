@@ -7503,12 +7503,6 @@
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
-          },
-          "503": {
-            "description": "This operation is unavailable.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
           }
         }
       }
