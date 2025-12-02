@@ -52,9 +52,12 @@ func NewServer(state *state.State, options ...grpc.ServerOption) *Server {
 		o = append(o, grpc.ChainUnaryInterceptor(interceptors...))
 	}
 
-	s := grpc.NewServer(o...)
-
 	fileCopyChunkSize := state.ServerConfig.Config.ReplicationEngineFileCopyChunkSize
+
+	o = append(o, grpc.MaxRecvMsgSize(fileCopyChunkSize))
+	o = append(o, grpc.MaxSendMsgSize(fileCopyChunkSize))
+
+	s := grpc.NewServer(o...)
 
 	weaviateV1FileReplicationService := NewFileReplicationService(state.DB, state.ClusterService.SchemaReader(), fileCopyChunkSize)
 	pb.RegisterFileReplicationServiceServer(s, weaviateV1FileReplicationService)
