@@ -256,9 +256,11 @@ type Index struct {
 	// 1. closeLock
 	// 2. backupLock (for a specific shard)
 	// 3. shardCreateLocks (for a specific shard)
-	closeLock        sync.RWMutex       // protects against closing while doing operations
-	backupLock       *esync.KeyRWLocker // prevents writes while a backup is running
-	shardCreateLocks *esync.KeyLocker   // prevents concurrent shard status changes
+	closeLock  sync.RWMutex       // protects against closing while doing operations
+	backupLock *esync.KeyRWLocker // prevents writes while a backup is running
+	// prevents concurrent shard status changes. Use .Rlock to secure against status changes and .Lock to change status
+	// Minimize holding the RW lock as it will block other operations on the same shard such as searches or writes.
+	shardCreateLocks *esync.KeyRWLocker
 
 	metrics          *Metrics
 	centralJobQueue  chan job
@@ -366,7 +368,7 @@ func NewIndex(
 		scheduler:               scheduler,
 		indexCheckpoints:        indexCheckpoints,
 		allocChecker:            allocChecker,
-		shardCreateLocks:        esync.NewKeyLocker(),
+		shardCreateLocks:        esync.NewKeyRWLocker(),
 		shardLoadLimiter:        cfg.ShardLoadLimiter,
 		shardReindexer:          shardReindexer,
 		router:                  router,
@@ -2365,13 +2367,16 @@ func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensu
 		return nil, func() {}, errAlreadyShutdown
 	}
 
-	// make sure same shard is not inited in parallel
-	i.shardCreateLocks.Lock(shardName)
-	defer i.shardCreateLocks.Unlock(shardName)
+	// make sure same shard is not inited in parallel. In case it is not loaded yet, switch to a RW lock and initialize
+	// the shard
+	i.shardCreateLocks.RLock(shardName)
 
 	// check if created in the meantime by concurrent call
 	shard = i.shards.Load(shardName)
 	if shard == nil {
+		// If the shard is not yet loaded, we need to upgrade to a write lock to ensure only one goroutine initializes
+		// the shard
+		i.shardCreateLocks.RUnlock(shardName)
 		if !ensureInit {
 			return nil, func() {}, nil
 		}
@@ -2382,12 +2387,21 @@ func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensu
 			return nil, func() {}, fmt.Errorf("class %s not found in schema", className)
 		}
 
-		shard, err = i.initShard(ctx, shardName, class, i.metrics.baseMetrics, true, false)
-		if err != nil {
-			return nil, func() {}, err
-		}
+		i.shardCreateLocks.Lock(shardName)
+		defer i.shardCreateLocks.Unlock(shardName)
 
-		i.shards.Store(shardName, shard)
+		// double check if loaded in the meantime by concurrent call, if not load it
+		shard = i.shards.Load(shardName)
+		if shard == nil {
+			shard, err = i.initShard(ctx, shardName, class, i.metrics.baseMetrics, true, false)
+			if err != nil {
+				return nil, func() {}, err
+			}
+			i.shards.Store(shardName, shard)
+		}
+	} else {
+		// shard already loaded, so we can defer the Runlock
+		defer i.shardCreateLocks.RUnlock(shardName)
 	}
 
 	release, err = shard.preventShutdown()

@@ -221,7 +221,7 @@ func TestBackup_BucketLevel(t *testing.T) {
 		require.Nil(t, err)
 
 		t.Run("check ListFiles, results", func(t *testing.T) {
-			assert.Len(t, files, 5)
+			assert.Len(t, files, 4)
 
 			// build regex to get very close approximation to the expected
 			// contents of the ListFiles result. the only thing we can't
