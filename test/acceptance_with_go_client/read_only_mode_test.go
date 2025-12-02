@@ -19,7 +19,9 @@ import (
 	client "github.com/weaviate/weaviate-go-client/v5/weaviate"
 	"github.com/weaviate/weaviate-go-client/v5/weaviate/fault"
 	weaviateGrpc "github.com/weaviate/weaviate-go-client/v5/weaviate/grpc"
+	"github.com/weaviate/weaviate/client/replication"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 	"google.golang.org/grpc/status"
 )
@@ -30,6 +32,7 @@ func TestReadOnlyMode(t *testing.T) {
 	// compose, err := docker.New().
 	// 	WithWeaviateWithGRPC().
 	// 	WithWeaviateEnv("READ_ONLY_MODE", "true").
+	// 	WithWeaviateEnv("REPLICA_MOVEMENT_ENABLED", "true").
 	// 	Start(ctx)
 	// require.NoError(t, err)
 	// defer func() {
@@ -82,6 +85,26 @@ func TestReadOnlyMode(t *testing.T) {
 		_, err := client.Experimental().Search().WithCollection("Whatever").Do(ctx)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "could not find class Whatever in schema")
+	})
+
+	t.Run("rest: replicate", func(t *testing.T) {
+		_, err := helper.Client(t).Replication.Replicate(
+			replication.NewReplicateParams().WithBody(&models.ReplicationReplicateReplicaRequest{}),
+			nil,
+		)
+		var e *replication.ReplicateUnprocessableEntity
+		if !errors.As(err, &e) {
+			// test that we get expected response here, which is a 422 due to bad params input but not 503
+			t.Fatalf("expected error to be of type ReplicateUnprocessableEntity, but was %T", err)
+		}
+	})
+
+	t.Run("rest: delete replication op", func(t *testing.T) {
+		_, err := helper.Client(t).Replication.DeleteReplication(
+			replication.NewDeleteReplicationParams().WithID("00000000-0000-0000-0000-000000000000"),
+			nil,
+		)
+		require.NoError(t, err)
 	})
 }
 
