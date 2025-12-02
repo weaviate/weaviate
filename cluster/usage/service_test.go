@@ -556,7 +556,7 @@ func putObjectAndFlush(t *testing.T, repo *db.DB, className, tenant string, vect
 		require.NoError(t, repo.PutObject(context.Background(), obj, nil, vector, nil, nil, 0))
 	}
 	idx := repo.GetIndex(entschema.ClassName(className))
-	idx.ForEachLoadedShard(func(name string, shard db.ShardLike) error {
+	idx.ForEachLoadedShard(func(name string, shard *db.Shard) error {
 		require.NoError(t, shard.Store().GetBucketsByName()["objects"].FlushMemtable())
 		return nil
 	})
