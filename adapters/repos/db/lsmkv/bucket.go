@@ -185,6 +185,10 @@ type Bucket struct {
 	writeSegmentInfoIntoFileName bool
 
 	bm25Config *models.BM25Config
+
+	// function to decide whether a key should be ignored
+	// during compaction for the SetCollection strategy
+	shouldIgnoreKey func(key []byte) (bool, error)
 }
 
 func NewBucketCreator() *Bucket { return &Bucket{} }
@@ -288,6 +292,7 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 			keepLevelCompaction:          b.keepLevelCompaction,
 			writeSegmentInfoIntoFileName: b.writeSegmentInfoIntoFileName,
 			writeMetadata:                b.writeMetadata,
+			shouldIgnoreKey:              b.shouldIgnoreKey,
 		}, compactionCallbacks, b, files)
 	if err != nil {
 		return nil, fmt.Errorf("init disk segments: %w", err)

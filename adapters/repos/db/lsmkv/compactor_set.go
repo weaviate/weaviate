@@ -50,12 +50,15 @@ type compactorSet struct {
 	scratchSpacePath string
 
 	enableChecksumValidation bool
+
+	shouldIgnoreKey func(key []byte) (bool, error)
 }
 
 func newCompactorSetCollection(w io.WriteSeeker,
 	c1, c2 innerCursorCollection, level, secondaryIndexCount uint16,
 	scratchSpacePath string, cleanupTombstones bool,
 	enableChecksumValidation bool, maxNewFileSize int64, allocChecker memwatch.AllocChecker,
+	shouldIgnoreKey func(key []byte) (bool, error),
 ) *compactorSet {
 	observeWrite := monitoring.GetMetrics().FileIOWrites.With(prometheus.Labels{
 		"operation": "compaction",
@@ -80,6 +83,7 @@ func newCompactorSetCollection(w io.WriteSeeker,
 		enableChecksumValidation: enableChecksumValidation,
 		allocChecker:             allocChecker,
 		maxNewFileSize:           maxNewFileSize,
+		shouldIgnoreKey:          shouldIgnoreKey,
 	}
 }
 
