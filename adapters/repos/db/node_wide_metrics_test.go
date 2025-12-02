@@ -38,7 +38,7 @@ func TestShardActivity(t *testing.T) {
 				closingCtx:          context.Background(),
 				partitioningEnabled: true,
 				shards:              shardMap{},
-				shardCreateLocks:    esync.NewKeyLocker(),
+				shardCreateLocks:    esync.NewKeyRWLocker(),
 			},
 			"NonMT": {
 				Config: IndexConfig{
@@ -48,7 +48,7 @@ func TestShardActivity(t *testing.T) {
 				closingCtx:          context.Background(),
 				partitioningEnabled: false,
 				shards:              shardMap{},
-				shardCreateLocks:    esync.NewKeyLocker(),
+				shardCreateLocks:    esync.NewKeyRWLocker(),
 			},
 		},
 	}
