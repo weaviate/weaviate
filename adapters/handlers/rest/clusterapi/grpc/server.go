@@ -53,9 +53,10 @@ func NewServer(state *state.State, options ...grpc.ServerOption) *Server {
 	}
 
 	fileCopyChunkSize := state.ServerConfig.Config.ReplicationEngineFileCopyChunkSize
+	pbOverhead := 16 * 1024 // 16kB for any extra overhead
 
-	o = append(o, grpc.MaxRecvMsgSize(fileCopyChunkSize))
-	o = append(o, grpc.MaxSendMsgSize(fileCopyChunkSize))
+	o = append(o, grpc.MaxRecvMsgSize(fileCopyChunkSize+pbOverhead))
+	o = append(o, grpc.MaxSendMsgSize(fileCopyChunkSize+pbOverhead))
 
 	s := grpc.NewServer(o...)
 
