@@ -285,7 +285,7 @@ func addReadOnlyMode(state *state.State, next http.Handler) http.Handler {
 					next.ServeHTTP(w, r)
 					return
 				}
-				http.Error(w, config.ErrReadOnlyModeEnabled.Error(), http.StatusForbidden)
+				w.WriteHeader(http.StatusServiceUnavailable)
 				return
 			}
 		}

@@ -4716,6 +4716,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "This operation is unavailable.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-serviceIds": [
@@ -14033,6 +14039,12 @@ func init() {
           },
           "500": {
             "description": "An error occurred during collection creation. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "This operation is unavailable.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
