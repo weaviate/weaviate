@@ -2332,6 +2332,8 @@ func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensu
 	// check if created in the meantime by concurrent call
 	shard = i.shards.Load(shardName)
 	if shard == nil {
+		// If the shard is not yet loaded, we need to upgrade to a write lock to ensure only one goroutine initializes
+		// the shard
 		i.shardCreateLocks.RUnlock(shardName)
 		if !ensureInit {
 			return nil, func() {}, nil
@@ -2353,7 +2355,6 @@ func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensu
 			if err != nil {
 				return nil, func() {}, err
 			}
-
 			i.shards.Store(shardName, shard)
 		}
 	} else {
