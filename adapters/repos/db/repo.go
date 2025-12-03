@@ -303,6 +303,7 @@ type Config struct {
 	MaintenanceModeEnabled      func() bool
 
 	SPFreshEnabled bool
+	ReadOnlyMode   *configRuntime.DynamicValue[bool]
 }
 
 // GetIndex returns the index if it exists or nil if it doesn't

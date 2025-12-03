@@ -41,6 +41,9 @@ type NodeStatus struct {
 	// The name of the node.
 	Name string `json:"name,omitempty"`
 
+	// Whether the node is in read-only mode such that no write operations are allowed (besides those required for cluster maintenance).
+	ReadOnlyMode bool `json:"readOnlyMode,omitempty"`
+
 	// The list of the shards with it's statistics.
 	Shards []*NodeShardStatus `json:"shards"`
 

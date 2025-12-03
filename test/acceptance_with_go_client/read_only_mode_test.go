@@ -20,6 +20,7 @@ import (
 	client "github.com/weaviate/weaviate-go-client/v5/weaviate"
 	"github.com/weaviate/weaviate-go-client/v5/weaviate/fault"
 	weaviateGrpc "github.com/weaviate/weaviate-go-client/v5/weaviate/grpc"
+	"github.com/weaviate/weaviate/client/nodes"
 	"github.com/weaviate/weaviate/client/replication"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/docker"
@@ -49,6 +50,16 @@ func TestReadOnlyMode(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
+
+	t.Run("rest: is in read-only mode", func(t *testing.T) {
+		health, err := helper.Client(t).Nodes.NodesGet(
+			nodes.NewNodesGetParams(),
+			nil,
+		)
+		require.NoError(t, err)
+		require.NotNil(t, health.Payload)
+		require.True(t, health.Payload.Nodes[0].ReadOnlyMode)
+	})
 
 	t.Run("rest: reject schema creation", func(t *testing.T) {
 		paragraphs := articles.ParagraphsClass()

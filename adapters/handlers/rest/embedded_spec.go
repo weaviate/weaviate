@@ -7425,6 +7425,10 @@ func init() {
           "description": "The name of the node.",
           "type": "string"
         },
+        "readOnlyMode": {
+          "description": "Whether the node is in read-only mode such that no write operations are allowed (besides those required for cluster maintenance).",
+          "type": "boolean"
+        },
         "shards": {
           "description": "The list of the shards with it's statistics.",
           "type": "array",
@@ -16935,6 +16939,10 @@ func init() {
         "name": {
           "description": "The name of the node.",
           "type": "string"
+        },
+        "readOnlyMode": {
+          "description": "Whether the node is in read-only mode such that no write operations are allowed (besides those required for cluster maintenance).",
+          "type": "boolean"
         },
         "shards": {
           "description": "The list of the shards with it's statistics.",
