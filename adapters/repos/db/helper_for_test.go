@@ -384,7 +384,7 @@ func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models
 		stopwords:              sd,
 		indexCheckpoints:       checkpts,
 		allocChecker:           memwatch.NewDummyMonitor(),
-		shardCreateLocks:       esync.NewKeyLockerContext(),
+		shardCreateLocks:       esync.NewKeyRWLocker(),
 		backupLock:             esync.NewKeyRWLocker(),
 		scheduler:              repo.scheduler,
 		shardLoadLimiter:       NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
