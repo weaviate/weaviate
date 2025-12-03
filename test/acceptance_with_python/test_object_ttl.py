@@ -39,7 +39,7 @@ def test_custom_property(
     for i in range(num_objects):
         collection.data.insert(
             {
-                "name": "Object 1",
+                "name": "Object " + str(i),
                 "custom_date": datetime.datetime.now(datetime.timezone.utc)
                 + datetime.timedelta(minutes=i),
             }
