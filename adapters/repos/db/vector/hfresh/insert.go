@@ -65,7 +65,12 @@ func (h *HFresh) Add(ctx context.Context, id uint64, vector []float32) (err erro
 			return // Fail the entire initialization
 		}
 		h.quantizer = compressionhelpers.NewRotationalQuantizer(int(h.dims), 42, 8, h.config.DistanceProvider)
+		h.vectorSize = int32(compressedVectorSize(int(h.dims)))
 		h.Centroids.SetQuantizer(h.quantizer)
+		if err := h.setVectorSize(h.vectorSize); err != nil {
+			h.logger.WithError(err).Error("could not set vector size")
+			return // Fails because we don't know the vector size
+		}
 
 		if err := h.persistRQData(); err != nil {
 			h.logger.WithError(err).Error("could not persist RQ data")
@@ -75,6 +80,7 @@ func (h *HFresh) Add(ctx context.Context, id uint64, vector []float32) (err erro
 			quantizer: h.quantizer,
 			distancer: h.config.DistanceProvider,
 		}
+		h.PostingStore.Init(h.vectorSize)
 	})
 
 	// add the vector to the version map.

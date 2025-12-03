@@ -68,6 +68,7 @@ type HFresh struct {
 	// received
 	initDimensionsOnce sync.Once
 	dims               int32 // Number of dimensions of expected vectors
+	vectorSize         int32 // Size of the compressed vectors in bytes
 	distancer          *Distancer
 	quantizer          *compressionhelpers.RotationalQuantizer
 

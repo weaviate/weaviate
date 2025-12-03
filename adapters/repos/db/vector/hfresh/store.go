@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	"github.com/pkg/errors"
@@ -23,10 +24,11 @@ import (
 )
 
 type PostingStore struct {
-	store   *lsmkv.Store
-	bucket  *lsmkv.Bucket
-	locks   *common.ShardedRWLocks
-	metrics *Metrics
+	store      *lsmkv.Store
+	bucket     *lsmkv.Bucket
+	vectorSize atomic.Int32
+	locks      *common.ShardedRWLocks
+	metrics    *Metrics
 }
 
 func NewPostingStore(store *lsmkv.Store, metrics *Metrics, id string, cfg StoreConfig) (*PostingStore, error) {
@@ -57,6 +59,12 @@ func (p *PostingStore) Init(size int32) {
 func (p *PostingStore) Get(ctx context.Context, postingID uint64) (*Posting, error) {
 	start := time.Now()
 	defer p.metrics.StoreGetDuration(start)
+
+	vectorSize := p.vectorSize.Load()
+	if vectorSize == 0 {
+		// the store is empty
+		return nil, errors.WithStack(ErrPostingNotFound)
+	}
 
 	var buf [8]byte
 	binary.LittleEndian.PutUint64(buf[:], postingID)
