@@ -44,6 +44,8 @@ func NewServer(state *state.State, options ...grpc.ServerOption) *Server {
 	o := []grpc.ServerOption{
 		grpc.MaxRecvMsgSize(maxSize),
 		grpc.MaxSendMsgSize(maxSize),
+		grpc.InitialWindowSize(int32(maxSize)),
+		grpc.InitialConnWindowSize(16 << 20), // 16MB (max)
 	}
 
 	basicAuth := state.ServerConfig.Config.Cluster.AuthConfig.BasicAuth

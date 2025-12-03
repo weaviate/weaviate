@@ -528,7 +528,12 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 
 		clientConn, err := grpc.NewClient(address,
 			grpc.WithTransportCredentials(insecure.NewCredentials()),
-			grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(maxSize), grpc.MaxCallSendMsgSize(maxSize)),
+			grpc.WithDefaultCallOptions(
+				grpc.MaxCallRecvMsgSize(maxSize),
+				grpc.MaxCallSendMsgSize(maxSize),
+			),
+			grpc.WithInitialWindowSize(int32(maxSize)),
+			grpc.WithInitialConnWindowSize(16<<20), // 16MB (max)
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create gRPC client connection: %w", err)
