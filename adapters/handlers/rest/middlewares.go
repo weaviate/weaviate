@@ -13,6 +13,7 @@ package rest
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"regexp"
@@ -28,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/raft"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/swagger_middleware"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -285,7 +287,17 @@ func addReadOnlyMode(state *state.State, next http.Handler) http.Handler {
 					next.ServeHTTP(w, r)
 					return
 				}
+
+				resp := models.ErrorResponse{Error: []*models.ErrorResponseErrorItems0{{Message: config.ErrReadOnlyModeEnabled.Error()}}}
+				data, err := json.Marshal(resp)
+				if err != nil {
+					http.Error(w, "error when marshalling errorResponse in read-only mode", http.StatusInternalServerError)
+					return
+				}
+
+				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusServiceUnavailable)
+				w.Write(data)
 				return
 			}
 		}
