@@ -60,6 +60,8 @@ const (
 // regex pattern for the chunk files
 var chunkFilePattern = regexp.MustCompile(`chunk-\d+\.bin`)
 
+// A Queue represents anything that can be scheduled by the Scheduler.
+// It must return its ID, size, and be able to dequeue a batch of tasks.
 type Queue interface {
 	ID() string
 	Size() int64
@@ -389,7 +391,7 @@ func (q *DiskQueue) DequeueBatch() (batch *Batch, err error) {
 
 	return &Batch{
 		Tasks:  tasks,
-		onDone: doneFn,
+		OnDone: doneFn,
 	}, nil
 }
 

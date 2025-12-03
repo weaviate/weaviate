@@ -453,7 +453,7 @@ func (s *Scheduler) dispatchQueue(q *queueState) (int64, error) {
 		case s.chans[i] <- &Batch{
 			Tasks: partitions[i],
 			Ctx:   q.ctx,
-			onDone: func() {
+			OnDone: func() {
 				defer q.q.Metrics().TasksProcessed(start, int(taskCount))
 				defer q.activeTasks.Decr()
 				defer s.activeTasks.Decr()
@@ -473,7 +473,7 @@ func (s *Scheduler) dispatchQueue(q *queueState) (int64, error) {
 						Debug("tasks processed")
 				}
 			},
-			onCanceled: func() {
+			OnCanceled: func() {
 				q.activeTasks.Decr()
 				s.activeTasks.Decr()
 			},

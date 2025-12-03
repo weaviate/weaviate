@@ -26,29 +26,38 @@ type TaskGrouper interface {
 	NewGroup(op uint8, tasks ...Task) Task
 }
 
+// A Batch represents a group of tasks dequeued together.
+// The Scheduler will call Done() when all tasks have been processed,
+// or Cancel() if the batch processing was canceled.
+// The Queue implementation can use the OnDone and OnCanceled callbacks to
+// perform any necessary actions when the batch is done or canceled.
 type Batch struct {
 	Tasks      []Task
 	Ctx        context.Context
-	onDone     func()
-	onCanceled func()
+	OnDone     func()
+	OnCanceled func()
 	once       sync.Once
 }
 
+// Called by the worker when all tasks in the batch have been processed.
+// It will execute the OnDone callback if it is set.
 func (b *Batch) Done() {
-	if b.onDone != nil {
-		b.once.Do(b.onDone)
+	if b.OnDone != nil {
+		b.once.Do(b.OnDone)
 	}
 }
 
+// Called by the worker if the batch processing was canceled.
+// It will execute the OnCanceled callback if it is set.
 func (b *Batch) Cancel() {
-	if b.onCanceled != nil {
-		b.onCanceled()
+	if b.OnCanceled != nil {
+		b.OnCanceled()
 	}
 }
 
 // MergeBatches merges multiple batches into a single batch.
 // It will ignore nil batches.
-// It will execute the onDone and onCanceled functions of all batches.
+// It will execute the OnDone and OnCanceled functions of all batches.
 func MergeBatches(batches ...*Batch) *Batch {
 	// count the number of tasks
 	var numTasks int
@@ -72,22 +81,22 @@ func MergeBatches(batches ...*Batch) *Batch {
 		if len(batch.Tasks) > 0 {
 			tasks = append(tasks, batch.Tasks...)
 		}
-		if batch.onDone != nil {
-			onDoneFns = append(onDoneFns, batch.onDone)
+		if batch.OnDone != nil {
+			onDoneFns = append(onDoneFns, batch.OnDone)
 		}
-		if batch.onCanceled != nil {
-			onCanceledFns = append(onCanceledFns, batch.onCanceled)
+		if batch.OnCanceled != nil {
+			onCanceledFns = append(onCanceledFns, batch.OnCanceled)
 		}
 	}
 
 	return &Batch{
 		Tasks: tasks,
-		onDone: func() {
+		OnDone: func() {
 			for _, fn := range onDoneFns {
 				fn()
 			}
 		},
-		onCanceled: func() {
+		OnCanceled: func() {
 			for _, fn := range onCanceledFns {
 				fn()
 			}
