@@ -188,7 +188,7 @@ def test_post_search_filter(
 
     # add a bunch of expired objects, but don't delete them yet
     num_expired_objects = 5
-    for i in range(num_expired_objects):
+    for _ in range(num_expired_objects):
         collection.data.insert(
             properties={
                 "custom_date": datetime.datetime.now(datetime.timezone.utc)
@@ -198,7 +198,7 @@ def test_post_search_filter(
 
     # add a bunch of NOT expired objects
     num_not_expired_objects = 6
-    for i in range(num_not_expired_objects):
+    for _ in range(num_not_expired_objects):
         collection.data.insert(
             properties={
                 "custom_date": datetime.datetime.now(datetime.timezone.utc)
