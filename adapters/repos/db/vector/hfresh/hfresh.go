@@ -131,17 +131,8 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 		metrics:      metrics,
 		PostingStore: postingStore,
 		vectorForId:  cfg.VectorForIDThunk,
-		// Capacity of the version map: 8k pages, 1M vectors each -> 8B vectors
-		// - An empty version map consumes 240KB of memory
-		// - Each allocated page consumes 1MB of memory
-		// - A fully used version map consumes 8GB of memory
-		VersionMap: versionMap,
-		// Capacity of the posting sizes: 1k pages, 1M postings each -> 1B postings
-		// - An empty posting sizes buffer consumes 240KB of memory
-		// - Each allocated page consumes 4MB of memory
-		// - A fully used posting sizes consumes 4GB of memory
+		VersionMap:   versionMap,
 		PostingSizes: postingSizes,
-
 		postingLocks: common.NewDefaultShardedRWLocks(),
 		// TODO: choose a better starting size since we can predict the max number of
 		// visited vectors based on cfg.InternalPostingCandidates.
