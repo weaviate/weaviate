@@ -1,6 +1,4 @@
 import datetime
-import math
-import time
 from typing import Optional
 
 import httpx
@@ -17,7 +15,7 @@ def delete(expiration_time: Optional[datetime.datetime] = None):
             if expiration_time.tzinfo is None:
                 expiration_time = expiration_time.replace(tzinfo=datetime.timezone.utc)
 
-        params["expiration"] = expiration_time.isoformat(sep="T", timespec="microseconds")
+            params["expiration"] = expiration_time.isoformat(sep="T", timespec="microseconds")
 
         response = client.get(
             "http://localhost:6060/debug/ttl/deleteall", params=params, timeout=30
