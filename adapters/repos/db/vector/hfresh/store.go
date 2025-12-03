@@ -47,7 +47,14 @@ func NewPostingStore(store *lsmkv.Store, metrics *Metrics, id string, cfg StoreC
 	}, nil
 }
 
-func (p *PostingStore) Get(ctx context.Context, postingID uint64) (Posting, error) {
+// Init is called by the index upon receiving the first vector and
+// determining the vector size.
+// Prior to calling this method, the store will assume the index is empty.
+func (p *PostingStore) Init(size int32) {
+	p.vectorSize.Store(size)
+}
+
+func (p *PostingStore) Get(ctx context.Context, postingID uint64) (*Posting, error) {
 	start := time.Now()
 	defer p.metrics.StoreGetDuration(start)
 
@@ -60,17 +67,26 @@ func (p *PostingStore) Get(ctx context.Context, postingID uint64) (Posting, erro
 		return nil, errors.Wrapf(err, "failed to get posting %d", postingID)
 	}
 
-	posting := Posting(make([]Vector, len(list)))
-
-	for i, v := range list {
-		posting[i] = Vector(v)
+	posting := Posting{
+		vectorSize: int(vectorSize),
+		vectors:    make([]Vector, len(list)),
 	}
 
-	return posting, nil
+	for i, v := range list {
+		posting.vectors[i] = Vector(v)
+	}
+
+	return &posting, nil
 }
 
-func (p *PostingStore) MultiGet(ctx context.Context, postingIDs []uint64) ([]Posting, error) {
-	postings := make([]Posting, 0, len(postingIDs))
+func (p *PostingStore) MultiGet(ctx context.Context, postingIDs []uint64) ([]*Posting, error) {
+	vectorSize := p.vectorSize.Load()
+	if vectorSize == 0 {
+		// the store is empty
+		return nil, errors.WithStack(ErrPostingNotFound)
+	}
+
+	postings := make([]*Posting, 0, len(postingIDs))
 
 	for _, id := range postingIDs {
 		posting, err := p.Get(ctx, id)
@@ -83,7 +99,7 @@ func (p *PostingStore) MultiGet(ctx context.Context, postingIDs []uint64) ([]Pos
 	return postings, nil
 }
 
-func (p *PostingStore) Put(ctx context.Context, postingID uint64, posting Posting) error {
+func (p *PostingStore) Put(ctx context.Context, postingID uint64, posting *Posting) error {
 	start := time.Now()
 	defer p.metrics.StorePutDuration(start)
 
@@ -94,8 +110,8 @@ func (p *PostingStore) Put(ctx context.Context, postingID uint64, posting Postin
 	var buf [8]byte
 	binary.LittleEndian.PutUint64(buf[:], postingID)
 
-	set := make([][]byte, len(posting))
-	for i, v := range posting {
+	set := make([][]byte, posting.Len())
+	for i, v := range posting.Iter() {
 		set[i] = v
 	}
 

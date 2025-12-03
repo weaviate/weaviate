@@ -53,14 +53,14 @@ func (h *HFresh) doSplit(ctx context.Context, postingID uint64, reassign bool) e
 	}
 
 	// garbage collect the deleted vectors
-	lp := len(p)
+	lp := p.Len()
 	filtered, err := p.GarbageCollect(h.VersionMap)
 	if err != nil {
 		return errors.Wrapf(err, "failed to garbage collect posting %d", postingID)
 	}
 
 	// skip if the filtered posting is now too small
-	if lf := len(filtered); lf < int(h.maxPostingSize) {
+	if lf := filtered.Len(); lf < int(h.maxPostingSize) {
 		if lf == lp {
 			// no changes, just return
 			return nil
@@ -86,7 +86,7 @@ func (h *HFresh) doSplit(ctx context.Context, postingID uint64, reassign bool) e
 		return errors.Wrapf(err, "failed to split vectors for posting %d", postingID)
 	}
 	// if one of the postings is empty, ignore the split
-	if len(result[0].Posting) == 0 || len(result[1].Posting) == 0 {
+	if result[0].Posting.Len() == 0 || result[1].Posting.Len() == 0 {
 		h.logger.WithField("postingID", postingID).
 			Debug("split resulted in empty posting, skipping split operation")
 		return nil
@@ -101,7 +101,7 @@ func (h *HFresh) doSplit(ctx context.Context, postingID uint64, reassign bool) e
 			return errors.Wrapf(err, "failed to put new posting %d after split operation", newPostingID)
 		}
 		// allocate and set posting size after successful persist
-		err = h.PostingSizes.Set(ctx, newPostingID, uint32(len(result[i].Posting)))
+		err = h.PostingSizes.Set(ctx, newPostingID, uint32(result[i].Posting.Len()))
 		if err != nil {
 			return errors.Wrapf(err, "failed to set posting size for posting %d after split operation", newPostingID)
 		}
@@ -145,7 +145,7 @@ func (h *HFresh) doSplit(ctx context.Context, postingID uint64, reassign bool) e
 }
 
 // splitPosting takes a posting and returns two groups.
-func (h *HFresh) splitPosting(posting Posting) ([]SplitResult, error) {
+func (h *HFresh) splitPosting(posting *Posting) ([]SplitResult, error) {
 	enc := compressionhelpers.NewKMeansEncoder(2, int(h.dims), 0)
 
 	data := posting.Uncompress(h.quantizer)
@@ -159,6 +159,9 @@ func (h *HFresh) splitPosting(posting Posting) ([]SplitResult, error) {
 	for i := range results {
 		results[i] = SplitResult{
 			Uncompressed: enc.Centroid(byte(i)),
+			Posting: &Posting{
+				vectorSize: int(h.vectorSize),
+			},
 		}
 
 		results[i].Centroid = h.quantizer.Encode(enc.Centroid(byte(i)))
@@ -175,9 +178,9 @@ func (h *HFresh) splitPosting(posting Posting) ([]SplitResult, error) {
 			return nil, errors.Wrapf(err, "failed to compute distance to centroid 1")
 		}
 		if dA < dB {
-			results[0].Posting.AddVector(posting[i])
+			results[0].Posting.AddVector(posting.GetAt(i))
 		} else {
-			results[1].Posting.AddVector(posting[i])
+			results[1].Posting.AddVector(posting.GetAt(i))
 		}
 	}
 
@@ -187,7 +190,7 @@ func (h *HFresh) splitPosting(posting Posting) ([]SplitResult, error) {
 type SplitResult struct {
 	Centroid     []byte
 	Uncompressed []float32
-	Posting      Posting
+	Posting      *Posting
 }
 
 func (h *HFresh) enqueueReassignAfterSplit(ctx context.Context, oldPostingID uint64, newPostingIDs []uint64, newPostings []SplitResult) error {
@@ -199,7 +202,7 @@ func (h *HFresh) enqueueReassignAfterSplit(ctx context.Context, oldPostingID uin
 	// neighboring centroids cannot be better.
 	for i := range newPostings {
 		// test each vector
-		for _, v := range newPostings[i].Posting {
+		for _, v := range newPostings[i].Posting.Iter() {
 			vid := v.ID()
 			_, exists := reassignedVectors[vid]
 			version, err := h.VersionMap.Get(ctx, vid)
@@ -267,7 +270,7 @@ func (h *HFresh) enqueueReassignAfterSplit(ctx context.Context, oldPostingID uin
 			return errors.Wrapf(err, "failed to get posting %d for reassign after split", neighborID)
 		}
 
-		for _, v := range p {
+		for _, v := range p.Iter() {
 			vid := v.ID()
 			_, exists := reassignedVectors[vid]
 			version, err := h.VersionMap.Get(ctx, vid)
