@@ -14,12 +14,33 @@ package hfresh
 import (
 	"context"
 	"encoding/binary"
-	"fmt"
 
 	"github.com/maypok86/otter/v2"
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 )
+
+// These constants define the prefixes used in the
+// lsmkv bucket to namespace different types of data.
+const (
+	postingSizeBucketPrefix = 's'
+	versionMapBucketPrefix  = 'v'
+)
+
+// NewSharedBucket creates a shared lsmkv bucket for the HFresh index.
+// This bucket is used to store metadata in namespaced regions of the bucket.
+func NewSharedBucket(store *lsmkv.Store, indexID string, cfg StoreConfig) (*lsmkv.Bucket, error) {
+	bName := bucketName(indexID)
+	err := store.CreateOrLoadBucket(context.Background(),
+		bName,
+		cfg.MakeBucketOptions(lsmkv.StrategySetCollection, lsmkv.WithForceCompaction(true))...,
+	)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to create or load bucket %s", bName)
+	}
+
+	return store.Bucket(bName), nil
+}
 
 // PostingSizes keeps track of the number of vectors in each posting.
 // It uses a combination of an LSMKV store for persistence and an in-memory
@@ -30,8 +51,8 @@ type PostingSizes struct {
 	store   *PostingSizeStore
 }
 
-func NewPostingSizes(store *lsmkv.Store, metrics *Metrics, id string, cfg StoreConfig) (*PostingSizes, error) {
-	pStore, err := NewPostingSizeStore(store, metrics, postingSizeBucketName(id), cfg)
+func NewPostingSizes(bucket *lsmkv.Bucket, metrics *Metrics) (*PostingSizes, error) {
+	pStore, err := NewPostingSizeStore(bucket)
 	if err != nil {
 		return nil, err
 	}
@@ -107,29 +128,25 @@ func (v *PostingSizes) Inc(ctx context.Context, postingID uint64, delta uint32) 
 // PostingSizeStore is a persistent store for posting sizes.
 // It stores the sizes in an LSMKV bucket.
 type PostingSizeStore struct {
-	store  *lsmkv.Store
 	bucket *lsmkv.Bucket
 }
 
-func NewPostingSizeStore(store *lsmkv.Store, metrics *Metrics, bucketName string, cfg StoreConfig) (*PostingSizeStore, error) {
-	err := store.CreateOrLoadBucket(context.Background(),
-		bucketName,
-		cfg.MakeBucketOptions(lsmkv.StrategyReplace)...,
-	)
-	if err != nil {
-		return nil, errors.Wrapf(err, "failed to create or load bucket %s", bucketName)
-	}
-
+func NewPostingSizeStore(bucket *lsmkv.Bucket) (*PostingSizeStore, error) {
 	return &PostingSizeStore{
-		store:  store,
-		bucket: store.Bucket(bucketName),
+		bucket: bucket,
 	}, nil
 }
 
+func (p *PostingSizeStore) key(postingID uint64) [9]byte {
+	var buf [9]byte
+	buf[0] = postingSizeBucketPrefix
+	binary.LittleEndian.PutUint64(buf[1:], postingID)
+	return buf
+}
+
 func (p *PostingSizeStore) Get(ctx context.Context, postingID uint64) (uint32, error) {
-	var buf [8]byte
-	binary.LittleEndian.PutUint64(buf[:], postingID)
-	v, err := p.bucket.Get(buf[:])
+	key := p.key(postingID)
+	v, err := p.bucket.Get(key[:])
 	if err != nil {
 		return 0, errors.Wrapf(err, "failed to get posting size for %d", postingID)
 	}
@@ -145,8 +162,4 @@ func (p *PostingSizeStore) Set(ctx context.Context, postingID uint64, size uint3
 	binary.LittleEndian.PutUint64(buf[:], postingID)
 
 	return p.bucket.Put(buf[:], binary.LittleEndian.AppendUint32(nil, size))
-}
-
-func postingSizeBucketName(id string) string {
-	return fmt.Sprintf("hfresh_posting_sizes_%s", id)
 }

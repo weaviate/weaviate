@@ -22,19 +22,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 )
 
-func NewBucket(store *lsmkv.Store, indexID string, cfg StoreConfig) (*lsmkv.Bucket, error) {
-	bName := bucketName(indexID)
-	err := store.CreateOrLoadBucket(context.Background(),
-		bName,
-		cfg.MakeBucketOptions(lsmkv.StrategySetCollection, lsmkv.WithForceCompaction(true))...,
-	)
-	if err != nil {
-		return nil, errors.Wrapf(err, "failed to create or load bucket %s", bucketName)
-	}
-
-	return store.Bucket(bName), nil
-}
-
 type PostingStore struct {
 	store   *lsmkv.Store
 	bucket  *lsmkv.Bucket
