@@ -697,18 +697,16 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	reindexer := configureReindexer(appState, reindexCtx)
 	repo.WithReindexer(reindexer)
 
-	metaStoreReadyErr := fmt.Errorf("meta store ready")
-	metaStoreFailedErr := fmt.Errorf("meta store failed")
-	storeReadyCtx, storeReadyCancel := context.WithCancelCause(context.Background())
+	metaStoreReady := newMetaStoreReady()
 	enterrors.GoWrapper(func() {
 		if err := appState.ClusterService.Open(context.Background(), executor); err != nil {
 			appState.Logger.
 				WithField("action", "startup").
 				WithError(err).
 				Fatal("could not open cloud meta store")
-			storeReadyCancel(metaStoreFailedErr)
+			metaStoreReady.failure(err)
 		} else {
-			storeReadyCancel(metaStoreReadyErr)
+			metaStoreReady.success()
 		}
 	}, appState.Logger)
 
@@ -750,26 +748,24 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		// start reindexing inverted indexes (if requested by user) in the background
 		// allowing db to complete api configuration and start handling requests
 		enterrors.GoWrapper(func() {
-			// wait until meta store is ready, as reindex tasks needs schema
-			<-storeReadyCtx.Done()
-			if errors.Is(context.Cause(storeReadyCtx), metaStoreReadyErr) {
-				appState.Logger.
-					WithField("action", "startup").
-					Info("Reindexing inverted indexes")
-				reindexFinished <- migrator.InvertedReindex(reindexCtx, reindexTaskNamesWithArgs)
+			l := appState.Logger.WithField("action", "startup")
+			if err := metaStoreReady.waitForMetaStore(); err != nil {
+				l.WithError(err).Error("Reindexing inverted indexes skipped")
+				return
 			}
+			l.Info("Reindexing inverted indexes")
+			reindexFinished <- migrator.InvertedReindex(reindexCtx, reindexTaskNamesWithArgs)
 		}, appState.Logger)
 	}
 
 	enterrors.GoWrapper(func() {
-		// wait until meta store is ready
-		<-storeReadyCtx.Done()
-		if errors.Is(context.Cause(storeReadyCtx), metaStoreReadyErr) {
-			appState.Logger.
-				WithField("action", "startup").
-				Info("Configuring crons")
-			configureCrons(appState, serverShutdownCtx)
+		l := appState.Logger.WithField("action", "startup")
+		if err := metaStoreReady.waitForMetaStore(); err != nil {
+			l.WithError(err).Error("Configuring crons skipped")
+			return
 		}
+		l.Info("Configuring crons")
+		configureCrons(appState, serverShutdownCtx)
 	}, appState.Logger)
 
 	configureServer = makeConfigureServer(appState)
@@ -805,8 +801,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 			// Do not launch scheduler until the full RAFT state is restored to avoid needlessly starting
 			// and stopping tasks.
 			// Additionally, not-ready RAFT state could lead to lose of local task metadata.
-			<-storeReadyCtx.Done()
-			if !errors.Is(context.Cause(storeReadyCtx), metaStoreReadyErr) {
+			if metaStoreReady.waitForMetaStore() != nil {
 				return
 			}
 			if err = appState.DistributedTaskScheduler.Start(ctx); err != nil {
@@ -920,6 +915,32 @@ func configureCrons(appState *state.State, serverShutdownCtx context.Context) {
 		fmt.Printf("  ==> server shutdown [%s]\n\n", context.Cause(serverShutdownCtx))
 		c.Stop()
 	}
+}
+
+type metaStoreReady struct {
+	ctx    context.Context
+	cancel context.CancelCauseFunc
+}
+
+func newMetaStoreReady() *metaStoreReady {
+	ctx, cancel := context.WithCancelCause(context.Background())
+	return &metaStoreReady{ctx: ctx, cancel: cancel}
+}
+
+func (msr *metaStoreReady) success() {
+	msr.cancel(nil)
+}
+
+func (msr *metaStoreReady) failure(err error) {
+	msr.cancel(err)
+}
+
+func (msr *metaStoreReady) waitForMetaStore() error {
+	<-msr.ctx.Done()
+	if err := context.Cause(msr.ctx); !errors.Is(err, context.Canceled) {
+		return err
+	}
+	return nil
 }
 
 func parseNode2Port(appState *state.State) (m map[string]int, err error) {
