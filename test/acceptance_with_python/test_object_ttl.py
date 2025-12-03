@@ -206,5 +206,8 @@ def test_post_search_filter(
             }
         )
 
+    # add one object without the date property set
+    collection.data.insert(properties={"name": "no date"})
+
     results = collection.query.fetch_objects()
-    assert len(results.objects) == expected_count
+    assert len(results.objects) == expected_count + 1  # +1 for the object without date property
