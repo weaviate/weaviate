@@ -440,7 +440,7 @@ func (e *Explorer) searchResultsToGetResponseWithType(ctx context.Context, input
 			return nil, ctx.Err()
 		}
 
-		keep, err := e.filterObjectTTlResults(params, res, searchStartTime)
+		keep, err := e.keepObjectsWithTTL(params, res, searchStartTime)
 		if err != nil {
 			return nil, errors.Errorf("object ttl filtering: %v", err)
 		}
@@ -763,7 +763,7 @@ func (e *Explorer) replicationEnabled(params dto.GetParams) (bool, error) {
 	return class.ReplicationConfig != nil && class.ReplicationConfig.Factor > 1, nil
 }
 
-func (e *Explorer) filterObjectTTlResults(params dto.GetParams, input search.Result, searchStartTime time.Time) (bool, error) {
+func (e *Explorer) keepObjectsWithTTL(params dto.GetParams, input search.Result, searchStartTime time.Time) (bool, error) {
 	if e.schemaGetter == nil {
 		return false, fmt.Errorf("schemaGetter not set")
 	}
@@ -790,7 +790,11 @@ func (e *Explorer) filterObjectTTlResults(params dto.GetParams, input search.Res
 	case filters.InternalPropLastUpdateTimeUnix:
 		expirationTime = time.UnixMilli(input.Updated)
 	default:
-		dateTime := input.Schema.(map[string]interface{})[class.ObjectTTLConfig.DeleteOn]
+		dateTime, exists := input.Schema.(map[string]interface{})[class.ObjectTTLConfig.DeleteOn]
+		if !exists {
+			// if object has no TTL date set, we keep it
+			return true, nil
+		}
 		deleteOnTimeStr, ok := dateTime.(string)
 		if !ok {
 			return false, fmt.Errorf("date as string expected, got %T", dateTime)
