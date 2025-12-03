@@ -16,12 +16,26 @@ import (
 	"sync"
 )
 
+// A Task represents a unit of work to be processed by the workers.
 type Task interface {
+	// Op returns a uint8 representing the operation type of the task.
+	// It is used for compressing tasks that implement the optional TaskGrouper interface.
 	Op() uint8
+	// Key returns a uint64 that can be used to influence task partitioning.
+	// Tasks are assigned to workers based on the hash of their key, to ensure
+	// that tasks with the same key are always processed by the same worker.
+	// Implementations can also return a constant value to make sure all tasks are
+	// processed by the same worker (e.g. for operations that must be serialized, like HFresh Merge operation).
 	Key() uint64
+	// Execute is called by a worker to process the task.
+	// If a task returns a transient error from Execute (e.g. canceled context, not enough memory, etc.),
+	// it will be retried using an exponential backoff strategy.
+	// Otherwise, the error will be considered permanent and the task will not be retried.
 	Execute(ctx context.Context) error
 }
 
+// TaskGrouper is an optional interface that can be implemented by a Task
+// to provide custom grouping logic.
 type TaskGrouper interface {
 	NewGroup(op uint8, tasks ...Task) Task
 }
