@@ -282,7 +282,7 @@ func addReadOnlyMode(state *state.State, next http.Handler) http.Handler {
 		if state.ServerConfig.Config.ReadOnlyMode.Get() {
 			// Allow only read operations
 			if r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions {
-				if strings.Contains(r.URL.Path, "/replication/replicate") {
+				if strings.Contains(r.URL.Path, "/replication") {
 					// allow replication endpoints even in read-only mode
 					next.ServeHTTP(w, r)
 					return
