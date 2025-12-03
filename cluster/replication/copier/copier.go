@@ -304,7 +304,7 @@ func (c *Copier) downloadWorker(ctx context.Context, client FileReplicationServi
 			}
 
 			eg := enterrors.NewErrorGroupWrapper(c.logger)
-			eg.SetLimit(2 * _NUMCPU) // limit number of concurrent writes to file
+			eg.SetLimit(_NUMCPU)
 			for {
 				chunk, err := stream.Recv()
 				if err != nil {
