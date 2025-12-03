@@ -12,6 +12,9 @@
 package api
 
 import (
+	"encoding/json"
+	"fmt"
+
 	"github.com/go-openapi/strfmt"
 )
 
@@ -114,6 +117,47 @@ type ReplicationDetailsState struct {
 	State           string
 	Errors          []ReplicationDetailsError
 	StartTimeUnixMs int64 // Unix timestamp in milliseconds when the state was first entered
+}
+
+func (r *ReplicationDetailsState) UnmarshalJSON(data []byte) error {
+	type rawReplicationDetailsState struct {
+		State           string
+		Errors          json.RawMessage
+		StartTimeUnixMs int64
+	}
+	var raw rawReplicationDetailsState
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+
+	r.State = raw.State
+	r.StartTimeUnixMs = raw.StartTimeUnixMs
+	// no errors in the message
+	if len(raw.Errors) == 0 || string(raw.Errors) == "null" || string(raw.Errors) == "[]" {
+		r.Errors = nil
+		return nil
+	}
+
+	// try to unmarshal as []ReplicationDetailsError
+	var replicationDetailsErrors []ReplicationDetailsError
+	if err := json.Unmarshal(raw.Errors, &replicationDetailsErrors); err == nil {
+		r.Errors = replicationDetailsErrors
+		return nil
+	}
+
+	// try to unmarshal as []string (legacy format)
+	var errors []string
+	if err := json.Unmarshal(raw.Errors, &errors); err == nil {
+		if len(errors) > 0 {
+			r.Errors = make([]ReplicationDetailsError, len(errors))
+			for i, msg := range errors {
+				r.Errors[i] = ReplicationDetailsError{Message: msg}
+			}
+		}
+		return nil
+	}
+
+	return fmt.Errorf("cannot unmarshal ReplicationDetailsState.Errors field neither to []ReplicationDetailsError or []string: %v", string(raw.Errors))
 }
 
 type ReplicationDetailsResponse struct {
