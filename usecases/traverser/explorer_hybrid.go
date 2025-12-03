@@ -174,7 +174,7 @@ func nearTextSubSearch(ctx context.Context, e *Explorer, params dto.GetParams, t
 		vector = vectors[0]
 	}
 
-	// minimum time to not do any time-based filtering during hybrid search
+	// Pass zero time to disable time-based filtering during hybrid search
 	results, err := e.searchResultsToGetResponseWithType(ctx, partialResults, vector, params, time.Time{})
 	if err != nil {
 		return nil, "", err
