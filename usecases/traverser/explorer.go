@@ -773,6 +773,10 @@ func (e *Explorer) filterObjectTTlResults(params dto.GetParams, input search.Res
 		return false, fmt.Errorf("class not found in schema: %q", params.ClassName)
 	}
 
+	// Skip TTL filtering if searchStartTime is zero (e.g., during hybrid search)
+	if searchStartTime.IsZero() {
+		return true, nil
+	}
 	if !ttl.IsTtlEnabled(class.ObjectTTLConfig) || !class.ObjectTTLConfig.PostSearchFilter {
 		return true, nil
 	}
