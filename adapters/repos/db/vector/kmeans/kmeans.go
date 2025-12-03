@@ -496,6 +496,91 @@ func (m *KMeans) Fit(data [][]float32) error {
 	return nil
 }
 
+type pair struct {
+	distance float32
+	index    uint32
+}
+
+func (m *KMeans) FitBalanced(data [][]float32) ([]uint32, error) {
+	if len(data) < m.K {
+		return nil, errors.New("not enough data to fit k-means")
+	}
+
+	if m.K == 1 {
+		m.computeCentroid(data)
+		return nil, nil
+	}
+
+	n := len(data)
+	m.initMemory(n)
+	m.initializeCenters(data)
+	m.Metrics.Termination = MaxIterations
+
+	result := make([]uint32, len(data))
+	for m.Metrics.Iterations < m.IterationThreshold {
+		centroidAssignments := make([][]pair, 2)
+		var metrics IterationMetrics
+		if m.Assignment == GraphPruning {
+			m.updateCenterNeighbors()
+			metrics.computations += m.K * m.K / 2
+		}
+		for i, x := range data {
+			prevCenterIdx := m.tmp.assignment[i]
+			nearest := m.nearest(x, prevCenterIdx)
+			if nearest.index != prevCenterIdx {
+				metrics.changes++
+				m.tmp.assignment[i] = nearest.index
+			}
+			centroidAssignments[nearest.index] = append(centroidAssignments[nearest.index], pair{distance: nearest.distance, index: uint32(i)})
+			metrics.wcss += float64(nearest.distance)
+			metrics.computations += nearest.computations
+		}
+
+		result = m.balanceAssignments(centroidAssignments)
+
+		m.Metrics.update(metrics)
+		m.updateCenters(data)
+		if float32(metrics.changes) <= m.DeltaThreshold*float32(n) {
+			m.Metrics.Termination = ClusterStability
+			break
+		}
+	}
+	m.cleanupMemory()
+	return result, nil
+}
+
+func (m *KMeans) balanceAssignments(centroidAssignments [][]pair) []uint32 {
+	slices.SortFunc(centroidAssignments[0], func(a, b pair) int {
+		return cmp.Compare(b.distance, a.distance)
+	})
+	slices.SortFunc(centroidAssignments[1], func(a, b pair) int {
+		return cmp.Compare(b.distance, a.distance)
+	})
+	threshold := 10
+	// balance the assignments, if the difference between the two clusters is greater than the threshold,
+	// we need to move some points from the larger cluster to the smaller cluster starting from the
+	// furthest point in the larger cluster.
+	if len(centroidAssignments[0])-len(centroidAssignments[1]) > threshold {
+		for len(centroidAssignments[0])-len(centroidAssignments[1]) > threshold {
+			centroidAssignments[1] = append(centroidAssignments[1], centroidAssignments[0][0])
+			centroidAssignments[0] = centroidAssignments[0][1:]
+		}
+	} else if len(centroidAssignments[1])-len(centroidAssignments[0]) > threshold {
+		for len(centroidAssignments[1])-len(centroidAssignments[0]) > threshold {
+			centroidAssignments[0] = append(centroidAssignments[0], centroidAssignments[1][0])
+			centroidAssignments[1] = centroidAssignments[1][1:]
+		}
+	}
+	result := make([]uint32, len(centroidAssignments[0])+len(centroidAssignments[1]))
+	for _, v := range centroidAssignments[0] {
+		result[v.index] = 0
+	}
+	for _, v := range centroidAssignments[1] {
+		result[v.index] = 1
+	}
+	return result
+}
+
 func (m *KMeans) DisableDeltaThreshold() {
 	m.DeltaThreshold = -1
 }
