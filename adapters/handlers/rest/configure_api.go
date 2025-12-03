@@ -860,11 +860,18 @@ func configureCrons(appState *state.State, serverShutdownCtx context.Context) {
 		job      gocron.Job
 	}
 
-	logger := cron.NewGoCronLogger(appState.Logger, logrus.DebugLevel)
+	cronLogger := cron.NewGoCronLogger(appState.Logger, logrus.DebugLevel)
 	specs := []jobSpec{}
 
 	if schedule := appState.ServerConfig.Config.ObjectsTTLDeleteSchedule; schedule != "" {
-		deleteObjectsExpiredJob := gocron.NewChain(gocron.SkipIfStillRunning(logger)).Then(cron.NewGoCronJob(func() {
+		logger := appState.Logger.WithField("action", "cron_ttl_scheduler")
+
+		deleteObjectsExpiredJob := gocron.NewChain(gocron.SkipIfStillRunning(cronLogger)).Then(cron.NewGoCronJob(func() {
+			if !appState.ClusterService.Raft.IsLeader() {
+				logger.Debug("not a scheduler - skipping")
+				return
+			}
+
 			var err error
 			now := time.Now()
 
@@ -872,19 +879,14 @@ func configureCrons(appState *state.State, serverShutdownCtx context.Context) {
 			defer cancel()
 
 			// TODO aliszka:ttl change log level to debug?
-			appState.Logger.WithFields(logrus.Fields{
-				"action": "cron_delete_objects_expired",
-			}).Info("started deleting expired objects")
+			logger.Info("started deleting expired objects")
 			defer func() {
-				l := appState.Logger.WithFields(logrus.Fields{
-					"action": "cron_delete_objects_expired",
-					"took":   time.Since(now).String(),
-				})
+				logger = logger.WithField("took", time.Since(now).String())
 
 				if err != nil {
-					l.WithError(err).Error("error deleting expired objects")
+					logger.WithError(err).Error("error deleting expired objects")
 				} else {
-					l.Info("finished deleting expired objects")
+					logger.Info("finished deleting expired objects")
 				}
 			}()
 
@@ -905,7 +907,7 @@ func configureCrons(appState *state.State, serverShutdownCtx context.Context) {
 		}
 
 		// standard parser
-		c := gocron.New(gocron.WithLogger(logger), gocron.WithChain(gocron.Recover(logger)))
+		c := gocron.New(gocron.WithLogger(cronLogger), gocron.WithChain(gocron.Recover(cronLogger)))
 		for i := range specs {
 			c.AddJob(specs[i].schedule, specs[i].job)
 		}
