@@ -12,6 +12,7 @@
 package acceptance_with_go_client
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -21,31 +22,30 @@ import (
 	weaviateGrpc "github.com/weaviate/weaviate-go-client/v5/weaviate/grpc"
 	"github.com/weaviate/weaviate/client/replication"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 	"google.golang.org/grpc/status"
 )
 
 func TestReadOnlyMode(t *testing.T) {
-	// ctx := context.Background()
+	ctx := context.Background()
 
-	// compose, err := docker.New().
-	// 	WithWeaviateWithGRPC().
-	// 	WithWeaviateEnv("READ_ONLY_MODE", "true").
-	// 	WithWeaviateEnv("REPLICA_MOVEMENT_ENABLED", "true").
-	// 	Start(ctx)
-	// require.NoError(t, err)
-	// defer func() {
-	// 	require.NoError(t, compose.Terminate(ctx))
-	// }()
+	compose, err := docker.New().
+		WithWeaviateWithGRPC().
+		WithWeaviateEnv("READ_ONLY_MODE", "true").
+		WithWeaviateEnv("REPLICA_MOVEMENT_ENABLED", "true").
+		Start(ctx)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, compose.Terminate(ctx))
+	}()
 
 	client, err := client.NewClient(client.Config{
 		Scheme: "http",
-		// Host:   compose.GetWeaviate().GetEndpoint(docker.HTTP),
-		Host: "localhost:8080",
+		Host:   compose.GetWeaviate().GetEndpoint(docker.HTTP),
 		GrpcConfig: &weaviateGrpc.Config{
-			// Host: compose.GetWeaviate().GetEndpoint(docker.GRPC),
-			Host: "localhost:50051",
+			Host: compose.GetWeaviate().GetEndpoint(docker.GRPC),
 		},
 	})
 	require.NoError(t, err)
