@@ -15,7 +15,9 @@ import (
 	"context"
 	"fmt"
 	"runtime"
+	"time"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/ttl"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema/configvalidation"
 
@@ -130,6 +132,7 @@ func (e *Explorer) SetSchemaGetter(sg uc.SchemaGetter) {
 func (e *Explorer) GetClass(ctx context.Context,
 	params dto.GetParams,
 ) ([]interface{}, error) {
+	searchStartTime := time.Now()
 	if params.Pagination == nil {
 		params.Pagination = &filters.Pagination{
 			Offset: 0,
@@ -150,7 +153,7 @@ func (e *Explorer) GetClass(ctx context.Context,
 		if err != nil {
 			return nil, err
 		}
-		return e.searchResultsToGetResponse(ctx, res, nil, params)
+		return e.searchResultsToGetResponse(ctx, res, nil, params, searchStartTime)
 	}
 
 	if params.NearVector != nil || params.NearObject != nil || len(params.ModuleParams) > 0 {
@@ -158,14 +161,14 @@ func (e *Explorer) GetClass(ctx context.Context,
 		if err != nil {
 			return nil, err
 		}
-		return e.searchResultsToGetResponse(ctx, res, searchVector, params)
+		return e.searchResultsToGetResponse(ctx, res, searchVector, params, searchStartTime)
 	}
 
 	res, err := e.getClassList(ctx, params)
 	if err != nil {
 		return nil, err
 	}
-	return e.searchResultsToGetResponse(ctx, res, nil, params)
+	return e.searchResultsToGetResponse(ctx, res, nil, params, searchStartTime)
 }
 
 func (e *Explorer) getClassKeywordBased(ctx context.Context, params dto.GetParams) ([]search.Result, error) {
@@ -405,13 +408,13 @@ func (e *Explorer) getClassList(ctx context.Context,
 	return res, nil
 }
 
-func (e *Explorer) searchResultsToGetResponse(ctx context.Context, input []search.Result, searchVector models.Vector, params dto.GetParams) ([]interface{}, error) {
-	output := make([]interface{}, 0, len(input))
-	results, err := e.searchResultsToGetResponseWithType(ctx, input, searchVector, params)
+func (e *Explorer) searchResultsToGetResponse(ctx context.Context, input []search.Result, searchVector models.Vector, params dto.GetParams, searchStartTime time.Time) ([]interface{}, error) {
+	results, err := e.searchResultsToGetResponseWithType(ctx, input, searchVector, params, searchStartTime)
 	if err != nil {
 		return nil, err
 	}
 
+	output := make([]interface{}, 0, len(results))
 	if params.GroupBy != nil {
 		for _, result := range results {
 			wrapper := map[string]interface{}{}
@@ -426,7 +429,7 @@ func (e *Explorer) searchResultsToGetResponse(ctx context.Context, input []searc
 	return output, nil
 }
 
-func (e *Explorer) searchResultsToGetResponseWithType(ctx context.Context, input []search.Result, searchVector models.Vector, params dto.GetParams) ([]search.Result, error) {
+func (e *Explorer) searchResultsToGetResponseWithType(ctx context.Context, input []search.Result, searchVector models.Vector, params dto.GetParams, searchStartTime time.Time) ([]search.Result, error) {
 	var output []search.Result
 	replEnabled, err := e.replicationEnabled(params)
 	if err != nil {
@@ -436,6 +439,15 @@ func (e *Explorer) searchResultsToGetResponseWithType(ctx context.Context, input
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
+
+		keep, err := e.keepObjectsWithTTL(params, res, searchStartTime)
+		if err != nil {
+			return nil, errors.Errorf("object ttl filtering: %v", err)
+		}
+		if !keep {
+			continue
+		}
+
 		additionalProperties := make(map[string]interface{})
 
 		if res.AdditionalProperties != nil {
@@ -749,6 +761,52 @@ func (e *Explorer) replicationEnabled(params dto.GetParams) (bool, error) {
 	}
 
 	return class.ReplicationConfig != nil && class.ReplicationConfig.Factor > 1, nil
+}
+
+func (e *Explorer) keepObjectsWithTTL(params dto.GetParams, input search.Result, searchStartTime time.Time) (bool, error) {
+	if e.schemaGetter == nil {
+		return false, fmt.Errorf("schemaGetter not set")
+	}
+
+	class := e.schemaGetter.ReadOnlyClass(params.ClassName)
+	if class == nil {
+		return false, fmt.Errorf("class not found in schema: %q", params.ClassName)
+	}
+
+	// Skip TTL filtering if searchStartTime is zero (e.g., during hybrid search)
+	if searchStartTime.IsZero() {
+		return true, nil
+	}
+	if !ttl.IsTtlEnabled(class.ObjectTTLConfig) || !class.ObjectTTLConfig.PostSearchFilter {
+		return true, nil
+	}
+
+	var expirationTime time.Time
+
+	switch class.ObjectTTLConfig.DeleteOn {
+	case filters.InternalPropCreationTimeUnix:
+		expirationTime = time.UnixMilli(input.Created)
+
+	case filters.InternalPropLastUpdateTimeUnix:
+		expirationTime = time.UnixMilli(input.Updated)
+	default:
+		dateTime, exists := input.Schema.(map[string]interface{})[class.ObjectTTLConfig.DeleteOn]
+		if !exists {
+			// if object has no TTL date set, we keep it
+			return true, nil
+		}
+		deleteOnTimeStr, ok := dateTime.(string)
+		if !ok {
+			return false, fmt.Errorf("date as string expected, got %T", dateTime)
+		}
+		var err error
+		expirationTime, err = time.Parse(time.RFC3339, deleteOnTimeStr)
+		if err != nil {
+			return false, fmt.Errorf("parse date: %w", err)
+		}
+	}
+	expirationThreshold := expirationTime.Add(time.Second * time.Duration(class.ObjectTTLConfig.DefaultTTL))
+	return expirationThreshold.After(searchStartTime), nil
 }
 
 func ExtractDistanceFromParams(params dto.GetParams) (distance float64, withDistance bool) {
