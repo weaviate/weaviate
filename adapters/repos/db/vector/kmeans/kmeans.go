@@ -557,19 +557,19 @@ func (m *KMeans) balanceAssignments(centroidAssignments [][]pair) []uint32 {
 		return cmp.Compare(b.distance, a.distance)
 	})
 	threshold := 10
+
 	// balance the assignments, if the difference between the two clusters is greater than the threshold,
 	// we need to move some points from the larger cluster to the smaller cluster starting from the
 	// furthest point in the larger cluster.
-	if len(centroidAssignments[0])-len(centroidAssignments[1]) > threshold {
-		for len(centroidAssignments[0])-len(centroidAssignments[1]) > threshold {
-			centroidAssignments[1] = append(centroidAssignments[1], centroidAssignments[0][0])
-			centroidAssignments[0] = centroidAssignments[0][1:]
-		}
-	} else if len(centroidAssignments[1])-len(centroidAssignments[0]) > threshold {
-		for len(centroidAssignments[1])-len(centroidAssignments[0]) > threshold {
-			centroidAssignments[0] = append(centroidAssignments[0], centroidAssignments[1][0])
-			centroidAssignments[1] = centroidAssignments[1][1:]
-		}
+
+	for len(centroidAssignments[0])-len(centroidAssignments[1]) > threshold {
+		centroidAssignments[1] = append(centroidAssignments[1], centroidAssignments[0][0])
+		centroidAssignments[0] = centroidAssignments[0][1:]
+	}
+
+	for len(centroidAssignments[1])-len(centroidAssignments[0]) > threshold {
+		centroidAssignments[0] = append(centroidAssignments[0], centroidAssignments[1][0])
+		centroidAssignments[1] = centroidAssignments[1][1:]
 	}
 	result := make([]uint32, len(centroidAssignments[0])+len(centroidAssignments[1]))
 	for _, v := range centroidAssignments[0] {
