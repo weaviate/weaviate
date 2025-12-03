@@ -370,7 +370,6 @@ jobs:
           "--acceptance-only-replica-replication-fast",
           "--acceptance-only-replica-replication-slow",
           "--acceptance-go-client-only-fast",
-          "--acceptance-only-python",
         ]
     steps:
       - uses: actions/checkout@v4
@@ -399,6 +398,7 @@ jobs:
         test: [
           "--acceptance-go-client-named-vectors-single-node",
           "--acceptance-go-client-named-vectors-cluster",
+          "--acceptance-only-python",
         ]
     steps:
       - uses: actions/checkout@v4
