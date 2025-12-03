@@ -14,11 +14,11 @@ package hfresh
 import (
 	"context"
 	"encoding/binary"
-	"fmt"
 
 	"github.com/maypok86/otter/v2"
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 )
 
 // A VectorVersion is a 1-byte value structured as follows:
@@ -44,12 +44,7 @@ type VersionMap struct {
 	store *VersionStore
 }
 
-func NewVersionMap(store *lsmkv.Store, id string, cfg StoreConfig) (*VersionMap, error) {
-	vStore, err := NewVersionStore(store, versionBucketName(id), cfg)
-	if err != nil {
-		return nil, err
-	}
-
+func NewVersionMap(bucket *lsmkv.Bucket) (*VersionMap, error) {
 	cache, err := otter.New(&otter.Options[uint64, VectorVersion]{
 		MaximumSize: 1_000_000,
 	})
@@ -59,7 +54,7 @@ func NewVersionMap(store *lsmkv.Store, id string, cfg StoreConfig) (*VersionMap,
 
 	return &VersionMap{
 		cache: cache,
-		store: vStore,
+		store: NewVersionStore(bucket),
 	}, nil
 }
 
@@ -155,29 +150,27 @@ func (v *VersionMap) IsDeleted(ctx context.Context, vectorID uint64) (bool, erro
 // VersionStore is a persistent store for vector versions.
 // It stores the versions in an LSMKV bucket.
 type VersionStore struct {
-	store  *lsmkv.Store
 	bucket *lsmkv.Bucket
+	locks  *common.ShardedRWLocks
 }
 
-func NewVersionStore(store *lsmkv.Store, bucketName string, cfg StoreConfig) (*VersionStore, error) {
-	err := store.CreateOrLoadBucket(context.Background(),
-		bucketName,
-		cfg.MakeBucketOptions(lsmkv.StrategyReplace)...,
-	)
-	if err != nil {
-		return nil, errors.Wrapf(err, "failed to create or load bucket %s", bucketName)
-	}
-
+func NewVersionStore(bucket *lsmkv.Bucket) *VersionStore {
 	return &VersionStore{
-		store:  store,
-		bucket: store.Bucket(bucketName),
-	}, nil
+		bucket: bucket,
+		locks:  common.NewDefaultShardedRWLocks(),
+	}
+}
+
+func (v *VersionStore) key(vectorID uint64) [9]byte {
+	var buf [9]byte
+	buf[0] = versionMapBucketPrefix
+	binary.LittleEndian.PutUint64(buf[1:], vectorID)
+	return buf
 }
 
 func (v *VersionStore) Get(ctx context.Context, vectorID uint64) (VectorVersion, error) {
-	var buf [8]byte
-	binary.LittleEndian.PutUint64(buf[:], vectorID)
-	version, err := v.bucket.Get(buf[:])
+	key := v.key(vectorID)
+	version, err := v.bucket.Get(key[:])
 	if err != nil {
 		return 0, errors.Wrapf(err, "failed to get version for %d", vectorID)
 	}
@@ -190,12 +183,6 @@ func (v *VersionStore) Get(ctx context.Context, vectorID uint64) (VectorVersion,
 }
 
 func (v *VersionStore) Set(ctx context.Context, vectorID uint64, version VectorVersion) error {
-	var buf [8]byte
-	binary.LittleEndian.PutUint64(buf[:], vectorID)
-
-	return v.bucket.Put(buf[:], []byte{byte(version)})
-}
-
-func versionBucketName(id string) string {
-	return fmt.Sprintf("hfresh_versions_%s", id)
+	key := v.key(vectorID)
+	return v.bucket.Put(key[:], []byte{byte(version)})
 }
