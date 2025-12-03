@@ -87,7 +87,7 @@ func (s *Searcher) Objects(ctx context.Context, limit int,
 	className schema.ClassName, properties []string,
 	disableInvertedSorter *runtime.DynamicValue[bool],
 ) ([]*storobj.Object, error) {
-	ctx = concurrency.CtxWithBudget(ctx, concurrency.TimesNUMCPU(2))
+	ctx = concurrency.CtxWithBudget(ctx, concurrency.TimesGOMAXPROCS(2))
 	beforeFilters := time.Now()
 	allowList, err := s.docIDs(ctx, filter, className, limit)
 	if err != nil {
@@ -227,7 +227,7 @@ func (s *Searcher) objectsByDocID(ctx context.Context, it docIDsIterator,
 func (s *Searcher) DocIDs(ctx context.Context, filter *filters.LocalFilter,
 	additional additional.Properties, className schema.ClassName,
 ) (helpers.AllowList, error) {
-	ctx = concurrency.CtxWithBudget(ctx, concurrency.TimesNUMCPU(2))
+	ctx = concurrency.CtxWithBudget(ctx, concurrency.TimesGOMAXPROCS(2))
 	return s.docIDs(ctx, filter, className, 0)
 }
 
@@ -339,7 +339,7 @@ func (s *Searcher) extractPropValuePairs(ctx context.Context,
 ) ([]*propValuePair, error) {
 	children := make([]*propValuePair, len(operands))
 	eg := enterrors.NewErrorGroupWrapper(s.logger)
-	outerConcurrencyLimit := concurrency.BudgetFromCtx(ctx, concurrency.NUMCPU)
+	outerConcurrencyLimit := concurrency.BudgetFromCtx(ctx, concurrency.GOMAXPROCS)
 	eg.SetLimit(outerConcurrencyLimit)
 
 	concurrencyReductionFactor := min(len(operands), outerConcurrencyLimit)
@@ -347,7 +347,7 @@ func (s *Searcher) extractPropValuePairs(ctx context.Context,
 	for i, clause := range operands {
 		i, clause := i, clause
 		eg.Go(func() error {
-			ctx := concurrency.ContextWithFractionalBudget(ctx, concurrencyReductionFactor, concurrency.NUMCPU)
+			ctx := concurrency.ContextWithFractionalBudget(ctx, concurrencyReductionFactor, concurrency.GOMAXPROCS)
 			child, err := s.extractPropValuePair(ctx, &clause, className)
 			// check for stopword errors on ContainsAny operator only at the end
 			if err != nil && errors.Is(err, ErrOnlyStopwords) && operator == filters.ContainsAny {

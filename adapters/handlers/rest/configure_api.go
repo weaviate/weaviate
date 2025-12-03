@@ -828,7 +828,7 @@ func configureReindexer(appState *state.State, reindexCtx context.Context) db.Sh
 	tasks := []db.ShardReindexTaskV3{}
 	logger := appState.Logger.WithField("action", "reindexV3")
 	cfg := appState.ServerConfig.Config
-	concurrency := concurrency.TimesFloatNUMCPU(cfg.ReindexerGoroutinesFactor)
+	concurrency := concurrency.TimesFloatGOMAXPROCS(cfg.ReindexerGoroutinesFactor)
 
 	if cfg.ReindexMapToBlockmaxAtStartup {
 		tasks = append(tasks, db.NewShardInvertedReindexTaskMapToBlockmax(
@@ -924,7 +924,7 @@ func configureCrons(appState *state.State, serverShutdownCtx context.Context) {
 				}
 			}()
 
-			err = appState.DB.DeleteObjectsExpired(ctx, now, concurrency.NUMCPU)
+			err = appState.DB.DeleteObjectsExpired(ctx, now, concurrency.GOMAXPROCS)
 		}})
 
 		specs = append(specs, jobSpec{

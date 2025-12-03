@@ -2184,7 +2184,7 @@ func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID,
 
 func (i *Index) deleteObjectsExpired(ctx context.Context, expirationTime time.Time) error {
 	eg := enterrors.NewErrorGroupWrapper(i.logger)
-	eg.SetLimit(concurrency.NUMCPU)
+	eg.SetLimit(concurrency.GOMAXPROCS)
 	return <-i.deleteObjectsExpiredAsync(ctx, eg, expirationTime)
 }
 

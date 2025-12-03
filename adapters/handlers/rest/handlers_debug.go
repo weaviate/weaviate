@@ -1161,7 +1161,7 @@ func setupDebugHandlers(appState *state.State) {
 			expirationTime = time.Now()
 		}
 
-		err = appState.DB.DeleteObjectsExpired(context.Background(), expirationTime, concurrency.NUMCPU)
+		err = appState.DB.DeleteObjectsExpired(context.Background(), expirationTime, concurrency.GOMAXPROCS)
 		if err != nil {
 			http.Error(w, "failed to delete expired objects", http.StatusInternalServerError)
 			return

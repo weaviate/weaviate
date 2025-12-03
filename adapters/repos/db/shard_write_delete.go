@@ -221,7 +221,7 @@ func (s *Shard) DeleteObjectsExpired(ctx context.Context, expirationThreshold ti
 	it := allowlist.Iterator()
 
 	eg := errors.NewErrorGroupWrapper(s.index.logger)
-	eg.SetLimit(concurrency.NUMCPU)
+	eg.SetLimit(concurrency.GOMAXPROCS)
 
 	for docID, ok := it.Next(); ok; docID, ok = it.Next() {
 		if ctx.Err() != nil {
