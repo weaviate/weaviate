@@ -2198,6 +2198,10 @@ func (i *Index) deleteObjectsExpiredAsync(ctx context.Context, eg *enterrors.Err
 		return chErr
 	}
 
+	// expirationThreshold represents time that has to be compared to timestamp/custom_date value
+	// timestamp/custom_date + defaultTTL <= expirationTime
+	// timestamp/custom_date <= expirationTime - defaultTTL
+	// timestamp/custom_date <= expirationThreshold
 	expirationThreshold := expirationTime.Add(-time.Second * time.Duration(class.ObjectTTLConfig.DefaultTTL))
 	deleteOnPropName := class.ObjectTTLConfig.DeleteOn
 
