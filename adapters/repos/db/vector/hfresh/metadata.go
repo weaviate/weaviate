@@ -27,11 +27,10 @@ const (
 	metadataPrefix       = "meta"
 	vectorMetadataBucket = "vector"
 	quantizationKey      = "quantization"
-	dimensionsKey        = "dimensions"
 )
 
 type RQDataContainer struct {
-	Data any `msgpack:"data"` // The actual RQ data
+	Data interface{} `msgpack:"data"` // The actual RQ data
 }
 
 type RQ8Data struct {
@@ -94,38 +93,59 @@ func (h *HFresh) restoreMetadata() error {
 		if b == nil {
 			return errors.New("failed to create or get bucket")
 		}
-
-		err = h.restoreRQData(b)
-		if err != nil {
-			return errors.Wrapf(err, "unable to restore RQ data")
-		}
-
-		err = h.restoreDimensions(b)
-		if err != nil {
-			return errors.Wrapf(err, "unable to restore dimensions")
-		}
-
 		return nil
 	})
 	if err != nil {
 		return errors.Wrap(err, "init metadata bucket")
 	}
 
+	// Restore RQ data if available
+	if err := h.restoreRQData(); err != nil {
+		h.logger.Warnf("HFresh index unable to restore RQ data: %v", err)
+	}
+
+	if err := h.initDimensions(); err != nil {
+		h.logger.Warnf("HFresh index unable to restore RQ data: %v", err)
+	}
+
 	return nil
 }
 
-func (h *HFresh) restoreDimensions(b *bolt.Bucket) error {
-	var dimensions int32 = 0
-	v := b.Get([]byte(dimensionsKey))
-	if v == nil {
-		return nil
+func (h *HFresh) initDimensions() error {
+	dims, err := h.fetchDimensions()
+	if err != nil {
+		return errors.Wrap(err, "HFresh index unable to fetch dimensions")
 	}
-	dimensions = int32(binary.LittleEndian.Uint32(v))
 
-	if dimensions > 0 {
-		atomic.StoreInt32(&h.dims, dimensions)
+	if dims > 0 {
+		atomic.StoreInt32(&h.dims, dims)
 	}
 	return nil
+}
+
+func (h *HFresh) fetchDimensions() (int32, error) {
+	if h.metadata == nil {
+		return 0, nil
+	}
+
+	var dimensions int32 = 0
+	err := h.metadata.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte(vectorMetadataBucket))
+		if b == nil {
+			return nil
+		}
+		v := b.Get([]byte("dimensions"))
+		if v == nil {
+			return nil
+		}
+		dimensions = int32(binary.LittleEndian.Uint32(v))
+		return nil
+	})
+	if err != nil {
+		return 0, errors.Wrap(err, "fetch dimensions")
+	}
+
+	return dimensions, nil
 }
 
 func (h *HFresh) setDimensions(dimensions int32) error {
@@ -146,6 +166,29 @@ func (h *HFresh) setDimensions(dimensions int32) error {
 	})
 	if err != nil {
 		return errors.Wrap(err, "set dimensions")
+	}
+
+	return nil
+}
+
+func (h *HFresh) setVectorSize(vectorSize int32) error {
+	err := h.openMetadata()
+	if err != nil {
+		return err
+	}
+	defer h.closeMetadata()
+
+	err = h.metadata.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte(vectorMetadataBucket))
+		if b == nil {
+			return errors.New("failed to get bucket")
+		}
+		buf := make([]byte, 4)
+		binary.LittleEndian.PutUint32(buf, uint32(vectorSize))
+		return b.Put([]byte("vector_size"), buf)
+	})
+	if err != nil {
+		return errors.Wrap(err, "set vector size")
 	}
 
 	return nil
@@ -246,23 +289,41 @@ func (d *dataCaptureLogger) AddSQCompression(data compressionhelpers.SQData) err
 	return nil // Not used for flat index
 }
 
-func (h *HFresh) restoreRQData(b *bolt.Bucket) error {
+func (h *HFresh) restoreRQData() error {
 	var container *RQDataContainer
+	var data []byte
 
-	// Check if RQ data exists
-	data := b.Get([]byte(quantizationKey))
+	err := h.metadata.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte(vectorMetadataBucket))
+		if b == nil {
+			return nil // No metadata yet
+		}
+
+		// Check if RQ data exists
+		data = b.Get([]byte(quantizationKey))
+		return nil
+	})
+	if err != nil {
+		return errors.Wrap(err, "restore RQ data")
+	}
 	// No data found in bucket
 	if data == nil {
 		return nil
 	}
 
 	// Try to deserialize as msgpack
-	err := msgpack.Unmarshal(data, &container)
+	err = msgpack.Unmarshal(data, &container)
 	if err != nil {
 		return errors.New("failed to deserialize RQ data - unknown format")
 	}
 
 	// Handle the Data field manually since msgpack deserializes interface{} as map[string]interface{}
+	return h.handleDeserializedData(container)
+}
+
+// handleDeserializedData manually handles the Data field deserialization
+func (h *HFresh) handleDeserializedData(container *RQDataContainer) error {
+	// Deserialize the Data field as RQ8Data
 	dataBytes, err := msgpack.Marshal(container.Data)
 	if err != nil {
 		return errors.Wrap(err, "marshal container data for RQ8")
@@ -273,7 +334,7 @@ func (h *HFresh) restoreRQData(b *bolt.Bucket) error {
 		return errors.Wrap(err, "unmarshal RQ8Data")
 	}
 
-	h.logger.Debugf("Successfully deserialized RQ8Data: InputDim=%d",
+	h.logger.Warnf("Successfully deserialized RQ8Data: InputDim=%d",
 		rq8Data.InputDim)
 	return h.restoreRQ8FromMsgpack(&rq8Data)
 }

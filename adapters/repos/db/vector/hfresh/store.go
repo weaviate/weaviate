@@ -29,18 +29,19 @@ type PostingStore struct {
 	metrics *Metrics
 }
 
-func NewPostingStore(store *lsmkv.Store, metrics *Metrics, bucketName string, cfg StoreConfig) (*PostingStore, error) {
+func NewPostingStore(store *lsmkv.Store, metrics *Metrics, id string, cfg StoreConfig) (*PostingStore, error) {
+	bName := postingsBucketName(id)
 	err := store.CreateOrLoadBucket(context.Background(),
-		bucketName,
+		bName,
 		cfg.MakeBucketOptions(lsmkv.StrategySetCollection, lsmkv.WithForceCompaction(true))...,
 	)
 	if err != nil {
-		return nil, errors.Wrapf(err, "failed to create or load bucket %s", bucketName)
+		return nil, errors.Wrapf(err, "failed to create or load bucket %s", bName)
 	}
 
 	return &PostingStore{
 		store:   store,
-		bucket:  store.Bucket(bucketName),
+		bucket:  store.Bucket(bName),
 		locks:   common.NewDefaultShardedRWLocks(),
 		metrics: metrics,
 	}, nil
@@ -128,6 +129,6 @@ func (p *PostingStore) Append(ctx context.Context, postingID uint64, vector Vect
 	return p.bucket.SetAdd(buf[:], [][]byte{vector})
 }
 
-func bucketName(id string) string {
-	return fmt.Sprintf("hfresh_%s", id)
+func postingsBucketName(id string) string {
+	return fmt.Sprintf("hfresh_postings_%s", id)
 }

@@ -61,6 +61,7 @@ type HFresh struct {
 	replicas       uint32
 	rngFactor      float32
 	searchProbe    uint32
+	store          *lsmkv.Store
 
 	// some components require knowing the vector size beforehand
 	// and can only be initialized once the first vector has been
@@ -101,22 +102,22 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 
 	metrics := NewMetrics(cfg.PrometheusMetrics, cfg.ClassName, cfg.ShardName)
 
-	bucket, err := NewBucket(store, cfg.ID, cfg.Store)
+	postingStore, err := NewPostingStore(store, metrics, cfg.ID, cfg.Store)
 	if err != nil {
 		return nil, err
 	}
 
-	postingStore, err := NewPostingStore(store, metrics, bucketName(cfg.ID), cfg.Store)
+	bucket, err := NewSharedBucket(store, cfg.ID, cfg.Store)
 	if err != nil {
 		return nil, err
 	}
 
-	postingSizes, err := NewPostingSizes(store, metrics, cfg.ID, cfg.Store)
+	postingSizes, err := NewPostingSizes(bucket, metrics)
 	if err != nil {
 		return nil, err
 	}
 
-	versionMap, err := NewVersionMap(store, cfg.ID, cfg.Store)
+	versionMap, err := NewVersionMap(bucket)
 	if err != nil {
 		return nil, err
 	}
@@ -126,6 +127,7 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 		logger:       cfg.Logger.WithField("component", "HFresh"),
 		config:       cfg,
 		scheduler:    cfg.Scheduler,
+		store:        store,
 		metrics:      metrics,
 		PostingStore: postingStore,
 		vectorForId:  cfg.VectorForIDThunk,
@@ -165,9 +167,8 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 	}
 	h.taskQueue = *taskQueue
 
-	err = h.Init(context.Background())
-	if err != nil {
-		return nil, err
+	if err = h.restoreMetadata(); err != nil {
+		h.logger.Warnf("unable to restore metadata from previous run with error: %v", err)
 	}
 
 	return &h, nil
@@ -301,7 +302,7 @@ func (h *HFresh) QueryVectorDistancer(queryVector []float32) common.QueryVectorD
 	distFunc := func(id uint64) (float32, error) {
 		var buf [8]byte
 		binary.BigEndian.PutUint64(buf[:], id)
-		vec, err := h.PostingStore.store.Bucket(bucketName).Get(buf[:])
+		vec, err := h.store.Bucket(bucketName).Get(buf[:])
 		if err != nil {
 			return 0, err
 		}

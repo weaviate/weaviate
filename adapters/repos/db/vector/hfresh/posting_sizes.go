@@ -14,6 +14,7 @@ package hfresh
 import (
 	"context"
 	"encoding/binary"
+	"fmt"
 
 	"github.com/maypok86/otter/v2"
 	"github.com/pkg/errors"
@@ -30,16 +31,20 @@ const (
 // NewSharedBucket creates a shared lsmkv bucket for the HFresh index.
 // This bucket is used to store metadata in namespaced regions of the bucket.
 func NewSharedBucket(store *lsmkv.Store, indexID string, cfg StoreConfig) (*lsmkv.Bucket, error) {
-	bName := bucketName(indexID)
+	bName := sharedBucketName(indexID)
 	err := store.CreateOrLoadBucket(context.Background(),
 		bName,
-		cfg.MakeBucketOptions(lsmkv.StrategySetCollection, lsmkv.WithForceCompaction(true))...,
+		cfg.MakeBucketOptions(lsmkv.StrategyReplace, lsmkv.WithForceCompaction(true))...,
 	)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to create or load bucket %s", bName)
 	}
 
 	return store.Bucket(bName), nil
+}
+
+func sharedBucketName(id string) string {
+	return fmt.Sprintf("hfresh_shared_%s", id)
 }
 
 // PostingSizes keeps track of the number of vectors in each posting.
