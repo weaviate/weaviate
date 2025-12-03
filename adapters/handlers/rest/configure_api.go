@@ -34,7 +34,7 @@ import (
 	openapierrors "github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/swag"
-	cron "github.com/netresearch/go-cron"
+	gocron "github.com/netresearch/go-cron"
 	"github.com/pbnjay/memory"
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
@@ -64,6 +64,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/usage"
 	"github.com/weaviate/weaviate/entities/concurrency"
 	entconfig "github.com/weaviate/weaviate/entities/config"
+	"github.com/weaviate/weaviate/entities/cron"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -858,49 +859,17 @@ func configureReindexer(appState *state.State, reindexCtx context.Context) db.Sh
 	return reindexer
 }
 
-type cronLoggerWrapper struct {
-	logger logrus.FieldLogger
-}
-
-func (w *cronLoggerWrapper) Info(msg string, keysAndValues ...any) {
-	w.logger.WithFields(w.toFields(keysAndValues)).Debug(msg)
-}
-
-func (w *cronLoggerWrapper) Error(err error, msg string, keysAndValues ...any) {
-	w.logger.WithFields(w.toFields(keysAndValues)).WithError(err).Error(msg)
-}
-
-func (w *cronLoggerWrapper) toFields(keysAndValues []any) logrus.Fields {
-	fields := logrus.Fields{
-		"action": "cron",
-	}
-	if ln := len(keysAndValues); ln > 0 {
-		for i := 0; i < ln; i += 2 {
-			fields[fmt.Sprintf("c_%s", keysAndValues[i])] = keysAndValues[i+1]
-		}
-	}
-	return fields
-}
-
-type cronJob struct {
-	callback func()
-}
-
-func (w *cronJob) Run() {
-	w.callback()
-}
-
 func configureCrons(appState *state.State, serverShutdownCtx context.Context) {
 	type jobSpec struct {
 		schedule string
-		job      cron.Job
+		job      gocron.Job
 	}
 
-	logger := &cronLoggerWrapper{logger: appState.Logger}
+	logger := cron.NewGoCronLogger(appState.Logger, logrus.DebugLevel)
 	specs := []jobSpec{}
 
 	if schedule := appState.ServerConfig.Config.ObjectsTTLDeleteSchedule; schedule != "" {
-		deleteObjectsExpiredJob := cron.NewChain(cron.SkipIfStillRunning(logger)).Then(&cronJob{callback: func() {
+		deleteObjectsExpiredJob := gocron.NewChain(gocron.SkipIfStillRunning(logger)).Then(cron.NewGoCronJob(func() {
 			var err error
 			now := time.Now()
 
@@ -925,22 +894,13 @@ func configureCrons(appState *state.State, serverShutdownCtx context.Context) {
 			}()
 
 			err = appState.DB.DeleteObjectsExpired(ctx, now, concurrency.GOMAXPROCS)
-		}})
+		}))
 
 		specs = append(specs, jobSpec{
 			schedule: schedule,
 			job:      deleteObjectsExpiredJob,
 		})
 	}
-
-	// specs = append(specs, jobSpec{
-	// 	schedule: "@every 1m",
-	// 	job: cron.NewChain(cron.SkipIfStillRunning(logger)).Then(&cronJob{callback: func() {
-	// 		fmt.Printf("  ==> dummy job started [%s]\n\n", time.Now())
-	// 		time.Sleep((60 + 45) * time.Second)
-	// 		fmt.Printf("  ==> dummy job finished [%s]\n\n", time.Now())
-	// 	}}),
-	// })
 
 	if len(specs) > 0 {
 		fmt.Printf("  ==> configuring crons len=%d\n\n", len(specs))
@@ -950,7 +910,7 @@ func configureCrons(appState *state.State, serverShutdownCtx context.Context) {
 		}
 
 		// standard parser
-		c := cron.New(cron.WithLogger(logger), cron.WithChain(cron.Recover(logger)))
+		c := gocron.New(gocron.WithLogger(logger), gocron.WithChain(gocron.Recover(logger)))
 		for i := range specs {
 			c.AddJob(specs[i].schedule, specs[i].job)
 		}
