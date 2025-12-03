@@ -9,6 +9,10 @@
 //  CONTACT: hello@weaviate.io
 //
 
+// Queue package implements a queue system for background operations using disk storage.
+// It provides a DiskQueue that stores tasks in chunk files on disk, allowing for
+// efficient handling of large volumes of tasks without consuming excessive memory.
+// The Scheduler manages multiple queues and schedules task processing to a fixed number of workers.
 package queue
 
 import (
