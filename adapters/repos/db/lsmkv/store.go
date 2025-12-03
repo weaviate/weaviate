@@ -83,6 +83,10 @@ func New(dir, rootDir string, logger logrus.FieldLogger, metrics *Metrics,
 	return s, s.init()
 }
 
+func (s *Store) GetClassName() string {
+	return s.className
+}
+
 func (s *Store) Bucket(name string) *Bucket {
 	s.bucketAccessLock.RLock()
 	defer s.bucketAccessLock.RUnlock()

@@ -237,7 +237,7 @@ func (s *Shard) iterateOnLSMObjects(
 		if v == nil {
 			continue
 		}
-		obj, err := storobj.FromDiskBinaryOptional(v, addProps, properties)
+		obj, err := storobj.FromDiskBinaryOptional(v, addProps, properties, s.class.Class)
 		if err != nil {
 			return errors.Wrap(err, "unmarshal last indexed object")
 		}

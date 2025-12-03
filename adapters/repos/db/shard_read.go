@@ -543,7 +543,7 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 	beforeObjects := time.Now()
 
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
-	objs, err := storobj.ObjectsByDocID(bucket, idsCombined, additional, properties, s.index.logger)
+	objs, err := storobj.ObjectsByDocID(bucket, idsCombined, additional, properties, s.index.logger, s.class.Class)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -573,7 +573,7 @@ func (s *Shard) ObjectList(ctx context.Context, limit int, sort []filters.Sort, 
 			took := time.Since(beforeObjects)
 			helpers.AnnotateSlowQueryLog(ctx, "objects_took", took)
 		}()
-		return storobj.ObjectsByDocID(bucket, docIDs, additional, nil, s.index.logger)
+		return storobj.ObjectsByDocID(bucket, docIDs, additional, nil, s.index.logger, string(className))
 	}
 
 	if cursor == nil {

@@ -243,7 +243,7 @@ func TestStorageObjectUnMarshallingMultiVector(t *testing.T) {
 
 		t.Run("check multi vectors optional", func(t *testing.T) {
 			t.Run("FromDiskBinaryOptional: empty additional", func(t *testing.T) {
-				afterMultiVectorsOptional, err := FromDiskBinaryOptional(asBinary, additional.Properties{}, nil)
+				afterMultiVectorsOptional, err := FromDiskBinaryOptional(asBinary, additional.Properties{}, nil, before.Object.Class)
 				require.Nil(t, err)
 				require.Nil(t, afterMultiVectorsOptional.MultiVectors)
 			})
@@ -251,7 +251,7 @@ func TestStorageObjectUnMarshallingMultiVector(t *testing.T) {
 			t.Run("FromDiskBinaryOptional: multi vector in additional", func(t *testing.T) {
 				afterMultiVectorsOptional, err := FromDiskBinaryOptional(asBinary, additional.Properties{
 					Vectors: []string{"vector4"},
-				}, nil)
+				}, nil, before.Object.Class)
 				require.Nil(t, err)
 				require.NotEmpty(t, afterMultiVectorsOptional.MultiVectors)
 				require.Len(t, afterMultiVectorsOptional.MultiVectors, 1)
@@ -261,7 +261,7 @@ func TestStorageObjectUnMarshallingMultiVector(t *testing.T) {
 			t.Run("FromDiskBinaryOptional: named vector and multi vector in additional", func(t *testing.T) {
 				afterMultiVectorsOptional, err := FromDiskBinaryOptional(asBinary, additional.Properties{
 					Vectors: []string{"vector2", "vector4"},
-				}, nil)
+				}, nil, before.Object.Class)
 				require.Nil(t, err)
 				require.NotEmpty(t, afterMultiVectorsOptional.Vectors)
 				require.NotEmpty(t, afterMultiVectorsOptional.MultiVectors)
@@ -462,7 +462,7 @@ func TestStorageObjectUnmarshallingSpecificProps(t *testing.T) {
 	require.Nil(t, err)
 
 	t.Run("without any optional", func(t *testing.T) {
-		after, err := FromDiskBinaryOptional(asBinary, additional.Properties{}, nil)
+		after, err := FromDiskBinaryOptional(asBinary, additional.Properties{}, nil, before.Object.Class)
 		require.Nil(t, err)
 
 		t.Run("compare", func(t *testing.T) {
@@ -914,7 +914,7 @@ func TestStorageMaxVectorDimensionsObjectMarshalling(t *testing.T) {
 				require.Nil(t, err)
 
 				t.Run("get without additional properties", func(t *testing.T) {
-					after, err := FromDiskBinaryOptional(asBinary, additional.Properties{}, nil)
+					after, err := FromDiskBinaryOptional(asBinary, additional.Properties{}, nil, before.Object.Class)
 					require.Nil(t, err)
 					// modify before to match expectations of after
 					before.Object.Additional = nil
@@ -930,7 +930,7 @@ func TestStorageMaxVectorDimensionsObjectMarshalling(t *testing.T) {
 				})
 
 				t.Run("get with additional property vector", func(t *testing.T) {
-					after, err := FromDiskBinaryOptional(asBinary, additional.Properties{Vector: true}, nil)
+					after, err := FromDiskBinaryOptional(asBinary, additional.Properties{Vector: true}, nil, before.Object.Class)
 					require.Nil(t, err)
 					// modify before to match expectations of after
 					before.Object.Additional = nil
@@ -949,7 +949,7 @@ func TestStorageMaxVectorDimensionsObjectMarshalling(t *testing.T) {
 
 				t.Run("with explicit properties", func(t *testing.T) {
 					after, err := FromDiskBinaryOptional(asBinary, additional.Properties{},
-						&PropertyExtraction{PropertyPaths: [][]string{{"name"}}},
+						&PropertyExtraction{PropertyPaths: [][]string{{"name"}}}, before.Object.Class,
 					)
 					require.Nil(t, err)
 
@@ -963,7 +963,7 @@ func TestStorageMaxVectorDimensionsObjectMarshalling(t *testing.T) {
 						NoProps:      true,
 						ModuleParams: map[string]interface{}{"foo": "bar"}, // this causes the property extraction code to run
 					},
-						&PropertyExtraction{PropertyPaths: nil},
+						&PropertyExtraction{PropertyPaths: nil}, before.Object.Class,
 					)
 					require.Nil(t, err)
 
@@ -1323,7 +1323,7 @@ func benchmarkExtraction(b *testing.B, propStrings []string) {
 	b.ResetTimer()
 
 	for n := 0; n < b.N; n++ {
-		after, err := FromDiskBinaryOptional(asBinary, additional.Properties{}, props)
+		after, err := FromDiskBinaryOptional(asBinary, additional.Properties{}, props, before.Object.Class)
 		require.Nil(b, err)
 		require.NotNil(b, after)
 	}
@@ -1382,7 +1382,7 @@ func TestObjectsByDocID(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			res, err := ObjectsByDocID(bucket, test.inputIDs, additional.Properties{}, nil, logger)
+			res, err := ObjectsByDocID(bucket, test.inputIDs, additional.Properties{}, nil, logger, "")
 			require.Nil(t, err)
 			require.Len(t, res, len(test.inputIDs))
 
@@ -1401,7 +1401,7 @@ func TestSkipMissingObjects(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	ids := pickRandomIDsBetween(0, 1000, 100)
 	ids = append(ids, 1001, 1002, 1003)
-	objs, err := objectsByDocIDParallel(bucket, ids, additional.Properties{}, nil, logger)
+	objs, err := objectsByDocIDParallel(bucket, ids, additional.Properties{}, nil, logger, "")
 	require.Nil(t, err)
 	require.Len(t, objs, 100)
 	for _, obj := range objs {
@@ -1525,11 +1525,11 @@ func BenchmarkObjectsByDocID(b *testing.B) {
 		b.Run(fmt.Sprintf("Concurrent: %v with amount: %v", tt.concurrent, tt.amount), func(t *testing.B) {
 			for i := 0; i < b.N; i++ {
 				if tt.concurrent {
-					_, err := objectsByDocIDParallel(bucket, ids[:tt.amount], additional.Properties{}, nil, logger)
+					_, err := objectsByDocIDParallel(bucket, ids[:tt.amount], additional.Properties{}, nil, logger, "")
 					require.Nil(t, err)
 
 				} else {
-					_, err := objectsByDocIDSequential(bucket, ids[:tt.amount], additional.Properties{}, nil)
+					_, err := objectsByDocIDSequential(bucket, ids[:tt.amount], additional.Properties{}, nil, "")
 					require.Nil(t, err)
 				}
 			}
@@ -1572,7 +1572,7 @@ func FuzzObjectGet(f *testing.F) {
 			}
 		}
 
-		res, err := ObjectsByDocID(bucket, ids, additional.Properties{}, nil, logger)
+		res, err := ObjectsByDocID(bucket, ids, additional.Properties{}, nil, logger, "")
 		require.Nil(t, err)
 		require.Len(t, res, len(ids))
 		for i, obj := range res {

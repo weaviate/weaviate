@@ -156,7 +156,7 @@ func FromDiskBinaryUUIDOnly(data []byte, className string) (*Object, error) {
 }
 
 func FromDiskBinaryOptional(data []byte,
-	addProp additional.Properties, properties *PropertyExtraction,
+	addProp additional.Properties, properties *PropertyExtraction, className string,
 ) (*Object, error) {
 	ko := &Object{}
 
@@ -276,7 +276,7 @@ func FromDiskBinaryOptional(data []byte,
 			uuidParsed,
 			createTime,
 			updateTime,
-			"",
+			className,
 			props,
 			meta,
 			vectorWeights,
@@ -317,17 +317,17 @@ type bucket interface {
 }
 
 func ObjectsByDocID(bucket bucket, ids []uint64,
-	additional additional.Properties, properties []string, logger logrus.FieldLogger,
+	additional additional.Properties, properties []string, logger logrus.FieldLogger, className string,
 ) ([]*Object, error) {
 	if len(ids) == 1 { // no need to try to run concurrently if there is just one result anyway
-		return objectsByDocIDSequential(bucket, ids, additional, properties)
+		return objectsByDocIDSequential(bucket, ids, additional, properties, className)
 	}
 
-	return objectsByDocIDParallel(bucket, ids, additional, properties, logger)
+	return objectsByDocIDParallel(bucket, ids, additional, properties, logger, className)
 }
 
 func objectsByDocIDParallel(bucket bucket, ids []uint64,
-	addProp additional.Properties, properties []string, logger logrus.FieldLogger,
+	addProp additional.Properties, properties []string, logger logrus.FieldLogger, className string,
 ) ([]*Object, error) {
 	parallel := 2 * runtime.GOMAXPROCS(0)
 
@@ -353,7 +353,7 @@ func objectsByDocIDParallel(bucket bucket, ids []uint64,
 		}
 
 		eg.Go(func() error {
-			objs, err := objectsByDocIDSequential(bucket, ids[start:end], addProp, properties)
+			objs, err := objectsByDocIDSequential(bucket, ids[start:end], addProp, properties, className)
 			if err != nil {
 				return err
 			}
@@ -379,7 +379,7 @@ func objectsByDocIDParallel(bucket bucket, ids []uint64,
 }
 
 func objectsByDocIDSequential(bucket bucket, ids []uint64,
-	additional additional.Properties, properties []string,
+	additional additional.Properties, properties []string, className string,
 ) ([]*Object, error) {
 	if bucket == nil {
 		return nil, fmt.Errorf("objects bucket not found")
@@ -428,7 +428,7 @@ func objectsByDocIDSequential(bucket bucket, ids []uint64,
 			continue
 		}
 
-		unmarshalled, err := FromDiskBinaryOptional(res, additional, props)
+		unmarshalled, err := FromDiskBinaryOptional(res, additional, props, className)
 		if err != nil {
 			return nil, errors.Wrapf(err, "unmarshal data object at position %d", i)
 		}
