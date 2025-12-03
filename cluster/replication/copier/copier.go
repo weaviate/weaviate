@@ -19,6 +19,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -35,6 +36,8 @@ import (
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
+
+var _NUMCPU = runtime.GOMAXPROCS(0)
 
 // Copier for shard replicas, can copy a shard replica from one node to another.
 type Copier struct {
@@ -114,7 +117,6 @@ func (c *Copier) CopyReplicaFiles(ctx context.Context, srcNodeId, collectionName
 	fileNameChan := make(chan string, 1000)
 	enterrors.GoWrapper(func() {
 		defer close(fileNameChan)
-
 		for _, name := range fileListResp.FileNames {
 			fileNameChan <- name
 		}
@@ -147,9 +149,18 @@ func (c *Copier) CopyReplicaFiles(ctx context.Context, srcNodeId, collectionName
 		return err
 	})
 
-	if err = c.downloadWorker(ctx, client, metadataChan); err != nil {
-		c.logger.WithError(err).Error("failed to download files")
-		return err
+	eg := enterrors.NewErrorGroupWrapper(c.logger)
+	for range c.concurrentWorkers {
+		eg.Go(func() error {
+			err := c.downloadWorker(ctx, client, metadataChan)
+			if err != nil {
+				c.logger.WithError(err).Error("failed to download files")
+			}
+			return err
+		})
+	}
+	if err := eg.Wait(); err != nil {
+		return fmt.Errorf("failed to download files: %w", err)
 	}
 
 	err = c.validateLocalFolder(collectionName, shardName, fileListResp.FileNames)
@@ -293,23 +304,20 @@ func (c *Copier) downloadWorker(ctx context.Context, client FileReplicationServi
 			}
 
 			eg := enterrors.NewErrorGroupWrapper(c.logger)
-			semaphore := make(chan struct{}, c.concurrentWorkers)
+			eg.SetLimit(2 * _NUMCPU) // limit number of concurrent writes to file
 			for {
 				chunk, err := stream.Recv()
 				if err != nil {
 					return fmt.Errorf("failed to receive file chunk for %s: %w", meta.FileName, err)
 				}
-				eg.Go(func() error {
-					semaphore <- struct{}{}
-					defer func() { <-semaphore }()
-					if len(chunk.Data) > 0 {
-						_, err = f.WriteAt(chunk.Data, chunk.Offset)
-						if err != nil {
+				if len(chunk.Data) > 0 {
+					eg.Go(func() error {
+						if _, err := f.WriteAt(chunk.Data, chunk.Offset); err != nil {
 							return fmt.Errorf("writing chunk to file %q: %w", tmpPath, err)
 						}
-					}
-					return nil
-				})
+						return nil
+					})
+				}
 				if chunk.Eof {
 					break
 				}
