@@ -152,21 +152,27 @@ def test_mt(collection_factory: CollectionFactory):
             assert len(tenant_collection) == num_objects - 3
 
 @pytest.mark.parametrize(
-    "ttl,expected_count",
+    "post_search_filter,ttl,expected_count",
     [
         (
+            True,
             datetime.timedelta(hours=2),
             11,
         ),  # use 2 hours AFTER the date property, so none are expired
-        (datetime.timedelta(seconds=0), 6),
+        (True, datetime.timedelta(seconds=0), 6),
         (
+            True,
             datetime.timedelta(hours=-2),
             0,
         ),  # use 2 hours BEFORE the date property, so all are expired
+        (False, datetime.timedelta(hours=-2), 11),
     ],
 )
 def test_post_search_filter(
-    collection_factory: CollectionFactory, ttl: datetime.timedelta, expected_count: int
+    collection_factory: CollectionFactory,
+    post_search_filter: bool,
+    ttl: datetime.timedelta,
+    expected_count: int,
 ) -> None:
     collection = collection_factory(
         properties=[
@@ -175,7 +181,7 @@ def test_post_search_filter(
         ],
         object_ttl=Configure.ObjectTTL.delete_by_date_property(
             date_property="custom_date",
-            post_search_filter=True,
+            post_search_filter=post_search_filter,
             time_to_live_after_date=ttl,
         ),
     )
