@@ -14,21 +14,17 @@ package hfresh
 import (
 	"encoding/binary"
 	"fmt"
-	"path/filepath"
 	"sync/atomic"
 
 	"github.com/pkg/errors"
 	"github.com/vmihailenco/msgpack/v5"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
-	bolt "go.etcd.io/bbolt"
 )
 
 const (
-	metadataPrefix       = "meta"
-	vectorMetadataBucket = "vector"
-	quantizationKey      = "quantization"
-	dimensionsKey        = "dimensions"
+	quantizationKey = "quantization"
+	dimensionsKey   = "dimensions"
 )
 
 // MetadataStore is a persistent store for metadata.
@@ -109,43 +105,6 @@ type RQ8Data struct {
 	Signs     [][]float32                 `msgpack:"signs"`
 }
 
-func (h *HFresh) getMetadataFile() string {
-	if h.config.TargetVector != "" {
-		cleanTarget := filepath.Clean(h.config.TargetVector)
-		cleanTarget = filepath.Base(cleanTarget)
-		return fmt.Sprintf("%s_%s.db", metadataPrefix, cleanTarget)
-	}
-	return fmt.Sprintf("%s.db", metadataPrefix)
-}
-
-func (h *HFresh) closeMetadata() {
-	h.metadataLock.Lock()
-	defer h.metadataLock.Unlock()
-
-	if h.metadata != nil {
-		h.metadata.Close()
-		h.metadata = nil
-	}
-}
-
-func (h *HFresh) openMetadata() error {
-	h.metadataLock.Lock()
-	defer h.metadataLock.Unlock()
-
-	if h.metadata != nil {
-		return nil // Already open
-	}
-
-	path := filepath.Join(filepath.Dir(h.config.RootPath), h.getMetadataFile())
-	db, err := bolt.Open(path, 0o600, nil)
-	if err != nil {
-		return errors.Wrapf(err, "open %q", path)
-	}
-
-	h.metadata = db
-	return nil
-}
-
 func (h *HFresh) restoreMetadata() error {
 	dims, err := h.Metadata.GetDimensions()
 	if err != nil {
@@ -163,66 +122,6 @@ func (h *HFresh) restoreMetadata() error {
 
 	if quantization != nil && quantization.RQ8 != nil {
 		return h.restoreRQ8FromMsgpack(quantization.RQ8)
-	}
-
-	return nil
-}
-
-func (h *HFresh) initDimensions() error {
-	dims, err := h.fetchDimensions()
-	if err != nil {
-		return errors.Wrap(err, "HFresh index unable to fetch dimensions")
-	}
-
-	if dims > 0 {
-		atomic.StoreInt32(&h.dims, dims)
-	}
-	return nil
-}
-
-func (h *HFresh) fetchDimensions() (int32, error) {
-	if h.metadata == nil {
-		return 0, nil
-	}
-
-	var dimensions int32 = 0
-	err := h.metadata.View(func(tx *bolt.Tx) error {
-		b := tx.Bucket([]byte(vectorMetadataBucket))
-		if b == nil {
-			return nil
-		}
-		v := b.Get([]byte("dimensions"))
-		if v == nil {
-			return nil
-		}
-		dimensions = int32(binary.LittleEndian.Uint32(v))
-		return nil
-	})
-	if err != nil {
-		return 0, errors.Wrap(err, "fetch dimensions")
-	}
-
-	return dimensions, nil
-}
-
-func (h *HFresh) setDimensions(dimensions int32) error {
-	err := h.openMetadata()
-	if err != nil {
-		return err
-	}
-	defer h.closeMetadata()
-
-	err = h.metadata.Update(func(tx *bolt.Tx) error {
-		b := tx.Bucket([]byte(vectorMetadataBucket))
-		if b == nil {
-			return errors.New("failed to get bucket")
-		}
-		buf := make([]byte, 4)
-		binary.LittleEndian.PutUint32(buf, uint32(dimensions))
-		return b.Put([]byte("dimensions"), buf)
-	})
-	if err != nil {
-		return errors.Wrap(err, "set dimensions")
 	}
 
 	return nil
@@ -294,56 +193,6 @@ func (d *dataCaptureLogger) AddPQCompression(data compressionhelpers.PQData) err
 
 func (d *dataCaptureLogger) AddSQCompression(data compressionhelpers.SQData) error {
 	return nil // Not used for flat index
-}
-
-func (h *HFresh) restoreRQData() error {
-	var container *RQDataContainer
-	var data []byte
-
-	err := h.metadata.View(func(tx *bolt.Tx) error {
-		b := tx.Bucket([]byte(vectorMetadataBucket))
-		if b == nil {
-			return nil // No metadata yet
-		}
-
-		// Check if RQ data exists
-		data = b.Get([]byte(quantizationKey))
-		return nil
-	})
-	if err != nil {
-		return errors.Wrap(err, "restore RQ data")
-	}
-	// No data found in bucket
-	if data == nil {
-		return nil
-	}
-
-	// Try to deserialize as msgpack
-	err = msgpack.Unmarshal(data, &container)
-	if err != nil {
-		return errors.New("failed to deserialize RQ data - unknown format")
-	}
-
-	// Handle the Data field manually since msgpack deserializes interface{} as map[string]interface{}
-	return h.handleDeserializedData(container)
-}
-
-// handleDeserializedData manually handles the Data field deserialization
-func (h *HFresh) handleDeserializedData(container *RQDataContainer) error {
-	// Deserialize the Data field as RQ8Data
-	dataBytes, err := msgpack.Marshal(container.Data)
-	if err != nil {
-		return errors.Wrap(err, "marshal container data for RQ8")
-	}
-
-	var rq8Data RQ8Data
-	if err := msgpack.Unmarshal(dataBytes, &rq8Data); err != nil {
-		return errors.Wrap(err, "unmarshal RQ8Data")
-	}
-
-	h.logger.Warnf("Successfully deserialized RQ8Data: InputDim=%d",
-		rq8Data.InputDim)
-	return h.restoreRQ8FromMsgpack(&rq8Data)
 }
 
 // restoreRQ8FromMsgpack restores RQ8 quantizer from msgpack data

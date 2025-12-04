@@ -32,7 +32,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
-	bolt "go.etcd.io/bbolt"
 )
 
 const (
@@ -90,9 +89,7 @@ type HFresh struct {
 	postingLocks       *common.ShardedRWLocks // Locks to prevent concurrent modifications to the same posting.
 	initialPostingLock sync.Mutex
 
-	vectorForId  common.VectorForID[float32]
-	metadata     *bolt.DB
-	metadataLock sync.RWMutex
+	vectorForId common.VectorForID[float32]
 }
 
 func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
