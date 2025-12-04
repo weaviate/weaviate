@@ -559,7 +559,7 @@ func TestBucketReplaceStrategyConsistentView(t *testing.T) {
 	require.Equal(t, 2, n)
 
 	// open a consistent view
-	view := b.getConsistentView()
+	view := b.GetConsistentView()
 	defer view.Release()
 
 	// controls before making changes
@@ -597,7 +597,7 @@ func TestBucketReplaceStrategyConsistentView(t *testing.T) {
 	validateOriginalView(view)
 
 	// prove that a new view sees the new state
-	view2 := b.getConsistentView()
+	view2 := b.GetConsistentView()
 	defer view2.Release()
 	validateSecondView := func(view BucketConsistentView) {
 		require.NotNil(t, view.Active)
@@ -629,7 +629,7 @@ func TestBucketReplaceStrategyConsistentView(t *testing.T) {
 	validateSecondView(view2)
 
 	// finally, validate that a new view sees the final state
-	view3 := b.getConsistentView()
+	view3 := b.GetConsistentView()
 	defer view3.Release()
 
 	require.NotNil(t, view3.Active)
@@ -716,7 +716,7 @@ func TestBucketReplaceStrategyWriteVsFlush(t *testing.T) {
 	<-flushComplete
 
 	// validate that all writes are present on disk
-	view := b.getConsistentView()
+	view := b.GetConsistentView()
 	defer view.Release()
 
 	expected := map[string][]byte{
@@ -768,7 +768,7 @@ func TestBucketRoaringSetStrategyConsistentView(t *testing.T) {
 	releaseBuffers()
 
 	// open a consistent view
-	view := b.getConsistentView()
+	view := b.GetConsistentView()
 	defer view.Release()
 
 	// controls before making changes
@@ -799,7 +799,7 @@ func TestBucketRoaringSetStrategyConsistentView(t *testing.T) {
 	validateOriginalView(view)
 
 	// prove that a new view sees the new state
-	view2 := b.getConsistentView()
+	view2 := b.GetConsistentView()
 	defer view2.Release()
 	validateSecondView := func(view BucketConsistentView) {
 		expected := map[string]*sroar.Bitmap{
@@ -823,7 +823,7 @@ func TestBucketRoaringSetStrategyConsistentView(t *testing.T) {
 	validateSecondView(view2)
 
 	// finally, validate that a new view sees the final state
-	view3 := b.getConsistentView()
+	view3 := b.GetConsistentView()
 	defer view3.Release()
 
 	// the original memtable was flushed to disk
@@ -893,7 +893,7 @@ func TestBucketRoaringSetStrategyWriteVsFlush(t *testing.T) {
 	<-flushComplete
 
 	// Validate: key1 has {1,2,3} on disk
-	view := b.getConsistentView()
+	view := b.GetConsistentView()
 	defer view.Release()
 
 	bm, release, err := b.disk.roaringSetGet([]byte("key1"), view.Disk)
@@ -1261,7 +1261,7 @@ func TestBucketSetStrategyConsistentView(t *testing.T) {
 	require.ElementsMatch(t, [][]byte{[]byte("a2")}, got)
 
 	// View #1 (pre-switch): active=key2, flushing=nil, disk=key1
-	view1 := b.getConsistentView()
+	view1 := b.GetConsistentView()
 	defer view1.Release()
 
 	validateView1 := func(v BucketConsistentView) {
@@ -1291,7 +1291,7 @@ func TestBucketSetStrategyConsistentView(t *testing.T) {
 	validateView1(view1)
 
 	// View #2 (post-switch): active=key3, flushing=key2, disk=key1
-	view2 := b.getConsistentView()
+	view2 := b.GetConsistentView()
 	defer view2.Release()
 
 	validateView2 := func(v BucketConsistentView) {
@@ -1316,7 +1316,7 @@ func TestBucketSetStrategyConsistentView(t *testing.T) {
 	validateView2(view2)
 
 	// Final view: active=key3, flushing=nil, disk has key1 & key2
-	view3 := b.getConsistentView()
+	view3 := b.GetConsistentView()
 	defer view3.Release()
 
 	// active: key3 -> {"a3"}
@@ -1383,7 +1383,7 @@ func TestBucketSetStrategyWriteVsFlush(t *testing.T) {
 	<-flushDone
 
 	// Validate disk now has {"v1","v2","v3"} for key1
-	view := b.getConsistentView()
+	view := b.GetConsistentView()
 	defer view.Release()
 
 	raw, err := b.disk.getCollection([]byte("key1"), view.Disk)
@@ -1426,7 +1426,7 @@ func TestBucketMapStrategyConsistentView(t *testing.T) {
 	require.ElementsMatch(t, []MapPair{{Key: []byte("ak1"), Value: []byte("av1")}}, got)
 
 	// View #1 (pre-switch): active=key2, flushing=nil, disk=key1
-	view1 := b.getConsistentView()
+	view1 := b.GetConsistentView()
 	defer view1.Release()
 
 	validateView1 := func(v BucketConsistentView) {
@@ -1456,7 +1456,7 @@ func TestBucketMapStrategyConsistentView(t *testing.T) {
 	validateView1(view1)
 
 	// View #2 (post-switch): active=key3, flushing=key2, disk=key1
-	view2 := b.getConsistentView()
+	view2 := b.GetConsistentView()
 	defer view2.Release()
 
 	validateView2 := func(v BucketConsistentView) {
@@ -1481,7 +1481,7 @@ func TestBucketMapStrategyConsistentView(t *testing.T) {
 	validateView2(view2)
 
 	// Final view: active=key3, flushing=nil, disk has key1 & key2
-	view3 := b.getConsistentView()
+	view3 := b.GetConsistentView()
 	defer view3.Release()
 
 	// active: key3 -> {"a3"}
@@ -1546,7 +1546,7 @@ func TestBucketMapStrategyDocPointersConsistentView(t *testing.T) {
 	require.ElementsMatch(t, []terms.DocPointerWithScore{docPointers(1, 0.8, 4)}, got)
 
 	// View #1 (pre-switch): active=key2, flushing=nil, disk=key1
-	view1 := b.getConsistentView()
+	view1 := b.GetConsistentView()
 	defer view1.Release()
 
 	validateView1 := func(v BucketConsistentView) {
@@ -1576,7 +1576,7 @@ func TestBucketMapStrategyDocPointersConsistentView(t *testing.T) {
 	validateView1(view1)
 
 	// View #2 (post-switch): active=key3, flushing=key2, disk=key1
-	view2 := b.getConsistentView()
+	view2 := b.GetConsistentView()
 	defer view2.Release()
 
 	validateView2 := func(v BucketConsistentView) {
@@ -1601,7 +1601,7 @@ func TestBucketMapStrategyDocPointersConsistentView(t *testing.T) {
 	validateView2(view2)
 
 	// Final view: active=key3, flushing=nil, disk has key1 & key2
-	view3 := b.getConsistentView()
+	view3 := b.GetConsistentView()
 	defer view3.Release()
 
 	// active: key3 -> {"a3"}
@@ -1682,7 +1682,7 @@ func TestBucketMapStrategyWriteVsFlush(t *testing.T) {
 	<-flushDone
 
 	// Validate disk now has {"v1","v2","v3"} for key1
-	view := b.getConsistentView()
+	view := b.GetConsistentView()
 	defer view.Release()
 
 	raw, err := b.disk.getCollection([]byte("key1"), view.Disk)
@@ -1733,7 +1733,7 @@ func TestBucketInvertedStrategyConsistentView(t *testing.T) {
 	require.NoError(t, err)
 
 	// View #1 (pre-switch): active=doc_id(0), flushing=nil, disk=doc_id(1)
-	view1 := b.getConsistentView()
+	view1 := b.GetConsistentView()
 	defer view1.Release()
 
 	validateView1 := func(v BucketConsistentView) {
@@ -1764,7 +1764,7 @@ func TestBucketInvertedStrategyConsistentView(t *testing.T) {
 	validateView1(view1)
 
 	// View #2 (post-switch): active=doc_id(2), flushing=doc_id(1), disk=doc_id(0)
-	view2 := b.getConsistentView()
+	view2 := b.GetConsistentView()
 	defer view2.Release()
 
 	validateView2 := func(v BucketConsistentView) {
@@ -1855,7 +1855,7 @@ func TestBucketInvertedStrategyWriteVsFlush(t *testing.T) {
 	<-flushDone
 
 	// Validate disk now has all 3 writes
-	view := b.getConsistentView()
+	view := b.GetConsistentView()
 	defer view.Release()
 
 	require.Len(t, view.Disk, 1, "there should be exactly one disk segment")
@@ -2165,7 +2165,7 @@ type kv struct {
 }
 
 func validateMapPairListVsBlockMaxSearch(ctx context.Context, bucket *Bucket, expectedMultiKey []kv) error {
-	view := bucket.getConsistentView()
+	view := bucket.GetConsistentView()
 	defer view.Release()
 	return validateMapPairListVsBlockMaxSearchFromView(ctx, bucket, view, expectedMultiKey)
 }

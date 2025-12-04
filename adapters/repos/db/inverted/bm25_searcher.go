@@ -282,6 +282,24 @@ func (b *BM25Searcher) wand(
 	eg := enterrors.NewErrorGroupWrapper(b.logger)
 	eg.SetLimit(_NUMCPU)
 
+	bucketViewMap := map[string]lsmkv.BucketConsistentView{}
+
+	for _, propName := range params.Properties {
+		bucket := b.store.Bucket(helpers.BucketSearchableFromPropNameLSM(propName))
+		if bucket == nil {
+			return nil, nil, fmt.Errorf("could not find bucket for property %v", propName)
+		}
+		view := bucket.GetConsistentView()
+		bucketViewMap[propName] = view
+	}
+
+	defer func() {
+		for key, view := range bucketViewMap {
+			view.Release()
+			delete(bucketViewMap, key)
+		}
+	}()
+
 	for _, request := range allRequests {
 		term := request.term
 		termId := request.termId
@@ -302,7 +320,7 @@ func (b *BM25Searcher) wand(
 				}
 			}()
 
-			termResult, termErr := b.createTerm(N, filterDocIds, term, termId, propNames, propertyBoosts, duplicateBoost, ctx)
+			termResult, termErr := b.createTerm(N, filterDocIds, term, termId, propNames, propertyBoosts, duplicateBoost, ctx, bucketViewMap)
 			if termErr != nil {
 				err = termErr
 				return err
@@ -314,6 +332,11 @@ func (b *BM25Searcher) wand(
 
 	if err := eg.Wait(); err != nil {
 		return nil, nil, err
+	}
+
+	for key, view := range bucketViewMap {
+		view.Release()
+		delete(bucketViewMap, key)
 	}
 
 	if ctx.Err() != nil {
@@ -459,7 +482,7 @@ func (b *BM25Searcher) getTopKIds(topKHeap *priorityqueue.Queue[[]*terms.DocPoin
 	return ids, scores, explanations, nil
 }
 
-func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, query string, queryTermIndex int, propertyNames []string, propertyBoosts map[string]float32, duplicateTextBoost int, ctx context.Context) (*terms.Term, error) {
+func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, query string, queryTermIndex int, propertyNames []string, propertyBoosts map[string]float32, duplicateTextBoost int, ctx context.Context, bucketViewMap map[string]lsmkv.BucketConsistentView) (*terms.Term, error) {
 	termResult := terms.NewTerm(query, queryTermIndex, float32(1.0), b.config)
 
 	var filteredDocIDs *sroar.Bitmap
@@ -474,16 +497,14 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 
 	allMsAndProps := make([][]terms.DocPointerWithScore, len(propertyNames))
 	for i, propName := range propertyNames {
-		i := i
-		propName := propName
-
 		eg.Go(
 			func() error {
 				bucket := b.store.Bucket(helpers.BucketSearchableFromPropNameLSM(propName))
 				if bucket == nil {
 					return fmt.Errorf("could not find bucket for property %v", propName)
 				}
-				preM, err := bucket.DocPointerWithScoreList(ctx, []byte(query), propertyBoosts[propName])
+
+				preM, err := bucket.DocPointerWithScoreList(ctx, bucketViewMap[propName], []byte(query), propertyBoosts[propName])
 				if err != nil {
 					return err
 				}
