@@ -28,7 +28,7 @@ const (
 	metadataPrefix       = "meta"
 	vectorMetadataBucket = "vector"
 	quantizationKey      = "quantization"
-	dimensionsKey		= "dimensions"
+	dimensionsKey        = "dimensions"
 )
 
 // MetadataStore is a persistent store for metadata.
@@ -49,12 +49,26 @@ func (m *MetadataStore) key(suffix string) []byte {
 	return buf
 }
 
-func (m *MetadataStore) SetDimensions(dimensions uint32) error { {
+func (m *MetadataStore) SetDimensions(dimensions uint32) error {
 	buf := make([]byte, 4)
 	binary.LittleEndian.PutUint32(buf, dimensions)
 	return m.bucket.Put(m.key(dimensionsKey), buf)
 }
 
+func (m *MetadataStore) GetDimensions() (uint32, error) {
+	data, err := m.bucket.Get(m.key(dimensionsKey))
+	if err != nil {
+		return 0, err
+	}
+	if data == nil {
+		return 0, nil // Not set yet
+	}
+	if len(data) != 4 {
+		return 0, fmt.Errorf("invalid dimensions data length: %d", len(data))
+	}
+	dimensions := binary.LittleEndian.Uint32(data)
+	return dimensions, nil
+}
 
 type RQDataContainer struct {
 	Data interface{} `msgpack:"data"` // The actual RQ data
