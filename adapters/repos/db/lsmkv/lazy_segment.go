@@ -48,6 +48,7 @@ type lazySegment struct {
 
 	segment *segment
 	mux     sync.Mutex
+	loaded  atomic.Bool
 }
 
 func newLazySegment(path string, logger logrus.FieldLogger, metrics *Metrics,
@@ -82,8 +83,15 @@ func newLazySegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 }
 
 func (s *lazySegment) load() error {
+	if s.loaded.Load() {
+		return nil // fast path
+	}
 	s.mux.Lock()
 	defer s.mux.Unlock()
+	// double check after acquiring lock in case someone else loaded while we waited
+	if s.loaded.Load() {
+		return nil
+	}
 
 	if s.segment == nil {
 		segment, err := newSegment(s.path, s.logger, s.metrics, s.existsLower, s.cfg)
@@ -94,6 +102,7 @@ func (s *lazySegment) load() error {
 		if s.metrics != nil && s.metrics.LazySegmentLoad != nil {
 			s.metrics.LazySegmentLoad.Inc()
 		}
+		s.loaded.Store(true)
 	}
 
 	return nil
