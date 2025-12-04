@@ -171,61 +171,6 @@ func (h *HFresh) setDimensions(dimensions int32) error {
 	return nil
 }
 
-func (h *HFresh) setVectorSize(vectorSize int32) error {
-	err := h.openMetadata()
-	if err != nil {
-		return err
-	}
-	defer h.closeMetadata()
-
-	err = h.metadata.Update(func(tx *bolt.Tx) error {
-		b := tx.Bucket([]byte(vectorMetadataBucket))
-		if b == nil {
-			return errors.New("failed to get bucket")
-		}
-		buf := make([]byte, 4)
-		binary.LittleEndian.PutUint32(buf, uint32(vectorSize))
-		return b.Put([]byte("vector_size"), buf)
-	})
-	if err != nil {
-		return errors.Wrap(err, "set vector size")
-	}
-
-	return nil
-}
-
-func (h *HFresh) restoreVectorSize() error {
-	err := h.openMetadata()
-	if err != nil {
-		return err
-	}
-	defer h.closeMetadata()
-
-	var vectorSize int32
-	err = h.metadata.View(func(tx *bolt.Tx) error {
-		b := tx.Bucket([]byte(vectorMetadataBucket))
-		if b == nil {
-			return nil
-		}
-		v := b.Get([]byte("vector_size"))
-		if v == nil {
-			return nil
-		}
-		vectorSize = int32(binary.LittleEndian.Uint32(v))
-		return nil
-	})
-	if err != nil {
-		return errors.Wrap(err, "restore vector size")
-	}
-
-	if vectorSize > 0 {
-		atomic.StoreInt32(&h.vectorSize, vectorSize)
-		h.PostingStore.vectorSize.Store(vectorSize)
-	}
-
-	return nil
-}
-
 // RQ data persistence and restoration functions
 
 func (h *HFresh) persistRQData() error {
@@ -394,11 +339,5 @@ func (h *HFresh) restoreRQ8FromMsgpack(rq8Data *RQ8Data) error {
 		distancer: h.config.DistanceProvider,
 	}
 
-	// Restore vector size if available
-	if err := h.restoreVectorSize(); err != nil {
-		h.logger.Warnf("HFresh index unable to restore vector size: %v", err)
-	}
-
-	h.PostingStore.Init(h.vectorSize)
 	return nil
 }
