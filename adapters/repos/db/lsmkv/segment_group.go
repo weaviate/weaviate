@@ -691,6 +691,30 @@ func (sg *SegmentGroup) getCollection(key []byte, segments []Segment) ([]value, 
 	return out, nil
 }
 
+func (sg *SegmentGroup) getCollectionRaw(key []byte, segments []Segment) ([][]byte, error) {
+	var out [][]byte
+
+	// start with first and do not exit
+	for _, segment := range segments {
+		v, err := segment.getCollectionRaw(key)
+		if err != nil {
+			if errors.Is(err, lsmkv.NotFound) {
+				continue
+			}
+
+			return nil, err
+		}
+
+		if len(out) == 0 {
+			out = v
+		} else {
+			out = append(out, v...)
+		}
+	}
+
+	return out, nil
+}
+
 func (sg *SegmentGroup) getCollectionAndSegments(ctx context.Context, key []byte, segments []Segment) ([][]value, []Segment, error) {
 	out := make([][]value, len(segments))
 	outSegments := make([]Segment, len(segments))

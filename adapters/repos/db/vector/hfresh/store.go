@@ -144,7 +144,7 @@ func (p *PostingStore) GetInner(ctx context.Context, postingID uint64, view lsmk
 	defer p.locks.RUnlock(postingID)
 
 	binary.LittleEndian.PutUint32(buf[8:12], version)
-	list, err := p.bucket.SetListFromConsistentView(view, buf[:])
+	list, err := p.bucket.VectorListFromConsistentView(view, buf[:])
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get posting %d", postingID)
 	}

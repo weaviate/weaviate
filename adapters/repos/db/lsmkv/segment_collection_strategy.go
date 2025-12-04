@@ -60,6 +60,65 @@ func (s *segment) getCollection(key []byte) ([]value, error) {
 	return s.collectionStratParseData(contentsCopy)
 }
 
+func (s *segment) getCollectionRaw(key []byte) ([][]byte, error) {
+	if s.strategy != segmentindex.StrategySetCollection &&
+		s.strategy != segmentindex.StrategyMapCollection {
+		return nil, fmt.Errorf("getRaw only possible for strategies %q and %q, got %q",
+			StrategySetCollection, StrategyMapCollection, s.strategy)
+	}
+
+	if s.useBloomFilter && !s.bloomFilter.Test(key) {
+		return nil, lsmkv.NotFound
+	}
+
+	node, err := s.index.Get(key)
+	if err != nil {
+		return nil, err
+	}
+
+	// We need to copy the data we read from the segment exactly once in this
+	// place. This means that future processing can share this memory as much as
+	// it wants to, as it can now be considered immutable. If we didn't copy in
+	// this place it would only be safe to hold this data while still under the
+	// protection of the segmentGroup.maintenanceLock. This lock makes sure that
+	// no compaction is started during an ongoing read. However, as we could show
+	// as part of https://github.com/weaviate/weaviate/issues/1837
+	// further processing, such as map-decoding and eventually map-merging would
+	// happen inside the bucket.MapList() method. This scope has its own lock,
+	// but that lock can only protecting against flushing (i.e. changing the
+	// active/flushing memtable), not against removing the disk segment. If a
+	// compaction completes and the old segment is removed, we would be accessing
+	// invalid memory without the copy, thus leading to a SEGFAULT.
+	in := make([]byte, node.End-node.Start)
+	if err = s.copyNode(in, nodeOffset{node.Start, node.End}); err != nil {
+		return nil, err
+	}
+	if len(in) == 0 {
+		return nil, lsmkv.NotFound
+	}
+
+	offset := 0
+
+	valuesLen := binary.LittleEndian.Uint64(in[offset : offset+8])
+	offset += 8
+
+	values := make([][]byte, valuesLen)
+	valueIndex := 0
+	for valueIndex < int(valuesLen) {
+		offset += 1
+
+		valueLen := binary.LittleEndian.Uint64(in[offset : offset+8])
+		offset += 8
+
+		values[valueIndex] = in[offset : offset+int(valueLen)]
+		offset += int(valueLen)
+
+		valueIndex++
+	}
+
+	return values, nil
+}
+
 func (s *segment) collectionStratParseData(in []byte) ([]value, error) {
 	if len(in) == 0 {
 		return nil, lsmkv.NotFound

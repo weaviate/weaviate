@@ -866,6 +866,36 @@ func (b *Bucket) SetListFromConsistentView(view BucketConsistentView, key []byte
 	return newSetDecoder().Do(out), nil
 }
 
+func (b *Bucket) VectorListFromConsistentView(view BucketConsistentView, key []byte) ([][]byte, error) {
+	var out [][]byte
+
+	v, err := b.disk.getCollectionRaw(key, view.Disk)
+	if err != nil && !errors.Is(err, lsmkv.NotFound) {
+		return nil, err
+	}
+	out = append(out, v...)
+
+	if view.Flushing != nil {
+		v, err = view.Flushing.getCollectionRaw(key)
+		if err != nil && !errors.Is(err, lsmkv.NotFound) {
+			return nil, err
+		}
+		out = append(out, v...)
+
+	}
+
+	v, err = view.Active.getCollectionRaw(key)
+	if err != nil && !errors.Is(err, lsmkv.NotFound) {
+		return nil, err
+	}
+	if len(v) > 0 {
+		// skip the expensive append operation if there was no memtable
+		out = append(out, v...)
+	}
+
+	return out, nil
+}
+
 // Put creates or replaces a single value for a given key.
 //
 //	err := bucket.Put([]byte("my_key"), []byte("my_value"))
