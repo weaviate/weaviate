@@ -40,6 +40,7 @@ func structToMap(obj interface{}) (newMap map[string]interface{}) {
 
 func updateToBlockMaxInvertedIndexConfig(ctx context.Context, sc *schema.Manager, className string) error {
 	class := sc.ReadOnlyClass(className)
+
 	if class == nil {
 		return fmt.Errorf("class %q not found", className)
 	}

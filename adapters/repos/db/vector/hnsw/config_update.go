@@ -103,6 +103,8 @@ func validateImmutableField(u immutableParameter,
 }
 
 func (h *hnsw) UpdateUserConfig(updated config.VectorIndexConfig, callback func()) error {
+	h.logger.WithField("action", "hnsw_update_vector_index_configs").Warnf("starting update with config: %+v", updated)
+	defer h.logger.WithField("action", "hnsw_update_vector_index_configs").Warnf("finished update with config: %+v", updated)
 	parsed, ok := updated.(ent.UserConfig)
 	if !ok {
 		callback()
@@ -133,12 +135,14 @@ func (h *hnsw) UpdateUserConfig(updated config.VectorIndexConfig, callback func(
 		}
 	}
 
+	h.logger.WithField("action", "hnsw_update_vector_index_configs").Warnf("getting lock for vector index config update %v", parsed)
 	h.compressActionLock.Lock()
 	h.pqConfig = parsed.PQ
 	h.sqConfig = parsed.SQ
 	h.bqConfig = parsed.BQ
 	h.rqConfig = parsed.RQ
 	h.compressActionLock.Unlock()
+	h.logger.WithField("action", "hnsw_update_vector_index_configs").Warnf("released lock for vector index config update %v", parsed)
 
 	if asyncEnabled() {
 		callback()
@@ -146,10 +150,15 @@ func (h *hnsw) UpdateUserConfig(updated config.VectorIndexConfig, callback func(
 	}
 
 	if !h.compressed.Load() {
+		h.logger.WithField("action", "hnsw_update_vector_index_configs").Warnf("starting upgrade for vector index config update %v", parsed)
+		defer h.logger.WithField("action", "hnsw_update_vector_index_configs").Warnf("finished upgrade for vector index config update %v", parsed)
 		// the compression will fire the callback once it's complete
 		return h.Upgrade(callback)
 	} else {
+		h.logger.WithField("action", "hnsw_update_vector_index_configs").Warnf("updating cache size for vector index config update %v", parsed)
+		// already compressed, just update the cache size
 		h.compressor.SetCacheMaxSize(int64(parsed.VectorCacheMaxObjects))
+
 		callback()
 		return nil
 	}
@@ -165,17 +174,19 @@ func (h *hnsw) Upgrade(callback func()) error {
 		"shard":        h.shardName,
 		"collection":   h.className,
 		"targetVector": h.getTargetVector(),
-	}).Info("switching to compressed vectors")
+	}).Warnf("switching to compressed vectors")
 
 	err := ent.ValidatePQConfig(h.pqConfig)
 	if err != nil {
 		callback()
+		h.logger.WithField("action", "hnsw_update_vector_index_configs").Warnf("failed to validate pq config for vector index config update %v: %v", h.pqConfig, err)
 		return err
 	}
 
 	err = ent.ValidateRQConfig(h.rqConfig)
 	if err != nil {
 		callback()
+		h.logger.WithField("action", "hnsw_update_vector_index_configs").Warnf("failed to validate rq config for vector index config update %v: %v", h.rqConfig, err)
 		return err
 	}
 

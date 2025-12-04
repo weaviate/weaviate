@@ -376,6 +376,8 @@ func (s *Shard) UpdateVectorIndexConfig(ctx context.Context, updated schemaConfi
 }
 
 func (s *Shard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string]schemaConfig.VectorIndexConfig) error {
+	s.index.logger.WithField("action", "update_vector_index_configs").Warnf("starting update with configs: %+v", updated)
+	defer s.index.logger.WithField("action", "update_vector_index_configs").Warnf("finished update with configs: %+v", updated)
 	if err := s.isReadOnly(); err != nil {
 		return err
 	}
@@ -401,7 +403,13 @@ func (s *Shard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string
 	for targetVector, targetCfg := range updated {
 		if index, ok := s.GetVectorIndex(targetVector); ok {
 			wg.Add(1)
-			if err = index.UpdateUserConfig(targetCfg, wg.Done); err != nil {
+			callback := func() {
+				s.index.logger.WithField("action", "update_vector_index_configs").Warnf("completed update for target vector %s", targetVector)
+				wg.Done() //nolint:SA2000
+			}
+			s.index.logger.WithField("action", "update_vector_index_configs").Warnf("started update for target vector %s", targetVector)
+			if err = index.UpdateUserConfig(targetCfg, callback); err != nil {
+				s.index.logger.WithField("action", "update_vector_index_configs").Errorf("updating vector index config for target vector %s: %v", targetVector, err)
 				break
 			}
 		} else {
@@ -414,7 +422,11 @@ func (s *Shard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string
 
 	f := func() {
 		wg.Wait()
+		s.index.logger.WithField("action", "update_vector_index_configs").
+			Warnf("Setting shard back to ready after vector index config update %v %s", targetVecs, reason)
 		s.UpdateStatus(storagestate.StatusReady.String(), reason)
+		s.index.logger.WithField("action", "update_vector_index_configs").
+			Warnf("Set shard back to ready after vector index config update %v %s", targetVecs, reason)
 	}
 	enterrors.GoWrapper(f, s.index.logger)
 

@@ -697,6 +697,7 @@ func (i *Index) updateVectorIndexConfig(ctx context.Context,
 func (i *Index) updateVectorIndexConfigs(ctx context.Context,
 	updated map[string]schemaConfig.VectorIndexConfig,
 ) error {
+	i.logger.WithField("updated_configs", updated).WithField("old_configs", i.vectorIndexUserConfigs).Warnf("updating vector index configs for multiple targets")
 	err := i.ForEachShard(func(name string, shard ShardLike) error {
 		if err := shard.UpdateVectorIndexConfigs(ctx, updated); err != nil {
 			return fmt.Errorf("shard %q: %w", name, err)
