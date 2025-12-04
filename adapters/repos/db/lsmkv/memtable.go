@@ -42,6 +42,7 @@ type memtable interface {
 	setTombstoneWith(key []byte, deletionTime time.Time, opts ...SecondaryKeyOption) error
 
 	getCollection(key []byte) ([]value, error)
+	getCollectionRaw(key []byte) ([][]byte, error)
 	getMap(key []byte) ([]MapPair, error)
 	append(key []byte, values []value) error
 	appendMapSorted(key []byte, pair MapPair) error
@@ -395,6 +396,28 @@ func (m *Memtable) getCollection(key []byte) ([]value, error) {
 	}
 
 	return v, nil
+}
+
+func (m *Memtable) getCollectionRaw(key []byte) ([][]byte, error) {
+	// TODO amourao: check if this is needed for StrategyInverted
+	if m.strategy != StrategySetCollection && m.strategy != StrategyMapCollection {
+		return nil, errors.Errorf("getCollectionRaw only possible with strategies %q, %q",
+			StrategySetCollection, StrategyMapCollection)
+	}
+	v, err := m.getCollection(key)
+	if err != nil {
+		return nil, err
+	}
+
+	var out [][]byte
+	for _, val := range v {
+		if val.tombstone && len(val.value) == 1 && val.value[0] == 0xFF {
+			return [][]byte{}, nil
+		}
+		out = append(out, val.value)
+	}
+
+	return out, nil
 }
 
 func (m *Memtable) getMap(key []byte) ([]MapPair, error) {

@@ -126,6 +126,13 @@ func (h *HFresh) doSplit(ctx context.Context, postingID uint64, reassign bool) e
 	if err != nil {
 		return errors.Wrapf(err, "failed to set posting size for posting %d after split operation", postingID)
 	}
+	// create an empty posting for the small posting to trigger compaction cleanup
+	err = h.PostingStore.Put(ctx, postingID, &Posting{
+		vectorSize: int(h.vectorSize),
+	})
+	if err != nil {
+		return errors.Wrapf(err, "failed to put empty posting %d after split operation", postingID)
+	}
 
 	// Mark the split operation as done
 	markedAsDone = true

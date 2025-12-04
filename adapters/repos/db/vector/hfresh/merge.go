@@ -202,6 +202,14 @@ func (h *HFresh) doMerge(ctx context.Context, postingID uint64) error {
 				return errors.Wrapf(err, "failed to set size of merged posting %d to %d", largeID, newPosting.Len())
 			}
 
+			// create an empty posting for the small posting to trigger compaction cleanup
+			err = h.PostingStore.Put(ctx, smallID, &Posting{
+				vectorSize: int(h.vectorSize),
+			})
+			if err != nil {
+				return errors.Wrapf(err, "failed to put empty posting %d after merge operation", smallID)
+			}
+
 			// mark the operation as done and unlock everything
 			markedAsDone = true
 			if h.postingLocks.Hash(postingID) != h.postingLocks.Hash(candidateID) {

@@ -93,6 +93,8 @@ type SegmentGroup struct {
 	bm25config                     *schema.BM25Config
 	writeSegmentInfoIntoFileName   bool
 	writeMetadata                  bool
+
+	shouldIgnoreKey func(key []byte, ctx context.Context) (bool, error)
 }
 
 type sgConfig struct {
@@ -114,6 +116,7 @@ type sgConfig struct {
 	bm25config                   *models.BM25Config
 	writeSegmentInfoIntoFileName bool
 	writeMetadata                bool
+	shouldIgnoreKey              func(key []byte, ctx context.Context) (bool, error)
 }
 
 func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Metrics, cfg sgConfig,
@@ -144,6 +147,7 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 		writeSegmentInfoIntoFileName: cfg.writeSegmentInfoIntoFileName,
 		writeMetadata:                cfg.writeMetadata,
 		bitmapBufPool:                b.bitmapBufPool,
+		shouldIgnoreKey:              cfg.shouldIgnoreKey,
 	}
 
 	segmentIndex := 0
@@ -550,6 +554,36 @@ func (sg *SegmentGroup) getConsistentViewOfSegments() (segments []Segment, relea
 	}
 }
 
+func (sg *SegmentGroup) getConsistentViewOfSegmentsForKeys(keys [][]byte) (segments []Segment, release func()) {
+	sg.maintenanceLock.RLock()
+	segments = make([]Segment, 0, len(sg.segments))
+
+	sg.segmentRefCounterLock.Lock()
+	for _, seg := range sg.segments {
+		for _, key := range keys {
+			if seg.hasKey(key) {
+				seg.incRef()
+				sg.segmentsWithRefs[seg.getPath()] = seg
+				segments = append(segments, seg)
+				break
+			}
+		}
+	}
+	sg.segmentRefCounterLock.Unlock()
+	sg.maintenanceLock.RUnlock()
+
+	return segments, func() {
+		sg.segmentRefCounterLock.Lock()
+		for _, seg := range segments {
+			seg.decRef()
+			if seg.getRefs() == 0 {
+				delete(sg.segmentsWithRefs, seg.getPath())
+			}
+		}
+		sg.segmentRefCounterLock.Unlock()
+	}
+}
+
 func (sg *SegmentGroup) addInitializedSegment(segment Segment) (err error) {
 	defer func() {
 		if err != nil {
@@ -639,6 +673,30 @@ func (sg *SegmentGroup) getCollection(key []byte, segments []Segment) ([]value, 
 	// start with first and do not exit
 	for _, segment := range segments {
 		v, err := segment.getCollection(key)
+		if err != nil {
+			if errors.Is(err, lsmkv.NotFound) {
+				continue
+			}
+
+			return nil, err
+		}
+
+		if len(out) == 0 {
+			out = v
+		} else {
+			out = append(out, v...)
+		}
+	}
+
+	return out, nil
+}
+
+func (sg *SegmentGroup) getCollectionRaw(key []byte, segments []Segment) ([][]byte, error) {
+	var out [][]byte
+
+	// start with first and do not exit
+	for _, segment := range segments {
+		v, err := segment.getCollectionRaw(key)
 		if err != nil {
 			if errors.Is(err, lsmkv.NotFound) {
 				continue

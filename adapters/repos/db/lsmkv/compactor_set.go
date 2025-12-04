@@ -13,6 +13,7 @@ package lsmkv
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 
@@ -50,12 +51,15 @@ type compactorSet struct {
 	scratchSpacePath string
 
 	enableChecksumValidation bool
+
+	shouldIgnoreKey func(key []byte, ctx context.Context) (bool, error)
 }
 
 func newCompactorSetCollection(w io.WriteSeeker,
 	c1, c2 innerCursorCollection, level, secondaryIndexCount uint16,
 	scratchSpacePath string, cleanupTombstones bool,
 	enableChecksumValidation bool, maxNewFileSize int64, allocChecker memwatch.AllocChecker,
+	shouldIgnoreKey func(key []byte, ctx context.Context) (bool, error),
 ) *compactorSet {
 	observeWrite := monitoring.GetMetrics().FileIOWrites.With(prometheus.Labels{
 		"operation": "compaction",
@@ -80,6 +84,7 @@ func newCompactorSetCollection(w io.WriteSeeker,
 		enableChecksumValidation: enableChecksumValidation,
 		allocChecker:             allocChecker,
 		maxNewFileSize:           maxNewFileSize,
+		shouldIgnoreKey:          shouldIgnoreKey,
 	}
 }
 
@@ -153,6 +158,18 @@ func (c *compactorSet) writeKeys(f *segmentindex.SegmentFile) ([]segmentindex.Ke
 			break
 		}
 		if bytes.Equal(key1, key2) {
+			if c.shouldIgnoreKey != nil {
+				ignore, err := c.shouldIgnoreKey(key1, context.Background())
+				if err != nil {
+					return nil, errors.Wrap(err, "should ignore key")
+				}
+				if ignore {
+					// advance both and continue
+					key1, value1, _ = c.c1.next()
+					key2, value2, _ = c.c2.next()
+					continue
+				}
+			}
 			values := append(value1, value2...)
 			valuesMerged := newSetDecoder().DoPartial(values)
 			if values, skip := c.cleanupValues(valuesMerged); !skip {
@@ -172,6 +189,17 @@ func (c *compactorSet) writeKeys(f *segmentindex.SegmentFile) ([]segmentindex.Ke
 
 		if (key1 != nil && bytes.Compare(key1, key2) == -1) || key2 == nil {
 			// key 1 is smaller
+			if c.shouldIgnoreKey != nil {
+				ignore, err := c.shouldIgnoreKey(key1, context.Background())
+				if err != nil {
+					return nil, errors.Wrap(err, "should ignore key")
+				}
+				if ignore {
+					// advance and continue
+					key1, value1, _ = c.c1.next()
+					continue
+				}
+			}
 			if values, skip := c.cleanupValues(value1); !skip {
 				ki, err := c.writeIndividualNode(f, offset, key1, values)
 				if err != nil {
@@ -184,6 +212,17 @@ func (c *compactorSet) writeKeys(f *segmentindex.SegmentFile) ([]segmentindex.Ke
 			key1, value1, _ = c.c1.next()
 		} else {
 			// key 2 is smaller
+			if c.shouldIgnoreKey != nil {
+				ignore, err := c.shouldIgnoreKey(key2, context.Background())
+				if err != nil {
+					return nil, errors.Wrap(err, "should ignore key")
+				}
+				if ignore {
+					// advance and continue
+					key2, value2, _ = c.c2.next()
+					continue
+				}
+			}
 			if values, skip := c.cleanupValues(value2); !skip {
 				ki, err := c.writeIndividualNode(f, offset, key2, values)
 				if err != nil {

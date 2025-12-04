@@ -185,6 +185,10 @@ type Bucket struct {
 	writeSegmentInfoIntoFileName bool
 
 	bm25Config *models.BM25Config
+
+	// function to decide whether a key should be ignored
+	// during compaction for the SetCollection strategy
+	shouldIgnoreKey func(key []byte, ctx context.Context) (bool, error)
 }
 
 func NewBucketCreator() *Bucket { return &Bucket{} }
@@ -288,6 +292,7 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 			keepLevelCompaction:          b.keepLevelCompaction,
 			writeSegmentInfoIntoFileName: b.writeSegmentInfoIntoFileName,
 			writeMetadata:                b.writeMetadata,
+			shouldIgnoreKey:              b.shouldIgnoreKey,
 		}, compactionCallbacks, b, files)
 	if err != nil {
 		return nil, fmt.Errorf("init disk segments: %w", err)
@@ -521,6 +526,27 @@ func (b *Bucket) getConsistentView() BucketConsistentView {
 	}
 
 	diskSegments, releaseDiskSegments := b.disk.getConsistentViewOfSegments()
+	return BucketConsistentView{
+		Active:   b.active,
+		Flushing: b.flushing,
+		Disk:     diskSegments,
+		release:  releaseDiskSegments,
+	}
+}
+
+func (b *Bucket) GetConsistentViewOfSegmentsForKeys(keys [][]byte) BucketConsistentView {
+	beforeFlushLock := time.Now()
+	b.flushLock.RLock()
+	defer b.flushLock.RUnlock()
+
+	if duration := time.Since(beforeFlushLock); duration > 100*time.Millisecond {
+		b.logger.WithFields(logrus.Fields{
+			"duration": duration,
+			"action":   "lsm_bucket_get_acquire_flush_lock",
+		}).Debug("Waited more than 100ms to obtain a flush lock during get")
+	}
+
+	diskSegments, releaseDiskSegments := b.disk.getConsistentViewOfSegmentsForKeys(keys)
 	return BucketConsistentView{
 		Active:   b.active,
 		Flushing: b.flushing,
@@ -786,10 +812,31 @@ func (b *Bucket) SetList(key []byte) ([][]byte, error) {
 	view := b.getConsistentView()
 	defer view.Release()
 
-	return b.setListFromConsistentView(view, key)
+	return b.SetListFromConsistentView(view, key)
 }
 
-func (b *Bucket) setListFromConsistentView(view BucketConsistentView, key []byte) ([][]byte, error) {
+// SetList returns all Set entries for a given set of keys.
+//
+// SetList is specific to the Set Strategy, for Map use [Bucket.MapList], and
+// for Replace use [Bucket.Get].
+func (b *Bucket) SetLists(keys [][]byte) ([][][]byte, error) {
+	view := b.GetConsistentViewOfSegmentsForKeys(keys)
+	defer view.Release()
+
+	out := make([][][]byte, len(keys))
+
+	for i, key := range keys {
+
+		l, err := b.SetListFromConsistentView(view, key)
+		if err != nil {
+			return nil, err
+		}
+		out[i] = l
+	}
+	return out, nil
+}
+
+func (b *Bucket) SetListFromConsistentView(view BucketConsistentView, key []byte) ([][]byte, error) {
 	var out []value
 
 	v, err := b.disk.getCollection(key, view.Disk)
@@ -817,6 +864,36 @@ func (b *Bucket) setListFromConsistentView(view BucketConsistentView, key []byte
 	}
 
 	return newSetDecoder().Do(out), nil
+}
+
+func (b *Bucket) VectorListFromConsistentView(view BucketConsistentView, key []byte) ([][]byte, error) {
+	var out [][]byte
+
+	v, err := b.disk.getCollectionRaw(key, view.Disk)
+	if err != nil && !errors.Is(err, lsmkv.NotFound) {
+		return nil, err
+	}
+	out = append(out, v...)
+
+	if view.Flushing != nil {
+		v, err = view.Flushing.getCollectionRaw(key)
+		if err != nil && !errors.Is(err, lsmkv.NotFound) {
+			return nil, err
+		}
+		out = append(out, v...)
+
+	}
+
+	v, err = view.Active.getCollectionRaw(key)
+	if err != nil && !errors.Is(err, lsmkv.NotFound) {
+		return nil, err
+	}
+	if len(v) > 0 {
+		// skip the expensive append operation if there was no memtable
+		out = append(out, v...)
+	}
+
+	return out, nil
 }
 
 // Put creates or replaces a single value for a given key.
@@ -919,6 +996,20 @@ func (b *Bucket) SetDeleteSingle(key []byte, valueToDelete []byte) error {
 	return active.append(key, []value{
 		{
 			value:     valueToDelete,
+			tombstone: true,
+		},
+	})
+}
+
+func (b *Bucket) SetDeleteKey(key []byte) error {
+	active, release := b.getActiveMemtableForWrite()
+	defer release()
+
+	// This is a special tombstone that indicates that the whole key can be removed.
+	// On compaction, it will remove all entries for this key, except for itself.
+	return active.append(key, []value{
+		{
+			value:     []byte{255},
 			tombstone: true,
 		},
 	})

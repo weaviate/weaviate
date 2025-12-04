@@ -103,12 +103,12 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 
 	metrics := NewMetrics(cfg.PrometheusMetrics, cfg.ClassName, cfg.ShardName)
 
-	postingStore, err := NewPostingStore(store, metrics, postingBucketName(cfg.ID), cfg.Store)
+	postingStore, err := NewPostingStore(store, metrics, cfg.ID, cfg.Store)
 	if err != nil {
 		return nil, err
 	}
 
-	postingSizes, err := NewPostingSizes(store, metrics, cfg.ID, cfg.Store)
+	postingSizes, err := NewPostingSizes(store, metrics, postingSizeBucketName(cfg.ID), cfg.Store)
 	if err != nil {
 		return nil, err
 	}

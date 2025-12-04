@@ -198,6 +198,21 @@ func (f *fakeSegment) getCollection(key []byte) ([]value, error) {
 	return nil, lsmkv.NotFound
 }
 
+func (f *fakeSegment) getCollectionRaw(key []byte) ([][]byte, error) {
+	out, err := f.getCollection(key)
+	if err != nil {
+		return nil, err
+	}
+	if len(out) == 0 {
+		return nil, lsmkv.NotFound
+	}
+	values := make([][]byte, 0, len(out))
+	for _, v := range out {
+		values = append(values, v.value)
+	}
+	return values, nil
+}
+
 func (f *fakeSegment) getInvertedData() *segmentInvertedData {
 	return &segmentInvertedData{
 		tombstones: sroar.NewBitmap(),
