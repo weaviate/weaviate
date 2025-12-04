@@ -147,33 +147,21 @@ func (h *HFresh) openMetadata() error {
 }
 
 func (h *HFresh) restoreMetadata() error {
-	err := h.openMetadata()
+	dims, err := h.Metadata.GetDimensions()
 	if err != nil {
 		return err
 	}
-	defer h.closeMetadata()
+	if dims > 0 {
+		atomic.StoreInt32(&h.dims, int32(dims))
+	}
 
-	err = h.metadata.Update(func(tx *bolt.Tx) error {
-		b, err := tx.CreateBucketIfNotExists([]byte(vectorMetadataBucket))
-		if err != nil {
-			return errors.Wrap(err, "create bucket")
-		}
-		if b == nil {
-			return errors.New("failed to create or get bucket")
-		}
-		return nil
-	})
+	quantization, err := h.Metadata.GetQuantizationData()
 	if err != nil {
-		return errors.Wrap(err, "init metadata bucket")
+		return err
 	}
 
-	// Restore RQ data if available
-	if err := h.restoreRQData(); err != nil {
-		h.logger.Warnf("HFresh index unable to restore RQ data: %v", err)
-	}
-
-	if err := h.initDimensions(); err != nil {
-		h.logger.Warnf("HFresh index unable to restore RQ data: %v", err)
+	if quantization != nil && quantization.RQ8 != nil {
+		return h.restoreRQ8FromMsgpack(quantization.RQ8)
 	}
 
 	return nil
