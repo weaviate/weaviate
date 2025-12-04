@@ -16,6 +16,7 @@ import (
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/config"
 
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
@@ -192,4 +193,81 @@ func Test_classSettings_Validate(t *testing.T) {
 			}
 		})
 	}
+}
+
+type fakeClassConfig struct {
+	classConfig           map[string]interface{}
+	vectorizeClassName    bool
+	vectorizePropertyName bool
+	skippedProperty       string
+	excludedProperty      string
+	apiEndpoint           string
+	projectID             string
+	endpointID            string
+	modelID               string
+	properties            interface{}
+}
+
+func (f fakeClassConfig) Class() map[string]interface{} {
+	classSettings := map[string]interface{}{
+		"vectorizeClassName": f.vectorizeClassName,
+	}
+	if f.apiEndpoint != "" {
+		classSettings["apiEndpoint"] = f.apiEndpoint
+	}
+	if f.projectID != "" {
+		classSettings["projectID"] = f.projectID
+	}
+	if f.endpointID != "" {
+		classSettings["endpointID"] = f.endpointID
+	}
+	if f.modelID != "" {
+		classSettings["modelID"] = f.modelID
+	}
+	if f.properties != nil {
+		classSettings["properties"] = f.properties
+	}
+	for k, v := range f.classConfig {
+		classSettings[k] = v
+	}
+	return classSettings
+}
+
+func (f fakeClassConfig) ClassByModuleName(moduleName string) map[string]interface{} {
+	return f.Class()
+}
+
+func (f fakeClassConfig) Property(propName string) map[string]interface{} {
+	if propName == f.skippedProperty {
+		return map[string]interface{}{
+			"skip": true,
+		}
+	}
+	if propName == f.excludedProperty {
+		return map[string]interface{}{
+			"vectorizePropertyName": false,
+		}
+	}
+	if f.vectorizePropertyName {
+		return map[string]interface{}{
+			"vectorizePropertyName": true,
+		}
+	}
+	return nil
+}
+
+func (f fakeClassConfig) Tenant() string {
+	return ""
+}
+
+func (f fakeClassConfig) TargetVector() string {
+	return ""
+}
+
+func (f fakeClassConfig) PropertiesDataTypes() map[string]schema.DataType {
+	return nil
+}
+
+func (f fakeClassConfig) Config() *config.Config {
+	return nil
 }
