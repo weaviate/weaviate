@@ -79,6 +79,24 @@ func (m *MetadataStore) SetQuantizationData(data *QuantizationData) error {
 	return m.bucket.Put(m.key(quantizationKey), serialized)
 }
 
+func (m *MetadataStore) GetQuantizationData() (*QuantizationData, error) {
+	data, err := m.bucket.Get(m.key(quantizationKey))
+	if err != nil {
+		return nil, errors.Wrap(err, "get quantization data")
+	}
+	if data == nil {
+		return nil, nil // Not set yet
+	}
+
+	var qData QuantizationData
+	err = msgpack.Unmarshal(data, &qData)
+	if err != nil {
+		return nil, errors.Wrap(err, "unmarshal quantization data")
+	}
+
+	return &qData, nil
+}
+
 type QuantizationData struct {
 	RQ8 *RQ8Data `msgpack:"rq8"`
 }
