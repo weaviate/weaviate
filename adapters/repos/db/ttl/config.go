@@ -130,3 +130,17 @@ func newErrorMissingDeleteOnPropIndex(deleteOn string) errorMissingDeleteOnPropI
 func (e errorMissingDeleteOnPropIndex) Unwrap() error {
 	return e.errorTtl
 }
+
+type CollectionWithTTL struct {
+	CollectionName     string `json:"collection_name" yaml:"collection_name"`
+	PropertyName       string `json:"property_name" yaml:"property_name"`
+	TtlThresholdMillis int64  `json:"ttl_threshold_millis" yaml:"ttl_threshold_millis"`
+}
+
+func NewCollectionWithTTL(collectionName, propertyName string, ttlThresholdMillis int64) CollectionWithTTL {
+	return CollectionWithTTL{
+		CollectionName:     collectionName,
+		PropertyName:       propertyName,
+		TtlThresholdMillis: ttlThresholdMillis,
+	}
+}

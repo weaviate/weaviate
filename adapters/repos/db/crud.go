@@ -20,6 +20,7 @@ import (
 	"github.com/go-openapi/strfmt"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/refcache"
+	"github.com/weaviate/weaviate/adapters/repos/db/ttl"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -65,6 +66,29 @@ func (db *DB) DeleteObject(ctx context.Context, class string, id strfmt.UUID,
 	}
 
 	return nil
+}
+
+func (db *DB) GetCollectionsForExpiredObjectsDeletion(ctx context.Context, expirationTime time.Time) []ttl.CollectionWithTTL {
+	collectionsWithTtl := []ttl.CollectionWithTTL{}
+
+	db.indexLock.RLock()
+	defer db.indexLock.RUnlock()
+
+	for _, idx := range db.indices {
+		class := idx.getClass()
+
+		if !ttl.IsTtlEnabled(class.ObjectTTLConfig) {
+			continue
+		}
+
+		collectionsWithTtl = append(collectionsWithTtl, ttl.NewCollectionWithTTL(
+			class.Class,
+			class.ObjectTTLConfig.DeleteOn,
+			expirationTime.Add(-time.Second*time.Duration(class.ObjectTTLConfig.DefaultTTL)).UnixMilli(),
+		))
+	}
+
+	return collectionsWithTtl
 }
 
 func (db *DB) DeleteObjectsExpired(ctx context.Context, expirationTime time.Time, concurrency int) error {

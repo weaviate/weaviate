@@ -855,6 +855,48 @@ func configureReindexer(appState *state.State, reindexCtx context.Context) db.Sh
 }
 
 func configureCrons(appState *state.State, serverShutdownCtx context.Context) {
+	// enterrors.GoWrapper(func() {
+	// 	f := func() {
+	// 		fmt.Println("--------------------------------------------------------------------------------")
+
+	// 		nodes := appState.SchemaManager.Nodes()
+	// 		nodeName := appState.SchemaManager.NodeName()
+	// 		fmt.Printf("  ==> SchemaManager.Nodes: %v\n"+
+	// 			"      SchemaManager.NodeName: %v\n", nodes, nodeName)
+	// 		fmt.Println()
+
+	// 		allHostnames := appState.Cluster.AllHostnames()
+	// 		allNames := appState.Cluster.AllNames()
+	// 		allOtherClusterMembers := appState.Cluster.AllOtherClusterMembers(0)
+	// 		nodeCount := appState.Cluster.NodeCount()
+	// 		fmt.Printf("  ==> Cluster.AllHostnames: %v\n"+
+	// 			"      Cluster.AllNames: %v\n"+
+	// 			"      Cluster.AllOtherClusterMembers: %v\n"+
+	// 			"      Cluster.NodeCount: %v\n", allHostnames, allNames, allOtherClusterMembers, nodeCount)
+	// 		fmt.Println()
+
+	// 		for _, name := range allNames {
+	// 			nodeAddress := appState.Cluster.NodeAddress(name)
+	// 			nodeHostname, b := appState.Cluster.NodeHostname(name)
+	// 			nodeInfo, b2 := appState.Cluster.NodeInfo(name)
+	// 			fmt.Printf("  ==> Cluster.NodeAddress[%s]: %v\n"+
+	// 				"      Cluster.NodeHostname[%s]: %v [%v]\n"+
+	// 				"      Cluster.NodeInfo[%s]: %#v [%v]\n", name, nodeAddress, name, nodeHostname, b, name, nodeInfo, b2)
+	// 			fmt.Println()
+	// 		}
+
+	// 		fmt.Println("--------------------------------------------------------------------------------")
+	// 	}
+	// 	f()
+
+	// 	t := time.NewTicker(5 * time.Second)
+	// 	for {
+	// 		<-t.C
+	// 		f()
+	// 	}
+
+	// }, appState.Logger)
+
 	type jobSpec struct {
 		schedule string
 		job      gocron.Job
@@ -872,25 +914,30 @@ func configureCrons(appState *state.State, serverShutdownCtx context.Context) {
 				return
 			}
 
-			var err error
-			now := time.Now()
+			logger.Info("initiating deletion of expired objects")
 
-			ctx, cancel := context.WithCancel(serverShutdownCtx)
-			defer cancel()
+			collections := appState.DB.GetCollectionsForExpiredObjectsDeletion(serverShutdownCtx, time.Now())
+			fmt.Printf("  ==> collections %+v\n\n", collections)
 
-			// TODO aliszka:ttl change log level to debug?
-			logger.Info("started deleting expired objects")
-			defer func() {
-				logger = logger.WithField("took", time.Since(now).String())
+			// var err error
+			// now := time.Now()
 
-				if err != nil {
-					logger.WithError(err).Error("error deleting expired objects")
-				} else {
-					logger.Info("finished deleting expired objects")
-				}
-			}()
+			// ctx, cancel := context.WithCancel(serverShutdownCtx)
+			// defer cancel()
 
-			err = appState.DB.DeleteObjectsExpired(ctx, now, concurrency.GOMAXPROCS)
+			// // TODO aliszka:ttl change log level to debug?
+			// logger.Info("started deleting expired objects")
+			// defer func() {
+			// 	logger = logger.WithField("took", time.Since(now).String())
+
+			// 	if err != nil {
+			// 		logger.WithError(err).Error("error deleting expired objects")
+			// 	} else {
+			// 		logger.Info("finished deleting expired objects")
+			// 	}
+			// }()
+
+			// err = appState.DB.DeleteObjectsExpired(ctx, now, concurrency.GOMAXPROCS)
 		}))
 
 		specs = append(specs, jobSpec{
