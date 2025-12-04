@@ -26,6 +26,7 @@ import (
 )
 
 var rateLimitPerModel = map[string]voyageai.VoyageRLModel{
+	"voyage-3-large":   {TokenLimit: 3_000_000, RequestLimit: 2000},
 	"voyage-3.5":       {TokenLimit: 8_000_000, RequestLimit: 2000},
 	"voyage-3.5-lite":  {TokenLimit: 16_000_000, RequestLimit: 2000},
 	"voyage-3":         {TokenLimit: 2_000_000, RequestLimit: 1000},

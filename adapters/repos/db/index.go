@@ -26,15 +26,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
-	"github.com/weaviate/weaviate/usecases/multitenancy"
-
-	"github.com/weaviate/weaviate/cluster/router/executor"
-	routerTypes "github.com/weaviate/weaviate/cluster/router/types"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/aggregator"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
@@ -43,8 +38,11 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
 	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
+	"github.com/weaviate/weaviate/cluster/router/executor"
+	routerTypes "github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/autocut"
@@ -72,6 +70,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/usecases/multitenancy"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
@@ -233,9 +232,10 @@ type Index struct {
 	vectorIndexUserConfigLock sync.Mutex
 	vectorIndexUserConfig     schemaConfig.VectorIndexConfig
 	vectorIndexUserConfigs    map[string]schemaConfig.VectorIndexConfig
-	SPFreshEnabled            bool
+	HFreshEnabled             bool
 
-	partitioningEnabled bool
+	partitioningEnabled  bool
+	AsyncIndexingEnabled bool
 
 	invertedIndexConfig     schema.InvertedIndexConfig
 	invertedIndexConfigLock sync.Mutex
@@ -258,9 +258,11 @@ type Index struct {
 	// 1. closeLock
 	// 2. backupLock (for a specific shard)
 	// 3. shardCreateLocks (for a specific shard)
-	closeLock        sync.RWMutex            // protects against closing while doing operations
-	backupLock       *esync.KeyRWLocker      // prevents writes while a backup is running
-	shardCreateLocks *esync.KeyLockerContext // prevents concurrent shard status changes
+	closeLock  sync.RWMutex       // protects against closing while doing operations
+	backupLock *esync.KeyRWLocker // prevents writes while a backup is running
+	// prevents concurrent shard status changes. Use .Rlock to secure against status changes and .Lock to change status
+	// Minimize holding the RW lock as it will block other operations on the same shard such as searches or writes.
+	shardCreateLocks *esync.KeyRWLocker
 
 	metrics          *Metrics
 	centralJobQueue  chan job
@@ -332,6 +334,7 @@ func NewIndex(
 	allocChecker memwatch.AllocChecker,
 	shardReindexer ShardReindexerV3,
 	bitmapBufPool roaringset.BitmapBufPool,
+	asyncIndexingEnabled bool,
 ) (*Index, error) {
 	err := tokenizer.AddCustomDict(class.Class, invertedIndexConfig.TokenizerUserDict)
 	if err != nil {
@@ -368,6 +371,7 @@ func NewIndex(
 		vectorIndexUserConfigs:  vectorIndexUserConfigs,
 		stopwords:               sd,
 		partitioningEnabled:     multitenancy.IsMultiTenant(class.MultiTenancyConfig),
+		AsyncIndexingEnabled:    asyncIndexingEnabled,
 		remote:                  sharding.NewRemoteIndex(cfg.ClassName.String(), sg, nodeResolver, remoteClient),
 		metrics:                 metrics,
 		centralJobQueue:         jobQueueCh,
@@ -375,13 +379,13 @@ func NewIndex(
 		scheduler:               scheduler,
 		indexCheckpoints:        indexCheckpoints,
 		allocChecker:            allocChecker,
-		shardCreateLocks:        esync.NewKeyLockerContext(),
+		shardCreateLocks:        esync.NewKeyRWLocker(),
 		shardLoadLimiter:        cfg.ShardLoadLimiter,
 		shardReindexer:          shardReindexer,
 		router:                  router,
 		shardResolver:           shardResolver,
 		bitmapBufPool:           bitmapBufPool,
-		SPFreshEnabled:          cfg.SPFreshEnabled,
+		HFreshEnabled:           cfg.HFreshEnabled,
 	}
 
 	getDeletionStrategy := func() string {
@@ -845,7 +849,7 @@ type IndexConfig struct {
 	InvertedSorterDisabled *configRuntime.DynamicValue[bool]
 	MaintenanceModeEnabled func() bool
 
-	SPFreshEnabled bool
+	HFreshEnabled bool
 }
 
 func indexID(class schema.ClassName) string {
@@ -2296,15 +2300,16 @@ func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensu
 		return nil, func() {}, errAlreadyShutdown
 	}
 
-	// make sure same shard is not inited in parallel
-	if err = i.shardCreateLocks.LockWithContext(shardName, ctx); err != nil {
-		return nil, func() {}, fmt.Errorf("unable to acquire shardCreateLocks lock: %w", err)
-	}
-	defer i.shardCreateLocks.Unlock(shardName)
+	// make sure same shard is not inited in parallel. In case it is not loaded yet, switch to a RW lock and initialize
+	// the shard
+	i.shardCreateLocks.RLock(shardName)
 
 	// check if created in the meantime by concurrent call
 	shard = i.shards.Load(shardName)
 	if shard == nil {
+		// If the shard is not yet loaded, we need to upgrade to a write lock to ensure only one goroutine initializes
+		// the shard
+		i.shardCreateLocks.RUnlock(shardName)
 		if !ensureInit {
 			return nil, func() {}, nil
 		}
@@ -2315,12 +2320,21 @@ func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensu
 			return nil, func() {}, fmt.Errorf("class %s not found in schema", className)
 		}
 
-		shard, err = i.initShard(ctx, shardName, class, i.metrics.baseMetrics, true, false)
-		if err != nil {
-			return nil, func() {}, err
-		}
+		i.shardCreateLocks.Lock(shardName)
+		defer i.shardCreateLocks.Unlock(shardName)
 
-		i.shards.Store(shardName, shard)
+		// double check if loaded in the meantime by concurrent call, if not load it
+		shard = i.shards.Load(shardName)
+		if shard == nil {
+			shard, err = i.initShard(ctx, shardName, class, i.metrics.baseMetrics, true, false)
+			if err != nil {
+				return nil, func() {}, err
+			}
+			i.shards.Store(shardName, shard)
+		}
+	} else {
+		// shard already loaded, so we can defer the Runlock
+		defer i.shardCreateLocks.RUnlock(shardName)
 	}
 
 	release, err = shard.preventShutdown()

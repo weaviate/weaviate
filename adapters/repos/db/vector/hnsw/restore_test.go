@@ -29,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/storobj"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 var logger, _ = test.NewNullLogger()
@@ -66,6 +67,7 @@ func Test_RestartFromZeroSegments(t *testing.T) {
 		ID:                    "main",
 		MakeCommitLoggerThunk: MakeNoopCommitLogger,
 		DistanceProvider:      distancer,
+		AllocChecker:          memwatch.NewDummyMonitor(),
 		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 			return vectors[int(id)], nil
 		},
@@ -115,6 +117,7 @@ func TestBackup_IntegrationHnsw(t *testing.T) {
 		MakeCommitLoggerThunk: func() (CommitLogger, error) {
 			return NewCommitLogger(dirName, indexID, logger, noopCallback)
 		},
+		AllocChecker: memwatch.NewDummyMonitor(),
 		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 			vec := vectors[int(id)]
 			if vec == nil {
