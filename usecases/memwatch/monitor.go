@@ -24,6 +24,7 @@ import (
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -325,6 +326,23 @@ func EstimateStorObjectMemory(object *storobj.Object) int64 {
 	// (30 Bytes from the data field models.Object + 16 Bytes from
 	// remaining data fields of storobj.Object).
 	return int64(len(object.Vector)*4 + 46)
+}
+
+func EstimateBatchObjectMemory(object *protocol.BatchObject) int64 {
+	if len(object.Vector) > 0 {
+		return int64(len(object.Vector)*4 + 30)
+	}
+	if len(object.VectorBytes) > 0 {
+		return int64(len(object.VectorBytes) + 30)
+	}
+	if len(object.Vectors) > 0 {
+		size := 0
+		for _, vec := range object.Vectors {
+			size += len(vec.VectorBytes)
+		}
+		return int64(size + 30)
+	}
+	return 0
 }
 
 func EstimateObjectDeleteMemory() int64 {

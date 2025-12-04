@@ -14,7 +14,6 @@ package batch
 import (
 	"context"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -52,7 +51,7 @@ func TestWorkerLoop(t *testing.T) {
 			Errors: nil,
 		}, nil).Times(1)
 		var wg sync.WaitGroup
-		StartBatchWorkers(&wg, 1, processingQueue, reportingQueues, mockBatcher, &atomic.Int32{}, nil, logger)
+		StartBatchWorkers(&wg, 1, processingQueue, reportingQueues, mockBatcher, logger)
 
 		UUID0 := uuid.New().String()
 		ref1 := &pb.BatchReference{
@@ -69,16 +68,16 @@ func TestWorkerLoop(t *testing.T) {
 			references:       nil,
 			streamId:         StreamId,
 			consistencyLevel: nil,
-			wg:               &wg,
 			streamCtx:        ctx,
+			onComplete:       func() { wg.Done() },
 		}
 		processingQueue <- &processRequest{
 			objects:          nil,
 			references:       []*pb.BatchReference{ref1},
 			streamId:         StreamId,
 			consistencyLevel: nil,
-			wg:               &wg,
 			streamCtx:        ctx,
+			onComplete:       func() { wg.Done() },
 		}
 
 		rq, ok := reportingQueues.Get(StreamId)
@@ -149,7 +148,7 @@ func TestWorkerLoop(t *testing.T) {
 			Errors: errorsRefs,
 		}, nil).Times(1)
 		var wg sync.WaitGroup
-		StartBatchWorkers(&wg, 1, processingQueue, reportingQueues, mockBatcher, &atomic.Int32{}, nil, logger)
+		StartBatchWorkers(&wg, 1, processingQueue, reportingQueues, mockBatcher, logger)
 
 		// Send data
 		UUID0 := uuid.New().String()
@@ -176,8 +175,8 @@ func TestWorkerLoop(t *testing.T) {
 				references:       []*pb.BatchReference{ref1, ref2},
 				streamId:         StreamId,
 				consistencyLevel: nil,
-				wg:               &wg,
 				streamCtx:        ctx,
+				onComplete:       func() { wg.Done() },
 			}
 		}()
 

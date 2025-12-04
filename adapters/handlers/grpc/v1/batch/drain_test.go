@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/batch/mocks"
 	"github.com/weaviate/weaviate/entities/models"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 func TestDrainOfInProgressBatch(t *testing.T) {
@@ -90,7 +91,7 @@ func TestDrainOfInProgressBatch(t *testing.T) {
 	mockStream.EXPECT().Send(newBatchStreamShutdownReply()).Return(nil).Once()
 
 	numWorkers := 1
-	handler, drain := batch.Start(mockAuthenticator, nil, mockBatcher, nil, numWorkers, logger)
+	handler, drain := batch.Start(mockAuthenticator, nil, mockBatcher, nil, numWorkers, logger, memwatch.NewDummyMonitor())
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
@@ -168,7 +169,7 @@ func TestDrainOfFinishedBatch(t *testing.T) {
 	mockStream.EXPECT().Send(newBatchStreamShuttingDownReply()).Return(nil).Maybe()
 
 	numWorkers := 1
-	handler, drain := batch.Start(mockAuthenticator, nil, mockBatcher, nil, numWorkers, logger)
+	handler, drain := batch.Start(mockAuthenticator, nil, mockBatcher, nil, numWorkers, logger, memwatch.NewDummyMonitor())
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
@@ -239,7 +240,7 @@ func TestDrainAfterBrokenStream(t *testing.T) {
 	mockStream.EXPECT().Send(newBatchStreamStartedReply()).Return(nil).Once()
 
 	numWorkers := 1
-	handler, drain := batch.Start(mockAuthenticator, nil, mockBatcher, nil, numWorkers, logger)
+	handler, drain := batch.Start(mockAuthenticator, nil, mockBatcher, nil, numWorkers, logger, memwatch.NewDummyMonitor())
 	err := handler.Handle(mockStream)
 	require.NotNil(t, err, "handler should return an error")
 	require.ErrorAs(t, err, &networkErr, "handler should return network error")
@@ -310,7 +311,7 @@ func TestDrainWithHangingClient(t *testing.T) {
 	mockStream.EXPECT().Send(newBatchStreamShuttingDownReply()).Return(nil).Once()
 
 	numWorkers := 1
-	handler, drain := batch.Start(mockAuthenticator, nil, mockBatcher, nil, numWorkers, logger)
+	handler, drain := batch.Start(mockAuthenticator, nil, mockBatcher, nil, numWorkers, logger, memwatch.NewDummyMonitor())
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
@@ -387,7 +388,7 @@ func TestDrainWithMisbehavingClient(t *testing.T) {
 	// Will not emit shutdown message since client never stops sending messages, it gets hung up on instead
 
 	numWorkers := 1
-	handler, drain := batch.Start(mockAuthenticator, nil, mockBatcher, nil, numWorkers, logger)
+	handler, drain := batch.Start(mockAuthenticator, nil, mockBatcher, nil, numWorkers, logger, memwatch.NewDummyMonitor())
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {

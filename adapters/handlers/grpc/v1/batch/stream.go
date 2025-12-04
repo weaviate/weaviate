@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -56,9 +57,21 @@ type StreamHandler struct {
 	shuttingDown           atomic.Bool
 	workerStatsPerStream   *sync.Map // map[string]*stats
 	stoppingPerStream      *sync.Map // map[string]struct{}
+	allocChecker           memwatch.AllocChecker
+	memInFlight            atomic.Int64
 }
 
-func NewStreamHandler(authenticator authenticator, authorizer authorization.Authorizer, shuttingDownCtx context.Context, recvWg, sendWg *sync.WaitGroup, reportingQueues *reportingQueues, processingQueue processingQueue, enqueuedObjectsCounter *atomic.Int32, metrics *BatchStreamingMetrics, logger logrus.FieldLogger) *StreamHandler {
+func NewStreamHandler(
+	authenticator authenticator,
+	authorizer authorization.Authorizer,
+	shuttingDownCtx context.Context,
+	recvWg, sendWg *sync.WaitGroup,
+	reportingQueues *reportingQueues,
+	processingQueue processingQueue,
+	metrics *BatchStreamingMetrics,
+	logger logrus.FieldLogger,
+	allocChecker memwatch.AllocChecker,
+) *StreamHandler {
 	h := &StreamHandler{
 		authenticator:          authenticator,
 		authorizer:             authorizer,
@@ -68,10 +81,11 @@ func NewStreamHandler(authenticator authenticator, authorizer authorization.Auth
 		processingQueue:        processingQueue,
 		recvWg:                 recvWg,
 		sendWg:                 sendWg,
-		enqueuedObjectsCounter: enqueuedObjectsCounter,
+		enqueuedObjectsCounter: &atomic.Int32{},
 		metrics:                metrics,
 		workerStatsPerStream:   &sync.Map{},
 		stoppingPerStream:      &sync.Map{},
+		allocChecker:           allocChecker,
 	}
 	return h
 }
@@ -167,7 +181,16 @@ func (h *StreamHandler) drainReportingQueue(queue reportingQueue, batchResults *
 	batchResults.reset()
 }
 
-func (h *StreamHandler) handleRecvErr(recvErr error, logger *logrus.Entry) error {
+func (h *StreamHandler) handleRecvErr(recvErr error, stream pb.Weaviate_BatchStreamServer, logger *logrus.Entry) error {
+	if errors.Is(recvErr, memwatch.ErrNotEnoughMemory) {
+		logger.Warnf("receive error due to memory pressure: %v", recvErr)
+		if err := stream.Send(newBatchOutOfMemoryMessage()); err != nil {
+			logger.Errorf("failed to send out of memory message: %s", err)
+		}
+		// return nil to close the stream gracefully after sending the out of memory message
+		// to allow the client to handle the message appropriately
+		return nil
+	}
 	if h.shuttingDown.Load() {
 		// the server must be shutting down on its own, so return an error saying so that wraps the receiver error
 		logger.Errorf("while server is shutting down, receiver errored: %v", recvErr)
@@ -274,7 +297,7 @@ func (h *StreamHandler) sender(ctx context.Context, streamId string, stream pb.W
 				return h.handleRecvClosed(streamId, stream, log)
 			}
 			// receiver errored, return the error to close the stream
-			return h.handleRecvErr(recvErr, log)
+			return h.handleRecvErr(recvErr, stream, log)
 		case <-shuttingDownDone:
 			if err := h.handleServerShuttingDown(stream, log); err == nil {
 				// only send server shutting down msg once, provided that it didn't error
@@ -288,7 +311,7 @@ func (h *StreamHandler) sender(ctx context.Context, streamId string, stream pb.W
 				log.Debug("reportingQueue is closed, closing stream")
 				recvErr := <-recvErrCh
 				if recvErr != nil {
-					return h.handleRecvErr(recvErr, log)
+					return h.handleRecvErr(recvErr, stream, log)
 				}
 				return h.handleRecvClosed(streamId, stream, log)
 			}
@@ -412,21 +435,35 @@ func (h *StreamHandler) receiver(ctx context.Context, streamId string, consisten
 			return err
 		}
 		if request.GetData() != nil {
-			push := func(objs []*pb.BatchObject, refs []*pb.BatchReference) {
+			push := func(objs []*pb.BatchObject, refs []*pb.BatchReference) error {
 				wg.Add(1)
 				howMany := len(objs) + len(refs)
 				if h.metrics != nil {
 					h.metrics.OnProcessingQueuePush(howMany)
 				}
+				size := estimateBatchMemory(objs)
+				if err := h.allocChecker.CheckAlloc(size); err != nil {
+					return fmt.Errorf("push to processing queue: %w", err)
+				}
+				h.memInFlight.Add(size)
 				h.processingQueue <- &processRequest{
 					streamId:         streamId,
 					consistencyLevel: consistencyLevel,
 					objects:          objs,
 					references:       refs,
-					wg:               wg,               // the worker will call wg.Done() when it is finished
 					streamCtx:        stream.Context(), // passes any authN information from the stream into the worker for authZ
+					onComplete: func() {
+						h.memInFlight.Add(-size)
+						wg.Done()
+					},
+					onStart: func() {
+						h.enqueuedObjectsCounter.Add(-int32(howMany))
+						if h.metrics != nil {
+							h.metrics.OnProcessingQueuePull(howMany)
+						}
+					},
 				}
-				h.enqueuedObjectsCounter.Add(int32(howMany))
+				return nil
 			}
 
 			// Split the client-sent objects into batches according to the current batch size
@@ -440,7 +477,9 @@ func (h *StreamHandler) receiver(ctx context.Context, streamId string, consisten
 				for _, obj := range request.GetData().GetObjects().GetValues() {
 					batch = append(batch, obj)
 					if len(batch) == batchSize {
-						push(batch, nil)
+						if err := push(batch, nil); err != nil {
+							return err
+						}
 						batch = make([]*pb.BatchObject, 0, batchSize)
 					}
 				}
@@ -452,7 +491,9 @@ func (h *StreamHandler) receiver(ctx context.Context, streamId string, consisten
 			if len(batch) > 0 || len(refs) > 0 {
 				// refs are fast so don't need to be efficiently batched
 				// we just accept however many the client sends assuming it'll be fine
-				push(batch, refs)
+				if err := push(batch, refs); err != nil {
+					return err
+				}
 			}
 
 		} else if request.GetStop() != nil {
@@ -462,6 +503,14 @@ func (h *StreamHandler) receiver(ctx context.Context, streamId string, consisten
 			return fmt.Errorf("invalid batch send request: data field is nil")
 		}
 	}
+}
+
+func estimateBatchMemory(objs []*pb.BatchObject) int64 {
+	var sum int64
+	for _, obj := range objs {
+		sum += memwatch.EstimateBatchObjectMemory(obj)
+	}
+	return sum
 }
 
 type batchResults struct {

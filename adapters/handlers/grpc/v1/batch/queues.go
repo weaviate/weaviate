@@ -54,6 +54,14 @@ func newBatchStartedMessage() *pb.BatchStreamReply {
 	}
 }
 
+func newBatchOutOfMemoryMessage() *pb.BatchStreamReply {
+	return &pb.BatchStreamReply{
+		Message: &pb.BatchStreamReply_OutOfMemory_{
+			OutOfMemory: &pb.BatchStreamReply_OutOfMemory{},
+		},
+	}
+}
+
 func newBatchBackoffMessage(batchSize int) *pb.BatchStreamReply {
 	return &pb.BatchStreamReply{
 		Message: &pb.BatchStreamReply_Backoff_{

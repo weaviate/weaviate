@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/auth"
 	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/batch"
 	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/weaviate/weaviate/usecases/config"
@@ -58,23 +59,19 @@ type Service struct {
 	batchStreamHandler *batch.StreamHandler
 }
 
-func NewService(traverser *traverser.Traverser, authComposer composer.TokenFunc,
-	allowAnonymousAccess bool, schemaManager *schemaManager.Manager,
-	batchManager *objects.BatchManager, config *config.Config, authorization authorization.Authorizer,
-	logger logrus.FieldLogger,
-) (*Service, batch.Drain) {
-	authenticator := auth.NewHandler(allowAnonymousAccess, authComposer)
-	batchHandler := batch.NewHandler(authorization, batchManager, logger, authenticator, schemaManager)
-	batchStreamHandler, batchDrain := batch.Start(authenticator, authorization, batchHandler, prometheus.DefaultRegisterer, NUMCPU, logger)
+func NewService(allowAnonymous bool, authComposer composer.TokenFunc, state *state.State) (*Service, batch.Drain) {
+	authenticator := auth.NewHandler(allowAnonymous, authComposer)
+	batchHandler := batch.NewHandler(state.Authorizer, state.BatchManager, state.Logger, authenticator, state.SchemaManager)
+	batchStreamHandler, batchDrain := batch.Start(authenticator, state.Authorizer, batchHandler, prometheus.DefaultRegisterer, NUMCPU, state.Logger, state.MemWatch)
 	return &Service{
-		traverser:            traverser,
+		traverser:            state.Traverser,
 		authComposer:         authComposer,
-		allowAnonymousAccess: allowAnonymousAccess,
-		schemaManager:        schemaManager,
-		batchManager:         batchManager,
-		config:               config,
-		logger:               logger,
-		authorizer:           authorization,
+		allowAnonymousAccess: state.ServerConfig.Config.Authentication.AnonymousAccess.Enabled,
+		schemaManager:        state.SchemaManager,
+		batchManager:         state.BatchManager,
+		config:               &state.ServerConfig.Config,
+		logger:               state.Logger,
+		authorizer:           state.Authorizer,
 		authenticator:        authenticator,
 		batchHandler:         batchHandler,
 		batchStreamHandler:   batchStreamHandler,

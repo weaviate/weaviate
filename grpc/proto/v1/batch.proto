@@ -49,6 +49,8 @@ message BatchStreamReply {
   }
   message Shutdown {
   }
+  message OutOfMemory{
+  }
   message Backoff {
     int32 batch_size = 1;
   }
@@ -75,6 +77,7 @@ message BatchStreamReply {
     Shutdown shutdown = 3;
     Started started = 4;
     Backoff backoff = 5;
+    OutOfMemory out_of_memory = 6;
   }
 }
 
