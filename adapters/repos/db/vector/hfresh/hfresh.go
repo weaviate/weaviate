@@ -67,7 +67,7 @@ type HFresh struct {
 	// and can only be initialized once the first vector has been
 	// received
 	initDimensionsOnce sync.Once
-	dims               int32 // Number of dimensions of expected vectors
+	dims               uint32 // Number of dimensions of expected vectors
 	distancer          *Distancer
 	quantizer          *compressionhelpers.RotationalQuantizer
 

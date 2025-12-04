@@ -152,7 +152,8 @@ func (h *HFresh) restoreMetadata() error {
 		return err
 	}
 	if dims > 0 {
-		atomic.StoreInt32(&h.dims, int32(dims))
+		atomic.StoreUint32(&h.dims, dims)
+		h.setMaxPostingSize()
 	}
 
 	quantization, err := h.Metadata.GetQuantizationData()
@@ -234,41 +235,14 @@ func (h *HFresh) persistRQData() error {
 		return nil
 	}
 
-	err := h.openMetadata()
+	rq8Data, err := h.serializeRQ8Data()
 	if err != nil {
-		return err
+		return errors.Wrap(err, "serialize RQ8 data")
 	}
-	defer h.closeMetadata()
 
-	err = h.metadata.Update(func(tx *bolt.Tx) error {
-		b := tx.Bucket([]byte(vectorMetadataBucket))
-		if b == nil {
-			return errors.New("failed to get bucket")
-		}
-
-		// Create RQ data container with metadata
-		container := &RQDataContainer{}
-
-		rq8Data, err := h.serializeRQ8Data()
-		if err != nil {
-			return errors.Wrap(err, "serialize RQ8 data")
-		}
-		container.Data = rq8Data
-
-		// Serialize to msgpack
-		data, err := msgpack.Marshal(container)
-		if err != nil {
-			return errors.Wrap(err, "marshal RQ data container")
-		}
-
-		// Store the serialized data
-		return b.Put([]byte(quantizationKey), data)
+	return h.Metadata.SetQuantizationData(&QuantizationData{
+		RQ8: rq8Data,
 	})
-	if err != nil {
-		return errors.Wrap(err, "persist RQ data")
-	}
-
-	return nil
 }
 
 // serializeRQ8Data extracts RQ8 data from the quantizer and converts it to msgpack format
