@@ -163,8 +163,6 @@ func (p *PostingSizeStore) Get(ctx context.Context, postingID uint64) (uint32, e
 }
 
 func (p *PostingSizeStore) Set(ctx context.Context, postingID uint64, size uint32) error {
-	var buf [8]byte
-	binary.LittleEndian.PutUint64(buf[:], postingID)
-
-	return p.bucket.Put(buf[:], binary.LittleEndian.AppendUint32(nil, size))
+	key := p.key(postingID)
+	return p.bucket.Put(key[:], binary.LittleEndian.AppendUint32(nil, size))
 }
