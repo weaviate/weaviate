@@ -27,7 +27,7 @@ import (
 type GraphQLFieldFn = func(classname string) *graphql.Field
 
 // ExtractAdditionalFn extracts parameters from graphql queries
-type ExtractAdditionalFn = func(param []*ast.Argument, class *models.Class) interface{}
+type ExtractAdditionalFn = func(param []*ast.Argument, class *models.Class) any
 
 // AdditionalPropertyWithSearchVector defines additional property params
 // with the ability to pass search vector
@@ -38,8 +38,8 @@ type AdditionalPropertyWithSearchVector[T dto.Embedding] interface {
 // AdditionalPropertyFn defines interface for additional property
 // functions performing given logic
 type AdditionalPropertyFn = func(ctx context.Context,
-	in []search.Result, params interface{}, limit *int,
-	argumentModuleParams map[string]interface{}, cfg moduletools.ClassConfig) ([]search.Result, error)
+	in []search.Result, params any, limit *int,
+	argumentModuleParams map[string]any, cfg moduletools.ClassConfig) ([]search.Result, error)
 
 // AdditionalSearch defines on which type of query a given
 // additional logic can be performed
@@ -54,7 +54,7 @@ type AdditionalSearch struct {
 // to be set in order to add the additional property to Weaviate
 type AdditionalProperty struct {
 	RestNames              []string
-	DefaultValue           interface{}
+	DefaultValue           any
 	GraphQLNames           []string
 	GraphQLFieldFunction   GraphQLFieldFn
 	GraphQLExtractFunction ExtractAdditionalFn

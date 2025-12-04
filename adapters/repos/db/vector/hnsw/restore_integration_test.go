@@ -19,6 +19,8 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.etcd.io/bbolt"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
@@ -28,7 +30,7 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/storobj"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	"go.etcd.io/bbolt"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 func TempVectorForIDThunk(vectors [][]float32) func(context.Context, uint64, *common.VectorSlice) ([]float32, error) {
@@ -75,6 +77,7 @@ func TestRestorBQ_Integration(t *testing.T) {
 		ID:               indexID,
 		Logger:           logger,
 		DistanceProvider: distancer,
+		AllocChecker:     memwatch.NewDummyMonitor(),
 		MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
 			return hnsw.NewCommitLogger(dirName, indexID, logger, noopCallback)
 		},

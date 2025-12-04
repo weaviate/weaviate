@@ -37,7 +37,6 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/floatcomp"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/generictypes"
 	uc "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/traverser/grouper"
 )
@@ -725,7 +724,7 @@ func (e *Explorer) crossClassVectorFromModules(ctx context.Context,
 ) ([]float32, string, error) {
 	if e.modulesProvider != nil {
 		vector, targetVector, err := e.modulesProvider.CrossClassVectorFromSearchParam(ctx,
-			paramName, paramValue, generictypes.FindVectorFn(e.nearParamsVector.findVector),
+			paramName, paramValue, e.nearParamsVector.findVector,
 		)
 		if err != nil {
 			return nil, "", errors.Errorf("vectorize params: %v", err)

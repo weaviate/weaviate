@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 func TestBackup_Integration(t *testing.T) {
@@ -57,6 +58,7 @@ func TestBackup_Integration(t *testing.T) {
 	combinedCtrl := cyclemanager.NewCombinedCallbackCtrl(2, logger, commitLoggerCallbacksCtrl, tombstoneCleanupCallbacksCtrl)
 
 	idx, err := New(Config{
+		AllocChecker:     memwatch.NewDummyMonitor(),
 		RootPath:         dirName,
 		ID:               indexID,
 		Logger:           logger,
