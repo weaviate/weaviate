@@ -403,7 +403,11 @@ func (s *Shard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string
 	for targetVector, targetCfg := range updated {
 		if index, ok := s.GetVectorIndex(targetVector); ok {
 			wg.Add(1)
-			if err = index.UpdateUserConfig(targetCfg, wg.Done); err != nil {
+			callback := func() {
+				s.index.logger.WithField("action", "update_vector_index_configs").Warnf("completed update for target vector %s", targetVector)
+				wg.Done() //nolint:SA2000
+			}
+			if err = index.UpdateUserConfig(targetCfg, callback); err != nil {
 				s.index.logger.WithField("action", "update_vector_index_configs").Errorf("updating vector index config for target vector %s: %v", targetVector, err)
 				break
 			}
