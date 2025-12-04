@@ -70,8 +70,17 @@ func (m *MetadataStore) GetDimensions() (uint32, error) {
 	return dimensions, nil
 }
 
-type RQDataContainer struct {
-	Data interface{} `msgpack:"data"` // The actual RQ data
+func (m *MetadataStore) SetQuantizationData(data *QuantizationData) error {
+	serialized, err := msgpack.Marshal(data)
+	if err != nil {
+		return errors.Wrap(err, "marshal quantization data")
+	}
+
+	return m.bucket.Put(m.key(quantizationKey), serialized)
+}
+
+type QuantizationData struct {
+	RQ8 *RQ8Data `msgpack:"rq8"`
 }
 
 type RQ8Data struct {
