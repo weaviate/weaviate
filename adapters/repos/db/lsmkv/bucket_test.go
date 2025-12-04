@@ -534,7 +534,6 @@ func TestBucketReplaceStrategyConsistentView(t *testing.T) {
 				"key1": []byte("value1"),
 			}),
 		},
-		segmentsWithRefs: map[string]Segment{},
 	}
 
 	initialMemtable := newTestMemtableReplace(map[string][]byte{
@@ -676,9 +675,8 @@ func TestBucketReplaceStrategyWriteVsFlush(t *testing.T) {
 			"key1": []byte("value1"),
 		}),
 		disk: &SegmentGroup{
-			strategy:         StrategyReplace,
-			segments:         []Segment{},
-			segmentsWithRefs: map[string]Segment{},
+			strategy: StrategyReplace,
+			segments: []Segment{},
 		},
 		strategy: StrategyReplace,
 	}
@@ -748,7 +746,6 @@ func TestBucketRoaringSetStrategyConsistentView(t *testing.T) {
 				"key1": bitmapFromSlice([]uint64{1}),
 			}),
 		},
-		segmentsWithRefs: map[string]Segment{},
 	}
 
 	initialMemtable := newTestMemtableRoaringSet(map[string][]uint64{
@@ -854,8 +851,7 @@ func TestBucketRoaringSetStrategyWriteVsFlush(t *testing.T) {
 			"key1": {1},
 		}),
 		disk: &SegmentGroup{
-			segments:         []Segment{},
-			segmentsWithRefs: map[string]Segment{},
+			segments: []Segment{},
 		},
 		strategy: StrategyRoaringSet,
 	}
@@ -928,7 +924,6 @@ func TestBucketRoaringSetRangeStrategyConsistentViewUsingReader(t *testing.T) {
 				key1: roaringset.NewBitmap(1),
 			}, sroar.NewBitmap()),
 		},
-		segmentsWithRefs: map[string]Segment{},
 	}
 
 	initialMemtable := newTestMemtableRoaringSetRange(map[uint64][]uint64{
@@ -1106,8 +1101,7 @@ func TestBucketRoaringSetRangeStrategyWriteVsFlush(t *testing.T) {
 			key1: {1},
 		}),
 		disk: &SegmentGroup{
-			segments:         []Segment{},
-			segmentsWithRefs: map[string]Segment{},
+			segments: []Segment{},
 		},
 		strategy: StrategyRoaringSetRange,
 	}
@@ -1179,7 +1173,6 @@ func TestBucketRoaringSetRangeStrategyWriteVsFlushInMemo(t *testing.T) {
 		}),
 		disk: &SegmentGroup{
 			segments:                       []Segment{},
-			segmentsWithRefs:               map[string]Segment{},
 			roaringSetRangeSegmentInMemory: roaringsetrange.NewSegmentInMemory(logger),
 		},
 		strategy:             StrategyRoaringSetRange,
@@ -1238,7 +1231,6 @@ func TestBucketSetStrategyConsistentView(t *testing.T) {
 				"key1": {[]byte("d1")},
 			}),
 		},
-		segmentsWithRefs: map[string]Segment{},
 	}
 
 	initialMemtable := newTestMemtableSet(map[string][][]byte{
@@ -1344,8 +1336,7 @@ func TestBucketSetStrategyWriteVsFlush(t *testing.T) {
 	b := Bucket{
 		active: newTestMemtableSet(map[string][][]byte{"key1": {[]byte("v1")}}),
 		disk: &SegmentGroup{
-			segments:         []Segment{},
-			segmentsWithRefs: map[string]Segment{},
+			segments: []Segment{},
 		},
 		strategy: StrategySetCollection,
 	}
@@ -1403,7 +1394,6 @@ func TestBucketMapStrategyConsistentView(t *testing.T) {
 				"key1": {{Key: []byte("dk1"), Value: []byte("dv1")}},
 			}),
 		},
-		segmentsWithRefs: map[string]Segment{},
 	}
 
 	initialMemtable := newTestMemtableMap(map[string][]MapPair{
@@ -1523,7 +1513,6 @@ func TestBucketMapStrategyDocPointersConsistentView(t *testing.T) {
 				"key1": {mapFromDocPointers(0, 1.0, 3)},
 			}),
 		},
-		segmentsWithRefs: map[string]Segment{},
 	}
 
 	initialMemtable := newTestMemtableMap(map[string][]MapPair{
@@ -1639,8 +1628,7 @@ func TestBucketMapStrategyWriteVsFlush(t *testing.T) {
 			{Key: []byte("k1"), Value: []byte("v1")},
 		}}),
 		disk: &SegmentGroup{
-			segments:         []Segment{},
-			segmentsWithRefs: map[string]Segment{},
+			segments: []Segment{},
 		},
 		strategy: StrategyMapCollection,
 	}
@@ -1707,7 +1695,6 @@ func TestBucketInvertedStrategyConsistentView(t *testing.T) {
 				"key1": {NewMapPairFromDocIdAndTf(0, 2, 1, false), NewMapPairFromDocIdAndTf(10, 10, 1, false)},
 			}),
 		},
-		segmentsWithRefs: map[string]Segment{},
 	}
 
 	initialMemtable := newTestMemtableInverted(map[string][]MapPair{
@@ -1812,8 +1799,7 @@ func TestBucketInvertedStrategyWriteVsFlush(t *testing.T) {
 			"key1": {NewMapPairFromDocIdAndTf(0, 3, 1, false)},
 		}),
 		disk: &SegmentGroup{
-			segments:         []Segment{},
-			segmentsWithRefs: map[string]Segment{},
+			segments: []Segment{},
 		},
 		strategy: StrategyInverted,
 	}

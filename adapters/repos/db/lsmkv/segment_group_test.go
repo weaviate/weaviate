@@ -37,9 +37,8 @@ func TestSegmentGroup_Replace_ConsistentViewAcrossSegmentAddition(t *testing.T) 
 		"key1": []byte("value1"),
 	}
 	sg := &SegmentGroup{
-		strategy:         StrategyReplace,
-		segments:         []Segment{newFakeReplaceSegment(segmentData)},
-		segmentsWithRefs: map[string]Segment{},
+		strategy: StrategyReplace,
+		segments: []Segment{newFakeReplaceSegment(segmentData)},
 	}
 
 	// control before segment changes
@@ -80,10 +79,9 @@ func TestSegmentGroup_Replace_ConsistentViewAcrossSegmentSwitch(t *testing.T) {
 		"key2": []byte("value2"),
 	})
 	sg := &SegmentGroup{
-		logger:           logger,
-		strategy:         StrategyReplace,
-		segments:         []Segment{segA, segB},
-		segmentsWithRefs: map[string]Segment{},
+		logger:   logger,
+		strategy: StrategyReplace,
+		segments: []Segment{segA, segB},
 	}
 
 	// control before segment changes
@@ -131,8 +129,7 @@ func TestSegmentGroup_RoaringSet_ConsistentViewAcrossSegmentAddition(t *testing.
 		"key1": bitmapFromSlice([]uint64{1}),
 	}
 	sg := &SegmentGroup{
-		segments:         []Segment{newFakeRoaringSetSegment(segmentData)},
-		segmentsWithRefs: map[string]Segment{},
+		segments: []Segment{newFakeRoaringSetSegment(segmentData)},
 	}
 
 	// control before segment changes
@@ -176,9 +173,8 @@ func TestSegmentGroup_RoaringSet_ConsistentViewAcrossSegmentSwitch(t *testing.T)
 		"key2": bitmapFromSlice([]uint64{2}),
 	})
 	sg := &SegmentGroup{
-		logger:           logger,
-		segments:         []Segment{segA, segB},
-		segmentsWithRefs: map[string]Segment{},
+		logger:   logger,
+		segments: []Segment{segA, segB},
 	}
 
 	// control: take a consistent view before any switch
@@ -232,8 +228,7 @@ func TestSegmentGroup_RoaringSetRange_ConsistentViewAcrossSegmentAddition(t *tes
 		key1: roaringset.NewBitmap(1),
 	}
 	sg := &SegmentGroup{
-		segments:         []Segment{newFakeRoaringSetRangeSegment(segmentData, sroar.NewBitmap())},
-		segmentsWithRefs: map[string]Segment{},
+		segments: []Segment{newFakeRoaringSetRangeSegment(segmentData, sroar.NewBitmap())},
 	}
 
 	createReaderFromConsistentViewOfSegments := func() ReaderRoaringSetRange {
@@ -290,9 +285,8 @@ func TestSegmentGroup_RoaringSetRange_ConsistentViewAcrossSegmentSwitch(t *testi
 		key2: roaringset.NewBitmap(2),
 	}, sroar.NewBitmap())
 	sg := &SegmentGroup{
-		logger:           logger,
-		segments:         []Segment{segA, segB},
-		segmentsWithRefs: map[string]Segment{},
+		logger:   logger,
+		segments: []Segment{segA, segB},
 	}
 
 	createReaderFromConsistentViewOfSegments := func() ReaderRoaringSetRange {
@@ -358,8 +352,7 @@ func TestSegmentGroup_Set_ConsistentViewAcrossSegmentAddition(t *testing.T) {
 		"key1": {[]byte("v1")},
 	}
 	sg := &SegmentGroup{
-		segments:         []Segment{newFakeSetSegment(segmentData)},
-		segmentsWithRefs: map[string]Segment{},
+		segments: []Segment{newFakeSetSegment(segmentData)},
 	}
 
 	// control before segment changes
@@ -407,9 +400,8 @@ func TestSegmentGroup_Set_ConsistentViewAcrossSegmentSwitch(t *testing.T) {
 	})
 
 	sg := &SegmentGroup{
-		logger:           logger,
-		segments:         []Segment{segA, segB},
-		segmentsWithRefs: map[string]Segment{},
+		logger:   logger,
+		segments: []Segment{segA, segB},
 	}
 
 	// take a consistent view before switch
@@ -460,8 +452,7 @@ func TestSegmentGroup_Map_ConsistentViewAcrossSegmentAddition(t *testing.T) {
 		"key1": {{Key: []byte("k1"), Value: []byte("v1")}},
 	}
 	sg := &SegmentGroup{
-		segments:         []Segment{newFakeMapSegment(segmentData)},
-		segmentsWithRefs: map[string]Segment{},
+		segments: []Segment{newFakeMapSegment(segmentData)},
 	}
 
 	// control before segment changes
@@ -525,9 +516,8 @@ func TestSegmentGroup_Map_ConsistentViewAcrossSegmentSwitch(t *testing.T) {
 	})
 
 	sg := &SegmentGroup{
-		logger:           logger,
-		segments:         []Segment{segA, segB},
-		segmentsWithRefs: map[string]Segment{},
+		logger:   logger,
+		segments: []Segment{segA, segB},
 	}
 
 	// take a consistent view before switch
@@ -583,8 +573,7 @@ func TestSegmentGroup_Inverted_ConsistentViewAcrossSegmentAddition(t *testing.T)
 		"key1": {NewMapPairFromDocIdAndTf(0, 2, 1, false)},
 	}
 	sg := &SegmentGroup{
-		segments:         []Segment{newFakeInvertedSegment(segmentData)},
-		segmentsWithRefs: map[string]Segment{},
+		segments: []Segment{newFakeInvertedSegment(segmentData)},
 	}
 
 	// control before segment changes
@@ -633,9 +622,8 @@ func TestSegmentGroup_Inverted_ConsistentViewAcrossSegmentSwitch(t *testing.T) {
 	})
 
 	sg := &SegmentGroup{
-		logger:           logger,
-		segments:         []Segment{segA, segB},
-		segmentsWithRefs: map[string]Segment{},
+		logger:   logger,
+		segments: []Segment{segA, segB},
 	}
 
 	// take a consistent view before switch

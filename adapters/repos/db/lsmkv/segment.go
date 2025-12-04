@@ -20,6 +20,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
@@ -125,7 +126,7 @@ type segment struct {
 	invertedData   *segmentInvertedData
 
 	observeMetaWrite diskio.MeteredWriterCallback // used for precomputing meta (cna + bloom)
-	refCount         int
+	refCount         atomic.Int64
 }
 
 type diskIndex interface {
@@ -725,7 +726,7 @@ func (c *readObserverCache) GetOrCreate(key string, metrics *Metrics) BytesReadO
 // access, as well as guarantees a consistent view across refs of ALL segments
 // in the group.
 func (s *segment) incRef() {
-	s.refCount++
+	s.refCount.Add(1)
 }
 
 // WARNING: This method is NOT thread-safe on its own. The caller must ensure
@@ -734,10 +735,10 @@ func (s *segment) incRef() {
 // access, as well as guarantees a consistent view across refs of ALL segments
 // in the group.
 func (s *segment) decRef() {
-	if s.refCount <= 0 {
+	if s.refCount.Load() <= 0 {
 		panic("refCount already zero")
 	}
-	s.refCount--
+	s.refCount.Add(-1)
 }
 
 // WARNING: This method is NOT thread-safe on its own. The caller must ensure
@@ -746,5 +747,5 @@ func (s *segment) decRef() {
 // access, as well as guarantees a consistent view across refs of ALL segments
 // in the group.
 func (s *segment) getRefs() int {
-	return s.refCount
+	return int(s.refCount.Load())
 }
