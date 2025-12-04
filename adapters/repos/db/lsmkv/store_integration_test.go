@@ -44,7 +44,7 @@ func testStoreLifecycle(ctx context.Context, t *testing.T, opts []BucketOption) 
 		store, err := New(dirName, dirName, logger, nil,
 			cyclemanager.NewCallbackGroupNoop(),
 			cyclemanager.NewCallbackGroupNoop(),
-			cyclemanager.NewCallbackGroupNoop())
+			cyclemanager.NewCallbackGroupNoop(), "class")
 		require.Nil(t, err)
 
 		err = store.CreateOrLoadBucket(testCtx(), "bucket1", opts...)
@@ -73,7 +73,7 @@ func testStoreLifecycle(ctx context.Context, t *testing.T, opts []BucketOption) 
 		store, err := New(dirName, dirName, logger, nil,
 			cyclemanager.NewCallbackGroupNoop(),
 			cyclemanager.NewCallbackGroupNoop(),
-			cyclemanager.NewCallbackGroupNoop())
+			cyclemanager.NewCallbackGroupNoop(), "class")
 		require.Nil(t, err)
 
 		err = store.CreateOrLoadBucket(testCtx(), "bucket1", opts...)

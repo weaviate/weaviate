@@ -225,7 +225,7 @@ func buildCompressedBucketForTest(t *testing.T, totalVecs int) *lsmkv.Bucket {
 	ctx := context.Background()
 	logger, _ := logrustest.NewNullLogger()
 	bucket, err := lsmkv.NewBucketCreator().NewBucket(ctx, t.TempDir(), "", logger, nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), "class",
 		lsmkv.WithPread(true), lsmkv.WithSegmentsChecksumValidationEnabled(false), lsmkv.WithStrategy(lsmkv.StrategyReplace))
 	require.Nil(t, err)
 

@@ -63,7 +63,7 @@ func prepareBucket(b *testing.B) (bucket *Bucket, cleanup func()) {
 	}()
 
 	bucket, err := NewBucketCreator().NewBucket(testCtxB(), dirName, "", nullLoggerB(), nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), "class",
 		WithStrategy(StrategyMapCollection),
 		WithMemtableThreshold(5000))
 	require.Nil(b, err)

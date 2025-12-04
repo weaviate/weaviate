@@ -63,7 +63,7 @@ func createCNAOnFlush(ctx context.Context, t *testing.T, opts []BucketOption) {
 	logger, _ := test.NewNullLogger()
 
 	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), "class", opts...)
 	require.Nil(t, err)
 	defer b.Shutdown(ctx)
 
@@ -85,7 +85,7 @@ func createCNAInit(ctx context.Context, t *testing.T, opts []BucketOption) {
 	logger, _ := test.NewNullLogger()
 
 	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), "class", opts...)
 	require.Nil(t, err)
 	defer b.Shutdown(ctx)
 
@@ -114,7 +114,7 @@ func createCNAInit(ctx context.Context, t *testing.T, opts []BucketOption) {
 
 	// now create a new bucket and assert that the file is re-created on init
 	b2, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), "class", opts...)
 	require.Nil(t, err)
 	defer b2.Shutdown(ctx)
 
@@ -136,7 +136,7 @@ func repairCorruptedCNAOnInit(ctx context.Context, t *testing.T, opts []BucketOp
 	logger, _ := test.NewNullLogger()
 
 	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), "class", opts...)
 	require.Nil(t, err)
 	defer b.Shutdown(ctx)
 
@@ -156,7 +156,7 @@ func repairCorruptedCNAOnInit(ctx context.Context, t *testing.T, opts []BucketOp
 	// now create a new bucket and assert that the file is ignored, re-created on
 	// init, and the count matches
 	b2, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), "class", opts...)
 	require.Nil(t, err)
 	defer b2.Shutdown(ctx)
 	count, err := b2.Count(ctx)
@@ -198,7 +198,7 @@ func dontCreateCNA(ctx context.Context, t *testing.T, opts []BucketOption) {
 	logger, _ := test.NewNullLogger()
 
 	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), "class",
 		opts...)
 	require.NoError(t, err)
 	defer b.Shutdown(ctx)
@@ -230,7 +230,7 @@ func dontRecreateCNA(ctx context.Context, t *testing.T, opts []BucketOption) {
 
 	t.Run("create, populate, shutdown", func(t *testing.T) {
 		b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
-			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), "class",
 			opts...)
 		require.NoError(t, err)
 		defer b.Shutdown(ctx)
@@ -240,7 +240,7 @@ func dontRecreateCNA(ctx context.Context, t *testing.T, opts []BucketOption) {
 	})
 
 	b2, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), "class",
 		opts...)
 	require.NoError(t, err)
 	defer b2.Shutdown(ctx)
@@ -266,7 +266,7 @@ func dontPrecomputeCNA(ctx context.Context, t *testing.T, opts []BucketOption) {
 	logger, _ := test.NewNullLogger()
 
 	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), "class",
 		opts...)
 	require.NoError(t, err)
 	defer b.Shutdown(ctx)

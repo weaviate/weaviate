@@ -52,7 +52,7 @@ func TestMetadataNoWrites(t *testing.T) {
 
 			secondaryIndexCount := 2
 			b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
-				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), "class",
 				WithWriteMetadata(tt.writeMetadata), WithUseBloomFilter(tt.bloomFilter), WithCalcCountNetAdditions(tt.cna), WithSecondaryIndices(uint16(secondaryIndexCount)), WithStrategy(StrategyReplace))
 			require.NoError(t, err)
 			require.NoError(t, b.Shutdown(ctx))
@@ -71,7 +71,7 @@ func TestMetadataNoWrites(t *testing.T) {
 
 			// read again
 			_, err = NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
-				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), "class",
 				WithWriteMetadata(tt.writeMetadata), WithUseBloomFilter(tt.bloomFilter), WithCalcCountNetAdditions(tt.cna), WithSecondaryIndices(uint16(secondaryIndexCount)), WithStrategy(StrategyReplace))
 			require.NoError(t, err)
 		})
@@ -84,7 +84,7 @@ func TestNoWriteIfBloomPresent(t *testing.T) {
 	dirName := t.TempDir()
 
 	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), "class",
 		WithUseBloomFilter(true), WithStrategy(StrategyReplace))
 	require.NoError(t, err)
 	require.NoError(t, b.Put([]byte("key"), []byte("value")))
@@ -97,7 +97,7 @@ func TestNoWriteIfBloomPresent(t *testing.T) {
 
 	// load with writeMetadata enabled, no metadata files should be written
 	b2, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), "class",
 		WithUseBloomFilter(true), WithWriteMetadata(true), WithStrategy(StrategyReplace))
 	require.NoError(t, err)
 	require.NoError(t, b2.Shutdown(ctx))
@@ -114,7 +114,7 @@ func TestCnaNoBloomPresent(t *testing.T) {
 	dirName := t.TempDir()
 
 	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), "class",
 		WithUseBloomFilter(false), WithWriteMetadata(true), WithCalcCountNetAdditions(true), WithStrategy(StrategyReplace))
 	require.NoError(t, err)
 	require.NoError(t, b.Put([]byte("key"), []byte("value")))
@@ -134,7 +134,7 @@ func TestSecondaryBloomNoCna(t *testing.T) {
 	dirName := t.TempDir()
 
 	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), "class",
 		WithUseBloomFilter(true),
 		WithWriteMetadata(true),
 		WithCalcCountNetAdditions(false),
@@ -165,7 +165,7 @@ func TestMarkMetadataAsDeleted(t *testing.T) {
 	dirName := t.TempDir()
 
 	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), "class",
 		WithUseBloomFilter(true), WithWriteMetadata(true), WithCalcCountNetAdditions(true), WithSecondaryIndices(2), WithStrategy(StrategyReplace))
 	require.NoError(t, err)
 	require.NoError(t, b.Put([]byte("key"), []byte("value"), WithSecondaryKey(0, []byte("key0")), WithSecondaryKey(1, []byte("key1"))))
@@ -188,7 +188,7 @@ func TestDropImmediately(t *testing.T) {
 	dirName := t.TempDir()
 
 	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), "class",
 		WithUseBloomFilter(true), WithWriteMetadata(true), WithCalcCountNetAdditions(true), WithSecondaryIndices(2), WithStrategy(StrategyReplace))
 	require.NoError(t, err)
 	require.NoError(t, b.Put([]byte("key"), []byte("value"), WithSecondaryKey(0, []byte("key0")), WithSecondaryKey(1, []byte("key1"))))
@@ -213,7 +213,7 @@ func TestCorruptFile(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 
 	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), "class",
 		WithWriteMetadata(true), WithUseBloomFilter(true), WithCalcCountNetAdditions(true), WithSecondaryIndices(uint16(2)), WithStrategy(StrategyReplace))
 	require.NoError(t, err)
 
@@ -229,7 +229,7 @@ func TestCorruptFile(t *testing.T) {
 
 	// broken file is ignored and correct one is recreated
 	b2, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), "class",
 		WithWriteMetadata(true), WithUseBloomFilter(true), WithCalcCountNetAdditions(true), WithSecondaryIndices(uint16(2)), WithStrategy(StrategyReplace))
 	require.NoError(t, err)
 	value, err := b2.Get([]byte("key"))

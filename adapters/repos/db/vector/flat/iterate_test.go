@@ -33,7 +33,7 @@ func createTestIndex(t *testing.T) *flat {
 	store, err := lsmkv.New(dirName, dirName, logger, nil,
 		cyclemanager.NewCallbackGroupNoop(),
 		cyclemanager.NewCallbackGroupNoop(),
-		cyclemanager.NewCallbackGroupNoop())
+		cyclemanager.NewCallbackGroupNoop(), "class")
 	require.NoError(t, err)
 
 	index, err := New(Config{

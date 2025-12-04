@@ -111,7 +111,7 @@ func (b *BM25Searcher) BM25F(ctx context.Context, filterDocIds helpers.AllowList
 	if useWand {
 		objs, scores, err = b.wand(ctx, filterDocIds, class, keywordRanking, limit, additional)
 	} else {
-		objs, scores, useWand, err = b.wandBlock(ctx, filterDocIds, class, keywordRanking, limit, additional)
+		objs, scores, useWand, err = b.wandBlock(ctx, className, filterDocIds, class, keywordRanking, limit, additional)
 	}
 
 	if useWand {
@@ -355,7 +355,7 @@ func (b *BM25Searcher) wand(
 	}
 
 	start = time.Now()
-	objects, scores, err := b.getTopKObjects(topKHeap, params.AdditionalExplanations, allQueryTerms, additional)
+	objects, scores, err := b.getTopKObjects(class.Class, topKHeap, params.AdditionalExplanations, allQueryTerms, additional)
 
 	fetchTime := time.Since(start)
 	helpers.AnnotateSlowQueryLog(ctx, "kwd_5_objects_time", fetchTime)
@@ -388,7 +388,7 @@ WordLoop:
 	}
 }
 
-func (b *BM25Searcher) getTopKObjects(topKHeap *priorityqueue.Queue[[]*terms.DocPointerWithScore], additionalExplanations bool,
+func (b *BM25Searcher) getTopKObjects(className string, topKHeap *priorityqueue.Queue[[]*terms.DocPointerWithScore], additionalExplanations bool,
 	allRequests []string, additional additional.Properties,
 ) ([]*storobj.Object, []float32, error) {
 	objectsBucket := b.store.Bucket(helpers.ObjectsBucketLSM)
@@ -402,7 +402,7 @@ func (b *BM25Searcher) getTopKObjects(topKHeap *priorityqueue.Queue[[]*terms.Doc
 		explanations = append(explanations, res.Value)
 	}
 
-	objs, err := storobj.ObjectsByDocID(objectsBucket, ids, additional, nil, b.logger)
+	objs, err := storobj.ObjectsByDocID(objectsBucket, ids, additional, nil, b.logger, className)
 	if err != nil {
 		return objs, nil, errors.Errorf("objects loading")
 	}

@@ -292,7 +292,7 @@ func ScanAllLSM(ctx context.Context, store *lsmkv.Store, scan docid.ObjectScanFn
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
-			elem, err := storobj.FromBinaryOptional(v, additional.Properties{}, properties)
+			elem, err := storobj.FromDiskBinaryOptional(v, additional.Properties{}, properties, store.GetClassName())
 			if err != nil {
 				return errors.Wrapf(err, "unmarshal data object")
 			}

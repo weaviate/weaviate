@@ -98,7 +98,7 @@ func newTestBucket(dataPath string, checkSumEnabled bool) (*lsmkv.Bucket, error)
 	return lsmkv.NewBucketCreator().
 		NewBucket(context.Background(), dataPath, "", log, nil,
 			cyclemanager.NewCallbackGroupNoop(),
-			cyclemanager.NewCallbackGroupNoop(),
+			cyclemanager.NewCallbackGroupNoop(), "class",
 			lsmkv.WithSegmentsChecksumValidationEnabled(checkSumEnabled),
 			lsmkv.WithCalcCountNetAdditions(true),
 			lsmkv.WithStrategy(lsmkv.StrategyReplace),

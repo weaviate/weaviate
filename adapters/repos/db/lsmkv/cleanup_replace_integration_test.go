@@ -28,7 +28,7 @@ func cleanupReplaceStrategy(ctx context.Context, t *testing.T, opts []BucketOpti
 	dir := t.TempDir()
 
 	bucket, err := NewBucketCreator().NewBucket(ctx, dir, dir, nullLogger(), nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), "class", opts...)
 	require.Nil(t, err)
 	defer bucket.Shutdown(context.Background())
 
@@ -400,7 +400,7 @@ func cleanupReplaceStrategy_WithSecondaryKeys(ctx context.Context, t *testing.T,
 	dir := t.TempDir()
 
 	bucket, err := NewBucketCreator().NewBucket(ctx, dir, dir, nullLogger(), nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), "class", opts...)
 	require.Nil(t, err)
 	defer bucket.Shutdown(context.Background())
 

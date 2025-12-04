@@ -76,7 +76,7 @@ func (a *Aggregator) objectVectorSearch(ctx context.Context, searchVector models
 	}
 
 	bucket := a.store.Bucket(helpers.ObjectsBucketLSM)
-	objs, err := storobj.ObjectsByDocID(bucket, ids, additional.Properties{}, nil, a.logger)
+	objs, err := storobj.ObjectsByDocID(bucket, ids, additional.Properties{}, nil, a.logger, string(a.params.ClassName))
 	if err != nil {
 		return nil, nil, fmt.Errorf("get objects by doc id: %w", err)
 	}

@@ -46,7 +46,7 @@ func BenchmarkCompaction(b *testing.B) {
 					tmpDir := b.TempDir()
 
 					bu, err := NewBucketCreator().NewBucket(ctx, tmpDir, "", logger, nil,
-						cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+						cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), "class", opts...)
 					require.NoError(b, err)
 
 					for j := 0; j < valuesPerSegment; j++ {

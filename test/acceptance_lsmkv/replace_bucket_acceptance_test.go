@@ -53,7 +53,7 @@ func TestLSMKV_ReplaceBucket(t *testing.T) {
 	compactionCycle.Start()
 
 	bucket, err := c.NewBucket(ctx, filepath.Join(dir, "my-bucket"), "", logger, nil,
-		compactionCallbacks, flushCallbacks,
+		compactionCallbacks, flushCallbacks, "class",
 		lsmkv.WithPread(true),
 		lsmkv.WithDynamicMemtableSizing(1, 2, 1, 4),
 		lsmkv.WithStrategy(lsmkv.StrategyReplace),

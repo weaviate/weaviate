@@ -134,7 +134,7 @@ func TestCompactionReplaceStrategyStraggler(t *testing.T) {
 
 	t.Run("init bucket", func(t *testing.T) {
 		b, err := NewBucketCreator().NewBucket(context.TODO(), dirName, "", nullLogger2(), nil,
-			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), "class", opts...)
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test

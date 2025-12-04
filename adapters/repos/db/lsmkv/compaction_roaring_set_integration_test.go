@@ -40,7 +40,7 @@ func compactionRoaringSetStrategy_Random(ctx context.Context, t *testing.T, opts
 	control := controlFromInstructions(instr, maxID)
 
 	b, err := NewBucketCreator().NewBucket(ctx, t.TempDir(), "", nullLogger(), nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), "class", opts...)
 	require.Nil(t, err)
 
 	defer b.Shutdown(testCtx())
@@ -338,7 +338,7 @@ func compactionRoaringSetStrategy(ctx context.Context, t *testing.T, opts []Buck
 
 	t.Run("init bucket", func(t *testing.T) {
 		b, err := NewBucketCreator().NewBucket(ctx, dirName, dirName, nullLogger(), nil,
-			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), "class", opts...)
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -466,7 +466,7 @@ func compactionRoaringSetStrategy_RemoveUnnecessary(ctx context.Context, t *test
 
 	t.Run("init bucket", func(t *testing.T) {
 		b, err := NewBucketCreator().NewBucket(ctx, dirName, "", nullLogger(), nil,
-			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), "class", opts...)
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -560,7 +560,7 @@ func compactionRoaringSetStrategy_FrequentPutDeleteOperations(ctx context.Contex
 
 			t.Run("init bucket", func(t *testing.T) {
 				b, err := NewBucketCreator().NewBucket(ctx, dirName, "", nullLogger(), nil,
-					cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+					cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), "class", opts...)
 				require.Nil(t, err)
 
 				// so big it effectively never triggers as part of this test

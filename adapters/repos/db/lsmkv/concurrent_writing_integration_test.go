@@ -44,7 +44,7 @@ func TestConcurrentWriting_Replace(t *testing.T) {
 	values := make([][]byte, amount)
 
 	bucket, err := NewBucketCreator().NewBucket(testCtx(), dirName, "", nullLogger(), nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), "class",
 		WithStrategy(StrategyReplace),
 		WithMemtableThreshold(10000))
 	require.Nil(t, err)
@@ -141,7 +141,7 @@ func TestConcurrentWriting_Set(t *testing.T) {
 		flushGroup.CycleCallback,
 		nullLogger()).Start()
 	bucket, err := NewBucketCreator().NewBucket(testCtx(), dirName, "", nullLogger(), nil,
-		cyclemanager.NewCallbackGroupNoop(), flushGroup,
+		cyclemanager.NewCallbackGroupNoop(), flushGroup, "class",
 		WithStrategy(StrategySetCollection),
 		WithMemtableThreshold(10000))
 	require.Nil(t, err)
@@ -235,7 +235,7 @@ func TestConcurrentWriting_RoaringSet(t *testing.T) {
 		flushGroup.CycleCallback,
 		logger).Start()
 	bucket, err := NewBucketCreator().NewBucket(testCtx(), dirName, "", nullLogger(), nil,
-		cyclemanager.NewCallbackGroupNoop(), flushGroup,
+		cyclemanager.NewCallbackGroupNoop(), flushGroup, "class",
 		WithStrategy(StrategyRoaringSet),
 		WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()),
 		WithMemtableThreshold(1000))
@@ -324,7 +324,7 @@ func TestConcurrentWriting_RoaringSetRange(t *testing.T) {
 		flushGroup.CycleCallback,
 		nullLogger()).Start()
 	bucket, err := NewBucketCreator().NewBucket(testCtx(), dirName, "", nullLogger(), nil,
-		cyclemanager.NewCallbackGroupNoop(), flushGroup,
+		cyclemanager.NewCallbackGroupNoop(), flushGroup, "class",
 		WithStrategy(StrategyRoaringSetRange),
 		WithMemtableThreshold(1000),
 		WithUseBloomFilter(false))
@@ -406,7 +406,7 @@ func TestConcurrentWriting_Map(t *testing.T) {
 	values := make([][]MapPair, amount)
 
 	bucket, err := NewBucketCreator().NewBucket(testCtx(), dirName, "", nullLogger(), nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), "class",
 		WithStrategy(StrategyMapCollection),
 		WithMemtableThreshold(5000))
 	require.Nil(t, err)

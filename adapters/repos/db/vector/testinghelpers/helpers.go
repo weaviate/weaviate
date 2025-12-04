@@ -299,7 +299,7 @@ func NewDummyStore(t testing.TB) *lsmkv.Store {
 	store, err := lsmkv.New(storeDir, storeDir, logger, nil,
 		cyclemanager.NewCallbackGroupNoop(),
 		cyclemanager.NewCallbackGroupNoop(),
-		cyclemanager.NewCallbackGroupNoop())
+		cyclemanager.NewCallbackGroupNoop(), "class")
 	require.Nil(t, err)
 	return store
 }
@@ -309,7 +309,7 @@ func NewDummyStoreFromFolder(storeDir string, t testing.TB) *lsmkv.Store {
 	store, err := lsmkv.New(storeDir, storeDir, logger, nil,
 		cyclemanager.NewCallbackGroupNoop(),
 		cyclemanager.NewCallbackGroupNoop(),
-		cyclemanager.NewCallbackGroupNoop())
+		cyclemanager.NewCallbackGroupNoop(), "class")
 	require.Nil(t, err)
 	return store
 }

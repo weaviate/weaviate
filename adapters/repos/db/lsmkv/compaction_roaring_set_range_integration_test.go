@@ -40,7 +40,7 @@ func compactionRoaringSetRangeStrategy_Random(ctx context.Context, t *testing.T,
 	control := controlFromRangeInstructions(instr, maxKey)
 
 	b, err := NewBucketCreator().NewBucket(ctx, t.TempDir(), "", nullLogger(), nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), "class", opts...)
 	require.Nil(t, err)
 
 	defer b.Shutdown(testCtx())
@@ -324,7 +324,7 @@ func compactionRoaringSetRangeStrategy(ctx context.Context, t *testing.T, opts [
 
 	t.Run("init bucket", func(t *testing.T) {
 		b, err := NewBucketCreator().NewBucket(ctx, dirName, dirName, nullLogger(), nil,
-			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), "class", opts...)
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -460,7 +460,7 @@ func compactionRoaringSetRangeStrategy_RemoveUnnecessary(ctx context.Context, t 
 
 	t.Run("init bucket", func(t *testing.T) {
 		b, err := NewBucketCreator().NewBucket(ctx, dirName, "", nullLogger(), nil,
-			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), "class", opts...)
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -530,7 +530,7 @@ func compactionRoaringSetRangeStrategy_FrequentPutDeleteOperations(ctx context.C
 
 			t.Run("init bucket", func(t *testing.T) {
 				b, err := NewBucketCreator().NewBucket(ctx, dirName, "", nullLogger(), nil,
-					cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+					cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), "class", opts...)
 				require.Nil(t, err)
 
 				// so big it effectively never triggers as part of this test
@@ -622,7 +622,7 @@ func compactionRoaringSetRangeStrategy_FrequentPutDeleteOperations(ctx context.C
 // Data in this test come from compactionRoaringSetRangeStrategy_Random test for which test failed.
 func compactionRoaringSetRangeStrategy_BugfixOverwrittenBuffer(ctx context.Context, t *testing.T, opts []BucketOption) {
 	b, err := NewBucketCreator().NewBucket(ctx, t.TempDir(), "", nullLogger(), nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), "class", opts...)
 	require.Nil(t, err)
 	defer b.Shutdown(testCtx())
 	// so big it effectively never triggers as part of this test

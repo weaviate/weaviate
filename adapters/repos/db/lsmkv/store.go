@@ -39,8 +39,9 @@ var ErrAlreadyClosed = errors.New("store already closed")
 // Store groups multiple buckets together, it "owns" one folder on the file
 // system
 type Store struct {
-	dir     string
-	rootDir string
+	dir       string
+	rootDir   string
+	className string
 
 	// Prevent concurrent manipulations to the bucketsByNameMap, most notably
 	// when initializing buckets in parallel
@@ -65,7 +66,7 @@ type Store struct {
 // there.
 func New(dir, rootDir string, logger logrus.FieldLogger, metrics *Metrics,
 	shardCompactionCallbacks, shardCompactionAuxCallbacks,
-	shardFlushCallbacks cyclemanager.CycleCallbackGroup,
+	shardFlushCallbacks cyclemanager.CycleCallbackGroup, className string,
 ) (*Store, error) {
 	s := &Store{
 		dir:           dir,
@@ -75,10 +76,15 @@ func New(dir, rootDir string, logger logrus.FieldLogger, metrics *Metrics,
 		bcreator:      NewBucketCreator(),
 		logger:        logger,
 		metrics:       metrics,
+		className:     className,
 	}
 	s.initCycleCallbacks(shardCompactionCallbacks, shardCompactionAuxCallbacks, shardFlushCallbacks)
 
 	return s, s.init()
+}
+
+func (s *Store) GetClassName() string {
+	return s.className
 }
 
 func (s *Store) Bucket(name string) *Bucket {
@@ -187,7 +193,7 @@ func (s *Store) CreateOrLoadBucket(ctx context.Context, bucketName string,
 	// bucket can be concurrently loaded with another buckets but
 	// the same bucket will be loaded only once
 	b, err := s.bcreator.NewBucket(ctx, s.bucketDir(bucketName), s.rootDir, s.logger, s.metrics,
-		compactionCallbacks, s.cycleCallbacks.flushCallbacks, opts...)
+		compactionCallbacks, s.cycleCallbacks.flushCallbacks, s.className, opts...)
 	if err != nil {
 		return err
 	}
@@ -444,7 +450,7 @@ func (s *Store) CreateBucket(ctx context.Context, bucketName string,
 	}
 
 	b, err := s.bcreator.NewBucket(ctx, bucketDir, s.rootDir, s.logger, s.metrics,
-		compactionCallbacks, s.cycleCallbacks.flushCallbacks, opts...)
+		compactionCallbacks, s.cycleCallbacks.flushCallbacks, s.className, opts...)
 	if err != nil {
 		return err
 	}

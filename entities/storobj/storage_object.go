@@ -107,16 +107,26 @@ func FromObject(object *models.Object, vector []float32, vectors map[string][]fl
 	}
 }
 
-func FromBinary(data []byte) (*Object, error) {
+func FromDiskBinary(data []byte, className string) (*Object, error) {
 	ko := &Object{}
-	if err := ko.UnmarshalBinary(data); err != nil {
+	if err := ko.UnmarshalBinaryDisk(data); err != nil {
+		return nil, err
+	}
+	ko.Object.Class = className
+
+	return ko, nil
+}
+
+func FromNetworkBinary(data []byte) (*Object, error) {
+	ko := &Object{}
+	if err := ko.UnmarshalBinaryNetwork(data); err != nil {
 		return nil, err
 	}
 
 	return ko, nil
 }
 
-func FromBinaryUUIDOnly(data []byte) (*Object, error) {
+func FromDiskBinaryUUIDOnly(data []byte, className string) (*Object, error) {
 	ko := &Object{}
 
 	rw := byteops.NewReadWriter(data)
@@ -140,15 +150,13 @@ func FromBinaryUUIDOnly(data []byte) (*Object, error) {
 
 	vecLen := rw.ReadUint16()
 	rw.MoveBufferPositionForward(uint64(vecLen * 4))
-	classNameLen := rw.ReadUint16()
-
-	ko.Object.Class = string(rw.ReadBytesFromBuffer(uint64(classNameLen)))
+	ko.Object.Class = className
 
 	return ko, nil
 }
 
-func FromBinaryOptional(data []byte,
-	addProp additional.Properties, properties *PropertyExtraction,
+func FromDiskBinaryOptional(data []byte,
+	addProp additional.Properties, properties *PropertyExtraction, className string,
 ) (*Object, error) {
 	ko := &Object{}
 
@@ -184,7 +192,7 @@ func FromBinaryOptional(data []byte,
 	ko.Vector = ko.Object.Vector
 
 	classNameLen := rw.ReadUint16()
-	className := string(rw.ReadBytesFromBuffer(uint64(classNameLen)))
+	rw.MoveBufferPositionForward(uint64(classNameLen))
 
 	propLength := rw.ReadUint32()
 	var props []byte
@@ -281,7 +289,6 @@ func FromBinaryOptional(data []byte,
 		ko.Object.ID = uuidParsed
 		ko.Object.CreationTimeUnix = createTime
 		ko.Object.LastUpdateTimeUnix = updateTime
-		ko.Object.Class = className
 	}
 
 	return ko, nil
@@ -310,17 +317,17 @@ type bucket interface {
 }
 
 func ObjectsByDocID(bucket bucket, ids []uint64,
-	additional additional.Properties, properties []string, logger logrus.FieldLogger,
+	additional additional.Properties, properties []string, logger logrus.FieldLogger, className string,
 ) ([]*Object, error) {
 	if len(ids) == 1 { // no need to try to run concurrently if there is just one result anyway
-		return objectsByDocIDSequential(bucket, ids, additional, properties)
+		return objectsByDocIDSequential(bucket, ids, additional, properties, className)
 	}
 
-	return objectsByDocIDParallel(bucket, ids, additional, properties, logger)
+	return objectsByDocIDParallel(bucket, ids, additional, properties, logger, className)
 }
 
 func objectsByDocIDParallel(bucket bucket, ids []uint64,
-	addProp additional.Properties, properties []string, logger logrus.FieldLogger,
+	addProp additional.Properties, properties []string, logger logrus.FieldLogger, className string,
 ) ([]*Object, error) {
 	parallel := 2 * runtime.GOMAXPROCS(0)
 
@@ -346,7 +353,7 @@ func objectsByDocIDParallel(bucket bucket, ids []uint64,
 		}
 
 		eg.Go(func() error {
-			objs, err := objectsByDocIDSequential(bucket, ids[start:end], addProp, properties)
+			objs, err := objectsByDocIDSequential(bucket, ids[start:end], addProp, properties, className)
 			if err != nil {
 				return err
 			}
@@ -372,7 +379,7 @@ func objectsByDocIDParallel(bucket bucket, ids []uint64,
 }
 
 func objectsByDocIDSequential(bucket bucket, ids []uint64,
-	additional additional.Properties, properties []string,
+	additional additional.Properties, properties []string, className string,
 ) ([]*Object, error) {
 	if bucket == nil {
 		return nil, fmt.Errorf("objects bucket not found")
@@ -421,7 +428,7 @@ func objectsByDocIDSequential(bucket bucket, ids []uint64,
 			continue
 		}
 
-		unmarshalled, err := FromBinaryOptional(res, additional, props)
+		unmarshalled, err := FromDiskBinaryOptional(res, additional, props, className)
 		if err != nil {
 			return nil, errors.Wrapf(err, "unmarshal data object at position %d", i)
 		}
@@ -526,7 +533,7 @@ func (ko *Object) VectorWeights() models.VectorWeights {
 	return ko.Object.VectorWeights
 }
 
-func (ko *Object) SearchResult(additional additional.Properties, tenant string) *search.Result {
+func (ko *Object) SearchResult(additional additional.Properties, className, tenant string) *search.Result {
 	propertiesMap, ok := ko.PropertiesWithAdditional(additional).(map[string]interface{})
 	if !ok || propertiesMap == nil {
 		propertiesMap = map[string]interface{}{}
@@ -555,7 +562,7 @@ func (ko *Object) SearchResult(additional additional.Properties, tenant string) 
 	return &search.Result{
 		ID:        ko.ID(),
 		DocID:     &ko.DocID,
-		ClassName: ko.Class().String(),
+		ClassName: className,
 		Schema:    ko.Properties(),
 		Vector:    ko.Vector,
 		Vectors:   ko.asVectors(ko.Vectors, ko.MultiVectors),
@@ -590,21 +597,21 @@ func (ko *Object) GetVectors() models.Vectors {
 	return ko.asVectors(ko.Vectors, ko.MultiVectors)
 }
 
-func (ko *Object) SearchResultWithDist(addl additional.Properties, dist float32) search.Result {
-	res := ko.SearchResult(addl, "")
+func (ko *Object) SearchResultWithDist(addl additional.Properties, dist float32, className string) search.Result {
+	res := ko.SearchResult(addl, className, "")
 	res.Dist = dist
 	res.Certainty = float32(additional.DistToCertainty(float64(dist)))
 	return *res
 }
 
-func (ko *Object) SearchResultWithScore(addl additional.Properties, score float32) search.Result {
-	res := ko.SearchResult(addl, "")
+func (ko *Object) SearchResultWithScore(addl additional.Properties, score float32, className string) search.Result {
+	res := ko.SearchResult(addl, className, "")
 	res.Score = score
 	return *res
 }
 
-func (ko *Object) SearchResultWithScoreAndTenant(addl additional.Properties, score float32, tenant string) search.Result {
-	res := ko.SearchResult(addl, tenant)
+func (ko *Object) SearchResultWithScoreAndTenant(addl additional.Properties, score float32, className, tenant string) search.Result {
+	res := ko.SearchResult(addl, className, tenant)
 	res.Score = score
 	return *res
 }
@@ -641,17 +648,17 @@ func (ko *Object) IterateThroughVectorDimensions(f func(targetVector string, dim
 	return nil
 }
 
-func SearchResults(in []*Object, additional additional.Properties, tenant string) search.Results {
+func SearchResults(in []*Object, additional additional.Properties, className, tenant string) search.Results {
 	out := make(search.Results, len(in))
 
 	for i, elem := range in {
-		out[i] = *(elem.SearchResult(additional, tenant))
+		out[i] = *(elem.SearchResult(additional, className, tenant))
 	}
 
 	return out
 }
 
-func SearchResultsWithScore(in []*Object, scores []float32, additional additional.Properties, tenant string) search.Results {
+func SearchResultsWithScore(in []*Object, scores []float32, additional additional.Properties, className, tenant string) search.Results {
 	out := make(search.Results, len(in))
 
 	for i, elem := range in {
@@ -659,19 +666,19 @@ func SearchResultsWithScore(in []*Object, scores []float32, additional additiona
 		if len(scores) > i {
 			score = scores[i]
 		}
-		out[i] = elem.SearchResultWithScoreAndTenant(additional, score, tenant)
+		out[i] = elem.SearchResultWithScoreAndTenant(additional, score, className, tenant)
 	}
 
 	return out
 }
 
 func SearchResultsWithDists(in []*Object, addl additional.Properties,
-	dists []float32,
+	dists []float32, className string,
 ) search.Results {
 	out := make(search.Results, len(in))
 
 	for i, elem := range in {
-		out[i] = elem.SearchResultWithDist(addl, dists[i])
+		out[i] = elem.SearchResultWithDist(addl, dists[i], className)
 	}
 
 	return out
@@ -1112,9 +1119,82 @@ func parseValues(dt jsonparser.ValueType, value []byte) (interface{}, error) {
 	}
 }
 
-// UnmarshalBinary is the versioned way to unmarshal a kind object from binary,
+// UnmarshalBinaryNetwork is the versioned way to unmarshal a kind object from binary,
 // see MarshalBinary for the exact contents of each version
-func (ko *Object) UnmarshalBinary(data []byte) error {
+func (ko *Object) UnmarshalBinaryDisk(data []byte) error {
+	version := data[0]
+	if version != 1 {
+		return errors.Errorf("unsupported binary marshaller version %d", version)
+	}
+	ko.MarshallerVersion = version
+
+	rw := byteops.NewReadWriterWithOps(data, byteops.WithPosition(1))
+	ko.DocID = rw.ReadUint64()
+	rw.MoveBufferPositionForward(1) // kind-byte
+
+	uuidParsed, err := uuid.FromBytes(data[rw.Position : rw.Position+16])
+	if err != nil {
+		return err
+	}
+	rw.MoveBufferPositionForward(16)
+
+	createTime := int64(rw.ReadUint64())
+	updateTime := int64(rw.ReadUint64())
+
+	vectorLength := rw.ReadUint16()
+	ko.VectorLen = int(vectorLength)
+	ko.Vector = make([]float32, vectorLength)
+	for j := 0; j < int(vectorLength); j++ {
+		ko.Vector[j] = math.Float32frombits(rw.ReadUint32())
+	}
+
+	classNameLength := uint64(rw.ReadUint16())
+	rw.MoveBufferPositionForward(classNameLength)
+
+	schemaLength := uint64(rw.ReadUint32())
+	schema, err := rw.CopyBytesFromBuffer(schemaLength, nil)
+	if err != nil {
+		return errors.Wrap(err, "Could not copy schema")
+	}
+
+	metaLength := uint64(rw.ReadUint32())
+	meta, err := rw.CopyBytesFromBuffer(metaLength, nil)
+	if err != nil {
+		return errors.Wrap(err, "Could not copy meta")
+	}
+
+	vectorWeightsLength := uint64(rw.ReadUint32())
+	vectorWeights, err := rw.CopyBytesFromBuffer(vectorWeightsLength, nil)
+	if err != nil {
+		return errors.Wrap(err, "Could not copy vectorWeights")
+	}
+
+	vectors, err := unmarshalTargetVectors(&rw)
+	if err != nil {
+		return err
+	}
+	ko.Vectors = vectors
+
+	multiVectors, err := unmarshalMultiVectors(&rw, nil)
+	if err != nil {
+		return err
+	}
+	ko.MultiVectors = multiVectors
+
+	return ko.parseObject(
+		strfmt.UUID(uuidParsed.String()),
+		createTime,
+		updateTime,
+		"", // className not needed when reading from disk, set above
+		schema,
+		meta,
+		vectorWeights, nil, 0,
+	)
+}
+
+// UnmarshalBinaryNetwork is the versioned way to unmarshal a kind object from binary,
+// see MarshalBinary for the exact contents of each version
+func (ko *Object) UnmarshalBinaryNetwork(data []byte) error {
 	version := data[0]
 	if version != 1 {
 		return errors.Errorf("unsupported binary marshaller version %d", version)
@@ -1144,7 +1224,7 @@ func (ko *Object) UnmarshalBinary(data []byte) error {
 	classNameLength := uint64(rw.ReadUint16())
 	className, err := rw.CopyBytesFromBuffer(classNameLength, nil)
 	if err != nil {
-		return errors.Wrap(err, "Could not copy class name")
+		return errors.Wrap(err, "Could not copy classname")
 	}
 
 	schemaLength := uint64(rw.ReadUint32())
@@ -1493,10 +1573,10 @@ func (ko *Object) parseObject(uuid strfmt.UUID, create, update int64, className 
 	}
 
 	ko.Object = models.Object{
-		Class:              className,
 		CreationTimeUnix:   create,
 		LastUpdateTimeUnix: update,
 		ID:                 uuid,
+		Class:              className,
 		Properties:         returnProps,
 		VectorWeights:      vectorWeights,
 		Additional:         additionalProperties,

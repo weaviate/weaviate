@@ -93,7 +93,7 @@ func bucket_WasDeleted_KeepTombstones(ctx context.Context, t *testing.T, opts []
 	logger, _ := test.NewNullLogger()
 
 	b, err := NewBucketCreator().NewBucket(ctx, tmpDir, "", logger, nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), "class", opts...)
 	require.Nil(t, err)
 	t.Cleanup(func() {
 		require.Nil(t, b.Shutdown(context.Background()))
@@ -145,7 +145,7 @@ func bucket_WasDeleted_CleanupTombstones(ctx context.Context, t *testing.T, opts
 	logger, _ := test.NewNullLogger()
 
 	b, err := NewBucketCreator().NewBucket(ctx, tmpDir, "", logger, nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), "class", opts...)
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		require.NoError(t, b.Shutdown(context.Background()))
@@ -190,7 +190,7 @@ func bucketReadsIntoMemory(ctx context.Context, t *testing.T, opts []BucketOptio
 	logger, _ := test.NewNullLogger()
 
 	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), "class", opts...)
 	require.Nil(t, err)
 
 	require.Nil(t, b.Put([]byte("hello"), []byte("world"),
@@ -208,7 +208,7 @@ func bucketReadsIntoMemory(ctx context.Context, t *testing.T, opts []BucketOptio
 	b.Shutdown(ctx)
 
 	b2, err := NewBucketCreator().NewBucket(ctx, b.GetDir(), "", logger, nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), "class", opts...)
 	require.Nil(t, err)
 	defer b2.Shutdown(ctx)
 
@@ -292,7 +292,7 @@ func TestBucketGetBySecondary(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 
 	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), "class",
 		WithStrategy(StrategyReplace), WithSecondaryIndices(1))
 	require.Nil(t, err)
 
@@ -333,7 +333,7 @@ func TestBucketInfoInFileName(t *testing.T) {
 		t.Run(fmt.Sprintf("%t", segmentInfo), func(t *testing.T) {
 			dirName := t.TempDir()
 			b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
-				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithWriteSegmentInfoIntoFileName(segmentInfo), WithStrategy(StrategyReplace),
+				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), "class", WithWriteSegmentInfoIntoFileName(segmentInfo), WithStrategy(StrategyReplace),
 			)
 			require.NoError(t, err)
 			require.NoError(t, b.Put([]byte("hello1"), []byte("world1"), WithSecondaryKey(0, []byte("bonjour1"))))
@@ -364,7 +364,7 @@ func TestBucketCompactionFileName(t *testing.T) {
 		t.Run(fmt.Sprintf("firstSegment: %t", tt.firstSegment), func(t *testing.T) {
 			dirName := t.TempDir()
 			b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
-				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithWriteSegmentInfoIntoFileName(tt.firstSegment), WithStrategy(StrategyReplace),
+				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), "class", WithWriteSegmentInfoIntoFileName(tt.firstSegment), WithStrategy(StrategyReplace),
 			)
 			require.NoError(t, err)
 			require.NoError(t, b.Put([]byte("hello1"), []byte("world1"), WithSecondaryKey(0, []byte("bonjour1"))))
@@ -375,7 +375,7 @@ func TestBucketCompactionFileName(t *testing.T) {
 			oldNames := verifyFileInfo(t, dirName, nil, tt.firstSegment, 0)
 
 			b, err = NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
-				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithWriteSegmentInfoIntoFileName(tt.secondSegment), WithStrategy(StrategyReplace),
+				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), "class", WithWriteSegmentInfoIntoFileName(tt.secondSegment), WithStrategy(StrategyReplace),
 			)
 			require.NoError(t, err)
 			require.NoError(t, b.Put([]byte("hello2"), []byte("world2"), WithSecondaryKey(0, []byte("bonjour2"))))
@@ -387,7 +387,7 @@ func TestBucketCompactionFileName(t *testing.T) {
 			oldNames = verifyFileInfo(t, dirName, oldNames, tt.secondSegment, 0)
 
 			b, err = NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
-				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithWriteSegmentInfoIntoFileName(tt.compaction), WithStrategy(StrategyReplace),
+				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), "class", WithWriteSegmentInfoIntoFileName(tt.compaction), WithStrategy(StrategyReplace),
 			)
 			require.NoError(t, err)
 			compact, err := b.disk.compactOnce()
@@ -440,7 +440,7 @@ func TestNetCountComputationAtInit(t *testing.T) {
 	ctx := context.Background()
 	dirName := t.TempDir()
 	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithCalcCountNetAdditions(true), WithStrategy(StrategyReplace), WithMinWalThreshold(0),
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), "class", WithCalcCountNetAdditions(true), WithStrategy(StrategyReplace), WithMinWalThreshold(0),
 	)
 	require.NoError(t, err)
 
@@ -476,7 +476,7 @@ func TestNetCountComputationAtInit(t *testing.T) {
 	require.Equal(t, 4, fileTypes[".cna"]) // cna file for new segment not yet computed
 
 	b, err = NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithCalcCountNetAdditions(true), WithStrategy(StrategyReplace), WithMinWalThreshold(0),
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), "class", WithCalcCountNetAdditions(true), WithStrategy(StrategyReplace), WithMinWalThreshold(0),
 	)
 	require.NoError(t, err)
 

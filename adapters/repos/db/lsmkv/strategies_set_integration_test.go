@@ -56,7 +56,7 @@ func collectionInsertAndSetAdd(ctx context.Context, t *testing.T, opts []BucketO
 
 	t.Run("memtable-only", func(t *testing.T) {
 		b, err := NewBucketCreator().NewBucket(ctx, dirName, "", nullLogger(), nil,
-			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), "class", opts...)
 		require.Nil(t, err)
 
 		defer b.Shutdown(ctx)
@@ -117,7 +117,7 @@ func collectionInsertAndSetAdd(ctx context.Context, t *testing.T, opts []BucketO
 
 	t.Run("with a single flush between updates", func(t *testing.T) {
 		b, err := NewBucketCreator().NewBucket(ctx, dirName, "", nullLogger(), nil,
-			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), "class", opts...)
 		require.Nil(t, err)
 
 		defer b.Shutdown(ctx)
@@ -182,7 +182,7 @@ func collectionInsertAndSetAdd(ctx context.Context, t *testing.T, opts []BucketO
 
 	t.Run("with flushes after initial and update", func(t *testing.T) {
 		b, err := NewBucketCreator().NewBucket(ctx, dirName, "", nullLogger(), nil,
-			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), "class", opts...)
 		require.Nil(t, err)
 
 		defer b.Shutdown(ctx)
@@ -249,7 +249,7 @@ func collectionInsertAndSetAdd(ctx context.Context, t *testing.T, opts []BucketO
 
 	t.Run("update in memtable, then do an orderly shutdown, and re-init", func(t *testing.T) {
 		b, err := NewBucketCreator().NewBucket(ctx, dirName, "", nullLogger(), nil,
-			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), "class", opts...)
 		require.Nil(t, err)
 
 		defer b.Shutdown(ctx)
@@ -313,7 +313,7 @@ func collectionInsertAndSetAdd(ctx context.Context, t *testing.T, opts []BucketO
 
 		t.Run("init another bucket on the same files", func(t *testing.T) {
 			b2, err := NewBucketCreator().NewBucket(ctx, dirName, "", nullLogger(), nil,
-				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), "class", opts...)
 			require.Nil(t, err)
 
 			orig1 := [][]byte{[]byte("value 1.1"), []byte("value 1.2")}
@@ -340,7 +340,7 @@ func collectionInsertAndSetAddInsertAndDelete(ctx context.Context, t *testing.T,
 
 	t.Run("memtable-only", func(t *testing.T) {
 		b, err := NewBucketCreator().NewBucket(ctx, dirName, "", nullLogger(), nil,
-			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), "class", opts...)
 		require.Nil(t, err)
 
 		defer b.Shutdown(ctx)
@@ -438,7 +438,7 @@ func collectionInsertAndSetAddInsertAndDelete(ctx context.Context, t *testing.T,
 
 	t.Run("with a single flush between updates", func(t *testing.T) {
 		b, err := NewBucketCreator().NewBucket(ctx, dirName, "", nullLogger(), nil,
-			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), "class", opts...)
 		require.Nil(t, err)
 
 		defer b.Shutdown(ctx)
@@ -540,7 +540,7 @@ func collectionInsertAndSetAddInsertAndDelete(ctx context.Context, t *testing.T,
 
 	t.Run("with flushes in between and after the update", func(t *testing.T) {
 		b, err := NewBucketCreator().NewBucket(ctx, dirName, "", nullLogger(), nil,
-			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), "class", opts...)
 		require.Nil(t, err)
 
 		defer b.Shutdown(ctx)
@@ -651,7 +651,7 @@ func collectionInsertAndSetAddInsertAndDelete(ctx context.Context, t *testing.T,
 	t.Run("update in memtable, make orderly shutdown, then create a new bucket from disk",
 		func(t *testing.T) {
 			b, err := NewBucketCreator().NewBucket(ctx, dirName, "", nullLogger(), nil,
-				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), "class", opts...)
 			require.Nil(t, err)
 
 			defer b.Shutdown(ctx)
@@ -702,7 +702,7 @@ func collectionInsertAndSetAddInsertAndDelete(ctx context.Context, t *testing.T,
 
 			t.Run("init another bucket on the same files", func(t *testing.T) {
 				b2, err := NewBucketCreator().NewBucket(ctx, dirName, "", nullLogger(), nil,
-					cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+					cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), "class", opts...)
 				require.Nil(t, err)
 
 				expected1 := [][]byte{[]byte("value 1.1"), []byte("value 1.2")} // unchanged
@@ -728,7 +728,7 @@ func collectionCursors(ctx context.Context, t *testing.T, opts []BucketOption) {
 		dirName := t.TempDir()
 
 		b, err := NewBucketCreator().NewBucket(ctx, dirName, "", nullLogger(), nil,
-			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), "class", opts...)
 		require.Nil(t, err)
 
 		defer b.Shutdown(ctx)
@@ -857,7 +857,7 @@ func collectionCursors(ctx context.Context, t *testing.T, opts []BucketOption) {
 		dirName := t.TempDir()
 
 		b, err := NewBucketCreator().NewBucket(ctx, dirName, "", nullLogger(), nil,
-			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), "class", opts...)
 		require.Nil(t, err)
 
 		defer b.Shutdown(ctx)
