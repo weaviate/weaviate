@@ -79,15 +79,17 @@ func newLazySegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		metrics:     metrics,
 		existsLower: existsLower,
 		cfg:         cfg,
+		loaded:      atomic.Bool{},
 	}, nil
 }
 
 func (s *lazySegment) load() error {
 	if s.loaded.Load() {
-		return nil // fast path
+		return nil // fast path in case already loaded
 	}
 	s.mux.Lock()
 	defer s.mux.Unlock()
+
 	// double check after acquiring lock in case someone else loaded while we waited
 	if s.loaded.Load() {
 		return nil
