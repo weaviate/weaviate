@@ -754,8 +754,10 @@ func (sg *SegmentGroup) shutdown(ctx context.Context) error {
 		segmentsWithRefs[i] = seg
 		i++
 	}
+	segmentsToWaitOn := make([]Segment, len(segmentsWithRefs))
+	copy(segmentsToWaitOn, segmentsWithRefs)
 	sg.segmentRefCounterLock.Unlock()
-	sg.waitForReferenceCountToReachZero(segmentsWithRefs...)
+	sg.waitForReferenceCountToReachZero(segmentsToWaitOn...)
 
 	// Lock acquirement placed after compaction cycle stop request, due to occasional deadlock,
 	// because compaction logic used in cycle also requires maintenance lock.
