@@ -138,7 +138,11 @@ func (s *lazySegment) getStrategy() segmentindex.Strategy {
 		return strtg
 	}
 	s.mustLoad()
-	return s.segment.getStrategy()
+
+	// store for next time to avoid running the regExp again
+	strtg := s.segment.getStrategy()
+	s.strategy.Store(&strtg)
+	return strtg
 }
 
 func (s *lazySegment) getSecondaryIndexCount() uint16 {
