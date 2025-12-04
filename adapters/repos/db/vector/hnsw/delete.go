@@ -468,7 +468,36 @@ func (h *hnsw) reassignNeighborsOf(ctx context.Context, deleteList helpers.Allow
 
 	for i := 0; i < tombstoneDeletionConcurrency(); i++ {
 		g.Go(func() error {
+			aggregateStats := aggregatedReassignNeighborStats{}
+			j := 0 // loop counter used for stats printing
+
 			for {
+				j++
+				if j%1_000_000 == 0 {
+					meanMaxEdgesSkipped := float64(aggregateStats.maxEdgesSumSkipped) / (math.Max(1, float64(aggregateStats.totalSkipped)))
+					meanMaxEdgesUnskipped := float64(aggregateStats.maxEdgesSumUnskipped) / (math.Max(1, float64(aggregateStats.totalUnskipped)))
+					meanReassignTimeSkipped := aggregateStats.reassignTimeSumSkipped / time.Duration(math.Max(1, float64(aggregateStats.totalSkipped)))
+					meanReassignTimeUnskipped := aggregateStats.reassignTimeSumUnskipped / time.Duration(math.Max(1, float64(aggregateStats.totalUnskipped)))
+					meanDenyListSizeSkipped := float64(aggregateStats.denyListSizeSumSkipped) / (math.Max(1, float64(aggregateStats.totalSkipped)))
+					meanDenyListSizeUnskipped := float64(aggregateStats.denyListSizeSumUnskipped) / (math.Max(1, float64(aggregateStats.totalUnskipped)))
+					h.logger.WithFields(logrus.Fields{
+						"action":                          "tombstone_reassign_stats",
+						"class":                           h.className,
+						"shard":                           h.shardName,
+						"graph_size":                      size,
+						"processed_nodes_this_worker":     j,
+						"worker_count":                    tombstoneDeletionConcurrency(),
+						"estimated_completion_percentage": float64(j*tombstoneDeletionConcurrency()) / float64(size) * 100,
+						"total_skipped":                   aggregateStats.totalSkipped,
+						"total_unskipped":                 aggregateStats.totalUnskipped,
+						"mean_edges_skipped":              meanMaxEdgesSkipped,
+						"mean_edges_unskipped":            meanMaxEdgesUnskipped,
+						"mean_reassign_time_skipped":      meanReassignTimeSkipped,
+						"mean_reassign_time_unskipped":    meanReassignTimeUnskipped,
+						"mean_denylist_size_skipped":      meanDenyListSizeSkipped,
+						"mean_denylist_size_unskipped":    meanDenyListSizeUnskipped,
+					}).Infof("class %s: shard %s: tombstone reassign stats", h.className, h.shardName)
+				}
 				if breakCleanUpTombstonedNodes() {
 					cancelled.Store(true)
 					cancel()
@@ -493,13 +522,30 @@ func (h *hnsw) reassignNeighborsOf(ctx context.Context, deleteList helpers.Allow
 					}
 					h.shardedNodeLocks.RUnlock(deletedID)
 					h.resetLock.RLock()
+					var stats reassignNeighborStats
 					if h.getEntrypoint() != deletedID {
-						if _, err := h.reassignNeighbor(ctx, deletedID, deleteList, breakCleanUpTombstonedNodes, processedIDs); err != nil {
+						var err error
+						_, stats, err = h.reassignNeighbor(ctx, deletedID, deleteList, breakCleanUpTombstonedNodes, processedIDs)
+						if err != nil {
 							h.logger.WithError(err).WithField("action", "hnsw_tombstone_cleanup_error").
 								Errorf("class %s: shard %s: reassign neighbor", h.className, h.shardName)
 						}
+					} else {
+						stats.skipped = true
 					}
 					h.resetLock.RUnlock()
+
+					if stats.skipped {
+						aggregateStats.totalSkipped++
+						aggregateStats.maxEdgesSumSkipped += stats.maxEdges
+						aggregateStats.reassignTimeSumSkipped += stats.reassignTime
+						aggregateStats.denyListSizeSumSkipped += stats.denyListSize
+					} else {
+						aggregateStats.totalUnskipped++
+						aggregateStats.maxEdgesSumUnskipped += stats.maxEdges
+						aggregateStats.reassignTimeSumUnskipped += stats.reassignTime
+						aggregateStats.denyListSizeSumUnskipped += stats.denyListSize
+					}
 				}
 			}
 		})
@@ -548,15 +594,35 @@ LOOP:
 	return !cancelled.Load(), err
 }
 
+type reassignNeighborStats struct {
+	maxEdges     int
+	skipped      bool
+	reassignTime time.Duration
+	denyListSize int
+}
+
+type aggregatedReassignNeighborStats struct {
+	maxEdgesSumSkipped       int
+	maxEdgesSumUnskipped     int
+	totalSkipped             int
+	totalUnskipped           int
+	reassignTimeSumSkipped   time.Duration
+	reassignTimeSumUnskipped time.Duration
+	denyListSizeSumSkipped   int
+	denyListSizeSumUnskipped int
+}
+
 func (h *hnsw) reassignNeighbor(
 	ctx context.Context,
 	neighbor uint64,
 	deleteList helpers.AllowList,
 	breakCleanUpTombstonedNodes breakCleanUpTombstonedNodesFunc,
 	processedIDs *sync.Map,
-) (ok bool, err error) {
+) (ok bool, stats reassignNeighborStats, err error) {
+	stats.denyListSize = deleteList.Len()
+	start := time.Now()
 	if breakCleanUpTombstonedNodes() {
-		return false, nil
+		return false, stats, nil
 	}
 
 	h.metrics.TombstoneReassignNeighbor()
@@ -566,7 +632,7 @@ func (h *hnsw) reassignNeighbor(
 	if neighbor >= uint64(len(h.nodes)) {
 		h.shardedNodeLocks.RUnlock(neighbor)
 		h.RUnlock()
-		return true, nil
+		return true, stats, nil
 	}
 	neighborNode := h.nodes[neighbor]
 	h.shardedNodeLocks.RUnlock(neighbor)
@@ -574,7 +640,7 @@ func (h *hnsw) reassignNeighbor(
 	h.RUnlock()
 
 	if neighborNode == nil || deleteList.Contains(neighborNode.id) {
-		return true, nil
+		return true, stats, nil
 	}
 
 	var neighborVec []float32
@@ -589,18 +655,30 @@ func (h *hnsw) reassignNeighbor(
 		var e storobj.ErrNotFound
 		if errors.As(err, &e) {
 			h.handleDeletedNode(e.DocID, "reassignNeighbor")
-			return true, nil
+			return true, stats, nil
 		} else {
 			// not a typed error, we can recover from, return with err
-			return false, errors.Wrap(err, "get neighbor vec")
+			return false, stats, errors.Wrap(err, "get neighbor vec")
 		}
 	}
+
 	neighborNode.Lock()
 	neighborLevel := neighborNode.level
+
+	// get the most amount of edges (at any level)
+	for i := neighborLevel; i >= 0; i-- {
+		c := neighborNode.connections.LenAtLayer(uint8(neighborLevel))
+		if c > stats.maxEdges {
+			stats.maxEdges = c
+		}
+	}
+
 	if !connectionsPointTo(neighborNode.connections, deleteList) {
 		// nothing needs to be changed, skip
 		neighborNode.Unlock()
-		return true, nil
+		stats.reassignTime = time.Since(start)
+		stats.skipped = true
+		return true, stats, nil
 	}
 	neighborNode.Unlock()
 
@@ -611,12 +689,13 @@ func (h *hnsw) reassignNeighbor(
 	dummyEntrypoint := uint64(0)
 	if err := h.reconnectNeighboursOf(ctx, neighborNode, dummyEntrypoint, neighborVec, compressorDistancer,
 		neighborLevel, currentMaximumLayer, deleteList, processedIDs); err != nil {
-		return false, errors.Wrap(err, "find and connect neighbors")
+		return false, stats, errors.Wrap(err, "find and connect neighbors")
 	}
 	neighborNode.unmarkAsMaintenance()
 
 	h.metrics.CleanedUp()
-	return true, nil
+	stats.reassignTime = time.Since(start)
+	return true, stats, nil
 }
 
 func connectionsPointTo(connections *packedconn.Connections, needles helpers.AllowList) bool {
