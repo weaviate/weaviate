@@ -18,7 +18,6 @@ import (
 	"github.com/maypok86/otter/v2"
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 )
 
 // A VectorVersion is a 1-byte value structured as follows:
@@ -151,13 +150,11 @@ func (v *VersionMap) IsDeleted(ctx context.Context, vectorID uint64) (bool, erro
 // It stores the versions in an LSMKV bucket.
 type VersionStore struct {
 	bucket *lsmkv.Bucket
-	locks  *common.ShardedRWLocks
 }
 
 func NewVersionStore(bucket *lsmkv.Bucket) *VersionStore {
 	return &VersionStore{
 		bucket: bucket,
-		locks:  common.NewDefaultShardedRWLocks(),
 	}
 }
 
