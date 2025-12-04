@@ -94,7 +94,7 @@ func (m *MetadataStore) GetQuantizationData() (*QuantizationData, error) {
 }
 
 type QuantizationData struct {
-	RQ8 *RQ8Data `msgpack:"rq8"`
+	RQ compressionhelpers.RQData `msgpack:"rq"`
 }
 
 type RQ8Data struct {
@@ -120,91 +120,33 @@ func (h *HFresh) restoreMetadata() error {
 		return err
 	}
 
-	if quantization != nil && quantization.RQ8 != nil {
-		return h.restoreRQ8FromMsgpack(quantization.RQ8)
+	if quantization != nil {
+		return h.restoreQuantizationData(&quantization.RQ)
 	}
 
 	return nil
 }
 
-// RQ data persistence and restoration functions
-
-func (h *HFresh) persistRQData() error {
+func (h *HFresh) persistQuantizationData() error {
 	if h.quantizer == nil {
 		return nil
 	}
 
-	rq8Data, err := h.serializeRQ8Data()
-	if err != nil {
-		return errors.Wrap(err, "serialize RQ8 data")
-	}
-
 	return h.Metadata.SetQuantizationData(&QuantizationData{
-		RQ8: rq8Data,
+		RQ: h.quantizer.Data(),
 	})
 }
 
-// serializeRQ8Data extracts RQ8 data from the quantizer and converts it to msgpack format
-func (h *HFresh) serializeRQ8Data() (*RQ8Data, error) {
-	// Use a custom commit logger to capture the RQ data
-	captureLogger := &dataCaptureLogger{}
-	h.quantizer.PersistCompression(captureLogger)
-
-	if captureLogger.rqData == nil {
-		return nil, errors.New("no RQ data captured from quantizer")
-	}
-
-	h.logger.Debugf("Captured RQ data: InputDim=%d, Bits=%d, OutputDim=%d, Rounds=%d, Swaps=%d, Signs=%d",
-		captureLogger.rqData.InputDim,
-		captureLogger.rqData.Bits,
-		captureLogger.rqData.Rotation.OutputDim,
-		captureLogger.rqData.Rotation.Rounds,
-		len(captureLogger.rqData.Rotation.Swaps),
-		len(captureLogger.rqData.Rotation.Signs))
-
-	return &RQ8Data{
-		InputDim:  captureLogger.rqData.InputDim,
-		OutputDim: captureLogger.rqData.Rotation.OutputDim,
-		Rounds:    captureLogger.rqData.Rotation.Rounds,
-		Swaps:     captureLogger.rqData.Rotation.Swaps,
-		Signs:     captureLogger.rqData.Rotation.Signs,
-	}, nil
-}
-
-// dataCaptureLogger captures RQ data from quantizer PersistCompression calls
-type dataCaptureLogger struct {
-	rqData  *compressionhelpers.RQData
-	brqData *compressionhelpers.BRQData
-}
-
-func (d *dataCaptureLogger) AddRQCompression(data compressionhelpers.RQData) error {
-	d.rqData = &data
-	return nil
-}
-
-func (d *dataCaptureLogger) AddBRQCompression(data compressionhelpers.BRQData) error {
-	d.brqData = &data
-	return nil
-}
-
-func (d *dataCaptureLogger) AddPQCompression(data compressionhelpers.PQData) error {
-	return nil // Not used for flat index
-}
-
-func (d *dataCaptureLogger) AddSQCompression(data compressionhelpers.SQData) error {
-	return nil // Not used for flat index
-}
-
-// restoreRQ8FromMsgpack restores RQ8 quantizer from msgpack data
-func (h *HFresh) restoreRQ8FromMsgpack(rq8Data *RQ8Data) error {
-	// Restore the RQ8 quantizer
+// restoreQuantizationData restores RQ quantizer from msgpack data
+func (h *HFresh) restoreQuantizationData(rqData *compressionhelpers.RQData) error {
+	// Restore the RQ quantizer
 	rq, err := compressionhelpers.RestoreRotationalQuantizer(
-		int(rq8Data.InputDim),
-		int(8),
-		int(rq8Data.OutputDim),
-		int(rq8Data.Rounds),
-		rq8Data.Swaps,
-		rq8Data.Signs,
+		int(rqData.InputDim),
+		int(rqData.Bits),
+		int(rqData.Rotation.OutputDim),
+		int(rqData.Rotation.Rounds),
+		rqData.Rotation.Swaps,
+		rqData.Rotation.Signs,
 		h.config.DistanceProvider,
 	)
 	if err != nil {

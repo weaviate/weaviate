@@ -71,7 +71,7 @@ func (h *HFresh) Add(ctx context.Context, id uint64, vector []float32) (err erro
 		if h.quantizer == nil {
 			h.quantizer = compressionhelpers.NewRotationalQuantizer(int(h.dims), 42, 8, h.config.DistanceProvider)
 			h.Centroids.SetQuantizer(h.quantizer)
-			if err := h.persistRQData(); err != nil {
+			if err := h.persistQuantizationData(); err != nil {
 				err = errors.Wrap(err, "could not persist RQ data")
 				return // Fail the entire initialization
 			}
