@@ -26,11 +26,14 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 	if !cfg.PQ.Enabled && !cfg.BQ.Enabled && !cfg.SQ.Enabled && !cfg.RQ.Enabled {
 		return nil
 	}
+	h.logger.WithField("action", "compress_vectors").Warnf("starting compression with config %+v", cfg)
+	defer h.logger.WithField("action", "compress_vectors").Warnf("finished compression with config %+v", cfg)
 	h.compressActionLock.Lock()
 	defer h.compressActionLock.Unlock()
 	data := h.cache.All()
 	singleVector := !h.multivector.Load() || h.muvera.Load()
 	if cfg.PQ.Enabled || cfg.SQ.Enabled {
+		h.logger.WithField("action", "compress_vectors").Warnf("fitting compressor for vector index config %+v", cfg)
 		if h.isEmpty() {
 			return errors.New("compress command cannot be executed before inserting some data")
 		}
@@ -68,6 +71,7 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 			}
 		}
 		if cfg.PQ.Enabled {
+			h.logger.WithField("action", "compress_vectors").Warnf("fitting pq compressor for vector index config %+v", cfg)
 			dims := int(h.dims)
 
 			if cfg.PQ.Segments <= 0 {
@@ -76,6 +80,7 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 			}
 
 			var err error
+			h.logger.WithField("action", "compress_vectors").Warnf("creating pq compressor for vector index config %+v", cfg)
 			if singleVector {
 				h.compressor, err = compressionhelpers.NewHNSWPQCompressor(
 					cfg.PQ, h.distancerProvider, dims, 1e12, h.logger, cleanData, h.store,
@@ -85,6 +90,7 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 					cfg.PQ, h.distancerProvider, dims, 1e12, h.logger, cleanData, h.store,
 					h.MinMMapSize, h.MaxWalReuseSize, h.allocChecker, h.getTargetVector())
 			}
+			h.logger.WithField("action", "compress_vectors").Warnf("created pq compressor for vector index config %+v", cfg)
 			if err != nil {
 				h.pqConfig.Enabled = false
 				return fmt.Errorf("compressing vectors: %w", err)
@@ -148,6 +154,7 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 				h.compressor.Preload(index, data[index])
 			})
 	} else {
+		h.logger.WithField("action", "compress_vectors").Warnf("preloading passages for vector index config %+v", cfg)
 		compressionhelpers.Concurrently(h.logger, uint64(len(data)),
 			func(index uint64) {
 				if len(data[index]) == 0 {
@@ -156,6 +163,7 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 				docID, relativeID := h.cache.GetKeys(index)
 				h.compressor.PreloadPassage(index, docID, relativeID, data[index])
 			})
+		h.logger.WithField("action", "compress_vectors").Warnf("preloaded passages for vector index config %+v", cfg)
 	}
 
 	h.compressed.Store(true)
