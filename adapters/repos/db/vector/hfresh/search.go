@@ -42,6 +42,9 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 	if err != nil {
 		return nil, nil, err
 	}
+	if len(centroids.data) == 0 {
+		return nil, nil, nil
+	}
 
 	q := NewResultSet(rescoreLimit)
 

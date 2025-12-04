@@ -61,6 +61,7 @@ type HFresh struct {
 	replicas       uint32
 	rngFactor      float32
 	searchProbe    uint32
+	store          *lsmkv.Store
 
 	// some components require knowing the vector size beforehand
 	// and can only be initialized once the first vector has been
@@ -89,7 +90,6 @@ type HFresh struct {
 	postingLocks       *common.ShardedRWLocks // Locks to prevent concurrent modifications to the same posting.
 	initialPostingLock sync.Mutex
 
-	store        *lsmkv.Store
 	vectorForId  common.VectorForID[float32]
 	metadata     *bolt.DB
 	metadataLock sync.RWMutex
@@ -103,17 +103,22 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 
 	metrics := NewMetrics(cfg.PrometheusMetrics, cfg.ClassName, cfg.ShardName)
 
-	postingStore, err := NewPostingStore(store, metrics, postingBucketName(cfg.ID), cfg.Store)
+	postingStore, err := NewPostingStore(store, metrics, cfg.ID, cfg.Store)
 	if err != nil {
 		return nil, err
 	}
 
-	postingSizes, err := NewPostingSizes(store, metrics, cfg.ID, cfg.Store)
+	bucket, err := NewSharedBucket(store, cfg.ID, cfg.Store)
 	if err != nil {
 		return nil, err
 	}
 
-	versionMap, err := NewVersionMap(store, cfg.ID, cfg.Store)
+	postingSizes, err := NewPostingSizes(bucket, metrics)
+	if err != nil {
+		return nil, err
+	}
+
+	versionMap, err := NewVersionMap(bucket)
 	if err != nil {
 		return nil, err
 	}
@@ -123,21 +128,12 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 		logger:       cfg.Logger.WithField("component", "HFresh"),
 		config:       cfg,
 		scheduler:    cfg.Scheduler,
+		store:        store,
 		metrics:      metrics,
 		PostingStore: postingStore,
-		store:        store,
 		vectorForId:  cfg.VectorForIDThunk,
-		// Capacity of the version map: 8k pages, 1M vectors each -> 8B vectors
-		// - An empty version map consumes 240KB of memory
-		// - Each allocated page consumes 1MB of memory
-		// - A fully used version map consumes 8GB of memory
-		VersionMap: versionMap,
-		// Capacity of the posting sizes: 1k pages, 1M postings each -> 1B postings
-		// - An empty posting sizes buffer consumes 240KB of memory
-		// - Each allocated page consumes 4MB of memory
-		// - A fully used posting sizes consumes 4GB of memory
+		VersionMap:   versionMap,
 		PostingSizes: postingSizes,
-
 		postingLocks: common.NewDefaultShardedRWLocks(),
 		// TODO: choose a better starting size since we can predict the max number of
 		// visited vectors based on cfg.InternalPostingCandidates.
@@ -298,7 +294,7 @@ func (h *HFresh) QueryVectorDistancer(queryVector []float32) common.QueryVectorD
 	distFunc := func(id uint64) (float32, error) {
 		var buf [8]byte
 		binary.BigEndian.PutUint64(buf[:], id)
-		vec, err := h.PostingStore.store.Bucket(bucketName).Get(buf[:])
+		vec, err := h.store.Bucket(bucketName).Get(buf[:])
 		if err != nil {
 			return 0, err
 		}
