@@ -175,9 +175,9 @@ func (h *HFresh) splitPosting(posting Posting) ([]SplitResult, error) {
 			return nil, errors.Wrapf(err, "failed to compute distance to centroid 1")
 		}
 		if dA < dB {
-			results[0].Posting.AddVector(posting[i])
+			results[0].Posting = results[0].Posting.AddVector(posting[i])
 		} else {
-			results[1].Posting.AddVector(posting[i])
+			results[1].Posting = results[1].Posting.AddVector(posting[i])
 		}
 	}
 

@@ -35,7 +35,7 @@ func TestStore(t *testing.T) {
 
 		// create a posting
 		var posting Posting
-		posting.AddVector(NewVector(1, 1, []byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}))
+		posting = posting.AddVector(NewVector(1, 1, []byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}))
 		err = s.Put(ctx, 1, posting)
 		require.NoError(t, err)
 
@@ -73,7 +73,7 @@ func TestStore(t *testing.T) {
 		// create a few postings
 		for i := range 5 {
 			var posting Posting
-			posting.AddVector(NewVector(uint64(i), 1, []byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}))
+			posting = posting.AddVector(NewVector(uint64(i), 1, []byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}))
 			postings = append(postings, posting)
 			err = s.Put(ctx, uint64(i), posting)
 			require.NoError(t, err)

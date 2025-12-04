@@ -168,7 +168,7 @@ func (h *HFresh) doMerge(ctx context.Context, postingID uint64) error {
 				if _, exists := vectorSet[v.ID()]; exists {
 					continue // Skip duplicate vectors
 				}
-				newPosting.AddVector(v)
+				newPosting = newPosting.AddVector(v)
 				candidateLen++
 			}
 

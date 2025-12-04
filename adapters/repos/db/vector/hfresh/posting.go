@@ -71,8 +71,8 @@ func (v Vector) DistanceWithRaw(distancer *Distancer, other []byte) (float32, er
 // A Posting is a collection of vectors associated with the same centroid.
 type Posting []Vector
 
-func (p *Posting) AddVector(v Vector) {
-	*p = append(*p, v)
+func (p Posting) AddVector(v Vector) Posting {
+	return append(p, v)
 }
 
 // GarbageCollect filters out vectors that are marked as deleted in the version map
@@ -98,10 +98,10 @@ func (p Posting) GarbageCollect(versionMap *VersionMap) (Posting, error) {
 	return p, nil
 }
 
-func (p *Posting) Uncompress(quantizer *compressionhelpers.RotationalQuantizer) [][]float32 {
-	data := make([][]float32, 0, len(*p))
+func (p Posting) Uncompress(quantizer *compressionhelpers.RotationalQuantizer) [][]float32 {
+	data := make([][]float32, 0, len(p))
 
-	for _, v := range *p {
+	for _, v := range p {
 		data = append(data, quantizer.Decode(v.Data()))
 	}
 
