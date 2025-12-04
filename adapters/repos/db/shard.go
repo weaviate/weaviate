@@ -407,6 +407,7 @@ func (s *Shard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string
 				s.index.logger.WithField("action", "update_vector_index_configs").Warnf("completed update for target vector %s", targetVector)
 				wg.Done() //nolint:SA2000
 			}
+			s.index.logger.WithField("action", "update_vector_index_configs").Warnf("started update for target vector %s", targetVector)
 			if err = index.UpdateUserConfig(targetCfg, callback); err != nil {
 				s.index.logger.WithField("action", "update_vector_index_configs").Errorf("updating vector index config for target vector %s: %v", targetVector, err)
 				break
