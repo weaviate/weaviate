@@ -77,6 +77,7 @@ type HFresh struct {
 	IDs          common.MonotonicCounter // Shared monotonic counter for generating unique IDs for new postings.
 	VersionMap   *VersionMap             // Stores vector versions in-memory.
 	PostingSizes *PostingSizes           // Stores the size of each posting in-memory.
+	Metadata     *MetadataStore          // Stores metadata about the index.
 
 	// ctx and cancel are used to manage the lifecycle of the background operations.
 	ctx    context.Context
@@ -122,6 +123,8 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 		return nil, err
 	}
 
+	metadata := NewMetadataStore(bucket)
+
 	h := HFresh{
 		id:           cfg.ID,
 		logger:       cfg.Logger.WithField("component", "HFresh"),
@@ -133,6 +136,7 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 		vectorForId:  cfg.VectorForIDThunk,
 		VersionMap:   versionMap,
 		PostingSizes: postingSizes,
+		Metadata:     metadata,
 		postingLocks: common.NewDefaultShardedRWLocks(),
 		// TODO: choose a better starting size since we can predict the max number of
 		// visited vectors based on cfg.InternalPostingCandidates.
