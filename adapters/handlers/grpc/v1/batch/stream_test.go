@@ -128,6 +128,9 @@ func TestStreamHandler(t *testing.T) {
 			errs := msg.GetResults().GetErrors()
 			return len(errs) > 0 && errs[0].Error == "batcher error" && errs[0].GetUuid() == obj.Uuid
 		})).Return(nil).Once()
+		mockStream.EXPECT().Send(mock.MatchedBy(func(msg *pb.BatchStreamReply) bool {
+			return msg.GetAcks() != nil
+		})).Return(nil).Once()
 		mockStream.EXPECT().Send(newBatchStreamStartedReply()).Return(nil).Once()
 
 		numWorkers := 1
@@ -171,6 +174,9 @@ func TestStreamHandler(t *testing.T) {
 		mockStream.EXPECT().Send(mock.MatchedBy(func(msg *pb.BatchStreamReply) bool {
 			errs := msg.GetResults().GetErrors()
 			return len(errs) > 0 && errs[0].Error == "batcher error" && errs[0].GetUuid() == obj.Uuid
+		})).Return(nil).Once()
+		mockStream.EXPECT().Send(mock.MatchedBy(func(msg *pb.BatchStreamReply) bool {
+			return msg.GetAcks() != nil
 		})).Return(nil).Once()
 		mockStream.EXPECT().Send(newBatchStreamStartedReply()).Return(nil).Once()
 
@@ -229,6 +235,9 @@ func TestStreamHandler(t *testing.T) {
 		mockStream.EXPECT().Send(mock.MatchedBy(func(msg *pb.BatchStreamReply) bool {
 			return msg.GetResults() != nil
 		})).Return(nil).Maybe()
+		mockStream.EXPECT().Send(mock.MatchedBy(func(msg *pb.BatchStreamReply) bool {
+			return msg.GetAcks() != nil
+		})).Return(nil).Once()
 
 		numWorkers := 1
 		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, nil, numWorkers, logger, memwatch.NewDummyMonitor())

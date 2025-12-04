@@ -86,6 +86,9 @@ func TestDrainOfInProgressBatch(t *testing.T) {
 	mockStream.EXPECT().Send(mock.MatchedBy(func(msg *pb.BatchStreamReply) bool {
 		return msg.GetResults() != nil
 	})).Return(nil).Maybe()
+	mockStream.EXPECT().Send(mock.MatchedBy(func(msg *pb.BatchStreamReply) bool {
+		return msg.GetAcks() != nil
+	})).Return(nil).Maybe()
 	mockStream.EXPECT().Send(newBatchStreamStartedReply()).Return(nil).Once()
 	mockStream.EXPECT().Send(newBatchStreamShuttingDownReply()).Return(nil).Once()
 	mockStream.EXPECT().Send(newBatchStreamShutdownReply()).Return(nil).Once()
@@ -164,6 +167,9 @@ func TestDrainOfFinishedBatch(t *testing.T) {
 	mockStream.EXPECT().Send(mock.MatchedBy(func(msg *pb.BatchStreamReply) bool {
 		return msg.GetResults() != nil
 	})).Return(nil).Maybe()
+	mockStream.EXPECT().Send(mock.MatchedBy(func(msg *pb.BatchStreamReply) bool {
+		return msg.GetAcks() != nil
+	})).Return(nil).Maybe()
 	mockStream.EXPECT().Send(newBatchStreamStartedReply()).Return(nil).Once()
 	// depending on timings, may or may not be emitted
 	mockStream.EXPECT().Send(newBatchStreamShuttingDownReply()).Return(nil).Maybe()
@@ -237,6 +243,9 @@ func TestDrainAfterBrokenStream(t *testing.T) {
 	mockStream.EXPECT().Send(mock.MatchedBy(func(msg *pb.BatchStreamReply) bool {
 		return msg.GetResults() != nil
 	})).Return(nil).Maybe()
+	mockStream.EXPECT().Send(mock.MatchedBy(func(msg *pb.BatchStreamReply) bool {
+		return msg.GetAcks() != nil
+	})).Return(nil).Maybe()
 	mockStream.EXPECT().Send(newBatchStreamStartedReply()).Return(nil).Once()
 
 	numWorkers := 1
@@ -303,6 +312,9 @@ func TestDrainWithHangingClient(t *testing.T) {
 
 	mockStream.EXPECT().Send(mock.MatchedBy(func(msg *pb.BatchStreamReply) bool {
 		return msg.GetResults() != nil
+	})).Return(nil).Maybe()
+	mockStream.EXPECT().Send(mock.MatchedBy(func(msg *pb.BatchStreamReply) bool {
+		return msg.GetAcks() != nil
 	})).Return(nil).Maybe()
 	mockStream.EXPECT().Send(mock.MatchedBy(func(msg *pb.BatchStreamReply) bool {
 		return msg.GetBackoff() != nil
@@ -379,6 +391,9 @@ func TestDrainWithMisbehavingClient(t *testing.T) {
 
 	mockStream.EXPECT().Send(mock.MatchedBy(func(msg *pb.BatchStreamReply) bool {
 		return msg.GetResults() != nil
+	})).Return(nil).Maybe()
+	mockStream.EXPECT().Send(mock.MatchedBy(func(msg *pb.BatchStreamReply) bool {
+		return msg.GetAcks() != nil
 	})).Return(nil).Maybe()
 	mockStream.EXPECT().Send(mock.MatchedBy(func(msg *pb.BatchStreamReply) bool {
 		return msg.GetBackoff() != nil

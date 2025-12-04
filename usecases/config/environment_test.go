@@ -316,7 +316,7 @@ func TestEnvironmentParseClusterConfig(t *testing.T) {
 			},
 		},
 		{
-			name: "valid cluster config - both ports provided",
+			name: "valid cluster config - all ports provided",
 			envVars: map[string]string{
 				"CLUSTER_GOSSIP_BIND_PORT": "7100",
 				"CLUSTER_DATA_BIND_PORT":   "7111",
@@ -1408,6 +1408,34 @@ func TestParsePositiveDuration(t *testing.T) {
 				assert.NoError(t, err)
 				assert.Equal(t, tt.expected, result)
 			}
+		})
+	}
+}
+
+func TestEnvironmentAsyncIndexing(t *testing.T) {
+	factors := []struct {
+		name     string
+		value    []string
+		expected bool
+	}{
+		{"Valid: true", []string{"true"}, true},
+		{"Valid: false", []string{"false"}, false},
+		{"Valid: 1", []string{"1"}, true},
+		{"Valid: 0", []string{"0"}, false},
+		{"Valid: on", []string{"on"}, true},
+		{"Valid: off", []string{"off"}, false},
+		{"not given", []string{}, false},
+	}
+	for _, tt := range factors {
+		t.Run(tt.name, func(t *testing.T) {
+			if len(tt.value) == 1 {
+				t.Setenv("ASYNC_INDEXING", tt.value[0])
+			}
+			conf := Config{}
+			err := FromEnv(&conf)
+
+			require.Nil(t, err)
+			require.Equal(t, tt.expected, conf.AsyncIndexingEnabled)
 		})
 	}
 }

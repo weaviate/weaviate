@@ -101,8 +101,8 @@ func (i *Index) usageForCollection(ctx context.Context, jitterInterval time.Dura
 				addJitter(jitterInterval)
 			}
 
-			i.shardCreateLocks.Lock(shardName)
-			defer i.shardCreateLocks.Unlock(shardName)
+			i.shardCreateLocks.RLock(shardName)
+			defer i.shardCreateLocks.RUnlock(shardName)
 
 			uniqueShardCount++
 

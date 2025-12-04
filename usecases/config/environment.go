@@ -48,9 +48,10 @@ const (
 	DefaultDistributedTasksSchedulerTickInterval = time.Minute
 	DefaultDistributedTasksCompletedTaskTTL      = 5 * 24 * time.Hour
 
-	DefaultReplicationEngineMaxWorkers      = 10
-	DefaultReplicaMovementMinimumAsyncWait  = 60 * time.Second
-	DefaultReplicationEngineFileCopyWorkers = 10
+	DefaultReplicationEngineMaxWorkers        = 10
+	DefaultReplicaMovementMinimumAsyncWait    = 60 * time.Second
+	DefaultReplicationEngineFileCopyWorkers   = 10
+	DefaultReplicationEngineFileCopyChunkSize = 64 * 1024 // 64 KB
 
 	DefaultTransferInactivityTimeout = 5 * time.Minute
 
@@ -466,8 +467,8 @@ func FromEnv(config *Config) error {
 	}
 	config.DefaultQuantization = configRuntime.NewDynamicValue(defaultQuantization)
 
-	if entcfg.Enabled(os.Getenv("EXPERIMENTAL_SPFRESH_ENABLED")) {
-		config.SPFreshEnabled = true
+	if entcfg.Enabled(os.Getenv("EXPERIMENTAL_HFRESH_ENABLED")) {
+		config.HFreshEnabled = true
 	}
 
 	if entcfg.Enabled(os.Getenv("INDEX_RANGEABLE_IN_MEMORY")) {
@@ -830,6 +831,10 @@ func FromEnv(config *Config) error {
 
 	if entcfg.Enabled(os.Getenv("HNSW_STARTUP_WAIT_FOR_VECTOR_CACHE")) {
 		config.HNSWStartupWaitForVectorCache = true
+	}
+
+	if entcfg.Enabled(os.Getenv("ASYNC_INDEXING")) {
+		config.AsyncIndexingEnabled = true
 	}
 
 	if err := parseInt(
@@ -1195,6 +1200,14 @@ func (c *Config) parseMemtableConfig() error {
 		return err
 	}
 
+	if err := parsePositiveInt(
+		"REPLICATION_ENGINE_FILE_COPY_CHUNK_SIZE",
+		func(val int) { c.ReplicationEngineFileCopyChunkSize = val },
+		DefaultReplicationEngineFileCopyChunkSize,
+	); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -1482,7 +1495,7 @@ func parseClusterConfig() (cluster.Config, error) {
 		cfg.DataBindPort = asInt
 	} else {
 		// it is convention in this server that the data bind point is
-		// equal to the data bind port + 1
+		// equal to the gossip bind port + 1
 		cfg.DataBindPort = cfg.GossipBindPort + 1
 	}
 

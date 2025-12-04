@@ -182,7 +182,7 @@ func (h *StreamHandler) drainReportingQueue(queue reportingQueue, batchResults *
 }
 
 func (h *StreamHandler) handleRecvErr(recvErr error, stream pb.Weaviate_BatchStreamServer, logger *logrus.Entry) error {
-	if errors.Is(recvErr, memwatch.ErrNotEnoughMemory) {
+	if errors.Is(recvErr, enterrors.ErrNotEnoughMemory) {
 		logger.Warnf("receive error due to memory pressure: %v", recvErr)
 		if err := stream.Send(newBatchOutOfMemoryMessage()); err != nil {
 			logger.Errorf("failed to send out of memory message: %s", err)
@@ -494,6 +494,20 @@ func (h *StreamHandler) receiver(ctx context.Context, streamId string, consisten
 				if err := push(batch, refs); err != nil {
 					return err
 				}
+			}
+
+			uuids := make([]string, 0, len(objs))
+			beacons := make([]string, 0, len(refs))
+			for _, obj := range objs {
+				uuids = append(uuids, obj.GetUuid())
+			}
+			for _, ref := range refs {
+				beacons = append(beacons, toBeacon(ref))
+			}
+			// Acknowledge receipt of these objects and/or references from the message
+			if err := stream.Send(newBatchAcksMessage(uuids, beacons)); err != nil {
+				log.Errorf("failed to send acks message: %s", err)
+				return fmt.Errorf("send acks message: %w", err)
 			}
 
 		} else if request.GetStop() != nil {

@@ -16,7 +16,6 @@ import (
 
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/generictypes"
 )
 
 type vectorFromAskParam struct {
@@ -44,7 +43,7 @@ func (s *vectorFromAskParam) vectorFromAskParam(ctx context.Context,
 	nearTextParam, _, _ := arg.ExtractFunction(rawNearTextParam)
 	vectorSearchFn := s.nearTextDep.VectorSearch()
 
-	return vectorSearchFn.VectorForParams(ctx, nearTextParam, className, findVectorFn, cfg)
+	return vectorSearchFn(ctx, nearTextParam, className, findVectorFn, cfg)
 }
 
 type Searcher struct {
@@ -67,6 +66,6 @@ func (s *Searcher) VectorSearches() map[string]map[string]modulecapabilities.Vec
 func (s *Searcher) vectorSearches(nearTextDep modulecapabilities.Dependency[[]float32]) map[string]modulecapabilities.VectorForParams[[]float32] {
 	vectorSearches := map[string]modulecapabilities.VectorForParams[[]float32]{}
 	vectorFromAsk := &vectorFromAskParam{nearTextDep}
-	vectorSearches["ask"] = generictypes.VectorForParams(vectorFromAsk.vectorForAskParamFn)
+	vectorSearches["ask"] = vectorFromAsk.vectorForAskParamFn
 	return vectorSearches
 }
