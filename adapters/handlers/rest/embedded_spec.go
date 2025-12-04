@@ -7427,7 +7427,8 @@ func init() {
         },
         "readOnlyMode": {
           "description": "Whether the node is in read-only mode such that no write operations are allowed (besides those required for cluster maintenance).",
-          "type": "boolean"
+          "type": "boolean",
+          "x-omitempty": false
         },
         "shards": {
           "description": "The list of the shards with it's statistics.",
@@ -16942,7 +16943,8 @@ func init() {
         },
         "readOnlyMode": {
           "description": "Whether the node is in read-only mode such that no write operations are allowed (besides those required for cluster maintenance).",
-          "type": "boolean"
+          "type": "boolean",
+          "x-omitempty": false
         },
         "shards": {
           "description": "The list of the shards with it's statistics.",
