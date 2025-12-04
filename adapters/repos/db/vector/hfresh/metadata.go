@@ -19,6 +19,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/vmihailenco/msgpack/v5"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	bolt "go.etcd.io/bbolt"
 )
@@ -28,6 +29,24 @@ const (
 	vectorMetadataBucket = "vector"
 	quantizationKey      = "quantization"
 )
+
+// MetadataStore is a persistent store for metadata.
+type MetadataStore struct {
+	bucket *lsmkv.Bucket
+}
+
+func NewMetadataStore(bucket *lsmkv.Bucket) *MetadataStore {
+	return &MetadataStore{
+		bucket: bucket,
+	}
+}
+
+func (m *MetadataStore) key(suffix string) []byte {
+	buf := make([]byte, 1+len(suffix))
+	buf[0] = metadataBucketPrefix
+	copy(buf[1:], suffix)
+	return buf
+}
 
 type RQDataContainer struct {
 	Data interface{} `msgpack:"data"` // The actual RQ data

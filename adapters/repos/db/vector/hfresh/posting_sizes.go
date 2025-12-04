@@ -26,6 +26,7 @@ import (
 const (
 	postingSizeBucketPrefix = 's'
 	versionMapBucketPrefix  = 'v'
+	metadataBucketPrefix    = 'm'
 )
 
 // NewSharedBucket creates a shared lsmkv bucket for the HFresh index.
