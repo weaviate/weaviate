@@ -600,6 +600,9 @@ func (m *Memtable) SetTombstones(docIds []uint64) error {
 	defer m.Unlock()
 
 	m.tombstones.SetMany(docIds)
+	for _, docId := range docIds {
+		m.propLengthExists.Remove(docId)
+	}
 
 	return nil
 }
