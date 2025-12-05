@@ -1962,6 +1962,7 @@ func initRuntimeOverrides(appState *state.State) {
 			registered.OIDCGroupsClaim = appState.OIDC.Config.GroupsClaim
 			registered.OIDCScopes = appState.OIDC.Config.Scopes
 			registered.OIDCCertificate = appState.OIDC.Config.Certificate
+			registered.OIDCJWKSUrl = appState.OIDC.Config.JWKSUrl
 
 			hooks["OIDC"] = appState.OIDC.Init
 			appState.Logger.Log(logrus.InfoLevel, "registereing OIDC runtime overrides hooks")
