@@ -26,6 +26,7 @@ import (
 const (
 	postingSizeBucketPrefix = 's'
 	versionMapBucketPrefix  = 'v'
+	metadataBucketPrefix    = 'm'
 )
 
 // NewSharedBucket creates a shared lsmkv bucket for the HFresh index.
@@ -57,10 +58,7 @@ type PostingSizes struct {
 }
 
 func NewPostingSizes(bucket *lsmkv.Bucket, metrics *Metrics) (*PostingSizes, error) {
-	pStore, err := NewPostingSizeStore(bucket)
-	if err != nil {
-		return nil, err
-	}
+	pStore := NewPostingSizeStore(bucket)
 
 	cache, err := otter.New(&otter.Options[uint64, uint32]{
 		MaximumSize: 10_000,
@@ -136,10 +134,10 @@ type PostingSizeStore struct {
 	bucket *lsmkv.Bucket
 }
 
-func NewPostingSizeStore(bucket *lsmkv.Bucket) (*PostingSizeStore, error) {
+func NewPostingSizeStore(bucket *lsmkv.Bucket) *PostingSizeStore {
 	return &PostingSizeStore{
 		bucket: bucket,
-	}, nil
+	}
 }
 
 func (p *PostingSizeStore) key(postingID uint64) [9]byte {

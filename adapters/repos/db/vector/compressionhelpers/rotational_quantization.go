@@ -373,3 +373,11 @@ func (rq *RotationalQuantizer) PersistCompression(logger CommitLogger) {
 		Rotation: *rq.rotation,
 	})
 }
+
+func (rq *RotationalQuantizer) Data() RQData {
+	return RQData{
+		InputDim: rq.inputDim,
+		Bits:     rq.bits,
+		Rotation: *rq.rotation,
+	}
+}
