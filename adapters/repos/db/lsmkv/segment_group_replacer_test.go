@@ -41,9 +41,8 @@ func TestSegmentReplacer_OnDisk(t *testing.T) {
 		segD.setPath("directory/segment-0004.db")
 
 		diskSegments := &SegmentGroup{
-			logger:           logger,
-			segments:         []Segment{segA, segB, segC, segD},
-			segmentsWithRefs: map[string]Segment{},
+			logger:   logger,
+			segments: []Segment{segA, segB, segC, segD},
 		}
 
 		return diskSegments, segA, segB, segC, segD
