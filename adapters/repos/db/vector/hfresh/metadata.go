@@ -114,7 +114,8 @@ func (h *HFresh) restoreMetadata() error {
 		atomic.StoreUint32(&h.dims, dims)
 		h.setMaxPostingSize()
 
-		quantization, err := h.Metadata.GetQuantizationData()
+		var quantization *QuantizationData
+		quantization, err = h.Metadata.GetQuantizationData()
 		if err != nil {
 			return
 		}
