@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"runtime/debug"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -70,7 +71,6 @@ func NewStreamHandler(
 	processingQueue processingQueue,
 	metrics *BatchStreamingMetrics,
 	logger logrus.FieldLogger,
-	allocChecker memwatch.AllocChecker,
 ) *StreamHandler {
 	h := &StreamHandler{
 		authenticator:          authenticator,
@@ -85,7 +85,8 @@ func NewStreamHandler(
 		metrics:                metrics,
 		workerStatsPerStream:   &sync.Map{},
 		stoppingPerStream:      &sync.Map{},
-		allocChecker:           allocChecker,
+		// set a batch-unique alloc checker with a lower threshold to catch OOMs earlier than the global one
+		allocChecker: memwatch.NewMonitor(memwatch.LiveHeapReader, debug.SetMemoryLimit, 0.8),
 	}
 	return h
 }
@@ -182,9 +183,10 @@ func (h *StreamHandler) drainReportingQueue(queue reportingQueue, batchResults *
 }
 
 func (h *StreamHandler) handleRecvErr(recvErr error, stream pb.Weaviate_BatchStreamServer, logger *logrus.Entry) error {
-	if errors.Is(recvErr, enterrors.ErrNotEnoughMemory) {
+	var oomErr *oom
+	if errors.As(recvErr, &oomErr) {
 		logger.Warnf("receive error due to memory pressure: %v", recvErr)
-		if err := stream.Send(newBatchOutOfMemoryMessage()); err != nil {
+		if err := stream.Send(newBatchOutOfMemoryMessage(oomErr.uuids, oomErr.beacons)); err != nil {
 			logger.Errorf("failed to send out of memory message: %s", err)
 		}
 		// return nil to close the stream gracefully after sending the out of memory message
@@ -442,8 +444,21 @@ func (h *StreamHandler) receiver(ctx context.Context, streamId string, consisten
 					h.metrics.OnProcessingQueuePush(howMany)
 				}
 				size := estimateBatchMemory(objs)
-				if err := h.allocChecker.CheckAlloc(size); err != nil {
-					return fmt.Errorf("push to processing queue: %w", err)
+				h.allocChecker.Refresh(false)
+				if err := h.allocChecker.CheckAlloc(size + h.memInFlight.Load()); err != nil {
+					uuids := make([]string, 0, len(objs))
+					beacons := make([]string, 0, len(refs))
+					for _, obj := range objs {
+						uuids = append(uuids, obj.GetUuid())
+					}
+					for _, ref := range refs {
+						beacons = append(beacons, toBeacon(ref))
+					}
+					return &oom{
+						err:     fmt.Errorf("push to processing queue: %w", err),
+						uuids:   uuids,
+						beacons: beacons,
+					}
 				}
 				h.memInFlight.Add(size)
 				h.processingQueue <- &processRequest{
@@ -587,4 +602,14 @@ func (h *StreamHandler) setup(streamId string) {
 func (h *StreamHandler) teardown(streamId string) {
 	h.reportingQueues.delete(streamId)
 	h.logger.WithField("streamId", streamId).Debug("teardown completed")
+}
+
+type oom struct {
+	err     error
+	uuids   []string
+	beacons []string
+}
+
+func (e *oom) Error() string {
+	return e.err.Error()
 }

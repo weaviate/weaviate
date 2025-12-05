@@ -18,7 +18,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
-	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 type Drain func()
@@ -39,7 +38,6 @@ func Start(
 	reg prometheus.Registerer,
 	numWorkers int,
 	logger logrus.FieldLogger,
-	allocChecker memwatch.AllocChecker,
 ) (*StreamHandler, Drain) {
 	recvWg := sync.WaitGroup{}
 	sendWg := sync.WaitGroup{}
@@ -61,7 +59,6 @@ func Start(
 		processingQueue,
 		metrics,
 		logger,
-		allocChecker,
 	)
 
 	drain := func() {

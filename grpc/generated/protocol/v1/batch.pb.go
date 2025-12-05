@@ -998,6 +998,8 @@ func (*BatchStreamReply_Shutdown) Descriptor() ([]byte, []int) {
 
 type BatchStreamReply_OutOfMemory struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
+	Uuids         []string               `protobuf:"bytes,1,rep,name=uuids,proto3" json:"uuids,omitempty"`
+	Beacons       []string               `protobuf:"bytes,2,rep,name=beacons,proto3" json:"beacons,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1030,6 +1032,20 @@ func (x *BatchStreamReply_OutOfMemory) ProtoReflect() protoreflect.Message {
 // Deprecated: Use BatchStreamReply_OutOfMemory.ProtoReflect.Descriptor instead.
 func (*BatchStreamReply_OutOfMemory) Descriptor() ([]byte, []int) {
 	return file_v1_batch_proto_rawDescGZIP(), []int{3, 3}
+}
+
+func (x *BatchStreamReply_OutOfMemory) GetUuids() []string {
+	if x != nil {
+		return x.Uuids
+	}
+	return nil
+}
+
+func (x *BatchStreamReply_OutOfMemory) GetBeacons() []string {
+	if x != nil {
+		return x.Beacons
+	}
+	return nil
 }
 
 type BatchStreamReply_Backoff struct {
@@ -1719,7 +1735,7 @@ const file_v1_batch_proto_rawDesc = "" +
 	"\n" +
 	"References\x123\n" +
 	"\x06values\x18\x01 \x03(\v2\x1b.weaviate.v1.BatchReferenceR\x06valuesB\t\n" +
-	"\amessage\"\xde\a\n" +
+	"\amessage\"\x8e\b\n" +
 	"\x10BatchStreamReply\x12A\n" +
 	"\aresults\x18\x01 \x01(\v2%.weaviate.v1.BatchStreamReply.ResultsH\x00R\aresults\x12Q\n" +
 	"\rshutting_down\x18\x02 \x01(\v2*.weaviate.v1.BatchStreamReply.ShuttingDownH\x00R\fshuttingDown\x12D\n" +
@@ -1731,8 +1747,10 @@ const file_v1_batch_proto_rawDesc = "" +
 	"\aStarted\x1a\x0e\n" +
 	"\fShuttingDown\x1a\n" +
 	"\n" +
-	"\bShutdown\x1a\r\n" +
-	"\vOutOfMemory\x1a(\n" +
+	"\bShutdown\x1a=\n" +
+	"\vOutOfMemory\x12\x14\n" +
+	"\x05uuids\x18\x01 \x03(\tR\x05uuids\x12\x18\n" +
+	"\abeacons\x18\x02 \x03(\tR\abeacons\x1a(\n" +
 	"\aBackoff\x12\x1d\n" +
 	"\n" +
 	"batch_size\x18\x01 \x01(\x05R\tbatchSize\x1a6\n" +

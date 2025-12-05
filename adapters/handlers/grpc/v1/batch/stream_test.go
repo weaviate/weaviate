@@ -25,7 +25,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/batch/mocks"
 	"github.com/weaviate/weaviate/entities/models"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
-	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 func TestStreamHandler(t *testing.T) {
@@ -57,7 +56,7 @@ func TestStreamHandler(t *testing.T) {
 		mockStream.EXPECT().Send(newBatchStreamStartedReply()).Return(nil).Once()
 
 		numWorkers := 1
-		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, nil, numWorkers, logger, memwatch.NewDummyMonitor())
+		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, nil, numWorkers, logger)
 		err := handler.Handle(mockStream)
 		require.Equal(t, ctx.Err(), err, "Expected context cancelled error")
 	})
@@ -87,7 +86,7 @@ func TestStreamHandler(t *testing.T) {
 		mockStream.EXPECT().Send(newBatchStreamStartedReply()).Return(nil).Once()
 
 		numWorkers := 1
-		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, nil, numWorkers, logger, memwatch.NewDummyMonitor())
+		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, nil, numWorkers, logger)
 		err := handler.Handle(mockStream)
 		require.NoError(t, err, "Expected no error when streaming")
 	})
@@ -134,7 +133,7 @@ func TestStreamHandler(t *testing.T) {
 		mockStream.EXPECT().Send(newBatchStreamStartedReply()).Return(nil).Once()
 
 		numWorkers := 1
-		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, nil, numWorkers, logger, memwatch.NewDummyMonitor())
+		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, nil, numWorkers, logger)
 		err := handler.Handle(mockStream)
 		require.Equal(t, ctx.Err(), err, "Expected context cancelled error")
 	})
@@ -181,7 +180,7 @@ func TestStreamHandler(t *testing.T) {
 		mockStream.EXPECT().Send(newBatchStreamStartedReply()).Return(nil).Once()
 
 		numWorkers := 1
-		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, nil, numWorkers, logger, memwatch.NewDummyMonitor())
+		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, nil, numWorkers, logger)
 		err := handler.Handle(mockStream)
 		require.NoError(t, err, "Expected no error when streaming")
 	})
@@ -240,7 +239,7 @@ func TestStreamHandler(t *testing.T) {
 		})).Return(nil).Once()
 
 		numWorkers := 1
-		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, nil, numWorkers, logger, memwatch.NewDummyMonitor())
+		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, nil, numWorkers, logger)
 		err := handler.Handle(mockStream)
 		require.NoError(t, err, "Expected no error when handling stream")
 		require.Len(t, objsCh, numObjs, "Expected all objects to be processed into mock channel")

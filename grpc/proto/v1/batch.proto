@@ -50,6 +50,8 @@ message BatchStreamReply {
   message Shutdown {
   }
   message OutOfMemory{
+    repeated string uuids = 1;
+    repeated string beacons = 2;
   }
   message Backoff {
     int32 batch_size = 1;

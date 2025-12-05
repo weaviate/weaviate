@@ -50,7 +50,7 @@ type Monitor struct {
 	maxMemoryMappings int64
 
 	// state
-	mu                     sync.Mutex
+	mu                     sync.RWMutex
 	limit                  int64
 	usedMemory             int64
 	usedMappings           int64
@@ -94,8 +94,8 @@ func NewMonitor(metricsReader metricsReader, limitSetter limitSetter,
 }
 
 func (m *Monitor) CheckAlloc(sizeInBytes int64) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 
 	if float64(m.usedMemory+sizeInBytes)/float64(m.limit) > m.maxRatio {
 		return enterrors.ErrNotEnoughMemory

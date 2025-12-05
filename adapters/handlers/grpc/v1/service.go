@@ -62,7 +62,7 @@ type Service struct {
 func NewService(allowAnonymous bool, authComposer composer.TokenFunc, state *state.State) (*Service, batch.Drain) {
 	authenticator := auth.NewHandler(allowAnonymous, authComposer)
 	batchHandler := batch.NewHandler(state.Authorizer, state.BatchManager, state.Logger, authenticator, state.SchemaManager)
-	batchStreamHandler, batchDrain := batch.Start(authenticator, state.Authorizer, batchHandler, prometheus.DefaultRegisterer, NUMCPU, state.Logger, state.MemWatch)
+	batchStreamHandler, batchDrain := batch.Start(authenticator, state.Authorizer, batchHandler, prometheus.DefaultRegisterer, NUMCPU, state.Logger)
 	return &Service{
 		traverser:            state.Traverser,
 		authComposer:         authComposer,
