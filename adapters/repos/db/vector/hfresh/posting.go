@@ -15,7 +15,6 @@ import (
 	"context"
 	"encoding/binary"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 )
@@ -120,41 +119,4 @@ func (d *Distancer) DistanceBetweenCompressedVectors(a, b []byte) (float32, erro
 
 func (d *Distancer) DistanceBetweenVectors(a, b []float32) (float32, error) {
 	return d.distancer.SingleDist(a, b)
-}
-
-var (
-	postingSequenceBucket = []byte("posting_id_sequence")
-	postingSequenceKey    = []byte("upper_bound")
-)
-
-// PostingIDStore implements a store for posting ID sequences.
-// It uses the metadata database to persist the upper bound of the sequence.
-type PostingIDStore struct {
-	idx *SPFresh
-}
-
-func (s *SPFresh) NewPostingIDStore() *PostingIDStore {
-	return &PostingIDStore{
-		idx: s,
-	}
-}
-
-func (s *PostingIDStore) Store(upperBound uint64) error {
-	err := s.idx.openMetadata()
-	if err != nil {
-		return err
-	}
-	defer s.idx.closeMetadata()
-
-	return common.NewBoltStore(s.idx.metadata, postingSequenceBucket, postingSequenceKey).Store(upperBound)
-}
-
-func (s *PostingIDStore) Load() (uint64, error) {
-	err := s.idx.openMetadata()
-	if err != nil {
-		return 0, err
-	}
-	defer s.idx.closeMetadata()
-
-	return common.NewBoltStore(s.idx.metadata, postingSequenceBucket, postingSequenceKey).Load()
 }

@@ -149,7 +149,7 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 	if err != nil {
 		return nil, err
 	}
-	h.IDs, err = common.NewSequence(nil, h.Centroids.GetMaxID())
+	h.IDs, err = common.NewSequence(NewBucketStore(bucket), 1000)
 	if err != nil {
 		return nil, err
 	}

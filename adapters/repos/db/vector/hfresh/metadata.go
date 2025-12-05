@@ -23,8 +23,9 @@ import (
 )
 
 const (
-	quantizationKey = "quantization"
-	dimensionsKey   = "dimensions"
+	quantizationKey    = "quantization"
+	dimensionsKey      = "dimensions"
+	postingSequenceKey = "posting_seq"
 )
 
 // MetadataStore is a persistent store for metadata.
@@ -162,4 +163,33 @@ func (h *HFresh) restoreQuantizationData(rqData *compressionhelpers.RQData) erro
 	}
 
 	return nil
+}
+
+// BucketStore is a SequenceStore implementation that uses the LSM store as the backend.
+type BucketStore struct {
+	bucket *lsmkv.Bucket
+	key    []byte
+}
+
+func NewBucketStore(bucket *lsmkv.Bucket) *BucketStore {
+	return &BucketStore{
+		bucket: bucket,
+		key:    []byte(postingSequenceKey),
+	}
+}
+
+func (s *BucketStore) Store(upperBound uint64) error {
+	var buf [8]byte
+	binary.LittleEndian.PutUint64(buf[:], upperBound)
+
+	return s.bucket.Put(s.key, buf[:])
+}
+
+func (s *BucketStore) Load() (uint64, error) {
+	v, err := s.bucket.Get(s.key)
+	if err != nil {
+		return 0, err
+	}
+
+	return binary.LittleEndian.Uint64(v), nil
 }

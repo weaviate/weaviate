@@ -96,7 +96,7 @@ func (h *HFresh) doSplit(ctx context.Context, postingID uint64, reassign bool) e
 	for i := range 2 {
 		newPostingID, err := h.IDs.Next()
 		if err != nil {
-			return nil, errors.Wrap(err, "failed to allocate new posting ID during split operation")
+			return errors.Wrap(err, "failed to allocate new posting ID during split operation")
 		}
 		newPostingIDs[i] = newPostingID
 		err = h.PostingStore.Put(ctx, newPostingID, result[i].Posting)
