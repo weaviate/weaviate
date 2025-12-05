@@ -48,6 +48,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/clients"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/authz"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
+	clusterapigrpc "github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/db_users"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	replicationHandlers "github.com/weaviate/weaviate/adapters/handlers/rest/replication"
@@ -522,9 +523,8 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		authConfig := appState.ServerConfig.Config.Cluster.AuthConfig
 
 		fileCopyChunkSize := appState.ServerConfig.Config.ReplicationEngineFileCopyChunkSize
-		pbOverhead := 16 * 1024           // 16kB for any extra overhead
-		defaultMsgSize := 4 * 1024 * 1024 // 4MB default from grpc
-		maxSize := max(defaultMsgSize, fileCopyChunkSize+pbOverhead)
+
+		maxSize := max(clusterapigrpc.DEFAULT_MSG_SIZE, fileCopyChunkSize+clusterapigrpc.PB_OVERHEAD)
 
 		clientConn, err := grpc.NewClient(address,
 			grpc.WithTransportCredentials(insecure.NewCredentials()),
@@ -533,7 +533,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 				grpc.MaxCallSendMsgSize(maxSize),
 			),
 			grpc.WithInitialWindowSize(int32(maxSize)),
-			grpc.WithInitialConnWindowSize(16<<20), // 16MB (max)
+			grpc.WithInitialConnWindowSize(clusterapigrpc.INITIAL_CONN_WINDOW),
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create gRPC client connection: %w", err)

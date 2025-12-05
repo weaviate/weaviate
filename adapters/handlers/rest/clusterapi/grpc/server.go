@@ -33,19 +33,23 @@ type Server struct {
 	state *state.State
 }
 
+const (
+	PB_OVERHEAD         = 16 * 1024       // 16kB for any extra overhead
+	DEFAULT_MSG_SIZE    = 4 * 1024 * 1024 // 4MB default from grpc
+	INITIAL_CONN_WINDOW = 16 << 20        // 16MB
+)
+
 // NewServer creates *grpc.Server with optional grpc.Serveroption passed.
 func NewServer(state *state.State, options ...grpc.ServerOption) *Server {
 	fileCopyChunkSize := state.ServerConfig.Config.ReplicationEngineFileCopyChunkSize
 
-	pbOverhead := 16 * 1024           // 16kB for any extra overhead
-	defaultMsgSize := 4 * 1024 * 1024 // 4MB default from grpc
-	maxSize := max(defaultMsgSize, fileCopyChunkSize+pbOverhead)
+	maxSize := max(DEFAULT_MSG_SIZE, fileCopyChunkSize+PB_OVERHEAD)
 
 	o := []grpc.ServerOption{
 		grpc.MaxRecvMsgSize(maxSize),
 		grpc.MaxSendMsgSize(maxSize),
 		grpc.InitialWindowSize(int32(maxSize)),
-		grpc.InitialConnWindowSize(16 << 20), // 16MB (max)
+		grpc.InitialConnWindowSize(INITIAL_CONN_WINDOW),
 	}
 
 	basicAuth := state.ServerConfig.Config.Cluster.AuthConfig.BasicAuth
