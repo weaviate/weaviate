@@ -704,8 +704,8 @@ github.com/stretchr/testify v1.8.0/go.mod h1:yNjHg4UonilssWZ8iaSj1OCr/vHnekPRkoO
 github.com/stretchr/testify v1.11.1 h1:7s2iGBzp5EwR7/aIZr8ao5+dra3wiQyKjjFuvgVKu7U=
 github.com/stretchr/testify v1.11.1/go.mod h1:wZwfW3scLgRK+23gO65QZefKpKQRnfz6sD981Nm4B6U=
 github.com/syndtr/goleveldb v0.0.0-20180708030551-c4c61651e9e3/go.mod h1:Z4AUp2Km+PwemOoO/VB5AOx9XSsIItzFjoJlOSiYmn0=
-github.com/tailor-inc/graphql v0.5.7 h1:M33mFZmAvJ8GjqIl4jGhZVJFsGl9Bo5uUflRv6mFuJU=
-github.com/tailor-inc/graphql v0.5.7/go.mod h1:kBiPFdeNPJOFCnffxI0lT6+1/853hIK8P+mIVOJ/d0M=
+github.com/tailor-platform/graphql v0.6.0 h1:1r0YF1/qhwUoXu4oCfAheK++2v1AyzYIsdsJ2m3tdPc=
+github.com/tailor-platform/graphql v0.6.0/go.mod h1:LJNQhryF32hojEwfpqY4XpJO6Y3feOjJNYOmtPANesM=
 github.com/termie/go-shutil v0.0.0-20140729215957-bcacb06fecae h1:vgGSvdW5Lqg+I1aZOlG32uyE6xHpLdKhZzcTEktz5wM=
 github.com/termie/go-shutil v0.0.0-20140729215957-bcacb06fecae/go.mod h1:quDq6Se6jlGwiIKia/itDZxqC5rj6/8OdFyMMAwTxCs=
 github.com/testcontainers/testcontainers-go v0.39.0 h1:uCUJ5tA+fcxbFAB0uP3pIK3EJ2IjjDUHFSZ1H1UxAts=

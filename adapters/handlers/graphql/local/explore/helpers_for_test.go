@@ -15,7 +15,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/tailor-inc/graphql"
+	"github.com/tailor-platform/graphql"
 
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/descriptions"
 	testhelper "github.com/weaviate/weaviate/adapters/handlers/graphql/test/helper"

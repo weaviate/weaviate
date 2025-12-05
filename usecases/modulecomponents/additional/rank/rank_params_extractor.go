@@ -12,7 +12,7 @@
 package rank
 
 import (
-	"github.com/tailor-inc/graphql/language/ast"
+	"github.com/tailor-platform/graphql/language/ast"
 )
 
 func (p *ReRankerProvider) parseReRankerArguments(args []*ast.Argument) *Params {
