@@ -15,12 +15,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/rand"
 	"time"
 
 	"github.com/go-openapi/strfmt"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/refcache"
+	"github.com/weaviate/weaviate/adapters/repos/db/ttl"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/errorcompounder"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/multi"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -63,6 +67,164 @@ func (db *DB) DeleteObject(ctx context.Context, class string, id strfmt.UUID,
 	}
 
 	return nil
+}
+
+func (db *DB) triggerDeletionObjectsExpiredSingleNode(ctx context.Context, collections []string,
+	ttlTime, deletionTime time.Time,
+) error {
+	ec := errorcompounder.New()
+
+	for _, collection := range collections {
+		func() {
+			idx, release, deleteOnPropName, ttlThreshold := db.extractTtlDataFromCollection(collection, ttlTime)
+			if idx == nil {
+				return
+			}
+			defer release()
+
+			fmt.Printf("  ==> (single node) idx.IncomingDeleteObjectsExpired\n"+
+				"      collection [%s] deleteOnPropName [%s] ttlThreshold [%s] deletionTime [%s]\n\n",
+				collection, deleteOnPropName, ttlThreshold, deletionTime)
+
+			// TODO aliszka:ttl schemaVersion?
+			err := idx.IncomingDeleteObjectsExpired(ctx, deleteOnPropName, ttlThreshold, deletionTime, 0)
+			ec.Add(err)
+		}()
+	}
+
+	return ec.ToError()
+}
+
+func (db *DB) triggerDeletionObjectsExpiredMultiNode(ctx context.Context, collections []string,
+	ttlTime, deletionTime time.Time, nodes []string,
+) error {
+	ec := errorcompounder.New()
+
+	pickNode := func() string { return nodes[0] }
+	if nodesCount := len(nodes); nodesCount > 1 {
+		rnd := rand.New(rand.NewSource(time.Now().UnixNano()))
+		i := rnd.Intn(nodesCount)
+
+		pickNode = func() string {
+			i = (i + 1) % nodesCount
+			return nodes[i]
+		}
+	}
+
+	for _, collection := range collections {
+		func() {
+			idx, release, deleteOnPropName, ttlThreshold := db.extractTtlDataFromCollection(collection, ttlTime)
+			if idx == nil {
+				return
+			}
+			defer release()
+
+			node := pickNode()
+			fmt.Printf("  ==> (multi node) idx.remote.DeleteObjectsExpired\n"+
+				"      collection [%s] deleteOnPropName [%s] ttlThreshold [%s] deletionTime [%s] node [%s]\n\n",
+				collection, deleteOnPropName, ttlThreshold, deletionTime, node)
+
+			// TODO aliszka:ttl schema version?
+			err := idx.remote.DeleteObjectsExpired(ctx, deleteOnPropName, ttlThreshold, deletionTime, node, 0)
+			ec.Add(err)
+		}()
+	}
+
+	return ec.ToError()
+}
+
+func (db *DB) extractTtlDataFromCollection(collection string, ttlTime time.Time,
+) (idx *Index, release func(), deleteOnPropName string, ttlThreshold time.Time) {
+	db.indexLock.RLock()
+	idx = db.indices[collection]
+	if idx != nil {
+		idx.closeLock.RLock()
+	}
+	db.indexLock.RUnlock()
+
+	if idx != nil {
+		class := idx.getClass()
+		if ttl.IsTtlEnabled(class.ObjectTTLConfig) {
+			deleteOnPropName = class.ObjectTTLConfig.DeleteOn
+			ttlThreshold = ttlTime.Add(-time.Second * time.Duration(class.ObjectTTLConfig.DefaultTTL))
+
+			return idx, idx.closeLock.RUnlock, deleteOnPropName, ttlThreshold
+		}
+		idx.closeLock.RUnlock()
+	}
+	return nil, func() {}, "", time.Time{}
+}
+
+func (db *DB) TriggerDeletionObjectsExpired(ctx context.Context, ttlTime, deletionTime time.Time) error {
+	collections := []string{}
+	db.indexLock.RLock()
+	for collection := range db.indices {
+		collections = append(collections, collection)
+	}
+	db.indexLock.RUnlock()
+
+	fmt.Printf("  ==> all collections %v\n\n", collections)
+
+	if len(collections) == 0 {
+		return nil
+	}
+
+	localNode := db.schemaGetter.NodeName()
+	allNodes := db.schemaGetter.Nodes()
+	otherNodes := make([]string, 0, len(allNodes))
+	for _, node := range allNodes {
+		if node != localNode {
+			otherNodes = append(otherNodes, node)
+		}
+	}
+
+	fmt.Printf("  ==> local node %v\n"+
+		"      all nodes %v\n"+
+		"      other nodes %v\n\n", localNode, allNodes, otherNodes)
+
+	if len(otherNodes) == 0 {
+		return db.triggerDeletionObjectsExpiredSingleNode(ctx, collections, ttlTime, deletionTime)
+	}
+	return db.triggerDeletionObjectsExpiredMultiNode(ctx, collections, ttlTime, deletionTime, otherNodes)
+}
+
+func (db *DB) DeleteObjectsExpired(ctx context.Context, expirationTime time.Time, concurrency int) error {
+	fmt.Printf("  ==> expirationTime %s\n\n", expirationTime)
+
+	db.indexLock.RLock()
+	colNames := make([]string, len(db.indices))
+	i := 0
+	for colName := range db.indices {
+		colNames[i] = colName
+		i++
+	}
+	db.indexLock.RUnlock()
+
+	if len(colNames) == 0 {
+		return nil
+	}
+
+	chErrs := make([]<-chan error, 0, len(colNames))
+	eg := enterrors.NewErrorGroupWrapper(db.logger)
+	eg.SetLimit(concurrency)
+	for _, colName := range colNames {
+		db.indexLock.RLock()
+		idx := db.indices[colName]
+		db.indexLock.RUnlock()
+
+		if idx != nil {
+			// TODO aliszka:ttl prevent index from being removed while processed?
+			chErr := idx.deleteObjectsExpiredAsync(ctx, eg, expirationTime)
+			chErrs = append(chErrs, chErr)
+		}
+	}
+	eg.Wait()
+
+	ec := errorcompounder.New()
+	for _, chErr := range chErrs {
+		ec.Add(<-chErr)
+	}
+	return ec.ToError()
 }
 
 func (db *DB) MultiGet(ctx context.Context, query []multi.Identifier,

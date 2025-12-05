@@ -92,3 +92,7 @@ func (s *Raft) NodeSelector() cluster.NodeSelector {
 func (s *Raft) ReplicationFsm() *replication.ShardReplicationFSM {
 	return s.store.replicationManager.GetReplicationFSM()
 }
+
+func (s *Raft) IsLeader() bool {
+	return s.store.IsLeader()
+}

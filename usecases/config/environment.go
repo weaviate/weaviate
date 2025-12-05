@@ -22,6 +22,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/netresearch/go-cron"
 	dbhelpers "github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
@@ -148,6 +149,15 @@ func FromEnv(config *Config) error {
 
 	if entcfg.Enabled(os.Getenv("INDEX_MISSING_TEXT_FILTERABLE_AT_STARTUP")) {
 		config.IndexMissingTextFilterableAtStartup = true
+	}
+
+	objectsTtlDeleteScheduleEnv := "OBJECTS_TTL_DELETE_SCHEDULE"
+	if objectsTtlDeleteSchedule := os.Getenv(objectsTtlDeleteScheduleEnv); objectsTtlDeleteSchedule != "" {
+		// assumes cron is configured with standard parser
+		if _, err := cron.ParseStandard(objectsTtlDeleteSchedule); err != nil {
+			return fmt.Errorf("%s: %w", objectsTtlDeleteScheduleEnv, err)
+		}
+		config.ObjectsTTLDeleteSchedule = objectsTtlDeleteSchedule
 	}
 
 	cptParser := newCollectionPropsTenantsParser()

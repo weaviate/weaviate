@@ -278,6 +278,41 @@ func (c *RemoteIndex) DeleteObject(ctx context.Context, hostName, indexName,
 	return nil
 }
 
+func (c *RemoteIndex) DeleteObjectsExpired(ctx context.Context, hostName, indexName,
+	deleteOnPropName string, ttlThreshold, deletionTime time.Time, schemaVersion uint64,
+) error {
+	fmt.Printf("  ==> RemoteIndex::DeleteObjectsExpired hostName [%s] indexName [%s] deleteProp [%s] ttlThreshold [%s] deletionTime [%s]\n\n",
+		hostName, indexName, deleteOnPropName, ttlThreshold, deletionTime)
+
+	value := []string{strconv.FormatUint(schemaVersion, 10)}
+	marshalled, err := clusterapi.IndicesPayloads.ObjectsExpired.Marshal(deleteOnPropName, ttlThreshold, deletionTime)
+	if err != nil {
+		return errors.Wrap(err, "marshal payload")
+	}
+	req, err := setupRequest(ctx, http.MethodPost, hostName,
+		fmt.Sprintf("/indices/%s/objects/ttl", indexName),
+		url.Values{replica.SchemaVersionKey: value}.Encode(),
+		bytes.NewReader(marshalled))
+	if err != nil {
+		return errors.Wrap(err, "open http request")
+	}
+
+	clusterapi.IndicesPayloads.ObjectsExpired.SetContentTypeHeaderReq(req)
+	res, err := c.client.Do(req)
+	if err != nil {
+		return errors.Wrap(err, "send http request")
+	}
+
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusNoContent {
+		body, _ := io.ReadAll(res.Body)
+		return errors.Errorf("unexpected status code %d (%s)", res.StatusCode,
+			body)
+	}
+
+	return nil
+}
+
 func (c *RemoteIndex) MergeObject(ctx context.Context, hostName, indexName,
 	shardName string, mergeDoc objects.MergeDocument, schemaVersion uint64,
 ) error {

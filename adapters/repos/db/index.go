@@ -26,6 +26,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/ttl"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -47,6 +49,7 @@ import (
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/autocut"
 	"github.com/weaviate/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -2179,6 +2182,68 @@ func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID,
 	return nil
 }
 
+func (i *Index) deleteObjectsExpired(ctx context.Context, expirationTime time.Time) error {
+	eg := enterrors.NewErrorGroupWrapper(i.logger)
+	eg.SetLimit(concurrency.GOMAXPROCS)
+	return <-i.deleteObjectsExpiredAsync(ctx, eg, expirationTime)
+}
+
+func (i *Index) deleteObjectsExpiredAsync(ctx context.Context, eg *enterrors.ErrorGroupWrapper, expirationTime time.Time) <-chan error {
+	chErr := make(chan error)
+
+	class := i.getClass()
+	if !ttl.IsTtlEnabled(class.ObjectTTLConfig) {
+		chErr <- nil
+		close(chErr)
+		return chErr
+	}
+
+	// expirationThreshold represents time that has to be compared to timestamp/custom_date value
+	// timestamp/custom_date + defaultTTL <= expirationTime
+	// timestamp/custom_date <= expirationTime - defaultTTL
+	// timestamp/custom_date <= expirationThreshold
+	expirationThreshold := expirationTime.Add(-time.Second * time.Duration(class.ObjectTTLConfig.DefaultTTL))
+	deleteOnPropName := class.ObjectTTLConfig.DeleteOn
+
+	ec := errorcompounder.NewSafe()
+	wg := new(sync.WaitGroup)
+	i.ForEachLoadedShard(func(name string, shard ShardLike) error {
+		if err := ctx.Err(); err != nil {
+			// TODO aliszka:ttl add to ec?
+			return err
+		}
+
+		wg.Add(1)
+		eg.Go(func() error {
+			defer wg.Done()
+
+			if ctx.Err() != nil {
+				// TODO aliszka:ttl add to ec?
+				return nil
+			}
+
+			err := shard.DeleteObjectsExpired(ctx, expirationThreshold, deleteOnPropName)
+			ec.Add(err)
+
+			return nil
+		})
+		return nil
+	})
+
+	enterrors.GoWrapper(func() {
+		wg.Wait()
+
+		err := ec.ToError()
+		if err != nil {
+			err = fmt.Errorf("%s: %w", class.Class, err)
+		}
+		chErr <- err
+		close(chErr)
+	}, i.logger)
+
+	return chErr
+}
+
 func (i *Index) IncomingDeleteObject(ctx context.Context, shardName string,
 	id strfmt.UUID, deletionTime time.Time, schemaVersion uint64,
 ) error {
@@ -2192,6 +2257,92 @@ func (i *Index) IncomingDeleteObject(ctx context.Context, shardName string,
 	defer release()
 
 	return shard.DeleteObject(ctx, id, deletionTime)
+}
+
+func (i *Index) IncomingDeleteObjectsExpired(ctx context.Context, deleteOnPropName string,
+	ttlThreshold, deletionTime time.Time, schemaVersion uint64,
+) error {
+	fmt.Printf("  ==> IncomingDeleteExpiredObjects\n"+
+		"      deleteOnProperty [%s]\n"+
+		"      ttlThreshold [%s]\n"+
+		"      deletionTime [%s]\n\n", deleteOnPropName, ttlThreshold, deletionTime)
+
+	class := i.getClass()
+	filter := &filters.LocalFilter{Root: &filters.Clause{
+		Operator: filters.OperatorLessThanEqual,
+		Value: &filters.Value{
+			Value: ttlThreshold,
+			Type:  schema.DataTypeDate,
+		},
+		On: &filters.Path{
+			Class:    schema.ClassName(class.Class),
+			Property: schema.PropertyName(deleteOnPropName),
+		},
+	}}
+
+	// TODO aliszka:ttl propagate replication?
+	replProps := defaultConsistency()
+
+	if isMT := multitenancy.IsMultiTenant(class.MultiTenancyConfig); isMT {
+		// TODO aliszka:ttl limit number of tenants? in case of thousands
+		tenants, err := i.schemaReader.Shards(class.Class)
+		if err != nil {
+			return fmt.Errorf("getting tenants of collection %q: %w", class.Class, err)
+		}
+
+		for _, tenant := range tenants {
+			tenants2uuids, err := i.findUUIDs(ctx, filter, tenant, replProps)
+			// skip inactive tenants
+			if err != nil && !errors.Is(err, enterrors.ErrTenantNotActive) {
+				// TODO aliszka:ttl exit or continue with other tenants
+				return fmt.Errorf("finding uuids for tenant %q of collection %q: %w", tenant, class.Class, err)
+			}
+
+			fmt.Printf("  ==> found uuids for tenant %q of collection %q: %v\n\n", tenant, class.Class, tenants2uuids)
+
+			if len(tenants2uuids[tenant]) == 0 {
+				continue
+			}
+
+			// TODO aliszka:ttl disable dryrun
+			resp, err := i.batchDeleteObjects(ctx, tenants2uuids, deletionTime, true, replProps, schemaVersion, tenant)
+			if err != nil {
+				// TODO aliszka:ttl exit or continue with other tenants
+				return fmt.Errorf("batch delete for tenant %q of collection %q: %w", tenant, class.Class, err)
+			}
+
+			fmt.Printf("  ==> batch delete for tenant %q of collection %q: resp %+v\n\n", tenant, class.Class, resp)
+		}
+
+	} else {
+		shards2uuids, err := i.findUUIDs(ctx, filter, "", replProps)
+		if err != nil {
+			return fmt.Errorf("finding uuids of collection %q: %w", class.Class, err)
+		}
+
+		fmt.Printf("  ==> found uuids of collection %q: %v\n\n", class.Class, shards2uuids)
+
+		for shard := range shards2uuids {
+			if len(shards2uuids[shard]) == 0 {
+				delete(shards2uuids, shard)
+			}
+		}
+		if len(shards2uuids) != 0 {
+			// TODO aliszka:ttl disable dryrun
+			resp, err := i.batchDeleteObjects(ctx, shards2uuids, deletionTime, true, replProps, schemaVersion, "")
+			if err != nil {
+				// TODO aliszka:ttl exit or continue with other tenants
+				return fmt.Errorf("batch delete of collection %q: %w", class.Class, err)
+			}
+
+			fmt.Printf("  ==> batch delete resp %+v\n\n", resp)
+		}
+	}
+
+	shardNames, err := i.schemaReader.Shards(class.Class)
+	fmt.Printf("  ==> shardNames %v err %s\n\n", shardNames, err)
+
+	return nil
 }
 
 func (i *Index) getClass() *models.Class {

@@ -44,6 +44,7 @@ type indicesPayloads struct {
 	SingleObject               singleObjectPayload
 	MergeDoc                   mergeDocPayload
 	ObjectList                 objectListPayload
+	ObjectsExpired             objectsExpiredPayload
 	VersionedObjectList        versionedObjectListPayload
 	SearchResults              searchResultsPayload
 	SearchParams               searchParamsPayload
@@ -263,6 +264,47 @@ func (p objectListPayload) Unmarshal(in []byte) ([]*storobj.Object, error) {
 	}
 
 	return out, nil
+}
+
+type objectsExpiredPayload struct {
+	Prop     string `json:"prop"`
+	TtlMilli int64  `json:"ttlMilli"`
+	DelMilli int64  `json:"delMilli"`
+}
+
+func (p objectsExpiredPayload) MIME() string {
+	return "application/vnd.weaviate.objectsexpired+json"
+}
+
+// func (p objectsExpiredPayload) CheckContentTypeHeader(r *http.Response) (string, bool) {
+// 	ct := r.Header.Get("content-type")
+// 	return ct, ct == p.MIME()
+// }
+
+func (p objectsExpiredPayload) CheckContentTypeHeaderReq(r *http.Request) (string, bool) {
+	ct := r.Header.Get("content-type")
+	return ct, ct == p.MIME()
+}
+
+// func (p objectsExpiredPayload) SetContentTypeHeader(w http.ResponseWriter) {
+// 	w.Header().Set("content-type", p.MIME())
+// }
+
+func (p objectsExpiredPayload) SetContentTypeHeaderReq(r *http.Request) {
+	r.Header.Set("content-type", p.MIME())
+}
+
+func (p objectsExpiredPayload) Marshal(propName string, ttlThreshold, deletionTime time.Time) ([]byte, error) {
+	p.Prop = propName
+	p.TtlMilli = ttlThreshold.UnixMilli()
+	p.DelMilli = deletionTime.UnixMilli()
+
+	return json.Marshal(p)
+}
+
+func (p objectsExpiredPayload) Unmarshal(in []byte) (propName string, ttlThreshold, deletionTime time.Time, err error) {
+	err = json.Unmarshal(in, &p)
+	return p.Prop, time.UnixMilli(p.TtlMilli), time.UnixMilli(p.DelMilli), err
 }
 
 type versionedObjectListPayload struct{}
