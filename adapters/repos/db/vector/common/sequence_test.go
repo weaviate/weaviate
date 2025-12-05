@@ -163,7 +163,7 @@ func TestSequence_Flush(t *testing.T) {
 }
 
 func TestSequence_BoltStore(t *testing.T) {
-	db, err := bolt.Open(filepath.Join(t.TempDir(), "bolt.db"), 0600, nil)
+	db, err := bolt.Open(filepath.Join(t.TempDir(), "bolt.db"), 0o600, nil)
 	require.NoError(t, err)
 	defer db.Close()
 
@@ -237,7 +237,7 @@ func BenchmarkSequence_Next(b *testing.B) {
 	rngs := []uint64{1, 10, 100, 1000, 10000}
 	for _, r := range rngs {
 		b.Run(fmt.Sprintf("sequence=%d", r), func(b *testing.B) {
-			db, err := bolt.Open(filepath.Join(b.TempDir(), "bolt.db"), 0600, nil)
+			db, err := bolt.Open(filepath.Join(b.TempDir(), "bolt.db"), 0o600, nil)
 			require.NoError(b, err)
 			defer db.Close()
 
@@ -258,7 +258,7 @@ func BenchmarkSequence_ConcurrentNext(b *testing.B) {
 	rngs := []uint64{1, 10, 100, 1000, 10000}
 	for _, r := range rngs {
 		b.Run(fmt.Sprintf("sequence=%d", r), func(b *testing.B) {
-			db, err := bolt.Open(filepath.Join(b.TempDir(), "bolt.db"), 0600, nil)
+			db, err := bolt.Open(filepath.Join(b.TempDir(), "bolt.db"), 0o600, nil)
 			require.NoError(b, err)
 			defer db.Close()
 
