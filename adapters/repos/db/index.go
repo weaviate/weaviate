@@ -2307,7 +2307,6 @@ func (i *Index) IncomingDeleteObjectsExpired(ctx context.Context, deleteOnPropNa
 		}
 
 	} else {
-		var err error
 		shards2uuids, err := i.findUUIDs(ctx, filter, "", replProps)
 		if err != nil {
 			return fmt.Errorf("finding uuids of collection %q: %w", class.Class, err)

@@ -898,73 +898,69 @@ func configureCrons(appState *state.State, serverShutdownCtx context.Context) {
 	// }, appState.Logger)
 
 	type jobSpec struct {
+		name     string
 		schedule string
 		job      gocron.Job
 	}
 
-	cronLogger := cron.NewGoCronLogger(appState.Logger, logrus.DebugLevel)
+	logger := appState.Logger.WithField("action", "cron")
+	cronLogger := cron.NewGoCronLogger(logger, logrus.DebugLevel)
 	specs := []jobSpec{}
 
 	if schedule := appState.ServerConfig.Config.ObjectsTTLDeleteSchedule; schedule != "" {
-		logger := appState.Logger.WithField("action", "cron_ttl_scheduler")
+		l := logger.WithField("action", "cron_ttl_scheduler")
 
-		deleteObjectsExpiredJob := gocron.NewChain(gocron.SkipIfStillRunning(cronLogger)).Then(cron.NewGoCronJob(func() {
-			if !appState.ClusterService.Raft.IsLeader() {
-				logger.Debug("not a scheduler - skipping")
-				return
-			}
+		triggerDeletionObjectsExpiredJob := gocron.NewChain(gocron.SkipIfStillRunning(cronLogger)).
+			Then(cron.NewGoCronJob(func() {
+				if !appState.ClusterService.Raft.IsLeader() {
+					l.Debug("not a ttl scheduler - skipping")
+					return
+				}
 
-			logger.Info("initiating deletion of expired objects")
+				var err error
+				started := time.Now()
 
-			now := time.Now()
-			err := appState.DB.InitDeleteObjectsExpired(serverShutdownCtx, now, now)
-			_ = err
+				l.Info("triggering deletion of expired objects")
+				defer func() {
+					l = l.WithField("took", time.Since(started))
+					if err != nil {
+						l.WithError(err).Error("triggering deletion of expired objects failed")
+					} else {
+						l.WithError(err).Info("triggering deletion of expired objects succeeded")
+					}
+				}()
 
-			// var err error
-			// now := time.Now()
-
-			// ctx, cancel := context.WithCancel(serverShutdownCtx)
-			// defer cancel()
-
-			// // TODO aliszka:ttl change log level to debug?
-			// logger.Info("started deleting expired objects")
-			// defer func() {
-			// 	logger = logger.WithField("took", time.Since(now).String())
-
-			// 	if err != nil {
-			// 		logger.WithError(err).Error("error deleting expired objects")
-			// 	} else {
-			// 		logger.Info("finished deleting expired objects")
-			// 	}
-			// }()
-
-			// err = appState.DB.DeleteObjectsExpired(ctx, now, concurrency.GOMAXPROCS)
-		}))
+				err = appState.DB.TriggerDeletionObjectsExpired(serverShutdownCtx, started, started)
+			}))
 
 		specs = append(specs, jobSpec{
+			name:     "trigger_deletion_objects_expired",
 			schedule: schedule,
-			job:      deleteObjectsExpiredJob,
+			job:      triggerDeletionObjectsExpiredJob,
 		})
 	}
 
-	if len(specs) > 0 {
-		fmt.Printf("  ==> configuring crons len=%d\n\n", len(specs))
-
-		if serverShutdownCtx.Err() != nil {
-			return
-		}
-
-		// standard parser
-		c := gocron.New(gocron.WithLogger(cronLogger), gocron.WithChain(gocron.Recover(cronLogger)))
-		for i := range specs {
-			c.AddJob(specs[i].schedule, specs[i].job)
-		}
-		c.Start()
-
-		<-serverShutdownCtx.Done()
-		fmt.Printf("  ==> server shutdown [%s]\n\n", context.Cause(serverShutdownCtx))
-		c.Stop()
+	if len(specs) == 0 {
+		logger.Info("no jobs configured")
+		return
 	}
+
+	// standard parser
+	c := gocron.New(gocron.WithLogger(cronLogger), gocron.WithChain(gocron.Recover(cronLogger)))
+	for i := range specs {
+		l := logger.WithField("job_name", specs[i].name)
+
+		entryId, err := c.AddJob(specs[i].schedule, specs[i].job)
+		if err != nil {
+			l.WithError(err).Error("failed adding job")
+			continue
+		}
+		l.WithField("entry", entryId).Info("added job")
+	}
+	c.Start()
+
+	<-serverShutdownCtx.Done()
+	c.Stop()
 }
 
 type metaStoreReady struct {

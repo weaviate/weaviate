@@ -69,7 +69,7 @@ func (db *DB) DeleteObject(ctx context.Context, class string, id strfmt.UUID,
 	return nil
 }
 
-func (db *DB) InitDeleteObjectsExpired(ctx context.Context, ttlTime, deletionTime time.Time) error {
+func (db *DB) TriggerDeletionObjectsExpired(ctx context.Context, ttlTime, deletionTime time.Time) error {
 	allCollections := []string{}
 	ec := errorcompounder.New()
 

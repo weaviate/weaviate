@@ -52,9 +52,7 @@ func (l *GoCronLogger) Error(err error, msg string, keysAndValues ...any) {
 }
 
 func (l *GoCronLogger) toFields(keysAndValues []any) logrus.Fields {
-	fields := logrus.Fields{
-		"action": "cron",
-	}
+	fields := logrus.Fields{}
 	if ln := len(keysAndValues); ln > 0 {
 		for i := 0; i < ln; i += 2 {
 			fields[fmt.Sprintf("c_%s", keysAndValues[i])] = keysAndValues[i+1]
