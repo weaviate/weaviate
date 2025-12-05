@@ -133,7 +133,7 @@ func makeSetupGlobalMiddleware(appState *state.State, context *middleware.Contex
 		handler = addInjectHeadersIntoContext(handler)
 		handler = makeCatchPanics(appState.Logger, newPanicsRequestsTotal(appState.Metrics, appState.Logger))(handler)
 		handler = addSourceIpToContext(handler)
-		handler = addReadOnlyMode(appState, handler)
+		handler = addOperationalMode(appState, handler)
 		if appState.ServerConfig.Config.Monitoring.Enabled {
 			handler = monitoring.InstrumentHTTP(
 				handler,
@@ -277,9 +277,16 @@ func addLiveAndReadyness(state *state.State, next http.Handler) http.Handler {
 	})
 }
 
-func addReadOnlyMode(state *state.State, next http.Handler) http.Handler {
+func addOperationalMode(state *state.State, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if state.ServerConfig.Config.ReadOnlyMode.Get() {
+		if state.ServerConfig.Config.OperationalMode.Get() == "ReadOnly" {
+			// Allow only read operations
+			if r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions {
+				writeOperationalModeErrorResponse(w, config.ErrReadOnlyModeEnabled)
+				return
+			}
+		}
+		if state.ServerConfig.Config.OperationalMode.Get() == "ScaleOut" {
 			// Allow only read operations
 			if r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions {
 				if strings.Contains(r.URL.Path, "/replication") {
@@ -287,20 +294,35 @@ func addReadOnlyMode(state *state.State, next http.Handler) http.Handler {
 					next.ServeHTTP(w, r)
 					return
 				}
-
-				resp := models.ErrorResponse{Error: []*models.ErrorResponseErrorItems0{{Message: config.ErrReadOnlyModeEnabled.Error()}}}
-				data, err := json.Marshal(resp)
-				if err != nil {
-					http.Error(w, "error when marshalling errorResponse in read-only mode", http.StatusInternalServerError)
+				writeOperationalModeErrorResponse(w, config.ErrScaleOutModeEnabled)
+				return
+			}
+		}
+		if state.ServerConfig.Config.OperationalMode.Get() == "WriteOnly" {
+			// Allow only write operations
+			if r.Method == http.MethodGet || r.Method == http.MethodHead || r.Method == http.MethodOptions {
+				if strings.Contains(r.URL.Path, "/meta") || strings.Contains(r.URL.Path, "/nodes") || strings.Contains(r.URL.Path, "/.well-known") {
+					// allow meta, nodes, well-known endpoints even in write-only mode
+					next.ServeHTTP(w, r)
 					return
 				}
-
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusServiceUnavailable)
-				w.Write(data)
+				writeOperationalModeErrorResponse(w, config.ErrWriteOnlyModeEnabled)
 				return
 			}
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func writeOperationalModeErrorResponse(w http.ResponseWriter, err error) {
+	resp := models.ErrorResponse{Error: []*models.ErrorResponseErrorItems0{{Message: err.Error()}}}
+	data, marshalErr := json.Marshal(resp)
+	if marshalErr != nil {
+		http.Error(w, "error when marshalling errorResponse in operational mode middleware", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusServiceUnavailable)
+	w.Write(data)
 }

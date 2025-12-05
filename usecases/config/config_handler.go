@@ -229,9 +229,8 @@ type Config struct {
 	// The minimum timeout for the server to wait before it returns an error
 	MinimumInternalTimeout time.Duration `json:"minimum_internal_timeout" yaml:"minimum_internal_timeout"`
 
-	// ReadOnlyMode, when enabled, puts the entire Weaviate instance into a read-only state whereby all CUD ops
-	// on all APIs are blocked with a specific error code returned.
-	ReadOnlyMode *runtime.DynamicValue[bool] `json:"read_only_mode" yaml:"read_only_mode"`
+	// The specific mode of operation for the instance itself. Is an enum of Full, WriteOnly, ReadOnly, ScaleOut
+	OperationalMode *runtime.DynamicValue[string] `json:"operational_mode" yaml:"operational_mode"`
 }
 
 type MapToBlockamaxConfig struct {

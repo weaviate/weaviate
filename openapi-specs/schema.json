@@ -2184,10 +2184,15 @@
             "$ref": "#/definitions/NodeShardStatus"
           }
         },
-        "readOnlyMode": {
-          "description": "Whether the node is in read-only mode such that no write operations are allowed (besides those required for cluster maintenance).",
-          "type": "boolean",
-          "x-omitempty": false
+        "operationalMode": {
+          "description": "Which mode of operation the node is running in.",
+          "type": "string",
+          "enum": [
+            "Full",
+            "WriteOnly",
+            "ReadOnly",
+            "ScaleOut"
+          ]
         }
       }
     },

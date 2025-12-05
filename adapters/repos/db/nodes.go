@@ -109,14 +109,14 @@ func (db *DB) LocalNodeStatus(ctx context.Context, className, shardName, output 
 	}
 
 	status := models.NodeStatus{
-		Name:         db.schemaGetter.NodeName(),
-		Version:      db.config.ServerVersion,
-		GitHash:      db.config.GitHash,
-		Status:       &clusterHealthStatus,
-		Shards:       shards,
-		Stats:        nodeStats,
-		BatchStats:   db.localNodeBatchStats(),
-		ReadOnlyMode: db.config.ReadOnlyMode.Get(),
+		Name:            db.schemaGetter.NodeName(),
+		Version:         db.config.ServerVersion,
+		GitHash:         db.config.GitHash,
+		Status:          &clusterHealthStatus,
+		Shards:          shards,
+		Stats:           nodeStats,
+		BatchStats:      db.localNodeBatchStats(),
+		OperationalMode: db.config.OperationalMode.Get(),
 	}
 
 	return &status

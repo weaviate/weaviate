@@ -94,7 +94,7 @@ func CreateGRPCServer(state *state.State, options ...grpc.ServerOption) (*grpc.S
 
 	interceptors = append(interceptors, makeIPInterceptor())
 
-	interceptors = append(interceptors, makeReadOnlyModeInterceptor(state))
+	interceptors = append(interceptors, makeOperationalModeInterceptor(state))
 
 	if len(interceptors) > 0 {
 		o = append(o, grpc.ChainUnaryInterceptor(interceptors...))
@@ -201,26 +201,35 @@ func makeIPInterceptor() grpc.UnaryServerInterceptor {
 	}
 }
 
-func makeReadOnlyModeInterceptor(state *state.State) grpc.UnaryServerInterceptor {
+func makeOperationalModeInterceptor(state *state.State) grpc.UnaryServerInterceptor {
+	// List of read methods
+	readMethods := map[string]struct{}{
+		"/weaviate.v1.Weaviate/Aggregate":  {},
+		"/weaviate.v1.Weaviate/Search":     {},
+		"/weaviate.v1.Weaviate/TenantsGet": {},
+	}
+	// List of write methods
+	writeMethods := map[string]struct{}{
+		"/weaviate.v1.Weaviate/BatchDelete":     {},
+		"/weaviate.v1.Weaviate/BatchObjects":    {},
+		"/weaviate.v1.Weaviate/BatchReferences": {},
+		"/weaviate.v1.Weaviate/BatchStream":     {},
+	}
 	return func(
 		ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler,
 	) (any, error) {
-		if !state.ServerConfig.Config.ReadOnlyMode.Get() {
-			return handler(ctx, req)
+		if state.ServerConfig.Config.OperationalMode.Get() == "ReadOnly" || state.ServerConfig.Config.OperationalMode.Get() == "ScaleOut" {
+			if _, isWriteMethod := writeMethods[info.FullMethod]; isWriteMethod {
+				st := status.New(codes.Unavailable, config.ErrReadOnlyModeEnabled.Error())
+				return nil, st.Err()
+			}
 		}
-
-		// List of write methods that should be blocked in read-only mode
-		writeMethods := map[string]struct{}{
-			"/weaviate.v1.Weaviate/BatchDelete":     {},
-			"/weaviate.v1.Weaviate/BatchObjects":    {},
-			"/weaviate.v1.Weaviate/BatchReferences": {},
-			"/weaviate.v1.Weaviate/BatchStream":     {},
+		if state.ServerConfig.Config.OperationalMode.Get() == "WriteOnly" {
+			if _, isReadMethod := readMethods[info.FullMethod]; isReadMethod {
+				st := status.New(codes.Unavailable, config.ErrWriteOnlyModeEnabled.Error())
+				return nil, st.Err()
+			}
 		}
-		if _, isWriteMethod := writeMethods[info.FullMethod]; isWriteMethod {
-			st := status.New(codes.Unavailable, config.ErrReadOnlyModeEnabled.Error())
-			return nil, st.Err()
-		}
-
 		return handler(ctx, req)
 	}
 }

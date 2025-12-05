@@ -41,8 +41,9 @@ type NodeStatus struct {
 	// The name of the node.
 	Name string `json:"name,omitempty"`
 
-	// Whether the node is in read-only mode such that no write operations are allowed (besides those required for cluster maintenance).
-	ReadOnlyMode bool `json:"readOnlyMode"`
+	// Which mode of operation the node is running in.
+	// Enum: [Full WriteOnly ReadOnly ScaleOut]
+	OperationalMode string `json:"operationalMode,omitempty"`
 
 	// The list of the shards with it's statistics.
 	Shards []*NodeShardStatus `json:"shards"`
@@ -63,6 +64,10 @@ func (m *NodeStatus) Validate(formats strfmt.Registry) error {
 	var res []error
 
 	if err := m.validateBatchStats(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateOperationalMode(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -98,6 +103,54 @@ func (m *NodeStatus) validateBatchStats(formats strfmt.Registry) error {
 			}
 			return err
 		}
+	}
+
+	return nil
+}
+
+var nodeStatusTypeOperationalModePropEnum []interface{}
+
+func init() {
+	var res []string
+	if err := json.Unmarshal([]byte(`["Full","WriteOnly","ReadOnly","ScaleOut"]`), &res); err != nil {
+		panic(err)
+	}
+	for _, v := range res {
+		nodeStatusTypeOperationalModePropEnum = append(nodeStatusTypeOperationalModePropEnum, v)
+	}
+}
+
+const (
+
+	// NodeStatusOperationalModeFull captures enum value "Full"
+	NodeStatusOperationalModeFull string = "Full"
+
+	// NodeStatusOperationalModeWriteOnly captures enum value "WriteOnly"
+	NodeStatusOperationalModeWriteOnly string = "WriteOnly"
+
+	// NodeStatusOperationalModeReadOnly captures enum value "ReadOnly"
+	NodeStatusOperationalModeReadOnly string = "ReadOnly"
+
+	// NodeStatusOperationalModeScaleOut captures enum value "ScaleOut"
+	NodeStatusOperationalModeScaleOut string = "ScaleOut"
+)
+
+// prop value enum
+func (m *NodeStatus) validateOperationalModeEnum(path, location string, value string) error {
+	if err := validate.EnumCase(path, location, value, nodeStatusTypeOperationalModePropEnum, true); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (m *NodeStatus) validateOperationalMode(formats strfmt.Registry) error {
+	if swag.IsZero(m.OperationalMode) { // not required
+		return nil
+	}
+
+	// value enum
+	if err := m.validateOperationalModeEnum("operationalMode", "body", m.OperationalMode); err != nil {
+		return err
 	}
 
 	return nil

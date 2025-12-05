@@ -7425,10 +7425,15 @@ func init() {
           "description": "The name of the node.",
           "type": "string"
         },
-        "readOnlyMode": {
-          "description": "Whether the node is in read-only mode such that no write operations are allowed (besides those required for cluster maintenance).",
-          "type": "boolean",
-          "x-omitempty": false
+        "operationalMode": {
+          "description": "Which mode of operation the node is running in.",
+          "type": "string",
+          "enum": [
+            "Full",
+            "WriteOnly",
+            "ReadOnly",
+            "ScaleOut"
+          ]
         },
         "shards": {
           "description": "The list of the shards with it's statistics.",
@@ -16941,10 +16946,15 @@ func init() {
           "description": "The name of the node.",
           "type": "string"
         },
-        "readOnlyMode": {
-          "description": "Whether the node is in read-only mode such that no write operations are allowed (besides those required for cluster maintenance).",
-          "type": "boolean",
-          "x-omitempty": false
+        "operationalMode": {
+          "description": "Which mode of operation the node is running in.",
+          "type": "string",
+          "enum": [
+            "Full",
+            "WriteOnly",
+            "ReadOnly",
+            "ScaleOut"
+          ]
         },
         "shards": {
           "description": "The list of the shards with it's statistics.",

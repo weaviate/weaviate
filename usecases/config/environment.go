@@ -946,11 +946,11 @@ func FromEnv(config *Config) error {
 	}
 	config.InvertedSorterDisabled = configRuntime.NewDynamicValue(invertedSorterDisabled)
 
-	readOnlyMode := false
-	if v := os.Getenv("READ_ONLY_MODE"); v != "" {
-		readOnlyMode = entcfg.Enabled(v)
+	operationalMode := "Full"
+	if v := os.Getenv("OPERATIONAL_MODE"); v != "" && (v == "Full" || v == "ReadOnly" || v == "WriteOnly" || v == "ScaleOut") {
+		operationalMode = v
 	}
-	config.ReadOnlyMode = configRuntime.NewDynamicValue(readOnlyMode)
+	config.OperationalMode = configRuntime.NewDynamicValue(operationalMode)
 
 	return nil
 }
