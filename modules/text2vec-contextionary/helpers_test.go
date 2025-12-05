@@ -16,8 +16,8 @@ import (
 	"fmt"
 
 	"github.com/sirupsen/logrus/hooks/test"
-	"github.com/tailor-inc/graphql"
-	"github.com/tailor-inc/graphql/language/ast"
+	"github.com/tailor-platform/graphql"
+	"github.com/tailor-platform/graphql/language/ast"
 
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/explore"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/get"

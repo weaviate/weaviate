@@ -10,7 +10,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/pkg/errors v0.9.1
 	github.com/stretchr/testify v1.11.1
-	github.com/tailor-inc/graphql v0.5.7
+	github.com/tailor-platform/graphql v0.6.0
 	github.com/weaviate/weaviate v1.32.4-0.20250821224425-5469448cc83a
 	github.com/weaviate/weaviate-go-client/v5 v5.4.2-0.20250822111337-d751da280fa2
 	golang.org/x/sync v0.18.0

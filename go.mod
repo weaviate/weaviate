@@ -73,7 +73,7 @@ require (
 	github.com/sirupsen/logrus v1.9.3
 	github.com/spaolacci/murmur3 v1.1.0
 	github.com/stretchr/testify v1.11.1
-	github.com/tailor-inc/graphql v0.5.7
+	github.com/tailor-platform/graphql v0.6.0
 	github.com/testcontainers/testcontainers-go v0.39.0
 	github.com/urfave/cli/v2 v2.27.7
 	github.com/vmihailenco/msgpack/v5 v5.4.1
