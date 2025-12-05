@@ -58,23 +58,20 @@ func (h *HFresh) Add(ctx context.Context, id uint64, vector []float32) (err erro
 	// init components that require knowing the vector dimensions
 	// and compressed size
 	h.initDimensionsOnce.Do(func() {
-		if atomic.LoadUint32(&h.dims) == 0 {
-			size := uint32(len(vector))
-			atomic.StoreUint32(&h.dims, size)
-			h.setMaxPostingSize()
-			err = h.Metadata.SetDimensions(size)
-			if err != nil {
-				err = errors.Wrap(err, "could not persist dimensions")
-				return // Fail the entire initialization
-			}
+		size := uint32(len(vector))
+		atomic.StoreUint32(&h.dims, size)
+		h.setMaxPostingSize()
+		err = h.Metadata.SetDimensions(size)
+		if err != nil {
+			err = errors.Wrap(err, "could not persist dimensions")
+			return // Fail the entire initialization
 		}
-		if h.quantizer == nil {
-			h.quantizer = compressionhelpers.NewRotationalQuantizer(int(h.dims), 42, 8, h.config.DistanceProvider)
-			h.Centroids.SetQuantizer(h.quantizer)
-			if err := h.persistQuantizationData(); err != nil {
-				err = errors.Wrap(err, "could not persist RQ data")
-				return // Fail the entire initialization
-			}
+
+		h.quantizer = compressionhelpers.NewRotationalQuantizer(int(h.dims), 42, 8, h.config.DistanceProvider)
+		h.Centroids.SetQuantizer(h.quantizer)
+		if err := h.persistQuantizationData(); err != nil {
+			err = errors.Wrap(err, "could not persist RQ data")
+			return // Fail the entire initialization
 		}
 
 		h.distancer = &Distancer{

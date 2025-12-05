@@ -107,24 +107,24 @@ type RQ8Data struct {
 
 func (h *HFresh) restoreMetadata() error {
 	dims, err := h.Metadata.GetDimensions()
-	if err != nil {
+	if err != nil || dims == 0 {
 		return err
 	}
-	if dims > 0 {
+	h.initDimensionsOnce.Do(func() {
 		atomic.StoreUint32(&h.dims, dims)
 		h.setMaxPostingSize()
-	}
 
-	quantization, err := h.Metadata.GetQuantizationData()
-	if err != nil {
-		return err
-	}
+		quantization, err := h.Metadata.GetQuantizationData()
+		if err != nil {
+			return
+		}
 
-	if quantization != nil {
-		return h.restoreQuantizationData(&quantization.RQ)
-	}
+		if quantization != nil {
+			err = h.restoreQuantizationData(&quantization.RQ)
+		}
+	})
 
-	return nil
+	return err
 }
 
 func (h *HFresh) persistQuantizationData() error {
