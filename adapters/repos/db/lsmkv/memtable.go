@@ -137,6 +137,7 @@ type Memtable struct {
 	writeSegmentInfoIntoFileName bool
 
 	currPropLengthCount, currPropLengthSum uint64
+	propLengthExists                       *sroar.Bitmap
 
 	// We're only tracking the refcount for writers. Readers get a consistent
 	// view of all memtables & segments, so they don't need ref-counting.
@@ -185,6 +186,7 @@ func newMemtable(path string, strategy string, secondaryIndices uint16,
 
 	if m.strategy == StrategyInverted {
 		m.tombstones = sroar.NewBitmap()
+		m.propLengthExists = sroar.NewBitmap()
 	}
 
 	return m, nil
@@ -490,10 +492,13 @@ func (m *Memtable) appendMapSorted(key []byte, pair MapPair) error {
 
 	if m.strategy == StrategyInverted && !pair.Tombstone {
 		docID := binary.LittleEndian.Uint64(pair.Key)
-		m.tombstones.Remove(docID)
 		fieldLength := math.Float32frombits(binary.LittleEndian.Uint32(pair.Value[4:]))
-		m.currPropLengthSum += uint64(fieldLength)
-		m.currPropLengthCount++
+		if !m.propLengthExists.Contains(docID) {
+			m.currPropLengthSum += uint64(fieldLength)
+			m.currPropLengthCount++
+			m.propLengthExists.Set(docID)
+		}
+		m.tombstones.Remove(docID)
 	}
 
 	return nil
@@ -581,6 +586,7 @@ func (m *Memtable) SetTombstone(docId uint64) error {
 	defer m.Unlock()
 
 	m.tombstones.Set(docId)
+	m.propLengthExists.Remove(docId)
 
 	return nil
 }
