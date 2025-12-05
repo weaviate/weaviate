@@ -1536,17 +1536,19 @@ func TestBucketMapStrategyDocPointersConsistentView(t *testing.T) {
 		strategy: StrategyMapCollection,
 	}
 
+	view1 := b.GetConsistentView()
 	// Sanity via Bucket API
-	got, err := b.DocPointerWithScoreList(ctx, []byte("key1"), 1)
+	got, err := b.DocPointerWithScoreList(ctx, view1, []byte("key1"), 1)
 	require.NoError(t, err)
 	require.ElementsMatch(t, []terms.DocPointerWithScore{docPointers(0, 1.0, 3)}, got)
 
-	got, err = b.DocPointerWithScoreList(ctx, []byte("key2"), 1)
+	got, err = b.DocPointerWithScoreList(ctx, view1, []byte("key2"), 1)
 	require.NoError(t, err)
 	require.ElementsMatch(t, []terms.DocPointerWithScore{docPointers(1, 0.8, 4)}, got)
 
+	view1.Release()
 	// View #1 (pre-switch): active=key2, flushing=nil, disk=key1
-	view1 := b.GetConsistentView()
+	view1 = b.GetConsistentView()
 	defer view1.Release()
 
 	validateView1 := func(v BucketConsistentView) {

@@ -38,7 +38,10 @@ func createTerm(bucket *Bucket, N float64, filterDocIds helpers.AllowList, query
 
 	allMsAndProps := make([][]terms.DocPointerWithScore, 1)
 
-	m, err := bucket.DocPointerWithScoreList(ctx, []byte(query), 1)
+	view1 := bucket.GetConsistentView()
+	defer view1.Release()
+
+	m, err := bucket.DocPointerWithScoreList(ctx, view1, []byte(query), 1)
 	if err != nil {
 		return nil, err
 	}
