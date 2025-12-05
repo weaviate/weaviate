@@ -2259,13 +2259,71 @@ func (i *Index) IncomingDeleteObject(ctx context.Context, shardName string,
 	return shard.DeleteObject(ctx, id, deletionTime)
 }
 
-func (i *Index) IncomingDeleteObjectsExpired(ctx context.Context, deleteOnProperty string,
-	ttlThreshold, deletionTime time.Time,
+func (i *Index) IncomingDeleteObjectsExpired(ctx context.Context, deleteOnPropName string,
+	ttlThreshold, deletionTime time.Time, schemaVersion uint64,
 ) error {
 	fmt.Printf("  ==> IncomingDeleteExpiredObjects\n"+
 		"      deleteOnProperty [%s]\n"+
 		"      ttlThreshold [%s]\n"+
-		"      deletionTime [%s]\n\n", deleteOnProperty, ttlThreshold, deletionTime)
+		"      deletionTime [%s]\n\n", deleteOnPropName, ttlThreshold, deletionTime)
+
+	class := i.getClass()
+	filter := &filters.LocalFilter{Root: &filters.Clause{
+		Operator: filters.OperatorLessThanEqual,
+		Value: &filters.Value{
+			Value: ttlThreshold,
+			Type:  schema.DataTypeDate,
+		},
+		On: &filters.Path{
+			Class:    schema.ClassName(class.Class),
+			Property: schema.PropertyName(deleteOnPropName),
+		},
+	}}
+
+	// TODO aliszka:ttl propagate replication?
+	replProps := defaultConsistency()
+
+	if isMT := multitenancy.IsMultiTenant(class.MultiTenancyConfig); isMT {
+		tenants, err := i.schemaReader.Shards(class.Class)
+		if err != nil {
+			return fmt.Errorf("getting tenants of collection %q: %w", class.Class, err)
+		}
+
+		for _, tenant := range tenants {
+			tenants2uuids, err := i.findUUIDs(ctx, filter, tenant, replProps)
+			// skip inactive tenants
+			if err != nil && !errors.Is(err, enterrors.ErrTenantNotActive) {
+				// TODO aliszka:ttl exit or continue with other tenants
+				return fmt.Errorf("finding uuids for tenant %q of collection %q: %w", tenant, class.Class, err)
+			}
+
+			resp, err := i.batchDeleteObjects(ctx, tenants2uuids, deletionTime, true, replProps, schemaVersion, tenant)
+			if err != nil {
+				// TODO aliszka:ttl exit or continue with other tenants
+				return fmt.Errorf("batch delete for tenant %q of collection %q: %w", tenant, class.Class, err)
+			}
+
+			fmt.Printf("  ==> batch delete for tenant %q of collection %q: resp %+v\n\n", tenant, class.Class, resp)
+		}
+
+	} else {
+		var err error
+		shards2uuids, err := i.findUUIDs(ctx, filter, "", replProps)
+		if err != nil {
+			return fmt.Errorf("finding uuids of collection %q: %w", class.Class, err)
+		}
+
+		resp, err := i.batchDeleteObjects(ctx, shards2uuids, deletionTime, true, replProps, schemaVersion, "")
+		if err != nil {
+			// TODO aliszka:ttl exit or continue with other tenants
+			return fmt.Errorf("batch delete of collection %q: %w", class.Class, err)
+		}
+
+		fmt.Printf("  ==> batch delete resp %+v\n\n", resp)
+	}
+
+	shardNames, err := i.schemaReader.Shards(class.Class)
+	fmt.Printf("  ==> shardNames %v err %s\n\n", shardNames, err)
 
 	return nil
 }

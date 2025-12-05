@@ -59,7 +59,7 @@ type RemoteIndexIncomingRepo interface {
 	IncomingDeleteObject(ctx context.Context, shardName string,
 		id strfmt.UUID, deletionTime time.Time, schemaVersion uint64) error
 	IncomingDeleteObjectsExpired(ctx context.Context, deleteOnProperty string,
-		ttlThreshold, deletionTime time.Time) error
+		ttlThreshold, deletionTime time.Time, schemaVersion uint64) error
 	IncomingMergeObject(ctx context.Context, shardName string,
 		mergeDoc objects.MergeDocument, schemaVersion uint64) error
 	IncomingMultiGetObjects(ctx context.Context, shardName string,
@@ -199,7 +199,7 @@ func (rii *RemoteIndexIncoming) DeleteObjectsExpired(ctx context.Context, indexN
 		return err
 	}
 
-	return index.IncomingDeleteObjectsExpired(ctx, deleteOnProperty, ttlThreshold, deletionTime)
+	return index.IncomingDeleteObjectsExpired(ctx, deleteOnProperty, ttlThreshold, deletionTime, schemaVersion)
 }
 
 func (rii *RemoteIndexIncoming) MergeObject(ctx context.Context, indexName,
