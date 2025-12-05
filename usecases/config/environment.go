@@ -51,7 +51,7 @@ const (
 	DefaultReplicationEngineMaxWorkers        = 10
 	DefaultReplicaMovementMinimumAsyncWait    = 60 * time.Second
 	DefaultReplicationEngineFileCopyWorkers   = 10
-	DefaultReplicationEngineFileCopyChunkSize = 64 * 1024 // 64 KB
+	DefaultReplicationEngineFileCopyChunkSize = 1 * 1024 * 1024 // 1 MB
 
 	DefaultTransferInactivityTimeout = 5 * time.Minute
 

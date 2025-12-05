@@ -32,6 +32,7 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateOfLargeShard() {
 	compose, err := docker.New().
 		WithWeaviateCluster(3).
 		WithWeaviateEnv("REPLICA_MOVEMENT_ENABLED", "true").
+		WithWeaviateEnv("REPLICATION_ENGINE_FILE_COPY_CHUNK_SIZE", "10485760"). // 10 MB
 		Start(mainCtx)
 	require.Nil(t, err)
 	defer func() {
