@@ -22,6 +22,16 @@ import (
 )
 
 const (
+	apiEndpointProperty = "apiEndpoint"
+	projectIDProperty   = "projectId"
+	modelIDProperty     = "modelId"
+	modelProperty       = "model"
+	titleProperty       = "titleProperty"
+	dimensionsProperty  = "dimensions"
+	taskTypeProperty    = "taskType"
+)
+
+const (
 	DefaultVectorizeClassName    = false
 	DefaultPropertyIndexed       = true
 	DefaultVectorizePropertyName = false
@@ -31,14 +41,6 @@ const (
 	DefaultAIStudioEndpoint      = "generativelanguage.googleapis.com"
 	DefaulAIStudioModel          = "gemini-embedding-001"
 	DefaultTaskType              = "RETRIEVAL_QUERY"
-
-	// Parameter keys for accessing the Parameters map
-	ParamApiEndpoint = "ApiEndpoint"
-	ParamProjectID   = "ProjectID"
-	ParamModel       = "Model"
-	ParamTitle       = "TitleProperty"
-	ParamDimensions  = "Dimensions"
-	ParamTaskType    = "TaskType"
 )
 
 // default dimensions are set to 768 bc of being backward compatible with earlier models
@@ -82,54 +84,6 @@ var availableTaskTypes = []string{
 	"SEMANTIC_SIMILARITY",
 }
 
-// Parameters defines all configuration parameters for text2vec-google
-var Parameters = map[string]basesettings.ParameterDef{
-	ParamApiEndpoint: {
-		JSONKey:      "apiEndpoint",
-		DefaultValue: DefaultApiEndpoint,
-		Description:  "Google API endpoint",
-		Required:     false,
-		DataType:     "string",
-	},
-	ParamProjectID: {
-		JSONKey:      "projectId",
-		DefaultValue: "",
-		Description:  "Google Cloud project ID; only required for non-AI Studio endpoints",
-		Required:     false,
-		DataType:     "string",
-	},
-	ParamModel: {
-		JSONKey:       "model",
-		AlternateKeys: []string{"modelId"},
-		DefaultValue:  DefaultModel,
-		Description:   "Google embedding model name; modelId is an alternate key for backward compatibility",
-		Required:      false,
-		DataType:      "string",
-	},
-	ParamTitle: {
-		JSONKey:      "titleProperty",
-		DefaultValue: "",
-		Description:  "Title property for document embedding",
-		Required:     false,
-		DataType:     "string",
-	},
-	ParamDimensions: {
-		JSONKey:      "dimensions",
-		DefaultValue: nil,
-		Description:  "Number of dimensions for the embedding",
-		Required:     false,
-		DataType:     "int64",
-	},
-	ParamTaskType: {
-		JSONKey:       "taskType",
-		DefaultValue:  DefaultTaskType,
-		Description:   "Task type for the embedding",
-		Required:      false,
-		AllowedValues: availableTaskTypes,
-		DataType:      "string",
-	},
-}
-
 type classSettings struct {
 	basesettings.BaseClassSettings
 	cfg moduletools.ClassConfig
@@ -138,7 +92,7 @@ type classSettings struct {
 func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
 	return &classSettings{
 		cfg:               cfg,
-		BaseClassSettings: *basesettings.NewBaseClassSettingsWithAltNames(cfg, LowerCaseInput, "text2vec-google", []string{"text2vec-palm"}, []string{"modelId"}),
+		BaseClassSettings: *basesettings.NewBaseClassSettingsWithAltNames(cfg, LowerCaseInput, "text2vec-google", []string{"text2vec-palm"}, []string{modelIDProperty}),
 	}
 }
 
@@ -148,26 +102,24 @@ func (ic *classSettings) Validate(class *models.Class) error {
 		errorMessages = append(errorMessages, err.Error())
 	}
 
-	// Validate taskType using AllowedValues
-	if err := basesettings.ValidateAllowedValues(ParamTaskType, Parameters[ParamTaskType], ic.TaskType()); err != nil {
-		errorMessages = append(errorMessages, err.Error())
-	}
-
-	// Custom validation: endpoint-specific logic
 	apiEndpoint := ic.ApiEndpoint()
 	model := ic.Model()
 	if apiEndpoint == DefaultAIStudioEndpoint {
 		if model != "" && !ic.validateGoogleSetting(model, availableGenerativeAIModels) {
-			errorMessages = append(errorMessages, fmt.Sprintf("wrong %v parameter, available AI Studio model names are: %v", Parameters[ParamModel].JSONKey, availableGenerativeAIModels))
+			errorMessages = append(errorMessages, fmt.Sprintf("wrong %s available AI Studio model names are: %v", modelIDProperty, availableGenerativeAIModels))
 		}
 	} else {
 		projectID := ic.ProjectID()
 		if projectID == "" {
-			errorMessages = append(errorMessages, fmt.Sprintf("%v cannot be empty", Parameters[ParamProjectID].JSONKey))
+			errorMessages = append(errorMessages, fmt.Sprintf("%s cannot be empty", projectIDProperty))
 		}
 		if model != "" && !ic.validateGoogleSetting(model, availableGoogleModels) {
-			errorMessages = append(errorMessages, fmt.Sprintf("wrong %v parameter, available model names are: %v", Parameters[ParamModel].JSONKey, availableGoogleModels))
+			errorMessages = append(errorMessages, fmt.Sprintf("wrong %s available model names are: %v", modelIDProperty, availableGoogleModels))
 		}
+	}
+
+	if !slices.Contains(availableTaskTypes, ic.TaskType()) {
+		errorMessages = append(errorMessages, fmt.Sprintf("wrong taskType supported task types are: %v", availableTaskTypes))
 	}
 
 	if len(errorMessages) > 0 {
@@ -185,25 +137,6 @@ func (ic *classSettings) getStringProperty(name, defaultValue string) string {
 	return ic.BaseClassSettings.GetPropertyAsString(name, defaultValue)
 }
 
-// getPropertyWithAlternates tries the primary JSONKey first, then falls back to AlternateKeys
-func (ic *classSettings) getPropertyWithAlternates(paramKey string, defaultValue interface{}) interface{} {
-	param := Parameters[paramKey]
-
-	// Try primary key first
-	if val := ic.getStringProperty(param.JSONKey, ""); val != "" {
-		return val
-	}
-
-	// Fall back to alternate keys
-	for _, altKey := range param.AlternateKeys {
-		if val := ic.getStringProperty(altKey, ""); val != "" {
-			return val
-		}
-	}
-
-	return defaultValue
-}
-
 func (ic *classSettings) getDefaultModel(apiEndpoint string) string {
 	if apiEndpoint == DefaultAIStudioEndpoint {
 		return DefaulAIStudioModel
@@ -213,27 +146,28 @@ func (ic *classSettings) getDefaultModel(apiEndpoint string) string {
 
 // Google params
 func (ic *classSettings) ApiEndpoint() string {
-	return ic.getStringProperty(Parameters[ParamApiEndpoint].JSONKey, DefaultApiEndpoint)
+	return ic.getStringProperty(apiEndpointProperty, DefaultApiEndpoint)
 }
 
 func (ic *classSettings) ProjectID() string {
-	return ic.getStringProperty(Parameters[ParamProjectID].JSONKey, "")
+	return ic.getStringProperty(projectIDProperty, "")
 }
 
 func (ic *classSettings) Model() string {
-	// Use dynamic default based on endpoint
-	defaultModel := ic.getDefaultModel(ic.ApiEndpoint())
-	return ic.getPropertyWithAlternates(ParamModel, defaultModel).(string)
+	if model := ic.getStringProperty(modelProperty, ""); model != "" {
+		return model
+	}
+	return ic.getStringProperty(modelIDProperty, ic.getDefaultModel(ic.ApiEndpoint()))
 }
 
 func (ic *classSettings) TitleProperty() string {
-	return ic.getStringProperty(Parameters[ParamTitle].JSONKey, "")
+	return ic.getStringProperty(titleProperty, "")
 }
 
 func (ic *classSettings) Dimensions() *int64 {
-	return ic.GetPropertyAsInt64(Parameters[ParamDimensions].JSONKey, defaultModelDimensions[ic.Model()])
+	return ic.GetPropertyAsInt64(dimensionsProperty, defaultModelDimensions[ic.Model()])
 }
 
 func (ic *classSettings) TaskType() string {
-	return ic.getStringProperty(Parameters[ParamTaskType].JSONKey, DefaultTaskType)
+	return ic.getStringProperty(taskTypeProperty, DefaultTaskType)
 }

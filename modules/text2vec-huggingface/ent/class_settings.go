@@ -29,55 +29,7 @@ const (
 	DefaultPropertyIndexed       = true
 	DefaultVectorizePropertyName = false
 	LowerCaseInput               = false
-
-	// Parameter keys for accessing the Parameters map
-	ParamEndpointURL  = "EndpointURL"
-	ParamModel        = "Model"
-	ParamWaitForModel = "WaitForModel"
-	ParamUseGPU       = "UseGPU"
-	ParamUseCache     = "UseCache"
 )
-
-// Parameters defines all configuration parameters for text2vec-huggingface
-var Parameters = map[string]basesettings.ParameterDef{
-	ParamEndpointURL: {
-		JSONKey:       "endpointUrl",
-		AlternateKeys: []string{"endpointURL"}, // Backwards compatibility
-		DefaultValue:  "",
-		Description:   "Custom endpoint URL for HuggingFace inference",
-		Required:      false,
-		DataType:      "string",
-	},
-	ParamModel: {
-		JSONKey:       "model",
-		AlternateKeys: []string{"passageModel"}, // Backwards compatibility
-		DefaultValue:  DefaultHuggingFaceModel,
-		Description:   "HuggingFace model name; passageModel is an alternate key for backward compatibility",
-		Required:      false,
-		DataType:      "string",
-	},
-	ParamWaitForModel: {
-		JSONKey:      "waitForModel",
-		DefaultValue: DefaultOptionWaitForModel,
-		Description:  "Wait for model to be ready (options.waitForModel)",
-		Required:     false,
-		DataType:     "bool",
-	},
-	ParamUseGPU: {
-		JSONKey:      "useGPU",
-		DefaultValue: DefaultOptionUseGPU,
-		Description:  "Use GPU for inference (options.useGPU)",
-		Required:     false,
-		DataType:     "bool",
-	},
-	ParamUseCache: {
-		JSONKey:      "useCache",
-		DefaultValue: DefaultOptionUseCache,
-		Description:  "Use caching for inference results (options.useCache)",
-		Required:     false,
-		DataType:     "bool",
-	},
-}
 
 type classSettings struct {
 	basesettings.BaseClassSettings
@@ -89,11 +41,11 @@ func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
 }
 
 func (cs *classSettings) EndpointURL() string {
-	return cs.getPropertyWithAlternates(ParamEndpointURL)
+	return cs.getEndpointURL()
 }
 
 func (cs *classSettings) PassageModel() string {
-	model := cs.getPropertyWithAlternates(ParamModel)
+	model := cs.getPassageModel()
 	if model == "" {
 		return DefaultHuggingFaceModel
 	}
@@ -101,34 +53,15 @@ func (cs *classSettings) PassageModel() string {
 }
 
 func (cs *classSettings) OptionWaitForModel() bool {
-	return cs.getOptionOrDefault(Parameters[ParamWaitForModel].JSONKey, DefaultOptionWaitForModel)
+	return cs.getOptionOrDefault("waitForModel", DefaultOptionWaitForModel)
 }
 
 func (cs *classSettings) OptionUseGPU() bool {
-	return cs.getOptionOrDefault(Parameters[ParamUseGPU].JSONKey, DefaultOptionUseGPU)
+	return cs.getOptionOrDefault("useGPU", DefaultOptionUseGPU)
 }
 
 func (cs *classSettings) OptionUseCache() bool {
-	return cs.getOptionOrDefault(Parameters[ParamUseCache].JSONKey, DefaultOptionUseCache)
-}
-
-// getPropertyWithAlternates tries primary JSONKey first, then falls back to AlternateKeys
-func (cs *classSettings) getPropertyWithAlternates(paramKey string) string {
-	param := Parameters[paramKey]
-
-	// Try primary key first
-	if val := cs.getProperty(param.JSONKey); val != "" {
-		return val
-	}
-
-	// Fall back to alternate keys
-	for _, altKey := range param.AlternateKeys {
-		if val := cs.getProperty(altKey); val != "" {
-			return val
-		}
-	}
-
-	return ""
+	return cs.getOptionOrDefault("useCache", DefaultOptionUseCache)
 }
 
 func (cs *classSettings) Validate(class *models.Class) error {
@@ -136,23 +69,37 @@ func (cs *classSettings) Validate(class *models.Class) error {
 		return err
 	}
 
-	// Custom validation: endpoint takes precedence
-	endpointURL := cs.EndpointURL()
+	endpointURL := cs.getEndpointURL()
 	if endpointURL != "" {
 		// endpoint is set, should be used for feature extraction
 		// all other settings are not relevant
 		return nil
 	}
 
-	// Custom validation: model and passageModel are mutually exclusive
-	model := cs.getProperty(Parameters[ParamModel].JSONKey)
-	passageModel := cs.getProperty(Parameters[ParamModel].AlternateKeys[0]) // "passageModel"
+	model := cs.getProperty("model")
+	passageModel := cs.getProperty("passageModel")
 
 	if model != "" && passageModel != "" {
 		return errors.New("only one setting must be set either 'model' or 'passageModel'")
 	}
 
 	return nil
+}
+
+func (cs *classSettings) getPassageModel() string {
+	model := cs.getProperty("model")
+	if model == "" {
+		model = cs.getProperty("passageModel")
+	}
+	return model
+}
+
+func (cs *classSettings) getEndpointURL() string {
+	endpointURL := cs.getProperty("endpointUrl")
+	if endpointURL == "" {
+		endpointURL = cs.getProperty("endpointURL")
+	}
+	return endpointURL
 }
 
 func (cs *classSettings) getOption(option string) *bool {
