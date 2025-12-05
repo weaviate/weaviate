@@ -127,10 +127,7 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context, sg *SegmentGroup,
 			}
 
 			if mt.strategy == StrategyInverted {
-				mt.averagePropLength, mt.propLengthCount, err = b.GetAveragePropertyLength()
-				if err != nil {
-					return errors.Wrap(err, "set average property length on memtable after WAL recovery")
-				}
+				mt.averagePropLength, mt.propLengthCount = sg.GetAveragePropertyLength()
 			}
 
 			// immediately flush the .wal file if there have been any damages during recovery. This means that the file is
