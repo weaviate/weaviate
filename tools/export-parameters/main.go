@@ -20,10 +20,6 @@ import (
 
 	aws "github.com/weaviate/weaviate/modules/text2vec-aws/vectorizer"
 	cohere "github.com/weaviate/weaviate/modules/text2vec-cohere/ent"
-	google "github.com/weaviate/weaviate/modules/text2vec-google/vectorizer"
-	huggingface "github.com/weaviate/weaviate/modules/text2vec-huggingface/ent"
-	openai "github.com/weaviate/weaviate/modules/text2vec-openai/ent"
-	transformers "github.com/weaviate/weaviate/modules/text2vec-transformers/vectorizer"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/settings"
 )
 
@@ -57,26 +53,6 @@ func main() {
 			Name:        "text2vec-cohere",
 			Description: "Cohere vectorizer module for text embeddings",
 			Parameters:  convertParameters(cohere.Parameters),
-		},
-		{
-			Name:        "text2vec-google",
-			Description: "Google (Vertex AI & AI Studio) vectorizer module for text embeddings",
-			Parameters:  convertParameters(google.Parameters),
-		},
-		{
-			Name:        "text2vec-huggingface",
-			Description: "HuggingFace vectorizer module for text embeddings",
-			Parameters:  convertParameters(huggingface.Parameters),
-		},
-		{
-			Name:        "text2vec-openai",
-			Description: "OpenAI vectorizer module for text embeddings",
-			Parameters:  convertParameters(openai.Parameters),
-		},
-		{
-			Name:        "text2vec-transformers",
-			Description: "Transformers vectorizer module for text embeddings using sentence-transformers",
-			Parameters:  convertParameters(transformers.Parameters),
 		},
 		// Add more modules here as they're refactored
 	}
