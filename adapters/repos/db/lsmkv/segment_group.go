@@ -142,6 +142,7 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 		lastCompactionCall:       now,
 		lastCleanupCall:          now,
 		MinMMapSize:              cfg.MinMMapSize,
+		keepLevelCompaction:      cfg.keepLevelCompaction,
 	}
 
 	segmentIndex := 0

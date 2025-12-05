@@ -612,10 +612,10 @@ func (h *Handler) validateProperty(
 
 func setInvertedConfigDefaults(class *models.Class) {
 	if class.InvertedIndexConfig == nil {
-		class.InvertedIndexConfig = &models.InvertedIndexConfig{
-			UsingBlockMaxWAND: config.DefaultUsingBlockMaxWAND,
-		}
+		class.InvertedIndexConfig = &models.InvertedIndexConfig{}
 	}
+	// force the default in case it was not set, as empty bool == false
+	class.InvertedIndexConfig.UsingBlockMaxWAND = config.DefaultUsingBlockMaxWAND
 
 	if class.InvertedIndexConfig.CleanupIntervalSeconds == 0 {
 		class.InvertedIndexConfig.CleanupIntervalSeconds = config.DefaultCleanupIntervalSeconds
