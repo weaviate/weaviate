@@ -279,36 +279,30 @@ func addLiveAndReadyness(state *state.State, next http.Handler) http.Handler {
 
 func addOperationalMode(state *state.State, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if state.ServerConfig.Config.OperationalMode.Get() == "ReadOnly" {
-			// Allow only read operations
-			if r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions {
-				writeOperationalModeErrorResponse(w, config.ErrReadOnlyModeEnabled)
+		if state.ServerConfig.Config.OperationalMode.Get() == config.READ_ONLY && !config.IsHTTPRead(r.Method) {
+			if whitelist(next, w, r, config.ReadOnlyWhitelist) {
 				return
 			}
+			writeOperationalModeErrorResponse(w, config.ErrReadOnlyModeEnabled)
+			return
+
 		}
-		if state.ServerConfig.Config.OperationalMode.Get() == "ScaleOut" {
-			// Allow only read operations
-			if r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions {
-				if strings.Contains(r.URL.Path, "/replication") {
-					// allow replication endpoints even in read-only mode
-					next.ServeHTTP(w, r)
-					return
-				}
-				writeOperationalModeErrorResponse(w, config.ErrScaleOutModeEnabled)
+		// SCALE_OUT is a special-case of READ_ONLY where replication ops are still allowed
+		if state.ServerConfig.Config.OperationalMode.Get() == config.SCALE_OUT && !config.IsHTTPRead(r.Method) {
+			if whitelist(next, w, r, config.ScaleOutWhitelist) {
 				return
 			}
+			writeOperationalModeErrorResponse(w, config.ErrScaleOutModeEnabled)
+			return
+
 		}
-		if state.ServerConfig.Config.OperationalMode.Get() == "WriteOnly" {
-			// Allow only write operations
-			if r.Method == http.MethodGet || r.Method == http.MethodHead || r.Method == http.MethodOptions {
-				if strings.Contains(r.URL.Path, "/meta") || strings.Contains(r.URL.Path, "/nodes") || strings.Contains(r.URL.Path, "/.well-known") {
-					// allow meta, nodes, well-known endpoints even in write-only mode
-					next.ServeHTTP(w, r)
-					return
-				}
-				writeOperationalModeErrorResponse(w, config.ErrWriteOnlyModeEnabled)
+		if state.ServerConfig.Config.OperationalMode.Get() == config.WRITE_ONLY && config.IsHTTPRead(r.Method) {
+			if whitelist(next, w, r, config.WriteOnlyWhitelist) {
 				return
 			}
+			writeOperationalModeErrorResponse(w, config.ErrWriteOnlyModeEnabled)
+			return
+
 		}
 		next.ServeHTTP(w, r)
 	})
@@ -325,4 +319,14 @@ func writeOperationalModeErrorResponse(w http.ResponseWriter, err error) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusServiceUnavailable)
 	w.Write(data)
+}
+
+func whitelist(next http.Handler, w http.ResponseWriter, r *http.Request, whitelist []string) bool {
+	for _, path := range whitelist {
+		if strings.Contains(r.URL.Path, path) {
+			next.ServeHTTP(w, r)
+			return true
+		}
+	}
+	return false
 }

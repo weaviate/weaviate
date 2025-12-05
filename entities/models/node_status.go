@@ -42,7 +42,7 @@ type NodeStatus struct {
 	Name string `json:"name,omitempty"`
 
 	// Which mode of operation the node is running in.
-	// Enum: [Full WriteOnly ReadOnly ScaleOut]
+	// Enum: [ReadWrite WriteOnly ReadOnly ScaleOut]
 	OperationalMode string `json:"operationalMode,omitempty"`
 
 	// The list of the shards with it's statistics.
@@ -112,7 +112,7 @@ var nodeStatusTypeOperationalModePropEnum []interface{}
 
 func init() {
 	var res []string
-	if err := json.Unmarshal([]byte(`["Full","WriteOnly","ReadOnly","ScaleOut"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["ReadWrite","WriteOnly","ReadOnly","ScaleOut"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {
@@ -122,8 +122,8 @@ func init() {
 
 const (
 
-	// NodeStatusOperationalModeFull captures enum value "Full"
-	NodeStatusOperationalModeFull string = "Full"
+	// NodeStatusOperationalModeReadWrite captures enum value "ReadWrite"
+	NodeStatusOperationalModeReadWrite string = "ReadWrite"
 
 	// NodeStatusOperationalModeWriteOnly captures enum value "WriteOnly"
 	NodeStatusOperationalModeWriteOnly string = "WriteOnly"

@@ -7429,7 +7429,7 @@ func init() {
           "description": "Which mode of operation the node is running in.",
           "type": "string",
           "enum": [
-            "Full",
+            "ReadWrite",
             "WriteOnly",
             "ReadOnly",
             "ScaleOut"
@@ -16950,7 +16950,7 @@ func init() {
           "description": "Which mode of operation the node is running in.",
           "type": "string",
           "enum": [
-            "Full",
+            "ReadWrite",
             "WriteOnly",
             "ReadOnly",
             "ScaleOut"
