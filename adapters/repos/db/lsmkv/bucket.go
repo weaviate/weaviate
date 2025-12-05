@@ -1379,13 +1379,13 @@ func (b *Bucket) Shutdown(ctx context.Context) (err error) {
 
 	b.flushLock.Lock()
 	if b.active.getStrategy() == StrategyInverted {
-		var err error
-		avgPropLength, propLengthCount, err := b.GetAveragePropertyLength()
-		b.active.setAveragePropertyLength(avgPropLength, propLengthCount)
-		if err != nil {
+		avgPropLength, propLengthCount, err2 := b.GetAveragePropertyLength()
+		if err2 != nil {
 			b.flushLock.Unlock()
-			return err
+			return err2
 		}
+		b.active.setAveragePropertyLength(avgPropLength, propLengthCount)
+
 	}
 	if b.shouldReuseWAL() {
 		if err := b.active.flushWAL(); err != nil {
