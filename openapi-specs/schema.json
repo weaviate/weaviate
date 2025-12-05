@@ -2183,6 +2183,16 @@
           "items": {
             "$ref": "#/definitions/NodeShardStatus"
           }
+        },
+        "operationalMode": {
+          "description": "Which mode of operation the node is running in.",
+          "type": "string",
+          "enum": [
+            "ReadWrite",
+            "WriteOnly",
+            "ReadOnly",
+            "ScaleOut"
+          ]
         }
       }
     },

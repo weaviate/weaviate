@@ -30,6 +30,7 @@ import (
 	pbv1 "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/composer"
 	authErrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -92,6 +93,8 @@ func CreateGRPCServer(state *state.State, options ...grpc.ServerOption) (*grpc.S
 	}
 
 	interceptors = append(interceptors, makeIPInterceptor())
+
+	interceptors = append(interceptors, makeOperationalModeInterceptor(state))
 
 	if len(interceptors) > 0 {
 		o = append(o, grpc.ChainUnaryInterceptor(interceptors...))
@@ -194,6 +197,22 @@ func makeIPInterceptor() grpc.UnaryServerInterceptor {
 
 		// Add IP to context
 		ctx = context.WithValue(ctx, "sourceIp", clientIP)
+		return handler(ctx, req)
+	}
+}
+
+func makeOperationalModeInterceptor(state *state.State) grpc.UnaryServerInterceptor {
+	return func(
+		ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler,
+	) (any, error) {
+		if (state.ServerConfig.Config.OperationalMode.Get() == config.READ_ONLY || state.ServerConfig.Config.OperationalMode.Get() == config.SCALE_OUT) && config.IsGRPCWrite(info.FullMethod) {
+			st := status.New(codes.Unavailable, config.ErrReadOnlyModeEnabled.Error())
+			return nil, st.Err()
+		}
+		if state.ServerConfig.Config.OperationalMode.Get() == config.WRITE_ONLY && config.IsGRPCRead(info.FullMethod) {
+			st := status.New(codes.Unavailable, config.ErrWriteOnlyModeEnabled.Error())
+			return nil, st.Err()
+		}
 		return handler(ctx, req)
 	}
 }

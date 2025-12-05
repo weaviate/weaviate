@@ -13,6 +13,7 @@ package rest
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"regexp"
@@ -28,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/raft"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/swagger_middleware"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -131,6 +133,7 @@ func makeSetupGlobalMiddleware(appState *state.State, context *middleware.Contex
 		handler = addInjectHeadersIntoContext(handler)
 		handler = makeCatchPanics(appState.Logger, newPanicsRequestsTotal(appState.Metrics, appState.Logger))(handler)
 		handler = addSourceIpToContext(handler)
+		handler = addOperationalMode(appState, handler)
 		if appState.ServerConfig.Config.Monitoring.Enabled {
 			handler = monitoring.InstrumentHTTP(
 				handler,
@@ -272,4 +275,58 @@ func addLiveAndReadyness(state *state.State, next http.Handler) http.Handler {
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+func addOperationalMode(state *state.State, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if state.ServerConfig.Config.OperationalMode.Get() == config.READ_ONLY && !config.IsHTTPRead(r.Method) {
+			if whitelist(next, w, r, config.ReadOnlyWhitelist) {
+				return
+			}
+			writeOperationalModeErrorResponse(w, config.ErrReadOnlyModeEnabled)
+			return
+
+		}
+		// SCALE_OUT is a special-case of READ_ONLY where replication ops are still allowed
+		if state.ServerConfig.Config.OperationalMode.Get() == config.SCALE_OUT && !config.IsHTTPRead(r.Method) {
+			if whitelist(next, w, r, config.ScaleOutWhitelist) {
+				return
+			}
+			writeOperationalModeErrorResponse(w, config.ErrScaleOutModeEnabled)
+			return
+
+		}
+		if state.ServerConfig.Config.OperationalMode.Get() == config.WRITE_ONLY && config.IsHTTPRead(r.Method) {
+			if whitelist(next, w, r, config.WriteOnlyWhitelist) {
+				return
+			}
+			writeOperationalModeErrorResponse(w, config.ErrWriteOnlyModeEnabled)
+			return
+
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func writeOperationalModeErrorResponse(w http.ResponseWriter, err error) {
+	resp := models.ErrorResponse{Error: []*models.ErrorResponseErrorItems0{{Message: err.Error()}}}
+	data, marshalErr := json.Marshal(resp)
+	if marshalErr != nil {
+		http.Error(w, "error when marshalling errorResponse in operational mode middleware", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusServiceUnavailable)
+	w.Write(data)
+}
+
+func whitelist(next http.Handler, w http.ResponseWriter, r *http.Request, whitelist []string) bool {
+	for _, path := range whitelist {
+		if strings.Contains(r.URL.Path, path) {
+			next.ServeHTTP(w, r)
+			return true
+		}
+	}
+	return false
 }
