@@ -80,6 +80,7 @@ func (h *HFresh) Add(ctx context.Context, id uint64, vector []float32) (err erro
 			quantizer: h.quantizer,
 			distancer: h.config.DistanceProvider,
 		}
+		h.logger.Error("######################### initialising posting store")
 		h.PostingStore.Init(h.vectorSize)
 	})
 

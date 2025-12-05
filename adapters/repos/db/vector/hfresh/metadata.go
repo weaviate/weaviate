@@ -33,12 +33,14 @@ type RQDataContainer struct {
 	Data interface{} `msgpack:"data"` // The actual RQ data
 }
 
-type RQ8Data struct {
+// RQ1Data represents RQ1 (Binary Rotational Quantization) data
+type RQ1Data struct {
 	InputDim  uint32                      `msgpack:"input_dim"`
 	OutputDim uint32                      `msgpack:"output_dim"`
 	Rounds    uint32                      `msgpack:"rounds"`
 	Swaps     [][]compressionhelpers.Swap `msgpack:"swaps"`
 	Signs     [][]float32                 `msgpack:"signs"`
+	Rounding  []float32                   `msgpack:"rounding"`
 }
 
 func (h *HFresh) getMetadataFile() string {
@@ -248,11 +250,11 @@ func (h *HFresh) persistRQData() error {
 		// Create RQ data container with metadata
 		container := &RQDataContainer{}
 
-		rq8Data, err := h.serializeRQ8Data()
+		rq1Data, err := h.serializeRQ1Data()
 		if err != nil {
 			return errors.Wrap(err, "serialize RQ8 data")
 		}
-		container.Data = rq8Data
+		container.Data = rq1Data
 
 		// Serialize to msgpack
 		data, err := msgpack.Marshal(container)
@@ -270,30 +272,31 @@ func (h *HFresh) persistRQData() error {
 	return nil
 }
 
-// serializeRQ8Data extracts RQ8 data from the quantizer and converts it to msgpack format
-func (h *HFresh) serializeRQ8Data() (*RQ8Data, error) {
-	// Use a custom commit logger to capture the RQ data
+// serializeRQ1Data extracts RQ1 data from the quantizer and converts it to msgpack format
+func (index *HFresh) serializeRQ1Data() (*RQ1Data, error) {
+	// Use a custom commit logger to capture the BRQ data
 	captureLogger := &dataCaptureLogger{}
-	h.quantizer.PersistCompression(captureLogger)
+	index.quantizer.PersistCompression(captureLogger)
 
-	if captureLogger.rqData == nil {
-		return nil, errors.New("no RQ data captured from quantizer")
+	if captureLogger.brqData == nil {
+		return nil, errors.New("no BRQ data captured from quantizer")
 	}
 
-	h.logger.Debugf("Captured RQ data: InputDim=%d, Bits=%d, OutputDim=%d, Rounds=%d, Swaps=%d, Signs=%d",
-		captureLogger.rqData.InputDim,
-		captureLogger.rqData.Bits,
-		captureLogger.rqData.Rotation.OutputDim,
-		captureLogger.rqData.Rotation.Rounds,
-		len(captureLogger.rqData.Rotation.Swaps),
-		len(captureLogger.rqData.Rotation.Signs))
+	index.logger.Debugf("Captured BRQ data: InputDim=%d, OutputDim=%d, Rounds=%d, Swaps=%d, Signs=%d, Rounding=%d",
+		captureLogger.brqData.InputDim,
+		captureLogger.brqData.Rotation.OutputDim,
+		captureLogger.brqData.Rotation.Rounds,
+		len(captureLogger.brqData.Rotation.Swaps),
+		len(captureLogger.brqData.Rotation.Signs),
+		len(captureLogger.brqData.Rounding))
 
-	return &RQ8Data{
-		InputDim:  captureLogger.rqData.InputDim,
-		OutputDim: captureLogger.rqData.Rotation.OutputDim,
-		Rounds:    captureLogger.rqData.Rotation.Rounds,
-		Swaps:     captureLogger.rqData.Rotation.Swaps,
-		Signs:     captureLogger.rqData.Rotation.Signs,
+	return &RQ1Data{
+		InputDim:  captureLogger.brqData.InputDim,
+		OutputDim: captureLogger.brqData.Rotation.OutputDim,
+		Rounds:    captureLogger.brqData.Rotation.Rounds,
+		Swaps:     captureLogger.brqData.Rotation.Swaps,
+		Signs:     captureLogger.brqData.Rotation.Signs,
+		Rounding:  captureLogger.brqData.Rounding,
 	}, nil
 }
 
@@ -361,30 +364,30 @@ func (h *HFresh) handleDeserializedData(container *RQDataContainer) error {
 		return errors.Wrap(err, "marshal container data for RQ8")
 	}
 
-	var rq8Data RQ8Data
-	if err := msgpack.Unmarshal(dataBytes, &rq8Data); err != nil {
+	var rq1Data RQ1Data
+	if err := msgpack.Unmarshal(dataBytes, &rq1Data); err != nil {
 		return errors.Wrap(err, "unmarshal RQ8Data")
 	}
 
 	h.logger.Warnf("Successfully deserialized RQ8Data: InputDim=%d",
-		rq8Data.InputDim)
-	return h.restoreRQ8FromMsgpack(&rq8Data)
+		rq1Data.InputDim)
+	return h.restoreRQ1FromMsgpack(&rq1Data)
 }
 
-// restoreRQ8FromMsgpack restores RQ8 quantizer from msgpack data
-func (h *HFresh) restoreRQ8FromMsgpack(rq8Data *RQ8Data) error {
-	// Restore the RQ8 quantizer
+// restoreRQ8FromMsgpack restores RQ1 quantizer from msgpack data
+func (h *HFresh) restoreRQ1FromMsgpack(rq1Data *RQ1Data) error {
+	// Restore the RQ1 quantizer
 	rq, err := compressionhelpers.RestoreBinaryRotationalQuantizer(
-		int(rq8Data.InputDim),
-		int(rq8Data.OutputDim),
-		int(rq8Data.Rounds),
-		rq8Data.Swaps,
-		rq8Data.Signs,
-		nil,
+		int(rq1Data.InputDim),
+		int(rq1Data.OutputDim),
+		int(rq1Data.Rounds),
+		rq1Data.Swaps,
+		rq1Data.Signs,
+		rq1Data.Rounding,
 		h.config.DistanceProvider,
 	)
 	if err != nil {
-		return errors.Wrap(err, "restore rotational quantizer from msgpack")
+		return errors.Wrap(err, "restore binary rotational quantizer from msgpack")
 	}
 
 	h.quantizer = rq
