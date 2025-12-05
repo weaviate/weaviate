@@ -7,6 +7,7 @@
 //  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
+//
 
 package ptr
 
