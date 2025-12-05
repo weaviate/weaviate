@@ -24,7 +24,48 @@ const (
 	DefaultVectorizeClassName    = true
 	DefaultVectorizePropertyName = false
 	DefaultPoolingStrategy       = "masked_mean"
+
+	// Parameter keys for accessing the Parameters map
+	ParamPoolingStrategy     = "PoolingStrategy"
+	ParamInferenceURL        = "InferenceURL"
+	ParamPassageInferenceURL = "PassageInferenceURL"
+	ParamQueryInferenceURL   = "QueryInferenceURL"
+	ParamDimensions          = "Dimensions"
 )
+
+// Parameters defines all configuration parameters for text2vec-transformers
+var Parameters = map[string]basesettings.ParameterDef{
+	ParamPoolingStrategy: {
+		JSONKey:      "poolingStrategy",
+		DefaultValue: DefaultPoolingStrategy,
+		Description:  "Pooling strategy for sentence embeddings",
+		Required:     false,
+	},
+	ParamInferenceURL: {
+		JSONKey:      "inferenceUrl",
+		DefaultValue: "",
+		Description:  "Inference API URL for the transformer model",
+		Required:     false,
+	},
+	ParamPassageInferenceURL: {
+		JSONKey:      "passageInferenceUrl",
+		DefaultValue: "",
+		Description:  "Inference API URL for passage encoding (used with queryInferenceUrl)",
+		Required:     false,
+	},
+	ParamQueryInferenceURL: {
+		JSONKey:      "queryInferenceUrl",
+		DefaultValue: "",
+		Description:  "Inference API URL for query encoding (used with passageInferenceUrl)",
+		Required:     false,
+	},
+	ParamDimensions: {
+		JSONKey:      "dimensions",
+		DefaultValue: nil,
+		Description:  "Number of dimensions for the embedding",
+		Required:     false,
+	},
+}
 
 type classSettings struct {
 	basesettings.BaseClassSettings
@@ -36,27 +77,23 @@ func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
 }
 
 func (ic *classSettings) PoolingStrategy() string {
-	return ic.BaseClassSettings.GetPropertyAsString("poolingStrategy", DefaultPoolingStrategy)
+	return ic.BaseClassSettings.GetPropertyAsString(Parameters[ParamPoolingStrategy].JSONKey, DefaultPoolingStrategy)
 }
 
 func (ic *classSettings) InferenceURL() string {
-	return ic.getSetting("inferenceUrl")
+	return ic.BaseClassSettings.GetPropertyAsString(Parameters[ParamInferenceURL].JSONKey, "")
 }
 
 func (ic *classSettings) PassageInferenceURL() string {
-	return ic.getSetting("passageInferenceUrl")
+	return ic.BaseClassSettings.GetPropertyAsString(Parameters[ParamPassageInferenceURL].JSONKey, "")
 }
 
 func (ic *classSettings) QueryInferenceURL() string {
-	return ic.getSetting("queryInferenceUrl")
+	return ic.BaseClassSettings.GetPropertyAsString(Parameters[ParamQueryInferenceURL].JSONKey, "")
 }
 
 func (ic *classSettings) Dimensions() *int64 {
-	return ic.BaseClassSettings.GetPropertyAsInt64("dimensions", nil)
-}
-
-func (ic *classSettings) getSetting(property string) string {
-	return ic.BaseClassSettings.GetPropertyAsString(property, "")
+	return ic.BaseClassSettings.GetPropertyAsInt64(Parameters[ParamDimensions].JSONKey, nil)
 }
 
 func (ic *classSettings) Validate(class *models.Class) error {
