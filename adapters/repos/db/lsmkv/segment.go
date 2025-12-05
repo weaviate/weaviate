@@ -735,10 +735,10 @@ func (s *segment) incRef() {
 // access, as well as guarantees a consistent view across refs of ALL segments
 // in the group.
 func (s *segment) decRef() {
-	if s.refCount.Load() <= 0 {
+	newVal := s.refCount.Add(-1)
+	if newVal < 0 {
 		panic("refCount already zero")
 	}
-	s.refCount.Add(-1)
 }
 
 // WARNING: This method is NOT thread-safe on its own. The caller must ensure

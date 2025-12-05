@@ -745,14 +745,12 @@ func (sg *SegmentGroup) shutdown(ctx context.Context) error {
 
 	// TODO aliszka:copy-on-read forbid consistent view to be created from that point
 	sg.segmentRefCounterLock.Lock()
-	segmentsWithRefs := make([]Segment, len(sg.segments))
-	i := 0
+	segmentsWithRefs := make([]Segment, 0, len(sg.segments))
 	for _, seg := range sg.segments {
 		if seg.getRefs() == 0 {
 			continue
 		}
-		segmentsWithRefs[i] = seg
-		i++
+		segmentsWithRefs = append(segmentsWithRefs, seg)
 	}
 	segmentsToWaitOn := make([]Segment, len(segmentsWithRefs))
 	copy(segmentsToWaitOn, segmentsWithRefs)

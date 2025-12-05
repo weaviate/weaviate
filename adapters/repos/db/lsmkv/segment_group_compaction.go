@@ -464,9 +464,6 @@ func (sg *SegmentGroup) waitForReferenceCountToReachZero(segments ...Segment) {
 		allZero := true
 		var pos, count int
 		for i, seg := range segments {
-			if seg == nil {
-				continue
-			}
 			if refs := seg.getRefs(); refs != 0 {
 				allZero = false
 				pos = i
