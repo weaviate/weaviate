@@ -310,6 +310,12 @@ func (f *FakeRemoteClient) BatchPutObjects(ctx context.Context, hostName, indexN
 	return nil
 }
 
+func (f *FakeRemoteClient) DeleteObjectsExpired(ctx context.Context, hostName, indexName,
+	deleteOnPropName string, ttlThreshold, deletionTime time.Time, schemaVersion uint64,
+) error {
+	return nil
+}
+
 func (f *FakeRemoteClient) PutObject(ctx context.Context, hostName, indexName,
 	shardName string, obj *storobj.Object, schemaVersion uint64,
 ) error {

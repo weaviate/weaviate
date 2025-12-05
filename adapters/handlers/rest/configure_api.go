@@ -916,8 +916,9 @@ func configureCrons(appState *state.State, serverShutdownCtx context.Context) {
 
 			logger.Info("initiating deletion of expired objects")
 
-			collections := appState.DB.GetCollectionsForExpiredObjectsDeletion(serverShutdownCtx, time.Now())
-			fmt.Printf("  ==> collections %+v\n\n", collections)
+			now := time.Now()
+			err := appState.DB.InitDeleteObjectsExpired(serverShutdownCtx, now, now)
+			_ = err
 
 			// var err error
 			// now := time.Now()

@@ -2259,6 +2259,17 @@ func (i *Index) IncomingDeleteObject(ctx context.Context, shardName string,
 	return shard.DeleteObject(ctx, id, deletionTime)
 }
 
+func (i *Index) IncomingDeleteObjectsExpired(ctx context.Context, deleteOnProperty string,
+	ttlThreshold, deletionTime time.Time,
+) error {
+	fmt.Printf("  ==> IncomingDeleteExpiredObjects\n"+
+		"      deleteOnProperty [%s]\n"+
+		"      ttlThreshold [%s]\n"+
+		"      deletionTime [%s]\n\n", deleteOnProperty, ttlThreshold, deletionTime)
+
+	return nil
+}
+
 func (i *Index) getClass() *models.Class {
 	className := i.Config.ClassName.String()
 	return i.getSchema.ReadOnlyClass(className)

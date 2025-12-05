@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/rand"
 	"time"
 
 	"github.com/go-openapi/strfmt"
@@ -68,27 +69,67 @@ func (db *DB) DeleteObject(ctx context.Context, class string, id strfmt.UUID,
 	return nil
 }
 
-func (db *DB) GetCollectionsForExpiredObjectsDeletion(ctx context.Context, expirationTime time.Time) []ttl.CollectionWithTTL {
-	collectionsWithTtl := []ttl.CollectionWithTTL{}
+func (db *DB) InitDeleteObjectsExpired(ctx context.Context, ttlTime, deletionTime time.Time) error {
+	allCollections := []string{}
+	ec := errorcompounder.New()
 
 	db.indexLock.RLock()
-	defer db.indexLock.RUnlock()
+	for collection := range db.indices {
+		allCollections = append(allCollections, collection)
+	}
+	db.indexLock.RUnlock()
 
-	for _, idx := range db.indices {
+	// TODO aliszka:ttl simplify call for just one node
+	// TODO aliszka:ttl select node where collection is actually stored
+
+	allNodes := db.schemaGetter.Nodes()
+	localNode := db.schemaGetter.NodeName()
+
+	eligibleNodes := allNodes
+	if len(allNodes) > 1 {
+		eligibleNodes = make([]string, 0, len(allNodes)-1)
+		for i := range allNodes {
+			if node := allNodes[i]; node != localNode {
+				eligibleNodes = append(eligibleNodes, node)
+			}
+		}
+	}
+
+	fmt.Printf("  ==> eligible nodes %v\n\n", eligibleNodes)
+	fmt.Printf("  ==> all collections %v\n\n", allCollections)
+
+	nodesCount := len(eligibleNodes)
+	rnd := rand.New(rand.NewSource(time.Now().UnixNano()))
+	i := rnd.Intn(nodesCount)
+	for _, collection := range allCollections {
+		db.indexLock.RLock()
+		idx := db.indices[collection]
+		db.indexLock.RUnlock()
+
+		if idx == nil {
+			continue
+		}
+
 		class := idx.getClass()
-
 		if !ttl.IsTtlEnabled(class.ObjectTTLConfig) {
 			continue
 		}
 
-		collectionsWithTtl = append(collectionsWithTtl, ttl.NewCollectionWithTTL(
-			class.Class,
-			class.ObjectTTLConfig.DeleteOn,
-			expirationTime.Add(-time.Second*time.Duration(class.ObjectTTLConfig.DefaultTTL)).UnixMilli(),
-		))
+		deleteOnPropName := class.ObjectTTLConfig.DeleteOn
+		ttlThreshold := ttlTime.Add(-time.Second * time.Duration(class.ObjectTTLConfig.DefaultTTL))
+
+		node := eligibleNodes[i]
+		i = (i + 1) % nodesCount
+
+		fmt.Printf("  ==> InitDeleteObjectsExpired collection [%s] node [%s]\n\n", collection, node)
+
+		// TODO aliszka:ttl prevent db class deletion?
+		// TODO aliszka:ttl schema version?
+		err := idx.remote.DeleteObjectsExpired(ctx, deleteOnPropName, ttlThreshold, deletionTime, node, 0)
+		ec.Add(err)
 	}
 
-	return collectionsWithTtl
+	return ec.ToError()
 }
 
 func (db *DB) DeleteObjectsExpired(ctx context.Context, expirationTime time.Time, concurrency int) error {
