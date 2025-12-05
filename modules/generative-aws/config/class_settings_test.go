@@ -40,14 +40,14 @@ func Test_classSettings_Validate(t *testing.T) {
 		{
 			name: "empty model",
 			cfg: fakeClassConfig{
-				classConfig: map[string]interface{}{},
+				classConfig: map[string]any{},
 			},
 			wantErr: fmt.Errorf("model has to be defined"),
 		},
 		{
 			name: "happy flow - Bedrock",
 			cfg: fakeClassConfig{
-				classConfig: map[string]interface{}{
+				classConfig: map[string]any{
 					"service": "bedrock",
 					"region":  "us-east-1",
 					"model":   "ai21.j2-ultra-v1",
@@ -64,7 +64,7 @@ func Test_classSettings_Validate(t *testing.T) {
 		{
 			name: "happy flow - Sagemaker",
 			cfg: fakeClassConfig{
-				classConfig: map[string]interface{}{
+				classConfig: map[string]any{
 					"service":       "sagemaker",
 					"region":        "us-east-1",
 					"endpoint":      "my-endpoint-deployment",
@@ -81,7 +81,7 @@ func Test_classSettings_Validate(t *testing.T) {
 		{
 			name: "custom values - Bedrock",
 			cfg: fakeClassConfig{
-				classConfig: map[string]interface{}{
+				classConfig: map[string]any{
 					"service":       "bedrock",
 					"region":        "us-east-1",
 					"model":         "amazon.titan-text-lite-v1",
@@ -100,9 +100,30 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantTopP:          0,
 		},
 		{
+			name: "custom values using maxTokens - Bedrock",
+			cfg: fakeClassConfig{
+				classConfig: map[string]any{
+					"service":       "bedrock",
+					"region":        "us-east-1",
+					"model":         "amazon.titan-text-lite-v1",
+					"maxTokens":     1,
+					"stopSequences": []string{"test", "test2"},
+					"temperature":   0.2,
+					"topP":          0,
+				},
+			},
+			wantService:       "bedrock",
+			wantRegion:        "us-east-1",
+			wantModel:         "amazon.titan-text-lite-v1",
+			wantMaxTokenCount: 1,
+			wantStopSequences: []string{"test", "test2"},
+			wantTemperature:   0.2,
+			wantTopP:          0,
+		},
+		{
 			name: "custom values - Sagemaker",
 			cfg: fakeClassConfig{
-				classConfig: map[string]interface{}{
+				classConfig: map[string]any{
 					"service":       "sagemaker",
 					"region":        "us-east-1",
 					"endpoint":      "this-is-my-endpoint",
@@ -119,7 +140,7 @@ func Test_classSettings_Validate(t *testing.T) {
 		{
 			name: "wrong temperature",
 			cfg: fakeClassConfig{
-				classConfig: map[string]interface{}{
+				classConfig: map[string]any{
 					"service":     "bedrock",
 					"region":      "us-east-1",
 					"model":       "amazon.titan-text-lite-v1",
@@ -131,19 +152,19 @@ func Test_classSettings_Validate(t *testing.T) {
 		{
 			name: "wrong maxTokenCount",
 			cfg: fakeClassConfig{
-				classConfig: map[string]interface{}{
+				classConfig: map[string]any{
 					"service":       "bedrock",
 					"region":        "us-east-1",
 					"model":         "amazon.titan-text-lite-v1",
 					"maxTokenCount": 9000,
 				},
 			},
-			wantErr: fmt.Errorf("maxTokenCount has to be an integer value between 1 and 8096"),
+			wantErr: fmt.Errorf("maxTokens has to be an integer value between 1 and 8096"),
 		},
 		{
 			name: "wrong topP",
 			cfg: fakeClassConfig{
-				classConfig: map[string]interface{}{
+				classConfig: map[string]any{
 					"service": "bedrock",
 					"region":  "us-east-1",
 					"model":   "amazon.titan-text-lite-v1",
@@ -179,10 +200,10 @@ func Test_classSettings_Validate(t *testing.T) {
 }
 
 type fakeClassConfig struct {
-	classConfig map[string]interface{}
+	classConfig map[string]any
 }
 
-func (f fakeClassConfig) Class() map[string]interface{} {
+func (f fakeClassConfig) Class() map[string]any {
 	return f.classConfig
 }
 
@@ -190,11 +211,11 @@ func (f fakeClassConfig) Tenant() string {
 	return ""
 }
 
-func (f fakeClassConfig) ClassByModuleName(moduleName string) map[string]interface{} {
+func (f fakeClassConfig) ClassByModuleName(moduleName string) map[string]any {
 	return f.classConfig
 }
 
-func (f fakeClassConfig) Property(propName string) map[string]interface{} {
+func (f fakeClassConfig) Property(propName string) map[string]any {
 	return nil
 }
 
