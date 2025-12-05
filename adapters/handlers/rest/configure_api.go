@@ -926,7 +926,7 @@ func configureCrons(appState *state.State, serverShutdownCtx context.Context) {
 					if err != nil {
 						l.WithError(err).Error("triggering deletion of expired objects failed")
 					} else {
-						l.WithError(err).Info("triggering deletion of expired objects succeeded")
+						l.Info("triggering deletion of expired objects succeeded")
 					}
 				}()
 

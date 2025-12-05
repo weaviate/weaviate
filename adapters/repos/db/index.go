@@ -2284,6 +2284,7 @@ func (i *Index) IncomingDeleteObjectsExpired(ctx context.Context, deleteOnPropNa
 	replProps := defaultConsistency()
 
 	if isMT := multitenancy.IsMultiTenant(class.MultiTenancyConfig); isMT {
+		// TODO aliszka:ttl limit number of tenants? in case of thousands
 		tenants, err := i.schemaReader.Shards(class.Class)
 		if err != nil {
 			return fmt.Errorf("getting tenants of collection %q: %w", class.Class, err)
@@ -2297,6 +2298,13 @@ func (i *Index) IncomingDeleteObjectsExpired(ctx context.Context, deleteOnPropNa
 				return fmt.Errorf("finding uuids for tenant %q of collection %q: %w", tenant, class.Class, err)
 			}
 
+			fmt.Printf("  ==> found uuids for tenant %q of collection %q: %v\n\n", tenant, class.Class, tenants2uuids)
+
+			if len(tenants2uuids[tenant]) == 0 {
+				continue
+			}
+
+			// TODO aliszka:ttl disable dryrun
 			resp, err := i.batchDeleteObjects(ctx, tenants2uuids, deletionTime, true, replProps, schemaVersion, tenant)
 			if err != nil {
 				// TODO aliszka:ttl exit or continue with other tenants
@@ -2312,13 +2320,23 @@ func (i *Index) IncomingDeleteObjectsExpired(ctx context.Context, deleteOnPropNa
 			return fmt.Errorf("finding uuids of collection %q: %w", class.Class, err)
 		}
 
-		resp, err := i.batchDeleteObjects(ctx, shards2uuids, deletionTime, true, replProps, schemaVersion, "")
-		if err != nil {
-			// TODO aliszka:ttl exit or continue with other tenants
-			return fmt.Errorf("batch delete of collection %q: %w", class.Class, err)
-		}
+		fmt.Printf("  ==> found uuids of collection %q: %v\n\n", class.Class, shards2uuids)
 
-		fmt.Printf("  ==> batch delete resp %+v\n\n", resp)
+		for shard := range shards2uuids {
+			if len(shards2uuids[shard]) == 0 {
+				delete(shards2uuids, shard)
+			}
+		}
+		if len(shards2uuids) != 0 {
+			// TODO aliszka:ttl disable dryrun
+			resp, err := i.batchDeleteObjects(ctx, shards2uuids, deletionTime, true, replProps, schemaVersion, "")
+			if err != nil {
+				// TODO aliszka:ttl exit or continue with other tenants
+				return fmt.Errorf("batch delete of collection %q: %w", class.Class, err)
+			}
+
+			fmt.Printf("  ==> batch delete resp %+v\n\n", resp)
+		}
 	}
 
 	shardNames, err := i.schemaReader.Shards(class.Class)
