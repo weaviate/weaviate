@@ -17,7 +17,6 @@ import (
 	"math"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -34,12 +33,10 @@ type batcher interface {
 }
 
 type worker struct {
-	batcher                batcher
-	logger                 logrus.FieldLogger
-	reportingQueues        *reportingQueues
-	processingQueue        processingQueue
-	enqueuedObjectsCounter *atomic.Int32
-	metrics                *BatchStreamingMetrics
+	batcher         batcher
+	logger          logrus.FieldLogger
+	reportingQueues *reportingQueues
+	processingQueue processingQueue
 }
 
 type processRequest struct {
@@ -47,12 +44,13 @@ type processRequest struct {
 	consistencyLevel *pb.ConsistencyLevel
 	objects          []*pb.BatchObject
 	references       []*pb.BatchReference
-	// This waitgroup should be set by the method that creates the processRequest
-	// and is used by the workers to signal when the processing of this request is complete.
-	wg *sync.WaitGroup
 	// This context contains metadata relevant to the stream as a whole, e.g. auth info,
 	// that is required for downstream authZ checks by the workers, e.g. data-specific RBAC.
 	streamCtx context.Context
+	// Callback to signal process completion and perform any necessary cleanup
+	onComplete func()
+	// Callback to signal process beginning
+	onStart func()
 }
 
 // StartBatchWorkers launches a specified number of worker goroutines to process batch requests.
@@ -73,8 +71,6 @@ func StartBatchWorkers(
 	processingQueue processingQueue,
 	reportingQueues *reportingQueues,
 	batcher batcher,
-	enqueuedObjectsCounter *atomic.Int32,
-	metrics *BatchStreamingMetrics,
 	logger logrus.FieldLogger,
 ) {
 	eg := enterrors.NewErrorGroupWrapper(logger)
@@ -84,12 +80,10 @@ func StartBatchWorkers(
 		eg.Go(func() error {
 			defer wg.Done()
 			w := &worker{
-				batcher:                batcher,
-				logger:                 logger,
-				reportingQueues:        reportingQueues,
-				processingQueue:        processingQueue,
-				enqueuedObjectsCounter: enqueuedObjectsCounter,
-				metrics:                metrics,
+				batcher:         batcher,
+				logger:          logger,
+				reportingQueues: reportingQueues,
+				processingQueue: processingQueue,
 			}
 			return w.Loop()
 		})
@@ -238,11 +232,6 @@ func (w *worker) Loop() error {
 			w.logger.WithField("action", "batch_worker_loop").Error("received nil process request")
 			continue
 		}
-		howMany := len(req.objects) + len(req.references)
-		if w.metrics != nil {
-			w.metrics.OnProcessingQueuePull(howMany)
-		}
-		w.enqueuedObjectsCounter.Add(-int32(howMany))
 		w.process(req)
 	}
 	w.logger.Debug("processing queue closed, shutting down worker")
@@ -250,9 +239,10 @@ func (w *worker) Loop() error {
 }
 
 func (w *worker) process(req *processRequest) {
-	start := time.Now()
-	defer req.wg.Done()
+	req.onStart()
+	defer req.onComplete()
 
+	start := time.Now()
 	ctx, cancel := context.WithTimeout(req.streamCtx, PER_PROCESS_TIMEOUT)
 	defer cancel()
 

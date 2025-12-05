@@ -65,6 +65,17 @@ func newBatchStartedMessage() *pb.BatchStreamReply {
 	}
 }
 
+func newBatchOutOfMemoryMessage(uuids, beacons []string) *pb.BatchStreamReply {
+	return &pb.BatchStreamReply{
+		Message: &pb.BatchStreamReply_OutOfMemory_{
+			OutOfMemory: &pb.BatchStreamReply_OutOfMemory{
+				Uuids:   uuids,
+				Beacons: beacons,
+			},
+		},
+	}
+}
+
 func newBatchBackoffMessage(batchSize int) *pb.BatchStreamReply {
 	return &pb.BatchStreamReply{
 		Message: &pb.BatchStreamReply_Backoff_{
