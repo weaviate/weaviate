@@ -285,6 +285,7 @@ func (b *BM25Searcher) wand(
 	bucketViewMap := map[string]lsmkv.BucketConsistentView{}
 
 	for _, propName := range params.Properties {
+		propName = strings.Split(propName, "^")[0]
 		bucket := b.store.Bucket(helpers.BucketSearchableFromPropNameLSM(propName))
 		if bucket == nil {
 			return nil, nil, fmt.Errorf("could not find bucket for property %v", propName)
