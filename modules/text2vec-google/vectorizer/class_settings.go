@@ -89,12 +89,14 @@ var Parameters = map[string]basesettings.ParameterDef{
 		DefaultValue: DefaultApiEndpoint,
 		Description:  "Google API endpoint",
 		Required:     false,
+		DataType:     "string",
 	},
 	ParamProjectID: {
 		JSONKey:      "projectId",
 		DefaultValue: "",
 		Description:  "Google Cloud project ID; only required for non-AI Studio endpoints",
 		Required:     false,
+		DataType:     "string",
 	},
 	ParamModel: {
 		JSONKey:       "model",
@@ -102,18 +104,21 @@ var Parameters = map[string]basesettings.ParameterDef{
 		DefaultValue:  DefaultModel,
 		Description:   "Google embedding model name; modelId is an alternate key for backward compatibility",
 		Required:      false,
+		DataType:      "string",
 	},
 	ParamTitle: {
 		JSONKey:      "titleProperty",
 		DefaultValue: "",
 		Description:  "Title property for document embedding",
 		Required:     false,
+		DataType:     "string",
 	},
 	ParamDimensions: {
 		JSONKey:      "dimensions",
 		DefaultValue: nil,
 		Description:  "Number of dimensions for the embedding",
 		Required:     false,
+		DataType:     "int64",
 	},
 	ParamTaskType: {
 		JSONKey:       "taskType",
@@ -121,6 +126,7 @@ var Parameters = map[string]basesettings.ParameterDef{
 		Description:   "Task type for the embedding",
 		Required:      false,
 		AllowedValues: availableTaskTypes,
+		DataType:      "string",
 	},
 }
 

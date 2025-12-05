@@ -50,36 +50,42 @@ var Parameters = map[string]basesettings.ParameterDef{
 		Description:   "AWS service to use (bedrock or sagemaker)",
 		Required:      false,
 		AllowedValues: availableAWSServices,
+		DataType:      "string",
 	},
 	ParamRegion: {
 		JSONKey:      "region",
 		DefaultValue: "",
 		Description:  "AWS region",
 		Required:     true,
+		DataType:     "string",
 	},
 	ParamModel: {
 		JSONKey:      "model",
 		DefaultValue: "",
 		Description:  "Model identifier (required for bedrock, not allowed for sagemaker)",
-		Required:     false, // Conditionally required based on service
+		Required:     false, // Required for bedrock, not for sagemaker
+		DataType:     "string",
 	},
 	ParamEndpoint: {
 		JSONKey:      "endpoint",
 		DefaultValue: "",
 		Description:  "Sagemaker endpoint name (required for sagemaker, not allowed for bedrock)",
-		Required:     false, // Conditionally required based on service
+		Required:     false, // Required for sagemaker, not for bedrock
+		DataType:     "string",
 	},
 	ParamTargetModel: {
 		JSONKey:      "targetModel",
 		DefaultValue: "",
 		Description:  "Target model for Sagemaker inference",
 		Required:     false,
+		DataType:     "string",
 	},
 	ParamTargetVariant: {
 		JSONKey:      "targetVariant",
 		DefaultValue: "",
 		Description:  "Target variant for Sagemaker inference",
 		Required:     false,
+		DataType:     "string",
 	},
 }
 

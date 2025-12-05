@@ -37,4 +37,8 @@ type ParameterDef struct {
 	// AllowedValues specifies valid values for this parameter (enum-like validation).
 	// Can be []string, []int64, or other slice types. If nil, any value is allowed.
 	AllowedValues interface{}
+
+	// DataType is a string representation of the expected data type
+	// (e.g., "string", "int", "bool", etc.) for documentation purposes.
+	DataType string
 }

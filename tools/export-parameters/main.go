@@ -29,9 +29,9 @@ import (
 
 // ModuleParameters represents a module's configuration parameters
 type ModuleParameters struct {
-	Name        string                              `json:"name"`
-	Description string                              `json:"description"`
-	Parameters  map[string]ExportedParameterDef     `json:"parameters"`
+	Name        string                          `json:"name"`
+	Description string                          `json:"description"`
+	Parameters  map[string]ExportedParameterDef `json:"parameters"`
 }
 
 // ExportedParameterDef is a JSON-friendly version of settings.ParameterDef
@@ -42,6 +42,7 @@ type ExportedParameterDef struct {
 	Description   string      `json:"description"`
 	Required      bool        `json:"required"`
 	AllowedValues interface{} `json:"allowedValues,omitempty"`
+	DataType      string      `json:"dataType"`
 }
 
 func main() {
@@ -108,6 +109,7 @@ func convertParameters(params map[string]settings.ParameterDef) map[string]Expor
 			Description:   param.Description,
 			Required:      param.Required,
 			AllowedValues: param.AllowedValues,
+			DataType:      param.DataType,
 		}
 	}
 

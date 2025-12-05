@@ -95,6 +95,7 @@ var Parameters = map[string]basesettings.ParameterDef{
 		DefaultValue: DefaultOpenAIModel,
 		Description:  "OpenAI model name (e.g., ada, text-embedding-3-small, text-embedding-3-large)",
 		Required:     false,
+		DataType:     "string",
 	},
 	ParamType: {
 		JSONKey:       "type",
@@ -102,30 +103,35 @@ var Parameters = map[string]basesettings.ParameterDef{
 		Description:   "Document type (text or code)",
 		Required:      false,
 		AllowedValues: availableOpenAITypes,
+		DataType:      "string",
 	},
 	ParamModelVersion: {
 		JSONKey:      "modelVersion",
 		DefaultValue: "",
 		Description:  "Model version (001, 002, 003); defaults are determined dynamically based on model and type",
 		Required:     false,
+		DataType:     "string",
 	},
 	ParamResourceName: {
 		JSONKey:      "resourceName",
 		DefaultValue: "",
 		Description:  "Azure OpenAI resource name (required for Azure deployments)",
 		Required:     false,
+		DataType:     "string",
 	},
 	ParamBaseURL: {
 		JSONKey:      "baseURL",
 		DefaultValue: DefaultBaseURL,
 		Description:  "Base URL for OpenAI API or third-party provider",
 		Required:     false,
+		DataType:     "string",
 	},
 	ParamDeploymentID: {
 		JSONKey:      "deploymentId",
 		DefaultValue: "",
 		Description:  "Azure OpenAI deployment ID (required for Azure deployments)",
 		Required:     false,
+		DataType:     "string",
 	},
 	ParamApiVersion: {
 		JSONKey:       "apiVersion",
@@ -133,18 +139,21 @@ var Parameters = map[string]basesettings.ParameterDef{
 		Description:   "Azure OpenAI API version",
 		Required:      false,
 		AllowedValues: availableApiVersions,
+		DataType:      "string",
 	},
 	ParamIsAzure: {
 		JSONKey:      "isAzure",
 		DefaultValue: false,
 		Description:  "Explicitly indicate Azure OpenAI usage",
 		Required:     false,
+		DataType:     "bool",
 	},
 	ParamDimensions: {
 		JSONKey:      "dimensions",
 		DefaultValue: nil,
 		Description:  "Number of dimensions for V3 embedding models (512 or 1536 for 3-small, 256/1024/3072 for 3-large)",
 		Required:     false,
+		DataType:     "int64",
 	},
 }
 

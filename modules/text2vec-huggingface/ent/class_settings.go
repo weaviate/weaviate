@@ -31,11 +31,11 @@ const (
 	LowerCaseInput               = false
 
 	// Parameter keys for accessing the Parameters map
-	ParamEndpointURL     = "EndpointURL"
-	ParamModel           = "Model"
-	ParamWaitForModel    = "WaitForModel"
-	ParamUseGPU          = "UseGPU"
-	ParamUseCache        = "UseCache"
+	ParamEndpointURL  = "EndpointURL"
+	ParamModel        = "Model"
+	ParamWaitForModel = "WaitForModel"
+	ParamUseGPU       = "UseGPU"
+	ParamUseCache     = "UseCache"
 )
 
 // Parameters defines all configuration parameters for text2vec-huggingface
@@ -46,6 +46,7 @@ var Parameters = map[string]basesettings.ParameterDef{
 		DefaultValue:  "",
 		Description:   "Custom endpoint URL for HuggingFace inference",
 		Required:      false,
+		DataType:      "string",
 	},
 	ParamModel: {
 		JSONKey:       "model",
@@ -53,24 +54,28 @@ var Parameters = map[string]basesettings.ParameterDef{
 		DefaultValue:  DefaultHuggingFaceModel,
 		Description:   "HuggingFace model name; passageModel is an alternate key for backward compatibility",
 		Required:      false,
+		DataType:      "string",
 	},
 	ParamWaitForModel: {
 		JSONKey:      "waitForModel",
 		DefaultValue: DefaultOptionWaitForModel,
 		Description:  "Wait for model to be ready (options.waitForModel)",
 		Required:     false,
+		DataType:     "bool",
 	},
 	ParamUseGPU: {
 		JSONKey:      "useGPU",
 		DefaultValue: DefaultOptionUseGPU,
 		Description:  "Use GPU for inference (options.useGPU)",
 		Required:     false,
+		DataType:     "bool",
 	},
 	ParamUseCache: {
 		JSONKey:      "useCache",
 		DefaultValue: DefaultOptionUseCache,
 		Description:  "Use caching for inference results (options.useCache)",
 		Required:     false,
+		DataType:     "bool",
 	},
 }
 

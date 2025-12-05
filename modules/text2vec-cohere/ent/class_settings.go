@@ -43,12 +43,14 @@ var Parameters = map[string]basesettings.ParameterDef{
 		DefaultValue: DefaultCohereModel,
 		Description:  "Cohere model name",
 		Required:     false,
+		DataType:     "string",
 	},
 	ParamBaseURL: {
 		JSONKey:      "baseURL",
 		DefaultValue: DefaultBaseURL,
 		Description:  "Cohere API base URL",
 		Required:     false,
+		DataType:     "string",
 	},
 	ParamTruncate: {
 		JSONKey:       "truncate",
@@ -56,12 +58,14 @@ var Parameters = map[string]basesettings.ParameterDef{
 		Description:   "Truncation strategy (NONE, START, END, LEFT, RIGHT)",
 		Required:      false,
 		AllowedValues: []string{"NONE", "START", "END", "LEFT", "RIGHT"},
+		DataType:      "string",
 	},
 	ParamDimensions: {
 		JSONKey:      "dimensions",
 		DefaultValue: nil,
 		Description:  "Number of dimensions for the embedding",
 		Required:     false,
+		DataType:     "int64",
 	},
 }
 

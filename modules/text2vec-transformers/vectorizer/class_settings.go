@@ -40,30 +40,35 @@ var Parameters = map[string]basesettings.ParameterDef{
 		DefaultValue: DefaultPoolingStrategy,
 		Description:  "Pooling strategy for sentence embeddings",
 		Required:     false,
+		DataType:     "string",
 	},
 	ParamInferenceURL: {
 		JSONKey:      "inferenceUrl",
 		DefaultValue: "",
 		Description:  "Inference API URL for the transformer model",
 		Required:     false,
+		DataType:     "string",
 	},
 	ParamPassageInferenceURL: {
 		JSONKey:      "passageInferenceUrl",
 		DefaultValue: "",
 		Description:  "Inference API URL for passage encoding (used with queryInferenceUrl)",
 		Required:     false,
+		DataType:     "string",
 	},
 	ParamQueryInferenceURL: {
 		JSONKey:      "queryInferenceUrl",
 		DefaultValue: "",
 		Description:  "Inference API URL for query encoding (used with passageInferenceUrl)",
 		Required:     false,
+		DataType:     "string",
 	},
 	ParamDimensions: {
 		JSONKey:      "dimensions",
 		DefaultValue: nil,
 		Description:  "Number of dimensions for the embedding",
 		Required:     false,
+		DataType:     "int64",
 	},
 }
 
