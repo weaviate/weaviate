@@ -14,6 +14,7 @@ package queue
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/binary"
 	stderrors "errors"
 	"fmt"
@@ -546,6 +547,50 @@ func (q *DiskQueue) analyzeDisk() ([]string, error) {
 		q.recordCount += count
 
 		chunkList = append(chunkList, filePath)
+		continue
+	}
+
+	return chunkList, nil
+}
+
+// ListFiles returns a list of all chunk files in the queue directory.
+// The returned paths are relative to the basePath.
+// It is used for backup purposes and must be called only when the queue is not in use.
+func (q *DiskQueue) ListFiles(ctx context.Context, basePath string) ([]string, error) {
+	q.m.Lock()
+	defer q.m.Unlock()
+
+	entries, err := os.ReadDir(q.dir)
+	if err != nil {
+		if stderrors.Is(err, fs.ErrNotExist) {
+			return []string{}, nil
+		}
+
+		return nil, errors.Wrap(err, "failed to read directory")
+	}
+
+	chunkList := make([]string, 0, len(entries))
+
+	for _, entry := range entries {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+
+		if entry.IsDir() {
+			continue
+		}
+
+		// check if the entry name matches the regex pattern of a chunk file
+		if !chunkFilePattern.Match([]byte(entry.Name())) {
+			continue
+		}
+
+		relPath, err := filepath.Rel(basePath, filepath.Join(q.dir, entry.Name()))
+		if err != nil {
+			return nil, fmt.Errorf("failed to get relative path: %w", err)
+		}
+
+		chunkList = append(chunkList, relPath)
 		continue
 	}
 
