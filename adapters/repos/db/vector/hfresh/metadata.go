@@ -97,14 +97,6 @@ type QuantizationData struct {
 	RQ compressionhelpers.RQData `msgpack:"rq"`
 }
 
-type RQ8Data struct {
-	InputDim  uint32                      `msgpack:"input_dim"`
-	OutputDim uint32                      `msgpack:"output_dim"`
-	Rounds    uint32                      `msgpack:"rounds"`
-	Swaps     [][]compressionhelpers.Swap `msgpack:"swaps"`
-	Signs     [][]float32                 `msgpack:"signs"`
-}
-
 func (h *HFresh) restoreMetadata() error {
 	dims, err := h.Metadata.GetDimensions()
 	if err != nil || dims == 0 {
