@@ -190,6 +190,9 @@ func (s *BucketStore) Load() (uint64, error) {
 	if err != nil {
 		return 0, err
 	}
+	if v == nil {
+		return 0, nil // Not set yet
+	}
 
 	return binary.LittleEndian.Uint64(v), nil
 }
