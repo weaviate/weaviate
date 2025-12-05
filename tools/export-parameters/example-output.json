@@ -2,6 +2,58 @@
   "generatedBy": "tools/export-parameters",
   "modules": [
     {
+      "name": "text2vec-aws",
+      "description": "AWS vectorizer module for text embeddings using Bedrock or Sagemaker",
+      "parameters": {
+        "Endpoint": {
+          "jsonKey": "endpoint",
+          "defaultValue": "",
+          "description": "Sagemaker endpoint name (required for sagemaker, not allowed for bedrock)",
+          "required": false,
+          "dataType": "string"
+        },
+        "Model": {
+          "jsonKey": "model",
+          "defaultValue": "",
+          "description": "Model identifier (required for bedrock, not allowed for sagemaker)",
+          "required": false,
+          "dataType": "string"
+        },
+        "Region": {
+          "jsonKey": "region",
+          "defaultValue": "",
+          "description": "AWS region",
+          "required": true,
+          "dataType": "string"
+        },
+        "Service": {
+          "jsonKey": "service",
+          "defaultValue": "bedrock",
+          "description": "AWS service to use (bedrock or sagemaker)",
+          "required": false,
+          "allowedValues": [
+            "bedrock",
+            "sagemaker"
+          ],
+          "dataType": "string"
+        },
+        "TargetModel": {
+          "jsonKey": "targetModel",
+          "defaultValue": "",
+          "description": "Target model for Sagemaker inference",
+          "required": false,
+          "dataType": "string"
+        },
+        "TargetVariant": {
+          "jsonKey": "targetVariant",
+          "defaultValue": "",
+          "description": "Target variant for Sagemaker inference",
+          "required": false,
+          "dataType": "string"
+        }
+      }
+    },
+    {
       "name": "text2vec-cohere",
       "description": "Cohere vectorizer module for text embeddings",
       "parameters": {
@@ -9,18 +61,21 @@
           "jsonKey": "baseURL",
           "defaultValue": "https://api.cohere.ai",
           "description": "Cohere API base URL",
-          "required": false
+          "required": false,
+          "dataType": "string"
         },
         "Dimensions": {
           "jsonKey": "dimensions",
           "description": "Number of dimensions for the embedding",
-          "required": false
+          "required": false,
+          "dataType": "int64"
         },
         "Model": {
           "jsonKey": "model",
           "defaultValue": "embed-multilingual-v3.0",
           "description": "Cohere model name",
-          "required": false
+          "required": false,
+          "dataType": "string"
         },
         "Truncate": {
           "jsonKey": "truncate",
@@ -33,7 +88,8 @@
             "END",
             "LEFT",
             "RIGHT"
-          ]
+          ],
+          "dataType": "string"
         }
       }
     },
@@ -45,12 +101,14 @@
           "jsonKey": "apiEndpoint",
           "defaultValue": "us-central1-aiplatform.googleapis.com",
           "description": "Google API endpoint",
-          "required": false
+          "required": false,
+          "dataType": "string"
         },
         "Dimensions": {
           "jsonKey": "dimensions",
           "description": "Number of dimensions for the embedding",
-          "required": false
+          "required": false,
+          "dataType": "int64"
         },
         "Model": {
           "jsonKey": "model",
@@ -59,13 +117,15 @@
           ],
           "defaultValue": "gemini-embedding-001",
           "description": "Google embedding model name; modelId is an alternate key for backward compatibility",
-          "required": false
+          "required": false,
+          "dataType": "string"
         },
         "ProjectID": {
           "jsonKey": "projectId",
           "defaultValue": "",
           "description": "Google Cloud project ID; only required for non-AI Studio endpoints",
-          "required": false
+          "required": false,
+          "dataType": "string"
         },
         "TaskType": {
           "jsonKey": "taskType",
@@ -80,13 +140,187 @@
             "CLASSIFICATION",
             "CLUSTERING",
             "SEMANTIC_SIMILARITY"
-          ]
+          ],
+          "dataType": "string"
         },
         "TitleProperty": {
           "jsonKey": "titleProperty",
           "defaultValue": "",
           "description": "Title property for document embedding",
-          "required": false
+          "required": false,
+          "dataType": "string"
+        }
+      }
+    },
+    {
+      "name": "text2vec-huggingface",
+      "description": "HuggingFace vectorizer module for text embeddings",
+      "parameters": {
+        "EndpointURL": {
+          "jsonKey": "endpointUrl",
+          "alternateKeys": [
+            "endpointURL"
+          ],
+          "defaultValue": "",
+          "description": "Custom endpoint URL for HuggingFace inference",
+          "required": false,
+          "dataType": "string"
+        },
+        "Model": {
+          "jsonKey": "model",
+          "alternateKeys": [
+            "passageModel"
+          ],
+          "defaultValue": "sentence-transformers/msmarco-bert-base-dot-v5",
+          "description": "HuggingFace model name; passageModel is an alternate key for backward compatibility",
+          "required": false,
+          "dataType": "string"
+        },
+        "UseCache": {
+          "jsonKey": "useCache",
+          "defaultValue": true,
+          "description": "Use caching for inference results (options.useCache)",
+          "required": false,
+          "dataType": "bool"
+        },
+        "UseGPU": {
+          "jsonKey": "useGPU",
+          "defaultValue": false,
+          "description": "Use GPU for inference (options.useGPU)",
+          "required": false,
+          "dataType": "bool"
+        },
+        "WaitForModel": {
+          "jsonKey": "waitForModel",
+          "defaultValue": false,
+          "description": "Wait for model to be ready (options.waitForModel)",
+          "required": false,
+          "dataType": "bool"
+        }
+      }
+    },
+    {
+      "name": "text2vec-openai",
+      "description": "OpenAI vectorizer module for text embeddings",
+      "parameters": {
+        "ApiVersion": {
+          "jsonKey": "apiVersion",
+          "defaultValue": "2024-02-01",
+          "description": "Azure OpenAI API version",
+          "required": false,
+          "allowedValues": [
+            "2022-12-01",
+            "2023-03-15-preview",
+            "2023-05-15",
+            "2023-06-01-preview",
+            "2023-07-01-preview",
+            "2023-08-01-preview",
+            "2023-09-01-preview",
+            "2023-12-01-preview",
+            "2024-02-15-preview",
+            "2024-03-01-preview",
+            "2024-02-01"
+          ],
+          "dataType": "string"
+        },
+        "BaseURL": {
+          "jsonKey": "baseURL",
+          "defaultValue": "https://api.openai.com",
+          "description": "Base URL for OpenAI API or third-party provider",
+          "required": false,
+          "dataType": "string"
+        },
+        "DeploymentID": {
+          "jsonKey": "deploymentId",
+          "defaultValue": "",
+          "description": "Azure OpenAI deployment ID (required for Azure deployments)",
+          "required": false,
+          "dataType": "string"
+        },
+        "Dimensions": {
+          "jsonKey": "dimensions",
+          "description": "Number of dimensions for V3 embedding models (512 or 1536 for 3-small, 256/1024/3072 for 3-large)",
+          "required": false,
+          "dataType": "int64"
+        },
+        "IsAzure": {
+          "jsonKey": "isAzure",
+          "defaultValue": false,
+          "description": "Explicitly indicate Azure OpenAI usage",
+          "required": false,
+          "dataType": "bool"
+        },
+        "Model": {
+          "jsonKey": "model",
+          "defaultValue": "text-embedding-3-small",
+          "description": "OpenAI model name (e.g., ada, text-embedding-3-small, text-embedding-3-large)",
+          "required": false,
+          "dataType": "string"
+        },
+        "ModelVersion": {
+          "jsonKey": "modelVersion",
+          "defaultValue": "",
+          "description": "Model version (001, 002, 003); defaults are determined dynamically based on model and type",
+          "required": false,
+          "dataType": "string"
+        },
+        "ResourceName": {
+          "jsonKey": "resourceName",
+          "defaultValue": "",
+          "description": "Azure OpenAI resource name (required for Azure deployments)",
+          "required": false,
+          "dataType": "string"
+        },
+        "Type": {
+          "jsonKey": "type",
+          "defaultValue": "text",
+          "description": "Document type (text or code)",
+          "required": false,
+          "allowedValues": [
+            "text",
+            "code"
+          ],
+          "dataType": "string"
+        }
+      }
+    },
+    {
+      "name": "text2vec-transformers",
+      "description": "Transformers vectorizer module for text embeddings using sentence-transformers",
+      "parameters": {
+        "Dimensions": {
+          "jsonKey": "dimensions",
+          "description": "Number of dimensions for the embedding",
+          "required": false,
+          "dataType": "int64"
+        },
+        "InferenceURL": {
+          "jsonKey": "inferenceUrl",
+          "defaultValue": "",
+          "description": "Inference API URL for the transformer model",
+          "required": false,
+          "dataType": "string"
+        },
+        "PassageInferenceURL": {
+          "jsonKey": "passageInferenceUrl",
+          "defaultValue": "",
+          "description": "Inference API URL for passage encoding (used with queryInferenceUrl)",
+          "required": false,
+          "dataType": "string"
+        },
+        "PoolingStrategy": {
+          "jsonKey": "poolingStrategy",
+          "defaultValue": "masked_mean",
+          "description": "Pooling strategy for sentence embeddings",
+          "required": false,
+          "dataType": "string"
+        },
+        "QueryInferenceURL": {
+          "jsonKey": "queryInferenceUrl",
+          "defaultValue": "",
+          "description": "Inference API URL for query encoding (used with passageInferenceUrl)",
+          "required": false,
+          "dataType": "string"
         }
       }
     }
