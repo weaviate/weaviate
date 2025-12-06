@@ -296,6 +296,8 @@ type Index struct {
 	router        routerTypes.Router
 	shardResolver *resolver.ShardResolver
 	bitmapBufPool roaringset.BitmapBufPool
+
+	objectTTLRunning atomic.Bool
 }
 
 func (i *Index) ID() string {
@@ -2267,6 +2269,21 @@ func (i *Index) IncomingDeleteObjectsExpired(ctx context.Context, deleteOnPropNa
 		"      ttlThreshold [%s]\n"+
 		"      deletionTime [%s]\n\n", deleteOnPropName, ttlThreshold, deletionTime)
 
+	i.objectTTLRunning.Store(true)
+
+	enterrors.GoWrapper(
+		func() {
+			defer i.objectTTLRunning.Store(false)
+			err := i.incomingDeleteObjectsExpired(ctx, deleteOnPropName, ttlThreshold, deletionTime, schemaVersion)
+			if err != nil {
+				i.logger.Errorf("error during IncomingDeleteObjectsExpired: %v", err)
+			}
+		}, i.logger)
+
+	return nil
+}
+
+func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, deleteOnPropName string, ttlThreshold, deletionTime time.Time, schemaVersion uint64) error {
 	class := i.getClass()
 	filter := &filters.LocalFilter{Root: &filters.Clause{
 		Operator: filters.OperatorLessThanEqual,
