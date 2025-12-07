@@ -2261,6 +2261,10 @@ func (i *Index) IncomingDeleteObject(ctx context.Context, shardName string,
 	return shard.DeleteObject(ctx, id, deletionTime)
 }
 
+func (i *Index) IncomingDeleteObjectsStatus(ctx context.Context) bool {
+	return i.objectTTLRunning.Load()
+}
+
 func (i *Index) IncomingDeleteObjectsExpired(ctx context.Context, deleteOnPropName string,
 	ttlThreshold, deletionTime time.Time, schemaVersion uint64,
 ) error {

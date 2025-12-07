@@ -40,33 +40,34 @@ import (
 var IndicesPayloads = indicesPayloads{}
 
 type indicesPayloads struct {
-	ErrorList                  errorListPayload
-	SingleObject               singleObjectPayload
-	MergeDoc                   mergeDocPayload
-	ObjectList                 objectListPayload
-	ObjectsExpired             objectsExpiredPayload
-	VersionedObjectList        versionedObjectListPayload
-	SearchResults              searchResultsPayload
-	SearchParams               searchParamsPayload
-	VectorDistanceParams       vectorDistanceParamsPayload
-	VectorDistanceResults      vectorDistanceResultsPayload
-	ReferenceList              referenceListPayload
-	AggregationParams          aggregationParamsPayload
-	AggregationResult          aggregationResultPayload
-	FindUUIDsParams            findUUIDsParamsPayload
-	FindUUIDsResults           findUUIDsResultsPayload
-	BatchDeleteParams          batchDeleteParamsPayload
-	BatchDeleteResults         batchDeleteResultsPayload
-	GetShardQueueSizeParams    getShardQueueSizeParamsPayload
-	GetShardQueueSizeResults   getShardQueueSizeResultsPayload
-	GetShardStatusParams       getShardStatusParamsPayload
-	GetShardStatusResults      getShardStatusResultsPayload
-	UpdateShardStatusParams    updateShardStatusParamsPayload
-	UpdateShardsStatusResults  updateShardsStatusResultsPayload
-	ShardFiles                 shardFilesPayload
-	ShardFileMetadataResults   shardFileMetadataResultsPayload
-	ShardFilesResults          shardFilesResultsPayload
-	AsyncReplicationTargetNode asyncReplicationTargetNode
+	ErrorList                    errorListPayload
+	SingleObject                 singleObjectPayload
+	MergeDoc                     mergeDocPayload
+	ObjectList                   objectListPayload
+	ObjectsExpired               objectsExpiredPayload
+	ObjectsExpiredStatusResponse objectsExpiredStatusResponsePayload
+	VersionedObjectList          versionedObjectListPayload
+	SearchResults                searchResultsPayload
+	SearchParams                 searchParamsPayload
+	VectorDistanceParams         vectorDistanceParamsPayload
+	VectorDistanceResults        vectorDistanceResultsPayload
+	ReferenceList                referenceListPayload
+	AggregationParams            aggregationParamsPayload
+	AggregationResult            aggregationResultPayload
+	FindUUIDsParams              findUUIDsParamsPayload
+	FindUUIDsResults             findUUIDsResultsPayload
+	BatchDeleteParams            batchDeleteParamsPayload
+	BatchDeleteResults           batchDeleteResultsPayload
+	GetShardQueueSizeParams      getShardQueueSizeParamsPayload
+	GetShardQueueSizeResults     getShardQueueSizeResultsPayload
+	GetShardStatusParams         getShardStatusParamsPayload
+	GetShardStatusResults        getShardStatusResultsPayload
+	UpdateShardStatusParams      updateShardStatusParamsPayload
+	UpdateShardsStatusResults    updateShardsStatusResultsPayload
+	ShardFiles                   shardFilesPayload
+	ShardFileMetadataResults     shardFileMetadataResultsPayload
+	ShardFilesResults            shardFilesResultsPayload
+	AsyncReplicationTargetNode   asyncReplicationTargetNode
 }
 
 type shardFileMetadataResultsPayload struct{}
@@ -264,6 +265,47 @@ func (p objectListPayload) Unmarshal(in []byte) ([]*storobj.Object, error) {
 	}
 
 	return out, nil
+}
+
+type objectsExpiredStatusResponsePayload struct {
+	DeletionOngoing bool `json:"deletion_ongoing"`
+}
+
+func (p objectsExpiredStatusResponsePayload) MIME() string {
+	return "application/vnd.weaviate.objectsexpired+json"
+}
+
+// func (p objectsExpiredPayload) CheckContentTypeHeader(r *http.Response) (string, bool) {
+// 	ct := r.Header.Get("content-type")
+// 	return ct, ct == p.MIME()
+// }
+
+func (p objectsExpiredStatusResponsePayload) CheckContentTypeHeaderReq(r *http.Request) (string, bool) {
+	ct := r.Header.Get("content-type")
+	return ct, ct == p.MIME()
+}
+
+// func (p objectsExpiredPayload) SetContentTypeHeader(w http.ResponseWriter) {
+// 	w.Header().Set("content-type", p.MIME())
+// }
+
+func (p objectsExpiredStatusResponsePayload) SetContentTypeHeaderReq(r *http.Request) {
+	r.Header.Set("content-type", p.MIME())
+}
+
+func (p objectsExpiredStatusResponsePayload) Marshal(deletionOngoing bool) ([]byte, error) {
+	p.DeletionOngoing = deletionOngoing
+
+	return json.Marshal(p)
+}
+
+func (p objectsExpiredStatusResponsePayload) Unmarshal(in []byte) (bool, error) {
+	err := json.Unmarshal(in, &p)
+	return p.DeletionOngoing, err
+}
+
+func (p objectsExpiredStatusResponsePayload) SetContentTypeHeader(w http.ResponseWriter) {
+	w.Header().Set("content-type", p.MIME())
 }
 
 type objectsExpiredPayload struct {

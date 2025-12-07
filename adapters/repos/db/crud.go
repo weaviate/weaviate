@@ -119,7 +119,21 @@ func (db *DB) triggerDeletionObjectsExpiredMultiNode(ctx context.Context, collec
 			}
 			defer release()
 
+			// check if deletion is ongoing on the last node we picked
+			lastNode, ok := db.objectTTlLastNodePerCollection[collection]
+			if ok {
+				ttlOngoing, err := idx.remote.DeleteObjectsExpiredStatus(ctx, lastNode, 0)
+				if err != nil {
+					ec.Add(err)
+				}
+				if ttlOngoing {
+					return // deletion for collection still ongoing
+				}
+			}
+
 			node := pickNode()
+			db.objectTTlLastNodePerCollection[collection] = node
+
 			fmt.Printf("  ==> (multi node) idx.remote.DeleteObjectsExpired\n"+
 				"      collection [%s] deleteOnPropName [%s] ttlThreshold [%s] deletionTime [%s] node [%s]\n\n",
 				collection, deleteOnPropName, ttlThreshold, deletionTime, node)
@@ -156,6 +170,11 @@ func (db *DB) extractTtlDataFromCollection(collection string, ttlTime time.Time,
 }
 
 func (db *DB) TriggerDeletionObjectsExpired(ctx context.Context, ttlTime, deletionTime time.Time) error {
+	if !db.objectTTLOngoing.CompareAndSwap(false, true) {
+		return fmt.Errorf("TTL deletion already ongoing")
+	}
+	defer db.objectTTLOngoing.Store(false)
+
 	collections := []string{}
 	db.indexLock.RLock()
 	for collection := range db.indices {

@@ -313,6 +313,42 @@ func (c *RemoteIndex) DeleteObjectsExpired(ctx context.Context, hostName, indexN
 	return nil
 }
 
+func (c *RemoteIndex) DeleteObjectsExpiredStatus(ctx context.Context, hostName, indexName string, schemaVersion uint64,
+) (bool, error) {
+	value := []string{strconv.FormatUint(schemaVersion, 10)}
+	req, err := setupRequest(ctx, http.MethodPost, hostName,
+		fmt.Sprintf("/indices/%s/objects/Statusttl", indexName),
+		url.Values{replica.SchemaVersionKey: value}.Encode(),
+		nil)
+	if err != nil {
+		return false, errors.Wrap(err, "open http request")
+	}
+
+	res, err := c.client.Do(req)
+	if err != nil {
+		return false, errors.Wrap(err, "send http request")
+	}
+
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusNoContent {
+		body, _ := io.ReadAll(res.Body)
+		return false, errors.Errorf("unexpected status code %d (%s)", res.StatusCode,
+			body)
+	}
+
+	bodyBytes, err := io.ReadAll(res.Body)
+	if err != nil {
+		return false, errors.Wrap(err, "read response body")
+	}
+
+	ongoing, err := clusterapi.IndicesPayloads.ObjectsExpiredStatusResponse.Unmarshal(bodyBytes)
+	if err != nil {
+		return false, errors.Wrap(err, "unmarshal objects")
+	}
+
+	return ongoing, nil
+}
+
 func (c *RemoteIndex) MergeObject(ctx context.Context, hostName, indexName,
 	shardName string, mergeDoc objects.MergeDocument, schemaVersion uint64,
 ) error {

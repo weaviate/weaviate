@@ -468,6 +468,10 @@ func (f *fakeRemoteClient) DeleteObjectsExpired(ctx context.Context, hostName, i
 	return nil
 }
 
+func (f *fakeRemoteClient) DeleteObjectsExpiredStatus(ctx context.Context, hostName string, indexName string, schemaVersion uint64) (bool, error) {
+	return false, nil
+}
+
 func (f *fakeRemoteClient) MergeObject(ctx context.Context, hostName, indexName,
 	shardName string, mergeDoc objects.MergeDocument, schemaVersion uint64,
 ) error {
