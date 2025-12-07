@@ -120,7 +120,7 @@ func (db *DB) triggerDeletionObjectsExpiredMultiNode(ctx context.Context, collec
 			defer release()
 
 			// check if deletion is ongoing on the last node we picked
-			lastNode, ok := db.objectTTTLLastNodePerCollection[collection]
+			lastNode, ok := db.objectTTLLastNodePerCollection[collection]
 			if ok {
 				ttlOngoing, err := idx.remote.DeleteObjectsExpiredStatus(ctx, lastNode, 0)
 				if err != nil {
@@ -132,7 +132,7 @@ func (db *DB) triggerDeletionObjectsExpiredMultiNode(ctx context.Context, collec
 			}
 
 			node := pickNode()
-			db.objectTTTLLastNodePerCollection[collection] = node
+			db.objectTTLLastNodePerCollection[collection] = node
 
 			fmt.Printf("  ==> (multi node) idx.remote.DeleteObjectsExpired\n"+
 				"      collection [%s] deleteOnPropName [%s] ttlThreshold [%s] deletionTime [%s] node [%s]\n\n",
@@ -158,6 +158,10 @@ func (db *DB) extractTtlDataFromCollection(collection string, ttlTime time.Time,
 
 	if idx != nil {
 		class := idx.getClass()
+		if class == nil { // ec consistency issue between index and RAFT store
+			idx.closeLock.RUnlock()
+			return nil, func() {}, "", time.Time{}
+		}
 		if ttl.IsTtlEnabled(class.ObjectTTLConfig) {
 			deleteOnPropName = class.ObjectTTLConfig.DeleteOn
 			ttlThreshold = ttlTime.Add(-time.Second * time.Duration(class.ObjectTTLConfig.DefaultTTL))
