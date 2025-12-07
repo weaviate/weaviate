@@ -80,7 +80,7 @@ def test_creation_time(collection_factory: CollectionFactory):
         properties=[
             wvc.config.Property(name="name", data_type=wvc.config.DataType.TEXT),
         ],
-        object_ttl=Configure.ObjectTTL.delete_by_update_time(
+        object_ttl=Configure.ObjectTTL.delete_by_creation_time(
             time_to_live=datetime.timedelta(minutes=1),
         ),
         inverted_index_config=Configure.inverted_index(index_timestamps=True),
