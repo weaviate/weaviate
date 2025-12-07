@@ -781,9 +781,8 @@ func (i *indices) deleteObjectsExpiredStatus() http.Handler {
 		}
 
 		IndicesPayloads.ObjectsExpiredStatusResponse.SetContentTypeHeader(w)
+		w.WriteHeader(http.StatusOK)
 		w.Write(ongoingBytes)
-
-		w.WriteHeader(http.StatusNoContent)
 	})
 }
 

@@ -316,7 +316,7 @@ func (c *RemoteIndex) DeleteObjectsExpired(ctx context.Context, hostName, indexN
 func (c *RemoteIndex) DeleteObjectsExpiredStatus(ctx context.Context, hostName, indexName string, schemaVersion uint64,
 ) (bool, error) {
 	value := []string{strconv.FormatUint(schemaVersion, 10)}
-	req, err := setupRequest(ctx, http.MethodPost, hostName,
+	req, err := setupRequest(ctx, http.MethodGet, hostName,
 		fmt.Sprintf("/indices/%s/objects/Statusttl", indexName),
 		url.Values{replica.SchemaVersionKey: value}.Encode(),
 		nil)
@@ -330,7 +330,7 @@ func (c *RemoteIndex) DeleteObjectsExpiredStatus(ctx context.Context, hostName, 
 	}
 
 	defer res.Body.Close()
-	if res.StatusCode != http.StatusNoContent {
+	if res.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(res.Body)
 		return false, errors.Errorf("unexpected status code %d (%s)", res.StatusCode,
 			body)
