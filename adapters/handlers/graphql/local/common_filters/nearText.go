@@ -14,6 +14,7 @@ package common_filters
 import (
 	"fmt"
 
+	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/graphqlutil"
 	"github.com/weaviate/weaviate/entities/searchparams"
 )
 
@@ -41,9 +42,12 @@ func ExtractNearText(source map[string]interface{}) (searchparams.NearTextParams
 	// limit is an optional arg, so it could be nil
 	limit, ok := source["limit"]
 	if ok {
-		// the type is fixed through gql config, no need to catch incorrect type
-		// assumption
-		args.Limit = limit.(int)
+		// coerce to int in a tolerant way (handles int64/json.Number etc.)
+		if i, err := graphqlutil.ToInt(limit); err == nil {
+			args.Limit = i
+		} else {
+			return searchparams.NearTextParams{}, fmt.Errorf("invalid limit: %w", err)
+		}
 	}
 
 	certainty, ok := source["certainty"]
