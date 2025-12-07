@@ -2326,7 +2326,7 @@ func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, deleteOnPropNa
 			}
 
 			// TODO aliszka:ttl disable dryrun
-			resp, err := i.batchDeleteObjects(ctx, tenants2uuids, deletionTime, true, replProps, schemaVersion, tenant)
+			resp, err := i.batchDeleteObjects(ctx, tenants2uuids, deletionTime, false, replProps, schemaVersion, tenant)
 			if err != nil {
 				// TODO aliszka:ttl exit or continue with other tenants
 				return fmt.Errorf("batch delete for tenant %q of collection %q: %w", tenant, class.Class, err)
@@ -2350,7 +2350,7 @@ func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, deleteOnPropNa
 		}
 		if len(shards2uuids) != 0 {
 			// TODO aliszka:ttl disable dryrun
-			resp, err := i.batchDeleteObjects(ctx, shards2uuids, deletionTime, true, replProps, schemaVersion, "")
+			resp, err := i.batchDeleteObjects(ctx, shards2uuids, deletionTime, false, replProps, schemaVersion, "")
 			if err != nil {
 				// TODO aliszka:ttl exit or continue with other tenants
 				return fmt.Errorf("batch delete of collection %q: %w", class.Class, err)
