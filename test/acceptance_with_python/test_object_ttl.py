@@ -3,10 +3,14 @@ import time
 from typing import Optional
 
 import httpx
+import pytest
 import weaviate.classes as wvc
 from weaviate.classes.config import Configure
 
 from .conftest import CollectionFactory
+
+# dont run tests in parallel to avoid interference between manual calls to object TTL delete
+pytestmark = pytest.mark.xdist_group(name="object_ttl")
 
 
 def delete(expiration_time: Optional[datetime.datetime] = None):
@@ -22,6 +26,7 @@ def delete(expiration_time: Optional[datetime.datetime] = None):
             "http://localhost:6060/debug/ttl/deleteall", params=params, timeout=30
         )
         response.raise_for_status()
+    time.sleep(0.1)  # give some time for the deletions to be processed
 
 
 def test_custom_property(
@@ -36,18 +41,18 @@ def test_custom_property(
             date_property="custom_date",
         ),
     )
+    base_time = datetime.datetime.now(datetime.timezone.utc)
     num_objects = 5
     for i in range(num_objects):
         collection.data.insert(
             {
                 "name": "Object " + str(i),
-                "custom_date": datetime.datetime.now(datetime.timezone.utc)
-                + datetime.timedelta(minutes=i),
+                "custom_date": base_time + datetime.timedelta(minutes=i),
             }
         )
 
     for i in range(num_objects):
-        delete(datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=i))
+        delete(base_time + datetime.timedelta(minutes=i))
         assert len(collection) == num_objects - (i + 1)
 
 
