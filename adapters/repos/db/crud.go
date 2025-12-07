@@ -120,19 +120,19 @@ func (db *DB) triggerDeletionObjectsExpiredMultiNode(ctx context.Context, collec
 			defer release()
 
 			// check if deletion is ongoing on the last node we picked
-			lastNode, ok := db.objectTTlLastNodePerCollection[collection]
+			lastNode, ok := db.objectTTTLLastNodePerCollection[collection]
 			if ok {
 				ttlOngoing, err := idx.remote.DeleteObjectsExpiredStatus(ctx, lastNode, 0)
 				if err != nil {
 					ec.Add(err)
 				}
 				if ttlOngoing {
-					return // deletion for collection still ongoing
+					return // deletion for collection still ongoing, skip this round
 				}
 			}
 
 			node := pickNode()
-			db.objectTTlLastNodePerCollection[collection] = node
+			db.objectTTTLLastNodePerCollection[collection] = node
 
 			fmt.Printf("  ==> (multi node) idx.remote.DeleteObjectsExpired\n"+
 				"      collection [%s] deleteOnPropName [%s] ttlThreshold [%s] deletionTime [%s] node [%s]\n\n",

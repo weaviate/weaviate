@@ -752,7 +752,7 @@ func (i *indices) deleteObjectsExpiredStatus() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		args := i.regexpObjectsStatusObjectsTtl.FindStringSubmatch(r.URL.Path)
 
-		fmt.Printf("  ==> indices::deleteObjectsExpired args %v\n\n", args)
+		fmt.Printf("  ==> indices::deleteObjectsExpiredStatus args %v\n\n", args)
 
 		if len(args) != 2 {
 			http.Error(w, "invalid URI", http.StatusBadRequest)
