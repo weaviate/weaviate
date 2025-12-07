@@ -95,3 +95,50 @@ def test_creation_time(collection_factory: CollectionFactory):
 
     delete(start + datetime.timedelta(minutes=1))
     assert len(collection) == 6
+
+
+def test_mt(collection_factory: CollectionFactory):
+    collection = collection_factory(
+        properties=[
+            wvc.config.Property(name="name", data_type=wvc.config.DataType.TEXT),
+            wvc.config.Property(name="custom_date", data_type=wvc.config.DataType.DATE),
+        ],
+        object_ttl=Configure.ObjectTTL.delete_by_date_property("custom_date"),
+        multi_tenancy_config=Configure.multi_tenancy(enabled=True),
+    )
+
+    base_time = datetime.datetime.now(datetime.timezone.utc)
+
+    num_tenants = 10
+    num_objects = 5
+    for i in range(num_tenants):
+        collection.tenants.create(tenants="Tenant" + str(i))
+        for j in range(num_objects):
+            collection.with_tenant("Tenant" + str(i)).data.insert(
+                properties={
+                    "name": "Tenant " + str(i) + " Object " + str(j),
+                    "custom_date": base_time + datetime.timedelta(minutes=j),
+                },
+            )
+
+    # deactivate tenants
+    for i in range(num_tenants):
+        if i % 2 == 0:
+            collection.tenants.deactivate("Tenant" + str(i))
+
+    delete(base_time + datetime.timedelta(minutes=2))
+
+    # activate tenants again
+    for i in range(num_tenants):
+        if i % 2 == 0:
+            collection.tenants.activate("Tenant" + str(i))
+
+    # now check the number of remaining objects per tenant
+    for i in range(num_tenants):
+        tenant_collection = collection.with_tenant("Tenant" + str(i))
+        if i % 2 == 0:
+            # deactivated tenants have no objects deleted
+            assert len(tenant_collection) == num_objects
+        else:
+            # activated tenants should have expired objects deleted
+            assert len(tenant_collection) == num_objects - 3
