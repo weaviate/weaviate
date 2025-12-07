@@ -1146,6 +1146,7 @@ func setupDebugHandlers(appState *state.State) {
 
 	http.HandleFunc("/debug/ttl/deleteall", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		expiration := r.URL.Query().Get("expiration")
+		targetOwnNodeStr := r.URL.Query().Get("targetOwnNode")
 
 		var err error
 		var expirationTime time.Time
@@ -1160,7 +1161,14 @@ func setupDebugHandlers(appState *state.State) {
 			expirationTime = time.Now()
 		}
 
-		err = appState.DB.TriggerDeletionObjectsExpired(context.Background(), expirationTime, expirationTime)
+		targetOwnNode := false
+		if targetOwnNodeStr != "" {
+			if targetOwnNodeStr == "true" {
+				targetOwnNode = true
+			}
+		}
+
+		err = appState.DB.TriggerDeletionObjectsExpired(context.Background(), expirationTime, expirationTime, targetOwnNode)
 		if err != nil {
 			http.Error(w, "failed to delete expired objects", http.StatusInternalServerError)
 			return

@@ -169,7 +169,7 @@ func (db *DB) extractTtlDataFromCollection(collection string, ttlTime time.Time,
 	return nil, func() {}, "", time.Time{}
 }
 
-func (db *DB) TriggerDeletionObjectsExpired(ctx context.Context, ttlTime, deletionTime time.Time) error {
+func (db *DB) TriggerDeletionObjectsExpired(ctx context.Context, ttlTime, deletionTime time.Time, targetOwnNode bool) error {
 	if !db.objectTTLOngoing.CompareAndSwap(false, true) {
 		return fmt.Errorf("TTL deletion already ongoing")
 	}
@@ -191,9 +191,13 @@ func (db *DB) TriggerDeletionObjectsExpired(ctx context.Context, ttlTime, deleti
 	localNode := db.schemaGetter.NodeName()
 	allNodes := db.schemaGetter.Nodes()
 	otherNodes := make([]string, 0, len(allNodes))
-	for _, node := range allNodes {
-		if node != localNode {
-			otherNodes = append(otherNodes, node)
+	if targetOwnNode {
+		otherNodes = append(otherNodes, localNode)
+	} else {
+		for _, node := range allNodes {
+			if node != localNode {
+				otherNodes = append(otherNodes, node)
+			}
 		}
 	}
 

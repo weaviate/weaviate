@@ -930,7 +930,7 @@ func configureCrons(appState *state.State, serverShutdownCtx context.Context) {
 					}
 				}()
 
-				err = appState.DB.TriggerDeletionObjectsExpired(serverShutdownCtx, started, started)
+				err = appState.DB.TriggerDeletionObjectsExpired(serverShutdownCtx, started, started, false)
 			}))
 
 		specs = append(specs, jobSpec{

@@ -738,7 +738,8 @@ func (i *indices) deleteObjectsExpired() http.Handler {
 			return
 		}
 
-		err = i.shards.DeleteObjectsExpired(r.Context(), indexName, propName, ttlThreshold, deletionTime, schemaVersion)
+		// needs to be background context, as the request may time out. Todo: use shutdown context to properly cancel on shutdown
+		err = i.shards.DeleteObjectsExpired(context.Background(), indexName, propName, ttlThreshold, deletionTime, schemaVersion)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
