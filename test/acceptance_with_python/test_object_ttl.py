@@ -1,4 +1,5 @@
 import datetime
+import time
 from typing import Optional
 
 import httpx
@@ -50,25 +51,47 @@ def test_custom_property(
         assert len(collection) == num_objects - (i + 1)
 
 
-# def test_update_time(collection_factory: CollectionFactory):
-#     collection = collection_factory(
-#         properties=[
-#             wvc.config.Property(name="name", data_type=wvc.config.DataType.TEXT),
-#         ],
-#         object_ttl=Configure.ObjectTTL.delete_by_update_time(
-#             time_to_live=datetime.timedelta(minutes=1),
-#         ),
-#         inverted_index_config=Configure.inverted_index(index_timestamps=True),
-#     )
-#
-#     uuids = []
-#     for i in range(5):
-#         uid = collection.data.insert(properties={"name": "Object" + str(i)})
-#         uuids.append(uid)
-#     start = datetime.datetime.now(datetime.timezone.utc)
-#     time.sleep(5)
-#     for i, uid in enumerate(uuids[:3]):
-#         collection.data.update(properties={"name": "Object" + str(i) + "new"}, uuid=uid)
-#
-#     delete(start + datetime.timedelta(minutes=1))
-#     assert len(collection) == 2
+def test_update_time(collection_factory: CollectionFactory):
+    collection = collection_factory(
+        properties=[
+            wvc.config.Property(name="name", data_type=wvc.config.DataType.TEXT),
+        ],
+        object_ttl=Configure.ObjectTTL.delete_by_update_time(
+            time_to_live=datetime.timedelta(minutes=1),
+        ),
+        inverted_index_config=Configure.inverted_index(index_timestamps=True),
+    )
+
+    uuids = []
+    for i in range(5):
+        uid = collection.data.insert(properties={"name": "Object" + str(i)})
+        uuids.append(uid)
+    start = datetime.datetime.now(datetime.timezone.utc)
+    time.sleep(2)
+    for i, uid in enumerate(uuids[:3]):
+        collection.data.update(properties={"name": "Object" + str(i) + "new"}, uuid=uid)
+
+    delete(start + datetime.timedelta(minutes=1))
+    assert len(collection) == 3  # 2 old objects that have not been updated should be deleted
+
+
+def test_creation_time(collection_factory: CollectionFactory):
+    collection = collection_factory(
+        properties=[
+            wvc.config.Property(name="name", data_type=wvc.config.DataType.TEXT),
+        ],
+        object_ttl=Configure.ObjectTTL.delete_by_update_time(
+            time_to_live=datetime.timedelta(minutes=1),
+        ),
+        inverted_index_config=Configure.inverted_index(index_timestamps=True),
+    )
+
+    for i in range(5):
+        collection.data.insert(properties={"name": "Object" + str(i)})
+    start = datetime.datetime.now(datetime.timezone.utc)
+    time.sleep(2)
+    for i in range(6):
+        collection.data.insert(properties={"name": "Second batch object" + str(i)})
+
+    delete(start + datetime.timedelta(minutes=1))
+    assert len(collection) == 6
