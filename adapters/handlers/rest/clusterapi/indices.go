@@ -128,9 +128,9 @@ const (
 	urlPatternAsyncReplicationTargetNode = `\/indices\/(` + cl + `)` +
 		`\/shards\/(` + sh + `)\/async-replication-target-node`
 	urlPatternObjectsTtl = `\/indices\/(` + cl + `)` +
-		`\/objects\/ttl`
+		`\/objects\/ttl_delete`
 	urlPatternStatusObjectsTtl = `\/indices\/(` + cl + `)` +
-		`\/objects\/Statusttl`
+		`\/objects\/ttl_status`
 )
 
 type shards interface {

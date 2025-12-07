@@ -290,7 +290,7 @@ func (c *RemoteIndex) DeleteObjectsExpired(ctx context.Context, hostName, indexN
 		return errors.Wrap(err, "marshal payload")
 	}
 	req, err := setupRequest(ctx, http.MethodPost, hostName,
-		fmt.Sprintf("/indices/%s/objects/ttl", indexName),
+		fmt.Sprintf("/indices/%s/objects/ttl_delete", indexName),
 		url.Values{replica.SchemaVersionKey: value}.Encode(),
 		bytes.NewReader(marshalled))
 	if err != nil {
@@ -317,7 +317,7 @@ func (c *RemoteIndex) DeleteObjectsExpiredStatus(ctx context.Context, hostName, 
 ) (bool, error) {
 	value := []string{strconv.FormatUint(schemaVersion, 10)}
 	req, err := setupRequest(ctx, http.MethodGet, hostName,
-		fmt.Sprintf("/indices/%s/objects/Statusttl", indexName),
+		fmt.Sprintf("/indices/%s/objects/ttl_status", indexName),
 		url.Values{replica.SchemaVersionKey: value}.Encode(),
 		nil)
 	if err != nil {
