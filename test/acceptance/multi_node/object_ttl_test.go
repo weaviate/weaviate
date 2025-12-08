@@ -31,6 +31,96 @@ import (
 	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
 )
 
+func TestObjectTTLMultiNodeTicker(t *testing.T) {
+	ctx := context.Background()
+	compose, err := docker.New().
+		With3NodeCluster().WithWeaviateEnv("OBJECTS_TTL_DELETE_SCHEDULE", "@every 1s").
+		Start(ctx)
+	require.NoError(t, err)
+	defer func() {
+		if err := compose.Terminate(ctx); err != nil {
+			t.Fatalf("failed to terminate test containers: %s", err.Error())
+		}
+	}()
+
+	helper.SetupClient(compose.GetWeaviate().URI())
+
+	class := &models.Class{
+		Class: "TestingTTLST",
+		Properties: []*models.Property{
+			{
+				Name:     "contents",
+				DataType: schema.DataTypeText.PropString(),
+			},
+			{
+				Name:     "expireDate",
+				DataType: schema.DataTypeDate.PropString(),
+			},
+		},
+		ObjectTTLConfig: &models.ObjectTTLConfig{
+			Enabled:    true,
+			DeleteOn:   "expireDate",
+			DefaultTTL: 0,
+		},
+		Vectorizer: "none",
+	}
+
+	baseTime := time.Now().UTC()
+	helper.DeleteClass(t, class.Class)
+	defer helper.DeleteClass(t, class.Class)
+	helper.CreateClass(t, class)
+
+	// add objects that are already expired so that the TTL process should delete them
+	numExpiredObjs := 12
+	for i := range numExpiredObjs {
+		require.NoError(t, helper.CreateObject(t, &models.Object{
+			ID:    helper.IntToUUID(uint64(i)),
+			Class: class.Class,
+			Properties: map[string]interface{}{
+				"contents":   "some text",
+				"expireDate": baseTime.Add(-time.Hour).Format(time.RFC3339),
+			},
+		}))
+	}
+
+	// add objects that are not yet expired
+	for i := 0; i < 11; i++ {
+		require.NoError(t, helper.CreateObject(t, &models.Object{
+			ID:    helper.IntToUUID(uint64(i + numExpiredObjs)),
+			Class: class.Class,
+			Properties: map[string]interface{}{
+				"contents":   "some text",
+				"expireDate": baseTime.Add(time.Hour).Format(time.RFC3339),
+			},
+		}))
+	}
+
+	assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+		objs, err := helper.GetObjects(t, class.Class)
+		require.NoError(ct, err)
+		require.Len(ct, objs, 11)
+	}, time.Second*15, 500*time.Millisecond)
+
+	// add more expired objects to see that the ticker continues to work
+	// add objects that are already expired so that the TTL process should delete them
+	for i := range numExpiredObjs {
+		require.NoError(t, helper.CreateObject(t, &models.Object{
+			ID:    helper.IntToUUID(uint64(i)),
+			Class: class.Class,
+			Properties: map[string]interface{}{
+				"contents":   "some text",
+				"expireDate": baseTime.Add(-time.Hour).Format(time.RFC3339),
+			},
+		}))
+	}
+
+	assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+		objs, err := helper.GetObjects(t, class.Class)
+		require.NoError(ct, err)
+		require.Len(ct, objs, 11)
+	}, time.Second*15, 500*time.Millisecond)
+}
+
 func TestObjectTTLMultiNode(t *testing.T) {
 	ctx := context.Background()
 	compose, err := docker.New().
@@ -46,9 +136,6 @@ func TestObjectTTLMultiNode(t *testing.T) {
 	helper.SetupClient(compose.GetWeaviate().URI())
 	// send TTL delete requests to a different node, to test cluster-wide propagation
 	secondNode := compose.GetWeaviateNode2().DebugURI()
-
-	// helper.SetupClient("127.0.0.1:8080")
-	// secondNode := "127.0.0.1:6060"
 
 	t.Run("Object TTL ST", func(t *testing.T) {
 		class := &models.Class{
@@ -187,6 +274,7 @@ func TestObjectTTLMultiNode(t *testing.T) {
 				DeleteOn:   "expireDate",
 				DefaultTTL: 0,
 			},
+			// no relication setting => all tenants are on all nodes
 			Vectorizer:         "none",
 			MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
 		}
