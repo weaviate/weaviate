@@ -18,7 +18,7 @@ import (
 
 	grpcconn "github.com/weaviate/weaviate/grpc/conn"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
-	"github.com/weaviate/weaviate/usecases/object_ttl"
+	objectttl "github.com/weaviate/weaviate/usecases/object_ttl"
 
 	"github.com/sirupsen/logrus"
 
