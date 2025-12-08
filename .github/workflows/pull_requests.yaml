@@ -608,8 +608,6 @@ jobs:
             test: "--acceptance-go-client-only-fast-group-1"
           - name: "go-client-group-2"
             test: "--acceptance-go-client-only-fast-group-2"
-          - name: "python"
-            test: "--acceptance-only-python"
     steps:
       - uses: actions/checkout@v6
       - name: Set up Go
@@ -643,6 +641,8 @@ jobs:
             test: "--acceptance-go-client-named-vectors-cluster"
           - name: "fast-group-4"
             test: "--acceptance-only-fast-group-4"
+          - name: "python"
+            test: "--acceptance-only-python"
     steps:
       - uses: actions/checkout@v6
       - name: Set up Go

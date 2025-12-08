@@ -97,10 +97,6 @@ func (f *fakeSchemaManager) Stats() map[string]any {
 	return map[string]any{}
 }
 
-func (f *fakeSchemaManager) StoreSchemaV1() error {
-	return nil
-}
-
 func (f *fakeSchemaManager) ClassEqual(name string) string {
 	if f.countClassEqual {
 		args := f.Called(name)
