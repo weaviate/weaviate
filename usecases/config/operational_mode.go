@@ -35,6 +35,7 @@ const (
 var ReadOnlyWhitelist = []string{
 	"/backups",
 	"/replication",
+	"/graphql",
 }
 
 // A slice of endpoints to whitelist when determining if an operation is allowed in WriteOnly mode
