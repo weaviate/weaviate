@@ -32,7 +32,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/cluster/usage"
-	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/config"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
@@ -1147,6 +1146,7 @@ func setupDebugHandlers(appState *state.State) {
 
 	http.HandleFunc("/debug/ttl/deleteall", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		expiration := r.URL.Query().Get("expiration")
+		targetOwnNodeStr := r.URL.Query().Get("targetOwnNode")
 
 		var err error
 		var expirationTime time.Time
@@ -1161,7 +1161,14 @@ func setupDebugHandlers(appState *state.State) {
 			expirationTime = time.Now()
 		}
 
-		err = appState.DB.DeleteObjectsExpired(context.Background(), expirationTime, concurrency.GOMAXPROCS)
+		targetOwnNode := false
+		if targetOwnNodeStr != "" {
+			if targetOwnNodeStr == "true" {
+				targetOwnNode = true
+			}
+		}
+
+		err = appState.DB.TriggerDeletionObjectsExpired(context.Background(), expirationTime, expirationTime, targetOwnNode)
 		if err != nil {
 			http.Error(w, "failed to delete expired objects", http.StatusInternalServerError)
 			return

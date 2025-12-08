@@ -119,7 +119,21 @@ func (db *DB) triggerDeletionObjectsExpiredMultiNode(ctx context.Context, collec
 			}
 			defer release()
 
+			// check if deletion is ongoing on the last node we picked
+			lastNode, ok := db.objectTTLLastNodePerCollection[collection]
+			if ok {
+				ttlOngoing, err := idx.remote.DeleteObjectsExpiredStatus(ctx, lastNode, 0)
+				if err != nil {
+					ec.Add(err)
+				}
+				if ttlOngoing {
+					return // deletion for collection still ongoing, skip this round
+				}
+			}
+
 			node := pickNode()
+			db.objectTTLLastNodePerCollection[collection] = node
+
 			fmt.Printf("  ==> (multi node) idx.remote.DeleteObjectsExpired\n"+
 				"      collection [%s] deleteOnPropName [%s] ttlThreshold [%s] deletionTime [%s] node [%s]\n\n",
 				collection, deleteOnPropName, ttlThreshold, deletionTime, node)
@@ -144,6 +158,10 @@ func (db *DB) extractTtlDataFromCollection(collection string, ttlTime time.Time,
 
 	if idx != nil {
 		class := idx.getClass()
+		if class == nil { // ec consistency issue between index and RAFT store
+			idx.closeLock.RUnlock()
+			return nil, func() {}, "", time.Time{}
+		}
 		if ttl.IsTtlEnabled(class.ObjectTTLConfig) {
 			deleteOnPropName = class.ObjectTTLConfig.DeleteOn
 			ttlThreshold = ttlTime.Add(-time.Second * time.Duration(class.ObjectTTLConfig.DefaultTTL))
@@ -155,7 +173,12 @@ func (db *DB) extractTtlDataFromCollection(collection string, ttlTime time.Time,
 	return nil, func() {}, "", time.Time{}
 }
 
-func (db *DB) TriggerDeletionObjectsExpired(ctx context.Context, ttlTime, deletionTime time.Time) error {
+func (db *DB) TriggerDeletionObjectsExpired(ctx context.Context, ttlTime, deletionTime time.Time, targetOwnNode bool) error {
+	if !db.objectTTLOngoing.CompareAndSwap(false, true) {
+		return fmt.Errorf("TTL deletion already ongoing")
+	}
+	defer db.objectTTLOngoing.Store(false)
+
 	collections := []string{}
 	db.indexLock.RLock()
 	for collection := range db.indices {
@@ -172,9 +195,13 @@ func (db *DB) TriggerDeletionObjectsExpired(ctx context.Context, ttlTime, deleti
 	localNode := db.schemaGetter.NodeName()
 	allNodes := db.schemaGetter.Nodes()
 	otherNodes := make([]string, 0, len(allNodes))
-	for _, node := range allNodes {
-		if node != localNode {
-			otherNodes = append(otherNodes, node)
+	if targetOwnNode {
+		otherNodes = append(otherNodes, localNode)
+	} else {
+		for _, node := range allNodes {
+			if node != localNode {
+				otherNodes = append(otherNodes, node)
+			}
 		}
 	}
 

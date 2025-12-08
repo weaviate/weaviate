@@ -296,6 +296,8 @@ type Index struct {
 	router        routerTypes.Router
 	shardResolver *resolver.ShardResolver
 	bitmapBufPool roaringset.BitmapBufPool
+
+	objectTTLRunning atomic.Bool
 }
 
 func (i *Index) ID() string {
@@ -2259,6 +2261,10 @@ func (i *Index) IncomingDeleteObject(ctx context.Context, shardName string,
 	return shard.DeleteObject(ctx, id, deletionTime)
 }
 
+func (i *Index) IncomingDeleteObjectsStatus(ctx context.Context) bool {
+	return i.objectTTLRunning.Load()
+}
+
 func (i *Index) IncomingDeleteObjectsExpired(ctx context.Context, deleteOnPropName string,
 	ttlThreshold, deletionTime time.Time, schemaVersion uint64,
 ) error {
@@ -2267,6 +2273,27 @@ func (i *Index) IncomingDeleteObjectsExpired(ctx context.Context, deleteOnPropNa
 		"      ttlThreshold [%s]\n"+
 		"      deletionTime [%s]\n\n", deleteOnPropName, ttlThreshold, deletionTime)
 
+	if !i.objectTTLRunning.CompareAndSwap(false, true) {
+		return fmt.Errorf("incoming delete objects still running on index %s", i.Config.ClassName.String())
+	}
+
+	// start goroutine
+	enterrors.GoWrapper(
+		func() {
+			defer i.objectTTLRunning.Store(false)
+
+			// use closing context to stop long-running TTL deletions in case index is closed
+			ctx2 := i.closingCtx
+			err := i.incomingDeleteObjectsExpired(ctx2, deleteOnPropName, ttlThreshold, deletionTime, schemaVersion)
+			if err != nil {
+				i.logger.Errorf("error during IncomingDeleteObjectsExpired: %v", err)
+			}
+		}, i.logger)
+
+	return nil
+}
+
+func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, deleteOnPropName string, ttlThreshold, deletionTime time.Time, schemaVersion uint64) error {
 	class := i.getClass()
 	filter := &filters.LocalFilter{Root: &filters.Clause{
 		Operator: filters.OperatorLessThanEqual,
@@ -2304,8 +2331,7 @@ func (i *Index) IncomingDeleteObjectsExpired(ctx context.Context, deleteOnPropNa
 				continue
 			}
 
-			// TODO aliszka:ttl disable dryrun
-			resp, err := i.batchDeleteObjects(ctx, tenants2uuids, deletionTime, true, replProps, schemaVersion, tenant)
+			resp, err := i.batchDeleteObjects(ctx, tenants2uuids, deletionTime, false, replProps, schemaVersion, tenant)
 			if err != nil {
 				// TODO aliszka:ttl exit or continue with other tenants
 				return fmt.Errorf("batch delete for tenant %q of collection %q: %w", tenant, class.Class, err)
@@ -2328,8 +2354,7 @@ func (i *Index) IncomingDeleteObjectsExpired(ctx context.Context, deleteOnPropNa
 			}
 		}
 		if len(shards2uuids) != 0 {
-			// TODO aliszka:ttl disable dryrun
-			resp, err := i.batchDeleteObjects(ctx, shards2uuids, deletionTime, true, replProps, schemaVersion, "")
+			resp, err := i.batchDeleteObjects(ctx, shards2uuids, deletionTime, false, replProps, schemaVersion, "")
 			if err != nil {
 				// TODO aliszka:ttl exit or continue with other tenants
 				return fmt.Errorf("batch delete of collection %q: %w", class.Class, err)

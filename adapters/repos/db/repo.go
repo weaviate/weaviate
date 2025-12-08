@@ -111,6 +111,9 @@ type DB struct {
 	bitmapBufPoolClose func()
 
 	AsyncIndexingEnabled bool
+
+	objectTTLOngoing               atomic.Bool
+	objectTTLLastNodePerCollection map[string]string
 }
 
 func (db *DB) GetSchemaGetter() schemaUC.SchemaGetter {
@@ -203,27 +206,28 @@ func New(logger logrus.FieldLogger, localNodeName string, config Config,
 	}
 
 	db := &DB{
-		logger:               logger,
-		localNodeName:        localNodeName,
-		config:               config,
-		indices:              map[string]*Index{},
-		remoteIndex:          remoteIndex,
-		nodeResolver:         nodeResolver,
-		remoteNode:           sharding.NewRemoteNode(nodeResolver, remoteNodesClient),
-		replicaClient:        replicaClient,
-		promMetrics:          promMetrics,
-		shutdown:             make(chan struct{}),
-		maxNumberGoroutines:  int(math.Round(config.MaxImportGoroutinesFactor * float64(runtime.GOMAXPROCS(0)))),
-		resourceScanState:    newResourceScanState(),
-		memMonitor:           memMonitor,
-		shardLoadLimiter:     NewShardLoadLimiter(metricsRegisterer, config.MaximumConcurrentShardLoads),
-		reindexer:            NewShardReindexerV3Noop(),
-		nodeSelector:         nodeSelector,
-		schemaReader:         schemaReader,
-		replicationFSM:       replicationFSM,
-		bitmapBufPool:        roaringset.NewBitmapBufPoolNoop(),
-		bitmapBufPoolClose:   func() {},
-		AsyncIndexingEnabled: config.AsyncIndexingEnabled,
+		logger:                         logger,
+		localNodeName:                  localNodeName,
+		config:                         config,
+		indices:                        map[string]*Index{},
+		remoteIndex:                    remoteIndex,
+		nodeResolver:                   nodeResolver,
+		remoteNode:                     sharding.NewRemoteNode(nodeResolver, remoteNodesClient),
+		replicaClient:                  replicaClient,
+		promMetrics:                    promMetrics,
+		shutdown:                       make(chan struct{}),
+		maxNumberGoroutines:            int(math.Round(config.MaxImportGoroutinesFactor * float64(runtime.GOMAXPROCS(0)))),
+		resourceScanState:              newResourceScanState(),
+		memMonitor:                     memMonitor,
+		shardLoadLimiter:               NewShardLoadLimiter(metricsRegisterer, config.MaximumConcurrentShardLoads),
+		reindexer:                      NewShardReindexerV3Noop(),
+		nodeSelector:                   nodeSelector,
+		schemaReader:                   schemaReader,
+		replicationFSM:                 replicationFSM,
+		bitmapBufPool:                  roaringset.NewBitmapBufPoolNoop(),
+		bitmapBufPoolClose:             func() {},
+		AsyncIndexingEnabled:           config.AsyncIndexingEnabled,
+		objectTTLLastNodePerCollection: map[string]string{},
 	}
 
 	if db.maxNumberGoroutines == 0 {
