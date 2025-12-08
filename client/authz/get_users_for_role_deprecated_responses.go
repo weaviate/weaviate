@@ -70,12 +70,6 @@ func (o *GetUsersForRoleDeprecatedReader) ReadResponse(response runtime.ClientRe
 			return nil, err
 		}
 		return nil, result
-	case 503:
-		result := NewGetUsersForRoleDeprecatedServiceUnavailable()
-		if err := result.readResponse(response, consumer, o.formats); err != nil {
-			return nil, err
-		}
-		return nil, result
 	default:
 		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
 	}
@@ -452,74 +446,6 @@ func (o *GetUsersForRoleDeprecatedInternalServerError) GetPayload() *models.Erro
 }
 
 func (o *GetUsersForRoleDeprecatedInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
-	o.Payload = new(models.ErrorResponse)
-
-	// response payload
-	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
-		return err
-	}
-
-	return nil
-}
-
-// NewGetUsersForRoleDeprecatedServiceUnavailable creates a GetUsersForRoleDeprecatedServiceUnavailable with default headers values
-func NewGetUsersForRoleDeprecatedServiceUnavailable() *GetUsersForRoleDeprecatedServiceUnavailable {
-	return &GetUsersForRoleDeprecatedServiceUnavailable{}
-}
-
-/*
-GetUsersForRoleDeprecatedServiceUnavailable describes a response with status code 503, with default header values.
-
-The operational mode of the server does not allow users operations at this time.
-*/
-type GetUsersForRoleDeprecatedServiceUnavailable struct {
-	Payload *models.ErrorResponse
-}
-
-// IsSuccess returns true when this get users for role deprecated service unavailable response has a 2xx status code
-func (o *GetUsersForRoleDeprecatedServiceUnavailable) IsSuccess() bool {
-	return false
-}
-
-// IsRedirect returns true when this get users for role deprecated service unavailable response has a 3xx status code
-func (o *GetUsersForRoleDeprecatedServiceUnavailable) IsRedirect() bool {
-	return false
-}
-
-// IsClientError returns true when this get users for role deprecated service unavailable response has a 4xx status code
-func (o *GetUsersForRoleDeprecatedServiceUnavailable) IsClientError() bool {
-	return false
-}
-
-// IsServerError returns true when this get users for role deprecated service unavailable response has a 5xx status code
-func (o *GetUsersForRoleDeprecatedServiceUnavailable) IsServerError() bool {
-	return true
-}
-
-// IsCode returns true when this get users for role deprecated service unavailable response a status code equal to that given
-func (o *GetUsersForRoleDeprecatedServiceUnavailable) IsCode(code int) bool {
-	return code == 503
-}
-
-// Code gets the status code for the get users for role deprecated service unavailable response
-func (o *GetUsersForRoleDeprecatedServiceUnavailable) Code() int {
-	return 503
-}
-
-func (o *GetUsersForRoleDeprecatedServiceUnavailable) Error() string {
-	return fmt.Sprintf("[GET /authz/roles/{id}/users][%d] getUsersForRoleDeprecatedServiceUnavailable  %+v", 503, o.Payload)
-}
-
-func (o *GetUsersForRoleDeprecatedServiceUnavailable) String() string {
-	return fmt.Sprintf("[GET /authz/roles/{id}/users][%d] getUsersForRoleDeprecatedServiceUnavailable  %+v", 503, o.Payload)
-}
-
-func (o *GetUsersForRoleDeprecatedServiceUnavailable) GetPayload() *models.ErrorResponse {
-	return o.Payload
-}
-
-func (o *GetUsersForRoleDeprecatedServiceUnavailable) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
 

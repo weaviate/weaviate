@@ -58,12 +58,6 @@ func (o *SchemaDumpReader) ReadResponse(response runtime.ClientResponse, consume
 			return nil, err
 		}
 		return nil, result
-	case 503:
-		result := NewSchemaDumpServiceUnavailable()
-		if err := result.readResponse(response, consumer, o.formats); err != nil {
-			return nil, err
-		}
-		return nil, result
 	default:
 		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
 	}
@@ -318,74 +312,6 @@ func (o *SchemaDumpInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *SchemaDumpInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
-	o.Payload = new(models.ErrorResponse)
-
-	// response payload
-	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
-		return err
-	}
-
-	return nil
-}
-
-// NewSchemaDumpServiceUnavailable creates a SchemaDumpServiceUnavailable with default headers values
-func NewSchemaDumpServiceUnavailable() *SchemaDumpServiceUnavailable {
-	return &SchemaDumpServiceUnavailable{}
-}
-
-/*
-SchemaDumpServiceUnavailable describes a response with status code 503, with default header values.
-
-The operational mode of the server does not allow schema operations at this time.
-*/
-type SchemaDumpServiceUnavailable struct {
-	Payload *models.ErrorResponse
-}
-
-// IsSuccess returns true when this schema dump service unavailable response has a 2xx status code
-func (o *SchemaDumpServiceUnavailable) IsSuccess() bool {
-	return false
-}
-
-// IsRedirect returns true when this schema dump service unavailable response has a 3xx status code
-func (o *SchemaDumpServiceUnavailable) IsRedirect() bool {
-	return false
-}
-
-// IsClientError returns true when this schema dump service unavailable response has a 4xx status code
-func (o *SchemaDumpServiceUnavailable) IsClientError() bool {
-	return false
-}
-
-// IsServerError returns true when this schema dump service unavailable response has a 5xx status code
-func (o *SchemaDumpServiceUnavailable) IsServerError() bool {
-	return true
-}
-
-// IsCode returns true when this schema dump service unavailable response a status code equal to that given
-func (o *SchemaDumpServiceUnavailable) IsCode(code int) bool {
-	return code == 503
-}
-
-// Code gets the status code for the schema dump service unavailable response
-func (o *SchemaDumpServiceUnavailable) Code() int {
-	return 503
-}
-
-func (o *SchemaDumpServiceUnavailable) Error() string {
-	return fmt.Sprintf("[GET /schema][%d] schemaDumpServiceUnavailable  %+v", 503, o.Payload)
-}
-
-func (o *SchemaDumpServiceUnavailable) String() string {
-	return fmt.Sprintf("[GET /schema][%d] schemaDumpServiceUnavailable  %+v", 503, o.Payload)
-}
-
-func (o *SchemaDumpServiceUnavailable) GetPayload() *models.ErrorResponse {
-	return o.Payload
-}
-
-func (o *SchemaDumpServiceUnavailable) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
 

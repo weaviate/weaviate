@@ -76,12 +76,6 @@ func (o *ReplicateReader) ReadResponse(response runtime.ClientResponse, consumer
 			return nil, err
 		}
 		return nil, result
-	case 503:
-		result := NewReplicateServiceUnavailable()
-		if err := result.readResponse(response, consumer, o.formats); err != nil {
-			return nil, err
-		}
-		return nil, result
 	default:
 		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
 	}
@@ -540,74 +534,6 @@ func (o *ReplicateNotImplemented) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ReplicateNotImplemented) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
-	o.Payload = new(models.ErrorResponse)
-
-	// response payload
-	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
-		return err
-	}
-
-	return nil
-}
-
-// NewReplicateServiceUnavailable creates a ReplicateServiceUnavailable with default headers values
-func NewReplicateServiceUnavailable() *ReplicateServiceUnavailable {
-	return &ReplicateServiceUnavailable{}
-}
-
-/*
-ReplicateServiceUnavailable describes a response with status code 503, with default header values.
-
-The operational mode of the server does not allow replica movement operations at this time.
-*/
-type ReplicateServiceUnavailable struct {
-	Payload *models.ErrorResponse
-}
-
-// IsSuccess returns true when this replicate service unavailable response has a 2xx status code
-func (o *ReplicateServiceUnavailable) IsSuccess() bool {
-	return false
-}
-
-// IsRedirect returns true when this replicate service unavailable response has a 3xx status code
-func (o *ReplicateServiceUnavailable) IsRedirect() bool {
-	return false
-}
-
-// IsClientError returns true when this replicate service unavailable response has a 4xx status code
-func (o *ReplicateServiceUnavailable) IsClientError() bool {
-	return false
-}
-
-// IsServerError returns true when this replicate service unavailable response has a 5xx status code
-func (o *ReplicateServiceUnavailable) IsServerError() bool {
-	return true
-}
-
-// IsCode returns true when this replicate service unavailable response a status code equal to that given
-func (o *ReplicateServiceUnavailable) IsCode(code int) bool {
-	return code == 503
-}
-
-// Code gets the status code for the replicate service unavailable response
-func (o *ReplicateServiceUnavailable) Code() int {
-	return 503
-}
-
-func (o *ReplicateServiceUnavailable) Error() string {
-	return fmt.Sprintf("[POST /replication/replicate][%d] replicateServiceUnavailable  %+v", 503, o.Payload)
-}
-
-func (o *ReplicateServiceUnavailable) String() string {
-	return fmt.Sprintf("[POST /replication/replicate][%d] replicateServiceUnavailable  %+v", 503, o.Payload)
-}
-
-func (o *ReplicateServiceUnavailable) GetPayload() *models.ErrorResponse {
-	return o.Payload
-}
-
-func (o *ReplicateServiceUnavailable) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
 

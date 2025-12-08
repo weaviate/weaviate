@@ -64,12 +64,6 @@ func (o *TenantsDeleteReader) ReadResponse(response runtime.ClientResponse, cons
 			return nil, err
 		}
 		return nil, result
-	case 503:
-		result := NewTenantsDeleteServiceUnavailable()
-		if err := result.readResponse(response, consumer, o.formats); err != nil {
-			return nil, err
-		}
-		return nil, result
 	default:
 		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
 	}
@@ -380,74 +374,6 @@ func (o *TenantsDeleteInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *TenantsDeleteInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
-	o.Payload = new(models.ErrorResponse)
-
-	// response payload
-	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
-		return err
-	}
-
-	return nil
-}
-
-// NewTenantsDeleteServiceUnavailable creates a TenantsDeleteServiceUnavailable with default headers values
-func NewTenantsDeleteServiceUnavailable() *TenantsDeleteServiceUnavailable {
-	return &TenantsDeleteServiceUnavailable{}
-}
-
-/*
-TenantsDeleteServiceUnavailable describes a response with status code 503, with default header values.
-
-The operational mode of the server does not allow schema operations at this time.
-*/
-type TenantsDeleteServiceUnavailable struct {
-	Payload *models.ErrorResponse
-}
-
-// IsSuccess returns true when this tenants delete service unavailable response has a 2xx status code
-func (o *TenantsDeleteServiceUnavailable) IsSuccess() bool {
-	return false
-}
-
-// IsRedirect returns true when this tenants delete service unavailable response has a 3xx status code
-func (o *TenantsDeleteServiceUnavailable) IsRedirect() bool {
-	return false
-}
-
-// IsClientError returns true when this tenants delete service unavailable response has a 4xx status code
-func (o *TenantsDeleteServiceUnavailable) IsClientError() bool {
-	return false
-}
-
-// IsServerError returns true when this tenants delete service unavailable response has a 5xx status code
-func (o *TenantsDeleteServiceUnavailable) IsServerError() bool {
-	return true
-}
-
-// IsCode returns true when this tenants delete service unavailable response a status code equal to that given
-func (o *TenantsDeleteServiceUnavailable) IsCode(code int) bool {
-	return code == 503
-}
-
-// Code gets the status code for the tenants delete service unavailable response
-func (o *TenantsDeleteServiceUnavailable) Code() int {
-	return 503
-}
-
-func (o *TenantsDeleteServiceUnavailable) Error() string {
-	return fmt.Sprintf("[DELETE /schema/{className}/tenants][%d] tenantsDeleteServiceUnavailable  %+v", 503, o.Payload)
-}
-
-func (o *TenantsDeleteServiceUnavailable) String() string {
-	return fmt.Sprintf("[DELETE /schema/{className}/tenants][%d] tenantsDeleteServiceUnavailable  %+v", 503, o.Payload)
-}
-
-func (o *TenantsDeleteServiceUnavailable) GetPayload() *models.ErrorResponse {
-	return o.Payload
-}
-
-func (o *TenantsDeleteServiceUnavailable) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
 

@@ -64,12 +64,6 @@ func (o *ObjectsReferencesUpdateReader) ReadResponse(response runtime.ClientResp
 			return nil, err
 		}
 		return nil, result
-	case 503:
-		result := NewObjectsReferencesUpdateServiceUnavailable()
-		if err := result.readResponse(response, consumer, o.formats); err != nil {
-			return nil, err
-		}
-		return nil, result
 	default:
 		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
 	}
@@ -380,74 +374,6 @@ func (o *ObjectsReferencesUpdateInternalServerError) GetPayload() *models.ErrorR
 }
 
 func (o *ObjectsReferencesUpdateInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
-	o.Payload = new(models.ErrorResponse)
-
-	// response payload
-	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
-		return err
-	}
-
-	return nil
-}
-
-// NewObjectsReferencesUpdateServiceUnavailable creates a ObjectsReferencesUpdateServiceUnavailable with default headers values
-func NewObjectsReferencesUpdateServiceUnavailable() *ObjectsReferencesUpdateServiceUnavailable {
-	return &ObjectsReferencesUpdateServiceUnavailable{}
-}
-
-/*
-ObjectsReferencesUpdateServiceUnavailable describes a response with status code 503, with default header values.
-
-The operational mode of the server does not allow objects operations at this time.
-*/
-type ObjectsReferencesUpdateServiceUnavailable struct {
-	Payload *models.ErrorResponse
-}
-
-// IsSuccess returns true when this objects references update service unavailable response has a 2xx status code
-func (o *ObjectsReferencesUpdateServiceUnavailable) IsSuccess() bool {
-	return false
-}
-
-// IsRedirect returns true when this objects references update service unavailable response has a 3xx status code
-func (o *ObjectsReferencesUpdateServiceUnavailable) IsRedirect() bool {
-	return false
-}
-
-// IsClientError returns true when this objects references update service unavailable response has a 4xx status code
-func (o *ObjectsReferencesUpdateServiceUnavailable) IsClientError() bool {
-	return false
-}
-
-// IsServerError returns true when this objects references update service unavailable response has a 5xx status code
-func (o *ObjectsReferencesUpdateServiceUnavailable) IsServerError() bool {
-	return true
-}
-
-// IsCode returns true when this objects references update service unavailable response a status code equal to that given
-func (o *ObjectsReferencesUpdateServiceUnavailable) IsCode(code int) bool {
-	return code == 503
-}
-
-// Code gets the status code for the objects references update service unavailable response
-func (o *ObjectsReferencesUpdateServiceUnavailable) Code() int {
-	return 503
-}
-
-func (o *ObjectsReferencesUpdateServiceUnavailable) Error() string {
-	return fmt.Sprintf("[PUT /objects/{id}/references/{propertyName}][%d] objectsReferencesUpdateServiceUnavailable  %+v", 503, o.Payload)
-}
-
-func (o *ObjectsReferencesUpdateServiceUnavailable) String() string {
-	return fmt.Sprintf("[PUT /objects/{id}/references/{propertyName}][%d] objectsReferencesUpdateServiceUnavailable  %+v", 503, o.Payload)
-}
-
-func (o *ObjectsReferencesUpdateServiceUnavailable) GetPayload() *models.ErrorResponse {
-	return o.Payload
-}
-
-func (o *ObjectsReferencesUpdateServiceUnavailable) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
 

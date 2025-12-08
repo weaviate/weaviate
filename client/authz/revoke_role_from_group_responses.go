@@ -73,12 +73,6 @@ func (o *RevokeRoleFromGroupReader) ReadResponse(response runtime.ClientResponse
 			return nil, err
 		}
 		return nil, result
-	case 503:
-		result := NewRevokeRoleFromGroupServiceUnavailable()
-		if err := result.readResponse(response, consumer, o.formats); err != nil {
-			return nil, err
-		}
-		return nil, result
 	default:
 		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
 	}
@@ -445,74 +439,6 @@ func (o *RevokeRoleFromGroupInternalServerError) GetPayload() *models.ErrorRespo
 }
 
 func (o *RevokeRoleFromGroupInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
-	o.Payload = new(models.ErrorResponse)
-
-	// response payload
-	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
-		return err
-	}
-
-	return nil
-}
-
-// NewRevokeRoleFromGroupServiceUnavailable creates a RevokeRoleFromGroupServiceUnavailable with default headers values
-func NewRevokeRoleFromGroupServiceUnavailable() *RevokeRoleFromGroupServiceUnavailable {
-	return &RevokeRoleFromGroupServiceUnavailable{}
-}
-
-/*
-RevokeRoleFromGroupServiceUnavailable describes a response with status code 503, with default header values.
-
-The operational mode of the server does not allow users operations at this time.
-*/
-type RevokeRoleFromGroupServiceUnavailable struct {
-	Payload *models.ErrorResponse
-}
-
-// IsSuccess returns true when this revoke role from group service unavailable response has a 2xx status code
-func (o *RevokeRoleFromGroupServiceUnavailable) IsSuccess() bool {
-	return false
-}
-
-// IsRedirect returns true when this revoke role from group service unavailable response has a 3xx status code
-func (o *RevokeRoleFromGroupServiceUnavailable) IsRedirect() bool {
-	return false
-}
-
-// IsClientError returns true when this revoke role from group service unavailable response has a 4xx status code
-func (o *RevokeRoleFromGroupServiceUnavailable) IsClientError() bool {
-	return false
-}
-
-// IsServerError returns true when this revoke role from group service unavailable response has a 5xx status code
-func (o *RevokeRoleFromGroupServiceUnavailable) IsServerError() bool {
-	return true
-}
-
-// IsCode returns true when this revoke role from group service unavailable response a status code equal to that given
-func (o *RevokeRoleFromGroupServiceUnavailable) IsCode(code int) bool {
-	return code == 503
-}
-
-// Code gets the status code for the revoke role from group service unavailable response
-func (o *RevokeRoleFromGroupServiceUnavailable) Code() int {
-	return 503
-}
-
-func (o *RevokeRoleFromGroupServiceUnavailable) Error() string {
-	return fmt.Sprintf("[POST /authz/groups/{id}/revoke][%d] revokeRoleFromGroupServiceUnavailable  %+v", 503, o.Payload)
-}
-
-func (o *RevokeRoleFromGroupServiceUnavailable) String() string {
-	return fmt.Sprintf("[POST /authz/groups/{id}/revoke][%d] revokeRoleFromGroupServiceUnavailable  %+v", 503, o.Payload)
-}
-
-func (o *RevokeRoleFromGroupServiceUnavailable) GetPayload() *models.ErrorResponse {
-	return o.Payload
-}
-
-func (o *RevokeRoleFromGroupServiceUnavailable) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
 

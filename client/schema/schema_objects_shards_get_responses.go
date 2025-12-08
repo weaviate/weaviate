@@ -64,12 +64,6 @@ func (o *SchemaObjectsShardsGetReader) ReadResponse(response runtime.ClientRespo
 			return nil, err
 		}
 		return nil, result
-	case 503:
-		result := NewSchemaObjectsShardsGetServiceUnavailable()
-		if err := result.readResponse(response, consumer, o.formats); err != nil {
-			return nil, err
-		}
-		return nil, result
 	default:
 		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
 	}
@@ -390,74 +384,6 @@ func (o *SchemaObjectsShardsGetInternalServerError) GetPayload() *models.ErrorRe
 }
 
 func (o *SchemaObjectsShardsGetInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
-	o.Payload = new(models.ErrorResponse)
-
-	// response payload
-	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
-		return err
-	}
-
-	return nil
-}
-
-// NewSchemaObjectsShardsGetServiceUnavailable creates a SchemaObjectsShardsGetServiceUnavailable with default headers values
-func NewSchemaObjectsShardsGetServiceUnavailable() *SchemaObjectsShardsGetServiceUnavailable {
-	return &SchemaObjectsShardsGetServiceUnavailable{}
-}
-
-/*
-SchemaObjectsShardsGetServiceUnavailable describes a response with status code 503, with default header values.
-
-The operational mode of the server does not allow schema operations at this time.
-*/
-type SchemaObjectsShardsGetServiceUnavailable struct {
-	Payload *models.ErrorResponse
-}
-
-// IsSuccess returns true when this schema objects shards get service unavailable response has a 2xx status code
-func (o *SchemaObjectsShardsGetServiceUnavailable) IsSuccess() bool {
-	return false
-}
-
-// IsRedirect returns true when this schema objects shards get service unavailable response has a 3xx status code
-func (o *SchemaObjectsShardsGetServiceUnavailable) IsRedirect() bool {
-	return false
-}
-
-// IsClientError returns true when this schema objects shards get service unavailable response has a 4xx status code
-func (o *SchemaObjectsShardsGetServiceUnavailable) IsClientError() bool {
-	return false
-}
-
-// IsServerError returns true when this schema objects shards get service unavailable response has a 5xx status code
-func (o *SchemaObjectsShardsGetServiceUnavailable) IsServerError() bool {
-	return true
-}
-
-// IsCode returns true when this schema objects shards get service unavailable response a status code equal to that given
-func (o *SchemaObjectsShardsGetServiceUnavailable) IsCode(code int) bool {
-	return code == 503
-}
-
-// Code gets the status code for the schema objects shards get service unavailable response
-func (o *SchemaObjectsShardsGetServiceUnavailable) Code() int {
-	return 503
-}
-
-func (o *SchemaObjectsShardsGetServiceUnavailable) Error() string {
-	return fmt.Sprintf("[GET /schema/{className}/shards][%d] schemaObjectsShardsGetServiceUnavailable  %+v", 503, o.Payload)
-}
-
-func (o *SchemaObjectsShardsGetServiceUnavailable) String() string {
-	return fmt.Sprintf("[GET /schema/{className}/shards][%d] schemaObjectsShardsGetServiceUnavailable  %+v", 503, o.Payload)
-}
-
-func (o *SchemaObjectsShardsGetServiceUnavailable) GetPayload() *models.ErrorResponse {
-	return o.Payload
-}
-
-func (o *SchemaObjectsShardsGetServiceUnavailable) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
 

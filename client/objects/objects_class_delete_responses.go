@@ -76,12 +76,6 @@ func (o *ObjectsClassDeleteReader) ReadResponse(response runtime.ClientResponse,
 			return nil, err
 		}
 		return nil, result
-	case 503:
-		result := NewObjectsClassDeleteServiceUnavailable()
-		if err := result.readResponse(response, consumer, o.formats); err != nil {
-			return nil, err
-		}
-		return nil, result
 	default:
 		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
 	}
@@ -516,74 +510,6 @@ func (o *ObjectsClassDeleteInternalServerError) GetPayload() *models.ErrorRespon
 }
 
 func (o *ObjectsClassDeleteInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
-	o.Payload = new(models.ErrorResponse)
-
-	// response payload
-	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
-		return err
-	}
-
-	return nil
-}
-
-// NewObjectsClassDeleteServiceUnavailable creates a ObjectsClassDeleteServiceUnavailable with default headers values
-func NewObjectsClassDeleteServiceUnavailable() *ObjectsClassDeleteServiceUnavailable {
-	return &ObjectsClassDeleteServiceUnavailable{}
-}
-
-/*
-ObjectsClassDeleteServiceUnavailable describes a response with status code 503, with default header values.
-
-The operational mode of the server does not allow objects operations at this time.
-*/
-type ObjectsClassDeleteServiceUnavailable struct {
-	Payload *models.ErrorResponse
-}
-
-// IsSuccess returns true when this objects class delete service unavailable response has a 2xx status code
-func (o *ObjectsClassDeleteServiceUnavailable) IsSuccess() bool {
-	return false
-}
-
-// IsRedirect returns true when this objects class delete service unavailable response has a 3xx status code
-func (o *ObjectsClassDeleteServiceUnavailable) IsRedirect() bool {
-	return false
-}
-
-// IsClientError returns true when this objects class delete service unavailable response has a 4xx status code
-func (o *ObjectsClassDeleteServiceUnavailable) IsClientError() bool {
-	return false
-}
-
-// IsServerError returns true when this objects class delete service unavailable response has a 5xx status code
-func (o *ObjectsClassDeleteServiceUnavailable) IsServerError() bool {
-	return true
-}
-
-// IsCode returns true when this objects class delete service unavailable response a status code equal to that given
-func (o *ObjectsClassDeleteServiceUnavailable) IsCode(code int) bool {
-	return code == 503
-}
-
-// Code gets the status code for the objects class delete service unavailable response
-func (o *ObjectsClassDeleteServiceUnavailable) Code() int {
-	return 503
-}
-
-func (o *ObjectsClassDeleteServiceUnavailable) Error() string {
-	return fmt.Sprintf("[DELETE /objects/{className}/{id}][%d] objectsClassDeleteServiceUnavailable  %+v", 503, o.Payload)
-}
-
-func (o *ObjectsClassDeleteServiceUnavailable) String() string {
-	return fmt.Sprintf("[DELETE /objects/{className}/{id}][%d] objectsClassDeleteServiceUnavailable  %+v", 503, o.Payload)
-}
-
-func (o *ObjectsClassDeleteServiceUnavailable) GetPayload() *models.ErrorResponse {
-	return o.Payload
-}
-
-func (o *ObjectsClassDeleteServiceUnavailable) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
 

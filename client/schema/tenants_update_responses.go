@@ -64,12 +64,6 @@ func (o *TenantsUpdateReader) ReadResponse(response runtime.ClientResponse, cons
 			return nil, err
 		}
 		return nil, result
-	case 503:
-		result := NewTenantsUpdateServiceUnavailable()
-		if err := result.readResponse(response, consumer, o.formats); err != nil {
-			return nil, err
-		}
-		return nil, result
 	default:
 		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
 	}
@@ -390,74 +384,6 @@ func (o *TenantsUpdateInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *TenantsUpdateInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
-	o.Payload = new(models.ErrorResponse)
-
-	// response payload
-	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
-		return err
-	}
-
-	return nil
-}
-
-// NewTenantsUpdateServiceUnavailable creates a TenantsUpdateServiceUnavailable with default headers values
-func NewTenantsUpdateServiceUnavailable() *TenantsUpdateServiceUnavailable {
-	return &TenantsUpdateServiceUnavailable{}
-}
-
-/*
-TenantsUpdateServiceUnavailable describes a response with status code 503, with default header values.
-
-The operational mode of the server does not allow schema operations at this time.
-*/
-type TenantsUpdateServiceUnavailable struct {
-	Payload *models.ErrorResponse
-}
-
-// IsSuccess returns true when this tenants update service unavailable response has a 2xx status code
-func (o *TenantsUpdateServiceUnavailable) IsSuccess() bool {
-	return false
-}
-
-// IsRedirect returns true when this tenants update service unavailable response has a 3xx status code
-func (o *TenantsUpdateServiceUnavailable) IsRedirect() bool {
-	return false
-}
-
-// IsClientError returns true when this tenants update service unavailable response has a 4xx status code
-func (o *TenantsUpdateServiceUnavailable) IsClientError() bool {
-	return false
-}
-
-// IsServerError returns true when this tenants update service unavailable response has a 5xx status code
-func (o *TenantsUpdateServiceUnavailable) IsServerError() bool {
-	return true
-}
-
-// IsCode returns true when this tenants update service unavailable response a status code equal to that given
-func (o *TenantsUpdateServiceUnavailable) IsCode(code int) bool {
-	return code == 503
-}
-
-// Code gets the status code for the tenants update service unavailable response
-func (o *TenantsUpdateServiceUnavailable) Code() int {
-	return 503
-}
-
-func (o *TenantsUpdateServiceUnavailable) Error() string {
-	return fmt.Sprintf("[PUT /schema/{className}/tenants][%d] tenantsUpdateServiceUnavailable  %+v", 503, o.Payload)
-}
-
-func (o *TenantsUpdateServiceUnavailable) String() string {
-	return fmt.Sprintf("[PUT /schema/{className}/tenants][%d] tenantsUpdateServiceUnavailable  %+v", 503, o.Payload)
-}
-
-func (o *TenantsUpdateServiceUnavailable) GetPayload() *models.ErrorResponse {
-	return o.Payload
-}
-
-func (o *TenantsUpdateServiceUnavailable) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
 
