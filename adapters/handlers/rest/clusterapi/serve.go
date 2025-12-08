@@ -73,7 +73,7 @@ func NewServer(appState *state.State) *Server {
 			classifications.Transactions()))
 
 	mux.Handle("/cluster/users/db/", dbUsers.Users())
-	mux.Handle("/cluster/objectTTL/", objectTTL.Expired())
+	mux.Handle("/cluster/object_ttl/", objectTTL.Expired())
 	mux.Handle("/nodes/", monitoring.AddTracingToHTTPMiddleware(nodes.Nodes(), appState.Logger))
 	mux.Handle("/indices/", monitoring.AddTracingToHTTPMiddleware(indices.Indices(), appState.Logger))
 	mux.Handle("/replicas/indices/", monitoring.AddTracingToHTTPMiddleware(replicatedIndices.Indices(), appState.Logger))
