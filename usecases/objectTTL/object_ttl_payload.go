@@ -60,19 +60,10 @@ func (p ObjectsExpiredPayload) MIME() string {
 	return "application/vnd.weaviate.objectsexpired+json"
 }
 
-// func (p objectsExpiredPayload) CheckContentTypeHeader(r *http.Response) (string, bool) {
-// 	ct := r.Header.Get("content-type")
-// 	return ct, ct == p.MIME()
-// }
-
 func (p ObjectsExpiredPayload) CheckContentTypeHeaderReq(r *http.Request) (string, bool) {
 	ct := r.Header.Get("content-type")
 	return ct, ct == p.MIME()
 }
-
-// func (p objectsExpiredPayload) SetContentTypeHeader(w http.ResponseWriter) {
-// 	w.Header().Set("content-type", p.MIME())
-// }
 
 func (p ObjectsExpiredPayload) SetContentTypeHeaderReq(r *http.Request) {
 	r.Header.Set("content-type", p.MIME())

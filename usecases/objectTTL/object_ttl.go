@@ -61,13 +61,13 @@ func (c *RemoteObjectTTL) CheckIfStillRunning(ctx context.Context, nodeName stri
 		return false, enterrors.NewErrUnexpectedStatusCode(res.StatusCode, body)
 	}
 
-	var stilRunning ObjectsExpiredStatusResponsePayload
-	err = json.Unmarshal(body, &stilRunning)
+	var stillRunning ObjectsExpiredStatusResponsePayload
+	err = json.Unmarshal(body, &stillRunning)
 	if err != nil {
 		return false, enterrors.NewErrUnmarshalBody(err)
 	}
 
-	return stilRunning.DeletionOngoing, nil
+	return stillRunning.DeletionOngoing, nil
 }
 
 func (c *RemoteObjectTTL) StartRemoteDelete(ctx context.Context, nodeName string, classes []ObjectsExpiredPayload) error {

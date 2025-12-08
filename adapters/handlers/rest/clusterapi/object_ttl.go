@@ -105,7 +105,7 @@ func (d *ObjectTTL) incomingDelete() http.Handler {
 
 		// run the deletion in a separate goroutine to free up the HTTP handler immediately
 		enterrors.GoWrapper(func() {
-			// make sure to unlock the requestRunning flag when all deletions are dine
+			// make sure to unlock the requestRunning flag when all deletions are done
 			defer d.requestRunning.Store(false)
 			eg := enterrors.NewErrorGroupWrapper(d.logger)
 
@@ -131,6 +131,6 @@ func (d *ObjectTTL) incomingDelete() http.Handler {
 			}
 		}, d.logger)
 
-		w.WriteHeader(http.StatusOK)
+		w.WriteHeader(http.StatusAccepted)
 	})
 }
