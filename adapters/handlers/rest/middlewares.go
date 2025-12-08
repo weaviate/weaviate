@@ -281,26 +281,17 @@ func addOperationalMode(state *state.State, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch state.ServerConfig.Config.OperationalMode.Get() {
 		case config.READ_ONLY:
-			if config.IsHTTPWrite(r.Method) {
-				if whitelist(r.URL.Path, config.ReadOnlyWhitelist) {
-					break
-				}
+			if config.IsHTTPWrite(r.Method) && !whitelist(r.URL.Path, config.ReadOnlyWhitelist) {
 				writeOperationalModeErrorResponse(w, config.ErrReadOnlyModeEnabled)
 				return
 			}
 		case config.SCALE_OUT:
-			if config.IsHTTPWrite(r.Method) {
-				if whitelist(r.URL.Path, config.ScaleOutWhitelist) {
-					break
-				}
+			if config.IsHTTPWrite(r.Method) && !whitelist(r.URL.Path, config.ScaleOutWhitelist) {
 				writeOperationalModeErrorResponse(w, config.ErrScaleOutModeEnabled)
 				return
 			}
 		case config.WRITE_ONLY:
-			if config.IsHTTPRead(r.Method) {
-				if whitelist(r.URL.Path, config.WriteOnlyWhitelist) {
-					break
-				}
+			if config.IsHTTPRead(r.Method) && !whitelist(r.URL.Path, config.WriteOnlyWhitelist) {
 				writeOperationalModeErrorResponse(w, config.ErrWriteOnlyModeEnabled)
 				return
 			}
