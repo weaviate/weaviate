@@ -253,3 +253,48 @@ func (o *RevokeRoleFromUserInternalServerError) WriteResponse(rw http.ResponseWr
 		}
 	}
 }
+
+// RevokeRoleFromUserServiceUnavailableCode is the HTTP code returned for type RevokeRoleFromUserServiceUnavailable
+const RevokeRoleFromUserServiceUnavailableCode int = 503
+
+/*
+RevokeRoleFromUserServiceUnavailable The operational mode of the server does not allow users operations at this time.
+
+swagger:response revokeRoleFromUserServiceUnavailable
+*/
+type RevokeRoleFromUserServiceUnavailable struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewRevokeRoleFromUserServiceUnavailable creates RevokeRoleFromUserServiceUnavailable with default headers values
+func NewRevokeRoleFromUserServiceUnavailable() *RevokeRoleFromUserServiceUnavailable {
+
+	return &RevokeRoleFromUserServiceUnavailable{}
+}
+
+// WithPayload adds the payload to the revoke role from user service unavailable response
+func (o *RevokeRoleFromUserServiceUnavailable) WithPayload(payload *models.ErrorResponse) *RevokeRoleFromUserServiceUnavailable {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the revoke role from user service unavailable response
+func (o *RevokeRoleFromUserServiceUnavailable) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *RevokeRoleFromUserServiceUnavailable) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(503)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}

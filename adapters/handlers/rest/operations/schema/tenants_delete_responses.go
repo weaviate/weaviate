@@ -208,3 +208,48 @@ func (o *TenantsDeleteInternalServerError) WriteResponse(rw http.ResponseWriter,
 		}
 	}
 }
+
+// TenantsDeleteServiceUnavailableCode is the HTTP code returned for type TenantsDeleteServiceUnavailable
+const TenantsDeleteServiceUnavailableCode int = 503
+
+/*
+TenantsDeleteServiceUnavailable The operational mode of the server does not allow schema operations at this time.
+
+swagger:response tenantsDeleteServiceUnavailable
+*/
+type TenantsDeleteServiceUnavailable struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewTenantsDeleteServiceUnavailable creates TenantsDeleteServiceUnavailable with default headers values
+func NewTenantsDeleteServiceUnavailable() *TenantsDeleteServiceUnavailable {
+
+	return &TenantsDeleteServiceUnavailable{}
+}
+
+// WithPayload adds the payload to the tenants delete service unavailable response
+func (o *TenantsDeleteServiceUnavailable) WithPayload(payload *models.ErrorResponse) *TenantsDeleteServiceUnavailable {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the tenants delete service unavailable response
+func (o *TenantsDeleteServiceUnavailable) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *TenantsDeleteServiceUnavailable) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(503)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}

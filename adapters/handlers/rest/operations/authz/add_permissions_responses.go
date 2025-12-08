@@ -278,3 +278,48 @@ func (o *AddPermissionsInternalServerError) WriteResponse(rw http.ResponseWriter
 		}
 	}
 }
+
+// AddPermissionsServiceUnavailableCode is the HTTP code returned for type AddPermissionsServiceUnavailable
+const AddPermissionsServiceUnavailableCode int = 503
+
+/*
+AddPermissionsServiceUnavailable The operational mode of the server does not allow users operations at this time.
+
+swagger:response addPermissionsServiceUnavailable
+*/
+type AddPermissionsServiceUnavailable struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewAddPermissionsServiceUnavailable creates AddPermissionsServiceUnavailable with default headers values
+func NewAddPermissionsServiceUnavailable() *AddPermissionsServiceUnavailable {
+
+	return &AddPermissionsServiceUnavailable{}
+}
+
+// WithPayload adds the payload to the add permissions service unavailable response
+func (o *AddPermissionsServiceUnavailable) WithPayload(payload *models.ErrorResponse) *AddPermissionsServiceUnavailable {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the add permissions service unavailable response
+func (o *AddPermissionsServiceUnavailable) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *AddPermissionsServiceUnavailable) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(503)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}

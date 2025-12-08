@@ -253,3 +253,48 @@ func (o *AliasesDeleteInternalServerError) WriteResponse(rw http.ResponseWriter,
 		}
 	}
 }
+
+// AliasesDeleteServiceUnavailableCode is the HTTP code returned for type AliasesDeleteServiceUnavailable
+const AliasesDeleteServiceUnavailableCode int = 503
+
+/*
+AliasesDeleteServiceUnavailable The operational mode of the server does not allow aliases operations at this time.
+
+swagger:response aliasesDeleteServiceUnavailable
+*/
+type AliasesDeleteServiceUnavailable struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewAliasesDeleteServiceUnavailable creates AliasesDeleteServiceUnavailable with default headers values
+func NewAliasesDeleteServiceUnavailable() *AliasesDeleteServiceUnavailable {
+
+	return &AliasesDeleteServiceUnavailable{}
+}
+
+// WithPayload adds the payload to the aliases delete service unavailable response
+func (o *AliasesDeleteServiceUnavailable) WithPayload(payload *models.ErrorResponse) *AliasesDeleteServiceUnavailable {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the aliases delete service unavailable response
+func (o *AliasesDeleteServiceUnavailable) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *AliasesDeleteServiceUnavailable) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(503)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}

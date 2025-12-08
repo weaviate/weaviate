@@ -188,3 +188,48 @@ func (o *ObjectsHeadInternalServerError) WriteResponse(rw http.ResponseWriter, p
 		}
 	}
 }
+
+// ObjectsHeadServiceUnavailableCode is the HTTP code returned for type ObjectsHeadServiceUnavailable
+const ObjectsHeadServiceUnavailableCode int = 503
+
+/*
+ObjectsHeadServiceUnavailable The operational mode of the server does not allow objects operations at this time.
+
+swagger:response objectsHeadServiceUnavailable
+*/
+type ObjectsHeadServiceUnavailable struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewObjectsHeadServiceUnavailable creates ObjectsHeadServiceUnavailable with default headers values
+func NewObjectsHeadServiceUnavailable() *ObjectsHeadServiceUnavailable {
+
+	return &ObjectsHeadServiceUnavailable{}
+}
+
+// WithPayload adds the payload to the objects head service unavailable response
+func (o *ObjectsHeadServiceUnavailable) WithPayload(payload *models.ErrorResponse) *ObjectsHeadServiceUnavailable {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the objects head service unavailable response
+func (o *ObjectsHeadServiceUnavailable) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *ObjectsHeadServiceUnavailable) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(503)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}

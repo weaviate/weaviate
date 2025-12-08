@@ -278,3 +278,48 @@ func (o *RemovePermissionsInternalServerError) WriteResponse(rw http.ResponseWri
 		}
 	}
 }
+
+// RemovePermissionsServiceUnavailableCode is the HTTP code returned for type RemovePermissionsServiceUnavailable
+const RemovePermissionsServiceUnavailableCode int = 503
+
+/*
+RemovePermissionsServiceUnavailable The operational mode of the server does not allow users operations at this time.
+
+swagger:response removePermissionsServiceUnavailable
+*/
+type RemovePermissionsServiceUnavailable struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewRemovePermissionsServiceUnavailable creates RemovePermissionsServiceUnavailable with default headers values
+func NewRemovePermissionsServiceUnavailable() *RemovePermissionsServiceUnavailable {
+
+	return &RemovePermissionsServiceUnavailable{}
+}
+
+// WithPayload adds the payload to the remove permissions service unavailable response
+func (o *RemovePermissionsServiceUnavailable) WithPayload(payload *models.ErrorResponse) *RemovePermissionsServiceUnavailable {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the remove permissions service unavailable response
+func (o *RemovePermissionsServiceUnavailable) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *RemovePermissionsServiceUnavailable) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(503)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}

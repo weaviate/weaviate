@@ -325,11 +325,11 @@ func writeOperationalModeErrorResponse(w http.ResponseWriter, err error) {
 
 func whitelist(next http.Handler, w http.ResponseWriter, r *http.Request, whitelist map[string]struct{}) bool {
 	split := strings.Split(r.URL.Path, "/")
-	root := split[0]
+	root := split[1]
 	if root != "v1" {
 		return true
 	}
-	namespace := split[1]
+	namespace := split[2]
 	if _, ok := whitelist[namespace]; ok {
 		next.ServeHTTP(w, r)
 		return true

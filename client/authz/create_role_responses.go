@@ -76,6 +76,12 @@ func (o *CreateRoleReader) ReadResponse(response runtime.ClientResponse, consume
 			return nil, err
 		}
 		return nil, result
+	case 503:
+		result := NewCreateRoleServiceUnavailable()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	default:
 		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
 	}
@@ -522,6 +528,74 @@ func (o *CreateRoleInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *CreateRoleInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
+// NewCreateRoleServiceUnavailable creates a CreateRoleServiceUnavailable with default headers values
+func NewCreateRoleServiceUnavailable() *CreateRoleServiceUnavailable {
+	return &CreateRoleServiceUnavailable{}
+}
+
+/*
+CreateRoleServiceUnavailable describes a response with status code 503, with default header values.
+
+The operational mode of the server does not allow users operations at this time.
+*/
+type CreateRoleServiceUnavailable struct {
+	Payload *models.ErrorResponse
+}
+
+// IsSuccess returns true when this create role service unavailable response has a 2xx status code
+func (o *CreateRoleServiceUnavailable) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this create role service unavailable response has a 3xx status code
+func (o *CreateRoleServiceUnavailable) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this create role service unavailable response has a 4xx status code
+func (o *CreateRoleServiceUnavailable) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this create role service unavailable response has a 5xx status code
+func (o *CreateRoleServiceUnavailable) IsServerError() bool {
+	return true
+}
+
+// IsCode returns true when this create role service unavailable response a status code equal to that given
+func (o *CreateRoleServiceUnavailable) IsCode(code int) bool {
+	return code == 503
+}
+
+// Code gets the status code for the create role service unavailable response
+func (o *CreateRoleServiceUnavailable) Code() int {
+	return 503
+}
+
+func (o *CreateRoleServiceUnavailable) Error() string {
+	return fmt.Sprintf("[POST /authz/roles][%d] createRoleServiceUnavailable  %+v", 503, o.Payload)
+}
+
+func (o *CreateRoleServiceUnavailable) String() string {
+	return fmt.Sprintf("[POST /authz/roles][%d] createRoleServiceUnavailable  %+v", 503, o.Payload)
+}
+
+func (o *CreateRoleServiceUnavailable) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *CreateRoleServiceUnavailable) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
 

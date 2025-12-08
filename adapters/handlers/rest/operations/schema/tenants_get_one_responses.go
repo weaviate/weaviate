@@ -253,3 +253,48 @@ func (o *TenantsGetOneInternalServerError) WriteResponse(rw http.ResponseWriter,
 		}
 	}
 }
+
+// TenantsGetOneServiceUnavailableCode is the HTTP code returned for type TenantsGetOneServiceUnavailable
+const TenantsGetOneServiceUnavailableCode int = 503
+
+/*
+TenantsGetOneServiceUnavailable The operational mode of the server does not allow schema operations at this time.
+
+swagger:response tenantsGetOneServiceUnavailable
+*/
+type TenantsGetOneServiceUnavailable struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewTenantsGetOneServiceUnavailable creates TenantsGetOneServiceUnavailable with default headers values
+func NewTenantsGetOneServiceUnavailable() *TenantsGetOneServiceUnavailable {
+
+	return &TenantsGetOneServiceUnavailable{}
+}
+
+// WithPayload adds the payload to the tenants get one service unavailable response
+func (o *TenantsGetOneServiceUnavailable) WithPayload(payload *models.ErrorResponse) *TenantsGetOneServiceUnavailable {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the tenants get one service unavailable response
+func (o *TenantsGetOneServiceUnavailable) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *TenantsGetOneServiceUnavailable) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(503)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
