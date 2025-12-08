@@ -95,6 +95,76 @@ func TestObjectTTLMultiNode(t *testing.T) {
 		}, time.Second*5, 500*time.Millisecond)
 	})
 
+	t.Run("Object TTL MT with tenant on single node", func(t *testing.T) {
+		class := &models.Class{
+			Class: "TestingTTLMT",
+			Properties: []*models.Property{
+				{
+					Name:     "contents",
+					DataType: schema.DataTypeText.PropString(),
+				},
+				{
+					Name:     "tenant",
+					DataType: schema.DataTypeText.PropString(),
+				},
+				{
+					Name:     "expireDate",
+					DataType: schema.DataTypeDate.PropString(),
+				},
+			},
+			ObjectTTLConfig: &models.ObjectTTLConfig{
+				Enabled:    true,
+				DeleteOn:   "expireDate",
+				DefaultTTL: 0,
+			},
+			ReplicationConfig:  &models.ReplicationConfig{Factor: 1}, // each tenant is only on one node
+			Vectorizer:         "none",
+			MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+		}
+		helper.DeleteClass(t, class.Class)
+		defer helper.DeleteClass(t, class.Class)
+		helper.CreateClass(t, class)
+
+		tenants := make([]*models.Tenant, 5)
+		for i := range tenants {
+			tenants[i] = &models.Tenant{Name: "tenant_" + strconv.Itoa(i)}
+		}
+		helper.CreateTenants(t, class.Class, tenants)
+
+		baseTime := time.Now().UTC()
+		objects := make([]*models.Object, 50)
+		for i := range tenants {
+			for j := range objects {
+				objects[j] = &models.Object{
+					ID:     helper.IntToUUID(uint64(i*len(tenants) + j)),
+					Class:  class.Class,
+					Tenant: tenants[i].Name,
+					Properties: map[string]interface{}{
+						"contents":   "some text",
+						"tenant":     tenants[i].Name,
+						"expireDate": baseTime.Add(time.Minute * time.Duration(j)).Format(time.RFC3339),
+					},
+				}
+			}
+			helper.CreateObjectsBatch(t, objects)
+		}
+		deleteTTL(t, secondNode, baseTime.Add(25*time.Minute).Add(10*time.Second), false)
+
+		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+			for _, tenant := range tenants {
+				query := fmt.Sprintf(`{Aggregate{%s(tenant: %q){meta{count}}}}`, class.Class, tenant.Name)
+				result, err := graphqlhelper.QueryGraphQL(t, helper.RootAuth, "", query, nil)
+				require.NoError(ct, err)
+				require.NotNil(ct, result)
+				countStr := result.Data["Aggregate"].(map[string]interface{})[class.Class].([]interface{})[0].(map[string]interface{})["meta"].(map[string]interface{})["count"]
+				count, err := countStr.(json.Number).Int64()
+				require.NoError(ct, err)
+
+				require.Equal(ct, int(count), 24) // 0..24 should be deleted => 50 - 26 = 24
+			}
+		}, time.Second*5, 500*time.Millisecond)
+	})
+
 	t.Run("Object TTL MT", func(t *testing.T) {
 		class := &models.Class{
 			Class: "TestingTTLMT",
@@ -121,7 +191,7 @@ func TestObjectTTLMultiNode(t *testing.T) {
 			MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
 		}
 		helper.DeleteClass(t, class.Class)
-		// defer helper.DeleteClass(t, class.Class)
+		defer helper.DeleteClass(t, class.Class)
 		helper.CreateClass(t, class)
 
 		// create a lot of tenants and objects
