@@ -521,7 +521,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 
 	remoteClientFactory := func(ctx context.Context, address string) (copier.FileReplicationServiceClient, error) {
 		authConfig := appState.ServerConfig.Config.Cluster.AuthConfig
-		maxSize := clusterapigrpc.MaxMessageSize(appState.ServerConfig.Config.ReplicationEngineFileCopyChunkSize)
+		maxSize := clusterapigrpc.GetMaxMessageSize(appState.ServerConfig.Config.ReplicationEngineFileCopyChunkSize)
 
 		clientConn, err := grpc.NewClient(address,
 			grpc.WithTransportCredentials(insecure.NewCredentials()),
