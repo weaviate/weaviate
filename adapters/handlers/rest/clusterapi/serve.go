@@ -65,6 +65,7 @@ func NewServer(appState *state.State) *Server {
 	nodes := NewNodes(appState.RemoteNodeIncoming, auth)
 	backups := NewBackups(appState.BackupManager, auth)
 	dbUsers := NewDbUsers(appState.APIKeyRemote, auth)
+	objectTTL := NewObjectTTL(appState.RemoteIndexIncoming, auth, appState.Logger)
 
 	mux := http.NewServeMux()
 	mux.Handle("/classifications/transactions/",
@@ -72,6 +73,7 @@ func NewServer(appState *state.State) *Server {
 			classifications.Transactions()))
 
 	mux.Handle("/cluster/users/db/", dbUsers.Users())
+	mux.Handle("/cluster/objectTTL/", objectTTL.Expired())
 	mux.Handle("/nodes/", monitoring.AddTracingToHTTPMiddleware(nodes.Nodes(), appState.Logger))
 	mux.Handle("/indices/", monitoring.AddTracingToHTTPMiddleware(indices.Indices(), appState.Logger))
 	mux.Handle("/replicas/indices/", monitoring.AddTracingToHTTPMiddleware(replicatedIndices.Indices(), appState.Logger))

@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/byteops"
 	"github.com/weaviate/weaviate/usecases/file"
+	"github.com/weaviate/weaviate/usecases/objectTTL"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
@@ -44,8 +45,7 @@ type indicesPayloads struct {
 	SingleObject                 singleObjectPayload
 	MergeDoc                     mergeDocPayload
 	ObjectList                   objectListPayload
-	ObjectsExpired               objectsExpiredPayload
-	ObjectsExpiredStatusResponse objectsExpiredStatusResponsePayload
+	ObjectsExpiredStatusResponse objectTTL.ObjectsExpiredStatusResponsePayload
 	VersionedObjectList          versionedObjectListPayload
 	SearchResults                searchResultsPayload
 	SearchParams                 searchParamsPayload
@@ -265,79 +265,6 @@ func (p objectListPayload) Unmarshal(in []byte) ([]*storobj.Object, error) {
 	}
 
 	return out, nil
-}
-
-type objectsExpiredStatusResponsePayload struct {
-	DeletionOngoing bool `json:"deletion_ongoing"`
-}
-
-func (p objectsExpiredStatusResponsePayload) MIME() string {
-	return "application/vnd.weaviate.objectsexpired+json"
-}
-
-func (p objectsExpiredStatusResponsePayload) CheckContentTypeHeaderReq(r *http.Request) (string, bool) {
-	ct := r.Header.Get("content-type")
-	return ct, ct == p.MIME()
-}
-
-func (p objectsExpiredStatusResponsePayload) SetContentTypeHeaderReq(r *http.Request) {
-	r.Header.Set("content-type", p.MIME())
-}
-
-func (p objectsExpiredStatusResponsePayload) Marshal(deletionOngoing bool) ([]byte, error) {
-	p.DeletionOngoing = deletionOngoing
-
-	return json.Marshal(p)
-}
-
-func (p objectsExpiredStatusResponsePayload) Unmarshal(in []byte) (bool, error) {
-	err := json.Unmarshal(in, &p)
-	return p.DeletionOngoing, err
-}
-
-func (p objectsExpiredStatusResponsePayload) SetContentTypeHeader(w http.ResponseWriter) {
-	w.Header().Set("content-type", p.MIME())
-}
-
-type objectsExpiredPayload struct {
-	Prop     string `json:"prop"`
-	TtlMilli int64  `json:"ttlMilli"`
-	DelMilli int64  `json:"delMilli"`
-}
-
-func (p objectsExpiredPayload) MIME() string {
-	return "application/vnd.weaviate.objectsexpired+json"
-}
-
-// func (p objectsExpiredPayload) CheckContentTypeHeader(r *http.Response) (string, bool) {
-// 	ct := r.Header.Get("content-type")
-// 	return ct, ct == p.MIME()
-// }
-
-func (p objectsExpiredPayload) CheckContentTypeHeaderReq(r *http.Request) (string, bool) {
-	ct := r.Header.Get("content-type")
-	return ct, ct == p.MIME()
-}
-
-// func (p objectsExpiredPayload) SetContentTypeHeader(w http.ResponseWriter) {
-// 	w.Header().Set("content-type", p.MIME())
-// }
-
-func (p objectsExpiredPayload) SetContentTypeHeaderReq(r *http.Request) {
-	r.Header.Set("content-type", p.MIME())
-}
-
-func (p objectsExpiredPayload) Marshal(propName string, ttlThreshold, deletionTime time.Time) ([]byte, error) {
-	p.Prop = propName
-	p.TtlMilli = ttlThreshold.UnixMilli()
-	p.DelMilli = deletionTime.UnixMilli()
-
-	return json.Marshal(p)
-}
-
-func (p objectsExpiredPayload) Unmarshal(in []byte) (propName string, ttlThreshold, deletionTime time.Time, err error) {
-	err = json.Unmarshal(in, &p)
-	return p.Prop, time.UnixMilli(p.TtlMilli), time.UnixMilli(p.DelMilli), err
 }
 
 type versionedObjectListPayload struct{}

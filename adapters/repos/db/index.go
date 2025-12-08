@@ -2265,7 +2265,7 @@ func (i *Index) IncomingDeleteObjectsStatus(ctx context.Context) bool {
 	return i.objectTTLRunning.Load()
 }
 
-func (i *Index) IncomingDeleteObjectsExpired(ctx context.Context, deleteOnPropName string,
+func (i *Index) IncomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.ErrorGroupWrapper, deleteOnPropName string,
 	ttlThreshold, deletionTime time.Time, schemaVersion uint64,
 ) error {
 	fmt.Printf("  ==> IncomingDeleteExpiredObjects\n"+
@@ -2284,7 +2284,7 @@ func (i *Index) IncomingDeleteObjectsExpired(ctx context.Context, deleteOnPropNa
 
 			// use closing context to stop long-running TTL deletions in case index is closed
 			ctx2 := i.closingCtx
-			err := i.incomingDeleteObjectsExpired(ctx2, deleteOnPropName, ttlThreshold, deletionTime, schemaVersion)
+			err := i.incomingDeleteObjectsExpired(ctx2, eg, deleteOnPropName, ttlThreshold, deletionTime, schemaVersion)
 			if err != nil {
 				i.logger.Errorf("error during IncomingDeleteObjectsExpired: %v", err)
 			}
@@ -2293,7 +2293,7 @@ func (i *Index) IncomingDeleteObjectsExpired(ctx context.Context, deleteOnPropNa
 	return nil
 }
 
-func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, deleteOnPropName string, ttlThreshold, deletionTime time.Time, schemaVersion uint64) error {
+func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.ErrorGroupWrapper, deleteOnPropName string, ttlThreshold, deletionTime time.Time, schemaVersion uint64) error {
 	class := i.getClass()
 	filter := &filters.LocalFilter{Root: &filters.Clause{
 		Operator: filters.OperatorLessThanEqual,
@@ -2330,14 +2330,17 @@ func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, deleteOnPropNa
 			if len(tenants2uuids[tenant]) == 0 {
 				continue
 			}
+			eg.Go(
+				func() error {
+					resp, err := i.batchDeleteObjects(ctx, tenants2uuids, deletionTime, false, replProps, schemaVersion, tenant)
+					if err != nil {
+						// TODO aliszka:ttl exit or continue with other tenants
+						return fmt.Errorf("batch delete for tenant %q of collection %q: %w", tenant, class.Class, err)
+					}
 
-			resp, err := i.batchDeleteObjects(ctx, tenants2uuids, deletionTime, false, replProps, schemaVersion, tenant)
-			if err != nil {
-				// TODO aliszka:ttl exit or continue with other tenants
-				return fmt.Errorf("batch delete for tenant %q of collection %q: %w", tenant, class.Class, err)
-			}
-
-			fmt.Printf("  ==> batch delete for tenant %q of collection %q: resp %+v\n\n", tenant, class.Class, resp)
+					fmt.Printf("  ==> batch delete for tenant %q of collection %q: resp %+v\n\n", tenant, class.Class, resp)
+					return nil
+				})
 		}
 
 	} else {
@@ -2354,13 +2357,17 @@ func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, deleteOnPropNa
 			}
 		}
 		if len(shards2uuids) != 0 {
-			resp, err := i.batchDeleteObjects(ctx, shards2uuids, deletionTime, false, replProps, schemaVersion, "")
-			if err != nil {
-				// TODO aliszka:ttl exit or continue with other tenants
-				return fmt.Errorf("batch delete of collection %q: %w", class.Class, err)
-			}
+			eg.Go(
+				func() error {
+					resp, err := i.batchDeleteObjects(ctx, shards2uuids, deletionTime, false, replProps, schemaVersion, "")
+					if err != nil {
+						// TODO aliszka:ttl exit or continue with other tenants
+						return fmt.Errorf("batch delete of collection %q: %w", class.Class, err)
+					}
 
-			fmt.Printf("  ==> batch delete resp %+v\n\n", resp)
+					fmt.Printf("  ==> batch delete resp %+v\n\n", resp)
+					return nil
+				})
 		}
 	}
 

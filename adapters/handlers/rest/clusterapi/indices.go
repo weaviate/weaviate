@@ -62,7 +62,6 @@ type indices struct {
 
 	regexpObjectsAggregations     *regexp.Regexp
 	regexpObject                  *regexp.Regexp
-	regexpObjectsTtl              *regexp.Regexp
 	regexpObjectsStatusObjectsTtl *regexp.Regexp
 	regexpReferences              *regexp.Regexp
 	regexpShardsQueueSize         *regexp.Regexp
@@ -127,8 +126,6 @@ const (
 		`\/shards\/(` + sh + `)\/background:list`
 	urlPatternAsyncReplicationTargetNode = `\/indices\/(` + cl + `)` +
 		`\/shards\/(` + sh + `)\/async-replication-target-node`
-	urlPatternObjectsTtl = `\/indices\/(` + cl + `)` +
-		`\/objects\/ttl_delete`
 	urlPatternStatusObjectsTtl = `\/indices\/(` + cl + `)` +
 		`\/objects\/ttl_status`
 )
@@ -147,8 +144,6 @@ type shards interface {
 		id strfmt.UUID) (bool, error)
 	DeleteObject(ctx context.Context, indexName, shardName string,
 		id strfmt.UUID, deletionTime time.Time, schemaVersion uint64) error
-	DeleteObjectsExpired(ctx context.Context, indexName string,
-		deleteOnProperty string, ttlThreshold, deletionTime time.Time, schemaVersion uint64) error
 	DeleteObjectsExpiredStatus(ctx context.Context, indexName string, schemaVersion uint64) (bool, error)
 	MergeObject(ctx context.Context, indexName, shardName string,
 		mergeDoc objects.MergeDocument, schemaVersion uint64) error
@@ -222,7 +217,6 @@ func NewIndices(shards shards, db db, auth auth, maintenanceModeEnabled func() b
 
 		regexpObjectsAggregations:        regexp.MustCompile(urlPatternObjectsAggregations),
 		regexpObject:                     regexp.MustCompile(urlPatternObject),
-		regexpObjectsTtl:                 regexp.MustCompile(urlPatternObjectsTtl),
 		regexpObjectsStatusObjectsTtl:    regexp.MustCompile(urlPatternStatusObjectsTtl),
 		regexpReferences:                 regexp.MustCompile(urlPatternReferences),
 		regexpShardsQueueSize:            regexp.MustCompile(urlPatternShardsQueueSize),
@@ -432,14 +426,6 @@ func (i *indices) indicesHandler() http.HandlerFunc {
 				return
 			}
 			http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
-			return
-		case i.regexpObjectsTtl.MatchString(path):
-			if r.Method != http.MethodPost {
-				http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
-				return
-			}
-
-			i.deleteObjectsExpired().ServeHTTP(w, r)
 			return
 		case i.regexpObjectsStatusObjectsTtl.MatchString(path):
 			if r.Method != http.MethodGet {
@@ -690,55 +676,6 @@ func (i *indices) deleteObject() http.Handler {
 		}
 
 		err = i.shards.DeleteObject(r.Context(), index, shard, strfmt.UUID(id), deletionTime, schemaVersion)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-
-		w.WriteHeader(http.StatusNoContent)
-	})
-}
-
-func (i *indices) deleteObjectsExpired() http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		args := i.regexpObjectsTtl.FindStringSubmatch(r.URL.Path)
-
-		fmt.Printf("  ==> indices::deleteObjectsExpired args %v\n\n", args)
-
-		if len(args) != 2 {
-			http.Error(w, "invalid URI", http.StatusBadRequest)
-			return
-		}
-
-		indexName := args[1]
-		defer r.Body.Close()
-
-		ct, ok := IndicesPayloads.ObjectsExpired.CheckContentTypeHeaderReq(r)
-		if !ok {
-			http.Error(w, errors.Errorf("unexpected content type: %s", ct).Error(),
-				http.StatusUnsupportedMediaType)
-			return
-		}
-
-		bodyBytes, err := io.ReadAll(r.Body)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-
-		propName, ttlThreshold, deletionTime, err := IndicesPayloads.ObjectsExpired.Unmarshal(bodyBytes)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-
-		schemaVersion, err := extractSchemaVersionFromUrlQuery(r.URL.Query())
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-
-		err = i.shards.DeleteObjectsExpired(r.Context(), indexName, propName, ttlThreshold, deletionTime, schemaVersion)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return

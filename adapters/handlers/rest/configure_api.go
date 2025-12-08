@@ -148,6 +148,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/usecases/objectTTL"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/schema"
@@ -930,7 +931,7 @@ func configureCrons(appState *state.State, serverShutdownCtx context.Context) {
 					}
 				}()
 
-				err = appState.DB.TriggerDeletionObjectsExpired(serverShutdownCtx, started, started, false)
+				err = appState.DB.TriggerDeletionObjectsExpired(serverShutdownCtx, appState.RemoteObjectTTL, started, started, false)
 			}))
 
 		specs = append(specs, jobSpec{
@@ -1062,6 +1063,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	remoteDbUsers := clients.NewRemoteUser(appState.ClusterHttpClient, appState.Cluster)
 	db_users.SetupHandlers(api, appState.ClusterService.Raft, appState.Authorizer, appState.ServerConfig.Config.Authentication, appState.ServerConfig.Config.Authorization, remoteDbUsers, appState.SchemaManager, appState.Logger)
+	remoteObjectTTL := objectTTL.NewRemoteObjectTTL(appState.ClusterHttpClient, appState.Cluster)
+	appState.RemoteObjectTTL = remoteObjectTTL
 
 	setupSchemaHandlers(api, appState.SchemaManager, appState.Metrics, appState.Logger)
 	setupAliasesHandlers(api, appState.SchemaManager, appState.Metrics, appState.Logger)

@@ -80,8 +80,6 @@ type RemoteIndexClient interface {
 		id strfmt.UUID) (bool, error)
 	DeleteObject(ctx context.Context, hostname, indexName, shardName string,
 		id strfmt.UUID, deletionTime time.Time, schemaVersion uint64) error
-	DeleteObjectsExpired(ctx context.Context, hostName, indexName,
-		deleteOnPropName string, ttlThreshold, deletionTime time.Time, schemaVersion uint64) error
 	DeleteObjectsExpiredStatus(ctx context.Context, hostName, indexName string, schemaVersion uint64) (bool, error)
 	MergeObject(ctx context.Context, hostname, indexName, shardName string,
 		mergeDoc objects.MergeDocument, schemaVersion uint64) error
@@ -218,16 +216,6 @@ func (ri *RemoteIndex) DeleteObject(ctx context.Context, shardName string,
 	}
 
 	return ri.client.DeleteObject(ctx, host, ri.class, shardName, id, deletionTime, schemaVersion)
-}
-
-func (ri *RemoteIndex) DeleteObjectsExpired(ctx context.Context, deleteOnPropName string,
-	ttlThreshold, deletionTime time.Time, host string, schemaVersion uint64,
-) error {
-	hostName, ok := ri.nodeResolver.NodeHostname(host)
-	if !ok {
-		return fmt.Errorf("resolve node name %q to host", host)
-	}
-	return ri.client.DeleteObjectsExpired(ctx, hostName, ri.class, deleteOnPropName, ttlThreshold, deletionTime, schemaVersion)
 }
 
 func (ri *RemoteIndex) DeleteObjectsExpiredStatus(ctx context.Context, host string, schemaVersion uint64,

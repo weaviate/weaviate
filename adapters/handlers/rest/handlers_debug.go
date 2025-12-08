@@ -1168,7 +1168,7 @@ func setupDebugHandlers(appState *state.State) {
 			}
 		}
 
-		err = appState.DB.TriggerDeletionObjectsExpired(context.Background(), expirationTime, expirationTime, targetOwnNode)
+		err = appState.DB.TriggerDeletionObjectsExpired(context.Background(), appState.RemoteObjectTTL, expirationTime, expirationTime, targetOwnNode)
 		if err != nil {
 			http.Error(w, "failed to delete expired objects", http.StatusInternalServerError)
 			return
