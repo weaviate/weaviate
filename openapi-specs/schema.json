@@ -7,10 +7,7 @@
   "definitions": {
     "UserTypeInput": {
       "type": "string",
-      "enum": [
-        "db",
-        "oidc"
-      ],
+      "enum": ["db", "oidc"],
       "description": "The type of the user. `db` users are managed by Weaviate, `oidc` users are managed by an external OIDC provider."
     },
     "GroupType": {
@@ -22,11 +19,7 @@
     },
     "UserTypeOutput": {
       "type": "string",
-      "enum": [
-        "db_user",
-        "db_env_user",
-        "oidc"
-      ],
+      "enum": ["db_user", "db_env_user", "oidc"],
       "description": "The type of the user. `db_user` users are created through the `users` API, `db_env_user` users are created through environment variables, and `oidc` users are managed by an external OIDC provider."
     },
     "UserOwnInfo": {
@@ -3441,6 +3434,12 @@
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow replica movement operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         }
       },
@@ -3487,6 +3486,12 @@
           },
           "501": {
             "description": "Replica movement operations are disabled.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow replica movement operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3544,6 +3549,12 @@
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow replica movement operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3615,6 +3626,12 @@
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow replica movement operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         }
       },
@@ -3674,6 +3691,12 @@
           },
           "501": {
             "description": "Replica movement operations are disabled.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow replica movement operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3759,6 +3782,12 @@
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow replica movement operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         }
       }
@@ -3820,6 +3849,12 @@
           },
           "501": {
             "description": "Replica movement operations are disabled.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow replica movement operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3890,6 +3925,12 @@
           },
           "501": {
             "description": "Replica movement operations are disabled.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow replica movement operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3967,6 +4008,12 @@
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow replica movement operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         }
       },
@@ -4033,6 +4080,12 @@
           },
           "501": {
             "description": "Replica movement operations are disabled.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow replica movement operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -4121,6 +4174,12 @@
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow users operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         }
       }
@@ -4180,6 +4239,12 @@
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow users operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -4270,6 +4335,12 @@
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow users operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         }
       },
@@ -4322,6 +4393,12 @@
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow users operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -4382,6 +4459,12 @@
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow users operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -4476,7 +4559,7 @@
               "type": "object",
               "properties": {
                 "revoke_key": {
-                  "type": "boolean",
+                  "type":"boolean",
                   "description": "Whether the API key should be revoked when deactivating the user.",
                   "default": false
                 }
@@ -4520,6 +4603,12 @@
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow users operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         }
       }
@@ -4559,6 +4648,12 @@
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow authz operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -4618,6 +4713,12 @@
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow users operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -4699,6 +4800,12 @@
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow users operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         }
       }
@@ -4776,6 +4883,12 @@
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow users operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         }
       }
@@ -4830,6 +4943,12 @@
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow users operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         }
       },
@@ -4873,6 +4992,12 @@
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow users operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -4942,6 +5067,12 @@
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow users operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         }
       }
@@ -4997,6 +5128,12 @@
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow users operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -5069,6 +5206,12 @@
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow users operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         }
       }
@@ -5138,6 +5281,12 @@
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow users operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         }
       }
@@ -5199,6 +5348,12 @@
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow users operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         }
       }
@@ -5227,10 +5382,7 @@
             "name": "userType",
             "required": true,
             "type": "string",
-            "enum": [
-              "oidc",
-              "db"
-            ],
+            "enum": ["oidc", "db"],
             "description": "The type of the user."
           },
           {
@@ -5275,6 +5427,12 @@
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow users operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -5352,6 +5510,12 @@
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow users operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         }
       }
@@ -5426,6 +5590,12 @@
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow users operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         }
       }
@@ -5497,6 +5667,12 @@
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow users operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         }
       }
@@ -5565,6 +5741,12 @@
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow users operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -5646,6 +5828,12 @@
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow users operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         }
       }
@@ -5706,6 +5894,12 @@
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow users operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -5782,6 +5976,12 @@
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow objects operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "summary": "List objects",
@@ -5844,6 +6044,12 @@
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow objects operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "summary": "Create an object",
@@ -5895,6 +6101,12 @@
           },
           "500": {
             "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow objects operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -5954,6 +6166,12 @@
           },
           "500": {
             "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow objects operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -6025,6 +6243,12 @@
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow objects operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "summary": "Patch an object",
@@ -6093,6 +6317,12 @@
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow objects operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "summary": "Update an object",
@@ -6137,6 +6367,12 @@
           },
           "500": {
             "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow objects operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -6223,6 +6459,12 @@
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow objects operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "summary": "Get an object",
@@ -6291,6 +6533,12 @@
           },
           "500": {
             "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow objects operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -6365,6 +6613,12 @@
           },
           "500": {
             "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow objects operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -6445,6 +6699,12 @@
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow objects operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "summary": "Patch an object",
@@ -6507,6 +6767,12 @@
           },
           "500": {
             "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow objects operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -6580,6 +6846,12 @@
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow objects operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "summary": "Add an object reference",
@@ -6649,6 +6921,12 @@
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow objects operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "summary": "Replace object references",
@@ -6715,6 +6993,12 @@
           },
           "500": {
             "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow objects operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -6808,6 +7092,12 @@
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow objects operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "summary": "Add an object reference",
@@ -6892,6 +7182,12 @@
           },
           "500": {
             "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow objects operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -6985,6 +7281,12 @@
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow objects operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "summary": "Delete an object reference",
@@ -7034,6 +7336,12 @@
           },
           "500": {
             "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow objects operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -7128,6 +7436,12 @@
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow objects operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "summary": "Create objects in batch",
@@ -7191,6 +7505,12 @@
           },
           "500": {
             "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow objects operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -7265,6 +7585,12 @@
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow objects operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "summary": "Create cross-references in bulk",
@@ -7322,6 +7648,12 @@
           },
           "500": {
             "description": "An internal server error occurred during query execution. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow graphql operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -7383,6 +7715,12 @@
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow objects operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "tags": [
@@ -7401,7 +7739,7 @@
           "weaviate.local.query.meta"
         ],
         "tags": [
-          "meta"
+            "meta"
         ],
         "responses": {
           "200": {
@@ -7472,6 +7810,12 @@
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow schema operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         }
       },
@@ -7520,6 +7864,12 @@
           },
           "500": {
             "description": "An error occurred during collection creation. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow schema operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -7579,6 +7929,12 @@
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow schema operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         }
       },
@@ -7622,6 +7978,12 @@
           },
           "500": {
             "description": "An error occurred during collection deletion. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow schema operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -7689,6 +8051,12 @@
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow schema operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         }
       }
@@ -7749,6 +8117,12 @@
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow schema operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         }
       }
@@ -7803,6 +8177,12 @@
           },
           "500": {
             "description": "An error occurred while retrieving shard statuses. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow schema operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -7879,6 +8259,12 @@
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow schema operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         }
       }
@@ -7939,6 +8325,12 @@
           },
           "500": {
             "description": "An error occurred while creating tenants. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow schema operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -8003,6 +8395,12 @@
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow schema operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         }
       },
@@ -8030,7 +8428,7 @@
               "type": "array",
               "items": {
                 "type": "string",
-                "description": "Name of a tenant to delete."
+                  "description": "Name of a tenant to delete."
               }
             }
           }
@@ -8056,6 +8454,12 @@
           },
           "500": {
             "description": "An error occurred while deleting tenants. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow schema operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -8113,6 +8517,12 @@
           },
           "500": {
             "description": "An error occurred while listing tenants. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow schema operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -8176,6 +8586,12 @@
           },
           "500": {
             "description": "An error occurred during the check. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow schema operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -8243,6 +8659,12 @@
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow schema operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         }
       }
@@ -8291,6 +8713,12 @@
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow aliases operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         }
       },
@@ -8335,6 +8763,12 @@
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow aliases operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -8388,6 +8822,12 @@
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow aliases operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -8456,6 +8896,12 @@
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow aliases operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         }
       },
@@ -8501,6 +8947,12 @@
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow aliases operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -9156,6 +9608,12 @@
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow classifications operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "tags": [
@@ -9201,6 +9659,12 @@
           },
           "500": {
             "description": "An internal server error occurred while retrieving the classification status. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow classifications operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }

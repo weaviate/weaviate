@@ -228,3 +228,48 @@ func (o *AliasesCreateInternalServerError) WriteResponse(rw http.ResponseWriter,
 		}
 	}
 }
+
+// AliasesCreateServiceUnavailableCode is the HTTP code returned for type AliasesCreateServiceUnavailable
+const AliasesCreateServiceUnavailableCode int = 503
+
+/*
+AliasesCreateServiceUnavailable The operational mode of the server does not allow aliases operations at this time.
+
+swagger:response aliasesCreateServiceUnavailable
+*/
+type AliasesCreateServiceUnavailable struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewAliasesCreateServiceUnavailable creates AliasesCreateServiceUnavailable with default headers values
+func NewAliasesCreateServiceUnavailable() *AliasesCreateServiceUnavailable {
+
+	return &AliasesCreateServiceUnavailable{}
+}
+
+// WithPayload adds the payload to the aliases create service unavailable response
+func (o *AliasesCreateServiceUnavailable) WithPayload(payload *models.ErrorResponse) *AliasesCreateServiceUnavailable {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the aliases create service unavailable response
+func (o *AliasesCreateServiceUnavailable) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *AliasesCreateServiceUnavailable) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(503)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}

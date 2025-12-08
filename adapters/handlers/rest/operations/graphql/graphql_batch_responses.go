@@ -231,3 +231,48 @@ func (o *GraphqlBatchInternalServerError) WriteResponse(rw http.ResponseWriter, 
 		}
 	}
 }
+
+// GraphqlBatchServiceUnavailableCode is the HTTP code returned for type GraphqlBatchServiceUnavailable
+const GraphqlBatchServiceUnavailableCode int = 503
+
+/*
+GraphqlBatchServiceUnavailable The operational mode of the server does not allow objects operations at this time.
+
+swagger:response graphqlBatchServiceUnavailable
+*/
+type GraphqlBatchServiceUnavailable struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewGraphqlBatchServiceUnavailable creates GraphqlBatchServiceUnavailable with default headers values
+func NewGraphqlBatchServiceUnavailable() *GraphqlBatchServiceUnavailable {
+
+	return &GraphqlBatchServiceUnavailable{}
+}
+
+// WithPayload adds the payload to the graphql batch service unavailable response
+func (o *GraphqlBatchServiceUnavailable) WithPayload(payload *models.ErrorResponse) *GraphqlBatchServiceUnavailable {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the graphql batch service unavailable response
+func (o *GraphqlBatchServiceUnavailable) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *GraphqlBatchServiceUnavailable) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(503)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}

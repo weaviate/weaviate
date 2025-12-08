@@ -64,6 +64,12 @@ func (o *TenantsCreateReader) ReadResponse(response runtime.ClientResponse, cons
 			return nil, err
 		}
 		return nil, result
+	case 503:
+		result := NewTenantsCreateServiceUnavailable()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	default:
 		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
 	}
@@ -384,6 +390,74 @@ func (o *TenantsCreateInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *TenantsCreateInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
+// NewTenantsCreateServiceUnavailable creates a TenantsCreateServiceUnavailable with default headers values
+func NewTenantsCreateServiceUnavailable() *TenantsCreateServiceUnavailable {
+	return &TenantsCreateServiceUnavailable{}
+}
+
+/*
+TenantsCreateServiceUnavailable describes a response with status code 503, with default header values.
+
+The operational mode of the server does not allow schema operations at this time.
+*/
+type TenantsCreateServiceUnavailable struct {
+	Payload *models.ErrorResponse
+}
+
+// IsSuccess returns true when this tenants create service unavailable response has a 2xx status code
+func (o *TenantsCreateServiceUnavailable) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this tenants create service unavailable response has a 3xx status code
+func (o *TenantsCreateServiceUnavailable) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this tenants create service unavailable response has a 4xx status code
+func (o *TenantsCreateServiceUnavailable) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this tenants create service unavailable response has a 5xx status code
+func (o *TenantsCreateServiceUnavailable) IsServerError() bool {
+	return true
+}
+
+// IsCode returns true when this tenants create service unavailable response a status code equal to that given
+func (o *TenantsCreateServiceUnavailable) IsCode(code int) bool {
+	return code == 503
+}
+
+// Code gets the status code for the tenants create service unavailable response
+func (o *TenantsCreateServiceUnavailable) Code() int {
+	return 503
+}
+
+func (o *TenantsCreateServiceUnavailable) Error() string {
+	return fmt.Sprintf("[POST /schema/{className}/tenants][%d] tenantsCreateServiceUnavailable  %+v", 503, o.Payload)
+}
+
+func (o *TenantsCreateServiceUnavailable) String() string {
+	return fmt.Sprintf("[POST /schema/{className}/tenants][%d] tenantsCreateServiceUnavailable  %+v", 503, o.Payload)
+}
+
+func (o *TenantsCreateServiceUnavailable) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *TenantsCreateServiceUnavailable) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
 
