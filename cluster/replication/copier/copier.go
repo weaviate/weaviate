@@ -321,8 +321,10 @@ func (c *Copier) downloadWorker(ctx context.Context, client FileReplicationServi
 					return fmt.Errorf("failed to receive file chunk for %s: %w", meta.FileName, err)
 				}
 				if len(chunk.Data) > 0 {
+					ch := chunk // capture loop variable
+
 					eg.Go(func() error {
-						if _, err := f.WriteAt(chunk.Data, chunk.Offset); err != nil {
+						if _, err := f.WriteAt(ch.Data, ch.Offset); err != nil {
 							return fmt.Errorf("writing chunk to file %q: %w", tmpPath, err)
 						}
 						return nil
