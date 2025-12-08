@@ -26,7 +26,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/containerd/log"
 	"github.com/weaviate/weaviate/adapters/repos/db/ttl"
 
 	"github.com/go-openapi/strfmt"
@@ -2311,7 +2310,7 @@ func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.
 					}
 
 					i.logger.
-						WithFields(log.Fields{"action": "ttl_cleanup", "collection": class.Class, "tenant": tenant}).
+						WithFields(logrus.Fields{"action": "ttl_cleanup", "collection": class.Class, "tenant": tenant}).
 						Infof("batch delete response: %+v", resp)
 					return nil
 				})
@@ -2337,16 +2336,13 @@ func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.
 						return fmt.Errorf("batch delete of collection %q: %w", class.Class, err)
 					}
 					i.logger.
-						WithFields(log.Fields{"action": "ttl_cleanup", "collection": class.Class}).
+						WithFields(logrus.Fields{"action": "ttl_cleanup", "collection": class.Class}).
 						Infof("batch delete response: %+v", resp)
 
 					return nil
 				})
 		}
 	}
-
-	shardNames, err := i.schemaReader.Shards(class.Class)
-	fmt.Printf("  ==> shardNames %v err %s\n\n", shardNames, err)
 
 	return nil
 }

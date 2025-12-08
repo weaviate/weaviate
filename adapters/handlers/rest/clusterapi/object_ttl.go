@@ -22,7 +22,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
-	"github.com/weaviate/weaviate/usecases/objectTTL"
+	"github.com/weaviate/weaviate/usecases/objectttl"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -45,7 +45,7 @@ func (d *ObjectTTL) deleteExpiredHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
 		switch path {
-		case "/cluster/objectTTL/deleteExpired":
+		case "/cluster/object_ttl/delete_expired":
 			if r.Method != http.MethodPost {
 				msg := fmt.Sprintf("/objectTTL api path %q with method %v not found", path, r.Method)
 				http.Error(w, msg, http.StatusMethodNotAllowed)
@@ -54,7 +54,7 @@ func (d *ObjectTTL) deleteExpiredHandler() http.HandlerFunc {
 
 			d.incomingDelete().ServeHTTP(w, r)
 			return
-		case "/cluster/objectTTL/status":
+		case "/cluster/object_ttl/status":
 			if r.Method != http.MethodGet {
 				msg := fmt.Sprintf("/objectTTL api path %q with method %v not found", path, r.Method)
 				http.Error(w, msg, http.StatusMethodNotAllowed)
@@ -75,7 +75,7 @@ func (d *ObjectTTL) incomingStatus() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer r.Body.Close()
 		running := d.requestRunning.Load()
-		status := objectTTL.ObjectsExpiredStatusResponsePayload{
+		status := objectttl.ObjectsExpiredStatusResponse{
 			DeletionOngoing: running,
 		}
 		w.WriteHeader(http.StatusOK)
@@ -95,7 +95,7 @@ func (d *ObjectTTL) incomingDelete() http.Handler {
 			return
 		}
 
-		var body []objectTTL.ObjectsExpiredPayload
+		var body []objectttl.ObjectsExpiredPayload
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			d.requestRunning.Store(false)
 			http.Error(w, "Error parsing JSON body", http.StatusBadRequest)
