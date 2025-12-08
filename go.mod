@@ -61,7 +61,7 @@ require (
 	github.com/launchdarkly/go-server-sdk/v7 v7.14.1
 	github.com/maypok86/otter/v2 v2.2.1
 	github.com/minio/minio-go/v7 v7.0.97
-	github.com/nyaruka/phonenumbers v1.2.2
+	github.com/nyaruka/phonenumbers v1.6.7
 	github.com/parquet-go/parquet-go v0.25.1
 	github.com/pbnjay/memory v0.0.0-20210728143218-7b4eea64cf58
 	github.com/pkg/errors v0.9.1
