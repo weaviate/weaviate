@@ -280,8 +280,6 @@ func addLiveAndReadyness(state *state.State, next http.Handler) http.Handler {
 func addOperationalMode(state *state.State, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch state.ServerConfig.Config.OperationalMode.Get() {
-		case config.READ_WRITE:
-			// all operations allowed
 		case config.READ_ONLY:
 			if config.IsHTTPWrite(r.Method) {
 				if whitelist(r.URL.Path, config.ReadOnlyWhitelist) {
@@ -306,6 +304,8 @@ func addOperationalMode(state *state.State, next http.Handler) http.Handler {
 				writeOperationalModeErrorResponse(w, config.ErrWriteOnlyModeEnabled)
 				return
 			}
+		default:
+			// all good
 		}
 		next.ServeHTTP(w, r)
 	})

@@ -208,8 +208,6 @@ func makeOperationalModeInterceptor(state *state.State) grpc.UnaryServerIntercep
 	) (any, error) {
 		var err error
 		switch state.ServerConfig.Config.OperationalMode.Get() {
-		case config.READ_WRITE:
-			// all good
 		case config.READ_ONLY:
 			if config.IsGRPCWrite(info.FullMethod) {
 				err = config.ErrReadOnlyModeEnabled
@@ -222,6 +220,8 @@ func makeOperationalModeInterceptor(state *state.State) grpc.UnaryServerIntercep
 			if config.IsGRPCRead(info.FullMethod) {
 				err = config.ErrWriteOnlyModeEnabled
 			}
+		default:
+			// all good
 		}
 		if err != nil {
 			st := status.New(codes.Unavailable, err.Error())
