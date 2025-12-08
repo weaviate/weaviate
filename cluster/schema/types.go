@@ -22,8 +22,6 @@ import (
 type (
 	// LoadLegacySchema returns the legacy schema
 	LoadLegacySchema func() (map[string]types.ClassState, error)
-	// SaveLegacySchema saves the RAFT schema representation to the legacy storage
-	SaveLegacySchema func(map[string]types.ClassState) error
 )
 
 // Indexer interface updates both the collection and its indices in the filesystem.
