@@ -231,45 +231,6 @@ func (db *DB) TriggerDeletionObjectsExpired(ctx context.Context, remoteObjectTTL
 	return db.triggerDeletionObjectsExpiredRemoteNode(ctx, remoteObjectTTL, collections, ttlTime, deletionTime, remoteNodes)
 }
 
-func (db *DB) DeleteObjectsExpired(ctx context.Context, expirationTime time.Time, concurrency int) error {
-	fmt.Printf("  ==> expirationTime %s\n\n", expirationTime)
-
-	db.indexLock.RLock()
-	colNames := make([]string, len(db.indices))
-	i := 0
-	for colName := range db.indices {
-		colNames[i] = colName
-		i++
-	}
-	db.indexLock.RUnlock()
-
-	if len(colNames) == 0 {
-		return nil
-	}
-
-	chErrs := make([]<-chan error, 0, len(colNames))
-	eg := enterrors.NewErrorGroupWrapper(db.logger)
-	eg.SetLimit(concurrency)
-	for _, colName := range colNames {
-		db.indexLock.RLock()
-		idx := db.indices[colName]
-		db.indexLock.RUnlock()
-
-		if idx != nil {
-			// TODO aliszka:ttl prevent index from being removed while processed?
-			chErr := idx.deleteObjectsExpiredAsync(ctx, eg, expirationTime)
-			chErrs = append(chErrs, chErr)
-		}
-	}
-	eg.Wait()
-
-	ec := errorcompounder.New()
-	for _, chErr := range chErrs {
-		ec.Add(<-chErr)
-	}
-	return ec.ToError()
-}
-
 func (db *DB) MultiGet(ctx context.Context, query []multi.Identifier,
 	additional additional.Properties, tenant string,
 ) ([]search.Result, error) {
