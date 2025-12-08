@@ -59,7 +59,6 @@ func main() {
 
 	// Create output structure
 	output := map[string]interface{}{
-		"version":     "1.0.0",
 		"generatedBy": "tools/export-parameters",
 		"modules":     modules,
 	}

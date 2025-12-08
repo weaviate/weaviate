@@ -26,7 +26,7 @@ func ValidateAllowedValues(paramKey string, param ParameterDef, value interface{
 	// Handle different types of AllowedValues
 	allowedSlice := reflect.ValueOf(param.AllowedValues)
 	if allowedSlice.Kind() != reflect.Slice {
-		return nil // Invalid AllowedValues configuration, skip validation
+		return fmt.Errorf("invalid parameter definition for %s: AllowedValues must be a slice, got %T", paramKey, param.AllowedValues)
 	}
 
 	// Check if value is in the allowed slice
