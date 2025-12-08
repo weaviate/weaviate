@@ -84,7 +84,8 @@ func TestObjectTTLMultiNodeTicker(t *testing.T) {
 	}
 
 	// add objects that are not yet expired
-	for i := 0; i < 11; i++ {
+	numNotExpiredObjs := 11
+	for i := range numNotExpiredObjs {
 		require.NoError(t, helper.CreateObject(t, &models.Object{
 			ID:    helper.IntToUUID(uint64(i + numExpiredObjs)),
 			Class: class.Class,
@@ -98,14 +99,14 @@ func TestObjectTTLMultiNodeTicker(t *testing.T) {
 	assert.EventuallyWithT(t, func(ct *assert.CollectT) {
 		objs, err := helper.GetObjects(t, class.Class)
 		require.NoError(ct, err)
-		require.Len(ct, objs, 11)
+		require.Len(ct, objs, numNotExpiredObjs)
 	}, time.Second*15, 500*time.Millisecond)
 
 	// add more expired objects to see that the ticker continues to work
 	// add objects that are already expired so that the TTL process should delete them
 	for i := range numExpiredObjs {
 		require.NoError(t, helper.CreateObject(t, &models.Object{
-			ID:    helper.IntToUUID(uint64(i)),
+			ID:    helper.IntToUUID(uint64(i + numExpiredObjs + numNotExpiredObjs)),
 			Class: class.Class,
 			Properties: map[string]interface{}{
 				"contents":   "some text",
@@ -117,7 +118,7 @@ func TestObjectTTLMultiNodeTicker(t *testing.T) {
 	assert.EventuallyWithT(t, func(ct *assert.CollectT) {
 		objs, err := helper.GetObjects(t, class.Class)
 		require.NoError(ct, err)
-		require.Len(ct, objs, 11)
+		require.Len(ct, objs, numNotExpiredObjs)
 	}, time.Second*15, 500*time.Millisecond)
 }
 
@@ -247,7 +248,7 @@ func TestObjectTTLMultiNode(t *testing.T) {
 				count, err := countStr.(json.Number).Int64()
 				require.NoError(ct, err)
 
-				require.Equal(ct, int(count), 24) // 0..24 should be deleted => 50 - 26 = 24
+				require.Equal(ct, int(count), 24) // 0..25 should be deleted => 50 - 26 = 24
 			}
 		}, time.Second*5, 500*time.Millisecond)
 	})
@@ -274,7 +275,7 @@ func TestObjectTTLMultiNode(t *testing.T) {
 				DeleteOn:   "expireDate",
 				DefaultTTL: 0,
 			},
-			// no relication setting => all tenants are on all nodes
+			// no replication setting => all tenants are on all nodes
 			Vectorizer:         "none",
 			MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
 		}
@@ -339,7 +340,7 @@ func TestObjectTTLMultiNode(t *testing.T) {
 					count, err := countStr.(json.Number).Int64()
 					require.NoError(ct, err)
 
-					require.Equal(ct, int(count), 24) // 0..24 should be deleted => 50 - 26 = 24
+					require.Equal(ct, int(count), 24) // 0..25 should be deleted => 50 - 26 = 24
 				}
 			}
 		}, time.Second*5, 500*time.Millisecond)
