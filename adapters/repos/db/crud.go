@@ -20,7 +20,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/usecases/objectttl"
+	"github.com/weaviate/weaviate/usecases/object_ttl"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/refcache"
 	"github.com/weaviate/weaviate/adapters/repos/db/ttl"

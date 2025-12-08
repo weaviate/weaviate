@@ -22,7 +22,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
-	"github.com/weaviate/weaviate/usecases/objectttl"
+	"github.com/weaviate/weaviate/usecases/object_ttl"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
