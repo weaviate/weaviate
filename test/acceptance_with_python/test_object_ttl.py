@@ -178,3 +178,65 @@ def test_mt(collection_factory: CollectionFactory):
         else:
             # activated tenants should have expired objects deleted
             assert len(tenant_collection) == num_objects - 3
+
+
+@pytest.mark.parametrize(
+    "post_search_filter,ttl,expected_count",
+    [
+        (
+            True,
+            datetime.timedelta(hours=2),
+            11,
+        ),  # use 2 hours AFTER the date property, so none are expired
+        (True, datetime.timedelta(seconds=0), 6),
+        (
+            True,
+            datetime.timedelta(hours=-2),
+            0,
+        ),  # use 2 hours BEFORE the date property, so all are expired
+        (False, datetime.timedelta(hours=-2), 11),
+    ],
+)
+def test_post_search_filter(
+    collection_factory: CollectionFactory,
+    post_search_filter: bool,
+    ttl: datetime.timedelta,
+    expected_count: int,
+) -> None:
+    collection = collection_factory(
+        properties=[
+            wvc.config.Property(name="name", data_type=wvc.config.DataType.TEXT),
+            wvc.config.Property(name="custom_date", data_type=wvc.config.DataType.DATE),
+        ],
+        object_ttl=Configure.ObjectTTL.delete_by_date_property(
+            date_property="custom_date",
+            post_search_filter=post_search_filter,
+            time_to_live_after_date=ttl,
+        ),
+    )
+
+    # add a bunch of expired objects, but don't delete them yet
+    num_expired_objects = 5
+    for _ in range(num_expired_objects):
+        collection.data.insert(
+            properties={
+                "custom_date": datetime.datetime.now(datetime.timezone.utc)
+                - datetime.timedelta(hours=1),
+            }
+        )
+
+    # add a bunch of NOT expired objects
+    num_not_expired_objects = 6
+    for _ in range(num_not_expired_objects):
+        collection.data.insert(
+            properties={
+                "custom_date": datetime.datetime.now(datetime.timezone.utc)
+                + datetime.timedelta(hours=1),
+            }
+        )
+
+    # add one object without the date property set
+    collection.data.insert(properties={"name": "no date"})
+
+    results = collection.query.fetch_objects()
+    assert len(results.objects) == expected_count + 1  # +1 for the object without date property
