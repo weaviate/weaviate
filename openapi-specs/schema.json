@@ -7,7 +7,10 @@
   "definitions": {
     "UserTypeInput": {
       "type": "string",
-      "enum": ["db", "oidc"],
+      "enum": [
+        "db",
+        "oidc"
+      ],
       "description": "The type of the user. `db` users are managed by Weaviate, `oidc` users are managed by an external OIDC provider."
     },
     "GroupType": {
@@ -19,7 +22,11 @@
     },
     "UserTypeOutput": {
       "type": "string",
-      "enum": ["db_user", "db_env_user", "oidc"],
+      "enum": [
+        "db_user",
+        "db_env_user",
+        "oidc"
+      ],
       "description": "The type of the user. `db_user` users are created through the `users` API, `db_env_user` users are created through environment variables, and `oidc` users are managed by an external OIDC provider."
     },
     "UserOwnInfo": {
@@ -4559,7 +4566,7 @@
               "type": "object",
               "properties": {
                 "revoke_key": {
-                  "type":"boolean",
+                  "type": "boolean",
                   "description": "Whether the API key should be revoked when deactivating the user.",
                   "default": false
                 }
@@ -5382,7 +5389,10 @@
             "name": "userType",
             "required": true,
             "type": "string",
-            "enum": ["oidc", "db"],
+            "enum": [
+              "oidc",
+              "db"
+            ],
             "description": "The type of the user."
           },
           {
@@ -7739,7 +7749,7 @@
           "weaviate.local.query.meta"
         ],
         "tags": [
-            "meta"
+          "meta"
         ],
         "responses": {
           "200": {
@@ -8428,7 +8438,7 @@
               "type": "array",
               "items": {
                 "type": "string",
-                  "description": "Name of a tenant to delete."
+                "description": "Name of a tenant to delete."
               }
             }
           }
