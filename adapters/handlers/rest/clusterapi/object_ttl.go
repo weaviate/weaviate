@@ -80,7 +80,7 @@ func (d *ObjectTTL) incomingStatus() http.Handler {
 		}
 		w.WriteHeader(http.StatusOK)
 		if err := json.NewEncoder(w).Encode(status); err != nil {
-			http.Error(w, "/user marshal response: "+err.Error(),
+			http.Error(w, "/object ttl marshal response: "+err.Error(),
 				http.StatusInternalServerError)
 		}
 	})

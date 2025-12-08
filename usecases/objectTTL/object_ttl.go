@@ -96,7 +96,7 @@ func (c *RemoteObjectTTL) StartRemoteDelete(ctx context.Context, nodeName string
 
 	defer res.Body.Close()
 	body, _ := io.ReadAll(res.Body)
-	if res.StatusCode != http.StatusOK {
+	if res.StatusCode != http.StatusAccepted {
 		return enterrors.NewErrUnexpectedStatusCode(res.StatusCode, body)
 	}
 
