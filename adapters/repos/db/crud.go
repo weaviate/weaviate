@@ -90,7 +90,9 @@ func (db *DB) triggerDeletionObjectsExpiredSingleNode(ctx context.Context, colle
 			defer release()
 
 			// TODO aliszka:ttl schemaVersion?
-			idx.IncomingDeleteObjectsExpired(eg, deleteOnPropName, ttlThreshold, deletionTime, 0)
+			if err := idx.IncomingDeleteObjectsExpired(eg, deleteOnPropName, ttlThreshold, deletionTime, 0); err != nil {
+				ec.Add(fmt.Errorf("delete expired for class %q: %w", collection, err))
+			}
 		}()
 	}
 

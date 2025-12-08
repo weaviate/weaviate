@@ -2299,8 +2299,6 @@ func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.
 				return fmt.Errorf("finding uuids for tenant %q of collection %q: %w", tenant, class.Class, err)
 			}
 
-			fmt.Printf("  ==> found uuids for tenant %q of collection %q: %v\n\n", tenant, class.Class, tenants2uuids)
-
 			if len(tenants2uuids[tenant]) == 0 {
 				continue
 			}
