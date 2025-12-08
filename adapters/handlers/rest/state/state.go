@@ -18,7 +18,7 @@ import (
 
 	grpcconn "github.com/weaviate/weaviate/grpc/conn"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
-	"github.com/weaviate/weaviate/usecases/objectTTL"
+	objectttl "github.com/weaviate/weaviate/usecases/object_ttl"
 
 	"github.com/sirupsen/logrus"
 
@@ -72,7 +72,7 @@ type State struct {
 	RemoteIndexIncoming   *sharding.RemoteIndexIncoming
 	RemoteNodeIncoming    *sharding.RemoteNodeIncoming
 	RemoteReplicaIncoming *replica.RemoteReplicaIncoming
-	RemoteObjectTTL       *objectTTL.RemoteObjectTTL
+	RemoteObjectTTL       *objectttl.RemoteObjectTTL
 	Traverser             *traverser.Traverser
 
 	ClassificationRepo *classifications.DistributedRepo

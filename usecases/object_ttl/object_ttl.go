@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package objectTTL
+package objectttl
 
 import (
 	"bytes"
@@ -37,7 +37,7 @@ func NewRemoteObjectTTL(httpClient *http.Client, nodeResolver nodeResolver) *Rem
 }
 
 func (c *RemoteObjectTTL) CheckIfStillRunning(ctx context.Context, nodeName string) (bool, error) {
-	p := "/cluster/objectTTL/status"
+	p := "/cluster/object_ttl/status"
 	method := http.MethodGet
 	hostName, found := c.nodeResolver.NodeHostname(nodeName)
 	if !found {
@@ -61,7 +61,7 @@ func (c *RemoteObjectTTL) CheckIfStillRunning(ctx context.Context, nodeName stri
 		return false, enterrors.NewErrUnexpectedStatusCode(res.StatusCode, body)
 	}
 
-	var stillRunning ObjectsExpiredStatusResponsePayload
+	var stillRunning ObjectsExpiredStatusResponse
 	err = json.Unmarshal(body, &stillRunning)
 	if err != nil {
 		return false, enterrors.NewErrUnmarshalBody(err)
@@ -71,7 +71,7 @@ func (c *RemoteObjectTTL) CheckIfStillRunning(ctx context.Context, nodeName stri
 }
 
 func (c *RemoteObjectTTL) StartRemoteDelete(ctx context.Context, nodeName string, classes []ObjectsExpiredPayload) error {
-	p := "/cluster/objectTTL/deleteExpired"
+	p := "/cluster/object_ttl/delete_expired"
 	method := http.MethodPost
 	hostName, found := c.nodeResolver.NodeHostname(nodeName)
 	if !found {

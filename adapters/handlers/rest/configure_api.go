@@ -148,7 +148,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
-	"github.com/weaviate/weaviate/usecases/objectTTL"
+	objectttl "github.com/weaviate/weaviate/usecases/object_ttl"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/schema"
@@ -1063,7 +1063,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	remoteDbUsers := clients.NewRemoteUser(appState.ClusterHttpClient, appState.Cluster)
 	db_users.SetupHandlers(api, appState.ClusterService.Raft, appState.Authorizer, appState.ServerConfig.Config.Authentication, appState.ServerConfig.Config.Authorization, remoteDbUsers, appState.SchemaManager, appState.Logger)
-	remoteObjectTTL := objectTTL.NewRemoteObjectTTL(appState.ClusterHttpClient, appState.Cluster)
+	remoteObjectTTL := objectttl.NewRemoteObjectTTL(appState.ClusterHttpClient, appState.Cluster)
 	appState.RemoteObjectTTL = remoteObjectTTL
 
 	setupSchemaHandlers(api, appState.SchemaManager, appState.Metrics, appState.Logger)
