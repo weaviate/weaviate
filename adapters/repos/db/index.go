@@ -26,6 +26,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/containerd/log"
 	"github.com/weaviate/weaviate/adapters/repos/db/ttl"
 
 	"github.com/go-openapi/strfmt"
@@ -2311,7 +2312,9 @@ func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.
 						return fmt.Errorf("batch delete for tenant %q of collection %q: %w", tenant, class.Class, err)
 					}
 
-					fmt.Printf("  ==> batch delete for tenant %q of collection %q: resp %+v\n\n", tenant, class.Class, resp)
+					i.logger.
+						WithFields(log.Fields{"action": "ttl_cleanup", "collection": class.Class, "tenant": tenant}).
+						Infof("batch delete response: %+v", resp)
 					return nil
 				})
 		}
@@ -2321,8 +2324,6 @@ func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.
 		if err != nil {
 			return fmt.Errorf("finding uuids of collection %q: %w", class.Class, err)
 		}
-
-		fmt.Printf("  ==> found uuids of collection %q: %v\n\n", class.Class, shards2uuids)
 
 		for shard := range shards2uuids {
 			if len(shards2uuids[shard]) == 0 {
@@ -2337,8 +2338,10 @@ func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.
 						// TODO aliszka:ttl exit or continue with other tenants
 						return fmt.Errorf("batch delete of collection %q: %w", class.Class, err)
 					}
+					i.logger.
+						WithFields(log.Fields{"action": "ttl_cleanup", "collection": class.Class}).
+						Infof("batch delete response: %+v", resp)
 
-					fmt.Printf("  ==> batch delete resp %+v\n\n", resp)
 					return nil
 				})
 		}
