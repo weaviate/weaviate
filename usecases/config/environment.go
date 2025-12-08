@@ -946,6 +946,12 @@ func FromEnv(config *Config) error {
 	}
 	config.InvertedSorterDisabled = configRuntime.NewDynamicValue(invertedSorterDisabled)
 
+	operationalMode := READ_WRITE
+	if v := os.Getenv("OPERATIONAL_MODE"); v != "" && (v == READ_WRITE || v == READ_ONLY || v == WRITE_ONLY || v == SCALE_OUT) {
+		operationalMode = v
+	}
+	config.OperationalMode = configRuntime.NewDynamicValue(operationalMode)
+
 	return nil
 }
 

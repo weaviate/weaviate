@@ -302,7 +302,8 @@ type Config struct {
 	InvertedSorterDisabled      *configRuntime.DynamicValue[bool]
 	MaintenanceModeEnabled      func() bool
 
-	SPFreshEnabled bool
+	SPFreshEnabled  bool
+	OperationalMode *configRuntime.DynamicValue[string]
 }
 
 // GetIndex returns the index if it exists or nil if it doesn't
