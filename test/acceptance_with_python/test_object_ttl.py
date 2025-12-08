@@ -58,6 +58,35 @@ def test_custom_property(collection_factory: CollectionFactory, ttl_minutes: int
         assert len(collection) == min(num_objects - i + ttl_minutes, num_objects)
 
 
+def test_obj_without_date_property(collection_factory: CollectionFactory):
+    collection = collection_factory(
+        properties=[
+            wvc.config.Property(name="name", data_type=wvc.config.DataType.TEXT),
+            wvc.config.Property(name="custom_date", data_type=wvc.config.DataType.DATE),
+        ],
+        object_ttl=Configure.ObjectTTL.delete_by_date_property("custom_date"),
+    )
+
+    # insert objects, some with and some without the date property
+    base_time = datetime.datetime.now(datetime.timezone.utc)
+    num_objects = 20
+    for i in range(num_objects):
+        if i % 2 == 0:
+            collection.data.insert(
+                {
+                    "name": "Object " + str(i),
+                    "custom_date": base_time - datetime.timedelta(minutes=1),
+                }
+            )
+        else:
+            collection.data.insert({"name": "Object " + str(i)})
+
+    # all objects with the date property should be deleted and only objects without should remain
+    delete(base_time)
+
+    assert len(collection) == num_objects // 2
+
+
 def test_update_time(collection_factory: CollectionFactory):
     collection = collection_factory(
         properties=[
