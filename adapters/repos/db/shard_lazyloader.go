@@ -340,13 +340,6 @@ func (l *LazyLoadShard) DeleteObject(ctx context.Context, id strfmt.UUID, deleti
 	return l.shard.DeleteObject(ctx, id, deletionTime)
 }
 
-func (l *LazyLoadShard) DeleteObjectsExpired(ctx context.Context, expirationThreshold time.Time, deleteOnPropName string) error {
-	if err := l.Load(ctx); err != nil {
-		return err
-	}
-	return l.shard.DeleteObjectsExpired(ctx, expirationThreshold, deleteOnPropName)
-}
-
 func (l *LazyLoadShard) MultiObjectByID(ctx context.Context, query []multi.Identifier) ([]*storobj.Object, error) {
 	if err := l.Load(ctx); err != nil {
 		return nil, err
