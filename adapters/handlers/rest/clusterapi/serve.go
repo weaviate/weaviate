@@ -17,9 +17,11 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"regexp"
 
 	sentryhttp "github.com/getsentry/sentry-go/http"
 
+	"github.com/weaviate/weaviate/adapters/handlers/rest/raft"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/types"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -78,6 +80,7 @@ func NewServer(appState *state.State) *Server {
 
 	var handler http.Handler
 	handler = mux
+	handler = addClusterHandlerMiddleware(handler, appState)
 	if appState.ServerConfig.Config.Sentry.Enabled {
 		// Wrap the default mux with Sentry to capture panics, report errors and
 		// measure performance.
@@ -183,4 +186,23 @@ func staticRoute(mux *http.ServeMux) monitoring.StaticRouteLabel {
 		}
 		return r, route
 	}
+}
+
+// clusterv1Regexp is used to intercept requests and redirect them to a dedicated http server independent of swagger
+var clusterv1Regexp = regexp.MustCompile("/v1/cluster/*")
+
+// addClusterHandlerMiddleware will inject a middleware that will catch all requests matching clusterv1Regexp.
+// If the request match, it will route it to a dedicated http.Handler and skip the next middleware.
+// If the request doesn't match, it will continue to the next handler.
+func addClusterHandlerMiddleware(next http.Handler, appState *state.State) http.Handler {
+	// Instantiate the router outside the returned lambda to avoid re-allocating everytime a new request comes in
+	raftRouter := raft.ClusterRouter(appState.SchemaManager.Handler)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case clusterv1Regexp.MatchString(r.URL.Path):
+			raftRouter.ServeHTTP(w, r)
+		default:
+			next.ServeHTTP(w, r)
+		}
+	})
 }
