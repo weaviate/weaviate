@@ -331,9 +331,7 @@ func whitelist(next http.Handler, w http.ResponseWriter, r *http.Request, whitel
 	}
 	namespace := split[2]
 	if _, ok := whitelist[namespace]; ok {
-		next.ServeHTTP(w, r)
 		return true
-
 	}
 	return false
 }
