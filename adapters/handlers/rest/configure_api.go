@@ -601,7 +601,6 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		Logger:                          appState.Logger,
 		IsLocalHost:                     appState.ServerConfig.Config.Cluster.Localhost,
 		LoadLegacySchema:                schemaRepo.LoadLegacySchema,
-		SaveLegacySchema:                schemaRepo.SaveLegacySchema,
 		SentryEnabled:                   appState.ServerConfig.Config.Sentry.Enabled,
 		AuthzController:                 appState.AuthzController,
 		RBAC:                            appState.RBAC,

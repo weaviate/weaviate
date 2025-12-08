@@ -146,8 +146,6 @@ type Config struct {
 	Parser schema.Parser
 	// LoadLegacySchema is responsible for loading old schema from boltDB
 	LoadLegacySchema schema.LoadLegacySchema
-	// SaveLegacySchema is responsible for loading new schema into boltDB
-	SaveLegacySchema schema.SaveLegacySchema
 	// IsLocalHost only required when running Weaviate from the console in localhost
 	IsLocalHost bool
 
@@ -517,11 +515,6 @@ func (st *Store) onLeaderFound(timeout time.Duration) {
 		}
 		return
 	}
-}
-
-// StoreSchemaV1() is responsible for saving new schema (RAFT) to boltDB
-func (st *Store) StoreSchemaV1() error {
-	return st.cfg.SaveLegacySchema(st.schemaManager.NewSchemaReader().States())
 }
 
 func (st *Store) Close(ctx context.Context) error {
