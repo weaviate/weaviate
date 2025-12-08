@@ -23,7 +23,9 @@ import (
 
 func TestVersionMapPersistence(t *testing.T) {
 	store := testinghelpers.NewDummyStore(t)
-	versionMap, err := NewVersionMap(store, "test", StoreConfig{MakeBucketOptions: lsmkv.MakeNoopBucketOptions})
+	bucket, err := NewSharedBucket(store, "test", StoreConfig{MakeBucketOptions: lsmkv.MakeNoopBucketOptions})
+	require.NoError(t, err)
+	versionMap, err := NewVersionMap(bucket)
 	require.NoError(t, err)
 
 	t.Run("get unknown vector", func(t *testing.T) {
