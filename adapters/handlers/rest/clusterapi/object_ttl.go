@@ -53,11 +53,27 @@ func (d *ObjectTTL) deleteExpiredHandler() http.HandlerFunc {
 
 			d.incomingDelete().ServeHTTP(w, r)
 			return
+		case "/cluster/objectTTL/status":
+			if r.Method != http.MethodGet {
+				msg := fmt.Sprintf("/objectTTL api path %q with method %v not found", path, r.Method)
+				http.Error(w, msg, http.StatusMethodNotAllowed)
+				return
+			}
+
+			d.incomingStatus().ServeHTTP(w, r)
+			return
+
 		default:
 			http.Error(w, http.StatusText(http.StatusNotFound), http.StatusNotFound)
 			return
 		}
 	}
+}
+
+func (d *ObjectTTL) incomingStatus() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+	})
 }
 
 func (d *ObjectTTL) incomingDelete() http.Handler {

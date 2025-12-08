@@ -21,14 +21,12 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/go-openapi/strfmt"
+	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/byteops"
 	"github.com/weaviate/weaviate/usecases/file"
-	"github.com/weaviate/weaviate/usecases/objectTTL"
-
-	"github.com/go-openapi/strfmt"
-	"github.com/pkg/errors"
 
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
@@ -41,33 +39,32 @@ import (
 var IndicesPayloads = indicesPayloads{}
 
 type indicesPayloads struct {
-	ErrorList                    errorListPayload
-	SingleObject                 singleObjectPayload
-	MergeDoc                     mergeDocPayload
-	ObjectList                   objectListPayload
-	ObjectsExpiredStatusResponse objectTTL.ObjectsExpiredStatusResponsePayload
-	VersionedObjectList          versionedObjectListPayload
-	SearchResults                searchResultsPayload
-	SearchParams                 searchParamsPayload
-	VectorDistanceParams         vectorDistanceParamsPayload
-	VectorDistanceResults        vectorDistanceResultsPayload
-	ReferenceList                referenceListPayload
-	AggregationParams            aggregationParamsPayload
-	AggregationResult            aggregationResultPayload
-	FindUUIDsParams              findUUIDsParamsPayload
-	FindUUIDsResults             findUUIDsResultsPayload
-	BatchDeleteParams            batchDeleteParamsPayload
-	BatchDeleteResults           batchDeleteResultsPayload
-	GetShardQueueSizeParams      getShardQueueSizeParamsPayload
-	GetShardQueueSizeResults     getShardQueueSizeResultsPayload
-	GetShardStatusParams         getShardStatusParamsPayload
-	GetShardStatusResults        getShardStatusResultsPayload
-	UpdateShardStatusParams      updateShardStatusParamsPayload
-	UpdateShardsStatusResults    updateShardsStatusResultsPayload
-	ShardFiles                   shardFilesPayload
-	ShardFileMetadataResults     shardFileMetadataResultsPayload
-	ShardFilesResults            shardFilesResultsPayload
-	AsyncReplicationTargetNode   asyncReplicationTargetNode
+	ErrorList                  errorListPayload
+	SingleObject               singleObjectPayload
+	MergeDoc                   mergeDocPayload
+	ObjectList                 objectListPayload
+	VersionedObjectList        versionedObjectListPayload
+	SearchResults              searchResultsPayload
+	SearchParams               searchParamsPayload
+	VectorDistanceParams       vectorDistanceParamsPayload
+	VectorDistanceResults      vectorDistanceResultsPayload
+	ReferenceList              referenceListPayload
+	AggregationParams          aggregationParamsPayload
+	AggregationResult          aggregationResultPayload
+	FindUUIDsParams            findUUIDsParamsPayload
+	FindUUIDsResults           findUUIDsResultsPayload
+	BatchDeleteParams          batchDeleteParamsPayload
+	BatchDeleteResults         batchDeleteResultsPayload
+	GetShardQueueSizeParams    getShardQueueSizeParamsPayload
+	GetShardQueueSizeResults   getShardQueueSizeResultsPayload
+	GetShardStatusParams       getShardStatusParamsPayload
+	GetShardStatusResults      getShardStatusResultsPayload
+	UpdateShardStatusParams    updateShardStatusParamsPayload
+	UpdateShardsStatusResults  updateShardsStatusResultsPayload
+	ShardFiles                 shardFilesPayload
+	ShardFileMetadataResults   shardFileMetadataResultsPayload
+	ShardFilesResults          shardFilesResultsPayload
+	AsyncReplicationTargetNode asyncReplicationTargetNode
 }
 
 type shardFileMetadataResultsPayload struct{}

@@ -36,6 +36,40 @@ func NewRemoteObjectTTL(httpClient *http.Client, nodeResolver nodeResolver) *Rem
 	return &RemoteObjectTTL{client: httpClient, nodeResolver: nodeResolver}
 }
 
+func (c *RemoteObjectTTL) CheckIfStillRunning(ctx context.Context, nodeName string) (bool, error) {
+	p := "/cluster/objectTTL/status"
+	method := http.MethodGet
+	hostName, found := c.nodeResolver.NodeHostname(nodeName)
+	if !found {
+		return false, fmt.Errorf("unable to resolve hostname for %s", nodeName)
+	}
+	url := url.URL{Scheme: "http", Host: hostName, Path: p}
+
+	req, err := http.NewRequestWithContext(ctx, method, url.String(), nil)
+	if err != nil {
+		return false, enterrors.NewErrOpenHttpRequest(err)
+	}
+
+	res, err := c.client.Do(req)
+	if err != nil {
+		return false, enterrors.NewErrSendHttpRequest(err)
+	}
+
+	defer res.Body.Close()
+	body, _ := io.ReadAll(res.Body)
+	if res.StatusCode != http.StatusOK {
+		return false, enterrors.NewErrUnexpectedStatusCode(res.StatusCode, body)
+	}
+
+	var stilRunning ObjectsExpiredStatusResponsePayload
+	err = json.Unmarshal(body, &stilRunning)
+	if err != nil {
+		return false, enterrors.NewErrUnmarshalBody(err)
+	}
+
+	return stilRunning.DeletionOngoing, nil
+}
+
 func (c *RemoteObjectTTL) StartRemoteDelete(ctx context.Context, nodeName string, classes []ObjectsExpiredPayload) error {
 	p := "/cluster/objectTTL/deleteExpired"
 	method := http.MethodPost

@@ -94,6 +94,11 @@ func (db *DB) triggerDeletionObjectsExpiredSingleNode(ctx context.Context, colle
 		}()
 	}
 
+	err := eg.Wait()
+	if err != nil {
+		return err
+	}
+
 	return ec.ToError()
 }
 
@@ -135,16 +140,20 @@ func (db *DB) triggerDeletionObjectsExpiredMultiNode(ctx context.Context, remote
 		}()
 	}
 
-	//// check if deletion is ongoing on the last node we picked
-	//if db.objectTTLLastNode != "" {
-	//	ttlOngoing, err := idx.remote.DeleteObjectsExpiredStatus(ctx, lastNode, 0)
-	//	if err != nil {
-	//		ec.Add(err)
-	//	}
-	//	if ttlOngoing {
-	//		return // deletion for collection still ongoing, skip this round
-	//	}
-	//}
+	if len(ttlCollections) == 0 {
+		return nil
+	}
+
+	// check if deletion is ongoing on the last node we picked
+	if db.objectTTLLastNode != "" {
+		ttlOngoing, err := remoteObjectTTL.CheckIfStillRunning(ctx, db.objectTTLLastNode)
+		if err != nil {
+			ec.Add(err)
+		}
+		if ttlOngoing {
+			return nil // deletion for collection still ongoing, skip this round
+		}
+	}
 
 	node := pickNode()
 	db.objectTTLLastNode = node
