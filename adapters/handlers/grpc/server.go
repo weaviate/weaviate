@@ -93,6 +93,8 @@ func CreateGRPCServer(state *state.State, options ...grpc.ServerOption) (*grpc.S
 
 	interceptors = append(interceptors, makeIPInterceptor())
 
+	interceptors = append(interceptors, makeMaintenanceModeUnaryInterceptor(state.Cluster.MaintenanceModeEnabledForLocalhost))
+
 	if len(interceptors) > 0 {
 		o = append(o, grpc.ChainUnaryInterceptor(interceptors...))
 	}
@@ -105,6 +107,7 @@ func CreateGRPCServer(state *state.State, options ...grpc.ServerOption) (*grpc.S
 	)
 
 	o = append(o, grpc.ChainStreamInterceptor(makeAuthStreamInterceptor(auth.NewHandler(allowAnonymous, authComposer))))
+	o = append(o, grpc.ChainStreamInterceptor(makeMaintenanceModeStreamInterceptor(state.Cluster.MaintenanceModeEnabledForLocalhost)))
 
 	s := grpc.NewServer(o...)
 	weaviateV0 := v0.NewService()
@@ -228,6 +231,24 @@ func basicAuthUnaryInterceptor(servicePrefix, expectedUsername, expectedPassword
 		}
 
 		return handler(ctx, req)
+	}
+}
+
+func makeMaintenanceModeUnaryInterceptor(maintenanceModeEnabledForLocalhost func() bool) grpc.UnaryServerInterceptor {
+	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+		if maintenanceModeEnabledForLocalhost() {
+			return nil, status.Error(codes.Unavailable, "server is in maintenance mode")
+		}
+		return handler(ctx, req)
+	}
+}
+
+func makeMaintenanceModeStreamInterceptor(maintenanceModeEnabledForLocalhost func() bool) grpc.StreamServerInterceptor {
+	return func(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+		if maintenanceModeEnabledForLocalhost() {
+			return status.Error(codes.Unavailable, "server is in maintenance mode")
+		}
+		return handler(srv, ss)
 	}
 }
 
