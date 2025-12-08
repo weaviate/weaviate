@@ -2277,7 +2277,7 @@ func (i *Index) IncomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.
 		return fmt.Errorf("incoming delete objects still running on index %s", i.Config.ClassName.String())
 	}
 
-	// start goroutine
+	// start goroutine to run actual deletion in background
 	enterrors.GoWrapper(
 		func() {
 			defer i.objectTTLRunning.Store(false)
