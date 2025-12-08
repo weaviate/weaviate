@@ -29,9 +29,8 @@ def delete(expiration_time: Optional[datetime.datetime] = None):
     time.sleep(0.1)  # give some time for the deletions to be processed
 
 
-def test_custom_property(
-    collection_factory: CollectionFactory,
-) -> None:
+@pytest.mark.parametrize("ttl_minutes", [0, 10])
+def test_custom_property(collection_factory: CollectionFactory, ttl_minutes: int) -> None:
     collection = collection_factory(
         properties=[
             wvc.config.Property(name="name", data_type=wvc.config.DataType.TEXT),
@@ -39,21 +38,53 @@ def test_custom_property(
         ],
         object_ttl=Configure.ObjectTTL.delete_by_date_property(
             date_property="custom_date",
+            time_to_live_after_date=(
+                datetime.timedelta(minutes=ttl_minutes) if ttl_minutes > 0 else None
+            ),
         ),
     )
     base_time = datetime.datetime.now(datetime.timezone.utc)
-    num_objects = 5
+    num_objects = 50
     for i in range(num_objects):
         collection.data.insert(
             {
                 "name": "Object " + str(i),
-                "custom_date": base_time + datetime.timedelta(minutes=i),
+                "custom_date": base_time + datetime.timedelta(minutes=i, seconds=5),
             }
         )
 
     for i in range(num_objects):
         delete(base_time + datetime.timedelta(minutes=i))
-        assert len(collection) == num_objects - (i + 1)
+        assert len(collection) == min(num_objects - i + ttl_minutes, num_objects)
+
+
+def test_obj_without_date_property(collection_factory: CollectionFactory):
+    collection = collection_factory(
+        properties=[
+            wvc.config.Property(name="name", data_type=wvc.config.DataType.TEXT),
+            wvc.config.Property(name="custom_date", data_type=wvc.config.DataType.DATE),
+        ],
+        object_ttl=Configure.ObjectTTL.delete_by_date_property("custom_date"),
+    )
+
+    # insert objects, some with and some without the date property
+    base_time = datetime.datetime.now(datetime.timezone.utc)
+    num_objects = 20
+    for i in range(num_objects):
+        if i % 2 == 0:
+            collection.data.insert(
+                {
+                    "name": "Object " + str(i),
+                    "custom_date": base_time - datetime.timedelta(minutes=1),
+                }
+            )
+        else:
+            collection.data.insert({"name": "Object " + str(i)})
+
+    # all objects with the date property should be deleted and only objects without should remain
+    delete(base_time)
+
+    assert len(collection) == num_objects // 2
 
 
 def test_update_time(collection_factory: CollectionFactory):

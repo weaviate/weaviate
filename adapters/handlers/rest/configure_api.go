@@ -947,7 +947,7 @@ func configureCrons(appState *state.State, serverShutdownCtx context.Context) {
 	}
 
 	// standard parser
-	c := gocron.New(gocron.WithLogger(cronLogger), gocron.WithChain(gocron.Recover(cronLogger)))
+	c := gocron.New(gocron.WithLogger(cronLogger), gocron.WithChain(gocron.Recover(cronLogger)), gocron.WithSeconds())
 	for i := range specs {
 		l := logger.WithField("job_name", specs[i].name)
 
