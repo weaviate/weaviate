@@ -58,7 +58,6 @@ def test_custom_property(collection_factory: CollectionFactory, ttl_minutes: int
         assert len(collection) == min(num_objects - i + ttl_minutes, num_objects)
 
 
-<<<<<<< HEAD
 def test_update_time(collection_factory: CollectionFactory):
     collection = collection_factory(
         properties=[
@@ -150,6 +149,7 @@ def test_mt(collection_factory: CollectionFactory):
         else:
             # activated tenants should have expired objects deleted
             assert len(tenant_collection) == num_objects - 3
+
 
 @pytest.mark.parametrize(
     "post_search_filter,ttl,expected_count",
