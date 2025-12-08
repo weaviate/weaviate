@@ -140,18 +140,20 @@ func (c *Copier) CopyReplicaFiles(ctx context.Context, srcNodeId, collectionName
 	}
 
 	metadataChan := make(chan *protocol.FileMetadata, 1000)
-	enterrors.NewErrorGroupWrapper(c.logger).Go(func() error {
-		defer close(metadataChan)
-		err := c.metadataWorker(ctx, client, collectionName, shardName, fileNameChan, metadataChan)
-		if err != nil {
-			c.logger.WithError(err).Error("failed to get files metadata")
-		}
-		return err
-	})
-
-	eg := enterrors.NewErrorGroupWrapper(c.logger)
+	mWg := enterrors.NewErrorGroupWrapper(c.logger)
 	for range c.concurrentWorkers {
-		eg.Go(func() error {
+		mWg.Go(func() error {
+			err := c.metadataWorker(ctx, client, collectionName, shardName, fileNameChan, metadataChan)
+			if err != nil {
+				c.logger.WithError(err).Error("failed to get files metadata")
+			}
+			return err
+		})
+	}
+
+	dWg := enterrors.NewErrorGroupWrapper(c.logger)
+	for range c.concurrentWorkers {
+		dWg.Go(func() error {
 			err := c.downloadWorker(ctx, client, metadataChan)
 			if err != nil {
 				c.logger.WithError(err).Error("failed to download files")
@@ -159,7 +161,15 @@ func (c *Copier) CopyReplicaFiles(ctx context.Context, srcNodeId, collectionName
 			return err
 		})
 	}
-	if err := eg.Wait(); err != nil {
+
+	// wait for all metadata workers to finish
+	if err := mWg.Wait(); err != nil {
+		return fmt.Errorf("failed to get files metadata: %w", err)
+	}
+	close(metadataChan)
+
+	// wait for all download workers to finish
+	if err := dWg.Wait(); err != nil {
 		return fmt.Errorf("failed to download files: %w", err)
 	}
 
