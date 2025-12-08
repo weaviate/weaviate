@@ -206,12 +206,25 @@ func makeOperationalModeInterceptor(state *state.State) grpc.UnaryServerIntercep
 	return func(
 		ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler,
 	) (any, error) {
-		if (state.ServerConfig.Config.OperationalMode.Get() == config.READ_ONLY || state.ServerConfig.Config.OperationalMode.Get() == config.SCALE_OUT) && config.IsGRPCWrite(info.FullMethod) {
-			st := status.New(codes.Unavailable, config.ErrReadOnlyModeEnabled.Error())
-			return nil, st.Err()
+		var err error
+		switch state.ServerConfig.Config.OperationalMode.Get() {
+		case config.READ_WRITE:
+			// all good
+		case config.READ_ONLY:
+			if config.IsGRPCWrite(info.FullMethod) {
+				err = config.ErrReadOnlyModeEnabled
+			}
+		case config.SCALE_OUT:
+			if config.IsGRPCWrite(info.FullMethod) {
+				err = config.ErrScaleOutModeEnabled
+			}
+		case config.WRITE_ONLY:
+			if config.IsGRPCRead(info.FullMethod) {
+				err = config.ErrWriteOnlyModeEnabled
+			}
 		}
-		if state.ServerConfig.Config.OperationalMode.Get() == config.WRITE_ONLY && config.IsGRPCRead(info.FullMethod) {
-			st := status.New(codes.Unavailable, config.ErrWriteOnlyModeEnabled.Error())
+		if err != nil {
+			st := status.New(codes.Unavailable, err.Error())
 			return nil, st.Err()
 		}
 		return handler(ctx, req)

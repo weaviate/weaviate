@@ -279,30 +279,33 @@ func addLiveAndReadyness(state *state.State, next http.Handler) http.Handler {
 
 func addOperationalMode(state *state.State, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if state.ServerConfig.Config.OperationalMode.Get() == config.READ_ONLY && !config.IsHTTPRead(r.Method) {
-			if whitelist(r.URL.Path, config.ReadOnlyWhitelist) {
-				next.ServeHTTP(w, r)
+		switch state.ServerConfig.Config.OperationalMode.Get() {
+		case config.READ_WRITE:
+			// all operations allowed
+		case config.READ_ONLY:
+			if config.IsHTTPWrite(r.Method) {
+				if whitelist(r.URL.Path, config.ReadOnlyWhitelist) {
+					break
+				}
+				writeOperationalModeErrorResponse(w, config.ErrReadOnlyModeEnabled)
 				return
 			}
-			writeOperationalModeErrorResponse(w, config.ErrReadOnlyModeEnabled)
-			return
-		}
-		// SCALE_OUT is a special-case of READ_ONLY where replication ops are still allowed
-		if state.ServerConfig.Config.OperationalMode.Get() == config.SCALE_OUT && !config.IsHTTPRead(r.Method) {
-			if whitelist(r.URL.Path, config.ScaleOutWhitelist) {
-				next.ServeHTTP(w, r)
+		case config.SCALE_OUT:
+			if config.IsHTTPWrite(r.Method) {
+				if whitelist(r.URL.Path, config.ScaleOutWhitelist) {
+					break
+				}
+				writeOperationalModeErrorResponse(w, config.ErrScaleOutModeEnabled)
 				return
 			}
-			writeOperationalModeErrorResponse(w, config.ErrScaleOutModeEnabled)
-			return
-		}
-		if state.ServerConfig.Config.OperationalMode.Get() == config.WRITE_ONLY && config.IsHTTPRead(r.Method) {
-			if whitelist(r.URL.Path, config.WriteOnlyWhitelist) {
-				next.ServeHTTP(w, r)
+		case config.WRITE_ONLY:
+			if config.IsHTTPRead(r.Method) {
+				if whitelist(r.URL.Path, config.WriteOnlyWhitelist) {
+					break
+				}
+				writeOperationalModeErrorResponse(w, config.ErrWriteOnlyModeEnabled)
 				return
 			}
-			writeOperationalModeErrorResponse(w, config.ErrWriteOnlyModeEnabled)
-			return
 		}
 		next.ServeHTTP(w, r)
 	})

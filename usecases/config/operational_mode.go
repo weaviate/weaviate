@@ -59,6 +59,10 @@ func IsHTTPRead(method string) bool {
 	return method == http.MethodGet || method == http.MethodHead || method == http.MethodOptions || method == http.MethodTrace
 }
 
+func IsHTTPWrite(method string) bool {
+	return !IsHTTPRead(method)
+}
+
 func IsGRPCRead(method string) bool {
 	return method == protocol.Weaviate_Search_FullMethodName ||
 		method == protocol.Weaviate_Aggregate_FullMethodName ||
