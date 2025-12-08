@@ -97,6 +97,7 @@ func (d *ObjectTTL) incomingDelete() http.Handler {
 
 		var body []objectTTL.ObjectsExpiredPayload
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			d.requestRunning.Store(false)
 			http.Error(w, "Error parsing JSON body", http.StatusBadRequest)
 			return
 		}
