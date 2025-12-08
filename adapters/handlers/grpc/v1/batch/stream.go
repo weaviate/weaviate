@@ -438,7 +438,6 @@ func (h *StreamHandler) receiver(ctx context.Context, streamId string, consisten
 		}
 		if request.GetData() != nil {
 			push := func(objs []*pb.BatchObject, refs []*pb.BatchReference) error {
-				wg.Add(1)
 				howMany := len(objs) + len(refs)
 				if h.metrics != nil {
 					h.metrics.OnProcessingQueuePush(howMany)
@@ -446,6 +445,7 @@ func (h *StreamHandler) receiver(ctx context.Context, streamId string, consisten
 				size := estimateBatchMemory(objs)
 				h.allocChecker.Refresh(false)
 				if err := h.allocChecker.CheckAlloc(size + h.memInFlight.Load()); err != nil {
+					h.logger.WithField("streamId", streamId).Warnf("memory allocation check failed before pushing to processing queue: %v", err)
 					uuids := make([]string, 0, len(objs))
 					beacons := make([]string, 0, len(refs))
 					for _, obj := range objs {
@@ -460,6 +460,7 @@ func (h *StreamHandler) receiver(ctx context.Context, streamId string, consisten
 						beacons: beacons,
 					}
 				}
+				wg.Add(1)
 				h.memInFlight.Add(size)
 				h.processingQueue <- &processRequest{
 					streamId:         streamId,
