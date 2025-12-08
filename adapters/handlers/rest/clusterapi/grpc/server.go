@@ -43,7 +43,7 @@ const (
 func NewServer(state *state.State, options ...grpc.ServerOption) *Server {
 	fileCopyChunkSize := state.ServerConfig.Config.ReplicationEngineFileCopyChunkSize
 
-	maxSize := max(DEFAULT_MSG_SIZE, fileCopyChunkSize+PB_OVERHEAD)
+	maxSize := MaxMessageSize(fileCopyChunkSize)
 
 	o := []grpc.ServerOption{
 		grpc.MaxRecvMsgSize(maxSize),
@@ -164,4 +164,8 @@ func basicAuthStreamInterceptor(servicePrefix, expectedUsername, expectedPasswor
 
 		return handler(srv, ss)
 	}
+}
+
+func MaxMessageSize(fileCopyChunkSize int) int {
+	return max(DEFAULT_MSG_SIZE, fileCopyChunkSize+PB_OVERHEAD)
 }
