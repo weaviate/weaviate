@@ -281,6 +281,7 @@ func addOperationalMode(state *state.State, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if state.ServerConfig.Config.OperationalMode.Get() == config.READ_ONLY && !config.IsHTTPRead(r.Method) {
 			if whitelist(next, w, r, config.ReadOnlyWhitelist) {
+				next.ServeHTTP(w, r)
 				return
 			}
 			writeOperationalModeErrorResponse(w, config.ErrReadOnlyModeEnabled)
@@ -290,6 +291,7 @@ func addOperationalMode(state *state.State, next http.Handler) http.Handler {
 		// SCALE_OUT is a special-case of READ_ONLY where replication ops are still allowed
 		if state.ServerConfig.Config.OperationalMode.Get() == config.SCALE_OUT && !config.IsHTTPRead(r.Method) {
 			if whitelist(next, w, r, config.ScaleOutWhitelist) {
+				next.ServeHTTP(w, r)
 				return
 			}
 			writeOperationalModeErrorResponse(w, config.ErrScaleOutModeEnabled)
@@ -298,6 +300,7 @@ func addOperationalMode(state *state.State, next http.Handler) http.Handler {
 		}
 		if state.ServerConfig.Config.OperationalMode.Get() == config.WRITE_ONLY && config.IsHTTPRead(r.Method) {
 			if whitelist(next, w, r, config.WriteOnlyWhitelist) {
+				next.ServeHTTP(w, r)
 				return
 			}
 			writeOperationalModeErrorResponse(w, config.ErrWriteOnlyModeEnabled)
@@ -315,7 +318,6 @@ func writeOperationalModeErrorResponse(w http.ResponseWriter, err error) {
 		http.Error(w, "error when marshalling errorResponse in operational mode middleware", http.StatusInternalServerError)
 		return
 	}
-
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusServiceUnavailable)
 	w.Write(data)
