@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 )
 
@@ -25,10 +26,10 @@ var (
 )
 
 const (
-	READ_WRITE = "ReadWrite"
-	READ_ONLY  = "ReadOnly"
-	WRITE_ONLY = "WriteOnly"
-	SCALE_OUT  = "ScaleOut"
+	READ_WRITE = models.NodeStatusOperationalModeReadWrite
+	READ_ONLY  = models.NodeStatusOperationalModeReadOnly
+	WRITE_ONLY = models.NodeStatusOperationalModeWriteOnly
+	SCALE_OUT  = models.NodeStatusOperationalModeScaleOut
 )
 
 // A slice of endpoints to whitelist when determining if an operation is allowed in ReadOnly mode
