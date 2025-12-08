@@ -52,7 +52,7 @@ var WriteOnlyWhitelist = []string{
 var ScaleOutWhitelist = append(ReadOnlyWhitelist, "/replication")
 
 func IsHTTPRead(method string) bool {
-	return method == http.MethodGet || method == http.MethodHead || method == http.MethodOptions
+	return method == http.MethodGet || method == http.MethodHead || method == http.MethodOptions || method == http.MethodTrace
 }
 
 func IsGRPCRead(method string) bool {
