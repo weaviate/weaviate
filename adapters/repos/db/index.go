@@ -26,6 +26,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/containerd/log"
 	"github.com/weaviate/weaviate/adapters/repos/db/ttl"
 
 	"github.com/go-openapi/strfmt"
@@ -296,8 +297,6 @@ type Index struct {
 	router        routerTypes.Router
 	shardResolver *resolver.ShardResolver
 	bitmapBufPool roaringset.BitmapBufPool
-
-	objectTTLRunning atomic.Bool
 }
 
 func (i *Index) ID() string {
@@ -2261,39 +2260,14 @@ func (i *Index) IncomingDeleteObject(ctx context.Context, shardName string,
 	return shard.DeleteObject(ctx, id, deletionTime)
 }
 
-func (i *Index) IncomingDeleteObjectsStatus(ctx context.Context) bool {
-	return i.objectTTLRunning.Load()
-}
-
-func (i *Index) IncomingDeleteObjectsExpired(ctx context.Context, deleteOnPropName string,
+func (i *Index) IncomingDeleteObjectsExpired(eg *enterrors.ErrorGroupWrapper, deleteOnPropName string,
 	ttlThreshold, deletionTime time.Time, schemaVersion uint64,
 ) error {
-	fmt.Printf("  ==> IncomingDeleteExpiredObjects\n"+
-		"      deleteOnProperty [%s]\n"+
-		"      ttlThreshold [%s]\n"+
-		"      deletionTime [%s]\n\n", deleteOnPropName, ttlThreshold, deletionTime)
-
-	if !i.objectTTLRunning.CompareAndSwap(false, true) {
-		return fmt.Errorf("incoming delete objects still running on index %s", i.Config.ClassName.String())
-	}
-
-	// start goroutine
-	enterrors.GoWrapper(
-		func() {
-			defer i.objectTTLRunning.Store(false)
-
-			// use closing context to stop long-running TTL deletions in case index is closed
-			ctx2 := i.closingCtx
-			err := i.incomingDeleteObjectsExpired(ctx2, deleteOnPropName, ttlThreshold, deletionTime, schemaVersion)
-			if err != nil {
-				i.logger.Errorf("error during IncomingDeleteObjectsExpired: %v", err)
-			}
-		}, i.logger)
-
-	return nil
+	// use closing context to stop long-running TTL deletions in case index is closed
+	return i.incomingDeleteObjectsExpired(i.closingCtx, eg, deleteOnPropName, ttlThreshold, deletionTime, schemaVersion)
 }
 
-func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, deleteOnPropName string, ttlThreshold, deletionTime time.Time, schemaVersion uint64) error {
+func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.ErrorGroupWrapper, deleteOnPropName string, ttlThreshold, deletionTime time.Time, schemaVersion uint64) error {
 	class := i.getClass()
 	filter := &filters.LocalFilter{Root: &filters.Clause{
 		Operator: filters.OperatorLessThanEqual,
@@ -2325,19 +2299,22 @@ func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, deleteOnPropNa
 				return fmt.Errorf("finding uuids for tenant %q of collection %q: %w", tenant, class.Class, err)
 			}
 
-			fmt.Printf("  ==> found uuids for tenant %q of collection %q: %v\n\n", tenant, class.Class, tenants2uuids)
-
 			if len(tenants2uuids[tenant]) == 0 {
 				continue
 			}
+			eg.Go(
+				func() error {
+					resp, err := i.batchDeleteObjects(ctx, tenants2uuids, deletionTime, false, replProps, schemaVersion, tenant)
+					if err != nil {
+						// TODO aliszka:ttl exit or continue with other tenants
+						return fmt.Errorf("batch delete for tenant %q of collection %q: %w", tenant, class.Class, err)
+					}
 
-			resp, err := i.batchDeleteObjects(ctx, tenants2uuids, deletionTime, false, replProps, schemaVersion, tenant)
-			if err != nil {
-				// TODO aliszka:ttl exit or continue with other tenants
-				return fmt.Errorf("batch delete for tenant %q of collection %q: %w", tenant, class.Class, err)
-			}
-
-			fmt.Printf("  ==> batch delete for tenant %q of collection %q: resp %+v\n\n", tenant, class.Class, resp)
+					i.logger.
+						WithFields(log.Fields{"action": "ttl_cleanup", "collection": class.Class, "tenant": tenant}).
+						Infof("batch delete response: %+v", resp)
+					return nil
+				})
 		}
 
 	} else {
@@ -2346,21 +2323,25 @@ func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, deleteOnPropNa
 			return fmt.Errorf("finding uuids of collection %q: %w", class.Class, err)
 		}
 
-		fmt.Printf("  ==> found uuids of collection %q: %v\n\n", class.Class, shards2uuids)
-
 		for shard := range shards2uuids {
 			if len(shards2uuids[shard]) == 0 {
 				delete(shards2uuids, shard)
 			}
 		}
 		if len(shards2uuids) != 0 {
-			resp, err := i.batchDeleteObjects(ctx, shards2uuids, deletionTime, false, replProps, schemaVersion, "")
-			if err != nil {
-				// TODO aliszka:ttl exit or continue with other tenants
-				return fmt.Errorf("batch delete of collection %q: %w", class.Class, err)
-			}
+			eg.Go(
+				func() error {
+					resp, err := i.batchDeleteObjects(ctx, shards2uuids, deletionTime, false, replProps, schemaVersion, "")
+					if err != nil {
+						// TODO aliszka:ttl exit or continue with other tenants
+						return fmt.Errorf("batch delete of collection %q: %w", class.Class, err)
+					}
+					i.logger.
+						WithFields(log.Fields{"action": "ttl_cleanup", "collection": class.Class}).
+						Infof("batch delete response: %+v", resp)
 
-			fmt.Printf("  ==> batch delete resp %+v\n\n", resp)
+					return nil
+				})
 		}
 	}
 

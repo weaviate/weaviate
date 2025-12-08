@@ -58,9 +58,8 @@ type RemoteIndexIncomingRepo interface {
 		id strfmt.UUID) (bool, error)
 	IncomingDeleteObject(ctx context.Context, shardName string,
 		id strfmt.UUID, deletionTime time.Time, schemaVersion uint64) error
-	IncomingDeleteObjectsExpired(ctx context.Context, deleteOnProperty string,
+	IncomingDeleteObjectsExpired(eg *enterrors.ErrorGroupWrapper, deleteOnProperty string,
 		ttlThreshold, deletionTime time.Time, schemaVersion uint64) error
-	IncomingDeleteObjectsStatus(ctx context.Context) bool
 	IncomingMergeObject(ctx context.Context, shardName string,
 		mergeDoc objects.MergeDocument, schemaVersion uint64) error
 	IncomingMultiGetObjects(ctx context.Context, shardName string,
@@ -128,7 +127,7 @@ func NewRemoteIndexIncoming(repo RemoteIncomingRepo, schema RemoteIncomingSchema
 func (rii *RemoteIndexIncoming) PutObject(ctx context.Context, indexName,
 	shardName string, obj *storobj.Object, schemaVersion uint64,
 ) error {
-	index, err := rii.indexForIncomingWrite(ctx, indexName, schemaVersion)
+	index, err := rii.IndexForIncomingWrite(ctx, indexName, schemaVersion)
 	if err != nil {
 		return err
 	}
@@ -139,7 +138,7 @@ func (rii *RemoteIndexIncoming) PutObject(ctx context.Context, indexName,
 func (rii *RemoteIndexIncoming) BatchPutObjects(ctx context.Context, indexName,
 	shardName string, objs []*storobj.Object, schemaVersion uint64,
 ) []error {
-	index, err := rii.indexForIncomingWrite(ctx, indexName, schemaVersion)
+	index, err := rii.IndexForIncomingWrite(ctx, indexName, schemaVersion)
 	if err != nil {
 		return duplicateErr(err, len(objs))
 	}
@@ -150,7 +149,7 @@ func (rii *RemoteIndexIncoming) BatchPutObjects(ctx context.Context, indexName,
 func (rii *RemoteIndexIncoming) BatchAddReferences(ctx context.Context, indexName,
 	shardName string, refs objects.BatchReferences, schemaVersion uint64,
 ) []error {
-	index, err := rii.indexForIncomingWrite(ctx, indexName, schemaVersion)
+	index, err := rii.IndexForIncomingWrite(ctx, indexName, schemaVersion)
 	if err != nil {
 		return duplicateErr(err, len(refs))
 	}
@@ -184,7 +183,7 @@ func (rii *RemoteIndexIncoming) Exists(ctx context.Context, indexName,
 func (rii *RemoteIndexIncoming) DeleteObject(ctx context.Context, indexName,
 	shardName string, id strfmt.UUID, deletionTime time.Time, schemaVersion uint64,
 ) error {
-	index, err := rii.indexForIncomingWrite(ctx, indexName, schemaVersion)
+	index, err := rii.IndexForIncomingWrite(ctx, indexName, schemaVersion)
 	if err != nil {
 		return err
 	}
@@ -192,30 +191,10 @@ func (rii *RemoteIndexIncoming) DeleteObject(ctx context.Context, indexName,
 	return index.IncomingDeleteObject(ctx, shardName, id, deletionTime, schemaVersion)
 }
 
-func (rii *RemoteIndexIncoming) DeleteObjectsExpiredStatus(ctx context.Context, indexName string, schemaVersion uint64) (bool, error) {
-	index, err := rii.indexForIncomingWrite(ctx, indexName, schemaVersion)
-	if err != nil {
-		return false, err
-	}
-
-	return index.IncomingDeleteObjectsStatus(ctx), nil
-}
-
-func (rii *RemoteIndexIncoming) DeleteObjectsExpired(ctx context.Context, indexName string,
-	deleteOnProperty string, ttlThreshold, deletionTime time.Time, schemaVersion uint64,
-) error {
-	index, err := rii.indexForIncomingWrite(ctx, indexName, schemaVersion)
-	if err != nil {
-		return err
-	}
-
-	return index.IncomingDeleteObjectsExpired(ctx, deleteOnProperty, ttlThreshold, deletionTime, schemaVersion)
-}
-
 func (rii *RemoteIndexIncoming) MergeObject(ctx context.Context, indexName,
 	shardName string, mergeDoc objects.MergeDocument, schemaVersion uint64,
 ) error {
-	index, err := rii.indexForIncomingWrite(ctx, indexName, schemaVersion)
+	index, err := rii.IndexForIncomingWrite(ctx, indexName, schemaVersion)
 	if err != nil {
 		return err
 	}
@@ -274,7 +253,7 @@ func (rii *RemoteIndexIncoming) FindUUIDs(ctx context.Context, indexName, shardN
 func (rii *RemoteIndexIncoming) DeleteObjectBatch(ctx context.Context, indexName, shardName string,
 	uuids []strfmt.UUID, deletionTime time.Time, dryRun bool, schemaVersion uint64,
 ) objects.BatchSimpleObjects {
-	index, err := rii.indexForIncomingWrite(ctx, indexName, schemaVersion)
+	index, err := rii.IndexForIncomingWrite(ctx, indexName, schemaVersion)
 	if err != nil {
 		return objects.BatchSimpleObjects{objects.BatchSimpleObject{Err: err}}
 	}
@@ -307,7 +286,7 @@ func (rii *RemoteIndexIncoming) GetShardStatus(ctx context.Context,
 func (rii *RemoteIndexIncoming) UpdateShardStatus(ctx context.Context,
 	indexName, shardName, targetStatus string, schemaVersion uint64,
 ) error {
-	index, err := rii.indexForIncomingWrite(ctx, indexName, schemaVersion)
+	index, err := rii.IndexForIncomingWrite(ctx, indexName, schemaVersion)
 	if err != nil {
 		return err
 	}
@@ -352,7 +331,7 @@ func (rii *RemoteIndexIncoming) ReInitShard(ctx context.Context,
 func (rii *RemoteIndexIncoming) PauseFileActivity(ctx context.Context,
 	indexName, shardName string, schemaVersion uint64,
 ) error {
-	index, err := rii.indexForIncomingWrite(ctx, indexName, schemaVersion)
+	index, err := rii.IndexForIncomingWrite(ctx, indexName, schemaVersion)
 	if err != nil {
 		return fmt.Errorf("local index %q not found: %w", indexName, err)
 	}
@@ -430,7 +409,7 @@ func (rii *RemoteIndexIncoming) DigestObjects(ctx context.Context,
 	return index.IncomingDigestObjects(ctx, shardName, ids)
 }
 
-func (rii *RemoteIndexIncoming) indexForIncomingWrite(ctx context.Context, indexName string,
+func (rii *RemoteIndexIncoming) IndexForIncomingWrite(ctx context.Context, indexName string,
 	schemaVersion uint64,
 ) (RemoteIndexIncomingRepo, error) {
 	// wait for schema and store to reach version >= schemaVersion
@@ -473,7 +452,7 @@ func (rii *RemoteIndexIncoming) AddAsyncReplicationTargetNode(
 	targetNodeOverride additional.AsyncReplicationTargetNodeOverride,
 	schemaVersion uint64,
 ) error {
-	index, err := rii.indexForIncomingWrite(ctx, indexName, schemaVersion)
+	index, err := rii.IndexForIncomingWrite(ctx, indexName, schemaVersion)
 	if err != nil {
 		return fmt.Errorf("local index %q not found: %w", indexName, err)
 	}
