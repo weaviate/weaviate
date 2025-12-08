@@ -12,6 +12,7 @@
 package clusterapi
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -73,6 +74,15 @@ func (d *ObjectTTL) deleteExpiredHandler() http.HandlerFunc {
 func (d *ObjectTTL) incomingStatus() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer r.Body.Close()
+		running := d.requestRunning.Load()
+		status := objectTTL.ObjectsExpiredStatusResponsePayload{
+			DeletionOngoing: running,
+		}
+		w.WriteHeader(http.StatusOK)
+		if err := json.NewEncoder(w).Encode(status); err != nil {
+			http.Error(w, "/user marshal response: "+err.Error(),
+				http.StatusInternalServerError)
+		}
 	})
 }
 
@@ -91,38 +101,36 @@ func (d *ObjectTTL) incomingDelete() http.Handler {
 			return
 		}
 
-		eg := enterrors.NewErrorGroupWrapper(d.logger)
+		d.logger.WithFields(logrus.Fields{"action": "incoming_delete_expired_objects", "classes": len(body)}).Info("received request to delete expired objects")
 
-		// make sure to unlock the requestRunning flag when all deletions are dine
+		// run the deletion in a separate goroutine to free up the HTTP handler immediately
 		enterrors.GoWrapper(func() {
+			// make sure to unlock the requestRunning flag when all deletions are dine
 			defer d.requestRunning.Store(false)
-			err := eg.Wait()
-			if err != nil {
+			eg := enterrors.NewErrorGroupWrapper(d.logger)
+
+			ec := errorcompounder.New()
+			for _, classPayload := range body {
+				className := classPayload.Class
+
+				idx, err := d.remoteIndex.IndexForIncomingWrite(context.Background(), className, 0)
+				if err != nil {
+					ec.Add(fmt.Errorf("get index for class %q: %w", className, err))
+					continue
+				}
+
+				err = idx.IncomingDeleteObjectsExpired(eg, classPayload.Prop, time.UnixMilli(classPayload.TtlMilli), time.UnixMilli(classPayload.DelMilli), 0)
+				if err != nil {
+					ec.Add(fmt.Errorf("delete expired for class %q: %w", className, err))
+				}
+			}
+
+			eg.Wait() // ignore errors from goroutines, they are collected in ec
+			if err := ec.ToError(); err != nil {
 				d.logger.WithError(err).Error("incoming delete expired objects failed")
 			}
 		}, d.logger)
 
-		ec := errorcompounder.New()
-		for _, classPayload := range body {
-			className := classPayload.Class
-
-			idx, err := d.remoteIndex.IndexForIncomingWrite(r.Context(), className, 0)
-			if err != nil {
-				ec.Add(fmt.Errorf("get index for class %q: %w", className, err))
-				continue
-			}
-
-			err = idx.IncomingDeleteObjectsExpired(r.Context(), eg, classPayload.Prop, time.UnixMilli(classPayload.TtlMilli), time.UnixMilli(classPayload.DelMilli), 0)
-			if err != nil {
-				ec.Add(fmt.Errorf("delete expired for class %q: %w", className, err))
-				continue
-			}
-
-		}
-
-		if err := ec.ToError(); err != nil {
-			http.Error(w, "/objectTTL response: "+err.Error(), http.StatusInternalServerError)
-		}
 		w.WriteHeader(http.StatusOK)
 	})
 }

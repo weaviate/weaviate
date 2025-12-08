@@ -18,6 +18,7 @@ import (
 	"math/rand"
 	"time"
 
+	"github.com/containerd/log"
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/usecases/objectTTL"
 
@@ -78,26 +79,23 @@ func (db *DB) triggerDeletionObjectsExpiredSingleNode(ctx context.Context, colle
 
 	for _, collection := range collections {
 		func() {
+			if err := ctx.Err(); err != nil {
+				ec.Add(err)
+				return
+			}
 			idx, release, deleteOnPropName, ttlThreshold := db.extractTtlDataFromCollection(collection, ttlTime)
 			if idx == nil {
 				return
 			}
 			defer release()
 
-			fmt.Printf("  ==> (single node) idx.IncomingDeleteObjectsExpired\n"+
-				"      collection [%s] deleteOnPropName [%s] ttlThreshold [%s] deletionTime [%s]\n\n",
-				collection, deleteOnPropName, ttlThreshold, deletionTime)
-
 			// TODO aliszka:ttl schemaVersion?
-			err := idx.IncomingDeleteObjectsExpired(ctx, eg, deleteOnPropName, ttlThreshold, deletionTime, 0)
-			ec.Add(err)
+			idx.IncomingDeleteObjectsExpired(eg, deleteOnPropName, ttlThreshold, deletionTime, 0)
 		}()
 	}
 
-	err := eg.Wait()
-	if err != nil {
-		return err
-	}
+	// ignore errors from eg as they are already collected in ec
+	eg.Wait()
 
 	return ec.ToError()
 }
@@ -105,8 +103,6 @@ func (db *DB) triggerDeletionObjectsExpiredSingleNode(ctx context.Context, colle
 func (db *DB) triggerDeletionObjectsExpiredMultiNode(ctx context.Context, remoteObjectTTL *objectTTL.RemoteObjectTTL, collections []string,
 	ttlTime, deletionTime time.Time, nodes []string,
 ) error {
-	ec := errorcompounder.New()
-
 	pickNode := func() string { return nodes[0] }
 	if nodesCount := len(nodes); nodesCount > 1 {
 		rnd := rand.New(rand.NewSource(time.Now().UnixNano()))
@@ -127,10 +123,6 @@ func (db *DB) triggerDeletionObjectsExpiredMultiNode(ctx context.Context, remote
 			}
 			defer release()
 
-			fmt.Printf("  ==> (multi node) idx.remote.DeleteObjectsExpired\n"+
-				"      collection [%s] deleteOnPropName [%s] ttlThreshold [%s] deletionTime [%s]\n\n",
-				collection, deleteOnPropName, ttlThreshold, deletionTime)
-
 			ttlCollections = append(ttlCollections, objectTTL.ObjectsExpiredPayload{
 				Class:    collection,
 				Prop:     deleteOnPropName,
@@ -148,9 +140,15 @@ func (db *DB) triggerDeletionObjectsExpiredMultiNode(ctx context.Context, remote
 	if db.objectTTLLastNode != "" {
 		ttlOngoing, err := remoteObjectTTL.CheckIfStillRunning(ctx, db.objectTTLLastNode)
 		if err != nil {
-			ec.Add(err)
-		}
-		if ttlOngoing {
+			db.logger.WithFields(log.Fields{
+				"action": "ObjectTTLTriggerDeletions",
+				"node":   db.objectTTLLastNode,
+			}).Errorf("Checking objectTTL ongoing status failed: %v", err)
+		} else if ttlOngoing {
+			db.logger.WithFields(log.Fields{
+				"action": "ObjectTTLTriggerDeletions",
+				"node":   db.objectTTLLastNode,
+			}).Warn("ObjectTTL is still running, skipping this round")
 			return nil // deletion for collection still ongoing, skip this round
 		}
 	}
@@ -158,9 +156,7 @@ func (db *DB) triggerDeletionObjectsExpiredMultiNode(ctx context.Context, remote
 	node := pickNode()
 	db.objectTTLLastNode = node
 
-	remoteObjectTTL.StartRemoteDelete(ctx, node, ttlCollections)
-
-	return ec.ToError()
+	return remoteObjectTTL.StartRemoteDelete(ctx, node, ttlCollections)
 }
 
 func (db *DB) extractTtlDataFromCollection(collection string, ttlTime time.Time,
@@ -202,8 +198,6 @@ func (db *DB) TriggerDeletionObjectsExpired(ctx context.Context, remoteObjectTTL
 	}
 	db.indexLock.RUnlock()
 
-	fmt.Printf("  ==> all collections %v\n\n", collections)
-
 	if len(collections) == 0 {
 		return nil
 	}
@@ -221,13 +215,18 @@ func (db *DB) TriggerDeletionObjectsExpired(ctx context.Context, remoteObjectTTL
 		}
 	}
 
-	fmt.Printf("  ==> local node %v\n"+
-		"      all nodes %v\n"+
-		"      other nodes %v\n\n", localNode, allNodes, otherNodes)
+	db.logger.WithFields(log.Fields{
+		"action":        "ObjectTTLTriggerDeletions",
+		"all_nodes":     allNodes,
+		"other_nodes":   otherNodes,
+		"ttl_time":      ttlTime,
+		"deletion_time": deletionTime,
+	}).Info("Trigger deletion objects expired.")
 
 	if len(otherNodes) == 0 {
 		return db.triggerDeletionObjectsExpiredSingleNode(ctx, collections, ttlTime, deletionTime)
 	}
+
 	return db.triggerDeletionObjectsExpiredMultiNode(ctx, remoteObjectTTL, collections, ttlTime, deletionTime, otherNodes)
 }
 

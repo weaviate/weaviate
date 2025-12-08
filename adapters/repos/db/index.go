@@ -296,8 +296,6 @@ type Index struct {
 	router        routerTypes.Router
 	shardResolver *resolver.ShardResolver
 	bitmapBufPool roaringset.BitmapBufPool
-
-	objectTTLRunning atomic.Bool
 }
 
 func (i *Index) ID() string {
@@ -2261,36 +2259,11 @@ func (i *Index) IncomingDeleteObject(ctx context.Context, shardName string,
 	return shard.DeleteObject(ctx, id, deletionTime)
 }
 
-func (i *Index) IncomingDeleteObjectsStatus(ctx context.Context) bool {
-	return i.objectTTLRunning.Load()
-}
-
-func (i *Index) IncomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.ErrorGroupWrapper, deleteOnPropName string,
+func (i *Index) IncomingDeleteObjectsExpired(eg *enterrors.ErrorGroupWrapper, deleteOnPropName string,
 	ttlThreshold, deletionTime time.Time, schemaVersion uint64,
 ) error {
-	fmt.Printf("  ==> IncomingDeleteExpiredObjects\n"+
-		"      deleteOnProperty [%s]\n"+
-		"      ttlThreshold [%s]\n"+
-		"      deletionTime [%s]\n\n", deleteOnPropName, ttlThreshold, deletionTime)
-
-	if !i.objectTTLRunning.CompareAndSwap(false, true) {
-		return fmt.Errorf("incoming delete objects still running on index %s", i.Config.ClassName.String())
-	}
-
-	// start goroutine to run actual deletion in background
-	enterrors.GoWrapper(
-		func() {
-			defer i.objectTTLRunning.Store(false)
-
-			// use closing context to stop long-running TTL deletions in case index is closed
-			ctx2 := i.closingCtx
-			err := i.incomingDeleteObjectsExpired(ctx2, eg, deleteOnPropName, ttlThreshold, deletionTime, schemaVersion)
-			if err != nil {
-				i.logger.Errorf("error during IncomingDeleteObjectsExpired: %v", err)
-			}
-		}, i.logger)
-
-	return nil
+	// use closing context to stop long-running TTL deletions in case index is closed
+	return i.incomingDeleteObjectsExpired(i.closingCtx, eg, deleteOnPropName, ttlThreshold, deletionTime, schemaVersion)
 }
 
 func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.ErrorGroupWrapper, deleteOnPropName string, ttlThreshold, deletionTime time.Time, schemaVersion uint64) error {
