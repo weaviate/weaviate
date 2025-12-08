@@ -33,24 +33,27 @@ const (
 )
 
 // A slice of endpoints to whitelist when determining if an operation is allowed in ReadOnly mode
-var ReadOnlyWhitelist = []string{
-	"/backups",
-	"/replication",
-	"/graphql",
+var ReadOnlyWhitelist = map[string]struct{}{
+	"backups": {},
+	"graphql": {},
 }
 
 // A slice of endpoints to whitelist when determining if an operation is allowed in WriteOnly mode
-var WriteOnlyWhitelist = []string{
-	"/backups",
-	"/cluster",
-	"/nodes",
-	"/replication",
-	"/.well-known",
-	"/meta",
+var WriteOnlyWhitelist = map[string]struct{}{
+	"backups":     {},
+	"cluster":     {},
+	"nodes":       {},
+	"replication": {},
+	".well-known": {},
+	"meta":        {},
 }
 
 // A slice of endpoints to whitelist when determining if an operation is allowed in ScaleOut mode
-var ScaleOutWhitelist = append(ReadOnlyWhitelist, "/replication")
+var ScaleOutWhitelist = map[string]struct{}{
+	"backups":     {},
+	"graphql":     {},
+	"replication": {},
+}
 
 func IsHTTPRead(method string) bool {
 	return method == http.MethodGet || method == http.MethodHead || method == http.MethodOptions || method == http.MethodTrace

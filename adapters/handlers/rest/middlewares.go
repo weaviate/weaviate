@@ -323,12 +323,17 @@ func writeOperationalModeErrorResponse(w http.ResponseWriter, err error) {
 	w.Write(data)
 }
 
-func whitelist(next http.Handler, w http.ResponseWriter, r *http.Request, whitelist []string) bool {
-	for _, path := range whitelist {
-		if strings.Contains(r.URL.Path, path) {
-			next.ServeHTTP(w, r)
-			return true
-		}
+func whitelist(next http.Handler, w http.ResponseWriter, r *http.Request, whitelist map[string]struct{}) bool {
+	split := strings.Split(r.URL.Path, "/")
+	root := split[0]
+	if root != "v1" {
+		return true
+	}
+	namespace := split[1]
+	if _, ok := whitelist[namespace]; ok {
+		next.ServeHTTP(w, r)
+		return true
+
 	}
 	return false
 }
