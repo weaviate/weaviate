@@ -912,7 +912,7 @@ func configureCrons(appState *state.State, serverShutdownCtx context.Context) {
 
 		triggerDeletionObjectsExpiredJob := gocron.NewChain(gocron.SkipIfStillRunning(cronLogger)).
 			Then(cron.NewGoCronJob(func() {
-				if !appState.ClusterService.Raft.IsLeader() {
+				if !appState.ClusterService.IsLeader() {
 					l.Debug("not a ttl scheduler - skipping")
 					return
 				}
