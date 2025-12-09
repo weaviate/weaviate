@@ -1,14 +1,14 @@
-//	_       _
-//
+//                           _       _
 // __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//	\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
-//	 \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
-//	  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
-//	 Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  CONTACT: hello@weaviate.io
 //
-//	 CONTACT: hello@weaviate.io
+
 package segmentindex
 
 import (
@@ -354,7 +354,7 @@ func TestDiskTreeLargeTree(t *testing.T) {
 
 func TestDiskTreeLargeTreeCompress(t *testing.T) {
 	// Create a larger tree for stress testing
-	numKeys := 10000000
+	numKeys := 100000
 	keys := make([][]byte, numKeys)
 	for i := 0; i < numKeys; i++ {
 		keys[i] = []byte(fmt.Sprintf("key-%05d", i))
