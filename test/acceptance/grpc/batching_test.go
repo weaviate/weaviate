@@ -322,21 +322,18 @@ func TestGRPC_Batching(t *testing.T) {
 func TestGRPC_OOMBatching(t *testing.T) {
 	ctx := context.Background()
 
-	// compose, err := docker.New().
-	// 	WithWeaviateWithGRPC().
-	// 	WithWeaviateEnv("GOMEMLIMIT", "256MiB").
-	// 	WithWeaviateEnv("GRPC_MAX_MESSAGE_SIZE", "536870912").
-	// 	Start(ctx)
-	// require.NoError(t, err)
-	// defer func() {
-	// 	require.NoError(t, compose.Terminate(ctx))
-	// }()
+	compose, err := docker.New().
+		WithWeaviateWithGRPC().
+		WithWeaviateEnv("GOMEMLIMIT", "268435456").
+		WithWeaviateEnv("GRPC_MAX_MESSAGE_SIZE", "536870912").
+		Start(ctx)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, compose.Terminate(ctx))
+	}()
 
-	// helper.SetupClient(compose.GetWeaviate().URI())
-	// grpcClient, _ := client(t, compose.GetWeaviate().GrpcURI())
-
-	helper.SetupClient("localhost:8080")
-	grpcClient, _ := client(t, "localhost:50051")
+	helper.SetupClient(compose.GetWeaviate().URI())
+	grpcClient, _ := client(t, compose.GetWeaviate().GrpcURI())
 
 	clsA := articles.ArticlesClass()
 	clsP := articles.ParagraphsClass()
@@ -365,14 +362,12 @@ func TestGRPC_OOMBatching(t *testing.T) {
 			// very large vectors to quickly exceed GOMEMLIMIT
 			uuid := uuid.NewString()
 			uuids = append(uuids, uuid)
-			objects = append(objects, &pb.BatchObject{Collection: clsA.Class, Uuid: uuid, Vectors: []*pb.Vectors{{Name: "default", VectorBytes: randomByteVector(10240)}}})
+			objects = append(objects, &pb.BatchObject{Collection: clsA.Class, Uuid: uuid, Vectors: []*pb.Vectors{{Name: "default", VectorBytes: randomByteVector(20480)}}})
 		}
 		err := send(stream, objects, nil)
 		require.NoError(t, err, "sending Objects over the stream should not return an error")
 
-		// Read the acks message
-		_, err = stream.Recv()
-		require.NoError(t, err, "BatchStream should return a response")
+		// no Acks message when an OOM occurred
 
 		// Read the out of memory message
 		msg, err := stream.Recv()
@@ -383,7 +378,7 @@ func TestGRPC_OOMBatching(t *testing.T) {
 				break
 			}
 		}
-		// require.NoError(t, err, "BatchStream should return a response")
+		require.NoError(t, err, "BatchStream should return a response")
 		require.NotNil(t, msg.GetOutOfMemory(), "Response should indicate out of memory got %T instead", msg.Message)
 		require.Equal(t, len(uuids), len(msg.GetOutOfMemory().GetUuids()), "All sent objects should be listed in out of memory response")
 	})

@@ -446,19 +446,7 @@ func (h *StreamHandler) receiver(ctx context.Context, streamId string, consisten
 				h.allocChecker.Refresh(false)
 				if err := h.allocChecker.CheckAlloc(size + h.memInFlight.Load()); err != nil {
 					h.logger.WithField("streamId", streamId).Warnf("memory allocation check failed before pushing to processing queue: %v", err)
-					uuids := make([]string, 0, len(objs))
-					beacons := make([]string, 0, len(refs))
-					for _, obj := range objs {
-						uuids = append(uuids, obj.GetUuid())
-					}
-					for _, ref := range refs {
-						beacons = append(beacons, toBeacon(ref))
-					}
-					return &oom{
-						err:     fmt.Errorf("push to processing queue: %w", err),
-						uuids:   uuids,
-						beacons: beacons,
-					}
+					return err
 				}
 				wg.Add(1)
 				h.memInFlight.Add(size)
@@ -490,13 +478,39 @@ func (h *StreamHandler) receiver(ctx context.Context, streamId string, consisten
 			var batch []*pb.BatchObject
 			if len(objs) > batchSize {
 				batch = make([]*pb.BatchObject, 0, batchSize)
+				var processed []string
+				var batchUuids []string
 				for _, obj := range request.GetData().GetObjects().GetValues() {
 					batch = append(batch, obj)
+					batchUuids = append(batchUuids, obj.GetUuid())
 					if len(batch) == batchSize {
 						if err := push(batch, nil); err != nil {
-							return err
+							var remaining []string
+							for _, obj := range objs {
+								isRemaining := true
+								for _, puid := range processed {
+									if obj.GetUuid() == puid {
+										isRemaining = false
+										break
+									}
+								}
+								if isRemaining {
+									remaining = append(remaining, obj.GetUuid())
+								}
+							}
+							var beacons []string
+							for _, ref := range request.GetData().GetReferences().GetValues() {
+								beacons = append(beacons, toBeacon(ref))
+							}
+							return &oom{
+								err:     fmt.Errorf("processing batch: %w", err),
+								uuids:   remaining,
+								beacons: beacons,
+							}
 						}
+						processed = append(processed, batchUuids...)
 						batch = make([]*pb.BatchObject, 0, batchSize)
+						batchUuids = make([]string, 0, batchSize)
 					}
 				}
 			} else {
@@ -508,7 +522,7 @@ func (h *StreamHandler) receiver(ctx context.Context, streamId string, consisten
 				// refs are fast so don't need to be efficiently batched
 				// we just accept however many the client sends assuming it'll be fine
 				if err := push(batch, refs); err != nil {
-					return err
+					return oomErr(batch, refs, err)
 				}
 			}
 
@@ -532,6 +546,22 @@ func (h *StreamHandler) receiver(ctx context.Context, streamId string, consisten
 			h.logger.WithField("streamId", streamId).WithField("request", request).Error("received invalid batch send request: data field is nil")
 			return fmt.Errorf("invalid batch send request: data field is nil")
 		}
+	}
+}
+
+func oomErr(objs []*pb.BatchObject, refs []*pb.BatchReference, err error) *oom {
+	uuids := make([]string, 0, len(objs))
+	beacons := make([]string, 0, len(refs))
+	for _, obj := range objs {
+		uuids = append(uuids, obj.GetUuid())
+	}
+	for _, ref := range refs {
+		beacons = append(beacons, toBeacon(ref))
+	}
+	return &oom{
+		err:     fmt.Errorf("processing batch: %w", err),
+		uuids:   uuids,
+		beacons: beacons,
 	}
 }
 
