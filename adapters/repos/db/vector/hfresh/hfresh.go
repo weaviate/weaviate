@@ -32,7 +32,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
-	bolt "go.etcd.io/bbolt"
 )
 
 const (
@@ -67,8 +66,7 @@ type HFresh struct {
 	// and can only be initialized once the first vector has been
 	// received
 	initDimensionsOnce sync.Once
-	dims               int32 // Number of dimensions of expected vectors
-	vectorSize         int32 // Size of the compressed vectors in bytes
+	dims               uint32 // Number of dimensions of expected vectors
 	distancer          *Distancer
 	quantizer          *compressionhelpers.RotationalQuantizer
 
@@ -78,6 +76,7 @@ type HFresh struct {
 	IDs          common.MonotonicCounter // Shared monotonic counter for generating unique IDs for new postings.
 	VersionMap   *VersionMap             // Stores vector versions in-memory.
 	PostingSizes *PostingSizes           // Stores the size of each posting in-memory.
+	Metadata     *MetadataStore          // Stores metadata about the index.
 
 	// ctx and cancel are used to manage the lifecycle of the background operations.
 	ctx    context.Context
@@ -90,9 +89,7 @@ type HFresh struct {
 	postingLocks       *common.ShardedRWLocks // Locks to prevent concurrent modifications to the same posting.
 	initialPostingLock sync.Mutex
 
-	vectorForId  common.VectorForID[float32]
-	metadata     *bolt.DB
-	metadataLock sync.RWMutex
+	vectorForId common.VectorForID[float32]
 }
 
 func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
@@ -123,6 +120,8 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 		return nil, err
 	}
 
+	metadata := NewMetadataStore(bucket)
+
 	h := HFresh{
 		id:           cfg.ID,
 		logger:       cfg.Logger.WithField("component", "HFresh"),
@@ -134,6 +133,7 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 		vectorForId:  cfg.VectorForIDThunk,
 		VersionMap:   versionMap,
 		PostingSizes: postingSizes,
+		Metadata:     metadata,
 		postingLocks: common.NewDefaultShardedRWLocks(),
 		// TODO: choose a better starting size since we can predict the max number of
 		// visited vectors based on cfg.InternalPostingCandidates.

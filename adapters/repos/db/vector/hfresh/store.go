@@ -15,7 +15,6 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
-	"sync/atomic"
 	"time"
 
 	"github.com/pkg/errors"
@@ -24,11 +23,10 @@ import (
 )
 
 type PostingStore struct {
-	store      *lsmkv.Store
-	bucket     *lsmkv.Bucket
-	vectorSize atomic.Int32
-	locks      *common.ShardedRWLocks
-	metrics    *Metrics
+	store   *lsmkv.Store
+	bucket  *lsmkv.Bucket
+	locks   *common.ShardedRWLocks
+	metrics *Metrics
 }
 
 func NewPostingStore(store *lsmkv.Store, metrics *Metrics, id string, cfg StoreConfig) (*PostingStore, error) {
@@ -49,22 +47,9 @@ func NewPostingStore(store *lsmkv.Store, metrics *Metrics, id string, cfg StoreC
 	}, nil
 }
 
-// Init is called by the index upon receiving the first vector and
-// determining the vector size.
-// Prior to calling this method, the store will assume the index is empty.
-func (p *PostingStore) Init(size int32) {
-	p.vectorSize.Store(size)
-}
-
-func (p *PostingStore) Get(ctx context.Context, postingID uint64) (*Posting, error) {
+func (p *PostingStore) Get(ctx context.Context, postingID uint64) (Posting, error) {
 	start := time.Now()
 	defer p.metrics.StoreGetDuration(start)
-
-	vectorSize := p.vectorSize.Load()
-	if vectorSize == 0 {
-		// the store is empty
-		return nil, errors.WithStack(ErrPostingNotFound)
-	}
 
 	var buf [8]byte
 	binary.LittleEndian.PutUint64(buf[:], postingID)
@@ -75,26 +60,17 @@ func (p *PostingStore) Get(ctx context.Context, postingID uint64) (*Posting, err
 		return nil, errors.Wrapf(err, "failed to get posting %d", postingID)
 	}
 
-	posting := Posting{
-		vectorSize: int(vectorSize),
-		vectors:    make([]Vector, len(list)),
-	}
+	posting := Posting(make([]Vector, len(list)))
 
 	for i, v := range list {
-		posting.vectors[i] = Vector(v)
+		posting[i] = Vector(v)
 	}
 
-	return &posting, nil
+	return posting, nil
 }
 
-func (p *PostingStore) MultiGet(ctx context.Context, postingIDs []uint64) ([]*Posting, error) {
-	vectorSize := p.vectorSize.Load()
-	if vectorSize == 0 {
-		// the store is empty
-		return nil, errors.WithStack(ErrPostingNotFound)
-	}
-
-	postings := make([]*Posting, 0, len(postingIDs))
+func (p *PostingStore) MultiGet(ctx context.Context, postingIDs []uint64) ([]Posting, error) {
+	postings := make([]Posting, 0, len(postingIDs))
 
 	for _, id := range postingIDs {
 		posting, err := p.Get(ctx, id)
@@ -107,7 +83,7 @@ func (p *PostingStore) MultiGet(ctx context.Context, postingIDs []uint64) ([]*Po
 	return postings, nil
 }
 
-func (p *PostingStore) Put(ctx context.Context, postingID uint64, posting *Posting) error {
+func (p *PostingStore) Put(ctx context.Context, postingID uint64, posting Posting) error {
 	start := time.Now()
 	defer p.metrics.StorePutDuration(start)
 
@@ -118,8 +94,8 @@ func (p *PostingStore) Put(ctx context.Context, postingID uint64, posting *Posti
 	var buf [8]byte
 	binary.LittleEndian.PutUint64(buf[:], postingID)
 
-	set := make([][]byte, posting.Len())
-	for i, v := range posting.Iter() {
+	set := make([][]byte, len(posting))
+	for i, v := range posting {
 		set[i] = v
 	}
 
