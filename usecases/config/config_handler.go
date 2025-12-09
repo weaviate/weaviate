@@ -235,6 +235,7 @@ type Config struct {
 	ObjectsTTLDeleteSchedule    string  `json:"objects_ttl_delete_schedule" yaml:"objects_ttl_delete_schedule"`
 	ObjectsTTLAllowSeconds      bool    `json:"objects_ttl_allow_seconds" yaml:"objects_ttl_allow_seconds"`
 	ObjectsTTLConcurrencyFactor float64 `json:"objects_ttl_concurrency_factor" yaml:"objects_ttl_concurrency_factor"`
+	ObjectsTTLBatchSize         int     `json:"objects_ttl_batch_size" yaml:"objects_ttl_batch_size"`
 }
 
 type MapToBlockamaxConfig struct {
@@ -447,7 +448,10 @@ const (
 	DefaultMapToBlockmaxPerObjectDelayMilliseconds = 0
 )
 
-const DefaultObjectsTtlConcurrencyFactor = 1
+const (
+	DefaultObjectsTtlConcurrencyFactor = 1
+	DefaultObjectsTtlBatchSize         = 1000
+)
 
 // MetadataServer is experimental.
 type MetadataServer struct {

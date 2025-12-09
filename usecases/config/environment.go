@@ -158,6 +158,13 @@ func FromEnv(config *Config) error {
 		return fmt.Errorf("%s: %w", objectsTtlConcurrencyFactorEnv, err)
 	}
 
+	objectsTtlBatchSizeEnv := "OBJECTS_TTL_BATCH_SIZE"
+	if err := parsePositiveInt(objectsTtlBatchSizeEnv,
+		func(val int) { config.ObjectsTTLBatchSize = val },
+		DefaultObjectsTtlBatchSize); err != nil {
+		return fmt.Errorf("%s: %w", objectsTtlBatchSizeEnv, err)
+	}
+
 	objectsTtlAllowSecondsEnv := "OBJECTS_TTL_ALLOW_SECONDS"
 	if entcfg.Enabled(os.Getenv(objectsTtlAllowSecondsEnv)) {
 		config.ObjectsTTLAllowSeconds = true

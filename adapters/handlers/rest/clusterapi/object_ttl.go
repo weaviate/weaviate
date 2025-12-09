@@ -163,7 +163,6 @@ func (d *ObjectTTL) incomingDelete() http.Handler {
 				return
 			}
 			l.Info("incoming ttl deletions successfully finished")
-
 		}, d.logger)
 
 		w.WriteHeader(http.StatusAccepted)

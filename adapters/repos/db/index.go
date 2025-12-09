@@ -831,6 +831,7 @@ type IndexConfig struct {
 	TrackVectorDimensionsInterval       time.Duration
 	UsageEnabled                        bool
 	ShardLoadLimiter                    ShardLoadLimiter
+	ObjectsTtlBatchSize                 int
 
 	HNSWMaxLogSize                               int64
 	HNSWDisableSnapshots                         bool
@@ -2207,9 +2208,7 @@ func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, deleteOnPropNa
 	eg *enterrors.ErrorGroupWrapper, onCollectionError func(error), onObjectsDeleted func(int32),
 	schemaVersion uint64,
 ) {
-	// TODO aliszka:ttl move batchSize to config
-	batchSize := 1000
-	// TODO aliszka:ttl propagate replication?
+	// TODO aliszka:ttl default replication?
 	replProps := defaultConsistency()
 
 	class := i.getClass()
@@ -2226,16 +2225,16 @@ func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, deleteOnPropNa
 	}}
 
 	if multitenancy.IsMultiTenant(class.MultiTenancyConfig) {
-		i.incomingDeleteObjectsExpiredMT(ctx, filter, deletionTime, batchSize, class.Class,
+		i.incomingDeleteObjectsExpiredMT(ctx, filter, deletionTime, class.Class,
 			eg, onCollectionError, onObjectsDeleted, replProps, schemaVersion)
 		return
 	}
-	i.incomingDeleteObjectsExpiredST(ctx, filter, deletionTime, batchSize, class.Class,
+	i.incomingDeleteObjectsExpiredST(ctx, filter, deletionTime, class.Class,
 		eg, onCollectionError, onObjectsDeleted, replProps, schemaVersion)
 }
 
 func (i *Index) incomingDeleteObjectsExpiredMT(ctx context.Context, filter *filters.LocalFilter,
-	deletionTime time.Time, batchSize int, collection string,
+	deletionTime time.Time, collection string,
 	eg *enterrors.ErrorGroupWrapper, onCollectionError func(error), onObjectsDeleted func(int32),
 	replProps *additional.ReplicationProperties, schemaVersion uint64,
 ) {
@@ -2256,7 +2255,7 @@ func (i *Index) incomingDeleteObjectsExpiredMT(ctx context.Context, filter *filt
 				ecTenants.Add(fmt.Errorf("%q: %w", tenant, err))
 			}
 		}
-		i.incomingDeleteObjectsExpiredOfTenant(ctx, filter, deletionTime, batchSize, collection, tenant,
+		i.incomingDeleteObjectsExpiredOfTenant(ctx, filter, deletionTime, collection, tenant,
 			eg, wgTenants, onTenantError, onObjectsDeleted, replProps, schemaVersion)
 	}
 
@@ -2269,7 +2268,7 @@ func (i *Index) incomingDeleteObjectsExpiredMT(ctx context.Context, filter *filt
 }
 
 func (i *Index) incomingDeleteObjectsExpiredOfTenant(ctx context.Context, filter *filters.LocalFilter,
-	deletionTime time.Time, batchSize int, collection string, tenant string,
+	deletionTime time.Time, collection string, tenant string,
 	eg *enterrors.ErrorGroupWrapper, wgTenants *sync.WaitGroup, onTenantError func(error), onObjectsDeleted func(int32),
 	replProps *additional.ReplicationProperties, schemaVersion uint64,
 ) {
@@ -2285,6 +2284,7 @@ func (i *Index) incomingDeleteObjectsExpiredOfTenant(ctx context.Context, filter
 		return
 	}
 
+	batchSize := i.Config.ObjectsTtlBatchSize
 	f := func(batch map[string][]strfmt.UUID) (int32, error) {
 		resp, err := i.batchDeleteObjects(ctx, batch, deletionTime, false, replProps, schemaVersion, tenant)
 		if err != nil {
@@ -2357,7 +2357,7 @@ func (i *Index) incomingDeleteObjectsExpiredOfTenant(ctx context.Context, filter
 }
 
 func (i *Index) incomingDeleteObjectsExpiredST(ctx context.Context, filter *filters.LocalFilter,
-	deletionTime time.Time, batchSize int, collection string,
+	deletionTime time.Time, collection string,
 	eg *enterrors.ErrorGroupWrapper, onCollectionError func(error), onObjectsDeleted func(int32),
 	replProps *additional.ReplicationProperties, schemaVersion uint64,
 ) {
@@ -2378,7 +2378,7 @@ func (i *Index) incomingDeleteObjectsExpiredST(ctx context.Context, filter *filt
 				ecShards.Add(fmt.Errorf("%q: %w", shard, err))
 			}
 		}
-		i.incomingDeleteObjectsExpiredOfShard(ctx, deletionTime, batchSize, collection, shard, uuids,
+		i.incomingDeleteObjectsExpiredOfShard(ctx, deletionTime, collection, shard, uuids,
 			eg, wgShards, onShardError, onObjectsDeleted, replProps, schemaVersion)
 	}
 
@@ -2391,7 +2391,7 @@ func (i *Index) incomingDeleteObjectsExpiredST(ctx context.Context, filter *filt
 }
 
 func (i *Index) incomingDeleteObjectsExpiredOfShard(ctx context.Context,
-	deletionTime time.Time, batchSize int, collection string, shard string, uuids []strfmt.UUID,
+	deletionTime time.Time, collection string, shard string, uuids []strfmt.UUID,
 	eg *enterrors.ErrorGroupWrapper, wgShards *sync.WaitGroup, onShardError func(error), onObjectsDeleted func(int32),
 	replProps *additional.ReplicationProperties, schemaVersion uint64,
 ) {
@@ -2399,6 +2399,7 @@ func (i *Index) incomingDeleteObjectsExpiredOfShard(ctx context.Context,
 		return
 	}
 
+	batchSize := i.Config.ObjectsTtlBatchSize
 	f := func(batch map[string][]strfmt.UUID) (int32, error) {
 		resp, err := i.batchDeleteObjects(ctx, batch, deletionTime, false, replProps, schemaVersion, "")
 		if err != nil {
