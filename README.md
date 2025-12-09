@@ -136,6 +136,7 @@ These demos are working applications that highlight some of Weaviate's capabilit
 - [Elysia](https://elysia.weaviate.io) ([GitHub](https://github.com/weaviate/elysia)): Elysia is a decision tree based agentic system which intelligently decides what tools to use, what results have been obtained, whether it should continue the process or whether its goal has been completed.
 - [Verba](https://weaviate.io/blog/verba-open-source-rag-app) ([GitHub](https://github.com/weaviate/verba)): A community-driven open-source application designed to offer an end-to-end, streamlined, and user-friendly interface for Retrieval-Augmented Generation (RAG) out of the box.
 - [Healthsearch](https://weaviate.io/blog/healthsearch-demo) ([GitHub](https://github.com/weaviate/healthsearch-demo)): An open-source project aimed at showcasing the potential of leveraging user-written reviews and queries to retrieve supplement products based on specific health effects.
+- Awesome-Moviate ([GitHub](https://github.com/weaviate-tutorials/awesome-moviate)): A movie search and recommendation engine that allows keyword-based (BM25), semantic, and hybrid searches.
 
 We also maintain extensive repositories of **Jupyter Notebooks** and **TypeScript code snippets** that cover how to use Weaviate features and integrations:
 
