@@ -437,42 +437,11 @@ func (h *StreamHandler) receiver(ctx context.Context, streamId string, consisten
 			return err
 		}
 		if request.GetData() != nil {
-			push := func(objs []*pb.BatchObject, refs []*pb.BatchReference) error {
-				howMany := len(objs) + len(refs)
-				if h.metrics != nil {
-					h.metrics.OnProcessingQueuePush(howMany)
-				}
-				size := estimateBatchMemory(objs)
-				h.allocChecker.Refresh(false)
-				if err := h.allocChecker.CheckAlloc(size + h.memInFlight.Load()); err != nil {
-					h.logger.WithField("streamId", streamId).Warnf("memory allocation check failed before pushing to processing queue: %v", err)
-					return err
-				}
-				wg.Add(1)
-				h.memInFlight.Add(size)
-				h.processingQueue <- &processRequest{
-					streamId:         streamId,
-					consistencyLevel: consistencyLevel,
-					objects:          objs,
-					references:       refs,
-					streamCtx:        stream.Context(), // passes any authN information from the stream into the worker for authZ
-					onComplete: func() {
-						defer wg.Done()
-						h.memInFlight.Add(-size)
-					},
-					onStart: func() {
-						h.enqueuedObjectsCounter.Add(-int32(howMany))
-						if h.metrics != nil {
-							h.metrics.OnProcessingQueuePull(howMany)
-						}
-					},
-				}
-				return nil
-			}
-
 			// Split the client-sent objects into batches according to the current batch size
 			// This allows clients to send however many objects they want without overwhelming
-			// the downstream workers
+			// the downstream workers. If there is an OOM during the processing of a batch, then the
+			// uuids sent back as part of the OOM message are those remaining objects that were not processed
+			// prior to the OOM occurring.
 			batchSize := h.workerStats(streamId).getBatchSize()
 			objs := request.GetData().GetObjects().GetValues()
 			var batch []*pb.BatchObject
@@ -484,7 +453,7 @@ func (h *StreamHandler) receiver(ctx context.Context, streamId string, consisten
 					batch = append(batch, obj)
 					batchUuids = append(batchUuids, obj.GetUuid())
 					if len(batch) == batchSize {
-						if err := push(batch, nil); err != nil {
+						if err := h.push(stream.Context(), streamId, consistencyLevel, wg, batch, nil); err != nil {
 							var remaining []string
 							for _, obj := range objs {
 								isRemaining := true
@@ -521,7 +490,7 @@ func (h *StreamHandler) receiver(ctx context.Context, streamId string, consisten
 			if len(batch) > 0 || len(refs) > 0 {
 				// refs are fast so don't need to be efficiently batched
 				// we just accept however many the client sends assuming it'll be fine
-				if err := push(batch, refs); err != nil {
+				if err := h.push(stream.Context(), streamId, consistencyLevel, wg, batch, refs); err != nil {
 					return oomErr(batch, refs, err)
 				}
 			}
@@ -547,6 +516,52 @@ func (h *StreamHandler) receiver(ctx context.Context, streamId string, consisten
 			return fmt.Errorf("invalid batch send request: data field is nil")
 		}
 	}
+}
+
+func (h *StreamHandler) push(ctx context.Context, streamId string, consistencyLevel *pb.ConsistencyLevel, wg *sync.WaitGroup, objs []*pb.BatchObject, refs []*pb.BatchReference) error {
+	size := estimateBatchMemory(objs)
+	// Refresh the alloc checker before each check to get the latest memory stats
+	h.allocChecker.Refresh(false)
+	// Check if we can allocate memory for this batch plus any other in-flight memory currently in the processing queue
+	if err := h.allocChecker.CheckAlloc(size + h.memInFlight.Load()); err != nil {
+		h.logger.WithField("streamId", streamId).Warnf("memory allocation check failed before pushing to processing queue: %v", err)
+		return err
+	}
+
+	// Increment the wait group for each batch pushed to the processing queue
+	wg.Add(1)
+
+	// Update metrics based on how many objects are being pushed
+	howMany := len(objs) + len(refs)
+	if h.metrics != nil {
+		h.metrics.OnProcessingQueuePush(howMany)
+	}
+	h.enqueuedObjectsCounter.Add(int32(howMany))
+
+	// Track memory in-flight for all batches currently being processed
+	h.memInFlight.Add(size)
+
+	// Push the batch to the processing queue for downstream workers to pick up
+	h.processingQueue <- &processRequest{
+		streamId:         streamId,
+		consistencyLevel: consistencyLevel,
+		objects:          objs,
+		references:       refs,
+		streamCtx:        ctx, // passes any authN information from the stream into the worker for authZ
+		// decrement in-flight memory and wg counter when done
+		onComplete: func() {
+			defer wg.Done()
+			h.memInFlight.Add(-size)
+		},
+		// decrement enqueued counter and metric when starting processing
+		onStart: func() {
+			h.enqueuedObjectsCounter.Add(-int32(howMany))
+			if h.metrics != nil {
+				h.metrics.OnProcessingQueuePull(howMany)
+			}
+		},
+	}
+	return nil
 }
 
 func oomErr(objs []*pb.BatchObject, refs []*pb.BatchReference, err error) *oom {

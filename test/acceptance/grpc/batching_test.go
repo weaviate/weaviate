@@ -319,7 +319,7 @@ func TestGRPC_Batching(t *testing.T) {
 	})
 }
 
-func TestGRPC_OOMBatching(t *testing.T) {
+func TestGRPC_OutOfMemoryBatching(t *testing.T) {
 	ctx := context.Background()
 
 	compose, err := docker.New().
