@@ -58,8 +58,9 @@ type RemoteIndexIncomingRepo interface {
 		id strfmt.UUID) (bool, error)
 	IncomingDeleteObject(ctx context.Context, shardName string,
 		id strfmt.UUID, deletionTime time.Time, schemaVersion uint64) error
-	IncomingDeleteObjectsExpired(eg *enterrors.ErrorGroupWrapper, deleteOnProperty string,
-		ttlThreshold, deletionTime time.Time, schemaVersion uint64) error
+	IncomingDeleteObjectsExpired(deleteOnPropName string, ttlThreshold, deletionTime time.Time,
+		eg *enterrors.ErrorGroupWrapper, onCollectionError func(error), onObjectsDeleted func(int32),
+		schemaVersion uint64)
 	IncomingMergeObject(ctx context.Context, shardName string,
 		mergeDoc objects.MergeDocument, schemaVersion uint64) error
 	IncomingMultiGetObjects(ctx context.Context, shardName string,

@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-openapi/strfmt"
@@ -25,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/refcache"
 	"github.com/weaviate/weaviate/adapters/repos/db/ttl"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
@@ -74,34 +76,53 @@ func (db *DB) DeleteObject(ctx context.Context, class string, id strfmt.UUID,
 func (db *DB) triggerDeletionObjectsExpiredLocalNode(ctx context.Context, collections []string,
 	ttlTime, deletionTime time.Time,
 ) error {
-	ec := errorcompounder.New()
+	start := time.Now()
+
+	ec := errorcompounder.NewSafe()
 	eg := enterrors.NewErrorGroupWrapper(db.logger)
+	eg.SetLimit(concurrency.GOMAXPROCS) // TODO aliszka:ttl move to config
+
+	objectsDeleted := atomic.Int32{}
+	onObjectsDeleted := func(count int32) { objectsDeleted.Add(count) }
 
 	for _, collection := range collections {
-		err := func() error {
-			if err := ctx.Err(); err != nil {
-				return err
+		onCollectionError := func(err error) {
+			if err != nil {
+				ec.Add(fmt.Errorf("collection %q [%w]", collection, err))
 			}
+		}
+		func() {
+			if err := ctx.Err(); err != nil {
+				onCollectionError(err)
+				return
+			}
+
 			idx, release, deleteOnPropName, ttlThreshold := db.extractTtlDataFromCollection(collection, ttlTime)
 			if idx == nil {
-				return nil
+				onCollectionError(fmt.Errorf("index not found"))
+				return
 			}
 			defer release()
 
 			// TODO aliszka:ttl schemaVersion?
-			return idx.IncomingDeleteObjectsExpired(eg, deleteOnPropName, ttlThreshold, deletionTime, 0)
+			idx.IncomingDeleteObjectsExpired(deleteOnPropName, ttlThreshold, deletionTime, eg, onCollectionError, onObjectsDeleted, 0)
 		}()
-		if err != nil {
-			ec.Add(fmt.Errorf("%q: %w", collection, err))
-		}
 	}
 
 	// ignore errors from eg as they are already collected in ec
 	eg.Wait()
 
+	l := db.logger.WithFields(logrus.Fields{
+		"action":        "object_ttl_deletions",
+		"total_deleted": objectsDeleted.Load(),
+		"took":          time.Since(start).String(),
+	})
+
 	if err := ec.ToError(); err != nil {
-		return fmt.Errorf("deleting expired objects of collections: %w", err)
+		l.WithError(err).Errorf("ttl deletions finished with errors")
+		return fmt.Errorf("deleting expired objects: %w", err)
 	}
+	l.Info("ttl deletions successfully finished")
 	return nil
 }
 
@@ -147,12 +168,12 @@ func (db *DB) triggerDeletionObjectsExpiredRemoteNode(ctx context.Context, remot
 		ttlOngoing, err := remoteObjectTTL.CheckIfStillRunning(ctx, db.objectTTLLastNode)
 		if err != nil {
 			db.logger.WithFields(logrus.Fields{
-				"action": "object_ttl_trigger_deletions",
+				"action": "object_ttl_deletions",
 				"node":   db.objectTTLLastNode,
 			}).Errorf("Checking objectTTL running status failed: %v", err)
 		} else if ttlOngoing {
 			db.logger.WithFields(logrus.Fields{
-				"action": "object_ttl_trigger_deletions",
+				"action": "object_ttl_deletions",
 				"node":   db.objectTTLLastNode,
 			}).Warn("ObjectTTL is still running, skipping this round")
 			return nil // deletion for collection still running, skip this round
@@ -217,17 +238,16 @@ func (db *DB) TriggerDeletionObjectsExpired(ctx context.Context, remoteObjectTTL
 	}
 
 	db.logger.WithFields(logrus.Fields{
-		"action":        "object_ttl_trigger_deletions",
+		"action":        "object_ttl_deletions",
 		"all_nodes":     allNodes,
 		"remote_nodes":  remoteNodes,
 		"ttl_time":      ttlTime,
 		"deletion_time": deletionTime,
-	}).Debug("Triggering deletion of objects expired")
+	}).Debug("triggering deletion of expired objects")
 
 	if len(remoteNodes) == 0 {
 		return db.triggerDeletionObjectsExpiredLocalNode(ctx, collections, ttlTime, deletionTime)
 	}
-
 	return db.triggerDeletionObjectsExpiredRemoteNode(ctx, remoteObjectTTL, collections, ttlTime, deletionTime, remoteNodes)
 }
 

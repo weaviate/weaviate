@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	objectttl "github.com/weaviate/weaviate/usecases/object_ttl"
@@ -102,34 +103,59 @@ func (d *ObjectTTL) incomingDelete() http.Handler {
 			return
 		}
 
-		d.logger.WithFields(logrus.Fields{"action": "incoming_delete_expired_objects", "classes": len(body)}).Info("received request to delete expired objects")
+		d.logger.WithFields(logrus.Fields{
+			"action":  "object_ttl_deletions",
+			"classes": len(body),
+		}).Info("received request to delete expired objects")
 
 		// run the deletion in a separate goroutine to free up the HTTP handler immediately
 		enterrors.GoWrapper(func() {
 			// make sure to unlock the requestRunning flag when all deletions are done
 			defer d.requestRunning.Store(false)
+
+			start := time.Now()
+
+			ec := errorcompounder.NewSafe()
 			eg := enterrors.NewErrorGroupWrapper(d.logger)
+			eg.SetLimit(concurrency.GOMAXPROCS) // TODO aliszka:ttl move to config
 
-			ec := errorcompounder.New()
+			objectsDeleted := atomic.Int32{}
+			onObjectsDeleted := func(count int32) { objectsDeleted.Add(count) }
+
 			for _, classPayload := range body {
-				className := classPayload.Class
+				collection := classPayload.Class
+				onCollectionError := func(err error) {
+					if err != nil {
+						ec.Add(fmt.Errorf("collection %q [%w]", collection, err))
+					}
+				}
+				// TODO aliszka:ttl add server shutdown context check?
 
-				idx, err := d.remoteIndex.IndexForIncomingWrite(context.Background(), className, 0)
+				// TODO aliszka:ttl index protected from closing/deletion?
+				// TODO aliszka:ttl schema version?
+				idx, err := d.remoteIndex.IndexForIncomingWrite(context.Background(), collection, 0)
 				if err != nil {
-					ec.Add(fmt.Errorf("get index for class %q: %w", className, err))
+					onCollectionError(fmt.Errorf("get index: %w", err))
 					continue
 				}
-
-				err = idx.IncomingDeleteObjectsExpired(eg, classPayload.Prop, time.UnixMilli(classPayload.TtlMilli), time.UnixMilli(classPayload.DelMilli), 0)
-				if err != nil {
-					ec.Add(fmt.Errorf("delete expired for class %q: %w", className, err))
-				}
+				idx.IncomingDeleteObjectsExpired(classPayload.Prop, time.UnixMilli(classPayload.TtlMilli), time.UnixMilli(classPayload.DelMilli),
+					eg, onCollectionError, onObjectsDeleted, 0)
 			}
 
 			eg.Wait() // ignore errors from goroutines, they are collected in ec
+
+			l := d.logger.WithFields(logrus.Fields{
+				"action":        "object_ttl_deletions",
+				"total_deleted": objectsDeleted.Load(),
+				"took":          time.Since(start).String(),
+			})
+
 			if err := ec.ToError(); err != nil {
-				d.logger.WithError(err).Error("incoming delete expired objects failed")
+				l.WithError(err).Errorf("incoming ttl deletions finished with errors")
+				return
 			}
+			l.Info("incoming ttl deletions successfully finished")
+
 		}, d.logger)
 
 		w.WriteHeader(http.StatusAccepted)
