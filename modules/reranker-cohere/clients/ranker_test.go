@@ -49,7 +49,7 @@ func TestRank(t *testing.T) {
 		defer server.Close()
 
 		c := New("apiKey", 0, nullLogger())
-		c.host = server.URL
+		c.urlBuilder = &fakeUrlBuilder{server.URL}
 
 		expected := &ent.RankResult{
 			DocumentScores: []ent.DocumentScore{
@@ -79,7 +79,7 @@ func TestRank(t *testing.T) {
 		defer server.Close()
 
 		c := New("apiKey", 0, nullLogger())
-		c.host = server.URL
+		c.urlBuilder = &fakeUrlBuilder{server.URL}
 
 		_, err := c.Rank(context.Background(), "I work at Apple", []string{"Where do I work?"}, nil)
 
@@ -133,7 +133,7 @@ func TestRank(t *testing.T) {
 		defer server.Close()
 
 		c := New("apiKey", 0, nullLogger())
-		c.host = server.URL
+		c.urlBuilder = &fakeUrlBuilder{server.URL}
 		// this will trigger 4 go routines
 		c.maxDocuments = 2
 
@@ -212,4 +212,12 @@ func (f *testRankHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	require.Nil(f.t, err)
 
 	w.Write(outBytes)
+}
+
+type fakeUrlBuilder struct {
+	url string
+}
+
+func (b *fakeUrlBuilder) URL(baseURL string) string {
+	return b.url
 }

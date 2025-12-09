@@ -39,7 +39,7 @@ type ReRankerCohereModule struct {
 
 type ReRankerCohereClient interface {
 	Rank(ctx context.Context, query string, documents []string, cfg moduletools.ClassConfig) (*ent.RankResult, error)
-	MetaInfo() (map[string]interface{}, error)
+	MetaInfo() (map[string]any, error)
 }
 
 func (m *ReRankerCohereModule) Name() string {
@@ -70,7 +70,7 @@ func (m *ReRankerCohereModule) initAdditional(ctx context.Context, timeout time.
 	return nil
 }
 
-func (m *ReRankerCohereModule) MetaInfo() (map[string]interface{}, error) {
+func (m *ReRankerCohereModule) MetaInfo() (map[string]any, error) {
 	return m.reranker.MetaInfo()
 }
 

@@ -13,19 +13,23 @@ package cohere
 
 import "fmt"
 
+type UrlBuilder interface {
+	URL(baseURL string) string
+}
+
 type cohereUrlBuilder struct {
 	origin   string
 	pathMask string
 }
 
-func newCohereUrlBuilder() *cohereUrlBuilder {
+func NewCohereUrlBuilder(pathMask string) UrlBuilder {
 	return &cohereUrlBuilder{
 		origin:   "https://api.cohere.ai",
 		pathMask: "/v2/embed",
 	}
 }
 
-func (c *cohereUrlBuilder) url(baseURL string) string {
+func (c *cohereUrlBuilder) URL(baseURL string) string {
 	if baseURL != "" {
 		return fmt.Sprintf("%s%s", baseURL, c.pathMask)
 	}

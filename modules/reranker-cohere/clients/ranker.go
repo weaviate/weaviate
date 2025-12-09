@@ -18,7 +18,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"runtime"
 	"sync"
 	"time"
@@ -31,16 +30,21 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/modules/reranker-cohere/config"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/clients/cohere"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/ent"
 )
 
 var _NUMCPU = runtime.NumCPU()
 
+type cohereUrlBuilder struct {
+	origin   string
+	pathMask string
+}
+
 type client struct {
 	lock         sync.RWMutex
 	apiKey       string
-	host         string
-	path         string
+	urlBuilder   cohere.UrlBuilder
 	httpClient   *http.Client
 	maxDocuments int
 	logger       logrus.FieldLogger
@@ -50,8 +54,7 @@ func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *clien
 	return &client{
 		apiKey:       apiKey,
 		httpClient:   &http.Client{Timeout: timeout},
-		host:         "https://api.cohere.ai",
-		path:         "/v1/rerank",
+		urlBuilder:   cohere.NewCohereUrlBuilder("/v1/rerank"),
 		maxDocuments: 1000,
 		logger:       logger,
 	}
@@ -95,11 +98,8 @@ func (c *client) performRank(ctx context.Context, query string, documents []stri
 	cfg moduletools.ClassConfig,
 ) ([]ent.DocumentScore, error) {
 	settings := config.NewClassSettings(cfg)
-	cohereUrl, err := url.JoinPath(c.host, c.path)
-	if err != nil {
-		return nil, errors.Wrap(err, "join Cohere API host and path")
-	}
 
+	cohereUrl := c.getCohereUrl(ctx, settings.BaseURL())
 	input := RankInput{
 		Documents:       documents,
 		Query:           query,
@@ -193,23 +193,23 @@ func (c *client) toRankResult(query string, results [][]ent.DocumentScore) *ent.
 }
 
 func (c *client) getApiKey(ctx context.Context) (string, error) {
-	if len(c.apiKey) > 0 {
+	if apiKey := modulecomponents.GetValueFromContext(ctx, "X-Cohere-Api-Key"); apiKey != "" {
+		return apiKey, nil
+	}
+	if c.apiKey != "" {
 		return c.apiKey, nil
-	}
-	key := "X-Cohere-Api-Key"
-
-	apiKey := ctx.Value(key)
-	// try getting header from GRPC if not successful
-	if apiKey == nil {
-		apiKey = modulecomponents.GetValueFromGRPC(ctx, key)
-	}
-	if apiKeyHeader, ok := apiKey.([]string); ok &&
-		len(apiKeyHeader) > 0 && len(apiKeyHeader[0]) > 0 {
-		return apiKeyHeader[0], nil
 	}
 	return "", errors.New("no api key found " +
 		"neither in request header: X-Cohere-Api-Key " +
 		"nor in environment variable under COHERE_APIKEY")
+}
+
+func (c *client) getCohereUrl(ctx context.Context, baseURL string) string {
+	passedBaseURL := baseURL
+	if headerBaseURL := modulecomponents.GetValueFromContext(ctx, "X-Cohere-Baseurl"); headerBaseURL != "" {
+		passedBaseURL = headerBaseURL
+	}
+	return c.urlBuilder.URL(passedBaseURL)
 }
 
 type RankInput struct {
