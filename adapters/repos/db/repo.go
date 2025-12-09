@@ -306,7 +306,8 @@ type Config struct {
 	MaintenanceModeEnabled      func() bool
 	AsyncIndexingEnabled        bool
 
-	HFreshEnabled bool
+	HFreshEnabled   bool
+	OperationalMode *configRuntime.DynamicValue[string]
 }
 
 // GetIndex returns the index if it exists or nil if it doesn't
