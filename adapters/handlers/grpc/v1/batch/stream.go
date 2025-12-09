@@ -457,8 +457,8 @@ func (h *StreamHandler) receiver(ctx context.Context, streamId string, consisten
 					references:       refs,
 					streamCtx:        stream.Context(), // passes any authN information from the stream into the worker for authZ
 					onComplete: func() {
+						defer wg.Done()
 						h.memInFlight.Add(-size)
-						wg.Done()
 					},
 					onStart: func() {
 						h.enqueuedObjectsCounter.Add(-int32(howMany))
