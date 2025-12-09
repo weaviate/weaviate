@@ -319,6 +319,9 @@ func (s *State) AllHostnames() []string {
 
 // All node names (not their hostnames!) for live members, including self.
 func (s *State) AllNames() []string {
+	if s.list == nil {
+		return []string{}
+	}
 	mem := s.list.Members()
 	out := make([]string, len(mem))
 
@@ -379,7 +382,7 @@ func (s *State) NodeCount() int {
 
 // LocalName() return local node name
 func (s *State) LocalName() string {
-	return s.list.LocalNode().Name
+	return s.config.Hostname
 }
 
 // LocalAddr() returns local address
