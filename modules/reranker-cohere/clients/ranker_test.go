@@ -19,6 +19,7 @@ import (
 	"net/http/httptest"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
@@ -220,4 +221,14 @@ type fakeUrlBuilder struct {
 
 func (b *fakeUrlBuilder) URL(baseURL string) string {
 	return b.url
+}
+
+func TestRank_client_getCohereUrl(t *testing.T) {
+	ctx := context.Background()
+	c := New("", 1*time.Second, nil)
+
+	assert.Equal(t, "baseurl/v1/rerank", c.getCohereUrl(ctx, "baseurl"))
+
+	ctxWithBaseURL := context.WithValue(ctx, "X-Cohere-Baseurl", []string{"base-url-from-ctx"})
+	assert.Equal(t, "base-url-from-ctx/v1/rerank", c.getCohereUrl(ctxWithBaseURL, "base-url"))
 }
