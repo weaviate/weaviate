@@ -276,14 +276,6 @@ func (s *Raft) UpdateTenantsProcess(ctx context.Context, class string, req *cmd.
 	return s.Execute(ctx, command)
 }
 
-func (s *Raft) StoreSchemaV1() error {
-	command := &cmd.ApplyRequest{
-		Type: cmd.ApplyRequest_TYPE_STORE_SCHEMA_V1,
-	}
-	_, err := s.Execute(context.Background(), command)
-	return err
-}
-
 func (s *Raft) Execute(ctx context.Context, req *cmd.ApplyRequest) (uint64, error) {
 	t := prometheus.NewTimer(
 		monitoring.GetMetrics().SchemaWrites.WithLabelValues(

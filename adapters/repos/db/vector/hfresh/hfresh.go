@@ -32,7 +32,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
-	bolt "go.etcd.io/bbolt"
 )
 
 const (
@@ -61,22 +60,23 @@ type HFresh struct {
 	replicas       uint32
 	rngFactor      float32
 	searchProbe    uint32
+	store          *lsmkv.Store
 
 	// some components require knowing the vector size beforehand
 	// and can only be initialized once the first vector has been
 	// received
 	initDimensionsOnce sync.Once
-	dims               int32 // Number of dimensions of expected vectors
-	vectorSize         int32 // Size of the compressed vectors in bytes
+	dims               uint32 // Number of dimensions of expected vectors
 	distancer          *Distancer
 	quantizer          *compressionhelpers.RotationalQuantizer
 
 	// Internal components
-	Centroids    *HNSWIndex              // Provides access to the centroids.
-	PostingStore *PostingStore           // Used for managing persistence of postings.
-	IDs          common.MonotonicCounter // Shared monotonic counter for generating unique IDs for new postings.
-	VersionMap   *VersionMap             // Stores vector versions in-memory.
-	PostingSizes *PostingSizes           // Stores the size of each posting in-memory.
+	Centroids    *HNSWIndex       // Provides access to the centroids.
+	PostingStore *PostingStore    // Used for managing persistence of postings.
+	IDs          *common.Sequence // Shared monotonic counter for generating unique IDs for new postings.
+	VersionMap   *VersionMap      // Stores vector versions in-memory.
+	PostingSizes *PostingSizes    // Stores the size of each posting in-memory.
+	Metadata     *MetadataStore   // Stores metadata about the index.
 
 	// ctx and cancel are used to manage the lifecycle of the background operations.
 	ctx    context.Context
@@ -89,10 +89,7 @@ type HFresh struct {
 	postingLocks       *common.ShardedRWLocks // Locks to prevent concurrent modifications to the same posting.
 	initialPostingLock sync.Mutex
 
-	store        *lsmkv.Store
-	vectorForId  common.VectorForID[float32]
-	metadata     *bolt.DB
-	metadataLock sync.RWMutex
+	vectorForId common.VectorForID[float32]
 }
 
 func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
@@ -103,41 +100,40 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 
 	metrics := NewMetrics(cfg.PrometheusMetrics, cfg.ClassName, cfg.ShardName)
 
-	postingStore, err := NewPostingStore(store, metrics, postingBucketName(cfg.ID), cfg.Store)
+	postingStore, err := NewPostingStore(store, metrics, cfg.ID, cfg.Store)
 	if err != nil {
 		return nil, err
 	}
 
-	postingSizes, err := NewPostingSizes(store, metrics, cfg.ID, cfg.Store)
+	bucket, err := NewSharedBucket(store, cfg.ID, cfg.Store)
 	if err != nil {
 		return nil, err
 	}
 
-	versionMap, err := NewVersionMap(store, cfg.ID, cfg.Store)
+	postingSizes, err := NewPostingSizes(bucket, metrics)
 	if err != nil {
 		return nil, err
 	}
+
+	versionMap, err := NewVersionMap(bucket)
+	if err != nil {
+		return nil, err
+	}
+
+	metadata := NewMetadataStore(bucket)
 
 	h := HFresh{
 		id:           cfg.ID,
 		logger:       cfg.Logger.WithField("component", "HFresh"),
 		config:       cfg,
 		scheduler:    cfg.Scheduler,
+		store:        store,
 		metrics:      metrics,
 		PostingStore: postingStore,
-		store:        store,
 		vectorForId:  cfg.VectorForIDThunk,
-		// Capacity of the version map: 8k pages, 1M vectors each -> 8B vectors
-		// - An empty version map consumes 240KB of memory
-		// - Each allocated page consumes 1MB of memory
-		// - A fully used version map consumes 8GB of memory
-		VersionMap: versionMap,
-		// Capacity of the posting sizes: 1k pages, 1M postings each -> 1B postings
-		// - An empty posting sizes buffer consumes 240KB of memory
-		// - Each allocated page consumes 4MB of memory
-		// - A fully used posting sizes consumes 4GB of memory
+		VersionMap:   versionMap,
 		PostingSizes: postingSizes,
-
+		Metadata:     metadata,
 		postingLocks: common.NewDefaultShardedRWLocks(),
 		// TODO: choose a better starting size since we can predict the max number of
 		// visited vectors based on cfg.InternalPostingCandidates.
@@ -153,7 +149,10 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 	if err != nil {
 		return nil, err
 	}
-	h.IDs = *common.NewMonotonicCounter(h.Centroids.GetMaxID())
+	h.IDs, err = common.NewSequence(NewBucketStore(bucket), 1000)
+	if err != nil {
+		return nil, err
+	}
 
 	h.ctx, h.cancel = context.WithCancel(context.Background())
 
@@ -234,6 +233,11 @@ func (h *HFresh) Shutdown(ctx context.Context) error {
 		errs = append(errs, err)
 	}
 
+	err = h.IDs.Flush()
+	if err != nil {
+		errs = append(errs, err)
+	}
+
 	err = h.Centroids.hnsw.Shutdown(ctx)
 	if err != nil {
 		errs = append(errs, err)
@@ -298,7 +302,7 @@ func (h *HFresh) QueryVectorDistancer(queryVector []float32) common.QueryVectorD
 	distFunc := func(id uint64) (float32, error) {
 		var buf [8]byte
 		binary.BigEndian.PutUint64(buf[:], id)
-		vec, err := h.PostingStore.store.Bucket(bucketName).Get(buf[:])
+		vec, err := h.store.Bucket(bucketName).Get(buf[:])
 		if err != nil {
 			return 0, err
 		}
