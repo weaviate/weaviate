@@ -121,8 +121,12 @@ func (v *vertex) resetConnectionsAtLevelNoLock(level int) {
 }
 
 func (v *vertex) connectionsAtLowerLevelsNoLock(level int, visitedNodes map[nodeLevel]bool) []nodeLevel {
-	connections := make([]nodeLevel, 0)
+	var connections []nodeLevel
 	for i := level; i >= 0; i-- {
+		if i >= len(v.connections) {
+			continue
+		}
+
 		for _, nodeId := range v.connections[i] {
 			if !visitedNodes[nodeLevel{nodeId, i}] {
 				connections = append(connections, nodeLevel{nodeId, i})
