@@ -37,7 +37,7 @@ import (
 //  1. If there are at least q keys in the tree, you will get at least q keys,
 //     most likely more
 //  2. If there are less than q keys in the tree, you will get all keys.
-func (t *DiskTree) QuantileKeys(q int) [][]byte {
+func (t *DiskTreeRaw) QuantileKeys(q int) [][]byte {
 	if q <= 0 {
 		return nil
 	}
@@ -58,7 +58,7 @@ func (t *DiskTree) QuantileKeys(q int) [][]byte {
 }
 
 type parallelBFS struct {
-	dt             *DiskTree
+	dt             DiskTree
 	maxDepth       int
 	keysDiscovered [][]byte
 }
@@ -70,11 +70,11 @@ func (bfs *parallelBFS) run() [][]byte {
 }
 
 func (bfs *parallelBFS) parse(offset uint64, level int) {
-	if offset+4 > uint64(len(bfs.dt.data)) || offset+4 < 4 {
+	if offset+4 > uint64(bfs.dt.Size()) || offset+4 < 4 {
 		// exit condition
 		return
 	}
-	rw := byteops.NewReadWriter(bfs.dt.data)
+	rw := byteops.NewReadWriter(bfs.dt.Data())
 	rw.Position = offset
 	keyLen := rw.ReadUint32()
 	nodeKeyBuffer := make([]byte, int(keyLen))
