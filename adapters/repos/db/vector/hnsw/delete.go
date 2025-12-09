@@ -16,6 +16,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
+	"math/rand"
 	"os"
 	"runtime"
 	"runtime/debug"
@@ -495,8 +496,11 @@ func (h *hnsw) reassignNeighborsOf(ctx context.Context, deleteList helpers.Allow
 					h.resetLock.RLock()
 					if h.getEntrypoint() != deletedID {
 						if _, err := h.reassignNeighbor(ctx, deletedID, deleteList, breakCleanUpTombstonedNodes, processedIDs); err != nil {
-							h.logger.WithError(err).WithField("action", "hnsw_tombstone_cleanup_error").
-								Errorf("class %s: shard %s: reassign neighbor", h.className, h.shardName)
+							// Sample these errors due to node loop
+							if rand.Intn(10_000) == 0 {
+								h.logger.WithError(err).WithField("action", "hnsw_tombstone_cleanup_error").
+									Errorf("class %s: shard %s: reassign neighbor", h.className, h.shardName)
+							}
 						}
 					}
 					h.resetLock.RUnlock()
