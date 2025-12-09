@@ -1126,6 +1126,14 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	}
 
 	api.ServerShutdown = func() {
+		// leave memberlist first to announce node graceful departure
+		if err := appState.Cluster.Leave(); err != nil {
+			appState.Logger.WithError(err).Error("leave node from cluster")
+		}
+
+		// drain any ongoing operations
+		time.Sleep(appState.ServerConfig.Config.Raft.DrainSleep.Get())
+
 		if telemetryEnabled(appState) {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()

@@ -58,7 +58,9 @@ func NewServer(appState *state.State) *Server {
 		auth,
 		appState.Cluster.MaintenanceModeEnabledForLocalhost,
 		appState.ServerConfig.Config.Cluster.RequestQueueConfig,
-		appState.Logger)
+		appState.Logger,
+		appState.ClusterService.Ready)
+
 	classifications := NewClassifications(appState.ClassificationRepo.TxManager(), auth)
 	nodes := NewNodes(appState.RemoteNodeIncoming, auth)
 	backups := NewBackups(appState.BackupManager, auth)
