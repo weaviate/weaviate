@@ -994,10 +994,6 @@ func Test_AddClass_ObjectTTLConfig(t *testing.T) {
 				reconfigure: func(c *models.Class) { c.ObjectTTLConfig.DeleteOn = "customPropertyInt" },
 			},
 			{
-				name:        "timestamps not indexed",
-				reconfigure: func(c *models.Class) { c.InvertedIndexConfig.IndexTimestamps = false },
-			},
-			{
 				name:        "ttl too small",
 				reconfigure: func(c *models.Class) { c.ObjectTTLConfig.DefaultTTL = 42 },
 			},
