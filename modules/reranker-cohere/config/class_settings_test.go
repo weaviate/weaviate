@@ -49,16 +49,6 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantBaseUrl: "http://base-url.com",
 		},
 		{
-			name: "empty baseURL",
-			cfg: fakeClassConfig{
-				classConfig: map[string]any{
-					"model":   "rerank-english-v2.0",
-					"baseURL": "",
-				},
-			},
-			wantErr: errors.New("baseURL cannot be empty"),
-		},
-		{
 			name: "empty model",
 			cfg: fakeClassConfig{
 				classConfig: map[string]any{

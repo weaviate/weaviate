@@ -18,20 +18,20 @@ type UrlBuilder interface {
 }
 
 type cohereUrlBuilder struct {
-	origin   string
-	pathMask string
+	origin string
+	path   string
 }
 
-func NewCohereUrlBuilder(pathMask string) UrlBuilder {
+func NewCohereUrlBuilder(path string) UrlBuilder {
 	return &cohereUrlBuilder{
-		origin:   "https://api.cohere.ai",
-		pathMask: "/v2/embed",
+		origin: "https://api.cohere.ai",
+		path:   path,
 	}
 }
 
 func (c *cohereUrlBuilder) URL(baseURL string) string {
 	if baseURL != "" {
-		return fmt.Sprintf("%s%s", baseURL, c.pathMask)
+		return fmt.Sprintf("%s%s", baseURL, c.path)
 	}
-	return fmt.Sprintf("%s%s", c.origin, c.pathMask)
+	return fmt.Sprintf("%s%s", c.origin, c.path)
 }

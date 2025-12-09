@@ -39,9 +39,6 @@ func (ic *classSettings) Validate(class *models.Class) error {
 		return errors.New("empty config")
 	}
 
-	if baseURL := ic.BaseURL(); baseURL == "" {
-		return errors.New("baseURL cannot be empty")
-	}
 	if model := ic.Model(); model == "" {
 		return errors.New("no model provided")
 	}
@@ -57,5 +54,5 @@ func (ic *classSettings) Model() string {
 }
 
 func (ic *classSettings) getStringProperty(name string, defaultValue string) string {
-	return ic.propertyValuesHelper.GetPropertyAsStringWithNotExists(ic.cfg, name, "", defaultValue)
+	return ic.propertyValuesHelper.GetPropertyAsStringWithNotExists(ic.cfg, name, defaultValue, defaultValue)
 }

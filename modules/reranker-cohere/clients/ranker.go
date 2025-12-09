@@ -36,11 +36,6 @@ import (
 
 var _NUMCPU = runtime.NumCPU()
 
-type cohereUrlBuilder struct {
-	origin   string
-	pathMask string
-}
-
 type client struct {
 	lock         sync.RWMutex
 	apiKey       string
