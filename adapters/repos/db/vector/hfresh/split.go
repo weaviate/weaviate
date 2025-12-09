@@ -153,8 +153,7 @@ func (h *HFresh) splitPosting(posting Posting) ([]SplitResult, error) {
 
 	data := posting.Uncompress(h.quantizer)
 
-	//idsAssignments, err := enc.FitBalanced(data)
-	err := enc.Fit(data)
+	idsAssignments, err := enc.FitBalanced(data)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to fit KMeans encoder for split operation")
 	}
@@ -168,27 +167,11 @@ func (h *HFresh) splitPosting(posting Posting) ([]SplitResult, error) {
 		results[i].Centroid = h.quantizer.Encode(enc.Centroid(byte(i)))
 	}
 
-	/*for i, v := range idsAssignments {
+	for i, v := range idsAssignments {
 		if v == 0 {
 			results[0].Posting.AddVector(posting.GetAt(i))
 		} else {
 			results[1].Posting.AddVector(posting.GetAt(i))
-		}
-	}*/
-	for i, v := range data {
-		// compute the distance to each centroid
-		dA, err := h.distancer.DistanceBetweenVectors(v, results[0].Uncompressed)
-		if err != nil {
-			return nil, errors.Wrapf(err, "failed to compute distance to centroid 0")
-		}
-		dB, err := h.distancer.DistanceBetweenVectors(v, results[1].Uncompressed)
-		if err != nil {
-			return nil, errors.Wrapf(err, "failed to compute distance to centroid 1")
-		}
-		if dA < dB {
-			results[0].Posting = results[0].Posting.AddVector(posting[i])
-		} else {
-			results[1].Posting = results[1].Posting.AddVector(posting[i])
 		}
 	}
 
