@@ -151,14 +151,22 @@ func FromEnv(config *Config) error {
 		config.IndexMissingTextFilterableAtStartup = true
 	}
 
+	objectsTtlConcurrencyFactorEnv := "OBJECTS_TTL_CONCURRENCY_FACTOR"
+	if err := parsePositiveFloat(objectsTtlConcurrencyFactorEnv,
+		func(val float64) { config.ObjectsTTLConcurrencyFactor = val },
+		DefaultObjectsTtlConcurrencyFactor); err != nil {
+		return fmt.Errorf("%s: %w", objectsTtlConcurrencyFactorEnv, err)
+	}
+
 	objectsTtlAllowSecondsEnv := "OBJECTS_TTL_ALLOW_SECONDS"
 	if entcfg.Enabled(os.Getenv(objectsTtlAllowSecondsEnv)) {
-		config.ObjectsTtlAllowSeconds = true
+		config.ObjectsTTLAllowSeconds = true
 	}
+
 	objectsTtlDeleteScheduleEnv := "OBJECTS_TTL_DELETE_SCHEDULE"
 	if objectsTtlDeleteSchedule := os.Getenv(objectsTtlDeleteScheduleEnv); objectsTtlDeleteSchedule != "" {
 		parser := cron.StandardParser()
-		if config.ObjectsTtlAllowSeconds {
+		if config.ObjectsTTLAllowSeconds {
 			// equivalent of cron.WithSeconds() option
 			parser = cron.MustNewParser(cron.Second | cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor)
 		}

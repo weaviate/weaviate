@@ -425,6 +425,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		SeparateObjectsCompactions:          appState.ServerConfig.Config.Persistence.LSMSeparateObjectsCompactions,
 		MaxSegmentSize:                      appState.ServerConfig.Config.Persistence.LSMMaxSegmentSize,
 		CycleManagerRoutinesFactor:          appState.ServerConfig.Config.Persistence.LSMCycleManagerRoutinesFactor,
+		ObjectsTtlConcurrencyFactor:         appState.ServerConfig.Config.ObjectsTTLConcurrencyFactor,
 		IndexRangeableInMemory:              appState.ServerConfig.Config.Persistence.IndexRangeableInMemory,
 		RootPath:                            appState.ServerConfig.Config.Persistence.DataPath,
 		QueryLimit:                          appState.ServerConfig.Config.QueryDefaults.Limit,
@@ -949,7 +950,7 @@ func configureCrons(appState *state.State, serverShutdownCtx context.Context) {
 		gocron.WithLogger(cronLogger),
 		gocron.WithChain(gocron.Recover(cronLogger)),
 	}
-	if appState.ServerConfig.Config.ObjectsTtlAllowSeconds {
+	if appState.ServerConfig.Config.ObjectsTTLAllowSeconds {
 		opts = append(opts, gocron.WithSeconds())
 	}
 	cr := gocron.New(opts...)

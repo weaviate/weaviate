@@ -23,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/usecases/config"
 	objectttl "github.com/weaviate/weaviate/usecases/object_ttl"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
@@ -32,10 +33,17 @@ type ObjectTTL struct {
 	auth           auth
 	requestRunning atomic.Bool
 	logger         logrus.FieldLogger
+	config         config.Config
 }
 
-func NewObjectTTL(remoteIndex *sharding.RemoteIndexIncoming, auth auth, logger logrus.FieldLogger) *ObjectTTL {
-	return &ObjectTTL{remoteIndex: remoteIndex, auth: auth, requestRunning: atomic.Bool{}, logger: logger}
+func NewObjectTTL(remoteIndex *sharding.RemoteIndexIncoming, auth auth, logger logrus.FieldLogger, config config.Config) *ObjectTTL {
+	return &ObjectTTL{
+		remoteIndex:    remoteIndex,
+		auth:           auth,
+		requestRunning: atomic.Bool{},
+		logger:         logger,
+		config:         config,
+	}
 }
 
 func (d *ObjectTTL) Expired() http.Handler {
@@ -117,7 +125,7 @@ func (d *ObjectTTL) incomingDelete() http.Handler {
 
 			ec := errorcompounder.NewSafe()
 			eg := enterrors.NewErrorGroupWrapper(d.logger)
-			eg.SetLimit(concurrency.GOMAXPROCS) // TODO aliszka:ttl move to config
+			eg.SetLimit(concurrency.TimesFloatGOMAXPROCS(d.config.ObjectsTTLConcurrencyFactor))
 
 			objectsDeleted := atomic.Int32{}
 			onObjectsDeleted := func(count int32) { objectsDeleted.Add(count) }

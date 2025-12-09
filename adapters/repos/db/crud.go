@@ -80,7 +80,7 @@ func (db *DB) triggerDeletionObjectsExpiredLocalNode(ctx context.Context, collec
 
 	ec := errorcompounder.NewSafe()
 	eg := enterrors.NewErrorGroupWrapper(db.logger)
-	eg.SetLimit(concurrency.GOMAXPROCS) // TODO aliszka:ttl move to config
+	eg.SetLimit(concurrency.TimesFloatGOMAXPROCS(db.config.ObjectsTtlConcurrencyFactor))
 
 	objectsDeleted := atomic.Int32{}
 	onObjectsDeleted := func(count int32) { objectsDeleted.Add(count) }
