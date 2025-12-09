@@ -233,6 +233,8 @@ type Config struct {
 	// Time expired objects should be deleted at by background routine
 	// accepts format: https://github.com/netresearch/go-cron?tab=readme-ov-file#cron-expression-format
 	ObjectsTTLDeleteSchedule string `json:"objects_ttl_delete_schedule" yaml:"objects_ttl_delete_schedule"`
+
+	ObjectsTtlAllowSeconds bool `json:"objects_ttl_allow_seconds" yaml:"objects_ttl_allow_seconds"`
 }
 
 type MapToBlockamaxConfig struct {

@@ -34,7 +34,9 @@ import (
 func TestObjectTTLMultiNodeTicker(t *testing.T) {
 	ctx := context.Background()
 	compose, err := docker.New().
-		With3NodeCluster().WithWeaviateEnv("OBJECTS_TTL_DELETE_SCHEDULE", "@every 1s").
+		With3NodeCluster().
+		WithWeaviateEnv("OBJECTS_TTL_DELETE_SCHEDULE", "@every 1s").
+		WithWeaviateEnv("OBJECTS_TTL_ALLOW_SECONDS", "true").
 		Start(ctx)
 	require.NoError(t, err)
 	defer func() {

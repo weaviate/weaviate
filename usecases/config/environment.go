@@ -151,10 +151,18 @@ func FromEnv(config *Config) error {
 		config.IndexMissingTextFilterableAtStartup = true
 	}
 
+	objectsTtlAllowSecondsEnv := "OBJECTS_TTL_ALLOW_SECONDS"
+	if entcfg.Enabled(os.Getenv(objectsTtlAllowSecondsEnv)) {
+		config.ObjectsTtlAllowSeconds = true
+	}
 	objectsTtlDeleteScheduleEnv := "OBJECTS_TTL_DELETE_SCHEDULE"
 	if objectsTtlDeleteSchedule := os.Getenv(objectsTtlDeleteScheduleEnv); objectsTtlDeleteSchedule != "" {
-		// assumes cron is configured with standard parser
-		if _, err := cron.ParseStandard(objectsTtlDeleteSchedule); err != nil {
+		parser := cron.StandardParser()
+		if config.ObjectsTtlAllowSeconds {
+			// equivalent of cron.WithSeconds() option
+			parser = cron.MustNewParser(cron.Second | cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor)
+		}
+		if _, err := parser.Parse(objectsTtlDeleteSchedule); err != nil {
 			return fmt.Errorf("%s: %w", objectsTtlDeleteScheduleEnv, err)
 		}
 		config.ObjectsTTLDeleteSchedule = objectsTtlDeleteSchedule

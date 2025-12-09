@@ -945,22 +945,28 @@ func configureCrons(appState *state.State, serverShutdownCtx context.Context) {
 		return
 	}
 
-	// standard parser
-	c := gocron.New(gocron.WithLogger(cronLogger), gocron.WithChain(gocron.Recover(cronLogger)), gocron.WithSeconds())
+	opts := []gocron.Option{
+		gocron.WithLogger(cronLogger),
+		gocron.WithChain(gocron.Recover(cronLogger)),
+	}
+	if appState.ServerConfig.Config.ObjectsTtlAllowSeconds {
+		opts = append(opts, gocron.WithSeconds())
+	}
+	cr := gocron.New(opts...)
 	for i := range specs {
 		l := logger.WithField("job_name", specs[i].name)
 
-		entryId, err := c.AddJob(specs[i].schedule, specs[i].job)
+		entryId, err := cr.AddJob(specs[i].schedule, specs[i].job)
 		if err != nil {
 			l.WithError(err).Error("failed adding job")
 			continue
 		}
 		l.WithField("entry", entryId).Info("added job")
 	}
-	c.Start()
+	cr.Start()
 
 	<-serverShutdownCtx.Done()
-	c.Stop()
+	cr.Stop()
 }
 
 type metaStoreReady struct {
