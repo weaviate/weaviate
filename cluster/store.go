@@ -540,6 +540,14 @@ func (st *Store) Close(ctx context.Context) error {
 		}
 	}
 
+	// leave memberlist first to announce node graceful departure
+	if err := st.cfg.NodeSelector.Leave(); err != nil {
+		st.log.WithError(err).Error("leave node from cluster")
+	}
+
+	// drain any ongoing operations
+	time.Sleep(st.cfg.DrainSleep)
+
 	// Shutdown memberlist after leave to clean up resources and connections
 	if err := st.cfg.NodeSelector.Shutdown(); err != nil {
 		st.log.WithError(err).Error("shutdown node from cluster")
