@@ -331,7 +331,7 @@ func (s *State) NodeCount() int {
 
 // LocalName() return local node name
 func (s *State) LocalName() string {
-	return s.list.LocalNode().Name
+	return s.config.Hostname
 }
 
 // LocalAddr() returns local address
