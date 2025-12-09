@@ -70,6 +70,7 @@ func TestWorkerLoop(t *testing.T) {
 			consistencyLevel: nil,
 			streamCtx:        ctx,
 			onComplete:       func() { wg.Done() },
+			onStart:          func() {},
 		}
 		processingQueue <- &processRequest{
 			objects:          nil,
@@ -78,6 +79,7 @@ func TestWorkerLoop(t *testing.T) {
 			consistencyLevel: nil,
 			streamCtx:        ctx,
 			onComplete:       func() { wg.Done() },
+			onStart:          func() {},
 		}
 
 		rq, ok := reportingQueues.Get(StreamId)
@@ -177,6 +179,7 @@ func TestWorkerLoop(t *testing.T) {
 				consistencyLevel: nil,
 				streamCtx:        ctx,
 				onComplete:       func() { wg.Done() },
+				onStart:          func() {},
 			}
 		}()
 
