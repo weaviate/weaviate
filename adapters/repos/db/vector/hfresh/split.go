@@ -169,9 +169,9 @@ func (h *HFresh) splitPosting(posting Posting) ([]SplitResult, error) {
 
 	for i, v := range idsAssignments {
 		if v == 0 {
-			results[0].Posting.AddVector(posting.GetAt(i))
+			results[0].Posting.AddVector(posting[i])
 		} else {
-			results[1].Posting.AddVector(posting.GetAt(i))
+			results[1].Posting.AddVector(posting[i])
 		}
 	}
 
