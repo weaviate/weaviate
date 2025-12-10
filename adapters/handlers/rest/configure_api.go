@@ -34,6 +34,7 @@ import (
 	openapierrors "github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/swag"
+	gocron "github.com/netresearch/go-cron"
 	"github.com/pbnjay/memory"
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
@@ -41,10 +42,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus/collectors/version"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
-	"google.golang.org/grpc/credentials/insecure"
-
 	"github.com/weaviate/fgprof"
 	"github.com/weaviate/weaviate/adapters/clients"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/authz"
@@ -68,6 +65,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/usage"
 	"github.com/weaviate/weaviate/entities/concurrency"
 	entconfig "github.com/weaviate/weaviate/entities/config"
+	"github.com/weaviate/weaviate/entities/cron"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -151,6 +149,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	objectttl "github.com/weaviate/weaviate/usecases/object_ttl"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/schema"
@@ -158,6 +157,9 @@ import (
 	"github.com/weaviate/weaviate/usecases/telemetry"
 	"github.com/weaviate/weaviate/usecases/telemetry/opentelemetry"
 	"github.com/weaviate/weaviate/usecases/traverser"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
 const MinimumRequiredContextionaryVersion = "1.0.2"
@@ -220,7 +222,7 @@ func calcCPUs(cpuString string) (int, error) {
 	return cores, nil
 }
 
-func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *state.State {
+func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandLineOptionsGroup) *state.State {
 	build.Version = ParseVersionFromSwaggerSpec() // Version is always static and loaded from swagger spec.
 
 	// config.ServerVersion is deprecated: It's there to be backward compatible
@@ -703,22 +705,20 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	repo.WithBitmapBufPool(bitmapBufPool, bitmapBufPoolClose)
 
 	var reindexCtx context.Context
-	reindexCtx, appState.ReindexCtxCancel = context.WithCancelCause(context.Background())
+	reindexCtx, appState.ReindexCtxCancel = context.WithCancelCause(serverShutdownCtx)
 	reindexer := configureReindexer(appState, reindexCtx)
 	repo.WithReindexer(reindexer)
 
-	metaStoreReadyErr := fmt.Errorf("meta store ready")
-	metaStoreFailedErr := fmt.Errorf("meta store failed")
-	storeReadyCtx, storeReadyCancel := context.WithCancelCause(context.Background())
+	metaStoreReady := newMetaStoreReady()
 	enterrors.GoWrapper(func() {
 		if err := appState.ClusterService.Open(context.Background(), executor); err != nil {
 			appState.Logger.
 				WithField("action", "startup").
 				WithError(err).
 				Fatal("could not open cloud meta store")
-			storeReadyCancel(metaStoreFailedErr)
+			metaStoreReady.failure(err)
 		} else {
-			storeReadyCancel(metaStoreReadyErr)
+			metaStoreReady.success()
 		}
 	}, appState.Logger)
 
@@ -760,16 +760,25 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		// start reindexing inverted indexes (if requested by user) in the background
 		// allowing db to complete api configuration and start handling requests
 		enterrors.GoWrapper(func() {
-			// wait until meta store is ready, as reindex tasks needs schema
-			<-storeReadyCtx.Done()
-			if errors.Is(context.Cause(storeReadyCtx), metaStoreReadyErr) {
-				appState.Logger.
-					WithField("action", "startup").
-					Info("Reindexing inverted indexes")
-				reindexFinished <- migrator.InvertedReindex(reindexCtx, reindexTaskNamesWithArgs)
+			l := appState.Logger.WithField("action", "startup")
+			if err := metaStoreReady.waitForMetaStore(); err != nil {
+				l.WithError(err).Error("Reindexing inverted indexes skipped")
+				return
 			}
+			l.Info("Reindexing inverted indexes")
+			reindexFinished <- migrator.InvertedReindex(reindexCtx, reindexTaskNamesWithArgs)
 		}, appState.Logger)
 	}
+
+	enterrors.GoWrapper(func() {
+		l := appState.Logger.WithField("action", "startup")
+		if err := metaStoreReady.waitForMetaStore(); err != nil {
+			l.WithError(err).Error("Configuring crons skipped")
+			return
+		}
+		l.Info("Configuring crons")
+		configureCrons(appState, serverShutdownCtx)
+	}, appState.Logger)
 
 	configureServer = makeConfigureServer(appState)
 
@@ -804,8 +813,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 			// Do not launch scheduler until the full RAFT state is restored to avoid needlessly starting
 			// and stopping tasks.
 			// Additionally, not-ready RAFT state could lead to lose of local task metadata.
-			<-storeReadyCtx.Done()
-			if !errors.Is(context.Cause(storeReadyCtx), metaStoreReadyErr) {
+			if metaStoreReady.waitForMetaStore() != nil {
 				return
 			}
 			if err = appState.DistributedTaskScheduler.Start(ctx); err != nil {
@@ -828,7 +836,7 @@ func configureReindexer(appState *state.State, reindexCtx context.Context) db.Sh
 	tasks := []db.ShardReindexTaskV3{}
 	logger := appState.Logger.WithField("action", "reindexV3")
 	cfg := appState.ServerConfig.Config
-	concurrency := concurrency.TimesFloatNUMCPU(cfg.ReindexerGoroutinesFactor)
+	concurrency := concurrency.TimesFloatGOMAXPROCS(cfg.ReindexerGoroutinesFactor)
 
 	if cfg.ReindexMapToBlockmaxAtStartup {
 		tasks = append(tasks, db.NewShardInvertedReindexTaskMapToBlockmax(
@@ -856,6 +864,147 @@ func configureReindexer(appState *state.State, reindexCtx context.Context) db.Sh
 	}
 	reindexer.Init()
 	return reindexer
+}
+
+func configureCrons(appState *state.State, serverShutdownCtx context.Context) {
+	// enterrors.GoWrapper(func() {
+	// 	f := func() {
+	// 		fmt.Println("--------------------------------------------------------------------------------")
+
+	// 		nodes := appState.SchemaManager.Nodes()
+	// 		nodeName := appState.SchemaManager.NodeName()
+	// 		fmt.Printf("  ==> SchemaManager.Nodes: %v\n"+
+	// 			"      SchemaManager.NodeName: %v\n", nodes, nodeName)
+	// 		fmt.Println()
+
+	// 		allHostnames := appState.Cluster.AllHostnames()
+	// 		allNames := appState.Cluster.AllNames()
+	// 		allOtherClusterMembers := appState.Cluster.AllOtherClusterMembers(0)
+	// 		nodeCount := appState.Cluster.NodeCount()
+	// 		fmt.Printf("  ==> Cluster.AllHostnames: %v\n"+
+	// 			"      Cluster.AllNames: %v\n"+
+	// 			"      Cluster.AllOtherClusterMembers: %v\n"+
+	// 			"      Cluster.NodeCount: %v\n", allHostnames, allNames, allOtherClusterMembers, nodeCount)
+	// 		fmt.Println()
+
+	// 		for _, name := range allNames {
+	// 			nodeAddress := appState.Cluster.NodeAddress(name)
+	// 			nodeHostname, b := appState.Cluster.NodeHostname(name)
+	// 			nodeInfo, b2 := appState.Cluster.NodeInfo(name)
+	// 			fmt.Printf("  ==> Cluster.NodeAddress[%s]: %v\n"+
+	// 				"      Cluster.NodeHostname[%s]: %v [%v]\n"+
+	// 				"      Cluster.NodeInfo[%s]: %#v [%v]\n", name, nodeAddress, name, nodeHostname, b, name, nodeInfo, b2)
+	// 			fmt.Println()
+	// 		}
+
+	// 		fmt.Println("--------------------------------------------------------------------------------")
+	// 	}
+	// 	f()
+
+	// 	t := time.NewTicker(5 * time.Second)
+	// 	for {
+	// 		<-t.C
+	// 		f()
+	// 	}
+
+	// }, appState.Logger)
+
+	type jobSpec struct {
+		name     string
+		schedule string
+		job      gocron.Job
+	}
+
+	logger := appState.Logger.WithField("action", "cron")
+	cronLogger := cron.NewGoCronLogger(logger, logrus.DebugLevel)
+	specs := []jobSpec{}
+
+	if schedule := appState.ServerConfig.Config.ObjectsTTLDeleteSchedule; schedule != "" {
+		l := logger.WithField("action", "cron_ttl_scheduler")
+
+		triggerDeletionObjectsExpiredJob := gocron.NewChain(gocron.SkipIfStillRunning(cronLogger)).
+			Then(cron.NewGoCronJob(func() {
+				if !appState.ClusterService.IsLeader() {
+					l.Debug("not a ttl scheduler - skipping")
+					return
+				}
+
+				var err error
+				started := time.Now()
+
+				l.Info("triggering deletion of expired objects")
+				defer func() {
+					l = l.WithField("took", time.Since(started))
+					if err != nil {
+						l.WithError(err).Error("triggering deletion of expired objects failed")
+					} else {
+						l.Info("triggering deletion of expired objects succeeded")
+					}
+				}()
+
+				err = appState.ObjectTTLCoordinator.Start(serverShutdownCtx, false, started, started)
+			}))
+
+		specs = append(specs, jobSpec{
+			name:     "trigger_deletion_objects_expired",
+			schedule: schedule,
+			job:      triggerDeletionObjectsExpiredJob,
+		})
+	}
+
+	if len(specs) == 0 {
+		logger.Info("no jobs configured")
+		return
+	}
+
+	opts := []gocron.Option{
+		gocron.WithLogger(cronLogger),
+		gocron.WithChain(gocron.Recover(cronLogger)),
+	}
+	if appState.ServerConfig.Config.ObjectsTtlAllowSeconds {
+		opts = append(opts, gocron.WithSeconds())
+	}
+	cr := gocron.New(opts...)
+	for i := range specs {
+		l := logger.WithField("job_name", specs[i].name)
+
+		entryId, err := cr.AddJob(specs[i].schedule, specs[i].job)
+		if err != nil {
+			l.WithError(err).Error("failed adding job")
+			continue
+		}
+		l.WithField("entry", entryId).Info("added job")
+	}
+	cr.Start()
+
+	<-serverShutdownCtx.Done()
+	cr.Stop()
+}
+
+type metaStoreReady struct {
+	ctx    context.Context
+	cancel context.CancelCauseFunc
+}
+
+func newMetaStoreReady() *metaStoreReady {
+	ctx, cancel := context.WithCancelCause(context.Background())
+	return &metaStoreReady{ctx: ctx, cancel: cancel}
+}
+
+func (msr *metaStoreReady) success() {
+	msr.cancel(nil)
+}
+
+func (msr *metaStoreReady) failure(err error) {
+	msr.cancel(err)
+}
+
+func (msr *metaStoreReady) waitForMetaStore() error {
+	<-msr.ctx.Done()
+	if err := context.Cause(msr.ctx); !errors.Is(err, context.Canceled) {
+		return err
+	}
+	return nil
 }
 
 func parseNode2Port(appState *state.State) (m map[string]int, err error) {
@@ -889,7 +1038,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	ctx, cancel := context.WithTimeout(ctx, 60*time.Minute)
 	defer cancel()
 
-	appState := MakeAppState(ctx, connectorOptionGroup)
+	serverShutdownCtx, serverShutdownCancel := context.WithCancelCause(context.Background())
+	appState := MakeAppState(ctx, serverShutdownCtx, connectorOptionGroup)
 
 	appState.Logger.WithFields(logrus.Fields{
 		"server_version": config.ServerVersion,
@@ -930,6 +1080,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	remoteDbUsers := clients.NewRemoteUser(appState.ClusterHttpClient, appState.Cluster)
 	db_users.SetupHandlers(api, appState.ClusterService.Raft, appState.Authorizer, appState.ServerConfig.Config.Authentication, appState.ServerConfig.Config.Authorization, remoteDbUsers, appState.SchemaManager, appState.Logger)
+	appState.ObjectTTLCoordinator = objectttl.NewCoordinator(appState.ClusterService.SchemaReader(), appState.SchemaManager, appState.DB, appState.Logger, appState.ClusterHttpClient, appState.Cluster)
 
 	setupSchemaHandlers(api, appState.SchemaManager, appState.Metrics, appState.Logger)
 	setupAliasesHandlers(api, appState.SchemaManager, appState.Metrics, appState.Logger)
@@ -1012,8 +1163,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 				Errorf("failed to stop opentelemetry: %s", err.Error())
 		}
 
-		// stop reindexing on server shutdown
-		appState.ReindexCtxCancel(fmt.Errorf("server shutdown"))
+		serverShutdownCancel(fmt.Errorf("server shutdown"))
 
 		if appState.DistributedTaskScheduler != nil {
 			appState.DistributedTaskScheduler.Close()

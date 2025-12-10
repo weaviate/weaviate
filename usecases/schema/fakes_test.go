@@ -258,6 +258,11 @@ func (f *fakeSchemaManager) Read(class string, retryIfClassNotFound bool, reader
 	return args.Error(0)
 }
 
+func (f *fakeSchemaManager) ReadSchema(reader func(models.Class, uint64)) error {
+	args := f.Called(reader)
+	return args.Error(0)
+}
+
 func (f *fakeSchemaManager) Shards(class string) ([]string, error) {
 	args := f.Called(class)
 	return args.Get(0).([]string), args.Error(1)

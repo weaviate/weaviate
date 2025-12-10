@@ -257,6 +257,7 @@ func (s *SchemaManager) UpdateClass(cmd *command.ApplyRequest, nodeID string, sc
 		meta.Class.VectorConfig = u.VectorConfig
 		meta.Class.ReplicationConfig = u.ReplicationConfig
 		meta.Class.MultiTenancyConfig = u.MultiTenancyConfig
+		meta.Class.ObjectTTLConfig = u.ObjectTTLConfig
 		meta.Class.Description = u.Description
 		meta.Class.Properties = u.Properties
 		meta.ClassVersion = cmd.Version

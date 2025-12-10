@@ -6698,6 +6698,9 @@ func init() {
         "multiTenancyConfig": {
           "$ref": "#/definitions/MultiTenancyConfig"
         },
+        "objectTtlConfig": {
+          "$ref": "#/definitions/ObjectTtlConfig"
+        },
         "properties": {
           "description": "Define properties of the collection.",
           "type": "array",
@@ -7518,6 +7521,31 @@ func init() {
         "vectors": {
           "description": "This field returns vectors associated with the object.",
           "$ref": "#/definitions/Vectors"
+        }
+      }
+    },
+    "ObjectTtlConfig": {
+      "description": "Configuration of objects' time-to-live",
+      "properties": {
+        "defaultTtl": {
+          "description": "Interval (in seconds) to be added to ` + "`" + `deleteOn` + "`" + ` value, denoting object's expiration time. Has to be positive for ` + "`" + `deleteOn` + "`" + ` set to ` + "`" + `_creationTimeUnix` + "`" + ` or ` + "`" + `_lastUpdateTimeUnix` + "`" + `, any for custom property (default: ` + "`" + `0` + "`" + `).",
+          "type": "integer",
+          "x-omitempty": false
+        },
+        "deleteOn": {
+          "description": "Name of the property holding base time to compute object's expiration time (ttl = value of deleteOn property + defaultTtl). Can be set to ` + "`" + `_creationTimeUnix` + "`" + `, ` + "`" + `_lastUpdateTimeUnix` + "`" + ` or custom property of ` + "`" + `date` + "`" + ` datatype.",
+          "type": "string",
+          "x-omitempty": false
+        },
+        "enabled": {
+          "description": "Whether or not object ttl is enabled for this collection (default: ` + "`" + `false` + "`" + `).",
+          "type": "boolean",
+          "x-omitempty": false
+        },
+        "postSearchFilter": {
+          "description": "Whether remove from resultset expired, but not yet deleted by background process objects (default: ` + "`" + `false` + "`" + `).",
+          "type": "boolean",
+          "x-omitempty": false
         }
       }
     },
@@ -16163,6 +16191,9 @@ func init() {
         "multiTenancyConfig": {
           "$ref": "#/definitions/MultiTenancyConfig"
         },
+        "objectTtlConfig": {
+          "$ref": "#/definitions/ObjectTtlConfig"
+        },
         "properties": {
           "description": "Define properties of the collection.",
           "type": "array",
@@ -17039,6 +17070,31 @@ func init() {
         "vectors": {
           "description": "This field returns vectors associated with the object.",
           "$ref": "#/definitions/Vectors"
+        }
+      }
+    },
+    "ObjectTtlConfig": {
+      "description": "Configuration of objects' time-to-live",
+      "properties": {
+        "defaultTtl": {
+          "description": "Interval (in seconds) to be added to ` + "`" + `deleteOn` + "`" + ` value, denoting object's expiration time. Has to be positive for ` + "`" + `deleteOn` + "`" + ` set to ` + "`" + `_creationTimeUnix` + "`" + ` or ` + "`" + `_lastUpdateTimeUnix` + "`" + `, any for custom property (default: ` + "`" + `0` + "`" + `).",
+          "type": "integer",
+          "x-omitempty": false
+        },
+        "deleteOn": {
+          "description": "Name of the property holding base time to compute object's expiration time (ttl = value of deleteOn property + defaultTtl). Can be set to ` + "`" + `_creationTimeUnix` + "`" + `, ` + "`" + `_lastUpdateTimeUnix` + "`" + ` or custom property of ` + "`" + `date` + "`" + ` datatype.",
+          "type": "string",
+          "x-omitempty": false
+        },
+        "enabled": {
+          "description": "Whether or not object ttl is enabled for this collection (default: ` + "`" + `false` + "`" + `).",
+          "type": "boolean",
+          "x-omitempty": false
+        },
+        "postSearchFilter": {
+          "description": "Whether remove from resultset expired, but not yet deleted by background process objects (default: ` + "`" + `false` + "`" + `).",
+          "type": "boolean",
+          "x-omitempty": false
         }
       }
     },

@@ -98,6 +98,7 @@ type SchemaReader interface {
 	ShardFromUUID(class string, uuid []byte) string
 	ShardOwner(class, shard string) (string, error)
 	Read(class string, retryIfClassNotFound bool, reader func(*models.Class, *sharding.State) error) error
+	ReadSchema(reader func(models.Class, uint64)) error
 	Shards(class string) ([]string, error)
 	LocalShards(class string) ([]string, error)
 	GetShardsStatus(class, tenant string) (models.ShardStatusList, error)
