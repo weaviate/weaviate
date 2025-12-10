@@ -150,85 +150,76 @@ func (c *compactorSet) writeKeys(f *segmentindex.SegmentFile) ([]segmentindex.Ke
 
 	// the (dummy) header was already written, this is our initial offset
 	offset := segmentindex.HeaderSize
-
 	var kis []segmentindex.Key
 
 	for {
 		if key1 == nil && key2 == nil {
 			break
 		}
-		if bytes.Equal(key1, key2) {
-			skip, err := c.shouldSkipKey(key1, context.Background())
-			if err != nil {
-				return nil, errors.Wrap(err, "should skip key")
-			}
-			if skip {
-				// advance both
-				key1, value1, _ = c.c1.next()
-				key2, value2, _ = c.c2.next()
-				continue
-			}
-			values := append(value1, value2...)
-			valuesMerged := newSetDecoder().DoPartial(values)
-			if values, skip := c.cleanupValues(valuesMerged); !skip {
-				ki, err := c.writeIndividualNode(f, offset, key2, values)
-				if err != nil {
-					return nil, errors.Wrap(err, "write individual node (equal keys)")
-				}
 
-				offset = ki.ValueEnd
-				kis = append(kis, ki)
+		if bytes.Equal(key1, key2) {
+			if err := c.processKeyPair(f, &offset, &kis, key1, key2, value1, value2); err != nil {
+				return nil, err
 			}
 			// advance both!
 			key1, value1, _ = c.c1.next()
 			key2, value2, _ = c.c2.next()
-			continue
-		}
-
-		if (key1 != nil && bytes.Compare(key1, key2) == -1) || key2 == nil {
+		} else if (key1 != nil && bytes.Compare(key1, key2) == -1) || key2 == nil {
 			// key 1 is smaller
-			skip, err := c.shouldSkipKey(key1, context.Background())
-			if err != nil {
-				return nil, errors.Wrap(err, "should skip key")
-			}
-			if skip {
-				key1, value1, _ = c.c1.next()
-				continue
-			}
-			if values, skip := c.cleanupValues(value1); !skip {
-				ki, err := c.writeIndividualNode(f, offset, key1, values)
-				if err != nil {
-					return nil, errors.Wrap(err, "write individual node (key1 smaller)")
-				}
-
-				offset = ki.ValueEnd
-				kis = append(kis, ki)
+			if err := c.processKey(f, &offset, &kis, key1, value1); err != nil {
+				return nil, err
 			}
 			key1, value1, _ = c.c1.next()
 		} else {
 			// key 2 is smaller
-			skip, err := c.shouldSkipKey(key2, context.Background())
-			if err != nil {
-				return nil, errors.Wrap(err, "should skip key")
-			}
-			if skip {
-				key2, value2, _ = c.c2.next()
-				continue
-			}
-			if values, skip := c.cleanupValues(value2); !skip {
-				ki, err := c.writeIndividualNode(f, offset, key2, values)
-				if err != nil {
-					return nil, errors.Wrap(err, "write individual node (key2 smaller)")
-				}
-
-				offset = ki.ValueEnd
-				kis = append(kis, ki)
+			if err := c.processKey(f, &offset, &kis, key2, value2); err != nil {
+				return nil, err
 			}
 			key2, value2, _ = c.c2.next()
 		}
 	}
 
 	return kis, nil
+}
+
+func (c *compactorSet) processKeyPair(f *segmentindex.SegmentFile, offset *int,
+	kis *[]segmentindex.Key, key1, key2 []byte, value1, value2 []value,
+) error {
+	skip, err := c.shouldSkipKey(key1, context.Background())
+	if err != nil || skip {
+		return err
+	}
+
+	values := append(value1, value2...)
+	valuesMerged := newSetDecoder().DoPartial(values)
+	if vals, skip := c.cleanupValues(valuesMerged); !skip {
+		ki, err := c.writeIndividualNode(f, *offset, key2, vals)
+		if err != nil {
+			return errors.Wrap(err, "write individual node")
+		}
+		*offset = ki.ValueEnd
+		*kis = append(*kis, ki)
+	}
+	return nil
+}
+
+func (c *compactorSet) processKey(f *segmentindex.SegmentFile, offset *int,
+	kis *[]segmentindex.Key, key []byte, value []value,
+) error {
+	skip, err := c.shouldSkipKey(key, context.Background())
+	if err != nil || skip {
+		return err
+	}
+
+	if vals, skip := c.cleanupValues(value); !skip {
+		ki, err := c.writeIndividualNode(f, *offset, key, vals)
+		if err != nil {
+			return errors.Wrap(err, "write individual node")
+		}
+		*offset = ki.ValueEnd
+		*kis = append(*kis, ki)
+	}
+	return nil
 }
 
 func (c *compactorSet) writeIndividualNode(f *segmentindex.SegmentFile,
@@ -294,7 +285,7 @@ func (c *compactorSet) shouldSkipKey(key []byte, ctx context.Context) (bool, err
 	if c.shouldSkipKeyFunc == nil {
 		return false, nil
 	}
-	skip, err := c.shouldSkipKeyFunc(key, context.Background())
+	skip, err := c.shouldSkipKeyFunc(key, ctx)
 	if err != nil {
 		return false, errors.Wrap(err, "should skip key")
 	}
