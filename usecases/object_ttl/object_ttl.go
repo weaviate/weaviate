@@ -62,6 +62,15 @@ type Coordinator struct {
 	remoteObjectTTL   *remoteObjectTTL
 }
 
+// Start triggers the deletion of expired objects.
+//
+// It is expected to be called periodically, e.g., via a cron job on the RAFT Leader to ensure that there are no
+// parallel executions running. The RAFT leader will send a request to a remote node in multi-node clusters as the
+// coordinator of the next deletion run to not add any additional load on the leader. In single-node clusters, it will
+// execute the deletion locally.
+//
+// There should always only one deletion run ongoing at any time. In case of remote deletions it will check with the last
+// node used for deletion if the previous run is still ongoing and skip the current run if so.
 func (c *Coordinator) Start(ctx context.Context, targetOwnNode bool, ttlTime, deletionTime time.Time) error {
 	if !c.objectTTLOngoing.CompareAndSwap(false, true) {
 		return fmt.Errorf("TTL deletion already ongoing")
