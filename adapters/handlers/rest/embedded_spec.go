@@ -7542,7 +7542,7 @@ func init() {
           "type": "boolean",
           "x-omitempty": false
         },
-        "postSearchFilter": {
+        "filterExpiredObjects": {
           "description": "Whether remove from resultset expired, but not yet deleted by background process objects (default: ` + "`" + `false` + "`" + `).",
           "type": "boolean",
           "x-omitempty": false
@@ -17091,7 +17091,7 @@ func init() {
           "type": "boolean",
           "x-omitempty": false
         },
-        "postSearchFilter": {
+        "filterExpiredObjects": {
           "description": "Whether remove from resultset expired, but not yet deleted by background process objects (default: ` + "`" + `false` + "`" + `).",
           "type": "boolean",
           "x-omitempty": false
