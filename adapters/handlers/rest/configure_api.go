@@ -49,6 +49,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/clients"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/authz"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
+	clusterapigrpc "github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc/generated/protocol"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/db_users"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
@@ -469,6 +470,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		MaintenanceModeEnabled:                       appState.Cluster.MaintenanceModeEnabledForLocalhost,
 		AsyncIndexingEnabled:                         appState.ServerConfig.Config.AsyncIndexingEnabled,
 		HFreshEnabled:                                appState.ServerConfig.Config.HFreshEnabled,
+		OperationalMode:                              appState.ServerConfig.Config.OperationalMode,
 	}, remoteIndexClient, appState.Cluster, remoteNodesClient, replicationClient, appState.Metrics, appState.MemWatch, nil, nil, nil) // TODO client
 	if err != nil {
 		appState.Logger.
@@ -553,6 +555,16 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 			grpc.WithStreamInterceptor(grpcconn.BasicAuthStreamInterceptor(authHeader)),
 		)
 	}
+
+	maxSize := clusterapigrpc.GetMaxMessageSize(appState.ServerConfig.Config.ReplicationEngineFileCopyChunkSize)
+	opts = append(opts,
+		grpc.WithDefaultCallOptions(
+			grpc.MaxCallRecvMsgSize(maxSize),
+			grpc.MaxCallSendMsgSize(maxSize),
+		),
+		grpc.WithInitialWindowSize(int32(maxSize)),
+		grpc.WithInitialConnWindowSize(clusterapigrpc.INITIAL_CONN_WINDOW),
+	)
 
 	grpcMaxOpenConns := appState.ServerConfig.Config.GRPC.MaxOpenConns
 	grpcIddleConnTimeout := appState.ServerConfig.Config.GRPC.IdleConnTimeout
@@ -2008,6 +2020,7 @@ func initRuntimeOverrides(appState *state.State) {
 		registered.RaftDrainSleep = appState.ServerConfig.Config.Raft.DrainSleep
 		registered.RaftTimoutsMultiplier = appState.ServerConfig.Config.Raft.TimeoutsMultiplier
 		registered.ReplicatedIndicesRequestQueueEnabled = appState.ServerConfig.Config.Cluster.RequestQueueConfig.IsEnabled
+		registered.OperationalMode = appState.ServerConfig.Config.OperationalMode
 
 		if appState.Modules.UsageEnabled() {
 			// gcs config
