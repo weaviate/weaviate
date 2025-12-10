@@ -111,9 +111,6 @@ type DB struct {
 	bitmapBufPoolClose func()
 
 	AsyncIndexingEnabled bool
-
-	objectTTLOngoing  atomic.Bool
-	objectTTLLastNode string
 }
 
 func (db *DB) GetSchemaGetter() schemaUC.SchemaGetter {

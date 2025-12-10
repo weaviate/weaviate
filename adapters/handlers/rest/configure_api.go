@@ -930,7 +930,7 @@ func configureCrons(appState *state.State, serverShutdownCtx context.Context) {
 					}
 				}()
 
-				err = appState.DB.TriggerDeletionObjectsExpired(serverShutdownCtx, appState.RemoteObjectTTL, started, started, false)
+				err = appState.ObjectTTLCoordinator.Start(serverShutdownCtx, false, started, started)
 			}))
 
 		specs = append(specs, jobSpec{
@@ -1068,8 +1068,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	remoteDbUsers := clients.NewRemoteUser(appState.ClusterHttpClient, appState.Cluster)
 	db_users.SetupHandlers(api, appState.ClusterService.Raft, appState.Authorizer, appState.ServerConfig.Config.Authentication, appState.ServerConfig.Config.Authorization, remoteDbUsers, appState.SchemaManager, appState.Logger)
-	remoteObjectTTL := objectttl.NewRemoteObjectTTL(appState.ClusterHttpClient, appState.Cluster)
-	appState.RemoteObjectTTL = remoteObjectTTL
+	appState.ObjectTTLCoordinator = objectttl.NewCoordinator(appState.ClusterService.SchemaReader(), appState.SchemaManager, appState.DB, appState.Logger, appState.ClusterHttpClient, appState.Cluster)
 
 	setupSchemaHandlers(api, appState.SchemaManager, appState.Metrics, appState.Logger)
 	setupAliasesHandlers(api, appState.SchemaManager, appState.Metrics, appState.Logger)
