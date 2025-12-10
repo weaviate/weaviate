@@ -24,6 +24,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
@@ -195,6 +196,8 @@ type hnsw struct {
 
 	visitedListPoolMaxSize int
 
+	asyncIndexingEnabled bool
+
 	// only used for multivector mode
 	multivector       atomic.Bool
 	muvera            atomic.Bool
@@ -364,6 +367,7 @@ func New(cfg Config, uc ent.UserConfig,
 		store:                  store,
 		allocChecker:           cfg.AllocChecker,
 		visitedListPoolMaxSize: cfg.VisitedListPoolMaxSize,
+		asyncIndexingEnabled:   cfg.AsyncIndexingEnabled,
 
 		docIDVectors:      make(map[uint64][]uint64),
 		muveraEncoder:     muveraEncoder,
@@ -1031,14 +1035,15 @@ func (h *hnsw) Stats() (*HnswStats, error) {
 		DistributionLayers: distributionLayers,
 		UnreachablePoints:  h.calculateUnreachablePoints(),
 		NumTombstones:      len(h.tombstones),
-		CacheSize:          h.cache.Len(),
 		Compressed:         h.compressed.Load(),
 	}
 
 	if stats.Compressed {
 		stats.CompressorStats = h.compressor.Stats()
+		stats.CacheSize = h.compressor.Len()
 	} else {
 		stats.CompressorStats = compressionhelpers.UncompressedStats{}
+		stats.CacheSize = h.cache.Len()
 	}
 
 	stats.CompressionType = stats.CompressorStats.CompressionType()

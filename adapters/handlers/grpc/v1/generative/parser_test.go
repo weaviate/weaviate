@@ -386,6 +386,9 @@ func Test_RequestParser(t *testing.T) {
 									Model:         makeStrPtr("model"),
 									Temperature:   makeFloat64Ptr(0.5),
 									MaxTokens:     makeInt64Ptr(500),
+									StopSequences: &pb.TextArray{
+										Values: []string{"stop"},
+									},
 								},
 							},
 						},
@@ -404,6 +407,7 @@ func Test_RequestParser(t *testing.T) {
 						Model:         "model",
 						Temperature:   makeFloat64Ptr(0.5),
 						MaxTokens:     makeIntPtr(500),
+						StopSequences: []string{"stop"},
 					},
 				},
 			},

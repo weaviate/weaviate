@@ -24,22 +24,20 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// fileChunkSize defines the size of each file chunk sent over gRPC.
-// Currently set to 64 KB, which is a reasonable size for network transmission.
-// It can be made configurable in the future if needed.
-const fileChunkSize = 64 * 1024 // 64 KB
-
 type FileReplicationService struct {
 	pb.UnimplementedFileReplicationServiceServer
 
 	repo   sharding.RemoteIncomingRepo
 	schema sharding.RemoteIncomingSchema
+
+	fileChunkSize int
 }
 
-func NewFileReplicationService(repo sharding.RemoteIncomingRepo, schema sharding.RemoteIncomingSchema) *FileReplicationService {
+func NewFileReplicationService(repo sharding.RemoteIncomingRepo, schema sharding.RemoteIncomingSchema, fileChunkSize int) *FileReplicationService {
 	return &FileReplicationService{
-		repo:   repo,
-		schema: schema,
+		repo:          repo,
+		schema:        schema,
+		fileChunkSize: fileChunkSize,
 	}
 }
 
@@ -105,98 +103,73 @@ func (fps *FileReplicationService) ListFiles(ctx context.Context, req *pb.ListFi
 	}, nil
 }
 
-func (fps *FileReplicationService) GetFileMetadata(stream pb.FileReplicationService_GetFileMetadataServer) error {
-	for {
-		req, err := stream.Recv()
-		if err != nil {
-			if errors.Is(err, io.EOF) {
-				return nil
-			}
-			return status.Errorf(codes.Internal, "failed to receive request: %v", err)
-		}
+func (fps *FileReplicationService) GetFileMetadata(ctx context.Context, req *pb.GetFileMetadataRequest) (*pb.FileMetadata, error) {
+	indexName := req.GetIndexName()
+	shardName := req.GetShardName()
+	fileName := req.GetFileName()
 
-		indexName := req.GetIndexName()
-		shardName := req.GetShardName()
-		fileName := req.GetFileName()
-
-		index := fps.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
-		if index == nil {
-			return status.Errorf(codes.Internal, "local index %q not found", indexName)
-		}
-
-		md, err := index.IncomingGetFileMetadata(stream.Context(), shardName, fileName)
-		if err != nil {
-			return status.Errorf(codes.Internal, "failed to get file metadata for %q in shard %q: %v", fileName, shardName, err)
-		}
-
-		if err := stream.Send(&pb.FileMetadata{
-			IndexName: indexName,
-			ShardName: shardName,
-			FileName:  fileName,
-			Size:      md.Size,
-			Crc32:     md.CRC32,
-		}); err != nil {
-			return status.Errorf(codes.Internal, "failed to send file metadata response: %v", err)
-		}
+	index := fps.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
+	if index == nil {
+		return nil, status.Errorf(codes.Internal, "local index %q not found", indexName)
 	}
+
+	md, err := index.IncomingGetFileMetadata(ctx, shardName, fileName)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to get file metadata for %q in shard %q: %v", fileName, shardName, err)
+	}
+
+	return &pb.FileMetadata{
+		IndexName: indexName,
+		ShardName: shardName,
+		FileName:  fileName,
+		Size:      md.Size,
+		Crc32:     md.CRC32,
+	}, nil
 }
 
-func (fps *FileReplicationService) GetFile(stream pb.FileReplicationService_GetFileServer) error {
+func (fps *FileReplicationService) GetFile(req *pb.GetFileRequest, stream pb.FileReplicationService_GetFileServer) error {
+	if req.GetCompression() != pb.CompressionType_COMPRESSION_TYPE_UNSPECIFIED {
+		return status.Errorf(codes.Unimplemented, "compression type %q is not supported", req.GetCompression())
+	}
+
+	index := fps.repo.GetIndexForIncomingSharding(schema.ClassName(req.IndexName))
+	if index == nil {
+		return status.Errorf(codes.Internal, "local index %q not found", req.IndexName)
+	}
+
+	reader, err := index.IncomingGetFile(stream.Context(), req.ShardName, req.FileName)
+	if err != nil {
+		return status.Errorf(codes.Internal, "failed to get file %q: %v", req.FileName, err)
+	}
+	defer reader.Close()
+
+	buf := make([]byte, fps.fileChunkSize)
+	offset := 0
+
 	for {
-		req, err := stream.Recv()
-		if err != nil {
-			if errors.Is(err, io.EOF) {
-				return nil
-			}
-			return status.Errorf(codes.Internal, "failed to receive request: %v", err)
+		n, err := reader.Read(buf)
+		eof := errors.Is(err, io.EOF)
+
+		if err != nil && !eof {
+			return status.Errorf(codes.Internal, "failed to read file %q: %v", req.FileName, err)
 		}
 
-		if req.GetCompression() != pb.CompressionType_COMPRESSION_TYPE_UNSPECIFIED {
-			return status.Errorf(codes.Unimplemented, "compression type %q is not supported", req.GetCompression())
+		if n == 0 && !eof {
+			return status.Errorf(codes.Internal,
+				"unexpected zero-byte read without EOF for file %q in shard %q", req.FileName, req.ShardName)
 		}
 
-		indexName := req.GetIndexName()
-		shardName := req.GetShardName()
-		fileName := req.GetFileName()
-
-		index := fps.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
-		if index == nil {
-			return status.Errorf(codes.Internal, "local index %q not found", indexName)
-		}
-
-		if err := func() error {
-			fileReader, err := index.IncomingGetFile(stream.Context(), shardName, fileName)
-			if err != nil {
-				return status.Errorf(codes.Internal, "failed to get file %q in shard %q: %v", fileName, shardName, err)
-			}
-			defer fileReader.Close()
-
-			buf := make([]byte, fileChunkSize)
-
-			offset := 0
-
-			for {
-				n, err := fileReader.Read(buf)
-				eof := err != nil && errors.Is(err, io.EOF)
-
-				if err := stream.Send(&pb.FileChunk{
-					Offset: int64(offset),
-					Data:   buf[:n],
-					Eof:    eof,
-				}); err != nil {
-					return status.Errorf(codes.Internal, "failed to send file chunk: %v", err)
-				}
-
-				if eof {
-					break
-				}
-
-				offset += n
-			}
-
-			return nil
-		}(); err != nil {
+		if err := stream.Send(&pb.FileChunk{
+			Offset: int64(offset),
+			Data:   buf[:n],
+			Eof:    eof,
+		}); err != nil {
 			return err
+		}
+		offset += n
+
+		if eof {
+			return nil
 		}
 	}
 }

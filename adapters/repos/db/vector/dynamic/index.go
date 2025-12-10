@@ -34,7 +34,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/flat"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	schemaconfig "github.com/weaviate/weaviate/entities/schema/config"
@@ -118,12 +117,10 @@ type dynamic struct {
 	hnswWaitForCachePrefill bool
 	AllocChecker            memwatch.AllocChecker
 	MakeBucketOptions       lsmkv.MakeBucketOptions
+	AsyncIndexingEnabled    bool
 }
 
 func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
-	if !entcfg.Enabled(os.Getenv("ASYNC_INDEXING")) {
-		return nil, errors.New("the dynamic index can only be created under async indexing environment")
-	}
 	if err := cfg.Validate(); err != nil {
 		return nil, errors.Wrap(err, "invalid config")
 	}
@@ -171,6 +168,7 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 		hnswWaitForCachePrefill: cfg.HNSWWaitForCachePrefill,
 		AllocChecker:            cfg.AllocChecker,
 		MakeBucketOptions:       cfg.MakeBucketOptions,
+		AsyncIndexingEnabled:    cfg.AsyncIndexingEnabled,
 	}
 
 	upgraded, err := index.init(&cfg)
@@ -197,6 +195,7 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 				WaitForCachePrefill:   index.hnswWaitForCachePrefill,
 				AllocChecker:          index.AllocChecker,
 				MakeBucketOptions:     index.MakeBucketOptions,
+				AsyncIndexingEnabled:  index.AsyncIndexingEnabled,
 			},
 			index.uc.HnswUC,
 			index.tombstoneCallbacks,
@@ -533,6 +532,7 @@ func (dynamic *dynamic) doUpgrade() error {
 			WaitForCachePrefill:   dynamic.hnswWaitForCachePrefill,
 			AllocChecker:          dynamic.AllocChecker,
 			MakeBucketOptions:     dynamic.MakeBucketOptions,
+			AsyncIndexingEnabled:  dynamic.AsyncIndexingEnabled,
 		},
 		dynamic.uc.HnswUC,
 		dynamic.tombstoneCallbacks,

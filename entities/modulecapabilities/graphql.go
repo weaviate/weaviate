@@ -26,7 +26,7 @@ type AggregateArgumentsFn = func(classname string) *graphql.ArgumentConfig
 type ExploreArgumentsFn = func() *graphql.ArgumentConfig
 
 // ExtractFn extracts graphql params to given struct implementation
-type ExtractFn = func(param map[string]interface{}) (interface{}, *dto.TargetCombination, error)
+type ExtractFn = func(param map[string]any) (any, *dto.TargetCombination, error)
 
 // NearParam defines params with certainty information
 type NearParam interface {
@@ -37,7 +37,7 @@ type NearParam interface {
 }
 
 // ValidateFn validates a given module param
-type ValidateFn = func(param interface{}) error
+type ValidateFn = func(param any) error
 
 // GraphQLArgument defines all the needed settings / methods
 // to add a module specific graphql argument

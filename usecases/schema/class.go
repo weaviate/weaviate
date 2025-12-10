@@ -728,10 +728,10 @@ func (h *Handler) validateProperty(
 
 func setInvertedConfigDefaults(class *models.Class) {
 	if class.InvertedIndexConfig == nil {
-		class.InvertedIndexConfig = &models.InvertedIndexConfig{
-			UsingBlockMaxWAND: config.DefaultUsingBlockMaxWAND,
-		}
+		class.InvertedIndexConfig = &models.InvertedIndexConfig{}
 	}
+	// force the default in case it was not set, as empty bool == false
+	class.InvertedIndexConfig.UsingBlockMaxWAND = config.DefaultUsingBlockMaxWAND
 
 	if class.InvertedIndexConfig.CleanupIntervalSeconds == 0 {
 		class.InvertedIndexConfig.CleanupIntervalSeconds = config.DefaultCleanupIntervalSeconds
@@ -951,12 +951,12 @@ func (h *Handler) validateVectorIndexType(vectorIndexType string) error {
 		return nil
 	case vectorindex.VectorIndexTypeDYNAMIC:
 		if !h.asyncIndexingEnabled {
-			return fmt.Errorf("the dynamic index can only be created under async indexing environment (ASYNC_INDEXING=true)")
+			return fmt.Errorf("the dynamic index can only be created when async indexing is enabled")
 		}
 		return nil
-	case vectorindex.VectorIndexTypeSPFresh:
-		if !h.config.SPFreshEnabled {
-			return fmt.Errorf("the spfresh index is available only in experimental mode")
+	case vectorindex.VectorIndexTypeHFresh:
+		if !h.config.HFreshEnabled {
+			return fmt.Errorf("the hfresh index is available only in experimental mode")
 		}
 		return nil
 	default:

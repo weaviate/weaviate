@@ -208,7 +208,7 @@ func TestShard_InvalidVectorBatches(t *testing.T) {
 
 	class := &models.Class{Class: "TestClass"}
 
-	shd, idx := testShardWithSettings(t, ctx, class, hnsw.NewDefaultUserConfig(), false, false)
+	shd, idx := testShardWithSettings(t, ctx, class, hnsw.NewDefaultUserConfig(), false, false, false)
 
 	testShard(t, context.Background(), class.Class)
 
@@ -238,7 +238,7 @@ func TestShard_InvalidMultiVectorBatches(t *testing.T) {
 		ctx := testCtx()
 		class := &models.Class{Class: "TestClass"}
 		vectorIndexConfig := hnsw.NewDefaultMultiVectorUserConfig()
-		shd, idx := testShardWithSettings(t, ctx, class, vectorIndexConfig, false, false)
+		shd, idx := testShardWithSettings(t, ctx, class, vectorIndexConfig, false, false, false)
 		testShard(t, context.Background(), class.Class)
 		r := getRandomSeed()
 		batchSize := 100
@@ -263,7 +263,7 @@ func TestShard_InvalidMultiVectorBatches(t *testing.T) {
 			Enabled:      true,
 			MuveraConfig: hnsw.MuveraConfig{Enabled: true, KSim: 1, Repetitions: 2, DProjections: 5},
 		}
-		shd, idx := testShardWithSettings(t, ctx, class, vectorIndexConfig, false, false)
+		shd, idx := testShardWithSettings(t, ctx, class, vectorIndexConfig, false, false, false)
 		testShard(t, context.Background(), class.Class)
 		r := getRandomSeed()
 		batchSize := 100
@@ -282,12 +282,11 @@ func TestShard_InvalidMultiVectorBatches(t *testing.T) {
 }
 
 func TestShard_DebugResetVectorIndex(t *testing.T) {
-	t.Setenv("ASYNC_INDEXING", "true")
 	t.Setenv("ASYNC_INDEXING_STALE_TIMEOUT", "200ms")
 
 	ctx := testCtx()
 	className := "TestClass"
-	shd, idx := testShardWithSettings(t, ctx, &models.Class{Class: className}, hnsw.UserConfig{}, false, true /* withCheckpoints */)
+	shd, idx := testShardWithSettings(t, ctx, &models.Class{Class: className}, hnsw.UserConfig{}, false, true, true /* withCheckpoints */)
 
 	amount := 1500
 
@@ -342,7 +341,6 @@ func TestShard_DebugResetVectorIndex(t *testing.T) {
 }
 
 func TestShard_DebugResetVectorIndex_WithTargetVectors(t *testing.T) {
-	t.Setenv("ASYNC_INDEXING", "true")
 	t.Setenv("ASYNC_INDEXING_STALE_TIMEOUT", "200ms")
 
 	ctx := testCtx()
@@ -353,6 +351,7 @@ func TestShard_DebugResetVectorIndex_WithTargetVectors(t *testing.T) {
 		&models.Class{Class: className},
 		hnsw.UserConfig{},
 		false,
+		true,
 		true,
 		func(i *Index) {
 			i.vectorIndexUserConfigs = make(map[string]schemaConfig.VectorIndexConfig)
@@ -417,7 +416,6 @@ func TestShard_DebugResetVectorIndex_WithTargetVectors(t *testing.T) {
 }
 
 func TestShard_RepairIndex(t *testing.T) {
-	t.Setenv("ASYNC_INDEXING", "true")
 	t.Setenv("ASYNC_INDEXING_STALE_TIMEOUT", "200ms")
 
 	tests := []struct {
@@ -481,7 +479,7 @@ func TestShard_RepairIndex(t *testing.T) {
 			if test.idxOpt != nil {
 				opts = append(opts, test.idxOpt)
 			}
-			shd, idx := testShardWithSettings(t, ctx, &models.Class{Class: className}, test.cfg, false, true /* withCheckpoints */, opts...)
+			shd, idx := testShardWithSettings(t, ctx, &models.Class{Class: className}, test.cfg, false, true, true /* withCheckpoints */, opts...)
 
 			amount := 1000
 
@@ -587,7 +585,6 @@ func TestShard_RepairIndex(t *testing.T) {
 }
 
 func TestShard_FillQueue(t *testing.T) {
-	t.Setenv("ASYNC_INDEXING", "true")
 	t.Setenv("ASYNC_INDEXING_STALE_TIMEOUT", "200ms")
 
 	tests := []struct {
@@ -651,7 +648,7 @@ func TestShard_FillQueue(t *testing.T) {
 			if test.idxOpt != nil {
 				opts = append(opts, test.idxOpt)
 			}
-			shd, idx := testShardWithSettings(t, ctx, &models.Class{Class: className}, test.cfg, false, true /* withCheckpoints */, opts...)
+			shd, idx := testShardWithSettings(t, ctx, &models.Class{Class: className}, test.cfg, false, true, true /* withCheckpoints */, opts...)
 
 			amount := 1000
 
@@ -807,7 +804,6 @@ func TestShard_resetDimensionsLSM(t *testing.T) {
 }
 
 func TestShard_UpgradeIndex(t *testing.T) {
-	t.Setenv("ASYNC_INDEXING", "true")
 	t.Setenv("QUEUE_SCHEDULER_INTERVAL", "1ms")
 
 	cfg := dynamic.NewDefaultUserConfig()
@@ -820,7 +816,7 @@ func TestShard_UpgradeIndex(t *testing.T) {
 		i.vectorIndexUserConfig = cfg
 	})
 
-	shd, _ := testShardWithSettings(t, ctx, &models.Class{Class: className}, cfg, false, true /* withCheckpoints */, opts...)
+	shd, _ := testShardWithSettings(t, ctx, &models.Class{Class: className}, cfg, false, true, true /* withCheckpoints */, opts...)
 
 	defer func(path string) {
 		err := os.RemoveAll(path)
@@ -923,7 +919,7 @@ func TestShard_RequantizeIndex(t *testing.T) {
 			if test.idxOpt != nil {
 				opts = append(opts, test.idxOpt)
 			}
-			shd, idx := testShardWithSettings(t, ctx, &models.Class{Class: className}, test.cfg, false, true, opts...)
+			shd, idx := testShardWithSettings(t, ctx, &models.Class{Class: className}, test.cfg, false, true, false, opts...)
 
 			amount := 50
 

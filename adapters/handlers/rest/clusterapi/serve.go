@@ -20,8 +20,6 @@ import (
 	"strings"
 
 	sentryhttp "github.com/getsentry/sentry-go/http"
-	"golang.org/x/net/http2"
-	"golang.org/x/net/http2/h2c"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
@@ -60,7 +58,9 @@ func NewServer(appState *state.State) *Server {
 		auth,
 		appState.Cluster.MaintenanceModeEnabledForLocalhost,
 		appState.ServerConfig.Config.Cluster.RequestQueueConfig,
-		appState.Logger)
+		appState.Logger,
+		appState.ClusterService.Ready)
+
 	classifications := NewClassifications(appState.ClassificationRepo.TxManager(), auth)
 	nodes := NewNodes(appState.RemoteNodeIncoming, auth)
 	backups := NewBackups(appState.BackupManager, auth)
@@ -114,16 +114,15 @@ func NewServer(appState *state.State) *Server {
 		)
 	}
 
-	// Configure HTTP/2 server
-	h2s := &http2.Server{
-		MaxConcurrentStreams: MAX_CONCURRENT_STREAMS,
-		MaxReadFrameSize:     MAX_READ_FRAME_SIZE,
-	}
+	protocols := http.Protocols{}
+	protocols.SetHTTP1(true)
+	protocols.SetUnencryptedHTTP2(true)
 
 	return &Server{
 		server: &http.Server{
-			Addr:    fmt.Sprintf(":%d", port),
-			Handler: h2c.NewHandler(handler, h2s),
+			Addr:      fmt.Sprintf(":%d", port),
+			Handler:   handler,
+			Protocols: &protocols,
 		},
 		appState:          appState,
 		replicatedIndices: replicatedIndices,

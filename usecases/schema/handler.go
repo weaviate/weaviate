@@ -14,14 +14,13 @@ package schema
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
-	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -60,7 +59,6 @@ type SchemaManager interface {
 	Remove(_ context.Context, nodeID string) error
 	Stats() map[string]any
 	StorageCandidates() []string
-	StoreSchemaV1() error
 
 	// Strongly consistent schema read. These endpoints will emit a query to the leader to ensure that the data is read
 	// from an up to date schema.
@@ -185,7 +183,7 @@ func NewHandler(
 		cloud:                   cloud,
 		classGetter:             classGetter,
 
-		asyncIndexingEnabled: entcfg.Enabled(os.Getenv("ASYNC_INDEXING")),
+		asyncIndexingEnabled: config.AsyncIndexingEnabled,
 	}
 	return handler, nil
 }
@@ -306,8 +304,4 @@ func (h *Handler) RemoveNode(ctx context.Context, node string) error {
 // Statistics is used to return a map of various internal stats. This should only be used for informative purposes or debugging.
 func (h *Handler) Statistics() map[string]any {
 	return h.schemaManager.Stats()
-}
-
-func (h *Handler) StoreSchemaV1() error {
-	return h.schemaManager.StoreSchemaV1()
 }
