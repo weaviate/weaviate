@@ -80,6 +80,11 @@ func (m *MockSchemaExecutor) AddProperty(class string, req cmd.AddPropertyReques
 	return args.Error(0)
 }
 
+func (m *MockSchemaExecutor) UpdateProperty(class string, req cmd.UpdatePropertyRequest) error {
+	args := m.Called(class, req)
+	return args.Error(0)
+}
+
 func (m *MockSchemaExecutor) AddTenants(class string, req *cmd.AddTenantsRequest) error {
 	args := m.Called(class, req)
 	return args.Error(0)
