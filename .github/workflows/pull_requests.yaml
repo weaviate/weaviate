@@ -295,6 +295,7 @@ jobs:
           "--only-module-text2vec-openai",
           "--only-module-reranker-jinaai",
           "--only-module-text2vec-cohere",
+          "--only-module-reranker-cohere",
         ]
     steps:
       - uses: actions/checkout@v5

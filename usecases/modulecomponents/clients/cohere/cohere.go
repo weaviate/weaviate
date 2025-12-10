@@ -72,7 +72,7 @@ type embeddings struct {
 type Client struct {
 	apiKey     string
 	httpClient *http.Client
-	urlBuilder *cohereUrlBuilder
+	urlBuilder UrlBuilder
 	logger     logrus.FieldLogger
 }
 
@@ -102,7 +102,7 @@ func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *Clien
 		httpClient: &http.Client{
 			Timeout: timeout,
 		},
-		urlBuilder: newCohereUrlBuilder(),
+		urlBuilder: NewCohereUrlBuilder("/v2/embed"),
 		logger:     logger,
 	}
 }
@@ -195,7 +195,7 @@ func (c *Client) getCohereUrl(ctx context.Context, baseURL string) string {
 	if headerBaseURL := modulecomponents.GetValueFromContext(ctx, "X-Cohere-Baseurl"); headerBaseURL != "" {
 		passedBaseURL = headerBaseURL
 	}
-	return c.urlBuilder.url(passedBaseURL)
+	return c.urlBuilder.URL(passedBaseURL)
 }
 
 func (c *Client) GetApiKeyHash(ctx context.Context, config moduletools.ClassConfig) [32]byte {

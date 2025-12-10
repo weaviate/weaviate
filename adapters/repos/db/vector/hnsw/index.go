@@ -880,6 +880,9 @@ func (h *hnsw) Upgraded() bool {
 }
 
 func (h *hnsw) AlreadyIndexed() uint64 {
+	if h.compressed.Load() {
+		return uint64(h.compressor.CountVectors())
+	}
 	return uint64(h.cache.CountVectors())
 }
 
