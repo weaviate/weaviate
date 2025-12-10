@@ -13,6 +13,7 @@ package lsmkv
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -281,7 +282,10 @@ func (m *Memtable) flushDataMap(f *segmentindex.SegmentFile) ([]segmentindex.Key
 func (m *Memtable) flushDataCollection(f *segmentindex.SegmentFile,
 	flat []*binarySearchNodeMulti,
 ) ([]segmentindex.Key, error) {
-	totalDataLength := totalValueSizeCollection(flat)
+	totalDataLength, err := totalValueSizeCollection(flat, m.shouldSkipKeyFunc)
+	if err != nil {
+		return nil, err
+	}
 	header := &segmentindex.Header{
 		IndexStart:       uint64(totalDataLength + segmentindex.HeaderSize),
 		Level:            0, // always level zero on a new one
@@ -298,7 +302,14 @@ func (m *Memtable) flushDataCollection(f *segmentindex.SegmentFile,
 	keys := make([]segmentindex.Key, len(flat))
 
 	totalWritten := headerSize
-	for i, node := range flat {
+	i := 0
+	for _, node := range flat {
+		if shouldSkipKey, err := m.shouldSkipKeyFunc(node.key, context.Background()); err != nil {
+			return nil, errors.Wrap(err, "should skip key")
+		} else if shouldSkipKey {
+			continue
+		}
+
 		ki, err := (&segmentCollectionNode{
 			values:     node.values,
 			primaryKey: node.key,
@@ -309,10 +320,11 @@ func (m *Memtable) flushDataCollection(f *segmentindex.SegmentFile,
 		}
 
 		keys[i] = ki
+		i++
 		totalWritten = ki.ValueEnd
 	}
 
-	return keys, nil
+	return keys[:i], nil
 }
 
 func totalKeyAndValueSize(in []*binarySearchNode) int {
@@ -328,9 +340,15 @@ func totalKeyAndValueSize(in []*binarySearchNode) int {
 	return sum
 }
 
-func totalValueSizeCollection(in []*binarySearchNodeMulti) int {
+func totalValueSizeCollection(in []*binarySearchNodeMulti, shouldSkipKeyFunc func(key []byte, ctx context.Context) (bool, error)) (int, error) {
 	var sum int
 	for _, n := range in {
+		if shouldSkipKey, err := shouldSkipKeyFunc(n.key, context.Background()); err != nil {
+			return 0, err
+		} else if shouldSkipKey {
+			continue
+		}
+
 		sum += 8 // uint64 to indicate array length
 		for _, v := range n.values {
 			sum += 1 // bool to indicate value tombstone
@@ -342,5 +360,5 @@ func totalValueSizeCollection(in []*binarySearchNodeMulti) int {
 		sum += len(n.key)
 	}
 
-	return sum
+	return sum, nil
 }
