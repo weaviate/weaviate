@@ -18,26 +18,25 @@ import (
 	"testing"
 	"time"
 
-	"github.com/weaviate/weaviate/usecases/schema"
-
-	"github.com/weaviate/weaviate/usecases/monitoring"
-	"github.com/weaviate/weaviate/usecases/replica"
-	"github.com/weaviate/weaviate/usecases/sharding"
-	"github.com/weaviate/weaviate/usecases/sharding/config"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"golang.org/x/exp/slices"
+
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	clusterRouter "github.com/weaviate/weaviate/cluster/router"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
 	clusterMocks "github.com/weaviate/weaviate/usecases/cluster/mocks"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/objects"
-	"golang.org/x/exp/slices"
+	"github.com/weaviate/weaviate/usecases/replica"
+	"github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/sharding"
+	"github.com/weaviate/weaviate/usecases/sharding/config"
 )
 
 var (
@@ -735,7 +734,7 @@ func TestReplicatorAddReferences(t *testing.T) {
 			resp := replica.SimpleResponse{}
 			for _, n := range nodes {
 				f.WClient.On("AddReferences", mock.Anything, n, cls, shard, anyVal, refs, uint64(123)).Return(resp, nil)
-				f.WClient.On("Commit", ctx, n, cls, shard, anyVal, anyVal).Return(nil)
+				f.WClient.On("Commit", mock.Anything, n, cls, shard, anyVal, anyVal).Return(nil)
 			}
 			errs := rep.AddReferences(ctx, shard, refs, types.ConsistencyLevelAll, 123)
 			assert.Equal(t, []error{nil, nil}, errs)
@@ -779,8 +778,8 @@ func TestReplicatorAddReferences(t *testing.T) {
 			for _, n := range nodes {
 				f.WClient.On("AddReferences", mock.Anything, n, cls, shard, anyVal, refs, uint64(123)).Return(resp, nil)
 			}
-			f.WClient.On("Commit", ctx, nodes[0], cls, shard, anyVal, anyVal).Return(nil)
-			f.WClient.On("Commit", ctx, nodes[1], cls, shard, anyVal, anyVal).Return(errAny)
+			f.WClient.On("Commit", mock.Anything, nodes[0], cls, shard, anyVal, anyVal).Return(nil)
+			f.WClient.On("Commit", mock.Anything, nodes[1], cls, shard, anyVal, anyVal).Return(errAny)
 
 			errs := rep.AddReferences(ctx, shard, refs, types.ConsistencyLevelAll, 123)
 			assert.Equal(t, len(errs), 2)
