@@ -15,17 +15,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math/rand"
 	"time"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/sirupsen/logrus"
-	objectttl "github.com/weaviate/weaviate/usecases/object_ttl"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/refcache"
-	"github.com/weaviate/weaviate/adapters/repos/db/ttl"
 	"github.com/weaviate/weaviate/entities/additional"
-	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/multi"
@@ -71,164 +66,30 @@ func (db *DB) DeleteObject(ctx context.Context, class string, id strfmt.UUID,
 	return nil
 }
 
-func (db *DB) triggerDeletionObjectsExpiredLocalNode(ctx context.Context, collections []string,
-	ttlTime, deletionTime time.Time,
-) error {
-	ec := errorcompounder.New()
-	eg := enterrors.NewErrorGroupWrapper(db.logger)
+func (db *DB) DeleteExpiredObjects(ctx context.Context, eg *enterrors.ErrorGroupWrapper, className, deleteOnPropName string, ttlThreshold, deletionTime time.Time, schemaVersion uint64) error {
+	var (
+		index  *Index
+		exists bool
+	)
+	func() {
+		db.indexLock.RLock()
+		defer db.indexLock.RUnlock()
 
-	for _, collection := range collections {
-		err := func() error {
-			if err := ctx.Err(); err != nil {
-				return err
-			}
-			idx, release, deleteOnPropName, ttlThreshold := db.extractTtlDataFromCollection(collection, ttlTime)
-			if idx == nil {
-				return nil
-			}
-			defer release()
-
-			// TODO aliszka:ttl schemaVersion?
-			return idx.IncomingDeleteObjectsExpired(eg, deleteOnPropName, ttlThreshold, deletionTime, 0)
-		}()
-		if err != nil {
-			ec.Add(fmt.Errorf("%q: %w", collection, err))
+		index, exists = db.indices[indexID(schema.ClassName(className))]
+		if exists {
+			index.dropIndex.RLock()
 		}
-	}
+	}()
 
-	// ignore errors from eg as they are already collected in ec
-	eg.Wait()
-
-	if err := ec.ToError(); err != nil {
-		return fmt.Errorf("deleting expired objects of collections: %w", err)
-	}
-	return nil
-}
-
-func (db *DB) triggerDeletionObjectsExpiredRemoteNode(ctx context.Context, remoteObjectTTL *objectttl.RemoteObjectTTL, collections []string,
-	ttlTime, deletionTime time.Time, nodes []string,
-) error {
-	var node string
-
-	switch nodesCount := len(nodes); nodesCount {
-	case 0:
-		return fmt.Errorf("no nodes provided")
-	case 1:
-		node = nodes[0]
-	default:
-		i := rand.New(rand.NewSource(time.Now().UnixNano())).Intn(nodesCount)
-		node = nodes[i]
-	}
-
-	ttlCollections := make([]objectttl.ObjectsExpiredPayload, 0, len(collections))
-	for _, collection := range collections {
-		func() {
-			idx, release, deleteOnPropName, ttlThreshold := db.extractTtlDataFromCollection(collection, ttlTime)
-			if idx == nil {
-				return
-			}
-			defer release()
-
-			ttlCollections = append(ttlCollections, objectttl.ObjectsExpiredPayload{
-				Class:    collection,
-				Prop:     deleteOnPropName,
-				TtlMilli: ttlThreshold.UnixMilli(),
-				DelMilli: deletionTime.UnixMilli(),
-			})
-		}()
-	}
-
-	if len(ttlCollections) == 0 {
+	if !exists {
 		return nil
 	}
 
-	// check if deletion is running on the last node we picked
-	if db.objectTTLLastNode != "" {
-		ttlOngoing, err := remoteObjectTTL.CheckIfStillRunning(ctx, db.objectTTLLastNode)
-		if err != nil {
-			db.logger.WithFields(logrus.Fields{
-				"action": "object_ttl_trigger_deletions",
-				"node":   db.objectTTLLastNode,
-			}).Errorf("Checking objectTTL running status failed: %v", err)
-		} else if ttlOngoing {
-			db.logger.WithFields(logrus.Fields{
-				"action": "object_ttl_trigger_deletions",
-				"node":   db.objectTTLLastNode,
-			}).Warn("ObjectTTL is still running, skipping this round")
-			return nil // deletion for collection still running, skip this round
-		}
-	}
+	defer func() {
+		index.dropIndex.RUnlock()
+	}()
 
-	db.objectTTLLastNode = node
-	return remoteObjectTTL.StartRemoteDelete(ctx, node, ttlCollections)
-}
-
-func (db *DB) extractTtlDataFromCollection(collection string, ttlTime time.Time,
-) (idx *Index, release func(), deleteOnPropName string, ttlThreshold time.Time) {
-	db.indexLock.RLock()
-	idx = db.indices[collection]
-	if idx != nil {
-		idx.closeLock.RLock()
-	}
-	db.indexLock.RUnlock()
-
-	if idx != nil {
-		// ec consistency issue between index and RAFT store
-		if class := idx.getClass(); class != nil {
-			if ttl.IsTtlEnabled(class.ObjectTTLConfig) {
-				deleteOnPropName = class.ObjectTTLConfig.DeleteOn
-				ttlThreshold = ttlTime.Add(-time.Second * time.Duration(class.ObjectTTLConfig.DefaultTTL))
-				return idx, idx.closeLock.RUnlock, deleteOnPropName, ttlThreshold
-			}
-		}
-		idx.closeLock.RUnlock()
-	}
-	return nil, func() {}, "", time.Time{}
-}
-
-func (db *DB) TriggerDeletionObjectsExpired(ctx context.Context, remoteObjectTTL *objectttl.RemoteObjectTTL, ttlTime, deletionTime time.Time, targetOwnNode bool) error {
-	if !db.objectTTLOngoing.CompareAndSwap(false, true) {
-		return fmt.Errorf("TTL deletion already ongoing")
-	}
-	defer db.objectTTLOngoing.Store(false)
-
-	collections := []string{}
-	db.indexLock.RLock()
-	for collection := range db.indices {
-		collections = append(collections, collection)
-	}
-	db.indexLock.RUnlock()
-
-	if len(collections) == 0 {
-		return nil
-	}
-
-	localNode := db.schemaGetter.NodeName()
-	allNodes := db.schemaGetter.Nodes()
-	remoteNodes := make([]string, 0, len(allNodes))
-	if targetOwnNode {
-		remoteNodes = append(remoteNodes, localNode)
-	} else {
-		for _, node := range allNodes {
-			if node != localNode {
-				remoteNodes = append(remoteNodes, node)
-			}
-		}
-	}
-
-	db.logger.WithFields(logrus.Fields{
-		"action":        "object_ttl_trigger_deletions",
-		"all_nodes":     allNodes,
-		"remote_nodes":  remoteNodes,
-		"ttl_time":      ttlTime,
-		"deletion_time": deletionTime,
-	}).Debug("Triggering deletion of objects expired")
-
-	if len(remoteNodes) == 0 {
-		return db.triggerDeletionObjectsExpiredLocalNode(ctx, collections, ttlTime, deletionTime)
-	}
-
-	return db.triggerDeletionObjectsExpiredRemoteNode(ctx, remoteObjectTTL, collections, ttlTime, deletionTime, remoteNodes)
+	return index.IncomingDeleteObjectsExpired(eg, deleteOnPropName, ttlThreshold, deletionTime, schemaVersion)
 }
 
 func (db *DB) MultiGet(ctx context.Context, query []multi.Identifier,
