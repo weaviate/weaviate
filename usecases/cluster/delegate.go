@@ -115,6 +115,8 @@ type delegate struct {
 	Name     string
 	dataPath string
 	log      logrus.FieldLogger
+	//  All the methods must be thread-safe,
+	// see https://github.com/hashicorp/memberlist/blob/master/delegate.go#L7-L8
 	sync.RWMutex
 	Cache map[string]NodeInfo
 
