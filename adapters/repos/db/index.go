@@ -2216,13 +2216,12 @@ func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.
 	}}
 
 	// the replication properties determine how aggressive the errors are returned and does not change anything about
-	// the servers behaviour. Therefore, we set it to QUORUM to be able to log errors in case the delete does not
+	// the servers behaviour. Therefore, we set it to QUORUM to be able to log errors in case the deletion does not
 	// succeed on too many nodes. In the case of errors a node might retain the object past its TTL. However, when the
 	// deletion process happens to run on that node again, the object will be deleted then.
 	replProps := defaultConsistency()
 
 	if isMT := multitenancy.IsMultiTenant(class.MultiTenancyConfig); isMT {
-		// TODO aliszka:ttl limit number of tenants? in case of thousands
 		tenants, err := i.schemaReader.Shards(class.Class)
 		if err != nil {
 			return fmt.Errorf("getting tenants of collection %q: %w", class.Class, err)
