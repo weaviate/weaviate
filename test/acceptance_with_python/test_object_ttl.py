@@ -37,8 +37,8 @@ def test_custom_property(collection_factory: CollectionFactory, ttl_minutes: int
             wvc.config.Property(name="custom_date", data_type=wvc.config.DataType.DATE),
         ],
         object_ttl=Configure.ObjectTTL.delete_by_date_property(
-            date_property="custom_date",
-            time_to_live_after_date=(
+            property_name="custom_date",
+            ttl_offset=(
                 datetime.timedelta(minutes=ttl_minutes) if ttl_minutes > 0 else None
             ),
         ),
@@ -181,7 +181,7 @@ def test_mt(collection_factory: CollectionFactory):
 
 
 @pytest.mark.parametrize(
-    "post_search_filter,ttl,expected_count",
+    "filter_expired_objects,ttl,expected_count",
     [
         (
             True,
@@ -197,9 +197,9 @@ def test_mt(collection_factory: CollectionFactory):
         (False, datetime.timedelta(hours=-2), 11),
     ],
 )
-def test_post_search_filter(
+def test_filter_expired_objects(
     collection_factory: CollectionFactory,
-    post_search_filter: bool,
+    filter_expired_objects: bool,
     ttl: datetime.timedelta,
     expected_count: int,
 ) -> None:
@@ -209,9 +209,9 @@ def test_post_search_filter(
             wvc.config.Property(name="custom_date", data_type=wvc.config.DataType.DATE),
         ],
         object_ttl=Configure.ObjectTTL.delete_by_date_property(
-            date_property="custom_date",
-            post_search_filter=post_search_filter,
-            time_to_live_after_date=ttl,
+            property_name="custom_date",
+            filter_expired_objects=filter_expired_objects,
+            ttl_offset=ttl,
         ),
     )
 
