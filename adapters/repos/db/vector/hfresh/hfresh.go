@@ -71,12 +71,12 @@ type HFresh struct {
 	quantizer          *compressionhelpers.RotationalQuantizer
 
 	// Internal components
-	Centroids    *HNSWIndex              // Provides access to the centroids.
-	PostingStore *PostingStore           // Used for managing persistence of postings.
-	IDs          common.MonotonicCounter // Shared monotonic counter for generating unique IDs for new postings.
-	VersionMap   *VersionMap             // Stores vector versions in-memory.
-	PostingSizes *PostingSizes           // Stores the size of each posting in-memory.
-	Metadata     *MetadataStore          // Stores metadata about the index.
+	Centroids    *HNSWIndex       // Provides access to the centroids.
+	PostingStore *PostingStore    // Used for managing persistence of postings.
+	IDs          *common.Sequence // Shared monotonic counter for generating unique IDs for new postings.
+	VersionMap   *VersionMap      // Stores vector versions in-memory.
+	PostingSizes *PostingSizes    // Stores the size of each posting in-memory.
+	Metadata     *MetadataStore   // Stores metadata about the index.
 
 	// ctx and cancel are used to manage the lifecycle of the background operations.
 	ctx    context.Context
@@ -149,7 +149,10 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 	if err != nil {
 		return nil, err
 	}
-	h.IDs = *common.NewMonotonicCounter(h.Centroids.GetMaxID())
+	h.IDs, err = common.NewSequence(NewBucketStore(bucket), 1000)
+	if err != nil {
+		return nil, err
+	}
 
 	h.ctx, h.cancel = context.WithCancel(context.Background())
 
@@ -226,6 +229,11 @@ func (h *HFresh) Shutdown(ctx context.Context) error {
 	}
 
 	err = h.Flush()
+	if err != nil {
+		errs = append(errs, err)
+	}
+
+	err = h.IDs.Flush()
 	if err != nil {
 		errs = append(errs, err)
 	}

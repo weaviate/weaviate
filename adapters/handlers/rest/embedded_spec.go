@@ -7428,6 +7428,16 @@ func init() {
           "description": "The name of the node.",
           "type": "string"
         },
+        "operationalMode": {
+          "description": "Which mode of operation the node is running in.",
+          "type": "string",
+          "enum": [
+            "ReadWrite",
+            "WriteOnly",
+            "ReadOnly",
+            "ScaleOut"
+          ]
+        },
         "shards": {
           "description": "The list of the shards with it's statistics.",
           "type": "array",
@@ -16966,6 +16976,16 @@ func init() {
         "name": {
           "description": "The name of the node.",
           "type": "string"
+        },
+        "operationalMode": {
+          "description": "Which mode of operation the node is running in.",
+          "type": "string",
+          "enum": [
+            "ReadWrite",
+            "WriteOnly",
+            "ReadOnly",
+            "ScaleOut"
+          ]
         },
         "shards": {
           "description": "The list of the shards with it's statistics.",
