@@ -935,6 +935,7 @@ func (d *Compose) With1NodeCluster() *Compose {
 
 func (d *Compose) With3NodeCluster() *Compose {
 	d.withWeaviateCluster = true
+	d.withWeaviateExposeDebugPort = true
 	d.withWeaviateClusterSize = 3
 	return d
 }

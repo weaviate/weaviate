@@ -16,10 +16,10 @@ import (
 	"net/http"
 	"sync"
 
+	"github.com/sirupsen/logrus"
 	grpcconn "github.com/weaviate/weaviate/grpc/conn"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
-
-	"github.com/sirupsen/logrus"
+	objectttl "github.com/weaviate/weaviate/usecases/object_ttl"
 
 	"github.com/weaviate/weaviate/adapters/handlers/graphql"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/tenantactivity"
@@ -88,6 +88,8 @@ type State struct {
 	ClusterService *rCluster.Service
 	TenantActivity *tenantactivity.Handler
 	InternalServer types.ClusterServer
+
+	ObjectTTLCoordinator *objectttl.Coordinator
 
 	DistributedTaskScheduler *distributedtask.Scheduler
 	Migrator                 *db.Migrator

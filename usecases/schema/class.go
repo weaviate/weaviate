@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
+	"github.com/weaviate/weaviate/adapters/repos/db/ttl"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/classcache"
 	entcfg "github.com/weaviate/weaviate/entities/config"
@@ -129,11 +130,6 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 	// migrate only after validation in completed
 	h.migrateClassSettings(cls)
 	if err := h.parser.ParseClass(cls); err != nil {
-		return nil, 0, err
-	}
-
-	err = h.invertedConfigValidator(cls.InvertedIndexConfig)
-	if err != nil {
 		return nil, 0, err
 	}
 
@@ -275,11 +271,6 @@ func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m
 		return err
 	}
 
-	err = h.invertedConfigValidator(class.InvertedIndexConfig)
-	if err != nil {
-		return err
-	}
-
 	shardingState.MigrateFromOldFormat()
 	err = shardingState.MigrateShardingStateReplicationFactor()
 	if err != nil {
@@ -349,6 +340,12 @@ func UpdateClassInternal(h *Handler, ctx context.Context, className string, upda
 	// optionals would have been set with defaults on the initial already
 	if err := h.setClassDefaults(updated, h.config.Replication); err != nil {
 		return err
+	}
+
+	if ttlConfig, _, err := ttl.ValidateObjectTTLConfig(updated, true); err != nil {
+		return fmt.Errorf("ObjectTTLConfig: %w", err)
+	} else {
+		updated.ObjectTTLConfig = ttlConfig
 	}
 
 	if err := h.parser.ParseClass(updated); err != nil {
@@ -790,6 +787,22 @@ func (h *Handler) validateClassInvariants(
 	}
 
 	if err := replica.ValidateConfig(class, h.config.Replication); err != nil {
+		return err
+	}
+
+	if ttlConfig, needsInvertedIndexTimestamp, err := ttl.ValidateObjectTTLConfig(class, false); err != nil {
+		return fmt.Errorf("ObjectTTLConfig: %w", err)
+	} else {
+		class.ObjectTTLConfig = ttlConfig
+		if needsInvertedIndexTimestamp {
+			if class.InvertedIndexConfig == nil {
+				class.InvertedIndexConfig = &models.InvertedIndexConfig{}
+			}
+			class.InvertedIndexConfig.IndexTimestamps = true
+		}
+	}
+
+	if err := h.invertedConfigValidator(class.InvertedIndexConfig); err != nil {
 		return err
 	}
 
