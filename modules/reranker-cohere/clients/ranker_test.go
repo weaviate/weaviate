@@ -19,6 +19,7 @@ import (
 	"net/http/httptest"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
@@ -49,7 +50,7 @@ func TestRank(t *testing.T) {
 		defer server.Close()
 
 		c := New("apiKey", 0, nullLogger())
-		c.host = server.URL
+		c.urlBuilder = &fakeUrlBuilder{server.URL}
 
 		expected := &ent.RankResult{
 			DocumentScores: []ent.DocumentScore{
@@ -79,7 +80,7 @@ func TestRank(t *testing.T) {
 		defer server.Close()
 
 		c := New("apiKey", 0, nullLogger())
-		c.host = server.URL
+		c.urlBuilder = &fakeUrlBuilder{server.URL}
 
 		_, err := c.Rank(context.Background(), "I work at Apple", []string{"Where do I work?"}, nil)
 
@@ -133,7 +134,7 @@ func TestRank(t *testing.T) {
 		defer server.Close()
 
 		c := New("apiKey", 0, nullLogger())
-		c.host = server.URL
+		c.urlBuilder = &fakeUrlBuilder{server.URL}
 		// this will trigger 4 go routines
 		c.maxDocuments = 2
 
@@ -212,4 +213,22 @@ func (f *testRankHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	require.Nil(f.t, err)
 
 	w.Write(outBytes)
+}
+
+type fakeUrlBuilder struct {
+	url string
+}
+
+func (b *fakeUrlBuilder) URL(baseURL string) string {
+	return b.url
+}
+
+func TestRank_client_getCohereUrl(t *testing.T) {
+	ctx := context.Background()
+	c := New("", 1*time.Second, nil)
+
+	assert.Equal(t, "baseurl/v1/rerank", c.getCohereUrl(ctx, "baseurl"))
+
+	ctxWithBaseURL := context.WithValue(ctx, "X-Cohere-Baseurl", []string{"base-url-from-ctx"})
+	assert.Equal(t, "base-url-from-ctx/v1/rerank", c.getCohereUrl(ctxWithBaseURL, "base-url"))
 }
