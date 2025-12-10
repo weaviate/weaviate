@@ -49,6 +49,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/clients"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/authz"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
+	clusterapigrpc "github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc/generated/protocol"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/db_users"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
@@ -469,6 +470,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		MaintenanceModeEnabled:                       appState.Cluster.MaintenanceModeEnabledForLocalhost,
 		AsyncIndexingEnabled:                         appState.ServerConfig.Config.AsyncIndexingEnabled,
 		HFreshEnabled:                                appState.ServerConfig.Config.HFreshEnabled,
+		OperationalMode:                              appState.ServerConfig.Config.OperationalMode,
 	}, remoteIndexClient, appState.Cluster, remoteNodesClient, replicationClient, appState.Metrics, appState.MemWatch, nil, nil, nil) // TODO client
 	if err != nil {
 		appState.Logger.
@@ -554,6 +556,16 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		)
 	}
 
+	maxSize := clusterapigrpc.GetMaxMessageSize(appState.ServerConfig.Config.ReplicationEngineFileCopyChunkSize)
+	opts = append(opts,
+		grpc.WithDefaultCallOptions(
+			grpc.MaxCallRecvMsgSize(maxSize),
+			grpc.MaxCallSendMsgSize(maxSize),
+		),
+		grpc.WithInitialWindowSize(int32(maxSize)),
+		grpc.WithInitialConnWindowSize(clusterapigrpc.INITIAL_CONN_WINDOW),
+	)
+
 	grpcMaxOpenConns := appState.ServerConfig.Config.GRPC.MaxOpenConns
 	grpcIddleConnTimeout := appState.ServerConfig.Config.GRPC.IdleConnTimeout
 
@@ -601,7 +613,6 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		Logger:                          appState.Logger,
 		IsLocalHost:                     appState.ServerConfig.Config.Cluster.Localhost,
 		LoadLegacySchema:                schemaRepo.LoadLegacySchema,
-		SaveLegacySchema:                schemaRepo.SaveLegacySchema,
 		SentryEnabled:                   appState.ServerConfig.Config.Sentry.Enabled,
 		AuthzController:                 appState.AuthzController,
 		RBAC:                            appState.RBAC,
@@ -975,6 +986,14 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	}
 
 	api.ServerShutdown = func() {
+		// leave memberlist first to announce node graceful departure
+		if err := appState.Cluster.Leave(); err != nil {
+			appState.Logger.WithError(err).Error("leave node from cluster")
+		}
+
+		// drain any ongoing operations
+		time.Sleep(appState.ServerConfig.Config.Raft.DrainSleep.Get())
+
 		if telemetryEnabled(appState) {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
@@ -2001,6 +2020,7 @@ func initRuntimeOverrides(appState *state.State) {
 		registered.RaftDrainSleep = appState.ServerConfig.Config.Raft.DrainSleep
 		registered.RaftTimoutsMultiplier = appState.ServerConfig.Config.Raft.TimeoutsMultiplier
 		registered.ReplicatedIndicesRequestQueueEnabled = appState.ServerConfig.Config.Cluster.RequestQueueConfig.IsEnabled
+		registered.OperationalMode = appState.ServerConfig.Config.OperationalMode
 
 		if appState.Modules.UsageEnabled() {
 			// gcs config
@@ -2025,6 +2045,7 @@ func initRuntimeOverrides(appState *state.State) {
 			registered.OIDCGroupsClaim = appState.OIDC.Config.GroupsClaim
 			registered.OIDCScopes = appState.OIDC.Config.Scopes
 			registered.OIDCCertificate = appState.OIDC.Config.Certificate
+			registered.OIDCJWKSUrl = appState.OIDC.Config.JWKSUrl
 
 			hooks["OIDC"] = appState.OIDC.Init
 			appState.Logger.Log(logrus.InfoLevel, "registereing OIDC runtime overrides hooks")

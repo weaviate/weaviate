@@ -48,6 +48,7 @@ type lazySegment struct {
 
 	segment *segment
 	mux     sync.Mutex
+	loaded  atomic.Bool
 }
 
 func newLazySegment(path string, logger logrus.FieldLogger, metrics *Metrics,
@@ -78,12 +79,21 @@ func newLazySegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		metrics:     metrics,
 		existsLower: existsLower,
 		cfg:         cfg,
+		loaded:      atomic.Bool{},
 	}, nil
 }
 
 func (s *lazySegment) load() error {
+	if s.loaded.Load() {
+		return nil // fast path in case already loaded
+	}
 	s.mux.Lock()
 	defer s.mux.Unlock()
+
+	// double check after acquiring lock in case someone else loaded while we waited
+	if s.loaded.Load() {
+		return nil
+	}
 
 	if s.segment == nil {
 		segment, err := newSegment(s.path, s.logger, s.metrics, s.existsLower, s.cfg)
@@ -94,6 +104,7 @@ func (s *lazySegment) load() error {
 		if s.metrics != nil && s.metrics.LazySegmentLoad != nil {
 			s.metrics.LazySegmentLoad.Inc()
 		}
+		s.loaded.Store(true)
 	}
 
 	return nil
@@ -127,7 +138,11 @@ func (s *lazySegment) getStrategy() segmentindex.Strategy {
 		return strtg
 	}
 	s.mustLoad()
-	return s.segment.getStrategy()
+
+	// store for next time to avoid running the regExp again
+	strtg := s.segment.getStrategy()
+	s.strategy.Store(&strtg)
+	return strtg
 }
 
 func (s *lazySegment) getSecondaryIndexCount() uint16 {

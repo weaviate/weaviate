@@ -886,6 +886,9 @@ func (h *hnsw) Upgraded() bool {
 }
 
 func (h *hnsw) AlreadyIndexed() uint64 {
+	if h.compressed.Load() {
+		return uint64(h.compressor.CountVectors())
+	}
 	return uint64(h.cache.CountVectors())
 }
 
@@ -1035,14 +1038,15 @@ func (h *hnsw) Stats() (*HnswStats, error) {
 		DistributionLayers: distributionLayers,
 		UnreachablePoints:  h.calculateUnreachablePoints(),
 		NumTombstones:      len(h.tombstones),
-		CacheSize:          h.cache.Len(),
 		Compressed:         h.compressed.Load(),
 	}
 
 	if stats.Compressed {
 		stats.CompressorStats = h.compressor.Stats()
+		stats.CacheSize = h.compressor.Len()
 	} else {
 		stats.CompressorStats = compressionhelpers.UncompressedStats{}
+		stats.CacheSize = h.cache.Len()
 	}
 
 	stats.CompressionType = stats.CompressorStats.CompressionType()

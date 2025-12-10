@@ -17,13 +17,14 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strings"
 
 	sentryhttp "github.com/getsentry/sentry-go/http"
-	"golang.org/x/net/http2"
-	"golang.org/x/net/http2/h2c"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc"
+
+	"github.com/weaviate/weaviate/adapters/handlers/rest/raft"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/types"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -60,7 +61,9 @@ func NewServer(appState *state.State) *Server {
 		auth,
 		appState.Cluster.MaintenanceModeEnabledForLocalhost,
 		appState.ServerConfig.Config.Cluster.RequestQueueConfig,
-		appState.Logger)
+		appState.Logger,
+		appState.ClusterService.Ready)
+
 	classifications := NewClassifications(appState.ClassificationRepo.TxManager(), auth)
 	nodes := NewNodes(appState.RemoteNodeIncoming, auth)
 	backups := NewBackups(appState.BackupManager, auth)
@@ -94,6 +97,8 @@ func NewServer(appState *state.State) *Server {
 		}
 		mux.ServeHTTP(w, r) // Route to REST mux (handles HTTP/1.1 or plain HTTP/2)
 	})
+
+	handler = addClusterHandlerMiddleware(handler, appState)
 	if appState.ServerConfig.Config.Sentry.Enabled {
 		// Wrap the default mux with Sentry to capture panics, report errors and
 		// measure performance.
@@ -114,16 +119,15 @@ func NewServer(appState *state.State) *Server {
 		)
 	}
 
-	// Configure HTTP/2 server
-	h2s := &http2.Server{
-		MaxConcurrentStreams: MAX_CONCURRENT_STREAMS,
-		MaxReadFrameSize:     MAX_READ_FRAME_SIZE,
-	}
+	protocols := http.Protocols{}
+	protocols.SetHTTP1(true)
+	protocols.SetUnencryptedHTTP2(true)
 
 	return &Server{
 		server: &http.Server{
-			Addr:    fmt.Sprintf(":%d", port),
-			Handler: h2c.NewHandler(handler, h2s),
+			Addr:      fmt.Sprintf(":%d", port),
+			Handler:   handler,
+			Protocols: &protocols,
 		},
 		appState:          appState,
 		replicatedIndices: replicatedIndices,
@@ -208,4 +212,23 @@ func staticRoute(mux *http.ServeMux) monitoring.StaticRouteLabel {
 		}
 		return r, route
 	}
+}
+
+// clusterv1Regexp is used to intercept requests and redirect them to a dedicated http server independent of swagger
+var clusterv1Regexp = regexp.MustCompile("/v1/cluster/*")
+
+// addClusterHandlerMiddleware will inject a middleware that will catch all requests matching clusterv1Regexp.
+// If the request match, it will route it to a dedicated http.Handler and skip the next middleware.
+// If the request doesn't match, it will continue to the next handler.
+func addClusterHandlerMiddleware(next http.Handler, appState *state.State) http.Handler {
+	// Instantiate the router outside the returned lambda to avoid re-allocating everytime a new request comes in
+	raftRouter := raft.ClusterRouter(appState.SchemaManager.Handler)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case clusterv1Regexp.MatchString(r.URL.Path):
+			raftRouter.ServeHTTP(w, r)
+		default:
+			next.ServeHTTP(w, r)
+		}
+	})
 }
