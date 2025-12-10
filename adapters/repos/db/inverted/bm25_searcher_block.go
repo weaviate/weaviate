@@ -383,7 +383,7 @@ func (b *BM25Searcher) getObjectsAndScores(ids []uint64, scores []float32, expla
 			}
 		}
 		startAt = endAt
-		endAt = int(math.Min(float64(endAt+limit), float64(len(ids))))
+		endAt = min(endAt+limit, len(ids))
 	}
 
 	if explanationsResults != nil && len(explanationsResults) == len(scoresResult) {
