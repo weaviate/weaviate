@@ -401,28 +401,26 @@ func (b *BM25Searcher) getTopKObjects(topKHeap *priorityqueue.Queue[[]*terms.Doc
 		explanations = append(explanations, res.Value)
 	}
 
-	objs, err := storobj.ObjectsByDocID(objectsBucket, ids, additional, nil, b.logger)
+	objs, err := storobj.ObjectsByDocIDWithEmpty(objectsBucket, ids, additional, nil, b.logger)
 	if err != nil {
 		return objs, nil, errors.Errorf("objects loading")
 	}
 
 	// handle case that an object was removed
-	if len(objs) != len(scores) {
-		idsTmp := make([]uint64, len(objs))
-		j := 0
-		for i := range scores {
-			if j >= len(objs) {
-				break
-			}
-			if objs[j].DocID != ids[i] {
-				continue
-			}
-			scores[j] = scores[i]
-			idsTmp[j] = ids[i]
-			j++
+	idsTmp := make([]uint64, len(objs))
+	j := 0
+	for i := range scores {
+		if j >= len(objs) {
+			break
 		}
-		scores = scores[:j]
+		if objs[j] == nil {
+			continue
+		}
+		scores[j] = scores[i]
+		idsTmp[j] = ids[i]
+		j++
 	}
+	scores = scores[:j]
 
 	if additionalExplanations {
 		for k := range objs {
