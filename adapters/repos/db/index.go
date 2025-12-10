@@ -677,7 +677,22 @@ func (i *Index) addProperty(ctx context.Context, props ...*models.Property) erro
 	})
 
 	if err := eg.Wait(); err != nil {
-		return errors.Wrapf(err, "extend idx '%s' with properties '%v", i.ID(), props)
+		return errors.Wrapf(err, "extend idx '%s' with properties '%v'", i.ID(), props)
+	}
+	return nil
+}
+
+func (i *Index) dropProperty(ctx context.Context, propertyName string) error {
+	eg := enterrors.NewErrorGroupWrapper(i.logger)
+	eg.SetLimit(_NUMCPU)
+
+	i.ForEachShard(func(key string, shard ShardLike) error {
+		shard.deletePropertyBucket(ctx, eg, propertyName)
+		return nil
+	})
+
+	if err := eg.Wait(); err != nil {
+		return errors.Wrapf(err, "delete property '%v' from idx '%s'", propertyName, i.ID())
 	}
 	return nil
 }

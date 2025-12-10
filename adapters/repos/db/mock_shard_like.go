@@ -3534,6 +3534,41 @@ func (_c *MockShardLike_deleteFromPropertySetBucket_Call) RunAndReturn(run func(
 	return _c
 }
 
+// deletePropertyBucket provides a mock function with given fields: ctx, eg, propertyName
+func (_m *MockShardLike) deletePropertyBucket(ctx context.Context, eg *errors.ErrorGroupWrapper, propertyName string) {
+	_m.Called(ctx, eg, propertyName)
+}
+
+// MockShardLike_deletePropertyBucket_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'deletePropertyBucket'
+type MockShardLike_deletePropertyBucket_Call struct {
+	*mock.Call
+}
+
+// deletePropertyBucket is a helper method to define mock.On call
+//   - ctx context.Context
+//   - eg *errors.ErrorGroupWrapper
+//   - propertyName string
+func (_e *MockShardLike_Expecter) deletePropertyBucket(ctx interface{}, eg interface{}, propertyName interface{}) *MockShardLike_deletePropertyBucket_Call {
+	return &MockShardLike_deletePropertyBucket_Call{Call: _e.mock.On("deletePropertyBucket", ctx, eg, propertyName)}
+}
+
+func (_c *MockShardLike_deletePropertyBucket_Call) Run(run func(ctx context.Context, eg *errors.ErrorGroupWrapper, propertyName string)) *MockShardLike_deletePropertyBucket_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(*errors.ErrorGroupWrapper), args[2].(string))
+	})
+	return _c
+}
+
+func (_c *MockShardLike_deletePropertyBucket_Call) Return() *MockShardLike_deletePropertyBucket_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *MockShardLike_deletePropertyBucket_Call) RunAndReturn(run func(context.Context, *errors.ErrorGroupWrapper, string)) *MockShardLike_deletePropertyBucket_Call {
+	_c.Run(run)
+	return _c
+}
+
 // drop provides a mock function with given fields: keepFiles
 func (_m *MockShardLike) drop(keepFiles bool) error {
 	ret := _m.Called(keepFiles)

@@ -350,6 +350,26 @@ func (s *SchemaManager) AddProperty(cmd *command.ApplyRequest, schemaOnly bool, 
 	)
 }
 
+func (s *SchemaManager) DropProperty(cmd *command.ApplyRequest, schemaOnly bool, enableSchemaCallback bool) error {
+	req := command.DropPropertyRequest{}
+	if err := json.Unmarshal(cmd.SubCommand, &req); err != nil {
+		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+	if req.PropertyName == "" {
+		return fmt.Errorf("%w: empty property", ErrBadRequest)
+	}
+
+	return s.apply(
+		applyOp{
+			op:                   cmd.GetType().String(),
+			updateSchema:         func() error { return s.schema.dropProperty(cmd.Class, cmd.Version, req.PropertyName) },
+			updateStore:          func() error { return s.db.DropProperty(cmd.Class, req) },
+			schemaOnly:           schemaOnly,
+			enableSchemaCallback: enableSchemaCallback,
+		},
+	)
+}
+
 func (s *SchemaManager) UpdateShardStatus(cmd *command.ApplyRequest, schemaOnly bool) error {
 	req := command.UpdateShardStatusRequest{}
 	if err := json.Unmarshal(cmd.SubCommand, &req); err != nil {

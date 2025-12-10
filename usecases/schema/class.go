@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"slices"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -40,6 +41,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
+	basesettings "github.com/weaviate/weaviate/usecases/modulecomponents/settings"
+	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -698,6 +701,49 @@ func (h *Handler) validateProperty(
 
 		if err := h.validatePropModuleConfig(class, property); err != nil {
 			return err
+		}
+	}
+
+	return nil
+}
+
+func (h *Handler) validatePropertyDelete(
+	class *models.Class, propertyName string,
+) error {
+	var property *models.Property
+	for i := range class.Properties {
+		if class.Properties[i].Name == propertyName {
+			property = class.Properties[i]
+			break
+		}
+	}
+
+	if property == nil {
+		return fmt.Errorf("property '%s' was not found in class %q", propertyName, class.Class)
+	}
+
+	for targetVector, vc := range class.VectorConfig {
+		if vectorizer, ok := vc.Vectorizer.(map[string]any); ok {
+			for moduleName := range vectorizer {
+				cfg := modules.NewClassBasedModuleConfig(class, moduleName, "", targetVector, nil)
+				settings := basesettings.NewBaseClassSettings(cfg, false)
+				if slices.Contains(settings.Properties(), propertyName) {
+					if settings.PropertyIndexed(propertyName) {
+						return fmt.Errorf("property '%s': vector index %s is using property for vectorization", propertyName, targetVector)
+					}
+				}
+			}
+		}
+	}
+
+	for _, prop := range class.Properties {
+		if moduleConfig, ok := prop.ModuleConfig.(map[string]any); ok {
+			if vectorizePropertyName, ok := moduleConfig["vectorizePropertyName"].(bool); ok && vectorizePropertyName {
+				return fmt.Errorf("property '%s': property name is used to create vector index", propertyName)
+			}
+			if skip, ok := moduleConfig["skip"].(bool); ok && !skip {
+				return fmt.Errorf("property '%s': property value is used to create vector index", propertyName)
+			}
 		}
 	}
 

@@ -7781,6 +7781,61 @@
         }
       }
     },
+    "/schema/{className}/properties/{propertyName}": {
+      "delete": {
+        "summary": "Delete a property from a collection",
+        "description": "Deletes a collection's property.",
+        "operationId": "schema.objects.properties.delete",
+        "x-serviceIds": [
+          "weaviate.local.manipulate.meta"
+        ],
+        "tags": [
+          "schema"
+        ],
+        "parameters": [
+          {
+            "name": "className",
+            "description": "The name of the collection (class).",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "propertyName",
+            "description": "The name of collection's property to be deleted.",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Property deleted successfully."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid property definition provided.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error occurred while deleting the property. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
     "/schema/{className}/shards": {
       "get": {
         "summary": "Get the shards status of a collection",

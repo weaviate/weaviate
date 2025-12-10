@@ -94,16 +94,33 @@ func (h *Handler) AddClassProperty(ctx context.Context, principal *models.Princi
 
 // DeleteClassProperty from existing Schema
 func (h *Handler) DeleteClassProperty(ctx context.Context, principal *models.Principal,
-	class string, property string,
+	class *models.Class, className, propertyName string,
 ) error {
-	err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.CollectionsMetadata(class)...)
-	if err != nil {
+	// TODO: Handle RBAC
+	if err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.CollectionsMetadata(className)...); err != nil {
+		return err
+	}
+	if err := h.Authorizer.Authorize(ctx, principal, authorization.READ, authorization.CollectionsMetadata(className)...); err != nil {
 		return err
 	}
 
-	return fmt.Errorf("deleting a property is currently not supported, see " +
-		"https://github.com/weaviate/weaviate/issues/973 for details")
-	// return h.deleteClassProperty(ctx, class, property, kind.Action)
+	if class == nil {
+		return fmt.Errorf("class is nil: %w", ErrNotFound)
+	}
+
+	if propertyName == "" {
+		return fmt.Errorf("propertyName is empty: %w", ErrNotFound)
+	}
+
+	if err := h.validatePropertyDelete(class, propertyName); err != nil {
+		return fmt.Errorf("validate: %w", err)
+	}
+
+	_, err := h.schemaManager.DropProperty(ctx, class.Class, propertyName)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func (h *Handler) setNewPropDefaults(class *models.Class, props ...*models.Property) error {

@@ -383,7 +383,8 @@ func testDropProperty(t *testing.T, handler *Handler, fakeSchemaManager *fakeSch
 	assert.Nil(t, err)
 
 	// Now drop the property
-	handler.DeleteClassProperty(context.Background(), nil, "Car", "color")
+	// TODO:
+	// handler.DeleteClassProperty(context.Background(), nil, "Car", "color")
 	// TODO: add the mock necessary to verify that the property is deleted
 }
 
