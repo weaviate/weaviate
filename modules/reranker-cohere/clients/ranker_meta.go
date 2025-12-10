@@ -11,8 +11,8 @@
 
 package clients
 
-func (s *client) MetaInfo() (map[string]interface{}, error) {
-	return map[string]interface{}{
+func (s *client) MetaInfo() (map[string]any, error) {
+	return map[string]any{
 		"name":              "Reranker - Cohere",
 		"documentationHref": "https://txt.cohere.com/rerank/",
 	}, nil

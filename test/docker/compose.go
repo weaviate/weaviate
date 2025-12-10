@@ -495,7 +495,8 @@ func (d *Compose) WithQnAOpenAI() *Compose {
 	return d
 }
 
-func (d *Compose) WithRerankerCohere() *Compose {
+func (d *Compose) WithRerankerCohere(apiKey string) *Compose {
+	d.weaviateEnvs["COHERE_APIKEY"] = apiKey
 	d.enableModules = append(d.enableModules, modrerankercohere.Name)
 	return d
 }

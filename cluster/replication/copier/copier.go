@@ -12,7 +12,6 @@
 package copier
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -20,6 +19,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -36,6 +36,8 @@ import (
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
+
+var _NUMCPU = runtime.GOMAXPROCS(0)
 
 type FileReplicationServiceClient protocol.FileReplicationServiceClient
 
@@ -116,10 +118,8 @@ func (c *Copier) CopyReplicaFiles(ctx context.Context, srcNodeId, collectionName
 	}
 
 	fileNameChan := make(chan string, 1000)
-
 	enterrors.GoWrapper(func() {
 		defer close(fileNameChan)
-
 		for _, name := range fileListResp.FileNames {
 			fileNameChan <- name
 		}
@@ -143,11 +143,9 @@ func (c *Copier) CopyReplicaFiles(ctx context.Context, srcNodeId, collectionName
 	}
 
 	metadataChan := make(chan *protocol.FileMetadata, 1000)
-
-	metadataWG := enterrors.NewErrorGroupWrapper(c.logger)
-
+	mWg := enterrors.NewErrorGroupWrapper(c.logger)
 	for range c.concurrentWorkers {
-		metadataWG.Go(func() error {
+		mWg.Go(func() error {
 			err := c.metadataWorker(ctx, client, collectionName, shardName, fileNameChan, metadataChan)
 			if err != nil {
 				c.logger.WithError(err).Error("failed to get files metadata")
@@ -156,10 +154,9 @@ func (c *Copier) CopyReplicaFiles(ctx context.Context, srcNodeId, collectionName
 		})
 	}
 
-	dlWG := enterrors.NewErrorGroupWrapper(c.logger)
-
+	dWg := enterrors.NewErrorGroupWrapper(c.logger)
 	for range c.concurrentWorkers {
-		dlWG.Go(func() error {
+		dWg.Go(func() error {
 			err := c.downloadWorker(ctx, client, metadataChan)
 			if err != nil {
 				c.logger.WithError(err).Error("failed to download files")
@@ -169,16 +166,13 @@ func (c *Copier) CopyReplicaFiles(ctx context.Context, srcNodeId, collectionName
 	}
 
 	// wait for all metadata workers to finish
-	err = metadataWG.Wait()
-	if err != nil {
-		return fmt.Errorf("failed to get file metadata: %w", err)
+	if err := mWg.Wait(); err != nil {
+		return fmt.Errorf("failed to get files metadata: %w", err)
 	}
-
 	close(metadataChan)
 
 	// wait for all download workers to finish
-	err = dlWG.Wait()
-	if err != nil {
+	if err := dWg.Wait(); err != nil {
 		return fmt.Errorf("failed to download files: %w", err)
 	}
 
@@ -318,30 +312,32 @@ func (c *Copier) downloadWorker(ctx context.Context, client FileReplicationServi
 					f.Close()
 				}
 			}()
+			if err := f.Truncate(meta.Size); err != nil {
+				return fmt.Errorf("failed to preallocate file: %w", err)
+			}
 
-			wbuf := bufio.NewWriter(f)
-
+			eg := enterrors.NewErrorGroupWrapper(c.logger)
+			eg.SetLimit(_NUMCPU)
 			for {
 				chunk, err := stream.Recv()
 				if err != nil {
 					return fmt.Errorf("failed to receive file chunk for %s: %w", meta.FileName, err)
 				}
-
 				if len(chunk.Data) > 0 {
-					_, err = wbuf.Write(chunk.Data)
-					if err != nil {
-						return fmt.Errorf("writing chunk to file %q: %w", tmpPath, err)
-					}
+					eg.Go(func() error {
+						if _, err := f.WriteAt(chunk.Data, chunk.Offset); err != nil {
+							return fmt.Errorf("writing chunk to file %q: %w", tmpPath, err)
+						}
+						return nil
+					})
 				}
-
 				if chunk.Eof {
 					break
 				}
 			}
 
-			err = wbuf.Flush()
-			if err != nil {
-				return fmt.Errorf("flushing buffer to file %q: %w", tmpPath, err)
+			if err = eg.Wait(); err != nil {
+				return fmt.Errorf("writing chunks to file %q: %w", tmpPath, err)
 			}
 
 			err = f.Sync()
