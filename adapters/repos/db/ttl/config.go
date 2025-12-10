@@ -24,11 +24,11 @@ import (
 
 const minDefaultTtl = time.Minute
 
-func ValidateObjectTTLConfig(collection *models.Class) (*models.ObjectTTLConfig, error) {
+func ValidateObjectTTLConfig(collection *models.Class, isUpdate bool) (*models.ObjectTTLConfig, bool, error) {
 	ttlConfig := collection.ObjectTTLConfig
 
 	if !IsTtlEnabled(ttlConfig) {
-		return ttlConfig, nil
+		return ttlConfig, false, nil
 	}
 
 	minimumTTL := minDefaultTtl
@@ -38,17 +38,21 @@ func ValidateObjectTTLConfig(collection *models.Class) (*models.ObjectTTLConfig,
 		}
 	}
 
+	needsInvertedIndexTimeStamp := false
 	deleteOn := strings.TrimSpace(ttlConfig.DeleteOn)
 	switch deleteOn {
 	case "":
-		return nil, newErrorEmptyDeleteOn()
-
+		return nil, false, newErrorEmptyDeleteOn()
 	case filters.InternalPropCreationTimeUnix, filters.InternalPropLastUpdateTimeUnix:
 		if collection.InvertedIndexConfig == nil || !collection.InvertedIndexConfig.IndexTimestamps {
-			return nil, newErrorTimestampsNotIndexed(deleteOn)
+			if isUpdate {
+				return nil, false, newErrorTimestampsNotIndexed(deleteOn)
+			} else {
+				needsInvertedIndexTimeStamp = true
+			}
 		}
 		if defaultTtl := time.Duration(ttlConfig.DefaultTTL) * time.Second; defaultTtl < minimumTTL {
-			return nil, newErrorInvalidDefaultTtl(deleteOn, ttlConfig.DefaultTTL, minimumTTL)
+			return nil, false, newErrorInvalidDefaultTtl(deleteOn, ttlConfig.DefaultTTL, minimumTTL)
 		}
 
 	default:
@@ -60,19 +64,19 @@ func ValidateObjectTTLConfig(collection *models.Class) (*models.ObjectTTLConfig,
 			}
 		}
 		if deleteOnProp == nil {
-			return nil, newErrorMissingDeleteOnProp(deleteOn)
+			return nil, false, newErrorMissingDeleteOnProp(deleteOn)
 		}
 		if dt, _ := schema.AsPrimitive(deleteOnProp.DataType); dt != schema.DataTypeDate {
-			return nil, newErrorInvalidDeleteOnPropDatatype(deleteOn, dt)
+			return nil, false, newErrorInvalidDeleteOnPropDatatype(deleteOn, dt)
 		}
 		hasFilterable := deleteOnProp.IndexFilterable != nil && *deleteOnProp.IndexFilterable
 		hasRangeable := deleteOnProp.IndexRangeFilters != nil && *deleteOnProp.IndexRangeFilters
 		if !hasFilterable && !hasRangeable {
-			return nil, newErrorMissingDeleteOnPropIndex(deleteOn)
+			return nil, false, newErrorMissingDeleteOnPropIndex(deleteOn)
 		}
 	}
 	ttlConfig.DeleteOn = deleteOn
-	return ttlConfig, nil
+	return ttlConfig, needsInvertedIndexTimeStamp, nil
 }
 
 func IsTtlEnabled(config *models.ObjectTTLConfig) bool {

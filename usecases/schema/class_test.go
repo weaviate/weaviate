@@ -39,6 +39,38 @@ import (
 	shardingConfig "github.com/weaviate/weaviate/usecases/sharding/config"
 )
 
+func Test_AddClass_ObjectTTL_InvertedIndex(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+
+	class := &models.Class{
+		Class:      "TTLClass",
+		Vectorizer: "none",
+		ObjectTTLConfig: &models.ObjectTTLConfig{
+			Enabled:    true,
+			DeleteOn:   filters.InternalPropCreationTimeUnix,
+			DefaultTTL: 3600,
+		},
+		ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+	}
+	fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
+	fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+
+	classValidated, _, err := handler.AddClass(ctx, nil, class)
+	assert.NoError(t, err)
+	assert.NotNil(t, classValidated.InvertedIndexConfig)
+	expectedInvertedConfig := models.InvertedIndexConfig{
+		Bm25:                   &models.BM25Config{K1: config.DefaultBM25k1, B: config.DefaultBM25b},
+		CleanupIntervalSeconds: 60,
+		Stopwords:              &models.StopwordConfig{Preset: stopwords.EnglishPreset},
+		UsingBlockMaxWAND:      config.DefaultUsingBlockMaxWAND,
+		IndexTimestamps:        true,
+	}
+	assert.Equal(t, expectedInvertedConfig, *classValidated.InvertedIndexConfig)
+}
+
 func Test_AddClass(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -960,10 +992,6 @@ func Test_AddClass_ObjectTTLConfig(t *testing.T) {
 			{
 				name:        "property invalid datatype",
 				reconfigure: func(c *models.Class) { c.ObjectTTLConfig.DeleteOn = "customPropertyInt" },
-			},
-			{
-				name:        "timestamps not indexed",
-				reconfigure: func(c *models.Class) { c.InvertedIndexConfig.IndexTimestamps = false },
 			},
 			{
 				name:        "ttl too small",

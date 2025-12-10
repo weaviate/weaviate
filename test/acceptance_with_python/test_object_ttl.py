@@ -95,7 +95,7 @@ def test_update_time(collection_factory: CollectionFactory):
         object_ttl=Configure.ObjectTTL.delete_by_update_time(
             time_to_live=datetime.timedelta(minutes=1),
         ),
-        inverted_index_config=Configure.inverted_index(index_timestamps=True),
+        # index timestamps are not enabled, will be updated automatically due to object TTL
     )
 
     uuids = []

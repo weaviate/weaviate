@@ -76,7 +76,7 @@ func TestValidateObjectTTConfig(t *testing.T) {
 		}
 	}
 
-	t.Run("invalid config", func(t *testing.T) {
+	t.Run("invalid config update", func(t *testing.T) {
 		testCasesInvalid := []struct {
 			name        string
 			reconfigure func(c *models.Class)
@@ -139,7 +139,7 @@ func TestValidateObjectTTConfig(t *testing.T) {
 				collection := createCollection()
 				tc.reconfigure(collection)
 
-				conf, err := ValidateObjectTTLConfig(collection)
+				conf, _, err := ValidateObjectTTLConfig(collection, true)
 				assert.Nil(t, conf)
 				assert.ErrorAs(t, err, tc.expErr)
 			})
@@ -200,9 +200,10 @@ func TestValidateObjectTTConfig(t *testing.T) {
 				collection := createCollection()
 				tc.reconfigure(collection)
 
-				conf, err := ValidateObjectTTLConfig(collection)
+				conf, needsInvertedIndex, err := ValidateObjectTTLConfig(collection, false)
 				assert.Equal(t, conf, collection.ObjectTTLConfig)
 				assert.NoError(t, err)
+				assert.False(t, needsInvertedIndex)
 			})
 		}
 	})
@@ -231,10 +232,27 @@ func TestValidateObjectTTConfig(t *testing.T) {
 				collection := createCollection()
 				collection.ObjectTTLConfig.DeleteOn = fmt.Sprintf("\t%s  ", tc.deleteOn)
 
-				conf, err := ValidateObjectTTLConfig(collection)
+				conf, _, err := ValidateObjectTTLConfig(collection, false)
 				assert.Equal(t, conf.DeleteOn, tc.deleteOn)
 				assert.NoError(t, err)
 			})
 		}
 	})
+}
+
+func TestValidateObjectTTConfigNoInvertedTimestamp(t *testing.T) {
+	collection := &models.Class{
+		ObjectTTLConfig: &models.ObjectTTLConfig{
+			Enabled:    true,
+			DeleteOn:   filters.InternalPropCreationTimeUnix,
+			DefaultTTL: 3600,
+		},
+	}
+
+	_, needsInvertedIndex, err := ValidateObjectTTLConfig(collection, false)
+	assert.NoError(t, err)
+	assert.True(t, needsInvertedIndex)
+
+	_, _, err = ValidateObjectTTLConfig(collection, true)
+	assert.Error(t, err)
 }
