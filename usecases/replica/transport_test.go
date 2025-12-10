@@ -17,10 +17,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/weaviate/weaviate/usecases/replica"
-
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/weaviate/weaviate/usecases/replica"
 )
 
 func TestReplicationErrorTimeout(t *testing.T) {

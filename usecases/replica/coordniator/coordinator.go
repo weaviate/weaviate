@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package replica
+package coordinator
 
 import (
 	"context"
@@ -24,11 +24,13 @@ import (
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/cluster/utils"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/usecases/replica/errors"
+	"github.com/weaviate/weaviate/usecases/replica/metrics"
 )
 
 const (
-	defaultPullBackOffInitialInterval = time.Millisecond * 250
-	defaultPullBackOffMaxElapsedTime  = time.Second * 128
+	DefaultPullBackOffInitialInterval = time.Millisecond * 250
+	DefaultPullBackOffMaxElapsedTime  = time.Second * 128
 )
 
 type (
@@ -36,16 +38,23 @@ type (
 	readyOp func(_ context.Context, host, requestID string) error
 
 	// readyOp asks a replica to execute the actual operation
-	commitOp[T any] func(_ context.Context, host, requestID string) (T, error)
+	CommitOp[T any] func(_ context.Context, host, requestID string) (T, error)
 
 	// readOp defines a generic read operation
 	readOp[T any] func(_ context.Context, host string, fullRead bool) (T, error)
 
+	// Result represents a valid value or an error
+	Result[T any] struct {
+		Value T
+		Err   error
+	}
+
+	abortFunc[T any] func(ctx context.Context, host, index, shard, requestID string) (T, error)
 	// coordinator coordinates replication of write and read requests
 	coordinator[T any] struct {
-		Client
-		Router  router
-		metrics *Metrics
+		abort   abortFunc[T]
+		Router  types.Router
+		metrics *metrics.ReplicationMetric
 		log     logrus.FieldLogger
 		Class   string
 		Shard   string
@@ -57,33 +66,33 @@ type (
 	}
 )
 
-// newCoordinator used by the replicator
-func newCoordinator[T any](r *Replicator, shard, requestID string, l logrus.FieldLogger,
+// NewWrite used by the replicator
+func NewWrite[T any](router types.Router, abort abortFunc[T], metrics *metrics.ReplicationMetric, class, shard, requestID string, l logrus.FieldLogger,
 ) *coordinator[T] {
 	return &coordinator[T]{
-		Client:                        r.client,
-		Router:                        r.router,
-		metrics:                       r.metrics,
+		abort:                         abort,
+		Router:                        router,
+		metrics:                       metrics,
 		log:                           l,
-		Class:                         r.class,
+		Class:                         class,
 		Shard:                         shard,
 		TxID:                          requestID,
-		pullBackOffPreInitialInterval: defaultPullBackOffInitialInterval / 2,
-		pullBackOffMaxElapsedTime:     defaultPullBackOffMaxElapsedTime,
+		pullBackOffPreInitialInterval: DefaultPullBackOffInitialInterval / 2,
+		pullBackOffMaxElapsedTime:     DefaultPullBackOffMaxElapsedTime,
 	}
 }
 
 // newCoordinator used by the Finder to read objects from replicas
-func newReadCoordinator[T any](f *Finder, shard string,
+func NewRead[T any](router types.Router, metrics *metrics.ReplicationMetric, class string, shard string,
 	pullBackOffInitivalInterval time.Duration,
 	pullBackOffMaxElapsedTime time.Duration,
 	deletionStrategy string,
 ) *coordinator[T] {
 	return &coordinator[T]{
-		Router:                        f.router,
-		Class:                         f.class,
+		Router:                        router,
+		Class:                         class,
 		Shard:                         shard,
-		metrics:                       f.metrics,
+		metrics:                       metrics,
 		pullBackOffPreInitialInterval: pullBackOffInitivalInterval / 2,
 		pullBackOffMaxElapsedTime:     pullBackOffMaxElapsedTime,
 		deletionStrategy:              deletionStrategy,
@@ -94,10 +103,10 @@ func newReadCoordinator[T any](f *Finder, shard string,
 func (c *coordinator[T]) broadcast(ctx context.Context,
 	replicas []string,
 	op readyOp, level int,
-) <-chan _Result[string] {
+) <-chan Result[string] {
 	// prepare tells replicas to be ready
-	prepare := func() <-chan _Result[string] {
-		resChan := make(chan _Result[string], len(replicas))
+	prepare := func() <-chan Result[string] {
+		resChan := make(chan Result[string], len(replicas))
 		f := func() { // broadcast
 			defer close(resChan)
 			var wg sync.WaitGroup
@@ -107,7 +116,7 @@ func (c *coordinator[T]) broadcast(ctx context.Context,
 				g := func() {
 					defer wg.Done()
 					err := op(ctx, replica, c.TxID)
-					resChan <- _Result[string]{replica, err}
+					resChan <- Result[string]{replica, err}
 				}
 				enterrors.GoWrapper(g, c.log)
 			}
@@ -118,10 +127,10 @@ func (c *coordinator[T]) broadcast(ctx context.Context,
 	}
 
 	// handle responses to prepare requests
-	resChan := make(chan _Result[string], len(replicas))
+	resChan := make(chan Result[string], len(replicas))
 	f := func() {
 		defer close(resChan)
-		actives := make([]_Result[string], 0, level) // cache for active replicas
+		actives := make([]Result[string], 0, level) // cache for active replicas
 		for r := range prepare() {
 			if r.Err != nil { // connection error
 				c.log.WithField("op", "broadcast").Warn(r.Err)
@@ -144,9 +153,9 @@ func (c *coordinator[T]) broadcast(ctx context.Context,
 			fs := logrus.Fields{"op": "broadcast", "active": len(actives), "total": len(replicas)}
 			c.log.WithFields(fs).Error("abort")
 			for _, node := range replicas {
-				c.Abort(ctx, node, c.Class, c.Shard, c.TxID)
+				c.abort(ctx, node, c.Class, c.Shard, c.TxID)
 			}
-			resChan <- _Result[string]{Err: fmt.Errorf("broadcast: %w", ErrReplicas)}
+			resChan <- Result[string]{Err: fmt.Errorf("broadcast: %w", errors.ErrReplicas)}
 		}
 	}
 	enterrors.GoWrapper(f, c.log)
@@ -156,11 +165,11 @@ func (c *coordinator[T]) broadcast(ctx context.Context,
 // commitAll tells replicas to commit pending updates related to a specific request
 // (second phase of a two-phase commit)
 func (c *coordinator[T]) commitAll(ctx context.Context,
-	broadcastCh <-chan _Result[string],
-	op commitOp[T],
+	broadcastCh <-chan Result[string],
+	op CommitOp[T],
 	callback func(successful int),
-) <-chan _Result[T] {
-	replyCh := make(chan _Result[T], cap(broadcastCh))
+) <-chan Result[T] {
+	replyCh := make(chan Result[T], cap(broadcastCh))
 	f := func() { // tells active replicas to commit
 		// tells active replicas to commit
 
@@ -176,7 +185,7 @@ func (c *coordinator[T]) commitAll(ctx context.Context,
 
 		for res := range broadcastCh {
 			if res.Err != nil {
-				replyCh <- _Result[T]{Err: res.Err}
+				replyCh <- Result[T]{Err: res.Err}
 				continue
 			}
 			replica := res.Value
@@ -187,7 +196,7 @@ func (c *coordinator[T]) commitAll(ctx context.Context,
 				if err == nil {
 					successful.Add(1)
 				}
-				replyCh <- _Result[T]{resp, err}
+				replyCh <- Result[T]{resp, err}
 			}
 			enterrors.GoWrapper(g, c.log)
 		}
@@ -204,8 +213,8 @@ func (c *coordinator[T]) commitAll(ctx context.Context,
 func (c *coordinator[T]) Push(ctx context.Context,
 	cl types.ConsistencyLevel,
 	ask readyOp,
-	com commitOp[T],
-) (<-chan _Result[T], int, error) {
+	com CommitOp[T],
+) (<-chan Result[T], int, error) {
 	options := c.Router.BuildRoutingPlanOptions(c.Shard, c.Shard, cl, "")
 	writeRoutingPlan, err := c.Router.BuildWriteRoutingPlan(options)
 	if err != nil {
@@ -274,7 +283,7 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 	cl types.ConsistencyLevel,
 	op readOp[T], directCandidate string,
 	timeout time.Duration,
-) (<-chan _Result[T], int, error) {
+) (<-chan Result[T], int, error) {
 	options := c.Router.BuildRoutingPlanOptions(c.Shard, c.Shard, cl, directCandidate)
 	readRoutingPlan, err := c.Router.BuildReadRoutingPlan(options)
 	if err != nil {
@@ -282,7 +291,7 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 	}
 	level := readRoutingPlan.IntConsistencyLevel
 	hosts := readRoutingPlan.HostAddresses()
-	replyCh := make(chan _Result[T], level)
+	replyCh := make(chan Result[T], level)
 	f := func() {
 		start := time.Now()
 		var successful atomic.Int32
@@ -329,13 +338,13 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 				// TODO have increasing timeout passed into each op (eg 1s, 2s, 4s, 8s, 16s, 32s, with some max) similar to backoff? future PR? or should we just set timeout once per worker in Pull?
 				if err == nil {
 					successful.Add(1)
-					replyCh <- _Result[T]{resp, err}
+					replyCh <- Result[T]{resp, err}
 					return
 				}
 				// this host failed op on the first try, put it on the retry queue
 				select {
 				case <-workerCtx.Done():
-					replyCh <- _Result[T]{Err: workerCtx.Err()}
+					replyCh <- Result[T]{Err: workerCtx.Err()}
 					return
 				default:
 					hostRetryQueue <- hostRetry{
@@ -348,7 +357,7 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 				for hr := range hostRetryQueue {
 					resp, err := op(workerCtx, hr.host, isFullReadWorker)
 					if err == nil {
-						replyCh <- _Result[T]{resp, err}
+						replyCh <- Result[T]{resp, err}
 						return
 					}
 					nextBackOff := hr.currentBackOff.NextBackOff()
@@ -357,7 +366,7 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 						// we have the worker exit here with the assumption that once we've reached
 						// this many failures for this host, we've tried all other hosts enough
 						// that we're not going to reach level successes
-						replyCh <- _Result[T]{resp, err}
+						replyCh <- Result[T]{resp, err}
 						return
 					}
 
@@ -365,7 +374,7 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 					select {
 					case <-workerCtx.Done():
 						timer.Stop()
-						replyCh <- _Result[T]{resp, err}
+						replyCh <- Result[T]{resp, err}
 						return
 					case <-timer.C:
 						hostRetryQueue <- hostRetry{hr.host, hr.currentBackOff}

@@ -18,16 +18,16 @@ import (
 	"sort"
 	"time"
 
-	"github.com/weaviate/weaviate/entities/models"
-
-	"github.com/sirupsen/logrus"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-
 	"github.com/go-openapi/strfmt"
+	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/entities/additional"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/usecases/replica/metrics"
 )
 
 var (
@@ -48,7 +48,7 @@ type repairer struct {
 	class               string
 	getDeletionStrategy func() string
 	client              FinderClient // needed to commit and abort operation
-	metrics             *Metrics
+	metrics             *metrics.ReplicationMetric
 	logger              logrus.FieldLogger
 }
 

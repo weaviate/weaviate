@@ -18,26 +18,27 @@ import (
 	"testing"
 	"time"
 
-	"github.com/weaviate/weaviate/usecases/schema"
-
-	"github.com/weaviate/weaviate/usecases/monitoring"
-	"github.com/weaviate/weaviate/usecases/replica"
-	"github.com/weaviate/weaviate/usecases/sharding"
-	"github.com/weaviate/weaviate/usecases/sharding/config"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"golang.org/x/exp/slices"
+
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	clusterRouter "github.com/weaviate/weaviate/cluster/router"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
 	clusterMocks "github.com/weaviate/weaviate/usecases/cluster/mocks"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/objects"
-	"golang.org/x/exp/slices"
+	"github.com/weaviate/weaviate/usecases/replica"
+	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
+	"github.com/weaviate/weaviate/usecases/replica/metrics"
+	"github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/sharding"
+	"github.com/weaviate/weaviate/usecases/sharding/config"
 )
 
 var (
@@ -61,21 +62,21 @@ func TestReplicatorReplicaNotFound(t *testing.T) {
 			f := newFakeFactory(t, "C1", "S", []string{}, tc.isMultiTenant)
 			rep := f.newReplicator()
 			err := rep.PutObject(ctx, "S", nil, types.ConsistencyLevelAll, 0)
-			assert.ErrorIs(t, err, replica.ErrReplicas)
+			assert.ErrorIs(t, err, replicaerrors.ErrReplicas)
 		})
 
 		t.Run(fmt.Sprintf("MergeObject_%v", tc.variant), func(t *testing.T) {
 			f := newFakeFactory(t, "C1", "S", []string{}, tc.isMultiTenant)
 			rep := f.newReplicator()
 			err := rep.MergeObject(ctx, "S", nil, types.ConsistencyLevelAll, 0)
-			assert.ErrorIs(t, err, replica.ErrReplicas)
+			assert.ErrorIs(t, err, replicaerrors.ErrReplicas)
 		})
 
 		t.Run(fmt.Sprintf("DeleteObject_%v", tc.variant), func(t *testing.T) {
 			f := newFakeFactory(t, "C1", "S", []string{}, tc.isMultiTenant)
 			rep := f.newReplicator()
 			err := rep.DeleteObject(ctx, "S", "id", time.Now(), types.ConsistencyLevelAll, 0)
-			assert.ErrorIs(t, err, replica.ErrReplicas)
+			assert.ErrorIs(t, err, replicaerrors.ErrReplicas)
 		})
 
 		t.Run(fmt.Sprintf("PutObjects_%v", tc.variant), func(t *testing.T) {
@@ -84,7 +85,7 @@ func TestReplicatorReplicaNotFound(t *testing.T) {
 			errs := rep.PutObjects(ctx, "S", []*storobj.Object{{}, {}}, types.ConsistencyLevelAll, 0)
 			assert.Equal(t, 2, len(errs))
 			for _, err := range errs {
-				assert.ErrorIs(t, err, replica.ErrReplicas)
+				assert.ErrorIs(t, err, replicaerrors.ErrReplicas)
 			}
 		})
 
@@ -94,7 +95,7 @@ func TestReplicatorReplicaNotFound(t *testing.T) {
 			xs := rep.DeleteObjects(ctx, "S", []strfmt.UUID{strfmt.UUID("1"), strfmt.UUID("2"), strfmt.UUID("3")}, time.Now(), false, types.ConsistencyLevelAll, 0)
 			assert.Equal(t, 3, len(xs))
 			for _, x := range xs {
-				assert.ErrorIs(t, x.Err, replica.ErrReplicas)
+				assert.ErrorIs(t, x.Err, replicaerrors.ErrReplicas)
 			}
 		})
 
@@ -104,7 +105,7 @@ func TestReplicatorReplicaNotFound(t *testing.T) {
 			errs := rep.AddReferences(ctx, "S", []objects.BatchReference{{}, {}}, types.ConsistencyLevelAll, 0)
 			assert.Equal(t, 2, len(errs))
 			for _, err := range errs {
-				assert.ErrorIs(t, err, replica.ErrReplicas)
+				assert.ErrorIs(t, err, replicaerrors.ErrReplicas)
 			}
 		})
 	}
@@ -217,7 +218,7 @@ func TestReplicatorPutObject(t *testing.T) {
 			f.WClient.On("Abort", mock.Anything, nodes[1], "C1", shard, anyVal).Return(resp, nil)
 
 			err := rep.PutObject(ctx, shard, obj, types.ConsistencyLevelAll, 123)
-			assert.ErrorIs(t, err, replica.ErrReplicas)
+			assert.ErrorIs(t, err, replicaerrors.ErrReplicas)
 		})
 
 		t.Run(fmt.Sprintf("PhaseOneUnsuccessfulResponse_%v", tc.variant), func(t *testing.T) {
@@ -231,7 +232,7 @@ func TestReplicatorPutObject(t *testing.T) {
 			f.WClient.On("Abort", mock.Anything, nodes[1], "C1", shard, anyVal).Return(resp, nil)
 
 			err := rep.PutObject(ctx, shard, obj, types.ConsistencyLevelAll, 123)
-			assert.ErrorIs(t, err, replica.ErrReplicas)
+			assert.ErrorIs(t, err, replicaerrors.ErrReplicas)
 		})
 
 		t.Run(fmt.Sprintf("Commit_%v", tc.variant), func(t *testing.T) {
@@ -290,7 +291,7 @@ func TestReplicatorMergeObject(t *testing.T) {
 			f.WClient.On("Abort", mock.Anything, nodes[1], cls, shard, anyVal).Return(resp, nil)
 
 			err := rep.MergeObject(ctx, shard, merge, types.ConsistencyLevelAll, 123)
-			assert.ErrorIs(t, err, replica.ErrReplicas)
+			assert.ErrorIs(t, err, replicaerrors.ErrReplicas)
 		})
 
 		t.Run(fmt.Sprintf("PhaseOneUnsuccessfulResponse_%v", tc.variant), func(t *testing.T) {
@@ -304,7 +305,7 @@ func TestReplicatorMergeObject(t *testing.T) {
 			f.WClient.On("Abort", mock.Anything, nodes[1], cls, shard, anyVal).Return(resp, nil)
 
 			err := rep.MergeObject(ctx, shard, merge, types.ConsistencyLevelAll, 123)
-			assert.ErrorIs(t, err, replica.ErrReplicas)
+			assert.ErrorIs(t, err, replicaerrors.ErrReplicas)
 		})
 
 		t.Run(fmt.Sprintf("Commit_%v", tc.variant), func(t *testing.T) {
@@ -357,7 +358,7 @@ func TestReplicatorDeleteObject(t *testing.T) {
 
 			err := rep.DeleteObject(ctx, shard, uuid, time.Now(), types.ConsistencyLevelAll, 123)
 			assert.NotNil(t, err)
-			assert.ErrorIs(t, err, replica.ErrReplicas)
+			assert.ErrorIs(t, err, replicaerrors.ErrReplicas)
 		})
 
 		t.Run(fmt.Sprintf("SuccessWithConsistencyLevelAll_%v", tc.variant), func(t *testing.T) {
@@ -459,7 +460,7 @@ func TestReplicatorDeleteObjects(t *testing.T) {
 			result := factory.newReplicator().DeleteObjects(ctx, shard, docIDs, time.Now(), false, types.ConsistencyLevelAll, 123)
 			assert.Equal(t, len(result), 2)
 			for _, r := range result {
-				assert.ErrorIs(t, r.Err, replica.ErrReplicas)
+				assert.ErrorIs(t, r.Err, replicaerrors.ErrReplicas)
 			}
 		})
 
@@ -648,7 +649,7 @@ func TestReplicatorPutObjects(t *testing.T) {
 
 			errs := rep.PutObjects(ctx, shard, objs, types.ConsistencyLevelAll, 0)
 			assert.Equal(t, 3, len(errs))
-			assert.ErrorIs(t, errs[0], replica.ErrReplicas)
+			assert.ErrorIs(t, errs[0], replicaerrors.ErrReplicas)
 		})
 
 		t.Run(fmt.Sprintf("PhaseOneUnsuccessfulResponse_%v", tc.variant), func(t *testing.T) {
@@ -663,7 +664,7 @@ func TestReplicatorPutObjects(t *testing.T) {
 			errs := rep.PutObjects(ctx, shard, objs, types.ConsistencyLevelAll, 0)
 			assert.Equal(t, 3, len(errs))
 			for _, err := range errs {
-				assert.ErrorIs(t, err, replica.ErrReplicas)
+				assert.ErrorIs(t, err, replicaerrors.ErrReplicas)
 			}
 		})
 
@@ -752,7 +753,7 @@ func TestReplicatorAddReferences(t *testing.T) {
 
 			errs := rep.AddReferences(ctx, shard, refs, types.ConsistencyLevelAll, 123)
 			assert.Equal(t, 2, len(errs))
-			assert.ErrorIs(t, errs[0], replica.ErrReplicas)
+			assert.ErrorIs(t, errs[0], replicaerrors.ErrReplicas)
 		})
 
 		t.Run(fmt.Sprintf("PhaseOneUnsuccessfulResponse_%v", tc.variant), func(t *testing.T) {
@@ -768,7 +769,7 @@ func TestReplicatorAddReferences(t *testing.T) {
 			errs := rep.AddReferences(ctx, shard, refs, types.ConsistencyLevelAll, 123)
 			assert.Equal(t, 2, len(errs))
 			for _, err := range errs {
-				assert.ErrorIs(t, err, replica.ErrReplicas)
+				assert.ErrorIs(t, err, replicaerrors.ErrReplicas)
 			}
 		})
 
@@ -963,7 +964,7 @@ func (f *fakeFactory) newFinderWithTimings(thisNode string, tInitial time.Durati
 		return models.ReplicationConfigDeletionStrategyNoAutomatedResolution
 	}
 
-	metrics, err := replica.NewMetrics(monitoring.GetMetrics())
+	metrics, err := metrics.NewMetrics(monitoring.GetMetrics())
 	if err != nil {
 		f.t.Fatalf("could not create metrics: %v", err)
 	}

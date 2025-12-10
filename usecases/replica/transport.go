@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
+
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
