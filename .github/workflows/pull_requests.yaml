@@ -522,6 +522,8 @@ jobs:
             test: "--only-module-text2vec-openai"
           - name: "text2vec-cohere"
             test: "--only-module-text2vec-cohere"
+          - name: "reranker-cohere"
+            test: "--only-module-reranker-cohere"
     steps:
       - uses: actions/checkout@v6
         with:
