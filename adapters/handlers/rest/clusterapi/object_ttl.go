@@ -114,13 +114,13 @@ func (d *ObjectTTL) incomingDelete() http.Handler {
 			for _, classPayload := range body {
 				className := classPayload.Class
 
-				idx, err := d.remoteIndex.IndexForIncomingWrite(context.Background(), className, 0)
+				idx, err := d.remoteIndex.IndexForIncomingWrite(context.Background(), className, classPayload.ClassVersion)
 				if err != nil {
 					ec.Add(fmt.Errorf("get index for class %q: %w", className, err))
 					continue
 				}
 
-				err = idx.IncomingDeleteObjectsExpired(eg, classPayload.Prop, time.UnixMilli(classPayload.TtlMilli), time.UnixMilli(classPayload.DelMilli), 0)
+				err = idx.IncomingDeleteObjectsExpired(eg, classPayload.Prop, time.UnixMilli(classPayload.TtlMilli), time.UnixMilli(classPayload.DelMilli), classPayload.ClassVersion)
 				if err != nil {
 					ec.Add(fmt.Errorf("delete expired for class %q: %w", className, err))
 				}

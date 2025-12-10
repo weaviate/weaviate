@@ -118,6 +118,9 @@ func (c *Coordinator) triggerDeletionObjectsExpiredLocalNode(ctx context.Context
 	eg := enterrors.NewErrorGroupWrapper(c.logger)
 
 	for name, collection := range classesWithTTL {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		deleteOnPropName, ttlThreshold := c.extractTtlDataFromCollection(collection.ttlConfig, ttlTime)
 		err := c.db.DeleteExpiredObjects(ctx, eg, name, deleteOnPropName, ttlThreshold, deletionTime, collection.version)
 		if err != nil {
@@ -145,7 +148,7 @@ func (c *Coordinator) triggerDeletionObjectsExpiredRemoteNode(ctx context.Contex
 	case 1:
 		node = nodes[0]
 	default:
-		i := rand.New(rand.NewSource(time.Now().UnixNano())).Intn(nodesCount)
+		i := rand.Intn(nodesCount)
 		node = nodes[i]
 	}
 
@@ -154,10 +157,11 @@ func (c *Coordinator) triggerDeletionObjectsExpiredRemoteNode(ctx context.Contex
 		deleteOnPropName, ttlThreshold := c.extractTtlDataFromCollection(collection.ttlConfig, ttlTime)
 
 		ttlCollections = append(ttlCollections, ObjectsExpiredPayload{
-			Class:    name,
-			Prop:     deleteOnPropName,
-			TtlMilli: ttlThreshold.UnixMilli(),
-			DelMilli: deletionTime.UnixMilli(),
+			Class:        name,
+			ClassVersion: collection.version,
+			Prop:         deleteOnPropName,
+			TtlMilli:     ttlThreshold.UnixMilli(),
+			DelMilli:     deletionTime.UnixMilli(),
 		})
 	}
 

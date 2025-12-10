@@ -37,10 +37,11 @@ func (p ObjectsExpiredStatusResponse) SetContentTypeHeader(w http.ResponseWriter
 }
 
 type ObjectsExpiredPayload struct {
-	Class    string `json:"class"`
-	Prop     string `json:"prop"`
-	TtlMilli int64  `json:"ttlMilli"`
-	DelMilli int64  `json:"delMilli"`
+	Class        string `json:"class"`
+	ClassVersion uint64 `json:"class_version"`
+	Prop         string `json:"prop"`
+	TtlMilli     int64  `json:"ttlMilli"`
+	DelMilli     int64  `json:"delMilli"`
 }
 
 func (p ObjectsExpiredPayload) MIME() string {
