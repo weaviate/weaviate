@@ -605,7 +605,7 @@ func (sg *SegmentGroup) getBySecondaryWithSegmentList(pos int, key []byte, buffe
 	segments []Segment,
 ) ([]byte, []byte, []byte, error) {
 	if err := CheckExpectedStrategy(sg.strategy, StrategyReplace); err != nil {
-		return nil, nil, nil, fmt.Errorf("SegmentGroup::getWithSegmentList(): %w", err)
+		return nil, nil, nil, fmt.Errorf("SegmentGroup::getBySecondaryWithSegmentList(): %w", err)
 	}
 
 	// start with latest and exit as soon as something is found, thus making sure

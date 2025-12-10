@@ -141,7 +141,10 @@ func (h *HFresh) ensureInitialPosting(v []float32, compressed []byte) (*ResultSe
 
 	// if no postings were found, create a new posting while holding the lock
 	if targets.Len() == 0 {
-		postingID := h.IDs.Next()
+		postingID, err := h.IDs.Next()
+		if err != nil {
+			return nil, err
+		}
 		// use the vector as the centroid and register it in the SPTAG
 		err = h.Centroids.Insert(postingID, &Centroid{
 			Uncompressed: v,

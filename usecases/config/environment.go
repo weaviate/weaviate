@@ -22,6 +22,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/netresearch/go-cron"
 	dbhelpers "github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
@@ -51,7 +52,7 @@ const (
 	DefaultReplicationEngineMaxWorkers        = 10
 	DefaultReplicaMovementMinimumAsyncWait    = 60 * time.Second
 	DefaultReplicationEngineFileCopyWorkers   = 10
-	DefaultReplicationEngineFileCopyChunkSize = 64 * 1024 // 64 KB
+	DefaultReplicationEngineFileCopyChunkSize = 1 * 1024 * 1024 // 1 MB
 
 	DefaultTransferInactivityTimeout = 5 * time.Minute
 
@@ -148,6 +149,23 @@ func FromEnv(config *Config) error {
 
 	if entcfg.Enabled(os.Getenv("INDEX_MISSING_TEXT_FILTERABLE_AT_STARTUP")) {
 		config.IndexMissingTextFilterableAtStartup = true
+	}
+
+	objectsTtlAllowSecondsEnv := "OBJECTS_TTL_ALLOW_SECONDS"
+	if entcfg.Enabled(os.Getenv(objectsTtlAllowSecondsEnv)) {
+		config.ObjectsTtlAllowSeconds = true
+	}
+	objectsTtlDeleteScheduleEnv := "OBJECTS_TTL_DELETE_SCHEDULE"
+	if objectsTtlDeleteSchedule := os.Getenv(objectsTtlDeleteScheduleEnv); objectsTtlDeleteSchedule != "" {
+		parser := cron.StandardParser()
+		if config.ObjectsTtlAllowSeconds {
+			// equivalent of cron.WithSeconds() option
+			parser = cron.MustNewParser(cron.Second | cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor)
+		}
+		if _, err := parser.Parse(objectsTtlDeleteSchedule); err != nil {
+			return fmt.Errorf("%s: %w", objectsTtlDeleteScheduleEnv, err)
+		}
+		config.ObjectsTTLDeleteSchedule = objectsTtlDeleteSchedule
 	}
 
 	cptParser := newCollectionPropsTenantsParser()
@@ -965,6 +983,12 @@ func FromEnv(config *Config) error {
 		invertedSorterDisabled = !(strings.ToLower(v) == "false")
 	}
 	config.InvertedSorterDisabled = configRuntime.NewDynamicValue(invertedSorterDisabled)
+
+	operationalMode := READ_WRITE
+	if v := os.Getenv("OPERATIONAL_MODE"); v != "" && (v == READ_WRITE || v == READ_ONLY || v == WRITE_ONLY || v == SCALE_OUT) {
+		operationalMode = v
+	}
+	config.OperationalMode = configRuntime.NewDynamicValue(operationalMode)
 
 	return nil
 }
