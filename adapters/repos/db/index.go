@@ -2215,7 +2215,10 @@ func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.
 		},
 	}}
 
-	// TODO aliszka:ttl propagate replication?
+	// the replication properties determine how aggressive the errors are returned and does not change anything about
+	// the servers behaviour. Therefore, we set it to QUORUM to be able to log errors in case the delete does not
+	// succeed on too many nodes. In the case of errors a node might retain the object past its TTL. However, when the
+	// deletion process happens to run on that node again, the object will be deleted then.
 	replProps := defaultConsistency()
 
 	if isMT := multitenancy.IsMultiTenant(class.MultiTenancyConfig); isMT {
