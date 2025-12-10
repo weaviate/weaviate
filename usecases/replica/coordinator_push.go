@@ -40,15 +40,19 @@ func (c *coordinator[T]) twoPhaseCommit(
 	com commitOp[T],
 	callback func(successful int),
 ) <-chan _Result[T] {
-	ctxPhase1, cancelPhase1 := context.WithTimeout(context.Background(), TwoPhaseCommitTimeout)
-	defer cancelPhase1()
+	//nolint:govet // Cannot defer cancel() here: function returns immediately with a channel.
+	// The context must outlive this function so async operations can complete.
+	// The timeout will clean up the context automatically when it expires.
+	ctxPhase1, _ := context.WithTimeout(context.Background(), TwoPhaseCommitTimeout)
 
 	// Phase 1: Prepare - broadcast "ready" requests to replicas
 	// Replicas prepare the transaction but don't commit yet
 	preparedReplicasCh := c.broadcast(ctxPhase1, hosts, ask, level)
 
-	ctxPhase2, cancelPhase2 := context.WithTimeout(context.Background(), TwoPhaseCommitTimeout)
-	defer cancelPhase2()
+	//nolint:govet // Cannot defer cancel() here: function returns immediately with a channel.
+	// The context must outlive this function so async operations can complete.
+	// The timeout will clean up the context automatically when it expires.
+	ctxPhase2, _ := context.WithTimeout(context.Background(), TwoPhaseCommitTimeout)
 
 	// Phase 2: Commit - tell prepared replicas to commit
 	// This must complete even if parent context is cancelled to maintain 2PC consistency
