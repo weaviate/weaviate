@@ -21,10 +21,10 @@ import (
 	"sync"
 	"time"
 
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-
 	"github.com/hashicorp/memberlist"
 	"github.com/sirupsen/logrus"
+
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 // _OpCode represents the type of supported operation
@@ -115,10 +115,9 @@ type delegate struct {
 	Name     string
 	dataPath string
 	log      logrus.FieldLogger
-	sync.Mutex
+	sync.RWMutex
 	Cache map[string]NodeInfo
 
-	mutex    sync.Mutex
 	hostInfo NodeInfo
 
 	metadata NodeMetadata
@@ -130,14 +129,14 @@ type NodeMetadata struct {
 }
 
 func (d *delegate) setOwnSpace(x DiskUsage) {
-	d.mutex.Lock()
+	d.Lock()
+	defer d.Unlock()
 	d.hostInfo = NodeInfo{DiskUsage: x, LastTimeMilli: time.Now().UnixMilli()}
-	d.mutex.Unlock()
 }
 
 func (d *delegate) ownInfo() NodeInfo {
-	d.mutex.Lock()
-	defer d.mutex.Unlock()
+	d.RLock()
+	defer d.RUnlock()
 	return d.hostInfo
 }
 
@@ -236,8 +235,8 @@ func (d *delegate) GetBroadcasts(overhead, limit int) [][]byte {
 
 // get returns info about about a specific node in the cluster
 func (d *delegate) get(node string) (NodeInfo, bool) {
-	d.Lock()
-	defer d.Unlock()
+	d.RLock()
+	defer d.RUnlock()
 	x, ok := d.Cache[node]
 	return x, ok
 }
@@ -265,8 +264,8 @@ func (d *delegate) delete(node string) {
 func (d *delegate) sortCandidates(names []string) []string {
 	rand.Shuffle(len(names), func(i, j int) { names[i], names[j] = names[j], names[i] })
 
-	d.Lock()
-	defer d.Unlock()
+	d.RLock()
+	defer d.RUnlock()
 	m := d.Cache
 	sort.Slice(names, func(i, j int) bool {
 		return (m[names[j]].Available >> 25) < (m[names[i]].Available >> 25)
