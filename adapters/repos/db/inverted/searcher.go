@@ -87,7 +87,7 @@ func (s *Searcher) Objects(ctx context.Context, limit int,
 	className schema.ClassName, properties []string,
 	disableInvertedSorter *runtime.DynamicValue[bool],
 ) ([]*storobj.Object, error) {
-	ctx = concurrency.CtxWithBudget(ctx, concurrency.TimesNUMCPU(2))
+	ctx = concurrency.CtxWithBudget(ctx, concurrency.TimesGOMAXPROCS(2))
 	beforeFilters := time.Now()
 	allowList, err := s.docIDs(ctx, filter, className, limit)
 	if err != nil {
@@ -227,7 +227,7 @@ func (s *Searcher) objectsByDocID(ctx context.Context, it docIDsIterator,
 func (s *Searcher) DocIDs(ctx context.Context, filter *filters.LocalFilter,
 	additional additional.Properties, className schema.ClassName,
 ) (helpers.AllowList, error) {
-	ctx = concurrency.CtxWithBudget(ctx, concurrency.TimesNUMCPU(2))
+	ctx = concurrency.CtxWithBudget(ctx, concurrency.TimesGOMAXPROCS(2))
 	return s.docIDs(ctx, filter, className, 0)
 }
 
@@ -339,7 +339,7 @@ func (s *Searcher) extractPropValuePairs(ctx context.Context,
 ) ([]*propValuePair, error) {
 	children := make([]*propValuePair, len(operands))
 	eg := enterrors.NewErrorGroupWrapper(s.logger)
-	outerConcurrencyLimit := concurrency.BudgetFromCtx(ctx, concurrency.NUMCPU)
+	outerConcurrencyLimit := concurrency.BudgetFromCtx(ctx, concurrency.GOMAXPROCS)
 	eg.SetLimit(outerConcurrencyLimit)
 
 	concurrencyReductionFactor := min(len(operands), outerConcurrencyLimit)
@@ -347,7 +347,7 @@ func (s *Searcher) extractPropValuePairs(ctx context.Context,
 	for i, clause := range operands {
 		i, clause := i, clause
 		eg.Go(func() error {
-			ctx := concurrency.ContextWithFractionalBudget(ctx, concurrencyReductionFactor, concurrency.NUMCPU)
+			ctx := concurrency.ContextWithFractionalBudget(ctx, concurrencyReductionFactor, concurrency.GOMAXPROCS)
 			child, err := s.extractPropValuePair(ctx, &clause, className)
 			// check for stopword errors on ContainsAny operator only at the end
 			if err != nil && errors.Is(err, ErrOnlyStopwords) && operator == filters.ContainsAny {
@@ -588,19 +588,27 @@ func (s *Searcher) extractTimestampProp(propName string, propType schema.DataTyp
 		}
 		byteValue = []byte(v)
 	case schema.DataTypeDate:
-		v, ok := value.(string)
-		if !ok {
-			return nil, fmt.Errorf("expected value to be string, got '%T'", value)
-		}
-		t, err := time.Parse(time.RFC3339, v)
-		if err != nil {
-			return nil, fmt.Errorf("trying parse time as RFC3339 string: %w", err)
+		var asInt64 int64
+
+		switch t := value.(type) {
+		case string:
+			parsed, err := time.Parse(time.RFC3339, t)
+			if err != nil {
+				return nil, fmt.Errorf("trying parse time as RFC3339 string: %w", err)
+			}
+			asInt64 = parsed.UnixMilli()
+
+		case time.Time:
+			asInt64 = t.UnixMilli()
+
+		default:
+			return nil, fmt.Errorf("expected value to be string or time.Time, got '%T'", value)
 		}
 
 		// if propType is a `valueDate`, we need to convert
 		// it to ms before fetching. this is the format by
 		// which our timestamps are indexed
-		byteValue = []byte(strconv.FormatInt(t.UnixMilli(), 10))
+		byteValue = []byte(strconv.FormatInt(asInt64, 10))
 	default:
 		return nil, fmt.Errorf(
 			"failed to extract timestamp prop, unsupported type '%T' for prop '%s'", propType, propName)
