@@ -304,10 +304,12 @@ func (m *Memtable) flushDataCollection(f *segmentindex.SegmentFile,
 	totalWritten := headerSize
 	i := 0
 	for _, node := range flat {
-		if shouldSkipKey, err := m.shouldSkipKeyFunc(node.key, context.Background()); err != nil {
-			return nil, errors.Wrap(err, "should skip key")
-		} else if shouldSkipKey {
-			continue
+		if m.shouldSkipKeyFunc != nil {
+			if shouldSkipKey, err := m.shouldSkipKeyFunc(node.key, context.Background()); err != nil {
+				return nil, errors.Wrap(err, "should skip key")
+			} else if shouldSkipKey {
+				continue
+			}
 		}
 
 		ki, err := (&segmentCollectionNode{
@@ -343,10 +345,12 @@ func totalKeyAndValueSize(in []*binarySearchNode) int {
 func totalValueSizeCollection(in []*binarySearchNodeMulti, shouldSkipKeyFunc func(key []byte, ctx context.Context) (bool, error)) (int, error) {
 	var sum int
 	for _, n := range in {
-		if shouldSkipKey, err := shouldSkipKeyFunc(n.key, context.Background()); err != nil {
-			return 0, err
-		} else if shouldSkipKey {
-			continue
+		if shouldSkipKeyFunc != nil {
+			if shouldSkipKey, err := shouldSkipKeyFunc(n.key, context.Background()); err != nil {
+				return 0, err
+			} else if shouldSkipKey {
+				continue
+			}
 		}
 
 		sum += 8 // uint64 to indicate array length
