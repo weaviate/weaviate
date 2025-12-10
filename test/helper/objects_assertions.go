@@ -112,6 +112,18 @@ func GetObject(t *testing.T, class string, uuid strfmt.UUID, include ...string) 
 	return getResp.Payload, nil
 }
 
+func GetObjects(t *testing.T, class string, include ...string) ([]*models.Object, error) {
+	req := objects.NewObjectsListParams().WithClass(&class)
+	if len(include) > 0 {
+		req.WithInclude(&include[0])
+	}
+	getResp, err := Client(t).Objects.ObjectsList(req, nil)
+	if err != nil {
+		return nil, err
+	}
+	return getResp.Payload.Objects, nil
+}
+
 func AssertCreateObjectTenantVector(t *testing.T, className string, schema map[string]interface{}, tenant string, vector []float32) strfmt.UUID {
 	t.Helper()
 	params := objects.NewObjectsCreateParams().WithBody(

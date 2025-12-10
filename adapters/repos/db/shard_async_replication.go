@@ -743,7 +743,7 @@ func (s *Shard) initHashBeater(ctx context.Context, config asyncReplicationConfi
 									"remote_object_digests_count":     stat.remoteObjectDigestsCount,
 									"local_objects_propagation_count": stat.localObjectsPropagationCount,
 									"local_objects_propagation_took":  stat.localObjectsPropagationTook,
-								}).Info("updating async replication stats")
+								}).Debug("updating async replication stats")
 								s.asyncReplicationStatsByTargetNode[stat.targetNodeName] = stat
 							}
 						}
@@ -809,7 +809,7 @@ func (s *Shard) initHashBeater(ctx context.Context, config asyncReplicationConfi
 							WithField("remote_object_digests_count", stat.remoteObjectDigestsCount).
 							WithField("local_objects_propagation_count", stat.localObjectsPropagationCount).
 							WithField("local_objects_propagation_took", stat.localObjectsPropagationTook).
-							Info("hashbeat iteration successfully completed")
+							Debug("hashbeat iteration successfully completed")
 						if stat.localObjectDigestsCount > 0 {
 							statsHaveObjectsPropagated = true
 						}
