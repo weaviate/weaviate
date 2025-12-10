@@ -360,6 +360,11 @@ func (s *Scheduler) scheduleQueues() (nothingScheduled bool) {
 			continue
 		}
 
+		// skip if already scheduled
+		if q.activeTasks.Count() > 0 {
+			continue
+		}
+
 		// mark it as scheduled
 		q.MarkAsScheduled()
 
