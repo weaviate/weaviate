@@ -473,7 +473,7 @@ func (h *StreamHandler) receiver(ctx context.Context, streamId string, consisten
 			if len(batch) > 0 || len(refs) > 0 {
 				// refs are fast so don't need to be efficiently batched
 				// we just accept however many the client sends assuming it'll be fine
-				h.push(stream.Context(), streamId, consistencyLevel, wg, batch, nil)
+				h.push(stream.Context(), streamId, consistencyLevel, wg, batch, refs)
 			}
 
 			uuids := make([]string, 0, len(objs))
