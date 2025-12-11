@@ -14,6 +14,7 @@ require (
 	github.com/weaviate/weaviate v1.32.4-0.20250821224425-5469448cc83a
 	github.com/weaviate/weaviate-go-client/v5 v5.4.2-0.20250822111337-d751da280fa2
 	golang.org/x/sync v0.18.0
+	google.golang.org/grpc v1.77.0
 )
 
 require (
@@ -157,6 +158,7 @@ require (
 	github.com/moby/term v0.5.0 // indirect
 	github.com/morikuni/aec v1.0.0 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
+	github.com/netresearch/go-cron v0.6.0 // indirect
 	github.com/nyaruka/phonenumbers v1.2.2 // indirect
 	github.com/oklog/ulid v1.3.1 // indirect
 	github.com/opencontainers/go-digest v1.0.0 // indirect
@@ -192,6 +194,7 @@ require (
 	github.com/weaviate/tiktoken-go v0.0.3 // indirect
 	github.com/xrash/smetrics v0.0.0-20240521201337-686a1a2994c1 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
+	go.etcd.io/bbolt v1.4.3 // indirect
 	go.mongodb.org/mongo-driver v1.17.6 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/contrib/detectors/gcp v1.38.0 // indirect
@@ -220,7 +223,6 @@ require (
 	google.golang.org/genproto v0.0.0-20250603155806-513f23925822 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20251022142026-3a174f9686a8 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20251103181224-f26f9409b101 // indirect
-	google.golang.org/grpc v1.77.0 // indirect
 	google.golang.org/protobuf v1.36.10 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
