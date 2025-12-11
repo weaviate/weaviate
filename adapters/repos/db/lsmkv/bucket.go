@@ -929,20 +929,6 @@ func (b *Bucket) SetDeleteSingle(key []byte, valueToDelete []byte) error {
 	})
 }
 
-func (b *Bucket) SetDeleteKey(key []byte) error {
-	active, release := b.getActiveMemtableForWrite()
-	defer release()
-
-	// This is a special tombstone that indicates that the whole key can be removed.
-	// On compaction, it will remove all entries for this key, except for itself.
-	return active.append(key, []value{
-		{
-			value:     []byte{},
-			tombstone: true,
-		},
-	})
-}
-
 // WasDeleted determines if an object used to exist in the LSM store
 //
 // There are 3 different locations that we need to check for the key
