@@ -282,7 +282,7 @@ func (m *Memtable) flushDataMap(f *segmentindex.SegmentFile) ([]segmentindex.Key
 func (m *Memtable) flushDataCollection(f *segmentindex.SegmentFile,
 	flat []*binarySearchNodeMulti,
 ) ([]segmentindex.Key, error) {
-	totalDataLength, err := totalValueSizeCollection(flat, m.shouldSkipKeyFunc)
+	totalDataLength, keysToSkip, err := totalValueSizeCollection(flat, m.shouldSkipKeyFunc)
 	if err != nil {
 		return nil, err
 	}
@@ -303,13 +303,9 @@ func (m *Memtable) flushDataCollection(f *segmentindex.SegmentFile,
 
 	totalWritten := headerSize
 	i := 0
-	for _, node := range flat {
-		if m.shouldSkipKeyFunc != nil {
-			if shouldSkipKey, err := m.shouldSkipKeyFunc(node.key, context.Background()); err != nil {
-				return nil, errors.Wrap(err, "should skip key")
-			} else if shouldSkipKey {
-				continue
-			}
+	for j, node := range flat {
+		if _, ok := keysToSkip[j]; ok {
+			continue
 		}
 
 		ki, err := (&segmentCollectionNode{
@@ -342,13 +338,15 @@ func totalKeyAndValueSize(in []*binarySearchNode) int {
 	return sum
 }
 
-func totalValueSizeCollection(in []*binarySearchNodeMulti, shouldSkipKeyFunc func(key []byte, ctx context.Context) (bool, error)) (int, error) {
+func totalValueSizeCollection(in []*binarySearchNodeMulti, shouldSkipKeyFunc func(key []byte, ctx context.Context) (bool, error)) (int, map[int]struct{}, error) {
 	var sum int
-	for _, n := range in {
+	keysToSkip := map[int]struct{}{}
+	for i, n := range in {
 		if shouldSkipKeyFunc != nil {
 			if shouldSkipKey, err := shouldSkipKeyFunc(n.key, context.Background()); err != nil {
-				return 0, err
+				return 0, nil, errors.Wrap(err, "should skip key")
 			} else if shouldSkipKey {
+				keysToSkip[i] = struct{}{}
 				continue
 			}
 		}
@@ -364,5 +362,5 @@ func totalValueSizeCollection(in []*binarySearchNodeMulti, shouldSkipKeyFunc fun
 		sum += len(n.key)
 	}
 
-	return sum, nil
+	return sum, keysToSkip, nil
 }
