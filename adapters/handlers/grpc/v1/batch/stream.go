@@ -382,14 +382,6 @@ func (h *StreamHandler) receiver(ctx context.Context, streamId string, consisten
 
 	reqCh, errCh := h.recv(stream)
 	for {
-		h.usageAllocChecker.Refresh(false)
-		// Check whether the usage is above GOMEMLIMIT before continuing to allow throttling based on memory pressure
-		if err := h.usageAllocChecker.CheckAlloc(0); err != nil {
-			log.Warnf("memory usage check failed before pushing to processing queue, backing off: %v", err)
-			time.Sleep(100 * time.Millisecond)
-			continue
-		}
-
 		// we must check for shutting down before we start blocking on h.recv in the event
 		// that the client is misbehaving by sending more messages after the shutdown signal
 		if h.shuttingDownCtx.Err() != nil {
@@ -408,6 +400,14 @@ func (h *StreamHandler) receiver(ctx context.Context, streamId string, consisten
 			default:
 				// otherwise continue as normal
 			}
+		}
+
+		h.usageAllocChecker.Refresh(false)
+		// Check whether the usage is above GOMEMLIMIT before continuing to allow throttling based on memory pressure
+		if err := h.usageAllocChecker.CheckAlloc(0); err != nil {
+			log.Warnf("memory usage check failed before pushing to processing queue, backing off: %v", err)
+			time.Sleep(100 * time.Millisecond)
+			continue
 		}
 
 		var request *pb.BatchStreamRequest
