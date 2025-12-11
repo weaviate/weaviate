@@ -157,7 +157,7 @@ func (h *HFresh) doSplit(ctx context.Context, postingID uint64, reassign bool) e
 
 // splitPosting takes a posting and returns two groups.
 func (h *HFresh) splitPosting(posting Posting) ([]SplitResult, error) {
-	defaultK := 2
+	defaultK := 4
 	k := min(int(len(posting)/int(h.maxPostingSize))+1, defaultK)
 	if k < 2 {
 		fmt.Println("length of posting: ", len(posting))
