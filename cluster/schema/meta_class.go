@@ -378,6 +378,7 @@ func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsReque
 			}
 		case types.TenantActivityStatusUNFREEZING:
 			// ignore multiple unfreezing
+			req.ImplicitUpdateRequest = true
 			var statusInProgress string
 			processes, exists := m.ShardProcesses[shardProcessID(req.Tenants[i].Name, command.TenantProcessRequest_ACTION_UNFREEZING)]
 			if exists {
