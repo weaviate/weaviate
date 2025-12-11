@@ -87,7 +87,7 @@ func NewStreamHandler(
 		workerStatsPerStream:   &sync.Map{},
 		stoppingPerStream:      &sync.Map{},
 		// set a batch-unique heap lloc checker with a lower threshold to catch OOMs earlier than the global one
-		heapAllocChecker: memwatch.NewMonitor(memwatch.LiveUsageReader, debug.SetMemoryLimit, 0.8),
+		heapAllocChecker: memwatch.NewMonitor(memwatch.LiveHeapReader, debug.SetMemoryLimit, 0.8),
 		// set a batch-unique live usage checker to throttle pushing to queue based on live memory usage avoiding OOM spikes
 		usageAllocChecker: memwatch.NewMonitor(memwatch.LiveUsageReader, debug.SetMemoryLimit, 1),
 	}
