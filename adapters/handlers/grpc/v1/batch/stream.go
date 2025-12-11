@@ -86,7 +86,8 @@ func NewStreamHandler(
 		metrics:                metrics,
 		workerStatsPerStream:   &sync.Map{},
 		stoppingPerStream:      &sync.Map{},
-		// set a batch-unique heap lloc checker with a lower threshold to catch OOMs earlier than the global one
+		// set a batch-unique live heap checker with a lower threshold to catch OOMs earlier than the global one
+		// this ensures that vectors can be stored in-memory before being processed downstream
 		heapAllocChecker: memwatch.NewMonitor(memwatch.LiveHeapReader, debug.SetMemoryLimit, 0.8),
 		// set a batch-unique live usage checker to throttle pushing to queue based on live memory usage avoiding OOM spikes
 		usageAllocChecker: memwatch.NewMonitor(memwatch.LiveUsageReader, debug.SetMemoryLimit, 1),
@@ -381,6 +382,14 @@ func (h *StreamHandler) receiver(ctx context.Context, streamId string, consisten
 
 	reqCh, errCh := h.recv(stream)
 	for {
+		h.usageAllocChecker.Refresh(false)
+		// Check whether the usage is above GOMEMLIMIT before continuing to allow throttling based on memory pressure
+		if err := h.usageAllocChecker.CheckAlloc(0); err != nil {
+			log.Warnf("memory usage check failed before pushing to processing queue, backing off: %v", err)
+			time.Sleep(100 * time.Millisecond)
+			continue
+		}
+
 		// we must check for shutting down before we start blocking on h.recv in the event
 		// that the client is misbehaving by sending more messages after the shutdown signal
 		if h.shuttingDownCtx.Err() != nil {
@@ -477,20 +486,6 @@ func (h *StreamHandler) receiver(ctx context.Context, streamId string, consisten
 				// refs are fast so don't need to be efficiently batched
 				// we just accept however many the client sends assuming it'll be fine
 				h.push(stream.Context(), streamId, consistencyLevel, wg, batch, refs)
-			}
-
-			for {
-				// Refresh the usage checker before each check to get the latest memory stats
-				h.usageAllocChecker.Refresh(false)
-				// Check whether the usage is above GOMEMLIMIT before returning an Ack to the client allowing it to continue
-				if err := h.usageAllocChecker.CheckAlloc(0); err != nil {
-					// If we can't allocate, wait a bit and try again
-					log.Warnf("memory usage check failed before pushing to processing queue, backing off: %v", err)
-					time.Sleep(100 * time.Millisecond)
-					continue
-				}
-				// If we can allocate, break out of the loop and proceed to push
-				break
 			}
 
 			uuids := make([]string, 0, len(objs))
