@@ -45,7 +45,7 @@ func Start(
 
 	shuttingDownCtx, triggerShuttingDown := context.WithCancel(context.Background())
 	reportingQueues := NewReportingQueues()
-	processingQueue := NewProcessingQueue(numWorkers)
+	processingQueue := NewProcessingQueue()
 
 	metrics := NewBatchStreamingMetrics(reg)
 	StartBatchWorkers(&workersWg, numWorkers, processingQueue, reportingQueues, batchHandler, logger)
