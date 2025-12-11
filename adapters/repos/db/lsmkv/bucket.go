@@ -2181,7 +2181,7 @@ func (b *Bucket) GetAveragePropertyLength() (float64, error) {
 }
 
 func (s *segment) existsKey(key []byte) (bool, error) {
-	if err := segmentindex.CheckExpectedStrategy(s.strategy, segmentindex.StrategyReplace, segmentindex.StrategyMapCollection, segmentindex.StrategyInverted, segmentindex.StrategySetCollection); err != nil {
+	if err := segmentindex.CheckExpectedStrategy(s.strategy, segmentindex.StrategyReplace, segmentindex.StrategyMapCollection, segmentindex.StrategyInverted, segmentindex.StrategySetCollection, segmentindex.StrategyRoaringSet); err != nil {
 		return false, fmt.Errorf("segment::existsKey: %w", err)
 	}
 

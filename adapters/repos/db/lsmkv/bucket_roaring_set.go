@@ -67,7 +67,7 @@ func (b *Bucket) RoaringSetGet(key []byte) (bm *sroar.Bitmap, release func(), er
 		return nil, noopRelease, err
 	}
 
-	view := b.getConsistentView()
+	view := b.getConsistentViewForKeys([][]byte{key})
 	defer view.Release()
 
 	return b.roaringSetGetFromConsistentView(view, key)
