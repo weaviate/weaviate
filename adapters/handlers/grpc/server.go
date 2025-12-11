@@ -30,6 +30,7 @@ import (
 	pbv1 "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/composer"
 	authErrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -92,6 +93,7 @@ func CreateGRPCServer(state *state.State, options ...grpc.ServerOption) (*grpc.S
 	}
 
 	interceptors = append(interceptors, makeIPInterceptor())
+	interceptors = append(interceptors, makeOperationalModeInterceptor(state))
 	interceptors = append(interceptors, makeMaintenanceModeUnaryInterceptor(state.Cluster.MaintenanceModeEnabledForLocalhost))
 
 	// Add OpenTelemetry tracing interceptors
@@ -188,6 +190,35 @@ func makeIPInterceptor() grpc.UnaryServerInterceptor {
 
 		// Add IP to context
 		ctx = context.WithValue(ctx, "sourceIp", clientIP)
+		return handler(ctx, req)
+	}
+}
+
+func makeOperationalModeInterceptor(state *state.State) grpc.UnaryServerInterceptor {
+	return func(
+		ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler,
+	) (any, error) {
+		var err error
+		switch state.ServerConfig.Config.OperationalMode.Get() {
+		case config.READ_ONLY:
+			if config.IsGRPCWrite(info.FullMethod) {
+				err = config.ErrReadOnlyModeEnabled
+			}
+		case config.SCALE_OUT:
+			if config.IsGRPCWrite(info.FullMethod) {
+				err = config.ErrScaleOutModeEnabled
+			}
+		case config.WRITE_ONLY:
+			if config.IsGRPCRead(info.FullMethod) {
+				err = config.ErrWriteOnlyModeEnabled
+			}
+		default:
+			// all good
+		}
+		if err != nil {
+			st := status.New(codes.Unavailable, err.Error())
+			return nil, st.Err()
+		}
 		return handler(ctx, req)
 	}
 }
