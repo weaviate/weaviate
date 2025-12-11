@@ -141,23 +141,18 @@ func (p *PostingStore) Put(ctx context.Context, postingID uint64, posting Postin
 		return errors.New("posting cannot be nil")
 	}
 
-	p.locks.RLock(postingID)
+	p.locks.Lock(postingID)
+	defer p.locks.Unlock(postingID)
+
 	_, err := p.getKeyBytes(ctx, postingID)
 	if err != nil && !errors.Is(err, ErrPostingNotFound) {
-		p.locks.RUnlock(postingID)
 		return err
 	} else if err != nil && errors.Is(err, ErrPostingNotFound) {
-		p.versions.Set(ctx, postingID, 0)
-		_, err = p.getKeyBytes(ctx, postingID)
+		err := p.versions.Set(ctx, postingID, 0)
 		if err != nil {
-			p.locks.RUnlock(postingID)
 			return err
 		}
 	}
-
-	p.locks.RUnlock(postingID)
-	p.locks.Lock(postingID)
-	defer p.locks.Unlock(postingID)
 
 	set := make([][]byte, len(posting))
 	for i, v := range posting {
@@ -194,13 +189,13 @@ func (p *PostingStore) Append(ctx context.Context, postingID uint64, vector Vect
 	start := time.Now()
 	defer p.metrics.StoreAppendDuration(start)
 
+	p.locks.Lock(postingID)
+	defer p.locks.Unlock(postingID)
+
 	key, err := p.getKeyBytes(ctx, postingID)
 	if err != nil {
 		return err
 	}
-
-	p.locks.Lock(postingID)
-	defer p.locks.Unlock(postingID)
 
 	return p.bucket.SetAdd(key, [][]byte{vector})
 }
