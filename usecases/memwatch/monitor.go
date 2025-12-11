@@ -265,19 +265,6 @@ func LiveHeapReader() int64 {
 	return int64(sample[0].Value.Uint64())
 }
 
-func LiveUsageReader() int64 {
-	const liveUsageBytesMetric = "/memory/classes/total:bytes"
-	sample := make([]metrics.Sample, 1)
-	sample[0].Name = liveUsageBytesMetric
-	metrics.Read(sample)
-
-	if sample[0].Value.Kind() == metrics.KindBad {
-		panic(fmt.Sprintf("metric %q no longer supported", liveUsageBytesMetric))
-	}
-
-	return int64(sample[0].Value.Uint64())
-}
-
 // setUsed is a thread-safe way to set the current usage
 func (m *Monitor) setUsed(used int64) {
 	m.mu.Lock()

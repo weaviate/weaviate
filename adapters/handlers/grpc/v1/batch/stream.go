@@ -58,8 +58,7 @@ type StreamHandler struct {
 	shuttingDown           atomic.Bool
 	workerStatsPerStream   *sync.Map // map[string]*stats
 	stoppingPerStream      *sync.Map // map[string]struct{}
-	heapAllocChecker       memwatch.AllocChecker
-	usageAllocChecker      memwatch.AllocChecker
+	allocChecker           memwatch.AllocChecker
 	memInFlight            atomic.Int64
 }
 
@@ -88,9 +87,7 @@ func NewStreamHandler(
 		stoppingPerStream:      &sync.Map{},
 		// set a batch-unique live heap checker with a lower threshold to catch OOMs earlier than the global one
 		// this ensures that vectors can be stored in-memory before being processed downstream
-		heapAllocChecker: memwatch.NewMonitor(memwatch.LiveHeapReader, debug.SetMemoryLimit, 0.8),
-		// set a batch-unique live usage checker to throttle pushing to queue based on live memory usage avoiding OOM spikes
-		usageAllocChecker: memwatch.NewMonitor(memwatch.LiveUsageReader, debug.SetMemoryLimit, 1),
+		allocChecker: memwatch.NewMonitor(memwatch.LiveHeapReader, debug.SetMemoryLimit, 0.8),
 	}
 	return h
 }
@@ -402,14 +399,6 @@ func (h *StreamHandler) receiver(ctx context.Context, streamId string, consisten
 			}
 		}
 
-		h.usageAllocChecker.Refresh(true)
-		// Check whether the usage is above GOMEMLIMIT before continuing to allow throttling based on memory pressure
-		if err := h.usageAllocChecker.CheckAlloc(0); err != nil {
-			log.Warnf("memory usage check failed before pushing to processing queue, backing off: %v", err)
-			time.Sleep(100 * time.Millisecond)
-			continue
-		}
-
 		var request *pb.BatchStreamRequest
 		var err error
 		// non-blocking select to receive messages from the stream
@@ -453,9 +442,9 @@ func (h *StreamHandler) receiver(ctx context.Context, streamId string, consisten
 			objs := request.GetData().GetObjects().GetValues()
 			size := estimateBatchMemory(objs)
 			// Refresh the alloc checker before each check to get the latest memory stats
-			h.heapAllocChecker.Refresh(false)
+			h.allocChecker.Refresh(false)
 			// Check if we can allocate memory for this batch plus any other in-flight memory currently in the processing queue
-			if err := h.heapAllocChecker.CheckAlloc(size + h.memInFlight.Load()); err != nil {
+			if err := h.allocChecker.CheckAlloc(size + h.memInFlight.Load()); err != nil {
 				h.logger.WithField("streamId", streamId).Warnf("memory allocation check failed before pushing to processing queue: %v", err)
 				return oomErr(objs, request.GetData().References.GetValues(), err)
 			}
