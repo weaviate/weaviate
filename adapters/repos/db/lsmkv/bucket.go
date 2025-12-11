@@ -1023,7 +1023,7 @@ func MapListLegacySortingRequired() MapListOption {
 // MapList is specific to the Map strategy, for Sets use [Bucket.SetList], for
 // Replace use [Bucket.Get].
 func (b *Bucket) MapList(ctx context.Context, key []byte, cfgs ...MapListOption) ([]MapPair, error) {
-	view := b.getConsistentViewForKeys([][]byte{key})
+	view := b.getConsistentView()
 	defer view.Release()
 
 	return b.mapListFromConsistentView(ctx, view, key, cfgs...)
