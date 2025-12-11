@@ -173,19 +173,6 @@ func (s *segment) getPropertyLengths() (map[uint64]uint32, error) {
 	return s.invertedData.propertyLengths, nil
 }
 
-func (s *segment) hasKey(key []byte) bool {
-	if s.strategy != segmentindex.StrategyMapCollection && s.strategy != segmentindex.StrategyInverted && s.strategy != segmentindex.StrategyReplace && s.strategy != segmentindex.StrategySetCollection {
-		return false
-	}
-
-	if s.useBloomFilter && !s.bloomFilter.Test(key) {
-		return false
-	}
-
-	_, err := s.index.Get(key)
-	return err == nil
-}
-
 func (s *segment) getDocCount(key []byte) uint64 {
 	if s.strategy != segmentindex.StrategyMapCollection && s.strategy != segmentindex.StrategyInverted {
 		return 0

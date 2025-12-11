@@ -561,7 +561,46 @@ func (sg *SegmentGroup) getConsistentViewForKeys(keys [][]byte) (segments []Segm
 
 	sg.segmentRefCounterLock.Lock()
 	for _, seg := range sg.segments {
-		if slices.ContainsFunc(keys, seg.hasKey) {
+		if slices.ContainsFunc(keys, func(key []byte) bool {
+			ok, err := seg.existsKey(key)
+			if err != nil {
+				return true
+			}
+			return ok
+		}) {
+			seg.incRef()
+			sg.segmentsWithRefs[seg.getPath()] = seg
+			segments = append(segments, seg)
+		}
+	}
+	sg.segmentRefCounterLock.Unlock()
+	sg.maintenanceLock.RUnlock()
+
+	return segments, func() {
+		sg.segmentRefCounterLock.Lock()
+		for _, seg := range segments {
+			seg.decRef()
+			if seg.getRefs() == 0 {
+				delete(sg.segmentsWithRefs, seg.getPath())
+			}
+		}
+		sg.segmentRefCounterLock.Unlock()
+	}
+}
+
+func (sg *SegmentGroup) getConsistentViewForKeysSecondary(keys [][]byte, pos int) (segments []Segment, release func()) {
+	sg.maintenanceLock.RLock()
+	segments = make([]Segment, 0, len(sg.segments))
+
+	sg.segmentRefCounterLock.Lock()
+	for _, seg := range sg.segments {
+		if slices.ContainsFunc(keys, func(key []byte) bool {
+			ok, err := seg.existsKeySecondary(key, pos)
+			if err != nil {
+				return true
+			}
+			return ok
+		}) {
 			seg.incRef()
 			sg.segmentsWithRefs[seg.getPath()] = seg
 			segments = append(segments, seg)

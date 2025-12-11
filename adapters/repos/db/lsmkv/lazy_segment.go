@@ -342,11 +342,6 @@ func (s *lazySegment) getRefs() int {
 	return s.segment.getRefs()
 }
 
-func (s *lazySegment) hasKey(key []byte) bool {
-	s.mustLoad()
-	return s.segment.hasKey(key)
-}
-
 func (s *lazySegment) getPropertyLengths() (map[uint64]uint32, error) {
 	if err := s.load(); err != nil {
 		return nil, fmt.Errorf("lazySegment::getPropertyLengths: %w", err)
@@ -382,6 +377,13 @@ func (s *lazySegment) existsKey(key []byte) (bool, error) {
 		return false, fmt.Errorf("lazySegment::existsKey: %w", err)
 	}
 	return s.segment.existsKey(key)
+}
+
+func (s *lazySegment) existsKeySecondary(key []byte, pos int) (bool, error) {
+	if err := s.load(); err != nil {
+		return false, fmt.Errorf("lazySegment::existsKey: %w", err)
+	}
+	return s.segment.existsKeySecondary(key, pos)
 }
 
 func (s *lazySegment) stripTmpExtensions(leftSegmentID, rightSegmentID string) error {

@@ -80,8 +80,11 @@ type Segment interface {
 	roaringSetGet(key []byte, bitmapBufPool roaringset.BitmapBufPool) (roaringset.BitmapLayer, func(), error)
 	roaringSetMergeWith(key []byte, input roaringset.BitmapLayer, bitmapBufPool roaringset.BitmapBufPool) error
 
+	// replace/set/map/bmw specific
+	existsKey(key []byte) (bool, error)
+	existsKeySecondary(key []byte, pos int) (bool, error)
+
 	// map/bmw specific
-	hasKey(key []byte) bool
 	getDocCount(key []byte) uint64
 	getPropertyLengths() (map[uint64]uint32, error)
 	newInvertedCursorReusable() *segmentCursorInvertedReusable
@@ -89,7 +92,6 @@ type Segment interface {
 
 	// replace specific
 	getCountNetAdditions() int
-	existsKey(key []byte) (bool, error)
 }
 
 type segment struct {
