@@ -402,7 +402,7 @@ func (h *StreamHandler) receiver(ctx context.Context, streamId string, consisten
 			}
 		}
 
-		h.usageAllocChecker.Refresh(false)
+		h.usageAllocChecker.Refresh(true)
 		// Check whether the usage is above GOMEMLIMIT before continuing to allow throttling based on memory pressure
 		if err := h.usageAllocChecker.CheckAlloc(0); err != nil {
 			log.Warnf("memory usage check failed before pushing to processing queue, backing off: %v", err)
