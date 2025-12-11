@@ -28,9 +28,46 @@ const (
 	DefaultPropertyIndexed       = true
 	DefaultVectorizePropertyName = false
 	LowerCaseInput               = false
+
+	// Parameter keys for accessing the Parameters map
+	ParamModel      = "Model"
+	ParamBaseURL    = "BaseURL"
+	ParamTruncate   = "Truncate"
+	ParamDimensions = "Dimensions"
 )
 
-var availableTruncates = []string{"NONE", "START", "END", "LEFT", "RIGHT"}
+// Parameters defines all configuration parameters for text2vec-cohere
+var Parameters = map[string]basesettings.ParameterDef{
+	ParamModel: {
+		JSONKey:      "model",
+		DefaultValue: DefaultCohereModel,
+		Description:  "Cohere model name",
+		Required:     false,
+		DataType:     "string",
+	},
+	ParamBaseURL: {
+		JSONKey:      "baseURL",
+		DefaultValue: DefaultBaseURL,
+		Description:  "Cohere API base URL",
+		Required:     false,
+		DataType:     "string",
+	},
+	ParamTruncate: {
+		JSONKey:       "truncate",
+		DefaultValue:  DefaultTruncate,
+		Description:   "Truncation strategy (NONE, START, END, LEFT, RIGHT)",
+		Required:      false,
+		AllowedValues: []string{"NONE", "START", "END", "LEFT", "RIGHT"},
+		DataType:      "string",
+	},
+	ParamDimensions: {
+		JSONKey:      "dimensions",
+		DefaultValue: nil,
+		Description:  "Number of dimensions for the embedding",
+		Required:     false,
+		DataType:     "int64",
+	},
+}
 
 type classSettings struct {
 	basesettings.BaseClassSettings
@@ -42,19 +79,19 @@ func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
 }
 
 func (cs *classSettings) Model() string {
-	return cs.BaseClassSettings.GetPropertyAsString("model", DefaultCohereModel)
+	return cs.BaseClassSettings.GetPropertyAsString(Parameters[ParamModel].JSONKey, DefaultCohereModel)
 }
 
 func (cs *classSettings) Truncate() string {
-	return cs.BaseClassSettings.GetPropertyAsString("truncate", DefaultTruncate)
+	return cs.BaseClassSettings.GetPropertyAsString(Parameters[ParamTruncate].JSONKey, DefaultTruncate)
 }
 
 func (cs *classSettings) BaseURL() string {
-	return cs.BaseClassSettings.GetPropertyAsString("baseURL", DefaultBaseURL)
+	return cs.BaseClassSettings.GetPropertyAsString(Parameters[ParamBaseURL].JSONKey, DefaultBaseURL)
 }
 
 func (cs *classSettings) Dimensions() *int64 {
-	return cs.BaseClassSettings.GetPropertyAsInt64("dimensions", nil)
+	return cs.BaseClassSettings.GetPropertyAsInt64(Parameters[ParamDimensions].JSONKey, nil)
 }
 
 func (cs *classSettings) Validate(class *models.Class) error {
@@ -62,10 +99,13 @@ func (cs *classSettings) Validate(class *models.Class) error {
 		return err
 	}
 
+	// Validate parameters with AllowedValues
 	truncate := cs.Truncate()
-	if !basesettings.ValidateSetting(truncate, availableTruncates) {
-		return errors.Errorf("wrong truncate type, available types are: %v", availableTruncates)
+	if err := basesettings.ValidateAllowedValues(ParamTruncate, Parameters[ParamTruncate], truncate); err != nil {
+		return errors.Wrap(err, "invalid truncate parameter")
 	}
+
+	// Additional custom validation can be added here
 
 	return nil
 }
