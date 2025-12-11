@@ -156,24 +156,38 @@ func (p *PostingStore) Put(ctx context.Context, postingID uint64, posting Postin
 	}
 
 	p.locks.RUnlock(postingID)
+	p.locks.Lock(postingID)
+	defer p.locks.Unlock(postingID)
 
 	set := make([][]byte, len(posting))
 	for i, v := range posting {
 		set[i] = v
 	}
 
-	p.locks.Lock(postingID)
-	defer p.locks.Unlock(postingID)
+	currentVersion, err := p.versions.Get(ctx, postingID)
+	if err != nil {
+		return err
+	}
+	newVersion := currentVersion + 1
 
-	version, err := p.versions.Inc(ctx, postingID, 1)
 	if err != nil {
 		return errors.Wrapf(err, "increment posting version for id %d", postingID)
 	}
 
 	var buf [12]byte
 	binary.LittleEndian.PutUint64(buf[:], postingID)
-	binary.LittleEndian.PutUint32(buf[8:], version)
-	return p.bucket.SetAdd(buf[:], set)
+	binary.LittleEndian.PutUint32(buf[8:], newVersion)
+	err = p.bucket.SetAdd(buf[:], set)
+	if err != nil {
+		return errors.Wrapf(err, "failed to put posting %d", postingID)
+	}
+
+	err = p.versions.Set(ctx, postingID, newVersion)
+	if err != nil {
+		return errors.Wrapf(err, "set new posting version for id %d", postingID)
+	}
+
+	return nil
 }
 
 func (p *PostingStore) Append(ctx context.Context, postingID uint64, vector Vector) error {
