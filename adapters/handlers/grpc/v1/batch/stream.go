@@ -437,13 +437,23 @@ func (h *StreamHandler) receiver(ctx context.Context, streamId string, consisten
 			return err
 		}
 		if request.GetData() != nil {
+			// Estimate memory for the incoming batch so we can do an allocation check
+			objs := request.GetData().GetObjects().GetValues()
+			size := estimateBatchMemory(objs)
+			// Refresh the alloc checker before each check to get the latest memory stats
+			h.allocChecker.Refresh(false)
+			// Check if we can allocate memory for this batch plus any other in-flight memory currently in the processing queue
+			if err := h.allocChecker.CheckAlloc(size + h.memInFlight.Load()); err != nil {
+				h.logger.WithField("streamId", streamId).Warnf("memory allocation check failed before pushing to processing queue: %v", err)
+				return oomErr(objs, request.GetData().References.GetValues(), err)
+			}
+
 			// Split the client-sent objects into batches according to the current batch size
 			// This allows clients to send however many objects they want without overwhelming
 			// the downstream workers. If there is an OOM during the processing of a batch, then the
 			// uuids sent back as part of the OOM message are those remaining objects that were not processed
 			// prior to the OOM occurring.
 			batchSize := h.workerStats(streamId).getBatchSize()
-			objs := request.GetData().GetObjects().GetValues()
 			var batch []*pb.BatchObject
 			if len(objs) > batchSize {
 				batch = make([]*pb.BatchObject, 0, batchSize)
@@ -453,36 +463,14 @@ func (h *StreamHandler) receiver(ctx context.Context, streamId string, consisten
 					batch = append(batch, obj)
 					batchUuids = append(batchUuids, obj.GetUuid())
 					if len(batch) == batchSize {
-						if err := h.push(stream.Context(), streamId, consistencyLevel, wg, batch, nil); err != nil {
-							var remaining []string
-							for _, obj := range objs {
-								isRemaining := true
-								for _, puid := range processed {
-									if obj.GetUuid() == puid {
-										isRemaining = false
-										break
-									}
-								}
-								if isRemaining {
-									remaining = append(remaining, obj.GetUuid())
-								}
-							}
-							var beacons []string
-							for _, ref := range request.GetData().GetReferences().GetValues() {
-								beacons = append(beacons, toBeacon(ref))
-							}
-							return &oom{
-								err:     fmt.Errorf("processing batch: %w", err),
-								uuids:   remaining,
-								beacons: beacons,
-							}
-						}
+						h.push(stream.Context(), streamId, consistencyLevel, wg, batch, nil)
 						processed = append(processed, batchUuids...)
 						batch = make([]*pb.BatchObject, 0, batchSize)
 						batchUuids = make([]string, 0, batchSize)
 					}
 				}
 			} else {
+				// all objects fit into one downstream batch
 				batch = objs
 			}
 
@@ -490,9 +478,7 @@ func (h *StreamHandler) receiver(ctx context.Context, streamId string, consisten
 			if len(batch) > 0 || len(refs) > 0 {
 				// refs are fast so don't need to be efficiently batched
 				// we just accept however many the client sends assuming it'll be fine
-				if err := h.push(stream.Context(), streamId, consistencyLevel, wg, batch, refs); err != nil {
-					return oomErr(batch, refs, err)
-				}
+				h.push(stream.Context(), streamId, consistencyLevel, wg, batch, nil)
 			}
 
 			uuids := make([]string, 0, len(objs))
@@ -508,7 +494,6 @@ func (h *StreamHandler) receiver(ctx context.Context, streamId string, consisten
 				log.Errorf("failed to send acks message: %s", err)
 				return fmt.Errorf("send acks message: %w", err)
 			}
-
 		} else if request.GetStop() != nil {
 			h.setStopping(streamId)
 		} else {
@@ -518,16 +503,7 @@ func (h *StreamHandler) receiver(ctx context.Context, streamId string, consisten
 	}
 }
 
-func (h *StreamHandler) push(ctx context.Context, streamId string, consistencyLevel *pb.ConsistencyLevel, wg *sync.WaitGroup, objs []*pb.BatchObject, refs []*pb.BatchReference) error {
-	size := estimateBatchMemory(objs)
-	// Refresh the alloc checker before each check to get the latest memory stats
-	h.allocChecker.Refresh(false)
-	// Check if we can allocate memory for this batch plus any other in-flight memory currently in the processing queue
-	if err := h.allocChecker.CheckAlloc(size + h.memInFlight.Load()); err != nil {
-		h.logger.WithField("streamId", streamId).Warnf("memory allocation check failed before pushing to processing queue: %v", err)
-		return err
-	}
-
+func (h *StreamHandler) push(ctx context.Context, streamId string, consistencyLevel *pb.ConsistencyLevel, wg *sync.WaitGroup, objs []*pb.BatchObject, refs []*pb.BatchReference) {
 	// Increment the wait group for each batch pushed to the processing queue
 	wg.Add(1)
 
@@ -539,6 +515,7 @@ func (h *StreamHandler) push(ctx context.Context, streamId string, consistencyLe
 	h.enqueuedObjectsCounter.Add(int32(howMany))
 
 	// Track memory in-flight for all batches currently being processed
+	size := estimateBatchMemory(objs)
 	h.memInFlight.Add(size)
 
 	// Push the batch to the processing queue for downstream workers to pick up
@@ -561,7 +538,6 @@ func (h *StreamHandler) push(ctx context.Context, streamId string, consistencyLe
 			}
 		},
 	}
-	return nil
 }
 
 func oomErr(objs []*pb.BatchObject, refs []*pb.BatchReference, err error) *oom {
