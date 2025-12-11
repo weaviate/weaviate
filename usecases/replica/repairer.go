@@ -48,7 +48,7 @@ type repairer struct {
 	class               string
 	getDeletionStrategy func() string
 	client              FinderClient // needed to commit and abort operation
-	metrics             *metrics.ReplicationMetric
+	metrics             *metrics.Replication
 	logger              logrus.FieldLogger
 }
 

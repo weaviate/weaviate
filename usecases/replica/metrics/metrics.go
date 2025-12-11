@@ -28,7 +28,7 @@ var (
 	readRepairDurationBuckets = prometheus.ExponentialBuckets(0.001, 2, 18)   // ~1ms to 136s
 )
 
-type ReplicationMetric struct {
+type Replication struct {
 	monitoring bool
 
 	// Write Metrics
@@ -51,8 +51,8 @@ type ReplicationMetric struct {
 	readRepairDuration prometheus.Histogram
 }
 
-func NewMetrics(prom *monitoring.PrometheusMetrics) (*ReplicationMetric, error) {
-	m := &ReplicationMetric{}
+func NewMetrics(prom *monitoring.PrometheusMetrics) (*Replication, error) {
+	m := &Replication{}
 
 	if prom == nil {
 		return m, nil
@@ -172,19 +172,19 @@ func newHistogram(reg prometheus.Registerer, name, help string, buckets []float6
 
 // Write increment methods
 
-func (m *ReplicationMetric) IncWritesSucceedAll() {
+func (m *Replication) IncWritesSucceedAll() {
 	if m.monitoring {
 		m.writesSucceedAll.Inc()
 	}
 }
 
-func (m *ReplicationMetric) IncWritesSucceedSome() {
+func (m *Replication) IncWritesSucceedSome() {
 	if m.monitoring {
 		m.writesSucceedSome.Inc()
 	}
 }
 
-func (m *ReplicationMetric) IncWritesFailed() {
+func (m *Replication) IncWritesFailed() {
 	if m.monitoring {
 		m.writesFailed.Inc()
 	}
@@ -192,19 +192,19 @@ func (m *ReplicationMetric) IncWritesFailed() {
 
 // Read increment methods
 
-func (m *ReplicationMetric) IncReadsSucceedAll() {
+func (m *Replication) IncReadsSucceedAll() {
 	if m.monitoring {
 		m.readsSucceedAll.Inc()
 	}
 }
 
-func (m *ReplicationMetric) IncReadsSucceedSome() {
+func (m *Replication) IncReadsSucceedSome() {
 	if m.monitoring {
 		m.readsSucceedSome.Inc()
 	}
 }
 
-func (m *ReplicationMetric) IncReadsFailed() {
+func (m *Replication) IncReadsFailed() {
 	if m.monitoring {
 		m.readsFailed.Inc()
 	}
@@ -212,13 +212,13 @@ func (m *ReplicationMetric) IncReadsFailed() {
 
 // Read repair increment methods
 
-func (m *ReplicationMetric) IncReadRepairCount() {
+func (m *Replication) IncReadRepairCount() {
 	if m.monitoring {
 		m.readRepairCount.Inc()
 	}
 }
 
-func (m *ReplicationMetric) IncReadRepairFailure() {
+func (m *Replication) IncReadRepairFailure() {
 	if m.monitoring {
 		m.readRepairFailure.Inc()
 	}
@@ -226,19 +226,19 @@ func (m *ReplicationMetric) IncReadRepairFailure() {
 
 // Duration observation methods
 
-func (m *ReplicationMetric) ObserveWriteDuration(d time.Duration) {
+func (m *Replication) ObserveWriteDuration(d time.Duration) {
 	if m.monitoring {
 		m.writeDuration.Observe(d.Seconds())
 	}
 }
 
-func (m *ReplicationMetric) ObserveReadDuration(d time.Duration) {
+func (m *Replication) ObserveReadDuration(d time.Duration) {
 	if m.monitoring {
 		m.readDuration.Observe(d.Seconds())
 	}
 }
 
-func (m *ReplicationMetric) ObserveReadRepairDuration(d time.Duration) {
+func (m *Replication) ObserveReadRepairDuration(d time.Duration) {
 	if m.monitoring {
 		m.readRepairDuration.Observe(d.Seconds())
 	}

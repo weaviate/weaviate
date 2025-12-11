@@ -37,10 +37,12 @@ type (
 	// readyOp asks a replica if it is ready to commit
 	readyOp func(_ context.Context, host, requestID string) error
 
-	// readyOp asks a replica to execute the actual operation
+	// CommitOp asks a replica to commit and execute the actual operation
+	// (second phase of a two-phase commit protocol)
 	CommitOp[T any] func(_ context.Context, host, requestID string) (T, error)
 
-	// readOp defines a generic read operation
+	// readOp defines a generic read operation that reads data from a replica.
+	// The fullRead parameter indicates whether to perform a full read operation
 	readOp[T any] func(_ context.Context, host string, fullRead bool) (T, error)
 
 	// Result represents a valid value or an error
@@ -54,7 +56,7 @@ type (
 	coordinator[T any] struct {
 		abort   abortFunc[T]
 		Router  types.Router
-		metrics *metrics.ReplicationMetric
+		metrics *metrics.Replication
 		log     logrus.FieldLogger
 		Class   string
 		Shard   string
@@ -66,8 +68,9 @@ type (
 	}
 )
 
-// NewWrite used by the replicator
-func NewWrite[T any](router types.Router, abort abortFunc[T], metrics *metrics.ReplicationMetric, class, shard, requestID string, l logrus.FieldLogger,
+// NewWrite creates a coordinator for write operations, used by the replicator
+// to coordinate replication of write requests across replicas using a two-phase commit protocol.
+func NewWrite[T any](router types.Router, abort abortFunc[T], metrics *metrics.Replication, class, shard, requestID string, l logrus.FieldLogger,
 ) *coordinator[T] {
 	return &coordinator[T]{
 		abort:                         abort,
@@ -82,8 +85,9 @@ func NewWrite[T any](router types.Router, abort abortFunc[T], metrics *metrics.R
 	}
 }
 
-// newCoordinator used by the Finder to read objects from replicas
-func NewRead[T any](router types.Router, metrics *metrics.ReplicationMetric, class string, shard string,
+// NewRead creates a coordinator for read operations, used by the Finder
+// to coordinate reading objects from replicas based on consistency level.
+func NewRead[T any](router types.Router, metrics *metrics.Replication, class string, shard string,
 	pullBackOffInitivalInterval time.Duration,
 	pullBackOffMaxElapsedTime time.Duration,
 	deletionStrategy string,
