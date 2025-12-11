@@ -197,6 +197,14 @@ func (h *HFresh) doMerge(ctx context.Context, postingID uint64) error {
 			if err != nil {
 				return errors.Wrapf(err, "failed to set size of merged posting %d to 0", smallID)
 			}
+
+			// put empty posting for smallID to increase version and
+			// allow cleanup of old vectors on disk
+			err = h.PostingStore.Put(ctx, smallID, Posting{})
+			if err != nil {
+				return errors.Wrapf(err, "failed to put empty posting %d after merge operation", smallID)
+			}
+
 			err = h.PostingSizes.Set(ctx, largeID, uint32(len(newPosting)))
 			if err != nil {
 				return errors.Wrapf(err, "failed to set size of merged posting %d to %d", largeID, len(newPosting))
