@@ -29,6 +29,13 @@ const (
 	taskQueueReassignOp
 )
 
+// limit the size of each task chunk to
+// to avoid sending too many tasks at once.
+const (
+	mainTaskQueueChunkSize  = 128 * 1024 // 128KB
+	mergeTaskQueueChunkSize = 64 * 1024  // 64KB
+)
+
 type TaskQueue struct {
 	// queue for split and reassign operations
 	q *queue.DiskQueue
@@ -61,6 +68,7 @@ func NewTaskQueue(index *HFresh) (*TaskQueue, error) {
 			Dir:              filepath.Join(index.config.RootPath, fmt.Sprintf("%s.queue.d", index.config.ID)),
 			TaskDecoder:      &tq,
 			OnBatchProcessed: tq.OnBatchProcessed,
+			ChunkSize:        mainTaskQueueChunkSize,
 		},
 	)
 	if err != nil {
@@ -80,6 +88,7 @@ func NewTaskQueue(index *HFresh) (*TaskQueue, error) {
 			Dir:              filepath.Join(index.config.RootPath, fmt.Sprintf("%s.merge.queue.d", index.config.ID)),
 			TaskDecoder:      &tq,
 			OnBatchProcessed: tq.OnBatchProcessed,
+			ChunkSize:        mergeTaskQueueChunkSize,
 		},
 	)
 	if err != nil {
