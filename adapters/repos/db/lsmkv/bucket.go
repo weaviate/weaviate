@@ -1911,11 +1911,7 @@ func (b *Bucket) docPointerWithScoreListFromConsistentView(ctx context.Context, 
 }
 
 func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query []string, propName string, propertyBoost float32, duplicateTextBoosts []int, config schema.BM25Config, ctx context.Context) ([][]*SegmentBlockMax, map[string]uint64, func(), error) {
-	keys := make([][]byte, len(query))
-	for i, term := range query {
-		keys[i] = []byte(term)
-	}
-	view := b.getConsistentViewForKeys(keys)
+	view := b.getConsistentView()
 	return b.createDiskTermFromCV(ctx, view, N, filterDocIds, query, propName, propertyBoost, duplicateTextBoosts, config)
 }
 
