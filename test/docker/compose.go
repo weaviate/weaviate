@@ -954,10 +954,10 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 	}
 	if d.withWeaviateAuth {
 		settings["AUTHENTICATION_OIDC_ENABLED"] = "true"
-		settings["AUTHENTICATION_OIDC_CLIENT_ID"] = "wcs"
-		settings["AUTHENTICATION_OIDC_ISSUER"] = "https://auth.wcs.api.weaviate.io/auth/realms/SeMI"
+		settings["AUTHENTICATION_OIDC_CLIENT_ID"] = "Peuc12y02UA0eAED1dqSjE5HtGUrpBsx"
+		settings["AUTHENTICATION_OIDC_ISSUER"] = "https://auth.weaviate.cloud/Peuc12y02UA0eAED1dqSjE5HtGUrpBsx"
 		settings["AUTHENTICATION_OIDC_USERNAME_CLAIM"] = "email"
-		settings["AUTHENTICATION_OIDC_GROUPS_CLAIM"] = "groups"
+		settings["AUTHENTICATION_OIDC_GROUPS_CLAIM"] = "roles"
 		settings["AUTHORIZATION_ADMINLIST_ENABLED"] = "true"
 		settings["AUTHORIZATION_ADMINLIST_USERS"] = "oidc-test-user@weaviate.io"
 	}
