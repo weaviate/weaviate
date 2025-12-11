@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
@@ -39,7 +40,7 @@ func TestCompactionSetSkipKeys(t *testing.T) {
 	}
 
 	var bucket *Bucket
-
+	var err error
 	value1 := []byte("value-01")
 	value2 := []byte("value-02")
 	values := [][]byte{value1, value2}
@@ -47,14 +48,13 @@ func TestCompactionSetSkipKeys(t *testing.T) {
 	dirName := t.TempDir()
 
 	t.Run("init bucket", func(t *testing.T) {
-		b, err := NewBucketCreator().NewBucket(ctx, dirName, dirName, nullLogger(), nil,
-			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+		logger, _ := test.NewNullLogger()
+		bucket, err = NewBucketCreator().NewBucket(ctx, dirName, dirName, logger,
+			nil, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
-		b.SetMemtableThreshold(1e9)
-
-		bucket = b
+		bucket.SetMemtableThreshold(1e9)
 	})
 	for i := 0; i < maxSize; i++ {
 		t.Run(fmt.Sprintf("%v segments", i), func(t *testing.T) {
