@@ -32,17 +32,37 @@ type PostingStore struct {
 
 func NewPostingStore(store *lsmkv.Store, metadataBucket *lsmkv.Bucket, metrics *Metrics, id string, cfg StoreConfig) (*PostingStore, error) {
 	bName := postingsBucketName(id)
-	err := store.CreateOrLoadBucket(context.Background(),
-		bName,
-		cfg.MakeBucketOptions(lsmkv.StrategySetCollection, lsmkv.WithForceCompaction(true))...,
-	)
-	if err != nil {
-		return nil, errors.Wrapf(err, "failed to create or load bucket %s", bName)
-	}
 
 	versions, err := NewPostingVersions(metadataBucket, metrics)
 	if err != nil {
 		return nil, errors.Wrap(err, "create posting versions store")
+	}
+
+	err = store.CreateOrLoadBucket(context.Background(),
+		bName,
+		cfg.MakeBucketOptions(
+			lsmkv.StrategySetCollection,
+			lsmkv.WithForceCompaction(true),
+			lsmkv.WithShouldSkipKeyFunction(
+				func(key []byte, ctx context.Context) (bool, error) {
+					if len(key) != 12 {
+						// don't skip on error
+						return false, fmt.Errorf("invalid key length: %d", len(key))
+					}
+					postingId := binary.LittleEndian.Uint64(key[:8])
+					segmentPostingVersion := binary.LittleEndian.Uint32(key[8:])
+					currentPostingVersion, err := versions.Get(ctx, postingId)
+					if err != nil {
+						return false, errors.Wrap(err, "get posting version during compaction")
+					}
+					skip := segmentPostingVersion != currentPostingVersion
+					return skip, nil
+				},
+			),
+		)...,
+	)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to create or load bucket %s", bName)
 	}
 
 	return &PostingStore{
@@ -122,13 +142,13 @@ func (p *PostingStore) Put(ctx context.Context, postingID uint64, posting Postin
 	}
 
 	p.locks.RLock(postingID)
-	key, err := p.getKeyBytes(ctx, postingID)
+	_, err := p.getKeyBytes(ctx, postingID)
 	if err != nil && !errors.Is(err, ErrPostingNotFound) {
 		p.locks.RUnlock(postingID)
 		return err
 	} else if err != nil && errors.Is(err, ErrPostingNotFound) {
 		p.versions.Set(ctx, postingID, 0)
-		key, err = p.getKeyBytes(ctx, postingID)
+		_, err = p.getKeyBytes(ctx, postingID)
 		if err != nil {
 			p.locks.RUnlock(postingID)
 			return err
@@ -144,16 +164,6 @@ func (p *PostingStore) Put(ctx context.Context, postingID uint64, posting Postin
 
 	p.locks.Lock(postingID)
 	defer p.locks.Unlock(postingID)
-	list, err := p.bucket.SetList(key)
-	if err != nil {
-		return errors.Wrapf(err, "failed to get posting %d", postingID)
-	}
-	for _, v := range list {
-		err = p.bucket.SetDeleteSingle(key, v)
-		if err != nil {
-			return errors.Wrapf(err, "failed to delete old vector from posting %d", postingID)
-		}
-	}
 
 	version, err := p.versions.Inc(ctx, postingID, 1)
 	if err != nil {
