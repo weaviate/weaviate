@@ -13,6 +13,8 @@ package hfresh
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"time"
 
 	"github.com/pkg/errors"
@@ -86,14 +88,20 @@ func (h *HFresh) doSplit(ctx context.Context, postingID uint64, reassign bool) e
 		return errors.Wrapf(err, "failed to split vectors for posting %d", postingID)
 	}
 	// if one of the postings is empty, ignore the split
-	if len(result[0].Posting) == 0 || len(result[1].Posting) == 0 {
-		h.logger.WithField("postingID", postingID).
-			Debug("split resulted in empty posting, skipping split operation")
-		return nil
+	emptyPostings := make(map[int]bool)
+	for idx, r := range result {
+		if len(r.Posting) == 0 {
+			h.logger.WithField("postingID", postingID).
+				Debug("split resulted in empty posting, skipping split operation")
+			emptyPostings[idx] = true
+		}
 	}
 
-	newPostingIDs := make([]uint64, 2)
-	for i := range 2 {
+	newPostingIDs := make([]uint64, len(result))
+	for i := range len(result) {
+		if emptyPostings[i] {
+			continue
+		}
 		newPostingID, err := h.IDs.Next()
 		if err != nil {
 			return errors.Wrap(err, "failed to allocate new posting ID during split operation")
@@ -149,16 +157,24 @@ func (h *HFresh) doSplit(ctx context.Context, postingID uint64, reassign bool) e
 
 // splitPosting takes a posting and returns two groups.
 func (h *HFresh) splitPosting(posting Posting) ([]SplitResult, error) {
-	enc := compressionhelpers.NewKMeansEncoder(2, int(h.dims), 0)
+	defaultK := 2
+	k := min(int(len(posting)/int(h.maxPostingSize))+1, defaultK)
+	if k < 2 {
+		fmt.Println("length of posting: ", len(posting))
+		fmt.Println("max posting size: ", h.maxPostingSize)
+		fmt.Println("k is less than 2 ", k)
+		os.Exit(1)
+	}
+	enc := compressionhelpers.NewKMeansEncoder(k, int(h.dims), 0)
 
 	data := posting.Uncompress(h.quantizer)
 
-	err := enc.Fit(data)
+	assigned, err := enc.FitWithData(data)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to fit KMeans encoder for split operation")
 	}
 
-	results := make([]SplitResult, 2)
+	results := make([]SplitResult, k)
 	for i := range results {
 		results[i] = SplitResult{
 			Uncompressed: enc.Centroid(byte(i)),
@@ -167,21 +183,8 @@ func (h *HFresh) splitPosting(posting Posting) ([]SplitResult, error) {
 		results[i].Centroid = h.quantizer.Encode(enc.Centroid(byte(i)))
 	}
 
-	for i, v := range data {
-		// compute the distance to each centroid
-		dA, err := h.distancer.DistanceBetweenVectors(v, results[0].Uncompressed)
-		if err != nil {
-			return nil, errors.Wrapf(err, "failed to compute distance to centroid 0")
-		}
-		dB, err := h.distancer.DistanceBetweenVectors(v, results[1].Uncompressed)
-		if err != nil {
-			return nil, errors.Wrapf(err, "failed to compute distance to centroid 1")
-		}
-		if dA < dB {
-			results[0].Posting = results[0].Posting.AddVector(posting[i])
-		} else {
-			results[1].Posting = results[1].Posting.AddVector(posting[i])
-		}
+	for id, cluster := range assigned {
+		results[cluster].Posting = results[cluster].Posting.AddVector(posting[id])
 	}
 
 	return results, nil
