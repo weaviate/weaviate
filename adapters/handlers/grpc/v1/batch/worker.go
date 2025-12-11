@@ -99,6 +99,17 @@ func (w *worker) isReplicationError(err string) bool {
 }
 
 func (w *worker) sendObjects(ctx context.Context, streamId string, objs []*pb.BatchObject, cl *pb.ConsistencyLevel, retries int) ([]*pb.BatchStreamReply_Results_Success, []*pb.BatchStreamReply_Results_Error) {
+	if ctx.Err() != nil {
+		w.logger.WithField("streamId", streamId).Warnf("context error before sending objects: %s", ctx.Err())
+		errors := make([]*pb.BatchStreamReply_Results_Error, 0, len(objs))
+		for _, obj := range objs {
+			errors = append(errors, &pb.BatchStreamReply_Results_Error{
+				Error:  ctx.Err().Error(),
+				Detail: &pb.BatchStreamReply_Results_Error_Uuid{Uuid: obj.Uuid},
+			})
+		}
+		return nil, errors
+	}
 	reply, err := w.batcher.BatchObjects(ctx, &pb.BatchObjectsRequest{
 		Objects:          objs,
 		ConsistencyLevel: cl,
@@ -161,6 +172,17 @@ func toBeacon(ref *pb.BatchReference) string {
 }
 
 func (w *worker) sendReferences(ctx context.Context, streamId string, refs []*pb.BatchReference, cl *pb.ConsistencyLevel, retries int) ([]*pb.BatchStreamReply_Results_Success, []*pb.BatchStreamReply_Results_Error) {
+	if ctx.Err() != nil {
+		w.logger.WithField("streamId", streamId).Warnf("context error before sending objects: %s", ctx.Err())
+		errors := make([]*pb.BatchStreamReply_Results_Error, 0, len(refs))
+		for _, ref := range refs {
+			errors = append(errors, &pb.BatchStreamReply_Results_Error{
+				Error:  ctx.Err().Error(),
+				Detail: &pb.BatchStreamReply_Results_Error_Beacon{Beacon: toBeacon(ref)},
+			})
+		}
+		return nil, errors
+	}
 	reply, err := w.batcher.BatchReferences(ctx, &pb.BatchReferencesRequest{
 		References:       refs,
 		ConsistencyLevel: cl,
