@@ -210,6 +210,10 @@ func (st *Store) Apply(l *raft.Log) any {
 		f = func() {
 			ret.Error = st.schemaManager.AddProperty(&cmd, schemaOnly, !catchingUp)
 		}
+	case api.ApplyRequest_TYPE_DROP_PROPERTY:
+		f = func() {
+			ret.Error = st.schemaManager.DropProperty(&cmd, schemaOnly, !catchingUp)
+		}
 	case api.ApplyRequest_TYPE_CREATE_ALIAS:
 		f = func() {
 			ret.Error = st.schemaManager.CreateAlias(&cmd)

@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -93,6 +94,27 @@ func (s *Shard) initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGrou
 			})
 		}
 	}
+}
+
+func (s *Shard) deletePropertyBucket(ctx context.Context,
+	eg *enterrors.ErrorGroupWrapper,
+	propertyName string,
+) {
+	eg.Go(func() error {
+		bucket := s.store.Bucket(helpers.BucketFromPropNameLSM(propertyName))
+		if bucket == nil {
+			return fmt.Errorf("no bucket for property %s found", propertyName)
+		}
+		err := bucket.Shutdown(ctx)
+		if err != nil {
+			return fmt.Errorf("cannot shutdown bucket for property: %s %w", propertyName, err)
+		}
+		err = os.RemoveAll(bucket.GetDir())
+		if err != nil {
+			return fmt.Errorf("cannot delete bucket directory %s for property %s: %w", bucket.GetDir(), propertyName, err)
+		}
+		return nil
+	})
 }
 
 func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Property,
