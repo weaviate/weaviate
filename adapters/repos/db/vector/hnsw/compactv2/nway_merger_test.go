@@ -129,17 +129,17 @@ func TestNWayMerger_TwoIteratorsWithOverlap_AddLinks(t *testing.T) {
 	assert.True(t, ok)
 	assert.Equal(t, uint64(5), addNode.ID)
 
-	// Check level 0 links (should be merged: 4, 5, 1, 2)
+	// Check level 0 links (should be merged: 1, 2, 4, 5 - older first, then newer)
 	addLinks0, ok := nodeCommits.Commits[1].(*AddLinksAtLevelCommit)
 	assert.True(t, ok)
 	assert.Equal(t, uint16(0), addLinks0.Level)
-	assert.Equal(t, []uint64{4, 5, 1, 2}, addLinks0.Targets)
+	assert.Equal(t, []uint64{1, 2, 4, 5}, addLinks0.Targets)
 
-	// Check level 1 links (should be merged: 6, 3)
+	// Check level 1 links (should be merged: 3, 6 - older first, then newer)
 	addLinks1, ok := nodeCommits.Commits[2].(*AddLinksAtLevelCommit)
 	assert.True(t, ok)
 	assert.Equal(t, uint16(1), addLinks1.Level)
-	assert.Equal(t, []uint64{6, 3}, addLinks1.Targets)
+	assert.Equal(t, []uint64{3, 6}, addLinks1.Targets)
 }
 
 func TestNWayMerger_ReplaceLinksStopsAccumulation(t *testing.T) {
@@ -184,9 +184,9 @@ func TestNWayMerger_ReplaceLinksStopsAccumulation(t *testing.T) {
 	replaceLinks, ok := nodeCommits.Commits[1].(*ReplaceLinksAtLevelCommit)
 	assert.True(t, ok)
 	assert.Equal(t, uint16(0), replaceLinks.Level)
-	// Should be: it2's adds (20, 21) + it1's replace (10, 11, 12)
+	// Should be: it1's replace (10, 11, 12) + it2's adds (20, 21)
 	// NOT it0's adds (1, 2) because they were before the replace
-	assert.Equal(t, []uint64{20, 21, 10, 11, 12}, replaceLinks.Targets)
+	assert.Equal(t, []uint64{10, 11, 12, 20, 21}, replaceLinks.Targets)
 }
 
 func TestNWayMerger_DeleteNodeDropsAllData(t *testing.T) {

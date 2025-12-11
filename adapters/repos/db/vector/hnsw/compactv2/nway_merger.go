@@ -286,7 +286,7 @@ func (m *commitMerger) addCommit(c Commit) error {
 			// First replace at this level - prepend to any existing links (which came from newer logs)
 			// and mark as replaced to stop accumulation from older logs
 			existing := m.linksPerLevel[ct.Level]
-			m.linksPerLevel[ct.Level] = append(existing, ct.Targets...)
+			m.linksPerLevel[ct.Level] = append(ct.Targets, existing...)
 			m.linksReplaced[ct.Level] = true
 			m.seenReplaceAtLevel[ct.Level] = true
 		}
@@ -299,7 +299,7 @@ func (m *commitMerger) addCommit(c Commit) error {
 			} else {
 				// No replace seen yet, prepend to existing links (we're going newest to oldest)
 				existing := m.linksPerLevel[ct.Level]
-				m.linksPerLevel[ct.Level] = append(existing, ct.Targets...)
+				m.linksPerLevel[ct.Level] = append(ct.Targets, existing...)
 			}
 		}
 
@@ -311,7 +311,7 @@ func (m *commitMerger) addCommit(c Commit) error {
 			} else {
 				// No replace seen yet, prepend to existing links (we're going newest to oldest)
 				existing := m.linksPerLevel[ct.Level]
-				m.linksPerLevel[ct.Level] = append(existing, ct.Target)
+				m.linksPerLevel[ct.Level] = append([]uint64{ct.Target}, existing...)
 			}
 		}
 
