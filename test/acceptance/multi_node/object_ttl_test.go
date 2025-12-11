@@ -324,6 +324,7 @@ func TestObjectTTLMultiNode(t *testing.T) {
 			})
 		}
 		helper.UpdateTenants(t, class.Class, tenantsDeactivate)
+		time.Sleep(100 * time.Millisecond) // wait a bit to ensure the tenant status update has propagated
 
 		// note that custom date starts at 0minutes
 		deleteTTL(t, secondNode, baseTime.Add(25*time.Minute).Add(10*time.Second), false)
@@ -371,6 +372,10 @@ func TestObjectTTLMultiNode(t *testing.T) {
 				countStr := result.Data["Aggregate"].(map[string]interface{})[class.Class].([]interface{})[0].(map[string]interface{})["meta"].(map[string]interface{})["count"]
 				count, err := countStr.(json.Number).Int64()
 				require.NoError(t, err)
+
+				if count != 50 {
+					t.Logf("tenant %q has %d objects, expected 50", tenant.Name, count)
+				}
 
 				require.Equal(t, int(count), 50) // unaffected
 			}
