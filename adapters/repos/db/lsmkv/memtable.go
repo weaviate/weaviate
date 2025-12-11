@@ -13,6 +13,7 @@ package lsmkv
 
 import (
 	"bufio"
+	"context"
 	"encoding/binary"
 	"fmt"
 	"math"
@@ -141,11 +142,16 @@ type Memtable struct {
 	// the memtable. This prevents the memtable from being flushed while writers
 	// are active, ensuring data consistency during concurrent operations.
 	writerCount atomic.Int64
+
+	// function to decide whether a key should be skipped
+	// during flush for the SetCollection strategy
+	shouldSkipKeyFunc func(key []byte, ctx context.Context) (bool, error)
 }
 
 func newMemtable(path string, strategy string, secondaryIndices uint16,
 	cl memtableCommitLogger, metrics *Metrics, logger logrus.FieldLogger,
 	enableChecksumValidation bool, bm25config *models.BM25Config, writeSegmentInfoIntoFileName bool, allocChecker memwatch.AllocChecker,
+	shouldSkipKeyFunc func(key []byte, ctx context.Context) (bool, error),
 ) (*Memtable, error) {
 	memtableMetrics, err := newMemtableMetrics(metrics, filepath.Dir(path), strategy)
 	if err != nil {
@@ -169,6 +175,7 @@ func newMemtable(path string, strategy string, secondaryIndices uint16,
 		enableChecksumValidation:     enableChecksumValidation,
 		bm25config:                   bm25config,
 		writeSegmentInfoIntoFileName: writeSegmentInfoIntoFileName,
+		shouldSkipKeyFunc:            shouldSkipKeyFunc,
 	}
 
 	if m.secondaryIndices > 0 {
