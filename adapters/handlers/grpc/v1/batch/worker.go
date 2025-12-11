@@ -25,7 +25,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/replica"
 )
 
-const PER_PROCESS_TIMEOUT = 90 * time.Second
+const PER_PROCESS_TIMEOUT = 60 * time.Second
 
 type batcher interface {
 	BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest) (*pb.BatchObjectsReply, error)
