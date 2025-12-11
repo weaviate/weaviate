@@ -457,16 +457,11 @@ func (h *StreamHandler) receiver(ctx context.Context, streamId string, consisten
 			var batch []*pb.BatchObject
 			if len(objs) > batchSize {
 				batch = make([]*pb.BatchObject, 0, batchSize)
-				var processed []string
-				var batchUuids []string
 				for _, obj := range request.GetData().GetObjects().GetValues() {
 					batch = append(batch, obj)
-					batchUuids = append(batchUuids, obj.GetUuid())
 					if len(batch) == batchSize {
 						h.push(stream.Context(), streamId, consistencyLevel, wg, batch, nil)
-						processed = append(processed, batchUuids...)
 						batch = make([]*pb.BatchObject, 0, batchSize)
-						batchUuids = make([]string, 0, batchSize)
 					}
 				}
 			} else {
