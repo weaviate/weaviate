@@ -534,6 +534,27 @@ func (b *Bucket) getConsistentView() BucketConsistentView {
 	}
 }
 
+func (b *Bucket) getConsistentViewForKeys(keys [][]byte) BucketConsistentView {
+	beforeFlushLock := time.Now()
+	b.flushLock.RLock()
+	defer b.flushLock.RUnlock()
+
+	if duration := time.Since(beforeFlushLock); duration > 100*time.Millisecond {
+		b.logger.WithFields(logrus.Fields{
+			"duration": duration,
+			"action":   "lsm_bucket_get_acquire_flush_lock",
+		}).Debug("Waited more than 100ms to obtain a flush lock during get")
+	}
+
+	diskSegments, releaseDiskSegments := b.disk.getConsistentViewForKeys(keys)
+	return BucketConsistentView{
+		Active:   b.active,
+		Flushing: b.flushing,
+		Disk:     diskSegments,
+		release:  releaseDiskSegments,
+	}
+}
+
 // Get retrieves the single value for the given key.
 //
 // Get is specific to ReplaceStrategy and cannot be used with any of the other
@@ -555,7 +576,7 @@ func (b *Bucket) GetErrDeleted(key []byte) ([]byte, error) {
 }
 
 func (b *Bucket) get(key []byte) ([]byte, error) {
-	view := b.getConsistentView()
+	view := b.getConsistentViewForKeys([][]byte{key})
 	defer view.release()
 
 	return b.getWithConsistentView(key, view)
@@ -627,7 +648,7 @@ func (b *Bucket) getBySecondary(ctx context.Context, pos int, seckey []byte, buf
 	}
 
 	beforeAll := time.Now()
-	view := b.getConsistentView()
+	view := b.getConsistentViewForKeys([][]byte{seckey})
 	defer view.release()
 	tookView := time.Since(beforeAll)
 
@@ -788,7 +809,7 @@ func (b *Bucket) getBySecondaryFromSegmentGroup(pos int, seckey []byte, buffer [
 // SetList is specific to the Set Strategy, for Map use [Bucket.MapList], and
 // for Replace use [Bucket.Get].
 func (b *Bucket) SetList(key []byte) ([][]byte, error) {
-	view := b.getConsistentView()
+	view := b.getConsistentViewForKeys([][]byte{key})
 	defer view.Release()
 
 	return b.setListFromConsistentView(view, key)
@@ -981,7 +1002,7 @@ func MapListLegacySortingRequired() MapListOption {
 // MapList is specific to the Map strategy, for Sets use [Bucket.SetList], for
 // Replace use [Bucket.Get].
 func (b *Bucket) MapList(ctx context.Context, key []byte, cfgs ...MapListOption) ([]MapPair, error) {
-	view := b.getConsistentView()
+	view := b.getConsistentViewForKeys([][]byte{key})
 	defer view.Release()
 
 	return b.mapListFromConsistentView(ctx, view, key, cfgs...)
@@ -1787,7 +1808,7 @@ func (b *Bucket) WriteWAL() error {
 }
 
 func (b *Bucket) DocPointerWithScoreList(ctx context.Context, key []byte, propBoost float32, cfgs ...MapListOption) ([]terms.DocPointerWithScore, error) {
-	view := b.getConsistentView()
+	view := b.getConsistentViewForKeys([][]byte{key})
 	defer view.Release()
 
 	return b.docPointerWithScoreListFromConsistentView(ctx, view, key, propBoost, cfgs...)
@@ -1890,7 +1911,11 @@ func (b *Bucket) docPointerWithScoreListFromConsistentView(ctx context.Context, 
 }
 
 func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query []string, propName string, propertyBoost float32, duplicateTextBoosts []int, config schema.BM25Config, ctx context.Context) ([][]*SegmentBlockMax, map[string]uint64, func(), error) {
-	view := b.getConsistentView()
+	keys := make([][]byte, len(query))
+	for i, term := range query {
+		keys[i] = []byte(term)
+	}
+	view := b.getConsistentViewForKeys(keys)
 	return b.createDiskTermFromCV(ctx, view, N, filterDocIds, query, propName, propertyBoost, duplicateTextBoosts, config)
 }
 
