@@ -104,14 +104,8 @@ func (s *SortedWriter) writeGlobalCommits(res *DeserializationResult) error {
 // writeNodeCommits writes all node-specific commits in node ID order.
 // For each node, it writes tombstones, deletions, node data, and links.
 func (s *SortedWriter) writeNodeCommits(res *DeserializationResult) error {
-	// Iterate through all possible node IDs in order
-	for nodeID := uint64(0); nodeID < uint64(len(res.Nodes)); nodeID++ {
-		node := res.Nodes[nodeID]
-
-		// Check if this node was deleted
-		_, isDeleted := res.NodesDeleted[nodeID]
-
-		// Check tombstone status for this node
+	// Helper function to write tombstone operations for a given node ID
+	writeTombstoneOps := func(nodeID uint64) error {
 		_, hasTombstone := res.Tombstones[nodeID]
 		_, tombstoneDeleted := res.TombstonesDeleted[nodeID]
 
@@ -120,34 +114,6 @@ func (s *SortedWriter) writeNodeCommits(res *DeserializationResult) error {
 		writeTombstone := hasTombstone && !tombstoneDeleted
 		writeRemoveTombstone := tombstoneDeleted && !hasTombstone
 
-		// If the node was deleted, write deletion info and tombstone info, then skip
-		if isDeleted {
-			if err := s.writer.WriteDeleteNode(nodeID); err != nil {
-				return errors.Wrapf(err, "write delete node %d", nodeID)
-			}
-
-			// Write tombstone operations even for deleted nodes
-			if writeTombstone {
-				if err := s.writer.WriteAddTombstone(nodeID); err != nil {
-					return errors.Wrapf(err, "write tombstone for deleted node %d", nodeID)
-				}
-			}
-
-			if writeRemoveTombstone {
-				if err := s.writer.WriteRemoveTombstone(nodeID); err != nil {
-					return errors.Wrapf(err, "write remove tombstone for deleted node %d", nodeID)
-				}
-			}
-
-			continue
-		}
-
-		// If node is nil (never existed or was grown but not populated), skip
-		if node == nil {
-			continue
-		}
-
-		// Write tombstone operations for this node (before writing the node itself)
 		if writeTombstone {
 			if err := s.writer.WriteAddTombstone(nodeID); err != nil {
 				return errors.Wrapf(err, "write tombstone for node %d", nodeID)
@@ -158,6 +124,42 @@ func (s *SortedWriter) writeNodeCommits(res *DeserializationResult) error {
 			if err := s.writer.WriteRemoveTombstone(nodeID); err != nil {
 				return errors.Wrapf(err, "write remove tombstone for node %d", nodeID)
 			}
+		}
+
+		return nil
+	}
+
+	// Phase 1: Iterate through all possible node IDs in the nodes array
+	for nodeID := uint64(0); nodeID < uint64(len(res.Nodes)); nodeID++ {
+		node := res.Nodes[nodeID]
+
+		// Check if this node was deleted
+		_, isDeleted := res.NodesDeleted[nodeID]
+
+		// If the node was deleted, write deletion info and tombstone info, then skip
+		if isDeleted {
+			if err := s.writer.WriteDeleteNode(nodeID); err != nil {
+				return errors.Wrapf(err, "write delete node %d", nodeID)
+			}
+
+			// Write tombstone operations even for deleted nodes
+			if err := writeTombstoneOps(nodeID); err != nil {
+				return err
+			}
+
+			continue
+		}
+
+		// Write tombstone operations for this node (even if node is nil)
+		// A nil node in this log doesn't mean it doesn't exist - it may have been
+		// created in a previous log. This log may only contain tombstone operations.
+		if err := writeTombstoneOps(nodeID); err != nil {
+			return err
+		}
+
+		// If node is nil (no node operations in this log), skip writing node/link data
+		if node == nil {
+			continue
 		}
 
 		// Write the node itself (if level > 0)
@@ -197,6 +199,54 @@ func (s *SortedWriter) writeNodeCommits(res *DeserializationResult) error {
 						return errors.Wrapf(err, "write add links for node %d at level %d", nodeID, level)
 					}
 				}
+			}
+		}
+	}
+
+	// Phase 2: Write tombstone operations for any node IDs beyond the nodes array
+	// Collect all tombstone IDs beyond the array and process them in sorted order
+	maxNodeID := uint64(len(res.Nodes))
+	beyondIDs := make([]uint64, 0)
+
+	for id := range res.Tombstones {
+		if id >= maxNodeID {
+			beyondIDs = append(beyondIDs, id)
+		}
+	}
+
+	for id := range res.TombstonesDeleted {
+		if id >= maxNodeID {
+			// Check if not already in beyondIDs
+			found := false
+			for _, existingID := range beyondIDs {
+				if existingID == id {
+					found = true
+					break
+				}
+			}
+			if !found {
+				beyondIDs = append(beyondIDs, id)
+			}
+		}
+	}
+
+	// Sort the IDs to maintain sorted order
+	if len(beyondIDs) > 0 {
+		// Simple insertion sort (good for small lists)
+		for i := 1; i < len(beyondIDs); i++ {
+			key := beyondIDs[i]
+			j := i - 1
+			for j >= 0 && beyondIDs[j] > key {
+				beyondIDs[j+1] = beyondIDs[j]
+				j--
+			}
+			beyondIDs[j+1] = key
+		}
+
+		// Write tombstone operations for these IDs
+		for _, nodeID := range beyondIDs {
+			if err := writeTombstoneOps(nodeID); err != nil {
+				return err
 			}
 		}
 	}
