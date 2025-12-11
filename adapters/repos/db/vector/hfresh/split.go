@@ -138,6 +138,13 @@ func (h *HFresh) doSplit(ctx context.Context, postingID uint64, reassign bool) e
 		return errors.Wrapf(err, "failed to set posting size for posting %d after split operation", postingID)
 	}
 
+	// put empty posting for postingID to increase version and
+	// allow cleanup of old vectors on disk
+	err = h.PostingStore.Put(ctx, postingID, Posting{})
+	if err != nil {
+		return errors.Wrapf(err, "failed to put empty posting %d after split operation", postingID)
+	}
+
 	// Mark the split operation as done
 	markedAsDone = true
 	h.postingLocks.Unlock(postingID)
