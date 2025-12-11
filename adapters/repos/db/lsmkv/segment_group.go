@@ -93,6 +93,8 @@ type SegmentGroup struct {
 	bm25config                     *schema.BM25Config
 	writeSegmentInfoIntoFileName   bool
 	writeMetadata                  bool
+
+	shouldSkipKey func(key []byte, ctx context.Context) (bool, error)
 }
 
 type sgConfig struct {
@@ -114,6 +116,7 @@ type sgConfig struct {
 	bm25config                   *models.BM25Config
 	writeSegmentInfoIntoFileName bool
 	writeMetadata                bool
+	shouldSkipKey                func(key []byte, ctx context.Context) (bool, error)
 }
 
 func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Metrics, cfg sgConfig,
@@ -145,6 +148,7 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 		writeMetadata:                cfg.writeMetadata,
 		bitmapBufPool:                b.bitmapBufPool,
 		keepLevelCompaction:          cfg.keepLevelCompaction,
+		shouldSkipKey:                cfg.shouldSkipKey,
 	}
 
 	segmentIndex := 0
