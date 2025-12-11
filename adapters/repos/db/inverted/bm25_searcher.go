@@ -409,7 +409,7 @@ func (b *BM25Searcher) getTopKObjects(topKHeap *priorityqueue.Queue[[]*terms.Doc
 	// handle case that an object was removed
 	j := 0
 	for i := range scores {
-		if objs[i] == nil {
+		if objs[i] == nil || objs[i].DocID != ids[i] {
 			continue
 		}
 		scores[j] = scores[i]

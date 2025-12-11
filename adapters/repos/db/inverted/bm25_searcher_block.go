@@ -373,7 +373,7 @@ func (b *BM25Searcher) getObjectsAndScores(ids []uint64, scores []float32, expla
 			return objs, nil, errors.Errorf("objects loading")
 		}
 		for i, obj := range objsBatch {
-			if obj == nil {
+			if obj == nil || obj.DocID != ids[startAt+i] {
 				continue
 			}
 			objs = append(objs, obj)
