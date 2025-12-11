@@ -6,6 +6,7 @@ import httpx
 import pytest
 import weaviate.classes as wvc
 from weaviate.classes.config import Configure
+from weaviate.collections.classes.config import Reconfigure
 
 from .conftest import CollectionFactory
 
@@ -37,10 +38,8 @@ def test_custom_property(collection_factory: CollectionFactory, ttl_minutes: int
             wvc.config.Property(name="custom_date", data_type=wvc.config.DataType.DATE),
         ],
         object_ttl=Configure.ObjectTTL.delete_by_date_property(
-            date_property="custom_date",
-            time_to_live_after_date=(
-                datetime.timedelta(minutes=ttl_minutes) if ttl_minutes > 0 else None
-            ),
+            property_name="custom_date",
+            ttl_offset=(datetime.timedelta(minutes=ttl_minutes) if ttl_minutes > 0 else None),
         ),
     )
     base_time = datetime.datetime.now(datetime.timezone.utc)
@@ -181,7 +180,7 @@ def test_mt(collection_factory: CollectionFactory):
 
 
 @pytest.mark.parametrize(
-    "post_search_filter,ttl,expected_count",
+    "filter_expired_objects,ttl,expected_count",
     [
         (
             True,
@@ -197,9 +196,9 @@ def test_mt(collection_factory: CollectionFactory):
         (False, datetime.timedelta(hours=-2), 11),
     ],
 )
-def test_post_search_filter(
+def test_filter_expired_objects(
     collection_factory: CollectionFactory,
-    post_search_filter: bool,
+    filter_expired_objects: bool,
     ttl: datetime.timedelta,
     expected_count: int,
 ) -> None:
@@ -209,9 +208,9 @@ def test_post_search_filter(
             wvc.config.Property(name="custom_date", data_type=wvc.config.DataType.DATE),
         ],
         object_ttl=Configure.ObjectTTL.delete_by_date_property(
-            date_property="custom_date",
-            post_search_filter=post_search_filter,
-            time_to_live_after_date=ttl,
+            property_name="custom_date",
+            filter_expired_objects=filter_expired_objects,
+            ttl_offset=ttl,
         ),
     )
 
@@ -240,3 +239,58 @@ def test_post_search_filter(
 
     results = collection.query.fetch_objects()
     assert len(results.objects) == expected_count + 1  # +1 for the object without date property
+
+
+def test_activate_deactivate_ttl(collection_factory: CollectionFactory):
+    collection = collection_factory(
+        properties=[
+            wvc.config.Property(name="name", data_type=wvc.config.DataType.TEXT),
+            wvc.config.Property(name="custom_date", data_type=wvc.config.DataType.DATE),
+        ],
+    )
+
+    # add objects to be deleted
+    base_time = datetime.datetime.now(datetime.timezone.utc)
+    num_objects_delete = 4
+    for i in range(num_objects_delete):
+        collection.data.insert(
+            {
+                "name": "Object " + str(i),
+                "custom_date": base_time - datetime.timedelta(hours=1),
+            }
+        )
+
+    num_objects_not_delete = 5
+    for i in range(num_objects_not_delete):
+        collection.data.insert(
+            {
+                "name": "Object " + str(i),
+                "custom_date": base_time + datetime.timedelta(hours=1),
+            }
+        )
+
+    delete(base_time)  # nothing gets deleted
+    assert len(collection) == num_objects_delete + num_objects_not_delete
+
+    collection.config.update(
+        object_ttl_config=Reconfigure.ObjectTTL.delete_by_date_property(
+            property_name="custom_date",
+            ttl_offset=datetime.timedelta(minutes=1),
+        )
+    )
+
+    delete(base_time)
+    assert len(collection) == num_objects_not_delete
+
+    # add more objects to be deleted
+    for i in range(num_objects_delete):
+        collection.data.insert(
+            {
+                "name": "Object new " + str(i),
+                "custom_date": base_time - datetime.timedelta(hours=1),
+            }
+        )
+
+    collection.config.update(object_ttl_config=Reconfigure.ObjectTTL.disable())
+    delete(base_time)
+    assert len(collection) == num_objects_not_delete + num_objects_delete

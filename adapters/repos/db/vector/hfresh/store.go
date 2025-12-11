@@ -23,38 +23,88 @@ import (
 )
 
 type PostingStore struct {
-	store   *lsmkv.Store
-	bucket  *lsmkv.Bucket
-	locks   *common.ShardedRWLocks
-	metrics *Metrics
+	store    *lsmkv.Store
+	bucket   *lsmkv.Bucket
+	locks    *common.ShardedRWLocks
+	metrics  *Metrics
+	versions *PostingVersions
 }
 
-func NewPostingStore(store *lsmkv.Store, metrics *Metrics, id string, cfg StoreConfig) (*PostingStore, error) {
+func NewPostingStore(store *lsmkv.Store, metadataBucket *lsmkv.Bucket, metrics *Metrics, id string, cfg StoreConfig) (*PostingStore, error) {
 	bName := postingsBucketName(id)
-	err := store.CreateOrLoadBucket(context.Background(),
+
+	versions, err := NewPostingVersions(metadataBucket, metrics)
+	if err != nil {
+		return nil, errors.Wrap(err, "create posting versions store")
+	}
+
+	err = store.CreateOrLoadBucket(context.Background(),
 		bName,
-		cfg.MakeBucketOptions(lsmkv.StrategySetCollection, lsmkv.WithForceCompaction(true))...,
+		cfg.MakeBucketOptions(
+			lsmkv.StrategySetCollection,
+			lsmkv.WithForceCompaction(true),
+			lsmkv.WithShouldSkipKeyFunction(
+				func(key []byte, ctx context.Context) (bool, error) {
+					if len(key) != 12 {
+						// don't skip on error
+						return false, fmt.Errorf("invalid key length: %d", len(key))
+					}
+					postingId := binary.LittleEndian.Uint64(key[:8])
+					segmentPostingVersion := binary.LittleEndian.Uint32(key[8:])
+					currentPostingVersion, err := versions.Get(ctx, postingId)
+					if err != nil {
+						return false, errors.Wrap(err, "get posting version during compaction")
+					}
+					skip := segmentPostingVersion != currentPostingVersion
+					return skip, nil
+				},
+			),
+		)...,
 	)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to create or load bucket %s", bName)
 	}
 
 	return &PostingStore{
-		store:   store,
-		bucket:  store.Bucket(bName),
-		locks:   common.NewDefaultShardedRWLocks(),
-		metrics: metrics,
+		store:    store,
+		bucket:   store.Bucket(bName),
+		locks:    common.NewDefaultShardedRWLocks(),
+		metrics:  metrics,
+		versions: versions,
 	}, nil
+}
+
+func NewPostingStoreTest(store *lsmkv.Store, metrics *Metrics, id string, cfg StoreConfig) (*PostingStore, error) {
+	bucket, err := NewSharedBucket(store, id, cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	return NewPostingStore(store, bucket, metrics, id, cfg)
+}
+
+func (p *PostingStore) getKeyBytes(ctx context.Context, postingID uint64) ([]byte, error) {
+	var buf [12]byte
+	binary.LittleEndian.PutUint64(buf[:], postingID)
+	version, err := p.versions.Get(ctx, postingID)
+	if err != nil {
+		return nil, errors.Wrapf(err, "get posting version for id %d", postingID)
+	}
+	binary.LittleEndian.PutUint32(buf[8:], version)
+	return buf[:], nil
 }
 
 func (p *PostingStore) Get(ctx context.Context, postingID uint64) (Posting, error) {
 	start := time.Now()
 	defer p.metrics.StoreGetDuration(start)
 
-	var buf [8]byte
-	binary.LittleEndian.PutUint64(buf[:], postingID)
 	p.locks.RLock(postingID)
-	list, err := p.bucket.SetList(buf[:])
+	key, err := p.getKeyBytes(ctx, postingID)
+	if err != nil {
+		p.locks.RUnlock(postingID)
+		return nil, err
+	}
+	list, err := p.bucket.SetList(key)
 	p.locks.RUnlock(postingID)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get posting %d", postingID)
@@ -91,42 +141,63 @@ func (p *PostingStore) Put(ctx context.Context, postingID uint64, posting Postin
 		return errors.New("posting cannot be nil")
 	}
 
-	var buf [8]byte
-	binary.LittleEndian.PutUint64(buf[:], postingID)
+	p.locks.Lock(postingID)
+	defer p.locks.Unlock(postingID)
+
+	_, err := p.getKeyBytes(ctx, postingID)
+	if err != nil && !errors.Is(err, ErrPostingNotFound) {
+		return err
+	} else if err != nil && errors.Is(err, ErrPostingNotFound) {
+		err := p.versions.Set(ctx, postingID, 0)
+		if err != nil {
+			return err
+		}
+	}
 
 	set := make([][]byte, len(posting))
 	for i, v := range posting {
 		set[i] = v
 	}
 
-	p.locks.Lock(postingID)
-	defer p.locks.Unlock(postingID)
-
-	list, err := p.bucket.SetList(buf[:])
+	currentVersion, err := p.versions.Get(ctx, postingID)
 	if err != nil {
-		return errors.Wrapf(err, "failed to get posting %d", postingID)
+		return err
 	}
-	for _, v := range list {
-		err = p.bucket.SetDeleteSingle(buf[:], v)
-		if err != nil {
-			return errors.Wrapf(err, "failed to delete old vector from posting %d", postingID)
-		}
+	newVersion := currentVersion + 1
+
+	if err != nil {
+		return errors.Wrapf(err, "increment posting version for id %d", postingID)
 	}
 
-	return p.bucket.SetAdd(buf[:], set)
+	var buf [12]byte
+	binary.LittleEndian.PutUint64(buf[:], postingID)
+	binary.LittleEndian.PutUint32(buf[8:], newVersion)
+	err = p.bucket.SetAdd(buf[:], set)
+	if err != nil {
+		return errors.Wrapf(err, "failed to put posting %d", postingID)
+	}
+
+	err = p.versions.Set(ctx, postingID, newVersion)
+	if err != nil {
+		return errors.Wrapf(err, "set new posting version for id %d", postingID)
+	}
+
+	return nil
 }
 
 func (p *PostingStore) Append(ctx context.Context, postingID uint64, vector Vector) error {
 	start := time.Now()
 	defer p.metrics.StoreAppendDuration(start)
 
-	var buf [8]byte
-	binary.LittleEndian.PutUint64(buf[:], postingID)
-
 	p.locks.Lock(postingID)
 	defer p.locks.Unlock(postingID)
 
-	return p.bucket.SetAdd(buf[:], [][]byte{vector})
+	key, err := p.getKeyBytes(ctx, postingID)
+	if err != nil {
+		return err
+	}
+
+	return p.bucket.SetAdd(key, [][]byte{vector})
 }
 
 func postingsBucketName(id string) string {

@@ -324,6 +324,7 @@ func TestObjectTTLMultiNode(t *testing.T) {
 			})
 		}
 		helper.UpdateTenants(t, class.Class, tenantsDeactivate)
+		time.Sleep(100 * time.Millisecond) // wait a bit to ensure the tenant status update has propagated
 
 		// note that custom date starts at 0minutes
 		deleteTTL(t, secondNode, baseTime.Add(25*time.Minute).Add(10*time.Second), false)
@@ -372,10 +373,89 @@ func TestObjectTTLMultiNode(t *testing.T) {
 				count, err := countStr.(json.Number).Int64()
 				require.NoError(t, err)
 
+				if count != 50 {
+					t.Logf("tenant %q has %d objects, expected 50", tenant.Name, count)
+				}
+
 				require.Equal(t, int(count), 50) // unaffected
 			}
 		}
 	})
+}
+
+func TestObjectTTLUpdateTTL(t *testing.T) {
+	endpoint := "127.0.0.1:8080"
+	debugEndpoint := "127.0.0.1:6060"
+	helper.SetupClient(endpoint)
+
+	class := &models.Class{
+		Class: "TestingTTLUpdate",
+		Properties: []*models.Property{
+			{
+				Name:     "contents",
+				DataType: schema.DataTypeText.PropString(),
+			},
+			{
+				Name:     "expireDate",
+				DataType: schema.DataTypeDate.PropString(),
+			},
+		},
+		ObjectTTLConfig: &models.ObjectTTLConfig{
+			Enabled: false,
+		},
+		Vectorizer: "none",
+	}
+
+	helper.DeleteClass(t, class.Class)
+	defer helper.DeleteClass(t, class.Class)
+	helper.CreateClass(t, class)
+
+	// add objects that will expire once TTL is enabled
+	baseTime := time.Now().UTC()
+	numExpiredObjects := 5
+	for i := 0; i < numExpiredObjects; i++ {
+		require.NoError(t, helper.CreateObject(t, &models.Object{
+			ID:    helper.IntToUUID(uint64(i)),
+			Class: class.Class,
+			Properties: map[string]interface{}{
+				"contents":   "some text",
+				"expireDate": baseTime.Add(-time.Minute).Format(time.RFC3339),
+			},
+		}))
+	}
+
+	numNotExpiredObjects := 6
+	for i := 0; i < numNotExpiredObjects; i++ {
+		require.NoError(t, helper.CreateObject(t, &models.Object{
+			ID:    helper.IntToUUID(uint64(i + numExpiredObjects)),
+			Class: class.Class,
+			Properties: map[string]interface{}{
+				"contents":   "some text",
+				"expireDate": baseTime.Add(time.Minute).Format(time.RFC3339),
+			},
+		}))
+	}
+
+	// ttl is not enabled yet, so no deletion should happen
+	deleteTTL(t, debugEndpoint, baseTime, false)
+	objs, err := helper.GetObjects(t, class.Class)
+	require.NoError(t, err)
+	require.Len(t, objs, numExpiredObjects+numNotExpiredObjects)
+
+	// now enable ttl
+	class.ObjectTTLConfig = &models.ObjectTTLConfig{
+		Enabled:    true,
+		DeleteOn:   "expireDate",
+		DefaultTTL: 60,
+	}
+	helper.UpdateClass(t, class)
+	deleteTTL(t, debugEndpoint, baseTime, false)
+
+	assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+		objs, err = helper.GetObjects(t, class.Class)
+		require.NoError(t, err)
+		require.Len(t, objs, numNotExpiredObjects)
+	}, time.Second*5, 500*time.Millisecond)
 }
 
 func deleteTTL(t *testing.T, node string, deletionTime time.Time, ownNode bool) {
