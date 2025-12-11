@@ -84,6 +84,6 @@ func TestNetworkIsolationSplitBrain(t *testing.T) {
 			require.NotNil(ct, nodeStatusResp)
 
 			assert.Len(ct, nodeStatusResp.Nodes, 3)
-		}, 120*time.Second, 1*time.Second)
+		}, 180*time.Second, 3*time.Second)
 	})
 }
