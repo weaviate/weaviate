@@ -174,7 +174,7 @@ func (s *segment) getPropertyLengths() (map[uint64]uint32, error) {
 }
 
 func (s *segment) hasKey(key []byte) bool {
-	if s.strategy != segmentindex.StrategyMapCollection && s.strategy != segmentindex.StrategyInverted {
+	if s.strategy != segmentindex.StrategyMapCollection && s.strategy != segmentindex.StrategyInverted && s.strategy != segmentindex.StrategyReplace && s.strategy != segmentindex.StrategySetCollection {
 		return false
 	}
 
