@@ -58,7 +58,8 @@ type StreamHandler struct {
 	shuttingDown           atomic.Bool
 	workerStatsPerStream   *sync.Map // map[string]*stats
 	stoppingPerStream      *sync.Map // map[string]struct{}
-	allocChecker           memwatch.AllocChecker
+	heapAllocChecker       memwatch.AllocChecker
+	usageAllocChecker      memwatch.AllocChecker
 	memInFlight            atomic.Int64
 }
 
@@ -85,8 +86,10 @@ func NewStreamHandler(
 		metrics:                metrics,
 		workerStatsPerStream:   &sync.Map{},
 		stoppingPerStream:      &sync.Map{},
-		// set a batch-unique alloc checker with a lower threshold to catch OOMs earlier than the global one
-		allocChecker: memwatch.NewMonitor(memwatch.LiveHeapReader, debug.SetMemoryLimit, 0.8),
+		// set a batch-unique heap lloc checker with a lower threshold to catch OOMs earlier than the global one
+		heapAllocChecker: memwatch.NewMonitor(memwatch.LiveUsageReader, debug.SetMemoryLimit, 0.8),
+		// set a batch-unique live usage checker to throttle pushing to queue based on live memory usage avoiding OOM spikes
+		usageAllocChecker: memwatch.NewMonitor(memwatch.LiveUsageReader, debug.SetMemoryLimit, 1),
 	}
 	return h
 }
@@ -441,9 +444,9 @@ func (h *StreamHandler) receiver(ctx context.Context, streamId string, consisten
 			objs := request.GetData().GetObjects().GetValues()
 			size := estimateBatchMemory(objs)
 			// Refresh the alloc checker before each check to get the latest memory stats
-			h.allocChecker.Refresh(false)
+			h.heapAllocChecker.Refresh(false)
 			// Check if we can allocate memory for this batch plus any other in-flight memory currently in the processing queue
-			if err := h.allocChecker.CheckAlloc(size + h.memInFlight.Load()); err != nil {
+			if err := h.heapAllocChecker.CheckAlloc(size + h.memInFlight.Load()); err != nil {
 				h.logger.WithField("streamId", streamId).Warnf("memory allocation check failed before pushing to processing queue: %v", err)
 				return oomErr(objs, request.GetData().References.GetValues(), err)
 			}
@@ -474,6 +477,20 @@ func (h *StreamHandler) receiver(ctx context.Context, streamId string, consisten
 				// refs are fast so don't need to be efficiently batched
 				// we just accept however many the client sends assuming it'll be fine
 				h.push(stream.Context(), streamId, consistencyLevel, wg, batch, refs)
+			}
+
+			for {
+				// Refresh the usage checker before each check to get the latest memory stats
+				h.usageAllocChecker.Refresh(false)
+				// Check whether the usage is above GOMEMLIMIT before returning an Ack to the client allowing it to continue
+				if err := h.usageAllocChecker.CheckAlloc(0); err != nil {
+					// If we can't allocate, wait a bit and try again
+					log.Warnf("memory usage check failed before pushing to processing queue, backing off: %v", err)
+					time.Sleep(100 * time.Millisecond)
+					continue
+				}
+				// If we can allocate, break out of the loop and proceed to push
+				break
 			}
 
 			uuids := make([]string, 0, len(objs))

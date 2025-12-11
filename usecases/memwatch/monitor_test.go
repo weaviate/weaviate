@@ -89,8 +89,13 @@ func TestMonitor(t *testing.T) {
 		assert.Error(t, err, "any check should fail, since we're already over the limit")
 	})
 
-	t.Run("with real dependencies", func(t *testing.T) {
+	t.Run("with real heap reader", func(t *testing.T) {
 		m := NewMonitor(LiveHeapReader, debug.SetMemoryLimit, 0.97)
+		_ = m.Ratio()
+	})
+
+	t.Run("with usage reader", func(t *testing.T) {
+		m := NewMonitor(LiveUsageReader, debug.SetMemoryLimit, 0.97)
 		_ = m.Ratio()
 	})
 }
