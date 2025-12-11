@@ -19,13 +19,13 @@ import (
 	"sync"
 
 	"github.com/sirupsen/logrus"
-	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"golang.org/x/exp/slices"
 
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 )
 
 var _NUMCPU = runtime.GOMAXPROCS(0)
@@ -287,7 +287,7 @@ func (e *executor) UpdateTenantsProcess(class string, req *api.TenantProcessRequ
 		})
 	}
 
-	if err := e.migrator.UpdateTenants(ctx, cls, updates, false); err != nil {
+	if err := e.migrator.UpdateTenants(ctx, cls, updates, true); err != nil {
 		e.logger.WithFields(logrus.Fields{
 			"action":     "update_tenants_process",
 			"sub-action": "update_tenants",
