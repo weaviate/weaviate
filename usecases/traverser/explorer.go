@@ -777,7 +777,7 @@ func (e *Explorer) keepObjectsWithTTL(params dto.GetParams, input search.Result,
 	if searchStartTime.IsZero() {
 		return true, nil
 	}
-	if !ttl.IsTtlEnabled(class.ObjectTTLConfig) || !class.ObjectTTLConfig.PostSearchFilter {
+	if !ttl.IsTtlEnabled(class.ObjectTTLConfig) || !class.ObjectTTLConfig.FilterExpiredObjects {
 		return true, nil
 	}
 

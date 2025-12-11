@@ -38,7 +38,7 @@ type ObjectTTLConfig struct {
 	Enabled bool `json:"enabled"`
 
 	// Whether remove from resultset expired, but not yet deleted by background process objects (default: `false`).
-	PostSearchFilter bool `json:"postSearchFilter"`
+	FilterExpiredObjects bool `json:"filterExpiredObjects"`
 }
 
 // Validate validates this object Ttl config
