@@ -148,13 +148,13 @@ func TestReplicatorPutObject(t *testing.T) {
 			rep := f.newReplicator()
 			resp := replica.SimpleResponse{}
 
-			f.WClient.On("PutObject", mock.Anything, "A", cls, shard, anyVal, obj, uint64(123)).Return(resp, errAny).After(time.Second * 10)
-			f.WClient.On("Abort", mock.Anything, "A", cls, shard, anyVal).Return(resp, nil)
-
-			f.WClient.On("PutObject", mock.Anything, "B", cls, shard, anyVal, obj, uint64(123)).Return(resp, nil)
-			f.WClient.On("Commit", ctx, "B", cls, shard, anyVal, anyVal).Return(errAny)
-
+			// For consistency level ONE, only the first successful node is committed.
+			// Make A and B slower (high load simulation) so C completes first and succeeds.
+			// After C succeeds, the coordinator stops sending additional nodes to commitAll.
+			f.WClient.On("PutObject", mock.Anything, "A", cls, shard, anyVal, obj, uint64(123)).Return(nil, errAny).After(time.Second)
+			f.WClient.On("PutObject", mock.Anything, "B", cls, shard, anyVal, obj, uint64(123)).Return(resp, nil).After(time.Second)
 			f.WClient.On("PutObject", mock.Anything, "C", cls, shard, anyVal, obj, uint64(123)).Return(resp, nil)
+			// Only C's Commit will be called - coordinator bails out after first success
 			f.WClient.On("Commit", ctx, "C", cls, shard, anyVal, anyVal).Return(nil)
 			err := rep.PutObject(ctx, shard, obj, types.ConsistencyLevelOne, 123)
 			assert.Nil(t, err)
@@ -349,7 +349,6 @@ func TestReplicatorDeleteObject(t *testing.T) {
 			resp := replica.SimpleResponse{Errors: make([]replicaerrors.Error, 1)}
 			for _, n := range nodes[:2] {
 				client.On("DeleteObject", mock.Anything, n, cls, shard, anyVal, uuid, anyVal, uint64(123)).Return(resp, nil)
-				client.On("Commit", ctx, n, "C1", shard, anyVal, anyVal).Return(nil)
 			}
 			client.On("DeleteObject", mock.Anything, "C", cls, shard, anyVal, uuid, anyVal, uint64(123)).Return(replica.SimpleResponse{}, errAny)
 			for _, n := range nodes {
@@ -449,12 +448,13 @@ func TestReplicatorDeleteObjects(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(fmt.Sprintf("PhaseOneConnectionError_%v", tc.variant), func(t *testing.T) {
-			factory := newFakeFactory(t, "C1", shard, nodes, tc.isMultiTenant)
+			testNodes := []string{"A", "B"}
+			factory := newFakeFactory(t, "C1", shard, testNodes, tc.isMultiTenant)
 			client := factory.WClient
 			docIDs := []strfmt.UUID{strfmt.UUID("1"), strfmt.UUID("2")}
-			client.On("DeleteObjects", mock.Anything, nodes[0], cls, shard, anyVal, docIDs, anyVal, false, uint64(123)).Return(replica.SimpleResponse{}, nil)
-			client.On("DeleteObjects", mock.Anything, nodes[1], cls, shard, anyVal, docIDs, anyVal, false, uint64(123)).Return(replica.SimpleResponse{}, errAny)
-			for _, n := range nodes {
+			client.On("DeleteObjects", mock.Anything, testNodes[0], cls, shard, anyVal, docIDs, anyVal, false, uint64(123)).Return(replica.SimpleResponse{}, nil)
+			client.On("DeleteObjects", mock.Anything, testNodes[1], cls, shard, anyVal, docIDs, anyVal, false, uint64(123)).Return(replica.SimpleResponse{}, errAny)
+			for _, n := range testNodes {
 				client.On("Abort", mock.Anything, n, "C1", shard, anyVal).Return(replica.SimpleResponse{}, nil)
 			}
 			result := factory.newReplicator().DeleteObjects(ctx, shard, docIDs, time.Now(), false, types.ConsistencyLevelAll, 123)
@@ -519,14 +519,18 @@ func TestReplicatorDeleteObjects(t *testing.T) {
 		})
 
 		t.Run(fmt.Sprintf("SuccessWithConsistencyLevelOne_%v", tc.variant), func(t *testing.T) {
-			factory := newFakeFactory(t, "C1", shard, nodes, tc.isMultiTenant)
+			testNodes := []string{"A", "B"}
+			factory := newFakeFactory(t, "C1", shard, testNodes, tc.isMultiTenant)
 			client := factory.WClient
 			rep := factory.newReplicator()
 			docIDs := []strfmt.UUID{strfmt.UUID("1"), strfmt.UUID("2")}
 			resp1 := replica.SimpleResponse{}
-			client.On("DeleteObjects", mock.Anything, nodes[0], cls, shard, anyVal, docIDs, anyVal, false, uint64(123)).Return(resp1, nil)
-			client.On("DeleteObjects", mock.Anything, nodes[1], cls, shard, anyVal, docIDs, anyVal, false, uint64(123)).Return(resp1, errAny)
-			client.On("Commit", ctx, nodes[0], cls, shard, anyVal, anyVal).Return(nil).RunFn = func(args mock.Arguments) {
+			// For consistency level ONE, coordinator broadcasts to all nodes concurrently
+			// Only the first successful node is committed. Make B slower so A completes first.
+			client.On("DeleteObjects", mock.Anything, testNodes[0], cls, shard, anyVal, docIDs, anyVal, false, uint64(123)).Return(resp1, nil)
+			client.On("DeleteObjects", mock.Anything, testNodes[1], cls, shard, anyVal, docIDs, anyVal, false, uint64(123)).Return(resp1, errAny).After(time.Second * 10)
+			// Only A's Commit will be called since A completes first
+			client.On("Commit", ctx, testNodes[0], cls, shard, anyVal, anyVal).Return(nil).RunFn = func(args mock.Arguments) {
 				resp := args[5].(*replica.DeleteBatchResponse)
 				*resp = replica.DeleteBatchResponse{
 					Batch: []replica.UUID2Error{{UUID: "1"}, {UUID: "2"}},
@@ -603,14 +607,12 @@ func TestReplicatorPutObjects(t *testing.T) {
 			nodes := []string{"A", "B", "C"}
 			f := newFakeFactory(t, "C1", shard, nodes, tc.isMultiTenant)
 			rep := f.newReplicator()
-			for _, n := range nodes[:2] {
-				f.WClient.On("PutObjects", mock.Anything, n, cls, shard, anyVal, objs, uint64(0)).Return(resp1, nil)
-				f.WClient.On("Commit", ctx, n, cls, shard, anyVal, anyVal).Return(nil).RunFn = func(a mock.Arguments) {
-					resp := a[5].(*replica.SimpleResponse)
-					*resp = replica.SimpleResponse{Errors: []replicaerrors.Error{{}, {}, {Msg: "e3"}}}
-				}
-			}
+			// For consistency level ONE, coordinator broadcasts to all nodes concurrently
+			// Only the first successful node is committed. Make A and B slower so C completes first.
+			f.WClient.On("PutObjects", mock.Anything, "A", cls, shard, anyVal, objs, uint64(0)).Return(nil, errAny).After(time.Second)
+			f.WClient.On("PutObjects", mock.Anything, "B", cls, shard, anyVal, objs, uint64(0)).Return(resp1, nil).After(time.Second)
 			f.WClient.On("PutObjects", mock.Anything, "C", cls, shard, anyVal, objs, uint64(0)).Return(resp1, nil)
+			// Only C's Commit will be called since C completes first
 			f.WClient.On("Commit", ctx, "C", cls, shard, anyVal, anyVal).Return(nil).RunFn = func(a mock.Arguments) {
 				resp := a[5].(*replica.SimpleResponse)
 				*resp = replica.SimpleResponse{Errors: make([]replicaerrors.Error, 3)}
@@ -796,8 +798,8 @@ type fakeFactory struct {
 	CLS            string
 	Nodes          []string
 	Shard2replicas map[string][]string
-	WClient        *fakeClient
-	RClient        *fakeRClient
+	WClient        *replica.MockWClient
+	RClient        *replica.MockRClient
 	log            *logrus.Logger
 	hook           *test.Hook
 	isMultiTenant  bool
@@ -811,8 +813,8 @@ func newFakeFactory(t *testing.T, class, shard string, nodes []string, isMultiTe
 		CLS:            class,
 		Nodes:          nodes,
 		Shard2replicas: map[string][]string{shard: nodes},
-		WClient:        &fakeClient{},
-		RClient:        &fakeRClient{},
+		WClient:        replica.NewMockWClient(t),
+		RClient:        replica.NewMockRClient(t),
 		log:            logger,
 		hook:           hook,
 		isMultiTenant:  isMultiTenant,
