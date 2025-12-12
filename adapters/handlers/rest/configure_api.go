@@ -411,6 +411,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		DisableLazyLoadShards:               appState.ServerConfig.Config.DisableLazyLoadShards,
 		ForceFullReplicasSearch:             appState.ServerConfig.Config.ForceFullReplicasSearch,
 		TransferInactivityTimeout:           appState.ServerConfig.Config.TransferInactivityTimeout,
+		ObjectsTTLBatchSize:                 appState.ServerConfig.Config.ObjectsTTLBatchSize,
 		LSMEnableSegmentsChecksumValidation: appState.ServerConfig.Config.Persistence.LSMEnableSegmentsChecksumValidation,
 		// Pass dummy replication config with minimum factor 1. Otherwise the
 		// setting is not backward-compatible. The user may have created a class
@@ -938,7 +939,7 @@ func configureCrons(appState *state.State, serverShutdownCtx context.Context) {
 		gocron.WithLogger(cronLogger),
 		gocron.WithChain(gocron.Recover(cronLogger)),
 	}
-	if appState.ServerConfig.Config.ObjectsTtlAllowSeconds {
+	if appState.ServerConfig.Config.ObjectsTTLAllowSeconds {
 		opts = append(opts, gocron.WithSeconds())
 	}
 	cr := gocron.New(opts...)
