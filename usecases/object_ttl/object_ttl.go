@@ -128,7 +128,7 @@ func (c *Coordinator) triggerDeletionObjectsExpiredLocalNode(ctx context.Context
 
 	for name, collection := range classesWithTTL {
 		if err := ctx.Err(); err != nil {
-			return err
+			break
 		}
 		deleteOnPropName, ttlThreshold := c.extractTtlDataFromCollection(collection.ttlConfig, ttlTime)
 		c.db.DeleteExpiredObjects(ctx, eg, ec, name, deleteOnPropName, ttlThreshold, deletionTime, collection.version)
