@@ -361,5 +361,5 @@ func TestInvertedDelete(t *testing.T) {
 		require.Nil(t, err)
 		fmt.Printf("Segment %v has %v tombstones\n", i, to.GetCardinality())
 	}
-	assert.Error(t, validateMapPairListVsBlockMaxSearch(ctx, bucket, previous1[:]))
+	assert.Error(t, validateMapPairListVsBlockMaxSearch(ctx, bucket, previous1[:], false))
 }

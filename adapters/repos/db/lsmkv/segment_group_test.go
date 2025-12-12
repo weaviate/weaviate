@@ -593,7 +593,7 @@ func TestSegmentGroup_Inverted_ConsistentViewAcrossSegmentAddition(t *testing.T)
 
 	require.NoError(t, validateMapPairListVsBlockMaxSearchFromSingleSegment(ctx, segments[0], []kv{
 		{key: []byte("key1"), values: []MapPair{NewMapPairFromDocIdAndTf(0, 2, 1, false)}},
-	}))
+	}, false))
 
 	// append new segment (Inverted semantics: union/accumulation)
 	segment2Data := map[string][]MapPair{
@@ -604,7 +604,7 @@ func TestSegmentGroup_Inverted_ConsistentViewAcrossSegmentAddition(t *testing.T)
 	// old view remains unchanged
 	require.NoError(t, validateMapPairListVsBlockMaxSearchFromSingleSegment(ctx, segments[0], []kv{
 		{key: []byte("key1"), values: []MapPair{NewMapPairFromDocIdAndTf(0, 2, 1, false)}},
-	}))
+	}, false))
 
 	// new readers see union from both segments
 	segments, release = sg.getConsistentViewOfSegments()
@@ -615,7 +615,7 @@ func TestSegmentGroup_Inverted_ConsistentViewAcrossSegmentAddition(t *testing.T)
 			NewMapPairFromDocIdAndTf(0, 2, 1, false),
 			NewMapPairFromDocIdAndTf(1, 2, 1, false),
 		}},
-	}))
+	}, false))
 }
 
 func TestSegmentGroup_Inverted_ConsistentViewAcrossSegmentSwitch(t *testing.T) {
@@ -648,7 +648,7 @@ func TestSegmentGroup_Inverted_ConsistentViewAcrossSegmentSwitch(t *testing.T) {
 				NewMapPairFromDocIdAndTf(0, 2, 1, false),
 				NewMapPairFromDocIdAndTf(1, 2, 1, false),
 			}},
-		}))
+		}, false))
 	}
 	validateView(t, segments)
 

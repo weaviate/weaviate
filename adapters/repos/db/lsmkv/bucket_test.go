@@ -1727,9 +1727,10 @@ func TestBucketInvertedStrategyConsistentView(t *testing.T) {
 			values: []MapPair{
 				NewMapPairFromDocIdAndTf(0, 2, 1, false),
 				NewMapPairFromDocIdAndTf(1, 3, 1, false),
+				NewMapPairFromDocIdAndTf(10, 10, 1, false),
 			},
 		},
-	})
+	}, false)
 	require.NoError(t, err)
 
 	// View #1 (pre-switch): active=doc_id(0), flushing=nil, disk=doc_id(1)
@@ -1743,11 +1744,12 @@ func TestBucketInvertedStrategyConsistentView(t *testing.T) {
 				values: []MapPair{
 					NewMapPairFromDocIdAndTf(0, 2, 1, false),
 					NewMapPairFromDocIdAndTf(1, 3, 1, false),
+					NewMapPairFromDocIdAndTf(10, 10, 1, false),
 				},
 			},
 		}
 
-		require.NoError(t, validateMapPairListVsBlockMaxSearchFromView(ctx, &b, v, expected))
+		require.NoError(t, validateMapPairListVsBlockMaxSearchFromView(ctx, &b, v, expected, false))
 	}
 	validateView1(view1)
 
@@ -1775,11 +1777,12 @@ func TestBucketInvertedStrategyConsistentView(t *testing.T) {
 					NewMapPairFromDocIdAndTf(0, 2, 1, false),
 					NewMapPairFromDocIdAndTf(1, 3, 1, false),
 					NewMapPairFromDocIdAndTf(2, 4, 1, false),
+					NewMapPairFromDocIdAndTf(10, 10, 1, false),
 				},
 			},
 		}
 
-		require.NoError(t, validateMapPairListVsBlockMaxSearchFromView(ctx, &b, v, expected))
+		require.NoError(t, validateMapPairListVsBlockMaxSearchFromView(ctx, &b, v, expected, false))
 	}
 	validateView2(view2)
 
@@ -1797,9 +1800,10 @@ func TestBucketInvertedStrategyConsistentView(t *testing.T) {
 				NewMapPairFromDocIdAndTf(0, 2, 1, false),
 				NewMapPairFromDocIdAndTf(1, 3, 1, false),
 				NewMapPairFromDocIdAndTf(2, 4, 1, false),
+				NewMapPairFromDocIdAndTf(10, 10, 1, false),
 			},
 		},
-	})
+	}, false)
 	require.NoError(t, err)
 }
 
@@ -1869,7 +1873,7 @@ func TestBucketInvertedStrategyWriteVsFlush(t *testing.T) {
 			},
 		},
 	}
-	require.NoError(t, validateMapPairListVsBlockMaxSearchFromSingleSegment(ctx, view.Disk[0], expected))
+	require.NoError(t, validateMapPairListVsBlockMaxSearchFromSingleSegment(ctx, view.Disk[0], expected, false))
 }
 
 type testMemtable struct {
@@ -2165,13 +2169,51 @@ type kv struct {
 	values []MapPair
 }
 
-func validateMapPairListVsBlockMaxSearch(ctx context.Context, bucket *Bucket, expectedMultiKey []kv) error {
-	view := bucket.getConsistentView()
-	defer view.Release()
-	return validateMapPairListVsBlockMaxSearchFromView(ctx, bucket, view, expectedMultiKey)
+func compareKeywordSearchResultSets(expected []MapPair, found map[uint64][]*terms.DocPointerWithScore, partialCompare bool) error {
+	expectedSet := make(map[uint64]MapPair, len(expected))
+	for _, val := range expected {
+		docId := binary.BigEndian.Uint64(val.Key)
+		if val.Tombstone {
+			continue
+		}
+		freq := math.Float32frombits(binary.LittleEndian.Uint32(val.Value[0:4]))
+		if _, ok := found[docId]; !ok {
+			return fmt.Errorf("expected docId %v not found in topKHeap: %v", docId, found)
+		}
+		if found[docId][0].Frequency != freq {
+			return fmt.Errorf("expected frequency %v but got %v", freq, found[docId][0].Frequency)
+		}
+		if len(found[docId]) != 1 {
+			return fmt.Errorf("expected only one DocPointerWithScore for docId %v but got %v", docId, found[docId])
+		}
+
+		expectedSet[docId] = val
+	}
+
+	if partialCompare {
+		return nil
+	}
+
+	unexpectedDocIds := map[uint64]struct{}{}
+	for docId := range found {
+		if _, ok := expectedSet[docId]; !ok {
+			unexpectedDocIds[docId] = struct{}{}
+		}
+	}
+	if len(unexpectedDocIds) > 0 {
+		return fmt.Errorf("unexpected docIds found in topKHeap: %v", unexpectedDocIds)
+	}
+
+	return nil
 }
 
-func validateMapPairListVsBlockMaxSearchFromView(ctx context.Context, bucket *Bucket, view BucketConsistentView, expectedMultiKey []kv) error {
+func validateMapPairListVsBlockMaxSearch(ctx context.Context, bucket *Bucket, expectedMultiKey []kv, partialCompare bool) error {
+	view := bucket.getConsistentView()
+	defer view.Release()
+	return validateMapPairListVsBlockMaxSearchFromView(ctx, bucket, view, expectedMultiKey, partialCompare)
+}
+
+func validateMapPairListVsBlockMaxSearchFromView(ctx context.Context, bucket *Bucket, view BucketConsistentView, expectedMultiKey []kv, partialCompare bool) error {
 	for _, termPair := range expectedMultiKey {
 		expected := termPair.values
 		mapKey := termPair.key
@@ -2191,7 +2233,7 @@ func validateMapPairListVsBlockMaxSearchFromView(ctx context.Context, bucket *Bu
 			return fmt.Errorf("failed to create disk term: %w", err)
 		}
 
-		expectedSet := make(map[uint64][]*terms.DocPointerWithScore, len(expected))
+		found := make(map[uint64][]*terms.DocPointerWithScore, len(expected))
 		for _, diskTerm := range diskTerms {
 			topKHeap, err := DoBlockMaxWand(ctx, N, diskTerm, avgPropLen, true, 1, 1, bucket.logger)
 			if err != nil {
@@ -2199,34 +2241,23 @@ func validateMapPairListVsBlockMaxSearchFromView(ctx context.Context, bucket *Bu
 			}
 			for topKHeap.Len() > 0 {
 				item := topKHeap.Pop()
-				expectedSet[item.ID] = item.Value
+				found[item.ID] = item.Value
 			}
 		}
-
-		for _, val := range expected {
-			docId := binary.BigEndian.Uint64(val.Key)
-			if val.Tombstone {
-				continue
-			}
-			freq := math.Float32frombits(binary.LittleEndian.Uint32(val.Value[0:4]))
-			if _, ok := expectedSet[docId]; !ok {
-				return fmt.Errorf("expected docId %v not found in topKHeap: %v", docId, expectedSet)
-			}
-			if expectedSet[docId][0].Frequency != freq {
-				return fmt.Errorf("expected frequency %v but got %v", freq, expectedSet[docId][0].Frequency)
-			}
-
+		err = compareKeywordSearchResultSets(expected, found, partialCompare)
+		if err != nil {
+			return err
 		}
 	}
 
 	return nil
 }
 
-func validateMapPairListVsBlockMaxSearchFromSingleSegment(ctx context.Context, segment Segment, expectedMultiKey []kv) error {
-	return validateMapPairListVsBlockMaxSearchFromSegments(ctx, []Segment{segment}, expectedMultiKey)
+func validateMapPairListVsBlockMaxSearchFromSingleSegment(ctx context.Context, segment Segment, expectedMultiKey []kv, partialCompare bool) error {
+	return validateMapPairListVsBlockMaxSearchFromSegments(ctx, []Segment{segment}, expectedMultiKey, partialCompare)
 }
 
-func validateMapPairListVsBlockMaxSearchFromSegments(ctx context.Context, segments []Segment, expectedMultiKey []kv) error {
+func validateMapPairListVsBlockMaxSearchFromSegments(ctx context.Context, segments []Segment, expectedMultiKey []kv, partialCompare bool) error {
 	for _, termPair := range expectedMultiKey {
 		expected := termPair.values
 		mapKey := termPair.key
@@ -2246,7 +2277,7 @@ func validateMapPairListVsBlockMaxSearchFromSegments(ctx context.Context, segmen
 			diskTerms = append(diskTerms, []*SegmentBlockMax{bmws})
 		}
 
-		expectedSet := make(map[uint64][]*terms.DocPointerWithScore, len(expected))
+		found := make(map[uint64][]*terms.DocPointerWithScore, len(expected))
 		for _, diskTerm := range diskTerms {
 			topKHeap, err := DoBlockMaxWand(ctx, N, diskTerm, avgPropLen, true, 1, 1, nil)
 			if err != nil {
@@ -2254,23 +2285,13 @@ func validateMapPairListVsBlockMaxSearchFromSegments(ctx context.Context, segmen
 			}
 			for topKHeap.Len() > 0 {
 				item := topKHeap.Pop()
-				expectedSet[item.ID] = item.Value
+				found[item.ID] = item.Value
 			}
 		}
 
-		for _, val := range expected {
-			docId := binary.BigEndian.Uint64(val.Key)
-			if val.Tombstone {
-				continue
-			}
-			freq := math.Float32frombits(binary.LittleEndian.Uint32(val.Value[0:4]))
-			if _, ok := expectedSet[docId]; !ok {
-				return fmt.Errorf("expected docId %v not found in topKHeap: %v", docId, expectedSet)
-			}
-			if expectedSet[docId][0].Frequency != freq {
-				return fmt.Errorf("expected frequency %v but got %v", freq, expectedSet[docId][0].Frequency)
-			}
-
+		err := compareKeywordSearchResultSets(expected, found, partialCompare)
+		if err != nil {
+			return err
 		}
 
 	}
