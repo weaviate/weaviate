@@ -127,7 +127,7 @@ func (d *ObjectTTL) incomingDelete() http.Handler {
 				// TODO aliszka:ttl handle graceful index close / drop
 				idx, err := d.remoteIndex.IndexForIncomingWrite(context.Background(), className, classPayload.ClassVersion)
 				if err != nil {
-					ec.Add(fmt.Errorf("get index for class %q: %w", className, err))
+					ec.AddGroups(fmt.Errorf("get index: %w", err), className)
 					continue
 				}
 
