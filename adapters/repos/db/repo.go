@@ -291,6 +291,7 @@ type Config struct {
 	CycleManagerRoutinesFactor          int
 	IndexRangeableInMemory              bool
 	ObjectsTTLBatchSize                 int
+	ObjectsTTLConcurrencyFactor         float64
 
 	HNSWMaxLogSize                               int64
 	HNSWDisableSnapshots                         bool
