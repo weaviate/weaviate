@@ -61,6 +61,7 @@ type HFresh struct {
 	replicas       uint32
 	rngFactor      float32
 	searchProbe    uint32
+	rescoreLimit   uint32
 
 	// some components require knowing the vector size beforehand
 	// and can only be initialized once the first vector has been
@@ -147,6 +148,7 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 		replicas:       uc.Replicas,
 		rngFactor:      uc.RNGFactor,
 		searchProbe:    uc.SearchProbe,
+		rescoreLimit:   uc.RescoreLimit,
 	}
 
 	h.Centroids, err = NewHNSWIndex(metrics, store, cfg, 1024*1024, 1024)
@@ -199,6 +201,7 @@ func (h *HFresh) UpdateUserConfig(updated schemaConfig.VectorIndexConfig, callba
 	}
 
 	atomic.StoreUint32(&h.searchProbe, parsed.SearchProbe)
+	atomic.StoreUint32(&h.rescoreLimit, parsed.RescoreLimit)
 
 	callback()
 	return nil

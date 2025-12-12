@@ -28,7 +28,7 @@ const (
 )
 
 func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
-	rescoreLimit := int(min(h.searchProbe, uint32(k*35)))
+	rescoreLimit := int(min(h.searchProbe, h.rescoreLimit))
 	vector = h.normalizeVec(vector)
 	compressedQuery := h.quantizer.Encode(vector)
 
