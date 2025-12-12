@@ -373,7 +373,7 @@ func (s *Store) runJobOnBuckets(ctx context.Context,
 	wg.Wait()
 	close(resultQueue)
 
-	var errs errorcompounder.ErrorCompounder
+	errs := errorcompounder.New()
 	for _, err := range status.buckets {
 		errs.Add(err)
 	}
@@ -386,7 +386,7 @@ func (s *Store) runJobOnBuckets(ctx context.Context,
 		for b, jobErr := range status.buckets {
 			if jobErr != nil && rollbackFunc != nil {
 				if rollbackErr := rollbackFunc(ctx, b); rollbackErr != nil {
-					errs.AddWrap(rollbackErr, "bucket job rollback")
+					errs.AddWrapf(rollbackErr, "bucket job rollback")
 				}
 			}
 		}
