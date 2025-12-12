@@ -130,6 +130,10 @@ func (st *Store) Apply(l *raft.Log) any {
 		if ret.Error != nil {
 			st.metrics.applyFailures.Inc()
 			_, leaderID := st.LeaderWithID()
+			nodeState := ""
+			if st.raft != nil {
+				nodeState = st.raft.State().String()
+			}
 			st.log.WithFields(logrus.Fields{
 				"log_type":        l.Type,
 				"log_name":        l.Type.String(),
@@ -138,7 +142,7 @@ func (st *Store) Apply(l *raft.Log) any {
 				"cmd_type_name":   cmd.Type.String(),
 				"cmd_class":       cmd.Class,
 				"raft_leader":     string(leaderID),
-				"raft_node_state": st.raft.State().String(),
+				"raft_node_state": nodeState,
 			}).WithError(ret.Error).Error("apply command")
 			return
 		}
