@@ -21,6 +21,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/refcache"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/multi"
@@ -66,7 +67,9 @@ func (db *DB) DeleteObject(ctx context.Context, class string, id strfmt.UUID,
 	return nil
 }
 
-func (db *DB) DeleteExpiredObjects(ctx context.Context, eg *enterrors.ErrorGroupWrapper, className, deleteOnPropName string, ttlThreshold, deletionTime time.Time, schemaVersion uint64) error {
+func (db *DB) DeleteExpiredObjects(ctx context.Context, eg *enterrors.ErrorGroupWrapper, ec *errorcompounder.SafeErrorCompounder,
+	className, deleteOnPropName string, ttlThreshold, deletionTime time.Time, schemaVersion uint64,
+) {
 	var (
 		index  *Index
 		exists bool
@@ -82,14 +85,14 @@ func (db *DB) DeleteExpiredObjects(ctx context.Context, eg *enterrors.ErrorGroup
 	}()
 
 	if !exists {
-		return nil
+		return
 	}
 
 	defer func() {
 		index.dropIndex.RUnlock()
 	}()
 
-	return index.IncomingDeleteObjectsExpired(eg, deleteOnPropName, ttlThreshold, deletionTime, schemaVersion)
+	index.IncomingDeleteObjectsExpired(eg, ec, deleteOnPropName, ttlThreshold, deletionTime, schemaVersion)
 }
 
 func (db *DB) MultiGet(ctx context.Context, query []multi.Identifier,

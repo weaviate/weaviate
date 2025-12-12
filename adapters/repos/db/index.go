@@ -2194,14 +2194,17 @@ func (i *Index) IncomingDeleteObject(ctx context.Context, shardName string,
 	return shard.DeleteObject(ctx, id, deletionTime)
 }
 
-func (i *Index) IncomingDeleteObjectsExpired(eg *enterrors.ErrorGroupWrapper, deleteOnPropName string,
-	ttlThreshold, deletionTime time.Time, schemaVersion uint64,
-) error {
+func (i *Index) IncomingDeleteObjectsExpired(eg *enterrors.ErrorGroupWrapper, ec *errorcompounder.SafeErrorCompounder,
+	deleteOnPropName string, ttlThreshold, deletionTime time.Time, schemaVersion uint64,
+) {
 	// use closing context to stop long-running TTL deletions in case index is closed
-	return i.incomingDeleteObjectsExpired(i.closingCtx, eg, deleteOnPropName, ttlThreshold, deletionTime, schemaVersion)
+	i.incomingDeleteObjectsExpired(i.closingCtx, eg, ec, deleteOnPropName, ttlThreshold, deletionTime, schemaVersion)
 }
 
-func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.ErrorGroupWrapper, deleteOnPropName string, ttlThreshold, deletionTime time.Time, schemaVersion uint64) error {
+// TODO aliszka:ttl handle ctx
+func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.ErrorGroupWrapper, ec *errorcompounder.SafeErrorCompounder,
+	deleteOnPropName string, ttlThreshold, deletionTime time.Time, schemaVersion uint64,
+) {
 	class := i.getClass()
 	filter := &filters.LocalFilter{Root: &filters.Clause{
 		Operator: filters.OperatorLessThanEqual,
@@ -2221,67 +2224,87 @@ func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.
 	// deletion process happens to run on that node again, the object will be deleted then.
 	replProps := defaultConsistency()
 
-	if isMT := multitenancy.IsMultiTenant(class.MultiTenancyConfig); isMT {
+	// TODO aliszka:ttl improve error / logging
+	if multitenancy.IsMultiTenant(class.MultiTenancyConfig) {
 		tenants, err := i.schemaReader.Shards(class.Class)
 		if err != nil {
-			return fmt.Errorf("getting tenants of collection %q: %w", class.Class, err)
+			ec.Add(fmt.Errorf("get tenants of %q: %w", class.Class, err))
+			return
 		}
 
 		for _, tenant := range tenants {
-			tenants2uuids, err := i.findUUIDs(ctx, filter, tenant, replProps)
-			// skip inactive tenants
-			if err != nil && !errors.Is(err, enterrors.ErrTenantNotActive) {
-				// TODO aliszka:ttl exit or continue with other tenants
-				return fmt.Errorf("finding uuids for tenant %q of collection %q: %w", tenant, class.Class, err)
-			}
-
-			if len(tenants2uuids[tenant]) == 0 {
-				continue
-			}
-			eg.Go(
-				func() error {
-					resp, err := i.batchDeleteObjects(ctx, tenants2uuids, deletionTime, false, replProps, schemaVersion, tenant)
-					if err != nil {
-						// TODO aliszka:ttl exit or continue with other tenants
-						return fmt.Errorf("batch delete for tenant %q of collection %q: %w", tenant, class.Class, err)
-					}
-
-					i.logger.
-						WithFields(logrus.Fields{"action": "ttl_cleanup", "collection": class.Class, "tenant": tenant}).
-						Infof("batch delete response: %+v", resp)
+			eg.Go(func() error {
+				tenants2uuids, err := i.findUUIDs(ctx, filter, tenant, replProps)
+				// skip inactive tenants
+				if err != nil && !errors.Is(err, enterrors.ErrTenantNotActive) {
+					ec.Add(fmt.Errorf("find uuids for tenant %q of collection %q: %w", tenant, class.Class, err))
 					return nil
-				})
-		}
+				}
 
-	} else {
-		shards2uuids, err := i.findUUIDs(ctx, filter, "", replProps)
-		if err != nil {
-			return fmt.Errorf("finding uuids of collection %q: %w", class.Class, err)
+				i.incomingDeleteObjectsExpiredUuids(ctx, eg, ec, deletionTime, "", tenant, tenants2uuids[tenant], replProps, schemaVersion)
+				return nil
+			})
 		}
-
-		for shard := range shards2uuids {
-			if len(shards2uuids[shard]) == 0 {
-				delete(shards2uuids, shard)
-			}
-		}
-		if len(shards2uuids) != 0 {
-			eg.Go(
-				func() error {
-					resp, err := i.batchDeleteObjects(ctx, shards2uuids, deletionTime, false, replProps, schemaVersion, "")
-					if err != nil {
-						// TODO aliszka:ttl exit or continue with other tenants
-						return fmt.Errorf("batch delete of collection %q: %w", class.Class, err)
-					}
-					i.logger.
-						WithFields(logrus.Fields{"action": "ttl_cleanup", "collection": class.Class}).
-						Infof("batch delete response: %+v", resp)
-
-					return nil
-				})
-		}
+		return
 	}
 
-	return nil
+	eg.Go(func() error {
+		shards2uuids, err := i.findUUIDs(ctx, filter, "", replProps)
+		if err != nil {
+			ec.Add(fmt.Errorf("finding uuids of collection %q: %w", class.Class, err))
+			return nil
+		}
+
+		for shard, uuids := range shards2uuids {
+			i.incomingDeleteObjectsExpiredUuids(ctx, eg, ec, deletionTime, shard, "", uuids, replProps, schemaVersion)
+		}
+		return nil
+	})
+}
+
+func (i *Index) incomingDeleteObjectsExpiredUuids(ctx context.Context, eg *enterrors.ErrorGroupWrapper, ec *errorcompounder.SafeErrorCompounder,
+	deletionTime time.Time, shard, tenant string, uuids []strfmt.UUID,
+	replProps *additional.ReplicationProperties, schemaVersion uint64,
+) {
+	if len(uuids) == 0 {
+		return
+	}
+
+	inputKey := shard
+	if tenant != "" {
+		inputKey = tenant
+	}
+	collection := i.Config.ClassName.String()
+
+	// TODO aliszka:ttl improve error / logging
+	f := func(uuids []strfmt.UUID) error {
+		input := map[string][]strfmt.UUID{inputKey: uuids}
+
+		resp, err := i.batchDeleteObjects(ctx, input, deletionTime, false, replProps, schemaVersion, tenant)
+		if err != nil {
+			return fmt.Errorf("batch delete of collection %q: %w", collection, err)
+		}
+
+		i.logger.
+			WithFields(logrus.Fields{"action": "ttl_cleanup", "collection": collection}).
+			Infof("batch delete response: %+v", resp)
+
+		return nil
+	}
+
+	batchSize := 1000 // TODO aliszka:ttl move to config
+	for from := 0; from < len(uuids); from += batchSize {
+		to := min(len(uuids), from+batchSize)
+		uuids := uuids[from:to]
+
+		// try running in other goroutine (if available), otherwise run in current one
+		if !eg.TryGo(func() error {
+			ec.Add(f(uuids))
+			return nil
+		}) {
+			ec.Add(f(uuids))
+		}
+	}
 }
 
 func (i *Index) getClass() *models.Class {
