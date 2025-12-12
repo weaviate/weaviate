@@ -512,47 +512,49 @@ func (s *SchemaManager) SyncShard(cmd *command.ApplyRequest, schemaOnly bool) er
 			op:           cmd.GetType().String(),
 			updateSchema: func() error { return nil },
 			updateStore: func() error {
-				return s.schema.Read(req.Collection, true, func(class *models.Class, state *sharding.State) error {
-					physical, ok := state.Physical[req.Shard]
-					// shard does not exist in the sharding state
-					if !ok {
-						// TODO: can we guarantee that the shard is not in use?
-						// If so we should call s.db.DropShard(cmd.Class, req.Shard) here instead
-						// For now, to be safe and avoid data loss, we just shut it down
-						s.db.ShutdownShard(cmd.Class, req.Shard)
-						// return early
-						return nil
-					}
-					// if shard doesn't belong to this node
-					if !slices.Contains(physical.BelongsToNodes, req.NodeId) {
-						// shut it down
-						s.db.ShutdownShard(cmd.Class, req.Shard)
-						// return early
-						return nil
-					}
-					// collection is single-tenant, shard is present, replica belongs to node
-					if !state.PartitioningEnabled {
-						// load it
-						s.db.LoadShard(cmd.Class, req.Shard)
-						// return early
-						return nil
-					}
-					// collection is multi-tenant, shard is present, replica belongs to node
-					switch physical.ActivityStatus() {
-					// tenant is active
-					case models.TenantActivityStatusACTIVE:
-						// load it
-						s.db.LoadShard(cmd.Class, req.Shard)
-					// tenant is inactive
-					case models.TenantActivityStatusINACTIVE:
-						// shut it down
-						s.db.ShutdownShard(cmd.Class, req.Shard)
-					// tenant is in some other state
-					default:
-						// do nothing
+				return s.NewSchemaReader().retry(func(_ *schema) error {
+					return s.schema.Read(req.Collection, true, func(class *models.Class, state *sharding.State) error {
+						physical, ok := state.Physical[req.Shard]
+						// shard does not exist in the sharding state
+						if !ok {
+							// TODO: can we guarantee that the shard is not in use?
+							// If so we should call s.db.DropShard(cmd.Class, req.Shard) here instead
+							// For now, to be safe and avoid data loss, we just shut it down
+							s.db.ShutdownShard(cmd.Class, req.Shard)
+							// return early
+							return nil
+						}
+						// if shard doesn't belong to this node
+						if !slices.Contains(physical.BelongsToNodes, req.NodeId) {
+							// shut it down
+							s.db.ShutdownShard(cmd.Class, req.Shard)
+							// return early
+							return nil
+						}
+						// collection is single-tenant, shard is present, replica belongs to node
+						if !state.PartitioningEnabled {
+							// load it
+							s.db.LoadShard(cmd.Class, req.Shard)
+							// return early
+							return nil
+						}
+						// collection is multi-tenant, shard is present, replica belongs to node
+						switch physical.ActivityStatus() {
+						// tenant is active
+						case models.TenantActivityStatusACTIVE:
+							// load it
+							s.db.LoadShard(cmd.Class, req.Shard)
+						// tenant is inactive
+						case models.TenantActivityStatusINACTIVE:
+							// shut it down
+							s.db.ShutdownShard(cmd.Class, req.Shard)
+						// tenant is in some other state
+						default:
+							// do nothing
 
-					}
-					return nil
+						}
+						return nil
+					})
 				})
 			},
 			schemaOnly: schemaOnly,
