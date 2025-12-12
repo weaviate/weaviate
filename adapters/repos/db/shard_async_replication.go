@@ -900,7 +900,7 @@ func (s *Shard) getLastComparedHosts() []string {
 }
 
 func (s *Shard) allAliveHostnames() []string {
-	return s.index.replicator.AllHostnames()
+	return s.index.router.AllHostnames()
 }
 
 type hashBeatHostStats struct {
