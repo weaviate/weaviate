@@ -17,10 +17,12 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
+
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
+	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 )
 
@@ -189,7 +191,7 @@ func (rri *RemoteReplicaIncoming) DigestObjects(ctx context.Context,
 func (rri *RemoteReplicaIncoming) indexForIncomingRead(ctx context.Context, indexName string) (RemoteIndexIncomingRepo, *SimpleResponse) {
 	index := rri.repo.GetIndexForIncomingReplica(schema.ClassName(indexName))
 	if index == nil {
-		return nil, &SimpleResponse{Errors: []Error{{Err: fmt.Errorf("local index %q not found", indexName)}}}
+		return nil, &SimpleResponse{Errors: []replicaerrors.Error{{Err: fmt.Errorf("local index %q not found", indexName)}}}
 	}
 	return index, nil
 }
@@ -198,11 +200,11 @@ func (rri *RemoteReplicaIncoming) indexForIncomingWrite(ctx context.Context, ind
 	schemaVersion uint64,
 ) (RemoteIndexIncomingRepo, *SimpleResponse) {
 	if err := rri.schema.WaitForUpdate(ctx, schemaVersion); err != nil {
-		return nil, &SimpleResponse{Errors: []Error{{Err: fmt.Errorf("error waiting for schema version %d: %w", schemaVersion, err)}}}
+		return nil, &SimpleResponse{Errors: []replicaerrors.Error{{Err: fmt.Errorf("error waiting for schema version %d: %w", schemaVersion, err)}}}
 	}
 	index := rri.repo.GetIndexForIncomingReplica(schema.ClassName(indexName))
 	if index == nil {
-		return nil, &SimpleResponse{Errors: []Error{{Err: fmt.Errorf("local index %q not found", indexName)}}}
+		return nil, &SimpleResponse{Errors: []replicaerrors.Error{{Err: fmt.Errorf("local index %q not found", indexName)}}}
 	}
 	return index, nil
 }

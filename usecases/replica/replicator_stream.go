@@ -15,7 +15,10 @@ import (
 	"fmt"
 
 	"github.com/go-openapi/strfmt"
+
 	"github.com/weaviate/weaviate/usecases/objects"
+	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
+	"github.com/weaviate/weaviate/usecases/replica/replsync"
 )
 
 type (
@@ -28,7 +31,7 @@ type (
 // It returns as soon as the specified consistency level l has been reached
 func (r replicatorStream) readErrors(batchSize int,
 	level int,
-	ch <-chan _Result[SimpleResponse],
+	ch <-chan replsync.Result[SimpleResponse],
 ) []error {
 	urs := make([]SimpleResponse, 0, level)
 	var firstError error
@@ -46,7 +49,7 @@ func (r replicatorStream) readErrors(batchSize int,
 		}
 	}
 	if level > 0 && firstError == nil {
-		firstError = fmt.Errorf("commit: %w", ErrReplicas)
+		firstError = fmt.Errorf("commit: %w", replicaerrors.ErrReplicas)
 	}
 	return r.flattenErrors(batchSize, urs, firstError)
 }
@@ -55,7 +58,7 @@ func (r replicatorStream) readErrors(batchSize int,
 // It returns as soon as the specified consistency level l has been reached
 func (r replicatorStream) readDeletions(batchSize int,
 	level int,
-	ch <-chan _Result[DeleteBatchResponse],
+	ch <-chan replsync.Result[DeleteBatchResponse],
 ) []objects.BatchSimpleObject {
 	rs := make([]DeleteBatchResponse, 0, level)
 	urs := make([]DeleteBatchResponse, 0, level)
@@ -75,7 +78,7 @@ func (r replicatorStream) readDeletions(batchSize int,
 		}
 	}
 	if level > 0 && firstError == nil {
-		firstError = fmt.Errorf("commit: %w", ErrReplicas)
+		firstError = fmt.Errorf("commit: %w", replicaerrors.ErrReplicas)
 	}
 	urs = append(urs, rs...)
 	return r.flattenDeletions(batchSize, urs, firstError)
