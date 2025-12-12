@@ -831,6 +831,7 @@ type IndexConfig struct {
 	TrackVectorDimensionsInterval       time.Duration
 	UsageEnabled                        bool
 	ShardLoadLimiter                    ShardLoadLimiter
+	ObjectsTTLBatchSize                 int
 
 	HNSWMaxLogSize                               int64
 	HNSWDisableSnapshots                         bool
@@ -2321,7 +2322,7 @@ func (i *Index) incomingDeleteObjectsExpiredUuids(ctx context.Context, eg *enter
 		return nil
 	}
 
-	batchSize := 1000 // TODO aliszka:ttl move to config
+	batchSize := i.Config.ObjectsTTLBatchSize
 	for from := 0; from < len(uuids); from += batchSize {
 		if err := ctx.Err(); err != nil {
 			ec.Add(fmt.Errorf("ctx of %q/%q: %w", collection, inputKey, err))
