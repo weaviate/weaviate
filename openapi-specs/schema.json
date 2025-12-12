@@ -753,6 +753,11 @@
           "type": "boolean",
           "x-omitempty": false
         },
+        "asyncConfig": {
+          "description": "Configuration parameters for asynchronous replication.",
+          "$ref": "#/definitions/ReplicationAsyncConfig",
+          "x-omitempty": true
+        },
         "deletionStrategy": {
           "description": "Conflict resolution strategy for deleted objects.",
           "type": "string",
@@ -2145,6 +2150,100 @@
         "targetNode": {
           "description": "The target node of the replication, if set, otherwise empty.",
           "type": "string"
+        }
+      }
+    },
+    "ReplicationAsyncConfig": {
+      "description": "Configuration for asynchronous replication.",
+      "type": "object",
+      "properties": {
+        "hashtreeHeight": {
+          "type": "integer",
+          "format": "int64",
+          "description": "Height of the hashtree used for diffing.",
+          "default": 16,
+          "minimum": 0,
+          "maximum": 20
+        },
+        "frequency": {
+          "description": "Base frequency in milliseconds at which async replication runs diff calculations.",
+          "type": "integer",
+          "format": "int64",
+          "default": 30000
+        },
+        "frequencyWhilePropagating": {
+          "description": "Frequency in milliseconds at which async replication runs while propagation is active.",
+          "type": "integer",
+          "format": "int64",
+          "default": 3000
+        },
+        "aliveNodesCheckingFrequency": {
+          "description": "Interval in milliseconds at which liveness of target nodes is checked.",
+          "type": "integer",
+          "format": "int64",
+          "default": 5000
+        },
+        "loggingFrequency": {
+          "description": "Interval in seconds at which async replication logs its status.",
+          "type": "integer",
+          "format": "int64",
+          "default": 60
+        },
+        "diffBatchSize": {
+          "type": "integer",
+          "format": "int64",
+          "description": "Maximum number of object keys included in a single diff batch.",
+          "default": 1000,
+          "minimum": 1,
+          "maximum": 10000
+        },
+        "diffPerNodeTimeout": {
+          "description": "Timeout in seconds for computing a diff against a single node.",
+          "type": "integer",
+          "format": "int64",
+          "default": 10
+        },
+        "prePropagationTimeout": {
+          "description": "Overall timeout in seconds for the pre-propagation phase.",
+          "type": "integer",
+          "format": "int64",
+          "default": 300
+        },
+        "propagationTimeout": {
+          "description": "Timeout in seconds for propagating batch of changes to a node.",
+          "type": "integer",
+          "format": "int64",
+          "default": 60
+        },
+        "propagationLimit": {
+          "description": "Maximum number of objects to propagate in a single async replication run.",
+          "type": "integer",
+          "format": "int64",
+          "default": 10000,
+          "minimum": 1,
+          "maximum": 1000000
+        },
+        "propagationDelay": {
+          "description": "Delay in milliseconds before newly added or updated objects are propagated.",
+          "type": "integer",
+          "format": "int64",
+          "default": 30000
+        },
+        "propagationConcurrency": {
+          "description": "Maximum number of concurrent propagation workers.",
+          "type": "integer",
+          "format": "int64",
+          "default": 5,
+          "minimum": 1,
+          "maximum": 20
+        },
+        "propagationBatchSize": {
+          "description": "Number of objects to include in a single propagation batch.",
+          "type": "integer",
+          "format": "int64",
+          "default": 100,
+          "minimum": 1,
+          "maximum": 1000
         }
       }
     },

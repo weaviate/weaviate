@@ -8132,10 +8132,108 @@ func init() {
         }
       }
     },
+    "ReplicationAsyncConfig": {
+      "description": "Configuration for asynchronous replication.",
+      "type": "object",
+      "properties": {
+        "aliveNodesCheckingFrequency": {
+          "description": "Interval in milliseconds at which liveness of target nodes is checked.",
+          "type": "integer",
+          "format": "int64",
+          "default": 5000
+        },
+        "diffBatchSize": {
+          "description": "Maximum number of object keys included in a single diff batch.",
+          "type": "integer",
+          "format": "int64",
+          "default": 1000,
+          "maximum": 10000,
+          "minimum": 1
+        },
+        "diffPerNodeTimeout": {
+          "description": "Timeout in seconds for computing a diff against a single node.",
+          "type": "integer",
+          "format": "int64",
+          "default": 10
+        },
+        "frequency": {
+          "description": "Base frequency in milliseconds at which async replication runs diff calculations.",
+          "type": "integer",
+          "format": "int64",
+          "default": 30000
+        },
+        "frequencyWhilePropagating": {
+          "description": "Frequency in milliseconds at which async replication runs while propagation is active.",
+          "type": "integer",
+          "format": "int64",
+          "default": 3000
+        },
+        "hashtreeHeight": {
+          "description": "Height of the hashtree used for diffing.",
+          "type": "integer",
+          "format": "int64",
+          "default": 16,
+          "maximum": 20
+        },
+        "loggingFrequency": {
+          "description": "Interval in seconds at which async replication logs its status.",
+          "type": "integer",
+          "format": "int64",
+          "default": 60
+        },
+        "prePropagationTimeout": {
+          "description": "Overall timeout in seconds for the pre-propagation phase.",
+          "type": "integer",
+          "format": "int64",
+          "default": 300
+        },
+        "propagationBatchSize": {
+          "description": "Number of objects to include in a single propagation batch.",
+          "type": "integer",
+          "format": "int64",
+          "default": 100,
+          "maximum": 1000,
+          "minimum": 1
+        },
+        "propagationConcurrency": {
+          "description": "Maximum number of concurrent propagation workers.",
+          "type": "integer",
+          "format": "int64",
+          "default": 5,
+          "maximum": 20,
+          "minimum": 1
+        },
+        "propagationDelay": {
+          "description": "Delay in milliseconds before newly added or updated objects are propagated.",
+          "type": "integer",
+          "format": "int64",
+          "default": 30000
+        },
+        "propagationLimit": {
+          "description": "Maximum number of objects to propagate in a single async replication run.",
+          "type": "integer",
+          "format": "int64",
+          "default": 10000,
+          "maximum": 1000000,
+          "minimum": 1
+        },
+        "propagationTimeout": {
+          "description": "Timeout in seconds for propagating batch of changes to a node.",
+          "type": "integer",
+          "format": "int64",
+          "default": 60
+        }
+      }
+    },
     "ReplicationConfig": {
       "description": "Configure how replication is executed in a cluster",
       "type": "object",
       "properties": {
+        "asyncConfig": {
+          "description": "Configuration parameters for asynchronous replication.",
+          "x-omitempty": true,
+          "$ref": "#/definitions/ReplicationAsyncConfig"
+        },
         "asyncEnabled": {
           "description": "Enable asynchronous replication (default: ` + "`" + `false` + "`" + `).",
           "type": "boolean",
@@ -17826,10 +17924,109 @@ func init() {
         }
       }
     },
+    "ReplicationAsyncConfig": {
+      "description": "Configuration for asynchronous replication.",
+      "type": "object",
+      "properties": {
+        "aliveNodesCheckingFrequency": {
+          "description": "Interval in milliseconds at which liveness of target nodes is checked.",
+          "type": "integer",
+          "format": "int64",
+          "default": 5000
+        },
+        "diffBatchSize": {
+          "description": "Maximum number of object keys included in a single diff batch.",
+          "type": "integer",
+          "format": "int64",
+          "default": 1000,
+          "maximum": 10000,
+          "minimum": 1
+        },
+        "diffPerNodeTimeout": {
+          "description": "Timeout in seconds for computing a diff against a single node.",
+          "type": "integer",
+          "format": "int64",
+          "default": 10
+        },
+        "frequency": {
+          "description": "Base frequency in milliseconds at which async replication runs diff calculations.",
+          "type": "integer",
+          "format": "int64",
+          "default": 30000
+        },
+        "frequencyWhilePropagating": {
+          "description": "Frequency in milliseconds at which async replication runs while propagation is active.",
+          "type": "integer",
+          "format": "int64",
+          "default": 3000
+        },
+        "hashtreeHeight": {
+          "description": "Height of the hashtree used for diffing.",
+          "type": "integer",
+          "format": "int64",
+          "default": 16,
+          "maximum": 20,
+          "minimum": 0
+        },
+        "loggingFrequency": {
+          "description": "Interval in seconds at which async replication logs its status.",
+          "type": "integer",
+          "format": "int64",
+          "default": 60
+        },
+        "prePropagationTimeout": {
+          "description": "Overall timeout in seconds for the pre-propagation phase.",
+          "type": "integer",
+          "format": "int64",
+          "default": 300
+        },
+        "propagationBatchSize": {
+          "description": "Number of objects to include in a single propagation batch.",
+          "type": "integer",
+          "format": "int64",
+          "default": 100,
+          "maximum": 1000,
+          "minimum": 1
+        },
+        "propagationConcurrency": {
+          "description": "Maximum number of concurrent propagation workers.",
+          "type": "integer",
+          "format": "int64",
+          "default": 5,
+          "maximum": 20,
+          "minimum": 1
+        },
+        "propagationDelay": {
+          "description": "Delay in milliseconds before newly added or updated objects are propagated.",
+          "type": "integer",
+          "format": "int64",
+          "default": 30000
+        },
+        "propagationLimit": {
+          "description": "Maximum number of objects to propagate in a single async replication run.",
+          "type": "integer",
+          "format": "int64",
+          "default": 10000,
+          "maximum": 1000000,
+          "minimum": 1
+        },
+        "propagationTimeout": {
+          "description": "Timeout in seconds for propagating batch of changes to a node.",
+          "type": "integer",
+          "format": "int64",
+          "default": 60
+        }
+      }
+    },
     "ReplicationConfig": {
       "description": "Configure how replication is executed in a cluster",
       "type": "object",
       "properties": {
+        "asyncConfig": {
+          "description": "Configuration parameters for asynchronous replication.",
+          "x-omitempty": true,
+          "$ref": "#/definitions/ReplicationAsyncConfig"
+        },
         "asyncEnabled": {
           "description": "Enable asynchronous replication (default: ` + "`" + `false` + "`" + `).",
           "type": "boolean",
