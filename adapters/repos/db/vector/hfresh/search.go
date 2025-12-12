@@ -13,7 +13,6 @@ package hfresh
 
 import (
 	"context"
-	"encoding/binary"
 	"iter"
 
 	"github.com/pkg/errors"
@@ -30,7 +29,7 @@ const (
 func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
 	rescoreLimit := int(h.rescoreLimit)
 	vector = h.normalizeVec(vector)
-	compressedQuery := h.quantizer.Encode(vector)
+	queryVector := NewAnonymousVector(h.quantizer.CompressedBytes(h.quantizer.Encode(vector)))
 
 	var selected []uint64
 	var postings []*Posting
@@ -76,7 +75,6 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 	defer h.visitedPool.Return(visited)
 
 	totalVectors := 0
-	tempVector := make([]uint64, len(compressedQuery))
 	for i, p := range postings {
 		if p == nil { // posting nil if not found
 			continue
@@ -108,11 +106,7 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 				continue
 			}
 
-			data := v.Data()
-			for i := range tempVector {
-				tempVector[i] = binary.LittleEndian.Uint64(data[i*8:])
-			}
-			dist, err := h.quantizer.DistanceBetweenCompressedVectors(tempVector, compressedQuery)
+			dist, err := v.Distance(h.distancer, queryVector)
 			if err != nil {
 				return nil, nil, errors.Wrapf(err, "failed to compute distance for vector %d", id)
 			}
