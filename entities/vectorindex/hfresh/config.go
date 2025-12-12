@@ -24,6 +24,7 @@ const (
 	DefaultReplicas       = 8
 	DefaultRNGFactor      = 10.0
 	DefaultSearchProbe    = 64
+	DefaultRescoreLimit   = 350
 )
 
 // UserConfig defines the configuration options for the HFresh index.
@@ -60,7 +61,7 @@ func (u *UserConfig) SetDefaults() {
 	u.RNGFactor = DefaultRNGFactor
 	u.SearchProbe = DefaultSearchProbe
 	u.Distance = vectorIndexCommon.DefaultDistanceMetric
-
+	u.RescoreLimit = DefaultRescoreLimit
 	// TODO: add quantization config
 }
 
