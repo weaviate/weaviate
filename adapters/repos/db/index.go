@@ -2201,11 +2201,15 @@ func (i *Index) IncomingDeleteObjectsExpired(eg *enterrors.ErrorGroupWrapper, ec
 	i.incomingDeleteObjectsExpired(i.closingCtx, eg, ec, deleteOnPropName, ttlThreshold, deletionTime, schemaVersion)
 }
 
-// TODO aliszka:ttl handle ctx
 func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.ErrorGroupWrapper, ec *errorcompounder.SafeErrorCompounder,
 	deleteOnPropName string, ttlThreshold, deletionTime time.Time, schemaVersion uint64,
 ) {
 	class := i.getClass()
+	if err := ctx.Err(); err != nil {
+		ec.Add(fmt.Errorf("ctx of %q: %w", class.Class, err))
+		return
+	}
+
 	filter := &filters.LocalFilter{Root: &filters.Clause{
 		Operator: filters.OperatorLessThanEqual,
 		Value: &filters.Value{
@@ -2224,7 +2228,6 @@ func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.
 	// deletion process happens to run on that node again, the object will be deleted then.
 	replProps := defaultConsistency()
 
-	// TODO aliszka:ttl improve error / logging
 	if multitenancy.IsMultiTenant(class.MultiTenancyConfig) {
 		tenants, err := i.schemaReader.Shards(class.Class)
 		if err != nil {
@@ -2234,29 +2237,45 @@ func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.
 
 		for _, tenant := range tenants {
 			eg.Go(func() error {
+				if err := ctx.Err(); err != nil {
+					ec.Add(fmt.Errorf("ctx of %q/%q: %w", class.Class, tenant, err))
+					return nil
+				}
+
 				tenants2uuids, err := i.findUUIDs(ctx, filter, tenant, replProps)
 				// skip inactive tenants
 				if err != nil && !errors.Is(err, enterrors.ErrTenantNotActive) {
-					ec.Add(fmt.Errorf("find uuids for tenant %q of collection %q: %w", tenant, class.Class, err))
+					ec.Add(fmt.Errorf("find uuids of %q/%q: %w", class.Class, tenant, err))
 					return nil
 				}
 
 				i.incomingDeleteObjectsExpiredUuids(ctx, eg, ec, deletionTime, "", tenant, tenants2uuids[tenant], replProps, schemaVersion)
 				return nil
 			})
+			if ctx.Err() != nil {
+				break
+			}
 		}
 		return
 	}
 
 	eg.Go(func() error {
+		if err := ctx.Err(); err != nil {
+			ec.Add(fmt.Errorf("ctx of %q: %w", class.Class, err))
+			return nil
+		}
+
 		shards2uuids, err := i.findUUIDs(ctx, filter, "", replProps)
 		if err != nil {
-			ec.Add(fmt.Errorf("finding uuids of collection %q: %w", class.Class, err))
+			ec.Add(fmt.Errorf("find uuids of %q: %w", class.Class, err))
 			return nil
 		}
 
 		for shard, uuids := range shards2uuids {
 			i.incomingDeleteObjectsExpiredUuids(ctx, eg, ec, deletionTime, shard, "", uuids, replProps, schemaVersion)
+			if ctx.Err() != nil {
+				break
+			}
 		}
 		return nil
 	})
@@ -2276,24 +2295,39 @@ func (i *Index) incomingDeleteObjectsExpiredUuids(ctx context.Context, eg *enter
 	}
 	collection := i.Config.ClassName.String()
 
-	// TODO aliszka:ttl improve error / logging
 	f := func(uuids []strfmt.UUID) error {
 		input := map[string][]strfmt.UUID{inputKey: uuids}
 
 		resp, err := i.batchDeleteObjects(ctx, input, deletionTime, false, replProps, schemaVersion, tenant)
 		if err != nil {
-			return fmt.Errorf("batch delete of collection %q: %w", collection, err)
+			return fmt.Errorf("batch delete of %q/%q: %w", collection, inputKey, err)
 		}
 
-		i.logger.
-			WithFields(logrus.Fields{"action": "ttl_cleanup", "collection": collection}).
-			Infof("batch delete response: %+v", resp)
+		// TODO aliszka:ttl propagate deleted
+		deleted := 0
+		ec2 := errorcompounder.New()
+		for i := range resp {
+			if err := resp[i].Err; err != nil {
+				ec2.Add(fmt.Errorf("%s: %w", resp[i].UUID, err))
+			} else {
+				deleted++
+			}
+		}
+
+		if err := ec2.ToError(); err != nil {
+			return fmt.Errorf("batch delete of %q/%q: %w", collection, inputKey, err)
+		}
 
 		return nil
 	}
 
 	batchSize := 1000 // TODO aliszka:ttl move to config
 	for from := 0; from < len(uuids); from += batchSize {
+		if err := ctx.Err(); err != nil {
+			ec.Add(fmt.Errorf("ctx of %q/%q: %w", collection, inputKey, err))
+			break
+		}
+
 		to := min(len(uuids), from+batchSize)
 		uuids := uuids[from:to]
 
