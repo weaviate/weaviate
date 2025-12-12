@@ -904,6 +904,14 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			}, appState.Logger)
 	}
 	api.ServerShutdown = func() {
+		// leave memberlist first to announce node graceful departure
+		if err := appState.Cluster.Leave(); err != nil {
+			appState.Logger.WithError(err).Error("leave node from cluster")
+		}
+
+		// drain any ongoing operations
+		time.Sleep(appState.ServerConfig.Config.Raft.DrainSleep.Get())
+
 		if telemetryEnabled(appState) {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
@@ -1680,6 +1688,7 @@ func reasonableHttpClient(authConfig cluster.AuthConfig) *http.Client {
 		IdleConnTimeout:       90 * time.Second,
 		TLSHandshakeTimeout:   10 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
+		ResponseHeaderTimeout: 10 * time.Second,
 	}
 
 	if authConfig.BasicAuth.Enabled() {
@@ -1826,6 +1835,7 @@ func initRuntimeOverrides(appState *state.State) {
 			registered.OIDCGroupsClaim = appState.OIDC.Config.GroupsClaim
 			registered.OIDCScopes = appState.OIDC.Config.Scopes
 			registered.OIDCCertificate = appState.OIDC.Config.Certificate
+			registered.OIDCJWKSUrl = appState.OIDC.Config.JWKSUrl
 
 			hooks["OIDC"] = appState.OIDC.Init
 			appState.Logger.Log(logrus.InfoLevel, "registereing OIDC runtime overrides hooks")

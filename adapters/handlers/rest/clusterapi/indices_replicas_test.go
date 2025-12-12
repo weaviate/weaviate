@@ -24,6 +24,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
@@ -34,7 +35,7 @@ func TestMaintenanceModeReplicatedIndices(t *testing.T) {
 	noopAuth := clusterapi.NewNoopAuthHandler()
 	fakeReplicator := newFakeReplicator(false)
 	logger, _ := test.NewNullLogger()
-	indices := clusterapi.NewReplicatedIndices(fakeReplicator, nil, noopAuth, func() bool { return true }, cluster.RequestQueueConfig{}, logger)
+	indices := clusterapi.NewReplicatedIndices(fakeReplicator, nil, noopAuth, func() bool { return true }, cluster.RequestQueueConfig{}, logger, func() bool { return true })
 	mux := http.NewServeMux()
 	mux.Handle("/replicas/indices/", indices.Indices())
 	server := httptest.NewServer(mux)
@@ -186,7 +187,7 @@ func TestReplicatedIndicesWorkQueue(t *testing.T) {
 			noopAuth := clusterapi.NewNoopAuthHandler()
 			fakeReplicator := newFakeReplicator(true)
 			logger, _ := test.NewNullLogger()
-			indices := clusterapi.NewReplicatedIndices(fakeReplicator, nil, noopAuth, func() bool { return false }, tc.requestQueueConfig, logger)
+			indices := clusterapi.NewReplicatedIndices(fakeReplicator, nil, noopAuth, func() bool { return false }, tc.requestQueueConfig, logger, func() bool { return true })
 			mux := http.NewServeMux()
 			mux.Handle("/replicas/indices/", indices.Indices())
 			server := httptest.NewServer(mux)
@@ -293,6 +294,7 @@ func TestReplicatedIndicesShutdown(t *testing.T) {
 				func() bool { return false },
 				tc.requestQueueConfig,
 				logger,
+				func() bool { return true },
 			)
 
 			mux := http.NewServeMux()
@@ -371,6 +373,7 @@ func TestReplicatedIndicesRejectsRequestsDuringShutdown(t *testing.T) {
 		func() bool { return false },
 		cfg,
 		logger,
+		func() bool { return true },
 	)
 
 	mux := http.NewServeMux()
@@ -462,6 +465,7 @@ func TestReplicatedIndicesShutdownMultipleCalls(t *testing.T) {
 			QueueSize:  5,
 		},
 		logger,
+		func() bool { return true },
 	)
 
 	// First shutdown should succeed
@@ -498,6 +502,7 @@ func TestReplicatedIndicesShutdownWithStuckRequests(t *testing.T) {
 			QueueShutdownTimeoutSeconds: 1,
 		},
 		logger,
+		func() bool { return true },
 	)
 
 	mux := http.NewServeMux()

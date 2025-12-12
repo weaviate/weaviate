@@ -95,6 +95,8 @@ type replicatedIndices struct {
 	// workerWg waits for all workers to finish
 	workerWg sync.WaitGroup
 	logger   logrus.FieldLogger
+	// nodeReady reports whether the node is ready to accept requests
+	nodeReady func() bool
 }
 
 var (
@@ -135,6 +137,7 @@ func NewReplicatedIndices(
 	maintenanceModeEnabled func() bool,
 	requestQueueConfig cluster.RequestQueueConfig,
 	logger logrus.FieldLogger,
+	nodeReady func() bool,
 ) *replicatedIndices {
 	// validate the requestQueueConfig
 	if requestQueueConfig.QueueFullHttpStatus == 0 {
@@ -153,6 +156,7 @@ func NewReplicatedIndices(
 		requestQueue:           make(chan queuedRequest, requestQueueConfig.QueueSize),
 		requestQueueConfig:     requestQueueConfig,
 		logger:                 logger,
+		nodeReady:              nodeReady,
 	}
 	if requestQueueConfig.IsEnabled != nil && requestQueueConfig.IsEnabled.Get() {
 		i.startWorkersOnce.Do(i.startWorkers)
@@ -226,6 +230,11 @@ func (i *replicatedIndices) indicesHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if i.maintenanceModeEnabled() {
 			http.Error(w, "418 Maintenance mode", http.StatusTeapot)
+			return
+		}
+
+		if i.nodeReady != nil && !i.nodeReady() {
+			http.Error(w, "503 Node not ready", http.StatusServiceUnavailable)
 			return
 		}
 
