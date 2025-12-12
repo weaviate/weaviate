@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.35.0-dev"
+    "version": "1.35.0-rc.0"
   },
   "basePath": "/v1",
   "paths": {
@@ -7542,7 +7542,7 @@ func init() {
           "type": "boolean",
           "x-omitempty": false
         },
-        "postSearchFilter": {
+        "filterExpiredObjects": {
           "description": "Whether remove from resultset expired, but not yet deleted by background process objects (default: ` + "`" + `false` + "`" + `).",
           "type": "boolean",
           "x-omitempty": false
@@ -9308,7 +9308,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.35.0-dev"
+    "version": "1.35.0-rc.0"
   },
   "basePath": "/v1",
   "paths": {
@@ -17091,7 +17091,7 @@ func init() {
           "type": "boolean",
           "x-omitempty": false
         },
-        "postSearchFilter": {
+        "filterExpiredObjects": {
           "description": "Whether remove from resultset expired, but not yet deleted by background process objects (default: ` + "`" + `false` + "`" + `).",
           "type": "boolean",
           "x-omitempty": false

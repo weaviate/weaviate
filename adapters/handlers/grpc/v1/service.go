@@ -65,7 +65,7 @@ func NewService(traverser *traverser.Traverser, authComposer composer.TokenFunc,
 ) (*Service, batch.Drain) {
 	authenticator := auth.NewHandler(allowAnonymousAccess, authComposer)
 	batchHandler := batch.NewHandler(authorization, batchManager, logger, authenticator, schemaManager)
-	batchStreamHandler, batchDrain := batch.Start(authenticator, authorization, batchHandler, prometheus.DefaultRegisterer, NUMCPU, logger)
+	batchStreamHandler, batchDrain := batch.Start(authenticator, authorization, batchHandler, prometheus.DefaultRegisterer, 2*NUMCPU, logger)
 	return &Service{
 		traverser:            traverser,
 		authComposer:         authComposer,

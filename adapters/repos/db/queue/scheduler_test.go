@@ -14,8 +14,10 @@ package queue
 import (
 	"context"
 	"encoding/binary"
+	"fmt"
 	"os"
 	"slices"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -352,6 +354,55 @@ func TestScheduler(t *testing.T) {
 		err := q.Close()
 		require.NoError(t, err)
 	})
+
+	t.Run("should use any available worker", func(t *testing.T) {
+		s := makeScheduler(t, 3 /* workers */)
+		s.Start()
+
+		ch1, e1 := streamExecutor()
+		q1 := makeQueue(t, s, e1)
+		q1.w.maxSize = 1000 // about 75 records per chunk
+		ch2, e2 := streamExecutor()
+		q2 := makeQueue(t, s, e2)
+		q2.w.maxSize = 1000
+
+		// q1 uses only one worker
+		for range 100 {
+			pushMany(t, q1, 1, 1, 1, 1) // 1 partition
+		}
+		// q2 uses all
+		for range 100 {
+			pushMany(t, q2, 1, 3, 4, 5) // 3 partitions
+		}
+
+		// do not read from ch1 yet to simulate a busy worker.
+
+		// instead read from ch2 first.
+		res := make([]uint64, 300)
+		for i := range 300 {
+			res[i] = <-ch2
+		}
+		slices.Sort(res)
+		for i, v := range res {
+			if i < 100 {
+				require.EqualValues(t, 3, v)
+			} else if i < 200 {
+				require.EqualValues(t, 4, v)
+			} else {
+				require.EqualValues(t, 5, v)
+			}
+		}
+
+		// now read from ch1
+		for range 300 {
+			require.EqualValues(t, 1, <-ch1)
+		}
+
+		err := q1.Close()
+		require.NoError(t, err)
+		err = q2.Close()
+		require.NoError(t, err)
+	})
 }
 
 func makeScheduler(t testing.TB, workers ...int) *Scheduler {
@@ -373,6 +424,8 @@ func makeScheduler(t testing.TB, workers ...int) *Scheduler {
 	})
 }
 
+var queueIDCounter atomic.Int32
+
 func makeQueueWith(t *testing.T, s *Scheduler, decoder TaskDecoder, chunkSize uint64, dir string) *DiskQueue {
 	t.Helper()
 
@@ -380,7 +433,7 @@ func makeQueueWith(t *testing.T, s *Scheduler, decoder TaskDecoder, chunkSize ui
 	logger.SetLevel(logrus.DebugLevel)
 
 	q, err := NewDiskQueue(DiskQueueOptions{
-		ID:           "test_queue",
+		ID:           fmt.Sprintf("test_queue_%d", queueIDCounter.Add(1)),
 		Scheduler:    s,
 		Logger:       newTestLogger(),
 		Dir:          dir,
