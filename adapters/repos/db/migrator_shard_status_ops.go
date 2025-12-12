@@ -26,7 +26,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-func (m *Migrator) frozen(ctx context.Context, idx *Index, frozen []string, ec *errorcompounder.SafeErrorCompounder) {
+func (m *Migrator) frozen(ctx context.Context, idx *Index, frozen []string, ec errorcompounder.ErrorCompounder) {
 	if m.cluster == nil {
 		ec.Add(fmt.Errorf("no cluster exists in the migrator"))
 		return
@@ -64,7 +64,7 @@ func (m *Migrator) frozen(ctx context.Context, idx *Index, frozen []string, ec *
 	eg.Wait()
 }
 
-func (m *Migrator) freeze(ctx context.Context, idx *Index, class string, freeze []string, ec *errorcompounder.SafeErrorCompounder) {
+func (m *Migrator) freeze(ctx context.Context, idx *Index, class string, freeze []string, ec errorcompounder.ErrorCompounder) {
 	if m.cloud == nil {
 		ec.Add(fmt.Errorf("offload to cloud module is not enabled"))
 		return
@@ -192,7 +192,7 @@ func (m *Migrator) freeze(ctx context.Context, idx *Index, class string, freeze 
 	}, idx.logger)
 }
 
-func (m *Migrator) unfreeze(ctx context.Context, idx *Index, class string, unfreeze []string, ec *errorcompounder.SafeErrorCompounder) {
+func (m *Migrator) unfreeze(ctx context.Context, idx *Index, class string, unfreeze []string, ec errorcompounder.ErrorCompounder) {
 	if m.cloud == nil {
 		ec.Add(fmt.Errorf("offload to cloud module is not enabled"))
 		return

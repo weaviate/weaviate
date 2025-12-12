@@ -410,12 +410,12 @@ func (b *Bucket) ApplyToObjectDigests(ctx context.Context,
 		ec := errorcompounder.New()
 
 		if err != nil {
-			ec.AddWrap(err, "during ApplyToObjectDigests")
+			ec.AddWrapf(err, "during ApplyToObjectDigests")
 		}
 
 		err = b.resumeCompaction(ctx)
 		if err != nil {
-			ec.AddWrap(err, "resuming compaction after ApplyToObjectDigests")
+			ec.AddWrapf(err, "resuming compaction after ApplyToObjectDigests")
 		}
 
 		err = ec.ToError()
