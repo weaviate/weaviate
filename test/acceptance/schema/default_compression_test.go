@@ -35,12 +35,11 @@ func TestAssignDynamic(t *testing.T) {
 	require.Equal(t, "rq", d.Get())
 }
 
-func TestDefaultCompressionRQ8(t *testing.T) {
+func TestDefaultCompression(t *testing.T) {
 	mainCtx := context.Background()
 
 	compose, err := docker.New().
 		WithWeaviateCluster(3).
-		WithWeaviateEnv("DEFAULT_QUANTIZATION", "rq-8").
 		Start(mainCtx)
 	require.Nil(t, err)
 	defer func() {
