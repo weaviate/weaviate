@@ -123,7 +123,7 @@ func (c *Coordinator) Start(ctx context.Context, targetOwnNode bool, ttlTime, de
 func (c *Coordinator) triggerDeletionObjectsExpiredLocalNode(ctx context.Context, classesWithTTL map[string]objectTTLAndVersion,
 	ttlTime, deletionTime time.Time,
 ) error {
-	ec := errorcompounder.New()
+	ec := errorcompounder.NewSafe()
 	eg := enterrors.NewErrorGroupWrapper(c.logger)
 
 	for name, collection := range classesWithTTL {
@@ -131,10 +131,7 @@ func (c *Coordinator) triggerDeletionObjectsExpiredLocalNode(ctx context.Context
 			return err
 		}
 		deleteOnPropName, ttlThreshold := c.extractTtlDataFromCollection(collection.ttlConfig, ttlTime)
-		err := c.db.DeleteExpiredObjects(ctx, eg, name, deleteOnPropName, ttlThreshold, deletionTime, collection.version)
-		if err != nil {
-			ec.Add(fmt.Errorf("deleting expired objects for collection %q: %w", name, err))
-		}
+		c.db.DeleteExpiredObjects(ctx, eg, ec, name, deleteOnPropName, ttlThreshold, deletionTime, collection.version)
 	}
 
 	// ignore errors from eg as they are already collected in ec
