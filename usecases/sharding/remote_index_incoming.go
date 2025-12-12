@@ -60,7 +60,7 @@ type RemoteIndexIncomingRepo interface {
 	IncomingDeleteObject(ctx context.Context, shardName string,
 		id strfmt.UUID, deletionTime time.Time, schemaVersion uint64) error
 	IncomingDeleteObjectsExpired(eg *enterrors.ErrorGroupWrapper, ec errorcompounder.ErrorCompounder,
-		deleteOnProperty string, ttlThreshold, deletionTime time.Time, schemaVersion uint64)
+		deleteOnProperty string, ttlThreshold, deletionTime time.Time, countDeleted func(int32), schemaVersion uint64)
 	IncomingMergeObject(ctx context.Context, shardName string,
 		mergeDoc objects.MergeDocument, schemaVersion uint64) error
 	IncomingMultiGetObjects(ctx context.Context, shardName string,
