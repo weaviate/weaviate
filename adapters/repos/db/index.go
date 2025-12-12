@@ -2211,7 +2211,7 @@ func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.
 ) {
 	class := i.getClass()
 	if err := ctx.Err(); err != nil {
-		ec.Add(fmt.Errorf("ctx of %q: %w", class.Class, err))
+		ec.AddGroups(err, class.Class)
 		return
 	}
 
@@ -2236,21 +2236,21 @@ func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.
 	if multitenancy.IsMultiTenant(class.MultiTenancyConfig) {
 		tenants, err := i.schemaReader.Shards(class.Class)
 		if err != nil {
-			ec.Add(fmt.Errorf("get tenants of %q: %w", class.Class, err))
+			ec.AddGroups(fmt.Errorf("get tenants: %w", err), class.Class)
 			return
 		}
 
 		for _, tenant := range tenants {
 			eg.Go(func() error {
 				if err := ctx.Err(); err != nil {
-					ec.Add(fmt.Errorf("ctx of %q/%q: %w", class.Class, tenant, err))
+					ec.AddGroups(err, class.Class, tenant)
 					return nil
 				}
 
 				tenants2uuids, err := i.findUUIDs(ctx, filter, tenant, replProps)
 				// skip inactive tenants
 				if err != nil && !errors.Is(err, enterrors.ErrTenantNotActive) {
-					ec.Add(fmt.Errorf("find uuids of %q/%q: %w", class.Class, tenant, err))
+					ec.AddGroups(fmt.Errorf("find uuids: %w", err), class.Class, tenant)
 					return nil
 				}
 
@@ -2266,13 +2266,13 @@ func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.
 
 	eg.Go(func() error {
 		if err := ctx.Err(); err != nil {
-			ec.Add(fmt.Errorf("ctx of %q: %w", class.Class, err))
+			ec.AddGroups(err, class.Class)
 			return nil
 		}
 
 		shards2uuids, err := i.findUUIDs(ctx, filter, "", replProps)
 		if err != nil {
-			ec.Add(fmt.Errorf("find uuids of %q: %w", class.Class, err))
+			ec.AddGroups(fmt.Errorf("find uuids: %w", err), class.Class)
 			return nil
 		}
 
@@ -2305,22 +2305,22 @@ func (i *Index) incomingDeleteObjectsExpiredUuids(ctx context.Context, eg *enter
 
 		resp, err := i.batchDeleteObjects(ctx, input, deletionTime, false, replProps, schemaVersion, tenant)
 		if err != nil {
-			return fmt.Errorf("batch delete of %q/%q: %w", collection, inputKey, err)
+			return fmt.Errorf("batch delete: %w", err)
 		}
 
 		// TODO aliszka:ttl propagate deleted
 		deleted := 0
-		ec2 := errorcompounder.New()
+		ecBatch := errorcompounder.New()
 		for i := range resp {
 			if err := resp[i].Err; err != nil {
-				ec2.Add(fmt.Errorf("%s: %w", resp[i].UUID, err))
+				ecBatch.Add(fmt.Errorf("%s: %w", resp[i].UUID, err))
 			} else {
 				deleted++
 			}
 		}
 
-		if err := ec2.ToError(); err != nil {
-			return fmt.Errorf("batch delete of %q/%q: %w", collection, inputKey, err)
+		if err := ecBatch.ToError(); err != nil {
+			return fmt.Errorf("batch delete: %w", err)
 		}
 
 		return nil
@@ -2329,7 +2329,7 @@ func (i *Index) incomingDeleteObjectsExpiredUuids(ctx context.Context, eg *enter
 	batchSize := i.Config.ObjectsTTLBatchSize
 	for from := 0; from < len(uuids); from += batchSize {
 		if err := ctx.Err(); err != nil {
-			ec.Add(fmt.Errorf("ctx of %q/%q: %w", collection, inputKey, err))
+			ec.AddGroups(err, collection, inputKey)
 			break
 		}
 
@@ -2338,10 +2338,10 @@ func (i *Index) incomingDeleteObjectsExpiredUuids(ctx context.Context, eg *enter
 
 		// try running in other goroutine (if available), otherwise run in current one
 		if !eg.TryGo(func() error {
-			ec.Add(f(uuids))
+			ec.AddGroups(f(uuids), collection, inputKey)
 			return nil
 		}) {
-			ec.Add(f(uuids))
+			ec.AddGroups(f(uuids), collection, inputKey)
 		}
 	}
 }
