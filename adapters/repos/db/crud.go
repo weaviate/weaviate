@@ -92,6 +92,7 @@ func (db *DB) DeleteExpiredObjects(ctx context.Context, eg *enterrors.ErrorGroup
 		index.dropIndex.RUnlock()
 	}()
 
+	// TODO aliszka:ttl handle graceful index close / drop
 	index.IncomingDeleteObjectsExpired(eg, ec, deleteOnPropName, ttlThreshold, deletionTime, schemaVersion)
 }
 

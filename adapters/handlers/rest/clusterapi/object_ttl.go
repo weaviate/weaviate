@@ -20,8 +20,10 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/usecases/config"
 	objectttl "github.com/weaviate/weaviate/usecases/object_ttl"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
@@ -31,10 +33,17 @@ type ObjectTTL struct {
 	auth           auth
 	requestRunning atomic.Bool
 	logger         logrus.FieldLogger
+	config         config.Config
 }
 
-func NewObjectTTL(remoteIndex *sharding.RemoteIndexIncoming, auth auth, logger logrus.FieldLogger) *ObjectTTL {
-	return &ObjectTTL{remoteIndex: remoteIndex, auth: auth, requestRunning: atomic.Bool{}, logger: logger}
+func NewObjectTTL(remoteIndex *sharding.RemoteIndexIncoming, auth auth, logger logrus.FieldLogger, config config.Config) *ObjectTTL {
+	return &ObjectTTL{
+		remoteIndex:    remoteIndex,
+		auth:           auth,
+		requestRunning: atomic.Bool{},
+		logger:         logger,
+		config:         config,
+	}
 }
 
 func (d *ObjectTTL) Expired() http.Handler {
@@ -109,11 +118,13 @@ func (d *ObjectTTL) incomingDelete() http.Handler {
 			// make sure to unlock the requestRunning flag when all deletions are done
 			defer d.requestRunning.Store(false)
 			eg := enterrors.NewErrorGroupWrapper(d.logger)
+			eg.SetLimit(concurrency.TimesFloatGOMAXPROCS(d.config.ObjectsTTLConcurrencyFactor))
 
 			ec := errorcompounder.NewSafe()
 			for _, classPayload := range body {
 				className := classPayload.Class
 
+				// TODO aliszka:ttl handle graceful index close / drop
 				idx, err := d.remoteIndex.IndexForIncomingWrite(context.Background(), className, classPayload.ClassVersion)
 				if err != nil {
 					ec.Add(fmt.Errorf("get index for class %q: %w", className, err))

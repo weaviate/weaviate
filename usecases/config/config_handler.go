@@ -72,7 +72,8 @@ const (
 )
 
 const (
-	DefaultObjectsTTLBatchSize = 1000
+	DefaultObjectsTTLBatchSize         = 1000
+	DefaultObjectsTTLConcurrencyFactor = 1
 )
 
 // Flags are input options
@@ -236,9 +237,10 @@ type Config struct {
 
 	// Time expired objects should be deleted at by background routine
 	// accepts format: https://github.com/netresearch/go-cron?tab=readme-ov-file#cron-expression-format
-	ObjectsTTLDeleteSchedule string `json:"objects_ttl_delete_schedule" yaml:"objects_ttl_delete_schedule"`
-	ObjectsTTLAllowSeconds   bool   `json:"objects_ttl_allow_seconds" yaml:"objects_ttl_allow_seconds"`
-	ObjectsTTLBatchSize      int    `json:"objects_ttl_batch_size" yaml:"objects_ttl_batch_size"`
+	ObjectsTTLDeleteSchedule    string  `json:"objects_ttl_delete_schedule" yaml:"objects_ttl_delete_schedule"`
+	ObjectsTTLAllowSeconds      bool    `json:"objects_ttl_allow_seconds" yaml:"objects_ttl_allow_seconds"`
+	ObjectsTTLBatchSize         int     `json:"objects_ttl_batch_size" yaml:"objects_ttl_batch_size"`
+	ObjectsTTLConcurrencyFactor float64 `json:"objects_ttl_concurrency_factor" yaml:"objects_ttl_concurrency_factor"`
 
 	// The specific mode of operation for the instance itself. Is an enum of Full, WriteOnly, ReadOnly, ScaleOut
 	OperationalMode *runtime.DynamicValue[string] `json:"operational_mode" yaml:"operational_mode"`

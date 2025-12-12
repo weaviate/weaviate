@@ -151,6 +151,13 @@ func FromEnv(config *Config) error {
 		config.IndexMissingTextFilterableAtStartup = true
 	}
 
+	objectsTtlConcurrencyFactorEnv := "OBJECTS_TTL_CONCURRENCY_FACTOR"
+	if err := parsePositiveFloat(objectsTtlConcurrencyFactorEnv,
+		func(val float64) { config.ObjectsTTLConcurrencyFactor = val },
+		DefaultObjectsTTLConcurrencyFactor); err != nil {
+		return fmt.Errorf("%s: %w", objectsTtlConcurrencyFactorEnv, err)
+	}
+
 	objectsTtlBatchSizeEnv := "OBJECTS_TTL_BATCH_SIZE"
 	if err := parsePositiveInt(objectsTtlBatchSizeEnv,
 		func(val int) { config.ObjectsTTLBatchSize = val },
