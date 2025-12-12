@@ -83,18 +83,27 @@ func (h *HFresh) doSplit(ctx context.Context, postingID uint64, reassign bool) e
 	}
 
 	// split the vectors into two clusters
-	result, err := h.splitPosting(filtered)
+	resultWithEmpty, err := h.splitPosting(filtered)
 	if err != nil {
 		return errors.Wrapf(err, "failed to split vectors for posting %d", postingID)
 	}
 	// if one of the postings is empty, ignore the split
 	emptyPostings := make(map[int]bool)
-	for idx, r := range result {
+	for idx, r := range resultWithEmpty {
 		if len(r.Posting) == 0 {
 			h.logger.WithField("postingID", postingID).
 				Debug("split resulted in empty posting, skipping split operation")
 			emptyPostings[idx] = true
 		}
+	}
+	result := make([]SplitResult, len(resultWithEmpty)-len(emptyPostings))
+	i := 0
+	for idx, r := range resultWithEmpty {
+		if emptyPostings[idx] {
+			continue
+		}
+		result[i] = r
+		i++
 	}
 
 	newPostingIDs := make([]uint64, len(result))
