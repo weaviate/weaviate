@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package coordinator
+package replsync
 
 import (
 	"context"

@@ -30,10 +30,10 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
-	coordinator "github.com/weaviate/weaviate/usecases/replica/coordniator"
 	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 	"github.com/weaviate/weaviate/usecases/replica/metrics"
+	"github.com/weaviate/weaviate/usecases/replica/replsync"
 )
 
 type (
@@ -99,7 +99,7 @@ func (f *Finder) GetOne(ctx context.Context,
 	props search.SelectProperties,
 	adds additional.Properties,
 ) (*storobj.Object, error) {
-	c := coordinator.NewRead[findOneReply](f.router, f.metrics, f.class, shard,
+	c := replsync.NewRead[findOneReply](f.router, f.metrics, f.class, shard,
 		f.coordinatorPullBackoffInitialInterval, f.coordinatorPullBackoffMaxElapsedTime, f.getDeletionStrategy())
 	op := func(ctx context.Context, host string, fullRead bool) (findOneReply, error) {
 		if fullRead {
@@ -142,7 +142,7 @@ func (f *Finder) GetOne(ctx context.Context,
 func (f *Finder) FindUUIDs(ctx context.Context,
 	className, shard string, filters *filters.LocalFilter, l types.ConsistencyLevel,
 ) (uuids []strfmt.UUID, err error) {
-	c := coordinator.NewRead[[]strfmt.UUID](f.router, f.metrics, f.class, shard,
+	c := replsync.NewRead[[]strfmt.UUID](f.router, f.metrics, f.class, shard,
 		f.coordinatorPullBackoffInitialInterval, f.coordinatorPullBackoffMaxElapsedTime, f.getDeletionStrategy())
 
 	op := func(ctx context.Context, host string, _ bool) ([]strfmt.UUID, error) {
@@ -228,7 +228,7 @@ func (f *Finder) Exists(ctx context.Context,
 	shard string,
 	id strfmt.UUID,
 ) (bool, error) {
-	c := coordinator.NewRead[existReply](f.router, f.metrics, f.class, shard,
+	c := replsync.NewRead[existReply](f.router, f.metrics, f.class, shard,
 		f.coordinatorPullBackoffInitialInterval, f.coordinatorPullBackoffMaxElapsedTime, f.getDeletionStrategy())
 	op := func(ctx context.Context, host string, _ bool) (existReply, error) {
 		xs, err := f.client.DigestReads(ctx, host, f.class, shard, []strfmt.UUID{id}, 0)
@@ -276,7 +276,7 @@ func (f *Finder) checkShardConsistency(ctx context.Context,
 	batch ShardPart,
 ) ([]*storobj.Object, error) {
 	var (
-		c = coordinator.NewRead[BatchReply](f.router, f.metrics, f.class, batch.Shard,
+		c = replsync.NewRead[BatchReply](f.router, f.metrics, f.class, batch.Shard,
 			f.coordinatorPullBackoffInitialInterval, f.coordinatorPullBackoffMaxElapsedTime, f.getDeletionStrategy())
 		shard     = batch.Shard
 		data, ids = batch.Extract() // extract from current content

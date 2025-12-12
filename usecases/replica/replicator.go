@@ -25,9 +25,9 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/objects"
-	coordinator "github.com/weaviate/weaviate/usecases/replica/coordniator"
 	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 	"github.com/weaviate/weaviate/usecases/replica/metrics"
+	"github.com/weaviate/weaviate/usecases/replica/replsync"
 )
 
 // opID operation encode as and int
@@ -80,8 +80,8 @@ func NewReplicator(className string,
 			client,
 			metrics,
 			l,
-			coordinator.DefaultPullBackOffInitialInterval,
-			coordinator.DefaultPullBackOffMaxElapsedTime,
+			replsync.DefaultPullBackOffInitialInterval,
+			replsync.DefaultPullBackOffMaxElapsedTime,
 			getDeletionStrategy,
 		),
 	}, nil
@@ -97,7 +97,7 @@ func (r *Replicator) PutObject(ctx context.Context,
 	l types.ConsistencyLevel,
 	schemaVersion uint64,
 ) error {
-	coord := coordinator.NewWrite[SimpleResponse](r.router, r.client.Abort, r.metrics, r.class, shard, r.requestID(opPutObject), r.log)
+	coord := replsync.NewWrite[SimpleResponse](r.router, r.client.Abort, r.metrics, r.class, shard, r.requestID(opPutObject), r.log)
 	isReady := func(ctx context.Context, host, requestID string) error {
 		resp, err := r.client.PutObject(ctx, host, r.class, shard, requestID, obj, schemaVersion)
 		if err == nil {
@@ -129,7 +129,7 @@ func (r *Replicator) MergeObject(ctx context.Context,
 	l types.ConsistencyLevel,
 	schemaVersion uint64,
 ) error {
-	coord := coordinator.NewWrite[SimpleResponse](r.router, r.client.Abort, r.metrics, r.class, shard, r.requestID(opMergeObject), r.log)
+	coord := replsync.NewWrite[SimpleResponse](r.router, r.client.Abort, r.metrics, r.class, shard, r.requestID(opMergeObject), r.log)
 	op := func(ctx context.Context, host, requestID string) error {
 		resp, err := r.client.MergeObject(ctx, host, r.class, shard, requestID, doc, schemaVersion)
 		if err == nil {
@@ -165,7 +165,7 @@ func (r *Replicator) DeleteObject(ctx context.Context,
 	l types.ConsistencyLevel,
 	schemaVersion uint64,
 ) error {
-	coord := coordinator.NewWrite[SimpleResponse](r.router, r.client.Abort, r.metrics, r.class, shard, r.requestID(opDeleteObject), r.log)
+	coord := replsync.NewWrite[SimpleResponse](r.router, r.client.Abort, r.metrics, r.class, shard, r.requestID(opDeleteObject), r.log)
 	op := func(ctx context.Context, host, requestID string) error {
 		resp, err := r.client.DeleteObject(ctx, host, r.class, shard, requestID, id, deletionTime, schemaVersion)
 		if err == nil {
@@ -196,7 +196,7 @@ func (r *Replicator) PutObjects(ctx context.Context,
 	l types.ConsistencyLevel,
 	schemaVersion uint64,
 ) []error {
-	coord := coordinator.NewWrite[SimpleResponse](r.router, r.client.Abort, r.metrics, r.class, shard, r.requestID(opPutObjects), r.log)
+	coord := replsync.NewWrite[SimpleResponse](r.router, r.client.Abort, r.metrics, r.class, shard, r.requestID(opPutObjects), r.log)
 	op := func(ctx context.Context, host, requestID string) error {
 		resp, err := r.client.PutObjects(ctx, host, r.class, shard, requestID, objs, schemaVersion)
 		if err == nil {
@@ -239,7 +239,7 @@ func (r *Replicator) DeleteObjects(ctx context.Context,
 		_, err := r.client.Abort(ctx, host, index, shard, requestID)
 		return DeleteBatchResponse{}, err
 	}
-	coord := coordinator.NewWrite(r.router, abortFunc, r.metrics, r.class, shard, r.requestID(opDeleteObjects), r.log)
+	coord := replsync.NewWrite(r.router, abortFunc, r.metrics, r.class, shard, r.requestID(opDeleteObjects), r.log)
 	op := func(ctx context.Context, host, requestID string) error {
 		resp, err := r.client.DeleteObjects(ctx, host, r.class, shard, requestID, uuids, deletionTime, dryRun, schemaVersion)
 		if err == nil {
@@ -287,7 +287,7 @@ func (r *Replicator) AddReferences(ctx context.Context,
 	l types.ConsistencyLevel,
 	schemaVersion uint64,
 ) []error {
-	coord := coordinator.NewWrite[SimpleResponse](r.router, r.client.Abort, r.metrics, r.class, shard, r.requestID(opAddReferences), r.log)
+	coord := replsync.NewWrite[SimpleResponse](r.router, r.client.Abort, r.metrics, r.class, shard, r.requestID(opAddReferences), r.log)
 	op := func(ctx context.Context, host, requestID string) error {
 		resp, err := r.client.AddReferences(ctx, host, r.class, shard, requestID, refs, schemaVersion)
 		if err == nil {
@@ -318,7 +318,7 @@ func (r *Replicator) AddReferences(ctx context.Context,
 }
 
 // simpleCommit generate commit function for the coordinator
-func (r *Replicator) simpleCommit(shard string) coordinator.CommitOp[SimpleResponse] {
+func (r *Replicator) simpleCommit(shard string) replsync.CommitOp[SimpleResponse] {
 	return func(ctx context.Context, host, requestID string) (SimpleResponse, error) {
 		resp := SimpleResponse{}
 		err := r.client.Commit(ctx, host, r.class, shard, requestID, &resp)

@@ -17,8 +17,8 @@ import (
 	"github.com/go-openapi/strfmt"
 
 	"github.com/weaviate/weaviate/usecases/objects"
-	coordinator "github.com/weaviate/weaviate/usecases/replica/coordniator"
 	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
+	"github.com/weaviate/weaviate/usecases/replica/replsync"
 )
 
 type (
@@ -31,7 +31,7 @@ type (
 // It returns as soon as the specified consistency level l has been reached
 func (r replicatorStream) readErrors(batchSize int,
 	level int,
-	ch <-chan coordinator.Result[SimpleResponse],
+	ch <-chan replsync.Result[SimpleResponse],
 ) []error {
 	urs := make([]SimpleResponse, 0, level)
 	var firstError error
@@ -58,7 +58,7 @@ func (r replicatorStream) readErrors(batchSize int,
 // It returns as soon as the specified consistency level l has been reached
 func (r replicatorStream) readDeletions(batchSize int,
 	level int,
-	ch <-chan coordinator.Result[DeleteBatchResponse],
+	ch <-chan replsync.Result[DeleteBatchResponse],
 ) []objects.BatchSimpleObject {
 	rs := make([]DeleteBatchResponse, 0, level)
 	urs := make([]DeleteBatchResponse, 0, level)

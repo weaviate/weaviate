@@ -23,8 +23,8 @@ import (
 	"github.com/weaviate/weaviate/cluster/router/types"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/storobj"
-	coordinator "github.com/weaviate/weaviate/usecases/replica/coordniator"
 	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
+	"github.com/weaviate/weaviate/usecases/replica/replsync"
 )
 
 // pullSteam is used by the finder to pull objects from replicas
@@ -44,14 +44,14 @@ type (
 	}
 
 	ObjTuple  tuple[Replica]
-	ObjResult = coordinator.Result[*storobj.Object]
+	ObjResult = replsync.Result[*storobj.Object]
 )
 
 // readOne reads one replicated object
 func (f *finderStream) readOne(ctx context.Context,
 	shard string,
 	id strfmt.UUID,
-	ch <-chan coordinator.Result[findOneReply],
+	ch <-chan replsync.Result[findOneReply],
 	level int,
 ) <-chan ObjResult {
 	// counters tracks the number of votes for each participant
@@ -125,7 +125,7 @@ func (f *finderStream) readOne(ctx context.Context,
 }
 
 type (
-	batchResult coordinator.Result[[]*storobj.Object]
+	batchResult replsync.Result[[]*storobj.Object]
 
 	// Vote represents objects received from a specific replica and the number of votes per object.
 	Vote struct {
@@ -141,10 +141,10 @@ type BoolTuple tuple[types.RepairResponse]
 func (f *finderStream) readExistence(ctx context.Context,
 	shard string,
 	id strfmt.UUID,
-	ch <-chan coordinator.Result[existReply],
+	ch <-chan replsync.Result[existReply],
 	level int,
-) <-chan coordinator.Result[bool] {
-	resultCh := make(chan coordinator.Result[bool], 1)
+) <-chan replsync.Result[bool] {
+	resultCh := make(chan replsync.Result[bool], 1)
 	g := func() {
 		defer close(resultCh)
 		votes := make([]BoolTuple, 0, level) // number of votes per replica
@@ -155,7 +155,7 @@ func (f *finderStream) readExistence(ctx context.Context,
 				f.log.WithField("op", "exists").WithField("replica", resp.Sender).
 					WithField("class", f.class).WithField("shard", shard).
 					WithField("uuid", id).Error(r.Err)
-				resultCh <- coordinator.Result[bool]{false, replicaerrors.ErrRead}
+				resultCh <- replsync.Result[bool]{false, replicaerrors.ErrRead}
 				return
 			}
 
@@ -175,17 +175,17 @@ func (f *finderStream) readExistence(ctx context.Context,
 				}
 
 				exists := !votes[i].O.Deleted && votes[i].O.UpdateTime != 0
-				resultCh <- coordinator.Result[bool]{exists, nil}
+				resultCh <- replsync.Result[bool]{exists, nil}
 				return
 			}
 		}
 
 		obj, err := f.repairExist(ctx, shard, id, votes)
 		if err == nil {
-			resultCh <- coordinator.Result[bool]{obj, nil}
+			resultCh <- replsync.Result[bool]{obj, nil}
 			return
 		}
-		resultCh <- coordinator.Result[bool]{false, errors.Wrap(err, replicaerrors.ErrRepair.Error())}
+		resultCh <- replsync.Result[bool]{false, errors.Wrap(err, replicaerrors.ErrRepair.Error())}
 
 		var sb strings.Builder
 		for i, c := range votes {
@@ -207,7 +207,7 @@ func (f *finderStream) readExistence(ctx context.Context,
 func (f *finderStream) readBatchPart(ctx context.Context,
 	batch ShardPart,
 	ids []strfmt.UUID,
-	ch <-chan coordinator.Result[BatchReply],
+	ch <-chan replsync.Result[BatchReply],
 	level int,
 ) <-chan batchResult {
 	resultCh := make(chan batchResult, 1)
