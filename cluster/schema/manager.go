@@ -509,17 +509,15 @@ func (s *SchemaManager) SyncShard(cmd *command.ApplyRequest, schemaOnly bool) er
 
 	var physical *sharding.Physical
 	var partitioningEnabled bool
-	err := s.NewSchemaReader().retry(func(*schema) error {
-		return s.schema.Read(req.Collection, true, func(class *models.Class, state *sharding.State) error {
-			p, ok := state.Physical[req.Shard]
-			if !ok {
-				// no physical, leave var as nil
-				return nil
-			}
-			physical = &p
-			partitioningEnabled = state.PartitioningEnabled
+	err := s.NewSchemaReader().Read(req.Collection, true, func(class *models.Class, state *sharding.State) error {
+		partitioningEnabled = state.PartitioningEnabled
+		p, ok := state.Physical[req.Shard]
+		if !ok {
+			// no physical, leave var as nil
 			return nil
-		})
+		}
+		physical = &p
+		return nil
 	})
 	if err != nil {
 		return fmt.Errorf("read schema for sync shard: %w", err)
