@@ -319,6 +319,71 @@ func TestGRPC_Batching(t *testing.T) {
 	})
 }
 
+func TestGRPC_OutOfMemoryBatching(t *testing.T) {
+	ctx := context.Background()
+
+	compose, err := docker.New().
+		WithWeaviateWithGRPC().
+		WithWeaviateEnv("GOMEMLIMIT", "268435456").
+		WithWeaviateEnv("GRPC_MAX_MESSAGE_SIZE", "536870912").
+		Start(ctx)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, compose.Terminate(ctx))
+	}()
+
+	helper.SetupClient(compose.GetWeaviate().URI())
+	grpcClient, _ := client(t, compose.GetWeaviate().GrpcURI())
+
+	clsA := articles.ArticlesClass()
+	clsP := articles.ParagraphsClass()
+
+	setupClasses := func() func() {
+		helper.DeleteClass(t, clsA.Class)
+		helper.DeleteClass(t, clsP.Class)
+		// Create the schema
+		helper.CreateClass(t, clsP)
+		helper.CreateClass(t, clsA)
+		return func() {
+			helper.DeleteClass(t, clsA.Class)
+			helper.DeleteClass(t, clsP.Class)
+		}
+	}
+
+	t.Run("send more than GOMEMLIMIT allows and verify that correct error is sent back", func(t *testing.T) {
+		defer setupClasses()()
+
+		stream := start(ctx, t, grpcClient, "")
+
+		// Send some articles and paragraphs in send message
+		var objects []*pb.BatchObject
+		var uuids []string
+		for i := 0; i < 1000; i++ {
+			// very large vectors to quickly exceed GOMEMLIMIT
+			uuid := uuid.NewString()
+			uuids = append(uuids, uuid)
+			objects = append(objects, &pb.BatchObject{Collection: clsA.Class, Uuid: uuid, Vectors: []*pb.Vectors{{Name: "default", VectorBytes: randomByteVector(20480)}}})
+		}
+		err := send(stream, objects, nil)
+		require.NoError(t, err, "sending Objects over the stream should not return an error")
+
+		// no Acks message when an OOM occurred
+
+		// Read the out of memory message
+		msg, err := stream.Recv()
+		for {
+			if msg.GetBackoff() != nil {
+				msg, err = stream.Recv()
+			} else {
+				break
+			}
+		}
+		require.NoError(t, err, "BatchStream should return a response")
+		require.NotNil(t, msg.GetOutOfMemory(), "Response should indicate out of memory got %T instead", msg.Message)
+		require.Equal(t, len(uuids), len(msg.GetOutOfMemory().GetUuids()), "All sent objects should be listed in out of memory response")
+	})
+}
+
 func TestGRPC_ClusterBatching(t *testing.T) {
 	ctx := context.Background()
 
