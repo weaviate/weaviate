@@ -1173,7 +1173,8 @@ func (b *Bucket) MapDeleteKey(rowKey, mapKey []byte) error {
 
 	if active.getStrategy() == StrategyInverted {
 		docID := binary.BigEndian.Uint64(mapKey)
-		if err := active.SetTombstone(docID); err != nil {
+		err := b.InvertedDeleteDocs([]uint64{docID})
+		if err != nil {
 			return err
 		}
 	}

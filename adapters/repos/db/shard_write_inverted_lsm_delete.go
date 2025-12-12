@@ -46,18 +46,11 @@ func (s *Shard) deleteFromInvertedIndicesLSM(props []inverted.Property, nilProps
 				return fmt.Errorf("no bucket searchable for prop '%s' found", prop.Name)
 			}
 
-			if bucket.GetStrategy() == lsmkv.StrategyInverted {
-				err := bucket.InvertedDeleteDocs([]uint64{docID})
-				if err != nil {
-					return errors.Wrapf(err, "delete docID '%d' from inverted index", docID)
-				}
-			} else {
-				for _, item := range prop.Items {
-					if err := s.deleteInvertedIndexItemWithFrequencyLSM(bucket, item,
-						docID); err != nil {
-						return errors.Wrapf(err, "delete item '%s' from index",
-							string(item.Data))
-					}
+			for _, item := range prop.Items {
+				if err := s.deleteInvertedIndexItemWithFrequencyLSM(bucket, item,
+					docID); err != nil {
+					return errors.Wrapf(err, "delete item '%s' from index",
+						string(item.Data))
 				}
 			}
 		}

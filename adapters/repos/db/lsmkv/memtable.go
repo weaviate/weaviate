@@ -498,7 +498,6 @@ func (m *Memtable) appendMapSorted(key []byte, pair MapPair) error {
 			m.currPropLengthCount++
 			m.propLengthExists.Set(docID)
 		}
-		m.tombstones.Remove(docID)
 	}
 
 	return nil
