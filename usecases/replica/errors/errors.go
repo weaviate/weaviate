@@ -89,6 +89,51 @@ func NewError(code StatusCode, msg string) *Error {
 	return &Error{code, msg, nil}
 }
 
+// NewClassNotFoundError creates a new error for class not found
+func NewClassNotFoundError(err error) *Error {
+	return &Error{Code: StatusClassNotFound, Msg: StatusText(StatusClassNotFound), Err: err}
+}
+
+// NewShardNotFoundError creates a new error for shard not found
+func NewShardNotFoundError(err error) *Error {
+	return &Error{Code: StatusShardNotFound, Msg: StatusText(StatusShardNotFound), Err: err}
+}
+
+// NewNotFoundError creates a new error for not found
+func NewNotFoundError(err error) *Error {
+	return &Error{Code: StatusNotFound, Msg: StatusText(StatusNotFound), Err: err}
+}
+
+// NewAlreadyExistedError creates a new error for already existed
+func NewAlreadyExistedError(err error) *Error {
+	return &Error{Code: StatusAlreadyExisted, Msg: StatusText(StatusAlreadyExisted), Err: err}
+}
+
+// NewNotReadyError creates a new error for not ready
+func NewNotReadyError(err error) *Error {
+	return &Error{Code: StatusNotReady, Msg: StatusText(StatusNotReady), Err: err}
+}
+
+// NewConflictError creates a new error for conflict
+func NewConflictError(err error) *Error {
+	return &Error{Code: StatusConflict, Msg: StatusText(StatusConflict), Err: err}
+}
+
+// NewPreconditionFailedError creates a new error for precondition failed
+func NewPreconditionFailedError(err error) *Error {
+	return &Error{Code: StatusPreconditionFailed, Msg: StatusText(StatusPreconditionFailed), Err: err}
+}
+
+// NewReadOnlyError creates a new error for read only
+func NewReadOnlyError(err error) *Error {
+	return &Error{Code: StatusReadOnly, Msg: StatusText(StatusReadOnly), Err: err}
+}
+
+// NewObjectNotFoundError creates a new error for object not found
+func NewObjectNotFoundError(err error) *Error {
+	return &Error{Code: StatusObjectNotFound, Msg: StatusText(StatusObjectNotFound), Err: err}
+}
+
 func (e *Error) Clone() *Error {
 	return &Error{Code: e.Code, Msg: e.Msg, Err: e.Err}
 }
