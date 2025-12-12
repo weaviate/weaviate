@@ -910,7 +910,7 @@ func (m *Migrator) RecountProperties(ctx context.Context) error {
 }
 
 func (m *Migrator) InvertedReindex(ctx context.Context, taskNamesWithArgs map[string]any) error {
-	var errs errorcompounder.ErrorCompounder
+	errs := errorcompounder.New()
 	errs.Add(m.doInvertedReindex(ctx, taskNamesWithArgs))
 	errs.Add(m.doInvertedIndexMissingTextFilterable(ctx, taskNamesWithArgs))
 	return errs.ToError()

@@ -2195,14 +2195,14 @@ func (i *Index) IncomingDeleteObject(ctx context.Context, shardName string,
 	return shard.DeleteObject(ctx, id, deletionTime)
 }
 
-func (i *Index) IncomingDeleteObjectsExpired(eg *enterrors.ErrorGroupWrapper, ec *errorcompounder.SafeErrorCompounder,
+func (i *Index) IncomingDeleteObjectsExpired(eg *enterrors.ErrorGroupWrapper, ec errorcompounder.ErrorCompounder,
 	deleteOnPropName string, ttlThreshold, deletionTime time.Time, schemaVersion uint64,
 ) {
 	// use closing context to stop long-running TTL deletions in case index is closed
 	i.incomingDeleteObjectsExpired(i.closingCtx, eg, ec, deleteOnPropName, ttlThreshold, deletionTime, schemaVersion)
 }
 
-func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.ErrorGroupWrapper, ec *errorcompounder.SafeErrorCompounder,
+func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.ErrorGroupWrapper, ec errorcompounder.ErrorCompounder,
 	deleteOnPropName string, ttlThreshold, deletionTime time.Time, schemaVersion uint64,
 ) {
 	class := i.getClass()
@@ -2282,7 +2282,7 @@ func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.
 	})
 }
 
-func (i *Index) incomingDeleteObjectsExpiredUuids(ctx context.Context, eg *enterrors.ErrorGroupWrapper, ec *errorcompounder.SafeErrorCompounder,
+func (i *Index) incomingDeleteObjectsExpiredUuids(ctx context.Context, eg *enterrors.ErrorGroupWrapper, ec errorcompounder.ErrorCompounder,
 	deletionTime time.Time, shard, tenant string, uuids []strfmt.UUID,
 	replProps *additional.ReplicationProperties, schemaVersion uint64,
 ) {
@@ -2732,7 +2732,7 @@ func (i *Index) dropCloudShards(ctx context.Context, cloud modulecapabilities.Of
 		return errAlreadyShutdown
 	}
 
-	ec := &errorcompounder.ErrorCompounder{}
+	ec := errorcompounder.New()
 	eg := enterrors.NewErrorGroupWrapper(i.logger)
 	eg.SetLimit(_NUMCPU * 2)
 
