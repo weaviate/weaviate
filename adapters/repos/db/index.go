@@ -2200,14 +2200,14 @@ func (i *Index) IncomingDeleteObject(ctx context.Context, shardName string,
 }
 
 func (i *Index) IncomingDeleteObjectsExpired(eg *enterrors.ErrorGroupWrapper, ec errorcompounder.ErrorCompounder,
-	deleteOnPropName string, ttlThreshold, deletionTime time.Time, schemaVersion uint64,
+	deleteOnPropName string, ttlThreshold, deletionTime time.Time, countDeleted func(int32), schemaVersion uint64,
 ) {
 	// use closing context to stop long-running TTL deletions in case index is closed
-	i.incomingDeleteObjectsExpired(i.closingCtx, eg, ec, deleteOnPropName, ttlThreshold, deletionTime, schemaVersion)
+	i.incomingDeleteObjectsExpired(i.closingCtx, eg, ec, deleteOnPropName, ttlThreshold, deletionTime, countDeleted, schemaVersion)
 }
 
 func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.ErrorGroupWrapper, ec errorcompounder.ErrorCompounder,
-	deleteOnPropName string, ttlThreshold, deletionTime time.Time, schemaVersion uint64,
+	deleteOnPropName string, ttlThreshold, deletionTime time.Time, countDeleted func(int32), schemaVersion uint64,
 ) {
 	class := i.getClass()
 	if err := ctx.Err(); err != nil {
@@ -2254,7 +2254,7 @@ func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.
 					return nil
 				}
 
-				i.incomingDeleteObjectsExpiredUuids(ctx, eg, ec, deletionTime, "", tenant, tenants2uuids[tenant], replProps, schemaVersion)
+				i.incomingDeleteObjectsExpiredUuids(ctx, eg, ec, deletionTime, "", tenant, tenants2uuids[tenant], countDeleted, replProps, schemaVersion)
 				return nil
 			})
 			if ctx.Err() != nil {
@@ -2277,7 +2277,7 @@ func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.
 		}
 
 		for shard, uuids := range shards2uuids {
-			i.incomingDeleteObjectsExpiredUuids(ctx, eg, ec, deletionTime, shard, "", uuids, replProps, schemaVersion)
+			i.incomingDeleteObjectsExpiredUuids(ctx, eg, ec, deletionTime, shard, "", uuids, countDeleted, replProps, schemaVersion)
 			if ctx.Err() != nil {
 				break
 			}
@@ -2287,7 +2287,7 @@ func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.
 }
 
 func (i *Index) incomingDeleteObjectsExpiredUuids(ctx context.Context, eg *enterrors.ErrorGroupWrapper, ec errorcompounder.ErrorCompounder,
-	deletionTime time.Time, shard, tenant string, uuids []strfmt.UUID,
+	deletionTime time.Time, shard, tenant string, uuids []strfmt.UUID, countDeleted func(int32),
 	replProps *additional.ReplicationProperties, schemaVersion uint64,
 ) {
 	if len(uuids) == 0 {
@@ -2308,8 +2308,7 @@ func (i *Index) incomingDeleteObjectsExpiredUuids(ctx context.Context, eg *enter
 			return fmt.Errorf("batch delete: %w", err)
 		}
 
-		// TODO aliszka:ttl propagate deleted
-		deleted := 0
+		deleted := int32(0)
 		ecBatch := errorcompounder.New()
 		for i := range resp {
 			if err := resp[i].Err; err != nil {
@@ -2318,6 +2317,7 @@ func (i *Index) incomingDeleteObjectsExpiredUuids(ctx context.Context, eg *enter
 				deleted++
 			}
 		}
+		countDeleted(deleted)
 
 		if err := ecBatch.ToError(); err != nil {
 			return fmt.Errorf("batch delete: %w", err)
