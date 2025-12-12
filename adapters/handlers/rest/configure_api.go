@@ -846,48 +846,6 @@ func configureReindexer(appState *state.State, reindexCtx context.Context) db.Sh
 }
 
 func configureCrons(appState *state.State, serverShutdownCtx context.Context) {
-	// enterrors.GoWrapper(func() {
-	// 	f := func() {
-	// 		fmt.Println("--------------------------------------------------------------------------------")
-
-	// 		nodes := appState.SchemaManager.Nodes()
-	// 		nodeName := appState.SchemaManager.NodeName()
-	// 		fmt.Printf("  ==> SchemaManager.Nodes: %v\n"+
-	// 			"      SchemaManager.NodeName: %v\n", nodes, nodeName)
-	// 		fmt.Println()
-
-	// 		allHostnames := appState.Cluster.AllHostnames()
-	// 		allNames := appState.Cluster.AllNames()
-	// 		allOtherClusterMembers := appState.Cluster.AllOtherClusterMembers(0)
-	// 		nodeCount := appState.Cluster.NodeCount()
-	// 		fmt.Printf("  ==> Cluster.AllHostnames: %v\n"+
-	// 			"      Cluster.AllNames: %v\n"+
-	// 			"      Cluster.AllOtherClusterMembers: %v\n"+
-	// 			"      Cluster.NodeCount: %v\n", allHostnames, allNames, allOtherClusterMembers, nodeCount)
-	// 		fmt.Println()
-
-	// 		for _, name := range allNames {
-	// 			nodeAddress := appState.Cluster.NodeAddress(name)
-	// 			nodeHostname, b := appState.Cluster.NodeHostname(name)
-	// 			nodeInfo, b2 := appState.Cluster.NodeInfo(name)
-	// 			fmt.Printf("  ==> Cluster.NodeAddress[%s]: %v\n"+
-	// 				"      Cluster.NodeHostname[%s]: %v [%v]\n"+
-	// 				"      Cluster.NodeInfo[%s]: %#v [%v]\n", name, nodeAddress, name, nodeHostname, b, name, nodeInfo, b2)
-	// 			fmt.Println()
-	// 		}
-
-	// 		fmt.Println("--------------------------------------------------------------------------------")
-	// 	}
-	// 	f()
-
-	// 	t := time.NewTicker(5 * time.Second)
-	// 	for {
-	// 		<-t.C
-	// 		f()
-	// 	}
-
-	// }, appState.Logger)
-
 	type jobSpec struct {
 		name     string
 		schedule string
@@ -911,14 +869,14 @@ func configureCrons(appState *state.State, serverShutdownCtx context.Context) {
 				var err error
 				started := time.Now()
 
-				l.Info("triggering deletion of expired objects")
+				l.Info("trigger deletion of expired objects started")
 				defer func() {
 					l = l.WithField("took", time.Since(started))
 					if err != nil {
-						l.WithError(err).Error("triggering deletion of expired objects failed")
-					} else {
-						l.Info("triggering deletion of expired objects succeeded")
+						l.WithError(err).Error("trigger deletion of expired objects failed")
+						return
 					}
+					l.Info("trigger deletion of expired objects finished")
 				}()
 
 				err = appState.ObjectTTLCoordinator.Start(serverShutdownCtx, false, started, started)
