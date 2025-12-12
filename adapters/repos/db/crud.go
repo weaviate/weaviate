@@ -67,7 +67,7 @@ func (db *DB) DeleteObject(ctx context.Context, class string, id strfmt.UUID,
 	return nil
 }
 
-func (db *DB) DeleteExpiredObjects(ctx context.Context, eg *enterrors.ErrorGroupWrapper, ec *errorcompounder.SafeErrorCompounder,
+func (db *DB) DeleteExpiredObjects(ctx context.Context, eg *enterrors.ErrorGroupWrapper, ec errorcompounder.ErrorCompounder,
 	className, deleteOnPropName string, ttlThreshold, deletionTime time.Time, schemaVersion uint64,
 ) {
 	var (

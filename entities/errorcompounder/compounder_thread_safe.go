@@ -12,58 +12,79 @@
 package errorcompounder
 
 import (
-	"fmt"
-	"strings"
 	"sync"
-
-	"github.com/pkg/errors"
 )
 
-type SafeErrorCompounder struct {
-	sync.Mutex
-	errors []error
+func NewSafe() *errorCompounderSafe {
+	return &errorCompounderSafe{
+		c: New(),
+		m: new(sync.Mutex),
+	}
 }
 
-func NewSafe() *SafeErrorCompounder {
-	return &SafeErrorCompounder{}
+type errorCompounderSafe struct {
+	c *errorCompounder
+	m *sync.Mutex
 }
 
-func (ec *SafeErrorCompounder) Add(err error) {
-	ec.Lock()
-	defer ec.Unlock()
+func (ec *errorCompounderSafe) Add(err error) {
 	if err != nil {
-		ec.errors = append(ec.errors, err)
+		ec.m.Lock()
+		defer ec.m.Unlock()
+
+		ec.c.add(err)
 	}
 }
 
-func (ec *SafeErrorCompounder) Addf(msg string, args ...interface{}) {
-	ec.Lock()
-	defer ec.Unlock()
-	ec.errors = append(ec.errors, fmt.Errorf(msg, args...))
+func (ec *errorCompounderSafe) Addf(format string, a ...any) {
+	ec.m.Lock()
+	defer ec.m.Unlock()
+
+	ec.c.Addf(format, a...)
 }
 
-func (ec *SafeErrorCompounder) ToError() error {
-	ec.Lock()
-	defer ec.Unlock()
-	if len(ec.errors) == 0 {
-		return nil
+func (ec *errorCompounderSafe) AddWrapf(err error, format string, a ...any) {
+	if err != nil {
+		ec.m.Lock()
+		defer ec.m.Unlock()
+
+		ec.c.addWrapf(err, format, a...)
 	}
-
-	var msg strings.Builder
-	for i, err := range ec.errors {
-		if i != 0 {
-			msg.WriteString(", ")
-		}
-
-		msg.WriteString(err.Error())
-	}
-
-	return errors.New(msg.String())
 }
 
-func (ec *SafeErrorCompounder) First() error {
-	if len(ec.errors) == 0 {
-		return nil
+func (ec *errorCompounderSafe) AddGroups(err error, groups ...string) {
+	if err != nil {
+		ec.m.Lock()
+		defer ec.m.Unlock()
+
+		ec.c.addGroups(err, groups...)
 	}
-	return ec.errors[0]
+}
+
+func (ec *errorCompounderSafe) First() error {
+	ec.m.Lock()
+	defer ec.m.Unlock()
+
+	return ec.c.First()
+}
+
+func (ec *errorCompounderSafe) ToError() error {
+	ec.m.Lock()
+	defer ec.m.Unlock()
+
+	return ec.c.ToError()
+}
+
+func (ec *errorCompounderSafe) Len() int {
+	ec.m.Lock()
+	defer ec.m.Unlock()
+
+	return ec.c.Len()
+}
+
+func (ec *errorCompounderSafe) Empty() bool {
+	ec.m.Lock()
+	defer ec.m.Unlock()
+
+	return ec.c.Empty()
 }
