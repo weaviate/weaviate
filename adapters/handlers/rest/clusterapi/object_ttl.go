@@ -110,7 +110,7 @@ func (d *ObjectTTL) incomingDelete() http.Handler {
 			defer d.requestRunning.Store(false)
 			eg := enterrors.NewErrorGroupWrapper(d.logger)
 
-			ec := errorcompounder.New()
+			ec := errorcompounder.NewSafe()
 			for _, classPayload := range body {
 				className := classPayload.Class
 
@@ -120,10 +120,7 @@ func (d *ObjectTTL) incomingDelete() http.Handler {
 					continue
 				}
 
-				err = idx.IncomingDeleteObjectsExpired(eg, classPayload.Prop, time.UnixMilli(classPayload.TtlMilli), time.UnixMilli(classPayload.DelMilli), classPayload.ClassVersion)
-				if err != nil {
-					ec.Add(fmt.Errorf("delete expired for class %q: %w", className, err))
-				}
+				idx.IncomingDeleteObjectsExpired(eg, ec, classPayload.Prop, time.UnixMilli(classPayload.TtlMilli), time.UnixMilli(classPayload.DelMilli), classPayload.ClassVersion)
 			}
 
 			eg.Wait() // ignore errors from goroutines, they are collected in ec
