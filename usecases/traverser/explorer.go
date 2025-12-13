@@ -355,7 +355,7 @@ func (e *Explorer) getClassList(ctx context.Context,
 	userSetAdditionalVector := params.AdditionalProperties.Vector
 
 	// if both grouping and whereFilter/sort are present, the below
-	// class search will eventually call storobj.FromBinaryOptional
+	// class search will eventually call storobj.FromDiskBinaryOptional
 	// to unmarshal the record. in this case, we must manually set
 	// the vector addl prop to unmarshal the result vector into each
 	// result payload. if we skip this step, the grouper will attempt

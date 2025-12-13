@@ -53,7 +53,7 @@ func TestObjects(t *testing.T) {
 	store, err := lsmkv.New(dirName, dirName, logger, nil,
 		cyclemanager.NewCallbackGroupNoop(),
 		cyclemanager.NewCallbackGroupNoop(),
-		cyclemanager.NewCallbackGroupNoop())
+		cyclemanager.NewCallbackGroupNoop(), "class")
 	require.Nil(t, err)
 	defer func() { assert.Nil(t, err) }()
 
@@ -273,7 +273,7 @@ func TestDocIDs(t *testing.T) {
 	store, err := lsmkv.New(dirName, dirName, logger, nil,
 		cyclemanager.NewCallbackGroupNoop(),
 		cyclemanager.NewCallbackGroupNoop(),
-		cyclemanager.NewCallbackGroupNoop())
+		cyclemanager.NewCallbackGroupNoop(), "class")
 	require.Nil(t, err)
 	defer func() { assert.Nil(t, err) }()
 
@@ -427,7 +427,7 @@ func TestSearcher_ResolveDocIds(t *testing.T) {
 		store, err := lsmkv.New(dirName, dirName, logger, nil,
 			cyclemanager.NewCallbackGroupNoop(),
 			cyclemanager.NewCallbackGroupNoop(),
-			cyclemanager.NewCallbackGroupNoop())
+			cyclemanager.NewCallbackGroupNoop(), "class")
 		require.NoError(t, err)
 		t.Cleanup(func() { store.Shutdown(context.Background()) }) // cleanup in outer test
 

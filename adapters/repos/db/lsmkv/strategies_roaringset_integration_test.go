@@ -43,7 +43,7 @@ func roaringsetInsertAndSetAdd(ctx context.Context, t *testing.T, opts []BucketO
 
 	t.Run("memtable-only", func(t *testing.T) {
 		b, err := NewBucketCreator().NewBucket(ctx, dirName, "", nullLogger(), nil,
-			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), "class", opts...)
 		require.Nil(t, err)
 
 		defer b.Shutdown(ctx)
@@ -126,7 +126,7 @@ func roaringsetInsertAndSetAdd(ctx context.Context, t *testing.T, opts []BucketO
 
 	t.Run("with a single flush in between updates", func(t *testing.T) {
 		b, err := NewBucketCreator().NewBucket(ctx, dirName, "", nullLogger(), nil,
-			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), "class", opts...)
 		require.Nil(t, err)
 
 		defer b.Shutdown(ctx)

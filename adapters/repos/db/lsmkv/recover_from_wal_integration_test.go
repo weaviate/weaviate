@@ -36,7 +36,7 @@ func TestReplaceStrategy_RecoverFromWAL(t *testing.T) {
 
 	t.Run("with some previous state", func(t *testing.T) {
 		b, err := NewBucketCreator().NewBucket(testCtx(), dirNameOriginal, "", nullLogger(), nil,
-			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), "class",
 			WithStrategy(StrategyReplace), WithMinWalThreshold(0))
 		require.Nil(t, err)
 
@@ -71,7 +71,7 @@ func TestReplaceStrategy_RecoverFromWAL(t *testing.T) {
 			// then recreate bucket
 			var err error
 			b, err = NewBucketCreator().NewBucket(testCtx(), dirNameOriginal, "", nullLogger(), nil,
-				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), "class",
 				WithStrategy(StrategyReplace), WithMinWalThreshold(0))
 			require.Nil(t, err)
 		})
@@ -157,7 +157,7 @@ func TestReplaceStrategy_RecoverFromWAL(t *testing.T) {
 
 		t.Run("create new bucket from existing state", func(t *testing.T) {
 			b, err := NewBucketCreator().NewBucket(testCtx(), dirNameRecovered, "", nullLogger(), nil,
-				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), "class",
 				WithStrategy(StrategyReplace), WithMinWalThreshold(0))
 			require.Nil(t, err)
 
@@ -192,7 +192,7 @@ func TestReplaceStrategy_RecoverFromWALWithCorruptLastElement(t *testing.T) {
 
 	t.Run("without previous state", func(t *testing.T) {
 		b, err := NewBucketCreator().NewBucket(testCtx(), dirNameOriginal, "", nullLogger(), nil,
-			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), "class",
 			WithStrategy(StrategyReplace))
 		require.Nil(t, err)
 
@@ -300,7 +300,7 @@ func TestReplaceStrategy_RecoverFromWALWithCorruptLastElement(t *testing.T) {
 
 		t.Run("create new bucket from existing state", func(t *testing.T) {
 			b, err := NewBucketCreator().NewBucket(testCtx(), dirNameRecovered, "", nullLogger(), nil,
-				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), "class",
 				WithStrategy(StrategyReplace))
 			require.Nil(t, err)
 
@@ -340,7 +340,7 @@ func TestSetStrategy_RecoverFromWAL(t *testing.T) {
 
 	t.Run("without prior state", func(t *testing.T) {
 		b, err := NewBucketCreator().NewBucket(testCtx(), dirNameOriginal, "", nullLogger(), nil,
-			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), "class",
 			WithStrategy(StrategySetCollection))
 		require.Nil(t, err)
 
@@ -440,7 +440,7 @@ func TestSetStrategy_RecoverFromWAL(t *testing.T) {
 
 		t.Run("create new bucket from existing state", func(t *testing.T) {
 			b, err := NewBucketCreator().NewBucket(testCtx(), dirNameRecovered, "", nullLogger(), nil,
-				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), "class",
 				WithStrategy(StrategySetCollection))
 			require.Nil(t, err)
 
@@ -482,7 +482,7 @@ func TestRoaringSetStrategy_RecoverFromWAL(t *testing.T) {
 
 	t.Run("without prior state", func(t *testing.T) {
 		b, err := NewBucketCreator().NewBucket(testCtx(), dirNameOriginal, "", nullLogger(), nil,
-			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), "class",
 			WithStrategy(StrategyRoaringSet), WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()))
 		require.Nil(t, err)
 
@@ -588,7 +588,7 @@ func TestRoaringSetStrategy_RecoverFromWAL(t *testing.T) {
 
 		t.Run("create new bucket from existing state", func(t *testing.T) {
 			b, err := NewBucketCreator().NewBucket(testCtx(), dirNameRecovered, "", nullLogger(), nil,
-				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), "class",
 				WithStrategy(StrategyRoaringSet), WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()))
 			require.Nil(t, err)
 
@@ -631,7 +631,7 @@ func TestRoaringSetRangeStrategy_RecoverFromWAL(t *testing.T) {
 
 	t.Run("without prior state", func(t *testing.T) {
 		b, err := NewBucketCreator().NewBucket(testCtx(), dirNameOriginal, "", nullLogger(), nil,
-			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), "class",
 			WithStrategy(StrategyRoaringSetRange))
 		require.Nil(t, err)
 
@@ -743,7 +743,7 @@ func TestRoaringSetRangeStrategy_RecoverFromWAL(t *testing.T) {
 
 		t.Run("create new bucket from existing state", func(t *testing.T) {
 			b, err := NewBucketCreator().NewBucket(testCtx(), dirNameRecovered, "", nullLogger(), nil,
-				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), "class",
 				WithStrategy(StrategyRoaringSetRange))
 			require.Nil(t, err)
 
@@ -789,7 +789,7 @@ func TestMapStrategy_RecoverFromWAL(t *testing.T) {
 
 	t.Run("without prior state", func(t *testing.T) {
 		b, err := NewBucketCreator().NewBucket(testCtx(), dirNameOriginal, "", nullLogger(), nil,
-			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), "class",
 			WithStrategy(StrategyMapCollection))
 		require.Nil(t, err)
 
@@ -927,7 +927,7 @@ func TestMapStrategy_RecoverFromWAL(t *testing.T) {
 
 		t.Run("create new bucket from existing state", func(t *testing.T) {
 			b, err := NewBucketCreator().NewBucket(testCtx(), dirNameRecovered, "", nullLogger(), nil,
-				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), "class",
 				WithStrategy(StrategyMapCollection))
 			require.Nil(t, err)
 

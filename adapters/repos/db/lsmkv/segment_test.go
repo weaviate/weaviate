@@ -196,7 +196,7 @@ func createSegmentFilesUsingBucket(t *testing.T, ctx context.Context, logger log
 
 	func() {
 		b, err := NewBucketCreator().NewBucket(ctx, path, "", logger, nil,
-			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), bucketOptions...)
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), "class", bucketOptions...)
 		require.NoError(t, err)
 		defer b.Shutdown(ctx)
 

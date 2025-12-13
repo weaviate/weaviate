@@ -99,7 +99,7 @@ func usageDisk(shardUsage *types.ShardUsage) *types.UsageDisk {
 }
 
 // CalculateUnloadedDimensionsUsage calculates dimensions and object count for an unloaded shard without loading it into memory
-func CalculateUnloadedDimensionsUsage(ctx context.Context, logger logrus.FieldLogger, path, tenantName, targetVector string) (types.Dimensionality, error) {
+func CalculateUnloadedDimensionsUsage(ctx context.Context, logger logrus.FieldLogger, path, className, tenantName, targetVector string) (types.Dimensionality, error) {
 	bucketPath := shardPathDimensionsLSM(path, tenantName)
 	strategy, err := lsmkv.DetermineUnloadedBucketStrategyAmong(bucketPath, lsmkv.DimensionsBucketPrioritizedStrategies)
 	if err != nil {
@@ -113,6 +113,7 @@ func CalculateUnloadedDimensionsUsage(ctx context.Context, logger logrus.FieldLo
 		nil,
 		cyclemanager.NewCallbackGroupNoop(),
 		cyclemanager.NewCallbackGroupNoop(),
+		className,
 		lsmkv.WithStrategy(strategy),
 	)
 	if err != nil {

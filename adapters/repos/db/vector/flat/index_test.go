@@ -62,7 +62,7 @@ func testStore(t *testing.T, dirName string, logger *logrus.Logger) *lsmkv.Store
 	store, err := lsmkv.New(dirName, dirName, logger, nil,
 		cyclemanager.NewCallbackGroupNoop(),
 		cyclemanager.NewCallbackGroupNoop(),
-		cyclemanager.NewCallbackGroupNoop())
+		cyclemanager.NewCallbackGroupNoop(), "class")
 	require.Nil(t, err)
 	return store
 }

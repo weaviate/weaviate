@@ -372,7 +372,7 @@ func (i *Index) calculateUnloadedShardUsage(ctx context.Context, shardName strin
 			vectorUsage.VectorIndexType = vectorIndexConfig.IndexType()
 		}
 
-		dimensionalities, err := shardusage.CalculateUnloadedDimensionsUsage(ctx, i.logger, i.path(), shardName, targetVector)
+		dimensionalities, err := shardusage.CalculateUnloadedDimensionsUsage(ctx, i.logger, i.path(), string(i.Config.ClassName), shardName, targetVector)
 		if err != nil {
 			return nil, err
 		}

@@ -116,16 +116,18 @@ func (db *DB) MultiGet(ctx context.Context, query []multi.Identifier,
 
 	out := make(search.Results, len(query))
 	for indexID, queries := range byIndex {
-		indexRes, err := db.indices[indexID].multiObjectByID(ctx, queries, tenant)
+		idx := db.indices[indexID]
+		indexRes, err := idx.multiObjectByID(ctx, queries, tenant)
 		if err != nil {
 			return nil, fmt.Errorf("index %q: %w", indexID, err)
 		}
+		className := string(idx.Config.ClassName)
 
 		for i, obj := range indexRes {
 			if obj == nil {
 				continue
 			}
-			res := obj.SearchResult(additional, tenant)
+			res := obj.SearchResult(additional, className, tenant)
 			out[queries[i].OriginalPosition] = *res
 		}
 	}
@@ -157,7 +159,7 @@ func (db *DB) ObjectsByID(ctx context.Context, id strfmt.UUID,
 	props search.SelectProperties, additional additional.Properties,
 	tenant string,
 ) (search.Results, error) {
-	var result []*storobj.Object
+	var found search.Results
 	// TODO: Search in parallel, rather than sequentially or this will be
 	// painfully slow on large schemas
 	db.indexLock.RLock()
@@ -175,17 +177,16 @@ func (db *DB) ObjectsByID(ctx context.Context, id strfmt.UUID,
 		}
 
 		if res != nil {
-			result = append(result, res)
+			found = append(found, storobj.SearchResults([]*storobj.Object{res}, additional, string(index.Config.ClassName), tenant)...)
 		}
 	}
 	db.indexLock.RUnlock()
 
-	if result == nil {
+	if len(found) == 0 {
 		return nil, nil
 	}
 
-	return db.ResolveReferences(ctx,
-		storobj.SearchResults(result, additional, tenant), props, nil, additional, tenant)
+	return db.ResolveReferences(ctx, found, props, nil, additional, tenant)
 }
 
 // Object gets object with id from index of specified class.
@@ -210,7 +211,7 @@ func (db *DB) Object(ctx context.Context, class string, id strfmt.UUID,
 	}
 	var r *search.Result
 	if obj != nil {
-		r = obj.SearchResult(addl, tenant)
+		r = obj.SearchResult(addl, class, tenant)
 	}
 	if r == nil {
 		return nil, nil

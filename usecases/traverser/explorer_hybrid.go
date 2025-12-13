@@ -73,7 +73,7 @@ func sparseSearch(ctx context.Context, e *Explorer, params dto.GetParams) ([]*se
 
 	out := make([]*search.Result, len(results))
 	for i, obj := range results {
-		sr := obj.SearchResultWithScore(additional.Properties{}, scores[i])
+		sr := obj.SearchResultWithScore(additional.Properties{}, scores[i], params.ClassName)
 		sr.SecondarySortValue = sr.Score
 		out[i] = &sr
 	}

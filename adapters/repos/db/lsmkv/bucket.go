@@ -66,18 +66,19 @@ const (
 
 type BucketCreator interface {
 	NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogger,
-		metrics *Metrics, compactionCallbacks, flushCallbacks cyclemanager.CycleCallbackGroup,
+		metrics *Metrics, compactionCallbacks, flushCallbacks cyclemanager.CycleCallbackGroup, className string,
 		opts ...BucketOption,
 	) (*Bucket, error)
 }
 
 type Bucket struct {
-	dir      string
-	rootDir  string
-	active   memtable
-	flushing memtable
-	disk     *SegmentGroup
-	logger   logrus.FieldLogger
+	dir       string
+	rootDir   string
+	className string
+	active    memtable
+	flushing  memtable
+	disk      *SegmentGroup
+	logger    logrus.FieldLogger
 
 	// Lock() means a move from active to flushing is happening, RLock() is
 	// normal operation
@@ -200,7 +201,7 @@ func NewBucketCreator() *Bucket { return &Bucket{} }
 // [Store]. In this case the [Store] can manage buckets for you, using methods
 // such as CreateOrLoadBucket().
 func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogger,
-	metrics *Metrics, compactionCallbacks, flushCallbacks cyclemanager.CycleCallbackGroup,
+	metrics *Metrics, compactionCallbacks, flushCallbacks cyclemanager.CycleCallbackGroup, className string,
 	opts ...BucketOption,
 ) (b *Bucket, err error) {
 	beforeAll := time.Now()
@@ -227,6 +228,7 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 		haltedFlushTimer:             interval.NewBackoffTimer(),
 		writeSegmentInfoIntoFileName: false,
 		minWalThreshold:              config.DefaultPersistenceMaxReuseWalSize,
+		className:                    className,
 	}
 
 	for _, opt := range opts {
@@ -361,14 +363,14 @@ func (b *Bucket) GetFlushCallbackCtrl() cyclemanager.CycleCallbackCtrl {
 	return b.flushCallbackCtrl
 }
 
-func (b *Bucket) IterateObjects(ctx context.Context, f func(object *storobj.Object) error) error {
+func (b *Bucket) IterateObjects(ctx context.Context, f func(object *storobj.Object) error, className string) error {
 	cursor := b.Cursor()
 	defer cursor.Close()
 
 	i := 0
 
 	for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
-		obj, err := storobj.FromBinary(v)
+		obj, err := storobj.FromDiskBinary(v, className)
 		if err != nil {
 			return fmt.Errorf("cannot unmarshal object %d, %w", i, err)
 		}
@@ -439,7 +441,7 @@ func (b *Bucket) ApplyToObjectDigests(ctx context.Context,
 			case <-ctx.Done():
 				return ctx.Err()
 			default:
-				obj, err := storobj.FromBinaryUUIDOnly(v)
+				obj, err := storobj.FromDiskBinaryUUIDOnly(v, b.className)
 				if err != nil {
 					return fmt.Errorf("cannot unmarshal object: %w", err)
 				}
@@ -462,7 +464,7 @@ func (b *Bucket) ApplyToObjectDigests(ctx context.Context,
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
-			obj, err := storobj.FromBinaryUUIDOnly(v)
+			obj, err := storobj.FromDiskBinaryUUIDOnly(v, b.className)
 			if err != nil {
 				return fmt.Errorf("cannot unmarshal object: %w", err)
 			}

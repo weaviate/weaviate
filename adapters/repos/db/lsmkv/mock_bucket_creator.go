@@ -36,7 +36,7 @@ func (_m *MockBucketCreator) EXPECT() *MockBucketCreator_Expecter {
 }
 
 // NewBucket provides a mock function with given fields: ctx, dir, rootDir, logger, metrics, compactionCallbacks, flushCallbacks, opts
-func (_m *MockBucketCreator) NewBucket(ctx context.Context, dir string, rootDir string, logger logrus.FieldLogger, metrics *Metrics, compactionCallbacks cyclemanager.CycleCallbackGroup, flushCallbacks cyclemanager.CycleCallbackGroup, opts ...BucketOption) (*Bucket, error) {
+func (_m *MockBucketCreator) NewBucket(ctx context.Context, dir string, rootDir string, logger logrus.FieldLogger, metrics *Metrics, compactionCallbacks cyclemanager.CycleCallbackGroup, flushCallbacks cyclemanager.CycleCallbackGroup, classname string, opts ...BucketOption) (*Bucket, error) {
 	_va := make([]interface{}, len(opts))
 	for _i := range opts {
 		_va[_i] = opts[_i]
@@ -119,7 +119,8 @@ func (_c *MockBucketCreator_NewBucket_Call) RunAndReturn(run func(context.Contex
 func NewMockBucketCreator(t interface {
 	mock.TestingT
 	Cleanup(func())
-}) *MockBucketCreator {
+},
+) *MockBucketCreator {
 	mock := &MockBucketCreator{}
 	mock.Mock.Test(t)
 

@@ -606,7 +606,7 @@ func (i *Index) IterateObjects(ctx context.Context, cb func(index *Index, shard 
 			return cb(i, shard, object)
 		}
 		bucket := shard.Store().Bucket(helpers.ObjectsBucketLSM)
-		return bucket.IterateObjects(ctx, wrapper)
+		return bucket.IterateObjects(ctx, wrapper, string(i.Config.ClassName))
 	})
 }
 

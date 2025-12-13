@@ -298,7 +298,7 @@ func compactionMapStrategy(ctx context.Context, t *testing.T, opts []BucketOptio
 
 	t.Run("init bucket", func(t *testing.T) {
 		b, err := NewBucketCreator().NewBucket(ctx, dirName, dirName, nullLogger(), nil,
-			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), "class", opts...)
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -431,7 +431,7 @@ func compactionMapStrategy(ctx context.Context, t *testing.T, opts []BucketOptio
 func compactionMapStrategy_HugeEntries(ctx context.Context, t *testing.T, opts []BucketOption) {
 	dirName := t.TempDir()
 	b, err := NewBucketCreator().NewBucket(ctx, dirName, dirName, nullLogger(), nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), "class", opts...)
 	require.Nil(t, err)
 
 	// so big it effectively never triggers as part of this test
@@ -487,7 +487,7 @@ func compactionMapStrategy_RemoveUnnecessary(ctx context.Context, t *testing.T, 
 
 	t.Run("init bucket", func(t *testing.T) {
 		b, err := NewBucketCreator().NewBucket(ctx, dirName, dirName, nullLogger(), nil,
-			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), "class", opts...)
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -618,7 +618,7 @@ func compactionMapStrategy_FrequentPutDeleteOperations(ctx context.Context, t *t
 
 			t.Run("init bucket", func(t *testing.T) {
 				b, err := NewBucketCreator().NewBucket(ctx, dirName, dirName, nullLogger(), nil,
-					cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+					cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), "class", opts...)
 				require.Nil(t, err)
 
 				// so big it effectively never triggers as part of this test
