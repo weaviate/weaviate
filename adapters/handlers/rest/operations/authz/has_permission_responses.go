@@ -271,3 +271,48 @@ func (o *HasPermissionInternalServerError) WriteResponse(rw http.ResponseWriter,
 		}
 	}
 }
+
+// HasPermissionServiceUnavailableCode is the HTTP code returned for type HasPermissionServiceUnavailable
+const HasPermissionServiceUnavailableCode int = 503
+
+/*
+HasPermissionServiceUnavailable The operational mode of the server does not allow users operations at this time.
+
+swagger:response hasPermissionServiceUnavailable
+*/
+type HasPermissionServiceUnavailable struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewHasPermissionServiceUnavailable creates HasPermissionServiceUnavailable with default headers values
+func NewHasPermissionServiceUnavailable() *HasPermissionServiceUnavailable {
+
+	return &HasPermissionServiceUnavailable{}
+}
+
+// WithPayload adds the payload to the has permission service unavailable response
+func (o *HasPermissionServiceUnavailable) WithPayload(payload *models.ErrorResponse) *HasPermissionServiceUnavailable {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the has permission service unavailable response
+func (o *HasPermissionServiceUnavailable) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *HasPermissionServiceUnavailable) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(503)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}

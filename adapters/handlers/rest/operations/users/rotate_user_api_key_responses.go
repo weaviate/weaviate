@@ -298,3 +298,48 @@ func (o *RotateUserAPIKeyInternalServerError) WriteResponse(rw http.ResponseWrit
 		}
 	}
 }
+
+// RotateUserAPIKeyServiceUnavailableCode is the HTTP code returned for type RotateUserAPIKeyServiceUnavailable
+const RotateUserAPIKeyServiceUnavailableCode int = 503
+
+/*
+RotateUserAPIKeyServiceUnavailable The operational mode of the server does not allow users operations at this time.
+
+swagger:response rotateUserApiKeyServiceUnavailable
+*/
+type RotateUserAPIKeyServiceUnavailable struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewRotateUserAPIKeyServiceUnavailable creates RotateUserAPIKeyServiceUnavailable with default headers values
+func NewRotateUserAPIKeyServiceUnavailable() *RotateUserAPIKeyServiceUnavailable {
+
+	return &RotateUserAPIKeyServiceUnavailable{}
+}
+
+// WithPayload adds the payload to the rotate user Api key service unavailable response
+func (o *RotateUserAPIKeyServiceUnavailable) WithPayload(payload *models.ErrorResponse) *RotateUserAPIKeyServiceUnavailable {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the rotate user Api key service unavailable response
+func (o *RotateUserAPIKeyServiceUnavailable) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *RotateUserAPIKeyServiceUnavailable) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(503)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}

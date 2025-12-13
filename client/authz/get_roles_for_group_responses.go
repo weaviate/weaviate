@@ -76,6 +76,12 @@ func (o *GetRolesForGroupReader) ReadResponse(response runtime.ClientResponse, c
 			return nil, err
 		}
 		return nil, result
+	case 503:
+		result := NewGetRolesForGroupServiceUnavailable()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	default:
 		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
 	}
@@ -520,6 +526,74 @@ func (o *GetRolesForGroupInternalServerError) GetPayload() *models.ErrorResponse
 }
 
 func (o *GetRolesForGroupInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
+// NewGetRolesForGroupServiceUnavailable creates a GetRolesForGroupServiceUnavailable with default headers values
+func NewGetRolesForGroupServiceUnavailable() *GetRolesForGroupServiceUnavailable {
+	return &GetRolesForGroupServiceUnavailable{}
+}
+
+/*
+GetRolesForGroupServiceUnavailable describes a response with status code 503, with default header values.
+
+The operational mode of the server does not allow users operations at this time.
+*/
+type GetRolesForGroupServiceUnavailable struct {
+	Payload *models.ErrorResponse
+}
+
+// IsSuccess returns true when this get roles for group service unavailable response has a 2xx status code
+func (o *GetRolesForGroupServiceUnavailable) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this get roles for group service unavailable response has a 3xx status code
+func (o *GetRolesForGroupServiceUnavailable) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this get roles for group service unavailable response has a 4xx status code
+func (o *GetRolesForGroupServiceUnavailable) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this get roles for group service unavailable response has a 5xx status code
+func (o *GetRolesForGroupServiceUnavailable) IsServerError() bool {
+	return true
+}
+
+// IsCode returns true when this get roles for group service unavailable response a status code equal to that given
+func (o *GetRolesForGroupServiceUnavailable) IsCode(code int) bool {
+	return code == 503
+}
+
+// Code gets the status code for the get roles for group service unavailable response
+func (o *GetRolesForGroupServiceUnavailable) Code() int {
+	return 503
+}
+
+func (o *GetRolesForGroupServiceUnavailable) Error() string {
+	return fmt.Sprintf("[GET /authz/groups/{id}/roles/{groupType}][%d] getRolesForGroupServiceUnavailable  %+v", 503, o.Payload)
+}
+
+func (o *GetRolesForGroupServiceUnavailable) String() string {
+	return fmt.Sprintf("[GET /authz/groups/{id}/roles/{groupType}][%d] getRolesForGroupServiceUnavailable  %+v", 503, o.Payload)
+}
+
+func (o *GetRolesForGroupServiceUnavailable) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *GetRolesForGroupServiceUnavailable) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
 
