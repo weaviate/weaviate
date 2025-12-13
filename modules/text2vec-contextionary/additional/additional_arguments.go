@@ -14,7 +14,7 @@ package additional
 import (
 	"fmt"
 
-	"github.com/tailor-inc/graphql"
+	"github.com/tailor-platform/graphql"
 )
 
 func additionalNearestNeighborsField(classname string) *graphql.Field {

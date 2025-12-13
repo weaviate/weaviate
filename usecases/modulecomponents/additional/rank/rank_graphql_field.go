@@ -14,7 +14,7 @@ package rank
 import (
 	"fmt"
 
-	"github.com/tailor-inc/graphql"
+	"github.com/tailor-platform/graphql"
 )
 
 func (p *ReRankerProvider) additionalReRankerField(classname string) *graphql.Field {
