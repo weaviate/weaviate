@@ -535,6 +535,8 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 			),
 			grpc.WithInitialWindowSize(int32(maxSize)),
 			grpc.WithInitialConnWindowSize(int32(initialConnWindowSize)),
+			grpc.WithReadBufferSize(4<<20),  // 4 MB
+			grpc.WithWriteBufferSize(4<<20), // 4 MB
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create gRPC client connection: %w", err)
