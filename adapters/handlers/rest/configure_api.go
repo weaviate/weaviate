@@ -524,6 +524,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	remoteClientFactory := func(ctx context.Context, address string) (copier.FileReplicationServiceClient, error) {
 		authConfig := appState.ServerConfig.Config.Cluster.AuthConfig
 		maxSize := clusterapigrpc.GetMaxMessageSize(appState.ServerConfig.Config.ReplicationEngineFileCopyChunkSize)
+		initialConnWindowSize := maxSize * appState.ServerConfig.Config.ReplicationEngineFileCopyWorkers
 
 		clientConn, err := grpc.NewClient(address,
 			grpc.WithTransportCredentials(insecure.NewCredentials()),
@@ -533,7 +534,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 				grpc.UseCompressor(gzip.Name),
 			),
 			grpc.WithInitialWindowSize(int32(maxSize)),
-			grpc.WithInitialConnWindowSize(clusterapigrpc.INITIAL_CONN_WINDOW),
+			grpc.WithInitialConnWindowSize(int32(initialConnWindowSize)),
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create gRPC client connection: %w", err)
