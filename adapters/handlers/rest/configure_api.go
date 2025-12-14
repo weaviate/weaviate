@@ -43,6 +43,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/encoding/gzip"
 
 	"github.com/weaviate/fgprof"
 	"github.com/weaviate/weaviate/adapters/clients"
@@ -529,6 +530,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 			grpc.WithDefaultCallOptions(
 				grpc.MaxCallRecvMsgSize(maxSize),
 				grpc.MaxCallSendMsgSize(maxSize),
+				grpc.UseCompressor(gzip.Name),
 			),
 			grpc.WithInitialWindowSize(int32(maxSize)),
 			grpc.WithInitialConnWindowSize(clusterapigrpc.INITIAL_CONN_WINDOW),
