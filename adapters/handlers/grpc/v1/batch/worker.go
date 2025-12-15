@@ -173,7 +173,7 @@ func toBeacon(ref *pb.BatchReference) string {
 
 func (w *worker) sendReferences(ctx context.Context, streamId string, refs []*pb.BatchReference, cl *pb.ConsistencyLevel, retries int) ([]*pb.BatchStreamReply_Results_Success, []*pb.BatchStreamReply_Results_Error) {
 	if ctx.Err() != nil {
-		w.logger.WithField("streamId", streamId).Warnf("context error before sending objects: %s", ctx.Err())
+		w.logger.WithField("streamId", streamId).Warnf("context error before sending references: %s", ctx.Err())
 		errors := make([]*pb.BatchStreamReply_Results_Error, 0, len(refs))
 		for _, ref := range refs {
 			errors = append(errors, &pb.BatchStreamReply_Results_Error{
