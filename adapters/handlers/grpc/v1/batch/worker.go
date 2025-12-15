@@ -17,7 +17,6 @@ import (
 	"math"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -26,7 +25,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/replica"
 )
 
-const PER_PROCESS_TIMEOUT = 90 * time.Second
+const PER_PROCESS_TIMEOUT = 60 * time.Second
 
 type batcher interface {
 	BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest) (*pb.BatchObjectsReply, error)
@@ -34,12 +33,10 @@ type batcher interface {
 }
 
 type worker struct {
-	batcher                batcher
-	logger                 logrus.FieldLogger
-	reportingQueues        *reportingQueues
-	processingQueue        processingQueue
-	enqueuedObjectsCounter *atomic.Int32
-	metrics                *BatchStreamingMetrics
+	batcher         batcher
+	logger          logrus.FieldLogger
+	reportingQueues *reportingQueues
+	processingQueue processingQueue
 }
 
 type processRequest struct {
@@ -47,12 +44,13 @@ type processRequest struct {
 	consistencyLevel *pb.ConsistencyLevel
 	objects          []*pb.BatchObject
 	references       []*pb.BatchReference
-	// This waitgroup should be set by the method that creates the processRequest
-	// and is used by the workers to signal when the processing of this request is complete.
-	wg *sync.WaitGroup
 	// This context contains metadata relevant to the stream as a whole, e.g. auth info,
 	// that is required for downstream authZ checks by the workers, e.g. data-specific RBAC.
 	streamCtx context.Context
+	// Callback to signal process completion and perform any necessary cleanup
+	onComplete func()
+	// Callback to signal process beginning
+	onStart func()
 }
 
 // StartBatchWorkers launches a specified number of worker goroutines to process batch requests.
@@ -73,8 +71,6 @@ func StartBatchWorkers(
 	processingQueue processingQueue,
 	reportingQueues *reportingQueues,
 	batcher batcher,
-	enqueuedObjectsCounter *atomic.Int32,
-	metrics *BatchStreamingMetrics,
 	logger logrus.FieldLogger,
 ) {
 	eg := enterrors.NewErrorGroupWrapper(logger)
@@ -84,12 +80,10 @@ func StartBatchWorkers(
 		eg.Go(func() error {
 			defer wg.Done()
 			w := &worker{
-				batcher:                batcher,
-				logger:                 logger,
-				reportingQueues:        reportingQueues,
-				processingQueue:        processingQueue,
-				enqueuedObjectsCounter: enqueuedObjectsCounter,
-				metrics:                metrics,
+				batcher:         batcher,
+				logger:          logger,
+				reportingQueues: reportingQueues,
+				processingQueue: processingQueue,
 			}
 			return w.Loop()
 		})
@@ -105,6 +99,17 @@ func (w *worker) isReplicationError(err string) bool {
 }
 
 func (w *worker) sendObjects(ctx context.Context, streamId string, objs []*pb.BatchObject, cl *pb.ConsistencyLevel, retries int) ([]*pb.BatchStreamReply_Results_Success, []*pb.BatchStreamReply_Results_Error) {
+	if ctx.Err() != nil {
+		w.logger.WithField("streamId", streamId).Warnf("context error before sending objects: %s", ctx.Err())
+		errors := make([]*pb.BatchStreamReply_Results_Error, 0, len(objs))
+		for _, obj := range objs {
+			errors = append(errors, &pb.BatchStreamReply_Results_Error{
+				Error:  ctx.Err().Error(),
+				Detail: &pb.BatchStreamReply_Results_Error_Uuid{Uuid: obj.Uuid},
+			})
+		}
+		return nil, errors
+	}
 	reply, err := w.batcher.BatchObjects(ctx, &pb.BatchObjectsRequest{
 		Objects:          objs,
 		ConsistencyLevel: cl,
@@ -167,6 +172,17 @@ func toBeacon(ref *pb.BatchReference) string {
 }
 
 func (w *worker) sendReferences(ctx context.Context, streamId string, refs []*pb.BatchReference, cl *pb.ConsistencyLevel, retries int) ([]*pb.BatchStreamReply_Results_Success, []*pb.BatchStreamReply_Results_Error) {
+	if ctx.Err() != nil {
+		w.logger.WithField("streamId", streamId).Warnf("context error before sending references: %s", ctx.Err())
+		errors := make([]*pb.BatchStreamReply_Results_Error, 0, len(refs))
+		for _, ref := range refs {
+			errors = append(errors, &pb.BatchStreamReply_Results_Error{
+				Error:  ctx.Err().Error(),
+				Detail: &pb.BatchStreamReply_Results_Error_Beacon{Beacon: toBeacon(ref)},
+			})
+		}
+		return nil, errors
+	}
 	reply, err := w.batcher.BatchReferences(ctx, &pb.BatchReferencesRequest{
 		References:       refs,
 		ConsistencyLevel: cl,
@@ -238,11 +254,6 @@ func (w *worker) Loop() error {
 			w.logger.WithField("action", "batch_worker_loop").Error("received nil process request")
 			continue
 		}
-		howMany := len(req.objects) + len(req.references)
-		if w.metrics != nil {
-			w.metrics.OnProcessingQueuePull(howMany)
-		}
-		w.enqueuedObjectsCounter.Add(-int32(howMany))
 		w.process(req)
 	}
 	w.logger.Debug("processing queue closed, shutting down worker")
@@ -250,9 +261,10 @@ func (w *worker) Loop() error {
 }
 
 func (w *worker) process(req *processRequest) {
-	start := time.Now()
-	defer req.wg.Done()
+	req.onStart()
+	defer req.onComplete()
 
+	start := time.Now()
 	ctx, cancel := context.WithTimeout(req.streamCtx, PER_PROCESS_TIMEOUT)
 	defer cancel()
 
