@@ -31,3 +31,14 @@ func (l ConsistencyLevel) ToInt(n int) int {
 		return 1
 	}
 }
+
+func ToConsistencyLevel(l int) ConsistencyLevel {
+	switch l {
+	case 1:
+		return ConsistencyLevelOne
+	case 2:
+		return ConsistencyLevelQuorum
+	default:
+		return ConsistencyLevelAll
+	}
+}

@@ -16,6 +16,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 
+	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/usecases/objects"
 	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 )
@@ -47,8 +48,9 @@ func (r replicatorStream) readErrors(batchSize int,
 			}
 		}
 	}
-	if level > 0 && firstError == nil {
-		firstError = replicaerrors.NewReplicasError(fmt.Errorf("commit: %w", firstError))
+
+	if level > 0 && firstError != nil {
+		firstError = replicaerrors.NewReplicasError(fmt.Errorf("commit: %w", firstError), types.ToConsistencyLevel(level))
 	}
 	return r.flattenErrors(batchSize, urs, firstError)
 }
@@ -76,8 +78,8 @@ func (r replicatorStream) readDeletions(batchSize int,
 			}
 		}
 	}
-	if level > 0 && firstError == nil {
-		firstError = replicaerrors.NewReplicasError(fmt.Errorf("commit: %w", firstError))
+	if level > 0 && firstError != nil {
+		firstError = replicaerrors.NewReplicasError(fmt.Errorf("commit: %w", firstError), types.ToConsistencyLevel(level))
 	}
 	urs = append(urs, rs...)
 	return r.flattenDeletions(batchSize, urs, firstError)
