@@ -221,6 +221,10 @@ func unmarshallStorObj(in []byte) (*storobj.Object, error) {
 		return nil, err
 	}
 	obj.Object.Vector = obj.Vector
+	if len(obj.Vectors) == 0 {
+		return obj, nil
+	}
+	obj.Object.Vectors = make(models.Vectors)
 	for k, v := range obj.Vectors {
 		obj.Object.Vectors[k] = v
 	}
@@ -262,6 +266,10 @@ func unmarshallVersObj(in []byte) (*objects.VObject, error) {
 		return nil, err
 	}
 	vobj.LatestObject.Vector = vobj.Vector
+	if len(vobj.Vectors) == 0 {
+		return &vobj, nil
+	}
+	vobj.LatestObject.Vectors = make(models.Vectors)
 	for k, v := range vobj.Vectors {
 		vobj.LatestObject.Vectors[k] = v
 	}
