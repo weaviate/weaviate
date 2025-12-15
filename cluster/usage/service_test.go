@@ -303,7 +303,10 @@ func TestService_Usage_WithBackups(t *testing.T) {
 			CompletedAt:             completionTime,
 			PreCompressionSizeBytes: preCompressionSizeBytes,
 			Nodes: map[string]*backup.NodeDescriptor{
-				"node1": {Classes: []string{class1, class2}},
+				"test-node": {
+					Classes:                 []string{class1, class2},
+					PreCompressionSizeBytes: preCompressionSizeBytes,
+				},
 			},
 		},
 		{
@@ -313,6 +316,85 @@ func TestService_Usage_WithBackups(t *testing.T) {
 			PreCompressionSizeBytes: 2147483648,
 			Nodes: map[string]*backup.NodeDescriptor{
 				"node1": {Classes: []string{class3}},
+			},
+		},
+	}
+	mockBackupBackend.EXPECT().AllBackups(ctx).Return(backups, nil)
+
+	mockBackupProvider := backupusecase.NewMockBackupBackendProvider(t)
+	mockBackupProvider.EXPECT().EnabledBackupBackends().Return([]modulecapabilities.BackupBackend{mockBackupBackend})
+
+	logger, _ := logrus.NewNullLogger()
+	service := NewService(mockSchema, repo, mockBackupProvider, logger)
+
+	result, err := service.Usage(ctx, false)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, nodeName, result.Node)
+	assert.Len(t, result.Collections, 0)
+	assert.Len(t, result.Backups, 1)
+
+	backup := result.Backups[0]
+	assert.Equal(t, backupID, backup.ID)
+	assert.Equal(t, completionTime.Format(time.RFC3339), backup.CompletionTime)
+	assert.Equal(t, sizeInGib, backup.SizeInGib)
+	assert.Equal(t, backupType, backup.Type)
+
+	collections := backup.Collections
+	sort.Strings(collections)
+	expectedCollections := []string{class1, class2}
+	sort.Strings(expectedCollections)
+	assert.Equal(t, expectedCollections, collections)
+
+	mockSchema.AssertExpectations(t)
+	mockBackupProvider.AssertExpectations(t)
+	mockBackupBackend.AssertExpectations(t)
+}
+
+func TestService_Usage_WithBackups_3node_cluster(t *testing.T) {
+	ctx := context.Background()
+
+	nodeName := "test-node-3"
+	backupID := "backup-1"
+	backupStatus := backup.Success
+	completionTime := time.Date(2025, 1, 15, 10, 30, 0, 0, time.UTC)
+	size1GB := int64(1073741824) // 1 GiB
+	size2GB := 2 * size1GB       // 2 GiB
+	size3GB := 3 * size1GB       // 3 GiB
+	sizeInGib := float64(3)      // result: 3 GiB size for test-node-3
+	backupType := "SUCCESS"
+	class1 := "Class1"
+	class2 := "Class2"
+
+	mockSchema := schemaUC.NewMockSchemaGetter(t)
+	mockSchema.EXPECT().GetSchemaSkipAuth().Return(entschema.Schema{
+		Objects: &models.Schema{Classes: []*models.Class{}},
+	})
+	mockSchema.EXPECT().NodeName().Return(nodeName)
+
+	repo := createTestDb(t, mockSchema, nil, nil)
+
+	mockBackupBackend := modulecapabilities.NewMockBackupBackend(t)
+	backups := []*backup.DistributedBackupDescriptor{
+		{
+			ID:                      backupID,
+			Status:                  backupStatus,
+			CompletedAt:             completionTime,
+			PreCompressionSizeBytes: size1GB + size2GB + size3GB,
+			Nodes: map[string]*backup.NodeDescriptor{
+				"test-node-1": {
+					Classes:                 []string{class1, class2},
+					PreCompressionSizeBytes: size1GB,
+				},
+				"test-node-2": {
+					Classes:                 []string{class1, class2},
+					PreCompressionSizeBytes: size2GB,
+				},
+				"test-node-3": {
+					Classes:                 []string{class1, class2},
+					PreCompressionSizeBytes: size3GB,
+				},
 			},
 		},
 	}
