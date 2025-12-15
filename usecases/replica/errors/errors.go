@@ -14,6 +14,7 @@ package errors
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/weaviate/weaviate/cluster/router/types"
 )
@@ -40,7 +41,12 @@ func NewReplicasError(err error, level ...types.ConsistencyLevel) error {
 }
 
 func IsReplicasError(err error) bool {
-	return errors.Is(err, errReplicas)
+	if errors.Is(err, errReplicas) {
+		return true
+	}
+	// This check for string also because it has been misused in the past
+	// as a defensive measure.
+	return strings.Contains(err.Error(), errReplicas.Error())
 }
 
 // NewRepairError creates a new error for "read repair error".
