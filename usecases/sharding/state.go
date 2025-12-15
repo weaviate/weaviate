@@ -348,14 +348,12 @@ func (s *State) CountPhysicalShards() int {
 }
 
 func (s *State) AllPhysicalShards() []string {
-	var names []string
+	names := make([]string, 0, len(s.Physical))
 	for _, physical := range s.Physical {
 		names = append(names, physical.Name)
 	}
 
-	sort.Slice(names, func(a, b int) bool {
-		return names[a] < names[b]
-	})
+	sort.Strings(names)
 
 	return names
 }

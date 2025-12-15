@@ -20,9 +20,9 @@ import (
 	"testing"
 
 	"github.com/sirupsen/logrus/hooks/test"
-
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/storobj"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 func Test_NoRaceCompressDoesNotCrash(t *testing.T) {
@@ -75,6 +76,7 @@ func Test_NoRaceCompressDoesNotCrash(t *testing.T) {
 			return container.Slice, nil
 		},
 		MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
+		AllocChecker:      memwatch.NewDummyMonitor(),
 	}, uc, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
 	defer index.Shutdown(context.Background())
 	assert.Nil(t, compressionhelpers.ConcurrentlyWithError(logger, uint64(len(vectors)), func(id uint64) error {
@@ -147,6 +149,7 @@ func TestHnswPqNilVectors(t *testing.T) {
 		},
 		TempVectorForIDThunk: TempVectorForIDThunk(vectors),
 		MakeBucketOptions:    lsmkv.MakeNoopBucketOptions,
+		AllocChecker:         memwatch.NewDummyMonitor(),
 	}, userConfig, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
 
 	require.NoError(t, err)

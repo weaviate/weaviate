@@ -18,7 +18,7 @@ const (
 	IndexTypeFlat    = "flat"
 	IndexTypeNoop    = "noop"
 	IndexTypeDynamic = "dynamic"
-	IndexTypeSPFresh = "spfresh"
+	IndexTypeHFresh  = "hfresh"
 )
 
 type IndexStats interface {

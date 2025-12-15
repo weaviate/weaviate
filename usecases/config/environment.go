@@ -22,6 +22,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/netresearch/go-cron"
 	dbhelpers "github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
@@ -48,9 +49,10 @@ const (
 	DefaultDistributedTasksSchedulerTickInterval = time.Minute
 	DefaultDistributedTasksCompletedTaskTTL      = 5 * 24 * time.Hour
 
-	DefaultReplicationEngineMaxWorkers      = 10
-	DefaultReplicaMovementMinimumAsyncWait  = 60 * time.Second
-	DefaultReplicationEngineFileCopyWorkers = 10
+	DefaultReplicationEngineMaxWorkers        = 10
+	DefaultReplicaMovementMinimumAsyncWait    = 60 * time.Second
+	DefaultReplicationEngineFileCopyWorkers   = 10
+	DefaultReplicationEngineFileCopyChunkSize = 1 * 1024 * 1024 // 1 MB
 
 	DefaultTransferInactivityTimeout = 5 * time.Minute
 
@@ -147,6 +149,23 @@ func FromEnv(config *Config) error {
 
 	if entcfg.Enabled(os.Getenv("INDEX_MISSING_TEXT_FILTERABLE_AT_STARTUP")) {
 		config.IndexMissingTextFilterableAtStartup = true
+	}
+
+	objectsTtlAllowSecondsEnv := "OBJECTS_TTL_ALLOW_SECONDS"
+	if entcfg.Enabled(os.Getenv(objectsTtlAllowSecondsEnv)) {
+		config.ObjectsTtlAllowSeconds = true
+	}
+	objectsTtlDeleteScheduleEnv := "OBJECTS_TTL_DELETE_SCHEDULE"
+	if objectsTtlDeleteSchedule := os.Getenv(objectsTtlDeleteScheduleEnv); objectsTtlDeleteSchedule != "" {
+		parser := cron.StandardParser()
+		if config.ObjectsTtlAllowSeconds {
+			// equivalent of cron.WithSeconds() option
+			parser = cron.MustNewParser(cron.Second | cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor)
+		}
+		if _, err := parser.Parse(objectsTtlDeleteSchedule); err != nil {
+			return fmt.Errorf("%s: %w", objectsTtlDeleteScheduleEnv, err)
+		}
+		config.ObjectsTTLDeleteSchedule = objectsTtlDeleteSchedule
 	}
 
 	cptParser := newCollectionPropsTenantsParser()
@@ -466,8 +485,8 @@ func FromEnv(config *Config) error {
 	}
 	config.DefaultQuantization = configRuntime.NewDynamicValue(defaultQuantization)
 
-	if entcfg.Enabled(os.Getenv("EXPERIMENTAL_SPFRESH_ENABLED")) {
-		config.SPFreshEnabled = true
+	if entcfg.Enabled(os.Getenv("EXPERIMENTAL_HFRESH_ENABLED")) {
+		config.HFreshEnabled = true
 	}
 
 	if entcfg.Enabled(os.Getenv("INDEX_RANGEABLE_IN_MEMORY")) {
@@ -832,6 +851,10 @@ func FromEnv(config *Config) error {
 		config.HNSWStartupWaitForVectorCache = true
 	}
 
+	if entcfg.Enabled(os.Getenv("ASYNC_INDEXING")) {
+		config.AsyncIndexingEnabled = true
+	}
+
 	if err := parseInt(
 		"MAXIMUM_ALLOWED_COLLECTIONS_COUNT",
 		func(val int) {
@@ -960,6 +983,12 @@ func FromEnv(config *Config) error {
 		invertedSorterDisabled = !(strings.ToLower(v) == "false")
 	}
 	config.InvertedSorterDisabled = configRuntime.NewDynamicValue(invertedSorterDisabled)
+
+	operationalMode := READ_WRITE
+	if v := os.Getenv("OPERATIONAL_MODE"); v != "" && (v == READ_WRITE || v == READ_ONLY || v == WRITE_ONLY || v == SCALE_OUT) {
+		operationalMode = v
+	}
+	config.OperationalMode = configRuntime.NewDynamicValue(operationalMode)
 
 	return nil
 }
@@ -1191,6 +1220,14 @@ func (c *Config) parseMemtableConfig() error {
 		"REPLICATION_ENGINE_FILE_COPY_WORKERS",
 		func(val int) { c.ReplicationEngineFileCopyWorkers = val },
 		DefaultReplicationEngineFileCopyWorkers,
+	); err != nil {
+		return err
+	}
+
+	if err := parsePositiveInt(
+		"REPLICATION_ENGINE_FILE_COPY_CHUNK_SIZE",
+		func(val int) { c.ReplicationEngineFileCopyChunkSize = val },
+		DefaultReplicationEngineFileCopyChunkSize,
 	); err != nil {
 		return err
 	}
@@ -1482,7 +1519,7 @@ func parseClusterConfig() (cluster.Config, error) {
 		cfg.DataBindPort = asInt
 	} else {
 		// it is convention in this server that the data bind point is
-		// equal to the data bind port + 1
+		// equal to the gossip bind port + 1
 		cfg.DataBindPort = cfg.GossipBindPort + 1
 	}
 

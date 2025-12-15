@@ -80,7 +80,20 @@ func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool, inactivity
 		q.Pause()
 		return nil
 	})
+	// wait for ongoing indexing to finish
+	_ = s.ForEachVectorQueue(func(_ string, q *VectorIndexQueue) error {
+		q.Wait()
+		return nil
+	})
+	// flush all the queue
+	err = s.ForEachVectorQueue(func(_ string, q *VectorIndexQueue) error {
+		return q.Flush()
+	})
+	if err != nil {
+		return fmt.Errorf("flush vector index queues: %w", err)
+	}
 
+	// switch commit logs to ensure all data is flushed to disk
 	err = s.ForEachVectorIndex(func(targetVector string, index VectorIndex) error {
 		if err = index.SwitchCommitLogs(ctx); err != nil {
 			return fmt.Errorf("switch commit logs of vector %q: %w", targetVector, err)
@@ -105,14 +118,26 @@ func (s *Shard) mayUpdateInactivityTimeout(inactivityTimeout time.Duration) {
 }
 
 func (s *Shard) mayResetInactivityTimer() {
-	if s.haltForTransferInactivityTimer == nil {
+	resetTimer(s.haltForTransferInactivityTimer, s.haltForTransferInactivityTimeout)
+}
+
+func resetTimer(t *time.Timer, d time.Duration) {
+	if t == nil {
 		return
 	}
 
-	if !s.haltForTransferInactivityTimer.Stop() {
-		<-s.haltForTransferInactivityTimer.C // drain the channel if necessary
+	// if Stop returns false, the timer has either already fired or been stopped.
+	// in the "already fired" case, there may be a value in t.C that we need to drain.
+	if !t.Stop() {
+		select {
+		case <-t.C:
+			// drained a pending tick.
+		default:
+			// channel was already drained; nothing to do.
+		}
 	}
-	s.haltForTransferInactivityTimer.Reset(s.haltForTransferInactivityTimeout)
+
+	t.Reset(d)
 }
 
 func (s *Shard) mayInitInactivityMonitoring() {
@@ -167,10 +192,22 @@ func (s *Shard) ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor
 		return err
 	}
 
-	return s.ForEachVectorIndex(func(targetVector string, idx VectorIndex) error {
+	err = s.ForEachVectorIndex(func(targetVector string, idx VectorIndex) error {
 		files, err := idx.ListFiles(ctx, s.index.Config.RootPath)
 		if err != nil {
 			return fmt.Errorf("list files of vector %q: %w", targetVector, err)
+		}
+		ret.Files = append(ret.Files, files...)
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	return s.ForEachVectorQueue(func(targetVector string, queue *VectorIndexQueue) error {
+		files, err := queue.ListFiles(ctx, s.index.Config.RootPath)
+		if err != nil {
+			return fmt.Errorf("list files of queue %q: %w", targetVector, err)
 		}
 		ret.Files = append(ret.Files, files...)
 		return nil

@@ -164,7 +164,7 @@ func (s *Scheduler) Start() {
 	chans := make([]chan *Batch, s.Workers)
 
 	for i := 0; i < s.Workers; i++ {
-		worker, ch := NewWorker(s.Logger, s.RetryInterval)
+		worker, ch := NewWorker(s.Logger.WithField("worker_id", i))
 		chans[i] = ch
 
 		s.wg.Add(1)
@@ -360,6 +360,11 @@ func (s *Scheduler) scheduleQueues() (nothingScheduled bool) {
 			continue
 		}
 
+		// skip if already scheduled
+		if q.activeTasks.Count() > 0 {
+			continue
+		}
+
 		// mark it as scheduled
 		q.MarkAsScheduled()
 
@@ -419,6 +424,7 @@ func (s *Scheduler) dispatchQueue(q *queueState) (int64, error) {
 
 	// compress the tasks before sending them to the workers
 	// i.e. group consecutive tasks with the same operation as a single task
+	// e.g. multiple index.Add into a single index.AddBatch
 	for i := range partitions {
 		partitions[i] = s.compressTasks(partitions[i])
 	}
@@ -441,19 +447,11 @@ func (s *Scheduler) dispatchQueue(q *queueState) (int64, error) {
 
 		start := time.Now()
 
-		select {
-		case <-s.ctx.Done():
-			s.activeTasks.Decr()
-			q.activeTasks.Decr()
-			return taskCount, nil
-		case <-q.ctx.Done():
-			s.activeTasks.Decr()
-			q.activeTasks.Decr()
-			return taskCount, nil
-		case s.chans[i] <- &Batch{
+		// prepare the batch for the worker
+		wb := Batch{
 			Tasks: partitions[i],
 			Ctx:   q.ctx,
-			onDone: func() {
+			OnDone: func() {
 				defer q.q.Metrics().TasksProcessed(start, int(taskCount))
 				defer q.activeTasks.Decr()
 				defer s.activeTasks.Decr()
@@ -473,17 +471,55 @@ func (s *Scheduler) dispatchQueue(q *queueState) (int64, error) {
 						Debug("tasks processed")
 				}
 			},
-			onCanceled: func() {
+			OnCanceled: func() {
 				q.activeTasks.Decr()
 				s.activeTasks.Decr()
 			},
-		}:
+		}
+
+		err = s.sendToAvailableWorker(q, &wb)
+		if err != nil {
+			s.activeTasks.Decr()
+			q.activeTasks.Decr()
+			return taskCount, errors.Wrap(err, "failed to send batch to worker")
 		}
 	}
 
 	s.logQueueStats(q.q, taskCount)
 
 	return taskCount, nil
+}
+
+// sendToAvailableWorker tries to send the batch to an available worker channel.
+// If no worker is available, it waits and retries until successful or until
+// the scheduler or queue context is done.
+func (s *Scheduler) sendToAvailableWorker(q *queueState, batch *Batch) error {
+	// pick the first available worker channel
+	for {
+		for _, ch := range s.chans {
+			select {
+			case <-s.ctx.Done():
+				return s.ctx.Err()
+			case <-q.ctx.Done():
+				return q.ctx.Err()
+			case ch <- batch:
+				return nil
+			default:
+			}
+		}
+
+		// wait a bit before retrying
+		t := time.NewTimer(100 * time.Millisecond)
+		select {
+		case <-s.ctx.Done():
+			t.Stop()
+			return s.ctx.Err()
+		case <-q.ctx.Done():
+			t.Stop()
+			return q.ctx.Err()
+		case <-t.C:
+		}
+	}
 }
 
 func (s *Scheduler) logQueueStats(q Queue, tasksDequeued int64) {

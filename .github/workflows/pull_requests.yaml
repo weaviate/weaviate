@@ -117,7 +117,7 @@ jobs:
           echo "${{ steps.push.outputs.PREVIEW_SEMVER_TAG }}" > /tmp/docker-outputs/preview-semver-tag.txt
 
       - name: Upload outputs
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: docker-outputs-multi-arch
           path: /tmp/docker-outputs/
@@ -192,7 +192,7 @@ jobs:
           echo "${{ steps.push.outputs.PREVIEW_SEMVER_TAG }}" > /tmp/docker-outputs/preview-semver-tag.txt
 
       - name: Upload outputs
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: docker-outputs-pr-${{ matrix.arch }}
           path: /tmp/docker-outputs/
@@ -209,7 +209,7 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Download all build outputs
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v7
         with:
           pattern: docker-outputs-*
           path: /tmp/all-outputs/
@@ -297,7 +297,7 @@ jobs:
       - name: Unit test
         run: ./test/run.sh --unit-only
       - name: Archive code coverage results
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: coverage-report-unit
           path: coverage-unit.txt
@@ -319,10 +319,18 @@ jobs:
         with:
           go-version: '1.25'
           cache: true
+      - name: Cache vector datasets
+        if: matrix.name == 'with vectors'
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/huggingface/hub
+          key: huggingface-cache-${{ runner.os }}-${{ hashFiles('adapters/repos/db/vector/hfresh/recall_test.go') }}
+          restore-keys: |
+            huggingface-cache-${{ runner.os }}-
       - name: Integration test
         run: ./test/run.sh ${{ matrix.test }}
       - name: Archive code coverage results
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: coverage-report-integration${{ matrix.test }}
           path: coverage-integration.txt
@@ -514,6 +522,8 @@ jobs:
             test: "--only-module-text2vec-openai"
           - name: "text2vec-cohere"
             test: "--only-module-text2vec-cohere"
+          - name: "reranker-cohere"
+            test: "--only-module-reranker-cohere"
     steps:
       - uses: actions/checkout@v6
         with:
@@ -600,8 +610,6 @@ jobs:
             test: "--acceptance-go-client-only-fast-group-1"
           - name: "go-client-group-2"
             test: "--acceptance-go-client-only-fast-group-2"
-          - name: "python"
-            test: "--acceptance-only-python"
     steps:
       - uses: actions/checkout@v6
       - name: Set up Go
@@ -635,6 +643,8 @@ jobs:
             test: "--acceptance-go-client-named-vectors-cluster"
           - name: "fast-group-4"
             test: "--acceptance-only-fast-group-4"
+          - name: "python"
+            test: "--acceptance-only-python"
     steps:
       - uses: actions/checkout@v6
       - name: Set up Go
@@ -720,16 +730,16 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - name: Download coverage artifacts integration
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v7
         with:
           name: coverage-report-unit
       - name: Download coverage integration without vector package
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v7
         with:
           name: coverage-report-integration--integration-without-vector-package
           path: coverage-integration-without-vector-package.txt
       - name: Download coverage integration vector package only
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v7
         with:
           name: coverage-report-integration--integration-vector-package-only
           path: coverage-integration-vector-package-only.txt
@@ -757,27 +767,27 @@ jobs:
         run: |
           GIT_REVISION=$(git rev-parse --short HEAD) GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD) BUILD_USER=ci BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ") goreleaser build  --clean --snapshot
       - name: Upload macos
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: binaries-macos-unsigned
           path: dist/weaviate_darwin_all
       - name: Upload windows
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: binaries-windows-amd64
           path: dist/weaviate_windows_amd64_v1
       - name: Upload windows
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: binaries-windows-arm64
           path: dist/weaviate_windows_arm64
       - name: Upload linux amd64
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: binaries-linux-amd64
           path: dist/weaviate_linux_amd64_v1
       - name: Upload linux arm64
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: binaries-linux-arm64
           path: dist/weaviate_linux_arm64
@@ -796,7 +806,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - name: Download binaries
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v7
         with:
           name: binaries-windows-amd64
       - name: Set up Go

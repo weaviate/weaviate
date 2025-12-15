@@ -53,7 +53,6 @@ const (
 	ApplyRequest_TYPE_SUSPEND_USER                                               ApplyRequest_Type = 83
 	ApplyRequest_TYPE_ACTIVATE_USER                                              ApplyRequest_Type = 84
 	ApplyRequest_TYPE_CREATE_USER_WITH_KEY                                       ApplyRequest_Type = 85
-	ApplyRequest_TYPE_STORE_SCHEMA_V1                                            ApplyRequest_Type = 99
 	ApplyRequest_TYPE_REPLICATION_REPLICATE                                      ApplyRequest_Type = 200
 	ApplyRequest_TYPE_REPLICATION_REPLICATE_UPDATE_STATE                         ApplyRequest_Type = 201
 	ApplyRequest_TYPE_REPLICATION_REPLICATE_REGISTER_ERROR                       ApplyRequest_Type = 202
@@ -108,7 +107,6 @@ var (
 		83:  "TYPE_SUSPEND_USER",
 		84:  "TYPE_ACTIVATE_USER",
 		85:  "TYPE_CREATE_USER_WITH_KEY",
-		99:  "TYPE_STORE_SCHEMA_V1",
 		200: "TYPE_REPLICATION_REPLICATE",
 		201: "TYPE_REPLICATION_REPLICATE_UPDATE_STATE",
 		202: "TYPE_REPLICATION_REPLICATE_REGISTER_ERROR",
@@ -160,7 +158,6 @@ var (
 		"TYPE_SUSPEND_USER":                                               83,
 		"TYPE_ACTIVATE_USER":                                              84,
 		"TYPE_CREATE_USER_WITH_KEY":                                       85,
-		"TYPE_STORE_SCHEMA_V1":                                            99,
 		"TYPE_REPLICATION_REPLICATE":                                      200,
 		"TYPE_REPLICATION_REPLICATE_UPDATE_STATE":                         201,
 		"TYPE_REPLICATION_REPLICATE_REGISTER_ERROR":                       202,
@@ -1760,13 +1757,13 @@ const file_api_message_proto_rawDesc = "" +
 	"\x11NotifyPeerRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x18\n" +
 	"\aaddress\x18\x02 \x01(\tR\aaddress\"\x14\n" +
-	"\x12NotifyPeerResponse\"\x91\x0f\n" +
+	"\x12NotifyPeerResponse\"\xfd\x0e\n" +
 	"\fApplyRequest\x12@\n" +
 	"\x04type\x18\x01 \x01(\x0e2,.weaviate.internal.cluster.ApplyRequest.TypeR\x04type\x12\x14\n" +
 	"\x05class\x18\x02 \x01(\tR\x05class\x12\x18\n" +
 	"\aversion\x18\x03 \x01(\x04R\aversion\x12\x1f\n" +
 	"\vsub_command\x18\x04 \x01(\fR\n" +
-	"subCommand\"\xed\r\n" +
+	"subCommand\"\xd9\r\n" +
 	"\x04Type\x12\x14\n" +
 	"\x10TYPE_UNSPECIFIED\x10\x00\x12\x12\n" +
 	"\x0eTYPE_ADD_CLASS\x10\x01\x12\x15\n" +
@@ -1795,8 +1792,7 @@ const file_api_message_proto_rawDesc = "" +
 	"\x18TYPE_ROTATE_USER_API_KEY\x10R\x12\x15\n" +
 	"\x11TYPE_SUSPEND_USER\x10S\x12\x16\n" +
 	"\x12TYPE_ACTIVATE_USER\x10T\x12\x1d\n" +
-	"\x19TYPE_CREATE_USER_WITH_KEY\x10U\x12\x18\n" +
-	"\x14TYPE_STORE_SCHEMA_V1\x10c\x12\x1f\n" +
+	"\x19TYPE_CREATE_USER_WITH_KEY\x10U\x12\x1f\n" +
 	"\x1aTYPE_REPLICATION_REPLICATE\x10\xc8\x01\x12,\n" +
 	"'TYPE_REPLICATION_REPLICATE_UPDATE_STATE\x10\xc9\x01\x12.\n" +
 	")TYPE_REPLICATION_REPLICATE_REGISTER_ERROR\x10\xca\x01\x12&\n" +
@@ -1818,7 +1814,7 @@ const file_api_message_proto_rawDesc = "" +
 	"\x19TYPE_DISTRIBUTED_TASK_ADD\x10\xac\x02\x12!\n" +
 	"\x1cTYPE_DISTRIBUTED_TASK_CANCEL\x10\xad\x02\x120\n" +
 	"+TYPE_DISTRIBUTED_TASK_RECORD_NODE_COMPLETED\x10\xae\x02\x12#\n" +
-	"\x1eTYPE_DISTRIBUTED_TASK_CLEAN_UP\x10\xaf\x02\"A\n" +
+	"\x1eTYPE_DISTRIBUTED_TASK_CLEAN_UP\x10\xaf\x02\"\x04\bc\x10c\"A\n" +
 	"\rApplyResponse\x12\x18\n" +
 	"\aversion\x18\x01 \x01(\x04R\aversion\x12\x16\n" +
 	"\x06leader\x18\x02 \x01(\tR\x06leader\"\x91\b\n" +

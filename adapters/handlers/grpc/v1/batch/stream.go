@@ -455,6 +455,20 @@ func (h *StreamHandler) receiver(ctx context.Context, streamId string, consisten
 				push(batch, refs)
 			}
 
+			uuids := make([]string, 0, len(objs))
+			beacons := make([]string, 0, len(refs))
+			for _, obj := range objs {
+				uuids = append(uuids, obj.GetUuid())
+			}
+			for _, ref := range refs {
+				beacons = append(beacons, toBeacon(ref))
+			}
+			// Acknowledge receipt of these objects and/or references from the message
+			if err := stream.Send(newBatchAcksMessage(uuids, beacons)); err != nil {
+				log.Errorf("failed to send acks message: %s", err)
+				return fmt.Errorf("send acks message: %w", err)
+			}
+
 		} else if request.GetStop() != nil {
 			h.setStopping(streamId)
 		} else {

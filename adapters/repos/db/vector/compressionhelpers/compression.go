@@ -69,6 +69,8 @@ type VectorCompressor interface {
 	SetKeys(id uint64, docID uint64, relativeID uint64)
 	Prefetch(id uint64)
 	CountVectors() int64
+	MaxVectorID() uint64
+	Len() int32
 	PrefillCache(ctx context.Context)
 	PrefillMultiCache(ctx context.Context, docIDVectors map[uint64][]uint64)
 
@@ -79,6 +81,7 @@ type VectorCompressor interface {
 
 	PersistCompression(CommitLogger)
 	Stats() CompressionStats
+	Get(id uint64) ([]float32, error)
 }
 
 type quantizedVectorsCompressor[T byte | uint64] struct {
@@ -90,6 +93,14 @@ type quantizedVectorsCompressor[T byte | uint64] struct {
 	logger            logrus.FieldLogger
 	targetVector      string
 	makeBucketOptions lsmkv.MakeBucketOptions
+}
+
+func (compressor *quantizedVectorsCompressor[T]) Get(id uint64) ([]float32, error) {
+	compressed, err := compressor.cache.Get(context.Background(), id)
+	if err != nil {
+		return nil, err
+	}
+	return compressor.quantizer.Decode(compressed), nil
 }
 
 func (compressor *quantizedVectorsCompressor[T]) Drop() error {
@@ -109,8 +120,16 @@ func (compressor *quantizedVectorsCompressor[T]) CountVectors() int64 {
 	return compressor.cache.CountVectors()
 }
 
+func (compressor *quantizedVectorsCompressor[T]) MaxVectorID() uint64 {
+	return uint64(compressor.cache.Len())
+}
+
 func (compressor *quantizedVectorsCompressor[T]) GetCacheMaxSize() int64 {
 	return compressor.cache.CopyMaxSize()
+}
+
+func (compressor *quantizedVectorsCompressor[T]) Len() int32 {
+	return compressor.cache.Len()
 }
 
 func (compressor *quantizedVectorsCompressor[T]) Delete(ctx context.Context, id uint64) {

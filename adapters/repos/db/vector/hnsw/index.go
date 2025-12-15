@@ -24,6 +24,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
@@ -195,6 +196,8 @@ type hnsw struct {
 
 	visitedListPoolMaxSize int
 
+	asyncIndexingEnabled bool
+
 	// only used for multivector mode
 	multivector       atomic.Bool
 	muvera            atomic.Bool
@@ -205,6 +208,13 @@ type hnsw struct {
 	makeBucketOptions lsmkv.MakeBucketOptions
 
 	fs common.FS
+}
+
+func (h *hnsw) Get(id uint64) ([]float32, error) {
+	if !h.compressed.Load() {
+		return h.cache.Get(context.Background(), id)
+	}
+	return h.compressor.Get(id)
 }
 
 type CommitLogger interface {
@@ -357,6 +367,7 @@ func New(cfg Config, uc ent.UserConfig,
 		store:                  store,
 		allocChecker:           cfg.AllocChecker,
 		visitedListPoolMaxSize: cfg.VisitedListPoolMaxSize,
+		asyncIndexingEnabled:   cfg.AsyncIndexingEnabled,
 
 		docIDVectors:      make(map[uint64][]uint64),
 		muveraEncoder:     muveraEncoder,
@@ -875,7 +886,17 @@ func (h *hnsw) Upgraded() bool {
 }
 
 func (h *hnsw) AlreadyIndexed() uint64 {
+	if h.compressed.Load() {
+		return uint64(h.compressor.CountVectors())
+	}
 	return uint64(h.cache.CountVectors())
+}
+
+func (h *hnsw) CurrentVectorsLen() uint64 {
+	if h.compressed.Load() {
+		return h.compressor.MaxVectorID()
+	}
+	return uint64(h.cache.Len())
 }
 
 func (h *hnsw) normalizeVec(vec []float32) []float32 {
@@ -1017,14 +1038,15 @@ func (h *hnsw) Stats() (*HnswStats, error) {
 		DistributionLayers: distributionLayers,
 		UnreachablePoints:  h.calculateUnreachablePoints(),
 		NumTombstones:      len(h.tombstones),
-		CacheSize:          h.cache.Len(),
 		Compressed:         h.compressed.Load(),
 	}
 
 	if stats.Compressed {
 		stats.CompressorStats = h.compressor.Stats()
+		stats.CacheSize = h.compressor.Len()
 	} else {
 		stats.CompressorStats = compressionhelpers.UncompressedStats{}
+		stats.CacheSize = h.cache.Len()
 	}
 
 	stats.CompressionType = stats.CompressorStats.CompressionType()

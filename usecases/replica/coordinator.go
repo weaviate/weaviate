@@ -124,7 +124,7 @@ func (c *coordinator[T]) broadcast(ctx context.Context,
 		actives := make([]_Result[string], 0, level) // cache for active replicas
 		for r := range prepare() {
 			if r.Err != nil { // connection error
-				c.log.WithField("op", "broadcast").Error(r.Err)
+				c.log.WithField("op", "broadcast").Warn(r.Err)
 				continue
 			}
 
@@ -333,9 +333,15 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 					return
 				}
 				// this host failed op on the first try, put it on the retry queue
-				hostRetryQueue <- hostRetry{
-					hosts[hostIndex],
-					backoff.WithContext(utils.NewExponentialBackoff(c.pullBackOffPreInitialInterval, c.pullBackOffMaxElapsedTime), workerCtx),
+				select {
+				case <-workerCtx.Done():
+					replyCh <- _Result[T]{Err: workerCtx.Err()}
+					return
+				default:
+					hostRetryQueue <- hostRetry{
+						hosts[hostIndex],
+						backoff.WithContext(utils.NewExponentialBackoff(c.pullBackOffPreInitialInterval, c.pullBackOffMaxElapsedTime), workerCtx),
+					}
 				}
 
 				// let's fallback to the backups in the retry queue

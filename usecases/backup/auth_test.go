@@ -125,11 +125,12 @@ func Test_Authorization(t *testing.T) {
 							Status:  backup.Success,
 						},
 					},
-					Status:        backup.Success,
-					ID:            "123",
-					Version:       "2.1",
-					ServerVersion: "x.x.x",
-					Error:         "",
+					Status:          backup.Success,
+					ID:              "123",
+					Version:         "2.1",
+					ServerVersion:   "x.x.x",
+					Error:           "",
+					CompressionType: backup.CompressionZSTD,
 				})
 				require.Nil(t, err)
 				var dd backup.DistributedBackupDescriptor

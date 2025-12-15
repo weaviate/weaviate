@@ -14,6 +14,8 @@ package dynamic
 import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	bolt "go.etcd.io/bbolt"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/flat"
@@ -25,7 +27,6 @@ import (
 	ent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
-	bolt "go.etcd.io/bbolt"
 )
 
 type Config struct {
@@ -47,6 +48,7 @@ type Config struct {
 	HNSWWaitForCachePrefill bool
 	AllocChecker            memwatch.AllocChecker
 	MakeBucketOptions       lsmkv.MakeBucketOptions
+	AsyncIndexingEnabled    bool
 }
 
 func (c Config) Validate() error {
@@ -58,6 +60,10 @@ func (c Config) Validate() error {
 
 	if c.DistanceProvider == nil {
 		ec.Addf("distancerProvider cannot be nil")
+	}
+
+	if !c.AsyncIndexingEnabled {
+		ec.Addf("the dynamic index can only be created when async indexing is enabled")
 	}
 
 	return ec.ToError()

@@ -559,6 +559,8 @@ func (l *hnswCommitLogger) startSwitchLogs(shouldAbort cyclemanager.ShouldAbortC
 	if err != nil {
 		l.logger.WithError(err).
 			WithField("action", "hnsw_commit_log_switch").
+			WithField("file", l.rootPath).
+			WithField("id", l.id).
 			Error("hnsw commit log switch failed")
 	}
 	return executed
@@ -576,6 +578,8 @@ func (l *hnswCommitLogger) startCommitLogsMaintenance(shouldAbort cyclemanager.S
 	if err != nil {
 		l.logger.WithError(err).
 			WithField("action", "hnsw_commit_log_combining").
+			WithField("file", l.rootPath).
+			WithField("id", l.id).
 			Error("hnsw commit log maintenance (combining) failed")
 	}
 
@@ -583,6 +587,8 @@ func (l *hnswCommitLogger) startCommitLogsMaintenance(shouldAbort cyclemanager.S
 	if err != nil {
 		l.logger.WithError(err).
 			WithField("action", "hnsw_commit_log_condensing").
+			WithField("file", l.rootPath).
+			WithField("id", l.id).
 			Error("hnsw commit log maintenance (condensing) failed")
 	}
 
@@ -590,6 +596,8 @@ func (l *hnswCommitLogger) startCommitLogsMaintenance(shouldAbort cyclemanager.S
 	if err != nil {
 		l.logger.WithError(err).
 			WithField("action", "hnsw_snapshot_creating").
+			WithField("file", l.rootPath).
+			WithField("id", l.id).
 			Error("hnsw commit log maintenance (snapshot) failed")
 	}
 
