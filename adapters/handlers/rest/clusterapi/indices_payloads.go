@@ -215,15 +215,19 @@ func marshallStorObj(in *storobj.Object) ([]byte, error) {
 	return obj.MarshalBinary()
 }
 
-// Rebuild nullified obj.Object.{Vector,Vectors} from storobj fields
-func rebuildStorObj(in *storobj.Object) {
-	in.Object.Vector = in.Vector
-	for k, v := range in.Vectors {
-		in.Object.Vectors[k] = v
+func unmarshallStorObj(in []byte) (*storobj.Object, error) {
+	obj, err := storobj.FromBinary(in)
+	if err != nil {
+		return nil, err
 	}
-	for k, v := range in.MultiVectors {
-		in.Object.Vectors[k] = v
+	obj.Object.Vector = obj.Vector
+	for k, v := range obj.Vectors {
+		obj.Object.Vectors[k] = v
 	}
+	for k, v := range obj.MultiVectors {
+		obj.Object.Vectors[k] = v
+	}
+	return obj, nil
 }
 
 func marshallVersObj(in *objects.VObject) ([]byte, error) {
@@ -251,14 +255,20 @@ func marshallVersObj(in *objects.VObject) ([]byte, error) {
 	return vobj.MarshalBinary()
 }
 
-func rebuildVersObj(in *objects.VObject) {
-	in.LatestObject.Vector = in.Vector
-	for k, v := range in.Vectors {
-		in.LatestObject.Vectors[k] = v
+func unmarshallVersObj(in []byte) (*objects.VObject, error) {
+	var vobj objects.VObject
+	err := vobj.UnmarshalBinary(in)
+	if err != nil {
+		return nil, err
 	}
-	for k, v := range in.MultiVectors {
-		in.LatestObject.Vectors[k] = v
+	vobj.LatestObject.Vector = vobj.Vector
+	for k, v := range vobj.Vectors {
+		vobj.LatestObject.Vectors[k] = v
 	}
+	for k, v := range vobj.MultiVectors {
+		vobj.LatestObject.Vectors[k] = v
+	}
+	return &vobj, nil
 }
 
 type singleObjectPayload struct{}
@@ -285,12 +295,7 @@ func (p singleObjectPayload) Marshal(in *storobj.Object) ([]byte, error) {
 }
 
 func (p singleObjectPayload) Unmarshal(in []byte) (*storobj.Object, error) {
-	obj, err := storobj.FromBinary(in)
-	if err != nil {
-		return nil, err
-	}
-	rebuildStorObj(obj)
-	return obj, nil
+	return unmarshallStorObj(in)
 }
 
 type objectListPayload struct{}
@@ -357,11 +362,10 @@ func (p objectListPayload) Unmarshal(in []byte) ([]*storobj.Object, error) {
 			return nil, err
 		}
 
-		obj, err := storobj.FromBinary(payloadBytes)
+		obj, err := unmarshallStorObj(payloadBytes)
 		if err != nil {
 			return nil, err
 		}
-		rebuildStorObj(obj)
 
 		out = append(out, obj)
 	}
@@ -437,14 +441,12 @@ func (p versionedObjectListPayload) Unmarshal(in []byte) ([]*objects.VObject, er
 			return nil, err
 		}
 
-		var vobj objects.VObject
-		err = vobj.UnmarshalBinary(payloadBytes)
+		vobj, err := unmarshallVersObj(payloadBytes)
 		if err != nil {
 			return nil, err
 		}
-		rebuildVersObj(&vobj)
 
-		out = append(out, &vobj)
+		out = append(out, vobj)
 	}
 
 	return out, nil
