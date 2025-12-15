@@ -189,6 +189,38 @@ func (e errorListPayload) Unmarshal(in []byte) []error {
 	return converted
 }
 
+// Nullify obj.Object.{Vector,Vectors} to avoid redundant network transfer
+func nullifyStorObj(in *storobj.Object) {
+	in.Object.Vector = nil
+	in.Object.Vectors = nil
+}
+
+// Rebuild nullified obj.Object.{Vector,Vectors} from storobj fields
+func rebuildStorObj(in *storobj.Object) {
+	in.Object.Vector = in.Vector
+	for k, v := range in.Vectors {
+		in.Object.Vectors[k] = v
+	}
+	for k, v := range in.MultiVectors {
+		in.Object.Vectors[k] = v
+	}
+}
+
+func nullifyVersionedObj(in *objects.VObject) {
+	in.LatestObject.Vector = nil
+	in.LatestObject.Vectors = nil
+}
+
+func rebuildVersionedObj(in *objects.VObject) {
+	in.LatestObject.Vector = in.Vector
+	for k, v := range in.Vectors {
+		in.LatestObject.Vectors[k] = v
+	}
+	for k, v := range in.MultiVectors {
+		in.LatestObject.Vectors[k] = v
+	}
+}
+
 type singleObjectPayload struct{}
 
 func (p singleObjectPayload) MIME() string {
@@ -209,11 +241,17 @@ func (p singleObjectPayload) CheckContentTypeHeader(r *http.Response) (string, b
 }
 
 func (p singleObjectPayload) Marshal(in *storobj.Object) ([]byte, error) {
+	nullifyStorObj(in)
 	return in.MarshalBinary()
 }
 
 func (p singleObjectPayload) Unmarshal(in []byte) (*storobj.Object, error) {
-	return storobj.FromBinary(in)
+	obj, err := storobj.FromBinary(in)
+	if err != nil {
+		return nil, err
+	}
+	rebuildStorObj(obj)
+	return obj, nil
 }
 
 type objectListPayload struct{}
@@ -243,6 +281,8 @@ func (p objectListPayload) Marshal(in []*storobj.Object) ([]byte, error) {
 	reusableLengthBuf := make([]byte, 8)
 	for _, ind := range in {
 		if ind != nil {
+			nullifyStorObj(ind)
+
 			bytes, err := ind.MarshalBinary()
 			if err != nil {
 				return nil, err
@@ -284,6 +324,7 @@ func (p objectListPayload) Unmarshal(in []byte) ([]*storobj.Object, error) {
 		if err != nil {
 			return nil, err
 		}
+		rebuildStorObj(obj)
 
 		out = append(out, obj)
 	}
@@ -322,6 +363,8 @@ func (p versionedObjectListPayload) Marshal(in []*objects.VObject) ([]byte, erro
 
 	reusableLengthBuf := make([]byte, 8)
 	for _, ind := range in {
+		nullifyVersionedObj(ind)
+
 		objBytes, err := ind.MarshalBinary()
 		if err != nil {
 			return nil, err
@@ -364,6 +407,7 @@ func (p versionedObjectListPayload) Unmarshal(in []byte) ([]*objects.VObject, er
 		if err != nil {
 			return nil, err
 		}
+		rebuildVersionedObj(&vobj)
 
 		out = append(out, &vobj)
 	}
