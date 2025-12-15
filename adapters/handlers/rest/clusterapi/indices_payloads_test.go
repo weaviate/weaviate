@@ -56,6 +56,7 @@ func Test_objectListPayload_Marshal(t *testing.T) {
 				Additional: map[string]interface{}{
 					"score": 0.055465422484,
 				},
+				Vector: vec1,
 			},
 			Vector:    vec1,
 			VectorLen: 5,
@@ -81,6 +82,7 @@ func Test_objectListPayload_Marshal(t *testing.T) {
 				Additional: map[string]interface{}{
 					"score": 0.055465422484,
 				},
+				Vector: vec2,
 			},
 			Vector:    vec2,
 			VectorLen: 5,

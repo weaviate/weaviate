@@ -189,10 +189,30 @@ func (e errorListPayload) Unmarshal(in []byte) []error {
 	return converted
 }
 
-// Nullify obj.Object.{Vector,Vectors} to avoid redundant network transfer
-func nullifyStorObj(in *storobj.Object) {
-	in.Object.Vector = nil
-	in.Object.Vectors = nil
+func marshallStorObj(in *storobj.Object) ([]byte, error) {
+	obj := storobj.Object{
+		MarshallerVersion: in.MarshallerVersion,
+		Object: models.Object{
+			Additional:         in.Object.Additional,
+			Class:              in.Object.Class,
+			CreationTimeUnix:   in.Object.CreationTimeUnix,
+			ID:                 in.Object.ID,
+			LastUpdateTimeUnix: in.Object.LastUpdateTimeUnix,
+			Properties:         in.Object.Properties,
+			Tenant:             in.Object.Tenant,
+			// Vector and Vectors are removed from this layer and only kept in storobj
+			// This avoids doubly sending the vector data over the network
+		},
+		Vector:         in.Vector,
+		VectorLen:      in.VectorLen,
+		BelongsToNode:  in.BelongsToNode,
+		BelongsToShard: in.BelongsToShard,
+		IsConsistent:   in.IsConsistent,
+		DocID:          in.DocID,
+		Vectors:        in.Vectors,
+		MultiVectors:   in.MultiVectors,
+	}
+	return obj.MarshalBinary()
 }
 
 // Rebuild nullified obj.Object.{Vector,Vectors} from storobj fields
@@ -206,12 +226,32 @@ func rebuildStorObj(in *storobj.Object) {
 	}
 }
 
-func nullifyVersionedObj(in *objects.VObject) {
-	in.LatestObject.Vector = nil
-	in.LatestObject.Vectors = nil
+func marshallVersObj(in *objects.VObject) ([]byte, error) {
+	vobj := objects.VObject{
+		ID:                      in.ID,
+		Deleted:                 in.Deleted,
+		LastUpdateTimeUnixMilli: in.LastUpdateTimeUnixMilli,
+		LatestObject: &models.Object{
+			Additional:         in.LatestObject.Additional,
+			Class:              in.LatestObject.Class,
+			CreationTimeUnix:   in.LatestObject.CreationTimeUnix,
+			ID:                 in.LatestObject.ID,
+			LastUpdateTimeUnix: in.LatestObject.LastUpdateTimeUnix,
+			Properties:         in.LatestObject.Properties,
+			Tenant:             in.LatestObject.Tenant,
+			// Vector and Vectors are removed from this layer and only kept in storobj
+			// This avoids doubly sending the vector data over the network
+		},
+		Vector:          in.Vector,
+		Vectors:         in.Vectors,
+		MultiVectors:    in.MultiVectors,
+		StaleUpdateTime: in.StaleUpdateTime,
+		Version:         in.Version,
+	}
+	return vobj.MarshalBinary()
 }
 
-func rebuildVersionedObj(in *objects.VObject) {
+func rebuildVersObj(in *objects.VObject) {
 	in.LatestObject.Vector = in.Vector
 	for k, v := range in.Vectors {
 		in.LatestObject.Vectors[k] = v
@@ -241,8 +281,7 @@ func (p singleObjectPayload) CheckContentTypeHeader(r *http.Response) (string, b
 }
 
 func (p singleObjectPayload) Marshal(in *storobj.Object) ([]byte, error) {
-	nullifyStorObj(in)
-	return in.MarshalBinary()
+	return marshallStorObj(in)
 }
 
 func (p singleObjectPayload) Unmarshal(in []byte) (*storobj.Object, error) {
@@ -281,9 +320,7 @@ func (p objectListPayload) Marshal(in []*storobj.Object) ([]byte, error) {
 	reusableLengthBuf := make([]byte, 8)
 	for _, ind := range in {
 		if ind != nil {
-			nullifyStorObj(ind)
-
-			bytes, err := ind.MarshalBinary()
+			bytes, err := marshallStorObj(ind)
 			if err != nil {
 				return nil, err
 			}
@@ -363,9 +400,7 @@ func (p versionedObjectListPayload) Marshal(in []*objects.VObject) ([]byte, erro
 
 	reusableLengthBuf := make([]byte, 8)
 	for _, ind := range in {
-		nullifyVersionedObj(ind)
-
-		objBytes, err := ind.MarshalBinary()
+		objBytes, err := marshallVersObj(ind)
 		if err != nil {
 			return nil, err
 		}
@@ -407,7 +442,7 @@ func (p versionedObjectListPayload) Unmarshal(in []byte) ([]*objects.VObject, er
 		if err != nil {
 			return nil, err
 		}
-		rebuildVersionedObj(&vobj)
+		rebuildVersObj(&vobj)
 
 		out = append(out, &vobj)
 	}
