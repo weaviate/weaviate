@@ -189,28 +189,35 @@ func (e errorListPayload) Unmarshal(in []byte) []error {
 	return converted
 }
 
+func newObject(in *models.Object) *models.Object {
+	return &models.Object{
+		Additional:         in.Additional,
+		Class:              in.Class,
+		CreationTimeUnix:   in.CreationTimeUnix,
+		ID:                 in.ID,
+		LastUpdateTimeUnix: in.LastUpdateTimeUnix,
+		Properties:         in.Properties,
+		Tenant:             in.Tenant,
+		// Vector and Vectors will be removed from this layer and only kept in storobj in a future version
+		// This code needs to be released to all deployed nodes before that change can be made to avoid breaking cluster compatibilities
+		// This avoids doubly sending the vector data over the network
+		Vector:  in.Vector,
+		Vectors: in.Vectors,
+	}
+}
+
 func marshallStorObj(in *storobj.Object) ([]byte, error) {
 	obj := storobj.Object{
 		MarshallerVersion: in.MarshallerVersion,
-		Object: models.Object{
-			Additional:         in.Object.Additional,
-			Class:              in.Object.Class,
-			CreationTimeUnix:   in.Object.CreationTimeUnix,
-			ID:                 in.Object.ID,
-			LastUpdateTimeUnix: in.Object.LastUpdateTimeUnix,
-			Properties:         in.Object.Properties,
-			Tenant:             in.Object.Tenant,
-			// Vector and Vectors are removed from this layer and only kept in storobj
-			// This avoids doubly sending the vector data over the network
-		},
-		Vector:         in.Vector,
-		VectorLen:      in.VectorLen,
-		BelongsToNode:  in.BelongsToNode,
-		BelongsToShard: in.BelongsToShard,
-		IsConsistent:   in.IsConsistent,
-		DocID:          in.DocID,
-		Vectors:        in.Vectors,
-		MultiVectors:   in.MultiVectors,
+		Object:            *newObject(&in.Object),
+		Vector:            in.Vector,
+		VectorLen:         in.VectorLen,
+		BelongsToNode:     in.BelongsToNode,
+		BelongsToShard:    in.BelongsToShard,
+		IsConsistent:      in.IsConsistent,
+		DocID:             in.DocID,
+		Vectors:           in.Vectors,
+		MultiVectors:      in.MultiVectors,
 	}
 	return obj.MarshalBinary()
 }
@@ -239,22 +246,12 @@ func marshallVersObj(in *objects.VObject) ([]byte, error) {
 		ID:                      in.ID,
 		Deleted:                 in.Deleted,
 		LastUpdateTimeUnixMilli: in.LastUpdateTimeUnixMilli,
-		LatestObject: &models.Object{
-			Additional:         in.LatestObject.Additional,
-			Class:              in.LatestObject.Class,
-			CreationTimeUnix:   in.LatestObject.CreationTimeUnix,
-			ID:                 in.LatestObject.ID,
-			LastUpdateTimeUnix: in.LatestObject.LastUpdateTimeUnix,
-			Properties:         in.LatestObject.Properties,
-			Tenant:             in.LatestObject.Tenant,
-			// Vector and Vectors are removed from this layer and only kept in storobj
-			// This avoids doubly sending the vector data over the network
-		},
-		Vector:          in.Vector,
-		Vectors:         in.Vectors,
-		MultiVectors:    in.MultiVectors,
-		StaleUpdateTime: in.StaleUpdateTime,
-		Version:         in.Version,
+		LatestObject:            newObject(in.LatestObject),
+		Vector:                  in.Vector,
+		Vectors:                 in.Vectors,
+		MultiVectors:            in.MultiVectors,
+		StaleUpdateTime:         in.StaleUpdateTime,
+		Version:                 in.Version,
 	}
 	return vobj.MarshalBinary()
 }
