@@ -131,11 +131,6 @@ func StatusText(code StatusCode) string {
 	}
 }
 
-// // NewError create new replication error
-// func NewError(code StatusCode, msg string) *Error {
-// 	return &Error{code, msg, nil}
-// }
-
 // NewClassNotFoundError creates a new error for class not found
 func NewClassNotFoundError(err error) *Error {
 	return &Error{Code: StatusClassNotFound, Msg: StatusText(StatusClassNotFound), Err: err}
