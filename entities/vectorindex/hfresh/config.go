@@ -24,6 +24,7 @@ const (
 	DefaultReplicas       = 8
 	DefaultRNGFactor      = 10.0
 	DefaultSearchProbe    = 64
+	DefaultRescoreLimit   = 350
 )
 
 // UserConfig defines the configuration options for the HFresh index.
@@ -35,7 +36,7 @@ type UserConfig struct {
 	RNGFactor      float32 `json:"rngFactor"`
 	SearchProbe    uint32  `json:"searchProbe"`
 	Distance       string  `json:"distance"`
-	// TODO: add quantization config
+	RescoreLimit   uint32  `json:"rescoreLimit"`
 }
 
 // IndexType returns the type of the underlying vector index, thus making sure
@@ -60,7 +61,7 @@ func (u *UserConfig) SetDefaults() {
 	u.RNGFactor = DefaultRNGFactor
 	u.SearchProbe = DefaultSearchProbe
 	u.Distance = vectorIndexCommon.DefaultDistanceMetric
-
+	u.RescoreLimit = DefaultRescoreLimit
 	// TODO: add quantization config
 }
 
@@ -111,6 +112,12 @@ func ParseAndValidateConfig(input interface{}, isMultiVector bool) (schemaConfig
 
 	if err := vectorIndexCommon.OptionalIntFromMap(asMap, "searchProbe", func(v int) {
 		uc.SearchProbe = uint32(v)
+	}); err != nil {
+		return uc, err
+	}
+
+	if err := vectorIndexCommon.OptionalIntFromMap(asMap, "rescoreLimit", func(v int) {
+		uc.RescoreLimit = uint32(v)
 	}); err != nil {
 		return uc, err
 	}
