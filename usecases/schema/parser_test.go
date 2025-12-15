@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -27,7 +27,7 @@ const hnswT = vectorindex.VectorIndexTypeHNSW
 
 func TestParser(t *testing.T) {
 	cs := fakes.NewFakeClusterState()
-	p := NewParser(cs, dummyParseVectorConfig, fakeValidator{}, fakeModulesProvider{})
+	p := NewParser(cs, dummyParseVectorConfig, fakeValidator{}, fakeModulesProvider{}, nil)
 
 	sc := config.Config{DesiredCount: 1, VirtualPerPhysical: 128, ActualCount: 1, DesiredVirtualCount: 128, Key: "_id", Strategy: "hash", Function: "murmur3"}
 	vic := enthnsw.NewDefaultUserConfig()

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -20,6 +20,8 @@ import (
 	"slices"
 	"sync"
 	"time"
+
+	"github.com/weaviate/weaviate/usecases/auth/authentication"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
@@ -59,7 +61,7 @@ type dynUserHandler struct {
 
 type DbUserAndRolesGetter interface {
 	apikey.DBUsers
-	GetRolesForUser(user string, userTypes models.UserTypeInput) (map[string][]authorization.Policy, error)
+	GetRolesForUserOrGroup(user string, authTyoes authentication.AuthType, isGroup bool) (map[string][]authorization.Policy, error)
 	RevokeRolesForUser(userName string, roles ...string) error
 }
 
@@ -162,7 +164,7 @@ func (h *dynUserHandler) listUsers(params users.ListAllUsersParams, principal *m
 }
 
 func (h *dynUserHandler) addToListAllResponse(response []*models.DBUserInfo, id, userType string, active bool, apiKeyFirstLetter string, createdAt *time.Time, lastusedAt *time.Time) ([]*models.DBUserInfo, error) {
-	roles, err := h.dbUsers.GetRolesForUser(id, models.UserTypeInputDb)
+	roles, err := h.dbUsers.GetRolesForUserOrGroup(id, authentication.AuthTypeDb, false)
 	if err != nil {
 		return response, err
 	}
@@ -232,7 +234,7 @@ func (h *dynUserHandler) getUser(params users.GetUserInfoParams, principal *mode
 	}
 	response.DbUserType = &userType
 
-	existingRoles, err := h.dbUsers.GetRolesForUser(params.UserID, models.UserTypeInputDb)
+	existingRoles, err := h.dbUsers.GetRolesForUserOrGroup(params.UserID, authentication.AuthTypeDb, false)
 	if err != nil {
 		return users.NewGetUserInfoInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("get roles: %w", err)))
 	}
@@ -471,7 +473,7 @@ func (h *dynUserHandler) deleteUser(params users.DeleteUserParams, principal *mo
 		}
 		return users.NewDeleteUserNotFound()
 	}
-	roles, err := h.dbUsers.GetRolesForUser(params.UserID, models.UserTypeInputDb)
+	roles, err := h.dbUsers.GetRolesForUserOrGroup(params.UserID, authentication.AuthTypeDb, false)
 	if err != nil {
 		return users.NewDeleteUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
@@ -480,7 +482,7 @@ func (h *dynUserHandler) deleteUser(params users.DeleteUserParams, principal *mo
 		for name := range roles {
 			roleNames = append(roleNames, name)
 		}
-		if err := h.dbUsers.RevokeRolesForUser(conv.UserNameWithTypeFromId(params.UserID, models.UserTypeInputDb), roleNames...); err != nil {
+		if err := h.dbUsers.RevokeRolesForUser(conv.UserNameWithTypeFromId(params.UserID, authentication.AuthTypeDb), roleNames...); err != nil {
 			return users.NewDeleteUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 		}
 	}

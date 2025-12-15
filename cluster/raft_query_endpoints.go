@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -392,6 +392,7 @@ func (s *Raft) Query(ctx context.Context, req *cmd.QueryRequest) (*cmd.QueryResp
 	resp, err := s.cl.Query(ctx, leader, req)
 	if err != nil {
 		s.log.WithField("leader", leader).Errorf("query: failed to query leader: %s", err)
+		return &cmd.QueryResponse{}, err
 	}
 	return resp, err
 }

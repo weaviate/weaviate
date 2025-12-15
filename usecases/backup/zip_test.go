@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -16,13 +16,19 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
+	mathrand "math/rand"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/backup"
@@ -33,81 +39,97 @@ func TestZip(t *testing.T) {
 		pathNode = "./test_data/node1"
 		ctx      = context.Background()
 	)
-	pathDest := filepath.Join(t.TempDir(), "test_data", "node1")
-	require.NoError(t, copyDir(pathNode, pathDest))
+	for _, compressionLevel := range []CompressionLevel{GzipBestCompression, NoCompression} {
+		t.Run(fmt.Sprintf("compressionLevel=%v", compressionLevel), func(t *testing.T) {
+			pathDest := filepath.Join(t.TempDir(), "test_data", "node1")
+			require.NoError(t, copyDir(pathNode, pathDest))
 
-	// setup
-	sd, err := getShard(pathDest, "cT9eTErXgmTX")
-	if err != nil {
-		t.Fatal(err)
-	}
+			// setup
+			sd, err := getShard(pathDest, "cT9eTErXgmTX")
+			if err != nil {
+				t.Fatal(err)
+			}
 
-	// compression writer
-	compressBuf := bytes.NewBuffer(make([]byte, 0, 1000_000))
-	z, rc := NewZip(pathDest, 0)
-	var zInputLen int64
-	go func() {
-		zInputLen, err = z.WriteShard(ctx, &sd)
-		if err != nil {
-			t.Errorf("compress: %v", err)
-		}
-		z.Close()
-	}()
+			// compression writer
+			compressBuf := bytes.NewBuffer(make([]byte, 0, 1000_000))
+			z, rc, err := NewZip(pathDest, int(compressionLevel))
+			require.NoError(t, err)
+			var zInputLen int64
+			go func() {
+				zInputLen, err = z.WriteShard(ctx, &sd)
+				if err != nil {
+					t.Errorf("compress: %v", err)
+				}
+				z.Close()
+			}()
 
-	// compression reader
-	zOutputLen, err := io.Copy(compressBuf, rc)
-	if err != nil {
-		t.Fatal("copy to buffer", err)
-	}
+			// compression reader
+			zOutputLen, err := io.Copy(compressBuf, rc)
+			if err != nil {
+				t.Fatal("copy to buffer", err)
+			}
 
-	if err := rc.Close(); err != nil {
-		t.Errorf("compress:close %v", err)
-	}
+			if err := rc.Close(); err != nil {
+				t.Errorf("compress:close %v", err)
+			}
 
-	f := float32(zInputLen) / float32(zOutputLen)
-	fmt.Printf("compression input_size=%d output_size=%d factor=%v\n", zInputLen, zOutputLen, f)
+			f := float32(zInputLen) / float32(zOutputLen)
+			fmt.Printf("compression input_size=%d output_size=%d factor=%v\n", zInputLen, zOutputLen, f)
 
-	// cleanup folder to restore test afterwards
-	require.NoError(t, os.RemoveAll(pathDest))
-	require.NoError(t, os.MkdirAll(pathDest, 0o755))
+			// cleanup folder to restore test afterwards
+			require.NoError(t, os.RemoveAll(pathDest))
+			require.NoError(t, os.MkdirAll(pathDest, 0o755))
 
-	// decompression
-	uz, wc := NewUnzip(pathDest)
+			// decompression
+			var compressionType backup.CompressionType
+			if compressionLevel == NoCompression {
+				compressionType = backup.CompressionNone
+			} else {
+				compressionType = backup.CompressionGZIP
+			}
+			uz, wc := NewUnzip(pathDest, compressionType)
 
-	// decompression reader
-	var uzInputLen atomic.Int64
-	go func() {
-		uzInputLen2, err := io.Copy(wc, compressBuf)
-		if err != nil {
-			t.Errorf("writer: %v", err)
-		}
-		uzInputLen.Store(uzInputLen2)
-		if err := wc.Close(); err != nil {
-			t.Errorf("close writer: %v", err)
-		}
-	}()
+			// decompression reader
+			done := make(chan struct{})
+			var uzInputLen atomic.Int64
+			go func() {
+				uzInputLen2, err := io.Copy(wc, compressBuf)
+				if err != nil {
+					t.Errorf("writer: %v", err)
+				}
+				uzInputLen.Store(uzInputLen2)
+				if err := wc.Close(); err != nil {
+					t.Errorf("close writer: %v", err)
+				}
+				done <- struct{}{}
+				close(done)
+			}()
 
-	// decompression writer
-	uzOutputLen, err := uz.ReadChunk()
-	if err != nil {
-		t.Fatalf("unzip: %v", err)
-	}
-	if err := uz.Close(); err != nil {
-		t.Errorf("close reader: %v", err)
-	}
+			// decompression writer
+			uzOutputLen, err := uz.ReadChunk()
+			if err != nil {
+				t.Fatalf("unzip: %v", err)
+			}
+			if err := uz.Close(); err != nil {
+				t.Errorf("close reader: %v", err)
+			}
 
-	fmt.Printf("unzip input_size=%d output_size=%d\n", uzInputLen.Load(), uzOutputLen)
+			fmt.Printf("unzip input_size=%d output_size=%d\n", uzInputLen.Load(), uzOutputLen)
 
-	_, err = os.Stat(pathDest)
-	if err != nil {
-		t.Fatalf("cannot find decompressed folder: %v", err)
-	}
+			_, err = os.Stat(pathDest)
+			if err != nil {
+				t.Fatalf("cannot find decompressed folder: %v", err)
+			}
 
-	if zInputLen != uzOutputLen {
-		t.Errorf("zip input size %d != unzip output size %d", uzOutputLen, zInputLen)
-	}
-	if zOutputLen != uzInputLen.Load() {
-		t.Errorf("zip output size %d != unzip input size %d", zOutputLen, uzInputLen.Load())
+			<-done // wait for writer to finish
+
+			if zInputLen != uzOutputLen {
+				t.Errorf("zip input size %d != unzip output size %d", uzOutputLen, zInputLen)
+			}
+			if zOutputLen != uzInputLen.Load() {
+				t.Errorf("zip output size %d != unzip input size %d", zOutputLen, uzInputLen.Load())
+			}
+		})
 	}
 }
 
@@ -136,7 +158,7 @@ func TestUnzipPathEscape(t *testing.T) {
 	require.NoError(t, gzw.Close())
 
 	// now restore from the archive to destPath, all writes should be contained within destPath
-	uz, wc := NewUnzip(destPath)
+	uz, wc := NewUnzip(destPath, backup.CompressionGZIP)
 	go func() {
 		_, err2 := io.Copy(wc, &buf)
 		require.NoError(t, err2)
@@ -159,8 +181,8 @@ func TestZipLevel(t *testing.T) {
 		{-1, gzip.DefaultCompression},
 		{4, gzip.DefaultCompression},
 		{0, gzip.DefaultCompression},
-		{int(BestCompression), gzip.BestCompression},
-		{int(BestSpeed), gzip.BestSpeed},
+		{int(GzipBestCompression), gzip.BestCompression},
+		{int(GzipBestSpeed), gzip.BestSpeed},
 	}
 
 	for _, test := range tests {
@@ -175,28 +197,23 @@ func TestZipConfig(t *testing.T) {
 		chunkSize  int
 		percentage int
 
-		expectedChunkSize int
-		minPoolSize       int
-		maxPoolSize       int
+		minPoolSize int
+		maxPoolSize int
 	}{
-		{0, 0, DefaultChunkSize, 1, _NUMCPU / 2},
-		{2 - 1, 50, minChunkSize, _NUMCPU / 2, _NUMCPU},
-		{512 + 1, 50, maxChunkSize, _NUMCPU / 2, _NUMCPU},
-		{2, 0, minChunkSize, 1, _NUMCPU / 2},
-		{1, 100, minChunkSize, 1, _NUMCPU},
-		{100, 0, 100 * 1024 * 1024, 1, _NUMCPU / 2}, // 100 MB
-		{513, 0, maxChunkSize, 1, _NUMCPU / 2},
+		{0, 0, 1, _NUMCPU / 2},
+		{2 - 1, 50, _NUMCPU / 2, _NUMCPU},
+		{512 + 1, 50, _NUMCPU / 2, _NUMCPU},
+		{2, 0, 1, _NUMCPU / 2},
+		{1, 100, 1, _NUMCPU},
+		{100, 0, 1, _NUMCPU / 2}, // 100 MB
+		{513, 0, 1, _NUMCPU / 2},
 	}
 
 	for i, test := range tests {
 		got := newZipConfig(Compression{
-			Level:         BestSpeed,
+			Level:         GzipBestSpeed,
 			CPUPercentage: test.percentage,
-			ChunkSize:     test.chunkSize,
 		})
-		if got.ChunkSize != test.expectedChunkSize {
-			t.Errorf("%d. chunk size got=%v want=%v", i, got.ChunkSize, test.expectedChunkSize)
-		}
 		if n := test.minPoolSize; got.GoPoolSize < n {
 			t.Errorf("%d. min pool size got=%d  want>=%d", i, got.GoPoolSize, n)
 		}
@@ -262,4 +279,173 @@ func copyDir(src string, dest string) error {
 
 		return os.WriteFile(destPath, data, info.Mode())
 	})
+}
+
+// TestRenaming tests that files can be read while being renamed concurrently without involving backup
+func TestRenaming(t *testing.T) {
+	dir := t.TempDir()
+	rng := mathrand.New(mathrand.NewSource(time.Now().UnixNano()))
+
+	// create files with random data and one important byte at the end to make sure that the complete file is read
+	// There will be concurrent renaming and reading of the files
+	for i := range 100 {
+		f, err := os.Create(filepath.Join(dir, strconv.Itoa(i)+".tmp"))
+		require.NoError(t, err)
+		size := rng.Intn(4096)
+		buf := make([]byte, size)
+		n, err := rng.Read(buf)
+		require.NoError(t, err)
+		require.Equal(t, size, n)
+		_, err = f.Write(buf)
+		require.NoError(t, err)
+		_, err = f.Write([]byte{byte(i)})
+		require.NoError(t, err)
+
+		require.NoError(t, f.Close())
+
+	}
+	wg := sync.WaitGroup{}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := range 100 {
+			require.NoError(t, os.Rename(filepath.Join(dir, strconv.Itoa(i)+".tmp"), filepath.Join(dir, strconv.Itoa(i)+".tmp2")))
+		}
+	}()
+
+	for i := range 100 {
+		f, err := os.Open(filepath.Join(dir, strconv.Itoa(i)+".tmp"))
+		if err != nil && errors.Is(err, fs.ErrNotExist) {
+			f, err = os.Open(filepath.Join(dir, strconv.Itoa(i)+".tmp2"))
+		}
+		require.NoError(t, err)
+		data, err := io.ReadAll(f)
+		require.NoError(t, err)
+		require.Equal(t, []byte{byte(i)}, data[len(data)-1:])
+
+	}
+	wg.Wait()
+}
+
+// TestRenamingDuringBackup tests that the backup process can handle files being renamed concurrently
+func TestRenamingDuringBackup(t *testing.T) {
+	for _, compressionLevel := range []CompressionLevel{GzipBestCompression, NoCompression} {
+		t.Run(fmt.Sprintf("compressionLevel=%v", compressionLevel), func(t *testing.T) {
+			dir := filepath.Join(t.TempDir(), "source")
+			dir2 := filepath.Join(t.TempDir(), "dest")
+			ctx := context.Background()
+			require.NoError(t, os.MkdirAll(dir, os.ModePerm))
+			require.NoError(t, os.MkdirAll(dir2, os.ModePerm))
+
+			sd := backup.ShardDescriptor{
+				Name: "shard1",
+				Node: "node1",
+			}
+
+			rng := mathrand.New(mathrand.NewSource(time.Now().UnixNano()))
+
+			// create files with random data and one important byte at the end to make sure that the complete file is read
+			// There will be concurrent renaming and reading of the files
+			writeDir := filepath.Join(dir, "collection")
+			writeDirRename := filepath.Join(dir, backup.DeleteMarkerAdd("collection"))
+
+			require.NoError(t, os.MkdirAll(writeDir, os.ModePerm))
+			counter := 0
+			for i := range 100 {
+				f, err := os.Create(filepath.Join(writeDir, strconv.Itoa(i)+".tmp"))
+				require.NoError(t, err)
+				size := rng.Intn(4096)
+				buf := make([]byte, size)
+				n, err := rng.Read(buf)
+				require.NoError(t, err)
+				require.Equal(t, size, n)
+				_, err = f.Write(buf)
+				require.NoError(t, err)
+				_, err = f.Write([]byte{byte(i)})
+				require.NoError(t, err)
+				counter += size + i
+
+				require.NoError(t, f.Close())
+				sd.Files = append(sd.Files, filepath.Join("collection", strconv.Itoa(i)+".tmp"))
+			}
+
+			f, err := os.Create(filepath.Join(writeDir, "indexcount.tmp"))
+			require.NoError(t, err)
+			_, err = f.Write([]byte("12345"))
+			require.NoError(t, err)
+			require.NoError(t, f.Close())
+			sd.DocIDCounterPath = filepath.Join("collection", "indexcount.tmp")
+			sd.DocIDCounter = []byte("12345")
+
+			f, err = os.Create(filepath.Join(writeDir, "version.tmp"))
+			require.NoError(t, err)
+			_, err = f.Write([]byte("12345"))
+			require.NoError(t, err)
+			require.NoError(t, f.Close())
+			sd.ShardVersionPath = filepath.Join("collection", "version.tmp")
+			sd.Version = []byte("12345")
+
+			f, err = os.Create(filepath.Join(writeDir, "propLength.tmp"))
+			require.NoError(t, err)
+			_, err = f.Write([]byte("12345"))
+			require.NoError(t, err)
+			require.NoError(t, f.Close())
+			sd.PropLengthTrackerPath = filepath.Join("collection", "propLength.tmp")
+			sd.PropLengthTracker = []byte("12345")
+
+			// start backup process
+			z, rc, err := NewZip(dir, int(compressionLevel))
+			require.NoError(t, err)
+			go func() {
+				_, err := z.WriteShard(ctx, &sd)
+				require.NoError(t, err)
+				require.NoError(t, z.Close())
+			}()
+
+			// rename files concurrently
+			wg := sync.WaitGroup{}
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				require.NoError(t, os.Rename(writeDir, writeDirRename))
+			}()
+
+			compressBuf := bytes.NewBuffer(make([]byte, 0, 1000_000))
+			_, err = io.Copy(compressBuf, rc)
+			require.NoError(t, err)
+			require.NoError(t, rc.Close())
+
+			require.NoError(t, os.RemoveAll(dir))
+
+			var compressionType backup.CompressionType
+			if compressionLevel == NoCompression {
+				compressionType = backup.CompressionNone
+			} else {
+				compressionType = backup.CompressionGZIP
+			}
+
+			uz, wc := NewUnzip(dir2, compressionType)
+			go func() {
+				_, err := io.Copy(wc, compressBuf)
+				require.NoError(t, err)
+				require.NoError(t, wc.Close())
+			}()
+			_, err = uz.ReadChunk()
+			require.NoError(t, err)
+			require.NoError(t, uz.Close())
+
+			wg.Wait()
+
+			// check restored backup
+			readDir := filepath.Join(dir2, "collection")
+			counter2 := 0
+			for i := range 100 {
+				buf, err := os.ReadFile(filepath.Join(readDir, strconv.Itoa(i)+".tmp"))
+				require.NoError(t, err)
+				// files have a random length AND their last byte is the index
+				counter2 += len(buf) - 1 + int(buf[len(buf)-1])
+			}
+			require.Equal(t, counter, counter2)
+		})
+	}
 }

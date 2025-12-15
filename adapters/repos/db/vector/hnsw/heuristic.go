@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -46,7 +46,13 @@ func (h *hnsw) selectNeighborsHeuristic(input *priorityqueue.Queue[any],
 		for _, id := range ids {
 			err := bag.Load(context.Background(), id)
 			if err != nil {
-				return err
+				var e storobj.ErrNotFound
+				if errors.As(err, &e) {
+					h.handleDeletedNode(e.DocID, "selectNeighborsHeuristic")
+					continue
+				} else {
+					return err
+				}
 			}
 		}
 
@@ -62,6 +68,11 @@ func (h *hnsw) selectNeighborsHeuristic(input *priorityqueue.Queue[any],
 			for _, item := range returnList {
 				peerDist, err := bag.Distance(curr.ID, item.ID)
 				if err != nil {
+					// Continue if distance calculation fails due to previous missing ID in bag (e.g., deleted node),
+					var e storobj.ErrNotFound
+					if errors.As(err, &e) {
+						continue
+					}
 					return err
 				}
 

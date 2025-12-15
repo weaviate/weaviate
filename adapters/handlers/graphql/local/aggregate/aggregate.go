@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -14,13 +14,12 @@ package aggregate
 import (
 	"fmt"
 
-	"github.com/weaviate/weaviate/entities/dto"
-
 	"github.com/tailor-inc/graphql"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/descriptions"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/utils"
 	"github.com/weaviate/weaviate/entities/aggregation"
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -33,7 +32,7 @@ type ModulesProvider interface {
 }
 
 // Build the Aggregate Kinds schema
-func Build(dbSchema *schema.Schema, config config.Config,
+func Build(dbSchema *schema.SchemaWithAliases, config config.Config,
 	modulesProvider ModulesProvider, authorizer authorization.Authorizer,
 ) (*graphql.Field, error) {
 	if len(dbSchema.Objects.Classes) == 0 {
@@ -43,7 +42,7 @@ func Build(dbSchema *schema.Schema, config config.Config,
 	var err error
 	var localAggregateObjects *graphql.Object
 	if len(dbSchema.Objects.Classes) > 0 {
-		localAggregateObjects, err = classFields(dbSchema.Objects.Classes, config, modulesProvider, authorizer)
+		localAggregateObjects, err = classFields(dbSchema, config, modulesProvider, authorizer)
 		if err != nil {
 			return nil, err
 		}
@@ -59,18 +58,26 @@ func Build(dbSchema *schema.Schema, config config.Config,
 	return &field, nil
 }
 
-func classFields(databaseSchema []*models.Class,
+func classFields(databaseSchema *schema.SchemaWithAliases,
 	config config.Config, modulesProvider ModulesProvider, authorizer authorization.Authorizer,
 ) (*graphql.Object, error) {
 	fields := graphql.Fields{}
 
-	for _, class := range databaseSchema {
+	for _, class := range databaseSchema.Objects.Classes {
 		field, err := classField(class, class.Description, config, modulesProvider, authorizer)
 		if err != nil {
 			return nil, err
 		}
 
 		fields[class.Class] = field
+	}
+
+	// Make aliases available in GQL schema
+	for alias, aliasedClassName := range databaseSchema.Aliases {
+		field, ok := fields[aliasedClassName]
+		if ok {
+			fields[alias] = field
+		}
 	}
 
 	return graphql.NewObject(graphql.ObjectConfig{

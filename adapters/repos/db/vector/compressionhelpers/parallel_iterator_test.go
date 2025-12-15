@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -226,7 +226,7 @@ func buildCompressedBucketForTest(t *testing.T, totalVecs int) *lsmkv.Bucket {
 	logger, _ := logrustest.NewNullLogger()
 	bucket, err := lsmkv.NewBucketCreator().NewBucket(ctx, t.TempDir(), "", logger, nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-		lsmkv.WithPread(true), lsmkv.WithSegmentsChecksumValidationEnabled(false))
+		lsmkv.WithPread(true), lsmkv.WithSegmentsChecksumValidationEnabled(false), lsmkv.WithStrategy(lsmkv.StrategyReplace))
 	require.Nil(t, err)
 
 	for i := 0; i < totalVecs; i++ {

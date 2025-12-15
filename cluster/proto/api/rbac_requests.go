@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -12,7 +12,7 @@
 package api
 
 import (
-	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/auth/authentication"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
@@ -85,6 +85,15 @@ type QueryHasPermissionResponse struct {
 	HasPermission bool
 }
 
+type QueryGetAllUsersOrGroupsWithRolesRequest struct {
+	IsGroup  bool
+	AuthType authentication.AuthType
+}
+
+type QueryGetAllUsersOrGroupsWithRolesResponse struct {
+	UsersOrGroups []string
+}
+
 type QueryGetRolesRequest struct {
 	Roles []string
 }
@@ -93,18 +102,20 @@ type QueryGetRolesResponse struct {
 	Roles map[string][]authorization.Policy
 }
 
-type QueryGetRolesForUserRequest struct {
+type QueryGetRolesForUserOrGroupRequest struct {
 	User     string
-	UserType models.UserTypeInput
+	UserType authentication.AuthType
+	IsGroup  bool
 }
 
-type QueryGetRolesForUserResponse struct {
+type QueryGetRolesForUserOrGroupResponse struct {
 	Roles map[string][]authorization.Policy
 }
 
 type QueryGetUsersForRoleRequest struct {
 	Role     string
-	UserType models.UserTypeInput
+	UserType authentication.AuthType
+	IsGroup  bool
 }
 
 type QueryGetUsersForRoleResponse struct {

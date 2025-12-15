@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -206,7 +206,7 @@ func createStoreAndInitWithObjects(t *testing.T, ctx context.Context, objectCoun
 		cyclemanager.NewCallbackGroupNoop())
 	require.Nil(t, err)
 
-	err = store.CreateOrLoadBucket(ctx, helpers.ObjectsBucketLSM)
+	err = store.CreateOrLoadBucket(ctx, helpers.ObjectsBucketLSM, lsmkv.WithStrategy(lsmkv.StrategyReplace))
 	require.Nil(t, err)
 
 	objectsB := store.Bucket(helpers.ObjectsBucketLSM)

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -37,8 +37,8 @@ func TestClient(t *testing.T) {
 			apiKey:     "apiKey",
 			httpClient: &http.Client{},
 			urlBuilder: &cohereUrlBuilder{
-				origin:   server.URL,
-				pathMask: "/v2/embed",
+				origin: server.URL,
+				path:   "/v2/embed",
 			},
 			logger: nullLogger(),
 		}
@@ -64,8 +64,8 @@ func TestClient(t *testing.T) {
 			apiKey:     "apiKey",
 			httpClient: &http.Client{},
 			urlBuilder: &cohereUrlBuilder{
-				origin:   server.URL,
-				pathMask: "/v2/embed",
+				origin: server.URL,
+				path:   "/v2/embed",
 			},
 			logger: nullLogger(),
 		}
@@ -92,8 +92,8 @@ func TestClient(t *testing.T) {
 			apiKey:     "apiKey",
 			httpClient: &http.Client{},
 			urlBuilder: &cohereUrlBuilder{
-				origin:   server.URL,
-				pathMask: "/v2/embed",
+				origin: server.URL,
+				path:   "/v2/embed",
 			},
 			logger: nullLogger(),
 		}
@@ -114,8 +114,8 @@ func TestClient(t *testing.T) {
 			apiKey:     "",
 			httpClient: &http.Client{},
 			urlBuilder: &cohereUrlBuilder{
-				origin:   server.URL,
-				pathMask: "/v2/embed",
+				origin: server.URL,
+				path:   "/v2/embed",
 			},
 			logger: nullLogger(),
 		}
@@ -144,8 +144,8 @@ func TestClient(t *testing.T) {
 			apiKey:     "",
 			httpClient: &http.Client{},
 			urlBuilder: &cohereUrlBuilder{
-				origin:   server.URL,
-				pathMask: "/v2/embed",
+				origin: server.URL,
+				path:   "/v2/embed",
 			},
 			logger: nullLogger(),
 		}
@@ -171,8 +171,8 @@ func TestClient(t *testing.T) {
 			apiKey:     "",
 			httpClient: &http.Client{},
 			urlBuilder: &cohereUrlBuilder{
-				origin:   server.URL,
-				pathMask: "/v2/embed",
+				origin: server.URL,
+				path:   "/v2/embed",
 			},
 			logger: nullLogger(),
 		}
@@ -198,8 +198,8 @@ func TestClient(t *testing.T) {
 			apiKey:     "",
 			httpClient: &http.Client{},
 			urlBuilder: &cohereUrlBuilder{
-				origin:   server.URL,
-				pathMask: "/v2/embed",
+				origin: server.URL,
+				path:   "/v2/embed",
 			},
 			logger: nullLogger(),
 		}
@@ -222,8 +222,8 @@ func TestClient(t *testing.T) {
 			apiKey:     "",
 			httpClient: &http.Client{},
 			urlBuilder: &cohereUrlBuilder{
-				origin:   server.URL,
-				pathMask: "/v2/embed",
+				origin: server.URL,
+				path:   "/v2/embed",
 			},
 			logger: nullLogger(),
 		}

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -60,10 +60,10 @@ func (suite *ReplicationTestSuite) TestReplicationForceDeleteOperations() {
 				shardsPerNode[src.Name] = shard.Name
 				_, err := helper.Client(t).Replication.Replicate(
 					replication.NewReplicateParams().WithBody(&models.ReplicationReplicateReplicaRequest{
-						SourceNodeName:      &src.Name,
-						DestinationNodeName: &tgt.Name,
-						ShardID:             &shard.Name,
-						CollectionID:        &paragraphClass.Class,
+						SourceNode: &src.Name,
+						TargetNode: &tgt.Name,
+						Shard:      &shard.Name,
+						Collection: &paragraphClass.Class,
 					}),
 					nil,
 				)

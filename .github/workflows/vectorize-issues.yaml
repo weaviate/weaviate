@@ -1,0 +1,18 @@
+name: Vectorize Weaviate's GitHub Issues
+
+on:
+  schedule:
+    - cron: '0 0 * * *'  # Run daily at midnight
+  workflow_dispatch:     # Allow manual triggering
+
+jobs:
+  vectorize-weaviate-issues:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Vectorize GitHub Issues
+        uses: weaviate/github-issues-to-weaviate@v1
+        with:
+          weaviate_url: ${{ secrets.WEAVIATE_URL }}
+          weaviate_api_key: ${{ secrets.WEAVIATE_API_KEY }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          collection_name: GitHubIssuesWeaviate

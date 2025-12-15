@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,19 +13,19 @@ package cluster
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
-
-	"github.com/weaviate/weaviate/cluster/replication/metrics"
 
 	"github.com/cenkalti/backoff/v4"
 	"github.com/hashicorp/raft"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/cluster/fsm"
 
 	"github.com/weaviate/weaviate/cluster/bootstrap"
+	"github.com/weaviate/weaviate/cluster/fsm"
 	"github.com/weaviate/weaviate/cluster/replication"
+	"github.com/weaviate/weaviate/cluster/replication/metrics"
 	"github.com/weaviate/weaviate/cluster/resolver"
 	"github.com/weaviate/weaviate/cluster/rpc"
 	"github.com/weaviate/weaviate/cluster/schema"
@@ -135,7 +135,9 @@ func (c *Service) onFSMCaughtUp(ctx context.Context) {
 				enterrors.GoWrapper(func() {
 					// The context is cancelled by the engine itself when it is stopped
 					if err := c.replicationEngine.Start(engineCtx); err != nil {
-						c.logger.WithError(err).Error("replication engine failed to start after FSM caught up")
+						if !errors.Is(err, context.Canceled) {
+							c.logger.WithError(err).Error("replication engine failed to start after FSM caught up")
+						}
 					}
 				}, c.logger)
 				return

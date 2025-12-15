@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -14,6 +14,8 @@ package authorization
 import (
 	"fmt"
 	"testing"
+
+	"github.com/weaviate/weaviate/usecases/auth/authentication"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
@@ -33,6 +35,25 @@ func TestUsers(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := Users(tt.users...)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestGroups(t *testing.T) {
+	tests := []struct {
+		name     string
+		groups   []string
+		expected []string
+	}{
+		{"No groups", []string{}, []string{fmt.Sprintf("%s/%s/*", GroupsDomain, authentication.AuthTypeOIDC)}},
+		{"Single group", []string{"group1"}, []string{fmt.Sprintf("%s/%s/group1", GroupsDomain, authentication.AuthTypeOIDC)}},
+		{"Multiple groups", []string{"group1", "group2"}, []string{fmt.Sprintf("%s/%s/group1", GroupsDomain, authentication.AuthTypeOIDC), fmt.Sprintf("%s/%s/group2", GroupsDomain, authentication.AuthTypeOIDC)}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := Groups(authentication.AuthTypeOIDC, tt.groups...)
 			assert.Equal(t, tt.expected, result)
 		})
 	}

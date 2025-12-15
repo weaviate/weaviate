@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -96,7 +96,8 @@ func TestMapCursorConsistentView(t *testing.T) {
 	}
 
 	// Open the cursor that should see key1..key3 only and stay stable
-	cur := b.MapCursor()
+	cur, err := b.MapCursor()
+	require.NoError(t, err)
 	validateOriginalCursorView := func(t *testing.T, c *CursorMap) {
 		expected := map[string][]MapPair{
 			"key1": {{Key: []byte("dk1"), Value: []byte("dv1")}},
@@ -160,7 +161,8 @@ func TestMapCursorConsistentView(t *testing.T) {
 	cur.Close()
 
 	// 6) A new cursor now sees the latest state: key1..key4 (key4 is in active)
-	cur2 := b.MapCursor()
+	cur2, err := b.MapCursor()
+	require.NoError(t, err)
 	defer cur2.Close()
 
 	expected := map[string][]MapPair{

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -19,6 +19,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	schemaclient "github.com/weaviate/weaviate/client/schema"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/test/helper"
 	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
@@ -1594,5 +1596,101 @@ func aggregatesOnDateFields(t *testing.T) {
 		}
 
 		assert.Equal(t, expected, result)
+	})
+}
+
+func aggregatesUsingAlias(t *testing.T) {
+	client := helper.Client(t)
+	params := schemaclient.NewAliasesCreateParams().WithBody(&models.Alias{
+		Alias: "CustomVectorClassAlias",
+		Class: "CustomVectorClass",
+	})
+	_, err := client.Schema.AliasesCreate(params, nil)
+	defer func(t *testing.T) {
+		params := schemaclient.NewAliasesDeleteParams().WithAliasName("CustomVectorClassAlias")
+		_, err := client.Schema.AliasesDelete(params, nil)
+		if err != nil {
+			t.Logf("Error deleting aliases: %v", err)
+		}
+	}(t)
+	require.Nil(t, err)
+
+	result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, `
+		{
+			Aggregate{
+				CustomVectorClassAlias(
+					nearVector: {
+						vector: [1,0,0]
+						distance: 0.0002
+					}
+				){
+					meta {
+						count
+					}
+					name {
+						topOccurrences {
+							occurs
+							value
+						}
+						type
+						count
+					}
+				}
+			}
+		}`)
+
+	t.Run("meta count", func(t *testing.T) {
+		meta := result.Get("Aggregate", "CustomVectorClassAlias").AsSlice()[0].(map[string]interface{})["meta"]
+		count := meta.(map[string]interface{})["count"]
+		expected := json.Number("1")
+		assert.Equal(t, expected, count)
+	})
+
+	t.Run("string prop", func(t *testing.T) {
+		name := result.Get("Aggregate", "CustomVectorClassAlias").
+			AsSlice()[0].(map[string]interface{})["name"].(map[string]interface{})
+		typeField := name["type"]
+		topOccurrences := name["topOccurrences"]
+
+		assert.Equal(t, schema.DataTypeText.String(), typeField)
+
+		expectedTopOccurrences := []interface{}{
+			map[string]interface{}{
+				"value":  "Mercedes",
+				"occurs": json.Number("1"),
+			},
+		}
+		assert.ElementsMatch(t, expectedTopOccurrences, topOccurrences)
+	})
+
+	t.Run("assert alias no longer in schema after deletion", func(t *testing.T) {
+		params := schemaclient.NewAliasesDeleteParams().WithAliasName("CustomVectorClassAlias")
+		_, err := client.Schema.AliasesDelete(params, nil)
+		require.Nil(t, err)
+
+		_ = graphqlhelper.ErrorGraphQL(t, helper.RootAuth, `
+			{
+				Aggregate{
+					CustomVectorClassAlias(
+						nearVector: {
+							vector: [1,0,0]
+							distance: 0.0002
+						}
+					){
+						meta {
+							count
+						}
+						name {
+							topOccurrences {
+								occurs
+								value
+							}
+							type
+							count
+						}
+					}
+				}
+			}
+		`)
 	})
 }

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -74,6 +74,7 @@ func TestObjects_AsyncIndexing(t *testing.T) {
 		WithText2VecContextionary().
 		WithWeaviateEnv("ASYNC_INDEXING", "true").
 		WithWeaviateEnv("ASYNC_INDEXING_STALE_TIMEOUT", "1s").
+		WithWeaviateEnv("API_BASED_MODULES_DISABLED", "true").
 		Start(ctx)
 	require.NoError(t, err)
 	defer func() {
@@ -94,6 +95,7 @@ func TestObjects_AsyncIndexing_LoadShard(t *testing.T) {
 		WithWeaviate().
 		WithWeaviateEnv("ASYNC_INDEXING", "true").
 		WithWeaviateEnv("PERSISTENCE_MIN_MMAP_SIZE", "20MB").
+		WithWeaviateEnv("API_BASED_MODULES_DISABLED", "true").
 		Start(ctx)
 	require.NoError(t, err)
 	defer func() {

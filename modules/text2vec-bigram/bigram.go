@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -14,7 +14,6 @@ package t2vbigram
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"os"
 	"regexp"
 	"strings"
@@ -90,10 +89,6 @@ func (m *BigramModule) VectorizableProperties(cfg moduletools.ClassConfig) (bool
 }
 
 func (m *BigramModule) InitAdditionalPropertiesProvider() error {
-	return nil
-}
-
-func (m *BigramModule) RootHandler() http.Handler {
 	return nil
 }
 

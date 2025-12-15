@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -42,6 +42,11 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
+)
+
+const (
+	UUID3 = "a4de3ca0-6975-464f-b23b-adddd83630d7"
+	UUID4 = "7e10ec81-a26d-4ac7-8264-3e3e05397ddc"
 )
 
 // TODO amourao: add operator and minimum should match to the tests
@@ -1072,6 +1077,66 @@ func TestGRPCSearchRequest(t *testing.T) {
 			error: false,
 		},
 		{
+			name: "filter and",
+			req: &pb.SearchRequest{
+				Collection: classname, Metadata: &pb.MetadataRequest{Vector: true},
+				Filters: &pb.Filters{Operator: pb.Filters_OPERATOR_AND, Filters: []*pb.Filters{
+					{Operator: pb.Filters_OPERATOR_EQUAL, TestValue: &pb.Filters_ValueText{ValueText: "test"}, On: []string{"name"}},
+					{Operator: pb.Filters_OPERATOR_NOT_EQUAL, TestValue: &pb.Filters_ValueText{ValueText: "other"}, On: []string{"name"}},
+				}},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination,
+				Properties:           defaultTestClassProps,
+				AdditionalProperties: additional.Properties{Vector: true, NoProps: false},
+				Filters: &filters.LocalFilter{
+					Root: &filters.Clause{
+						Operator: filters.OperatorAnd,
+						Operands: []filters.Clause{
+							{
+								Value:    &filters.Value{Value: "test", Type: schema.DataTypeText},
+								On:       &filters.Path{Class: schema.ClassName(classname), Property: "name"},
+								Operator: filters.OperatorEqual,
+							},
+							{
+								Value:    &filters.Value{Value: "other", Type: schema.DataTypeText},
+								On:       &filters.Path{Class: schema.ClassName(classname), Property: "name"},
+								Operator: filters.OperatorNotEqual,
+							},
+						},
+					},
+				},
+			},
+			error: false,
+		},
+		{
+			name: "filter not",
+			req: &pb.SearchRequest{
+				Collection: classname, Metadata: &pb.MetadataRequest{Vector: true},
+				Filters: &pb.Filters{Operator: pb.Filters_OPERATOR_NOT, Filters: []*pb.Filters{
+					{Operator: pb.Filters_OPERATOR_EQUAL, TestValue: &pb.Filters_ValueText{ValueText: "test"}, On: []string{"name"}},
+				}},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination,
+				Properties:           defaultTestClassProps,
+				AdditionalProperties: additional.Properties{Vector: true, NoProps: false},
+				Filters: &filters.LocalFilter{
+					Root: &filters.Clause{
+						Operator: filters.OperatorNot,
+						Operands: []filters.Clause{
+							{
+								Value:    &filters.Value{Value: "test", Type: schema.DataTypeText},
+								On:       &filters.Path{Class: schema.ClassName(classname), Property: "name"},
+								Operator: filters.OperatorEqual,
+							},
+						},
+					},
+				},
+			},
+			error: false,
+		},
+		{
 			name: "filter reference",
 			req: &pb.SearchRequest{
 				Collection: classname, Metadata: &pb.MetadataRequest{Vector: true},
@@ -1363,7 +1428,7 @@ func TestGRPCSearchRequest(t *testing.T) {
 			error: false,
 		},
 		{
-			name: "contains filter with int value on float prop",
+			name: "contains all filter with int value on float prop",
 			req: &pb.SearchRequest{
 				Collection: classname, Metadata: &pb.MetadataRequest{Vector: true},
 				Filters: &pb.Filters{
@@ -1389,6 +1454,62 @@ func TestGRPCSearchRequest(t *testing.T) {
 			},
 			error: false,
 		},
+		{
+			name: "contains none filter with text value",
+			req: &pb.SearchRequest{
+				Collection: classname, Metadata: &pb.MetadataRequest{Vector: true},
+				Filters: &pb.Filters{
+					Operator:  pb.Filters_OPERATOR_CONTAINS_NONE,
+					TestValue: &pb.Filters_ValueTextArray{ValueTextArray: &pb.TextArray{Values: []string{"name1", "name2"}}},
+					On:        []string{"name"},
+				},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination,
+				Properties:           defaultTestClassProps,
+				AdditionalProperties: additional.Properties{Vector: true, NoProps: false},
+				Filters: &filters.LocalFilter{
+					Root: &filters.Clause{
+						On: &filters.Path{
+							Class:    schema.ClassName(classname),
+							Property: "name",
+						},
+						Operator: filters.ContainsNone,
+						Value:    &filters.Value{Value: []string{"name1", "name2"}, Type: schema.DataTypeText},
+					},
+				},
+			},
+			error: false,
+		},
+
+		{
+			name: "filter reference on array prop with contains",
+			req: &pb.SearchRequest{
+				Collection: classname, Metadata: &pb.MetadataRequest{Vector: true},
+				Filters: &pb.Filters{Operator: pb.Filters_OPERATOR_CONTAINS_ANY, TestValue: &pb.Filters_ValueTextArray{ValueTextArray: &pb.TextArray{Values: []string{"text"}}}, On: []string{"ref", refClass1, "somethings"}},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination,
+				Properties:           defaultTestClassProps,
+				AdditionalProperties: additional.Properties{Vector: true, NoProps: false},
+				Filters: &filters.LocalFilter{
+					Root: &filters.Clause{
+						On: &filters.Path{
+							Class:    schema.ClassName(classname),
+							Property: "ref",
+							Child: &filters.Path{
+								Class:    schema.ClassName(refClass1),
+								Property: "somethings",
+							},
+						},
+						Operator: filters.ContainsAny,
+						Value:    &filters.Value{Value: []string{"text"}, Type: schema.DataTypeText},
+					},
+				},
+			},
+			error: false,
+		},
+
 		{
 			name: "metadata filter id",
 			req: &pb.SearchRequest{
@@ -1953,7 +2074,7 @@ func TestGRPCSearchRequest(t *testing.T) {
 				Collection: multiVecClass,
 				NearVector: &pb.NearVector{
 					VectorBytes: byteVector([]float32{1, 2, 3}),
-					Targets:     &pb.Targets{TargetVectors: []string{"first", "second"}, Combination: pb.CombinationMethod_COMBINATION_METHOD_TYPE_MANUAL, Weights: map[string]float32{"first": 0.1, "second": 0.8}},
+					Targets:     &pb.Targets{TargetVectors: []string{"first", "second"}, Combination: pb.CombinationMethod_COMBINATION_METHOD_TYPE_MANUAL, WeightsForTargets: []*pb.WeightsForTarget{{Target: "first", Weight: 0.1}, {Target: "second", Weight: 0.8}}},
 				},
 			},
 			out: dto.GetParams{
@@ -1973,7 +2094,7 @@ func TestGRPCSearchRequest(t *testing.T) {
 				Collection: classname,
 				NearVector: &pb.NearVector{
 					VectorBytes: byteVector([]float32{1, 2, 3}),
-					Targets:     &pb.Targets{TargetVectors: []string{"first", "second"}, Combination: pb.CombinationMethod_COMBINATION_METHOD_TYPE_MANUAL, Weights: map[string]float32{"first": 0.1}},
+					Targets:     &pb.Targets{TargetVectors: []string{"first", "second"}, Combination: pb.CombinationMethod_COMBINATION_METHOD_TYPE_MANUAL, WeightsForTargets: []*pb.WeightsForTarget{{Target: "first", Weight: 0.1}}},
 				},
 			},
 			out:   dto.GetParams{},
@@ -1985,7 +2106,7 @@ func TestGRPCSearchRequest(t *testing.T) {
 				Collection: classname,
 				NearVector: &pb.NearVector{
 					VectorBytes: byteVector([]float32{1, 2, 3}),
-					Targets:     &pb.Targets{TargetVectors: []string{"first", "second"}, Combination: pb.CombinationMethod_COMBINATION_METHOD_TYPE_MANUAL, Weights: map[string]float32{"nonExistant": 0.1}},
+					Targets:     &pb.Targets{TargetVectors: []string{"first", "second"}, Combination: pb.CombinationMethod_COMBINATION_METHOD_TYPE_MANUAL, WeightsForTargets: []*pb.WeightsForTarget{{Target: "nonExistent", Weight: 0.1}}},
 				},
 			},
 			out:   dto.GetParams{},
@@ -2353,7 +2474,7 @@ func TestGRPCSearchRequest(t *testing.T) {
 		},
 	}
 
-	parser := NewParser(false, getClass)
+	parser := NewParser(false, getClass, getAlias)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			out, err := parser.Search(tt.req, &config.Config{QueryDefaults: config.QueryDefaults{Limit: 10}})
@@ -2378,6 +2499,10 @@ func getClass(name string) (*models.Class, error) {
 		return nil, fmt.Errorf("class %s not found", name)
 	}
 	return class, nil
+}
+
+func getAlias(name string) string {
+	return ""
 }
 
 func sortNamedVecs(vecs []string) {

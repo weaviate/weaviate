@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -56,6 +56,7 @@ func TestLSMKV_ReplaceBucket(t *testing.T) {
 		compactionCallbacks, flushCallbacks,
 		lsmkv.WithPread(true),
 		lsmkv.WithDynamicMemtableSizing(1, 2, 1, 4),
+		lsmkv.WithStrategy(lsmkv.StrategyReplace),
 	)
 	if err != nil {
 		panic(err)

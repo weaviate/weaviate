@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -19,6 +19,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 )
+
+// Note: checksums are also being tested in the compaction_integration_test.go file, that tests multiple segments and strategies
+// to ensure that the ValidateChecksum function works correctly for all segment types.
 
 // contentsWithChecksum is a precomputed segment file from the property__id bucket.
 // The data object which was used to generate this segment file is the following:
@@ -57,12 +60,11 @@ var contentsWithChecksum = []byte{
 	0x5a,
 }
 
-func TestSegmentFile_ValidateChecksum(t *testing.T) {
+func prepareSegment(t *testing.T) (*os.File, int64) {
 	dir := t.TempDir()
 	fname := path.Join(dir, "tmp.db")
 
 	{
-		// setup
 		f, err := os.Create(fname)
 		require.Nil(t, err)
 		_, err = f.Write(contentsWithChecksum)
@@ -72,15 +74,31 @@ func TestSegmentFile_ValidateChecksum(t *testing.T) {
 
 	f, err := os.Open(fname)
 	require.Nil(t, err)
-	defer f.Close()
 
 	fileInfo, err := f.Stat()
 	if err != nil {
 		fmt.Printf("Error getting file info: %v\n", err)
-		return
+		return nil, 0
 	}
+	return f, fileInfo.Size()
+}
 
+func TestSegmentFile_ValidateChecksum(t *testing.T) {
+	f, fileSize := prepareSegment(t)
+	defer f.Close()
 	segmentFile := NewSegmentFile(WithReader(f))
-	err = segmentFile.ValidateChecksum(fileInfo.Size())
+	err := segmentFile.ValidateChecksum(fileSize, HeaderSize)
+	require.Nil(t, err)
+}
+
+// This test checks that the ValidateChecksum function works correctly when the reader buffer is close to the size of the final read of the checksum.
+// In a previous implementation, this caused an error because the reader would not read the checksum bytes correctly by not using io.ReadFull.
+// Setting a custom buffer size is simpler than creating a segment file with a size that is close to the checksum size.
+// Interesting note, for this segment, the test would fail in the old implementation if the buffer size is set to 77, 78, 154, 155 or 156 bytes.
+func TestSegmentFile_ValidateChecksumMultipleOfBufferReader(t *testing.T) {
+	f, fileSize := prepareSegment(t)
+	defer f.Close()
+	segmentFile := NewSegmentFile(WithReaderCustomBufferSize(f, 77))
+	err := segmentFile.ValidateChecksum(fileSize, HeaderSize)
 	require.Nil(t, err)
 }

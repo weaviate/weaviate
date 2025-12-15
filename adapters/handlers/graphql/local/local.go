@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -24,7 +24,7 @@ import (
 )
 
 // Build the local queries from the database schema.
-func Build(dbSchema *schema.Schema, logger logrus.FieldLogger,
+func Build(dbSchema *schema.SchemaWithAliases, logger logrus.FieldLogger,
 	config config.Config, modulesProvider *modules.Provider, authorizer authorization.Authorizer,
 ) (graphql.Fields, error) {
 	getField, err := get.Build(dbSchema, logger, modulesProvider, authorizer)

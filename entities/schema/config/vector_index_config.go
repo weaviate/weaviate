@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -23,6 +23,19 @@ type VectorIndexConfig interface {
 	IndexType() string
 	DistanceName() string
 	IsMultiVector() bool
+}
+
+func ExtractVectorConfigs(class *models.Class) (map[string]models.VectorConfig, error) {
+	if len(class.VectorConfig) == 0 && modelsext.ClassHasLegacyVectorIndex(class) {
+		vectorIndexConfig, ok := class.VectorIndexConfig.(VectorIndexConfig)
+		if !ok {
+			return nil, fmt.Errorf("class '%s' vector index: config is not schema.VectorIndexConfig: %T",
+				class.Class, class.VectorIndexConfig)
+		}
+		return map[string]models.VectorConfig{"": {Vectorizer: class.Vectorizer, VectorIndexConfig: vectorIndexConfig, VectorIndexType: class.VectorIndexType}}, nil
+	}
+
+	return class.VectorConfig, nil
 }
 
 func TypeAssertVectorIndex(class *models.Class, targetVectors []string) ([]VectorIndexConfig, error) {

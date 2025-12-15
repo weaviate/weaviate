@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -18,16 +18,17 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/weaviate/weaviate/usecases/byteops"
-
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/entities/diskio"
+	"github.com/weaviate/weaviate/usecases/byteops"
 )
 
 // ErrInvalidChecksum indicates that the read file should not be trusted. For
 // any pre-computed data this is a recoverable issue, as the data can simply be
 // re-computed at read-time.
 var ErrInvalidChecksum = errors.New("invalid checksum")
+
+const CountNetAdditionsFileSuffix = ".cna"
 
 // existOnLowerSegments is a simple function that can be passed at segment
 // initialization time to check if any of the keys are truly new or previously
@@ -133,4 +134,18 @@ func (s *segment) loadCountNetFromDisk() error {
 	s.countNetAdditions = int(binary.LittleEndian.Uint64(data[0:8]))
 
 	return nil
+}
+
+// ReadCountNetAdditionsFile reads a .cna file and returns the count net additions value
+// Returns (count, nil) if successful, (0, error) if the file is invalid or corrupted
+func ReadCountNetAdditionsFile(path string) (int64, error) {
+	data, err := loadWithChecksum(path, 12, nil)
+	if err != nil {
+		return 0, fmt.Errorf("failed to read .cna file: %w", err)
+	}
+
+	// Extract count value (first 8 bytes, uint64 little-endian)
+	count := int64(binary.LittleEndian.Uint64(data[0:8]))
+
+	return count, nil
 }

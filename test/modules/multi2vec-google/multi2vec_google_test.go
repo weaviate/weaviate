@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -100,6 +100,11 @@ func testMulti2VecGoogle(host, gcpProject, location, vectorizerName string) func
 
 		t.Run("import data", func(t *testing.T) {
 			multimodal.InsertObjects(t, dataFolderPath, class.Class, true)
+		})
+
+		t.Run("check objects", func(t *testing.T) {
+			vectorNames := []string{"clip_google", "clip_google_128", "clip_google_256", "clip_google_video", "clip_google_weights"}
+			multimodal.CheckObjects(t, dataFolderPath, class.Class, vectorNames, nil)
 		})
 
 		t.Run("nearImage", func(t *testing.T) {

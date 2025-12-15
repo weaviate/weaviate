@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -24,7 +24,7 @@ import (
 const Text2VecTransformers = "text2vec-transformers"
 
 func startT2VTransformers(ctx context.Context, networkName, transformersImage string) (*DockerContainer, error) {
-	image := "semitechnologies/transformers-inference:baai-bge-small-en-v1.5-onnx-1.9.4"
+	image := "semitechnologies/transformers-inference:baai-bge-small-en-v1.5-onnx"
 	if len(transformersImage) > 0 {
 		image = transformersImage
 	}

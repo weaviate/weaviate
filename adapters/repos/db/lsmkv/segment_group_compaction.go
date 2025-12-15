@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -84,25 +84,53 @@ func (sg *SegmentGroup) findCompactionCandidates() (pair []int, level uint16) {
 		return nil, 0
 	}
 
+	// Due to sg.segments array being sometimes build in the incorrect order (not by ascending
+	// timestamps), segments' levels due to ongoing compactions might have gotten mixed up resulting
+	// in some segments never being picked up for further compactions.
+	// Introduced change fixes segment's levels by selecting pairs with unordered levels and computing
+	// new level for compacted segment to restore descending order of segments' levels eventually.
+	// Unordered segments are compacted only when ordered pair was not found (fixed in lazy manner).
+	// Segment's size limit is IGNORED when unordered segments are merged.
+	//
+	// For given segments and their levels
+	// 		s20 s19 s18 s17 s16 s15 s14 s13 s12 s11 s10 s09 s08 s07 s06 s05 s04 s03 s02 s01
+	//		 06  07  09  08  07  06  05  04  03  05  04  03  02  07  06  12  11  10  09  08
+	// ordered segments are s05-s01, unordered are s20-s06.
+	// lastOrderedPos=15 (s05), lastOrderedLvl=12 (s05)
+	//
+	// More examples of candidates selection for further compactions can be found in
+	// TestSegmentGroup_CompactionPairToFixLevelsOrder
+	isUnordered := false
+	var lPos, lastOrderedPos int
+	var lLvl, rLvl, lastOrderedLvl uint16
+	var lSeg, rSeg Segment
+
 	matchingPairFound := false
 	leftoverPairFound := false
-	var matchingLeftId, leftoverLeftId int
-	var matchingLevel, leftoverLevel uint16
+	var matchingPos, leftoverPos int
+	var matchingLvl, leftoverLvl uint16
 
 	// as newest segments are prioritized, loop in reverse order
-	for leftId := len(sg.segments) - 2; leftId >= 0; leftId-- {
-		left, right := sg.segments[leftId], sg.segments[leftId+1]
+	for i := len(sg.segments) - 2; i >= 0; i-- {
+		lPos = i
+		lSeg, rSeg = sg.segments[lPos], sg.segments[lPos+1]
+		lLvl, rLvl = lSeg.getLevel(), rSeg.getLevel()
 
-		if left.getLevel() == right.getLevel() {
-			if left.getSecondaryIndexCount() != right.getSecondaryIndexCount() {
-				// only pair of segments with the same secondary indexes are compacted
-				continue
-			}
-			if sg.compactionFitsSizeLimit(left, right) {
+		// unordered levels discovered, stop further search and move on
+		// to fixing segment levels if no matching/leftover pair was found so far
+		if lLvl < rLvl {
+			isUnordered = true
+			lastOrderedLvl = rLvl
+			lastOrderedPos = lPos + 1
+			break
+		}
+
+		if lLvl == rLvl {
+			if sg.compactionFitsSizeLimit(lSeg, rSeg) {
 				// max size not exceeded
 				matchingPairFound = true
-				matchingLeftId = leftId
-
+				matchingPos = lPos
+				matchingLvl = lLvl + 1
 				// this is for bucket migrations with re-ingestion, specifically
 				// for the new incoming data (ingest) bucket.
 				// we don't want to change the level of the segments on ingest data,
@@ -110,14 +138,12 @@ func (sg *SegmentGroup) findCompactionCandidates() (pair []int, level uint16) {
 				// data, the levels are all still at zero, and they can be compacted
 				// with the existing re-ingested segments.
 				if sg.keepLevelCompaction {
-					matchingLevel = left.getLevel()
-				} else {
-					matchingLevel = left.getLevel() + 1
+					matchingLvl = lLvl
 				}
 			} else if matchingPairFound {
 				// older segment of same level as pair's level exist.
 				// keep unchanged level
-				matchingLevel = left.getLevel()
+				matchingLvl = lLvl
 			}
 		} else {
 			if matchingPairFound {
@@ -126,27 +152,67 @@ func (sg *SegmentGroup) findCompactionCandidates() (pair []int, level uint16) {
 				break
 			}
 			if sg.compactLeftOverSegments && !leftoverPairFound {
-				if left.getSecondaryIndexCount() != right.getSecondaryIndexCount() {
-					// only pair of segments with the same secondary indexes are compacted
-					continue
-				}
 				// leftover segments enabled, none leftover pair found yet
-				if sg.compactionFitsSizeLimit(left, right) && isSimilarSegmentSizes(left.Size(), right.Size()) {
+				if sg.compactionFitsSizeLimit(lSeg, rSeg) && isSimilarSegmentSizes(lSeg.Size(), rSeg.Size()) {
 					// max size not exceeded, segment sizes similar despite different levels
 					leftoverPairFound = true
-					leftoverLeftId = leftId
-					leftoverLevel = left.getLevel()
+					leftoverPos = lPos
+					leftoverLvl = lLvl
 				}
 			}
 		}
 	}
 
 	if matchingPairFound {
-		return []int{matchingLeftId, matchingLeftId + 1}, matchingLevel
+		return []int{matchingPos, matchingPos + 1}, matchingLvl
 	}
 	if leftoverPairFound {
-		return []int{leftoverLeftId, leftoverLeftId + 1}, leftoverLevel
+		return []int{leftoverPos, leftoverPos + 1}, leftoverLvl
 	}
+
+	// no pair found, but unordered levels discovered
+	if isUnordered {
+		// just one unordered segment (left). merge with right one, keep right one's level
+		if lastOrderedPos == 1 {
+			return []int{0, 1}, lastOrderedLvl
+		}
+
+		var candidatePos int
+		var candidateLvl uint16
+		candidatePairFound := false
+		for i := lastOrderedPos - 2; i >= 0; i-- {
+			lPos = i
+			lLvl, rLvl = sg.segments[lPos].getLevel(), sg.segments[lPos+1].getLevel()
+
+			if lLvl > rLvl {
+				if !candidatePairFound {
+					// if left segment is the 1st one (right being 2nd), take max ordered level new compacted one
+					// to match ordered segments, otherwise keep left+right ones' level
+					if lPos == 0 && lastOrderedLvl > lLvl {
+						return []int{0, 1}, lastOrderedLvl
+					}
+					return []int{lPos, lPos + 1}, lLvl
+				}
+				break
+			}
+			if lLvl == rLvl {
+				candidatePos = lPos
+				candidateLvl = lLvl + 1
+				candidatePairFound = true
+			}
+		}
+		if candidatePairFound {
+			return []int{candidatePos, candidatePos + 1}, candidateLvl
+		}
+		// no pair was found, meaning left level < right level
+		// if only 2 segments are unordered, new level should match last one ordered
+		if lastOrderedPos == 2 {
+			return []int{0, 1}, lastOrderedLvl
+		}
+		// if more segments are unordered, get right level as new one
+		return []int{0, 1}, rLvl
+	}
+
 	return nil, 0
 }
 
@@ -340,7 +406,7 @@ func (sg *SegmentGroup) compactOnce() (compacted bool, err error) {
 
 		c := newCompactorInverted(f, left.newInvertedCursorReusable(), right.newInvertedCursorReusable(),
 			level, secondaryIndices, scratchSpacePath, cleanupTombstones,
-			k1, b, avgPropLen, maxNewFileSize, sg.allocChecker)
+			k1, b, avgPropLen, maxNewFileSize, sg.allocChecker, sg.enableChecksumValidation)
 
 		if err := c.do(); err != nil {
 			return false, err

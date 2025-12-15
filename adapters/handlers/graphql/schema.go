@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -49,7 +49,7 @@ type graphQL struct {
 }
 
 // Construct a GraphQL API from the database schema, and resolver interface.
-func Build(schema *schema.Schema, traverser Traverser,
+func Build(schema *schema.SchemaWithAliases, traverser Traverser,
 	logger logrus.FieldLogger, config config.Config, modulesProvider *modules.Provider, authorizer authorization.Authorizer,
 ) (GraphQL, error) {
 	logger.WithField("action", "graphql_rebuild").
@@ -83,7 +83,7 @@ func (g *graphQL) Resolve(context context.Context, query string, operationName s
 	})
 }
 
-func buildGraphqlSchema(dbSchema *schema.Schema, logger logrus.FieldLogger,
+func buildGraphqlSchema(dbSchema *schema.SchemaWithAliases, logger logrus.FieldLogger,
 	config config.Config, modulesProvider *modules.Provider, authorizer authorization.Authorizer,
 ) (graphql.Schema, error) {
 	localSchema, err := local.Build(dbSchema, logger, config, modulesProvider, authorizer)

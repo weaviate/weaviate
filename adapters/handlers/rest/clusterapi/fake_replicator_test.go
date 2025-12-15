@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -64,7 +64,7 @@ func (f *fakeReplicator) ReplicateReferences(ctx context.Context, indexName, sha
 }
 
 // CommitReplication waits to return until a message is received on the commitBlock channel
-func (f *fakeReplicator) CommitReplication(indexName, shardName, requestID string) interface{} {
+func (f *fakeReplicator) CommitReplication(indexName, shardName, requestID string) any {
 	// Signal that the operation has started
 	select {
 	case f.startedChan <- struct{}{}:
@@ -77,7 +77,7 @@ func (f *fakeReplicator) CommitReplication(indexName, shardName, requestID strin
 	return map[string]string{"status": "committed"}
 }
 
-func (f *fakeReplicator) AbortReplication(indexName, shardName, requestID string) interface{} {
+func (f *fakeReplicator) AbortReplication(indexName, shardName, requestID string) any {
 	return map[string]string{"status": "aborted"}
 }
 

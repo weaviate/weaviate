@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -38,11 +38,11 @@ func metricsCount(t *testing.T) {
 	defer cleanupMetricsClasses(t, 0, 20)
 	createImportQueryMetricsClasses(t, 0, 10)
 	backupID := startBackup(t, 0, 10)
-	waitForBackupToFinish(t, backupID)
+	helper.ExpectBackupEventuallyCreated(t, backupID, "filesystem", nil, helper.WithPollInterval(time.Second), helper.WithDeadline(helper.MaxDeadline))
 	metricsLinesBefore, linesBefore := countMetricsLines(t)
 	createImportQueryMetricsClasses(t, 10, 20)
 	backupID = startBackup(t, 0, 20)
-	waitForBackupToFinish(t, backupID)
+	helper.ExpectBackupEventuallyCreated(t, backupID, "filesystem", nil, helper.WithPollInterval(time.Second), helper.WithDeadline(helper.MaxDeadline))
 	metricsLinesAfter, linesAfter := countMetricsLines(t)
 	if metricsLinesAfter != metricsLinesBefore {
 		t.Logf("metric lines before:\n%s\n", strings.Join(linesBefore, "\n"))
@@ -240,19 +240,4 @@ func startBackup(t *testing.T, start, end int) string {
 	require.Nil(t, err)
 
 	return backupID
-}
-
-func waitForBackupToFinish(t *testing.T, id string) {
-	getStatus := func() *backups.BackupsCreateStatusOK {
-		res, err := helper.Client(t).Backups.BackupsCreateStatus(
-			backups.NewBackupsCreateStatusParams().WithBackend("filesystem").WithID(id),
-			nil)
-		require.Nil(t, err)
-		return res
-	}
-	assert.EventuallyWithT(t, func(t *assert.CollectT) {
-		res := getStatus()
-		require.NotNil(t, res.Payload.Status)
-		assert.Equal(t, "SUCCESS", *res.Payload.Status)
-	}, 10*time.Minute, 1*time.Second)
 }

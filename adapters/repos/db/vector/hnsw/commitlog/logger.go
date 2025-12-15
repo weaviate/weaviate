@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -46,6 +46,8 @@ const (
 	AddPQ
 	AddSQ
 	AddMuvera
+	AddRQ
+	AddBRQ
 )
 
 func NewLogger(fileName string) *Logger {
@@ -110,6 +112,35 @@ func (l *Logger) AddSQCompression(data compressionhelpers.SQData) error {
 	return err
 }
 
+func (l *Logger) AddRQCompression(data compressionhelpers.RQData) error {
+	swapSize := 2 * data.Rotation.Rounds * (data.Rotation.OutputDim / 2) * 2
+	signSize := 4 * data.Rotation.Rounds * data.Rotation.OutputDim
+	var buf bytes.Buffer
+	buf.Grow(17 + int(swapSize) + int(signSize))
+
+	buf.WriteByte(byte(AddRQ))                                       // 1
+	binary.Write(&buf, binary.LittleEndian, data.InputDim)           // 4 input dim
+	binary.Write(&buf, binary.LittleEndian, data.Bits)               // 4 bits
+	binary.Write(&buf, binary.LittleEndian, data.Rotation.OutputDim) // 4 rotation - output dim
+	binary.Write(&buf, binary.LittleEndian, data.Rotation.Rounds)    // 4 rotation - rounds
+
+	for _, swap := range data.Rotation.Swaps {
+		for _, dim := range swap {
+			binary.Write(&buf, binary.LittleEndian, dim.I)
+			binary.Write(&buf, binary.LittleEndian, dim.J)
+		}
+	}
+
+	for _, sign := range data.Rotation.Signs {
+		for _, dim := range sign {
+			binary.Write(&buf, binary.LittleEndian, dim)
+		}
+	}
+
+	_, err := l.bufw.Write(buf.Bytes())
+	return err
+}
+
 func (l *Logger) AddMuvera(data multivector.MuveraData) error {
 	gSize := 4 * data.Repetitions * data.KSim * data.Dimensions
 	dSize := 4 * data.Repetitions * data.DProjections * data.Dimensions
@@ -137,6 +168,39 @@ func (l *Logger) AddMuvera(data multivector.MuveraData) error {
 				binary.Write(&buf, binary.LittleEndian, math.Float32bits(el))
 			}
 		}
+	}
+
+	_, err := l.bufw.Write(buf.Bytes())
+	return err
+}
+
+func (l *Logger) AddBRQCompression(data compressionhelpers.BRQData) error {
+	swapSize := 2 * data.Rotation.Rounds * (data.Rotation.OutputDim / 2) * 2
+	signSize := 4 * data.Rotation.Rounds * data.Rotation.OutputDim
+	roundingSize := 4 * data.Rotation.OutputDim
+	var buf bytes.Buffer
+	buf.Grow(13 + int(swapSize) + int(signSize) + int(roundingSize))
+
+	buf.WriteByte(byte(AddBRQ))                                      // 1
+	binary.Write(&buf, binary.LittleEndian, data.InputDim)           // 4 input dim
+	binary.Write(&buf, binary.LittleEndian, data.Rotation.OutputDim) // 4 rotation - output dim
+	binary.Write(&buf, binary.LittleEndian, data.Rotation.Rounds)    // 4 rotation - rounds
+
+	for _, swap := range data.Rotation.Swaps {
+		for _, dim := range swap {
+			binary.Write(&buf, binary.LittleEndian, dim.I)
+			binary.Write(&buf, binary.LittleEndian, dim.J)
+		}
+	}
+
+	for _, sign := range data.Rotation.Signs {
+		for _, dim := range sign {
+			binary.Write(&buf, binary.LittleEndian, dim)
+		}
+	}
+
+	for _, rounding := range data.Rounding {
+		binary.Write(&buf, binary.LittleEndian, rounding)
 	}
 
 	_, err := l.bufw.Write(buf.Bytes())

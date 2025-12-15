@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -208,8 +208,10 @@ func validateUUIDOperators(propName schema.PropertyName, cw *clauseWrapper) erro
 	op := cw.getOperator()
 
 	switch op {
-	case OperatorEqual, OperatorNotEqual, OperatorLessThan, OperatorLessThanEqual,
-		OperatorGreaterThan, OperatorGreaterThanEqual, ContainsAll, ContainsAny:
+	case OperatorEqual, OperatorNotEqual,
+		OperatorLessThan, OperatorLessThanEqual,
+		OperatorGreaterThan, OperatorGreaterThanEqual,
+		ContainsAll, ContainsAny, ContainsNone:
 		return nil
 	default:
 		return fmt.Errorf("operator %q cannot be used on uuid/uuid[] props", op.Name())

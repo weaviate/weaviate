@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -71,7 +71,7 @@ func TestBackupAndRestoreDynamicUsers(t *testing.T) {
 		require.NotNil(t, resp.Payload)
 		require.Equal(t, "", resp.Payload.Error)
 
-		waitForBackup(t, backupID, backend, adminKey)
+		helper.ExpectBackupEventuallyCreated(t, backupID, backend, helper.CreateAuth(adminKey), helper.WithPollInterval(helper.MinPollInterval), helper.WithDeadline(helper.MaxDeadline))
 
 		// delete user
 		helper.DeleteUser(t, testUserName, adminKey)
@@ -84,7 +84,8 @@ func TestBackupAndRestoreDynamicUsers(t *testing.T) {
 		require.Nil(t, err)
 		require.NotNil(t, respR.Payload)
 		require.Equal(t, "", respR.Payload.Error)
-		waitForRestore(t, backupID, backend, adminKey)
+
+		helper.ExpectBackupEventuallyRestored(t, backupID, backend, helper.CreateAuth(adminKey), helper.WithPollInterval(helper.MinPollInterval), helper.WithDeadline(helper.MaxDeadline))
 
 		user := helper.GetUser(t, testUserName, adminKey)
 		require.NotNil(t, user)
@@ -107,7 +108,7 @@ func TestBackupAndRestoreDynamicUsers(t *testing.T) {
 		require.NotNil(t, resp.Payload)
 		require.Equal(t, "", resp.Payload.Error)
 
-		waitForBackup(t, backupID, backend, adminKey)
+		helper.ExpectBackupEventuallyCreated(t, backupID, backend, helper.CreateAuth(adminKey), helper.WithPollInterval(helper.MinPollInterval), helper.WithDeadline(helper.MaxDeadline))
 
 		// delete user
 		helper.DeleteUser(t, testUserName, adminKey)
@@ -120,7 +121,8 @@ func TestBackupAndRestoreDynamicUsers(t *testing.T) {
 		require.Nil(t, err)
 		require.NotNil(t, respR.Payload)
 		require.Equal(t, "", respR.Payload.Error)
-		waitForRestore(t, backupID, backend, adminKey)
+
+		helper.ExpectBackupEventuallyRestored(t, backupID, backend, helper.CreateAuth(adminKey), helper.WithPollInterval(helper.MinPollInterval), helper.WithDeadline(helper.MaxDeadline))
 
 		respU, err := helper.Client(t).Users.GetUserInfo(users.NewGetUserInfoParams().WithUserID(testUserName), helper.CreateAuth(adminKey))
 		require.Nil(t, respU)
@@ -157,7 +159,7 @@ func TestBackupAndRestoreDynamicUsers(t *testing.T) {
 		require.NotNil(t, resp.Payload)
 		require.Equal(t, "", resp.Payload.Error)
 
-		waitForBackup(t, backupID, backend, adminKey)
+		helper.ExpectBackupEventuallyCreated(t, backupID, backend, helper.CreateAuth(adminKey), helper.WithPollInterval(helper.MinPollInterval), helper.WithDeadline(helper.MaxDeadline))
 
 		// delete user and role
 		helper.DeleteUser(t, testUserName, adminKey)
@@ -173,41 +175,11 @@ func TestBackupAndRestoreDynamicUsers(t *testing.T) {
 		require.NotNil(t, respR.Payload)
 		require.Equal(t, "", respR.Payload.Error)
 
-		waitForRestore(t, backupID, backend, adminKey)
+		helper.ExpectBackupEventuallyRestored(t, backupID, backend, helper.CreateAuth(adminKey), helper.WithPollInterval(helper.MinPollInterval), helper.WithDeadline(helper.MaxDeadline))
 
 		user := helper.GetUser(t, testUserName, adminKey)
 		require.NotNil(t, user)
 		require.Equal(t, *user.UserID, testUserName)
 		require.Equal(t, user.Roles[0], testRoleName)
 	})
-}
-
-func waitForBackup(t *testing.T, backupID, backend, adminKey string) {
-	for {
-		resp, err := helper.CreateBackupStatusWithAuthz(t, backend, backupID, "", "", helper.CreateAuth(adminKey))
-		require.Nil(t, err)
-		require.NotNil(t, resp.Payload)
-		if *resp.Payload.Status == "SUCCESS" {
-			break
-		}
-		if *resp.Payload.Status == "FAILED" {
-			t.Fatalf("backup failed: %s", resp.Payload.Error)
-		}
-		time.Sleep(time.Second / 10)
-	}
-}
-
-func waitForRestore(t *testing.T, backupID, backend, adminKey string) {
-	for {
-		resp, err := helper.RestoreBackupStatusWithAuthz(t, backend, backupID, "", "", helper.CreateAuth(adminKey))
-		require.Nil(t, err)
-		require.NotNil(t, resp.Payload)
-		if *resp.Payload.Status == "SUCCESS" {
-			break
-		}
-		if *resp.Payload.Status == "FAILED" {
-			t.Fatalf("backup failed: %s", resp.Payload.Error)
-		}
-		time.Sleep(time.Second / 10)
-	}
 }

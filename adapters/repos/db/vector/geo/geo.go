@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -47,7 +47,7 @@ type vectorIndex interface {
 		allowList helpers.AllowList) ([]uint64, error)
 	Delete(id ...uint64) error
 	Dump(...string)
-	Drop(ctx context.Context) error
+	Drop(ctx context.Context, keepFiles bool) error
 	PostStartup(ctx context.Context)
 }
 
@@ -103,8 +103,8 @@ func NewIndex(config Config,
 	return i, nil
 }
 
-func (i *Index) Drop(ctx context.Context) error {
-	if err := i.vectorIndex.Drop(ctx); err != nil {
+func (i *Index) Drop(ctx context.Context, keepFiles bool) error {
+	if err := i.vectorIndex.Drop(ctx, keepFiles); err != nil {
 		return err
 	}
 

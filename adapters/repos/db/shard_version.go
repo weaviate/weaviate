@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -104,7 +104,10 @@ func (sv *shardVersioner) init(fileName string, dataPresent bool) error {
 	return nil
 }
 
-func (sv *shardVersioner) Drop() error {
+func (sv *shardVersioner) Drop(keepFiles bool) error {
+	if keepFiles {
+		return nil
+	}
 	err := os.Remove(sv.path)
 	if err != nil {
 		return errors.Wrap(err, "drop versioner file")

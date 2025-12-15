@@ -25,7 +25,7 @@ message WeightsForTarget {
 message Targets {
   repeated string target_vectors = 1;
   CombinationMethod combination = 2;
-  map<string,float> weights = 3 [deprecated = true];   // deprecated in 1.26.2 - use weights_for_targets
+  reserved 3; // was weights
   repeated WeightsForTarget weights_for_targets = 4;
 }
 

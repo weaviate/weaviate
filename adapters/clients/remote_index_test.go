@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -32,41 +32,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/weaviate/weaviate/entities/additional"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
 )
-
-func TestRemoteIndexIncreaseRF(t *testing.T) {
-	t.Parallel()
-
-	ctx := context.Background()
-	path := "/replicas/indices/C1/replication-factor:increase"
-	fs := newFakeRemoteIndexServer(t, http.MethodPut, path)
-	ts := fs.server(t)
-	defer ts.Close()
-	client := newRemoteIndex(ts.Client())
-	t.Run("ConnectionError", func(t *testing.T) {
-		err := client.IncreaseReplicationFactor(ctx, "", "C1", nil)
-		assert.NotNil(t, err)
-		assert.Contains(t, err.Error(), "connect")
-	})
-	n := 0
-	fs.doAfter = func(w http.ResponseWriter, r *http.Request) {
-		switch n {
-		case 0:
-			w.WriteHeader(http.StatusInternalServerError)
-		case 1:
-			w.WriteHeader(http.StatusTooManyRequests)
-		default:
-			w.WriteHeader(http.StatusNoContent)
-		}
-		n++
-	}
-	t.Run("Success", func(t *testing.T) {
-		err := client.IncreaseReplicationFactor(ctx, fs.host, "C1", nil)
-		assert.Nil(t, err)
-	})
-}
 
 func TestRemoteIndexReInitShardIn(t *testing.T) {
 	t.Parallel()
@@ -319,4 +289,84 @@ func (f *fakeRemoteIndexServer) server(t *testing.T) *httptest.Server {
 	serv := httptest.NewServer(http.HandlerFunc(handler))
 	f.host = serv.URL[7:]
 	return serv
+}
+
+func TestRemoteIndexAddAsyncReplicationTargetNode(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	indexName := "C1"
+	shardName := "S1"
+	endpoint := AsyncReplicationTargetNodeEndpoint(indexName, shardName)
+
+	fs := newFakeRemoteIndexServer(t, http.MethodPost, endpoint)
+	ts := fs.server(t)
+	defer ts.Close()
+
+	client := newRemoteIndex(ts.Client())
+	override := additional.AsyncReplicationTargetNodeOverride{}
+
+	t.Run("ConnectionError", func(t *testing.T) {
+		err := client.AddAsyncReplicationTargetNode(ctx, "", indexName, shardName, override, 0)
+		assert.NotNil(t, err)
+		assert.Contains(t, err.Error(), "connect")
+	})
+
+	n := 0
+	fs.doAfter = func(w http.ResponseWriter, r *http.Request) {
+		switch n {
+		case 0:
+			w.WriteHeader(http.StatusInternalServerError)
+		case 1:
+			w.WriteHeader(http.StatusTooManyRequests)
+		default:
+			w.WriteHeader(http.StatusOK)
+		}
+		n++
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		err := client.AddAsyncReplicationTargetNode(ctx, fs.host, indexName, shardName, override, 0)
+		assert.Nil(t, err)
+	})
+}
+
+func TestRemoteIndexRemoveAsyncReplicationTargetNode(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	indexName := "C1"
+	shardName := "S1"
+	endpoint := AsyncReplicationTargetNodeEndpoint(indexName, shardName)
+
+	fs := newFakeRemoteIndexServer(t, http.MethodDelete, endpoint)
+	ts := fs.server(t)
+	defer ts.Close()
+
+	client := newRemoteIndex(ts.Client())
+	override := additional.AsyncReplicationTargetNodeOverride{}
+
+	t.Run("ConnectionError", func(t *testing.T) {
+		err := client.RemoveAsyncReplicationTargetNode(ctx, "", indexName, shardName, override)
+		assert.NotNil(t, err)
+		assert.Contains(t, err.Error(), "connect")
+	})
+
+	n := 0
+	fs.doAfter = func(w http.ResponseWriter, r *http.Request) {
+		switch n {
+		case 0:
+			w.WriteHeader(http.StatusInternalServerError)
+		case 1:
+			w.WriteHeader(http.StatusTooManyRequests)
+		default:
+			w.WriteHeader(http.StatusNoContent)
+		}
+		n++
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		err := client.RemoveAsyncReplicationTargetNode(ctx, fs.host, indexName, shardName, override)
+		assert.Nil(t, err)
+	})
 }

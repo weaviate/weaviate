@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -285,7 +285,6 @@ func (ri *RemoteIndex) SearchAllReplicas(ctx context.Context,
 	cursor *filters.Cursor,
 	groupBy *searchparams.GroupBy,
 	adds additional.Properties,
-	replEnabled bool,
 	localNode string,
 	targetCombination *dto.TargetCombination,
 	properties []string,
@@ -312,7 +311,6 @@ func (ri *RemoteIndex) SearchShard(ctx context.Context, shard string,
 	cursor *filters.Cursor,
 	groupBy *searchparams.GroupBy,
 	adds additional.Properties,
-	replEnabled bool,
 	targetCombination *dto.TargetCombination,
 	properties []string,
 ) ([]*storobj.Object, []float32, string, error) {
@@ -455,7 +453,6 @@ func (ri *RemoteIndex) queryAllReplicas(
 
 	queryAll := func(replicas []string) (resp []ReplicasSearchResult, err error) {
 		var mu sync.Mutex // protect resp + errlist
-		var searchResult ReplicasSearchResult
 		var errList error
 
 		wg := sync.WaitGroup{}
@@ -469,6 +466,7 @@ func (ri *RemoteIndex) queryAllReplicas(
 			wg.Add(1)
 			enterrors.GoWrapper(func() {
 				defer wg.Done()
+				var searchResult ReplicasSearchResult
 
 				if errC := ctx.Err(); errC != nil {
 					mu.Lock()
@@ -501,7 +499,7 @@ func (ri *RemoteIndex) queryAllReplicas(
 			return nil, errList
 		}
 		if len(resp) != int(queriesSent.Load()) {
-			log.Warnf("full replicas search response does not match replica count: response=%d replicas=%d", len(resp), len(replicas))
+			log.Warnf("full replicas search response does not match amount of queries sent: response=%d replicas=%d", len(resp), queriesSent.Load())
 		}
 		return resp, nil
 	}

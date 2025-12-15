@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -95,6 +95,7 @@ type coordinator struct {
 	schema       schemaManger
 	log          logrus.FieldLogger
 	nodeResolver NodeResolver
+	backends     BackupBackendProvider
 
 	// state
 	Participants map[string]participantStatus
@@ -115,6 +116,7 @@ func newCoordinator(
 	schema schemaManger,
 	log logrus.FieldLogger,
 	nodeResolver NodeResolver,
+	backends BackupBackendProvider,
 ) *coordinator {
 	return &coordinator{
 		selector:           selector,
@@ -122,6 +124,7 @@ func newCoordinator(
 		schema:             schema,
 		log:                log,
 		nodeResolver:       nodeResolver,
+		backends:           backends,
 		Participants:       make(map[string]participantStatus, 16),
 		timeoutNodeDown:    _TimeoutNodeDown,
 		timeoutQueryStatus: _TimeoutQueryStatus,
@@ -168,15 +171,20 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 	if prevID := c.lastOp.renew(req.ID, cstore.HomeDir(req.Bucket, req.Path), req.Bucket, req.Path); prevID != "" {
 		return fmt.Errorf("backup %s already in progress", prevID)
 	}
+	compressionType, err := CompressionTypeFromLevel(req.Level)
+	if err != nil {
+		return err
+	}
 
 	c.descriptor = &backup.DistributedBackupDescriptor{
-		StartedAt:     time.Now().UTC(),
-		Status:        backup.Started,
-		ID:            req.ID,
-		Nodes:         groups,
-		Version:       Version,
-		ServerVersion: config.ServerVersion,
-		Leader:        leader,
+		StartedAt:       time.Now().UTC(),
+		Status:          backup.Started,
+		ID:              req.ID,
+		Nodes:           groups,
+		Version:         Version,
+		ServerVersion:   config.ServerVersion,
+		Leader:          leader,
+		CompressionType: compressionType,
 	}
 
 	for key := range c.Participants {
@@ -299,7 +307,7 @@ func (c *coordinator) restoreClasses(
 		if hasReqClasses && !slices.Contains(req.Classes, cls.Name) {
 			continue
 		}
-		if err := c.schema.RestoreClass(ctx, &cls, req.NodeMapping); err != nil {
+		if err := c.schema.RestoreClass(ctx, &cls, req.NodeMapping, req.RestoreOverwriteAlias); err != nil {
 			c.descriptor.Error = fmt.Sprintf("restore class %q: %v", cls.Name, err)
 			errors = append(errors, fmt.Sprintf("%q: %v", cls.Name, err))
 		}
@@ -460,6 +468,9 @@ func (c *coordinator) commit(ctx context.Context,
 	status := backup.Success
 	reason := ""
 	groups := c.descriptor.Nodes
+	var totalPreCompressionSize int64
+
+	// Read backup descriptors from each node to aggregate pre-compression sizes
 	for node, p := range c.Participants {
 		st := groups[c.descriptor.ToOriginalNodeName(node)]
 		st.Status, st.Error = p.Status, p.Reason
@@ -471,11 +482,45 @@ func (c *coordinator) commit(ctx context.Context,
 				status = backup.Cancelled
 				st.Status = backup.Cancelled
 			}
+		} else {
+			// Try to read the node's backup descriptor to get pre-compression size
+			// for the whole cluster (not just the node)
+			// Skip this for restore operations
+			if req.Method != OpRestore {
+				if backend, err := c.backends.BackupBackend(req.Backend); err == nil {
+					// Create a nodeStore for this specific node
+					nodeBackupID := fmt.Sprintf("%s/%s", req.ID, node)
+					nodeStore := nodeStore{
+						objectStore: objectStore{
+							backend:  backend,
+							backupId: nodeBackupID,
+							bucket:   req.Bucket,
+							path:     req.Path,
+						},
+					}
+
+					if meta, err := nodeStore.Meta(ctx, req.ID, req.Bucket, req.Path, false); err == nil {
+						st.PreCompressionSizeBytes = meta.PreCompressionSizeBytes
+						totalPreCompressionSize += meta.PreCompressionSizeBytes
+						c.log.WithFields(logrus.Fields{
+							"node":                    node,
+							"preCompressionSizeBytes": meta.PreCompressionSizeBytes,
+							"totalPreCompressionSize": totalPreCompressionSize,
+						}).Debug("read node backup descriptor pre-compression size")
+					} else {
+						c.log.WithFields(logrus.Fields{
+							"node":  node,
+							"error": err,
+						}).Warn("could not read node backup descriptor for pre-compression size")
+					}
+				}
+			}
 		}
 		groups[node] = st
 	}
 	c.descriptor.Status = status
 	c.descriptor.Error = reason
+	c.descriptor.PreCompressionSizeBytes = totalPreCompressionSize
 }
 
 // queryAll queries all participant and store their statuses internally
@@ -624,4 +669,17 @@ type partialStatus struct {
 	node string
 	*StatusResponse
 	err error
+}
+
+func CompressionTypeFromLevel(c CompressionLevel) (backup.CompressionType, error) {
+	switch c {
+	case GzipBestCompression, GzipBestSpeed, GzipDefaultCompression:
+		return backup.CompressionGZIP, nil
+	case ZstdBestCompression, ZstdBestSpeed, ZstdDefaultCompression:
+		return backup.CompressionZSTD, nil
+	case NoCompression:
+		return backup.CompressionNone, nil
+	default:
+		return "", fmt.Errorf("invalid compression level: %q", c)
+	}
 }

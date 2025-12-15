@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -85,17 +85,40 @@ func InsertObjects(t *testing.T, host string, className string) {
 		obj := &models.Object{
 			Class: className,
 			ID:    company.ID,
-			Properties: map[string]interface{}{
+			Properties: map[string]any{
 				"name":        company.Name,
 				"description": company.Description,
 			},
 		}
-		helper.SetupClient(host)
-		err := helper.CreateObjectWithTimeout(t, obj, DefaultTimeout)
-		require.NoError(t, err)
-		getObj := helper.AssertGetObjectEventually(t, obj.Class, obj.ID)
-		require.NotNil(t, getObj)
+		insertObject(t, host, obj)
 	}
+}
+
+func InsertObjectsWithEmpty(t *testing.T, host string, className string) {
+	for _, company := range Companies {
+		var empty string
+		if company.Name == "SpaceX" {
+			empty = "not empty for spacex"
+		}
+		obj := &models.Object{
+			Class: className,
+			ID:    company.ID,
+			Properties: map[string]any{
+				"name":        company.Name,
+				"description": company.Description,
+				"empty":       empty,
+			},
+		}
+		insertObject(t, host, obj)
+	}
+}
+
+func insertObject(t *testing.T, host string, obj *models.Object) {
+	helper.SetupClient(host)
+	err := helper.CreateObjectWithTimeout(t, obj, DefaultTimeout)
+	require.NoError(t, err)
+	getObj := helper.AssertGetObjectEventually(t, obj.Class, obj.ID)
+	require.NotNil(t, getObj)
 }
 
 func BatchInsertObjects(t *testing.T, host string, className string) {
@@ -104,12 +127,36 @@ func BatchInsertObjects(t *testing.T, host string, className string) {
 		objects = append(objects, &models.Object{
 			Class: className,
 			ID:    company.ID,
-			Properties: map[string]interface{}{
+			Properties: map[string]any{
 				"name":        company.Name,
 				"description": company.Description,
 			},
 		})
 	}
+	batchInsertObjects(t, host, objects)
+}
+
+func BatchInsertObjectsWithEmpty(t *testing.T, host string, className string) {
+	var objects []*models.Object
+	for _, company := range Companies {
+		var empty string
+		if company.Name == "SpaceX" {
+			empty = "not empty for spacex"
+		}
+		objects = append(objects, &models.Object{
+			Class: className,
+			ID:    company.ID,
+			Properties: map[string]any{
+				"name":        company.Name,
+				"description": company.Description,
+				"empty":       empty,
+			},
+		})
+	}
+	batchInsertObjects(t, host, objects)
+}
+
+func batchInsertObjects(t *testing.T, host string, objects []*models.Object) {
 	helper.SetupClient(host)
 
 	returnedFields := "ALL"
@@ -135,31 +182,44 @@ func BatchInsertObjects(t *testing.T, host string, className string) {
 }
 
 func PerformAllSearchTests(t *testing.T, rest, grpc string, className string) {
+	PerformAllSearchTestsWithTargetVector(t, rest, grpc, className, "")
+}
+
+func PerformAllSearchTestsWithTargetVector(t *testing.T, rest, grpc, className, targetVector string) {
 	// vector search with gql
 	t.Run("perform vector search with gql", func(t *testing.T) {
-		PerformVectorSearchTest(t, rest, className)
+		PerformVectorSearchTestWithTargetVector(t, rest, className, targetVector)
 	})
 	// vector search with grpc
 	t.Run("perform vector search with grpc", func(t *testing.T) {
-		PerformVectorSearchGRPCTest(t, grpc, className)
+		PerformVectorSearchGRPCTestWithTargetVector(t, grpc, className, targetVector)
 	})
 	// hybrid search with gql
 	t.Run("perform hybrid search with gql", func(t *testing.T) {
-		PerformHybridSearchTest(t, rest, className)
+		PerformHybridSearchTestWithTargetVector(t, rest, className, targetVector)
 	})
 	// hybrid search with grpc
 	t.Run("perform hybrid search with grpc", func(t *testing.T) {
-		PerformHybridSearchGRPCTest(t, grpc, className)
+		PerformHybridSearchGRPCTestWithTargetVector(t, grpc, className, targetVector)
 	})
 }
 
-func PerformVectorSearchTest(t *testing.T, host string, className string) {
+func PerformVectorSearchTest(t *testing.T, host, className string) {
+	PerformVectorSearchTestWithTargetVector(t, host, className, "")
+}
+
+func PerformVectorSearchTestWithTargetVector(t *testing.T, host, className, targetVector string) {
+	targetVectors := ""
+	if targetVector != "" {
+		targetVectors = fmt.Sprintf(`targetVectors:["%s"]`, targetVector)
+	}
 	query := fmt.Sprintf(`
 				{
 					Get {
 						%s(
 							nearText:{
 								concepts:["SpaceX"]
+								%s
 							}
 						){
 							name
@@ -169,15 +229,24 @@ func PerformVectorSearchTest(t *testing.T, host string, className string) {
 						}
 					}
 				}
-			`, className)
+			`, className, targetVectors)
 	assertResults(t, host, className, query)
 }
 
-func PerformVectorSearchGRPCTest(t *testing.T, host string, className string) {
+func PerformVectorSearchGRPCTest(t *testing.T, host, className string) {
+	PerformVectorSearchGRPCTestWithTargetVector(t, host, className, "")
+}
+
+func PerformVectorSearchGRPCTestWithTargetVector(t *testing.T, host, className, targetVector string) {
+	var targets *protocol.Targets
+	if targetVector != "" {
+		targets = &protocol.Targets{TargetVectors: []string{targetVector}}
+	}
 	req := protocol.SearchRequest{
 		Collection: className,
 		NearText: &protocol.NearTextSearch{
-			Query: []string{"SpaceX"},
+			Query:   []string{"SpaceX"},
+			Targets: targets,
 		},
 		Properties: &protocol.PropertiesRequest{
 			NonRefProperties: []string{"name"},
@@ -190,7 +259,11 @@ func PerformVectorSearchGRPCTest(t *testing.T, host string, className string) {
 	assertResultsGRPC(t, host, &req)
 }
 
-func PerformHybridSearchWithTextTest(t *testing.T, host string, className, text string) {
+func PerformHybridSearchWithTextTestWithTargetVector(t *testing.T, host string, className, text, targetVector string) {
+	targetVectors := ""
+	if targetVector != "" {
+		targetVectors = fmt.Sprintf(`targetVectors:["%s"]`, targetVector)
+	}
 	query := fmt.Sprintf(`
 				{
 					Get {
@@ -198,6 +271,7 @@ func PerformHybridSearchWithTextTest(t *testing.T, host string, className, text 
 							hybrid:{
 								query:"%s"
 								alpha:0.75
+								%s
 							}
 						){
 							name
@@ -207,20 +281,48 @@ func PerformHybridSearchWithTextTest(t *testing.T, host string, className, text 
 						}
 					}
 				}
-			`, className, text)
+			`, className, text, targetVectors)
 	assertResults(t, host, className, query)
 }
 
-func PerformHybridSearchTest(t *testing.T, host string, className string) {
-	PerformHybridSearchWithTextTest(t, host, className, "SpaceX")
+func PerformHybridSearchTest(t *testing.T, host, className string) {
+	PerformHybridSearchWithTextTestWithTargetVector(t, host, className, "SpaceX", "")
+}
+
+func PerformHybridSearchTestWithTargetVector(t *testing.T, host, className, targetVector string) {
+	PerformHybridSearchWithTextTestWithTargetVector(t, host, className, "SpaceX", targetVector)
 }
 
 func PerformHybridSearchGRPCTest(t *testing.T, host string, className string) {
 	req := protocol.SearchRequest{
 		Collection: className,
 		HybridSearch: &protocol.Hybrid{
-			Query: "SpaceX",
-			Alpha: 0.75,
+			Query:   "SpaceX",
+			Alpha:   0.75,
+			Targets: &protocol.Targets{TargetVectors: []string{"description"}},
+		},
+		Properties: &protocol.PropertiesRequest{
+			NonRefProperties: []string{"name"},
+		},
+		Metadata: &protocol.MetadataRequest{
+			Uuid: true,
+		},
+		Uses_127Api: true,
+	}
+	assertResultsGRPC(t, host, &req)
+}
+
+func PerformHybridSearchGRPCTestWithTargetVector(t *testing.T, host, className, targetVector string) {
+	var targets *protocol.Targets
+	if targetVector != "" {
+		targets = &protocol.Targets{TargetVectors: []string{targetVector}}
+	}
+	req := protocol.SearchRequest{
+		Collection: className,
+		HybridSearch: &protocol.Hybrid{
+			Query:   "SpaceX",
+			Alpha:   0.75,
+			Targets: targets,
 		},
 		Properties: &protocol.PropertiesRequest{
 			NonRefProperties: []string{"name"},
@@ -239,9 +341,9 @@ func assertResults(t *testing.T, host string, className, query string) {
 	objs := result.Get("Get", className).AsSlice()
 	require.Len(t, objs, 2)
 	for _, obj := range objs {
-		name := obj.(map[string]interface{})["name"]
+		name := obj.(map[string]any)["name"]
 		assert.NotEmpty(t, name)
-		additional, ok := obj.(map[string]interface{})["_additional"].(map[string]interface{})
+		additional, ok := obj.(map[string]any)["_additional"].(map[string]any)
 		require.True(t, ok)
 		require.NotNil(t, additional)
 		id, ok := additional["id"].(string)
@@ -261,5 +363,133 @@ func assertResultsGRPC(t *testing.T, host string, req *protocol.SearchRequest) {
 	for _, res := range resp.Results {
 		assert.NotEmpty(t, res.GetProperties().GetNonRefProps().GetFields()["name"].GetTextValue())
 		assert.NotEmpty(t, res.GetMetadata().GetId())
+	}
+}
+
+func TestSuite(t *testing.T, rest, grpc, className string,
+	vectorizerSettings map[string]any,
+) {
+	tests := []struct {
+		name     string
+		useBatch bool
+	}{
+		{
+			name: "with batch", useBatch: true,
+		},
+		{
+			name: "without batch", useBatch: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			class := BaseClass(className)
+			class.VectorConfig = map[string]models.VectorConfig{
+				"description": {
+					Vectorizer:      vectorizerSettings,
+					VectorIndexType: "hnsw",
+				},
+			}
+			helper.CreateClass(t, class)
+			defer helper.DeleteClass(t, class.Class)
+			if tt.useBatch {
+				t.Run("batch create objects", func(t *testing.T) {
+					BatchInsertObjects(t, rest, class.Class)
+				})
+			} else {
+				t.Run("create objects", func(t *testing.T) {
+					InsertObjects(t, rest, class.Class)
+				})
+			}
+			t.Run("check objects existence", func(t *testing.T) {
+				for _, company := range Companies {
+					t.Run(company.ID.String(), func(t *testing.T) {
+						obj, err := helper.GetObject(t, class.Class, company.ID, "vector")
+						require.NoError(t, err)
+						require.NotNil(t, obj)
+						require.GreaterOrEqual(t, len(obj.Vectors), 1)
+						checkVector(t, obj, "description")
+					})
+				}
+			})
+			t.Run("search tests", func(t *testing.T) {
+				PerformAllSearchTests(t, rest, grpc, class.Class)
+			})
+		})
+	}
+}
+
+func TestSuiteWithEmptyValues(t *testing.T, rest, grpc, className string,
+	vectorizerSettings, emptyVectorizerSettings map[string]any,
+) {
+	tests := []struct {
+		name     string
+		useBatch bool
+	}{
+		{
+			name: "with batch", useBatch: true,
+		},
+		{
+			name: "without batch", useBatch: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			class := BaseClass(className)
+			class.VectorConfig = map[string]models.VectorConfig{
+				"description": {
+					Vectorizer:      vectorizerSettings,
+					VectorIndexType: "hnsw",
+				},
+				"empty": {
+					Vectorizer:      emptyVectorizerSettings,
+					VectorIndexType: "hnsw",
+				},
+			}
+			helper.CreateClass(t, class)
+			defer helper.DeleteClass(t, class.Class)
+			if tt.useBatch {
+				t.Run("batch create objects", func(t *testing.T) {
+					BatchInsertObjectsWithEmpty(t, rest, class.Class)
+				})
+			} else {
+				t.Run("create objects", func(t *testing.T) {
+					InsertObjectsWithEmpty(t, rest, class.Class)
+				})
+			}
+			t.Run("check objects existence", func(t *testing.T) {
+				for _, company := range Companies {
+					t.Run(company.ID.String(), func(t *testing.T) {
+						obj, err := helper.GetObject(t, class.Class, company.ID, "vector")
+						require.NoError(t, err)
+						require.NotNil(t, obj)
+						require.GreaterOrEqual(t, len(obj.Vectors), 1)
+						checkVector(t, obj, "description")
+						if obj.ID == SpaceX {
+							checkVector(t, obj, "empty")
+						} else {
+							assert.Nil(t, obj.Vectors["empty"])
+						}
+					})
+				}
+			})
+			t.Run("search tests", func(t *testing.T) {
+				PerformAllSearchTestsWithTargetVector(t, rest, grpc, class.Class, "description")
+			})
+		})
+	}
+}
+
+func checkVector(t *testing.T, obj *models.Object, targetVector string) {
+	vector, ok := obj.Vectors[targetVector]
+	require.True(t, ok)
+	switch vector.(type) {
+	case []float32:
+		require.IsType(t, []float32{}, obj.Vectors[targetVector])
+		assert.True(t, len(obj.Vectors[targetVector].([]float32)) > 0)
+	case [][]float32:
+		require.IsType(t, [][]float32{}, obj.Vectors[targetVector])
+		assert.True(t, len(obj.Vectors[targetVector].([][]float32)) > 0)
+	default:
+		t.Fatalf("unsupported vector type: %T", vector)
 	}
 }

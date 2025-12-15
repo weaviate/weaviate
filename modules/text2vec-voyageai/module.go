@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,7 +13,6 @@ package modvoyageai
 
 import (
 	"context"
-	"net/http"
 	"os"
 	"time"
 
@@ -47,7 +46,7 @@ var batchSettings = batch.Settings{
 			return 320000
 		case "voyage-large-2", "voyage-code-2":
 			return 120000
-		case "voyage-3", "voyage-3-lite", "voyage-3.5", "voyage-3.5-lite", "voyage-context-3":
+		case "voyage-3", "voyage-3-lite", "voyage-3-large", "voyage-3.5", "voyage-3.5-lite", "voyage-context-3":
 			return 160000
 		default:
 			return 120000 // unknown model, use the smallest limit
@@ -131,11 +130,6 @@ func (m *VoyageAIModule) initVectorizer(ctx context.Context, timeout time.Durati
 
 func (m *VoyageAIModule) initAdditionalPropertiesProvider() error {
 	m.additionalPropertiesProvider = additional.NewText2VecProvider()
-	return nil
-}
-
-func (m *VoyageAIModule) RootHandler() http.Handler {
-	// TODO: remove once this is a capability interface
 	return nil
 }
 

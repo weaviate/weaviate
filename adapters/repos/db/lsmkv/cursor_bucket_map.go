@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -42,7 +42,10 @@ type innerCursorMap interface {
 	seek([]byte) ([]byte, []MapPair, error)
 }
 
-func (b *Bucket) MapCursor(cfgs ...MapListOption) *CursorMap {
+func (b *Bucket) MapCursor(cfgs ...MapListOption) (*CursorMap, error) {
+	if b.strategy != StrategyMapCollection && b.strategy != StrategyInverted {
+		return nil, fmt.Errorf("cannot create map cursor on bucket with strategy %s", b.strategy)
+	}
 	cursorOpenedAt := time.Now()
 	b.metrics.IncBucketOpenedCursorsByStrategy(b.strategy)
 	b.metrics.IncBucketOpenCursorsByStrategy(b.strategy)
@@ -78,13 +81,16 @@ func (b *Bucket) MapCursor(cfgs ...MapListOption) *CursorMap {
 		// being at the very top
 		innerCursors: innerCursors,
 		listCfg:      c,
-	}
+	}, nil
 }
 
-func (b *Bucket) MapCursorKeyOnly(cfgs ...MapListOption) *CursorMap {
-	c := b.MapCursor(cfgs...)
+func (b *Bucket) MapCursorKeyOnly(cfgs ...MapListOption) (*CursorMap, error) {
+	c, err := b.MapCursor(cfgs...)
+	if err != nil {
+		return nil, err
+	}
 	c.keyOnly = true
-	return c
+	return c, nil
 }
 
 func (c *CursorMap) Seek(ctx context.Context, key []byte) ([]byte, []MapPair) {

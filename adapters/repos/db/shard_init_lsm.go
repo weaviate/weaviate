@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -148,7 +148,7 @@ func (s *Shard) initLSMStore() error {
 func (s *Shard) initObjectBucket(ctx context.Context) error {
 	opts := []lsmkv.BucketOption{
 		lsmkv.WithStrategy(lsmkv.StrategyReplace),
-		lsmkv.WithSecondaryIndices(2),
+		lsmkv.WithSecondaryIndices(1),
 		lsmkv.WithPread(s.index.Config.AvoidMMap),
 		lsmkv.WithKeepTombstones(true),
 		s.dynamicMemtableSizing(),

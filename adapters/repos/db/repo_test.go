@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -22,7 +22,7 @@ import (
 )
 
 func TestGetIndex(t *testing.T) {
-	db := testDB(t.TempDir(), []*models.Class{}, make(map[string]*sharding.State))
+	db := testDB(t, t.TempDir(), []*models.Class{}, make(map[string]*sharding.State))
 
 	// empty indices
 	db.indices = map[string]*Index{}

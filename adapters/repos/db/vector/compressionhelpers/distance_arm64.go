@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -20,5 +20,6 @@ func init() {
 	if cpu.ARM64.HasASIMD {
 		l2SquaredByteImpl = asm.L2ByteARM64
 		dotByteImpl = asm.DotByteARM64
+		hammingBitwiseImpl = asm.HammingBitwise
 	}
 }

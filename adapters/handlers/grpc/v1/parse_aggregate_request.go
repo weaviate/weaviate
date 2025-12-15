@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -91,6 +91,10 @@ func (p *AggregateParser) Aggregate(req *pb.AggregateRequest) (*aggregation.Para
 	targetVectors, _, _, err := extractTargetVectorsForAggregate(req, class)
 	if err != nil {
 		return nil, fmt.Errorf("extract target vectors: %w", err)
+	}
+
+	if len(targetVectors) > 1 {
+		return nil, fmt.Errorf("found more than one target vector for aggregation")
 	}
 
 	switch search := req.GetSearch().(type) {

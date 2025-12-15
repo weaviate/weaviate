@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -14,6 +14,7 @@ package replication
 import (
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/hashicorp/go-multierror"
@@ -28,11 +29,12 @@ func (s *ShardReplicationFSM) Replicate(id uint64, c *api.ReplicationReplicateSh
 	defer s.opsLock.Unlock()
 
 	op := ShardReplicationOp{
-		ID:           id,
-		UUID:         c.Uuid,
-		SourceShard:  newShardFQDN(c.SourceNode, c.SourceCollection, c.SourceShard),
-		TargetShard:  newShardFQDN(c.TargetNode, c.SourceCollection, c.SourceShard),
-		TransferType: api.ShardReplicationTransferType(c.TransferType),
+		ID:              id,
+		UUID:            c.Uuid,
+		SourceShard:     newShardFQDN(c.SourceNode, c.SourceCollection, c.SourceShard),
+		TargetShard:     newShardFQDN(c.TargetNode, c.SourceCollection, c.SourceShard),
+		TransferType:    api.ShardReplicationTransferType(c.TransferType),
+		StartTimeUnixMs: time.Now().UnixMilli(),
 	}
 	return s.writeOpIntoFSM(op, NewShardReplicationStatus(api.REGISTERED))
 }
@@ -49,7 +51,7 @@ func (s *ShardReplicationFSM) RegisterError(c *api.ReplicationRegisterErrorReque
 	if !ok {
 		return fmt.Errorf("could not find op status for op %d", c.Id)
 	}
-	if err := status.AddError(c.Error); err != nil {
+	if err := status.AddError(c.Error, c.TimeUnixMs); err != nil {
 		return err
 	}
 	s.statusById[op.ID] = status
@@ -64,7 +66,7 @@ func (s *ShardReplicationFSM) writeOpIntoFSM(op ShardReplicationOp, status Shard
 		// First check the status of the existing op. If it's READY or CANCELLED we can accept a new op
 		if existingOpStatus, ok := s.statusById[op.ID]; ok {
 			if existingOpStatus.GetCurrentState() != api.READY && existingOpStatus.GetCurrentState() != api.CANCELLED {
-				return ErrShardAlreadyReplicating
+				return fmt.Errorf("op %s in targetFQDN: %w", op.UUID, ErrShardAlreadyReplicating)
 			}
 		}
 	}
@@ -85,12 +87,12 @@ func (s *ShardReplicationFSM) writeOpIntoFSM(op ShardReplicationOp, status Shard
 
 			// If any of the ops we're handling is a move we can't accept any new op
 			if existingOp.TransferType == api.MOVE {
-				return ErrShardAlreadyReplicating
+				return fmt.Errorf("existing op %s is a MOVE: %w", op.UUID, ErrShardAlreadyReplicating)
 			}
 
 			// At this point we know the existing op is a copy, if our new op is a move we can't accept it
 			if op.TransferType == api.MOVE {
-				return ErrShardAlreadyReplicating
+				return fmt.Errorf("existing op %s is a COPY, but new op is a MOVE: %w", op.UUID, ErrShardAlreadyReplicating)
 			}
 
 			// Existing op is an ongoing copy, our new op is also a copy, we can accept it

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -39,7 +39,16 @@ type WeaviateRuntimeConfig struct {
 	QuerySlowLogEnabled                  *runtime.DynamicValue[bool]          `json:"query_slow_log_enabled" yaml:"query_slow_log_enabled"`
 	QuerySlowLogThreshold                *runtime.DynamicValue[time.Duration] `json:"query_slow_log_threshold" yaml:"query_slow_log_threshold"`
 	InvertedSorterDisabled               *runtime.DynamicValue[bool]          `json:"inverted_sorter_disabled" yaml:"inverted_sorter_disabled"`
+	UsageGCSBucket                       *runtime.DynamicValue[string]        `json:"usage_gcs_bucket" yaml:"usage_gcs_bucket"`
+	UsageGCSPrefix                       *runtime.DynamicValue[string]        `json:"usage_gcs_prefix" yaml:"usage_gcs_prefix"`
+	UsageS3Bucket                        *runtime.DynamicValue[string]        `json:"usage_s3_bucket" yaml:"usage_s3_bucket"`
+	UsageS3Prefix                        *runtime.DynamicValue[string]        `json:"usage_s3_prefix" yaml:"usage_s3_prefix"`
+	UsageScrapeInterval                  *runtime.DynamicValue[time.Duration] `json:"usage_scrape_interval" yaml:"usage_scrape_interval"`
+	UsageShardJitterInterval             *runtime.DynamicValue[time.Duration] `json:"usage_shard_jitter_interval" yaml:"usage_shard_jitter_interval"`
+	UsagePolicyVersion                   *runtime.DynamicValue[string]        `json:"usage_policy_version" yaml:"usage_policy_version"`
+	UsageVerifyPermissions               *runtime.DynamicValue[bool]          `json:"usage_verify_permissions" yaml:"usage_verify_permissions"`
 	ReplicatedIndicesRequestQueueEnabled *runtime.DynamicValue[bool]          `json:"replicated_indices_request_queue_enabled" yaml:"replicated_indices_request_queue_enabled"`
+	DefaultQuantization                  *runtime.DynamicValue[string]        `yaml:"default_quantization" json:"default_quantization"`
 
 	// RAFT specific configs
 	RaftDrainSleep        *runtime.DynamicValue[time.Duration] `json:"raft_drain_sleep" yaml:"raft_drain_sleep"`

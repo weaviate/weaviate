@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -373,6 +373,8 @@ const (
 	AddPQ
 	AddSQ
 	AddMuvera
+	AddRQ
+	AddBRQ
 )
 
 func (t HnswCommitType) String() string {
@@ -405,6 +407,10 @@ func (t HnswCommitType) String() string {
 		return "AddScalarQuantizer"
 	case AddMuvera:
 		return "AddMuvera"
+	case AddRQ:
+		return "AddRotationalQuantizer"
+	case AddBRQ:
+		return "AddBRQCompression"
 	}
 	return "unknown commit type"
 }
@@ -427,11 +433,25 @@ func (l *hnswCommitLogger) AddSQCompression(data compressionhelpers.SQData) erro
 	return l.commitLogger.AddSQCompression(data)
 }
 
+func (l *hnswCommitLogger) AddRQCompression(data compressionhelpers.RQData) error {
+	l.Lock()
+	defer l.Unlock()
+
+	return l.commitLogger.AddRQCompression(data)
+}
+
 func (l *hnswCommitLogger) AddMuvera(data multivector.MuveraData) error {
 	l.Lock()
 	defer l.Unlock()
 
 	return l.commitLogger.AddMuvera(data)
+}
+
+func (l *hnswCommitLogger) AddBRQCompression(data compressionhelpers.BRQData) error {
+	l.Lock()
+	defer l.Unlock()
+
+	return l.commitLogger.AddBRQCompression(data)
 }
 
 // AddNode adds an empty node
@@ -533,6 +553,8 @@ func (l *hnswCommitLogger) startSwitchLogs(shouldAbort cyclemanager.ShouldAbortC
 	if err != nil {
 		l.logger.WithError(err).
 			WithField("action", "hnsw_commit_log_switch").
+			WithField("file", l.rootPath).
+			WithField("id", l.id).
 			Error("hnsw commit log switch failed")
 	}
 	return executed
@@ -543,6 +565,8 @@ func (l *hnswCommitLogger) startCommitLogsMaintenance(shouldAbort cyclemanager.S
 	if err != nil {
 		l.logger.WithError(err).
 			WithField("action", "hnsw_commit_log_combining").
+			WithField("file", l.rootPath).
+			WithField("id", l.id).
 			Error("hnsw commit log maintenance (combining) failed")
 	}
 
@@ -550,6 +574,8 @@ func (l *hnswCommitLogger) startCommitLogsMaintenance(shouldAbort cyclemanager.S
 	if err != nil {
 		l.logger.WithError(err).
 			WithField("action", "hnsw_commit_log_condensing").
+			WithField("file", l.rootPath).
+			WithField("id", l.id).
 			Error("hnsw commit log maintenance (condensing) failed")
 	}
 
@@ -557,6 +583,8 @@ func (l *hnswCommitLogger) startCommitLogsMaintenance(shouldAbort cyclemanager.S
 	if err != nil {
 		l.logger.WithError(err).
 			WithField("action", "hnsw_snapshot_creating").
+			WithField("file", l.rootPath).
+			WithField("id", l.id).
 			Error("hnsw commit log maintenance (snapshot) failed")
 	}
 
@@ -703,7 +731,7 @@ func (l *hnswCommitLogger) logCombiningThreshold() int64 {
 	return int64(float64(l.maxSizeCombining) * 1.75)
 }
 
-func (l *hnswCommitLogger) Drop(ctx context.Context) error {
+func (l *hnswCommitLogger) Drop(ctx context.Context, keepFiles bool) error {
 	l.Lock()
 	defer l.Unlock()
 	if err := l.commitLogger.Close(); err != nil {
@@ -717,7 +745,7 @@ func (l *hnswCommitLogger) Drop(ctx context.Context) error {
 
 	// remove commit log directory if exists
 	dir := commitLogDirectory(l.rootPath, l.id)
-	if _, err := os.Stat(dir); err == nil {
+	if _, err := os.Stat(dir); err == nil && !keepFiles {
 		err := os.RemoveAll(dir)
 		if err != nil {
 			return errors.Wrap(err, "delete commit files directory")

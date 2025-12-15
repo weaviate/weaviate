@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,16 +13,12 @@ package modtransformers
 
 import (
 	"context"
-	"net/http"
 	"os"
 	"time"
 
-	"github.com/weaviate/weaviate/usecases/modulecomponents/text2vecbase"
-
-	"github.com/weaviate/weaviate/usecases/modulecomponents/batch"
-
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
 	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
@@ -30,6 +26,8 @@ import (
 	"github.com/weaviate/weaviate/modules/text2vec-gpt4all/clients"
 	"github.com/weaviate/weaviate/modules/text2vec-gpt4all/vectorizer"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/batch"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/text2vecbase"
 )
 
 const Name = "text2vec-gpt4all"
@@ -118,11 +116,6 @@ func (m *GPT4AllModule) initVectorizer(ctx context.Context, timeout time.Duratio
 
 func (m *GPT4AllModule) initAdditionalPropertiesProvider() error {
 	m.additionalPropertiesProvider = additional.NewText2VecProvider()
-	return nil
-}
-
-func (m *GPT4AllModule) RootHandler() http.Handler {
-	// TODO: remove once this is a capability interface
 	return nil
 }
 

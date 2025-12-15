@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -18,6 +18,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
@@ -271,7 +272,7 @@ func (m *ContextionaryModule) MetaInfo() (map[string]interface{}, error) {
 
 // verify we implement the modules.Module interface
 var (
-	_ = modulecapabilities.Module(New())
+	_ = modulecapabilities.ModuleWithHTTPHandlers(New())
 	_ = modulecapabilities.Vectorizer[[]float32](New())
 	_ = modulecapabilities.InputVectorizer[[]float32](New())
 )

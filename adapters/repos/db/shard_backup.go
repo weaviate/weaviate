@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -80,7 +80,20 @@ func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool, inactivity
 		q.Pause()
 		return nil
 	})
+	// wait for ongoing indexing to finish
+	_ = s.ForEachVectorQueue(func(_ string, q *VectorIndexQueue) error {
+		q.Wait()
+		return nil
+	})
+	// flush all the queue
+	err = s.ForEachVectorQueue(func(_ string, q *VectorIndexQueue) error {
+		return q.Flush()
+	})
+	if err != nil {
+		return fmt.Errorf("flush vector index queues: %w", err)
+	}
 
+	// switch commit logs to ensure all data is flushed to disk
 	err = s.ForEachVectorIndex(func(targetVector string, index VectorIndex) error {
 		if err = index.SwitchCommitLogs(ctx); err != nil {
 			return fmt.Errorf("switch commit logs of vector %q: %w", targetVector, err)
@@ -167,10 +180,22 @@ func (s *Shard) ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor
 		return err
 	}
 
-	return s.ForEachVectorIndex(func(targetVector string, idx VectorIndex) error {
+	err = s.ForEachVectorIndex(func(targetVector string, idx VectorIndex) error {
 		files, err := idx.ListFiles(ctx, s.index.Config.RootPath)
 		if err != nil {
 			return fmt.Errorf("list files of vector %q: %w", targetVector, err)
+		}
+		ret.Files = append(ret.Files, files...)
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	return s.ForEachVectorQueue(func(targetVector string, queue *VectorIndexQueue) error {
+		files, err := queue.ListFiles(ctx, s.index.Config.RootPath)
+		if err != nil {
+			return fmt.Errorf("list files of queue %q: %w", targetVector, err)
 		}
 		ret.Files = append(ret.Files, files...)
 		return nil
@@ -235,10 +260,7 @@ func (s *Shard) mayForceResumeMaintenanceCycles(ctx context.Context, forced bool
 func (s *Shard) readBackupMetadata(d *backup.ShardDescriptor) (err error) {
 	d.Name = s.name
 
-	d.Node, err = s.nodeName()
-	if err != nil {
-		return fmt.Errorf("node name: %w", err)
-	}
+	d.Node = s.index.getSchema.NodeName()
 
 	fpath := s.counter.FileName()
 	if d.DocIDCounter, err = os.ReadFile(fpath); err != nil {
@@ -265,12 +287,6 @@ func (s *Shard) readBackupMetadata(d *backup.ShardDescriptor) (err error) {
 		return fmt.Errorf("shard version path: %w", err)
 	}
 	return nil
-}
-
-func (s *Shard) nodeName() (string, error) {
-	node, err := s.index.getSchema.ShardOwner(
-		s.index.Config.ClassName.String(), s.name)
-	return node, err
 }
 
 func (s *Shard) GetFileMetadata(ctx context.Context, relativeFilePath string) (file.FileMetadata, error) {

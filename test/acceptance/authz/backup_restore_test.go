@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/client/authz"
 	"github.com/weaviate/weaviate/client/backups"
 	"github.com/weaviate/weaviate/entities/models"
@@ -95,7 +96,7 @@ func TestBackupAndRestoreRBAC(t *testing.T) {
 		require.NotNil(t, resp.Payload)
 		require.Equal(t, "", resp.Payload.Error)
 
-		waitForBackup(t, backupID, backend, adminKey)
+		helper.ExpectBackupEventuallyCreated(t, backupID, backend, helper.CreateAuth(adminKey))
 
 		// delete role and assignment
 		helper.DeleteRole(t, adminKey, testRoleName)
@@ -108,6 +109,8 @@ func TestBackupAndRestoreRBAC(t *testing.T) {
 		require.Nil(t, err)
 		require.NotNil(t, respR.Payload)
 		require.Equal(t, "", respR.Payload.Error)
+
+		helper.ExpectBackupEventuallyRestored(t, backupID, backend, helper.CreateAuth(adminKey))
 
 		role := helper.GetRoleByName(t, adminKey, testRoleName)
 		require.NotNil(t, role)
@@ -142,7 +145,7 @@ func TestBackupAndRestoreRBAC(t *testing.T) {
 		require.NotNil(t, resp.Payload)
 		require.Equal(t, "", resp.Payload.Error)
 
-		waitForBackup(t, backupID, backend, adminKey)
+		helper.ExpectBackupEventuallyCreated(t, backupID, backend, helper.CreateAuth(adminKey), helper.WithPollInterval(helper.MinPollInterval), helper.WithDeadline(helper.MaxDeadline))
 
 		// delete role and assignment
 		helper.DeleteRole(t, adminKey, testRoleName)
@@ -161,6 +164,8 @@ func TestBackupAndRestoreRBAC(t *testing.T) {
 		require.NotNil(t, respR.Payload)
 		require.Equal(t, "", respR.Payload.Error)
 
+		helper.ExpectBackupEventuallyRestored(t, backupID, backend, helper.CreateAuth(adminKey))
+
 		respRole, err := helper.Client(t).Authz.GetRole(authz.NewGetRoleParams().WithID(testRoleName), helper.CreateAuth(adminKey))
 		require.Nil(t, respRole)
 		require.Error(t, err)
@@ -168,19 +173,4 @@ func TestBackupAndRestoreRBAC(t *testing.T) {
 		roles := helper.GetRolesForUser(t, customUser, adminKey, false)
 		require.Len(t, roles, 0)
 	})
-}
-
-func waitForBackup(t *testing.T, backupID, backend, adminKey string) {
-	for {
-		resp, err := helper.CreateBackupStatusWithAuthz(t, backend, backupID, "", "", helper.CreateAuth(adminKey))
-		require.Nil(t, err)
-		require.NotNil(t, resp.Payload)
-		if *resp.Payload.Status == "SUCCESS" {
-			break
-		}
-		if *resp.Payload.Status == "FAILED" {
-			t.Fatalf("backup failed: %s", resp.Payload.Error)
-		}
-		time.Sleep(time.Second / 10)
-	}
 }

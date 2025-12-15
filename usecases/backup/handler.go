@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -47,7 +47,7 @@ type BackupBackendProvider interface {
 }
 
 type schemaManger interface {
-	RestoreClass(ctx context.Context, d *backup.ClassDescriptor, nodeMapping map[string]string) error
+	RestoreClass(ctx context.Context, d *backup.ClassDescriptor, nodeMapping map[string]string, overwriteAlias bool) error
 	NodeName() string
 }
 
@@ -107,14 +107,8 @@ func NewHandler(
 
 // Compression is the compression configuration.
 type Compression struct {
-	// Level is one of DefaultCompression, BestSpeed, BestCompression
+	// Level is one of GzipDefaultCompression, GzipBestSpeed, GzipBestCompression
 	Level CompressionLevel
-
-	// ChunkSize represents the desired size for chunks between 1 - 512  MB
-	// However, during compression, the chunk size might
-	// slightly deviate from this value, being either slightly
-	// below or above the specified size
-	ChunkSize int
 
 	// CPUPercentage desired CPU core utilization (1%-80%), default: 50%
 	CPUPercentage int

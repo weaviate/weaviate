@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -59,14 +59,17 @@ type generativeParser interface {
 type Parser struct {
 	generative         generativeParser
 	authorizedGetClass classGetterWithAuthzFunc
+	aliasGetter        aliasGetter
 }
 
 func NewParser(uses127Api bool,
 	authorizedGetClass classGetterWithAuthzFunc,
+	aliasGetter aliasGetter,
 ) *Parser {
 	return &Parser{
 		generative:         generative.NewParser(uses127Api),
 		authorizedGetClass: authorizedGetClass,
+		aliasGetter:        aliasGetter,
 	}
 }
 
@@ -77,7 +80,8 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 		return out, err
 	}
 
-	out.ClassName = req.Collection
+	out.Alias = p.aliasGetter(req.Collection)
+	out.ClassName = class.Class
 	out.ReplicationProperties = extractReplicationProperties(req.ConsistencyLevel)
 
 	out.Tenant = req.Tenant
@@ -579,32 +583,17 @@ func extractTargetCombinationSumWeights(targetVectors []string) []float32 {
 }
 
 func extractWeights(in *pb.Targets, weights []float32) error {
-	if in.WeightsForTargets != nil {
-		if len(in.WeightsForTargets) != len(in.TargetVectors) {
-			return fmt.Errorf("number of weights (%d) does not match number of targets (%d)", len(in.Weights), len(in.TargetVectors))
-		}
-
-		for i, v := range in.WeightsForTargets {
-			if v.Target != in.TargetVectors[i] {
-				return fmt.Errorf("target vector %s not found in target vectors", v.Target)
-			}
-			weights[i] = v.Weight
-		}
-		return nil
-	} else {
-		if len(in.Weights) != len(in.TargetVectors) {
-			return fmt.Errorf("number of weights (%d) does not match number of targets (%d)", len(in.Weights), len(in.TargetVectors))
-		}
-
-		for k, v := range in.Weights {
-			ind := indexOf(in.TargetVectors, k)
-			if ind == -1 {
-				return fmt.Errorf("target vector %s not found in target vectors", k)
-			}
-			weights[ind] = v
-		}
-		return nil
+	if len(in.WeightsForTargets) != len(in.TargetVectors) {
+		return fmt.Errorf("number of weights (%d) does not match number of targets (%d)", len(in.WeightsForTargets), len(in.TargetVectors))
 	}
+
+	for i, v := range in.WeightsForTargets {
+		if v.Target != in.TargetVectors[i] {
+			return fmt.Errorf("target vector %s not found in target vectors", v.Target)
+		}
+		weights[i] = v.Weight
+	}
+	return nil
 }
 
 func extractSorting(sortIn []*pb.SortBy) []filters.Sort {
@@ -1263,15 +1252,6 @@ func parseNearVec(nv *pb.NearVector, targetVectors []string,
 		Vectors:       vectors,
 		TargetVectors: targetVectors,
 	}, targetCombination, nil
-}
-
-func indexOf(slice []string, value string) int {
-	for i, v := range slice {
-		if v == value {
-			return i
-		}
-	}
-	return -1
 }
 
 // extractPropertiesForModules extracts properties that are needed by modules but are not requested by the user

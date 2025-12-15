@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -40,25 +40,19 @@ func compressionFromBCfg(cfg *models.BackupConfig) ubak.Compression {
 			cfg.CPUPercentage = ubak.DefaultCPUPercentage
 		}
 
-		if cfg.ChunkSize == 0 {
-			cfg.ChunkSize = ubak.DefaultChunkSize
-		}
-
 		if cfg.CompressionLevel == "" {
 			cfg.CompressionLevel = models.BackupConfigCompressionLevelDefaultCompression
 		}
 
 		return ubak.Compression{
 			CPUPercentage: int(cfg.CPUPercentage),
-			ChunkSize:     int(cfg.ChunkSize),
 			Level:         parseCompressionLevel(cfg.CompressionLevel),
 		}
 	}
 
 	return ubak.Compression{
-		Level:         ubak.DefaultCompression,
+		Level:         ubak.GzipDefaultCompression,
 		CPUPercentage: ubak.DefaultCPUPercentage,
-		ChunkSize:     ubak.DefaultChunkSize,
 	}
 }
 
@@ -70,26 +64,32 @@ func compressionFromRCfg(cfg *models.RestoreConfig) ubak.Compression {
 
 		return ubak.Compression{
 			CPUPercentage: int(cfg.CPUPercentage),
-			Level:         ubak.DefaultCompression,
-			ChunkSize:     ubak.DefaultChunkSize,
+			Level:         ubak.GzipDefaultCompression,
 		}
 	}
 
 	return ubak.Compression{
-		Level:         ubak.DefaultCompression,
+		Level:         ubak.GzipDefaultCompression,
 		CPUPercentage: ubak.DefaultCPUPercentage,
-		ChunkSize:     ubak.DefaultChunkSize,
 	}
 }
 
 func parseCompressionLevel(l string) ubak.CompressionLevel {
 	switch l {
 	case models.BackupConfigCompressionLevelBestSpeed:
-		return ubak.BestSpeed
+		return ubak.GzipBestSpeed
 	case models.BackupConfigCompressionLevelBestCompression:
-		return ubak.BestCompression
+		return ubak.GzipBestCompression
+	case models.BackupConfigCompressionLevelZstdBestSpeed:
+		return ubak.ZstdBestSpeed
+	case models.BackupConfigCompressionLevelZstdDefaultCompression:
+		return ubak.ZstdDefaultCompression
+	case models.BackupConfigCompressionLevelZstdBestCompression:
+		return ubak.ZstdBestCompression
+	case models.BackupConfigCompressionLevelNoCompression:
+		return ubak.NoCompression
 	default:
-		return ubak.DefaultCompression
+		return ubak.GzipDefaultCompression
 	}
 }
 
@@ -202,7 +202,7 @@ func (s *backupHandlers) restoreBackup(params backups.BackupsRestoreParams,
 		Path:              path,
 		RbacRestoreOption: roleOption,
 		UserRestoreOption: userOption,
-	})
+	}, params.Body.OverwriteAlias)
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
 		s.logger.WithError(err).WithField("id", params.ID).
@@ -306,7 +306,8 @@ func (s *backupHandlers) list(params backups.BackupsListParams,
 	principal *models.Principal,
 ) middleware.Responder {
 	payload, err := s.manager.List(
-		params.HTTPRequest.Context(), principal, params.Backend)
+		params.HTTPRequest.Context(), principal, params.Backend, params.Order,
+	)
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
 		switch {

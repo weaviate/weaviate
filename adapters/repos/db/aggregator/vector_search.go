@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -114,7 +114,7 @@ func (a *Aggregator) performVectorSearch(ctx context.Context,
 		}
 		return idsFound, dists, nil
 	case [][]float32:
-		idsFound, dists, err := a.vectorIndex.SearchByMultiVector(ctx, vec, limit, ids)
+		idsFound, dists, err := a.vectorIndex.(vectorIndexMulti).SearchByMultiVector(ctx, vec, limit, ids)
 		if err != nil {
 			return idsFound, nil, err
 		}
@@ -131,7 +131,7 @@ func (a *Aggregator) performVectorDistanceSearch(ctx context.Context,
 	case []float32:
 		return a.vectorIndex.SearchByVectorDistance(ctx, vec, targetDist, maxLimit, ids)
 	case [][]float32:
-		return a.vectorIndex.SearchByMultiVectorDistance(ctx, vec, targetDist, maxLimit, ids)
+		return a.vectorIndex.(vectorIndexMulti).SearchByMultiVectorDistance(ctx, vec, targetDist, maxLimit, ids)
 	default:
 		return nil, nil, fmt.Errorf("perform vector distance search: unrecognized search vector type: %T", searchVector)
 	}

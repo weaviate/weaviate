@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -53,6 +53,7 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 			name:         "All operations are processed in order in copy mode",
 			transferType: api.COPY,
 			setupMocksFunc: func(wg *sync.WaitGroup, mockFSMUpdater *types.MockFSMUpdater, mockReplicaCopier *types.MockReplicaCopier) {
+				var once sync.Once
 				wg.Add(1)
 				mockFSMUpdater.EXPECT().
 					WaitForUpdate(mock.Anything, mock.Anything).
@@ -98,15 +99,15 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 				mockFSMUpdater.EXPECT().
 					ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opId), api.READY).
 					Run(func(ctx context.Context, opId uint64, state api.ShardReplicationState) {
-						wg.Done()
-					}).
-					Return(nil)
+						once.Do(wg.Done)
+					}).Return(nil).Maybe()
 			},
 		},
 		{
 			name:         "consumer resumes on state change failure",
 			transferType: api.COPY,
 			setupMocksFunc: func(wg *sync.WaitGroup, mockFSMUpdater *types.MockFSMUpdater, mockReplicaCopier *types.MockReplicaCopier) {
+				var once sync.Once
 				wg.Add(1)
 				mockFSMUpdater.EXPECT().
 					WaitForUpdate(mock.Anything, mock.Anything).
@@ -155,16 +156,16 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 					Return(uint64(0), nil)
 				mockFSMUpdater.EXPECT().
 					ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opId), api.READY).
-					Run(func(ctx context.Context, opId uint64, state api.ShardReplicationState) {
-						wg.Done()
-					}).
-					Return(nil)
+					Run(func(ctx context.Context, id uint64, state api.ShardReplicationState) {
+						once.Do(wg.Done)
+					}).Return(nil).Maybe()
 			},
 		},
 		{
 			name:         "consumer resumes on replica copier failures",
 			transferType: api.COPY,
 			setupMocksFunc: func(wg *sync.WaitGroup, mockFSMUpdater *types.MockFSMUpdater, mockReplicaCopier *types.MockReplicaCopier) {
+				var once sync.Once
 				wg.Add(1)
 				mockFSMUpdater.EXPECT().
 					WaitForUpdate(mock.Anything, mock.Anything).
@@ -217,15 +218,15 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 				mockFSMUpdater.EXPECT().
 					ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opId), api.READY).
 					Run(func(ctx context.Context, opId uint64, state api.ShardReplicationState) {
-						wg.Done()
-					}).
-					Return(nil)
+						once.Do(wg.Done)
+					}).Return(nil).Maybe()
 			},
 		},
 		{
 			name:         "consumer resumes on async replication failures",
 			transferType: api.COPY,
 			setupMocksFunc: func(wg *sync.WaitGroup, mockFSMUpdater *types.MockFSMUpdater, mockReplicaCopier *types.MockReplicaCopier) {
+				var once sync.Once
 				wg.Add(1)
 				mockFSMUpdater.EXPECT().
 					WaitForUpdate(mock.Anything, mock.Anything).
@@ -289,15 +290,15 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 				mockFSMUpdater.EXPECT().
 					ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opId), api.READY).
 					Run(func(ctx context.Context, opId uint64, state api.ShardReplicationState) {
-						wg.Done()
-					}).
-					Return(nil)
+						once.Do(wg.Done)
+					}).Return(nil).Maybe()
 			},
 		},
 		{
 			name:         "All operations are processed in order in move mode",
 			transferType: api.MOVE,
 			setupMocksFunc: func(wg *sync.WaitGroup, mockFSMUpdater *types.MockFSMUpdater, mockReplicaCopier *types.MockReplicaCopier) {
+				var once sync.Once
 				wg.Add(1)
 				mockFSMUpdater.EXPECT().
 					WaitForUpdate(mock.Anything, mock.Anything).
@@ -349,9 +350,8 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 				mockFSMUpdater.EXPECT().
 					ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opId), api.READY).
 					Run(func(ctx context.Context, opId uint64, state api.ShardReplicationState) {
-						wg.Done()
-					}).
-					Return(nil)
+						once.Do(wg.Done)
+					}).Return(nil).Maybe()
 			},
 		},
 	}
@@ -451,6 +451,7 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 			// Assert that the mock expectations were met
 			mockFSMUpdater.AssertExpectations(t)
 			mockReplicaCopier.AssertExpectations(t)
+			require.True(t, mockFSMUpdater.AssertCalled(t, "ReplicationUpdateReplicaOpStatus", mock.Anything, uint64(opId), api.READY), "READY should be called at least once")
 		})
 	}
 }

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -38,10 +38,10 @@ func NewClassBasedModuleConfig(class *models.Class,
 	}
 }
 
-func NewCrossClassModuleConfig() *ClassBasedModuleConfig {
+func NewCrossClassModuleConfig(cfg *config.Config) *ClassBasedModuleConfig {
 	// explicitly setting tenant to "" in order to flag that a cross class search
 	// is being done without a tenant context
-	return &ClassBasedModuleConfig{tenant: ""}
+	return &ClassBasedModuleConfig{tenant: "", cfg: cfg}
 }
 
 func (cbmc *ClassBasedModuleConfig) Class() map[string]interface{} {

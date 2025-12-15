@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -183,89 +183,5 @@ func TestGRPC_ListValueReturn(t *testing.T) {
 		texts = object.GetFields()["texts"].GetListValue().GetTextValues()
 		require.NotNil(t, texts)
 		require.Equal(t, []string{"text1", "text2"}, texts.GetValues())
-	})
-
-	t.Run("ListValueReturn using <1.25 API", func(t *testing.T) {
-		in := pb.SearchRequest{
-			Collection: collectionNameLVR,
-			Properties: &pb.PropertiesRequest{
-				NonRefProperties: []string{
-					"texts", "ints", "bools", "numbers", "uuids", "dates",
-				},
-				ObjectProperties: []*pb.ObjectPropertiesRequest{{
-					PropName:            "objects",
-					PrimitiveProperties: []string{"texts"},
-				}},
-			},
-			Uses_123Api: true,
-		}
-		searchResp, err := grpcClient.Search(context.Background(), &in)
-		require.Nil(t, err)
-		require.Len(t, searchResp.Results, 1)
-		props := searchResp.Results[0].GetProperties()
-		require.NotNil(t, props)
-		nonRefProps := props.GetNonRefProps()
-		require.NotNil(t, nonRefProps)
-
-		texts := nonRefProps.GetFields()["texts"].GetListValue().GetValues()
-		require.NotNil(t, texts)
-		outTexts := make([]string, len(texts))
-		for i, text := range texts {
-			outTexts[i] = text.GetStringValue()
-		}
-		require.Equal(t, []string{"text1", "text2"}, outTexts)
-
-		ints := nonRefProps.GetFields()["ints"].GetListValue().GetValues()
-		require.NotNil(t, ints)
-		outInts := make([]int64, len(ints))
-		for i, int_ := range ints {
-			outInts[i] = int_.GetIntValue()
-		}
-		require.Equal(t, []int64{1, 2}, outInts)
-
-		bools := nonRefProps.GetFields()["bools"].GetListValue().GetValues()
-		require.NotNil(t, bools)
-		outBools := make([]bool, len(bools))
-		for i, bool_ := range bools {
-			outBools[i] = bool_.GetBoolValue()
-		}
-		require.Equal(t, []bool{true, false}, outBools)
-
-		numbers := nonRefProps.GetFields()["numbers"].GetListValue().GetValues()
-		require.NotNil(t, numbers)
-		outNumbers := make([]float64, len(numbers))
-		for i, number := range numbers {
-			outNumbers[i] = number.GetNumberValue()
-		}
-		require.Equal(t, []float64{1.1, 2.2}, outNumbers)
-
-		uuids := nonRefProps.GetFields()["uuids"].GetListValue().GetValues()
-		require.NotNil(t, uuids)
-		outUuids := make([]string, len(uuids))
-		for i, uuid := range uuids {
-			outUuids[i] = uuid.GetUuidValue()
-		}
-		require.Equal(t, []string{uuid1, uuid2}, outUuids)
-
-		dates := nonRefProps.GetFields()["dates"].GetListValue().GetValues()
-		require.NotNil(t, dates)
-		outDates := make([]string, len(dates))
-		for i, date := range dates {
-			outDates[i] = date.GetDateValue()
-		}
-		require.Equal(t, []string{"2020-01-01T00:00:00Z"}, outDates)
-
-		objects := nonRefProps.GetFields()["objects"].GetListValue().GetValues()
-		require.NotNil(t, objects)
-
-		object := objects[0].GetObjectValue()
-		require.NotNil(t, object)
-		texts = object.GetFields()["texts"].GetListValue().GetValues()
-		require.NotNil(t, texts)
-		outTexts = make([]string, len(texts))
-		for i, text := range texts {
-			outTexts[i] = text.GetStringValue()
-		}
-		require.Equal(t, []string{"text1", "text2"}, outTexts)
 	})
 }

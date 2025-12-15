@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -16,6 +16,7 @@ import (
 	"math"
 
 	"github.com/pkg/errors"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 )
 
@@ -210,6 +211,18 @@ type SQStats struct {
 
 func (s SQStats) CompressionType() string {
 	return "sq"
+}
+
+func (s SQStats) CompressionRatio(_ int) float64 {
+	// SQ compression: original size = dimensions * 4 bytes (float32)
+	// compressed size = dimensions * 1 byte + 8 bytes (for sum and sum2)
+	// For practical vector dimensions (typically 1536+), the ratio approaches 4
+	// and the +8 bytes overhead becomes negligible
+	// For 1536 dimensions: (1536 * 4) / (1536 + 8) ≈ 3.98
+	// For 768 dimensions: (768 * 4) / (768 + 8) ≈ 3.96
+	// For 384 dimensions: (384 * 4) / (384 + 8) ≈ 3.92
+	// The ratio is essentially constant at ~4x compression
+	return 4.0
 }
 
 func (sq *ScalarQuantizer) Stats() CompressionStats {

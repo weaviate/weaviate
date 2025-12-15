@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -250,7 +250,11 @@ func (m *filterableToSearchableMigrator) isPropToFix(ctx context.Context, prop *
 		if bucketSearchable != nil &&
 			bucketSearchable.Strategy() == lsmkv.StrategyMapCollection {
 
-			if m.isEmptyMapBucket(ctx, bucketSearchable) {
+			isEmpty, err := m.isEmptyMapBucket(ctx, bucketSearchable)
+			if err != nil {
+				return false, fmt.Errorf("checking if searchable bucket is empty: %w", err)
+			}
+			if isEmpty {
 				return true, nil
 			}
 			return false, fmt.Errorf("searchable bucket is not empty")
@@ -261,12 +265,15 @@ func (m *filterableToSearchableMigrator) isPropToFix(ctx context.Context, prop *
 	return false, nil
 }
 
-func (m *filterableToSearchableMigrator) isEmptyMapBucket(ctx context.Context, bucket *lsmkv.Bucket) bool {
-	cur := bucket.MapCursorKeyOnly()
+func (m *filterableToSearchableMigrator) isEmptyMapBucket(ctx context.Context, bucket *lsmkv.Bucket) (bool, error) {
+	cur, err := bucket.MapCursorKeyOnly()
+	if err != nil {
+		return false, err
+	}
 	defer cur.Close()
 
 	key, _ := cur.First(ctx)
-	return key == nil
+	return key == nil, nil
 }
 
 func (m *filterableToSearchableMigrator) pauseStoreActivity(

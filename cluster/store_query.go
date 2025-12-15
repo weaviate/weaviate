@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -46,6 +46,16 @@ func (st *Store) Query(req *cmd.QueryRequest) (*cmd.QueryResponse, error) {
 		if err != nil {
 			return &cmd.QueryResponse{}, fmt.Errorf("could not get tenants: %w", err)
 		}
+	case cmd.QueryRequest_TYPE_RESOLVE_ALIAS:
+		payload, err = st.schemaManager.ResolveAlias(req)
+		if err != nil {
+			return &cmd.QueryResponse{}, fmt.Errorf("could not resolve alias: %w", err)
+		}
+	case cmd.QueryRequest_TYPE_GET_ALIASES:
+		payload, err = st.schemaManager.GetAliases(req)
+		if err != nil {
+			return &cmd.QueryResponse{}, fmt.Errorf("could not get aliases: %w", err)
+		}
 	case cmd.QueryRequest_TYPE_GET_SHARD_OWNER:
 		payload, err = st.schemaManager.QueryShardOwner(req)
 		if err != nil {
@@ -72,9 +82,14 @@ func (st *Store) Query(req *cmd.QueryRequest) (*cmd.QueryResponse, error) {
 			return &cmd.QueryResponse{}, fmt.Errorf("could not get RBAC permissions: %w", err)
 		}
 	case cmd.QueryRequest_TYPE_GET_ROLES_FOR_USER:
-		payload, err = st.authZManager.GetRolesForUser(req)
+		payload, err = st.authZManager.GetRolesForUserOrGroup(req)
 		if err != nil {
 			return &cmd.QueryResponse{}, fmt.Errorf("could not get RBAC permissions: %w", err)
+		}
+	case cmd.QueryRequest_TYPE_GET_USERS_OR_GROUPS_WITH_ROLES:
+		payload, err = st.authZManager.GetUsersOrGroupsWithRoles(req)
+		if err != nil {
+			return &cmd.QueryResponse{}, fmt.Errorf("could not get users and groups with roles: %w", err)
 		}
 	case cmd.QueryRequest_TYPE_GET_USERS_FOR_ROLE:
 		payload, err = st.authZManager.GetUsersForRole(req)

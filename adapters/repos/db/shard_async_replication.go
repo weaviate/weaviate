@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -95,7 +95,7 @@ type asyncReplicationConfig struct {
 	propagationDelay            time.Duration
 	propagationConcurrency      int
 	propagationBatchSize        int
-	targetNodeOverrides         []additional.AsyncReplicationTargetNodeOverride
+	targetNodeOverrides         additional.AsyncReplicationTargetNodeOverrides
 	maintenanceModeEnabled      func() bool
 }
 
@@ -507,6 +507,7 @@ func (s *Shard) SetAsyncReplicationEnabled(_ context.Context, enabled bool) erro
 	s.asyncReplicationCancelFunc()
 
 	s.hashtree = nil
+	s.asyncReplicationStatsByTargetNode = nil
 	s.hashtreeFullyInitialized = false
 
 	return nil
@@ -532,7 +533,7 @@ func (s *Shard) addTargetNodeOverride(ctx context.Context, targetNodeOverride ad
 		}
 
 		if s.asyncReplicationConfig.targetNodeOverrides == nil {
-			s.asyncReplicationConfig.targetNodeOverrides = make([]additional.AsyncReplicationTargetNodeOverride, 0, 1)
+			s.asyncReplicationConfig.targetNodeOverrides = make(additional.AsyncReplicationTargetNodeOverrides, 0, 1)
 		}
 		s.asyncReplicationConfig.targetNodeOverrides = append(s.asyncReplicationConfig.targetNodeOverrides, targetNodeOverride)
 	}()
@@ -548,12 +549,13 @@ func (s *Shard) removeTargetNodeOverride(ctx context.Context, targetNodeOverride
 		// unlock before calling SetAsyncReplicationEnabled because it will lock again
 		defer s.asyncReplicationRWMux.Unlock()
 
-		newTargetNodeOverrides := make([]additional.AsyncReplicationTargetNodeOverride, 0, len(s.asyncReplicationConfig.targetNodeOverrides))
+		newTargetNodeOverrides := make(additional.AsyncReplicationTargetNodeOverrides, 0, len(s.asyncReplicationConfig.targetNodeOverrides))
 		for _, existing := range s.asyncReplicationConfig.targetNodeOverrides {
 			// only remove the existing override if the collection/shard/source/target match and the
 			// existing upper time bound is <= to the override being removed (eg if the override to remove
 			// is "before" the existing override, don't remove it)
 			if existing.Equal(&targetNodeOverrideToRemove) && existing.UpperTimeBound <= targetNodeOverrideToRemove.UpperTimeBound {
+				delete(s.asyncReplicationStatsByTargetNode, existing.TargetNode)
 				continue
 			}
 			newTargetNodeOverrides = append(newTargetNodeOverrides, existing)
@@ -575,7 +577,7 @@ func (s *Shard) removeAllTargetNodeOverrides(ctx context.Context) error {
 		s.asyncReplicationRWMux.Lock()
 		// unlock before calling SetAsyncReplicationEnabled because it will lock again
 		defer s.asyncReplicationRWMux.Unlock()
-		s.asyncReplicationConfig.targetNodeOverrides = make([]additional.AsyncReplicationTargetNodeOverride, 0)
+		s.asyncReplicationConfig.targetNodeOverrides = make(additional.AsyncReplicationTargetNodeOverrides, 0)
 	}()
 	return s.SetAsyncReplicationEnabled(ctx, s.index.Config.AsyncReplicationEnabled)
 }
@@ -587,7 +589,7 @@ func (s *Shard) getAsyncReplicationStats(ctx context.Context) []*models.AsyncRep
 	asyncReplicationStatsToReturn := make([]*models.AsyncReplicationStatus, 0, len(s.asyncReplicationStatsByTargetNode))
 	for targetNodeName, asyncReplicationStats := range s.asyncReplicationStatsByTargetNode {
 		asyncReplicationStatsToReturn = append(asyncReplicationStatsToReturn, &models.AsyncReplicationStatus{
-			ObjectsPropagated:       uint64(asyncReplicationStats.localObjectsPropagationCount),
+			ObjectsPropagated:       uint64(asyncReplicationStats.localObjectsPropagationCount) - uint64(asyncReplicationStats.objectsNotResolved),
 			StartDiffTimeUnixMillis: asyncReplicationStats.hashtreeDiffStartTime.UnixMilli(),
 			TargetNode:              targetNodeName,
 		})
@@ -909,6 +911,7 @@ type hashBeatHostStats struct {
 	remoteObjectDigestsCount     int
 	localObjectsPropagationCount int
 	localObjectsPropagationTook  time.Duration
+	objectsNotResolved           int
 }
 
 func (s *Shard) hashBeat(ctx context.Context, config asyncReplicationConfig) (stats []*hashBeatHostStats, err error) {
@@ -1013,6 +1016,7 @@ func (s *Shard) hashBeat(ctx context.Context, config asyncReplicationConfig) (st
 
 	objectsPropagationStart := time.Now()
 
+	objectsNotResolved := 0
 	if len(localObjectsToPropagate) > 0 {
 		propagationCtx, cancel := context.WithTimeout(ctx, config.propagationTimeout)
 		defer cancel()
@@ -1028,7 +1032,9 @@ func (s *Shard) hashBeat(ctx context.Context, config asyncReplicationConfig) (st
 			deletionStrategy := s.index.DeletionStrategy()
 
 			if !r.Deleted ||
-				deletionStrategy == models.ReplicationConfigDeletionStrategyNoAutomatedResolution {
+				deletionStrategy == models.ReplicationConfigDeletionStrategyNoAutomatedResolution ||
+				config.targetNodeOverrides.NoDeletionResolution(shardDiffReader.TargetNodeName) {
+				objectsNotResolved++
 				continue
 			}
 
@@ -1054,6 +1060,7 @@ func (s *Shard) hashBeat(ctx context.Context, config asyncReplicationConfig) (st
 			remoteObjectDigestsCount:     remoteObjectDigestsCount,
 			localObjectsPropagationCount: len(localObjectsToPropagate),
 			localObjectsPropagationTook:  time.Since(objectsPropagationStart),
+			objectsNotResolved:           objectsNotResolved,
 		},
 	}, nil
 }

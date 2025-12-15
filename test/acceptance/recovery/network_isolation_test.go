@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -84,6 +84,6 @@ func TestNetworkIsolationSplitBrain(t *testing.T) {
 			require.NotNil(ct, nodeStatusResp)
 
 			assert.Len(ct, nodeStatusResp.Nodes, 3)
-		}, 120*time.Second, 1*time.Second)
+		}, 180*time.Second, 3*time.Second)
 	})
 }

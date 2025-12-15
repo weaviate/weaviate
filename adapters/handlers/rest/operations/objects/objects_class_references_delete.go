@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -45,7 +45,7 @@ func NewObjectsClassReferencesDelete(ctx *middleware.Context, handler ObjectsCla
 /*
 	ObjectsClassReferencesDelete swagger:route DELETE /objects/{className}/{id}/references/{propertyName} objects objectsClassReferencesDelete
 
-Delete the single reference that is given in the body from the list of references that this property has.
+Delete a single reference from the list of references.
 
 Delete the single reference that is given in the body from the list of references that this property has.
 */

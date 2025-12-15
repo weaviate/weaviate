@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -61,6 +61,10 @@ func testMulti2VecClip(host string) func(t *testing.T) {
 
 		t.Run("import data", func(t *testing.T) {
 			multimodal.InsertObjects(t, dataFolderPath, class.Class, false)
+		})
+
+		t.Run("check objects", func(t *testing.T) {
+			multimodal.CheckObjects(t, dataFolderPath, class.Class, []string{"clip", "clip_weights"}, nil)
 		})
 
 		t.Run("nearImage", func(t *testing.T) {

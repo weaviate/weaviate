@@ -39,6 +39,9 @@ const (
 	ApplyRequest_TYPE_UPDATE_TENANT                                              ApplyRequest_Type = 17
 	ApplyRequest_TYPE_DELETE_TENANT                                              ApplyRequest_Type = 18
 	ApplyRequest_TYPE_TENANT_PROCESS                                             ApplyRequest_Type = 19
+	ApplyRequest_TYPE_CREATE_ALIAS                                               ApplyRequest_Type = 40
+	ApplyRequest_TYPE_REPLACE_ALIAS                                              ApplyRequest_Type = 41
+	ApplyRequest_TYPE_DELETE_ALIAS                                               ApplyRequest_Type = 42
 	ApplyRequest_TYPE_UPSERT_ROLES_PERMISSIONS                                   ApplyRequest_Type = 60
 	ApplyRequest_TYPE_DELETE_ROLES                                               ApplyRequest_Type = 61
 	ApplyRequest_TYPE_REMOVE_PERMISSIONS                                         ApplyRequest_Type = 62
@@ -91,6 +94,9 @@ var (
 		17:  "TYPE_UPDATE_TENANT",
 		18:  "TYPE_DELETE_TENANT",
 		19:  "TYPE_TENANT_PROCESS",
+		40:  "TYPE_CREATE_ALIAS",
+		41:  "TYPE_REPLACE_ALIAS",
+		42:  "TYPE_DELETE_ALIAS",
 		60:  "TYPE_UPSERT_ROLES_PERMISSIONS",
 		61:  "TYPE_DELETE_ROLES",
 		62:  "TYPE_REMOVE_PERMISSIONS",
@@ -140,6 +146,9 @@ var (
 		"TYPE_UPDATE_TENANT":                                              17,
 		"TYPE_DELETE_TENANT":                                              18,
 		"TYPE_TENANT_PROCESS":                                             19,
+		"TYPE_CREATE_ALIAS":                                               40,
+		"TYPE_REPLACE_ALIAS":                                              41,
+		"TYPE_DELETE_ALIAS":                                               42,
 		"TYPE_UPSERT_ROLES_PERMISSIONS":                                   60,
 		"TYPE_DELETE_ROLES":                                               61,
 		"TYPE_REMOVE_PERMISSIONS":                                         62,
@@ -220,8 +229,11 @@ const (
 	QueryRequest_TYPE_GET_ROLES                                       QueryRequest_Type = 31
 	QueryRequest_TYPE_GET_ROLES_FOR_USER                              QueryRequest_Type = 32
 	QueryRequest_TYPE_GET_USERS_FOR_ROLE                              QueryRequest_Type = 33
+	QueryRequest_TYPE_GET_USERS_OR_GROUPS_WITH_ROLES                  QueryRequest_Type = 34
 	QueryRequest_TYPE_GET_USERS                                       QueryRequest_Type = 61
 	QueryRequest_TYPE_USER_IDENTIFIER_EXISTS                          QueryRequest_Type = 62
+	QueryRequest_TYPE_RESOLVE_ALIAS                                   QueryRequest_Type = 100
+	QueryRequest_TYPE_GET_ALIASES                                     QueryRequest_Type = 101
 	QueryRequest_TYPE_GET_REPLICATION_DETAILS                         QueryRequest_Type = 200
 	QueryRequest_TYPE_GET_REPLICATION_DETAILS_BY_COLLECTION           QueryRequest_Type = 201
 	QueryRequest_TYPE_GET_REPLICATION_DETAILS_BY_COLLECTION_AND_SHARD QueryRequest_Type = 202
@@ -250,8 +262,11 @@ var (
 		31:  "TYPE_GET_ROLES",
 		32:  "TYPE_GET_ROLES_FOR_USER",
 		33:  "TYPE_GET_USERS_FOR_ROLE",
+		34:  "TYPE_GET_USERS_OR_GROUPS_WITH_ROLES",
 		61:  "TYPE_GET_USERS",
 		62:  "TYPE_USER_IDENTIFIER_EXISTS",
+		100: "TYPE_RESOLVE_ALIAS",
+		101: "TYPE_GET_ALIASES",
 		200: "TYPE_GET_REPLICATION_DETAILS",
 		201: "TYPE_GET_REPLICATION_DETAILS_BY_COLLECTION",
 		202: "TYPE_GET_REPLICATION_DETAILS_BY_COLLECTION_AND_SHARD",
@@ -277,8 +292,11 @@ var (
 		"TYPE_GET_ROLES":                                       31,
 		"TYPE_GET_ROLES_FOR_USER":                              32,
 		"TYPE_GET_USERS_FOR_ROLE":                              33,
+		"TYPE_GET_USERS_OR_GROUPS_WITH_ROLES":                  34,
 		"TYPE_GET_USERS":                                       61,
 		"TYPE_USER_IDENTIFIER_EXISTS":                          62,
+		"TYPE_RESOLVE_ALIAS":                                   100,
+		"TYPE_GET_ALIASES":                                     101,
 		"TYPE_GET_REPLICATION_DETAILS":                         200,
 		"TYPE_GET_REPLICATION_DETAILS_BY_COLLECTION":           201,
 		"TYPE_GET_REPLICATION_DETAILS_BY_COLLECTION_AND_SHARD": 202,
@@ -1576,6 +1594,154 @@ func (x *SyncShardRequest) GetNodeId() string {
 	return ""
 }
 
+type CreateAliasRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Collection    string                 `protobuf:"bytes,1,opt,name=collection,proto3" json:"collection,omitempty"`
+	Alias         string                 `protobuf:"bytes,2,opt,name=alias,proto3" json:"alias,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateAliasRequest) Reset() {
+	*x = CreateAliasRequest{}
+	mi := &file_api_message_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateAliasRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateAliasRequest) ProtoMessage() {}
+
+func (x *CreateAliasRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_message_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateAliasRequest.ProtoReflect.Descriptor instead.
+func (*CreateAliasRequest) Descriptor() ([]byte, []int) {
+	return file_api_message_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *CreateAliasRequest) GetCollection() string {
+	if x != nil {
+		return x.Collection
+	}
+	return ""
+}
+
+func (x *CreateAliasRequest) GetAlias() string {
+	if x != nil {
+		return x.Alias
+	}
+	return ""
+}
+
+type ReplaceAliasRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Collection    string                 `protobuf:"bytes,1,opt,name=collection,proto3" json:"collection,omitempty"`
+	Alias         string                 `protobuf:"bytes,2,opt,name=alias,proto3" json:"alias,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReplaceAliasRequest) Reset() {
+	*x = ReplaceAliasRequest{}
+	mi := &file_api_message_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReplaceAliasRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReplaceAliasRequest) ProtoMessage() {}
+
+func (x *ReplaceAliasRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_message_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReplaceAliasRequest.ProtoReflect.Descriptor instead.
+func (*ReplaceAliasRequest) Descriptor() ([]byte, []int) {
+	return file_api_message_proto_rawDescGZIP(), []int{22}
+}
+
+func (x *ReplaceAliasRequest) GetCollection() string {
+	if x != nil {
+		return x.Collection
+	}
+	return ""
+}
+
+func (x *ReplaceAliasRequest) GetAlias() string {
+	if x != nil {
+		return x.Alias
+	}
+	return ""
+}
+
+type DeleteAliasRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Alias         string                 `protobuf:"bytes,1,opt,name=alias,proto3" json:"alias,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteAliasRequest) Reset() {
+	*x = DeleteAliasRequest{}
+	mi := &file_api_message_proto_msgTypes[23]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteAliasRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteAliasRequest) ProtoMessage() {}
+
+func (x *DeleteAliasRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_message_proto_msgTypes[23]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteAliasRequest.ProtoReflect.Descriptor instead.
+func (*DeleteAliasRequest) Descriptor() ([]byte, []int) {
+	return file_api_message_proto_rawDescGZIP(), []int{23}
+}
+
+func (x *DeleteAliasRequest) GetAlias() string {
+	if x != nil {
+		return x.Alias
+	}
+	return ""
+}
+
 var File_api_message_proto protoreflect.FileDescriptor
 
 const file_api_message_proto_rawDesc = "" +
@@ -1594,13 +1760,13 @@ const file_api_message_proto_rawDesc = "" +
 	"\x11NotifyPeerRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x18\n" +
 	"\aaddress\x18\x02 \x01(\tR\aaddress\"\x14\n" +
-	"\x12NotifyPeerResponse\"\xcb\x0e\n" +
+	"\x12NotifyPeerResponse\"\x91\x0f\n" +
 	"\fApplyRequest\x12@\n" +
 	"\x04type\x18\x01 \x01(\x0e2,.weaviate.internal.cluster.ApplyRequest.TypeR\x04type\x12\x14\n" +
 	"\x05class\x18\x02 \x01(\tR\x05class\x12\x18\n" +
 	"\aversion\x18\x03 \x01(\x04R\aversion\x12\x1f\n" +
 	"\vsub_command\x18\x04 \x01(\fR\n" +
-	"subCommand\"\xa7\r\n" +
+	"subCommand\"\xed\r\n" +
 	"\x04Type\x12\x14\n" +
 	"\x10TYPE_UNSPECIFIED\x10\x00\x12\x12\n" +
 	"\x0eTYPE_ADD_CLASS\x10\x01\x12\x15\n" +
@@ -1615,7 +1781,10 @@ const file_api_message_proto_rawDesc = "" +
 	"\x0fTYPE_ADD_TENANT\x10\x10\x12\x16\n" +
 	"\x12TYPE_UPDATE_TENANT\x10\x11\x12\x16\n" +
 	"\x12TYPE_DELETE_TENANT\x10\x12\x12\x17\n" +
-	"\x13TYPE_TENANT_PROCESS\x10\x13\x12!\n" +
+	"\x13TYPE_TENANT_PROCESS\x10\x13\x12\x15\n" +
+	"\x11TYPE_CREATE_ALIAS\x10(\x12\x16\n" +
+	"\x12TYPE_REPLACE_ALIAS\x10)\x12\x15\n" +
+	"\x11TYPE_DELETE_ALIAS\x10*\x12!\n" +
 	"\x1dTYPE_UPSERT_ROLES_PERMISSIONS\x10<\x12\x15\n" +
 	"\x11TYPE_DELETE_ROLES\x10=\x12\x1b\n" +
 	"\x17TYPE_REMOVE_PERMISSIONS\x10>\x12\x1b\n" +
@@ -1652,11 +1821,11 @@ const file_api_message_proto_rawDesc = "" +
 	"\x1eTYPE_DISTRIBUTED_TASK_CLEAN_UP\x10\xaf\x02\"A\n" +
 	"\rApplyResponse\x12\x18\n" +
 	"\aversion\x18\x01 \x01(\x04R\aversion\x12\x16\n" +
-	"\x06leader\x18\x02 \x01(\tR\x06leader\"\xba\a\n" +
+	"\x06leader\x18\x02 \x01(\tR\x06leader\"\x91\b\n" +
 	"\fQueryRequest\x12@\n" +
 	"\x04type\x18\x01 \x01(\x0e2,.weaviate.internal.cluster.QueryRequest.TypeR\x04type\x12\x1f\n" +
 	"\vsub_command\x18\x02 \x01(\fR\n" +
-	"subCommand\"\xc6\x06\n" +
+	"subCommand\"\x9d\a\n" +
 	"\x04Type\x12\x14\n" +
 	"\x10TYPE_UNSPECIFIED\x10\x00\x12\x14\n" +
 	"\x10TYPE_GET_CLASSES\x10\x01\x12\x13\n" +
@@ -1670,9 +1839,12 @@ const file_api_message_proto_rawDesc = "" +
 	"\x13TYPE_HAS_PERMISSION\x10\x1e\x12\x12\n" +
 	"\x0eTYPE_GET_ROLES\x10\x1f\x12\x1b\n" +
 	"\x17TYPE_GET_ROLES_FOR_USER\x10 \x12\x1b\n" +
-	"\x17TYPE_GET_USERS_FOR_ROLE\x10!\x12\x12\n" +
+	"\x17TYPE_GET_USERS_FOR_ROLE\x10!\x12'\n" +
+	"#TYPE_GET_USERS_OR_GROUPS_WITH_ROLES\x10\"\x12\x12\n" +
 	"\x0eTYPE_GET_USERS\x10=\x12\x1f\n" +
-	"\x1bTYPE_USER_IDENTIFIER_EXISTS\x10>\x12!\n" +
+	"\x1bTYPE_USER_IDENTIFIER_EXISTS\x10>\x12\x16\n" +
+	"\x12TYPE_RESOLVE_ALIAS\x10d\x12\x14\n" +
+	"\x10TYPE_GET_ALIASES\x10e\x12!\n" +
 	"\x1cTYPE_GET_REPLICATION_DETAILS\x10\xc8\x01\x12/\n" +
 	"*TYPE_GET_REPLICATION_DETAILS_BY_COLLECTION\x10\xc9\x01\x129\n" +
 	"4TYPE_GET_REPLICATION_DETAILS_BY_COLLECTION_AND_SHARD\x10\xca\x01\x120\n" +
@@ -1740,7 +1912,19 @@ const file_api_message_proto_rawDesc = "" +
 	"collection\x18\x01 \x01(\tR\n" +
 	"collection\x12\x14\n" +
 	"\x05shard\x18\x02 \x01(\tR\x05shard\x12\x17\n" +
-	"\anode_id\x18\x03 \x01(\tR\x06nodeId2\x8d\x04\n" +
+	"\anode_id\x18\x03 \x01(\tR\x06nodeId\"J\n" +
+	"\x12CreateAliasRequest\x12\x1e\n" +
+	"\n" +
+	"collection\x18\x01 \x01(\tR\n" +
+	"collection\x12\x14\n" +
+	"\x05alias\x18\x02 \x01(\tR\x05alias\"K\n" +
+	"\x13ReplaceAliasRequest\x12\x1e\n" +
+	"\n" +
+	"collection\x18\x01 \x01(\tR\n" +
+	"collection\x12\x14\n" +
+	"\x05alias\x18\x02 \x01(\tR\x05alias\"*\n" +
+	"\x12DeleteAliasRequest\x12\x14\n" +
+	"\x05alias\x18\x01 \x01(\tR\x05alias2\x8d\x04\n" +
 	"\x0eClusterService\x12k\n" +
 	"\n" +
 	"RemovePeer\x12,.weaviate.internal.cluster.RemovePeerRequest\x1a-.weaviate.internal.cluster.RemovePeerResponse\"\x00\x12e\n" +
@@ -1764,7 +1948,7 @@ func file_api_message_proto_rawDescGZIP() []byte {
 }
 
 var file_api_message_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
-var file_api_message_proto_msgTypes = make([]protoimpl.MessageInfo, 21)
+var file_api_message_proto_msgTypes = make([]protoimpl.MessageInfo, 24)
 var file_api_message_proto_goTypes = []any{
 	(ApplyRequest_Type)(0),                             // 0: weaviate.internal.cluster.ApplyRequest.Type
 	(QueryRequest_Type)(0),                             // 1: weaviate.internal.cluster.QueryRequest.Type
@@ -1791,6 +1975,9 @@ var file_api_message_proto_goTypes = []any{
 	(*CancelDistributedTaskRequest)(nil),               // 22: weaviate.internal.cluster.CancelDistributedTaskRequest
 	(*CleanUpDistributedTaskRequest)(nil),              // 23: weaviate.internal.cluster.CleanUpDistributedTaskRequest
 	(*SyncShardRequest)(nil),                           // 24: weaviate.internal.cluster.SyncShardRequest
+	(*CreateAliasRequest)(nil),                         // 25: weaviate.internal.cluster.CreateAliasRequest
+	(*ReplaceAliasRequest)(nil),                        // 26: weaviate.internal.cluster.ReplaceAliasRequest
+	(*DeleteAliasRequest)(nil),                         // 27: weaviate.internal.cluster.DeleteAliasRequest
 }
 var file_api_message_proto_depIdxs = []int32{
 	0,  // 0: weaviate.internal.cluster.ApplyRequest.type:type_name -> weaviate.internal.cluster.ApplyRequest.Type
@@ -1830,7 +2017,7 @@ func file_api_message_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_api_message_proto_rawDesc), len(file_api_message_proto_rawDesc)),
 			NumEnums:      4,
-			NumMessages:   21,
+			NumMessages:   24,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/packedconn"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -67,21 +68,23 @@ func TestNilCheckOnPartiallyCleanedNode(t *testing.T) {
 	t.Run("manually add the nodes", func(t *testing.T) {
 		vectorIndex.entryPointID = 0
 		vectorIndex.currentMaximumLayer = 1
+		conns1, _ := packedconn.NewWithElements([][]uint64{
+			{1, 2},
+			{1},
+		})
+		conns2, _ := packedconn.NewWithElements([][]uint64{
+			{0, 1, 2},
+		})
 		vectorIndex.nodes = []*vertex{
 			{
 				// must be on a non-zero layer for this bug to occur
-				level: 1,
-				connections: [][]uint64{
-					{1, 2},
-					{1},
-				},
+				level:       1,
+				connections: conns1,
 			},
 			nil, // corrupt node
 			{
-				level: 0,
-				connections: [][]uint64{
-					{0, 1, 2},
-				},
+				level:       0,
+				connections: conns2,
 			},
 		}
 	})

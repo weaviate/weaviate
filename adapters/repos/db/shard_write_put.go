@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -217,7 +217,7 @@ func (s *Shard) putObjectLSM(obj *storobj.Object, idBytes []byte,
 
 	for targetVector, vector := range obj.MultiVectors {
 		if vectorIndex, ok := s.GetVectorIndex(targetVector); ok {
-			if err := vectorIndex.ValidateMultiBeforeInsert(vector); err != nil {
+			if err := vectorIndex.(VectorIndexMulti).ValidateMultiBeforeInsert(vector); err != nil {
 				return status, errors.Wrapf(err, "Validate vector index %s for target multi vector %s", targetVector, obj.ID())
 			}
 		}

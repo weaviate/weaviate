@@ -4,15 +4,15 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
 
-package copier_test
+package copier
 
 import (
-	"bytes"
+	"context"
 	"io"
 	"os"
 	"path"
@@ -22,7 +22,7 @@ import (
 	logrusTest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/cluster/replication/copier"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc/generated/protocol"
 	"github.com/weaviate/weaviate/cluster/replication/copier/types"
 	"github.com/weaviate/weaviate/usecases/fakes"
 	"github.com/weaviate/weaviate/usecases/file"
@@ -130,40 +130,123 @@ func TestCopierCopyReplicaFiles(t *testing.T) {
 		remoteFilesToSync := tc.remoteFilesToSync()
 
 		mockRemoteIndex := types.NewMockRemoteIndex(t)
-		mockRemoteIndex.EXPECT().PauseFileActivity(mock.Anything, "node1", "collection", "shard", uint64(0)).Return(nil)
-		mockRemoteIndex.EXPECT().ResumeFileActivity(mock.Anything, "node1", "collection", "shard").Return(nil)
+
+		mockClient := NewMockFileReplicationServiceClient(t)
+
+		mockClient.EXPECT().PauseFileActivity(
+			mock.Anything,
+			mock.MatchedBy(func(req *protocol.PauseFileActivityRequest) bool {
+				return req.IndexName == "collection" &&
+					req.ShardName == "shard" &&
+					req.SchemaVersion == uint64(0)
+			}),
+		).Return(&protocol.PauseFileActivityResponse{}, nil)
+
+		mockClient.EXPECT().ResumeFileActivity(
+			mock.Anything,
+			mock.MatchedBy(func(req *protocol.ResumeFileActivityRequest) bool {
+				return req.IndexName == "collection" && req.ShardName == "shard"
+			}),
+		).Return(&protocol.ResumeFileActivityResponse{}, nil)
+
+		mockClient.EXPECT().Close().Return(nil)
+
 		remoteFileRelativePaths := []string{}
+
+		mockBidirectionalFileMetadataStream := NewMockFileMetadataStream(t)
+
+		mockBidirectionalFileMetadataStream.EXPECT().
+			CloseSend().
+			Return(nil)
+
+		mockBidirectionalFileChunkStream := NewMockFileChunkStream(t)
+
+		mockBidirectionalFileChunkStream.EXPECT().
+			CloseSend().
+			Return(nil)
+
 		for _, remoteFilePath := range remoteFilesToSync {
 			fi, err := os.Stat(remoteFilePath.absoluteFilePath)
 			require.NoError(t, err)
+
 			_, fileCrc32, err := integrity.CRC32(remoteFilePath.absoluteFilePath)
 			require.NoError(t, err)
+
 			fileMetadata := file.FileMetadata{
 				Name:  remoteFilePath.relativeFilePath,
 				Size:  fi.Size(),
 				CRC32: fileCrc32,
 			}
-			mockRemoteIndex.EXPECT().GetFileMetadata(
-				mock.Anything,
-				"node1",
-				"collection",
-				"shard",
-				remoteFilePath.relativeFilePath,
-			).Return(fileMetadata, nil)
+
+			mockBidirectionalFileMetadataStream.EXPECT().
+				Send(&protocol.GetFileMetadataRequest{
+					IndexName: "collection",
+					ShardName: "shard",
+					FileName:  remoteFilePath.relativeFilePath,
+				}).Return(nil)
+
+			mockBidirectionalFileMetadataStream.EXPECT().
+				Recv().
+				Return(&protocol.FileMetadata{
+					IndexName: "collection",
+					ShardName: "shard",
+					FileName:  fileMetadata.Name,
+					Size:      fileMetadata.Size,
+					Crc32:     fileMetadata.CRC32,
+				}, nil).Times(1)
+
+			mockBidirectionalFileChunkStream.EXPECT().
+				Recv().
+				Return(&protocol.FileChunk{
+					Offset: 0,
+					Data:   remoteFilePath.fileContent,
+					Eof:    true,
+				}, nil).Times(1)
+
+			mockBidirectionalFileChunkStream.EXPECT().
+				Send(&protocol.GetFileRequest{
+					IndexName: "collection",
+					ShardName: "shard",
+					FileName:  remoteFilePath.relativeFilePath,
+				}).Return(nil)
+
 			remoteFileRelativePaths = append(remoteFileRelativePaths, remoteFilePath.relativeFilePath)
-			mockRemoteIndex.EXPECT().GetFile(
-				mock.Anything,
-				"node1",
-				"collection",
-				"shard",
-				remoteFilePath.relativeFilePath,
-			).Return(io.NopCloser(bytes.NewReader(remoteFilePath.fileContent)), nil)
 		}
-		mockRemoteIndex.EXPECT().ListFiles(mock.Anything, "node1", "collection", "shard").Return(remoteFileRelativePaths, nil)
+
+		mockBidirectionalFileMetadataStream.EXPECT().
+			Recv().
+			Return(nil, io.EOF)
+
+		mockBidirectionalFileChunkStream.EXPECT().
+			Recv().
+			Return(nil, io.EOF)
+
+		mockClient.EXPECT().GetFileMetadata(
+			mock.Anything,
+		).Return(mockBidirectionalFileMetadataStream, nil)
+
+		mockClient.EXPECT().GetFile(
+			mock.Anything,
+		).Return(mockBidirectionalFileChunkStream, nil)
+
+		mockClient.EXPECT().ListFiles(
+			mock.Anything,
+			mock.MatchedBy(func(req *protocol.ListFilesRequest) bool {
+				return req.IndexName == "collection" && req.ShardName == "shard"
+			}),
+		).Return(&protocol.ListFilesResponse{
+			FileNames: remoteFileRelativePaths,
+		}, nil)
+
+		mockClientFactory := func(ctx context.Context, address string) (FileReplicationServiceClient, error) {
+			return mockClient, nil
+		}
 
 		fakeNodeSelector := fakes.NewFakeClusterState("node1")
+
 		logger, _ := logrusTest.NewNullLogger()
-		copier := copier.New(mockRemoteIndex, fakeNodeSelector, localTmpDir, nil, logger)
+
+		copier := New(mockClientFactory, mockRemoteIndex, fakeNodeSelector, 1, localTmpDir, nil, "node1", logger)
 		err = copier.CopyReplicaFiles(t.Context(), "node1", "collection", "shard", 0)
 		require.NoError(t, err)
 

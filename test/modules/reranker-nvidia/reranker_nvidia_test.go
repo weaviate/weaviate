@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -24,7 +24,7 @@ import (
 func testRerankerNvidia(host string) func(t *testing.T) {
 	return func(t *testing.T) {
 		helper.SetupClient(host)
-		booksClass := books.ClassContextionaryVectorizer()
+		booksClass := books.ClassModel2VecVectorizer()
 		booksClass.ModuleConfig.(map[string]interface{})["reranker-nvidia"] = map[string]interface{}{}
 		helper.CreateClass(t, booksClass)
 		defer helper.DeleteClass(t, booksClass.Class)

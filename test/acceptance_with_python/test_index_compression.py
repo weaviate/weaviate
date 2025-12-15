@@ -18,27 +18,31 @@ def test_index_compression() -> None:
             "hnsw_bq": 256,
             "hnsw_pq": 512,
             "hnsw_sq": 1024,
+            "hnsw_rq1": 1512,
+            "hnsw_rq8": 2048,
             "multivector_uncompressed": 32,
             "multivector_muvera_bq": 64,
             "multivector_bq": 40,
         }
 
-        def generate_random_vector(dimensionality):
-            return np.random.rand(dimensionality).tolist()
+        def generate_random_vector(target_vector: str):
+            return np.random.rand(target_vector_dimensions[target_vector]).tolist()
 
-        def generate_random_multi_vector(dimensionality):
+        def generate_random_multi_vector(target_vector: str):
             multi_vector = []
             for i in range(5):
-                multi_vector.append(generate_random_vector(dimensionality))
+                multi_vector.append(generate_random_vector(target_vector))
             return multi_vector
 
+        def generate_vector(target_vector: str):
+            if target_vector.startswith("multivector"):
+                return generate_random_multi_vector(target_vector)
+            return generate_random_vector(target_vector)
+
         def query_all_target_vectors():
-            for target_vector, dim in target_vector_dimensions.items():
-                vector = generate_random_vector(dim)
-                if target_vector.startswith("multivector"):
-                    vector = generate_random_multi_vector(dim)
+            for target_vector in target_vector_dimensions.keys():
                 res = collection.query.near_vector(
-                    near_vector=vector,
+                    near_vector=generate_vector(target_vector),
                     target_vector=target_vector,
                 )
                 assert len(res.objects) > 0
@@ -70,6 +74,14 @@ def test_index_compression() -> None:
                     name="hnsw_sq",
                     vector_index_config=Configure.VectorIndex.hnsw(),
                 ),
+                Configure.Vectors.self_provided(
+                    name="hnsw_rq1",
+                    vector_index_config=Configure.VectorIndex.hnsw(),
+                ),
+                Configure.Vectors.self_provided(
+                    name="hnsw_rq8",
+                    vector_index_config=Configure.VectorIndex.hnsw(),
+                ),
                 Configure.MultiVectors.self_provided(
                     name="multivector_uncompressed",
                     vector_index_config=Configure.VectorIndex.hnsw(),
@@ -91,24 +103,18 @@ def test_index_compression() -> None:
         )
 
         with collection.batch.dynamic() as batch:
-            for i in range(1000): 
+            for i in range(1000):
+                vectors = {}
+                for target_vector in target_vector_dimensions.keys():
+                    vectors[target_vector] = generate_vector(target_vector)
                 batch.add_object(
                     properties={
                         "name": f"name {i}",
                         "description": f"some description {i}",
                     },
                     uuid=generate_uuid5(f"name {i}"),
-                    vector={
-                        "uncompressed": generate_random_vector(target_vector_dimensions["uncompressed"]),
-                        "flat_bq": generate_random_vector(target_vector_dimensions["flat_bq"]),
-                        "hnsw_bq": generate_random_vector(target_vector_dimensions["hnsw_bq"]),
-                        "hnsw_pq": generate_random_vector(target_vector_dimensions["hnsw_pq"]),
-                        "hnsw_sq": generate_random_vector(target_vector_dimensions["hnsw_sq"]),
-                        "multivector_uncompressed": generate_random_multi_vector(target_vector_dimensions["multivector_uncompressed"]),
-                        "multivector_muvera_bq": generate_random_multi_vector(target_vector_dimensions["multivector_muvera_bq"]),
-                        "multivector_bq": generate_random_multi_vector(target_vector_dimensions["multivector_bq"]),
-                }
-        )
+                    vector=vectors,
+                )
 
         count = collection.aggregate.over_all()
         assert count.total_count == 1000
@@ -127,7 +133,7 @@ def test_index_compression() -> None:
             )
         )
         # we need to wait a little bit before we can enable next compression
-        time.sleep(3)
+        time.sleep(1)
         collection.config.update(
             vector_config=Reconfigure.Vectors.update(
                 name="hnsw_sq",
@@ -135,6 +141,31 @@ def test_index_compression() -> None:
                     quantizer=Reconfigure.VectorIndex.Quantizer.sq(
                         enabled=True,
                         training_limit=100,
+                    ),
+                )
+            )
+        )
+        # we need to wait a little bit before we can enable next compression
+        time.sleep(1)
+        collection.config.update(
+            vector_config=Reconfigure.Vectors.update(
+                name="hnsw_rq1",
+                vector_index_config=Reconfigure.VectorIndex.hnsw(
+                    quantizer=Reconfigure.VectorIndex.Quantizer.rq(
+                        enabled=True,
+                        bits=1,
+                    ),
+                )
+            )
+        )
+        # we need to wait a little bit before we can enable next compression
+        time.sleep(1)
+        collection.config.update(
+            vector_config=Reconfigure.Vectors.update(
+                name="hnsw_rq8",
+                vector_index_config=Reconfigure.VectorIndex.hnsw(
+                    quantizer=Reconfigure.VectorIndex.Quantizer.rq(
+                        enabled=True,
                     ),
                 )
             )

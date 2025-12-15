@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -18,8 +18,12 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
+	"strings"
 
 	sentryhttp "github.com/getsentry/sentry-go/http"
+
+	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/raft"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
@@ -27,11 +31,17 @@ import (
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
+const (
+	MAX_CONCURRENT_STREAMS = 250
+	MAX_READ_FRAME_SIZE    = (16 * 1024 * 1024) // 16 MB
+)
+
 // Server represents the cluster API server
 type Server struct {
 	server            *http.Server
 	appState          *state.State
 	replicatedIndices *replicatedIndices
+	grpc              *grpc.Server
 }
 
 // Ensure Server implements interfaces.ClusterServer
@@ -49,7 +59,6 @@ func NewServer(appState *state.State) *Server {
 	indices := NewIndices(appState.RemoteIndexIncoming, appState.DB, auth, appState.Cluster.MaintenanceModeEnabledForLocalhost, appState.Logger)
 	replicatedIndices := NewReplicatedIndices(
 		appState.RemoteReplicaIncoming,
-		appState.Scaler,
 		auth,
 		appState.Cluster.MaintenanceModeEnabledForLocalhost,
 		appState.ServerConfig.Config.Cluster.RequestQueueConfig,
@@ -78,8 +87,18 @@ func NewServer(appState *state.State) *Server {
 
 	mux.Handle("/", index())
 
+	grpcServer := grpc.NewServer(appState)
+
 	var handler http.Handler
-	handler = mux
+	// Multiplexing handler: Routes gRPC vs. REST (HTTP)
+	handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.ProtoMajor == 2 && strings.HasPrefix(r.Header.Get("content-type"), "application/grpc") {
+			grpcServer.ServeHTTP(w, r) // Route to gRPC
+			return
+		}
+		mux.ServeHTTP(w, r) // Route to REST mux (handles HTTP/1.1 or plain HTTP/2)
+	})
+
 	handler = addClusterHandlerMiddleware(handler, appState)
 	if appState.ServerConfig.Config.Sentry.Enabled {
 		// Wrap the default mux with Sentry to capture panics, report errors and
@@ -101,13 +120,19 @@ func NewServer(appState *state.State) *Server {
 		)
 	}
 
+	protocols := http.Protocols{}
+	protocols.SetHTTP1(true)
+	protocols.SetUnencryptedHTTP2(true)
+
 	return &Server{
 		server: &http.Server{
-			Addr:    fmt.Sprintf(":%d", port),
-			Handler: handler,
+			Addr:      fmt.Sprintf(":%d", port),
+			Handler:   handler,
+			Protocols: &protocols,
 		},
 		appState:          appState,
 		replicatedIndices: replicatedIndices,
+		grpc:              grpcServer,
 	}
 }
 
@@ -135,14 +160,28 @@ func (s *Server) Close(ctx context.Context) error {
 		}
 	}
 
-	// Now shutdown the HTTP server after the replicated indices have been closed
-	if err := s.server.Shutdown(ctx); err != nil {
-		s.appState.Logger.WithField("action", "cluster_api_shutdown").
-			WithError(err).
-			Error("could not stop server gracefully")
-		return s.server.Close()
-	}
-	return nil
+	// Now shutdown the servers after the replicated indices have been closed
+	eg := enterrors.NewErrorGroupWrapper(s.appState.Logger)
+	eg.Go(func() error {
+		if err := s.server.Shutdown(ctx); err != nil {
+			s.appState.Logger.WithField("action", "cluster_api_shutdown").
+				WithError(err).
+				Error("could not stop server gracefully")
+			return s.server.Close()
+		}
+		return nil
+	})
+	eg.Go(func() error {
+		if err := s.grpc.Close(ctx); err != nil {
+			s.appState.Logger.WithField("action", "cluster_api_shutdown").
+				WithError(err).
+				Error("could not stop grpc server gracefully")
+			return err
+		}
+		return nil
+	})
+
+	return eg.Wait()
 }
 
 // Serve is kept for backward compatibility

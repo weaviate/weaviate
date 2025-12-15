@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -28,8 +28,9 @@ const (
 	endpointProperty          = "endpoint"
 	targetModelProperty       = "targetModel"
 	targetVariantProperty     = "targetVariant"
-	maxTokenCountProperty     = "maxTokenCount"
-	maxTokensToSampleProperty = "maxTokensToSample"
+	maxTokenCountProperty     = "maxTokenCount"     // deprecated, use: maxTokens
+	maxTokensToSampleProperty = "maxTokensToSample" // deprecated, use: maxTokens
+	maxTokensProperty         = "maxTokens"
 	stopSequencesProperty     = "stopSequences"
 	temperatureProperty       = "temperature"
 	topPProperty              = "topP"
@@ -108,9 +109,9 @@ func (ic *classSettings) Validate(class *models.Class) error {
 		if model == "" {
 			errorMessages = append(errorMessages, fmt.Sprintf("%s has to be defined", modelProperty))
 		}
-		maxTokenCount := ic.MaxTokenCount(Bedrock, model)
-		if maxTokenCount != nil && (*maxTokenCount < 1 || *maxTokenCount > 8192) {
-			errorMessages = append(errorMessages, fmt.Sprintf("%s has to be an integer value between 1 and 8096", maxTokenCountProperty))
+		maxTokens := ic.MaxTokens(Bedrock, model)
+		if maxTokens != nil && (*maxTokens < 1 || *maxTokens > 8192) {
+			errorMessages = append(errorMessages, fmt.Sprintf("%s has to be an integer value between 1 and 8096", maxTokensProperty))
 		}
 		temperature := ic.Temperature(Bedrock, model)
 		if temperature != nil && (*temperature < 0 || *temperature > 1) {
@@ -198,26 +199,47 @@ func (ic *classSettings) Model() string {
 	return ic.getStringProperty(modelProperty, "")
 }
 
-func (ic *classSettings) MaxTokenCount(service, model string) *int {
+func (ic *classSettings) MaxTokens(service, model string) *int {
 	if isBedrock(service) {
 		if isAmazonModel(model) {
+			if maxTokens := ic.getIntProperty(maxTokensProperty, nil); maxTokens != nil {
+				return maxTokens
+			}
 			return ic.getIntProperty(maxTokenCountProperty, &DefaultTitanMaxTokens)
 		}
 		if isAnthropicModel(model) {
+			if maxTokens := ic.getIntProperty(maxTokensProperty, nil); maxTokens != nil {
+				return maxTokens
+			}
 			return ic.getIntProperty(maxTokensToSampleProperty, &DefaultAnthropicMaxTokensToSample)
 		}
 		if isAI21Model(model) {
+			if maxTokens := ic.getIntProperty(maxTokensProperty, nil); maxTokens != nil {
+				return maxTokens
+			}
 			return ic.getIntProperty(maxTokenCountProperty, &DefaultAI21MaxTokens)
 		}
 		if isCohereModel(model) {
+			if maxTokens := ic.getIntProperty(maxTokensProperty, nil); maxTokens != nil {
+				return maxTokens
+			}
 			return ic.getIntProperty(maxTokenCountProperty, &DefaultCohereMaxTokens)
 		}
 		if isMistralAIModel(model) {
+			if maxTokens := ic.getIntProperty(maxTokensProperty, nil); maxTokens != nil {
+				return maxTokens
+			}
 			return ic.getIntProperty(maxTokenCountProperty, &DefaultMistralAIMaxTokens)
 		}
 		if isMetaModel(model) {
+			if maxTokens := ic.getIntProperty(maxTokensProperty, nil); maxTokens != nil {
+				return maxTokens
+			}
 			return ic.getIntProperty(maxTokenCountProperty, &DefaultMetaMaxTokens)
 		}
+	}
+	if maxTokens := ic.getIntProperty(maxTokensProperty, nil); maxTokens != nil {
+		return maxTokens
 	}
 	return ic.getIntProperty(maxTokenCountProperty, nil)
 }

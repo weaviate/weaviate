@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -19,6 +19,13 @@ import (
 	"testing"
 	"time"
 
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/sharding"
+
+	"github.com/stretchr/testify/mock"
+	"github.com/weaviate/weaviate/usecases/cluster"
+
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/entities/search"
 
 	"github.com/go-openapi/strfmt"
@@ -39,22 +46,38 @@ func TestFilters(t *testing.T) {
 	dirName := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
+	shardState := singleShardState()
 	schemaGetter := &fakeSchemaGetter{
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
-		shardState: singleShardState(),
+		shardState: shardState,
 	}
-	repo, err := New(logger, Config{
+	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
+		class := &models.Class{Class: className}
+		return readFunc(class, shardState)
+	}).Maybe()
+	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
+	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
+	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
+	repo, err := New(logger, "node1", Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor())
+	}, &FakeRemoteClient{}, &FakeNodeResolver{}, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(testCtx())
 
-	migrator := NewMigrator(repo, logger)
+	migrator := NewMigrator(repo, logger, "node1")
 	t.Run("prepare test schema and data ", prepareCarTestSchemaAndData(repo, migrator, schemaGetter))
 
 	t.Run("primitive props without nesting", testPrimitiveProps(repo))
@@ -70,21 +93,37 @@ func TestFiltersNoLengthIndex(t *testing.T) {
 	dirName := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
+	shardState := singleShardState()
 	schemaGetter := &fakeSchemaGetter{
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
-		shardState: singleShardState(),
+		shardState: shardState,
 	}
-	repo, err := New(logger, Config{
+	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
+		class := &models.Class{Class: className}
+		return readFunc(class, shardState)
+	}).Maybe()
+	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
+	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
+	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
+	repo, err := New(logger, "node1", Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor())
+	}, &FakeRemoteClient{}, &FakeNodeResolver{}, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(testCtx())
-	migrator := NewMigrator(repo, logger)
+	migrator := NewMigrator(repo, logger, "node1")
 	t.Run("prepare test schema and data ", prepareCarTestSchemaAndDataNoLength(repo, migrator, schemaGetter))
 	t.Run("primitive props without nesting", testPrimitivePropsWithNoLengthIndex(repo))
 }
@@ -117,7 +156,7 @@ func prepareCarTestSchemaAndData(repo *DB,
 	return func(t *testing.T) {
 		t.Run("creating the class", func(t *testing.T) {
 			require.Nil(t,
-				migrator.AddClass(context.Background(), carClass, schemaGetter.shardState))
+				migrator.AddClass(context.Background(), carClass))
 			schemaGetter.schema.Objects = &models.Schema{
 				Classes: []*models.Class{
 					carClass,
@@ -140,7 +179,7 @@ func prepareCarTestSchemaAndDataNoLength(repo *DB,
 	return func(t *testing.T) {
 		t.Run("creating the class", func(t *testing.T) {
 			require.Nil(t,
-				migrator.AddClass(context.Background(), carClassNoLengthIndex, schemaGetter.shardState))
+				migrator.AddClass(context.Background(), carClassNoLengthIndex))
 			schemaGetter.schema.Objects = &models.Schema{
 				Classes: []*models.Class{
 					carClassNoLengthIndex,
@@ -658,22 +697,22 @@ func testChainedPrimitiveProps(repo *DB,
 				),
 				expectedIDs: []strfmt.UUID{carSprinterID, carE63sID},
 			},
-			// test{
-			// 	name: "NOT modelName == sprinter, modelName == e63s",
-			// 	filter: filterNot(
-			// 		buildFilter("modelName", "sprinter", eq, dtText),
-			// 		buildFilter("modelName", "e63s", eq, dtText),
-			// 	),
-			// 	expectedIDs: []strfmt.UUID{carPoloID},
-			// },
-			// test{
-			// 	name: "NOT horsepower < 200 , weight > 3000",
-			// 	filter: filterNot(
-			// 		buildFilter("horsepower", 200, lt, dtNumber),
-			// 		buildFilter("weight", 3000, gt, dtNumber),
-			// 	),
-			// 	expectedIDs: []strfmt.UUID{carE63sID},
-			// },
+			{
+				name: "NOT (modelName == sprinter OR modelName == e63s)",
+				filter: filterNot(filterOr(
+					buildFilter("modelName", "sprinter", eq, dtText),
+					buildFilter("modelName", "e63s", eq, dtText),
+				)),
+				expectedIDs: []strfmt.UUID{carPoloID, carNilID, carEmpty},
+			},
+			{
+				name: "NOT (horsepower < 200 OR weight > 3000)",
+				filter: filterNot(filterOr(
+					buildFilter("horsepower", 200, lt, dtInt),
+					buildFilter("weight", float64(3000), gt, dtNumber),
+				)),
+				expectedIDs: []strfmt.UUID{carE63sID, carNilID, carEmpty},
+			},
 			{
 				name: "(heavy AND powerful) OR light",
 				filter: filterOr(
@@ -761,6 +800,10 @@ func filterAnd(operands ...*filters.LocalFilter) *filters.LocalFilter {
 
 func filterOr(operands ...*filters.LocalFilter) *filters.LocalFilter {
 	return compoundFilter(filters.OperatorOr, operands...)
+}
+
+func filterNot(operand *filters.LocalFilter) *filters.LocalFilter {
+	return compoundFilter(filters.OperatorNot, operand)
 }
 
 // test data
@@ -1027,22 +1070,38 @@ func TestGeoPropUpdateJourney(t *testing.T) {
 	dirName := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
+	shardState := singleShardState()
 	schemaGetter := &fakeSchemaGetter{
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
-		shardState: singleShardState(),
+		shardState: shardState,
 	}
-	repo, err := New(logger, Config{
+	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
+		class := &models.Class{Class: className}
+		return readFunc(class, shardState)
+	}).Maybe()
+	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
+	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
+	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
+	repo, err := New(logger, "node1", Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor())
+	}, &FakeRemoteClient{}, &FakeNodeResolver{}, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
 
-	migrator := NewMigrator(repo, logger)
+	migrator := NewMigrator(repo, logger, "node1")
 
 	t.Run("import schema", func(t *testing.T) {
 		class := &models.Class{
@@ -1057,7 +1116,7 @@ func TestGeoPropUpdateJourney(t *testing.T) {
 			},
 		}
 
-		migrator.AddClass(context.Background(), class, schemaGetter.shardState)
+		migrator.AddClass(context.Background(), class)
 		schemaGetter.schema.Objects = &models.Schema{
 			Classes: []*models.Class{class},
 		}
@@ -1135,22 +1194,38 @@ func TestCasingOfOperatorCombinations(t *testing.T) {
 	dirName := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
+	shardState := singleShardState()
 	schemaGetter := &fakeSchemaGetter{
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
-		shardState: singleShardState(),
+		shardState: shardState,
 	}
-	repo, err := New(logger, Config{
+	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
+		class := &models.Class{Class: className}
+		return readFunc(class, shardState)
+	}).Maybe()
+	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
+	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
+	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
+	repo, err := New(logger, "node1", Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor())
+	}, &FakeRemoteClient{}, &FakeNodeResolver{}, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
 
-	migrator := NewMigrator(repo, logger)
+	migrator := NewMigrator(repo, logger, "node1")
 
 	class := &models.Class{
 		Class:               "FilterCasingBug",
@@ -1220,7 +1295,7 @@ func TestCasingOfOperatorCombinations(t *testing.T) {
 
 	t.Run("creating the class", func(t *testing.T) {
 		require.Nil(t,
-			migrator.AddClass(context.Background(), class, schemaGetter.shardState))
+			migrator.AddClass(context.Background(), class))
 		schemaGetter.schema.Objects = &models.Schema{
 			Classes: []*models.Class{
 				class,
@@ -1539,22 +1614,38 @@ func TestFilteringAfterDeletion(t *testing.T) {
 	dirName := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
+	shardState := singleShardState()
 	schemaGetter := &fakeSchemaGetter{
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
-		shardState: singleShardState(),
+		shardState: shardState,
 	}
-	repo, err := New(logger, Config{
+	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
+		class := &models.Class{Class: className}
+		return readFunc(class, shardState)
+	}).Maybe()
+	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
+	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
+	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
+	repo, err := New(logger, "node1", Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor())
+	}, &FakeRemoteClient{}, &FakeNodeResolver{}, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
 
-	migrator := NewMigrator(repo, logger)
+	migrator := NewMigrator(repo, logger, "node1")
 	class := &models.Class{
 		Class:               "DeletionClass",
 		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
@@ -1595,7 +1686,7 @@ func TestFilteringAfterDeletion(t *testing.T) {
 
 	t.Run("creating the class and add objects", func(t *testing.T) {
 		require.Nil(t,
-			migrator.AddClass(context.Background(), class, schemaGetter.shardState))
+			migrator.AddClass(context.Background(), class))
 		schemaGetter.schema.Objects = &models.Schema{
 			Classes: []*models.Class{
 				class,

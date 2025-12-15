@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -358,7 +358,7 @@ func (s *Shard) VectorDistanceForQuery(ctx context.Context, docId uint64, search
 		case []float32:
 			distancer = index.QueryVectorDistancer(v)
 		case [][]float32:
-			distancer = index.QueryMultiVectorDistancer(v)
+			distancer = index.(VectorIndexMulti).QueryMultiVectorDistancer(v)
 		default:
 			return nil, fmt.Errorf("unsupported vector type: %T", v)
 		}
@@ -447,7 +447,7 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 						return err
 					}
 				case [][]float32:
-					ids, dists, err = vidx.SearchByMultiVectorDistance(
+					ids, dists, err = vidx.(VectorIndexMulti).SearchByMultiVectorDistance(
 						ctx, searchVector, targetDist, s.index.Config.QueryMaximumResults, allowList)
 					if err != nil {
 						// This should normally not fail. A failure here could indicate that more
@@ -475,7 +475,7 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 						return err
 					}
 				case [][]float32:
-					ids, dists, err = vidx.SearchByMultiVector(ctx, searchVector, limit, allowList)
+					ids, dists, err = vidx.(VectorIndexMulti).SearchByMultiVector(ctx, searchVector, limit, allowList)
 					if err != nil {
 						// This should normally not fail. A failure here could indicate that more
 						// attention is required, for example because data is corrupted. That's

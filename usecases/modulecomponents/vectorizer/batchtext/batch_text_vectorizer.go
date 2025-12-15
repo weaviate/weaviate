@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -104,8 +104,8 @@ func (v *BatchTextVectorizer[T]) objects(ctx context.Context, objects []*models.
 	inputs := make([]string, 0)
 	inputIndex := 0
 	for i := range objects {
-		corpi, _ := v.objectVectorizer.TextsWithTitleProperty(ctx, objects[i], icheck, titleProperty)
-		if corpi != "" {
+		corpi, _, isEmpty := v.objectVectorizer.TextsWithTitleProperty(ctx, objects[i], icheck, titleProperty)
+		if !isEmpty {
 			inputs = append(inputs, corpi)
 			batchObjects[i] = &batchObject{index: inputIndex}
 			inputIndex++

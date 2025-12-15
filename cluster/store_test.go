@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -420,7 +420,8 @@ func TestStoreApply(t *testing.T) {
 				m.indexer.On("AddTenants", mock.Anything, mock.Anything).Return(nil)
 			},
 			doAfter: func(ms *MockStore) error {
-				shardingState := ms.store.SchemaReader().CopyShardingState("C1")
+				shardingState, err := readShardingState(ms.store.SchemaReader(), "C1")
+				require.Nil(t, err)
 				if shardingState == nil {
 					return fmt.Errorf("sharding state not found")
 				}
@@ -487,7 +488,8 @@ func TestStoreApply(t *testing.T) {
 					Status:         models.TenantActivityStatusHOT,
 				}}
 
-				shardingState := ms.store.SchemaReader().CopyShardingState("C1")
+				shardingState, err := readShardingState(ms.store.SchemaReader(), "C1")
+				require.Nil(t, err)
 				if got := shardingState.Physical; !reflect.DeepEqual(got, want) {
 					return fmt.Errorf("physical state want: %v got: %v", want, got)
 				}
@@ -522,7 +524,8 @@ func TestStoreApply(t *testing.T) {
 					Status:         models.TenantActivityStatusCOLD,
 				}}
 
-				shardingState := ms.store.SchemaReader().CopyShardingState("C1")
+				shardingState, err := readShardingState(ms.store.SchemaReader(), "C1")
+				require.Nil(t, err)
 				if got := shardingState.Physical; !reflect.DeepEqual(got, want) {
 					return fmt.Errorf("physical state want: %v got: %v", want, got)
 				}
@@ -575,7 +578,8 @@ func TestStoreApply(t *testing.T) {
 					Status:         models.TenantActivityStatusCOLD,
 				}}
 
-				shardingState := ms.store.SchemaReader().CopyShardingState("C1")
+				shardingState, err := readShardingState(ms.store.SchemaReader(), "C1")
+				require.Nil(t, err)
 				if got := shardingState.Physical; !reflect.DeepEqual(got, want) {
 					return fmt.Errorf("physical state want: %v got: %v", want, got)
 				}
@@ -616,7 +620,8 @@ func TestStoreApply(t *testing.T) {
 				m.replicationFSM.On("DeleteReplicationsByTenants", mock.Anything, mock.Anything).Return(nil)
 			},
 			doAfter: func(ms *MockStore) error {
-				shardingState := ms.store.SchemaReader().CopyShardingState("C1")
+				shardingState, err := readShardingState(ms.store.SchemaReader(), "C1")
+				require.Nil(t, err)
 				if len(shardingState.Physical) != 0 {
 					return fmt.Errorf("sharding state mus be empty after deletion")
 				}
@@ -642,7 +647,8 @@ func TestStoreApply(t *testing.T) {
 				m.replicationFSM.On("DeleteReplicationsByTenants", mock.Anything, mock.Anything).Return(fmt.Errorf("any error"))
 			},
 			doAfter: func(ms *MockStore) error {
-				shardingState := ms.store.SchemaReader().CopyShardingState("C1")
+				shardingState, err := readShardingState(ms.store.SchemaReader(), "C1")
+				require.Nil(t, err)
 				if len(shardingState.Physical) != 0 {
 					return fmt.Errorf("sharding state mus be empty after deletion")
 				}
@@ -767,7 +773,8 @@ func TestStoreApply(t *testing.T) {
 					return fmt.Errorf("sharding state should still have 1 replica for class C1, shard T2")
 				}
 
-				shardingState := ms.store.SchemaReader().CopyShardingState("C1")
+				shardingState, err := readShardingState(ms.store.SchemaReader(), "C1")
+				require.Nil(t, err)
 				if shardingState.ReplicationFactor != 1 {
 					return fmt.Errorf("replication factor should be 1, got %d", shardingState.ReplicationFactor)
 				}
@@ -803,7 +810,8 @@ func TestStoreApply(t *testing.T) {
 					return fmt.Errorf("sharding state should have 2 replicas after deletion, got %d", len(replicas))
 				}
 
-				shardingState := ms.store.SchemaReader().CopyShardingState("C1")
+				shardingState, err := readShardingState(ms.store.SchemaReader(), "C1")
+				require.Nil(t, err)
 				if shardingState.ReplicationFactor != 1 {
 					return fmt.Errorf("replication factor should be 1, got %d", shardingState.ReplicationFactor)
 				}
@@ -839,7 +847,8 @@ func TestStoreApply(t *testing.T) {
 					return fmt.Errorf("sharding state should still have 2 replicas for class C1, shard T2")
 				}
 
-				shardingState := ms.store.SchemaReader().CopyShardingState("C1")
+				shardingState, err := readShardingState(ms.store.SchemaReader(), "C1")
+				require.Nil(t, err)
 				if shardingState.ReplicationFactor != 2 {
 					return fmt.Errorf("replication factor should be 2, got %d", shardingState.ReplicationFactor)
 				}
@@ -875,7 +884,8 @@ func TestStoreApply(t *testing.T) {
 					return fmt.Errorf("sharding state should have 3 replicas after deletion, got %d", len(replicas))
 				}
 
-				shardingState := ms.store.SchemaReader().CopyShardingState("C1")
+				shardingState, err := readShardingState(ms.store.SchemaReader(), "C1")
+				require.Nil(t, err)
 				if shardingState.ReplicationFactor != 3 {
 					return fmt.Errorf("replication factor should be 3, got %d", shardingState.ReplicationFactor)
 				}
@@ -1000,7 +1010,8 @@ func TestStoreApply(t *testing.T) {
 					return fmt.Errorf("class is missing")
 				}
 
-				shardingState := ms.store.SchemaReader().CopyShardingState("C1")
+				shardingState, err := readShardingState(ms.store.SchemaReader(), "C1")
+				require.Nil(t, err)
 				if shardingState == nil {
 					return fmt.Errorf("sharding state is missing")
 				}
@@ -1051,7 +1062,8 @@ func TestStoreApply(t *testing.T) {
 					return fmt.Errorf("class is missing")
 				}
 
-				shardingState := ms.store.SchemaReader().CopyShardingState("C1")
+				shardingState, err := readShardingState(ms.store.SchemaReader(), "C1")
+				require.Nil(t, err)
 				if shardingState == nil {
 					return fmt.Errorf("sharding state is missing")
 				}
@@ -1097,7 +1109,8 @@ func TestStoreApply(t *testing.T) {
 					return fmt.Errorf("class is missing")
 				}
 
-				shardingState := ms.store.SchemaReader().CopyShardingState("C1")
+				shardingState, err := readShardingState(ms.store.SchemaReader(), "C1")
+				require.Nil(t, err)
 				if shardingState == nil {
 					return fmt.Errorf("sharding state is missing")
 				}
@@ -1145,7 +1158,8 @@ func TestStoreApply(t *testing.T) {
 					return fmt.Errorf("class is missing")
 				}
 
-				shardingState := ms.store.SchemaReader().CopyShardingState("C1")
+				shardingState, err := readShardingState(ms.store.SchemaReader(), "C1")
+				require.Nil(t, err)
 				if shardingState == nil {
 					return fmt.Errorf("sharding state is missing")
 				}
@@ -1190,7 +1204,8 @@ func TestStoreApply(t *testing.T) {
 					return fmt.Errorf("class is missing")
 				}
 
-				shardingState := ms.store.SchemaReader().CopyShardingState("C1")
+				shardingState, err := readShardingState(ms.store.SchemaReader(), "C1")
+				require.Nil(t, err)
 				if shardingState == nil {
 					return fmt.Errorf("sharding state is missing")
 				}

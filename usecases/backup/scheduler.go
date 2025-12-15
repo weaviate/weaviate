@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -33,6 +34,13 @@ var (
 
 const (
 	errMsgHigherVersion = "unable to restore backup as it was produced by a higher version"
+)
+
+type AllBackupsOrder string
+
+const (
+	AllBackupsOrderAsc  AllBackupsOrder = "asc"
+	AllBackupsOrderDesc AllBackupsOrder = "desc"
 )
 
 // Scheduler assigns backup operations to coordinators.
@@ -63,12 +71,12 @@ func NewScheduler(
 			sourcer,
 			client,
 			schema,
-			logger, nodeResolver),
+			logger, nodeResolver, backends),
 		restorer: newCoordinator(
 			sourcer,
 			client,
 			schema,
-			logger, nodeResolver),
+			logger, nodeResolver, backends),
 	}
 	return m
 }
@@ -163,7 +171,7 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 // Restore loads the backup and restores classes in temporary directories on the filesystem.
 // The final backup restoration is orchestrated by the raft store.
 func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
-	req *BackupRequest,
+	req *BackupRequest, overwriteAlais bool,
 ) (_ *models.BackupRestoreResponse, err error) {
 	defer func(begin time.Time) {
 		logOperation(s.logger, "try_restore", req.ID, req.Backend, begin, err)
@@ -199,15 +207,16 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 	}
 
 	rReq := Request{
-		Method:            OpRestore,
-		ID:                req.ID,
-		Backend:           req.Backend,
-		Compression:       req.Compression,
-		Classes:           meta.Classes(),
-		Bucket:            req.Bucket,
-		Path:              req.Path,
-		UserRestoreOption: req.UserRestoreOption,
-		RbacRestoreOption: req.RbacRestoreOption,
+		Method:                OpRestore,
+		ID:                    req.ID,
+		Backend:               req.Backend,
+		Compression:           req.Compression,
+		Classes:               meta.Classes(),
+		Bucket:                req.Bucket,
+		Path:                  req.Path,
+		UserRestoreOption:     req.UserRestoreOption,
+		RbacRestoreOption:     req.RbacRestoreOption,
+		RestoreOverwriteAlias: overwriteAlais,
 	}
 	err = s.restorer.Restore(ctx, store, &rReq, meta, schema)
 	if err != nil {
@@ -310,7 +319,7 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 	return nil
 }
 
-func (s *Scheduler) List(ctx context.Context, principal *models.Principal, backend string) (*models.BackupListResponse, error) {
+func (s *Scheduler) List(ctx context.Context, principal *models.Principal, backend string, sortingOrder *string) (*models.BackupListResponse, error) {
 	var err error
 	defer func(begin time.Time) {
 		logOperation(s.logger, "list_backup", "", backend, time.Now(), err)
@@ -326,6 +335,8 @@ func (s *Scheduler) List(ctx context.Context, principal *models.Principal, backe
 		return nil, err
 	}
 
+	slices.SortFunc(backups, sortBackups(AllBackupsOrder(*sortingOrder)))
+
 	response := make(models.BackupListResponse, len(backups))
 	for i, b := range backups {
 		response[i] = &models.BackupListResponseItems0{
@@ -334,10 +345,29 @@ func (s *Scheduler) List(ctx context.Context, principal *models.Principal, backe
 			Status:      string(b.Status),
 			StartedAt:   strfmt.DateTime(b.StartedAt.UTC()),
 			CompletedAt: strfmt.DateTime(b.CompletedAt.UTC()),
+			Size:        float64(b.PreCompressionSizeBytes) / (1024 * 1024 * 1024), // Convert bytes to GiB,
 		}
 	}
 
 	return &response, nil
+}
+
+func sortBackups(order AllBackupsOrder) func(a, b *backup.DistributedBackupDescriptor) int {
+	cmp := 1
+	if order == AllBackupsOrderDesc {
+		cmp = -1
+	}
+
+	return func(a, b *backup.DistributedBackupDescriptor) int {
+		if a.StartedAt.Before(b.StartedAt) {
+			return -cmp
+		}
+		if a.StartedAt.After(b.StartedAt) {
+			return cmp
+		}
+
+		return 0
+	}
 }
 
 func coordBackend(provider BackupBackendProvider, backend, id, overrideBucket, overridePath string) (coordStore, error) {

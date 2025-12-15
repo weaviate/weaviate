@@ -105,13 +105,14 @@ services:
     image: minio/minio
     ports:
       - "9000:9000"
+      - "9001:9001"
     volumes:
       - ./backups-s3:/data
     environment:
       MINIO_ROOT_USER: aws_access_key
       MINIO_ROOT_PASSWORD: aws_secret_key
     entrypoint: sh
-    command: -c 'mkdir -p /data/weaviate-backups && minio server /data'
+    command: -c 'mkdir -p /data/weaviate-backups && minio server /data --console-address ":9001"'
   backup-gcs:
     image: oittaa/gcp-storage-emulator
     ports:

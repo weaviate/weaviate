@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -257,6 +257,7 @@ type upgradableIndexer interface {
 	Upgraded() bool
 	Upgrade(callback func()) error
 	ShouldUpgrade() (bool, int)
+	AlreadyIndexed() uint64
 }
 
 // triggers compression if the index is ready to be upgraded
@@ -271,7 +272,7 @@ func (iq *VectorIndexQueue) checkCompressionSettings() (skip bool) {
 		return false
 	}
 
-	if iq.vectorIndex.AlreadyIndexed() > uint64(shouldUpgradeAt) {
+	if ci.AlreadyIndexed() > uint64(shouldUpgradeAt) {
 		iq.scheduler.PauseQueue(iq.DiskQueue.ID())
 
 		err := ci.Upgrade(func() {
@@ -401,7 +402,7 @@ func (t *Task[T]) Execute(ctx context.Context) error {
 	case vectorIndexQueueInsertOp:
 		return t.idx.Add(ctx, t.id, any(t.vector).([]float32))
 	case vectorIndexQueueMultiInsertOp:
-		return t.idx.AddMulti(ctx, t.id, any(t.vector).([][]float32))
+		return t.idx.(VectorIndexMulti).AddMulti(ctx, t.id, any(t.vector).([][]float32))
 	case vectorIndexQueueDeleteOp, vectorIndexQueueMultiDeleteOp:
 		return t.idx.Delete(t.id)
 	}
@@ -451,7 +452,7 @@ func (t *TaskGroup[T]) Execute(ctx context.Context) error {
 	case vectorIndexQueueInsertOp:
 		return t.idx.AddBatch(ctx, t.ids, any(t.vectors).([][]float32))
 	case vectorIndexQueueMultiInsertOp:
-		return t.idx.AddMultiBatch(ctx, t.ids, any(t.vectors).([][][]float32))
+		return t.idx.(VectorIndexMulti).AddMultiBatch(ctx, t.ids, any(t.vectors).([][][]float32))
 	case vectorIndexQueueDeleteOp, vectorIndexQueueMultiDeleteOp:
 		return t.idx.Delete(t.ids...)
 	}

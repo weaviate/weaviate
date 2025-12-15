@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -27,7 +27,6 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	migratefs "github.com/weaviate/weaviate/usecases/schema/migrate/fs"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -108,7 +107,7 @@ func (r *restorer) restore(
 		}()
 
 		if err = r.waitForCoordinator(expiration, req.ID); err != nil {
-			r.logger.WithField("action", "create_backup").
+			r.logger.WithField("action", "restore_backup").
 				Error(err)
 			r.lastAsyncError = err
 			return
@@ -136,6 +135,7 @@ func (r *restorer) restoreAll(ctx context.Context,
 	desc *backup.BackupDescriptor, cpuPercentage int,
 	store nodeStore, overrideBucket, overridePath, rbacRestoreOption, usersRestoreOption string,
 ) error {
+	compressionType := desc.GetCompressionType()
 	compressed := desc.Version > version1
 	r.lastOp.set(backup.Transferring)
 
@@ -152,7 +152,7 @@ func (r *restorer) restoreAll(ctx context.Context,
 	}
 
 	for _, cdesc := range desc.Classes {
-		if err := r.restoreOne(ctx, &cdesc, desc.ServerVersion, compressed, cpuPercentage, store, overrideBucket, overridePath); err != nil {
+		if err := r.restoreOne(ctx, &cdesc, desc.ServerVersion, compressionType, compressed, cpuPercentage, store, overrideBucket, overridePath); err != nil {
 			return fmt.Errorf("restore class %s: %w", cdesc.Name, err)
 		}
 		r.logger.WithField("action", "restore").
@@ -171,7 +171,7 @@ func getType(myvar interface{}) string {
 }
 
 func (r *restorer) restoreOne(ctx context.Context,
-	desc *backup.ClassDescriptor, serverVersion string,
+	desc *backup.ClassDescriptor, serverVersion string, compressionType backup.CompressionType,
 	compressed bool, cpuPercentage int, store nodeStore,
 	overrideBucket, overridePath string,
 ) (err error) {
@@ -197,7 +197,7 @@ func (r *restorer) restoreOne(ctx context.Context,
 		fw.setMigrator(f)
 	}
 
-	if err := fw.Write(ctx, desc, overrideBucket, overridePath); err != nil {
+	if err := fw.Write(ctx, desc, overrideBucket, overridePath, compressionType); err != nil {
 		return fmt.Errorf("write files: %w", err)
 	}
 
@@ -262,15 +262,21 @@ type oneClassSchema struct {
 	ss  *sharding.State
 }
 
-func (s oneClassSchema) CopyShardingState(class string) *sharding.State {
-	return s.ss
+func (s oneClassSchema) Read(_ string, reader func(*models.Class, *sharding.State) error) error {
+	return reader(s.cls, s.ss)
 }
 
-func (s oneClassSchema) GetSchemaSkipAuth() schema.Schema {
-	return schema.Schema{
-		Objects: &models.Schema{
-			Classes: []*models.Class{s.cls},
-		},
+func (s oneClassSchema) Shards(_ string) ([]string, error) {
+	return s.ss.AllPhysicalShards(), nil
+}
+
+func (s oneClassSchema) LocalShards() ([]string, error) {
+	return s.ss.AllLocalPhysicalShards(), nil
+}
+
+func (s oneClassSchema) ReadOnlySchema() models.Schema {
+	return models.Schema{
+		Classes: []*models.Class{s.cls},
 	}
 }
 

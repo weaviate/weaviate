@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -150,13 +150,6 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 	if s.dynamicVectorIndexDB != nil {
 		err = s.dynamicVectorIndexDB.Close()
 		ec.AddWrap(err, "stop dynamic vector index db")
-	}
-
-	if s.dimensionTrackingInitialized.Load() {
-		// tracking vector dimensions goroutine only works when tracking is enabled
-		// _and_ when initialization completed, that's why we are trying to stop it
-		// only in this case
-		s.stopDimensionTracking <- struct{}{}
 	}
 
 	return ec.ToError()

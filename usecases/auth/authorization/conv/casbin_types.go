@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -16,6 +16,8 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/weaviate/weaviate/usecases/auth/authentication"
+
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -25,9 +27,9 @@ const (
 	// https://casbin.org/docs/rbac/#how-to-distinguish-role-from-user
 	// ROLE_NAME_PREFIX to prefix role to help casbin to distinguish on Enforcing
 	ROLE_NAME_PREFIX = "role" + PREFIX_SEPARATOR
-	// GROUP_NAME_PREFIX to prefix role to help casbin to distinguish on Enforcing
-	GROUP_NAME_PREFIX = "group" + PREFIX_SEPARATOR
-	PREFIX_SEPARATOR  = ":"
+	// OIDC_GROUP_NAME_PREFIX to prefix role to help casbin to distinguish on Enforcing
+	OIDC_GROUP_NAME_PREFIX = "group" + PREFIX_SEPARATOR
+	PREFIX_SEPARATOR       = ":"
 
 	// CRUD allow all actions on a resource
 	// this is internal for casbin to handle admin actions
@@ -48,18 +50,20 @@ var (
 		authorization.ReadOnly: authorization.READ,
 	}
 	weaviate_actions_prefixes = map[string]string{
-		CRUD:                                 "manage",
-		CRU:                                  "manage",
-		authorization.ROLE_SCOPE_MATCH:       "manage",
-		authorization.CREATE:                 "create",
-		authorization.READ:                   "read",
-		authorization.UPDATE:                 "update",
-		authorization.DELETE:                 "delete",
-		authorization.USER_ASSIGN_AND_REVOKE: "assign_and_revoke",
+		CRUD:                           "manage",
+		CRU:                            "manage",
+		authorization.ROLE_SCOPE_MATCH: "manage",
+		authorization.CREATE:           "create",
+		authorization.READ:             "read",
+		authorization.UPDATE:           "update",
+		authorization.DELETE:           "delete",
+		authorization.USER_AND_GROUP_ASSIGN_AND_REVOKE: "assign_and_revoke",
 	}
 )
 
 var resourcePatterns = []string{
+	fmt.Sprintf(`^%s/.*$`, authorization.GroupsDomain),
+	fmt.Sprintf(`^%s/[^/]+$`, authorization.GroupsDomain),
 	fmt.Sprintf(`^%s/.*$`, authorization.UsersDomain),
 	fmt.Sprintf(`^%s/[^/]+$`, authorization.UsersDomain),
 	fmt.Sprintf(`^%s/.*$`, authorization.RolesDomain),
@@ -76,6 +80,7 @@ var resourcePatterns = []string{
 	fmt.Sprintf(`^%s/collections/[^/]+/shards/[^/]+/objects/.*$`, authorization.DataDomain),
 	fmt.Sprintf(`^%s/collections/[^/]+/shards/[^/]+/objects/[^/]+$`, authorization.DataDomain),
 	fmt.Sprintf(`^%s/collections/[^/]+/shards/[^/]+$`, authorization.ReplicateDomain),
+	fmt.Sprintf(`^%s/collections/[^/]+/aliases/[^/]+$`, authorization.AliasesDomain),
 }
 
 func newPolicy(policy []string) *authorization.Policy {
@@ -123,6 +128,14 @@ func CasbinUsers(user string) string {
 	return fmt.Sprintf("%s/%s", authorization.UsersDomain, user)
 }
 
+func CasbinGroups(group string, groupType string) string {
+	if group == "" {
+		group = "*"
+	}
+	group = strings.ReplaceAll(group, "*", ".*")
+	return fmt.Sprintf("%s/%s/%s", authorization.GroupsDomain, groupType, group)
+}
+
 func CasbinRoles(role string) string {
 	if role == "" {
 		role = "*"
@@ -155,6 +168,18 @@ func CasbinReplicate(collection, shard string) string {
 	collection = strings.ReplaceAll(collection, "*", ".*")
 	shard = strings.ReplaceAll(shard, "*", ".*")
 	return fmt.Sprintf("%s/collections/%s/shards/%s", authorization.ReplicateDomain, collection, shard)
+}
+
+func CasbinAliases(collection, alias string) string {
+	if collection == "" {
+		collection = "*"
+	}
+	if alias == "" {
+		alias = "*"
+	}
+	collection = strings.ReplaceAll(collection, "*", ".*")
+	alias = strings.ReplaceAll(alias, "*", ".*")
+	return fmt.Sprintf("%s/collections/%s/aliases/%s", authorization.AliasesDomain, collection, alias)
 }
 
 func CasbinData(collection, shard, object string) string {
@@ -217,6 +242,19 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 
 	var resource string
 	switch domain {
+	case authorization.GroupsDomain:
+		group := "*"
+		if permission.Groups != nil {
+			if permission.Groups.Group != nil {
+				group = *permission.Groups.Group
+			}
+			if permission.Groups.GroupType != models.GroupTypeOidc {
+				return nil, fmt.Errorf("invalid groups type: %v", permission.Groups.GroupType)
+			}
+		} else {
+			return nil, fmt.Errorf("invalid permission: %v", permission)
+		}
+		resource = CasbinGroups(group, string(models.GroupTypeOidc))
 	case authorization.UsersDomain:
 		user := "*"
 		if permission.Users != nil && permission.Users.Users != nil {
@@ -304,6 +342,18 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 			}
 		}
 		resource = CasbinReplicate(collection, shard)
+	case authorization.AliasesDomain:
+		collection := "*"
+		alias := "*"
+		if permission.Aliases != nil {
+			if permission.Aliases.Collection != nil {
+				collection = schema.UppercaseClassName(*permission.Aliases.Collection)
+			}
+			if permission.Aliases.Alias != nil {
+				alias = schema.UppercaseClassName(*permission.Aliases.Alias)
+			}
+		}
+		resource = CasbinAliases(collection, alias)
 	default:
 		return nil, fmt.Errorf("invalid domain: %s", domain)
 
@@ -411,6 +461,16 @@ func permission(policy []string, validatePath bool) (*models.Permission, error) 
 			Collection: &splits[2],
 			Shard:      &splits[4],
 		}
+	case authorization.AliasesDomain:
+		permission.Aliases = &models.PermissionAliases{
+			Collection: &splits[2],
+			Alias:      &splits[4],
+		}
+	case authorization.GroupsDomain:
+		permission.Groups = &models.PermissionGroups{
+			Group:     &splits[2],
+			GroupType: models.GroupType(splits[1]),
+		}
 	case *authorization.All:
 		permission.Backups = authorization.AllBackups
 		permission.Data = authorization.AllData
@@ -420,6 +480,8 @@ func permission(policy []string, validatePath bool) (*models.Permission, error) 
 		permission.Tenants = authorization.AllTenants
 		permission.Users = authorization.AllUsers
 		permission.Replicate = authorization.AllReplicate
+		permission.Aliases = authorization.AllAliases
+		permission.Groups = authorization.AllOIDCGroups
 	case authorization.ClusterDomain:
 		// do nothing
 	default:
@@ -455,10 +517,10 @@ func PrefixRoleName(name string) string {
 }
 
 func PrefixGroupName(name string) string {
-	if strings.HasPrefix(name, GROUP_NAME_PREFIX) {
+	if strings.HasPrefix(name, OIDC_GROUP_NAME_PREFIX) {
 		return name
 	}
-	return fmt.Sprintf("%s%s", GROUP_NAME_PREFIX, name)
+	return fmt.Sprintf("%s%s", OIDC_GROUP_NAME_PREFIX, name)
 }
 
 func NameHasPrefix(name string) bool {
@@ -469,8 +531,8 @@ func UserNameWithTypeFromPrincipal(principal *models.Principal) string {
 	return fmt.Sprintf("%s:%s", principal.UserType, principal.Username)
 }
 
-func UserNameWithTypeFromId(username string, userType models.UserTypeInput) string {
-	return fmt.Sprintf("%s:%s", userType, username)
+func UserNameWithTypeFromId(username string, authType authentication.AuthType) string {
+	return fmt.Sprintf("%s:%s", authType, username)
 }
 
 func TrimRoleNamePrefix(name string) string {

@@ -9,7 +9,6 @@ import (
 
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
-	structpb "google.golang.org/protobuf/types/known/structpb"
 )
 
 const (
@@ -1285,28 +1284,14 @@ func (x *MetadataResult) GetVectors() []*Vectors {
 }
 
 type PropertiesResult struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// Deprecated: Marked as deprecated in v1/search_get.proto.
-	NonRefProperties *structpb.Struct       `protobuf:"bytes,1,opt,name=non_ref_properties,json=nonRefProperties,proto3" json:"non_ref_properties,omitempty"`
-	RefProps         []*RefPropertiesResult `protobuf:"bytes,2,rep,name=ref_props,json=refProps,proto3" json:"ref_props,omitempty"`
-	TargetCollection string                 `protobuf:"bytes,3,opt,name=target_collection,json=targetCollection,proto3" json:"target_collection,omitempty"`
-	Metadata         *MetadataResult        `protobuf:"bytes,4,opt,name=metadata,proto3" json:"metadata,omitempty"`
-	// Deprecated: Marked as deprecated in v1/search_get.proto.
-	NumberArrayProperties []*NumberArrayProperties `protobuf:"bytes,5,rep,name=number_array_properties,json=numberArrayProperties,proto3" json:"number_array_properties,omitempty"`
-	// Deprecated: Marked as deprecated in v1/search_get.proto.
-	IntArrayProperties []*IntArrayProperties `protobuf:"bytes,6,rep,name=int_array_properties,json=intArrayProperties,proto3" json:"int_array_properties,omitempty"`
-	// Deprecated: Marked as deprecated in v1/search_get.proto.
-	TextArrayProperties []*TextArrayProperties `protobuf:"bytes,7,rep,name=text_array_properties,json=textArrayProperties,proto3" json:"text_array_properties,omitempty"`
-	// Deprecated: Marked as deprecated in v1/search_get.proto.
-	BooleanArrayProperties []*BooleanArrayProperties `protobuf:"bytes,8,rep,name=boolean_array_properties,json=booleanArrayProperties,proto3" json:"boolean_array_properties,omitempty"`
-	// Deprecated: Marked as deprecated in v1/search_get.proto.
-	ObjectProperties []*ObjectProperties `protobuf:"bytes,9,rep,name=object_properties,json=objectProperties,proto3" json:"object_properties,omitempty"`
-	// Deprecated: Marked as deprecated in v1/search_get.proto.
-	ObjectArrayProperties []*ObjectArrayProperties `protobuf:"bytes,10,rep,name=object_array_properties,json=objectArrayProperties,proto3" json:"object_array_properties,omitempty"`
-	NonRefProps           *Properties              `protobuf:"bytes,11,opt,name=non_ref_props,json=nonRefProps,proto3" json:"non_ref_props,omitempty"`
-	RefPropsRequested     bool                     `protobuf:"varint,12,opt,name=ref_props_requested,json=refPropsRequested,proto3" json:"ref_props_requested,omitempty"`
-	unknownFields         protoimpl.UnknownFields
-	sizeCache             protoimpl.SizeCache
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	RefProps          []*RefPropertiesResult `protobuf:"bytes,2,rep,name=ref_props,json=refProps,proto3" json:"ref_props,omitempty"`
+	TargetCollection  string                 `protobuf:"bytes,3,opt,name=target_collection,json=targetCollection,proto3" json:"target_collection,omitempty"`
+	Metadata          *MetadataResult        `protobuf:"bytes,4,opt,name=metadata,proto3" json:"metadata,omitempty"`
+	NonRefProps       *Properties            `protobuf:"bytes,11,opt,name=non_ref_props,json=nonRefProps,proto3" json:"non_ref_props,omitempty"`
+	RefPropsRequested bool                   `protobuf:"varint,12,opt,name=ref_props_requested,json=refPropsRequested,proto3" json:"ref_props_requested,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *PropertiesResult) Reset() {
@@ -1339,14 +1324,6 @@ func (*PropertiesResult) Descriptor() ([]byte, []int) {
 	return file_v1_search_get_proto_rawDescGZIP(), []int{13}
 }
 
-// Deprecated: Marked as deprecated in v1/search_get.proto.
-func (x *PropertiesResult) GetNonRefProperties() *structpb.Struct {
-	if x != nil {
-		return x.NonRefProperties
-	}
-	return nil
-}
-
 func (x *PropertiesResult) GetRefProps() []*RefPropertiesResult {
 	if x != nil {
 		return x.RefProps
@@ -1364,54 +1341,6 @@ func (x *PropertiesResult) GetTargetCollection() string {
 func (x *PropertiesResult) GetMetadata() *MetadataResult {
 	if x != nil {
 		return x.Metadata
-	}
-	return nil
-}
-
-// Deprecated: Marked as deprecated in v1/search_get.proto.
-func (x *PropertiesResult) GetNumberArrayProperties() []*NumberArrayProperties {
-	if x != nil {
-		return x.NumberArrayProperties
-	}
-	return nil
-}
-
-// Deprecated: Marked as deprecated in v1/search_get.proto.
-func (x *PropertiesResult) GetIntArrayProperties() []*IntArrayProperties {
-	if x != nil {
-		return x.IntArrayProperties
-	}
-	return nil
-}
-
-// Deprecated: Marked as deprecated in v1/search_get.proto.
-func (x *PropertiesResult) GetTextArrayProperties() []*TextArrayProperties {
-	if x != nil {
-		return x.TextArrayProperties
-	}
-	return nil
-}
-
-// Deprecated: Marked as deprecated in v1/search_get.proto.
-func (x *PropertiesResult) GetBooleanArrayProperties() []*BooleanArrayProperties {
-	if x != nil {
-		return x.BooleanArrayProperties
-	}
-	return nil
-}
-
-// Deprecated: Marked as deprecated in v1/search_get.proto.
-func (x *PropertiesResult) GetObjectProperties() []*ObjectProperties {
-	if x != nil {
-		return x.ObjectProperties
-	}
-	return nil
-}
-
-// Deprecated: Marked as deprecated in v1/search_get.proto.
-func (x *PropertiesResult) GetObjectArrayProperties() []*ObjectArrayProperties {
-	if x != nil {
-		return x.ObjectArrayProperties
 	}
 	return nil
 }
@@ -1486,7 +1415,7 @@ var File_v1_search_get_proto protoreflect.FileDescriptor
 
 const file_v1_search_get_proto_rawDesc = "" +
 	"\n" +
-	"\x13v1/search_get.proto\x12\vweaviate.v1\x1a\x1cgoogle/protobuf/struct.proto\x1a\rv1/base.proto\x1a\x14v1/base_search.proto\x1a\x13v1/generative.proto\x1a\x13v1/properties.proto\"\xc7\r\n" +
+	"\x13v1/search_get.proto\x12\vweaviate.v1\x1a\rv1/base.proto\x1a\x14v1/base_search.proto\x1a\x13v1/generative.proto\x1a\x13v1/properties.proto\"\xc7\r\n" +
 	"\rSearchRequest\x12\x1e\n" +
 	"\n" +
 	"collection\x18\x01 \x01(\tR\n" +
@@ -1653,21 +1582,15 @@ const file_v1_search_get_proto_rawDesc = "" +
 	"\frerank_score\x18\x15 \x01(\x01R\vrerankScore\x120\n" +
 	"\x14rerank_score_present\x18\x16 \x01(\bR\x12rerankScorePresent\x12.\n" +
 	"\avectors\x18\x17 \x03(\v2\x14.weaviate.v1.VectorsR\avectorsB\x10\n" +
-	"\x0e_is_consistent\"\x93\a\n" +
-	"\x10PropertiesResult\x12I\n" +
-	"\x12non_ref_properties\x18\x01 \x01(\v2\x17.google.protobuf.StructB\x02\x18\x01R\x10nonRefProperties\x12=\n" +
+	"\x0e_is_consistent\"\xce\x02\n" +
+	"\x10PropertiesResult\x12=\n" +
 	"\tref_props\x18\x02 \x03(\v2 .weaviate.v1.RefPropertiesResultR\brefProps\x12+\n" +
 	"\x11target_collection\x18\x03 \x01(\tR\x10targetCollection\x127\n" +
-	"\bmetadata\x18\x04 \x01(\v2\x1b.weaviate.v1.MetadataResultR\bmetadata\x12^\n" +
-	"\x17number_array_properties\x18\x05 \x03(\v2\".weaviate.v1.NumberArrayPropertiesB\x02\x18\x01R\x15numberArrayProperties\x12U\n" +
-	"\x14int_array_properties\x18\x06 \x03(\v2\x1f.weaviate.v1.IntArrayPropertiesB\x02\x18\x01R\x12intArrayProperties\x12X\n" +
-	"\x15text_array_properties\x18\a \x03(\v2 .weaviate.v1.TextArrayPropertiesB\x02\x18\x01R\x13textArrayProperties\x12a\n" +
-	"\x18boolean_array_properties\x18\b \x03(\v2#.weaviate.v1.BooleanArrayPropertiesB\x02\x18\x01R\x16booleanArrayProperties\x12N\n" +
-	"\x11object_properties\x18\t \x03(\v2\x1d.weaviate.v1.ObjectPropertiesB\x02\x18\x01R\x10objectProperties\x12^\n" +
-	"\x17object_array_properties\x18\n" +
-	" \x03(\v2\".weaviate.v1.ObjectArrayPropertiesB\x02\x18\x01R\x15objectArrayProperties\x12;\n" +
+	"\bmetadata\x18\x04 \x01(\v2\x1b.weaviate.v1.MetadataResultR\bmetadata\x12;\n" +
 	"\rnon_ref_props\x18\v \x01(\v2\x17.weaviate.v1.PropertiesR\vnonRefProps\x12.\n" +
-	"\x13ref_props_requested\x18\f \x01(\bR\x11refPropsRequested\"q\n" +
+	"\x13ref_props_requested\x18\f \x01(\bR\x11refPropsRequestedJ\x04\b\x01\x10\x02J\x04\b\x05\x10\x06J\x04\b\x06\x10\aJ\x04\b\a\x10\bJ\x04\b\b\x10\tJ\x04\b\t\x10\n" +
+	"J\x04\b\n" +
+	"\x10\v\"q\n" +
 	"\x13RefPropertiesResult\x12=\n" +
 	"\n" +
 	"properties\x18\x01 \x03(\v2\x1d.weaviate.v1.PropertiesResultR\n" +
@@ -1721,14 +1644,7 @@ var file_v1_search_get_proto_goTypes = []any{
 	(*GenerativeResult)(nil),        // 29: weaviate.v1.GenerativeResult
 	(*GenerativeReply)(nil),         // 30: weaviate.v1.GenerativeReply
 	(*Vectors)(nil),                 // 31: weaviate.v1.Vectors
-	(*structpb.Struct)(nil),         // 32: google.protobuf.Struct
-	(*NumberArrayProperties)(nil),   // 33: weaviate.v1.NumberArrayProperties
-	(*IntArrayProperties)(nil),      // 34: weaviate.v1.IntArrayProperties
-	(*TextArrayProperties)(nil),     // 35: weaviate.v1.TextArrayProperties
-	(*BooleanArrayProperties)(nil),  // 36: weaviate.v1.BooleanArrayProperties
-	(*ObjectProperties)(nil),        // 37: weaviate.v1.ObjectProperties
-	(*ObjectArrayProperties)(nil),   // 38: weaviate.v1.ObjectArrayProperties
-	(*Properties)(nil),              // 39: weaviate.v1.Properties
+	(*Properties)(nil),              // 32: weaviate.v1.Properties
 }
 var file_v1_search_get_proto_depIdxs = []int32{
 	15, // 0: weaviate.v1.SearchRequest.consistency_level:type_name -> weaviate.v1.ConsistencyLevel
@@ -1766,22 +1682,15 @@ var file_v1_search_get_proto_depIdxs = []int32{
 	12, // 32: weaviate.v1.SearchResult.metadata:type_name -> weaviate.v1.MetadataResult
 	29, // 33: weaviate.v1.SearchResult.generative:type_name -> weaviate.v1.GenerativeResult
 	31, // 34: weaviate.v1.MetadataResult.vectors:type_name -> weaviate.v1.Vectors
-	32, // 35: weaviate.v1.PropertiesResult.non_ref_properties:type_name -> google.protobuf.Struct
-	14, // 36: weaviate.v1.PropertiesResult.ref_props:type_name -> weaviate.v1.RefPropertiesResult
-	12, // 37: weaviate.v1.PropertiesResult.metadata:type_name -> weaviate.v1.MetadataResult
-	33, // 38: weaviate.v1.PropertiesResult.number_array_properties:type_name -> weaviate.v1.NumberArrayProperties
-	34, // 39: weaviate.v1.PropertiesResult.int_array_properties:type_name -> weaviate.v1.IntArrayProperties
-	35, // 40: weaviate.v1.PropertiesResult.text_array_properties:type_name -> weaviate.v1.TextArrayProperties
-	36, // 41: weaviate.v1.PropertiesResult.boolean_array_properties:type_name -> weaviate.v1.BooleanArrayProperties
-	37, // 42: weaviate.v1.PropertiesResult.object_properties:type_name -> weaviate.v1.ObjectProperties
-	38, // 43: weaviate.v1.PropertiesResult.object_array_properties:type_name -> weaviate.v1.ObjectArrayProperties
-	39, // 44: weaviate.v1.PropertiesResult.non_ref_props:type_name -> weaviate.v1.Properties
-	13, // 45: weaviate.v1.RefPropertiesResult.properties:type_name -> weaviate.v1.PropertiesResult
-	46, // [46:46] is the sub-list for method output_type
-	46, // [46:46] is the sub-list for method input_type
-	46, // [46:46] is the sub-list for extension type_name
-	46, // [46:46] is the sub-list for extension extendee
-	0,  // [0:46] is the sub-list for field type_name
+	14, // 35: weaviate.v1.PropertiesResult.ref_props:type_name -> weaviate.v1.RefPropertiesResult
+	12, // 36: weaviate.v1.PropertiesResult.metadata:type_name -> weaviate.v1.MetadataResult
+	32, // 37: weaviate.v1.PropertiesResult.non_ref_props:type_name -> weaviate.v1.Properties
+	13, // 38: weaviate.v1.RefPropertiesResult.properties:type_name -> weaviate.v1.PropertiesResult
+	39, // [39:39] is the sub-list for method output_type
+	39, // [39:39] is the sub-list for method input_type
+	39, // [39:39] is the sub-list for extension type_name
+	39, // [39:39] is the sub-list for extension extendee
+	0,  // [0:39] is the sub-list for field type_name
 }
 
 func init() { file_v1_search_get_proto_init() }

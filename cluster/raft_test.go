@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -168,6 +168,11 @@ func TestRaftEndpoints(t *testing.T) {
 	getShardOwner, _, err := srv.QueryShardOwner(cls.Class, "T0")
 	assert.Nil(t, err)
 	assert.Equal(t, "N0", getShardOwner)
+	// Verify that updating with nil sharding state does not change the sharding state
+	srv.UpdateClass(ctx, cls, nil)
+	getShardOwner, _, err = srv.QueryShardOwner(cls.Class, "T0")
+	assert.Nil(t, err)
+	assert.Equal(t, "N0", getShardOwner)
 
 	// QueryShardingState
 	shardingState := &sharding.State{PartitioningEnabled: true, Physical: map[string]sharding.Physical{"T0": {Name: "T0", BelongsToNodes: []string{"N0"}}}, ReplicationFactor: 1}
@@ -252,7 +257,9 @@ func TestRaftEndpoints(t *testing.T) {
 	assert.Nil(t, err)
 	info.ClassVersion = version
 	assert.Equal(t, info, schemaReader.ClassInfo("C"))
-	assert.Equal(t, []string{"Node-1", "Node-2"}, schemaReader.CopyShardingState("C").Physical["T2"].BelongsToNodes)
+	ss, err = readShardingState(schemaReader, "C")
+	require.Nil(t, err)
+	assert.Equal(t, []string{"Node-1", "Node-2"}, ss.Physical["T2"].BelongsToNodes)
 
 	// DeleteReplicaFromShard
 	_, err = srv.DeleteReplicaFromShard(ctx, "", "", "")
@@ -261,7 +268,9 @@ func TestRaftEndpoints(t *testing.T) {
 	assert.Nil(t, err)
 	info.ClassVersion = version
 	assert.Equal(t, info, schemaReader.ClassInfo("C"))
-	assert.Equal(t, []string{"Node-1"}, schemaReader.CopyShardingState("C").Physical["T2"].BelongsToNodes)
+	ss, err = readShardingState(schemaReader, "C")
+	require.Nil(t, err)
+	assert.Equal(t, []string{"Node-1"}, ss.Physical["T2"].BelongsToNodes)
 
 	// SyncShard with active tenant
 	_, err = srv.SyncShard(ctx, "", "", "")
@@ -329,7 +338,9 @@ func TestRaftEndpoints(t *testing.T) {
 	info.Tenants -= 1
 	info.ShardVersion = version
 	assert.Equal(t, info, schemaReader.ClassInfo("C"))
-	assert.Equal(t, "S2", schemaReader.CopyShardingState("C").Physical["T2"].Status)
+	ss, err = readShardingState(schemaReader, "C")
+	require.Nil(t, err)
+	assert.Equal(t, "S2", ss.Physical["T2"].Status)
 
 	// Self Join
 	assert.Nil(t, srv.Join(ctx, m.store.cfg.NodeID, addr, true))
@@ -450,6 +461,16 @@ func TestRaftPanics(t *testing.T) {
 	// Cannot Open File Store
 	m.indexer.On("Open", mock.Anything).Return(errAny)
 	assert.Panics(t, func() { m.store.openDatabase(context.TODO()) })
+}
+
+func readShardingState(schemaReader schema.SchemaReader, className string) (*sharding.State, error) {
+	var result *sharding.State
+	err := schemaReader.Read(className, true, func(_ *models.Class, state *sharding.State) error {
+		stateCopy := state.DeepCopy()
+		result = &stateCopy
+		return nil
+	})
+	return result, err
 }
 
 func TestApplyReplicationScalePlan(t *testing.T) {

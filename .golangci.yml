@@ -41,7 +41,7 @@ linters:
       - legacy
       - std-error-handling
     rules:
-      - path: ^deprecations/gen\.go$
+      - path: ^deprecations/gen\.go$  # generated file
         linters:
           - staticcheck
           - govet
@@ -506,7 +506,7 @@ linters:
         text: ST1005 # error strings should not end with punctuation or newlines
       - linters:
           - staticcheck
-        path: modules/text2vec-aws/clients/aws.go
+        path: usecases/modulecomponents/clients/aws/aws.go
         text: ST1005 # error strings should not end with punctuation or newlines
       - linters:
         - staticcheck

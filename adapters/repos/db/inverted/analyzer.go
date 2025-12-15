@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -16,9 +16,9 @@ import (
 	"encoding/binary"
 
 	"github.com/google/uuid"
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	ent "github.com/weaviate/weaviate/entities/inverted"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/tokenizer"
 )
 
 type IsFallbackToSearchable func() bool
@@ -77,7 +77,7 @@ func (a *Analyzer) Text(tokenization, in string) []Countable {
 func (a *Analyzer) TextArray(tokenization string, inArr []string) []Countable {
 	var terms []string
 	for _, in := range inArr {
-		terms = append(terms, helpers.Tokenize(tokenization, in)...)
+		terms = append(terms, tokenizer.Tokenize(tokenization, in)...)
 	}
 
 	counts := map[string]uint64{}

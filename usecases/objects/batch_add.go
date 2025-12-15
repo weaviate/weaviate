@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -39,6 +39,8 @@ func (b *BatchManager) AddObjects(ctx context.Context, principal *models.Princip
 	classesShards := make(map[string][]string)
 	for _, obj := range objects {
 		obj.Class = schema.UppercaseClassName(obj.Class)
+		cls, _ := b.resolveAlias(obj.Class)
+		obj.Class = cls
 		classesShards[obj.Class] = append(classesShards[obj.Class], obj.Tenant)
 	}
 	knownClasses := map[string]versioned.Class{}

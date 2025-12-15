@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -29,28 +29,23 @@ import (
 // If there is any action that needs to be performed beside files/dirs being removed
 // from shard directory, it needs to be reflected as well in LazyLoadShard::drop()
 // method to keep drop behaviour consistent.
-func (s *Shard) drop() (err error) {
+// If keepFiles==true, all files on disk are kept, only in-memory structures are removed. This is used to allow backups
+// to complete before the files are deleted.
+func (s *Shard) drop(keepFiles bool) (err error) {
 	s.shutCtxCancel(fmt.Errorf("drop %q", s.ID()))
-
 	s.reindexer.Stop(s, fmt.Errorf("shard drop"))
 
 	s.metrics.DeleteShardLabels(s.index.Config.ClassName.String(), s.name)
 	s.metrics.baseMetrics.StartUnloadingShard()
 	s.replicationMap.clear()
 
-	if s.index.Config.TrackVectorDimensions {
-		// tracking vector dimensions goroutine only works when tracking is enabled
-		// that's why we are trying to stop it only in this case
-		s.stopDimensionTracking <- struct{}{}
-		// send 0 in when index gets dropped
-		s.clearDimensionMetrics()
-	}
-
 	s.index.logger.WithFields(logrus.Fields{
 		"action": "drop_shard",
 		"class":  s.class.Class,
 		"shard":  s.name,
 	}).Debug("dropping shard")
+
+	s.clearDimensionMetrics() // not deleted in s.metrics.DeleteShardLabels
 
 	s.mayStopAsyncReplication()
 
@@ -77,7 +72,7 @@ func (s *Shard) drop() (err error) {
 	}
 
 	err = s.ForEachVectorIndex(func(targetVector string, index VectorIndex) error {
-		if err = index.Drop(ctx); err != nil {
+		if err = index.Drop(ctx, keepFiles); err != nil {
 			return fmt.Errorf("remove vector index of vector %q at %s: %w", targetVector, s.path(), err)
 		}
 		return nil
@@ -101,40 +96,42 @@ func (s *Shard) drop() (err error) {
 		return errors.Wrap(err, "stop lsmkv store")
 	}
 
-	if _, err = os.Stat(s.pathLSM()); err == nil {
+	if _, err = os.Stat(s.pathLSM()); err == nil && !keepFiles {
 		err := os.RemoveAll(s.pathLSM())
 		if err != nil {
 			return errors.Wrapf(err, "remove lsm store at %s", s.pathLSM())
 		}
 	}
 	// delete indexcount
-	err = s.counter.Drop()
+	err = s.counter.Drop(keepFiles)
 	if err != nil {
 		return errors.Wrapf(err, "remove indexcount at %s", s.path())
 	}
 
 	// delete version
-	err = s.versioner.Drop()
+	err = s.versioner.Drop(keepFiles)
 	if err != nil {
 		return errors.Wrapf(err, "remove version at %s", s.path())
 	}
 
 	// delete property length tracker
-	err = s.GetPropertyLengthTracker().Drop()
+	err = s.GetPropertyLengthTracker().Drop(keepFiles)
 	if err != nil {
 		return errors.Wrapf(err, "remove prop length tracker at %s", s.path())
 	}
 
 	s.propertyIndicesLock.Lock()
-	err = s.propertyIndices.DropAll(ctx)
+	err = s.propertyIndices.DropAll(ctx, keepFiles)
 	s.propertyIndicesLock.Unlock()
 	if err != nil {
 		return errors.Wrapf(err, "remove property specific indices at %s", s.path())
 	}
 
 	// remove shard dir
-	if err := os.RemoveAll(s.path()); err != nil {
-		return fmt.Errorf("delete shard dir: %w", err)
+	if !keepFiles {
+		if err := os.RemoveAll(s.path()); err != nil {
+			return fmt.Errorf("delete shard dir: %w", err)
+		}
 	}
 
 	s.metrics.baseMetrics.FinishUnloadingShard()

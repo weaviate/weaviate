@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,7 +13,6 @@ package modner
 
 import (
 	"context"
-	"net/http"
 	"os"
 	"time"
 
@@ -86,11 +85,6 @@ func (m *NERModule) initAdditional(ctx context.Context, timeout time.Duration,
 	tokenProvider := neradditionaltoken.New(m.ner)
 	m.additionalPropertiesProvider = neradditional.New(tokenProvider)
 
-	return nil
-}
-
-func (m *NERModule) RootHandler() http.Handler {
-	// TODO: remove once this is a capability interface
 	return nil
 }
 

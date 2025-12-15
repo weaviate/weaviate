@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -106,7 +106,8 @@ func NewWriter(w io.WriteSeeker, maxNewFileSize int64) (Writer, *MemoryWriter) {
 }
 
 func WriteHeader(mw *MemoryWriter, w io.WriteSeeker, bufw Writer, f *segmentindex.SegmentFile,
-	level, version, secondaryIndices uint16, startOfIndex uint64, strategy segmentindex.Strategy,
+	level, version, secondaryIndices uint16, startOfIndex uint64,
+	strategy segmentindex.Strategy,
 ) error {
 	h := &segmentindex.Header{
 		Level:            level,
@@ -136,6 +137,67 @@ func WriteHeader(mw *MemoryWriter, w io.WriteSeeker, bufw Writer, f *segmentinde
 			return err
 		}
 		f.SetHeader(h)
+	}
+
+	// We need to seek back to the end so we can write a checksum
+	if mw == nil {
+		if _, err := w.Seek(0, io.SeekEnd); err != nil {
+			return fmt.Errorf("seek to end after writing header: %w", err)
+		}
+	} else {
+		mw.ResetWritePositionToMax()
+	}
+
+	bufw.Reset(w)
+
+	return nil
+}
+
+func WriteHeaders(mw *MemoryWriter, w io.WriteSeeker, bufw Writer, f *segmentindex.SegmentFile,
+	level, version, secondaryIndices uint16, startOfIndex uint64, strategy segmentindex.Strategy,
+	hi *segmentindex.HeaderInverted,
+) error {
+	h := &segmentindex.Header{
+		Level:            level,
+		Version:          version,
+		SecondaryIndices: secondaryIndices,
+		Strategy:         strategy,
+		IndexStart:       startOfIndex,
+	}
+
+	if mw == nil {
+		if _, err := w.Seek(0, io.SeekStart); err != nil {
+			return fmt.Errorf("seek to beginning to write header: %w", err)
+		}
+
+		// We have to write directly to compactor writer,
+		// since it has seeked back to start. The following
+		// call to f.WriteHeader will not write again.
+		if _, err := h.WriteTo(w); err != nil {
+			return err
+		}
+
+		if _, err := hi.WriteTo(w); err != nil {
+			return err
+		}
+
+		if _, err := f.WriteHeader(h); err != nil {
+			return err
+		}
+		if _, err := f.WriteHeaderInverted(hi); err != nil {
+			return err
+		}
+	} else {
+		mw.ResetWritePositionToZero()
+		if _, err := h.WriteTo(bufw); err != nil {
+			return err
+		}
+		if _, err := hi.WriteTo(bufw); err != nil {
+			return err
+		}
+
+		f.SetHeader(h)
+		f.SetHeaderInverted(hi)
 	}
 
 	// We need to seek back to the end so we can write a checksum

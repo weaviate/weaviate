@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -58,14 +58,14 @@ type GetParams struct {
 	KeywordRanking          *searchparams.KeywordRanking
 	HybridSearch            *searchparams.HybridSearch
 	GroupBy                 *searchparams.GroupBy
-	TargetVector            string
 	TargetVectorCombination *TargetCombination
 	Group                   *GroupParams
 	ModuleParams            map[string]interface{}
 	AdditionalProperties    additional.Properties
 	ReplicationProperties   *additional.ReplicationProperties
 	Tenant                  string
-	IsRefOrigin             bool // is created by ref filter
+	IsRefOrigin             bool   // is created by ref filter
+	Alias                   string // used only to transfer alias passed in search request, not used for actual search
 }
 
 type Embedding interface {

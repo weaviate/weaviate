@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -17,74 +17,30 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"runtime"
+	"runtime/debug"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/dustin/go-humanize"
+
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
+	"github.com/weaviate/weaviate/cluster/usage"
 	"github.com/weaviate/weaviate/entities/config"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-
-	enterrors "github.com/weaviate/weaviate/entities/errors"
+	ucfg "github.com/weaviate/weaviate/usecases/config"
 )
 
 func setupDebugHandlers(appState *state.State) {
 	logger := appState.Logger.WithField("handler", "debug")
-
-	http.HandleFunc(
-		"/debug/async-replication/remove-target-overrides",
-		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			collectionName := r.URL.Query().Get("collection")
-			if collectionName == "" {
-				http.Error(w, "collection is required", http.StatusBadRequest)
-				return
-			}
-			shardNamesStr := r.URL.Query().Get("shardNames")
-			if shardNamesStr == "" {
-				http.Error(w, "shardNames is required", http.StatusBadRequest)
-				return
-			}
-			shardNames := strings.Split(shardNamesStr, ",")
-			if len(shardNames) == 0 {
-				http.Error(w, "shardNames len > 0 is required", http.StatusBadRequest)
-				return
-			}
-			timeoutStr := r.URL.Query().Get("timeout")
-			timeoutDuration := time.Hour
-			var err error
-			if timeoutStr != "" {
-				timeoutDuration, err = time.ParseDuration(timeoutStr)
-				if err != nil {
-					http.Error(w, "timeout duration has invalid format", http.StatusBadRequest)
-					return
-				}
-			}
-			ctx, cancel := context.WithTimeout(context.Background(), timeoutDuration)
-			defer cancel()
-
-			idx := appState.DB.GetIndex(schema.ClassName(collectionName))
-			if idx == nil {
-				logger.WithField("collection", collectionName).Error("collection not found")
-				http.Error(w, "collection not found", http.StatusNotFound)
-				return
-			}
-			for _, shardName := range shardNames {
-				err = idx.IncomingRemoveAllAsyncReplicationTargetNodes(ctx, shardName)
-				if err != nil {
-					logger.WithError(err).WithField("collection", collectionName).WithField("shard", shardName).
-						Warn("debug endpoint failed to remove all async replication target nodes")
-					http.Error(w, "failed to remove all async replication target nodes", http.StatusInternalServerError)
-					return
-				}
-				logger.WithField("collection", collectionName).WithField("shard", shardName).
-					Info("debug endpoint removed all async replication target nodes")
-			}
-			w.WriteHeader(http.StatusAccepted)
-		}))
 
 	http.HandleFunc("/debug/index/rebuild/inverted", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		colName := r.URL.Query().Get("collection")
@@ -587,6 +543,29 @@ func setupDebugHandlers(appState *state.State) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
+	http.HandleFunc("/debug/usage", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		service := usage.NewService(appState.SchemaManager, appState.DB, appState.Modules, appState.Logger)
+
+		exactCountParam := r.URL.Query().Get("exactObjectCount")
+		exactObjectCount := exactCountParam == "true" // false by default
+
+		stats, err := service.Usage(r.Context(), exactObjectCount)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		jsonBytes, err := json.Marshal(stats)
+		if err != nil {
+			logger.WithError(err).Error("marshal failed on stats")
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		w.WriteHeader(http.StatusOK)
+		w.Write(jsonBytes)
+	}))
+
 	http.HandleFunc("/debug/index/rebuild/vector", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !config.Enabled(os.Getenv("ASYNC_INDEXING")) {
 			http.Error(w, "async indexing is not enabled", http.StatusNotImplemented)
@@ -756,7 +735,13 @@ func setupDebugHandlers(appState *state.State) {
 			return
 		}
 
-		stats, err := vidx.Stats()
+		h, ok := vidx.(hnswStats)
+		if !ok {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		stats, err := h.Stats()
 		if err != nil {
 			logger.Error(err)
 			http.Error(w, err.Error(), http.StatusBadRequest)
@@ -799,6 +784,88 @@ func setupDebugHandlers(appState *state.State) {
 		w.WriteHeader(http.StatusOK)
 		if bytesToWrite != nil {
 			w.Write(bytesToWrite)
+		}
+	}))
+
+	// Call via something like:
+	// - current limit: curl -X GET localhost:6060/debug/config/gomemlimit
+	// - set limit: curl -X POST localhost:6060/debug/config/gomemlimit?limit=XXXMiB - can also be bytes or GiB
+	// The port is Weaviate's configured Go profiling port (defaults to 6060)
+	http.HandleFunc("/debug/config/gomemlimit", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var prevLimit int64
+		switch r.Method {
+		case http.MethodGet:
+			prevLimit = debug.SetMemoryLimit(-1)
+		case http.MethodPost:
+			limitStr := r.URL.Query().Get("limit")
+			if limitStr == "" {
+				http.Error(w, "limit is required", http.StatusBadRequest)
+				return
+			}
+			limitBytes, err := humanize.ParseBytes(limitStr)
+			if err != nil {
+				http.Error(w, "invalid limit: "+err.Error(), http.StatusBadRequest)
+				return
+			}
+			prevLimit = debug.SetMemoryLimit(int64(limitBytes))
+			appState.Logger.
+				WithField("new_memory_limit_in_bytes", limitBytes).
+				WithField("previous_memory_limit_in_bytes", prevLimit).
+				Info("updating go-runtime memory limit")
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+		w.WriteHeader(http.StatusOK)
+		jsonBytes, err := json.Marshal(prevLimit)
+		if err != nil {
+			logger.WithError(err).Error("marshal failed on stats")
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		if jsonBytes != nil {
+			w.Write(jsonBytes)
+		}
+	}))
+
+	// Call via something like:
+	// - current limit: curl -X GET localhost:6060/debug/config/gomemlimit
+	// - set limit: curl -X POST localhost:6060/debug/config/gomemlimit?limit=XXXMiB - can also be bytes or GiB
+	// The port is Weaviate's configured Go profiling port (defaults to 6060)
+	http.HandleFunc("/debug/config/gomaxprocs", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var prevMaxProcs int
+		switch r.Method {
+		case http.MethodGet:
+			prevMaxProcs = runtime.GOMAXPROCS(-1)
+		case http.MethodPost:
+			procsStr := r.URL.Query().Get("procs")
+			if procsStr == "" {
+				http.Error(w, "procs is required", http.StatusBadRequest)
+				return
+			}
+			procsInt, err := strconv.Atoi(procsStr)
+			if err != nil {
+				http.Error(w, "invalid procs value: "+err.Error(), http.StatusBadRequest)
+				return
+			}
+			prevMaxProcs = runtime.GOMAXPROCS(procsInt)
+			appState.Logger.
+				WithField("new_cpu_limit", procsInt).
+				WithField("previous_cpu_limit", prevMaxProcs).
+				Info("updating go-runtime CPU limit")
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+		w.WriteHeader(http.StatusOK)
+		jsonBytes, err := json.Marshal(prevMaxProcs)
+		if err != nil {
+			logger.WithError(err).Error("marshal failed on stats")
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		if jsonBytes != nil {
+			w.Write(jsonBytes)
 		}
 	}))
 
@@ -990,8 +1057,130 @@ func setupDebugHandlers(appState *state.State) {
 		}
 		w.Write(jsonBytes)
 	}))
+
+	// This endpoint dumps all server configuration from environment.go
+	// e.g. curl -X GET localhost:6060/debug/config
+	// Note: Authentication and Authorization sections are skipped for security
+	http.HandleFunc("/debug/config", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		jsonBytes, err := json.Marshal(skipSensitiveConfig(appState.ServerConfig.Config))
+		if err != nil {
+			logger.WithError(err).Error("marshal failed on config")
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		// Unmarshal to map to clean up empty values
+		var configMap map[string]any
+		if err := json.Unmarshal(jsonBytes, &configMap); err != nil {
+			logger.WithError(err).Error("unmarshal failed on config")
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		// for human readability
+		jsonBytes, err = json.MarshalIndent(cleanEmptyValues(configMap), "", "  ")
+		if err != nil {
+			logger.WithError(err).Error("marshal failed on cleaned config")
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write(jsonBytes)
+	}))
+}
+
+// skipSensitiveConfig creates a copy of the config with Authentication and Authorization
+// sections set to zero values for security purposes
+func skipSensitiveConfig(cfg ucfg.Config) ucfg.Config {
+	safe := cfg
+
+	// Skip Authentication section entirely by setting to zero value
+	safe.Authentication = ucfg.Authentication{}
+
+	// Skip Authorization section entirely by setting to zero value
+	safe.Authorization = ucfg.Authorization{}
+
+	// Skip Cluster BasicAuth credentials
+	safe.Cluster.AuthConfig.BasicAuth.Username = ""
+	safe.Cluster.AuthConfig.BasicAuth.Password = ""
+
+	return safe
+}
+
+// cleanEmptyValues recursively removes empty values from a JSON map.
+//
+// TODO: This is a workaround because:
+//   - The config struct doesn't use omitempty tags for all fields
+//   - Composed structs are not defined as pointers, so empty structs still marshal as {}
+//
+// See: https://github.com/weaviate/weaviate/blob/main/usecases/config/config_handler.go#L106
+func cleanEmptyValues(m map[string]any) map[string]any {
+	result := make(map[string]any)
+	for k, v := range m {
+		cleaned := cleanValue(v)
+		if cleaned != nil {
+			result[k] = cleaned
+		}
+	}
+	return result
+}
+
+// cleanValue recursively cleans a JSON value, removing empty nested structures
+func cleanValue(v any) any {
+	if v == nil {
+		return nil
+	}
+
+	switch val := v.(type) {
+	case map[string]any:
+		cleaned := cleanEmptyValues(val)
+		if len(cleaned) == 0 {
+			return nil
+		}
+		return cleaned
+	case []any:
+		cleaned := make([]any, 0, len(val))
+		for _, item := range val {
+			if cleanedItem := cleanValue(item); cleanedItem != nil {
+				cleaned = append(cleaned, cleanedItem)
+			}
+		}
+		if len(cleaned) == 0 {
+			return nil
+		}
+		return cleaned
+	case string:
+		if val == "" {
+			return nil
+		}
+		return val
+	case bool:
+		// Keep bool values (false is a valid value, but we can omit it if desired)
+		// For now, keep all bools to preserve configuration state
+		return val
+	case float64:
+		// JSON numbers are unmarshaled as float64
+		if val == 0 {
+			return nil
+		}
+		return val
+	default:
+		// For any other type, preserve the value
+		return v
+	}
 }
 
 type MaintenanceMode struct {
 	Enabled bool `json:"enabled"`
+}
+
+type hnswStats interface {
+	Stats() (*hnsw.HnswStats, error)
 }

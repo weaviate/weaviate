@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -15,11 +15,12 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/weaviate/weaviate/usecases/auth/authentication"
+
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 )
@@ -44,7 +45,7 @@ func TestSnapshotAndRestore(t *testing.T) {
 				if err != nil {
 					return err
 				}
-				_, err = m.casbin.AddRoleForUser(conv.UserNameWithTypeFromId("test-user", models.UserTypeInputDb), conv.PrefixRoleName("admin"))
+				_, err = m.casbin.AddRoleForUser(conv.UserNameWithTypeFromId("test-user", authentication.AuthTypeDb), conv.PrefixRoleName("admin"))
 				return err
 			},
 		},
@@ -60,11 +61,11 @@ func TestSnapshotAndRestore(t *testing.T) {
 				if err != nil {
 					return err
 				}
-				_, err = m.casbin.AddRoleForUser(conv.UserNameWithTypeFromId("test-user", models.UserTypeInputDb), conv.PrefixRoleName("admin"))
+				_, err = m.casbin.AddRoleForUser(conv.UserNameWithTypeFromId("test-user", authentication.AuthTypeDb), conv.PrefixRoleName("admin"))
 				if err != nil {
 					return err
 				}
-				_, err = m.casbin.AddRoleForUser(conv.UserNameWithTypeFromId("test-user", models.UserTypeInputDb), conv.PrefixRoleName("editor"))
+				_, err = m.casbin.AddRoleForUser(conv.UserNameWithTypeFromId("test-user", authentication.AuthTypeDb), conv.PrefixRoleName("editor"))
 				return err
 			},
 		},

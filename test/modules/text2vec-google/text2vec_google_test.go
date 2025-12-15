@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -14,9 +14,6 @@ package tests
 import (
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/companies"
 )
@@ -26,9 +23,7 @@ func testText2VecGoogle(rest, grpc, gcpProject, vectorizerName string) func(t *t
 		helper.SetupClient(rest)
 		// Data
 		dimensions1024 := 1024
-		data := companies.Companies
 		className := "VectorizerTest"
-		class := companies.BaseClass(className)
 		tests := []struct {
 			name       string
 			model      string
@@ -75,44 +70,27 @@ func testText2VecGoogle(rest, grpc, gcpProject, vectorizerName string) func(t *t
 					"projectId":          gcpProject,
 					"modelId":            tt.model,
 				}
+				emptyVectorizerSettings := map[string]any{
+					"properties":         []any{"empty"},
+					"vectorizeClassName": false,
+					"projectId":          gcpProject,
+					"modelId":            tt.model,
+				}
 				if tt.dimensions != nil {
 					vectorizerSettings["dimensions"] = *tt.dimensions
+					emptyVectorizerSettings["dimensions"] = *tt.dimensions
 				}
 				if tt.taskType != "" {
 					vectorizerSettings["taskType"] = tt.taskType
+					emptyVectorizerSettings["taskType"] = tt.taskType
 				}
-				class.VectorConfig = map[string]models.VectorConfig{
-					"description": {
-						Vectorizer: map[string]any{
-							vectorizerName: vectorizerSettings,
-						},
-						VectorIndexType: "flat",
-					},
-				}
-				// create schema
-				helper.CreateClass(t, class)
-				defer helper.DeleteClass(t, class.Class)
-				// create objects
-				t.Run("create objects", func(t *testing.T) {
-					companies.InsertObjects(t, rest, class.Class)
+				descriptionVectorizer := map[string]any{vectorizerName: vectorizerSettings}
+				emptyVectorizer := map[string]any{vectorizerName: emptyVectorizerSettings}
+				t.Run("search", func(t *testing.T) {
+					companies.TestSuite(t, rest, grpc, className, descriptionVectorizer)
 				})
-				t.Run("check objects existence", func(t *testing.T) {
-					for _, company := range data {
-						t.Run(company.ID.String(), func(t *testing.T) {
-							obj, err := helper.GetObject(t, class.Class, company.ID, "vector")
-							require.NoError(t, err)
-							require.NotNil(t, obj)
-							require.Len(t, obj.Vectors, 1)
-							require.IsType(t, []float32{}, obj.Vectors["description"])
-							assert.True(t, len(obj.Vectors["description"].([]float32)) > 0)
-							if tt.dimensions != nil {
-								assert.Equal(t, *tt.dimensions, len(obj.Vectors["description"].([]float32)))
-							}
-						})
-					}
-				})
-				t.Run("search tests", func(t *testing.T) {
-					companies.PerformAllSearchTests(t, rest, grpc, class.Class)
+				t.Run("empty values", func(t *testing.T) {
+					companies.TestSuiteWithEmptyValues(t, rest, grpc, className, descriptionVectorizer, emptyVectorizer)
 				})
 			})
 		}

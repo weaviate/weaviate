@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -14,7 +14,6 @@ package traverser
 import (
 	"context"
 	"fmt"
-	"net/http"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
@@ -36,7 +35,6 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/generictypes"
 	"github.com/weaviate/weaviate/usecases/modules"
-	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 type ClassIndexCheck interface {
@@ -211,10 +209,6 @@ func (f *fakeSchemaGetter) ReadOnlyClass(className string) *models.Class {
 	return f.schema.GetClass(className)
 }
 
-func (f *fakeSchemaGetter) CopyShardingState(class string) *sharding.State {
-	panic("not implemented")
-}
-
 func (f *fakeSchemaGetter) ShardOwner(class, shard string) (string, error) {
 	return shard, nil
 }
@@ -258,6 +252,14 @@ func (f *fakeSchemaGetter) ResolveParentNodes(string, string,
 
 func (f *fakeSchemaGetter) Statistics() map[string]any {
 	panic("not implemented")
+}
+
+func (f *fakeSchemaGetter) ResolveAlias(string) string {
+	return ""
+}
+
+func (f *fakeSchemaGetter) GetAliasesForClass(string) []*models.Alias {
+	return nil
 }
 
 type fakeInterpretation struct{}
@@ -369,10 +371,6 @@ func (m *fakeText2vecContextionaryModule) Init(params moduletools.ModuleInitPara
 	return nil
 }
 
-func (m *fakeText2vecContextionaryModule) RootHandler() http.Handler {
-	return nil
-}
-
 func (m *fakeText2vecContextionaryModule) Arguments() map[string]modulecapabilities.GraphQLArgument {
 	return newNearCustomTextModule(m.getExtender(), m.getProjector(), m.getPathBuilder(), m.getInterpretation()).Arguments()
 }
@@ -480,10 +478,6 @@ func (m *nearCustomTextModule) Name() string {
 }
 
 func (m *nearCustomTextModule) Init(params moduletools.ModuleInitParams) error {
-	return nil
-}
-
-func (m *nearCustomTextModule) RootHandler() http.Handler {
 	return nil
 }
 

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -98,7 +98,11 @@ func (v *Vectorizer) object(ctx context.Context, object *models.Object, override
 	cfg moduletools.ClassConfig,
 ) ([]float32, []txt2vecmodels.InterpretationSource, error) {
 	icheck := NewIndexChecker(cfg)
-	corpi := v.objectVectorizer.Texts(ctx, object, icheck)
+	corpi, isEmpty := v.objectVectorizer.Texts(ctx, object, icheck)
+	if isEmpty {
+		// don't vectorize empty text
+		return nil, nil, nil
+	}
 
 	vector, ie, err := v.client.VectorForCorpi(ctx, []string{corpi}, overrides)
 	if err != nil {

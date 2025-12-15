@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -71,6 +71,99 @@ func (_c *MockNodeSelector_AllHostnames_Call) Return(_a0 []string) *MockNodeSele
 }
 
 func (_c *MockNodeSelector_AllHostnames_Call) RunAndReturn(run func() []string) *MockNodeSelector_AllHostnames_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// AllOtherClusterMembers provides a mock function with given fields: port
+func (_m *MockNodeSelector) AllOtherClusterMembers(port int) map[string]string {
+	ret := _m.Called(port)
+
+	if len(ret) == 0 {
+		panic("no return value specified for AllOtherClusterMembers")
+	}
+
+	var r0 map[string]string
+	if rf, ok := ret.Get(0).(func(int) map[string]string); ok {
+		r0 = rf(port)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(map[string]string)
+		}
+	}
+
+	return r0
+}
+
+// MockNodeSelector_AllOtherClusterMembers_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'AllOtherClusterMembers'
+type MockNodeSelector_AllOtherClusterMembers_Call struct {
+	*mock.Call
+}
+
+// AllOtherClusterMembers is a helper method to define mock.On call
+//   - port int
+func (_e *MockNodeSelector_Expecter) AllOtherClusterMembers(port interface{}) *MockNodeSelector_AllOtherClusterMembers_Call {
+	return &MockNodeSelector_AllOtherClusterMembers_Call{Call: _e.mock.On("AllOtherClusterMembers", port)}
+}
+
+func (_c *MockNodeSelector_AllOtherClusterMembers_Call) Run(run func(port int)) *MockNodeSelector_AllOtherClusterMembers_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(int))
+	})
+	return _c
+}
+
+func (_c *MockNodeSelector_AllOtherClusterMembers_Call) Return(_a0 map[string]string) *MockNodeSelector_AllOtherClusterMembers_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockNodeSelector_AllOtherClusterMembers_Call) RunAndReturn(run func(int) map[string]string) *MockNodeSelector_AllOtherClusterMembers_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// Leave provides a mock function with no fields
+func (_m *MockNodeSelector) Leave() error {
+	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for Leave")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func() error); ok {
+		r0 = rf()
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockNodeSelector_Leave_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Leave'
+type MockNodeSelector_Leave_Call struct {
+	*mock.Call
+}
+
+// Leave is a helper method to define mock.On call
+func (_e *MockNodeSelector_Expecter) Leave() *MockNodeSelector_Leave_Call {
+	return &MockNodeSelector_Leave_Call{Call: _e.mock.On("Leave")}
+}
+
+func (_c *MockNodeSelector_Leave_Call) Run(run func()) *MockNodeSelector_Leave_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run()
+	})
+	return _c
+}
+
+func (_c *MockNodeSelector_Leave_Call) Return(_a0 error) *MockNodeSelector_Leave_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockNodeSelector_Leave_Call) RunAndReturn(run func() error) *MockNodeSelector_Leave_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -162,6 +255,62 @@ func (_c *MockNodeSelector_NodeAddress_Call) Return(_a0 string) *MockNodeSelecto
 }
 
 func (_c *MockNodeSelector_NodeAddress_Call) RunAndReturn(run func(string) string) *MockNodeSelector_NodeAddress_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// NodeGRPCPort provides a mock function with given fields: id
+func (_m *MockNodeSelector) NodeGRPCPort(id string) (int, error) {
+	ret := _m.Called(id)
+
+	if len(ret) == 0 {
+		panic("no return value specified for NodeGRPCPort")
+	}
+
+	var r0 int
+	var r1 error
+	if rf, ok := ret.Get(0).(func(string) (int, error)); ok {
+		return rf(id)
+	}
+	if rf, ok := ret.Get(0).(func(string) int); ok {
+		r0 = rf(id)
+	} else {
+		r0 = ret.Get(0).(int)
+	}
+
+	if rf, ok := ret.Get(1).(func(string) error); ok {
+		r1 = rf(id)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockNodeSelector_NodeGRPCPort_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'NodeGRPCPort'
+type MockNodeSelector_NodeGRPCPort_Call struct {
+	*mock.Call
+}
+
+// NodeGRPCPort is a helper method to define mock.On call
+//   - id string
+func (_e *MockNodeSelector_Expecter) NodeGRPCPort(id interface{}) *MockNodeSelector_NodeGRPCPort_Call {
+	return &MockNodeSelector_NodeGRPCPort_Call{Call: _e.mock.On("NodeGRPCPort", id)}
+}
+
+func (_c *MockNodeSelector_NodeGRPCPort_Call) Run(run func(id string)) *MockNodeSelector_NodeGRPCPort_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(string))
+	})
+	return _c
+}
+
+func (_c *MockNodeSelector_NodeGRPCPort_Call) Return(_a0 int, _a1 error) *MockNodeSelector_NodeGRPCPort_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockNodeSelector_NodeGRPCPort_Call) RunAndReturn(run func(string) (int, error)) *MockNodeSelector_NodeGRPCPort_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -269,6 +418,51 @@ func (_c *MockNodeSelector_NonStorageNodes_Call) RunAndReturn(run func() []strin
 	return _c
 }
 
+// Shutdown provides a mock function with no fields
+func (_m *MockNodeSelector) Shutdown() error {
+	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for Shutdown")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func() error); ok {
+		r0 = rf()
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockNodeSelector_Shutdown_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Shutdown'
+type MockNodeSelector_Shutdown_Call struct {
+	*mock.Call
+}
+
+// Shutdown is a helper method to define mock.On call
+func (_e *MockNodeSelector_Expecter) Shutdown() *MockNodeSelector_Shutdown_Call {
+	return &MockNodeSelector_Shutdown_Call{Call: _e.mock.On("Shutdown")}
+}
+
+func (_c *MockNodeSelector_Shutdown_Call) Run(run func()) *MockNodeSelector_Shutdown_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run()
+	})
+	return _c
+}
+
+func (_c *MockNodeSelector_Shutdown_Call) Return(_a0 error) *MockNodeSelector_Shutdown_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockNodeSelector_Shutdown_Call) RunAndReturn(run func() error) *MockNodeSelector_Shutdown_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // SortCandidates provides a mock function with given fields: nodes
 func (_m *MockNodeSelector) SortCandidates(nodes []string) []string {
 	ret := _m.Called(nodes)
@@ -369,8 +563,7 @@ func (_c *MockNodeSelector_StorageCandidates_Call) RunAndReturn(run func() []str
 func NewMockNodeSelector(t interface {
 	mock.TestingT
 	Cleanup(func())
-},
-) *MockNodeSelector {
+}) *MockNodeSelector {
 	mock := &MockNodeSelector{}
 	mock.Mock.Test(t)
 

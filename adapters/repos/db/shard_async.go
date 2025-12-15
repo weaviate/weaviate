@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/storobj"
+	vectorIndexCommon "github.com/weaviate/weaviate/entities/vectorindex/common"
 )
 
 // ConvertQueue converts a legacy in-memory queue to an on-disk queue.
@@ -496,7 +497,7 @@ func (s *Shard) RepairIndex(ctx context.Context, targetVector string) error {
 
 		deleted++
 		if vectorIndex.Multivector() {
-			if err := vectorIndex.DeleteMulti(docID); err != nil {
+			if err := vectorIndex.(VectorIndexMulti).DeleteMulti(docID); err != nil {
 				s.index.logger.
 					WithError(err).
 					WithField("class", className).
@@ -552,7 +553,10 @@ func (s *Shard) RequantizeIndex(ctx context.Context, targetVector string) error 
 		return nil
 	}
 
-	normalize := vectorIndex.DistancerProvider().Type() == "cosine-dot"
+	normalize := false
+	if vectorIndexConfig := s.index.GetVectorIndexConfigs()[targetVector]; vectorIndexConfig != nil && vectorIndexConfig.DistanceName() == vectorIndexCommon.DistanceCosine {
+		normalize = true
+	}
 
 	total := 0
 

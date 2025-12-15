@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -145,6 +145,10 @@ func parseOperator(in string) (filters.Operator, error) {
 		return filters.ContainsAny, nil
 	case models.WhereFilterOperatorContainsAll:
 		return filters.ContainsAll, nil
+	case models.WhereFilterOperatorContainsNone:
+		return filters.ContainsNone, nil
+	case models.WhereFilterOperatorNot:
+		return filters.OperatorNot, nil
 	default:
 		return -1, fmt.Errorf("unrecognized operator: %s", in)
 	}

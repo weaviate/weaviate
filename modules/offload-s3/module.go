@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -14,7 +14,6 @@ package modsloads3
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -213,10 +212,6 @@ func (m *Module) Init(ctx context.Context,
 		s3Bucket:                m.Bucket,
 		"PERSISTENCE_DATA_PATH": m.DataPath,
 	}).Info("offload module loaded")
-	return nil
-}
-
-func (m *Module) RootHandler() http.Handler {
 	return nil
 }
 

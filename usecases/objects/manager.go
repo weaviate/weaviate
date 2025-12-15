@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -35,6 +35,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
+	"github.com/weaviate/weaviate/usecases/objects/alias"
 )
 
 type schemaManager interface {
@@ -67,6 +68,9 @@ type schemaManager interface {
 
 	// GetConsistentSchema retrieves a locally cached copy of the schema
 	GetConsistentSchema(ctx context.Context, principal *models.Principal, consistency bool) (schema.Schema, error)
+
+	// ResolveAlias returns a class name associated with a given alias, empty string if doesn't exist
+	ResolveAlias(alias string) string
 }
 
 // Manager manages kind changes at a use-case level, i.e. agnostic of
@@ -176,6 +180,11 @@ func NewManager(schemaManager schemaManager,
 		metrics:           metrics,
 		allocChecker:      allocChecker,
 	}
+}
+
+// Alias
+func (m *Manager) resolveAlias(class string) (className, aliasName string) {
+	return alias.ResolveAlias(m.schemaManager, class)
 }
 
 func generateUUID() (strfmt.UUID, error) {

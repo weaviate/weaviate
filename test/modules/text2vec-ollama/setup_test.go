@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -26,10 +26,11 @@ func TestText2VecOllama_SingleNode(t *testing.T) {
 	defer func() {
 		require.NoError(t, compose.Terminate(ctx))
 	}()
-	endpoint := compose.GetWeaviate().URI()
+	rest := compose.GetWeaviate().URI()
+	grpc := compose.GetWeaviate().GrpcURI()
 	ollamaApiEndpoint := compose.GetOllamaVectorizer().GetEndpoint("apiEndpoint")
 
-	t.Run("tests", testText2VecOllama(endpoint, ollamaApiEndpoint))
+	t.Run("tests", testText2VecOllama(rest, grpc, ollamaApiEndpoint))
 }
 
 func TestText2VecOllama_Cluster(t *testing.T) {
@@ -39,22 +40,24 @@ func TestText2VecOllama_Cluster(t *testing.T) {
 	defer func() {
 		require.NoError(t, compose.Terminate(ctx))
 	}()
-	endpoint := compose.GetWeaviate().URI()
+	rest := compose.GetWeaviate().URI()
+	grpc := compose.GetWeaviate().GrpcURI()
 	ollamaApiEndpoint := compose.GetOllamaVectorizer().GetEndpoint("apiEndpoint")
 
-	t.Run("tests", testText2VecOllama(endpoint, ollamaApiEndpoint))
+	t.Run("tests", testText2VecOllama(rest, grpc, ollamaApiEndpoint))
 }
 
 func createSingleNodeEnvironment(ctx context.Context) (compose *docker.DockerCompose, err error) {
 	compose, err = composeModules().
 		WithWeaviate().
+		WithWeaviateWithGRPC().
 		Start(ctx)
 	return compose, err
 }
 
 func createClusterEnvironment(ctx context.Context) (compose *docker.DockerCompose, err error) {
 	compose, err = composeModules().
-		WithWeaviateCluster(3).
+		WithWeaviateClusterWithGRPC().
 		Start(ctx)
 	return compose, err
 }

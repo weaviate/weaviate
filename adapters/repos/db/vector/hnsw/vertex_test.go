@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/packedconn"
 )
 
 func TestVertex_SetConnections(t *testing.T) {
@@ -62,15 +63,15 @@ func TestVertex_SetConnections(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			connections, _ := packedconn.NewWithMaxLayer(0)
 			v := &vertex{
-				connections: make([][]uint64, 1),
+				connections: connections,
 			}
-			v.connections[0] = tc.initial
+			v.connections.ReplaceLayer(0, tc.initial)
 
 			v.setConnectionsAtLevel(0, tc.updated)
 
-			assert.Equal(t, tc.updated, v.connections[0])
-			assert.Equal(t, tc.expectedCap, cap(v.connections[0]))
+			assert.Equal(t, tc.updated, v.connections.GetLayer(0))
 		})
 	}
 }
@@ -84,24 +85,20 @@ func TestVertex_AppendConnection(t *testing.T) {
 
 	tests := []test{
 		{
-			name:        "no connections set before, expect 1/4 of max",
-			initial:     nil,
-			expectedCap: 16,
+			name:    "no connections set before, expect 1/4 of max",
+			initial: nil,
 		},
 		{
-			name:        "less than 1/4, expect 1/4 of max",
-			initial:     makeConnections(15, 15),
-			expectedCap: 16,
+			name:    "less than 1/4, expect 1/4 of max",
+			initial: makeConnections(15, 15),
 		},
 		{
-			name:        "less than 1/2, expect 1/2 of max",
-			initial:     makeConnections(31, 31),
-			expectedCap: 32,
+			name:    "less than 1/2, expect 1/2 of max",
+			initial: makeConnections(31, 31),
 		},
 		{
-			name:        "less than 3/4, expect 3/4 of max",
-			initial:     makeConnections(42, 42),
-			expectedCap: 48,
+			name:    "less than 3/4, expect 3/4 of max",
+			initial: makeConnections(42, 42),
 		},
 		{
 			name:        "more than 3/4, expect full size",
@@ -109,18 +106,18 @@ func TestVertex_AppendConnection(t *testing.T) {
 			expectedCap: 64,
 		},
 		{
-			name:        "enough capacity to not require growing",
-			initial:     makeConnections(17, 53),
-			expectedCap: 53,
+			name:    "enough capacity to not require growing",
+			initial: makeConnections(17, 53),
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			connections, _ := packedconn.NewWithMaxLayer(0)
 			v := &vertex{
-				connections: make([][]uint64, 1),
+				connections: connections,
 			}
-			v.connections[0] = tc.initial
+			v.connections.ReplaceLayer(0, tc.initial)
 
 			v.appendConnectionAtLevelNoLock(0, 18, 64)
 
@@ -128,59 +125,51 @@ func TestVertex_AppendConnection(t *testing.T) {
 			copy(newConns, tc.initial)
 			newConns[len(newConns)-1] = 18
 
-			assert.Equal(t, newConns, v.connectionsAtLevelNoLock(0))
-			assert.Equal(t, tc.expectedCap, cap(v.connections[0]))
+			assert.ElementsMatch(t, newConns, v.connectionsAtLevelNoLock(0))
 		})
 	}
 }
 
 func TestVertex_AppendConnection_NotCleanlyDivisible(t *testing.T) {
 	type test struct {
-		name        string
-		initial     []uint64
-		expectedCap int
+		name    string
+		initial []uint64
 	}
 
 	tests := []test{
 		{
-			name:        "no connections set before, expect 1/4 of max",
-			initial:     nil,
-			expectedCap: 15,
+			name:    "no connections set before, expect 1/4 of max",
+			initial: nil,
 		},
 		{
 			name:    "less than 1/4, expect 1/4 of max",
 			initial: makeConnections(15, 15),
-			// provoke rounding error
-			expectedCap: 16,
 		},
 		{
-			name:        "less than 1/2, expect 1/2 of max",
-			initial:     makeConnections(31, 31),
-			expectedCap: 32,
+			name:    "less than 1/2, expect 1/2 of max",
+			initial: makeConnections(31, 31),
 		},
 		{
-			name:        "less than 3/4, expect 3/4 of max",
-			initial:     makeConnections(42, 42),
-			expectedCap: 47,
+			name:    "less than 3/4, expect 3/4 of max",
+			initial: makeConnections(42, 42),
 		},
 		{
-			name:        "more than 3/4, expect full size",
-			initial:     makeConnections(53, 53),
-			expectedCap: 63,
+			name:    "more than 3/4, expect full size",
+			initial: makeConnections(53, 53),
 		},
 		{
-			name:        "enough capacity to not require growing",
-			initial:     makeConnections(17, 53),
-			expectedCap: 53,
+			name:    "enough capacity to not require growing",
+			initial: makeConnections(17, 53),
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			connections, _ := packedconn.NewWithMaxLayer(1)
 			v := &vertex{
-				connections: make([][]uint64, 1),
+				connections: connections,
 			}
-			v.connections[0] = tc.initial
+			v.connections.ReplaceLayer(0, tc.initial)
 
 			v.appendConnectionAtLevelNoLock(0, 18, 63)
 
@@ -188,21 +177,20 @@ func TestVertex_AppendConnection_NotCleanlyDivisible(t *testing.T) {
 			copy(newConns, tc.initial)
 			newConns[len(newConns)-1] = 18
 
-			assert.Equal(t, newConns, v.connectionsAtLevelNoLock(0))
-			assert.Equal(t, tc.expectedCap, cap(v.connections[0]))
+			assert.ElementsMatch(t, newConns, v.connectionsAtLevelNoLock(0))
 		})
 	}
 }
 
 func TestVertex_ResetConnections(t *testing.T) {
+	connections, _ := packedconn.NewWithMaxLayer(1)
 	v := &vertex{
-		connections: make([][]uint64, 1),
+		connections: connections,
 	}
-	v.connections[0] = makeConnections(4, 4)
+	v.connections.ReplaceLayer(0, makeConnections(4, 4))
 
 	v.resetConnectionsAtLevelNoLock(0)
-	assert.Equal(t, 0, len(v.connections[0]))
-	assert.Equal(t, 4, cap(v.connections[0]))
+	assert.Equal(t, 0, len(v.connections.GetLayer(0)))
 }
 
 func makeConnections(length, capacity int) []uint64 {

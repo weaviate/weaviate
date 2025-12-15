@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -14,6 +14,7 @@ package cluster
 import (
 	"bytes"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"math/rand"
 	"sort"
@@ -119,6 +120,13 @@ type delegate struct {
 
 	mutex    sync.Mutex
 	hostInfo NodeInfo
+
+	metadata NodeMetadata
+}
+
+type NodeMetadata struct {
+	RestPort int `json:"rest_port"`
+	GrpcPort int `json:"grpc_port"`
 }
 
 func (d *delegate) setOwnSpace(x DiskUsage) {
@@ -159,7 +167,14 @@ func (d *delegate) init(diskSpace func(path string) (DiskUsage, error)) error {
 // when broadcasting an alive message. It's length is limited to
 // the given byte size. This metadata is available in the Node structure.
 func (d *delegate) NodeMeta(limit int) (meta []byte) {
-	return nil
+	data, err := json.Marshal(d.metadata)
+	if err != nil {
+		return nil
+	}
+	if len(data) > limit {
+		return nil
+	}
+	return data
 }
 
 // LocalState is used for a TCP Push/Pull. This is sent to

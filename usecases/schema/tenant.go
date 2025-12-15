@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -219,6 +219,11 @@ func (h *Handler) GetConsistentTenants(ctx context.Context, principal *models.Pr
 	var allTenants []*models.Tenant
 	var err error
 
+	// support getting tenants via alias
+	class = schema.UppercaseClassName(class)
+	if rclass := h.schemaReader.ResolveAlias(class); rclass != "" {
+		class = rclass
+	}
 	if consistency {
 		allTenants, _, err = h.schemaManager.QueryTenants(class, tenants)
 	} else {
@@ -328,7 +333,7 @@ func (h *Handler) getTenantsByNames(class string, names []string) ([]*models.Ten
 		}
 		return nil
 	}
-	return ts, h.schemaReader.Read(class, f)
+	return ts, h.schemaReader.Read(class, true, f)
 }
 
 // convert the new tenant names (that are only used as input) to the old tenant names that are used throughout the code

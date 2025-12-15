@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -56,7 +56,11 @@ func (v *Vectorizer) Object(ctx context.Context, object *models.Object, cfg modu
 func (v *Vectorizer) object(ctx context.Context, object *models.Object, cfg moduletools.ClassConfig,
 ) ([]float32, error) {
 	icheck := NewClassSettings(cfg)
-	text := v.objectVectorizer.Texts(ctx, object, icheck)
+	text, isEmpty := v.objectVectorizer.Texts(ctx, object, icheck)
+	if isEmpty {
+		// don't vectorize empty text
+		return nil, nil
+	}
 	res, err := v.client.VectorizeObject(ctx, text, v.getVectorizationConfig(cfg))
 	if err != nil {
 		return nil, err

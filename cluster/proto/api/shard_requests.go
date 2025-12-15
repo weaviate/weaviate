@@ -4,14 +4,19 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
 
 package api
 
-import "github.com/go-openapi/strfmt"
+import (
+	"encoding/json"
+	"fmt"
+
+	"github.com/go-openapi/strfmt"
+)
 
 const (
 	ReplicationCommandVersionV0 = iota
@@ -71,8 +76,9 @@ type ReplicationUpdateOpStateResponse struct{}
 type ReplicationRegisterErrorRequest struct {
 	Version int
 
-	Id    uint64
-	Error string
+	Id         uint64
+	Error      string
+	TimeUnixMs int64
 }
 
 type ReplicationRegisterErrorResponse struct{}
@@ -102,9 +108,56 @@ type ReplicationDetailsRequestByTargetNode struct {
 	Node string
 }
 
+type ReplicationDetailsError struct {
+	Message           string
+	ErroredTimeUnixMs int64 // Unix timestamp in milliseconds when the error occurred
+}
+
 type ReplicationDetailsState struct {
-	State  string
-	Errors []string
+	State           string
+	Errors          []ReplicationDetailsError
+	StartTimeUnixMs int64 // Unix timestamp in milliseconds when the state was first entered
+}
+
+func (r *ReplicationDetailsState) UnmarshalJSON(data []byte) error {
+	type rawReplicationDetailsState struct {
+		State           string
+		Errors          json.RawMessage
+		StartTimeUnixMs int64
+	}
+	var raw rawReplicationDetailsState
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+
+	r.State = raw.State
+	r.StartTimeUnixMs = raw.StartTimeUnixMs
+	// no errors in the message
+	if len(raw.Errors) == 0 || string(raw.Errors) == "null" || string(raw.Errors) == "[]" {
+		r.Errors = nil
+		return nil
+	}
+
+	// try to unmarshal as []ReplicationDetailsError
+	var replicationDetailsErrors []ReplicationDetailsError
+	if err := json.Unmarshal(raw.Errors, &replicationDetailsErrors); err == nil {
+		r.Errors = replicationDetailsErrors
+		return nil
+	}
+
+	// try to unmarshal as []string (legacy format)
+	var errors []string
+	if err := json.Unmarshal(raw.Errors, &errors); err == nil {
+		if len(errors) > 0 {
+			r.Errors = make([]ReplicationDetailsError, len(errors))
+			for i, msg := range errors {
+				r.Errors[i] = ReplicationDetailsError{Message: msg}
+			}
+		}
+		return nil
+	}
+
+	return fmt.Errorf("cannot unmarshal ReplicationDetailsState.Errors field neither to []ReplicationDetailsError or []string: %v", string(raw.Errors))
 }
 
 type ReplicationDetailsResponse struct {
@@ -119,9 +172,10 @@ type ReplicationDetailsResponse struct {
 	ScheduledForCancel bool
 	ScheduledForDelete bool
 
-	Status        ReplicationDetailsState
-	StatusHistory []ReplicationDetailsState
-	TransferType  string
+	Status          ReplicationDetailsState
+	StatusHistory   []ReplicationDetailsState
+	TransferType    string
+	StartTimeUnixMs int64
 }
 
 type ReplicationCancelRequest struct {

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -40,6 +40,9 @@ type BackupRestoreRequest struct {
 
 	// Allows overriding the node names stored in the backup with different ones. Useful when restoring backups to a different environment.
 	NodeMapping map[string]string `json:"node_mapping,omitempty"`
+
+	// Allows ovewriting the collection alias if there is a conflict
+	OverwriteAlias bool `json:"overwriteAlias,omitempty"`
 }
 
 // Validate validates this backup restore request

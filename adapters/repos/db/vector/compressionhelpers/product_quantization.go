@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -181,6 +181,18 @@ type PQData struct {
 type PQStats struct {
 	Ks int `json:"centroids"`
 	M  int `json:"segments"`
+}
+
+func (p PQStats) CompressionType() string {
+	return "pq"
+}
+
+func (p PQStats) CompressionRatio(dimensions int) float64 {
+	// PQ compression: original size = dimensions * 4 bytes (float32)
+	// compressed size = segments * 1 byte (one code per segment)
+	originalSize := dimensions * 4
+	compressedSize := p.M // segments
+	return float64(originalSize) / float64(compressedSize)
 }
 
 type PQEncoder interface {
@@ -433,10 +445,6 @@ func (pq *ProductQuantizer) CenterAt(vec []float32) *DistanceLookUpTable {
 
 func (pq *ProductQuantizer) Distance(encoded []byte, lut *DistanceLookUpTable) float32 {
 	return lut.LookUp(encoded, pq)
-}
-
-func (p PQStats) CompressionType() string {
-	return "pq"
 }
 
 func (pq *ProductQuantizer) Stats() CompressionStats {

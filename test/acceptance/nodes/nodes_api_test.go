@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -365,6 +365,18 @@ func TestNodesApi_Compression_AsyncIndexing(t *testing.T) {
 }
 
 func TestNodesApi_Compression_SyncIndexing(t *testing.T) {
+	ctx := context.Background()
+	compose, err := docker.New().
+		WithWeaviate().
+		WithText2VecContextionary().
+		Start(ctx)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, compose.Terminate(ctx))
+	}()
+
+	defer helper.SetupClient(fmt.Sprintf("%s:%s", helper.ServerHost, helper.ServerPort))
+	helper.SetupClient(compose.GetWeaviate().URI())
 	t.Run("validate flat compression status", func(t *testing.T) {
 		booksClass := books.ClassContextionaryVectorizer()
 		booksClass.VectorIndexType = "flat"
