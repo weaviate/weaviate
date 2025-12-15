@@ -134,13 +134,13 @@ func (h *HFresh) persistQuantizationData() error {
 // restoreQuantizationData restores RQ quantizer from msgpack data
 func (h *HFresh) restoreQuantizationData(rqData *compressionhelpers.RQData) error {
 	// Restore the RQ quantizer
-	rq, err := compressionhelpers.RestoreRotationalQuantizer(
+	rq, err := compressionhelpers.RestoreBinaryRotationalQuantizer(
 		int(rqData.InputDim),
-		int(rqData.Bits),
 		int(rqData.Rotation.OutputDim),
 		int(rqData.Rotation.Rounds),
 		rqData.Rotation.Swaps,
 		rqData.Rotation.Signs,
+		rqData.Rounding,
 		h.config.DistanceProvider,
 	)
 	if err != nil {

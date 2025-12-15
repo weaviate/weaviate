@@ -98,7 +98,7 @@ func (p Posting) GarbageCollect(versionMap *VersionMap) (Posting, error) {
 	return p, nil
 }
 
-func (p Posting) Uncompress(quantizer *compressionhelpers.RotationalQuantizer) [][]float32 {
+func (p Posting) Uncompress(quantizer *compressionhelpers.BinaryRotationalQuantizer) [][]float32 {
 	data := make([][]float32, 0, len(p))
 
 	for _, v := range p {

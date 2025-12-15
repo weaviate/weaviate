@@ -36,6 +36,15 @@ type BinaryRotationalQuantizer struct {
 	cos       float32
 }
 
+func (rq *BinaryRotationalQuantizer) Data() RQData {
+	return RQData{
+		InputDim: rq.inputDim,
+		Bits:     1,
+		Rotation: *rq.rotation,
+		Rounding: rq.rounding,
+	}
+}
+
 func NewBinaryRotationalQuantizer(inputDim int, seed uint64, distancer distancer.Provider) *BinaryRotationalQuantizer {
 	// Pad the input if it is low-dimensional.
 	if inputDim < minCodeBits {
