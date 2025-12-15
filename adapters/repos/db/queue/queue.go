@@ -9,6 +9,10 @@
 //  CONTACT: hello@weaviate.io
 //
 
+// Queue package implements a queue system for background operations using disk storage.
+// It provides a DiskQueue that stores tasks in chunk files on disk, allowing for
+// efficient handling of large volumes of tasks without consuming excessive memory.
+// The Scheduler manages multiple queues and schedules task processing to a fixed number of workers.
 package queue
 
 import (
@@ -56,6 +60,8 @@ const (
 // regex pattern for the chunk files
 var chunkFilePattern = regexp.MustCompile(`chunk-\d+\.bin`)
 
+// A Queue represents anything that can be scheduled by the Scheduler.
+// It must return its ID, size, and be able to dequeue a batch of tasks.
 type Queue interface {
 	ID() string
 	Size() int64
@@ -385,7 +391,7 @@ func (q *DiskQueue) DequeueBatch() (batch *Batch, err error) {
 
 	return &Batch{
 		Tasks:  tasks,
-		onDone: doneFn,
+		OnDone: doneFn,
 	}, nil
 }
 
