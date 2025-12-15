@@ -349,6 +349,15 @@ func (b *BM25Searcher) sortResultsByScore(ids []uint64, scores []float32, explan
 	return sorter.ids, sorter.scores, sorter.explanations
 }
 
+func (b *BM25Searcher) sortResultsByExternalId(objects []*storobj.Object, scores []float32) ([]*storobj.Object, []float32) {
+	sorter := &objectIdsSorter{
+		objects: objects,
+		scores:  scores,
+	}
+	sort.Sort(sorter)
+	return sorter.objects, sorter.scores
+}
+
 func (b *BM25Searcher) getObjectsAndScores(ids []uint64, scores []float32, explanations [][]*terms.DocPointerWithScore, queryTerms []string, additionalProps additional.Properties, limit int) ([]*storobj.Object, []float32, error) {
 	// reverse arrays to start with the highest score
 	slices.Reverse(ids)
@@ -413,6 +422,8 @@ func (b *BM25Searcher) getObjectsAndScores(ids []uint64, scores []float32, expla
 		}
 	}
 
+	objs, scoresResult = b.sortResultsByExternalId(objs, scoresResult)
+
 	// reverse back the arrays to the expected order
 	slices.Reverse(objs)
 	slices.Reverse(scoresResult)
@@ -443,4 +454,25 @@ func (s *scoreSorter) Swap(i, j int) {
 	if s.explanations != nil {
 		s.explanations[i], s.explanations[j] = s.explanations[j], s.explanations[i]
 	}
+}
+
+type objectIdsSorter struct {
+	objects []*storobj.Object
+	scores  []float32
+}
+
+func (s *objectIdsSorter) Len() int {
+	return len(s.objects)
+}
+
+func (s *objectIdsSorter) Less(i, j int) bool {
+	if s.scores[i] == s.scores[j] {
+		return s.objects[i].Object.ID > s.objects[j].Object.ID
+	}
+	return s.scores[i] < s.scores[j]
+}
+
+func (s *objectIdsSorter) Swap(i, j int) {
+	s.scores[i], s.scores[j] = s.scores[j], s.scores[i]
+	s.objects[i], s.objects[j] = s.objects[j], s.objects[i]
 }
