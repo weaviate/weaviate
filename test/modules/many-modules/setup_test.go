@@ -94,7 +94,7 @@ func composeModules() (composeModules *docker.Compose) {
 		WithGenerativeAnthropic(os.Getenv("ANTHROPIC_APIKEY")).
 		WithGenerativeFriendliAI(os.Getenv("FRIENDLI_TOKEN")).
 		WithQnAOpenAI().
-		WithRerankerCohere().
+		WithRerankerCohere(os.Getenv("COHERE_APIKEY")).
 		WithRerankerVoyageAI()
 	return composeModules
 }

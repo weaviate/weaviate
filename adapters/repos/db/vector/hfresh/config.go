@@ -134,10 +134,6 @@ func computeMaxPostingSize(dims int, compressed bool) uint32 {
 	return uint32(math.Ceil(float64(maxBytes) / float64(vBytes)))
 }
 
-func compressedVectorSize(size int) int {
-	return size + compressionhelpers.RQMetadataSize
-}
-
 func (h *HFresh) setMaxPostingSize() {
 	if h.maxPostingSize == 0 {
 		isCompressed := h.Compressed()

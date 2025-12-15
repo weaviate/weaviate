@@ -108,8 +108,9 @@ type PrometheusMetrics struct {
 	VectorIndexBackgroundOperationsDurations *prometheus.SummaryVec
 	VectorIndexStoreOperationsDurations      *prometheus.SummaryVec
 
-	VectorDimensionsSum *prometheus.GaugeVec
-	VectorSegmentsSum   *prometheus.GaugeVec
+	VectorDimensionsSum                 *prometheus.GaugeVec
+	VectorSegmentsSum                   *prometheus.GaugeVec
+	VectorIndexMemoryAllocationRejected prometheus.Counter
 
 	StartupProgress  *prometheus.GaugeVec
 	StartupDurations *prometheus.SummaryVec
@@ -669,6 +670,10 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "vector_segments_sum",
 			Help: "Total segments in a shard if quantization enabled",
 		}, []string{"class_name", "shard_name"}),
+		VectorIndexMemoryAllocationRejected: promauto.NewCounter(prometheus.CounterOpts{
+			Name: "weaviate_vector_index_memory_allocation_rejected_total",
+			Help: "Total number of batch operations rejected per node due to insufficient memory",
+		}),
 
 		// Startup metrics
 		StartupProgress: promauto.NewGaugeVec(prometheus.GaugeOpts{

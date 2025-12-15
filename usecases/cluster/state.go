@@ -171,7 +171,8 @@ func Init(userConfig Config, raftTimeoutsMultiplier int, dataPath string, nonSto
 			dataPath: dataPath,
 			log:      logger,
 			metadata: NodeMetadata{
-				DataPort: userConfig.DataBindPort,
+				RestPort: userConfig.DataBindPort,
+				GrpcPort: userConfig.DataBindPort,
 			},
 		},
 	}
@@ -284,7 +285,7 @@ func (s *State) dataPort(m *memberlist.Node) int {
 		return int(m.Port) + 1 // the convention that it's 1 higher than the gossip port
 	}
 
-	return meta.DataPort
+	return meta.RestPort
 }
 
 // AllHostnames for live members, including self.
@@ -305,6 +306,9 @@ func (s *State) AllHostnames() []string {
 
 // All node names (not their hostnames!) for live members, including self.
 func (s *State) AllNames() []string {
+	if s.list == nil {
+		return []string{}
+	}
 	mem := s.list.Members()
 	out := make([]string, len(mem))
 
@@ -365,7 +369,7 @@ func (s *State) NodeCount() int {
 
 // LocalName() return local node name
 func (s *State) LocalName() string {
-	return s.list.LocalNode().Name
+	return s.config.Hostname
 }
 
 // LocalAddr() returns local address

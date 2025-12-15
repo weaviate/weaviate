@@ -14,6 +14,7 @@ package hfresh
 import (
 	"context"
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	"github.com/pkg/errors"
@@ -57,32 +58,34 @@ func (h *HFresh) Add(ctx context.Context, id uint64, vector []float32) (err erro
 	// init components that require knowing the vector dimensions
 	// and compressed size
 	h.initDimensionsOnce.Do(func() {
-		size := int32(len(vector))
-		h.dims = size
+		size := uint32(len(vector))
+		atomic.StoreUint32(&h.dims, size)
 		h.setMaxPostingSize()
-		if err := h.setDimensions(size); err != nil {
-			h.logger.WithError(err).Error("could not set dimensions")
+		err = h.Metadata.SetDimensions(size)
+		if err != nil {
+			err = errors.Wrap(err, "could not persist dimensions")
 			return // Fail the entire initialization
 		}
 		h.quantizer = compressionhelpers.NewBinaryRotationalQuantizer(int(h.dims), 42, h.config.DistanceProvider)
-		h.vectorSize = int32(compressedVectorSize(int(h.dims)))
 		h.Centroids.SetQuantizer(h.quantizer)
 		if err := h.setVectorSize(h.vectorSize); err != nil {
 			h.logger.WithError(err).Error("could not set vector size")
 			return // Fails because we don't know the vector size
 		}
 
-		if err := h.persistRQData(); err != nil {
-			h.logger.WithError(err).Error("could not persist RQ data")
+		if err = h.persistQuantizationData(); err != nil {
+			err = errors.Wrap(err, "could not persist RQ data")
 			return // Fail the entire initialization
 		}
+
 		h.distancer = &Distancer{
 			quantizer: h.quantizer,
 			distancer: h.config.DistanceProvider,
 		}
-		h.logger.Error("######################### initialising posting store")
-		h.PostingStore.Init(h.vectorSize)
 	})
+	if err != nil {
+		return err
+	}
 
 	// add the vector to the version map.
 	// TODO: if the vector already exists, invalidate all previous instances
@@ -142,7 +145,10 @@ func (h *HFresh) ensureInitialPosting(v []float32, compressed []byte) (*ResultSe
 
 	// if no postings were found, create a new posting while holding the lock
 	if targets.Len() == 0 {
-		postingID := h.IDs.Next()
+		postingID, err := h.IDs.Next()
+		if err != nil {
+			return nil, err
+		}
 		// use the vector as the centroid and register it in the SPTAG
 		err = h.Centroids.Insert(postingID, &Centroid{
 			Uncompressed: v,

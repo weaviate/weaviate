@@ -495,7 +495,8 @@ func (d *Compose) WithQnAOpenAI() *Compose {
 	return d
 }
 
-func (d *Compose) WithRerankerCohere() *Compose {
+func (d *Compose) WithRerankerCohere(apiKey string) *Compose {
+	d.weaviateEnvs["COHERE_APIKEY"] = apiKey
 	d.enableModules = append(d.enableModules, modrerankercohere.Name)
 	return d
 }
@@ -934,6 +935,7 @@ func (d *Compose) With1NodeCluster() *Compose {
 
 func (d *Compose) With3NodeCluster() *Compose {
 	d.withWeaviateCluster = true
+	d.withWeaviateExposeDebugPort = true
 	d.withWeaviateClusterSize = 3
 	return d
 }
@@ -967,10 +969,10 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 	}
 	if d.withWeaviateAuth {
 		settings["AUTHENTICATION_OIDC_ENABLED"] = "true"
-		settings["AUTHENTICATION_OIDC_CLIENT_ID"] = "wcs"
-		settings["AUTHENTICATION_OIDC_ISSUER"] = "https://auth.wcs.api.weaviate.io/auth/realms/SeMI"
+		settings["AUTHENTICATION_OIDC_CLIENT_ID"] = "Peuc12y02UA0eAED1dqSjE5HtGUrpBsx"
+		settings["AUTHENTICATION_OIDC_ISSUER"] = "https://auth.weaviate.cloud/Peuc12y02UA0eAED1dqSjE5HtGUrpBsx"
 		settings["AUTHENTICATION_OIDC_USERNAME_CLAIM"] = "email"
-		settings["AUTHENTICATION_OIDC_GROUPS_CLAIM"] = "groups"
+		settings["AUTHENTICATION_OIDC_GROUPS_CLAIM"] = "roles"
 		settings["AUTHORIZATION_ADMINLIST_ENABLED"] = "true"
 		settings["AUTHORIZATION_ADMINLIST_USERS"] = "oidc-test-user@weaviate.io"
 	}

@@ -14,380 +14,137 @@ package hfresh
 import (
 	"encoding/binary"
 	"fmt"
-	"path/filepath"
 	"sync/atomic"
 
 	"github.com/pkg/errors"
 	"github.com/vmihailenco/msgpack/v5"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
-	bolt "go.etcd.io/bbolt"
 )
 
 const (
-	metadataPrefix       = "meta"
-	vectorMetadataBucket = "vector"
-	quantizationKey      = "quantization"
+	quantizationKey    = "quantization"
+	dimensionsKey      = "dimensions"
+	postingSequenceKey = "posting_seq"
 )
 
-type RQDataContainer struct {
-	Data interface{} `msgpack:"data"` // The actual RQ data
+// MetadataStore is a persistent store for metadata.
+type MetadataStore struct {
+	bucket *lsmkv.Bucket
 }
 
-// RQ1Data represents RQ1 (Binary Rotational Quantization) data
-type RQ1Data struct {
-	InputDim  uint32                      `msgpack:"input_dim"`
-	OutputDim uint32                      `msgpack:"output_dim"`
-	Rounds    uint32                      `msgpack:"rounds"`
-	Swaps     [][]compressionhelpers.Swap `msgpack:"swaps"`
-	Signs     [][]float32                 `msgpack:"signs"`
-	Rounding  []float32                   `msgpack:"rounding"`
-}
-
-func (h *HFresh) getMetadataFile() string {
-	if h.config.TargetVector != "" {
-		cleanTarget := filepath.Clean(h.config.TargetVector)
-		cleanTarget = filepath.Base(cleanTarget)
-		return fmt.Sprintf("%s_%s.db", metadataPrefix, cleanTarget)
-	}
-	return fmt.Sprintf("%s.db", metadataPrefix)
-}
-
-func (h *HFresh) closeMetadata() {
-	h.metadataLock.Lock()
-	defer h.metadataLock.Unlock()
-
-	if h.metadata != nil {
-		h.metadata.Close()
-		h.metadata = nil
+func NewMetadataStore(bucket *lsmkv.Bucket) *MetadataStore {
+	return &MetadataStore{
+		bucket: bucket,
 	}
 }
 
-func (h *HFresh) openMetadata() error {
-	h.metadataLock.Lock()
-	defer h.metadataLock.Unlock()
+func (m *MetadataStore) key(suffix string) []byte {
+	buf := make([]byte, 1+len(suffix))
+	buf[0] = metadataBucketPrefix
+	copy(buf[1:], suffix)
+	return buf
+}
 
-	if h.metadata != nil {
-		return nil // Already open
-	}
+func (m *MetadataStore) SetDimensions(dimensions uint32) error {
+	buf := make([]byte, 4)
+	binary.LittleEndian.PutUint32(buf, dimensions)
+	return m.bucket.Put(m.key(dimensionsKey), buf)
+}
 
-	path := filepath.Join(filepath.Dir(h.config.RootPath), h.getMetadataFile())
-	db, err := bolt.Open(path, 0o600, nil)
+func (m *MetadataStore) GetDimensions() (uint32, error) {
+	data, err := m.bucket.Get(m.key(dimensionsKey))
 	if err != nil {
-		return errors.Wrapf(err, "open %q", path)
+		return 0, err
 	}
-
-	h.metadata = db
-	return nil
-}
-
-func (h *HFresh) restoreMetadata() error {
-	err := h.openMetadata()
-	if err != nil {
-		return err
+	if data == nil {
+		return 0, nil // Not set yet
 	}
-	defer h.closeMetadata()
-
-	err = h.metadata.Update(func(tx *bolt.Tx) error {
-		b, err := tx.CreateBucketIfNotExists([]byte(vectorMetadataBucket))
-		if err != nil {
-			return errors.Wrap(err, "create bucket")
-		}
-		if b == nil {
-			return errors.New("failed to create or get bucket")
-		}
-		return nil
-	})
-	if err != nil {
-		return errors.Wrap(err, "init metadata bucket")
+	if len(data) != 4 {
+		return 0, fmt.Errorf("invalid dimensions data length: %d", len(data))
 	}
-
-	// Restore RQ data if available
-	if err := h.restoreRQData(); err != nil {
-		h.logger.Warnf("HFresh index unable to restore RQ data: %v", err)
-	}
-
-	if err := h.initDimensions(); err != nil {
-		h.logger.Warnf("HFresh index unable to restore RQ data: %v", err)
-	}
-
-	return nil
-}
-
-func (h *HFresh) initDimensions() error {
-	dims, err := h.fetchDimensions()
-	if err != nil {
-		return errors.Wrap(err, "HFresh index unable to fetch dimensions")
-	}
-
-	if dims > 0 {
-		atomic.StoreInt32(&h.dims, dims)
-	}
-	return nil
-}
-
-func (h *HFresh) fetchDimensions() (int32, error) {
-	if h.metadata == nil {
-		return 0, nil
-	}
-
-	var dimensions int32 = 0
-	err := h.metadata.View(func(tx *bolt.Tx) error {
-		b := tx.Bucket([]byte(vectorMetadataBucket))
-		if b == nil {
-			return nil
-		}
-		v := b.Get([]byte("dimensions"))
-		if v == nil {
-			return nil
-		}
-		dimensions = int32(binary.LittleEndian.Uint32(v))
-		return nil
-	})
-	if err != nil {
-		return 0, errors.Wrap(err, "fetch dimensions")
-	}
-
+	dimensions := binary.LittleEndian.Uint32(data)
 	return dimensions, nil
 }
 
-func (h *HFresh) setDimensions(dimensions int32) error {
-	err := h.openMetadata()
+func (m *MetadataStore) SetQuantizationData(data *QuantizationData) error {
+	serialized, err := msgpack.Marshal(data)
 	if err != nil {
-		return err
-	}
-	defer h.closeMetadata()
-
-	err = h.metadata.Update(func(tx *bolt.Tx) error {
-		b := tx.Bucket([]byte(vectorMetadataBucket))
-		if b == nil {
-			return errors.New("failed to get bucket")
-		}
-		buf := make([]byte, 4)
-		binary.LittleEndian.PutUint32(buf, uint32(dimensions))
-		return b.Put([]byte("dimensions"), buf)
-	})
-	if err != nil {
-		return errors.Wrap(err, "set dimensions")
+		return errors.Wrap(err, "marshal quantization data")
 	}
 
-	return nil
+	return m.bucket.Put(m.key(quantizationKey), serialized)
 }
 
-func (h *HFresh) setVectorSize(vectorSize int32) error {
-	err := h.openMetadata()
+func (m *MetadataStore) GetQuantizationData() (*QuantizationData, error) {
+	data, err := m.bucket.Get(m.key(quantizationKey))
 	if err != nil {
-		return err
+		return nil, errors.Wrap(err, "get quantization data")
 	}
-	defer h.closeMetadata()
-
-	err = h.metadata.Update(func(tx *bolt.Tx) error {
-		b := tx.Bucket([]byte(vectorMetadataBucket))
-		if b == nil {
-			return errors.New("failed to get bucket")
-		}
-		buf := make([]byte, 4)
-		binary.LittleEndian.PutUint32(buf, uint32(vectorSize))
-		return b.Put([]byte("vector_size"), buf)
-	})
-	if err != nil {
-		return errors.Wrap(err, "set vector size")
+	if data == nil {
+		return nil, nil // Not set yet
 	}
 
-	return nil
+	var qData QuantizationData
+	err = msgpack.Unmarshal(data, &qData)
+	if err != nil {
+		return nil, errors.Wrap(err, "unmarshal quantization data")
+	}
+
+	return &qData, nil
 }
 
-func (h *HFresh) restoreVectorSize() error {
-	err := h.openMetadata()
-	if err != nil {
-		return err
-	}
-	defer h.closeMetadata()
-
-	var vectorSize int32
-	err = h.metadata.View(func(tx *bolt.Tx) error {
-		b := tx.Bucket([]byte(vectorMetadataBucket))
-		if b == nil {
-			return nil
-		}
-		v := b.Get([]byte("vector_size"))
-		if v == nil {
-			return nil
-		}
-		vectorSize = int32(binary.LittleEndian.Uint32(v))
-		return nil
-	})
-	if err != nil {
-		return errors.Wrap(err, "restore vector size")
-	}
-
-	if vectorSize > 0 {
-		atomic.StoreInt32(&h.vectorSize, vectorSize)
-		h.PostingStore.vectorSize.Store(vectorSize)
-	}
-
-	return nil
+type QuantizationData struct {
+	RQ compressionhelpers.RQData `msgpack:"rq"`
 }
 
-// RQ data persistence and restoration functions
+func (h *HFresh) restoreMetadata() error {
+	dims, err := h.Metadata.GetDimensions()
+	if err != nil || dims == 0 {
+		return err
+	}
+	h.initDimensionsOnce.Do(func() {
+		atomic.StoreUint32(&h.dims, dims)
+		h.setMaxPostingSize()
 
-func (h *HFresh) persistRQData() error {
+		var quantization *QuantizationData
+		quantization, err = h.Metadata.GetQuantizationData()
+		if err != nil {
+			return
+		}
+
+		if quantization != nil {
+			err = h.restoreQuantizationData(&quantization.RQ)
+		}
+	})
+
+	return err
+}
+
+func (h *HFresh) persistQuantizationData() error {
 	if h.quantizer == nil {
 		return nil
 	}
 
-	err := h.openMetadata()
-	if err != nil {
-		return err
-	}
-	defer h.closeMetadata()
-
-	err = h.metadata.Update(func(tx *bolt.Tx) error {
-		b := tx.Bucket([]byte(vectorMetadataBucket))
-		if b == nil {
-			return errors.New("failed to get bucket")
-		}
-
-		// Create RQ data container with metadata
-		container := &RQDataContainer{}
-
-		rq1Data, err := h.serializeRQ1Data()
-		if err != nil {
-			return errors.Wrap(err, "serialize RQ8 data")
-		}
-		container.Data = rq1Data
-
-		// Serialize to msgpack
-		data, err := msgpack.Marshal(container)
-		if err != nil {
-			return errors.Wrap(err, "marshal RQ data container")
-		}
-
-		// Store the serialized data
-		return b.Put([]byte(quantizationKey), data)
+	return h.Metadata.SetQuantizationData(&QuantizationData{
+		RQ: h.quantizer.Data(),
 	})
-	if err != nil {
-		return errors.Wrap(err, "persist RQ data")
-	}
-
-	return nil
 }
 
-// serializeRQ1Data extracts RQ1 data from the quantizer and converts it to msgpack format
-func (index *HFresh) serializeRQ1Data() (*RQ1Data, error) {
-	// Use a custom commit logger to capture the BRQ data
-	captureLogger := &dataCaptureLogger{}
-	index.quantizer.PersistCompression(captureLogger)
-
-	if captureLogger.brqData == nil {
-		return nil, errors.New("no BRQ data captured from quantizer")
-	}
-
-	index.logger.Debugf("Captured BRQ data: InputDim=%d, OutputDim=%d, Rounds=%d, Swaps=%d, Signs=%d, Rounding=%d",
-		captureLogger.brqData.InputDim,
-		captureLogger.brqData.Rotation.OutputDim,
-		captureLogger.brqData.Rotation.Rounds,
-		len(captureLogger.brqData.Rotation.Swaps),
-		len(captureLogger.brqData.Rotation.Signs),
-		len(captureLogger.brqData.Rounding))
-
-	return &RQ1Data{
-		InputDim:  captureLogger.brqData.InputDim,
-		OutputDim: captureLogger.brqData.Rotation.OutputDim,
-		Rounds:    captureLogger.brqData.Rotation.Rounds,
-		Swaps:     captureLogger.brqData.Rotation.Swaps,
-		Signs:     captureLogger.brqData.Rotation.Signs,
-		Rounding:  captureLogger.brqData.Rounding,
-	}, nil
-}
-
-// dataCaptureLogger captures RQ data from quantizer PersistCompression calls
-type dataCaptureLogger struct {
-	rqData  *compressionhelpers.RQData
-	brqData *compressionhelpers.BRQData
-}
-
-func (d *dataCaptureLogger) AddRQCompression(data compressionhelpers.RQData) error {
-	d.rqData = &data
-	return nil
-}
-
-func (d *dataCaptureLogger) AddBRQCompression(data compressionhelpers.BRQData) error {
-	d.brqData = &data
-	return nil
-}
-
-func (d *dataCaptureLogger) AddPQCompression(data compressionhelpers.PQData) error {
-	return nil // Not used for flat index
-}
-
-func (d *dataCaptureLogger) AddSQCompression(data compressionhelpers.SQData) error {
-	return nil // Not used for flat index
-}
-
-func (h *HFresh) restoreRQData() error {
-	var container *RQDataContainer
-	var data []byte
-
-	err := h.metadata.View(func(tx *bolt.Tx) error {
-		b := tx.Bucket([]byte(vectorMetadataBucket))
-		if b == nil {
-			return nil // No metadata yet
-		}
-
-		// Check if RQ data exists
-		data = b.Get([]byte(quantizationKey))
-		return nil
-	})
-	if err != nil {
-		return errors.Wrap(err, "restore RQ data")
-	}
-	// No data found in bucket
-	if data == nil {
-		return nil
-	}
-
-	// Try to deserialize as msgpack
-	err = msgpack.Unmarshal(data, &container)
-	if err != nil {
-		return errors.New("failed to deserialize RQ data - unknown format")
-	}
-
-	// Handle the Data field manually since msgpack deserializes interface{} as map[string]interface{}
-	return h.handleDeserializedData(container)
-}
-
-// handleDeserializedData manually handles the Data field deserialization
-func (h *HFresh) handleDeserializedData(container *RQDataContainer) error {
-	// Deserialize the Data field as RQ8Data
-	dataBytes, err := msgpack.Marshal(container.Data)
-	if err != nil {
-		return errors.Wrap(err, "marshal container data for RQ8")
-	}
-
-	var rq1Data RQ1Data
-	if err := msgpack.Unmarshal(dataBytes, &rq1Data); err != nil {
-		return errors.Wrap(err, "unmarshal RQ8Data")
-	}
-
-	h.logger.Warnf("Successfully deserialized RQ8Data: InputDim=%d",
-		rq1Data.InputDim)
-	return h.restoreRQ1FromMsgpack(&rq1Data)
-}
-
-// restoreRQ8FromMsgpack restores RQ1 quantizer from msgpack data
-func (h *HFresh) restoreRQ1FromMsgpack(rq1Data *RQ1Data) error {
-	// Restore the RQ1 quantizer
-	rq, err := compressionhelpers.RestoreBinaryRotationalQuantizer(
-		int(rq1Data.InputDim),
-		int(rq1Data.OutputDim),
-		int(rq1Data.Rounds),
-		rq1Data.Swaps,
-		rq1Data.Signs,
-		rq1Data.Rounding,
+// restoreQuantizationData restores RQ quantizer from msgpack data
+func (h *HFresh) restoreQuantizationData(rqData *compressionhelpers.RQData) error {
+	// Restore the RQ quantizer
+	rq, err := compressionhelpers.RestoreRotationalQuantizer(
+		int(rqData.InputDim),
+		int(rqData.Bits),
+		int(rqData.Rotation.OutputDim),
+		int(rqData.Rotation.Rounds),
+		rqData.Rotation.Swaps,
+		rqData.Rotation.Signs,
 		h.config.DistanceProvider,
 	)
 	if err != nil {
-		return errors.Wrap(err, "restore binary rotational quantizer from msgpack")
+		return errors.Wrap(err, "restore rotational quantizer from msgpack")
 	}
 
 	h.quantizer = rq
@@ -397,11 +154,37 @@ func (h *HFresh) restoreRQ1FromMsgpack(rq1Data *RQ1Data) error {
 		distancer: h.config.DistanceProvider,
 	}
 
-	// Restore vector size if available
-	if err := h.restoreVectorSize(); err != nil {
-		h.logger.Warnf("HFresh index unable to restore vector size: %v", err)
+	return nil
+}
+
+// BucketStore is a SequenceStore implementation that uses the LSM store as the backend.
+type BucketStore struct {
+	bucket *lsmkv.Bucket
+	key    []byte
+}
+
+func NewBucketStore(bucket *lsmkv.Bucket) *BucketStore {
+	return &BucketStore{
+		bucket: bucket,
+		key:    []byte(postingSequenceKey),
+	}
+}
+
+func (s *BucketStore) Store(upperBound uint64) error {
+	var buf [8]byte
+	binary.LittleEndian.PutUint64(buf[:], upperBound)
+
+	return s.bucket.Put(s.key, buf[:])
+}
+
+func (s *BucketStore) Load() (uint64, error) {
+	v, err := s.bucket.Get(s.key)
+	if err != nil {
+		return 0, err
+	}
+	if v == nil {
+		return 0, nil // Not set yet
 	}
 
-	h.PostingStore.Init(h.vectorSize)
-	return nil
+	return binary.LittleEndian.Uint64(v), nil
 }

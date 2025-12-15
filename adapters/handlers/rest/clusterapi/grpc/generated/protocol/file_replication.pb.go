@@ -733,13 +733,13 @@ const file_protocol_file_replication_proto_rawDesc = "" +
 	"\x1cCOMPRESSION_TYPE_UNSPECIFIED\x10\x00\x12\x19\n" +
 	"\x15COMPRESSION_TYPE_GZIP\x10\x01\x12\x19\n" +
 	"\x15COMPRESSION_TYPE_ZLIB\x10\x02\x12\x1c\n" +
-	"\x18COMPRESSION_TYPE_DEFLATE\x10\x032\xc0\x03\n" +
+	"\x18COMPRESSION_TYPE_DEFLATE\x10\x032\xba\x03\n" +
 	"\x16FileReplicationService\x12`\n" +
 	"\x11PauseFileActivity\x12$.clusterapi.PauseFileActivityRequest\x1a%.clusterapi.PauseFileActivityResponse\x12c\n" +
 	"\x12ResumeFileActivity\x12%.clusterapi.ResumeFileActivityRequest\x1a&.clusterapi.ResumeFileActivityResponse\x12H\n" +
-	"\tListFiles\x12\x1c.clusterapi.ListFilesRequest\x1a\x1d.clusterapi.ListFilesResponse\x12S\n" +
-	"\x0fGetFileMetadata\x12\".clusterapi.GetFileMetadataRequest\x1a\x18.clusterapi.FileMetadata(\x010\x01\x12@\n" +
-	"\aGetFile\x12\x1a.clusterapi.GetFileRequest\x1a\x15.clusterapi.FileChunk(\x010\x01B\xa1\x01\n" +
+	"\tListFiles\x12\x1c.clusterapi.ListFilesRequest\x1a\x1d.clusterapi.ListFilesResponse\x12O\n" +
+	"\x0fGetFileMetadata\x12\".clusterapi.GetFileMetadataRequest\x1a\x18.clusterapi.FileMetadata\x12>\n" +
+	"\aGetFile\x12\x1a.clusterapi.GetFileRequest\x1a\x15.clusterapi.FileChunk0\x01B\xa1\x01\n" +
 	"\x0ecom.clusterapiB\x14FileReplicationProtoP\x01Z1github.com/weaviate/weaviate/cloud/proto/protocol\xa2\x02\x03CXX\xaa\x02\n" +
 	"Clusterapi\xca\x02\n" +
 	"Clusterapi\xe2\x02\x16Clusterapi\\GPBMetadata\xea\x02\n" +

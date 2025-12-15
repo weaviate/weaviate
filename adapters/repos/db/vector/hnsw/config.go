@@ -51,6 +51,8 @@ type Config struct {
 	ClassName string
 
 	VisitedListPoolMaxSize int
+
+	AsyncIndexingEnabled bool
 }
 
 func (c Config) Validate() error {

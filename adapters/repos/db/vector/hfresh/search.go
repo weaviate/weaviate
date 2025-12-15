@@ -32,7 +32,7 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 	queryVector := NewAnonymousVector(h.quantizer.CompressedBytes(h.quantizer.Encode(vector)))
 
 	var selectedCentroids []uint64
-	var postings []*Posting
+	var postings []Posting
 
 	// If k is larger than the configured number of candidates, use k as the candidate number
 	// to enlarge the search space.
@@ -41,6 +41,9 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 	centroids, err := h.Centroids.Search(vector, candidateCentroidNum)
 	if err != nil {
 		return nil, nil, err
+	}
+	if len(centroids.data) == 0 {
+		return nil, nil, nil
 	}
 
 	q := NewResultSet(rescoreLimit)
@@ -81,10 +84,10 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 		}
 
 		// keep track of the posting size
-		postingSize := p.Len()
+		postingSize := len(p)
 		totalVectors += postingSize
 
-		for _, v := range p.Iter() {
+		for _, v := range p {
 			id := v.ID()
 			// skip deleted vectors
 			deleted, err := h.VersionMap.IsDeleted(context.Background(), id)
