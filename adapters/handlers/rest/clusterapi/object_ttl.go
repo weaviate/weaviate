@@ -111,8 +111,6 @@ func (d *ObjectTTL) incomingDelete() http.Handler {
 			return
 		}
 
-		d.logger.WithFields(logrus.Fields{"action": "incoming_delete_expired_objects", "classes": len(body)}).Info("received request to delete expired objects")
-
 		// run the deletion in a separate goroutine to free up the HTTP handler immediately
 		enterrors.GoWrapper(func() {
 			// make sure to unlock the requestRunning flag when all deletions are done
@@ -120,22 +118,29 @@ func (d *ObjectTTL) incomingDelete() http.Handler {
 
 			var err error
 			started := time.Now()
+			// count objects deleted per collection
 			objsDeletedCounters := make(objectttl.DeletedCounters, len(body))
+			colNames := make([]string, len(body))
+			for i := range body {
+				colNames[i] = body[i].Class
+			}
 
-			l := d.logger.WithFields(logrus.Fields{
-				"action": "objects_ttl_deletion",
-			})
-			l.Info("incoming ttl deletion on remote node started")
+			logger := d.logger.WithField("action", "objects_ttl_deletion")
+			logger.WithFields(logrus.Fields{
+				"collections":       colNames,
+				"collections_total": len(colNames),
+			}).Info("incoming ttl deletion on remote node started")
 			defer func() {
+				// add fields c_{collection_name}=>{count_deleted} and total_deleted=>{total_deleted}
 				fields := objsDeletedCounters.ToLogFields(16)
 				fields["took"] = time.Since(started).String()
-				l = l.WithFields(fields)
+				logger = logger.WithFields(fields)
 
 				if err != nil {
-					l.WithError(err).Error("incoming ttl deletion on remote node failed")
+					logger.WithError(err).Error("incoming ttl deletion on remote node failed")
 					return
 				}
-				l.Info("incoming ttl deletion on remote node finished")
+				logger.Info("incoming ttl deletion on remote node finished")
 			}()
 
 			ec := errorcompounder.NewSafe()
