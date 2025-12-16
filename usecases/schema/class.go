@@ -992,6 +992,25 @@ func validateImmutableFields(initial, updated *models.Class) error {
 		}
 	}
 
+	// changing indexing not allowed
+	compareIndexSetting := func(name string, extractVal func(config *models.InvertedIndexConfig) bool) error {
+		initialVal := initial.InvertedIndexConfig != nil && extractVal(initial.InvertedIndexConfig)
+		updatedVal := updated.InvertedIndexConfig != nil && extractVal(updated.InvertedIndexConfig)
+		if initialVal != updatedVal {
+			return fmt.Errorf("%q setting is immutable. Value changed from \"%v\" to \"%v\"", name, initialVal, updatedVal)
+		}
+		return nil
+	}
+	if err := compareIndexSetting("indexTimestamp", func(config *models.InvertedIndexConfig) bool { return config.IndexTimestamps }); err != nil {
+		return err
+	}
+	if err := compareIndexSetting("indexNullState", func(config *models.InvertedIndexConfig) bool { return config.IndexNullState }); err != nil {
+		return err
+	}
+	if err := compareIndexSetting("indexPropertyLength", func(config *models.InvertedIndexConfig) bool { return config.IndexPropertyLength }); err != nil {
+		return err
+	}
+
 	return nil
 }
 
