@@ -13,8 +13,6 @@ package hfresh
 
 import (
 	"context"
-	"fmt"
-	"os"
 	"time"
 
 	"github.com/pkg/errors"
@@ -175,12 +173,6 @@ func (h *HFresh) doSplit(ctx context.Context, postingID uint64, reassign bool) e
 func (h *HFresh) splitPosting(posting Posting) ([]SplitResult, error) {
 	defaultK := 4
 	k := min(int(len(posting)/int(h.maxPostingSize))+1, defaultK)
-	if k < 2 {
-		fmt.Println("length of posting: ", len(posting))
-		fmt.Println("max posting size: ", h.maxPostingSize)
-		fmt.Println("k is less than 2 ", k)
-		os.Exit(1)
-	}
 	enc := compressionhelpers.NewKMeansEncoder(k, int(h.dims), 0)
 
 	data := posting.Uncompress(h.quantizer)
