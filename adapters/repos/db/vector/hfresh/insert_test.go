@@ -53,6 +53,7 @@ func TestHFreshOptimizedPostingSize(t *testing.T) {
 	vector := make([]float32, 100)
 
 	t.Run("max posting size computed by the index", func(t *testing.T) {
+		uc.MaxPostingSize = 0 // it means that it will be computed dynamically by the index
 		index, err := New(cfg, uc, store)
 		require.NoError(t, err)
 		defer index.Shutdown(t.Context())
