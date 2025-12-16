@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package replica
+package metrics
 
 import (
 	"errors"
@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -27,7 +28,7 @@ var (
 	readRepairDurationBuckets = prometheus.ExponentialBuckets(0.001, 2, 18)   // ~1ms to 136s
 )
 
-type Metrics struct {
+type Replication struct {
 	monitoring bool
 
 	// Write Metrics
@@ -50,8 +51,8 @@ type Metrics struct {
 	readRepairDuration prometheus.Histogram
 }
 
-func NewMetrics(prom *monitoring.PrometheusMetrics) (*Metrics, error) {
-	m := &Metrics{}
+func NewMetrics(prom *monitoring.PrometheusMetrics) (*Replication, error) {
+	m := &Replication{}
 
 	if prom == nil {
 		return m, nil
@@ -171,19 +172,19 @@ func newHistogram(reg prometheus.Registerer, name, help string, buckets []float6
 
 // Write increment methods
 
-func (m *Metrics) IncWritesSucceedAll() {
+func (m *Replication) IncWritesSucceedAll() {
 	if m.monitoring {
 		m.writesSucceedAll.Inc()
 	}
 }
 
-func (m *Metrics) IncWritesSucceedSome() {
+func (m *Replication) IncWritesSucceedSome() {
 	if m.monitoring {
 		m.writesSucceedSome.Inc()
 	}
 }
 
-func (m *Metrics) IncWritesFailed() {
+func (m *Replication) IncWritesFailed() {
 	if m.monitoring {
 		m.writesFailed.Inc()
 	}
@@ -191,19 +192,19 @@ func (m *Metrics) IncWritesFailed() {
 
 // Read increment methods
 
-func (m *Metrics) IncReadsSucceedAll() {
+func (m *Replication) IncReadsSucceedAll() {
 	if m.monitoring {
 		m.readsSucceedAll.Inc()
 	}
 }
 
-func (m *Metrics) IncReadsSucceedSome() {
+func (m *Replication) IncReadsSucceedSome() {
 	if m.monitoring {
 		m.readsSucceedSome.Inc()
 	}
 }
 
-func (m *Metrics) IncReadsFailed() {
+func (m *Replication) IncReadsFailed() {
 	if m.monitoring {
 		m.readsFailed.Inc()
 	}
@@ -211,13 +212,13 @@ func (m *Metrics) IncReadsFailed() {
 
 // Read repair increment methods
 
-func (m *Metrics) IncReadRepairCount() {
+func (m *Replication) IncReadRepairCount() {
 	if m.monitoring {
 		m.readRepairCount.Inc()
 	}
 }
 
-func (m *Metrics) IncReadRepairFailure() {
+func (m *Replication) IncReadRepairFailure() {
 	if m.monitoring {
 		m.readRepairFailure.Inc()
 	}
@@ -225,19 +226,19 @@ func (m *Metrics) IncReadRepairFailure() {
 
 // Duration observation methods
 
-func (m *Metrics) ObserveWriteDuration(d time.Duration) {
+func (m *Replication) ObserveWriteDuration(d time.Duration) {
 	if m.monitoring {
 		m.writeDuration.Observe(d.Seconds())
 	}
 }
 
-func (m *Metrics) ObserveReadDuration(d time.Duration) {
+func (m *Replication) ObserveReadDuration(d time.Duration) {
 	if m.monitoring {
 		m.readDuration.Observe(d.Seconds())
 	}
 }
 
-func (m *Metrics) ObserveReadRepairDuration(d time.Duration) {
+func (m *Replication) ObserveReadRepairDuration(d time.Duration) {
 	if m.monitoring {
 		m.readRepairDuration.Observe(d.Seconds())
 	}
