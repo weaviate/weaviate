@@ -164,7 +164,7 @@ func (c *Coordinator) triggerDeletionObjectsExpiredLocalNode(ctx context.Context
 
 	ec := errorcompounder.NewSafe()
 	eg := enterrors.NewErrorGroupWrapper(c.logger)
-	eg.SetLimit(concurrency.TimesFloatGOMAXPROCS(c.db.GetConfig().ObjectsTTLConcurrencyFactor))
+	eg.SetLimit(concurrency.TimesFloatGOMAXPROCS(c.db.GetConfig().ObjectsTTLConcurrencyFactor.Get()))
 
 	for name, collection := range classesWithTTL {
 		if err := ctx.Err(); err != nil {

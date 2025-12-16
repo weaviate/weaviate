@@ -238,11 +238,11 @@ type Config struct {
 
 	// Time expired objects should be deleted at by background routine
 	// accepts format: https://github.com/netresearch/go-cron?tab=readme-ov-file#cron-expression-format
-	ObjectsTTLDeleteSchedule    string  `json:"objects_ttl_delete_schedule" yaml:"objects_ttl_delete_schedule"`
-	ObjectsTTLAllowSeconds      bool    `json:"objects_ttl_allow_seconds" yaml:"objects_ttl_allow_seconds"`
-	ObjectsTTLFindBatchSize     int     `json:"objects_ttl_find_batch_size" yaml:"objects_ttl_find_batch_size"`
-	ObjectsTTLDeleteBatchSize   int     `json:"objects_ttl_delete_batch_size" yaml:"objects_ttl_delete_batch_size"`
-	ObjectsTTLConcurrencyFactor float64 `json:"objects_ttl_concurrency_factor" yaml:"objects_ttl_concurrency_factor"`
+	ObjectsTTLDeleteSchedule    string                         `json:"objects_ttl_delete_schedule" yaml:"objects_ttl_delete_schedule"`
+	ObjectsTTLAllowSeconds      bool                           `json:"objects_ttl_allow_seconds" yaml:"objects_ttl_allow_seconds"`
+	ObjectsTTLFindBatchSize     *runtime.DynamicValue[int]     `json:"objects_ttl_find_batch_size" yaml:"objects_ttl_find_batch_size"`
+	ObjectsTTLDeleteBatchSize   *runtime.DynamicValue[int]     `json:"objects_ttl_delete_batch_size" yaml:"objects_ttl_delete_batch_size"`
+	ObjectsTTLConcurrencyFactor *runtime.DynamicValue[float64] `json:"objects_ttl_concurrency_factor" yaml:"objects_ttl_concurrency_factor"`
 
 	// The specific mode of operation for the instance itself. Is an enum of Full, WriteOnly, ReadOnly, ScaleOut
 	OperationalMode *runtime.DynamicValue[string] `json:"operational_mode" yaml:"operational_mode"`
