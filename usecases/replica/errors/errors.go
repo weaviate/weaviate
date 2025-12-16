@@ -204,6 +204,7 @@ func NewNotReadyError(className string) *Error {
 		Err:  fmt.Errorf("class %q not ready", className),
 	}
 }
+
 func IsNotReadyError(err error) bool {
 	replicaErr := &Error{}
 	errors.As(err, &replicaErr)
