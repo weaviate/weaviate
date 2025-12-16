@@ -124,22 +124,29 @@ func (c *Coordinator) triggerDeletionObjectsExpiredLocalNode(ctx context.Context
 	ttlTime, deletionTime time.Time,
 ) (err error) {
 	started := time.Now()
+	// count objects deleted per collection
 	objsDeletedCounters := make(DeletedCounters, len(classesWithTTL))
+	colNames := make([]string, 0, len(classesWithTTL))
+	for colName := range classesWithTTL {
+		colNames = append(colNames, colName)
+	}
 
-	l := c.logger.WithFields(logrus.Fields{
-		"action": "objects_ttl_deletion",
-	})
-	l.Info("ttl deletion on local node started")
+	logger := c.logger.WithField("action", "objects_ttl_deletion")
+	logger.WithFields(logrus.Fields{
+		"collections":       colNames,
+		"collections_total": len(colNames),
+	}).Info("ttl deletion on local node started")
 	defer func() {
+		// add fields c_{collection_name}=>{count_deleted} and total_deleted=>{total_deleted}
 		fields := objsDeletedCounters.ToLogFields(16)
 		fields["took"] = time.Since(started).String()
-		l = l.WithFields(fields)
+		logger = logger.WithFields(fields)
 
 		if err != nil {
-			l.WithError(err).Error("ttl deletion on local node failed")
+			logger.WithError(err).Error("ttl deletion on local node failed")
 			return
 		}
-		l.Info("ttl deletion on local node finished")
+		logger.Info("ttl deletion on local node finished")
 	}()
 
 	ec := errorcompounder.NewSafe()

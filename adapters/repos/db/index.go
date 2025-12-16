@@ -2244,9 +2244,11 @@ func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.
 				}
 
 				tenants2uuids, err := i.findUUIDs(ctx, filter, tenant, replProps)
-				// skip inactive tenants
-				if err != nil && !errors.Is(err, enterrors.ErrTenantNotActive) {
-					ec.AddGroups(fmt.Errorf("find uuids: %w", err), class.Class, tenant)
+				if err != nil {
+					// skip inactive tenants
+					if !errors.Is(err, enterrors.ErrTenantNotActive) {
+						ec.AddGroups(fmt.Errorf("find uuids: %w", err), class.Class, tenant)
+					}
 					return nil
 				}
 
@@ -2330,14 +2332,14 @@ func (i *Index) incomingDeleteObjectsExpiredUuids(ctx context.Context, eg *enter
 		}
 
 		to := min(len(uuids), from+batchSize)
-		uuids := uuids[from:to]
+		batch := uuids[from:to]
 
 		// try running in other goroutine (if available), otherwise run in current one
 		if !eg.TryGo(func() error {
-			ec.AddGroups(f(uuids), collection, inputKey)
+			ec.AddGroups(f(batch), collection, inputKey)
 			return nil
 		}) {
-			ec.AddGroups(f(uuids), collection, inputKey)
+			ec.AddGroups(f(batch), collection, inputKey)
 		}
 	}
 }
