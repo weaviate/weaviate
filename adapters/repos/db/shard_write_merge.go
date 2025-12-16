@@ -17,13 +17,13 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
+	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 )
-
-var errObjectNotFound = errors.New("object not found")
 
 func (s *Shard) MergeObject(ctx context.Context, merge objects.MergeDocument) error {
 	s.activityTrackerWrite.Add(1)
@@ -144,7 +144,7 @@ func (s *Shard) mergeObjectInStorage(merge objects.MergeDocument,
 		}
 
 		if prevObj == nil {
-			return errObjectNotFound
+			return replicaerrors.NewObjectNotFoundError(err)
 		}
 
 		obj, _, err = s.mergeObjectData(prevObj, merge)

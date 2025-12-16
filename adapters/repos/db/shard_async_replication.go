@@ -30,6 +30,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/cluster/router/types"
@@ -41,7 +42,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
-	"github.com/weaviate/weaviate/usecases/replica"
+	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 )
 
@@ -731,7 +732,7 @@ func (s *Shard) initHashBeater(ctx context.Context, config asyncReplicationConfi
 					if s.asyncReplicationStatsByTargetNode == nil {
 						s.asyncReplicationStatsByTargetNode = make(map[string]*hashBeatHostStats)
 					}
-					if (err == nil || errors.Is(err, replica.ErrNoDiffFound)) && stats != nil {
+					if (err == nil || replicaerrors.IsNoDiffFoundError(err)) && stats != nil {
 						for _, stat := range stats {
 							if stat != nil {
 								s.index.logger.WithFields(logrus.Fields{
@@ -754,7 +755,7 @@ func (s *Shard) initHashBeater(ctx context.Context, config asyncReplicationConfi
 						return
 					}
 
-					if errors.Is(err, replica.ErrNoDiffFound) {
+					if replicaerrors.IsNoDiffFoundError(err) {
 						if time.Since(lastLog) >= config.loggingFrequency {
 							lastLog = time.Now()
 
@@ -920,7 +921,7 @@ func (s *Shard) hashBeat(ctx context.Context, config asyncReplicationConfig) (st
 	s.metrics.IncAsyncReplicationIterationCount()
 
 	defer func() {
-		if err != nil && !errors.Is(err, replica.ErrNoDiffFound) {
+		if err != nil && !replicaerrors.IsNoDiffFoundError(err) {
 			s.metrics.IncAsyncReplicationIterationFailureCount()
 			return
 		}
@@ -943,7 +944,7 @@ func (s *Shard) hashBeat(ctx context.Context, config asyncReplicationConfig) (st
 
 	shardDiffReader, err := s.index.replicator.CollectShardDifferences(ctx, s.name, ht, config.diffPerNodeTimeout, config.targetNodeOverrides)
 	if err != nil {
-		if errors.Is(err, replica.ErrNoDiffFound) && len(config.targetNodeOverrides) > 0 {
+		if replicaerrors.IsNoDiffFoundError(err) && len(config.targetNodeOverrides) > 0 {
 			stats := make([]*hashBeatHostStats, 0, len(config.targetNodeOverrides))
 			for _, o := range config.targetNodeOverrides {
 				stats = append(stats, &hashBeatHostStats{

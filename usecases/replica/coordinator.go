@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/cluster/utils"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 )
 
 const (
@@ -142,11 +143,12 @@ func (c *coordinator[T]) broadcast(ctx context.Context,
 		}
 		if level > 0 { // abort: nothing has been sent to the caller
 			fs := logrus.Fields{"op": "broadcast", "active": len(actives), "total": len(replicas)}
-			c.log.WithFields(fs).Error("abort")
+			c.log.WithFields(fs).Warn("abort")
 			for _, node := range replicas {
 				c.Abort(ctx, node, c.Class, c.Shard, c.TxID)
 			}
-			resChan <- _Result[string]{Err: fmt.Errorf("broadcast: %w", ErrReplicas)}
+			underlyingErr := fmt.Errorf("broadcast aborted: active=%d total=%d level=%d", len(actives), len(replicas), level)
+			resChan <- _Result[string]{Err: replicaerrors.NewReplicasError(underlyingErr)}
 		}
 	}
 	enterrors.GoWrapper(f, c.log)

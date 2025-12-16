@@ -13,7 +13,6 @@ package replica
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"math/rand"
 	"strings"
@@ -30,18 +29,8 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
+	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
-)
-
-var (
-	// MsgCLevel consistency level cannot be achieved
-	MsgCLevel = "cannot achieve consistency level"
-
-	ErrReplicas = errors.New("cannot reach enough replicas")
-	ErrRepair   = errors.New("read repair error")
-	ErrRead     = errors.New("read error")
-
-	ErrNoDiffFound = errors.New("no diff found")
 )
 
 type (
@@ -135,11 +124,11 @@ func (f *Finder) GetOne(ctx context.Context,
 	replyCh, level, err := c.Pull(ctx, l, op, "", 20*time.Second)
 	if err != nil {
 		f.log.WithField("op", "pull.one").Error(err)
-		return nil, fmt.Errorf("%s %q: %w", MsgCLevel, l, ErrReplicas)
+		// failure to reach enough replicas at the coordinator level
+		return nil, replicaerrors.NewReplicasError(err, l)
 	}
 	result := <-f.readOne(ctx, shard, id, replyCh, level)
 	if err = result.Err; err != nil {
-		err = fmt.Errorf("%s %q: %w", MsgCLevel, l, err)
 		if strings.Contains(err.Error(), ErrConflictExistOrDeleted.Error()) {
 			err = objects.NewErrDirtyReadOfDeletedObject(err)
 		}
@@ -160,7 +149,7 @@ func (f *Finder) FindUUIDs(ctx context.Context,
 	replyCh, _, err := c.Pull(ctx, l, op, "", 30*time.Second)
 	if err != nil {
 		f.log.WithField("op", "pull.one").Error(err)
-		return nil, fmt.Errorf("%s %q: %w", MsgCLevel, l, ErrReplicas)
+		return nil, replicaerrors.NewReplicasError(err, l)
 	}
 
 	res := make(map[strfmt.UUID]struct{})
@@ -249,11 +238,13 @@ func (f *Finder) Exists(ctx context.Context,
 	replyCh, state, err := c.Pull(ctx, l, op, "", 20*time.Second)
 	if err != nil {
 		f.log.WithField("op", "pull.exist").Error(err)
-		return false, fmt.Errorf("%s %q: %w", MsgCLevel, l, ErrReplicas)
+		// failure to reach enough replicas at the coordinator level
+		return false, replicaerrors.NewReplicasError(err, l)
 	}
 	result := <-f.readExistence(ctx, shard, id, replyCh, state)
 	if err = result.Err; err != nil {
-		err = fmt.Errorf("%s %q: %w", MsgCLevel, l, err)
+		// preserve underlying classification from the stream
+		// (read/repair vs generic replicas errors)
 		if strings.Contains(err.Error(), ErrConflictExistOrDeleted.Error()) {
 			err = objects.NewErrDirtyReadOfDeletedObject(err)
 		}
@@ -300,7 +291,7 @@ func (f *Finder) checkShardConsistency(ctx context.Context,
 
 	replyCh, state, err := c.Pull(ctx, l, op, batch.Node, 20*time.Second)
 	if err != nil {
-		return nil, fmt.Errorf("pull shard: %w", ErrReplicas)
+		return nil, replicaerrors.NewReplicasError(err, l)
 	}
 	result := <-f.readBatchPart(ctx, batch, ids, replyCh, state)
 	return result.Value, result.Err
@@ -363,7 +354,7 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 			return &ShardDifferenceReader{
 				TargetNodeName:    targetNodeName,
 				TargetNodeAddress: targetNodeAddress,
-			}, ErrNoDiffFound
+			}, replicaerrors.NewNoDiffFoundError(err)
 		}
 
 		return &ShardDifferenceReader{
@@ -417,7 +408,7 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 
 		diffReader, err := collectDiffForTargetNode(targetNodeAddress, targetNodeName)
 		if err != nil {
-			if !errors.Is(err, ErrNoDiffFound) {
+			if !replicaerrors.IsNoDiffFoundError(err) {
 				ec.Add(err)
 			}
 			continue
@@ -431,7 +422,7 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 		return nil, err
 	}
 
-	return &ShardDifferenceReader{}, ErrNoDiffFound
+	return &ShardDifferenceReader{}, replicaerrors.NewNoDiffFoundError(err)
 }
 
 func (f *Finder) DigestObjectsInRange(ctx context.Context,
