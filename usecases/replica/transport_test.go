@@ -34,34 +34,14 @@ func TestReplicationErrorTimeout(t *testing.T) {
 }
 
 func TestReplicationErrorMarshal(t *testing.T) {
-	rawErr := replicaerrors.Error{Code: replicaerrors.StatusClassNotFound, Msg: "Article", Err: errors.New("error cannot be marshalled")}
-	bytes, err := json.Marshal(&rawErr)
-	assert.Nil(t, err)
-	got := replicaerrors.NewNotFoundError(nil)
-	assert.Nil(t, json.Unmarshal(bytes, got))
-	want := &replicaerrors.Error{Code: replicaerrors.StatusClassNotFound, Msg: "Article"}
-	assert.Equal(t, want, got)
-}
+	rawErr := replicaerrors.NewClassNotFoundError("Article", errors.New("error cannot be marshalled"))
 
-func TestReplicationErrorStatus(t *testing.T) {
-	tests := []struct {
-		code replicaerrors.StatusCode
-		desc string
-	}{
-		{-1, ""},
-		{replicaerrors.StatusOK, "ok"},
-		{replicaerrors.StatusClassNotFound, "class not found"},
-		{replicaerrors.StatusShardNotFound, "shard not found"},
-		{replicaerrors.StatusNotFound, "not found"},
-		{replicaerrors.StatusAlreadyExisted, "already existed"},
-		{replicaerrors.StatusConflict, "conflict"},
-		{replicaerrors.StatusPreconditionFailed, "precondition failed"},
-		{replicaerrors.StatusReadOnly, "read only"},
-	}
-	for _, test := range tests {
-		got := replicaerrors.StatusText(test.code)
-		if got != test.desc {
-			t.Errorf("StatusText(%d) want %v got %v", test.code, test.desc, got)
-		}
-	}
+	bytes, err := json.Marshal(rawErr)
+	assert.Nil(t, err)
+
+	got := &replicaerrors.Error{}
+	assert.Nil(t, json.Unmarshal(bytes, got))
+
+	assert.Equal(t, rawErr.Code, got.Code)
+	assert.Equal(t, rawErr.Msg, got.Msg)
 }

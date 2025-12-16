@@ -135,13 +135,13 @@ func (db *DB) AbortReplication(class,
 func (db *DB) replicatedIndex(name string) (idx *Index, resp *replica.SimpleResponse) {
 	if !db.StartupComplete() {
 		return nil, &replica.SimpleResponse{Errors: []replicaerrors.Error{
-			*replicaerrors.NewNotReadyError(fmt.Errorf("collection name %s", name)),
+			*replicaerrors.NewNotReadyError(name),
 		}}
 	}
 
 	if idx = db.GetIndex(schema.ClassName(name)); idx == nil {
 		return nil, &replica.SimpleResponse{Errors: []replicaerrors.Error{
-			*replicaerrors.NewNotFoundError(fmt.Errorf("collection name %s", name)),
+			*replicaerrors.NewClassNotFoundError(name),
 		}}
 	}
 	return idx, resp
@@ -151,15 +151,15 @@ func (i *Index) writableShard(ctx context.Context, name string) (ShardLike, func
 	localShard, release, err := i.getOrInitShard(ctx, name)
 	if err != nil {
 		return nil, func() {}, &replica.SimpleResponse{Errors: []replicaerrors.Error{
-			{Code: replicaerrors.StatusShardNotFound, Msg: name, Err: err},
+			*replicaerrors.NewShardNotFoundError(name, err),
 		}}
 	}
 	if localShard.isReadOnly() != nil {
 		release()
 
-		return nil, func() {}, &replica.SimpleResponse{Errors: []replicaerrors.Error{{
-			Code: replicaerrors.StatusReadOnly, Msg: name,
-		}}}
+		return nil, func() {}, &replica.SimpleResponse{Errors: []replicaerrors.Error{
+			*replicaerrors.NewReadOnlyError(name, err),
+		}}
 	}
 	return localShard, release, nil
 }
@@ -236,7 +236,7 @@ func (i *Index) CommitReplication(shard, requestID string) interface{} {
 	localShard, release, err := i.getOrInitShard(context.Background(), shard)
 	if err != nil {
 		return replica.SimpleResponse{Errors: []replicaerrors.Error{
-			{Code: replicaerrors.StatusShardNotFound, Msg: shard, Err: err},
+			*replicaerrors.NewShardNotFoundError(shard, err),
 		}}
 	}
 
@@ -251,7 +251,7 @@ func (i *Index) AbortReplication(shard, requestID string) interface{} {
 	localShard, release, err := i.getOrInitShard(context.Background(), shard)
 	if err != nil {
 		return replica.SimpleResponse{Errors: []replicaerrors.Error{
-			{Code: replicaerrors.StatusShardNotFound, Msg: shard, Err: err},
+			*replicaerrors.NewShardNotFoundError(shard, err),
 		}}
 	}
 

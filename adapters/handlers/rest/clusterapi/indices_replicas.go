@@ -975,13 +975,7 @@ func (i *replicatedIndices) postRefs() http.Handler {
 }
 
 func localIndexNotReady(resp replica.SimpleResponse) bool {
-	if err := resp.FirstError(); err != nil {
-		var replicaErr *replicaerrors.Error
-		if errors.As(err, &replicaErr) && replicaErr.IsStatusCode(replicaerrors.StatusNotReady) {
-			return true
-		}
-	}
-	return false
+	return replicaerrors.IsNotReadyError(resp.FirstError())
 }
 
 // Close gracefully shuts down the replicatedIndices by draining the queue and waiting for workers to finish
