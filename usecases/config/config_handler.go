@@ -72,7 +72,7 @@ const (
 )
 
 const (
-	DefaultObjectsTTLBatchSize         = 1000
+	DefaultObjectsTTLBatchSize         = 10000
 	DefaultObjectsTTLConcurrencyFactor = 1
 )
 
