@@ -27,18 +27,18 @@ const (
 )
 
 func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
-	rescoreLimit := k + 5
+	rescoreLimit := int(min(h.rescoreLimit, h.searchProbe)) // Todo: Remove this line when we add support on the benchmarker for lowering the rescore limit too
 	vector = h.normalizeVec(vector)
-	queryVector := NewAnonymousVector(h.quantizer.Encode(vector))
+	queryVector := NewAnonymousVector(h.quantizer.CompressedBytes(h.quantizer.Encode(vector)))
 
-	var selected []uint64
+	var selectedCentroids []uint64
 	var postings []Posting
 
 	// If k is larger than the configured number of candidates, use k as the candidate number
 	// to enlarge the search space.
-	candidateNum := max(rescoreLimit, int(h.searchProbe))
+	candidateCentroidNum := max(k, int(h.searchProbe))
 
-	centroids, err := h.Centroids.Search(vector, candidateNum)
+	centroids, err := h.Centroids.Search(vector, candidateCentroidNum)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -52,8 +52,8 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 	maxDist := centroids.data[0].Distance * h.config.MaxDistanceRatio
 
 	// filter out candidates that are too far away or have no vectors
-	selected = make([]uint64, 0, candidateNum)
-	for i := 0; i < len(centroids.data) && len(selected) < candidateNum; i++ {
+	selectedCentroids = make([]uint64, 0, candidateCentroidNum)
+	for i := 0; i < len(centroids.data) && len(selectedCentroids) < candidateCentroidNum; i++ {
 		if maxDist > pruningMinMaxDistance && centroids.data[i].Distance > maxDist {
 			continue
 		}
@@ -65,11 +65,11 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 			continue
 		}
 
-		selected = append(selected, centroids.data[i].ID)
+		selectedCentroids = append(selectedCentroids, centroids.data[i].ID)
 	}
 
 	// read all the selected postings
-	postings, err = h.PostingStore.MultiGet(ctx, selected)
+	postings, err = h.PostingStore.MultiGet(ctx, selectedCentroids)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -121,9 +121,9 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 		// if the posting size is lower than the configured minimum,
 		// enqueue a merge operation
 		if postingSize < int(h.minPostingSize) {
-			err = h.taskQueue.EnqueueMerge(selected[i])
+			err = h.taskQueue.EnqueueMerge(selectedCentroids[i])
 			if err != nil {
-				return nil, nil, errors.Wrapf(err, "failed to enqueue merge for posting %d", selected[i])
+				return nil, nil, errors.Wrapf(err, "failed to enqueue merge for posting %d", selectedCentroids[i])
 			}
 		}
 	}
