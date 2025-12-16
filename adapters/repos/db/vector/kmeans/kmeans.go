@@ -516,9 +516,12 @@ func (m *KMeans) FitBalanced(data [][]float32) ([]uint32, error) {
 	m.initializeCenters(data)
 	m.Metrics.Termination = MaxIterations
 
-	result := make([]uint32, len(data))
+	result := make([]uint32, n)
 	for m.Metrics.Iterations < m.IterationThreshold {
-		centroidAssignments := make([][]pair, 2)
+		centroidAssignments := make([][]pair, m.K)
+		for i := range m.K {
+			centroidAssignments[i] = make([]pair, 0, n/m.K)
+		}
 		var metrics IterationMetrics
 		if m.Assignment == GraphPruning {
 			m.updateCenterNeighbors()
