@@ -2138,6 +2138,9 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 		registered.RaftTimoutsMultiplier = appState.ServerConfig.Config.Raft.TimeoutsMultiplier
 		registered.ReplicatedIndicesRequestQueueEnabled = appState.ServerConfig.Config.Cluster.RequestQueueConfig.IsEnabled
 		registered.OperationalMode = appState.ServerConfig.Config.OperationalMode
+		registered.ObjectsTTLFindBatchSize = appState.ServerConfig.Config.ObjectsTTLFindBatchSize
+		registered.ObjectsTTLDeleteBatchSize = appState.ServerConfig.Config.ObjectsTTLDeleteBatchSize
+		registered.ObjectsTTLConcurrencyFactor = appState.ServerConfig.Config.ObjectsTTLConcurrencyFactor
 
 		if appState.ServerConfig.Config.Authentication.OIDC.Enabled {
 			registered.OIDCIssuer = appState.ServerConfig.Config.Authentication.OIDC.Issuer
