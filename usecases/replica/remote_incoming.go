@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
+
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -184,6 +185,10 @@ func (rri *RemoteReplicaIncoming) DigestObjects(ctx context.Context,
 		return []types.RepairResponse{}, simpleResp.Errors[0].Err
 	}
 	return index.DigestObjects(ctx, shardName, ids)
+}
+
+func (rri *RemoteReplicaIncoming) WaitForUpdate(ctx context.Context, schemaVersion uint64) error {
+	return rri.schema.WaitForUpdate(ctx, schemaVersion)
 }
 
 func (rri *RemoteReplicaIncoming) indexForIncomingRead(ctx context.Context, indexName string) (RemoteIndexIncomingRepo, *SimpleResponse) {
