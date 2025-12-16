@@ -40,6 +40,11 @@ import (
 
 var IndicesPayloads = indicesPayloads{}
 
+const (
+	MethodGet string = "GET"
+	MethodPut string = "PUT"
+)
+
 type indicesPayloads struct {
 	ErrorList                  errorListPayload
 	SingleObject               singleObjectPayload
@@ -228,10 +233,10 @@ func unmarshallStorObj(in []byte) (*storobj.Object, error) {
 		return nil, err
 	}
 	obj.Object.Vector = obj.Vector
-	if len(obj.Vectors) == 0 {
+	obj.Object.Vectors = make(models.Vectors)
+	if len(obj.Vectors) == 0 && len(obj.MultiVectors) == 0 {
 		return obj, nil
 	}
-	obj.Object.Vectors = make(models.Vectors)
 	for k, v := range obj.Vectors {
 		obj.Object.Vectors[k] = v
 	}
@@ -239,41 +244,6 @@ func unmarshallStorObj(in []byte) (*storobj.Object, error) {
 		obj.Object.Vectors[k] = v
 	}
 	return obj, nil
-}
-
-func marshallVersObj(in *objects.VObject) ([]byte, error) {
-	vobj := objects.VObject{
-		ID:                      in.ID,
-		Deleted:                 in.Deleted,
-		LastUpdateTimeUnixMilli: in.LastUpdateTimeUnixMilli,
-		LatestObject:            newObject(in.LatestObject),
-		Vector:                  in.Vector,
-		Vectors:                 in.Vectors,
-		MultiVectors:            in.MultiVectors,
-		StaleUpdateTime:         in.StaleUpdateTime,
-		Version:                 in.Version,
-	}
-	return vobj.MarshalBinary()
-}
-
-func unmarshallVersObj(in []byte) (*objects.VObject, error) {
-	var vobj objects.VObject
-	err := vobj.UnmarshalBinary(in)
-	if err != nil {
-		return nil, err
-	}
-	vobj.LatestObject.Vector = vobj.Vector
-	if len(vobj.Vectors) == 0 {
-		return &vobj, nil
-	}
-	vobj.LatestObject.Vectors = make(models.Vectors)
-	for k, v := range vobj.Vectors {
-		vobj.LatestObject.Vectors[k] = v
-	}
-	for k, v := range vobj.MultiVectors {
-		vobj.LatestObject.Vectors[k] = v
-	}
-	return &vobj, nil
 }
 
 type singleObjectPayload struct{}
@@ -295,12 +265,26 @@ func (p singleObjectPayload) CheckContentTypeHeader(r *http.Response) (string, b
 	return ct, ct == p.MIME()
 }
 
-func (p singleObjectPayload) Marshal(in *storobj.Object) ([]byte, error) {
-	return marshallStorObj(in)
+func (p singleObjectPayload) Marshal(in *storobj.Object, method string) ([]byte, error) {
+	switch method {
+	case MethodPut:
+		return marshallStorObj(in)
+	case MethodGet:
+		return in.MarshalBinary()
+	default:
+		return nil, fmt.Errorf("unsupported operation type: %s", method)
+	}
 }
 
-func (p singleObjectPayload) Unmarshal(in []byte) (*storobj.Object, error) {
-	return unmarshallStorObj(in)
+func (p singleObjectPayload) Unmarshal(in []byte, method string) (*storobj.Object, error) {
+	switch method {
+	case MethodPut:
+		return unmarshallStorObj(in)
+	case MethodGet:
+		return storobj.FromBinary(in)
+	default:
+		return nil, fmt.Errorf("unsupported operation type: %s", method)
+	}
 }
 
 type objectListPayload struct{}
@@ -322,7 +306,7 @@ func (p objectListPayload) SetContentTypeHeaderReq(r *http.Request) {
 	r.Header.Set("content-type", p.MIME())
 }
 
-func (p objectListPayload) Marshal(in []*storobj.Object) ([]byte, error) {
+func (p objectListPayload) Marshal(in []*storobj.Object, method string) ([]byte, error) {
 	// NOTE: This implementation is not optimized for allocation efficiency,
 	// reserve 1024 byte per object which is rather arbitrary
 	out := make([]byte, 0, 1024*len(in))
@@ -330,7 +314,16 @@ func (p objectListPayload) Marshal(in []*storobj.Object) ([]byte, error) {
 	reusableLengthBuf := make([]byte, 8)
 	for _, ind := range in {
 		if ind != nil {
-			bytes, err := marshallStorObj(ind)
+			var bytes []byte
+			var err error
+			switch method {
+			case MethodPut:
+				bytes, err = marshallStorObj(ind)
+			case MethodGet:
+				bytes, err = ind.MarshalBinary()
+			default:
+				return nil, fmt.Errorf("unsupported operation type: %s", method)
+			}
 			if err != nil {
 				return nil, err
 			}
@@ -346,7 +339,7 @@ func (p objectListPayload) Marshal(in []*storobj.Object) ([]byte, error) {
 	return out, nil
 }
 
-func (p objectListPayload) Unmarshal(in []byte) ([]*storobj.Object, error) {
+func (p objectListPayload) Unmarshal(in []byte, method string) ([]*storobj.Object, error) {
 	var out []*storobj.Object
 
 	reusableLengthBuf := make([]byte, 8)
@@ -367,7 +360,15 @@ func (p objectListPayload) Unmarshal(in []byte) ([]*storobj.Object, error) {
 			return nil, err
 		}
 
-		obj, err := unmarshallStorObj(payloadBytes)
+		var obj *storobj.Object
+		switch method {
+		case MethodPut:
+			obj, err = unmarshallStorObj(payloadBytes)
+		case MethodGet:
+			obj, err = storobj.FromBinary(payloadBytes)
+		default:
+			return nil, fmt.Errorf("unsupported operation type: %s", method)
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -409,7 +410,7 @@ func (p versionedObjectListPayload) Marshal(in []*objects.VObject) ([]byte, erro
 
 	reusableLengthBuf := make([]byte, 8)
 	for _, ind := range in {
-		objBytes, err := marshallVersObj(ind)
+		objBytes, err := ind.MarshalBinary()
 		if err != nil {
 			return nil, err
 		}
@@ -446,12 +447,13 @@ func (p versionedObjectListPayload) Unmarshal(in []byte) ([]*objects.VObject, er
 			return nil, err
 		}
 
-		vobj, err := unmarshallVersObj(payloadBytes)
+		var vobj objects.VObject
+		err = vobj.UnmarshalBinary(payloadBytes)
 		if err != nil {
 			return nil, err
 		}
 
-		out = append(out, vobj)
+		out = append(out, &vobj)
 	}
 
 	return out, nil
@@ -692,7 +694,7 @@ func (p searchResultsPayload) Unmarshal(in []byte) ([]*storobj.Object, []float32
 	objsLength := binary.LittleEndian.Uint64(in[read : read+8])
 	read += 8
 
-	objs, err := IndicesPayloads.ObjectList.Unmarshal(in[read : read+objsLength])
+	objs, err := IndicesPayloads.ObjectList.Unmarshal(in[read:read+objsLength], MethodGet)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -715,7 +717,7 @@ func (p searchResultsPayload) Marshal(objs []*storobj.Object,
 ) ([]byte, error) {
 	reusableLengthBuf := make([]byte, 8)
 	var out []byte
-	objsBytes, err := IndicesPayloads.ObjectList.Marshal(objs)
+	objsBytes, err := IndicesPayloads.ObjectList.Marshal(objs, MethodGet)
 	if err != nil {
 		return nil, err
 	}

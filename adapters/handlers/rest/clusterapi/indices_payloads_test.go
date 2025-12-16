@@ -56,7 +56,6 @@ func Test_objectListPayload_Marshal(t *testing.T) {
 				Additional: map[string]interface{}{
 					"score": 0.055465422484,
 				},
-				Vector: vec1,
 			},
 			Vector:    vec1,
 			VectorLen: 5,
@@ -82,7 +81,6 @@ func Test_objectListPayload_Marshal(t *testing.T) {
 				Additional: map[string]interface{}{
 					"score": 0.055465422484,
 				},
-				Vector: vec2,
 			},
 			Vector:    vec2,
 			VectorLen: 5,
@@ -90,10 +88,10 @@ func Test_objectListPayload_Marshal(t *testing.T) {
 	}
 
 	payload := objectListPayload{}
-	b, err := payload.Marshal(objs)
+	b, err := payload.Marshal(objs, MethodGet)
 	require.Nil(t, err)
 
-	received, err := payload.Unmarshal(b)
+	received, err := payload.Unmarshal(b, MethodGet)
 	require.Nil(t, err)
 	assert.Len(t, received, 2)
 	assert.EqualValues(t, objs[0].Object, received[0].Object)
