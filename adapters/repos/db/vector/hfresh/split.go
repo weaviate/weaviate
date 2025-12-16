@@ -175,21 +175,9 @@ func (h *HFresh) splitPosting(posting Posting) ([]SplitResult, error) {
 	}
 
 	for i, v := range idsAssignments {
-		if v == 0 {
-			results[0].Posting = results[0].Posting.AddVector(posting[i])
-		} else {
-			results[1].Posting = results[1].Posting.AddVector(posting[i])
-		}
+		results[v].Posting = results[v].Posting.AddVector(posting[i])
 	}
 
-	/*delta := 10
-	len1 := len(results[0].Posting)
-	len2 := len(results[1].Posting)
-	if (len1+delta < len2) || (len2+delta < len1) {
-		h.logger.
-			Warnf("split resulted in unbalanced postings, len1: %d, len2: %d", len1, len2)
-		os.Exit(1)
-	}*/
 	return results, nil
 }
 
