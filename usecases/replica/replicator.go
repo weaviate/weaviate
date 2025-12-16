@@ -13,7 +13,6 @@ package replica
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sync/atomic"
 	"time"
@@ -153,9 +152,8 @@ func (r *Replicator) MergeObject(ctx context.Context,
 	if err != nil {
 		r.log.WithField("op", "merge").WithField("class", r.class).
 			WithField("shard", shard).WithField("uuid", doc.ID).Error(err)
-		var replicaErr *replicaerrors.Error
-		if errors.As(err, &replicaErr) && replicaErr != nil && replicaErr.Code == replicaerrors.StatusObjectNotFound {
-			return objects.NewErrDirtyWriteOfDeletedObject(replicaErr)
+		if replicaerrors.IsObjectNotFoundError(err) {
+			return objects.NewErrDirtyWriteOfDeletedObject(err)
 		}
 	}
 	return err

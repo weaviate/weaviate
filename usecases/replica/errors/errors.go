@@ -44,9 +44,13 @@ func IsReplicasError(err error) bool {
 	if errors.Is(err, errReplicas) {
 		return true
 	}
+
 	// This check for string also because it has been misused in the past
 	// as a defensive measure.
-	return strings.Contains(err.Error(), errReplicas.Error())
+	if err != nil {
+		return strings.Contains(err.Error(), errReplicas.Error())
+	}
+	return false
 }
 
 // NewRepairError creates a new error for "read repair error".
@@ -90,90 +94,160 @@ func IsNoDiffFoundError(err error) bool {
 type StatusCode int
 
 const (
-	StatusOK            = 0
-	StatusClassNotFound = iota + 200
-	StatusShardNotFound
-	StatusNotFound
-	StatusAlreadyExisted
-	StatusNotReady
-	StatusConflict = iota + 300
-	StatusPreconditionFailed
-	StatusReadOnly
-	StatusObjectNotFound
+	_StatusCodeOK        = 0
+	_StatusClassNotFound = iota + 200
+	_StatusShardNotFound
+	_StatusNotFound
+	_StatusAlreadyExisted
+	_StatusNotReady
+	_StatusConflict = iota + 300
+	_StatusPreconditionFailed
+	_StatusReadOnly
+	_StatusObjectNotFound
 )
 
 // StatusText returns a text for the status code. It returns the empty
 // string if the code is unknown.
 func StatusText(code StatusCode) string {
 	switch code {
-	case StatusOK:
+	case _StatusCodeOK:
 		return "ok"
-	case StatusNotFound:
+	case _StatusNotFound:
 		return "not found"
-	case StatusClassNotFound:
+	case _StatusClassNotFound:
 		return "class not found"
-	case StatusShardNotFound:
+	case _StatusShardNotFound:
 		return "shard not found"
-	case StatusConflict:
+	case _StatusConflict:
 		return "conflict"
-	case StatusPreconditionFailed:
+	case _StatusPreconditionFailed:
 		return "precondition failed"
-	case StatusAlreadyExisted:
+	case _StatusAlreadyExisted:
 		return "already existed"
-	case StatusNotReady:
+	case _StatusNotReady:
 		return "local index not ready"
-	case StatusReadOnly:
+	case _StatusReadOnly:
 		return "read only"
-	case StatusObjectNotFound:
+	case _StatusObjectNotFound:
 		return "object not found"
 	default:
 		return ""
 	}
 }
 
-// NewClassNotFoundError creates a new error for class not found
-func NewClassNotFoundError(err error) *Error {
-	return &Error{Code: StatusClassNotFound, Msg: StatusText(StatusClassNotFound), Err: err}
+// NewClassNotFoundError creates a new error for class not found.
+// The msg parameter should contain the class name.
+func NewClassNotFoundError(className string, err ...error) *Error {
+	if len(err) > 0 {
+		return &Error{
+			Code: _StatusClassNotFound,
+			Msg:  className,
+			Err:  err[0],
+		}
+	}
+
+	return &Error{
+		Code: _StatusClassNotFound,
+		Msg:  className,
+		Err:  fmt.Errorf("class %q not found", className),
+	}
 }
 
-// NewShardNotFoundError creates a new error for shard not found
-func NewShardNotFoundError(err error) *Error {
-	return &Error{Code: StatusShardNotFound, Msg: StatusText(StatusShardNotFound), Err: err}
+// NewShardNotFoundError creates a new error for shard not found.
+// The msg parameter should contain the shard name.
+func NewShardNotFoundError(shardName string, err ...error) *Error {
+	if len(err) > 0 {
+		return &Error{
+			Code: _StatusShardNotFound,
+			Msg:  shardName,
+			Err:  err[0],
+		}
+	}
+
+	return &Error{Code: _StatusShardNotFound, Msg: shardName, Err: fmt.Errorf("shard %q not found", shardName)}
 }
 
-// NewNotFoundError creates a new error for not found
-func NewNotFoundError(err error) *Error {
-	return &Error{Code: StatusNotFound, Msg: StatusText(StatusNotFound), Err: err}
+// NewNotFoundError creates a new error for a generic "not found".
+// The msg parameter should describe what was not found.
+func NewNotFoundError(notFound string, err ...error) *Error {
+	if len(err) > 0 {
+		return &Error{
+			Code: _StatusNotFound,
+			Msg:  notFound,
+			Err:  err[0],
+		}
+	}
+
+	return &Error{
+		Code: _StatusNotFound,
+		Msg:  notFound,
+		Err:  fmt.Errorf("%s not found", notFound),
+	}
 }
 
 // NewAlreadyExistedError creates a new error for already existed
-func NewAlreadyExistedError(err error) *Error {
-	return &Error{Code: StatusAlreadyExisted, Msg: StatusText(StatusAlreadyExisted), Err: err}
+// The msg parameter should contain the already existed name.
+func NewAlreadyExistedError(className string) *Error {
+	return &Error{
+		Code: _StatusAlreadyExisted,
+		Msg:  className,
+		Err:  fmt.Errorf("%s already existed", className),
+	}
 }
 
 // NewNotReadyError creates a new error for not ready
-func NewNotReadyError(err error) *Error {
-	return &Error{Code: StatusNotReady, Msg: StatusText(StatusNotReady), Err: err}
+// The msg parameter should contain the collection name.
+func NewNotReadyError(className string) *Error {
+	return &Error{
+		Code: _StatusNotReady,
+		Msg:  className,
+		Err:  fmt.Errorf("class %q not ready", className),
+	}
+}
+func IsNotReadyError(err error) bool {
+	replicaErr := &Error{}
+	errors.As(err, &replicaErr)
+	if replicaErr != nil && replicaErr.Code == _StatusNotReady {
+		return true
+	}
+	return false
 }
 
 // NewConflictError creates a new error for conflict
 func NewConflictError(err error) *Error {
-	return &Error{Code: StatusConflict, Msg: StatusText(StatusConflict), Err: err}
+	return &Error{Code: _StatusConflict, Msg: StatusText(_StatusConflict), Err: err}
 }
 
 // NewPreconditionFailedError creates a new error for precondition failed
 func NewPreconditionFailedError(err error) *Error {
-	return &Error{Code: StatusPreconditionFailed, Msg: StatusText(StatusPreconditionFailed), Err: err}
+	return &Error{Code: _StatusPreconditionFailed, Msg: StatusText(_StatusPreconditionFailed), Err: err}
 }
 
 // NewReadOnlyError creates a new error for read only
-func NewReadOnlyError(err error) *Error {
-	return &Error{Code: StatusReadOnly, Msg: StatusText(StatusReadOnly), Err: err}
+// The msg parameter should contain the read only name.
+func NewReadOnlyError(className string, err ...error) *Error {
+	if len(err) > 0 {
+		return &Error{
+			Code: _StatusReadOnly,
+			Msg:  className,
+			Err:  err[0],
+		}
+	}
+
+	return &Error{Code: _StatusReadOnly, Msg: className, Err: fmt.Errorf("class %q is read only", className)}
 }
 
 // NewObjectNotFoundError creates a new error for object not found
 func NewObjectNotFoundError(err error) *Error {
-	return &Error{Code: StatusObjectNotFound, Msg: StatusText(StatusObjectNotFound), Err: err}
+	return &Error{Code: _StatusObjectNotFound, Msg: StatusText(_StatusObjectNotFound), Err: err}
+}
+func IsObjectNotFoundError(err error) bool {
+	replicaErr := &Error{}
+	errors.As(err, &replicaErr)
+	if replicaErr != nil && replicaErr.Code == _StatusObjectNotFound {
+		return true
+	}
+	return false
 }
 
 // Error reports error happening during replication
@@ -183,9 +257,15 @@ type Error struct {
 	Err  error      `json:"-"`
 }
 
+func NewReplicationError(err error) *Error {
+	replicaErr := &Error{}
+	errors.As(err, &replicaErr)
+	return replicaErr
+}
+
 // Empty checks whether e is an empty error which equivalent to e == nil
 func (e *Error) Empty() bool {
-	return e.Code == StatusOK && e.Msg == "" && e.Err == nil
+	return e.Code == _StatusCodeOK && e.Msg == "" && e.Err == nil
 }
 
 func (e *Error) Clone() *Error {

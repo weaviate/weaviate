@@ -13,7 +13,6 @@ package db
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -78,16 +77,12 @@ func (s *Shard) abortReplication(ctx context.Context, requestID string) replica.
 func (s *Shard) preparePutObject(ctx context.Context, requestID string, object *storobj.Object) replica.SimpleResponse {
 	uuid, err := parseBytesUUID(object.ID())
 	if err != nil {
-		return replica.SimpleResponse{Errors: []replicaerrors.Error{{
-			Code: replicaerrors.StatusPreconditionFailed, Msg: err.Error(),
-		}}}
+		return replica.SimpleResponse{Errors: []replicaerrors.Error{*replicaerrors.NewPreconditionFailedError(err)}}
 	}
 	task := func(ctx context.Context) interface{} {
 		resp := replica.SimpleResponse{}
 		if err := s.putOne(ctx, uuid, object); err != nil {
-			resp.Errors = []replicaerrors.Error{
-				{Code: replicaerrors.StatusConflict, Msg: err.Error()},
-			}
+			resp.Errors = []replicaerrors.Error{*replicaerrors.NewConflictError(err)}
 		}
 		return resp
 	}
@@ -98,22 +93,12 @@ func (s *Shard) preparePutObject(ctx context.Context, requestID string, object *
 func (s *Shard) prepareMergeObject(ctx context.Context, requestID string, doc *objects.MergeDocument) replica.SimpleResponse {
 	uuid, err := parseBytesUUID(doc.ID)
 	if err != nil {
-		return replica.SimpleResponse{Errors: []replicaerrors.Error{
-			{Code: replicaerrors.StatusPreconditionFailed, Msg: err.Error()},
-		}}
+		return replica.SimpleResponse{Errors: []replicaerrors.Error{*replicaerrors.NewPreconditionFailedError(err)}}
 	}
 	task := func(ctx context.Context) interface{} {
 		resp := replica.SimpleResponse{}
 		if err := s.merge(ctx, uuid, *doc); err != nil {
-			var code replicaerrors.StatusCode
-			if errors.Is(err, errObjectNotFound) {
-				code = replicaerrors.StatusObjectNotFound
-			} else {
-				code = replicaerrors.StatusConflict
-			}
-			resp.Errors = []replicaerrors.Error{
-				{Code: code, Msg: err.Error()},
-			}
+			resp.Errors = []replicaerrors.Error{*replicaerrors.NewConflictError(err)}
 		}
 		return resp
 	}
@@ -126,7 +111,7 @@ func (s *Shard) prepareDeleteObject(ctx context.Context, requestID string, uuid 
 		resp := replica.SimpleResponse{}
 		if err := s.DeleteObject(ctx, uuid, deletionTime); err != nil {
 			resp.Errors = []replicaerrors.Error{
-				{Code: replicaerrors.StatusConflict, Msg: err.Error()},
+				*replicaerrors.NewReplicationError(err),
 			}
 		}
 		return resp
@@ -141,7 +126,7 @@ func (s *Shard) preparePutObjects(ctx context.Context, requestID string, objects
 		resp := replica.SimpleResponse{Errors: make([]replicaerrors.Error, len(rawErrs))}
 		for i, err := range rawErrs {
 			if err != nil {
-				resp.Errors[i] = replicaerrors.Error{Code: replicaerrors.StatusConflict, Msg: err.Error()}
+				resp.Errors[i] = *replicaerrors.NewConflictError(err)
 			}
 		}
 		return resp
@@ -162,7 +147,7 @@ func (s *Shard) prepareDeleteObjects(ctx context.Context, requestID string,
 		for i, r := range result {
 			entry := replica.UUID2Error{UUID: string(r.UUID)}
 			if err := r.Err; err != nil {
-				entry.Error = replicaerrors.Error{Code: replicaerrors.StatusConflict, Msg: err.Error()}
+				entry.Error = *replicaerrors.NewConflictError(err)
 			}
 			resp.Batch[i] = entry
 		}
@@ -178,7 +163,7 @@ func (s *Shard) prepareAddReferences(ctx context.Context, requestID string, refs
 		resp := replica.SimpleResponse{Errors: make([]replicaerrors.Error, len(rawErrs))}
 		for i, err := range rawErrs {
 			if err != nil {
-				resp.Errors[i] = replicaerrors.Error{Code: replicaerrors.StatusConflict, Msg: err.Error()}
+				resp.Errors[i] = *replicaerrors.NewConflictError(err)
 			}
 		}
 		return resp
