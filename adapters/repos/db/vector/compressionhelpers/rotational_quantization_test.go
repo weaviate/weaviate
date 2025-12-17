@@ -415,11 +415,13 @@ func TestUnRotate_DoubleInverse(t *testing.T) {
 	rotation := compressionhelpers.NewFastRotation(128, 3, 42)
 
 	original := make([]float32, 128)
+	originalCpy := make([]float32, 128)
 	for i := range original {
 		original[i] = float32(i)*0.5 - 32.0
 	}
+	copy(originalCpy, original)
 
-	unrotated := rotation.UnRotate(original)
+	unrotated := rotation.UnRotate(originalCpy)
 	rotatedBack := rotation.Rotate(unrotated)
 
 	for i := range original {
