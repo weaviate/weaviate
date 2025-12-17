@@ -32,13 +32,16 @@ const (
 // limit the size of each task chunk to
 // to avoid sending too many tasks at once.
 const (
-	mainTaskQueueChunkSize  = 128 * 1024 // 128KB
-	mergeTaskQueueChunkSize = 64 * 1024  // 64KB
+	splitTaskQueueChunkSize    = 128 * 1024 // 128KB
+	reassignTaskQueueChunkSize = 64 * 1024  // 64KB
+	mergeTaskQueueChunkSize    = 64 * 1024  // 64KB
 )
 
 type TaskQueue struct {
-	// queue for split and reassign operations
+	// queue for split operations
 	splitQueue *queue.DiskQueue
+	// queue for reassign operations
+	reassignQueue *queue.DiskQueue
 	// queue for merge operations, as these need to be run sequentially
 	mergeQueue *queue.DiskQueue
 
@@ -59,7 +62,7 @@ func NewTaskQueue(index *HFresh) (*TaskQueue, error) {
 		mergeList: newDeduplicator(),
 	}
 
-	// create main queue for split and reassign operations
+	// create queue for split operations
 	tq.splitQueue, err = queue.NewDiskQueue(
 		queue.DiskQueueOptions{
 			ID:               fmt.Sprintf("hfresh_split_queue_%s_%s", index.config.ShardName, index.config.ID),
@@ -68,18 +71,38 @@ func NewTaskQueue(index *HFresh) (*TaskQueue, error) {
 			Dir:              filepath.Join(index.config.RootPath, "split.queue.d"),
 			TaskDecoder:      &tq,
 			OnBatchProcessed: tq.OnBatchProcessed,
-			ChunkSize:        mainTaskQueueChunkSize,
+			ChunkSize:        splitTaskQueueChunkSize,
 		},
 	)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to create hfresh main queue")
+		return nil, errors.Wrap(err, "failed to create hfresh split queue")
 	}
 	err = tq.splitQueue.Init()
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to initialize hfresh main queue")
+		return nil, errors.Wrap(err, "failed to initialize hfresh split queue")
 	}
 
-	// create separate queue for merge operations
+	// create queue for reassign operations
+	tq.reassignQueue, err = queue.NewDiskQueue(
+		queue.DiskQueueOptions{
+			ID:               fmt.Sprintf("hfresh_reassign_queue_%s_%s", index.config.ShardName, index.config.ID),
+			Logger:           index.logger,
+			Scheduler:        index.scheduler,
+			Dir:              filepath.Join(index.config.RootPath, "reassign.queue.d"),
+			TaskDecoder:      &tq,
+			OnBatchProcessed: tq.OnBatchProcessed,
+			ChunkSize:        reassignTaskQueueChunkSize,
+		},
+	)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to create hfresh reassign queue")
+	}
+	err = tq.reassignQueue.Init()
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to initialize hfresh reassign queue")
+	}
+
+	// create queue for merge operations
 	tq.mergeQueue, err = queue.NewDiskQueue(
 		queue.DiskQueueOptions{
 			ID:               fmt.Sprintf("hfresh_merge_queue_%s_%s", index.config.ShardName, index.config.ID),
@@ -100,6 +123,7 @@ func NewTaskQueue(index *HFresh) (*TaskQueue, error) {
 	}
 
 	index.scheduler.RegisterQueue(tq.splitQueue)
+	index.scheduler.RegisterQueue(tq.reassignQueue)
 	index.scheduler.RegisterQueue(tq.mergeQueue)
 
 	return &tq, nil
@@ -108,7 +132,11 @@ func NewTaskQueue(index *HFresh) (*TaskQueue, error) {
 func (tq *TaskQueue) Close() error {
 	var errs []error
 	if err := tq.splitQueue.Close(); err != nil {
-		errs = append(errs, errors.Wrap(err, "failed to close main queue"))
+		errs = append(errs, errors.Wrap(err, "failed to close split queue"))
+	}
+
+	if err := tq.reassignQueue.Close(); err != nil {
+		errs = append(errs, errors.Wrap(err, "failed to close reassign queue"))
 	}
 
 	if err := tq.mergeQueue.Close(); err != nil {
@@ -119,7 +147,7 @@ func (tq *TaskQueue) Close() error {
 }
 
 func (tq *TaskQueue) Size() int64 {
-	return tq.splitQueue.Size() + tq.mergeQueue.Size()
+	return tq.splitQueue.Size() + tq.reassignQueue.Size() + tq.mergeQueue.Size()
 }
 
 func (tq *TaskQueue) SplitDone(postingID uint64) {
@@ -171,7 +199,7 @@ func (tq *TaskQueue) EnqueueReassign(postingID uint64, vecID uint64, version Vec
 	binary.LittleEndian.PutUint64(buf[9:17], vecID)
 	buf[17] = byte(version)
 
-	if err := tq.splitQueue.Push(buf); err != nil {
+	if err := tq.reassignQueue.Push(buf); err != nil {
 		return errors.Wrap(err, "failed to push reassign operation to queue")
 	}
 
