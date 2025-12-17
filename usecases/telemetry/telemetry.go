@@ -202,7 +202,7 @@ func (tel *Telemeter) buildPayload(ctx context.Context, payloadType string) (*Pa
 
 	// Get client usage data and reset for the next period
 	// For Init payloads, we don't have client data yet, so skip it
-	var clientUsage map[ClientType]int64
+	var clientUsage map[ClientType]map[string]int64
 	if payloadType != PayloadType.Init && tel.clientTracker != nil {
 		clientUsage = tel.clientTracker.GetAndReset()
 		// Only include if there's actual data

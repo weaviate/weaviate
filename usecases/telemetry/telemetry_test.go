@@ -207,11 +207,16 @@ func TestTelemetry_BuildPayload(t *testing.T) {
 			assert.Contains(t, payload.UsedModules, "generative-openai")
 			// UPDATE payloads should include client usage data
 			assert.NotNil(t, payload.ClientUsage)
-			assert.Equal(t, int64(2), payload.ClientUsage[ClientTypePython])
-			assert.Equal(t, int64(1), payload.ClientUsage[ClientTypeJava])
-			assert.Equal(t, int64(1), payload.ClientUsage[ClientTypeTypeScript])
-			assert.Equal(t, int64(1), payload.ClientUsage[ClientTypeGo])
-			assert.Equal(t, int64(1), payload.ClientUsage[ClientTypeCSharp])
+			assert.NotNil(t, payload.ClientUsage[ClientTypePython])
+			assert.Equal(t, int64(2), payload.ClientUsage[ClientTypePython]["1.0.0"])
+			assert.NotNil(t, payload.ClientUsage[ClientTypeJava])
+			assert.Equal(t, int64(1), payload.ClientUsage[ClientTypeJava]["1.0.0"])
+			assert.NotNil(t, payload.ClientUsage[ClientTypeTypeScript])
+			assert.Equal(t, int64(1), payload.ClientUsage[ClientTypeTypeScript]["1.0.0"])
+			assert.NotNil(t, payload.ClientUsage[ClientTypeGo])
+			assert.Equal(t, int64(1), payload.ClientUsage[ClientTypeGo]["1.0.0"])
+			assert.NotNil(t, payload.ClientUsage[ClientTypeCSharp])
+			assert.Equal(t, int64(1), payload.ClientUsage[ClientTypeCSharp]["1.0.0"])
 			// Verify tracker was reset after GetAndReset
 			currentCounts := tel.clientTracker.Get()
 			assert.Empty(t, currentCounts)
@@ -241,9 +246,12 @@ func TestTelemetry_BuildPayload(t *testing.T) {
 			assert.Empty(t, payload.UsedModules)
 			// TERMINATE payloads should include client usage data
 			assert.NotNil(t, payload.ClientUsage)
-			assert.Equal(t, int64(1), payload.ClientUsage[ClientTypePython])
-			assert.Equal(t, int64(1), payload.ClientUsage[ClientTypeJava])
-			assert.Equal(t, int64(1), payload.ClientUsage[ClientTypeTypeScript])
+			assert.NotNil(t, payload.ClientUsage[ClientTypePython])
+			assert.Equal(t, int64(1), payload.ClientUsage[ClientTypePython]["1.0.0"])
+			assert.NotNil(t, payload.ClientUsage[ClientTypeJava])
+			assert.Equal(t, int64(1), payload.ClientUsage[ClientTypeJava]["1.0.0"])
+			assert.NotNil(t, payload.ClientUsage[ClientTypeTypeScript])
+			assert.Equal(t, int64(1), payload.ClientUsage[ClientTypeTypeScript]["1.0.0"])
 		})
 
 		t.Run("on update with no client usage", func(t *testing.T) {
@@ -383,9 +391,14 @@ func TestTelemetry_WithConsumer(t *testing.T) {
 	expectedCountsMap := expectedCounts.Get()
 	assert.NotNil(t, updatePayload.ClientUsage, "Expected client usage data but got nil")
 	for clientType, expectedCount := range expectedCountsMap {
-		actualCount, exists := updatePayload.ClientUsage[clientType]
+		// Sum up all versions for this client type
+		versions, exists := updatePayload.ClientUsage[clientType]
 		assert.True(t, exists, "Expected client type %s to be in ClientUsage", clientType)
-		assert.Equal(t, expectedCount, actualCount, "Mismatch for client type %s: expected %d, got %d", clientType, expectedCount, actualCount)
+		var totalCount int64
+		for _, count := range versions {
+			totalCount += count
+		}
+		assert.Equal(t, expectedCount, totalCount, "Mismatch for client type %s: expected %d, got %d", clientType, expectedCount, totalCount)
 	}
 
 	// Stop telemetry and wait for TERMINATE payload
@@ -538,10 +551,15 @@ func (h *testConsumer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if len(expectedCounts) > 0 {
 			assert.NotNil(h.t, payload.ClientUsage, "Expected client usage data but got nil")
 			for clientType, expectedCount := range expectedCounts {
-				actualCount, exists := payload.ClientUsage[clientType]
+				// Sum up all versions for this client type
+				versions, exists := payload.ClientUsage[clientType]
 				if expectedCount > 0 {
 					assert.True(h.t, exists, "Expected client type %s to be in ClientUsage", clientType)
-					assert.Equal(h.t, expectedCount, actualCount, "Mismatch for client type %s: expected %d, got %d", clientType, expectedCount, actualCount)
+					var totalCount int64
+					for _, count := range versions {
+						totalCount += count
+					}
+					assert.Equal(h.t, expectedCount, totalCount, "Mismatch for client type %s: expected %d, got %d", clientType, expectedCount, totalCount)
 				}
 			}
 		}
@@ -597,20 +615,20 @@ func TestClientTracker(t *testing.T) {
 
 		// Get counts without resetting
 		counts := tracker.Get()
-		assert.Equal(t, int64(2), counts[ClientTypePython])
-		assert.Equal(t, int64(1), counts[ClientTypeJava])
-		assert.Equal(t, int64(1), counts[ClientTypeTypeScript])
+		assert.Equal(t, int64(2), counts[ClientTypePython]["1.0.0"])
+		assert.Equal(t, int64(1), counts[ClientTypeJava]["1.0.0"])
+		assert.Equal(t, int64(1), counts[ClientTypeTypeScript]["1.0.0"])
 
 		// Verify counts are still there
 		counts2 := tracker.Get()
-		assert.Equal(t, int64(2), counts2[ClientTypePython])
-		assert.Equal(t, int64(1), counts2[ClientTypeJava])
+		assert.Equal(t, int64(2), counts2[ClientTypePython]["1.0.0"])
+		assert.Equal(t, int64(1), counts2[ClientTypeJava]["1.0.0"])
 
 		// Get and reset
 		counts3 := tracker.GetAndReset()
-		assert.Equal(t, int64(2), counts3[ClientTypePython])
-		assert.Equal(t, int64(1), counts3[ClientTypeJava])
-		assert.Equal(t, int64(1), counts3[ClientTypeTypeScript])
+		assert.Equal(t, int64(2), counts3[ClientTypePython]["1.0.0"])
+		assert.Equal(t, int64(1), counts3[ClientTypeJava]["1.0.0"])
+		assert.Equal(t, int64(1), counts3[ClientTypeTypeScript]["1.0.0"])
 
 		// Verify tracker was reset
 		counts4 := tracker.Get()
@@ -669,7 +687,13 @@ func TestClientTracker(t *testing.T) {
 				// Get counts and verify
 				counts := tracker.GetAndReset()
 				if tc.expected != ClientTypeUnknown {
-					assert.Greater(t, counts[tc.expected], int64(0), "Expected %s to be tracked", tc.expected)
+					versions, exists := counts[tc.expected]
+					assert.True(t, exists, "Expected %s to be tracked", tc.expected)
+					var totalCount int64
+					for _, count := range versions {
+						totalCount += count
+					}
+					assert.Greater(t, totalCount, int64(0), "Expected %s to have count > 0", tc.expected)
 				} else {
 					// Unknown clients should not be tracked
 					assert.Empty(t, counts)
@@ -715,7 +739,7 @@ func TestClientTracker(t *testing.T) {
 		counts := tracker.GetAndReset()
 		expectedPython := int64(numGoroutines * numRequestsPerGoroutine / 2)
 		expectedJava := int64(numGoroutines * numRequestsPerGoroutine / 2)
-		assert.Equal(t, expectedPython, counts[ClientTypePython])
-		assert.Equal(t, expectedJava, counts[ClientTypeJava])
+		assert.Equal(t, expectedPython, counts[ClientTypePython]["1.0.0"])
+		assert.Equal(t, expectedJava, counts[ClientTypeJava]["1.0.0"])
 	})
 }
