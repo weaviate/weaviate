@@ -74,7 +74,7 @@ func (p Priority) Validate() error {
 	case PriorityLow, PriorityMedium, PriorityHigh:
 		return nil
 	default:
-		return errors.Errorf("invalide priority %v", p)
+		return errors.Errorf("invalide queue priority %v", p)
 	}
 }
 

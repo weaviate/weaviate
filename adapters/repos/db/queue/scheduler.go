@@ -112,10 +112,16 @@ func NewScheduler(opts SchedulerOptions) *Scheduler {
 	return &s
 }
 
-func (s *Scheduler) RegisterQueue(q Queue) {
+func (s *Scheduler) RegisterQueue(q Queue) error {
 	if s.ctx == nil {
 		// scheduler not started
-		return
+		return errors.New("scheduler not started")
+	}
+
+	priority := q.Priority()
+	err := priority.Validate()
+	if err != nil {
+		return err
 	}
 
 	s.queues.Lock()
