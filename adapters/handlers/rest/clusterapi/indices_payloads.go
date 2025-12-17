@@ -194,49 +194,50 @@ func (e errorListPayload) Unmarshal(in []byte) []error {
 	return converted
 }
 
-func newObject(in *models.Object) *models.Object {
-	return &models.Object{
-		Additional:         in.Additional,
-		Class:              in.Class,
-		CreationTimeUnix:   in.CreationTimeUnix,
-		ID:                 in.ID,
-		LastUpdateTimeUnix: in.LastUpdateTimeUnix,
-		Properties:         in.Properties,
-		Tenant:             in.Tenant,
-		// Vector and Vectors will be removed from this layer and only kept in storobj in a future version
-		// This code needs to be released to all deployed nodes before that change can be made to avoid breaking cluster compatibilities
-		// This avoids doubly sending the vector data over the network
-		Vector:  in.Vector,
-		Vectors: in.Vectors,
-	}
-}
-
+// marshallStorObj converts a *storobj.Object to a byte slice suitable for network transmission
+// This is because all replication POST/PUT methods mistakenly double send the vector in both storobj and models.Object
+// This function ensures that the models.Object vectors are nil and that only the storobj vectors are sent
 func marshallStorObj(in *storobj.Object) ([]byte, error) {
 	obj := storobj.Object{
 		MarshallerVersion: in.MarshallerVersion,
-		Object:            *newObject(&in.Object),
-		Vector:            in.Vector,
-		VectorLen:         in.VectorLen,
-		BelongsToNode:     in.BelongsToNode,
-		BelongsToShard:    in.BelongsToShard,
-		IsConsistent:      in.IsConsistent,
-		DocID:             in.DocID,
-		Vectors:           in.Vectors,
-		MultiVectors:      in.MultiVectors,
+		Object: models.Object{
+			Additional:         in.Object.Additional,
+			Class:              in.Object.Class,
+			CreationTimeUnix:   in.Object.CreationTimeUnix,
+			ID:                 in.Object.ID,
+			LastUpdateTimeUnix: in.Object.LastUpdateTimeUnix,
+			Properties:         in.Object.Properties,
+			Tenant:             in.Object.Tenant,
+			// TODO(tommy): Vector and Vectors will be removed from this layer to avoid double sending and only kept in storobj in a future version
+			// This code needs to be released to all deployed clusters before that change can be made to avoid breaking cluster compatibilities during rolling restarts
+			Vector:  in.Object.Vector,
+			Vectors: in.Object.Vectors,
+		},
+		Vector:         in.Vector,
+		VectorLen:      in.VectorLen,
+		BelongsToNode:  in.BelongsToNode,
+		BelongsToShard: in.BelongsToShard,
+		IsConsistent:   in.IsConsistent,
+		DocID:          in.DocID,
+		Vectors:        in.Vectors,
+		MultiVectors:   in.MultiVectors,
 	}
 	return obj.MarshalBinary()
 }
 
+// unmarshallStorObj converts a byte slice received over the network into a *storobj.Object
+// This is because all replication POST/PUT methods mistakenly double send the vector in both storobj and models.Object
+// This function ensures that the models.Object vectors are properly populated from the storobj vectors when required
 func unmarshallStorObj(in []byte) (*storobj.Object, error) {
 	obj, err := storobj.FromBinary(in)
 	if err != nil {
 		return nil, err
 	}
 	obj.Object.Vector = obj.Vector
-	obj.Object.Vectors = make(models.Vectors)
 	if len(obj.Vectors) == 0 && len(obj.MultiVectors) == 0 {
 		return obj, nil
 	}
+	obj.Object.Vectors = make(models.Vectors)
 	for k, v := range obj.Vectors {
 		obj.Object.Vectors[k] = v
 	}
@@ -268,8 +269,10 @@ func (p singleObjectPayload) CheckContentTypeHeader(r *http.Response) (string, b
 func (p singleObjectPayload) Marshal(in *storobj.Object, method string) ([]byte, error) {
 	switch method {
 	case MethodPut:
+		// Need to take vectors out of models.Object into storobj
 		return marshallStorObj(in)
 	case MethodGet:
+		// Don't need to modify anything since GET requests don't double send
 		return in.MarshalBinary()
 	default:
 		return nil, fmt.Errorf("unsupported operation type: %s", method)
@@ -279,8 +282,10 @@ func (p singleObjectPayload) Marshal(in *storobj.Object, method string) ([]byte,
 func (p singleObjectPayload) Unmarshal(in []byte, method string) (*storobj.Object, error) {
 	switch method {
 	case MethodPut:
+		// Need to add vectors back to models.Object from storobj
 		return unmarshallStorObj(in)
 	case MethodGet:
+		// Don't need to modify anything since GET requests don't double send
 		return storobj.FromBinary(in)
 	default:
 		return nil, fmt.Errorf("unsupported operation type: %s", method)
@@ -318,8 +323,10 @@ func (p objectListPayload) Marshal(in []*storobj.Object, method string) ([]byte,
 			var err error
 			switch method {
 			case MethodPut:
+				// Need to take vectors out of models.Object into storobj
 				bytes, err = marshallStorObj(ind)
 			case MethodGet:
+				// Don't need to modify anything since GET requests don't double send
 				bytes, err = ind.MarshalBinary()
 			default:
 				return nil, fmt.Errorf("unsupported operation type: %s", method)
@@ -363,8 +370,10 @@ func (p objectListPayload) Unmarshal(in []byte, method string) ([]*storobj.Objec
 		var obj *storobj.Object
 		switch method {
 		case MethodPut:
+			// Need to add vectors back to models.Object from storobj
 			obj, err = unmarshallStorObj(payloadBytes)
 		case MethodGet:
+			// Don't need to modify anything since GET requests don't double send
 			obj, err = storobj.FromBinary(payloadBytes)
 		default:
 			return nil, fmt.Errorf("unsupported operation type: %s", method)
