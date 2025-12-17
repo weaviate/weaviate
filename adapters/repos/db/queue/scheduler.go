@@ -31,7 +31,8 @@ type Scheduler struct {
 	queues struct {
 		sync.Mutex
 
-		m map[string]*queueState
+		perID    map[string]*queueState
+		perGroup map[string]*queueGroup
 	}
 
 	// context used to close pending tasks
@@ -107,7 +108,8 @@ func NewScheduler(opts SchedulerOptions) *Scheduler {
 		SchedulerOptions: opts,
 		activeTasks:      common.NewSharedGauge(),
 	}
-	s.queues.m = make(map[string]*queueState)
+	s.queues.perID = make(map[string]*queueState)
+	s.queues.perGroup = make(map[string]*queueGroup)
 	s.triggerCh = make(chan chan struct{})
 
 	return &s
@@ -125,12 +127,28 @@ func (s *Scheduler) RegisterQueue(q Queue) error {
 		return err
 	}
 
+	group := q.Group()
+
 	s.queues.Lock()
 	defer s.queues.Unlock()
 
-	s.queues.m[q.ID()] = newQueueState(s.ctx, q)
+	if _, exists := s.queues.perID[q.ID()]; exists {
+		return errors.Errorf("queue with ID %q already registered", q.ID())
+	}
+
+	g, ok := s.queues.perGroup[group]
+	if !ok {
+		g = &queueGroup{
+			m: make(map[string]*queueState),
+		}
+		s.queues.perGroup[group] = g
+	}
+
+	g.m[q.ID()] = newQueueState(s.ctx, q)
+	s.queues.perID[q.ID()] = g.m[q.ID()]
 
 	q.Metrics().Registered(q.ID())
+	return nil
 }
 
 func (s *Scheduler) UnregisterQueue(id string) {
@@ -153,7 +171,13 @@ func (s *Scheduler) UnregisterQueue(id string) {
 
 	// the queue is paused, so it's safe to remove it
 	s.queues.Lock()
-	delete(s.queues.m, id)
+	delete(s.queues.perID, id)
+	if g, ok := s.queues.perGroup[q.q.Group()]; ok {
+		delete(g.m, id)
+		if len(g.m) == 0 {
+			delete(s.queues.perGroup, q.q.Group())
+		}
+	}
 	s.queues.Unlock()
 
 	q.q.Metrics().Unregistered(q.q.ID())
@@ -293,7 +317,7 @@ func (s *Scheduler) getQueue(id string) *queueState {
 	s.queues.Lock()
 	defer s.queues.Unlock()
 
-	return s.queues.m[id]
+	return s.queues.perID[id]
 }
 
 func (s *Scheduler) runScheduler() {
@@ -349,8 +373,8 @@ func (s *Scheduler) schedule() {
 func (s *Scheduler) scheduleQueues() (nothingScheduled bool) {
 	// loop over the queues in random order
 	s.queues.Lock()
-	ids := make([]string, 0, len(s.queues.m))
-	for id := range s.queues.m {
+	ids := make([]string, 0, len(s.queues.perID))
+	for id := range s.queues.perID {
 		ids = append(ids, id)
 	}
 	s.queues.Unlock()
