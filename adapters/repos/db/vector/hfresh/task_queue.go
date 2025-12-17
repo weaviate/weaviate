@@ -122,9 +122,18 @@ func NewTaskQueue(index *HFresh) (*TaskQueue, error) {
 		return nil, errors.Wrap(err, "failed to initialize hfresh merge queue")
 	}
 
-	index.scheduler.RegisterQueue(tq.splitQueue)
-	index.scheduler.RegisterQueue(tq.reassignQueue)
-	index.scheduler.RegisterQueue(tq.mergeQueue)
+	err = index.scheduler.RegisterQueue(tq.splitQueue)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to register split queue")
+	}
+	err = index.scheduler.RegisterQueue(tq.reassignQueue)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to register reassign queue")
+	}
+	err = index.scheduler.RegisterQueue(tq.mergeQueue)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to register merge queue")
+	}
 
 	return &tq, nil
 }

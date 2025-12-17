@@ -103,7 +103,10 @@ func NewVectorIndexQueue(
 			return nil, errors.Wrap(err, "failed to initialize vector index queue")
 		}
 
-		shard.scheduler.RegisterQueue(&viq)
+		err = shard.scheduler.RegisterQueue(&viq)
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to register vector index queue")
+		}
 	}
 
 	return &viq, nil
