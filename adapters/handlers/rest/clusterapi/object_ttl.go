@@ -128,7 +128,7 @@ func (d *ObjectTTL) incomingDelete() http.Handler {
 			logger := d.logger.WithField("action", "objects_ttl_deletion")
 			logger.WithFields(logrus.Fields{
 				"collections":       colNames,
-				"collections_total": len(colNames),
+				"collections_count": len(colNames),
 			}).Info("incoming ttl deletion on remote node started")
 			defer func() {
 				// add fields c_{collection_name}=>{count_deleted} and total_deleted=>{total_deleted}

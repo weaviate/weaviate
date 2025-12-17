@@ -2288,7 +2288,8 @@ func (i *Index) incomingDeleteObjectsExpiredUuids(ctx context.Context, eg *enter
 	deletionTime time.Time, shard, tenant string, uuids []strfmt.UUID, countDeleted func(int32),
 	replProps *additional.ReplicationProperties, schemaVersion uint64,
 ) {
-	if len(uuids) == 0 {
+	uuidsCount := len(uuids)
+	if uuidsCount == 0 {
 		return
 	}
 
@@ -2297,20 +2298,52 @@ func (i *Index) incomingDeleteObjectsExpiredUuids(ctx context.Context, eg *enter
 		inputKey = tenant
 	}
 	collection := i.Config.ClassName.String()
+	maxErrors := 3
 
-	f := func(uuids []strfmt.UUID) error {
+	logger := i.logger.WithFields(logrus.Fields{
+		"action":     "objects_ttl_deletion",
+		"collection": collection,
+		"shard":      inputKey,
+	})
+
+	f := func(uuids []strfmt.UUID, batchId int) (err error) {
+		started := time.Now()
+		deleted := int32(0)
+
+		logger.WithFields(logrus.Fields{
+			"batch_id": batchId,
+			"size":     len(uuids),
+		}).Debug("batch delete started")
+		defer func() {
+			logger := logger.WithFields(logrus.Fields{
+				"batch_id": batchId,
+				"took":     time.Since(started),
+				"deleted":  deleted,
+				"failed":   int32(len(uuids)) - deleted,
+			})
+			if err != nil {
+				// as debug for each batch, combined error of all batches is logged as error anyway
+				logger.WithError(err).Debug("batch delete failed")
+				return
+			}
+			logger.Debug("batch delete finished")
+		}()
+
 		input := map[string][]strfmt.UUID{inputKey: uuids}
-
 		resp, err := i.batchDeleteObjects(ctx, input, deletionTime, false, replProps, schemaVersion, tenant)
 		if err != nil {
 			return fmt.Errorf("batch delete: %w", err)
 		}
 
-		deleted := int32(0)
+		errsCount := 0
 		ecBatch := errorcompounder.New()
 		for i := range resp {
 			if err := resp[i].Err; err != nil {
-				ecBatch.Add(fmt.Errorf("%s: %w", resp[i].UUID, err))
+				// limit number of returned errors to [maxErrors]
+				if errsCount < maxErrors {
+					errsCount++
+					ecBatch.Add(fmt.Errorf("%s: %w", resp[i].UUID, err))
+				}
 			} else {
 				deleted++
 			}
@@ -2320,26 +2353,28 @@ func (i *Index) incomingDeleteObjectsExpiredUuids(ctx context.Context, eg *enter
 		if err := ecBatch.ToError(); err != nil {
 			return fmt.Errorf("batch delete: %w", err)
 		}
-
 		return nil
 	}
 
 	batchSize := i.Config.ObjectsTTLBatchSize
-	for from := 0; from < len(uuids); from += batchSize {
+	for i := 0; i*batchSize < uuidsCount; i++ {
 		if err := ctx.Err(); err != nil {
 			ec.AddGroups(err, collection, inputKey)
 			break
 		}
 
-		to := min(len(uuids), from+batchSize)
+		from := i * batchSize
+		to := min(uuidsCount, from+batchSize)
 		batch := uuids[from:to]
+		isLast := to == uuidsCount
 
-		// try running in other goroutine (if available), otherwise run in current one
-		if !eg.TryGo(func() error {
-			ec.AddGroups(f(batch), collection, inputKey)
+		// try running in other goroutine (if available), otherwise run in current one.
+		// always run last batch in current goroutine.
+		if isLast || !eg.TryGo(func() error {
+			ec.AddGroups(f(batch, i), collection, inputKey)
 			return nil
 		}) {
-			ec.AddGroups(f(batch), collection, inputKey)
+			ec.AddGroups(f(batch, i), collection, inputKey)
 		}
 	}
 }
