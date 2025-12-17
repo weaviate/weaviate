@@ -1486,6 +1486,128 @@ func Test_UpdateClass(t *testing.T) {
 					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 				},
 			},
+
+			{
+				name: "attempting to update the inverted IndexTimestamps true->false",
+				initial: &models.Class{
+					Class:      "InitialName",
+					Vectorizer: "none",
+					InvertedIndexConfig: &models.InvertedIndexConfig{
+						IndexTimestamps: true,
+					},
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+				},
+				update: &models.Class{
+					Class:      "InitialName",
+					Vectorizer: "none",
+					InvertedIndexConfig: &models.InvertedIndexConfig{
+						IndexTimestamps: false,
+					},
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+				},
+				expectedError: fmt.Errorf("\"indexTimestamp\" setting is immutable. Value changed from \"true\" to \"false\""),
+			},
+			{
+				name: "attempting to update the inverted IndexTimestamps false->true",
+				initial: &models.Class{
+					Class:      "InitialName",
+					Vectorizer: "none",
+					InvertedIndexConfig: &models.InvertedIndexConfig{
+						IndexTimestamps: false,
+					},
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+				},
+				update: &models.Class{
+					Class:      "InitialName",
+					Vectorizer: "none",
+					InvertedIndexConfig: &models.InvertedIndexConfig{
+						IndexTimestamps: true,
+					},
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+				},
+				expectedError: fmt.Errorf("\"indexTimestamp\" setting is immutable. Value changed from \"false\" to \"true\""),
+			},
+			{
+				name: "attempting to update the inverted IndexNullState true->false",
+				initial: &models.Class{
+					Class:      "InitialName",
+					Vectorizer: "none",
+					InvertedIndexConfig: &models.InvertedIndexConfig{
+						IndexNullState: true,
+					},
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+				},
+				update: &models.Class{
+					Class:      "InitialName",
+					Vectorizer: "none",
+					InvertedIndexConfig: &models.InvertedIndexConfig{
+						IndexNullState: false,
+					},
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+				},
+				expectedError: fmt.Errorf("\"indexNullState\" setting is immutable. Value changed from \"true\" to \"false\""),
+			},
+			{
+				name: "attempting to update the inverted IndexNullState false->true",
+				initial: &models.Class{
+					Class:      "InitialName",
+					Vectorizer: "none",
+					InvertedIndexConfig: &models.InvertedIndexConfig{
+						IndexNullState: false,
+					},
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+				},
+				update: &models.Class{
+					Class:      "InitialName",
+					Vectorizer: "none",
+					InvertedIndexConfig: &models.InvertedIndexConfig{
+						IndexNullState: true,
+					},
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+				},
+				expectedError: fmt.Errorf("\"indexNullState\" setting is immutable. Value changed from \"false\" to \"true\""),
+			},
+			{
+				name: "attempting to update the inverted IndexPropertyLength true->false",
+				initial: &models.Class{
+					Class:      "InitialName",
+					Vectorizer: "none",
+					InvertedIndexConfig: &models.InvertedIndexConfig{
+						IndexPropertyLength: true,
+					},
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+				},
+				update: &models.Class{
+					Class:      "InitialName",
+					Vectorizer: "none",
+					InvertedIndexConfig: &models.InvertedIndexConfig{
+						IndexPropertyLength: false,
+					},
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+				},
+				expectedError: fmt.Errorf("\"indexPropertyLength\" setting is immutable. Value changed from \"true\" to \"false\""),
+			},
+			{
+				name: "attempting to update the inverted IndexPropertyLength false->true",
+				initial: &models.Class{
+					Class:      "InitialName",
+					Vectorizer: "none",
+					InvertedIndexConfig: &models.InvertedIndexConfig{
+						IndexPropertyLength: false,
+					},
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+				},
+				update: &models.Class{
+					Class:      "InitialName",
+					Vectorizer: "none",
+					InvertedIndexConfig: &models.InvertedIndexConfig{
+						IndexPropertyLength: true,
+					},
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+				},
+				expectedError: fmt.Errorf("\"indexPropertyLength\" setting is immutable. Value changed from \"false\" to \"true\""),
+			},
+
 			{
 				name: "attempting to update module config",
 				initial: &models.Class{
