@@ -69,6 +69,15 @@ const (
 	PriorityHigh
 )
 
+func (p Priority) Validate() error {
+	switch p {
+	case PriorityLow, PriorityMedium, PriorityHigh:
+		return nil
+	default:
+		return errors.Errorf("invalide priority %v", p)
+	}
+}
+
 // A Queue represents anything that can be scheduled by the Scheduler.
 // It must return its ID, size, and be able to dequeue a batch of tasks.
 type Queue interface {
