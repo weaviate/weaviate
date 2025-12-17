@@ -122,8 +122,7 @@ func (r *FastRotation) Rotate(x []float32) []float32 {
 }
 
 func (r *FastRotation) UnRotate(rx []float32) []float32 {
-	x := make([]float32, len(rx))
-	copy(x, rx)
+	x := rx
 
 	// Apply rounds in REVERSE order
 	for i := int(r.Rounds) - 1; i >= 0; i-- {
