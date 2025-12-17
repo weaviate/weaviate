@@ -58,7 +58,7 @@ type CentroidConfig struct {
 }
 
 const (
-	DefaultInternalPostingCandidates = 256
+	DefaultInternalPostingCandidates = 64
 	DefaultReassignNeighbors         = 8
 	DefaultMaxDistanceRatio          = 10_000
 )
