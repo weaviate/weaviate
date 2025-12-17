@@ -88,9 +88,7 @@ func (ct *ClientTracker) Get() map[ClientType]int64 {
 }
 
 // identifyClient attempts to identify the client SDK from the HTTP request.
-// It checks:
-// 1. X-Weaviate-Client header (if SDKs set this explicitly)
-// 2. User-Agent header (parsing common patterns)
+// It checks X-Weaviate-Client header, which the SDKs set explicitly.
 func identifyClient(r *http.Request) ClientType {
 	// First, check for explicit client header (if SDKs set this)
 	if clientHeader := r.Header.Get("X-Weaviate-Client"); clientHeader != "" {
@@ -100,9 +98,9 @@ func identifyClient(r *http.Request) ClientType {
 			return ClientTypePython
 		case strings.Contains(clientHeader, "java"):
 			return ClientTypeJava
-		case strings.Contains(clientHeader, "csharp") || strings.Contains(clientHeader, "c#") || strings.Contains(clientHeader, "dotnet"):
+		case strings.Contains(clientHeader, "csharp"):
 			return ClientTypeCSharp
-		case strings.Contains(clientHeader, "typescript") || strings.Contains(clientHeader, "ts") || strings.Contains(clientHeader, "javascript") || strings.Contains(clientHeader, "js"):
+		case strings.Contains(clientHeader, "typescript"):
 			return ClientTypeTypeScript
 		case strings.Contains(clientHeader, "go"):
 			return ClientTypeGo

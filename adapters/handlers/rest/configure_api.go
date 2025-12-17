@@ -1109,7 +1109,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	grpcServer, batchDrain := createGrpcServer(appState, grpcInstrument...)
 
-	// Create telemeter early so it can be used in middleware
 	telemeter := telemetry.New(appState.DB, appState.SchemaManager, appState.Logger)
 
 	setupMiddlewares := makeSetupMiddlewares(appState)
