@@ -559,13 +559,20 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	}
 
 	maxSize := clusterapigrpc.GetMaxMessageSize(appState.ServerConfig.Config.ReplicationEngineFileCopyChunkSize)
+	initialConnWindowSize := clusterapigrpc.GetInitialConnWindowSize(
+		appState.ServerConfig.Config.ReplicationEngineFileCopyChunkSize,
+		appState.ServerConfig.Config.ReplicationEngineFileCopyWorkers,
+	)
+
 	opts = append(opts,
 		grpc.WithDefaultCallOptions(
 			grpc.MaxCallRecvMsgSize(maxSize),
 			grpc.MaxCallSendMsgSize(maxSize),
 		),
 		grpc.WithInitialWindowSize(int32(maxSize)),
-		grpc.WithInitialConnWindowSize(clusterapigrpc.INITIAL_CONN_WINDOW),
+		grpc.WithInitialConnWindowSize(int32(initialConnWindowSize)),
+		grpc.WithReadBufferSize(clusterapigrpc.READ_BUFFER_SIZE),
+		grpc.WithWriteBufferSize(clusterapigrpc.WRITE_BUFFER_SIZE),
 	)
 
 	grpcMaxOpenConns := appState.ServerConfig.Config.GRPC.MaxOpenConns

@@ -780,6 +780,7 @@ func (sg *SegmentGroup) shutdown(ctx context.Context) error {
 		if err := seg.close(); err != nil {
 			return err
 		}
+		sg.metrics.DecSegmentTotalByStrategy(sg.strategy)
 	}
 
 	// make sure the segment list itself is set to nil. In case a memtable will

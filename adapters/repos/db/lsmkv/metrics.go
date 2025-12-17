@@ -137,7 +137,7 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 
 	// bucket metrics
 
-	bucketInitCountByStrategy, err := monitoring.EnsureRegisteredMetric(register,
+	bucketInitCountByStrategy, alreadyRegistered, err := monitoring.EnsureRegisteredMetric(register,
 		prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Namespace: "weaviate",
@@ -149,9 +149,11 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 	if err != nil {
 		return nil, fmt.Errorf("register lsm_bucket_init_count: %w", err)
 	}
-	monitoring.InitCounterVec(bucketInitCountByStrategy, bucketStrategiesLabels)
+	if !alreadyRegistered {
+		monitoring.InitCounterVec(bucketInitCountByStrategy, bucketStrategiesLabels)
+	}
 
-	bucketInitInProgressByStrategy, err := monitoring.EnsureRegisteredMetric(register,
+	bucketInitInProgressByStrategy, alreadyRegistered, err := monitoring.EnsureRegisteredMetric(register,
 		prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{
 				Namespace: "weaviate",
@@ -163,9 +165,11 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 	if err != nil {
 		return nil, fmt.Errorf("register lsm_bucket_init_in_progress: %w", err)
 	}
-	monitoring.InitGaugeVec(bucketInitInProgressByStrategy, bucketStrategiesLabels)
+	if !alreadyRegistered {
+		monitoring.InitGaugeVec(bucketInitInProgressByStrategy, bucketStrategiesLabels)
+	}
 
-	bucketInitFailureCountByStrategy, err := monitoring.EnsureRegisteredMetric(register,
+	bucketInitFailureCountByStrategy, alreadyRegistered, err := monitoring.EnsureRegisteredMetric(register,
 		prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Namespace: "weaviate",
@@ -177,9 +181,11 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 	if err != nil {
 		return nil, fmt.Errorf("register lsm_bucket_init_failure_count: %w", err)
 	}
-	monitoring.InitCounterVec(bucketInitFailureCountByStrategy, bucketStrategiesLabels)
+	if !alreadyRegistered {
+		monitoring.InitCounterVec(bucketInitFailureCountByStrategy, bucketStrategiesLabels)
+	}
 
-	bucketInitDurationByStrategy, err := monitoring.EnsureRegisteredMetric(register,
+	bucketInitDurationByStrategy, _, err := monitoring.EnsureRegisteredMetric(register,
 		prometheus.NewHistogramVec(
 			prometheus.HistogramOpts{
 				Namespace: "weaviate",
@@ -193,7 +199,7 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 		return nil, fmt.Errorf("register lsm_bucket_init_duration_seconds: %w", err)
 	}
 
-	bucketShutdownCountByStrategy, err := monitoring.EnsureRegisteredMetric(register,
+	bucketShutdownCountByStrategy, alreadyRegistered, err := monitoring.EnsureRegisteredMetric(register,
 		prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Namespace: "weaviate",
@@ -205,9 +211,11 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 	if err != nil {
 		return nil, fmt.Errorf("register lsm_bucket_shutdown_count: %w", err)
 	}
-	monitoring.InitCounterVec(bucketShutdownCountByStrategy, bucketStrategiesLabels)
+	if !alreadyRegistered {
+		monitoring.InitCounterVec(bucketShutdownCountByStrategy, bucketStrategiesLabels)
+	}
 
-	bucketShutdownInProgressByStrategy, err := monitoring.EnsureRegisteredMetric(register,
+	bucketShutdownInProgressByStrategy, alreadyRegistered, err := monitoring.EnsureRegisteredMetric(register,
 		prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{
 				Namespace: "weaviate",
@@ -219,9 +227,11 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 	if err != nil {
 		return nil, fmt.Errorf("register lsm_bucket_shutdown_in_progress: %w", err)
 	}
-	monitoring.InitGaugeVec(bucketShutdownInProgressByStrategy, bucketStrategiesLabels)
+	if !alreadyRegistered {
+		monitoring.InitGaugeVec(bucketShutdownInProgressByStrategy, bucketStrategiesLabels)
+	}
 
-	bucketShutdownDurationByStrategy, err := monitoring.EnsureRegisteredMetric(register,
+	bucketShutdownDurationByStrategy, _, err := monitoring.EnsureRegisteredMetric(register,
 		prometheus.NewHistogramVec(
 			prometheus.HistogramOpts{
 				Namespace: "weaviate",
@@ -235,7 +245,7 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 		return nil, fmt.Errorf("register lsm_bucket_shutdown_duration_seconds: %w", err)
 	}
 
-	bucketShutdownFailureCountByStrategy, err := monitoring.EnsureRegisteredMetric(register,
+	bucketShutdownFailureCountByStrategy, alreadyRegistered, err := monitoring.EnsureRegisteredMetric(register,
 		prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Namespace: "weaviate",
@@ -246,9 +256,11 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 	if err != nil {
 		return nil, fmt.Errorf("register lsm_bucket_shutdown_failure_count: %w", err)
 	}
-	monitoring.InitCounterVec(bucketShutdownFailureCountByStrategy, bucketStrategiesLabels)
+	if !alreadyRegistered {
+		monitoring.InitCounterVec(bucketShutdownFailureCountByStrategy, bucketStrategiesLabels)
+	}
 
-	bucketOpenedCursorsByStrategy, err := monitoring.EnsureRegisteredMetric(register,
+	bucketOpenedCursorsByStrategy, alreadyRegistered, err := monitoring.EnsureRegisteredMetric(register,
 		prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Namespace: "weaviate",
@@ -260,9 +272,11 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 	if err != nil {
 		return nil, fmt.Errorf("register lsm_bucket_opened_cursors: %w", err)
 	}
-	monitoring.InitCounterVec(bucketOpenedCursorsByStrategy, bucketStrategiesLabels)
+	if !alreadyRegistered {
+		monitoring.InitCounterVec(bucketOpenedCursorsByStrategy, bucketStrategiesLabels)
+	}
 
-	bucketOpenCursorsByStrategy, err := monitoring.EnsureRegisteredMetric(register,
+	bucketOpenCursorsByStrategy, alreadyRegistered, err := monitoring.EnsureRegisteredMetric(register,
 		prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{
 				Namespace: "weaviate",
@@ -274,9 +288,11 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 	if err != nil {
 		return nil, fmt.Errorf("register lsm_bucket_open_cursors: %w", err)
 	}
-	monitoring.InitGaugeVec(bucketOpenCursorsByStrategy, bucketStrategiesLabels)
+	if !alreadyRegistered {
+		monitoring.InitGaugeVec(bucketOpenCursorsByStrategy, bucketStrategiesLabels)
+	}
 
-	bucketCursorDurationByStrategy, err := monitoring.EnsureRegisteredMetric(register,
+	bucketCursorDurationByStrategy, _, err := monitoring.EnsureRegisteredMetric(register,
 		prometheus.NewHistogramVec(
 			prometheus.HistogramOpts{
 				Namespace: "weaviate",
@@ -290,7 +306,7 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 		return nil, fmt.Errorf("register lsm_bucket_cursor_duration_seconds: %w", err)
 	}
 
-	bucketReadOpCountByComponent, err := monitoring.EnsureRegisteredMetric(register,
+	bucketReadOpCountByComponent, alreadyRegistered, err := monitoring.EnsureRegisteredMetric(register,
 		prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Namespace: "weaviate",
@@ -302,9 +318,11 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 	if err != nil {
 		return nil, fmt.Errorf("register lsm_bucket_read_operation_count: %w", err)
 	}
-	monitoring.InitCounterVec(bucketReadOpCountByComponent, readOpsLabels)
+	if !alreadyRegistered {
+		monitoring.InitCounterVec(bucketReadOpCountByComponent, readOpsLabels)
+	}
 
-	bucketReadOpOngoingByComponent, err := monitoring.EnsureRegisteredMetric(register,
+	bucketReadOpOngoingByComponent, alreadyRegistered, err := monitoring.EnsureRegisteredMetric(register,
 		prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{
 				Namespace: "weaviate",
@@ -316,9 +334,11 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 	if err != nil {
 		return nil, fmt.Errorf("register lsm_bucket_read_operation_ongoing: %w", err)
 	}
-	monitoring.InitGaugeVec(bucketReadOpOngoingByComponent, readOpsLabels)
+	if !alreadyRegistered {
+		monitoring.InitGaugeVec(bucketReadOpOngoingByComponent, readOpsLabels)
+	}
 
-	bucketReadOpFailureCountByComponent, err := monitoring.EnsureRegisteredMetric(register,
+	bucketReadOpFailureCountByComponent, alreadyRegistered, err := monitoring.EnsureRegisteredMetric(register,
 		prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Namespace: "weaviate",
@@ -330,9 +350,11 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 	if err != nil {
 		return nil, fmt.Errorf("register lsm_bucket_read_operation_failure_count: %w", err)
 	}
-	monitoring.InitCounterVec(bucketReadOpFailureCountByComponent, readOpsLabels)
+	if !alreadyRegistered {
+		monitoring.InitCounterVec(bucketReadOpFailureCountByComponent, readOpsLabels)
+	}
 
-	bucketReadOpDurationByComponent, err := monitoring.EnsureRegisteredMetric(register,
+	bucketReadOpDurationByComponent, _, err := monitoring.EnsureRegisteredMetric(register,
 		prometheus.NewHistogramVec(
 			prometheus.HistogramOpts{
 				Namespace: "weaviate",
@@ -346,7 +368,7 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 		return nil, fmt.Errorf("register lsm_bucket_read_operation_duration_seconds: %w", err)
 	}
 
-	bucketWriteOpCount, err := monitoring.EnsureRegisteredMetric(register,
+	bucketWriteOpCount, alreadyRegistered, err := monitoring.EnsureRegisteredMetric(register,
 		prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Namespace: "weaviate",
@@ -358,9 +380,11 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 	if err != nil {
 		return nil, fmt.Errorf("register lsm_bucket_write_operation_count: %w", err)
 	}
-	monitoring.InitCounterVec(bucketWriteOpCount, writeOpsLabels)
+	if !alreadyRegistered {
+		monitoring.InitCounterVec(bucketWriteOpCount, writeOpsLabels)
+	}
 
-	bucketWriteOpOngoing, err := monitoring.EnsureRegisteredMetric(register,
+	bucketWriteOpOngoing, alreadyRegistered, err := monitoring.EnsureRegisteredMetric(register,
 		prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{
 				Namespace: "weaviate",
@@ -372,9 +396,11 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 	if err != nil {
 		return nil, fmt.Errorf("register lsm_bucket_write_operation_ongoing: %w", err)
 	}
-	monitoring.InitGaugeVec(bucketWriteOpOngoing, writeOpsLabels)
+	if !alreadyRegistered {
+		monitoring.InitGaugeVec(bucketWriteOpOngoing, writeOpsLabels)
+	}
 
-	bucketWriteOpFailureCount, err := monitoring.EnsureRegisteredMetric(register,
+	bucketWriteOpFailureCount, alreadyRegistered, err := monitoring.EnsureRegisteredMetric(register,
 		prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Namespace: "weaviate",
@@ -386,9 +412,11 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 	if err != nil {
 		return nil, fmt.Errorf("register lsm_bucket_write_operation_failure_count: %w", err)
 	}
-	monitoring.InitCounterVec(bucketWriteOpFailureCount, writeOpsLabels)
+	if !alreadyRegistered {
+		monitoring.InitCounterVec(bucketWriteOpFailureCount, writeOpsLabels)
+	}
 
-	bucketWriteOpDuration, err := monitoring.EnsureRegisteredMetric(register,
+	bucketWriteOpDuration, _, err := monitoring.EnsureRegisteredMetric(register,
 		prometheus.NewHistogramVec(
 			prometheus.HistogramOpts{
 				Namespace: "weaviate",
@@ -403,7 +431,7 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 	}
 
 	// segment metrics
-	segmentTotalByStrategy, err := monitoring.EnsureRegisteredMetric(register,
+	segmentTotalByStrategy, alreadyRegistered, err := monitoring.EnsureRegisteredMetric(register,
 		prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{
 				Namespace: "weaviate",
@@ -415,9 +443,11 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 	if err != nil {
 		return nil, fmt.Errorf("register lsm_bucket_segment_total: %w", err)
 	}
-	monitoring.InitGaugeVec(segmentTotalByStrategy, bucketStrategiesLabels)
+	if !alreadyRegistered {
+		monitoring.InitGaugeVec(segmentTotalByStrategy, bucketStrategiesLabels)
+	}
 
-	segmentSizeByStrategy, err := monitoring.EnsureRegisteredMetric(register,
+	segmentSizeByStrategy, _, err := monitoring.EnsureRegisteredMetric(register,
 		prometheus.NewHistogramVec(
 			prometheus.HistogramOpts{
 				Namespace: "weaviate",
@@ -432,7 +462,7 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 	}
 
 	// wal recovery metrics
-	walRecoveryCount, err := monitoring.EnsureRegisteredMetric(register,
+	walRecoveryCount, alreadyRegistered, err := monitoring.EnsureRegisteredMetric(register,
 		prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Namespace: "weaviate",
@@ -444,9 +474,11 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 	if err != nil {
 		return nil, fmt.Errorf("register lsm_bucket_wal_recovery_count: %w", err)
 	}
-	monitoring.InitCounterVec(walRecoveryCount, bucketStrategiesLabels)
+	if !alreadyRegistered {
+		monitoring.InitCounterVec(walRecoveryCount, bucketStrategiesLabels)
+	}
 
-	walRecoveryInProgress, err := monitoring.EnsureRegisteredMetric(register, prometheus.NewGaugeVec(
+	walRecoveryInProgress, _, err := monitoring.EnsureRegisteredMetric(register, prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Namespace: "weaviate",
 			Name:      "lsm_bucket_wal_recovery_in_progress",
@@ -458,7 +490,7 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 		return nil, fmt.Errorf("register lsm_bucket_wal_recovery_in_progress: %w", err)
 	}
 
-	walRecoveryFailureCount, err := monitoring.EnsureRegisteredMetric(register,
+	walRecoveryFailureCount, alreadyRegistered, err := monitoring.EnsureRegisteredMetric(register,
 		prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Namespace: "weaviate",
@@ -470,9 +502,11 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 	if err != nil {
 		return nil, fmt.Errorf("register lsm_bucket_wal_recovery_failure_count: %w", err)
 	}
-	monitoring.InitCounterVec(walRecoveryFailureCount, bucketStrategiesLabels)
+	if !alreadyRegistered {
+		monitoring.InitCounterVec(walRecoveryFailureCount, bucketStrategiesLabels)
+	}
 
-	walRecoveryDuration, err := monitoring.EnsureRegisteredMetric(register,
+	walRecoveryDuration, _, err := monitoring.EnsureRegisteredMetric(register,
 		prometheus.NewHistogramVec(
 			prometheus.HistogramOpts{
 				Namespace: "weaviate",
@@ -487,7 +521,7 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 	}
 
 	// compaction-related metrics
-	compactionCount, err := monitoring.EnsureRegisteredMetric(register,
+	compactionCount, alreadyRegistered, err := monitoring.EnsureRegisteredMetric(register,
 		prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Namespace: "weaviate",
@@ -499,9 +533,11 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 	if err != nil {
 		return nil, fmt.Errorf("register lsm_bucket_compaction_count: %w", err)
 	}
-	monitoring.InitCounterVec(compactionCount, bucketStrategiesLabels)
+	if !alreadyRegistered {
+		monitoring.InitCounterVec(compactionCount, bucketStrategiesLabels)
+	}
 
-	compactionInProgress, err := monitoring.EnsureRegisteredMetric(register, prometheus.NewGaugeVec(
+	compactionInProgress, alreadyRegistered, err := monitoring.EnsureRegisteredMetric(register, prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Namespace: "weaviate",
 			Name:      "lsm_bucket_compaction_in_progress",
@@ -512,9 +548,11 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 	if err != nil {
 		return nil, fmt.Errorf("register lsm_bucket_compaction_in_progress: %w", err)
 	}
-	monitoring.InitGaugeVec(compactionInProgress, bucketStrategiesLabels)
+	if !alreadyRegistered {
+		monitoring.InitGaugeVec(compactionInProgress, bucketStrategiesLabels)
+	}
 
-	compactionFailureCount, err := monitoring.EnsureRegisteredMetric(register,
+	compactionFailureCount, alreadyRegistered, err := monitoring.EnsureRegisteredMetric(register,
 		prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Namespace: "weaviate",
@@ -526,9 +564,11 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 	if err != nil {
 		return nil, fmt.Errorf("register lsm_bucket_compaction_failure_count: %w", err)
 	}
-	monitoring.InitCounterVec(compactionFailureCount, bucketStrategiesLabels)
+	if !alreadyRegistered {
+		monitoring.InitCounterVec(compactionFailureCount, bucketStrategiesLabels)
+	}
 
-	compactionNoOpCount, err := monitoring.EnsureRegisteredMetric(register,
+	compactionNoOpCount, alreadyRegistered, err := monitoring.EnsureRegisteredMetric(register,
 		prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Namespace: "weaviate",
@@ -540,9 +580,11 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 	if err != nil {
 		return nil, fmt.Errorf("register lsm_bucket_compaction_noop_count: %w", err)
 	}
-	monitoring.InitCounterVec(compactionNoOpCount, bucketStrategiesLabels)
+	if !alreadyRegistered {
+		monitoring.InitCounterVec(compactionNoOpCount, bucketStrategiesLabels)
+	}
 
-	compactionDuration, err := monitoring.EnsureRegisteredMetric(register,
+	compactionDuration, _, err := monitoring.EnsureRegisteredMetric(register,
 		prometheus.NewHistogramVec(
 			prometheus.HistogramOpts{
 				Namespace: "weaviate",
