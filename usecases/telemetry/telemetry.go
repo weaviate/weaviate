@@ -58,6 +58,7 @@ type Telemeter struct {
 	failedToStart     bool
 	consumer          string
 	pushInterval      time.Duration
+	clientTracker     *ClientTracker
 }
 
 // New creates a new Telemeter instance
@@ -72,8 +73,14 @@ func New(nodesStatusGetter nodesStatusGetter, schemaManager schemaManager,
 		shutdown:          make(chan struct{}),
 		consumer:          defaultConsumer,
 		pushInterval:      defaultPushInterval,
+		clientTracker:     NewClientTracker(),
 	}
 	return tel
+}
+
+// GetClientTracker returns the client tracker instance for use in middleware
+func (tel *Telemeter) GetClientTracker() *ClientTracker {
+	return tel.clientTracker
 }
 
 // Start begins telemetry for the node
@@ -193,6 +200,17 @@ func (tel *Telemeter) buildPayload(ctx context.Context, payloadType string) (*Pa
 		return nil, fmt.Errorf("get collections count: %w", err)
 	}
 
+	// Get client usage data and reset for the next period
+	// For Init payloads, we don't have client data yet, so skip it
+	var clientUsage map[ClientType]int64
+	if payloadType != PayloadType.Init && tel.clientTracker != nil {
+		clientUsage = tel.clientTracker.GetAndReset()
+		// Only include if there's actual data
+		if len(clientUsage) == 0 {
+			clientUsage = nil
+		}
+	}
+
 	return &Payload{
 		MachineID:        tel.machineID,
 		Type:             payloadType,
@@ -202,6 +220,7 @@ func (tel *Telemeter) buildPayload(ctx context.Context, payloadType string) (*Pa
 		Arch:             runtime.GOARCH,
 		UsedModules:      usedMods,
 		CollectionsCount: cols,
+		ClientUsage:      clientUsage,
 	}, nil
 }
 

@@ -1109,10 +1109,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	grpcServer, batchDrain := createGrpcServer(appState, grpcInstrument...)
 
-	setupMiddlewares := makeSetupMiddlewares(appState)
-	setupGlobalMiddleware := makeSetupGlobalMiddleware(appState, api.Context())
-
+	// Create telemeter early so it can be used in middleware
 	telemeter := telemetry.New(appState.DB, appState.SchemaManager, appState.Logger)
+
+	setupMiddlewares := makeSetupMiddlewares(appState)
+	setupGlobalMiddleware := makeSetupGlobalMiddleware(appState, api.Context(), telemeter)
 	if telemetryEnabled(appState) {
 		enterrors.GoWrapper(func() {
 			if err := telemeter.Start(context.Background()); err != nil {
