@@ -67,6 +67,9 @@ type Queue interface {
 	Size() int64
 	DequeueBatch() (batch *Batch, err error)
 	Metrics() *Metrics
+	// Used to group queues together when deciding queue priority.
+	// Typically, the shard ID can be used.
+	Group() string
 }
 
 type BeforeScheduleHook interface {
