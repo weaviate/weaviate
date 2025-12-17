@@ -17,7 +17,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"math/rand"
 	"net/http"
 	"net/http/httptest"
 	"runtime"
@@ -288,14 +287,20 @@ func TestTelemetry_BuildPayload(t *testing.T) {
 	})
 }
 
-var expectedClientCounts = map[ClientType]int64{}
-
 func TestTelemetry_WithConsumer(t *testing.T) {
-	// Reset expected client counts for this test
-	expectedClientCounts = make(map[ClientType]int64)
+	// Create a channel-based client counter for tracking expected client requests
+	expectedCounts := newClientCounter()
+	defer expectedCounts.Stop()
+
+	// Channel to receive telemetry payloads for verification
+	telemetryChan := make(chan *Payload, 10)
 
 	config.ServerVersion = "X.X.X"
-	server := httptest.NewServer(&testConsumer{t})
+	server := httptest.NewServer(&testConsumer{
+		t:              t,
+		expectedCounts: expectedCounts,
+		telemetryChan:  telemetryChan,
+	})
 	defer server.Close()
 
 	consumerURL := fmt.Sprintf("%s/weaviate-telemetry", server.URL)
@@ -348,51 +353,47 @@ func TestTelemetry_WithConsumer(t *testing.T) {
 	err := tel.Start(context.Background())
 	require.Nil(t, err)
 
-	// Create a context that will be cancelled when the test completes
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	// Wait for INIT payload to be sent
+	initPayload := <-telemetryChan
+	assert.Equal(t, PayloadType.Init, initPayload.Type)
+	assert.Nil(t, initPayload.ClientUsage)
 
-	// Start goroutines for each client type that continuously send requests
-	clientTypes := []struct {
+	// Send a fixed number of requests for each client type (deterministic)
+	clientRequests := []struct {
 		clientType ClientType
-		frequency  time.Duration
+		count      int
 	}{
-		{ClientTypePython, chooseClientRequestFrequency()},
-		{ClientTypeJava, chooseClientRequestFrequency()},
-		{ClientTypeTypeScript, chooseClientRequestFrequency()},
+		{ClientTypePython, 5},
+		{ClientTypeJava, 3},
+		{ClientTypeTypeScript, 2},
 	}
 
-	for _, ct := range clientTypes {
-		go func(clientType ClientType, freq time.Duration) {
-			ticker := time.NewTicker(freq)
-			defer ticker.Stop()
-			for {
-				select {
-				case <-ctx.Done():
-					return
-				case <-ticker.C:
-					trackClientRequest(t, tel, string(clientType), fmt.Sprintf("weaviate-client-%s/1.0.0", clientType))
-					expectedClientCounts[clientType]++
-				}
-			}
-		}(ct.clientType, ct.frequency)
-	}
-
-	ticker := time.NewTicker(100 * time.Millisecond)
-	start := time.Now()
-	wait := make(chan struct{})
-	go func() {
-		for range ticker.C {
-			if time.Since(start) > time.Second {
-				cancel() // Signal the client request goroutine to stop
-				err = tel.Stop(context.Background())
-				assert.Nil(t, err)
-				wait <- struct{}{}
-				return
-			}
+	for _, req := range clientRequests {
+		for i := 0; i < req.count; i++ {
+			trackClientRequest(t, tel, string(req.clientType), fmt.Sprintf("weaviate-client-%s/1.0.0", req.clientType))
+			expectedCounts.Increment(req.clientType)
 		}
-	}()
-	<-wait
+	}
+
+	// Wait for UPDATE payload to be sent (should include client usage)
+	updatePayload := <-telemetryChan
+	assert.Equal(t, PayloadType.Update, updatePayload.Type)
+
+	// Verify client usage matches expected counts
+	expectedCountsMap := expectedCounts.Get()
+	assert.NotNil(t, updatePayload.ClientUsage, "Expected client usage data but got nil")
+	for clientType, expectedCount := range expectedCountsMap {
+		actualCount, exists := updatePayload.ClientUsage[clientType]
+		assert.True(t, exists, "Expected client type %s to be in ClientUsage", clientType)
+		assert.Equal(t, expectedCount, actualCount, "Mismatch for client type %s: expected %d, got %d", clientType, expectedCount, actualCount)
+	}
+
+	// Stop telemetry and wait for TERMINATE payload
+	err = tel.Stop(context.Background())
+	require.Nil(t, err)
+
+	terminatePayload := <-telemetryChan
+	assert.Equal(t, PayloadType.Terminate, terminatePayload.Type)
 }
 
 type telemetryOpt func(*Telemeter)
@@ -423,8 +424,74 @@ func newTestTelemeter(opts ...telemetryOpt,
 	return tel, sg, sm
 }
 
+// clientCounter manages client counts using channel-based concurrency
+type clientCounter struct {
+	increment chan ClientType
+	get       chan chan map[ClientType]int64
+	reset     chan struct{}
+	stop      chan struct{}
+}
+
+// newClientCounter creates and starts a new client counter
+func newClientCounter() *clientCounter {
+	cc := &clientCounter{
+		increment: make(chan ClientType),
+		get:       make(chan chan map[ClientType]int64),
+		reset:     make(chan struct{}),
+		stop:      make(chan struct{}),
+	}
+	go cc.run()
+	return cc
+}
+
+// run is the manager goroutine that processes all operations
+func (cc *clientCounter) run() {
+	counts := make(map[ClientType]int64)
+	for {
+		select {
+		case clientType := <-cc.increment:
+			counts[clientType]++
+		case respChan := <-cc.get:
+			// Create a copy of the map to send back
+			copy := make(map[ClientType]int64)
+			for k, v := range counts {
+				copy[k] = v
+			}
+			respChan <- copy
+		case <-cc.reset:
+			counts = make(map[ClientType]int64)
+		case <-cc.stop:
+			return
+		}
+	}
+}
+
+// Increment increments the count for a client type
+func (cc *clientCounter) Increment(clientType ClientType) {
+	cc.increment <- clientType
+}
+
+// Get returns a copy of all current counts
+func (cc *clientCounter) Get() map[ClientType]int64 {
+	respChan := make(chan map[ClientType]int64, 1)
+	cc.get <- respChan
+	return <-respChan
+}
+
+// Reset clears all counts
+func (cc *clientCounter) Reset() {
+	cc.reset <- struct{}{}
+}
+
+// Stop stops the manager goroutine
+func (cc *clientCounter) Stop() {
+	cc.stop <- struct{}{}
+}
+
 type testConsumer struct {
-	t *testing.T
+	t              *testing.T
+	expectedCounts *clientCounter
+	telemetryChan  chan *Payload
 }
 
 func (h *testConsumer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -445,25 +512,8 @@ func (h *testConsumer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		PayloadType.Terminate,
 	}, payload.Type)
 	assert.Equal(h.t, config.ServerVersion, payload.Version)
-	if payload.Type == PayloadType.Init {
-		assert.Zero(h.t, payload.ObjectsCount)
-		// INIT payloads should not have client usage
-		assert.Nil(h.t, payload.ClientUsage)
-	} else {
-		// UPDATE and TERMINATE payloads should have client usage if clients were tracked
-		// (may be nil if no clients were tracked)
-		if len(expectedClientCounts) > 0 {
-			assert.NotNil(h.t, payload.ClientUsage, "Expected client usage data but got nil")
-			for clientType, expectedCount := range expectedClientCounts {
-				actualCount, exists := payload.ClientUsage[clientType]
-				if expectedCount > 0 {
-					assert.True(h.t, exists, "Expected client type %s to be in ClientUsage", clientType)
-					assert.Equal(h.t, expectedCount, actualCount, "Mismatch for client type %s", clientType)
-				}
-			}
-		}
-		expectedClientCounts = make(map[ClientType]int64)
-	}
+
+	// Basic payload validation
 	assert.Equal(h.t, runtime.GOOS, payload.OS)
 	assert.Equal(h.t, runtime.GOARCH, payload.Arch)
 	assert.NotEmpty(h.t, payload.CollectionsCount)
@@ -472,6 +522,32 @@ func (h *testConsumer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	assert.Contains(h.t, payload.UsedModules, "text2vec-google-ai-studio")
 	assert.Contains(h.t, payload.UsedModules, "text2vec-aws")
 	assert.Contains(h.t, payload.UsedModules, "generative-openai")
+
+	// Send payload to channel for test verification
+	if h.telemetryChan != nil {
+		select {
+		case h.telemetryChan <- &payload:
+		default:
+			// Channel full, but don't block
+		}
+	}
+
+	// For UPDATE and TERMINATE payloads, verify client usage matches expected counts
+	if payload.Type != PayloadType.Init {
+		expectedCounts := h.expectedCounts.Get()
+		if len(expectedCounts) > 0 {
+			assert.NotNil(h.t, payload.ClientUsage, "Expected client usage data but got nil")
+			for clientType, expectedCount := range expectedCounts {
+				actualCount, exists := payload.ClientUsage[clientType]
+				if expectedCount > 0 {
+					assert.True(h.t, exists, "Expected client type %s to be in ClientUsage", clientType)
+					assert.Equal(h.t, expectedCount, actualCount, "Mismatch for client type %s: expected %d, got %d", clientType, expectedCount, actualCount)
+				}
+			}
+		}
+		// Reset counts after verifying telemetry payload
+		h.expectedCounts.Reset()
+	}
 
 	h.t.Logf("request body: %s", string(b))
 	w.WriteHeader(http.StatusOK)
@@ -642,14 +718,4 @@ func TestClientTracker(t *testing.T) {
 		assert.Equal(t, expectedPython, counts[ClientTypePython])
 		assert.Equal(t, expectedJava, counts[ClientTypeJava])
 	})
-}
-
-// chooseClientRequestFrequency returns a random time.Duration between 5 and 100 milliseconds
-func chooseClientRequestFrequency() time.Duration {
-	return time.Duration(randIntBetween(50, 100)) * time.Millisecond
-}
-
-// randomIntBetween returns a random integer between min and max, inclusive.
-func randIntBetween(min, max int) int {
-	return min + rand.Intn(max-min+1)
 }
