@@ -857,7 +857,7 @@ func configureCrons(appState *state.State, serverShutdownCtx context.Context) {
 	specs := []jobSpec{}
 
 	if schedule := appState.ServerConfig.Config.ObjectsTTLDeleteSchedule; schedule != "" {
-		l := logger.WithField("action", "cron_ttl_scheduler")
+		l := logger.WithField("action", "cron_objects_ttl_deletion")
 
 		triggerDeletionObjectsExpiredJob := gocron.NewChain(gocron.SkipIfStillRunning(cronLogger)).
 			Then(cron.NewGoCronJob(func() {
@@ -869,21 +869,21 @@ func configureCrons(appState *state.State, serverShutdownCtx context.Context) {
 				var err error
 				started := time.Now()
 
-				l.Info("trigger deletion of expired objects started")
+				l.Info("trigger ttl deletion started")
 				defer func() {
 					l = l.WithField("took", time.Since(started))
 					if err != nil {
-						l.WithError(err).Error("trigger deletion of expired objects failed")
+						l.WithError(err).Error("trigger ttl deletion failed")
 						return
 					}
-					l.Info("trigger deletion of expired objects finished")
+					l.Info("trigger ttl deletion finished")
 				}()
 
 				err = appState.ObjectTTLCoordinator.Start(serverShutdownCtx, false, started, started)
 			}))
 
 		specs = append(specs, jobSpec{
-			name:     "trigger_deletion_objects_expired",
+			name:     "trigger_objects_ttl_deletion",
 			schedule: schedule,
 			job:      triggerDeletionObjectsExpiredJob,
 		})

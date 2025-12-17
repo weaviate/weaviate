@@ -96,6 +96,8 @@ func (c *Coordinator) Start(ctx context.Context, targetOwnNode bool, ttlTime, de
 	localNode := c.schemaGetter.NodeName()
 	allNodes := c.schemaGetter.Nodes()
 	remoteNodes := make([]string, 0, len(allNodes))
+	remoteNodeSelected := ""
+
 	if targetOwnNode {
 		remoteNodes = append(remoteNodes, localNode)
 	} else {
@@ -106,18 +108,29 @@ func (c *Coordinator) Start(ctx context.Context, targetOwnNode bool, ttlTime, de
 		}
 	}
 
+	remoteNodesCount := len(remoteNodes)
+	switch remoteNodesCount {
+	case 0:
+		// nothing to select
+	case 1:
+		remoteNodeSelected = remoteNodes[0]
+	default:
+		i := rand.Intn(remoteNodesCount)
+		remoteNodeSelected = remoteNodes[i]
+	}
+
 	c.logger.WithFields(logrus.Fields{
 		"action":        "objects_ttl_deletion",
 		"all_nodes":     allNodes,
-		"remote_nodes":  remoteNodes,
+		"selected_node": remoteNodeSelected,
 		"ttl_time":      ttlTime,
 		"deletion_time": deletionTime,
-	}).Debug("trigger deletion of expired objects")
+	}).Debug("ttl deletion running")
 
-	if len(remoteNodes) == 0 {
+	if remoteNodeSelected == "" {
 		return c.triggerDeletionObjectsExpiredLocalNode(ctx, classesWithTTL, ttlTime, deletionTime)
 	}
-	return c.triggerDeletionObjectsExpiredRemoteNode(ctx, classesWithTTL, ttlTime, deletionTime, remoteNodes)
+	return c.triggerDeletionObjectsExpiredRemoteNode(ctx, classesWithTTL, ttlTime, deletionTime, remoteNodeSelected)
 }
 
 func (c *Coordinator) triggerDeletionObjectsExpiredLocalNode(ctx context.Context, classesWithTTL map[string]objectTTLAndVersion,
@@ -134,7 +147,7 @@ func (c *Coordinator) triggerDeletionObjectsExpiredLocalNode(ctx context.Context
 	logger := c.logger.WithField("action", "objects_ttl_deletion")
 	logger.WithFields(logrus.Fields{
 		"collections":       colNames,
-		"collections_total": len(colNames),
+		"collections_count": len(colNames),
 	}).Info("ttl deletion on local node started")
 	defer func() {
 		// add fields c_{collection_name}=>{count_deleted} and total_deleted=>{total_deleted}
@@ -172,20 +185,9 @@ func (c *Coordinator) triggerDeletionObjectsExpiredLocalNode(ctx context.Context
 }
 
 func (c *Coordinator) triggerDeletionObjectsExpiredRemoteNode(ctx context.Context, classesWithTTL map[string]objectTTLAndVersion,
-	ttlTime, deletionTime time.Time, nodes []string,
+	ttlTime, deletionTime time.Time, node string,
 ) (err error) {
 	started := time.Now()
-
-	var node string
-	switch nodesCount := len(nodes); nodesCount {
-	case 0:
-		return fmt.Errorf("no nodes provided")
-	case 1:
-		node = nodes[0]
-	default:
-		i := rand.Intn(nodesCount)
-		node = nodes[i]
-	}
 
 	l := c.logger.WithFields(logrus.Fields{
 		"action": "objects_ttl_deletion",
