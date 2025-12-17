@@ -32,9 +32,9 @@ const (
 // limit the size of each task chunk to
 // to avoid sending too many tasks at once.
 const (
-	splitTaskQueueChunkSize    = 128 * 1024 // 128KB
-	reassignTaskQueueChunkSize = 64 * 1024  // 64KB
-	mergeTaskQueueChunkSize    = 64 * 1024  // 64KB
+	splitTaskQueueChunkSize    = 16 * 1024 // 16KB
+	reassignTaskQueueChunkSize = 16 * 1024 // 16KB
+	mergeTaskQueueChunkSize    = 16 * 1024 // 16KB
 )
 
 type TaskQueue struct {
