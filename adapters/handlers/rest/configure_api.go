@@ -43,6 +43,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/encoding/gzip"
 
 	"github.com/weaviate/fgprof"
 	"github.com/weaviate/weaviate/adapters/clients"
@@ -523,15 +524,19 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	remoteClientFactory := func(ctx context.Context, address string) (copier.FileReplicationServiceClient, error) {
 		authConfig := appState.ServerConfig.Config.Cluster.AuthConfig
 		maxSize := clusterapigrpc.GetMaxMessageSize(appState.ServerConfig.Config.ReplicationEngineFileCopyChunkSize)
+		initialConnWindowSize := maxSize * appState.ServerConfig.Config.ReplicationEngineFileCopyWorkers
 
 		clientConn, err := grpc.NewClient(address,
 			grpc.WithTransportCredentials(insecure.NewCredentials()),
 			grpc.WithDefaultCallOptions(
 				grpc.MaxCallRecvMsgSize(maxSize),
 				grpc.MaxCallSendMsgSize(maxSize),
+				grpc.UseCompressor(gzip.Name),
 			),
 			grpc.WithInitialWindowSize(int32(maxSize)),
-			grpc.WithInitialConnWindowSize(clusterapigrpc.INITIAL_CONN_WINDOW),
+			grpc.WithInitialConnWindowSize(int32(initialConnWindowSize)),
+			grpc.WithReadBufferSize(clusterapigrpc.READ_BUFFER_SIZE),
+			grpc.WithWriteBufferSize(clusterapigrpc.WRITE_BUFFER_SIZE),
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create gRPC client connection: %w", err)
