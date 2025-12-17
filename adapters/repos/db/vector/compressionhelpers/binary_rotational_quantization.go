@@ -36,15 +36,6 @@ type BinaryRotationalQuantizer struct {
 	cos       float32
 }
 
-func (rq *BinaryRotationalQuantizer) Data() RQData {
-	return RQData{
-		InputDim: rq.inputDim,
-		Bits:     1,
-		Rotation: *rq.rotation,
-		Rounding: rq.rounding,
-	}
-}
-
 func NewBinaryRotationalQuantizer(inputDim int, seed uint64, distancer distancer.Provider) *BinaryRotationalQuantizer {
 	// Pad the input if it is low-dimensional.
 	if inputDim < minCodeBits {
@@ -196,8 +187,7 @@ func (rq *BinaryRotationalQuantizer) Encode(x []float32) []uint64 {
 }
 
 func (rq *BinaryRotationalQuantizer) Decode(compressed []uint64) []float32 {
-	restored := rq.Restore(compressed)
-	return rq.rotation.UnRotate(restored)
+	panic("unimplemented")
 }
 
 // Restore -> NewCompressedQuantizerDistancer -> NewDistancerFromID -> reassignNeighbor in when deleting
