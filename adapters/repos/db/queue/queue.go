@@ -69,7 +69,12 @@ type Queue interface {
 	Metrics() *Metrics
 	// Used to group queues together when deciding queue priority.
 	// Typically, the shard ID can be used.
+	// An empty string indicates no group and priorities
+	// will be ignored.
 	Group() string
+	// Indicates the priority of a queue compared to other queues
+	// of the same group.
+	Priority() Priority
 }
 
 type BeforeScheduleHook interface {
