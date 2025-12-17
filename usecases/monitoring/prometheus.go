@@ -106,6 +106,7 @@ type PrometheusMetrics struct {
 	VectorIndexPostingSize                   *prometheus.HistogramVec
 	VectorIndexPendingBackgroundOperations   *prometheus.GaugeVec
 	VectorIndexBackgroundOperationsDurations *prometheus.SummaryVec
+	VectorIndexBackgroundOperationsCount     *prometheus.GaugeVec
 	VectorIndexStoreOperationsDurations      *prometheus.SummaryVec
 
 	VectorDimensionsSum                 *prometheus.GaugeVec
@@ -657,6 +658,10 @@ func newPrometheusMetrics() *PrometheusMetrics {
 		VectorIndexBackgroundOperationsDurations: promauto.NewSummaryVec(prometheus.SummaryOpts{
 			Name: "vector_index_background_operations_durations_ms",
 			Help: "Duration of typical vector index background operations (split, merge, reassign)",
+		}, []string{"operation", "class_name", "shard_name"}),
+		VectorIndexBackgroundOperationsCount: promauto.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "vector_index_background_operations_count",
+			Help: "Total number of background operations (split, merge, reassign)",
 		}, []string{"operation", "class_name", "shard_name"}),
 		VectorIndexStoreOperationsDurations: promauto.NewSummaryVec(prometheus.SummaryOpts{
 			Name: "vector_index_store_operations_durations_ms",

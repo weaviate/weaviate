@@ -253,6 +253,7 @@ func (t *SplitTask) Execute(ctx context.Context) error {
 	}
 
 	t.idx.metrics.DequeueSplitTask()
+	t.idx.metrics.IncSplitCount()
 	return nil
 }
 
@@ -282,6 +283,7 @@ func (t *MergeTask) Execute(ctx context.Context) error {
 	}
 
 	t.idx.metrics.DequeueMergeTask()
+	t.idx.metrics.IncMergeCount()
 	return nil
 }
 
@@ -312,6 +314,7 @@ func (t *ReassignTask) Execute(ctx context.Context) error {
 	}
 
 	t.idx.metrics.DequeueReassignTask()
+	t.idx.metrics.IncReassignCount()
 	return nil
 }
 
