@@ -121,6 +121,9 @@ func (r *FastRotation) Rotate(x []float32) []float32 {
 	return rx
 }
 
+/*
+Original vector is modified. If you need to keep the original vector, make a copy.
+*/
 func (r *FastRotation) UnRotate(rx []float32) []float32 {
 	x := rx
 
