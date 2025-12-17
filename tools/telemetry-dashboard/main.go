@@ -8,13 +8,6 @@
 //
 //  CONTACT: hello@weaviate.io
 //
-//  Local Telemetry Dashboard
-//  This tool provides a local web dashboard to receive and display
-//  telemetry data from Weaviate instances.
-//
-//  Usage:
-//    go run tools/telemetry-dashboard/main.go
-//    Then configure Weaviate to send telemetry to: http://localhost:8080/weaviate-telemetry
 
 package main
 
@@ -27,6 +20,14 @@ import (
 	"sync"
 	"time"
 )
+
+//  Local Telemetry Dashboard
+//  This tool provides a local web dashboard to receive and display
+//  telemetry data from Weaviate instances.
+//
+//  Usage:
+//    go run tools/telemetry-dashboard/main.go
+//    Then configure Weaviate to send telemetry to: http://localhost:9696/weaviate-telemetry
 
 const (
 	port         = ":9696"
