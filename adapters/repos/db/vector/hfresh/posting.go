@@ -98,23 +98,23 @@ func (p Posting) GarbageCollect(versionMap *VersionMap) (Posting, error) {
 	return p, nil
 }
 
-func (p Posting) Uncompress(quantizer *compressionhelpers.BinaryRotationalQuantizer) [][]float32 {
+func (p Posting) Uncompress(quantizer *compressionhelpers.RotationalQuantizer) [][]float32 {
 	data := make([][]float32, 0, len(p))
 
 	for _, v := range p {
-		data = append(data, quantizer.Decode(quantizer.FromCompressedBytes(v.Data())))
+		data = append(data, quantizer.Decode(v.Data()))
 	}
 
 	return data
 }
 
 type Distancer struct {
-	quantizer *compressionhelpers.BinaryRotationalQuantizer
+	quantizer *compressionhelpers.RotationalQuantizer
 	distancer distancer.Provider
 }
 
 func (d *Distancer) DistanceBetweenCompressedVectors(a, b []byte) (float32, error) {
-	return d.quantizer.DistanceBetweenCompressedVectors(d.quantizer.FromCompressedBytes(a), d.quantizer.FromCompressedBytes(b))
+	return d.quantizer.DistanceBetweenCompressedVectors(a, b)
 }
 
 func (d *Distancer) DistanceBetweenVectors(a, b []float32) (float32, error) {
