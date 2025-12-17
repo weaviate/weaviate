@@ -13,6 +13,7 @@ package queue
 
 import (
 	"context"
+	"math/rand/v2"
 	"os"
 	"runtime"
 	"sync"
@@ -613,4 +614,43 @@ func (qs *queueState) MarkAsScheduled() {
 
 func (qs *queueState) MarkAsUnscheduled() {
 	qs.scheduled.Decr()
+}
+
+type queueGroup struct {
+	m map[string]*queueState
+}
+
+// selectByPriority selects a queue from this group
+// based on priority and randomness.
+// It computes the sum of all weights, select a random
+// ticket, and returns the queue that owns the ticket.
+// Only queues that contain tasks are considered.
+func (g *queueGroup) selectByPriority() *queueState {
+	var sum int64
+
+	queues := make([]*queueState, 0, len(g.m))
+
+	for _, q := range g.m {
+		if q.q.Size() == 0 {
+			continue
+		}
+		sum += int64(q.q.Priority())
+		queues = append(queues, q)
+	}
+
+	if sum == 0 {
+		return nil
+	}
+
+	rnd := rand.Int64N(sum)
+	var current int64
+	for _, q := range queues {
+		p := q.q.Priority()
+		current += int64(p)
+		if rnd < current {
+			return q
+		}
+	}
+
+	return nil
 }

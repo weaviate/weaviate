@@ -60,13 +60,13 @@ const (
 // regex pattern for the chunk files
 var chunkFilePattern = regexp.MustCompile(`chunk-\d+\.bin`)
 
-// Priority represents a scheduling priority.
+// Priority is used as a scheduling weight
 type Priority uint8
 
 const (
-	PriorityLow Priority = iota
-	PriorityMedium
-	PriorityHigh
+	PriorityLow    Priority = 1
+	PriorityMedium          = 2
+	PriorityHigh            = 5
 )
 
 func (p Priority) Validate() error {
@@ -74,7 +74,7 @@ func (p Priority) Validate() error {
 	case PriorityLow, PriorityMedium, PriorityHigh:
 		return nil
 	default:
-		return errors.Errorf("invalide queue priority %v", p)
+		return errors.Errorf("invalid queue priority %v", p)
 	}
 }
 
