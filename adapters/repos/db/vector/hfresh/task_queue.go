@@ -38,9 +38,9 @@ const (
 
 type TaskQueue struct {
 	// queue for split and reassign operations
-	q *queue.DiskQueue
+	splitQueue *queue.DiskQueue
 	// queue for merge operations, as these need to be run sequentially
-	qMerge *queue.DiskQueue
+	mergeQueue *queue.DiskQueue
 
 	scheduler *queue.Scheduler
 
@@ -60,7 +60,7 @@ func NewTaskQueue(index *HFresh) (*TaskQueue, error) {
 	}
 
 	// create main queue for split and reassign operations
-	tq.q, err = queue.NewDiskQueue(
+	tq.splitQueue, err = queue.NewDiskQueue(
 		queue.DiskQueueOptions{
 			ID:               fmt.Sprintf("hfresh_ops_queue_%s_%s", index.config.ShardName, index.config.ID),
 			Logger:           index.logger,
@@ -74,13 +74,13 @@ func NewTaskQueue(index *HFresh) (*TaskQueue, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create hfresh main queue")
 	}
-	err = tq.q.Init()
+	err = tq.splitQueue.Init()
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to initialize hfresh main queue")
 	}
 
 	// create separate queue for merge operations
-	tq.qMerge, err = queue.NewDiskQueue(
+	tq.mergeQueue, err = queue.NewDiskQueue(
 		queue.DiskQueueOptions{
 			ID:               fmt.Sprintf("hfresh_merge_queue_%s_%s", index.config.ShardName, index.config.ID),
 			Logger:           index.logger,
@@ -94,24 +94,24 @@ func NewTaskQueue(index *HFresh) (*TaskQueue, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create hfresh merge queue")
 	}
-	err = tq.qMerge.Init()
+	err = tq.mergeQueue.Init()
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to initialize hfresh merge queue")
 	}
 
-	index.scheduler.RegisterQueue(tq.q)
-	index.scheduler.RegisterQueue(tq.qMerge)
+	index.scheduler.RegisterQueue(tq.splitQueue)
+	index.scheduler.RegisterQueue(tq.mergeQueue)
 
 	return &tq, nil
 }
 
 func (tq *TaskQueue) Close() error {
 	var errs []error
-	if err := tq.q.Close(); err != nil {
+	if err := tq.splitQueue.Close(); err != nil {
 		errs = append(errs, errors.Wrap(err, "failed to close main queue"))
 	}
 
-	if err := tq.qMerge.Close(); err != nil {
+	if err := tq.mergeQueue.Close(); err != nil {
 		errs = append(errs, errors.Wrap(err, "failed to close merge queue"))
 	}
 
@@ -119,7 +119,7 @@ func (tq *TaskQueue) Close() error {
 }
 
 func (tq *TaskQueue) Size() int64 {
-	return tq.q.Size() + tq.qMerge.Size()
+	return tq.splitQueue.Size() + tq.mergeQueue.Size()
 }
 
 func (tq *TaskQueue) SplitDone(postingID uint64) {
@@ -140,7 +140,7 @@ func (tq *TaskQueue) EnqueueSplit(postingID uint64) error {
 		return nil
 	}
 
-	if err := tq.q.Push(encodeTask(postingID, taskQueueSplitOp)); err != nil {
+	if err := tq.splitQueue.Push(encodeTask(postingID, taskQueueSplitOp)); err != nil {
 		return errors.Wrap(err, "failed to push split operation to queue")
 	}
 
@@ -155,7 +155,7 @@ func (tq *TaskQueue) EnqueueMerge(postingID uint64) error {
 		return nil
 	}
 
-	if err := tq.qMerge.Push(encodeTask(postingID, taskQueueMergeOp)); err != nil {
+	if err := tq.mergeQueue.Push(encodeTask(postingID, taskQueueMergeOp)); err != nil {
 		return errors.Wrap(err, "failed to push merge operation to queue")
 	}
 
@@ -171,7 +171,7 @@ func (tq *TaskQueue) EnqueueReassign(postingID uint64, vecID uint64, version Vec
 	binary.LittleEndian.PutUint64(buf[9:17], vecID)
 	buf[17] = byte(version)
 
-	if err := tq.q.Push(buf); err != nil {
+	if err := tq.splitQueue.Push(buf); err != nil {
 		return errors.Wrap(err, "failed to push reassign operation to queue")
 	}
 
