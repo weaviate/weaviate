@@ -62,10 +62,10 @@ func NewTaskQueue(index *HFresh) (*TaskQueue, error) {
 	// create main queue for split and reassign operations
 	tq.splitQueue, err = queue.NewDiskQueue(
 		queue.DiskQueueOptions{
-			ID:               fmt.Sprintf("hfresh_ops_queue_%s_%s", index.config.ShardName, index.config.ID),
+			ID:               fmt.Sprintf("hfresh_split_queue_%s_%s", index.config.ShardName, index.config.ID),
 			Logger:           index.logger,
 			Scheduler:        index.scheduler,
-			Dir:              filepath.Join(index.config.RootPath, fmt.Sprintf("%s.queue.d", index.config.ID)),
+			Dir:              filepath.Join(index.config.RootPath, "split.queue.d"),
 			TaskDecoder:      &tq,
 			OnBatchProcessed: tq.OnBatchProcessed,
 			ChunkSize:        mainTaskQueueChunkSize,
@@ -85,7 +85,7 @@ func NewTaskQueue(index *HFresh) (*TaskQueue, error) {
 			ID:               fmt.Sprintf("hfresh_merge_queue_%s_%s", index.config.ShardName, index.config.ID),
 			Logger:           index.logger,
 			Scheduler:        index.scheduler,
-			Dir:              filepath.Join(index.config.RootPath, fmt.Sprintf("%s.merge.queue.d", index.config.ID)),
+			Dir:              filepath.Join(index.config.RootPath, "merge.queue.d"),
 			TaskDecoder:      &tq,
 			OnBatchProcessed: tq.OnBatchProcessed,
 			ChunkSize:        mergeTaskQueueChunkSize,
