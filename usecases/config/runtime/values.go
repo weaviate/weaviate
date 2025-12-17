@@ -33,9 +33,10 @@ type DynamicValue[T DynamicType] struct {
 	val *T
 	// mu protects val
 	mu sync.RWMutex
-
 	// def represents the default value.
 	def T
+	// optional validation
+	validate func(val T) error
 }
 
 // NewDynamicValue returns an instance of DynamicValue as passed in type
@@ -44,6 +45,16 @@ func NewDynamicValue[T DynamicType](val T) *DynamicValue[T] {
 	return &DynamicValue[T]{
 		def: val,
 	}
+}
+
+func NewDynamicValueWithValidation[T DynamicType](val T, validate func(val T) error) (*DynamicValue[T], error) {
+	if err := validate(val); err != nil {
+		return nil, err
+	}
+	return &DynamicValue[T]{
+		def:      val,
+		validate: validate,
+	}, nil
 }
 
 // Get returns a current value for the given config. It can either be dynamic value or default
@@ -78,16 +89,23 @@ func (dv *DynamicValue[T]) Reset() {
 }
 
 // Set is used by the config manager to update the dynamic value.
-func (dv *DynamicValue[T]) SetValue(val T) {
+func (dv *DynamicValue[T]) SetValue(val T) error {
 	// log this at the high level, that someone is trying to set unitilized runtime value
 	if dv == nil {
-		return
+		return nil
+	}
+
+	if dv.validate != nil {
+		if err := dv.validate(val); err != nil {
+			return err
+		}
 	}
 
 	dv.mu.Lock()
 	defer dv.mu.Unlock()
 
 	dv.val = &val
+	return nil
 
 	// NOTE: doesn't need to set any default value here
 	// as `Get()` api will return default if dynamic value is not set.
