@@ -16,6 +16,7 @@ import (
 	"math/rand/v2"
 	"os"
 	"runtime"
+	"slices"
 	"sync"
 	"time"
 
@@ -28,12 +29,7 @@ import (
 type Scheduler struct {
 	SchedulerOptions
 
-	queues struct {
-		sync.Mutex
-
-		perID    map[string]*queueState
-		perGroup map[string]*queueGroup
-	}
+	queues *queues
 
 	// context used to close pending tasks
 	ctx      context.Context
@@ -108,8 +104,10 @@ func NewScheduler(opts SchedulerOptions) *Scheduler {
 		SchedulerOptions: opts,
 		activeTasks:      common.NewSharedGauge(),
 	}
-	s.queues.perID = make(map[string]*queueState)
-	s.queues.perGroup = make(map[string]*queueGroup)
+	s.queues = &queues{
+		perID:  make(map[string]*queueState),
+		groups: make(map[string][]string),
+	}
 	s.triggerCh = make(chan chan struct{})
 
 	return &s
@@ -136,16 +134,8 @@ func (s *Scheduler) RegisterQueue(q Queue) error {
 		return errors.Errorf("queue with ID %q already registered", q.ID())
 	}
 
-	g, ok := s.queues.perGroup[group]
-	if !ok {
-		g = &queueGroup{
-			m: make(map[string]*queueState),
-		}
-		s.queues.perGroup[group] = g
-	}
-
-	g.m[q.ID()] = newQueueState(s.ctx, q)
-	s.queues.perID[q.ID()] = g.m[q.ID()]
+	s.queues.perID[q.ID()] = newQueueState(s.ctx, q)
+	s.queues.groups[group] = append(s.queues.groups[group], q.ID())
 
 	q.Metrics().Registered(q.ID())
 	return nil
@@ -170,15 +160,7 @@ func (s *Scheduler) UnregisterQueue(id string) {
 	s.Wait(id)
 
 	// the queue is paused, so it's safe to remove it
-	s.queues.Lock()
-	delete(s.queues.perID, id)
-	if g, ok := s.queues.perGroup[q.q.Group()]; ok {
-		delete(g.m, id)
-		if len(g.m) == 0 {
-			delete(s.queues.perGroup, q.q.Group())
-		}
-	}
-	s.queues.Unlock()
+	s.queues.deleteQueue(id)
 
 	q.q.Metrics().Unregistered(q.q.ID())
 }
@@ -320,6 +302,13 @@ func (s *Scheduler) getQueue(id string) *queueState {
 	return s.queues.perID[id]
 }
 
+func (s *Scheduler) getGroup(group string) *queueGroup {
+	s.queues.Lock()
+	defer s.queues.Unlock()
+
+	return s.queues.perGroup[group]
+}
+
 func (s *Scheduler) runScheduler() {
 	t := time.NewTicker(s.ScheduleInterval)
 
@@ -370,11 +359,28 @@ func (s *Scheduler) schedule() {
 	}
 }
 
-func (s *Scheduler) scheduleQueues() (nothingScheduled bool) {
+func (s *Scheduler) scheduleGroups() (nothingScheduled bool) {
+	// loop over the groups in random order
+	s.queues.Lock()
+	groups := make([]string, 0, len(s.queues.perGroup))
+	for grp := range s.queues.perGroup {
+		groups = append(groups, grp)
+	}
+	s.queues.Unlock()
+
+	for _, grp := range groups {
+		if s.ctx.Err() != nil {
+			return nothingScheduled
+		}
+
+	}
+}
+
+func (s *Scheduler) scheduleQueues(g *queueGroup) (nothingScheduled bool) {
 	// loop over the queues in random order
 	s.queues.Lock()
 	ids := make([]string, 0, len(s.queues.perID))
-	for id := range s.queues.perID {
+	for id := range g.m {
 		ids = append(ids, id)
 	}
 	s.queues.Unlock()
@@ -638,6 +644,27 @@ func (qs *queueState) MarkAsScheduled() {
 
 func (qs *queueState) MarkAsUnscheduled() {
 	qs.scheduled.Decr()
+}
+
+type queues struct {
+	sync.Mutex
+
+	perID map[string]*queueState
+	// group name -> list of queue IDs
+	groups map[string][]string
+}
+
+func (qq *queues) deleteQueue(id string) {
+	qq.Lock()
+	q := qq.perID[id]
+	delete(qq.perID, id)
+	qq.groups[q.q.Group()] = slices.DeleteFunc(qq.groups[q.q.Group()], func(id string) bool {
+		return id == q.q.Group()
+	})
+	if len(qq.groups[q.q.Group()]) == 0 {
+		delete(qq.groups, q.q.Group())
+	}
+	qq.Unlock()
 }
 
 type queueGroup struct {
