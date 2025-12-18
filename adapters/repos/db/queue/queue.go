@@ -111,6 +111,7 @@ type DiskQueue struct {
 	onBatchProcessed func()
 	metrics          *Metrics
 	chunkSize        uint64
+	group            string
 
 	// m protects the disk operations
 	m            sync.RWMutex
@@ -138,6 +139,7 @@ type DiskQueueOptions struct {
 	ChunkSize        uint64
 	OnBatchProcessed func()
 	Metrics          *Metrics
+	Group            string
 }
 
 func NewDiskQueue(opt DiskQueueOptions) (*DiskQueue, error) {
@@ -184,6 +186,7 @@ func NewDiskQueue(opt DiskQueueOptions) (*DiskQueue, error) {
 		metrics:          opt.Metrics,
 		onBatchProcessed: opt.OnBatchProcessed,
 		chunkSize:        opt.ChunkSize,
+		group:            opt.Group,
 	}
 
 	return &q, nil
@@ -320,6 +323,10 @@ func (q *DiskQueue) Push(record []byte) error {
 
 func (q *DiskQueue) Scheduler() *Scheduler {
 	return q.scheduler
+}
+
+func (q *DiskQueue) Group() string {
+	return q.group
 }
 
 func (q *DiskQueue) Flush() error {
