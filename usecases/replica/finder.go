@@ -81,8 +81,9 @@ func NewFinder(className string,
 ) *Finder {
 	cl := FinderClient{client}
 	return &Finder{
-		router:   router,
-		nodeName: nodeName,
+		router:       router,
+		nodeResolver: nodeResolver,
+		nodeName:     nodeName,
 		finderStream: finderStream{
 			repairer: repairer{
 				class:               className,
