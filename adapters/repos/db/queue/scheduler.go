@@ -103,10 +103,7 @@ func NewScheduler(opts SchedulerOptions) *Scheduler {
 	s := Scheduler{
 		SchedulerOptions: opts,
 		activeTasks:      common.NewSharedGauge(),
-	}
-	s.queues = &queues{
-		perID:  make(map[string]*queueState),
-		groups: make(map[string][]string),
+		queues:           newQueues(),
 	}
 	s.triggerCh = make(chan chan struct{})
 
@@ -652,6 +649,13 @@ type queues struct {
 	perID map[string]*queueState
 	// group name -> list of queue IDs
 	groups map[string][]string
+}
+
+func newQueues() *queues {
+	return &queues{
+		perID:  make(map[string]*queueState),
+		groups: make(map[string][]string),
+	}
 }
 
 func (qq *queues) deleteQueue(id string) {
