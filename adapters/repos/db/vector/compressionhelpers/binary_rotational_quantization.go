@@ -46,6 +46,15 @@ func (rq *BinaryRotationalQuantizer) Data() RQData {
 	}
 }
 
+func (rq *BinaryRotationalQuantizer) Data() RQData {
+	return RQData{
+		InputDim: rq.inputDim,
+		Bits:     1,
+		Rotation: *rq.rotation,
+		Rounding: rq.rounding,
+	}
+}
+
 func NewBinaryRotationalQuantizer(inputDim int, seed uint64, distancer distancer.Provider) *BinaryRotationalQuantizer {
 	originalDim := inputDim
 
