@@ -502,17 +502,17 @@ func (_c *MockRemoteIndexIncomingRepo_OverwriteObjects_Call) RunAndReturn(run fu
 	return _c
 }
 
-// ReplicateDeletion provides a mock function with given fields: ctx, shardName, requestID, uuid, deletionTime
-func (_m *MockRemoteIndexIncomingRepo) ReplicateDeletion(ctx context.Context, shardName string, requestID string, uuid strfmt.UUID, deletionTime time.Time) SimpleResponse {
-	ret := _m.Called(ctx, shardName, requestID, uuid, deletionTime)
+// ReplicateDeletion provides a mock function with given fields: ctx, shardName, requestID, uuid, deletionTime, schemaVersion
+func (_m *MockRemoteIndexIncomingRepo) ReplicateDeletion(ctx context.Context, shardName string, requestID string, uuid strfmt.UUID, deletionTime time.Time, schemaVersion uint64) SimpleResponse {
+	ret := _m.Called(ctx, shardName, requestID, uuid, deletionTime, schemaVersion)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ReplicateDeletion")
 	}
 
 	var r0 SimpleResponse
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, strfmt.UUID, time.Time) SimpleResponse); ok {
-		r0 = rf(ctx, shardName, requestID, uuid, deletionTime)
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, strfmt.UUID, time.Time, uint64) SimpleResponse); ok {
+		r0 = rf(ctx, shardName, requestID, uuid, deletionTime, schemaVersion)
 	} else {
 		r0 = ret.Get(0).(SimpleResponse)
 	}
@@ -531,13 +531,14 @@ type MockRemoteIndexIncomingRepo_ReplicateDeletion_Call struct {
 //   - requestID string
 //   - uuid strfmt.UUID
 //   - deletionTime time.Time
-func (_e *MockRemoteIndexIncomingRepo_Expecter) ReplicateDeletion(ctx interface{}, shardName interface{}, requestID interface{}, uuid interface{}, deletionTime interface{}) *MockRemoteIndexIncomingRepo_ReplicateDeletion_Call {
-	return &MockRemoteIndexIncomingRepo_ReplicateDeletion_Call{Call: _e.mock.On("ReplicateDeletion", ctx, shardName, requestID, uuid, deletionTime)}
+//   - schemaVersion uint64
+func (_e *MockRemoteIndexIncomingRepo_Expecter) ReplicateDeletion(ctx interface{}, shardName interface{}, requestID interface{}, uuid interface{}, deletionTime interface{}, schemaVersion interface{}) *MockRemoteIndexIncomingRepo_ReplicateDeletion_Call {
+	return &MockRemoteIndexIncomingRepo_ReplicateDeletion_Call{Call: _e.mock.On("ReplicateDeletion", ctx, shardName, requestID, uuid, deletionTime, schemaVersion)}
 }
 
-func (_c *MockRemoteIndexIncomingRepo_ReplicateDeletion_Call) Run(run func(ctx context.Context, shardName string, requestID string, uuid strfmt.UUID, deletionTime time.Time)) *MockRemoteIndexIncomingRepo_ReplicateDeletion_Call {
+func (_c *MockRemoteIndexIncomingRepo_ReplicateDeletion_Call) Run(run func(ctx context.Context, shardName string, requestID string, uuid strfmt.UUID, deletionTime time.Time, schemaVersion uint64)) *MockRemoteIndexIncomingRepo_ReplicateDeletion_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(strfmt.UUID), args[4].(time.Time))
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(strfmt.UUID), args[4].(time.Time), args[5].(uint64))
 	})
 	return _c
 }
@@ -547,7 +548,7 @@ func (_c *MockRemoteIndexIncomingRepo_ReplicateDeletion_Call) Return(_a0 SimpleR
 	return _c
 }
 
-func (_c *MockRemoteIndexIncomingRepo_ReplicateDeletion_Call) RunAndReturn(run func(context.Context, string, string, strfmt.UUID, time.Time) SimpleResponse) *MockRemoteIndexIncomingRepo_ReplicateDeletion_Call {
+func (_c *MockRemoteIndexIncomingRepo_ReplicateDeletion_Call) RunAndReturn(run func(context.Context, string, string, strfmt.UUID, time.Time, uint64) SimpleResponse) *MockRemoteIndexIncomingRepo_ReplicateDeletion_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -703,17 +704,17 @@ func (_c *MockRemoteIndexIncomingRepo_ReplicateObjects_Call) RunAndReturn(run fu
 	return _c
 }
 
-// ReplicateReferences provides a mock function with given fields: ctx, shardName, requestID, refs
-func (_m *MockRemoteIndexIncomingRepo) ReplicateReferences(ctx context.Context, shardName string, requestID string, refs []objects.BatchReference) SimpleResponse {
-	ret := _m.Called(ctx, shardName, requestID, refs)
+// ReplicateReferences provides a mock function with given fields: ctx, shardName, requestID, refs, schemaVersion
+func (_m *MockRemoteIndexIncomingRepo) ReplicateReferences(ctx context.Context, shardName string, requestID string, refs []objects.BatchReference, schemaVersion uint64) SimpleResponse {
+	ret := _m.Called(ctx, shardName, requestID, refs, schemaVersion)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ReplicateReferences")
 	}
 
 	var r0 SimpleResponse
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, []objects.BatchReference) SimpleResponse); ok {
-		r0 = rf(ctx, shardName, requestID, refs)
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, []objects.BatchReference, uint64) SimpleResponse); ok {
+		r0 = rf(ctx, shardName, requestID, refs, schemaVersion)
 	} else {
 		r0 = ret.Get(0).(SimpleResponse)
 	}
@@ -731,13 +732,14 @@ type MockRemoteIndexIncomingRepo_ReplicateReferences_Call struct {
 //   - shardName string
 //   - requestID string
 //   - refs []objects.BatchReference
-func (_e *MockRemoteIndexIncomingRepo_Expecter) ReplicateReferences(ctx interface{}, shardName interface{}, requestID interface{}, refs interface{}) *MockRemoteIndexIncomingRepo_ReplicateReferences_Call {
-	return &MockRemoteIndexIncomingRepo_ReplicateReferences_Call{Call: _e.mock.On("ReplicateReferences", ctx, shardName, requestID, refs)}
+//   - schemaVersion uint64
+func (_e *MockRemoteIndexIncomingRepo_Expecter) ReplicateReferences(ctx interface{}, shardName interface{}, requestID interface{}, refs interface{}, schemaVersion interface{}) *MockRemoteIndexIncomingRepo_ReplicateReferences_Call {
+	return &MockRemoteIndexIncomingRepo_ReplicateReferences_Call{Call: _e.mock.On("ReplicateReferences", ctx, shardName, requestID, refs, schemaVersion)}
 }
 
-func (_c *MockRemoteIndexIncomingRepo_ReplicateReferences_Call) Run(run func(ctx context.Context, shardName string, requestID string, refs []objects.BatchReference)) *MockRemoteIndexIncomingRepo_ReplicateReferences_Call {
+func (_c *MockRemoteIndexIncomingRepo_ReplicateReferences_Call) Run(run func(ctx context.Context, shardName string, requestID string, refs []objects.BatchReference, schemaVersion uint64)) *MockRemoteIndexIncomingRepo_ReplicateReferences_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].([]objects.BatchReference))
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].([]objects.BatchReference), args[4].(uint64))
 	})
 	return _c
 }
@@ -747,22 +749,22 @@ func (_c *MockRemoteIndexIncomingRepo_ReplicateReferences_Call) Return(_a0 Simpl
 	return _c
 }
 
-func (_c *MockRemoteIndexIncomingRepo_ReplicateReferences_Call) RunAndReturn(run func(context.Context, string, string, []objects.BatchReference) SimpleResponse) *MockRemoteIndexIncomingRepo_ReplicateReferences_Call {
+func (_c *MockRemoteIndexIncomingRepo_ReplicateReferences_Call) RunAndReturn(run func(context.Context, string, string, []objects.BatchReference, uint64) SimpleResponse) *MockRemoteIndexIncomingRepo_ReplicateReferences_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// ReplicateUpdate provides a mock function with given fields: ctx, shardName, requestID, mergeDoc
-func (_m *MockRemoteIndexIncomingRepo) ReplicateUpdate(ctx context.Context, shardName string, requestID string, mergeDoc *objects.MergeDocument) SimpleResponse {
-	ret := _m.Called(ctx, shardName, requestID, mergeDoc)
+// ReplicateUpdate provides a mock function with given fields: ctx, shardName, requestID, mergeDoc, schemaVersion
+func (_m *MockRemoteIndexIncomingRepo) ReplicateUpdate(ctx context.Context, shardName string, requestID string, mergeDoc *objects.MergeDocument, schemaVersion uint64) SimpleResponse {
+	ret := _m.Called(ctx, shardName, requestID, mergeDoc, schemaVersion)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ReplicateUpdate")
 	}
 
 	var r0 SimpleResponse
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, *objects.MergeDocument) SimpleResponse); ok {
-		r0 = rf(ctx, shardName, requestID, mergeDoc)
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, *objects.MergeDocument, uint64) SimpleResponse); ok {
+		r0 = rf(ctx, shardName, requestID, mergeDoc, schemaVersion)
 	} else {
 		r0 = ret.Get(0).(SimpleResponse)
 	}
@@ -780,13 +782,14 @@ type MockRemoteIndexIncomingRepo_ReplicateUpdate_Call struct {
 //   - shardName string
 //   - requestID string
 //   - mergeDoc *objects.MergeDocument
-func (_e *MockRemoteIndexIncomingRepo_Expecter) ReplicateUpdate(ctx interface{}, shardName interface{}, requestID interface{}, mergeDoc interface{}) *MockRemoteIndexIncomingRepo_ReplicateUpdate_Call {
-	return &MockRemoteIndexIncomingRepo_ReplicateUpdate_Call{Call: _e.mock.On("ReplicateUpdate", ctx, shardName, requestID, mergeDoc)}
+//   - schemaVersion uint64
+func (_e *MockRemoteIndexIncomingRepo_Expecter) ReplicateUpdate(ctx interface{}, shardName interface{}, requestID interface{}, mergeDoc interface{}, schemaVersion interface{}) *MockRemoteIndexIncomingRepo_ReplicateUpdate_Call {
+	return &MockRemoteIndexIncomingRepo_ReplicateUpdate_Call{Call: _e.mock.On("ReplicateUpdate", ctx, shardName, requestID, mergeDoc, schemaVersion)}
 }
 
-func (_c *MockRemoteIndexIncomingRepo_ReplicateUpdate_Call) Run(run func(ctx context.Context, shardName string, requestID string, mergeDoc *objects.MergeDocument)) *MockRemoteIndexIncomingRepo_ReplicateUpdate_Call {
+func (_c *MockRemoteIndexIncomingRepo_ReplicateUpdate_Call) Run(run func(ctx context.Context, shardName string, requestID string, mergeDoc *objects.MergeDocument, schemaVersion uint64)) *MockRemoteIndexIncomingRepo_ReplicateUpdate_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(*objects.MergeDocument))
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(*objects.MergeDocument), args[4].(uint64))
 	})
 	return _c
 }
@@ -796,7 +799,7 @@ func (_c *MockRemoteIndexIncomingRepo_ReplicateUpdate_Call) Return(_a0 SimpleRes
 	return _c
 }
 
-func (_c *MockRemoteIndexIncomingRepo_ReplicateUpdate_Call) RunAndReturn(run func(context.Context, string, string, *objects.MergeDocument) SimpleResponse) *MockRemoteIndexIncomingRepo_ReplicateUpdate_Call {
+func (_c *MockRemoteIndexIncomingRepo_ReplicateUpdate_Call) RunAndReturn(run func(context.Context, string, string, *objects.MergeDocument, uint64) SimpleResponse) *MockRemoteIndexIncomingRepo_ReplicateUpdate_Call {
 	_c.Call.Return(run)
 	return _c
 }
