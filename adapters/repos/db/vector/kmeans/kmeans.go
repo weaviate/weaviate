@@ -124,6 +124,7 @@ type KMeans struct {
 	distance           distancer.Provider     // The clustering algorithm is intended to work with L2 squared.
 	dimensions         int                    // Dimensions of the data.
 	segment            int                    // Segment where it operates.
+	assignment         []uint32               // For each data point the index of the cluster that it is assigned to.
 	tmp                temporaryData          // Temporary heap-allocated data used during fitting.
 }
 
@@ -494,6 +495,52 @@ func (m *KMeans) Fit(data [][]float32) error {
 	}
 	m.cleanupMemory()
 	return nil
+}
+
+// Fit runs k-means clustering on the data according to the settings on the
+// KMeans struct. After running Fit() the resulting cluster centers can be
+// accessed through Centers().
+// TODO: Consider refactoring to functions that explicitly pass around structs.
+func (m *KMeans) FitWithData(data [][]float32) ([]uint32, error) {
+	if len(data) < m.K {
+		return nil, errors.New("not enough data to fit k-means")
+	}
+
+	if m.K == 1 {
+		m.computeCentroid(data)
+		return nil, nil
+	}
+
+	n := len(data)
+	m.initMemory(n)
+	m.initializeCenters(data)
+	m.Metrics.Termination = MaxIterations
+	for m.Metrics.Iterations < m.IterationThreshold {
+		var metrics IterationMetrics
+		if m.Assignment == GraphPruning {
+			m.updateCenterNeighbors()
+			metrics.computations += m.K * m.K / 2
+		}
+		for i, x := range data {
+			prevCenterIdx := m.tmp.assignment[i]
+			nearest := m.nearest(x, prevCenterIdx)
+			if nearest.index != prevCenterIdx {
+				metrics.changes++
+				m.tmp.assignment[i] = nearest.index
+			}
+			metrics.wcss += float64(nearest.distance)
+			metrics.computations += nearest.computations
+		}
+		m.Metrics.update(metrics)
+		m.updateCenters(data)
+		if float32(metrics.changes) <= m.DeltaThreshold*float32(n) {
+			m.Metrics.Termination = ClusterStability
+			break
+		}
+	}
+	m.assignment = m.tmp.assignment
+	m.cleanupMemory()
+	return m.assignment, nil
 }
 
 func (m *KMeans) DisableDeltaThreshold() {
