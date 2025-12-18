@@ -24,7 +24,10 @@
   "definitions": {
     "UserTypeInput": {
       "type": "string",
-      "enum": ["db", "oidc"],
+      "enum": [
+        "db",
+        "oidc"
+      ],
       "description": "The type of the user. `db` users are managed by Weaviate, `oidc` users are managed by an external OIDC provider."
     },
     "GroupType": {
@@ -36,7 +39,11 @@
     },
     "UserTypeOutput": {
       "type": "string",
-      "enum": ["db_user", "db_env_user", "oidc"],
+      "enum": [
+        "db_user",
+        "db_env_user",
+        "oidc"
+      ],
       "description": "The type of the user. `db_user` users are created through the `users` API, `db_env_user` users are created through environment variables, and `oidc` users are managed by an external OIDC provider."
     },
     "UserOwnInfo": {
@@ -739,6 +746,14 @@
         "usingBlockMaxWAND": {
           "description": "Using BlockMax WAND for query execution (default: `false`, will be `true` for new collections created after 1.30).",
           "type": "boolean"
+        },
+        "tokenizerUserDict": {
+          "description": "User-defined dictionary for tokenization.",
+          "type": "array",
+          "x-omitempty": true,
+          "items": {
+            "$ref": "#/definitions/TokenizerUserDictConfig"
+          }
         }
       },
       "type": "object"
@@ -808,6 +823,36 @@
       },
       "type": "object"
     },
+    "TokenizerUserDictConfig": {
+      "description": "A list of pairs of strings that should be replaced with another string during tokenization.",
+      "type": "object",
+      "properties": {
+        "tokenizer": {
+          "description": "The tokenizer to which the user dictionary should be applied. Currently, only the `kagame` ja and kr tokenizers supports user dictionaries.",
+          "type": "string"
+        },
+        "replacements": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "source": {
+                "description": "The string to be replaced.",
+                "type": "string"
+              },
+              "target": {
+                "description": "The string to replace with.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "source",
+              "target"
+            ]
+          }
+        }
+      }
+    },
     "MultiTenancyConfig": {
       "description": "Configuration related to multi-tenancy within a collection (class)",
       "properties": {
@@ -823,6 +868,31 @@
         },
         "autoTenantActivation": {
           "description": "Existing tenants should (not) be turned HOT implicitly when they are accessed and in another activity status (default: `false`).",
+          "type": "boolean",
+          "x-omitempty": false
+        }
+      }
+    },
+    "ObjectTtlConfig":{
+      "description": "Configuration of objects' time-to-live",
+      "properties": {
+         "enabled": {
+          "description": "Whether or not object ttl is enabled for this collection (default: `false`).",
+          "type": "boolean",
+          "x-omitempty": false
+        },
+        "defaultTtl": {
+          "description": "Interval (in seconds) to be added to `deleteOn` value, denoting object's expiration time. Has to be positive for `deleteOn` set to `_creationTimeUnix` or `_lastUpdateTimeUnix`, any for custom property (default: `0`).",
+          "type": "integer",
+          "x-omitempty": false
+        },
+        "deleteOn": {
+          "description": "Name of the property holding base time to compute object's expiration time (ttl = value of deleteOn property + defaultTtl). Can be set to `_creationTimeUnix`, `_lastUpdateTimeUnix` or custom property of `date` datatype.",
+          "type": "string",
+          "x-omitempty": false
+        },
+        "filterExpiredObjects": {
+          "description": "Whether remove from resultset expired, but not yet deleted by background process objects (default: `false`).",
           "type": "boolean",
           "x-omitempty": false
         }
@@ -993,6 +1063,86 @@
         }
       },
       "type": "object"
+    },
+    "ReplicationScalePlan": {
+      "type": "object",
+      "description": "Defines a complete plan for scaling replication within a collection. Each shard entry specifies nodes to remove and nodes to add. Added nodes may either be initialized empty (null) or created by replicating data from a source node specified as a string. If a source node is also marked for removal in the same shard, it represents a move operation and can only be used once as a source for that shard. If a source node is not marked for removal, it represents a copy operation and can be used as the source for multiple additions in that shard. Nodes listed in 'removeNodes' cannot also appear as targets in 'addNodes' for the same shard, and the same node cannot be specified for both addition and removal in a single shard.",
+      "properties": {
+        "planId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "A unique identifier for this replication scaling plan, useful for tracking and auditing purposes.",
+          "x-nullable": false
+        },
+        "collection": {
+          "type": "string",
+          "description": "The name of the collection to which this replication scaling plan applies.",
+          "x-nullable": false
+        },
+        "shardScaleActions": {
+          "type": "object",
+          "description": "A mapping of shard names to their corresponding scaling actions. Each key corresponds to a shard name, and its value defines which nodes should be removed and which should be added for that shard. If a source node listed for an addition is also in 'removeNodes' for the same shard, that addition is treated as a move operation. Such a node can appear only once as a source in that shard. Otherwise, if the source node is not being removed, it represents a copy operation and can be referenced multiple times as a source for additions.",
+          "additionalProperties": {
+            "type": "object",
+            "description": "Scaling actions for a single shard, including which nodes to remove and which to add. Nodes listed in 'removeNodes' cannot appear as targets in 'addNodes' for the same shard. If a source node is also marked for removal, it is treated as a move operation and can only appear once as a source node in that shard. A source node that is not being removed can appear multiple times as a source node for additions in that shard (copy operations).",
+            "properties": {
+              "removeNodes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "List of node identifiers from which replicas of this shard should be removed. Nodes listed here must not appear in 'addNodes' for the same shard, and cannot be used as a source node for any addition in this shard except in the implicit move case, where they appear as both a source and a node to remove."
+              },
+              "addNodes": {
+                "type": "object",
+                "description": "A mapping of target node identifiers to their addition configuration. Each key represents a target node where a new replica will be added. The value may be null, which means an empty replica will be created, or a string specifying the source node from which shard data will be copied. If the source node is also marked for removal in the same shard, this addition is treated as a move operation, and that source node can only appear once as a source node for that shard. If the source node is not being removed, it can be used as the source for multiple additions (copy operations).",
+                "additionalProperties": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Defines how the new replica should be created. If null, an empty shard is created. If a string, it specifies the source node from which data for this shard should be replicated."
+                }
+              }
+            }
+          }
+        }
+      },
+      "required": [
+        "planId",
+        "collection",
+        "shardScaleActions"
+      ]
+    },
+    "ReplicationScaleApplyResponse": {
+      "type": "object",
+      "description": "Response for the POST /replication/scale endpoint containing the list of initiated shard copy operation IDs.",
+      "properties": {
+        "operationIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "description": "List of shard copy operation IDs created during scaling."
+        },
+        "planId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "The unique identifier of the replication scaling plan that generated these operations.",
+          "x-nullable": false
+        },
+        "collection": {
+          "type": "string",
+          "description": "The name of the collection associated with this replication scaling plan.",
+          "x-nullable": false
+        }
+      },
+      "required": [
+        "operationIds",
+        "planId",
+        "collection"
+      ]
     },
     "ReplicationDisableReplicaRequest": {
       "description": "Specifies the parameters required to mark a specific shard replica as inactive (soft-delete) on a particular node. This action typically prevents the replica from serving requests but does not immediately remove its data.",
@@ -1363,6 +1513,9 @@
         "multiTenancyConfig": {
           "$ref": "#/definitions/MultiTenancyConfig"
         },
+        "objectTtlConfig": {
+          "$ref": "#/definitions/ObjectTtlConfig"
+        },
         "vectorizer": {
           "description": "Specify how the vectors for this collection should be determined. The options are either `none` - this means you have to import a vector with each object yourself - or the name of a module that provides vectorization capabilities, such as `text2vec-weaviate`. If left empty, it will use the globally configured default ([`DEFAULT_VECTORIZER_MODULE`](https://docs.weaviate.io/deploy/configuration/env-vars)) which can itself either be `none` or a specific module.",
           "type": "string"
@@ -1657,12 +1810,10 @@
           "x-nullable": false
         },
         "ChunkSize": {
-          "description": "Aimed chunk size, with a minimum of 2MB, default of 128MB, and a maximum of 512MB. The actual chunk size may vary.",
+          "description": "Deprecated, has no effect.",
           "type": "integer",
-          "default": 128,
-          "minimum": 2,
-          "maximum": 512,
-          "x-nullable": false
+          "x-nullable": false,
+          "x-deprecated": true
         },
         "CompressionLevel": {
           "description": "compression level used by compression algorithm",
@@ -1672,7 +1823,11 @@
           "enum": [
             "DefaultCompression",
             "BestSpeed",
-            "BestCompression"
+            "BestCompression",
+            "ZstdDefaultCompression",
+            "ZstdBestSpeed",
+            "ZstdBestCompression",
+            "NoCompression"
           ]
         }
       }
@@ -1973,12 +2128,12 @@
         },
         "vectorIndexingStatus": {
           "description": "The status of the vector indexing process.",
-          "format": "string",
+          "type": "string",
           "x-omitempty": false
         },
         "compressed": {
           "description": "The status of vector compression/quantization.",
-          "format": "boolean",
+          "type": "boolean",
           "x-omitempty": false
         },
         "vectorQueueLength": {
@@ -2080,6 +2235,16 @@
           "items": {
             "$ref": "#/definitions/NodeShardStatus"
           }
+        },
+        "operationalMode": {
+          "description": "Which mode of operation the node is running in.",
+          "type": "string",
+          "enum": [
+            "ReadWrite",
+            "WriteOnly",
+            "ReadOnly",
+            "ScaleOut"
+          ]
         }
       }
     },
@@ -3077,7 +3242,7 @@
     },
     "description": "# Introduction\n Weaviate is an open source, AI-native vector database that helps developers create intuitive and reliable AI-powered applications. \n ### Base Path \nThe base path for the Weaviate server is structured as `[YOUR-WEAVIATE-HOST]:[PORT]/v1`. As an example, if you wish to access the `schema` endpoint on a local instance, you would navigate to `http://localhost:8080/v1/schema`. Ensure you replace `[YOUR-WEAVIATE-HOST]` and `[PORT]` with your actual server host and port number respectively. \n ### Questions? \nIf you have any comments or questions, please feel free to reach out to us at the community forum [https://forum.weaviate.io/](https://forum.weaviate.io/). \n### Issues? \nIf you find a bug or want to file a feature request, please open an issue on our GitHub repository for [Weaviate](https://github.com/weaviate/weaviate). \n### Need more documentation? \nFor a quickstart, code examples, concepts and more, please visit our [documentation page](https://docs.weaviate.io/weaviate).",
     "title": "Weaviate REST API",
-    "version": "1.34.0"
+    "version": "1.35.0"
   },
   "parameters": {
     "CommonAfterParameterQuery": {
@@ -3778,6 +3943,149 @@
         }
       }
     },
+    "/replication/scale": {
+      "get": {
+        "summary": "Get replication scale plan",
+        "description": "Computes and returns a replication scale plan for a given collection and desired replication factor. The plan includes, for each shard, a list of nodes to be added and a list of nodes to be removed.",
+        "operationId": "getReplicationScalePlan",
+        "x-serviceIds": [
+          "weaviate.replication.scale.get"
+        ],
+        "tags": [
+          "replication"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "name": "collection",
+            "in": "query",
+            "description": "The collection name to get the scaling plan for.",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "replicationFactor",
+            "in": "query",
+            "description": "The desired replication factor to scale to. Must be a positive integer greater than zero.",
+            "required": true,
+            "type": "integer",
+            "minimum": 1
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Replication scale plan showing node additions and removals per shard.",
+            "schema": {
+              "$ref": "#/definitions/ReplicationScalePlan"
+            }
+          },
+          "400": {
+            "description": "Bad request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Collection not found.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "501": {
+            "description": "Replica movement operations are disabled.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Apply replication scaling plan",
+        "description": "Apply a replication scaling plan that specifies nodes to add or remove per shard for a given collection.",
+        "operationId": "applyReplicationScalePlan",
+        "x-serviceIds": [
+          "weaviate.replication.scale.post"
+        ],
+        "tags": [
+          "replication"
+        ],
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "in": "body",
+            "name": "body",
+            "description": "The replication scaling plan specifying the collection and its shard-level replica adjustments.",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/ReplicationScalePlan"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of replication shard copy operation IDs initiated for the scale operation",
+            "schema": {
+              "$ref": "#/definitions/ReplicationScaleApplyResponse"
+            }
+          },
+          "400": {
+            "description": "Bad request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Collection not found.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "501": {
+            "description": "Replica movement operations are disabled.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
     "/users/own-info": {
       "get": {
         "summary": "Get current user info",
@@ -4214,7 +4522,7 @@
               "type": "object",
               "properties": {
                 "revoke_key": {
-                  "type":"boolean",
+                  "type": "boolean",
                   "description": "Whether the API key should be revoked when deactivating the user.",
                   "default": false
                 }
@@ -4965,7 +5273,10 @@
             "name": "userType",
             "required": true,
             "type": "string",
-            "enum": ["oidc", "db"],
+            "enum": [
+              "oidc",
+              "db"
+            ],
             "description": "The type of the user."
           },
           {
@@ -7133,7 +7444,7 @@
           "weaviate.local.query.meta"
         ],
         "tags": [
-            "meta"
+          "meta"
         ],
         "responses": {
           "200": {
@@ -7762,7 +8073,7 @@
               "type": "array",
               "items": {
                 "type": "string",
-                  "description": "Name of a tenant to delete."
+                "description": "Name of a tenant to delete."
               }
             }
           }

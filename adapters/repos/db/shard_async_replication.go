@@ -30,6 +30,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/cluster/router/types"
@@ -743,7 +744,7 @@ func (s *Shard) initHashBeater(ctx context.Context, config asyncReplicationConfi
 									"remote_object_digests_count":     stat.remoteObjectDigestsCount,
 									"local_objects_propagation_count": stat.localObjectsPropagationCount,
 									"local_objects_propagation_took":  stat.localObjectsPropagationTook,
-								}).Info("updating async replication stats")
+								}).Debug("updating async replication stats")
 								s.asyncReplicationStatsByTargetNode[stat.targetNodeName] = stat
 							}
 						}
@@ -809,7 +810,7 @@ func (s *Shard) initHashBeater(ctx context.Context, config asyncReplicationConfi
 							WithField("remote_object_digests_count", stat.remoteObjectDigestsCount).
 							WithField("local_objects_propagation_count", stat.localObjectsPropagationCount).
 							WithField("local_objects_propagation_took", stat.localObjectsPropagationTook).
-							Info("hashbeat iteration successfully completed")
+							Debug("hashbeat iteration successfully completed")
 						if stat.localObjectDigestsCount > 0 {
 							statsHaveObjectsPropagated = true
 						}
@@ -899,7 +900,7 @@ func (s *Shard) getLastComparedHosts() []string {
 }
 
 func (s *Shard) allAliveHostnames() []string {
-	return s.index.replicator.AllHostnames()
+	return s.index.router.AllHostnames()
 }
 
 type hashBeatHostStats struct {

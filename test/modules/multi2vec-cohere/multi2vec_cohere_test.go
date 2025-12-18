@@ -32,24 +32,35 @@ func testMulti2VecCohere(host string) func(t *testing.T) {
 		class := multimodal.BaseClass(className, false)
 		class.VectorConfig = map[string]models.VectorConfig{
 			"clip": {
-				Vectorizer: map[string]interface{}{
-					vectorizerName: map[string]interface{}{
-						"imageFields":        []interface{}{multimodal.PropertyImage},
+				Vectorizer: map[string]any{
+					vectorizerName: map[string]any{
+						"imageFields":        []any{multimodal.PropertyImage},
 						"vectorizeClassName": false,
 					},
 				},
 				VectorIndexType: "flat",
 			},
 			"clip_weights": {
-				Vectorizer: map[string]interface{}{
-					vectorizerName: map[string]interface{}{
+				Vectorizer: map[string]any{
+					vectorizerName: map[string]any{
 						"model":       "embed-english-light-v3.0",
-						"textFields":  []interface{}{multimodal.PropertyImageTitle, multimodal.PropertyImageDescription},
-						"imageFields": []interface{}{multimodal.PropertyImage},
-						"weights": map[string]interface{}{
-							"textFields":  []interface{}{0.05, 0.05},
-							"imageFields": []interface{}{0.9},
+						"textFields":  []any{multimodal.PropertyImageTitle, multimodal.PropertyImageDescription},
+						"imageFields": []any{multimodal.PropertyImage},
+						"weights": map[string]any{
+							"textFields":  []any{0.05, 0.05},
+							"imageFields": []any{0.9},
 						},
+						"vectorizeClassName": false,
+					},
+				},
+				VectorIndexType: "flat",
+			},
+			"clip_v4_with_256_dimensions": {
+				Vectorizer: map[string]any{
+					vectorizerName: map[string]any{
+						"model":              "embed-v4.0",
+						"dimensions":         256,
+						"imageFields":        []any{multimodal.PropertyImage},
 						"vectorizeClassName": false,
 					},
 				},
@@ -77,8 +88,9 @@ func testMulti2VecCohere(host string) func(t *testing.T) {
 			titleProperty := multimodal.PropertyImageTitle
 			titlePropertyValue := "waterfalls"
 			targetVectors := map[string]int{
-				"clip":         1024,
-				"clip_weights": 384,
+				"clip":                        1024,
+				"clip_weights":                384,
+				"clip_v4_with_256_dimensions": 256,
 			}
 			multimodal.TestQuery(t, class.Class, nearMediaArgument, titleProperty, titlePropertyValue, targetVectors)
 		})

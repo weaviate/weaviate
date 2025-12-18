@@ -41,7 +41,7 @@ type indexCycleCallbacks struct {
 }
 
 func (index *Index) initCycleCallbacks() {
-	routinesN := concurrency.TimesNUMCPU(index.Config.CycleManagerRoutinesFactor)
+	routinesN := concurrency.TimesGOMAXPROCS(index.Config.CycleManagerRoutinesFactor)
 
 	vectorTombstoneCleanupIntervalSeconds := hnsw.DefaultCleanupIntervalSeconds
 	if hnswUserConfig, ok := index.GetVectorIndexConfig("").(hnsw.UserConfig); ok {

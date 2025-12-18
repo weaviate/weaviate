@@ -33,7 +33,6 @@ import (
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/generictypes"
 	"github.com/weaviate/weaviate/usecases/modules"
 )
 
@@ -845,7 +844,7 @@ type fakeSearcher struct {
 
 func (s *fakeSearcher) VectorSearches() map[string]modulecapabilities.VectorForParams[[]float32] {
 	vectorSearches := map[string]modulecapabilities.VectorForParams[[]float32]{}
-	vectorSearches["nearCustomText"] = generictypes.VectorForParams(s.vectorForNearTextParam)
+	vectorSearches["nearCustomText"] = s.vectorForNearTextParam
 	return vectorSearches
 }
 

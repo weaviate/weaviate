@@ -19,17 +19,17 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
-	"github.com/weaviate/weaviate/usecases/multitenancy"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
+	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
 	"github.com/weaviate/weaviate/cluster/router"
 	"github.com/weaviate/weaviate/entities/diskio"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/tenantactivity"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/multitenancy"
 	"github.com/weaviate/weaviate/usecases/replica"
 	migratefs "github.com/weaviate/weaviate/usecases/schema/migrate/fs"
 )
@@ -50,7 +50,7 @@ func (db *DB) init(ctx context.Context) error {
 		return err
 	}
 
-	if asyncEnabled() {
+	if db.AsyncIndexingEnabled {
 		// init the index checkpoint file
 		var err error
 		db.indexCheckpoints, err = indexcheckpoint.New(db.config.RootPath, db.logger)
@@ -141,14 +141,14 @@ func (db *DB) init(ctx context.Context) error {
 				QuerySlowLogThreshold:                        db.config.QuerySlowLogThreshold,
 				InvertedSorterDisabled:                       db.config.InvertedSorterDisabled,
 				MaintenanceModeEnabled:                       db.config.MaintenanceModeEnabled,
-				SPFreshEnabled:                               db.config.SPFreshEnabled,
+				HFreshEnabled:                                db.config.HFreshEnabled,
 			},
 				inverted.ConfigFromModel(invertedConfig),
 				convertToVectorIndexConfig(class.VectorIndexConfig),
 				convertToVectorIndexConfigs(class.VectorConfig),
 				indexRouter, shardResolver, db.schemaGetter, db.schemaReader, db, db.logger, db.nodeResolver, db.remoteIndex,
 				db.replicaClient, &db.config.Replication, db.promMetrics, class, db.jobQueueCh, db.scheduler, db.indexCheckpoints,
-				db.memMonitor, db.reindexer, db.bitmapBufPool)
+				db.memMonitor, db.reindexer, db.bitmapBufPool, db.AsyncIndexingEnabled)
 			if err != nil {
 				return errors.Wrap(err, "create index")
 			}

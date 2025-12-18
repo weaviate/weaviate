@@ -186,6 +186,10 @@ func (rq *BinaryRotationalQuantizer) Encode(x []float32) []uint64 {
 	return code
 }
 
+func (rq *BinaryRotationalQuantizer) Decode(compressed []uint64) []float32 {
+	panic("unimplemented")
+}
+
 // Restore -> NewCompressedQuantizerDistancer -> NewDistancerFromID -> reassignNeighbor in when deleting
 // distancer for PQ,SQ etc. use the compressed vector, in this case we can't use it because we have different encoding for the query and the data.
 func (rq *BinaryRotationalQuantizer) Restore(b []uint64) []float32 {

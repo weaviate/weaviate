@@ -185,10 +185,10 @@ func TestClient(t *testing.T) {
 		ctxWithValue := context.WithValue(context.Background(),
 			"X-Voyageai-Baseurl", []string{"http://base-url-passed-in-header.com"})
 
-		buildURL := c.getVoyageAIUrl(ctxWithValue, baseURL)
+		buildURL := c.getVoyageAIUrl(ctxWithValue, baseURL, "test-model")
 		assert.Equal(t, "http://base-url-passed-in-header.com/embeddings", buildURL)
 
-		buildURL = c.getVoyageAIUrl(context.TODO(), baseURL)
+		buildURL = c.getVoyageAIUrl(context.TODO(), baseURL, "test-model")
 		assert.Equal(t, "http://default-url.com/embeddings", buildURL)
 	})
 }
@@ -242,7 +242,7 @@ type fakeVoyageaiUrlBuilder struct {
 	pathMask string
 }
 
-func (c *fakeVoyageaiUrlBuilder) URL(baseURL string) string {
+func (c *fakeVoyageaiUrlBuilder) URL(baseURL, model string) string {
 	if baseURL != "" {
 		return fmt.Sprintf("%s%s", baseURL, c.pathMask)
 	}

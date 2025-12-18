@@ -52,7 +52,7 @@ func createSingleNodeEnvironment(ctx context.Context, apiKey, organization strin
 
 func composeModules(apiKey, organization string) (composeModules *docker.Compose) {
 	composeModules = docker.New().
-		WithText2VecTransformers().
+		WithText2VecModel2Vec().
 		WithGenerativeOpenAI(apiKey, organization, "")
 	return composeModules
 }

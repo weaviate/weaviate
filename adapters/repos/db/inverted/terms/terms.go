@@ -417,10 +417,6 @@ func (t *Terms) ScoreNext(averagePropLength float64, additionalExplanations bool
 
 	matchedTerms := 0
 
-	if len(t.T)-pos < minimumOrTokensMatch {
-		return 0, 0, docInfos, false
-	}
-
 	for i := pos; i < len(t.T); i++ {
 		if t.T[i].IdPointer() != id || t.T[i].Exhausted() {
 			continue

@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 const DefaultHNSWEF = 800
@@ -46,7 +47,8 @@ type vectorIndex interface {
 	KnnSearchByVectorMaxDist(ctx context.Context, query []float32, dist float32, ef int,
 		allowList helpers.AllowList) ([]uint64, error)
 	Delete(id ...uint64) error
-	Drop(ctx context.Context) error
+	Dump(...string)
+	Drop(ctx context.Context, keepFiles bool) error
 	PostStartup(ctx context.Context)
 }
 
@@ -65,6 +67,7 @@ type Config struct {
 	SnapshotCreateInterval                   time.Duration
 	SnapshotMinDeltaCommitlogsNumer          int
 	SnapshotMinDeltaCommitlogsSizePercentage int
+	AllocChecker                             memwatch.AllocChecker
 }
 
 func (c Config) hnswEF() int {
@@ -85,6 +88,7 @@ func NewIndex(config Config,
 		DistanceProvider:      distancer.NewGeoProvider(),
 		DisableSnapshots:      config.SnapshotDisabled,
 		SnapshotOnStartup:     config.SnapshotOnStartup,
+		AllocChecker:          config.AllocChecker,
 	}, hnswent.UserConfig{
 		MaxConnections:         64,
 		EFConstruction:         128,
@@ -102,8 +106,8 @@ func NewIndex(config Config,
 	return i, nil
 }
 
-func (i *Index) Drop(ctx context.Context) error {
-	if err := i.vectorIndex.Drop(ctx); err != nil {
+func (i *Index) Drop(ctx context.Context, keepFiles bool) error {
+	if err := i.vectorIndex.Drop(ctx, keepFiles); err != nil {
 		return err
 	}
 

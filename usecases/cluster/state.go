@@ -62,7 +62,6 @@ type State struct {
 	config Config
 	// memberlist methods are thread safe
 	// see https://github.com/hashicorp/memberlist/blob/master/memberlist.go#L502-L503
-	localGrpcPort int
 
 	list                 *memberlist.Memberlist
 	nonStorageNodes      map[string]struct{}
@@ -137,7 +136,7 @@ type RequestQueueConfig struct {
 	QueueShutdownTimeoutSeconds int `json:"queueShutdownTimeoutSeconds" yaml:"queueShutdownTimeoutSeconds"`
 }
 
-func Init(userConfig Config, grpcPort, raftTimeoutsMultiplier int, dataPath string, nonStorageNodes map[string]struct{}, logger logrus.FieldLogger) (_ *State, err error) {
+func Init(userConfig Config, raftTimeoutsMultiplier int, dataPath string, nonStorageNodes map[string]struct{}, logger logrus.FieldLogger) (_ *State, err error) {
 	// Validate configuration first
 	if err := validateClusterConfig(userConfig); err != nil {
 		logger.Errorf("invalid cluster configuration: %v", err)
@@ -166,7 +165,6 @@ func Init(userConfig Config, grpcPort, raftTimeoutsMultiplier int, dataPath stri
 	// Create state
 	state := State{
 		config:          userConfig,
-		localGrpcPort:   grpcPort,
 		nonStorageNodes: nonStorageNodes,
 		delegate: delegate{
 			Name:     cfg.Name,
@@ -174,7 +172,7 @@ func Init(userConfig Config, grpcPort, raftTimeoutsMultiplier int, dataPath stri
 			log:      logger,
 			metadata: NodeMetadata{
 				RestPort: userConfig.DataBindPort,
-				GrpcPort: grpcPort,
+				GrpcPort: userConfig.DataBindPort,
 			},
 		},
 	}
@@ -290,20 +288,6 @@ func (s *State) dataPort(m *memberlist.Node) int {
 	return meta.RestPort
 }
 
-func (s *State) grpcPort(m *memberlist.Node) int {
-	meta, err := nodeMetadata(m)
-	if err != nil {
-		s.delegate.log.WithFields(logrus.Fields{
-			"action": "grpc_port_fallback",
-			"node":   m.Name,
-		}).WithError(err).Debug("unable to get node metadata, falling back to default gRPC port")
-
-		return s.localGrpcPort // fallback to default gRPC port
-	}
-
-	return meta.GrpcPort
-}
-
 // AllHostnames for live members, including self.
 func (s *State) AllHostnames() []string {
 	if s.list == nil {
@@ -322,6 +306,9 @@ func (s *State) AllHostnames() []string {
 
 // All node names (not their hostnames!) for live members, including self.
 func (s *State) AllNames() []string {
+	if s.list == nil {
+		return []string{}
+	}
 	mem := s.list.Members()
 	out := make([]string, len(mem))
 
@@ -382,7 +369,7 @@ func (s *State) NodeCount() int {
 
 // LocalName() return local node name
 func (s *State) LocalName() string {
-	return s.list.LocalNode().Name
+	return s.config.Hostname
 }
 
 // LocalAddr() returns local address
@@ -475,7 +462,7 @@ func (s *State) Shutdown() error {
 func (s *State) NodeGRPCPort(nodeID string) (int, error) {
 	for _, mem := range s.list.Members() {
 		if mem.Name == nodeID {
-			return s.grpcPort(mem), nil
+			return s.dataPort(mem), nil
 		}
 	}
 	return 0, fmt.Errorf("node not found: %s", nodeID)
