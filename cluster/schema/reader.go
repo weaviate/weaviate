@@ -95,12 +95,10 @@ func checkShardingState(s *sharding.State) error {
 	}
 
 	if s.PartitioningEnabled {
-		// NOTE: Partitioned sharding (multi-tenancy) uses direct tenant-to-shard mapping where each
-		// tenant maps directly to a physical shard. Virtual sharding is not used in this mode and
-		// Virtual slice is intentionally left nil/empty in InitState. Only Physical map validation
-		// is required since sharding decisions are made directly against Physical shards.
 		if s.Physical == nil {
-			return fmt.Errorf("invalid sharding state: physical map is nil (partitioned)")
+			// If we are multi-tenant, and there is no physical map (e.g. no tenants at all in the collection)
+			// then just initialize an empty map to avoid nil dereferences later on and return without error
+			s.Physical = make(map[string]sharding.Physical)
 		}
 		return nil
 	}
