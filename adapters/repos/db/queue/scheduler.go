@@ -304,7 +304,7 @@ func (s *Scheduler) runScheduler() {
 		case <-t.C:
 			s.schedule()
 		case ch := <-s.triggerCh:
-			s.scheduleQueues()
+			s.scheduleGroups()
 			close(ch)
 		}
 	}
@@ -336,38 +336,43 @@ func (s *Scheduler) schedule() {
 			return
 		}
 
-		if nothingScheduled := s.scheduleQueues(); nothingScheduled {
+		if nothingScheduled := s.scheduleGroups(); nothingScheduled {
 			return
 		}
 	}
 }
 
 func (s *Scheduler) scheduleGroups() (nothingScheduled bool) {
-	// loop over the groups in random order
-	s.queues.Lock()
-	groups := make([]string, 0, len(s.queues.perGroup))
-	for grp := range s.queues.perGroup {
-		groups = append(groups, grp)
-	}
-	s.queues.Unlock()
+	groups := s.queues.listGroups()
 
 	for _, grp := range groups {
 		if s.ctx.Err() != nil {
 			return nothingScheduled
 		}
 
+		if grp == "" {
+			// queues without a group are scheduled individually
+			ids := s.queues.getGroup(grp)
+			if len(ids) == 0 {
+				continue
+			}
+			nothingScheduled = s.scheduleQueues(ids...)
+			continue
+		}
+
+		// select one queue from the group based on priority
+		id := s.queues.selectByPriority(grp)
+		if id == nil {
+			continue
+		}
+
+		nothingScheduled = s.scheduleQueues(*id)
 	}
+
+	return nothingScheduled
 }
 
-func (s *Scheduler) scheduleQueues(g *queueGroup) (nothingScheduled bool) {
-	// loop over the queues in random order
-	s.queues.Lock()
-	ids := make([]string, 0, len(s.queues.perID))
-	for id := range g.m {
-		ids = append(ids, id)
-	}
-	s.queues.Unlock()
-
+func (s *Scheduler) scheduleQueues(ids ...string) (nothingScheduled bool) {
 	nothingScheduled = true
 
 	for _, id := range ids {
@@ -671,24 +676,40 @@ func (qq *queues) getGroup(group string) []string {
 	return qq.groups[group]
 }
 
-type queueGroup struct {
-	m map[string]*queueState
+func (qq *queues) listGroups() []string {
+	qq.Lock()
+	defer qq.Unlock()
+
+	groups := make([]string, 0, len(qq.groups))
+	for grp := range qq.groups {
+		groups = append(groups, grp)
+	}
+
+	return groups
 }
 
-// selectByPriority selects a queue from this group
+// selectByPriority selects a queue from a group
 // based on priority and randomness.
 // It computes the sum of all weights, select a random
 // ticket, and returns the queue that owns the ticket.
 // Only queues that contain tasks are considered.
-func (g *queueGroup) selectByPriority() *queueState {
+func (qq *queues) selectByPriority(group string) *string {
 	var sum int64
 
-	queues := make([]*queueState, 0, len(g.m))
+	g := qq.getGroup(group)
 
-	for _, q := range g.m {
+	queues := make([]*queueState, 0, len(g))
+
+	for _, id := range g {
+		q := qq.getQueue(id)
+		if q == nil {
+			continue
+		}
+
 		if q.q.Size() == 0 {
 			continue
 		}
+
 		sum += int64(q.q.Priority())
 		queues = append(queues, q)
 	}
@@ -703,7 +724,8 @@ func (g *queueGroup) selectByPriority() *queueState {
 		p := q.q.Priority()
 		current += int64(p)
 		if rnd < current {
-			return q
+			id := q.q.ID()
+			return &id
 		}
 	}
 
