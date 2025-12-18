@@ -144,7 +144,7 @@ func (s *Scheduler) UnregisterQueue(id string) {
 		return
 	}
 
-	q := s.getQueue(id)
+	q := s.queues.getQueue(id)
 	if q == nil {
 		return
 	}
@@ -238,7 +238,7 @@ func (s *Scheduler) PauseQueue(id string) {
 		return
 	}
 
-	q := s.getQueue(id)
+	q := s.queues.getQueue(id)
 	if q == nil {
 		return
 	}
@@ -256,7 +256,7 @@ func (s *Scheduler) ResumeQueue(id string) {
 		return
 	}
 
-	q := s.getQueue(id)
+	q := s.queues.getQueue(id)
 	if q == nil {
 		return
 	}
@@ -274,7 +274,7 @@ func (s *Scheduler) Wait(id string) {
 		return
 	}
 
-	q := s.getQueue(id)
+	q := s.queues.getQueue(id)
 	if q == nil {
 		return
 	}
@@ -290,20 +290,6 @@ func (s *Scheduler) WaitAll() {
 	}
 
 	s.activeTasks.Wait()
-}
-
-func (s *Scheduler) getQueue(id string) *queueState {
-	s.queues.Lock()
-	defer s.queues.Unlock()
-
-	return s.queues.perID[id]
-}
-
-func (s *Scheduler) getGroup(group string) *queueGroup {
-	s.queues.Lock()
-	defer s.queues.Unlock()
-
-	return s.queues.perGroup[group]
 }
 
 func (s *Scheduler) runScheduler() {
@@ -389,7 +375,7 @@ func (s *Scheduler) scheduleQueues(g *queueGroup) (nothingScheduled bool) {
 			return nothingScheduled
 		}
 
-		q := s.getQueue(id)
+		q := s.queues.getQueue(id)
 		if q == nil {
 			continue
 		}
@@ -669,6 +655,20 @@ func (qq *queues) deleteQueue(id string) {
 		delete(qq.groups, q.q.Group())
 	}
 	qq.Unlock()
+}
+
+func (qq *queues) getQueue(id string) *queueState {
+	qq.Lock()
+	defer qq.Unlock()
+
+	return qq.perID[id]
+}
+
+func (qq *queues) getGroup(group string) []string {
+	qq.Lock()
+	defer qq.Unlock()
+
+	return qq.groups[group]
 }
 
 type queueGroup struct {
