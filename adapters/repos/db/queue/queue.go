@@ -64,9 +64,9 @@ var chunkFilePattern = regexp.MustCompile(`chunk-\d+\.bin`)
 type Priority uint8
 
 const (
-	PriorityLow    Priority = 1
-	PriorityMedium          = 2
-	PriorityHigh            = 5
+	PriorityLow Priority = iota
+	PriorityMedium
+	PriorityHigh
 )
 
 func (p Priority) Validate() error {
@@ -75,6 +75,19 @@ func (p Priority) Validate() error {
 		return nil
 	default:
 		return errors.Errorf("invalid queue priority %v", p)
+	}
+}
+
+func (p Priority) AsWeight() uint8 {
+	switch p {
+	case PriorityLow:
+		return 1
+	case PriorityMedium:
+		return 2
+	case PriorityHigh:
+		return 5
+	default:
+		return 0
 	}
 }
 
@@ -112,6 +125,7 @@ type DiskQueue struct {
 	metrics          *Metrics
 	chunkSize        uint64
 	group            string
+	priority         Priority
 
 	// m protects the disk operations
 	m            sync.RWMutex
@@ -140,6 +154,7 @@ type DiskQueueOptions struct {
 	OnBatchProcessed func()
 	Metrics          *Metrics
 	Group            string
+	Priority         Priority
 }
 
 func NewDiskQueue(opt DiskQueueOptions) (*DiskQueue, error) {
@@ -187,6 +202,7 @@ func NewDiskQueue(opt DiskQueueOptions) (*DiskQueue, error) {
 		onBatchProcessed: opt.OnBatchProcessed,
 		chunkSize:        opt.ChunkSize,
 		group:            opt.Group,
+		priority:         opt.Priority,
 	}
 
 	return &q, nil
@@ -325,8 +341,16 @@ func (q *DiskQueue) Scheduler() *Scheduler {
 	return q.scheduler
 }
 
+// Group returns the group of the queue.
+// Default to empty string if not set, which indicates no grouping.
 func (q *DiskQueue) Group() string {
 	return q.group
+}
+
+// Priority returns the configured priority of the queue.
+// Defaults to PriorityLow if not set.
+func (q *DiskQueue) Priority() Priority {
+	return q.priority
 }
 
 func (q *DiskQueue) Flush() error {

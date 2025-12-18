@@ -710,7 +710,7 @@ func (qq *queues) selectByPriority(group string) *string {
 			continue
 		}
 
-		sum += int64(q.q.Priority())
+		sum += int64(q.q.Priority().AsWeight())
 		queues = append(queues, q)
 	}
 
