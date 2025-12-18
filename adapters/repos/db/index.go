@@ -767,9 +767,17 @@ func (i *Index) updateReplicationConfig(ctx context.Context, cfg *models.Replica
 	i.Config.ReplicationFactor = cfg.Factor
 	i.Config.DeletionStrategy = cfg.DeletionStrategy
 	i.Config.AsyncReplicationEnabled = cfg.AsyncEnabled && i.Config.ReplicationFactor > 1 && !i.asyncReplicationGloballyDisabled()
+	i.Config.AsyncReplicationConfig = cfg.AsyncConfig
 
 	err := i.ForEachLoadedShard(func(name string, shard ShardLike) error {
-		if err := shard.SetAsyncReplicationEnabled(ctx, i.Config.AsyncReplicationEnabled); err != nil {
+		if i.Config.AsyncReplicationEnabled && cfg.AsyncConfig != nil {
+			// if async replication is being enabled, first disable it to reset any previous config
+			if err := shard.SetAsyncReplicationEnabled(ctx, nil, false); err != nil {
+				return fmt.Errorf("updating async replication on shard %q: %w", name, err)
+			}
+		}
+
+		if err := shard.SetAsyncReplicationEnabled(ctx, i.Config.AsyncReplicationConfig, i.Config.AsyncReplicationEnabled); err != nil {
 			return fmt.Errorf("updating async replication on shard %q: %w", name, err)
 		}
 		return nil
@@ -820,6 +828,7 @@ type IndexConfig struct {
 	ReplicationFactor                   int64
 	DeletionStrategy                    string
 	AsyncReplicationEnabled             bool
+	AsyncReplicationConfig              *models.ReplicationAsyncConfig
 	AvoidMMap                           bool
 	DisableLazyLoadShards               bool
 	ForceFullReplicasSearch             bool
@@ -1046,11 +1055,18 @@ func (i *Index) getShardForDirectLocalOperation(ctx context.Context, tenantName 
 	return shard, release, nil
 }
 
-func (i *Index) asyncReplicationEnabled() bool {
+func (i *Index) AsyncReplicationEnabled() bool {
 	i.replicationConfigLock.RLock()
 	defer i.replicationConfigLock.RUnlock()
 
 	return i.Config.ReplicationFactor > 1 && i.Config.AsyncReplicationEnabled && !i.asyncReplicationGloballyDisabled()
+}
+
+func (i *Index) AsyncReplicationConfig() *models.ReplicationAsyncConfig {
+	i.replicationConfigLock.RLock()
+	defer i.replicationConfigLock.RUnlock()
+
+	return i.Config.AsyncReplicationConfig
 }
 
 // parseDateFieldsInProps checks the schema for the current class for which
