@@ -909,12 +909,19 @@ func (f *fakeFactory) newReplicatorWithSourceNode(thisNode string) *replica.Repl
 		return models.ReplicationConfigDeletionStrategyNoAutomatedResolution
 	}
 
+	nodeResolver := cluster.NewMockNodeResolver(f.t)
+	for _, n := range f.Nodes {
+		nodeResolver.EXPECT().NodeHostname(n).Return(n, true).Maybe()
+	}
+	// used in TestFinderNodeObject unresolved branch
+	nodeResolver.EXPECT().NodeHostname("N").Return("", false).Maybe()
+
 	metrics := monitoring.GetMetrics()
 
 	rep, err := replica.NewReplicator(
 		f.CLS,
 		router,
-		cluster.NewMockNodeResolver(f.t),
+		nodeResolver,
 		"A",
 		getDeletionStrategy,
 		&struct {
@@ -937,12 +944,19 @@ func (f *fakeFactory) newReplicator() *replica.Replicator {
 		return models.ReplicationConfigDeletionStrategyNoAutomatedResolution
 	}
 
+	nodeResolver := cluster.NewMockNodeResolver(f.t)
+	for _, n := range f.Nodes {
+		nodeResolver.EXPECT().NodeHostname(n).Return(n, true).Maybe()
+	}
+	// used in TestFinderNodeObject unresolved branch
+	nodeResolver.EXPECT().NodeHostname("N").Return("", false).Maybe()
+
 	metrics := monitoring.GetMetrics()
 
 	rep, err := replica.NewReplicator(
 		f.CLS,
 		router,
-		cluster.NewMockNodeResolver(f.t),
+		nodeResolver,
 		"A",
 		getDeletionStrategy,
 		&struct {
@@ -965,12 +979,19 @@ func (f *fakeFactory) newFinderWithTimings(thisNode string, tInitial time.Durati
 		return models.ReplicationConfigDeletionStrategyNoAutomatedResolution
 	}
 
+	nodeResolver := cluster.NewMockNodeResolver(f.t)
+	for _, n := range f.Nodes {
+		nodeResolver.EXPECT().NodeHostname(n).Return(n, true).Maybe()
+	}
+	// used in TestFinderNodeObject unresolved branch
+	nodeResolver.EXPECT().NodeHostname("N").Return("", false).Maybe()
+
 	metrics, err := replica.NewMetrics(monitoring.GetMetrics())
 	if err != nil {
 		f.t.Fatalf("could not create metrics: %v", err)
 	}
 
-	return replica.NewFinder(f.CLS, router, cluster.NewMockNodeResolver(f.t), thisNode, f.RClient, metrics, f.log, getDeletionStrategy)
+	return replica.NewFinder(f.CLS, router, nodeResolver, thisNode, f.RClient, metrics, f.log, getDeletionStrategy)
 }
 
 func (f *fakeFactory) newFinder(thisNode string) *replica.Finder {
