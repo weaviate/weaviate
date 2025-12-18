@@ -95,11 +95,8 @@ func checkShardingState(s *sharding.State) error {
 	}
 
 	if s.PartitioningEnabled {
-		if s.Physical == nil {
-			// If we are multi-tenant, and there is no physical map (e.g. no tenants at all in the collection)
-			// then just initialize an empty map to avoid nil dereferences later on and return without error
-			s.Physical = make(map[string]sharding.Physical)
-		}
+		// If we are multi-tenant, and there is no physical map (e.g. no tenants at all in the collection)
+		// then just return early without error
 		return nil
 	}
 
