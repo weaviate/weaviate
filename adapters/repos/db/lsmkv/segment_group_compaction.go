@@ -22,6 +22,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
@@ -439,6 +440,23 @@ func (sg *SegmentGroup) preinitializeNewSegment(newPathTmp string, oldPos ...int
 		})
 	if err != nil {
 		return nil, fmt.Errorf("initialize new segment: %w", err)
+	}
+
+	// merge tombstones from newer segments
+	if seg.strategy == segmentindex.StrategyInverted && len(oldPos) > 0 {
+		rightPos := oldPos[len(oldPos)-1]
+		func() {
+			seg.invertedData.lockInvertedData.Lock()
+			defer seg.invertedData.lockInvertedData.Unlock()
+			for i := rightPos + 1; i < len(sg.segments); i++ {
+				// avoid crashing if segment has no tombstones
+				tombstonesNext, err := sg.segments[i].ReadOnlyTombstones()
+				if err != nil {
+					continue
+				}
+				seg.invertedData.tombstones = sroar.Or(seg.invertedData.tombstones, tombstonesNext)
+			}
+		}()
 	}
 
 	return seg, nil
