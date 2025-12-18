@@ -106,10 +106,19 @@ func (s *service) Usage(ctx context.Context, exactObjectCount bool) (*types.Repo
 			if backup.Status != backupent.Success {
 				continue
 			}
+
+			var sizeInGib float64
+			for name, n := range backup.Nodes {
+				if name == usage.Node {
+					sizeInGib = float64(n.PreCompressionSizeBytes) / (1024 * 1024 * 1024) // Convert bytes to GiB
+					break
+				}
+			}
+
 			usage.Backups = append(usage.Backups, &types.BackupUsage{
 				ID:             backup.ID,
 				CompletionTime: backup.CompletedAt.Format(time.RFC3339),
-				SizeInGib:      float64(backup.PreCompressionSizeBytes) / (1024 * 1024 * 1024), // Convert bytes to GiB
+				SizeInGib:      sizeInGib,
 				Type:           string(backup.Status),
 				Collections:    backup.Classes(),
 			})
