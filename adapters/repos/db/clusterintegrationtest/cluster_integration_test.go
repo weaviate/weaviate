@@ -70,7 +70,7 @@ func testDistributed(t *testing.T, dirName string, rnd *rand.Rand, batch bool) {
 	numberOfObjects := 200
 
 	t.Run("setup", func(t *testing.T) {
-		overallShardState := multiShardState(numberOfNodes)
+		overallShardState := multiShardState(t, numberOfNodes)
 		for i := 0; i < numberOfNodes; i++ {
 			node := &node{
 				name: fmt.Sprintf("node-%d", i),
@@ -698,7 +698,7 @@ func TestDistributedVectorDistance(t *testing.T) {
 
 			collection := multiVectorClass(tt.asyncIndexingEnabled)
 
-			overallShardState := multiShardState(numberOfNodes)
+			overallShardState := multiShardState(t, numberOfNodes)
 			var nodes []*node
 			for i := 0; i < numberOfNodes; i++ {
 				node := &node{

@@ -21,11 +21,12 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/cluster/log"
+	"github.com/weaviate/weaviate/usecases/cluster"
 )
 
 type raft struct {
-	// ClusterStateReader allows the raft to also be used to the current cluster state
-	ClusterStateReader
+	// nodesResolver used to resolve node addresses etc.
+	nodesResolver cluster.NodeResolver
 
 	// RaftPort is the configured RAFT port in the cluster that the resolver will append to the node id.
 	RaftPort int
@@ -45,13 +46,13 @@ type raft struct {
 
 func NewRaft(cfg RaftConfig) *raft {
 	return &raft{
-		ClusterStateReader: cfg.ClusterStateReader,
-		RaftPort:           cfg.RaftPort,
-		IsLocalCluster:     cfg.IsLocalHost,
-		NodeNameToPortMap:  cfg.NodeNameToPortMap,
-		notResolvedNodes:   sync.Map{},
-		LocalName:          cfg.LocalName,
-		LocalAddress:       cfg.LocalAddress,
+		nodesResolver:     cfg.NodeResolver,
+		RaftPort:          cfg.RaftPort,
+		IsLocalCluster:    cfg.IsLocalHost,
+		NodeNameToPortMap: cfg.NodeNameToPortMap,
+		notResolvedNodes:  sync.Map{},
+		LocalName:         cfg.LocalName,
+		LocalAddress:      cfg.LocalAddress,
 	}
 }
 
@@ -62,7 +63,7 @@ func (a *raft) ServerAddr(id raftImpl.ServerID) (raftImpl.ServerAddress, error) 
 	if id == raftImpl.ServerID(a.LocalName) {
 		return raftImpl.ServerAddress(a.LocalAddress), nil
 	}
-	addr := a.ClusterStateReader.NodeAddress(string(id))
+	addr := a.nodesResolver.NodeAddress(string(id))
 
 	// Update the internal notResolvedNodes if the addr if empty, otherwise delete it from the map
 	if addr == "" {
@@ -114,5 +115,5 @@ func (a *raft) NotResolvedNodes() map[raftImpl.ServerID]struct{} {
 
 // AllOtherClusterMembers returns all cluster members discovered via memberlist with their raft addresses
 func (a *raft) AllOtherClusterMembers(raftPort int) map[string]string {
-	return a.ClusterStateReader.AllOtherClusterMembers(raftPort)
+	return a.nodesResolver.AllOtherClusterMembers(raftPort)
 }

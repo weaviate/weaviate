@@ -17,22 +17,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/weaviate/weaviate/entities/backup"
 )
-
-type fakeSchemaManger struct {
-	errRestoreClass error
-	nodeName        string
-}
-
-func (f *fakeSchemaManger) RestoreClass(context.Context, *backup.ClassDescriptor, map[string]string, bool,
-) error {
-	return f.errRestoreClass
-}
-
-func (f *fakeSchemaManger) NodeName() string {
-	return f.nodeName
-}
 
 func TestFilterClasses(t *testing.T) {
 	tests := []struct {
@@ -56,7 +41,7 @@ func TestFilterClasses(t *testing.T) {
 func TestHandlerValidateCoordinationOperation(t *testing.T) {
 	var (
 		ctx = context.Background()
-		bm  = createManager(nil, nil, nil, nil)
+		bm  = createManager(t, nil, nil, nil)
 	)
 
 	{ // OnCanCommit

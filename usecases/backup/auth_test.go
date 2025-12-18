@@ -28,6 +28,8 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/cluster"
+	"github.com/weaviate/weaviate/usecases/schema"
 )
 
 // A component-test like test suite that makes sure that every available UC is
@@ -109,7 +111,8 @@ func Test_Authorization(t *testing.T) {
 				authorizer := authorization.NewMockAuthorizer(t)
 				selector := NewMockSelector(t)
 				backupProvider := NewMockBackupBackendProvider(t)
-				nodeResolver := NewMockNodeResolver(t)
+				nodeResolver := cluster.NewMockNodeResolver(t)
+				schemaManager := schema.NewMockSchemaManager(t)
 				modcapabilities := modulecapabilities.NewMockBackupBackend(t)
 
 				backupProvider.On("BackupBackend", mock.Anything).Return(modcapabilities, nil).Maybe()
@@ -155,15 +158,18 @@ func Test_Authorization(t *testing.T) {
 				}
 
 				nodeResolver.On("NodeCount").Return(1).Maybe()
-				nodeResolver.On("LeaderID").Return("node-0").Maybe()
-				nodeResolver.On("AllNames").Return([]string{"node-0"}).Maybe()
+
+				nodeResolver.On("AllHostnames").Return([]string{"node-0"}).Maybe()
 				nodeResolver.On("NodeHostname", mock.Anything).Return("localhost", false).Maybe()
+
+				schemaManager.On("LeaderID").Return("node-0").Maybe()
+				schemaManager.On("NodeName").Return("node-0").Maybe()
 
 				selector.On("Shards", mock.Anything, test.classes[0]).Return([]string{"node-0"}, nil).Maybe()
 				selector.On("ListClasses", mock.Anything).Return(test.classes).Maybe()
 				selector.On("Backupable", mock.Anything, mock.Anything).Return(nil).Maybe()
 
-				s := NewScheduler(authorizer, nil, selector, backupProvider, nodeResolver, &fakeSchemaManger{}, logger)
+				s := NewScheduler(authorizer, nil, selector, backupProvider, nodeResolver, schemaManager, logger)
 				require.NotNil(t, s)
 
 				if !test.ignoreAuthZ {

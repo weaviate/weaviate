@@ -42,7 +42,7 @@ func TestDistributedBackups(t *testing.T) {
 	)
 
 	t.Run("setup", func(t *testing.T) {
-		overallShardState := multiShardState(numNodes)
+		overallShardState := multiShardState(t, numNodes)
 		backend = &fakeBackupBackend{
 			backupsPath: dirName,
 			backupID:    backupID,

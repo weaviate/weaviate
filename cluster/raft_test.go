@@ -32,7 +32,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/cluster/utils"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/cluster/mocks"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -58,7 +58,7 @@ func TestRaftEndpoints(t *testing.T) {
 	m.parser.On("ParseClass", mock.Anything).Return(nil)
 	m.parser.On("ParseClassUpdate", mock.Anything, mock.Anything).Return(mock.Anything, nil)
 
-	srv := NewRaft(mocks.NewMockNodeSelector(), m.store, nil)
+	srv := NewRaft(cluster.NewMockNodeSelector(t), m.store, nil)
 
 	// LeaderNotFound
 	_, err := srv.Execute(ctx, &command.ApplyRequest{})
@@ -382,7 +382,7 @@ func TestRaftEndpoints(t *testing.T) {
 
 	s := NewFSM(m.cfg, nil, nil, prometheus.NewPedanticRegistry())
 	m.store = &s
-	srv = NewRaft(mocks.NewMockNodeSelector(), m.store, nil)
+	srv = NewRaft(cluster.NewMockNodeSelector(t), m.store, nil)
 	assert.Nil(t, srv.Open(ctx, m.indexer))
 	assert.Nil(t, srv.store.Notify(m.cfg.NodeID, addr))
 	assert.Nil(t, srv.WaitUntilDBRestored(ctx, time.Second*1, make(chan struct{})))
@@ -435,7 +435,7 @@ func TestRaftClose(t *testing.T) {
 	addr := fmt.Sprintf("%s:%d", m.cfg.Host, m.cfg.RaftPort)
 	s := NewFSM(m.cfg, nil, nil, prometheus.NewPedanticRegistry())
 	m.store = &s
-	srv := NewRaft(mocks.NewMockNodeSelector(), m.store, nil)
+	srv := NewRaft(cluster.NewMockNodeSelector(t), m.store, nil)
 	m.indexer.On("Open", mock.Anything).Return(nil)
 	assert.Nil(t, srv.Open(ctx, m.indexer))
 	assert.Nil(t, srv.store.Notify(m.cfg.NodeID, addr))
@@ -501,7 +501,7 @@ func TestApplyReplicationScalePlan(t *testing.T) {
 	m.indexer.On("AddReplicaToShard", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
 	m.indexer.On("DeleteReplicaFromShard", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
 
-	r := NewRaft(mocks.NewMockNodeSelector(), m.store, nil)
+	r := NewRaft(cluster.NewMockNodeSelector(t), m.store, nil)
 	require.NoError(t, r.Open(ctx, m.indexer))
 	addr := fmt.Sprintf("%s:%d", m.cfg.Host, m.cfg.RaftPort)
 	require.NoError(t, r.store.Notify(m.cfg.NodeID, addr))

@@ -17,31 +17,29 @@ import (
 	"context"
 	"testing"
 
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
-	"github.com/weaviate/weaviate/usecases/sharding"
-
-	"github.com/stretchr/testify/mock"
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
-	"github.com/weaviate/weaviate/entities/storobj"
-	"github.com/weaviate/weaviate/usecases/cluster"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus/hooks/test"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/storobj"
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
-
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/memwatch"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 func TestVectorDistanceQuery(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	dirName := t.TempDir()
-	shardState := singleShardState()
+	shardState := singleShardState(t)
 	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
 	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
@@ -61,7 +59,7 @@ func TestVectorDistanceQuery(t *testing.T) {
 		QueryMaximumResults:       10,
 		MaxImportGoroutinesFactor: 1,
 		DisableLazyLoadShards:     true, // need access to the shard directly to convert UUIDs to docIds
-	}, &FakeRemoteClient{}, &FakeNodeResolver{}, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
+	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 

@@ -15,22 +15,14 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
-	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 )
-
-type FakeNodeResolver struct {
-	path string
-}
-
-func (f FakeNodeResolver) NodeHostname(nodeName string) (string, bool) {
-	return strings.TrimPrefix(f.path, "http://"), true
-}
 
 type fakeHandler struct {
 	t             *testing.T

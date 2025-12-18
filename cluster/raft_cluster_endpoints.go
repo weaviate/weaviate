@@ -16,6 +16,7 @@ import (
 	"slices"
 
 	"github.com/sirupsen/logrus"
+
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 )
 
@@ -98,4 +99,9 @@ func (s *Raft) Remove(ctx context.Context, id string) error {
 func (s *Raft) Stats() map[string]any {
 	s.log.Debug("membership.stats")
 	return s.store.Stats()
+}
+
+func (s *Raft) LeaderID() string {
+	_, id := s.LeaderWithID()
+	return string(id)
 }

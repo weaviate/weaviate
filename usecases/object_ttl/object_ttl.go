@@ -24,11 +24,13 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/adapters/repos/db/ttl"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
 
@@ -37,7 +39,7 @@ type objectTTLAndVersion struct {
 	ttlConfig *models.ObjectTTLConfig
 }
 
-func NewCoordinator(schemaReader schemaUC.SchemaReader, schemaGetter schemaUC.SchemaGetter, db *db.DB, logger logrus.FieldLogger, clusterClient *http.Client, nodeResolver nodeResolver) *Coordinator {
+func NewCoordinator(schemaReader schemaUC.SchemaReader, schemaGetter schemaUC.SchemaGetter, db *db.DB, logger logrus.FieldLogger, clusterClient *http.Client, nodeResolver cluster.NodeResolver) *Coordinator {
 	return &Coordinator{
 		schemaReader:     schemaReader,
 		schemaGetter:     schemaGetter,
@@ -58,7 +60,7 @@ type Coordinator struct {
 	logger            logrus.FieldLogger
 	objectTTLLastNode string
 	clusterClient     *http.Client
-	nodeResolver      nodeResolver
+	nodeResolver      cluster.NodeResolver
 	remoteObjectTTL   *remoteObjectTTL
 }
 
@@ -204,14 +206,10 @@ func (c *Coordinator) extractTtlDataFromCollection(ttlConfig *models.ObjectTTLCo
 
 type remoteObjectTTL struct {
 	client       *http.Client
-	nodeResolver nodeResolver
+	nodeResolver cluster.NodeResolver
 }
 
-type nodeResolver interface {
-	NodeHostname(nodeName string) (string, bool)
-}
-
-func newRemoteObjectTTL(httpClient *http.Client, nodeResolver nodeResolver) *remoteObjectTTL {
+func newRemoteObjectTTL(httpClient *http.Client, nodeResolver cluster.NodeResolver) *remoteObjectTTL {
 	return &remoteObjectTTL{client: httpClient, nodeResolver: nodeResolver}
 }
 

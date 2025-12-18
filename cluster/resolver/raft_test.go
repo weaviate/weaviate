@@ -17,7 +17,7 @@ import (
 	raftImpl "github.com/hashicorp/raft"
 	"github.com/stretchr/testify/assert"
 
-	clusterMocks "github.com/weaviate/weaviate/usecases/cluster/mocks"
+	"github.com/weaviate/weaviate/usecases/cluster"
 )
 
 func TestServerAddr(t *testing.T) {
@@ -31,12 +31,12 @@ func TestServerAddr(t *testing.T) {
 		{
 			name: "self uses LocalAddress",
 			resolver: &raft{
-				ClusterStateReader: clusterMocks.NewMockNodeSelector("node-1", "node-2"),
-				RaftPort:           8300,
-				IsLocalCluster:     false,
-				NodeNameToPortMap:  map[string]int{},
-				LocalName:          "node-1",
-				LocalAddress:       "127.0.0.1:8300",
+				nodesResolver:     cluster.NewMockNodeSelector(t),
+				RaftPort:          8300,
+				IsLocalCluster:    false,
+				NodeNameToPortMap: map[string]int{},
+				LocalName:         "node-1",
+				LocalAddress:      "127.0.0.1:8300",
 			},
 			queryID: "node-1",
 			want:    raftImpl.ServerAddress("127.0.0.1:8300"),
@@ -44,12 +44,12 @@ func TestServerAddr(t *testing.T) {
 		{
 			name: "remote non-local cluster uses default raft port",
 			resolver: &raft{
-				ClusterStateReader: clusterMocks.NewMockNodeSelector("node-1", "node-2"),
-				RaftPort:           8300,
-				IsLocalCluster:     false,
-				NodeNameToPortMap:  map[string]int{},
-				LocalName:          "node-1",
-				LocalAddress:       "127.0.0.1:8300",
+				nodesResolver:     cluster.NewMockNodeSelector(t),
+				RaftPort:          8300,
+				IsLocalCluster:    false,
+				NodeNameToPortMap: map[string]int{},
+				LocalName:         "node-1",
+				LocalAddress:      "127.0.0.1:8300",
 			},
 			queryID: "node-2",
 			want:    raftImpl.ServerAddress("node-2:8300"),
@@ -57,12 +57,12 @@ func TestServerAddr(t *testing.T) {
 		{
 			name: "local cluster uses port mapping",
 			resolver: &raft{
-				ClusterStateReader: clusterMocks.NewMockNodeSelector("node-1", "node-2"),
-				RaftPort:           8300,
-				IsLocalCluster:     true,
-				NodeNameToPortMap:  map[string]int{"node-2": 8305},
-				LocalName:          "node-1",
-				LocalAddress:       "127.0.0.1:8301",
+				nodesResolver:     cluster.NewMockNodeSelector(t),
+				RaftPort:          8300,
+				IsLocalCluster:    true,
+				NodeNameToPortMap: map[string]int{"node-2": 8305},
+				LocalName:         "node-1",
+				LocalAddress:      "127.0.0.1:8301",
 			},
 			queryID: "node-2",
 			want:    raftImpl.ServerAddress("node-2:8305"),
@@ -70,12 +70,12 @@ func TestServerAddr(t *testing.T) {
 		{
 			name: "missing remote address returns error",
 			resolver: &raft{
-				ClusterStateReader: clusterMocks.NewMockNodeSelector("node-1"),
-				RaftPort:           8300,
-				IsLocalCluster:     false,
-				NodeNameToPortMap:  map[string]int{},
-				LocalName:          "node-1",
-				LocalAddress:       "127.0.0.1:8300",
+				nodesResolver:     cluster.NewMockNodeSelector(t),
+				RaftPort:          8300,
+				IsLocalCluster:    false,
+				NodeNameToPortMap: map[string]int{},
+				LocalName:         "node-1",
+				LocalAddress:      "127.0.0.1:8300",
 			},
 			queryID: "node-2",
 			wantErr: true,
@@ -84,6 +84,17 @@ func TestServerAddr(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			// Only non-local lookups go through NodeAddress
+			if mockSelector, ok := tt.resolver.nodesResolver.(*cluster.MockNodeSelector); ok && tt.queryID != tt.resolver.LocalName {
+				if tt.wantErr {
+					// Simulate unresolved address
+					mockSelector.EXPECT().NodeAddress(tt.queryID).Return("")
+				} else {
+					// Return bare node name; ServerAddr will append the raft port
+					mockSelector.EXPECT().NodeAddress(tt.queryID).Return(tt.queryID)
+				}
+			}
+
 			addr, err := tt.resolver.ServerAddr(raftImpl.ServerID(tt.queryID))
 			if tt.wantErr {
 				assert.Error(t, err)

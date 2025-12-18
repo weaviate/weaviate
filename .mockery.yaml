@@ -18,15 +18,16 @@ packages:
   github.com/weaviate/weaviate/usecases/backup:
     interfaces:
       BackupBackendProvider:
-      NodeResolver:
       Selector:
   github.com/weaviate/weaviate/usecases/cluster:
     interfaces:
       NodeSelector:
+      NodeResolver:
   github.com/weaviate/weaviate/usecases/schema:
     interfaces:
       SchemaGetter:
       SchemaReader:
+      SchemaManager:
   github.com/weaviate/weaviate/usecases/auth/authorization:
     interfaces:
       Controller:

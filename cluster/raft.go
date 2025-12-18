@@ -15,10 +15,10 @@ import (
 	"context"
 	"time"
 
-	"github.com/weaviate/weaviate/cluster/replication"
-
 	"github.com/sirupsen/logrus"
+
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/cluster/replication"
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/usecases/cluster"
 )
@@ -95,4 +95,8 @@ func (s *Raft) ReplicationFsm() *replication.ShardReplicationFSM {
 
 func (s *Raft) IsLeader() bool {
 	return s.store.IsLeader()
+}
+
+func (s *Raft) NodeName() string {
+	return s.nodeSelector.LocalName()
 }

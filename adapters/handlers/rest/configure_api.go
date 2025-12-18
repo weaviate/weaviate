@@ -42,6 +42,10 @@ import (
 	"github.com/prometheus/client_golang/prometheus/collectors/version"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/credentials/insecure"
+
 	"github.com/weaviate/fgprof"
 	"github.com/weaviate/weaviate/adapters/clients"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/authz"
@@ -157,9 +161,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/telemetry"
 	"github.com/weaviate/weaviate/usecases/telemetry/opentelemetry"
 	"github.com/weaviate/weaviate/usecases/traverser"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
-	"google.golang.org/grpc/credentials/insecure"
 )
 
 const MinimumRequiredContextionaryVersion = "1.0.2"
@@ -689,8 +690,13 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	appState.RemoteNodeIncoming = sharding.NewRemoteNodeIncoming(repo)
 	appState.RemoteReplicaIncoming = replica.NewRemoteReplicaIncoming(repo, appState.ClusterService.SchemaReader())
 
-	backupManager := backup.NewHandler(appState.Logger, appState.Authorizer,
-		schemaManager, repo, appState.Modules, appState.RBAC, appState.APIKey.Dynamic)
+	backupManager := backup.NewHandler(appState.Logger,
+		appState.Authorizer,
+		appState.Cluster.LocalName(),
+		repo,
+		appState.Modules,
+		appState.RBAC,
+		appState.APIKey.Dynamic)
 	appState.BackupManager = backupManager
 
 	appState.InternalServer = clusterapi.NewServer(appState)
@@ -1102,7 +1108,15 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	setupMiscHandlers(api, appState.ServerConfig, appState.Modules,
 		appState.Metrics, appState.Logger)
 	setupClassificationHandlers(api, classifier, appState.Metrics, appState.Logger)
-	backupScheduler := startBackupScheduler(appState)
+
+	backupScheduler := backup.NewScheduler(
+		appState.Authorizer,
+		clients.NewClusterBackups(appState.ClusterHttpClient),
+		appState.DB, appState.Modules,
+		membership{appState.Cluster, appState.ClusterService},
+		appState.ClusterService.Raft,
+		appState.Logger)
+
 	setupBackupHandlers(api, backupScheduler, appState.Metrics, appState.Logger)
 	setupNodesHandlers(api, appState.SchemaManager, appState.DB, appState)
 	if appState.ServerConfig.Config.DistributedTasks.Enabled {
@@ -1221,17 +1235,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	startGrpcServer(grpcServer, appState)
 
 	return setupGlobalMiddleware(api.Serve(setupMiddlewares))
-}
-
-func startBackupScheduler(appState *state.State) *backup.Scheduler {
-	backupScheduler := backup.NewScheduler(
-		appState.Authorizer,
-		clients.NewClusterBackups(appState.ClusterHttpClient),
-		appState.DB, appState.Modules,
-		membership{appState.Cluster, appState.ClusterService},
-		appState.SchemaManager,
-		appState.Logger)
-	return backupScheduler
 }
 
 // TODO: Split up and don't write into global variables. Instead return an appState

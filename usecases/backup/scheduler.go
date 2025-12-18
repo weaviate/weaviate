@@ -25,6 +25,8 @@ import (
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/cluster"
+	"github.com/weaviate/weaviate/usecases/schema"
 )
 
 var (
@@ -59,8 +61,8 @@ func NewScheduler(
 	client client,
 	sourcer Selector,
 	backends BackupBackendProvider,
-	nodeResolver NodeResolver,
-	schema schemaManger,
+	nodeResolver cluster.NodeResolver,
+	schema schema.SchemaManager,
 	logger logrus.FieldLogger,
 ) *Scheduler {
 	m := &Scheduler{

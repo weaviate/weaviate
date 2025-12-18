@@ -23,18 +23,15 @@ import (
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
+	"github.com/weaviate/weaviate/usecases/cluster"
 )
 
 type RemoteUser struct {
 	client       *http.Client
-	nodeResolver nodeResolver
+	nodeResolver cluster.NodeResolver
 }
 
-type nodeResolver interface {
-	NodeHostname(nodeName string) (string, bool)
-}
-
-func NewRemoteUser(httpClient *http.Client, nodeResolver nodeResolver) *RemoteUser {
+func NewRemoteUser(httpClient *http.Client, nodeResolver cluster.NodeResolver) *RemoteUser {
 	return &RemoteUser{client: httpClient, nodeResolver: nodeResolver}
 }
 

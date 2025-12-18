@@ -16,20 +16,19 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/weaviate/weaviate/usecases/sharding"
-	"github.com/weaviate/weaviate/usecases/sharding/config"
-
-	"github.com/weaviate/weaviate/entities/models"
-
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/replication"
 	"github.com/weaviate/weaviate/cluster/router"
 	"github.com/weaviate/weaviate/cluster/router/types"
-	clusterMocks "github.com/weaviate/weaviate/usecases/cluster/mocks"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/sharding"
+	"github.com/weaviate/weaviate/usecases/sharding/config"
 )
 
 func TestReadRoutingWithFSM(t *testing.T) {
@@ -127,7 +126,14 @@ func TestReadRoutingWithFSM(t *testing.T) {
 		t.Run(testCase.name+"_partitioning_enabled_"+strconv.FormatBool(testCase.partitioningEnabled), func(t *testing.T) {
 			reg := prometheus.NewRegistry()
 			shardReplicationFSM := replication.NewShardReplicationFSM(reg)
-			clusterState := clusterMocks.NewMockNodeSelector(testCase.allShardNodes...)
+			clusterState := cluster.NewMockNodeSelector(t)
+			// Router uses NodeHostname to derive HostAddr; map node name to itself.
+			clusterState.EXPECT().NodeHostname(mock.Anything).RunAndReturn(func(nodeName string) (string, bool) {
+				return nodeName, true
+			}).Maybe()
+			// LocalName/StorageCandidates are not important for these tests but may be queried.
+			clusterState.EXPECT().LocalName().Return(testCase.localNodeName).Maybe()
+			clusterState.EXPECT().StorageCandidates().Return(testCase.allShardNodes).Maybe()
 			schemaReaderMock := schema.NewMockSchemaReader(t)
 			schemaGetterMock := schema.NewMockSchemaGetter(t)
 			schemaGetterMock.EXPECT().OptimisticTenantStatus(mock.Anything, "collection1", "shard1").Return(
@@ -304,7 +310,14 @@ func TestWriteRoutingWithFSM(t *testing.T) {
 		t.Run(testCase.name+"_partitioning_enabled_"+strconv.FormatBool(testCase.partitioningEnabled), func(t *testing.T) {
 			reg := prometheus.NewRegistry()
 			shardReplicationFSM := replication.NewShardReplicationFSM(reg)
-			clusterState := clusterMocks.NewMockNodeSelector(testCase.allShardNodes...)
+			clusterState := cluster.NewMockNodeSelector(t)
+			// Router uses NodeHostname to derive HostAddr; map node name to itself.
+			clusterState.EXPECT().NodeHostname(mock.Anything).RunAndReturn(func(nodeName string) (string, bool) {
+				return nodeName, true
+			}).Maybe()
+			// LocalName/StorageCandidates are not important for these tests but may be queried.
+			clusterState.EXPECT().LocalName().Return(testCase.localNodeName).Maybe()
+			clusterState.EXPECT().StorageCandidates().Return(testCase.allShardNodes).Maybe()
 			schemaReaderMock := schema.NewMockSchemaReader(t)
 			schemaGetterMock := schema.NewMockSchemaGetter(t)
 			schemaGetterMock.EXPECT().OptimisticTenantStatus(mock.Anything, "collection1", "shard1").Return(

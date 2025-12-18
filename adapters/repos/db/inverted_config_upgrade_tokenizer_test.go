@@ -23,6 +23,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
@@ -30,7 +31,6 @@ import (
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/tokenizer"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
@@ -142,7 +142,7 @@ func TestBM25FUserDictTest(t *testing.T) {
 	dirName := t.TempDir()
 
 	logger := logrus.New()
-	shardState := singleShardState()
+	shardState := singleShardState(t)
 	schemaGetter := &fakeSchemaGetter{
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: shardState,
@@ -167,7 +167,7 @@ func TestBM25FUserDictTest(t *testing.T) {
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &FakeRemoteClient{}, &FakeNodeResolver{}, &FakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor(),
+	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)

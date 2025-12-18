@@ -23,6 +23,7 @@ import (
 
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/storobj"
+	clusterState "github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/objects"
 )
@@ -61,6 +62,7 @@ type Replicator struct {
 
 func NewReplicator(className string,
 	router types.Router,
+	nodeResolver clusterState.NodeResolver,
 	nodeName string,
 	getDeletionStrategy func() string,
 	client Client,
@@ -81,6 +83,7 @@ func NewReplicator(className string,
 		Finder: NewFinder(
 			className,
 			router,
+			nodeResolver,
 			nodeName,
 			client,
 			metrics,

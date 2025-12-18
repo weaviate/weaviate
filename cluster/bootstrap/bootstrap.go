@@ -21,8 +21,8 @@ import (
 	"github.com/sirupsen/logrus"
 
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
-	"github.com/weaviate/weaviate/cluster/resolver"
 	entSentry "github.com/weaviate/weaviate/entities/sentry"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
@@ -35,7 +35,7 @@ type PeerJoiner interface {
 // Bootstrapper is used to bootstrap this node by attempting to join it to a RAFT cluster.
 type Bootstrapper struct {
 	peerJoiner   PeerJoiner
-	addrResolver resolver.ClusterStateReader
+	addrResolver cluster.NodeResolver
 	isStoreReady func() bool
 
 	localRaftAddr string
@@ -47,7 +47,7 @@ type Bootstrapper struct {
 }
 
 // NewBootstrapper constructs a new bootsrapper
-func NewBootstrapper(peerJoiner PeerJoiner, raftID string, raftAddr string, voter bool, r resolver.ClusterStateReader, isStoreReady func() bool) *Bootstrapper {
+func NewBootstrapper(peerJoiner PeerJoiner, raftID string, raftAddr string, voter bool, r cluster.NodeResolver, isStoreReady func() bool) *Bootstrapper {
 	return &Bootstrapper{
 		peerJoiner:    peerJoiner,
 		addrResolver:  r,
@@ -153,7 +153,7 @@ func (b *Bootstrapper) notify(ctx context.Context, remoteNodes map[string]string
 // ResolveRemoteNodes returns a list of remoteNodes addresses resolved using addrResolver. The nodes id used are
 // taken from serverPortMap keys and ports from the values. Additionally, it includes nodes discovered via memberlist
 // to handle cases where the join config is incomplete.
-func ResolveRemoteNodes(addrResolver resolver.ClusterStateReader, serverPortMap map[string]int) map[string]string {
+func ResolveRemoteNodes(addrResolver cluster.NodeResolver, serverPortMap map[string]int) map[string]string {
 	candidates := make(map[string]string, len(serverPortMap))
 	for name, raftPort := range serverPortMap {
 		if addr := addrResolver.NodeAddress(name); addr != "" {

@@ -17,17 +17,13 @@ import (
 	"context"
 	"testing"
 
-	schema2 "github.com/weaviate/weaviate/usecases/schema"
-	"github.com/weaviate/weaviate/usecases/sharding"
-
-	"github.com/stretchr/testify/mock"
-	"github.com/weaviate/weaviate/usecases/cluster"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
@@ -35,9 +31,12 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/objects"
+	schema2 "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 // Cannot filter for null state without enabling in the InvertedIndexConfig
@@ -149,7 +148,7 @@ func TestNullArrayClass(t *testing.T) {
 }
 
 func createRepo(t *testing.T) (*Migrator, *DB, *fakeSchemaGetter) {
-	shardState := singleShardState()
+	shardState := singleShardState(t)
 	schemaGetter := &fakeSchemaGetter{
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: shardState,
@@ -175,7 +174,7 @@ func createRepo(t *testing.T) (*Migrator, *DB, *fakeSchemaGetter) {
 		RootPath:                  dirName,
 		QueryMaximumResults:       10,
 		MaxImportGoroutinesFactor: 1,
-	}, &FakeRemoteClient{}, &FakeNodeResolver{}, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
+	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)

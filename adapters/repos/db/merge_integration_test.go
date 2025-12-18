@@ -19,17 +19,13 @@ import (
 	"testing"
 	"time"
 
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
-	"github.com/weaviate/weaviate/usecases/sharding"
-
-	"github.com/stretchr/testify/mock"
-	"github.com/weaviate/weaviate/usecases/cluster"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
@@ -38,15 +34,18 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/objects"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 func Test_MergingObjects(t *testing.T) {
 	dirName := t.TempDir()
 
 	logger := logrus.New()
-	shardState := singleShardState()
+	shardState := singleShardState(t)
 	schemaGetter := &fakeSchemaGetter{
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: shardState,
@@ -70,7 +69,7 @@ func Test_MergingObjects(t *testing.T) {
 		RootPath:                  dirName,
 		MaxImportGoroutinesFactor: 1,
 		TrackVectorDimensions:     true,
-	}, &FakeRemoteClient{}, &FakeNodeResolver{}, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, nil,
+	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, nil,
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
@@ -430,7 +429,7 @@ func Test_Merge_UntouchedPropsCorrectlyIndexed(t *testing.T) {
 	dirName := t.TempDir()
 
 	logger := logrus.New()
-	shardState := singleShardState()
+	shardState := singleShardState(t)
 	schemaGetter := &fakeSchemaGetter{
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: shardState,
@@ -455,7 +454,7 @@ func Test_Merge_UntouchedPropsCorrectlyIndexed(t *testing.T) {
 		MaxImportGoroutinesFactor: 1,
 		QueryMaximumResults:       10000,
 		TrackVectorDimensions:     true,
-	}, &FakeRemoteClient{}, &FakeNodeResolver{}, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, nil,
+	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, nil,
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
@@ -720,7 +719,7 @@ func Test_MergeDocIdPreserved_PropsCorrectlyIndexed(t *testing.T) {
 	dirName := t.TempDir()
 
 	logger := logrus.New()
-	shardState := singleShardState()
+	shardState := singleShardState(t)
 	schemaGetter := &fakeSchemaGetter{
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: shardState,
@@ -745,7 +744,7 @@ func Test_MergeDocIdPreserved_PropsCorrectlyIndexed(t *testing.T) {
 		MaxImportGoroutinesFactor: 1,
 		QueryMaximumResults:       10000,
 		TrackVectorDimensions:     true,
-	}, &FakeRemoteClient{}, &FakeNodeResolver{}, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, nil,
+	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, nil,
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)

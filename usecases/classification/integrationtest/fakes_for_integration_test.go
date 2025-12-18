@@ -19,10 +19,12 @@ import (
 	"io"
 	"math/rand"
 	"sync"
+	"testing"
 	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
+
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
@@ -34,7 +36,7 @@ import (
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	"github.com/weaviate/weaviate/usecases/cluster/mocks"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/file"
 	"github.com/weaviate/weaviate/usecases/objects"
@@ -130,13 +132,14 @@ func (m *fakeSchemaGetter) ResolveParentNodes(_ string, shard string,
 	return nil, nil
 }
 
-func singleShardState() *sharding.State {
+func singleShardState(t *testing.T) *sharding.State {
 	config, err := shardingConfig.ParseConfig(nil, 1)
 	if err != nil {
 		panic(err)
 	}
 
-	selector := mocks.NewMockNodeSelector("node1")
+	selector := cluster.NewMockNodeSelector(t)
+	selector.EXPECT().LocalName().Return("node1")
 	s, err := sharding.InitState("test-index", config, selector.LocalName(),
 		selector.StorageCandidates(), 1, false)
 	if err != nil {
@@ -535,13 +538,13 @@ func (f *fakeRemoteClient) DigestObjects(ctx context.Context,
 	return nil, nil
 }
 
-type fakeNodeResolver struct{}
+type mockNodeSelector struct{}
 
-func (f *fakeNodeResolver) AllHostnames() []string {
+func (f *mockNodeSelector) AllHostnames() []string {
 	return nil
 }
 
-func (f *fakeNodeResolver) NodeHostname(string) (string, bool) {
+func (f *mockNodeSelector) NodeHostname(string) (string, bool) {
 	return "", false
 }
 

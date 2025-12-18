@@ -16,6 +16,7 @@ import (
 	"fmt"
 
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/cluster"
 )
 
 type RemoteNodeClient interface {
@@ -25,10 +26,10 @@ type RemoteNodeClient interface {
 
 type RemoteNode struct {
 	client       RemoteNodeClient
-	nodeResolver nodeResolver
+	nodeResolver cluster.NodeResolver
 }
 
-func NewRemoteNode(nodeResolver nodeResolver, client RemoteNodeClient) *RemoteNode {
+func NewRemoteNode(nodeResolver cluster.NodeResolver, client RemoteNodeClient) *RemoteNode {
 	return &RemoteNode{
 		client:       client,
 		nodeResolver: nodeResolver,

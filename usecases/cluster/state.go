@@ -30,8 +30,6 @@ import (
 
 // NodeSelector is an interface to select a portion of the available nodes in memberlist
 type NodeSelector interface {
-	// NodeAddress resolves node id into an ip address without the port.
-	NodeAddress(id string) string
 	// NodeGRPCPort returns the gRPC port for a specific node id.
 	NodeGRPCPort(id string) (int, error)
 	// StorageCandidates returns list of storage nodes (names)
@@ -40,22 +38,29 @@ type NodeSelector interface {
 	// NonStorageNodes return nodes from member list which
 	// they are configured not to be voter only
 	NonStorageNodes() []string
+	// LocalName returns the local node name
+	LocalName() string
 	// SortCandidates Sort passed nodes names by the
 	// free amount of disk space in descending order
 	SortCandidates(nodes []string) []string
-	// LocalName() return local node name
-	LocalName() string
-	// NodeHostname return hosts address for a specific node name
-	NodeHostname(name string) (string, bool)
-	AllHostnames() []string
-	// AllOtherClusterMembers returns all cluster members discovered via memberlist with their raft addresses
-	// This is useful for bootstrap when the join config is incomplete
-	// TODO-RAFT: shall be removed once unifying with raft package
-	AllOtherClusterMembers(port int) map[string]string
+	ClusterHealthScore() int
 	// Leave marks the node as leaving the cluster (still visible but shutting down)
 	Leave() error
 	// Shutdown called when leaves the cluster gracefully and shuts down the memberlist instance
 	Shutdown() error
+	NodeResolver
+}
+
+type NodeResolver interface {
+	NodeCount() int
+	AllHostnames() []string
+	// NodeAddress resolves node id into an ip address without the port.
+	NodeAddress(id string) string
+	// NodeHostname resolves a node id into an ip address with internal cluster api port
+	NodeHostname(nodeName string) (string, bool)
+	// AllOtherClusterMembers returns all cluster members discovered via memberlist with their addresses
+	// This is useful for bootstrap when the join config is incomplete
+	AllOtherClusterMembers(port int) map[string]string
 }
 
 type State struct {

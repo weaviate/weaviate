@@ -22,7 +22,9 @@ import (
 	"github.com/stretchr/testify/mock"
 
 	"github.com/weaviate/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/schema"
 )
 
 func Test_CoordinatedBackup(t *testing.T) {
@@ -48,12 +50,12 @@ func Test_CoordinatedBackup(t *testing.T) {
 		sReq         = &StatusRequest{OpCreate, backupID, backendName, "", ""}
 		sresp        = &StatusResponse{Status: backup.Success, ID: backupID, Method: OpCreate}
 		abortReq     = &AbortRequest{OpCreate, backupID, backendName, "", ""}
-		nodeResolver = newFakeNodeResolver(nodes)
+		nodeResolver = cluster.NewMockNodeResolver(t)
 	)
 
 	t.Run("PutMeta", func(t *testing.T) {
 		t.Parallel()
-		fc := newFakeCoordinator(nodeResolver)
+		fc := newFakeCoordinator(t, nodeResolver)
 		fc.selector.On("Shards", ctx, classes[0]).Return(nodes, nil)
 		fc.selector.On("Shards", ctx, classes[1]).Return(nodes, nil)
 
@@ -71,7 +73,7 @@ func Test_CoordinatedBackup(t *testing.T) {
 
 	t.Run("Success", func(t *testing.T) {
 		t.Parallel()
-		fc := newFakeCoordinator(nodeResolver)
+		fc := newFakeCoordinator(t, nodeResolver)
 		fc.selector.On("Shards", ctx, classes[0]).Return(nodes, nil)
 		fc.selector.On("Shards", ctx, classes[1]).Return(nodes, nil)
 		fc.client.On("CanCommit", any, nodes[0], creq).Return(cresp, nil)
@@ -124,7 +126,7 @@ func Test_CoordinatedBackup(t *testing.T) {
 
 	t.Run("SuccessOnShardsEmptyPhysical", func(t *testing.T) {
 		t.Parallel()
-		fc := newFakeCoordinator(nodeResolver)
+		fc := newFakeCoordinator(t, nodeResolver)
 		fc.selector.On("Shards", ctx, classes[0]).Return([]string{}, nil)
 		fc.selector.On("Shards", ctx, classes[1]).Return(nodes, nil)
 		fc.client.On("Abort", any, any, any).Return(nil)
@@ -203,7 +205,7 @@ func Test_CoordinatedBackup(t *testing.T) {
 	t.Run("CanCommit", func(t *testing.T) {
 		t.Parallel()
 
-		fc := newFakeCoordinator(nodeResolver)
+		fc := newFakeCoordinator(t, nodeResolver)
 		fc.selector.On("Shards", ctx, classes[0]).Return(nodes, nil)
 		fc.selector.On("Shards", ctx, classes[1]).Return(nodes, nil)
 
@@ -223,7 +225,7 @@ func Test_CoordinatedBackup(t *testing.T) {
 	t.Run("NodeDown", func(t *testing.T) {
 		t.Parallel()
 		var (
-			fc          = newFakeCoordinator(nodeResolver)
+			fc          = newFakeCoordinator(t, nodeResolver)
 			coordinator = *fc.coordinator()
 			req         = newReq(classes, backendName, backupID)
 			store       = coordStore{objectStore{fc.backend, req.ID, "", ""}}
@@ -285,7 +287,7 @@ func Test_CoordinatedBackup(t *testing.T) {
 	t.Run("NodeDisconnect", func(t *testing.T) {
 		t.Parallel()
 		var (
-			fc          = newFakeCoordinator(nodeResolver)
+			fc          = newFakeCoordinator(t, nodeResolver)
 			coordinator = *fc.coordinator()
 		)
 		coordinator.timeoutNodeDown = 0
@@ -350,7 +352,7 @@ func TestCoordinatedRestore(t *testing.T) {
 		ctx          = context.Background()
 		nodes        = []string{"N1", "N2"}
 		classes      = []string{"Class-A", "Class-B"}
-		nodeResolver = newFakeNodeResolver(nodes)
+		nodeResolver = cluster.NewMockNodeResolver(t)
 		genReq       = func() *backup.DistributedBackupDescriptor {
 			return &backup.DistributedBackupDescriptor{
 				StartedAt:     now,
@@ -390,7 +392,7 @@ func TestCoordinatedRestore(t *testing.T) {
 
 	t.Run("Success", func(t *testing.T) {
 		t.Parallel()
-		fc := newFakeCoordinator(nodeResolver)
+		fc := newFakeCoordinator(t, nodeResolver)
 		fc.selector.On("Shards", ctx, classes[0]).Return(nodes, nil)
 		fc.selector.On("Shards", ctx, classes[1]).Return(nodes, nil)
 
@@ -415,7 +417,7 @@ func TestCoordinatedRestore(t *testing.T) {
 	t.Run("CanCommit", func(t *testing.T) {
 		t.Parallel()
 
-		fc := newFakeCoordinator(nodeResolver)
+		fc := newFakeCoordinator(t, nodeResolver)
 		fc.client.On("CanCommit", any, nodes[0], creq).Return(cresp, nil)
 		fc.client.On("CanCommit", any, nodes[1], creq).Return(&CanCommitResponse{}, nil)
 		fc.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
@@ -432,7 +434,7 @@ func TestCoordinatedRestore(t *testing.T) {
 	t.Run("PutInitialMeta", func(t *testing.T) {
 		t.Parallel()
 
-		fc := newFakeCoordinator(nodeResolver)
+		fc := newFakeCoordinator(t, nodeResolver)
 		fc.client.On("CanCommit", any, nodes[0], creq).Return(cresp, nil)
 		fc.client.On("CanCommit", any, nodes[1], creq).Return(cresp, nil)
 		fc.backend.On("HomeDir", any, any, backupID).Return("bucket/" + backupID)
@@ -503,8 +505,11 @@ func TestCoordinatedRestoreWithNodeMapping(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		t.Parallel()
 
-		nodeResolverWithNodeMapping := newFakeNodeResolver(append(nodes, newNodes...))
-		fc := newFakeCoordinator(nodeResolverWithNodeMapping)
+		nodeResolverWithNodeMapping := cluster.NewMockNodeResolver(t)
+		nodeResolverWithNodeMapping.EXPECT().AllHostnames().Return(append(nodes, newNodes...)).Maybe()
+		nodeResolverWithNodeMapping.EXPECT().NodeHostname(nodes[0]).Return(newNodes[0], true).Maybe()
+		nodeResolverWithNodeMapping.EXPECT().NodeHostname(nodes[1]).Return(newNodes[1], true).Maybe()
+		fc := newFakeCoordinator(t, nodeResolverWithNodeMapping)
 		fc.selector.On("Shards", ctx, classes[0]).Return(nodes)
 		fc.selector.On("Shards", ctx, classes[1]).Return(nodes)
 
@@ -549,74 +554,24 @@ func (s *fakeSelector) Backupable(ctx context.Context, classes []string) error {
 type fakeCoordinator struct {
 	selector     fakeSelector
 	client       fakeClient
-	schema       fakeSchemaManger
+	schema       schema.SchemaManager
 	backend      *fakeBackend
 	log          logrus.FieldLogger
-	nodeResolver NodeResolver
+	nodeResolver cluster.NodeResolver
 }
 
-func newFakeCoordinator(resolver NodeResolver) *fakeCoordinator {
+func newFakeCoordinator(t *testing.T, resolver cluster.NodeResolver) *fakeCoordinator {
 	fc := fakeCoordinator{}
 	fc.backend = newFakeBackend()
-	fc.schema = fakeSchemaManger{}
+	fc.schema = schema.NewMockSchemaManager(t)
 	logger, _ := test.NewNullLogger()
 	fc.log = logger
 	fc.nodeResolver = resolver
 	return &fc
 }
 
-type fakeNodeResolver struct {
-	hosts  map[string]string
-	leader string
-}
-
-func (r *fakeNodeResolver) AllHostnames() []string {
-	hosts := make([]string, len(r.hosts))
-	count := 0
-	for _, host := range r.hosts {
-		hosts[count] = host
-		count++
-	}
-	return hosts[:count]
-}
-
-func (r *fakeNodeResolver) NodeHostname(nodeName string) (string, bool) {
-	return r.hosts[nodeName], true
-}
-
-func (r *fakeNodeResolver) NodeCount() int {
-	if r.hosts != nil {
-		return len(r.hosts)
-	}
-	return 1
-}
-
-func (r *fakeNodeResolver) LeaderID() string {
-	return r.leader
-}
-
-func (r *fakeNodeResolver) AllNames() []string {
-	xs := make([]string, 0, len(r.hosts))
-	for k := range r.hosts {
-		xs = append(xs, k)
-	}
-	return xs
-}
-
-func newFakeNodeResolver(nodes []string) *fakeNodeResolver {
-	hosts := make(map[string]string)
-	for _, node := range nodes {
-		hosts[node] = node
-	}
-	leader := ""
-	if len(nodes) > 0 {
-		leader = nodes[0]
-	}
-	return &fakeNodeResolver{hosts: hosts, leader: leader}
-}
-
 func (fc *fakeCoordinator) coordinator() *coordinator {
-	c := newCoordinator(&fc.selector, &fc.client, &fc.schema, fc.log, fc.nodeResolver, nil)
+	c := newCoordinator(&fc.selector, &fc.client, fc.schema, fc.log, fc.nodeResolver, nil)
 	c.timeoutNextRound = time.Millisecond * 200
 	return c
 }

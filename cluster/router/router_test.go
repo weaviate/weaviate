@@ -17,17 +17,15 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/stretchr/testify/mock"
-	"github.com/weaviate/weaviate/entities/models"
-
 	"github.com/pkg/errors"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/router"
 	"github.com/weaviate/weaviate/cluster/router/types"
-
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/cluster"
-	"github.com/weaviate/weaviate/usecases/cluster/mocks"
 	"github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"github.com/weaviate/weaviate/usecases/sharding/config"
@@ -50,11 +48,34 @@ func createShardingStateWithShards(shards []string) *sharding.State {
 	return state
 }
 
+// setupNodeSelectorLocalAndCandidates configures optional expectations commonly
+// used by the router tests. All expectations are marked as Maybe so tests
+// don't fail when a particular method isn't called by the implementation.
+func setupNodeSelectorLocalAndCandidates(sel *cluster.MockNodeSelector, localName string, candidates []string) {
+	if localName != "" {
+		sel.EXPECT().LocalName().Return(localName).Maybe()
+	}
+	if candidates != nil {
+		sel.EXPECT().StorageCandidates().Return(candidates).Maybe()
+	}
+}
+
+// setupDefaultNodeHostname configures a generic NodeHostname expectation that
+// maps a node name to itself. This matches tests that expect HostAddr to equal
+// the node name (e.g. "node1").
+func setupDefaultNodeHostname(sel *cluster.MockNodeSelector) {
+	sel.EXPECT().NodeHostname(mock.Anything).RunAndReturn(func(nodeName string) (string, bool) {
+		return nodeName, true
+	}).Maybe()
+}
+
 func TestSingleTenantRouter_GetReadWriteReplicasLocation_NoShards(t *testing.T) {
 	mockSchemaGetter := schema.NewMockSchemaGetter(t)
 	mockSchemaReader := schema.NewMockSchemaReader(t)
 	mockReplicationFSM := replicationTypes.NewMockReplicationFSMReader(t)
-	mockNodeSelector := mocks.NewMockNodeSelector("node1", "node2")
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	setupNodeSelectorLocalAndCandidates(mockNodeSelector, "node1", []string{"node1", "node2"})
+	setupDefaultNodeHostname(mockNodeSelector)
 
 	emptyState := createShardingStateWithShards([]string{})
 	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(emptyState.AllPhysicalShards(), nil).Maybe()
@@ -84,7 +105,9 @@ func TestSingleTenantRouter_GetReadWriteReplicasLocation_OneShard(t *testing.T) 
 	mockSchemaGetter := schema.NewMockSchemaGetter(t)
 	mockSchemaReader := schema.NewMockSchemaReader(t)
 	mockReplicationFSM := replicationTypes.NewMockReplicationFSMReader(t)
-	mockNodeSelector := mocks.NewMockNodeSelector("node1", "node2", "node3")
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	setupNodeSelectorLocalAndCandidates(mockNodeSelector, "node1", []string{"node1", "node2", "node3"})
+	setupDefaultNodeHostname(mockNodeSelector)
 
 	state := createShardingStateWithShards([]string{"shard1"})
 	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(state.AllPhysicalShards(), nil).Maybe()
@@ -152,7 +175,9 @@ func TestSingleTenantRouter_GetReadWriteReplicasLocation_MultipleShards(t *testi
 	mockSchemaGetter := schema.NewMockSchemaGetter(t)
 	mockSchemaReader := schema.NewMockSchemaReader(t)
 	mockReplicationFSM := replicationTypes.NewMockReplicationFSMReader(t)
-	mockNodeSelector := mocks.NewMockNodeSelector("node1", "node2", "node3")
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	setupNodeSelectorLocalAndCandidates(mockNodeSelector, "node1", []string{"node1", "node2", "node3"})
+	setupDefaultNodeHostname(mockNodeSelector)
 
 	state := createShardingStateWithShards([]string{"shard1", "shard2", "shard3"})
 	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(state.AllPhysicalShards(), nil).Maybe()
@@ -220,7 +245,9 @@ func TestSingleTenantRouter_GetWriteReplicasLocation(t *testing.T) {
 	mockSchemaGetter := schema.NewMockSchemaGetter(t)
 	mockSchemaReader := schema.NewMockSchemaReader(t)
 	mockReplicationFSM := replicationTypes.NewMockReplicationFSMReader(t)
-	mockNodeSelector := mocks.NewMockNodeSelector("node1", "node2")
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	setupNodeSelectorLocalAndCandidates(mockNodeSelector, "node1", []string{"node1", "node2"})
+	setupDefaultNodeHostname(mockNodeSelector)
 
 	state := createShardingStateWithShards([]string{"shard1"})
 	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(state.AllPhysicalShards(), nil).Maybe()
@@ -262,7 +289,9 @@ func TestSingleTenantRouter_GetReadReplicasLocation(t *testing.T) {
 	mockSchemaGetter := schema.NewMockSchemaGetter(t)
 	mockSchemaReader := schema.NewMockSchemaReader(t)
 	mockReplicationFSM := replicationTypes.NewMockReplicationFSMReader(t)
-	mockNodeSelector := mocks.NewMockNodeSelector("node1", "node2")
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	setupNodeSelectorLocalAndCandidates(mockNodeSelector, "node1", []string{"node1", "node2"})
+	setupDefaultNodeHostname(mockNodeSelector)
 
 	state := createShardingStateWithShards([]string{"shard1"})
 	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(state.AllPhysicalShards(), nil).Maybe()
@@ -298,7 +327,9 @@ func TestSingleTenantRouter_ErrorInMiddleOfShardProcessing(t *testing.T) {
 	mockSchemaGetter := schema.NewMockSchemaGetter(t)
 	mockSchemaReader := schema.NewMockSchemaReader(t)
 	mockReplicationFSM := replicationTypes.NewMockReplicationFSMReader(t)
-	mockNodeSelector := mocks.NewMockNodeSelector("node1")
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	setupNodeSelectorLocalAndCandidates(mockNodeSelector, "node1", []string{"node1"})
+	setupDefaultNodeHostname(mockNodeSelector)
 
 	state := createShardingStateWithShards([]string{"shard1", "shard2", "shard3"})
 	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(state.AllPhysicalShards(), nil).Maybe()
@@ -335,7 +366,9 @@ func TestSingleTenantRouter_ErrorInMiddleOfShardProcessing(t *testing.T) {
 func TestMultiTenantRouter_GetReadWriteReplicasLocation_Success(t *testing.T) {
 	mockSchemaGetter := schema.NewMockSchemaGetter(t)
 	mockReplicationFSM := replicationTypes.NewMockReplicationFSMReader(t)
-	mockNodeSelector := mocks.NewMockNodeSelector("node1", "node2")
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	setupNodeSelectorLocalAndCandidates(mockNodeSelector, "node1", []string{"node1", "node2"})
+	setupDefaultNodeHostname(mockNodeSelector)
 	mockSchemaReader := schema.NewMockSchemaReader(t)
 
 	mockSchemaReader.EXPECT().
@@ -388,7 +421,8 @@ func TestMultiTenantRouter_GetReadWriteReplicasLocation_Success(t *testing.T) {
 func TestMultiTenantRouter_GetReadWriteReplicasLocation_TenantNotFound(t *testing.T) {
 	mockSchemaGetter := schema.NewMockSchemaGetter(t)
 	mockReplicationFSM := replicationTypes.NewMockReplicationFSMReader(t)
-	mockNodeSelector := mocks.NewMockNodeSelector("node1", "node2")
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	setupNodeSelectorLocalAndCandidates(mockNodeSelector, "node1", []string{"node1", "node2"})
 	mockSchemaReader := schema.NewMockSchemaReader(t)
 
 	tenantStatus := map[string]string{}
@@ -416,7 +450,8 @@ func TestMultiTenantRouter_GetReadWriteReplicasLocation_TenantNotFound(t *testin
 func TestMultiTenantRouter_GetReadWriteReplicasLocation_TenantNotActive(t *testing.T) {
 	mockSchemaGetter := schema.NewMockSchemaGetter(t)
 	mockReplicationFSM := replicationTypes.NewMockReplicationFSMReader(t)
-	mockNodeSelector := mocks.NewMockNodeSelector("node1", "node2")
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	setupNodeSelectorLocalAndCandidates(mockNodeSelector, "node1", []string{"node1", "node2"})
 	mockSchemaReader := schema.NewMockSchemaReader(t)
 
 	tenantStatus := map[string]string{
@@ -446,7 +481,8 @@ func TestMultiTenantRouter_GetReadWriteReplicasLocation_TenantNotActive(t *testi
 func TestMultiTenantRouter_GetReadWriteReplicasLocation_NonTenantRequestForMultiTenant(t *testing.T) {
 	mockSchemaGetter := schema.NewMockSchemaGetter(t)
 	mockReplicationFSM := replicationTypes.NewMockReplicationFSMReader(t)
-	mockNodeSelector := mocks.NewMockNodeSelector("node1", "node2")
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	setupNodeSelectorLocalAndCandidates(mockNodeSelector, "node1", []string{"node1", "node2"})
 	metadataReader := schema.NewMockSchemaReader(t)
 
 	r := router.NewBuilder(
@@ -470,7 +506,9 @@ func TestMultiTenantRouter_GetReadWriteReplicasLocation_NonTenantRequestForMulti
 func TestMultiTenantRouter_GetWriteReplicasLocation(t *testing.T) {
 	mockSchemaGetter := schema.NewMockSchemaGetter(t)
 	mockReplicationFSM := replicationTypes.NewMockReplicationFSMReader(t)
-	mockNodeSelector := mocks.NewMockNodeSelector("node1", "node2")
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	setupNodeSelectorLocalAndCandidates(mockNodeSelector, "node1", []string{"node1", "node2"})
+	setupDefaultNodeHostname(mockNodeSelector)
 	mockSchemaReader := schema.NewMockSchemaReader(t)
 
 	mockSchemaReader.EXPECT().ShardReplicas("TestClass", "luke").Return([]string{"node1"}, nil)
@@ -511,7 +549,9 @@ func TestMultiTenantRouter_GetWriteReplicasLocation(t *testing.T) {
 func TestMultiTenantRouter_GetReadReplicasLocation(t *testing.T) {
 	mockSchemaGetter := schema.NewMockSchemaGetter(t)
 	mockReplicationFSM := replicationTypes.NewMockReplicationFSMReader(t)
-	mockNodeSelector := mocks.NewMockNodeSelector("node1", "node2")
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	setupNodeSelectorLocalAndCandidates(mockNodeSelector, "node1", []string{"node1", "node2"})
+	setupDefaultNodeHostname(mockNodeSelector)
 	mockSchemaReader := schema.NewMockSchemaReader(t)
 
 	mockSchemaReader.EXPECT().ShardReplicas("TestClass", "luke").Return([]string{"node1"}, nil)
@@ -546,7 +586,9 @@ func TestMultiTenantRouter_GetReadReplicasLocation(t *testing.T) {
 func TestMultiTenantRouter_TenantStatusChangeDuringOperation(t *testing.T) {
 	mockSchemaGetter := schema.NewMockSchemaGetter(t)
 	mockReplicationFSM := replicationTypes.NewMockReplicationFSMReader(t)
-	mockNodeSelector := mocks.NewMockNodeSelector("node1")
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	setupNodeSelectorLocalAndCandidates(mockNodeSelector, "node1", []string{"node1"})
+	setupDefaultNodeHostname(mockNodeSelector)
 	mockSchemaReader := schema.NewMockSchemaReader(t)
 
 	mockSchemaReader.EXPECT().ShardReplicas("TestClass", "luke").Return([]string{"node1"}, nil)
@@ -618,7 +660,9 @@ func TestMultiTenantRouter_VariousTenantStatuses(t *testing.T) {
 		t.Run("status_"+test.status, func(t *testing.T) {
 			mockSchemaGetter := schema.NewMockSchemaGetter(t)
 			mockReplicationFSM := replicationTypes.NewMockReplicationFSMReader(t)
-			mockNodeSelector := mocks.NewMockNodeSelector("node1")
+			mockNodeSelector := cluster.NewMockNodeSelector(t)
+			setupNodeSelectorLocalAndCandidates(mockNodeSelector, "node1", []string{"node1", "node2"})
+			setupDefaultNodeHostname(mockNodeSelector)
 			mockSchemaReader := schema.NewMockSchemaReader(t)
 
 			tenantStatus := map[string]string{
@@ -672,7 +716,8 @@ func TestSingleTenantRouter_BuildReadRoutingPlan_NoReplicas(t *testing.T) {
 	mockSchemaGetter := schema.NewMockSchemaGetter(t)
 	mockSchemaReader := schema.NewMockSchemaReader(t)
 	mockReplicationFSM := replicationTypes.NewMockReplicationFSMReader(t)
-	mockNodeSelector := mocks.NewMockNodeSelector("node1")
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	setupNodeSelectorLocalAndCandidates(mockNodeSelector, "node1", []string{"node1"})
 	emptyState := createShardingStateWithShards([]string{"shard1"})
 	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(emptyState.AllPhysicalShards(), nil).Maybe()
 	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
@@ -702,7 +747,8 @@ func TestMultiTenantRouter_BuildReadRoutingPlan_NoReplicas(t *testing.T) {
 	mockSchemaGetter := schema.NewMockSchemaGetter(t)
 	mockSchemaReader := schema.NewMockSchemaReader(t)
 	mockReplicationFSM := replicationTypes.NewMockReplicationFSMReader(t)
-	mockNodeSelector := mocks.NewMockNodeSelector("node1")
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	setupNodeSelectorLocalAndCandidates(mockNodeSelector, "node1", []string{"node1"})
 
 	mockSchemaReader.EXPECT().ShardReplicas("TestClass", "luke").Return([]string{}, nil)
 	tenantStatus := map[string]string{
@@ -731,7 +777,9 @@ func TestMultiTenantRouter_BuildReadRoutingPlan_NoReplicas(t *testing.T) {
 func TestMultiTenantRouter_BuildReadRoutingPlan_Success(t *testing.T) {
 	mockSchemaGetter := schema.NewMockSchemaGetter(t)
 	mockReplicationFSM := replicationTypes.NewMockReplicationFSMReader(t)
-	mockNodeSelector := mocks.NewMockNodeSelector("node1", "node2")
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	setupNodeSelectorLocalAndCandidates(mockNodeSelector, "node1", []string{"node1", "node2"})
+	setupDefaultNodeHostname(mockNodeSelector)
 	mockSchemaReader := schema.NewMockSchemaReader(t)
 
 	mockSchemaReader.EXPECT().ShardReplicas("TestClass", "luke").Return([]string{"node1"}, nil)
@@ -764,7 +812,8 @@ func TestMultiTenantRouter_BuildReadRoutingPlan_Success(t *testing.T) {
 func TestMultiTenantRouter_BuildRoutingPlan_TenantNotFoundDuringBuild(t *testing.T) {
 	mockSchemaGetter := schema.NewMockSchemaGetter(t)
 	mockReplicationFSM := replicationTypes.NewMockReplicationFSMReader(t)
-	mockNodeSelector := mocks.NewMockNodeSelector("node1", "node2")
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	setupNodeSelectorLocalAndCandidates(mockNodeSelector, "node1", []string{"node1", "node2"})
 	metadataReader := schema.NewMockSchemaReader(t)
 
 	tenantStatus := map[string]string{}
@@ -785,89 +834,12 @@ func TestMultiTenantRouter_BuildRoutingPlan_TenantNotFoundDuringBuild(t *testing
 	require.Empty(t, rs.Replicas)
 }
 
-func TestRouter_NodeHostname(t *testing.T) {
-	tests := []struct {
-		name         string
-		partitioning bool
-	}{
-		{"single-tenant", false},
-		{"multi-tenant", true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			mockNodeSelector := cluster.NewMockNodeSelector(t)
-			mockSchemaGetter := schema.NewMockSchemaGetter(t)
-			mockReplicationFSM := replicationTypes.NewMockReplicationFSMReader(t)
-			mockNodeSelector.EXPECT().NodeHostname("node1").Return("host1.example.com", true)
-			mockNodeSelector.EXPECT().NodeHostname("node2").Return("", false)
-
-			var mockSchemaReader schema.SchemaReader
-			if !tt.partitioning {
-				mockSchemaReader = schema.NewMockSchemaReader(t)
-			}
-
-			r := router.NewBuilder(
-				"TestClass",
-				tt.partitioning,
-				mockNodeSelector,
-				mockSchemaGetter,
-				mockSchemaReader,
-				mockReplicationFSM,
-			).Build()
-
-			hostname, ok := r.NodeHostname("node1")
-			require.True(t, ok)
-			require.Equal(t, "host1.example.com", hostname)
-
-			hostname, ok = r.NodeHostname("node2")
-			require.False(t, ok)
-			require.Empty(t, hostname)
-		})
-	}
-}
-
-func TestRouter_AllHostnames(t *testing.T) {
-	tests := []struct {
-		name         string
-		partitioning bool
-	}{
-		{"single-tenant", false},
-		{"multi-tenant", true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			mockNodeSelector := mocks.NewMockNodeSelector("node1", "node2", "node3")
-			mockSchemaGetter := schema.NewMockSchemaGetter(t)
-			mockReplicationFSM := replicationTypes.NewMockReplicationFSMReader(t)
-
-			var mockSchemaReader schema.SchemaReader
-			if !tt.partitioning {
-				mockSchemaReader = schema.NewMockSchemaReader(t)
-			}
-
-			expectedHostnames := []string{"node1", "node2", "node3"}
-
-			r := router.NewBuilder(
-				"TestClass",
-				tt.partitioning,
-				mockNodeSelector,
-				mockSchemaGetter,
-				mockSchemaReader,
-				mockReplicationFSM,
-			).Build()
-
-			hostnames := r.AllHostnames()
-			require.Equal(t, expectedHostnames, hostnames)
-		})
-	}
-}
-
 func TestMultiTenantRouter_MultipleTenantsSameCollection(t *testing.T) {
 	mockSchemaGetter := schema.NewMockSchemaGetter(t)
 	mockReplicationFSM := replicationTypes.NewMockReplicationFSMReader(t)
-	mockNodeSelector := mocks.NewMockNodeSelector("node1", "node2", "node3", "node4")
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	setupNodeSelectorLocalAndCandidates(mockNodeSelector, "node1", []string{"node1", "node2", "node3", "node4"})
+	setupDefaultNodeHostname(mockNodeSelector)
 	mockSchemaReader := schema.NewMockSchemaReader(t)
 
 	tenants := map[string][]string{
@@ -929,7 +901,9 @@ func TestMultiTenantRouter_MixedTenantStates(t *testing.T) {
 
 	mockSchemaGetter := schema.NewMockSchemaGetter(t)
 	mockReplicationFSM := replicationTypes.NewMockReplicationFSMReader(t)
-	mockNodeSelector := mocks.NewMockNodeSelector("node1", "node2", "node3")
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	setupNodeSelectorLocalAndCandidates(mockNodeSelector, "node1", []string{"node1", "node2", "node3"})
+	setupDefaultNodeHostname(mockNodeSelector)
 	mockSchemaReader := schema.NewMockSchemaReader(t)
 
 	for tenantName, tenantsStatus := range tenants {
@@ -977,7 +951,9 @@ func TestMultiTenantRouter_SameTenantDifferentCollections(t *testing.T) {
 		t.Run(collection, func(t *testing.T) {
 			mockSchemaGetter := schema.NewMockSchemaGetter(t)
 			mockReplicationFSM := replicationTypes.NewMockReplicationFSMReader(t)
-			mockNodeSelector := mocks.NewMockNodeSelector("node1", "node2", "node3")
+			mockNodeSelector := cluster.NewMockNodeSelector(t)
+			setupNodeSelectorLocalAndCandidates(mockNodeSelector, "node1", []string{"node1", "node2", "node3"})
+			setupDefaultNodeHostname(mockNodeSelector)
 			mockSchemaReader := schema.NewMockSchemaReader(t)
 
 			var expectedReplicas []string
@@ -1016,7 +992,9 @@ func TestSingleTenantRouter_GetReadWriteReplicasLocation_SpecificRandomShard(t *
 	mockSchemaGetter := schema.NewMockSchemaGetter(t)
 	mockSchemaReader := schema.NewMockSchemaReader(t)
 	mockReplicationFSM := replicationTypes.NewMockReplicationFSMReader(t)
-	mockNodeSelector := mocks.NewMockNodeSelector("node1", "node2", "node3", "node4", "node5")
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	setupNodeSelectorLocalAndCandidates(mockNodeSelector, "node1", []string{"node1", "node2", "node3", "node4", "node5"})
+	setupDefaultNodeHostname(mockNodeSelector)
 
 	allShards := []string{"shard1", "shard2", "shard3", "shard4", "shard5"}
 	state := createShardingStateWithShards(allShards)
@@ -1082,7 +1060,8 @@ func TestSingleTenantRouter_GetReadWriteReplicasLocation_InvalidShard(t *testing
 	mockSchemaGetter := schema.NewMockSchemaGetter(t)
 	mockSchemaReader := schema.NewMockSchemaReader(t)
 	mockReplicationFSM := replicationTypes.NewMockReplicationFSMReader(t)
-	mockNodeSelector := mocks.NewMockNodeSelector("node1", "node2")
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	setupNodeSelectorLocalAndCandidates(mockNodeSelector, "node1", []string{"node1", "node2"})
 
 	state := createShardingStateWithShards([]string{"shard1", "shard2"})
 	mockSchemaReader.EXPECT().Shards(mock.Anything).RunAndReturn(func(class string) ([]string, error) {
@@ -1287,7 +1266,8 @@ func TestMultiTenantRouter_BuildWriteRoutingPlan_NoWriteReplicas(t *testing.T) {
 	mockSchemaGetter := schema.NewMockSchemaGetter(t)
 	mockSchemaReader := schema.NewMockSchemaReader(t)
 	mockReplicationFSM := replicationTypes.NewMockReplicationFSMReader(t)
-	mockNodeSelector := mocks.NewMockNodeSelector("node1")
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	setupNodeSelectorLocalAndCandidates(mockNodeSelector, "node1", []string{"node1"})
 
 	mockSchemaReader.EXPECT().ShardReplicas("TestClass", "alice").Return([]string{}, nil)
 	tenantStatus := map[string]string{
@@ -1336,7 +1316,8 @@ func TestMultiTenantRouter_BuildWriteRoutingPlan_TenantValidation(t *testing.T) 
 func TestMultiTenantRouter_BuildWriteRoutingPlan_TenantNotActive(t *testing.T) {
 	mockSchemaGetter := schema.NewMockSchemaGetter(t)
 	mockReplicationFSM := replicationTypes.NewMockReplicationFSMReader(t)
-	mockNodeSelector := mocks.NewMockNodeSelector("node1", "node2")
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	setupNodeSelectorLocalAndCandidates(mockNodeSelector, "node1", []string{"node1", "node2"})
 	mockSchemaReader := schema.NewMockSchemaReader(t)
 
 	tenantStatus := map[string]string{
@@ -1448,7 +1429,8 @@ func TestSingleTenantRouter_BuildWriteRoutingPlan_NoReplicas(t *testing.T) {
 	mockSchemaGetter := schema.NewMockSchemaGetter(t)
 	mockSchemaReader := schema.NewMockSchemaReader(t)
 	mockReplicationFSM := replicationTypes.NewMockReplicationFSMReader(t)
-	mockNodeSelector := mocks.NewMockNodeSelector("node1")
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	setupNodeSelectorLocalAndCandidates(mockNodeSelector, "node1", []string{"node1"})
 
 	emptyState := createShardingStateWithShards([]string{"shard1"})
 	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(emptyState.AllPhysicalShards(), nil).Maybe()
@@ -1485,7 +1467,8 @@ func TestSingleTenantRouter_BuildWriteRoutingPlan_TenantValidation(t *testing.T)
 	mockSchemaGetter := schema.NewMockSchemaGetter(t)
 	mockSchemaReader := schema.NewMockSchemaReader(t)
 	mockReplicationFSM := replicationTypes.NewMockReplicationFSMReader(t)
-	mockNodeSelector := mocks.NewMockNodeSelector("node1")
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	setupNodeSelectorLocalAndCandidates(mockNodeSelector, "node1", []string{"node1"})
 
 	r := router.NewBuilder(
 		"TestClass",
@@ -1512,7 +1495,9 @@ func TestSingleTenantRouter_BuildWriteRoutingPlan_ConsistencyLevelValidation(t *
 	mockSchemaGetter := schema.NewMockSchemaGetter(t)
 	mockSchemaReader := schema.NewMockSchemaReader(t)
 	mockReplicationFSM := replicationTypes.NewMockReplicationFSMReader(t)
-	mockNodeSelector := mocks.NewMockNodeSelector("node1", "node2")
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	setupNodeSelectorLocalAndCandidates(mockNodeSelector, "node1", []string{"node1", "node2"})
+	setupDefaultNodeHostname(mockNodeSelector)
 
 	state := createShardingStateWithShards([]string{"shard1"})
 	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(state.AllPhysicalShards(), nil).Maybe()
@@ -1548,7 +1533,9 @@ func TestSingleTenantRouter_BuildWriteRoutingPlan_ReplicaOrdering(t *testing.T) 
 	mockSchemaGetter := schema.NewMockSchemaGetter(t)
 	mockSchemaReader := schema.NewMockSchemaReader(t)
 	mockReplicationFSM := replicationTypes.NewMockReplicationFSMReader(t)
-	mockNodeSelector := mocks.NewMockNodeSelector("node1", "node2", "node3")
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	setupNodeSelectorLocalAndCandidates(mockNodeSelector, "node1", []string{"node1", "node2", "node3"})
+	setupDefaultNodeHostname(mockNodeSelector)
 
 	state := createShardingStateWithShards([]string{"shard1"})
 	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(state.AllPhysicalShards(), nil).Maybe()
@@ -1585,7 +1572,8 @@ func TestMultiTenantRouter_BuildWriteRoutingPlan_NoReplicas(t *testing.T) {
 	mockSchemaGetter := schema.NewMockSchemaGetter(t)
 	mockSchemaReader := schema.NewMockSchemaReader(t)
 	mockReplicationFSM := replicationTypes.NewMockReplicationFSMReader(t)
-	mockNodeSelector := mocks.NewMockNodeSelector("node1")
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	setupNodeSelectorLocalAndCandidates(mockNodeSelector, "node1", []string{"node1"})
 
 	mockSchemaReader.EXPECT().ShardReplicas("TestClass", "alice").Return([]string{"node1"}, nil)
 	tenantStatus := map[string]string{
@@ -1620,7 +1608,9 @@ func TestMultiTenantRouter_BuildWriteRoutingPlan_NoReplicas(t *testing.T) {
 func TestMultiTenantRouter_BuildWriteRoutingPlan_ConsistencyLevelValidation(t *testing.T) {
 	mockSchemaGetter := schema.NewMockSchemaGetter(t)
 	mockReplicationFSM := replicationTypes.NewMockReplicationFSMReader(t)
-	mockNodeSelector := mocks.NewMockNodeSelector("node1", "node2")
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	setupNodeSelectorLocalAndCandidates(mockNodeSelector, "node1", []string{"node1", "node2"})
+	setupDefaultNodeHostname(mockNodeSelector)
 	mockSchemaReader := schema.NewMockSchemaReader(t)
 
 	mockSchemaReader.EXPECT().ShardReplicas("TestClass", "alice").Return([]string{"node1", "node2"}, nil)
@@ -1655,7 +1645,9 @@ func TestMultiTenantRouter_BuildWriteRoutingPlan_ConsistencyLevelValidation(t *t
 func TestMultiTenantRouter_BuildWriteRoutingPlan_ReplicaOrdering(t *testing.T) {
 	mockSchemaGetter := schema.NewMockSchemaGetter(t)
 	mockReplicationFSM := replicationTypes.NewMockReplicationFSMReader(t)
-	mockNodeSelector := mocks.NewMockNodeSelector("node1", "node2", "node3")
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	setupNodeSelectorLocalAndCandidates(mockNodeSelector, "node1", []string{"node1", "node2", "node3"})
+	setupDefaultNodeHostname(mockNodeSelector)
 	mockSchemaReader := schema.NewMockSchemaReader(t)
 
 	mockSchemaReader.EXPECT().ShardReplicas("TestClass", "alice").Return([]string{"node1", "node2", "node3"}, nil)
@@ -1691,7 +1683,8 @@ func TestMultiTenantRouter_BuildWriteRoutingPlan_ReplicaOrdering(t *testing.T) {
 func TestMultiTenantRouter_BuildWriteRoutingPlan_TenantNotFound(t *testing.T) {
 	mockSchemaGetter := schema.NewMockSchemaGetter(t)
 	mockReplicationFSM := replicationTypes.NewMockReplicationFSMReader(t)
-	mockNodeSelector := mocks.NewMockNodeSelector("node1", "node2")
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	setupNodeSelectorLocalAndCandidates(mockNodeSelector, "node1", []string{"node1", "node2"})
 	mockSchemaReader := schema.NewMockSchemaReader(t)
 
 	tenantStatus := map[string]string{}
@@ -1723,7 +1716,8 @@ func TestSingleTenantRouter_BuildReadRoutingPlan_TenantValidation(t *testing.T) 
 	mockSchemaGetter := schema.NewMockSchemaGetter(t)
 	mockSchemaReader := schema.NewMockSchemaReader(t)
 	mockReplicationFSM := replicationTypes.NewMockReplicationFSMReader(t)
-	mockNodeSelector := mocks.NewMockNodeSelector("node1")
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	setupNodeSelectorLocalAndCandidates(mockNodeSelector, "node1", []string{"node1"})
 
 	r := router.NewBuilder(
 		"TestClass",
@@ -1749,7 +1743,9 @@ func TestSingleTenantRouter_BuildReadRoutingPlan_TenantValidation(t *testing.T) 
 func TestMultiTenantRouter_BuildReadRoutingPlan_ConsistencyLevelValidation(t *testing.T) {
 	mockSchemaGetter := schema.NewMockSchemaGetter(t)
 	mockReplicationFSM := replicationTypes.NewMockReplicationFSMReader(t)
-	mockNodeSelector := mocks.NewMockNodeSelector("node1", "node2")
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	setupNodeSelectorLocalAndCandidates(mockNodeSelector, "node1", []string{"node1", "node2"})
+	setupDefaultNodeHostname(mockNodeSelector)
 	mockSchemaReader := schema.NewMockSchemaReader(t)
 
 	mockSchemaReader.EXPECT().ShardReplicas("TestClass", "alice").Return([]string{"node1", "node2"}, nil)
@@ -1785,7 +1781,8 @@ func TestMultiTenantRouter_BuildReadRoutingPlan_NoReplicasError(t *testing.T) {
 	mockSchemaGetter := schema.NewMockSchemaGetter(t)
 	mockSchemaReader := schema.NewMockSchemaReader(t)
 	mockReplicationFSM := replicationTypes.NewMockReplicationFSMReader(t)
-	mockNodeSelector := mocks.NewMockNodeSelector("node1")
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	setupNodeSelectorLocalAndCandidates(mockNodeSelector, "node1", []string{"node1"})
 
 	mockSchemaReader.EXPECT().ShardReplicas("TestClass", "alice").Return([]string{}, nil)
 	tenantStatus := map[string]string{
@@ -1821,7 +1818,9 @@ func TestSingleTenantRouter_BuildReadRoutingPlan_ConsistencyLevelValidation(t *t
 	mockSchemaGetter := schema.NewMockSchemaGetter(t)
 	mockSchemaReader := schema.NewMockSchemaReader(t)
 	mockReplicationFSM := replicationTypes.NewMockReplicationFSMReader(t)
-	mockNodeSelector := mocks.NewMockNodeSelector("node1", "node2")
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	setupNodeSelectorLocalAndCandidates(mockNodeSelector, "node1", []string{"node1", "node2"})
+	setupDefaultNodeHostname(mockNodeSelector)
 
 	state := createShardingStateWithShards([]string{"shard1"})
 	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(state.AllPhysicalShards(), nil).Maybe()
@@ -1857,7 +1856,9 @@ func TestSingleTenantRouter_BuildReadRoutingPlan_ReplicaOrdering(t *testing.T) {
 	mockSchemaGetter := schema.NewMockSchemaGetter(t)
 	mockSchemaReader := schema.NewMockSchemaReader(t)
 	mockReplicationFSM := replicationTypes.NewMockReplicationFSMReader(t)
-	mockNodeSelector := mocks.NewMockNodeSelector("node1", "node2", "node3")
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	setupNodeSelectorLocalAndCandidates(mockNodeSelector, "node1", []string{"node1", "node2", "node3"})
+	setupDefaultNodeHostname(mockNodeSelector)
 
 	state := createShardingStateWithShards([]string{"shard1"})
 	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(state.AllPhysicalShards(), nil).Maybe()
@@ -1893,7 +1894,9 @@ func TestSingleTenantRouter_BuildReadRoutingPlan_ReplicaOrdering(t *testing.T) {
 func TestMultiTenantRouter_BuildReadRoutingPlan_ReplicaOrdering(t *testing.T) {
 	mockSchemaGetter := schema.NewMockSchemaGetter(t)
 	mockReplicationFSM := replicationTypes.NewMockReplicationFSMReader(t)
-	mockNodeSelector := mocks.NewMockNodeSelector("node1", "node2", "node3")
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	setupNodeSelectorLocalAndCandidates(mockNodeSelector, "node1", []string{"node1", "node2", "node3"})
+	setupDefaultNodeHostname(mockNodeSelector)
 	mockSchemaReader := schema.NewMockSchemaReader(t)
 
 	mockSchemaReader.EXPECT().ShardReplicas("TestClass", "alice").Return([]string{"node1", "node2", "node3"}, nil)
@@ -1929,7 +1932,8 @@ func TestMultiTenantRouter_BuildReadRoutingPlan_ReplicaOrdering(t *testing.T) {
 func TestMultiTenantRouter_BuildReadRoutingPlan_TenantValidation(t *testing.T) {
 	mockSchemaGetter := schema.NewMockSchemaGetter(t)
 	mockReplicationFSM := replicationTypes.NewMockReplicationFSMReader(t)
-	mockNodeSelector := mocks.NewMockNodeSelector("node1", "node2")
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	setupNodeSelectorLocalAndCandidates(mockNodeSelector, "node1", []string{"node1", "node2"})
 	mockSchemaReader := schema.NewMockSchemaReader(t)
 
 	r := router.NewBuilder(
@@ -1957,7 +1961,8 @@ func TestSingleTenantRouter_BuildRoutingPlanOptions(t *testing.T) {
 	mockSchemaGetter := schema.NewMockSchemaGetter(t)
 	mockSchemaReader := schema.NewMockSchemaReader(t)
 	mockReplicationFSM := replicationTypes.NewMockReplicationFSMReader(t)
-	mockNodeSelector := mocks.NewMockNodeSelector("node1")
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	setupNodeSelectorLocalAndCandidates(mockNodeSelector, "node1", []string{"node1"})
 
 	r := router.NewBuilder(
 		"TestClass",
@@ -1984,7 +1989,8 @@ func TestMultiTenantRouter_BuildRoutingPlanOptions(t *testing.T) {
 	mockSchemaGetter := schema.NewMockSchemaGetter(t)
 	mockSchemaReader := schema.NewMockSchemaReader(t)
 	mockReplicationFSM := replicationTypes.NewMockReplicationFSMReader(t)
-	mockNodeSelector := mocks.NewMockNodeSelector("node1")
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	setupNodeSelectorLocalAndCandidates(mockNodeSelector, "node1", []string{"node1"})
 
 	r := router.NewBuilder(
 		"TestClass",
@@ -2011,7 +2017,8 @@ func TestSingleTenantRouter_BuildRoutingPlanOptions_EmptyInputs(t *testing.T) {
 	mockSchemaGetter := schema.NewMockSchemaGetter(t)
 	mockSchemaReader := schema.NewMockSchemaReader(t)
 	mockReplicationFSM := replicationTypes.NewMockReplicationFSMReader(t)
-	mockNodeSelector := mocks.NewMockNodeSelector("node1")
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	setupNodeSelectorLocalAndCandidates(mockNodeSelector, "node1", []string{"node1"})
 
 	r := router.NewBuilder(
 		"TestClass",
@@ -2038,7 +2045,8 @@ func TestMultiTenantRouter_BuildRoutingPlanOptions_EmptyInputs(t *testing.T) {
 	mockSchemaGetter := schema.NewMockSchemaGetter(t)
 	mockSchemaReader := schema.NewMockSchemaReader(t)
 	mockReplicationFSM := replicationTypes.NewMockReplicationFSMReader(t)
-	mockNodeSelector := mocks.NewMockNodeSelector("node1")
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	setupNodeSelectorLocalAndCandidates(mockNodeSelector, "node1", []string{"node1"})
 
 	r := router.NewBuilder(
 		"TestClass",
@@ -2064,7 +2072,8 @@ func TestMultiTenantRouter_BuildRoutingPlanOptions_EmptyInputs(t *testing.T) {
 func TestMultiTenantRouter_GetReadWriteReplicasLocation_ShardMismatch(t *testing.T) {
 	mockSchemaGetter := schema.NewMockSchemaGetter(t)
 	mockReplicationFSM := replicationTypes.NewMockReplicationFSMReader(t)
-	mockNodeSelector := mocks.NewMockNodeSelector("node1", "node2")
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	setupNodeSelectorLocalAndCandidates(mockNodeSelector, "node1", []string{"node1", "node2"})
 	mockSchemaReader := schema.NewMockSchemaReader(t)
 
 	r := router.NewBuilder(
@@ -2089,7 +2098,9 @@ func TestSingleTenantRouter_BuildReadRoutingPlan_AllShards(t *testing.T) {
 	mockSchemaGetter := schema.NewMockSchemaGetter(t)
 	mockSchemaReader := schema.NewMockSchemaReader(t)
 	mockReplicationFSM := replicationTypes.NewMockReplicationFSMReader(t)
-	mockNodeSelector := mocks.NewMockNodeSelector("node1", "node2")
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	setupNodeSelectorLocalAndCandidates(mockNodeSelector, "node1", []string{"node1", "node2"})
+	setupDefaultNodeHostname(mockNodeSelector)
 
 	shards := []string{"shard1", "shard2"}
 	state := createShardingStateWithShards([]string{"shard1", "shard2"})

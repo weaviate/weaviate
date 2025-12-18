@@ -16,18 +16,20 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/vectorindex"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	"github.com/weaviate/weaviate/usecases/fakes"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/sharding/config"
 )
 
 const hnswT = vectorindex.VectorIndexTypeHNSW
 
 func TestParser(t *testing.T) {
-	cs := fakes.NewFakeClusterState()
-	p := NewParser(cs, dummyParseVectorConfig, fakeValidator{}, fakeModulesProvider{}, nil)
+	ns := cluster.NewMockNodeSelector(t)
+	ns.EXPECT().NodeCount().Return(1)
+	p := NewParser(ns, dummyParseVectorConfig, fakeValidator{}, fakeModulesProvider{}, nil)
 
 	sc := config.Config{DesiredCount: 1, VirtualPerPhysical: 128, ActualCount: 1, DesiredVirtualCount: 128, Key: "_id", Strategy: "hash", Function: "murmur3"}
 	vic := enthnsw.NewDefaultUserConfig()
