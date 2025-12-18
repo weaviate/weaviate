@@ -110,9 +110,23 @@ func (cbmc *ClassBasedModuleConfig) Property(propName string) map[string]interfa
 		return defaultConf
 	}
 
-	moduleCfg, ok := asMap[cbmc.moduleName]
+	targetKey := cbmc.moduleName
+	if cbmc.targetVector != "" {
+		targetKey = cbmc.targetVector
+	}
+
+	moduleCfg, ok := asMap[targetKey]
 	if !ok {
-		return defaultConf
+		// fallback to module name if target vector is not found
+		// this is needed for backward compatibility or if the config was stored under module name
+		if cbmc.targetVector != "" {
+			moduleCfg, ok = asMap[cbmc.moduleName]
+			if !ok {
+				return defaultConf
+			}
+		} else {
+			return defaultConf
+		}
 	}
 
 	asMap, ok = moduleCfg.(map[string]interface{})
