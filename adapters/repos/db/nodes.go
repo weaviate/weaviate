@@ -109,13 +109,14 @@ func (db *DB) LocalNodeStatus(ctx context.Context, className, shardName, output 
 	}
 
 	status := models.NodeStatus{
-		Name:       db.schemaGetter.NodeName(),
-		Version:    db.config.ServerVersion,
-		GitHash:    db.config.GitHash,
-		Status:     &clusterHealthStatus,
-		Shards:     shards,
-		Stats:      nodeStats,
-		BatchStats: db.localNodeBatchStats(),
+		Name:            db.schemaGetter.NodeName(),
+		Version:         db.config.ServerVersion,
+		GitHash:         db.config.GitHash,
+		Status:          &clusterHealthStatus,
+		Shards:          shards,
+		Stats:           nodeStats,
+		BatchStats:      db.localNodeBatchStats(),
+		OperationalMode: db.config.OperationalMode.Get(),
 	}
 
 	return &status
@@ -158,7 +159,8 @@ func (db *DB) localNodeShardStats(ctx context.Context,
 func (db *DB) localNodeBatchStats() *models.BatchStats {
 	rate := db.ratePerSecond.Load()
 	stats := &models.BatchStats{RatePerSecond: rate}
-	if !asyncEnabled() {
+	if !db.AsyncIndexingEnabled {
+
 		ql := int64(len(db.jobQueueCh))
 		stats.QueueLength = &ql
 	}

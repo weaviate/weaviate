@@ -18,9 +18,8 @@ import (
 )
 
 const (
-	DefaultBaseURL               = "https://api.embedding.weaviate.io"
+	DefaultBaseURL               = ""
 	DefaultWeaviateModel         = "Snowflake/snowflake-arctic-embed-l-v2.0"
-	DefaultTruncate              = "right"
 	DefaultVectorizeClassName    = true
 	DefaultPropertyIndexed       = true
 	DefaultVectorizePropertyName = false
@@ -38,10 +37,6 @@ func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
 
 func (cs *classSettings) Model() string {
 	return cs.BaseClassSettings.GetPropertyAsString("model", DefaultWeaviateModel)
-}
-
-func (cs *classSettings) Truncate() string {
-	return cs.BaseClassSettings.GetPropertyAsString("truncate", DefaultTruncate)
 }
 
 func (cs *classSettings) BaseURL() string {
