@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	clusterMocks "github.com/weaviate/weaviate/usecases/cluster/mocks"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/objects"
@@ -913,6 +914,7 @@ func (f *fakeFactory) newReplicatorWithSourceNode(thisNode string) *replica.Repl
 	rep, err := replica.NewReplicator(
 		f.CLS,
 		router,
+		cluster.NewMockNodeResolver(f.t),
 		"A",
 		getDeletionStrategy,
 		&struct {
@@ -940,6 +942,7 @@ func (f *fakeFactory) newReplicator() *replica.Replicator {
 	rep, err := replica.NewReplicator(
 		f.CLS,
 		router,
+		cluster.NewMockNodeResolver(f.t),
 		"A",
 		getDeletionStrategy,
 		&struct {
@@ -967,7 +970,7 @@ func (f *fakeFactory) newFinderWithTimings(thisNode string, tInitial time.Durati
 		f.t.Fatalf("could not create metrics: %v", err)
 	}
 
-	return replica.NewFinder(f.CLS, router, thisNode, f.RClient, metrics, f.log, getDeletionStrategy)
+	return replica.NewFinder(f.CLS, router, cluster.NewMockNodeResolver(f.t), thisNode, f.RClient, metrics, f.log, getDeletionStrategy)
 }
 
 func (f *fakeFactory) newFinder(thisNode string) *replica.Finder {
