@@ -29,14 +29,15 @@ import (
 	"github.com/sirupsen/logrus"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 )
 
 type replicatedIndices struct {
-	shards *replica.RemoteReplicaIncoming
-	auth   auth
+	rIndices replica.RemoteIncomingRepo
+	auth     auth
 	// maintenanceModeEnabled is an experimental feature to allow the system to be
 	// put into a maintenance mode where all replicatedIndices requests just return a 418
 	maintenanceModeEnabled func() bool
@@ -88,7 +89,7 @@ var (
 )
 
 func NewReplicatedIndices(
-	shards *replica.RemoteReplicaIncoming,
+	rIndices replica.RemoteIncomingRepo,
 	auth auth,
 	maintenanceModeEnabled func() bool,
 	requestQueueConfig cluster.RequestQueueConfig,
@@ -105,7 +106,7 @@ func NewReplicatedIndices(
 	}
 
 	i := &replicatedIndices{
-		shards:                 shards,
+		rIndices:               rIndices,
 		auth:                   auth,
 		maintenanceModeEnabled: maintenanceModeEnabled,
 		requestQueue:           make(chan queuedRequest, requestQueueConfig.QueueSize),
@@ -340,9 +341,9 @@ func (i *replicatedIndices) executeCommitPhase() http.Handler {
 
 		switch cmd {
 		case "commit":
-			resp = i.shards.CommitReplication(index, shard, requestID)
+			resp = i.rIndices.GetIndexForIncomingReplica(schema.ClassName(index)).CommitReplication(shard, requestID)
 		case "abort":
-			resp = i.shards.AbortReplication(index, shard, requestID)
+			resp = i.rIndices.GetIndexForIncomingReplica(schema.ClassName(index)).AbortReplication(shard, requestID)
 		default:
 			http.Error(w, fmt.Sprintf("unrecognized command: %s", cmd), http.StatusNotImplemented)
 			return
@@ -435,7 +436,7 @@ func (i *replicatedIndices) patchObject() http.Handler {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		resp := i.shards.ReplicateUpdate(r.Context(), index, shard, requestID, &mergeDoc, schemaVersion)
+		resp := i.rIndices.GetIndexForIncomingReplica(schema.ClassName(index)).ReplicateUpdate(r.Context(), shard, requestID, &mergeDoc, schemaVersion)
 		if localIndexNotReady(resp) {
 			http.Error(w, resp.FirstError().Error(), http.StatusServiceUnavailable)
 			return
@@ -476,7 +477,7 @@ func (i *replicatedIndices) getObjectsDigest() http.Handler {
 			return
 		}
 
-		results, err := i.shards.DigestObjects(r.Context(), index, shard, ids)
+		results, err := i.rIndices.GetIndexForIncomingReplica(schema.ClassName(index)).DigestObjects(r.Context(), shard, ids)
 		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
 			http.Error(w, "digest objects: "+err.Error(),
 				http.StatusUnprocessableEntity)
@@ -523,8 +524,8 @@ func (i *replicatedIndices) getObjectsDigestsInRange() http.Handler {
 			return
 		}
 
-		digests, err := i.shards.DigestObjectsInRange(r.Context(),
-			index, shard, rangeReq.InitialUUID, rangeReq.FinalUUID, rangeReq.Limit)
+		digests, err := i.rIndices.GetIndexForIncomingReplica(schema.ClassName(index)).DigestObjectsInRange(r.Context(),
+			shard, rangeReq.InitialUUID, rangeReq.FinalUUID, rangeReq.Limit)
 		if err != nil {
 			http.Error(w, "digest objects in range: "+err.Error(),
 				http.StatusInternalServerError)
@@ -573,7 +574,7 @@ func (i *replicatedIndices) getHashTreeLevel() http.Handler {
 			return
 		}
 
-		results, err := i.shards.HashTreeLevel(r.Context(), index, shard, l, &discriminant)
+		results, err := i.rIndices.GetIndexForIncomingReplica(schema.ClassName(index)).HashTreeLevel(r.Context(), shard, l, &discriminant)
 		if err != nil {
 			http.Error(w, "hashtree level: "+err.Error(),
 				http.StatusInternalServerError)
@@ -614,7 +615,7 @@ func (i *replicatedIndices) putOverwriteObjects() http.Handler {
 			return
 		}
 
-		results, err := i.shards.OverwriteObjects(r.Context(), index, shard, vobjs)
+		results, err := i.rIndices.GetIndexForIncomingReplica(schema.ClassName(index)).OverwriteObjects(r.Context(), shard, vobjs)
 		if err != nil {
 			http.Error(w, "overwrite objects: "+err.Error(),
 				http.StatusInternalServerError)
@@ -664,7 +665,7 @@ func (i *replicatedIndices) deleteObject() http.Handler {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		resp := i.shards.ReplicateDeletion(r.Context(), index, shard, requestID, strfmt.UUID(id), deletionTime, schemaVersion)
+		resp := i.rIndices.GetIndexForIncomingReplica(schema.ClassName(index)).ReplicateDeletion(r.Context(), shard, requestID, strfmt.UUID(id), deletionTime, schemaVersion)
 		if localIndexNotReady(resp) {
 			http.Error(w, resp.FirstError().Error(), http.StatusServiceUnavailable)
 			return
@@ -715,7 +716,7 @@ func (i *replicatedIndices) deleteObjects() http.Handler {
 			return
 		}
 
-		resp := i.shards.ReplicateDeletions(r.Context(), index, shard, requestID, uuids, deletionTimeUnix, dryRun, schemaVersion)
+		resp := i.rIndices.GetIndexForIncomingReplica(schema.ClassName(index)).ReplicateDeletions(r.Context(), shard, requestID, uuids, deletionTimeUnix, dryRun, schemaVersion)
 		if localIndexNotReady(resp) {
 			http.Error(w, resp.FirstError().Error(), http.StatusServiceUnavailable)
 			return
@@ -746,7 +747,7 @@ func (i *replicatedIndices) postObjectSingle(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	resp := i.shards.ReplicateObject(r.Context(), index, shard, requestID, obj, schemaVersion)
+	resp := i.rIndices.GetIndexForIncomingReplica(schema.ClassName(index)).ReplicateObject(r.Context(), shard, requestID, obj)
 	if localIndexNotReady(resp) {
 		http.Error(w, resp.FirstError().Error(), http.StatusServiceUnavailable)
 		return
@@ -777,7 +778,7 @@ func (i *replicatedIndices) postObjectBatch(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	resp := i.shards.ReplicateObjects(r.Context(), index, shard, requestID, objs, schemaVersion)
+	resp := i.rIndices.GetIndexForIncomingReplica(schema.ClassName(index)).ReplicateObjects(r.Context(), shard, requestID, objs, schemaVersion)
 	if localIndexNotReady(resp) {
 		http.Error(w, resp.FirstError().Error(), http.StatusServiceUnavailable)
 		return
@@ -810,7 +811,7 @@ func (i *replicatedIndices) getObject() http.Handler {
 			err  error
 		)
 
-		resp, err = i.shards.FetchObject(r.Context(), index, shard, strfmt.UUID(id))
+		resp, err = i.rIndices.GetIndexForIncomingReplica(schema.ClassName(index)).FetchObject(r.Context(), shard, strfmt.UUID(id))
 		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
 			http.Error(w, "digest objects: "+err.Error(),
 				http.StatusUnprocessableEntity)
@@ -867,7 +868,7 @@ func (i *replicatedIndices) getObjectsMulti() http.Handler {
 			return
 		}
 
-		resp, err := i.shards.FetchObjects(r.Context(), index, shard, ids)
+		resp, err := i.rIndices.GetIndexForIncomingReplica(schema.ClassName(index)).FetchObjects(r.Context(), shard, ids)
 		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
 			http.Error(w, "digest objects: "+err.Error(),
 				http.StatusUnprocessableEntity)
@@ -922,7 +923,7 @@ func (i *replicatedIndices) postRefs() http.Handler {
 			return
 		}
 
-		resp := i.shards.ReplicateReferences(r.Context(), index, shard, requestID, refs, schemaVersion)
+		resp := i.rIndices.GetIndexForIncomingReplica(schema.ClassName(index)).ReplicateReferences(r.Context(), shard, requestID, refs, schemaVersion)
 		if localIndexNotReady(resp) {
 			http.Error(w, resp.FirstError().Error(), http.StatusServiceUnavailable)
 			return

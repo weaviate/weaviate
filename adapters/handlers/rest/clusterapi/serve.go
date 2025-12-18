@@ -23,11 +23,10 @@ import (
 	sentryhttp "github.com/getsentry/sentry-go/http"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-
 	"github.com/weaviate/weaviate/adapters/handlers/rest/raft"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/types"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
