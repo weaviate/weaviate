@@ -22,17 +22,17 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/entities/filters"
-	"github.com/weaviate/weaviate/entities/modelsext"
-	"github.com/weaviate/weaviate/entities/tokenizer"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modelsext"
 	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/tokenizer"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	"github.com/weaviate/weaviate/usecases/cluster/mocks"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -2074,7 +2074,7 @@ func Test_UpdateClass(t *testing.T) {
 				handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
 				ctx := context.Background()
 
-				store := NewFakeStore()
+				store := NewFakeStore(t)
 				store.parser = handler.parser
 
 				fakeSchemaManager.On("AddClass", test.initial, mock.Anything).Return(nil)
@@ -2171,7 +2171,7 @@ func Test_UpdateClass_ObjectTTLConfig(t *testing.T) {
 			t.Helper()
 
 			handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
-			store := NewFakeStore()
+			store := NewFakeStore(t)
 			store.parser = handler.parser
 
 			fakeSchemaManager.On("AddClass", initial, mock.Anything).Return(nil)
@@ -2240,7 +2240,7 @@ func Test_UpdateClass_ObjectTTLConfig(t *testing.T) {
 				tc.reconfigure(updated)
 
 				handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
-				store := NewFakeStore()
+				store := NewFakeStore(t)
 				store.parser = handler.parser
 
 				fakeSchemaManager.On("AddClass", initial, mock.Anything).Return(nil)
@@ -2316,7 +2316,9 @@ func TestRestoreClass_WithCircularRefs(t *testing.T) {
 		shardingConfig, err := shardingConfig.ParseConfig(nil, 1)
 		require.Nil(t, err)
 
-		nodes := mocks.NewMockNodeSelector("node1", "node2")
+		nodes := cluster.NewMockNodeSelector(t)
+		nodes.EXPECT().LocalName().Return("node1")
+		nodes.EXPECT().StorageCandidates().Return([]string{"node1", "node2"})
 		shardingState, err := sharding.InitState(classRaw.Class, shardingConfig, nodes.LocalName(), nodes.StorageCandidates(), 1, false)
 		require.Nil(t, err)
 
@@ -2346,7 +2348,9 @@ func TestRestoreClass_WithNodeMapping(t *testing.T) {
 		shardingConfig, err := shardingConfig.ParseConfig(nil, 2)
 		require.Nil(t, err)
 
-		nodes := mocks.NewMockNodeSelector("node1", "node2")
+		nodes := cluster.NewMockNodeSelector(t)
+		nodes.EXPECT().LocalName().Return("node1")
+		nodes.EXPECT().StorageCandidates().Return([]string{"node1", "node2"})
 		shardingState, err := sharding.InitState(classRaw.Class, shardingConfig, nodes.LocalName(), nodes.StorageCandidates(), 2, false)
 		require.Nil(t, err)
 

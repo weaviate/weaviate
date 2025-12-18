@@ -23,7 +23,8 @@ import (
 
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/rpc"
-	"github.com/weaviate/weaviate/usecases/cluster/mocks"
+	"github.com/weaviate/weaviate/usecases/cluster"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 var errAny = errors.New("any error")
@@ -116,8 +117,25 @@ func TestBootstrapper(t *testing.T) {
 			m := &MockNodeClient{}
 			test.doBefore(m)
 
+			// Configure the node selector used by the bootstrapper
+			mockNodeSelector := cluster.NewMockNodeSelector(t)
+			mockNodeSelector.EXPECT().LocalName().Return("S1").Maybe()
+			mockNodeSelector.EXPECT().StorageCandidates().Return(nodesSlice).Maybe()
+			// ResolveRemoteNodes will ask for other cluster members as a fallback
+			mockNodeSelector.EXPECT().
+				AllOtherClusterMembers(config.DefaultRaftPort).
+				Return(map[string]string{}).
+				Maybe()
+			// ResolveRemoteNodes uses NodeAddress(name) for configured servers
+			mockNodeSelector.EXPECT().
+				NodeAddress(mock.Anything).
+				RunAndReturn(func(name string) string {
+					return name
+				}).
+				Maybe()
+
 			// Configure the bootstrapper
-			b := NewBootstrapper(m, "RID", "ADDR", test.voter, mocks.NewMockNodeSelector(nodesSlice...), test.isReady)
+			b := NewBootstrapper(m, "RID", "ADDR", test.voter, mockNodeSelector, test.isReady)
 			b.retryPeriod = time.Millisecond
 			b.jitter = time.Millisecond
 			ctx, cancel := context.WithTimeout(ctx, time.Millisecond*100)

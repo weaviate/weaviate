@@ -15,13 +15,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"testing"
 
 	"github.com/stretchr/testify/mock"
+
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
+	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/versioned"
-	"github.com/weaviate/weaviate/usecases/fakes"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -38,6 +41,11 @@ func (f *fakeSchemaManager) AddClass(_ context.Context, cls *models.Class, ss *s
 func (f *fakeSchemaManager) RestoreClass(_ context.Context, cls *models.Class, ss *sharding.State) (uint64, error) {
 	args := f.Called(cls, ss)
 	return 0, args.Error(0)
+}
+
+func (f *fakeSchemaManager) RestoreClassAlias(_ context.Context, d *backup.ClassDescriptor, m map[string]string, overwriteAlias bool) error {
+	args := f.Called(d, m, overwriteAlias)
+	return args.Error(0)
 }
 
 func (f *fakeSchemaManager) UpdateClass(_ context.Context, cls *models.Class, ss *sharding.State) (uint64, error) {
@@ -95,6 +103,14 @@ func (f *fakeSchemaManager) Remove(ctx context.Context, nodeID string) error {
 
 func (f *fakeSchemaManager) Stats() map[string]any {
 	return map[string]any{}
+}
+
+func (f *fakeSchemaManager) NodeName() string {
+	return "node-1"
+}
+
+func (f *fakeSchemaManager) LeaderID() string {
+	return "node-1"
 }
 
 func (f *fakeSchemaManager) ClassEqual(name string) string {
@@ -312,10 +328,14 @@ type fakeStore struct {
 	parser      Parser
 }
 
-func NewFakeStore() *fakeStore {
+func NewFakeStore(t *testing.T) *fakeStore {
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	mockNodeSelector.EXPECT().LocalName().Return("node1")
+	mockNodeSelector.EXPECT().StorageCandidates().Return([]string{"node1", "node2"})
+
 	return &fakeStore{
 		collections: make(map[string]*models.Class),
-		parser:      *NewParser(fakes.NewFakeClusterState(), dummyParseVectorConfig, &fakeValidator{}, fakeModulesProvider{}, nil),
+		parser:      *NewParser(mockNodeSelector, dummyParseVectorConfig, &fakeValidator{}, fakeModulesProvider{}, nil),
 	}
 }
 

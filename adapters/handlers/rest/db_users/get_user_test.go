@@ -19,23 +19,21 @@ import (
 	"testing"
 	"time"
 
-	"github.com/weaviate/weaviate/usecases/auth/authentication"
-
-	"github.com/stretchr/testify/mock"
-
 	"github.com/go-openapi/strfmt"
-	"github.com/weaviate/weaviate/adapters/clients"
-	"github.com/weaviate/weaviate/usecases/schema"
-
-	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
-	"github.com/weaviate/weaviate/usecases/config"
-
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
+
+	"github.com/weaviate/weaviate/adapters/clients"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/users"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/auth/authentication"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
+	"github.com/weaviate/weaviate/usecases/cluster"
+	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/schema"
 )
 
 func TestSuccessGetUser(t *testing.T) {
@@ -139,7 +137,10 @@ func TestSuccessGetUserMultiNode(t *testing.T) {
 			server := httptest.NewServer(&fakeHandler{t: t, counter: atomic.Int32{}, nodeResponses: test.nodeResponses})
 			defer server.Close()
 
-			remote := clients.NewRemoteUser(&http.Client{}, FakeNodeResolver{path: server.URL})
+			mockNodeSelector := cluster.NewMockNodeSelector(t)
+			mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
+			mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
+			remote := clients.NewRemoteUser(&http.Client{}, mockNodeSelector)
 
 			h := dynUserHandler{
 				dbUsers:              dynUser,

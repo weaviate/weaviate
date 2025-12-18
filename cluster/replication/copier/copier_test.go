@@ -24,7 +24,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc/generated/protocol"
 	"github.com/weaviate/weaviate/cluster/replication/copier/types"
-	"github.com/weaviate/weaviate/usecases/fakes"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/integrity"
 )
 
@@ -114,14 +114,16 @@ func TestCopyReplicaFiles(t *testing.T) {
 		).Return(stream, nil)
 	}
 
-	fakeSelector := fakes.NewFakeClusterState("node1")
+	mocksSelector := cluster.NewMockNodeSelector(t)
+	mocksSelector.EXPECT().AllHostnames().Return([]string{"node1"}).Maybe()
+	mocksSelector.EXPECT().LocalName().Return("node1").Maybe()
 
 	logger, _ := logrusTest.NewNullLogger()
 
 	c := New(
 		func(ctx context.Context, addr string) (FileReplicationServiceClient, error) { return mockClient, nil },
 		mockRemoteIndex,
-		fakeSelector,
+		mocksSelector,
 		2,
 		localTmpDir,
 		nil,

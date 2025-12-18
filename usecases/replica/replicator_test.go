@@ -30,7 +30,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
-	clusterMocks "github.com/weaviate/weaviate/usecases/cluster/mocks"
+	clusterpkg "github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
@@ -830,7 +830,24 @@ func (f *fakeFactory) newRouter(thisNode string) types.Router {
 			nodes = append(nodes, n)
 		}
 	}
-	clusterState := clusterMocks.NewMockNodeSelector(nodes...)
+	clusterState := clusterpkg.NewMockNodeSelector(f.t)
+	// Set up NodeHostname expectations for all nodes
+	clusterState.EXPECT().NodeHostname(mock.Anything).RunAndReturn(func(nodeName string) (string, bool) {
+		for _, n := range f.Nodes {
+			if n == nodeName {
+				return nodeName, true
+			}
+		}
+		return "", false
+	}).Maybe()
+	// Set up AllHostnames expectation
+	clusterState.EXPECT().AllHostnames().Return(f.Nodes).Maybe()
+	// Set up LocalName expectation
+	if len(f.Nodes) > 0 {
+		clusterState.EXPECT().LocalName().Return(f.Nodes[0]).Maybe()
+	} else {
+		clusterState.EXPECT().LocalName().Return("").Maybe()
+	}
 	schemaGetterMock := schema.NewMockSchemaGetter(f.t)
 	schemaGetterMock.EXPECT().OptimisticTenantStatus(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(
 		func(ctx context.Context, class string, tenant string) (map[string]string, error) {
@@ -913,6 +930,7 @@ func (f *fakeFactory) newReplicatorWithSourceNode(thisNode string) *replica.Repl
 	rep, err := replica.NewReplicator(
 		f.CLS,
 		router,
+		clusterpkg.NewMockNodeResolver(f.t),
 		"A",
 		getDeletionStrategy,
 		&struct {
@@ -940,6 +958,7 @@ func (f *fakeFactory) newReplicator() *replica.Replicator {
 	rep, err := replica.NewReplicator(
 		f.CLS,
 		router,
+		clusterpkg.NewMockNodeResolver(f.t),
 		"A",
 		getDeletionStrategy,
 		&struct {
@@ -958,6 +977,7 @@ func (f *fakeFactory) newReplicator() *replica.Replicator {
 
 func (f *fakeFactory) newFinderWithTimings(thisNode string, tInitial time.Duration, tMax time.Duration) *replica.Finder {
 	router := f.newRouter(thisNode)
+	mockNodeResolver := clusterpkg.NewMockNodeResolver(f.t)
 	getDeletionStrategy := func() string {
 		return models.ReplicationConfigDeletionStrategyNoAutomatedResolution
 	}
@@ -967,7 +987,7 @@ func (f *fakeFactory) newFinderWithTimings(thisNode string, tInitial time.Durati
 		f.t.Fatalf("could not create metrics: %v", err)
 	}
 
-	return replica.NewFinder(f.CLS, router, thisNode, f.RClient, metrics, f.log, getDeletionStrategy)
+	return replica.NewFinder(f.CLS, router, mockNodeResolver, thisNode, f.RClient, metrics, f.log, getDeletionStrategy)
 }
 
 func (f *fakeFactory) newFinder(thisNode string) *replica.Finder {

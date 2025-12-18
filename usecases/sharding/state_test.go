@@ -22,7 +22,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/cluster/mocks"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/sharding/config"
 )
 
@@ -32,8 +32,10 @@ func TestState(t *testing.T) {
 	cfg, err := config.ParseConfig(map[string]interface{}{"desiredCount": float64(4)}, 14)
 	require.Nil(t, err)
 
-	nodes := mocks.NewMockNodeSelector("node1", "node2")
-	state, err := InitState("my-index", cfg, nodes.LocalName(), nodes.StorageCandidates(), 1, false)
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	mockNodeSelector.EXPECT().LocalName().Return("node1")
+	mockNodeSelector.EXPECT().StorageCandidates().Return([]string{"node1", "node2"})
+	state, err := InitState("my-index", cfg, mockNodeSelector.LocalName(), mockNodeSelector.StorageCandidates(), 1, false)
 	require.Nil(t, err)
 
 	physicalCount := map[string]int{}
@@ -65,7 +67,7 @@ func TestState(t *testing.T) {
 	// destroy old version
 	state = nil
 
-	stateReloaded, err := StateFromJSON(bytes, nodes)
+	stateReloaded, err := StateFromJSON(bytes, mockNodeSelector)
 	require.Nil(t, err)
 
 	physicalCountReloaded := map[string]int{}
@@ -144,14 +146,16 @@ func TestInitState(t *testing.T) {
 	for _, test := range tests {
 		t.Run(fmt.Sprintf("Shards=%d_RF=%d", test.shards, test.replicationFactor),
 			func(t *testing.T) {
-				nodes := mocks.NewMockNodeSelector(test.nodes...)
+				mockNodeSelector := cluster.NewMockNodeSelector(t)
+				mockNodeSelector.EXPECT().LocalName().Return(test.nodes[0])
+				mockNodeSelector.EXPECT().StorageCandidates().Return(test.nodes)
 				cfg, err := config.ParseConfig(map[string]interface{}{
 					"desiredCount": float64(test.shards),
 					"replicas":     float64(test.replicationFactor),
 				}, 3)
 				require.Nil(t, err)
 
-				state, err := InitState("my-index", cfg, nodes.LocalName(), nodes.StorageCandidates(), int64(test.replicationFactor), false)
+				state, err := InitState("my-index", cfg, mockNodeSelector.LocalName(), mockNodeSelector.StorageCandidates(), int64(test.replicationFactor), false)
 				if !test.ok {
 					require.NotNil(t, err)
 					return
@@ -183,11 +187,13 @@ func TestInitState(t *testing.T) {
 }
 
 func TestInitStateWithZeroReplicationFactor(t *testing.T) {
-	nodes := mocks.NewMockNodeSelector("node1", "node2", "node3")
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	mockNodeSelector.EXPECT().LocalName().Return("node1")
+	mockNodeSelector.EXPECT().StorageCandidates().Return([]string{"node1", "node2", "node3"})
 	cfg, err := config.ParseConfig(map[string]interface{}{"desiredCount": float64(3)}, 3)
 	require.NoError(t, err)
 
-	_, err = InitState("index-zero", cfg, nodes.LocalName(), nodes.StorageCandidates(), 0, false)
+	_, err = InitState("index-zero", cfg, mockNodeSelector.LocalName(), mockNodeSelector.StorageCandidates(), 0, false)
 	require.Errorf(t, err, "replication factor zero is not allowed")
 }
 
@@ -195,22 +201,27 @@ func TestGetPartitions(t *testing.T) {
 	t.Run("EmptyCandidatesList", func(t *testing.T) {
 		shards := []string{"H1"}
 		state := State{}
-		partitions, err := state.GetPartitions(mocks.NewMockNodeSelector().StorageCandidates(), shards, 1)
+		mockNodeSelector := cluster.NewMockNodeSelector(t)
+		mockNodeSelector.EXPECT().StorageCandidates().Return([]string{})
+		partitions, err := state.GetPartitions(mockNodeSelector.StorageCandidates(), shards, 1)
 		require.Nil(t, partitions)
 		require.ErrorContains(t, err, "empty")
 	})
 	t.Run("NotEnoughReplicas", func(t *testing.T) {
 		shards := []string{"H1"}
 		state := State{}
-		partitions, err := state.GetPartitions(mocks.NewMockNodeSelector("N1").StorageCandidates(), shards, 2)
+		mockNodeSelector := cluster.NewMockNodeSelector(t)
+		mockNodeSelector.EXPECT().StorageCandidates().Return([]string{"N1"})
+		partitions, err := state.GetPartitions(mockNodeSelector.StorageCandidates(), shards, 2)
 		require.Nil(t, partitions)
 		require.ErrorContains(t, err, "not enough replicas")
 	})
 	t.Run("Success/RF3", func(t *testing.T) {
-		nodes := mocks.NewMockNodeSelector("N1", "N2", "N3")
+		mockNodeSelector := cluster.NewMockNodeSelector(t)
+		mockNodeSelector.EXPECT().StorageCandidates().Return([]string{"N1", "N2", "N3"})
 		shards := []string{"H1", "H2", "H3", "H4", "H5"}
 		state := State{}
-		got, err := state.GetPartitions(nodes.StorageCandidates(), shards, 3)
+		got, err := state.GetPartitions(mockNodeSelector.StorageCandidates(), shards, 3)
 		require.Nil(t, err)
 		want := map[string][]string{
 			"H1": {"N1", "N2", "N3"},
@@ -223,10 +234,11 @@ func TestGetPartitions(t *testing.T) {
 	})
 
 	t.Run("Success/RF2", func(t *testing.T) {
-		nodes := mocks.NewMockNodeSelector("N1", "N2", "N3", "N4", "N5", "N6", "N7")
+		mockNodeSelector := cluster.NewMockNodeSelector(t)
+		mockNodeSelector.EXPECT().StorageCandidates().Return([]string{"N1", "N2", "N3", "N4", "N5", "N6", "N7"})
 		shards := []string{"H1", "H2", "H3", "H4", "H5"}
 		state := State{}
-		got, err := state.GetPartitions(nodes.StorageCandidates(), shards, 2)
+		got, err := state.GetPartitions(mockNodeSelector.StorageCandidates(), shards, 2)
 		require.Nil(t, err)
 		want := map[string][]string{
 			"H1": {"N1", "N2"},
@@ -247,8 +259,10 @@ func TestAddPartition(t *testing.T) {
 	cfg, err := config.ParseConfig(map[string]interface{}{"desiredCount": float64(4)}, 14)
 	require.Nil(t, err)
 
-	nodes := mocks.NewMockNodeSelector("node1", "node2")
-	s, err := InitState("my-index", cfg, nodes.LocalName(), nodes.StorageCandidates(), 1, true)
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	mockNodeSelector.EXPECT().LocalName().Return("node1")
+	mockNodeSelector.EXPECT().StorageCandidates().Return([]string{"node1", "node2"})
+	s, err := InitState("my-index", cfg, mockNodeSelector.LocalName(), mockNodeSelector.StorageCandidates(), 1, true)
 	require.Nil(t, err)
 
 	_, err = s.AddPartition("A", nodes1, models.TenantActivityStatusHOT)
@@ -520,7 +534,9 @@ func TestApplyNodeMapping(t *testing.T) {
 
 func TestShardReplicationFactor(t *testing.T) {
 	t.Run("add replica", func(t *testing.T) {
-		nodes := mocks.NewMockNodeSelector("N1", "N2", "N3", "N4", "N5")
+		nodes := cluster.NewMockNodeSelector(t)
+		nodes.EXPECT().LocalName().Return("N1")
+		nodes.EXPECT().StorageCandidates().Return([]string{"N1", "N2", "N3", "N4", "N5"})
 		cfg, err := config.ParseConfig(map[string]interface{}{"desiredCount": float64(3)}, 3)
 		require.NoErrorf(t, err, "unexpected error while parsing config")
 
@@ -546,7 +562,9 @@ func TestShardReplicationFactor(t *testing.T) {
 	})
 
 	t.Run("add existing replica", func(t *testing.T) {
-		nodes := mocks.NewMockNodeSelector("N1", "N2", "N3", "N4", "N5")
+		nodes := cluster.NewMockNodeSelector(t)
+		nodes.EXPECT().LocalName().Return("N1")
+		nodes.EXPECT().StorageCandidates().Return([]string{"N1", "N2", "N3", "N4", "N5"})
 		cfg, err := config.ParseConfig(map[string]interface{}{"desiredCount": float64(3)}, 3)
 		require.NoErrorf(t, err, "unexpected error while parsing config")
 
@@ -582,7 +600,9 @@ func TestShardReplicationFactor(t *testing.T) {
 	})
 
 	t.Run("delete replica", func(t *testing.T) {
-		nodes := mocks.NewMockNodeSelector("N1", "N2", "N3", "N4", "N5")
+		nodes := cluster.NewMockNodeSelector(t)
+		nodes.EXPECT().LocalName().Return("N1")
+		nodes.EXPECT().StorageCandidates().Return([]string{"N1", "N2", "N3", "N4", "N5"})
 		cfg, err := config.ParseConfig(map[string]interface{}{"desiredCount": float64(3)}, 3)
 		require.NoErrorf(t, err, "unexpected error while parsing config")
 
@@ -603,7 +623,9 @@ func TestShardReplicationFactor(t *testing.T) {
 	})
 
 	t.Run("delete replica failure", func(t *testing.T) {
-		nodes := mocks.NewMockNodeSelector("N1", "N2", "N3", "N4", "N5")
+		nodes := cluster.NewMockNodeSelector(t)
+		nodes.EXPECT().LocalName().Return("N1")
+		nodes.EXPECT().StorageCandidates().Return([]string{"N1", "N2", "N3", "N4", "N5"})
 		cfg, err := config.ParseConfig(map[string]interface{}{"desiredCount": float64(3)}, 3)
 		require.NoErrorf(t, err, "unexpected error while parsing config")
 
@@ -621,7 +643,9 @@ func TestShardReplicationFactor(t *testing.T) {
 	})
 
 	t.Run("delete non-existing replica", func(t *testing.T) {
-		nodes := mocks.NewMockNodeSelector("N1", "N2", "N3", "N4", "N5")
+		nodes := cluster.NewMockNodeSelector(t)
+		nodes.EXPECT().LocalName().Return("N1")
+		nodes.EXPECT().StorageCandidates().Return([]string{"N1", "N2", "N3", "N4", "N5"})
 		cfg, err := config.ParseConfig(map[string]interface{}{"desiredCount": float64(3)}, 3)
 		require.NoErrorf(t, err, "unexpected error while parsing config")
 
@@ -687,7 +711,9 @@ func TestState_NumberOfReplicas(t *testing.T) {
 		{
 			name: "shard not found in initialized state",
 			setupState: func() *State {
-				nodes := mocks.NewMockNodeSelector("N1", "N2", "N3")
+				nodes := cluster.NewMockNodeSelector(t)
+				nodes.EXPECT().LocalName().Return("N1")
+				nodes.EXPECT().StorageCandidates().Return([]string{"N1", "N2", "N3"})
 				cfg, err := config.ParseConfig(map[string]interface{}{"desiredCount": float64(2)}, 2)
 				require.NoError(t, err)
 				state, err := InitState("my-index", cfg, nodes.LocalName(), nodes.StorageCandidates(), 1, false)
@@ -702,7 +728,9 @@ func TestState_NumberOfReplicas(t *testing.T) {
 		{
 			name: "valid shard with single replica",
 			setupState: func() *State {
-				nodes := mocks.NewMockNodeSelector("N1", "N2", "N3")
+				nodes := cluster.NewMockNodeSelector(t)
+				nodes.EXPECT().LocalName().Return("N1")
+				nodes.EXPECT().StorageCandidates().Return([]string{"N1", "N2", "N3"})
 				cfg, err := config.ParseConfig(map[string]interface{}{"desiredCount": float64(2)}, 2)
 				require.NoError(t, err)
 				state, err := InitState("my-index", cfg, nodes.LocalName(), nodes.StorageCandidates(), 1, false)
@@ -716,7 +744,9 @@ func TestState_NumberOfReplicas(t *testing.T) {
 		{
 			name: "valid shard with multiple replicas",
 			setupState: func() *State {
-				nodes := mocks.NewMockNodeSelector("N1", "N2", "N3", "N4", "N5")
+				nodes := cluster.NewMockNodeSelector(t)
+				nodes.EXPECT().LocalName().Return("N1")
+				nodes.EXPECT().StorageCandidates().Return([]string{"N1", "N2", "N3", "N4", "N5"})
 				cfg, err := config.ParseConfig(map[string]interface{}{"desiredCount": float64(3)}, 3)
 				require.NoError(t, err)
 				state, err := InitState("my-index", cfg, nodes.LocalName(), nodes.StorageCandidates(), 3, false)

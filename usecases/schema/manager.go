@@ -19,6 +19,7 @@ import (
 	"sync"
 
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
@@ -38,7 +39,7 @@ type Manager struct {
 	repo         SchemaStore
 	logger       logrus.FieldLogger
 	Authorizer   authorization.Authorizer
-	clusterState clusterState
+	clusterState cluster.NodeSelector
 
 	sync.RWMutex
 	// The handler is responsible for well-defined tasks and should be decoupled from the manager.
@@ -173,22 +174,6 @@ type ClassPayload struct {
 	Error         error
 }
 
-type clusterState interface {
-	cluster.NodeSelector
-	// Hostnames initializes a broadcast
-	Hostnames() []string
-
-	// AllNames initializes shard distribution across nodes
-	AllNames() []string
-	NodeCount() int
-
-	// ClusterHealthScore gets the whole cluster health, the lower number the better
-	ClusterHealthScore() int
-
-	SchemaSyncIgnored() bool
-	SkipSchemaRepair() bool
-}
-
 // NewManager creates a new manager
 func NewManager(validator validator,
 	schemaManager SchemaManager,
@@ -199,7 +184,7 @@ func NewManager(validator validator,
 	config config.Config,
 	configParser VectorConfigParser, vectorizerValidator VectorizerValidator,
 	invertedConfigValidator InvertedConfigValidator,
-	moduleConfig ModuleConfig, clusterState clusterState,
+	moduleConfig ModuleConfig, clusterState cluster.NodeSelector,
 	cloud modulecapabilities.OffloadCloud,
 	parser Parser,
 	collectionRetrievalStrategyFF *configRuntime.FeatureFlag[string],

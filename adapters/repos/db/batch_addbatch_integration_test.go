@@ -49,7 +49,7 @@ func setupTestRepo(t *testing.T, className string, properties []*models.Property
 	t.Helper()
 
 	logger := logrus.New()
-	shardState := singleShardState()
+	shardState := singleShardState(t)
 
 	class := &models.Class{
 		Class:               className,
@@ -89,7 +89,7 @@ func setupTestRepo(t *testing.T, className string, properties []*models.Property
 		MaxImportGoroutinesFactor: 1,
 		TrackVectorDimensions:     true,
 		AsyncIndexingEnabled:      asyncEnabled,
-	}, &FakeRemoteClient{}, &FakeNodeResolver{}, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
+	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.NoError(t, err)
 

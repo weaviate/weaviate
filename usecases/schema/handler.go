@@ -21,6 +21,7 @@ import (
 
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
+	backup "github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -28,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/filter"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
@@ -42,6 +44,7 @@ var (
 // It also allows cluster related operations that can only be done on the leader (join/remove/stats/etc...)
 // For details about each endpoint see [github.com/weaviate/weaviate/cluster.Raft].
 // For local schema lookup where eventual consistency is acceptable, see [SchemaReader].
+
 type SchemaManager interface {
 	// Schema writes operation.
 	AddClass(ctx context.Context, cls *models.Class, ss *sharding.State) (uint64, error)
@@ -59,6 +62,8 @@ type SchemaManager interface {
 	Remove(_ context.Context, nodeID string) error
 	Stats() map[string]any
 	StorageCandidates() []string
+	NodeName() string
+	LeaderID() string
 
 	// Strongly consistent schema read. These endpoints will emit a query to the leader to ensure that the data is read
 	// from an up to date schema.
@@ -77,6 +82,7 @@ type SchemaManager interface {
 	DeleteAlias(ctx context.Context, alias string) (uint64, error)
 	GetAliases(ctx context.Context, alias string, class *models.Class) ([]*models.Alias, error)
 	GetAlias(ctx context.Context, alias string) (*models.Alias, error)
+	RestoreClassAlias(ctx context.Context, d *backup.ClassDescriptor, m map[string]string, overwriteAlias bool) error
 }
 
 // SchemaReader allows reading the local schema with or without using a schema version.
@@ -142,7 +148,7 @@ type Handler struct {
 	config                  config.Config
 	vectorizerValidator     VectorizerValidator
 	moduleConfig            ModuleConfig
-	clusterState            clusterState
+	clusterState            cluster.NodeSelector
 	configParser            VectorConfigParser
 	invertedConfigValidator InvertedConfigValidator
 
@@ -163,7 +169,7 @@ func NewHandler(
 	config config.Config,
 	configParser VectorConfigParser, vectorizerValidator VectorizerValidator,
 	invertedConfigValidator InvertedConfigValidator,
-	moduleConfig ModuleConfig, clusterState clusterState,
+	moduleConfig ModuleConfig, clusterState cluster.NodeSelector,
 	cloud modulecapabilities.OffloadCloud,
 	parser Parser, classGetter *ClassGetter,
 ) (Handler, error) {
@@ -235,7 +241,7 @@ func (h *Handler) getSchema() schema.Schema {
 }
 
 func (h *Handler) Nodes() []string {
-	return h.clusterState.AllNames()
+	return h.clusterState.AllHostnames()
 }
 
 func (h *Handler) NodeName() string {
@@ -305,4 +311,8 @@ func (h *Handler) RemoveNode(ctx context.Context, node string) error {
 // Statistics is used to return a map of various internal stats. This should only be used for informative purposes or debugging.
 func (h *Handler) Statistics() map[string]any {
 	return h.schemaManager.Stats()
+}
+
+func (h *Handler) LeaderID() string {
+	return h.schemaManager.LeaderID()
 }

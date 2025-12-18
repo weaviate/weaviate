@@ -65,6 +65,7 @@ import (
 	esync "github.com/weaviate/weaviate/entities/sync"
 	"github.com/weaviate/weaviate/entities/tokenizer"
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/memwatch"
@@ -291,6 +292,7 @@ type Index struct {
 	shardReindexer ShardReindexerV3
 
 	router        routerTypes.Router
+	nodeResolver  cluster.NodeResolver
 	shardResolver *resolver.ShardResolver
 	bitmapBufPool roaringset.BitmapBufPool
 }
@@ -301,11 +303,6 @@ func (i *Index) ID() string {
 
 func (i *Index) path() string {
 	return path.Join(i.Config.RootPath, i.ID())
-}
-
-type nodeResolver interface {
-	AllHostnames() []string
-	NodeHostname(nodeName string) (string, bool)
 }
 
 // NewIndex creates an index with the specified amount of shards, using only
@@ -322,7 +319,7 @@ func NewIndex(
 	schemaReader schemaUC.SchemaReader,
 	cs inverted.ClassSearcher,
 	logger logrus.FieldLogger,
-	nodeResolver nodeResolver,
+	nodeResolver cluster.NodeResolver,
 	remoteClient sharding.RemoteIndexClient,
 	replicaClient replica.Client,
 	globalReplicationConfig *replication.GlobalConfig,
@@ -383,6 +380,7 @@ func NewIndex(
 		shardLoadLimiter:        cfg.ShardLoadLimiter,
 		shardReindexer:          shardReindexer,
 		router:                  router,
+		nodeResolver:            nodeResolver,
 		shardResolver:           shardResolver,
 		bitmapBufPool:           bitmapBufPool,
 		HFreshEnabled:           cfg.HFreshEnabled,
@@ -393,7 +391,7 @@ func NewIndex(
 	}
 
 	// TODO: Fix replica router instantiation to be at the top level
-	index.replicator, err = replica.NewReplicator(cfg.ClassName.String(), router, sg.NodeName(), getDeletionStrategy, replicaClient, promMetrics, logger)
+	index.replicator, err = replica.NewReplicator(cfg.ClassName.String(), router, nodeResolver, sg.NodeName(), getDeletionStrategy, replicaClient, promMetrics, logger)
 	if err != nil {
 		return nil, fmt.Errorf("create replicator for index %q: %w", index.ID(), err)
 	}

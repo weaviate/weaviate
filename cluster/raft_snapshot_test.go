@@ -25,7 +25,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/utils"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/cluster/mocks"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/fakes"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
@@ -36,7 +36,7 @@ func TestSnapshotRestoreSchemaOnly(t *testing.T) {
 	ctx := context.Background()
 	m := NewMockStore(t, "Node-1", utils.MustGetFreeTCPPort())
 	addr := fmt.Sprintf("%s:%d", m.cfg.Host, m.cfg.RaftPort)
-	srv := NewRaft(mocks.NewMockNodeSelector(), m.store, nil)
+	srv := NewRaft(cluster.NewMockNodeSelector(t), m.store, nil)
 
 	// Open
 	m.indexer.On("Open", Anything).Return(nil)
@@ -101,7 +101,7 @@ func TestSnapshotRestoreSchemaOnly(t *testing.T) {
 	// We refresh the mock schema to ensure that we can assert no calls except Open are sent to the database
 	m.indexer = fakes.NewMockSchemaExecutor()
 	// NewRaft will try to restore from any snapshot it can find on disk
-	srv = NewRaft(mocks.NewMockNodeSelector(), m.store, nil)
+	srv = NewRaft(cluster.NewMockNodeSelector(t), m.store, nil)
 	// Ensure raft starts and a leader is elected
 	m.indexer.On("Open", Anything).Return(nil)
 	// shall be called because of restoring from snapshot

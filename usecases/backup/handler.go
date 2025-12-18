@@ -46,21 +46,6 @@ type BackupBackendProvider interface {
 	EnabledBackupBackends() []modulecapabilities.BackupBackend
 }
 
-type schemaManger interface {
-	RestoreClass(ctx context.Context, d *backup.ClassDescriptor, nodeMapping map[string]string, overwriteAlias bool) error
-	NodeName() string
-}
-
-type NodeResolver interface {
-	NodeHostname(nodeName string) (string, bool)
-	AllNames() []string
-	NodeCount() int
-
-	// LeaderID is used to return the current leader ID
-	// It may return empty strings if there is no current leader or the leader is unknown.
-	LeaderID() string
-}
-
 type Status struct {
 	Path        string
 	StartedAt   time.Time
@@ -82,22 +67,21 @@ type Handler struct {
 func NewHandler(
 	logger logrus.FieldLogger,
 	authorizer authorization.Authorizer,
-	schema schemaManger,
+	nodeName string,
 	sourcer Sourcer,
 	backends BackupBackendProvider,
 	rbacSourcer fsm.Snapshotter,
 	dynUserSourcer fsm.Snapshotter,
 ) *Handler {
-	node := schema.NodeName()
 	m := &Handler{
-		node:       node,
+		node:       nodeName,
 		logger:     logger,
 		authorizer: authorizer,
 		backends:   backends,
-		backupper: newBackupper(node, logger,
+		backupper: newBackupper(nodeName, logger,
 			sourcer, rbacSourcer, dynUserSourcer,
 			backends),
-		restorer: newRestorer(node, logger,
+		restorer: newRestorer(nodeName, logger,
 			sourcer, rbacSourcer, dynUserSourcer,
 			backends,
 		),

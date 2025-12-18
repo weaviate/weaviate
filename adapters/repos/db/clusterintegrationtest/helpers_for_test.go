@@ -23,22 +23,22 @@ import (
 	"testing"
 	"time"
 
-	"github.com/weaviate/weaviate/entities/dto"
-	"github.com/weaviate/weaviate/entities/filters"
-	dynamicent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
-	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/dto"
+	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
+	dynamicent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
+	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	"github.com/weaviate/weaviate/usecases/cluster/mocks"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -104,7 +104,7 @@ func copyObjectWithProp(in *models.Object, propsToCopy []string) *models.Object 
 	return out
 }
 
-func multiShardState(nodeCount int) *sharding.State {
+func multiShardState(t *testing.T, nodeCount int) *sharding.State {
 	config, err := shardingConfig.ParseConfig(map[string]interface{}{
 		"desiredCount": json.Number(fmt.Sprintf("%d", nodeCount)),
 	}, 1)
@@ -117,7 +117,7 @@ func multiShardState(nodeCount int) *sharding.State {
 		nodeList[i] = fmt.Sprintf("node-%d", i)
 	}
 
-	selector := mocks.NewMockNodeSelector(nodeList...)
+	selector := cluster.NewMockNodeSelector(t)
 	s, err := sharding.InitState("multi-shard-test-index", config, selector.LocalName(),
 		selector.StorageCandidates(), 1, false)
 	if err != nil {

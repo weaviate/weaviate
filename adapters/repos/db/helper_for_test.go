@@ -235,7 +235,7 @@ func createTestDatabaseWithClass(t *testing.T, metrics *monitoring.PrometheusMet
 	metricsCopy := *metrics
 	metricsCopy.Registerer = monitoring.NoopRegisterer
 
-	shardState := singleShardState()
+	shardState := singleShardState(t)
 	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
 	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
@@ -259,7 +259,7 @@ func createTestDatabaseWithClass(t *testing.T, metrics *monitoring.PrometheusMet
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 		TrackVectorDimensions:     true,
-	}, &FakeRemoteClient{}, &FakeNodeResolver{}, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, &metricsCopy, memwatch.NewDummyMonitor(),
+	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, &metricsCopy, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 
@@ -314,9 +314,9 @@ func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models
 			WithNodePrefix("node").
 			WithReplicationFactor(1).
 			WithTenant("foo-tenant", "HOT").
-			Build()
+			Build(t)
 	} else {
-		shardState = singleShardState()
+		shardState = singleShardState(t)
 	}
 
 	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
@@ -338,7 +338,7 @@ func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models
 		QueryMaximumResults:       maxResults,
 		MaxImportGoroutinesFactor: 1,
 		AsyncIndexingEnabled:      withAsyncIndexingEnabled,
-	}, &FakeRemoteClient{}, &FakeNodeResolver{}, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
+	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	sch := schema.Schema{

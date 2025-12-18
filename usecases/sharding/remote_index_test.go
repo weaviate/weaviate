@@ -9,13 +9,18 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package sharding
+package sharding_test
 
 import (
 	"context"
 	"errors"
-	"fmt"
 	"testing"
+
+	"github.com/stretchr/testify/mock"
+
+	"github.com/weaviate/weaviate/usecases/cluster"
+	"github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 var errAny = errors.New("anyErr")
@@ -36,32 +41,44 @@ func TestQueryReplica(t *testing.T) {
 	}
 	tests := []struct {
 		ctx        context.Context
-		resolver   fakeNodeResolver
-		schema     fakeSchema
+		resolver   cluster.NodeSelector
+		schema     schema.SchemaReader
 		targetNode string
 		success    bool
 		name       string
 	}{
 		{
-			ctx, newFakeResolver(0, 0), newFakeSchema(0, 0), "N0", false, "empty schema",
+			ctx, cluster.NewMockNodeSelector(t), schema.NewMockSchemaReader(t), "N0", false, "empty schema",
 		},
 		{
-			ctx, newFakeResolver(0, 1), newFakeSchema(1, 2), "N2", false, "unresolved name",
+			ctx, cluster.NewMockNodeSelector(t), schema.NewMockSchemaReader(t), "N2", false, "unresolved name",
 		},
 		{
-			ctx, newFakeResolver(0, 1), newFakeSchema(0, 1), "N0", true, "one replica",
+			ctx, cluster.NewMockNodeSelector(t), schema.NewMockSchemaReader(t), "N0", true, "one replica",
 		},
 		{
-			ctx, newFakeResolver(0, 9), newFakeSchema(0, 9), "N2", true, "random selection",
+			ctx, cluster.NewMockNodeSelector(t), schema.NewMockSchemaReader(t), "N2", true, "random selection",
 		},
 		{
-			canceledCtx, newFakeResolver(0, 9), newFakeSchema(0, 9), "N2", false, "canceled",
+			canceledCtx, cluster.NewMockNodeSelector(t), schema.NewMockSchemaReader(t), "N2", false, "canceled",
 		},
 	}
 
 	for _, test := range tests {
-		rindex := RemoteIndex{"C", &test.schema, nil, &test.resolver}
-		got, lastNode, err := rindex.queryReplicas(test.ctx, "S", doIf(test.targetNode))
+		mockNodeResolver := cluster.NewMockNodeResolver(t)
+		mockNodeResolver.EXPECT().AllHostnames().Return([]string{test.targetNode}).Maybe()
+		if test.name == "unresolved name" {
+			// Simulate failure to resolve any replica hostname
+			mockNodeResolver.EXPECT().NodeHostname(mock.Anything).Return("", false)
+		} else {
+			// Resolve any replica name to a non-empty host and report success
+			mockNodeResolver.EXPECT().
+				NodeHostname(mock.Anything).
+				Return("host", true).
+				Maybe()
+		}
+		rindex := sharding.NewRemoteIndex("C", nil, mockNodeResolver, nil)
+		got, lastNode, err := rindex.QueryReplicas(test.ctx, "S", doIf(test.targetNode))
 		if !test.success {
 			if got != nil {
 				t.Errorf("%s: want: nil, got: %v", test.name, got)
@@ -74,51 +91,4 @@ func TestQueryReplica(t *testing.T) {
 			t.Errorf("%s: last responding node want:%s got:%s", test.name, test.targetNode, lastNode)
 		}
 	}
-}
-
-func newFakeResolver(fromNode, toNode int) fakeNodeResolver {
-	m := make(map[string]string, toNode-fromNode)
-	for i := fromNode; i < toNode; i++ {
-		m[fmt.Sprintf("N%d", i)] = fmt.Sprintf("H%d", i)
-	}
-	return fakeNodeResolver{m}
-}
-
-func newFakeSchema(fromNode, toNode int) fakeSchema {
-	nodes := make([]string, 0, toNode-fromNode)
-	for i := fromNode; i < toNode; i++ {
-		nodes = append(nodes, fmt.Sprintf("N%d", i))
-	}
-	return fakeSchema{nodes}
-}
-
-type fakeNodeResolver struct {
-	rTable map[string]string
-}
-
-func (r *fakeNodeResolver) AllHostnames() []string {
-	hosts := make([]string, 0, len(r.rTable))
-
-	for _, h := range r.rTable {
-		hosts = append(hosts, h)
-	}
-
-	return hosts
-}
-
-func (f *fakeNodeResolver) NodeHostname(name string) (string, bool) {
-	host, ok := f.rTable[name]
-	return host, ok
-}
-
-type fakeSchema struct {
-	nodes []string
-}
-
-func (f *fakeSchema) ShardOwner(class, shard string) (string, error) {
-	return "", nil
-}
-
-func (f *fakeSchema) ShardReplicas(class, shard string) ([]string, error) {
-	return f.nodes, nil
 }

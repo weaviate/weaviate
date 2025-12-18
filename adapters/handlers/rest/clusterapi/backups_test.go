@@ -14,15 +14,14 @@ package clusterapi_test
 import (
 	"context"
 	"net/http"
-	"net/http/httptest"
-	"net/url"
 	"testing"
 
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/adapters/clients"
-	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
 	"github.com/weaviate/weaviate/usecases/backup"
+	"github.com/weaviate/weaviate/usecases/cluster"
 )
 
 func TestInternalBackupsAPI(t *testing.T) {
@@ -36,7 +35,6 @@ func TestInternalBackupsAPI(t *testing.T) {
 			backupManager: &fakeBackupManager{},
 		},
 	}
-	hosts := setupClusterAPI(t, nodes)
 
 	for _, node := range nodes {
 		node.backupManager.On("OnCanCommit", &backup.Request{Method: backup.OpCreate}).
@@ -45,7 +43,9 @@ func TestInternalBackupsAPI(t *testing.T) {
 		node.backupManager.On("OnAbort", &backup.AbortRequest{}).Return(nil)
 	}
 
-	coord := newFakeCoordinator(newFakeNodeResolver(hosts))
+	resolver := cluster.NewMockNodeResolver(t)
+	resolver.EXPECT().AllHostnames().Return([]string{})
+	coord := newFakeCoordinator(resolver)
 
 	t.Run("can commit, commit", func(t *testing.T) {
 		err := coord.Backup(context.Background(), &backup.Request{Method: backup.OpCreate}, false)
@@ -58,63 +58,12 @@ func TestInternalBackupsAPI(t *testing.T) {
 	})
 }
 
-func setupClusterAPI(t *testing.T, nodes []*backupNode) map[string]string {
-	hosts := make(map[string]string)
-
-	for _, node := range nodes {
-		backupsHandler := clusterapi.NewBackups(node.backupManager, clusterapi.NewNoopAuthHandler())
-
-		mux := http.NewServeMux()
-		mux.Handle("/backups/can-commit", backupsHandler.CanCommit())
-		mux.Handle("/backups/commit", backupsHandler.Commit())
-		mux.Handle("/backups/abort", backupsHandler.Abort())
-		mux.Handle("/backups/status", backupsHandler.Status())
-		server := httptest.NewServer(mux)
-
-		parsedURL, err := url.Parse(server.URL)
-		require.Nil(t, err)
-
-		hosts[node.name] = parsedURL.Host
-	}
-
-	return hosts
-}
-
 type backupNode struct {
 	name          string
 	backupManager *fakeBackupManager
 }
 
-func newFakeNodeResolver(hosts map[string]string) *fakeNodeResolver {
-	return &fakeNodeResolver{hosts: hosts}
-}
-
-type fakeNodeResolver struct {
-	hosts map[string]string
-}
-
-func (r *fakeNodeResolver) AllHostnames() []string {
-	return r.HostNames()
-}
-
-func (r *fakeNodeResolver) NodeHostName(nodeName string) (string, bool) {
-	if host, ok := r.hosts[nodeName]; ok {
-		return host, true
-	}
-	return "", false
-}
-
-func (r *fakeNodeResolver) HostNames() []string {
-	hosts := make([]string, len(r.hosts))
-	count := 0
-	for _, host := range r.hosts {
-		hosts[count] = host
-		count++
-	}
-	return hosts[:count]
-}
-
-func newFakeCoordinator(resolver *fakeNodeResolver) *fakeCoordinator {
+func newFakeCoordinator(resolver cluster.NodeResolver) *fakeCoordinator {
 	return &fakeCoordinator{
 		client:       clients.NewClusterBackups(&http.Client{}),
 		nodeResolver: resolver,
@@ -123,7 +72,7 @@ func newFakeCoordinator(resolver *fakeNodeResolver) *fakeCoordinator {
 
 type fakeCoordinator struct {
 	client       *clients.ClusterBackups
-	nodeResolver *fakeNodeResolver
+	nodeResolver cluster.NodeResolver
 }
 
 func (c *fakeCoordinator) Backup(ctx context.Context, req *backup.Request, abort bool) error {
@@ -131,14 +80,14 @@ func (c *fakeCoordinator) Backup(ctx context.Context, req *backup.Request, abort
 		return c.abort(ctx)
 	}
 
-	for _, host := range c.nodeResolver.HostNames() {
+	for _, host := range c.nodeResolver.AllHostnames() {
 		_, err := c.client.CanCommit(ctx, host, req)
 		if err != nil {
 			return err
 		}
 	}
 
-	for _, host := range c.nodeResolver.HostNames() {
+	for _, host := range c.nodeResolver.AllHostnames() {
 		err := c.client.Commit(ctx, host, &backup.StatusRequest{})
 		if err != nil {
 			return err
@@ -149,7 +98,7 @@ func (c *fakeCoordinator) Backup(ctx context.Context, req *backup.Request, abort
 }
 
 func (c *fakeCoordinator) abort(ctx context.Context) error {
-	for _, host := range c.nodeResolver.HostNames() {
+	for _, host := range c.nodeResolver.AllHostnames() {
 		err := c.client.Abort(ctx, host, &backup.AbortRequest{})
 		if err != nil {
 			return err

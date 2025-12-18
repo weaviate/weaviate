@@ -27,12 +27,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/replication"
 	"github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/cluster/mocks"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/fakes"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
@@ -174,7 +175,9 @@ func TestManager_Replicate(t *testing.T) {
 			parser.On("ParseClass", mock.Anything).Return(nil)
 			schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
 			schemaReader := schemaManager.NewSchemaReader()
-			manager := replication.NewManager(schemaReader, mocks.NewMockNodeSelector("localhost"), reg)
+			mocksSelector := cluster.NewMockNodeSelector(t)
+			mocksSelector.EXPECT().LocalName().Return("localhost").Maybe()
+			manager := replication.NewManager(schemaReader, mocksSelector, reg)
 			if tt.schemaSetup != nil {
 				tt.schemaSetup(t, schemaManager)
 			}
@@ -309,7 +312,9 @@ func TestManager_ReplicateMultipleOps(t *testing.T) {
 			parser.On("ParseClass", mock.Anything).Return(nil)
 			schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
 			schemaReader := schemaManager.NewSchemaReader()
-			manager := replication.NewManager(schemaReader, mocks.NewMockNodeSelector("localhost"), reg)
+			mocksSelector := cluster.NewMockNodeSelector(t)
+			mocksSelector.EXPECT().LocalName().Return("localhost").Maybe()
+			manager := replication.NewManager(schemaReader, mocksSelector, reg)
 			if tt.schemaSetup != nil {
 				tt.schemaSetup(t, schemaManager)
 			}
@@ -507,7 +512,9 @@ func TestManager_UpdateReplicaOpStatusAndRegisterErrors(t *testing.T) {
 			parser.On("ParseClass", mock.Anything).Return(nil)
 			schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
 			schemaReader := schemaManager.NewSchemaReader()
-			manager := replication.NewManager(schemaReader, mocks.NewMockNodeSelector("localhost"), reg)
+			mocksSelector := cluster.NewMockNodeSelector(t)
+			mocksSelector.EXPECT().LocalName().Return("localhost").Maybe()
+			manager := replication.NewManager(schemaReader, mocksSelector, reg)
 			if tt.schemaSetup != nil {
 				tt.schemaSetup(t, schemaManager)
 			}
@@ -690,7 +697,9 @@ func TestManager_SnapshotRestore(t *testing.T) {
 			parser.On("ParseClass", mock.Anything).Return(nil)
 			schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
 			schemaReader := schemaManager.NewSchemaReader()
-			manager := replication.NewManager(schemaReader, mocks.NewMockNodeSelector("localhost"), reg)
+			mocksSelector := cluster.NewMockNodeSelector(t)
+			mocksSelector.EXPECT().LocalName().Return("localhost").Maybe()
+			manager := replication.NewManager(schemaReader, mocksSelector, reg)
 			if tt.schemaSetup != nil {
 				tt.schemaSetup(t, schemaManager)
 			}
@@ -849,7 +858,9 @@ func TestManager_MetricsTracking(t *testing.T) {
 		parser.On("ParseClass", mock.Anything).Return(nil)
 		schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
 		schemaReader := schemaManager.NewSchemaReader()
-		manager := replication.NewManager(schemaReader, mocks.NewMockNodeSelector("localhost"), reg)
+		mocksSelector := cluster.NewMockNodeSelector(t)
+		mocksSelector.EXPECT().LocalName().Return("localhost").Maybe()
+		manager := replication.NewManager(schemaReader, mocksSelector, reg)
 		err := schemaManager.AddClass(buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{
 			Class: &models.Class{Class: "TestCollection", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false}},
 			State: &sharding.State{
@@ -921,7 +932,9 @@ func TestManager_MetricsTracking(t *testing.T) {
 		parser.On("ParseClass", mock.Anything).Return(nil)
 		schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
 		schemaReader := schemaManager.NewSchemaReader()
-		manager := replication.NewManager(schemaReader, mocks.NewMockNodeSelector("localhost"), reg)
+		mocksSelector := cluster.NewMockNodeSelector(t)
+		mocksSelector.EXPECT().LocalName().Return("localhost").Maybe()
+		manager := replication.NewManager(schemaReader, mocksSelector, reg)
 		err := schemaManager.AddClass(buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{
 			Class: &models.Class{Class: "TestCollection", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false}},
 			State: &sharding.State{
@@ -1261,7 +1274,9 @@ func TestReplicationFSM_HasOngoingReplication(t *testing.T) {
 			parser.On("ParseClass", mock.Anything).Return(nil)
 			schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
 			schemaReader := schemaManager.NewSchemaReader()
-			manager := replication.NewManager(schemaReader, mocks.NewMockNodeSelector("localhost"), reg)
+			mocksSelector := cluster.NewMockNodeSelector(t)
+			mocksSelector.EXPECT().LocalName().Return("localhost").Maybe()
+			manager := replication.NewManager(schemaReader, mocksSelector, reg)
 			schemaManager.AddClass(
 				buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{
 					Class: &models.Class{Class: "TestCollection", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false}},
@@ -1638,7 +1653,9 @@ func TestManager_QueryReplicationScalePlan(t *testing.T) {
 			parser := fakes.NewMockParser()
 			parser.On("ParseClass", mock.Anything).Return(nil)
 			schemaManager := schema.NewSchemaManager("node1", nil, parser, reg, logrus.New())
-			manager := replication.NewManager(schemaManager.NewSchemaReader(), mocks.NewMockNodeSelector("node1", "node2", "node3"), reg)
+			mocksSelector := cluster.NewMockNodeSelector(t)
+			mocksSelector.EXPECT().LocalName().Return("node1").Maybe()
+			manager := replication.NewManager(schemaManager.NewSchemaReader(), mocksSelector, reg)
 
 			if tt.schemaSetup != nil {
 				require.NoError(t, tt.schemaSetup(t, schemaManager))

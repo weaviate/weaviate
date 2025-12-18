@@ -19,26 +19,24 @@ import (
 	"testing"
 	"time"
 
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
-	"github.com/weaviate/weaviate/usecases/sharding"
-
-	"github.com/stretchr/testify/mock"
-	"github.com/weaviate/weaviate/usecases/cluster"
-
-	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
-	"github.com/weaviate/weaviate/usecases/config"
-	"github.com/weaviate/weaviate/usecases/memwatch"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/cluster"
+	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/memwatch"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {
@@ -81,7 +79,7 @@ func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {
 			},
 		},
 	}
-	shardState := singleShardState()
+	shardState := singleShardState(t)
 	logger := logrus.New()
 	schemaGetter := &fakeSchemaGetter{shardState: shardState, schema: schema.Schema{
 		Objects: &models.Schema{
@@ -106,7 +104,7 @@ func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &FakeRemoteClient{}, &FakeNodeResolver{}, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
+	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
@@ -216,7 +214,7 @@ func TestIndexNullState_GetClass(t *testing.T) {
 	var schemaGetter *fakeSchemaGetter
 
 	t.Run("init repo", func(t *testing.T) {
-		shardState := singleShardState()
+		shardState := singleShardState(t)
 		schemaGetter = &fakeSchemaGetter{
 			shardState: shardState,
 			schema: schema.Schema{
@@ -244,7 +242,7 @@ func TestIndexNullState_GetClass(t *testing.T) {
 			RootPath:                  dirName,
 			QueryMaximumResults:       10000,
 			MaxImportGoroutinesFactor: 1,
-		}, &FakeRemoteClient{}, &FakeNodeResolver{}, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, nil,
+		}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, nil,
 			mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 		require.Nil(t, err)
 		repo.SetSchemaGetter(schemaGetter)
@@ -501,7 +499,7 @@ func TestIndexPropLength_GetClass(t *testing.T) {
 	var schemaGetter *fakeSchemaGetter
 
 	t.Run("init repo", func(t *testing.T) {
-		shardState := singleShardState()
+		shardState := singleShardState(t)
 		schemaGetter = &fakeSchemaGetter{
 			shardState: shardState,
 			schema: schema.Schema{
@@ -528,7 +526,7 @@ func TestIndexPropLength_GetClass(t *testing.T) {
 			RootPath:                  dirName,
 			QueryMaximumResults:       10000,
 			MaxImportGoroutinesFactor: 1,
-		}, &FakeRemoteClient{}, &FakeNodeResolver{}, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, nil,
+		}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, nil,
 			mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 		require.Nil(t, err)
 		repo.SetSchemaGetter(schemaGetter)
@@ -872,7 +870,7 @@ func TestIndexByTimestamps_GetClass(t *testing.T) {
 	var schemaGetter *fakeSchemaGetter
 
 	t.Run("init repo", func(t *testing.T) {
-		shardState := singleShardState()
+		shardState := singleShardState(t)
 		schemaGetter = &fakeSchemaGetter{
 			shardState: shardState,
 			schema: schema.Schema{
@@ -899,7 +897,7 @@ func TestIndexByTimestamps_GetClass(t *testing.T) {
 			RootPath:                  dirName,
 			QueryMaximumResults:       10000,
 			MaxImportGoroutinesFactor: 1,
-		}, &FakeRemoteClient{}, &FakeNodeResolver{}, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, nil,
+		}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, nil,
 			mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 		require.Nil(t, err)
 		repo.SetSchemaGetter(schemaGetter)

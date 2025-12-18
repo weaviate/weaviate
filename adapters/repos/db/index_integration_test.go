@@ -53,7 +53,7 @@ import (
 
 func TestIndex_DropIndex(t *testing.T) {
 	dirName := t.TempDir()
-	shardState := singleShardState()
+	shardState := singleShardState(t)
 	class := &models.Class{Class: "deletetest", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: shardState.PartitioningEnabled}}
 	index := emptyIdx(t, dirName, class, shardState)
 
@@ -72,7 +72,7 @@ func TestIndex_DropIndex(t *testing.T) {
 
 func TestIndex_DropEmptyAndRecreateEmptyIndex(t *testing.T) {
 	dirName := t.TempDir()
-	shardState := singleShardState()
+	shardState := singleShardState(t)
 	class := &models.Class{Class: "deletetest", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: shardState.PartitioningEnabled}}
 	index := emptyIdx(t, dirName, class, shardState)
 
@@ -102,7 +102,7 @@ func TestIndex_DropEmptyAndRecreateEmptyIndex(t *testing.T) {
 func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 	dirName := t.TempDir()
 	logger, _ := test.NewNullLogger()
-	shardState := singleShardState()
+	shardState := singleShardState(t)
 	class := &models.Class{
 		Class: "deletetest",
 		Properties: []*models.Property{
@@ -346,7 +346,7 @@ func TestIndex_DropReadOnlyIndexWithData(t *testing.T) {
 	ctx := testCtx()
 	dirName := t.TempDir()
 	logger, _ := test.NewNullLogger()
-	shardState := singleShardState()
+	shardState := singleShardState(t)
 	class := &models.Class{
 		Class: "deletetest",
 		Properties: []*models.Property{
@@ -454,7 +454,7 @@ func TestIndex_DropReadOnlyIndexWithData(t *testing.T) {
 func TestIndex_DropUnloadedShard(t *testing.T) {
 	dirName := t.TempDir()
 	logger, _ := test.NewNullLogger()
-	shardState := singleShardState()
+	shardState := singleShardState(t)
 	class := &models.Class{
 		Class: "deletetest",
 		Properties: []*models.Property{
@@ -537,7 +537,7 @@ func TestIndex_DropUnloadedShard(t *testing.T) {
 func TestIndex_DropLoadedShard(t *testing.T) {
 	dirName := t.TempDir()
 	logger, _ := test.NewNullLogger()
-	shardState := singleShardState()
+	shardState := singleShardState(t)
 	class := &models.Class{
 		Class: "deletetest",
 		Properties: []*models.Property{

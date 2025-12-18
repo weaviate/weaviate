@@ -19,14 +19,12 @@ import (
 	"testing"
 	"time"
 
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
-	"github.com/weaviate/weaviate/usecases/sharding"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/entities/dto"
@@ -39,6 +37,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/objects"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 func Test_Classifier_KNN_SaveConsistency(t *testing.T) {
@@ -46,7 +46,7 @@ func Test_Classifier_KNN_SaveConsistency(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	var id strfmt.UUID
 
-	shardState := singleShardState()
+	shardState := singleShardState(t)
 	sg := &fakeSchemaGetter{
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: shardState,
@@ -71,7 +71,7 @@ func Test_Classifier_KNN_SaveConsistency(t *testing.T) {
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
+	}, &fakeRemoteClient{}, mockNodeSelector, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	vrepo.SetSchemaGetter(sg)
@@ -203,7 +203,7 @@ func Test_Classifier_ZeroShot_SaveConsistency(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	var id strfmt.UUID
 
-	shardState := singleShardState()
+	shardState := singleShardState(t)
 	sg := &fakeSchemaGetter{shardState: shardState}
 
 	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
@@ -222,7 +222,7 @@ func Test_Classifier_ZeroShot_SaveConsistency(t *testing.T) {
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
+	}, &fakeRemoteClient{}, mockNodeSelector, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	vrepo.SetSchemaGetter(sg)

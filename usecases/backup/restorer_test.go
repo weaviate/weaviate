@@ -53,7 +53,7 @@ func TestRestoreStatus(t *testing.T) {
 	var (
 		backendType = "s3"
 		id          = "1234"
-		m           = createManager(nil, nil, nil, nil)
+		m           = createManager(t, nil, nil, nil)
 		starTime    = time.Now().UTC()
 		nodeHome    = id + "/" + nodeName
 		path        = "bucket/backups/" + nodeHome
@@ -151,7 +151,7 @@ func TestManagerCoordinatedRestore(t *testing.T) {
 		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(nil, backup.ErrNotFound{})
 		backend.On("GetObject", ctx, backupID, BackupFile).Return(nil, backup.ErrNotFound{})
 		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
-		bm := createManager(nil, nil, backend, nil)
+		bm := createManager(t, nil, backend, nil)
 		resp := bm.OnCanCommit(ctx, &req)
 		assert.Contains(t, resp.Err, errMetaNotFound.Error())
 		assert.Equal(t, resp.Timeout, time.Duration(0))
@@ -166,7 +166,7 @@ func TestManagerCoordinatedRestore(t *testing.T) {
 		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
 		// simulate work by delaying return of SourceDataPath()
 		backend.On("SourceDataPath").Return(t.TempDir()).After(time.Minute * 2)
-		m := createManager(sourcer, nil, backend, nil)
+		m := createManager(t, sourcer, backend, nil)
 		resp := m.OnCanCommit(ctx, &req)
 		assert.Equal(t, resp.Err, "")
 		resp = m.OnCanCommit(ctx, &req)
@@ -185,7 +185,7 @@ func TestManagerCoordinatedRestore(t *testing.T) {
 		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
 		backend.On("SourceDataPath").Return(t.TempDir())
 		backend.On("WriteToFile", any, nodeHome, mock.Anything, mock.Anything).Return(nil)
-		m := createManager(sourcer, nil, backend, nil)
+		m := createManager(t, sourcer, backend, nil)
 		resp1 := m.OnCanCommit(ctx, &req)
 		want1 := &CanCommitResponse{
 			Method:  OpRestore,
@@ -211,7 +211,7 @@ func TestManagerCoordinatedRestore(t *testing.T) {
 		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
 		backend.On("SourceDataPath").Return(t.TempDir())
 		backend.On("WriteToFile", any, nodeHome, mock.Anything, mock.Anything).Return(nil)
-		m := createManager(sourcer, nil, backend, nil)
+		m := createManager(t, sourcer, backend, nil)
 		resp1 := m.OnCanCommit(ctx, &req)
 		want1 := &CanCommitResponse{
 			Method:  OpRestore,
@@ -233,7 +233,7 @@ func TestRestoreOnStatus(t *testing.T) {
 	var (
 		backendType = "s3"
 		id          = "1234"
-		m           = createManager(nil, nil, nil, nil)
+		m           = createManager(t, nil, nil, nil)
 		ctx         = context.Background()
 		starTime    = time.Now().UTC()
 		nodeHome    = id + "/" + nodeName

@@ -28,53 +28,6 @@ func (_m *MockRouter) EXPECT() *MockRouter_Expecter {
 	return &MockRouter_Expecter{mock: &_m.Mock}
 }
 
-// AllHostnames provides a mock function with no fields
-func (_m *MockRouter) AllHostnames() []string {
-	ret := _m.Called()
-
-	if len(ret) == 0 {
-		panic("no return value specified for AllHostnames")
-	}
-
-	var r0 []string
-	if rf, ok := ret.Get(0).(func() []string); ok {
-		r0 = rf()
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]string)
-		}
-	}
-
-	return r0
-}
-
-// MockRouter_AllHostnames_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'AllHostnames'
-type MockRouter_AllHostnames_Call struct {
-	*mock.Call
-}
-
-// AllHostnames is a helper method to define mock.On call
-func (_e *MockRouter_Expecter) AllHostnames() *MockRouter_AllHostnames_Call {
-	return &MockRouter_AllHostnames_Call{Call: _e.mock.On("AllHostnames")}
-}
-
-func (_c *MockRouter_AllHostnames_Call) Run(run func()) *MockRouter_AllHostnames_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run()
-	})
-	return _c
-}
-
-func (_c *MockRouter_AllHostnames_Call) Return(_a0 []string) *MockRouter_AllHostnames_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockRouter_AllHostnames_Call) RunAndReturn(run func() []string) *MockRouter_AllHostnames_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // BuildReadRoutingPlan provides a mock function with given fields: params
 func (_m *MockRouter) BuildReadRoutingPlan(params RoutingPlanBuildOptions) (ReadRoutingPlan, error) {
 	ret := _m.Called(params)
@@ -413,62 +366,6 @@ func (_c *MockRouter_GetWriteReplicasLocation_Call) Return(_a0 WriteReplicaSet, 
 }
 
 func (_c *MockRouter_GetWriteReplicasLocation_Call) RunAndReturn(run func(string, string, string) (WriteReplicaSet, error)) *MockRouter_GetWriteReplicasLocation_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// NodeHostname provides a mock function with given fields: nodeName
-func (_m *MockRouter) NodeHostname(nodeName string) (string, bool) {
-	ret := _m.Called(nodeName)
-
-	if len(ret) == 0 {
-		panic("no return value specified for NodeHostname")
-	}
-
-	var r0 string
-	var r1 bool
-	if rf, ok := ret.Get(0).(func(string) (string, bool)); ok {
-		return rf(nodeName)
-	}
-	if rf, ok := ret.Get(0).(func(string) string); ok {
-		r0 = rf(nodeName)
-	} else {
-		r0 = ret.Get(0).(string)
-	}
-
-	if rf, ok := ret.Get(1).(func(string) bool); ok {
-		r1 = rf(nodeName)
-	} else {
-		r1 = ret.Get(1).(bool)
-	}
-
-	return r0, r1
-}
-
-// MockRouter_NodeHostname_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'NodeHostname'
-type MockRouter_NodeHostname_Call struct {
-	*mock.Call
-}
-
-// NodeHostname is a helper method to define mock.On call
-//   - nodeName string
-func (_e *MockRouter_Expecter) NodeHostname(nodeName interface{}) *MockRouter_NodeHostname_Call {
-	return &MockRouter_NodeHostname_Call{Call: _e.mock.On("NodeHostname", nodeName)}
-}
-
-func (_c *MockRouter_NodeHostname_Call) Run(run func(nodeName string)) *MockRouter_NodeHostname_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(string))
-	})
-	return _c
-}
-
-func (_c *MockRouter_NodeHostname_Call) Return(_a0 string, _a1 bool) *MockRouter_NodeHostname_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *MockRouter_NodeHostname_Call) RunAndReturn(run func(string) (string, bool)) *MockRouter_NodeHostname_Call {
 	_c.Call.Return(run)
 	return _c
 }

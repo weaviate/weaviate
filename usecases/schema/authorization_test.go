@@ -167,7 +167,7 @@ func Test_Schema_Authorization(t *testing.T) {
 				// internal methods to indicate readiness state
 				"StartServing", "Shutdown", "Statistics",
 				// Cluster/nodes related endpoint
-				"JoinNode", "RemoveNode", "Nodes", "NodeName", "ClusterHealthScore", "ClusterStatus", "ResolveParentNodes",
+				"JoinNode", "RemoveNode", "Nodes", "NodeName", "LeaderID", "ClusterHealthScore", "ClusterStatus", "ResolveParentNodes",
 				// revert to schema v0 (non raft),
 				"GetConsistentSchema", "GetConsistentTenants", "GetConsistentTenant", "GetAliases":
 				// don't require auth on methods which are exported because other

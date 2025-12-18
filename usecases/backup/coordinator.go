@@ -26,7 +26,9 @@ import (
 	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/entities/backup"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/schema"
 )
 
 // Op is the kind of a backup operation
@@ -92,9 +94,9 @@ type coordinator struct {
 	// dependencies
 	selector     Selector
 	client       client
-	schema       schemaManger
+	schema       schema.SchemaManager
 	log          logrus.FieldLogger
-	nodeResolver NodeResolver
+	nodeResolver cluster.NodeResolver
 	backends     BackupBackendProvider
 
 	// state
@@ -113,9 +115,9 @@ type coordinator struct {
 func newCoordinator(
 	selector Selector,
 	client client,
-	schema schemaManger,
+	schema schema.SchemaManager,
 	log logrus.FieldLogger,
-	nodeResolver NodeResolver,
+	nodeResolver cluster.NodeResolver,
 	backends BackupBackendProvider,
 ) *coordinator {
 	return &coordinator{
@@ -134,7 +136,7 @@ func newCoordinator(
 }
 
 func (c *coordinator) Nodes(ctx context.Context, req *Request) (map[string]string, error) {
-	leader := c.nodeResolver.LeaderID()
+	leader := c.schema.LeaderID()
 	if leader == "" {
 		return nil, fmt.Errorf("backup Op %s: %w, try again later", req.Method, types.ErrLeaderNotFound)
 	}
@@ -159,7 +161,7 @@ func (c *coordinator) Nodes(ctx context.Context, req *Request) (map[string]strin
 // Backup coordinates a distributed backup among participants
 func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Request) error {
 	req.Method = OpCreate
-	leader := c.nodeResolver.LeaderID()
+	leader := c.schema.LeaderID()
 	if leader == "" {
 		return fmt.Errorf("backup Op %s: %w, try again later", req.Method, types.ErrLeaderNotFound)
 	}
@@ -307,7 +309,7 @@ func (c *coordinator) restoreClasses(
 		if hasReqClasses && !slices.Contains(req.Classes, cls.Name) {
 			continue
 		}
-		if err := c.schema.RestoreClass(ctx, &cls, req.NodeMapping, req.RestoreOverwriteAlias); err != nil {
+		if err := c.schema.RestoreClassAlias(ctx, &cls, req.NodeMapping, req.RestoreOverwriteAlias); err != nil {
 			c.descriptor.Error = fmt.Sprintf("restore class %q: %v", cls.Name, err)
 			errors = append(errors, fmt.Sprintf("%q: %v", cls.Name, err))
 		}
@@ -637,7 +639,7 @@ func (c *coordinator) abortAll(ctx context.Context, req *AbortRequest, nodes map
 
 // groupByShard returns classes group by nodes
 func (c *coordinator) groupByShard(ctx context.Context, classes []string, leader string) (nodeMap, error) {
-	nodes := c.nodeResolver.AllNames()
+	nodes := c.nodeResolver.AllHostnames()
 	m := make(nodeMap, len(nodes))
 
 	// start by collecting nodes which have content

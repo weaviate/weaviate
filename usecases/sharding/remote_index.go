@@ -21,18 +21,19 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/weaviate/weaviate/entities/dto"
-	"github.com/weaviate/weaviate/entities/models"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
+	"github.com/weaviate/weaviate/entities/dto"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/file"
 	"github.com/weaviate/weaviate/usecases/objects"
 )
@@ -41,7 +42,7 @@ type RemoteIndex struct {
 	class        string
 	stateGetter  shardingStateGetter
 	client       RemoteIndexClient
-	nodeResolver nodeResolver
+	nodeResolver cluster.NodeResolver
 }
 
 type shardingStateGetter interface {
@@ -51,7 +52,7 @@ type shardingStateGetter interface {
 }
 
 func NewRemoteIndex(className string,
-	stateGetter shardingStateGetter, nodeResolver nodeResolver,
+	stateGetter shardingStateGetter, nodeResolver cluster.NodeResolver,
 	client RemoteIndexClient,
 ) *RemoteIndex {
 	return &RemoteIndex{
@@ -60,10 +61,6 @@ func NewRemoteIndex(className string,
 		client:       client,
 		nodeResolver: nodeResolver,
 	}
-}
-
-type nodeResolver interface {
-	NodeHostname(nodeName string) (string, bool)
 }
 
 type RemoteIndexClient interface {
@@ -326,7 +323,7 @@ func (ri *RemoteIndex) SearchShard(ctx context.Context, shard string,
 		}
 		return pair{objs, scores}, err
 	}
-	rr, node, err := ri.queryReplicas(ctx, shard, f)
+	rr, node, err := ri.QueryReplicas(ctx, shard, f)
 	if err != nil {
 		return nil, nil, node, err
 	}
@@ -346,7 +343,7 @@ func (ri *RemoteIndex) Aggregate(
 		}
 		return r, nil
 	}
-	rr, _, err := ri.queryReplicas(ctx, shard, f)
+	rr, _, err := ri.QueryReplicas(ctx, shard, f)
 	if err != nil {
 		return nil, err
 	}
@@ -506,7 +503,7 @@ func (ri *RemoteIndex) queryAllReplicas(
 	return queryAll(replicas)
 }
 
-func (ri *RemoteIndex) queryReplicas(
+func (ri *RemoteIndex) QueryReplicas(
 	ctx context.Context,
 	shard string,
 	do func(nodeName, host string) (interface{}, error),

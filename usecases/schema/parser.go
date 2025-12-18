@@ -19,11 +19,13 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
+
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/vectorindex"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	shardingConfig "github.com/weaviate/weaviate/usecases/sharding/config"
@@ -41,16 +43,16 @@ type modulesProvider interface {
 }
 
 type Parser struct {
-	clusterState        clusterState
+	nodeSelector        cluster.NodeSelector
 	configParser        VectorConfigParser
 	validator           validator
 	modules             modulesProvider
 	defaultQuantization *configRuntime.DynamicValue[string]
 }
 
-func NewParser(cs clusterState, vCfg VectorConfigParser, v validator, modules modulesProvider, defaultQuantization *configRuntime.DynamicValue[string]) *Parser {
+func NewParser(ns cluster.NodeSelector, vCfg VectorConfigParser, v validator, modules modulesProvider, defaultQuantization *configRuntime.DynamicValue[string]) *Parser {
 	return &Parser{
-		clusterState:        cs,
+		nodeSelector:        ns,
 		configParser:        vCfg,
 		validator:           v,
 		modules:             modules,
@@ -176,7 +178,7 @@ func (p *Parser) parseShardingConfig(class *models.Class) (err error) {
 	// multiTenancyConfig and shardingConfig are mutually exclusive
 	cfg := shardingConfig.Config{} // cfg is empty in case of MT
 	if !schema.MultiTenancyEnabled(class) {
-		cfg, err = shardingConfig.ParseConfig(class.ShardingConfig, p.clusterState.NodeCount())
+		cfg, err = shardingConfig.ParseConfig(class.ShardingConfig, p.nodeSelector.NodeCount())
 		if err != nil {
 			return err
 		}

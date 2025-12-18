@@ -155,12 +155,22 @@ func (n *node) init(t *testing.T, dirName string, allNodes *[]*node, shardingSta
 
 	backendProvider := newFakeBackupBackendProvider(localDir)
 	n.backupManager = ubak.NewHandler(
-		logger, &fakeAuthorizer{}, n.schemaManager, n.repo, backendProvider, fakeRbacBackupWrapper{}, fakeRbacBackupWrapper{},
+		logger, &fakeAuthorizer{}, "node1", n.repo, backendProvider, fakeRbacBackupWrapper{}, fakeRbacBackupWrapper{},
 	)
+
+	// For the scheduler we need a full schema.SchemaManager implementation.
+	// Use a mock SchemaManager just for backup coordination; keep fakeSchemaManager
+	// as the SchemaGetter for the DB.
+	schedSchemaManager := schemaUC.NewMockSchemaManager(t)
+	schedSchemaManager.EXPECT().NodeName().Return(n.name).Maybe()
+	schedSchemaManager.EXPECT().LeaderID().Return(n.name).Maybe()
+	schedSchemaManager.EXPECT().
+		RestoreClassAlias(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(nil).Maybe()
 
 	backupClient := clients.NewClusterBackups(&http.Client{})
 	n.scheduler = ubak.NewScheduler(
-		&fakeAuthorizer{}, backupClient, n.repo, backendProvider, nodeResolver, n.schemaManager, logger)
+		&fakeAuthorizer{}, backupClient, n.repo, backendProvider, nodeResolver, schedSchemaManager, logger)
 
 	n.migrator = db.NewMigrator(n.repo, logger, n.name)
 
