@@ -38,10 +38,10 @@ type RemoteIndexIncomingRepo interface {
 	// Write endpoints
 	ReplicateObject(ctx context.Context, shardName, requestID string, object *storobj.Object) SimpleResponse
 	ReplicateObjects(ctx context.Context, shardName, requestID string, objects []*storobj.Object, schemaVersion uint64) SimpleResponse
-	ReplicateUpdate(ctx context.Context, shardName, requestID string, mergeDoc *objects.MergeDocument) SimpleResponse
-	ReplicateDeletion(ctx context.Context, shardName, requestID string, uuid strfmt.UUID, deletionTime time.Time) SimpleResponse
+	ReplicateUpdate(ctx context.Context, shardName, requestID string, mergeDoc *objects.MergeDocument, schemaVersion uint64) SimpleResponse
+	ReplicateDeletion(ctx context.Context, shardName, requestID string, uuid strfmt.UUID, deletionTime time.Time, schemaVersion uint64) SimpleResponse
 	ReplicateDeletions(ctx context.Context, shardName, requestID string, uuids []strfmt.UUID, deletionTime time.Time, dryRun bool, schemaVersion uint64) SimpleResponse
-	ReplicateReferences(ctx context.Context, shardName, requestID string, refs []objects.BatchReference) SimpleResponse
+	ReplicateReferences(ctx context.Context, shardName, requestID string, refs []objects.BatchReference, schemaVersion uint64) SimpleResponse
 	CommitReplication(shardName, requestID string) interface{}
 	AbortReplication(shardName, requestID string) interface{}
 	OverwriteObjects(ctx context.Context, shard string, vobjects []*objects.VObject) ([]types.RepairResponse, error)
@@ -65,6 +65,10 @@ func NewRemoteReplicaIncoming(repo RemoteIncomingRepo, schema RemoteIncomingSche
 		schema: schema,
 		repo:   repo,
 	}
+}
+
+func (rri *RemoteReplicaIncoming) GetIndexForIncomingReplica(className schema.ClassName) RemoteIndexIncomingRepo {
+	return rri.repo.GetIndexForIncomingReplica(className)
 }
 
 func (rri *RemoteReplicaIncoming) ReplicateObject(ctx context.Context, indexName,
@@ -94,7 +98,7 @@ func (rri *RemoteReplicaIncoming) ReplicateUpdate(ctx context.Context, indexName
 	if simpleResp != nil {
 		return *simpleResp
 	}
-	return index.ReplicateUpdate(ctx, shardName, requestID, mergeDoc)
+	return index.ReplicateUpdate(ctx, shardName, requestID, mergeDoc, schemaVersion)
 }
 
 func (rri *RemoteReplicaIncoming) ReplicateDeletion(ctx context.Context, indexName,
@@ -104,7 +108,7 @@ func (rri *RemoteReplicaIncoming) ReplicateDeletion(ctx context.Context, indexNa
 	if simpleResp != nil {
 		return *simpleResp
 	}
-	return index.ReplicateDeletion(ctx, shardName, requestID, uuid, deletionTime)
+	return index.ReplicateDeletion(ctx, shardName, requestID, uuid, deletionTime, schemaVersion)
 }
 
 func (rri *RemoteReplicaIncoming) ReplicateDeletions(ctx context.Context, indexName,
@@ -124,7 +128,7 @@ func (rri *RemoteReplicaIncoming) ReplicateReferences(ctx context.Context, index
 	if simpleResp != nil {
 		return *simpleResp
 	}
-	return index.ReplicateReferences(ctx, shardName, requestID, refs)
+	return index.ReplicateReferences(ctx, shardName, requestID, refs, schemaVersion)
 }
 
 func (rri *RemoteReplicaIncoming) CommitReplication(indexName,
