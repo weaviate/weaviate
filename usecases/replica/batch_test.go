@@ -16,13 +16,13 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/weaviate/weaviate/usecases/replica"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
+
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/replica"
 )
 
 // createBatch creates IndexedBatch from xs
@@ -36,8 +36,8 @@ func createBatch(xs []*storobj.Object) replica.IndexedBatch {
 	return bi
 }
 
-// cluster data object by shard
-func cluster(bi replica.IndexedBatch) []replica.ShardPart {
+// clusterByShard groups data objects by shard.
+func clusterByShard(bi replica.IndexedBatch) []replica.ShardPart {
 	index := bi.Index
 	data := bi.Data
 	sort.Slice(index, func(i, j int) bool {
@@ -79,7 +79,7 @@ func TestBatchInput(t *testing.T) {
 		ids[i] = uuid
 		data[i] = objectEx(uuid, 1, "S1", "N1")
 	}
-	parts := cluster(createBatch(data))
+	parts := clusterByShard(createBatch(data))
 	assert.Len(t, parts, 1)
 	assert.Equal(t, parts[0], replica.ShardPart{
 		Shard: "S1",
@@ -98,7 +98,7 @@ func TestBatchInput(t *testing.T) {
 	data[5].BelongsToShard = "S2"
 	data[5].BelongsToNode = "N2"
 
-	parts = cluster(createBatch(data))
+	parts = clusterByShard(createBatch(data))
 	sort.Slice(parts, func(i, j int) bool { return len(parts[i].Index) < len(parts[j].Index) })
 	assert.Len(t, parts, 2)
 	assert.ElementsMatch(t, parts[0].ObjectIDs(), []strfmt.UUID{ids[0], ids[2], ids[3], ids[5]})
