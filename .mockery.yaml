@@ -12,6 +12,7 @@ packages:
   github.com/weaviate/weaviate/usecases/replica:
    interfaces:
       RemoteIndexIncomingRepo:
+      RemoteIncomingRepo:
       RClient:
       WClient:
   github.com/weaviate/weaviate/adapters/repos/db/lsmkv:
