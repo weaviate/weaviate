@@ -171,7 +171,7 @@ func (h *HFresh) splitPosting(posting Posting) ([]SplitResult, error) {
 			Uncompressed: enc.Centroid(byte(i)),
 		}
 
-		results[i].Centroid = h.quantizer.CompressedBytes(h.quantizer.Encode(enc.Centroid(byte(i))))
+		results[i].Centroid = h.quantizer.Encode(enc.Centroid(byte(i)))
 	}
 
 	for i, v := range data {

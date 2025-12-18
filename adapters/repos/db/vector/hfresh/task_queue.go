@@ -32,15 +32,18 @@ const (
 // limit the size of each task chunk to
 // to avoid sending too many tasks at once.
 const (
-	mainTaskQueueChunkSize  = 128 * 1024 // 128KB
-	mergeTaskQueueChunkSize = 64 * 1024  // 64KB
+	splitTaskQueueChunkSize    = 16 * 1024 // 16KB
+	reassignTaskQueueChunkSize = 16 * 1024 // 16KB
+	mergeTaskQueueChunkSize    = 16 * 1024 // 16KB
 )
 
 type TaskQueue struct {
-	// queue for split and reassign operations
-	q *queue.DiskQueue
+	// queue for split operations
+	splitQueue *queue.DiskQueue
+	// queue for reassign operations
+	reassignQueue *queue.DiskQueue
 	// queue for merge operations, as these need to be run sequentially
-	qMerge *queue.DiskQueue
+	mergeQueue *queue.DiskQueue
 
 	scheduler *queue.Scheduler
 
@@ -59,33 +62,53 @@ func NewTaskQueue(index *HFresh) (*TaskQueue, error) {
 		mergeList: newDeduplicator(),
 	}
 
-	// create main queue for split and reassign operations
-	tq.q, err = queue.NewDiskQueue(
+	// create queue for split operations
+	tq.splitQueue, err = queue.NewDiskQueue(
 		queue.DiskQueueOptions{
-			ID:               fmt.Sprintf("hfresh_ops_queue_%s_%s", index.config.ShardName, index.config.ID),
+			ID:               fmt.Sprintf("hfresh_split_queue_%s_%s", index.config.ShardName, index.config.ID),
 			Logger:           index.logger,
 			Scheduler:        index.scheduler,
-			Dir:              filepath.Join(index.config.RootPath, fmt.Sprintf("%s.queue.d", index.config.ID)),
+			Dir:              filepath.Join(index.config.RootPath, "split.queue.d"),
 			TaskDecoder:      &tq,
 			OnBatchProcessed: tq.OnBatchProcessed,
-			ChunkSize:        mainTaskQueueChunkSize,
+			ChunkSize:        splitTaskQueueChunkSize,
 		},
 	)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to create hfresh main queue")
+		return nil, errors.Wrap(err, "failed to create hfresh split queue")
 	}
-	err = tq.q.Init()
+	err = tq.splitQueue.Init()
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to initialize hfresh main queue")
+		return nil, errors.Wrap(err, "failed to initialize hfresh split queue")
 	}
 
-	// create separate queue for merge operations
-	tq.qMerge, err = queue.NewDiskQueue(
+	// create queue for reassign operations
+	tq.reassignQueue, err = queue.NewDiskQueue(
+		queue.DiskQueueOptions{
+			ID:               fmt.Sprintf("hfresh_reassign_queue_%s_%s", index.config.ShardName, index.config.ID),
+			Logger:           index.logger,
+			Scheduler:        index.scheduler,
+			Dir:              filepath.Join(index.config.RootPath, "reassign.queue.d"),
+			TaskDecoder:      &tq,
+			OnBatchProcessed: tq.OnBatchProcessed,
+			ChunkSize:        reassignTaskQueueChunkSize,
+		},
+	)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to create hfresh reassign queue")
+	}
+	err = tq.reassignQueue.Init()
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to initialize hfresh reassign queue")
+	}
+
+	// create queue for merge operations
+	tq.mergeQueue, err = queue.NewDiskQueue(
 		queue.DiskQueueOptions{
 			ID:               fmt.Sprintf("hfresh_merge_queue_%s_%s", index.config.ShardName, index.config.ID),
 			Logger:           index.logger,
 			Scheduler:        index.scheduler,
-			Dir:              filepath.Join(index.config.RootPath, fmt.Sprintf("%s.merge.queue.d", index.config.ID)),
+			Dir:              filepath.Join(index.config.RootPath, "merge.queue.d"),
 			TaskDecoder:      &tq,
 			OnBatchProcessed: tq.OnBatchProcessed,
 			ChunkSize:        mergeTaskQueueChunkSize,
@@ -94,24 +117,29 @@ func NewTaskQueue(index *HFresh) (*TaskQueue, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create hfresh merge queue")
 	}
-	err = tq.qMerge.Init()
+	err = tq.mergeQueue.Init()
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to initialize hfresh merge queue")
 	}
 
-	index.scheduler.RegisterQueue(tq.q)
-	index.scheduler.RegisterQueue(tq.qMerge)
+	index.scheduler.RegisterQueue(tq.splitQueue)
+	index.scheduler.RegisterQueue(tq.reassignQueue)
+	index.scheduler.RegisterQueue(tq.mergeQueue)
 
 	return &tq, nil
 }
 
 func (tq *TaskQueue) Close() error {
 	var errs []error
-	if err := tq.q.Close(); err != nil {
-		errs = append(errs, errors.Wrap(err, "failed to close main queue"))
+	if err := tq.splitQueue.Close(); err != nil {
+		errs = append(errs, errors.Wrap(err, "failed to close split queue"))
 	}
 
-	if err := tq.qMerge.Close(); err != nil {
+	if err := tq.reassignQueue.Close(); err != nil {
+		errs = append(errs, errors.Wrap(err, "failed to close reassign queue"))
+	}
+
+	if err := tq.mergeQueue.Close(); err != nil {
 		errs = append(errs, errors.Wrap(err, "failed to close merge queue"))
 	}
 
@@ -119,7 +147,7 @@ func (tq *TaskQueue) Close() error {
 }
 
 func (tq *TaskQueue) Size() int64 {
-	return tq.q.Size() + tq.qMerge.Size()
+	return tq.splitQueue.Size() + tq.reassignQueue.Size() + tq.mergeQueue.Size()
 }
 
 func (tq *TaskQueue) SplitDone(postingID uint64) {
@@ -140,7 +168,7 @@ func (tq *TaskQueue) EnqueueSplit(postingID uint64) error {
 		return nil
 	}
 
-	if err := tq.q.Push(encodeTask(postingID, taskQueueSplitOp)); err != nil {
+	if err := tq.splitQueue.Push(encodeTask(postingID, taskQueueSplitOp)); err != nil {
 		return errors.Wrap(err, "failed to push split operation to queue")
 	}
 
@@ -155,7 +183,7 @@ func (tq *TaskQueue) EnqueueMerge(postingID uint64) error {
 		return nil
 	}
 
-	if err := tq.qMerge.Push(encodeTask(postingID, taskQueueMergeOp)); err != nil {
+	if err := tq.mergeQueue.Push(encodeTask(postingID, taskQueueMergeOp)); err != nil {
 		return errors.Wrap(err, "failed to push merge operation to queue")
 	}
 
@@ -171,7 +199,7 @@ func (tq *TaskQueue) EnqueueReassign(postingID uint64, vecID uint64, version Vec
 	binary.LittleEndian.PutUint64(buf[9:17], vecID)
 	buf[17] = byte(version)
 
-	if err := tq.q.Push(buf); err != nil {
+	if err := tq.reassignQueue.Push(buf); err != nil {
 		return errors.Wrap(err, "failed to push reassign operation to queue")
 	}
 
@@ -253,6 +281,7 @@ func (t *SplitTask) Execute(ctx context.Context) error {
 	}
 
 	t.idx.metrics.DequeueSplitTask()
+	t.idx.metrics.IncSplitCount()
 	return nil
 }
 
@@ -282,6 +311,7 @@ func (t *MergeTask) Execute(ctx context.Context) error {
 	}
 
 	t.idx.metrics.DequeueMergeTask()
+	t.idx.metrics.IncMergeCount()
 	return nil
 }
 
@@ -312,6 +342,7 @@ func (t *ReassignTask) Execute(ctx context.Context) error {
 	}
 
 	t.idx.metrics.DequeueReassignTask()
+	t.idx.metrics.IncReassignCount()
 	return nil
 }
 
