@@ -27,7 +27,7 @@ const (
 )
 
 func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
-	rescoreLimit := int(min(h.rescoreLimit, h.searchProbe)) // Todo: Remove this line when we add support on the benchmarker for lowering the rescore limit too
+	rescoreLimit := int(h.rescoreLimit)
 	vector = h.normalizeVec(vector)
 	queryVector := NewAnonymousVector(h.quantizer.CompressedBytes(h.quantizer.Encode(vector)))
 
