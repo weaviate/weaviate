@@ -117,7 +117,9 @@ func ParseAndValidateConfig(input interface{}, isMultiVector bool) (schemaConfig
 	}
 
 	if err := vectorIndexCommon.OptionalIntFromMap(asMap, "rescoreLimit", func(v int) {
-		uc.RescoreLimit = uint32(v)
+		if v >= 0 {
+			uc.RescoreLimit = uint32(v)
+		}
 	}); err != nil {
 		return uc, err
 	}
