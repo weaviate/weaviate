@@ -62,6 +62,14 @@ const (
 // FromEnv takes a *Config as it will respect initial config that has been
 // provided by other means (e.g. a config file) and will only extend those that
 // are set
+//
+// IMPORTANT FOR DEVELOPERS:
+// When adding new environment variables here, consider whether the same env var
+// should be documented for public consumption.
+// IF SO, alert the docs team, or make the change directly in the docs repo.
+// The relevant file is: docs/deploy/configuration/env-vars/index.md
+// Runtime-configurable vars are in: docs/deploy/configuration/env-vars/runtime-config.md
+// IF NOT, please add a comment here noting that this is an **internal-only** env var.
 func FromEnv(config *Config) error {
 	if entcfg.Enabled(os.Getenv("PROMETHEUS_MONITORING_ENABLED")) {
 		config.Monitoring.Enabled = true
