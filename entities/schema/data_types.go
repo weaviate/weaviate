@@ -279,12 +279,12 @@ func FindPropertyDataTypeWithRefsAndAuth(authorizedGetClass func(string) (*model
 			return nil, err
 		}
 
-		if beloningToClass != className && !relaxCrossRefValidation {
+		if beloningToClass != className {
 			class, err := authorizedGetClass(className.String())
 			if err != nil {
 				return nil, err
 			}
-			if class == nil {
+			if !relaxCrossRefValidation && class == nil {
 				return nil, ErrRefToNonexistentClass
 			}
 		}
