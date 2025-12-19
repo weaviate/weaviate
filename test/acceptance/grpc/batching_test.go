@@ -350,6 +350,7 @@ func TestGRPC_ClusterBatching(t *testing.T) {
 		helper.DeleteClass(t, clsP.Class)
 		// Create the schema
 		helper.CreateClass(t, clsP)
+		time.Sleep(2 * time.Second) // wait for RAFT to replicate to avoid flakes
 		helper.CreateClass(t, clsA)
 		return func() {
 			helper.DeleteClass(t, clsA.Class)
