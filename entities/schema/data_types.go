@@ -278,23 +278,14 @@ func FindPropertyDataTypeWithRefsAndAuth(authorizedGetClass func(string) (*model
 		if err != nil {
 			return nil, err
 		}
-		classes = append(classes, className)
-	}
-	for _, someDataType := range dataType {
-		className, err := ValidateClassName(someDataType)
-		if err != nil {
-			return nil, err
-		}
 
 		if beloningToClass != className {
 			class, err := authorizedGetClass(className.String())
 			if err != nil {
 				return nil, err
 			}
-			if !relaxCrossRefValidation {
-				if class == nil {
-					return nil, ErrRefToNonexistentClass
-				}
+			if !relaxCrossRefValidation && class == nil {
+				return nil, ErrRefToNonexistentClass
 			}
 		}
 
