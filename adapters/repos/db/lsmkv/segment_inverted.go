@@ -115,6 +115,20 @@ func (s *segment) loadPropertyLengths() (map[uint64]uint32, error) {
 
 	s.invertedData.propertyLengthsLoaded = true
 	s.invertedData.propertyLengths = propLengths
+
+	if math.IsNaN(s.invertedData.avgPropertyLengthsAvg) || math.IsInf(s.invertedData.avgPropertyLengthsAvg, 0) {
+		// recompute property lengths average
+		var totalLength uint64
+		for _, length := range propLengths {
+			totalLength += uint64(length)
+		}
+		s.invertedData.avgPropertyLengthsCount = uint64(len(propLengths))
+		if s.invertedData.avgPropertyLengthsCount > 0 {
+			s.invertedData.avgPropertyLengthsAvg = float64(totalLength) / float64(len(propLengths))
+		} else {
+			s.invertedData.avgPropertyLengthsAvg = defaultAveragePropLength
+		}
+	}
 	return s.invertedData.propertyLengths, nil
 }
 
