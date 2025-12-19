@@ -23,6 +23,7 @@ import (
 	"github.com/sirupsen/logrus"
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
+	entSchema "github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	gproto "google.golang.org/protobuf/proto"
 )
@@ -175,6 +176,19 @@ func (s *SchemaManager) AddClass(cmd *command.ApplyRequest, nodeID string, schem
 	}
 	if req.State == nil {
 		return fmt.Errorf("%w: nil sharding state", ErrBadRequest)
+	}
+	// validate xrefs within the class for existance
+	for _, prop := range req.Class.Properties {
+		if !entSchema.IsRefDataType(prop.DataType) {
+			continue
+		}
+		for _, dt := range prop.DataType {
+			if _, ok := s.schema.classes[dt]; ok {
+				continue
+			}
+			return fmt.Errorf("%w: %w", ErrBadRequest, entSchema.ErrRefToNonexistentClass)
+		}
+
 	}
 	if err := s.parser.ParseClass(req.Class); err != nil {
 		return fmt.Errorf("%w: parsing class: %w", ErrBadRequest, err)
