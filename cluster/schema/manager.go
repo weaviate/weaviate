@@ -180,6 +180,11 @@ func (s *SchemaManager) AddClass(cmd *command.ApplyRequest, nodeID string, schem
 	// validate xrefs within the class for existence
 	for _, prop := range req.Class.Properties {
 		if !entSchema.IsRefDataType(prop.DataType) {
+			// don't need to validate non-xref data types
+			continue
+		}
+		if len(prop.DataType) == 1 && prop.DataType[0] == req.Class.Class {
+			// self-references are always allowed
 			continue
 		}
 		for _, dt := range prop.DataType {
