@@ -13,23 +13,20 @@ package flat
 
 import (
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 type Config struct {
-	ID                           string
-	RootPath                     string
-	TargetVector                 string
-	MinMMapSize                  int64
-	MaxWalReuseSize              int64
-	Logger                       logrus.FieldLogger
-	DistanceProvider             distancer.Provider
-	AllocChecker                 memwatch.AllocChecker
-	LazyLoadSegments             bool
-	WriteSegmentInfoIntoFileName bool
-	WriteMetadataFilesEnabled    bool
+	ID                string
+	RootPath          string
+	TargetVector      string
+	Logger            logrus.FieldLogger
+	DistanceProvider  distancer.Provider
+	AllocChecker      memwatch.AllocChecker
+	MakeBucketOptions lsmkv.MakeBucketOptions
 }
 
 func (c Config) Validate() error {

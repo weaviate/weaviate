@@ -169,6 +169,10 @@ func (rq *RotationalQuantizer) Encode(x []float32) []byte {
 	return rq.encode(x, rq.bits)
 }
 
+func (rq *RotationalQuantizer) Decode(compressed []byte) []float32 {
+	return rq.UnRotate(rq.Restore(compressed))
+}
+
 func dotProduct(x, y []float32) float32 {
 	distancer := distancer.NewDotProductProvider()
 	negativeDot, _ := distancer.SingleDist(x, y)
@@ -368,4 +372,12 @@ func (rq *RotationalQuantizer) PersistCompression(logger CommitLogger) {
 		Bits:     rq.bits,
 		Rotation: *rq.rotation,
 	})
+}
+
+func (rq *RotationalQuantizer) Data() RQData {
+	return RQData{
+		InputDim: rq.inputDim,
+		Bits:     rq.bits,
+		Rotation: *rq.rotation,
+	}
 }

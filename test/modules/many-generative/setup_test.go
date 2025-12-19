@@ -90,7 +90,7 @@ func composeModules(accessKey, secretKey, sessionToken string,
 	googleApiKey, cohereApiKey string,
 ) (composeModules *docker.Compose) {
 	composeModules = docker.New().
-		WithText2VecTransformers().
+		WithText2VecModel2Vec().
 		WithGenerativeOllama().
 		WithGenerativeAWS(accessKey, secretKey, sessionToken).
 		WithGenerativeGoogle(googleApiKey).

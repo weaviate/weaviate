@@ -153,13 +153,15 @@ type Config struct {
 	HNSWFlatSearchConcurrency           int                      `json:"hnsw_flat_search_concurrency" yaml:"hnsw_flat_search_concurrency"`
 	HNSWAcornFilterRatio                float64                  `json:"hnsw_acorn_filter_ratio" yaml:"hnsw_acorn_filter_ratio"`
 	HNSWGeoIndexEF                      int                      `json:"hnsw_geo_index_ef" yaml:"hnsw_geo_index_ef"`
+	AsyncIndexingEnabled                bool                     `json:"async_indexing_enabled" yaml:"async_indexing_enabled"`
 	Sentry                              *entsentry.ConfigOpts    `json:"sentry" yaml:"sentry"`
 	MetadataServer                      MetadataServer           `json:"metadata_server" yaml:"metadata_server"`
 	SchemaHandlerConfig                 SchemaHandlerConfig      `json:"schema" yaml:"schema"`
 	DistributedTasks                    DistributedTasksConfig   `json:"distributed_tasks" yaml:"distributed_tasks"`
 	ReplicationEngineMaxWorkers         int                      `json:"replication_engine_max_workers" yaml:"replication_engine_max_workers"`
 	ReplicationEngineFileCopyWorkers    int                      `json:"replication_engine_file_copy_workers" yaml:"replication_engine_file_copy_workers"`
-	SPFreshEnabled                      bool                     `json:"spfresh_enabled" yaml:"spfresh_enabled"`
+	HFreshEnabled                       bool                     `json:"hfresh_enabled" yaml:"hfresh_enabled"`
+	ReplicationEngineFileCopyChunkSize  int                      `json:"replication_engine_file_copy_chunk_size" yaml:"replication_engine_file_copy_chunk_size"`
 	// Raft Specific configuration
 	// TODO-RAFT: Do we want to be able to specify these with config file as well ?
 	Raft Raft
@@ -227,6 +229,14 @@ type Config struct {
 
 	// The minimum timeout for the server to wait before it returns an error
 	MinimumInternalTimeout time.Duration `json:"minimum_internal_timeout" yaml:"minimum_internal_timeout"`
+
+	// Time expired objects should be deleted at by background routine
+	// accepts format: https://github.com/netresearch/go-cron?tab=readme-ov-file#cron-expression-format
+	ObjectsTTLDeleteSchedule string `json:"objects_ttl_delete_schedule" yaml:"objects_ttl_delete_schedule"`
+
+	ObjectsTtlAllowSeconds bool `json:"objects_ttl_allow_seconds" yaml:"objects_ttl_allow_seconds"`
+	// The specific mode of operation for the instance itself. Is an enum of Full, WriteOnly, ReadOnly, ScaleOut
+	OperationalMode *runtime.DynamicValue[string] `json:"operational_mode" yaml:"operational_mode"`
 }
 
 type MapToBlockamaxConfig struct {
@@ -358,10 +368,12 @@ type Contextionary struct {
 
 // Support independent TLS credentials for gRPC
 type GRPC struct {
-	Port       int    `json:"port" yaml:"port"`
-	CertFile   string `json:"certFile" yaml:"certFile"`
-	KeyFile    string `json:"keyFile" yaml:"keyFile"`
-	MaxMsgSize int    `json:"maxMsgSize" yaml:"maxMsgSize"`
+	Port            int           `json:"port" yaml:"port"`
+	CertFile        string        `json:"certFile" yaml:"certFile"`
+	KeyFile         string        `json:"keyFile" yaml:"keyFile"`
+	MaxMsgSize      int           `json:"maxMsgSize" yaml:"maxMsgSize"`
+	MaxOpenConns    int           `json:"maxOpenConns" yaml:"maxOpenConns"`
+	IdleConnTimeout time.Duration `json:"idleConnTimeout" yaml:"idleConnTimeout"`
 }
 
 type Profiling struct {

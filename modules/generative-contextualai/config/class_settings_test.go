@@ -164,3 +164,41 @@ func TestClassSettingsAvoidCommentary(t *testing.T) {
 		})
 	}
 }
+
+func TestClassSettingsKnowledge(t *testing.T) {
+	tests := []struct {
+		name     string
+		cfg      map[string]any
+		expected []string
+	}{
+		{
+			name:     "default knowledge",
+			cfg:      map[string]any{},
+			expected: nil,
+		},
+		{
+			name: "custom knowledge as []any",
+			cfg: map[string]any{
+				"knowledge": []any{"a", "b"},
+			},
+			expected: []string{"a", "b"},
+		},
+		{
+			name: "custom knowledge as []string",
+			cfg: map[string]any{
+				"knowledge": []string{"a", "b"},
+			},
+			expected: []string{"a", "b"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fakeConfig := fakeClassConfig{classConfig: tt.cfg}
+			settings := NewClassSettings(fakeConfig)
+
+			knowledge := settings.Knowledge()
+			assert.Equal(t, tt.expected, knowledge)
+		})
+	}
+}

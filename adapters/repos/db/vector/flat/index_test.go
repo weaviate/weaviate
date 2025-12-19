@@ -109,9 +109,10 @@ func run(ctx context.Context, dirName string, logger *logrus.Logger, compression
 		rq.Cache = vectorCache
 	}
 	index, err := New(Config{
-		ID:               runId,
-		RootPath:         dirName,
-		DistanceProvider: distancer,
+		ID:                runId,
+		RootPath:          dirName,
+		DistanceProvider:  distancer,
+		MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
 	}, flatent.UserConfig{
 		BQ: bq,
 		RQ: rq,

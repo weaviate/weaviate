@@ -136,6 +136,9 @@ func (c *contextualai) getParameters(cfg moduletools.ClassConfig, options any) c
 	if params.AvoidCommentary == nil {
 		params.AvoidCommentary = settings.AvoidCommentary()
 	}
+	if len(params.Knowledge) == 0 {
+		params.Knowledge = settings.Knowledge()
+	}
 
 	return params
 }
@@ -209,8 +212,8 @@ func (c *contextualai) handleAPIError(statusCode int, bodyBytes []byte) error {
 		if apiError.Message != "" {
 			return fmt.Errorf("connection to Contextual AI API failed with status %d: %s", statusCode, apiError.Message)
 		}
-		if len(apiError.Detail) > 0 && apiError.Detail[0].Msg != "" {
-			return fmt.Errorf("connection to Contextual AI API failed with status %d: %s", statusCode, apiError.Detail[0].Msg)
+		if apiError.Detail != "" {
+			return fmt.Errorf("connection to Contextual AI API failed with status %d: %s", statusCode, apiError.Detail)
 		}
 	}
 	return fmt.Errorf("connection to Contextual AI API request failed with status: %d", statusCode)
@@ -294,12 +297,7 @@ type generateResponse struct {
 }
 
 type contextualAIAPIError struct {
-	Message string        `json:"message"`
-	Detail  []errorDetail `json:"detail"`
-}
-
-type errorDetail struct {
-	Loc  []string `json:"loc"`
-	Msg  string   `json:"msg"`
-	Type string   `json:"type"`
+	Message   string `json:"message"`
+	Detail    string `json:"detail"`
+	ErrorCode string `json:"error_code"`
 }

@@ -37,9 +37,10 @@ func createTestIndex(t *testing.T) *flat {
 	require.NoError(t, err)
 
 	index, err := New(Config{
-		ID:               uuid.New().String(),
-		DistanceProvider: distancer,
-		RootPath:         dirName,
+		ID:                uuid.New().String(),
+		DistanceProvider:  distancer,
+		RootPath:          dirName,
+		MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
 	}, flatent.UserConfig{
 		PQ: flatent.CompressionUserConfig{
 			Enabled: false,
