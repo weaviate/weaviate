@@ -80,6 +80,14 @@ func FromObject(object *models.Object, vector []float32, vectors map[string][]fl
 		object.Properties = properties
 	}
 
+	// filter out deleted property
+	// 1. remove property in background
+	// 2. keep a track of removed properties in order to filter them during search
+	// 3. if user wants to create a property with a name that was deleted we should:
+	//    a. prevent user from creating a previously deleted property?
+	//    b. take into account object's update date to filter out removed properties but
+	//       at the same time show user newly inserted data
+
 	var vecs map[string][]float32
 	if vectors != nil {
 		vecs = make(map[string][]float32)
