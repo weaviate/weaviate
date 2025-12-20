@@ -231,14 +231,6 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 
 	appState := startupRoutine(ctx, options)
 
-	// this is before initRuntimeOverrides to be able to init module configs
-	// as runtime overrides are applied after initModules
-	if err := registerModules(appState); err != nil {
-		appState.Logger.
-			WithField("action", "startup").WithError(err).
-			Fatal("modules didn't load")
-	}
-
 	// while we accept an overall longer startup, e.g. due to a recovery, we
 	// still want to limit the module startup context, as that's mostly service
 	// discovery / dependency checking
@@ -257,9 +249,6 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 			WithField("action", "startup").WithError(err).
 			Fatal("invalid config")
 	}
-
-	// initializing at the top to reflect the config changes before we pass on to different components.
-	initRuntimeOverrides(appState)
 
 	// Initialize OpenTelemetry tracing
 	if err := opentelemetry.Init(appState.Logger); err != nil {
@@ -1257,6 +1246,14 @@ func startupRoutine(ctx context.Context, options *swag.CommandLineOptionsGroup) 
 		logger.WithField("action", "startup").WithError(err).Error("could not load config")
 		logger.Exit(1)
 	}
+	// Register enabled modules
+	if err := registerModules(appState); err != nil {
+		appState.Logger.
+			WithField("action", "startup").WithError(err).
+			Fatal("modules didn't load")
+	}
+	// Initialize runtime config and load overridden config
+	runtimeConfigManager := initRuntimeOverrides(appState)
 	dataPath := serverConfig.Config.Persistence.DataPath
 	if err := os.MkdirAll(dataPath, 0o777); err != nil {
 		logger.WithField("action", "startup").
@@ -1321,6 +1318,9 @@ func startupRoutine(ctx context.Context, options *swag.CommandLineOptionsGroup) 
 	appState.Logger.
 		WithField("action", "startup").
 		Debug("startup routine complete")
+
+	// Initialize runtime config hooks and start runtime config background process
+	postInitRuntimeOverrides(appState, runtimeConfigManager)
 
 	return appState
 }
@@ -2156,10 +2156,9 @@ func (m membership) LeaderID() string {
 
 // initRuntimeOverrides assumes, Configs from envs are loaded before
 // initializing runtime overrides.
-func initRuntimeOverrides(appState *state.State) {
+func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[config.WeaviateRuntimeConfig] {
 	// Enable runtime config manager
 	if appState.ServerConfig.Config.RuntimeOverrides.Enabled {
-
 		// Runtimeconfig manager takes of keeping the `registered` config values upto date
 		registered := &config.WeaviateRuntimeConfig{}
 		registered.MaximumAllowedCollectionsCount = appState.ServerConfig.Config.SchemaHandlerConfig.MaximumAllowedCollectionsCount
@@ -2193,19 +2192,15 @@ func initRuntimeOverrides(appState *state.State) {
 			registered.UsageVerifyPermissions = appState.ServerConfig.Config.Usage.VerifyPermissions
 		}
 
-		hooks := make(map[string]func() error)
-		if appState.OIDC.Config.Enabled {
-			registered.OIDCIssuer = appState.OIDC.Config.Issuer
-			registered.OIDCClientID = appState.OIDC.Config.ClientID
-			registered.OIDCSkipClientIDCheck = appState.OIDC.Config.SkipClientIDCheck
-			registered.OIDCUsernameClaim = appState.OIDC.Config.UsernameClaim
-			registered.OIDCGroupsClaim = appState.OIDC.Config.GroupsClaim
-			registered.OIDCScopes = appState.OIDC.Config.Scopes
-			registered.OIDCCertificate = appState.OIDC.Config.Certificate
-			registered.OIDCJWKSUrl = appState.OIDC.Config.JWKSUrl
-
-			hooks["OIDC"] = appState.OIDC.Init
-			appState.Logger.Log(logrus.InfoLevel, "registereing OIDC runtime overrides hooks")
+		if appState.ServerConfig.Config.Authentication.OIDC.Enabled {
+			registered.OIDCIssuer = appState.ServerConfig.Config.Authentication.OIDC.Issuer
+			registered.OIDCClientID = appState.ServerConfig.Config.Authentication.OIDC.ClientID
+			registered.OIDCSkipClientIDCheck = appState.ServerConfig.Config.Authentication.OIDC.SkipClientIDCheck
+			registered.OIDCUsernameClaim = appState.ServerConfig.Config.Authentication.OIDC.UsernameClaim
+			registered.OIDCGroupsClaim = appState.ServerConfig.Config.Authentication.OIDC.GroupsClaim
+			registered.OIDCScopes = appState.ServerConfig.Config.Authentication.OIDC.Scopes
+			registered.OIDCCertificate = appState.ServerConfig.Config.Authentication.OIDC.Certificate
+			registered.OIDCJWKSUrl = appState.ServerConfig.Config.Authentication.OIDC.JWKSUrl
 		}
 
 		cm, err := configRuntime.NewConfigManager(
@@ -2215,11 +2210,24 @@ func initRuntimeOverrides(appState *state.State) {
 			registered,
 			appState.ServerConfig.Config.RuntimeOverrides.LoadInterval,
 			appState.Logger,
-			hooks,
 			prometheus.DefaultRegisterer)
 		if err != nil {
-			appState.Logger.WithField("action", "startup").WithError(err).Error("could not create runtime config manager")
+			appState.Logger.WithField("action", "startup").Errorf("could not create runtime config manager: %v", err)
 		}
+		return cm
+	}
+	return nil
+}
+
+// postInitRuntimeOverrides registers hooks and starts runtime config background process
+func postInitRuntimeOverrides(appState *state.State, cm *configRuntime.ConfigManager[config.WeaviateRuntimeConfig]) {
+	if appState.ServerConfig.Config.RuntimeOverrides.Enabled && cm != nil {
+		hooks := make(map[string]func() error)
+		if appState.ServerConfig.Config.Authentication.OIDC.Enabled {
+			hooks["OIDC"] = appState.OIDC.Init
+		}
+		appState.Logger.Log(logrus.InfoLevel, "registereing OIDC runtime overrides hooks")
+		cm.RegisterHooks(hooks)
 
 		enterrors.GoWrapper(func() {
 			// NOTE: Not using parent `ctx` because that is getting cancelled in the caller even during startup.
@@ -2227,8 +2235,7 @@ func initRuntimeOverrides(appState *state.State) {
 			defer cancel()
 
 			if err := cm.Run(ctx); err != nil {
-				appState.Logger.WithField("action", "runtime config manager startup").WithError(err).
-					Fatal("runtime config manager stopped")
+				appState.Logger.WithField("action", "runtime config manager startup").Fatalf("runtime config manager stopped: %v", err)
 			}
 		}, appState.Logger)
 	}
