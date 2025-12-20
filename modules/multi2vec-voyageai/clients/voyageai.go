@@ -23,6 +23,19 @@ import (
 	"github.com/weaviate/weaviate/usecases/modulecomponents/clients/voyageai"
 )
 
+var rateLimitPerModel = map[string]voyageai.VoyageRLModel{
+	"voyage-multimodal-3.5": {TokenLimit: 2_000_000, RequestLimit: 2000},
+	"voyage-multimodal-3":   {TokenLimit: 2_000_000, RequestLimit: 2000},
+	"default":               {TokenLimit: 1_000_000, RequestLimit: 1000},
+}
+
+func getLimitForModel(model string) voyageai.VoyageRLModel {
+	if rl, ok := rateLimitPerModel[model]; ok {
+		return rl
+	}
+	return rateLimitPerModel["default"]
+}
+
 type voyageaiUrlBuilder struct {
 	origin   string
 	pathMask string
@@ -53,10 +66,10 @@ func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *vecto
 }
 
 func (v *vectorizer) Vectorize(ctx context.Context,
-	texts, images []string, cfg moduletools.ClassConfig,
+	texts, images, videos []string, cfg moduletools.ClassConfig,
 ) (*modulecomponents.VectorizationCLIPResult[[]float32], error) {
 	settings := ent.NewClassSettings(cfg)
-	return v.client.VectorizeMultiModal(ctx, texts, images, voyageai.Settings{
+	return v.client.VectorizeMultiModal(ctx, texts, images, videos, voyageai.Settings{
 		BaseURL:   settings.BaseURL(),
 		Model:     settings.Model(),
 		Truncate:  settings.Truncate(),
@@ -68,7 +81,7 @@ func (v *vectorizer) VectorizeQuery(ctx context.Context,
 	input []string, cfg moduletools.ClassConfig,
 ) (*modulecomponents.VectorizationCLIPResult[[]float32], error) {
 	settings := ent.NewClassSettings(cfg)
-	return v.client.VectorizeMultiModal(ctx, input, nil, voyageai.Settings{
+	return v.client.VectorizeMultiModal(ctx, input, nil, nil, voyageai.Settings{
 		BaseURL:   settings.BaseURL(),
 		Model:     settings.Model(),
 		Truncate:  settings.Truncate(),
@@ -80,10 +93,32 @@ func (v *vectorizer) VectorizeImageQuery(ctx context.Context,
 	images []string, cfg moduletools.ClassConfig,
 ) (*modulecomponents.VectorizationCLIPResult[[]float32], error) {
 	settings := ent.NewClassSettings(cfg)
-	return v.client.VectorizeMultiModal(ctx, nil, images, voyageai.Settings{
+	return v.client.VectorizeMultiModal(ctx, nil, images, nil, voyageai.Settings{
 		BaseURL:   settings.BaseURL(),
 		Model:     settings.Model(),
 		Truncate:  settings.Truncate(),
 		InputType: voyageai.Query,
 	})
+}
+
+func (v *vectorizer) VectorizeVideoQuery(ctx context.Context,
+	videos []string, cfg moduletools.ClassConfig,
+) (*modulecomponents.VectorizationCLIPResult[[]float32], error) {
+	settings := ent.NewClassSettings(cfg)
+	return v.client.VectorizeMultiModal(ctx, nil, nil, videos, voyageai.Settings{
+		BaseURL:   settings.BaseURL(),
+		Model:     settings.Model(),
+		Truncate:  settings.Truncate(),
+		InputType: voyageai.Query,
+	})
+}
+
+func (v *vectorizer) GetApiKeyHash(ctx context.Context, cfg moduletools.ClassConfig) [32]byte {
+	return v.client.GetApiKeyHash(ctx, cfg)
+}
+
+func (v *vectorizer) GetVectorizerRateLimit(ctx context.Context, cfg moduletools.ClassConfig) *modulecomponents.RateLimits {
+	settings := ent.NewClassSettings(cfg)
+	modelRL := getLimitForModel(settings.Model())
+	return v.client.GetVectorizerRateLimit(ctx, modelRL)
 }

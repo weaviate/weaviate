@@ -35,14 +35,17 @@ func (b *builder) addSetting(name string, value interface{}) *builder {
 	return b
 }
 
-func (b *builder) addWeights(textWeights, imageWeights []interface{}) *builder {
-	if textWeights != nil || imageWeights != nil {
+func (b *builder) addWeights(textWeights, imageWeights, videoWeights []interface{}) *builder {
+	if textWeights != nil || imageWeights != nil || videoWeights != nil {
 		weightSettings := map[string]interface{}{}
 		if textWeights != nil {
 			weightSettings["textFields"] = textWeights
 		}
 		if imageWeights != nil {
 			weightSettings["imageFields"] = imageWeights
+		}
+		if videoWeights != nil {
+			weightSettings["videoFields"] = videoWeights
 		}
 		b.fakeClassConfig.config["weights"] = weightSettings
 	}
@@ -88,11 +91,17 @@ func (f fakeClassConfig) Config() *config.Config {
 type fakeClient struct{}
 
 func (c *fakeClient) Vectorize(ctx context.Context,
-	texts, images []string, cfg moduletools.ClassConfig,
+	texts, images, videos []string, cfg moduletools.ClassConfig,
 ) (*modulecomponents.VectorizationCLIPResult[[]float32], error) {
-	result := &modulecomponents.VectorizationCLIPResult[[]float32]{
-		TextVectors:  [][]float32{{1.0, 2.0, 3.0, 4.0, 5.0}},
-		ImageVectors: [][]float32{{10.0, 20.0, 30.0, 40.0, 50.0}},
+	result := &modulecomponents.VectorizationCLIPResult[[]float32]{}
+	if len(texts) > 0 {
+		result.TextVectors = [][]float32{{1.0, 2.0, 3.0, 4.0, 5.0}}
+	}
+	if len(images) > 0 {
+		result.ImageVectors = [][]float32{{10.0, 20.0, 30.0, 40.0, 50.0}}
+	}
+	if len(videos) > 0 {
+		result.VideoVectors = [][]float32{{100.0, 200.0, 300.0, 400.0, 500.0}}
 	}
 	return result, nil
 }
@@ -111,6 +120,15 @@ func (c *fakeClient) VectorizeImageQuery(ctx context.Context,
 ) (*modulecomponents.VectorizationCLIPResult[[]float32], error) {
 	result := &modulecomponents.VectorizationCLIPResult[[]float32]{
 		ImageVectors: [][]float32{{10.0, 20.0, 30.0, 40.0, 50.0}},
+	}
+	return result, nil
+}
+
+func (c *fakeClient) VectorizeVideoQuery(ctx context.Context,
+	videos []string, cfg moduletools.ClassConfig,
+) (*modulecomponents.VectorizationCLIPResult[[]float32], error) {
+	result := &modulecomponents.VectorizationCLIPResult[[]float32]{
+		VideoVectors: [][]float32{{100.0, 200.0, 300.0, 400.0, 500.0}},
 	}
 	return result, nil
 }

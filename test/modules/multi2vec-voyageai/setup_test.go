@@ -34,6 +34,7 @@ func TestMulti2VecVoyageAI_SingleNode(t *testing.T) {
 	endpoint := compose.GetWeaviate().URI()
 
 	t.Run("multi2vec-voyageai", testMulti2VecVoyageAI(endpoint))
+	t.Run("multi2vec-voyageai-video", testMulti2VecVoyageAIWithVideo(endpoint))
 }
 
 func createSingleNodeEnvironment(ctx context.Context, apiKey string,

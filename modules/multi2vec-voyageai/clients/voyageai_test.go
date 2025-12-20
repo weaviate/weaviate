@@ -40,7 +40,7 @@ func TestClient(t *testing.T) {
 			ImageVectors: [][]float32{{0.4, 0.5, 0.6}},
 		}
 		res, err := c.Vectorize(context.Background(),
-			[]string{"This is my text"}, []string{"base64image"},
+			[]string{"This is my text"}, []string{"base64image"}, nil,
 			fakeClassConfig{classConfig: map[string]interface{}{"Model": "voyage-multimodal-3", "baseURL": server.URL}},
 		)
 
@@ -55,7 +55,7 @@ func TestClient(t *testing.T) {
 		ctx, cancel := context.WithDeadline(context.Background(), time.Now())
 		defer cancel()
 
-		_, err := c.Vectorize(ctx, []string{"text"}, []string{"image"},
+		_, err := c.Vectorize(ctx, []string{"text"}, []string{"image"}, nil,
 			fakeClassConfig{classConfig: map[string]interface{}{"Model": "voyage-multimodal-3"}},
 		)
 
@@ -70,7 +70,7 @@ func TestClient(t *testing.T) {
 		})
 		defer server.Close()
 		c := &vectorizer{voyageai.New("apiKey", 0, &voyageaiUrlBuilder{origin: server.URL, pathMask: "/multimodalembeddings"}, nullLogger())}
-		_, err := c.Vectorize(context.Background(), []string{"text"}, []string{"image"},
+		_, err := c.Vectorize(context.Background(), []string{"text"}, []string{"image"}, nil,
 			fakeClassConfig{classConfig: map[string]interface{}{"Model": "voyage-multimodal-3", "baseURL": server.URL}},
 		)
 
@@ -89,7 +89,7 @@ func TestClient(t *testing.T) {
 			TextVectors:  [][]float32{{0.1, 0.2, 0.3}},
 			ImageVectors: [][]float32{{0.4, 0.5, 0.6}},
 		}
-		res, err := c.Vectorize(ctxWithValue, []string{"text"}, []string{"image"},
+		res, err := c.Vectorize(ctxWithValue, []string{"text"}, []string{"image"}, nil,
 			fakeClassConfig{classConfig: map[string]interface{}{"Model": "voyage-multimodal-3", "baseURL": server.URL}},
 		)
 
