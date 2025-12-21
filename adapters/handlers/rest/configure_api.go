@@ -224,25 +224,6 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 
 	appState := startupRoutine(ctx, options)
 
-	// while we accept an overall longer startup, e.g. due to a recovery, we
-	// still want to limit the module startup context, as that's mostly service
-	// discovery / dependency checking
-	moduleCtx, cancel := context.WithTimeout(ctx, 120*time.Second)
-	defer cancel()
-
-	if err := initModules(moduleCtx, appState); err != nil {
-		appState.Logger.
-			WithField("action", "startup").WithError(err).
-			Fatal("modules didn't initialize")
-	}
-	// now that modules are loaded we can run the remaining config validation
-	// which is module dependent
-	if err := appState.ServerConfig.Config.ValidateModules(appState.Modules); err != nil {
-		appState.Logger.
-			WithField("action", "startup").WithError(err).
-			Fatal("invalid config")
-	}
-
 	if appState.ServerConfig.Config.Monitoring.Enabled {
 		appState.HTTPServerMetrics = monitoring.NewHTTPServerMetrics(monitoring.DefaultMetricsNamespace, prometheus.DefaultRegisterer)
 		appState.GRPCServerMetrics = monitoring.NewGRPCServerMetrics(monitoring.DefaultMetricsNamespace, prometheus.DefaultRegisterer)
@@ -1041,12 +1022,6 @@ func startupRoutine(ctx context.Context, options *swag.CommandLineOptionsGroup) 
 		logger.WithField("action", "startup").WithError(err).Error("could not load config")
 		logger.Exit(1)
 	}
-	// Register enabled modules
-	if err := registerModules(appState); err != nil {
-		appState.Logger.
-			WithField("action", "startup").WithError(err).
-			Fatal("modules didn't load")
-	}
 	// Initialize runtime config and load overridden config
 	runtimeConfigManager := initRuntimeOverrides(appState)
 	dataPath := serverConfig.Config.Persistence.DataPath
@@ -1113,6 +1088,31 @@ func startupRoutine(ctx context.Context, options *swag.CommandLineOptionsGroup) 
 	appState.Logger.
 		WithField("action", "startup").
 		Debug("startup routine complete")
+
+	// Register enabled modules
+	if err := registerModules(appState); err != nil {
+		appState.Logger.
+			WithField("action", "startup").WithError(err).
+			Fatal("modules didn't load")
+	}
+	// while we accept an overall longer startup, e.g. due to a recovery, we
+	// still want to limit the module startup context, as that's mostly service
+	// discovery / dependency checking
+	moduleCtx, cancel := context.WithTimeout(ctx, 120*time.Second)
+	defer cancel()
+
+	if err := initModules(moduleCtx, appState); err != nil {
+		appState.Logger.
+			WithField("action", "startup").WithError(err).
+			Fatal("modules didn't initialize")
+	}
+	// now that modules are loaded we can run the remaining config validation
+	// which is module dependent
+	if err := appState.ServerConfig.Config.ValidateModules(appState.Modules); err != nil {
+		appState.Logger.
+			WithField("action", "startup").WithError(err).
+			Fatal("invalid config")
+	}
 
 	// Initialize runtime config hooks and start runtime config background process
 	postInitRuntimeOverrides(appState, runtimeConfigManager)
@@ -1941,20 +1941,6 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 		registered.RaftTimoutsMultiplier = appState.ServerConfig.Config.Raft.TimeoutsMultiplier
 		registered.ReplicatedIndicesRequestQueueEnabled = appState.ServerConfig.Config.Cluster.RequestQueueConfig.IsEnabled
 
-		if appState.Modules.UsageEnabled() {
-			// gcs config
-			registered.UsageGCSBucket = appState.ServerConfig.Config.Usage.GCSBucket
-			registered.UsageGCSPrefix = appState.ServerConfig.Config.Usage.GCSPrefix
-			// s3 config
-			registered.UsageS3Bucket = appState.ServerConfig.Config.Usage.S3Bucket
-			registered.UsageS3Prefix = appState.ServerConfig.Config.Usage.S3Prefix
-			// common config
-			registered.UsageScrapeInterval = appState.ServerConfig.Config.Usage.ScrapeInterval
-			registered.UsageShardJitterInterval = appState.ServerConfig.Config.Usage.ShardJitterInterval
-			registered.UsagePolicyVersion = appState.ServerConfig.Config.Usage.PolicyVersion
-			registered.UsageVerifyPermissions = appState.ServerConfig.Config.Usage.VerifyPermissions
-		}
-
 		if appState.ServerConfig.Config.Authentication.OIDC.Enabled {
 			registered.OIDCIssuer = appState.ServerConfig.Config.Authentication.OIDC.Issuer
 			registered.OIDCClientID = appState.ServerConfig.Config.Authentication.OIDC.ClientID
@@ -1985,13 +1971,34 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 // postInitRuntimeOverrides registers hooks and starts runtime config background process
 func postInitRuntimeOverrides(appState *state.State, cm *configRuntime.ConfigManager[config.WeaviateRuntimeConfig]) {
 	if appState.ServerConfig.Config.RuntimeOverrides.Enabled && cm != nil {
+		// register any additional runtime configs
+		if appState.Modules.UsageEnabled() {
+			cm.RegisterAdditional(func(registered *config.WeaviateRuntimeConfig) {
+				// gcs config
+				registered.UsageGCSBucket = appState.ServerConfig.Config.Usage.GCSBucket
+				registered.UsageGCSPrefix = appState.ServerConfig.Config.Usage.GCSPrefix
+				// s3 config
+				registered.UsageS3Bucket = appState.ServerConfig.Config.Usage.S3Bucket
+				registered.UsageS3Prefix = appState.ServerConfig.Config.Usage.S3Prefix
+				// common config
+				registered.UsageScrapeInterval = appState.ServerConfig.Config.Usage.ScrapeInterval
+				registered.UsageShardJitterInterval = appState.ServerConfig.Config.Usage.ShardJitterInterval
+				registered.UsagePolicyVersion = appState.ServerConfig.Config.Usage.PolicyVersion
+				registered.UsageVerifyPermissions = appState.ServerConfig.Config.Usage.VerifyPermissions
+			})
+		}
+		// register hooks
 		hooks := make(map[string]func() error)
 		if appState.ServerConfig.Config.Authentication.OIDC.Enabled {
 			hooks["OIDC"] = appState.OIDC.Init
 		}
 		appState.Logger.Log(logrus.InfoLevel, "registereing OIDC runtime overrides hooks")
 		cm.RegisterHooks(hooks)
-
+		// reload current overrides file to take into account additional settings
+		if err := cm.ReloadConfig(); err != nil {
+			appState.Logger.WithField("action", "startup").Errorf("could not reload config: %v", err)
+		}
+		// start runtime config background check
 		enterrors.GoWrapper(func() {
 			// NOTE: Not using parent `ctx` because that is getting cancelled in the caller even during startup.
 			ctx, cancel := context.WithCancel(context.Background())
