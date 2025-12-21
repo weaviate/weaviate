@@ -72,10 +72,6 @@ func testGenerativeAWS(rest, grpc, region string) func(t *testing.T) {
 			},
 			// Amazon Titan
 			{
-				name:            "amazon.titan-text-lite-v1",
-				generativeModel: "amazon.titan-text-lite-v1",
-			},
-			{
 				name:            "amazon.titan-text-express-v1",
 				generativeModel: "amazon.titan-text-express-v1",
 			},
