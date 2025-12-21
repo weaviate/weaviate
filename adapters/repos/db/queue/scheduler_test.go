@@ -403,6 +403,53 @@ func TestScheduler(t *testing.T) {
 		err = q2.Close()
 		require.NoError(t, err)
 	})
+
+	t.Run("should run one queue per group", func(t *testing.T) {
+		s := makeScheduler(t, 1)
+		s.ScheduleInterval = 100 * time.Second
+		s.Start()
+
+		// grouped queues
+		ch11, e11 := streamExecutor()
+		ch12, e12 := streamExecutor()
+		ch20, e20 := streamExecutor()
+		ch21, e21 := streamExecutor()
+		q11 := makeQueueWithGroup(t, s, e11, 0, t.TempDir(), "group1")
+		q12 := makeQueueWithGroup(t, s, e12, 0, t.TempDir(), "group1")
+		q20 := makeQueueWithGroup(t, s, e20, 0, t.TempDir(), "group2")
+		q21 := makeQueueWithGroup(t, s, e21, 0, t.TempDir(), "group2")
+
+		// non-grouped queues
+		ch3, e3 := streamExecutor()
+		q3 := makeQueueWithGroup(t, s, e3, 0, t.TempDir(), "group3")
+
+		ch4, e4 := streamExecutor()
+		q4 := makeQueueWithGroup(t, s, e4, 0, t.TempDir(), "group4")
+
+		var batch []uint64
+		for i := 0; i < 10; i++ {
+			batch = append(batch, uint64(i))
+		}
+		pushMany(t, q11, 1, batch...)
+		pushMany(t, q12, 1, batch...)
+		pushMany(t, q20, 1, batch...)
+		pushMany(t, q21, 1, batch...)
+		pushMany(t, q3, 1, batch...)
+		pushMany(t, q4, 1, batch...)
+
+		s.Schedule(t.Context())
+
+		// group 1
+		res1 := make([]uint64, 20)
+		for i := range 20 {
+			if i%2 == 0 {
+				res1[i] = <-ch11
+			} else {
+				res1[i] = <-ch12
+			}
+		}
+
+	})
 }
 
 func makeScheduler(t testing.TB, workers ...int) *Scheduler {
@@ -429,8 +476,11 @@ var queueIDCounter atomic.Int32
 func makeQueueWith(t *testing.T, s *Scheduler, decoder TaskDecoder, chunkSize uint64, dir string) *DiskQueue {
 	t.Helper()
 
-	logger := logrus.New()
-	logger.SetLevel(logrus.DebugLevel)
+	return makeQueueWithGroup(t, s, decoder, chunkSize, dir, "")
+}
+
+func makeQueueWithGroup(t *testing.T, s *Scheduler, decoder TaskDecoder, chunkSize uint64, dir string, group string) *DiskQueue {
+	t.Helper()
 
 	q, err := NewDiskQueue(DiskQueueOptions{
 		ID:           fmt.Sprintf("test_queue_%d", queueIDCounter.Add(1)),
@@ -440,6 +490,7 @@ func makeQueueWith(t *testing.T, s *Scheduler, decoder TaskDecoder, chunkSize ui
 		TaskDecoder:  decoder,
 		StaleTimeout: 500 * time.Millisecond,
 		ChunkSize:    chunkSize,
+		Group:        group,
 	})
 	require.NoError(t, err)
 
@@ -530,4 +581,42 @@ func (m *mockTask) Key() uint64 {
 
 func (m *mockTask) Execute(ctx context.Context) error {
 	return m.execFn(ctx)
+}
+
+func readFromOnlyOneChan[T any](t *testing.T, n int, chan1, chan2 chan T) []T {
+	t.Helper()
+
+	var v T
+	var fromChan1 bool
+	var res []T
+
+	ctx := t.Context()
+
+	select {
+	case <-ctx.Done():
+		t.Fatalf("context done before reading from channels")
+	case v = <-chan1:
+		fromChan1 = true
+	case v = <-chan2:
+		fromChan1 = false
+	}
+
+	res = append(res, v)
+
+	for i := 1; i < n; i++ {
+		select {
+		case <-ctx.Done():
+			t.Fatalf("context done before reading from channels")
+		case vv := <-chan1:
+			if !fromChan1 {
+				t.Fatalf("expected to read from chan2 only")
+			}
+			res = append(res, vv)
+		case vv := <-chan2:
+			if fromChan1 {
+				t.Fatalf("expected to read from chan1 only")
+			}
+			res = append(res, vv)
+		}
+	}
 }
