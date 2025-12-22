@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path"
 	"slices"
 	"strings"
 	"time"
@@ -390,19 +391,28 @@ func (s *Scheduler) validateBackupRequest(ctx context.Context, store coordStore,
 	if len(req.Include) > 0 && len(req.Exclude) > 0 {
 		return nil, errIncludeExclude
 	}
-	if dup := findDuplicate(req.Include); dup != "" {
+
+	// Get all available classes first for wildcard expansion
+	allClasses := s.backupper.selector.ListClasses(ctx)
+	if len(allClasses) == 0 {
+		return nil, fmt.Errorf("no available classes to backup, there's nothing to do here")
+	}
+
+	// Expand wildcards in Include list
+	include := expandWildcards(req.Include, allClasses)
+	if dup := findDuplicate(include); dup != "" {
 		return nil, fmt.Errorf("class list 'include' contains duplicate: %s", dup)
 	}
-	classes := req.Include
+
+	// Expand wildcards in Exclude list
+	exclude := expandWildcards(req.Exclude, allClasses)
+
+	classes := include
 	if len(classes) == 0 {
-		classes = s.backupper.selector.ListClasses(ctx)
-		// no classes exist in the DB
-		if len(classes) == 0 {
-			return nil, fmt.Errorf("no available classes to backup, there's nothing to do here")
-		}
+		classes = allClasses
 	}
-	if classes = filterClasses(classes, req.Exclude); len(classes) == 0 {
-		return nil, fmt.Errorf("empty class list: please choose from : %v", classes)
+	if classes = filterClasses(classes, exclude); len(classes) == 0 {
+		return nil, fmt.Errorf("empty class list: please choose from : %v", allClasses)
 	}
 
 	if err := s.backupper.selector.Backupable(ctx, classes); err != nil {
@@ -435,9 +445,6 @@ func (s *Scheduler) validateRestoreRequest(ctx context.Context, store coordStore
 	if len(req.Include) > 0 && len(req.Exclude) > 0 {
 		return nil, errIncludeExclude
 	}
-	if dup := findDuplicate(req.Include); dup != "" {
-		return nil, fmt.Errorf("class list 'include' contains duplicate: %s", dup)
-	}
 	destPath := store.HomeDir(req.Bucket, req.Path)
 	meta, err := store.Meta(ctx, GlobalBackupFile, req.Bucket, req.Path)
 	if err != nil {
@@ -460,14 +467,24 @@ func (s *Scheduler) validateRestoreRequest(ctx context.Context, store coordStore
 		return nil, fmt.Errorf("%s: %s > %s", errMsgHigherVersion, v, Version)
 	}
 	cs := meta.Classes()
-	if len(req.Include) > 0 {
-		if first := meta.AllExist(req.Include); first != "" {
+
+	// Expand wildcards in Include list against backup's classes
+	include := expandWildcards(req.Include, cs)
+	if dup := findDuplicate(include); dup != "" {
+		return nil, fmt.Errorf("class list 'include' contains duplicate: %s", dup)
+	}
+
+	// Expand wildcards in Exclude list against backup's classes
+	exclude := expandWildcards(req.Exclude, cs)
+
+	if len(include) > 0 {
+		if first := meta.AllExist(include); first != "" {
 			err = fmt.Errorf("class %s doesn't exist in the backup, but does have %v: ", first, cs)
 			return nil, err
 		}
-		meta.Include(req.Include)
+		meta.Include(include)
 	} else {
-		meta.Exclude(req.Exclude)
+		meta.Exclude(exclude)
 	}
 	if meta.RemoveEmpty().Count() == 0 {
 		return nil, fmt.Errorf("nothing left to restore: please choose from : %v", cs)
@@ -550,4 +567,48 @@ func findDuplicate(xs []string) string {
 		m[x] = struct{}{}
 	}
 	return ""
+}
+
+// matchesWildcard checks if a class name matches a wildcard pattern.
+// Patterns support '*' (matches any sequence) and '?' (matches any single character).
+func matchesWildcard(pattern, className string) bool {
+	matched, err := path.Match(pattern, className)
+	if err != nil {
+		return false
+	}
+	return matched
+}
+
+// expandWildcards expands patterns (which may contain wildcards) against a list of candidate classes.
+// Non-wildcard patterns are passed through as-is. Wildcard patterns are expanded to matching classes.
+func expandWildcards(patterns, candidates []string) []string {
+	if len(patterns) == 0 {
+		return patterns
+	}
+
+	result := make([]string, 0, len(patterns))
+	seen := make(map[string]struct{}, len(patterns))
+
+	for _, pattern := range patterns {
+		// Check if pattern contains wildcard characters
+		if strings.ContainsAny(pattern, "*?") {
+			// Expand wildcard pattern against candidates
+			for _, candidate := range candidates {
+				if matchesWildcard(pattern, candidate) {
+					if _, exists := seen[candidate]; !exists {
+						seen[candidate] = struct{}{}
+						result = append(result, candidate)
+					}
+				}
+			}
+		} else {
+			// Non-wildcard pattern - add as-is
+			if _, exists := seen[pattern]; !exists {
+				seen[pattern] = struct{}{}
+				result = append(result, pattern)
+			}
+		}
+	}
+
+	return result
 }
