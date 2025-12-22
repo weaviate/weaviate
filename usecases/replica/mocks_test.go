@@ -62,9 +62,9 @@ func (f *fakeRClient) DigestObjects(ctx context.Context, host, index, shard stri
 }
 
 func (f *fakeRClient) FindUUIDs(ctx context.Context, host, index, shard string,
-	filters *filters.LocalFilter,
+	filters *filters.LocalFilter, limit int,
 ) ([]strfmt.UUID, error) {
-	args := f.Called(ctx, host, index, shard, filters)
+	args := f.Called(ctx, host, index, shard, filters, limit)
 	return args.Get(0).([]strfmt.UUID), args.Error(1)
 }
 

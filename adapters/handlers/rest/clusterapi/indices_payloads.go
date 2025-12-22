@@ -726,22 +726,24 @@ func (p aggregationResultPayload) Unmarshal(in []byte) (*aggregation.Result, err
 
 type findUUIDsParamsPayload struct{}
 
-func (p findUUIDsParamsPayload) Marshal(filter *filters.LocalFilter) ([]byte, error) {
+func (p findUUIDsParamsPayload) Marshal(filter *filters.LocalFilter, limit int) ([]byte, error) {
 	type params struct {
 		Filters *filters.LocalFilter `json:"filters"`
+		Limit   int                  `json:"limit"`
 	}
 
-	par := params{filter}
+	par := params{filter, limit}
 	return json.Marshal(par)
 }
 
-func (p findUUIDsParamsPayload) Unmarshal(in []byte) (*filters.LocalFilter, error) {
+func (p findUUIDsParamsPayload) Unmarshal(in []byte) (*filters.LocalFilter, int, error) {
 	type findUUIDsParametersPayload struct {
 		Filters *filters.LocalFilter `json:"filters"`
+		Limit   int
 	}
 	var par findUUIDsParametersPayload
 	err := json.Unmarshal(in, &par)
-	return par.Filters, err
+	return par.Filters, par.Limit, err
 }
 
 func (p findUUIDsParamsPayload) MIME() string {

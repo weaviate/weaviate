@@ -139,13 +139,13 @@ func (f *Finder) GetOne(ctx context.Context,
 	return result.Value, err
 }
 
-func (f *Finder) FindUUIDs(ctx context.Context,
-	className, shard string, filters *filters.LocalFilter, l types.ConsistencyLevel,
+func (f *Finder) FindUUIDs(ctx context.Context, className, shard string,
+	filters *filters.LocalFilter, l types.ConsistencyLevel, limit int,
 ) (uuids []strfmt.UUID, err error) {
 	c := newReadCoordinator[[]strfmt.UUID](f.router, f.metrics, f.class, shard, f.getDeletionStrategy(), f.log)
 
 	op := func(ctx context.Context, host string, _ bool) ([]strfmt.UUID, error) {
-		return f.client.FindUUIDs(ctx, host, f.class, shard, filters)
+		return f.client.FindUUIDs(ctx, host, f.class, shard, filters, limit)
 	}
 
 	replyCh, _, err := c.Pull(ctx, l, op, "", 30*time.Second)
@@ -175,9 +175,18 @@ func (f *Finder) FindUUIDs(ctx context.Context,
 		return nil, ec.ToError()
 	}
 
-	uuids = make([]strfmt.UUID, 0, len(res))
+	count := len(res)
+	if limit > 0 {
+		count = min(limit, len(res))
+	}
+	uuids = make([]strfmt.UUID, count)
+	i := 0
 	for uuid := range res {
-		uuids = append(uuids, uuid)
+		uuids[i] = uuid
+		i++
+		if i == count {
+			break
+		}
 	}
 	return uuids, nil
 }

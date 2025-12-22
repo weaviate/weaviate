@@ -75,7 +75,7 @@ type RemoteIndexIncomingRepo interface {
 		params aggregation.Params, modules interface{}) (*aggregation.Result, error)
 
 	IncomingFindUUIDs(ctx context.Context, shardName string,
-		filters *filters.LocalFilter) ([]strfmt.UUID, error)
+		filters *filters.LocalFilter, limit int) ([]strfmt.UUID, error)
 	IncomingDeleteObjectBatch(ctx context.Context, shardName string,
 		uuids []strfmt.UUID, deletionTime time.Time, dryRun bool, schemaVersion uint64) objects.BatchSimpleObjects
 	IncomingGetShardQueueSize(ctx context.Context, shardName string) (int64, error)
@@ -241,14 +241,14 @@ func (rii *RemoteIndexIncoming) Aggregate(ctx context.Context, indexName, shardN
 }
 
 func (rii *RemoteIndexIncoming) FindUUIDs(ctx context.Context, indexName, shardName string,
-	filters *filters.LocalFilter,
+	filters *filters.LocalFilter, limit int,
 ) ([]strfmt.UUID, error) {
 	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
 	if index == nil {
 		return nil, enterrors.NewErrUnprocessable(errors.Errorf("local index %q not found", indexName))
 	}
 
-	return index.IncomingFindUUIDs(ctx, shardName, filters)
+	return index.IncomingFindUUIDs(ctx, shardName, filters, limit)
 }
 
 func (rii *RemoteIndexIncoming) DeleteObjectBatch(ctx context.Context, indexName, shardName string,
