@@ -8181,6 +8181,12 @@ func init() {
           "format": "int64",
           "default": 60
         },
+        "maxWorkers": {
+          "description": "Maximum number of async replication workers.",
+          "type": "integer",
+          "format": "int64",
+          "default": 10
+        },
         "prePropagationTimeout": {
           "description": "Overall timeout in seconds for the pre-propagation phase.",
           "type": "integer",
@@ -17973,6 +17979,12 @@ func init() {
           "type": "integer",
           "format": "int64",
           "default": 60
+        },
+        "maxWorkers": {
+          "description": "Maximum number of async replication workers.",
+          "type": "integer",
+          "format": "int64",
+          "default": 10
         },
         "prePropagationTimeout": {
           "description": "Overall timeout in seconds for the pre-propagation phase.",
