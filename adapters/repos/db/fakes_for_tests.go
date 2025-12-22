@@ -369,7 +369,7 @@ func (f *FakeRemoteClient) BatchAddReferences(ctx context.Context, hostName,
 }
 
 func (f *FakeRemoteClient) FindUUIDs(ctx context.Context, hostName, indexName, shardName string,
-	filters *filters.LocalFilter,
+	filters *filters.LocalFilter, limit int,
 ) ([]strfmt.UUID, error) {
 	return nil, nil
 }
@@ -536,7 +536,7 @@ func (*FakeReplicationClient) OverwriteObjects(ctx context.Context,
 }
 
 func (*FakeReplicationClient) FindUUIDs(ctx context.Context,
-	hostName, indexName, shardName string, filters *filters.LocalFilter,
+	hostName, indexName, shardName string, filters *filters.LocalFilter, limit int,
 ) (result []strfmt.UUID, err error) {
 	return nil, nil
 }

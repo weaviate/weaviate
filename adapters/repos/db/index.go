@@ -2989,6 +2989,7 @@ func (i *Index) IncomingUpdateShardStatus(ctx context.Context, shardName, target
 	return shard.UpdateStatus(targetStatus, "manually set by user")
 }
 
+// TODO aliszka:ttl apply limit
 func (i *Index) findUUIDs(ctx context.Context,
 	filters *filters.LocalFilter, tenant string, repl *additional.ReplicationProperties,
 ) (map[string][]strfmt.UUID, error) {
@@ -3000,6 +3001,7 @@ func (i *Index) findUUIDs(ctx context.Context,
 		return nil, err
 	}
 	className := i.Config.ClassName.String()
+	limit := 0
 
 	results := make(map[string][]strfmt.UUID)
 	for _, shardName := range readPlan.Shards() {
@@ -3016,9 +3018,9 @@ func (i *Index) findUUIDs(ctx context.Context,
 				defer release()
 				if err == nil {
 					if shard != nil {
-						results[shardName], err = shard.FindUUIDs(ctx, filters)
+						results[shardName], err = shard.FindUUIDs(ctx, filters, limit)
 					} else {
-						results[shardName], err = i.remote.FindUUIDs(ctx, shardName, filters)
+						results[shardName], err = i.remote.FindUUIDs(ctx, shardName, filters, limit)
 					}
 				}
 			}()
@@ -3048,7 +3050,7 @@ func (i *Index) consistencyLevel(
 }
 
 func (i *Index) IncomingFindUUIDs(ctx context.Context, shardName string,
-	filters *filters.LocalFilter,
+	filters *filters.LocalFilter, limit int,
 ) ([]strfmt.UUID, error) {
 	shard, release, err := i.getOrInitShard(ctx, shardName)
 	if err != nil {
@@ -3060,7 +3062,7 @@ func (i *Index) IncomingFindUUIDs(ctx context.Context, shardName string,
 		return nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
 	}
 
-	return shard.FindUUIDs(ctx, filters)
+	return shard.FindUUIDs(ctx, filters, limit)
 }
 
 func (i *Index) batchDeleteObjects(ctx context.Context, shardUUIDs map[string][]strfmt.UUID,

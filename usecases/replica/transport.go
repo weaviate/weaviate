@@ -214,7 +214,7 @@ type RClient interface {
 		ids []strfmt.UUID, numRetries int) ([]types.RepairResponse, error)
 
 	FindUUIDs(ctx context.Context, host, index, shard string,
-		filters *filters.LocalFilter) ([]strfmt.UUID, error)
+		filters *filters.LocalFilter, limit int) ([]strfmt.UUID, error)
 
 	DigestObjectsInRange(ctx context.Context, host, index, shard string,
 		initialUUID, finalUUID strfmt.UUID, limit int) ([]types.RepairResponse, error)
@@ -286,8 +286,10 @@ func (fc FinderClient) Overwrite(ctx context.Context,
 	return fc.cl.OverwriteObjects(ctx, host, index, shard, xs)
 }
 
+// TODO aliszka:ttl limit
 func (fc FinderClient) FindUUIDs(ctx context.Context,
 	host, class, shard string, filters *filters.LocalFilter,
 ) ([]strfmt.UUID, error) {
-	return fc.cl.FindUUIDs(ctx, host, class, shard, filters)
+	limit := 0
+	return fc.cl.FindUUIDs(ctx, host, class, shard, filters, limit)
 }

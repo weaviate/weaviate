@@ -142,11 +142,11 @@ func (b *deleteObjectsBatcher) setErrorAtIndex(err error, index int) {
 	b.objects[index].Err = err
 }
 
-func (s *Shard) FindUUIDs(ctx context.Context, filters *filters.LocalFilter) ([]strfmt.UUID, error) {
+func (s *Shard) FindUUIDs(ctx context.Context, filters *filters.LocalFilter, limit int) ([]strfmt.UUID, error) {
 	allowList, err := inverted.NewSearcher(s.index.logger, s.store, s.index.getSchema.ReadOnlyClass,
 		nil, s.index.classSearcher, s.index.stopwords, s.versioner.version, s.isFallbackToSearchable,
 		s.tenant(), s.index.Config.QueryNestedRefLimit, s.bitmapFactory).
-		DocIDs(ctx, filters, additional.Properties{}, s.index.Config.ClassName)
+		DocIDsLimited(ctx, filters, additional.Properties{}, s.index.Config.ClassName, limit)
 	if err != nil {
 		return nil, fmt.Errorf("docIds: %w", err)
 	}
