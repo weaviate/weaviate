@@ -175,9 +175,18 @@ func (f *Finder) FindUUIDs(ctx context.Context, className, shard string,
 		return nil, ec.ToError()
 	}
 
-	uuids = make([]strfmt.UUID, 0, len(res))
+	count := len(res)
+	if limit > 0 {
+		count = min(limit, len(res))
+	}
+	uuids = make([]strfmt.UUID, count)
+	i := 0
 	for uuid := range res {
-		uuids = append(uuids, uuid)
+		uuids[i] = uuid
+		i++
+		if i == count {
+			break
+		}
 	}
 	return uuids, nil
 }

@@ -173,6 +173,11 @@ func (s *Shard) FindUUIDs(ctx context.Context, filters *filters.LocalFilter, lim
 		}
 		uuids[currIdx] = uuid
 		currIdx++
+
+		// filter can return more results than given limit. this ensured only up to limit uuids are fetched
+		if currIdx == limit {
+			break
+		}
 	}
 	return uuids[:currIdx], nil
 }
