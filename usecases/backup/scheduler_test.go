@@ -1004,3 +1004,63 @@ func TestCancellingBackup(t *testing.T) {
 		fakeScheduler.backend.AssertExpectations(t)
 	})
 }
+
+func TestWildcardExpansion(t *testing.T) {
+	t.Parallel()
+
+	t.Run("MatchesWildcard", func(t *testing.T) {
+		tests := []struct {
+			pattern   string
+			className string
+			expected  bool
+		}{
+			{"data-202212*", "data-20221223", true},
+			{"data-202212*", "data-20221122", false},
+			{"data-*", "data-20221223", true},
+			{"*-December", "Backup-December", true},
+			{"Class?", "ClassA", true},
+			{"Class?", "ClassAB", false},
+			{"ExactMatch", "ExactMatch", true},
+			{"ExactMatch", "NotMatch", false},
+		}
+		for _, tc := range tests {
+			got := matchesWildcard(tc.pattern, tc.className)
+			assert.Equal(t, tc.expected, got, "pattern=%s class=%s", tc.pattern, tc.className)
+		}
+	})
+
+	t.Run("ExpandWildcards", func(t *testing.T) {
+		candidates := []string{
+			"data-20221122",
+			"data-20221223",
+			"data-20221224",
+			"data-20221225",
+			"Article",
+			"Blog",
+		}
+
+		tests := []struct {
+			patterns []string
+			expected []string
+		}{
+			// Empty patterns returns empty
+			{[]string{}, []string{}},
+			// Exact match, no wildcards
+			{[]string{"Article"}, []string{"Article"}},
+			// Wildcard matching December dates
+			{[]string{"data-202212*"}, []string{"data-20221223", "data-20221224", "data-20221225"}},
+			// Wildcard matching all data classes
+			{[]string{"data-*"}, []string{"data-20221122", "data-20221223", "data-20221224", "data-20221225"}},
+			// Mixed: exact and wildcard
+			{[]string{"Article", "data-202212*"}, []string{"Article", "data-20221223", "data-20221224", "data-20221225"}},
+			// Pattern that matches nothing (stays as-is for non-wildcard)
+			{[]string{"NonExistent"}, []string{"NonExistent"}},
+			// Wildcard that matches nothing returns empty for that pattern
+			{[]string{"nothing-*"}, []string{}},
+		}
+		for _, tc := range tests {
+			got := expandWildcards(tc.patterns, candidates)
+			assert.ElementsMatch(t, tc.expected, got, "patterns=%v", tc.patterns)
+		}
+	})
+}
