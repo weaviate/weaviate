@@ -148,6 +148,15 @@ func (s *schema) Read(class string, retryIfClassNotFound bool, reader func(*mode
 	return meta.RLockGuard(reader)
 }
 
+// ReadSchema performs a read operation `reader` on the schema
+func (s *schema) ReadSchema(reader func(models.Class, uint64)) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, meta := range s.classes {
+		reader(meta.Class, meta.ClassVersion)
+	}
+}
+
 func (s *schema) metaClass(class string) *metaClass {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

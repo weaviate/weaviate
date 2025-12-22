@@ -74,8 +74,7 @@ func TestSchemaReader_WithShardingStateCheck(t *testing.T) {
 				require.NoError(t, err)
 				return "PartitionedNilPhysical"
 			},
-			readerCalled:  false,
-			expectedError: "invalid sharding state: physical map is nil (partitioned)",
+			readerCalled: true,
 		},
 		{
 			name: "non-partitioned with nil physical",

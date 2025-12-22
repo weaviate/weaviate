@@ -93,6 +93,8 @@ type SegmentGroup struct {
 	bm25config                     *schema.BM25Config
 	writeSegmentInfoIntoFileName   bool
 	writeMetadata                  bool
+
+	shouldSkipKey func(key []byte, ctx context.Context) (bool, error)
 }
 
 type sgConfig struct {
@@ -114,6 +116,7 @@ type sgConfig struct {
 	bm25config                   *models.BM25Config
 	writeSegmentInfoIntoFileName bool
 	writeMetadata                bool
+	shouldSkipKey                func(key []byte, ctx context.Context) (bool, error)
 }
 
 func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Metrics, cfg sgConfig,
@@ -145,6 +148,7 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 		writeMetadata:                cfg.writeMetadata,
 		bitmapBufPool:                b.bitmapBufPool,
 		keepLevelCompaction:          cfg.keepLevelCompaction,
+		shouldSkipKey:                cfg.shouldSkipKey,
 	}
 
 	segmentIndex := 0
@@ -605,7 +609,7 @@ func (sg *SegmentGroup) getBySecondaryWithSegmentList(pos int, key []byte, buffe
 	segments []Segment,
 ) ([]byte, []byte, []byte, error) {
 	if err := CheckExpectedStrategy(sg.strategy, StrategyReplace); err != nil {
-		return nil, nil, nil, fmt.Errorf("SegmentGroup::getWithSegmentList(): %w", err)
+		return nil, nil, nil, fmt.Errorf("SegmentGroup::getBySecondaryWithSegmentList(): %w", err)
 	}
 
 	// start with latest and exit as soon as something is found, thus making sure
@@ -776,6 +780,7 @@ func (sg *SegmentGroup) shutdown(ctx context.Context) error {
 		if err := seg.close(); err != nil {
 			return err
 		}
+		sg.metrics.DecSegmentTotalByStrategy(sg.strategy)
 	}
 
 	// make sure the segment list itself is set to nil. In case a memtable will

@@ -856,6 +856,31 @@
         }
       }
     },
+    "ObjectTtlConfig":{
+      "description": "Configuration of objects' time-to-live",
+      "properties": {
+         "enabled": {
+          "description": "Whether or not object ttl is enabled for this collection (default: `false`).",
+          "type": "boolean",
+          "x-omitempty": false
+        },
+        "defaultTtl": {
+          "description": "Interval (in seconds) to be added to `deleteOn` value, denoting object's expiration time. Has to be positive for `deleteOn` set to `_creationTimeUnix` or `_lastUpdateTimeUnix`, any for custom property (default: `0`).",
+          "type": "integer",
+          "x-omitempty": false
+        },
+        "deleteOn": {
+          "description": "Name of the property holding base time to compute object's expiration time (ttl = value of deleteOn property + defaultTtl). Can be set to `_creationTimeUnix`, `_lastUpdateTimeUnix` or custom property of `date` datatype.",
+          "type": "string",
+          "x-omitempty": false
+        },
+        "filterExpiredObjects": {
+          "description": "Whether remove from resultset expired, but not yet deleted by background process objects (default: `false`).",
+          "type": "boolean",
+          "x-omitempty": false
+        }
+      }
+    },
     "JsonObject": {
       "description": "JSON object value.",
       "type": "object"
@@ -1470,6 +1495,9 @@
         },
         "multiTenancyConfig": {
           "$ref": "#/definitions/MultiTenancyConfig"
+        },
+        "objectTtlConfig": {
+          "$ref": "#/definitions/ObjectTtlConfig"
         },
         "vectorizer": {
           "description": "Specify how the vectors for this collection should be determined. The options are either `none` - this means you have to import a vector with each object yourself - or the name of a module that provides vectorization capabilities, such as `text2vec-weaviate`. If left empty, it will use the globally configured default ([`DEFAULT_VECTORIZER_MODULE`](https://docs.weaviate.io/deploy/configuration/env-vars)) which can itself either be `none` or a specific module.",
@@ -3197,7 +3225,7 @@
     },
     "description": "# Introduction<br/> Weaviate is an open source, AI-native vector database that helps developers create intuitive and reliable AI-powered applications. <br/> ### Base Path <br/>The base path for the Weaviate server is structured as `[YOUR-WEAVIATE-HOST]:[PORT]/v1`. As an example, if you wish to access the `schema` endpoint on a local instance, you would navigate to `http://localhost:8080/v1/schema`. Ensure you replace `[YOUR-WEAVIATE-HOST]` and `[PORT]` with your actual server host and port number respectively. <br/> ### Questions? <br/>If you have any comments or questions, please feel free to reach out to us at the community forum [https://forum.weaviate.io/](https://forum.weaviate.io/). <br/>### Issues? <br/>If you find a bug or want to file a feature request, please open an issue on our GitHub repository for [Weaviate](https://github.com/weaviate/weaviate). <br/>### Need more documentation? <br/>For a quickstart, code examples, concepts and more, please visit our [documentation page](https://docs.weaviate.io/weaviate).",
     "title": "Weaviate REST API",
-    "version": "1.35.0-dev"
+    "version": "1.36.0-dev"
   },
   "parameters": {
     "CommonAfterParameterQuery": {

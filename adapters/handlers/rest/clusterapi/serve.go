@@ -23,6 +23,7 @@ import (
 	sentryhttp "github.com/getsentry/sentry-go/http"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/raft"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
@@ -68,6 +69,7 @@ func NewServer(appState *state.State) *Server {
 	nodes := NewNodes(appState.RemoteNodeIncoming, auth)
 	backups := NewBackups(appState.BackupManager, auth)
 	dbUsers := NewDbUsers(appState.APIKeyRemote, auth)
+	objectTTL := NewObjectTTL(appState.RemoteIndexIncoming, auth, appState.Logger)
 
 	mux := http.NewServeMux()
 	mux.Handle("/classifications/transactions/",
@@ -75,6 +77,7 @@ func NewServer(appState *state.State) *Server {
 			classifications.Transactions()))
 
 	mux.Handle("/cluster/users/db/", dbUsers.Users())
+	mux.Handle("/cluster/object_ttl/", objectTTL.Expired())
 	mux.Handle("/nodes/", monitoring.AddTracingToHTTPMiddleware(nodes.Nodes(), appState.Logger))
 	mux.Handle("/indices/", monitoring.AddTracingToHTTPMiddleware(indices.Indices(), appState.Logger))
 	mux.Handle("/replicas/indices/", monitoring.AddTracingToHTTPMiddleware(replicatedIndices.Indices(), appState.Logger))
@@ -159,16 +162,28 @@ func (s *Server) Close(ctx context.Context) error {
 		}
 	}
 
-	// Now shutdown the HTTP server after the replicated indices have been closed
-	if err := s.server.Shutdown(ctx); err != nil {
-		s.appState.Logger.WithField("action", "cluster_api_shutdown").
-			WithError(err).
-			Error("could not stop server gracefully")
-		return s.server.Close()
-	}
-	// Finally, stop the gRPC server
-	s.grpc.GracefulStop()
-	return nil
+	// Now shutdown the servers after the replicated indices have been closed
+	eg := enterrors.NewErrorGroupWrapper(s.appState.Logger)
+	eg.Go(func() error {
+		if err := s.server.Shutdown(ctx); err != nil {
+			s.appState.Logger.WithField("action", "cluster_api_shutdown").
+				WithError(err).
+				Error("could not stop server gracefully")
+			return s.server.Close()
+		}
+		return nil
+	})
+	eg.Go(func() error {
+		if err := s.grpc.Close(ctx); err != nil {
+			s.appState.Logger.WithField("action", "cluster_api_shutdown").
+				WithError(err).
+				Error("could not stop grpc server gracefully")
+			return err
+		}
+		return nil
+	})
+
+	return eg.Wait()
 }
 
 // Serve is kept for backward compatibility

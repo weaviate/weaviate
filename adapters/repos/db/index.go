@@ -2194,6 +2194,96 @@ func (i *Index) IncomingDeleteObject(ctx context.Context, shardName string,
 	return shard.DeleteObject(ctx, id, deletionTime)
 }
 
+func (i *Index) IncomingDeleteObjectsExpired(eg *enterrors.ErrorGroupWrapper, deleteOnPropName string,
+	ttlThreshold, deletionTime time.Time, schemaVersion uint64,
+) error {
+	// use closing context to stop long-running TTL deletions in case index is closed
+	return i.incomingDeleteObjectsExpired(i.closingCtx, eg, deleteOnPropName, ttlThreshold, deletionTime, schemaVersion)
+}
+
+func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.ErrorGroupWrapper, deleteOnPropName string, ttlThreshold, deletionTime time.Time, schemaVersion uint64) error {
+	class := i.getClass()
+	filter := &filters.LocalFilter{Root: &filters.Clause{
+		Operator: filters.OperatorLessThanEqual,
+		Value: &filters.Value{
+			Value: ttlThreshold,
+			Type:  schema.DataTypeDate,
+		},
+		On: &filters.Path{
+			Class:    schema.ClassName(class.Class),
+			Property: schema.PropertyName(deleteOnPropName),
+		},
+	}}
+
+	// the replication properties determine how aggressive the errors are returned and does not change anything about
+	// the server's behaviour. Therefore, we set it to QUORUM to be able to log errors in case the deletion does not
+	// succeed on too many nodes. In the case of errors a node might retain the object past its TTL. However, when the
+	// deletion process happens to run on that node again, the object will be deleted then.
+	replProps := defaultConsistency()
+
+	if isMT := multitenancy.IsMultiTenant(class.MultiTenancyConfig); isMT {
+		tenants, err := i.schemaReader.Shards(class.Class)
+		if err != nil {
+			return fmt.Errorf("getting tenants of collection %q: %w", class.Class, err)
+		}
+
+		for _, tenant := range tenants {
+			tenants2uuids, err := i.findUUIDs(ctx, filter, tenant, replProps)
+			// skip inactive tenants
+			if err != nil && !errors.Is(err, enterrors.ErrTenantNotActive) {
+				// TODO aliszka:ttl exit or continue with other tenants
+				return fmt.Errorf("finding uuids for tenant %q of collection %q: %w", tenant, class.Class, err)
+			}
+
+			if len(tenants2uuids[tenant]) == 0 {
+				continue
+			}
+			eg.Go(
+				func() error {
+					resp, err := i.batchDeleteObjects(ctx, tenants2uuids, deletionTime, false, replProps, schemaVersion, tenant)
+					if err != nil {
+						// TODO aliszka:ttl exit or continue with other tenants
+						return fmt.Errorf("batch delete for tenant %q of collection %q: %w", tenant, class.Class, err)
+					}
+
+					i.logger.
+						WithFields(logrus.Fields{"action": "ttl_cleanup", "collection": class.Class, "tenant": tenant}).
+						Infof("batch delete response: %+v", resp)
+					return nil
+				})
+		}
+
+	} else {
+		shards2uuids, err := i.findUUIDs(ctx, filter, "", replProps)
+		if err != nil {
+			return fmt.Errorf("finding uuids of collection %q: %w", class.Class, err)
+		}
+
+		for shard := range shards2uuids {
+			if len(shards2uuids[shard]) == 0 {
+				delete(shards2uuids, shard)
+			}
+		}
+		if len(shards2uuids) != 0 {
+			eg.Go(
+				func() error {
+					resp, err := i.batchDeleteObjects(ctx, shards2uuids, deletionTime, false, replProps, schemaVersion, "")
+					if err != nil {
+						// TODO aliszka:ttl exit or continue with other tenants
+						return fmt.Errorf("batch delete of collection %q: %w", class.Class, err)
+					}
+					i.logger.
+						WithFields(logrus.Fields{"action": "ttl_cleanup", "collection": class.Class}).
+						Infof("batch delete response: %+v", resp)
+
+					return nil
+				})
+		}
+	}
+
+	return nil
+}
+
 func (i *Index) getClass() *models.Class {
 	className := i.Config.ClassName.String()
 	return i.getSchema.ReadOnlyClass(className)
@@ -2208,8 +2298,9 @@ func (i *Index) initLocalShard(ctx context.Context, shardName string) error {
 }
 
 func (i *Index) LoadLocalShard(ctx context.Context, shardName string, implicitShardLoading bool) error {
-	mustLoad := !implicitShardLoading
-	return i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName, mustLoad, implicitShardLoading)
+	// TODO: implicitShardLoading needs to be double checked if needed at all
+	// consalidate mustLoad and implicitShardLoading
+	return i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName, true, implicitShardLoading)
 }
 
 func (i *Index) initLocalShardWithForcedLoading(ctx context.Context, class *models.Class, shardName string, mustLoad bool, implicitShardLoading bool) error {

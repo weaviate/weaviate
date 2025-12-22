@@ -23,7 +23,7 @@ func TestStore(t *testing.T) {
 	ctx := t.Context()
 	t.Run("get", func(t *testing.T) {
 		store := testinghelpers.NewDummyStore(t)
-		s, err := NewPostingStore(store, NewMetrics(nil, "n/a", "n/a"), "test_bucket", StoreConfig{
+		s, err := NewPostingStoreTest(store, NewMetrics(nil, "n/a", "n/a"), "test_bucket", StoreConfig{
 			MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
 		})
 		require.NoError(t, err)
@@ -52,7 +52,7 @@ func TestStore(t *testing.T) {
 
 	t.Run("multi-get", func(t *testing.T) {
 		store := testinghelpers.NewDummyStore(t)
-		s, err := NewPostingStore(store, NewMetrics(nil, "n/a", "n/a"), "test_bucket", StoreConfig{
+		s, err := NewPostingStoreTest(store, NewMetrics(nil, "n/a", "n/a"), "test_bucket", StoreConfig{
 			MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
 		})
 		require.NoError(t, err)
@@ -90,7 +90,7 @@ func TestStore(t *testing.T) {
 
 	t.Run("put", func(t *testing.T) {
 		store := testinghelpers.NewDummyStore(t)
-		s, err := NewPostingStore(store, NewMetrics(nil, "n/a", "n/a"), "test_bucket", StoreConfig{
+		s, err := NewPostingStoreTest(store, NewMetrics(nil, "n/a", "n/a"), "test_bucket", StoreConfig{
 			MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
 		})
 		require.NoError(t, err)
@@ -102,5 +102,16 @@ func TestStore(t *testing.T) {
 		// empty posting
 		err = s.Put(ctx, 1, Posting{})
 		require.NoError(t, err)
+
+		version, err := s.versions.Get(ctx, 1)
+		require.NoError(t, err)
+		require.Equal(t, uint32(1), version)
+
+		err = s.Put(ctx, 1, Posting{})
+		require.NoError(t, err)
+
+		version, err = s.versions.Get(ctx, 1)
+		require.NoError(t, err)
+		require.Equal(t, uint32(2), version)
 	})
 }

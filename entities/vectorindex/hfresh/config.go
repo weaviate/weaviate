@@ -19,9 +19,9 @@ import (
 )
 
 const (
-	DefaultMaxPostingSize = 0 // it means that it will be computed dynamically by the index
+	DefaultMaxPostingSize = 50 // If set to 0, it means that it will be computed dynamically by the index
 	DefaultMinPostingSize = 10
-	DefaultReplicas       = 8
+	DefaultReplicas       = 4
 	DefaultRNGFactor      = 10.0
 	DefaultSearchProbe    = 64
 )

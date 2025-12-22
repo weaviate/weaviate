@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 
@@ -98,7 +99,8 @@ func denseSearch(ctx context.Context, e *Explorer, params dto.GetParams, searchn
 		vector = searchVectors[0]
 	}
 
-	results, err := e.searchResultsToGetResponseWithType(ctx, partialResults, vector, params)
+	// Pass zero time to disable time-based filtering during hybrid search
+	results, err := e.searchResultsToGetResponseWithType(ctx, partialResults, vector, params, time.Time{})
 	if err != nil {
 		return nil, "", err
 	}
@@ -172,7 +174,8 @@ func nearTextSubSearch(ctx context.Context, e *Explorer, params dto.GetParams, t
 		vector = vectors[0]
 	}
 
-	results, err := e.searchResultsToGetResponseWithType(ctx, partialResults, vector, params)
+	// Pass zero time to disable time-based filtering during hybrid search
+	results, err := e.searchResultsToGetResponseWithType(ctx, partialResults, vector, params, time.Time{})
 	if err != nil {
 		return nil, "", err
 	}
