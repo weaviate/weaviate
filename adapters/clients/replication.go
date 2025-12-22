@@ -270,9 +270,9 @@ func (c *replicationClient) DeleteObjects(ctx context.Context, host, index, shar
 }
 
 func (c *replicationClient) FindUUIDs(ctx context.Context, hostName, indexName,
-	shardName string, filters *filters.LocalFilter,
+	shardName string, filters *filters.LocalFilter, limit int,
 ) ([]strfmt.UUID, error) {
-	paramsBytes, err := clusterapi.IndicesPayloads.FindUUIDsParams.Marshal(filters)
+	paramsBytes, err := clusterapi.IndicesPayloads.FindUUIDsParams.Marshal(filters, limit)
 	if err != nil {
 		return nil, errors.Wrap(err, "marshal request payload")
 	}

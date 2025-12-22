@@ -411,7 +411,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		DisableLazyLoadShards:               appState.ServerConfig.Config.DisableLazyLoadShards,
 		ForceFullReplicasSearch:             appState.ServerConfig.Config.ForceFullReplicasSearch,
 		TransferInactivityTimeout:           appState.ServerConfig.Config.TransferInactivityTimeout,
-		ObjectsTTLBatchSize:                 appState.ServerConfig.Config.ObjectsTTLBatchSize,
+		ObjectsTTLFindBatchSize:             appState.ServerConfig.Config.ObjectsTTLFindBatchSize,
+		ObjectsTTLDeleteBatchSize:           appState.ServerConfig.Config.ObjectsTTLDeleteBatchSize,
 		ObjectsTTLConcurrencyFactor:         appState.ServerConfig.Config.ObjectsTTLConcurrencyFactor,
 		LSMEnableSegmentsChecksumValidation: appState.ServerConfig.Config.Persistence.LSMEnableSegmentsChecksumValidation,
 		// Pass dummy replication config with minimum factor 1. Otherwise the
