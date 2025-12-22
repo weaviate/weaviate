@@ -142,36 +142,33 @@ func (b *deleteObjectsBatcher) setErrorAtIndex(err error, index int) {
 	b.objects[index].Err = err
 }
 
-func (s *Shard) findDocIDs(ctx context.Context, filters *filters.LocalFilter) ([]uint64, error) {
+func (s *Shard) FindUUIDs(ctx context.Context, filters *filters.LocalFilter) ([]strfmt.UUID, error) {
 	allowList, err := inverted.NewSearcher(s.index.logger, s.store, s.index.getSchema.ReadOnlyClass,
 		nil, s.index.classSearcher, s.index.stopwords, s.versioner.version, s.isFallbackToSearchable,
 		s.tenant(), s.index.Config.QueryNestedRefLimit, s.bitmapFactory).
 		DocIDs(ctx, filters, additional.Properties{}, s.index.Config.ClassName)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("docIds: %w", err)
 	}
 	defer allowList.Close()
-	return allowList.Slice(), nil
-}
 
-func (s *Shard) FindUUIDs(ctx context.Context, filters *filters.LocalFilter) ([]strfmt.UUID, error) {
-	docs, err := s.findDocIDs(ctx, filters)
-	if err != nil {
-		return nil, err
-	}
+	uuids := make([]strfmt.UUID, allowList.Len())
+	currIdx := 0
+	i := uint8(0)
+	it := allowList.Iterator()
 
-	var (
-		uuids   = make([]strfmt.UUID, len(docs))
-		currIdx = 0
-	)
+	for docID, ok := it.Next(); ok; docID, ok = it.Next() {
+		if i == 0 && ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		i = (i + 1) % 10 // check context every 10 docs
 
-	for _, doc := range docs {
-		uuid, err := s.uuidFromDocID(doc)
+		uuid, err := s.uuidFromDocID(docID)
 		if err != nil {
 			// TODO: More than likely this will occur due to an object which has already been deleted.
 			//       However, this is not a guarantee. This can be improved by logging, or handling
 			//       errors other than `id not found` rather than skipping them entirely.
-			s.index.logger.WithField("op", "shard.find_uuids").WithField("docID", doc).WithError(err).Debug("failed to find UUID for docID")
+			s.index.logger.WithField("op", "shard.find_uuids").WithField("docID", docID).WithError(err).Debug("failed to find UUID for docID")
 			continue
 		}
 		uuids[currIdx] = uuid
