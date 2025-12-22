@@ -2162,6 +2162,12 @@
       "description": "Configuration for asynchronous replication.",
       "type": "object",
       "properties": {
+        "maxWorkers": {
+          "type": "integer",
+          "format": "int64",
+          "description": "Maximum number of async replication workers.",
+          "default": 10
+        },
         "hashtreeHeight": {
           "type": "integer",
           "format": "int64",
