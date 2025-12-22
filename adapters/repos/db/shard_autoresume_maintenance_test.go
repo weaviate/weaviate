@@ -94,12 +94,12 @@ func TestShard_IllegalStateForTransfer(t *testing.T) {
 	})
 
 	t.Run("halt for transfer and wait for inactivity timeout", func(t *testing.T) {
-		inactivityTimeout := 100 * time.Millisecond
+		inactivityTimeout := 10 * time.Millisecond
 
 		err := shd.HaltForTransfer(ctx, false, inactivityTimeout)
 		require.NoError(t, err)
 
-		time.Sleep(inactivityTimeout * 2)
+		time.Sleep(inactivityTimeout * 10) // wait for inactivity timeout to elapse
 	})
 
 	t.Run("attempt to list backup files after inactivity time should fail", func(t *testing.T) {
