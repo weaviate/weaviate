@@ -155,25 +155,31 @@ func (f *Finder) FindUUIDs(ctx context.Context,
 	}
 
 	res := make(map[strfmt.UUID]struct{})
+	anyOk := false
+	ec := errorcompounder.New()
 
 	for r := range replyCh {
 		if r.Err != nil {
+			ec.Add(r.Err)
 			f.logger.WithField("op", "finder.find_uuids").WithError(r.Err).Debug("error in reply channel")
 			continue
 		}
 
+		anyOk = true
 		for _, uuid := range r.Value {
 			res[uuid] = struct{}{}
 		}
 	}
 
-	uuids = make([]strfmt.UUID, 0, len(res))
+	if !anyOk {
+		return nil, ec.ToError()
+	}
 
+	uuids = make([]strfmt.UUID, 0, len(res))
 	for uuid := range res {
 		uuids = append(uuids, uuid)
 	}
-
-	return uuids, err
+	return uuids, nil
 }
 
 type ShardDesc struct {
