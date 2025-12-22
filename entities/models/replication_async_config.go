@@ -55,6 +55,9 @@ type ReplicationAsyncConfig struct {
 	// Interval in seconds at which async replication logs its status.
 	LoggingFrequency *int64 `json:"loggingFrequency,omitempty"`
 
+	// Maximum number of async replication workers.
+	MaxWorkers *int64 `json:"maxWorkers,omitempty"`
+
 	// Overall timeout in seconds for the pre-propagation phase.
 	PrePropagationTimeout *int64 `json:"prePropagationTimeout,omitempty"`
 
