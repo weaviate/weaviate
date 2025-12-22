@@ -442,6 +442,8 @@ func (b *BM25Searcher) getTopKObjects(topKHeap *priorityqueue.Queue[[]*terms.Doc
 		}
 	}
 
+	objs, scores = b.sortResultsByExternalId(objs, scores)
+
 	return objs, scores, nil
 }
 
