@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/go-openapi/strfmt"
@@ -155,24 +156,42 @@ func (b *deleteObjectsBatcher) setErrorAtIndex(err error, index int) {
 	b.objects[index].Err = err
 }
 
-func (s *Shard) FindUUIDs(ctx context.Context, filters *filters.LocalFilter) ([]strfmt.UUID, error) {
+func (s *Shard) FindUUIDs(ctx context.Context, filters *filters.LocalFilter, limit int) (uuids []strfmt.UUID, err error) {
+	start := time.Now()
+
 	allowList, err := inverted.NewSearcher(s.index.logger, s.store, s.index.getSchema.ReadOnlyClass,
 		nil, s.index.classSearcher, s.index.stopwords, s.versioner.version, s.isFallbackToSearchable,
 		s.tenant(), s.index.Config.QueryNestedRefLimit, s.bitmapFactory).
-		DocIDs(ctx, filters, additional.Properties{}, s.index.Config.ClassName)
+		DocIDsLimited(ctx, filters, additional.Properties{}, s.index.Config.ClassName, limit)
 	if err != nil {
 		return nil, fmt.Errorf("docIds: %w", err)
 	}
 	defer allowList.Close()
 
-	uuids := make([]strfmt.UUID, allowList.Len())
+	middle := time.Now()
+	it := allowList.LimitedIterator(limit) // ensures only up to [limit] docIDs will be returned
+	uuids = make([]strfmt.UUID, it.Len())
 	currIdx := 0
 	i := uint8(0)
-	it := allowList.Iterator()
+
+	defer func() {
+		logger := s.index.logger.WithFields(logrus.Fields{
+			"took":           time.Since(start).String(),
+			"filter_took":    middle.Sub(start).String(),
+			"docids_found":   it.Len(),
+			"uuids_resolved": currIdx,
+		})
+		if err != nil {
+			// log as debug
+			logger.WithError(err).Debug("FindUUIDs failed")
+			return
+		}
+		logger.Debug("FindUUIDs finished")
+	}()
 
 	for docID, ok := it.Next(); ok; docID, ok = it.Next() {
 		if i == 0 && ctx.Err() != nil {
-			return nil, ctx.Err()
+			return nil, fmt.Errorf("uuids loop: %w", ctx.Err())
 		}
 		i = (i + 1) % 10 // check context every 10 docs
 

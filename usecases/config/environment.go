@@ -158,11 +158,18 @@ func FromEnv(config *Config) error {
 		return fmt.Errorf("%s: %w", objectsTtlConcurrencyFactorEnv, err)
 	}
 
-	objectsTtlBatchSizeEnv := "OBJECTS_TTL_BATCH_SIZE"
-	if err := parsePositiveInt(objectsTtlBatchSizeEnv,
-		func(val int) { config.ObjectsTTLBatchSize = val },
-		DefaultObjectsTTLBatchSize); err != nil {
-		return fmt.Errorf("%s: %w", objectsTtlBatchSizeEnv, err)
+	objectsTtlFindBatchSizeEnv := "OBJECTS_TTL_FIND_BATCH_SIZE"
+	if err := parsePositiveInt(objectsTtlFindBatchSizeEnv,
+		func(val int) { config.ObjectsTTLFindBatchSize = val },
+		DefaultObjectsTTLFindBatchSize); err != nil {
+		return fmt.Errorf("%s: %w", objectsTtlFindBatchSizeEnv, err)
+	}
+
+	objectsTtlDeleteBatchSizeEnv := "OBJECTS_TTL_DELETE_BATCH_SIZE"
+	if err := parsePositiveInt(objectsTtlDeleteBatchSizeEnv,
+		func(val int) { config.ObjectsTTLDeleteBatchSize = val },
+		DefaultObjectsTTLDeleteBatchSize); err != nil {
+		return fmt.Errorf("%s: %w", objectsTtlDeleteBatchSizeEnv, err)
 	}
 
 	objectsTtlAllowSecondsEnv := "OBJECTS_TTL_ALLOW_SECONDS"
