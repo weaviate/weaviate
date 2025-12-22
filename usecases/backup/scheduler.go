@@ -445,6 +445,10 @@ func (s *Scheduler) validateRestoreRequest(ctx context.Context, store coordStore
 	if len(req.Include) > 0 && len(req.Exclude) > 0 {
 		return nil, errIncludeExclude
 	}
+	// Check for duplicates in raw patterns early (before backend operations)
+	if dup := findDuplicate(req.Include); dup != "" {
+		return nil, fmt.Errorf("class list 'include' contains duplicate: %s", dup)
+	}
 	destPath := store.HomeDir(req.Bucket, req.Path)
 	meta, err := store.Meta(ctx, GlobalBackupFile, req.Bucket, req.Path)
 	if err != nil {
@@ -470,9 +474,6 @@ func (s *Scheduler) validateRestoreRequest(ctx context.Context, store coordStore
 
 	// Expand wildcards in Include list against backup's classes
 	include := expandWildcards(req.Include, cs)
-	if dup := findDuplicate(include); dup != "" {
-		return nil, fmt.Errorf("class list 'include' contains duplicate: %s", dup)
-	}
 
 	// Expand wildcards in Exclude list against backup's classes
 	exclude := expandWildcards(req.Exclude, cs)
@@ -495,6 +496,7 @@ func (s *Scheduler) validateRestoreRequest(ctx context.Context, store coordStore
 	}
 	return meta, nil
 }
+
 
 // fetchSchema retrieves and returns the latest schema for all classes
 // In pre-raft scenarios where schema may diverge, some guesswork is necessary
