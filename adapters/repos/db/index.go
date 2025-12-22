@@ -3010,7 +3010,7 @@ func (i *Index) findUUIDs(ctx context.Context,
 		var err error
 
 		if i.shardHasMultipleReplicasRead(tenant, shardName) {
-			results[shardName], err = i.replicator.FindUUIDs(ctx, className, shardName, filters, cl)
+			results[shardName], err = i.replicator.FindUUIDs(ctx, className, shardName, filters, cl, limit)
 		} else {
 			// anonymous func is here to ensure release is executed after each loop iteration
 			func() {

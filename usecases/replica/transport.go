@@ -286,10 +286,8 @@ func (fc FinderClient) Overwrite(ctx context.Context,
 	return fc.cl.OverwriteObjects(ctx, host, index, shard, xs)
 }
 
-// TODO aliszka:ttl limit
 func (fc FinderClient) FindUUIDs(ctx context.Context,
-	host, class, shard string, filters *filters.LocalFilter,
+	host, class, shard string, filters *filters.LocalFilter, limit int,
 ) ([]strfmt.UUID, error) {
-	limit := 0
 	return fc.cl.FindUUIDs(ctx, host, class, shard, filters, limit)
 }
