@@ -462,6 +462,9 @@ func (s *Scheduler) dispatchQueue(q *queueState) (int64, error) {
 			OnDone: func() {
 				c := counter.Add(-1)
 
+				// once all tasks are done, notify the queue
+				// so that it can clean up its state and get ready
+				// for next scheduling.
 				if c == 0 {
 					batch.Done()
 					s.Logger.
@@ -471,6 +474,7 @@ func (s *Scheduler) dispatchQueue(q *queueState) (int64, error) {
 						Debug("tasks processed")
 				}
 
+				// decrement the global and queue active tasks counters
 				q.activeTasks.Decr()
 				s.activeTasks.Decr()
 				q.q.Metrics().TasksProcessed(start, int(taskCount))
