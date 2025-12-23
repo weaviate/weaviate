@@ -107,7 +107,7 @@ func NewScheduler(opts SchedulerOptions) *Scheduler {
 		activeTasks:      common.NewSharedGauge(),
 	}
 	s.queues.m = make(map[string]*queueState)
-	s.triggerCh = make(chan chan struct{})
+	s.triggerCh = make(chan chan struct{}, 1)
 
 	return &s
 }
@@ -325,6 +325,15 @@ func (s *Scheduler) Schedule(ctx context.Context) {
 	}
 }
 
+func (s *Scheduler) triggerSchedule() {
+	ch := make(chan struct{})
+	select {
+	case s.triggerCh <- ch:
+	default:
+		close(ch)
+	}
+}
+
 func (s *Scheduler) schedule() {
 	// as long as there are tasks to schedule, keep running
 	// in a tight loop
@@ -452,23 +461,29 @@ func (s *Scheduler) dispatchQueue(q *queueState) (int64, error) {
 			Tasks: partitions[i],
 			Ctx:   q.ctx,
 			OnDone: func() {
-				defer q.q.Metrics().TasksProcessed(start, int(taskCount))
-				defer q.activeTasks.Decr()
-				defer s.activeTasks.Decr()
-
 				q.m.Lock()
 				counter--
 				c := counter
+				// It is important to unlock the queue here
+				// to avoid a deadlock when the last worker calls Done.
 				q.m.Unlock()
+
 				if c == 0 {
-					// It is important to unlock the queue here
-					// to avoid a deadlock when the last worker calls Done.
 					batch.Done()
 					s.Logger.
 						WithField("queue_id", q.q.ID()).
 						WithField("queue_size", q.q.Size()).
 						WithField("count", taskCount).
 						Debug("tasks processed")
+				}
+
+				q.activeTasks.Decr()
+				s.activeTasks.Decr()
+				q.q.Metrics().TasksProcessed(start, int(taskCount))
+
+				// notify the scheduler to check for more tasks
+				if c == 0 {
+					s.triggerSchedule()
 				}
 			},
 			OnCanceled: func() {
