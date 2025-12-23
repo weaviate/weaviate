@@ -136,23 +136,3 @@ func (s *segment) replaceStratParseData(in []byte) ([]byte, []byte, error) {
 
 	return in[9+valueLength+4 : 9+valueLength+4+uint64(pkLength)], in[9 : 9+valueLength], nil
 }
-
-func (s *segment) existsKey(key []byte) (bool, error) {
-	if err := segmentindex.CheckExpectedStrategy(s.strategy, segmentindex.StrategyReplace); err != nil {
-		return false, fmt.Errorf("segment::existsKey: %w", err)
-	}
-
-	if s.useBloomFilter && !s.bloomFilter.Test(key) {
-		return false, nil
-	}
-
-	_, err := s.index.Get(key)
-
-	if err == nil {
-		return true, nil
-	}
-	if errors.Is(err, lsmkv.NotFound) {
-		return false, nil
-	}
-	return false, err
-}

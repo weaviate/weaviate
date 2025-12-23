@@ -534,6 +534,48 @@ func (b *Bucket) getConsistentView() BucketConsistentView {
 	}
 }
 
+func (b *Bucket) getConsistentViewForKeys(keys [][]byte) BucketConsistentView {
+	beforeFlushLock := time.Now()
+	b.flushLock.RLock()
+	defer b.flushLock.RUnlock()
+
+	if duration := time.Since(beforeFlushLock); duration > 100*time.Millisecond {
+		b.logger.WithFields(logrus.Fields{
+			"duration": duration,
+			"action":   "lsm_bucket_get_acquire_flush_lock",
+		}).Debug("Waited more than 100ms to obtain a flush lock during get")
+	}
+
+	diskSegments, releaseDiskSegments := b.disk.getConsistentViewForKeys(keys)
+	return BucketConsistentView{
+		Active:   b.active,
+		Flushing: b.flushing,
+		Disk:     diskSegments,
+		release:  releaseDiskSegments,
+	}
+}
+
+func (b *Bucket) getConsistentViewForKeysSecondary(keys [][]byte, pos int) BucketConsistentView {
+	beforeFlushLock := time.Now()
+	b.flushLock.RLock()
+	defer b.flushLock.RUnlock()
+
+	if duration := time.Since(beforeFlushLock); duration > 100*time.Millisecond {
+		b.logger.WithFields(logrus.Fields{
+			"duration": duration,
+			"action":   "lsm_bucket_get_acquire_flush_lock",
+		}).Debug("Waited more than 100ms to obtain a flush lock during get")
+	}
+
+	diskSegments, releaseDiskSegments := b.disk.getConsistentViewForKeysSecondary(keys, pos)
+	return BucketConsistentView{
+		Active:   b.active,
+		Flushing: b.flushing,
+		Disk:     diskSegments,
+		release:  releaseDiskSegments,
+	}
+}
+
 // Get retrieves the single value for the given key.
 //
 // Get is specific to ReplaceStrategy and cannot be used with any of the other
@@ -555,7 +597,7 @@ func (b *Bucket) GetErrDeleted(key []byte) ([]byte, error) {
 }
 
 func (b *Bucket) get(key []byte) ([]byte, error) {
-	view := b.getConsistentView()
+	view := b.getConsistentViewForKeys([][]byte{key})
 	defer view.release()
 
 	return b.getWithConsistentView(key, view)
@@ -627,7 +669,7 @@ func (b *Bucket) getBySecondary(ctx context.Context, pos int, seckey []byte, buf
 	}
 
 	beforeAll := time.Now()
-	view := b.getConsistentView()
+	view := b.getConsistentViewForKeysSecondary([][]byte{seckey}, pos)
 	defer view.release()
 	tookView := time.Since(beforeAll)
 
@@ -788,7 +830,7 @@ func (b *Bucket) getBySecondaryFromSegmentGroup(pos int, seckey []byte, buffer [
 // SetList is specific to the Set Strategy, for Map use [Bucket.MapList], and
 // for Replace use [Bucket.Get].
 func (b *Bucket) SetList(key []byte) ([][]byte, error) {
-	view := b.getConsistentView()
+	view := b.getConsistentViewForKeys([][]byte{key})
 	defer view.Release()
 
 	return b.setListFromConsistentView(view, key)
@@ -1787,7 +1829,7 @@ func (b *Bucket) WriteWAL() error {
 }
 
 func (b *Bucket) DocPointerWithScoreList(ctx context.Context, key []byte, propBoost float32, cfgs ...MapListOption) ([]terms.DocPointerWithScore, error) {
-	view := b.getConsistentView()
+	view := b.getConsistentViewForKeys([][]byte{key})
 	defer view.Release()
 
 	return b.docPointerWithScoreListFromConsistentView(ctx, view, key, propBoost, cfgs...)
@@ -1986,7 +2028,13 @@ func (b *Bucket) createDiskTermFromCV(ctx context.Context, view BucketConsistent
 		}
 
 		for _, segment := range view.Disk {
-			if segment.getStrategy() == segmentindex.StrategyInverted && segment.hasKey(key) {
+			ok, err := segment.existsKey(key)
+			if err != nil {
+				view.Release()
+				return nil, nil, func() {}, fmt.Errorf("check key existence: %w", err)
+			}
+
+			if segment.getStrategy() == segmentindex.StrategyInverted && ok {
 				n += segment.getDocCount(key)
 			}
 		}
@@ -2130,6 +2178,52 @@ func (b *Bucket) GetAveragePropertyLength() (float64, error) {
 		return 0, nil
 	}
 	return float64(propLengthSum) / float64(propLengthCount), nil
+}
+
+func (s *segment) existsKey(key []byte) (bool, error) {
+	if err := segmentindex.CheckExpectedStrategy(s.strategy, segmentindex.StrategyReplace, segmentindex.StrategyMapCollection, segmentindex.StrategyInverted, segmentindex.StrategySetCollection, segmentindex.StrategyRoaringSet); err != nil {
+		return false, fmt.Errorf("segment::existsKey: %w", err)
+	}
+
+	if s.useBloomFilter && !s.bloomFilter.Test(key) {
+		return false, nil
+	}
+
+	_, err := s.index.Get(key)
+
+	if err == nil {
+		return true, nil
+	}
+	if errors.Is(err, lsmkv.NotFound) {
+		return false, nil
+	}
+	return false, err
+}
+
+func (s *segment) existsKeySecondary(key []byte, pos int) (bool, error) {
+	if err := segmentindex.CheckExpectedStrategy(s.strategy, segmentindex.StrategyReplace, segmentindex.StrategyMapCollection, segmentindex.StrategyInverted, segmentindex.StrategySetCollection); err != nil {
+		return false, fmt.Errorf("segment::existsKey: %w", err)
+	}
+
+	if pos >= len(s.secondaryIndices) || s.secondaryIndices[pos] == nil {
+		return false, fmt.Errorf("no secondary index at pos %d", pos)
+	}
+
+	if s.useBloomFilter && len(s.secondaryBloomFilters) > pos && !s.secondaryBloomFilters[pos].Test(key) {
+		return false, nil
+	}
+
+	_, err := s.secondaryIndices[pos].Get(key)
+
+	if err == nil {
+		return true, nil
+	}
+
+	if errors.Is(err, lsmkv.NotFound) {
+		return false, nil
+	}
+
+	return false, err
 }
 
 func DetermineUnloadedBucketStrategy(bucketPath string) (string, error) {
