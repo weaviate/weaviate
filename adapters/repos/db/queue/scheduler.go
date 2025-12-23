@@ -16,6 +16,7 @@ import (
 	"os"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/pkg/errors"
@@ -440,14 +441,12 @@ func (s *Scheduler) dispatchQueue(q *queueState) (int64, error) {
 
 	// keep track of the number of active tasks
 	// for this chunk to remove it when all tasks are done
-	var counter int
+	var counter atomic.Int32
 	for i, partition := range partitions {
 		if len(partition) == 0 {
 			continue
 		}
-		q.m.Lock()
-		counter++
-		q.m.Unlock()
+		counter.Add(1)
 
 		// increment the global active tasks counter
 		s.activeTasks.Incr()
@@ -461,12 +460,7 @@ func (s *Scheduler) dispatchQueue(q *queueState) (int64, error) {
 			Tasks: partitions[i],
 			Ctx:   q.ctx,
 			OnDone: func() {
-				q.m.Lock()
-				counter--
-				c := counter
-				// It is important to unlock the queue here
-				// to avoid a deadlock when the last worker calls Done.
-				q.m.Unlock()
+				c := counter.Add(-1)
 
 				if c == 0 {
 					batch.Done()
