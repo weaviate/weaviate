@@ -23,6 +23,7 @@ packages:
   github.com/weaviate/weaviate/usecases/cluster:
     interfaces:
       NodeSelector:
+      NodeResolver:
   github.com/weaviate/weaviate/usecases/schema:
     interfaces:
       SchemaGetter:
