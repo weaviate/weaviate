@@ -434,18 +434,18 @@ func (m *Migrator) AddProperty(ctx context.Context, className string, prop ...*m
 	return idx.addProperty(ctx, prop...)
 }
 
-// DropProperty is ignored, API compliant change
-func (m *Migrator) DropProperty(ctx context.Context, className string, propertyName string) error {
-	// ignore but don't error
-	return nil
-}
+func (m *Migrator) UpdateProperty(ctx context.Context, className string, property *models.Property) error {
+	indexID := indexID(schema.ClassName(className))
 
-func (m *Migrator) UpdateProperty(ctx context.Context, className string, propName string, newName *string) error {
-	if newName != nil {
-		return errors.New("weaviate does not support renaming of properties")
+	m.classLocks.Lock(indexID)
+	defer m.classLocks.Unlock(indexID)
+
+	idx := m.db.GetIndex(schema.ClassName(className))
+	if idx == nil {
+		return errors.Errorf("cannot delete property from a non-existing index for %s", className)
 	}
 
-	return nil
+	return idx.updateProperty(ctx, property)
 }
 
 func (m *Migrator) GetShardsQueueSize(ctx context.Context, className, tenant string) (map[string]int64, error) {

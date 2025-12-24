@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -93,6 +94,48 @@ func (s *Shard) initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGrou
 			})
 		}
 	}
+}
+
+func (s *Shard) updatePropertyBuckets(ctx context.Context,
+	eg *enterrors.ErrorGroupWrapper,
+	prop *models.Property,
+) {
+	eg.Go(func() error {
+		if !inverted.HasFilterableIndex(prop) {
+			err := s.removeBucket(ctx, helpers.BucketFromPropNameLSM(prop.Name))
+			if err != nil {
+				return fmt.Errorf("cannot remove filterable index for property: %s %w", prop.Name, err)
+			}
+		}
+		if !inverted.HasSearchableIndex(prop) {
+			err := s.removeBucket(ctx, helpers.BucketSearchableFromPropNameLSM(prop.Name))
+			if err != nil {
+				return fmt.Errorf("cannot remove searchable index for property: %s %w", prop.Name, err)
+			}
+		}
+		if !inverted.HasRangeableIndex(prop) {
+			err := s.removeBucket(ctx, helpers.BucketRangeableFromPropNameLSM(prop.Name))
+			if err != nil {
+				return fmt.Errorf("cannot remove rangeable index for property: %s %w", prop.Name, err)
+			}
+		}
+		return nil
+	})
+}
+
+func (s *Shard) removeBucket(ctx context.Context, bucketName string) error {
+	if bucket := s.store.Bucket(bucketName); bucket != nil {
+		bucketDir := bucket.GetDir()
+		err := s.store.ShutdownBucket(ctx, bucketName)
+		if err != nil {
+			return fmt.Errorf("cannot shutdown bucket %s: %w", bucketName, err)
+		}
+		err = os.RemoveAll(bucketDir)
+		if err != nil {
+			return fmt.Errorf("cannot delete bucket directory %s: %w", bucketDir, err)
+		}
+	}
+	return nil
 }
 
 func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Property,

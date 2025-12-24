@@ -677,7 +677,22 @@ func (i *Index) addProperty(ctx context.Context, props ...*models.Property) erro
 	})
 
 	if err := eg.Wait(); err != nil {
-		return errors.Wrapf(err, "extend idx '%s' with properties '%v", i.ID(), props)
+		return errors.Wrapf(err, "extend idx '%s' with properties '%v'", i.ID(), props)
+	}
+	return nil
+}
+
+func (i *Index) updateProperty(ctx context.Context, property *models.Property) error {
+	eg := enterrors.NewErrorGroupWrapper(i.logger)
+	eg.SetLimit(_NUMCPU)
+
+	i.ForEachShard(func(key string, shard ShardLike) error {
+		shard.updatePropertyBuckets(ctx, eg, property)
+		return nil
+	})
+
+	if err := eg.Wait(); err != nil {
+		return errors.Wrapf(err, "update property '%v' idx '%s'", property.Name, i.ID())
 	}
 	return nil
 }

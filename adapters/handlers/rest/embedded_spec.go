@@ -4948,6 +4948,70 @@ func init() {
         ]
       }
     },
+    "/schema/{className}/properties/{propertyName}/index": {
+      "delete": {
+        "description": "Deletes collection's property indexes.",
+        "tags": [
+          "schema"
+        ],
+        "summary": "Deletes collection's property indexes",
+        "operationId": "schema.objects.properties.delete",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name of the collection (class).",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "The name of collection's property to be deleted.",
+            "name": "propertyName",
+            "in": "path",
+            "required": true
+          },
+          {
+            "description": "The definition of property's settings to update.",
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/DeletePropertyIndexRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Property updated successfully."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid property definition provided.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error occurred while updating property. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.local.manipulate.meta"
+        ]
+      }
+    },
     "/schema/{className}/shards": {
       "get": {
         "description": "Retrieves the status of all shards associated with the specified collection (` + "`" + `className` + "`" + `). For multi-tenant collections, use the ` + "`" + `tenant` + "`" + ` query parameter to retrieve status for a specific tenant's shards.",
@@ -6926,6 +6990,26 @@ func init() {
         "userId": {
           "description": "The name (ID) of the user.",
           "type": "string"
+        }
+      }
+    },
+    "DeletePropertyIndexRequest": {
+      "type": "object",
+      "properties": {
+        "indexFilterable": {
+          "description": "Whether to remove this property's filterable index (Roaring Bitmap index).",
+          "type": "boolean",
+          "x-nullable": true
+        },
+        "indexRangeFilters": {
+          "description": "Whether to remove this property's rangeable index (range-based Roaring Bitmap index).",
+          "type": "boolean",
+          "x-nullable": true
+        },
+        "indexSearchable": {
+          "description": "Whether to remove this property's from inverted index.",
+          "type": "boolean",
+          "x-nullable": true
         }
       }
     },
@@ -14306,6 +14390,70 @@ func init() {
         ]
       }
     },
+    "/schema/{className}/properties/{propertyName}/index": {
+      "delete": {
+        "description": "Deletes collection's property indexes.",
+        "tags": [
+          "schema"
+        ],
+        "summary": "Deletes collection's property indexes",
+        "operationId": "schema.objects.properties.delete",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name of the collection (class).",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "The name of collection's property to be deleted.",
+            "name": "propertyName",
+            "in": "path",
+            "required": true
+          },
+          {
+            "description": "The definition of property's settings to update.",
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/DeletePropertyIndexRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Property updated successfully."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid property definition provided.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error occurred while updating property. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.local.manipulate.meta"
+        ]
+      }
+    },
     "/schema/{className}/shards": {
       "get": {
         "description": "Retrieves the status of all shards associated with the specified collection (` + "`" + `className` + "`" + `). For multi-tenant collections, use the ` + "`" + `tenant` + "`" + ` query parameter to retrieve status for a specific tenant's shards.",
@@ -16439,6 +16587,26 @@ func init() {
         "userId": {
           "description": "The name (ID) of the user.",
           "type": "string"
+        }
+      }
+    },
+    "DeletePropertyIndexRequest": {
+      "type": "object",
+      "properties": {
+        "indexFilterable": {
+          "description": "Whether to remove this property's filterable index (Roaring Bitmap index).",
+          "type": "boolean",
+          "x-nullable": true
+        },
+        "indexRangeFilters": {
+          "description": "Whether to remove this property's rangeable index (range-based Roaring Bitmap index).",
+          "type": "boolean",
+          "x-nullable": true
+        },
+        "indexSearchable": {
+          "description": "Whether to remove this property's from inverted index.",
+          "type": "boolean",
+          "x-nullable": true
         }
       }
     },

@@ -1588,6 +1588,26 @@
       },
       "type": "object"
     },
+    "DeletePropertyIndexRequest": {
+      "properties": {
+        "indexFilterable": {
+          "description": "Whether to remove this property's filterable index (Roaring Bitmap index).",
+          "type": "boolean",
+          "x-nullable": true
+        },
+        "indexSearchable": {
+          "description": "Whether to remove this property's from inverted index.",
+          "type": "boolean",
+          "x-nullable": true
+        },
+        "indexRangeFilters": {
+          "description": "Whether to remove this property's rangeable index (range-based Roaring Bitmap index).",
+          "type": "boolean",
+          "x-nullable": true
+        }
+      },
+      "type": "object"
+    },
     "VectorConfig": {
       "properties": {
         "vectorizer": {
@@ -7774,6 +7794,70 @@
           },
           "500": {
             "description": "An error occurred while adding the property. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/schema/{className}/properties/{propertyName}/index": {
+      "delete": {
+        "summary": "Deletes collection's property indexes",
+        "description": "Deletes collection's property indexes.",
+        "operationId": "schema.objects.properties.delete",
+        "x-serviceIds": [
+          "weaviate.local.manipulate.meta"
+        ],
+        "tags": [
+          "schema"
+        ],
+        "parameters": [
+          {
+            "name": "className",
+            "description": "The name of the collection (class).",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "propertyName",
+            "description": "The name of collection's property to be deleted.",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "description": "The definition of property's settings to update.",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/DeletePropertyIndexRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Property updated successfully."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid property definition provided.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error occurred while updating property. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
