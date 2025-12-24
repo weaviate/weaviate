@@ -24,8 +24,10 @@ import (
 // These constants define the prefixes used in the
 // lsmkv bucket to namespace different types of data.
 const (
-	postingSizeBucketPrefix = 's'
-	versionMapBucketPrefix  = 'v'
+	postingSizeBucketPrefix    = 's'
+	postingVersionBucketPrefix = 'l'
+	versionMapBucketPrefix     = 'v'
+	metadataBucketPrefix       = 'm'
 )
 
 // NewSharedBucket creates a shared lsmkv bucket for the HFresh index.
@@ -57,10 +59,7 @@ type PostingSizes struct {
 }
 
 func NewPostingSizes(bucket *lsmkv.Bucket, metrics *Metrics) (*PostingSizes, error) {
-	pStore, err := NewPostingSizeStore(bucket)
-	if err != nil {
-		return nil, err
-	}
+	pStore := NewPostingSizeStore(bucket, postingSizeBucketPrefix)
 
 	cache, err := otter.New(&otter.Options[uint64, uint32]{
 		MaximumSize: 10_000,
@@ -133,18 +132,20 @@ func (v *PostingSizes) Inc(ctx context.Context, postingID uint64, delta uint32) 
 // PostingSizeStore is a persistent store for posting sizes.
 // It stores the sizes in an LSMKV bucket.
 type PostingSizeStore struct {
-	bucket *lsmkv.Bucket
+	bucket    *lsmkv.Bucket
+	keyPrefix byte
 }
 
-func NewPostingSizeStore(bucket *lsmkv.Bucket) (*PostingSizeStore, error) {
+func NewPostingSizeStore(bucket *lsmkv.Bucket, keyPrefix byte) *PostingSizeStore {
 	return &PostingSizeStore{
-		bucket: bucket,
-	}, nil
+		bucket:    bucket,
+		keyPrefix: keyPrefix,
+	}
 }
 
 func (p *PostingSizeStore) key(postingID uint64) [9]byte {
 	var buf [9]byte
-	buf[0] = postingSizeBucketPrefix
+	buf[0] = p.keyPrefix
 	binary.LittleEndian.PutUint64(buf[1:], postingID)
 	return buf
 }

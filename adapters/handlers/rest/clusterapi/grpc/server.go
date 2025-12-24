@@ -33,28 +33,43 @@ type Server struct {
 	state *state.State
 }
 
+const (
+	PB_OVERHEAD       = 16 * 1024       // 16kB for any extra overhead
+	DEFAULT_MSG_SIZE  = 4 * 1024 * 1024 // 4MB default from grpc
+	READ_BUFFER_SIZE  = 4 << 20         // 4 MB
+	WRITE_BUFFER_SIZE = 4 << 20         // 4 MB
+)
+
 // NewServer creates *grpc.Server with optional grpc.Serveroption passed.
 func NewServer(state *state.State, options ...grpc.ServerOption) *Server {
-	o := []grpc.ServerOption{}
-	var interceptors []grpc.UnaryServerInterceptor
+	fileCopyChunkSize := state.ServerConfig.Config.ReplicationEngineFileCopyChunkSize
+
+	maxSize := GetMaxMessageSize(fileCopyChunkSize)
+	initialConnWindowSize := GetInitialConnWindowSize(
+		fileCopyChunkSize, state.ServerConfig.Config.ReplicationEngineFileCopyWorkers,
+	)
+
+	o := []grpc.ServerOption{
+		grpc.MaxRecvMsgSize(maxSize),
+		grpc.MaxSendMsgSize(maxSize),
+		grpc.InitialWindowSize(int32(maxSize)),
+		grpc.InitialConnWindowSize(int32(initialConnWindowSize)),
+		grpc.ReadBufferSize(READ_BUFFER_SIZE),
+		grpc.WriteBufferSize(WRITE_BUFFER_SIZE),
+	}
 
 	basicAuth := state.ServerConfig.Config.Cluster.AuthConfig.BasicAuth
 	if basicAuth.Enabled() {
-		interceptors = append(interceptors,
-			basicAuthUnaryInterceptor("/weaviate.v1.FileReplicationService", basicAuth.Username, basicAuth.Password))
+		o = append(o, grpc.UnaryInterceptor(
+			basicAuthUnaryInterceptor("/weaviate.v1.FileReplicationService", basicAuth.Username, basicAuth.Password),
+		))
 
 		o = append(o, grpc.StreamInterceptor(
 			basicAuthStreamInterceptor("/weaviate.v1.FileReplicationService", basicAuth.Username, basicAuth.Password),
 		))
 	}
 
-	if len(interceptors) > 0 {
-		o = append(o, grpc.ChainUnaryInterceptor(interceptors...))
-	}
-
 	s := grpc.NewServer(o...)
-
-	fileCopyChunkSize := state.ServerConfig.Config.ReplicationEngineFileCopyChunkSize
 
 	weaviateV1FileReplicationService := NewFileReplicationService(state.DB, state.ClusterService.SchemaReader(), fileCopyChunkSize)
 	pb.RegisterFileReplicationServiceServer(s, weaviateV1FileReplicationService)
@@ -155,4 +170,12 @@ func basicAuthStreamInterceptor(servicePrefix, expectedUsername, expectedPasswor
 
 		return handler(srv, ss)
 	}
+}
+
+func GetMaxMessageSize(fileCopyChunkSize int) int {
+	return max(DEFAULT_MSG_SIZE, fileCopyChunkSize+PB_OVERHEAD)
+}
+
+func GetInitialConnWindowSize(fileCopyChunkSize, fileCopyWorkers int) int {
+	return GetMaxMessageSize(fileCopyChunkSize) * fileCopyWorkers
 }

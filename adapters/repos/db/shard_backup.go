@@ -118,14 +118,26 @@ func (s *Shard) mayUpdateInactivityTimeout(inactivityTimeout time.Duration) {
 }
 
 func (s *Shard) mayResetInactivityTimer() {
-	if s.haltForTransferInactivityTimer == nil {
+	resetTimer(s.haltForTransferInactivityTimer, s.haltForTransferInactivityTimeout)
+}
+
+func resetTimer(t *time.Timer, d time.Duration) {
+	if t == nil {
 		return
 	}
 
-	if !s.haltForTransferInactivityTimer.Stop() {
-		<-s.haltForTransferInactivityTimer.C // drain the channel if necessary
+	// if Stop returns false, the timer has either already fired or been stopped.
+	// in the "already fired" case, there may be a value in t.C that we need to drain.
+	if !t.Stop() {
+		select {
+		case <-t.C:
+			// drained a pending tick.
+		default:
+			// channel was already drained; nothing to do.
+		}
 	}
-	s.haltForTransferInactivityTimer.Reset(s.haltForTransferInactivityTimeout)
+
+	t.Reset(d)
 }
 
 func (s *Shard) mayInitInactivityMonitoring() {

@@ -306,7 +306,11 @@ func TestRaftEndpoints(t *testing.T) {
 	cls = &models.Class{
 		Class: "D",
 	}
-	ss = &sharding.State{PartitioningEnabled: false, Physical: map[string]sharding.Physical{"S0": {Name: "S0"}}}
+	ss = &sharding.State{
+		PartitioningEnabled: false,
+		Physical:            map[string]sharding.Physical{"S0": {Name: "S0"}},
+		Virtual:             []sharding.Virtual{{}}, // Doesn't matter for test
+	}
 	_, err = srv.AddClass(ctx, cls, ss)
 	assert.Nil(t, err)
 	assert.Equal(t, schemaReader.ClassEqual("D"), "D")

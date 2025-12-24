@@ -229,6 +229,14 @@ type Config struct {
 
 	// The minimum timeout for the server to wait before it returns an error
 	MinimumInternalTimeout time.Duration `json:"minimum_internal_timeout" yaml:"minimum_internal_timeout"`
+
+	// Time expired objects should be deleted at by background routine
+	// accepts format: https://github.com/netresearch/go-cron?tab=readme-ov-file#cron-expression-format
+	ObjectsTTLDeleteSchedule string `json:"objects_ttl_delete_schedule" yaml:"objects_ttl_delete_schedule"`
+
+	ObjectsTtlAllowSeconds bool `json:"objects_ttl_allow_seconds" yaml:"objects_ttl_allow_seconds"`
+	// The specific mode of operation for the instance itself. Is an enum of Full, WriteOnly, ReadOnly, ScaleOut
+	OperationalMode *runtime.DynamicValue[string] `json:"operational_mode" yaml:"operational_mode"`
 }
 
 type MapToBlockamaxConfig struct {

@@ -67,7 +67,7 @@ type cycleCombinedCallbackCtrl struct {
 // Methods (activate, deactivate, unregister) calls nested controllers' methods in parallel by number of
 // goroutines given as argument. If < 1 value given, NumCPU is used.
 func NewCombinedCallbackCtrl(routinesLimit int, logger logrus.FieldLogger, ctrls ...CycleCallbackCtrl) CycleCallbackCtrl {
-	routinesLimit = concurrency.NoMoreThanNUMCPU(routinesLimit)
+	routinesLimit = concurrency.NoMoreThanGOMAXPROCS(routinesLimit)
 	return &cycleCombinedCallbackCtrl{routinesLimit: routinesLimit, logger: logger, ctrls: ctrls}
 }
 

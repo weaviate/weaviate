@@ -75,7 +75,6 @@ func NewConfigManager[T any](
 	registered *T,
 	interval time.Duration,
 	log logrus.FieldLogger,
-	hooks map[string]func() error,
 	r prometheus.Registerer,
 ) (*ConfigManager[T], error) {
 	// catch empty filepath early
@@ -98,7 +97,7 @@ func NewConfigManager[T any](
 			Help: "Hash value of the currently active runtime configuration",
 		}, []string{"sha256"}), // sha256 is type of checksum and hard-coded for now
 		currentConfig: registered,
-		hooks:         hooks,
+		hooks:         nil,
 	}
 
 	// try to load it once to fail early if configs are invalid
@@ -116,8 +115,29 @@ func (cm *ConfigManager[T]) Run(ctx context.Context) error {
 	return cm.loop(ctx)
 }
 
-// loadConfig reads and unmarshal the config from the file location.
+// RegisterAdditional registers any variables post Weaviate bootstrap (eg. module params)
+func (cm *ConfigManager[T]) RegisterAdditional(register func(registered *T)) {
+	register(cm.currentConfig)
+}
+
+// RegisterHooks registers any hooks that should be enabled prior runtime config start
+func (cm *ConfigManager[T]) RegisterHooks(hooks map[string]func() error) {
+	cm.hooks = hooks
+}
+
+// ReloadConfig reloads current overrides config
+func (cm *ConfigManager[T]) ReloadConfig() error {
+	return cm.reloadConfig(true)
+}
+
+// loadConfig reads and unmarshals the config from the file location.
+// If there are no changes to the overrides file, it won't be loaded unnecessarily.
 func (cm *ConfigManager[T]) loadConfig() error {
+	return cm.reloadConfig(false)
+}
+
+// reloadConfig reads and unmarshal the config from the file location.
+func (cm *ConfigManager[T]) reloadConfig(forceReloadOverrides bool) error {
 	f, err := os.Open(cm.path)
 	if err != nil {
 		cm.lastLoadSuccess.Set(0)
@@ -132,7 +152,7 @@ func (cm *ConfigManager[T]) loadConfig() error {
 	}
 
 	hash := fmt.Sprintf("%x", sha256.Sum256(b))
-	if hash == cm.currentHash {
+	if !forceReloadOverrides && hash == cm.currentHash {
 		cm.lastLoadSuccess.Set(1)
 		return nil // same file. no change
 	}

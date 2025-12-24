@@ -23,9 +23,12 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/weaviate/weaviate/entities/modelsext"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
+	"github.com/weaviate/weaviate/entities/vectorindex/dynamic"
+	"github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
+	"github.com/weaviate/weaviate/adapters/repos/db/ttl"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/classcache"
 	entcfg "github.com/weaviate/weaviate/entities/config"
@@ -132,11 +135,6 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 		return nil, 0, err
 	}
 
-	err = h.invertedConfigValidator(cls.InvertedIndexConfig)
-	if err != nil {
-		return nil, 0, err
-	}
-
 	existingCollectionsCount, err := h.schemaManager.QueryCollectionsCount()
 	if err != nil {
 		h.logger.WithField("error", err).Error("could not query the collections count")
@@ -173,56 +171,35 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 
 func (h *Handler) enableQuantization(class *models.Class, defaultQuantization *configRuntime.DynamicValue[string]) {
 	compression := defaultQuantization.Get()
+	var err error
 	if !hasTargetVectors(class) || class.VectorIndexType != "" {
-		class.VectorIndexConfig = setDefaultQuantization(class.VectorIndexType, class.VectorIndexConfig.(schemaConfig.VectorIndexConfig), compression)
+		class.VectorIndexConfig, err = setDefaultQuantization(class.VectorIndexType, class.VectorIndexConfig.(schemaConfig.VectorIndexConfig), compression)
+		if err != nil {
+			h.logger.WithField("error", err).Error("error while setting default quantization")
+		}
 	}
 
 	for k, vectorConfig := range class.VectorConfig {
-		vectorConfig.VectorIndexConfig = setDefaultQuantization(class.VectorIndexType, vectorConfig.VectorIndexConfig.(schemaConfig.VectorIndexConfig), compression)
+		vectorConfig.VectorIndexConfig, err = setDefaultQuantization(vectorConfig.VectorIndexType, vectorConfig.VectorIndexConfig.(schemaConfig.VectorIndexConfig), compression)
 		class.VectorConfig[k] = vectorConfig
+		if err != nil {
+			h.logger.WithField("error", err).Error("error while setting default quantization")
+		}
 	}
 }
 
-func setDefaultQuantization(vectorIndexType string, vectorIndexConfig schemaConfig.VectorIndexConfig, compression string) schemaConfig.VectorIndexConfig {
+func setDefaultQuantization(vectorIndexType string, vectorIndexConfig schemaConfig.VectorIndexConfig, compression string) (schemaConfig.VectorIndexConfig, error) {
 	if len(vectorIndexType) == 0 {
 		vectorIndexType = vectorindex.DefaultVectorIndexType
 	}
 	if vectorIndexType == vectorindex.VectorIndexTypeHNSW && vectorIndexConfig.IndexType() == vectorindex.VectorIndexTypeHNSW {
-		hnswConfig := vectorIndexConfig.(hnsw.UserConfig)
-		pqEnabled := hnswConfig.PQ.Enabled
-		sqEnabled := hnswConfig.SQ.Enabled
-		rqEnabled := hnswConfig.RQ.Enabled
-		bqEnabled := hnswConfig.BQ.Enabled
-		skipDefaultQuantization := hnswConfig.SkipDefaultQuantization
-		hnswConfig.TrackDefaultQuantization = false
-		if pqEnabled || sqEnabled || rqEnabled || bqEnabled {
-			return hnswConfig
-		}
-		if skipDefaultQuantization {
-			return hnswConfig
-		}
-		switch compression {
-		case "pq":
-			hnswConfig.PQ.Enabled = true
-		case "sq":
-			hnswConfig.SQ.Enabled = true
-		case "rq-1":
-			hnswConfig.RQ.Enabled = true
-			hnswConfig.RQ.Bits = 1
-			hnswConfig.RQ.RescoreLimit = hnsw.DefaultBRQRescoreLimit
-		case "rq-8":
-			hnswConfig.RQ.Enabled = true
-			hnswConfig.RQ.Bits = 8
-			hnswConfig.RQ.RescoreLimit = hnsw.DefaultRQRescoreLimit
-		case "bq":
-			hnswConfig.BQ.Enabled = true
-		default:
-			return hnswConfig
-		}
-		hnswConfig.TrackDefaultQuantization = true
-		return hnswConfig
+		return hnsw.ParseDefaultQuantization(vectorIndexConfig, compression)
+	} else if vectorIndexType == vectorindex.VectorIndexTypeFLAT && vectorIndexConfig.IndexType() == vectorindex.VectorIndexTypeFLAT {
+		return flat.ParseDefaultQuantization(vectorIndexConfig, compression)
+	} else if vectorIndexType == vectorindex.VectorIndexTypeDYNAMIC && vectorIndexConfig.IndexType() == vectorindex.VectorIndexTypeDYNAMIC {
+		return dynamic.ParseDefaultQuantization(vectorIndexConfig, compression)
 	}
-	return vectorIndexConfig
+	return vectorIndexConfig, nil
 }
 
 func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m map[string]string, overwriteAlias bool) error {
@@ -272,11 +249,6 @@ func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m
 	h.migrateClassSettings(class)
 
 	if err := h.parser.ParseClass(class); err != nil {
-		return err
-	}
-
-	err = h.invertedConfigValidator(class.InvertedIndexConfig)
-	if err != nil {
 		return err
 	}
 
@@ -349,6 +321,12 @@ func UpdateClassInternal(h *Handler, ctx context.Context, className string, upda
 	// optionals would have been set with defaults on the initial already
 	if err := h.setClassDefaults(updated, h.config.Replication); err != nil {
 		return err
+	}
+
+	if ttlConfig, _, err := ttl.ValidateObjectTTLConfig(updated, true); err != nil {
+		return fmt.Errorf("ObjectTTLConfig: %w", err)
+	} else {
+		updated.ObjectTTLConfig = ttlConfig
 	}
 
 	if err := h.parser.ParseClass(updated); err != nil {
@@ -728,10 +706,10 @@ func (h *Handler) validateProperty(
 
 func setInvertedConfigDefaults(class *models.Class) {
 	if class.InvertedIndexConfig == nil {
-		class.InvertedIndexConfig = &models.InvertedIndexConfig{
-			UsingBlockMaxWAND: config.DefaultUsingBlockMaxWAND,
-		}
+		class.InvertedIndexConfig = &models.InvertedIndexConfig{}
 	}
+	// force the default in case it was not set, as empty bool == false
+	class.InvertedIndexConfig.UsingBlockMaxWAND = config.DefaultUsingBlockMaxWAND
 
 	if class.InvertedIndexConfig.CleanupIntervalSeconds == 0 {
 		class.InvertedIndexConfig.CleanupIntervalSeconds = config.DefaultCleanupIntervalSeconds
@@ -790,6 +768,22 @@ func (h *Handler) validateClassInvariants(
 	}
 
 	if err := replica.ValidateConfig(class, h.config.Replication); err != nil {
+		return err
+	}
+
+	if ttlConfig, needsInvertedIndexTimestamp, err := ttl.ValidateObjectTTLConfig(class, false); err != nil {
+		return fmt.Errorf("ObjectTTLConfig: %w", err)
+	} else {
+		class.ObjectTTLConfig = ttlConfig
+		if needsInvertedIndexTimestamp {
+			if class.InvertedIndexConfig == nil {
+				class.InvertedIndexConfig = &models.InvertedIndexConfig{}
+			}
+			class.InvertedIndexConfig.IndexTimestamps = true
+		}
+	}
+
+	if err := h.invertedConfigValidator(class.InvertedIndexConfig); err != nil {
 		return err
 	}
 
@@ -1014,6 +1008,25 @@ func validateImmutableFields(initial, updated *models.Class) error {
 		if !reflect.DeepEqual(initial.VectorConfig[k].Vectorizer, v.Vectorizer) {
 			return fmt.Errorf("vectorizer config of vector %q is immutable", k)
 		}
+	}
+
+	// changing indexing not allowed
+	compareIndexSetting := func(name string, extractVal func(config *models.InvertedIndexConfig) bool) error {
+		initialVal := initial.InvertedIndexConfig != nil && extractVal(initial.InvertedIndexConfig)
+		updatedVal := updated.InvertedIndexConfig != nil && extractVal(updated.InvertedIndexConfig)
+		if initialVal != updatedVal {
+			return fmt.Errorf("%q setting is immutable. Value changed from \"%v\" to \"%v\"", name, initialVal, updatedVal)
+		}
+		return nil
+	}
+	if err := compareIndexSetting("indexTimestamp", func(config *models.InvertedIndexConfig) bool { return config.IndexTimestamps }); err != nil {
+		return err
+	}
+	if err := compareIndexSetting("indexNullState", func(config *models.InvertedIndexConfig) bool { return config.IndexNullState }); err != nil {
+		return err
+	}
+	if err := compareIndexSetting("indexPropertyLength", func(config *models.InvertedIndexConfig) bool { return config.IndexPropertyLength }); err != nil {
+		return err
 	}
 
 	return nil

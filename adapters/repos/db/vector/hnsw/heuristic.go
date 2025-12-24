@@ -46,7 +46,13 @@ func (h *hnsw) selectNeighborsHeuristic(input *priorityqueue.Queue[any],
 		for _, id := range ids {
 			err := bag.Load(context.Background(), id)
 			if err != nil {
-				return err
+				var e storobj.ErrNotFound
+				if errors.As(err, &e) {
+					h.handleDeletedNode(e.DocID, "selectNeighborsHeuristic")
+					continue
+				} else {
+					return err
+				}
 			}
 		}
 
@@ -62,6 +68,11 @@ func (h *hnsw) selectNeighborsHeuristic(input *priorityqueue.Queue[any],
 			for _, item := range returnList {
 				peerDist, err := bag.Distance(curr.ID, item.ID)
 				if err != nil {
+					// Continue if distance calculation fails due to previous missing ID in bag (e.g., deleted node),
+					var e storobj.ErrNotFound
+					if errors.As(err, &e) {
+						continue
+					}
 					return err
 				}
 
