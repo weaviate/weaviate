@@ -14,6 +14,7 @@ package common_filters
 import (
 	"fmt"
 
+	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/graphqlutil"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/models"
 
@@ -49,7 +50,7 @@ func ExtractHybridSearch(source map[string]interface{}, explainScore bool) (*sea
 		namedSearchess := namedSearchesI.([]interface{})
 		namedSearches := namedSearchess[0].(map[string]interface{})
 		// TODO: add bm25 here too
-		if namedSearches["nearText"] != nil {
+				if namedSearches["nearText"] != nil {
 			nearText := namedSearches["nearText"].(map[string]interface{})
 			arguments, _ := ExtractNearText(nearText)
 
@@ -135,7 +136,11 @@ func ExtractHybridSearch(source map[string]interface{}, explainScore bool) (*sea
 
 	fusionType, ok := source["fusionType"]
 	if ok {
-		args.FusionAlgorithm = fusionType.(int)
+		if i, err := graphqlutil.ToInt(fusionType); err == nil {
+			args.FusionAlgorithm = i
+		} else {
+			args.FusionAlgorithm = HybridFusionDefault
+		}
 	} else {
 		args.FusionAlgorithm = HybridFusionDefault
 	}
@@ -168,7 +173,9 @@ func ExtractHybridSearch(source map[string]interface{}, explainScore bool) (*sea
 		operator := operator.(map[string]interface{})
 		args.SearchOperator = operator["operator"].(string)
 		if operator["minimumOrTokensMatch"] != nil {
-			args.MinimumOrTokensMatch = int(operator["minimumOrTokensMatch"].(int))
+			if i, err := graphqlutil.ToInt(operator["minimumOrTokensMatch"]); err == nil {
+				args.MinimumOrTokensMatch = i
+			}
 		}
 	}
 

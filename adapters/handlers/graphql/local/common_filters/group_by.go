@@ -11,7 +11,10 @@
 
 package common_filters
 
-import "github.com/weaviate/weaviate/entities/searchparams"
+import (
+	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/graphqlutil"
+	"github.com/weaviate/weaviate/entities/searchparams"
+)
 
 // ExtractGroupBy
 func ExtractGroupBy(source map[string]interface{}) searchparams.GroupBy {
@@ -27,12 +30,16 @@ func ExtractGroupBy(source map[string]interface{}) searchparams.GroupBy {
 
 	groups := source["groups"]
 	if groups != nil {
-		args.Groups = int(groups.(int))
+		if i, err := graphqlutil.ToInt(groups); err == nil {
+			args.Groups = i
+		}
 	}
 
 	objectsPerGroup := source["objectsPerGroup"]
 	if objectsPerGroup != nil {
-		args.ObjectsPerGroup = int(objectsPerGroup.(int))
+		if i, err := graphqlutil.ToInt(objectsPerGroup); err == nil {
+			args.ObjectsPerGroup = i
+		}
 	}
 
 	return args
