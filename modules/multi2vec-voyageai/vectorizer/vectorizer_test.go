@@ -128,7 +128,7 @@ func TestVectorizerWithWeights(t *testing.T) {
 	config := newConfigBuilder().
 		addSetting("imageFields", []interface{}{"image"}).
 		addSetting("textFields", []interface{}{"text"}).
-		addWeights([]interface{}{0.4}, []interface{}{0.6}).
+		addWeights([]interface{}{0.4}, []interface{}{0.6}, nil).
 		build()
 
 	props := map[string]interface{}{

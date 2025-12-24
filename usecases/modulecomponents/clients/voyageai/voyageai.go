@@ -35,6 +35,7 @@ type multimodalType string
 const (
 	text        multimodalType = "text"
 	imageBase64 multimodalType = "image_base64"
+	videoBase64 multimodalType = "video_base64"
 )
 
 type multimodalInput struct {
@@ -45,6 +46,7 @@ type multimodalContent struct {
 	MultimodalType multimodalType `json:"type,omitempty"`
 	Text           string         `json:"text,omitempty"`
 	ImageBase64    string         `json:"image_base64,omitempty"`
+	VideoBase64    string         `json:"video_base64,omitempty"`
 }
 
 type embeddingsRequest struct {
@@ -212,34 +214,39 @@ func (c *Client) VectorizeQuery(ctx context.Context, input []string, settings Se
 	return res, err
 }
 
-func (c *Client) VectorizeMultiModal(ctx context.Context, texts, images []string,
+func (c *Client) VectorizeMultiModal(ctx context.Context, texts, images, videos []string,
 	settings Settings,
 ) (*modulecomponents.VectorizationCLIPResult[[]float32], error) {
-	request := c.getMultiModalEmbeddingsRequest(texts, images, settings)
+	request := c.getMultiModalEmbeddingsRequest(texts, images, videos, settings)
 	resBody, err := c.vectorize(ctx, settings.BaseURL, settings.Model, request)
 	if err != nil {
 		return nil, err
 	}
 
-	var textVectors, imageVectors [][]float32
+	var textVectors, imageVectors, videoVectors [][]float32
+	textEnd := len(texts)
+	imageEnd := textEnd + len(images)
 	for i := range resBody.Data {
-		if i < len(texts) {
+		if i < textEnd {
 			textVectors = append(textVectors, resBody.Data[i].Embedding)
-		} else {
+		} else if i < imageEnd {
 			imageVectors = append(imageVectors, resBody.Data[i].Embedding)
+		} else {
+			videoVectors = append(videoVectors, resBody.Data[i].Embedding)
 		}
 	}
 
 	res := &modulecomponents.VectorizationCLIPResult[[]float32]{
 		TextVectors:  textVectors,
 		ImageVectors: imageVectors,
+		VideoVectors: videoVectors,
 	}
 	return res, nil
 }
 
-func (c *Client) getMultiModalEmbeddingsRequest(texts, images []string, settings Settings,
+func (c *Client) getMultiModalEmbeddingsRequest(texts, images, videos []string, settings Settings,
 ) embeddingsRequest {
-	inputs := make([]multimodalInput, len(texts)+len(images))
+	inputs := make([]multimodalInput, len(texts)+len(images)+len(videos))
 	for i := range texts {
 		inputs[i] = multimodalInput{Content: []multimodalContent{{Text: texts[i], MultimodalType: text}}}
 	}
@@ -249,6 +256,14 @@ func (c *Client) getMultiModalEmbeddingsRequest(texts, images []string, settings
 			inputs[offset+i] = multimodalInput{Content: []multimodalContent{{ImageBase64: fmt.Sprintf("data:image/png;base64,%s", images[i]), MultimodalType: imageBase64}}}
 		} else {
 			inputs[offset+i] = multimodalInput{Content: []multimodalContent{{ImageBase64: images[i], MultimodalType: imageBase64}}}
+		}
+	}
+	offset = len(texts) + len(images)
+	for i := range videos {
+		if !strings.HasPrefix(videos[i], "data:") {
+			inputs[offset+i] = multimodalInput{Content: []multimodalContent{{VideoBase64: fmt.Sprintf("data:video/mp4;base64,%s", videos[i]), MultimodalType: videoBase64}}}
+		} else {
+			inputs[offset+i] = multimodalInput{Content: []multimodalContent{{VideoBase64: videos[i], MultimodalType: videoBase64}}}
 		}
 	}
 	return embeddingsRequest{
