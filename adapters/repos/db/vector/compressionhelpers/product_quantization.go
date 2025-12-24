@@ -317,11 +317,14 @@ func (pq *ProductQuantizer) DistanceBetweenCompressedVectors(x, y []byte) (float
 	}
 
 	dist := float32(0)
+	stride := pq.ks * pq.ks
+	globalDistances := pq.globalDistances
 
 	for i := 0; i < pq.m; i++ {
-		cX := ExtractCode8(x, i)
-		cY := ExtractCode8(y, i)
-		dist += pq.globalDistances[i*pq.ks*pq.ks+int(cX)*pq.ks+int(cY)]
+		segmentBase := i * stride
+		cX := int(x[i])
+		cY := int(y[i])
+		dist += globalDistances[segmentBase+cX*pq.ks+cY]
 	}
 
 	return pq.distance.Wrap(dist), nil
