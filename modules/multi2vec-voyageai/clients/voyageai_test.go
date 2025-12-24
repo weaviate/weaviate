@@ -41,7 +41,7 @@ func TestClient(t *testing.T) {
 		}
 		res, err := c.Vectorize(context.Background(),
 			[]string{"This is my text"}, []string{"base64image"}, nil,
-			fakeClassConfig{classConfig: map[string]interface{}{"Model": "voyage-multimodal-3", "baseURL": server.URL}},
+			fakeClassConfig{classConfig: map[string]any{"Model": "voyage-multimodal-3", "baseURL": server.URL}},
 		)
 
 		assert.Nil(t, err)
@@ -56,7 +56,7 @@ func TestClient(t *testing.T) {
 		defer cancel()
 
 		_, err := c.Vectorize(ctx, []string{"text"}, []string{"image"}, nil,
-			fakeClassConfig{classConfig: map[string]interface{}{"Model": "voyage-multimodal-3"}},
+			fakeClassConfig{classConfig: map[string]any{"Model": "voyage-multimodal-3"}},
 		)
 
 		require.NotNil(t, err)
@@ -71,7 +71,7 @@ func TestClient(t *testing.T) {
 		defer server.Close()
 		c := &vectorizer{voyageai.New("apiKey", 0, &voyageaiUrlBuilder{origin: server.URL, pathMask: "/multimodalembeddings"}, nullLogger())}
 		_, err := c.Vectorize(context.Background(), []string{"text"}, []string{"image"}, nil,
-			fakeClassConfig{classConfig: map[string]interface{}{"Model": "voyage-multimodal-3", "baseURL": server.URL}},
+			fakeClassConfig{classConfig: map[string]any{"Model": "voyage-multimodal-3", "baseURL": server.URL}},
 		)
 
 		require.NotNil(t, err)
@@ -90,7 +90,7 @@ func TestClient(t *testing.T) {
 			ImageVectors: [][]float32{{0.4, 0.5, 0.6}},
 		}
 		res, err := c.Vectorize(ctxWithValue, []string{"text"}, []string{"image"}, nil,
-			fakeClassConfig{classConfig: map[string]interface{}{"Model": "voyage-multimodal-3", "baseURL": server.URL}},
+			fakeClassConfig{classConfig: map[string]any{"Model": "voyage-multimodal-3", "baseURL": server.URL}},
 		)
 
 		require.Nil(t, err)
@@ -107,7 +107,7 @@ func (f *fakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	assert.Equal(f.t, http.MethodPost, r.Method)
 
 	if f.serverError != "" {
-		resp := map[string]interface{}{
+		resp := map[string]any{
 			"detail": f.serverError,
 		}
 		outBytes, err := json.Marshal(resp)
@@ -122,12 +122,12 @@ func (f *fakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	require.Nil(f.t, err)
 	defer r.Body.Close()
 
-	var req map[string]interface{}
+	var req map[string]any
 	require.Nil(f.t, json.Unmarshal(bodyBytes, &req))
 	assert.NotNil(f.t, req)
 
-	resp := map[string]interface{}{
-		"data": []map[string]interface{}{
+	resp := map[string]any{
+		"data": []map[string]any{
 			{"embedding": []float32{0.1, 0.2, 0.3}},
 			{"embedding": []float32{0.4, 0.5, 0.6}},
 		},
@@ -145,33 +145,33 @@ func nullLogger() logrus.FieldLogger {
 }
 
 type fakeClassConfig struct {
-	classConfig           map[string]interface{}
+	classConfig           map[string]any
 	vectorizePropertyName bool
 	skippedProperty       string
 	excludedProperty      string
 }
 
-func (f fakeClassConfig) Class() map[string]interface{} {
+func (f fakeClassConfig) Class() map[string]any {
 	return f.classConfig
 }
 
-func (f fakeClassConfig) ClassByModuleName(moduleName string) map[string]interface{} {
+func (f fakeClassConfig) ClassByModuleName(moduleName string) map[string]any {
 	return f.classConfig
 }
 
-func (f fakeClassConfig) Property(propName string) map[string]interface{} {
+func (f fakeClassConfig) Property(propName string) map[string]any {
 	if propName == f.skippedProperty {
-		return map[string]interface{}{
+		return map[string]any{
 			"skip": true,
 		}
 	}
 	if propName == f.excludedProperty {
-		return map[string]interface{}{
+		return map[string]any{
 			"vectorizePropertyName": false,
 		}
 	}
 	if f.vectorizePropertyName {
-		return map[string]interface{}{
+		return map[string]any{
 			"vectorizePropertyName": true,
 		}
 	}

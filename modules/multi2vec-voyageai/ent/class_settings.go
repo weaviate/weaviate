@@ -17,8 +17,9 @@ import (
 )
 
 const (
-	baseURLProperty = "baseURL"
-	modelProperty   = "model"
+	baseURLProperty  = "baseURL"
+	modelProperty    = "model"
+	truncateProperty = "truncate"
 )
 
 const (
@@ -50,7 +51,7 @@ func (cs *classSettings) Model() string {
 }
 
 func (cs classSettings) Truncate() bool {
-	return cs.base.GetPropertyAsBool("truncateProperty", DefaultTruncate)
+	return cs.base.GetPropertyAsBool(truncateProperty, DefaultTruncate)
 }
 
 func (cs *classSettings) BaseURL() string {

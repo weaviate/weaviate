@@ -36,23 +36,23 @@ func testMulti2VecVoyageAI(host string) func(t *testing.T) {
 		class := multimodal.BaseClass(className, false)
 		class.VectorConfig = map[string]models.VectorConfig{
 			"clip": {
-				Vectorizer: map[string]interface{}{
-					vectorizerName: map[string]interface{}{
-						"imageFields":        []interface{}{multimodal.PropertyImage},
+				Vectorizer: map[string]any{
+					vectorizerName: map[string]any{
+						"imageFields":        []any{multimodal.PropertyImage},
 						"vectorizeClassName": false,
 					},
 				},
 				VectorIndexType: "flat",
 			},
 			"clip_weights": {
-				Vectorizer: map[string]interface{}{
-					vectorizerName: map[string]interface{}{
+				Vectorizer: map[string]any{
+					vectorizerName: map[string]any{
 						"model":       "voyage-multimodal-3",
-						"textFields":  []interface{}{multimodal.PropertyImageTitle, multimodal.PropertyImageDescription},
-						"imageFields": []interface{}{multimodal.PropertyImage},
-						"weights": map[string]interface{}{
-							"textFields":  []interface{}{0.05, 0.05},
-							"imageFields": []interface{}{0.9},
+						"textFields":  []any{multimodal.PropertyImageTitle, multimodal.PropertyImageDescription},
+						"imageFields": []any{multimodal.PropertyImage},
+						"weights": map[string]any{
+							"textFields":  []any{0.05, 0.05},
+							"imageFields": []any{0.9},
 						},
 						"vectorizeClassName": false,
 					},
@@ -60,14 +60,14 @@ func testMulti2VecVoyageAI(host string) func(t *testing.T) {
 				VectorIndexType: "flat",
 			},
 			"clip_multimodal_3_5": {
-				Vectorizer: map[string]interface{}{
-					vectorizerName: map[string]interface{}{
+				Vectorizer: map[string]any{
+					vectorizerName: map[string]any{
 						"model":       "voyage-multimodal-3.5",
-						"textFields":  []interface{}{multimodal.PropertyImageTitle},
-						"imageFields": []interface{}{multimodal.PropertyImage},
-						"weights": map[string]interface{}{
-							"textFields":  []interface{}{0.5},
-							"imageFields": []interface{}{0.5},
+						"textFields":  []any{multimodal.PropertyImageTitle},
+						"imageFields": []any{multimodal.PropertyImage},
+						"weights": map[string]any{
+							"textFields":  []any{0.5},
+							"imageFields": []any{0.5},
 						},
 						"vectorizeClassName": false,
 					},
@@ -124,15 +124,15 @@ func testMulti2VecVoyageAIWithVideo(host string) func(t *testing.T) {
 			},
 			VectorConfig: map[string]models.VectorConfig{
 				"video_vec": {
-					Vectorizer: map[string]interface{}{
-						vectorizerName: map[string]interface{}{
+					Vectorizer: map[string]any{
+						vectorizerName: map[string]any{
 							"model":              "voyage-multimodal-3.5",
-							"textFields":         []interface{}{"title"},
-							"videoFields":        []interface{}{"video"},
+							"textFields":         []any{"title"},
+							"videoFields":        []any{"video"},
 							"vectorizeClassName": false,
-							"weights": map[string]interface{}{
-								"textFields":  []interface{}{0.3},
-								"videoFields": []interface{}{0.7},
+							"weights": map[string]any{
+								"textFields":  []any{0.3},
+								"videoFields": []any{0.7},
 							},
 						},
 					},
@@ -145,40 +145,64 @@ func testMulti2VecVoyageAIWithVideo(host string) func(t *testing.T) {
 		defer helper.DeleteClass(t, class.Class)
 
 		t.Run("import video data", func(t *testing.T) {
-			// Read video file and encode as base64
-			videoBytes, err := os.ReadFile(fmt.Sprintf("%s/1.mp4", videoFolderPath))
-			require.NoError(t, err)
-			videoBlob := base64.StdEncoding.EncodeToString(videoBytes)
+			for _, number := range []string{"1", "2"} {
+				// Read video file and encode as base64
+				videoBytes, err := os.ReadFile(fmt.Sprintf("%s/%s.mp4", videoFolderPath, number))
+				require.NoError(t, err)
+				videoBlob := base64.StdEncoding.EncodeToString(videoBytes)
 
-			obj := &models.Object{
-				Class: className,
-				ID:    strfmt.UUID("00000000-0000-0000-0000-000000000001"),
-				Properties: map[string]interface{}{
-					"title": "test video red",
-					"video": videoBlob,
-				},
+				obj := &models.Object{
+					Class: className,
+					ID:    strfmt.UUID(fmt.Sprintf("00000000-0000-0000-0000-00000000000%s", number)),
+					Properties: map[string]any{
+						"title": fmt.Sprintf("test video red %s", number),
+						"video": videoBlob,
+					},
+				}
+
+				err = helper.CreateObjectWithTimeout(t, obj, multimodal.DefaultTimeout)
+				require.NoError(t, err)
+
+				// Verify object was created with vector
+				createdObj := helper.AssertGetObjectEventually(t, className, obj.ID)
+				require.NotNil(t, createdObj)
 			}
-
-			err = helper.CreateObjectWithTimeout(t, obj, multimodal.DefaultTimeout)
-			require.NoError(t, err)
-
-			// Verify object was created with vector
-			createdObj := helper.AssertGetObjectEventually(t, className, obj.ID)
-			require.NotNil(t, createdObj)
 		})
 
 		t.Run("verify video vector dimensions", func(t *testing.T) {
-			obj, err := helper.GetObject(t, className, strfmt.UUID("00000000-0000-0000-0000-000000000001"), "vector")
+			for _, number := range []string{"1", "2"} {
+				uuid := fmt.Sprintf("00000000-0000-0000-0000-00000000000%s", number)
+				obj, err := helper.GetObject(t, className, strfmt.UUID(uuid), "vector")
+				require.NoError(t, err)
+				require.NotNil(t, obj)
+				require.NotNil(t, obj.Vectors)
+
+				videoVec, ok := obj.Vectors["video_vec"]
+				require.True(t, ok, "video_vec should exist")
+
+				vecSlice, ok := videoVec.([]float32)
+				require.True(t, ok, "video_vec should be []float32")
+				require.Equal(t, 1024, len(vecSlice), "voyage-multimodal-3.5 should return 1024 dimensions")
+			}
+		})
+
+		t.Run("nearVideo", func(t *testing.T) {
+			videoBytes, err := os.ReadFile(fmt.Sprintf("%s/1.mp4", videoFolderPath))
 			require.NoError(t, err)
-			require.NotNil(t, obj)
-			require.NotNil(t, obj.Vectors)
-
-			videoVec, ok := obj.Vectors["video_vec"]
-			require.True(t, ok, "video_vec should exist")
-
-			vecSlice, ok := videoVec.([]float32)
-			require.True(t, ok, "video_vec should be []float32")
-			require.Equal(t, 1024, len(vecSlice), "voyage-multimodal-3.5 should return 1024 dimensions")
+			blob := base64.StdEncoding.EncodeToString(videoBytes)
+			require.NoError(t, err)
+			targetVector := "video_vec"
+			nearMediaArgument := fmt.Sprintf(`
+				nearVideo: {
+					video: "%s"
+					targetVectors: ["%s"]
+				}
+			`, blob, targetVector)
+			titlePropertyValue := "test video red 1"
+			targetVectors := map[string]int{
+				"video_vec": 1024,
+			}
+			multimodal.TestQuery(t, class.Class, nearMediaArgument, "title", titlePropertyValue, targetVectors)
 		})
 	}
 }

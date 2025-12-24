@@ -79,6 +79,20 @@ func (v *Vectorizer) VectorizeImage(ctx context.Context, id, image string, cfg m
 	return res.ImageVectors[0], nil
 }
 
+func (v *Vectorizer) VectorizeVideo(ctx context.Context,
+	video string, cfg moduletools.ClassConfig,
+) ([]float32, error) {
+	res, err := v.client.VectorizeVideoQuery(ctx, []string{video}, cfg)
+	if err != nil {
+		return nil, err
+	}
+	if len(res.VideoVectors) != 1 {
+		return nil, errors.New("empty vector")
+	}
+
+	return res.VideoVectors[0], nil
+}
+
 func (v *Vectorizer) object(ctx context.Context, object *models.Object,
 	cfg moduletools.ClassConfig,
 ) ([]float32, error) {
@@ -90,7 +104,7 @@ func (v *Vectorizer) object(ctx context.Context, object *models.Object,
 	videos := []string{}
 
 	if object.Properties != nil {
-		schemamap := object.Properties.(map[string]interface{})
+		schemamap := object.Properties.(map[string]any)
 		for _, propName := range moduletools.SortStringKeys(schemamap) {
 			switch val := schemamap[propName].(type) {
 			case string:
@@ -151,23 +165,7 @@ func (v *Vectorizer) getWeights(ichek ClassSettings) ([]float32, error) {
 	weights = append(weights, imageFieldsWeights...)
 	weights = append(weights, videoFieldsWeights...)
 
-	normalizedWeights := v.normalizeWeights(weights)
+	normalizedWeights := moduletools.NormalizeWeights(weights)
 
 	return normalizedWeights, nil
-}
-
-func (v *Vectorizer) normalizeWeights(weights []float32) []float32 {
-	if len(weights) > 0 {
-		var denominator float32
-		for i := range weights {
-			denominator += weights[i]
-		}
-		normalizer := 1 / denominator
-		normalized := make([]float32, len(weights))
-		for i := range weights {
-			normalized[i] = weights[i] * normalizer
-		}
-		return normalized
-	}
-	return nil
 }

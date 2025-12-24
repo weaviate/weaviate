@@ -296,6 +296,8 @@ jobs:
           "--only-module-reranker-jinaai",
           "--only-module-text2vec-cohere",
           "--only-module-reranker-cohere",
+          "--only-module-text2vec-voyageai",
+          "--only-module-multi2vec-voyageai",
         ]
     steps:
       - uses: actions/checkout@v5
