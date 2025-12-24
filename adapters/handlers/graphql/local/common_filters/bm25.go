@@ -15,6 +15,7 @@ import (
 	"fmt"
 
 	"github.com/tailor-inc/graphql"
+	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/graphqlutil"
 	"github.com/weaviate/weaviate/entities/searchparams"
 )
 
@@ -83,7 +84,9 @@ func ExtractBM25(source map[string]interface{}, explainScore bool) searchparams.
 		operator := operator.(map[string]interface{})
 		args.SearchOperator = operator["operator"].(string)
 		if operator["minimumOrTokensMatch"] != nil {
-			args.MinimumOrTokensMatch = int(operator["minimumOrTokensMatch"].(int))
+			if i, err := graphqlutil.ToInt(operator["minimumOrTokensMatch"]); err == nil {
+				args.MinimumOrTokensMatch = i
+			} // else: leave zero/default; validation happens elsewhere
 		}
 	}
 
