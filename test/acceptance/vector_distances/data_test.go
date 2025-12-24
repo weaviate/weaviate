@@ -92,7 +92,8 @@ func addTestSchemaOther(t *testing.T) {
 			},
 		},
 		VectorIndexConfig: map[string]interface{}{
-			"distance": "hamming",
+			"distance":                "hamming",
+			"skipDefaultQuantization": true,
 		},
 	})
 }
