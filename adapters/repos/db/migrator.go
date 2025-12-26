@@ -153,6 +153,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 			LSMEnableSegmentsChecksumValidation:          m.db.config.LSMEnableSegmentsChecksumValidation,
 			ReplicationFactor:                            class.ReplicationConfig.Factor,
 			AsyncReplicationEnabled:                      class.ReplicationConfig.AsyncEnabled,
+			AsyncReplicationConfig:                       class.ReplicationConfig.AsyncConfig,
 			DeletionStrategy:                             class.ReplicationConfig.DeletionStrategy,
 			ShardLoadLimiter:                             m.db.shardLoadLimiter,
 			HNSWMaxLogSize:                               m.db.config.HNSWMaxLogSize,

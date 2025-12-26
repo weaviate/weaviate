@@ -124,6 +124,7 @@ func (db *DB) init(ctx context.Context) error {
 				LSMEnableSegmentsChecksumValidation:          db.config.LSMEnableSegmentsChecksumValidation,
 				ReplicationFactor:                            class.ReplicationConfig.Factor,
 				AsyncReplicationEnabled:                      class.ReplicationConfig.AsyncEnabled,
+				AsyncReplicationConfig:                       class.ReplicationConfig.AsyncConfig,
 				DeletionStrategy:                             class.ReplicationConfig.DeletionStrategy,
 				ShardLoadLimiter:                             db.shardLoadLimiter,
 				HNSWMaxLogSize:                               db.config.HNSWMaxLogSize,
