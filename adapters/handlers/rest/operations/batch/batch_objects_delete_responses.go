@@ -273,3 +273,48 @@ func (o *BatchObjectsDeleteInternalServerError) WriteResponse(rw http.ResponseWr
 		}
 	}
 }
+
+// BatchObjectsDeleteServiceUnavailableCode is the HTTP code returned for type BatchObjectsDeleteServiceUnavailable
+const BatchObjectsDeleteServiceUnavailableCode int = 503
+
+/*
+BatchObjectsDeleteServiceUnavailable The operational mode of the server does not allow objects operations at this time.
+
+swagger:response batchObjectsDeleteServiceUnavailable
+*/
+type BatchObjectsDeleteServiceUnavailable struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewBatchObjectsDeleteServiceUnavailable creates BatchObjectsDeleteServiceUnavailable with default headers values
+func NewBatchObjectsDeleteServiceUnavailable() *BatchObjectsDeleteServiceUnavailable {
+
+	return &BatchObjectsDeleteServiceUnavailable{}
+}
+
+// WithPayload adds the payload to the batch objects delete service unavailable response
+func (o *BatchObjectsDeleteServiceUnavailable) WithPayload(payload *models.ErrorResponse) *BatchObjectsDeleteServiceUnavailable {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the batch objects delete service unavailable response
+func (o *BatchObjectsDeleteServiceUnavailable) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *BatchObjectsDeleteServiceUnavailable) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(503)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}

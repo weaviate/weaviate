@@ -233,3 +233,48 @@ func (o *RevokeRoleFromGroupInternalServerError) WriteResponse(rw http.ResponseW
 		}
 	}
 }
+
+// RevokeRoleFromGroupServiceUnavailableCode is the HTTP code returned for type RevokeRoleFromGroupServiceUnavailable
+const RevokeRoleFromGroupServiceUnavailableCode int = 503
+
+/*
+RevokeRoleFromGroupServiceUnavailable The operational mode of the server does not allow users operations at this time.
+
+swagger:response revokeRoleFromGroupServiceUnavailable
+*/
+type RevokeRoleFromGroupServiceUnavailable struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewRevokeRoleFromGroupServiceUnavailable creates RevokeRoleFromGroupServiceUnavailable with default headers values
+func NewRevokeRoleFromGroupServiceUnavailable() *RevokeRoleFromGroupServiceUnavailable {
+
+	return &RevokeRoleFromGroupServiceUnavailable{}
+}
+
+// WithPayload adds the payload to the revoke role from group service unavailable response
+func (o *RevokeRoleFromGroupServiceUnavailable) WithPayload(payload *models.ErrorResponse) *RevokeRoleFromGroupServiceUnavailable {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the revoke role from group service unavailable response
+func (o *RevokeRoleFromGroupServiceUnavailable) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *RevokeRoleFromGroupServiceUnavailable) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(503)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
