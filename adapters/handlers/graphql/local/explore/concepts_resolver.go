@@ -19,6 +19,7 @@ import (
 	"github.com/tailor-inc/graphql/language/ast"
 
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
+	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/graphqlutil"
 	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
@@ -110,11 +111,19 @@ func (r *resolver) resolveExplore(p graphql.ResolveParams) (interface{}, error) 
 	}
 
 	if param, ok := p.Args["offset"]; ok {
-		params.Offset = param.(int)
+		if i, err := graphqlutil.ToInt(param); err == nil {
+			params.Offset = i
+		} else {
+			return nil, fmt.Errorf("invalid offset: %w", err)
+		}
 	}
 
 	if param, ok := p.Args["limit"]; ok {
-		params.Limit = param.(int)
+		if i, err := graphqlutil.ToInt(param); err == nil {
+			params.Limit = i
+		} else {
+			return nil, fmt.Errorf("invalid limit: %w", err)
+		}
 	}
 
 	if r.modulesProvider != nil {
