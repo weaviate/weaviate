@@ -49,28 +49,6 @@ func newBackupper(node string, logger logrus.FieldLogger, sourcer Sourcer, rbacS
 	}
 }
 
-// Backup is called by the User
-func (b *backupper) Backup(ctx context.Context,
-	store nodeStore, id string, classes []string, overrideBucket, overridePath string,
-) (*backup.CreateMeta, error) {
-	// make sure there is no active backup
-	req := Request{
-		Method:  OpCreate,
-		ID:      id,
-		Classes: classes,
-		Bucket:  overrideBucket,
-		Path:    overridePath,
-	}
-	if _, err := b.backup(store, &req); err != nil {
-		return nil, backup.NewErrUnprocessable(err)
-	}
-
-	return &backup.CreateMeta{
-		Path:   store.HomeDir(overrideBucket, overridePath),
-		Status: backup.Started,
-	}, nil
-}
-
 func (b *backupper) OnStatus(ctx context.Context, req *StatusRequest) (reqState, error) {
 	// check if backup is still active
 	st := b.lastOp.get()
