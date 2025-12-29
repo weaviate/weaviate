@@ -19,6 +19,7 @@ import (
 	"github.com/sirupsen/logrus"
 	grpcconn "github.com/weaviate/weaviate/grpc/conn"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
+	"github.com/weaviate/weaviate/usecases/cron"
 	objectttl "github.com/weaviate/weaviate/usecases/object_ttl"
 
 	"github.com/weaviate/weaviate/adapters/handlers/graphql"
@@ -59,6 +60,7 @@ type State struct {
 	AuthzController  authorization.Controller
 	AuthzSnapshotter fsm.Snapshotter
 	RBAC             *rbac.Manager
+	Crons            *cron.Crons
 
 	ServerConfig          *config.WeaviateConfig
 	LDIntegration         *configRuntime.LDIntegration

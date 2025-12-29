@@ -51,6 +51,7 @@ type WeaviateRuntimeConfig struct {
 	OperationalMode                      *runtime.DynamicValue[string]        `json:"operational_mode" yaml:"operational_mode"`
 	DefaultQuantization                  *runtime.DynamicValue[string]        `yaml:"default_quantization" json:"default_quantization"`
 
+	ObjectsTTLDeleteSchedule    *runtime.DynamicValue[string]  `json:"objects_ttl_delete_schedule" yaml:"objects_ttl_delete_schedule"`
 	ObjectsTTLFindBatchSize     *runtime.DynamicValue[int]     `json:"objects_ttl_find_batch_size" yaml:"objects_ttl_find_batch_size"`
 	ObjectsTTLDeleteBatchSize   *runtime.DynamicValue[int]     `json:"objects_ttl_delete_batch_size" yaml:"objects_ttl_delete_batch_size"`
 	ObjectsTTLConcurrencyFactor *runtime.DynamicValue[float64] `json:"objects_ttl_concurrency_factor" yaml:"objects_ttl_concurrency_factor"`
