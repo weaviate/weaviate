@@ -22,9 +22,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/netresearch/go-cron"
 	dbhelpers "github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	entcfg "github.com/weaviate/weaviate/entities/config"
+	"github.com/weaviate/weaviate/entities/cron"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/sentry"
@@ -181,8 +181,7 @@ func FromEnv(config *Config) error {
 	if objectsTtlDeleteSchedule := os.Getenv(objectsTtlDeleteScheduleEnv); objectsTtlDeleteSchedule != "" {
 		parser := cron.StandardParser()
 		if config.ObjectsTTLAllowSeconds {
-			// equivalent of cron.WithSeconds() option
-			parser = cron.MustNewParser(cron.Second | cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor)
+			parser = cron.SecondsParser()
 		}
 		if _, err := parser.Parse(objectsTtlDeleteSchedule); err != nil {
 			return fmt.Errorf("%s: %w", objectsTtlDeleteScheduleEnv, err)
