@@ -151,51 +151,63 @@ func FromEnv(config *Config) error {
 		config.IndexMissingTextFilterableAtStartup = true
 	}
 
-	objectsTtlConcurrencyFactorEnv := "OBJECTS_TTL_CONCURRENCY_FACTOR"
-	if err := parsePositiveFloat(objectsTtlConcurrencyFactorEnv,
-		func(val float64) {
-			validate := func(val float64) error { return validatePositiveFloat(val, objectsTtlConcurrencyFactorEnv) }
-			config.ObjectsTTLConcurrencyFactor, _ = configRuntime.NewDynamicValueWithValidation(val, validate)
-		},
-		DefaultObjectsTTLConcurrencyFactor); err != nil {
-		return fmt.Errorf("%s: %w", objectsTtlConcurrencyFactorEnv, err)
-	}
-
-	objectsTtlFindBatchSizeEnv := "OBJECTS_TTL_FIND_BATCH_SIZE"
-	if err := parsePositiveInt(objectsTtlFindBatchSizeEnv,
-		func(val int) {
-			validate := func(val int) error { return validatePositiveInt(val, objectsTtlFindBatchSizeEnv) }
-			config.ObjectsTTLFindBatchSize, _ = configRuntime.NewDynamicValueWithValidation(val, validate)
-		},
-		DefaultObjectsTTLFindBatchSize); err != nil {
-		return fmt.Errorf("%s: %w", objectsTtlFindBatchSizeEnv, err)
-	}
-
-	objectsTtlDeleteBatchSizeEnv := "OBJECTS_TTL_DELETE_BATCH_SIZE"
-	if err := parsePositiveInt(objectsTtlDeleteBatchSizeEnv,
-		func(val int) {
-			validate := func(val int) error { return validatePositiveInt(val, objectsTtlFindBatchSizeEnv) }
-			config.ObjectsTTLDeleteBatchSize, _ = configRuntime.NewDynamicValueWithValidation(val, validate)
-		},
-		DefaultObjectsTTLDeleteBatchSize); err != nil {
-		return fmt.Errorf("%s: %w", objectsTtlDeleteBatchSizeEnv, err)
-	}
-
-	objectsTtlAllowSecondsEnv := "OBJECTS_TTL_ALLOW_SECONDS"
-	if entcfg.Enabled(os.Getenv(objectsTtlAllowSecondsEnv)) {
-		config.ObjectsTTLAllowSeconds = true
-	}
-
-	objectsTtlDeleteScheduleEnv := "OBJECTS_TTL_DELETE_SCHEDULE"
-	if objectsTtlDeleteSchedule := os.Getenv(objectsTtlDeleteScheduleEnv); objectsTtlDeleteSchedule != "" {
-		parser := cron.StandardParser()
-		if config.ObjectsTTLAllowSeconds {
-			parser = cron.SecondsParser()
+	{
+		objectsTtlConcurrencyFactorEnv := "OBJECTS_TTL_CONCURRENCY_FACTOR"
+		if err := parsePositiveFloat(objectsTtlConcurrencyFactorEnv,
+			func(val float64) {
+				validate := func(val float64) error { return validatePositiveFloat(val, objectsTtlConcurrencyFactorEnv) }
+				config.ObjectsTTLConcurrencyFactor, _ = configRuntime.NewDynamicValueWithValidation(val, validate)
+			},
+			DefaultObjectsTTLConcurrencyFactor); err != nil {
+			return fmt.Errorf("%s: %w", objectsTtlConcurrencyFactorEnv, err)
 		}
-		if _, err := parser.Parse(objectsTtlDeleteSchedule); err != nil {
+
+		objectsTtlFindBatchSizeEnv := "OBJECTS_TTL_FIND_BATCH_SIZE"
+		if err := parsePositiveInt(objectsTtlFindBatchSizeEnv,
+			func(val int) {
+				validate := func(val int) error { return validatePositiveInt(val, objectsTtlFindBatchSizeEnv) }
+				config.ObjectsTTLFindBatchSize, _ = configRuntime.NewDynamicValueWithValidation(val, validate)
+			},
+			DefaultObjectsTTLFindBatchSize); err != nil {
+			return fmt.Errorf("%s: %w", objectsTtlFindBatchSizeEnv, err)
+		}
+
+		objectsTtlDeleteBatchSizeEnv := "OBJECTS_TTL_DELETE_BATCH_SIZE"
+		if err := parsePositiveInt(objectsTtlDeleteBatchSizeEnv,
+			func(val int) {
+				validate := func(val int) error { return validatePositiveInt(val, objectsTtlFindBatchSizeEnv) }
+				config.ObjectsTTLDeleteBatchSize, _ = configRuntime.NewDynamicValueWithValidation(val, validate)
+			},
+			DefaultObjectsTTLDeleteBatchSize); err != nil {
+			return fmt.Errorf("%s: %w", objectsTtlDeleteBatchSizeEnv, err)
+		}
+
+		objectsTtlAllowSecondsEnv := "OBJECTS_TTL_ALLOW_SECONDS"
+		if entcfg.Enabled(os.Getenv(objectsTtlAllowSecondsEnv)) {
+			config.ObjectsTTLAllowSeconds = true
+		}
+
+		objectsTtlDeleteScheduleEnv := "OBJECTS_TTL_DELETE_SCHEDULE"
+		objectsTtlDeleteSchedule := DefaultObjectsTTLDeleteSchedule
+		if env := os.Getenv(objectsTtlDeleteScheduleEnv); env != "" {
+			objectsTtlDeleteSchedule = env
+		}
+		scheduleParser := cron.StandardParser()
+		if config.ObjectsTTLAllowSeconds {
+			scheduleParser = cron.SecondsParser()
+		}
+		dv, err := configRuntime.NewDynamicValueWithValidation(objectsTtlDeleteSchedule, func(val string) error {
+			if val != "" {
+				if _, err := scheduleParser.Parse(val); err != nil {
+					return err
+				}
+			}
+			return nil
+		})
+		if err != nil {
 			return fmt.Errorf("%s: %w", objectsTtlDeleteScheduleEnv, err)
 		}
-		config.ObjectsTTLDeleteSchedule = objectsTtlDeleteSchedule
+		config.ObjectsTTLDeleteSchedule = dv
 	}
 
 	cptParser := newCollectionPropsTenantsParser()
