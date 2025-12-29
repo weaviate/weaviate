@@ -25,6 +25,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 
+	"github.com/weaviate/weaviate/entities/cron"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
@@ -406,6 +407,12 @@ replica_movement_minimum_async_wait: 10s`)
 	})
 
 	t.Run("updating objects ttl", func(t *testing.T) {
+		deleteSchedule, _ := runtime.NewDynamicValueWithValidation("@every 1h", func(val string) error {
+			if _, err := cron.StandardParser().Parse(val); err != nil {
+				return fmt.Errorf("delete_schedule: %w", err)
+			}
+			return nil
+		})
 		findBatchSize, _ := runtime.NewDynamicValueWithValidation(DefaultObjectsTTLFindBatchSize, func(val int) error {
 			return validatePositiveInt(val, "find_batch_size")
 		})
@@ -418,10 +425,44 @@ replica_movement_minimum_async_wait: 10s`)
 
 		emptyBuf := []byte("")
 		reg := &WeaviateRuntimeConfig{
+			ObjectsTTLDeleteSchedule:    deleteSchedule,
 			ObjectsTTLFindBatchSize:     findBatchSize,
 			ObjectsTTLDeleteBatchSize:   deleteBatchSize,
 			ObjectsTTLConcurrencyFactor: concurrencyFactor,
 		}
+
+		t.Run("delete schedule", func(t *testing.T) {
+			buf := func(val string) []byte {
+				return fmt.Appendf(nil, "objects_ttl_delete_schedule: %q", val)
+			}
+
+			// initial default
+			assert.Equal(t, "@every 1h", deleteSchedule.Get())
+
+			// set to 2h
+			parsed, err := ParseRuntimeConfig(buf("@every 2h"))
+			require.NoError(t, err)
+			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+			assert.Equal(t, "@every 2h", deleteSchedule.Get())
+
+			// try set invalid value
+			parsed, err = ParseRuntimeConfig(buf("* * * * * *"))
+			require.NoError(t, err)
+			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+			assert.Equal(t, "@every 2h", deleteSchedule.Get())
+
+			// update to 3h
+			parsed, err = ParseRuntimeConfig(buf("@every 3h"))
+			require.NoError(t, err)
+			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+			assert.Equal(t, "@every 3h", deleteSchedule.Get())
+
+			// remove -> back to default
+			parsed, err = ParseRuntimeConfig(emptyBuf)
+			require.NoError(t, err)
+			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+			assert.Equal(t, "@every 1h", deleteSchedule.Get())
+		})
 
 		t.Run("find batch size", func(t *testing.T) {
 			buf := func(val int) []byte {
