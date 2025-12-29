@@ -13,9 +13,11 @@ package hfresh
 
 import (
 	"context"
+	"encoding/binary"
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 )
 
 type reassignOperation struct {
@@ -99,4 +101,27 @@ func (h *HFresh) doReassign(ctx context.Context, op reassignOperation) error {
 	}
 
 	return nil
+}
+
+// ReassignStore is a persistent store for pending reassign operations.
+type ReassignStore struct {
+	bucket *lsmkv.Bucket
+}
+
+func NewReassignStore(bucket *lsmkv.Bucket) *ReassignStore {
+	return &ReassignStore{
+		bucket: bucket,
+	}
+}
+
+func (v *ReassignStore) key(vectorID uint64) [9]byte {
+	var buf [9]byte
+	buf[0] = reassignBucketPrefix
+	binary.LittleEndian.PutUint64(buf[1:], vectorID)
+	return buf
+}
+
+func (v *ReassignStore) Set(ctx context.Context, vectorID, postingID uint64) error {
+	key := v.key(vectorID)
+	return v.bucket.Put(key[:], binary.LittleEndian.AppendUint64(nil, postingID))
 }
