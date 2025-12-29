@@ -259,7 +259,7 @@ type updateLogRecord struct {
 
 func matchUpdatedFields(match string, records []updateLogRecord) bool {
 	for _, v := range records {
-		if strings.Contains(v.field, match) {
+		if strings.HasPrefix(v.field, match) {
 			return true
 		}
 	}
