@@ -25,10 +25,11 @@ ARG BUILD_USER="unknown"
 ARG BUILD_DATE="unknown"
 ARG EXTRA_BUILD_ARGS=""
 ARG CGO_ENABLED=1
+ARG PGO_PROFILE="cmd/weaviate-server/cpu.pprof"
 ENV CGO_ENABLED=$CGO_ENABLED
 COPY . .
 RUN GOOS=linux GOARCH=${TARGETARCH} \
-    go build $EXTRA_BUILD_ARGS -trimpath -pgo=cmd/weaviate-server/cpu.pprof \
+    go build $EXTRA_BUILD_ARGS -trimpath -pgo=${PGO_PROFILE} \
       -ldflags="-s -w -extldflags '-static' \
         -X github.com/weaviate/weaviate/usecases/build.Branch=${GIT_BRANCH} \
         -X github.com/weaviate/weaviate/usecases/build.Revision=${GIT_REVISION} \
