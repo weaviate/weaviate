@@ -108,6 +108,7 @@ type VectorizationResult[T dto.Embedding] struct {
 type VectorizationCLIPResult[T dto.Embedding] struct {
 	TextVectors  []T
 	ImageVectors []T
+	VideoVectors []T
 }
 
 type Usage struct {

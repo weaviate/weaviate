@@ -30,7 +30,7 @@ const (
 	DefaultVectorizePropertyName = false
 )
 
-var fields = []string{basesettings.TextFieldsProperty, basesettings.ImageFieldsProperty}
+var fields = []string{basesettings.TextFieldsProperty, basesettings.ImageFieldsProperty, basesettings.VideoFieldsProperty}
 
 type classSettings struct {
 	base *basesettings.BaseClassMultiModalSettings
@@ -72,6 +72,14 @@ func (ic *classSettings) TextField(property string) bool {
 
 func (ic *classSettings) TextFieldsWeights() ([]float32, error) {
 	return ic.base.TextFieldsWeights()
+}
+
+func (ic *classSettings) VideoField(property string) bool {
+	return ic.base.VideoField(property)
+}
+
+func (ic *classSettings) VideoFieldsWeights() ([]float32, error) {
+	return ic.base.VideoFieldsWeights()
 }
 
 func (ic *classSettings) Properties() ([]string, error) {
