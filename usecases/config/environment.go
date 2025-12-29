@@ -22,9 +22,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/netresearch/go-cron"
 	dbhelpers "github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	entcfg "github.com/weaviate/weaviate/entities/config"
+	"github.com/weaviate/weaviate/entities/cron"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/sentry"
@@ -153,21 +153,30 @@ func FromEnv(config *Config) error {
 
 	objectsTtlConcurrencyFactorEnv := "OBJECTS_TTL_CONCURRENCY_FACTOR"
 	if err := parsePositiveFloat(objectsTtlConcurrencyFactorEnv,
-		func(val float64) { config.ObjectsTTLConcurrencyFactor = val },
+		func(val float64) {
+			validate := func(val float64) error { return validatePositiveFloat(val, objectsTtlConcurrencyFactorEnv) }
+			config.ObjectsTTLConcurrencyFactor, _ = configRuntime.NewDynamicValueWithValidation(val, validate)
+		},
 		DefaultObjectsTTLConcurrencyFactor); err != nil {
 		return fmt.Errorf("%s: %w", objectsTtlConcurrencyFactorEnv, err)
 	}
 
 	objectsTtlFindBatchSizeEnv := "OBJECTS_TTL_FIND_BATCH_SIZE"
 	if err := parsePositiveInt(objectsTtlFindBatchSizeEnv,
-		func(val int) { config.ObjectsTTLFindBatchSize = val },
+		func(val int) {
+			validate := func(val int) error { return validatePositiveInt(val, objectsTtlFindBatchSizeEnv) }
+			config.ObjectsTTLFindBatchSize, _ = configRuntime.NewDynamicValueWithValidation(val, validate)
+		},
 		DefaultObjectsTTLFindBatchSize); err != nil {
 		return fmt.Errorf("%s: %w", objectsTtlFindBatchSizeEnv, err)
 	}
 
 	objectsTtlDeleteBatchSizeEnv := "OBJECTS_TTL_DELETE_BATCH_SIZE"
 	if err := parsePositiveInt(objectsTtlDeleteBatchSizeEnv,
-		func(val int) { config.ObjectsTTLDeleteBatchSize = val },
+		func(val int) {
+			validate := func(val int) error { return validatePositiveInt(val, objectsTtlFindBatchSizeEnv) }
+			config.ObjectsTTLDeleteBatchSize, _ = configRuntime.NewDynamicValueWithValidation(val, validate)
+		},
 		DefaultObjectsTTLDeleteBatchSize); err != nil {
 		return fmt.Errorf("%s: %w", objectsTtlDeleteBatchSizeEnv, err)
 	}
@@ -181,13 +190,19 @@ func FromEnv(config *Config) error {
 	if objectsTtlDeleteSchedule := os.Getenv(objectsTtlDeleteScheduleEnv); objectsTtlDeleteSchedule != "" {
 		parser := cron.StandardParser()
 		if config.ObjectsTTLAllowSeconds {
-			// equivalent of cron.WithSeconds() option
-			parser = cron.MustNewParser(cron.Second | cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor)
+			parser = cron.SecondsParser()
 		}
-		if _, err := parser.Parse(objectsTtlDeleteSchedule); err != nil {
+		validate := func(val string) error {
+			if _, err := parser.Parse(val); err != nil {
+				return err
+			}
+			return nil
+		}
+		if dv, err := configRuntime.NewDynamicValueWithValidation(objectsTtlDeleteSchedule, validate); err != nil {
 			return fmt.Errorf("%s: %w", objectsTtlDeleteScheduleEnv, err)
+		} else {
+			config.ObjectsTTLDeleteSchedule = dv
 		}
-		config.ObjectsTTLDeleteSchedule = objectsTtlDeleteSchedule
 	}
 
 	cptParser := newCollectionPropsTenantsParser()
@@ -1284,26 +1299,30 @@ func parseFloat64(envName string, defaultValue float64, verify func(val float64)
 	return nil
 }
 
+func validatePositiveInt(val int, envName string) error {
+	if val <= 0 {
+		return fmt.Errorf("%s must be an integer greater than 0. Got: %v", envName, val)
+	}
+	return nil
+}
+
+func validateNonNegativeInt(val int, envName string) error {
+	if val < 0 {
+		return fmt.Errorf("%s must be an integer greater than or equal 0. Got %v", envName, val)
+	}
+	return nil
+}
+
 func parseInt(envName string, cb func(val int), defaultValue int) error {
 	return parseIntVerify(envName, defaultValue, cb, func(val int, envName string) error { return nil })
 }
 
 func parsePositiveInt(envName string, cb func(val int), defaultValue int) error {
-	return parseIntVerify(envName, defaultValue, cb, func(val int, envName string) error {
-		if val <= 0 {
-			return fmt.Errorf("%s must be an integer greater than 0. Got: %v", envName, val)
-		}
-		return nil
-	})
+	return parseIntVerify(envName, defaultValue, cb, validatePositiveInt)
 }
 
 func parseNonNegativeInt(envName string, cb func(val int), defaultValue int) error {
-	return parseIntVerify(envName, defaultValue, cb, func(val int, envName string) error {
-		if val < 0 {
-			return fmt.Errorf("%s must be an integer greater than or equal 0. Got %v", envName, val)
-		}
-		return nil
-	})
+	return parseIntVerify(envName, defaultValue, cb, validateNonNegativeInt)
 }
 
 func parseIntVerify(envName string, defaultValue int, cb func(val int), verify func(val int, envName string) error) error {
@@ -1342,21 +1361,23 @@ func parsePositiveDuration(envName string, cb func(val time.Duration), defaultVa
 	return nil
 }
 
+func validatePositiveFloat(val float64, envName string) error {
+	if val <= 0 {
+		return fmt.Errorf("%s must be a float greater than 0. Got: %v", envName, val)
+	}
+	return nil
+}
+
 // func parseFloat(envName string, cb func(val float64), defaultValue float64) error {
-// 	return parseFloatVerify(envName, defaultValue, cb, func(val float64) error { return nil })
+// 	return parseFloatVerify(envName, defaultValue, cb, func(val float64, envName string) error { return nil })
 // }
 
 func parsePositiveFloat(envName string, cb func(val float64), defaultValue float64) error {
-	return parseFloatVerify(envName, defaultValue, cb, func(val float64) error {
-		if val <= 0 {
-			return fmt.Errorf("%s must be a float greater than 0. Got: %v", envName, val)
-		}
-		return nil
-	})
+	return parseFloatVerify(envName, defaultValue, cb, validatePositiveFloat)
 }
 
 // func parseNonNegativeFloat(envName string, cb func(val float64), defaultValue float64) error {
-// 	return parseFloatVerify(envName, defaultValue, cb, func(val float64) error {
+// 	return parseFloatVerify(envName, defaultValue, cb, func(val float64, envName string) error {
 // 		if val < 0 {
 // 			return fmt.Errorf("%s must be a float greater than or equal 0. Got %v", envName, val)
 // 		}
@@ -1364,7 +1385,7 @@ func parsePositiveFloat(envName string, cb func(val float64), defaultValue float
 // 	})
 // }
 
-func parseFloatVerify(envName string, defaultValue float64, cb func(val float64), verify func(val float64) error) error {
+func parseFloatVerify(envName string, defaultValue float64, cb func(val float64), verify func(val float64, envName string) error) error {
 	var err error
 	asFloat := defaultValue
 
@@ -1373,7 +1394,7 @@ func parseFloatVerify(envName string, defaultValue float64, cb func(val float64)
 		if err != nil {
 			return fmt.Errorf("parse %s as float: %w", envName, err)
 		}
-		if err = verify(asFloat); err != nil {
+		if err = verify(asFloat, envName); err != nil {
 			return err
 		}
 	}

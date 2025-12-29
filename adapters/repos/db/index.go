@@ -831,8 +831,8 @@ type IndexConfig struct {
 	TrackVectorDimensionsInterval       time.Duration
 	UsageEnabled                        bool
 	ShardLoadLimiter                    ShardLoadLimiter
-	ObjectsTTLFindBatchSize             int
-	ObjectsTTLDeleteBatchSize           int
+	ObjectsTTLFindBatchSize             *configRuntime.DynamicValue[int]
+	ObjectsTTLDeleteBatchSize           *configRuntime.DynamicValue[int]
 
 	HNSWMaxLogSize                               int64
 	HNSWDisableSnapshots                         bool
@@ -2229,7 +2229,7 @@ func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.
 	// succeed on too many nodes. In the case of errors a node might retain the object past its TTL. However, when the
 	// deletion process happens to run on that node again, the object will be deleted then.
 	replProps := defaultConsistency()
-	perShardLimit := i.Config.ObjectsTTLFindBatchSize
+	perShardLimit := i.Config.ObjectsTTLFindBatchSize.Get()
 
 	if multitenancy.IsMultiTenant(class.MultiTenancyConfig) {
 		tenants, err := i.schemaReader.Shards(class.Class)
@@ -2387,7 +2387,7 @@ func (i *Index) incomingDeleteObjectsExpiredUuids(ctx context.Context, eg *enter
 		return nil
 	}
 
-	batchSize := i.Config.ObjectsTTLDeleteBatchSize
+	batchSize := i.Config.ObjectsTTLDeleteBatchSize.Get()
 	for i := 0; i*batchSize < uuidsCount; i++ {
 		if err := ctx.Err(); err != nil {
 			ec.AddGroups(err, collection, inputKey)

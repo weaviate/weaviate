@@ -145,7 +145,7 @@ func (d *ObjectTTL) incomingDelete() http.Handler {
 
 			ec := errorcompounder.NewSafe()
 			eg := enterrors.NewErrorGroupWrapper(d.logger)
-			eg.SetLimit(concurrency.TimesFloatGOMAXPROCS(d.config.ObjectsTTLConcurrencyFactor))
+			eg.SetLimit(concurrency.TimesFloatGOMAXPROCS(d.config.ObjectsTTLConcurrencyFactor.Get()))
 
 			for _, classPayload := range body {
 				className := classPayload.Class

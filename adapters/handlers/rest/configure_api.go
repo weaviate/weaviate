@@ -857,7 +857,7 @@ func configureCrons(appState *state.State, serverShutdownCtx context.Context) {
 	cronLogger := cron.NewGoCronLogger(logger, logrus.DebugLevel)
 	specs := []jobSpec{}
 
-	if schedule := appState.ServerConfig.Config.ObjectsTTLDeleteSchedule; schedule != "" {
+	if schedule := appState.ServerConfig.Config.ObjectsTTLDeleteSchedule.Get(); schedule != "" {
 		l := logger.WithField("action", "cron_objects_ttl_deletion")
 
 		triggerDeletionObjectsExpiredJob := gocron.NewChain(gocron.SkipIfStillRunning(cronLogger)).
@@ -2138,6 +2138,10 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 		registered.RaftTimoutsMultiplier = appState.ServerConfig.Config.Raft.TimeoutsMultiplier
 		registered.ReplicatedIndicesRequestQueueEnabled = appState.ServerConfig.Config.Cluster.RequestQueueConfig.IsEnabled
 		registered.OperationalMode = appState.ServerConfig.Config.OperationalMode
+		registered.ObjectsTTLDeleteSchedule = appState.ServerConfig.Config.ObjectsTTLDeleteSchedule
+		registered.ObjectsTTLFindBatchSize = appState.ServerConfig.Config.ObjectsTTLFindBatchSize
+		registered.ObjectsTTLDeleteBatchSize = appState.ServerConfig.Config.ObjectsTTLDeleteBatchSize
+		registered.ObjectsTTLConcurrencyFactor = appState.ServerConfig.Config.ObjectsTTLConcurrencyFactor
 
 		if appState.ServerConfig.Config.Authentication.OIDC.Enabled {
 			registered.OIDCIssuer = appState.ServerConfig.Config.Authentication.OIDC.Issuer
