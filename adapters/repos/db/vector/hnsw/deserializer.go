@@ -203,7 +203,7 @@ func (d *Deserializer) ReadNode(r io.Reader, res *DeserializationResult) error {
 	if id > maxNodeID {
 		d.logger.WithField("action", "hnsw_deserialization").
 			WithField("node_id", id).
-			Errorf("deserialized node ID beyond maxNodeID (%d), ignoring", maxNodeID)
+			Warnf("deserialized node ID beyond maxNodeID (%d), ignoring", maxNodeID)
 		return nil
 	}
 
