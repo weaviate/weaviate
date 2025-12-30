@@ -492,6 +492,13 @@ func (e *Explorer) searchResultsToGetResponseWithType(ctx context.Context, input
 			}
 		}
 
+		if params.AdditionalProperties.QueryVector {
+			queryVector := ExtractQueryVectorFromParams(params)
+			if queryVector != nil {
+				additionalProperties["query_vector"] = queryVector
+			}
+		}
+
 		if params.AdditionalProperties.ID {
 			additionalProperties["id"] = res.ID
 		}
@@ -859,6 +866,36 @@ func ExtractCertaintyFromParams(params dto.GetParams) (certainty float64) {
 	}
 
 	return certainty
+}
+
+func ExtractQueryVectorFromParams(params dto.GetParams) (queryVector []float32) {
+	if params.NearVector != nil && len(params.NearVector.Vectors) > 0 {
+		// Handle different vector types that can be stored in models.Vector (interface{})
+		switch v := params.NearVector.Vectors[0].(type) {
+		case []float32:
+			return v
+		case []interface{}:
+			vec := make([]float32, len(v))
+			for i, val := range v {
+				if f, ok := val.(float32); ok {
+					vec[i] = f
+				} else if f, ok := val.(float64); ok {
+					vec[i] = float32(f)
+				} else {
+					return nil
+				}
+			}
+			return vec
+		}
+	}
+	
+	if params.NearObject != nil {
+		// For nearObject, we would need to resolve the object's vector
+		// This functionality is not currently implemented
+		return nil
+	}
+
+	return nil
 }
 
 func extractCertaintyFromExploreParams(params ExploreParams) (certainty float64) {
