@@ -97,12 +97,12 @@ func (h *HFresh) doReassign(ctx context.Context, op reassignOperation) error {
 
 // reassignDeduplicator is an in-memory deduplicator for reassign operations.
 // it ensures that only one reassign operation per vector ID is enqueued at any time.
-// it also keeps track of the last known posting ID for each vector ID to avoid
-// redundant writes to the persistent store.
+// it also keeps track of the last known posting ID for each vector ID.
 // When a reassign operation is dequeued, it uses the last known posting ID to create the ReassignTask.
-// Upon completion of the reassign operation, the entry is removed from the deduplicator and the persistent store.
-// The map doesn't survive restarts and doesn't reload from the persistent store on startup.
-// It is an acceptable trade-off to avoid complexity, as reassign operations are idempotent and can be re-enqueued if needed.
+// Upon completion of the reassign operation, the entry is removed from the deduplicator.
+// During shutdown, all pending reassign operations are flushed to the persistent store in a single write.
+// In case of a crash, we may lose the mapping of vector IDs to posting IDs, but since reassign operations are idempotent,
+// it is safe to process without this information.
 type reassignDeduplicator struct {
 	bucket *lsmkv.Bucket
 	m      *xsync.Map[uint64, uint64]
