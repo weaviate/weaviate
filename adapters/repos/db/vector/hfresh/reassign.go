@@ -122,6 +122,19 @@ func (v *ReassignStore) key(vectorID uint64) [9]byte {
 	return buf
 }
 
+func (v *ReassignStore) Get(ctx context.Context, vectorID uint64) (uint64, error) {
+	key := v.key(vectorID)
+	data, err := v.bucket.Get(key[:])
+	if err != nil {
+		return 0, err
+	}
+	if len(data) != 8 {
+		return 0, errors.Errorf("invalid reassign posting data for vector %d", vectorID)
+	}
+
+	return binary.LittleEndian.Uint64(data), nil
+}
+
 func (v *ReassignStore) Set(ctx context.Context, vectorID, postingID uint64) error {
 	key := v.key(vectorID)
 	return v.bucket.Put(key[:], binary.LittleEndian.AppendUint64(nil, postingID))
