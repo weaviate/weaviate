@@ -127,6 +127,11 @@ func (v *ReassignStore) Set(ctx context.Context, vectorID, postingID uint64) err
 	return v.bucket.Put(key[:], binary.LittleEndian.AppendUint64(nil, postingID))
 }
 
+func (v *ReassignStore) Delete(vectorID uint64) error {
+	key := v.key(vectorID)
+	return v.bucket.Delete(key[:])
+}
+
 type reassignQueueState struct {
 	store *ReassignStore
 	m     *xsync.Map[uint64, reassignEntry]
@@ -166,4 +171,13 @@ func (r *reassignQueueState) tryAdd(vectorID, postingID uint64) error {
 	}
 
 	return r.store.Set(context.Background(), vectorID, postingID)
+}
+
+func (r *reassignQueueState) done(vectorID uint64) error {
+	_, exists := r.m.LoadAndDelete(vectorID)
+	if !exists {
+		return nil
+	}
+
+	return r.store.Delete(vectorID)
 }
