@@ -134,6 +134,14 @@ func NewTaskQueue(index *HFresh, bucket *lsmkv.Bucket) (*TaskQueue, error) {
 
 func (tq *TaskQueue) Close() error {
 	var errs []error
+	if err := tq.Flush(); err != nil {
+		errs = append(errs, errors.Wrap(err, "failed to flush task queue before close"))
+	}
+
+	if err := tq.reassignList.flush(context.Background()); err != nil {
+		errs = append(errs, errors.Wrap(err, "failed to flush reassign list"))
+	}
+
 	if err := tq.splitQueue.Close(); err != nil {
 		errs = append(errs, errors.Wrap(err, "failed to close split queue"))
 	}
