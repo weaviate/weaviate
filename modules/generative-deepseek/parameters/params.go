@@ -28,29 +28,30 @@ type Params struct {
 }
 
 func extract(field *ast.ObjectField) interface{} {
-	out := Params{}
+	p := Params{}
 	fields, ok := field.Value.GetValue().([]*ast.ObjectField)
 	if ok {
 		for _, f := range fields {
-			switch f.Name.Value {
+			name := f.Name.Value
+			switch name {
 			case "baseURL":
-				out.BaseURL = gqlparser.GetValueAsStringOrEmpty(f)
+				p.BaseURL = gqlparser.GetValueAsStringOrEmpty(f)
 			case "model":
-				out.Model = gqlparser.GetValueAsStringOrEmpty(f)
+				p.Model = gqlparser.GetValueAsStringOrEmpty(f)
 			case "temperature":
-				out.Temperature = gqlparser.GetValueAsFloat64(f)
+				p.Temperature = gqlparser.GetValueAsFloat64(f)
 			case "maxTokens":
-				out.MaxTokens = gqlparser.GetValueAsInt(f)
+				p.MaxTokens = gqlparser.GetValueAsInt(f)
 			case "frequencyPenalty":
-				out.FrequencyPenalty = gqlparser.GetValueAsFloat64(f)
+				p.FrequencyPenalty = gqlparser.GetValueAsFloat64(f)
 			case "presencePenalty":
-				out.PresencePenalty = gqlparser.GetValueAsFloat64(f)
+				p.PresencePenalty = gqlparser.GetValueAsFloat64(f)
 			case "topP":
-				out.TopP = gqlparser.GetValueAsFloat64(f)
+				p.TopP = gqlparser.GetValueAsFloat64(f)
 			case "stop":
-				out.Stop = gqlparser.GetValueAsStringArray(f)
+				p.Stop = gqlparser.GetValueAsStringArray(f)
 			}
 		}
 	}
-	return out
+	return p
 }

@@ -70,7 +70,6 @@ func NewClassSettings(cfg moduletools.ClassConfig) ClassSettings {
 
 func (ic *classSettings) Validate(class *models.Class) error {
 	if ic.cfg == nil {
-		// we would receive a nil-config on cross-class requests, such as Explore{}
 		return errors.New("empty config")
 	}
 
@@ -109,9 +108,8 @@ func (ic *classSettings) getStringProperty(name, defaultValue string) *string {
 	return &asString
 }
 
-// FIX: Changed wrongVal from -1.0 to -100.0 so it triggers validation error
-// even when the valid range allows negative numbers (like -2.0).
 func (ic *classSettings) getFloatProperty(name string, defaultValue *float64) *float64 {
+	// Use -100 to avoid conflict with valid negative penalties
 	wrongVal := float64(-100.0)
 	return ic.propertyValuesHelper.GetPropertyAsFloat64WithNotExists(ic.cfg, name, &wrongVal, defaultValue)
 }

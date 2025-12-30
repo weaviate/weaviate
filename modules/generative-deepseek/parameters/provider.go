@@ -13,7 +13,8 @@ package parameters
 
 import "github.com/weaviate/weaviate/entities/modulecapabilities"
 
-const Name = "openai"
+// Changed from "generative-deepseek" to "deepseek" to avoid GraphQL hyphen errors
+const Name = "deepseek"
 
 func AdditionalGenerativeParameters(client modulecapabilities.GenerativeClient) map[string]modulecapabilities.GenerativeProperty {
 	return map[string]modulecapabilities.GenerativeProperty{

@@ -19,36 +19,36 @@ import (
 
 func input(prefix string) *graphql.InputObjectFieldConfig {
 	return &graphql.InputObjectFieldConfig{
-		Description: fmt.Sprintf("%s settings", Name),
+		Description: fmt.Sprintf("%s parameters", Name),
 		Type: graphql.NewInputObject(graphql.InputObjectConfig{
-			Name: fmt.Sprintf("%s%sInputObject", prefix, Name),
+			Name: fmt.Sprintf("%s%sInput", prefix, Name),
 			Fields: graphql.InputObjectConfigFieldMap{
 				"baseURL": &graphql.InputObjectFieldConfig{
-					Description: "Custom API Base URL",
+					Description: "Optional API Base URL",
 					Type:        graphql.String,
 				},
 				"model": &graphql.InputObjectFieldConfig{
-					Description: "DeepSeek model to use (e.g. deepseek-chat)",
+					Description: "DeepSeek model (e.g. deepseek-chat)",
 					Type:        graphql.String,
 				},
 				"temperature": &graphql.InputObjectFieldConfig{
-					Description: "Sampling temperature",
+					Description: "Sampling temp",
 					Type:        graphql.Float,
 				},
 				"maxTokens": &graphql.InputObjectFieldConfig{
-					Description: "Maximum number of tokens to generate",
+					Description: "Max tokens to generate",
 					Type:        graphql.Int,
 				},
 				"frequencyPenalty": &graphql.InputObjectFieldConfig{
-					Description: "Penalty for frequent tokens",
+					Description: "Freq penalty",
 					Type:        graphql.Float,
 				},
 				"presencePenalty": &graphql.InputObjectFieldConfig{
-					Description: "Penalty for new tokens",
+					Description: "Presence penalty",
 					Type:        graphql.Float,
 				},
 				"topP": &graphql.InputObjectFieldConfig{
-					Description: "Nucleus sampling probability",
+					Description: "Top P sampling",
 					Type:        graphql.Float,
 				},
 				"stop": &graphql.InputObjectFieldConfig{
@@ -57,7 +57,6 @@ func input(prefix string) *graphql.InputObjectFieldConfig {
 				},
 			},
 		}),
-		DefaultValue: nil,
 	}
 }
 
@@ -66,7 +65,7 @@ func output(prefix string) *graphql.Field {
 		Name: fmt.Sprintf("%s%sFields", prefix, Name),
 		Fields: graphql.Fields{
 			"usage": &graphql.Field{Type: graphql.NewObject(graphql.ObjectConfig{
-				Name: fmt.Sprintf("%s%sUsageMetadataFields", prefix, Name),
+				Name: fmt.Sprintf("%s%sUsageFields", prefix, Name),
 				Fields: graphql.Fields{
 					"prompt_tokens":     &graphql.Field{Type: graphql.Int},
 					"completion_tokens": &graphql.Field{Type: graphql.Int},

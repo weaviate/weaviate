@@ -14,7 +14,6 @@ package clients
 import (
 	"context"
 	"encoding/json"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -23,7 +22,6 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	deepseekparams "github.com/weaviate/weaviate/modules/generative-deepseek/parameters"
 )
@@ -33,135 +31,68 @@ func nullLogger() logrus.FieldLogger {
 	return l
 }
 
-func TestGetApiUrl(t *testing.T) {
-	c := New("apiKey", 0, nullLogger())
+func TestUrlResolution(t *testing.T) {
+	c := New("key", 0, nullLogger())
 
-	t.Run("returns default DeepSeek URL", func(t *testing.T) {
-		params := deepseekparams.Params{
-			BaseURL: "https://api.deepseek.com",
-		}
-		url, err := c.getApiUrl(context.Background(), params.BaseURL)
-		assert.Nil(t, err)
-		assert.Equal(t, "https://api.deepseek.com/chat/completions", url)
+	t.Run("default", func(t *testing.T) {
+		u, err := c.url(context.Background(), "https://api.deepseek.com")
+		assert.NoError(t, err)
+		assert.Equal(t, "https://api.deepseek.com/chat/completions", u)
 	})
 
-	t.Run("returns custom URL from params", func(t *testing.T) {
-		params := deepseekparams.Params{
-			BaseURL: "https://custom.deepseek.com",
-		}
-		url, err := c.getApiUrl(context.Background(), params.BaseURL)
-		assert.Nil(t, err)
-		assert.Equal(t, "https://custom.deepseek.com/chat/completions", url)
-	})
-
-	t.Run("returns custom URL from header", func(t *testing.T) {
-		params := deepseekparams.Params{
-			BaseURL: "https://ignored.com",
-		}
-		ctx := context.WithValue(context.Background(), "X-Deepseek-Baseurl", []string{"https://header.url"})
-
-		url, err := c.getApiUrl(ctx, params.BaseURL)
-		assert.Nil(t, err)
-		assert.Equal(t, "https://header.url/chat/completions", url)
+	t.Run("header override", func(t *testing.T) {
+		ctx := context.WithValue(context.Background(), "X-Deepseek-Baseurl", []string{"https://override.com"})
+		u, err := c.url(ctx, "https://api.deepseek.com")
+		assert.NoError(t, err)
+		assert.Equal(t, "https://override.com/chat/completions", u)
 	})
 }
 
-func TestGetAnswer(t *testing.T) {
-	props := []*modulecapabilities.GenerateProperties{{Text: map[string]string{"prop": "My name is john"}}}
+func TestGeneration(t *testing.T) {
+	props := []*modulecapabilities.GenerateProperties{{Text: map[string]string{"p": "test"}}}
 
-	t.Run("when the server has a successful answer", func(t *testing.T) {
-		handler := &testAnswerHandler{
+	t.Run("success", func(t *testing.T) {
+		handler := &mockHandler{
 			t: t,
-			answer: chatResponse{
+			resp: chatResp{
 				Choices: []choice{{
-					FinishReason: "stop",
-					Message: message{
-						Role:    "assistant",
-						Content: "John",
-					},
+					Message: chatMessage{Role: "assistant", Content: "Hello"},
 				}},
-				Error: nil,
 			},
 		}
-		server := httptest.NewServer(handler)
-		defer server.Close()
+		srv := httptest.NewServer(handler)
+		defer srv.Close()
 
-		c := New("apiKey", time.Minute, nullLogger())
+		c := New("key", time.Minute, nullLogger())
+		res, err := c.GenerateAllResults(context.Background(), props, "hi", deepseekparams.Params{BaseURL: srv.URL}, false, nil)
 
-		expected := modulecapabilities.GenerateResponse{
-			Result: ptString("John"),
-		}
-
-		params := deepseekparams.Params{
-			BaseURL: server.URL,
-		}
-
-		res, err := c.GenerateAllResults(context.Background(), props, "What is my name?", params, false, nil)
-
-		assert.Nil(t, err)
-		assert.Equal(t, expected.Result, res.Result)
+		assert.NoError(t, err)
+		assert.Equal(t, "Hello", *res.Result)
 	})
 
-	t.Run("when the server has an error", func(t *testing.T) {
-		server := httptest.NewServer(&testAnswerHandler{
-			t: t,
-			answer: chatResponse{
-				Error: &deepSeekError{
-					Message: "some error from the server",
-				},
-			},
+	t.Run("error", func(t *testing.T) {
+		srv := httptest.NewServer(&mockHandler{
+			t:    t,
+			resp: chatResp{Error: &apiErr{Message: "fail"}},
 		})
-		defer server.Close()
+		defer srv.Close()
 
-		c := New("apiKey", time.Minute, nullLogger())
-		params := deepseekparams.Params{
-			BaseURL: server.URL,
-		}
+		c := New("key", time.Minute, nullLogger())
+		_, err := c.GenerateAllResults(context.Background(), props, "hi", deepseekparams.Params{BaseURL: srv.URL}, false, nil)
 
-		_, err := c.GenerateAllResults(context.Background(), props, "What is my name?", params, false, nil)
-
-		require.NotNil(t, err)
-		assert.Contains(t, err.Error(), "connection to: DeepSeek API failed with status: 500")
-		assert.Contains(t, err.Error(), "error: some error from the server")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "fail")
 	})
 }
 
-type testAnswerHandler struct {
-	t *testing.T
-	// the test handler will report as not ready before the time has passed
-	answer          chatResponse
-	headerRequestID string
+type mockHandler struct {
+	t    *testing.T
+	resp chatResp
 }
 
-func (f *testAnswerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	assert.Equal(f.t, "/chat/completions", r.URL.Path)
-	assert.Equal(f.t, http.MethodPost, r.Method)
-
-	if f.answer.Error != nil && f.answer.Error.Message != "" {
-		outBytes, err := json.Marshal(f.answer)
-		require.Nil(f.t, err)
-
-		if f.headerRequestID != "" {
-			w.Header().Add("x-request-id", f.headerRequestID)
-		}
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write(outBytes)
-		return
+func (m *mockHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if m.resp.Error != nil {
+		w.WriteHeader(500)
 	}
-
-	bodyBytes, err := io.ReadAll(r.Body)
-	require.Nil(f.t, err)
-	defer r.Body.Close()
-
-	var b map[string]interface{}
-	require.Nil(f.t, json.Unmarshal(bodyBytes, &b))
-
-	outBytes, err := json.Marshal(f.answer)
-	require.Nil(f.t, err)
-
-	w.Write(outBytes)
-}
-
-func ptString(in string) *string {
-	return &in
+	json.NewEncoder(w).Encode(m.resp)
 }

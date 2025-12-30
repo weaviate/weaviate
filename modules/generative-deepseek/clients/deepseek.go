@@ -33,14 +33,14 @@ import (
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
-type deepseek struct {
+type client struct {
 	apiKey     string
 	httpClient *http.Client
 	logger     logrus.FieldLogger
 }
 
-func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *deepseek {
-	return &deepseek{
+func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *client {
+	return &client{
 		apiKey: apiKey,
 		httpClient: &http.Client{
 			Timeout: timeout,
@@ -49,254 +49,260 @@ func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *deeps
 	}
 }
 
-func (v *deepseek) GenerateSingleResult(ctx context.Context, properties *modulecapabilities.GenerateProperties, prompt string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
+func (c *client) GenerateSingleResult(ctx context.Context, properties *modulecapabilities.GenerateProperties, prompt string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
 	monitoring.GetMetrics().ModuleExternalRequestSingleCount.WithLabelValues("generate", "deepseek").Inc()
-	forPrompt, err := generative.MakeSinglePrompt(generative.Text(properties), prompt)
+	singlePrompt, err := generative.MakeSinglePrompt(generative.Text(properties), prompt)
 	if err != nil {
 		return nil, err
 	}
-	return v.generate(ctx, cfg, forPrompt, options, debug)
+	return c.doGenerate(ctx, cfg, singlePrompt, options, debug)
 }
 
-func (v *deepseek) GenerateAllResults(ctx context.Context, properties []*modulecapabilities.GenerateProperties, task string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
+func (c *client) GenerateAllResults(ctx context.Context, properties []*modulecapabilities.GenerateProperties, task string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
 	monitoring.GetMetrics().ModuleExternalRequestBatchCount.WithLabelValues("generate", "deepseek").Inc()
-	forTask, err := generative.MakeTaskPrompt(generative.Texts(properties), task)
+	taskPrompt, err := generative.MakeTaskPrompt(generative.Texts(properties), task)
 	if err != nil {
 		return nil, err
 	}
-	return v.generate(ctx, cfg, forTask, options, debug)
+	return c.doGenerate(ctx, cfg, taskPrompt, options, debug)
 }
 
-func (v *deepseek) generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string, options interface{}, debug bool) (*modulecapabilities.GenerateResponse, error) {
+func (c *client) doGenerate(ctx context.Context, cfg moduletools.ClassConfig, prompt string, options interface{}, debug bool) (*modulecapabilities.GenerateResponse, error) {
 	monitoring.GetMetrics().ModuleExternalRequests.WithLabelValues("generate", "deepseek").Inc()
-	startTime := time.Now()
+	start := time.Now()
 
-	params := v.getParameters(cfg, options)
+	params := c.parseOptions(cfg, options)
+	debugData := c.debugData(debug, prompt)
 
-	apiURL, err := v.getApiUrl(ctx, params.BaseURL)
+	endpoint, err := c.url(ctx, params.BaseURL)
 	if err != nil {
-		return nil, errors.Wrap(err, "get api url")
+		return nil, errors.Wrap(err, "resolve endpoint")
 	}
 
-	input := v.createInput(prompt, params)
-
-	body, err := json.Marshal(input)
+	payload := c.makePayload(prompt, params)
+	reqBytes, err := json.Marshal(payload)
 	if err != nil {
-		return nil, errors.Wrap(err, "marshal body")
+		return nil, errors.Wrap(err, "marshal payload")
 	}
 
 	defer func() {
-		monitoring.GetMetrics().ModuleExternalRequestDuration.WithLabelValues("generate", apiURL).Observe(time.Since(startTime).Seconds())
+		monitoring.GetMetrics().ModuleExternalRequestDuration.WithLabelValues("generate", endpoint).Observe(time.Since(start).Seconds())
 	}()
 
-	monitoring.GetMetrics().ModuleExternalRequestSize.WithLabelValues("generate", apiURL).Observe(float64(len(body)))
+	monitoring.GetMetrics().ModuleExternalRequestSize.WithLabelValues("generate", endpoint).Observe(float64(len(reqBytes)))
 
-	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(reqBytes))
 	if err != nil {
-		return nil, errors.Wrap(err, "create POST request")
+		return nil, errors.Wrap(err, "create request")
 	}
 
-	apiKey, err := v.getApiKey(ctx)
+	key, err := c.apiKeyFromContext(ctx)
 	if err != nil {
-		return nil, errors.Wrapf(err, "DeepSeek API Key")
+		return nil, errors.Wrap(err, "api key")
 	}
-	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", apiKey))
-	req.Header.Add("Content-Type", "application/json")
 
-	res, err := v.httpClient.Do(req)
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", key))
+	req.Header.Set("Content-Type", "application/json")
+
+	res, err := c.httpClient.Do(req)
 	if res != nil {
-		monitoring.GetMetrics().ModuleExternalResponseStatus.WithLabelValues("generate", apiURL, fmt.Sprintf("%v", res.StatusCode)).Inc()
+		monitoring.GetMetrics().ModuleExternalResponseStatus.WithLabelValues("generate", endpoint, fmt.Sprintf("%v", res.StatusCode)).Inc()
 	}
 	if err != nil {
-		return nil, errors.Wrap(err, "send POST request")
+		return nil, errors.Wrap(err, "execute request")
 	}
 	defer res.Body.Close()
 
-	bodyBytes, err := io.ReadAll(res.Body)
+	respBytes, err := io.ReadAll(res.Body)
 	if err != nil {
-		return nil, errors.Wrap(err, "read response body")
+		return nil, errors.Wrap(err, "read response")
 	}
 
-	monitoring.GetMetrics().ModuleExternalResponseSize.WithLabelValues("generate", apiURL).Observe(float64(len(bodyBytes)))
+	monitoring.GetMetrics().ModuleExternalResponseSize.WithLabelValues("generate", endpoint).Observe(float64(len(respBytes)))
 
-	var resBody chatResponse
-	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
+	var response chatResp
+	if err := json.Unmarshal(respBytes, &response); err != nil {
+		return nil, errors.Wrapf(err, "unmarshal: %s", string(respBytes))
 	}
 
-	if res.StatusCode != 200 || resBody.Error != nil {
-		return nil, v.getError(res.StatusCode, resBody.Error)
+	if res.StatusCode != http.StatusOK || response.Error != nil {
+		return nil, c.apiError(res.StatusCode, response.Error)
 	}
 
-	if len(resBody.Choices) > 0 {
-		content := strings.TrimSpace(resBody.Choices[0].Message.Content)
-		if content != "" {
-			return &modulecapabilities.GenerateResponse{
-				Result: &content,
-				Debug:  v.getDebugInformation(debug, prompt),
-				Params: v.getResponseParams(resBody.Usage),
-			}, nil
-		}
+	if len(response.Choices) > 0 {
+		answer := strings.TrimSpace(response.Choices[0].Message.Content)
+		return &modulecapabilities.GenerateResponse{
+			Result: &answer,
+			Debug:  debugData,
+			Params: c.usageParams(response.Usage),
+		}, nil
 	}
 
-	return &modulecapabilities.GenerateResponse{
-		Result: nil,
-		Debug:  v.getDebugInformation(debug, prompt),
-	}, nil
+	return &modulecapabilities.GenerateResponse{Result: nil, Debug: debugData}, nil
 }
 
-func (v *deepseek) getParameters(cfg moduletools.ClassConfig, options interface{}) deepseekparams.Params {
-	settings := config.NewClassSettings(cfg)
-
-	var params deepseekparams.Params
-	if p, ok := options.(deepseekparams.Params); ok {
-		params = p
-	}
-
-	if params.BaseURL == "" {
-		params.BaseURL = settings.BaseURL()
-	}
-	if params.Model == "" {
-		params.Model = settings.Model()
-	}
-	if params.Temperature == nil {
-		if t := settings.Temperature(); t != nil {
-			params.Temperature = t
-		}
-	}
-	if params.TopP == nil {
-		if tp := settings.TopP(); tp != 0 {
-			params.TopP = &tp
-		}
-	}
-	if params.FrequencyPenalty == nil {
-		if fp := settings.FrequencyPenalty(); fp != 0 {
-			params.FrequencyPenalty = &fp
-		}
-	}
-	if params.PresencePenalty == nil {
-		if pp := settings.PresencePenalty(); pp != 0 {
-			params.PresencePenalty = &pp
-		}
-	}
-	if params.MaxTokens == nil {
-		if mt := settings.MaxTokens(); mt != nil && *mt != -1 {
-			val := int(*mt)
-			params.MaxTokens = &val
-		}
-	}
-	return params
-}
-
-func (v *deepseek) createInput(prompt string, params deepseekparams.Params) chatInput {
-	return chatInput{
-		Messages: []message{{
-			Role:    "user",
-			Content: prompt,
-		}},
-		Model:            params.Model,
-		Stream:           false,
-		MaxTokens:        params.MaxTokens,
-		Temperature:      params.Temperature,
-		TopP:             params.TopP,
-		FrequencyPenalty: params.FrequencyPenalty,
-		PresencePenalty:  params.PresencePenalty,
-		Stop:             params.Stop,
-	}
-}
-
-func (v *deepseek) getDebugInformation(debug bool, prompt string) *modulecapabilities.GenerateDebugInformation {
-	if debug {
-		return &modulecapabilities.GenerateDebugInformation{
-			Prompt: prompt,
-		}
-	}
-	return nil
-}
-
-func (v *deepseek) getResponseParams(usage *usage) map[string]interface{} {
-	if usage != nil {
+func (c *client) getResponseParams(u *usage) map[string]interface{} {
+	if u != nil {
 		return map[string]interface{}{
-			"usage": map[string]interface{}{
-				"prompt_tokens":     usage.PromptTokens,
-				"completion_tokens": usage.CompletionTokens,
-				"total_tokens":      usage.TotalTokens,
+			deepseekparams.Name: map[string]interface{}{
+				"usage": map[string]interface{}{
+					"prompt_tokens":     u.InputTokens,
+					"completion_tokens": u.OutputTokens,
+					"total_tokens":      u.TotalTokens,
+				},
 			},
 		}
 	}
 	return nil
 }
 
-func (v *deepseek) getApiUrl(ctx context.Context, baseURL string) (string, error) {
-	if headerBaseURL := modulecomponents.GetValueFromContext(ctx, "X-Deepseek-Baseurl"); headerBaseURL != "" {
-		return url.JoinPath(headerBaseURL, "/chat/completions")
+func (c *client) parseOptions(cfg moduletools.ClassConfig, options interface{}) deepseekparams.Params {
+	settings := config.NewClassSettings(cfg)
+	p := deepseekparams.Params{}
+	if opt, ok := options.(deepseekparams.Params); ok {
+		p = opt
 	}
-	return url.JoinPath(baseURL, "/chat/completions")
+
+	if p.BaseURL == "" {
+		p.BaseURL = settings.BaseURL()
+	}
+	if p.Model == "" {
+		p.Model = settings.Model()
+	}
+	if p.Temperature == nil {
+		if t := settings.Temperature(); t != nil {
+			p.Temperature = t
+		}
+	}
+	if p.TopP == nil {
+		if tp := settings.TopP(); tp != 0 {
+			p.TopP = &tp
+		}
+	}
+	if p.FrequencyPenalty == nil {
+		if fp := settings.FrequencyPenalty(); fp != 0 {
+			p.FrequencyPenalty = &fp
+		}
+	}
+	if p.PresencePenalty == nil {
+		if pp := settings.PresencePenalty(); pp != 0 {
+			p.PresencePenalty = &pp
+		}
+	}
+	if p.MaxTokens == nil {
+		if mt := settings.MaxTokens(); mt != nil && *mt != -1 {
+			val := int(*mt)
+			p.MaxTokens = &val
+		}
+	}
+	return p
 }
 
-func (v *deepseek) getApiKey(ctx context.Context) (string, error) {
-	if val := modulecomponents.GetValueFromContext(ctx, "X-Deepseek-Api-Key"); val != "" {
-		return val, nil
+func (c *client) makePayload(prompt string, p deepseekparams.Params) chatPayload {
+	return chatPayload{
+		Messages: []chatMessage{{
+			Role:    "user",
+			Content: prompt,
+		}},
+		Model:            p.Model,
+		MaxTokens:        p.MaxTokens,
+		Temperature:      p.Temperature,
+		TopP:             p.TopP,
+		FrequencyPenalty: p.FrequencyPenalty,
+		PresencePenalty:  p.PresencePenalty,
+		Stop:             p.Stop,
 	}
-	if v.apiKey != "" {
-		return v.apiKey, nil
+}
+
+func (c *client) debugData(debug bool, prompt string) *modulecapabilities.GenerateDebugInformation {
+	if debug {
+		return &modulecapabilities.GenerateDebugInformation{Prompt: prompt}
+	}
+	return nil
+}
+
+func (c *client) usageParams(u *usage) map[string]interface{} {
+	if u != nil {
+		return map[string]interface{}{
+			"usage": map[string]interface{}{
+				"prompt_tokens":     u.InputTokens,
+				"completion_tokens": u.OutputTokens,
+				"total_tokens":      u.TotalTokens,
+			},
+		}
+	}
+	return nil
+}
+
+func (c *client) url(ctx context.Context, base string) (string, error) {
+	if override := modulecomponents.GetValueFromContext(ctx, "X-Deepseek-Baseurl"); override != "" {
+		return url.JoinPath(override, "/chat/completions")
+	}
+	return url.JoinPath(base, "/chat/completions")
+}
+
+func (c *client) apiKeyFromContext(ctx context.Context) (string, error) {
+	if key := modulecomponents.GetValueFromContext(ctx, "X-Deepseek-Api-Key"); key != "" {
+		return key, nil
+	}
+	if c.apiKey != "" {
+		return c.apiKey, nil
 	}
 	return "", fmt.Errorf("no api key found")
 }
 
-func (v *deepseek) getError(statusCode int, apiError *deepSeekError) error {
-	msg := fmt.Sprintf("connection to: DeepSeek API failed with status: %d", statusCode)
-	if apiError != nil {
-		msg = fmt.Sprintf("%s error: %v", msg, apiError.Message)
+func (c *client) apiError(code int, errPayload *apiErr) error {
+	msg := fmt.Sprintf("DeepSeek API error (status %d)", code)
+	if errPayload != nil {
+		msg = fmt.Sprintf("%s: %s", msg, errPayload.Message)
 	}
-	monitoring.GetMetrics().ModuleExternalError.WithLabelValues("generate", "deepseek", "DeepSeek API", fmt.Sprintf("%v", statusCode)).Inc()
+	monitoring.GetMetrics().ModuleExternalError.WithLabelValues("generate", "deepseek", "API", fmt.Sprintf("%v", code)).Inc()
 	return errors.New(msg)
 }
 
-func (v *deepseek) MetaInfo() (map[string]interface{}, error) {
+func (c *client) MetaInfo() (map[string]interface{}, error) {
 	return map[string]interface{}{
 		"name":              "Generative Search - DeepSeek",
 		"documentationHref": "https://api-docs.deepseek.com/",
 	}, nil
 }
 
-// Local simplified structs to avoid reuse/duplication
-type chatInput struct {
-	Messages         []message `json:"messages"`
-	Model            string    `json:"model"`
-	Stream           bool      `json:"stream"`
-	MaxTokens        *int      `json:"max_tokens,omitempty"`
-	Temperature      *float64  `json:"temperature,omitempty"`
-	TopP             *float64  `json:"top_p,omitempty"`
-	FrequencyPenalty *float64  `json:"frequency_penalty,omitempty"`
-	PresencePenalty  *float64  `json:"presence_penalty,omitempty"`
-	Stop             []string  `json:"stop,omitempty"`
+// DeepSeek specific structs (renamed to avoid collisions)
+type chatPayload struct {
+	Messages         []chatMessage `json:"messages"`
+	Model            string        `json:"model"`
+	MaxTokens        *int          `json:"max_tokens,omitempty"`
+	Temperature      *float64      `json:"temperature,omitempty"`
+	TopP             *float64      `json:"top_p,omitempty"`
+	FrequencyPenalty *float64      `json:"frequency_penalty,omitempty"`
+	PresencePenalty  *float64      `json:"presence_penalty,omitempty"`
+	Stop             []string      `json:"stop,omitempty"`
 }
 
-type message struct {
+type chatMessage struct {
 	Role    string `json:"role"`
 	Content string `json:"content"`
 }
 
-type chatResponse struct {
-	Choices []choice       `json:"choices"`
-	Usage   *usage         `json:"usage,omitempty"`
-	Error   *deepSeekError `json:"error,omitempty"`
+type chatResp struct {
+	Choices []choice `json:"choices"`
+	Usage   *usage   `json:"usage,omitempty"`
+	Error   *apiErr  `json:"error,omitempty"`
 }
 
 type choice struct {
-	Message      message `json:"message"`
-	FinishReason string  `json:"finish_reason"`
+	Message chatMessage `json:"message"`
+	Finish  string      `json:"finish_reason"`
 }
 
 type usage struct {
-	PromptTokens     int `json:"prompt_tokens"`
-	CompletionTokens int `json:"completion_tokens"`
-	TotalTokens      int `json:"total_tokens"`
+	InputTokens  int `json:"prompt_tokens"`
+	OutputTokens int `json:"completion_tokens"`
+	TotalTokens  int `json:"total_tokens"`
 }
 
-type deepSeekError struct {
+type apiErr struct {
 	Message string `json:"message"`
 	Type    string `json:"type"`
-	Code    string `json:"code"`
+	Code    any    `json:"code"`
 }
