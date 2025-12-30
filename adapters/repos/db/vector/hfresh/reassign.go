@@ -173,7 +173,7 @@ func (r *reassignDeduplicator) tryAdd(vectorID, postingID uint64) (bool, error) 
 	r.m.Compute(vectorID, func(oldValue reassignEntry, loaded bool) (newValue reassignEntry, op xsync.ComputeOp) {
 		if loaded {
 			return reassignEntry{
-				PostingID: oldValue.PostingID,
+				PostingID: postingID,
 				Dirty:     true,
 			}, xsync.UpdateOp
 		}
