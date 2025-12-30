@@ -165,10 +165,6 @@ func (p *PostingStore) Put(ctx context.Context, postingID uint64, posting Postin
 	}
 	newVersion := currentVersion + 1
 
-	if err != nil {
-		return errors.Wrapf(err, "increment posting version for id %d", postingID)
-	}
-
 	var buf [12]byte
 	binary.LittleEndian.PutUint64(buf[:], postingID)
 	binary.LittleEndian.PutUint32(buf[8:], newVersion)
