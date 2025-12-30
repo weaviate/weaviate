@@ -194,3 +194,12 @@ func (r *reassignQueueState) done(vectorID uint64) error {
 
 	return r.store.Delete(vectorID)
 }
+
+func (r *reassignQueueState) getLastKnownPostingID(ctx context.Context, vectorID uint64) (uint64, error) {
+	entry, ok := r.m.Load(vectorID)
+	if ok {
+		return entry.PostingID, nil
+	}
+
+	return r.store.Get(ctx, vectorID)
+}
