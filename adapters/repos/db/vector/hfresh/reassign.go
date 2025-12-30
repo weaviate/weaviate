@@ -96,6 +96,8 @@ func (h *HFresh) doReassign(ctx context.Context, op reassignOperation) error {
 }
 
 // reassignStore is a persistent store for pending reassign operations.
+// it maps vector IDs to the last known posting ID that the vector was assigned to
+// and that needs to be reassigned.
 type reassignStore struct {
 	bucket *lsmkv.Bucket
 }
@@ -113,6 +115,7 @@ func (v *reassignStore) key(vectorID uint64) [9]byte {
 	return buf
 }
 
+// Get retrieves the last known posting ID for the given vector ID.
 func (v *reassignStore) Get(ctx context.Context, vectorID uint64) (uint64, error) {
 	key := v.key(vectorID)
 	data, err := v.bucket.Get(key[:])
@@ -126,16 +129,26 @@ func (v *reassignStore) Get(ctx context.Context, vectorID uint64) (uint64, error
 	return binary.LittleEndian.Uint64(data), nil
 }
 
+// Set sets the last known posting ID for the given vector ID.
 func (v *reassignStore) Set(ctx context.Context, vectorID, postingID uint64) error {
 	key := v.key(vectorID)
 	return v.bucket.Put(key[:], binary.LittleEndian.AppendUint64(nil, postingID))
 }
 
+// Delete removes the entry for the given vector ID.
 func (v *reassignStore) Delete(vectorID uint64) error {
 	key := v.key(vectorID)
 	return v.bucket.Delete(key[:])
 }
 
+// reassignDeduplicator is an in-memory deduplicator for reassign operations.
+// it ensures that only one reassign operation per vector ID is enqueued at any time.
+// it also keeps track of the last known posting ID for each vector ID to avoid
+// redundant writes to the persistent store.
+// When a reassign operation is dequeued, it uses the last known posting ID to create the ReassignTask.
+// Upon completion of the reassign operation, the entry is removed from the deduplicator and the persistent store.
+// The map doesn't survive restarts and doesn't reload from the persistent store on startup.
+// It is an acceptable trade-off to avoid complexity, as reassign operations are idempotent and can be re-enqueued if needed.
 type reassignDeduplicator struct {
 	store *reassignStore
 	m     *xsync.Map[uint64, reassignEntry]
@@ -143,7 +156,7 @@ type reassignDeduplicator struct {
 
 type reassignEntry struct {
 	PostingID uint64
-	Dirty     bool
+	Dirty     bool // indicates if the entry has been modified in-memory and needs to be flushed to the store
 }
 
 func newReassignDeduplicator(bucket *lsmkv.Bucket) *reassignDeduplicator {
@@ -153,6 +166,8 @@ func newReassignDeduplicator(bucket *lsmkv.Bucket) *reassignDeduplicator {
 	}
 }
 
+// tryAdd tries to add a reassign operation for the given vector ID and posting ID.
+// It returns true if the operation was added, false if it was already present.
 func (r *reassignDeduplicator) tryAdd(vectorID, postingID uint64) (bool, error) {
 	var newlyAdded bool
 	r.m.Compute(vectorID, func(oldValue reassignEntry, loaded bool) (newValue reassignEntry, op xsync.ComputeOp) {
@@ -182,6 +197,7 @@ func (r *reassignDeduplicator) tryAdd(vectorID, postingID uint64) (bool, error) 
 	return true, nil
 }
 
+// marks the reassign operation for the given vector ID as done, removing it from the deduplicator and the persistent store.
 func (r *reassignDeduplicator) done(vectorID uint64) error {
 	_, exists := r.m.LoadAndDelete(vectorID)
 	if !exists {
@@ -191,6 +207,7 @@ func (r *reassignDeduplicator) done(vectorID uint64) error {
 	return r.store.Delete(vectorID)
 }
 
+// flush writes all dirty entries to the persistent store.
 func (r *reassignDeduplicator) flush(ctx context.Context) (err error) {
 	r.m.Range(func(key uint64, value reassignEntry) bool {
 		if !value.Dirty {
@@ -213,6 +230,7 @@ func (r *reassignDeduplicator) flush(ctx context.Context) (err error) {
 	return
 }
 
+// getLastKnownPostingID retrieves the last known posting ID for the given vector ID.
 func (r *reassignDeduplicator) getLastKnownPostingID(vectorID uint64) (uint64, error) {
 	entry, ok := r.m.Load(vectorID)
 	if ok {
