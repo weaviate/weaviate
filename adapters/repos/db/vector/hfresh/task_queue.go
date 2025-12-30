@@ -161,6 +161,10 @@ func (tq *TaskQueue) MergeDone(postingID uint64) {
 	tq.mergeList.done(postingID)
 }
 
+func (tq *TaskQueue) ReassignDone(vectorID uint64) {
+	tq.reassignList.done(vectorID)
+}
+
 func (tq *TaskQueue) MergeContains(postingID uint64) bool {
 	return tq.mergeList.contains(postingID)
 }

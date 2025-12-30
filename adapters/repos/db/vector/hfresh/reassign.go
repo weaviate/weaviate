@@ -24,19 +24,19 @@ import (
 type reassignOperation struct {
 	PostingID uint64
 	VectorID  uint64
-	Version   uint8
 }
 
 func (h *HFresh) doReassign(ctx context.Context, op reassignOperation) error {
 	start := time.Now()
 	defer h.metrics.ReassignDuration(start)
+	defer h.taskQueue.ReassignDone(op.VectorID)
 
 	// check if the vector is still valid
 	version, err := h.VersionMap.Get(ctx, op.VectorID)
 	if err != nil {
 		return errors.Wrapf(err, "failed to get version for vector %d", op.VectorID)
 	}
-	if version.Deleted() || version.Version() > op.Version {
+	if version.Deleted() {
 		return nil
 	}
 
@@ -52,15 +52,6 @@ func (h *HFresh) doReassign(ctx context.Context, op reassignOperation) error {
 		return errors.Wrap(err, "failed to select replicas")
 	}
 	if !needsReassign {
-		return nil
-	}
-
-	// check again if the version is still valid
-	version, err = h.VersionMap.Get(ctx, op.VectorID)
-	if err != nil {
-		return errors.Wrapf(err, "failed to get version for vector %d", op.VectorID)
-	}
-	if version.Deleted() || version.Version() > op.Version {
 		return nil
 	}
 
@@ -200,11 +191,11 @@ func (r *reassignDeduplicator) done(vectorID uint64) error {
 	return r.store.Delete(vectorID)
 }
 
-func (r *reassignDeduplicator) getLastKnownPostingID(ctx context.Context, vectorID uint64) (uint64, error) {
+func (r *reassignDeduplicator) getLastKnownPostingID(vectorID uint64) (uint64, error) {
 	entry, ok := r.m.Load(vectorID)
 	if ok {
 		return entry.PostingID, nil
 	}
 
-	return r.store.Get(ctx, vectorID)
+	return r.store.Get(context.Background(), vectorID)
 }
