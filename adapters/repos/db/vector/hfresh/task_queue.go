@@ -166,7 +166,7 @@ func (tq *TaskQueue) MergeContains(postingID uint64) bool {
 }
 
 func (tq *TaskQueue) EnqueueSplit(postingID uint64) error {
-	// Check if the task is already in progress
+	// Check if the operation is already enqueued
 	if !tq.splitList.tryAdd(postingID) {
 		return nil
 	}
@@ -181,7 +181,7 @@ func (tq *TaskQueue) EnqueueSplit(postingID uint64) error {
 }
 
 func (tq *TaskQueue) EnqueueMerge(postingID uint64) error {
-	// Check if the operation is already in progress
+	// Check if the operation is already enqueued
 	if !tq.mergeList.tryAdd(postingID) {
 		return nil
 	}
@@ -196,13 +196,13 @@ func (tq *TaskQueue) EnqueueMerge(postingID uint64) error {
 }
 
 func (tq *TaskQueue) EnqueueReassign(postingID uint64, vecID uint64, version VectorVersion) error {
-	buf := make([]byte, 18)
-	buf[0] = taskQueueReassignOp
-	binary.LittleEndian.PutUint64(buf[1:9], postingID)
-	binary.LittleEndian.PutUint64(buf[9:17], vecID)
-	buf[17] = byte(version)
+	// Check if the operation is already enqueued
+	ok, err := tq.reassignList.tryAdd(vecID, postingID)
+	if err != nil || !ok {
+		return err
+	}
 
-	if err := tq.reassignQueue.Push(buf); err != nil {
+	if err := tq.reassignQueue.Push(encodeTask(vecID, taskQueueReassignOp)); err != nil {
 		return errors.Wrap(err, "failed to push reassign operation to queue")
 	}
 
@@ -240,19 +240,18 @@ func (tq *TaskQueue) DecodeTask(data []byte) (queue.Task, error) {
 			idx: tq.index,
 		}, nil
 	case taskQueueReassignOp:
-		// decode posting ID
-		postingID := binary.LittleEndian.Uint64(data)
-		data = data[8:]
 		// decode vector ID
 		vecID := binary.LittleEndian.Uint64(data)
-		data = data[8:]
-		// decode version
-		version := uint8(data[0])
+
+		postingID, err := tq.reassignList.getLastKnownPostingID(vecID)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to get last known posting ID for vector %d", vecID)
+		}
+
 		return &ReassignTask{
-			id:      postingID,
-			vecID:   vecID,
-			version: version,
-			idx:     tq.index,
+			vecID:     vecID,
+			postingID: postingID,
+			idx:       tq.index,
 		}, nil
 	}
 
@@ -319,10 +318,9 @@ func (t *MergeTask) Execute(ctx context.Context) error {
 }
 
 type ReassignTask struct {
-	id      uint64
-	vecID   uint64
-	version uint8
-	idx     *HFresh
+	vecID     uint64
+	postingID uint64
+	idx       *HFresh
 }
 
 func (t *ReassignTask) Op() uint8 {
@@ -330,8 +328,7 @@ func (t *ReassignTask) Op() uint8 {
 }
 
 func (t *ReassignTask) Key() uint64 {
-	// postings sharing same lock are run by the same worker to reduce contention
-	return t.idx.postingLocks.Hash(t.id)
+	return t.vecID
 }
 
 func (t *ReassignTask) Execute(ctx context.Context) error {
@@ -339,7 +336,7 @@ func (t *ReassignTask) Execute(ctx context.Context) error {
 		return ctx.Err()
 	}
 
-	err := t.idx.doReassign(ctx, reassignOperation{PostingID: t.id, VectorID: t.vecID, Version: t.version})
+	err := t.idx.doReassign(ctx, reassignOperation{VectorID: t.vecID, PostingID: t.postingID})
 	if err != nil {
 		return err
 	}
