@@ -199,7 +199,7 @@ func (d *Deserializer) ReadNode(r io.Reader, res *DeserializationResult) error {
 	}
 
 	// If the id is beyond maxNodeID, it is probably invalid (e.g. corrupt commit log or snapshot).
-	// Log the id and ignore the request to grow the index.
+	// Log the id and ignore it.
 	if id > maxNodeID {
 		d.logger.WithField("action", "hnsw_deserialization").
 			WithField("node_id", id).
