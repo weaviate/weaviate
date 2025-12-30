@@ -109,7 +109,6 @@ func (ic *classSettings) getStringProperty(name, defaultValue string) *string {
 }
 
 func (ic *classSettings) getFloatProperty(name string, defaultValue *float64) *float64 {
-	// Use -100 to avoid conflict with valid negative penalties
 	wrongVal := float64(-100.0)
 	return ic.propertyValuesHelper.GetPropertyAsFloat64WithNotExists(ic.cfg, name, &wrongVal, defaultValue)
 }

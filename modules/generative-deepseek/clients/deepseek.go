@@ -141,21 +141,6 @@ func (c *client) doGenerate(ctx context.Context, cfg moduletools.ClassConfig, pr
 	return &modulecapabilities.GenerateResponse{Result: nil, Debug: debugData}, nil
 }
 
-func (c *client) getResponseParams(u *usage) map[string]interface{} {
-	if u != nil {
-		return map[string]interface{}{
-			deepseekparams.Name: map[string]interface{}{
-				"usage": map[string]interface{}{
-					"prompt_tokens":     u.InputTokens,
-					"completion_tokens": u.OutputTokens,
-					"total_tokens":      u.TotalTokens,
-				},
-			},
-		}
-	}
-	return nil
-}
-
 func (c *client) parseOptions(cfg moduletools.ClassConfig, options interface{}) deepseekparams.Params {
 	settings := config.NewClassSettings(cfg)
 	p := deepseekparams.Params{}
@@ -224,10 +209,12 @@ func (c *client) debugData(debug bool, prompt string) *modulecapabilities.Genera
 func (c *client) usageParams(u *usage) map[string]interface{} {
 	if u != nil {
 		return map[string]interface{}{
-			"usage": map[string]interface{}{
-				"prompt_tokens":     u.InputTokens,
-				"completion_tokens": u.OutputTokens,
-				"total_tokens":      u.TotalTokens,
+			deepseekparams.Name: map[string]interface{}{
+				"usage": map[string]interface{}{
+					"prompt_tokens":     u.InputTokens,
+					"completion_tokens": u.OutputTokens,
+					"total_tokens":      u.TotalTokens,
+				},
 			},
 		}
 	}
@@ -267,7 +254,6 @@ func (c *client) MetaInfo() (map[string]interface{}, error) {
 	}, nil
 }
 
-// DeepSeek specific structs (renamed to avoid collisions)
 type chatPayload struct {
 	Messages         []chatMessage `json:"messages"`
 	Model            string        `json:"model"`

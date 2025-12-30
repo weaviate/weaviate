@@ -19,59 +19,55 @@ import (
 
 func input(prefix string) *graphql.InputObjectFieldConfig {
 	return &graphql.InputObjectFieldConfig{
-		Description: fmt.Sprintf("%s parameters", Name),
-		Type: graphql.NewInputObject(graphql.InputObjectConfig{
-			Name: fmt.Sprintf("%s%sInput", prefix, Name),
-			Fields: graphql.InputObjectConfigFieldMap{
-				"baseURL": &graphql.InputObjectFieldConfig{
-					Description: "Optional API Base URL",
-					Type:        graphql.String,
-				},
-				"model": &graphql.InputObjectFieldConfig{
-					Description: "DeepSeek model (e.g. deepseek-chat)",
-					Type:        graphql.String,
-				},
-				"temperature": &graphql.InputObjectFieldConfig{
-					Description: "Sampling temp",
-					Type:        graphql.Float,
-				},
-				"maxTokens": &graphql.InputObjectFieldConfig{
-					Description: "Max tokens to generate",
-					Type:        graphql.Int,
-				},
-				"frequencyPenalty": &graphql.InputObjectFieldConfig{
-					Description: "Freq penalty",
-					Type:        graphql.Float,
-				},
-				"presencePenalty": &graphql.InputObjectFieldConfig{
-					Description: "Presence penalty",
-					Type:        graphql.Float,
-				},
-				"topP": &graphql.InputObjectFieldConfig{
-					Description: "Top P sampling",
-					Type:        graphql.Float,
-				},
-				"stop": &graphql.InputObjectFieldConfig{
-					Description: "Stop sequences",
-					Type:        graphql.NewList(graphql.String),
-				},
-			},
-		}),
+		Description: "DeepSeek generative parameters",
+		Type:        graphql.NewInputObject(inputConfig(prefix)),
+	}
+}
+
+func inputConfig(prefix string) graphql.InputObjectConfig {
+	return graphql.InputObjectConfig{
+		Name:   fmt.Sprintf("%s%sInput", prefix, Name),
+		Fields: inputFields(),
+	}
+}
+
+func inputFields() graphql.InputObjectConfigFieldMap {
+	return graphql.InputObjectConfigFieldMap{
+		"baseURL":          {Description: "Custom API URL", Type: graphql.String},
+		"model":            {Description: "DeepSeek Model", Type: graphql.String},
+		"temperature":      {Description: "Sampling temperature", Type: graphql.Float},
+		"maxTokens":        {Description: "Max tokens", Type: graphql.Int},
+		"frequencyPenalty": {Description: "Freq penalty", Type: graphql.Float},
+		"presencePenalty":  {Description: "Presence penalty", Type: graphql.Float},
+		"topP":             {Description: "Top P", Type: graphql.Float},
+		"stop":             {Description: "Stop sequences", Type: graphql.NewList(graphql.String)},
 	}
 }
 
 func output(prefix string) *graphql.Field {
-	return &graphql.Field{Type: graphql.NewObject(graphql.ObjectConfig{
+	return &graphql.Field{
+		Type: graphql.NewObject(outputObject(prefix)),
+	}
+}
+
+func outputObject(prefix string) graphql.ObjectConfig {
+	return graphql.ObjectConfig{
 		Name: fmt.Sprintf("%s%sFields", prefix, Name),
 		Fields: graphql.Fields{
-			"usage": &graphql.Field{Type: graphql.NewObject(graphql.ObjectConfig{
-				Name: fmt.Sprintf("%s%sUsageFields", prefix, Name),
-				Fields: graphql.Fields{
-					"prompt_tokens":     &graphql.Field{Type: graphql.Int},
-					"completion_tokens": &graphql.Field{Type: graphql.Int},
-					"total_tokens":      &graphql.Field{Type: graphql.Int},
-				},
-			})},
+			"usage": usageField(prefix),
 		},
-	})}
+	}
+}
+
+func usageField(prefix string) *graphql.Field {
+	return &graphql.Field{
+		Type: graphql.NewObject(graphql.ObjectConfig{
+			Name: fmt.Sprintf("%s%sUsageMetadata", prefix, Name),
+			Fields: graphql.Fields{
+				"prompt_tokens":     &graphql.Field{Type: graphql.Int},
+				"completion_tokens": &graphql.Field{Type: graphql.Int},
+				"total_tokens":      &graphql.Field{Type: graphql.Int},
+			},
+		}),
+	}
 }
