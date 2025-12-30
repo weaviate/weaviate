@@ -149,6 +149,23 @@ func (tq *TaskQueue) Close() error {
 	return stderrors.Join(errs...)
 }
 
+func (tq *TaskQueue) Flush() error {
+	var errs []error
+	if err := tq.splitQueue.Flush(); err != nil {
+		errs = append(errs, errors.Wrap(err, "failed to flush split queue"))
+	}
+
+	if err := tq.reassignQueue.Flush(); err != nil {
+		errs = append(errs, errors.Wrap(err, "failed to flush reassign queue"))
+	}
+
+	if err := tq.mergeQueue.Flush(); err != nil {
+		errs = append(errs, errors.Wrap(err, "failed to flush merge queue"))
+	}
+
+	return stderrors.Join(errs...)
+}
+
 func (tq *TaskQueue) Size() int64 {
 	return tq.splitQueue.Size() + tq.reassignQueue.Size() + tq.mergeQueue.Size()
 }
