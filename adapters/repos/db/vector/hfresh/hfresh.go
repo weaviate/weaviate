@@ -158,7 +158,7 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 
 	h.ctx, h.cancel = context.WithCancel(context.Background())
 
-	taskQueue, err := NewTaskQueue(&h)
+	taskQueue, err := NewTaskQueue(&h, bucket)
 	if err != nil {
 		return nil, err
 	}
@@ -250,7 +250,21 @@ func (h *HFresh) Shutdown(ctx context.Context) error {
 }
 
 func (h *HFresh) Flush() error {
-	return h.Centroids.hnsw.Flush()
+	var errs []error
+
+	// flush the HNSW commit log
+	err := h.Centroids.hnsw.Flush()
+	if err != nil {
+		errs = append(errs, err)
+	}
+
+	// flush the task queues
+	err = h.taskQueue.Flush()
+	if err != nil {
+		errs = append(errs, err)
+	}
+
+	return stderrors.Join(errs...)
 }
 
 func (h *HFresh) SwitchCommitLogs(ctx context.Context) error {

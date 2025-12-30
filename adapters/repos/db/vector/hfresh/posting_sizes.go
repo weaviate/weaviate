@@ -28,6 +28,7 @@ const (
 	postingVersionBucketPrefix = 'l'
 	versionMapBucketPrefix     = 'v'
 	metadataBucketPrefix       = 'm'
+	reassignBucketKey          = "pending_reassignments"
 )
 
 // NewSharedBucket creates a shared lsmkv bucket for the HFresh index.
