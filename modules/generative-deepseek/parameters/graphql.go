@@ -24,87 +24,36 @@ func input(prefix string) *graphql.InputObjectFieldConfig {
 			Name: fmt.Sprintf("%s%sInputObject", prefix, Name),
 			Fields: graphql.InputObjectConfigFieldMap{
 				"baseURL": &graphql.InputObjectFieldConfig{
-					Description: "baseURL",
+					Description: "Custom API Base URL",
 					Type:        graphql.String,
-				},
-				"apiVersion": &graphql.InputObjectFieldConfig{
-					Description: "apiVersion",
-					Type:        graphql.String,
-				},
-				"resourceName": &graphql.InputObjectFieldConfig{
-					Description: "resourceName",
-					Type:        graphql.String,
-				},
-				"deploymentId": &graphql.InputObjectFieldConfig{
-					Description: "deploymentId",
-					Type:        graphql.String,
-				},
-				"isAzure": &graphql.InputObjectFieldConfig{
-					Description: "isAzure",
-					Type:        graphql.Boolean,
 				},
 				"model": &graphql.InputObjectFieldConfig{
-					Description: "model",
+					Description: "DeepSeek model to use (e.g. deepseek-chat)",
 					Type:        graphql.String,
 				},
-				"frequencyPenalty": &graphql.InputObjectFieldConfig{
-					Description: "frequencyPenalty",
+				"temperature": &graphql.InputObjectFieldConfig{
+					Description: "Sampling temperature",
 					Type:        graphql.Float,
 				},
 				"maxTokens": &graphql.InputObjectFieldConfig{
-					Description: "maxTokens",
+					Description: "Maximum number of tokens to generate",
 					Type:        graphql.Int,
 				},
-				"n": &graphql.InputObjectFieldConfig{
-					Description: "n",
-					Type:        graphql.Int,
-				},
-				"presencePenalty": &graphql.InputObjectFieldConfig{
-					Description: "presencePenalty",
+				"frequencyPenalty": &graphql.InputObjectFieldConfig{
+					Description: "Penalty for frequent tokens",
 					Type:        graphql.Float,
 				},
-				"stop": &graphql.InputObjectFieldConfig{
-					Description: "stop",
-					Type:        graphql.NewList(graphql.String),
-				},
-				"temperature": &graphql.InputObjectFieldConfig{
-					Description: "temperature",
+				"presencePenalty": &graphql.InputObjectFieldConfig{
+					Description: "Penalty for new tokens",
 					Type:        graphql.Float,
 				},
 				"topP": &graphql.InputObjectFieldConfig{
-					Description: "topP",
+					Description: "Nucleus sampling probability",
 					Type:        graphql.Float,
 				},
-				"images": &graphql.InputObjectFieldConfig{
-					Description: "images",
+				"stop": &graphql.InputObjectFieldConfig{
+					Description: "Stop sequences",
 					Type:        graphql.NewList(graphql.String),
-				},
-				"imageProperties": &graphql.InputObjectFieldConfig{
-					Description: "imageProperties",
-					Type:        graphql.NewList(graphql.String),
-				},
-				"reasoningEffort": &graphql.InputObjectFieldConfig{
-					Description: "reasoningEffort",
-					Type: graphql.NewEnum(graphql.EnumConfig{
-						Name: fmt.Sprintf("%s%sReasoningEffort", prefix, Name),
-						Values: graphql.EnumValueConfigMap{
-							"minimal": &graphql.EnumValueConfig{Value: "minimal"},
-							"low":     &graphql.EnumValueConfig{Value: "low"},
-							"medium":  &graphql.EnumValueConfig{Value: "medium"},
-							"high":    &graphql.EnumValueConfig{Value: "high"},
-						},
-					}),
-				},
-				"verbosity": &graphql.InputObjectFieldConfig{
-					Description: "verbosity",
-					Type: graphql.NewEnum(graphql.EnumConfig{
-						Name: fmt.Sprintf("%s%sVerbosity", prefix, Name),
-						Values: graphql.EnumValueConfigMap{
-							"low":    &graphql.EnumValueConfig{Value: "low"},
-							"medium": &graphql.EnumValueConfig{Value: "medium"},
-							"high":   &graphql.EnumValueConfig{Value: "high"},
-						},
-					}),
 				},
 			},
 		}),

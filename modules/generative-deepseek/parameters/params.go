@@ -18,22 +18,13 @@ import (
 
 type Params struct {
 	BaseURL          string
-	ApiVersion       string
-	ResourceName     string
-	DeploymentID     string
-	IsAzure          bool
 	Model            string
-	FrequencyPenalty *float64
-	MaxTokens        *int
-	N                *int
-	PresencePenalty  *float64
-	Stop             []string
 	Temperature      *float64
+	MaxTokens        *int
+	FrequencyPenalty *float64
+	PresencePenalty  *float64
 	TopP             *float64
-	Images           []*string
-	ImageProperties  []string
-	ReasoningEffort  *string
-	Verbosity        *string
+	Stop             []string
 }
 
 func extract(field *ast.ObjectField) interface{} {
@@ -44,40 +35,20 @@ func extract(field *ast.ObjectField) interface{} {
 			switch f.Name.Value {
 			case "baseURL":
 				out.BaseURL = gqlparser.GetValueAsStringOrEmpty(f)
-			case "apiVersion":
-				out.ApiVersion = gqlparser.GetValueAsStringOrEmpty(f)
-			case "resourceName":
-				out.ResourceName = gqlparser.GetValueAsStringOrEmpty(f)
-			case "deploymentId":
-				out.DeploymentID = gqlparser.GetValueAsStringOrEmpty(f)
-			case "isAzure":
-				out.IsAzure = gqlparser.GetValueAsBoolOrFalse(f)
 			case "model":
 				out.Model = gqlparser.GetValueAsStringOrEmpty(f)
-			case "frequencyPenalty":
-				out.FrequencyPenalty = gqlparser.GetValueAsFloat64(f)
-			case "maxTokens":
-				out.MaxTokens = gqlparser.GetValueAsInt(f)
-			case "n":
-				out.N = gqlparser.GetValueAsInt(f)
-			case "presencePenalty":
-				out.PresencePenalty = gqlparser.GetValueAsFloat64(f)
-			case "stop":
-				out.Stop = gqlparser.GetValueAsStringArray(f)
 			case "temperature":
 				out.Temperature = gqlparser.GetValueAsFloat64(f)
+			case "maxTokens":
+				out.MaxTokens = gqlparser.GetValueAsInt(f)
+			case "frequencyPenalty":
+				out.FrequencyPenalty = gqlparser.GetValueAsFloat64(f)
+			case "presencePenalty":
+				out.PresencePenalty = gqlparser.GetValueAsFloat64(f)
 			case "topP":
 				out.TopP = gqlparser.GetValueAsFloat64(f)
-			case "images":
-				out.Images = gqlparser.GetValueAsStringPtrArray(f)
-			case "imageProperties":
-				out.ImageProperties = gqlparser.GetValueAsStringArray(f)
-			case "reasoningEffort":
-				out.ReasoningEffort = gqlparser.GetValueAsString(f)
-			case "verbosity":
-				out.Verbosity = gqlparser.GetValueAsString(f)
-			default:
-				// do nothing
+			case "stop":
+				out.Stop = gqlparser.GetValueAsStringArray(f)
 			}
 		}
 	}

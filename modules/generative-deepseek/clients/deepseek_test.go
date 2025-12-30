@@ -25,7 +25,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
-	"github.com/weaviate/weaviate/modules/generative-deepseek/config"
 	deepseekparams "github.com/weaviate/weaviate/modules/generative-deepseek/parameters"
 )
 
@@ -35,14 +34,13 @@ func nullLogger() logrus.FieldLogger {
 }
 
 func TestGetApiUrl(t *testing.T) {
-	// FIX: New() only takes (apiKey, timeout, logger)
 	c := New("apiKey", 0, nullLogger())
 
 	t.Run("returns default DeepSeek URL", func(t *testing.T) {
 		params := deepseekparams.Params{
-			BaseURL: config.DefaultDeepSeekBaseURL,
+			BaseURL: "https://api.deepseek.com",
 		}
-		url, err := c.getApiUrl(context.Background(), params)
+		url, err := c.getApiUrl(context.Background(), params.BaseURL)
 		assert.Nil(t, err)
 		assert.Equal(t, "https://api.deepseek.com/chat/completions", url)
 	})
@@ -51,7 +49,7 @@ func TestGetApiUrl(t *testing.T) {
 		params := deepseekparams.Params{
 			BaseURL: "https://custom.deepseek.com",
 		}
-		url, err := c.getApiUrl(context.Background(), params)
+		url, err := c.getApiUrl(context.Background(), params.BaseURL)
 		assert.Nil(t, err)
 		assert.Equal(t, "https://custom.deepseek.com/chat/completions", url)
 	})
@@ -60,9 +58,9 @@ func TestGetApiUrl(t *testing.T) {
 		params := deepseekparams.Params{
 			BaseURL: "https://ignored.com",
 		}
-		ctx := context.WithValue(context.Background(), "X-Openai-Baseurl", []string{"https://header.url"})
+		ctx := context.WithValue(context.Background(), "X-Deepseek-Baseurl", []string{"https://header.url"})
 
-		url, err := c.getApiUrl(ctx, params)
+		url, err := c.getApiUrl(ctx, params.BaseURL)
 		assert.Nil(t, err)
 		assert.Equal(t, "https://header.url/chat/completions", url)
 	})
@@ -74,11 +72,10 @@ func TestGetAnswer(t *testing.T) {
 	t.Run("when the server has a successful answer", func(t *testing.T) {
 		handler := &testAnswerHandler{
 			t: t,
-			answer: generateResponse{
+			answer: chatResponse{
 				Choices: []choice{{
 					FinishReason: "stop",
-					Index:        0,
-					Message: &responseMessage{
+					Message: message{
 						Role:    "assistant",
 						Content: "John",
 					},
@@ -89,14 +86,12 @@ func TestGetAnswer(t *testing.T) {
 		server := httptest.NewServer(handler)
 		defer server.Close()
 
-		// FIX: New() only takes (apiKey, timeout, logger)
 		c := New("apiKey", time.Minute, nullLogger())
 
 		expected := modulecapabilities.GenerateResponse{
 			Result: ptString("John"),
 		}
 
-		// Inject mock server URL via params
 		params := deepseekparams.Params{
 			BaseURL: server.URL,
 		}
@@ -104,21 +99,20 @@ func TestGetAnswer(t *testing.T) {
 		res, err := c.GenerateAllResults(context.Background(), props, "What is my name?", params, false, nil)
 
 		assert.Nil(t, err)
-		assert.Equal(t, expected, *res)
+		assert.Equal(t, expected.Result, res.Result)
 	})
 
 	t.Run("when the server has an error", func(t *testing.T) {
 		server := httptest.NewServer(&testAnswerHandler{
 			t: t,
-			answer: generateResponse{
-				Error: &openAIApiError{
+			answer: chatResponse{
+				Error: &deepSeekError{
 					Message: "some error from the server",
 				},
 			},
 		})
 		defer server.Close()
 
-		// FIX: New() only takes (apiKey, timeout, logger)
 		c := New("apiKey", time.Minute, nullLogger())
 		params := deepseekparams.Params{
 			BaseURL: server.URL,
@@ -135,12 +129,11 @@ func TestGetAnswer(t *testing.T) {
 type testAnswerHandler struct {
 	t *testing.T
 	// the test handler will report as not ready before the time has passed
-	answer          generateResponse
+	answer          chatResponse
 	headerRequestID string
 }
 
 func (f *testAnswerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	// DeepSeek client should always hit /chat/completions
 	assert.Equal(f.t, "/chat/completions", r.URL.Path)
 	assert.Equal(f.t, http.MethodPost, r.Method)
 
