@@ -191,6 +191,18 @@ func (r *reassignDeduplicator) done(vectorID uint64) error {
 	return r.store.Delete(vectorID)
 }
 
+func (r *reassignDeduplicator) flush(ctx context.Context) (err error) {
+	r.m.Range(func(key uint64, value reassignEntry) bool {
+		if !value.Dirty {
+			return true
+		}
+
+		err = r.store.Set(ctx, key, value.PostingID)
+		return err == nil
+	})
+	return
+}
+
 func (r *reassignDeduplicator) getLastKnownPostingID(vectorID uint64) (uint64, error) {
 	entry, ok := r.m.Load(vectorID)
 	if ok {
