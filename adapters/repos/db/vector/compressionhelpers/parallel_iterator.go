@@ -91,7 +91,7 @@ func (cpi *parallelIterator[T]) IterateAll(ctx context.Context) (out chan []VecA
 	}
 
 	wg := sync.WaitGroup{}
-	checkEveryN := 10
+	checkEveryN := 1000
 	abort := &atomic.Bool{}
 
 	// There are three scenarios:
