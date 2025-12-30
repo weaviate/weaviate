@@ -143,7 +143,7 @@ func (tq *TaskQueue) Close() error {
 		errs = append(errs, errors.Wrap(err, "failed to flush task queue before close"))
 	}
 
-	if err := tq.reassignList.flush(context.Background()); err != nil {
+	if err := tq.reassignList.flush(); err != nil {
 		errs = append(errs, errors.Wrap(err, "failed to flush reassign list"))
 	}
 

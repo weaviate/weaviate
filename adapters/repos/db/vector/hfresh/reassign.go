@@ -142,7 +142,7 @@ func (r *reassignDeduplicator) done(vectorID uint64) {
 }
 
 // flush writes all dirty entries to the persistent store.
-func (r *reassignDeduplicator) flush(ctx context.Context) (err error) {
+func (r *reassignDeduplicator) flush() (err error) {
 	buf := make([]byte, 0, 16*r.m.Size())
 	r.m.Range(func(vectorID uint64, postingID uint64) bool {
 		buf = binary.LittleEndian.AppendUint64(buf, vectorID)
