@@ -104,25 +104,25 @@ func (h *HFresh) doReassign(ctx context.Context, op reassignOperation) error {
 	return nil
 }
 
-// ReassignStore is a persistent store for pending reassign operations.
-type ReassignStore struct {
+// reassignStore is a persistent store for pending reassign operations.
+type reassignStore struct {
 	bucket *lsmkv.Bucket
 }
 
-func NewReassignStore(bucket *lsmkv.Bucket) *ReassignStore {
-	return &ReassignStore{
+func newReassignStore(bucket *lsmkv.Bucket) *reassignStore {
+	return &reassignStore{
 		bucket: bucket,
 	}
 }
 
-func (v *ReassignStore) key(vectorID uint64) [9]byte {
+func (v *reassignStore) key(vectorID uint64) [9]byte {
 	var buf [9]byte
 	buf[0] = reassignBucketPrefix
 	binary.LittleEndian.PutUint64(buf[1:], vectorID)
 	return buf
 }
 
-func (v *ReassignStore) Get(ctx context.Context, vectorID uint64) (uint64, error) {
+func (v *reassignStore) Get(ctx context.Context, vectorID uint64) (uint64, error) {
 	key := v.key(vectorID)
 	data, err := v.bucket.Get(key[:])
 	if err != nil {
@@ -135,18 +135,18 @@ func (v *ReassignStore) Get(ctx context.Context, vectorID uint64) (uint64, error
 	return binary.LittleEndian.Uint64(data), nil
 }
 
-func (v *ReassignStore) Set(ctx context.Context, vectorID, postingID uint64) error {
+func (v *reassignStore) Set(ctx context.Context, vectorID, postingID uint64) error {
 	key := v.key(vectorID)
 	return v.bucket.Put(key[:], binary.LittleEndian.AppendUint64(nil, postingID))
 }
 
-func (v *ReassignStore) Delete(vectorID uint64) error {
+func (v *reassignStore) Delete(vectorID uint64) error {
 	key := v.key(vectorID)
 	return v.bucket.Delete(key[:])
 }
 
-type reassignQueueState struct {
-	store *ReassignStore
+type reassignDeduplicator struct {
+	store *reassignStore
 	m     *xsync.Map[uint64, reassignEntry]
 }
 
@@ -155,14 +155,14 @@ type reassignEntry struct {
 	Dirty     bool
 }
 
-func newReassignQueueState(store *ReassignStore) *reassignQueueState {
-	return &reassignQueueState{
-		store: store,
+func newReassignDeduplicator(bucket *lsmkv.Bucket) *reassignDeduplicator {
+	return &reassignDeduplicator{
+		store: newReassignStore(bucket),
 		m:     xsync.NewMap[uint64, reassignEntry](),
 	}
 }
 
-func (r *reassignQueueState) tryAdd(vectorID, postingID uint64) error {
+func (r *reassignDeduplicator) tryAdd(vectorID, postingID uint64) error {
 	var newlyAdded bool
 	r.m.Compute(vectorID, func(oldValue reassignEntry, loaded bool) (newValue reassignEntry, op xsync.ComputeOp) {
 		if loaded {
@@ -186,7 +186,7 @@ func (r *reassignQueueState) tryAdd(vectorID, postingID uint64) error {
 	return r.store.Set(context.Background(), vectorID, postingID)
 }
 
-func (r *reassignQueueState) done(vectorID uint64) error {
+func (r *reassignDeduplicator) done(vectorID uint64) error {
 	_, exists := r.m.LoadAndDelete(vectorID)
 	if !exists {
 		return nil
@@ -195,7 +195,7 @@ func (r *reassignQueueState) done(vectorID uint64) error {
 	return r.store.Delete(vectorID)
 }
 
-func (r *reassignQueueState) getLastKnownPostingID(ctx context.Context, vectorID uint64) (uint64, error) {
+func (r *reassignDeduplicator) getLastKnownPostingID(ctx context.Context, vectorID uint64) (uint64, error) {
 	entry, ok := r.m.Load(vectorID)
 	if ok {
 		return entry.PostingID, nil

@@ -156,7 +156,7 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 
 	h.ctx, h.cancel = context.WithCancel(context.Background())
 
-	taskQueue, err := NewTaskQueue(&h)
+	taskQueue, err := NewTaskQueue(&h, bucket)
 	if err != nil {
 		return nil, err
 	}

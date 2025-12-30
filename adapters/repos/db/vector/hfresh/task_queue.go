@@ -20,6 +20,7 @@ import (
 
 	"github.com/cespare/xxhash/v2"
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 )
 
@@ -47,19 +48,21 @@ type TaskQueue struct {
 
 	scheduler *queue.Scheduler
 
-	index     *HFresh
-	splitList *deduplicator // Prevents duplicate split operations
-	mergeList *deduplicator // Prevents duplicate merge operations
+	index        *HFresh
+	splitList    *deduplicator         // Prevents duplicate split operations
+	mergeList    *deduplicator         // Prevents duplicate merge operations
+	reassignList *reassignDeduplicator // Prevents duplicate reassign operations
 }
 
-func NewTaskQueue(index *HFresh) (*TaskQueue, error) {
+func NewTaskQueue(index *HFresh, bucket *lsmkv.Bucket) (*TaskQueue, error) {
 	var err error
 
 	tq := TaskQueue{
-		index:     index,
-		scheduler: index.scheduler,
-		splitList: newDeduplicator(),
-		mergeList: newDeduplicator(),
+		index:        index,
+		scheduler:    index.scheduler,
+		splitList:    newDeduplicator(),
+		mergeList:    newDeduplicator(),
+		reassignList: newReassignDeduplicator(bucket),
 	}
 
 	// create queue for split operations
