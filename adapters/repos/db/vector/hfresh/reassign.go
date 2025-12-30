@@ -198,8 +198,18 @@ func (r *reassignDeduplicator) flush(ctx context.Context) (err error) {
 		}
 
 		err = r.store.Set(ctx, key, value.PostingID)
-		return err == nil
+		if err != nil {
+			return false
+		}
+
+		// mark as clean
+		r.m.Store(key, reassignEntry{
+			PostingID: value.PostingID,
+		})
+
+		return true
 	})
+
 	return
 }
 
