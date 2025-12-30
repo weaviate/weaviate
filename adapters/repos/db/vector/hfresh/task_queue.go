@@ -57,12 +57,17 @@ type TaskQueue struct {
 func NewTaskQueue(index *HFresh, bucket *lsmkv.Bucket) (*TaskQueue, error) {
 	var err error
 
+	reassignList, err := newReassignDeduplicator(bucket)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to create reassign deduplicator")
+	}
+
 	tq := TaskQueue{
 		index:        index,
 		scheduler:    index.scheduler,
 		splitList:    newDeduplicator(),
 		mergeList:    newDeduplicator(),
-		reassignList: newReassignDeduplicator(bucket),
+		reassignList: reassignList,
 	}
 
 	// create queue for split operations
@@ -226,9 +231,8 @@ func (tq *TaskQueue) EnqueueMerge(postingID uint64) error {
 
 func (tq *TaskQueue) EnqueueReassign(postingID uint64, vecID uint64, version VectorVersion) error {
 	// Check if the operation is already enqueued
-	ok, err := tq.reassignList.tryAdd(vecID, postingID)
-	if err != nil || !ok {
-		return err
+	if !tq.reassignList.tryAdd(vecID, postingID) {
+		return nil
 	}
 
 	if err := tq.reassignQueue.Push(encodeTask(vecID, taskQueueReassignOp)); err != nil {
@@ -272,14 +276,9 @@ func (tq *TaskQueue) DecodeTask(data []byte) (queue.Task, error) {
 		// decode vector ID
 		vecID := binary.LittleEndian.Uint64(data)
 
-		postingID, err := tq.reassignList.getLastKnownPostingID(vecID)
-		if err != nil {
-			return nil, errors.Wrapf(err, "failed to get last known posting ID for vector %d", vecID)
-		}
-
 		return &ReassignTask{
 			vecID:     vecID,
-			postingID: postingID,
+			postingID: tq.reassignList.getLastKnownPostingID(vecID),
 			idx:       tq.index,
 		}, nil
 	}
