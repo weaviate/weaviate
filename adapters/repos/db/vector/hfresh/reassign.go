@@ -162,7 +162,7 @@ func newReassignDeduplicator(bucket *lsmkv.Bucket) *reassignDeduplicator {
 	}
 }
 
-func (r *reassignDeduplicator) tryAdd(vectorID, postingID uint64) error {
+func (r *reassignDeduplicator) tryAdd(vectorID, postingID uint64) (bool, error) {
 	var newlyAdded bool
 	r.m.Compute(vectorID, func(oldValue reassignEntry, loaded bool) (newValue reassignEntry, op xsync.ComputeOp) {
 		if loaded {
@@ -180,10 +180,15 @@ func (r *reassignDeduplicator) tryAdd(vectorID, postingID uint64) error {
 	})
 
 	if !newlyAdded {
-		return nil
+		return false, nil
 	}
 
-	return r.store.Set(context.Background(), vectorID, postingID)
+	err := r.store.Set(context.Background(), vectorID, postingID)
+	if err != nil {
+		return false, err
+	}
+
+	return true, nil
 }
 
 func (r *reassignDeduplicator) done(vectorID uint64) error {
