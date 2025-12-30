@@ -27,6 +27,9 @@ import (
 
 const (
 	maxConnectionsPerNode = 4096 // max number of connections per node, used to truncate links
+	// maxNodeID is the theoretical maximum node ID supported by the HNSW index.
+	// 10 billion should give us a node ID space of approximately 75 GB.
+	maxNodeID = 10_000_000_000
 )
 
 type Deserializer struct {
@@ -193,6 +196,15 @@ func (d *Deserializer) ReadNode(r io.Reader, res *DeserializationResult) error {
 	level, err := readUint16(r)
 	if err != nil {
 		return err
+	}
+
+	// If the id is beyond maxNodeID, it is probably invalid (e.g. corrupt commit log or snapshot).
+	// Log the id and ignore the request to grow the index.
+	if id > maxNodeID {
+		d.logger.WithField("action", "hnsw_deserialization").
+			WithField("node_id", id).
+			Errorf("deserialized node ID beyond maxNodeID (%d), ignoring", maxNodeID)
+		return nil
 	}
 
 	newNodes, changed, err := growIndexToAccomodateNode(res.Nodes, id, d.logger)
