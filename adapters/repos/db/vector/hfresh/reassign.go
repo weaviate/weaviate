@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/puzpuzpuz/xsync/v4"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 )
 
@@ -124,4 +125,45 @@ func (v *ReassignStore) key(vectorID uint64) [9]byte {
 func (v *ReassignStore) Set(ctx context.Context, vectorID, postingID uint64) error {
 	key := v.key(vectorID)
 	return v.bucket.Put(key[:], binary.LittleEndian.AppendUint64(nil, postingID))
+}
+
+type reassignQueueState struct {
+	store *ReassignStore
+	m     *xsync.Map[uint64, reassignEntry]
+}
+
+type reassignEntry struct {
+	PostingID uint64
+	Dirty     bool
+}
+
+func newReassignQueueState(store *ReassignStore) *reassignQueueState {
+	return &reassignQueueState{
+		store: store,
+		m:     xsync.NewMap[uint64, reassignEntry](),
+	}
+}
+
+func (r *reassignQueueState) tryAdd(vectorID, postingID uint64) error {
+	var newlyAdded bool
+	r.m.Compute(vectorID, func(oldValue reassignEntry, loaded bool) (newValue reassignEntry, op xsync.ComputeOp) {
+		if loaded {
+			return reassignEntry{
+				PostingID: oldValue.PostingID,
+				Dirty:     true,
+			}, xsync.UpdateOp
+		}
+
+		newlyAdded = true
+
+		return reassignEntry{
+			PostingID: postingID,
+		}, xsync.UpdateOp
+	})
+
+	if !newlyAdded {
+		return nil
+	}
+
+	return r.store.Set(context.Background(), vectorID, postingID)
 }
