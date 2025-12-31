@@ -38,11 +38,14 @@ type BackupState struct {
 	InProgress bool
 }
 
-// Backupable returns whether all given class can be backed up.
-func (db *DB) ListShardsSync(classes []string, startedAt time.Time, timeout time.Duration) (map[string][]string, error) {
+// ListShardsSync returns which class+shard combination is in sync between different nodes to enable to back those shards
+// only up once.
+// A shard is considered in sync when its last async replication run finished after the backup start time.
+func (db *DB) ListShardsSync(classes []string, backupStartedAt time.Time, timeout time.Duration) (map[string][]string, error) {
 	result := make(map[string][]string, len(classes))
 	eg := enterrors.NewErrorGroupWrapper(db.logger)
-	timeOutTime := startedAt.Add(timeout)
+	eg.SetLimit(_NUMCPU)
+	timeOutTime := backupStartedAt.Add(timeout)
 	for _, c := range classes {
 		className := schema.ClassName(c)
 		idx := db.GetIndex(className)
@@ -50,20 +53,25 @@ func (db *DB) ListShardsSync(classes []string, startedAt time.Time, timeout time
 			return nil, fmt.Errorf("class %v doesn't exist", c)
 		}
 		if !idx.Config.AsyncReplicationEnabled {
-			continue
+			continue // without async replication there is no (easy) way to know if shard is in sync
 		}
+		var mu sync.Mutex
 		result[c] = []string{}
 
-		idx.ForEachLoadedShard(func(name string, shard *Shard) error {
+		err := idx.ForEachLoadedShard(func(name string, shard *Shard) error {
 			lastRun := shard.asyncReplicationLastRun.Load()
-			if lastRun != nil && (*lastRun).After(startedAt) {
+			if lastRun != nil && (*lastRun).After(backupStartedAt) {
+				mu.Lock()
 				result[c] = append(result[c], name)
+				mu.Unlock()
 				return nil
 			}
-			shard.triggerAsyncReplication()
+			// trigger an async replication run to recheck if the shard is in sync. If it is not, async replication
+			// will start to bring it in sync which can take too long to wait for it.
 			eg.Go(func() error {
-				ticker := time.NewTicker(500 * time.Millisecond)
-				defer ticker.Stop() // on purpose
+				shard.triggerAsyncReplication()
+				ticker := time.NewTicker(100 * time.Millisecond)
+				defer ticker.Stop()
 
 				timeoutTimer := time.NewTimer(time.Until(timeOutTime))
 				defer timeoutTimer.Stop()
@@ -74,8 +82,11 @@ func (db *DB) ListShardsSync(classes []string, startedAt time.Time, timeout time
 						return nil // we do not return error here, just leave the shard out of the list
 					case <-ticker.C:
 						lastRun := shard.asyncReplicationLastRun.Load()
-						if lastRun != nil && (*lastRun).After(startedAt) {
+						if lastRun != nil && (*lastRun).After(backupStartedAt) {
+							mu.Lock()
 							result[c] = append(result[c], name)
+							mu.Unlock()
+
 							return nil
 						}
 					}
@@ -83,6 +94,9 @@ func (db *DB) ListShardsSync(classes []string, startedAt time.Time, timeout time
 			})
 			return nil
 		})
+		if err != nil {
+			return nil, err
+		}
 	}
 	eg.Wait()
 	return result, nil

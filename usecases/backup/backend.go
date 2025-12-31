@@ -202,10 +202,10 @@ func (u *uploader) withCompression(cfg zipConfig) *uploader {
 }
 
 // all uploads all files in addition to the metadata file
-func (u *uploader) all(ctx context.Context, classes []string, desc *backup.BackupDescriptor, overrideBucket, overridePath string, shardsInSync map[string][]string) (err error) {
+func (u *uploader) all(ctx context.Context, classes []string, desc *backup.BackupDescriptor, overrideBucket, overridePath string, shardsPerClassInSync map[string][]string) (err error) {
 	u.setStatus(backup.Transferring)
 	desc.Status = string(backup.Transferring)
-	ch := u.sourcer.BackupDescriptors(ctx, desc.ID, classes, shardsInSync)
+	ch := u.sourcer.BackupDescriptors(ctx, desc.ID, classes, shardsPerClassInSync)
 	var totalPreCompressionSize int64 // Track total pre-compression bytes
 	defer func() {
 		//  release indexes under all conditions

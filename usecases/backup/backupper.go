@@ -104,7 +104,7 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 	// waits for ack from coordinator in order to processed with the backup
 	f := func() {
 		defer b.lastOp.reset()
-		coordinatorNode, shardsInSync, err := b.waitForCoordinator(expiration, id)
+		coordinatorNode, shardsPerClassInSync, err := b.waitForCoordinator(expiration, id)
 		if err != nil {
 			b.logger.WithField("action", "create_backup").
 				Error(err)
@@ -112,7 +112,7 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 			return
 		}
 		if isCoordinator := coordinatorNode == b.node; isCoordinator {
-			shardsInSync = nil // coordinator needs to back up all shards
+			shardsPerClassInSync = nil // coordinator needs to back up all shards
 		}
 		provider := newUploader(b.sourcer, b.rbacSourcer, b.dynUserSourcer, store, req.ID, b.lastOp.set, b.logger).
 			withCompression(newZipConfig(req.Compression))
@@ -138,8 +138,8 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 		ctx := b.withCancellation(context.Background(), id, done, b.logger)
 		defer close(done)
 
-		logFields := logrus.Fields{"action": "create_backup", "backup_id": req.ID, "override_bucket": req.Bucket, "override_path": req.Path}
-		if err := provider.all(ctx, req.Classes, &result, req.Bucket, req.Path, shardsInSync); err != nil {
+		logFields := logrus.Fields{"action": "create_backup", "backup_id": req.ID, "override_bucket": req.Bucket, "override_path": req.Path, "coordinator_node": coordinatorNode, "shards_per_class_in_sync": shardsPerClassInSync}
+		if err := provider.all(ctx, req.Classes, &result, req.Bucket, req.Path, shardsPerClassInSync); err != nil {
 			b.logger.WithFields(logFields).Error(err)
 			b.lastAsyncError = err
 
