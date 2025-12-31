@@ -15,6 +15,7 @@ package backup
 
 import (
 	context "context"
+	time "time"
 
 	mock "github.com/stretchr/testify/mock"
 )
@@ -127,6 +128,66 @@ func (_c *MockSelector_ListClasses_Call) RunAndReturn(run func(context.Context) 
 	return _c
 }
 
+// ListShardsSync provides a mock function with given fields: classes, startedAt, timeout
+func (_m *MockSelector) ListShardsSync(classes []string, startedAt time.Time, timeout time.Duration) (map[string][]string, error) {
+	ret := _m.Called(classes, startedAt, timeout)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListShardsSync")
+	}
+
+	var r0 map[string][]string
+	var r1 error
+	if rf, ok := ret.Get(0).(func([]string, time.Time, time.Duration) (map[string][]string, error)); ok {
+		return rf(classes, startedAt, timeout)
+	}
+	if rf, ok := ret.Get(0).(func([]string, time.Time, time.Duration) map[string][]string); ok {
+		r0 = rf(classes, startedAt, timeout)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(map[string][]string)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func([]string, time.Time, time.Duration) error); ok {
+		r1 = rf(classes, startedAt, timeout)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockSelector_ListShardsSync_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListShardsSync'
+type MockSelector_ListShardsSync_Call struct {
+	*mock.Call
+}
+
+// ListShardsSync is a helper method to define mock.On call
+//   - classes []string
+//   - startedAt time.Time
+//   - timeout time.Duration
+func (_e *MockSelector_Expecter) ListShardsSync(classes interface{}, startedAt interface{}, timeout interface{}) *MockSelector_ListShardsSync_Call {
+	return &MockSelector_ListShardsSync_Call{Call: _e.mock.On("ListShardsSync", classes, startedAt, timeout)}
+}
+
+func (_c *MockSelector_ListShardsSync_Call) Run(run func(classes []string, startedAt time.Time, timeout time.Duration)) *MockSelector_ListShardsSync_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].([]string), args[1].(time.Time), args[2].(time.Duration))
+	})
+	return _c
+}
+
+func (_c *MockSelector_ListShardsSync_Call) Return(_a0 map[string][]string, _a1 error) *MockSelector_ListShardsSync_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockSelector_ListShardsSync_Call) RunAndReturn(run func([]string, time.Time, time.Duration) (map[string][]string, error)) *MockSelector_ListShardsSync_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // Shards provides a mock function with given fields: ctx, class
 func (_m *MockSelector) Shards(ctx context.Context, class string) ([]string, error) {
 	ret := _m.Called(ctx, class)
@@ -191,7 +252,8 @@ func (_c *MockSelector_Shards_Call) RunAndReturn(run func(context.Context, strin
 func NewMockSelector(t interface {
 	mock.TestingT
 	Cleanup(func())
-}) *MockSelector {
+},
+) *MockSelector {
 	mock := &MockSelector{}
 	mock.Mock.Test(t)
 

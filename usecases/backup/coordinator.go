@@ -22,7 +22,6 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
-
 	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/entities/backup"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -44,12 +43,13 @@ var (
 )
 
 const (
-	_BookingPeriod      = time.Second * 20
-	_TimeoutNodeDown    = 7 * time.Minute
-	_TimeoutQueryStatus = 5 * time.Second
-	_TimeoutCanCommit   = 8 * time.Second
-	_NextRoundPeriod    = 10 * time.Second
-	_MaxNumberConns     = 16
+	_BookingPeriod           = time.Second * 20
+	_AsyncReplicationTimeout = time.Minute
+	_TimeoutNodeDown         = 7 * time.Minute
+	_TimeoutQueryStatus      = 5 * time.Second
+	_TimeoutCanCommit        = 8 * time.Second
+	_NextRoundPeriod         = 10 * time.Second
+	_MaxNumberConns          = 16
 )
 
 type nodeMap map[string]*backup.NodeDescriptor
@@ -71,6 +71,8 @@ type Selector interface {
 
 	// Backupable returns whether all given class can be backed up.
 	Backupable(_ context.Context, classes []string) error
+
+	ListShardsSync(classes []string, startedAt time.Time, timeout time.Duration) (map[string][]string, error)
 }
 
 // coordinator coordinates a distributed backup and restore operation (DBRO):
@@ -159,6 +161,7 @@ func (c *coordinator) Nodes(ctx context.Context, req *Request) (map[string]strin
 // Backup coordinates a distributed backup among participants
 func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Request) error {
 	req.Method = OpCreate
+	startedAt := time.Now().UTC()
 	leader := c.nodeResolver.LeaderID()
 	if leader == "" {
 		return fmt.Errorf("backup Op %s: %w, try again later", req.Method, types.ErrLeaderNotFound)
@@ -177,7 +180,7 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 	}
 
 	c.descriptor = &backup.DistributedBackupDescriptor{
-		StartedAt:       time.Now().UTC(),
+		StartedAt:       startedAt,
 		Status:          backup.Started,
 		ID:              req.ID,
 		Nodes:           groups,
@@ -190,6 +193,8 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 	for key := range c.Participants {
 		delete(c.Participants, key)
 	}
+
+	req.Duration = _BookingPeriod + _AsyncReplicationTimeout
 
 	nodes, err := c.canCommit(ctx, req)
 	if err != nil {
@@ -204,16 +209,25 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 		return fmt.Errorf("coordinator: cannot init meta file: %w", err)
 	}
 
-	statusReq := StatusRequest{
-		Method:  OpCreate,
-		ID:      req.ID,
-		Backend: req.Backend,
-		Bucket:  req.Bucket,
-		Path:    req.Path,
-	}
-
 	f := func() {
 		defer c.lastOp.reset()
+
+		// check async replication if nodes are in sync. If yes we do not need to backup shards on all nodes
+		inSyncShards, err := c.selector.ListShardsSync(req.Classes, startedAt, _AsyncReplicationTimeout)
+		if err != nil {
+			c.log.Errorf("coordinator: could not list shards sync status: %v", err)
+		}
+
+		statusReq := StatusRequest{
+			Method:       OpCreate,
+			ID:           req.ID,
+			Backend:      req.Backend,
+			Bucket:       req.Bucket,
+			Path:         req.Path,
+			Coordinator:  c.schema.NodeName(),
+			InSyncShards: inSyncShards,
+		}
+
 		ctx := context.Background()
 		c.commit(ctx, &statusReq, nodes, false)
 		logFields := logrus.Fields{"action": OpCreate, "backup_id": req.ID}
@@ -240,6 +254,7 @@ func (c *coordinator) Restore(
 	schema []backup.ClassDescriptor,
 ) error {
 	req.Method = OpRestore
+	req.Duration = _BookingPeriod
 	// make sure there is no active backup
 	if prevID := c.lastOp.renew(desc.ID, store.HomeDir(req.Bucket, req.Path), req.Bucket, req.Path); prevID != "" {
 		return fmt.Errorf("restoration %s already in progress", prevID)
@@ -400,7 +415,7 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request) (map[string]s
 					ID:                id,
 					Backend:           req.Backend,
 					Classes:           gr.Classes,
-					Duration:          _BookingPeriod,
+					Duration:          req.Duration,
 					NodeMapping:       nodeMapping,
 					Compression:       req.Compression,
 					Bucket:            req.Bucket,

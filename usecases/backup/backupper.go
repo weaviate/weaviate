@@ -104,11 +104,15 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 	// waits for ack from coordinator in order to processed with the backup
 	f := func() {
 		defer b.lastOp.reset()
-		if err := b.waitForCoordinator(expiration, id); err != nil {
+		coordinatorNode, shardsInSync, err := b.waitForCoordinator(expiration, id)
+		if err != nil {
 			b.logger.WithField("action", "create_backup").
 				Error(err)
 			b.lastAsyncError = err
 			return
+		}
+		if isCoordinator := coordinatorNode == b.node; isCoordinator {
+			shardsInSync = nil // coordinator needs to back up all shards
 		}
 		provider := newUploader(b.sourcer, b.rbacSourcer, b.dynUserSourcer, store, req.ID, b.lastOp.set, b.logger).
 			withCompression(newZipConfig(req.Compression))
@@ -134,7 +138,7 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 		defer close(done)
 
 		logFields := logrus.Fields{"action": "create_backup", "backup_id": req.ID, "override_bucket": req.Bucket, "override_path": req.Path}
-		if err := provider.all(ctx, req.Classes, &result, req.Bucket, req.Path); err != nil {
+		if err := provider.all(ctx, req.Classes, &result, req.Bucket, req.Path, shardsInSync); err != nil {
 			b.logger.WithFields(logFields).Error(err)
 			b.lastAsyncError = err
 

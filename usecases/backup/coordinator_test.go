@@ -41,13 +41,13 @@ func Test_CoordinatedBackup(t *testing.T) {
 			ID:          backupID,
 			Backend:     backendName,
 			Classes:     req.Classes,
-			Duration:    _BookingPeriod,
+			Duration:    _BookingPeriod + _AsyncReplicationTimeout,
 			Compression: req.Compression,
 		}
 		cresp        = &CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: 1}
-		sReq         = &StatusRequest{OpCreate, backupID, backendName, "", ""}
+		sReq         = &StatusRequest{OpCreate, backupID, backendName, "", "", nil, ""}
 		sresp        = &StatusResponse{Status: backup.Success, ID: backupID, Method: OpCreate}
-		abortReq     = &AbortRequest{OpCreate, backupID, backendName, "", ""}
+		abortReq     = &AbortRequest{OpCreate, backupID, backendName, "", "", nil, ""}
 		nodeResolver = newFakeNodeResolver(nodes)
 	)
 
@@ -134,7 +134,7 @@ func Test_CoordinatedBackup(t *testing.T) {
 			ID:       backupID,
 			Backend:  backendName,
 			Classes:  []string{classes[1]},
-			Duration: _BookingPeriod,
+			Duration: _BookingPeriod + _AsyncReplicationTimeout,
 			Compression: Compression{
 				Level:         GzipDefaultCompression,
 				CPUPercentage: DefaultCPUPercentage,
@@ -146,7 +146,7 @@ func Test_CoordinatedBackup(t *testing.T) {
 			ID:       backupID,
 			Backend:  backendName,
 			Classes:  classes[:],
-			Duration: _BookingPeriod,
+			Duration: _BookingPeriod + _AsyncReplicationTimeout,
 			Compression: Compression{
 				Level:         GzipDefaultCompression,
 				CPUPercentage: DefaultCPUPercentage,
@@ -383,9 +383,9 @@ func TestCoordinatedRestore(t *testing.T) {
 			},
 		}
 		cresp    = &CanCommitResponse{Method: OpRestore, ID: backupID, Timeout: 1}
-		sReq     = &StatusRequest{OpRestore, backupID, backendName, "", ""}
+		sReq     = &StatusRequest{OpRestore, backupID, backendName, "", "", nil, ""}
 		sresp    = &StatusResponse{Status: backup.Success, ID: backupID, Method: OpRestore}
-		abortReq = &AbortRequest{OpRestore, backupID, backendName, "", ""}
+		abortReq = &AbortRequest{OpRestore, backupID, backendName, "", "", nil, ""}
 	)
 
 	t.Run("Success", func(t *testing.T) {
@@ -496,7 +496,7 @@ func TestCoordinatedRestoreWithNodeMapping(t *testing.T) {
 			},
 		}
 		cresp = &CanCommitResponse{Method: OpRestore, ID: backupID, Timeout: 1}
-		sReq  = &StatusRequest{OpRestore, backupID, backendName, "", ""}
+		sReq  = &StatusRequest{OpRestore, backupID, backendName, "", "", nil, ""}
 		sresp = &StatusResponse{Status: backup.Success, ID: backupID, Method: OpRestore}
 	)
 
@@ -529,6 +529,10 @@ func TestCoordinatedRestoreWithNodeMapping(t *testing.T) {
 
 type fakeSelector struct {
 	mock.Mock
+}
+
+func (s *fakeSelector) ListShardsSync(classes []string, startedAt time.Time, timeout time.Duration) (map[string][]string, error) {
+	return nil, nil
 }
 
 func (s *fakeSelector) Shards(ctx context.Context, class string) ([]string, error) {

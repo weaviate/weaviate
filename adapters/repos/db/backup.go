@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"time"
 
@@ -35,6 +36,56 @@ import (
 type BackupState struct {
 	BackupID   string
 	InProgress bool
+}
+
+// Backupable returns whether all given class can be backed up.
+func (db *DB) ListShardsSync(classes []string, startedAt time.Time, timeout time.Duration) (map[string][]string, error) {
+	result := make(map[string][]string, len(classes))
+	eg := enterrors.NewErrorGroupWrapper(db.logger)
+	timeOutTime := startedAt.Add(timeout)
+	for _, c := range classes {
+		className := schema.ClassName(c)
+		idx := db.GetIndex(className)
+		if idx == nil || idx.Config.ClassName != className {
+			return nil, fmt.Errorf("class %v doesn't exist", c)
+		}
+		if !idx.Config.AsyncReplicationEnabled {
+			continue
+		}
+		result[c] = []string{}
+
+		idx.ForEachLoadedShard(func(name string, shard *Shard) error {
+			lastRun := shard.asyncReplicationLastRun.Load()
+			if lastRun != nil && (*lastRun).After(startedAt) {
+				result[c] = append(result[c], name)
+				return nil
+			}
+			shard.triggerAsyncReplication()
+			eg.Go(func() error {
+				ticker := time.NewTicker(500 * time.Millisecond)
+				defer ticker.Stop() // on purpose
+
+				timeoutTimer := time.NewTimer(time.Until(timeOutTime))
+				defer timeoutTimer.Stop()
+
+				for {
+					select {
+					case <-timeoutTimer.C:
+						return nil // we do not return error here, just leave the shard out of the list
+					case <-ticker.C:
+						lastRun := shard.asyncReplicationLastRun.Load()
+						if lastRun != nil && (*lastRun).After(startedAt) {
+							result[c] = append(result[c], name)
+							return nil
+						}
+					}
+				}
+			})
+			return nil
+		})
+	}
+	eg.Wait()
+	return result, nil
 }
 
 // Backupable returns whether all given class can be backed up.
@@ -67,7 +118,7 @@ func (db *DB) ListBackupable() []string {
 // BackupDescriptors returns a channel of class descriptors.
 // Class descriptor records everything needed to restore a class
 // If an error happens a descriptor with an error will be written to the channel just before closing it.
-func (db *DB) BackupDescriptors(ctx context.Context, bakid string, classes []string,
+func (db *DB) BackupDescriptors(ctx context.Context, bakid string, classes []string, shardsPerClassInSync map[string][]string,
 ) <-chan backup.ClassDescriptor {
 	ds := make(chan backup.ClassDescriptor, len(classes))
 	f := func() {
@@ -79,13 +130,17 @@ func (db *DB) BackupDescriptors(ctx context.Context, bakid string, classes []str
 					desc.Error = fmt.Errorf("class %v doesn't exist any more", c)
 					return
 				}
+				var shardsInSync []string
+				if shardsPerClassInSync != nil {
+					shardsInSync = shardsPerClassInSync[c] // may be nil, which is fine
+				}
 				idx.closeLock.RLock()
 				defer idx.closeLock.RUnlock()
 				if idx.closed {
 					desc.Error = fmt.Errorf("index for class %v is closed", c)
 					return
 				}
-				if err := idx.descriptor(ctx, bakid, &desc); err != nil {
+				if err := idx.descriptor(ctx, bakid, &desc, shardsInSync); err != nil {
 					desc.Error = fmt.Errorf("backup class %v descriptor: %w", c, err)
 				}
 			}()
@@ -256,7 +311,7 @@ func (db *DB) ListClasses(ctx context.Context) []string {
 }
 
 // descriptor record everything needed to restore a class
-func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.ClassDescriptor) (err error) {
+func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.ClassDescriptor, shardsInSync []string) (err error) {
 	if err := i.initBackup(backupID); err != nil {
 		return err
 	}
@@ -268,6 +323,10 @@ func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.Cl
 	}()
 
 	if err = i.ForEachShard(func(name string, s ShardLike) error {
+		if slices.Contains(shardsInSync, name) {
+			return nil
+		}
+
 		if err = s.HaltForTransfer(ctx, false, 0); err != nil {
 			return fmt.Errorf("pause compaction and flush: %w", err)
 		}
