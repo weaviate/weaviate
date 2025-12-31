@@ -209,7 +209,7 @@ func (d *Deserializer) ReadNode(r io.Reader, res *DeserializationResult) error {
 		return nil
 	// If the id is suspiciously high compared to current index size, it is
 	// probably invalid (e.g. corrupt commit log). Log the id and ignore it.
-	case id > 100_000_000 && len(res.Nodes)*5 < int(id):
+	case id > 1000_000_000 && len(res.Nodes)*5 < int(id):
 		d.logger.WithField("action", "hnsw_deserialization").
 			WithField("node_id", id).
 			Warnf("deserialized node ID %d is suspiciously high compared to current index size %d, ignoring", id, len(res.Nodes))
