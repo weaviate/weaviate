@@ -220,6 +220,11 @@ func (s *Shard) initAsyncReplication() (err error) {
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 
 	s.asyncReplicationRunning = atomic.Bool{}
+	// channel is used to "wake up" the hashbeater when a change occurs that
+	// requires propagation, e.g. a new target node override is added
+	// it's buffered to ensure that multiple changes occurring in a short time
+	// frame only cause one wake-up
+	s.asyncReplicationShouldRun = make(chan struct{})
 
 	ctx, cancelFunc := context.WithCancel(context.Background())
 	s.asyncReplicationCancelFunc = cancelFunc
@@ -662,12 +667,6 @@ func (s *Shard) HashTreeLevel(ctx context.Context, level int, discriminant *hash
 }
 
 func (s *Shard) initHashBeater(ctx context.Context, config asyncReplicationConfig) {
-	// channel is used to "wake up" the hashbeater when a change occurs that
-	// requires propagation, e.g. a new target node override is added
-	// it's buffered to ensure that multiple changes occurring in a short time
-	// frame only cause one wake-up
-	s.asyncReplicationShouldRun = make(chan struct{})
-
 	var lastHashbeatPropagatedObjects bool
 	var lastHashbeatMux sync.Mutex
 
@@ -1296,7 +1295,7 @@ func (s *Shard) triggerAsyncReplication() {
 	select {
 	case s.asyncReplicationShouldRun <- struct{}{}:
 	default:
-		// dont wait if the channel is full
+		// dont block
 	}
 }
 
