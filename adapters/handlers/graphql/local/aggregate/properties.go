@@ -16,6 +16,7 @@ import (
 
 	"github.com/tailor-inc/graphql"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/descriptions"
+	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/graphqlutil"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/models"
 )
@@ -380,9 +381,12 @@ func extractTextAggregation(source interface{}) (aggregation.Text, error) {
 
 	if property.Type == aggregation.PropertyTypeNumerical {
 		// in this case we can only use count
-		return aggregation.Text{
-			Count: property.NumericalAggregations["count"].(int),
-		}, nil
+		if c := property.NumericalAggregations["count"]; c != nil {
+			if i, err := graphqlutil.ToInt(c); err == nil {
+				return aggregation.Text{Count: i}, nil
+			}
+		}
+		return aggregation.Text{Count: 0}, nil
 	}
 
 	if property.Type != aggregation.PropertyTypeText {

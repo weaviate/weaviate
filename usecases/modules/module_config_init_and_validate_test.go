@@ -175,7 +175,7 @@ func TestSetClassDefaults(t *testing.T) {
 				DataType:     schema.DataTypeText.PropString(),
 				Tokenization: models.PropertyTokenizationWhitespace,
 				ModuleConfig: map[string]interface{}{
-					"my-module": map[string]interface{}{
+					"vec1": map[string]interface{}{
 						"per-prop-1": "prop default value",
 						"per-prop-2": "prop default value",
 					},
@@ -228,6 +228,10 @@ func TestSetClassDefaults(t *testing.T) {
 				Tokenization: models.PropertyTokenizationWhitespace,
 				ModuleConfig: map[string]interface{}{
 					"my-module": map[string]interface{}{
+						"per-prop-1": "prop default value",
+						"per-prop-2": "prop default value",
+					},
+					"vec1": map[string]interface{}{
 						"per-prop-1": "prop default value",
 						"per-prop-2": "prop default value",
 					},
@@ -435,7 +439,7 @@ func TestSetSinglePropertyDefaults_MixedVectors(t *testing.T) {
 				"per-prop-1": "overwritten by user",
 				"per-prop-2": "prop default value",
 			},
-			"my-module-2": map[string]interface{}{
+			"vec1": map[string]interface{}{
 				"per-prop-1": "prop default value",
 				"per-prop-2": "prop default value",
 			},
