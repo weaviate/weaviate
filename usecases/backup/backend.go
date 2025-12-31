@@ -120,10 +120,6 @@ type nodeStore struct {
 	objectStore
 }
 
-func NewNodeStore(backend modulecapabilities.BackupBackend, backupId, bucket, path string) *nodeStore {
-	return &nodeStore{objectStore: objectStore{backend, backupId, bucket, path}}
-}
-
 // Meta gets meta data using standard path or deprecated old path
 //
 // adjustBasePath: sets the base path to the old path if the backup has been created prior to v1.17.
@@ -203,10 +199,10 @@ func (u *uploader) withCompression(cfg zipConfig) *uploader {
 }
 
 // all uploads all files in addition to the metadata file
-func (u *uploader) all(ctx context.Context, classes []string, desc *backup.BackupDescriptor, overrideBucket, overridePath string) (err error) {
+func (u *uploader) all(ctx context.Context, classes []string, desc *backup.BackupDescriptor, overrideBucket, overridePath string, shardsInSync map[string][]string) (err error) {
 	u.setStatus(backup.Transferring)
 	desc.Status = string(backup.Transferring)
-	ch := u.sourcer.BackupDescriptors(ctx, desc.ID, classes)
+	ch := u.sourcer.BackupDescriptors(ctx, desc.ID, classes, shardsInSync)
 	var totalPreCompressionSize int64 // Track total pre-compression bytes
 	defer func() {
 		//  release indexes under all conditions
