@@ -130,8 +130,7 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 			Version:               Version,
 			ServerVersion:         config.ServerVersion,
 			CompressionType:       &compressionType,
-			SkippedShardsPerClass: shardsInSync,
-			CoordinatorNode:       coordinatorNode,
+			CreateCoordinatorNode: coordinatorNode,
 		}
 
 		// the coordinator might want to abort the backup

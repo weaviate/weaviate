@@ -151,7 +151,7 @@ func (r *restorer) restoreAll(ctx context.Context,
 		}
 	}
 
-	coordinatorBackupId := fmt.Sprintf("%s/%s", desc.CoordinatorNode, desc.ID)
+	coordinatorBackupId := fmt.Sprintf("%s/%s", desc.CreateCoordinatorNode, desc.ID)
 
 	for _, cdesc := range desc.Classes {
 		if err := r.restoreOne(ctx, &cdesc, desc.ServerVersion, coordinatorBackupId, compressionType, compressed, cpuPercentage, store, overrideBucket, overridePath); err != nil {
