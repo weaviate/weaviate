@@ -161,6 +161,7 @@ func TestCompressedParallelIterator(t *testing.T) {
 					defer bucket.Shutdown(context.Background())
 
 					cpi := NewParallelIterator(bucket, test.parallel, loadId, fromCompressed, logger)
+					cpi.checkContextEveryN = 10 // make sure we check context often enough for this test
 					ctxCancellable, cancel := context.WithCancel(context.Background())
 
 					vecsCh, abortedCh := cpi.IterateAll(ctxCancellable)
