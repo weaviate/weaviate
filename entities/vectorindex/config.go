@@ -17,8 +17,8 @@ import (
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
+	hfresh "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	"github.com/weaviate/weaviate/entities/vectorindex/spfresh"
 )
 
 const (
@@ -26,7 +26,7 @@ const (
 	VectorIndexTypeHNSW    = "hnsw"
 	VectorIndexTypeFLAT    = "flat"
 	VectorIndexTypeDYNAMIC = "dynamic"
-	VectorIndexTypeSPFresh = "spfresh"
+	VectorIndexTypeHFresh  = "hfresh"
 )
 
 // ParseAndValidateConfig from an unknown input value, as this is not further
@@ -43,8 +43,8 @@ func ParseAndValidateConfig(input interface{}, vectorIndexType string, isMultiVe
 		return flat.ParseAndValidateConfig(input)
 	case VectorIndexTypeDYNAMIC:
 		return dynamic.ParseAndValidateConfig(input, isMultiVector)
-	case VectorIndexTypeSPFresh:
-		return spfresh.ParseAndValidateConfig(input, isMultiVector)
+	case VectorIndexTypeHFresh:
+		return hfresh.ParseAndValidateConfig(input, isMultiVector)
 	default:
 		return nil, fmt.Errorf("invalid vector index %q. Supported types are hnsw and flat", vectorIndexType)
 	}

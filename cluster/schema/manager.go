@@ -257,12 +257,31 @@ func (s *SchemaManager) UpdateClass(cmd *command.ApplyRequest, nodeID string, sc
 		meta.Class.VectorConfig = u.VectorConfig
 		meta.Class.ReplicationConfig = u.ReplicationConfig
 		meta.Class.MultiTenancyConfig = u.MultiTenancyConfig
+		meta.Class.ObjectTTLConfig = u.ObjectTTLConfig
 		meta.Class.Description = u.Description
 		meta.Class.Properties = u.Properties
 		meta.ClassVersion = cmd.Version
 		if req.State != nil {
 			meta.Sharding = *req.State
 		}
+
+		// validate replication factor change
+		if meta.Class.ReplicationConfig != nil && u.ReplicationConfig != nil {
+			initialRF := meta.Class.ReplicationConfig.Factor
+			updatedRF := u.ReplicationConfig.Factor
+
+			if initialRF < updatedRF {
+				for _, physical := range meta.Sharding.Physical {
+					if int64(len(physical.BelongsToNodes)) < updatedRF {
+						return fmt.Errorf("not enough replicas in shard %q to increase replication factor to %d for class %q", physical.Name, updatedRF, meta.Class.Class)
+					}
+				}
+			}
+
+			// set the updated replication factor
+			meta.Sharding.ReplicationFactor = u.ReplicationConfig.Factor
+		}
+
 		return nil
 	}
 
@@ -489,53 +508,55 @@ func (s *SchemaManager) SyncShard(cmd *command.ApplyRequest, schemaOnly bool) er
 		return nil
 	}
 
+	var physical *sharding.Physical
+	var partitioningEnabled bool
+	err := s.NewSchemaReader().Read(req.Collection, true, func(class *models.Class, state *sharding.State) error {
+		partitioningEnabled = state.PartitioningEnabled
+		p, ok := state.Physical[req.Shard]
+		if !ok {
+			// no physical, leave var as nil
+			return nil
+		}
+		physical = &p
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("read schema for sync shard: %w", err)
+	}
+
 	return s.apply(
 		applyOp{
 			op:           cmd.GetType().String(),
 			updateSchema: func() error { return nil },
 			updateStore: func() error {
-				return s.schema.Read(req.Collection, true, func(class *models.Class, state *sharding.State) error {
-					physical, ok := state.Physical[req.Shard]
-					// shard does not exist in the sharding state
-					if !ok {
-						// TODO: can we guarantee that the shard is not in use?
-						// If so we should call s.db.DropShard(cmd.Class, req.Shard) here instead
-						// For now, to be safe and avoid data loss, we just shut it down
-						s.db.ShutdownShard(cmd.Class, req.Shard)
-						// return early
-						return nil
-					}
-					// if shard doesn't belong to this node
-					if !slices.Contains(physical.BelongsToNodes, req.NodeId) {
-						// shut it down
-						s.db.ShutdownShard(cmd.Class, req.Shard)
-						// return early
-						return nil
-					}
-					// collection is single-tenant, shard is present, replica belongs to node
-					if !state.PartitioningEnabled {
-						// load it
-						s.db.LoadShard(cmd.Class, req.Shard)
-						// return early
-						return nil
-					}
-					// collection is multi-tenant, shard is present, replica belongs to node
-					switch physical.ActivityStatus() {
-					// tenant is active
-					case models.TenantActivityStatusACTIVE:
-						// load it
-						s.db.LoadShard(cmd.Class, req.Shard)
-					// tenant is inactive
-					case models.TenantActivityStatusINACTIVE:
-						// shut it down
-						s.db.ShutdownShard(cmd.Class, req.Shard)
-					// tenant is in some other state
-					default:
-						// do nothing
-
-					}
+				// shard does not exist in the sharding state
+				if physical == nil {
+					// TODO: can we guarantee that the shard is not in use?
+					// If so we should call s.db.DropShard(cmd.Class, req.Shard) here instead
+					// For now, to be safe and avoid data loss, we just shut it down
+					s.db.ShutdownShard(cmd.Class, req.Shard)
 					return nil
-				})
+				}
+				// shard is present but replica doesn't belong to this node
+				if !slices.Contains(physical.BelongsToNodes, req.NodeId) {
+					s.db.ShutdownShard(cmd.Class, req.Shard)
+					return nil
+				}
+				// collection is ST, shard is present, and replica belongs to node
+				if !partitioningEnabled {
+					s.db.LoadShard(cmd.Class, req.Shard)
+					return nil
+				}
+				// collection is MT, shard is present, and replica belongs to node
+				switch physical.ActivityStatus() {
+				case models.TenantActivityStatusACTIVE:
+					s.db.LoadShard(cmd.Class, req.Shard)
+				case models.TenantActivityStatusINACTIVE:
+					s.db.ShutdownShard(cmd.Class, req.Shard)
+				default:
+					// do nothing
+				}
+				return nil
 			},
 			schemaOnly: schemaOnly,
 		},

@@ -12,8 +12,8 @@
 package cyclemanager
 
 import (
-	"context"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -21,757 +21,794 @@ import (
 
 func Test_FixedIntervalTicker(t *testing.T) {
 	t.Run("channel is empty before started", func(t *testing.T) {
-		interval := 10 * time.Millisecond
-		ticker := NewFixedTicker(10 * time.Millisecond)
+		interval := time.Second
 
-		assertNoTick(t, ticker.C())
+		synctest.Test(t, func(t *testing.T) {
+			ticker := NewFixedTicker(interval)
 
-		ticker.Start()
-		time.Sleep(2 * interval)
+			assertNoTick(t, ticker.C())
 
-		assertTick(t, ticker.C())
+			ticker.Start()
+			time.Sleep(interval)
+			synctest.Wait()
+
+			assertTick(t, ticker.C())
+
+			ticker.Stop()
+		})
 	})
 
 	t.Run("interval is fixed", func(t *testing.T) {
-		interval := 50 * time.Millisecond
-		tolerance := 25 * time.Millisecond
+		interval := time.Second
+		delta := 100 * time.Millisecond
+		count := 4
+		times := make([]time.Time, count+1)
 
-		ticker := NewFixedTicker(interval)
-		ticker.Start()
+		synctest.Test(t, func(t *testing.T) {
+			ticker := NewFixedTicker(interval)
+			ticker.Start()
 
-		t0 := time.Now()
-		val1 := <-ticker.C()
-		t1 := time.Now()
-		val2 := <-ticker.C()
-		t2 := time.Now()
-		val3 := <-ticker.C()
-		t3 := time.Now()
-		val4 := <-ticker.C()
-		t4 := time.Now()
+			times[0] = time.Now()
+			for i := range count {
+				time.Sleep(interval + delta)
+				synctest.Wait()
 
-		ticker.Stop()
+				times[i+1] = <-ticker.C()
+			}
 
-		assertTimeDiffEquals(t, val1, val2, interval, tolerance)
-		assertTimeDiffEquals(t, val2, val3, interval, tolerance)
-		assertTimeDiffEquals(t, val3, val4, interval, tolerance)
-		assertTimeDiffEquals(t, t0, t1, interval, tolerance)
-		assertTimeDiffEquals(t, t1, t2, interval, tolerance)
-		assertTimeDiffEquals(t, t2, t3, interval, tolerance)
-		assertTimeDiffEquals(t, t3, t4, interval, tolerance)
+			ticker.Stop()
+		})
+
+		for i := range count {
+			assert.Equal(t, interval, times[i+1].Sub(times[i]))
+		}
 	})
 
 	t.Run("interval does not change on CycleExecuted call", func(t *testing.T) {
-		interval := 50 * time.Millisecond
-		tolerance := 25 * time.Millisecond
+		interval := time.Second
+		delta := 100 * time.Millisecond
+		count := 4
+		times1 := make([]time.Time, count+1)
+		times2 := make([]time.Time, count+1)
+		times3 := make([]time.Time, count+1)
 
-		ticker := NewFixedTicker(interval)
-		ticker.Start()
+		synctest.Test(t, func(t *testing.T) {
+			ticker := NewFixedTicker(interval)
+			ticker.Start()
 
-		t0 := time.Now()
-		val1 := <-ticker.C()
-		t1 := time.Now()
-		val2 := <-ticker.C()
-		t2 := time.Now()
+			times1[0] = time.Now()
+			for i := range count {
+				time.Sleep(interval + delta)
+				synctest.Wait()
 
-		ticker.CycleExecuted(false)
+				times1[i+1] = <-ticker.C()
+			}
 
-		val3 := <-ticker.C()
-		t3 := time.Now()
-		val4 := <-ticker.C()
-		t4 := time.Now()
+			ticker.CycleExecuted(false)
+			times2[0] = time.Now()
+			for i := range count {
+				time.Sleep(interval + delta)
+				synctest.Wait()
 
-		ticker.CycleExecuted(true)
+				times2[i+1] = <-ticker.C()
+			}
 
-		val5 := <-ticker.C()
-		t5 := time.Now()
-		val6 := <-ticker.C()
-		t6 := time.Now()
+			ticker.CycleExecuted(true)
+			times3[0] = time.Now()
+			for i := range count {
+				time.Sleep(interval + delta)
+				synctest.Wait()
 
-		ticker.Stop()
+				times3[i+1] = <-ticker.C()
+			}
 
-		assertTimeDiffEquals(t, val1, val2, interval, tolerance)
-		assertTimeDiffEquals(t, val2, val3, interval, tolerance)
-		assertTimeDiffEquals(t, val3, val4, interval, tolerance)
-		assertTimeDiffEquals(t, val4, val5, interval, tolerance)
-		assertTimeDiffEquals(t, val5, val6, interval, tolerance)
-		assertTimeDiffEquals(t, t0, t1, interval, tolerance)
-		assertTimeDiffEquals(t, t1, t2, interval, tolerance)
-		assertTimeDiffEquals(t, t2, t3, interval, tolerance)
-		assertTimeDiffEquals(t, t3, t4, interval, tolerance)
-		assertTimeDiffEquals(t, t4, t5, interval, tolerance)
-		assertTimeDiffEquals(t, t5, t6, interval, tolerance)
+			ticker.Stop()
+		})
+
+		for _, times := range [][]time.Time{times1, times2, times3} {
+			for i := range count {
+				assert.Equal(t, interval, times[i+1].Sub(times[i]))
+			}
+		}
 	})
 
 	t.Run("no ticks after stop", func(t *testing.T) {
-		interval := 50 * time.Millisecond
-		tolerance := 25 * time.Millisecond
+		interval := time.Second
+		delta := 100 * time.Millisecond
+		count := 4
+		times := make([]time.Time, count+1)
 
-		ticker := NewFixedTicker(interval)
-		ticker.Start()
+		synctest.Test(t, func(t *testing.T) {
+			ticker := NewFixedTicker(interval)
+			ticker.Start()
 
-		t0 := time.Now()
-		val1 := <-ticker.C()
-		t1 := time.Now()
-		val2 := <-ticker.C()
-		t2 := time.Now()
+			times[0] = time.Now()
+			for i := range count {
+				time.Sleep(interval + delta)
+				synctest.Wait()
 
-		ticker.Stop()
+				times[i+1] = <-ticker.C()
+			}
 
-		tickOccurred := false
-		ctx, cancel := context.WithTimeout(context.Background(), 2*interval)
-		defer cancel()
+			ticker.Stop()
 
-		select {
-		case <-ticker.C():
-			tickOccurred = true
-		case <-ctx.Done():
-			tickOccurred = false
+			time.Sleep(interval + delta)
+			synctest.Wait()
+
+			assertNoTick(t, ticker.C())
+		})
+
+		for i := range count {
+			assert.Equal(t, interval, times[i+1].Sub(times[i]))
 		}
-
-		assert.False(t, tickOccurred)
-
-		assertTimeDiffEquals(t, val1, val2, interval, tolerance)
-		assertTimeDiffEquals(t, t0, t1, interval, tolerance)
-		assertTimeDiffEquals(t, t1, t2, interval, tolerance)
 	})
 
 	t.Run("ticker starts again", func(t *testing.T) {
-		interval := 50 * time.Millisecond
-		tolerance := 25 * time.Millisecond
+		interval := time.Second
+		delta := 100 * time.Millisecond
+		count := 4
+		times1 := make([]time.Time, count+1)
+		times2 := make([]time.Time, count+1)
 
-		ticker := NewFixedTicker(interval)
-		ticker.Start()
+		synctest.Test(t, func(t *testing.T) {
+			ticker := NewFixedTicker(interval)
+			ticker.Start()
 
-		t01 := time.Now()
-		val1 := <-ticker.C()
-		t1 := time.Now()
-		val2 := <-ticker.C()
-		t2 := time.Now()
+			times1[0] = time.Now()
+			for i := range count {
+				time.Sleep(interval + delta)
+				synctest.Wait()
 
-		ticker.Stop()
-		ticker.Start()
+				times1[i+1] = <-ticker.C()
+			}
 
-		t02 := time.Now()
-		val3 := <-ticker.C()
-		t3 := time.Now()
-		val4 := <-ticker.C()
-		t4 := time.Now()
+			ticker.Stop()
+			ticker.Start()
 
-		ticker.Stop()
+			times2[0] = time.Now()
+			for i := range count {
+				time.Sleep(interval + delta)
+				synctest.Wait()
 
-		assertTimeDiffEquals(t, val1, val2, interval, tolerance)
-		assertTimeDiffEquals(t, val3, val4, interval, tolerance)
-		assertTimeDiffEquals(t, t01, t1, interval, tolerance)
-		assertTimeDiffEquals(t, t1, t2, interval, tolerance)
-		assertTimeDiffEquals(t, t02, t3, interval, tolerance)
-		assertTimeDiffEquals(t, t3, t4, interval, tolerance)
+				times2[i+1] = <-ticker.C()
+			}
+
+			ticker.Stop()
+		})
+
+		for _, times := range [][]time.Time{times1, times2} {
+			for i := range count {
+				assert.Equal(t, interval, times[i+1].Sub(times[i]))
+			}
+		}
 	})
 
 	t.Run("ticker does not run with <= 0 interval", func(t *testing.T) {
 		interval := time.Duration(0)
 
-		ticker := NewFixedTicker(interval)
-		ticker.Start()
+		synctest.Test(t, func(t *testing.T) {
+			ticker := NewFixedTicker(interval)
+			ticker.Start()
 
-		tickOccurred := false
-		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-		defer cancel()
+			time.Sleep(time.Minute)
+			synctest.Wait()
 
-		select {
-		case <-ticker.C():
-			tickOccurred = true
-		case <-ctx.Done():
-			tickOccurred = false
-		}
+			assertNoTick(t, ticker.C())
 
-		assert.False(t, tickOccurred)
-
-		ticker.Stop()
+			ticker.Stop()
+		})
 	})
 }
 
 func Test_SeriesTicker(t *testing.T) {
 	t.Run("channel is empty before started", func(t *testing.T) {
-		intervals := []time.Duration{10 * time.Millisecond, 20 * time.Millisecond}
-		ticker := NewSeriesTicker(intervals)
+		intervals := []time.Duration{time.Second, 2 * time.Second}
 
-		assertNoTick(t, ticker.C())
+		synctest.Test(t, func(t *testing.T) {
+			ticker := NewSeriesTicker(intervals)
 
-		ticker.Start()
-		time.Sleep(2 * intervals[0])
+			assertNoTick(t, ticker.C())
 
-		assertTick(t, ticker.C())
+			ticker.Start()
+			time.Sleep(intervals[1])
+			synctest.Wait()
+
+			assertTick(t, ticker.C())
+
+			ticker.Stop()
+		})
 	})
 
 	t.Run("interval is fixed between CycleExecuted calls, advances on false, resets on true", func(t *testing.T) {
-		intervals := []time.Duration{50 * time.Millisecond, 100 * time.Millisecond, 150 * time.Millisecond}
-		tolerance := 25 * time.Millisecond
+		intervals := []time.Duration{1000 * time.Millisecond, 1500 * time.Millisecond, 2000 * time.Millisecond}
+		delta := 100 * time.Millisecond
+		count := 4
+		times1 := make([]time.Time, count+1)
+		times2 := make([]time.Time, count+1)
+		times3 := make([]time.Time, count+1)
+		times4 := make([]time.Time, count+1)
+		times5 := make([]time.Time, count+1)
 
-		ticker := NewSeriesTicker(intervals)
-		ticker.Start()
+		synctest.Test(t, func(t *testing.T) {
+			ticker := NewSeriesTicker(intervals)
+			ticker.Start()
 
-		t0 := time.Now()
-		val1 := <-ticker.C()
-		t1 := time.Now()
-		val2 := <-ticker.C()
-		t2 := time.Now()
+			times1[0] = time.Now()
+			for i := range count {
+				time.Sleep(intervals[0] + delta)
+				synctest.Wait()
 
-		ticker.CycleExecuted(false)
+				times1[i+1] = <-ticker.C()
+			}
 
-		val3 := <-ticker.C()
-		t3 := time.Now()
-		val4 := <-ticker.C()
-		t4 := time.Now()
+			ticker.CycleExecuted(false) // moving to 2nd interval
+			times2[0] = time.Now()
+			for i := range count {
+				time.Sleep(intervals[1] + delta)
+				synctest.Wait()
 
-		ticker.CycleExecuted(false)
+				times2[i+1] = <-ticker.C()
+			}
 
-		val5 := <-ticker.C()
-		t5 := time.Now()
-		val6 := <-ticker.C()
-		t6 := time.Now()
+			ticker.CycleExecuted(false) // moving to 3rd interval
+			times3[0] = time.Now()
+			for i := range count {
+				time.Sleep(intervals[2] + delta)
+				synctest.Wait()
 
-		ticker.CycleExecuted(false)
+				times3[i+1] = <-ticker.C()
+			}
 
-		val7 := <-ticker.C()
-		t7 := time.Now()
-		val8 := <-ticker.C()
-		t8 := time.Now()
+			ticker.CycleExecuted(false) // using 3rd interval (as it is last)
+			times4[0] = time.Now()
+			for i := range count {
+				time.Sleep(intervals[2] + delta)
+				synctest.Wait()
 
-		ticker.CycleExecuted(true)
+				times4[i+1] = <-ticker.C()
+			}
 
-		val9 := <-ticker.C()
-		t9 := time.Now()
-		val10 := <-ticker.C()
-		t10 := time.Now()
+			ticker.CycleExecuted(true) // moving to 1st interval
+			times5[0] = time.Now()
+			for i := range count {
+				time.Sleep(intervals[0] + delta)
+				synctest.Wait()
 
-		ticker.Stop()
+				times5[i+1] = <-ticker.C()
+			}
 
-		assertTimeDiffEquals(t, val1, val2, intervals[0], tolerance)
-		assertTimeDiffEquals(t, val2, val3, intervals[1], tolerance)
-		assertTimeDiffEquals(t, val3, val4, intervals[1], tolerance)
-		assertTimeDiffEquals(t, val4, val5, intervals[2], tolerance)
-		assertTimeDiffEquals(t, val5, val6, intervals[2], tolerance)
-		assertTimeDiffEquals(t, val6, val7, intervals[2], tolerance)
-		assertTimeDiffEquals(t, val7, val8, intervals[2], tolerance)
-		assertTimeDiffEquals(t, val8, val9, intervals[0], tolerance)
-		assertTimeDiffEquals(t, val9, val10, intervals[0], tolerance)
-		assertTimeDiffEquals(t, t0, t1, intervals[0], tolerance)
-		assertTimeDiffEquals(t, t1, t2, intervals[0], tolerance)
-		assertTimeDiffEquals(t, t2, t3, intervals[1], tolerance)
-		assertTimeDiffEquals(t, t3, t4, intervals[1], tolerance)
-		assertTimeDiffEquals(t, t4, t5, intervals[2], tolerance)
-		assertTimeDiffEquals(t, t5, t6, intervals[2], tolerance)
-		assertTimeDiffEquals(t, t6, t7, intervals[2], tolerance)
-		assertTimeDiffEquals(t, t7, t8, intervals[2], tolerance)
-		assertTimeDiffEquals(t, t8, t9, intervals[0], tolerance)
-		assertTimeDiffEquals(t, t9, t10, intervals[0], tolerance)
+			ticker.Stop()
+		})
+
+		for _, times := range [][]time.Time{times1, times5} {
+			for i := range count {
+				assert.Equal(t, intervals[0], times[i+1].Sub(times[i]))
+			}
+		}
+		for i := range count {
+			assert.Equal(t, intervals[1], times2[i+1].Sub(times2[i]))
+		}
+		for _, times := range [][]time.Time{times3, times4} {
+			for i := range count {
+				assert.Equal(t, intervals[2], times[i+1].Sub(times[i]))
+			}
+		}
 	})
 
 	t.Run("no ticks after stop", func(t *testing.T) {
-		intervals := []time.Duration{50 * time.Millisecond}
-		tolerance := 25 * time.Millisecond
+		intervals := []time.Duration{time.Second, 2 * time.Second}
+		delta := 100 * time.Millisecond
+		count := 4
+		times := make([]time.Time, count+1)
 
-		ticker := NewSeriesTicker(intervals)
-		ticker.Start()
+		synctest.Test(t, func(t *testing.T) {
+			ticker := NewSeriesTicker(intervals)
+			ticker.Start()
 
-		t0 := time.Now()
-		val1 := <-ticker.C()
-		t1 := time.Now()
-		val2 := <-ticker.C()
-		t2 := time.Now()
+			times[0] = time.Now()
+			for i := range count {
+				time.Sleep(intervals[0] + delta)
+				synctest.Wait()
 
-		ticker.Stop()
+				times[i+1] = <-ticker.C()
+			}
 
-		tickOccurred := false
-		ctx, cancel := context.WithTimeout(context.Background(), 2*intervals[0])
-		defer cancel()
+			ticker.Stop()
 
-		select {
-		case <-ticker.C():
-			tickOccurred = true
-		case <-ctx.Done():
-			tickOccurred = false
+			time.Sleep(intervals[1] + delta)
+			synctest.Wait()
+
+			assertNoTick(t, ticker.C())
+		})
+
+		for i := range count {
+			assert.Equal(t, intervals[0], times[i+1].Sub(times[i]))
 		}
-
-		assert.False(t, tickOccurred)
-
-		assertTimeDiffEquals(t, val1, val2, intervals[0], tolerance)
-		assertTimeDiffEquals(t, t0, t1, intervals[0], tolerance)
-		assertTimeDiffEquals(t, t1, t2, intervals[0], tolerance)
 	})
 
 	t.Run("ticker starts again", func(t *testing.T) {
-		intervals := []time.Duration{50 * time.Millisecond}
-		tolerance := 25 * time.Millisecond
+		intervals := []time.Duration{time.Second}
+		delta := 100 * time.Millisecond
+		count := 4
+		times1 := make([]time.Time, count+1)
+		times2 := make([]time.Time, count+1)
 
-		ticker := NewSeriesTicker(intervals)
-		ticker.Start()
+		synctest.Test(t, func(t *testing.T) {
+			ticker := NewSeriesTicker(intervals)
+			ticker.Start()
 
-		t01 := time.Now()
-		val1 := <-ticker.C()
-		t1 := time.Now()
-		val2 := <-ticker.C()
-		t2 := time.Now()
+			times1[0] = time.Now()
+			for i := range count {
+				time.Sleep(intervals[0] + delta)
+				synctest.Wait()
 
-		ticker.Stop()
-		ticker.Start()
+				times1[i+1] = <-ticker.C()
+			}
 
-		t02 := time.Now()
-		val3 := <-ticker.C()
-		t3 := time.Now()
-		val4 := <-ticker.C()
-		t4 := time.Now()
+			ticker.Stop()
+			ticker.Start()
 
-		ticker.Stop()
+			times2[0] = time.Now()
+			for i := range count {
+				time.Sleep(intervals[0] + delta)
+				synctest.Wait()
 
-		assertTimeDiffEquals(t, val1, val2, intervals[0], tolerance)
-		assertTimeDiffEquals(t, val3, val4, intervals[0], tolerance)
-		assertTimeDiffEquals(t, t01, t1, intervals[0], tolerance)
-		assertTimeDiffEquals(t, t1, t2, intervals[0], tolerance)
-		assertTimeDiffEquals(t, t02, t3, intervals[0], tolerance)
-		assertTimeDiffEquals(t, t3, t4, intervals[0], tolerance)
+				times2[i+1] = <-ticker.C()
+			}
+
+			ticker.Stop()
+		})
+
+		for _, times := range [][]time.Time{times1, times2} {
+			for i := range count {
+				assert.Equal(t, intervals[0], times[i+1].Sub(times[i]))
+			}
+		}
 	})
 
 	t.Run("ticker does not run with invalid params", func(t *testing.T) {
-		run := func(t *testing.T, ticker CycleTicker) {
-			ticker.Start()
+		run := func(t *testing.T, intervals []time.Duration) {
+			t.Helper()
 
-			tickOccurred := false
-			ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-			defer cancel()
+			synctest.Test(t, func(t *testing.T) {
+				ticker := NewSeriesTicker(intervals)
+				ticker.Start()
 
-			select {
-			case <-ticker.C():
-				tickOccurred = true
-			case <-ctx.Done():
-				tickOccurred = false
-			}
+				time.Sleep(time.Minute)
+				synctest.Wait()
 
-			assert.False(t, tickOccurred)
+				assertNoTick(t, ticker.C())
 
-			ticker.Stop()
+				ticker.Stop()
+			})
 		}
 
 		t.Run("any interval <= 0", func(t *testing.T) {
-			ticker := NewSeriesTicker([]time.Duration{50 * time.Millisecond, 0})
-
-			run(t, ticker)
+			run(t, []time.Duration{time.Second, 0})
 		})
 
 		t.Run("no intervals", func(t *testing.T) {
-			ticker := NewSeriesTicker([]time.Duration{})
-
-			run(t, ticker)
+			run(t, []time.Duration{})
 		})
 	})
 }
 
 func Test_LinearTicker(t *testing.T) {
 	t.Run("channel is empty before started", func(t *testing.T) {
-		minInterval := 10 * time.Millisecond
-		maxInterval := 50 * time.Millisecond
+		minInterval := 1 * time.Second
+		maxInterval := 2 * time.Second
 		steps := uint(2)
-		ticker := NewLinearTicker(minInterval, maxInterval, steps)
 
-		assertNoTick(t, ticker.C())
+		synctest.Test(t, func(t *testing.T) {
+			ticker := NewLinearTicker(minInterval, maxInterval, steps)
 
-		ticker.Start()
-		time.Sleep(2 * minInterval)
+			assertNoTick(t, ticker.C())
 
-		assertTick(t, ticker.C())
+			ticker.Start()
+			time.Sleep(maxInterval)
+			synctest.Wait()
+
+			assertTick(t, ticker.C())
+
+			ticker.Stop()
+		})
 	})
 
 	t.Run("interval is fixed between CycleExecuted calls, advances on false, resets on true", func(t *testing.T) {
-		ms50 := 50 * time.Millisecond
-		ms75 := 75 * time.Millisecond
-		ms100 := 100 * time.Millisecond
-		tolerance := 25 * time.Millisecond
-
-		minInterval := ms50
-		maxInterval := ms100
+		minInterval := 1000 * time.Millisecond
+		maxInterval := 2000 * time.Millisecond
 		steps := uint(2)
+		middleInterval := 1500 * time.Millisecond
+		delta := 100 * time.Millisecond
+		count := 4
+		times1 := make([]time.Time, count+1)
+		times2 := make([]time.Time, count+1)
+		times3 := make([]time.Time, count+1)
+		times4 := make([]time.Time, count+1)
+		times5 := make([]time.Time, count+1)
 
-		ticker := NewLinearTicker(minInterval, maxInterval, steps)
-		ticker.Start()
+		synctest.Test(t, func(t *testing.T) {
+			ticker := NewLinearTicker(minInterval, maxInterval, steps)
+			ticker.Start()
 
-		t0 := time.Now()
-		val1 := <-ticker.C()
-		t1 := time.Now()
-		val2 := <-ticker.C()
-		t2 := time.Now()
+			times1[0] = time.Now()
+			for i := range count {
+				time.Sleep(minInterval + delta)
+				synctest.Wait()
 
-		ticker.CycleExecuted(false)
+				times1[i+1] = <-ticker.C()
+			}
 
-		val3 := <-ticker.C()
-		t3 := time.Now()
-		val4 := <-ticker.C()
-		t4 := time.Now()
+			ticker.CycleExecuted(false) // moving to middle interval (1.5 s)
+			times2[0] = time.Now()
+			for i := range count {
+				time.Sleep(middleInterval + delta)
+				synctest.Wait()
 
-		ticker.CycleExecuted(false)
+				times2[i+1] = <-ticker.C()
+			}
 
-		val5 := <-ticker.C()
-		t5 := time.Now()
-		val6 := <-ticker.C()
-		t6 := time.Now()
+			ticker.CycleExecuted(false) // moving to max interval
+			times3[0] = time.Now()
+			for i := range count {
+				time.Sleep(maxInterval + delta)
+				synctest.Wait()
 
-		ticker.CycleExecuted(false)
+				times3[i+1] = <-ticker.C()
+			}
 
-		val7 := <-ticker.C()
-		t7 := time.Now()
-		val8 := <-ticker.C()
-		t8 := time.Now()
+			ticker.CycleExecuted(false) // using max interval
+			times4[0] = time.Now()
+			for i := range count {
+				time.Sleep(maxInterval + delta)
+				synctest.Wait()
 
-		ticker.CycleExecuted(true)
+				times4[i+1] = <-ticker.C()
+			}
 
-		val9 := <-ticker.C()
-		t9 := time.Now()
-		val10 := <-ticker.C()
-		t10 := time.Now()
+			ticker.CycleExecuted(true) // moving to min interval
+			times5[0] = time.Now()
+			for i := range count {
+				time.Sleep(minInterval + delta)
+				synctest.Wait()
 
-		ticker.Stop()
+				times5[i+1] = <-ticker.C()
+			}
 
-		assertTimeDiffEquals(t, val1, val2, ms50, tolerance)
-		assertTimeDiffEquals(t, val2, val3, ms75, tolerance)
-		assertTimeDiffEquals(t, val3, val4, ms75, tolerance)
-		assertTimeDiffEquals(t, val4, val5, ms100, tolerance)
-		assertTimeDiffEquals(t, val5, val6, ms100, tolerance)
-		assertTimeDiffEquals(t, val6, val7, ms100, tolerance)
-		assertTimeDiffEquals(t, val7, val8, ms100, tolerance)
-		assertTimeDiffEquals(t, val8, val9, ms50, tolerance)
-		assertTimeDiffEquals(t, val9, val10, ms50, tolerance)
-		assertTimeDiffEquals(t, t0, t1, ms50, tolerance)
-		assertTimeDiffEquals(t, t1, t2, ms50, tolerance)
-		assertTimeDiffEquals(t, t2, t3, ms75, tolerance)
-		assertTimeDiffEquals(t, t3, t4, ms75, tolerance)
-		assertTimeDiffEquals(t, t4, t5, ms100, tolerance)
-		assertTimeDiffEquals(t, t5, t6, ms100, tolerance)
-		assertTimeDiffEquals(t, t6, t7, ms100, tolerance)
-		assertTimeDiffEquals(t, t7, t8, ms100, tolerance)
-		assertTimeDiffEquals(t, t8, t9, ms50, tolerance)
-		assertTimeDiffEquals(t, t9, t10, ms50, tolerance)
+			ticker.Stop()
+		})
+
+		for _, times := range [][]time.Time{times1, times5} {
+			for i := range count {
+				assert.Equal(t, minInterval, times[i+1].Sub(times[i]))
+			}
+		}
+		for i := range count {
+			assert.Equal(t, middleInterval, times2[i+1].Sub(times2[i]))
+		}
+		for _, times := range [][]time.Time{times3, times4} {
+			for i := range count {
+				assert.Equal(t, maxInterval, times[i+1].Sub(times[i]))
+			}
+		}
 	})
 
 	t.Run("no ticks after stop", func(t *testing.T) {
-		minInterval := 50 * time.Millisecond
-		maxInterval := 100 * time.Millisecond
+		minInterval := 1 * time.Second
+		maxInterval := 2 * time.Second
 		steps := uint(2)
-		tolerance := 10 * time.Millisecond
+		delta := 100 * time.Millisecond
+		count := 4
+		times := make([]time.Time, count+1)
 
-		ticker := NewLinearTicker(minInterval, maxInterval, steps)
-		ticker.Start()
+		synctest.Test(t, func(t *testing.T) {
+			ticker := NewLinearTicker(minInterval, maxInterval, steps)
+			ticker.Start()
 
-		t0 := time.Now()
-		val1 := <-ticker.C()
-		t1 := time.Now()
-		val2 := <-ticker.C()
-		t2 := time.Now()
+			times[0] = time.Now()
+			for i := range count {
+				time.Sleep(minInterval + delta)
+				synctest.Wait()
 
-		ticker.Stop()
+				times[i+1] = <-ticker.C()
+			}
 
-		tickOccurred := false
-		ctx, cancel := context.WithTimeout(context.Background(), 2*minInterval)
-		defer cancel()
+			ticker.Stop()
 
-		select {
-		case <-ticker.C():
-			tickOccurred = true
-		case <-ctx.Done():
-			tickOccurred = false
-		}
+			time.Sleep(maxInterval + delta)
+			synctest.Wait()
 
-		assert.False(t, tickOccurred)
-
-		assertTimeDiffEquals(t, val1, val2, minInterval, tolerance)
-		assertTimeDiffEquals(t, t0, t1, minInterval, tolerance)
-		assertTimeDiffEquals(t, t1, t2, minInterval, tolerance)
+			assertNoTick(t, ticker.C())
+		})
 	})
 
 	t.Run("ticker starts again", func(t *testing.T) {
-		minInterval := 50 * time.Millisecond
-		maxInterval := 100 * time.Millisecond
+		minInterval := 1 * time.Second
+		maxInterval := 2 * time.Second
 		steps := uint(2)
-		tolerance := 25 * time.Millisecond
+		delta := 100 * time.Millisecond
+		count := 4
+		times1 := make([]time.Time, count+1)
+		times2 := make([]time.Time, count+1)
 
-		ticker := NewLinearTicker(minInterval, maxInterval, steps)
-		ticker.Start()
+		synctest.Test(t, func(t *testing.T) {
+			ticker := NewLinearTicker(minInterval, maxInterval, steps)
+			ticker.Start()
 
-		t01 := time.Now()
-		val1 := <-ticker.C()
-		t1 := time.Now()
-		val2 := <-ticker.C()
-		t2 := time.Now()
+			times1[0] = time.Now()
+			for i := range count {
+				time.Sleep(minInterval + delta)
+				synctest.Wait()
 
-		ticker.Stop()
-		ticker.Start()
+				times1[i+1] = <-ticker.C()
+			}
 
-		t02 := time.Now()
-		val3 := <-ticker.C()
-		t3 := time.Now()
-		val4 := <-ticker.C()
-		t4 := time.Now()
+			ticker.Stop()
+			ticker.Start()
 
-		ticker.Stop()
+			times2[0] = time.Now()
+			for i := range count {
+				time.Sleep(minInterval + delta)
+				synctest.Wait()
 
-		assertTimeDiffEquals(t, val1, val2, minInterval, tolerance)
-		assertTimeDiffEquals(t, val3, val4, minInterval, tolerance)
-		assertTimeDiffEquals(t, t01, t1, minInterval, tolerance)
-		assertTimeDiffEquals(t, t1, t2, minInterval, tolerance)
-		assertTimeDiffEquals(t, t02, t3, minInterval, tolerance)
-		assertTimeDiffEquals(t, t3, t4, minInterval, tolerance)
+				times2[i+1] = <-ticker.C()
+			}
+
+			ticker.Stop()
+		})
+
+		for _, times := range [][]time.Time{times1, times2} {
+			for i := range count {
+				assert.Equal(t, minInterval, times[i+1].Sub(times[i]))
+			}
+		}
 	})
 
 	t.Run("ticker does not run with invalid params", func(t *testing.T) {
-		run := func(t *testing.T, ticker CycleTicker) {
-			ticker.Start()
+		run := func(t *testing.T, minInterval, maxInterval time.Duration, steps uint) {
+			t.Helper()
 
-			tickOccurred := false
-			ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-			defer cancel()
+			synctest.Test(t, func(t *testing.T) {
+				ticker := NewLinearTicker(minInterval, maxInterval, steps)
+				ticker.Start()
 
-			select {
-			case <-ticker.C():
-				tickOccurred = true
-			case <-ctx.Done():
-				tickOccurred = false
-			}
+				time.Sleep(time.Minute)
+				synctest.Wait()
 
-			assert.False(t, tickOccurred)
+				assertNoTick(t, ticker.C())
 
-			ticker.Stop()
+				ticker.Stop()
+			})
 		}
 
 		t.Run("minInterval <= 0", func(t *testing.T) {
-			ticker := NewLinearTicker(0, 100*time.Millisecond, 1)
-
-			run(t, ticker)
+			run(t, 0, time.Second, 1)
 		})
 
 		t.Run("maxInterval <= 0", func(t *testing.T) {
-			ticker := NewLinearTicker(50*time.Millisecond, 0, 1)
-
-			run(t, ticker)
+			run(t, time.Second, 0, 1)
 		})
 
 		t.Run("steps = 0", func(t *testing.T) {
-			ticker := NewLinearTicker(50*time.Millisecond, 100*time.Millisecond, 0)
-
-			run(t, ticker)
+			run(t, time.Second, 2*time.Second, 0)
 		})
 
 		t.Run("minInterval > maxInterval", func(t *testing.T) {
-			ticker := NewLinearTicker(100*time.Millisecond, 50*time.Millisecond, 0)
-
-			run(t, ticker)
+			run(t, 2*time.Second, time.Second, 1)
 		})
 	})
 }
 
 func Test_ExpTicker(t *testing.T) {
 	t.Run("channel is empty before started", func(t *testing.T) {
-		minInterval := 10 * time.Millisecond
-		maxInterval := 20 * time.Millisecond
+		minInterval := 1 * time.Second
+		maxInterval := 2 * time.Second
 		base := uint(2)
 		steps := uint(2)
-		ticker := NewExpTicker(minInterval, maxInterval, base, steps)
 
-		assertNoTick(t, ticker.C())
+		synctest.Test(t, func(t *testing.T) {
+			ticker := NewExpTicker(minInterval, maxInterval, base, steps)
 
-		ticker.Start()
-		time.Sleep(2 * minInterval)
+			assertNoTick(t, ticker.C())
 
-		assertTick(t, ticker.C())
+			ticker.Start()
+			time.Sleep(maxInterval)
+			synctest.Wait()
+
+			assertTick(t, ticker.C())
+
+			ticker.Stop()
+		})
 	})
 
 	t.Run("interval is fixed between CycleExecuted calls, advances on false, resets on true", func(t *testing.T) {
-		ms25 := 25 * time.Millisecond
-		ms50 := 50 * time.Millisecond
-		ms100 := 100 * time.Millisecond
-		tolerance := 25 * time.Millisecond
-
-		minInterval := ms25
-		maxInterval := ms100
+		minInterval := 1250 * time.Millisecond
+		maxInterval := 2000 * time.Millisecond
 		base := uint(2)
 		steps := uint(2)
+		middleInterval := 1500 * time.Millisecond
+		delta := 100 * time.Millisecond
+		count := 4
+		times1 := make([]time.Time, count+1)
+		times2 := make([]time.Time, count+1)
+		times3 := make([]time.Time, count+1)
+		times4 := make([]time.Time, count+1)
+		times5 := make([]time.Time, count+1)
 
-		ticker := NewExpTicker(minInterval, maxInterval, base, steps)
-		ticker.Start()
+		synctest.Test(t, func(t *testing.T) {
+			ticker := NewExpTicker(minInterval, maxInterval, base, steps)
+			ticker.Start()
 
-		t0 := time.Now()
-		val1 := <-ticker.C()
-		t1 := time.Now()
-		val2 := <-ticker.C()
-		t2 := time.Now()
+			times1[0] = time.Now()
+			for i := range count {
+				time.Sleep(minInterval + delta)
+				synctest.Wait()
 
-		ticker.CycleExecuted(false)
+				times1[i+1] = <-ticker.C()
+			}
 
-		val3 := <-ticker.C()
-		t3 := time.Now()
-		val4 := <-ticker.C()
-		t4 := time.Now()
+			ticker.CycleExecuted(false) // moving to middle interval (1.5 s)
+			times2[0] = time.Now()
+			for i := range count {
+				time.Sleep(middleInterval + delta)
+				synctest.Wait()
 
-		ticker.CycleExecuted(false)
+				times2[i+1] = <-ticker.C()
+			}
 
-		val5 := <-ticker.C()
-		t5 := time.Now()
-		val6 := <-ticker.C()
-		t6 := time.Now()
+			ticker.CycleExecuted(false) // moving to max interval
+			times3[0] = time.Now()
+			for i := range count {
+				time.Sleep(maxInterval + delta)
+				synctest.Wait()
 
-		ticker.CycleExecuted(false)
+				times3[i+1] = <-ticker.C()
+			}
 
-		val7 := <-ticker.C()
-		t7 := time.Now()
-		val8 := <-ticker.C()
-		t8 := time.Now()
+			ticker.CycleExecuted(false) // using max interval
+			times4[0] = time.Now()
+			for i := range count {
+				time.Sleep(maxInterval + delta)
+				synctest.Wait()
 
-		ticker.CycleExecuted(true)
+				times4[i+1] = <-ticker.C()
+			}
 
-		val9 := <-ticker.C()
-		t9 := time.Now()
-		val10 := <-ticker.C()
-		t10 := time.Now()
+			ticker.CycleExecuted(true) // moving to min interval
+			times5[0] = time.Now()
+			for i := range count {
+				time.Sleep(minInterval + delta)
+				synctest.Wait()
 
-		ticker.Stop()
+				times5[i+1] = <-ticker.C()
+			}
 
-		assertTimeDiffEquals(t, val1, val2, ms25, tolerance)
-		assertTimeDiffEquals(t, val2, val3, ms50, tolerance)
-		assertTimeDiffEquals(t, val3, val4, ms50, tolerance)
-		assertTimeDiffEquals(t, val4, val5, ms100, tolerance)
-		assertTimeDiffEquals(t, val5, val6, ms100, tolerance)
-		assertTimeDiffEquals(t, val6, val7, ms100, tolerance)
-		assertTimeDiffEquals(t, val7, val8, ms100, tolerance)
-		assertTimeDiffEquals(t, val8, val9, ms25, tolerance)
-		assertTimeDiffEquals(t, val9, val10, ms25, tolerance)
-		assertTimeDiffEquals(t, t0, t1, ms25, tolerance)
-		assertTimeDiffEquals(t, t1, t2, ms25, tolerance)
-		assertTimeDiffEquals(t, t2, t3, ms50, tolerance)
-		assertTimeDiffEquals(t, t3, t4, ms50, tolerance)
-		assertTimeDiffEquals(t, t4, t5, ms100, tolerance)
-		assertTimeDiffEquals(t, t5, t6, ms100, tolerance)
-		assertTimeDiffEquals(t, t6, t7, ms100, tolerance)
-		assertTimeDiffEquals(t, t7, t8, ms100, tolerance)
-		assertTimeDiffEquals(t, t8, t9, ms25, tolerance)
-		assertTimeDiffEquals(t, t9, t10, ms25, tolerance)
+			ticker.Stop()
+		})
+
+		for _, times := range [][]time.Time{times1, times5} {
+			for i := range count {
+				assert.Equal(t, minInterval, times[i+1].Sub(times[i]))
+			}
+		}
+		for i := range count {
+			assert.Equal(t, middleInterval, times2[i+1].Sub(times2[i]))
+		}
+		for _, times := range [][]time.Time{times3, times4} {
+			for i := range count {
+				assert.Equal(t, maxInterval, times[i+1].Sub(times[i]))
+			}
+		}
 	})
 
 	t.Run("no ticks after stop", func(t *testing.T) {
-		minInterval := 25 * time.Millisecond
-		maxInterval := 100 * time.Millisecond
+		minInterval := 1 * time.Second
+		maxInterval := 2 * time.Second
 		base := uint(2)
 		steps := uint(2)
-		tolerance := 25 * time.Millisecond
+		delta := 100 * time.Millisecond
+		count := 4
+		times := make([]time.Time, count+1)
 
-		ticker := NewExpTicker(minInterval, maxInterval, base, steps)
-		ticker.Start()
+		synctest.Test(t, func(t *testing.T) {
+			ticker := NewExpTicker(minInterval, maxInterval, base, steps)
+			ticker.Start()
 
-		t0 := time.Now()
-		val1 := <-ticker.C()
-		t1 := time.Now()
-		val2 := <-ticker.C()
-		t2 := time.Now()
+			times[0] = time.Now()
+			for i := range count {
+				time.Sleep(minInterval + delta)
+				synctest.Wait()
 
-		ticker.Stop()
+				times[i+1] = <-ticker.C()
+			}
 
-		tickOccurred := false
-		ctx, cancel := context.WithTimeout(context.Background(), 2*minInterval)
-		defer cancel()
+			ticker.Stop()
 
-		select {
-		case <-ticker.C():
-			tickOccurred = true
-		case <-ctx.Done():
-			tickOccurred = false
-		}
+			time.Sleep(maxInterval + delta)
+			synctest.Wait()
 
-		assert.False(t, tickOccurred)
-
-		assertTimeDiffEquals(t, val1, val2, minInterval, tolerance)
-		assertTimeDiffEquals(t, t0, t1, minInterval, tolerance)
-		assertTimeDiffEquals(t, t1, t2, minInterval, tolerance)
+			assertNoTick(t, ticker.C())
+		})
 	})
 
 	t.Run("ticker starts again", func(t *testing.T) {
-		minInterval := 25 * time.Millisecond
-		maxInterval := 100 * time.Millisecond
+		minInterval := 1 * time.Second
+		maxInterval := 2 * time.Second
 		base := uint(2)
 		steps := uint(2)
-		tolerance := 25 * time.Millisecond
+		delta := 100 * time.Millisecond
+		count := 4
+		times1 := make([]time.Time, count+1)
+		times2 := make([]time.Time, count+1)
 
-		ticker := NewExpTicker(minInterval, maxInterval, base, steps)
-		ticker.Start()
+		synctest.Test(t, func(t *testing.T) {
+			ticker := NewExpTicker(minInterval, maxInterval, base, steps)
+			ticker.Start()
 
-		t01 := time.Now()
-		val1 := <-ticker.C()
-		t1 := time.Now()
-		val2 := <-ticker.C()
-		t2 := time.Now()
+			times1[0] = time.Now()
+			for i := range count {
+				time.Sleep(minInterval + delta)
+				synctest.Wait()
 
-		ticker.Stop()
-		ticker.Start()
+				times1[i+1] = <-ticker.C()
+			}
 
-		t02 := time.Now()
-		val3 := <-ticker.C()
-		t3 := time.Now()
-		val4 := <-ticker.C()
-		t4 := time.Now()
+			ticker.Stop()
+			ticker.Start()
 
-		ticker.Stop()
+			times2[0] = time.Now()
+			for i := range count {
+				time.Sleep(minInterval + delta)
+				synctest.Wait()
 
-		assertTimeDiffEquals(t, val1, val2, minInterval, tolerance)
-		assertTimeDiffEquals(t, val3, val4, minInterval, tolerance)
-		assertTimeDiffEquals(t, t01, t1, minInterval, tolerance)
-		assertTimeDiffEquals(t, t1, t2, minInterval, tolerance)
-		assertTimeDiffEquals(t, t02, t3, minInterval, tolerance)
-		assertTimeDiffEquals(t, t3, t4, minInterval, tolerance)
+				times2[i+1] = <-ticker.C()
+			}
+
+			ticker.Stop()
+		})
+
+		for _, times := range [][]time.Time{times1, times2} {
+			for i := range count {
+				assert.Equal(t, minInterval, times[i+1].Sub(times[i]))
+			}
+		}
 	})
 
 	t.Run("ticker does not run with invalid params", func(t *testing.T) {
-		run := func(t *testing.T, ticker CycleTicker) {
-			ticker.Start()
+		run := func(t *testing.T, minInterval, maxInterval time.Duration, base, steps uint) {
+			t.Helper()
 
-			tickOccurred := false
-			ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-			defer cancel()
+			synctest.Test(t, func(t *testing.T) {
+				ticker := NewExpTicker(minInterval, maxInterval, base, steps)
+				ticker.Start()
 
-			select {
-			case <-ticker.C():
-				tickOccurred = true
-			case <-ctx.Done():
-				tickOccurred = false
-			}
+				time.Sleep(time.Minute)
+				synctest.Wait()
 
-			assert.False(t, tickOccurred)
+				assertNoTick(t, ticker.C())
 
-			ticker.Stop()
+				ticker.Stop()
+			})
 		}
 
 		t.Run("minInterval <= 0", func(t *testing.T) {
-			ticker := NewExpTicker(0, 100*time.Millisecond, 2, 2)
-
-			run(t, ticker)
+			run(t, 0, time.Second, 2, 2)
 		})
 
 		t.Run("maxInterval <= 0", func(t *testing.T) {
-			ticker := NewExpTicker(100*time.Millisecond, 0, 2, 2)
-
-			run(t, ticker)
+			run(t, time.Second, 0, 2, 2)
 		})
 
 		t.Run("base == 0", func(t *testing.T) {
-			ticker := NewExpTicker(25*time.Millisecond, 100*time.Millisecond, 0, 2)
-
-			run(t, ticker)
+			run(t, time.Second, 2*time.Second, 0, 2)
 		})
 
 		t.Run("steps = 0", func(t *testing.T) {
-			ticker := NewExpTicker(25*time.Millisecond, 100*time.Millisecond, 2, 0)
-
-			run(t, ticker)
+			run(t, time.Second, 2*time.Second, 2, 0)
 		})
 
 		t.Run("minInterval > maxInterval", func(t *testing.T) {
-			ticker := NewExpTicker(100*time.Millisecond, 25*time.Millisecond, 2, 2)
-
-			run(t, ticker)
+			run(t, 2*time.Second, time.Second, 2, 2)
 		})
 	})
 }
@@ -931,12 +968,6 @@ func Test_ExpToIntervals(t *testing.T) {
 			assert.ElementsMatch(t, res, tc.expected)
 		})
 	}
-}
-
-func assertTimeDiffEquals(t *testing.T, time1, time2 time.Time, expected time.Duration, tolerance time.Duration) {
-	diff := time2.Sub(time1)
-	assert.GreaterOrEqual(t, diff, expected-tolerance)
-	assert.LessOrEqual(t, diff, expected+tolerance)
 }
 
 func assertTick(t *testing.T, tickCh <-chan time.Time) {

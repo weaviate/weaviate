@@ -50,6 +50,10 @@ func (cs classSettings) BaseURL() string {
 	return cs.BaseClassSettings.GetPropertyAsString("baseURL", DefaultBaseURL)
 }
 
+func (cs classSettings) Dimensions() *int64 {
+	return cs.BaseClassSettings.GetPropertyAsInt64("dimensions", nil)
+}
+
 func (cs classSettings) Validate(class *models.Class) error {
 	if err := cs.BaseClassSettings.Validate(class); err != nil {
 		return err

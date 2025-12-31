@@ -13,7 +13,6 @@ package modweaviateembed
 
 import (
 	"context"
-	"os"
 	"time"
 
 	"github.com/pkg/errors"
@@ -99,8 +98,7 @@ func (m *WeaviateEmbedModule) InitExtension(modules []modulecapabilities.Module)
 func (m *WeaviateEmbedModule) initVectorizer(ctx context.Context, timeout time.Duration,
 	logger logrus.FieldLogger,
 ) error {
-	apiKey := os.Getenv("WEAVIATE_APIKEY")
-	client := clients.New(apiKey, timeout, logger)
+	client := clients.New(timeout)
 
 	m.vectorizer = text2vecbase.New(client,
 		batch.NewBatchVectorizer(client, 50*time.Second, batchSettings, logger, m.Name()),

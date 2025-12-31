@@ -93,6 +93,10 @@ func (p *AggregateParser) Aggregate(req *pb.AggregateRequest) (*aggregation.Para
 		return nil, fmt.Errorf("extract target vectors: %w", err)
 	}
 
+	if len(targetVectors) > 1 {
+		return nil, fmt.Errorf("found more than one target vector for aggregation")
+	}
+
 	switch search := req.GetSearch().(type) {
 	case *pb.AggregateRequest_NearVector:
 		if nv := search.NearVector; nv != nil {

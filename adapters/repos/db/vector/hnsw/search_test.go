@@ -22,6 +22,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
@@ -29,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 // prevents a regression of
@@ -49,6 +51,7 @@ func TestNilCheckOnPartiallyCleanedNode(t *testing.T) {
 			ID:                    "bug-2155",
 			MakeCommitLoggerThunk: MakeNoopCommitLogger,
 			DistanceProvider:      distancer.NewL2SquaredProvider(),
+			AllocChecker:          memwatch.NewDummyMonitor(),
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 				return vectors[int(id)], nil
 			},
@@ -113,6 +116,7 @@ func TestQueryVectorDistancer(t *testing.T) {
 		ID:                    "bug-2155",
 		MakeCommitLoggerThunk: MakeNoopCommitLogger,
 		DistanceProvider:      distancer.NewL2SquaredProvider(),
+		AllocChecker:          memwatch.NewDummyMonitor(),
 		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 			return vectors[int(id)], nil
 		},
@@ -150,12 +154,14 @@ func TestQueryMultiVectorDistancer(t *testing.T) {
 		ID:                    "bug-2155",
 		MakeCommitLoggerThunk: MakeNoopCommitLogger,
 		DistanceProvider:      distancer.NewDotProductProvider(),
+		AllocChecker:          memwatch.NewDummyMonitor(),
 		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 			return vectors[0][int(id)], nil
 		},
 		MultiVectorForIDThunk: func(ctx context.Context, id uint64) ([][]float32, error) {
 			return vectors[int(id)], nil
 		},
+		MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
 	}, ent.UserConfig{
 		MaxConnections:        30,
 		EFConstruction:        128,
@@ -192,6 +198,7 @@ func TestAcornPercentage(t *testing.T) {
 			ID:                    "delete-test",
 			MakeCommitLoggerThunk: MakeNoopCommitLogger,
 			DistanceProvider:      distancer.NewCosineDistanceProvider(),
+			AllocChecker:          memwatch.NewDummyMonitor(),
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 				return vectors[int(id)], nil
 			},
@@ -305,6 +312,7 @@ func TestRescore(t *testing.T) {
 				h := &hnsw{
 					rescoreConcurrency: test.concurrency,
 					logger:             logger,
+					allocChecker:       memwatch.NewDummyMonitor(),
 					TempVectorForIDThunk: func(
 						ctx context.Context, id uint64, container *common.VectorSlice,
 					) ([]float32, error) {

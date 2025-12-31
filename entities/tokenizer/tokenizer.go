@@ -24,6 +24,7 @@ import (
 
 	"github.com/go-ego/gse"
 	koDict "github.com/ikawaha/kagome-dict-ko"
+	"github.com/ikawaha/kagome-dict/dict"
 	"github.com/ikawaha/kagome-dict/ipa"
 	kagomeTokenizer "github.com/ikawaha/kagome/v2/tokenizer"
 	"github.com/weaviate/weaviate/entities/models"
@@ -31,17 +32,17 @@ import (
 )
 
 var (
-	gseTokenizer    *gse.Segmenter  // Japanese
-	gseTokenizerCh  *gse.Segmenter  // Chinese
-	gseLock         = &sync.Mutex{} // Lock for gse
-	UseGse          = false         // Load Japanese dictionary and prepare tokenizer
-	UseGseCh        = false         // Load Chinese dictionary and prepare tokenizer
-	KagomeKrEnabled = false         // Load Korean dictionary and prepare tokenizer
-	KagomeJaEnabled = false         // Load Japanese dictionary and prepare tokenizer
+	gseTokenizer   *gse.Segmenter  // Japanese
+	gseTokenizerCh *gse.Segmenter  // Chinese
+	gseLock        = &sync.Mutex{} // Lock for gse
+	UseGse         = false         // Load Japanese dictionary and prepare tokenizer
+	UseGseCh       = false         // Load Chinese dictionary and prepare tokenizer
 	// The Tokenizer Libraries can consume a lot of memory, so we limit the number of parallel tokenizers
 	ApacTokenizerThrottle = chan struct{}(nil) // Throttle for tokenizers
 	tokenizers            KagomeTokenizers     // Tokenizers for Korean and Japanese
 	kagomeInitLock        sync.Mutex           // Lock for kagome initialization
+
+	customTokenizers sync.Map
 )
 
 type KagomeTokenizers struct {
@@ -69,6 +70,11 @@ func init() {
 		}
 	}
 	ApacTokenizerThrottle = make(chan struct{}, numParallel)
+	InitOptionalTokenizers()
+	customTokenizers = sync.Map{}
+}
+
+func InitOptionalTokenizers() {
 	if entcfg.Enabled(os.Getenv("USE_GSE")) || entcfg.Enabled(os.Getenv("ENABLE_TOKENIZER_GSE")) {
 		UseGse = true
 		Tokenizations = append(Tokenizations, models.PropertyTokenizationGse)
@@ -79,14 +85,22 @@ func init() {
 		UseGseCh = true
 		init_gse_ch()
 	}
-	if entcfg.Enabled(os.Getenv("ENABLE_TOKENIZER_KAGOME_KR")) {
-		Tokenizations = append(Tokenizations, models.PropertyTokenizationKagomeKr)
+	if entcfg.Enabled(os.Getenv("ENABLE_TOKENIZER_KAGOME_KR")) && tokenizers.Korean == nil {
+		func() {
+			kagomeInitLock.Lock()
+			defer kagomeInitLock.Unlock()
+			Tokenizations = append(Tokenizations, models.PropertyTokenizationKagomeKr)
+			tokenizers.Korean, _ = initializeKagomeTokenizerKr(nil)
+		}()
 	}
-	if entcfg.Enabled(os.Getenv("ENABLE_TOKENIZER_KAGOME_JA")) {
-		Tokenizations = append(Tokenizations, models.PropertyTokenizationKagomeJa)
+	if entcfg.Enabled(os.Getenv("ENABLE_TOKENIZER_KAGOME_JA")) && tokenizers.Japanese == nil {
+		func() {
+			kagomeInitLock.Lock()
+			defer kagomeInitLock.Unlock()
+			Tokenizations = append(Tokenizations, models.PropertyTokenizationKagomeJa)
+			tokenizers.Japanese, _ = initializeKagomeTokenizerJa(nil)
+		}()
 	}
-	_ = initializeKagomeTokenizerKr()
-	_ = initializeKagomeTokenizerJa()
 }
 
 func init_gse() {
@@ -117,6 +131,20 @@ func init_gse_ch() {
 	}
 }
 
+func TokenizeForClass(tokenization string, in string, class string) []string {
+	tokenizer, ok := customTokenizers.Load(class)
+	if tokenization == models.PropertyTokenizationKagomeKr && ok && tokenizer.(*KagomeTokenizers).Korean != nil {
+		ApacTokenizerThrottle <- struct{}{}
+		defer func() { <-ApacTokenizerThrottle }()
+		return tokenizeKagome(tokenizer.(*KagomeTokenizers).Korean, kagomeTokenizer.Normal, models.PropertyTokenizationKagomeKr, in)
+	} else if tokenization == models.PropertyTokenizationKagomeJa && ok && tokenizer.(*KagomeTokenizers).Japanese != nil {
+		defer func() { <-ApacTokenizerThrottle }()
+		return tokenizeKagome(tokenizer.(*KagomeTokenizers).Japanese, kagomeTokenizer.Search, models.PropertyTokenizationKagomeJa, in)
+	} else {
+		return Tokenize(tokenization, in)
+	}
+}
+
 func Tokenize(tokenization string, in string) []string {
 	switch tokenization {
 	case models.PropertyTokenizationWord:
@@ -140,46 +168,24 @@ func Tokenize(tokenization string, in string) []string {
 	case models.PropertyTokenizationKagomeKr:
 		ApacTokenizerThrottle <- struct{}{}
 		defer func() { <-ApacTokenizerThrottle }()
-		return tokenizeKagomeKr(in)
+		return tokenizeKagome(tokenizers.Korean, kagomeTokenizer.Normal, models.PropertyTokenizationKagomeKr, in)
 	case models.PropertyTokenizationKagomeJa:
 		ApacTokenizerThrottle <- struct{}{}
 		defer func() { <-ApacTokenizerThrottle }()
-		return tokenizeKagomeJa(in)
+		return tokenizeKagome(tokenizers.Japanese, kagomeTokenizer.Search, models.PropertyTokenizationKagomeJa, in)
 	default:
 		return []string{}
 	}
 }
 
-func TokenizeWithWildcards(tokenization string, in string) []string {
+func TokenizeWithWildcardsForClass(tokenization string, in string, class string) []string {
 	switch tokenization {
 	case models.PropertyTokenizationWord:
 		return tokenizeWordWithWildcards(in)
-	case models.PropertyTokenizationLowercase:
-		return tokenizeLowercase(in)
-	case models.PropertyTokenizationWhitespace:
-		return tokenizeWhitespace(in)
-	case models.PropertyTokenizationField:
-		return tokenizeField(in)
 	case models.PropertyTokenizationTrigram:
 		return tokenizetrigramWithWildcards(in)
-	case models.PropertyTokenizationGse:
-		ApacTokenizerThrottle <- struct{}{}
-		defer func() { <-ApacTokenizerThrottle }()
-		return tokenizeGSE(in)
-	case models.PropertyTokenizationGseCh:
-		ApacTokenizerThrottle <- struct{}{}
-		defer func() { <-ApacTokenizerThrottle }()
-		return tokenizeGseCh(in)
-	case models.PropertyTokenizationKagomeKr:
-		ApacTokenizerThrottle <- struct{}{}
-		defer func() { <-ApacTokenizerThrottle }()
-		return tokenizeKagomeKr(in)
-	case models.PropertyTokenizationKagomeJa:
-		ApacTokenizerThrottle <- struct{}{}
-		defer func() { <-ApacTokenizerThrottle }()
-		return tokenizeKagomeJa(in)
 	default:
-		return []string{}
+		return TokenizeForClass(tokenization, in, class)
 	}
 }
 
@@ -296,100 +302,73 @@ func tokenizeGseCh(in string) []string {
 	return ret
 }
 
-func initializeKagomeTokenizerKr() error {
-	// Acquire lock to prevent initialization race
-	kagomeInitLock.Lock()
-	defer kagomeInitLock.Unlock()
+func initializeKagomeTokenizerKr(userDict *models.TokenizerUserDictConfig) (*kagomeTokenizer.Tokenizer, error) {
+	startTime := time.Now()
 
-	if entcfg.Enabled(os.Getenv("ENABLE_TOKENIZER_KAGOME_KR")) {
-		if tokenizers.Korean != nil {
-			return nil
-		}
-		startTime := time.Now()
-
-		dictInstance := koDict.Dict()
-		tokenizer, err := kagomeTokenizer.New(dictInstance)
-		if err != nil {
-			return err
-		}
-
-		tokenizers.Korean = tokenizer
-		KagomeKrEnabled = true
-		monitoring.GetMetrics().TokenizerInitializeDuration.WithLabelValues("kagome_kr").Observe(float64(time.Since(startTime).Seconds()))
-		return nil
+	dictInstance := koDict.Dict()
+	tokenizer, err := initializeKagomeTokenizer(dictInstance, userDict)
+	if err != nil {
+		return nil, err
 	}
-
-	return nil
+	monitoring.GetMetrics().TokenizerInitializeDuration.WithLabelValues(models.PropertyTokenizationKagomeKr).Observe(float64(time.Since(startTime).Seconds()))
+	return tokenizer, nil
 }
 
-func tokenizeKagomeKr(in string) []string {
-	tokenizer := tokenizers.Korean
-	if tokenizer == nil || !KagomeKrEnabled {
+func initializeKagomeTokenizerJa(userDict *models.TokenizerUserDictConfig) (*kagomeTokenizer.Tokenizer, error) {
+	startTime := time.Now()
+
+	dictInstance := ipa.Dict()
+	tokenizer, err := initializeKagomeTokenizer(dictInstance, userDict)
+	if err != nil {
+		return nil, err
+	}
+	monitoring.GetMetrics().TokenizerInitializeDuration.WithLabelValues(models.PropertyTokenizationKagomeJa).Observe(float64(time.Since(startTime).Seconds()))
+	return tokenizer, nil
+}
+
+func initializeKagomeTokenizer(dictInstance *dict.Dict, userDict *models.TokenizerUserDictConfig) (*kagomeTokenizer.Tokenizer, error) {
+	options := []kagomeTokenizer.Option{
+		kagomeTokenizer.OmitBosEos(),
+	}
+
+	if userDict != nil {
+		dict, err := NewUserDictFromModel(userDict)
+		if err != nil {
+			return nil, err
+		}
+		if dict != nil {
+			options = append(options, kagomeTokenizer.UserDict(dict))
+		}
+	}
+	tokenizer, err := kagomeTokenizer.New(dictInstance, options...)
+	if err != nil {
+		return nil, err
+	}
+	return tokenizer, nil
+}
+
+func tokenizeKagome(tokenizer *kagomeTokenizer.Tokenizer, mode kagomeTokenizer.TokenizeMode, label string, in string) []string {
+	if label == models.PropertyTokenizationKagomeJa && tokenizer == nil {
+		return []string{}
+	}
+	if label == models.PropertyTokenizationKagomeKr && tokenizer == nil {
 		return []string{}
 	}
 	startTime := time.Now()
-
-	kagomeTokens := tokenizer.Tokenize(in)
-	terms := make([]string, 0, len(kagomeTokens))
-
+	kagomeTokens := tokenizer.Analyze(in, mode)
+	var terms []string
 	for _, token := range kagomeTokens {
-		if token.Surface != "EOS" && token.Surface != "BOS" {
+		if extra := token.UserExtra(); extra != nil {
+			terms = append(terms, extra.Tokens...)
+		} else {
 			terms = append(terms, token.Surface)
 		}
 	}
 
 	ret := removeEmptyStrings(terms)
-	monitoring.GetMetrics().TokenizerDuration.WithLabelValues("kagome_kr").Observe(float64(time.Since(startTime).Seconds()))
-	monitoring.GetMetrics().TokenCount.WithLabelValues("kagome_kr").Add(float64(len(ret)))
-	monitoring.GetMetrics().TokenCountPerRequest.WithLabelValues("kagome_kr").Observe(float64(len(ret)))
-	return ret
-}
-
-func initializeKagomeTokenizerJa() error {
-	// Acquire lock to prevent initialization race
-	kagomeInitLock.Lock()
-	defer kagomeInitLock.Unlock()
-
-	if entcfg.Enabled(os.Getenv("ENABLE_TOKENIZER_KAGOME_JA")) {
-		if tokenizers.Japanese != nil {
-			return nil
-		}
-		startTime := time.Now()
-		dictInstance := ipa.Dict()
-		tokenizer, err := kagomeTokenizer.New(dictInstance)
-		if err != nil {
-			return err
-		}
-
-		tokenizers.Japanese = tokenizer
-		KagomeJaEnabled = true
-		monitoring.GetMetrics().TokenizerInitializeDuration.WithLabelValues("kagome_ja").Observe(float64(time.Since(startTime).Seconds()))
-		return nil
-	}
-
-	return nil
-}
-
-func tokenizeKagomeJa(in string) []string {
-	tokenizer := tokenizers.Japanese
-	if tokenizer == nil || !KagomeJaEnabled {
-		return []string{}
-	}
-
-	startTime := time.Now()
-	kagomeTokens := tokenizer.Analyze(in, kagomeTokenizer.Search)
-	terms := make([]string, 0, len(kagomeTokens))
-
-	for _, token := range kagomeTokens {
-		if token.Surface != "EOS" && token.Surface != "BOS" {
-			terms = append(terms, strings.ToLower(token.Surface))
-		}
-	}
-
-	ret := removeEmptyStrings(terms)
-	monitoring.GetMetrics().TokenizerDuration.WithLabelValues("kagome_ja").Observe(float64(time.Since(startTime).Seconds()))
-	monitoring.GetMetrics().TokenCount.WithLabelValues("kagome_ja").Add(float64(len(ret)))
-	monitoring.GetMetrics().TokenCountPerRequest.WithLabelValues("kagome_ja").Observe(float64(len(ret)))
+	monitoring.GetMetrics().TokenizerDuration.WithLabelValues(label).Observe(float64(time.Since(startTime).Seconds()))
+	monitoring.GetMetrics().TokenCount.WithLabelValues(label).Add(float64(len(ret)))
+	monitoring.GetMetrics().TokenCountPerRequest.WithLabelValues(label).Observe(float64(len(ret)))
 	return ret
 }
 
@@ -432,9 +411,9 @@ func lowercase(terms []string) []string {
 	return terms
 }
 
-func TokenizeAndCountDuplicates(tokenization string, in string) ([]string, []int) {
+func TokenizeAndCountDuplicatesForClass(tokenization string, in string, class string) ([]string, []int) {
 	counts := map[string]int{}
-	for _, term := range Tokenize(tokenization, in) {
+	for _, term := range TokenizeForClass(tokenization, in, class) {
 		counts[term]++
 	}
 

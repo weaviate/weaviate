@@ -21,7 +21,7 @@ type VectorizerClient interface {
 }
 
 type MetaProvider interface {
-	MetaInfo() (map[string]interface{}, error)
+	MetaInfo() (map[string]any, error)
 }
 
 type Client interface {

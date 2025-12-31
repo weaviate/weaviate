@@ -73,10 +73,10 @@ type WeaviateServer interface {
 type UnimplementedWeaviateServer struct{}
 
 func (UnimplementedWeaviateServer) Search(context.Context, *SearchRequest) (*SearchReply, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method Search not implemented")
+	return nil, status.Error(codes.Unimplemented, "method Search not implemented")
 }
 func (UnimplementedWeaviateServer) BatchObjects(context.Context, *BatchObjectsRequest) (*BatchObjectsReply, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method BatchObjects not implemented")
+	return nil, status.Error(codes.Unimplemented, "method BatchObjects not implemented")
 }
 func (UnimplementedWeaviateServer) mustEmbedUnimplementedWeaviateServer() {}
 func (UnimplementedWeaviateServer) testEmbeddedByValue()                  {}
@@ -89,7 +89,7 @@ type UnsafeWeaviateServer interface {
 }
 
 func RegisterWeaviateServer(s grpc.ServiceRegistrar, srv WeaviateServer) {
-	// If the following call pancis, it indicates UnimplementedWeaviateServer was
+	// If the following call panics, it indicates UnimplementedWeaviateServer was
 	// embedded by pointer and is nil.  This will cause panics if an
 	// unimplemented method is ever invoked, so we test this at initialization
 	// time to prevent it from happening at runtime later due to I/O.

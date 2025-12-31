@@ -20,14 +20,14 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
-func (m *ReRankerCohereModule) ClassConfigDefaults() map[string]interface{} {
-	return map[string]interface{}{}
+func (m *ReRankerCohereModule) ClassConfigDefaults() map[string]any {
+	return map[string]any{}
 }
 
 func (m *ReRankerCohereModule) PropertyConfigDefaults(
 	dt *schema.DataType,
-) map[string]interface{} {
-	return map[string]interface{}{}
+) map[string]any {
+	return map[string]any{}
 }
 
 func (m *ReRankerCohereModule) ValidateClass(ctx context.Context,

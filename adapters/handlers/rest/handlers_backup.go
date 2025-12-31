@@ -40,25 +40,19 @@ func compressionFromBCfg(cfg *models.BackupConfig) ubak.Compression {
 			cfg.CPUPercentage = ubak.DefaultCPUPercentage
 		}
 
-		if cfg.ChunkSize == 0 {
-			cfg.ChunkSize = ubak.DefaultChunkSize
-		}
-
 		if cfg.CompressionLevel == "" {
 			cfg.CompressionLevel = models.BackupConfigCompressionLevelDefaultCompression
 		}
 
 		return ubak.Compression{
 			CPUPercentage: int(cfg.CPUPercentage),
-			ChunkSize:     int(cfg.ChunkSize),
 			Level:         parseCompressionLevel(cfg.CompressionLevel),
 		}
 	}
 
 	return ubak.Compression{
-		Level:         ubak.DefaultCompression,
+		Level:         ubak.GzipDefaultCompression,
 		CPUPercentage: ubak.DefaultCPUPercentage,
-		ChunkSize:     ubak.DefaultChunkSize,
 	}
 }
 
@@ -70,26 +64,32 @@ func compressionFromRCfg(cfg *models.RestoreConfig) ubak.Compression {
 
 		return ubak.Compression{
 			CPUPercentage: int(cfg.CPUPercentage),
-			Level:         ubak.DefaultCompression,
-			ChunkSize:     ubak.DefaultChunkSize,
+			Level:         ubak.GzipDefaultCompression,
 		}
 	}
 
 	return ubak.Compression{
-		Level:         ubak.DefaultCompression,
+		Level:         ubak.GzipDefaultCompression,
 		CPUPercentage: ubak.DefaultCPUPercentage,
-		ChunkSize:     ubak.DefaultChunkSize,
 	}
 }
 
 func parseCompressionLevel(l string) ubak.CompressionLevel {
 	switch l {
 	case models.BackupConfigCompressionLevelBestSpeed:
-		return ubak.BestSpeed
+		return ubak.GzipBestSpeed
 	case models.BackupConfigCompressionLevelBestCompression:
-		return ubak.BestCompression
+		return ubak.GzipBestCompression
+	case models.BackupConfigCompressionLevelZstdBestSpeed:
+		return ubak.ZstdBestSpeed
+	case models.BackupConfigCompressionLevelZstdDefaultCompression:
+		return ubak.ZstdDefaultCompression
+	case models.BackupConfigCompressionLevelZstdBestCompression:
+		return ubak.ZstdBestCompression
+	case models.BackupConfigCompressionLevelNoCompression:
+		return ubak.NoCompression
 	default:
-		return ubak.DefaultCompression
+		return ubak.GzipDefaultCompression
 	}
 }
 
