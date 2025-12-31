@@ -40,6 +40,8 @@ type parallelIterator[T byte | uint64] struct {
 	trackInterval int64
 	// how often to report progress to the user (via logs)
 	reportProgressInterval time.Duration
+	// how often to check for context cancellation
+	checkContextEveryN int
 }
 
 func NewParallelIterator[T byte | uint64](bucket *lsmkv.Bucket, parallel int, loadId func([]byte) uint64, fromCompressedBytes func(compressed []byte, buf *[]T) []T,
@@ -53,6 +55,7 @@ func NewParallelIterator[T byte | uint64](bucket *lsmkv.Bucket, parallel int, lo
 		fromCompressedBytes:    fromCompressedBytes,
 		trackInterval:          1000,
 		reportProgressInterval: 5 * time.Second,
+		checkContextEveryN:     1000,
 	}
 }
 
@@ -91,7 +94,6 @@ func (cpi *parallelIterator[T]) IterateAll(ctx context.Context) (out chan []VecA
 	}
 
 	wg := sync.WaitGroup{}
-	checkEveryN := 10
 	abort := &atomic.Bool{}
 
 	// There are three scenarios:
@@ -121,7 +123,7 @@ func (cpi *parallelIterator[T]) IterateAll(ctx context.Context) (out chan []VecA
 
 		n := 1
 		for k, v := c.First(); k != nil && bytes.Compare(k, seeds[0]) < 0; k, v = c.Next() {
-			if n%checkEveryN == 0 && ctx.Err() != nil {
+			if n%cpi.checkContextEveryN == 0 && ctx.Err() != nil {
 				abort.Store(true)
 				break
 			}
@@ -172,7 +174,7 @@ func (cpi *parallelIterator[T]) IterateAll(ctx context.Context) (out chan []VecA
 
 			n := 1
 			for k, v := c.Seek(start); k != nil && bytes.Compare(k, end) < 0; k, v = c.Next() {
-				if n%checkEveryN == 0 && ctx.Err() != nil {
+				if n%cpi.checkContextEveryN == 0 && ctx.Err() != nil {
 					abort.Store(true)
 					break
 				}
@@ -220,7 +222,7 @@ func (cpi *parallelIterator[T]) IterateAll(ctx context.Context) (out chan []VecA
 
 		n := 1
 		for k, v := c.Seek(seeds[len(seeds)-1]); k != nil; k, v = c.Next() {
-			if n%checkEveryN == 0 && ctx.Err() != nil {
+			if n%cpi.checkContextEveryN == 0 && ctx.Err() != nil {
 				abort.Store(true)
 				break
 			}

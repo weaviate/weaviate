@@ -362,6 +362,11 @@ func New(cfg Config, uc ent.UserConfig,
 		MinMMapSize:     cfg.MinMMapSize,
 		MaxWalReuseSize: cfg.MaxWalReuseSize,
 	}
+	index.logger = cfg.Logger.WithFields(logrus.Fields{
+		"shard":        cfg.ShardName,
+		"class":        cfg.ClassName,
+		"targetVector": index.getTargetVector(),
+	})
 	index.acornSearch.Store(uc.FilterStrategy == ent.FilterStrategyAcorn)
 
 	index.multivector.Store(uc.Multivector.Enabled)
