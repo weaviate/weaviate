@@ -253,8 +253,12 @@ func (s *ShardDescriptor) ClearTemporary() {
 
 // ClassDescriptor contains everything needed to completely restore a class
 type ClassDescriptor struct {
-	Name          string             `json:"name"` // DB class name, also selected by user
-	Shards        []*ShardDescriptor `json:"shards"`
+	Name   string             `json:"name"` // DB class name, also selected by user
+	Shards []*ShardDescriptor `json:"shards"`
+	// ShardsInSync contains all shards that are in sync for this class.
+	// This is used during distributed backups to avoid backing up multiple
+	// copies of the same shard from different nodes.
+	ShardsInSync  []*ShardDescriptor `json:"shardsInSync"`
 	ShardingState []byte             `json:"shardingState"`
 	Schema        []byte             `json:"schema"`
 	Aliases       []byte             `json:"aliases"`
@@ -266,7 +270,6 @@ type ClassDescriptor struct {
 	Chunks                  map[int32][]string `json:"chunks,omitempty"`
 	Error                   error              `json:"-"`
 	PreCompressionSizeBytes int64              `json:"preCompressionSizeBytes"` // Size of this class's backup in bytes before compression
-	ShardsInSync            []*ShardDescriptor `json:"shardsInSync"`
 }
 
 type CompressionType string
@@ -291,7 +294,9 @@ type BackupDescriptor struct {
 	Error                   string            `json:"error"`
 	PreCompressionSizeBytes int64             `json:"preCompressionSizeBytes"` // Size of this node's backup in bytes before compression
 	CompressionType         *CompressionType  `json:"compressionType,omitempty"`
-	CreateCoordinatorNode   string            `json:"createCoordinatorNode,omitempty"`
+	// Node which created this backup (used for distributed backups). This is the node that holds the backups for ALL
+	// shards including the ones that are in sync between the different nodes
+	CreateCoordinatorNode string `json:"createCoordinatorNode,omitempty"`
 }
 
 // List all existing classes in d
