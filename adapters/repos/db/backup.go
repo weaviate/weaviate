@@ -73,7 +73,12 @@ func (db *DB) ListShardsSync(classes []string, backupStartedAt time.Time, timeou
 				ticker := time.NewTicker(100 * time.Millisecond)
 				defer ticker.Stop()
 
-				timeoutTimer := time.NewTimer(time.Until(timeOutTime))
+				timeoutDuration := time.Until(timeOutTime)
+				if timeoutDuration <= 0 {
+					// timeout already expired - do not wait and just leave the shard out of the list
+					return nil
+				}
+				timeoutTimer := time.NewTimer(timeoutDuration)
 				defer timeoutTimer.Stop()
 
 				for {
@@ -98,7 +103,10 @@ func (db *DB) ListShardsSync(classes []string, backupStartedAt time.Time, timeou
 			return nil, err
 		}
 	}
-	eg.Wait()
+
+	if err := eg.Wait(); err != nil {
+		return nil, err
+	}
 	return result, nil
 }
 
@@ -354,7 +362,9 @@ func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.Cl
 		if fullBackup {
 			desc.Shards = append(desc.Shards, &sd)
 		} else {
-			// shard is in sync, so we only need to record it in the descriptor and then can resume normal operations
+			// shard is in sync, so we only need to record it in the descriptor and then can resume normal operations.
+			// Note that all shards are released again once the index has been fully processed, so we do not need extra
+			// handling for the error case here.
 			if err := s.resumeMaintenanceCycles(ctx); err != nil {
 				return fmt.Errorf("resume maintenance shard %v files: %w", s.Name(), err)
 			}
