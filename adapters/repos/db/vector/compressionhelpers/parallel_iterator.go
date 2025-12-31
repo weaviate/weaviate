@@ -40,8 +40,6 @@ type parallelIterator[T byte | uint64] struct {
 	trackInterval int64
 	// how often to report progress to the user (via logs)
 	reportProgressInterval time.Duration
-	// how often to check for context cancellation
-	checkContextEveryN int
 }
 
 func NewParallelIterator[T byte | uint64](bucket *lsmkv.Bucket, parallel int, loadId func([]byte) uint64, fromCompressedBytes func(compressed []byte, buf *[]T) []T,
@@ -55,7 +53,6 @@ func NewParallelIterator[T byte | uint64](bucket *lsmkv.Bucket, parallel int, lo
 		fromCompressedBytes:    fromCompressedBytes,
 		trackInterval:          1000,
 		reportProgressInterval: 5 * time.Second,
-		checkContextEveryN:     1000,
 	}
 }
 
@@ -63,11 +60,13 @@ func (cpi *parallelIterator[T]) IterateAll(ctx context.Context) (out chan []VecA
 	out = make(chan []VecAndID[T])
 	aborted = make(chan bool, 1)
 
-	if ctx.Err() != nil {
+	select {
+	case <-ctx.Done():
 		aborted <- true
 		close(aborted)
 		close(out)
 		return out, aborted
+	default:
 	}
 
 	if cpi.parallel <= 1 {
@@ -121,13 +120,14 @@ func (cpi *parallelIterator[T]) IterateAll(ctx context.Context) (out chan []VecA
 		var localBuf []T
 		localResults := make([]VecAndID[T], 0, 10_000)
 
-		n := 1
+	Seek:
 		for k, v := c.First(); k != nil && bytes.Compare(k, seeds[0]) < 0; k, v = c.Next() {
-			if n%cpi.checkContextEveryN == 0 && ctx.Err() != nil {
+			select {
+			case <-ctx.Done():
 				abort.Store(true)
-				break
+				break Seek
+			default:
 			}
-			n++
 
 			if len(k) == 0 {
 				cpi.logger.WithFields(logrus.Fields{
@@ -172,13 +172,15 @@ func (cpi *parallelIterator[T]) IterateAll(ctx context.Context) (out chan []VecA
 			var localBuf []T
 			localResults := make([]VecAndID[T], 0, 10_000)
 
-			n := 1
+		Seek:
 			for k, v := c.Seek(start); k != nil && bytes.Compare(k, end) < 0; k, v = c.Next() {
-				if n%cpi.checkContextEveryN == 0 && ctx.Err() != nil {
+				select {
+				case <-ctx.Done():
 					abort.Store(true)
-					break
+					break Seek
+				default:
+
 				}
-				n++
 
 				if len(k) == 0 {
 					cpi.logger.WithFields(logrus.Fields{
@@ -220,13 +222,14 @@ func (cpi *parallelIterator[T]) IterateAll(ctx context.Context) (out chan []VecA
 		var localBuf []T
 		localResults := make([]VecAndID[T], 0, 10_000)
 
-		n := 1
+	Seek:
 		for k, v := c.Seek(seeds[len(seeds)-1]); k != nil; k, v = c.Next() {
-			if n%cpi.checkContextEveryN == 0 && ctx.Err() != nil {
+			select {
+			case <-ctx.Done():
 				abort.Store(true)
-				break
+				break Seek
+			default:
 			}
-			n++
 
 			if len(k) == 0 {
 				cpi.logger.WithFields(logrus.Fields{
@@ -283,15 +286,15 @@ func (cpi *parallelIterator[T]) iterateAllNoConcurrency(ctx context.Context) (ou
 		var localBuf []T
 		localResults := make([]VecAndID[T], 0, 10_000)
 
-		checkEveryN := 10
-		n := 1
 		abort := false
+	Iter:
 		for k, v := c.First(); k != nil; k, v = c.Next() {
-			if n%checkEveryN == 0 && ctx.Err() != nil {
+			select {
+			case <-ctx.Done():
 				abort = true
-				break
+				break Iter
+			default:
 			}
-			n++
 
 			if len(k) == 0 {
 				cpi.logger.WithFields(logrus.Fields{
