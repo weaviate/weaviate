@@ -69,7 +69,10 @@ func (s *objectStore) HomeDir(overrideBucket, overridePath string) string {
 	return s.backend.HomeDir(s.backupId, overrideBucket, overridePath)
 }
 
-func (s *objectStore) WriteToFile(ctx context.Context, key, destPath, overrideBucket, overridePath string) error {
+func (s *objectStore) WriteToFile(ctx context.Context, key, destPath, overrideBucket, overridePath, coordinatorBackupId string) error {
+	if coordinatorBackupId != "" {
+		return s.backend.WriteToFile(ctx, coordinatorBackupId, key, destPath, overrideBucket, overridePath)
+	}
 	return s.backend.WriteToFile(ctx, s.backupId, key, destPath, overrideBucket, overridePath)
 }
 
@@ -562,13 +565,13 @@ func (fw *fileWriter) WithPoolPercentage(p int) *fileWriter {
 func (fw *fileWriter) setMigrator(m func(classPath string) error) { fw.migrator = m }
 
 // Write downloads files and put them in the destination directory
-func (fw *fileWriter) Write(ctx context.Context, desc *backup.ClassDescriptor, overrideBucket, overridePath string, compressionType backup.CompressionType) (err error) {
-	if len(desc.Shards) == 0 { // nothing to copy
+func (fw *fileWriter) Write(ctx context.Context, desc *backup.ClassDescriptor, coordinatorBackupId string, overrideBucket, overridePath string, compressionType backup.CompressionType) (err error) {
+	if len(desc.Shards) == 0 && len(desc.ShardsInSync) == 0 { // nothing to copy
 		return nil
 	}
 	classTempDir := path.Join(fw.tempDir, desc.Name)
 
-	if err := fw.writeTempFiles(ctx, classTempDir, overrideBucket, overridePath, desc, compressionType); err != nil {
+	if err := fw.writeTempFiles(ctx, coordinatorBackupId, classTempDir, overrideBucket, overridePath, desc, compressionType); err != nil {
 		return fmt.Errorf("get files: %w", err)
 	}
 
@@ -584,7 +587,7 @@ func (fw *fileWriter) Write(ctx context.Context, desc *backup.ClassDescriptor, o
 // writeTempFiles writes class files into a temporary directory
 // temporary directory path = d.tempDir/className
 // Function makes sure that created files will be removed in case of an error
-func (fw *fileWriter) writeTempFiles(ctx context.Context, classTempDir, overrideBucket, overridePath string, desc *backup.ClassDescriptor, compressionType backup.CompressionType) (err error) {
+func (fw *fileWriter) writeTempFiles(ctx context.Context, coordinatorBackupId, classTempDir, overrideBucket, overridePath string, desc *backup.ClassDescriptor, compressionType backup.CompressionType) (err error) {
 	if err := os.RemoveAll(classTempDir); err != nil {
 		return fmt.Errorf("remove %s: %w", classTempDir, err)
 	}
@@ -600,7 +603,15 @@ func (fw *fileWriter) writeTempFiles(ctx context.Context, classTempDir, override
 		eg.SetLimit(2 * _NUMCPU)
 		for _, shard := range desc.Shards {
 			shard := shard
-			eg.Go(func() error { return fw.writeTempShard(ctx, shard, classTempDir, overrideBucket, overridePath) }, shard.Name)
+			// read from hardcoded bucket that is specific to this node
+			eg.Go(func() error { return fw.writeTempShard(ctx, shard, classTempDir, overrideBucket, overridePath, "") }, shard.Name)
+		}
+		for _, shard := range desc.ShardsInSync {
+			shard := shard
+			eg.Go(func() error {
+				// read the skipped shards from the coordinator's backup
+				return fw.writeTempShard(ctx, shard, classTempDir, overrideBucket, overridePath, coordinatorBackupId)
+			}, shard.Name)
 		}
 		return eg.Wait()
 	}
@@ -622,14 +633,14 @@ func (fw *fileWriter) writeTempFiles(ctx context.Context, classTempDir, override
 	return eg.Wait()
 }
 
-func (fw *fileWriter) writeTempShard(ctx context.Context, sd *backup.ShardDescriptor, classTempDir, overrideBucket, overridePath string) error {
+func (fw *fileWriter) writeTempShard(ctx context.Context, sd *backup.ShardDescriptor, classTempDir, overrideBucket, overridePath, coordinatorBackupId string) error {
 	for _, key := range sd.Files {
 		destPath := path.Join(classTempDir, key)
 		destDir := path.Dir(destPath)
 		if err := os.MkdirAll(destDir, os.ModePerm); err != nil {
 			return fmt.Errorf("create folder %s: %w", destDir, err)
 		}
-		if err := fw.backend.WriteToFile(ctx, key, destPath, overrideBucket, overridePath); err != nil {
+		if err := fw.backend.WriteToFile(ctx, key, destPath, overrideBucket, overridePath, coordinatorBackupId); err != nil {
 			return fmt.Errorf("write file %s: %w", destPath, err)
 		}
 	}

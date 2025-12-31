@@ -124,12 +124,14 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 			return
 		}
 		result := backup.BackupDescriptor{
-			StartedAt:       time.Now().UTC(),
-			ID:              id,
-			Classes:         make([]backup.ClassDescriptor, 0, len(req.Classes)),
-			Version:         Version,
-			ServerVersion:   config.ServerVersion,
-			CompressionType: &compressionType,
+			StartedAt:             time.Now().UTC(),
+			ID:                    id,
+			Classes:               make([]backup.ClassDescriptor, 0, len(req.Classes)),
+			Version:               Version,
+			ServerVersion:         config.ServerVersion,
+			CompressionType:       &compressionType,
+			SkippedShardsPerClass: shardsInSync,
+			CoordinatorNode:       coordinatorNode,
 		}
 
 		// the coordinator might want to abort the backup
