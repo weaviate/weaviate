@@ -156,4 +156,17 @@ func TestStopwordDetector(t *testing.T) {
 
 		runTest(t, tests)
 	})
+	t.Run("with es preset", func(t *testing.T) {
+		tests := []testcase{
+			{
+				cfg: models.StopwordConfig{
+					Preset: "es",
+				},
+				input:             []string{"el", "perro", "es", "grande"},
+				expectedCountable: 2,
+			},
+		}
+
+		runTest(t, tests)
+	})
 }

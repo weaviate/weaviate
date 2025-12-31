@@ -771,7 +771,7 @@
       "description": "Fine-grained control over stopword list usage.",
       "properties": {
         "preset": {
-          "description": "Pre-existing list of common words by language (default: `en`). Options: [`en`, `none`].",
+          "description": "Pre-existing list of common words by language (default: `en`). Options: [`en`, `none`, `ar`, `ca`, `da`, `de`, `es`, `eu`, `fa`, `fi`, `fr`, `hi`, `hu`, `it`, `ja`, `nl`, `no`, `pl`, `pt`, `ro`, `ru`, `sv`, `th`, `tr`, `zh`].",
           "type": "string"
         },
         "additions": {
