@@ -151,14 +151,36 @@ func FromEnv(config *Config) error {
 		config.IndexMissingTextFilterableAtStartup = true
 	}
 
+	objectsTtlConcurrencyFactorEnv := "OBJECTS_TTL_CONCURRENCY_FACTOR"
+	if err := parsePositiveFloat(objectsTtlConcurrencyFactorEnv,
+		func(val float64) { config.ObjectsTTLConcurrencyFactor = val },
+		DefaultObjectsTTLConcurrencyFactor); err != nil {
+		return fmt.Errorf("%s: %w", objectsTtlConcurrencyFactorEnv, err)
+	}
+
+	objectsTtlFindBatchSizeEnv := "OBJECTS_TTL_FIND_BATCH_SIZE"
+	if err := parsePositiveInt(objectsTtlFindBatchSizeEnv,
+		func(val int) { config.ObjectsTTLFindBatchSize = val },
+		DefaultObjectsTTLFindBatchSize); err != nil {
+		return fmt.Errorf("%s: %w", objectsTtlFindBatchSizeEnv, err)
+	}
+
+	objectsTtlDeleteBatchSizeEnv := "OBJECTS_TTL_DELETE_BATCH_SIZE"
+	if err := parsePositiveInt(objectsTtlDeleteBatchSizeEnv,
+		func(val int) { config.ObjectsTTLDeleteBatchSize = val },
+		DefaultObjectsTTLDeleteBatchSize); err != nil {
+		return fmt.Errorf("%s: %w", objectsTtlDeleteBatchSizeEnv, err)
+	}
+
 	objectsTtlAllowSecondsEnv := "OBJECTS_TTL_ALLOW_SECONDS"
 	if entcfg.Enabled(os.Getenv(objectsTtlAllowSecondsEnv)) {
-		config.ObjectsTtlAllowSeconds = true
+		config.ObjectsTTLAllowSeconds = true
 	}
+
 	objectsTtlDeleteScheduleEnv := "OBJECTS_TTL_DELETE_SCHEDULE"
 	if objectsTtlDeleteSchedule := os.Getenv(objectsTtlDeleteScheduleEnv); objectsTtlDeleteSchedule != "" {
 		parser := cron.StandardParser()
-		if config.ObjectsTtlAllowSeconds {
+		if config.ObjectsTTLAllowSeconds {
 			// equivalent of cron.WithSeconds() option
 			parser = cron.MustNewParser(cron.Second | cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor)
 		}

@@ -411,6 +411,9 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		DisableLazyLoadShards:               appState.ServerConfig.Config.DisableLazyLoadShards,
 		ForceFullReplicasSearch:             appState.ServerConfig.Config.ForceFullReplicasSearch,
 		TransferInactivityTimeout:           appState.ServerConfig.Config.TransferInactivityTimeout,
+		ObjectsTTLFindBatchSize:             appState.ServerConfig.Config.ObjectsTTLFindBatchSize,
+		ObjectsTTLDeleteBatchSize:           appState.ServerConfig.Config.ObjectsTTLDeleteBatchSize,
+		ObjectsTTLConcurrencyFactor:         appState.ServerConfig.Config.ObjectsTTLConcurrencyFactor,
 		LSMEnableSegmentsChecksumValidation: appState.ServerConfig.Config.Persistence.LSMEnableSegmentsChecksumValidation,
 		// Pass dummy replication config with minimum factor 1. Otherwise the
 		// setting is not backward-compatible. The user may have created a class
@@ -844,48 +847,6 @@ func configureReindexer(appState *state.State, reindexCtx context.Context) db.Sh
 }
 
 func configureCrons(appState *state.State, serverShutdownCtx context.Context) {
-	// enterrors.GoWrapper(func() {
-	// 	f := func() {
-	// 		fmt.Println("--------------------------------------------------------------------------------")
-
-	// 		nodes := appState.SchemaManager.Nodes()
-	// 		nodeName := appState.SchemaManager.NodeName()
-	// 		fmt.Printf("  ==> SchemaManager.Nodes: %v\n"+
-	// 			"      SchemaManager.NodeName: %v\n", nodes, nodeName)
-	// 		fmt.Println()
-
-	// 		allHostnames := appState.Cluster.AllHostnames()
-	// 		allNames := appState.Cluster.AllNames()
-	// 		allOtherClusterMembers := appState.Cluster.AllOtherClusterMembers(0)
-	// 		nodeCount := appState.Cluster.NodeCount()
-	// 		fmt.Printf("  ==> Cluster.AllHostnames: %v\n"+
-	// 			"      Cluster.AllNames: %v\n"+
-	// 			"      Cluster.AllOtherClusterMembers: %v\n"+
-	// 			"      Cluster.NodeCount: %v\n", allHostnames, allNames, allOtherClusterMembers, nodeCount)
-	// 		fmt.Println()
-
-	// 		for _, name := range allNames {
-	// 			nodeAddress := appState.Cluster.NodeAddress(name)
-	// 			nodeHostname, b := appState.Cluster.NodeHostname(name)
-	// 			nodeInfo, b2 := appState.Cluster.NodeInfo(name)
-	// 			fmt.Printf("  ==> Cluster.NodeAddress[%s]: %v\n"+
-	// 				"      Cluster.NodeHostname[%s]: %v [%v]\n"+
-	// 				"      Cluster.NodeInfo[%s]: %#v [%v]\n", name, nodeAddress, name, nodeHostname, b, name, nodeInfo, b2)
-	// 			fmt.Println()
-	// 		}
-
-	// 		fmt.Println("--------------------------------------------------------------------------------")
-	// 	}
-	// 	f()
-
-	// 	t := time.NewTicker(5 * time.Second)
-	// 	for {
-	// 		<-t.C
-	// 		f()
-	// 	}
-
-	// }, appState.Logger)
-
 	type jobSpec struct {
 		name     string
 		schedule string
@@ -897,7 +858,7 @@ func configureCrons(appState *state.State, serverShutdownCtx context.Context) {
 	specs := []jobSpec{}
 
 	if schedule := appState.ServerConfig.Config.ObjectsTTLDeleteSchedule; schedule != "" {
-		l := logger.WithField("action", "cron_ttl_scheduler")
+		l := logger.WithField("action", "cron_objects_ttl_deletion")
 
 		triggerDeletionObjectsExpiredJob := gocron.NewChain(gocron.SkipIfStillRunning(cronLogger)).
 			Then(cron.NewGoCronJob(func() {
@@ -909,21 +870,21 @@ func configureCrons(appState *state.State, serverShutdownCtx context.Context) {
 				var err error
 				started := time.Now()
 
-				l.Info("triggering deletion of expired objects")
+				l.Info("trigger ttl deletion started")
 				defer func() {
 					l = l.WithField("took", time.Since(started))
 					if err != nil {
-						l.WithError(err).Error("triggering deletion of expired objects failed")
-					} else {
-						l.Info("triggering deletion of expired objects succeeded")
+						l.WithError(err).Error("trigger ttl deletion failed")
+						return
 					}
+					l.Info("trigger ttl deletion finished")
 				}()
 
 				err = appState.ObjectTTLCoordinator.Start(serverShutdownCtx, false, started, started)
 			}))
 
 		specs = append(specs, jobSpec{
-			name:     "trigger_deletion_objects_expired",
+			name:     "trigger_objects_ttl_deletion",
 			schedule: schedule,
 			job:      triggerDeletionObjectsExpiredJob,
 		})
@@ -938,7 +899,7 @@ func configureCrons(appState *state.State, serverShutdownCtx context.Context) {
 		gocron.WithLogger(cronLogger),
 		gocron.WithChain(gocron.Recover(cronLogger)),
 	}
-	if appState.ServerConfig.Config.ObjectsTtlAllowSeconds {
+	if appState.ServerConfig.Config.ObjectsTTLAllowSeconds {
 		opts = append(opts, gocron.WithSeconds())
 	}
 	cr := gocron.New(opts...)

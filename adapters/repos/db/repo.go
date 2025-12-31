@@ -285,6 +285,9 @@ type Config struct {
 	MaximumConcurrentShardLoads         int
 	CycleManagerRoutinesFactor          int
 	IndexRangeableInMemory              bool
+	ObjectsTTLFindBatchSize             int
+	ObjectsTTLDeleteBatchSize           int
+	ObjectsTTLConcurrencyFactor         float64
 
 	HNSWMaxLogSize                               int64
 	HNSWDisableSnapshots                         bool

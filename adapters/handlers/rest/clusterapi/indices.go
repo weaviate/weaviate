@@ -154,7 +154,7 @@ type shards interface {
 	Aggregate(ctx context.Context, indexName, shardName string,
 		params aggregation.Params) (*aggregation.Result, error)
 	FindUUIDs(ctx context.Context, indexName, shardName string,
-		filters *filters.LocalFilter) ([]strfmt.UUID, error)
+		filters *filters.LocalFilter, limit int) ([]strfmt.UUID, error)
 	DeleteObjectBatch(ctx context.Context, indexName, shardName string,
 		uuids []strfmt.UUID, deletionTime time.Time, dryRun bool, schemaVersion uint64) objects.BatchSimpleObjects
 	GetShardQueueSize(ctx context.Context, indexName, shardName string) (int64, error)
@@ -965,7 +965,7 @@ func (i *indices) postFindUUIDs() http.Handler {
 			return
 		}
 
-		filters, err := IndicesPayloads.FindUUIDsParams.
+		filters, limit, err := IndicesPayloads.FindUUIDsParams.
 			Unmarshal(reqPayload)
 		if err != nil {
 			http.Error(w, "unmarshal find doc ids params from json: "+err.Error(),
@@ -978,7 +978,7 @@ func (i *indices) postFindUUIDs() http.Handler {
 			"action": "FindUUIDs",
 		}).Debug("find UUIDs ...")
 
-		results, err := i.shards.FindUUIDs(r.Context(), index, shard, filters)
+		results, err := i.shards.FindUUIDs(r.Context(), index, shard, filters, limit)
 
 		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
 			http.Error(w, err.Error(), http.StatusUnprocessableEntity)

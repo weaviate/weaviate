@@ -49,7 +49,7 @@ type batchWriter struct {
 	batchObjects    objects.BatchObjects
 	saveObjectItems chan objects.BatchObjects
 	errorCount      int64
-	ec              *errorcompounder.SafeErrorCompounder
+	ec              errorcompounder.ErrorCompounder
 	cancel          chan struct{}
 	batchThreshold  int
 	logger          logrus.FieldLogger
@@ -62,7 +62,7 @@ func newBatchWriter(vectorRepo vectorRepo, logger logrus.FieldLogger) Writer {
 		batchObjects:    objects.BatchObjects{},
 		saveObjectItems: make(chan objects.BatchObjects),
 		errorCount:      0,
-		ec:              &errorcompounder.SafeErrorCompounder{},
+		ec:              errorcompounder.NewSafe(),
 		cancel:          make(chan struct{}),
 		batchThreshold:  100,
 		logger:          logger,
