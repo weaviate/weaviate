@@ -266,6 +266,7 @@ type ClassDescriptor struct {
 	Chunks                  map[int32][]string `json:"chunks,omitempty"`
 	Error                   error              `json:"-"`
 	PreCompressionSizeBytes int64              `json:"preCompressionSizeBytes"` // Size of this class's backup in bytes before compression
+	ShardsInSync            []*ShardDescriptor `json:"shardsInSync"`
 }
 
 type CompressionType string
@@ -278,18 +279,20 @@ const (
 
 // BackupDescriptor contains everything needed to completely restore a list of classes
 type BackupDescriptor struct {
-	StartedAt               time.Time         `json:"startedAt"`
-	CompletedAt             time.Time         `json:"completedAt"`
-	ID                      string            `json:"id"` // User created backup id
-	Classes                 []ClassDescriptor `json:"classes"`
-	RbacBackups             []byte            `json:"rbacBackups"`
-	UserBackups             []byte            `json:"userBackups"`
-	Status                  string            `json:"status"`  // "STARTED|TRANSFERRING|TRANSFERRED|SUCCESS|FAILED|CANCELED"
-	Version                 string            `json:"version"` //
-	ServerVersion           string            `json:"serverVersion"`
-	Error                   string            `json:"error"`
-	PreCompressionSizeBytes int64             `json:"preCompressionSizeBytes"` // Size of this node's backup in bytes before compression
-	CompressionType         *CompressionType  `json:"compressionType,omitempty"`
+	StartedAt               time.Time           `json:"startedAt"`
+	CompletedAt             time.Time           `json:"completedAt"`
+	ID                      string              `json:"id"` // User created backup id
+	Classes                 []ClassDescriptor   `json:"classes"`
+	RbacBackups             []byte              `json:"rbacBackups"`
+	UserBackups             []byte              `json:"userBackups"`
+	Status                  string              `json:"status"`  // "STARTED|TRANSFERRING|TRANSFERRED|SUCCESS|FAILED|CANCELED"
+	Version                 string              `json:"version"` //
+	ServerVersion           string              `json:"serverVersion"`
+	Error                   string              `json:"error"`
+	PreCompressionSizeBytes int64               `json:"preCompressionSizeBytes"` // Size of this node's backup in bytes before compression
+	CompressionType         *CompressionType    `json:"compressionType,omitempty"`
+	SkippedShardsPerClass   map[string][]string `json:"skippedShardsPerClass,omitempty"`
+	CoordinatorNode         string              `json:"coordinatorNode,omitempty"`
 }
 
 // List all existing classes in d
