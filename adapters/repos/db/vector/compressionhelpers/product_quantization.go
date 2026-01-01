@@ -82,6 +82,24 @@ func (lut *DistanceLookUpTable) Reset(segments int, centroids int, center []floa
 	lut.flatCenter = center
 }
 
+// PrecomputeTable precomputes all possible segment x centroid pairs for the
+// given query vector. Using 1536d embeddings as an example, where we might use
+// 4 dims per seg, we would end up with 384 centroids and therefore 98304
+// distance computations. That's still pretty fast and allows us to remove all
+// branches from the LookUp function on the hot path.
+func (lut *DistanceLookUpTable) PrecomputeTable(pq *ProductQuantizer, queryVec []float32) {
+	for i := range pq.kms {
+		for c := range 256 {
+			centroid := pq.kms[i].Centroid(byte(c))
+			dist := pq.distance.Step(lut.center[i], centroid)
+			lut.setCodeDist(i, byte(c), dist)
+		}
+	}
+}
+
+// LookUp is now branchless, it can no longer lazily compute distances on the
+// fly. It requires that distances are precalculated. PrecomputeTable is called
+// from CenterAt making sure that it's impossible to forget to precompute.
 func (lut *DistanceLookUpTable) LookUp(
 	encoded []byte,
 	pq *ProductQuantizer,
@@ -90,32 +108,15 @@ func (lut *DistanceLookUpTable) LookUp(
 
 	for i := range pq.kms {
 		c := ExtractCode8(encoded, i)
-		if lut.distCalculated(i, c) {
-			sum += lut.codeDist(i, c)
-		} else {
-			centroid := pq.kms[i].Centroid(c)
-			dist := pq.distance.Step(lut.center[i], centroid)
-			lut.setCodeDist(i, c, dist)
-			lut.setDistCalculated(i, c)
-			sum += dist
-		}
+		sum += lut.codeDist(i, c)
 	}
+
 	return pq.distance.Wrap(sum)
 }
 
 // meant for better readability, rely on the fact that the compiler will inline this
 func (lut *DistanceLookUpTable) posForSegmentAndCode(segment int, code byte) int {
 	return segment*lut.centroids + int(code)
-}
-
-// meant for better readability, rely on the fact that the compiler will inline this
-func (lut *DistanceLookUpTable) distCalculated(segment int, code byte) bool {
-	return lut.calculated[lut.posForSegmentAndCode(segment, code)]
-}
-
-// meant for better readability, rely on the fact that the compiler will inline this
-func (lut *DistanceLookUpTable) setDistCalculated(segment int, code byte) {
-	lut.calculated[lut.posForSegmentAndCode(segment, code)] = true
 }
 
 // meant for better readability, rely on the fact that the compiler will inline this
@@ -443,7 +444,9 @@ func (pq *ProductQuantizer) Decode(code []byte) []float32 {
 }
 
 func (pq *ProductQuantizer) CenterAt(vec []float32) *DistanceLookUpTable {
-	return pq.dlutPool.Get(int(pq.m), int(pq.ks), vec)
+	lut := pq.dlutPool.Get(int(pq.m), int(pq.ks), vec)
+	lut.PrecomputeTable(pq, vec)
+	return lut
 }
 
 func (pq *ProductQuantizer) Distance(encoded []byte, lut *DistanceLookUpTable) float32 {
