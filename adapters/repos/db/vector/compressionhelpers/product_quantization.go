@@ -89,7 +89,7 @@ func (lut *DistanceLookUpTable) Reset(segments int, centroids int, center []floa
 // branches from the LookUp function on the hot path.
 func (lut *DistanceLookUpTable) PrecomputeTable(pq *ProductQuantizer, queryVec []float32) {
 	for i := range pq.kms {
-		for c := range 256 {
+		for c := range pq.ks {
 			centroid := pq.kms[i].Centroid(byte(c))
 			dist := pq.distance.Step(lut.center[i], centroid)
 			lut.setCodeDist(i, byte(c), dist)
@@ -106,7 +106,43 @@ func (lut *DistanceLookUpTable) LookUp(
 ) float32 {
 	var sum float32
 
-	for i := range pq.kms {
+	if len(encoded) < len(pq.kms) {
+		// compiler hint for Bounds-Check Elimination
+		panic("LookUp: encoded length less than number of segments")
+	}
+
+	if len(lut.distances) < len(pq.kms)*lut.centroids {
+		// This branch is impossible, the prefilling would have already panicked,
+		// but it acts as a hint to the compiler for Bounds-Check Elimination.
+		panic("LookUp: LUT distances length less than required")
+	}
+
+	i := 0
+
+	// Manually unroll loop 8 times: sweet spot on M1 macbook, may vary by
+	// platform, but certainly shouldn't hurt.
+	for ; i+7 < len(pq.kms); i += 8 {
+		c0 := ExtractCode8(encoded, i)
+		c1 := ExtractCode8(encoded, i+1)
+		c2 := ExtractCode8(encoded, i+2)
+		c3 := ExtractCode8(encoded, i+3)
+		c4 := ExtractCode8(encoded, i+4)
+		c5 := ExtractCode8(encoded, i+5)
+		c6 := ExtractCode8(encoded, i+6)
+		c7 := ExtractCode8(encoded, i+7)
+		v0 := lut.codeDist(i, c0)
+		v1 := lut.codeDist(i+1, c1)
+		v2 := lut.codeDist(i+2, c2)
+		v3 := lut.codeDist(i+3, c3)
+		v4 := lut.codeDist(i+4, c4)
+		v5 := lut.codeDist(i+5, c5)
+		v6 := lut.codeDist(i+6, c6)
+		v7 := lut.codeDist(i+7, c7)
+		sum += v0 + v1 + v2 + v3 + v4 + v5 + v6 + v7
+	}
+
+	// handle tail (if any)
+	for ; i < len(pq.kms); i++ {
 		c := ExtractCode8(encoded, i)
 		sum += lut.codeDist(i, c)
 	}
