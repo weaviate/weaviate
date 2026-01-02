@@ -662,3 +662,182 @@ func newReq(classes []string, backendName, backupID string) Request {
 		},
 	}
 }
+
+func TestCoordinatorCommitCancellation(t *testing.T) {
+	t.Parallel()
+	var (
+		backendName  = "s3"
+		backupID     = "test-backup"
+		ctx          = context.Background()
+		nodes        = []string{"N1", "N2"}
+		nodeResolver = newFakeNodeResolver(nodes)
+		any          = mock.Anything
+	)
+
+	t.Run("DetectCancelledStatusInCommit", func(t *testing.T) {
+		fc := newFakeCoordinator(nodeResolver)
+		coordinator := fc.coordinator()
+		// Initialize descriptor with nodes that match participant node names
+		// The node names in Nodes must match what ToOriginalNodeName will return
+		coordinator.descriptor = &backup.DistributedBackupDescriptor{
+			ID:          backupID,
+			NodeMapping: make(map[string]string), // Empty mapping means ToOriginalNodeName returns node as-is
+			Nodes: map[string]*backup.NodeDescriptor{
+				"N1": {Classes: []string{"Class1"}},
+				"N2": {Classes: []string{"Class2"}},
+			},
+		}
+
+		// Pre-populate Participants - these must exist before commitAll/queryAll run
+		// The node names must match the keys in node2Addr
+		coordinator.Participants["N1"] = participantStatus{
+			Status:   backup.Transferring,
+			LastTime: time.Now(),
+		}
+		coordinator.Participants["N2"] = participantStatus{
+			Status:   backup.Transferring,
+			LastTime: time.Now(),
+		}
+
+		// Mock commitAll - Commit calls should succeed (no errors)
+		// commitAll doesn't modify Participants on success, so they stay as Transferring
+		fc.client.On("Commit", any, "N1", mock.Anything).Return(nil)
+		fc.client.On("Commit", any, "N2", mock.Anything).Return(nil)
+
+		// Mock queryAll - return cancelled status for N1, success for N2
+		// This will be called in the retry loop and will update Participants
+		// The Status response must have Status field set to backup.Cancelled
+		cancelledStatusResp := &StatusResponse{
+			Status: backup.Cancelled,
+			Err:    "restore cancelled",
+			ID:     backupID,
+			Method: OpRestore,
+		}
+		successStatusResp := &StatusResponse{
+			Status: backup.Success,
+			Err:    "",
+			ID:     backupID,
+			Method: OpRestore,
+		}
+		fc.client.On("Status", any, "N1", mock.Anything).Return(cancelledStatusResp, nil)
+		fc.client.On("Status", any, "N2", mock.Anything).Return(successStatusResp, nil)
+
+		req := &StatusRequest{Method: OpRestore, ID: backupID, Backend: backendName}
+		node2Addr := map[string]string{"N1": "N1", "N2": "N2"}
+
+		// Set a very short timeout to avoid waiting in the retry loop
+		// retryAfter will be timeoutNextRound / 5 = 0.2ms, which is fine for testing
+		coordinator.timeoutNextRound = 1 * time.Millisecond
+
+		coordinator.commit(ctx, req, node2Addr, true)
+
+		// After commit, queryAll should have updated Participants with Cancelled status
+		// Verify that queryAll was called and updated the status
+		assert.Equal(t, backup.Cancelled, coordinator.Participants["N1"].Status, "N1 should have Cancelled status after queryAll")
+		assert.Equal(t, "restore cancelled", coordinator.Participants["N1"].Reason, "N1 should have cancellation reason")
+		assert.Equal(t, backup.Success, coordinator.Participants["N2"].Status, "N2 should have Success status")
+
+		// The overall descriptor status should be Cancelled because N1 is Cancelled
+		assert.Equal(t, backup.Cancelled, coordinator.descriptor.Status, "Overall status should be Cancelled")
+		assert.Contains(t, coordinator.descriptor.Error, "restore cancelled", "Error message should contain cancellation reason")
+	})
+
+	t.Run("DetectCancelledStatusInQueryAll", func(t *testing.T) {
+		fc := newFakeCoordinator(nodeResolver)
+		coordinator := fc.coordinator()
+		coordinator.descriptor = &backup.DistributedBackupDescriptor{
+			ID:          backupID,
+			NodeMapping: make(map[string]string),
+			Nodes: map[string]*backup.NodeDescriptor{
+				"N1": {Classes: []string{"Class1"}},
+			},
+		}
+
+		// Set up participant with initial status
+		coordinator.Participants["N1"] = participantStatus{
+			Status:   backup.Transferring,
+			LastTime: time.Now(),
+		}
+
+		// Return cancelled status from node
+		cancelledResp := &StatusResponse{
+			Status: backup.Cancelled,
+			Err:    "restore cancelled",
+			ID:     backupID,
+			Method: OpRestore,
+		}
+		fc.client.On("Status", any, "N1", mock.Anything).Return(cancelledResp, nil)
+
+		req := &StatusRequest{Method: OpRestore, ID: backupID, Backend: backendName}
+		node2Addr := map[string]string{"N1": "N1"}
+
+		nFailures := coordinator.queryAll(ctx, req, node2Addr)
+
+		assert.Equal(t, 1, nFailures)
+		assert.Equal(t, backup.Cancelled, coordinator.Participants["N1"].Status)
+		assert.Equal(t, "restore cancelled", coordinator.Participants["N1"].Reason)
+	})
+
+	t.Run("DetectContextCanceledInCommitAll", func(t *testing.T) {
+		fc := newFakeCoordinator(nodeResolver)
+		coordinator := fc.coordinator()
+		coordinator.descriptor = &backup.DistributedBackupDescriptor{
+			ID:          backupID,
+			NodeMapping: make(map[string]string),
+			Nodes: map[string]*backup.NodeDescriptor{
+				"N1": {Classes: []string{"Class1"}},
+			},
+		}
+
+		// Set up participant
+		coordinator.Participants["N1"] = participantStatus{
+			Status:   backup.Transferring,
+			LastTime: time.Now(),
+		}
+
+		// Return context.Canceled error
+		fc.client.On("Commit", any, "N1", mock.Anything).Return(context.Canceled)
+
+		req := &StatusRequest{Method: OpRestore, ID: backupID, Backend: backendName}
+		node2Addr := map[string]string{"N1": "N1"}
+
+		nFailures := coordinator.commitAll(ctx, req, node2Addr)
+
+		assert.Equal(t, 1, nFailures)
+		assert.Equal(t, backup.Cancelled, coordinator.Participants["N1"].Status)
+		assert.Contains(t, coordinator.Participants["N1"].Reason, context.Canceled.Error())
+	})
+
+	t.Run("DetectCancelledStatusInQueryAllTimeout", func(t *testing.T) {
+		fc := newFakeCoordinator(nodeResolver)
+		coordinator := fc.coordinator()
+		coordinator.descriptor = &backup.DistributedBackupDescriptor{
+			ID:          backupID,
+			NodeMapping: make(map[string]string),
+			Nodes: map[string]*backup.NodeDescriptor{
+				"N1": {Classes: []string{"Class1"}},
+			},
+		}
+
+		// Set up participant with old timestamp to trigger timeout
+		coordinator.Participants["N1"] = participantStatus{
+			Status:   backup.Transferring,
+			LastTime: time.Now().Add(-10 * time.Minute), // Old timestamp
+		}
+
+		// Return context.Canceled error
+		fc.client.On("Status", any, "N1", mock.Anything).Return(nil, context.Canceled)
+
+		req := &StatusRequest{Method: OpRestore, ID: backupID, Backend: backendName}
+		node2Addr := map[string]string{"N1": "N1"}
+
+		// Set timeoutNodeDown to a small value for testing
+		coordinator.timeoutNodeDown = 1 * time.Second
+
+		nFailures := coordinator.queryAll(ctx, req, node2Addr)
+
+		assert.Equal(t, 1, nFailures)
+		assert.Equal(t, backup.Cancelled, coordinator.Participants["N1"].Status)
+		assert.Contains(t, coordinator.Participants["N1"].Reason, context.Canceled.Error())
+	})
+}
