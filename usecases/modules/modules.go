@@ -1149,3 +1149,39 @@ func (p *Provider) UsageEnabled() bool {
 	}
 	return false
 }
+
+func (p *Provider) MigrateVectorizerSettings(oldVectorizerConfig, newVectorizerConfig any) bool {
+	oldVectorizerCfg, oldVectorizerCfgOk := oldVectorizerConfig.(map[string]any)
+	newVectorizerCfg, newVectorizerCfgOk := newVectorizerConfig.(map[string]any)
+	if oldVectorizerCfgOk && newVectorizerCfgOk {
+		oldModuleMigrated := false
+		for modName, modSettings := range oldVectorizerCfg {
+			oldModuleMigrated = p.migrateVectorizerSettings(modName, modSettings)
+		}
+		newModuleMigrated := false
+		for modName, modSettings := range newVectorizerCfg {
+			newModuleMigrated = p.migrateVectorizerSettings(modName, modSettings)
+		}
+		return oldModuleMigrated || newModuleMigrated
+	}
+	return false
+}
+
+func (p *Provider) migrateVectorizerSettings(modName string, moduleSettings any) bool {
+	if mod := p.GetByName(modName); mod != nil {
+		if migrate, ok := mod.(modulecapabilities.MigrateProperties); ok {
+			if settings, ok := moduleSettings.(map[string]any); ok {
+				migratedSettings := false
+				for _, prop := range migrate.MigrateProperties() {
+					if oldValue, ok := settings[prop.OldName]; ok && oldValue != "" {
+						settings[prop.NewName] = oldValue
+						delete(settings, prop.OldName)
+						migratedSettings = true
+					}
+				}
+				return migratedSettings
+			}
+		}
+	}
+	return false
+}

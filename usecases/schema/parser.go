@@ -38,6 +38,7 @@ type modulesProvider interface {
 	IsGenerative(string) bool
 	IsReranker(string) bool
 	IsMultiVector(string) bool
+	MigrateVectorizerSettings(any, any) bool
 }
 
 type Parser struct {
@@ -241,7 +242,7 @@ func (p *Parser) ParseClassUpdate(class, update *models.Class) (*models.Class, e
 		return nil, err
 	}
 
-	if err := validateImmutableFields(class, update); err != nil {
+	if err := validateImmutableFields(class, update, p.modules); err != nil {
 		return nil, err
 	}
 
@@ -459,7 +460,14 @@ func (p *Parser) validateModuleConfigsParityAndImmutables(initial, updated *mode
 			continue
 		}
 
-		return fmt.Errorf("can only update generative and reranker module configs. Got: %v", module)
+		// There might be module settings that need to be migrated to new names, for example
+		// if baseUrl property setting was renamed to baseURL then we need to adjust module settings
+		// and migrate baseUrl to baseURL
+		if p.modules.MigrateVectorizerSettings(initialModConf, updatedModConf) {
+			continue
+		}
+
+		return fmt.Errorf("can only update generative and reranker module configs. Got: %v for class: %s", module, updated.Class)
 	}
 
 	if initial.ModuleConfig == nil {
