@@ -20,6 +20,11 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 )
 
+const (
+	counterMask   = 0x7F // 0111 1111, masks out the lower 7 bits
+	tombstoneMask = 0x80 // 1000 0000, masks out the highest bit
+)
+
 // A VectorVersion is a 1-byte value structured as follows:
 // - 7 bits for the version number
 // - 1 bit for the tombstone flag (0 = alive, 1 = deleted)

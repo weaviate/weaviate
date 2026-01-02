@@ -21,6 +21,31 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 )
 
+func TestVectorVersion(t *testing.T) {
+	t.Run("instantiate and read version and deleted flag", func(t *testing.T) {
+		var ve VectorVersion
+
+		require.Equal(t, uint8(0), ve.Version())
+		require.False(t, ve.Deleted())
+
+		ve = VectorVersion(5)
+		require.Equal(t, uint8(5), ve.Version())
+		require.False(t, ve.Deleted())
+
+		ve = VectorVersion(127)
+		require.Equal(t, uint8(127), ve.Version())
+		require.False(t, ve.Deleted())
+
+		ve = VectorVersion(128)
+		require.Equal(t, uint8(0), ve.Version())
+		require.True(t, ve.Deleted())
+
+		ve = VectorVersion(255)
+		require.Equal(t, uint8(127), ve.Version())
+		require.True(t, ve.Deleted())
+	})
+}
+
 func TestVersionMapPersistence(t *testing.T) {
 	store := testinghelpers.NewDummyStore(t)
 	bucket, err := NewSharedBucket(store, "test", StoreConfig{MakeBucketOptions: lsmkv.MakeNoopBucketOptions})
