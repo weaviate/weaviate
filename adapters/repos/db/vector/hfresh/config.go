@@ -114,33 +114,24 @@ func ValidateUserConfigUpdate(initial, updated config.VectorIndexConfig) error {
 }
 
 // MaxPostingVectors returns how many vectors can fit in one posting
-// given the dimensions, compression and I/O budget.
-// I/O budget: SPANN recommends 12KB per posting for byte vectors
-// and 48KB for float32 vectors.
+// given the dimensions and I/O budget.
+// I/O budget: 48KB.
 // Dims is the number of dimensions of the vector, after compression
 // if applicable.
-func computeMaxPostingSize(dims int, compressed bool) uint32 {
-	bytesPerDim := 4
-	maxBytes := 48 * 1024 // default to float32 budget
-	metadata := 8 + 1     // id + version
-	if compressed {
-		bytesPerDim = 1
-		maxBytes = 12 * 1024                          // compressed budget
-		metadata += compressionhelpers.RQMetadataSize // RQ metadata
-	}
+func computeMaxPostingSize(dims int) uint32 {
+	bytesPerDim := 0.125                                  // RQ1
+	maxBytes := 48 * 1024                                 // budget
+	metadata := 8 + 1 + compressionhelpers.RQMetadataSize // id + version + RQ metadata
 
-	vBytes := dims*bytesPerDim + metadata
+	vBytes := float64(dims)*bytesPerDim + float64(metadata)
 
-	return uint32(math.Ceil(float64(maxBytes) / float64(vBytes)))
+	return uint32(math.Ceil(float64(maxBytes) / vBytes))
 }
 
 func (h *HFresh) setMaxPostingSize() {
 	if h.maxPostingSize == 0 {
-		isCompressed := h.Compressed()
-		h.maxPostingSize = computeMaxPostingSize(int(h.dims), isCompressed)
+		h.maxPostingSize = computeMaxPostingSize(int(h.dims))
 	}
 
-	if h.maxPostingSize <= h.minPostingSize {
-		h.minPostingSize = h.maxPostingSize / 2
-	}
+	h.minPostingSize = h.maxPostingSize / 3
 }

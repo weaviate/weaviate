@@ -119,6 +119,17 @@ func TestBRQCompressedDistanceEstimates(t *testing.T) {
 	}
 }
 
+func TestBRQCompressedDecompressedKeepsTheOriginalSize(t *testing.T) {
+	dist := distancer.NewL2SquaredProvider()
+	rng := newRNG(123)
+	dim := 128
+	q := randomNormalVector(dim, rng)
+	rq := compressionhelpers.NewBinaryRotationalQuantizer(dim, rng.Uint64(), dist)
+	cq := rq.Encode(q)
+	x := rq.Decode(cq)
+	assert.Equal(t, len(x), len(q))
+}
+
 // The absolute error when estimating the dot product between unit vectors
 // should scale according to 1/SQRT(D). Therefore we should roughly be seeing
 // that quadrupling the dimensionality halves the error.
