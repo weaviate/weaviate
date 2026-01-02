@@ -84,7 +84,7 @@ func (b *backupper) OnStatus(ctx context.Context, req *StatusRequest) (reqState,
 // Moreover it starts a goroutine in the background which waits for the
 // next instruction from the coordinator (second phase).
 // It will start the backup as soon as it receives an ack, or abort otherwise
-func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, error) {
+func (b *backupper) backup(store, globalStore nodeStore, req *Request) (CanCommitResponse, error) {
 	id := req.ID
 	expiration := req.Duration
 	if expiration > _TimeoutShardCommit {
@@ -104,14 +104,15 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 	// waits for ack from coordinator in order to processed with the backup
 	f := func() {
 		defer b.lastOp.reset()
-		coordinatorNode, shardsPerClassInSync, err := b.waitForCoordinator(expiration, id)
+		coordinatorNode, shardsPerClassInSync, _, err := b.waitForCoordinator(expiration, id)
 		if err != nil {
 			b.logger.WithField("action", "create_backup").
 				Error(err)
 			b.lastAsyncError = err
 			return
 		}
-		if isCoordinator := coordinatorNode == b.node; isCoordinator {
+		isCoordinator := coordinatorNode == b.node
+		if isCoordinator {
 			shardsPerClassInSync = nil // coordinator needs to back up all shards
 		}
 		provider := newUploader(b.sourcer, b.rbacSourcer, b.dynUserSourcer, store, req.ID, b.lastOp.set, b.logger).
@@ -147,6 +148,18 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 			b.logger.WithFields(logFields).Info("backup completed successfully")
 		}
 		result.CompletedAt = time.Now().UTC()
+
+		// write chunks that were only backed up on coordinator
+		if isCoordinator {
+			sharedDescr := backup.SharedBackupDescriptor{ChunksPerClass: make(map[string]map[int32][]string, len(result.Classes))}
+			for _, classDescp := range result.Classes {
+				sharedDescr.ChunksPerClass[classDescp.Name] = classDescp.Chunks
+			}
+
+			if err := globalStore.PutMeta(ctx, sharedDescr, GlobalSharedBackupFile, req.Bucket, req.Path); err != nil {
+				b.logger.WithFields(logFields).Errorf("coordinator: all chunks: put_meta: %v", err)
+			}
+		}
 	}
 	enterrors.GoWrapper(f, b.logger)
 

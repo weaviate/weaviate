@@ -238,6 +238,11 @@ type ShardDescriptor struct {
 	Chunk                 int32  `json:"chunk"`
 }
 
+type SharedBackupDescriptor struct {
+	// contains the shards that are in each chunk for each class
+	ChunksPerClass map[string]map[int32][]string `json:"chunks,omitempty"`
+}
+
 // ClearTemporary clears fields that are no longer needed once compression is done.
 // These fields are not required in versions > 1 because they are stored in the tarball.
 func (s *ShardDescriptor) ClearTemporary() {
@@ -258,10 +263,10 @@ type ClassDescriptor struct {
 	// ShardsInSync contains all shards that are in sync for this class.
 	// This is used during distributed backups to avoid backing up multiple
 	// copies of the same shard from different nodes.
-	ShardsInSync  []*ShardDescriptor `json:"shardsInSync"`
-	ShardingState []byte             `json:"shardingState"`
-	Schema        []byte             `json:"schema"`
-	Aliases       []byte             `json:"aliases"`
+	ShardsInSync  []string `json:"shardsInSync"`
+	ShardingState []byte   `json:"shardingState"`
+	Schema        []byte   `json:"schema"`
+	Aliases       []byte   `json:"aliases"`
 
 	// AliasesIncluded makes the old backup backward compatible when
 	// old backups are restored by newer ClassDescriptor that supports

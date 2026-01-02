@@ -252,6 +252,7 @@ func (c *coordinator) Restore(
 	store coordStore,
 	req *Request,
 	desc *backup.DistributedBackupDescriptor,
+	sharedChunks *backup.SharedBackupDescriptor,
 	schema []backup.ClassDescriptor,
 ) error {
 	req.Method = OpRestore
@@ -286,7 +287,7 @@ func (c *coordinator) Restore(
 		return fmt.Errorf("put initial metadata: %w", err)
 	}
 
-	statusReq := StatusRequest{Method: OpRestore, ID: desc.ID, Backend: req.Backend, Bucket: overrideBucket, Path: overridePath}
+	statusReq := StatusRequest{Method: OpRestore, ID: desc.ID, Backend: req.Backend, Bucket: overrideBucket, Path: overridePath, ChunksPerClass: sharedChunks.ChunksPerClass}
 	g := func() {
 		defer c.lastOp.reset()
 		ctx := context.Background()

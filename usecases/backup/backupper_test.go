@@ -233,7 +233,7 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 		want := &CanCommitResponse{OpCreate, req.ID, _TimeoutShardCommit, ""}
 		assert.Equal(t, got, want)
 
-		err := m.OnCommit(ctx, &StatusRequest{OpCreate, req.ID, backendName, "", "", nil, ""})
+		err := m.OnCommit(ctx, &StatusRequest{OpCreate, req.ID, backendName, "", "", nil, "", nil})
 		assert.Nil(t, err)
 		m.backupper.waitForCompletion(20, 50)
 		assert.Equal(t, string(backup.Success), backend.meta.Status)
@@ -267,7 +267,7 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 		want := &CanCommitResponse{OpCreate, req.ID, _TimeoutShardCommit, ""}
 		assert.Equal(t, got, want)
 
-		err := m.OnAbort(ctx, &AbortRequest{OpCreate, req.ID, backendName, "", "", nil, ""})
+		err := m.OnAbort(ctx, &AbortRequest{OpCreate, req.ID, backendName, "", "", nil, "", nil})
 		assert.Nil(t, err)
 		m.backupper.waitForCompletion(20, 50)
 		assert.Contains(t, m.backupper.lastAsyncError.Error(), "abort")
@@ -284,7 +284,7 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 		sourcer.On("Backupable", ctx, req.Classes).Return(nil)
 		ch := fakeBackupDescriptor(genClassDescriptions(t, sourcePath, cls, cls2)...)
 		sourcer.On("BackupDescriptors", any, backupID, mock.Anything).Return(ch).RunFn = func(a mock.Arguments) {
-			m.OnAbort(ctx, &AbortRequest{OpCreate, req.ID, backendName, "", "", nil, ""})
+			m.OnAbort(ctx, &AbortRequest{OpCreate, req.ID, backendName, "", "", nil, "", nil})
 			// give the abort request time to propagate
 			time.Sleep(10 * time.Millisecond)
 		}
@@ -303,7 +303,7 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 		want := &CanCommitResponse{OpCreate, req.ID, _TimeoutShardCommit, ""}
 		assert.Equal(t, got, want)
 
-		err := m.OnCommit(ctx, &StatusRequest{OpCreate, req.ID, backendName, "", "", nil, ""})
+		err := m.OnCommit(ctx, &StatusRequest{OpCreate, req.ID, backendName, "", "", nil, "", nil})
 		assert.Nil(t, err)
 		m.backupper.waitForCompletion(20, 50)
 		assert.Equal(t, string(backup.Cancelled), backend.meta.Status)

@@ -45,9 +45,9 @@ func Test_CoordinatedBackup(t *testing.T) {
 			Compression: req.Compression,
 		}
 		cresp        = &CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: 1}
-		sReq         = &StatusRequest{OpCreate, backupID, backendName, "", "", nil, ""}
+		sReq         = &StatusRequest{OpCreate, backupID, backendName, "", "", nil, "", nil}
 		sresp        = &StatusResponse{Status: backup.Success, ID: backupID, Method: OpCreate}
-		abortReq     = &AbortRequest{OpCreate, backupID, backendName, "", "", nil, ""}
+		abortReq     = &AbortRequest{OpCreate, backupID, backendName, "", "", nil, "", nil}
 		nodeResolver = newFakeNodeResolver(nodes)
 	)
 
@@ -383,9 +383,9 @@ func TestCoordinatedRestore(t *testing.T) {
 			},
 		}
 		cresp    = &CanCommitResponse{Method: OpRestore, ID: backupID, Timeout: 1}
-		sReq     = &StatusRequest{OpRestore, backupID, backendName, "", "", nil, ""}
+		sReq     = &StatusRequest{OpRestore, backupID, backendName, "", "", nil, "", nil}
 		sresp    = &StatusResponse{Status: backup.Success, ID: backupID, Method: OpRestore}
-		abortReq = &AbortRequest{OpRestore, backupID, backendName, "", "", nil, ""}
+		abortReq = &AbortRequest{OpRestore, backupID, backendName, "", "", nil, "", nil}
 	)
 
 	t.Run("Success", func(t *testing.T) {
@@ -408,7 +408,7 @@ func TestCoordinatedRestore(t *testing.T) {
 		store := coordStore{objectStore{fc.backend, backupID, "", ""}}
 
 		req := newReq([]string{}, backendName, "")
-		err := coordinator.Restore(ctx, store, &req, genReq(), nil)
+		err := coordinator.Restore(ctx, store, &req, genReq(), nil, nil)
 		assert.Nil(t, err)
 	})
 
@@ -424,7 +424,7 @@ func TestCoordinatedRestore(t *testing.T) {
 		coordinator := *fc.coordinator()
 		store := coordStore{objectStore{fc.backend, backupID, "", ""}}
 		req := newReq([]string{}, backendName, "")
-		err := coordinator.Restore(ctx, store, &req, genReq(), nil)
+		err := coordinator.Restore(ctx, store, &req, genReq(), nil, nil)
 		assert.ErrorIs(t, err, errCannotCommit)
 		assert.Contains(t, err.Error(), nodes[1])
 	})
@@ -443,7 +443,7 @@ func TestCoordinatedRestore(t *testing.T) {
 		coordinator := *fc.coordinator()
 		store := coordStore{objectStore{fc.backend, backupID, "", ""}}
 		req := newReq([]string{}, backendName, "")
-		err := coordinator.Restore(ctx, store, &req, genReq(), nil)
+		err := coordinator.Restore(ctx, store, &req, genReq(), nil, nil)
 		assert.ErrorIs(t, err, ErrAny)
 		assert.Contains(t, err.Error(), "initial")
 	})
@@ -496,7 +496,7 @@ func TestCoordinatedRestoreWithNodeMapping(t *testing.T) {
 			},
 		}
 		cresp = &CanCommitResponse{Method: OpRestore, ID: backupID, Timeout: 1}
-		sReq  = &StatusRequest{OpRestore, backupID, backendName, "", "", nil, ""}
+		sReq  = &StatusRequest{OpRestore, backupID, backendName, "", "", nil, "", nil}
 		sresp = &StatusResponse{Status: backup.Success, ID: backupID, Method: OpRestore}
 	)
 
@@ -522,7 +522,7 @@ func TestCoordinatedRestoreWithNodeMapping(t *testing.T) {
 		descReq := genReq()
 		store := coordStore{objectStore{fc.backend, descReq.ID, "", ""}}
 		req := newReq([]string{}, backendName, "")
-		err := coordinator.Restore(ctx, store, &req, descReq, nil)
+		err := coordinator.Restore(ctx, store, &req, descReq, nil, nil)
 		assert.Nil(t, err)
 	})
 }
