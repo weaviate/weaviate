@@ -159,7 +159,13 @@ func (r *reassignDeduplicator) flush() (err error) {
 		return true
 	})
 
-	return r.bucket.Put([]byte(reassignBucketKey), buf)
+	err = r.bucket.Put([]byte(reassignBucketKey), buf)
+	if err != nil {
+		return err
+	}
+	r.dirty.Store(false)
+
+	return nil
 }
 
 // getLastKnownPostingID retrieves the last known posting ID for the given vector ID.
