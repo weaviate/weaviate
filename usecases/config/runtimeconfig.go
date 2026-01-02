@@ -64,6 +64,16 @@ type WeaviateRuntimeConfig struct {
 	OIDCScopes            *runtime.DynamicValue[[]string] `yaml:"authentication_oidc_scopes" json:"authentication_oidc_scopes"`
 	OIDCCertificate       *runtime.DynamicValue[string]   `yaml:"authentication_oidc_certificate" json:"authentication_oidc_certificate"`
 	OIDCJWKSUrl           *runtime.DynamicValue[string]   `yaml:"authentication_oidc_jwks_url" json:"authentication_oidc_jwks_url"`
+
+	// OpenTelemetry settings
+	OpenTelemetryEnabled            *runtime.DynamicValue[bool]          `yaml:"experimental_open_telemetry_enabled" json:"experimental_open_telemetry_enabled"`
+	OpenTelemetryServiceName        *runtime.DynamicValue[string]        `yaml:"experimental_open_telemetry_service_name" json:"experimental_open_telemetry_service_name"`
+	OpenTelemetryEnvironment        *runtime.DynamicValue[string]        `yaml:"experimental_open_telemetry_environment" json:"experimental_open_telemetry_environment"`
+	OpenTelemetryExporterEndpoint   *runtime.DynamicValue[string]        `yaml:"experimental_open_telemetry_exporter_otlp_endpoint" json:"experimental_open_telemetry_exporter_otlp_endpoint"`
+	OpenTelemetryExporterProtocol   *runtime.DynamicValue[string]        `yaml:"experimental_open_telemetry_exporter_otlp_protocol" json:"experimental_open_telemetry_exporter_otlp_protocol"`
+	OpenTelemetrySamplingRate       *runtime.DynamicValue[float64]       `yaml:"experimental_open_telemetry_traces_sampler_arg" json:"experimental_open_telemetry_traces_sampler_arg"`
+	OpenTelemetryBatchTimeout       *runtime.DynamicValue[time.Duration] `yaml:"experimental_open_telemetry_bsp_export_timeout" json:"experimental_open_telemetry_bsp_export_timeout"`
+	OpenTelemetryMaxExportBatchSize *runtime.DynamicValue[int]           `yaml:"experimental_open_telemetry_bsp_max_export_batch_size" json:"experimental_open_telemetry_bsp_max_export_batch_size"`
 }
 
 // ParseRuntimeConfig decode WeaviateRuntimeConfig from raw bytes of YAML.

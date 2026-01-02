@@ -36,11 +36,11 @@ func Init(logger logrus.FieldLogger) error {
 
 	if provider.IsEnabled() {
 		logger.WithFields(logrus.Fields{
-			"service_name":  cfg.ServiceName,
-			"environment":   cfg.Environment,
-			"endpoint":      cfg.ExporterEndpoint,
-			"protocol":      cfg.ExporterProtocol,
-			"sampling_rate": cfg.SamplingRate,
+			"service_name":  cfg.ServiceName.Get(),
+			"environment":   cfg.Environment.Get(),
+			"endpoint":      cfg.ExporterEndpoint.Get(),
+			"protocol":      cfg.ExporterProtocol.Get(),
+			"sampling_rate": cfg.SamplingRate.Get(),
 		}).Info("OpenTelemetry tracing initialized")
 	} else {
 		logger.Info("OpenTelemetry tracing disabled")

@@ -44,7 +44,7 @@ func NewProvider(cfg *Config, logger logrus.FieldLogger) (*Provider, error) {
 		return nil, fmt.Errorf("invalid config: %w", err)
 	}
 
-	if !cfg.Enabled {
+	if !cfg.Enabled.Get() {
 		return &Provider{
 			config: cfg,
 			logger: logger,
@@ -54,9 +54,9 @@ func NewProvider(cfg *Config, logger logrus.FieldLogger) (*Provider, error) {
 	// Create resource with service information
 	res, err := resource.New(context.Background(),
 		resource.WithAttributes(
-			semconv.ServiceName(cfg.ServiceName),
+			semconv.ServiceName(cfg.ServiceName.Get()),
 			semconv.ServiceVersion(build.Version),
-			semconv.DeploymentEnvironment(cfg.Environment),
+			semconv.DeploymentEnvironment(cfg.Environment.Get()),
 		),
 	)
 	if err != nil {
@@ -71,13 +71,13 @@ func NewProvider(cfg *Config, logger logrus.FieldLogger) (*Provider, error) {
 
 	// Create batch span processor
 	bsp := sdktrace.NewBatchSpanProcessor(exporter,
-		sdktrace.WithBatchTimeout(cfg.BatchTimeout),
-		sdktrace.WithMaxExportBatchSize(cfg.MaxExportBatchSize),
+		sdktrace.WithBatchTimeout(cfg.BatchTimeout.Get()),
+		sdktrace.WithMaxExportBatchSize(cfg.MaxExportBatchSize.Get()),
 	)
 
 	// Create trace provider
 	tp := sdktrace.NewTracerProvider(
-		sdktrace.WithSampler(sdktrace.ParentBased(sdktrace.TraceIDRatioBased(cfg.SamplingRate))),
+		sdktrace.WithSampler(sdktrace.ParentBased(sdktrace.TraceIDRatioBased(cfg.SamplingRate.Get()))),
 		sdktrace.WithResource(res),
 		sdktrace.WithSpanProcessor(bsp),
 	)
@@ -92,7 +92,7 @@ func NewProvider(cfg *Config, logger logrus.FieldLogger) (*Provider, error) {
 	))
 
 	// Create tracer
-	tracer := tp.Tracer(cfg.ServiceName)
+	tracer := tp.Tracer(cfg.ServiceName.Get())
 
 	return &Provider{
 		config:   cfg,
@@ -104,7 +104,7 @@ func NewProvider(cfg *Config, logger logrus.FieldLogger) (*Provider, error) {
 
 // createExporter creates an OTLP exporter based on the configuration
 func createExporter(cfg *Config) (sdktrace.SpanExporter, error) {
-	switch cfg.ExporterProtocol {
+	switch cfg.ExporterProtocol.Get() {
 	case "http":
 		return createHTTPExporter(cfg)
 	case "grpc":
@@ -117,7 +117,7 @@ func createExporter(cfg *Config) (sdktrace.SpanExporter, error) {
 // createHTTPExporter creates an HTTP OTLP exporter
 func createHTTPExporter(cfg *Config) (sdktrace.SpanExporter, error) {
 	client := otlptracehttp.NewClient(
-		otlptracehttp.WithEndpoint(cfg.ExporterEndpoint),
+		otlptracehttp.WithEndpoint(cfg.ExporterEndpoint.Get()),
 		otlptracehttp.WithInsecure(), // TODO: make configurable
 	)
 
@@ -127,7 +127,7 @@ func createHTTPExporter(cfg *Config) (sdktrace.SpanExporter, error) {
 // createGRPCExporter creates a gRPC OTLP exporter
 func createGRPCExporter(cfg *Config) (sdktrace.SpanExporter, error) {
 	client := otlptracegrpc.NewClient(
-		otlptracegrpc.WithEndpoint(cfg.ExporterEndpoint),
+		otlptracegrpc.WithEndpoint(cfg.ExporterEndpoint.Get()),
 		otlptracegrpc.WithInsecure(), // TODO: make configurable
 	)
 	return otlptrace.New(context.Background(), client)
@@ -161,5 +161,5 @@ func (p *Provider) Shutdown(ctx context.Context) error {
 
 // IsEnabled returns whether OpenTelemetry is enabled
 func (p *Provider) IsEnabled() bool {
-	return p.config != nil && p.config.Enabled
+	return p.config != nil && p.config.Enabled.Get()
 }

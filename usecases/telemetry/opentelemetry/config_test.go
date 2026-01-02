@@ -68,8 +68,8 @@ func TestEndpointParsing(t *testing.T) {
 			cfg := FromEnvironment()
 
 			// Verify the endpoint was parsed correctly
-			assert.Equal(t, tt.expectedResult, cfg.ExporterEndpoint)
-			assert.Equal(t, tt.protocol, cfg.ExporterProtocol)
+			assert.Equal(t, tt.expectedResult, cfg.ExporterEndpoint.Get())
+			assert.Equal(t, tt.protocol, cfg.ExporterProtocol.Get())
 
 			// Clean up
 			os.Unsetenv("EXPERIMENTAL_OTEL_ENABLED")
@@ -82,37 +82,37 @@ func TestEndpointParsing(t *testing.T) {
 func TestDefaultConfig(t *testing.T) {
 	cfg := DefaultConfig()
 
-	assert.False(t, cfg.Enabled)
-	assert.Equal(t, "weaviate", cfg.ServiceName)
-	assert.Equal(t, "development", cfg.Environment)
-	assert.Equal(t, "localhost:4317", cfg.ExporterEndpoint)
-	assert.Equal(t, "grpc", cfg.ExporterProtocol)
-	assert.Equal(t, 0.01, cfg.SamplingRate)
+	assert.False(t, cfg.Enabled.Get())
+	assert.Equal(t, "weaviate", cfg.ServiceName.Get())
+	assert.Equal(t, "development", cfg.Environment.Get())
+	assert.Equal(t, "localhost:4317", cfg.ExporterEndpoint.Get())
+	assert.Equal(t, "grpc", cfg.ExporterProtocol.Get())
+	assert.Equal(t, 0.01, cfg.SamplingRate.Get())
 }
 
 func TestConfigValidation(t *testing.T) {
 	// Test valid config
 	cfg := DefaultConfig()
-	cfg.Enabled = true
+	cfg.Enabled.SetValue(true)
 	err := cfg.IsValid()
 	assert.NoError(t, err)
 
 	// Test invalid service name
-	cfg.ServiceName = ""
+	cfg.ServiceName.SetValue("")
 	err = cfg.IsValid()
 	assert.Error(t, err)
 	assert.Equal(t, ErrEmptyServiceName, err)
 
 	// Test invalid endpoint
-	cfg.ServiceName = "test"
-	cfg.ExporterEndpoint = ""
+	cfg.ServiceName.SetValue("test")
+	cfg.ExporterEndpoint.SetValue("")
 	err = cfg.IsValid()
 	assert.Error(t, err)
 	assert.Equal(t, ErrEmptyExporterEndpoint, err)
 
 	// Test invalid sampling rate
-	cfg.ExporterEndpoint = "localhost:4317"
-	cfg.SamplingRate = 1.5
+	cfg.ExporterEndpoint.SetValue("localhost:4317")
+	cfg.SamplingRate.SetValue(1.5)
 	err = cfg.IsValid()
 	assert.Error(t, err)
 	assert.Equal(t, ErrInvalidSamplingRate, err)
