@@ -173,4 +173,12 @@ func TestVersionMap(t *testing.T) {
 		require.NoError(t, err)
 		require.True(t, deleted)
 	})
+
+	t.Run("check if unknown vector is deleted", func(t *testing.T) {
+		versionMap := makeVersionMap(t)
+
+		deleted, err := versionMap.IsDeleted(ctx, 1)
+		require.Error(t, err)
+		require.False(t, deleted)
+	})
 }
