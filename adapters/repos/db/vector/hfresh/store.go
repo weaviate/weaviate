@@ -14,6 +14,7 @@ package hfresh
 import (
 	"context"
 	"encoding/binary"
+	stderrors "errors"
 	"fmt"
 	"time"
 
@@ -180,6 +181,32 @@ func (p *PostingStore) Append(ctx context.Context, postingID uint64, vector Vect
 	}
 
 	return p.bucket.SetAdd(key, [][]byte{vector})
+}
+
+func (p *PostingStore) Delete(ctx context.Context, postingID uint64) error {
+	p.locks.Lock(postingID)
+	defer p.locks.Unlock(postingID)
+
+	key, err := p.getKeyBytes(ctx, postingID)
+	if err != nil {
+		p.locks.RUnlock(postingID)
+		return err
+	}
+
+	list, err := p.bucket.SetList(key)
+	if err != nil {
+		return errors.Wrapf(err, "failed to get posting %d", postingID)
+	}
+
+	var errs []error
+	for _, v := range list {
+		err = p.bucket.SetDeleteSingle(key, v)
+		if err != nil {
+			errs = append(errs, err)
+		}
+	}
+
+	return errors.Wrapf(stderrors.Join(errs...), "failed to delete posting %d", postingID)
 }
 
 func postingsBucketName(id string) string {
