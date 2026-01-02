@@ -12,7 +12,6 @@
 package hfresh
 
 import (
-	"context"
 	"testing"
 
 	"github.com/pkg/errors"
@@ -55,30 +54,49 @@ func TestVectorVersion(t *testing.T) {
 	require.True(t, ve.Deleted())
 }
 
-func TestVersionMapPersistence(t *testing.T) {
-	versionMap := makeVersionMap(t)
+func TestVersionMap(t *testing.T) {
+	ctx := t.Context()
 
 	t.Run("get unknown vector", func(t *testing.T) {
-		_, err := versionMap.Get(context.Background(), 1)
+		versionMap := makeVersionMap(t)
+
+		_, err := versionMap.Get(ctx, 1)
 		require.True(t, errors.Is(err, ErrVectorNotFound))
 	})
 
+	t.Run("get existing vector", func(t *testing.T) {
+		versionMap := makeVersionMap(t)
+
+		want, err := versionMap.Increment(ctx, 1, VectorVersion(0))
+		require.NoError(t, err)
+
+		got, err := versionMap.Get(ctx, 1)
+		require.NoError(t, err)
+		require.Equal(t, want, got)
+	})
+
 	t.Run("increment unknown vector", func(t *testing.T) {
-		version, err := versionMap.Increment(context.Background(), 1, VectorVersion(0))
+		versionMap := makeVersionMap(t)
+
+		version, err := versionMap.Increment(ctx, 1, VectorVersion(0))
 		require.NoError(t, err)
 		require.Equal(t, VectorVersion(1), version)
 	})
 
 	t.Run("increment existing vector", func(t *testing.T) {
-		version, err := versionMap.Increment(context.Background(), 1, VectorVersion(1))
+		versionMap := makeVersionMap(t)
+
+		version, err := versionMap.Increment(ctx, 1, VectorVersion(0))
 		require.NoError(t, err)
 		require.Equal(t, VectorVersion(2), version)
 	})
 
 	t.Run("mark deleted vector and check if it is deleted", func(t *testing.T) {
-		_, err := versionMap.MarkDeleted(context.Background(), 1)
+		versionMap := makeVersionMap(t)
+
+		_, err := versionMap.MarkDeleted(ctx, 1)
 		require.NoError(t, err)
-		deleted, err := versionMap.IsDeleted(context.Background(), 1)
+		deleted, err := versionMap.IsDeleted(ctx, 1)
 		require.NoError(t, err)
 		require.True(t, deleted)
 	})
