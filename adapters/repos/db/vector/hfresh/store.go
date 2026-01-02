@@ -145,13 +145,8 @@ func (p *PostingStore) Put(ctx context.Context, postingID uint64, posting Postin
 	defer p.locks.Unlock(postingID)
 
 	_, err := p.getKeyBytes(ctx, postingID)
-	if err != nil && !errors.Is(err, ErrPostingNotFound) {
+	if err != nil {
 		return err
-	} else if err != nil && errors.Is(err, ErrPostingNotFound) {
-		err := p.versions.Set(ctx, postingID, 0)
-		if err != nil {
-			return err
-		}
 	}
 
 	set := make([][]byte, len(posting))
