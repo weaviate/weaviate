@@ -21,40 +21,45 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 )
 
-func TestVectorVersion(t *testing.T) {
-	t.Run("instantiate and read version and deleted flag", func(t *testing.T) {
-		var ve VectorVersion
+func makeVersionMap(t *testing.T) *VersionMap {
+	t.Helper()
 
-		require.Equal(t, uint8(0), ve.Version())
-		require.False(t, ve.Deleted())
-
-		ve = VectorVersion(5)
-		require.Equal(t, uint8(5), ve.Version())
-		require.False(t, ve.Deleted())
-
-		ve = VectorVersion(127)
-		require.Equal(t, uint8(127), ve.Version())
-		require.False(t, ve.Deleted())
-
-		ve = VectorVersion(128)
-		require.Equal(t, uint8(0), ve.Version())
-		require.True(t, ve.Deleted())
-
-		ve = VectorVersion(255)
-		require.Equal(t, uint8(127), ve.Version())
-		require.True(t, ve.Deleted())
-	})
-}
-
-func TestVersionMapPersistence(t *testing.T) {
 	store := testinghelpers.NewDummyStore(t)
 	bucket, err := NewSharedBucket(store, "test", StoreConfig{MakeBucketOptions: lsmkv.MakeNoopBucketOptions})
 	require.NoError(t, err)
 	versionMap, err := NewVersionMap(bucket)
 	require.NoError(t, err)
+	return versionMap
+}
+
+func TestVectorVersion(t *testing.T) {
+	var ve VectorVersion
+
+	require.Equal(t, uint8(0), ve.Version())
+	require.False(t, ve.Deleted())
+
+	ve = VectorVersion(5)
+	require.Equal(t, uint8(5), ve.Version())
+	require.False(t, ve.Deleted())
+
+	ve = VectorVersion(127)
+	require.Equal(t, uint8(127), ve.Version())
+	require.False(t, ve.Deleted())
+
+	ve = VectorVersion(128)
+	require.Equal(t, uint8(0), ve.Version())
+	require.True(t, ve.Deleted())
+
+	ve = VectorVersion(255)
+	require.Equal(t, uint8(127), ve.Version())
+	require.True(t, ve.Deleted())
+}
+
+func TestVersionMapPersistence(t *testing.T) {
+	versionMap := makeVersionMap(t)
 
 	t.Run("get unknown vector", func(t *testing.T) {
-		_, err = versionMap.Get(context.Background(), 1)
+		_, err := versionMap.Get(context.Background(), 1)
 		require.True(t, errors.Is(err, ErrVectorNotFound))
 	})
 
