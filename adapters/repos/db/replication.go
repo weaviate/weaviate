@@ -41,25 +41,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 )
 
-type Replicator interface {
-	ReplicateObject(ctx context.Context, shardName, requestID string,
-		object *storobj.Object) replica.SimpleResponse
-	ReplicateObjects(ctx context.Context, shardName, requestID string,
-		objects []*storobj.Object) replica.SimpleResponse
-	ReplicateUpdate(ctx context.Context, shard, requestID string,
-		doc *objects.MergeDocument) replica.SimpleResponse
-	ReplicateDeletion(ctx context.Context, shardName, requestID string,
-		uuid strfmt.UUID, deletionTime time.Time) replica.SimpleResponse
-	ReplicateDeletions(ctx context.Context, shardName, requestID string,
-		uuids []strfmt.UUID, deletionTime time.Time, dryRun bool, schemaVersion uint64) replica.SimpleResponse
-	ReplicateReferences(ctx context.Context, shard, requestID string,
-		refs []objects.BatchReference) replica.SimpleResponse
-	CommitReplication(shard,
-		requestID string) interface{}
-	AbortReplication(shardName,
-		requestID string) interface{}
-}
-
 const tmpCopyExtension = ".copy.tmp" // indexcount and proplen temporary copy
 
 func (db *DB) ReplicateObject(ctx context.Context, class,
