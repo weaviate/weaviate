@@ -125,8 +125,7 @@ var (
 	_ types.Router = (*singleTenantRouter)(nil)
 )
 
-// sort orders replicas with the preferred node first, followed by the remaining replicas
-// sorted by NodeName for deterministic ordering.
+// sort orders replicas with the preferred node first, followed by the remaining replicas.
 func sort(replicas []types.Replica, preferredNodeName string) []types.Replica {
 	if len(replicas) == 0 {
 		return replicas
