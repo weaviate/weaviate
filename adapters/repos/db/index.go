@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"math"
 	"os"
 	"path"
 	"path/filepath"
@@ -28,6 +29,7 @@ import (
 
 	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
 	"github.com/weaviate/weaviate/usecases/multitenancy"
+	"golang.org/x/sync/semaphore"
 
 	"github.com/weaviate/weaviate/cluster/router/executor"
 	routerTypes "github.com/weaviate/weaviate/cluster/router/types"
@@ -282,7 +284,8 @@ type Index struct {
 	allShardsReady atomic.Bool
 	allocChecker   memwatch.AllocChecker
 
-	replicationConfigLock sync.RWMutex
+	replicationConfigLock     sync.RWMutex
+	asyncReplicationSemaphore *semaphore.Weighted
 
 	shardLoadLimiter ShardLoadLimiter
 
@@ -396,6 +399,16 @@ func NewIndex(
 		return nil, fmt.Errorf("create replicator for index %q: %w", index.ID(), err)
 	}
 
+	maxAsyncReplicationWorkers, err := resolveAsyncReplicationMaxWorkers(
+		&cfg,
+		defaultAsyncReplicationMaxWorkers,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	index.asyncReplicationSemaphore = semaphore.NewWeighted(int64(maxAsyncReplicationWorkers))
+
 	index.closingCtx, index.closingCancel = context.WithCancel(context.Background())
 
 	index.initCycleCallbacks()
@@ -417,6 +430,29 @@ func NewIndex(
 	index.cycleCallbacks.flushCycle.Start()
 
 	return index, nil
+}
+
+func resolveAsyncReplicationMaxWorkers(
+	cfg *IndexConfig,
+	defaultWorkers int,
+) (int, error) {
+	maxWorkers := defaultWorkers
+
+	if cfg.AsyncReplicationConfig != nil && cfg.AsyncReplicationConfig.MaxWorkers != nil {
+		maxWorkers = int(*cfg.AsyncReplicationConfig.MaxWorkers)
+	}
+
+	maxWorkers, err := optParseInt(
+		os.Getenv("ASYNC_REPLICATION_MAX_WORKERS"),
+		maxWorkers,
+		1,
+		math.MaxInt,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("async replication max workers: %w", err)
+	}
+
+	return maxWorkers, nil
 }
 
 // since called in Index's constructor there is no risk same shard will be inited/created in parallel,
@@ -767,9 +803,27 @@ func (i *Index) updateReplicationConfig(ctx context.Context, cfg *models.Replica
 	i.Config.ReplicationFactor = cfg.Factor
 	i.Config.DeletionStrategy = cfg.DeletionStrategy
 	i.Config.AsyncReplicationEnabled = cfg.AsyncEnabled && i.Config.ReplicationFactor > 1 && !i.asyncReplicationGloballyDisabled()
+	i.Config.AsyncReplicationConfig = cfg.AsyncConfig
 
-	err := i.ForEachLoadedShard(func(name string, shard ShardLike) error {
-		if err := shard.SetAsyncReplicationEnabled(ctx, i.Config.AsyncReplicationEnabled); err != nil {
+	maxAsyncReplicationWorkers, err := resolveAsyncReplicationMaxWorkers(
+		&i.Config,
+		defaultAsyncReplicationMaxWorkers,
+	)
+	if err != nil {
+		return err
+	}
+
+	i.asyncReplicationSemaphore = semaphore.NewWeighted(int64(maxAsyncReplicationWorkers))
+
+	err = i.ForEachLoadedShard(func(name string, shard ShardLike) error {
+		if i.Config.AsyncReplicationEnabled && cfg.AsyncConfig != nil {
+			// if async replication is being enabled, first disable it to reset any previous config
+			if err := shard.SetAsyncReplicationEnabled(ctx, nil, false); err != nil {
+				return fmt.Errorf("updating async replication on shard %q: %w", name, err)
+			}
+		}
+
+		if err := shard.SetAsyncReplicationEnabled(ctx, i.Config.AsyncReplicationConfig, i.Config.AsyncReplicationEnabled); err != nil {
 			return fmt.Errorf("updating async replication on shard %q: %w", name, err)
 		}
 		return nil
@@ -820,6 +874,7 @@ type IndexConfig struct {
 	ReplicationFactor                   int64
 	DeletionStrategy                    string
 	AsyncReplicationEnabled             bool
+	AsyncReplicationConfig              *models.ReplicationAsyncConfig
 	AvoidMMap                           bool
 	DisableLazyLoadShards               bool
 	ForceFullReplicasSearch             bool
@@ -1046,11 +1101,32 @@ func (i *Index) getShardForDirectLocalOperation(ctx context.Context, tenantName 
 	return shard, release, nil
 }
 
-func (i *Index) asyncReplicationEnabled() bool {
+func (i *Index) AsyncReplicationEnabled() bool {
 	i.replicationConfigLock.RLock()
 	defer i.replicationConfigLock.RUnlock()
 
 	return i.Config.ReplicationFactor > 1 && i.Config.AsyncReplicationEnabled && !i.asyncReplicationGloballyDisabled()
+}
+
+func (i *Index) AsyncReplicationConfig() *models.ReplicationAsyncConfig {
+	i.replicationConfigLock.RLock()
+	defer i.replicationConfigLock.RUnlock()
+
+	return i.Config.AsyncReplicationConfig
+}
+
+func (i *Index) asyncReplicationWorkerAcquire(ctx context.Context) error {
+	i.replicationConfigLock.RLock()
+	defer i.replicationConfigLock.RUnlock()
+
+	return i.asyncReplicationSemaphore.Acquire(ctx, 1)
+}
+
+func (i *Index) asyncReplicationWorkerRelease() {
+	i.replicationConfigLock.RLock()
+	defer i.replicationConfigLock.RUnlock()
+
+	i.asyncReplicationSemaphore.Release(1)
 }
 
 // parseDateFieldsInProps checks the schema for the current class for which
