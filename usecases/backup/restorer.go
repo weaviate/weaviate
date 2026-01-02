@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"slices"
 	"sync"
 	"time"
 
@@ -105,8 +106,8 @@ func (r *restorer) restore(
 			r.restoreStatusMap.Store(basePath(req.Backend, req.ID), status)
 			r.lastOp.reset()
 		}()
-
-		if _, _, err = r.waitForCoordinator(expiration, req.ID); err != nil {
+		_, _, sharedChunks, err := r.waitForCoordinator(expiration, req.ID)
+		if err != nil {
 			r.logger.WithField("action", "restore_backup").
 				Error(err)
 			r.lastAsyncError = err
@@ -116,7 +117,7 @@ func (r *restorer) restore(
 		overrideBucket := req.Bucket
 		overridePath := req.Path
 
-		err = r.restoreAll(context.Background(), desc, req.CPUPercentage, store, overrideBucket, overridePath, req.RbacRestoreOption, req.UserRestoreOption)
+		err = r.restoreAll(context.Background(), desc, req.CPUPercentage, store, sharedChunks, overrideBucket, overridePath, req.RbacRestoreOption, req.UserRestoreOption)
 		logFields := logrus.Fields{"action": "restore", "backup_id": req.ID}
 		if err != nil {
 			r.logger.WithFields(logFields).Error(err)
@@ -133,7 +134,7 @@ func (r *restorer) restore(
 // The final backup restoration is orchestrated by the raft store.
 func (r *restorer) restoreAll(ctx context.Context,
 	desc *backup.BackupDescriptor, cpuPercentage int,
-	store nodeStore, overrideBucket, overridePath, rbacRestoreOption, usersRestoreOption string,
+	store nodeStore, sharedChunks map[string]map[int32][]string, overrideBucket, overridePath, rbacRestoreOption, usersRestoreOption string,
 ) error {
 	compressionType := desc.GetCompressionType()
 	compressed := desc.Version > version1
@@ -151,10 +152,22 @@ func (r *restorer) restoreAll(ctx context.Context,
 		}
 	}
 
-	coordinatorBackupId := fmt.Sprintf("%s/%s", desc.CreateCoordinatorNode, desc.ID)
+	coordinatorBackupId := fmt.Sprintf("%s/%s", desc.ID, desc.CreateCoordinatorNode)
 
 	for _, cdesc := range desc.Classes {
-		if err := r.restoreOne(ctx, &cdesc, desc.ServerVersion, coordinatorBackupId, compressionType, compressed, cpuPercentage, store, overrideBucket, overridePath); err != nil {
+		sharedChunksForClass := sharedChunks[cdesc.Name]
+
+		// remove chunks that have no shards that need to be copied over
+		for chunk, shardsPerChunk := range sharedChunksForClass {
+			for _, shardID := range shardsPerChunk {
+				if !slices.Contains(cdesc.ShardsInSync, shardID) {
+					delete(sharedChunksForClass, chunk)
+					break
+				}
+			}
+		}
+
+		if err := r.restoreOne(ctx, &cdesc, desc.ServerVersion, sharedChunksForClass, coordinatorBackupId, compressionType, compressed, cpuPercentage, store, overrideBucket, overridePath); err != nil {
 			return fmt.Errorf("restore class %s: %w", cdesc.Name, err)
 		}
 		r.logger.WithField("action", "restore").
@@ -173,7 +186,7 @@ func getType(myvar interface{}) string {
 }
 
 func (r *restorer) restoreOne(ctx context.Context,
-	desc *backup.ClassDescriptor, serverVersion string, coordinatorBackupId string, compressionType backup.CompressionType,
+	desc *backup.ClassDescriptor, serverVersion string, sharedChunks map[int32][]string, coordinatorBackupId string, compressionType backup.CompressionType,
 	compressed bool, cpuPercentage int, store nodeStore,
 	overrideBucket, overridePath string,
 ) (err error) {
@@ -199,7 +212,7 @@ func (r *restorer) restoreOne(ctx context.Context,
 		fw.setMigrator(f)
 	}
 
-	if err := fw.Write(ctx, desc, coordinatorBackupId, overrideBucket, overridePath, compressionType); err != nil {
+	if err := fw.Write(ctx, desc, sharedChunks, coordinatorBackupId, overrideBucket, overridePath, compressionType); err != nil {
 		return fmt.Errorf("write files: %w", err)
 	}
 

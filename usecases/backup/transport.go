@@ -83,10 +83,14 @@ type StatusRequest struct {
 	Bucket string
 	// Path specify the path
 	Path string
+	// Only relevant for create backup
 	// InSyncShards specifies which shards are in sync and do not need to be backed up per node
 	InSyncShards map[string][]string
 	// Coordinator specifies which node is the leader for this backup operation
 	Coordinator string
+
+	// Only relevant for restore
+	ChunksPerClass map[string]map[int32][]string
 }
 
 type StatusResponse struct {

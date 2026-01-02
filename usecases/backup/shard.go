@@ -97,10 +97,10 @@ type shardSyncChan struct {
 }
 
 // waitForCoordinator to confirm or to abort previous operation
-func (c *shardSyncChan) waitForCoordinator(d time.Duration, id string) (string, map[string][]string, error) {
+func (c *shardSyncChan) waitForCoordinator(d time.Duration, id string) (string, map[string][]string, map[string]map[int32][]string, error) {
 	defer c.waitingForCoordinatorToCommit.Store(false)
 	if d == 0 {
-		return "", nil, nil
+		return "", nil, nil, nil
 	}
 
 	timer := time.NewTimer(d)
@@ -108,16 +108,16 @@ func (c *shardSyncChan) waitForCoordinator(d time.Duration, id string) (string, 
 	for {
 		select {
 		case <-timer.C:
-			return "", nil, fmt.Errorf("timed out waiting for coordinator to commit")
+			return "", nil, nil, fmt.Errorf("timed out waiting for coordinator to commit")
 		case v := <-c.coordChan:
 			switch v := v.(type) {
 			case AbortRequest:
 				if v.ID == id {
-					return "", nil, fmt.Errorf("coordinator aborted operation")
+					return "", nil, nil, fmt.Errorf("coordinator aborted operation")
 				}
 			case StatusRequest:
 				if v.ID == id {
-					return v.Coordinator, v.InSyncShards, nil
+					return v.Coordinator, v.InSyncShards, v.ChunksPerClass, nil
 				}
 			}
 		}

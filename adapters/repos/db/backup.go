@@ -345,7 +345,10 @@ func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.Cl
 	}()
 
 	if err = i.ForEachShard(func(name string, s ShardLike) error {
-		fullBackup := !slices.Contains(shardsInSync, name)
+		if slices.Contains(shardsInSync, name) {
+			desc.ShardsInSync = append(desc.ShardsInSync, name)
+			return nil
+		}
 
 		if err = s.HaltForTransfer(ctx, false, 0); err != nil {
 			return fmt.Errorf("pause compaction and flush: %w", err)
@@ -359,17 +362,7 @@ func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.Cl
 			return fmt.Errorf("list shard %v files: %w", s.Name(), err)
 		}
 
-		if fullBackup {
-			desc.Shards = append(desc.Shards, &sd)
-		} else {
-			// shard is in sync, so we only need to record it in the descriptor and then can resume normal operations.
-			// Note that all shards are released again once the index has been fully processed, so we do not need extra
-			// handling for the error case here.
-			if err := s.resumeMaintenanceCycles(ctx); err != nil {
-				return fmt.Errorf("resume maintenance shard %v files: %w", s.Name(), err)
-			}
-			desc.ShardsInSync = append(desc.ShardsInSync, &sd)
-		}
+		desc.Shards = append(desc.Shards, &sd)
 
 		return nil
 	}); err != nil {

@@ -183,7 +183,7 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 		err = fmt.Errorf("no backup backend %q: %w, did you enable the right module?", req.Backend, err)
 		return nil, backup.NewErrUnprocessable(err)
 	}
-	meta, err := s.validateRestoreRequest(ctx, store, req)
+	meta, sharedChunks, err := s.validateRestoreRequest(ctx, store, req)
 	if err != nil {
 		if errors.Is(err, errMetaNotFound) {
 			return nil, backup.NewErrNotFound(err)
@@ -219,7 +219,7 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 		RbacRestoreOption:     req.RbacRestoreOption,
 		RestoreOverwriteAlias: overwriteAlais,
 	}
-	err = s.restorer.Restore(ctx, store, &rReq, meta, schema)
+	err = s.restorer.Restore(ctx, store, &rReq, meta, sharedChunks, schema)
 	if err != nil {
 		status = string(backup.Failed)
 		data.Error = err.Error()
@@ -242,7 +242,7 @@ func (s *Scheduler) BackupStatus(ctx context.Context, principal *models.Principa
 		return nil, backup.NewErrUnprocessable(err)
 	}
 
-	req := &StatusRequest{OpCreate, backupID, backend, store.bucket, store.path, nil, ""}
+	req := &StatusRequest{OpCreate, backupID, backend, store.bucket, store.path, nil, "", nil}
 	st, err := s.backupper.OnStatus(ctx, store, req)
 	if err != nil {
 		return nil, backup.NewErrNotFound(err)
@@ -260,7 +260,7 @@ func (s *Scheduler) RestorationStatus(ctx context.Context, principal *models.Pri
 		err = fmt.Errorf("no backup provider %q: %w, did you enable the right module?", backend, err)
 		return nil, backup.NewErrUnprocessable(err)
 	}
-	req := &StatusRequest{OpRestore, backupID, backend, overrideBucket, overridePath, nil, ""}
+	req := &StatusRequest{OpRestore, backupID, backend, overrideBucket, overridePath, nil, "", nil}
 	st, err := s.restorer.OnStatus(ctx, store, req)
 	if err != nil {
 		return nil, backup.NewErrNotFound(err)
@@ -439,37 +439,37 @@ func (s *Scheduler) checkIfBackupExists(ctx context.Context, store coordStore, r
 	return nil
 }
 
-func (s *Scheduler) validateRestoreRequest(ctx context.Context, store coordStore, req *BackupRequest) (*backup.DistributedBackupDescriptor, error) {
+func (s *Scheduler) validateRestoreRequest(ctx context.Context, store coordStore, req *BackupRequest) (*backup.DistributedBackupDescriptor, *backup.SharedBackupDescriptor, error) {
 	if !store.backend.IsExternal() && s.restorer.nodeResolver.NodeCount() > 1 {
-		return nil, errLocalBackendDBRO
+		return nil, nil, errLocalBackendDBRO
 	}
 	if len(req.Include) > 0 && len(req.Exclude) > 0 {
-		return nil, errIncludeExclude
+		return nil, nil, errIncludeExclude
 	}
 	// Check for duplicates in raw patterns early (before backend operations)
 	if dup := findDuplicate(req.Include); dup != "" {
-		return nil, fmt.Errorf("class list 'include' contains duplicate: %s", dup)
+		return nil, nil, fmt.Errorf("class list 'include' contains duplicate: %s", dup)
 	}
 	destPath := store.HomeDir(req.Bucket, req.Path)
 	meta, err := store.Meta(ctx, GlobalBackupFile, req.Bucket, req.Path)
 	if err != nil {
 		notFoundErr := backup.ErrNotFound{}
 		if errors.As(err, &notFoundErr) {
-			return nil, fmt.Errorf("backup id %q does not exist: %w: %w", req.ID, notFoundErr, errMetaNotFound)
+			return nil, nil, fmt.Errorf("backup id %q does not exist: %w: %w", req.ID, notFoundErr, errMetaNotFound)
 		}
-		return nil, fmt.Errorf("find backup %s: %w", destPath, err)
+		return nil, nil, fmt.Errorf("find backup %s: %w", destPath, err)
 	}
 	if meta.ID != req.ID {
-		return nil, fmt.Errorf("wrong backup file: expected %q got %q", req.ID, meta.ID)
+		return nil, nil, fmt.Errorf("wrong backup file: expected %q got %q", req.ID, meta.ID)
 	}
 	if meta.Status != backup.Success {
-		return nil, fmt.Errorf("invalid backup in scheduler %s status: %s", destPath, meta.Status)
+		return nil, nil, fmt.Errorf("invalid backup in scheduler %s status: %s", destPath, meta.Status)
 	}
 	if err := meta.Validate(); err != nil {
-		return nil, fmt.Errorf("corrupted backup file: %w", err)
+		return nil, nil, fmt.Errorf("corrupted backup file: %w", err)
 	}
 	if v := meta.Version; v[0] > Version[0] {
-		return nil, fmt.Errorf("%s: %s > %s", errMsgHigherVersion, v, Version)
+		return nil, nil, fmt.Errorf("%s: %s > %s", errMsgHigherVersion, v, Version)
 	}
 	cs := meta.Classes()
 
@@ -482,20 +482,27 @@ func (s *Scheduler) validateRestoreRequest(ctx context.Context, store coordStore
 	if len(include) > 0 {
 		if first := meta.AllExist(include); first != "" {
 			err = fmt.Errorf("class %s doesn't exist in the backup, but does have %v: ", first, cs)
-			return nil, err
+			return nil, nil, err
 		}
 		meta.Include(include)
 	} else {
 		meta.Exclude(exclude)
 	}
 	if meta.RemoveEmpty().Count() == 0 {
-		return nil, fmt.Errorf("nothing left to restore: please choose from : %v", cs)
+		return nil, nil, fmt.Errorf("nothing left to restore: please choose from : %v", cs)
 	}
 	if len(req.NodeMapping) > 0 {
 		meta.NodeMapping = req.NodeMapping
 		meta.ApplyNodeMapping()
 	}
-	return meta, nil
+
+	// old backups do not have this file, so do not log errors if it is missing
+	sharedChunks, err := store.GetSharedChunks(ctx, GlobalSharedBackupFile, req.Bucket, req.Path)
+	if err != nil {
+		s.logger.Infof("failed to retrieve shared chunks: %v", err)
+	}
+
+	return meta, sharedChunks, nil
 }
 
 // fetchSchema retrieves and returns the latest schema for all classes
