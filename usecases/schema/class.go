@@ -123,7 +123,7 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 		return nil, 0, err
 	}
 
-	if err := h.validateCanAddClass(ctx, cls, classGetterWithAuth, false); err != nil {
+	if err := h.validateCanAddClass(ctx, cls, classGetterWithAuth, true); err != nil {
 		return nil, 0, err
 	}
 	// migrate only after validation in completed
