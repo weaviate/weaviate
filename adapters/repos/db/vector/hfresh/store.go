@@ -184,6 +184,9 @@ func (p *PostingStore) Append(ctx context.Context, postingID uint64, vector Vect
 }
 
 func (p *PostingStore) Delete(ctx context.Context, postingID uint64) error {
+	start := time.Now()
+	defer p.metrics.StoreDeleteDuration(start)
+
 	p.locks.Lock(postingID)
 	defer p.locks.Unlock(postingID)
 

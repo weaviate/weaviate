@@ -40,6 +40,7 @@ type Metrics struct {
 	storeGet         prometheus.Observer
 	storeAppend      prometheus.Observer
 	storePut         prometheus.Observer
+	storeDelete      prometheus.Observer
 }
 
 func NewMetrics(prom *monitoring.PrometheusMetrics,
@@ -173,6 +174,12 @@ func NewMetrics(prom *monitoring.PrometheusMetrics,
 		"operation":  "put",
 	})
 
+	storeDelete := prom.VectorIndexStoreOperationsDurations.With(prometheus.Labels{
+		"class_name": className,
+		"shard_name": shardName,
+		"operation":  "delete",
+	})
+
 	return &Metrics{
 		enabled:          true,
 		size:             size,
@@ -195,6 +202,7 @@ func NewMetrics(prom *monitoring.PrometheusMetrics,
 		storeGet:         storeGet,
 		storeAppend:      storeAppend,
 		storePut:         storePut,
+		storeDelete:      storeDelete,
 	}
 }
 
@@ -366,4 +374,12 @@ func (m *Metrics) StorePutDuration(start time.Time) {
 	}
 
 	m.storePut.Observe(float64(time.Since(start).Milliseconds()))
+}
+
+func (m *Metrics) StoreDeleteDuration(start time.Time) {
+	if !m.enabled {
+		return
+	}
+
+	m.storeDelete.Observe(float64(time.Since(start).Milliseconds()))
 }
