@@ -14,6 +14,7 @@ package hfresh
 import (
 	"context"
 	"encoding/binary"
+	"sync/atomic"
 	"time"
 
 	"github.com/pkg/errors"
@@ -106,7 +107,7 @@ func (h *HFresh) doReassign(ctx context.Context, op reassignOperation) error {
 type reassignDeduplicator struct {
 	bucket *lsmkv.Bucket
 	m      *xsync.Map[uint64, uint64]
-	dirty  bool
+	dirty  atomic.Bool
 }
 
 func newReassignDeduplicator(bucket *lsmkv.Bucket) (*reassignDeduplicator, error) {
@@ -135,7 +136,7 @@ func newReassignDeduplicator(bucket *lsmkv.Bucket) (*reassignDeduplicator, error
 func (r *reassignDeduplicator) tryAdd(vectorID, postingID uint64) bool {
 	_, updated := r.m.LoadAndStore(vectorID, postingID)
 	if !updated {
-		r.dirty = true
+		r.dirty.Store(true)
 	}
 	return !updated
 }
@@ -147,7 +148,7 @@ func (r *reassignDeduplicator) done(vectorID uint64) {
 
 // flush writes all dirty entries to the persistent store.
 func (r *reassignDeduplicator) flush() (err error) {
-	if !r.dirty {
+	if !r.dirty.Load() {
 		return nil
 	}
 
