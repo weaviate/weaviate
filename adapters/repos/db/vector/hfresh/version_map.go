@@ -94,6 +94,8 @@ func (v *VersionMap) Increment(ctx context.Context, vectorID uint64, previousVer
 			}
 		}
 		if oldVersion.Deleted() || oldVersion != previousVersion {
+			err = errors.Errorf("version conflict for vector %d: expected %d, got %d",
+				vectorID, previousVersion, oldVersion)
 			return oldVersion, otter.CancelOp
 		}
 
