@@ -22,7 +22,6 @@ package router
 import (
 	"context"
 	"fmt"
-	"sort"
 
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/router/types"
@@ -126,9 +125,9 @@ var (
 	_ types.Router = (*singleTenantRouter)(nil)
 )
 
-// sortReplicas orders replicas with the preferred node first, followed by the remaining replicas
+// sort orders replicas with the preferred node first, followed by the remaining replicas
 // sorted by NodeName for deterministic ordering.
-func sortReplicas(replicas []types.Replica, preferredNodeName string) []types.Replica {
+func sort(replicas []types.Replica, preferredNodeName string) []types.Replica {
 	if len(replicas) == 0 {
 		return replicas
 	}
@@ -143,11 +142,6 @@ func sortReplicas(replicas []types.Replica, preferredNodeName string) []types.Re
 			otherReplicas = append(otherReplicas, replica)
 		}
 	}
-
-	// Sort remaining replicas by NodeName for deterministic ordering
-	sort.Slice(otherReplicas, func(i, j int) bool {
-		return otherReplicas[i].NodeName < otherReplicas[j].NodeName
-	})
 
 	return append(orderedReplicas, otherReplicas...)
 }
@@ -357,7 +351,7 @@ func (r *singleTenantRouter) buildReadRoutingPlan(params types.RoutingPlanBuildO
 		return types.ReadRoutingPlan{}, err
 	}
 
-	orderedReplicas := sortReplicas(readReplicas.Replicas, preferredNode(params.DirectCandidateNode, r.nodeSelector.LocalName()))
+	orderedReplicas := sort(readReplicas.Replicas, preferredNode(params.DirectCandidateNode, r.nodeSelector.LocalName()))
 
 	plan := types.ReadRoutingPlan{
 		LocalHostname: r.nodeSelector.LocalName(),
@@ -397,7 +391,7 @@ func (r *singleTenantRouter) buildWriteRoutingPlan(params types.RoutingPlanBuild
 		return types.WriteRoutingPlan{}, err
 	}
 
-	sortedWriteReplicas := sortReplicas(writeReplicas.Replicas, preferredNode(params.DirectCandidateNode, r.nodeSelector.LocalName()))
+	sortedWriteReplicas := sort(writeReplicas.Replicas, preferredNode(params.DirectCandidateNode, r.nodeSelector.LocalName()))
 
 	plan := types.WriteRoutingPlan{
 		Shard:  params.Shard,
@@ -568,7 +562,7 @@ func (r *multiTenantRouter) buildWriteRoutingPlan(params types.RoutingPlanBuildO
 		return types.WriteRoutingPlan{}, err
 	}
 
-	orderedReplicas := sortReplicas(writeReplicas.Replicas, preferredNode(params.DirectCandidateNode, r.nodeSelector.LocalName()))
+	orderedReplicas := sort(writeReplicas.Replicas, preferredNode(params.DirectCandidateNode, r.nodeSelector.LocalName()))
 
 	plan := types.WriteRoutingPlan{
 		Shard:  params.Shard,
@@ -609,7 +603,7 @@ func (r *multiTenantRouter) buildReadRoutingPlan(params types.RoutingPlanBuildOp
 		return types.ReadRoutingPlan{}, err
 	}
 
-	orderedReplicas := sortReplicas(readReplicas.Replicas, preferredNode(params.DirectCandidateNode, r.nodeSelector.LocalName()))
+	orderedReplicas := sort(readReplicas.Replicas, preferredNode(params.DirectCandidateNode, r.nodeSelector.LocalName()))
 
 	return types.ReadRoutingPlan{
 		LocalHostname: r.nodeSelector.LocalName(),
