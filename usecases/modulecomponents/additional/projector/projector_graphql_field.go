@@ -14,7 +14,7 @@ package projector
 import (
 	"fmt"
 
-	"github.com/tailor-inc/graphql"
+	"github.com/tailor-platform/graphql"
 )
 
 func (f *FeatureProjector) AdditionalFeatureProjectionField(classname string) *graphql.Field {

@@ -15,7 +15,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/tailor-inc/graphql"
+	"github.com/tailor-platform/graphql"
 )
 
 func TestAskGraphQLArgument(t *testing.T) {
