@@ -192,7 +192,6 @@ func (p *PostingStore) Delete(ctx context.Context, postingID uint64) error {
 
 	key, err := p.getKeyBytes(ctx, postingID)
 	if err != nil {
-		p.locks.RUnlock(postingID)
 		return err
 	}
 

@@ -153,4 +153,32 @@ func TestStore(t *testing.T) {
 		require.Equal(t, v, p[0])
 		require.Equal(t, v2, p[1])
 	})
+
+	t.Run("delete", func(t *testing.T) {
+		store := testinghelpers.NewDummyStore(t)
+		s, err := NewPostingStoreTest(store, NewMetrics(nil, "n/a", "n/a"), "test_bucket", StoreConfig{
+			MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
+		})
+		require.NoError(t, err)
+
+		for i := range 10 {
+			v := NewVector(uint64(i+1), 1, []byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10})
+			err = s.Append(ctx, uint64(i%2+1), v)
+			require.NoError(t, err)
+		}
+
+		// delete posting 1
+		err = s.Delete(ctx, 1)
+		require.NoError(t, err)
+
+		// check posting 1 is deleted
+		p, err := s.Get(ctx, 1)
+		require.NoError(t, err)
+		require.Equal(t, 0, len(p))
+
+		// check posting 2 still exists
+		p, err = s.Get(ctx, 2)
+		require.NoError(t, err)
+		require.Equal(t, 5, len(p))
+	})
 }
