@@ -46,3 +46,11 @@ type ClassConfigurator interface {
 	ValidateClass(ctx context.Context, class *models.Class,
 		classConfig moduletools.ClassConfig) error
 }
+
+type MigrateProperty struct {
+	OldName, NewName string
+}
+
+type MigrateProperties interface {
+	MigrateProperties() []MigrateProperty
+}

@@ -405,7 +405,8 @@ func UpdateClassInternal(h *Handler, ctx context.Context, className string, upda
 			}
 		}
 
-		if err := validateImmutableFields(initial, updated); err != nil {
+		// h.parser.modules
+		if err := validateImmutableFields(initial, updated, h.parser.modules); err != nil {
 			return err
 		}
 	}
@@ -984,7 +985,7 @@ func validateUpdatingMT(current, update *models.Class) (enabled bool, err error)
 	return enabled, err
 }
 
-func validateImmutableFields(initial, updated *models.Class) error {
+func validateImmutableFields(initial, updated *models.Class, modulesProvider modulesProvider) error {
 	immutableFields := []immutableText{
 		{
 			name:     "class name",
@@ -1002,6 +1003,12 @@ func validateImmutableFields(initial, updated *models.Class) error {
 		}
 
 		if !reflect.DeepEqual(initial.VectorConfig[k].Vectorizer, v.Vectorizer) {
+			// There might be module settings that need to be migrated to new names, for example
+			// if baseUrl property setting was renamed to baseURL then we need to adjust module settings
+			// and migrate baseUrl to baseURL
+			if modulesProvider.MigrateVectorizerSettings(initial.VectorConfig[k].Vectorizer, v.Vectorizer) {
+				continue
+			}
 			return fmt.Errorf("vectorizer config of vector %q is immutable", k)
 		}
 	}
