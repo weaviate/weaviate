@@ -132,11 +132,43 @@ func TestVersionMap(t *testing.T) {
 		require.False(t, version.Deleted())
 	})
 
-	t.Run("mark deleted vector and check if it is deleted", func(t *testing.T) {
+	t.Run("mark unknown vector as deleted", func(t *testing.T) {
 		versionMap := makeVersionMap(t)
 
 		_, err := versionMap.MarkDeleted(ctx, 1)
+		require.Error(t, err)
+	})
+
+	t.Run("mark vector as deleted and check if it is deleted", func(t *testing.T) {
+		versionMap := makeVersionMap(t)
+
+		version, err := versionMap.Increment(ctx, 1, 0)
 		require.NoError(t, err)
+		require.Equal(t, VectorVersion(1), version)
+
+		_, err = versionMap.MarkDeleted(ctx, 1)
+		require.NoError(t, err)
+
+		deleted, err := versionMap.IsDeleted(ctx, 1)
+		require.NoError(t, err)
+		require.True(t, deleted)
+	})
+
+	t.Run("mark deleted vector as deleted", func(t *testing.T) {
+		versionMap := makeVersionMap(t)
+
+		version, err := versionMap.Increment(ctx, 1, 0)
+		require.NoError(t, err)
+		require.Equal(t, VectorVersion(1), version)
+
+		v, err := versionMap.MarkDeleted(ctx, 1)
+		require.NoError(t, err)
+		require.True(t, v.Deleted())
+
+		v, err = versionMap.MarkDeleted(ctx, 1)
+		require.NoError(t, err)
+		require.True(t, v.Deleted())
+
 		deleted, err := versionMap.IsDeleted(ctx, 1)
 		require.NoError(t, err)
 		require.True(t, deleted)
