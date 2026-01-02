@@ -182,3 +182,33 @@ func TestVersionMap(t *testing.T) {
 		require.False(t, deleted)
 	})
 }
+
+func TestVersionStore(t *testing.T) {
+	ctx := t.Context()
+
+	store := testinghelpers.NewDummyStore(t)
+	bucket, err := NewSharedBucket(store, "test", StoreConfig{MakeBucketOptions: lsmkv.MakeNoopBucketOptions})
+	require.NoError(t, err)
+	versionStore := NewVersionStore(bucket)
+
+	// get unknown vector
+	v, err := versionStore.Get(ctx, 1)
+	require.ErrorIs(t, err, ErrVectorNotFound)
+	require.Equal(t, VectorVersion(0), v)
+
+	// set and get vector
+	err = versionStore.Set(ctx, 1, VectorVersion(5))
+	require.NoError(t, err)
+
+	v, err = versionStore.Get(ctx, 1)
+	require.NoError(t, err)
+	require.Equal(t, VectorVersion(5), v)
+
+	// update and get vector
+	err = versionStore.Set(ctx, 1, VectorVersion(10))
+	require.NoError(t, err)
+
+	v, err = versionStore.Get(ctx, 1)
+	require.NoError(t, err)
+	require.Equal(t, VectorVersion(10), v)
+}
