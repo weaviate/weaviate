@@ -74,15 +74,6 @@ func NewPostingStore(store *lsmkv.Store, metadataBucket *lsmkv.Bucket, metrics *
 	}, nil
 }
 
-func NewPostingStoreTest(store *lsmkv.Store, metrics *Metrics, id string, cfg StoreConfig) (*PostingStore, error) {
-	bucket, err := NewSharedBucket(store, id, cfg)
-	if err != nil {
-		return nil, err
-	}
-
-	return NewPostingStore(store, bucket, metrics, id, cfg)
-}
-
 func (p *PostingStore) getKeyBytes(ctx context.Context, postingID uint64) ([]byte, error) {
 	var buf [12]byte
 	binary.LittleEndian.PutUint64(buf[:], postingID)

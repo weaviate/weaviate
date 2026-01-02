@@ -19,6 +19,15 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 )
 
+func NewPostingStoreTest(store *lsmkv.Store, metrics *Metrics, id string, cfg StoreConfig) (*PostingStore, error) {
+	bucket, err := NewSharedBucket(store, id, cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	return NewPostingStore(store, bucket, metrics, id, cfg)
+}
+
 func TestStore(t *testing.T) {
 	ctx := t.Context()
 	t.Run("get", func(t *testing.T) {
