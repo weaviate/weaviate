@@ -12,6 +12,7 @@
 package hnsw
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -22,6 +23,18 @@ import (
 const (
 	indexGrowthRate = 1.25
 )
+
+func validateIndexGrowth(newSize uint64) error {
+	// 100 Billion objects is the "Sanity Limit".
+	// On a 64-bit system, a slice of 100B pointers requires ~800GB of RAM.
+	// Anything larger than this is almost certainly data corruption.
+	const MaxReasonableIndexSize = 100_000_000_000
+
+	if newSize > MaxReasonableIndexSize {
+		return fmt.Errorf("corruption detected: index growth requested to %d elements, which exceeds sanity limit of %d", newSize, MaxReasonableIndexSize)
+	}
+	return nil
+}
 
 // growIndexToAccomodateNode is a wrapper around the growIndexToAccomodateNode
 // function growing the index of the hnsw struct. It does not do any locking on
@@ -102,6 +115,10 @@ func growIndexToAccomodateNode(index []*vertex, id uint64,
 		// index from disk the first id to be imported would be 20,501, however the
 		// index default size and default delta would only reach up to 20,000.
 		newSize = id + cache.MinimumIndexGrowthDelta
+	}
+
+	if err := validateIndexGrowth(newSize); err != nil {
+		return nil, false, err
 	}
 
 	newIndex := make([]*vertex, newSize)
