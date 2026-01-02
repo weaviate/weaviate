@@ -88,7 +88,48 @@ func TestVersionMap(t *testing.T) {
 
 		version, err := versionMap.Increment(ctx, 1, VectorVersion(0))
 		require.NoError(t, err)
+		require.Equal(t, VectorVersion(1), version)
+
+		version, err = versionMap.Increment(ctx, 1, version)
+		require.NoError(t, err)
 		require.Equal(t, VectorVersion(2), version)
+	})
+
+	t.Run("increment with wrong previous version", func(t *testing.T) {
+		versionMap := makeVersionMap(t)
+
+		version, err := versionMap.Increment(ctx, 1, VectorVersion(0))
+		require.NoError(t, err)
+		require.Equal(t, VectorVersion(1), version)
+
+		version, err = versionMap.Increment(ctx, 1, VectorVersion(0))
+		require.Error(t, err)
+		require.Equal(t, VectorVersion(1), version)
+
+		version, err = versionMap.Get(ctx, 1)
+		require.NoError(t, err)
+		require.Equal(t, VectorVersion(1), version)
+	})
+
+	t.Run("increment with wraparound", func(t *testing.T) {
+		versionMap := makeVersionMap(t)
+
+		var version VectorVersion
+		var err error
+		for i := range 127 {
+			version, err = versionMap.Increment(ctx, 1, version)
+			require.NoError(t, err)
+			require.EqualValues(t, i+1, version.Version())
+		}
+
+		version, err = versionMap.Increment(ctx, 1, version)
+		require.NoError(t, err)
+		require.EqualValues(t, 0, version.Version())
+
+		version, err = versionMap.Get(ctx, 1)
+		require.NoError(t, err)
+		require.EqualValues(t, 0, version.Version())
+		require.False(t, version.Deleted())
 	})
 
 	t.Run("mark deleted vector and check if it is deleted", func(t *testing.T) {
