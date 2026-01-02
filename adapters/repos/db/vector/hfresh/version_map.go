@@ -25,6 +25,8 @@ const (
 	tombstoneMask = 0x80 // 1000 0000, masks out the highest bit
 )
 
+var ErrVersionIncrementFailed = errors.New("version increment failed")
+
 // A VectorVersion is a 1-byte value structured as follows:
 // - 7 bits for the version number
 // - 1 bit for the tombstone flag (0 = alive, 1 = deleted)
@@ -94,8 +96,7 @@ func (v *VersionMap) Increment(ctx context.Context, vectorID uint64, previousVer
 			}
 		}
 		if oldVersion.Deleted() || oldVersion != previousVersion {
-			err = errors.Errorf("version conflict for vector %d: expected %d, got %d",
-				vectorID, previousVersion, oldVersion)
+			err = ErrVersionIncrementFailed
 			return oldVersion, otter.CancelOp
 		}
 
