@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -367,6 +367,11 @@ func New(cfg Config, uc ent.UserConfig,
 		MaxWalReuseSize: cfg.MaxWalReuseSize,
 		fs:              common.NewOSFS(),
 	}
+	index.logger = cfg.Logger.WithFields(logrus.Fields{
+		"shard":        cfg.ShardName,
+		"class":        cfg.ClassName,
+		"targetVector": index.getTargetVector(),
+	})
 	index.acornSearch.Store(uc.FilterStrategy == ent.FilterStrategyAcorn)
 
 	index.multivector.Store(uc.Multivector.Enabled)
