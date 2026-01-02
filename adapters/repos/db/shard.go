@@ -229,6 +229,9 @@ type Shard struct {
 	hashtreeFullyInitialized        bool
 	minimalHashtreeInitializationCh chan struct{}
 	asyncReplicationCancelFunc      context.CancelFunc
+	asyncReplicationLastRun         atomic.Pointer[time.Time]
+	asyncReplicationShouldRun       chan struct{}
+	asyncReplicationRunning         atomic.Bool
 
 	lastComparedHosts                 []string
 	lastComparedHostsMux              sync.RWMutex

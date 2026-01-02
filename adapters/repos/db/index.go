@@ -627,15 +627,21 @@ func (i *Index) ForEachShard(f func(name string, shard ShardLike) error) error {
 	return i.shards.Range(f)
 }
 
-func (i *Index) ForEachLoadedShard(f func(name string, shard ShardLike) error) error {
+func (i *Index) ForEachLoadedShard(f func(name string, shard *Shard) error) error {
 	return i.shards.Range(func(name string, shard ShardLike) error {
 		// Skip lazy loaded shard which are not loaded
 		if asLazyLoadShard, ok := shard.(*LazyLoadShard); ok {
 			if !asLazyLoadShard.isLoaded() {
 				return nil
+			} else {
+				shard = asLazyLoadShard.shard
 			}
 		}
-		return f(name, shard)
+		loadedShard, ok := shard.(*Shard)
+		if !ok {
+			return fmt.Errorf("expected loaded shard to be of type *Shard, got %T", shard)
+		}
+		return f(name, loadedShard)
 	})
 }
 
@@ -770,7 +776,7 @@ func (i *Index) updateReplicationConfig(ctx context.Context, cfg *models.Replica
 	i.Config.DeletionStrategy = cfg.DeletionStrategy
 	i.Config.AsyncReplicationEnabled = cfg.AsyncEnabled && i.Config.ReplicationFactor > 1 && !i.asyncReplicationGloballyDisabled()
 
-	err := i.ForEachLoadedShard(func(name string, shard ShardLike) error {
+	err := i.ForEachLoadedShard(func(name string, shard *Shard) error {
 		if err := shard.SetAsyncReplicationEnabled(ctx, i.Config.AsyncReplicationEnabled); err != nil {
 			return fmt.Errorf("updating async replication on shard %q: %w", name, err)
 		}

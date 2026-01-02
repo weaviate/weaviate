@@ -22,6 +22,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync/atomic"
 	"time"
 
@@ -130,20 +131,20 @@ func (z *zip) WriteShard(ctx context.Context, sd *entBackup.ShardDescriptor) (wr
 			name: filepath.Base(x.relPath),
 			size: len(x.data),
 		}
-		if n, err = z.writeOne(ctx, info, x.relPath, bytes.NewReader(x.data)); err != nil {
+		if n, err = z.writeOne(ctx, info, x.relPath, sd.Name, bytes.NewReader(x.data)); err != nil {
 			return written, err
 		}
 		written += n
 
 	}
 
-	n, err = z.WriteRegulars(ctx, sd.Files)
+	n, err = z.WriteRegulars(ctx, sd.Files, sd.Name)
 	written += n
 
 	return written, err
 }
 
-func (z *zip) WriteRegulars(ctx context.Context, relPaths []string) (written int64, err error) {
+func (z *zip) WriteRegulars(ctx context.Context, relPaths []string, shardName string) (written int64, err error) {
 	for _, relPath := range relPaths {
 		if filepath.Base(relPath) == ".DS_Store" {
 			continue
@@ -151,7 +152,7 @@ func (z *zip) WriteRegulars(ctx context.Context, relPaths []string) (written int
 		if err := ctx.Err(); err != nil {
 			return written, err
 		}
-		n, err := z.WriteRegular(ctx, relPath)
+		n, err := z.WriteRegular(ctx, relPath, shardName)
 		if err != nil {
 			return written, err
 		}
@@ -160,7 +161,7 @@ func (z *zip) WriteRegulars(ctx context.Context, relPaths []string) (written int
 	return written, nil
 }
 
-func (z *zip) WriteRegular(ctx context.Context, relPath string) (written int64, err error) {
+func (z *zip) WriteRegular(ctx context.Context, relPath, shardName string) (written int64, err error) {
 	if err := ctx.Err(); err != nil {
 		return written, err
 	}
@@ -188,10 +189,10 @@ func (z *zip) WriteRegular(ctx context.Context, relPath string) (written int64, 
 	}
 	defer f.Close()
 
-	return z.writeOne(ctx, info, relPath, f)
+	return z.writeOne(ctx, info, relPath, shardName, f)
 }
 
-func (z *zip) writeOne(ctx context.Context, info fs.FileInfo, relPath string, r io.Reader) (written int64, err error) {
+func (z *zip) writeOne(ctx context.Context, info fs.FileInfo, relPath, shardName string, r io.Reader) (written int64, err error) {
 	if err := ctx.Err(); err != nil {
 		return written, err
 	}
@@ -202,6 +203,7 @@ func (z *zip) writeOne(ctx context.Context, info fs.FileInfo, relPath string, r 
 	}
 	header.Name = relPath
 	header.ChangeTime = info.ModTime()
+	header.Gname = shardName
 	if err := z.w.WriteHeader(header); err != nil {
 		if errors.Is(ctx.Err(), context.Canceled) {
 			// we ignore in case the ctx was cancelled
@@ -293,7 +295,7 @@ func (u *unzip) Close() (err error) {
 	return nil
 }
 
-func (u *unzip) ReadChunk() (written int64, err error) {
+func (u *unzip) ReadChunk(shardsToWrite []string) (written int64, err error) {
 	if err := u.init(); err != nil {
 		return 0, err
 	}
@@ -307,6 +309,11 @@ func (u *unzip) ReadChunk() (written int64, err error) {
 			return written, fmt.Errorf("fetch next: %w", err)
 		}
 		if header == nil {
+			continue
+		}
+		shardName := header.Gname
+		if shardsToWrite != nil && !slices.Contains(shardsToWrite, shardName) {
+			// skip this shard
 			continue
 		}
 

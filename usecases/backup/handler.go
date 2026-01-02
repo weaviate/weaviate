@@ -167,6 +167,12 @@ func (m *Handler) OnCanCommit(ctx context.Context, req *Request) *CanCommitRespo
 		return ret
 	}
 
+	globalStore, err := globalBackend(m.backends, req.Backend, req.ID, req.Bucket, req.Path)
+	if err != nil {
+		ret.Err = fmt.Sprintf("no backup backend %q, did you enable the right module?", req.Backend)
+		return ret
+	}
+
 	switch req.Method {
 	case OpCreate:
 		if err := m.backupper.sourcer.Backupable(ctx, req.Classes); err != nil {
@@ -177,7 +183,12 @@ func (m *Handler) OnCanCommit(ctx context.Context, req *Request) *CanCommitRespo
 			ret.Err = fmt.Sprintf("init uploader: %v", err)
 			return ret
 		}
-		res, err := m.backupper.backup(store, req)
+		if err = globalStore.Initialize(ctx, req.Bucket, req.Path); err != nil {
+			ret.Err = fmt.Sprintf("init global uploader: %v", err)
+			return ret
+		}
+
+		res, err := m.backupper.backup(store, globalStore, req)
 		if err != nil {
 			ret.Err = err.Error()
 			return ret
@@ -273,6 +284,15 @@ func nodeBackend(node string, provider BackupBackendProvider, backend, id, bucke
 		return nodeStore{}, err
 	}
 	ns := nodeStore{objectStore{backend: caps, backupId: fmt.Sprintf("%s/%s", id, node), bucket: bucket, path: path}}
+	return ns, nil
+}
+
+func globalBackend(provider BackupBackendProvider, backend, id, bucket, path string) (nodeStore, error) {
+	caps, err := provider.BackupBackend(backend)
+	if err != nil {
+		return nodeStore{}, err
+	}
+	ns := nodeStore{objectStore{backend: caps, backupId: id, bucket: bucket, path: path}}
 	return ns, nil
 }
 

@@ -106,7 +106,7 @@ func TestZip(t *testing.T) {
 			}()
 
 			// decompression writer
-			uzOutputLen, err := uz.ReadChunk()
+			uzOutputLen, err := uz.ReadChunk(nil)
 			if err != nil {
 				t.Fatalf("unzip: %v", err)
 			}
@@ -165,7 +165,7 @@ func TestUnzipPathEscape(t *testing.T) {
 		require.NoError(t, wc.Close())
 	}()
 
-	_, err = uz.ReadChunk()
+	_, err = uz.ReadChunk(nil)
 	require.ErrorContains(t, err, "outside shard root")
 
 	entries, err := os.ReadDir(completelyUnrelatedDir)
@@ -430,7 +430,7 @@ func TestRenamingDuringBackup(t *testing.T) {
 				require.NoError(t, err)
 				require.NoError(t, wc.Close())
 			}()
-			_, err = uz.ReadChunk()
+			_, err = uz.ReadChunk(nil)
 			require.NoError(t, err)
 			require.NoError(t, uz.Close())
 

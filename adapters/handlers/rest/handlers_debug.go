@@ -937,7 +937,7 @@ func setupDebugHandlers(appState *state.State) {
 
 		output := make(map[string]map[string]map[string]interface{})
 		idx.ForEachLoadedShard(
-			func(shardName string, shard db.ShardLike) error {
+			func(shardName string, shard *db.Shard) error {
 				output[shardName] = make(map[string]map[string]interface{})
 				return nil
 			},

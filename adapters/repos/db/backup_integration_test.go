@@ -101,7 +101,7 @@ func TestBackup_DBLevel(t *testing.T) {
 			err := db.Backupable(ctx, classes)
 			assert.Nil(t, err)
 
-			ch := db.BackupDescriptors(ctx, backupID, classes)
+			ch := db.BackupDescriptors(ctx, backupID, classes, nil)
 
 			for d := range ch {
 				assert.Equal(t, className, d.Name)
@@ -178,7 +178,7 @@ func TestBackup_DBLevel(t *testing.T) {
 			timeoutCtx, cancel := context.WithTimeout(context.Background(), 0)
 			defer cancel()
 
-			ch := db.BackupDescriptors(timeoutCtx, backupID, classes)
+			ch := db.BackupDescriptors(timeoutCtx, backupID, classes, nil)
 			for d := range ch {
 				require.NotNil(t, d.Error)
 				assert.Contains(t, d.Error.Error(), "context deadline exceeded")
