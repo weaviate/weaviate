@@ -17,6 +17,7 @@ import (
 	"math"
 	"os"
 	"regexp"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -430,7 +431,7 @@ const DefaultPersistenceLSMSegmentsCleanupIntervalSeconds = 0
 // are started for cyclemanager (factor * NUMCPU)
 const DefaultPersistenceLSMCycleManagerRoutinesFactor = 2
 
-const DefaultPersistenceHNSWMaxLogSize = 500 * 1024 * 1024 // 500MB for backward compatibility
+var DefaultPersistenceHNSWMaxLogSize = int64(500 * 1024 * 1024) // 500MB for backward compatibility
 
 const (
 	// minimal interval for new hnws snapshot to be created after last one
@@ -530,6 +531,21 @@ const (
 	DefaultCORSAllowMethods = "*"
 	DefaultCORSAllowHeaders = "Content-Type, Authorization, Batch, X-Openai-Api-Key, X-Openai-Organization, X-Openai-Baseurl, X-Anyscale-Baseurl, X-Anyscale-Api-Key, X-Cohere-Api-Key, X-Cohere-Baseurl, X-Huggingface-Api-Key, X-Azure-Api-Key, X-Azure-Deployment-Id, X-Azure-Resource-Name, X-Azure-Concurrency, X-Azure-Block-Size, X-Google-Api-Key, X-Google-Vertex-Api-Key, X-Google-Studio-Api-Key, X-Goog-Api-Key, X-Goog-Vertex-Api-Key, X-Goog-Studio-Api-Key, X-Palm-Api-Key, X-Jinaai-Api-Key, X-Aws-Access-Key, X-Aws-Secret-Key, X-Voyageai-Baseurl, X-Voyageai-Api-Key, X-Mistral-Baseurl, X-Mistral-Api-Key, X-Anthropic-Baseurl, X-Anthropic-Api-Key, X-Databricks-Endpoint, X-Databricks-Token, X-Databricks-User-Agent, X-Friendli-Token, X-Friendli-Baseurl, X-Weaviate-Api-Key, X-Weaviate-Cluster-Url, X-Nvidia-Api-Key, X-Nvidia-Baseurl, X-ContextualAI-Baseurl, X-ContextualAI-Api-Key"
 )
+
+func init() {
+	limit := debug.SetMemoryLimit(-1)
+
+	// If GOMEMLIMIT is set (not the default MaxInt64), calculate 25% of it..
+	if limit != math.MaxInt64 {
+		quarterMem := limit / 4
+
+		// if 25% of memory is smaller than 500MB,
+		// lower the default on small instances.
+		if quarterMem < DefaultPersistenceHNSWMaxLogSize {
+			DefaultPersistenceHNSWMaxLogSize = quarterMem
+		}
+	}
+}
 
 func (r ResourceUsage) Validate() error {
 	if err := r.DiskUse.Validate(); err != nil {
