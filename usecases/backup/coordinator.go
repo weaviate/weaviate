@@ -475,12 +475,20 @@ func (c *coordinator) commit(ctx context.Context,
 		st := groups[c.descriptor.ToOriginalNodeName(node)]
 		st.Status, st.Error = p.Status, p.Reason
 		if p.Status != backup.Success {
-			status = backup.Failed
-			reason = p.Reason
-
-			if strings.Contains(p.Reason, context.Canceled.Error()) {
+			if p.Status == backup.Cancelled {
 				status = backup.Cancelled
 				st.Status = backup.Cancelled
+				if reason == "" {
+					reason = p.Reason
+				}
+			} else {
+				status = backup.Failed
+				reason = p.Reason
+
+				if strings.Contains(p.Reason, context.Canceled.Error()) {
+					status = backup.Cancelled
+					st.Status = backup.Cancelled
+				}
 			}
 		} else {
 			// Try to read the node's backup descriptor to get pre-compression size
@@ -561,7 +569,7 @@ func (c *coordinator) queryAll(ctx context.Context, req *StatusRequest, nodes ma
 			if r.Status == backup.Success {
 				delete(nodes, r.node)
 			}
-			if r.Status == backup.Failed {
+			if r.Status == backup.Failed || r.Status == backup.Cancelled {
 				delete(nodes, r.node)
 				n++
 			}
@@ -608,11 +616,12 @@ func (c *coordinator) commitAll(ctx context.Context, req *StatusRequest, nodes m
 	nFailures := 0
 	for x := range errChan {
 		st := c.Participants[x.node]
-		st.Status = backup.Failed
-		if strings.Contains(st.Reason, context.Canceled.Error()) {
-			st.Status = backup.Cancelled
-		}
 		st.Reason = "might be down:" + x.err.Error()
+		if strings.Contains(x.err.Error(), context.Canceled.Error()) {
+			st.Status = backup.Cancelled
+		} else {
+			st.Status = backup.Failed
+		}
 		c.Participants[x.node] = st
 		c.log.WithField("action", req.Method).
 			WithField("backup_id", req.ID).

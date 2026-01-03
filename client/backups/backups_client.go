@@ -51,6 +51,8 @@ type ClientService interface {
 
 	BackupsRestore(params *BackupsRestoreParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*BackupsRestoreOK, error)
 
+	BackupsRestoreCancel(params *BackupsRestoreCancelParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*BackupsRestoreCancelNoContent, error)
+
 	BackupsRestoreStatus(params *BackupsRestoreStatusParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*BackupsRestoreStatusOK, error)
 
 	SetTransport(transport runtime.ClientTransport)
@@ -258,6 +260,47 @@ func (a *Client) BackupsRestore(params *BackupsRestoreParams, authInfo runtime.C
 	// unexpected success response
 	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
 	msg := fmt.Sprintf("unexpected success response for backups.restore: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
+}
+
+/*
+BackupsRestoreCancel cancels a backup restoration
+
+Cancels an ongoing backup restoration process identified by its ID on the specified backend storage.
+*/
+func (a *Client) BackupsRestoreCancel(params *BackupsRestoreCancelParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*BackupsRestoreCancelNoContent, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewBackupsRestoreCancelParams()
+	}
+	op := &runtime.ClientOperation{
+		ID:                 "backups.restore.cancel",
+		Method:             "DELETE",
+		PathPattern:        "/backups/{backend}/{id}/restore",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &BackupsRestoreCancelReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
+	if err != nil {
+		return nil, err
+	}
+	success, ok := result.(*BackupsRestoreCancelNoContent)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for backups.restore.cancel: API contract not enforced by server. Client expected to get an error, but got: %T", result)
 	panic(msg)
 }
 

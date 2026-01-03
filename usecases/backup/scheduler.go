@@ -319,6 +319,79 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 	return nil
 }
 
+func (s *Scheduler) CancelRestore(ctx context.Context, principal *models.Principal, backend, backupID, overrideBucket, overridePath string,
+) error {
+	defer func(begin time.Time) {
+		var err error
+		logOperation(s.logger, "cancel_restore", backupID, backend, begin, err)
+	}(time.Now())
+
+	store, err := coordBackend(s.backends, backend, backupID, overrideBucket, overridePath)
+	if err != nil {
+		err = fmt.Errorf("no backup provider %q: %w, did you enable the right module?", backend, err)
+		return backup.NewErrUnprocessable(err)
+	}
+
+	if err := validateID(backupID); err != nil {
+		return err
+	}
+
+	if err := store.Initialize(ctx, overrideBucket, overridePath); err != nil {
+		return backup.NewErrUnprocessable(fmt.Errorf("init uploader: %w", err))
+	}
+
+	meta, _ := store.Meta(ctx, GlobalRestoreFile, overrideBucket, overridePath)
+	if meta != nil {
+		if err := s.authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.Backups(meta.Classes()...)...); err != nil {
+			return err
+		}
+		// if existed meta and not in the next cases shall be cancellable
+		switch meta.Status {
+		case backup.Cancelled:
+			return nil
+		case backup.Success:
+			return backup.NewErrUnprocessable(fmt.Errorf("restore %q already succeeded", backupID))
+		default:
+			// do nothing and continue the cancellation
+		}
+	} else {
+		// If restore_config.json doesn't exist, try reading from backup_config.json to get classes for authorization
+		backupMeta, _ := store.Meta(ctx, GlobalBackupFile, overrideBucket, overridePath)
+		if backupMeta != nil {
+			if err := s.authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.Backups(backupMeta.Classes()...)...); err != nil {
+				return err
+			}
+		}
+	}
+
+	nodes, err := s.restorer.Nodes(ctx, &Request{
+		Method:  OpRestore,
+		Backend: backend,
+		ID:      backupID,
+		Classes: s.restorer.selector.ListClasses(ctx),
+	})
+	if err != nil {
+		return err
+	}
+	s.restorer.abortAll(ctx,
+		&AbortRequest{Method: OpRestore, ID: backupID, Backend: backend, Bucket: overrideBucket, Path: overridePath}, nodes)
+
+	// Write CANCELED status to restore_config.json
+	if meta != nil {
+		meta.Status = backup.Cancelled
+		meta.Error = "restore canceled by user"
+		meta.CompletedAt = time.Now().UTC()
+		if err := store.PutMeta(ctx, GlobalRestoreFile, meta, overrideBucket, overridePath); err != nil {
+			s.logger.WithField("action", "cancel_restore").
+				WithField("backup_id", backupID).
+				Errorf("failed to write canceled status to restore_config.json: %v", err)
+			// Don't return error - cancellation signal has been sent to nodes
+		}
+	}
+
+	return nil
+}
+
 func (s *Scheduler) List(ctx context.Context, principal *models.Principal, backend string, sortingOrder *string) (*models.BackupListResponse, error) {
 	var err error
 	defer func(begin time.Time) {
