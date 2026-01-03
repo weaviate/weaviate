@@ -1,4 +1,4 @@
-# Weaviate <img alt='Weaviate logo' src='https://weaviate.io/img/site/weaviate-logo-light.png' width='148' align='right' />
+# ❄️ Weaviate 🎄 <img alt='Weaviate logo' src='https://weaviate.io/img/site/weaviate-logo-light.png' width='148' align='right' />
 
 [![GitHub Repo stars](https://img.shields.io/github/stars/weaviate/weaviate?style=social)](https://github.com/weaviate/weaviate)
 [![Go Reference](https://pkg.go.dev/badge/github.com/weaviate/weaviate.svg)](https://pkg.go.dev/github.com/weaviate/weaviate)
@@ -11,12 +11,18 @@
 
 Weaviate supports two approaches to store vectors: automatic vectorization at import using [integrated models](https://docs.weaviate.io/weaviate/model-providers) (OpenAI, Cohere, HuggingFace, and others) or direct import of [pre-computed vector embeddings](https://docs.weaviate.io/weaviate/starter-guides/custom-vectors). Production deployments benefit from built-in multi-tenancy, replication, RBAC authorization, and [many other features](#weaviate-features).
 
-To get started quickly, have a look at one of these tutorials:
+To get started quickly, have a look at one of these tutorials ❄️:
 
 - [Quickstart - Weaviate Cloud](https://docs.weaviate.io/weaviate/quickstart)
 - [Quickstart - local Docker instance](https://docs.weaviate.io/weaviate/quickstart/local)
 
-## Installation
+<div align="center">
+
+❄️ ⛄ 🎄 ❄️ ⛄ 🎄 ❄️ ⛄ 🎄 ❄️ ⛄ 🎄 ❄️ ⛄ 🎄 ❄️ ⛄ 🎄 ❄️
+
+</div>
+
+## ⛄ Installation
 
 Weaviate offers multiple installation and deployment options:
 
@@ -26,7 +32,13 @@ Weaviate offers multiple installation and deployment options:
 
 See the [installation docs](https://docs.weaviate.io/deploy) for more deployment options, such as [AWS](https://docs.weaviate.io/deploy/installation-guides/aws-marketplace) and [GCP](https://docs.weaviate.io/deploy/installation-guides/gcp-marketplace).
 
-## Getting started
+<div align="center">
+
+🎄 ❄️ ⛄ 🎄 ❄️ ⛄ 🎄 ❄️ ⛄ 🎄 ❄️ ⛄ 🎄 ❄️ ⛄ 🎄 ❄️ ⛄ 🎄
+
+</div>
+
+## 🎄 Getting started
 
 You can easily start Weaviate and a local vector embedding model with [Docker](https://docs.docker.com/desktop/).
 Create a `docker-compose.yml` file:
@@ -95,7 +107,13 @@ client.close()
 
 This example uses the `Model2Vec` vectorizer, but you can choose any other [embedding model provider](https://docs.weaviate.io/weaviate/model-providers) or [bring your own pre-generated vectors](https://docs.weaviate.io/weaviate/starter-guides/custom-vectors).
 
-## Client libraries and APIs
+<div align="center">
+
+⛄ 🎄 ❄️ ⛄ 🎄 ❄️ ⛄ 🎄 ❄️ ⛄ 🎄 ❄️ ⛄ 🎄 ❄️ ⛄ 🎄 ❄️ ⛄
+
+</div>
+
+## ❄️ Client libraries and APIs
 
 Weaviate provides client libraries for several programming languages:
 
@@ -109,7 +127,13 @@ There are also additional [community-maintained libraries](https://docs.weaviate
 
 Weaviate exposes [REST API](https://docs.weaviate.io/weaviate/api/rest), [gRPC API](https://docs.weaviate.io/weaviate/api/grpc), and [GraphQL API](https://docs.weaviate.io/weaviate/api/graphql) to communicate with the database server.
 
-## Weaviate features
+<div align="center">
+
+❄️ ⛄ 🎄 ❄️ ⛄ 🎄 ❄️ ⛄ 🎄 ❄️ ⛄ 🎄 ❄️ ⛄ 🎄 ❄️ ⛄ 🎄 ❄️
+
+</div>
+
+## ⛄ Weaviate features
 
 These features enable you to build AI-powered applications:
 
@@ -127,9 +151,15 @@ These features enable you to build AI-powered applications:
 
 For a complete list of all functionalities, visit the [official Weaviate documentation](https://docs.weaviate.io).
 
-## Useful resources
+<div align="center">
 
-### Demo projects & recipes
+🎄 ❄️ ⛄ 🎄 ❄️ ⛄ 🎄 ❄️ ⛄ 🎄 ❄️ ⛄ 🎄 ❄️ ⛄ 🎄 ❄️ ⛄ 🎄
+
+</div>
+
+## 🎄 Useful resources
+
+### ❄️ Demo projects & recipes
 
 These demos are working applications that highlight some of Weaviate's capabilities. Their source code is available on GitHub.
 
@@ -143,7 +173,13 @@ We also maintain extensive repositories of **Jupyter Notebooks** and **TypeScrip
 - [Weaviate Python Recipes](https://github.com/weaviate/recipes/)
 - [Weaviate TypeScript Recipes](https://github.com/weaviate/recipes-ts/)
 
-### Blog posts
+<div align="center">
+
+⛄ 🎄 ❄️ ⛄ 🎄 ❄️ ⛄ 🎄 ❄️ ⛄ 🎄 ❄️ ⛄ 🎄 ❄️ ⛄ 🎄 ❄️ ⛄
+
+</div>
+
+### ⛄ Blog posts
 
 - [What is a Vector Database](https://weaviate.io/blog/what-is-a-vector-database)
 - [What is Vector Search](https://weaviate.io/blog/vector-search-explained)
@@ -157,7 +193,13 @@ We also maintain extensive repositories of **Jupyter Notebooks** and **TypeScrip
 - [What is Graph RAG](https://weaviate.io/blog/graph-rag)
 - [Overview of Late Interaction Models](https://weaviate.io/blog/late-interaction-overview)
 
-### Integrations
+<div align="center">
+
+❄️ ⛄ 🎄 ❄️ ⛄ 🎄 ❄️ ⛄ 🎄 ❄️ ⛄ 🎄 ❄️ ⛄ 🎄 ❄️ ⛄ 🎄 ❄️
+
+</div>
+
+### 🎄 Integrations
 
 Weaviate integrates with many external services:
 
@@ -169,12 +211,34 @@ Weaviate integrates with many external services:
 | **[LLM and Agent Frameworks](https://docs.weaviate.io/integrations/llm-agent-frameworks)** | Build agents and generative AI applications                | [Agno](https://docs.weaviate.io/integrations/llm-agent-frameworks/agno), [Composio](https://docs.weaviate.io/integrations/llm-agent-frameworks/composio), [CrewAI](https://docs.weaviate.io/integrations/llm-agent-frameworks/crewai), [DSPy](https://docs.weaviate.io/integrations/llm-agent-frameworks/dspy), [Dynamiq](https://docs.weaviate.io/integrations/llm-agent-frameworks/dynamiq), [Haystack](https://docs.weaviate.io/integrations/llm-agent-frameworks/haystack), [LangChain](https://docs.weaviate.io/integrations/llm-agent-frameworks/langchain), [LlamaIndex](https://docs.weaviate.io/integrations/llm-agent-frameworks/llamaindex), [N8n](https://docs.weaviate.io/integrations/llm-agent-frameworks/n8n), [Semantic Kernel](https://docs.weaviate.io/integrations/llm-agent-frameworks/semantic-kernel)                                   |
 | **[Operations](https://docs.weaviate.io/integrations/operations)**                         | Tools for monitoring and analyzing generative AI workflows | [AIMon](https://docs.weaviate.io/integrations/operations/aimon), [Arize](https://docs.weaviate.io/integrations/operations/arize), [Cleanlab](https://docs.weaviate.io/integrations/operations/cleanlab), [Comet](https://docs.weaviate.io/integrations/operations/comet), [DeepEval](https://docs.weaviate.io/integrations/operations/deepeval), [Langtrace](https://docs.weaviate.io/integrations/operations/langtrace), [LangWatch](https://docs.weaviate.io/integrations/operations/langwatch), [Nomic](https://docs.weaviate.io/integrations/operations/nomic), [Patronus AI](https://docs.weaviate.io/integrations/operations/patronus), [Ragas](https://docs.weaviate.io/integrations/operations/ragas), [TruLens](https://docs.weaviate.io/integrations/operations/trulens), [Weights & Biases](https://docs.weaviate.io/integrations/operations/wandb) |
 
-## Contributing
+<div align="center">
+
+🎄 ❄️ ⛄ 🎄 ❄️ ⛄ 🎄 ❄️ ⛄ 🎄 ❄️ ⛄ 🎄 ❄️ ⛄ 🎄 ❄️ ⛄ 🎄
+
+</div>
+
+## ❄️ Contributing
 
 We welcome and appreciate contributions! Please see our [Contributor guide](https://docs.weaviate.io/contributor-guide) for the development setup, code style guidelines, testing requirements and the pull request process.
 
 Join our [Slack community](https://weaviate.io/slack) or [Community forum](https://forum.weaviate.io/) to discuss ideas and get help.
 
-## License
+<div align="center">
+
+⛄ 🎄 ❄️ ⛄ 🎄 ❄️ ⛄ 🎄 ❄️ ⛄ 🎄 ❄️ ⛄ 🎄 ❄️ ⛄ 🎄 ❄️ ⛄
+
+</div>
+
+## ⛄ License
 
 BSD 3-Clause License. See [LICENSE](./LICENSE) for details.
+
+<div align="center">
+
+❄️ ⛄ 🎄 ❄️ ⛄ 🎄 ❄️ ⛄ 🎄 ❄️ ⛄ 🎄 ❄️ ⛄ 🎄 ❄️ ⛄ 🎄 ❄️
+
+**Happy Holidays from the Weaviate Team!** 🎄❄️⛄
+
+❄️ ⛄ 🎄 ❄️ ⛄ 🎄 ❄️ ⛄ 🎄 ❄️ ⛄ 🎄 ❄️ ⛄ 🎄 ❄️ ⛄ 🎄 ❄️
+
+</div>
