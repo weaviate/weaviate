@@ -14,6 +14,7 @@ package hfresh
 import (
 	"context"
 	"encoding/binary"
+	"sync/atomic"
 	"time"
 
 	"github.com/pkg/errors"
@@ -106,6 +107,7 @@ func (h *HFresh) doReassign(ctx context.Context, op reassignOperation) error {
 type reassignDeduplicator struct {
 	bucket *lsmkv.Bucket
 	m      *xsync.Map[uint64, uint64]
+	dirty  atomic.Bool
 }
 
 func newReassignDeduplicator(bucket *lsmkv.Bucket) (*reassignDeduplicator, error) {
@@ -133,6 +135,9 @@ func newReassignDeduplicator(bucket *lsmkv.Bucket) (*reassignDeduplicator, error
 // It returns true if the operation was added, false if it was already present.
 func (r *reassignDeduplicator) tryAdd(vectorID, postingID uint64) bool {
 	_, updated := r.m.LoadAndStore(vectorID, postingID)
+	if !updated {
+		r.dirty.Store(true)
+	}
 	return !updated
 }
 
@@ -143,6 +148,10 @@ func (r *reassignDeduplicator) done(vectorID uint64) {
 
 // flush writes all dirty entries to the persistent store.
 func (r *reassignDeduplicator) flush() (err error) {
+	if !r.dirty.Load() {
+		return nil
+	}
+
 	buf := make([]byte, 0, 16*r.m.Size())
 	r.m.Range(func(vectorID uint64, postingID uint64) bool {
 		buf = binary.LittleEndian.AppendUint64(buf, vectorID)
@@ -150,7 +159,13 @@ func (r *reassignDeduplicator) flush() (err error) {
 		return true
 	})
 
-	return r.bucket.Put([]byte(reassignBucketKey), buf)
+	err = r.bucket.Put([]byte(reassignBucketKey), buf)
+	if err != nil {
+		return err
+	}
+	r.dirty.Store(false)
+
+	return nil
 }
 
 // getLastKnownPostingID retrieves the last known posting ID for the given vector ID.
