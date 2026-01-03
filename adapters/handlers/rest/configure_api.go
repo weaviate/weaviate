@@ -2230,6 +2230,17 @@ func postInitRuntimeOverrides(appState *state.State, cm *configRuntime.ConfigMan
 			hooks["OIDC"] = appState.OIDC.Init
 		}
 		appState.Logger.Log(logrus.InfoLevel, "registereing OIDC runtime overrides hooks")
+
+		hooks["open_telemetry"] = func() error {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			if err := opentelemetry.Shutdown(ctx); err != nil {
+				return err
+			}
+			return opentelemetry.Init(appState.Logger)
+		}
+		appState.Logger.Log(logrus.InfoLevel, "registering OpenTelemetry runtime override hooks")
+
 		cm.RegisterHooks(hooks)
 		// reload current overrides file to take into account additional settings
 		if err := cm.ReloadConfig(); err != nil {
