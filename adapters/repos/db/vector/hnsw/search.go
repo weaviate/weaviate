@@ -661,35 +661,6 @@ func (h *hnsw) currentWorstResultDistanceToByte(results *priorityqueue.Queue[any
 	}
 }
 
-func (h *hnsw) distanceFromBytesToFloatNode(ctx context.Context, concreteDistancer compressionhelpers.CompressorDistancer, nodeID uint64) (float32, error) {
-	slice := h.pools.tempVectors.Get(int(h.dims))
-	defer h.pools.tempVectors.Put(slice)
-	var vec []float32
-	var err error
-	if h.muvera.Load() || !h.multivector.Load() {
-		vec, err = h.TempVectorForIDThunk(ctx, nodeID, slice)
-	} else {
-		docID, relativeID := h.cache.GetKeys(nodeID)
-		vecs, err := h.TempMultiVectorForIDThunk(ctx, docID, slice)
-		if err != nil {
-			return 0, err
-		} else if len(vecs) <= int(relativeID) {
-			return 0, errors.Errorf("relativeID %d is out of bounds for docID %d", relativeID, docID)
-		}
-		vec = vecs[relativeID]
-	}
-	if err != nil {
-		var e storobj.ErrNotFound
-		if errors.As(err, &e) {
-			h.handleDeletedNode(e.DocID, "distanceFromBytesToFloatNode")
-			return 0, err
-		}
-		// not a typed error, we can recover from, return with err
-		return 0, errors.Wrapf(err, "get vector of docID %d", nodeID)
-	}
-	vec = h.normalizeVec(vec)
-	return concreteDistancer.DistanceToFloat(vec)
-}
 
 func (h *hnsw) distanceFromBytesToFloatNodeWithView(ctx context.Context, concreteDistancer compressionhelpers.CompressorDistancer, nodeID uint64, view common.BucketView) (float32, error) {
 	slice := h.pools.tempVectors.Get(int(h.dims))

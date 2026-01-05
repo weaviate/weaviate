@@ -32,7 +32,6 @@ type Config struct {
 	MakeCommitLoggerThunk             MakeCommitLogger
 	VectorForIDThunk                  common.VectorForID[float32]
 	MultiVectorForIDThunk             common.VectorForID[[]float32]
-	TempVectorForIDThunk              common.TempVectorForID[float32]
 	TempMultiVectorForIDThunk         common.TempVectorForID[[]float32]
 	GetViewThunk                      common.GetViewThunk
 	TempVectorForIDWithViewThunk      common.TempVectorForIDWithView[float32]
@@ -100,14 +99,6 @@ func NewMultiVectorForIDThunk(targetVector string, fn func(ctx context.Context, 
 		VectorForIDThunk: fn,
 	}
 	return t.VectorForID
-}
-
-func NewTempVectorForIDThunk[T float32 | []float32](targetVector string, fn func(ctx context.Context, indexID uint64, container *common.VectorSlice, targetVector string) ([]T, error)) common.TempVectorForID[T] {
-	t := common.TargetTempVectorForID[T]{
-		TargetVector:         targetVector,
-		TempVectorForIDThunk: fn,
-	}
-	return t.TempVectorForID
 }
 
 func NewTempMultiVectorForIDThunk(targetVector string, fn func(ctx context.Context, indexID uint64, container *common.VectorSlice, targetVector string) ([][]float32, error)) common.TempVectorForID[[]float32] {

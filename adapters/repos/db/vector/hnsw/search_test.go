@@ -195,8 +195,9 @@ func TestAcornPercentage(t *testing.T) {
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 				return vectors[int(id)], nil
 			},
-			TempVectorForIDThunk: TempVectorForIDThunk(vectors),
-			AcornFilterRatio:     0.4,
+			GetViewThunk:                 func() common.BucketView { return &noopBucketView{} },
+			TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
+			AcornFilterRatio:             0.4,
 		}, ent.UserConfig{
 			MaxConnections:        16,
 			EFConstruction:        16,
@@ -305,11 +306,6 @@ func TestRescore(t *testing.T) {
 				h := &hnsw{
 					rescoreConcurrency: test.concurrency,
 					logger:             logger,
-					TempVectorForIDThunk: func(
-						ctx context.Context, id uint64, container *common.VectorSlice,
-					) ([]float32, error) {
-						return vectors[id], nil
-					},
 					GetViewThunk: func() common.BucketView {
 						return &noopBucketView{}
 					},

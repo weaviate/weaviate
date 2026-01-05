@@ -103,7 +103,6 @@ type hnsw struct {
 	nodes []*vertex
 
 	vectorForID                       common.VectorForID[float32]
-	TempVectorForIDThunk              common.TempVectorForID[float32]
 	TempMultiVectorForIDThunk         common.TempVectorForID[[]float32]
 	GetViewThunk                      common.GetViewThunk
 	TempVectorForIDWithViewThunk      common.TempVectorForIDWithView[float32]
@@ -351,7 +350,6 @@ func New(cfg Config, uc ent.UserConfig,
 		className:                 cfg.ClassName,
 		VectorForIDThunk:          cfg.VectorForIDThunk,
 		MultiVectorForIDThunk:     cfg.MultiVectorForIDThunk,
-		TempVectorForIDThunk:              cfg.TempVectorForIDThunk,
 		TempMultiVectorForIDThunk:         cfg.TempMultiVectorForIDThunk,
 		GetViewThunk:                      cfg.GetViewThunk,
 		TempVectorForIDWithViewThunk:      cfg.TempVectorForIDWithViewThunk,
