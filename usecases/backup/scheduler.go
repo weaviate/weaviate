@@ -392,6 +392,10 @@ func (s *Scheduler) validateBackupRequest(ctx context.Context, store coordStore,
 		return nil, errIncludeExclude
 	}
 
+	if dup := findDuplicate(req.Include); dup != "" {
+		return nil, fmt.Errorf("class list 'include' contains duplicate: %s", dup)
+	}
+
 	// Get all available classes first for wildcard expansion
 	allClasses := s.backupper.selector.ListClasses(ctx)
 	if len(allClasses) == 0 {
@@ -400,9 +404,6 @@ func (s *Scheduler) validateBackupRequest(ctx context.Context, store coordStore,
 
 	// Expand wildcards in Include list
 	include := expandWildcards(req.Include, allClasses)
-	if dup := findDuplicate(include); dup != "" {
-		return nil, fmt.Errorf("class list 'include' contains duplicate: %s", dup)
-	}
 
 	// Expand wildcards in Exclude list
 	exclude := expandWildcards(req.Exclude, allClasses)
@@ -496,7 +497,6 @@ func (s *Scheduler) validateRestoreRequest(ctx context.Context, store coordStore
 	}
 	return meta, nil
 }
-
 
 // fetchSchema retrieves and returns the latest schema for all classes
 // In pre-raft scenarios where schema may diverge, some guesswork is necessary
