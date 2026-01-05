@@ -456,7 +456,7 @@ func (p *Parser) validateModuleConfigsParityAndImmutables(initial, updated *mode
 			continue
 		}
 
-		if reflect.DeepEqual(initialModConf[module], updatedModConf[module]) {
+		if deepEqualVectorizerSettings(initialModConf[module], updatedModConf[module]) {
 			continue
 		}
 

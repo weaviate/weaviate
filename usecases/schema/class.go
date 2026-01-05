@@ -1012,13 +1012,14 @@ func validateImmutableFields(initial, updated *models.Class, modulesProvider mod
 			continue
 		}
 
-		if !reflect.DeepEqual(initial.VectorConfig[k].Vectorizer, v.Vectorizer) {
+		if !deepEqualVectorizerSettings(initial.VectorConfig[k].Vectorizer, v.Vectorizer) {
 			// There might be module settings that need to be migrated to new names, for example
 			// if baseUrl property setting was renamed to baseURL then we need to adjust module settings
 			// and migrate baseUrl to baseURL
 			if modulesProvider.MigrateVectorizerSettings(initial.VectorConfig[k].Vectorizer, v.Vectorizer) {
 				continue
 			}
+
 			return fmt.Errorf("vectorizer config of vector %q is immutable for class %s", k, updated.Class)
 		}
 	}
@@ -1043,6 +1044,21 @@ func validateImmutableFields(initial, updated *models.Class, modulesProvider mod
 	}
 
 	return nil
+}
+
+func deepEqualVectorizerSettings(inital, updated any) bool {
+	initialSettings := structToMap(inital)
+	updatedSettings := structToMap(updated)
+	return reflect.DeepEqual(initialSettings, updatedSettings)
+}
+
+func structToMap(obj any) (newMap map[string]any) {
+	if obj == nil {
+		return nil
+	}
+	data, _ := json.Marshal(obj)  // Convert to a json string
+	json.Unmarshal(data, &newMap) // Convert to a map
+	return newMap
 }
 
 type immutableText struct {
