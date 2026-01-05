@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -19,6 +19,13 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 )
+
+const (
+	counterMask   = 0x7F // 0111 1111, masks out the lower 7 bits
+	tombstoneMask = 0x80 // 1000 0000, masks out the highest bit
+)
+
+var ErrVersionIncrementFailed = errors.New("version increment failed")
 
 // A VectorVersion is a 1-byte value structured as follows:
 // - 7 bits for the version number
@@ -89,6 +96,7 @@ func (v *VersionMap) Increment(ctx context.Context, vectorID uint64, previousVer
 			}
 		}
 		if oldVersion.Deleted() || oldVersion != previousVersion {
+			err = ErrVersionIncrementFailed
 			return oldVersion, otter.CancelOp
 		}
 

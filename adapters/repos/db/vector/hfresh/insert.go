@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -84,11 +84,14 @@ func (h *HFresh) Add(ctx context.Context, id uint64, vector []float32) (err erro
 	}
 
 	// add the vector to the version map.
-	// TODO: if the vector already exists, invalidate all previous instances
-	// by incrementing the version
 	version, err := h.VersionMap.Increment(h.ctx, id, VectorVersion(0))
 	if err != nil {
-		return errors.Wrapf(err, "failed to increment version map for vector %d", id)
+		if !errors.Is(err, ErrVersionIncrementFailed) {
+			return errors.Wrapf(err, "failed to increment version map for vector %d", id)
+		}
+
+		// vector already exists, no need to re-insert
+		return nil
 	}
 
 	var v Vector
