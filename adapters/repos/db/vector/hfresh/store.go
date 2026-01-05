@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -74,15 +74,6 @@ func NewPostingStore(store *lsmkv.Store, metadataBucket *lsmkv.Bucket, metrics *
 	}, nil
 }
 
-func NewPostingStoreTest(store *lsmkv.Store, metrics *Metrics, id string, cfg StoreConfig) (*PostingStore, error) {
-	bucket, err := NewSharedBucket(store, id, cfg)
-	if err != nil {
-		return nil, err
-	}
-
-	return NewPostingStore(store, bucket, metrics, id, cfg)
-}
-
 func (p *PostingStore) getKeyBytes(ctx context.Context, postingID uint64) ([]byte, error) {
 	var buf [12]byte
 	binary.LittleEndian.PutUint64(buf[:], postingID)
@@ -145,13 +136,8 @@ func (p *PostingStore) Put(ctx context.Context, postingID uint64, posting Postin
 	defer p.locks.Unlock(postingID)
 
 	_, err := p.getKeyBytes(ctx, postingID)
-	if err != nil && !errors.Is(err, ErrPostingNotFound) {
+	if err != nil {
 		return err
-	} else if err != nil && errors.Is(err, ErrPostingNotFound) {
-		err := p.versions.Set(ctx, postingID, 0)
-		if err != nil {
-			return err
-		}
 	}
 
 	set := make([][]byte, len(posting))
