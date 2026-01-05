@@ -118,6 +118,11 @@ func (v *PostingSizes) Set(ctx context.Context, postingID uint64, newSize uint32
 		return err
 	}
 	v.cache.Set(postingID, newSize)
+	if newSize > 0 {
+		v.postingIDs.Store(postingID, struct{}{})
+	} else {
+		v.postingIDs.Delete(postingID)
+	}
 	v.metrics.ObservePostingSize(float64(newSize))
 	return nil
 }
