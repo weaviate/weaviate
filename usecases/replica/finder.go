@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -62,23 +62,18 @@ type (
 
 // Finder finds replicated objects
 type Finder struct {
-	router       router
+	router       types.Router
 	nodeName     string
 	finderStream // stream of objects
-	// control the op backoffs in the coordinator's Pull
-	coordinatorPullBackoffInitialInterval time.Duration
-	coordinatorPullBackoffMaxElapsedTime  time.Duration
 }
 
 // NewFinder constructs a new finder instance
 func NewFinder(className string,
-	router router,
+	router types.Router,
 	nodeName string,
 	client RClient,
 	metrics *Metrics,
 	l logrus.FieldLogger,
-	coordinatorPullBackoffInitialInterval time.Duration,
-	coordinatorPullBackoffMaxElapsedTime time.Duration,
 	getDeletionStrategy func() string,
 ) *Finder {
 	cl := FinderClient{client}
@@ -95,8 +90,6 @@ func NewFinder(className string,
 			},
 			log: l,
 		},
-		coordinatorPullBackoffInitialInterval: coordinatorPullBackoffInitialInterval,
-		coordinatorPullBackoffMaxElapsedTime:  coordinatorPullBackoffMaxElapsedTime,
 	}
 }
 
@@ -107,8 +100,7 @@ func (f *Finder) GetOne(ctx context.Context,
 	props search.SelectProperties,
 	adds additional.Properties,
 ) (*storobj.Object, error) {
-	c := newReadCoordinator[findOneReply](f, shard,
-		f.coordinatorPullBackoffInitialInterval, f.coordinatorPullBackoffMaxElapsedTime, f.getDeletionStrategy())
+	c := newReadCoordinator[findOneReply](f.router, f.metrics, f.class, shard, f.getDeletionStrategy(), f.log)
 	op := func(ctx context.Context, host string, fullRead bool) (findOneReply, error) {
 		if fullRead {
 			r, err := f.client.FullRead(ctx, host, f.class, shard, id, props, adds, 0)
@@ -150,8 +142,7 @@ func (f *Finder) GetOne(ctx context.Context,
 func (f *Finder) FindUUIDs(ctx context.Context,
 	className, shard string, filters *filters.LocalFilter, l types.ConsistencyLevel,
 ) (uuids []strfmt.UUID, err error) {
-	c := newReadCoordinator[[]strfmt.UUID](f, shard,
-		f.coordinatorPullBackoffInitialInterval, f.coordinatorPullBackoffMaxElapsedTime, f.getDeletionStrategy())
+	c := newReadCoordinator[[]strfmt.UUID](f.router, f.metrics, f.class, shard, f.getDeletionStrategy(), f.log)
 
 	op := func(ctx context.Context, host string, _ bool) ([]strfmt.UUID, error) {
 		return f.client.FindUUIDs(ctx, host, f.class, shard, filters)
@@ -236,8 +227,7 @@ func (f *Finder) Exists(ctx context.Context,
 	shard string,
 	id strfmt.UUID,
 ) (bool, error) {
-	c := newReadCoordinator[existReply](f, shard,
-		f.coordinatorPullBackoffInitialInterval, f.coordinatorPullBackoffMaxElapsedTime, f.getDeletionStrategy())
+	c := newReadCoordinator[existReply](f.router, f.metrics, f.class, shard, f.getDeletionStrategy(), f.log)
 	op := func(ctx context.Context, host string, _ bool) (existReply, error) {
 		xs, err := f.client.DigestReads(ctx, host, f.class, shard, []strfmt.UUID{id}, 0)
 		var x types.RepairResponse
@@ -284,8 +274,7 @@ func (f *Finder) checkShardConsistency(ctx context.Context,
 	batch ShardPart,
 ) ([]*storobj.Object, error) {
 	var (
-		c = newReadCoordinator[BatchReply](f, batch.Shard,
-			f.coordinatorPullBackoffInitialInterval, f.coordinatorPullBackoffMaxElapsedTime, f.getDeletionStrategy())
+		c         = newReadCoordinator[BatchReply](f.router, f.metrics, f.class, batch.Shard, f.getDeletionStrategy(), f.log)
 		shard     = batch.Shard
 		data, ids = batch.Extract() // extract from current content
 	)

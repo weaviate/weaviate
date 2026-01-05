@@ -1,0 +1,691 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
+package test
+
+import (
+	//"context"
+
+	"context"
+	"encoding/json"
+	"fmt"
+	"testing"
+	"time"
+
+	"github.com/weaviate/weaviate/usecases/config/runtime"
+
+	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/vectorindex/flat"
+	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+
+	"github.com/weaviate/weaviate/test/docker"
+	"github.com/weaviate/weaviate/test/helper"
+	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
+)
+
+func TestAssignDynamic(t *testing.T) {
+	d := runtime.NewDynamicValue("rq-8")
+	require.Equal(t, "rq-8", d.Get())
+}
+
+func TestDefaultQuantizationRQ8(t *testing.T) {
+	mainCtx := context.Background()
+
+	compose, err := docker.New().
+		WithWeaviateCluster(3).
+		WithWeaviateEnv("DEFAULT_QUANTIZATION", "rq-8").
+		WithWeaviateEnv("ASYNC_INDEXING", "true").
+		Start(mainCtx)
+	require.Nil(t, err)
+	defer func() {
+		if err := compose.Terminate(mainCtx); err != nil {
+			t.Fatalf("failed to terminate test containers: %s", err.Error())
+		}
+	}()
+
+	helper.SetupClient(compose.GetWeaviate().URI())
+
+	t.Run("RQ-8 with Hnsw index", func(t *testing.T) {
+		createClassDefaultQuantization(t, "hnsw", false, false)
+		// Get the schema
+
+		t.Log("Getting schema")
+		schema, err := helper.Client(t).Schema.SchemaDump(nil, nil)
+		fmt.Printf("Schema: %+v\n", schema.GetPayload())
+		require.Nil(t, err)
+		require.NotNil(t, schema)
+		payload := schema.GetPayload()
+		require.NotNil(t, payload)
+		vitype := payload.Classes[0].VectorIndexType
+		require.Equal(t, "hnsw", vitype)
+		viconfig := payload.Classes[0].VectorIndexConfig
+		require.NotNil(t, viconfig)
+		rq := viconfig.(map[string]interface{})["rq"]
+		require.NotNil(t, rq)
+		enabled := rq.(map[string]interface{})["enabled"].(bool)
+		require.Equal(t, true, enabled)
+		jsonBits := rq.(map[string]interface{})["bits"].(json.Number)
+		bits, err := jsonBits.Int64()
+		require.Nil(t, err)
+		require.Equal(t, int64(8), bits)
+		jsonRescoreLimit := rq.(map[string]interface{})["rescoreLimit"].(json.Number)
+		rescoreLimit, err := jsonRescoreLimit.Int64()
+		require.Nil(t, err)
+		require.Equal(t, int64(hnsw.DefaultRQRescoreLimit), rescoreLimit)
+		skipDefaultQuantization := viconfig.(map[string]interface{})["skipDefaultQuantization"].(bool)
+		require.Equal(t, false, skipDefaultQuantization)
+		trackDefaultQuantization := viconfig.(map[string]interface{})["trackDefaultQuantization"].(bool)
+		require.Equal(t, true, trackDefaultQuantization)
+	})
+
+	t.Run("RQ-8 with Flat index", func(t *testing.T) {
+		createClassDefaultQuantization(t, "flat", false, false)
+
+		// Get the schema
+
+		t.Log("Getting schema")
+		schema, err := helper.Client(t).Schema.SchemaDump(nil, nil)
+		fmt.Printf("Schema: %+v\n", schema.GetPayload())
+		require.Nil(t, err)
+		require.NotNil(t, schema)
+		payload := schema.GetPayload()
+		require.NotNil(t, payload)
+		vitype := payload.Classes[0].VectorIndexType
+		require.Equal(t, "flat", vitype)
+		viconfig := payload.Classes[0].VectorIndexConfig
+		require.NotNil(t, viconfig)
+		rq := viconfig.(map[string]interface{})["rq"]
+		require.NotNil(t, rq)
+		enabled := rq.(map[string]interface{})["enabled"].(bool)
+		require.Equal(t, true, enabled)
+		jsonBits := rq.(map[string]interface{})["bits"].(json.Number)
+		bits, err := jsonBits.Int64()
+		require.Nil(t, err)
+		require.Equal(t, int64(8), bits)
+		jsonRescoreLimit := rq.(map[string]interface{})["rescoreLimit"].(json.Number)
+		rescoreLimit, err := jsonRescoreLimit.Int64()
+		require.Nil(t, err)
+		require.Equal(t, int64(flat.DefaultCompressionRescore), rescoreLimit)
+		skipDefaultQuantization := viconfig.(map[string]interface{})["skipDefaultQuantization"].(bool)
+		require.Equal(t, false, skipDefaultQuantization)
+		trackDefaultQuantization := viconfig.(map[string]interface{})["trackDefaultQuantization"].(bool)
+		require.Equal(t, true, trackDefaultQuantization)
+	})
+
+	t.Run("RQ-8 with dynamic index", func(t *testing.T) {
+		createClassDefaultQuantization(t, "dynamic", false, false)
+
+		// Get the schema
+
+		t.Log("Getting schema")
+		schema, err := helper.Client(t).Schema.SchemaDump(nil, nil)
+		fmt.Printf("Schema: %+v\n", schema.GetPayload())
+		require.Nil(t, err)
+		require.NotNil(t, schema)
+		payload := schema.GetPayload()
+		require.NotNil(t, payload)
+		vitype := payload.Classes[0].VectorIndexType
+		require.Equal(t, "dynamic", vitype)
+		viconfig := payload.Classes[0].VectorIndexConfig
+		require.NotNil(t, viconfig)
+		// Extract flat configs
+		flatConfig := viconfig.(map[string]interface{})["flat"]
+		require.NotNil(t, flatConfig)
+		flatConfigMap := flatConfig.(map[string]interface{})
+		rq := flatConfigMap["rq"]
+		require.NotNil(t, rq)
+		enabled := rq.(map[string]interface{})["enabled"].(bool)
+		require.Equal(t, true, enabled)
+		jsonBits := rq.(map[string]interface{})["bits"].(json.Number)
+		bits, err := jsonBits.Int64()
+		require.Nil(t, err)
+		require.Equal(t, int64(8), bits)
+		jsonRescoreLimit := rq.(map[string]interface{})["rescoreLimit"].(json.Number)
+		rescoreLimit, err := jsonRescoreLimit.Int64()
+		require.Nil(t, err)
+		require.Equal(t, int64(flat.DefaultCompressionRescore), rescoreLimit)
+		skipDefaultQuantization := flatConfigMap["skipDefaultQuantization"].(bool)
+		require.Equal(t, false, skipDefaultQuantization)
+		trackDefaultQuantization := flatConfigMap["trackDefaultQuantization"].(bool)
+		require.Equal(t, true, trackDefaultQuantization)
+		// Extract hnsw configs
+		hnswConfig := viconfig.(map[string]interface{})["hnsw"]
+		require.NotNil(t, hnswConfig)
+		hnswConfigMap := hnswConfig.(map[string]interface{})
+		rq = hnswConfigMap["rq"]
+		require.NotNil(t, rq)
+		enabled = rq.(map[string]interface{})["enabled"].(bool)
+		require.Equal(t, true, enabled)
+		jsonBits = rq.(map[string]interface{})["bits"].(json.Number)
+		bits, err = jsonBits.Int64()
+		require.Nil(t, err)
+		require.Equal(t, int64(8), bits)
+		jsonRescoreLimit = rq.(map[string]interface{})["rescoreLimit"].(json.Number)
+		rescoreLimit, err = jsonRescoreLimit.Int64()
+		require.Nil(t, err)
+		require.Equal(t, int64(hnsw.DefaultRQRescoreLimit), rescoreLimit)
+		skipDefaultQuantization = hnswConfigMap["skipDefaultQuantization"].(bool)
+		require.Equal(t, false, skipDefaultQuantization)
+		trackDefaultQuantization = hnswConfigMap["trackDefaultQuantization"].(bool)
+		require.Equal(t, true, trackDefaultQuantization)
+	})
+}
+
+func TestDefaultQuantizationRQ1(t *testing.T) {
+	mainCtx := context.Background()
+
+	compose, err := docker.New().
+		WithWeaviateCluster(3).
+		WithWeaviateEnv("DEFAULT_QUANTIZATION", "rq-1").
+		WithWeaviateEnv("ASYNC_INDEXING", "true").
+		Start(mainCtx)
+	require.Nil(t, err)
+	defer func() {
+		if err := compose.Terminate(mainCtx); err != nil {
+			t.Fatalf("failed to terminate test containers: %s", err.Error())
+		}
+	}()
+
+	helper.SetupClient(compose.GetWeaviate().URI())
+
+	t.Run("RQ-1 with Hnsw index", func(t *testing.T) {
+		createClassDefaultQuantization(t, "hnsw", false, false)
+		// Get the schema
+
+		t.Log("Getting schema")
+		schema, err := helper.Client(t).Schema.SchemaDump(nil, nil)
+		fmt.Printf("Schema: %+v\n", schema.GetPayload())
+		require.Nil(t, err)
+		require.NotNil(t, schema)
+		payload := schema.GetPayload()
+		require.NotNil(t, payload)
+		vitype := payload.Classes[0].VectorIndexType
+		require.Equal(t, "hnsw", vitype)
+		viconfig := payload.Classes[0].VectorIndexConfig
+		require.NotNil(t, viconfig)
+		rq := viconfig.(map[string]interface{})["rq"]
+		require.NotNil(t, rq)
+		enabled := rq.(map[string]interface{})["enabled"].(bool)
+		require.Equal(t, true, enabled)
+		jsonBits := rq.(map[string]interface{})["bits"].(json.Number)
+		bits, err := jsonBits.Int64()
+		require.Nil(t, err)
+		require.Equal(t, int64(1), bits)
+		jsonRescoreLimit := rq.(map[string]interface{})["rescoreLimit"].(json.Number)
+		rescoreLimit, err := jsonRescoreLimit.Int64()
+		require.Nil(t, err)
+		require.Equal(t, int64(hnsw.DefaultBRQRescoreLimit), rescoreLimit)
+		skipDefaultQuantization := viconfig.(map[string]interface{})["skipDefaultQuantization"].(bool)
+		require.Equal(t, false, skipDefaultQuantization)
+		trackDefaultQuantization := viconfig.(map[string]interface{})["trackDefaultQuantization"].(bool)
+		require.Equal(t, true, trackDefaultQuantization)
+	})
+
+	t.Run("RQ-1 with Flat index", func(t *testing.T) {
+		createClassDefaultQuantization(t, "flat", false, false)
+
+		// Get the schema
+
+		t.Log("Getting schema")
+		schema, err := helper.Client(t).Schema.SchemaDump(nil, nil)
+		fmt.Printf("Schema: %+v\n", schema.GetPayload())
+		require.Nil(t, err)
+		require.NotNil(t, schema)
+		payload := schema.GetPayload()
+		require.NotNil(t, payload)
+		vitype := payload.Classes[0].VectorIndexType
+		require.Equal(t, "flat", vitype)
+		viconfig := payload.Classes[0].VectorIndexConfig
+		require.NotNil(t, viconfig)
+		rq := viconfig.(map[string]interface{})["rq"]
+		require.NotNil(t, rq)
+		enabled := rq.(map[string]interface{})["enabled"].(bool)
+		require.Equal(t, true, enabled)
+		jsonBits := rq.(map[string]interface{})["bits"].(json.Number)
+		bits, err := jsonBits.Int64()
+		require.Nil(t, err)
+		require.Equal(t, int64(1), bits)
+		jsonRescoreLimit := rq.(map[string]interface{})["rescoreLimit"].(json.Number)
+		rescoreLimit, err := jsonRescoreLimit.Int64()
+		require.Nil(t, err)
+		require.Equal(t, int64(flat.DefaultCompressionRescore), rescoreLimit)
+		skipDefaultQuantization := viconfig.(map[string]interface{})["skipDefaultQuantization"].(bool)
+		require.Equal(t, false, skipDefaultQuantization)
+		trackDefaultQuantization := viconfig.(map[string]interface{})["trackDefaultQuantization"].(bool)
+		require.Equal(t, true, trackDefaultQuantization)
+	})
+
+	t.Run("RQ-1 with dynamic index", func(t *testing.T) {
+		createClassDefaultQuantization(t, "dynamic", false, false)
+
+		// Get the schema
+
+		t.Log("Getting schema")
+		schema, err := helper.Client(t).Schema.SchemaDump(nil, nil)
+		fmt.Printf("Schema: %+v\n", schema.GetPayload())
+		require.Nil(t, err)
+		require.NotNil(t, schema)
+		payload := schema.GetPayload()
+		require.NotNil(t, payload)
+		vitype := payload.Classes[0].VectorIndexType
+		require.Equal(t, "dynamic", vitype)
+		viconfig := payload.Classes[0].VectorIndexConfig
+		require.NotNil(t, viconfig)
+		// Extract flat configs
+		flatConfig := viconfig.(map[string]interface{})["flat"]
+		require.NotNil(t, flatConfig)
+		flatConfigMap := flatConfig.(map[string]interface{})
+		rq := flatConfigMap["rq"]
+		require.NotNil(t, rq)
+		enabled := rq.(map[string]interface{})["enabled"].(bool)
+		require.Equal(t, true, enabled)
+		jsonBits := rq.(map[string]interface{})["bits"].(json.Number)
+		bits, err := jsonBits.Int64()
+		require.Nil(t, err)
+		require.Equal(t, int64(1), bits)
+		jsonRescoreLimit := rq.(map[string]interface{})["rescoreLimit"].(json.Number)
+		rescoreLimit, err := jsonRescoreLimit.Int64()
+		require.Nil(t, err)
+		require.Equal(t, int64(flat.DefaultCompressionRescore), rescoreLimit)
+		skipDefaultQuantization := flatConfigMap["skipDefaultQuantization"].(bool)
+		require.Equal(t, false, skipDefaultQuantization)
+		trackDefaultQuantization := flatConfigMap["trackDefaultQuantization"].(bool)
+		require.Equal(t, true, trackDefaultQuantization)
+		// Extract hnsw configs
+		hnswConfig := viconfig.(map[string]interface{})["hnsw"]
+		require.NotNil(t, hnswConfig)
+		hnswConfigMap := hnswConfig.(map[string]interface{})
+		rq = hnswConfigMap["rq"]
+		require.NotNil(t, rq)
+		enabled = rq.(map[string]interface{})["enabled"].(bool)
+		require.Equal(t, true, enabled)
+		jsonBits = rq.(map[string]interface{})["bits"].(json.Number)
+		bits, err = jsonBits.Int64()
+		require.Nil(t, err)
+		require.Equal(t, int64(1), bits)
+		jsonRescoreLimit = rq.(map[string]interface{})["rescoreLimit"].(json.Number)
+		rescoreLimit, err = jsonRescoreLimit.Int64()
+		require.Nil(t, err)
+		require.Equal(t, int64(hnsw.DefaultBRQRescoreLimit), rescoreLimit)
+		skipDefaultQuantization = hnswConfigMap["skipDefaultQuantization"].(bool)
+		require.Equal(t, false, skipDefaultQuantization)
+		trackDefaultQuantization = hnswConfigMap["trackDefaultQuantization"].(bool)
+		require.Equal(t, true, trackDefaultQuantization)
+	})
+}
+
+func TestDefaultQuantizationWithSkipDefaultQuantization(t *testing.T) {
+	mainCtx := context.Background()
+
+	compose, err := docker.New().
+		WithWeaviateCluster(3).
+		WithWeaviateEnv("DEFAULT_QUANTIZATION", "rq-8").
+		WithWeaviateEnv("ASYNC_INDEXING", "true").
+		Start(mainCtx)
+	require.Nil(t, err)
+	defer func() {
+		if err := compose.Terminate(mainCtx); err != nil {
+			t.Fatalf("failed to terminate test containers: %s", err.Error())
+		}
+	}()
+
+	helper.SetupClient(compose.GetWeaviate().URI())
+
+	t.Run("Skip RQ-8 with Hnsw index", func(t *testing.T) {
+		createClassDefaultQuantization(t, "hnsw", true, false)
+
+		// Get the schema
+		t.Log("Getting schema")
+		schema, err := helper.Client(t).Schema.SchemaDump(nil, nil)
+		fmt.Printf("Schema: %+v\n", schema.GetPayload())
+		require.Nil(t, err)
+		require.NotNil(t, schema)
+		payload := schema.GetPayload()
+		require.NotNil(t, payload)
+		vitype := payload.Classes[0].VectorIndexType
+		require.Equal(t, "hnsw", vitype)
+		viconfig := payload.Classes[0].VectorIndexConfig
+		require.NotNil(t, viconfig)
+		rq := viconfig.(map[string]interface{})["rq"]
+		require.NotNil(t, rq)
+		enabled := rq.(map[string]interface{})["enabled"].(bool)
+		require.Equal(t, false, enabled)
+		skipDefaultQuantization := viconfig.(map[string]interface{})["skipDefaultQuantization"].(bool)
+		require.Equal(t, true, skipDefaultQuantization)
+		trackDefaultQuantization := viconfig.(map[string]interface{})["trackDefaultQuantization"].(bool)
+		require.Equal(t, false, trackDefaultQuantization)
+	})
+
+	t.Run("Skip RQ-8 with Flat index", func(t *testing.T) {
+		createClassDefaultQuantization(t, "flat", true, false)
+
+		// Get the schema
+		t.Log("Getting schema")
+		schema, err := helper.Client(t).Schema.SchemaDump(nil, nil)
+		fmt.Printf("Schema: %+v\n", schema.GetPayload())
+		require.Nil(t, err)
+		require.NotNil(t, schema)
+		payload := schema.GetPayload()
+		require.NotNil(t, payload)
+		vitype := payload.Classes[0].VectorIndexType
+		require.Equal(t, "flat", vitype)
+		viconfig := payload.Classes[0].VectorIndexConfig
+		require.NotNil(t, viconfig)
+		rq := viconfig.(map[string]interface{})["rq"]
+		require.NotNil(t, rq)
+		enabled := rq.(map[string]interface{})["enabled"].(bool)
+		require.Equal(t, false, enabled)
+		skipDefaultQuantization := viconfig.(map[string]interface{})["skipDefaultQuantization"].(bool)
+		require.Equal(t, true, skipDefaultQuantization)
+		trackDefaultQuantization := viconfig.(map[string]interface{})["trackDefaultQuantization"].(bool)
+		require.Equal(t, false, trackDefaultQuantization)
+	})
+
+	t.Run("Skip RQ-8 with dynamic index", func(t *testing.T) {
+		createClassDefaultQuantization(t, "dynamic", true, false)
+
+		// Get the schema
+
+		t.Log("Getting schema")
+		schema, err := helper.Client(t).Schema.SchemaDump(nil, nil)
+		fmt.Printf("Schema: %+v\n", schema.GetPayload())
+		require.Nil(t, err)
+		require.NotNil(t, schema)
+		payload := schema.GetPayload()
+		require.NotNil(t, payload)
+		vitype := payload.Classes[0].VectorIndexType
+		require.Equal(t, "dynamic", vitype)
+		viconfig := payload.Classes[0].VectorIndexConfig
+		require.NotNil(t, viconfig)
+		// Extract flat configs
+		flatConfig := viconfig.(map[string]interface{})["flat"]
+		rq := flatConfig.(map[string]interface{})["rq"]
+		require.NotNil(t, rq)
+		enabled := rq.(map[string]interface{})["enabled"].(bool)
+		require.Equal(t, false, enabled)
+		skipDefaultQuantization := flatConfig.(map[string]interface{})["skipDefaultQuantization"].(bool)
+		require.Equal(t, true, skipDefaultQuantization)
+		trackDefaultQuantization := flatConfig.(map[string]interface{})["trackDefaultQuantization"].(bool)
+		require.Equal(t, false, trackDefaultQuantization)
+		// Extract hnsw configs
+		hnswConfig := viconfig.(map[string]interface{})["hnsw"]
+		require.NotNil(t, hnswConfig)
+		rq = hnswConfig.(map[string]interface{})["rq"]
+		require.NotNil(t, rq)
+		enabled = rq.(map[string]interface{})["enabled"].(bool)
+		require.Equal(t, false, enabled)
+		skipDefaultQuantization = hnswConfig.(map[string]interface{})["skipDefaultQuantization"].(bool)
+		require.Equal(t, true, skipDefaultQuantization)
+		trackDefaultQuantization = hnswConfig.(map[string]interface{})["trackDefaultQuantization"].(bool)
+		require.Equal(t, false, trackDefaultQuantization)
+	})
+}
+
+func TestDefaultQuantizationOverride(t *testing.T) {
+	mainCtx := context.Background()
+
+	compose, err := docker.New().
+		WithWeaviateCluster(3).
+		WithWeaviateEnv("DEFAULT_QUANTIZATION", "rq-8").
+		WithWeaviateEnv("ASYNC_INDEXING", "true").
+		Start(mainCtx)
+	require.Nil(t, err)
+	defer func() {
+		if err := compose.Terminate(mainCtx); err != nil {
+			t.Fatalf("failed to terminate test containers: %s", err.Error())
+		}
+	}()
+
+	helper.SetupClient(compose.GetWeaviate().URI())
+	t.Run("BQ override with Hnsw index", func(t *testing.T) {
+		createClassDefaultQuantization(t, "hnsw", false, true)
+
+		// Get the schema
+		t.Log("Getting schema")
+		schema, err := helper.Client(t).Schema.SchemaDump(nil, nil)
+		fmt.Printf("Schema: %+v\n", schema.GetPayload())
+		require.Nil(t, err)
+		require.NotNil(t, schema)
+		payload := schema.GetPayload()
+		require.NotNil(t, payload)
+		vitype := payload.Classes[0].VectorIndexType
+		require.Equal(t, "hnsw", vitype)
+		viconfig := payload.Classes[0].VectorIndexConfig
+		require.NotNil(t, viconfig)
+		rq := viconfig.(map[string]interface{})["rq"]
+		require.NotNil(t, rq)
+		require.False(t, rq.(map[string]interface{})["enabled"].(bool))
+		bq := viconfig.(map[string]interface{})["bq"]
+		require.NotNil(t, bq)
+		enabled := bq.(map[string]interface{})["enabled"].(bool)
+		require.Equal(t, true, enabled)
+		skipDefaultQuantization := viconfig.(map[string]interface{})["skipDefaultQuantization"].(bool)
+		require.Equal(t, false, skipDefaultQuantization)
+		trackDefaultQuantization := viconfig.(map[string]interface{})["trackDefaultQuantization"].(bool)
+		require.Equal(t, false, trackDefaultQuantization)
+	})
+	t.Run("BQ override with Flat index", func(t *testing.T) {
+		createClassDefaultQuantization(t, "flat", false, true)
+
+		// Get the schema
+		t.Log("Getting schema")
+		schema, err := helper.Client(t).Schema.SchemaDump(nil, nil)
+		fmt.Printf("Schema: %+v\n", schema.GetPayload())
+		require.Nil(t, err)
+		require.NotNil(t, schema)
+		payload := schema.GetPayload()
+		require.NotNil(t, payload)
+		vitype := payload.Classes[0].VectorIndexType
+		require.Equal(t, "flat", vitype)
+		viconfig := payload.Classes[0].VectorIndexConfig
+		require.NotNil(t, viconfig)
+		rq := viconfig.(map[string]interface{})["rq"]
+		require.NotNil(t, rq)
+		require.False(t, rq.(map[string]interface{})["enabled"].(bool))
+		bq := viconfig.(map[string]interface{})["bq"]
+		require.NotNil(t, bq)
+		enabled := bq.(map[string]interface{})["enabled"].(bool)
+		require.Equal(t, true, enabled)
+		skipDefaultQuantization := viconfig.(map[string]interface{})["skipDefaultQuantization"].(bool)
+		require.Equal(t, false, skipDefaultQuantization)
+		trackDefaultQuantization := viconfig.(map[string]interface{})["trackDefaultQuantization"].(bool)
+		require.Equal(t, false, trackDefaultQuantization)
+	})
+
+	t.Run("BQ override with dynamic index", func(t *testing.T) {
+		createClassDefaultQuantization(t, "dynamic", false, true)
+
+		// Get the schema
+		t.Log("Getting schema")
+		schema, err := helper.Client(t).Schema.SchemaDump(nil, nil)
+		fmt.Printf("Schema: %+v\n", schema.GetPayload())
+		require.Nil(t, err)
+		require.NotNil(t, schema)
+		payload := schema.GetPayload()
+		require.NotNil(t, payload)
+		vitype := payload.Classes[0].VectorIndexType
+		require.Equal(t, "dynamic", vitype)
+		viconfig := payload.Classes[0].VectorIndexConfig
+		require.NotNil(t, viconfig)
+		// Extract flat configs
+		flatConfig := viconfig.(map[string]interface{})["flat"]
+		rq := flatConfig.(map[string]interface{})["rq"]
+		require.NotNil(t, rq)
+		require.False(t, rq.(map[string]interface{})["enabled"].(bool))
+		bq := flatConfig.(map[string]interface{})["bq"]
+		require.NotNil(t, bq)
+		enabled := bq.(map[string]interface{})["enabled"].(bool)
+		require.Equal(t, true, enabled)
+		skipDefaultQuantization := flatConfig.(map[string]interface{})["skipDefaultQuantization"].(bool)
+		require.Equal(t, false, skipDefaultQuantization)
+		trackDefaultQuantization := flatConfig.(map[string]interface{})["trackDefaultQuantization"].(bool)
+		require.Equal(t, false, trackDefaultQuantization)
+		// Extract hnsw configs
+		hnswConfig := viconfig.(map[string]interface{})["hnsw"]
+		require.NotNil(t, hnswConfig)
+		rq = hnswConfig.(map[string]interface{})["rq"]
+		require.NotNil(t, rq)
+		require.False(t, rq.(map[string]interface{})["enabled"].(bool))
+		bq = hnswConfig.(map[string]interface{})["bq"]
+		require.NotNil(t, bq)
+		enabled = bq.(map[string]interface{})["enabled"].(bool)
+		require.Equal(t, true, enabled)
+		skipDefaultQuantization = hnswConfig.(map[string]interface{})["skipDefaultQuantization"].(bool)
+		require.Equal(t, false, skipDefaultQuantization)
+		trackDefaultQuantization = hnswConfig.(map[string]interface{})["trackDefaultQuantization"].(bool)
+		require.Equal(t, false, trackDefaultQuantization)
+	})
+
+	t.Run("BQ override flat with dynamic index", func(t *testing.T) {
+		cls := articles.ParagraphsClass()
+		cls.ReplicationConfig = &models.ReplicationConfig{
+			Factor: 1,
+		}
+		cls.MultiTenancyConfig = &models.MultiTenancyConfig{
+			Enabled:              true,
+			AutoTenantActivation: true,
+			AutoTenantCreation:   true,
+		}
+		cls.VectorIndexType = "dynamic"
+		cls.VectorIndexConfig = map[string]interface{}{
+			"flat": map[string]interface{}{
+				"bq": map[string]interface{}{
+					"enabled": true,
+				},
+			},
+		}
+
+		// Create the class
+		t.Log("Creating class", cls.Class)
+		helper.DeleteClass(t, cls.Class)
+		helper.CreateClass(t, cls)
+
+		// Load data
+		t.Log("Loading data into tenant...")
+		tenantName := "tenant"
+		batch := make([]*models.Object, 0, 100000)
+		start := time.Now()
+		for j := 0; j < 10; j++ {
+			batch = append(batch, (*models.Object)(articles.NewParagraph().
+				WithContents(fmt.Sprintf("paragraph#%d", j)).
+				WithTenant(tenantName).
+				Object()))
+			if len(batch) == 50000 {
+				helper.CreateObjectsBatch(t, batch)
+				t.Logf("Loaded %d objects", len(batch))
+				batch = batch[:0]
+			}
+		}
+		if len(batch) > 0 {
+			helper.CreateObjectsBatch(t, batch)
+			t.Logf("Loaded remaining %d objects", len(batch))
+		}
+		t.Logf("Data loading took %s", time.Since(start))
+
+		// Get the schema
+		t.Log("Getting schema")
+		schema, err := helper.Client(t).Schema.SchemaDump(nil, nil)
+		fmt.Printf("Schema: %+v\n", schema.GetPayload())
+		require.Nil(t, err)
+		require.NotNil(t, schema)
+		payload := schema.GetPayload()
+		require.NotNil(t, payload)
+		vitype := payload.Classes[0].VectorIndexType
+		require.Equal(t, "dynamic", vitype)
+		viconfig := payload.Classes[0].VectorIndexConfig
+		require.NotNil(t, viconfig)
+		// Extract flat configs
+		flatConfig := viconfig.(map[string]interface{})["flat"]
+		rq := flatConfig.(map[string]interface{})["rq"]
+		require.NotNil(t, rq)
+		require.False(t, rq.(map[string]interface{})["enabled"].(bool))
+		bq := flatConfig.(map[string]interface{})["bq"]
+		require.NotNil(t, bq)
+		enabled := bq.(map[string]interface{})["enabled"].(bool)
+		require.Equal(t, true, enabled)
+		skipDefaultQuantization := flatConfig.(map[string]interface{})["skipDefaultQuantization"].(bool)
+		require.Equal(t, false, skipDefaultQuantization)
+		trackDefaultQuantization := flatConfig.(map[string]interface{})["trackDefaultQuantization"].(bool)
+		require.Equal(t, false, trackDefaultQuantization)
+		// Extract hnsw configs
+		hnswConfig := viconfig.(map[string]interface{})["hnsw"]
+		require.NotNil(t, hnswConfig)
+		rq = hnswConfig.(map[string]interface{})["rq"]
+		require.NotNil(t, rq)
+		require.True(t, rq.(map[string]interface{})["enabled"].(bool))
+		bq = hnswConfig.(map[string]interface{})["bq"]
+		require.NotNil(t, bq)
+		enabled = bq.(map[string]interface{})["enabled"].(bool)
+		require.Equal(t, false, enabled)
+		skipDefaultQuantization = hnswConfig.(map[string]interface{})["skipDefaultQuantization"].(bool)
+		require.Equal(t, false, skipDefaultQuantization)
+		trackDefaultQuantization = hnswConfig.(map[string]interface{})["trackDefaultQuantization"].(bool)
+		require.Equal(t, true, trackDefaultQuantization)
+	})
+}
+
+func createClassDefaultQuantization(t *testing.T, vectorIndexType string, skipDefaultQuantization bool, override bool) {
+	cls := articles.ParagraphsClass()
+	cls.ReplicationConfig = &models.ReplicationConfig{
+		Factor: 1,
+	}
+	cls.MultiTenancyConfig = &models.MultiTenancyConfig{
+		Enabled:              true,
+		AutoTenantActivation: true,
+		AutoTenantCreation:   true,
+	}
+	if vectorIndexType != "hnsw" {
+		cls.VectorIndexType = vectorIndexType
+	}
+	vectorIndexConfig := map[string]interface{}{
+		"skipDefaultQuantization": skipDefaultQuantization,
+	}
+	if override {
+		vectorIndexConfig["bq"] = map[string]interface{}{
+			"enabled": true,
+		}
+	}
+	if vectorIndexType != "dynamic" {
+		cls.VectorIndexConfig = vectorIndexConfig
+	} else {
+		cls.VectorIndexConfig = map[string]interface{}{
+			"flat": vectorIndexConfig,
+			"hnsw": vectorIndexConfig,
+		}
+	}
+	// Create the class
+	t.Log("Creating class", cls.Class)
+	helper.DeleteClass(t, cls.Class)
+	helper.CreateClass(t, cls)
+
+	// Load data
+	t.Log("Loading data into tenant...")
+	tenantName := "tenant"
+	batch := make([]*models.Object, 0, 100000)
+	start := time.Now()
+	for j := 0; j < 10; j++ {
+		batch = append(batch, (*models.Object)(articles.NewParagraph().
+			WithContents(fmt.Sprintf("paragraph#%d", j)).
+			WithTenant(tenantName).
+			Object()))
+		if len(batch) == 50000 {
+			helper.CreateObjectsBatch(t, batch)
+			t.Logf("Loaded %d objects", len(batch))
+			batch = batch[:0]
+		}
+	}
+	if len(batch) > 0 {
+		helper.CreateObjectsBatch(t, batch)
+		t.Logf("Loaded remaining %d objects", len(batch))
+	}
+	t.Logf("Data loading took %s", time.Since(start))
+}

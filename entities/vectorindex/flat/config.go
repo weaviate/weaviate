@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -41,12 +41,14 @@ type RQUserConfig struct {
 }
 
 type UserConfig struct {
-	Distance              string                `json:"distance"`
-	VectorCacheMaxObjects int                   `json:"vectorCacheMaxObjects"`
-	PQ                    CompressionUserConfig `json:"pq"`
-	BQ                    CompressionUserConfig `json:"bq"`
-	SQ                    CompressionUserConfig `json:"sq"`
-	RQ                    RQUserConfig          `json:"rq"`
+	Distance                 string                `json:"distance"`
+	VectorCacheMaxObjects    int                   `json:"vectorCacheMaxObjects"`
+	PQ                       CompressionUserConfig `json:"pq"`
+	BQ                       CompressionUserConfig `json:"bq"`
+	SQ                       CompressionUserConfig `json:"sq"`
+	RQ                       RQUserConfig          `json:"rq"`
+	SkipDefaultQuantization  bool                  `json:"skipDefaultQuantization"`
+	TrackDefaultQuantization bool                  `json:"trackDefaultQuantization"`
 }
 
 // IndexType returns the type of the underlying vector index, thus making sure
@@ -104,6 +106,18 @@ func ParseAndValidateConfig(input interface{}) (schemaConfig.VectorIndexConfig, 
 
 	if err := vectorindexcommon.OptionalIntFromMap(asMap, "vectorCacheMaxObjects", func(v int) {
 		uc.VectorCacheMaxObjects = v
+	}); err != nil {
+		return uc, err
+	}
+
+	if err := vectorindexcommon.OptionalBoolFromMap(asMap, "skipDefaultQuantization", func(v bool) {
+		uc.SkipDefaultQuantization = v
+	}); err != nil {
+		return uc, err
+	}
+
+	if err := vectorindexcommon.OptionalBoolFromMap(asMap, "trackDefaultQuantization", func(v bool) {
+		uc.TrackDefaultQuantization = v
 	}); err != nil {
 		return uc, err
 	}
@@ -250,4 +264,35 @@ func NewDefaultUserConfig() UserConfig {
 	uc := UserConfig{}
 	uc.SetDefaults()
 	return uc
+}
+
+func ParseDefaultQuantization(vectorIndexConfig schemaConfig.VectorIndexConfig, compression string) (schemaConfig.VectorIndexConfig, error) {
+	flatConfig := vectorIndexConfig.(UserConfig)
+	rqEnabled := flatConfig.RQ.Enabled
+	bqEnabled := flatConfig.BQ.Enabled
+	skipDefaultQuantization := flatConfig.SkipDefaultQuantization
+	flatConfig.TrackDefaultQuantization = false
+	if rqEnabled || bqEnabled || skipDefaultQuantization {
+		return flatConfig, nil
+	}
+	switch compression {
+	case "rq-1":
+		flatConfig.RQ.Enabled = true
+		flatConfig.RQ.Bits = 1
+		flatConfig.RQ.RescoreLimit = DefaultCompressionRescore
+		flatConfig.RQ.Cache = DefaultVectorCache
+	case "rq-8":
+		flatConfig.RQ.Enabled = true
+		flatConfig.RQ.Bits = 8
+		flatConfig.RQ.RescoreLimit = DefaultCompressionRescore
+		flatConfig.RQ.Cache = DefaultVectorCache
+	case "bq":
+		flatConfig.BQ.Enabled = true
+		flatConfig.BQ.RescoreLimit = DefaultCompressionRescore
+		flatConfig.BQ.Cache = DefaultVectorCache
+	default:
+		return flatConfig, errors.New("invalid default quantization for flat index: " + compression)
+	}
+	flatConfig.TrackDefaultQuantization = true
+	return flatConfig, nil
 }

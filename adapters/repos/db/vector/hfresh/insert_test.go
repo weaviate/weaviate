@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -53,6 +53,7 @@ func TestHFreshOptimizedPostingSize(t *testing.T) {
 	vector := make([]float32, 100)
 
 	t.Run("max posting size computed by the index", func(t *testing.T) {
+		uc.MaxPostingSize = 0 // it means that it will be computed dynamically by the index
 		index, err := New(cfg, uc, store)
 		require.NoError(t, err)
 		defer index.Shutdown(t.Context())

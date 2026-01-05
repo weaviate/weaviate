@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -41,14 +41,6 @@ const (
 )
 
 type (
-	router interface {
-		BuildRoutingPlanOptions(tenant, shard string, cl types.ConsistencyLevel, directCandidate string) types.RoutingPlanBuildOptions
-		BuildReadRoutingPlan(params types.RoutingPlanBuildOptions) (types.ReadRoutingPlan, error)
-		BuildWriteRoutingPlan(params types.RoutingPlanBuildOptions) (types.WriteRoutingPlan, error)
-		NodeHostname(nodeName string) (string, bool)
-		AllHostnames() []string
-	}
-
 	// _Result represents a valid value or an error ( _ prevent make it public).
 	_Result[T any] struct {
 		Value T
@@ -59,7 +51,7 @@ type (
 type Replicator struct {
 	class          string
 	nodeName       string
-	router         router
+	router         types.Router
 	client         Client
 	log            logrus.FieldLogger
 	requestCounter atomic.Uint64
@@ -68,7 +60,7 @@ type Replicator struct {
 }
 
 func NewReplicator(className string,
-	router router,
+	router types.Router,
 	nodeName string,
 	getDeletionStrategy func() string,
 	client Client,
@@ -93,15 +85,9 @@ func NewReplicator(className string,
 			client,
 			metrics,
 			l,
-			defaultPullBackOffInitialInterval,
-			defaultPullBackOffMaxElapsedTime,
 			getDeletionStrategy,
 		),
 	}, nil
-}
-
-func (r *Replicator) AllHostnames() []string {
-	return r.router.AllHostnames()
 }
 
 func (r *Replicator) PutObject(ctx context.Context,
@@ -110,7 +96,7 @@ func (r *Replicator) PutObject(ctx context.Context,
 	l types.ConsistencyLevel,
 	schemaVersion uint64,
 ) error {
-	coord := newCoordinator[SimpleResponse](r, shard, r.requestID(opPutObject), r.log)
+	coord := newCoordinator[SimpleResponse](r.client, r.router, r.metrics, r.class, shard, r.requestID(opPutObject), r.log)
 	isReady := func(ctx context.Context, host, requestID string) error {
 		resp, err := r.client.PutObject(ctx, host, r.class, shard, requestID, obj, schemaVersion)
 		if err == nil {
@@ -142,7 +128,7 @@ func (r *Replicator) MergeObject(ctx context.Context,
 	l types.ConsistencyLevel,
 	schemaVersion uint64,
 ) error {
-	coord := newCoordinator[SimpleResponse](r, shard, r.requestID(opMergeObject), r.log)
+	coord := newCoordinator[SimpleResponse](r.client, r.router, r.metrics, r.class, shard, r.requestID(opMergeObject), r.log)
 	op := func(ctx context.Context, host, requestID string) error {
 		resp, err := r.client.MergeObject(ctx, host, r.class, shard, requestID, doc, schemaVersion)
 		if err == nil {
@@ -178,7 +164,7 @@ func (r *Replicator) DeleteObject(ctx context.Context,
 	l types.ConsistencyLevel,
 	schemaVersion uint64,
 ) error {
-	coord := newCoordinator[SimpleResponse](r, shard, r.requestID(opDeleteObject), r.log)
+	coord := newCoordinator[SimpleResponse](r.client, r.router, r.metrics, r.class, shard, r.requestID(opDeleteObject), r.log)
 	op := func(ctx context.Context, host, requestID string) error {
 		resp, err := r.client.DeleteObject(ctx, host, r.class, shard, requestID, id, deletionTime, schemaVersion)
 		if err == nil {
@@ -209,7 +195,7 @@ func (r *Replicator) PutObjects(ctx context.Context,
 	l types.ConsistencyLevel,
 	schemaVersion uint64,
 ) []error {
-	coord := newCoordinator[SimpleResponse](r, shard, r.requestID(opPutObjects), r.log)
+	coord := newCoordinator[SimpleResponse](r.client, r.router, r.metrics, r.class, shard, r.requestID(opPutObjects), r.log)
 	op := func(ctx context.Context, host, requestID string) error {
 		resp, err := r.client.PutObjects(ctx, host, r.class, shard, requestID, objs, schemaVersion)
 		if err == nil {
@@ -248,7 +234,7 @@ func (r *Replicator) DeleteObjects(ctx context.Context,
 	l types.ConsistencyLevel,
 	schemaVersion uint64,
 ) []objects.BatchSimpleObject {
-	coord := newCoordinator[DeleteBatchResponse](r, shard, r.requestID(opDeleteObjects), r.log)
+	coord := newCoordinator[DeleteBatchResponse](r.client, r.router, r.metrics, r.class, shard, r.requestID(opDeleteObjects), r.log)
 	op := func(ctx context.Context, host, requestID string) error {
 		resp, err := r.client.DeleteObjects(ctx, host, r.class, shard, requestID, uuids, deletionTime, dryRun, schemaVersion)
 		if err == nil {
@@ -296,7 +282,7 @@ func (r *Replicator) AddReferences(ctx context.Context,
 	l types.ConsistencyLevel,
 	schemaVersion uint64,
 ) []error {
-	coord := newCoordinator[SimpleResponse](r, shard, r.requestID(opAddReferences), r.log)
+	coord := newCoordinator[SimpleResponse](r.client, r.router, r.metrics, r.class, shard, r.requestID(opAddReferences), r.log)
 	op := func(ctx context.Context, host, requestID string) error {
 		resp, err := r.client.AddReferences(ctx, host, r.class, shard, requestID, refs, schemaVersion)
 		if err == nil {

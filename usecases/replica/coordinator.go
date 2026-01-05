@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -27,8 +27,8 @@ import (
 )
 
 const (
-	defaultPullBackOffInitialInterval = time.Millisecond * 250
-	defaultPullBackOffMaxElapsedTime  = time.Second * 128
+	defaultBackOffInitialInterval = time.Millisecond * 250
+	defaultBackOffMaxElapsedTime  = time.Second * 128
 )
 
 type (
@@ -44,7 +44,7 @@ type (
 	// coordinator coordinates replication of write and read requests
 	coordinator[T any] struct {
 		Client
-		Router  router
+		Router  types.Router
 		metrics *Metrics
 		log     logrus.FieldLogger
 		Class   string
@@ -58,34 +58,39 @@ type (
 )
 
 // newCoordinator used by the replicator
-func newCoordinator[T any](r *Replicator, shard, requestID string, l logrus.FieldLogger,
+func newCoordinator[T any](client Client,
+	router types.Router,
+	metrics *Metrics,
+	className, shard, requestID string,
+	l logrus.FieldLogger,
 ) *coordinator[T] {
 	return &coordinator[T]{
-		Client:                        r.client,
-		Router:                        r.router,
-		metrics:                       r.metrics,
+		Client:                        client,
+		Router:                        router,
+		metrics:                       metrics,
 		log:                           l,
-		Class:                         r.class,
+		Class:                         className,
 		Shard:                         shard,
 		TxID:                          requestID,
-		pullBackOffPreInitialInterval: defaultPullBackOffInitialInterval / 2,
-		pullBackOffMaxElapsedTime:     defaultPullBackOffMaxElapsedTime,
+		pullBackOffPreInitialInterval: defaultBackOffInitialInterval / 2,
+		pullBackOffMaxElapsedTime:     defaultBackOffMaxElapsedTime,
 	}
 }
 
 // newCoordinator used by the Finder to read objects from replicas
-func newReadCoordinator[T any](f *Finder, shard string,
-	pullBackOffInitivalInterval time.Duration,
-	pullBackOffMaxElapsedTime time.Duration,
-	deletionStrategy string,
+func newReadCoordinator[T any](router types.Router,
+	metrics *Metrics,
+	className, shard, deletionStrategy string,
+	log logrus.FieldLogger,
 ) *coordinator[T] {
 	return &coordinator[T]{
-		Router:                        f.router,
-		Class:                         f.class,
+		Router:                        router,
+		Class:                         className,
 		Shard:                         shard,
-		metrics:                       f.metrics,
-		pullBackOffPreInitialInterval: pullBackOffInitivalInterval / 2,
-		pullBackOffMaxElapsedTime:     pullBackOffMaxElapsedTime,
+		log:                           log,
+		metrics:                       metrics,
+		pullBackOffPreInitialInterval: defaultBackOffInitialInterval / 2,
+		pullBackOffMaxElapsedTime:     defaultBackOffMaxElapsedTime,
 		deletionStrategy:              deletionStrategy,
 	}
 }

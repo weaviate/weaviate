@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -18,6 +18,15 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 )
+
+func NewPostingStoreTest(store *lsmkv.Store, metrics *Metrics, id string, cfg StoreConfig) (*PostingStore, error) {
+	bucket, err := NewSharedBucket(store, id, cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	return NewPostingStore(store, bucket, metrics, id, cfg)
+}
 
 func TestStore(t *testing.T) {
 	ctx := t.Context()
@@ -113,5 +122,35 @@ func TestStore(t *testing.T) {
 		version, err = s.versions.Get(ctx, 1)
 		require.NoError(t, err)
 		require.Equal(t, uint32(2), version)
+	})
+
+	t.Run("append", func(t *testing.T) {
+		store := testinghelpers.NewDummyStore(t)
+		s, err := NewPostingStoreTest(store, NewMetrics(nil, "n/a", "n/a"), "test_bucket", StoreConfig{
+			MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
+		})
+		require.NoError(t, err)
+
+		v := NewVector(1, 1, []byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10})
+
+		// append to non-existing posting
+		err = s.Append(ctx, 1, v)
+		require.NoError(t, err)
+
+		p, err := s.Get(ctx, 1)
+		require.NoError(t, err)
+		require.Equal(t, 1, len(p))
+		require.Equal(t, v, p[0])
+
+		// append to existing posting
+		v2 := NewVector(1, 1, []byte{11, 12, 13, 14, 15, 16, 17, 18, 19, 20})
+		err = s.Append(ctx, 1, v2)
+		require.NoError(t, err)
+
+		p, err = s.Get(ctx, 1)
+		require.NoError(t, err)
+		require.Equal(t, 2, len(p))
+		require.Equal(t, v, p[0])
+		require.Equal(t, v2, p[1])
 	})
 }
