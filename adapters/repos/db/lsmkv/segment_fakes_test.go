@@ -386,7 +386,16 @@ func (s *fakeSegment) existsKey(key []byte) (bool, error) {
 }
 
 func (s *fakeSegment) exists(key []byte) error {
-	panic("not implemented")
+	keyStr := string(key)
+	if s.strategy != segmentindex.StrategyReplace {
+		return fmt.Errorf("not a replace segment")
+	}
+
+	if _, ok := s.replaceStore[keyStr]; ok {
+		return nil
+	}
+
+	return lsmkv.NotFound
 }
 
 func (s *fakeSegment) stripTmpExtensions(leftSegmentID, rightSegmentID string) error {
