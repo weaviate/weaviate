@@ -22,6 +22,7 @@ import (
 	"github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -31,8 +32,7 @@ import (
 
 func Test_DeleteClassS3Journey(t *testing.T) {
 	t.Run("delete class, deleting frozen tenants", func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-		defer cancel()
+		ctx := context.Background()
 
 		t.Log("pre-instance env setup")
 		t.Setenv(envS3AccessKey, s3BackupJourneyAccessKey)
@@ -401,7 +401,7 @@ func Test_DeleteAndRecreateS3Journey(t *testing.T) {
 		t.Run("verify created object", func(t *testing.T) {
 			resp, err := helper.TenantListObjects(t, className, tenantNames[0])
 			require.Nil(t, err)
-			assert.Equal(t, 1, len(resp.Objects))
+			require.Equal(t, 1, len(resp.Objects))
 			assert.Equal(t, tenantObjects[0].Class, resp.Objects[0].Class)
 			assert.Equal(t, tenantObjects[0].Properties, resp.Objects[0].Properties)
 		})

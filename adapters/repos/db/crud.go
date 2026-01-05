@@ -168,7 +168,7 @@ func (db *DB) Object(ctx context.Context, class string, id strfmt.UUID,
 ) (*search.Result, error) {
 	idx := db.GetIndex(schema.ClassName(class))
 	if idx == nil {
-		return nil, nil
+		return nil, fmt.Errorf("no index for class %q", class)
 	}
 
 	obj, err := idx.objectByID(ctx, id, props, addl, repl, tenant)

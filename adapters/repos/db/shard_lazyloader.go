@@ -17,6 +17,7 @@ import (
 	"io"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-openapi/strfmt"
@@ -56,8 +57,8 @@ import (
 type LazyLoadShard struct {
 	shardOpts        *deferredShardOpts
 	shard            *Shard
-	loaded           bool
-	mutex            sync.Mutex
+	loaded           atomic.Bool
+	mutex            sync.RWMutex
 	memMonitor       memwatch.AllocChecker
 	shardLoadLimiter ShardLoadLimiter
 	lazyLoadSegments bool
@@ -117,7 +118,7 @@ func (l *LazyLoadShard) Load(ctx context.Context) error {
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 
-	if l.loaded {
+	if l.loaded.Load() {
 		return nil
 	}
 
@@ -141,7 +142,7 @@ func (l *LazyLoadShard) Load(ctx context.Context) error {
 	}
 
 	l.shard = shard
-	l.loaded = true
+	l.loaded.Store(true)
 
 	return nil
 }
@@ -165,10 +166,7 @@ func (l *LazyLoadShard) NotifyReady() {
 }
 
 func (l *LazyLoadShard) GetStatus() storagestate.Status {
-	l.mutex.Lock()
-	defer l.mutex.Unlock()
-
-	if l.loaded {
+	if l.loaded.Load() {
 		return l.shard.GetStatus()
 	}
 	return storagestate.StatusLazyLoading
@@ -202,12 +200,10 @@ func (l *LazyLoadShard) ObjectCount(ctx context.Context) (int, error) {
 }
 
 func (l *LazyLoadShard) ObjectCountAsync(ctx context.Context) (int64, error) {
-	l.mutex.Lock()
-	if l.loaded {
-		l.mutex.Unlock()
+	if l.loaded.Load() {
 		return l.shard.ObjectCountAsync(ctx)
 	}
-	l.mutex.Unlock()
+
 	idx := l.shardOpts.index
 	objectUsage, err := shardusage.CalculateUnloadedObjectsMetrics(idx.logger, idx.path(), l.shardOpts.name, true)
 	if err != nil {
@@ -369,7 +365,7 @@ func (l *LazyLoadShard) drop(keepFiles bool) error {
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 
-	if !l.loaded {
+	if !l.loaded.Load() {
 		idx := l.shardOpts.index
 		className := idx.Config.ClassName.String()
 		shardName := l.shardOpts.name
@@ -463,12 +459,9 @@ func (l *LazyLoadShard) AnalyzeObject(object *storobj.Object) ([]inverted.Proper
 }
 
 func (l *LazyLoadShard) Dimensions(ctx context.Context, targetVector string) (int, error) {
-	l.mutex.Lock()
-	if l.loaded {
-		l.mutex.Unlock()
+	if l.loaded.Load() {
 		return l.shard.Dimensions(ctx, targetVector)
 	}
-	l.mutex.Unlock()
 
 	// For unloaded shards, get dimensions from unloaded shard/tenant calculation
 	idx := l.shardOpts.index
@@ -754,19 +747,16 @@ func (l *LazyLoadShard) Metrics() *Metrics {
 }
 
 func (l *LazyLoadShard) isLoaded() bool {
+	// TODO: isLoaded() seems to be made with blocking behaviour in mind
+	// instead we need to make isLoaded() lock free and introduce blocking func WaitLoading() or isLoading()
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 
-	return l.loaded
+	return l.loaded.Load()
 }
 
 func (l *LazyLoadShard) Activity() (int32, int32) {
-	var loaded bool
-	l.mutex.Lock()
-	loaded = l.loaded
-	l.mutex.Unlock()
-
-	if !loaded {
+	if !l.loaded.Load() {
 		// don't force-load the shard, just report the same number every time, so
 		// the caller can figure out there was no activity
 		return 0, 0
