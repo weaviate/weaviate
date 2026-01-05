@@ -19,11 +19,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 )
 
-const (
-	counterMask   = 0x7F // 0111 1111, masks out the lower 7 bits
-	tombstoneMask = 0x80 // 1000 0000, masks out the highest bit
-)
-
 // A compressed vector is structured as follows:
 // - 8 bytes for the vector ID (uint64, little endian)
 // - 1 byte for the version (VectorVersion)
