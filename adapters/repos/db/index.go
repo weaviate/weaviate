@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -1790,7 +1790,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 
 		golangSort.Slice(results, func(i, j int) bool {
 			if results[i].score == results[j].score {
-				return results[i].object.Object.ID > results[j].object.Object.ID
+				return results[i].object.Object.ID < results[j].object.Object.ID
 			}
 
 			return results[i].score > results[j].score
@@ -2233,8 +2233,9 @@ func (i *Index) initLocalShard(ctx context.Context, shardName string) error {
 }
 
 func (i *Index) LoadLocalShard(ctx context.Context, shardName string, implicitShardLoading bool) error {
-	mustLoad := !implicitShardLoading
-	return i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName, mustLoad, implicitShardLoading)
+	// TODO: implicitShardLoading needs to be double checked if needed at all
+	// consalidate mustLoad and implicitShardLoading
+	return i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName, true, implicitShardLoading)
 }
 
 func (i *Index) initLocalShardWithForcedLoading(ctx context.Context, class *models.Class, shardName string, mustLoad bool, implicitShardLoading bool) error {
