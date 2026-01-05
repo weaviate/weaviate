@@ -459,6 +459,10 @@ func (p *Parser) validateModuleConfigsParityAndImmutables(initial, updated *mode
 			continue
 		}
 
+		fmt.Printf("--validateModuleConfigsParityAndImmutables reflect.DeepEqual(initialModConf[module], updatedModConf[module]) failed\n")
+		fmt.Printf("--old: class: %s: module: %s: initialModConf[module]: %+v\n", updated.Class, module, initialModConf[module])
+		fmt.Printf("--new: class: %s: module: %s: updatedModConf[module]: %+v\n", updated.Class, module, updatedModConf[module])
+
 		return fmt.Errorf("can only update generative and reranker module configs. Got: %v", module)
 	}
 

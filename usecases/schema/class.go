@@ -1012,6 +1012,9 @@ func validateImmutableFields(initial, updated *models.Class) error {
 		}
 
 		if !reflect.DeepEqual(initial.VectorConfig[k].Vectorizer, v.Vectorizer) {
+			fmt.Printf("--reflect.DeepEqual(initial.VectorConfig[k].Vectorizer, v.Vectorizer) failed\n")
+			fmt.Printf("--old: class: %s: initial.VectorConfig[k].Vectorizer: %+v\n", updated.Class, initial.VectorConfig[k].Vectorizer)
+			fmt.Printf("--new: class: %s: v.Vectorizer: %+v\n", updated.Class, v.Vectorizer)
 			return fmt.Errorf("vectorizer config of vector %q is immutable", k)
 		}
 	}
