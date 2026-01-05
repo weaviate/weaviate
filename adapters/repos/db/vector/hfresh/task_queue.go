@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -20,6 +20,7 @@ import (
 
 	"github.com/cespare/xxhash/v2"
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 )
 
@@ -47,19 +48,26 @@ type TaskQueue struct {
 
 	scheduler *queue.Scheduler
 
-	index     *HFresh
-	splitList *deduplicator // Prevents duplicate split operations
-	mergeList *deduplicator // Prevents duplicate merge operations
+	index        *HFresh
+	splitList    *deduplicator         // Prevents duplicate split operations
+	mergeList    *deduplicator         // Prevents duplicate merge operations
+	reassignList *reassignDeduplicator // Prevents duplicate reassign operations
 }
 
-func NewTaskQueue(index *HFresh) (*TaskQueue, error) {
+func NewTaskQueue(index *HFresh, bucket *lsmkv.Bucket) (*TaskQueue, error) {
 	var err error
 
+	reassignList, err := newReassignDeduplicator(bucket)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to create reassign deduplicator")
+	}
+
 	tq := TaskQueue{
-		index:     index,
-		scheduler: index.scheduler,
-		splitList: newDeduplicator(),
-		mergeList: newDeduplicator(),
+		index:        index,
+		scheduler:    index.scheduler,
+		splitList:    newDeduplicator(),
+		mergeList:    newDeduplicator(),
+		reassignList: reassignList,
 	}
 
 	// create queue for split operations
@@ -131,6 +139,10 @@ func NewTaskQueue(index *HFresh) (*TaskQueue, error) {
 
 func (tq *TaskQueue) Close() error {
 	var errs []error
+	if err := tq.Flush(); err != nil {
+		errs = append(errs, errors.Wrap(err, "failed to flush task queue before close"))
+	}
+
 	if err := tq.splitQueue.Close(); err != nil {
 		errs = append(errs, errors.Wrap(err, "failed to close split queue"))
 	}
@@ -141,6 +153,28 @@ func (tq *TaskQueue) Close() error {
 
 	if err := tq.mergeQueue.Close(); err != nil {
 		errs = append(errs, errors.Wrap(err, "failed to close merge queue"))
+	}
+
+	return stderrors.Join(errs...)
+}
+
+func (tq *TaskQueue) Flush() error {
+	var errs []error
+
+	if err := tq.reassignList.flush(); err != nil {
+		errs = append(errs, errors.Wrap(err, "failed to flush reassign list"))
+	}
+
+	if err := tq.splitQueue.Flush(); err != nil {
+		errs = append(errs, errors.Wrap(err, "failed to flush split queue"))
+	}
+
+	if err := tq.reassignQueue.Flush(); err != nil {
+		errs = append(errs, errors.Wrap(err, "failed to flush reassign queue"))
+	}
+
+	if err := tq.mergeQueue.Flush(); err != nil {
+		errs = append(errs, errors.Wrap(err, "failed to flush merge queue"))
 	}
 
 	return stderrors.Join(errs...)
@@ -158,12 +192,16 @@ func (tq *TaskQueue) MergeDone(postingID uint64) {
 	tq.mergeList.done(postingID)
 }
 
+func (tq *TaskQueue) ReassignDone(vectorID uint64) {
+	tq.reassignList.done(vectorID)
+}
+
 func (tq *TaskQueue) MergeContains(postingID uint64) bool {
 	return tq.mergeList.contains(postingID)
 }
 
 func (tq *TaskQueue) EnqueueSplit(postingID uint64) error {
-	// Check if the task is already in progress
+	// Check if the operation is already enqueued
 	if !tq.splitList.tryAdd(postingID) {
 		return nil
 	}
@@ -178,7 +216,7 @@ func (tq *TaskQueue) EnqueueSplit(postingID uint64) error {
 }
 
 func (tq *TaskQueue) EnqueueMerge(postingID uint64) error {
-	// Check if the operation is already in progress
+	// Check if the operation is already enqueued
 	if !tq.mergeList.tryAdd(postingID) {
 		return nil
 	}
@@ -193,13 +231,12 @@ func (tq *TaskQueue) EnqueueMerge(postingID uint64) error {
 }
 
 func (tq *TaskQueue) EnqueueReassign(postingID uint64, vecID uint64, version VectorVersion) error {
-	buf := make([]byte, 18)
-	buf[0] = taskQueueReassignOp
-	binary.LittleEndian.PutUint64(buf[1:9], postingID)
-	binary.LittleEndian.PutUint64(buf[9:17], vecID)
-	buf[17] = byte(version)
+	// Check if the operation is already enqueued
+	if !tq.reassignList.tryAdd(vecID, postingID) {
+		return nil
+	}
 
-	if err := tq.reassignQueue.Push(buf); err != nil {
+	if err := tq.reassignQueue.Push(encodeTask(vecID, taskQueueReassignOp)); err != nil {
 		return errors.Wrap(err, "failed to push reassign operation to queue")
 	}
 
@@ -237,19 +274,13 @@ func (tq *TaskQueue) DecodeTask(data []byte) (queue.Task, error) {
 			idx: tq.index,
 		}, nil
 	case taskQueueReassignOp:
-		// decode posting ID
-		postingID := binary.LittleEndian.Uint64(data)
-		data = data[8:]
 		// decode vector ID
 		vecID := binary.LittleEndian.Uint64(data)
-		data = data[8:]
-		// decode version
-		version := uint8(data[0])
+
 		return &ReassignTask{
-			id:      postingID,
-			vecID:   vecID,
-			version: version,
-			idx:     tq.index,
+			vecID:     vecID,
+			postingID: tq.reassignList.getLastKnownPostingID(vecID),
+			idx:       tq.index,
 		}, nil
 	}
 
@@ -316,10 +347,9 @@ func (t *MergeTask) Execute(ctx context.Context) error {
 }
 
 type ReassignTask struct {
-	id      uint64
-	vecID   uint64
-	version uint8
-	idx     *HFresh
+	vecID     uint64
+	postingID uint64
+	idx       *HFresh
 }
 
 func (t *ReassignTask) Op() uint8 {
@@ -327,8 +357,7 @@ func (t *ReassignTask) Op() uint8 {
 }
 
 func (t *ReassignTask) Key() uint64 {
-	// postings sharing same lock are run by the same worker to reduce contention
-	return t.idx.postingLocks.Hash(t.id)
+	return t.vecID
 }
 
 func (t *ReassignTask) Execute(ctx context.Context) error {
@@ -336,7 +365,7 @@ func (t *ReassignTask) Execute(ctx context.Context) error {
 		return ctx.Err()
 	}
 
-	err := t.idx.doReassign(ctx, reassignOperation{PostingID: t.id, VectorID: t.vecID, Version: t.version})
+	err := t.idx.doReassign(ctx, reassignOperation{VectorID: t.vecID, PostingID: t.postingID})
 	if err != nil {
 		return err
 	}
