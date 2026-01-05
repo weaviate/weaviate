@@ -688,7 +688,10 @@ func (h *hnsw) distanceFromBytesToFloatNodeWithView(ctx context.Context, concret
 		// not a typed error, we can recover from, return with err
 		return 0, errors.Wrapf(err, "get vector of docID %d", nodeID)
 	}
-	vec = h.normalizeVec(vec)
+	// Normalize in-place since vec points to a pooled slice that will be
+	// returned after this function. This avoids allocating a new slice
+	// for every vector during rescoring.
+	h.normalizeVecInPlace(vec)
 	return concreteDistancer.DistanceToFloat(vec)
 }
 

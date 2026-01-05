@@ -909,6 +909,15 @@ func (h *hnsw) normalizeVec(vec []float32) []float32 {
 	return vec
 }
 
+// normalizeVecInPlace normalizes the vector in-place without allocating.
+// Use this only when the caller owns the vector and doesn't need to preserve
+// the original (e.g., pooled temporary vectors).
+func (h *hnsw) normalizeVecInPlace(vec []float32) {
+	if h.distancerProvider.Type() == "cosine-dot" {
+		distancer.NormalizeInPlace(vec)
+	}
+}
+
 func (h *hnsw) normalizeVecs(vecs [][]float32) [][]float32 {
 	if h.distancerProvider.Type() == "cosine-dot" {
 		normalized := make([][]float32, len(vecs))
