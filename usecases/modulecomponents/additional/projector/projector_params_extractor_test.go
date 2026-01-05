@@ -15,7 +15,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/tailor-inc/graphql/language/ast"
+	"github.com/tailor-platform/graphql/language/ast"
 )
 
 func Test_parseFeatureProjectionArguments(t *testing.T) {
