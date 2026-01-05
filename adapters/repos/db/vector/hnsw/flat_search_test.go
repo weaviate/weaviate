@@ -86,6 +86,14 @@ func Test_NoRaceCompressionRecall(t *testing.T) {
 						rescored = true
 						return container.Slice, nil
 					},
+					GetViewThunk: func() common.BucketView {
+						return &noopBucketView{}
+					},
+					TempVectorForIDWithViewThunk: func(ctx context.Context, id uint64, container *common.VectorSlice, view common.BucketView) ([]float32, error) {
+						copy(container.Slice, vectors[int(id)])
+						rescored = true
+						return container.Slice, nil
+					},
 				}, uc, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
 				init := time.Now()
 				compressionhelpers.Concurrently(logger, uint64(vectors_size), func(id uint64) {

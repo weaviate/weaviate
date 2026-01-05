@@ -263,6 +263,48 @@ func (s *Shard) readMultiVectorByIndexIDIntoSlice(ctx context.Context, indexID u
 	return storobj.MultiVectorFromBinary(bytes, container.Slice, targetVector)
 }
 
+// GetObjectsBucketView returns a consistent view of the objects bucket that can
+// be reused for multiple reads without acquiring locks for each read.
+func (s *Shard) GetObjectsBucketView() common.BucketView {
+	return s.store.Bucket(helpers.ObjectsBucketLSM).GetConsistentView()
+}
+
+func (s *Shard) readVectorByIndexIDIntoSliceWithView(ctx context.Context, indexID uint64, container *common.VectorSlice, targetVector string, view common.BucketView) ([]float32, error) {
+	binary.LittleEndian.PutUint64(container.Buff8, indexID)
+
+	bytes, newBuff, err := s.store.Bucket(helpers.ObjectsBucketLSM).
+		GetBySecondaryWithBufferAndView(ctx, 0, container.Buff8, container.Buff, view.(lsmkv.BucketConsistentView))
+	if err != nil {
+		return nil, err
+	}
+
+	if bytes == nil {
+		return nil, storobj.NewErrNotFoundf(indexID,
+			"no object for doc id, it could have been deleted")
+	}
+
+	container.Buff = newBuff
+	return storobj.VectorFromBinary(bytes, container.Slice, targetVector)
+}
+
+func (s *Shard) readMultiVectorByIndexIDIntoSliceWithView(ctx context.Context, indexID uint64, container *common.VectorSlice, targetVector string, view common.BucketView) ([][]float32, error) {
+	binary.LittleEndian.PutUint64(container.Buff8, indexID)
+
+	bytes, newBuff, err := s.store.Bucket(helpers.ObjectsBucketLSM).
+		GetBySecondaryWithBufferAndView(ctx, 0, container.Buff8, container.Buff, view.(lsmkv.BucketConsistentView))
+	if err != nil {
+		return nil, err
+	}
+
+	if bytes == nil {
+		return nil, storobj.NewErrNotFoundf(indexID,
+			"no object for doc id, it could have been deleted")
+	}
+
+	container.Buff = newBuff
+	return storobj.MultiVectorFromBinary(bytes, container.Slice, targetVector)
+}
+
 func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.LocalFilter,
 	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor,
 	additional additional.Properties, properties []string,

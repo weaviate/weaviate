@@ -102,10 +102,13 @@ type hnsw struct {
 
 	nodes []*vertex
 
-	vectorForID               common.VectorForID[float32]
-	TempVectorForIDThunk      common.TempVectorForID[float32]
-	TempMultiVectorForIDThunk common.TempVectorForID[[]float32]
-	multiVectorForID          common.MultiVectorForID
+	vectorForID                       common.VectorForID[float32]
+	TempVectorForIDThunk              common.TempVectorForID[float32]
+	TempMultiVectorForIDThunk         common.TempVectorForID[[]float32]
+	GetViewThunk                      common.GetViewThunk
+	TempVectorForIDWithViewThunk      common.TempVectorForIDWithView[float32]
+	TempMultiVectorForIDWithViewThunk common.TempVectorForIDWithView[[]float32]
+	multiVectorForID                  common.MultiVectorForID
 	trackDimensionsOnce       sync.Once
 	trackMuveraOnce           sync.Once
 	trackRQOnce               sync.Once
@@ -348,9 +351,12 @@ func New(cfg Config, uc ent.UserConfig,
 		className:                 cfg.ClassName,
 		VectorForIDThunk:          cfg.VectorForIDThunk,
 		MultiVectorForIDThunk:     cfg.MultiVectorForIDThunk,
-		TempVectorForIDThunk:      cfg.TempVectorForIDThunk,
-		TempMultiVectorForIDThunk: cfg.TempMultiVectorForIDThunk,
-		pqConfig:                  uc.PQ,
+		TempVectorForIDThunk:              cfg.TempVectorForIDThunk,
+		TempMultiVectorForIDThunk:         cfg.TempMultiVectorForIDThunk,
+		GetViewThunk:                      cfg.GetViewThunk,
+		TempVectorForIDWithViewThunk:      cfg.TempVectorForIDWithViewThunk,
+		TempMultiVectorForIDWithViewThunk: cfg.TempMultiVectorForIDWithViewThunk,
+		pqConfig:                          uc.PQ,
 		bqConfig:                  uc.BQ,
 		sqConfig:                  uc.SQ,
 		rqConfig:                  uc.RQ,

@@ -101,6 +101,8 @@ type dynamic struct {
 	prometheusMetrics            *monitoring.PrometheusMetrics
 	vectorForIDThunk             common.VectorForID[float32]
 	tempVectorForIDThunk         common.TempVectorForID[float32]
+	getViewThunk                 common.GetViewThunk
+	tempVectorForIDWithViewThunk common.TempVectorForIDWithView[float32]
 	distanceProvider             distancer.Provider
 	makeCommitLoggerThunk        hnsw.MakeCommitLogger
 	threshold                    uint64
@@ -161,6 +163,8 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 		prometheusMetrics:            cfg.PrometheusMetrics,
 		vectorForIDThunk:             cfg.VectorForIDThunk,
 		tempVectorForIDThunk:         cfg.TempVectorForIDThunk,
+		getViewThunk:                 cfg.GetViewThunk,
+		tempVectorForIDWithViewThunk: cfg.TempVectorForIDWithViewThunk,
 		distanceProvider:             cfg.DistanceProvider,
 		makeCommitLoggerThunk:        cfg.MakeCommitLoggerThunk,
 		store:                        store,
@@ -195,6 +199,8 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 				PrometheusMetrics:            index.prometheusMetrics,
 				VectorForIDThunk:             index.vectorForIDThunk,
 				TempVectorForIDThunk:         index.tempVectorForIDThunk,
+				GetViewThunk:                 index.getViewThunk,
+				TempVectorForIDWithViewThunk: index.tempVectorForIDWithViewThunk,
 				DistanceProvider:             index.distanceProvider,
 				MakeCommitLoggerThunk:        index.makeCommitLoggerThunk,
 				DisableSnapshots:             index.hnswDisableSnapshots,
@@ -532,6 +538,8 @@ func (dynamic *dynamic) doUpgrade() error {
 			PrometheusMetrics:            dynamic.prometheusMetrics,
 			VectorForIDThunk:             dynamic.vectorForIDThunk,
 			TempVectorForIDThunk:         dynamic.tempVectorForIDThunk,
+			GetViewThunk:                 dynamic.getViewThunk,
+			TempVectorForIDWithViewThunk: dynamic.tempVectorForIDWithViewThunk,
 			DistanceProvider:             dynamic.distanceProvider,
 			MakeCommitLoggerThunk:        dynamic.makeCommitLoggerThunk,
 			DisableSnapshots:             dynamic.hnswDisableSnapshots,

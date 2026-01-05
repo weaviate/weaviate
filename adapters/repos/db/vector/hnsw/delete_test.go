@@ -44,6 +44,17 @@ func TempVectorForIDThunk(vectors [][]float32) func(context.Context, uint64, *co
 	}
 }
 
+func TempVectorForIDWithViewThunk(vectors [][]float32) func(context.Context, uint64, *common.VectorSlice, common.BucketView) ([]float32, error) {
+	return func(ctx context.Context, id uint64, container *common.VectorSlice, view common.BucketView) ([]float32, error) {
+		copy(container.Slice, vectors[int(id)])
+		return vectors[int(id)], nil
+	}
+}
+
+func GetViewThunk() common.BucketView {
+	return &noopBucketView{}
+}
+
 func TestDelete_WithoutCleaningUpTombstones(t *testing.T) {
 	vectors := vectorsForDeleteTest()
 	ctx := context.Background()
@@ -819,7 +830,9 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce(t *testing.T) {
 				}
 				return vectors[int(id)], nil
 			},
-			TempVectorForIDThunk: TempVectorForIDThunk(vectors),
+			TempVectorForIDThunk:         TempVectorForIDThunk(vectors),
+			GetViewThunk:                 GetViewThunk,
+			TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
 		}, userConfig, cyclemanager.NewCallbackGroupNoop(), store)
 		require.Nil(t, err)
 		vectorIndex = index

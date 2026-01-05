@@ -504,7 +504,7 @@ type BucketConsistentView struct {
 	release  func()
 }
 
-func (cv *BucketConsistentView) Release() {
+func (cv BucketConsistentView) Release() {
 	cv.release()
 }
 
@@ -527,6 +527,13 @@ func (b *Bucket) getConsistentView() BucketConsistentView {
 		Disk:     diskSegments,
 		release:  releaseDiskSegments,
 	}
+}
+
+// GetConsistentView returns a consistent view of the bucket that can be used
+// for multiple reads without acquiring locks for each read. The caller must
+// call Release() on the returned view when done to avoid blocking compactions.
+func (b *Bucket) GetConsistentView() BucketConsistentView {
+	return b.getConsistentView()
 }
 
 // Get retrieves the single value for the given key.
@@ -616,6 +623,18 @@ func (b *Bucket) GetBySecondaryWithBuffer(ctx context.Context, pos int, seckey [
 	return v, allocBuf, err
 }
 
+// GetBySecondaryWithBufferAndView is like [Bucket.GetBySecondaryWithBuffer], but uses
+// an existing consistent view instead of acquiring a new one. This is useful for
+// batch operations where the same view can be reused across multiple lookups to
+// reduce lock contention.
+func (b *Bucket) GetBySecondaryWithBufferAndView(ctx context.Context, pos int, seckey []byte, buffer []byte, view BucketConsistentView) ([]byte, []byte, error) {
+	v, allocBuf, err := b.getBySecondaryWithView(ctx, pos, seckey, buffer, view)
+	if err != nil && lsmkv.IsDeletedOrNotFound(err) {
+		return nil, buffer, nil
+	}
+	return v, allocBuf, err
+}
+
 func (b *Bucket) getBySecondary(ctx context.Context, pos int, seckey []byte, buffer []byte) ([]byte, []byte, error) {
 	if pos >= int(b.secondaryIndices) {
 		return nil, nil, fmt.Errorf("no secondary index at pos %d", pos)
@@ -674,6 +693,71 @@ func (b *Bucket) getBySecondary(ctx context.Context, pos int, seckey []byte, buf
 
 	helpers.AnnotateSlowQueryLogAppend(ctx, "lsm_get_by_secondary", BucketSlowLogEntry{
 		View:             tookView,
+		ActiveMemtable:   activeMemtableTook,
+		FlushingMemtable: flushingMemtableTook,
+		Segments:         segmentsTook,
+		Recheck:          recheckTook,
+		Total:            time.Since(beforeAll),
+	})
+
+	return v, allocBuf, nil
+}
+
+func (b *Bucket) getBySecondaryWithView(ctx context.Context, pos int, seckey []byte, buffer []byte, view BucketConsistentView) ([]byte, []byte, error) {
+	if pos >= int(b.secondaryIndices) {
+		return nil, nil, fmt.Errorf("no secondary index at pos %d", pos)
+	}
+
+	beforeAll := time.Now()
+
+	memtableNames := []string{"active_memtable", "flushing_memtable"}
+	memtables := []memtable{view.Active}
+	if view.Flushing != nil {
+		memtables = append(memtables, view.Flushing)
+	}
+
+	var memtablesTook []time.Duration
+	for i := range memtables {
+		beforeMemtable := time.Now()
+		v, err := b.getBySecondaryFromMemtable(pos, seckey, memtables[i], memtableNames[i])
+		memtablesTook = append(memtablesTook, time.Since(beforeMemtable))
+		if err == nil {
+			// item found and no error, return and stop searching, since the strategy
+			// is replace
+			return v, buffer, nil
+		}
+		if errors.Is(err, lsmkv.Deleted) {
+			// deleted in the mem-table (which is always the latest) means we don't
+			// have to check the disk segments, return nil now
+			return nil, nil, err
+		}
+		if !errors.Is(err, lsmkv.NotFound) {
+			return nil, nil, fmt.Errorf("Bucket::getBySecondaryWithView() %q: %w", memtableNames[i], err)
+		}
+	}
+
+	beforeSegments := time.Now()
+	k, v, allocBuf, err := b.getBySecondaryFromSegmentGroup(pos, seckey, buffer, view.Disk)
+	if err != nil {
+		return nil, nil, err
+	}
+	segmentsTook := time.Since(beforeSegments)
+
+	// additional validation to ensure the primary key has not been marked as deleted
+	beforeReCheck := time.Now()
+	if _, err := b.getWithConsistentView(k, view); err != nil {
+		return nil, nil, err
+	}
+	recheckTook := time.Since(beforeReCheck)
+
+	activeMemtableTook := memtablesTook[0]
+	var flushingMemtableTook time.Duration
+	if len(memtablesTook) > 1 {
+		flushingMemtableTook = memtablesTook[1]
+	}
+
+	helpers.AnnotateSlowQueryLogAppend(ctx, "lsm_get_by_secondary_with_view", BucketSlowLogEntry{
+		View:             0, // view was pre-acquired
 		ActiveMemtable:   activeMemtableTook,
 		FlushingMemtable: flushingMemtableTook,
 		Segments:         segmentsTook,
