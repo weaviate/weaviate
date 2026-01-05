@@ -168,3 +168,28 @@ func (p *PostingSizeStore) Set(ctx context.Context, postingID uint64, size uint3
 	key := p.key(postingID)
 	return p.bucket.Put(key[:], binary.LittleEndian.AppendUint32(nil, size))
 }
+
+// ListPostingIDs returns a list of all posting IDs stored in the PostingSizeStore.
+func (p *PostingSizeStore) ListPostingIDs(ctx context.Context) ([]uint64, error) {
+	var postingIDs []uint64
+
+	c := p.bucket.Cursor()
+	defer c.Close()
+
+	prefix := []byte{p.keyPrefix}
+	for k, v := c.Seek(prefix); len(k) > 0 && k[0] == p.keyPrefix; k, v = c.Next() {
+		if len(k) != 9 || len(v) != 4 {
+			continue
+		}
+
+		postingID := binary.LittleEndian.Uint64(k[1:])
+		// skip postings with size zero
+		if binary.LittleEndian.Uint32(v) == 0 {
+			continue
+		}
+
+		postingIDs = append(postingIDs, postingID)
+	}
+
+	return postingIDs, nil
+}
