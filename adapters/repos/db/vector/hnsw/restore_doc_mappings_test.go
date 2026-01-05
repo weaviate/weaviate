@@ -40,7 +40,7 @@ func TestRestoreDocMappingsWithMissingBucket(t *testing.T) {
 		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 			return nil, nil
 		},
-		TempVectorForIDThunk: func(ctx context.Context, id uint64, container *common.VectorSlice) ([]float32, error) {
+		TempVectorForIDWithViewThunk: func(ctx context.Context, id uint64, container *common.VectorSlice, view common.BucketView) ([]float32, error) {
 			return nil, nil
 		},
 	}, uc, cyclemanager.NewCallbackGroupNoop(), store)
@@ -72,7 +72,7 @@ func TestRestoreDocMappingsWithNilData(t *testing.T) {
 		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 			return nil, nil
 		},
-		TempVectorForIDThunk: func(ctx context.Context, id uint64, container *common.VectorSlice) ([]float32, error) {
+		TempVectorForIDWithViewThunk: func(ctx context.Context, id uint64, container *common.VectorSlice, view common.BucketView) ([]float32, error) {
 			return nil, nil
 		},
 	}, uc, cyclemanager.NewCallbackGroupNoop(), store)

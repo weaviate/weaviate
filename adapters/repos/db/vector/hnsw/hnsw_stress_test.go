@@ -484,7 +484,7 @@ Ex: go test -v -run TestHnswStress . -download
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 				return vectors[int(id)], nil
 			},
-			TempVectorForIDThunk: TempVectorForIDThunk(vectors),
+			TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
 		}, ent.UserConfig{
 			MaxConnections:        30,
 			EFConstruction:        128,

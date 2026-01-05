@@ -30,8 +30,8 @@ import (
 	"go.etcd.io/bbolt"
 )
 
-func TempVectorForIDThunk(vectors [][]float32) func(context.Context, uint64, *common.VectorSlice) ([]float32, error) {
-	return func(ctx context.Context, id uint64, container *common.VectorSlice) ([]float32, error) {
+func TempVectorForIDWithViewThunk(vectors [][]float32) func(context.Context, uint64, *common.VectorSlice, common.BucketView) ([]float32, error) {
+	return func(ctx context.Context, id uint64, container *common.VectorSlice, view common.BucketView) ([]float32, error) {
 		copy(container.Slice, vectors[int(id)])
 		return vectors[int(id)], nil
 	}
@@ -84,7 +84,7 @@ func TestRestorBQ_Integration(t *testing.T) {
 			}
 			return vec, nil
 		},
-		TempVectorForIDThunk: TempVectorForIDThunk(vectors),
+		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
 	}
 
 	idx, err := hnsw.New(config, uc, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))

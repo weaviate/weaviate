@@ -81,11 +81,6 @@ func Test_NoRaceCompressionRecall(t *testing.T) {
 						}
 						return vectors[int(id)], nil
 					},
-					TempVectorForIDThunk: func(ctx context.Context, id uint64, container *common.VectorSlice) ([]float32, error) {
-						copy(container.Slice, vectors[int(id)])
-						rescored = true
-						return container.Slice, nil
-					},
 					GetViewThunk: func() common.BucketView {
 						return &noopBucketView{}
 					},

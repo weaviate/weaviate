@@ -37,17 +37,17 @@ type Config struct {
 	TempVectorForIDWithViewThunk      common.TempVectorForIDWithView[float32]
 	TempMultiVectorForIDWithViewThunk common.TempVectorForIDWithView[[]float32]
 	Logger                            logrus.FieldLogger
-	DistanceProvider             distancer.Provider
-	PrometheusMetrics            *monitoring.PrometheusMetrics
-	AllocChecker                 memwatch.AllocChecker
-	WaitForCachePrefill          bool
-	FlatSearchConcurrency        int
-	AcornFilterRatio             float64
-	DisableSnapshots             bool
-	SnapshotOnStartup            bool
-	LazyLoadSegments             bool
-	WriteSegmentInfoIntoFileName bool
-	WriteMetadataFilesEnabled    bool
+	DistanceProvider                  distancer.Provider
+	PrometheusMetrics                 *monitoring.PrometheusMetrics
+	AllocChecker                      memwatch.AllocChecker
+	WaitForCachePrefill               bool
+	FlatSearchConcurrency             int
+	AcornFilterRatio                  float64
+	DisableSnapshots                  bool
+	SnapshotOnStartup                 bool
+	LazyLoadSegments                  bool
+	WriteSegmentInfoIntoFileName      bool
+	WriteMetadataFilesEnabled         bool
 
 	MinMMapSize     int64
 	MaxWalReuseSize int64

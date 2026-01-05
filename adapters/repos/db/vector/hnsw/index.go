@@ -108,10 +108,10 @@ type hnsw struct {
 	TempVectorForIDWithViewThunk      common.TempVectorForIDWithView[float32]
 	TempMultiVectorForIDWithViewThunk common.TempVectorForIDWithView[[]float32]
 	multiVectorForID                  common.MultiVectorForID
-	trackDimensionsOnce       sync.Once
-	trackMuveraOnce           sync.Once
-	trackRQOnce               sync.Once
-	dims                      int32
+	trackDimensionsOnce               sync.Once
+	trackMuveraOnce                   sync.Once
+	trackRQOnce                       sync.Once
+	dims                              int32
 
 	cache               cache.Cache[float32]
 	waitForCachePrefill bool
@@ -345,21 +345,21 @@ func New(cfg Config, uc ent.UserConfig,
 		metrics:   NewMetrics(cfg.PrometheusMetrics, cfg.ClassName, cfg.ShardName),
 		shardName: cfg.ShardName,
 
-		randFunc:                  rand.Float64,
-		compressActionLock:        &sync.RWMutex{},
-		className:                 cfg.ClassName,
-		VectorForIDThunk:          cfg.VectorForIDThunk,
-		MultiVectorForIDThunk:     cfg.MultiVectorForIDThunk,
+		randFunc:                          rand.Float64,
+		compressActionLock:                &sync.RWMutex{},
+		className:                         cfg.ClassName,
+		VectorForIDThunk:                  cfg.VectorForIDThunk,
+		MultiVectorForIDThunk:             cfg.MultiVectorForIDThunk,
 		TempMultiVectorForIDThunk:         cfg.TempMultiVectorForIDThunk,
 		GetViewThunk:                      cfg.GetViewThunk,
 		TempVectorForIDWithViewThunk:      cfg.TempVectorForIDWithViewThunk,
 		TempMultiVectorForIDWithViewThunk: cfg.TempMultiVectorForIDWithViewThunk,
 		pqConfig:                          uc.PQ,
-		bqConfig:                  uc.BQ,
-		sqConfig:                  uc.SQ,
-		rqConfig:                  uc.RQ,
-		rescoreConcurrency:        2 * runtime.GOMAXPROCS(0), // our default for IO-bound activties
-		shardedNodeLocks:          common.NewDefaultShardedRWLocks(),
+		bqConfig:                          uc.BQ,
+		sqConfig:                          uc.SQ,
+		rqConfig:                          uc.RQ,
+		rescoreConcurrency:                2 * runtime.GOMAXPROCS(0), // our default for IO-bound activties
+		shardedNodeLocks:                  common.NewDefaultShardedRWLocks(),
 
 		store:                  store,
 		allocChecker:           cfg.AllocChecker,
