@@ -137,6 +137,10 @@ func (v *PostingSizes) Inc(ctx context.Context, postingID uint64, delta uint32) 
 		}
 	}
 
+	if old == 0 && delta > 0 {
+		v.postingIDs.Store(postingID, struct{}{})
+	}
+
 	newSize := old + delta
 	err = v.store.Set(ctx, postingID, newSize)
 	if err != nil {
