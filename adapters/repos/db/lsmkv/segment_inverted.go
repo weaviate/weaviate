@@ -119,7 +119,7 @@ func (s *segment) loadPropertyLengths() (map[uint64]uint32, error) {
 		for _, length := range propLengths {
 			totalLength += uint64(length)
 		}
-		if s.invertedData.avgPropertyLengthsCount > 0 {
+		if s.invertedData.avgPropertyLengthsCount > 0 && len(propLengths) > 0 {
 			s.invertedData.avgPropertyLengthsAvg = float64(totalLength) / float64(len(propLengths))
 		} else {
 			s.invertedData.avgPropertyLengthsAvg = 0
