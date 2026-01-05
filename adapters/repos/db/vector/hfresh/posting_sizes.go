@@ -18,6 +18,7 @@ import (
 
 	"github.com/maypok86/otter/v2"
 	"github.com/pkg/errors"
+	"github.com/puzpuzpuz/xsync/v4"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 )
 
@@ -54,9 +55,10 @@ func sharedBucketName(id string) string {
 // It uses a combination of an LSMKV store for persistence and an in-memory
 // cache for fast access.
 type PostingSizes struct {
-	metrics *Metrics
-	cache   *otter.Cache[uint64, uint32]
-	store   *PostingSizeStore
+	metrics    *Metrics
+	cache      *otter.Cache[uint64, uint32]
+	store      *PostingSizeStore
+	postingIDs *xsync.Map[uint64, struct{}]
 }
 
 func NewPostingSizes(bucket *lsmkv.Bucket, metrics *Metrics) (*PostingSizes, error) {
@@ -69,10 +71,21 @@ func NewPostingSizes(bucket *lsmkv.Bucket, metrics *Metrics) (*PostingSizes, err
 		return nil, err
 	}
 
+	postingIDs := xsync.NewMap[uint64, struct{}]()
+	// preload existing posting IDs into the map
+	existingIDs, err := pStore.ListPostingIDs(context.Background())
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to list existing posting IDs")
+	}
+	for _, id := range existingIDs {
+		postingIDs.Store(id, struct{}{})
+	}
+
 	return &PostingSizes{
-		cache:   cache,
-		metrics: metrics,
-		store:   pStore,
+		cache:      cache,
+		metrics:    metrics,
+		store:      pStore,
+		postingIDs: postingIDs,
 	}, nil
 }
 
@@ -128,6 +141,16 @@ func (v *PostingSizes) Inc(ctx context.Context, postingID uint64, delta uint32) 
 	v.cache.Set(postingID, newSize)
 	v.metrics.ObservePostingSize(float64(newSize))
 	return newSize, nil
+}
+
+// ListPostingIDs returns the list of all posting IDs with non-zero size.
+func (v *PostingSizes) ListPostingIDs(ctx context.Context) ([]uint64, error) {
+	postingIDs := make([]uint64, 0, v.postingIDs.Size())
+	v.postingIDs.Range(func(key uint64, value struct{}) bool {
+		postingIDs = append(postingIDs, key)
+		return true
+	})
+	return postingIDs, nil
 }
 
 // PostingSizeStore is a persistent store for posting sizes.
