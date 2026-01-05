@@ -31,7 +31,6 @@ const (
 )
 
 type DistanceLookUpTable struct {
-	calculated []bool
 	distances  []float32
 	center     [][]float32
 	segments   int
@@ -41,7 +40,6 @@ type DistanceLookUpTable struct {
 
 func NewDistanceLookUpTable(segments int, centroids int, center []float32) *DistanceLookUpTable {
 	distances := make([]float32, segments*centroids)
-	calculated := make([]bool, segments*centroids)
 	parsedCenter := make([][]float32, segments)
 	ds := len(center) / segments
 	for c := 0; c < segments; c++ {
@@ -50,7 +48,6 @@ func NewDistanceLookUpTable(segments int, centroids int, center []float32) *Dist
 
 	dlt := &DistanceLookUpTable{
 		distances:  distances,
-		calculated: calculated,
 		center:     parsedCenter,
 		segments:   segments,
 		centroids:  centroids,
@@ -64,17 +61,10 @@ func (lut *DistanceLookUpTable) Reset(segments int, centroids int, center []floa
 	lut.segments = segments
 	lut.centroids = centroids
 	if len(lut.distances) != elems ||
-		len(lut.calculated) != elems ||
 		len(lut.center) != segments {
 		lut.distances = make([]float32, segments*centroids)
-		lut.calculated = make([]bool, segments*centroids)
 		lut.center = make([][]float32, segments)
-	} else {
-		for i := range lut.calculated {
-			lut.calculated[i] = false
-		}
 	}
-
 	ds := len(center) / segments
 	for c := 0; c < segments; c++ {
 		lut.center[c] = center[c*ds : (c+1)*ds]
