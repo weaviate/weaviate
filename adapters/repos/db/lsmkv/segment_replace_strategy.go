@@ -156,3 +156,62 @@ func (s *segment) existsKey(key []byte) (bool, error) {
 	}
 	return false, err
 }
+
+// exists checks if a key exists and is not deleted, without reading the full value.
+// Returns nil if the key exists and is not deleted, lsmkv.NotFound if not found,
+// or lsmkv.Deleted (with deletion time) if the key was tombstoned.
+// This is more efficient than get() when only existence check is needed.
+func (s *segment) exists(key []byte) error {
+	if s.strategy != segmentindex.StrategyReplace {
+		return fmt.Errorf("exists only possible for strategy %q", StrategyReplace)
+	}
+
+	if s.useBloomFilter && !s.bloomFilter.Test(key) {
+		return lsmkv.NotFound
+	}
+
+	node, err := s.index.Get(key)
+	if err != nil {
+		if errors.Is(err, lsmkv.NotFound) {
+			return lsmkv.NotFound
+		}
+		return err
+	}
+
+	// Read only the tombstone header instead of the full payload.
+	// Format: byte 0 = tombstone flag, bytes 1-8 = value length, bytes 9+ = value
+	// For tombstones, the value is 9 bytes (1 version + 8 timestamp).
+	// So we need at most 18 bytes: 1 (flag) + 8 (length) + 9 (tombstone value)
+	headerSize := uint64(18)
+	nodeSize := node.End - node.Start
+	if nodeSize < headerSize {
+		headerSize = nodeSize
+	}
+
+	header := make([]byte, headerSize)
+	if err = s.copyNode(header, nodeOffset{node.Start, node.Start + headerSize}); err != nil {
+		return err
+	}
+
+	if len(header) == 0 {
+		return lsmkv.NotFound
+	}
+
+	// Check tombstone flag
+	if header[0] != 0x01 {
+		// Not a tombstone, key exists
+		return nil
+	}
+
+	// It's a tombstone - extract deletion time if available
+	if len(header) < 9 {
+		return lsmkv.Deleted
+	}
+
+	valueLength := binary.LittleEndian.Uint64(header[1:9])
+	if valueLength == 0 || len(header) < 9+int(valueLength) {
+		return lsmkv.Deleted
+	}
+
+	return errorFromTombstonedValue(header[9 : 9+valueLength])
+}

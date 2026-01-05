@@ -590,6 +590,36 @@ func (b *Bucket) getWithConsistentView(key []byte, view BucketConsistentView) ([
 	return b.getFromSegmentGroup(key, view.Disk)
 }
 
+// existsWithConsistentView checks if a key exists and is not deleted, without reading the full value.
+// Returns nil if the key exists, lsmkv.NotFound if not found, or lsmkv.Deleted if tombstoned.
+// This is more efficient than getWithConsistentView() when only existence check is needed.
+func (b *Bucket) existsWithConsistentView(key []byte, view BucketConsistentView) error {
+	memtableNames := []string{"active_memtable", "flushing_memtable"}
+	memtables := []memtable{view.Active}
+	if view.Flushing != nil {
+		memtables = append(memtables, view.Flushing)
+	}
+
+	for i := range memtables {
+		err := memtables[i].exists(key)
+		if err == nil {
+			// item found and no error, return and stop searching, since the strategy
+			// is replace
+			return nil
+		}
+		if errors.Is(err, lsmkv.Deleted) {
+			// deleted in the mem-table (which is always the latest) means we don't
+			// have to check the disk segments, return now
+			return err
+		}
+		if !errors.Is(err, lsmkv.NotFound) {
+			return fmt.Errorf("Bucket::exists() %q: %w", memtableNames[i], err)
+		}
+	}
+
+	return b.disk.existsWithSegmentList(key, view.Disk)
+}
+
 // GetBySecondary retrieves an object using one of its secondary keys. A bucket
 // can have an infinite number of secondary keys. Specify the secondary key
 // position as the first argument.
@@ -680,7 +710,7 @@ func (b *Bucket) getBySecondary(ctx context.Context, pos int, seckey []byte, buf
 
 	// additional validation to ensure the primary key has not been marked as deleted
 	beforeReCheck := time.Now()
-	if _, err := b.getWithConsistentView(k, view); err != nil {
+	if err := b.existsWithConsistentView(k, view); err != nil {
 		return nil, nil, err
 	}
 	recheckTook := time.Since(beforeReCheck)
@@ -745,7 +775,7 @@ func (b *Bucket) getBySecondaryWithView(ctx context.Context, pos int, seckey []b
 
 	// additional validation to ensure the primary key has not been marked as deleted
 	beforeReCheck := time.Now()
-	if _, err := b.getWithConsistentView(k, view); err != nil {
+	if err := b.existsWithConsistentView(k, view); err != nil {
 		return nil, nil, err
 	}
 	recheckTook := time.Since(beforeReCheck)

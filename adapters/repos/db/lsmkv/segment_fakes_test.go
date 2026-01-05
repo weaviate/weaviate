@@ -385,6 +385,10 @@ func (s *fakeSegment) existsKey(key []byte) (bool, error) {
 	panic("not implemented")
 }
 
+func (s *fakeSegment) exists(key []byte) error {
+	panic("not implemented")
+}
+
 func (s *fakeSegment) stripTmpExtensions(leftSegmentID, rightSegmentID string) error {
 	s.isStrippedExtensions = true
 	s.strippedLeftSegID = leftSegmentID
